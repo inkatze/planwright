@@ -632,6 +632,111 @@ EOF
 run_v 0 "$root/fixture"
 has "malformed task id"
 
+# A dependency sitting AFTER a parenthetical is named. The shared extraction
+# discards the parenthetical and everything after it (so a trailing cross-spec
+# clause cannot contribute a phantom edge), which silently costs a real dep
+# written past it — the validator says so rather than letting the edge vanish.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+### Task 4 — Dep written after a parenthetical
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (blocked on review), Task 2
+- **Citations:** D-1
+- **Estimated effort:** half day
+EOF
+run_v 0 "$root/fixture"
+has "after a parenthetical"
+has "dependency 2"
+
+# The forms the in-repo bundles actually use put the parenthetical LAST, where
+# nothing is lost — those must stay quiet, or the check is unusable noise.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+### Task 4 — Parenthetical last
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (REQ-A1.8 / D-9 — the producer is elsewhere)
+- **Citations:** D-1
+- **Estimated effort:** half day
+
+### Task 5 — Cross-spec clause last
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1; plus cross-spec (hard): orchestration-concurrency
+- **Citations:** D-1
+- **Estimated effort:** half day
+EOF
+run_v 0 "$root/fixture"
+lacks "after a parenthetical"
+
+# An id INSIDE the qualifier is dropped on purpose — naming a cross-spec
+# reference there is what the parenthetical is for — so it must stay quiet
+# whether or not a comma puts it on its own token boundary. Both spellings
+# below flagged before the scan learned to step past the closing paren.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+### Task 4 — Id inside the qualifier, comma-separated
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (waiting on 2, pending)
+- **Citations:** D-1
+- **Estimated effort:** half day
+
+### Task 5 — Id inside the qualifier, at the close
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (blocked by 2)
+- **Citations:** D-1
+- **Estimated effort:** half day
+EOF
+run_v 0 "$root/fixture"
+lacks "after a parenthetical"
+
+# An UNCLOSED qualifier has no interior to protect: everything past the open
+# paren is discarded prose, so a dep written there is still named.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+### Task 4 — Unclosed qualifier
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (blocked, Task 2
+- **Citations:** D-1
+- **Estimated effort:** half day
+EOF
+run_v 0 "$root/fixture"
+has "after a parenthetical"
+has "dependency 2"
+
+# Known bound, pinned rather than fixed: the scan steps past ONE closing paren,
+# so a second or nested qualifier can still put an id in range and draw a
+# spurious warning. No in-repo bundle carries either shape. This test exists to
+# make the bound visible — if it starts failing, the scan learned to count
+# depth and the warning below is no longer expected.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+### Task 4 — Second qualifier holds a spaced id
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (foo) ( 2 )
+- **Citations:** D-1
+- **Estimated effort:** half day
+EOF
+run_v 0 "$root/fixture"
+has "after a parenthetical"
+
 # Duplicate task ids are rejected even on Draft (the anchor extraction
 # fails closed on them too).
 write_bundle "$root/fixture" Draft

@@ -24,11 +24,19 @@
 #      silently applying the body literal's rules (REQ-A1.3, REQ-B1.3).
 #   5. A DUPLICATE in-header `Format-version:` or `Status:` declaration fails
 #      closed in every consumer keyed on it (REQ-A1.2, REQ-D1.9, D-6).
-#   6. No consumer retains a private copy of a grammar the lib implements: a
+#   6. The line-80 families — REQ bullets, D-ID headings, task headings, and
+#      the `Dependencies:`/`Citations:` token extractions — produce agreeing
+#      records from the three consumers that used to encode them privately
+#      (spec-validate.sh, orchestrate-select.sh, spec-model.sh) over one shared
+#      fixture, fenced illustration of any of them contributes nothing, and the
+#      unified tokenizer invents no dependency edge from an unqualified
+#      identifier in prose (REQ-B1.5, REQ-C1.2).
+#   7. No consumer retains a private copy of a grammar the lib implements: a
 #      grep sweep finds no remaining private `Format-version:`/`Status:`
-#      header-declaration parse, no private reference-bullet parse, and no
-#      private fence lexer (REQ-B1.1's no-private-copy rule for the families
-#      landed so far), outside a named and reasoned exemption table.
+#      header-declaration parse, no private reference-bullet parse, no private
+#      fence lexer, and no private line-80 grammar (REQ-B1.1's no-private-copy
+#      rule for the families landed so far), outside a named and reasoned
+#      exemption table.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -42,6 +50,7 @@ STATUS="$scripts_dir/spec-status.sh"
 SELECT="$scripts_dir/orchestrate-select.sh"
 DRAIN="$scripts_dir/drain-gates.sh"
 VALIDATE="$scripts_dir/spec-validate.sh"
+MODEL="$scripts_dir/spec-model.sh"
 LEDGER="$scripts_dir/check-ledger.sh"
 MIGRATE="$scripts_dir/migrate-format-version.sh"
 SYNC="$scripts_dir/tasks-pr-sync.sh"
@@ -72,7 +81,7 @@ refute_line() {
   fi
 }
 
-for s in "$STATUS" "$SELECT" "$DRAIN" "$VALIDATE" "$LEDGER" "$MIGRATE" "$SYNC"; do
+for s in "$STATUS" "$SELECT" "$DRAIN" "$VALIDATE" "$MODEL" "$LEDGER" "$MIGRATE" "$SYNC"; do
   [ -x "$s" ] || fail "$(basename "$s") missing or not executable"
 done
 [ -r "$LIB" ] || fail "scripts/spec-parse.sh missing or unreadable"
@@ -325,6 +334,42 @@ fi
 if "$SELECT" "$fence_repo/specs/corpus" >/dev/null 2>&1; then
   fail "unbalanced fence: orchestrate-select.sh did not fail closed"
 fi
+# --critical-path reaches the fence through the TASK GRAPH rather than the
+# parked map: the map is a select-mode, v2-only read, so the mode above proves
+# nothing about the graph parse. A truncated graph is the dangerous silence —
+# a hidden dependency edge makes an unready task look ready — so it fails
+# closed on 2 (the lib signals the imbalance with 3, which this script already
+# spends on "transient evidence failure").
+fence_path_rc=0
+fence_path_out=$("$SELECT" --critical-path "$fence_repo/specs/corpus" 2>"$tmp/fence-path.err") \
+  || fence_path_rc=$?
+[ "$fence_path_rc" -eq 2 ] \
+  || fail "unbalanced fence: --critical-path exited $fence_path_rc (want 2), printing [$fence_path_out]"
+[ -z "$fence_path_out" ] \
+  || fail "unbalanced fence: --critical-path emitted a truncated path: [$fence_path_out]"
+grep -q 'open column-0 code fence' "$tmp/fence-path.err" \
+  || fail "unbalanced fence: --critical-path does not name the fence: $(cat "$tmp/fence-path.err")"
+# The refusal names the spec dir, which is caller-supplied, so it goes through
+# the echo discipline like any other untrusted value (doctrine/security-posture
+# .md): an error path is exactly where a control byte would otherwise reach the
+# terminal and drive it. The ESC sits in a PARENT segment so the spec id itself
+# still clears the identifier grammar and the run gets far enough to refuse on
+# the fence rather than on the id.
+fence_esc_repo="$tmp/fence-esc$(printf '\033')repo"
+mkdir -p "$fence_esc_repo/specs"
+write_corpus "$fence_esc_repo/specs/corpus"
+cp "$fence_repo/specs/corpus/tasks.md" "$fence_esc_repo/specs/corpus/tasks.md"
+git -C "$fence_esc_repo" -c init.defaultBranch=main init -q
+gitc "$fence_esc_repo" add -A
+gitc "$fence_esc_repo" commit -q -m "base: unbalanced-fence bundle under an unprintable path"
+"$SELECT" --critical-path "$fence_esc_repo/specs/corpus" \
+  >/dev/null 2>"$tmp/fence-esc.err" || :
+grep -q 'open column-0 code fence' "$tmp/fence-esc.err" \
+  || fail "unbalanced fence: the unprintable-path run does not name the fence: $(cat "$tmp/fence-esc.err")"
+if LC_ALL=C grep -q '[[:cntrl:]]' "$tmp/fence-esc.err"; then
+  fail "unbalanced fence: the refusal echoed the spec dir's control bytes raw: $(cat -v "$tmp/fence-esc.err")"
+fi
+echo "ok: the unbalanced-fence refusal strips the spec dir's control bytes"
 if fence_val=$("$VALIDATE" "$fence_repo/specs/corpus" 2>&1); then
   fail "unbalanced fence: spec-validate.sh reported no error: $fence_val"
 fi
@@ -501,7 +546,154 @@ printf '%s\n' "$dupst_drain" | grep -qi 'status' \
 echo "ok: a duplicate in-header Status: fails closed in every status-keyed consumer (REQ-D1.9)"
 
 # ---------------------------------------------------------------------------
-# Property 6: no consumer retains a private copy of a landed grammar.
+# Property 6: the line-80 families agree across the three consumers that used
+# to encode them privately (format-grammar Task 8; REQ-B1.5, REQ-C1.2 · D-4).
+#
+# One fixture bundle carries every shape the three copies had reason to differ
+# on: a prose dependency list with a sentence-final period, a parenthetical
+# cross-spec carry clause naming REQ and D ids, an unqualified identifier in
+# prose OUTSIDE any parenthetical, and a fenced mock block whose task heading,
+# REQ bullet, D heading, `Dependencies:` and `Citations:` bullets are all
+# illustration.
+#
+# The assertions are on what each consumer EXPOSES of the parse: the validator
+# through its findings, the bundle reader through its record stream, the
+# selector through the critical path it computes from the same graph.
+# ---------------------------------------------------------------------------
+l80_repo="$tmp/l80-repo"
+mkdir -p "$l80_repo/specs/line80"
+{
+  printf '# Line80 — Requirements\n\n'
+  header_block Ready
+  printf '\n## Goal\n\nFixture.\n\n## REQ-Y — Group\n\n'
+  printf -- '- **REQ-Y1.1** A requirement. *(Cites: D-1.)*\n'
+  printf -- '- **REQ-Y1.2** Another one. *(Cites: D-1, REQ-Y1.1.)*\n\n'
+  printf '## Notes\n\nThe bullet form:\n\n'
+  printf '```markdown\n'
+  printf -- '- **REQ-Y1.1** A fenced example that must not duplicate the real id.\n'
+  printf '```\n'
+} >"$l80_repo/specs/line80/requirements.md"
+{
+  printf '# Line80 — Design\n\n'
+  header_block Ready
+  printf '\n## Decision log\n\n### D-1: A decision  (H)\n\n'
+  printf '**Decision:** Yes.\n\n**Alternatives considered:**\n\n- No.\n\n'
+  printf '**Chosen because:** it is a fixture.\n\n'
+  printf '## Notes\n\nThe heading form:\n\n'
+  printf '```markdown\n'
+  printf '### D-1: A fenced example that must not duplicate the real id.\n'
+  printf '```\n'
+} >"$l80_repo/specs/line80/design.md"
+{
+  printf '# Line80 — Test spec\n\n'
+  header_block Ready
+  printf '\n## REQ-Y — Group\n\n'
+  printf '### REQ-Y1.1 — A requirement [test]\n\nFixture.\n\n'
+  printf '### REQ-Y1.2 — Another one [test]\n\nFixture.\n'
+} >"$l80_repo/specs/line80/test-spec.md"
+# l80_task <id> <title> <deps> <citations> — a definition block with the
+# dependency and citation forms this property is about.
+l80_task() {
+  printf '### Task %s — %s\n\n' "$1" "$2"
+  printf -- '- **Deliverables:** A thing.\n'
+  printf -- '- **Done when:** The thing exists.\n'
+  printf -- '- **Dependencies:** %s\n' "$3"
+  printf -- '- **Citations:** %s\n' "$4"
+  printf -- '- **Estimated effort:** 1 day\n\n'
+}
+{
+  printf '# Line80 — Tasks\n\n'
+  header_block Ready
+  printf '\n## Tasks\n\n'
+  l80_task 1 Root none 'D-1 · REQ-Y1.1'
+  l80_task 2 Middle 'Task 1.' 'D-1'
+  l80_task 3 Leaf 'Task 1; Task 2 (REQ-Y1.2 / D-1 — a carry clause naming ids)' 'REQ-Y1.2'
+  l80_task 4 Tail 'Task 3; see D-9 for context' 'D-1'
+  printf '## Notes\n\nThe block format:\n\n'
+  printf '```markdown\n'
+  l80_task 9 Illustration '7' 'D-9'
+  printf '```\n'
+} >"$l80_repo/specs/line80/tasks.md"
+git -C "$l80_repo" -c init.defaultBranch=main init -q
+gitc "$l80_repo" add -A
+gitc "$l80_repo" commit -q -m "base: line-80 bundle"
+
+# The validator: nothing fenced raises a finding, and nothing real is missed.
+# A single clean run covers both directions — a fenced REQ bullet or D heading
+# duplicating a real id would be a hard finding, and a fenced task block would
+# report the definition fields it does not have.
+l80_val=$("$VALIDATE" "$l80_repo/specs/line80" 2>&1) \
+  || fail "spec-validate.sh reported findings on the line-80 fixture: $l80_val"
+printf '%s\n' "$l80_val" | grep -q '0 error(s), 0 warning(s)' \
+  || fail "spec-validate.sh on the line-80 fixture: $l80_val"
+echo "ok: fenced REQ bullets, D headings, and task blocks raise no validator finding (REQ-C1.2)"
+
+# The bundle reader: the record stream is the parse made visible.
+l80_model=$("$MODEL" "$l80_repo/specs/line80") \
+  || fail "spec-model.sh failed on the line-80 fixture"
+m_field() { printf '%s\n' "$l80_model" | awk -F'\t' -v t="$1" '$1 == t { print }'; }
+
+[ "$(m_field TASK | cut -f2 | tr '\n' ' ')" = "1 2 3 4 " ] \
+  || fail "model task ids: $(m_field TASK)"
+[ "$(m_field TASKDEP | cut -f2,3 | tr '\t' '>' | tr '\n' ' ')" = "2>1 3>1 3>2 4>3 " ] \
+  || fail "model dependency edges: $(m_field TASKDEP)"
+[ "$(m_field DEC | cut -f2 | tr '\n' ' ')" = "D-1 " ] \
+  || fail "model decision ids (a fenced heading must not add one): $(m_field DEC)"
+[ "$(m_field REQ | cut -f2 | tr '\n' ' ')" = "REQ-Y1.1 REQ-Y1.2 " ] \
+  || fail "model requirement ids (a fenced bullet must not add one): $(m_field REQ)"
+[ "$(m_field TEST | cut -f2 | tr '\n' ' ')" = "REQ-Y1.1 REQ-Y1.2 " ] \
+  || fail "model test-spec coverage: $(m_field TEST)"
+refute "$(m_field TASKCITE)" 'D-9' \
+  "a fenced Citations bullet contributed a citation edge (REQ-B1.5): $(m_field TASKCITE)"
+refute "$(m_field REQCITE)" 'REQ-Y1.2	REQ-Y1.2' \
+  "a requirement cited itself: $(m_field REQCITE)"
+echo "ok: the bundle reader emits the real records only, fenced illustration excluded (REQ-B1.5)"
+
+# The selector: the critical path is computed from the same dependency graph,
+# so it is the selector-side view of the edge set asserted above. Every effort
+# is 1 day, so the chain is the graph: 1 -> 2 -> 3 -> 4.
+l80_path=$("$SELECT" --critical-path "$l80_repo/specs/line80" 2>"$tmp/l80.err") \
+  || fail "orchestrate-select.sh --critical-path failed: $(cat "$tmp/l80.err")"
+[ "$l80_path" = "1
+2
+3
+4" ] || fail "selector critical path: [$l80_path]"
+echo "ok: the selector graph matches the bundle reader graph on the shared fixture (REQ-B1.5)"
+
+# The unified tokenizer grammar-validates whole tokens instead of scraping
+# digits out of the residue, so an unqualified identifier in prose contributes
+# no edge. Exposed through SELECTION: a task whose only dependency-shaped token
+# is "D-9" has no dependency at all, so it is ready, and its higher effort wins
+# the critical-path-first pick. A phantom edge to a task 9 that does not exist
+# would leave it permanently unready and the pick would fall to task 1.
+scrape_repo="$tmp/scrape-repo"
+mkdir -p "$scrape_repo/specs/scrape"
+for f in requirements design test-spec; do
+  cp "$l80_repo/specs/line80/$f.md" "$scrape_repo/specs/scrape/$f.md"
+done
+{
+  printf '# Scrape — Tasks\n\n'
+  header_block Ready
+  printf '\n## Tasks\n\n'
+  l80_task 1 Root none 'D-1'
+  printf '### Task 2 — Prose-only dependency line\n\n'
+  printf -- '- **Deliverables:** A thing.\n'
+  printf -- '- **Done when:** The thing exists.\n'
+  printf -- '- **Dependencies:** none; see D-9 for context\n'
+  printf -- '- **Citations:** D-1\n'
+  printf -- '- **Estimated effort:** 5 days\n'
+} >"$scrape_repo/specs/scrape/tasks.md"
+git -C "$scrape_repo" -c init.defaultBranch=main init -q
+gitc "$scrape_repo" add -A
+gitc "$scrape_repo" commit -q -m "base: digit-scrape bundle"
+scrape_pick=$("$SELECT" "$scrape_repo/specs/scrape" 2>"$tmp/scrape.err") \
+  || fail "orchestrate-select.sh failed on the digit-scrape fixture: $(cat "$tmp/scrape.err")"
+[ "$scrape_pick" = 2 ] \
+  || fail "an unqualified identifier in prose became a phantom dependency edge (picked '$scrape_pick', want '2')"
+echo "ok: an unqualified identifier in a dependency line invents no edge (REQ-B1.5)"
+
+# ---------------------------------------------------------------------------
+# Property 7: no consumer retains a private copy of a landed grammar.
 #
 # The sweep is deliberately blunt about the two shapes the private copies took —
 # an awk arm that EXTRACTS a value from the bolded header declaration, and an awk
@@ -560,15 +752,59 @@ REF_EXEMPT=" migrate-format-version.sh "
 #   drain-gates.sh           its GATE-entry parse. Its reference-bullet parse
 #                            already comes from the lib (Task 2); the gate
 #                            grammar is not a lib family yet.
-#   orchestrate-select.sh    its task/dependency parse. Same shape: the
-#                            reference-bullet half is on the lib, and the
-#                            line-80 grammar this fence guards moves onto the
-#                            lib with Task 8.
 #
-# The two spec-bundle exemptions are sequenced, not permanent, and the
-# stale-exemption guard below turns each into a prompt to drop the name once
-# the parse it guards is re-pointed.
-FENCE_EXEMPT=" check-instructions.sh drain-gates.sh orchestrate-select.sh "
+# (orchestrate-select.sh was the third name here until Task 8 put its task and
+# dependency grammar on the lib; its fence guard is now the lib lexer.)
+#
+# The remaining spec-bundle exemption is sequenced, not permanent, and the
+# stale-exemption guard below turns it into a prompt to drop the name once the
+# parse it guards is re-pointed.
+FENCE_EXEMPT=" check-instructions.sh drain-gates.sh "
+
+# The line-80 families became lib families in Task 8 ($spec_parse_awk_grammar),
+# so the sweep grows four more arms: the requirement bullet, the D-ID heading,
+# the task heading, and the `Dependencies:` / `Citations:` token extractions.
+# The REQ-bullet and Citations arms carry NO exemption — the lib is their only
+# home anywhere in scripts/.
+#
+# The scoped set REQ-B1.5 names is the three consumers legacy line 80 recorded:
+# spec-validate.sh, orchestrate-select.sh, spec-model.sh. The sweep is
+# repo-wide anyway, on the same reasoning as the arms above (a NEW private copy
+# in a new script is what a scoped sweep would miss), which makes every
+# not-yet-migrated reader a named line rather than an invisible gap.
+#
+# Exempt, by name and reason:
+#   spec-walkthrough.sh      grep presence probes for the `### D-<n>:` heading,
+#                            driving the comprehension command scaffold slice
+#                            selector rather than parsing a bundle. Outside the
+#                            REQ-B1.5 consumer set; D-4 excludes the
+#                            walkthrough scope grammar from the lib entirely.
+#   orchestrate-state.sh     the derivation engine keeps its own, deliberately
+#                            STRICTER dependency parser: it flags prose forms
+#                            as malformed where the selector tolerates them
+#                            (the divergence orchestrate-select.sh documents in
+#                            its own header). A decided divergence, not drift —
+#                            unifying it is a semantics change, not a re-point.
+#   migrate-format-version.sh  restructure_tasks REWRITES task blocks (a writer,
+#                            the same class as its header exemption above).
+#   migrate-status-lifecycle.sh  a `grep -qE` presence probe for "does this file
+#                            hold any task block at all", extracting nothing.
+#   check-ledger.sh          the CANONICAL-FORM guard: it asserts the heading
+#                            matches `### Task <id> — <title>` exactly, which
+#                            is a stricter rule than "what is a task heading"
+#                            and is the ledger guard concern by design.
+#   spec-status.sh           its render-side task scan, and
+#   drain-gates.sh           its per-spec task count and gate scan, and
+#   tasks-pr-sync.sh         its section-reconcile scan. All three are readers
+#                            outside the REQ-B1.5 consumer set, sequenced for a
+#                            later vehicle and recorded in specs/_observations
+#                            (line80-reader-stragglers). Named here so the gap
+#                            is visible where the sweep is defined.
+REQBULLET_EXEMPT=" "
+DEC_EXEMPT=" spec-walkthrough.sh "
+TASKHEAD_EXEMPT=" migrate-format-version.sh migrate-status-lifecycle.sh check-ledger.sh spec-status.sh drain-gates.sh tasks-pr-sync.sh orchestrate-state.sh "
+DEPS_EXEMPT=" orchestrate-state.sh "
+CITES_EXEMPT=" "
 
 sweep_files=$(find "$scripts_dir" -name '*.sh' -type f | sort)
 [ -n "$sweep_files" ] || fail "the grep sweep found no scripts to sweep"
@@ -580,9 +816,25 @@ exempt() {
   return 1
 }
 
+# The sweep signatures, one per family: the shape a private copy takes in any
+# of the tools these scripts use (awk match, awk sub(), sed s///, grep -qE).
+HDR_SIG='\^\\\*\\\*\(Format-version\|Status\):\\\*\\\*'
+REF_SIG='\^- \\\*\\\*Task '
+FENCE_SIG='\^```'
+REQBULLET_SIG='\^- \\\*\\\*REQ-'
+DEC_SIG='\^### D-'
+TASKHEAD_SIG='\^### Task '
+DEPS_SIG='\\\*\\\*Dependencies:\\\*\\\*'
+CITES_SIG='\\\*\\\*Citations:\\\*\\\*'
+
 private_hdr=""
 private_ref=""
 private_fence=""
+private_reqbullet=""
+private_dec=""
+private_taskhead=""
+private_deps=""
+private_cites=""
 swept=0
 for f in $sweep_files; do
   base=$(basename "$f")
@@ -593,16 +845,32 @@ for f in $sweep_files; do
   # A private header-declaration parse: any line-anchored match on the bolded
   # `**Format-version:**` / `**Status:**` declaration, whichever tool carries it
   # (awk sub(), awk /match/, sed s///, grep -q).
-  if grep -q '\^\\\*\\\*\(Format-version\|Status\):\\\*\\\*' "$f"; then
+  if grep -q "$HDR_SIG" "$f"; then
     exempt "$HDR_EXEMPT" "$base" || private_hdr="$private_hdr $base"
   fi
   # A private reference-bullet parse: an awk arm anchored on `^- \*\*Task `.
-  if grep -q '\^- \\\*\\\*Task ' "$f"; then
+  if grep -q "$REF_SIG" "$f"; then
     exempt "$REF_EXEMPT" "$base" || private_ref="$private_ref $base"
   fi
   # A private fence lexer: any line-anchored column-0 fence match.
-  if grep -q '\^```' "$f"; then
+  if grep -q "$FENCE_SIG" "$f"; then
     exempt "$FENCE_EXEMPT" "$base" || private_fence="$private_fence $base"
+  fi
+  # The four line-80 signatures (Task 8; REQ-B1.5).
+  if grep -q "$REQBULLET_SIG" "$f"; then
+    exempt "$REQBULLET_EXEMPT" "$base" || private_reqbullet="$private_reqbullet $base"
+  fi
+  if grep -q "$DEC_SIG" "$f"; then
+    exempt "$DEC_EXEMPT" "$base" || private_dec="$private_dec $base"
+  fi
+  if grep -q "$TASKHEAD_SIG" "$f"; then
+    exempt "$TASKHEAD_EXEMPT" "$base" || private_taskhead="$private_taskhead $base"
+  fi
+  if grep -q "$DEPS_SIG" "$f"; then
+    exempt "$DEPS_EXEMPT" "$base" || private_deps="$private_deps $base"
+  fi
+  if grep -q "$CITES_SIG" "$f"; then
+    exempt "$CITES_EXEMPT" "$base" || private_cites="$private_cites $base"
   fi
 done
 
@@ -613,24 +881,57 @@ done
   || fail "private reference-bullet parse(s) remain outside the lib:$private_ref"
 [ -z "$private_fence" ] \
   || fail "private fence lexer(s) remain outside the lib:$private_fence"
-echo "ok: every private header-declaration / reference-bullet / fence parse outside the lib is a named, reasoned exemption (REQ-B1.1)"
+[ -z "$private_reqbullet" ] \
+  || fail "private requirement-bullet parse(s) remain outside the lib:$private_reqbullet"
+[ -z "$private_dec" ] \
+  || fail "private decision-heading parse(s) remain outside the lib:$private_dec"
+[ -z "$private_taskhead" ] \
+  || fail "private task-heading parse(s) remain outside the lib:$private_taskhead"
+[ -z "$private_deps" ] \
+  || fail "private dependency-token parse(s) remain outside the lib:$private_deps"
+[ -z "$private_cites" ] \
+  || fail "private citation-token parse(s) remain outside the lib:$private_cites"
+echo "ok: every private header / reference-bullet / fence / line-80 parse outside the lib is a named, reasoned exemption (REQ-B1.1)"
+
+# The three consumers REQ-B1.5 names carry NO exemption on any line-80 arm:
+# their migration is the deliverable, so a re-appearing private copy in one of
+# them must go red rather than be exemptible.
+for named in spec-validate.sh orchestrate-select.sh spec-model.sh; do
+  for sig in "$REQBULLET_SIG" "$DEC_SIG" "$TASKHEAD_SIG" "$DEPS_SIG" "$CITES_SIG"; do
+    if grep -q "$sig" "$scripts_dir/$named"; then
+      fail "$named carries a private line-80 grammar copy again (REQ-B1.5): $sig"
+    fi
+  done
+done
+echo "ok: the three line-80 consumers keep no private copy of any migrated family (REQ-B1.5)"
 
 # The exemptions are asserted to still MATCH, so a name whose reason has gone
 # away (the writer was removed, the reader re-pointed) surfaces as a stale
 # exemption instead of quietly weakening the sweep.
 for hx in migrate-format-version.sh tasks-pr-sync.sh check-memory-links.sh migrate-status-lifecycle.sh; do
-  if ! grep -q '\^\\\*\\\*\(Format-version\|Status\):\\\*\\\*' "$scripts_dir/$hx"; then
+  if ! grep -q "$HDR_SIG" "$scripts_dir/$hx"; then
     fail "stale HDR exemption: $hx no longer carries the header parse it is exempted for"
   fi
 done
-if ! grep -q '\^- \\\*\\\*Task ' "$scripts_dir/migrate-format-version.sh"; then
+if ! grep -q "$REF_SIG" "$scripts_dir/migrate-format-version.sh"; then
   fail "stale REF exemption: migrate-format-version.sh no longer carries the bullet-shape probe it is exempted for"
 fi
-for fx in check-instructions.sh drain-gates.sh orchestrate-select.sh; do
-  if ! grep -q '\^```' "$scripts_dir/$fx"; then
+for fx in check-instructions.sh drain-gates.sh; do
+  if ! grep -q "$FENCE_SIG" "$scripts_dir/$fx"; then
     fail "stale FENCE exemption: $fx no longer carries the private fence lexer it is exempted for (drop the name from FENCE_EXEMPT)"
   fi
 done
+if ! grep -q "$DEC_SIG" "$scripts_dir/spec-walkthrough.sh"; then
+  fail "stale DEC exemption: spec-walkthrough.sh no longer carries the decision-heading probe it is exempted for"
+fi
+for tx in migrate-format-version.sh migrate-status-lifecycle.sh check-ledger.sh spec-status.sh drain-gates.sh tasks-pr-sync.sh orchestrate-state.sh; do
+  if ! grep -q "$TASKHEAD_SIG" "$scripts_dir/$tx"; then
+    fail "stale TASKHEAD exemption: $tx no longer carries the task-heading parse it is exempted for (drop the name from TASKHEAD_EXEMPT)"
+  fi
+done
+if ! grep -q "$DEPS_SIG" "$scripts_dir/orchestrate-state.sh"; then
+  fail "stale DEPS exemption: orchestrate-state.sh no longer carries the stricter dependency parse it is exempted for"
+fi
 echo "ok: every sweep exemption still matches the shape it was granted for"
 
 echo "PASS: test-spec-parse-corpus.sh"
