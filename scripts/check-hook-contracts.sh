@@ -41,25 +41,41 @@
 # input schema and have drifted on several others. Adding a row is a deliberate
 # act — it asserts you checked what silence means on that event.
 #
-# IT RUNS THE HOOKS IT CHECKS. Proving a decision hook satisfies its output
-# contract means feeding it the event's fixture and reading what comes back —
-# a static scan cannot tell a handler that emits a decision from one that
-# intends to. The commands come from the repo's own tracked `hooks.json`, which
-# is as trusted as the rest of the checkout, and each run is bounded by
-# `timeout`. Point `--hooks` at a registration file you do not trust and you are
-# executing its commands; that flag exists for this guard's own tests.
+# IT RUNS THE HOOKS IT CHECKS, AS REGISTERED. Proving a decision hook satisfies
+# its output contract means feeding it the event's fixture and reading what
+# comes back — a static scan cannot tell a handler that emits a decision from
+# one that intends to. Registered arguments are passed too: the liveness hooks
+# are wired as `fleet-liveness.sh hook <event>`, so dropping them would check an
+# invocation the harness never makes. The commands come from the repo's own
+# tracked registration files, as trusted as the rest of the checkout, and each
+# run is bounded by `timeout` with the worker identity neutralised. Point
+# `--hooks` at a registration file you do not trust and you are executing its
+# commands; that flag exists for this guard's own tests.
 #
-# Usage: check-hook-contracts.sh [--hooks <hooks.json>] [--fixtures <dir>]
+# Usage: check-hook-contracts.sh [--hooks <file>]... [--fixtures <dir>]
 #                               [--implementer <Event>]...
+#        --hooks defaults to the three surfaces planwright registers through:
+#        hooks/hooks.json, config/worker-settings.json, config/tower-settings.json.
+#        The first --hooks replaces that set; further ones add to it.
 # Exit:  0 clean · 1 findings · 2 usage or environment error (fail closed).
 set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-HOOKS_JSON="$REPO_ROOT/hooks/hooks.json"
 FIXTURE_DIR="$REPO_ROOT/tests/fixtures/hook-payloads"
 IMPLEMENTERS=""
 HOOK_TIMEOUT=20
+
+# planwright registers hooks in three places, and all three are the surface:
+# the plugin-global file, plus the worker and tower settings fragments that
+# each wire a PreToolUse command guard. Checking only the first would report
+# clean over two thirds of what actually gets registered.
+HOOKS_FILES=(
+  "$REPO_ROOT/hooks/hooks.json"
+  "$REPO_ROOT/config/worker-settings.json"
+  "$REPO_ROOT/config/tower-settings.json"
+)
+HOOKS_OVERRIDDEN=0
 
 # CONTRACT TABLE: <event>|<silence>|<control>|<required-output-noun>
 # The noun is used only for silence=refuses rows, to name what a declared
@@ -86,7 +102,13 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --hooks)
       [ $# -ge 2 ] || die "--hooks needs a path"
-      HOOKS_JSON="$2"
+      # The first --hooks replaces the default set; further ones add to it.
+      if [ "$HOOKS_OVERRIDDEN" -eq 0 ]; then
+        HOOKS_FILES=("$2")
+        HOOKS_OVERRIDDEN=1
+      else
+        HOOKS_FILES+=("$2")
+      fi
       shift 2
       ;;
     --fixtures)
@@ -107,10 +129,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-command -v jq >/dev/null 2>&1 || die "jq is not on PATH, so hooks.json cannot be parsed — refusing (fail closed)"
-[ -f "$HOOKS_JSON" ] || die "no hooks registration file at $HOOKS_JSON — refusing (fail closed)"
+command -v jq >/dev/null 2>&1 || die "jq is not on PATH, so hook registrations cannot be parsed — refusing (fail closed)"
 [ -d "$FIXTURE_DIR" ] || die "no payload-fixture directory at $FIXTURE_DIR — refusing (fail closed)"
-jq -e . "$HOOKS_JSON" >/dev/null 2>&1 || die "$HOOKS_JSON is not parseable JSON — refusing (fail closed)"
+for hf in "${HOOKS_FILES[@]}"; do
+  [ -f "$hf" ] || die "no hooks registration file at $hf — refusing (fail closed)"
+  jq -e . "$hf" >/dev/null 2>&1 || die "$hf is not parseable JSON — refusing (fail closed)"
+done
+
+# Somewhere disposable for any state a checked handler decides to write.
+SCRATCH=$(mktemp -d) || die "could not create a scratch directory for hook execution"
+trap 'rm -rf "$SCRATCH"' EXIT INT TERM
 
 findings=0
 finding() {
@@ -134,14 +162,17 @@ is_implementer() {
 }
 
 resolve_command() {
-  # resolve_command <command-string> — substitute the plugin root, drop the
-  # quoting the harness strips, and print the script path (first token) alone.
-  # Substitution is shell string replacement rather than sed: a repo path may
-  # legally contain `&` or the delimiter, both of which sed would reinterpret.
+  # resolve_command <command-string> — substitute the plugin root and drop the
+  # quoting the harness strips, printing the WHOLE command, arguments included.
+  # The arguments are not incidental: every liveness hook is registered as
+  # `fleet-liveness.sh hook <event>`, so running the bare script would exercise
+  # an invocation the harness never makes and report clean over a handler never
+  # actually checked. Substitution is shell string replacement rather than sed:
+  # a repo path may legally contain `&` or a delimiter, which sed reinterprets.
   rc_s=${1//\$\{CLAUDE_PLUGIN_ROOT\}/$REPO_ROOT}
   rc_s=${rc_s//\$CLAUDE_PLUGIN_ROOT/$REPO_ROOT}
   rc_s=${rc_s//\"/}
-  printf '%s' "${rc_s%% *}"
+  printf '%s' "$rc_s"
 }
 
 run_hook() {
@@ -149,34 +180,53 @@ run_hook() {
   # stdout. Bounded, and stderr is discarded exactly as the harness discards it
   # (checking what an operator would actually see, not what the hook wishes it
   # had said).
+  #
+  # NEUTRALISED IDENTITY. These are the real handlers, and they have real side
+  # effects. This guard runs inside `mise run check`, which runs inside
+  # dispatched workers, where `PLANWRIGHT_WORKER_HANDLE`/`_SCOPE` are set — so
+  # an un-neutralised run would have `fleet-liveness.sh` push liveness
+  # transitions for whichever worker happens to be running CI, corrupting the
+  # attention surface the operator reads. The identity vars are dropped and the
+  # fleet state root is pointed at a scratch directory, so a handler that writes
+  # state writes it somewhere disposable.
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$HOOK_TIMEOUT" "$@" 2>/dev/null </dev/stdin
+    env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+      PLANWRIGHT_FLEET_STATE_DIR="$SCRATCH/fleet" \
+      timeout "$HOOK_TIMEOUT" "$@" 2>/dev/null
   else
-    "$@" 2>/dev/null </dev/stdin
+    env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+      PLANWRIGHT_FLEET_STATE_DIR="$SCRATCH/fleet" \
+      "$@" 2>/dev/null
   fi
 }
 
 # Registered (event, type, command) triples, tab-separated.
-registrations=$(jq -r '
-  (.hooks // {}) | to_entries[]
-  | .key as $event
-  | (.value // [])[]?
-  | (.hooks // [])[]?
-  | [$event, (.type // "missing"), (.command // "")] | @tsv
-' "$HOOKS_JSON" 2>/dev/null) || die "could not read hook registrations from $HOOKS_JSON — refusing (fail closed)"
+registrations=""
+for hf in "${HOOKS_FILES[@]}"; do
+  rows=$(jq -r --arg f "$hf" '
+    (.hooks // {}) | to_entries[]
+    | .key as $event
+    | (.value // [])[]?
+    | (.hooks // [])[]?
+    | [$f, $event, (.type // "missing"), (.command // "")] | @tsv
+  ' "$hf" 2>/dev/null) || die "could not read hook registrations from $hf — refusing (fail closed)"
+  [ -z "$rows" ] || registrations="${registrations}${rows}
+"
+done
 
 if [ -z "$registrations" ]; then
-  printf 'hook-contracts: %s registers no hooks — nothing to check.\n' "$HOOKS_JSON"
+  printf 'hook-contracts: no hooks registered in %s — nothing to check.\n' "${HOOKS_FILES[*]}"
   exit 0
 fi
 
 checked_events=""
-while IFS="$(printf '\t')" read -r event type command; do
+while IFS="$(printf '\t')" read -r source event type command; do
   [ -n "${event:-}" ] || continue
+  where="${source#"$REPO_ROOT"/}"
 
   row=$(contract_row "$event")
   if [ -z "$row" ]; then
-    finding "\`$event\` is registered but this guard does not model it, so what its silence means is unknown." \
+    finding "\`$event\` is registered in $where but this guard does not model it, so what its silence means is unknown." \
       "read the event's dispatch site out of the CLI, add a row to the CONTRACT TABLE in $(basename "$0") recording whether silence proceeds or refuses, and add a payload fixture."
     continue
   fi
@@ -185,7 +235,7 @@ while IFS="$(printf '\t')" read -r event type command; do
   noun=$(printf '%s' "$row" | cut -d'|' -f4)
 
   if [ "$type" != "command" ]; then
-    finding "\`$event\` registers a hook of type \`$type\`; this guard only models \`command\` hooks." \
+    finding "\`$event\` registers a hook of type \`$type\` in $where; this guard only models \`command\` hooks." \
       "use a command hook, or extend the guard to model this type before relying on it."
     continue
   fi
@@ -193,7 +243,7 @@ while IFS="$(printf '\t')" read -r event type command; do
   # --- the payload fixture (REQ-H1.1) ---
   fixture="$FIXTURE_DIR/$event.json"
   if [ ! -f "$fixture" ]; then
-    finding "\`$event\` is registered but has no payload fixture, so nothing pins the schema its handler reads." \
+    finding "\`$event\` is registered in $where but has no payload fixture, so nothing pins the schema its handler reads." \
       "add $fixture with the event's real stdin key set (see $FIXTURE_DIR/README.md for how to read it out of the CLI)."
     continue
   fi
@@ -211,19 +261,23 @@ while IFS="$(printf '\t')" read -r event type command; do
   case " $checked_events " in *" $event "*) ;; *) checked_events="$checked_events $event" ;; esac
 
   # --- the registered command exists (REQ-K1.1) ---
-  script=$(resolve_command "$command")
+  resolved=$(resolve_command "$command")
+  # Split into argv the way the harness would; the script is the first word,
+  # and the rest are the arguments the registration actually passes.
+  read -r -a argv <<<"$resolved"
+  script=${argv[0]:-}
   if [ -z "$script" ]; then
-    finding "\`$event\` registers an empty command." \
+    finding "\`$event\` registers an empty command in $where." \
       "give the registration a command, or remove the block."
     continue
   fi
   if [ ! -f "$script" ]; then
-    finding "\`$event\` registers \`$script\`, which does not exist; the harness would report a hook failure with no way to tell a typo from a deleted file." \
-      "correct the path in $HOOKS_JSON, or restore the script."
+    finding "\`$event\` registers \`$script\` in $where, which does not exist; the harness would report a hook failure with no way to tell a typo from a deleted file." \
+      "correct the path in $where, or restore the script."
     continue
   fi
   if [ ! -x "$script" ]; then
-    finding "\`$event\` registers \`$script\`, which is not executable." \
+    finding "\`$event\` registers \`$script\` in $where, which is not executable." \
       "chmod +x $script."
     continue
   fi
@@ -232,10 +286,10 @@ while IFS="$(printf '\t')" read -r event type command; do
   if [ "$silence" = "refuses" ]; then
     if ! is_implementer "$event"; then
       finding "\`$event\` is registered to \`$(basename "$script")\`, but on this event silence refuses the operation: registering a hook REPLACES the native behaviour, so a handler that stays quiet has blocked it. This is the shape that broke worktree creation fleet-wide." \
-        "unregister \`$event\` unless this hook is the operation's implementer; if it genuinely is, declare it with --implementer $event so its output contract is checked."
+        "unregister \`$event\` from $where unless this hook is the operation's implementer; if it genuinely is, declare it with --implementer $event so its output contract is checked."
       continue
     fi
-    out=$(run_hook "$script" <"$fixture")
+    out=$(run_hook "${argv[@]}" <"$fixture")
     first=$(printf '%s' "$out" | sed -n '1p')
     if [ -z "$first" ]; then
       finding "\`$event\` is declared implemented by \`$(basename "$script")\`, but run against its own payload fixture it emitted no ${noun:-required output} — on this event that is a refusal, and the operation fails." \
@@ -255,7 +309,7 @@ while IFS="$(printf '\t')" read -r event type command; do
 
   # --- the decision-output contract (REQ-H1.2) ---
   if [ "$control" = "decision" ]; then
-    out=$(run_hook "$script" <"$fixture")
+    out=$(run_hook "${argv[@]}" <"$fixture")
     [ -n "$out" ] || continue # silence proceeds here: a legitimate no-op.
     if ! printf '%s' "$out" | jq -e . >/dev/null 2>&1; then
       finding "\`$event\` is a decision event and \`$(basename "$script")\` emitted output that is not JSON, so the harness cannot read a decision from it and the hook's intent is silently dropped." \
@@ -279,11 +333,12 @@ $registrations
 EOF
 
 if [ "$findings" -gt 0 ]; then
-  printf '\nhook-contracts: %d finding(s) in %s\n' "$findings" "$HOOKS_JSON" >&2
+  printf '\nhook-contracts: %d finding(s) across %s\n' "$findings" "${HOOKS_FILES[*]#"$REPO_ROOT"/}" >&2
   exit 1
 fi
 
 n=$(printf '%s' "$checked_events" | wc -w | tr -d ' ')
-printf 'hook-contracts: %s event(s) registered in %s, each fixture-pinned and contract-clean.\n' \
-  "$n" "$HOOKS_JSON"
+checked_files="${HOOKS_FILES[*]#"$REPO_ROOT"/}"
+printf 'hook-contracts: %s event(s) across %s — each fixture-pinned and contract-clean.\n' \
+  "$n" "$checked_files"
 exit 0

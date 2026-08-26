@@ -135,7 +135,7 @@ description = "hook-backstop wiring detection: fail on an unwired or half-wired 
 run = "/bin/sh scripts/check-githooks.sh"
 
 [tasks."check:hook-contracts"]
-description = "hook-registration guard: every registered event is modelled and payload-fixture-pinned, nothing is registered on an event whose silence refuses the operation (the WorktreeCreate outage shape) unless it is that operation's declared implementer, and decision hooks emit JSON naming their own event; fails closed on an unmodelled event or unreadable wiring (fleet-lifecycle-closure Task 2, REQ-H1.1, REQ-H1.2, D-11)"
+description = "hook-registration guard over all three surfaces planwright registers through (hooks.json plus the worker and tower settings fragments): every registered event is modelled and payload-fixture-pinned, nothing is registered on an event whose silence refuses the operation (the WorktreeCreate outage shape) unless it is that operation's declared implementer, and decision hooks — run as registered, arguments included, with the worker identity neutralised — emit JSON naming their own event; fails closed on an unmodelled event or unreadable wiring (fleet-lifecycle-closure Task 2, REQ-H1.1, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-hook-contracts.sh"
 
 [tasks."check:doctrine-manifest"]

@@ -61,6 +61,16 @@ assert_not_contains() {
     *) echo "ok: $1" ;;
   esac
 }
+assert_absent() {
+  # assert_absent <label> <path> — the marker file a hook writes when it sees
+  # something it should not have been handed.
+  if [ ! -e "$2" ]; then
+    echo "ok: $1"
+  else
+    echo "FAIL: $1 (marker $2 was created)" >&2
+    failures=$((failures + 1))
+  fi
+}
 assert_eq() {
   # assert_eq <label> <expected> <actual>
   if [ "$2" = "$3" ]; then
@@ -151,8 +161,16 @@ done
 # while `WorktreeCreate` was registered to a passive tracker.
 out=$("$GUARD" 2>&1)
 rc=$?
-assert_exit "repo's own hooks.json and fixtures pass" 0 "$rc"
+assert_exit "repo's own registrations and fixtures pass" 0 "$rc"
 assert_contains "a passing run says so" "hook-contracts" "$out"
+
+# planwright registers hooks in three places, not one: the plugin-global
+# hooks.json plus the worker and tower settings fragments, which each wire a
+# PreToolUse command guard. A guard that read only hooks.json would report
+# clean over two thirds of the surface it claims to cover.
+assert_contains "the plugin-global registration file is checked" "hooks/hooks.json" "$out"
+assert_contains "the worker settings fragment is checked" "worker-settings.json" "$out"
+assert_contains "the tower settings fragment is checked" "tower-settings.json" "$out"
 
 # Helper: write a hooks.json registering one event at one command.
 write_hooks() {
@@ -243,6 +261,57 @@ write_hooks "$TMP/garbage/hooks.json" PreToolUse "$TMP/garbage/garbage.sh"
 out=$("$GUARD" --hooks "$TMP/garbage/hooks.json" --fixtures "$FIXTURES" 2>&1)
 rc=$?
 assert_exit "non-JSON output on a decision event is flagged" 1 "$rc"
+
+# -- the hook is run AS REGISTERED, arguments included. Every liveness hook is
+#    registered as `fleet-liveness.sh hook <event>`; a guard that ran the bare
+#    script would be checking an invocation the harness never makes, and would
+#    report clean over a handler it never actually exercised.
+mkdir -p "$TMP/args"
+cat >"$TMP/args/argecho.sh" <<'SH'
+#!/bin/sh
+cat >/dev/null 2>&1
+# Emits a well-formed PreToolUse decision only when handed its registered
+# argument; otherwise it names the wrong event and the guard must flag it.
+if [ "${1:-}" = "expected-arg" ]; then
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse"}}'
+else
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"WRONG-no-args-passed"}}'
+fi
+exit 0
+SH
+chmod +x "$TMP/args/argecho.sh"
+write_hooks "$TMP/args/hooks.json" PreToolUse "$TMP/args/argecho.sh expected-arg"
+out=$("$GUARD" --hooks "$TMP/args/hooks.json" --fixtures "$FIXTURES" 2>&1)
+rc=$?
+assert_exit "the hook is run with its registered arguments" 0 "$rc"
+assert_not_contains "the argument actually reached the hook" "WRONG-no-args-passed" "$out"
+
+# -- running a hook must not mutate live fleet state. The guard runs inside
+#    `mise run check`, which runs inside dispatched workers, where
+#    PLANWRIGHT_WORKER_HANDLE/SCOPE are set — so an un-neutralised run would
+#    have real handlers push liveness transitions for the worker running CI,
+#    corrupting the attention surface the operator reads.
+mkdir -p "$TMP/env"
+cat >"$TMP/env/leak.sh" <<SH
+#!/bin/sh
+cat >/dev/null 2>&1
+[ -n "\${PLANWRIGHT_WORKER_HANDLE:-}" ] && : >"$TMP/env/saw-handle"
+[ -n "\${PLANWRIGHT_WORKER_SCOPE:-}" ] && : >"$TMP/env/saw-scope"
+case "\${PLANWRIGHT_FLEET_STATE_DIR:-}" in
+  "" ) : >"$TMP/env/saw-shared-state" ;;
+esac
+exit 0
+SH
+chmod +x "$TMP/env/leak.sh"
+write_hooks "$TMP/env/hooks.json" PreToolUse "$TMP/env/leak.sh"
+PLANWRIGHT_WORKER_HANDLE=exec-test-1 PLANWRIGHT_WORKER_SCOPE=demo:1 \
+  "$GUARD" --hooks "$TMP/env/hooks.json" --fixtures "$FIXTURES" >/dev/null 2>&1
+assert_absent "the worker handle is not passed through to a hook the guard runs" \
+  "$TMP/env/saw-handle"
+assert_absent "the worker scope is not passed through to a hook the guard runs" \
+  "$TMP/env/saw-scope"
+assert_absent "hooks the guard runs are pointed at a scratch fleet state dir" \
+  "$TMP/env/saw-shared-state"
 
 # -- REQ-H1.1: a registered event with no fixture cannot be checked, so the
 #    guard refuses rather than passing it.
