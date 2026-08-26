@@ -367,6 +367,60 @@ out=$(run resolve deg:unit --key drain --step s2 --attempt 1 --event flailing 2>
 [ -s "$err" ] || fail "11e: the degradation was not surfaced — a silent degrade is the failure mode"
 echo "ok: an unhealthy ledger launches degraded at the last recorded tier, surfaced, never silent"
 
+# --- 11b. degraded mode must not ratchet the tier when adaptation is OFF --
+#
+# With the master knob off, the shipped default, the resolved tier is the
+# CONFIGURED starting tier at every launch — nothing may move it (D-13). An
+# unhealthy ledger must not become a back door around that: the last RECORDED
+# tier is a post-clamp value, so launching from it would make a clamp that has
+# since lifted permanently cheaper. Degraded mode still applies (the degradation
+# is reported and surfaced) — it just has no tier of its own to fall back to
+# when nothing was ever adapting.
+
+reset_state
+# A launch under `downshift` records a resolved tier CHEAPER than the base:
+# execution is opus/high, the downshift clamp lands it at sonnet/medium.
+seed_rung downshift
+out=$(run resolve ratchet:unit --key execution --step s1 --attempt 1) || fail "11f: resolve failed"
+[ "$(printf '%s\n' "$out" | field model)" = sonnet ] || fail "11f: the downshift fixture did not clamp"
+
+# The pressure lifts, and the ledger corrupts.
+seed_rung normal
+led2=$(run_led path ratchet:unit)
+printf 'torn\trow\n' >>"$led2"
+
+out=$(run resolve ratchet:unit --key execution --step s2 --attempt 1 2>/dev/null) \
+  || fail "11g: an unhealthy ledger must not block the launch"
+[ "$(printf '%s\n' "$out" | field degraded)" = ledger ] || fail "11g: the degradation was not reported"
+[ "$(printf '%s\n' "$out" | field model)" = opus ] \
+  || fail "11h: with adaptation off, a degraded launch must use the CONFIGURED starting tier, not the last recorded one (got $(printf '%s\n' "$out" | field model))"
+[ "$(printf '%s\n' "$out" | field effort)" = high ] \
+  || fail "11h: the degraded launch lost the configured starting effort"
+echo "ok: with adaptation off, degraded mode still launches at the configured starting tier"
+
+# --- 11c. a failed ledger append is surfaced, never silent (REQ-F1.1) -----
+#
+# The negative fixture behind "never silently": when the append itself fails,
+# the launch still resolves (D-6 forbids a blocked launch) but the failure
+# reaches the operator. The ledger file is made read-only while its directory
+# stays writable, so the lock is obtainable and only the append fails.
+
+reset_state
+escalation_ready 3
+run resolve wr:unit --key drain --step s1 --attempt 1 >/dev/null || fail "11i: seed resolve failed"
+wr_file=$(run_led path wr:unit)
+chmod 444 "$wr_file"
+wr_err="$tmp/wr.err"
+if [ "$(id -u)" != 0 ]; then
+  out=$(run resolve wr:unit --key drain --step s2 --attempt 1 2>"$wr_err") \
+    || fail "11i: a failed append must not block the launch"
+  [ -n "$(printf '%s\n' "$out" | field model)" ] || fail "11j: no allocation was emitted"
+  [ -s "$wr_err" ] || fail "11k: a failed ledger append was silent — the one outcome REQ-F1.1 forbids"
+  grep -q "ledger" "$wr_err" || fail "11k: the surfaced failure does not name the ledger"
+fi
+chmod 644 "$wr_file"
+echo "ok: a failed ledger append still resolves the launch and is surfaced, never silent"
+
 # --- 12. the sparse governance mirror into fleet-audit (REQ-F1.1) ---------
 
 mirror_rows() {

@@ -88,6 +88,15 @@
 # Usage:
 #   allocation-adapt.sh resolve <unit> --key <selection-key>
 #       [--step <step>] [--attempt <n>] [--event <class>]... [--reserved]
+#
+#     PASS A STEP AND ATTEMPT WITH ANY --event. The idempotency key is
+#     (unit, step, attempt, incident), and `--step` defaults to `-` with
+#     `--attempt` defaulting to 1 — so events reported at the default identity
+#     all share one key, and only the FIRST of them ever moves the tier. That is
+#     correct for a launch with no step identity (there is one incident to have)
+#     and wrong for a caller that reports a failure per step without saying which
+#     step: the second failure would be read as a replay of the first and
+#     skipped. A launch that reports no events needs neither.
 #     Print the effective allocation as TAB-separated `key<TAB>value` lines:
 #       admit            yes | withheld
 #       model / effort   the RESOLVED tier, or `inherit` at a non-fleet surface
@@ -621,7 +630,20 @@ cmd_resolve() {
   "$LEDGER" health "$UNIT" 2>/dev/null || LEDGER_OK=no
 
   NET=0
-  if [ "$LEDGER_OK" = no ]; then
+  if [ "$ADAPTATION" = off ]; then
+    # The master knob is off: the proposal is the CONFIGURED starting tier at
+    # every launch, and an unhealthy ledger does not change that. The
+    # last-recorded-tier fallback below exists to preserve a LADDER POSITION that
+    # would otherwise be lost; with adaptation off there is no ladder position,
+    # and the last recorded tier is a post-CLAMP value — falling back to it would
+    # make a clamp that has since lifted permanently cheaper, which is exactly
+    # the shipped-default behavior change D-13 forbids. The ledger's ill health
+    # is still reported and surfaced; it just has no tier of its own to supply.
+    ADAPT_STATE=off
+    CUR_MODEL=$START_MODEL
+    CUR_EFFORT=$START_EFFORT
+    [ "$LEDGER_OK" = yes ] || DEGRADED=ledger
+  elif [ "$LEDGER_OK" = no ]; then
     DEGRADED=ledger
     ADAPT_STATE=suspended
     # Launch at the LAST RECORDED tier when one is readable, else the starting
@@ -638,10 +660,6 @@ cmd_resolve() {
       CUR_MODEL=$START_MODEL
       CUR_EFFORT=$START_EFFORT
     fi
-  elif [ "$ADAPTATION" = off ]; then
-    ADAPT_STATE=off
-    CUR_MODEL=$START_MODEL
-    CUR_EFFORT=$START_EFFORT
   else
     ADAPT_STATE=on
     ledger_file=$("$LEDGER" path "$UNIT")
