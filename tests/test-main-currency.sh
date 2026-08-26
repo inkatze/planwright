@@ -318,10 +318,44 @@ printf '%s\n' "$out" | grep -q 'up-to-date' \
   || fail "7: sync did not report up-to-date: $out"
 assert_no_rewrite 7
 
-# 8. A malformed `--main-ref` is refused BEFORE it reaches any git command, so a
+# 8. `main` checked out in a SIBLING WORKTREE of the same clone — the ordinary
+#    planwright shape, where the primary checkout sits on `main` and worker
+#    worktrees are cut from it.
+#
+#    git refuses to update a branch ref that is checked out in any worktree, and
+#    is right to: moving it would desynchronize that worktree's index. So the
+#    refusal is correct and the ref update must NOT be forced. What matters is
+#    the CLASSIFICATION: this is a permanent structural condition, not a
+#    transient fetch failure, so it must not be reported as one — "retry next
+#    cycle" is a dead end here, and a fail-closed refusal whose named recovery
+#    action cannot work is exactly what D-10 exists to prevent.
+root=$(new_fixture worktree)
+"$REAL_GIT" -C "$root/tower" worktree add --quiet -b planwright/demo/task-3 "$root/tower-wt" main
+advance_origin "$root"
+PW_GIT_LOG="$tmp/log8"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+before=$("$REAL_GIT" -C "$root/tower" rev-parse main)
+set +e
+out=$(mc sync --checkout "$root/tower-wt" 2>&1)
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || fail "8: syncing from a worktree while main is checked out elsewhere must not report success"
+[ "$rc" -ne 3 ] \
+  || fail "8: a sibling-worktree checkout is permanent, not a transient fetch failure — 'retry next cycle' can never succeed"
+[ "$rc" -eq 5 ] || fail "8: expected the sibling-worktree exit code 5, got $rc"
+[ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] \
+  || fail "8: main moved despite being checked out in a sibling worktree"
+# The message must name the checkout that owns main, since pointing the sync
+# there is the whole remedy.
+printf '%s\n' "$out" | grep -q "$root/tower" \
+  || fail "8: the refusal did not name the checkout that owns main: $out"
+assert_no_rewrite 8
+
+# 9. A malformed `--main-ref` is refused BEFORE it reaches any git command, so a
 #    crafted value cannot smuggle an option or redirect the refspec.
 root=$(new_fixture grammar)
-PW_GIT_LOG="$tmp/log8"
+PW_GIT_LOG="$tmp/log9"
 export PW_GIT_LOG
 for bad in \
   "--upload-pack=touch /tmp/pwned" \
@@ -338,15 +372,15 @@ evil" \
   rc=$?
   set -e
   [ "$rc" -eq 2 ] \
-    || fail "8: a malformed --main-ref must be a usage refusal (exit 2), got $rc for '$bad'"
+    || fail "9: a malformed --main-ref must be a usage refusal (exit 2), got $rc for '$bad'"
   # The refusal has to land before git is invoked at all, not merely be caught
   # by git after the value was already handed to it.
   if [ -s "$PW_GIT_LOG" ] && grep -Eq '(^| )(fetch|merge|push)( |$)' "$PW_GIT_LOG"; then
-    fail "8: a git ref operation ran despite a malformed --main-ref '$bad'"
+    fail "9: a git ref operation ran despite a malformed --main-ref '$bad'"
   fi
   printf '%s\n' "$out" | grep -qi 'malformed\|usage' \
-    || fail "8: the refusal was not surfaced for '$bad': $out"
+    || fail "9: the refusal was not surfaced for '$bad': $out"
 done
-assert_no_rewrite 8
+assert_no_rewrite 9
 
 echo "PASS: test-main-currency.sh"

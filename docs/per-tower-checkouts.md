@@ -113,6 +113,15 @@ whatever is checked out, so the operation is chosen by what *is*:
 The second form refuses a non-fast-forward by nature: the refspec carries no
 leading `+` and no `--force`, so git rejects a non-ff update on its own.
 
+There is one case the second form cannot serve: `main` checked out in a **sibling
+worktree** of the same clone — the ordinary shape, where the primary checkout
+sits on `main` and worker worktrees are cut from it. git refuses to update a
+branch ref checked out anywhere, correctly, since moving it would desynchronize
+that worktree's index. The sync detects this up front and names the checkout that
+owns `main`, because that is where running it works (it fast-forwards there).
+This is deliberately *not* reported as a fetch failure: it is permanent, and
+retrying it forever would be a dead end rather than a recovery.
+
 **It classifies a fetch failure before acting.** No `origin` configured degrades
 to the solo flow and is not an error. A transient failure against a configured
 `origin` fails closed — surfaced, with `main` left where it was, because running
@@ -120,8 +129,8 @@ a tower on a silently-stale `main` is worse than not running it this cycle. A
 `--ff-only` refusal is a third outcome, surfaced for you to resolve; the path
 never forces, rebases, or resets.
 
-Exit codes: `0` synced or solo, `2` usage, `3` fail-closed fetch failure, `4`
-divergence.
+Every refusal exits non-zero with the recovery action named in its message; the
+script header carries the exit-code table.
 
 ## Migrating from the single-checkout model
 

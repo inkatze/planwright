@@ -68,6 +68,9 @@
 #      unmoved and possibly stale; do not proceed on it, retry next cycle
 #   4  divergence: the fast-forward was refused because local `main` is not an
 #      ancestor of `origin/main`; surface for the operator, never force
+#   5  `main` is checked out in a sibling worktree of this clone, so its ref
+#      cannot be updated from here; permanent, not transient — run the sync in
+#      that checkout instead (named in the message)
 #
 # USAGE:
 #   main-currency.sh sync [--checkout <dir>] [--main-ref <branch>]
@@ -223,10 +226,29 @@ if [ "$current_branch" = "$main_ref" ]; then
   exit 0
 fi
 
-# A worker branch (or a detached HEAD) is checked out. Update the `main` REF
-# without a checkout. This refspec has no leading `+` and no --force, so git
-# refuses a non-fast-forward by nature — the ff-only guarantee comes from the
-# refspec's own shape here, not from a separate flag.
+# A worker branch (or a detached HEAD) is checked out here. Before reaching for
+# the ref update, rule out the one case where it can never work: `main` checked
+# out in a SIBLING WORKTREE of this same clone. git refuses to update a branch
+# ref that is checked out anywhere, and is right to — moving it would
+# desynchronize that worktree's index. That refusal is permanent and structural,
+# so it must not be reported as a transient fetch failure: telling the operator
+# to retry names a recovery action that cannot succeed, which is the dead end
+# D-10 exists to prevent. The action that does work is running the sync in the
+# checkout that owns `main`, where it takes the fast-forward merge path — so
+# name that checkout.
+main_worktree=$(git worktree list --porcelain 2>/dev/null | awk -v want="branch refs/heads/$main_ref" '
+  /^worktree /{ path = substr($0, 10) }
+  $0 == want { print path; exit }
+')
+if [ -n "$main_worktree" ]; then
+  err "$main_ref is checked out in another worktree of this clone ($(sanitize_printable "$main_worktree")), so its ref cannot be updated from here — this is permanent, not a transient failure, and retrying will not change it"
+  err "run the sync in that checkout instead, where it fast-forwards $main_ref directly: main-currency.sh sync --checkout $(sanitize_printable "$main_worktree")"
+  exit 5
+fi
+
+# Update the `main` REF without a checkout. This refspec has no leading `+` and
+# no --force, so git refuses a non-fast-forward by nature — the ff-only guarantee
+# comes from the refspec's own shape here, not from a separate flag.
 if ! fetch_err=$(git fetch origin "$main_ref:$main_ref" 2>&1); then
   # Two failures share this exit path, so classify them by whether origin was
   # reachable at all: a non-fast-forward rejection means the fetch itself worked.
