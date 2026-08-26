@@ -554,6 +554,23 @@ out="$("$VALIDATE" --baseline HEAD "$b" 2>&1)"
 rc=$?
 assert_eq "baseline: a clean prose edit passes" "0" "$rc"
 
+# The guard has to let the venture keep moving: appending a gate record and
+# minting a new id are the normal way a bundle grows, and blocking either would
+# make the stakeholder-commit guard useless in exactly the repos that need it.
+b="$(git_bundle)"
+printf '%s\n' '' '### Gate 2 — 2026-08-25' '' 'Outcome: Recycle' 'Date: 2026-08-25' \
+  'Decider: Dana Reyes' 'Evidence: none' 'Thresholds: A-1 open, A-2 open' \
+  'Kill-criteria: KC-1 clear, KC-2 clear' 'Rationale: the spike is still running.' >"$tmp/ins"
+insert_after "$b/brief.md" 'Rationale: The capture-surface spike has not run yet; re-scope the plan and return.' "$tmp/ins"
+printf '%s\n' '' '### A-5 — a newly minted assumption' \
+  '- **Statement:** believe x; verify y; measure z; right if w.' \
+  '- **Risk-if-wrong:** none' '- **Risk-tag:** feasibility' '- **Threshold:** none' \
+  '- **Evidence:** none' '- **Blocking:** no' '- **Tasks:** none' \
+  '- **Status:** open' >>"$b/assumptions.md"
+out="$("$VALIDATE" --baseline HEAD "$b" 2>&1)"
+rc=$?
+assert_eq "baseline: appending a gate record and a new id passes" "0" "$rc"
+
 b="$(git_bundle)"
 sed_i "$b/assumptions.md" 's|^### A-2 —|### A-5 —|'
 expect "baseline: a live id was renumbered" BASE-ID-VANISHED 1 "$b" --baseline HEAD
