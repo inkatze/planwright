@@ -349,6 +349,27 @@ fence_path_out=$("$SELECT" --critical-path "$fence_repo/specs/corpus" 2>"$tmp/fe
   || fail "unbalanced fence: --critical-path emitted a truncated path: [$fence_path_out]"
 grep -q 'open column-0 code fence' "$tmp/fence-path.err" \
   || fail "unbalanced fence: --critical-path does not name the fence: $(cat "$tmp/fence-path.err")"
+# The refusal names the spec dir, which is caller-supplied, so it goes through
+# the echo discipline like any other untrusted value (doctrine/security-posture
+# .md): an error path is exactly where a control byte would otherwise reach the
+# terminal and drive it. The ESC sits in a PARENT segment so the spec id itself
+# still clears the identifier grammar and the run gets far enough to refuse on
+# the fence rather than on the id.
+fence_esc_repo="$tmp/fence-esc$(printf '\033')repo"
+mkdir -p "$fence_esc_repo/specs"
+write_corpus "$fence_esc_repo/specs/corpus"
+cp "$fence_repo/specs/corpus/tasks.md" "$fence_esc_repo/specs/corpus/tasks.md"
+git -C "$fence_esc_repo" -c init.defaultBranch=main init -q
+gitc "$fence_esc_repo" add -A
+gitc "$fence_esc_repo" commit -q -m "base: unbalanced-fence bundle under an unprintable path"
+"$SELECT" --critical-path "$fence_esc_repo/specs/corpus" \
+  >/dev/null 2>"$tmp/fence-esc.err" || :
+grep -q 'open column-0 code fence' "$tmp/fence-esc.err" \
+  || fail "unbalanced fence: the unprintable-path run does not name the fence: $(cat "$tmp/fence-esc.err")"
+if LC_ALL=C grep -q '[[:cntrl:]]' "$tmp/fence-esc.err"; then
+  fail "unbalanced fence: the refusal echoed the spec dir's control bytes raw: $(cat -v "$tmp/fence-esc.err")"
+fi
+echo "ok: the unbalanced-fence refusal strips the spec dir's control bytes"
 if fence_val=$("$VALIDATE" "$fence_repo/specs/corpus" 2>&1); then
   fail "unbalanced fence: spec-validate.sh reported no error: $fence_val"
 fi

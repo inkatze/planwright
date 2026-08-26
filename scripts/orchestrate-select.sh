@@ -467,7 +467,10 @@ case $sel_rc in
     exit 0
     ;;
   3)
-    printf '%s\n' "orchestrate-select: end of file inside an open column-0 code fence in $tasks_md; the task graph would be truncated (fail closed)" >&2
+    # The spec dir is caller-supplied, so the path it builds goes through the
+    # echo discipline before it reaches stderr (REQ-C1.9): a control byte in it
+    # would otherwise drive the terminal straight off this refusal.
+    printf '%s\n' "orchestrate-select: end of file inside an open column-0 code fence in $(sanitize_printable "$tasks_md" '(unprintable path)'); the task graph would be truncated (fail closed)" >&2
     exit 2
     ;;
   *) exit "$sel_rc" ;;
