@@ -395,12 +395,18 @@ echo "ok: unknown keys/columns and usage errors are refused with sanitized diagn
 #     the values the isolated core fixture above assumes, so the fixture cannot
 #     silently diverge from the shipped file.
 real_defaults="$here/../config/defaults.yml"
+fixture_knobs=$(grep '^allocation_' "$core_cfg")
+# Guard the guard: an empty list would walk zero rows and report a clean pass,
+# which is the one way this check can lie. Same non-vacuity discipline as the
+# PATH stub's positive control.
+[ "$(printf '%s\n' "$fixture_knobs" | wc -l | tr -d ' ')" = 15 ] \
+  || fail "expected 15 allocation_* knobs in the core fixture, got: $fixture_knobs"
 while IFS= read -r kv; do
   [ -n "$kv" ] || continue
   grep -q "^$kv\$" "$real_defaults" \
     || fail "config/defaults.yml does not ship '$kv' (fixture and shipped defaults drifted)"
 done <<EOF
-$(grep '^allocation_' "$core_cfg")
+$fixture_knobs
 EOF
 echo "ok: shipped defaults carry the whole allocation_* family"
 
