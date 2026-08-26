@@ -11,8 +11,8 @@ doctrine statement those requirements cite into force.
 Citations: fleet-autonomy REQ-G1.1, REQ-G1.2 · fleet-autonomy D-17, D-18 ·
 concurrent-orchestrator-coordination REQ-A1.1, REQ-D1.3, REQ-D1.6 ·
 concurrent-orchestrator-coordination D-1, D-6 · fleet-lifecycle-closure
-REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-D1.3 ·
-fleet-lifecycle-closure D-1, D-2.
+REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-B1.4, REQ-C1.1,
+REQ-C1.7, REQ-D1.3 · fleet-lifecycle-closure D-1, D-2, D-3.
 
 ## The tower non-authoring boundary
 
@@ -149,10 +149,10 @@ session-grade rung shipped a launch verb and no stop. A worker that reaches
 SessionEnd exits cleanly, so the common path looks tidy; only workers
 abandoned mid-flight or hard-killed leak, and they leak silently. Roughly 95
 cumulative hours of leaked worker time accumulated that way before anyone
-noticed (obs:b63a8778). Detection failed in the same shape: a monitor
-sampling a worker's last pane line reported eleven identical heartbeats for a
-frozen worker, because the line was stable *precisely because* it was stuck
-(obs:50eac4ac).
+noticed (obs:b63a8778, surviving in obs:50eac4ac). Detection failed in the
+same shape: a monitor sampling a worker's last pane line reported eleven
+identical heartbeats for a frozen worker, because the line was stable
+*precisely because* it was stuck (obs:50eac4ac).
 
 What the floor means in practice:
 
@@ -201,8 +201,8 @@ is the contract they satisfy, not a second specification of them.
 
 | Resource class | Open | Close | Detector |
 | --- | --- | --- | --- |
-| Process tree | the rung's launch, recording the supervisor and worker pids under the worker's state directory and the registry record written at the dispatch seam | the rung's `stop` — SIGTERM then SIGKILL after a bounded grace, matched on the worker's state-directory path and never a bare process name; autonomously, `fleet-cleanup.sh process`, under the same self-targeting guard, kill-switch gate, and audit trail | `scripts/fleet-death-evidence.sh`'s positive verdict, feeding the four-state classifier (`working` / `waiting-on-a-human` / `finished-but-unreaped` / `dead`) |
-| tmux window | the tmux dispatch seam creates the named window and records its `#{window_id}` as the handle (`scripts/offload-dispatch.sh`; the tower's own `new-window` on the `/orchestrate` path) | `stop` as part of the release set; autonomously `fleet-cleanup.sh window`, under its self-targeting guard, kill-switch gate, and audit trail | every pane dead (`#{pane_dead}`), the positive evidence the cleanup actuator already demands |
+| Process tree | the rung's launch, recording the supervisor and worker pids under the worker's state directory and the registry record written at the dispatch seam | the rung's `stop` — SIGTERM then SIGKILL after a bounded grace, matched on the worker's state-directory path and never a bare process name; autonomously, `scripts/fleet-cleanup.sh process`, under the same self-targeting guard, kill-switch gate, and audit trail | `scripts/fleet-death-evidence.sh`'s positive verdict, feeding the four-state classifier (`working` / `waiting-on-a-human` / `finished-but-unreaped` / `dead`) |
+| tmux window | the tmux dispatch seam creates the named window and records its `#{window_id}` as the handle (`scripts/offload-dispatch.sh`; the tower's own `new-window` on the `/orchestrate` path) | `stop` as part of the release set; autonomously `scripts/fleet-cleanup.sh window`, under its self-targeting guard, kill-switch gate, and audit trail | every pane dead (`#{pane_dead}`), the positive evidence the cleanup actuator already demands |
 | Locks | `scripts/fleet-state.sh lock` for the cross-spec store; the supervisor's own atomic `mkdir` elections (`journal.lock`, `recover.lock`) | released by the holder on the normal path; on the abnormal path a stale-age break at a documented bound, so a killed holder cannot wedge the verb permanently | the lock directory's age against that same bound |
 | Scratch temp | created under the worker's state directory at launch: the stdio fifos, the journal and init temp files, the captured result | removed with the process tree by `stop` | residue under the state directory of a worker whose session has ended |
 | Attention record | `scripts/fleet-attention.sh heartbeat` / `decide` / `fork` / `park`, one row per worker | `scripts/fleet-attention.sh clear`, invoked by the close verb | the row's own state field, which is script-readable; a terminal row (`merged`, `done`) still present is the residue signal |
@@ -221,7 +221,7 @@ and absent here is the omission REQ-A1.5 exists to catch.
 
 | Rung | Process tree | tmux window | Locks | Scratch temp | Attention record |
 | --- | --- | --- | --- | --- | --- |
-| `tmux` | no supervisor and no pidfile: `tmux new-window -d` spawns the worker and its `#{window_id}` is the whole record, so the tree is released by killing the window rather than by a rung `stop`, and its death evidence is `fleet-death-evidence.sh`'s `tmux-window` class, never its `process` class | per contract, minus the `stop` arm — `fleet-cleanup.sh window` is the only close | per contract — it runs the same scripts, so it takes the same store locks | — no worker state directory; the dispatch seam's own stderr capture is trap-cleaned in process | per contract |
+| `tmux` | no supervisor and no pidfile: `tmux new-window -d` spawns the worker and its `#{window_id}` is the whole record, so the tree is released by killing the window rather than by a rung `stop`, and its death evidence is `scripts/fleet-death-evidence.sh`'s `tmux-window` class, never its `process` class | per contract, minus the `stop` arm — `scripts/fleet-cleanup.sh window` is the only close | per contract — it runs the same scripts, so it takes the same store locks | — no worker state directory; the dispatch seam's own stderr capture is trap-cleaned in process | per contract |
 | `stream-json-persistent` | per contract; the close covers the supervisor *and* its children | — no window | per contract, plus the supervisor's own `journal.lock` / `recover.lock` | per contract; the stdio fifos are in the release set | per contract |
 | `headless-oneshot` | per contract; a detached one-shot, closed the same way | — no window | per contract (store locks only) | per contract; includes the captured result | per contract |
 | `subagent` | trivial — in-harness, no separate OS process; it dies with the tower | — no window | per contract — it runs the same scripts, so it takes the same store locks and is subject to the same stale-break | trivial — no worker state directory | trivial — the tower owns the row |
