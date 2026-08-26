@@ -911,3 +911,36 @@ the change this entry re-anchors against.
 Class: expression-only
 Anchor: `1e39e3a3d4813a6239947fc25c63ebc3ca7d3c36` — computed as
 `scripts/spec-anchor.sh specs/concurrent-orchestrator-coordination`
+
+### Re-anchor — expression-only amendment, Task 4 execution (2026-08-26)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the execution run that
+made the amendment.
+
+**Why the anchor moved:** the bundle's anchored content changed. Implementing
+the per-unit fence established, against git 2.53.0, that the pinned CAS
+command's **exit code does not express the exclusion the CAS decides**: git
+resolves a same-value ref update to the per-ref status `=` `[up to date]`
+before it evaluates the `--force-with-lease`, and every racing tower pushes
+the same `origin/main` tip, so the tower that LOST sees a per-ref success and
+exit 0. REQ-C1.6 had already decided the discriminant ("not by exit code
+alone"); the amendment completes its classification with the case that makes
+it load-bearing, and corrects the one consequence that follows for cohesion
+bundles, where `--atomic` does not roll an up-to-date member back.
+
+**Class rationale.** Expression-only: no accepted decision is contradicted and
+no REQ's meaning changes. D-5 / D-8's expect-absent CAS on `origin`, REQ-C1.1's
+no-duplicate-dispatch guarantee, and REQ-C1.2's all-or-none bundle **outcome**
+all stand exactly as signed off; the edit corrects an incorrect claim about
+git's behaviour and completes an incomplete enumeration — the class
+`doctrine/spec-format.md` names under *Decided rules over enumerated claims* —
+and supplies the mechanism that delivers the already-decided outcome. No REQ or
+D-ID is added.
+
+**Cites the changelog line:** the 2026-08-26 `## Changelog` entry in
+`requirements.md` ("Expression-only amendment (Task 4 execution)").
+
+Class: expression-only
+Anchor: `6db815881f0064660f3c2ec8090ad849c06b52b0` — computed as
+`scripts/spec-anchor.sh specs/concurrent-orchestrator-coordination`

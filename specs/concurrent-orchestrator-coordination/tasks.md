@@ -165,12 +165,17 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   `origin <origin/main-tip>:refs/planwright-fence/<spec>/<unit-id>` is the refspec actually pushed — creating
   the fence ref at the current `origin/main` tip so no history is added to `main`). The
   push **is** the serializer: `origin` serializes ref updates, so exactly one tower wins the fence per unit
-  and a rejected push means the unit is taken → select another. The fence is keyed by **unit id** and
+  and a rejected push means the unit is taken → select another — where "rejected" is read from the
+  **per-ref `--porcelain` status**, a win being `*` `[new reference]` and a same-tip loser's `=`
+  `[up to date]` being a back-off, since that loser's push exits **zero**. The fence is keyed by **unit id** and
   created by the **tower before the worker forks** (no worker death handle, no pre-fork-pid problem); it is
   a **dedicated-namespace** ref pushed by the tower under the canonical name **directly** (no worker branch,
   no dispatch-backend rename in the fencing path — the run-4 phantom is gone). A **cohesion bundle** is
   fenced with a single **`git push --atomic`** over every member unit-id, so any member already fenced by a
-  peer rejects the whole push and the tower backs off the entire bundle (no unfenced non-lead member). A
+  peer backs off the entire bundle (no unfenced non-lead member, and no member left fenced by the abandoned
+  bundle: every member must report `*` `[new reference]`, and members this push created are deleted when it
+  does not fully win, since a member reported `=` `[up to date]` is not a rejection for `--atomic` to roll
+  back). A
   selection guard skips any unit whose fence ref exists. **`origin`-reachability classification (REQ-C1.6,
   D-10):** no-`origin` is the genuine no-remote single-host solo posture (dispatch without a fence); a
   transient push failure fails closed (do not dispatch this unit, surface, retry); a rejected CAS backs off
