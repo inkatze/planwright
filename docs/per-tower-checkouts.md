@@ -122,12 +122,24 @@ owns `main`, because that is where running it works (it fast-forwards there).
 This is deliberately *not* reported as a fetch failure: it is permanent, and
 retrying it forever would be a dead end rather than a recovery.
 
-**It classifies a fetch failure before acting.** No `origin` configured degrades
-to the solo flow and is not an error. A transient failure against a configured
-`origin` fails closed — surfaced, with `main` left where it was, because running
-a tower on a silently-stale `main` is worse than not running it this cycle. A
-`--ff-only` refusal is a third outcome, surfaced for you to resolve; the path
-never forces, rebases, or resets.
+**It classifies each failure before acting, and names a remedy that works.** No
+`origin` configured degrades to the solo flow and is not an error. A transient
+failure against a configured `origin` fails closed — surfaced, with `main` left
+where it was, because running a tower on a silently-stale `main` is worse than
+not running it this cycle. Beyond those, each refusal is distinguished rather
+than lumped together:
+
+| Situation | What it is | What to do |
+| --- | --- | --- |
+| Local `main` is genuinely ahead of / apart from `origin/main` | A real divergence, which a private `main` should never have | Resolve the unexpected history yourself |
+| `main` has uncommitted changes | **Not** a divergence — still a clean fast-forward behind | Commit or stash, then re-run |
+| `main` is checked out in a sibling worktree | Permanent and structural, not transient | Run the sync in that checkout |
+| `origin` unreachable, but configured | Transient | Retry next cycle |
+
+The distinctions are the point. A dirty tree reported as "divergence" sends you
+hunting history that does not exist; a permanent refusal reported as "retry next
+cycle" is a dead end dressed as a recovery. Whatever the case, the path never
+forces, rebases, or resets, and never discards uncommitted work.
 
 Every refusal exits non-zero with the recovery action named in its message; the
 script header carries the exit-code table.

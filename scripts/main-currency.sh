@@ -71,6 +71,14 @@
 #   5  `main` is checked out in a sibling worktree of this clone, so its ref
 #      cannot be updated from here; permanent, not transient — run the sync in
 #      that checkout instead (named in the message)
+#   6  `main` has uncommitted changes the fast-forward would overwrite; NOT a
+#      divergence — commit or stash, then re-run
+#
+# Exits 3-6 are all fail-closed: `main` is left exactly where it was, and each
+# names a recovery action that actually works for its case (D-10). Distinguishing
+# them is the point — a dirty tree reported as "divergence", or a permanent
+# structural refusal reported as "retry next cycle", sends the operator after a
+# problem they do not have.
 #
 # USAGE:
 #   main-currency.sh sync [--checkout <dir>] [--main-ref <branch>]
@@ -203,17 +211,37 @@ before=$(git rev-parse --verify --quiet "refs/heads/$main_ref" 2>/dev/null) || b
 current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || current_branch=""
 
 if [ "$current_branch" = "$main_ref" ]; then
-  # `main` is checked out: the explicit fetch-then-fast-forward-merge form.
-  # NEVER `git pull`, whose rebase-on-pull configs would rewrite history here.
+  # Uncommitted work aborts a merge that would otherwise fast-forward cleanly.
+  # That is NOT divergence, so it must not be reported as one: `main` is still a
+  # plain fast-forward behind `origin`, and the remedy is to commit or stash, not
+  # to go hunting for unexpected history. Checked up front so the operator gets
+  # that remedy instead of git's overwrite warning wrapped in the wrong story.
+  if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+    err "$main_ref has uncommitted changes, so the fast-forward would overwrite them — refusing"
+    err "this is not a divergence: $main_ref is still a clean fast-forward behind origin/$main_ref"
+    err "commit or stash the changes, then re-run; nothing here discards your work"
+    exit 6
+  fi
+  # The explicit fetch-then-fast-forward-merge form. NEVER `git pull`, whose
+  # rebase-on-pull configs would rewrite history here.
   if ! fetch_err=$(git fetch origin "$main_ref" 2>&1); then
     err "fetch of origin/$main_ref failed against a configured origin; leaving $main_ref unmoved rather than proceeding on a possibly-stale main — retry next cycle"
     err "git said: $(sanitize_printable "$fetch_err")"
     exit 3
   fi
   if ! merge_err=$(git merge --ff-only FETCH_HEAD 2>&1); then
-    err "$main_ref has diverged from origin/$main_ref — the fast-forward was refused"
+    # Only claim divergence when git actually reports a non-fast-forward; any
+    # other refusal gets git's own reason rather than a story invented for it.
+    case "$merge_err" in
+      *'Not possible to fast-forward'* | *'not possible to fast-forward'* | *'divergent'*)
+        err "$main_ref has diverged from origin/$main_ref — the fast-forward was refused"
+        err "a per-tower $main_ref should only ever fast-forward, so this is unexpected local history; resolve it yourself — this path will never force, rebase, or reset"
+        ;;
+      *)
+        err "the fast-forward of $main_ref was refused; $main_ref is unmoved"
+        ;;
+    esac
     err "git said: $(sanitize_printable "$merge_err")"
-    err "a per-tower $main_ref should only ever fast-forward, so this is unexpected local history; resolve it yourself — this path will never force, rebase, or reset"
     exit 4
   fi
   after=$(git rev-parse --verify "refs/heads/$main_ref")

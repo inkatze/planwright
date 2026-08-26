@@ -275,8 +275,10 @@ set -e
 [ "$rc" -eq 4 ] || fail "5: expected the divergence exit code 4, got $rc"
 [ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] \
   || fail "5: main moved across a refused fast-forward"
-printf '%s\n' "$out" | grep -qi 'diverge' \
-  || fail "5: the refusal was not surfaced as a divergence: $out"
+# A GENUINE divergence must make the positive claim — this is the counterpart
+# of test 10, which asserts a dirty tree never makes it.
+printf '%s\n' "$out" | grep -qi 'has diverged' \
+  || fail "5: a real divergence was not surfaced as one: $out"
 assert_no_rewrite 5
 
 # 6. A non-fast-forward on the REF-UPDATE path is likewise refused, not forced.
@@ -382,5 +384,38 @@ evil" \
     || fail "9: the refusal was not surfaced for '$bad': $out"
 done
 assert_no_rewrite 9
+
+# 10. A DIRTY WORKING TREE on `main` is not divergence. git aborts the merge to
+#     protect uncommitted changes, but `main` is still a clean fast-forward
+#     behind origin — so reporting "diverged / unexpected local history" would
+#     send the operator hunting a divergence that does not exist, when the fix is
+#     simply to commit or stash. Same D-10 contract as the sibling-worktree case:
+#     the named recovery action has to be one that works.
+root=$(new_fixture dirty)
+advance_origin "$root"
+echo "uncommitted" >>"$root/tower/file.txt"
+PW_GIT_LOG="$tmp/log10"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+before=$("$REAL_GIT" -C "$root/tower" rev-parse main)
+set +e
+out=$(mc sync --checkout "$root/tower" 2>&1)
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || fail "10: a dirty working tree must not report a successful sync"
+[ "$rc" -ne 4 ] || fail "10: a dirty working tree is not divergence — main is still a clean fast-forward behind origin"
+[ "$rc" -eq 6 ] || fail "10: expected the dirty-tree exit code 6, got $rc"
+[ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] \
+  || fail "10: main moved despite the refusal"
+printf '%s\n' "$out" | grep -qi 'commit\|stash' \
+  || fail "10: the refusal did not name the actual remedy (commit or stash): $out"
+# Match the CLAIM, not the word: the message legitimately contains "not a
+# divergence", so grepping for the bare stem would flag its own disclaimer.
+printf '%s\n' "$out" | grep -qi 'has diverged' \
+  && fail "10: a dirty tree was misreported as a divergence: $out"
+# The uncommitted change must still be there — the sync never discards work.
+grep -q uncommitted "$root/tower/file.txt" \
+  || fail "10: the uncommitted change was lost"
+assert_no_rewrite 10
 
 echo "PASS: test-main-currency.sh"
