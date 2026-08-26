@@ -374,6 +374,9 @@ evil" \
   "main@{1}" \
   "@" \
   "main." \
+  "feat/.main" \
+  "foo.lock/bar" \
+  "main/.x" \
   ""; do
   : >"$PW_GIT_LOG"
   set +e
@@ -583,5 +586,35 @@ printf '%s\n' "$out" | grep -q 'solo' \
 printf '%s\n' "$out" | grep -q '^main	' \
   && fail "15: the main line must be omitted when no main ref exists: $out"
 assert_no_rewrite 15
+
+# 16. An unrecognized merge refusal is TRANSIENT, not a divergence. A locked
+#     index — another git process working in this checkout — is the everyday
+#     instance: retrying next cycle is exactly the right recovery, while
+#     "your history has diverged, go resolve it" is a diagnosis this path cannot
+#     support and sends the operator after nothing. The check that matters is
+#     that the unknown case is not filed under divergence.
+root=$(new_fixture lockedindex)
+advance_origin "$root"
+: >"$root/tower/.git/index.lock"
+PW_GIT_LOG="$tmp/log16"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+before=$("$REAL_GIT" -C "$root/tower" rev-parse main)
+set +e
+out=$(mc sync --checkout "$root/tower" 2>&1)
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || fail "16: a refused fast-forward must not report success"
+[ "$rc" -ne 4 ] \
+  || fail "16: a locked index is not a divergence — it is retryable, and claiming divergent history sends the operator nowhere"
+[ "$rc" -eq 3 ] || fail "16: expected the transient exit code 3, got $rc"
+[ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] \
+  || fail "16: main moved despite the refusal"
+printf '%s\n' "$out" | grep -qi 'has diverged' \
+  && fail "16: a locked index was misreported as a divergence: $out"
+printf '%s\n' "$out" | grep -qi 'retry' \
+  || fail "16: the refusal did not name the actual remedy (retry): $out"
+rm -f "$root/tower/.git/index.lock"
+assert_no_rewrite 16
 
 echo "PASS: test-main-currency.sh"

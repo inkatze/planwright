@@ -141,10 +141,16 @@ than lumped together:
 | `main` is checked out in a sibling worktree | Permanent and structural, not transient | Run the sync in that checkout |
 | `origin` unreachable, but configured | Transient | Retry next cycle |
 | A credential or transport error that says "rejected" | Transient — it never reached the ref, so it is not a rejected ref update | Retry next cycle |
+| Anything else the sync cannot place (a locked index, a full disk, a permission error) | Transient, which is what an unclassified refusal has earned | Retry next cycle |
 
 Only the colliding file blocks a sync, never untracked files at large: a blanket
 check would refuse over any stray build artifact, so the collision is classified
 from git's own refusal rather than pre-empted.
+
+The default for an unrecognized refusal is deliberately the transient one. "Retry
+next cycle" is the recovery an unknown failure has actually earned; "your history
+has diverged" is a diagnosis the sync cannot support, and sending you after
+history that does not exist is the more expensive mistake of the two.
 
 The distinctions are the point. A dirty tree reported as "divergence" sends you
 hunting history that does not exist; a permanent refusal reported as "retry next

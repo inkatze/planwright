@@ -72,8 +72,12 @@
 # EXIT CODES:
 #   0  synced (or already current), or the legitimate no-origin solo flow
 #   2  usage error
-#   3  fail closed: a fetch failure against a configured `origin` — `main` is
-#      unmoved and possibly stale; do not proceed on it, retry next cycle
+#   3  fail closed, transient: a fetch failure against a configured `origin`, or
+#      a fast-forward refused for a reason that is not divergence (a locked index,
+#      a full disk, a permission error) — `main` is unmoved and possibly stale; do
+#      not proceed on it, retry next cycle. The unclassifiable case lands here
+#      rather than on 4, since "retry" is the recovery an unknown refusal has
+#      actually earned and "you have divergent history" is not.
 #   4  divergence: the fast-forward was refused because local `main` is not an
 #      ancestor of `origin/main`; surface for the operator, never force
 #   5  `main` is checked out in a sibling worktree of this clone, so its ref
@@ -160,6 +164,19 @@ is_branch_name() {
   esac
   # Catches every C0 control character (tab and newline included) plus DEL.
   [ "$(printf '%s' "$1" | tr -d '\000-\037\177')" = "$1" ] || return 1
+  # Then git's OWN ref grammar, as the backstop for everything above that this
+  # list does not try to encode: dot-led path components, `.lock` segments, and
+  # whatever a later git tightens. Hand-maintaining that against git's
+  # per-component rules is a losing game — a value git rejects fails the fetch as
+  # a PERMANENT error, which the classifier downstream would then surface as
+  # "retry next cycle", a recovery that can never succeed. Purely syntactic, so
+  # it needs no repository and runs before this script has entered one.
+  #
+  # It cannot REPLACE the checks above, only extend them: `refs/heads/+main` and
+  # `refs/heads/@` are both perfectly legal ref names. The checks above are about
+  # what the value does in ARGUMENT and REFSPEC position, which git's validator
+  # has no way to know; this call is about whether it names a ref at all.
+  git check-ref-format "refs/heads/$1" 2>/dev/null || return 1
   return 0
 }
 
@@ -313,13 +330,23 @@ if [ "$current_branch" = "$main_ref" ] && [ "$in_work_tree" = true ]; then
       *'Not possible to fast-forward'* | *'not possible to fast-forward'* | *'divergent'*)
         err "$main_ref has diverged from origin/$main_ref — the fast-forward was refused"
         err "a per-tower $main_ref should only ever fast-forward, so this is unexpected local history; resolve it yourself — this path will never force, rebase, or reset"
+        err_git_said "$merge_err"
+        exit 4
         ;;
       *)
-        err "the fast-forward of $main_ref was refused; $main_ref is unmoved"
+        # An unrecognized refusal is NOT reported as divergence. A locked index
+        # (another git process in this checkout), a full disk, or a permission
+        # error all land here, and every one of them is retryable — while
+        # "your history has diverged, go resolve it" is a diagnosis this path has
+        # not earned and cannot support. So the unknown case says only what is
+        # certain: the fast-forward did not happen, $main_ref is untouched, try
+        # again next cycle. This also matches the ref-update path below, which
+        # already treats an unclassified failure as transient.
+        err "the fast-forward of $main_ref was refused for a reason that is not divergence; $main_ref is unmoved — retry next cycle"
+        err_git_said "$merge_err"
+        exit 3
         ;;
     esac
-    err_git_said "$merge_err"
-    exit 4
   fi
   after=$(git rev-parse --verify "refs/heads/$main_ref")
   if [ "$before" = "$after" ]; then
