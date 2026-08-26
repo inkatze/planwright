@@ -203,7 +203,8 @@ Active bundle's four files, run the **stale-anchor pre-flight**: recompute with
 the brief's most recent recorded command; a mismatch, an absent or unparseable
 entry, and a failed recompute each block that edit and surface instead of
 editing on top of it (findings elsewhere in the diff keep routing normally).
-An **expression-only** fix then lands the edit, its dated Changelog entry, and
+A blocked finding is never left undispositioned: it queues as an irreducible
+fork whose route is the anchor repair. An **expression-only** fix then lands the edit, its dated Changelog entry, and
 the marked `Class: expression-only` self-re-anchor entry citing it in **one
 commit**. A **meaning-class** fix is never applied: leave the bundle untouched
 and queue it as an irreducible fork naming a `/spec-kickoff` delta

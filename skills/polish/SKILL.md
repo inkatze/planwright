@@ -137,8 +137,9 @@ the per-iteration audit trail.
 pre-flight before its first edit to a Ready or Active bundle's four files, per
 the meta-spec's writer prose (`doctrine/spec-format.md`, *Sign-off records and
 content anchors*): a mismatch, an absent or unparseable entry, and a failed
-recompute block that edit alike, and the loop repairs none of them — it
-surfaces the condition in the handoff and drains the rest of the pass. An
+recompute block that edit alike, and the loop repairs none of them: the
+blocked finding queues as an irreducible fork whose route is the anchor
+repair, and the iteration drains its remaining findings normally. An
 expression-only fix carries its dated Changelog entry and marked
 `Class: expression-only` self-re-anchor entry in the same commit as the edit,
 so the ritual never spans an iteration boundary. A meaning-class fix stays
