@@ -174,7 +174,7 @@ screen_file() {
     # routinely (a UTF-16 note, an exported keystore), and a screen that steps
     # over a whole class of file while reporting clean is the failure this
     # guard exists to prevent.
-    lines=$(grep -a -n -E -e "$rpat" "$1" 2>/dev/null | cut -d: -f1)
+    lines=$(grep -a -n -E -e "$rpat" -- "$1" 2>/dev/null | cut -d: -f1)
     for ln in $lines; do
       [ -n "$ln" ] || continue
       printf '%s:%s: %s (value redacted)\n' \
@@ -195,11 +195,21 @@ if [ "$staged" -eq 1 ]; then
   #
   # `core.quotePath=false` and `-z` because the default spelling of this command
   # C-quotes any non-ASCII path, and the blob then does not resolve under that
-  # literal name. The read below is still line-oriented, so a path carrying a
-  # newline splits and fails to resolve — which is why an unresolvable path is a
-  # refusal rather than a skip. Nothing here may turn "unexamined" into "clean".
+  # literal name.
   git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACM \
     >"$work/staged.z" || exit 2
+
+  # The read below is line-oriented, and POSIX sh cannot split on NUL, so a path
+  # carrying a newline would break into pieces. That is not merely lossy: pick
+  # the pieces to match other staged names and every one of them resolves, so
+  # the crafted path is screened zero times and the walk still reports clean.
+  # Refuse the whole run instead. Nothing here may turn "unexamined" into
+  # "clean", and a name nobody needs is not worth a partial guarantee.
+  if [ "$(tr -d '\0' <"$work/staged.z" | tr -dc '\n' | wc -c)" -ne 0 ]; then
+    echo "inception-secret-screen: a staged path contains a newline, which this screen cannot read unambiguously; commit refused" >&2
+    echo "inception-secret-screen: rename it, or bypass deliberately with --no-verify" >&2
+    exit 2
+  fi
   tr '\0' '\n' <"$work/staged.z" >"$work/staged.txt" || exit 2
   n=0
   unreadable=0

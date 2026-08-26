@@ -227,11 +227,21 @@ if "$pw/scripts/inception-render.sh" "$top" >/dev/null 2>&1; then
   # the step-1 screen never saw — an edit that is not staged still reaches the
   # HTML. Screen it BEFORE staging it, or step 3 quietly walks around the hard
   # stop in step 1 and commits the credential itself.
-  if [ -x "$pw/scripts/inception-secret-screen.sh" ] \
-    && ! "$pw/scripts/inception-secret-screen.sh" "$top/exports/venture.html"; then
-    echo "venture pre-commit: the regenerated export looks like it carries a credential; commit refused." >&2
-    echo "venture pre-commit: it came from the bundle in your working tree — fix it there, then commit." >&2
-    exit 1
+  if [ -x "$pw/scripts/inception-secret-screen.sh" ]; then
+    src=0
+    "$pw/scripts/inception-secret-screen.sh" "$top/exports/venture.html" || src=$?
+    # 1 and 2 both block, but they are different facts and get different words:
+    # saying "carries a credential" when the screen could not run sends the
+    # operator hunting through their bundle for something that is not there.
+    if [ "$src" -eq 1 ]; then
+      echo "venture pre-commit: the regenerated export looks like it carries a credential; commit refused." >&2
+      echo "venture pre-commit: it came from the bundle in your working tree — fix it there, then commit." >&2
+      exit 1
+    elif [ "$src" -ne 0 ]; then
+      echo "venture pre-commit: the secret screen could not check the regenerated export (exit $src); commit refused." >&2
+      echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
+      exit 1
+    fi
   fi
   git add "$top/exports/venture.html" 2>/dev/null || true
 else

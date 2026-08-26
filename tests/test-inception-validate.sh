@@ -571,6 +571,18 @@ rc=$?
 assert_eq "baseline: rewording a prose subheading passes" "0" "$rc"
 assert_not_contains "baseline: no id is claimed to have vanished" "BASE-ID-VANISHED" "$out"
 
+# brief.md reaches the tolerant path by carrying no id type at all; a REGISTER
+# file reaches it by failing the typed grammar instead. Different branch, so it
+# gets its own case — a heading the content pass already rejects on ID-GRAMMAR
+# must not ALSO be tracked as an id that can then vanish.
+b="$(git_bundle)"
+printf '\n### Working notes\n\nScratch context for the ops leads.\n' >>"$b/plan.md"
+(cd "$b" && git add -A && git commit --no-verify -qm "a heading in a register file") >/dev/null 2>&1
+sed_i "$b/plan.md" 's|^### Working notes$|### Notes|'
+out="$("$VALIDATE" --baseline HEAD "$b" 2>&1)"
+assert_contains "baseline: a malformed register heading is still a grammar finding" "ID-GRAMMAR" "$out"
+assert_not_contains "baseline: but it is not tracked as a vanishing id" "BASE-ID-VANISHED" "$out"
+
 # The guard has to let the venture keep moving: appending a gate record and
 # minting a new id are the normal way a bundle grows, and blocking either would
 # make the stakeholder-commit guard useless in exactly the repos that need it.

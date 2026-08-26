@@ -178,17 +178,39 @@ assert_not_contains "staged non-ASCII filename: the value is redacted" "IOSFODNN
 (cd "$awk_repo" && git rm -q --cached -- "café.md" >/dev/null 2>&1 && rm -f "café.md")
 
 # A newline in a staged path is the other end of the same problem: the name
-# survives quoting but not the line-oriented read that follows it. Whatever the
-# screen does here, it may not be "exit 0" — nothing may turn "unexamined" into
-# "clean", which is the failure mode the quoting case above is one instance of.
+# survives quoting but not the line-oriented read that follows it, and POSIX sh
+# cannot split on NUL. Splitting is not merely lossy — name the pieces after
+# other staged files and each piece resolves, so the crafted path is screened
+# zero times while the walk still reports clean. The screen must refuse the run
+# (exit 2), not flag a leak and not pass.
 nl_name="$(printf 'two\nlines.md')"
 (cd "$awk_repo" && cp "$tmp/aws.md" "$nl_name" && git add -- "$nl_name") >/dev/null 2>&1
 out="$(cd "$awk_repo" && "$SCREEN" --staged 2>&1)"
 rc=$?
-assert_eq "staged newline-bearing path: does not report clean" "no" \
-  "$(if [ "$rc" -eq 0 ]; then echo yes; else echo no; fi)"
+assert_eq "staged newline-bearing path: refuses the run" "2" "$rc"
+assert_contains "staged newline-bearing path: says why" "contains a newline" "$out"
 assert_not_contains "staged newline-bearing path: the value is redacted" "IOSFODNN7EXAMPLE" "$out"
 (cd "$awk_repo" && git rm -q --cached -- "$nl_name" >/dev/null 2>&1 && rm -f "$nl_name")
+
+# The split-and-hide case explicitly: the crafted path is named so its pieces
+# collide with two other staged files, which is what makes every piece resolve
+# and the payload itself get read zero times.
+(
+  cd "$awk_repo" || exit 1
+  printf 'nothing here\n' >a
+  printf 'nothing here\n' >b.md
+  cp "$tmp/aws.md" "$(printf 'a\nb.md')"
+  git add -A
+) >/dev/null 2>&1
+out="$(cd "$awk_repo" && "$SCREEN" --staged 2>&1)"
+rc=$?
+assert_eq "staged path crafted to split into siblings: not reported clean" "2" "$rc"
+assert_not_contains "staged path crafted to split into siblings: value redacted" "IOSFODNN7EXAMPLE" "$out"
+(
+  cd "$awk_repo" || exit 1
+  git rm -q --cached -- a b.md "$(printf 'a\nb.md')" >/dev/null 2>&1
+  rm -f a b.md "$(printf 'a\nb.md')"
+) >/dev/null 2>&1
 
 # grep decides on its own what counts as binary, and a file it classifies that
 # way is skipped entirely rather than merely matched differently. A venture repo
