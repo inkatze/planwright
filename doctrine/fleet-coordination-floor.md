@@ -201,7 +201,7 @@ is the contract they satisfy, not a second specification of them.
 
 | Resource class | Open | Close | Detector |
 | --- | --- | --- | --- |
-| Process tree | the rung's launch, recording the supervisor and worker pids under the worker's state directory and the registry record written at the dispatch seam | the rung's `stop` — SIGTERM then SIGKILL after a bounded grace, matched on the worker's state-directory path and never a bare process name; autonomously, `fleet-cleanup.sh process` | `scripts/fleet-death-evidence.sh`'s positive verdict, feeding the four-state classifier (`working` / `waiting-on-a-human` / `finished-but-unreaped` / `dead`) |
+| Process tree | the rung's launch, recording the supervisor and worker pids under the worker's state directory and the registry record written at the dispatch seam | the rung's `stop` — SIGTERM then SIGKILL after a bounded grace, matched on the worker's state-directory path and never a bare process name; autonomously, `fleet-cleanup.sh process`, under the same self-targeting guard, kill-switch gate, and audit trail | `scripts/fleet-death-evidence.sh`'s positive verdict, feeding the four-state classifier (`working` / `waiting-on-a-human` / `finished-but-unreaped` / `dead`) |
 | tmux window | the tmux dispatch seam creates the named window and records its `#{window_id}` as the handle (`scripts/offload-dispatch.sh`; the tower's own `new-window` on the `/orchestrate` path) | `stop` as part of the release set; autonomously `fleet-cleanup.sh window`, under its self-targeting guard, kill-switch gate, and audit trail | every pane dead (`#{pane_dead}`), the positive evidence the cleanup actuator already demands |
 | Locks | `scripts/fleet-state.sh lock` for the cross-spec store; the supervisor's own atomic `mkdir` elections (`journal.lock`, `recover.lock`) | released by the holder on the normal path; on the abnormal path a stale-age break at a documented bound, so a killed holder cannot wedge the verb permanently | the lock directory's age against that same bound |
 | Scratch temp | created under the worker's state directory at launch: the stdio fifos, the journal and init temp files, the captured result | removed with the process tree by `stop` | residue under the state directory of a worker whose session has ended |
@@ -211,26 +211,27 @@ is the contract they satisfy, not a second specification of them.
 
 Every rung in `backend-capability-contract.md` against every class above. A
 cell is that rung's instance of the class's three parts: **per contract** means
-the class row applies unchanged, and **—** means the rung structurally does not
-acquire the class. No cell is ever left blank: a class a rung acquires without
-one of the three parts is written `gap: <what is missing>`, so a gap is
-declared where the reader looks for it and never inferred from white space. A
-rung present in the capability contract and absent here is the omission
-REQ-A1.5 exists to catch.
+the class row applies unchanged, **—** means the rung structurally does not
+acquire the class, and **n/a** means the rung runs no separate worker at all,
+so the class is the tower's own rather than a worker's. No cell is ever left
+blank: a class a rung acquires without one of the three parts is written
+`gap: <what is missing>`, so a gap is declared where the reader looks for it
+and never inferred from white space. A rung present in the capability contract
+and absent here is the omission REQ-A1.5 exists to catch.
 
 | Rung | Process tree | tmux window | Locks | Scratch temp | Attention record |
 | --- | --- | --- | --- | --- | --- |
-| `tmux` | per contract | per contract | per contract | per contract | per contract |
+| `tmux` | no supervisor and no pidfile: `tmux new-window -d` spawns the worker and its `#{window_id}` is the whole record, so the tree is released by killing the window rather than by a rung `stop`, and its death evidence is `fleet-death-evidence.sh`'s `tmux-window` class, never its `process` class | per contract, minus the `stop` arm — `fleet-cleanup.sh window` is the only close | per contract — it runs the same scripts, so it takes the same store locks | — no worker state directory; the dispatch seam's own stderr capture is trap-cleaned in process | per contract |
 | `stream-json-persistent` | per contract; the close covers the supervisor *and* its children | — no window | per contract, plus the supervisor's own `journal.lock` / `recover.lock` | per contract; the stdio fifos are in the release set | per contract |
 | `headless-oneshot` | per contract; a detached one-shot, closed the same way | — no window | per contract (store locks only) | per contract; includes the captured result | per contract |
-| `subagent` | trivial — in-harness, no separate OS process; it dies with the tower | — | per contract — it runs the same scripts, so it takes the same store locks and is subject to the same stale-break | trivial — no worker state directory | trivial — the tower owns the row |
+| `subagent` | trivial — in-harness, no separate OS process; it dies with the tower | — no window | per contract — it runs the same scripts, so it takes the same store locks and is subject to the same stale-break | trivial — no worker state directory | trivial — the tower owns the row |
 | `print` | deferred → the human who runs the printed command; `print` units are exempt from the orphan/liveness predicate for exactly this reason | deferred → human | deferred → human | deferred → human | deferred → human |
 | `in-session` | n/a — no separate worker at all; every class is the tower's own | n/a | n/a | n/a | n/a |
 
 The bottom three rows are the point of the cross, not filler: `subagent`
-acquires store locks and nothing else, and owes the contract for them;
-`in-session` acquires nothing separate at all; `print` defers every part to the
-human. None of the three is exempt by silence (REQ-A1.5).
+acquires store locks and nothing else, and owes the contract for them; `print`
+defers every part to the human; `in-session` acquires nothing separate at all.
+None of the three is exempt by silence (REQ-A1.5).
 
 ## Scope boundary: adjacent mechanisms keep their own owners
 
