@@ -928,4 +928,82 @@ printf '%s\n' "$out" | grep -q "sole-tower=no" \
   || fail "gc-skip did not count toward the peer set (summary: $out)"
 echo "ok: start-epoch preserve/reset, cadence edges never lock out, gc-skip counts as a peer"
 
+# ---------------------------------------------------------------------------
+# 18. REQ-C1.3 — `attribute`: strand attribution WITH the owner's liveness.
+#     `owner` answers the dispatch question ("does a LIVE peer hold this?") and
+#     excludes the caller's own record. The fence sweep asks a different one:
+#     WHO holds this fence and are they alive — including the caller itself,
+#     whose own fences would otherwise read as orphans on every pass. Read-only:
+#     never GCs, never cadence-capped.
+# ---------------------------------------------------------------------------
+h18="$tmp/h18"
+printf 'alive\n' >"$tmp/evidence-verdict"
+run "$h18" publish --checkout "$co_a" --session-id "$uuid_b" \
+  --specs demo --fenced demo/4,demo/5 --pid 4242 \
+  >/dev/null || fail "attribute fixture publish failed"
+
+out=$(run "$h18" attribute --checkout "$co_a" --session-id "$uuid_a" demo/4) \
+  || fail "attribute (live peer) failed"
+[ "$out" = "owner	$uuid_b	live" ] || fail "attribute live peer: got '$out'"
+
+out=$(run "$h18" attribute --checkout "$co_a" --session-id "$uuid_a" demo/9) \
+  || fail "attribute (no holder) failed"
+[ "$out" = "unknown-owner" ] || fail "attribute unattributed fence: got '$out'"
+
+# The caller's OWN fences attribute to itself, live, with no death probe: a
+# tower must not read its own in-flight units as orphaned strands.
+: >"$tmp/evidence-calls"
+out=$(run "$h18" attribute --checkout "$co_a" --session-id "$uuid_b" demo/4) \
+  || fail "attribute (own record) failed"
+[ "$out" = "owner	$uuid_b	live" ] || fail "attribute own fence: got '$out'"
+[ ! -s "$tmp/evidence-calls" ] || fail "attribute probed liveness for its own record"
+
+# A positively-dead owner is REPORTED, not GC'd: the sweep needs the name to
+# put in the strand it surfaces, and `attribute` is read-only.
+printf 'dead\n' >"$tmp/evidence-verdict"
+before=$(record_count "$(run "$h18" surface --checkout "$co_a")")
+out=$(run "$h18" attribute --checkout "$co_a" --session-id "$uuid_a" demo/5) \
+  || fail "attribute (dead owner) failed"
+[ "$out" = "owner	$uuid_b	dead" ] || fail "attribute dead owner: got '$out'"
+after=$(record_count "$(run "$h18" surface --checkout "$co_a")")
+[ "$before" = "$after" ] || fail "attribute GC'd a record (it must be read-only)"
+
+printf 'unknown\n' >"$tmp/evidence-verdict"
+out=$(run "$h18" attribute --checkout "$co_a" --session-id "$uuid_a" demo/5) \
+  || fail "attribute (unknown liveness) failed"
+[ "$out" = "owner	$uuid_b	unknown" ] || fail "attribute unknown liveness: got '$out'"
+
+# A crafted unit ref never reaches a path or a scan.
+printf 'alive\n' >"$tmp/evidence-verdict"
+for bad in "../evil/4" "demo" "demo/4/5" "demo/x" ""; do
+  rc=0
+  run "$h18" attribute --checkout "$co_a" --session-id "$uuid_a" "$bad" \
+    >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "attribute accepted a malformed unit ref '$bad' (exit $rc)"
+done
+
+# Reused-pid ambiguity (REQ-C1.3): a record whose identity is the COMPOSITE
+# p<pid>.t<start-hash>.c<checkout-hash> pins the start time of the process it
+# was published from. A live pid whose start hash no longer matches is a
+# recycled pid, not the tower — unclassifiable, so it is surfaced as
+# `ambiguous` rather than silently honored as a live owner.
+h18b="$tmp/h18b"
+run "$h18b" publish --checkout "$co_a" --pid $$ \
+  --specs demo --fenced demo/7 >/dev/null || fail "composite-identity publish failed"
+comp=$(run "$h18b" identity --checkout "$co_a" --pid $$)
+sub18=$(run "$h18b" surface --checkout "$co_a")
+out=$(run "$h18b" attribute --checkout "$co_a" --session-id "$uuid_a" demo/7) \
+  || fail "attribute (composite, matching start hash) failed"
+[ "$out" = "owner	$comp	live" ] || fail "attribute composite live: got '$out'"
+
+# Rewrite the record under an identity whose start-time hash disagrees with
+# the live process at that pid — exactly what a recycled pid looks like.
+skew="p$$.t999999999.c${comp##*.c}"
+sed "s/	$comp	/	$skew	/" "$sub18/$comp" >"$sub18/$skew"
+rm -f "$sub18/$comp"
+out=$(run "$h18b" attribute --checkout "$co_a" --session-id "$uuid_a" demo/7) \
+  || fail "attribute (reused pid) failed"
+[ "$out" = "owner	$skew	ambiguous" ] || fail "attribute reused pid: got '$out'"
+echo "ok: attribute resolves a fence's owner with liveness, read-only, self included"
+
 echo "PASS: all fleet-presence tests"

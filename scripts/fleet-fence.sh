@@ -517,6 +517,271 @@ if [ "$cmd" = gc ]; then
   exit $?
 fi
 
+# --- the durable, dedup'd operator sink (REQ-C1.7, D-7) --------------------
+#
+# "Surfaced" means a durable, deduplicated, operator-facing entry delivered by
+# PUSH through `orchestration-fleet`'s attention surface — never a transient
+# log line, never poll-only. That surface is consumed as-is (REQ-D1.1); this
+# script only supplies the keys and the text.
+#
+# Deduplication IS the key. Every entry is keyed by a digest of the fence-ref
+# name plus the owner identity (record identity for an anomaly), so the same
+# strand re-observed on successive passes upserts the same row rather than
+# stacking a new one — and the row is only written when it is absent, so its
+# timestamp stays pinned to FIRST observation.
+#
+# That pinned timestamp is also the tower's cross-pass memory. A stateless
+# tower keeps no local store, so the one-pass grace re-check an unknown-owner
+# orphan needs (REQ-C1.3) lives in the sink: the first sighting writes a
+# TENTATIVE entry stamped with its first-seen time, and a later pass promotes
+# it to a surfaced strand only once a heartbeat interval has elapsed since
+# then. Because the stamp is in the shared sink rather than in the tower, the
+# grace window holds cross-tower: a second tower sweeping immediately after
+# the first reads the same first-seen time and cannot short-circuit it.
+#
+# Data hygiene (REQ-D1.4): an entry names the unit and the owner's TOWER
+# IDENTITY only. The peer's checkout path and its death handle never reach it
+# — `attribute` returns neither.
+
+FA="$script_dir/fleet-attention.sh"
+FP="$script_dir/fleet-presence.sh"
+OS="$script_dir/orchestrate-state.sh"
+
+sink_cache=""
+
+# key_digest <text> — a bounded, grammar-safe dedup key. The attention
+# surface's handle grammar admits no `/`, and a ref name plus a tower identity
+# can exceed its length bound, so the key is a digest and the human-readable
+# unit rides the scope and question fields.
+key_digest() {
+  printf '%s' "$1" | git -C "$checkout" hash-object --stdin 2>/dev/null | cut -c1-12
+}
+
+sink_load() {
+  sink_cache=$("$FA" render 2>/dev/null) || sink_cache=""
+}
+
+# sink_age <worker> — seconds since the entry was first written, or empty when
+# there is no such entry. `render` prints `[state] scope worker (Ns)`.
+sink_age() {
+  printf '%s\n' "$sink_cache" | awk -v w="$1" '
+    NF >= 2 {
+      n = $(NF - 1); age = $NF
+      sub(/^\(/, "", age); sub(/s\)$/, "", age)
+      if (n == w) { print age; exit }
+    }'
+}
+
+sink_clear() {
+  "$FA" clear "$1" >/dev/null 2>&1 || true
+}
+
+# sink_surface <worker> <scope> <question> — raise ONE actionable operator
+# item offering the three defined actions, then push it through the configured
+# notification channel. Delivery failures are surfaced, never fatal: the entry
+# is already durable, and a notification channel is a courtesy on top of it.
+#
+# Entry text is ASCII. The attention surface's text grammar refuses any value
+# that changes under `sanitize_printable`, and that sanitizer strips C1
+# (0x80-0x9F) — which are continuation bytes inside every non-ASCII UTF-8
+# sequence, so an em dash or a typographic quote is refused as a control byte.
+sink_surface() {
+  ss_rc=0
+  "$FA" fork "$1" "$2" "$3" investigate 'reclaim|investigate|dismiss' "$1" high \
+    >/dev/null 2>&1 || ss_rc=$?
+  case "$ss_rc" in
+    0) ;;
+    3)
+      # The surface already holds a queued human decision for this key; the
+      # operator has it. Do not clobber it, and do not re-notify.
+      return 0
+      ;;
+    *)
+      err "could not raise the operator item for $(sanitize_printable "$2" "(unprintable)") — the strand is reported here but not durably surfaced"
+      return 1
+      ;;
+  esac
+  "$FA" notify "$3" >/dev/null 2>&1 || err "the strand was recorded but the notification channel did not accept the push"
+  return 0
+}
+
+# --- sweep (REQ-C1.3, REQ-C1.5, REQ-C1.7) ----------------------------------
+
+if [ "$cmd" = sweep ]; then
+  fences=$(ls_remote_fences "$NS_ROOT/$spec/*") || {
+    err "transient origin failure listing the fence namespace — failing closed: nothing is classified or GC'd this pass, retry next pass (REQ-C1.3)"
+    exit 4
+  }
+  if [ -z "$fences" ]; then
+    printf 'summary\tfences=0\tstrands=0\n'
+    exit 0
+  fi
+
+  # The identity flags the sweep was invoked with are forwarded verbatim to
+  # `attribute`, so the tower's OWN fences attribute to itself instead of
+  # reading as orphans.
+  set --
+  if [ -n "$session_id" ]; then
+    set -- --session-id "$session_id"
+  else
+    set -- --pid "$pid"
+  fi
+
+  # Terminality is the derivation engine's answer, not a second reading of the
+  # same evidence: `completed` is exactly "PR merged, or the ledger marks it
+  # done". An OPEN, unmerged PR derives in-progress, so it is not terminal and
+  # the fence rightly persists (REQ-C1.5).
+  spec_dir="$checkout/specs/$spec"
+  state=""
+  evidence_ok=1
+  if [ -d "$spec_dir" ]; then
+    state=$("$OS" "$spec_dir" 2>/dev/null) || evidence_ok=0
+    # A configured-but-failing gh probe leaves the derivation partial. Acting
+    # on it could GC the fence of a unit that is not terminal, so the pass
+    # fails closed: classify nothing, retry next pass (REQ-C1.3).
+    if printf '%s\n' "$state" | grep -q "^degraded${TAB}"; then
+      evidence_ok=0
+    fi
+  else
+    evidence_ok=0
+  fi
+
+  sink_load
+  strands=0
+  count=0
+
+  for ref in $fences; do
+    count=$((count + 1))
+    unit=${ref#"$NS_ROOT/$spec/"}
+
+    # A ref inside the namespace whose tail is off-grammar was not written by
+    # this mechanism. It is surfaced as an anomaly and never parsed into a ref
+    # operation — the containment rule applies to what we READ, not only to
+    # what we write (REQ-D1.5).
+    if [ "$unit" = "$ref" ] || ! is_unit_id "$unit"; then
+      akey="pwfence-x.$(key_digest "$ref")"
+      if [ -z "$(sink_age "$akey")" ]; then
+        sink_surface "$akey" "$spec:anomaly" \
+          "planwright fence anomaly: the ref $(sanitize_printable "$ref" "(unprintable)") sits in this spec's fence namespace but its unit id is off-grammar, so nothing parsed it and nothing touched it. Choose: reclaim (delete it yourself), investigate, or dismiss." || true
+      fi
+      printf 'anomaly\t%s\t%s\n' "$ref" "off-grammar-unit-id"
+      continue
+    fi
+
+    # Attribution, not a correctness read (D-7): it maps the fence to an owner
+    # so a strand can be NAMED. A missing or unreadable presence surface
+    # degrades to unknown-owner, which is safe precisely because presence is
+    # never on the correctness path (D-5, D-11).
+    attr=$("$FP" attribute --checkout "$checkout" "$@" "$spec/$unit" 2>/dev/null) || attr=""
+    case "$attr" in
+      "owner$TAB"*)
+        owner=$(printf '%s' "$attr" | awk -F"$TAB" '{print $2}')
+        liveness=$(printf '%s' "$attr" | awk -F"$TAB" '{print $3}')
+        ;;
+      *)
+        owner="unknown-owner"
+        liveness="unattributed"
+        ;;
+    esac
+
+    skey="pwfence.$(key_digest "$ref|$owner")"
+    tkey="pwfence-t.$(key_digest "$ref")"
+    scope="$spec:$unit"
+
+    # An already-surfaced strand is not re-probed every pass: inside the
+    # discovery cadence window it is skipped entirely, so strands the operator
+    # has not yet resolved cannot drive an unbounded per-pass fan-out of
+    # `origin`/`gh` reads (REQ-C1.3).
+    age=$(sink_age "$skey")
+    case "$age" in
+      "" | *[!0-9]*) ;;
+      *)
+        if [ "$min_interval" -gt 0 ] && [ "$age" -lt "$min_interval" ]; then
+          printf 'suppressed\t%s\n' "$ref"
+          continue
+        fi
+        ;;
+    esac
+
+    # TERMINAL FIRST, then liveness: a terminal unit's fence is completed
+    # work, GC'd regardless of whether its owner is alive, and its sink entry
+    # goes with it so the sink stays bounded (REQ-C1.5, REQ-C1.7).
+    #
+    # This check runs even on a DEGRADED pass. `completed` outranks the gh
+    # probe — it is git ground truth (a merge-reachable branch or the durable
+    # completion trailer) — so a positive answer stays positive when gh cannot
+    # be reached. What a degraded pass cannot rule out is the reverse: a unit
+    # whose ONLY terminal evidence is its merged PR reads as non-terminal, so
+    # everything below the terminal check holds rather than surfacing a strand
+    # that may be finished work (REQ-C1.3, fail closed: do not act, retry).
+    if printf '%s\n' "$state" \
+      | awk -F"$TAB" -v u="$unit" '$1 == "task" && $2 == u && $3 == "completed" { f = 1 } END { exit !f }'; then
+      refs="$ref"
+      if gc_refs; then
+        sink_clear "$tkey"
+        sink_clear "$skey"
+        sink_clear "pwfence.$(key_digest "$ref|unknown-owner")"
+      else
+        printf 'gc-failed\t%s\n' "$ref"
+      fi
+      continue
+    fi
+
+    if [ "$evidence_ok" != 1 ]; then
+      printf 'hold\t%s\t%s\n' "$ref" "evidence-degraded"
+      continue
+    fi
+
+    case "$liveness" in
+      live)
+        # In flight and alive: honored, untouched. Any tentative entry from a
+        # pass where the owner's heartbeat had not yet caught up is swept.
+        sink_clear "$tkey"
+        printf 'honored\t%s\t%s\n' "$ref" "$owner"
+        continue
+        ;;
+      dead | unknown | ambiguous) ;;
+      *)
+        # No live or dead record lists this fence. That may simply be
+        # heartbeat lag between a peer's fence push and its next refresh, so
+        # surfacing now would raise a FALSE strand on a unit legitimately in
+        # flight. Hold it tentative and let the grace window decide.
+        tage=$(sink_age "$tkey")
+        case "$tage" in
+          "" | *[!0-9]*)
+            "$FA" park "$tkey" "$scope" \
+              "notification:planwright-fence tentative: the fence for $scope is listed by no presence record yet, which is also what heartbeat lag looks like. Held for one heartbeat interval before it is raised as a strand." \
+              >/dev/null 2>&1 || err "could not record the tentative entry for $scope; the grace re-check degrades to re-observing it next pass"
+            printf 'tentative\t%s\n' "$ref"
+            continue
+            ;;
+          *)
+            if [ "$tage" -lt "$grace" ]; then
+              printf 'tentative\t%s\n' "$ref"
+              continue
+            fi
+            ;;
+        esac
+        liveness=orphan
+        ;;
+    esac
+
+    # A strand: SURFACED, never auto-reclaimed. Reclaiming a dead owner's
+    # in-flight unit is a reserved operator decision (D-7, D-13), so the fence
+    # ref is left exactly where it is and the operator gets an actionable item.
+    strands=$((strands + 1))
+    if [ -z "$(sink_age "$skey")" ]; then
+      sink_surface "$skey" "$scope" \
+        "planwright strand: unit $scope is fenced by tower $(sanitize_printable "$owner" "(unknown)") ($liveness) and the unit is not terminal, so no live tower will carry it to merge. Nothing was reclaimed. Choose: reclaim (take the unit over yourself), investigate, or dismiss." || true
+      sink_clear "$tkey"
+    fi
+    printf 'strand\t%s\t%s\t%s\n' "$ref" "$owner" "$liveness"
+  done
+
+  printf 'summary\tfences=%s\tstrands=%s\n' "$count" "$strands"
+  exit 0
+fi
+
 # --- fence (the expect-absent CAS, REQ-C1.1, REQ-C1.2, REQ-C1.6) -----------
 
 # push_status <ref> — the per-ref porcelain status flag for <ref>, or empty

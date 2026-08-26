@@ -327,8 +327,15 @@ run 0 "gc/list-cleanup-2" "$FF" gc --checkout "$A" --spec other 1 >/dev/null
 # REQ-C1.1 / REQ-C1.3 / REQ-C1.5 — Architecture A is ABSENT by construction
 # ==========================================================================
 
-for banned in "claims/" "reclaim" "quarantine" "dead-letter" "rename-aside" "under-lock"; do
-  if grep -niE "^[^#]*$banned" "$FF" >/dev/null 2>&1; then
+# The MECHANISMS Architecture A needed, not the vocabulary: `reclaim` is a
+# legitimate word here because it names the OPERATOR's action on a surfaced
+# strand. What must be absent is machinery that performs it — a claim
+# sub-surface, a per-unit reclaim lock and its under-lock re-read, the
+# four-residue GC, and the record quarantine. (That nothing is auto-reclaimed
+# is asserted behaviourally in the sweep suite; this is the structural half.)
+for banned in "claims/" "reclaim[-_]lock" "quarantine" "dead-letter" "rename-aside" \
+  "under-lock" "orchestrate-lock" "fleet-state.sh['\"]* lock" "\.lock"; do
+  if grep -nE "^[^#]*($banned)" "$FF" >/dev/null 2>&1; then
     fail "Architecture A residue: '$banned' appears on a code line of fleet-fence.sh"
   fi
 done
