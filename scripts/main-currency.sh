@@ -233,6 +233,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Establish the dependency BEFORE the grammar check, because that check now asks
+# git itself whether the ref name is legal. Without this, a missing git makes
+# `check-ref-format` return 127, which reads as "the value is malformed" and
+# reports a perfectly well-formed `--main-ref` as the problem — blaming the
+# operator's argument for an absent dependency.
+command -v git >/dev/null 2>&1 || {
+  err "git not found on PATH; this sync is a git operation and cannot run without it"
+  exit 2
+}
+
 is_branch_name "$main_ref" || {
   err "refusing a malformed --main-ref '$(sanitize_printable "$main_ref")'"
   exit 2

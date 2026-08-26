@@ -617,4 +617,54 @@ printf '%s\n' "$out" | grep -qi 'retry' \
 rm -f "$root/tower/.git/index.lock"
 assert_no_rewrite 16
 
+# 17. A missing `git` is reported as a missing dependency, not as a malformed
+#     `--main-ref`. The grammar check asks git itself whether a ref name is
+#     legal, so without an up-front dependency check a `git` that is absent
+#     returns 127, reads as "the value is malformed", and blames a perfectly
+#     well-formed argument for the real problem.
+#
+#     The fixture builds a PATH carrying the shell utilities the script uses and
+#     deliberately no git, rather than an empty one — an empty PATH would fail to
+#     find the shell itself and prove nothing about this path.
+nogit_bin="$tmp/nogit-bin"
+mkdir -p "$nogit_bin"
+for u in sh bash printf tr cat dirname pwd; do
+  u_path=$(command -v "$u" 2>/dev/null) && ln -sf "$u_path" "$nogit_bin/$u"
+done
+if PATH="$nogit_bin" command -v git >/dev/null 2>&1; then
+  fail "17: the fixture PATH still resolves git, so this scenario proves nothing"
+fi
+root=$(new_fixture nogit)
+PW_GIT_LOG="$tmp/log17"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+set +e
+out=$(PATH="$nogit_bin" /bin/bash "$MC" sync --checkout "$root/tower" --main-ref main 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 2 ] || fail "17: a missing git must be a usage refusal (exit 2), got $rc: $out"
+printf '%s\n' "$out" | grep -qi 'git not found' \
+  || fail "17: a missing git was not named as the cause: $out"
+printf '%s\n' "$out" | grep -qi 'malformed' \
+  && fail "17: a missing git was blamed on the --main-ref value: $out"
+
+# 18. The merge path CREATES a local `main` that does not exist yet. A fresh
+#     checkout that has never had the branch is still a fast-forward case — from
+#     nothing to origin's tip — and the output contract reports the new oid.
+root=$(new_fixture createmain)
+"$REAL_GIT" -C "$root/tower" checkout --quiet --detach
+"$REAL_GIT" -C "$root/tower" branch --quiet -D main
+PW_GIT_LOG="$tmp/log18"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+"$REAL_GIT" -C "$root/tower" rev-parse --verify --quiet refs/heads/main >/dev/null \
+  && fail "18: the fixture still has a local main, so this scenario proves nothing"
+out=$(mc sync --checkout "$root/tower") \
+  || fail "18: sync failed when the local main did not exist yet: $out"
+[ "$("$REAL_GIT" -C "$root/tower" rev-parse main)" = "$("$REAL_GIT" -C "$root/origin.git" rev-parse main)" ] \
+  || fail "18: main was not created at origin/main"
+printf '%s\n' "$out" | grep -q '^main	' \
+  || fail "18: the main line must carry the newly created oid: $out"
+assert_no_rewrite 18
+
 echo "PASS: test-main-currency.sh"
