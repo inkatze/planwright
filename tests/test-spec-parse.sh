@@ -544,7 +544,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Property 5b: the SIX consumers the header-declaration and parked-map
+# Property 5b: the consumers the header-declaration, parked-map, and line-80
 # re-points added also fail closed when the lib is absent (REQ-B1.6a). Without
 # this, a broken install would leave each of them calling an undefined function
 # — under `set -u` without `set -e` that is the named fail-open, since an
@@ -557,7 +557,7 @@ fi
 mkdir "$tmp/scripts-nolib2"
 for s in spec-status.sh orchestrate-select.sh drain-gates.sh spec-validate.sh \
   check-ledger.sh tasks-pr-sync.sh echo-safety.sh orchestrate-lock.sh \
-  orchestrate-state.sh; do
+  orchestrate-state.sh spec-model.sh; do
   cp "$scripts_dir/$s" "$tmp/scripts-nolib2/"
 done
 
@@ -593,6 +593,11 @@ nolib_refuses "orchestrate-select.sh" "$tmp/scripts-nolib2/orchestrate-select.sh
 nolib_refuses "drain-gates.sh" "$tmp/scripts-nolib2/drain-gates.sh" "$tmp/nolib-root"
 nolib_refuses "spec-validate.sh" "$tmp/scripts-nolib2/spec-validate.sh" "$tmp/nolib-root/corpus"
 nolib_refuses "check-ledger.sh" "$tmp/scripts-nolib2/check-ledger.sh" "$tmp/nolib-root/corpus/tasks.md"
+# The bundle reader takes the same refusal as the other two line-80 consumers
+# above: it degrades on an unreadable bundle FILE (exit 0, REQ-A1.5), but a
+# missing grammar lib is a broken install, not a degraded bundle, so it refuses
+# rather than parsing by a private copy of the rules it just gave up.
+nolib_refuses "spec-model.sh" "$tmp/scripts-nolib2/spec-model.sh" "$tmp/nolib-root/corpus"
 
 # tasks-pr-sync.sh, CLI arm: fail-closed exit 2 (the closed policy).
 if sh "$tmp/scripts-nolib2/tasks-pr-sync.sh" reconcile-status "$tmp/nolib-root/corpus" \
