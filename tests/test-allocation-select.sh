@@ -427,6 +427,27 @@ case $err in
 esac
 echo "ok: unknown keys/columns and usage errors are refused with sanitized diagnostics"
 
+# 10b. The two ways `resolve` can refuse a column read differently. A token that
+#      is not a column at all is named as unknown; a real column this key does
+#      not carry names the key instead. One shared "does not carry" diagnostic
+#      sent the reader of a typo hunting for the key that carries their token.
+reset_layers
+rc=0
+err=$(run resolve execution no-such-column 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "unknown column: exit $rc, expected 2"
+case $err in
+  *"unknown column"*) : ;;
+  *) fail "unknown column: expected an unknown-column diagnostic, got: $err" ;;
+esac
+rc=0
+err=$(run resolve offload command 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "uncarried column: exit $rc, expected 2"
+case $err in
+  *"does not carry column"*) : ;;
+  *) fail "uncarried column: expected a does-not-carry diagnostic, got: $err" ;;
+esac
+echo "ok: an unknown column and an uncarried column are distinct diagnostics"
+
 # 11. Repo-drift: the real config/defaults.yml ships the whole knob family with
 #     the values the isolated core fixture above assumes, so the fixture cannot
 #     silently diverge from the shipped file.
@@ -456,6 +477,22 @@ rc=0
 PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken/allocation-select.sh" select execution >/dev/null 2>&1 || rc=$?
 [ "$rc" = 5 ] || fail "missing shared resolver: exit $rc, expected 5 (broken install)"
 echo "ok: a missing shared knob resolver is broken-install exit 5"
+
+# 12b. A missing echo-safety.sh is the same broken install, and must be refused
+#      the same way. The source is unguarded under a shell that does not abort
+#      on a special-builtin failure (bash outside POSIX mode, which is what the
+#      suite and CI run), so without a guard the script sails past it and
+#      sanitize_printable degrades to a command-not-found on every diagnostic
+#      path. Only echo-safety.sh is withheld here: the resolver is present, so
+#      a pass can only come from this guard and not from test 12's.
+broken_es="$tmp/broken-echo-safety"
+mkdir -p "$broken_es"
+cp "$AS" "$broken_es/allocation-select.sh"
+cp "$here/../scripts/resolve-config-knob.sh" "$broken_es/resolve-config-knob.sh"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken_es/allocation-select.sh" select execution >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "missing echo-safety.sh: exit $rc, expected 5 (broken install)"
+echo "ok: a missing echo-discipline sanitizer is broken-install exit 5"
 
 # 13. Positive control for the zero-invocation stub: the stub IS reachable on
 #     the prefixed PATH, so test 3's assertion is not vacuous.

@@ -123,8 +123,10 @@ require_delegate() {
 }
 
 # known_type <task-type>: 0 when the token is one of the fleet's task types.
-# `set -f` keeps the unquoted $TASK_TYPES word-split from glob-expanding, so a
-# token like `*` is compared literally, never expanded.
+# The candidate is quoted in the test, which is what makes a hostile token like
+# `*` compare literally rather than match anything. `set -f` covers the other
+# side: the unquoted $TASK_TYPES word-split cannot glob against the working
+# directory should that list ever carry a metacharacter.
 known_type() {
   for _kt in $TASK_TYPES; do
     [ "$1" = "$_kt" ] && return 0

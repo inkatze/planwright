@@ -114,8 +114,20 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md): a
 # hostile key or column token is stripped of control bytes before it reaches a
 # diagnostic, so it cannot drive the operator's terminal.
+#
+# Guarded rather than sourced bare, because a missing helper is not
+# self-announcing here. `.` is a POSIX special built-in, so a conforming shell
+# aborts on it; bash outside POSIX mode (what this suite and CI run) only warns
+# and carries on with sanitize_printable left undefined. The guard makes a
+# half-installed tree the documented exit 5 on either shell, the same answer
+# require_resolver gives for the other half of the install.
+echo_safety="$script_dir/echo-safety.sh"
+if [ ! -r "$echo_safety" ]; then
+  echo "allocation-select: echo-discipline sanitizer '$echo_safety' is missing or not readable — broken install" >&2
+  exit 5
+fi
 # shellcheck source=scripts/echo-safety.sh
-. "$script_dir/echo-safety.sh"
+. "$echo_safety"
 
 RESOLVER="$script_dir/resolve-config-knob.sh"
 
@@ -186,7 +198,12 @@ key_row() {
 }
 
 # col_spec <column>: 0 with col_values / col_default set for the current row,
-# 1 for a column this row does not carry. Requires key_row to have run.
+# 1 for a real column this row does not carry, 2 for a token that is not a
+# column at all. The two failures are distinct because only the first is about
+# the key: telling someone who typo'd a column name that their key "does not
+# carry" it sends them looking for the key that does. emit_row passes column
+# names it owns, so nonzero there stays the unreachable case its exit 5 covers.
+# Requires key_row to have run.
 col_spec() {
   case "$1" in
     model)
@@ -202,7 +219,7 @@ col_spec() {
       col_values=$COMMAND_VALUES
       col_default=$row_command_default
       ;;
-    *) return 1 ;;
+    *) return 2 ;;
   esac
 }
 
@@ -281,8 +298,13 @@ case "$cmd" in
       echo "allocation-select: unknown selection key '$(sanitize_printable "$1" "(unprintable key)")' ($KEYS)" >&2
       exit 2
     fi
-    if ! col_spec "$2"; then
-      echo "allocation-select: key '$(sanitize_printable "$1" "(unprintable key)")' does not carry column '$(sanitize_printable "$2" "(unprintable column)")' (model | effort | command; command is fleet-only)" >&2
+    cs_rc=0
+    col_spec "$2" || cs_rc=$?
+    if [ "$cs_rc" -eq 2 ]; then
+      echo "allocation-select: unknown column '$(sanitize_printable "$2" "(unprintable column)")' (model | effort | command)" >&2
+      exit 2
+    elif [ "$cs_rc" -ne 0 ]; then
+      echo "allocation-select: key '$(sanitize_printable "$1" "(unprintable key)")' does not carry column '$(sanitize_printable "$2" "(unprintable column)")' (command is fleet-only)" >&2
       exit 2
     fi
     resolve_col "$1" "$2" || exit $?

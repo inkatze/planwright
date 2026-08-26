@@ -299,10 +299,12 @@ fleet_command_drain: drain
 
 # The general, surface-agnostic selection family (model-allocation D-5, D-13;
 # REQ-A1.2, REQ-A1.3). scripts/allocation-select.sh resolves one
-# model/effort/command row per SELECTION KEY for every launch point, not just
-# fleet dispatch, and these knobs are its configuration. Each column resolves
-# allocation_<column>_<key> first, then the legacy fleet_<column>_<key> above,
-# then the shipped default.
+# model/effort/command row per SELECTION KEY, keyed so that any launch point
+# can read it rather than fleet dispatch alone, and these knobs are its
+# configuration. Fleet dispatch is the only launch point wired to it so far;
+# Task 6 wires the rest, so setting a non-fleet key below changes nothing at
+# its surface until then. Each column resolves allocation_<column>_<key>
+# first, then the legacy fleet_<column>_<key> above, then the shipped default.
 #
 # The nine fleet-keyed knobs ship the `unset` sentinel: that is how a flat
 # config file spells "this general knob is not set", and it is what arms the
@@ -321,13 +323,14 @@ allocation_command_bookkeeping: unset
 allocation_command_drain: unset
 
 # The three surfaces that perform no selection today: single-spec /orchestrate
-# dispatch, /execute-task's per-step sessions, and /offload dispatch. Their
-# shipped default is the explicit `inherit` sentinel, so the resolver is
-# consulted (REQ-B1.1 holds) but applies nothing and the launch keeps its
-# ambient model/effort — the capability ships dark (D-13). Set one to a model
-# alias or effort level to start governing that surface. There is no command
-# column here: only a fleet dispatch turns a selection into a slash-command
-# invocation (D-5).
+# dispatch, /execute-task's per-step sessions, and /offload dispatch. None of
+# them calls the resolver yet (Task 6 wires them), and their shipped default is
+# the explicit `inherit` sentinel, so that once wired the resolver is consulted
+# (REQ-B1.1 holds) but applies nothing and the launch keeps its ambient
+# model/effort. The capability ships dark either way (D-13). Setting one to a
+# model alias or effort level starts governing that surface from the point its
+# wiring lands, not before. There is no command column here: only a fleet
+# dispatch turns a selection into a slash-command invocation (D-5).
 allocation_model_orchestrate_dispatch: inherit
 allocation_effort_orchestrate_dispatch: inherit
 allocation_model_execute_step: inherit
