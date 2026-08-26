@@ -66,8 +66,14 @@ section() {
   # duplicate real section names, so a fence-blind scan can latch onto the
   # example and hand back the wrong body — silently, since an assert_contains
   # against a plausible-looking wrong section still reads like a real result.
+  # Both fence syntaxes count: nothing here forbids the tilde form, and only
+  # the delimiter that opened a fence closes it, so a ``` sample inside a ~~~
+  # block (or the reverse) cannot end it early.
   awk -v want="$2" '
-    /^```/ { fence = !fence }
+    /^(```|~~~)/ {
+      if (!fence) { fence = 1; opener = substr($0, 1, 1) }
+      else if (substr($0, 1, 1) == opener) { fence = 0 }
+    }
     !fence && /^#+ / {
       line = $0
       sub(/^#+ +/, "", line)
