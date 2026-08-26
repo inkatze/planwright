@@ -627,8 +627,9 @@ skills' brief writes are confined to named sections (risk register,
 observations) and never produce anchor entries.
 
 **What a writer owes when it acts on findings.** The permission above is one
-half of the contract; this is the other. Any skill that applies review
-findings to a signed (Ready or Active) bundle owes three things, in order.
+half of the contract; this is the other. Any skill that edits a signed (Ready
+or Active) bundle owes three things, in order — one applying a review finding
+to it, and equally one whose own implementation work reveals the edit.
 First, a **stale-anchor pre-flight** before its first edit to that bundle:
 recompute with the brief's most recent recorded command and surface instead
 of editing when the anchor mismatches, when the entry is absent or
@@ -1081,8 +1082,9 @@ bundle would have to migrate to:
   *(format-grammar D-5, D-9, D-12 · REQ-C1.2, REQ-C1.4, REQ-D1.6, REQ-D1.11.)*
 - 2026-08-26 — What a writer owes when it acts on findings. The writer prose
   gains the obligation half of the anchor-writership contract, alongside the
-  permission it already stated: a skill applying review findings to a signed
-  bundle runs the stale-anchor pre-flight before its first edit (blocking on a
+  permission it already stated: a skill editing a signed bundle — applying a
+  review finding to it, or acting on an edit its own implementation work
+  revealed — runs the stale-anchor pre-flight before its first edit (blocking on a
   mismatch, an absent or unparseable entry, and a failed recompute alike),
   lands an expression-only edit with its Changelog entry and marked
   self-re-anchor entry in one commit, and refuses a meaning-class finding to a
