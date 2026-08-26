@@ -308,9 +308,10 @@ names. By exit code:
   condition** — halt and hand off.
 
 **Sync `main` first** (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4): once per
-pass, before the first skill runs, run `scripts/converge-sync-main.sh`; a
-non-zero exit halts the unit to Awaiting input with the reason it printed. The
-sync changes the head a later ready-flip lands on, never who flips.
+pass, before the first skill runs, run `scripts/converge-sync-main.sh` (under
+the resolved planwright root); a non-zero exit halts the unit to Awaiting input
+with the reason it printed. The sync changes the head a later ready-flip lands
+on, never who flips.
 
 **Run each named skill in order, with `--nested`.** Every review skill runs
 `--nested` — it drains every action disposition per act-then-review and returns
