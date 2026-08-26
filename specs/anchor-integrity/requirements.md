@@ -264,6 +264,15 @@ doctrine amendments, enforcement as mechanism.
   its own header" reading). Kickoff fork decisions are recorded in the
   design log and the kickoff brief; this changelog cites rather than
   enumerates them (D-8).
+- 2026-08-26 — Task 5 expression-only edits. Task 5's deliverable line
+  records the placement it left to execution: the general act-on-findings
+  doctrine statement went to the meta-spec's writer prose rather than
+  `gate-wiring.md`, with the reason. The REQ-C1.1, REQ-C1.2, and REQ-C1.3
+  verification entries are restated in the canonical
+  Given/When/Then state/trigger/outcome form the format uses elsewhere;
+  what each scenario asserts is unchanged, except that REQ-C1.3 now spells
+  out the no-anchor-entry outcome REQ-C1.3's own writership sentence
+  already implies.
 
 ## Sources
 

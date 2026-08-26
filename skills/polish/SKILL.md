@@ -133,6 +133,18 @@ caught here is reworded before it reaches history, never after. Polish never
 amends, squashes, rebases, or force-pushes; each iteration's commits stand as
 the per-iteration audit trail.
 
+**Signed-bundle edits.** Each iteration's nested pass runs the stale-anchor
+pre-flight before its first edit to a Ready or Active bundle's four files, per
+the meta-spec's writer prose (`doctrine/spec-format.md`, *Sign-off records and
+content anchors*): a mismatch, an absent or unparseable entry, and a failed
+recompute block that edit alike, and the loop repairs none of them — it
+surfaces the condition in the handoff and drains the rest of the pass. An
+expression-only fix carries its dated Changelog entry and marked
+`Class: expression-only` self-re-anchor entry in the same commit as the edit,
+so the ritual never spans an iteration boundary. A meaning-class fix stays
+unapplied and queued for `/spec-kickoff`; the ledger keeps it queued rather
+than re-routing it on a later iteration.
+
 ## Safety conditions (mandatory handoff)
 
 Exactly two things interrupt mid-iteration, per the doctrine's pause

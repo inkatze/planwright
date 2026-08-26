@@ -130,8 +130,12 @@ authored; see the status render.
   all in one commit with the edit);
   meaning-class refusal with routing to `/spec-kickoff`. The doctrine
   statement binding act-on-findings skills generally (external families
-  included) lands in the meta-spec's writer prose or `gate-wiring.md`
-  (placement decided at execution, cited back here). Gherkin
+  included) lands in the meta-spec's writer prose — placement decided at
+  execution: `gate-wiring.md` scopes itself to this repo's three
+  gate-wired skills, so a statement that must bind external families
+  belongs beside the writership permission it completes, in
+  `doctrine/spec-format.md`'s *Sign-off records and content anchors*.
+  Gherkin
   state/trigger/outcome scenarios recorded in `test-spec.md` verification
   homes.
 - **Done when:** all three behaviors appear in each named skill's prose;
