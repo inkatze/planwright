@@ -256,6 +256,26 @@ got=$(run resolve execution model 2>/dev/null) || fail "explicit unset: resolve 
   || fail "REQ-A1.3: an explicit 'unset' must re-arm the fleet_* fallback, got '$got'"
 echo "ok: the explicit 'unset' sentinel arms the legacy fallback"
 
+# 4c. The chain SHORT-CIRCUITS: a set general knob returns before the legacy
+#     knob is read, so a malformed repo-tracked `fleet_*` value that would
+#     hard-fail on its own is simply never consulted. Pinned deliberately (see
+#     resolve_col's header): the by-layer malformed policy governs the value a
+#     caller consumes, not every value present in the config. The `unset` arm
+#     below is the control that proves the same file DOES hard-fail when the
+#     general knob stops shadowing it, so this is not a vacuous pass.
+reset_layers
+printf 'fleet_model_execution: gpt-5\nallocation_model_execution: haiku\n' >"$tracked_cfg"
+got=$(run resolve execution model 2>/dev/null) \
+  || fail "shadowed legacy knob: resolve exited nonzero, expected the general knob to win"
+[ "$got" = haiku ] \
+  || fail "a set general knob must short-circuit before the legacy knob, got '$got'"
+printf 'fleet_model_execution: gpt-5\nallocation_model_execution: unset\n' >"$tracked_cfg"
+rc=0
+run resolve execution model >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] \
+  || fail "control: the same malformed repo-tracked fleet_* value must hard-fail once unshadowed, got exit $rc"
+echo "ok: a set general knob short-circuits the legacy knob's validation"
+
 # 5. The `inherit` sentinel (D-13) is the shipped default at the three
 #    surfaces that perform no selection today, and resolves AS inherit.
 reset_layers

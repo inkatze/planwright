@@ -218,6 +218,16 @@ require_resolver() {
 # have run for this key and column. Propagates the shared resolver's hard-fail
 # exits (4/5) verbatim; the per-step fallbacks keep a partial install resolving
 # (REQ-K1.6) and an unconfigured operator on the shipped table (REQ-A1.2).
+#
+# THE CHAIN SHORT-CIRCUITS, deliberately. A set general knob returns before the
+# legacy knob is read at all, so a malformed `fleet_<column>_<key>` sitting in
+# a repo-tracked overlay does NOT hard-fail while the general knob shadows it —
+# whereas it would if the general knob were `unset`. That is the intended
+# reading of REQ-A1.3: the by-layer malformed policy governs the value a caller
+# actually consumes, not every value present in the config, and a knob nothing
+# reads should not be able to block a launch. Validating the shadowed knob too
+# would also add a resolver call per column on the dispatch path the
+# call-amplification observation already flags.
 resolve_col() {
   require_resolver
   # The general knob's legal set is the column enum widened by the sentinels
