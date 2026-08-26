@@ -648,9 +648,10 @@ printf '%s\n' "$out" | grep -qi 'git not found' \
 printf '%s\n' "$out" | grep -qi 'malformed' \
   && fail "17: a missing git was blamed on the --main-ref value: $out"
 
-# 18. The merge path CREATES a local `main` that does not exist yet. A fresh
-#     checkout that has never had the branch is still a fast-forward case — from
-#     nothing to origin's tip — and the output contract reports the new oid.
+# 18. The REF-UPDATE path creates a local `main` that does not exist yet: with
+#     HEAD detached, `current_branch` is empty, so the sync updates the ref
+#     without a checkout — from nothing to origin's tip — and the output
+#     contract reports the new oid.
 root=$(new_fixture createmain)
 "$REAL_GIT" -C "$root/tower" checkout --quiet --detach
 "$REAL_GIT" -C "$root/tower" branch --quiet -D main
@@ -661,10 +662,49 @@ export PW_GIT_LOG
   && fail "18: the fixture still has a local main, so this scenario proves nothing"
 out=$(mc sync --checkout "$root/tower") \
   || fail "18: sync failed when the local main did not exist yet: $out"
+printf '%s\n' "$out" | grep -q '^sync	ref-update$' \
+  || fail "18: a detached checkout must take the ref-update path: $out"
 [ "$("$REAL_GIT" -C "$root/tower" rev-parse main)" = "$("$REAL_GIT" -C "$root/origin.git" rev-parse main)" ] \
   || fail "18: main was not created at origin/main"
 printf '%s\n' "$out" | grep -q '^main	' \
   || fail "18: the main line must carry the newly created oid: $out"
 assert_no_rewrite 18
+
+# 19. The MERGE path creates a local `main` that does not exist yet: an unborn
+#     `main` (HEAD -> refs/heads/main with no commit) is checked out, so the
+#     sync merges — from nothing to origin's tip, still a fast-forward — and
+#     the output contract reports the new oid.
+root_dir="$tmp/unbornmain"
+mkdir -p "$root_dir"
+"$REAL_GIT" init --quiet --bare --initial-branch=main "$root_dir/origin.git"
+"$REAL_GIT" init --quiet --initial-branch=main "$root_dir/seed"
+"$REAL_GIT" -C "$root_dir/seed" remote add origin "$root_dir/origin.git"
+(
+  cd "$root_dir/seed"
+  "$REAL_GIT" config user.email t@example.invalid
+  "$REAL_GIT" config user.name Tester
+  "$REAL_GIT" config commit.gpgsign false
+  echo one >file.txt
+  "$REAL_GIT" add file.txt
+  "$REAL_GIT" commit --quiet -m "seed"
+  "$REAL_GIT" push --quiet origin main
+)
+"$REAL_GIT" init --quiet --initial-branch=main "$root_dir/tower"
+"$REAL_GIT" -C "$root_dir/tower" remote add origin "$root_dir/origin.git"
+"$REAL_GIT" -C "$root_dir/tower" config user.email t@example.invalid
+"$REAL_GIT" -C "$root_dir/tower" config user.name Tester
+"$REAL_GIT" -C "$root_dir/tower" config commit.gpgsign false
+PW_GIT_LOG="$tmp/log19"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+[ "$("$REAL_GIT" -C "$root_dir/tower" symbolic-ref --short HEAD)" = "main" ] \
+  || fail "19: the fixture HEAD must point at the unborn main"
+out=$(mc sync --checkout "$root_dir/tower") \
+  || fail "19: sync failed on an unborn main: $out"
+printf '%s\n' "$out" | grep -q '^sync	fast-forward$' \
+  || fail "19: an unborn checked-out main must take the merge path: $out"
+[ "$("$REAL_GIT" -C "$root_dir/tower" rev-parse main)" = "$("$REAL_GIT" -C "$root_dir/origin.git" rev-parse main)" ] \
+  || fail "19: main was not created at origin/main"
+assert_no_rewrite 19
 
 echo "PASS: test-main-currency.sh"
