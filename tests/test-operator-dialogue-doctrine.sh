@@ -61,8 +61,14 @@ section() {
   # section <file> <heading-text> -> the body from that heading to the next
   # heading at the same or a shallower level, flattened. Empty output means the
   # heading is gone, which every caller below turns into a failed assertion.
+  # Heading detection stands down inside a code fence. gate-wiring.md's PR-body
+  # example is fenced markdown carrying its own "## " lines, several of which
+  # duplicate real section names, so a fence-blind scan can latch onto the
+  # example and hand back the wrong body — silently, since an assert_contains
+  # against a plausible-looking wrong section still reads like a real result.
   awk -v want="$2" '
-    /^#+ / {
+    /^```/ { fence = !fence }
+    !fence && /^#+ / {
       line = $0
       sub(/^#+ +/, "", line)
       hashes = index($0, " ") - 1
@@ -164,9 +170,19 @@ assert_contains "discovery-rigor: the lens table cites the arbitration" \
 assert_contains "discovery-rigor: the lens table declares its side" \
   "artifact-side" "$lens"
 
+# discovery-rigor carries two mandates the arbitration collided with, and the
+# lens table is only one of them: no-silent-pruning had to be scoped to the
+# record the pass writes. Pinned here so a later diet cannot drop the scoping
+# and leave the rule reading as a render-everything mandate again.
+pruning="$(section "$DOCTRINE/discovery-rigor.md" "Lens checklist, no silent pruning")"
+assert_contains "discovery-rigor: no-pruning is scoped to the record" \
+  "completeness rule over the record" "$pruning"
+
 pres="$(section "$DOCTRINE/finding-categorization.md" "Presentation (REQ-C1.5)")"
 assert_contains "finding-categorization: presentation cites the arbitration" \
   "interaction-style.md" "$pres"
+assert_contains "finding-categorization: presentation declares its side" \
+  "artifact-side" "$pres"
 assert_contains "finding-categorization: the in-turn composition is bounded" \
   "projection" "$pres"
 

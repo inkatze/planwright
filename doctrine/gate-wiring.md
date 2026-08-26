@@ -6,7 +6,8 @@ wiring a gate-wired skill (`/self-review`, `/polish`, and `/execute-task`'s
 convergence step) implements. The two share one contract; where this one names
 a bucket, predicate, or zone, the categorization doctrine's definition governs.
 
-Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6.
+Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 ·
+operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -168,9 +169,9 @@ The **declined log** accompanies the tables wherever they emit:
 Declined findings remain re-raisable at PR review (REQ-C1.6).
 
 The tables and declined log are artifact-side (REQ-E1.5). Table content is a
-committed artifact: finding text and
-captured output must respect artifact data-hygiene
-([Security Posture](security-posture.md)) before landing in a PR body.
+committed artifact: finding text and captured output must respect artifact
+data-hygiene ([Security Posture](security-posture.md)) before landing in a PR
+body.
 
 ## Resolution ladder procedure
 

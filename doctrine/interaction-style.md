@@ -182,9 +182,9 @@ pre-selected default, no generic labels) is machine-checkable by
 
 After each phase (and at any natural pause), restate to the operator the
 ground just covered: the decisions taken since the previous summary, their
-one-line rationale, and what remains open. The summary is the checkpoint that the skill heard what the
-operator said; a misunderstanding surfaces at the next summary, not at session
-end.
+one-line rationale, and what remains open. The summary is the checkpoint that
+the skill heard what the operator said; a misunderstanding surfaces at the next
+summary, not at session end.
 
 No summary a skill repeats may grow monotonically. Delta-plus-open is bounded
 by construction; a restatement of everything decided so far grows until it is

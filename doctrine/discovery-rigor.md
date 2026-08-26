@@ -8,7 +8,8 @@ reported and silently pruned instead.
 Any review workflow that generates findings (rather than only validating
 pre-existing ones) applies this on its discovery pass.
 
-Citations: REQ-D1.1 · operator-dialogue REQ-I1.1, REQ-I1.4 · D-14.
+Citations: REQ-D1.1 · operator-dialogue REQ-I1.1, REQ-I1.4 ·
+operator-dialogue D-14.
 
 ## Lens checklist, no silent pruning
 

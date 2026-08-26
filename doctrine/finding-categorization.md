@@ -9,7 +9,8 @@ four buckets. The buckets are an **audit taxonomy, not a decision queue**
 backs it, so the human can review the whole record at the draft PR.
 
 Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
-REQ-C1.7 · D-4, D-5, D-6.
+REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 ·
+operator-dialogue D-14, D-15.
 
 The operational wiring (routing order, commit discipline, the checklist and
 audit-record formats, the ladder procedure, the pause protocol) is specified
