@@ -65,7 +65,9 @@ mise run check      # the full local equivalent of the CI gate
 
 `mise run check` runs the shell test suites (bash 3.2 floor), shellcheck, shfmt,
 markdownlint, yamllint, the plugin-manifest validation, the doctrine
-link-check, conventional-commit lint, the options-reference drift check, the
+link-check, the doctrine-index bijection check, conventional-commit lint, the
+options-reference drift check (which also tethers `docs/fleet.md`'s knob
+defaults to `config/defaults.yml`), the
 ledger structural-corruption + duplicate-Status guard over `tasks.md`
 snapshots, the spec validator over `specs/`, the anchor-freshness guard over
 every signed bundle, the hook-backstop wiring check,
