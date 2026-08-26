@@ -298,6 +298,22 @@ got=$(run resolve offload model 2>/dev/null) || fail "offload override exited no
 [ "$got" = haiku ] || fail "a configured non-fleet model should win over inherit, got '$got'"
 echo "ok: a non-fleet surface knob overrides the inherit default"
 
+# 5d. The `unset` sentinel at a NON-fleet key lands on `inherit`, not on an
+#     empty value. Test 4b pins the fleet-key half of this (unset re-arms the
+#     legacy fallback); here there is no legacy counterpart to re-arm, so the
+#     same sentinel has to fall through to the key's shipped default instead.
+#     Both halves of `unset` are then pinned, and a future change to the
+#     no-legacy branch cannot quietly start emitting the sentinel itself.
+for col in model effort; do
+  reset_layers
+  printf 'allocation_%s_offload: unset\n' "$col" >"$mlocal_cfg"
+  got=$(run resolve offload "$col" 2>/dev/null) \
+    || fail "non-fleet explicit unset: resolve offload $col exited nonzero"
+  [ "$got" = inherit ] \
+    || fail "an explicit 'unset' at a non-fleet $col must fall through to inherit, got '$got'"
+done
+echo "ok: an explicit 'unset' at a non-fleet key falls through to inherit"
+
 # 5c. `inherit` is NOT legal at the fleet task-type keys: fleet dispatch's
 #     downstream contract (fleet-allocate.sh) validates the row against the
 #     concrete enums and has no ambient value to fall back to, so the sentinel
