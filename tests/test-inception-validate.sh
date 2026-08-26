@@ -575,6 +575,40 @@ assert_not_contains "baseline: no id is claimed to have vanished" "BASE-ID-VANIS
 # file reaches it by failing the typed grammar instead. Different branch, so it
 # gets its own case — a heading the content pass already rejects on ID-GRAMMAR
 # must not ALSO be tracked as an id that can then vanish.
+# Reference lists are comma-separated, the same as every sibling list field and
+# the same as doctrine/inception-format.md states. A semicolon is not a
+# separator, so the whole run stays one token and fails the id grammar.
+b="$(fresh)"
+sed_i "$b/assumptions.md" 's|^- \*\*Tasks:\*\* T-1$|- **Tasks:** T-1; T-2|'
+expect "assumption tasks: a semicolon is not a separator" ASM-TASK-REF 1 "$b"
+b="$(fresh)"
+sed_i "$b/plan.md" 's|^- \*\*Tests:\*\* A-1$|- **Tests:** A-1; A-2|'
+expect "plan tests: a semicolon is not a separator" PLAN-TESTS-REF 1 "$b"
+b="$(fresh)"
+sed_i "$b/assumptions.md" 's|^- \*\*Tasks:\*\* T-1$|- **Tasks:** T-1, T-2|'
+out="$("$VALIDATE" "$b" 2>&1)"
+rc=$?
+assert_eq "assumption tasks: a comma list still passes" "0" "$rc"
+
+# Finding order is a fixed function of the bundle, not of the awk build: the
+# emitting loops walk recorded document order rather than `for (k in arr)`,
+# whose order POSIX leaves undefined. Asserting DOCUMENT order rather than
+# comparing two runs, because a given awk build hashes the same keys the same
+# way every time — two identical runs agree even when the order is arbitrary,
+# so that comparison would pass without the property holding.
+b="$(fresh)"
+# Strip the Thresholds line so every live blocking assumption is uncovered, and
+# the coverage rule emits one finding per assumption from the same loop.
+sed_i "$b/brief.md" 's|^Thresholds: .*$|Thresholds: none|'
+order="$("$VALIDATE" "$b" 2>&1 | grep -o 'live blocking assumption A-[0-9]*' | grep -o 'A-[0-9]*')"
+expected="$(printf '%s\n' "$order" | sort -t- -k2 -n)"
+assert_eq "finding order: blocking-assumption findings follow document order" "$expected" "$order"
+if [ "$(printf '%s\n' "$order" | grep -c .)" -ge 2 ]; then
+  echo "ok: finding order: the case exercises more than one assumption"
+else
+  echo "FAIL: finding order: fixture produced too few findings to order" >&2
+  failures=$((failures + 1))
+fi
 b="$(git_bundle)"
 printf '\n### Working notes\n\nScratch context for the ops leads.\n' >>"$b/plan.md"
 (cd "$b" && git add -A && git commit --no-verify -qm "a heading in a register file") >/dev/null 2>&1

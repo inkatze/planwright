@@ -49,6 +49,11 @@
 #   - Unknown fields and sections within a supported major, which the format
 #     rules require a reader to ignore and parse on.
 #
+# Finding ORDER is part of the contract: every loop that emits walks a recorded
+# document order, never `for (k in arr)`, whose order POSIX leaves undefined.
+# The same bundle therefore yields the same bytes on any awk, which is what lets
+# CI output be diffed rather than only grepped.
+#
 # Usage:
 #   inception-validate.sh [--baseline <ref>] <venture-dir>
 #   inception-validate.sh --version-check <venture-dir>
@@ -444,6 +449,7 @@ function track_bullet(line,   label) {
     return
   }
   TRACK[label] = 1
+  TRACKORD[++ntrackord] = label
   if (line ~ / — graduated [0-9]/ || line ~ / — ended [0-9]/) TRACKDONE[label] = 1
 }
 
@@ -521,7 +527,7 @@ FNR == 1 {
 /^## / {
   flush_field(); cur_kind = ""
   sect = $0; sub(/^## /, "", sect); sect = trim(sect)
-  if (file == "brief.md") { if (!has(BSECPOS, sect)) BSECPOS[sect] = ++bsecidx }
+  if (file == "brief.md") { if (!has(BSECPOS, sect)) { BSECPOS[sect] = ++bsecidx; BSECORD[bsecidx] = sect } }
   else if (file == "disciplines.md") DSEC[sect] = ++dsecidx
   next
 }
@@ -589,6 +595,7 @@ file == "disciplines.md" && /^\|/ {
   for (i = 1; i <= nc; i++) c[i] = trim(c[i])
   if (sect == "Discipline map") {
     if (c[2] == "Discipline" || nc < 5) next
+    if (!has(DISC, c[2])) DISCORD[++ndiscord] = c[2]
     DISC[c[2]] = 1; DISCDEC[c[2]] = c[4]
   } else if (sect == "Staffing table") {
     if (c[2] == "Discipline" || nc < 5) next
@@ -682,7 +689,7 @@ END {
     if (!has(SUPERSEDED, "A" SUBSEP id)) ALIVE[id] = 1
     tk = F["A" SUBSEP id SUBSEP "Tasks"]
     if (tk != "" && tk != "none") {
-      m = split(tk, refs, /[,;] */)
+      m = split(tk, refs, /, */)
       for (r = 1; r <= m; r++) {
         ref = trim(refs[r]); if (ref == "") continue
         if (!id_ok("T", ref) || !has(IDSEEN, "T" SUBSEP ref))
@@ -736,7 +743,7 @@ END {
     else if (tt == "" || tt == "none")
       emit("PLAN-TESTS-EMPTY", "plan.md", id " traces to no assumption or decision")
     else {
-      m = split(tt, refs, /[,;] */)
+      m = split(tt, refs, /, */)
       for (r = 1; r <= m; r++) {
         ref = trim(refs[r]); if (ref == "") continue
         ok = (id_ok("A", ref) && has(IDSEEN, "A" SUBSEP ref)) || (id_ok("DEC", ref) && has(IDSEEN, "DEC" SUBSEP ref))
@@ -763,7 +770,8 @@ END {
       emit("DIS-SECTION", "disciplines.md", "`## " DSECL[i] "` appears out of its required order")
     last = DSEC[DSECL[i]]
   }
-  for (d in DISC) {
+  for (di = 1; di <= ndiscord; di++) {
+    d = DISCORD[di]
     if (!(d in STAFFED))
       emit("DIS-STAFFING-COVERAGE", "disciplines.md", "discipline \"" d "\" has no staffing row")
     cell = DISCDEC[d]
@@ -792,7 +800,8 @@ END {
       emit("BRIEF-SECTION-ORDER", "brief.md", "`## " s "` appears out of its required order")
     last = BSECPOS[s]
   }
-  for (s in BSECPOS) {
+  for (si = 1; si <= bsecidx; si++) {
+    s = BSECORD[si]
     if (s in PROMPT) {
       if (!(s in BBODY) && !(s in BSKIP))
         emit("BRIEF-SKIP-FORM", "brief.md", "prompt section `## " s "` is empty; a skipped prompt states `_Skipped: <reason>._`")
@@ -858,7 +867,9 @@ END {
         TSEEN[aid] = vd
       }
     }
-    for (a in ALIVE) {
+    for (ai = 1; ai <= COUNT["A"]; ai++) {
+      a = ORDER["A", ai]
+      if (!(a in ALIVE)) continue
       if (ABLOCK[a] != "yes") continue
       if (!(a in TSEEN))
         emit("GATE-THRESHOLD-COVERAGE", "brief.md", "Gate " num " Thresholds must cover live blocking assumption " a)
@@ -867,13 +878,18 @@ END {
     }
     # The other half of the coverage rule: an assumption this record cites as
     # evidence is one it evaluated, so it owes a threshold verdict too.
-    for (a in ECITED)
+    for (ai = 1; ai <= COUNT["A"]; ai++) {
+      a = ORDER["A", ai]
+      if (!(a in ECITED)) continue
       if (!(a in TSEEN))
         emit("GATE-THRESHOLD-COVERAGE", "brief.md", "Gate " num " cites " a " as evidence, so Thresholds must carry its verdict")
+    }
     if (oc == "Graduate")
-      for (a in TSEEN)
+      for (ai = 1; ai <= COUNT["A"]; ai++) {
+        a = ORDER["A", ai]
         if (TSEEN[a] == "pass" && AGRADE[a] == "synthetic" && (RTAG[a] == "value" || RTAG[a] == "usability"))
           emit("GATE-SYNTHETIC-DESIRABILITY", "brief.md", "Gate " num " passes desirability assumption " a " on synthetic evidence, which cannot satisfy a Graduate threshold")
+      }
 
     split("", KSEEN, " ")
     kcl = GFIELD[num SUBSEP "Kill-criteria"]
@@ -908,13 +924,19 @@ END {
         lb = it; sub(/=.*$/, "", lb)
         TRSEEN[lb] = 1
       }
-      for (l in TRACKLIVE)
+      for (li = 1; li <= ntrackord; li++) {
+        l = TRACKORD[li]
+        if (!(l in TRACKLIVE)) continue
         if (!(l in TRSEEN))
           emit("GATE-TRACKS-COVERAGE", "brief.md", "Gate " num " Tracks must cover live track \"" l "\"")
+      }
     }
     if (oc == "Graduate" && tracked && i == gaten)
-      for (l in TRACKLIVE)
+      for (li = 1; li <= ntrackord; li++) {
+        l = TRACKORD[li]
+        if (!(l in TRACKLIVE)) continue
         emit("GATE-GRADUATE-LIVE-TRACK", "brief.md", "Gate " num " records a top-level Graduate while track \"" l "\" is still live")
+      }
     if (i == gaten) LASTOUT = oc
   }
 
