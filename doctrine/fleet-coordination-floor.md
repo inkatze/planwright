@@ -187,11 +187,11 @@ reclaim decision.
 This is the boundary against the assume-multiplicity floor's reclaim rule, not
 an exception to it. `concurrent-orchestrator-coordination` puts automatic
 reclaim of a dead tower's in-flight unit explicitly out of scope: a
-fenced-but-unfinished unit is surfaced for the operator, "never auto-probed
-and auto-reclaimed". That rule governs *work*; this one governs *processes*,
-and the two must not be collapsed — the fence decides who may work a unit, the
-reaper decides what processes exist. The audit rule is one line: **if the act
-would change what a future dispatch sees, it is not a reap.**
+fenced-but-unfinished unit is surfaced, "never auto-probed and
+auto-reclaimed". That rule governs *work*; this one governs *processes*. The
+fence decides who may work a unit, the reaper decides what processes exist,
+and the audit rule keeping them apart is one line: **if the act would change
+what a future dispatch sees, it is not a reap.**
 
 ### The class contract
 
@@ -229,10 +229,8 @@ REQ-A1.5 exists to catch.
 
 The bottom three rows are the point of the cross, not filler: `subagent`
 acquires store locks and nothing else, and owes the contract for them;
-`in-session` acquires nothing separate at all; `print` defers all three parts
-and names to whom. None of them is silently exempt, and a rung added to the
-capability contract states its cell for every class it acquires before it is
-adopted (REQ-A1.5, `backend-capability-contract.md`).
+`in-session` acquires nothing separate at all; `print` defers every part to the
+human. None of the three is exempt by silence (REQ-A1.5).
 
 ## Scope boundary: adjacent mechanisms keep their own owners
 
