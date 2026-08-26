@@ -563,5 +563,5 @@ isolation: with the `requirements.md` edit set aside, the bundle recomputes to
 `c8502e7e`, the prior entry's value.
 
 Class: expression-only
-Anchor: `8d11accaa22f36cffed1e238db943e9131f8fe8d` — computed as
+Anchor: `00bb891f207f57dfc74c0440c9995cacb592521a` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`

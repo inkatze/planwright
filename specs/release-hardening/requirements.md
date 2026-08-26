@@ -352,9 +352,14 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   undefined)` then returns every collected commit, and the manifest backfill
   ("No latest release found ... but a previous version was specified in the
   manifest") runs *after* collection and only synthesizes the tag name for
-  the bump, bounding nothing. Net: the key currently caps a bootstrapped
-  proposal at `71ea089f` (#339's 124 entries); dropping it would raise that
-  cap to 500 merge commits with no loud failure. This confirms D-14's
+  the bump, bounding nothing. That depth is a scan cap on the branch's
+  commit history, not on merge commits — `mergeCommitIterator` walks every
+  commit with its associated PR, and this repo squash-merges, so it holds no
+  merge commits at all. Net: the key currently stops collection at
+  `71ea089f`, and that already yielded #339's 124 entries; dropping it would
+  walk to the root commit instead, since this repo's whole history sits well
+  inside the 500 cap — a strictly larger bogus proposal, still with no loud
+  failure. This confirms D-14's
   rejection of "remove `bootstrap-sha` outright" was correct, inverts
   obs:fd6c2f4f's fix (3) hypothesis that absence "should make the failure
   loud rather than generative", and closes REQ-H1.3 with no follow-up task
