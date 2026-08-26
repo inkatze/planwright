@@ -221,15 +221,16 @@ omission REQ-A1.5 exists to catch.
 | `tmux` | per contract | per contract | per contract | per contract | per contract |
 | `stream-json-persistent` | per contract; the close covers the supervisor *and* its children | — no window | per contract, plus the supervisor's own `journal.lock` / `recover.lock` | per contract; the stdio fifos are in the release set | per contract |
 | `headless-oneshot` | per contract; a detached one-shot, closed the same way | — no window | per contract (store locks only) | per contract; includes the captured result | per contract |
-| `subagent` | trivial — in-harness, no separate OS process; it dies with the tower | — | trivial — held only inside a tower-hosted invocation and released with it | trivial — no worker state directory | trivial — the tower owns the row |
+| `subagent` | trivial — in-harness, no separate OS process; it dies with the tower | — | per contract — it runs the same scripts, so it takes the same store locks and is subject to the same stale-break | trivial — no worker state directory | trivial — the tower owns the row |
 | `print` | deferred → the human who runs the printed command; `print` units are exempt from the orphan/liveness predicate for exactly this reason | deferred → human | deferred → human | deferred → human | deferred → human |
 | `in-session` | n/a — no separate worker at all; every class is the tower's own | n/a | n/a | n/a | n/a |
 
-The bottom three rows are the point of the cross, not filler: `subagent` and
-`in-session` satisfy the close trivially and state why, `print` defers all
-three parts and names to whom, and none of them is silently exempt. A rung
-added to the capability contract states its cell for every class it acquires
-before it is adopted (REQ-A1.5, `backend-capability-contract.md`).
+The bottom three rows are the point of the cross, not filler: `subagent`
+acquires store locks and nothing else, and owes the contract for them;
+`in-session` acquires nothing separate at all; `print` defers all three parts
+and names to whom. None of them is silently exempt, and a rung added to the
+capability contract states its cell for every class it acquires before it is
+adopted (REQ-A1.5, `backend-capability-contract.md`).
 
 ## Scope boundary: adjacent mechanisms keep their own owners
 
