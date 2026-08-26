@@ -809,9 +809,10 @@ any launch point can resolve through one resolver rather than fleet dispatch
 alone (model-allocation D-5); `fleet-resource-select.sh` is the fleet-scoped
 front door onto it and its CLI is unchanged. Each column reads the general
 `allocation_<column>_<task-type>` knob first, and the `fleet_*` knobs named
-above are its **deprecated fallback**: core ships each of those three
-task-type knobs as `unset`, which is exactly what keeps the legacy family in
-charge, so an existing overlay keeps working untouched and needs no migration.
+above are its **deprecated fallback**: core ships all nine of those general
+knobs (three columns across the three task types) as `unset`, which is exactly
+what keeps the legacy family in charge, so an existing overlay keeps working
+untouched and needs no migration.
 The legacy family is documented, not removed. The same family also carries
 rows for the surfaces that select nothing today, which ship `inherit` instead.
 Per-knob detail is in the [options reference](options-reference.md).
