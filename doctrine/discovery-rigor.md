@@ -2,15 +2,13 @@
 
 Validation Rigor confirms a finding is real. Discovery Rigor makes sure the
 finding *list itself* is complete on the first pass. The failure mode it
-prevents: a review surfaces a few items, the skill runs again later, and the
-second pass returns valid findings that were not caused by the first pass's
-fixes. Those findings could have been reported the first time; they were
-silently pruned.
+prevents: a later pass returns valid findings the first pass could have
+reported and silently pruned instead.
 
 Any review workflow that generates findings (rather than only validating
 pre-existing ones) applies this on its discovery pass.
 
-Citations: REQ-D1.1.
+Citations: REQ-D1.1 · operator-dialogue REQ-I1.1, REQ-I1.4 · D-14.
 
 ## Lens checklist, no silent pruning
 
@@ -26,7 +24,9 @@ to whichever set is selected.
 Walk every lens below, in order, before producing the finding list.
 Severity-based self-pruning ("a bug was already found, the documentation nit
 is not worth mentioning") is the exact failure mode to avoid: report findings
-at every severity in the same pass.
+at every severity in the same pass. No-pruning is a completeness rule over the
+record the pass writes, never a mandate to render every row at the operator
+(the arbitration, cited below).
 
 1. Correctness, logic, edge cases (null, empty, max size, off-by-one,
    error paths)
@@ -46,9 +46,15 @@ at every severity in the same pass.
 
 ## Lens-coverage table (canonical output)
 
-After walking the lenses, emit this table, one row per lens, before any
-per-finding output. Empty lenses must show `none` with a one-line reason;
-this is what makes silent pruning visible.
+After walking the lenses, record this table into the pass's artifact (the
+audit record the draft PR carries, or the brief section a spec review writes),
+one row per lens, before any per-finding output. Empty lenses must show `none`
+with a one-line reason; this is what makes silent pruning visible.
+
+The table is **artifact-side**. A turn reporting the pass carries its
+projection instead: counts plus the findings the operator must act on, the
+table one request away
+([Interaction Style](interaction-style.md), the arbitration).
 
 | Lens | Findings | Notes |
 | --- | --- | --- |

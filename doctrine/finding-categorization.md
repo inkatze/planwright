@@ -163,9 +163,17 @@ queued for loop end.
 
 ## Presentation (REQ-C1.5)
 
-Skills using the categorization present the four buckets as **four tables in
+Skills using the categorization record the four buckets as **four tables in
 fixed order**: Auto-applicable, Agent-resolvable, Needs sign-off, Needs human
 judgment. An empty bucket still emits its table with a single `none` row (the
 same anti-silent-pruning guard as Discovery Rigor's lens-coverage table). The
-declined-with-rationale log accompanies the tables. The tables are the audit
-record the draft PR carries to review; they are not prompts.
+declined-with-rationale log accompanies the tables. The tables are
+**artifact-side**: the audit record the draft PR carries to review; they are
+not prompts.
+
+A skill composing a turn *about* the pass — a handoff, a progress report, a
+pause — emits a projection of that record rather than the tables: per-bucket
+counts, the actionable residue (pending sign-offs, open forks), and where the
+full record landed. Leaving the tables out of that turn is not pruning,
+because the artifact still carries every row
+([Interaction Style](interaction-style.md), the arbitration).
