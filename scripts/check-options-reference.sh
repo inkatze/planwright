@@ -32,11 +32,20 @@
 # paired (`a` / `b` for `knob_a` / `knob_b`). Trailing prose after those
 # values is ignored.
 #
+# Knob families. A row may name an open family (`allocation_model_*`) rather
+# than literal keys. A family stands for a set of config keys that is open by
+# construction, so it restates no single default and is exempt: the row parses
+# and contributes no pair. The exemption is by shape (a backticked name ending
+# `_*`), not by an enumerated list, so a new family costs no edit here; and it
+# is narrow, so a stray `foo*` is still a malformed row. A row MIXING literal
+# knobs with families fails closed, because the two lists pair positionally
+# and a family supplies a name with no value to pair against.
+#
 # Fail-closed posture (REQ-H1.3), symmetric on both sides: a config parsing to
 # zero option keys is an error, and so is a knobs table with no recognizable
-# header, no rows, a row naming no knob, a row with no backticked default, or
-# a row whose knob count and default count disagree. A vacuous parse must
-# never read as agreement.
+# header, no rows, a row naming no knob, a row with no backticked default, a
+# row whose knob count and default count disagree, and a row mixing literal
+# knobs with families. A vacuous parse must never read as agreement.
 #
 # Exit codes: 0 fully documented and tethered, 1 an undocumented option or a
 # fleet-knob divergence, 2 usage error or a fail-closed parse degeneracy.
@@ -197,6 +206,34 @@ if [ -n "$fleet" ]; then
         names[++nk] = substr(cell, RSTART + 1, RLENGTH - 2)
         cell = substr(cell, RSTART + RLENGTH)
       }
+
+      # Knob FAMILIES. A row may name an open family (`allocation_model_*`)
+      # instead of literal keys. A family stands for a set of config keys that
+      # is open by construction, so it has no single default to restate and
+      # nothing for this tether to compare — it is exempt, and the row
+      # contributes no pair.
+      #
+      # Exempt by SHAPE, not by an enumerated list: the config grows families,
+      # and a name list here would mean editing this guard every time it does.
+      # The shape is deliberately narrow — the `_` before the `*` is required —
+      # so a stray `foo*` stays the malformed row it is rather than buying a
+      # silent skip.
+      nfam = 0
+      cell = c[2]
+      while (match(cell, /`[a-z0-9_]+_\*`/)) {
+        nfam++
+        cell = substr(cell, RSTART + RLENGTH)
+      }
+
+      if (nk > 0 && nfam > 0) {
+        # Names and defaults pair POSITIONALLY, and a family contributes a name
+        # with no default. Pairing what is left would silently tether the
+        # literal knobs against whichever values happened to line up, so this
+        # fails closed instead.
+        err("knobs row for " names[1] " mixes literal knobs and families; the positional pairing cannot be trusted")
+        next
+      }
+      if (nfam > 0) next
       if (nk == 0) {
         err("knobs row names no option: " strip(c[2]))
         next

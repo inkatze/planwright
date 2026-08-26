@@ -305,6 +305,49 @@ EOF
 /bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-second-table.md" >/dev/null 2>&1
 assert "a later Knob-headed table is not merged into the knobs tether" 0 $?
 
+# 8e. Knob FAMILIES. A row may name an open family (`allocation_model_*`)
+#     rather than literal keys. A family is an open set of config keys with no
+#     single default to restate, so it is exempt by shape and contributes no
+#     tether, while the literal rows around it still tether normally.
+cat >"$tmp/fleet-family.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simple_knob` | A capability | A value | `per-step` — because it is the safe direction |
+| `allocation_model_*` / `allocation_effort_*` | The general selection resolver | Which model each key resolves to | `unset` at the fleet task types, `inherit` elsewhere |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-family.md" 2>&1)"
+assert "a family-only knobs row is exempt rather than malformed" 0 $?
+assert_contains "the literal rows around a family row still tether" "$out" "1 fleet knob default"
+
+# 8f. The exemption is narrow. A row mixing a literal knob with a family
+#     cannot be paired positionally against the default cell, so it fails
+#     closed rather than tethering the literal half against the wrong value.
+cat >"$tmp/fleet-mixed.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simple_knob` / `allocation_model_*` | A capability | A value | `per-step` — because it is the safe direction |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-mixed.md" 2>&1)"
+assert "a row mixing a literal knob and a family fails closed" 2 $?
+assert_contains "the mixed-row diagnostic names the knob" "$out" "simple_knob"
+
+# 8g. A trailing `*` alone does not buy the exemption: the family shape is
+#     `_*`, so a stray star is still a row that names no option.
+cat >"$tmp/fleet-stray-star.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simpleknob*` | A capability | A value | `per-step` — because it is the safe direction |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-stray-star.md" 2>&1)"
+assert "a stray trailing star is still a malformed row" 2 $?
+assert_contains "the stray-star diagnostic says the row names no option" "$out" "names no option"
+
 # 9. Fail-closed, symmetric with the config side: a knobs table that parses to
 #    zero rows is an error, not a vacuous pass (REQ-H1.3).
 cat >"$tmp/fleet-zero.md" <<'EOF'
