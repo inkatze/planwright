@@ -31,6 +31,7 @@
 # Usage:
 #   resolve-config-knob.sh --key <key> --type enum --values '<v1> <v2> ...' --fallback <value>
 #   resolve-config-knob.sh --key <key> --type posint --fallback <value>
+#   resolve-config-knob.sh --key <key> --type nonnegint --fallback <value>
 #
 #   <key>      matches ^[a-z][a-z0-9_]*$ (config-get's queryable charset),
 #              validated before it is ever interpolated (REQ-D1.6).
@@ -39,6 +40,13 @@
 #   posint     the value must be a positive integer, no leading zero, at most
 #              15 digits (the overflow guard resolve-context-budget-threshold
 #              uses; a real knob value is orders of magnitude smaller).
+#   nonnegint  posint widened to admit zero: ^(0|[1-9][0-9]{0,14})$. The pinned
+#              numeric-knob grammar for the model-allocation family
+#              (model-allocation D-5, REQ-A1.4), where zero is a meaningful
+#              policy value — an adjustment cap of 0 says "never move the tier"
+#              — so refusing it would force a magic sentinel in its place. The
+#              grammar is validated HERE, before the value reaches any caller's
+#              arithmetic, which is the property REQ-A1.4 asks for.
 #   --fallback is required and must itself validate against the type: it is
 #              the safe value emitted when the key cannot be resolved from any
 #              layer, so an invalid fallback is a caller bug (exit 2).
@@ -77,7 +85,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 . "$script_dir/echo-safety.sh"
 
 usage() {
-  echo "usage: resolve-config-knob.sh --key <key> --type <enum|posint> [--values '<v1> <v2> ...'] --fallback <value>" >&2
+  echo "usage: resolve-config-knob.sh --key <key> --type <enum|posint|nonnegint> [--values '<v1> <v2> ...'] --fallback <value>" >&2
 }
 
 key=""
@@ -168,7 +176,7 @@ case "$ktype" in
       }
     done
     ;;
-  posint)
+  posint | nonnegint)
     if [ -n "$kvalues" ]; then
       echo "resolve-config-knob: --values only applies to --type enum" >&2
       exit 2
@@ -179,7 +187,7 @@ case "$ktype" in
     exit 2
     ;;
   *)
-    echo "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint)" >&2
+    echo "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint | nonnegint)" >&2
     exit 2
     ;;
 esac
@@ -205,6 +213,17 @@ valid_value() {
     posint)
       case "$_vv" in
         "" | *[!0-9]* | 0*) return 1 ;;
+      esac
+      [ "${#_vv}" -le 15 ]
+      ;;
+    nonnegint)
+      # ^(0|[1-9][0-9]{0,14})$. The bare `0` arm must precede the leading-zero
+      # rejection: in a POSIX case the first matching pattern wins, and `0`
+      # matches `0*` too.
+      case "$_vv" in
+        "" | *[!0-9]*) return 1 ;;
+        0) return 0 ;;
+        0*) return 1 ;;
       esac
       [ "${#_vv}" -le 15 ]
       ;;
