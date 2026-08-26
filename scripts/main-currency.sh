@@ -30,12 +30,14 @@
 #      into whatever is currently checked out, so running the sync from a worker
 #      branch would drag `origin/main` onto that branch — the "foreign commits on
 #      a worker branch" hazard `orchestration-concurrency` already fenced off. So
-#      the operation is chosen by what is checked out: with `main` checked out it
-#      is `git fetch origin main` + `git merge --ff-only FETCH_HEAD`; otherwise it
-#      is `git fetch origin main:main`, a ref update that touches the `main` ref
-#      without a checkout and refuses a non-fast-forward BY NATURE (git rejects a
-#      non-ff ref update on a local branch ref unless forced, and nothing here
-#      forces).
+#      the operation is chosen by what is checked out, AND by whether there is a
+#      work tree at all: with `main` checked out in a real work tree it is
+#      `git fetch origin main` + `git merge --ff-only FETCH_HEAD`; otherwise (a
+#      worker branch, a detached HEAD, or a BARE checkout, which points HEAD at
+#      `main` but has no tree to merge into) it is `git fetch origin main:main`, a
+#      ref update that touches the `main` ref without a checkout and refuses a
+#      non-fast-forward BY NATURE (git rejects a non-ff ref update on a local
+#      branch ref unless forced, and nothing here forces).
 #
 #   3. A FETCH FAILURE IS CLASSIFIED BEFORE ACTING (D-10). A blanket "a failed
 #      fetch fails closed" would mis-treat the legitimate no-remote case as an
@@ -49,6 +51,12 @@
 #          tower on a silently-stale `main`. Retry on the next cycle.
 #      A `--ff-only` refusal is its own third outcome: surfaced for the operator,
 #      never resolved by force, rebase, or reset.
+#      Which of the three a failure IS gets decided on git's stated reason, never
+#      on a word that several reasons share. A non-fast-forward is matched on the
+#      reason git names (`(non-fast-forward)`), not on the bare "rejected" that
+#      also appears in credential and transport failures — those never reached the
+#      ref, so they are transient and retryable, and calling them divergence would
+#      send the operator after local history that does not exist.
 #
 # WHAT IT NEVER DOES. No `git pull`, no rebase, no `reset --hard`, no `--amend`,
 # no force-push, and no push to `main` at all: currency flows origin→local only,
@@ -71,8 +79,9 @@
 #   5  `main` is checked out in a sibling worktree of this clone, so its ref
 #      cannot be updated from here; permanent, not transient — run the sync in
 #      that checkout instead (named in the message)
-#   6  `main` has uncommitted changes the fast-forward would overwrite; NOT a
-#      divergence — commit or stash, then re-run
+#   6  the fast-forward would overwrite local work — either uncommitted changes
+#      to tracked files, or untracked files the incoming commits also add; NOT a
+#      divergence — commit, stash, or move the files, then re-run
 #
 # Exits 3-6 are all fail-closed: `main` is left exactly where it was, and each
 # names a recovery action that actually works for its case (D-10). Distinguishing
@@ -95,6 +104,22 @@ err() {
   echo "main-currency: $1" >&2
 }
 
+# Fold git's multi-line stderr onto one line BEFORE it reaches
+# sanitize_printable, which deletes control bytes outright — newlines included.
+# Deleting them runs the last word of each line into the first of the next
+# ("...before you merge.AbortingUpdating abc..def"), and these diagnostics are
+# the whole operator-facing product of the classification work below.
+fold_lines() {
+  printf '%s' "$1" | tr '\n\t' '  ' | tr -s ' '
+}
+
+# Every failure path surfaces git's own words under this prefix, so the folding
+# and the sanitizing stay in one place rather than being paired correctly at
+# four separate call sites.
+err_git_said() {
+  err "git said: $(sanitize_printable "$(fold_lines "$1")")"
+}
+
 usage() {
   cat >&2 <<'USAGE'
 usage: main-currency.sh sync [--checkout <dir>] [--main-ref <branch>]
@@ -113,8 +138,12 @@ is_branch_name() {
     # A refspec separator, a glob, or revision metacharacters would change
     # which ref the fetch names.
     *:* | *'?'* | *'*'* | *'['* | *'~'* | *'^'*) return 1 ;;
-    # Path traversal and malformed ref shapes.
-    *..* | */ | */*/* | *.lock) return 1 ;;
+    # Path traversal and malformed ref shapes. A LEADING slash is refused for
+    # the same reason as a trailing one, and matching the sibling grammar in
+    # scripts/ready-guard.sh: git rejects `/main:/main` as an invalid refspec,
+    # and a fetch that fails for a malformed argument would otherwise be
+    # classified as a transient failure and retried forever.
+    *..* | /* | */ | */*/* | *.lock) return 1 ;;
     *\\* | *' '*) return 1 ;;
   esac
   # Catches every C0 control character (tab and newline included) plus DEL.
@@ -147,7 +176,12 @@ main_ref="main"
 while [ $# -gt 0 ]; do
   case "$1" in
     --checkout)
-      [ $# -ge 2 ] || {
+      # An EMPTY value is refused rather than falling back to the current
+      # directory: the operator named a checkout, and quietly syncing a
+      # different one than the one they named is the substitution `--main-ref ""`
+      # is already refused for. Omitting the option entirely is still the
+      # documented way to mean "here".
+      [ $# -ge 2 ] && [ -n "$2" ] || {
         err "--checkout needs a value"
         exit 2
       }
@@ -180,7 +214,8 @@ if [ -n "$checkout" ]; then
     err "no such checkout directory '$(sanitize_printable "$checkout")'"
     exit 2
   }
-  cd "$checkout" || {
+  # `--` so a directory named like an option (`-`, `-L`) is treated as a path.
+  cd -- "$checkout" || {
     err "cannot enter '$(sanitize_printable "$checkout")'"
     exit 2
   }
@@ -210,7 +245,21 @@ before=$(git rev-parse --verify --quiet "refs/heads/$main_ref" 2>/dev/null) || b
 
 current_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || current_branch=""
 
-if [ "$current_branch" = "$main_ref" ]; then
+# A BARE checkout points HEAD at `main` without having a work tree, so the merge
+# path cannot serve it: `git diff` there fails because the operation is invalid
+# rather than because anything is uncommitted (reading that as "you have
+# uncommitted changes, commit or stash" names a remedy that is impossible in a
+# repository with no working tree), and `git merge` cannot run at all. With no
+# index to desynchronize, the ref update below is both available and correct — so
+# the operation is chosen by whether a work tree EXISTS as well as by what is
+# checked out. A bare repo also reports `bare` rather than a branch line to
+# `git worktree list`, so it cannot trip the sibling-worktree refusal below.
+in_work_tree=false
+if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = "true" ]; then
+  in_work_tree=true
+fi
+
+if [ "$current_branch" = "$main_ref" ] && [ "$in_work_tree" = true ]; then
   # Uncommitted work aborts a merge that would otherwise fast-forward cleanly.
   # That is NOT divergence, so it must not be reported as one: `main` is still a
   # plain fast-forward behind `origin`, and the remedy is to commit or stash, not
@@ -226,13 +275,29 @@ if [ "$current_branch" = "$main_ref" ]; then
   # rebase-on-pull configs would rewrite history here.
   if ! fetch_err=$(git fetch origin "$main_ref" 2>&1); then
     err "fetch of origin/$main_ref failed against a configured origin; leaving $main_ref unmoved rather than proceeding on a possibly-stale main — retry next cycle"
-    err "git said: $(sanitize_printable "$fetch_err")"
+    err_git_said "$fetch_err"
     exit 3
   fi
   if ! merge_err=$(git merge --ff-only FETCH_HEAD 2>&1); then
     # Only claim divergence when git actually reports a non-fast-forward; any
     # other refusal gets git's own reason rather than a story invented for it.
     case "$merge_err" in
+      *'untracked working tree files would be overwritten'* | *'local changes'*'would be overwritten'*)
+        # The same class as the up-front dirty-tree check, but invisible to it:
+        # untracked files are not in the index, so `git diff` and
+        # `git diff --cached` both report clean and only the merge's own refusal
+        # can surface the collision. Still NOT a divergence — $main_ref remains a
+        # plain fast-forward behind origin — so it must not be reported as one.
+        # Only the colliding file blocks the sync; unrelated untracked files (a
+        # build artifact, a scratch note) are none of this path's business, which
+        # is why this is classified from the refusal rather than pre-empted by a
+        # blanket untracked-file check.
+        err "$main_ref has untracked files the fast-forward would overwrite — refusing"
+        err "this is not a divergence: $main_ref is still a clean fast-forward behind origin/$main_ref"
+        err "move or remove the files git names below, then re-run; nothing here discards your work"
+        err_git_said "$merge_err"
+        exit 6
+        ;;
       *'Not possible to fast-forward'* | *'not possible to fast-forward'* | *'divergent'*)
         err "$main_ref has diverged from origin/$main_ref — the fast-forward was refused"
         err "a per-tower $main_ref should only ever fast-forward, so this is unexpected local history; resolve it yourself — this path will never force, rebase, or reset"
@@ -241,7 +306,7 @@ if [ "$current_branch" = "$main_ref" ]; then
         err "the fast-forward of $main_ref was refused; $main_ref is unmoved"
         ;;
     esac
-    err "git said: $(sanitize_printable "$merge_err")"
+    err_git_said "$merge_err"
     exit 4
   fi
   after=$(git rev-parse --verify "refs/heads/$main_ref")
@@ -280,16 +345,27 @@ fi
 if ! fetch_err=$(git fetch origin "$main_ref:$main_ref" 2>&1); then
   # Two failures share this exit path, so classify them by whether origin was
   # reachable at all: a non-fast-forward rejection means the fetch itself worked.
+  #
+  # The match is on the non-fast-forward REASON, never on the bare word
+  # "rejected". git's own rejection always names the reason
+  # (`! [rejected] main -> main (non-fast-forward)`), while "rejected" on its own
+  # appears in transport and credential failures that never reached the ref at
+  # all — an ssh key "rejected by the server" is the common one. Classifying
+  # those as divergence tells the operator to go resolve unexpected local
+  # history that does not exist, which is the dead end D-10 exists to prevent;
+  # they are transient and belong on the retry path below. This mirrors the split
+  # REQ-C1.6 pins for the fence push: a permission error with no per-ref
+  # rejection is the transient case, not the taken/diverged case.
   case "$fetch_err" in
-    *'non-fast-forward'* | *'non-fast forward'* | *'rejected'*)
+    *'non-fast-forward'* | *'non-fast forward'*)
       err "the $main_ref ref update was rejected as a non-fast-forward — $main_ref has diverged from origin/$main_ref"
-      err "git said: $(sanitize_printable "$fetch_err")"
+      err_git_said "$fetch_err"
       err "a per-tower $main_ref should only ever fast-forward, so this is unexpected local history; resolve it yourself — this path will never force, rebase, or reset"
       exit 4
       ;;
   esac
   err "fetch of origin/$main_ref failed against a configured origin; leaving $main_ref unmoved rather than proceeding on a possibly-stale main — retry next cycle"
-  err "git said: $(sanitize_printable "$fetch_err")"
+  err_git_said "$fetch_err"
   exit 3
 fi
 

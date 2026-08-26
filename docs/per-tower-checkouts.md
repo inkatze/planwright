@@ -107,8 +107,12 @@ whatever is checked out, so the operation is chosen by what *is*:
 
 | Checked out | Operation |
 | --- | --- |
-| `main` | `git fetch origin main` + `git merge --ff-only FETCH_HEAD` |
+| `main`, in a work tree | `git fetch origin main` + `git merge --ff-only FETCH_HEAD` |
 | anything else | `git fetch origin main:main` — a ref update needing no checkout |
+
+A bare checkout takes the second form too. It points HEAD at `main` while having
+no tree to merge into, so the choice turns on whether a work tree exists as well
+as on what is checked out.
 
 The second form refuses a non-fast-forward by nature: the refspec carries no
 leading `+` and no `--force`, so git rejects a non-ff update on its own.
@@ -133,8 +137,14 @@ than lumped together:
 | --- | --- | --- |
 | Local `main` is genuinely ahead of / apart from `origin/main` | A real divergence, which a private `main` should never have | Resolve the unexpected history yourself |
 | `main` has uncommitted changes | **Not** a divergence — still a clean fast-forward behind | Commit or stash, then re-run |
+| Untracked files collide with files the incoming commits add | **Not** a divergence either, and invisible to the dirty-tree check, since untracked files are not in the index | Move or remove the files git names, then re-run |
 | `main` is checked out in a sibling worktree | Permanent and structural, not transient | Run the sync in that checkout |
 | `origin` unreachable, but configured | Transient | Retry next cycle |
+| A credential or transport error that says "rejected" | Transient — it never reached the ref, so it is not a rejected ref update | Retry next cycle |
+
+Only the colliding file blocks a sync, never untracked files at large: a blanket
+check would refuse over any stray build artifact, so the collision is classified
+from git's own refusal rather than pre-empted.
 
 The distinctions are the point. A dirty tree reported as "divergence" sends you
 hunting history that does not exist; a permanent refusal reported as "retry next

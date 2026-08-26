@@ -367,6 +367,8 @@ evil" \
   "main~1" \
   "../../etc/main" \
   "main*" \
+  "/main" \
+  "/" \
   ""; do
   : >"$PW_GIT_LOG"
   set +e
@@ -417,5 +419,156 @@ printf '%s\n' "$out" | grep -qi 'has diverged' \
 grep -q uncommitted "$root/tower/file.txt" \
   || fail "10: the uncommitted change was lost"
 assert_no_rewrite 10
+
+# 11. An UNTRACKED file the fast-forward would overwrite is the same class as
+#     test 10, not a divergence: git aborts the merge to protect the file, but
+#     `main` is still a clean fast-forward behind origin. `git diff` and
+#     `git diff --cached` do not see untracked files, so the up-front dirty
+#     check cannot catch this one — it has to be classified from the merge's own
+#     refusal, or it lands in the divergence bucket and sends the operator after
+#     history that does not exist.
+#
+#     The fixture deliberately does NOT pre-detect untracked files up front: a
+#     blanket up-front check would refuse the sync over any unrelated build
+#     artifact sitting in the tree, so only the file the fast-forward actually
+#     collides with may block it.
+root=$(new_fixture untracked)
+(
+  cd "$root/seed"
+  echo brand-new >brand-new.txt
+  "$REAL_GIT" add brand-new.txt
+  "$REAL_GIT" commit --quiet -m "origin adds brand-new.txt"
+  "$REAL_GIT" push --quiet origin main
+)
+echo "untracked local content" >"$root/tower/brand-new.txt"
+PW_GIT_LOG="$tmp/log11"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+before=$("$REAL_GIT" -C "$root/tower" rev-parse main)
+set +e
+out=$(mc sync --checkout "$root/tower" 2>&1)
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || fail "11: an untracked-file collision must not report a successful sync"
+[ "$rc" -ne 4 ] \
+  || fail "11: an untracked-file collision is not divergence — main is still a clean fast-forward behind origin"
+[ "$rc" -eq 6 ] || fail "11: expected the dirty-tree exit code 6, got $rc"
+[ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] \
+  || fail "11: main moved despite the refusal"
+printf '%s\n' "$out" | grep -qi 'has diverged' \
+  && fail "11: an untracked-file collision was misreported as a divergence: $out"
+printf '%s\n' "$out" | grep -qi 'move or remove\|untracked' \
+  || fail "11: the refusal did not name the actual remedy: $out"
+grep -q "untracked local content" "$root/tower/brand-new.txt" \
+  || fail "11: the untracked file was overwritten"
+# The surfaced git diagnostic must stay READABLE. sanitize_printable deletes
+# control bytes, newlines included, so git's multi-line stderr has to be folded
+# to spaces first or the last word of each line runs into the first of the next
+# ("merge.AbortingUpdating"). Asserting the space is what pins the fold.
+printf '%s\n' "$out" | grep -q 'merge\. Aborting' \
+  || fail "11: git's multi-line stderr was not folded readably: $out"
+assert_no_rewrite 11
+
+# 12. A transport/permission failure whose stderr happens to contain the word
+#     "rejected" is a TRANSIENT failure, not a divergence. Classifying it by a
+#     bare "rejected" match reports unexpected local history that does not
+#     exist, and tells the operator to resolve it — the dead end D-10 exists to
+#     prevent. requirements.md pins the same split for the mirror fence-push
+#     path: a permission error with no per-ref rejection is the transient,
+#     retry-next-cycle path.
+root=$(new_fixture authrejected)
+(
+  cd "$root/tower"
+  "$REAL_GIT" checkout --quiet -b planwright/demo/task-4
+)
+"$REAL_GIT" -C "$root/tower" remote set-url origin "ssh://git@localhost/repo.git"
+cat >"$tmp/fake-ssh" <<'EOF'
+#!/bin/sh
+echo "ERROR: The key you are authenticating with has been rejected by the server." >&2
+exit 255
+EOF
+chmod +x "$tmp/fake-ssh"
+PW_GIT_LOG="$tmp/log12"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+before=$("$REAL_GIT" -C "$root/tower" rev-parse main)
+set +e
+out=$(GIT_SSH_COMMAND="$tmp/fake-ssh" mc sync --checkout "$root/tower" 2>&1)
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || fail "12: an unreachable origin must not report a successful sync"
+[ "$rc" -ne 4 ] \
+  || fail "12: an auth failure is not a divergence — 'resolve the unexpected history yourself' is unactionable here"
+[ "$rc" -eq 3 ] || fail "12: expected the transient fail-closed exit code 3, got $rc"
+[ "$before" = "$("$REAL_GIT" -C "$root/tower" rev-parse main)" ] \
+  || fail "12: main moved despite a failed fetch"
+printf '%s\n' "$out" | grep -qi 'has diverged' \
+  && fail "12: a transport failure was misreported as a divergence: $out"
+assert_no_rewrite 12
+
+# 13. A BARE checkout has no work tree, so `git diff` cannot answer the
+#     dirty-tree question at all — it exits non-zero because the operation is
+#     invalid there, not because anything is uncommitted. Reading that as "you
+#     have uncommitted changes, commit or stash" names a remedy that is
+#     impossible in a repository with no working tree. With no index to
+#     desynchronize, the ref-update path is both available and correct.
+#     Reachability is low (a tower checkout is not normally bare), but the
+#     misclassification is the same shape as tests 10 and 11.
+root=$(new_fixture bare)
+"$REAL_GIT" clone --quiet --bare "$root/origin.git" "$root/tower.git"
+"$REAL_GIT" -C "$root/tower.git" remote set-url origin "$root/origin.git"
+advance_origin "$root"
+PW_GIT_LOG="$tmp/log13"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+before=$("$REAL_GIT" -C "$root/tower.git" rev-parse main)
+set +e
+out=$(mc sync --checkout "$root/tower.git" 2>&1)
+rc=$?
+set -e
+printf '%s\n' "$out" | grep -qi 'uncommitted changes' \
+  && fail "13: a bare repository was reported as having uncommitted changes: $out"
+[ "$rc" -eq 0 ] || fail "13: a bare checkout should sync via the ref-update path, got exit $rc: $out"
+[ "$before" != "$("$REAL_GIT" -C "$root/tower.git" rev-parse main)" ] \
+  || fail "13: main did not advance in the bare checkout"
+[ "$("$REAL_GIT" -C "$root/tower.git" rev-parse main)" = "$("$REAL_GIT" -C "$root/origin.git" rev-parse main)" ] \
+  || fail "13: main is not at origin/main after the bare-checkout sync"
+assert_no_rewrite 13
+
+# 14. An explicitly EMPTY `--checkout` is a usage error, not a silent fallback
+#     to the current directory. The operator named a checkout; syncing a
+#     different one than the one they named is the kind of quiet substitution
+#     `--main-ref ""` is already refused for (test 9), so the two options hold
+#     the same line.
+root=$(new_fixture emptyarg)
+PW_GIT_LOG="$tmp/log14"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+set +e
+out=$(cd "$root/tower" && mc sync --checkout "" 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 2 ] || fail "14: an empty --checkout must be a usage refusal (exit 2), got $rc: $out"
+if [ -s "$PW_GIT_LOG" ] && grep -Eq '(^| )(fetch|merge|push)( |$)' "$PW_GIT_LOG"; then
+  fail "14: a git ref operation ran despite an empty --checkout"
+fi
+assert_no_rewrite 14
+
+# 15. The solo path with NO local `main` ref at all — a fresh `git init` that
+#     has never committed. The output contract says the `main` line is omitted
+#     in exactly this case, so the omission needs a test or the contract's only
+#     conditional branch goes unexercised.
+mkdir -p "$tmp/solo-empty"
+"$REAL_GIT" init --quiet --initial-branch=main "$tmp/solo-empty/tower"
+PW_GIT_LOG="$tmp/log15"
+export PW_GIT_LOG
+: >"$PW_GIT_LOG"
+out=$(mc sync --checkout "$tmp/solo-empty/tower") \
+  || fail "15: an empty no-origin checkout must degrade to solo (exit 0): $out"
+printf '%s\n' "$out" | grep -q 'solo' \
+  || fail "15: sync did not report the solo flow: $out"
+printf '%s\n' "$out" | grep -q '^main	' \
+  && fail "15: the main line must be omitted when no main ref exists: $out"
+assert_no_rewrite 15
 
 echo "PASS: test-main-currency.sh"
