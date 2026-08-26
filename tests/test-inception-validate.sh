@@ -554,6 +554,23 @@ out="$("$VALIDATE" --baseline HEAD "$b" 2>&1)"
 rc=$?
 assert_eq "baseline: a clean prose edit passes" "0" "$rc"
 
+# A prose SUBHEADING is prose too. brief.md's prose sections may carry `### `
+# headings that are not register entries, and the id sweep has to route them the
+# way the content pass does — by file and section — or rewording one reports the
+# heading as a vanished id and the guard blocks the edits it exists to welcome.
+b="$(git_bundle)"
+printf '%s\n' '' '### Adjacent tools we looked at' '' 'Two internal scripts and a spreadsheet.' >"$tmp/ins"
+insert_after "$b/brief.md" '## Existing alternatives' "$tmp/ins"
+(cd "$b" && git add -A && git commit --no-verify -qm "add a prose subheading") >/dev/null 2>&1
+out="$("$VALIDATE" "$b" 2>&1)"
+rc=$?
+assert_eq "baseline: a prose subheading is itself clean" "0" "$rc"
+sed_i "$b/brief.md" 's|^### Adjacent tools we looked at$|### Adjacent tools|'
+out="$("$VALIDATE" --baseline HEAD "$b" 2>&1)"
+rc=$?
+assert_eq "baseline: rewording a prose subheading passes" "0" "$rc"
+assert_not_contains "baseline: no id is claimed to have vanished" "BASE-ID-VANISHED" "$out"
+
 # The guard has to let the venture keep moving: appending a gate record and
 # minting a new id are the normal way a bundle grows, and blocking either would
 # make the stakeholder-commit guard useless in exactly the repos that need it.

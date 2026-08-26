@@ -380,7 +380,7 @@ function start_entry(prefix, head,   id) {
   cur_kind = prefix; cur_field = ""
   id = head; sub(/ —.*$/, "", id); id = trim(id)
   if (!id_ok(prefix, id) || head !~ / — .+$/) {
-    emit("ID-GRAMMAR", file, "entry heading \"" head "\" is not " prefix "-<positive integer> — <name>")
+    emit("ID-GRAMMAR", file, "entry heading \"" head "\" is not " prefix "-<positive integer>, an em dash, then a name")
     cur_kind = ""; cur_id = ""
     return
   }
@@ -394,7 +394,7 @@ function start_entry(prefix, head,   id) {
 function start_gate(head,   num, d) {
   cur_kind = "GATE"; cur_field = ""
   if (head !~ /^Gate [1-9][0-9]* — [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
-    emit("GATE-HEADING", "brief.md", "gate-log heading \"" head "\" is not `Gate <n> — <YYYY-MM-DD>`")
+    emit("GATE-HEADING", "brief.md", "gate-log heading \"" head "\" is not `Gate <n>`, an em dash, then <YYYY-MM-DD>")
     cur_kind = ""; cur_id = ""
     return
   }
@@ -428,7 +428,7 @@ function kc_bullet(line,   id, rest, sup) {
     sub(/ — \*\*Superseded-by:\*\*.*$/, "", rest)
   }
   if (rest !~ / — by [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/)
-    emit("KC-FORM", "brief.md", id " is not a state-plus-date pair (`<state> — by <YYYY-MM-DD>`)")
+    emit("KC-FORM", "brief.md", id " is not a state-plus-date pair (`<state>`, an em dash, then `by <YYYY-MM-DD>`)")
   else {
     kcd = rest; sub(/^.* — by /, "", kcd)
     if (!date_ok(kcd))
@@ -547,7 +547,7 @@ file == "brief.md" && sect == "Sources" && /^[ \t]*- / {
 file == "brief.md" && sect == "Tracks" && /^- / { track_bullet($0); next }
 file == "brief.md" && sect == "Kill criteria" && /^- / {
   if ($0 ~ /^- \*\*KC-[^:*]*:\*\* /) kc_bullet($0)
-  else emit("KC-FORM", "brief.md", "kill criterion \"" substr(trim($0), 1, 60) "\" is not `- **KC-<n>:** <state> — by <date>`")
+  else emit("KC-FORM", "brief.md", "kill criterion \"" substr(trim($0), 1, 60) "\" is not `- **KC-<n>:** <state>`, an em dash, then `by <date>`")
   next
 }
 
@@ -674,7 +674,7 @@ END {
       if (!(stw in ASTATUS))
         emit("ASM-STATUS", "assumptions.md", id " status \"" stw "\" is not open, testing, validated, invalidated, or waived")
       else if (stw == "waived" && st !~ /^waived — .+/)
-        emit("ASM-WAIVED-REASON", "assumptions.md", id " is waived and must record its reason as `waived — <reason>`")
+        emit("ASM-WAIVED-REASON", "assumptions.md", id " is waived and must record its reason as `waived`, an em dash, then the reason")
       else if ((stw == "validated" || stw == "invalidated") \
         && (F["A" SUBSEP id SUBSEP "Threshold"] == "none" || ev == "none"))
         emit("ASM-EVIDENCE-REQUIRED", "assumptions.md", id " is " stw " and must carry a real threshold and cited, graded evidence")
@@ -965,16 +965,37 @@ if [ -n "$baseline" ]; then
   # comparison is of content and not of formatting noise. The venture status
   # comes from the lib on each side rather than from this sweep.
   extract() {
-    awk "$spec_parse_awk_fence"'
+    # The `### ` routing MIRRORS the content pass above: a heading is an id only
+    # in the file that owns that id type, and only when it matches the typed
+    # grammar. Treating every heading as an id instead would make an ordinary
+    # prose subheading a tracked id, so rewording one would report
+    # BASE-ID-VANISHED — and prose edits passing is the whole contract this
+    # guard is written to keep (REQ-G1.5).
+    #
+    # The fence lexer is spliced AFTER the per-file reset, for the reason given
+    # where the content pass does the same: its rules `next`, so a file opening
+    # on a column-0 fence would otherwise skip the reset and carry the previous
+    # file's name and section state into this one.
+    awk '
+      function idok(prefix, id) { return id ~ ("^" prefix "-[1-9][0-9]*$") }
       FNR == 1 { n = split(FILENAME, p, "/"); f = p[n]; sect = ""; ingate = 0; cur = "" }
-      /^## / { sect = $0; sub(/^## /, "", sect); sub(/[ \t]+$/, "", sect); ingate = (sect == "Gate log"); cur = ""; next }
+      '"$spec_parse_awk_fence"'
+      /^## / { sect = $0; sub(/^## /, "", sect); sub(/[ \t]+$/, "", sect); ingate = (f == "brief.md" && sect == "Gate log"); cur = ""; next }
       /^### / {
         h = $0; sub(/^### /, "", h); sub(/[ \t]+$/, "", h)
         if (ingate) { cur = h; sub(/ —.*$/, "", cur); sub(/^Gate /, "", cur); print "gate\t" cur "\t" h; next }
+        cur = ""
+        prefix = (f == "assumptions.md") ? "A" : (f == "decisions.md") ? "DEC" : (f == "plan.md") ? "T" : ""
+        if (prefix == "") next
         id = h; sub(/ —.*$/, "", id); sub(/[ \t]+$/, "", id)
-        cur = ""; print "id\t" f "\t" id; next
+        if (idok(prefix, id)) print "id\t" f "\t" id
+        next
       }
-      /^- \*\*KC-[^:*]*:\*\* / { id = $0; sub(/^- \*\*/, "", id); sub(/:\*\*.*$/, "", id); print "id\t" f "\t" id; next }
+      f == "brief.md" && sect == "Kill criteria" && /^- \*\*KC-[^:*]*:\*\* / {
+        id = $0; sub(/^- \*\*/, "", id); sub(/:\*\*.*$/, "", id)
+        if (idok("KC", id)) print "id\t" f "\t" id
+        next
+      }
       ingate && cur != "" && NF { print "gate\t" cur "\t" $0 }
     ' "$1/brief.md" "$1/disciplines.md" "$1/assumptions.md" "$1/decisions.md" "$1/plan.md"
   }
