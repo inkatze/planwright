@@ -334,7 +334,10 @@ assert_no_rewrite 7
 #    transient fetch failure, so it must not be reported as one — "retry next
 #    cycle" is a dead end here, and a fail-closed refusal whose named recovery
 #    action cannot work is exactly what D-10 exists to prevent.
-root=$(new_fixture worktree)
+#    The fixture path carries a space AND an apostrophe, both legal on a POSIX
+#    filesystem, because the recovery command below is the operator's only
+#    remedy for this exit and it has to survive a path like `/Users/o'brien`.
+root=$(new_fixture "worktree o'brien")
 "$REAL_GIT" -C "$root/tower" worktree add --quiet -b planwright/demo/task-3 "$root/tower-wt" main
 advance_origin "$root"
 PW_GIT_LOG="$tmp/log8"
@@ -355,10 +358,16 @@ set -e
 # there is the whole remedy.
 printf '%s\n' "$out" | grep -q "$root/tower" \
   || fail "8: the refusal did not name the checkout that owns main: $out"
-# ...and must quote it, or the remedy it hands the operator is one they cannot
-# paste for a checkout whose path contains whitespace.
-printf '%s\n' "$out" | grep -qF -- "--checkout '$root/tower'" \
-  || fail "8: the suggested recovery command left the checkout path unquoted: $out"
+# ...and must quote it well enough to survive being pasted. Asserted by feeding
+# the emitted argument back through a shell and comparing what comes out, since
+# round-tripping to the exact path is the property that matters — a literal
+# match would only ever check the escaping against a copy of itself.
+suggested=$(printf '%s\n' "$out" | sed -n 's/.*main-currency\.sh sync --checkout //p')
+[ -n "$suggested" ] || fail "8: the refusal did not suggest a recovery command: $out"
+parsed=$(sh -c "set -- $suggested; printf '%s' \"\$1\"" 2>/dev/null) \
+  || fail "8: the suggested recovery command does not parse as shell: $suggested"
+[ "$parsed" = "$root/tower" ] \
+  || fail "8: the suggested recovery command does not round-trip to the checkout that owns main (got '$parsed'): $suggested"
 assert_no_rewrite 8
 
 # 9. A malformed `--main-ref` is refused BEFORE it reaches any git command, so a

@@ -124,6 +124,32 @@ err_git_said() {
   err "git said: $(sanitize_printable "$(fold_lines "$1")")"
 }
 
+# Quote a value for a command line we are handing an operator to paste.
+# sanitize_printable answers a different question — it strips control bytes so
+# the value cannot drive the terminal — and says nothing about the shell's own
+# metacharacters. Single quotes cover whitespace and the rest of them; the one
+# character they cannot cover is a single quote, legal in a POSIX path, which is
+# closed, escaped, and reopened in the standard way. Apply this to the sanitized
+# value, so the two concerns compose rather than one undoing the other.
+# Done with parameter expansion rather than a sed substitution on purpose: the
+# replacement text would itself be a backslash-and-quote thicket read through
+# two levels of quoting, which is the very kind of construct this function
+# exists to stop getting wrong.
+shell_quote() {
+  _sq_rest=$1
+  _sq_done=''
+  while :; do
+    case $_sq_rest in
+      *\'*)
+        _sq_done="$_sq_done${_sq_rest%%\'*}'\\''"
+        _sq_rest=${_sq_rest#*\'}
+        ;;
+      *) break ;;
+    esac
+  done
+  printf "'%s'" "$_sq_done$_sq_rest"
+}
+
 usage() {
   cat >&2 <<'USAGE'
 usage: main-currency.sh sync [--checkout <dir>] [--main-ref <branch>]
@@ -384,9 +410,9 @@ main_worktree=$(git worktree list --porcelain 2>/dev/null | awk -v want="branch 
 ')
 if [ -n "$main_worktree" ]; then
   err "$main_ref is checked out in another worktree of this clone ($(sanitize_printable "$main_worktree")), so its ref cannot be updated from here — this is permanent, not a transient failure, and retrying will not change it"
-  # Quoted so the suggestion stays copy-pasteable for a checkout whose path
-  # contains whitespace, the same paths `cd -- "$checkout"` already accepts.
-  err "run the sync in that checkout instead, where it fast-forwards $main_ref directly: main-currency.sh sync --checkout '$(sanitize_printable "$main_worktree")'"
+  # Quoted so the suggestion stays pasteable for any checkout path `cd --
+  # "$checkout"` already accepts, whitespace and apostrophes included.
+  err "run the sync in that checkout instead, where it fast-forwards $main_ref directly: main-currency.sh sync --checkout $(shell_quote "$(sanitize_printable "$main_worktree")")"
   exit 5
 fi
 
