@@ -343,8 +343,12 @@ meta-spec's writer prose (`spec-format`, *Sign-off records and content
 anchors*) governs what this skill owes. **Pre-flight first:** before the first
 edit, recompute the anchor with the brief's most recent recorded command; a
 mismatch, an absent or unparseable entry, and a failed recompute each block the
-edit alike — surface the condition instead of editing on top of it. Then
-classify the edit on the amendment axis:
+edit alike — surface the condition instead of editing on top of it. A blocked
+edit takes its disposition from its route: a convergence finding queues as an
+irreducible fork routed to the anchor repair, folded into the PR body; an edit
+this task's own implementation work revealed is a **stop condition** — record
+the unit to `tasks.md` Awaiting input and halt. Then classify the edit on the
+amendment axis:
 
 - **Expression-only** (a typo, ambiguity, or gap-fill consistent with the
   accepted decisions): fix it in place with a dated `## Changelog` entry riding
