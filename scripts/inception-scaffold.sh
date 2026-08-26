@@ -200,9 +200,14 @@ fi
 # nothing here tests the executable bit, and everything runs through /bin/sh —
 # the scripts all declare #!/bin/sh, so this is what the kernel would have done
 # with the bit set anyway.
+#
+# The cache entry quotes the VARIABLE and leaves the `*` bare, so the glob still
+# expands while a $HOME carrying a space stays one word. Unquoted, such a HOME
+# splits into candidate fragments that resolve to nothing, planwright reads as
+# not installed, and every guard below skips itself (shellcheck SC2231).
 pw=
 for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
-  "$HOME/.claude/planwright" $HOME/.claude/plugins/cache/planwright/planwright/*; do
+  "$HOME/.claude/planwright" "$HOME"/.claude/plugins/cache/planwright/planwright/*; do
   if [ -n "$cand" ] && [ -r "$cand/scripts/inception-validate.sh" ]; then
     pw=$cand
     break

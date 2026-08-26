@@ -415,6 +415,52 @@ assert_contains "workflow: falls back to the push baseline" "github.event.before
 assert_contains "workflow: verifies the baseline commit resolves" "rev-parse --verify" "$wf_body"
 assert_contains "workflow: says so when no baseline is usable" "did NOT run" "$wf_body"
 
+# Same blind spot, other artifact: `lint:shell` globs the tracked scripts, and
+# the hook this script GENERATES lives inside a quoted heredoc, which shellcheck
+# reads as an opaque string. So nothing linted the emitted hook, and an unquoted
+# `$HOME` glob in its planwright lookup survived several review rounds — a HOME
+# containing a space split into fragments that resolved to nothing, planwright
+# read as absent, and every guard skipped itself while a credential committed.
+# Lint the generated hook here, or nowhere.
+if command -v shellcheck >/dev/null 2>&1; then
+  scout="$(shellcheck "$wf_v/githooks/pre-commit" 2>&1)"
+  screrc=$?
+  assert_eq "hook: the generated hook is shellcheck-clean" "0" "$screrc"
+  [ "$screrc" -eq 0 ] || printf '%s\n' "$scout" >&2
+else
+  echo "ok: hook shellcheck skipped (shellcheck not installed)"
+fi
+
+# A $HOME with a space must not disable guard discovery. Driven through the
+# emitted hook rather than asserted on its text, so it is the behaviour under
+# test and not the spelling.
+sp_home="$tmp/spaced home"
+mkdir -p "$sp_home/.claude/plugins/cache/planwright/planwright/pw/scripts"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$sp_home/.claude/plugins/cache/planwright/planwright/pw/scripts/" || exit 1
+cp "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/spec-parse.sh" \
+  "$sp_home/.claude/plugins/cache/planwright/planwright/pw/scripts/" || exit 1
+sp_v="$tmp/venture-spaced-home"
+mkdir -p "$sp_v"
+inception_fixture_write "$sp_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$sp_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$sp_v" >/dev/null 2>&1
+printf '%s\n' "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$sp_v/leak.md"
+out="$(cd "$sp_v" && git add -A \
+  && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT HOME="$sp_home" \
+    PLANWRIGHT_SECRET_SCREEN_TOOL=none git commit -qm "credential under spaced HOME" 2>&1)"
+rc=$?
+assert_eq "HOME with a space: the credential is still refused" "1" "$rc"
+assert_not_contains "HOME with a space: planwright is still found" \
+  "planwright not found" "$out"
+sp_commits="$(cd "$sp_v" && git log --oneline 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "HOME with a space: nothing was committed" "0" "$sp_commits"
+
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.
 if command -v yamllint >/dev/null 2>&1; then
