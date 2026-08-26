@@ -118,9 +118,16 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
 '
   for p in $paths; do
     [ -n "$p" ] || continue
+    # Per-path status, not the accumulated one: a shared flag would make every
+    # clean path after the first hit re-print the previous path's output, so one
+    # leak across several arguments would read as several.
+    prc=0
     # shellcheck disable=SC2086 # gl_dir is a fixed subcommand word, not input
-    gitleaks $gl_dir "$p" --no-banner --redact >"$work/gl.out" 2>&1 || rc=1
-    [ "$rc" -eq 0 ] || cat "$work/gl.out" >&2
+    gitleaks $gl_dir "$p" --no-banner --redact >"$work/gl.out" 2>&1 || prc=1
+    if [ "$prc" -ne 0 ]; then
+      cat "$work/gl.out" >&2
+      rc=1
+    fi
   done
   IFS=$oIFS
   exit "$rc"

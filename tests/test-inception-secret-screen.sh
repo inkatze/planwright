@@ -176,6 +176,18 @@ if command -v gitleaks >/dev/null 2>&1; then
   assert_eq "gitleaks arm: a leak exits 1" "1" "$rc"
   assert_not_contains "gitleaks arm: the matched value is redacted" "$pk_body" "$out"
 
+  # Each path reports its own result. A shared status would make every clean
+  # path after the first hit re-print the previous path's captured output, so
+  # one leak across two arguments would read as two.
+  mkdir -p "$tmp/leaky" "$tmp/tidy"
+  cp "$tmp/key.pem" "$tmp/leaky/k.pem"
+  cp "$tmp/clean.md" "$tmp/tidy/ok.md"
+  out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/leaky" "$tmp/tidy" 2>&1)"
+  rc=$?
+  assert_eq "gitleaks arm: a leak in one of two paths exits 1" "1" "$rc"
+  assert_eq "gitleaks arm: the clean path reports nothing of its own" "1" \
+    "$(printf '%s\n' "$out" | grep -c 'leaks found')"
+
   (cd "$repo" && cp "$tmp/key.pem" key.pem && git add key.pem) >/dev/null 2>&1
   out="$(cd "$repo" && PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" --staged 2>&1)"
   rc=$?
