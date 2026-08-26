@@ -459,4 +459,67 @@ out=$(PLANWRIGHT_FLEET_STATE_DIR="$tmp/no-surface" pw "$FF" sweep \
 printf '%s\n' "$out" | grep -q '^tentative	' \
   || fail "with no presence surface, fences should read as unattributed: $out"
 
+# ==========================================================================
+# REQ-C1.4 — composing with meta-tower selection
+# ==========================================================================
+# The peer fence is the mechanism for the INDEPENDENTLY-STARTED, no-meta-tower
+# case. Where a meta-tower is present it owns cross-spec selection, and the
+# fence must compose with that assignment rather than contradict it: it never
+# blocks a slice the meta-tower assigned, and it still refuses a second tower
+# the same unit.
+
+metahome="$tmp/fleet-meta"
+mkdir -p "$metahome"
+chmod 700 "$metahome"
+mpw() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
+    PLANWRIGHT_FLEET_STATE_DIR="$metahome" PLANWRIGHT_BASE_REF=main \
+    PATH="$GHBIN:$PATH" /bin/sh "$@"
+}
+uuid_meta="33333333-3333-3333-3333-333333333333"
+uuid_sub="44444444-4444-4444-4444-444444444444"
+
+# Clean slate: the earlier cases left live fences behind on purpose.
+for r in $(origin_refs); do
+  git -C "$origin" update-ref -d "$r"
+done
+
+printf 'alive\n' >"$tmp/evidence-verdict"
+mpw "$FP" publish --checkout "$co" --session-id "$uuid_meta" --pid 4242 \
+  --specs demo --meta >/dev/null || fail "meta-tower publish failed"
+mpw "$FP" publish --checkout "$co" --session-id "$uuid_sub" --pid 4243 \
+  --specs demo >/dev/null || fail "subordinate tower publish failed"
+
+# The meta-tower is distinguished by the presence record's OWN validated meta
+# marker — not by fleet-tower-marker.sh, whose field is the orthogonal
+# unattended/interactive recovery mode.
+peers=$(mpw "$FP" discover --checkout "$co" --session-id "$uuid_sub" --min-interval 0)
+printf '%s\n' "$peers" | grep -q "^peer	$uuid_meta	live	.*	true$" \
+  || fail "the meta-tower is not distinguishable by its own meta marker: $peers"
+printf '%s\n' "$peers" | grep -q "^peer	$uuid_meta	live	.*	false$" \
+  && fail "the meta marker is not being read from the record's own field"
+grep -q 'fleet-tower-marker' "$stubbin/fleet-fence.sh" \
+  && fail "the fence path reads the orthogonal recovery-mode marker"
+
+# Cross-spec selection stays the meta-tower's: the fence is applied to the unit
+# meta-selection produced, never used to pick one.
+assigned=$(mpw "$stubbin/orchestrate-meta-select.sh" "$co/specs/demo" 2>/dev/null) \
+  || fail "meta-tower selection produced nothing to assign"
+aspec=$(printf '%s' "$assigned" | awk -F'\t' '{print $1}')
+aunit=$(printf '%s' "$assigned" | awk -F'\t' '{print $2}')
+[ "$aspec" = "$co/specs/demo" ] || fail "meta-select named an unexpected spec: $assigned"
+
+# The assignment is honored: fencing the assigned unit succeeds, so the fence
+# never contradicts the meta-tower.
+rc=0
+mpw "$FF" fence --checkout "$co" --spec demo "$aunit" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "the fence blocked a unit the meta-tower assigned (exit $rc)"
+
+# ...and it still does not double-assign: a second tower under the same
+# meta-tower that reaches for the same unit collides and backs off.
+rc=0
+mpw "$FF" fence --checkout "$co" --spec demo "$aunit" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "a meta-tower-present fence double-assigned the unit (exit $rc)"
+run 0 "gc/meta-cleanup" "$FF" gc --checkout "$co" --spec demo "$aunit" >/dev/null
+
 echo "PASS: $(basename "$0")"
