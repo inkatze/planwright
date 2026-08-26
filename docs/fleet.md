@@ -942,6 +942,53 @@ un-degraded `normal` policy — the operator has assumed manual control, so the
 ladder stops degrading rather than blocking dispatch. The whole path is
 deterministic script logic with no LLM call.
 
+**Adaptation: `scripts/allocation-adapt.sh`.** Everything above prices a unit by
+its *type*. Nothing in it notices that a particular unit turned out harder than
+the table assumed. `allocation-adapt.sh resolve <unit> --key <task-type>` is the
+layer that does (model-allocation D-2, D-6, D-8): it derives the unit's current
+tier from that unit's own append-only **allocation ledger**, moves it at most one
+ladder step per triggering incident, then applies the clamps above and emits the
+same `admit / model / effort / command / concurrency / rung / reserved` shape, so
+fleet dispatch reads it as a drop-in. It **ships inert**:
+`allocation_adaptation` defaults to `off`, and with it off the answer is
+byte-identical to `fleet-allocate.sh`'s — pinned field by field in the tests
+across every rung and with the signal both present and absent.
+
+Turn it on and a tier moves only on **work-shaped** events, passed as `--event`:
+a step failure or retry, a flailing classification, review-sequence
+non-convergence, or a worker petition. The list is a closed allowlist —
+infrastructure trouble (an audit write error, a config hard-fail, a backend
+launch error) is *refused* rather than counted, because no model tier fixes it
+and counting it would burn the unit's adjustment budget. Escalation raises effort
+a level until `high`, then raises the model one alias **keeping effort `high`**.
+Each event carries an idempotency identity (unit, step, attempt, incident), so a
+failure and the retry it caused collapse to one step while independent incidents
+stack one step each, and a crash replay re-derives instead of double-counting.
+`allocation_adjustment_cap` bounds how far one unit may travel from its starting
+tier — a net step count in *each* direction, refunded by reversals.
+
+Three properties are worth knowing when reading a ledger. A **clamp is not a
+de-escalation**: a proposal the rung or a cap cut down is recorded as *clamped*
+and the unit's own ladder position is untouched, so the next boundary proposes
+from where the ladder actually is. While the usage signal is **unavailable**,
+escalation above the starting tier is denied but an already-escalated unit
+**holds** — no claw-back. And a unit that *cannot* escalate (a denial, an
+exhausted cap, the ladder top) gets no new stuck state: the existing crash-loop
+backoff and disable threshold govern, and the ledger is what explains why
+escalation was unavailable when that escalation reaches a human.
+
+The ledger lives at `<fleet-home>/allocation/<unit>.tsv`, one file per unit, and
+`scripts/allocation-ledger.sh` is its store: `rows` prints a unit's history,
+`derive` recomputes its tier from records plus config, and `stats` reports size
+and derivation cost (also folded into `fleet-stats.sh render`, which is where a
+scan-cost problem shows up first). An unreadable or corrupt ledger does not block
+a launch: the unit launches at its **last recorded tier** with adjustments
+suspended and the degradation surfaced, never silently. Governance events —
+an escalation, a denial, a binding clamp, an inheritance, a degraded read —
+additionally mirror one row each into the shared audit trail under mechanism
+`allocation`, so the fleet-wide view keeps a single surface; routine resolutions
+stay in the per-unit ledger.
+
 **Credit-continuation defaults to decline-and-wait, never auto-spend.** The
 rate-limit wall sometimes offers a *credit-continuation* prompt — "spend
 credits / extra usage to continue past the limit".
