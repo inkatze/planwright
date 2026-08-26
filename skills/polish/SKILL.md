@@ -140,11 +140,12 @@ content anchors*): a mismatch, an absent or unparseable entry, and a failed
 recompute block that edit alike, and the loop repairs none of them: the
 blocked finding queues as an irreducible fork whose route is the anchor
 repair, and the iteration drains its remaining findings normally. An
-expression-only fix carries its dated Changelog entry and marked
-`Class: expression-only` self-re-anchor entry in the same commit as the edit,
-so the ritual never spans an iteration boundary. A meaning-class fix stays
-unapplied and queued for `/spec-kickoff`; the ledger keeps it queued rather
-than re-routing it on a later iteration.
+expression-only fix carries its dated Changelog entry and the marked
+`Class: expression-only` self-re-anchor entry citing that entry, in the same
+commit as the edit, so the ritual never spans an iteration boundary. A
+meaning-class fix stays unapplied and queued for a `/spec-kickoff` delta
+re-walkthrough; the ledger keeps it queued rather than re-routing it on a
+later iteration.
 
 ## Safety conditions (mandatory handoff)
 
