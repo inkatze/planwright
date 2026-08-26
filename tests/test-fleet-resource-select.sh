@@ -59,9 +59,13 @@ adopter_cfg="$adopter_root/planwright.yml"
 tracked_cfg="$repo/.claude/planwright.yml"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
 
-# The shipped core defaults for the model knobs (kept in lockstep with
+# The shipped core defaults for the selection knobs (kept in lockstep with
 # config/defaults.yml — the repo-drift check below asserts the real file
-# carries the same keys).
+# carries the same keys). The `allocation_*` rows ship the `unset` sentinel,
+# which is what arms the fleet_* fallback these fleet-scoped assertions rely
+# on (model-allocation REQ-A1.3); omitting them here would leave every run
+# warning about an absent key and testing a partial-install path instead of
+# the shipped one.
 cat >"$core_cfg" <<'EOF'
 fleet_model_execution: opus
 fleet_model_bookkeeping: sonnet
@@ -72,6 +76,15 @@ fleet_effort_drain: low
 fleet_command_execution: execute-task
 fleet_command_bookkeeping: orchestrate
 fleet_command_drain: drain
+allocation_model_execution: unset
+allocation_model_bookkeeping: unset
+allocation_model_drain: unset
+allocation_effort_execution: unset
+allocation_effort_bookkeeping: unset
+allocation_effort_drain: unset
+allocation_command_execution: unset
+allocation_command_bookkeeping: unset
+allocation_command_drain: unset
 EOF
 
 # Stub outbound clients: any invocation is an LLM/API call in the resolution

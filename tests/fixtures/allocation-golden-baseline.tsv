@@ -1,0 +1,19 @@
+# Golden baseline of the shipped selection table (model-allocation REQ-A1.2).
+#
+# CAPTURED FROM THE PRE-GENERALIZATION IMPLEMENTATION, at commit 2e6ada8, by
+# running `scripts/fleet-resource-select.sh list` against the shipped
+# config/defaults.yml with every overlay layer neutralized. That provenance is
+# the whole point of the file: REQ-A1.2 requires equivalence to be measured
+# against a captured fixture, never against the new implementation's own
+# output, so a regression in the generalized resolver cannot re-baseline
+# itself into looking correct.
+#
+# DO NOT REGENERATE from the current tree. A shipped-table change is a
+# deliberate behavior change and must be argued on its own terms (a spec
+# amendment), which is exactly the conversation this fixture forces.
+#
+# Format: one row per task type, `<task-type>TAB<model>TAB<effort>TAB<command>`.
+# Blank lines and `#` comment lines are stripped by the reading test.
+execution	opus	high	execute-task
+bookkeeping	sonnet	medium	orchestrate
+drain	sonnet	low	drain

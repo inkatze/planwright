@@ -286,6 +286,44 @@ fleet_command_execution: execute-task
 fleet_command_bookkeeping: orchestrate
 fleet_command_drain: drain
 
+# The general, surface-agnostic selection family (model-allocation D-5, D-13;
+# REQ-A1.2, REQ-A1.3). scripts/allocation-select.sh resolves one
+# model/effort/command row per SELECTION KEY for every launch point, not just
+# fleet dispatch, and these knobs are its configuration. Each column resolves
+# allocation_<column>_<key> first, then the legacy fleet_<column>_<key> above,
+# then the shipped default.
+#
+# The nine fleet-keyed knobs ship the `unset` sentinel: that is how a flat
+# config file spells "this general knob is not set", and it is what arms the
+# fleet_* fallback. Shipping a concrete value here instead would silently
+# outrank every existing fleet_* overlay, which is exactly the upgrade-day
+# behavior change REQ-A1.2 forbids. The fleet_* family stays a DEPRECATED
+# FALLBACK — documented, never removed — so those overlays keep working.
+allocation_model_execution: unset
+allocation_model_bookkeeping: unset
+allocation_model_drain: unset
+allocation_effort_execution: unset
+allocation_effort_bookkeeping: unset
+allocation_effort_drain: unset
+allocation_command_execution: unset
+allocation_command_bookkeeping: unset
+allocation_command_drain: unset
+
+# The three surfaces that perform no selection today: single-spec /orchestrate
+# dispatch, /execute-task's per-step sessions, and /offload dispatch. Their
+# shipped default is the explicit `inherit` sentinel, so the resolver is
+# consulted (REQ-B1.1 holds) but applies nothing and the launch keeps its
+# ambient model/effort — the capability ships dark (D-13). Set one to a model
+# alias or effort level to start governing that surface. There is no command
+# column here: only a fleet dispatch turns a selection into a slash-command
+# invocation (D-5).
+allocation_model_orchestrate_dispatch: inherit
+allocation_effort_orchestrate_dispatch: inherit
+allocation_model_execute_step: inherit
+allocation_effort_execute_step: inherit
+allocation_model_offload: inherit
+allocation_effort_offload: inherit
+
 # The bounded fallback hold, in seconds, when a native rate-limit signal is
 # detected but its reset time cannot be parsed (fleet-autonomy D-12,
 # REQ-E1.3; kickoff risk row 24). The rate-limit prompt is version-sensitive
