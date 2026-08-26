@@ -289,7 +289,7 @@ and knob changes that share the file.
   started. The drift: REQ-H1.2's mandated mechanism cannot detect the #339
   shape that Task 10's `Done when:` requires it to detect, because the two use
   "entry" to mean different objects. Verified against the real artifact —
-  `gh pr diff 339` shows the CHANGELOG.md diff is prepend-only and adds exactly
+  `gh pr diff 339` shows the `CHANGELOG.md` diff is prepend-only and adds exactly
   **one** version heading, `## [0.34.0]`, which is *strictly greater* than the
   then-latest tag `v0.33.0`; the bootstrapping signature lives entirely in its
   124 added bullets, whose commits (`fe235bb`, `d75bd37`, `6983f2c`, `daa02f3`,
