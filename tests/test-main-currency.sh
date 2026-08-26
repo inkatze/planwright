@@ -369,6 +369,11 @@ evil" \
   "main*" \
   "/main" \
   "/" \
+  "+main" \
+  "+" \
+  "main@{1}" \
+  "@" \
+  "main." \
   ""; do
   : >"$PW_GIT_LOG"
   set +e
@@ -384,6 +389,14 @@ evil" \
   fi
   printf '%s\n' "$out" | grep -qi 'malformed\|usage' \
     || fail "9: the refusal was not surfaced for '$bad': $out"
+  # No crafted value may leave a ref behind. A leading `+` used to slip the
+  # grammar and be consumed by git as the refspec's FORCE modifier, fetching onto
+  # a ref literally named `+main` — while every success signal fired and the real
+  # `main` was never synced. A false success is worse than a refusal, so the
+  # branch list is pinned, not just the exit code.
+  refs_now=$("$REAL_GIT" -C "$root/tower" for-each-ref --format='%(refname)' refs/heads/ | tr '\n' ' ')
+  [ "$refs_now" = "refs/heads/main " ] \
+    || fail "9: '$bad' left a stray ref behind: $refs_now"
 done
 assert_no_rewrite 9
 

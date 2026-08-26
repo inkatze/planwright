@@ -133,8 +133,14 @@ USAGE
 # option or a refspec separator into the fetch.
 is_branch_name() {
   case "$1" in
-    # A leading dash would be read as an option by the git commands below.
-    "" | -*) return 1 ;;
+    # A leading dash would be read as an option by the git commands below, and a
+    # leading PLUS is read by git as the refspec's force modifier rather than as
+    # part of the ref name: `+main:+main` fetches `main` onto a ref literally
+    # named `+main`, forcing it, and leaves the real `main` untouched while every
+    # success signal here still fires. Note that `refs/heads/+main` is a legal
+    # ref name, so `git check-ref-format` does not catch this — the hazard is the
+    # `+`'s POSITION in a refspec, which only this grammar can rule out.
+    "" | -* | +*) return 1 ;;
     # A refspec separator, a glob, or revision metacharacters would change
     # which ref the fetch names.
     *:* | *'?'* | *'*'* | *'['* | *'~'* | *'^'*) return 1 ;;
@@ -143,7 +149,13 @@ is_branch_name() {
     # scripts/ready-guard.sh: git rejects `/main:/main` as an invalid refspec,
     # and a fetch that fails for a malformed argument would otherwise be
     # classified as a transient failure and retried forever.
-    *..* | /* | */ | */*/* | *.lock) return 1 ;;
+    #
+    # Revision syntax (`@{...}`, a bare `@` for HEAD) and the shapes git's own
+    # ref grammar forbids (a trailing dot, a `.lock` suffix) are refused here for
+    # exactly that reason: each one makes the fetch fail on a PERMANENT input
+    # error, which the classifier downstream would otherwise surface as
+    # "retry next cycle" — a recovery that can never succeed.
+    *..* | /* | */ | */*/* | *.lock | *'@{'* | @ | *.) return 1 ;;
     *\\* | *' '*) return 1 ;;
   esac
   # Catches every C0 control character (tab and newline included) plus DEL.
@@ -341,7 +353,10 @@ fi
 
 # Update the `main` REF without a checkout. This refspec has no leading `+` and
 # no --force, so git refuses a non-fast-forward by nature — the ff-only guarantee
-# comes from the refspec's own shape here, not from a separate flag.
+# comes from the refspec's own shape here, not from a separate flag. That shape is
+# only guaranteed because `is_branch_name` refuses a `--main-ref` beginning with
+# `+`; without that refusal the value would supply the force modifier itself, so
+# the two are one mechanism and not two independent safeguards.
 if ! fetch_err=$(git fetch origin "$main_ref:$main_ref" 2>&1); then
   # Two failures share this exit path, so classify them by whether origin was
   # reachable at all: a non-fast-forward rejection means the fetch itself worked.
