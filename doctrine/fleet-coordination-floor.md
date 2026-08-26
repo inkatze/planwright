@@ -149,7 +149,7 @@ session-grade rung shipped a launch verb and no stop. A worker that reaches
 SessionEnd exits cleanly, so the common path looks tidy; only workers
 abandoned mid-flight or hard-killed leak, and they leak silently. Roughly 95
 cumulative hours of leaked worker time accumulated that way before anyone
-noticed (obs:b63a8778, surviving in obs:50eac4ac). Detection failed in the
+noticed (obs:b63a8778). Detection failed in the
 same shape: a monitor sampling a worker's last pane line reported eleven
 identical heartbeats for a frozen worker, because the line was stable
 *precisely because* it was stuck (obs:50eac4ac).
