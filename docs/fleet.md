@@ -589,11 +589,16 @@ different process — unclassifiable, and surfaced rather than honored.
 
 ## The per-unit fence: one tower per unit
 
-Presence is awareness. The thing that actually stops two towers dispatching
-one unit is a **ref on `origin`** (concurrent-orchestrator-coordination D-5,
-D-8, D-11). Before a worker forks, the tower creates
-`refs/planwright-fence/<spec>/<unit-id>` with an expect-absent
-compare-and-swap. `origin` is the one substrate every clone shares and git
+Presence is awareness. The thing that stops two towers dispatching one unit is
+a **ref on `origin`** (concurrent-orchestrator-coordination D-5, D-8, D-11):
+before a worker forks, a tower creates `refs/planwright-fence/<spec>/<unit-id>`
+with an expect-absent compare-and-swap.
+
+**`/orchestrate` does not call this yet.** The mechanism below is complete and
+verified, but wiring it into the tower's dispatch step needs more room than
+that skill's instruction budget has left, so it is queued as a follow-up. Until
+then the commands are yours to run, and concurrent towers still coordinate only
+through presence. `origin` is the one substrate every clone shares and git
 serializes ref updates on it, so exactly one tower wins a unit; it is also
 death-surviving, because the ref lives on the server rather than in the
 tower's process. The ref points at the current `origin/main` tip — an

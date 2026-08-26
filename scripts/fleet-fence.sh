@@ -99,7 +99,23 @@
 #   check:  `fenced <ref>` | `unfenced <ref>` | `solo no-origin`
 #   gc:     `gc <ref>` | `gc-absent <ref>`
 #   list:   one ref name per line
-#   sweep:  see `sweep` below
+#   sweep:  `gc <ref>` / `gc-absent <ref>`      the unit is terminal, fence retired
+#           `gc-failed <ref>`                   terminal, but the delete failed
+#           `honored <ref> <owner>`             a live owner holds an unfinished unit
+#           `strand <ref> <owner> <liveness>`   surfaced to the operator, untouched
+#                                               (<liveness>: dead | unknown |
+#                                               ambiguous | orphan)
+#           `tentative <ref>`                   unattributed, inside its grace window
+#           `suppressed <ref>`                  already surfaced, inside the cadence
+#                                               window — deliberately not re-probed
+#           `hold <ref> <reason>`               evidence incomplete: nothing decided
+#           `anomaly <ref> <reason>`            a ref this mechanism did not write
+#           `summary fences=<n> strands=<n>`
+#
+# The fence's target commit is `refs/heads/main` on `origin`, overridable with
+# `PLANWRIGHT_FENCE_BASE_REF`, falling back to the remote's `HEAD` where that
+# ref does not exist — so a repository whose default branch is not `main` still
+# fences at an existing commit rather than failing.
 #
 # Exit codes:
 #   0  success (fence won / check found a fence / gc done / list / sweep)
@@ -716,7 +732,14 @@ if [ "$cmd" = sweep ]; then
     # that may be finished work (REQ-C1.3, fail closed: do not act, retry).
     if printf '%s\n' "$state" \
       | awk -F"$TAB" -v u="$unit" '$1 == "task" && $2 == u && $3 == "completed" { f = 1 } END { exit !f }'; then
-      refs="$ref"
+      # Re-derive the ref through the containment primitive rather than
+      # deleting the string read off `origin`: REQ-D1.5 wants BOTH halves —
+      # `git check-ref-format` and the literal prefix — before any delete, and
+      # the prefix test above is only the second of them.
+      refs=$(fence_refname "$spec" "$unit") || {
+        printf 'anomaly\t%s\t%s\n' "$ref" "unrepresentable-fence-ref"
+        continue
+      }
       if gc_refs; then
         sink_clear "$tkey"
         sink_clear "$skey"
