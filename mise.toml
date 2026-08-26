@@ -134,6 +134,10 @@ run = "/bin/bash scripts/check-workflow-posture.sh"
 description = "hook-backstop wiring detection: fail on an unwired or half-wired clone (core.hooksPath not 'githooks', or a hook file missing/non-executable); detects only, never wires — remedy is scripts/wire-githooks.sh (guard-coverage Task 2, REQ-A1.3, D-2, D-3)"
 run = "/bin/sh scripts/check-githooks.sh"
 
+[tasks."check:hook-contracts"]
+description = "hook-registration guard: every registered event is modelled and payload-fixture-pinned, nothing is registered on an event whose silence refuses the operation (the WorktreeCreate outage shape) unless it is that operation's declared implementer, and decision hooks emit JSON naming their own event; fails closed on an unmodelled event or unreadable wiring (fleet-lifecycle-closure Task 2, REQ-H1.1, REQ-H1.2, D-11)"
+run = "/bin/bash scripts/check-hook-contracts.sh"
+
 [tasks."check:doctrine-manifest"]
 description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-doctrine-manifest.sh"
@@ -176,6 +180,7 @@ depends = [
   "check:no-ci-evals",
   "check:workflow-posture",
   "check:githooks",
+  "check:hook-contracts",
   "check:doctrine-manifest",
   "check:specs",
   "scan:secrets",

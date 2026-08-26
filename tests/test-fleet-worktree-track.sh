@@ -2,19 +2,21 @@
 # Tests for scripts/fleet-worktree-track.sh — worktree lifecycle tracking
 # (Task 4: D-7; REQ-B1.2).
 #
-# Worktree lifecycle is PUSHED via the `WorktreeCreate`/`WorktreeRemove` hook
-# events the instant they occur (a live registry, no polling), degrading to a
-# manual `git worktree list` DISK SCAN (`scan`) CLI on a backend that cannot
-# register the hook pair (not yet wired to run periodically — a tracked
-# follow-up). Tracking is bookkeeping, not a destructive daemon action, so it is
-# NOT gated by the kill-switch and does NOT spam the audit trail (kickoff risk
-# 31: the trail records daemon actions, not routine lifecycle noise).
+# Worktree removal is PUSHED via the `WorktreeRemove` hook the instant it
+# occurs (a live registry, no polling). Creation is pushed by `record-create` at
+# the dispatch seam, and anything created another way is picked up by the
+# `git worktree list` DISK SCAN (`scan`) — the graceful-degradation fallback
+# D-7 requires. Tracking is bookkeeping, not a destructive daemon action, so it
+# is NOT gated by the kill-switch and does NOT spam the audit trail (kickoff
+# risk 31: the trail records daemon actions, not routine lifecycle noise).
 #
-# THE VERIFIED HOOK CONTRACT (code.claude.com/docs/en/hooks.md). `WorktreeCreate`
-# is a DECISION hook: a non-zero exit or missing stdout path FAILS worktree
-# creation. So `hook-create` is a strict pass-through — it echoes the stdin
-# `worktree_path` unchanged and ALWAYS exits 0, recording as an isolated
-# best-effort side effect. `WorktreeRemove` is fire-and-forget.
+# THE CORRECTED HOOK CONTRACT. `WorktreeCreate` carries a bare worktree `name`,
+# and registering a hook on it REPLACES native creation — the hook becomes the
+# creator. Only `WorktreeRemove` carries `worktree_path`. planwright wanted
+# passive tracking, that event grants none, so it registers no `WorktreeCreate`
+# hook and ships no `hook-create`; section 5 pins the retirement.
+# `WorktreeRemove` is genuinely observational: it cannot prevent a removal, so
+# `hook-remove` always exits 0.
 #
 # What is covered:
 #   - record-create then record-remove update the live registry (push tracking),
@@ -22,15 +24,15 @@
 #   - record-create is idempotent (no duplicate rows);
 #   - the disk-scan fallback (`scan`) discovers a real linked worktree git knows
 #     about that no hook ever pushed;
-#   - `hook-create` echoes the stdin worktree_path and exits 0 (the decision-
-#     control contract), records the path, and still does so with jq absent
-#     (the sed fallback) — and even when the registry write cannot happen;
-#   - `hook-create` with a malformed (control-byte / non-absolute) or absent
-#     worktree_path echoes NOTHING and still exits 0, recording nothing (the
-#     decision-channel blast-radius guard);
-#   - `hook-remove` records a removal from its stdin payload and exits 0;
-#   - hostile / non-absolute paths are refused by the direct CLI (exit non-zero)
-#     yet never break the create hook's pass-through.
+#   - `hook-remove` records a removal from its stdin payload and exits 0, and
+#     still does so with jq absent (the sed fallback) — and even when the
+#     registry write cannot happen;
+#   - `hook-remove` on an unreadable payload surfaces the reason as
+#     `systemMessage` (the channel this event shows the operator) rather than on
+#     stderr the harness discards, and fails closed on an un-parseable escaped
+#     path rather than dropping a mis-parsed one;
+#   - `hook-create` is retired and refused by the CLI;
+#   - hostile / non-absolute paths are refused by the direct CLI (exit non-zero).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-worktree-track.sh
@@ -147,21 +149,22 @@ case $warned in
 esac
 echo "ok: list enforces valid_path on read, skipping malformed registry entries with a warning"
 
-# 4. hook-create: the decision-control contract — echo the stdin worktree_path
-#    unchanged and exit 0, AND record it.
+# 4. hook-remove: records a removal from its stdin payload and exits 0.
+#    `WorktreeRemove` cannot be prevented by a hook and its failures are logged
+#    in debug only, so this handler is observational and always exits 0.
 rm -rf "$fleet_home"
-payload='{"worktree_path":"/work/hooked-wt","isolation":"worktree","session_id":"s1"}'
+wt record-create /work/hooked-wt >/dev/null
+payload='{"worktree_path":"/work/hooked-wt","hook_event_name":"WorktreeRemove","session_id":"s1"}'
 rc=0
-out=$(printf '%s' "$payload" | wt hook-create) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create exit $rc, expected 0 (must never fail creation)"
-[ "$out" = "/work/hooked-wt" ] || fail "hook-create must echo the worktree_path (got: '$out')"
+out=$(printf '%s' "$payload" | wt hook-remove) || rc=$?
+[ "$rc" = 0 ] || fail "hook-remove exit $rc, expected 0"
+[ -z "$out" ] || fail "hook-remove must stay silent on a payload it could read (got: '$out')"
 case $(wt list) in
-  *"/work/hooked-wt"*) ;;
-  *) fail "hook-create did not record the worktree" ;;
+  *"/work/hooked-wt"*) fail "hook-remove did not drop the worktree" ;;
 esac
-echo "ok: hook-create echoes the path, exits 0, and records"
+echo "ok: hook-remove records the removal, stays silent, and exits 0"
 
-# 4b. hook-create with jq absent: the sed fallback still extracts the path.
+# 4b. hook-remove with jq absent: the sed fallback still extracts the path.
 #     Build a PATH mirroring the real one MINUS jq (robust against which exact
 #     coreutils the script reaches for), so only jq's absence is simulated.
 rm -rf "$fleet_home"
@@ -180,90 +183,75 @@ for d in $PATH; do
 done
 IFS=$old_ifs
 [ ! -e "$nojq/jq" ] || fail "nojq PATH still exposes jq"
+PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" record-create /work/hooked-wt >/dev/null
 rc=0
-out=$(printf '%s' "$payload" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
-  /bin/bash "$WT" hook-create) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (no jq) exit $rc, expected 0"
-[ "$out" = "/work/hooked-wt" ] || fail "hook-create (no jq) must echo path via sed fallback (got: '$out')"
-echo "ok: hook-create extracts the path via the sed fallback when jq is absent"
+printf '%s' "$payload" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+  /bin/bash "$WT" hook-remove >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "hook-remove (no jq) exit $rc, expected 0"
+case $(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" list 2>/dev/null) in
+  *"/work/hooked-wt"*) fail "hook-remove (no jq) did not drop the worktree via the sed fallback" ;;
+esac
+echo "ok: hook-remove extracts the path via the sed fallback when jq is absent"
 
-# 4c. hook-create never fails creation even if the registry write cannot happen
-#     (fleet home points at an unwritable location): still echoes path, exit 0.
+# 4c. hook-remove never breaks a removal even if the registry write cannot
+#     happen (fleet home points at an unwritable location): still exit 0.
 rc=0
 unwr="$tmp/unwritable"
 : >"$unwr" # a FILE where a dir is expected: the registry write cannot succeed
-out=$(printf '%s' "$payload" | PLANWRIGHT_FLEET_STATE_DIR="$unwr/fleet" \
-  /bin/bash "$WT" hook-create) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create must exit 0 even when recording fails (got $rc)"
-[ "$out" = "/work/hooked-wt" ] || fail "hook-create must still echo the path on a record failure"
-echo "ok: hook-create never fails worktree creation even when recording fails"
+printf '%s' "$payload" | PLANWRIGHT_FLEET_STATE_DIR="$unwr/fleet" \
+  /bin/bash "$WT" hook-remove >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "hook-remove must exit 0 even when recording fails (got $rc)"
+echo "ok: hook-remove never breaks a removal even when recording fails"
 
-# 4d. hook-create with a MALFORMED or EMPTY worktree_path: the decision-control
-#     safety mitigation the whole hook wiring rests on. A control-byte,
-#     non-absolute, or absent worktree_path must put NOTHING on stdout (no raw
-#     bytes and no forged path on the decision channel) and STILL exit 0 (never a
-#     non-zero exit, which would break creation fleet-wide), recording nothing.
+# 4d. hook-remove with an ABSENT worktree_path: nothing to drop, still exit 0,
+#     and the reason goes out as `systemMessage` — the channel this event
+#     actually surfaces (REQ-H1.3, REQ-K1.1). Stderr is discarded here, so a
+#     tracking gap explained only there reaches nobody. That invisibility is
+#     what made the create-side outage take a binary inspection to diagnose.
 rm -rf "$fleet_home"
-# (a) a control byte in the path: jq rejects the payload, the sed fallback yields
-#     the raw path, the grammar check refuses it -> nothing echoed, exit 0.
-ctrl=$(printf '/work/bad\001path')
 rc=0
-out=$(printf '{"worktree_path":"%s","isolation":"worktree"}' "$ctrl" | wt hook-create 2>/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (control-byte path) exit $rc, expected 0"
-[ -z "$out" ] || fail "hook-create (control-byte path) must echo NOTHING on the decision channel (got: '$out')"
-# (b) a non-absolute path: refused by the grammar check -> nothing echoed, exit 0.
-rc=0
-out=$(printf '%s' '{"worktree_path":"relative/wt","isolation":"worktree"}' | wt hook-create 2>/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (non-absolute path) exit $rc, expected 0"
-[ -z "$out" ] || fail "hook-create (non-absolute path) must echo nothing (got: '$out')"
-# (c) no worktree_path at all: nothing echoed, exit 0.
-rc=0
-out=$(printf '%s' '{"isolation":"worktree","session_id":"s1"}' | wt hook-create 2>/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (missing worktree_path) exit $rc, expected 0"
-[ -z "$out" ] || fail "hook-create (missing worktree_path) must echo nothing (got: '$out')"
-# None of the three may have recorded anything.
-[ -z "$(wt list 2>/dev/null)" ] || fail "hook-create must not record a malformed/empty payload (list: '$(wt list 2>/dev/null)')"
-echo "ok: hook-create refuses a malformed/empty worktree_path — nothing on the decision channel, still exit 0"
+out=$(printf '%s' '{"hook_event_name":"WorktreeRemove","session_id":"s1"}' | wt hook-remove 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-remove (missing worktree_path) exit $rc, expected 0"
+printf '%s' "$out" | jq -e '.systemMessage | test("scan")' >/dev/null 2>&1 \
+  || fail "hook-remove must surface a systemMessage naming the remedy (got: '$out')"
+echo "ok: hook-remove surfaces an unreadable payload as systemMessage, not on discarded stderr"
 
-# 4e. hook-create fails CLOSED on an un-parseable escaped path via the sed
+# 4e. hook-remove fails CLOSED on an un-parseable escaped path via the sed
 #     fallback (jq absent). The `[^"]*` sed capture cannot JSON-unescape, so a
 #     worktree_path carrying a backslash-escape (an embedded `"` arrives as `\"`
 #     and truncates the capture; an embedded `\` arrives as `\\` and doubles)
-#     would yield a WRONG path that still passes valid_path and would be echoed
-#     on the decision channel. extract_worktree_path treats a backslash in the
-#     sed result as untrustworthy and returns nothing, so hook-create echoes
-#     NOTHING (creation refused rather than created under a mis-parsed name) and
-#     records nothing. jq (the primary path) unescapes correctly and is
-#     unaffected. Reuses the $nojq PATH built in 4b.
+#     would yield a WRONG path that still passes valid_path — and a wrong path
+#     dropped from the registry is a tree a later reclaim stops tracking.
+#     extract_worktree_path treats a backslash in the sed result as
+#     untrustworthy and returns nothing, so nothing is recorded. jq (the primary
+#     path) unescapes correctly and is unaffected. Reuses the $nojq PATH from 4b.
 rm -rf "$fleet_home"
+PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" record-create /work/keepme >/dev/null
 # real path /work/a"b  -> JSON encodes the quote as \"  (sed would yield /work/a\)
-esc_q='{"worktree_path":"/work/a\"b","isolation":"worktree"}'
+esc_q='{"worktree_path":"/work/a\"b","hook_event_name":"WorktreeRemove"}'
 rc=0
-out=$(printf '%s' "$esc_q" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
-  /bin/bash "$WT" hook-create 2>/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (no jq, escaped-quote path) exit $rc, expected 0"
-[ -z "$out" ] || fail "hook-create (no jq, escaped-quote path) must echo NOTHING (fail-closed), got: '$out'"
+printf '%s' "$esc_q" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+  /bin/bash "$WT" hook-remove >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "hook-remove (no jq, escaped-quote path) exit $rc, expected 0"
 # real path /work/a\b  -> JSON encodes the backslash as \\ (sed would yield /work/a\\b)
-esc_bs='{"worktree_path":"/work/a\\b","isolation":"worktree"}'
+esc_bs='{"worktree_path":"/work/a\\b","hook_event_name":"WorktreeRemove"}'
 rc=0
-out=$(printf '%s' "$esc_bs" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
-  /bin/bash "$WT" hook-create 2>/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (no jq, backslash path) exit $rc, expected 0"
-[ -z "$out" ] || fail "hook-create (no jq, backslash path) must echo NOTHING (fail-closed), got: '$out'"
-[ -z "$(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" list 2>/dev/null)" ] \
-  || fail "hook-create must not record an un-parseable escaped payload"
-echo "ok: hook-create fails closed on an un-parseable escaped worktree_path via the sed fallback"
-
-# 5. hook-remove: records a removal from stdin and exits 0 (fire-and-forget).
-rm -rf "$fleet_home"
-wt record-create /work/going >/dev/null
-rc=0
-printf '%s' '{"worktree_path":"/work/going","session_id":"s1"}' | wt hook-remove || rc=$?
-[ "$rc" = 0 ] || fail "hook-remove exit $rc, expected 0"
-case $(wt list) in
-  *"/work/going"*) fail "hook-remove did not drop the worktree" ;;
+printf '%s' "$esc_bs" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+  /bin/bash "$WT" hook-remove >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "hook-remove (no jq, backslash path) exit $rc, expected 0"
+case $(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" list 2>/dev/null) in
+  *"/work/keepme"*) ;;
+  *) fail "hook-remove must not act on an un-parseable escaped payload" ;;
 esac
-echo "ok: hook-remove records the removal and exits 0"
+echo "ok: hook-remove fails closed on an un-parseable escaped worktree_path via the sed fallback"
+
+# 5. `hook-create` is retired, and the CLI says so rather than silently
+#    accepting it. planwright registers no `WorktreeCreate` hook: the event
+#    grants no passive mode, and registering one replaces native creation.
+rc=0
+out=$(printf '%s' '{"name":"wt-1","hook_event_name":"WorktreeCreate"}' | wt hook-create 2>&1) || rc=$?
+[ "$rc" != 0 ] || fail "hook-create must not be accepted (it was retired with the WorktreeCreate registration)"
+echo "ok: hook-create is retired and refused by the CLI"
 
 # 6. Hostile / non-absolute paths are refused by the direct CLI.
 rm -rf "$fleet_home"
