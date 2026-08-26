@@ -290,6 +290,30 @@ assert_contains "hook: a staging failure is reported, not swallowed" \
   "could not be staged" "$out"
 assert_file "hook: the export was still rendered on disk" "$staged_v/exports/venture.html"
 
+# Step 1 refuses the commit whether the screen found something or could not run,
+# but it must not describe the second as the first: telling an operator their
+# staged content "carries a credential" when the screen never executed sends
+# them hunting through a bundle for something that is not in it. An unusable
+# PLANWRIGHT_SECRET_SCREEN_TOOL is the cheapest way to make the screen exit 2.
+env_v="$(mktemp -d "$tmp/screen-env.XXXXXX")" || exit 1
+inception_fixture_write "$env_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$env_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$env_v" >/dev/null 2>&1
+out="$(cd "$env_v" && git add -A \
+  && PLANWRIGHT_SECRET_SCREEN_TOOL=not-a-tool git commit -qm "screen cannot run" 2>&1)"
+rc=$?
+assert_eq "hook: an unusable secret screen still refuses the commit" "1" "$rc"
+assert_contains "hook: it says the screen could not check the content" \
+  "could not check the staged content" "$out"
+assert_not_contains "hook: it does not claim a credential was found" \
+  "looks like it carries a credential" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-scaffold: $failures assertion(s) failed" >&2
   exit 1

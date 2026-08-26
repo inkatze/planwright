@@ -205,9 +205,19 @@ fi
 
 # 1. Secrets — the hard stop.
 if [ -x "$pw/scripts/inception-secret-screen.sh" ]; then
-  if ! "$pw/scripts/inception-secret-screen.sh" --staged; then
+  ssc=0
+  "$pw/scripts/inception-secret-screen.sh" --staged || ssc=$?
+  # 1 and 2 both refuse the commit, but they are different facts and get
+  # different words. Saying "carries a credential" when the screen could not RUN
+  # sends the operator hunting through their bundle for something that is not
+  # there — the same distinction step 3 draws below.
+  if [ "$ssc" -eq 1 ]; then
     echo "venture pre-commit: staged content looks like it carries a credential; commit refused." >&2
     echo "venture pre-commit: remove it, or bypass deliberately with --no-verify." >&2
+    exit 1
+  elif [ "$ssc" -ne 0 ]; then
+    echo "venture pre-commit: the secret screen could not check the staged content (exit $ssc); commit refused." >&2
+    echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
     exit 1
   fi
 fi

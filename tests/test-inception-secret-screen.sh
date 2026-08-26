@@ -298,6 +298,49 @@ rc=$?
 assert_not_contains "legacy gitleaks: the subcommand reaches it split" "unknown command" "$out"
 assert_eq "legacy gitleaks: a clean scan is not reported as a leak" "0" "$rc"
 
+# A path whose NAME carries a newline. The --staged reader refuses these outright
+# because it cannot read them unambiguously; the directory walk can, because the
+# names go to the screen as arguments rather than as lines of text. The failure
+# this pins is the silent one: the walk used to split such a name into pieces
+# that resolve to nothing, screen the file zero times, and exit 0 over an
+# unexamined credential.
+nl_dir="$tmp/newline-name"
+mkdir -p "$nl_dir"
+nl_file="$nl_dir/$(printf 'we\nird').txt"
+printf '%s\n' "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$nl_file"
+
+out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$nl_dir" 2>&1)"
+rc=$?
+assert_eq "newline-named file: the walk finds it rather than reporting clean" "1" "$rc"
+assert_contains "newline-named file: the rule is named" "github-token" "$out"
+assert_not_contains "newline-named file: the value is still redacted" \
+  "0123456789abcdefghijklmnopqrstuvwxyz" "$out"
+
+# The same name handed over directly, which is how the walk re-enters the screen.
+out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" -- "$nl_file" 2>&1)"
+rc=$?
+assert_eq "newline-named file: named as an argument, it is screened" "1" "$rc"
+
+# The walk's aggregate verdict still has to be right in both directions: one hit
+# among clean siblings reports once, and a tree with nothing in it stays 0.
+mixed="$tmp/mixed-tree"
+mkdir -p "$mixed"
+printf '%s\n' "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$mixed/hit.md"
+printf 'nothing to see here\n' >"$mixed/clean.md"
+out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$mixed" 2>&1)"
+rc=$?
+assert_eq "mixed tree: exit 1" "1" "$rc"
+assert_contains "mixed tree: the hit is named" "hit.md:1" "$out"
+assert_eq "mixed tree: the summary is printed once, not once per batch" "1" \
+  "$(printf '%s\n' "$out" | grep -c 'candidate secrets found')"
+
+allclean="$tmp/clean-tree"
+mkdir -p "$allclean"
+printf 'nothing to see here\n' >"$allclean/clean.md"
+out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$allclean" 2>&1)"
+rc=$?
+assert_eq "clean tree: exit 0" "0" "$rc"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-secret-screen: $failures assertion(s) failed" >&2
   exit 1
