@@ -587,10 +587,13 @@ commits either way, all 433 commits sit inside the 500 cap, and removing
 stays; D-14 is untouched.
 
 **Also corrected, anchor-neutral:** the `## Awaiting input` bullet in
-`tasks.md` led with an em-dash, which `sanitize_printable`'s C1 byte-range
-strip mangles into a replacement character in `mise run status` (documented as
-the intended trade in `scripts/echo-safety.sh`, so the fix belongs on the
-authoring side). Now a colon. Re-verified by isolation with that edit in
+`tasks.md` used an em-dash after its bold lead, which lands first in the
+rendered payload because `spec-parse.sh` strips `- **Task <id>**` before
+emitting. `sanitize_printable`'s C1 byte-range strip then mangled it into a
+replacement character in `mise run status` (documented as the intended trade
+in `scripts/echo-safety.sh`, so the fix belongs on the authoring side). Now a
+colon. The bullet's remaining em-dashes sit on continuation lines, which that
+extractor never reads, so they render nothing and were left alone. Re-verified by isolation with that edit in
 place: with the `requirements.md` edit set aside, the bundle still recomputes
 to `c8502e7e`.
 
