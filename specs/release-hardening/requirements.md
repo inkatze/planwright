@@ -354,8 +354,10 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   manifest") runs *after* collection and only synthesizes the tag name for
   the bump, bounding nothing. That depth is a scan cap on the branch's
   commit history, not on merge commits — `mergeCommitIterator` walks every
-  commit with its associated PR, and this repo squash-merges, so it holds no
-  merge commits at all. Net: the key currently stops collection at
+  commit with its associated PR, and this repo squash-merges its PRs, so no
+  merge commit sits between `71ea089f` and HEAD; the 18 this history does
+  hold are all older, inside the very segment an unbounded walk would newly
+  cover. Net: the key currently stops collection at
   `71ea089f`, and that already yielded #339's 124 entries; dropping it would
   walk to the root commit instead, since this repo's whole history sits well
   inside the 500 cap — a strictly larger bogus proposal, still with no loud

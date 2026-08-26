@@ -565,3 +565,35 @@ isolation: with the `requirements.md` edit set aside, the bundle recomputes to
 Class: expression-only
 Anchor: `00bb891f207f57dfc74c0440c9995cacb592521a` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Re-anchor — merge-commit clause corrected in the REQ-H1.3 finding (2026-08-26)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by `/panel-review` on Task 10.
+
+**Why the anchor moved:** one supporting clause of the `## Changelog` entry
+above was factually wrong. It read "this repo squash-merges, so it holds no
+merge commits at all"; `origin/main` holds 18. The measurement behind it
+(`git rev-list --merges --count`, cited in commit `78c0218`) was taken over
+`71ea089f..HEAD`, which returns 0, but the claim it supports is about the walk
+*past* `71ea089f` — and all 18 merge commits sit in `root..71ea089f`, exactly
+the segment an unbounded walk would newly cover. The clause now scopes the
+measurement to the range it was taken over and states the count for the rest.
+
+**What did not change:** the finding's conclusion, which never depended on the
+clause. The scan cap is on the branch's commit history rather than on merge
+commits either way, all 433 commits sit inside the 500 cap, and removing
+`bootstrap-sha` still walks to the root commit with no loud failure. The key
+stays; D-14 is untouched.
+
+**Also corrected, anchor-neutral:** the `## Awaiting input` bullet in
+`tasks.md` led with an em-dash, which `sanitize_printable`'s C1 byte-range
+strip mangles into a replacement character in `mise run status` (documented as
+the intended trade in `scripts/echo-safety.sh`, so the fix belongs on the
+authoring side). Now a colon. Re-verified by isolation with that edit in
+place: with the `requirements.md` edit set aside, the bundle still recomputes
+to `c8502e7e`.
+
+Class: expression-only
+Anchor: `99502f9688a480ff4b3fbbe23d3c014acf907355` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`

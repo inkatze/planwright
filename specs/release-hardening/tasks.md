@@ -283,7 +283,7 @@ and knob changes that share the file.
 
 ## Awaiting input
 
-- **Task 10** — Halted on contract drift (meaning-class) in REQ-H1.2; needs a
+- **Task 10**: Halted on contract drift (meaning-class) in REQ-H1.2; needs a
   `/spec-kickoff` delta re-walkthrough. REQ-H1.3 is delivered (see the
   2026-08-26 `## Changelog` entry in `requirements.md`); REQ-H1.2 is not
   started. The drift: REQ-H1.2's mandated mechanism cannot detect the #339
