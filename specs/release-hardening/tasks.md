@@ -283,7 +283,34 @@ and knob changes that share the file.
 
 ## Awaiting input
 
-(none yet)
+- **Task 10** — Halted on contract drift (meaning-class) in REQ-H1.2; needs a
+  `/spec-kickoff` delta re-walkthrough. REQ-H1.3 is delivered (see the
+  2026-08-26 `## Changelog` entry in `requirements.md`); REQ-H1.2 is not
+  started. The drift: REQ-H1.2's mandated mechanism cannot detect the #339
+  shape that Task 10's `Done when:` requires it to detect, because the two use
+  "entry" to mean different objects. Verified against the real artifact —
+  `gh pr diff 339` shows the CHANGELOG.md diff is prepend-only and adds exactly
+  **one** version heading, `## [0.34.0]`, which is *strictly greater* than the
+  then-latest tag `v0.33.0`; the bootstrapping signature lives entirely in its
+  124 added bullets, whose commits (`fe235bb`, `d75bd37`, `6983f2c`, `daa02f3`,
+  `fd901f2`, `46482da`, …) are all ancestors of `v0.33.0`. So a check comparing
+  *added version-headed entries* against `rl_latest_release_tag` via
+  `rl_version_gt` — REQ-H1.2's explicit mandate, and the only reading under
+  which test-spec's third fixture ("entries carry fresh dates but already-released
+  **versions**") is constructible — returns PASS on #339. Under the other
+  reading, "entry" = a changelog bullet (obs:fd6c2f4f's own wording, "124
+  changelog entries", echoed by Task 10's `Done when:` gloss "changelog entries
+  re-listing already-released commits"), which does catch #339 but by commit
+  ancestry, not by SemVer precedence, contradicting the mandated comparator and
+  invalidating the third fixture. Both readings are internally coherent; they
+  are not the same check. This matters beyond wording because D-14's
+  `Chosen because:` and its rejection of "Rely on D-13 alone" ("leaves the
+  dangerous state reachable") both presuppose the check catches a bootstrapped
+  proposal. The human's call, not execution's: keep the SemVer/heading check as
+  specified, replace it with commit-ancestry, or make the check fail on either
+  condition (the last adds a failing condition the bundle never decided, so it
+  is new D-ID territory). Resolving in any direction alters REQ-H1.2's meaning,
+  which execution may not do.
 
 ## Deferred
 

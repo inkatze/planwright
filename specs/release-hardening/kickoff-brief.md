@@ -537,3 +537,31 @@ Lens-pass: §9 "Amendment 3" — the delta-scoped lens review above, canonical
 table and all dispositions recorded in this section
 Anchor: `c8502e7ece784bcde91f69dec9d9a09b2bd5f8f5` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Re-anchor — REQ-H1.3 finding recorded (2026-08-26)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by `/execute-task` on Task 10.
+
+**Why the anchor moved:** `requirements.md` gained the `## Changelog` entry
+REQ-H1.3 commissions. REQ-H1.3's whole obligation is "establish and record the
+fact"; recording the established fact executes an accepted decision rather than
+changing one, so the delta is expression-only. No requirement, decision, or
+task text was edited — in particular D-14's `Alternatives considered:` entry
+for "Remove `bootstrap-sha` outright" is left exactly as signed, because the
+finding vindicates its reasoning rather than revising it.
+
+**Cites the changelog line:** the 2026-08-26 `## Changelog` entry in
+`requirements.md` ("REQ-H1.3 finding, recorded (Task 10): removing
+`bootstrap-sha` is NOT safe, and the key stays").
+
+Task 10's other half (REQ-H1.2) is **not** delivered: it halted on
+meaning-class contract drift, recorded in `tasks.md` `## Awaiting input` and
+routed to a `/spec-kickoff` delta re-walkthrough. That entry sits outside the
+anchor's `tasks.md` extraction (task-definition content only), verified by
+isolation: with the `requirements.md` edit set aside, the bundle recomputes to
+`c8502e7e`, the prior entry's value.
+
+Class: expression-only
+Anchor: `8d11accaa22f36cffed1e238db943e9131f8fe8d` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`
