@@ -1,7 +1,10 @@
 # Orchestration state: the derived-projection model
 
 How planwright tracks which tasks are pending, in flight, or done when several
-`/orchestrate` towers run concurrently against one checkout. The short version:
+`/orchestrate` towers run concurrently — whether each owns its own checkout (the
+primary topology; see [`per-tower-checkouts.md`](per-tower-checkouts.md)) or they
+share one (the sanctioned fallback). The model below is the same either way. The
+short version:
 orchestration progress is **not** hand-maintained state that each tower edits.
 It is a **derived projection** of observable git and GitHub evidence, recomputed
 idempotently from ground truth. The committed `tasks.md` sections are a
