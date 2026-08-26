@@ -151,7 +151,8 @@ abandoned mid-flight or hard-killed leak, and they leak silently. Roughly 95
 cumulative hours of leaked worker time accumulated that way before anyone
 noticed (obs:b63a8778). Detection failed in the same shape: a monitor
 sampling a worker's last pane line reported eleven identical heartbeats for a
-frozen worker, because the line was stable *precisely because* it was stuck.
+frozen worker, because the line was stable *precisely because* it was stuck
+(obs:50eac4ac).
 
 What the floor means in practice:
 
