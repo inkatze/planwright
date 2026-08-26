@@ -5,11 +5,16 @@
 #
 # fleet-resource-select.sh shipped one selection table keyed by fleet task
 # type. This is that table generalized: one resolver, keyed by SELECTION KEY,
-# that every launch point calls — fleet dispatch, single-spec /orchestrate
+# that ANY launch point can call — fleet dispatch, single-spec /orchestrate
 # dispatch, /execute-task's per-step sessions, /offload. fleet-resource-
 # select.sh is now a thin fleet-scoped front door onto this table, so
 # selection logic lives in exactly one place (D-5, the existing-seam-reuse
 # disposition).
+#
+# Fleet dispatch is the only caller wired so far; the rows for the other three
+# surfaces exist and resolve, and Task 6 wires those surfaces to read them.
+# Until then they resolve to `inherit` and nothing changes at those surfaces,
+# which is the shipped posture anyway (D-13).
 #
 # Resolution stays DETERMINISTIC table lookup plus config-file reads: no
 # network, no LLM call, no subprocess beyond the shared knob resolver chain
