@@ -273,6 +273,12 @@ doctrine amendments, enforcement as mechanism.
   what each scenario asserts is unchanged, except that REQ-C1.3 now spells
   out the no-anchor-entry outcome REQ-C1.3's own writership sentence
   already implies.
+- 2026-08-26 — Amendment annotations added for the Task 5 edits above. The
+  two records whose substance the edits changed — Task 5's deliverable line
+  and the REQ-C1.3 verification entry — carry the format's trailing
+  `*(Amended at …)*` annotation, so each is findable from the record itself
+  rather than only from this changelog. The REQ-C1.1 and REQ-C1.2 entries
+  are left unannotated: their restatement changed form, not substance.
 
 ## Sources
 

@@ -96,6 +96,8 @@ Given a validated meaning-class finding on a signed bundle, When the skill
 routes findings, Then the bundle is untouched And the handoff names
 `/spec-kickoff` as the route And no anchor entry is written. Exercised
 manually in live runs.
+*(Amended at Task 5 execution 2026-08-26: the no-anchor-entry outcome, already
+implied by REQ-C1.3's writership sentence, made explicit.)*
 
 ### REQ-C1.4 — Kickoff terminal recompute [Gherkin + manual]
 

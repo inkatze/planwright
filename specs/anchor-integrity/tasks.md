@@ -138,6 +138,8 @@ authored; see the status render.
   Gherkin
   state/trigger/outcome scenarios recorded in `test-spec.md` verification
   homes.
+  *(Amended at Task 5 execution 2026-08-26: the placement this line left to
+  execution recorded, with its reason.)*
 - **Done when:** all three behaviors appear in each named skill's prose;
   the doctrine statement exists; skill instruction-budget checks stay
   green.
