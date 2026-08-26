@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # converge-sync-main.sh — merge `origin/main` into the current worker branch,
 # once at the top of each `/execute-task` convergence pass, so the head the
-# final CI + review verification runs on is `main`-current
+# review sequence verifies is `main`-current
 # (merge-currency-guard Task 3; D-4; REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.6,
 # REQ-D1.3, REQ-K1.1).
+#
+# NOT the head `/execute-task`'s own full-CI step ran on: that step runs before
+# the Convergence section this sync opens, and the skill has no loop that
+# re-runs it afterwards. The merged head is covered by whatever wider-suite runs
+# the review sequence performs, so a pass that applies no fix can leave it with
+# no suite run at all. That gap is a known contract drift against D-4's premise,
+# recorded for the spec owner in the 2026-08-26 `converge-sync-ci-ordering`
+# observation rather than decided here.
 #
 # Why this exists as a script and not as skill prose: REQ-B1.5. `/execute-task`
 # invokes it in one line, its instruction body does not grow a paragraph, and

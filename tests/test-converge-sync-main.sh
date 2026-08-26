@@ -54,10 +54,14 @@ fail() {
 # each fixture clone's LOCAL config (see new_clone) — otherwise a merge commit
 # made by the script would fail on a host with no global identity, or block on
 # a signing key.
+#
+# Uses a uniquely-named internal var (NOT `repo`) so a call like
+# `gitc "$repo.git" …` outside a subshell never clobbers the caller's `repo`
+# variable (these fixture functions share globals — no `local`).
 gitc() {
-  repo="$1"
+  _gitc_dir="$1"
   shift
-  git -C "$repo" -c user.name=test -c user.email=test@example.invalid \
+  git -C "$_gitc_dir" -c user.name=test -c user.email=test@example.invalid \
     -c commit.gpgsign=false -c init.defaultBranch=main "$@"
 }
 
