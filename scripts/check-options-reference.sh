@@ -101,7 +101,7 @@ if [ ! -f "$reference" ]; then
   exit 2
 fi
 if [ -n "$fleet" ] && [ ! -f "$fleet" ]; then
-  echo "check-options-reference: fleet doc not found: $fleet" >&2
+  echo "check-options-reference: fleet doc not found: $(sanitize_printable "$fleet" "(unprintable path)")" >&2
   exit 2
 fi
 
@@ -311,7 +311,7 @@ fi
 
 if [ "$status" -eq 0 ]; then
   if [ "$fleet_knob_count" -gt 0 ]; then
-    echo "check-options-reference: all options documented; $fleet_knob_count fleet knob defaults tethered to $config"
+    echo "check-options-reference: all options documented; $fleet_knob_count fleet knob defaults tethered to $(sanitize_printable "$config" "(unprintable path)")"
   else
     echo "check-options-reference: all options documented"
   fi

@@ -435,6 +435,36 @@ chmod 700 "$tmp/readonly-tmp"
 /bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/no-such-fleet.md" >/dev/null 2>&1
 assert "missing fleet doc is an error" 2 $?
 
+# 11. Echo discipline on the paths this check takes from argv
+#     (doctrine/security-posture.md). The fleet arm already sanitizes every
+#     value it lifts out of the table; the two diagnostics that name a path
+#     must not be the hole in that, or a path carrying an escape sequence
+#     drives the terminal of whoever runs the gate.
+esc=$(printf 'x\033]0;INJECT\007y') # ESC + OSC + BEL embedded
+
+# 11a. The fleet-doc-not-found diagnostic.
+err="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/no-such-$esc.md" 2>&1)"
+if [ -z "$err" ]; then
+  echo "FAIL: missing-fleet-doc case emitted no diagnostic at all" >&2
+  failures=$((failures + 1))
+elif [ "$(printf '%s' "$err" | tr -d '\000-\037\177')" = "$err" ]; then
+  echo "ok: the fleet-doc-not-found diagnostic is stripped of control/escape bytes"
+else
+  echo "FAIL: fleet-doc-not-found diagnostic leaked control/escape bytes (terminal injection)" >&2
+  failures=$((failures + 1))
+fi
+
+# 11b. The success summary, which names the config path. Reached only when the
+#      tether engaged, which is exactly when that path came from argv.
+cp "$tmp/fleet-config.yml" "$tmp/cfg$esc.yml"
+out="$(/bin/bash "$CHECKER" "$tmp/cfg$esc.yml" "$tmp/fleet-reference.md" "$tmp/fleet-ok.md" 2>&1)"
+if [ "$(printf '%s' "$out" | tr -d '\000-\037\177')" = "$out" ]; then
+  echo "ok: the tethered-success summary is stripped of control/escape bytes"
+else
+  echo "FAIL: tethered-success summary leaked control/escape bytes (terminal injection)" >&2
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
