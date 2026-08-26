@@ -158,9 +158,11 @@ usage: main-currency.sh sync [--checkout <dir>] [--main-ref <branch>]
 USAGE
 }
 
-# The branch-name grammar, validated BEFORE the value reaches any git command
-# (REQ-D1.5 discipline): a crafted `--main-ref` must not be able to smuggle an
-# option or a refspec separator into the fetch.
+# The branch-name grammar, validated BEFORE the value can reach any ref-mutating
+# or network operation (REQ-D1.5 discipline): a crafted `--main-ref` must not be
+# able to smuggle an option or a refspec separator into the fetch. Validation
+# does end in one git command, `check-ref-format` below, but it is purely
+# syntactic — no repository, no ref touched, no remote contacted.
 is_branch_name() {
   case "$1" in
     # A leading dash would be read as an option by the git commands below, and a

@@ -370,8 +370,11 @@ parsed=$(sh -c "set -- $suggested; printf '%s' \"\$1\"" 2>/dev/null) \
   || fail "8: the suggested recovery command does not round-trip to the checkout that owns main (got '$parsed'): $suggested"
 assert_no_rewrite 8
 
-# 9. A malformed `--main-ref` is refused BEFORE it reaches any git command, so a
-#    crafted value cannot smuggle an option or redirect the refspec.
+# 9. A malformed `--main-ref` is refused BEFORE any ref-mutating or network
+#    operation, so a crafted value cannot smuggle an option or redirect the
+#    refspec. Validation itself does reach one git command, `check-ref-format`,
+#    which is purely syntactic and mutates nothing; fetch, merge, and push are
+#    what must never run, and that is what the log assertion below pins.
 root=$(new_fixture grammar)
 PW_GIT_LOG="$tmp/log9"
 export PW_GIT_LOG
@@ -401,8 +404,8 @@ evil" \
   set -e
   [ "$rc" -eq 2 ] \
     || fail "9: a malformed --main-ref must be a usage refusal (exit 2), got $rc for '$bad'"
-  # The refusal has to land before git is invoked at all, not merely be caught
-  # by git after the value was already handed to it.
+  # The refusal has to land before any ref operation, not merely be caught by
+  # git after the value was already handed to a fetch.
   if [ -s "$PW_GIT_LOG" ] && grep -Eq '(^| )(fetch|merge|push)( |$)' "$PW_GIT_LOG"; then
     fail "9: a git ref operation ran despite a malformed --main-ref '$bad'"
   fi
