@@ -267,6 +267,12 @@ tower_relaunch_disable_threshold: 3
 # and command are overlay-tunable too, through the knobs in the next block
 # (fleet-autonomy Task 10, D-24, REQ-E1.8). Selection is deterministic table
 # lookup: no LLM call is ever in the resolution path (D-18).
+#
+# THIS FAMILY IS A DEPRECATED FALLBACK (model-allocation D-5, REQ-A1.3). The
+# general allocation_<column>_<key> knob further down is consulted first, and
+# these apply only when it resolves to `unset`, which is what core ships.
+# Deprecated, never removed: every overlay written against this family keeps
+# working untouched, and no migration is needed.
 fleet_model_execution: opus
 fleet_model_bookkeeping: sonnet
 fleet_model_drain: sonnet
@@ -280,6 +286,10 @@ fleet_model_drain: sonnet
 # (execute-task orchestrate drain) — that enum is exactly the non-nestable set,
 # so review-sequence disjointness (REQ-E1.2) holds by construction at every
 # overlay layer, not just for these defaults.
+#
+# Deprecated fallback on the same terms as the model block above: the general
+# allocation_effort_* / allocation_command_* knobs win when set, these apply
+# when those are `unset`, and neither is ever removed (D-5, REQ-A1.3).
 fleet_effort_execution: high
 fleet_effort_bookkeeping: medium
 fleet_effort_drain: low
