@@ -192,10 +192,18 @@ fi
 
 # Resolve planwright at run time; never bake an install path into a tracked
 # file, because this repo gets cloned onto other machines.
+#
+# Readable, not executable. A plugin tree reaches a venture host by whatever
+# copied it there, and an archive, a container layer or a sync tool can drop the
+# +x bit without dropping the file. Probing for -x made that lost bit mean
+# "planwright is not installed", and every guard below then skipped itself. So
+# nothing here tests the executable bit, and everything runs through /bin/sh —
+# the scripts all declare #!/bin/sh, so this is what the kernel would have done
+# with the bit set anyway.
 pw=
 for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
   "$HOME/.claude/planwright" $HOME/.claude/plugins/cache/planwright/planwright/*; do
-  if [ -n "$cand" ] && [ -x "$cand/scripts/inception-validate.sh" ]; then
+  if [ -n "$cand" ] && [ -r "$cand/scripts/inception-validate.sh" ]; then
     pw=$cand
     break
   fi
@@ -208,28 +216,36 @@ if [ -z "$pw" ]; then
 fi
 
 # 1. Secrets — the hard stop.
-if [ -x "$pw/scripts/inception-secret-screen.sh" ]; then
-  ssc=0
-  "$pw/scripts/inception-secret-screen.sh" --staged || ssc=$?
-  # 1 and 2 both refuse the commit, but they are different facts and get
-  # different words. Saying "carries a credential" when the screen could not RUN
-  # sends the operator hunting through their bundle for something that is not
-  # there — the same distinction step 3 draws below.
-  if [ "$ssc" -eq 1 ]; then
-    echo "venture pre-commit: staged content looks like it carries a credential; commit refused." >&2
-    echo "venture pre-commit: remove it, or bypass deliberately with --no-verify." >&2
-    exit 1
-  elif [ "$ssc" -ne 0 ]; then
-    echo "venture pre-commit: the secret screen could not check the staged content (exit $ssc); commit refused." >&2
-    echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
-    exit 1
-  fi
+#
+# Its absence is an environment failure, never a reason to carry on quietly.
+# This step is the one hard stop in the whole scaffold, so a commit that skipped
+# it has had no secret screening at all; saying nothing would make that
+# indistinguishable from a commit that passed.
+if [ ! -r "$pw/scripts/inception-secret-screen.sh" ]; then
+  echo "venture pre-commit: the secret screen is missing or unreadable at $pw; commit refused." >&2
+  echo "venture pre-commit: this is an environment problem — reinstall planwright, or bypass deliberately with --no-verify." >&2
+  exit 1
+fi
+ssc=0
+/bin/sh "$pw/scripts/inception-secret-screen.sh" --staged || ssc=$?
+# 1 and 2 both refuse the commit, but they are different facts and get
+# different words. Saying "carries a credential" when the screen could not RUN
+# sends the operator hunting through their bundle for something that is not
+# there — the same distinction step 3 draws below.
+if [ "$ssc" -eq 1 ]; then
+  echo "venture pre-commit: staged content looks like it carries a credential; commit refused." >&2
+  echo "venture pre-commit: remove it, or bypass deliberately with --no-verify." >&2
+  exit 1
+elif [ "$ssc" -ne 0 ]; then
+  echo "venture pre-commit: the secret screen could not check the staged content (exit $ssc); commit refused." >&2
+  echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
+  exit 1
 fi
 
 # 2 and 3 apply only to a repo that actually holds a bundle.
 [ -f "$top/brief.md" ] || exit 0
 
-if ! "$pw/scripts/inception-validate.sh" "$top"; then
+if ! /bin/sh "$pw/scripts/inception-validate.sh" "$top"; then
   if [ "${PLANWRIGHT_VENTURE_STRICT:-0}" = "1" ]; then
     echo "venture pre-commit: bundle findings above, and strict mode is on; commit refused." >&2
     exit 1
@@ -237,26 +253,24 @@ if ! "$pw/scripts/inception-validate.sh" "$top"; then
   echo "venture pre-commit: bundle findings above (not blocking; set PLANWRIGHT_VENTURE_STRICT=1 to block)." >&2
 fi
 
-if "$pw/scripts/inception-render.sh" "$top" >/dev/null 2>&1; then
+if /bin/sh "$pw/scripts/inception-render.sh" "$top" >/dev/null 2>&1; then
   # The export is rendered from the WORKING TREE, so it can carry bundle text
   # the step-1 screen never saw — an edit that is not staged still reaches the
   # HTML. Screen it BEFORE staging it, or step 3 quietly walks around the hard
   # stop in step 1 and commits the credential itself.
-  if [ -x "$pw/scripts/inception-secret-screen.sh" ]; then
-    src=0
-    "$pw/scripts/inception-secret-screen.sh" "$top/exports/venture.html" || src=$?
-    # 1 and 2 both block, but they are different facts and get different words:
-    # saying "carries a credential" when the screen could not run sends the
-    # operator hunting through their bundle for something that is not there.
-    if [ "$src" -eq 1 ]; then
-      echo "venture pre-commit: the regenerated export looks like it carries a credential; commit refused." >&2
-      echo "venture pre-commit: it came from the bundle in your working tree — fix it there, then commit." >&2
-      exit 1
-    elif [ "$src" -ne 0 ]; then
-      echo "venture pre-commit: the secret screen could not check the regenerated export (exit $src); commit refused." >&2
-      echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
-      exit 1
-    fi
+  src=0
+  /bin/sh "$pw/scripts/inception-secret-screen.sh" -- "$top/exports/venture.html" || src=$?
+  # 1 and 2 both block, but they are different facts and get different words:
+  # saying "carries a credential" when the screen could not run sends the
+  # operator hunting through their bundle for something that is not there.
+  if [ "$src" -eq 1 ]; then
+    echo "venture pre-commit: the regenerated export looks like it carries a credential; commit refused." >&2
+    echo "venture pre-commit: it came from the bundle in your working tree — fix it there, then commit." >&2
+    exit 1
+  elif [ "$src" -ne 0 ]; then
+    echo "venture pre-commit: the secret screen could not check the regenerated export (exit $src); commit refused." >&2
+    echo "venture pre-commit: this is an environment problem, not a finding — see the output above." >&2
+    exit 1
   fi
   # Staging failure warns, like a failed render: step 3 never dead-ends a commit.
   # It must not be SILENT, though. The contract this step exists to keep is that

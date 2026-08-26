@@ -344,11 +344,23 @@ else
       # executable bit, which is not the plugin's to rely on once a venture host
       # has copied the tree around — and losing it would break directory
       # screening entirely rather than degrading it.
+      wrc=0
       # shellcheck disable=SC2016 # the child shell expands these, not this one
       PLANWRIGHT_SECRET_SCREEN_STATUS="$work/walk.rc" \
         find "$p" -name .git -prune -o -type f -exec /bin/sh -c \
         '/bin/sh "$0" -- "$@" || printf "%s\n" "$?" >>"$PLANWRIGHT_SECRET_SCREEN_STATUS"' \
-        "$self" {} +
+        "$self" {} + || wrc=$?
+      # find's own status, which is about the WALK rather than the findings. A
+      # subdirectory it cannot descend into is skipped silently as far as the
+      # status file is concerned: no child ever runs for those paths, so nothing
+      # is written, and an empty walk.rc is indistinguishable from a clean one.
+      # The `|| printf` in the wrapper above means a child that finds something
+      # still leaves find at 0, so a non-zero here is a traversal failure and
+      # nothing else — the one reading this guard may never round down to clean.
+      if [ "$wrc" -ne 0 ]; then
+        printf '%s\n' "inception-secret-screen: could not walk all of $(sanitize_printable "$p" '(unprintable path)') (find exit $wrc); refusing to report on it" >&2
+        exit 2
+      fi
       # A child that could NOT screen outranks one that found something: the one
       # thing this guard may never do is let "not examined" read as a verdict,
       # in either direction.

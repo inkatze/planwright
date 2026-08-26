@@ -433,6 +433,29 @@ rc=$?
 assert_eq "gitleaks without --exit-code: still blocks" "1" "$rc"
 assert_contains "gitleaks without --exit-code: names the ambiguity" "no --exit-code" "$out"
 
+# A subdirectory the walk cannot descend into. find skips it and exits non-zero
+# without ever running a child for those paths, so nothing lands in the status
+# file and an untraversed tree looks exactly like a clean one. The `|| printf`
+# wrapper means a child that FINDS something still leaves find at 0, so a
+# non-zero find status is a traversal failure and nothing else.
+locked="$tmp/locked-subdir"
+mkdir -p "$locked/tree/nope"
+printf '%s\n' "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$locked/tree/nope/secret.md"
+chmod 000 "$locked/tree/nope"
+if [ -r "$locked/tree/nope" ]; then
+  echo "ok: unreadable-subdirectory case skipped (the mode did not take effect here)"
+  chmod 755 "$locked/tree/nope"
+else
+  out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$locked/tree" 2>&1)"
+  rc=$?
+  assert_eq "unwalkable subdirectory: refuses rather than reporting clean" "2" "$rc"
+  assert_contains "unwalkable subdirectory: says the walk was incomplete" "could not walk all of" "$out"
+  chmod 755 "$locked/tree/nope"
+  PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$locked/tree" >/dev/null 2>&1
+  rc=$?
+  assert_eq "same subdirectory readable: found, as a control" "1" "$rc"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-secret-screen: $failures assertion(s) failed" >&2
   exit 1

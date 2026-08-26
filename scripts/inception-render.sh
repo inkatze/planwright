@@ -85,8 +85,13 @@ while [ "$target" != "${target%/}" ]; do target=${target%/}; done
   exit 2
 }
 
+# Readable, not executable, and run through /bin/sh: whatever copies a plugin
+# tree onto a venture host may drop the +x bit without dropping the file, and
+# refusing to render because of a file mode would take the export regeneration
+# down with it. The validator declares #!/bin/sh, so this is what the kernel
+# would have done with the bit set.
 validator="$script_dir/inception-validate.sh"
-[ -x "$validator" ] || {
+[ -r "$validator" ] || {
   echo "inception-render: the validator is missing at $validator; refusing to render unchecked" >&2
   exit 2
 }
@@ -94,7 +99,7 @@ validator="$script_dir/inception-validate.sh"
 # REQ-C1.7: the renderer refuses an unsupported version rather than parsing it,
 # and defers to the validator's check instead of carrying its own copy.
 vrc=0
-"$validator" --version-check "$target" || vrc=$?
+/bin/sh "$validator" --version-check "$target" || vrc=$?
 if [ "$vrc" -eq 3 ]; then
   # The validator fails closed for a missing file, an unbalanced fence, OR an
   # unsupported version, and hands all three back as exit 3. Point at its output

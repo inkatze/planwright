@@ -350,6 +350,50 @@ else
   echo "ok: BSD mktemp stub skipped (no /usr/bin/mktemp to delegate to)"
 fi
 
+# The whole hook, against a planwright tree that lost its executable bits. An
+# archive, a container layer or a sync tool can drop +x without dropping the
+# file, and the hook used to gate every guard behind -x: the screen then skipped
+# itself and a staged credential was committed with no warning at all. Nothing
+# in the hook may depend on a file mode.
+noexec_pw="$tmp/pw-noexec"
+mkdir -p "$noexec_pw/scripts"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$noexec_pw/scripts/" || exit 1
+cp "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/spec-parse.sh" "$noexec_pw/scripts/" || exit 1
+chmod -x "$noexec_pw/scripts/"*.sh
+nx_v="$tmp/venture-noexec"
+mkdir -p "$nx_v"
+inception_fixture_write "$nx_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$nx_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$nx_v" >/dev/null 2>&1
+
+printf '%s\n' "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$nx_v/leak.md"
+out="$(cd "$nx_v" && git add -A \
+  && PLANWRIGHT_ROOT="$noexec_pw" PLANWRIGHT_SECRET_SCREEN_TOOL=none \
+    git commit -qm "carries a credential" 2>&1)"
+rc=$?
+assert_eq "no +x anywhere: a staged credential is still refused" "1" "$rc"
+assert_contains "no +x anywhere: it says a credential was found" \
+  "carries a credential" "$out"
+committed="$(cd "$nx_v" && git log --oneline 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "no +x anywhere: nothing was committed" "0" "$committed"
+
+# And the guards must actually RUN, not merely block everything: a clean bundle
+# still commits, with the export regenerated and staged.
+rm -f "$nx_v/leak.md"
+out="$(cd "$nx_v" && git add -A \
+  && PLANWRIGHT_ROOT="$noexec_pw" PLANWRIGHT_SECRET_SCREEN_TOOL=none \
+    git commit -qm "clean bundle" 2>&1)"
+rc=$?
+assert_eq "no +x anywhere: a clean bundle still commits" "0" "$rc"
+staged_export="$(cd "$nx_v" && git show --name-only --format= HEAD | grep -c 'exports/venture.html')"
+assert_eq "no +x anywhere: the export was still regenerated and staged" "1" "$staged_export"
+
 # The CI guard exists to catch a stakeholder edit arriving through the GitHub
 # web UI, and an edit made straight to main is a push, not a pull request. So
 # the baseline has to be chosen per event: reading only the pull-request
