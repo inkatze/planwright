@@ -94,6 +94,18 @@ assert_not_contains "aws: the matched value is redacted" "IOSFODNN7EXAMPLE" "$ou
 out="$("$SCREEN" "$tmp/generic.md" 2>&1)"
 assert_not_contains "generic: the matched value is redacted" "s3cr3tVALUE" "$out"
 
+# Echo discipline (doctrine/security-posture.md): a file NAME is repo-controlled
+# input, so an escape sequence in one must not reach the terminal raw and drive
+# it. The finding is still reported; only the bytes are neutralized.
+esc="$(printf '\033')"
+mkdir -p "$tmp/esc"
+cp "$tmp/pem.md" "$tmp/esc/lea${esc}[31mk.md"
+out="$("$SCREEN" "$tmp/esc" 2>&1)"
+rc=$?
+assert_eq "hostile filename: still reported" "1" "$rc"
+assert_not_contains "hostile filename: the escape byte is stripped" "$esc" "$out"
+assert_contains "hostile filename: the printable part survives" "31mk.md" "$out"
+
 # A directory argument screens the files under it.
 mkdir -p "$tmp/tree/sub"
 cp "$tmp/clean.md" "$tmp/tree/ok.md"

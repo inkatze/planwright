@@ -33,6 +33,16 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+
+# Canonical echo-discipline sanitizer (doctrine/security-posture.md). A path
+# this screen reports is repo-controlled input: a filename carrying an escape
+# sequence would otherwise drive the terminal of whoever ran the commit, which
+# is a poor trade for a guard whose whole point is that hostile content in a
+# repo does not get to act on the person reading the output.
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh"
+
 usage() {
   echo "usage: inception-secret-screen.sh --staged" >&2
   echo "       inception-secret-screen.sh <path>..." >&2
@@ -147,7 +157,8 @@ screen_file() {
     lines=$(grep -n -E -e "$rpat" "$1" 2>/dev/null | cut -d: -f1)
     for ln in $lines; do
       [ -n "$ln" ] || continue
-      printf '%s:%s: %s (value redacted)\n' "$2" "$ln" "$rname" >&2
+      printf '%s:%s: %s (value redacted)\n' \
+        "$(sanitize_printable "$2" '(unprintable path)')" "$ln" "$rname" >&2
       found=1
     done
   done
@@ -190,7 +201,7 @@ else
     elif [ -f "$p" ]; then
       screen_file "$p" "$p"
     else
-      echo "inception-secret-screen: no such file or directory: $p" >&2
+      printf '%s\n' "inception-secret-screen: no such file or directory: $(sanitize_printable "$p" '(unprintable path)')" >&2
       IFS=$oIFS
       exit 2
     fi
