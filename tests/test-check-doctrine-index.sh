@@ -274,6 +274,25 @@ cp -R "$REPO_ROOT/doctrine" "$tmp/work/"
 (cd "$tmp/work" && CDPATH="$tmp/decoy" /bin/bash scripts/check-doctrine-index.sh >/dev/null 2>&1)
 assert "CDPATH does not corrupt root derivation" 0 $?
 
+# ---------------------------------------------------------------------------
+# 14. The index is the FIRST `Doc`-headed table only. A later table in the same
+#     README that happens to head its first cell `Doc` is a different table,
+#     and merging its rows into the index would invent stale rows for docs the
+#     index never claimed to carry.
+# ---------------------------------------------------------------------------
+make_fixture "$tmp/second-table" alpha beta
+cat >>"$tmp/second-table/README.md" <<'EOF'
+
+## A later table that also heads its first cell Doc
+
+| Doc | Status |
+| --- | --- |
+| [ghost.md](ghost.md) | planned |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/second-table" 2>&1)"
+assert "a later Doc-headed table is not merged into the index" 0 $?
+assert_contains "the run reports only the first table's docs" "$out" "2 doctrine docs"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

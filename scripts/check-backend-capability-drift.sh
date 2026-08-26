@@ -189,7 +189,11 @@ contract_facts="$(awk -v fields="$FIELDS" "$awk_lib"'
   }
   {
     line = $0; sub(/^[ \t]+/, "", line)
-    if (line !~ /^\|/) { intbl = 0; next }
+    # The first non-row line ends the table, and ends the walk: a later table
+    # carrying the same header is a neighbouring table (an illustrative one in
+    # prose, say), not more registry rows. `exit` still runs the END block, so
+    # the no-header, zero-row, and malformed arms keep their exit codes.
+    if (line !~ /^\|/) { if (intbl) exit; next }
     n = split(line, c, "|")
     if (!intbl) {
       if (strip(c[2]) != "Backend") next
@@ -297,7 +301,8 @@ fleet_facts="$(awk -v semantic="$SEMANTIC_ROWS" "$awk_lib"'
   }
   {
     line = $0; sub(/^[ \t]+/, "", line)
-    if (line !~ /^\|/) { intbl = 0; next }
+    # First matching table only; see the prose parser above.
+    if (line !~ /^\|/) { if (intbl) exit; next }
     n = split(line, c, "|")
     if (!intbl) {
       if (strip(c[2]) != "Backend") next

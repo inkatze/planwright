@@ -175,7 +175,11 @@ if [ -n "$fleet" ]; then
     function err(m) { printf "#ERR\t%s\n", m; bad = 1 }
     {
       line = $0; sub(/^[ \t]+/, "", line)
-      if (line !~ /^\|/) { intbl = 0; next }
+      # The first non-row line ends the table, and ends the walk: a later
+      # `Knob`-headed table is a neighbouring table, not more knobs rows, and
+      # merging it would tether names this table never claimed to restate.
+      # `exit` still runs the END block, so its exit codes are unaffected.
+      if (line !~ /^\|/) { if (intbl) exit; next }
       n = split(line, c, "|")
       if (!intbl) {
         if (strip(c[2]) != "Knob") next

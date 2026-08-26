@@ -26,10 +26,12 @@
 #   point, wired as the `check:doctrine-index` mise task).
 #
 # Index-table recognition: the table is located by its header row, whose first
-# cell is `Doc`; the table ends at the first line that is not a table row. Each
-# row's first cell must hold a markdown link whose target is a bare
-# `<name>.md`. A table whose header is renamed stops parsing and fails closed,
-# so the shape is part of the contract rather than a best-effort guess.
+# cell is `Doc`; the table ends at the first line that is not a table row, and
+# that ends the walk — a later `Doc`-headed table is a neighbouring table, not
+# more index rows. Each row's first cell must hold a markdown link whose target
+# is a bare `<name>.md`. A table whose header is renamed stops parsing and
+# fails closed, so the shape is part of the contract rather than a best-effort
+# guess.
 #
 # Exit codes: 0 the bijection holds; 1 the bijection is broken (an unindexed
 # doc, a stale row, or a duplicate row); 2 usage error or a fail-closed input
@@ -110,7 +112,12 @@ index_rows="$(awk '
   {
     line = $0
     sub(/^[ \t]+/, "", line)
-    if (line !~ /^\|/) { intbl = 0; next }
+    # The first line that is not a table row ends the table, and ends the
+    # walk: a LATER `Doc`-headed table is a neighbouring table, not more index
+    # rows, and merging it would invent stale rows for docs the index never
+    # claimed to carry. `exit` still runs the END block below, so the
+    # no-header and zero-row arms keep their exit codes.
+    if (line !~ /^\|/) { if (intbl) exit; next }
     if (!intbl) {
       if (line ~ /^\|[ \t]*Doc[ \t]*\|/) { intbl = 1; found = 1 }
       next

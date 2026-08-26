@@ -286,6 +286,25 @@ out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$
 assert "a fleet knob absent from the config fails" 1 $?
 assert_contains "the absent-knob failure names the knob" "$out" "ghost_knob"
 
+# 8d. The knobs table is the FIRST `Knob`-headed table only. A later table in
+#     the same doc carrying that header is a different table, and merging its
+#     rows would tether names the knobs table never claimed to restate.
+cat >"$tmp/fleet-second-table.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simple_knob` | A capability | A value | `per-step` — because it is the safe direction |
+
+## An illustrative table, not the knobs table
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `ghost_knob` | A capability | A value | `on` — because it is the safe direction |
+EOF
+/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-second-table.md" >/dev/null 2>&1
+assert "a later Knob-headed table is not merged into the knobs tether" 0 $?
+
 # 9. Fail-closed, symmetric with the config side: a knobs table that parses to
 #    zero rows is an error, not a vacuous pass (REQ-H1.3).
 cat >"$tmp/fleet-zero.md" <<'EOF'

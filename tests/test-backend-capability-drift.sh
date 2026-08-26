@@ -508,6 +508,49 @@ cp "$REPO_ROOT/docs/fleet.md" "$tmp/work/docs/"
 (cd "$tmp/work" && CDPATH="$tmp/decoy" /bin/bash scripts/check-backend-capability-drift.sh >/dev/null 2>&1)
 assert "CDPATH does not corrupt root derivation" 0 $?
 
+# ---------------------------------------------------------------------------
+# 14. Each surface contributes its FIRST matching table only. A later table
+#     carrying the same header is a neighbouring table, not a continuation of
+#     the registry: merging it invents backends the surface never defined (or,
+#     for an identical copy, a duplicate-row parse error) out of prose that is
+#     illustrative rather than normative.
+# ---------------------------------------------------------------------------
+make_trio "$tmp/second-contract-table"
+write_contract "$tmp/second-contract-table" <<'EOF'
+# Fixture Backend Capability Contract
+
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | true | true | false | true | yes | `full-session` | true |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+
+## An illustrative table, not the registry
+
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `hypothetical` | true | true | true | false | true | yes | `light` | true |
+EOF
+out="$(run_trio "$tmp/second-contract-table")"
+assert "a later capability table in the prose contract is not merged" 0 $?
+
+make_trio "$tmp/second-fleet-table"
+write_fleet "$tmp/second-fleet-table" <<'EOF'
+# Fixture fleet doc
+
+| Backend | What it is | Observe / steer | Session-grade |
+| --- | --- | --- | --- |
+| `alpha` | Something | yes / yes | yes |
+| `beta` | Something else | no / no | deferred to you |
+
+## An illustrative table, not the backend registry
+
+| Backend | What it is | Observe / steer | Session-grade |
+| --- | --- | --- | --- |
+| `hypothetical` | An example | yes / no | yes |
+EOF
+out="$(run_trio "$tmp/second-fleet-table")"
+assert "a later backend table in the fleet doc is not merged" 0 $?
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
