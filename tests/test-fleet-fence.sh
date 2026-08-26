@@ -55,11 +55,12 @@ trap 'rm -rf "$tmp"' EXIT
 # asserts exclusion asserts it across this boundary.
 
 origin="$tmp/origin.git"
-git init -q --bare "$origin"
+git -c init.defaultBranch=main init -q --bare "$origin"
 clone() {
   git clone -q "$origin" "$tmp/$1" 2>/dev/null
   git -C "$tmp/$1" config user.email fence@test.invalid
   git -C "$tmp/$1" config user.name fence-test
+  git -C "$tmp/$1" symbolic-ref HEAD refs/heads/main
 }
 clone seed
 (

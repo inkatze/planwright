@@ -73,11 +73,15 @@ FA="$stubbin/fleet-attention.sh"
 
 # --- fixture: bare origin, one clone, a real four-file spec bundle ----------
 origin="$tmp/origin.git"
-git init -q --bare "$origin"
+git -c init.defaultBranch=main init -q --bare "$origin"
 git clone -q "$origin" "$tmp/co" 2>/dev/null
 co="$tmp/co"
 git -C "$co" config user.email fence@test.invalid
 git -C "$co" config user.name fence-test
+# Pin the local branch name: PLANWRIGHT_BASE_REF below reads the LOCAL `main`,
+# and a host whose init.defaultBranch is `master` (git's built-in default)
+# would otherwise leave it nonexistent and degrade every derivation.
+git -C "$co" symbolic-ref HEAD refs/heads/main
 
 mkdir -p "$co/specs/demo"
 cat >"$co/specs/demo/tasks.md" <<'TASKS'
