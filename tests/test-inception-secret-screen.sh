@@ -149,6 +149,57 @@ out="$(cd "$tmp" && "$SCREEN" --staged 2>&1)"
 rc=$?
 assert_eq "--staged outside a work tree: exit 2" "2" "$rc"
 
+# Awkward staged PATHS, in a repo of their own: the cases below turn on the
+# screen finding nothing in the file it was pointed at, so a leak left staged by
+# an earlier case would mask the very thing being asserted.
+awk_repo="$tmp/paths"
+mkdir -p "$awk_repo"
+(
+  cd "$awk_repo" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+  cp "$tmp/clean.md" brief.md
+  git add brief.md
+  git commit --no-verify -qm init
+) >/dev/null 2>&1 || exit 1
+
+# `core.quotePath` defaults on, so a non-ASCII name arrives from `--name-only`
+# as a C-quoted string; reading the blob under that literal spelling finds
+# nothing, and a screen that treats "could not read it" as "nothing in it"
+# reports a credential-bearing file clean.
+(cd "$awk_repo" && cp "$tmp/aws.md" "café.md" && git add "café.md") >/dev/null 2>&1
+out="$(cd "$awk_repo" && "$SCREEN" --staged 2>&1)"
+rc=$?
+assert_eq "staged non-ASCII filename: still exit 1" "1" "$rc"
+assert_contains "staged non-ASCII filename: names the file" "café.md" "$out"
+assert_not_contains "staged non-ASCII filename: the value is redacted" "IOSFODNN7EXAMPLE" "$out"
+(cd "$awk_repo" && git rm -q --cached -- "café.md" >/dev/null 2>&1 && rm -f "café.md")
+
+# A newline in a staged path is the other end of the same problem: the name
+# survives quoting but not the line-oriented read that follows it. Whatever the
+# screen does here, it may not be "exit 0" — nothing may turn "unexamined" into
+# "clean", which is the failure mode the quoting case above is one instance of.
+nl_name="$(printf 'two\nlines.md')"
+(cd "$awk_repo" && cp "$tmp/aws.md" "$nl_name" && git add -- "$nl_name") >/dev/null 2>&1
+out="$(cd "$awk_repo" && "$SCREEN" --staged 2>&1)"
+rc=$?
+assert_eq "staged newline-bearing path: does not report clean" "no" \
+  "$(if [ "$rc" -eq 0 ]; then echo yes; else echo no; fi)"
+assert_not_contains "staged newline-bearing path: the value is redacted" "IOSFODNN7EXAMPLE" "$out"
+(cd "$awk_repo" && git rm -q --cached -- "$nl_name" >/dev/null 2>&1 && rm -f "$nl_name")
+
+# grep decides on its own what counts as binary, and a file it classifies that
+# way is skipped entirely rather than merely matched differently. A venture repo
+# picks such files up routinely (a UTF-16 note, an exported keystore), so the
+# screen must read them as text instead of stepping over them.
+printf 'PNG\r\n\032\n\000\000api_key = %s\000\000\377\376' "Abcdefghij0123456789KLMNOP" >"$tmp/blob.bin"
+out="$("$SCREEN" "$tmp/blob.bin" 2>&1)"
+rc=$?
+assert_eq "binary-classified file: still screened" "1" "$rc"
+assert_not_contains "binary-classified file: the value is redacted" "Abcdefghij0123456789KLMNOP" "$out"
+
 # The gitleaks arm is the PREFERRED path, so it gets exercised wherever the
 # tool is present rather than left to the fallback's coverage. Skipped cleanly
 # where it is not: a venture host without gitleaks is the supported case, not a
@@ -196,6 +247,34 @@ if command -v gitleaks >/dev/null 2>&1; then
 else
   echo "ok: gitleaks arm: gitleaks absent, preferred-path checks skipped"
 fi
+
+# The pre-8.19 subcommand spelling, against a stub rather than an old binary
+# nobody has installed. `detect --source` is two words, and the path loop runs
+# under IFS=<newline>, so passing it as one string reaches gitleaks as an
+# unknown subcommand — whose non-zero exit the loop then reads as a leak. The
+# arm would report a leak on every path while scanning none of them.
+stub="$tmp/stub"
+mkdir -p "$stub"
+cat >"$stub/gitleaks" <<'STUB'
+#!/bin/sh
+# `gitleaks git --help` is the probe for the 8.19+ spelling; fail it so the
+# caller falls back to `detect --source`.
+[ "$1" = git ] && exit 1
+case $1 in
+  detect | protect) ;;
+  *)
+    echo "gitleaks: unknown command \"$1\"" >&2
+    exit 1
+    ;;
+esac
+exit 0
+STUB
+chmod 755 "$stub/gitleaks"
+
+out="$(PATH="$stub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/tree" 2>&1)"
+rc=$?
+assert_not_contains "legacy gitleaks: the subcommand reaches it split" "unknown command" "$out"
+assert_eq "legacy gitleaks: a clean scan is not reported as a leak" "0" "$rc"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-secret-screen: $failures assertion(s) failed" >&2

@@ -164,8 +164,11 @@ cat >"$stage" <<'HOOK'
 #      disables. Set PLANWRIGHT_VENTURE_STRICT=1 to make findings block; on a
 #      repo with a remote, CI blocks regardless.
 #   3. Export regeneration, staged into this same commit so the published HTML
-#      never lags the bundle. Warns and lets the commit through on failure
-#      (REQ-A1.9): a broken render must never dead-end a commit.
+#      never lags the bundle. Warns and lets the commit through when the RENDER
+#      fails (REQ-A1.9): a broken render must never dead-end a commit. The
+#      export is screened before it is staged, though, and that screen blocks:
+#      it is rendered from the working tree, so it can carry bundle text step 1
+#      never saw.
 #
 # Bypass the whole hook with `git commit --no-verify`.
 set -u
@@ -220,6 +223,16 @@ if ! "$pw/scripts/inception-validate.sh" "$top"; then
 fi
 
 if "$pw/scripts/inception-render.sh" "$top" >/dev/null 2>&1; then
+  # The export is rendered from the WORKING TREE, so it can carry bundle text
+  # the step-1 screen never saw — an edit that is not staged still reaches the
+  # HTML. Screen it BEFORE staging it, or step 3 quietly walks around the hard
+  # stop in step 1 and commits the credential itself.
+  if [ -x "$pw/scripts/inception-secret-screen.sh" ] \
+    && ! "$pw/scripts/inception-secret-screen.sh" "$top/exports/venture.html"; then
+    echo "venture pre-commit: the regenerated export looks like it carries a credential; commit refused." >&2
+    echo "venture pre-commit: it came from the bundle in your working tree — fix it there, then commit." >&2
+    exit 1
+  fi
   git add "$top/exports/venture.html" 2>/dev/null || true
 else
   echo "venture pre-commit: the export was not regenerated; it may now lag the bundle." >&2
@@ -343,7 +356,9 @@ this venture repo runs it once.
      \`PLANWRIGHT_VENTURE_STRICT=1\` to make findings block.
   3. **Export regeneration**, staged into the same commit, so the HTML stakeholders read never
      lags the bundle. **Warns and lets the commit through** if the render fails — a broken export
-     must never dead-end a commit.
+     must never dead-end a commit. The regenerated export is screened for secrets before it is
+     staged, and *that* **blocks**: it is rendered from your working tree, so it can carry bundle
+     text step 1 never looked at (an edit you had not staged).
 $rung_ci
 
 ## One thing that looks wrong and is not

@@ -237,6 +237,26 @@ assert_eq "hook: a staged secret blocks the commit" "1" "$rc"
 assert_not_contains "hook: the blocked secret is not echoed" "0123456789abcdefghijklmnopqrstuvwxyz" "$out"
 (cd "$venture" && git reset -q HEAD spikes-note.md && rm -f spikes-note.md)
 
+# The export is rendered from the WORKING TREE and staged after the secret
+# screen has already run over the index, so content the screen never saw can
+# ride into the commit inside the generated HTML. A credential sitting unstaged
+# in a rendered field is the ordinary way to get there: the bundle is written
+# incrementally and the hook is built to tolerate a half-staged one.
+sed 's|^Median incident-handover time drops below eight minutes\.$|Median incident-handover time, tracked via aws_key = AKIA'"IOSFODNN7EXAMPLE"'|' \
+  "$venture/brief.md" >"$venture/brief.new" && mv "$venture/brief.new" "$venture/brief.md"
+printf '\nAn unrelated planning note.\n' >>"$venture/plan.md"
+out="$(cd "$venture" && git add plan.md && git commit -qm "a plan note" 2>&1)"
+rc=$?
+assert_eq "hook: an unstaged secret reaching the export blocks the commit" "1" "$rc"
+assert_not_contains "hook: the blocked secret is not echoed" "IOSFODNN7EXAMPLE" "$out"
+committed="$(cd "$venture" && git show HEAD:exports/venture.html 2>/dev/null)"
+assert_not_contains "hook: no commit carried the secret into the export" "IOSFODNN7EXAMPLE" "$committed"
+(
+  cd "$venture" || exit 1
+  git reset -q HEAD . >/dev/null 2>&1
+  git checkout -q -- brief.md plan.md exports/venture.html
+) >/dev/null 2>&1
+
 # REQ-A1.9: a render failure warns and lets the commit through. An unsupported
 # format-version is the render failure that is easiest to produce on purpose.
 for f in brief disciplines assumptions decisions plan; do

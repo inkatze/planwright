@@ -92,12 +92,17 @@ trap 'rm -rf "$work"' EXIT
 # in current 8.x, so probe for the new one and fall back to the old rather than
 # pinning a version a venture host has no reason to match.
 if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
+  # Two variables for the directory spelling, not one string: the path loop
+  # below runs under IFS=<newline>, where `detect --source` would not split on
+  # its space and would reach gitleaks as a single unknown subcommand.
   if gitleaks git --help >/dev/null 2>&1; then
     gl_git="git"
-    gl_dir="dir"
+    gl_dir_cmd="dir"
+    gl_dir_flag=""
   else
     gl_git="protect"
-    gl_dir="detect --source"
+    gl_dir_cmd="detect"
+    gl_dir_flag="--source"
   fi
   if [ "$staged" -eq 1 ]; then
     if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
@@ -122,8 +127,11 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
     # clean path after the first hit re-print the previous path's output, so one
     # leak across several arguments would read as several.
     prc=0
-    # shellcheck disable=SC2086 # gl_dir is a fixed subcommand word, not input
-    gitleaks $gl_dir "$p" --no-banner --redact >"$work/gl.out" 2>&1 || prc=1
+    if [ -n "$gl_dir_flag" ]; then
+      gitleaks "$gl_dir_cmd" "$gl_dir_flag" "$p" --no-banner --redact >"$work/gl.out" 2>&1 || prc=1
+    else
+      gitleaks "$gl_dir_cmd" "$p" --no-banner --redact >"$work/gl.out" 2>&1 || prc=1
+    fi
     if [ "$prc" -ne 0 ]; then
       cat "$work/gl.out" >&2
       rc=1
@@ -161,7 +169,12 @@ screen_file() {
     [ -n "$rule" ] || continue
     rname=${rule%%"$tab"*}
     rpat=${rule#*"$tab"}
-    lines=$(grep -n -E -e "$rpat" "$1" 2>/dev/null | cut -d: -f1)
+    # -a because grep decides for itself what is binary and SKIPS it entirely
+    # rather than matching it differently. A venture repo picks such files up
+    # routinely (a UTF-16 note, an exported keystore), and a screen that steps
+    # over a whole class of file while reporting clean is the failure this
+    # guard exists to prevent.
+    lines=$(grep -a -n -E -e "$rpat" "$1" 2>/dev/null | cut -d: -f1)
     for ln in $lines; do
       [ -n "$ln" ] || continue
       printf '%s:%s: %s (value redacted)\n' \
@@ -179,15 +192,31 @@ if [ "$staged" -eq 1 ]; then
   fi
   # Read the INDEX, not the working tree: the hook screens what is about to be
   # committed, which is not necessarily what is on disk.
-  git diff --cached --name-only --diff-filter=ACM >"$work/staged.txt" || exit 2
+  #
+  # `core.quotePath=false` and `-z` because the default spelling of this command
+  # C-quotes any non-ASCII path, and the blob then does not resolve under that
+  # literal name. The read below is still line-oriented, so a path carrying a
+  # newline splits and fails to resolve — which is why an unresolvable path is a
+  # refusal rather than a skip. Nothing here may turn "unexamined" into "clean".
+  git -c core.quotePath=false diff --cached --name-only -z --diff-filter=ACM \
+    >"$work/staged.z" || exit 2
+  tr '\0' '\n' <"$work/staged.z" >"$work/staged.txt" || exit 2
   n=0
+  unreadable=0
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     n=$((n + 1))
     if git show ":$rel" >"$work/blob.$n" 2>/dev/null; then
       screen_file "$work/blob.$n" "$rel"
+    else
+      printf '%s\n' "inception-secret-screen: cannot read the staged blob for $(sanitize_printable "$rel" '(unprintable path)'); refusing to pass it unscreened" >&2
+      unreadable=1
     fi
   done <"$work/staged.txt"
+  if [ "$unreadable" -ne 0 ]; then
+    echo "inception-secret-screen: some staged content could not be screened; commit refused" >&2
+    exit 2
+  fi
 else
   oIFS=$IFS
   IFS='
