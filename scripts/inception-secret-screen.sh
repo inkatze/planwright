@@ -136,18 +136,62 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
     gl_dir_cmd="detect"
     gl_dir_flag="--source"
   fi
+
+  # gitleaks spends exit code 1 on BOTH "leaks found" and "could not run"
+  # (a bad path, an unparseable config), so the code alone cannot tell a finding
+  # from an environment failure — and reporting the second as the first sends an
+  # operator hunting for a credential that is not there. `--exit-code` buys the
+  # distinction: leaks get a code of our choosing, leaving 1 to mean failure.
+  # Probe for it rather than assume, and say so when it is missing, because a
+  # screen that cannot tell those apart should not pretend it can.
+  GL_LEAK_RC=7
+  if gitleaks "$gl_dir_cmd" --help 2>/dev/null | grep -q -- '--exit-code'; then
+    gl_exit_flag=1
+  else
+    gl_exit_flag=0
+  fi
+
+  # gitleaks_run <subcommand> <args...> — run gitleaks, print its (redacted)
+  # output on anything but a clean pass, and return this script's own contract:
+  # 0 clean, 1 found, 2 could not screen.
+  gitleaks_run() {
+    grc=0
+    if [ "$gl_exit_flag" -eq 1 ]; then
+      gitleaks "$@" --exit-code "$GL_LEAK_RC" >"$work/gl.out" 2>&1 || grc=$?
+    else
+      gitleaks "$@" >"$work/gl.out" 2>&1 || grc=$?
+    fi
+    [ "$grc" -eq 0 ] && return 0
+    cat "$work/gl.out" >&2
+    if [ "$gl_exit_flag" -eq 0 ]; then
+      # No way to tell the two apart on this build; fail toward "found", which
+      # blocks either way, and name the ambiguity rather than hiding it.
+      echo "inception-secret-screen: this gitleaks has no --exit-code, so a scan failure cannot be told from a finding; treating it as a finding" >&2
+      return 1
+    fi
+    [ "$grc" -eq "$GL_LEAK_RC" ] && return 1
+    return 2
+  }
+
   if [ "$staged" -eq 1 ]; then
     if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
       echo "inception-secret-screen: --staged needs a git work tree" >&2
       exit 2
     fi
+    srrc=0
     # shellcheck disable=SC2086 # gl_git is a fixed subcommand word, not input
-    if gitleaks $gl_git --staged --no-banner --redact >"$work/gl.out" 2>&1; then
-      exit 0
-    fi
-    cat "$work/gl.out" >&2
-    echo "inception-secret-screen: gitleaks flagged staged content (output redacted above)" >&2
-    exit 1
+    gitleaks_run $gl_git --staged --no-banner --redact || srrc=$?
+    case $srrc in
+      0) exit 0 ;;
+      1)
+        echo "inception-secret-screen: gitleaks flagged staged content (output redacted above)" >&2
+        exit 1
+        ;;
+      *)
+        echo "inception-secret-screen: gitleaks could not screen the staged content; refusing to pass it unscreened" >&2
+        exit 2
+        ;;
+    esac
   fi
   rc=0
   for p in "$@"; do
@@ -156,14 +200,18 @@ if [ "$tool" != none ] && command -v gitleaks >/dev/null 2>&1; then
     # leak across several arguments would read as several.
     prc=0
     if [ -n "$gl_dir_flag" ]; then
-      gitleaks "$gl_dir_cmd" "$gl_dir_flag" "$p" --no-banner --redact >"$work/gl.out" 2>&1 || prc=1
+      gitleaks_run "$gl_dir_cmd" "$gl_dir_flag" "$p" --no-banner --redact || prc=$?
     else
-      gitleaks "$gl_dir_cmd" "$p" --no-banner --redact >"$work/gl.out" 2>&1 || prc=1
+      gitleaks_run "$gl_dir_cmd" "$p" --no-banner --redact || prc=$?
     fi
-    if [ "$prc" -ne 0 ]; then
-      cat "$work/gl.out" >&2
-      rc=1
+    # "Could not screen" outranks "found": one path nobody could read makes the
+    # whole verdict untrustworthy, and this guard never reports on what it has
+    # not read.
+    if [ "$prc" -ge 2 ]; then
+      echo "inception-secret-screen: gitleaks could not screen a requested path; refusing to report on it" >&2
+      exit 2
     fi
+    [ "$prc" -eq 0 ] || rc=1
   done
   exit "$rc"
 fi
@@ -185,10 +233,23 @@ RULES
 )
 
 found=0
+unreadable=0
 tab=$(printf '\t')
 
 screen_file() {
   # screen_file <path-to-read> <name-to-report>
+  #
+  # A file this cannot READ is not a file this may call clean. grep exits 2 on
+  # an error (a mode nobody can read, a file that vanished mid-walk) and 1 on a
+  # plain no-match, and the difference used to be discarded along with grep's
+  # stderr — so an unreadable file holding a credential passed the walk exactly
+  # the way an empty one does. Same rule as the staged reader, which already
+  # refuses a blob it cannot resolve.
+  if [ ! -r "$1" ]; then
+    printf '%s\n' "inception-secret-screen: cannot read $(sanitize_printable "$2" '(unprintable path)'); refusing to pass it unscreened" >&2
+    unreadable=1
+    return
+  fi
   oIFS2=$IFS
   IFS='
 '
@@ -201,7 +262,18 @@ screen_file() {
     # routinely (a UTF-16 note, an exported keystore), and a screen that steps
     # over a whole class of file while reporting clean is the failure this
     # guard exists to prevent.
-    lines=$(grep -a -n -E -e "$rpat" -- "$1" 2>/dev/null | cut -d: -f1)
+    # Not a pipeline: piping into `cut` would hand back cut's status and throw
+    # grep's away, and grep's status is the whole point — 1 is "no match", 2 is
+    # "could not read this", and only one of those means clean.
+    sfrc=0
+    grep -a -n -E -e "$rpat" -- "$1" >"$work/sf.out" 2>/dev/null || sfrc=$?
+    if [ "$sfrc" -gt 1 ]; then
+      printf '%s\n' "inception-secret-screen: could not read $(sanitize_printable "$2" '(unprintable path)'); refusing to pass it unscreened" >&2
+      unreadable=1
+      IFS=$oIFS2
+      return
+    fi
+    lines=$(cut -d: -f1 <"$work/sf.out")
     for ln in $lines; do
       [ -n "$ln" ] || continue
       printf '%s:%s: %s (value redacted)\n' \
@@ -296,6 +368,14 @@ else
       exit 2
     fi
   done
+fi
+
+# Ordered before the findings check on purpose: a run that could not read
+# everything it was asked to read has no clean verdict to give, and no confident
+# one either. "Not examined" is its own answer and outranks both.
+if [ "$unreadable" -ne 0 ]; then
+  echo "inception-secret-screen: some requested content could not be screened; refusing to report on it" >&2
+  exit 2
 fi
 
 if [ "$found" -ne 0 ]; then

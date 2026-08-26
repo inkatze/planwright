@@ -328,10 +328,27 @@ jobs:
           path: .planwright
       - name: Validate the inception bundle
         run: |
+          # The baseline differs by event, and a push is the one that matters
+          # most here: an edit made in the GitHub web UI straight to main is a
+          # push, not a pull request, and that is exactly the channel the
+          # append-only guard exists to police. Reading only the pull-request
+          # expression left it empty on push and silently downgraded the run to
+          # plain validation.
           base="${{ github.event.pull_request.base.sha }}"
-          if [ -n "$base" ]; then
+          [ -n "$base" ] || base="${{ github.event.before }}"
+          # The first push to a branch reports an all-zero "before", and a
+          # force-push can name a commit this clone no longer has.
+          case "$base" in
+            *[!0]*) ;;
+            *) base= ;;
+          esac
+          if [ -n "$base" ] && git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
             .planwright/scripts/inception-validate.sh --baseline "$base" .
           else
+            # Say it. A guard that did not run must never look like one that ran
+            # and found nothing.
+            echo "venture-guard: no usable baseline for this event;" >&2
+            echo "venture-guard: the stakeholder-commit guard did NOT run" >&2
             .planwright/scripts/inception-validate.sh .
           fi
 WORKFLOW

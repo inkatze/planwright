@@ -350,6 +350,38 @@ else
   echo "ok: BSD mktemp stub skipped (no /usr/bin/mktemp to delegate to)"
 fi
 
+# The CI guard exists to catch a stakeholder edit arriving through the GitHub
+# web UI, and an edit made straight to main is a push, not a pull request. So
+# the baseline has to be chosen per event: reading only the pull-request
+# expression left it empty on push and silently downgraded the run to plain
+# validation, with the append-only rules never firing on the one channel they
+# were written for.
+wf_v="$tmp/wf-remote"
+mkdir -p "$wf_v"
+(
+  cd "$wf_v" || exit 1
+  git init -q .
+  git remote add origin git@github.com:example/venture.git
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung remote "$wf_v" >/dev/null 2>&1
+wf="$wf_v/.github/workflows/venture-guard.yml"
+assert_file "workflow: the remote rung emits the guard" "$wf"
+wf_body="$(cat "$wf")"
+assert_contains "workflow: falls back to the push baseline" "github.event.before" "$wf_body"
+assert_contains "workflow: verifies the baseline commit resolves" "rev-parse --verify" "$wf_body"
+assert_contains "workflow: says so when no baseline is usable" "did NOT run" "$wf_body"
+
+# The repo's own `lint:yaml` covers tracked config, not what this script
+# generates, so the emitted workflow is linted here or nowhere.
+if command -v yamllint >/dev/null 2>&1; then
+  ylout="$(yamllint --strict "$wf" 2>&1)"
+  yrc=$?
+  assert_eq "workflow: the generated YAML is lint-clean" "0" "$yrc"
+  [ "$yrc" -eq 0 ] || printf '%s\n' "$ylout" >&2
+else
+  echo "ok: workflow yamllint skipped (yamllint not installed)"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-scaffold: $failures assertion(s) failed" >&2
   exit 1

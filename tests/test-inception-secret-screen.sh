@@ -356,6 +356,83 @@ assert_eq "non-executable copy: the walk still screens the tree" "1" "$rc"
 assert_contains "non-executable copy: the hit is still reported" "hit.md:1" "$out"
 assert_not_contains "non-executable copy: no permission error leaks out" "Permission denied" "$out"
 
+# A file the screen cannot READ is not a file it may call clean. Silencing
+# grep's stderr and dropping its exit status made an unreadable file
+# indistinguishable from an empty one, so a credential behind a mode nobody can
+# read passed the walk. "Could not screen" is its own verdict and outranks both
+# clean and found.
+unread="$tmp/unreadable"
+mkdir -p "$unread"
+printf '%s\n' "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$unread/secret.md"
+chmod 000 "$unread/secret.md"
+if [ -r "$unread/secret.md" ]; then
+  # Running as root (or on a filesystem ignoring the mode) defeats the setup.
+  echo "ok: unreadable-file case skipped (the mode did not take effect here)"
+  chmod 644 "$unread/secret.md"
+else
+  out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$unread" 2>&1)"
+  rc=$?
+  assert_eq "unreadable file: refuses rather than reporting clean" "2" "$rc"
+  assert_contains "unreadable file: says it could not read it" "could not be screened" "$out"
+  chmod 644 "$unread/secret.md"
+  out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$unread" 2>&1)"
+  rc=$?
+  assert_eq "same file readable: found, as a control" "1" "$rc"
+fi
+
+# gitleaks spends exit 1 on both "leaks found" and "could not run", so the
+# screen asks for a distinct leaks code and treats anything else as a failure
+# to screen. Reporting a broken config as a credential sends an operator hunting
+# for something that is not there — and the scaffolded hook words the two
+# differently, so the distinction has to survive this far.
+glstub="$tmp/glexit"
+mkdir -p "$glstub"
+write_gl() {
+  cat >"$glstub/gitleaks" <<GLSTUB
+#!/bin/sh
+for a in "\$@"; do
+  [ "\$a" = "--help" ] && { echo "  --exit-code int  exit code when leaks have been encountered"; exit 0; }
+done
+$1
+GLSTUB
+  chmod 755 "$glstub/gitleaks"
+}
+gltree="$tmp/gltree"
+mkdir -p "$gltree"
+printf 'nothing to see here\n' >"$gltree/a.md"
+
+write_gl 'echo "FTL failed to load config" >&2; exit 1'
+out="$(PATH="$glstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$gltree" 2>&1)"
+rc=$?
+assert_eq "gitleaks cannot run: environment error, not a finding" "2" "$rc"
+assert_not_contains "gitleaks cannot run: does not claim a credential" "flagged" "$out"
+
+write_gl 'echo "leak found (redacted)"; exit 7'
+PATH="$glstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$gltree" >/dev/null 2>&1
+rc=$?
+assert_eq "gitleaks found a leak: reported as a finding" "1" "$rc"
+
+write_gl 'exit 0'
+PATH="$glstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$gltree" >/dev/null 2>&1
+rc=$?
+assert_eq "gitleaks clean: exit 0" "0" "$rc"
+
+# An older gitleaks without --exit-code cannot make the distinction at all. The
+# screen must say so rather than quietly pretending it did.
+cat >"$glstub/gitleaks" <<'GLOLD'
+#!/bin/sh
+for a in "$@"; do
+  [ "$a" = "--help" ] && { echo "  --redact  redact secrets from logs"; exit 0; }
+done
+echo "FTL failed to load config" >&2
+exit 1
+GLOLD
+chmod 755 "$glstub/gitleaks"
+out="$(PATH="$glstub:$PATH" PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$gltree" 2>&1)"
+rc=$?
+assert_eq "gitleaks without --exit-code: still blocks" "1" "$rc"
+assert_contains "gitleaks without --exit-code: names the ambiguity" "no --exit-code" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-secret-screen: $failures assertion(s) failed" >&2
   exit 1

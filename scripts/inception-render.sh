@@ -142,6 +142,20 @@ function esc(s) {
 }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 
+# A date that EXISTS, not merely one shaped like a date. days() below is happy
+# to difference 2026-02-30 and hand back a state, and "tripped" is the state
+# that tells a venture to kill or re-scope itself — so the calendar is checked
+# here rather than trusted to have been checked upstream.
+function date_ok(d,   y, m, dd, dim) {
+  if (d !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) return 0
+  y = substr(d, 1, 4) + 0; m = substr(d, 6, 2) + 0; dd = substr(d, 9, 2) + 0
+  if (m < 1 || m > 12 || dd < 1) return 0
+  dim = 31
+  if (m == 4 || m == 6 || m == 9 || m == 11) dim = 30
+  else if (m == 2) dim = ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) ? 29 : 28
+  return (dd <= dim)
+}
+
 # Days since the civil epoch, so two ISO dates can be compared and differenced
 # without a date(1) whose flags differ between GNU and BSD.
 function days(d,   y, m, dd, era, yoe, doy, doe) {
@@ -258,9 +272,11 @@ END {
     # would reject on KC-FORM still arrives intact. Date arithmetic over the
     # prose of a criterion produces a state rather than an error, and "tripped"
     # is the state that tells a venture to kill or re-scope itself — so an
-    # unreadable date is said out loud, never computed on. Shape only: the
-    # calendar check belongs to the validator.
-    if (KCDATE[k] !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
+    # unreadable date is said out loud, never computed on. That has to include a
+    # date that is well-SHAPED but impossible: deferring the calendar check to
+    # the validator only works for bundles the validator has passed, and this
+    # renderer runs on ones it has not.
+    if (!date_ok(KCDATE[k])) {
       state = "date unreadable"; nundated++; UNDATED[nundated] = k
       print "<li><span class=\"tag\">" esc(k) "</span> — " state \
         " — " esc(KCTEXT[k]) "</li>"

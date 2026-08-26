@@ -233,6 +233,35 @@ out="$("$RENDER" "$tmp/nope" 2>&1)"
 rc=$?
 assert_eq "missing bundle: exit 2" "2" "$rc"
 
+# A kill date that is well SHAPED but impossible. This renderer runs on bundles
+# the validator has not passed (only the version gate precedes it), so it cannot
+# defer the calendar to the validator: differencing 2026-02-30 yields a state,
+# and "tripped" is the state that tells a venture to kill or re-scope itself.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^\(- \*\*KC-1:\*\*.*by \)[0-9-]*$|\12026-02-30|'
+PLANWRIGHT_INCEPTION_TODAY=2026-08-26 "$RENDER" "$v" >/dev/null 2>&1
+page="$(cat "$v/exports/venture.html")"
+assert_contains "impossible date: rendered as unreadable, not classified" \
+  "date unreadable" "$page"
+assert_not_contains "impossible date: never reported as tripped" \
+  "KC-1</span> — tripped" "$page"
+assert_contains "impossible date: surfaced as a blocker" \
+  "has no readable date" "$page"
+
+# The calendar check must not swallow real dates. A past one still trips, and a
+# genuine leap day is a genuine date.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^\(- \*\*KC-1:\*\*.*by \)[0-9-]*$|\12026-02-28|'
+PLANWRIGHT_INCEPTION_TODAY=2026-08-26 "$RENDER" "$v" >/dev/null 2>&1
+assert_contains "real past date: still trips" \
+  "KC-1</span> — tripped" "$(cat "$v/exports/venture.html")"
+
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^\(- \*\*KC-1:\*\*.*by \)[0-9-]*$|\12028-02-29|'
+PLANWRIGHT_INCEPTION_TODAY=2026-08-26 "$RENDER" "$v" >/dev/null 2>&1
+assert_not_contains "leap day 2028-02-29: is a real date, not unreadable" \
+  "date unreadable" "$(cat "$v/exports/venture.html")"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-render-stub: $failures assertion(s) failed" >&2
   exit 1
