@@ -86,7 +86,7 @@ fourth peer.
 
 ## The turn/artifact arbitration
 
-Two rule sets meet at every attended surface, and this is where they divide.
+Two rule sets meet at every attended surface; this is where they divide.
 The completeness rules — no silent pruning, the canonical tables, the full
 audit record — govern **artifacts**: bundles, PR bodies, audit records.
 Progressive disclosure governs the **attended turn**. Withholding detail from
@@ -180,9 +180,9 @@ pre-selected default, no generic labels) is machine-checkable by
 
 ### Running summary
 
-After each phase (and at any natural pause), restate the ground just covered:
-the decisions taken since the previous summary, their one-line rationale, and
-what remains open. The summary is the checkpoint that the skill heard what the
+After each phase (and at any natural pause), restate to the operator the
+ground just covered: the decisions taken since the previous summary, their
+one-line rationale, and what remains open. The summary is the checkpoint that the skill heard what the
 operator said; a misunderstanding surfaces at the next summary, not at session
 end.
 
@@ -214,7 +214,7 @@ fixtures, tunable on evidence without amending doctrine.
   auto-answered.
 - The rules are a floor, not a script: skills choose the phase names and
   granularity fitting their flow, but every attended flow instantiates the
-  three disciplines and shows the mechanics above.
+  three disciplines, honors the arbitration, and shows the mechanics above.
 - Verification is design-level (REQ-B3.1; operator-dialogue REQ-A1.1,
-  REQ-A1.2): the scope and disciplines are documented here; each surface's
-  instructions show their instantiation.
+  REQ-A1.2, REQ-I1.1): the scope, disciplines, and arbitration are documented
+  here; each surface's instructions show their instantiation.

@@ -187,6 +187,23 @@ assert_contains "interaction-style cites the arbitration requirements" \
 assert_contains "interaction-style cites the summary requirement" \
   "REQ-J1.3" "$style"
 
+# ---------------------------------------------------------------------------
+# 9. The arbitration is law for every attended flow, not an optional extra.
+#    The doc's own closing scope note enumerates what a flow must instantiate,
+#    and the doctrine README row is how a reader finds the doc at all; a rule
+#    absent from both reads as optional however well the body states it.
+# ---------------------------------------------------------------------------
+notes="$(section "$DOCTRINE/interaction-style.md" "Application notes")"
+assert_contains "application notes: the arbitration binds every attended flow" \
+  "arbitration" "$notes"
+
+readme="$(grep -F '[interaction-style.md](interaction-style.md)' \
+  "$DOCTRINE/README.md" | flatten)"
+assert_contains "doctrine README: the row names the arbitration" \
+  "arbitration" "$readme"
+assert_contains "doctrine README: the row carries the arbitration citations" \
+  "REQ-I1.1" "$readme"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-operator-dialogue-doctrine: $failures assertion(s) failed" >&2
   exit 1
