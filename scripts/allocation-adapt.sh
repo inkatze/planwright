@@ -491,6 +491,32 @@ parse_args() {
     usage
     exit 2
   }
+  # Validate the identity arguments HERE, not several sibling calls later where
+  # the ledger would refuse them: by then this script has already read config and
+  # taken a lock, and the diagnostic points at the store rather than the argument.
+  case $UNIT in
+    "" | *[!A-Za-z0-9._=@:-]*)
+      echo "allocation-adapt: refusing malformed unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+      exit 2
+      ;;
+  esac
+  [ "${#UNIT}" -le 128 ] || {
+    echo "allocation-adapt: unit identity is longer than 128 characters" >&2
+    exit 2
+  }
+  case $STEP in
+    -) ;;
+    "" | *[!A-Za-z0-9._=@:-]*)
+      echo "allocation-adapt: refusing malformed step '$(sanitize_printable "$STEP" "(unprintable step)")'" >&2
+      exit 2
+      ;;
+  esac
+  case $ATTEMPT in
+    "" | *[!0-9]*)
+      echo "allocation-adapt: refusing non-numeric attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")'" >&2
+      exit 2
+      ;;
+  esac
 }
 
 emit() {
@@ -554,13 +580,14 @@ cmd_resolve() {
     fi
   fi
 
-  # The raw signal. Unavailable keeps the caps inactive (their own contract) AND
-  # denies escalation above the starting tier (REQ-D1.2).
-  if [ "$KILLED" = yes ]; then
-    USAGE=unavailable
-  else
-    USAGE=$(global_usage)
-  fi
+  # The raw signal, read on every path INCLUDING the kill-switch one. The
+  # kill-switch reverts the CLAMPS — the operator has taken manual control, so
+  # the ladder stops degrading — but REQ-D1.2's rule is about whether the usage
+  # signal can be READ, which the kill-switch says nothing about. Treating an
+  # engaged switch as an unavailable signal would silently deny escalation for a
+  # reason unrelated to the signal. `signal` is a pure read: no lock, no
+  # transition, no side effect, so it is safe on this path.
+  USAGE=$(global_usage)
 
   if [ "$RIDX" -ge 2 ]; then
     CONCURRENCY=$(resolve_posint fleet_concurrency_reduced 1) || exit $?
