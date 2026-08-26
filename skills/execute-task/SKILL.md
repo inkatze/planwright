@@ -307,6 +307,11 @@ names. By exit code:
 - **5** — broken install (the core default is unresolvable): a **stop
   condition** — halt and hand off.
 
+**Sync `main` first** (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4): once per
+pass, before the first skill runs, run `scripts/converge-sync-main.sh`; a
+non-zero exit halts the unit to Awaiting input with the reason it printed. The
+sync changes the head a later ready-flip lands on, never who flips.
+
 **Run each named skill in order, with `--nested`.** Every review skill runs
 `--nested` — it drains every action disposition per act-then-review and returns
 its audit record without pushing or creating a PR (this skill's job, which is
