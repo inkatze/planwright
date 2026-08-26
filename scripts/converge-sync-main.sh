@@ -83,8 +83,28 @@ export GIT_TERMINAL_PROMPT
 # naming: first contact with a host absent from `known_hosts` now fails instead
 # of asking, making that a setup step rather than something the sync completes.
 # An agent-held key is unaffected, which is the fleet's normal case.
-GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes"
+#
+# The option has to WIN, not merely be present: ssh_config(5) specifies that
+# the FIRST obtained value of a parameter is the one used, so appending after a
+# caller's own `-o BatchMode=no` would leave the prompt live and hang the loop
+# exactly as if the guard were absent. When the incoming command names
+# BatchMode at all, ours goes in directly after the ssh binary so it is read
+# first, and the override is reported rather than silently discarded. The
+# ordinary case (no BatchMode in the caller's command) still just appends,
+# which keeps the common path clear of any parsing of the command string.
+_ssh_cmd=${GIT_SSH_COMMAND:-ssh}
+case "$_ssh_cmd" in
+  *BatchMode*)
+    _ssh_bin=${_ssh_cmd%%[[:space:]]*}
+    GIT_SSH_COMMAND="$_ssh_bin -o BatchMode=yes${_ssh_cmd#"$_ssh_bin"}"
+    printf 'converge-sync-main: note: GIT_SSH_COMMAND already sets BatchMode; forcing BatchMode=yes so the fetch cannot block on a prompt\n' >&2
+    ;;
+  *)
+    GIT_SSH_COMMAND="$_ssh_cmd -o BatchMode=yes"
+    ;;
+esac
 export GIT_SSH_COMMAND
+unset _ssh_cmd _ssh_bin
 
 # die <exit-code> <reason> <message> — the single failure surface. The reason
 # token is what the caller greps for and what keeps the causes distinct

@@ -574,11 +574,179 @@ c15() {
 }
 
 # ---------------------------------------------------------------------------
+# Case 16 — the abort itself failing is the one outcome a resume may NOT treat
+# as clean, so it gets its own exit and its own reason rather than riding along
+# with the conflict it followed. A `git` shim that refuses `merge --abort` and
+# otherwise defers to the real one is what makes that reachable: the conflict
+# is genuine, only the recovery is broken (REQ-B1.3, REQ-B1.6, REQ-K1.1).
+# ---------------------------------------------------------------------------
+c16() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c16.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+  printf 'worker side\n' >"$tmp/worker/shared.txt"
+  gitc "$tmp/worker" add -A
+  gitc "$tmp/worker" commit -q -m "worker edits shared.txt"
+  advance_main "$tmp" shared.txt "main side"
+
+  real_git=$(command -v git)
+  mkdir -p "$tmp/bin"
+  cat >"$tmp/bin/git" <<STUB
+#!/bin/sh
+case " \$* " in
+  *" merge --abort "*) echo "stub: refusing to abort" >&2; exit 1 ;;
+esac
+exec "$real_git" "\$@"
+STUB
+  chmod +x "$tmp/bin/git"
+
+  rc=0
+  err=$(PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+
+  [ "$rc" -eq 7 ] || fail "c16: expected exit 7 (abort-failed), got $rc"
+  case "$err" in
+    *abort-failed*) ;;
+    *) fail "c16: a failed abort did not carry the abort-failed reason: $err" ;;
+  esac
+  case "$err" in
+    *merge-conflict*)
+      fail "c16: a failed abort was collapsed into the merge-conflict reason: $err"
+      ;;
+    *) ;;
+  esac
+  # The whole point of the separate reason: the human must be told the tree is
+  # NOT the resume-clean state every other failure path guarantees.
+  case "$err" in
+    *"NOT clean"*) ;;
+    *) fail "c16: the message never warns that the tree is not clean: $err" ;;
+  esac
+  [ -f "$tmp/worker/.git/MERGE_HEAD" ] \
+    || fail "c16: MERGE_HEAD is gone — the fixture did not actually block the abort"
+  echo "ok c16: an abort that itself fails exits 7 and says the tree is not clean"
+}
+
+# ---------------------------------------------------------------------------
+# Case 17 — a conflict across many paths stays a readable one-line message: the
+# list is capped and the remainder counted, rather than pasting an unbounded
+# file list into a halt reason a human has to read (REQ-K1.1). Eleven paths is
+# the boundary — the first count at which the cap does anything at all.
+# ---------------------------------------------------------------------------
+c17() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c17.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+
+  i=1
+  while [ "$i" -le 11 ]; do
+    printf 'worker side\n' >"$tmp/worker/conflict$i.txt"
+    printf 'main side\n' >"$tmp/seed/conflict$i.txt"
+    i=$((i + 1))
+  done
+  gitc "$tmp/worker" add -A
+  gitc "$tmp/worker" commit -q -m "worker writes 11 files"
+  gitc "$tmp/seed" add -A
+  gitc "$tmp/seed" commit -q -m "main writes the same 11 files"
+  gitc "$tmp/seed" push -q origin main
+
+  rc=0
+  err=$("$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+
+  [ "$rc" -eq 5 ] || fail "c17: expected exit 5 (merge-conflict), got $rc"
+  case "$err" in
+    *"(and 1 more)"*) ;;
+    *) fail "c17: 11 conflicting paths did not report the truncated remainder: $err" ;;
+  esac
+  listed=$(printf '%s\n' "$err" | tr ' ' '\n' | grep -c '^conflict[0-9]*\.txt$' || true)
+  [ "$listed" -eq 10 ] \
+    || fail "c17: expected exactly 10 paths listed before the remainder, got $listed"
+  [ "$(printf '%s\n' "$err" | grep -c '')" -eq 1 ] \
+    || fail "c17: the conflict message spilled across more than one line: $err"
+  echo "ok c17: a conflict across 11 paths lists 10 and counts the rest"
+}
+
+# ---------------------------------------------------------------------------
+# Case 18 — the no-prompt guard has to WIN, not merely be present. ssh_config(5)
+# specifies that the FIRST obtained value of a parameter is the one used, so a
+# caller whose `GIT_SSH_COMMAND` already carries `-o BatchMode=no` would keep
+# ssh's prompt live if the script only appended its own — and a prompt is the
+# one thing that hangs a headless worker with no output at all. The recorded
+# argv is the assertion: ours must precede theirs, and the override must be
+# reported rather than discarded in silence.
+# ---------------------------------------------------------------------------
+c18() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c18.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+
+  # An ssh-transport origin so git actually routes the fetch through
+  # GIT_SSH_COMMAND. The stub records its argv and fails, so the sync always
+  # ends in fetch-failed; what is under test is the argv, not the exit.
+  gitc "$tmp/worker" remote set-url origin "ssh://git@127.0.0.1/repo.git"
+  cat >"$tmp/ssh-stub" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SSH_ARGV_LOG"
+exit 255
+STUB
+  chmod +x "$tmp/ssh-stub"
+  SSH_ARGV_LOG="$tmp/ssh-argv.log"
+  export SSH_ARGV_LOG
+  : >"$SSH_ARGV_LOG"
+
+  # (a) a caller who already pinned BatchMode=no — ours must be read first.
+  rc=0
+  err=$(GIT_SSH_COMMAND="$tmp/ssh-stub -o BatchMode=no" \
+    "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c18: expected exit 4 (fetch-failed) from the ssh stub, got $rc"
+
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  [ -n "$argv" ] || fail "c18: the ssh stub was never invoked — the fetch did not use GIT_SSH_COMMAND"
+  case "$argv" in
+    *"BatchMode=yes"*) ;;
+    *) fail "c18: BatchMode=yes never reached ssh: $argv" ;;
+  esac
+  yes_at=${argv%%BatchMode=yes*}
+  no_at=${argv%%BatchMode=no*}
+  [ "${#yes_at}" -lt "${#no_at}" ] \
+    || fail "c18: BatchMode=yes was appended AFTER the caller's BatchMode=no, so ssh reads theirs first: $argv"
+  case "$err" in
+    *BatchMode*) ;;
+    *) fail "c18: the overridden BatchMode setting was discarded without a word on stderr: $err" ;;
+  esac
+
+  # (b) the ordinary case — no BatchMode in the caller's command, no warning.
+  : >"$SSH_ARGV_LOG"
+  rc=0
+  err=$(GIT_SSH_COMMAND="$tmp/ssh-stub -i /dev/null" \
+    "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c18: expected exit 4 (fetch-failed) on the no-BatchMode run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  case "$argv" in
+    *"BatchMode=yes"*) ;;
+    *) fail "c18: BatchMode=yes was not added to a caller command that set none: $argv" ;;
+  esac
+  case "$argv" in
+    *"-i /dev/null"*) ;;
+    *) fail "c18: the caller's own ssh options were dropped: $argv" ;;
+  esac
+  case "$err" in
+    *BatchMode*) fail "c18: warned about an override when the caller set no BatchMode: $err" ;;
+    *) ;;
+  esac
+  unset SSH_ARGV_LOG
+  echo "ok c18: BatchMode=yes outranks a caller's own setting, and the override is reported"
+}
+
+# ---------------------------------------------------------------------------
 # Wiring 1 — `/execute-task` invokes the sync ONCE, at the top of the
 # convergence sequence: before the line that runs the review skills, so the
-# final iteration's CI + review verification lands on the post-sync head
-# (REQ-B1.1). One occurrence is also what keeps the edit a single line
-# (REQ-B1.5).
+# head the review sequence verifies is the post-sync one (REQ-B1.1). NOT the
+# head the skill's own CI step ran on — that step precedes this section and is
+# never re-run; see the script header and the 2026-08-26
+# `converge-sync-ci-ordering` observation. One occurrence is also what keeps
+# the edit a single line (REQ-B1.5).
 # ---------------------------------------------------------------------------
 w1() {
   n=$(grep -c 'converge-sync-main\.sh' "$SKILL" || true)
@@ -629,6 +797,9 @@ c12
 c13
 c14
 c15
+c16
+c17
+c18
 w1
 w2
 
