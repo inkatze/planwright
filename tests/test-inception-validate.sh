@@ -642,6 +642,35 @@ b="$(git_bundle)"
 sed_i "$b/brief.md" 's|^Rationale: The capture-surface spike has not run yet; re-scope the plan and return.$|Rationale: Actually it went fine.|'
 expect "baseline: a recorded gate run was edited" BASE-GATE-MUTATED 1 "$b" --baseline HEAD
 
+# A gate line carrying a TAB. The extract writes `gate<TAB><n><TAB><line>`, so
+# reading the payload as field 3 stopped at the line's own tab and everything
+# past it compared equal whatever it said — a recorded "approved" could be
+# rewritten to "rejected" and this guard, whose entire job is that gate runs are
+# append-only, reported nothing. The bundle is well formed either way, so no
+# other rule fires to cover for it.
+b="$(fresh)"
+awk '{ if ($0 ~ /^Rationale: The capture-surface/) printf "Rationale: The spike has not run yet.\tStakeholder note: approved by Dana.\n"; else print }' \
+  "$b/brief.md" >"$b/brief.new" && mv "$b/brief.new" "$b/brief.md"
+(
+  cd "$b" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+  git add -A
+  git commit --no-verify -qm "gate record with a tab"
+) >/dev/null 2>&1 || exit 1
+# The tabbed bundle is itself valid, and unchanged it must stay clean.
+out="$("$VALIDATE" --baseline HEAD "$b" 2>&1)"
+rc=$?
+assert_eq "baseline: an untouched tabbed gate line is not a mutation" "0" "$rc"
+assert_not_contains "baseline: no false BASE-GATE-MUTATED on an untouched tab" \
+  "BASE-GATE-MUTATED" "$out"
+# Now rewrite only what follows the tab.
+awk '{ if ($0 ~ /^Rationale: The spike/) printf "Rationale: The spike has not run yet.\tStakeholder note: REJECTED by Dana, funding withdrawn.\n"; else print }' \
+  "$b/brief.md" >"$b/brief.new" && mv "$b/brief.new" "$b/brief.md"
+expect "baseline: a gate edit hidden past a tab" BASE-GATE-MUTATED 1 "$b" --baseline HEAD
+
 b="$(fresh)"
 for f in brief disciplines assumptions decisions plan; do
   sed_i "$b/$f.md" 's|^\*\*Status:\*\* Exploring$|**Status:** Killed|'

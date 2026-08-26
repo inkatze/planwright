@@ -1043,12 +1043,31 @@ if [ -n "$baseline" ]; then
         "$vid was present at the baseline and is gone from the working tree; ids are stable forever"
     done <"$work/ids.gone"
 
+    # The payload is fields 3..NF rejoined on the separator, not `$3`. The
+    # extract writes `gate<TAB><n><TAB><line>`, and a gate line may itself carry
+    # a TAB — at which point `$3` is only the part before it, and everything
+    # after compares equal no matter what it says. A rationale recording
+    # "approved" can be rewritten to "rejected" past a tab and this guard, whose
+    # whole job is that recorded gate runs are append-only, reports nothing.
+    #
+    # Compared as FILES rather than as command substitutions: `$(...)` strips
+    # trailing newlines, and comparing bytes on disk keeps the question about
+    # content rather than about how a shell happened to capture it.
+    gate_payload() {
+      # gate_payload <extract-file> <gate-number> <destination>
+      awk -F"$tab" -v g="$2" '
+        $1 == "gate" && $2 == g {
+          line = $3
+          for (i = 4; i <= NF; i++) line = line FS $i
+          print line
+        }' "$1" >"$3"
+    }
     awk -F"$tab" '$1 == "gate" { print $2 }' "$work/base.txt" | sort -u >"$work/gates.base"
     while read -r g; do
       [ -n "$g" ] || continue
-      bb=$(awk -F"$tab" -v g="$g" '$1 == "gate" && $2 == g { print $3 }' "$work/base.txt")
-      hh=$(awk -F"$tab" -v g="$g" '$1 == "gate" && $2 == g { print $3 }' "$work/head.txt")
-      if [ "$bb" != "$hh" ]; then
+      gate_payload "$work/base.txt" "$g" "$work/gate.base"
+      gate_payload "$work/head.txt" "$g" "$work/gate.head"
+      if ! cmp -s "$work/gate.base" "$work/gate.head"; then
         report BASE-GATE-MUTATED brief.md \
           "Gate $g was edited or removed; recorded gate runs are append-only"
       fi
