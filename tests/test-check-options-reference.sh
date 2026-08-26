@@ -185,7 +185,12 @@ assert_contains "the CI form reports the fleet knobs it tethered" "$out" "fleet 
 fleet_knobs="$(awk '
   {
     line = $0; sub(/^[ \t]+/, "", line)
-    if (line !~ /^\|/) { intbl = 0; next }
+    # First matching table only, the same contract the checker follows (and
+    # that case 8d asserts). These two have to agree about which knobs are in
+    # scope: if this harvested a later Knob-headed table the checker ignores,
+    # the per-knob loop below would drift a knob the checker never tethers and
+    # fail waiting for a name it will not print.
+    if (line !~ /^\|/) { if (intbl) exit; next }
     n = split(line, c, "|")
     if (!intbl) { if (c[2] ~ /^[ \t]*Knob[ \t]*$/) intbl = 1; next }
     if (line ~ /^\|[ \t]*:?-+:?[ \t]*\|/) next
@@ -201,6 +206,21 @@ if [ "$knob_count" -gt 0 ]; then
   echo "ok: the shipped fleet knobs table names $knob_count knobs"
 else
   echo "FAIL: no knobs parsed from the shipped fleet knobs table" >&2
+  failures=$((failures + 1))
+fi
+
+# 6c. The harvest above and the checker must agree on how many knobs are in
+#     scope. They are separate parsers over the same table, so nothing but this
+#     stops them drifting apart — and a silent drift makes the per-knob loop
+#     below either miss knobs or chase ones the checker never tethers.
+checker_count="$(printf '%s\n' "$out" | sed -n 's/.*documented; \([0-9][0-9]*\) fleet knob default.*/\1/p')"
+if [ -z "$checker_count" ]; then
+  echo "FAIL: could not read the tethered-knob count out of the checker's summary: $out" >&2
+  failures=$((failures + 1))
+elif [ "$checker_count" = "$knob_count" ]; then
+  echo "ok: the test's knob harvest and the checker agree on $knob_count knobs"
+else
+  echo "FAIL: knob-scope drift — the test harvests $knob_count knobs, the checker tethers $checker_count" >&2
   failures=$((failures + 1))
 fi
 
