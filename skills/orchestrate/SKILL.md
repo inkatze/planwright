@@ -143,15 +143,6 @@ Selector exits (full contract: `selection-contract`):
   (the `--watch` loop continues to that later step, unlike exit 1). v1 keeps its
   degraded-but-proceed behavior.
 
-**Peer-fence guard (coordination REQ-C1.5, D-5).** Before committing to the
-selected unit, run `scripts/fleet-fence.sh check --checkout <primary-checkout>
---spec <spec> <id>`. Exit 0 means a peer tower already holds the unit: skip it
-and select the next candidate. Exit 1 (unfenced) proceeds; exit 4 (transient
-`origin`) ends the step cleanly — the lock-contention shape, retried next pass;
-exit 5 is the no-`origin` solo posture, which needs no fence. This is a cheap
-live pre-check, not the guarantee: the authoritative decision is the fence CAS
-in the dispatch record below, which re-adjudicates whatever landed since.
-
 **Selection-policy note (guard-infrastructure-first).** Critical-path-first is
 blind to tasks that *gate other tasks' verification* without a dependency edge.
 When the spec's prose or a `Done when:` marks a unit as guard/CI infrastructure
@@ -201,38 +192,19 @@ law is `orchestration-concurrency` (read here). Ordered steps:
      header-`**Status:**` exclusion, or whole-file form) mismatches over unedited
      content; remedy: the one-time classify-then-self-re-anchor. Halts go to
      Awaiting input; no bypass flag.
-3. **Fence the unit on `origin`** (coordination REQ-C1.1, REQ-C1.2, REQ-C1.6,
-   D-5, D-8, D-11), **before the branch and before any worker forks**:
-   `scripts/fleet-fence.sh fence --checkout <primary-checkout> --spec <spec>
-   <id> [<id>...]` — one id per unit; a bundle passes every member id and is
-   fenced all-or-none in a single atomic push. This is the authoritative
-   no-duplicate-dispatch object: `origin` serializes the expect-absent CAS, so
-   exactly one tower wins a unit, and the ref survives the tower that pushed it.
-   By exit code: **0** → the unit is ours, continue; **3** → a peer holds it,
-   release the lock and select another unit; **4** → a transient `origin`
-   failure, so **dispatch nothing this pass** (release the lock, end the step,
-   retry next pass — never dispatch blind against a possibly-fenced unit);
-   **5** → no `origin`, the genuine single-host solo posture, dispatch unfenced.
-   The fence targets the current `origin/main` tip, so it adds no commit to
-   `main` and honors the no-dispatch-commit floor. Contract in `docs/fleet.md`.
-4. **Create the task branch as the first durable act** (REQ-A1.1, D-3), via the
+3. **Create the task branch as the first durable act** (REQ-A1.1, D-3), via the
    worktree step below, cut from `main`, named `planwright/<spec>/task-<id>` (a
    bundle: one `task-<id>-<id>` branch, D-36) from grammar-validated ids only.
    Branch-first is fail-safe: the branch precedes the marker, never the reverse, so
    a crash here leaves neither and the task derives Ready for clean re-dispatch.
-5. **Write the timestamped runtime dispatch marker** (D-3, REQ-A1.1):
+4. **Write the timestamped runtime dispatch marker** (D-3, REQ-A1.1):
    `scripts/orchestrate-marker.sh write specs/<spec> <id> [<id>...]` — one marker
    per task id, never a single `<id>-<id>` marker. It holds the task In progress
    until its branch carries a commit (branch evidence then supersedes it); no
    `tasks.md` write or commit.
-6. **Release the lock** before dispatching: `scripts/orchestrate-lock.sh release
+5. **Release the lock** before dispatching: `scripts/orchestrate-lock.sh release
    specs/<spec>`. The lock is held only across this window, never across execution
    (D-10).
-
-The fence is **not** released when the worker finishes: it lives until the unit
-is terminal (its PR merged, or the ledger marks it done), so it still excludes
-peers across the whole open-PR window. The reconcile sweep is what retires it —
-see **Fence lifecycle** below.
 
 ### Worktree create / reuse (REQ-F1.8, D-37, D-44)
 
@@ -333,23 +305,7 @@ with the reason surfaced).
 
 **Presence (coordination D-2).** At loop start and each iteration
 `scripts/fleet-presence.sh publish` then `discover`: never assume solitude;
-failure postures (exits 2–5) per `docs/fleet.md`. Pass `--fenced` the unit-ids
-this tower currently holds fences for — that field is how a peer attributes an
-orphan fence to its owner, so a tower that omits it makes its own in-flight
-units look abandoned.
-
-**Fence lifecycle (coordination REQ-C1.3, REQ-C1.5, REQ-C1.7, D-7).** Each
-iteration, alongside the reconcile sweep, run `scripts/fleet-fence.sh sweep
---checkout <primary-checkout> --spec <spec> (--session-id | --pid)`. It
-retires the fences of units that have become terminal (idempotent, so peers
-sweeping concurrently never collide) and classifies the rest terminal-first,
-then by owner liveness. Anything it cannot honor — a dead owner's unfinished
-unit, an unclassifiable owner, a fence no presence record admits to — it
-**surfaces to the decision queue as an operator item and leaves alone**.
-Reclaiming a dead tower's in-flight unit is a reserved human decision: the
-tower never takes one over, and never deletes a fence it did not prove
-terminal. A `hold` line means the evidence was incomplete this pass, which is
-a retry, not a finding.
+failure postures (exits 2–5) per `docs/fleet.md`.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
 REQ-C1.4).** A `--watch` tower can silently fill its context window. Each
