@@ -26,7 +26,10 @@
 #              never evaluated
 #   MALFORMED  structured gate failing the grammar, or a gate line outside
 #              any deferral bullet — a drain-report-level error: reported,
-#              never evaluated, never silently skipped; the pass completes
+#              never evaluated, never silently skipped; the pass completes.
+#              A structured gate NO atom of which matches a production is
+#              prose in a GATE( wrapper: its row hints at the free-text form
+#              instead of listing every atom back (REQ-E1.2)
 #
 # Fenced code blocks (column-0 ``` fences) are illustration: their content
 # defines no task ids and produces no gate rows.
@@ -55,8 +58,12 @@
 # orders the report within each lane of each spec's section, low first, so
 # low-confidence deferrals resurface first.
 #
-# Also surfaces the observations log's unmined count and oldest-entry age
-# (REQ-H1.4, surface only; age clamps at zero for future-dated entries).
+# Also surfaces, both surface-only:
+#   - a per-spec inventory of `[manual]` test-spec entries for LIVE bundles
+#     (Draft/Ready/Active), so outstanding human-exercised verification stays
+#     visible each pass without a new state store (REQ-E1.6, D-15)
+#   - the observations log's unmined count and oldest-entry age (REQ-H1.4; age
+#     clamps at zero for future-dated entries)
 #
 # Usage: drain-gates.sh [--today YYYY-MM-DD] <specs-root>
 #   --today pins the evaluation date (tests); defaults to the system date.
@@ -302,8 +309,14 @@ for name in $specs; do
     else
       st=unparseable
     fi
+    # The whitelist is the meta-spec's six-status table (doctrine/spec-format.md,
+    # *Status lifecycle*), already normative as the status set — `ready` included
+    # here ahead of the status-atom grammar text, which lands with the taxonomy
+    # amendment (format-grammar D-10). It is one of two whitelists a status must
+    # pass; the awk VALID map below is the other, and a status missing from
+    # either one silently loses its atoms.
     case $st in
-      draft | active | done | retired | superseded)
+      draft | ready | active | done | retired | superseded)
         statuses="$statuses $name=$st"
         ;;
       "") ;;
@@ -523,7 +536,12 @@ EOF
           eq = index(a[i], "=")
           if (eq > 1) STATUS[substr(a[i], 1, eq - 1)] = substr(a[i], eq + 1)
         }
-        VALID["draft"] = VALID["active"] = VALID["done"] = 1
+        # The status literals a `spec <name> <status>` atom may name: the
+        # meta-spec six-status table (format-grammar D-10), matching the shell
+        # whitelist that builds STATUS above. The two must move together — a
+        # status in only one of them either drops the spec from the map
+        # (bad-spec) or refuses the atom form (unrecognized atom).
+        VALID["draft"] = VALID["ready"] = VALID["active"] = VALID["done"] = 1
         VALID["retired"] = VALID["superseded"] = 1
         CAT["MALFORMED"] = 0; CAT["SATISFIED"] = 1; CAT["SURFACED"] = 2
         CAT["PENDING"] = 3; CAT["DORMANT"] = 4; CAT["FREE-TEXT"] = 5
@@ -645,7 +663,7 @@ EOF
       # ends at the closing parenthesis; anything but a final period after
       # it is malformed.
       function structured(g, title, conf,  cond, p, rest, n, atoms, i, \
-        atom, verdict, hasdate, allmet, unmet, unres, det, why) {
+        atom, verdict, hasdate, allmet, unmet, unres, det, why, nrec) {
         cond = trim(substr(g, 11))
         p = index(cond, ")")
         if (!p) {
@@ -668,9 +686,14 @@ EOF
         allmet = 1
         unmet = ""
         why = ""
+        nrec = 0
         for (i = 1; i <= n; i++) {
           atom = trim(atoms[i])
           verdict = eval_atom(atom)
+          # An atom in a recognized FORM — including one naming an unknown task,
+          # spec, or impossible date — is a structured gate with a fixable
+          # referent. Only `bad-atom` (no production matches at all) is prose.
+          if (verdict != "bad-atom") nrec++
           if (verdict ~ /^bad/) {
             why = why (why == "" ? "" : "; ") atom_error(verdict, atom)
             continue
@@ -692,7 +715,25 @@ EOF
           }
         }
         if (why != "") {
-          add("MALFORMED", conf, title, why " - gate: " g)
+          # No production matched ANY atom: the condition is prose wearing the
+          # structured wrapper, and no rewrite inside the closed grammar will
+          # fix it (REQ-E1.2). Point at the free-text form rather than leave the
+          # author to re-derive it from a per-atom list that just repeats the
+          # prose back. That list and the raw gate echo are dropped on this
+          # path — with every atom unrecognized they say the same thing three
+          # times — leaving ONE echo of the condition, sanitized here before it
+          # joins the row: the in-awk expression of the echo discipline
+          # scripts/echo-safety.sh states, placeholder included, so a condition
+          # of nothing but control bytes reads as such instead of vanishing
+          # into an empty string.
+          if (nrec == 0)
+            add("MALFORMED", conf, title, \
+              "no atom is in the closed grammar - hint: a condition the" \
+              " grammar cannot express belongs as a free-text gate: plain" \
+              " prose after **Gate:**, never a GATE( wrapper - condition: " \
+              sanitize(cond, "(unprintable condition)"))
+          else
+            add("MALFORMED", conf, title, why " - gate: " g)
         } else if (hasdate) {
           if (allmet)
             add("SURFACED", conf, title, "(date reached) when: " cond)
@@ -758,6 +799,17 @@ EOF
         return dd <= dim
       }
 
+      # The in-awk echo discipline (scripts/echo-safety.sh, "The awk gsub form"):
+      # strip every non-printable byte from untrusted content headed for the
+      # report, falling back to the placeholder its caller supplies when nothing
+      # printable survives. Under the pinned C locale [:print:] is 0x20-0x7E, so
+      # this covers C0, DEL, and the C1 range the sourced helper names.
+      function sanitize(s, placeholder,  t) {
+        t = s
+        gsub(/[^[:print:]]/, "", t)
+        return (t == "") ? placeholder : t
+      }
+
       function atom_error(verdict, atom) {
         if (verdict == "bad-task") return "unknown task in atom: " atom
         if (verdict == "bad-spec") return "unknown spec in atom: " atom
@@ -803,6 +855,83 @@ EOF
       printf '(no gates)\n'
     fi
   done
+
+  # --- [manual] test-spec inventory (REQ-E1.6, D-15) ----------------------
+  # Un-exercised manual verification obligations are invisible between sweeps:
+  # a `[manual]` entry is a promise a human will run something, and nothing
+  # reminds anyone it is outstanding. The remedy is visibility each pass, not a
+  # per-entry exercised/un-exercised ledger — that would be a new shared-write
+  # accumulator, the artifact class the taxonomy doctrine exists to constrain
+  # (D-15). So this lane is pure surfacing: read the bundle, list what it
+  # promises, store nothing.
+  #
+  # Scope is LIVE bundles — Draft, Ready, Active. Done, Retired, and Superseded
+  # are finished or frozen records whose manual entries name work nobody is
+  # expected to exercise again, and listing them every sweep would bury the ones
+  # that matter. A bundle whose status did not parse is outside the scope too:
+  # it already carries its own note above, and guessing it live would put an
+  # unreadable bundle in the reminder lane.
+  printf '\n== manual verification ==\n'
+  man_any=0
+  for name in $specs; do
+    case " $statuses " in
+      *" $name=draft "* | *" $name=ready "* | *" $name=active "*) ;;
+      *) continue ;;
+    esac
+    ts="$root/$name/test-spec.md"
+    [ -f "$ts" ] || continue
+    if [ ! -r "$ts" ]; then
+      printf 'note: spec %s: test-spec.md unreadable; its [manual] entries are unknown\n' "$name"
+      n_err=$((n_err + 1))
+      continue
+    fi
+    # awk truncates records at NUL, which would drop entries off the end of a
+    # line silently — the same never-silently-skipped hazard the tasks.md sweep
+    # screens for, and the same remedy: flag the file rather than publish an
+    # inventory that quietly under-reports what a human still owes.
+    if [ "$(wc -c <"$ts")" -ne "$(tr -d '\000' <"$ts" | wc -c)" ]; then
+      printf 'note: spec %s: test-spec.md contains NUL bytes; its [manual] entries may be hidden\n' "$name"
+      n_err=$((n_err + 1))
+      continue
+    fi
+    # Entry headings are `### <REQ-id> — <short name> [<tags>]`; a tag COUNTS
+    # when it includes the word `manual`, so `[test + manual]` is inventoried
+    # alongside `[manual]` (doctrine/spec-format.md, the test-spec tag rule).
+    # Column-0 fences are illustration here as everywhere else, so a fenced
+    # example entry promises nothing. The heading is untrusted content: every
+    # non-printable run collapses to a single `-`, which under the pinned C
+    # locale is also what turns the format's em-dash separator into an ASCII one
+    # instead of the lone lead byte the report strip would otherwise leave.
+    # The path travels via ENVIRON, not -v: -v performs C-escape processing and
+    # would corrupt a path carrying literal backslash sequences (the gate parse
+    # above documents the same hazard).
+    if ! man_rows=$(DRAIN_GATES_TEST_SPEC="$ts" awk '
+      { sub(/\r$/, "") }
+      /^```/ { fence = !fence; next }
+      fence { next }
+      /^### / {
+        h = $0
+        sub(/^### /, "", h)
+        if (h !~ /\[[^][]*\]$/) next
+        tag = h
+        sub(/^.*\[/, "", tag)
+        sub(/\]$/, "", tag)
+        if (tag !~ /(^|[^a-zA-Z])manual([^a-zA-Z]|$)/) next
+        gsub(/[^[:print:]]+/, "-", h)
+        print "  " ENVIRON["DRAIN_GATES_TEST_SPEC"] ":" NR " - " h
+      }
+    ' "$ts" 2>/dev/null); then
+      printf 'note: spec %s: test-spec.md became unreadable during the sweep; its [manual] entries are unknown\n' "$name"
+      n_err=$((n_err + 1))
+      continue
+    fi
+    [ -n "$man_rows" ] || continue
+    man_any=1
+    printf '%s: %d [manual] test-spec entries\n' \
+      "$name" "$(printf '%s\n' "$man_rows" | grep -c .)"
+    printf '%s\n' "$man_rows"
+  done
+  [ "$man_any" -eq 1 ] || printf '(none pending)\n'
 
   printf '\n== observations ==\n'
   # The unmined observation count and oldest-entry age are derived from the
