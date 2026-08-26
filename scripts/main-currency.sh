@@ -384,7 +384,9 @@ main_worktree=$(git worktree list --porcelain 2>/dev/null | awk -v want="branch 
 ')
 if [ -n "$main_worktree" ]; then
   err "$main_ref is checked out in another worktree of this clone ($(sanitize_printable "$main_worktree")), so its ref cannot be updated from here — this is permanent, not a transient failure, and retrying will not change it"
-  err "run the sync in that checkout instead, where it fast-forwards $main_ref directly: main-currency.sh sync --checkout $(sanitize_printable "$main_worktree")"
+  # Quoted so the suggestion stays copy-pasteable for a checkout whose path
+  # contains whitespace, the same paths `cd -- "$checkout"` already accepts.
+  err "run the sync in that checkout instead, where it fast-forwards $main_ref directly: main-currency.sh sync --checkout '$(sanitize_printable "$main_worktree")'"
   exit 5
 fi
 

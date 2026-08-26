@@ -61,7 +61,10 @@ fail() {
 [ -x "$MC" ] || fail "scripts/main-currency.sh missing or not executable"
 
 # Resolve the REAL git ONCE, before the shim is ever on PATH, so the shim can
-# exec it without recursing into itself.
+# exec it without recursing into itself. The delimiter below is unquoted, so
+# this value is expanded as the shim is WRITTEN — it has to land inside quotes
+# there, or a git whose own path contains a space is word-split at shim run
+# time and every scenario fails as though git were missing.
 REAL_GIT=$(command -v git) || fail "git not on PATH"
 
 tmp=$(mktemp -d)
@@ -73,7 +76,7 @@ cat >"$shim_dir/git" <<EOF
 #!/bin/sh
 # Command-level recorder: log the argv, then behave exactly like git.
 printf '%s\n' "\$*" >>"\$PW_GIT_LOG"
-exec $REAL_GIT "\$@"
+exec "$REAL_GIT" "\$@"
 EOF
 chmod +x "$shim_dir/git"
 
@@ -352,6 +355,10 @@ set -e
 # there is the whole remedy.
 printf '%s\n' "$out" | grep -q "$root/tower" \
   || fail "8: the refusal did not name the checkout that owns main: $out"
+# ...and must quote it, or the remedy it hands the operator is one they cannot
+# paste for a checkout whose path contains whitespace.
+printf '%s\n' "$out" | grep -qF -- "--checkout '$root/tower'" \
+  || fail "8: the suggested recovery command left the checkout path unquoted: $out"
 assert_no_rewrite 8
 
 # 9. A malformed `--main-ref` is refused BEFORE it reaches any git command, so a
@@ -629,7 +636,9 @@ assert_no_rewrite 16
 nogit_bin="$tmp/nogit-bin"
 mkdir -p "$nogit_bin"
 for u in sh bash printf tr cat dirname pwd; do
-  u_path=$(command -v "$u" 2>/dev/null) && ln -sf "$u_path" "$nogit_bin/$u"
+  u_path=$(command -v "$u" 2>/dev/null) \
+    || fail "17: cannot build the fixture PATH — '$u' is not on this PATH"
+  ln -sf "$u_path" "$nogit_bin/$u"
 done
 if PATH="$nogit_bin" command -v git >/dev/null 2>&1; then
   fail "17: the fixture PATH still resolves git, so this scenario proves nothing"
