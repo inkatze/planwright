@@ -107,7 +107,11 @@ fi
 
 # emit <relative-path> <mode> — write the file the caller has just staged into
 # $stage, unless one is already there and --force was not given.
-stage=$(mktemp) || exit 2
+# Explicit template (the house pattern, see scripts/builder-guards.sh): a bare
+# `mktemp` relies on a default template BSD mktemp does not supply, so it fails
+# on the macOS/BSD half of the floor this file's header claims — and it fails
+# before a single scaffold file is emitted.
+stage=$(mktemp "${TMPDIR:-/tmp}/inception-scaffold.XXXXXX") || exit 2
 trap 'rm -f "$stage"' EXIT
 
 emit() {

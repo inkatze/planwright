@@ -314,6 +314,42 @@ assert_contains "hook: it says the screen could not check the content" \
 assert_not_contains "hook: it does not claim a credential was found" \
   "looks like it carries a credential" "$out"
 
+# The BSD half of the declared bash-3.2/BSD floor. BSD mktemp supplies no
+# default template, so a bare `mktemp` is a usage error there and the scaffold
+# would exit 2 without emitting a single file — on a Mac, at venture creation.
+mkstub="$tmp/bsdstub"
+mkdir -p "$mkstub" || exit 1
+cat >"$mkstub/mktemp" <<'MKTEMP'
+#!/bin/sh
+# BSD mktemp: a template argument (or -t prefix) is required.
+have_tmpl=0
+want_t=0
+for a in "$@"; do
+  case $a in
+    -t) want_t=1 ;;
+    -*) ;;
+    *) have_tmpl=1 ;;
+  esac
+done
+if [ "$have_tmpl" -eq 0 ] && [ "$want_t" -eq 0 ]; then
+  echo "usage: mktemp [-d] [-q] [-t prefix] [-u] template ..." >&2
+  exit 1
+fi
+exec /usr/bin/mktemp "$@"
+MKTEMP
+chmod +x "$mkstub/mktemp" || exit 1
+if [ -x /usr/bin/mktemp ]; then
+  bsd_v="$tmp/bsd-rung"
+  mkdir -p "$bsd_v"
+  out="$(PATH="$mkstub:$PATH" "$SCAFFOLD" --rung local "$bsd_v" 2>&1)"
+  rc=$?
+  assert_eq "BSD mktemp: the scaffold still emits" "0" "$rc"
+  assert_file "BSD mktemp: the hook landed" "$bsd_v/githooks/pre-commit"
+  assert_not_contains "BSD mktemp: no usage error from mktemp" "usage: mktemp" "$out"
+else
+  echo "ok: BSD mktemp stub skipped (no /usr/bin/mktemp to delegate to)"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-scaffold: $failures assertion(s) failed" >&2
   exit 1

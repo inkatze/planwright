@@ -268,10 +268,14 @@ else
       # Prune .git: object files are compressed blobs the pattern screen cannot
       # read anyway, and walking them turns a repo-root screen into a crawl.
       : >"$work/walk.rc"
+      # `/bin/sh "$0"`, not `"$0"`: running the script as a command needs the
+      # executable bit, which is not the plugin's to rely on once a venture host
+      # has copied the tree around — and losing it would break directory
+      # screening entirely rather than degrading it.
       # shellcheck disable=SC2016 # the child shell expands these, not this one
       PLANWRIGHT_SECRET_SCREEN_STATUS="$work/walk.rc" \
         find "$p" -name .git -prune -o -type f -exec /bin/sh -c \
-        '"$0" -- "$@" || printf "%s\n" "$?" >>"$PLANWRIGHT_SECRET_SCREEN_STATUS"' \
+        '/bin/sh "$0" -- "$@" || printf "%s\n" "$?" >>"$PLANWRIGHT_SECRET_SCREEN_STATUS"' \
         "$self" {} +
       # A child that could NOT screen outranks one that found something: the one
       # thing this guard may never do is let "not examined" read as a verdict,

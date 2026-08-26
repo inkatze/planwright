@@ -341,6 +341,21 @@ out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$SCREEN" "$allclean" 2>&1)"
 rc=$?
 assert_eq "clean tree: exit 0" "0" "$rc"
 
+# The walk re-enters this script per file, and it must not need the executable
+# bit to do it: a venture host copies the plugin tree around, and a lost +x
+# would take directory screening with it rather than degrading it.
+noexec="$tmp/noexec"
+mkdir -p "$noexec/bin" "$noexec/tree"
+cp "$SCREEN" "$noexec/bin/" || exit 1
+cp "$REPO_ROOT/scripts/echo-safety.sh" "$noexec/bin/" || exit 1
+chmod -x "$noexec/bin/$(basename "$SCREEN")"
+printf '%s\n' "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz" >"$noexec/tree/hit.md"
+out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=none sh "$noexec/bin/$(basename "$SCREEN")" "$noexec/tree" 2>&1)"
+rc=$?
+assert_eq "non-executable copy: the walk still screens the tree" "1" "$rc"
+assert_contains "non-executable copy: the hit is still reported" "hit.md:1" "$out"
+assert_not_contains "non-executable copy: no permission error leaks out" "Permission denied" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-secret-screen: $failures assertion(s) failed" >&2
   exit 1
