@@ -198,7 +198,8 @@ tracked git-hook backstop; the gate fails loudly on an unwired clone), then
 `mise run check` runs the full gate — shell tests,
 shellcheck, shfmt, markdownlint, yamllint, conventional-commit lint, manifest +
 link + options-reference checks, the ledger structural-corruption +
-duplicate-Status guard, the spec validator, the hook-wiring check, and a
+duplicate-Status guard, the spec validator, the anchor-freshness guard, the
+hook-wiring check, and a
 gitleaks scan. It is the
 same gate CI runs on every pull request. This is dev tooling only;
 planwright's runtime scripts stay plain portable bash. See

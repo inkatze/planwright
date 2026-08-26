@@ -67,7 +67,8 @@ mise run check      # the full local equivalent of the CI gate
 markdownlint, yamllint, the plugin-manifest validation, the doctrine
 link-check, conventional-commit lint, the options-reference drift check, the
 ledger structural-corruption + duplicate-Status guard over `tasks.md`
-snapshots, the spec validator over `specs/`, the hook-backstop wiring check,
+snapshots, the spec validator over `specs/`, the anchor-freshness guard over
+every signed bundle, the hook-backstop wiring check,
 and a secret scan. GitHub Actions
 runs the same
 gate on every pull request. This is dev tooling only — planwright's **runtime**
@@ -123,6 +124,38 @@ temporarily unsetting `core.hooksPath`), and `git rebase --no-verify`
 bypasses `pre-rebase`. One caution inherited from tracked hooks: on an
 untrusted fork checkout, unset `core.hooksPath` before running covered git
 commands, since the checkout's own hook files would execute locally.
+
+### The anchor-freshness mirror at commit time
+
+`scripts/check-anchor-freshness.sh` is the standing guard over spec content
+anchors: for every signed (non-Draft, non-terminal) bundle it re-computes the
+anchor its kickoff brief records, and it flags an edit to anchored content that
+carries no dated `## Changelog` entry. `mise run check` runs it whole-corpus,
+and that CI run is the normative gate.
+
+The same script also runs as a `pre-commit` mirror, so you hear about drift
+while committing rather than one push later. It is wired through the tracked
+hooks above rather than through `lefthook install`, which would overwrite them:
+[`githooks/pre-commit`](../githooks/pre-commit) dispatches to `lefthook run
+pre-commit`, and [`lefthook.yml`](../lefthook.yml) scopes the job to commits
+that stage `specs/**` — a commit touching no spec pays no guard latency. So
+there is **no separate install step**: `scripts/wire-githooks.sh` plus
+`mise install` (which pins lefthook) is the whole setup, and the mirror is
+best-effort — without lefthook on `PATH` the hook is a clean no-op and your
+commit proceeds.
+
+The mirror reads your **working tree**, not the staged index. So it can pass at
+commit time and still fail in CI if you stage an anchored edit but leave its
+`## Changelog` entry unstaged — CI judges the committed tree. Commit spec
+bundles whole and the two agree; `mise run check` is the answer either way.
+
+If the guard reports an anchor mismatch on a bundle you edited, the remedy
+depends on the edit: an expression-only one takes the dated `## Changelog`
+entry plus a marked `Class: expression-only` self-re-anchor entry in the same
+commit; a meaning-class one goes back through `/spec-kickoff`. An entry
+recorded before the 2026-07-26 header-`**Status:**` exclusion (or with the
+interim whole-file form) mismatches over content nobody edited and takes the
+one-time self-re-anchor described in `doctrine/spec-format.md`.
 
 ### Commit and PR conventions
 

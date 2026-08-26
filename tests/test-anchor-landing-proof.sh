@@ -21,10 +21,12 @@
 #      property 1 vacuously.
 #
 # Scope: this is the one-shot proof Task 3 owes, not the permanent guard.
-# Task 4's scripts/check-anchor-freshness.sh takes over the standing
-# enforcement and widens it (changelog pairing against a baseline ref, the
-# brief-less-bundle error, lefthook wiring); until it lands, in-scope here
-# means "briefed", and a brief-less bundle is a notice rather than an error.
+# scripts/check-anchor-freshness.sh (Task 4) has since taken over the standing
+# enforcement and widened it (changelog pairing against a baseline ref, the
+# brief-less-bundle error, the lefthook mirror). This file keeps the narrower
+# scope it landed with — in-scope means "briefed", and a brief-less bundle is a
+# notice rather than an error — because it is the sweep's evidence as it stood,
+# not a second copy of the guard.
 #
 # Runs standalone: ./tests/test-anchor-landing-proof.sh
 set -eu
