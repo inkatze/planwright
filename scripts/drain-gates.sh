@@ -868,21 +868,36 @@ EOF
   # Scope is LIVE bundles — Draft, Ready, Active. Done, Retired, and Superseded
   # are finished or frozen records whose manual entries name work nobody is
   # expected to exercise again, and listing them every sweep would bury the ones
-  # that matter. A bundle whose status did not parse is outside the scope too:
-  # it already carries its own note above, and guessing it live would put an
-  # unreadable bundle in the reminder lane.
+  # that matter; that skip is by design and stays quiet.
+  #
+  # A bundle whose stored status did not resolve at all is a different case. It
+  # is still not guessed live — an unreadable bundle does not belong in a
+  # reminder lane — but dropping its entries without a word is exactly the
+  # silence this sweep exists to avoid, so it is named. Everything else the lane
+  # declines to read (unreadable, NUL-carrying) is named the same way, and any
+  # such skip suppresses the "nothing pending" line below: an empty lane is only
+  # honest when the sweep actually read every live bundle.
   printf '\n== manual verification ==\n'
   man_any=0
+  man_skipped=0
   for name in $specs; do
     case " $statuses " in
       *" $name=draft "* | *" $name=ready "* | *" $name=active "*) ;;
-      *) continue ;;
+      *" $name=done "* | *" $name=retired "* | *" $name=superseded "*) continue ;;
+      *)
+        if [ -f "$root/$name/test-spec.md" ]; then
+          printf 'note: spec %s: status unresolved; its [manual] entries are not inventoried\n' "$name"
+          man_skipped=1
+        fi
+        continue
+        ;;
     esac
     ts="$root/$name/test-spec.md"
     [ -f "$ts" ] || continue
     if [ ! -r "$ts" ]; then
       printf 'note: spec %s: test-spec.md unreadable; its [manual] entries are unknown\n' "$name"
       n_err=$((n_err + 1))
+      man_skipped=1
       continue
     fi
     # awk truncates records at NUL, which would drop entries off the end of a
@@ -892,6 +907,7 @@ EOF
     if [ "$(wc -c <"$ts")" -ne "$(tr -d '\000' <"$ts" | wc -c)" ]; then
       printf 'note: spec %s: test-spec.md contains NUL bytes; its [manual] entries may be hidden\n' "$name"
       n_err=$((n_err + 1))
+      man_skipped=1
       continue
     fi
     # Entry headings are `### <REQ-id> — <short name> [<tags>]`; a tag COUNTS
@@ -923,6 +939,7 @@ EOF
     ' "$ts" 2>/dev/null); then
       printf 'note: spec %s: test-spec.md became unreadable during the sweep; its [manual] entries are unknown\n' "$name"
       n_err=$((n_err + 1))
+      man_skipped=1
       continue
     fi
     [ -n "$man_rows" ] || continue
@@ -931,7 +948,9 @@ EOF
       "$name" "$(printf '%s\n' "$man_rows" | grep -c .)"
     printf '%s\n' "$man_rows"
   done
-  [ "$man_any" -eq 1 ] || printf '(none pending)\n'
+  if [ "$man_any" -eq 0 ] && [ "$man_skipped" -eq 0 ]; then
+    printf '(none pending)\n'
+  fi
 
   printf '\n== observations ==\n'
   # The unmined observation count and oldest-entry age are derived from the

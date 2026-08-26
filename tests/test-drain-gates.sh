@@ -75,7 +75,8 @@
 #      passes both stored-status whitelists; a condition matching no
 #      production is hinted to the free-text form with its echoed condition
 #      echo-safety-sanitized; live bundles' `[manual]` test-spec entries are
-#      inventoried per spec, terminal and Done bundles excluded.
+#      inventoried per spec, terminal and Done bundles excluded, every other
+#      skip named, and the empty lane never overclaiming.
 #
 # Runs standalone: ./tests/test-drain-gates.sh
 set -eu
@@ -1489,4 +1490,34 @@ printf '%s\n' "$out50b" | grep -F 'errors: 1' >/dev/null \
   || fail "case 50b: the flagged file was not counted as an error: $out50b"
 echo "ok: a NUL-laden test-spec.md is flagged, not silently under-inventoried"
 
-echo "PASS: test-drain-gates.sh"
+# 50c. The lane never withholds silently, and never claims more than it knows.
+#      A bundle whose stored status did not resolve is NOT guessed live — but
+#      dropping its entries without a word is the silence this sweep exists to
+#      avoid, so it is named. And when every candidate was skipped that way, the
+#      empty lane must not read as "nothing outstanding": that is a claim the
+#      sweep cannot support. A Done bundle is the discriminator — it is skipped
+#      deliberately, by documented scope, so it draws no note.
+mkdir -p "$tmp/specs50c/nostatus" "$tmp/specs50c/donespec"
+printf '%s\n' '# N — Requirements' '' 'This bundle declares no status.' \
+  >"$tmp/specs50c/nostatus/requirements.md"
+printf '%s\n' '# D' '' '**Status:** Done' >"$tmp/specs50c/donespec/requirements.md"
+for s50c in nostatus donespec; do
+  printf '%s\n' "# $s50c — Tasks" '' '**Format-version:** 1' \
+    >"$tmp/specs50c/$s50c/tasks.md"
+  printf '%s\n' "# $s50c — Test spec" '' '## REQ-A — group' '' \
+    '### REQ-A1.1 — an outstanding promise [manual]' \
+    >"$tmp/specs50c/$s50c/test-spec.md"
+done
+out50c=$("$drain" --today 2026-06-12 "$tmp/specs50c") \
+  || fail "case 50c: the unresolved-status fixture broke the sweep"
+man50c=$(printf '%s\n' "$out50c" | sed -n '/== manual verification ==/,/== observations ==/p')
+printf '%s\n' "$man50c" | grep -F 'nostatus' >/dev/null \
+  || fail "case 50c: a bundle skipped for an unresolved status was dropped silently: $man50c"
+printf '%s\n' "$man50c" | grep -F 'an outstanding promise' >/dev/null \
+  && fail "case 50c: an unresolved-status bundle was inventoried as live anyway: $man50c"
+printf '%s\n' "$man50c" | grep -F 'donespec' >/dev/null \
+  && fail "case 50c: a Done bundle is skipped by documented scope and needs no note: $man50c"
+printf '%s\n' "$man50c" | grep -F '(none pending)' >/dev/null \
+  && fail "case 50c: the lane claimed nothing is pending while a bundle went unread: $man50c"
+echo "ok: the manual lane names what it skipped and never overclaims an empty result"
+
