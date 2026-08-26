@@ -21,7 +21,7 @@
 #   docs/fleet.md in the **zero-argument (CI) form only** — a caller
 #   substituting fixture files for the config supplies the matching fleet doc
 #   too, since tethering a fixture config to the shipped prose would compare
-#   two unrelated things.
+#   two unrelated things. That skip is announced on stderr, never silent.
 #
 # Format constraints this parser relies on: the config must be flat
 # "key: value" lines (nested YAML keys are invisible to it and fail the
@@ -132,7 +132,7 @@ if [ -n "$fleet" ]; then
       v = $0; sub(/^[a-z0-9_]+:[ \t]*/, "", v)
       sub(/[ \t]+#.*$/, "", v)
       sub(/[ \t]+$/, "", v)
-      gsub(/^"|"$/, "", v)
+      gsub(/^"|"$|^'"'"'|'"'"'$/, "", v)
       printf "%s\t%s\n", k, v
     }
   ' "$config")"
@@ -145,6 +145,11 @@ if [ -n "$fleet" ]; then
       gsub(/^[ \t]+/, "", s); gsub(/[ \t]+$/, "", s)
       return s
     }
+    # Diagnostics ride the pair stream on a sentinel line rather than stderr,
+    # so the parse needs no scratch file: a predictable name under TMPDIR
+    # would be a symlink-following write, and an unwritable TMPDIR would
+    # silently cost the diagnostic.
+    function err(m) { printf "#ERR\t%s\n", m; bad = 1 }
     {
       line = $0; sub(/^[ \t]+/, "", line)
       if (line !~ /^\|/) { intbl = 0; next }
@@ -166,8 +171,8 @@ if [ -n "$fleet" ]; then
         cell = substr(cell, RSTART + RLENGTH)
       }
       if (nk == 0) {
-        printf "knobs row names no option: %s\n", strip(c[2]) > "/dev/stderr"
-        bad = 1; next
+        err("knobs row names no option: " strip(c[2]))
+        next
       }
 
       nv = 0
@@ -180,12 +185,12 @@ if [ -n "$fleet" ]; then
         sub(/^\/[ \t]*/, "", cell)
       }
       if (nv == 0) {
-        printf "knobs row for %s carries no backticked default value\n", names[1] > "/dev/stderr"
-        bad = 1; next
+        err("knobs row for " names[1] " carries no backticked default value")
+        next
       }
       if (nv != nk) {
-        printf "knobs row for %s names %d knobs but %d default values; they cannot be paired\n", names[1], nk, nv > "/dev/stderr"
-        bad = 1; next
+        err("knobs row for " names[1] " names " nk " knobs but " nv " default values; they cannot be paired")
+        next
       }
       for (i = 1; i <= nk; i++) printf "%s\t%s\n", names[i], vals[i]
     }
@@ -194,10 +199,10 @@ if [ -n "$fleet" ]; then
       if (!found) exit 3
       if (!rows) exit 4
     }
-  ' "$fleet" 2>"${TMPDIR:-/tmp}/.pw-fleet-knobs.$$")"
+  ' "$fleet")"
   fleet_status=$?
-  fleet_err="$(cat "${TMPDIR:-/tmp}/.pw-fleet-knobs.$$" 2>/dev/null || true)"
-  rm -f "${TMPDIR:-/tmp}/.pw-fleet-knobs.$$"
+  fleet_err="$(printf '%s\n' "$fleet_pairs" | sed -n 's/^#ERR[[:space:]]*//p' | tr '\n' ';')"
+  fleet_pairs="$(printf '%s\n' "$fleet_pairs" | grep -v '^#ERR' || true)"
   case "$fleet_status" in
     3)
       echo "check-options-reference: could not parse the knobs table in $fleet (no header row whose first cell is 'Knob' with a 'Default…' column)" >&2
@@ -233,6 +238,10 @@ if [ -n "$fleet" ]; then
   done <<EOF
 $fleet_pairs
 EOF
+else
+  # Never a silent skip: a caller that substituted fixture files without a
+  # fleet doc must not read the clean exit as "the tether ran".
+  echo "check-options-reference: fleet-knob tether skipped (no fleet doc given; pass one as the third argument)" >&2
 fi
 
 if [ "$status" -eq 0 ]; then

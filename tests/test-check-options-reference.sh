@@ -332,6 +332,40 @@ EOF
 /bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-novalue.md" >/dev/null 2>&1
 assert "a knobs row with no backticked default fails closed" 2 $?
 
+# 9d. A quoted config value compares on the value, not on its YAML spelling —
+#     both quote styles, as the parser's own comment claims.
+cat >"$tmp/fleet-config-quoted.yml" <<'EOF'
+simple_knob: "per-step"
+first_knob: 'opus'
+second_knob: sonnet
+EOF
+/bin/bash "$CHECKER" "$tmp/fleet-config-quoted.yml" "$tmp/fleet-reference.md" "$tmp/fleet-ok.md" >/dev/null 2>&1
+assert "quoted config values compare on the value" 0 $?
+
+# 9e. Skipping the fleet arm is never silent: a two-argument invocation says
+#     so on stderr, so a caller cannot believe a tether ran that did not.
+err="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" 2>&1 >/dev/null)"
+assert "a two-argument invocation still succeeds" 0 $?
+assert_contains "the skipped fleet arm is announced" "$err" "fleet-knob tether skipped"
+
+# 9f. The checker must not depend on writing a scratch file into TMPDIR (a
+#     predictable name in a world-writable directory is a symlink-following
+#     write; the repo's convention is mktemp templates). Proven by behaviour:
+#     with TMPDIR unwritable, the malformed-table diagnostic still comes
+#     through intact.
+mkdir -p "$tmp/readonly-tmp"
+chmod 500 "$tmp/readonly-tmp"
+if [ -w "$tmp/readonly-tmp" ]; then
+  echo "FAIL: could not make an unwritable TMPDIR fixture (running as root?)" >&2
+  failures=$((failures + 1))
+else
+  out="$(TMPDIR="$tmp/readonly-tmp" /bin/bash "$CHECKER" \
+    "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-unpaired.md" 2>&1)"
+  assert "an unwritable TMPDIR does not degrade the diagnostic" 2 $?
+  assert_contains "the diagnostic survives an unwritable TMPDIR" "$out" "first_knob"
+fi
+chmod 700 "$tmp/readonly-tmp"
+
 # 10. A missing fleet doc is an error, matching the other two inputs.
 /bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/no-such-fleet.md" >/dev/null 2>&1
 assert "missing fleet doc is an error" 2 $?

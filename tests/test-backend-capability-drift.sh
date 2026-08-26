@@ -381,6 +381,72 @@ out="$(run_trio "$tmp/short-arm")"
 assert "a short caps_for() arm fails closed" 2 $?
 assert_contains "the short-arm diagnostic names the backend" "$out" "alpha"
 
+# 10c. A backend name outside the identifier grammar `caps_for()`'s own
+#      valid_name() enforces is a parse error. Left unvalidated, a name
+#      carrying a regex metacharacter would also make the set comparison match
+#      an unrelated backend.
+make_trio "$tmp/bad-name"
+write_contract "$tmp/bad-name" <<'EOF'
+# Fixture Backend Capability Contract
+
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `a.b` | true | true | true | false | true | yes | `full-session` | true |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+EOF
+out="$(run_trio "$tmp/bad-name")"
+assert "a backend name outside the identifier grammar fails closed" 2 $?
+assert_contains "the bad-name diagnostic names the offending value" "$out" "a.b"
+
+# 10d. The same grammar applies to the other two surfaces, so a malformed name
+#      cannot slip in through the registry or the operator doc either.
+make_trio "$tmp/bad-name-fleet"
+write_fleet "$tmp/bad-name-fleet" <<'EOF'
+# Fixture fleet doc
+
+| Backend | What it is | Observe / steer | Session-grade |
+| --- | --- | --- | --- |
+| `alpha` | Something | yes / yes | yes |
+| `Beta!` | Something else | no / no | deferred to you |
+EOF
+out="$(run_trio "$tmp/bad-name-fleet")"
+assert "a malformed fleet backend name fails closed" 2 $?
+
+# 10e. A duplicate row for one backend breaks the one-row-per-backend contract.
+#      Left undetected, the field comparison would compare a two-line value
+#      against a one-line one and report a mismatch nobody can act on.
+make_trio "$tmp/dupe-backend"
+write_contract "$tmp/dupe-backend" <<'EOF'
+# Fixture Backend Capability Contract
+
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | true | true | false | true | yes | `full-session` | true |
+| `alpha` | true | true | true | false | true | yes | `full-session` | true |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+EOF
+out="$(run_trio "$tmp/dupe-backend")"
+assert "a duplicate backend row fails closed" 2 $?
+assert_contains "the duplicate-row diagnostic names the backend" "$out" "alpha"
+
+# 10f. The checker must not depend on writing a scratch file into TMPDIR: a
+#      predictable name in a world-writable directory is a symlink-following
+#      write waiting to happen, and the repo's convention is mktemp templates
+#      (scripts/classify-ci-failure.sh, scripts/builder-guards.sh). Proving it
+#      by behaviour rather than by inspection: with TMPDIR unwritable, the
+#      malformed-input diagnostic must still come through intact.
+mkdir -p "$tmp/readonly-tmp"
+chmod 500 "$tmp/readonly-tmp"
+if [ -w "$tmp/readonly-tmp" ]; then
+  echo "FAIL: could not make an unwritable TMPDIR fixture (running as root?)" >&2
+  failures=$((failures + 1))
+else
+  out="$(TMPDIR="$tmp/readonly-tmp" run_trio "$tmp/short-arm")"
+  assert "an unwritable TMPDIR does not degrade the diagnostic" 2 $?
+  assert_contains "the diagnostic survives an unwritable TMPDIR" "$out" "alpha"
+fi
+chmod 700 "$tmp/readonly-tmp"
+
 # ---------------------------------------------------------------------------
 # 11. Fail-closed: a missing input file is an error.
 # ---------------------------------------------------------------------------

@@ -198,6 +198,18 @@ assert "a non-basename index row target fails closed" 2 $?
 assert_contains "the bad-target failure names the target" "$out" "../docs/elsewhere.md"
 
 # ---------------------------------------------------------------------------
+# 10b. Fail-closed: a doctrine file whose basename is outside the identifier
+#      grammar (REQ-A1.8) is an error naming the file. The doc set travels as
+#      a word-split list, so an unvalidated name with a space would silently
+#      become two bogus entries and produce a failure nobody can act on.
+# ---------------------------------------------------------------------------
+make_fixture "$tmp/bad-basename" alpha
+: >"$tmp/bad-basename/my doc.md"
+out="$(/bin/bash "$CHECKER" "$tmp/bad-basename" 2>&1)"
+assert "a doctrine filename outside the identifier grammar fails closed" 2 $?
+assert_contains "the bad-basename failure names the file" "$out" "my doc.md"
+
+# ---------------------------------------------------------------------------
 # 11. Done-when, on the real corpus: removing a single README row from a copy
 #     of the shipped doctrine directory turns the check red. This is the
 #     property that makes `mise run check` fail on a local row removal.

@@ -48,8 +48,11 @@
 #
 # Any of the three surfaces parsing to zero rows exits 2, as does a missing
 # input file, a capability table whose header does not carry the expected
-# columns, and a `caps_for()` arm that does not emit exactly the eight
-# contract fields. A vacuous parse must never read as agreement.
+# columns, a `caps_for()` arm that does not emit exactly the eight contract
+# fields, a backend name outside the identifier grammar
+# `scripts/orchestrate-backends.sh` enforces in `valid_name()`, and a second
+# row for a backend a surface already named. A vacuous or ambiguous parse must
+# never read as agreement.
 #
 # ## Semantic (non-backend) fleet rows
 #
@@ -96,6 +99,15 @@ fail_closed() {
   echo "check-backend-capability-drift: $1" >&2
   exit 2
 }
+
+# The parsers below carry their diagnostics on `#ERR`-prefixed lines inside
+# the fact stream, so a malformed surface needs no scratch file to report
+# itself. These two split the stream back apart.
+parse_detail() {
+  pd_lines="$(printf '%s\n' "$1" | sed -n 's/^#ERR[[:space:]]*//p' | tr '\n' ';')"
+  sanitize_printable "$pd_lines" "(unprintable diagnostic)"
+}
+strip_detail() { printf '%s\n' "$1" | grep -v '^#ERR' || true; }
 
 contract="${1:-$repo_root/doctrine/backend-capability-contract.md}"
 registry="${2:-$repo_root/scripts/orchestrate-backends.sh}"
@@ -146,6 +158,22 @@ function nfield(f, v) {
   return nbool(v)
 }
 function emit(b, f, v) { printf "%s\t%s\t%s\n", b, f, v }
+# Diagnostics ride the fact stream on a sentinel line rather than stderr, so
+# no surface needs a scratch file: a predictable name under TMPDIR would be a
+# symlink-following write, and an unwritable TMPDIR would silently cost the
+# diagnostic. The bad flag it sets is read by each program END block.
+function err(m) { printf "#ERR\t%s\n", m; bad = 1 }
+# The backend-name grammar scripts/orchestrate-backends.sh already enforces in
+# valid_name(). Validating parsed names here keeps a name carrying a regex
+# metacharacter out of the set comparison below, where it would match an
+# unrelated backend.
+function valid_name(b) { return (b ~ /^[a-z0-9][a-z0-9-]*$/ && length(b) <= 64) }
+function accept(b) {
+  if (!valid_name(b)) { err("backend name outside the identifier grammar: " b); return 0 }
+  if (b in seen_backend) { err("duplicate row for backend " b); return 0 }
+  seen_backend[b] = 1
+  return 1
+}
 '
 
 # ---------------------------------------------------------------------------
@@ -170,9 +198,9 @@ contract_facts="$(awk -v fields="$FIELDS" "$awk_lib"'
       }
       ok = 1
       for (w in want) {
-        seen = 0
-        for (i in colname) if (colname[i] == want[w]) seen = 1
-        if (!seen) ok = 0
+        has_col = 0
+        for (i in colname) if (colname[i] == want[w]) has_col = 1
+        if (!has_col) ok = 0
       }
       if (!ok) next
       intbl = 1; found = 1; next
@@ -180,6 +208,7 @@ contract_facts="$(awk -v fields="$FIELDS" "$awk_lib"'
     if (line ~ /^\|[ \t]*:?-+:?[ \t]*\|/) next
     b = token(c[2])
     if (b == "") next
+    if (!accept(b)) next
     for (i = 3; i < n; i++) {
       if (colname[i] == "") continue
       emit(b, colname[i], nfield(colname[i], c[i]))
@@ -187,17 +216,21 @@ contract_facts="$(awk -v fields="$FIELDS" "$awk_lib"'
     rows++
   }
   END {
+    if (bad) exit 5
     if (!found) exit 3
     if (!rows) exit 4
   }
 ' "$contract")"
 contract_status=$?
+safe_contract="$(sanitize_printable "$contract" "(unprintable path)")"
 case "$contract_status" in
-  3) fail_closed "could not find the backend capability table in $(sanitize_printable "$contract" "(unprintable path)") (no header row carrying all eight contract columns)" ;;
-  4) fail_closed "the backend capability table in $(sanitize_printable "$contract" "(unprintable path)") parsed to zero rows" ;;
+  3) fail_closed "could not find the backend capability table in $safe_contract (no header row carrying all eight contract columns)" ;;
+  4) fail_closed "the backend capability table in $safe_contract parsed to zero rows" ;;
+  5) fail_closed "malformed backend capability table in $safe_contract: $(parse_detail "$contract_facts")" ;;
   0) ;;
-  *) fail_closed "failed to parse $(sanitize_printable "$contract" "(unprintable path)")" ;;
+  *) fail_closed "failed to parse $safe_contract" ;;
 esac
+contract_facts="$(strip_detail "$contract_facts")"
 
 # ---------------------------------------------------------------------------
 # Surface 2: the `caps_for()` registry. Each case arm emits the eight fields as
@@ -211,11 +244,12 @@ registry_facts="$(awk -v fields="$FIELDS" "$awk_lib"'
     line = $0; sub(/^[ \t]+/, "", line)
     if (line !~ /^[a-z0-9][a-z0-9-]*\)[ \t]*echo[ \t]+"/) next
     b = line; sub(/\).*/, "", b)
+    if (!accept(b)) next
     v = line; sub(/^[^"]*"/, "", v); sub(/".*/, "", v)
     got = split(v, f, /[ \t]+/)
     if (got != nf) {
-      printf "arm %s emits %d fields, expected %d\n", b, got, nf > "/dev/stderr"
-      bad = 1; next
+      err("arm " b " emits " got " fields, expected " nf)
+      next
     }
     for (i = 1; i <= nf; i++) emit(b, want[i], nfield(want[i], f[i]))
     rows++
@@ -224,16 +258,16 @@ registry_facts="$(awk -v fields="$FIELDS" "$awk_lib"'
     if (bad) exit 5
     if (!rows) exit 4
   }
-' "$registry" 2>"${TMPDIR:-/tmp}/.pw-caps-err.$$")"
+' "$registry")"
 registry_status=$?
-registry_err="$(cat "${TMPDIR:-/tmp}/.pw-caps-err.$$" 2>/dev/null || true)"
-rm -f "${TMPDIR:-/tmp}/.pw-caps-err.$$"
+safe_registry="$(sanitize_printable "$registry" "(unprintable path)")"
 case "$registry_status" in
-  4) fail_closed "no caps_for() capability arms parsed from $(sanitize_printable "$registry" "(unprintable path)")" ;;
-  5) fail_closed "malformed caps_for() registry in $(sanitize_printable "$registry" "(unprintable path)"): $(sanitize_printable "$registry_err" "(unprintable diagnostic)")" ;;
+  4) fail_closed "no caps_for() capability arms parsed from $safe_registry" ;;
+  5) fail_closed "malformed caps_for() registry in $safe_registry: $(parse_detail "$registry_facts")" ;;
   0) ;;
-  *) fail_closed "failed to parse caps_for() in $(sanitize_printable "$registry" "(unprintable path)")" ;;
+  *) fail_closed "failed to parse caps_for() in $safe_registry" ;;
 esac
+registry_facts="$(strip_detail "$registry_facts")"
 
 # ---------------------------------------------------------------------------
 # Surface 3: the operator-facing fleet table. Located by a header carrying both
@@ -265,6 +299,7 @@ fleet_facts="$(awk -v semantic="$SEMANTIC_ROWS" "$awk_lib"'
     if (line ~ /^\|[ \t]*:?-+:?[ \t]*\|/) next
     b = token(c[2])
     if (b == "" || is_semantic(b)) next
+    if (!accept(b)) next
     cell = strip(c[obs])
     low = tolower(cell)
     if (low == "n/a" || low == "na") {
@@ -274,8 +309,8 @@ fleet_facts="$(awk -v semantic="$SEMANTIC_ROWS" "$awk_lib"'
       if (np == 1) { ov = nbool(parts[1]); sv = ov }
       else if (np == 2) { ov = nbool(parts[1]); sv = nbool(parts[2]) }
       else {
-        printf "observe/steer cell for %s is not one or two values: %s\n", b, cell > "/dev/stderr"
-        bad = 1; next
+        err("observe/steer cell for " b " is not one or two values: " cell)
+        next
       }
     }
     emit(b, "can_observe", ov)
@@ -288,17 +323,17 @@ fleet_facts="$(awk -v semantic="$SEMANTIC_ROWS" "$awk_lib"'
     if (!found) exit 3
     if (!rows) exit 4
   }
-' "$fleet" 2>"${TMPDIR:-/tmp}/.pw-fleet-err.$$")"
+' "$fleet")"
 fleet_status=$?
-fleet_err="$(cat "${TMPDIR:-/tmp}/.pw-fleet-err.$$" 2>/dev/null || true)"
-rm -f "${TMPDIR:-/tmp}/.pw-fleet-err.$$"
+safe_fleet="$(sanitize_printable "$fleet" "(unprintable path)")"
 case "$fleet_status" in
-  3) fail_closed "could not find the backend table in $(sanitize_printable "$fleet" "(unprintable path)") (no header row carrying both an 'Observe / steer' and a 'Session-grade' column)" ;;
-  4) fail_closed "the backend table in $(sanitize_printable "$fleet" "(unprintable path)") parsed to zero backend rows" ;;
-  5) fail_closed "malformed backend table in $(sanitize_printable "$fleet" "(unprintable path)"): $(sanitize_printable "$fleet_err" "(unprintable diagnostic)")" ;;
+  3) fail_closed "could not find the backend table in $safe_fleet (no header row carrying both an 'Observe / steer' and a 'Session-grade' column)" ;;
+  4) fail_closed "the backend table in $safe_fleet parsed to zero backend rows" ;;
+  5) fail_closed "malformed backend table in $safe_fleet: $(parse_detail "$fleet_facts")" ;;
   0) ;;
-  *) fail_closed "failed to parse the backend table in $(sanitize_printable "$fleet" "(unprintable path)")" ;;
+  *) fail_closed "failed to parse the backend table in $safe_fleet" ;;
 esac
+fleet_facts="$(strip_detail "$fleet_facts")"
 
 # ---------------------------------------------------------------------------
 # Unrecognized tokens are a parse error on every surface: an unreadable value
@@ -335,22 +370,22 @@ report() {
 
 # Backend sets: prose vs registry, both directions.
 for b in $contract_backends; do
-  printf '%s\n' "$registry_backends" | grep -qx -- "$b" \
+  printf '%s\n' "$registry_backends" | grep -qxF -- "$b" \
     || report "the prose contract defines backend '$b', which caps_for() in ${registry##*/} does not"
 done
 for b in $registry_backends; do
-  printf '%s\n' "$contract_backends" | grep -qx -- "$b" \
+  printf '%s\n' "$contract_backends" | grep -qxF -- "$b" \
     || report "caps_for() in ${registry##*/} defines backend '$b', which the prose contract does not (the prose table is the direction of truth: edit it first)"
 done
 
 # Backend sets: prose vs the fleet table, both directions (semantic rows are
 # already excluded by the fleet parser).
 for b in $contract_backends; do
-  printf '%s\n' "$fleet_backends" | grep -qx -- "$b" \
+  printf '%s\n' "$fleet_backends" | grep -qxF -- "$b" \
     || report "the prose contract defines backend '$b', which the ${fleet##*/} backend table does not document"
 done
 for b in $fleet_backends; do
-  printf '%s\n' "$contract_backends" | grep -qx -- "$b" \
+  printf '%s\n' "$contract_backends" | grep -qxF -- "$b" \
     || report "the ${fleet##*/} backend table documents '$b', which the prose contract does not define (add it to the contract, or declare it a semantic row)"
 done
 

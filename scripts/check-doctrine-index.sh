@@ -81,14 +81,21 @@ readme="$doctrine_dir/README.md"
 
 # ---------------------------------------------------------------------------
 # The doctrine-doc set: every *.md in the directory except the index itself.
-# Basenames are shell-word-safe by the identifier discipline the row-target
-# validation below enforces, so both sets travel as space-separated lists.
+# Both sets travel as space-separated lists, so each basename is held to the
+# REQ-A1.8 identifier grammar first — an unvalidated name carrying a space
+# would word-split into entries that exist nowhere, and the resulting failure
+# would name files nobody can find.
 # ---------------------------------------------------------------------------
 docs=""
 for path in "$doctrine_dir"/*.md; do
   [ -f "$path" ] || continue
   base="${path##*/}"
   [ "$base" = "README.md" ] && continue
+  case "${base%.md}" in
+    '' | [!a-z0-9]* | *[!a-z0-9-]*)
+      fail_closed "doctrine filename is outside the identifier grammar: $(sanitize_printable "$base" "(unprintable filename)")"
+      ;;
+  esac
   docs="$docs $base"
 done
 
