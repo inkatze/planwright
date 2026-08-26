@@ -76,7 +76,8 @@
 #      production is hinted to the free-text form with its echoed condition
 #      echo-safety-sanitized; live bundles' `[manual]` test-spec entries are
 #      inventoried per spec, terminal and Done bundles excluded, every other
-#      skip named, and the empty lane never overclaiming.
+#      skip named, the empty lane never overclaiming, and the entry grammar
+#      holding fence illustration, CRLF, and whole-tag matching.
 #
 # Runs standalone: ./tests/test-drain-gates.sh
 set -eu
@@ -1521,3 +1522,36 @@ printf '%s\n' "$man50c" | grep -F '(none pending)' >/dev/null \
   && fail "case 50c: the lane claimed nothing is pending while a bundle went unread: $man50c"
 echo "ok: the manual lane names what it skipped and never overclaims an empty result"
 
+# 50d. The inventory reads test-spec.md under the same two grammar rules every
+#      sibling parser applies, so it cannot drift from them: column-0 fences are
+#      illustration (a fenced entry is an example, not a promise — mirror of
+#      checks 17 and 44), and CRLF files parse like LF ones (mirror of check
+#      18; without the CR strip the trailing `\r` puts the tag past end-of-line
+#      and the entry vanishes). The tag test is a WORD match, not a substring:
+#      `[manually-reviewed]` is not the `manual` tag.
+mkdir -p "$tmp/specs50d/grammar"
+printf '%s\n' '# G' '' '**Status:** Active' >"$tmp/specs50d/grammar/requirements.md"
+printf '%s\n' '# G — Tasks' '' '**Format-version:** 1' \
+  >"$tmp/specs50d/grammar/tasks.md"
+{
+  printf '# G - Test spec\r\n\r\n## REQ-A - group\r\n\r\n'
+  printf '```markdown\r\n'
+  printf '### REQ-Z9.9 - fenced illustration [manual]\r\n'
+  printf '```\r\n\r\n'
+  printf '### REQ-A1.1 - real crlf promise [manual]\r\n\r\n'
+  printf '### REQ-A1.2 - near miss tag [manually-reviewed]\r\n'
+} >"$tmp/specs50d/grammar/test-spec.md"
+out50d=$("$drain" --today 2026-06-12 "$tmp/specs50d") \
+  || fail "case 50d: the grammar fixture broke the sweep"
+man50d=$(printf '%s\n' "$out50d" | sed -n '/== manual verification ==/,/== observations ==/p')
+printf '%s\n' "$man50d" | grep -F 'real crlf promise' >/dev/null \
+  || fail "case 50d: a CRLF [manual] entry was not inventoried: $man50d"
+printf '%s\n' "$man50d" | grep -F 'fenced illustration' >/dev/null \
+  && fail "case 50d: a fenced example entry was inventoried as a real promise: $man50d"
+printf '%s\n' "$man50d" | grep -F 'near miss tag' >/dev/null \
+  && fail "case 50d: a tag merely containing 'manual' was matched as the tag: $man50d"
+printf '%s\n' "$man50d" | grep -F 'grammar: 1 [manual]' >/dev/null \
+  || fail "case 50d: the per-spec count does not match the inventoried rows: $man50d"
+echo "ok: the [manual] inventory honors fence illustration, CRLF, and whole-tag matching"
+
+echo "PASS: test-drain-gates.sh"
