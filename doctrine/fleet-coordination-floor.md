@@ -194,10 +194,9 @@ would change what a future dispatch sees, it is not a reap.**
 
 ### The class contract
 
-Each class's three parts and the mechanism of record for each. The close verbs
-and the four-state detector are instantiated by the `fleet-lifecycle-closure`
-bundle (its REQ-B and REQ-C groups); this table is the contract they satisfy,
-not a second specification of them.
+Each class's three parts and the mechanism of record for each. The mechanisms
+named here are instantiated by the `fleet-lifecycle-closure` bundle; this table
+is the contract they satisfy, not a second specification of them.
 
 | Resource class | Open | Close | Detector |
 | --- | --- | --- | --- |
