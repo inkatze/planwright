@@ -648,8 +648,10 @@ nobody admits to is held quietly for one heartbeat interval first, because
 that is also what a tower looks like between fencing a unit and its next
 heartbeat; the wait is stamped in the queue entry itself, so it holds across
 towers and survives a tower that dies mid-wait. An already-raised strand is
-not re-probed inside the cadence window, so a queue of unresolved strands
-never turns into a per-pass storm of `origin` reads.
+skipped while its queue entry is younger than `--min-interval`, measured from
+when it was first raised; after that it is re-examined each pass. Either way a
+queue of unresolved strands never turns into a storm of `origin` reads, because
+the sweep reads `origin` once per pass regardless of how many fences it finds.
 
 If `gh` is installed but cannot answer, the sweep still deletes fences whose
 units are provably done from git alone (a merged branch or the completion

@@ -106,8 +106,9 @@
 #                                               (<liveness>: dead | unknown |
 #                                               ambiguous | orphan)
 #           `tentative <ref>`                   unattributed, inside its grace window
-#           `suppressed <ref>`                  already surfaced, inside the cadence
-#                                               window — deliberately not re-probed
+#           `suppressed <ref>`                  already surfaced, still inside the
+#                                               window that runs from its first
+#                                               sighting — not re-probed this pass
 #           `hold <ref> <reason>`               evidence incomplete: nothing decided
 #           `anomaly <ref> <reason>`            a ref this mechanism did not write
 #           `summary fences=<n> strands=<n>`
@@ -704,10 +705,17 @@ if [ "$cmd" = sweep ]; then
     tkey="pwfence-t.$(key_digest "$ref")"
     scope="$spec:$unit"
 
-    # An already-surfaced strand is not re-probed every pass: inside the
-    # discovery cadence window it is skipped entirely, so strands the operator
-    # has not yet resolved cannot drive an unbounded per-pass fan-out of
-    # `origin`/`gh` reads (REQ-C1.3).
+    # An already-surfaced strand is skipped while its sink entry is younger
+    # than the cadence window. That window runs from FIRST observation and does
+    # not renew: the entry's timestamp is pinned there by design (a strand is a
+    # queued operator decision, and `fork` refuses to overwrite one), so once it
+    # has elapsed the ref is re-examined on every later pass. Deliberate, and
+    # narrower than REQ-C1.3's "not re-checked every sweep" reads on its face —
+    # what that requirement is protecting is stated in its own purpose clause,
+    # an unbounded per-pass fan-out of `origin`/`gh` reads, and no such fan-out
+    # exists to bound: both live reads are hoisted ABOVE this loop and cost one
+    # `ls-remote` and one state derivation per sweep however many strands are
+    # queued. What the skip saves is the per-ref attribution subprocess.
     age=$(sink_age "$skey")
     case "$age" in
       "" | *[!0-9]*) ;;
