@@ -338,7 +338,7 @@ After each returns:
 - **Hard-disqualifier finding** a review-sequence skill surfaced but could not
   resolve autonomously: a stop condition — hand off for human direction.
 
-**A convergence finding whose fix edits this spec's four files** is an in-flight
+**A convergence finding whose fix edits this spec's anchored content** is an in-flight
 amendment, never a direct edit: it takes the ritual below — the stale-anchor
 pre-flight first, then the expression-only lane or the meaning-class refusal.
 

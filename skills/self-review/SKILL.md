@@ -199,7 +199,7 @@ this skill executes:
 **Findings whose fix edits a signed bundle** carry the three obligations the
 meta-spec's writer prose states (`doctrine/spec-format.md`, *Sign-off records
 and content anchors*), which governs here. Before the first edit to a Ready or
-Active bundle's four files, run the **stale-anchor pre-flight**: recompute with
+Active bundle's anchored content, run the **stale-anchor pre-flight**: recompute with
 the brief's most recent recorded command; a mismatch, an absent or unparseable
 entry, and a failed recompute each block that edit and surface instead of
 editing on top of it (findings elsewhere in the diff keep routing normally).
