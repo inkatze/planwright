@@ -639,11 +639,11 @@ of editing when the anchor mismatches, when the entry is absent or
 unparseable, or when the recompute itself fails — all of them block alike,
 because none of them can say what the recorded anchor covers, and editing on
 top of an unknown baseline is what makes the drift unrecoverable. Second, for
-an **expression-only** finding, the full ritual in the same change: the edit,
+an **expression-only** edit, the full ritual in the same change: the edit,
 its dated Changelog entry, and the marked `Class: expression-only`
 self-re-anchor entry citing that entry, landing in **one commit**, so no
 commit in history carries an edited bundle under an anchor that no longer
-describes it. Third, **refusal** of a meaning-class finding: the bundle stays
+describes it. Third, **refusal** of a meaning-class edit: the bundle stays
 untouched and the handoff names a `/spec-kickoff` delta re-walkthrough as the
 route, because meaning-class writership is `/spec-kickoff`'s alone. This binds
 the act, not the shipping vehicle: a review skill delivered from another
