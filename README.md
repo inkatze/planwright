@@ -15,9 +15,10 @@ good your spec is, so planwright's whole investment is getting the spec right
 before any code is written. Under the hood it is a guardrailed **agent
 harness**: the model brings the intelligence; planwright brings the
 verification loops, bounded iteration, no-progress detection, and hard human
-checkpoints that make autonomous coding shippable. Run one spec and it is an autopilot; run several
-and it is an [agentic software factory](#run-it-as-a-software-factory) with a
-human quality gate at the end of the line.
+checkpoints that make autonomous coding shippable. Run one spec and it is an
+autopilot; run several and it is an
+[agentic software factory](#run-it-as-a-software-factory) with a human quality
+gate at the end of the line.
 
 > **Status: v1, self-hosting.** The founding spec (`specs/bootstrap/`) that
 > defines planwright v1 is complete, and planwright now develops itself through
