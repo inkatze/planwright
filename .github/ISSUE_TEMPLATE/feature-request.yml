@@ -1,0 +1,29 @@
+---
+name: Feature request
+description: An improvement to the pipeline, a skill, or the docs
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What you were trying to do and where planwright fell short. Concrete
+        workflows beat abstract proposals.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: >
+        What you would like to happen. If it touches the human controls
+        (sign-off, merge) or the hard invariants, say how it preserves them.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. Other shapes this could take, including overlays you tried.
