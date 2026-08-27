@@ -338,6 +338,34 @@ allocation_effort_execute_step: inherit
 allocation_model_offload: inherit
 allocation_effort_offload: inherit
 
+# Execution-time ADAPTATION: whether a unit's tier may move at a launch boundary
+# in response to what execution actually revealed (model-allocation D-2, D-8,
+# D-13; REQ-C1.1, REQ-C1.2, REQ-E1.1). `off` is the shipped posture and the
+# whole capability ships dark behind it: with it off, scripts/allocation-adapt.sh
+# resolves exactly what fleet dispatch resolves today, and a trigger event is
+# inert. Turn it `on` and the engine derives the unit's current tier from its own
+# allocation ledger and moves it one ladder step per triggering incident —
+# a step failure or retry, a flailing classification, review-sequence
+# non-convergence, or a worker petition. Infrastructure failures are never
+# triggers. Adaptation rows are recorded either way: they are additive telemetry,
+# exempt from the behavior-preservation claim.
+#
+# QUOTED deliberately: bare `off` is a YAML boolean, which `yamllint --strict`
+# flags and which would make the value's type depend on the reader. The shared
+# knob resolver strips the surrounding quotes, so the resolved value is the
+# string `off` the enum expects — do not unquote it.
+allocation_adaptation: "off"
+
+# How far a single unit's tier may travel from where it started, as a NET step
+# count bounded in EACH direction: at most this many steps of net climb above,
+# and this many below, the unit's starting tier (model-allocation D-8; REQ-C1.2,
+# REQ-C1.3). Reversals refund the budget, so a unit that escalates and later
+# de-escalates gets its headroom back. `0` freezes a unit at its starting tier
+# while leaving the ledger and its records intact — the audit without the
+# movement. A non-negative integer, validated against the pinned numeric grammar
+# before any arithmetic use; the ladder ends are hard stops regardless of the cap.
+allocation_adjustment_cap: 2
+
 # The bounded fallback hold, in seconds, when a native rate-limit signal is
 # detected but its reset time cannot be parsed (fleet-autonomy D-12,
 # REQ-E1.3; kickoff risk row 24). The rate-limit prompt is version-sensitive
