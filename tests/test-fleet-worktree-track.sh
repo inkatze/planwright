@@ -10,11 +10,16 @@
 # NOT gated by the kill-switch and does NOT spam the audit trail (kickoff risk
 # 31: the trail records daemon actions, not routine lifecycle noise).
 #
-# THE VERIFIED HOOK CONTRACT (code.claude.com/docs/en/hooks.md). `WorktreeCreate`
-# is a DECISION hook: a non-zero exit or missing stdout path FAILS worktree
-# creation. So `hook-create` is a strict pass-through — it echoes the stdin
-# `worktree_path` unchanged and ALWAYS exits 0, recording as an isolated
-# best-effort side effect. `WorktreeRemove` is fire-and-forget.
+# THE VERIFIED HOOK CONTRACT (operator-verified across CLI 2.1.226–2.1.234;
+# obs:2036d463 / obs:16facd5b). `WorktreeCreate` input is
+# `{hook_event_name, name}` — never `worktree_path` — and a registered hook
+# REPLACES native creation: the hook IS the creator and its stdout path is the
+# decision-control result (missing path or non-zero exit fails creation). So
+# `hook-create` reads `.name`, grammar-checks it, creates
+# `<repo>/.claude/worktrees/<name>` on a fresh `worktree-<flattened>` branch,
+# echoes the created path, and ALWAYS exits 0 — every refusal echoes nothing.
+# `WorktreeRemove` keeps its genuinely different `worktree_path` shape and is
+# fire-and-forget.
 #
 # What is covered:
 #   - record-create then record-remove update the live registry (push tracking),
@@ -22,15 +27,17 @@
 #   - record-create is idempotent (no duplicate rows);
 #   - the disk-scan fallback (`scan`) discovers a real linked worktree git knows
 #     about that no hook ever pushed;
-#   - `hook-create` echoes the stdin worktree_path and exits 0 (the decision-
-#     control contract), records the path, and still does so with jq absent
-#     (the sed fallback) — and even when the registry write cannot happen;
-#   - `hook-create` with a malformed (control-byte / non-absolute) or absent
-#     worktree_path echoes NOTHING and still exits 0, recording nothing (the
-#     decision-channel blast-radius guard);
+#   - `hook-create` CREATES the worktree from the stdin `name` (flat and nested),
+#     echoes its physical path, records it, exits 0 — and is idempotent on an
+#     already-created target; the sed fallback covers a jq-less host, and a
+#     failed registry write never fails creation;
+#   - `hook-create` refusals echo NOTHING, create nothing, and still exit 0:
+#     malformed names (control byte, traversal, dash-led or dot-only segment,
+#     over-length), an absent name, a non-git cwd, a branch collision, an
+#     existing non-worktree target, and the un-parseable escaped name on the
+#     sed fallback;
 #   - `hook-remove` records a removal from its stdin payload and exits 0;
-#   - hostile / non-absolute paths are refused by the direct CLI (exit non-zero)
-#     yet never break the create hook's pass-through.
+#   - hostile / non-absolute paths are refused by the direct CLI (exit non-zero).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-worktree-track.sh
@@ -147,21 +154,45 @@ case $warned in
 esac
 echo "ok: list enforces valid_path on read, skipping malformed registry entries with a warning"
 
-# 4. hook-create: the decision-control contract — echo the stdin worktree_path
-#    unchanged and exit 0, AND record it.
+# 4. hook-create: the creator contract — create <repo>/.claude/worktrees/<name>
+#    from the stdin name, echo the created physical path, exit 0, AND record it.
 rm -rf "$fleet_home"
-payload='{"worktree_path":"/work/hooked-wt","isolation":"worktree","session_id":"s1"}'
+main_real=$(cd "$main_repo" && pwd -P)
+payload='{"hook_event_name":"WorktreeCreate","name":"hooked-wt"}'
 rc=0
-out=$(printf '%s' "$payload" | wt hook-create) || rc=$?
+out=$(cd "$main_repo" && printf '%s' "$payload" | wt hook-create) || rc=$?
 [ "$rc" = 0 ] || fail "hook-create exit $rc, expected 0 (must never fail creation)"
-[ "$out" = "/work/hooked-wt" ] || fail "hook-create must echo the worktree_path (got: '$out')"
+[ "$out" = "$main_real/.claude/worktrees/hooked-wt" ] \
+  || fail "hook-create must echo the created path (got: '$out')"
+[ -d "$out" ] || fail "hook-create did not create the worktree directory"
+(cd "$main_repo" && git worktree list --porcelain | grep -Fxq "worktree $out") \
+  || fail "created directory is not a registered git worktree"
+(cd "$main_repo" && git show-ref --verify --quiet refs/heads/worktree-hooked-wt) \
+  || fail "hook-create did not create the worktree-hooked-wt branch"
 case $(wt list) in
-  *"/work/hooked-wt"*) ;;
+  *"$out"*) ;;
   *) fail "hook-create did not record the worktree" ;;
 esac
-echo "ok: hook-create echoes the path, exits 0, and records"
+echo "ok: hook-create creates the worktree, echoes its path, exits 0, and records"
 
-# 4b. hook-create with jq absent: the sed fallback still extracts the path.
+# 4a. hook-create idempotent reattach: the same payload again echoes the SAME
+#     path (no re-create, no failure), exit 0. Then a NESTED name creates the
+#     nested placement on a flattened branch.
+rc=0
+out2=$(cd "$main_repo" && printf '%s' "$payload" | wt hook-create) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (reattach) exit $rc, expected 0"
+[ "$out2" = "$out" ] || fail "hook-create reattach must echo the same path (got: '$out2')"
+nested='{"hook_event_name":"WorktreeCreate","name":"planwright/demo/task-1"}'
+rc=0
+out3=$(cd "$main_repo" && printf '%s' "$nested" | wt hook-create) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (nested name) exit $rc, expected 0"
+[ "$out3" = "$main_real/.claude/worktrees/planwright/demo/task-1" ] \
+  || fail "hook-create nested path wrong (got: '$out3')"
+(cd "$main_repo" && git show-ref --verify --quiet refs/heads/worktree-planwright-demo-task-1) \
+  || fail "nested name did not flatten into the worktree-planwright-demo-task-1 branch"
+echo "ok: hook-create reattaches idempotently and nests multi-segment names"
+
+# 4b. hook-create with jq absent: the sed fallback still extracts the name.
 #     Build a PATH mirroring the real one MINUS jq (robust against which exact
 #     coreutils the script reaches for), so only jq's absence is simulated.
 rm -rf "$fleet_home"
@@ -181,78 +212,77 @@ done
 IFS=$old_ifs
 [ ! -e "$nojq/jq" ] || fail "nojq PATH still exposes jq"
 rc=0
-out=$(printf '%s' "$payload" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
-  /bin/bash "$WT" hook-create) || rc=$?
+out=$(cd "$main_repo" && printf '%s' '{"hook_event_name":"WorktreeCreate","name":"nojq-wt"}' \
+  | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" hook-create) || rc=$?
 [ "$rc" = 0 ] || fail "hook-create (no jq) exit $rc, expected 0"
-[ "$out" = "/work/hooked-wt" ] || fail "hook-create (no jq) must echo path via sed fallback (got: '$out')"
-echo "ok: hook-create extracts the path via the sed fallback when jq is absent"
+[ "$out" = "$main_real/.claude/worktrees/nojq-wt" ] \
+  || fail "hook-create (no jq) must create via the sed fallback (got: '$out')"
+echo "ok: hook-create extracts the name via the sed fallback when jq is absent"
 
 # 4c. hook-create never fails creation even if the registry write cannot happen
-#     (fleet home points at an unwritable location): still echoes path, exit 0.
+#     (fleet home points at an unwritable location): still creates + echoes,
+#     exit 0.
 rc=0
 unwr="$tmp/unwritable"
 : >"$unwr" # a FILE where a dir is expected: the registry write cannot succeed
-out=$(printf '%s' "$payload" | PLANWRIGHT_FLEET_STATE_DIR="$unwr/fleet" \
-  /bin/bash "$WT" hook-create) || rc=$?
+out=$(cd "$main_repo" && printf '%s' '{"hook_event_name":"WorktreeCreate","name":"unrec-wt"}' \
+  | PLANWRIGHT_FLEET_STATE_DIR="$unwr/fleet" /bin/bash "$WT" hook-create) || rc=$?
 [ "$rc" = 0 ] || fail "hook-create must exit 0 even when recording fails (got $rc)"
-[ "$out" = "/work/hooked-wt" ] || fail "hook-create must still echo the path on a record failure"
+[ "$out" = "$main_real/.claude/worktrees/unrec-wt" ] \
+  || fail "hook-create must still create and echo on a record failure (got: '$out')"
 echo "ok: hook-create never fails worktree creation even when recording fails"
 
-# 4d. hook-create with a MALFORMED or EMPTY worktree_path: the decision-control
-#     safety mitigation the whole hook wiring rests on. A control-byte,
-#     non-absolute, or absent worktree_path must put NOTHING on stdout (no raw
-#     bytes and no forged path on the decision channel) and STILL exit 0 (never a
-#     non-zero exit, which would break creation fleet-wide), recording nothing.
+# 4d. hook-create refusals: every one must put NOTHING on stdout (no raw bytes
+#     and no forged path on the decision channel), CREATE nothing, and STILL
+#     exit 0 (never a non-zero exit, which would surface a scarier harness
+#     error), recording nothing.
 rm -rf "$fleet_home"
-# (a) a control byte in the path: jq rejects the payload, the sed fallback yields
-#     the raw path, the grammar check refuses it -> nothing echoed, exit 0.
-ctrl=$(printf '/work/bad\001path')
-rc=0
-out=$(printf '{"worktree_path":"%s","isolation":"worktree"}' "$ctrl" | wt hook-create 2>/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (control-byte path) exit $rc, expected 0"
-[ -z "$out" ] || fail "hook-create (control-byte path) must echo NOTHING on the decision channel (got: '$out')"
-# (b) a non-absolute path: refused by the grammar check -> nothing echoed, exit 0.
-rc=0
-out=$(printf '%s' '{"worktree_path":"relative/wt","isolation":"worktree"}' | wt hook-create 2>/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (non-absolute path) exit $rc, expected 0"
-[ -z "$out" ] || fail "hook-create (non-absolute path) must echo nothing (got: '$out')"
-# (c) no worktree_path at all: nothing echoed, exit 0.
-rc=0
-out=$(printf '%s' '{"isolation":"worktree","session_id":"s1"}' | wt hook-create 2>/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (missing worktree_path) exit $rc, expected 0"
-[ -z "$out" ] || fail "hook-create (missing worktree_path) must echo nothing (got: '$out')"
-# None of the three may have recorded anything.
-[ -z "$(wt list 2>/dev/null)" ] || fail "hook-create must not record a malformed/empty payload (list: '$(wt list 2>/dev/null)')"
-echo "ok: hook-create refuses a malformed/empty worktree_path — nothing on the decision channel, still exit 0"
+refuse() {
+  # refuse <label> <payload> [<cwd>]
+  r_label=$1 r_payload=$2 r_cwd=${3:-$main_repo}
+  rc=0
+  out=$(cd "$r_cwd" && printf '%s' "$r_payload" | wt hook-create 2>/dev/null) || rc=$?
+  [ "$rc" = 0 ] || fail "hook-create ($r_label) exit $rc, expected 0"
+  [ -z "$out" ] || fail "hook-create ($r_label) must echo NOTHING (got: '$out')"
+}
+ctrl=$(printf 'bad\001name')
+refuse "control-byte name" "$(printf '{"hook_event_name":"WorktreeCreate","name":"%s"}' "$ctrl")"
+refuse "traversal name" '{"hook_event_name":"WorktreeCreate","name":"a/../escape"}'
+refuse "dash-led segment" '{"hook_event_name":"WorktreeCreate","name":"a/-x"}'
+refuse "absolute name" '{"hook_event_name":"WorktreeCreate","name":"/etc/oops"}'
+refuse "over-length name" "$(printf '{"hook_event_name":"WorktreeCreate","name":"%s"}' \
+  "$(printf 'a%.0s' $(seq 1 70))")"
+refuse "absent name" '{"hook_event_name":"WorktreeCreate"}'
+refuse "non-git cwd" '{"hook_event_name":"WorktreeCreate","name":"stray-wt"}' "$tmp"
+# Branch collision: a pre-existing worktree-clash branch refuses the name clash.
+(cd "$main_repo" && git_env git branch worktree-clash >/dev/null 2>&1)
+refuse "branch collision" '{"hook_event_name":"WorktreeCreate","name":"clash"}'
+# Existing non-worktree directory at the target refuses.
+mkdir -p "$main_repo/.claude/worktrees/squatter"
+refuse "existing non-worktree target" '{"hook_event_name":"WorktreeCreate","name":"squatter"}'
+[ ! -e "$main_repo/.claude/worktrees/a" ] || fail "a refused name still created something"
+[ ! -e "$tmp/.claude" ] || fail "non-git cwd still created something"
+[ -z "$(wt list 2>/dev/null)" ] \
+  || fail "hook-create must not record a refused payload (list: '$(wt list 2>/dev/null)')"
+echo "ok: hook-create refuses malformed names, non-git cwds, and collisions — nothing echoed, still exit 0"
 
-# 4e. hook-create fails CLOSED on an un-parseable escaped path via the sed
+# 4e. hook-create fails CLOSED on an un-parseable escaped name via the sed
 #     fallback (jq absent). The `[^"]*` sed capture cannot JSON-unescape, so a
-#     worktree_path carrying a backslash-escape (an embedded `"` arrives as `\"`
-#     and truncates the capture; an embedded `\` arrives as `\\` and doubles)
-#     would yield a WRONG path that still passes valid_path and would be echoed
-#     on the decision channel. extract_worktree_path treats a backslash in the
-#     sed result as untrustworthy and returns nothing, so hook-create echoes
-#     NOTHING (creation refused rather than created under a mis-parsed name) and
-#     records nothing. jq (the primary path) unescapes correctly and is
-#     unaffected. Reuses the $nojq PATH built in 4b.
+#     name carrying a backslash-escape would yield a WRONG name; extract_name
+#     treats a backslash in the sed result as untrustworthy and returns
+#     nothing, so hook-create echoes NOTHING and creates nothing. jq (the
+#     primary path) unescapes correctly, and the decoded name then fails the
+#     grammar anyway. Reuses the $nojq PATH built in 4b.
 rm -rf "$fleet_home"
-# real path /work/a"b  -> JSON encodes the quote as \"  (sed would yield /work/a\)
-esc_q='{"worktree_path":"/work/a\"b","isolation":"worktree"}'
+esc_q='{"hook_event_name":"WorktreeCreate","name":"a\"b"}'
 rc=0
-out=$(printf '%s' "$esc_q" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
-  /bin/bash "$WT" hook-create 2>/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (no jq, escaped-quote path) exit $rc, expected 0"
-[ -z "$out" ] || fail "hook-create (no jq, escaped-quote path) must echo NOTHING (fail-closed), got: '$out'"
-# real path /work/a\b  -> JSON encodes the backslash as \\ (sed would yield /work/a\\b)
-esc_bs='{"worktree_path":"/work/a\\b","isolation":"worktree"}'
-rc=0
-out=$(printf '%s' "$esc_bs" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
-  /bin/bash "$WT" hook-create 2>/dev/null) || rc=$?
-[ "$rc" = 0 ] || fail "hook-create (no jq, backslash path) exit $rc, expected 0"
-[ -z "$out" ] || fail "hook-create (no jq, backslash path) must echo NOTHING (fail-closed), got: '$out'"
+out=$(cd "$main_repo" && printf '%s' "$esc_q" \
+  | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (no jq, escaped-quote name) exit $rc, expected 0"
+[ -z "$out" ] || fail "hook-create (no jq, escaped-quote name) must echo NOTHING (fail-closed), got: '$out'"
 [ -z "$(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" list 2>/dev/null)" ] \
   || fail "hook-create must not record an un-parseable escaped payload"
-echo "ok: hook-create fails closed on an un-parseable escaped worktree_path via the sed fallback"
+echo "ok: hook-create fails closed on an un-parseable escaped name via the sed fallback"
 
 # 5. hook-remove: records a removal from stdin and exits 0 (fire-and-forget).
 rm -rf "$fleet_home"

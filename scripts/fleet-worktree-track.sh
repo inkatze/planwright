@@ -12,18 +12,27 @@
 # self-healing floor is only as current as the last `scan` invocation until that
 # wiring lands (a tracked follow-up).
 #
-# THE VERIFIED `WorktreeCreate` CONTRACT (code.claude.com/docs/en/hooks.md).
-# `WorktreeCreate` is a DECISION hook: "any non-zero exit code causes worktree
-# creation to fail", and the command hook is expected to print the worktree path
-# on stdout ("hook failure or missing path fails creation"). So `hook-create` is
-# a STRICT PASS-THROUGH: it echoes the stdin `worktree_path` (after the same
-# grammar check every stored path gets — a control-byte path is refused rather
-# than echoed raw) and ALWAYS exits 0. The registry write is a synchronous
-# best-effort side effect with a SHORT bounded lock wait (LOCK_MAX_TRIES=100 ×
-# the 0.02s retry sleep => ~2s worst case), so a contended lock can never stall
-# creation beyond that bound and never fail it; a skipped write self-heals on the
-# next `scan`. `WorktreeRemove` is fire-and-forget (failures logged in debug
-# only).
+# THE VERIFIED `WorktreeCreate` CONTRACT (operator-verified across CLI
+# 2.1.226–2.1.234; corrects the earlier worktree_path back-fill, see
+# obs:2036d463 / obs:16facd5b). `WorktreeCreate` input on stdin is
+# `{hook_event_name, name}` — it never carries `worktree_path` (that shape is
+# WorktreeRemove-only) — and a REGISTERED hook REPLACES native creation: the
+# CLI's contract is that the hook IS the creator and "provides the absolute
+# path to the created worktree" as its stdout result ("hook failure or missing
+# path fails creation"; any non-zero exit also fails it). So `hook-create`
+# reads `.name`, grammar-checks it, CREATES `<repo>/.claude/worktrees/<name>`
+# on a fresh `worktree-<flattened-name>` branch (based on `origin/HEAD` where
+# resolvable, else the current `HEAD` — the native `fresh` baseRef shape), and
+# echoes the created path. Every refusal — a malformed or absent name, no git
+# repo at the cwd, a branch or directory collision, a failed `git worktree
+# add` — echoes NOTHING (creation fails closed, visibly, never under a forged
+# name) and STILL exits 0. The registry write is a synchronous best-effort
+# side effect with a SHORT bounded lock wait (LOCK_MAX_TRIES=100 × the 0.02s
+# retry sleep => ~2s worst case), so a contended lock can never stall
+# creation beyond that bound and never fail it; a skipped write self-heals on
+# the next `scan`. `WorktreeRemove` keeps its genuinely different
+# `worktree_path` input shape and is fire-and-forget (failures logged in
+# debug only).
 #
 # NOT A DAEMON ACTION. Tracking is bookkeeping, not a destructive daemon action:
 # it is NOT gated by the `fleet_daemon_pause` kill-switch (which pauses
@@ -236,6 +245,58 @@ extract_worktree_path() {
   printf '%s' "$ewp_sed"
 }
 
+# extract_name <json> — pull `.name` from a WorktreeCreate hook payload via jq
+# where present, else a bounded sed. A valid worktree name carries no backslash
+# (the grammar below), so a backslash in the sed capture is an escape the sed
+# path cannot decode — refuse it (emit nothing) rather than hand back a
+# mis-parsed name, mirroring extract_worktree_path's fail-closed posture.
+extract_name() {
+  en_in=$1
+  if command -v jq >/dev/null 2>&1; then
+    en_v=$(printf '%s' "$en_in" | jq -r '.name // empty' 2>/dev/null) || en_v=""
+    if [ -n "$en_v" ]; then
+      printf '%s' "$en_v"
+      return 0
+    fi
+  fi
+  en_sed=$(printf '%s' "$en_in" \
+    | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    | head -1)
+  case $en_sed in
+    *\\*) return 0 ;;
+  esac
+  printf '%s' "$en_sed"
+}
+
+# valid_name <name> — the worktree-name grammar (the EnterWorktree shape):
+# "/"-separated segments of letters, digits, dots, underscores, and dashes,
+# max 64 chars total. Additionally refused: an empty or dot-only segment (so
+# `..` traversal and hidden-relative segments cannot form), a leading dash on
+# any segment (option injection), and any control byte. The name is DATA —
+# checked by case-glob, never evaluated — and with `..` and absolute forms
+# refused, `<root>/.claude/worktrees/<name>` is contained by construction.
+valid_name() {
+  vn=$1
+  [ -n "$vn" ] || return 1
+  [ "${#vn}" -le 64 ] || return 1
+  [ "$vn" = "$(sanitize_printable "$vn")" ] || return 1
+  case $vn in
+    /* | */ | *//*) return 1 ;;
+  esac
+  old_ifs=$IFS
+  IFS=/
+  for vn_seg in $vn; do
+    case $vn_seg in
+      "" | -* | . | .. | *[!A-Za-z0-9._-]*)
+        IFS=$old_ifs
+        return 1
+        ;;
+    esac
+  done
+  IFS=$old_ifs
+  return 0
+}
+
 cmd=${1:-}
 case "$cmd" in
   record-create)
@@ -375,33 +436,86 @@ case "$cmd" in
     exit 0
     ;;
   hook-create)
-    # DECISION-CONTROL SAFE (the verified WorktreeCreate contract). The stdin
-    # worktree_path is the decision-control response the harness reads, so it is
-    # emitted FIRST — but only after passing the same grammar check every stored
-    # path gets: a payload path carrying a control byte is refused (nothing
-    # echoed, no raw bytes on the decision channel; a malformed path is a
-    # pathological input, safer left uncreated than created under a forged name).
-    # A well-formed path always passes. The record then runs synchronously with a
-    # SHORT bounded lock wait (LOCK_MAX_TRIES=100 × the 0.02s retry sleep => ~2s
-    # worst case), so a contended lock can never stall creation beyond that bound
-    # and never fail it; a skipped record self-heals on the next sweep's `scan`. The
-    # record's isolated subshell can neither change stdout nor the exit — this
-    # hook ALWAYS exits 0, so it never fails creation via a non-zero exit or a
-    # stalled record. A well-formed payload echoes its path and creation proceeds;
-    # the ONLY creation-failing path is the deliberate fail-closed one above — a
-    # malformed/absent payload echoes nothing, and the contract treats a missing
-    # stdout path as a refusal (safer than tracking a worktree under a forged name).
+    # THE CREATOR (the verified WorktreeCreate contract in the header): a
+    # registered WorktreeCreate hook replaces native creation, so this arm
+    # reads `.name`, creates `<repo>/.claude/worktrees/<name>` on a fresh
+    # `worktree-<flattened-name>` branch, and echoes the created path — the
+    # decision-control response the harness reads. Every refusal echoes
+    # NOTHING and exits 0 (a missing stdout path fails creation visibly; a
+    # non-zero exit would too, but with a scarier harness error). The registry
+    # record is a best-effort side effect that never changes stdout or the
+    # exit; a skipped record self-heals on the next sweep's `scan`.
     LOCK_MAX_TRIES=100
     hc_in=$(cat 2>/dev/null) || hc_in=""
-    hc_path=$(extract_worktree_path "$hc_in")
-    if [ -n "$hc_path" ] && valid_path "$hc_path"; then
-      printf '%s\n' "$hc_path"
-      (do_record add "$hc_path" >/dev/null 2>&1) || true
-    elif [ -n "$hc_path" ]; then
-      warn "WorktreeCreate worktree_path failed the path grammar (not absolute, a leading dash, a control byte, or over 4096 chars) — echoing nothing"
-    else
-      warn "WorktreeCreate payload carried no worktree_path — echoing nothing"
+    hc_name=$(extract_name "$hc_in")
+    if [ -z "$hc_name" ]; then
+      warn "WorktreeCreate payload carried no name — echoing nothing"
+      exit 0
     fi
+    if ! valid_name "$hc_name"; then
+      warn "WorktreeCreate name failed the grammar (segments of [A-Za-z0-9._-], no dot-only or dash-led segment, max 64 chars) — echoing nothing"
+      exit 0
+    fi
+    if ! command -v git >/dev/null 2>&1; then
+      warn "no git binary on PATH — cannot create a worktree; echoing nothing"
+      exit 0
+    fi
+    hc_root=$(git rev-parse --show-toplevel 2>/dev/null) || hc_root=""
+    if [ -z "$hc_root" ] || ! valid_path "$hc_root"; then
+      warn "WorktreeCreate outside a git repository (or an unusable repo root) — echoing nothing"
+      exit 0
+    fi
+    hc_target="$hc_root/.claude/worktrees/$hc_name"
+    # Idempotent reattach: a target already registered as a worktree of this
+    # repo is echoed as-is (and re-recorded), never re-created.
+    if git -C "$hc_root" worktree list --porcelain 2>/dev/null \
+      | grep -Fxq "worktree $hc_target"; then
+      printf '%s\n' "$hc_target"
+      (do_record add "$hc_target" >/dev/null 2>&1) || true
+      exit 0
+    fi
+    if [ -e "$hc_target" ]; then
+      warn "WorktreeCreate target already exists and is not a worktree of this repo — echoing nothing"
+      exit 0
+    fi
+    # Branch: worktree-<name> with "/" flattened to "-" (the native single-
+    # segment shape, extended). A pre-existing branch is a refusal, not a
+    # reuse: silently attaching to an unknown branch's history is the forged-
+    # name risk in a different coat.
+    hc_branch="worktree-$(printf '%s' "$hc_name" | tr '/' '-')"
+    if git -C "$hc_root" show-ref --verify --quiet "refs/heads/$hc_branch"; then
+      warn "WorktreeCreate branch $hc_branch already exists — echoing nothing (remove or rename the branch, or pick another worktree name)"
+      exit 0
+    fi
+    # Base: origin/HEAD where resolvable (the native `fresh` baseRef shape),
+    # else the current HEAD.
+    hc_base=$(git -C "$hc_root" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || hc_base=""
+    [ -n "$hc_base" ] || hc_base=HEAD
+    mkdir -p "$hc_root/.claude/worktrees" 2>/dev/null || {
+      warn "cannot create $hc_root/.claude/worktrees — echoing nothing"
+      exit 0
+    }
+    if ! git -C "$hc_root" worktree add -b "$hc_branch" "$hc_target" "$hc_base" >/dev/null 2>&1; then
+      warn "git worktree add failed for $hc_target (branch $hc_branch, base $hc_base) — echoing nothing"
+      rm -rf "$hc_target" 2>/dev/null || true
+      exit 0
+    fi
+    # Containment re-check on the CREATED path: worktree add follows symlinks,
+    # so verify the physical path still sits under the repo root before it is
+    # echoed on the decision channel; a breakout is undone, not tracked.
+    hc_real=$(cd "$hc_target" 2>/dev/null && pwd -P) || hc_real=""
+    hc_root_real=$(cd "$hc_root" 2>/dev/null && pwd -P) || hc_root_real=""
+    case $hc_real in
+      "$hc_root_real"/.claude/worktrees/*) ;;
+      *)
+        warn "created worktree resolved outside $hc_root_real/.claude/worktrees — removing it and echoing nothing"
+        git -C "$hc_root" worktree remove --force "$hc_target" >/dev/null 2>&1 \
+          || rm -rf "$hc_target" 2>/dev/null || true
+        exit 0
+        ;;
+    esac
+    printf '%s\n' "$hc_real"
+    (do_record add "$hc_real" >/dev/null 2>&1) || true
     exit 0
     ;;
   hook-remove)
