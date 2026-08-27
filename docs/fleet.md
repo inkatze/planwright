@@ -1,7 +1,10 @@
 # Fleet operation: the approachable path
 
 planwright can run a **fleet**: several specs advancing at once, each unit
-executed by its own isolated worker, supervised by a meta-tower. This guide is
+executed by its own isolated worker, supervised by a meta-tower. This is
+planwright as an **agentic software factory**: standardized inputs (signed
+specs), an automated assembly path, automated quality control, and a human
+review gate at the end of the line. This guide is
 the approachable path into that mode — one command, one surface to watch, no
 multiplexer knowledge required. The approachable path is the *default*
 presentation of fleet operation, not a simplified fallback: full execution
