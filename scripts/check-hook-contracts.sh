@@ -34,8 +34,9 @@
 # an event the contract table below does not model (its silence semantics are
 # exactly what must not be assumed), a registered event with no payload fixture,
 # a registered command that is absent or not executable, a decision hook that
-# dies against its own fixture rather than declining to decide, and a hook type
-# other than `command`.
+# dies against its own fixture rather than declining to decide, an implementer
+# whose output the harness would discard because it exited non-zero, and a hook
+# type other than `command`.
 #
 # THE CONTRACT TABLE below is this guard's own knowledge and the reason it can
 # be trusted: each row was read out of the CLI's payload construction and
@@ -302,10 +303,22 @@ while IFS="$(printf '\t')" read -r source event type command; do
       continue
     fi
     out=$(run_hook "${argv[@]}" <"$fixture")
+    hook_rc=$?
     first=$(printf '%s' "$out" | sed -n '1p')
     if [ -z "$first" ]; then
       finding "\`$event\` is declared implemented by \`$(basename "$script")\`, but run against its own payload fixture it emitted no ${noun:-required output} — on this event that is a refusal, and the operation fails." \
         "make the handler read the fixture's keys and emit the ${noun:-required output} on stdout; check the key set in $fixture."
+      continue
+    fi
+    # Emitting the output is necessary but not sufficient. The harness keeps
+    # only the hooks that SUCCEEDED before it looks for the output, so a handler
+    # that prints a perfect answer and then exits non-zero has its answer thrown
+    # away — and on this event a discarded answer is silence, which refuses. The
+    # decision branch below flags the mirror case; both are the same defect
+    # reached from different sides.
+    if [ "$hook_rc" -ne 0 ]; then
+      finding "\`$event\`'s implementer \`$(basename "$script")\` emitted a ${noun:-required output} but exited $hook_rc, so the harness discards it and the operation refuses anyway — the emitted value never reaches it." \
+        "exit 0 once the ${noun:-required output} is on stdout; report a genuine failure by emitting nothing, which refuses deliberately rather than by accident."
       continue
     fi
     case "$first" in

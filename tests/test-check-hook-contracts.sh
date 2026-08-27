@@ -232,6 +232,27 @@ out=$("$GUARD" --hooks "$TMP/creator/hooks.json" --fixtures "$FIXTURES" \
 rc=$?
 assert_exit "a declared implementer that emits a path passes" 0 "$rc"
 
+# -- an implementer that prints a perfectly good path and then exits non-zero.
+#    The CLI keeps only the hooks that SUCCEEDED before it looks for a path
+#    (`s.filter((a) => a.succeeded).map(...).find((a) => a.length > 0)` at the
+#    WorktreeCreate dispatch site), so a failed hook's path is discarded and
+#    creation refuses — the same outage shape, reached by a different route.
+#    Checking the output without the exit status would report clean over it.
+mkdir -p "$TMP/creator-fails"
+cat >"$TMP/creator-fails/creator-fails.sh" <<'SH'
+#!/bin/sh
+cat >/dev/null 2>&1
+printf '%s\n' '/tmp/worktrees/flc-task-2'
+exit 1
+SH
+chmod +x "$TMP/creator-fails/creator-fails.sh"
+write_hooks "$TMP/creator-fails/hooks.json" WorktreeCreate "$TMP/creator-fails/creator-fails.sh"
+out=$("$GUARD" --hooks "$TMP/creator-fails/hooks.json" --fixtures "$FIXTURES" \
+  --implementer WorktreeCreate 2>&1)
+rc=$?
+assert_exit "an implementer that emits a path but exits non-zero is flagged" 1 "$rc"
+assert_contains "the finding names the exit status that discarded the path" "exit" "$out"
+
 # -- a decision hook emitting JSON that names the WRONG event. Silent
 #    misrouting: the harness ignores the block and the author believes it fired.
 mkdir -p "$TMP/misnamed"
