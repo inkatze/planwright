@@ -580,6 +580,86 @@ fence held by an unknown-liveness peer, which surfaces through the strand
 path instead). The querying tower's own record is excluded, so asking about
 a fence you yourself hold returns `unknown-owner`.
 
+`fleet-presence.sh attribute` takes the same arguments and answers the fence
+sweep's different question — *who* holds this fence and are they alive:
+`owner <tower-id> <live|unknown|dead|ambiguous>`, or `unknown-owner`. It
+includes your own record (reported live, no death probe) so your in-flight
+units do not read as orphans, reports a dead owner rather than filtering it
+out, and never GCs. `ambiguous` is a recycled pid: a composite identity
+`p<pid>.t<start-hash>.c<checkout-hash>` pins the start time of the process
+that published it, so a live pid whose start hash no longer matches is a
+different process — unclassifiable, and surfaced rather than honored.
+
+## The per-unit fence: one tower per unit
+
+Presence is awareness. The thing that stops two towers dispatching one unit is
+a **ref on `origin`** (concurrent-orchestrator-coordination D-5, D-8, D-11):
+before a worker forks, a tower creates `refs/planwright-fence/<spec>/<unit-id>`
+with an expect-absent compare-and-swap.
+
+**`/orchestrate` does not call this yet.** The mechanism below is complete and
+verified, but wiring it into the tower's dispatch step needs more room than
+that skill's instruction budget has left, so it is queued as a follow-up. Until
+then the commands are yours to run, and concurrent towers still coordinate only
+through presence. `origin` is the one substrate every clone shares and git
+serializes ref updates on it, so exactly one tower wins a unit; it is also
+death-surviving, because the ref lives on the server rather than in the
+tower's process. The ref points at the current `origin/main` tip — an
+existing commit — so fencing adds no history to `main`.
+
+```sh
+scripts/fleet-fence.sh check --checkout <repo-root> --spec <spec> <unit-id>
+scripts/fleet-fence.sh fence --checkout <repo-root> --spec <spec> <unit-id>...
+scripts/fleet-fence.sh gc    --checkout <repo-root> --spec <spec> <unit-id>...
+scripts/fleet-fence.sh list  --checkout <repo-root> [--spec <spec>]
+scripts/fleet-fence.sh sweep --checkout <repo-root> --spec <spec> \
+  (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>]
+```
+
+`check` is the selection guard: exit 0 the unit is fenced (skip it), exit 1 it
+is free. `fence` takes the unit: exit 0 you hold it, **exit 3 a peer already
+does — back off and select another**, exit 4 a transient `origin` failure
+(dispatch nothing this pass, retry), exit 5 no `origin` at all, which is the
+genuine single-host solo posture where there is no peer to collide with and
+dispatch proceeds unfenced. Several unit ids fence a cohesion bundle in one
+`git push --atomic`, all-or-none: a peer holding **any** member — lead or not
+— backs the whole bundle off, and nothing is left fenced behind.
+
+**Read the per-ref status, never the exit code.** git resolves a same-value
+ref update to `[up to date]` *before* it evaluates the lease, and every racing
+tower pushes the same `origin/main` tip, so the losing tower's push exits 0.
+The winner is the ref whose `--porcelain` status is `*` (new reference); `=`
+means a peer got there first. The scripts already do this; it matters if you
+are reading the push transcript, or writing anything that fences by hand.
+
+A fence lives until its unit is **terminal** — the PR merged, or the ledger
+marks it done. An open, unmerged PR is *not* terminal, so the fence persists
+across the whole open-PR window. `gc` deletes a terminal unit's fence and is
+idempotent, so two towers cleaning up the same fence never collide.
+
+`sweep` is the backstop for a tower that exited before its unit finished. It
+classifies **terminal first, then liveness**: a terminal unit's fence is
+deleted whoever owns it; a live owner's fence is left alone; and everything
+else — a dead owner, an owner it cannot classify, a fence no presence record
+admits to — is **surfaced to the decision queue, never reclaimed**. Taking
+over a dead tower's half-finished unit is your call, so the sweep raises an
+item offering `reclaim` / `investigate` / `dismiss` and stops there. A fence
+nobody admits to is held quietly for one heartbeat interval first, because
+that is also what a tower looks like between fencing a unit and its next
+heartbeat; the wait is stamped in the queue entry itself, so it holds across
+towers and survives a tower that dies mid-wait. An already-raised strand is
+skipped while its queue entry is younger than `--min-interval`, measured from
+when it was first raised; after that it is re-examined each pass. Either way a
+queue of unresolved strands never turns into a storm of `origin` reads: however
+many strands are queued, the sweep reads the fence namespace and derives state
+once per pass. Deleting a terminal fence does cost a further `origin` read and
+a push per fence, but only for the fences that actually went terminal.
+
+If `gh` is installed but cannot answer, the sweep still deletes fences whose
+units are provably done from git alone (a merged branch or the completion
+trailer) and holds everything else, printing `hold`: it will not raise a
+strand against a unit whose merged PR it simply could not see.
+
 ## Scaling out: the meta-tower
 
 `/orchestrate --fleet` supervises **all** Ready/Active specs by launching a
