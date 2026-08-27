@@ -152,7 +152,11 @@ for hf in "${HOOKS_FILES[@]}"; do
 done
 
 # Somewhere disposable for any state a checked handler decides to write.
-SCRATCH=$(mktemp -d) || die "could not create a scratch directory for hook execution"
+# Explicit template (the house pattern, see scripts/inception-validate.sh): a
+# bare `mktemp -d` relies on a default template BSD mktemp does not supply, so
+# it fails outright on the macOS half of planwright's support bar.
+SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/check-hook-contracts.XXXXXX") \
+  || die "could not create a scratch directory for hook execution"
 trap 'rm -rf "$SCRATCH"' EXIT INT TERM
 
 findings=0

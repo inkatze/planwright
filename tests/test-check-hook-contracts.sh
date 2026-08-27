@@ -92,7 +92,9 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
-TMP=$(mktemp -d) || {
+# Explicit template (the house pattern, see scripts/inception-validate.sh): a
+# bare `mktemp -d` relies on a default template BSD mktemp does not supply.
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/test-check-hook-contracts.XXXXXX") || {
   echo "FAIL: mktemp -d" >&2
   exit 1
 }
