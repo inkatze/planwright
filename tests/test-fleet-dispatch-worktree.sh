@@ -30,9 +30,13 @@
 #       `--tmux`), composed through the ghost-text pin wrapper.
 #   c11 (REQ-C1.2): the tower deny floor denies the dangerous `git worktree`
 #       forms (default-branch / detach / `--force`).
-#   c12 (REQ-B1.4 exception scope): the dispatch primitive is the ONLY
-#       worktree-CREATION (`git worktree add`) path in the bundle's shipped
-#       scripts — the D-7 exception stays narrow.
+#   c12 (REQ-B1.4 exception scope): the dispatch primitive and the
+#       WorktreeCreate hook handler are the ONLY worktree-CREATION
+#       (`git worktree add`) paths in the bundle's shipped scripts — the D-7
+#       exception stays narrow. The hook handler's call site is sanctioned by
+#       the corrected WorktreeCreate contract (fleet-lifecycle-closure D-11):
+#       a registered decision-control hook REPLACES native creation, so
+#       `fleet-worktree-track.sh hook-create` must itself create.
 #   c13 (REQ-E1.3): no model/API call in the branch-naming decision path — it is
 #       deterministic string logic (same inputs -> same branch), and the create
 #       path invokes no model/API binary for naming.
@@ -478,24 +482,34 @@ c11() {
 }
 
 # ---------------------------------------------------------------------------
-# c12 — the dispatch primitive is the ONLY worktree-CREATION path in the bundle.
+# c12 — the dispatch primitive and the WorktreeCreate hook handler are the ONLY
+#       worktree-CREATION paths in the bundle.
 # ---------------------------------------------------------------------------
 c12() {
-  # Any shipped SHELL file that shells out to `git worktree add` (creation) other
-  # than the primitive violates the narrow D-7 exception. `remove`/`list`/`prune`
-  # (non-creation) are out of scope. Scan every .sh under the bundle (scripts/ +
-  # hooks/), so a creation shell-out hiding in a hook script is caught too; JSON
-  # deny rules and Markdown prose (config/, skills/) don't shell out and are not
-  # scanned (a "git worktree add" substring there is a deny glob or an example).
+  # Any shipped SHELL file that shells out to `git worktree add` (creation)
+  # outside the allowlist violates the narrow D-7 exception. Two call sites are
+  # sanctioned: the dispatch primitive (D-7's original exception), and
+  # `fleet-worktree-track.sh hook-create` — the corrected WorktreeCreate
+  # contract (fleet-lifecycle-closure D-11) makes a registered decision-control
+  # hook REPLACE native creation, so the hook must itself create.
+  # `remove`/`list`/`prune` (non-creation) are out of scope. Scan every .sh
+  # under the bundle (scripts/ + hooks/), so a creation shell-out hiding in a
+  # hook script is caught too; JSON deny rules and Markdown prose (config/,
+  # skills/) don't shell out and are not scanned (a "git worktree add"
+  # substring there is a deny glob or an example).
   bundle_root=$(cd "$here/.." && pwd)
   offenders=$(find "$bundle_root/scripts" "$bundle_root/hooks" -name '*.sh' \
     -exec grep -lE '^[^#]*git( -C [^ ]+)? worktree add' {} + 2>/dev/null \
-    | grep -v '/fleet-dispatch-worktree.sh$' || true)
+    | grep -v -e '/fleet-dispatch-worktree.sh$' -e '/fleet-worktree-track.sh$' \
+    || true)
   [ -z "$offenders" ] \
     || fail "c12: extra git-worktree-add creation path(s) in the bundle: $offenders"
-  # And the primitive DOES contain the sanctioned creation call.
+  # And both sanctioned call sites DO contain their creation call, so a stale
+  # allowlist entry (a creator that stopped creating) is re-narrowed.
   grep -Eq '^[^#]*git( -C [^ ]+)? worktree add -b' "$SCRIPTS_DIR/fleet-dispatch-worktree.sh" \
     || fail "c12: the primitive does not contain the sanctioned 'git worktree add -b' call"
+  grep -Eq '^[^#]*git( -C [^ ]+)? worktree add -b' "$SCRIPTS_DIR/fleet-worktree-track.sh" \
+    || fail "c12: the WorktreeCreate hook does not contain its sanctioned 'git worktree add -b' call"
 }
 
 # ---------------------------------------------------------------------------
