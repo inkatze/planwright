@@ -29,11 +29,13 @@
 # reconcile instead, neither of which can refuse anything.
 #
 # FAIL-CLOSED. The guard fails, never passes, when it cannot prove the posture:
-# an unreadable or unparseable `hooks.json`, a missing fixture directory, an
-# event the contract table below does not model (its silence semantics are
+# an unreadable or unparseable `hooks.json`, a missing fixture directory, a
+# checkout path carrying whitespace (registered commands become unsplittable),
+# an event the contract table below does not model (its silence semantics are
 # exactly what must not be assumed), a registered event with no payload fixture,
-# a registered command that is absent or not executable, and a hook type other
-# than `command`.
+# a registered command that is absent or not executable, a decision hook that
+# dies against its own fixture rather than declining to decide, and a hook type
+# other than `command`.
 #
 # THE CONTRACT TABLE below is this guard's own knowledge and the reason it can
 # be trusted: each row was read out of the CLI's payload construction and
@@ -131,6 +133,16 @@ done
 
 command -v jq >/dev/null 2>&1 || die "jq is not on PATH, so hook registrations cannot be parsed — refusing (fail closed)"
 [ -d "$FIXTURE_DIR" ] || die "no payload-fixture directory at $FIXTURE_DIR — refusing (fail closed)"
+# A registration carries the plugin root and the hook's arguments separated by
+# the same whitespace, so a root containing any is unsplittable: the split would
+# hand back a truncated script path and every registered hook would be reported
+# as a missing file — a refusal naming a path nobody registered, which is
+# exactly what REQ-K1.1 forbids. Say what cannot be established instead.
+case $REPO_ROOT in
+  *[[:space:]]*)
+    die "this checkout's path contains whitespace ($REPO_ROOT), so a registered command cannot be split back into its script and arguments — refusing (fail closed). Check out the repository at a path without whitespace to run this guard."
+    ;;
+esac
 for hf in "${HOOKS_FILES[@]}"; do
   [ -f "$hf" ] || die "no hooks registration file at $hf — refusing (fail closed)"
   jq -e . "$hf" >/dev/null 2>&1 || die "$hf is not parseable JSON — refusing (fail closed)"
@@ -310,7 +322,20 @@ while IFS="$(printf '\t')" read -r source event type command; do
   # --- the decision-output contract (REQ-H1.2) ---
   if [ "$control" = "decision" ]; then
     out=$(run_hook "${argv[@]}" <"$fixture")
-    [ -n "$out" ] || continue # silence proceeds here: a legitimate no-op.
+    hook_rc=$?
+    if [ -z "$out" ]; then
+      # Silence proceeds here, so a clean exit is a legitimate no-op. A hook
+      # that DIED is not that: it produced no decision because it could not
+      # run, and running the hooks for real is the only reason this guard is
+      # not a static scan. Treating the two alike would report clean over a
+      # handler that never works (REQ-K1.1). `timeout` reports 124, so a hook
+      # that hangs lands here too.
+      if [ "$hook_rc" -ne 0 ]; then
+        finding "\`$event\` is a decision event and \`$(basename "$script")\` exited $hook_rc against its own payload fixture without emitting anything, so whether it can produce a decision at all is unproven — a handler that dies looks exactly like one with nothing to say." \
+          "run \`$(basename "$script")\` against $fixture and fix what it reports on stderr, or exit 0 when there is no decision to make."
+      fi
+      continue
+    fi
     if ! printf '%s' "$out" | jq -e . >/dev/null 2>&1; then
       finding "\`$event\` is a decision event and \`$(basename "$script")\` emitted output that is not JSON, so the harness cannot read a decision from it and the hook's intent is silently dropped." \
         "emit a hookSpecificOutput JSON object, or emit nothing at all when there is no decision to make."

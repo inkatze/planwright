@@ -353,6 +353,60 @@ out=$("$GUARD" --hooks "$TMP/absent/hooks.json" --fixtures "$FIXTURES" 2>&1)
 rc=$?
 assert_exit "a registered command that does not exist is flagged" 1 "$rc"
 
+# -- a decision hook that exits non-zero without emitting anything. Running the
+#    hook for real is the whole reason this guard is not a static scan, so
+#    throwing away what the run reported would check nothing: a handler that
+#    dies on its own event's fixture is indistinguishable from one that
+#    legitimately had no decision to make (REQ-H1.2, REQ-K1.1).
+mkdir -p "$TMP/crasher"
+cat >"$TMP/crasher/crasher.sh" <<'SH'
+#!/bin/sh
+cat >/dev/null 2>&1
+echo "boom: unbound variable" >&2
+exit 1
+SH
+chmod +x "$TMP/crasher/crasher.sh"
+write_hooks "$TMP/crasher/hooks.json" PreToolUse "$TMP/crasher/crasher.sh"
+out=$("$GUARD" --hooks "$TMP/crasher/hooks.json" --fixtures "$FIXTURES" 2>&1)
+rc=$?
+assert_exit "a decision hook that dies on its own fixture is flagged" 1 "$rc"
+assert_contains "the finding names the exit status" "exit" "$out"
+
+# -- and a decision hook that exits non-zero *with* a well-formed decision is
+#    not flagged for the exit alone: on PreToolUse a non-zero exit is how a
+#    hook blocks, so the guard must not turn refusing into a defect.
+mkdir -p "$TMP/blocker"
+cat >"$TMP/blocker/blocker.sh" <<'SH'
+#!/bin/sh
+cat >/dev/null 2>&1
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}'
+exit 2
+SH
+chmod +x "$TMP/blocker/blocker.sh"
+write_hooks "$TMP/blocker/hooks.json" PreToolUse "$TMP/blocker/blocker.sh"
+out=$("$GUARD" --hooks "$TMP/blocker/hooks.json" --fixtures "$FIXTURES" 2>&1)
+rc=$?
+assert_exit "a decision hook that blocks with a well-formed decision passes" 0 "$rc"
+
+# -- REQ-K1.1 / REQ-K1.4: a plugin root containing whitespace cannot be split
+#    back out of a registered command, because the registrations carry the root
+#    and their arguments separated by the same whitespace. Splitting anyway
+#    reports every registered hook as a missing script — a refusal naming a path
+#    nobody registered. The guard has to say what it could not establish
+#    instead, the way check-doctrine-index.sh refuses a doctrine filename that
+#    would word-split.
+mkdir -p "$TMP/has space/scripts"
+cp "$GUARD" "$TMP/has space/scripts/"
+mkdir -p "$TMP/spacecheck"
+# shellcheck disable=SC2016 # the registration stores the variable unexpanded
+write_hooks "$TMP/spacecheck/hooks.json" PreToolUse '"${CLAUDE_PLUGIN_ROOT}"/scripts/whatever.sh'
+out=$("$TMP/has space/scripts/$(basename "$GUARD")" \
+  --hooks "$TMP/spacecheck/hooks.json" --fixtures "$FIXTURES" 2>&1)
+rc=$?
+assert_exit "a plugin root containing whitespace fails closed" 2 "$rc"
+assert_contains "the refusal names the whitespace as the reason" "whitespace" "$out"
+assert_not_contains "it does not report a path nobody registered" "does not exist" "$out"
+
 # ---------------------------------------------------------------------------
 # 3. REQ-H1.3 / REQ-K1.1 — refusals are legible.
 # ---------------------------------------------------------------------------
