@@ -357,8 +357,8 @@ the unit to `tasks.md` Awaiting input and halt. With the pre-flight clean,
 classify the edit on the amendment axis:
 
 - **Expression-only** (a typo, ambiguity, or gap-fill consistent with the
-  accepted decisions): fix it in place with a dated `## Changelog` entry riding
-  this task's PR, and write a **marked self-re-anchor entry** to the brief's
+  accepted decisions): fix it in place in **one commit** with a dated
+  `## Changelog` entry, and a **marked self-re-anchor entry** to the brief's
   amendment log — `Class: expression-only`, citing the changelog line, anchor by
   `scripts/spec-anchor.sh specs/<spec>` written last. This is the one anchor
   entry an execution skill may write.
