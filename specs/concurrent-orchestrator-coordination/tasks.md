@@ -175,8 +175,7 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   peer backs off the entire bundle (no unfenced non-lead member, and no member left fenced by the abandoned
   bundle: every member must report `*` `[new reference]`, and members this push created are deleted when it
   does not fully win, since a member reported `=` `[up to date]` is not a rejection for `--atomic` to roll
-  back). A
-  selection guard skips any unit whose fence ref exists. **`origin`-reachability classification (REQ-C1.6,
+  back). A selection guard skips any unit whose fence ref exists. **`origin`-reachability classification (REQ-C1.6,
   D-10):** no-`origin` is the genuine no-remote single-host solo posture (dispatch without a fence); a
   transient push failure fails closed (do not dispatch this unit, surface, retry); a rejected CAS backs off
   the unit; the tower never `--force`s a fence it did not create. **Strand handling (REQ-C1.3, D-7) —
@@ -204,6 +203,9 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   where a meta-tower is present (distinguished by the presence record's own validated meta marker, REQ-A1.2),
   and only creates / reads / deletes fence refs and reads the presence surface — never mutating a peer's or
   worker's branch state.
+  *(Amended at Task 4 execution 2026-08-26: the win/lose verdict named as the per-ref `--porcelain` status
+  rather than the exit code, and the compensating delete added for a bundle member `--atomic` does not roll
+  back; the all-or-none outcome is unchanged.)*
 - **Done when:** the **authoritative per-unit fence (REQ-C1.1, D-5, D-8, D-11)** is asserted against a
   **local bare-repo `origin` fixture** — two towers racing to fence one unit both attempt the expect-absent
   all-zeros CAS, exactly one succeeds and the loser backs off, yielding a **single dispatch including across

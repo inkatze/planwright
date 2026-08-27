@@ -942,5 +942,12 @@ D-ID is added.
 `requirements.md` ("Expression-only amendment (Task 4 execution)").
 
 Class: expression-only
-Anchor: `6db815881f0064660f3c2ec8090ad849c06b52b0` — computed as
+Anchor: `2f77413d0289229d4bd9853e98cac531181cecdb` — computed as
 `scripts/spec-anchor.sh specs/concurrent-orchestrator-coordination`
+
+*(Anchor re-pinned at the Task 4 review pass 2026-08-27: `tasks.md` Task 4 was
+the one surface this amendment edited without leaving the trailing annotation
+the amendment ritual requires, which this entry's own paragraph above already
+claimed it carried. Adding it moved anchored content, so the pin above is the
+recomputed value. Same expression-only amendment, same class; no REQ, D-ID, or
+decision changes.)*
