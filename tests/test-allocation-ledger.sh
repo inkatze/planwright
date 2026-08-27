@@ -453,6 +453,27 @@ corrupt_cell 11 -
 corrupt_cell 12 -
 "$LEDGER" health "$h4" || fail "9k: a tier-less '-' cell was reported unhealthy"
 
+# An unhealthy ledger still takes appends — the engine records its DEGRADED
+# launch onto exactly the file it just called untrustworthy — so the sequence
+# that append derives must not deepen the corruption it is writing into.
+# Deriving from the LAST well-formed row rather than the HIGHEST one hands back
+# a number the file already carries.
+h5=health5:unit
+h5_file=$("$LEDGER" path "$h5")
+mkdir -p "$(dirname "$h5_file")"
+now=$(date +%s)
+for s in 1 3 2; do
+  printf '%s\t%s\t%s\ts\t1\tlaunch\tsonnet\tmedium\tsonnet\tmedium\tsonnet\tmedium\tunit\tresolved\tx=1\n' \
+    "$s" "$now" "$h5" >>"$h5_file"
+done
+led append "$h5" s 1 launch sonnet medium sonnet medium sonnet medium unit degraded 'x=1' \
+  || fail "9l: a degraded-mode append onto an unhealthy ledger failed"
+h5_new=$(awk -F "$TAB" 'END { print $1 }' "$h5_file")
+[ "$h5_new" = 4 ] \
+  || fail "9l: the append took sequence $h5_new, want 4 — it must clear the HIGHEST row, not the last"
+h5_dupes=$(awk -F "$TAB" 'NF == 15 { c[$1]++ } END { for (k in c) if (c[k] > 1) n++; print n + 0 }' "$h5_file")
+[ "$h5_dupes" = 0 ] || fail "9l: the append reused a sequence number the ledger already carried"
+
 # --- 10. instrumentation and scale (REQ-F1.3) -----------------------------
 
 stats=$("$LEDGER" stats) || fail "10a: stats failed"

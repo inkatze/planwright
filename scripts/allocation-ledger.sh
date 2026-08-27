@@ -53,9 +53,10 @@
 # this script and allocation-adapt.sh share one implementation of them.
 #
 # THE PER-UNIT LOCK (D-6). `append` derives the next sequence number and writes
-# the row under ONE hold of the unit's own advisory lock (an atomic mkdir with a
-# stale break, the same discipline as fleet-state.sh's cross-spec lock, at
-# per-unit scope). A caller that needs derive-then-append to be one critical
+# the row under ONE hold of the unit's own advisory lock (an atomic symlink
+# create carrying an owner token, with a stale break, at per-unit scope; see the
+# lock section below for why this is NOT the mkdir shape fleet-state.sh's
+# cross-spec lock uses). A caller that needs derive-then-append to be one critical
 # section — the engine, deciding a tier from the same rows it is about to extend
 # — takes the lock itself and sets PLANWRIGHT_ALLOC_LOCK_HELD to the unit, which
 # suppresses the nested acquire this non-reentrant primitive would deadlock on.
@@ -590,7 +591,14 @@ case "$cmd" in
     # appends can neither collide on a number nor lose a row.
     a_seq=1
     if [ -r "$a_file" ]; then
-      a_last=$(awk -F '\t' 'NF == 15 && $1 ~ /^[1-9][0-9]*$/ { s = $1 + 0 } END { print s + 0 }' "$a_file")
+      # The HIGHEST well-formed sequence, not the last one written. On a healthy
+      # ledger the two are the same number, because health requires the column to
+      # increase strictly. They diverge only on a ledger that is already corrupt
+      # — and that file still takes appends, since the engine records its
+      # degraded launch onto it. Taking the last row there hands back a sequence
+      # the file already carries, so the one write that was supposed to note the
+      # corruption would deepen it instead.
+      a_last=$(awk -F '\t' 'NF == 15 && $1 ~ /^[1-9][0-9]*$/ && $1 + 0 > s { s = $1 + 0 } END { print s + 0 }' "$a_file")
       a_seq=$((a_last + 1))
     fi
     a_ts=$(date +%s 2>/dev/null) || a_ts=0
