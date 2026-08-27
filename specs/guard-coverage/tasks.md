@@ -268,12 +268,15 @@ preference, roots are all dispatchable immediately.
   widened to compare `docs/fleet.md`'s knobs-table defaults against
   `config/defaults.yml` with a symmetric zero-row guard on the
   fleet-table side; fixture tests for each (including a per-knob
-  divergence proving all six fleet knobs are individually tethered);
-  all wired into the `check` aggregate.
+  divergence proving every knob the table names is individually
+  tethered); all wired into the `check` aggregate.
+  *(Amended at Task 9 execution 2026-08-26: knob count replaced by the
+  table's own extent — the knobs table names ten knobs across eight
+  rows, never six.)*
 - **Done when:** Each tether fails on a fixture divergence (unindexed
   doctrine doc, a stale README row for a removed doc, mismatched
-  capability row in the doc/`caps_for()`/fleet-table triangle, each of
-  the six drifted knob defaults) and passes on the current tree; a zero-row parse on any side fails closed
+  capability row in the doc/`caps_for()`/fleet-table triangle, each
+  drifted knob default in the table) and passes on the current tree; a zero-row parse on any side fails closed
   rather than passing; removing a `doctrine/README.md` row or editing a
   `caps_for()` value locally makes `mise run check` fail.
 - **Dependencies:** none

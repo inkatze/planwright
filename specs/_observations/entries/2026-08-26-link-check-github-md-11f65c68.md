@@ -1,0 +1,1 @@
+- 2026-08-26 [planwright] check-doc-links scans README/doctrine/docs/skills but not .github/*.md; the new .github/SECURITY.md relative link to doctrine/security-posture.md is correct today but has no guard against future breakage
