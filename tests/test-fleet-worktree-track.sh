@@ -27,11 +27,12 @@
 #   - `hook-remove` records a removal from its stdin payload and exits 0, and
 #     still does so with jq absent (the sed fallback) — and even when the
 #     registry write cannot happen;
-#   - `hook-remove` on an unreadable payload surfaces the reason as
-#     `systemMessage` (the channel this event shows the operator) rather than on
-#     stderr the harness discards — including when jq, which builds that JSON, is
-#     absent or broken — and fails closed on an un-parseable escaped path rather
-#     than dropping a mis-parsed one;
+#   - `hook-remove` surfaces every reason it recorded nothing — an unreadable
+#     payload, and a present-but-malformed `worktree_path`, each with its own
+#     message — as `systemMessage` (the channel this event shows the operator)
+#     rather than on stderr the harness discards, including when jq, which builds
+#     that JSON, is absent or broken; and it fails closed on an un-parseable
+#     escaped path rather than dropping a mis-parsed one;
 #   - `hook-create` is retired and refused by the CLI;
 #   - hostile / non-absolute paths are refused by the direct CLI (exit non-zero).
 #
@@ -292,6 +293,44 @@ out_broken=$(printf '%s' '{"hook_event_name":"WorktreeRemove","session_id":"s1"}
 [ "$out_broken" = "$out_jq" ] \
   || fail "hook-remove must fall back to the constant message when jq is present but broken (got: '$out_broken')"
 echo "ok: hook-remove still surfaces the reason when jq is on PATH but broken"
+
+# 4h. A payload whose worktree_path is PRESENT but fails the path grammar is a
+#     tracking gap too, and it must be as visible as an absent one. do_record
+#     refuses such a path and warns — but the handler runs it in a subshell with
+#     stderr closed, on an event whose stderr the harness discards anyway, so
+#     before this branch existed the operator got nothing on any channel: no
+#     record, no message, exit 0. The message is deliberately DISTINCT from the
+#     absent-path one (the payload was malformed, not missing) and deliberately
+#     does NOT echo the offending path: the jq-less fallback is a constant and
+#     cannot interpolate one. Registry untouched, exit still 0, and the jq and
+#     no-jq forms stay byte-identical. Reuses the $nojq PATH from 4b.
+for bad_path in 'relative/not/absolute' '-leadingdash/path'; do
+  rm -rf "$fleet_home"
+  wt record-create /work/keepme2 >/dev/null
+  bad_payload=$(printf '{"worktree_path":"%s","hook_event_name":"WorktreeRemove"}' "$bad_path")
+  rc=0
+  out_bad=$(printf '%s' "$bad_payload" | wt hook-remove 2>/dev/null) || rc=$?
+  [ "$rc" = 0 ] || fail "hook-remove (malformed path '$bad_path') exit $rc, expected 0"
+  [ -n "$out_bad" ] \
+    || fail "hook-remove emitted nothing for a malformed worktree_path '$bad_path'; the gap is silent on every channel (REQ-H1.3)"
+  printf '%s' "$out_bad" | jq -e '.systemMessage | test("grammar") and test("scan")' >/dev/null 2>&1 \
+    || fail "hook-remove (malformed path '$bad_path') must name the grammar and the remedy (got: '$out_bad')"
+  printf '%s' "$out_bad" | jq -e '.systemMessage | test("no readable worktree_path") | not' >/dev/null 2>&1 \
+    || fail "a malformed worktree_path must not be reported as an absent one (got: '$out_bad')"
+  case $(wt list 2>/dev/null) in
+    *"/work/keepme2"*) ;;
+    *) fail "hook-remove acted on a malformed worktree_path '$bad_path'" ;;
+  esac
+  rc=0
+  out_bad_nojq=$(printf '%s' "$bad_payload" \
+    | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" hook-remove 2>/dev/null) || rc=$?
+  [ "$rc" = 0 ] || fail "hook-remove (malformed path '$bad_path', no jq) exit $rc, expected 0"
+  [ "$out_bad_nojq" = "$out_bad" ] \
+    || fail "malformed-path message drifted between the jq and no-jq forms:
+  jq:    '$out_bad'
+  no-jq: '$out_bad_nojq'"
+done
+echo "ok: hook-remove surfaces a present-but-malformed worktree_path as its own systemMessage"
 
 # 5. `hook-create` is retired, and the CLI says so rather than silently
 #    accepting it. planwright registers no `WorktreeCreate` hook: the event

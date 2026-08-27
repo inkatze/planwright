@@ -116,11 +116,22 @@ hook_system_message() {
   printf '%s\n' "$hsm_out"
 }
 
-# The one message hook-remove emits, in the two forms hook_system_message needs:
-# the raw text jq interpolates, and the pre-escaped constant for the jq-absent /
-# jq-broken path. Keep them in sync — the tests compare the emitted bytes.
+# The two messages hook-remove emits, each in the two forms hook_system_message
+# needs: the raw text jq interpolates, and the pre-escaped constant for the
+# jq-absent / jq-broken path. Keep each pair in sync — the tests compare the
+# emitted bytes.
+#
+# They are two messages, not one reused, because the operator's next move
+# differs. An ABSENT worktree_path is a payload shape we could not read at all;
+# a MALFORMED one means the harness handed us a path that failed the grammar
+# every stored path must pass, which is a hostile-input signal worth naming as
+# such. Neither message echoes the offending path: the jq-less form is a
+# constant and cannot interpolate one, and hand-escaping an interpolation is
+# exactly what hook_system_message's contract rules out.
 UNREADABLE_PAYLOAD_MSG="planwright: a WorktreeRemove payload carried no readable worktree_path, so the worktree registry still lists a tree that is gone. Nothing was blocked; the stale entry clears on the next 'fleet-worktree-track.sh scan'."
 UNREADABLE_PAYLOAD_JSON='{"systemMessage":"planwright: a WorktreeRemove payload carried no readable worktree_path, so the worktree registry still lists a tree that is gone. Nothing was blocked; the stale entry clears on the next '"'"'fleet-worktree-track.sh scan'"'"'."}'
+MALFORMED_PATH_MSG="planwright: a WorktreeRemove payload carried a worktree_path that failed the path grammar (absolute, no control bytes, at most 4096 characters), so nothing was recorded and the worktree registry still lists a tree that is gone. The path is withheld deliberately. Nothing was blocked; the stale entry clears on the next 'fleet-worktree-track.sh scan'."
+MALFORMED_PATH_JSON='{"systemMessage":"planwright: a WorktreeRemove payload carried a worktree_path that failed the path grammar (absolute, no control bytes, at most 4096 characters), so nothing was recorded and the worktree registry still lists a tree that is gone. The path is withheld deliberately. Nothing was blocked; the stale entry clears on the next '"'"'fleet-worktree-track.sh scan'"'"'."}'
 
 valid_path() {
   vp=$1
@@ -438,11 +449,23 @@ case "$cmd" in
     # a discarded channel is what made the create-side outage take a binary
     # inspection to diagnose. The registry self-heals on the next `scan`; the
     # message says so, so the operator knows this is drift, not data loss.
+    #
+    # BOTH ways of not recording get a message, because both are the same gap
+    # from the operator's chair. `valid_path` is re-checked here rather than
+    # left to `do_record` because do_record's own refusal warns on stderr from
+    # inside a subshell with stderr closed — doubly invisible on an event whose
+    # stderr the harness discards — so the branch that knows WHY nothing was
+    # recorded is the one that has to say it. A do_record failure for any other
+    # reason (unresolvable home, contended lock) stays silent by design: those
+    # are transient and the header's self-healing `scan` is the answer, whereas
+    # a malformed path will never record no matter how often it is retried.
     LOCK_MAX_TRIES=100
     hr_in=$(cat 2>/dev/null) || hr_in=""
     hr_path=$(extract_worktree_path "$hr_in")
-    if [ -n "$hr_path" ]; then
+    if [ -n "$hr_path" ] && valid_path "$hr_path"; then
       (do_record remove "$hr_path" >/dev/null 2>&1) || true
+    elif [ -n "$hr_path" ]; then
+      hook_system_message "$MALFORMED_PATH_MSG" "$MALFORMED_PATH_JSON"
     else
       hook_system_message "$UNREADABLE_PAYLOAD_MSG" "$UNREADABLE_PAYLOAD_JSON"
     fi
