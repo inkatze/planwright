@@ -526,16 +526,34 @@ parse_args() {
     echo "allocation-adapt: unit identity is longer than 128 characters" >&2
     exit 2
   }
+  # Each grammar below is the LEDGER's, mirrored: `valid_step` for the step
+  # (`valid_key` widened by the `-` sentinel, length bound included) and
+  # `valid_count` for the attempt. Mirroring it exactly is the point — a check
+  # that is looser passes input the append will refuse, and one that is tighter
+  # refuses a launch the store would have recorded.
   case $STEP in
     -) ;;
     "" | *[!A-Za-z0-9._=@:-]*)
       echo "allocation-adapt: refusing malformed step '$(sanitize_printable "$STEP" "(unprintable step)")'" >&2
       exit 2
       ;;
+    *)
+      [ "${#STEP}" -le 128 ] || {
+        echo "allocation-adapt: step identity is longer than 128 characters" >&2
+        exit 2
+      }
+      ;;
   esac
+  # `0` is a legal count, a leading zero is not: the ledger writes the attempt
+  # verbatim, and `01` and `1` would key the same incident under two spellings.
   case $ATTEMPT in
     "" | *[!0-9]*)
       echo "allocation-adapt: refusing non-numeric attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")'" >&2
+      exit 2
+      ;;
+    0 | [1-9]*) ;;
+    *)
+      echo "allocation-adapt: refusing attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")' — a leading zero is not a count" >&2
       exit 2
       ;;
   esac

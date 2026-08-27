@@ -327,6 +327,47 @@ lock_file="$("$LEDGER" home)/.lock.lockowner:unit"
 tok3=$("$LEDGER" lock lockowner:unit) || fail "8g: the lock could not be re-acquired after release"
 "$LEDGER" unlock lockowner:unit "$tok3"
 
+# A failure that is NOT contention must fail closed at once. The ~100s spin
+# budget buys patience for a deep same-unit queue; spending it on a condition
+# no amount of waiting can clear is a stall, and the caller reads the eventual
+# refusal as contention that was never there.
+lock_home=$("$LEDGER" home)
+mkdir -p "$lock_home"
+
+# The stale break only ever claims a SYMLINK, so a plain file squatting the
+# lock path is unclearable by definition.
+squat="$lock_home/.lock.squat:unit"
+: >"$squat"
+l_start=$(date +%s)
+if "$LEDGER" lock squat:unit >/dev/null 2>&1; then
+  fail "8h: a non-symlink squatting the lock path was accepted as a held lock"
+fi
+l_elapsed=$(($(date +%s) - l_start))
+[ "$l_elapsed" -le 10 ] \
+  || fail "8h: a squatted lock path spun ${l_elapsed}s before refusing; it must fail closed at once"
+rm -f "$squat"
+
+# A store that exists but cannot be written: every `ln -s` fails, and a check
+# that only looks for a MISSING parent directory never fires, because the
+# directory is right there.
+chmod 555 "$lock_home"
+if (: >"$lock_home/.probe") 2>/dev/null; then
+  # A user who writes through mode 555 (root, or a permissive filesystem)
+  # cannot exercise this case; skipping beats asserting something untrue.
+  rm -f "$lock_home/.probe"
+  chmod 755 "$lock_home"
+  echo "ok: unwritable-store lock case skipped (this user writes through mode 555)"
+else
+  l_start=$(date +%s)
+  l_held=0
+  "$LEDGER" lock unwritable:unit >/dev/null 2>&1 && l_held=1
+  l_elapsed=$(($(date +%s) - l_start))
+  chmod 755 "$lock_home"
+  [ "$l_held" = 0 ] || fail "8i: a lock was reported held on an unwritable store"
+  [ "$l_elapsed" -le 10 ] \
+    || fail "8i: an unwritable store spun ${l_elapsed}s before refusing; it must fail closed at once"
+fi
+
 # --- 9. health and degraded mode (REQ-F1.1) -------------------------------
 
 h_unit=health:unit
@@ -369,6 +410,48 @@ if [ "$(id -u)" != 0 ]; then
   fi
 fi
 chmod 644 "$h3_file"
+
+# An out-of-enum cell is corruption too, and replay is why it has to be: a row
+# whose event class falls outside the closed set is SKIPPED by `alloc_replay`,
+# so a single corrupted cell quietly changes the derived tier while `health`
+# still calls the file trustworthy. The enums `append` refuses on the way in
+# are the enums `health` has to refuse on the way back out.
+h4=health4:unit
+led append "$h4" step-1 1 step-failure \
+  sonnet medium sonnet medium sonnet medium unit applied 'x=1' || fail "9g: seed append failed"
+h4_file=$("$LEDGER" path "$h4")
+
+corrupt_cell() {
+  awk -F "$TAB" -v col="$1" -v val="$2" 'BEGIN { OFS = FS } { $col = val; print }' \
+    "$h4_file" >"$h4_file.tmp" && mv "$h4_file.tmp" "$h4_file"
+}
+
+corrupt_cell 6 not-an-event
+if "$LEDGER" health "$h4" >/dev/null 2>&1; then
+  fail "9g: an out-of-enum event class was reported healthy"
+fi
+corrupt_cell 6 step-failure
+
+corrupt_cell 11 gpt-4
+if "$LEDGER" health "$h4" >/dev/null 2>&1; then
+  fail "9h: an out-of-enum model cell was reported healthy"
+fi
+corrupt_cell 11 sonnet
+
+corrupt_cell 12 turbo
+if "$LEDGER" health "$h4" >/dev/null 2>&1; then
+  fail "9i: an out-of-enum effort cell was reported healthy"
+fi
+corrupt_cell 12 medium
+
+# The two widenings the schema DOES allow stay healthy, so the check does not
+# condemn a legitimately inherited or tier-less row.
+corrupt_cell 11 inherit
+corrupt_cell 12 inherit
+"$LEDGER" health "$h4" || fail "9j: an inherit tier cell was reported unhealthy"
+corrupt_cell 11 -
+corrupt_cell 12 -
+"$LEDGER" health "$h4" || fail "9k: a tier-less '-' cell was reported unhealthy"
 
 # --- 10. instrumentation and scale (REQ-F1.3) -----------------------------
 

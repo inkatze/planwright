@@ -231,6 +231,31 @@ fi
 [ "$(rows_with infra:unit applied)" = 0 ] || fail "4c: a refused event still moved the tier"
 echo "ok: the trigger grammar is a closed allowlist; infra failures never escalate"
 
+# --- 4b. the identity grammars are the LEDGER's, checked at the boundary ---
+
+# The engine refuses a malformed step or attempt where the argument enters,
+# because past that point the ledger's own refusal arrives as a FAILED APPEND,
+# which the engine can only report as a degraded ledger. A plain usage error
+# then reads as a corrupt store, and the launch proceeds instead of stopping.
+
+reset_state
+adaptation_on
+long_step=$(awk 'BEGIN { s = ""; while (length(s) < 200) s = s "a"; print s }')
+if run resolve ident:unit --key drain --step "$long_step" --attempt 1 >/dev/null 2>&1; then
+  fail "4b-a: a step past the ledger's 128-character bound was accepted"
+fi
+if run resolve ident:unit --key drain --step s1 --attempt 01 >/dev/null 2>&1; then
+  fail "4b-b: an attempt with a leading zero was accepted"
+fi
+# The boundary must not tighten PAST the store either: `0` is a legal count in
+# the ledger's grammar, so refusing it here would reject a launch the ledger
+# would have recorded happily.
+out=$(run resolve ident:unit --key drain --step s1 --attempt 0) \
+  || fail "4b-c: attempt 0 was refused, but the ledger's count grammar accepts it"
+[ "$(printf '%s\n' "$out" | field degraded)" = no ] \
+  || fail "4b-d: a well-formed launch reported a degraded ledger"
+echo "ok: step and attempt are refused at the boundary, never as a degraded ledger"
+
 # --- 5. crash replay: the same event does not double-count (REQ-C1.2) ------
 
 reset_state

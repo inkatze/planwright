@@ -310,11 +310,34 @@ lock_acquire() {
       LOCK_TOKEN=$la_token
       return 0
     fi
-    # `-e` follows the link and is false for a dangling one, so test `-L` too:
-    # the lock is the LINK, whatever it points at.
-    if [ ! -L "$la_lock" ] && [ ! -e "$la_lock" ] && [ ! -d "$(dirname "$la_lock")" ]; then
-      echo "allocation-ledger: cannot create $la_lock (store unwritable)" >&2
-      return 2
+    # `ln -s` failed. Only ONE of the reasons it can fail is contention, and the
+    # spin budget is patience for that one alone; spent on any other it is a
+    # stall that ends in a refusal naming contention that was never there. So
+    # separate them here, by what is actually at the lock path.
+    #
+    # `-L` and not `-e` is what asks the question, because `-e` follows the link
+    # and is false for a dangling one: the lock is the LINK, whatever it points
+    # at. A link, live or dangling, is a holder, and waiting it out is exactly
+    # what the budget is for.
+    if [ ! -L "$la_lock" ]; then
+      if [ -e "$la_lock" ]; then
+        # Something that is not a lock squats the path. The stale break claims
+        # a SYMLINK and nothing else, so no amount of waiting clears this.
+        echo "allocation-ledger: $la_lock exists and is not a lock symlink — refusing to wait on it" >&2
+        return 2
+      fi
+      # Nothing is there, so nothing was holding it: the create failed on the
+      # STORE, not on a peer. One retry separates the two remaining cases — a
+      # holder that released in the gap since the attempt (benign, and the
+      # retry takes the lock), and a store that cannot be written at all.
+      if ln -s "$la_token" "$la_lock" 2>/dev/null; then
+        LOCK_TOKEN=$la_token
+        return 0
+      fi
+      if [ ! -L "$la_lock" ]; then
+        echo "allocation-ledger: cannot create $la_lock (store unwritable)" >&2
+        return 2
+      fi
     fi
     la_tries=$((la_tries + 1))
     if [ -L "$la_lock" ] && [ $((la_tries % ALLOC_LOCK_PROBE_EVERY)) -eq 0 ]; then
@@ -363,10 +386,22 @@ check_health() {
     echo "allocation-ledger: ledger '$ch_file' is not readable" >&2
     return 3
   fi
-  ch_bad=$(awk -F '\t' -v scopes="$ALLOC_SCOPES" -v outcomes="$ALLOC_OUTCOMES" '
+  # The event and tier columns are checked here for the same reason the scope
+  # and outcome columns are, and it is not symmetry: `alloc_replay` SKIPS a row
+  # whose event falls outside the closed set, so one corrupted cell moves the
+  # derived tier with nothing to show for it. Calling that file healthy is what
+  # makes the change silent. The tier columns take the same two widenings the
+  # append grammar takes — `inherit` (the launch keeps its ambient value) and
+  # `-` (no tier at this position).
+  ch_bad=$(awk -F '\t' -v scopes="$ALLOC_SCOPES" -v outcomes="$ALLOC_OUTCOMES" \
+    -v events="$ALLOC_EVENTS_UP $ALLOC_EVENTS_DOWN $ALLOC_EVENTS_INERT" \
+    -v models="$ALLOC_MODELS inherit -" -v efforts="$ALLOC_EFFORTS inherit -" '
     BEGIN {
       n = split(scopes, a, " "); for (i = 1; i <= n; i++) sc[a[i]] = 1
       n = split(outcomes, b, " "); for (i = 1; i <= n; i++) oc[b[i]] = 1
+      n = split(events, c, " "); for (i = 1; i <= n; i++) ev[c[i]] = 1
+      n = split(models, d, " "); for (i = 1; i <= n; i++) md[d[i]] = 1
+      n = split(efforts, e, " "); for (i = 1; i <= n; i++) ef[e[i]] = 1
       prev = 0
     }
     {
@@ -376,6 +411,11 @@ check_health() {
       prev = $1 + 0
       if ($2 !~ /^[0-9]+$/) { print "row " NR ": non-numeric timestamp"; exit }
       if ($5 !~ /^[0-9]+$/) { print "row " NR ": non-numeric attempt"; exit }
+      if (!($6 in ev)) { print "row " NR ": unknown event class"; exit }
+      for (i = 7; i <= 11; i += 2)
+        if (!($i in md)) { print "row " NR ": unknown model in field " i; exit }
+      for (i = 8; i <= 12; i += 2)
+        if (!($i in ef)) { print "row " NR ": unknown effort in field " i; exit }
       if (!($13 in sc)) { print "row " NR ": unknown scope"; exit }
       if (!($14 in oc)) { print "row " NR ": unknown outcome"; exit }
     }
