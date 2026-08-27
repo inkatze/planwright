@@ -492,7 +492,10 @@ fi
 # terminal fence) is success, not an error. Never `--force`: a delete refspec
 # needs no force, and forcing is exactly the overwrite this script refuses.
 gc_refs() {
-  gr_present=$(ls_remote_fences "$NS_ROOT/$spec/*") || return 4
+  gr_present=$(ls_remote_fences "$NS_ROOT/$spec/*") || {
+    err "transient origin failure reading the fence namespace before a terminal-fence delete — failing closed: nothing is GC'd this pass; surfaced, retried next pass (REQ-C1.5)"
+    return 4
+  }
   gr_todo=""
   for gr_r in $refs; do
     case "$(printf '%s\n' "$gr_present" | grep -Fx -- "$gr_r" || true)" in
@@ -510,7 +513,10 @@ gc_refs() {
   for gr_r in $gr_todo; do
     set -- "$@" ":$gr_r"
   done
-  push_out=$(mktemp) || return 4
+  push_out=$(mktemp) || {
+    err "cannot create a temp file for the push transcript — failing closed"
+    return 4
+  }
   git -C "$checkout" push --porcelain --atomic "$@" >"$push_out" 2>&1
   gr_rc=$?
   if [ "$gr_rc" != 0 ]; then
@@ -773,9 +779,16 @@ if [ "$cmd" = sweep ]; then
 
     case "$liveness" in
       live)
-        # In flight and alive: honored, untouched. Any tentative entry from a
-        # pass where the owner's heartbeat had not yet caught up is swept.
+        # In flight and alive: the FENCE is honored, untouched. Its sink
+        # entries are not — the tentative one from a pass where the owner's
+        # heartbeat had not caught up, and any strand already surfaced for it.
+        # A strand is keyed by ref plus OWNER (REQ-C1.7), so an orphan promoted
+        # before attribution caught up sits under `unknown-owner`, a key no
+        # later pass recomputes. Left there it offers the operator `reclaim` on
+        # a unit a live tower is demonstrably carrying.
         sink_clear "$tkey"
+        sink_clear "$skey"
+        sink_clear "pwfence.$(key_digest "$ref|unknown-owner")"
         printf 'honored\t%s\t%s\n' "$ref" "$owner"
         continue
         ;;

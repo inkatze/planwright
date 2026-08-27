@@ -297,6 +297,20 @@ run 4 "check/transient-origin" "$FF" check --checkout "$broken" --spec demo 4 >/
 run 4 "gc/transient-origin" "$FF" gc --checkout "$broken" --spec demo 4 >/dev/null
 [ -z "$(origin_refs)" ] || fail "fence: a transient failure must create no ref"
 
+# Failing closed silently is a failure nobody can diagnose from a log. REQ-C1.5
+# requires a GC that fails on a transient `origin` error to be SURFACED, and
+# every sibling path already names itself on the way out. The `fleet-fence: `
+# prefix is what is asserted, so a tool's own stderr cannot stand in for ours.
+for c in fence check gc; do
+  out=$(run 4 "$c/transient-origin-diagnostic" "$FF" "$c" --checkout "$broken" --spec demo 4)
+  printf '%s\n' "$out" | grep -q '^fleet-fence: transient origin failure' \
+    || fail "$c exited 4 on a transient origin failure without saying so: [$out]"
+done
+# `list` takes no unit id, so it gets its own call rather than the loop's.
+out=$(run 4 "list/transient-origin-diagnostic" "$FF" list --checkout "$broken" --spec demo)
+printf '%s\n' "$out" | grep -q '^fleet-fence: transient origin failure' \
+  || fail "list exited 4 on a transient origin failure without saying so: [$out]"
+
 # ==========================================================================
 # REQ-C1.5 — GC is idempotent and bounded; an open PR is not terminal
 # ==========================================================================
@@ -309,6 +323,19 @@ run 0 "gc/first" "$FF" gc --checkout "$A" --spec demo 4 >/dev/null
 run 0 "gc/idempotent-same-tower" "$FF" gc --checkout "$A" --spec demo 4 >/dev/null
 run 0 "gc/idempotent-peer-tower" "$FF" gc --checkout "$B" --spec demo 4 >/dev/null
 run 0 "gc/idempotent-never-fenced" "$FF" gc --checkout "$A" --spec demo 99 >/dev/null
+
+# The other way a GC can fail before it deletes anything: no temp file for the
+# push transcript. Same rule as the transient-`origin` paths above — exit 4 is
+# not a diagnosis. The fence path's own mktemp failure already says this; the
+# GC path has to as well, and mktemp's stderr does not count as our saying it.
+run 0 "fence/gc-tmpdir-subject" "$FF" fence --checkout "$A" --spec demo 4 >/dev/null
+out=$(run 4 "gc/unusable-tmpdir" env TMPDIR="$tmp/absent-tmpdir" \
+  "$FF" gc --checkout "$A" --spec demo 4)
+printf '%s\n' "$out" | grep -q '^fleet-fence: cannot create a temp file' \
+  || fail "gc exited 4 on an unusable TMPDIR without saying so: [$out]"
+[ -n "$(origin_refs)" ] || fail "gc: a pre-delete failure must leave the fence in place"
+run 0 "gc/tmpdir-cleanup" "$FF" gc --checkout "$A" --spec demo 4 >/dev/null
+[ -z "$(origin_refs)" ] || fail "gc: the fence ref must be gone after cleanup"
 
 # ==========================================================================
 # list

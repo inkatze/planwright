@@ -408,6 +408,22 @@ printf '%s\n' "$out" | grep -q "^honored	refs/planwright-fence/demo/6	$uuid_peer
   || fail "an orphan whose owner reappeared was not honored: $out"
 sink | grep -q 'demo:6' && fail "a swept tentative entry survived attribution: $(sink)"
 
+# The same reappearance, but AFTER the grace window already promoted the orphan
+# to a surfaced strand (demo/5, above). The strand entry is keyed by ref plus
+# OWNER (REQ-C1.7), so re-attribution moves the key and the old `unknown-owner`
+# row is orphaned in the sink. Clearing the tentative key alone would leave a
+# queued operator item saying no live tower will carry a unit that a live tower
+# is demonstrably carrying — and offering `reclaim` on it, which is the double
+# dispatch this whole mechanism exists to prevent.
+sink | grep -q 'demo:5' \
+  || fail "fixture: demo/5 should still hold its surfaced orphan strand: $(sink)"
+publish_peer "demo/2,demo/3,demo/4,demo/5,demo/6"
+out=$(sweep 0 "sweep/strand-reattributed" --min-interval 0 --grace 0)
+printf '%s\n' "$out" | grep -q "^honored	refs/planwright-fence/demo/5	$uuid_peer$" \
+  || fail "an orphan strand whose owner reappeared was not honored: $out"
+sink | grep -q 'demo:5' \
+  && fail "a stale unknown-owner strand survived re-attribution to a live owner: $(sink)"
+
 # ==========================================================================
 # REQ-C1.5 — the terminal transition sweeps the unit's sink entry too, so the
 # sink is bounded rather than growing one entry per historical strand
