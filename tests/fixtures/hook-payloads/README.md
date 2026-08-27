@@ -23,7 +23,21 @@ across every version on disk at the time of writing (2.1.226, 2.1.237, 2.1.239,
 2.1.241):
 
 ```sh
-LC_ALL=C grep -a -o 'hook_event_name:"<Event>"[^;]\{0,180\}' "$(readlink -f "$(command -v claude)")"
+# `claude` on PATH is usually a symlink; resolve it with a bounded plain
+# `readlink` loop rather than `readlink -f`/`realpath`, neither of which exists
+# on the macOS half of the support bar (the reason scripts/release-lib.sh
+# resolves symlinks the same way).
+claude_bin=$(command -v claude)
+n=0
+while [ -L "$claude_bin" ] && [ "$n" -lt 16 ]; do
+  link=$(readlink -- "$claude_bin")
+  case $link in
+    /*) claude_bin=$link ;;
+    *) claude_bin=$(dirname -- "$claude_bin")/$link ;;
+  esac
+  n=$((n + 1))
+done
+LC_ALL=C grep -a -o 'hook_event_name:"<Event>"[^;]\{0,180\}' "$claude_bin"
 ```
 
 `tests/test-check-hook-contracts.sh` pins each event's own keys exactly. When
