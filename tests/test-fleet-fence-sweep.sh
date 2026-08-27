@@ -350,9 +350,12 @@ out=$(sweep 0 "sweep/answer-survives" --min-interval 0)
 pw "$FA" queue 2>/dev/null | grep -q '^    answered: reclaim$' \
   || fail "a later sweep clobbered the operator's answer to an already-raised strand"
 
-# REQ-C1.3 — an already-surfaced strand is not re-probed every pass: inside the
-# discovery cadence window it is suppressed, so unresolved strands accumulating
-# in the sink never drive an unbounded per-pass `origin` read fan-out.
+# REQ-C1.3 — an already-surfaced strand is skipped while its sink entry is
+# younger than the cadence window. The window runs from FIRST observation and
+# never renews, so what the skip suppresses is the per-ref attribution
+# subprocess, not the sweep's `origin` reads: the namespace read and the state
+# derivation are hoisted above the per-ref loop and cost one `ls-remote` and one
+# derivation per pass however many strands are queued.
 out=$(sweep 0 "sweep/cadence-suppressed" --min-interval 9999)
 printf '%s\n' "$out" | grep -q "^suppressed	refs/planwright-fence/demo/3$" \
   || fail "an already-surfaced strand was re-probed inside its cadence window: $out"
