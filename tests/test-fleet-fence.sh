@@ -38,6 +38,7 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 FF="$here/../scripts/fleet-fence.sh"
+TAB_=$(printf '\t')
 
 fail() {
   echo "FAIL: $1" >&2
@@ -323,6 +324,70 @@ got=$(run 0 "list/all" "$FF" list --checkout "$A" | sort | tr '\n' ' ')
   || fail "list: expected both namespaces, got '$got'"
 run 0 "gc/list-cleanup" "$FF" gc --checkout "$A" --spec demo 4 >/dev/null
 run 0 "gc/list-cleanup-2" "$FF" gc --checkout "$A" --spec other 1 >/dev/null
+
+# ==========================================================================
+# REQ-C1.2 — the fence target resolves on a repository whose default branch
+# is not `main`
+# ==========================================================================
+# The fence must land on an EXISTING commit so it adds no history, and the ref
+# it aims at is `refs/heads/main` by default. A repository that never had a
+# `main` would resolve nothing there, so the target falls back to the remote's
+# `HEAD` — and `PLANWRIGHT_FENCE_BASE_REF` names it outright. Both arms are
+# asserted here because between them they are the only reason such a
+# repository can fence at all; the rest of this suite pins `main` and so
+# exercises neither.
+
+trunk_origin="$tmp/trunk-origin.git"
+git -c init.defaultBranch=trunk init -q --bare "$trunk_origin"
+git clone -q "$trunk_origin" "$tmp/trunk" 2>/dev/null
+T="$tmp/trunk"
+git -C "$T" config user.email fence@test.invalid
+git -C "$T" config user.name fence-test
+git -C "$T" symbolic-ref HEAD refs/heads/trunk
+(
+  cd "$T"
+  echo trunk >file
+  git add file
+  git commit -qm "trunk base"
+  git push -q origin HEAD:refs/heads/trunk
+)
+git --git-dir="$trunk_origin" symbolic-ref HEAD refs/heads/trunk
+trunk_tip=$(git -C "$trunk_origin" rev-parse refs/heads/trunk)
+
+git -C "$trunk_origin" show-ref --verify --quiet refs/heads/main \
+  && fail "trunk fixture: refs/heads/main must not exist for this assertion to mean anything"
+
+# No `main`: the target falls back to the remote's HEAD rather than failing.
+run 0 "fence/no-main-head-fallback" "$FF" fence --checkout "$T" --spec demo 4 >/dev/null
+got=$(git -C "$trunk_origin" rev-parse refs/planwright-fence/demo/4)
+[ "$got" = "$trunk_tip" ] \
+  || fail "fence/no-main: the fence must point at the remote HEAD tip $trunk_tip, got '$got'"
+[ "$(git -C "$trunk_origin" rev-list --count refs/heads/trunk)" = 1 ] \
+  || fail "fence/no-main: the default branch gained a commit — the fence must add no history"
+run 0 "gc/no-main-cleanup" "$FF" gc --checkout "$T" --spec demo 4 >/dev/null
+
+# ...and the override names the base ref outright, HEAD fallback unused. The
+# override branch carries its OWN commit: pushed from the same tip as `trunk`
+# it would be indistinguishable from the fallback, and the assertion would
+# hold just as well against an implementation that ignored the variable.
+(
+  cd "$T"
+  echo release >>file
+  git commit -qam "release tip"
+  git push -q origin HEAD:refs/heads/release
+  git reset -q --hard HEAD~1
+)
+release_tip=$(git -C "$trunk_origin" rev-parse refs/heads/release)
+[ "$release_tip" != "$trunk_tip" ] \
+  || fail "base-ref fixture: the override branch must differ from HEAD or the assertion proves nothing"
+out=$(PLANWRIGHT_FENCE_BASE_REF=refs/heads/release \
+  run 0 "fence/base-ref-override" "$FF" fence --checkout "$T" --spec demo 5)
+[ "$out" = "fenced${TAB_}refs/planwright-fence/demo/5" ] \
+  || fail "fence/base-ref-override: got '$out'"
+got=$(git -C "$trunk_origin" rev-parse refs/planwright-fence/demo/5)
+[ "$got" = "$release_tip" ] \
+  || fail "fence/base-ref-override: expected the override's tip $release_tip, got '$got'"
+run 0 "gc/base-ref-cleanup" "$FF" gc --checkout "$T" --spec demo 5 >/dev/null
 
 # ==========================================================================
 # REQ-C1.1 / REQ-C1.3 / REQ-C1.5 — Architecture A is ABSENT by construction
