@@ -16,8 +16,9 @@
 # REPLACES native creation: the hook IS the creator and its stdout path is the
 # decision-control result (missing path or non-zero exit fails creation). So
 # `hook-create` reads `.name`, grammar-checks it, creates
-# `<repo>/.claude/worktrees/<name>` on a fresh `worktree-<flattened>` branch,
-# echoes the created path, and ALWAYS exits 0 — every refusal echoes nothing.
+# `<repo>/.claude/worktrees/<name>` on a fresh `worktree-<flattened-name>`
+# branch, echoes the created path, and ALWAYS exits 0 — every refusal echoes
+# nothing.
 # `WorktreeRemove` keeps its genuinely different `worktree_path` shape and is
 # fire-and-forget.
 #
@@ -27,16 +28,21 @@
 #   - record-create is idempotent (no duplicate rows);
 #   - the disk-scan fallback (`scan`) discovers a real linked worktree git knows
 #     about that no hook ever pushed;
-#   - `hook-create` CREATES the worktree from the stdin `name` (flat and nested),
-#     echoes its physical path, records it, exits 0 — and is idempotent on an
-#     already-created target; the sed fallback covers a jq-less host, and a
-#     failed registry write never fails creation;
+#   - `list` enforces the emitted-path grammar, skipping a malformed registry
+#     line with a warning instead of handing it to a caller;
+#   - `hook-create` CREATES the worktree from the stdin `name` (flat, nested,
+#     and at the 64-char grammar boundary), echoes its physical path, records
+#     it, exits 0 — and is idempotent on an already-created target; the sed
+#     fallback covers a jq-less host, and a failed registry write never fails
+#     creation;
 #   - `hook-create` refusals echo NOTHING, create nothing, and still exit 0:
-#     malformed names (control byte, traversal, dash-led or dot-only segment,
-#     over-length), an absent name, a non-git cwd, a branch collision, an
-#     existing non-worktree target, and the un-parseable escaped name on the
-#     sed fallback;
-#   - `hook-remove` records a removal from its stdin payload and exits 0;
+#     malformed names (control byte, traversal, dot-only or dash-led segment,
+#     absolute, over-length), an absent name, a non-git cwd, a branch
+#     collision (which leaves the pre-existing branch untouched), an existing
+#     non-worktree target, and the un-parseable escaped names on the sed
+#     fallback;
+#   - `hook-remove` records a removal from its stdin payload and exits 0,
+#     including via the sed fallback on a jq-less host;
 #   - hostile / non-absolute paths are refused by the direct CLI (exit non-zero).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
@@ -62,8 +68,13 @@ fail() {
 
 [ -x "$WT" ] || fail "scripts/fleet-worktree-track.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT
+# Pin repo discovery inside the fixture: without a ceiling, a TMPDIR that
+# resolves inside a real checkout would let the "non-git cwd" case walk up,
+# find that repo, and create a stray worktree in it instead of refusing.
+GIT_CEILING_DIRECTORIES="$tmp"
+export GIT_CEILING_DIRECTORIES
 fleet_home="$tmp/fleet"
 
 wt() {
@@ -190,7 +201,23 @@ out3=$(cd "$main_repo" && printf '%s' "$nested" | wt hook-create) || rc=$?
   || fail "hook-create nested path wrong (got: '$out3')"
 (cd "$main_repo" && git show-ref --verify --quiet refs/heads/worktree-planwright-demo-task-1) \
   || fail "nested name did not flatten into the worktree-planwright-demo-task-1 branch"
-echo "ok: hook-create reattaches idempotently and nests multi-segment names"
+[ -d "$out3" ] || fail "nested name did not create the worktree directory"
+(cd "$main_repo" && git worktree list --porcelain | grep -Fxq "worktree $out3") \
+  || fail "nested worktree is not a registered git worktree"
+case $(wt list) in
+  *"$out3"*) ;;
+  *) fail "hook-create did not record the nested worktree" ;;
+esac
+# The name grammar's 64-char boundary: exactly 64 chars must be ACCEPTED (a
+# refusal here would mean an off-by-one against the documented max).
+b64=$(printf 'b%.0s' $(seq 1 64))
+rc=0
+out4=$(cd "$main_repo" \
+  && printf '{"hook_event_name":"WorktreeCreate","name":"%s"}' "$b64" | wt hook-create) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (64-char name) exit $rc, expected 0"
+[ "$out4" = "$main_real/.claude/worktrees/$b64" ] \
+  || fail "a 64-char name must be accepted at the boundary (got: '$out4')"
+echo "ok: hook-create reattaches idempotently, nests multi-segment names, and accepts the 64-char boundary"
 
 # 4b. hook-create with jq absent: the sed fallback still extracts the name.
 #     Build a PATH mirroring the real one MINUS jq (robust against which exact
@@ -217,6 +244,9 @@ out=$(cd "$main_repo" && printf '%s' '{"hook_event_name":"WorktreeCreate","name"
 [ "$rc" = 0 ] || fail "hook-create (no jq) exit $rc, expected 0"
 [ "$out" = "$main_real/.claude/worktrees/nojq-wt" ] \
   || fail "hook-create (no jq) must create via the sed fallback (got: '$out')"
+[ -d "$out" ] || fail "hook-create (no jq) echoed a path it did not create"
+(cd "$main_repo" && git show-ref --verify --quiet refs/heads/worktree-nojq-wt) \
+  || fail "hook-create (no jq) did not create the worktree-nojq-wt branch"
 echo "ok: hook-create extracts the name via the sed fallback when jq is absent"
 
 # 4c. hook-create never fails creation even if the registry write cannot happen
@@ -248,19 +278,40 @@ refuse() {
 ctrl=$(printf 'bad\001name')
 refuse "control-byte name" "$(printf '{"hook_event_name":"WorktreeCreate","name":"%s"}' "$ctrl")"
 refuse "traversal name" '{"hook_event_name":"WorktreeCreate","name":"a/../escape"}'
+refuse "dot-only segment" '{"hook_event_name":"WorktreeCreate","name":"a/./b"}'
 refuse "dash-led segment" '{"hook_event_name":"WorktreeCreate","name":"a/-x"}'
 refuse "absolute name" '{"hook_event_name":"WorktreeCreate","name":"/etc/oops"}'
-refuse "over-length name" "$(printf '{"hook_event_name":"WorktreeCreate","name":"%s"}' \
-  "$(printf 'a%.0s' $(seq 1 70))")"
+# Over-length at the boundary: 65 chars (one past the documented 64-char max,
+# whose accept side is pinned in 4a) must refuse.
+refuse "over-length name (65 chars)" "$(printf '{"hook_event_name":"WorktreeCreate","name":"%s"}' \
+  "$(printf 'a%.0s' $(seq 1 65))")"
 refuse "absent name" '{"hook_event_name":"WorktreeCreate"}'
 refuse "non-git cwd" '{"hook_event_name":"WorktreeCreate","name":"stray-wt"}' "$tmp"
-# Branch collision: a pre-existing worktree-clash branch refuses the name clash.
+# Branch collision: a pre-existing worktree-clash branch refuses the name clash,
+# leaves that branch's tip untouched, and attaches no worktree to it.
 (cd "$main_repo" && git_env git branch worktree-clash >/dev/null 2>&1)
+clash_tip=$(cd "$main_repo" && git rev-parse refs/heads/worktree-clash)
 refuse "branch collision" '{"hook_event_name":"WorktreeCreate","name":"clash"}'
-# Existing non-worktree directory at the target refuses.
+[ "$(cd "$main_repo" && git rev-parse refs/heads/worktree-clash)" = "$clash_tip" ] \
+  || fail "branch-collision refusal moved the pre-existing branch"
+(cd "$main_repo" && git worktree list --porcelain | grep -Fq "/.claude/worktrees/clash") \
+  && fail "branch-collision refusal still attached a worktree" || true
+[ ! -e "$main_repo/.claude/worktrees/clash" ] \
+  || fail "branch-collision refusal still created the target dir"
+# Existing non-worktree directory at the target refuses, and the squatted dir
+# is neither adopted as a worktree nor removed.
 mkdir -p "$main_repo/.claude/worktrees/squatter"
 refuse "existing non-worktree target" '{"hook_event_name":"WorktreeCreate","name":"squatter"}'
-[ ! -e "$main_repo/.claude/worktrees/a" ] || fail "a refused name still created something"
+(cd "$main_repo" && git worktree list --porcelain | grep -Fq "/.claude/worktrees/squatter") \
+  && fail "squatter refusal still registered the squatted dir as a worktree" || true
+[ -d "$main_repo/.claude/worktrees/squatter" ] || fail "squatter refusal removed the squatted dir"
+[ ! -e "$main_repo/.claude/worktrees/a" ] \
+  || fail "a refused a/-prefixed name still created its parent segment"
+# A traversal name that slipped the grammar would materialize at the ESCAPED
+# location (`.claude/worktrees/escape` after `a/..` collapses), not at `.../a`
+# — assert the actual escape targets, inside and outside the worktrees root.
+[ ! -e "$main_repo/.claude/worktrees/escape" ] || fail "traversal name created the escaped target"
+[ ! -e "$main_repo/escape" ] || fail "traversal name escaped the worktrees root"
 [ ! -e "$tmp/.claude" ] || fail "non-git cwd still created something"
 [ -z "$(wt list 2>/dev/null)" ] \
   || fail "hook-create must not record a refused payload (list: '$(wt list 2>/dev/null)')"
@@ -280,9 +331,17 @@ out=$(cd "$main_repo" && printf '%s' "$esc_q" \
   | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" hook-create 2>/dev/null) || rc=$?
 [ "$rc" = 0 ] || fail "hook-create (no jq, escaped-quote name) exit $rc, expected 0"
 [ -z "$out" ] || fail "hook-create (no jq, escaped-quote name) must echo NOTHING (fail-closed), got: '$out'"
+# The other escape shape: a doubled backslash (JSON `a\\b`) survives the sed
+# capture as raw backslashes and must be refused the same way.
+esc_b='{"hook_event_name":"WorktreeCreate","name":"a\\b"}'
+rc=0
+out=$(cd "$main_repo" && printf '%s' "$esc_b" \
+  | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (no jq, escaped-backslash name) exit $rc, expected 0"
+[ -z "$out" ] || fail "hook-create (no jq, escaped-backslash name) must echo NOTHING (fail-closed), got: '$out'"
 [ -z "$(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" list 2>/dev/null)" ] \
   || fail "hook-create must not record an un-parseable escaped payload"
-echo "ok: hook-create fails closed on an un-parseable escaped name via the sed fallback"
+echo "ok: hook-create fails closed on un-parseable escaped names via the sed fallback"
 
 # 5. hook-remove: records a removal from stdin and exits 0 (fire-and-forget).
 rm -rf "$fleet_home"
@@ -293,7 +352,17 @@ printf '%s' '{"worktree_path":"/work/going","session_id":"s1"}' | wt hook-remove
 case $(wt list) in
   *"/work/going"*) fail "hook-remove did not drop the worktree" ;;
 esac
-echo "ok: hook-remove records the removal and exits 0"
+# The sed fallback serves hook-remove's `.worktree_path` extraction on a
+# jq-less host too (reuses the $nojq PATH built in 4b).
+wt record-create /work/going2 >/dev/null
+rc=0
+printf '%s' '{"worktree_path":"/work/going2","session_id":"s2"}' \
+  | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" hook-remove || rc=$?
+[ "$rc" = 0 ] || fail "hook-remove (no jq) exit $rc, expected 0"
+case $(wt list) in
+  *"/work/going2"*) fail "hook-remove (no jq) did not drop the worktree via the sed fallback" ;;
+esac
+echo "ok: hook-remove records the removal and exits 0 (jq and sed-fallback paths)"
 
 # 6. Hostile / non-absolute paths are refused by the direct CLI.
 rm -rf "$fleet_home"
