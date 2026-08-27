@@ -482,7 +482,11 @@ fi
 
 # --- gc (idempotent terminal-fence delete, REQ-C1.5) -----------------------
 
-# gc_refs <ref>... — delete each ref from `origin`. Idempotent by
+# gc_refs — delete every ref named in the global `refs` from `origin`. It takes
+# NO arguments, deliberately: `refs` is the containment-checked ref list built
+# once at parse time, and the sweep re-derives it through `fence_refname` before
+# each call, so no caller can hand this function a name that skipped the check.
+# Idempotent by
 # construction: refs already absent are reported `gc-absent` and never pushed,
 # and a ref that vanishes between the read and the push (a peer GC'ing the same
 # terminal fence) is success, not an error. Never `--force`: a delete refspec
