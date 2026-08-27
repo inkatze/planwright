@@ -452,11 +452,18 @@ assert_not_contains "findings are not bare failure markers" "FAIL: unknown" "$ou
 # `gtimeout` shim that records its invocation and then execs the real bounding
 # tool, so the assertion is "the guard reached for gtimeout", not "the guard
 # happened to still work".
+#
+# The bounder we hand the shim is whichever of the two this host actually has.
+# Keying it to `timeout` alone would skip this assertion on macOS with Homebrew
+# coreutils — `gtimeout` present, `timeout` absent — which is the exact shape
+# the assertion exists to cover, so it would go dark on the only platform that
+# needs it. Skipping is reserved for a host with neither, where there is
+# genuinely nothing to bound with.
 tbin_dir="$TMP/notimeout"
 mkdir -p "$tbin_dir"
-real_timeout=$(command -v timeout || true)
+real_timeout=$(command -v timeout || command -v gtimeout || true)
 if [ -z "$real_timeout" ]; then
-  echo "ok: gtimeout probe (skipped: no timeout binary on this host to mirror)"
+  echo "ok: gtimeout probe (skipped: neither timeout nor gtimeout on this host)"
 else
   old_ifs=$IFS
   IFS=:
