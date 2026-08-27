@@ -29,8 +29,9 @@
 #     registry write cannot happen;
 #   - `hook-remove` on an unreadable payload surfaces the reason as
 #     `systemMessage` (the channel this event shows the operator) rather than on
-#     stderr the harness discards, and fails closed on an un-parseable escaped
-#     path rather than dropping a mis-parsed one;
+#     stderr the harness discards — including when jq, which builds that JSON, is
+#     absent or broken — and fails closed on an un-parseable escaped path rather
+#     than dropping a mis-parsed one;
 #   - `hook-create` is retired and refused by the CLI;
 #   - hostile / non-absolute paths are refused by the direct CLI (exit non-zero).
 #
@@ -244,6 +245,53 @@ case $(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" list 2>/dev/null
   *) fail "hook-remove must not act on an un-parseable escaped payload" ;;
 esac
 echo "ok: hook-remove fails closed on an un-parseable escaped worktree_path via the sed fallback"
+
+# 4f. The same unreadable payload with jq ABSENT still surfaces the reason on
+#     stdout. jq is what builds the JSON, so the jq-absent path is exactly where
+#     a `systemMessage` handler is most likely to quietly fall back to stderr —
+#     the discarded channel REQ-H1.3 exists to keep refusals off. The rest of
+#     this handler already degrades without jq (4b's sed path), so the operator
+#     message must degrade too. Asserted byte-identical to the jq output so the
+#     hand-rolled constant cannot drift from the message jq interpolates.
+#     Reuses the $nojq PATH from 4b.
+rm -rf "$fleet_home"
+rc=0
+out_jq=$(printf '%s' '{"hook_event_name":"WorktreeRemove","session_id":"s1"}' | wt hook-remove 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-remove (missing worktree_path, jq present) exit $rc, expected 0"
+rm -rf "$fleet_home"
+rc=0
+out_nojq=$(printf '%s' '{"hook_event_name":"WorktreeRemove","session_id":"s1"}' \
+  | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" hook-remove 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-remove (missing worktree_path, no jq) exit $rc, expected 0"
+[ -n "$out_nojq" ] \
+  || fail "hook-remove (no jq) emitted nothing on stdout; the reason reached only discarded stderr (REQ-H1.3)"
+printf '%s' "$out_nojq" | jq -e '.systemMessage | test("scan")' >/dev/null 2>&1 \
+  || fail "hook-remove (no jq) must emit a valid systemMessage JSON naming the remedy (got: '$out_nojq')"
+[ "$out_nojq" = "$out_jq" ] \
+  || fail "hook-remove (no jq) message drifted from the jq one:
+  jq:    '$out_jq'
+  no-jq: '$out_nojq'"
+echo "ok: hook-remove surfaces the unreadable-payload reason as systemMessage with jq absent too"
+
+# 4g. jq ON PATH but BROKEN (exits non-zero / prints nothing) must not make the
+#     message vanish: an emitter that trusts jq's exit status alone emits nothing
+#     and returns success, which reads to the harness as "the hook had nothing to
+#     say" — the same invisibility as stderr, from a different cause
+#     (ready-guard.sh's emit_deny_constant discipline).
+rm -rf "$fleet_home"
+brokenjq="$tmp/brokenjq"
+mkdir -p "$brokenjq"
+ln -s "$nojq"/* "$brokenjq"/ 2>/dev/null || true
+rm -f "$brokenjq/jq"
+printf '#!/bin/sh\nexit 3\n' >"$brokenjq/jq"
+chmod +x "$brokenjq/jq"
+rc=0
+out_broken=$(printf '%s' '{"hook_event_name":"WorktreeRemove","session_id":"s1"}' \
+  | PATH="$brokenjq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" hook-remove 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-remove (broken jq) exit $rc, expected 0"
+[ "$out_broken" = "$out_jq" ] \
+  || fail "hook-remove must fall back to the constant message when jq is present but broken (got: '$out_broken')"
+echo "ok: hook-remove still surfaces the reason when jq is on PATH but broken"
 
 # 5. `hook-create` is retired, and the CLI says so rather than silently
 #    accepting it. planwright registers no `WorktreeCreate` hook: the event

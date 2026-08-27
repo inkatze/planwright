@@ -90,20 +90,37 @@ FS="$script_dir/fleet-state.sh"
 
 warn() { printf 'fleet-worktree-track: %s\n' "$*" >&2; }
 
-# hook_system_message <text> — say something the operator will actually read.
-# Hook stderr is discarded on the events this script handles, so a `warn` from
-# inside a handler reaches nobody; `systemMessage` is the channel the harness
-# surfaces (REQ-H1.3, REQ-K1.1). Emitted as JSON on stdout, control bytes
-# stripped through the canonical sanitizer (REQ-K1.3) and `"`/`\` escaped, so a
-# malformed payload can never break the framing of the message reporting it.
-# Degrades to stderr when jq is absent rather than emitting invalid JSON.
+# hook_system_message <text> <constant-json> — say something the operator will
+# actually read. Hook stderr is discarded on the events this script handles, so a
+# `warn` from inside a handler reaches nobody; `systemMessage` is the channel the
+# harness surfaces (REQ-H1.3, REQ-K1.1). Emitted as JSON on stdout, control bytes
+# stripped through the canonical sanitizer (REQ-K1.3) and `"`/`\` escaped by jq,
+# so a malformed payload can never break the framing of the message reporting it.
+#
+# WHY A PRE-ESCAPED CONSTANT IS THE SECOND ARGUMENT. jq is what builds the JSON,
+# so a jq that is absent — or on PATH but broken (non-zero exit, or exit 0 with
+# empty output) — would otherwise take the message with it, and the operator is
+# back to the discarded channel REQ-H1.3 exists to keep refusals off. The rest of
+# this handler already degrades without jq (extract_worktree_path's sed path), so
+# the message has to as well. <constant-json> is the same text hand-rolled at
+# authoring time, which is safe precisely because it is a compile-time constant
+# carrying no untrusted content — the ready-guard.sh `emit_deny_nojq` discipline.
+# Hand-rolling the ESCAPING of arbitrary <text> would not be safe: sanitizing
+# strips C1 bytes, which can leave a multibyte character truncated into invalid
+# UTF-8 that no amount of `"`/`\` quoting repairs. Tests assert the two forms
+# stay byte-identical, so the duplication cannot rot unnoticed.
 hook_system_message() {
-  hsm_t=$(sanitize_printable "$*" "(unprintable)")
-  if command -v jq >/dev/null 2>&1; then
-    jq -cn --arg m "$hsm_t" '{systemMessage: $m}' 2>/dev/null && return 0
-  fi
-  warn "$hsm_t"
+  hsm_t=$(sanitize_printable "$1" "(unprintable)")
+  hsm_out=$(jq -cn --arg m "$hsm_t" '{systemMessage: $m}' 2>/dev/null) || hsm_out=""
+  [ -n "$hsm_out" ] || hsm_out=$2
+  printf '%s\n' "$hsm_out"
 }
+
+# The one message hook-remove emits, in the two forms hook_system_message needs:
+# the raw text jq interpolates, and the pre-escaped constant for the jq-absent /
+# jq-broken path. Keep them in sync — the tests compare the emitted bytes.
+UNREADABLE_PAYLOAD_MSG="planwright: a WorktreeRemove payload carried no readable worktree_path, so the worktree registry still lists a tree that is gone. Nothing was blocked; the stale entry clears on the next 'fleet-worktree-track.sh scan'."
+UNREADABLE_PAYLOAD_JSON='{"systemMessage":"planwright: a WorktreeRemove payload carried no readable worktree_path, so the worktree registry still lists a tree that is gone. Nothing was blocked; the stale entry clears on the next '"'"'fleet-worktree-track.sh scan'"'"'."}'
 
 valid_path() {
   vp=$1
@@ -427,7 +444,7 @@ case "$cmd" in
     if [ -n "$hr_path" ]; then
       (do_record remove "$hr_path" >/dev/null 2>&1) || true
     else
-      hook_system_message "planwright: a WorktreeRemove payload carried no readable worktree_path, so the worktree registry still lists a tree that is gone. Nothing was blocked; the stale entry clears on the next 'fleet-worktree-track.sh scan'."
+      hook_system_message "$UNREADABLE_PAYLOAD_MSG" "$UNREADABLE_PAYLOAD_JSON"
     fi
     exit 0
     ;;
