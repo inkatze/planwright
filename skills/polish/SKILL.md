@@ -134,7 +134,7 @@ amends, squashes, rebases, or force-pushes; each iteration's commits stand as
 the per-iteration audit trail.
 
 **Signed-bundle edits.** Each iteration's nested pass runs the stale-anchor
-pre-flight before its first edit to a Ready or Active bundle's anchored content, per
+pre-flight before its first edit to each Ready or Active bundle's anchored content, per
 the meta-spec's writer prose (`doctrine/spec-format.md`, *Sign-off records and
 content anchors*): a mismatch, an absent or unparseable entry, and a failed
 recompute block that edit alike, and the loop repairs none of them: the
