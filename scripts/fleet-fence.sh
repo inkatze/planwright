@@ -712,10 +712,14 @@ if [ "$cmd" = sweep ]; then
     # has elapsed the ref is re-examined on every later pass. Deliberate, and
     # narrower than REQ-C1.3's "not re-checked every sweep" reads on its face —
     # what that requirement is protecting is stated in its own purpose clause,
-    # an unbounded per-pass fan-out of `origin`/`gh` reads, and no such fan-out
-    # exists to bound: both live reads are hoisted ABOVE this loop and cost one
-    # `ls-remote` and one state derivation per sweep however many strands are
-    # queued. What the skip saves is the per-ref attribution subprocess.
+    # an unbounded per-pass fan-out of `origin`/`gh` reads, and the strand path
+    # this skip governs has none to bound: the namespace read and the state
+    # derivation are both hoisted ABOVE this loop and cost one `ls-remote` and
+    # one derivation per sweep however many strands are queued. (The TERMINAL
+    # path below does read `origin` per ref — `gc_refs` re-reads the namespace
+    # before each delete — but that fan-out is bounded by the fences that went
+    # terminal this pass, and a suppressed strand never reaches it.) What the
+    # skip saves is the per-ref attribution subprocess.
     age=$(sink_age "$skey")
     case "$age" in
       "" | *[!0-9]*) ;;
