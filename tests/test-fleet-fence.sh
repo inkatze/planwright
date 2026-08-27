@@ -337,6 +337,34 @@ printf '%s\n' "$out" | grep -q '^fleet-fence: cannot create a temp file' \
 run 0 "gc/tmpdir-cleanup" "$FF" gc --checkout "$A" --spec demo 4 >/dev/null
 [ -z "$(origin_refs)" ] || fail "gc: the fence ref must be gone after cleanup"
 
+# Both temp files must name an explicit template. BSD mktemp supplies no default
+# one, so a bare `mktemp` works on GNU and exits non-zero on the BSD half of the
+# bash-3.2 floor this suite runs against — the house pattern in
+# scripts/builder-guards.sh exists for exactly this. Reproducing it from Linux
+# needs a stand-in that refuses a template-less call the way BSD's does.
+bsdbin="$tmp/bsdbin"
+mkdir -p "$bsdbin"
+realmktemp=$(command -v mktemp) || fail "fixture: no mktemp on PATH"
+cat >"$bsdbin/mktemp" <<BSDMKTEMP
+#!/bin/sh
+for a in "\$@"; do
+  case "\$a" in
+    -*) ;;
+    *XXXXXX*) exec "$realmktemp" "\$@" ;;
+  esac
+done
+echo "mktemp: usage: mktemp [-d] [-q] [-u] template ..." >&2
+exit 1
+BSDMKTEMP
+chmod +x "$bsdbin/mktemp"
+
+run 0 "fence/bsd-mktemp" env PATH="$bsdbin:$PATH" \
+  "$FF" fence --checkout "$A" --spec demo 4 >/dev/null
+[ -n "$(origin_refs)" ] || fail "fence under a BSD-style mktemp created no ref"
+run 0 "gc/bsd-mktemp" env PATH="$bsdbin:$PATH" \
+  "$FF" gc --checkout "$A" --spec demo 4 >/dev/null
+[ -z "$(origin_refs)" ] || fail "gc under a BSD-style mktemp did not delete the fence"
+
 # ==========================================================================
 # list
 # ==========================================================================

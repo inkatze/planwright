@@ -650,8 +650,10 @@ heartbeat; the wait is stamped in the queue entry itself, so it holds across
 towers and survives a tower that dies mid-wait. An already-raised strand is
 skipped while its queue entry is younger than `--min-interval`, measured from
 when it was first raised; after that it is re-examined each pass. Either way a
-queue of unresolved strands never turns into a storm of `origin` reads, because
-the sweep reads `origin` once per pass regardless of how many fences it finds.
+queue of unresolved strands never turns into a storm of `origin` reads: however
+many strands are queued, the sweep reads the fence namespace and derives state
+once per pass. Deleting a terminal fence does cost a further `origin` read and
+a push per fence, but only for the fences that actually went terminal.
 
 If `gh` is installed but cannot answer, the sweep still deletes fences whose
 units are provably done from git alone (a merged branch or the completion

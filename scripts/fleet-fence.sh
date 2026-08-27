@@ -513,7 +513,9 @@ gc_refs() {
   for gr_r in $gr_todo; do
     set -- "$@" ":$gr_r"
   done
-  push_out=$(mktemp) || {
+  # Explicit template (the house pattern, cf. scripts/builder-guards.sh): BSD
+  # mktemp supplies no default one, and this script's floor is bash 3.2 / BSD.
+  push_out=$(mktemp "${TMPDIR:-/tmp}/fleet-fence-gc.XXXXXX") || {
     err "cannot create a temp file for the push transcript — failing closed"
     return 4
   }
@@ -886,7 +888,7 @@ for r in $refs; do
   set -- "$@" "$tip:$r"
 done
 
-push_out=$(mktemp) || {
+push_out=$(mktemp "${TMPDIR:-/tmp}/fleet-fence-push.XXXXXX") || {
   err "cannot create a temp file for the push transcript — failing closed"
   exit 4
 }
