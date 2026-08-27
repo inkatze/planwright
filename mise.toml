@@ -134,6 +134,10 @@ run = "/bin/bash scripts/check-workflow-posture.sh"
 description = "hook-backstop wiring detection: fail on an unwired or half-wired clone (core.hooksPath not 'githooks', or a hook file missing/non-executable); detects only, never wires — remedy is scripts/wire-githooks.sh (guard-coverage Task 2, REQ-A1.3, D-2, D-3)"
 run = "/bin/sh scripts/check-githooks.sh"
 
+[tasks."check:doctrine-index"]
+description = "doctrine/*.md ↔ doctrine/README.md index bijection (guard-coverage REQ-F1.1)"
+run = "/bin/bash scripts/check-doctrine-index.sh"
+
 [tasks."check:doctrine-manifest"]
 description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-doctrine-manifest.sh"
@@ -176,6 +180,7 @@ depends = [
   "check:no-ci-evals",
   "check:workflow-posture",
   "check:githooks",
+  "check:doctrine-index",
   "check:doctrine-manifest",
   "check:specs",
   "scan:secrets",

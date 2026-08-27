@@ -1,0 +1,1 @@
+- 2026-08-26 [planwright] spec-parse.sh header-key grammar ^[A-Za-z][A-Za-z-]*$ admits no space, so **Last reviewed:** is not lookupable through spec_parse_header_value/header_block. inception-validate.sh needs it and keeps a local read using the lib block boundary; the lib comment invites widening the grammar instead. Candidate follow-up for format-grammar.

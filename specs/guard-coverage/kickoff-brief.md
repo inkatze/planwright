@@ -463,3 +463,27 @@ the change this entry re-anchors against.
 Class: expression-only
 Anchor: `aa241eaa6838840d98284d74bc1b387c1dff23e1` — computed as
 `scripts/spec-anchor.sh specs/guard-coverage`
+
+### 2026-08-26 — fleet-knob count correction (Task 9 execution)
+
+Marked self-re-anchor for the one expression-only fix Task 9's execution
+turned up: the Task 9 block and the REQ-F1.3 test-spec entry both said
+"six fleet knobs", while `docs/fleet.md`'s knobs table names ten knobs
+across eight rows — the same shape it had at sign-off. Both now describe
+the table's own extent instead of carrying a count, and the shipped
+per-knob divergence fixture derives its knob list from the table, so the
+coverage claim cannot go stale again.
+
+The count traces to the 2026-07-04 fleet-knobs observation quoted under
+`requirements.md`'s *Sources*. That quote is left as written: it records
+what was observed, and correcting it would falsify the record.
+
+**Cites the changelog line:** the 2026-08-26 `## Changelog` entry in
+`requirements.md`.
+
+No accepted decision changed. REQ-F1.3 required a tether over the fleet
+table's knob defaults before and after; only the restated tally moved.
+
+Class: expression-only
+Anchor: `2c9a9ce6efd97e42e62ebd5073e65cdfd70465fc` — computed as
+`scripts/spec-anchor.sh specs/guard-coverage`
