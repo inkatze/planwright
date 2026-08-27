@@ -783,6 +783,41 @@ escalation are deliberately not gated (pausing the record of what happened
 would hide problems). Backoff and disable actions log through the audit
 trail; a human clears the streak with `crash-reset`.
 
+### What planwright registers, and the event it deliberately does not
+
+The liveness hooks above are observers: they watch a session and write to the
+attention store, and a session behaves identically whether they fire or not.
+That is true of every event planwright registers — `PreToolUse`, `PostToolUse`,
+`SessionStart`, `SessionEnd`, `Stop`, `StopFailure`, `Notification`,
+`PermissionRequest`, `WorktreeRemove`. Some of them *can* block, but only if a
+handler explicitly says so; a quiet handler changes nothing.
+
+`WorktreeCreate` is the exception, and planwright does not register it.
+Registering a hook there **replaces** native git worktree creation: the hook
+becomes the creator, and a handler that stays quiet has refused the operation.
+planwright once registered a passive tracker on it, reading a `worktree_path`
+that event never sends (it sends a bare `name`), so the tracker echoed nothing
+and worktree creation broke on every installed machine — with the reason on
+stderr, which the harness discards. So worktree tracking rides two paths that
+cannot refuse anything instead: `record-create` at the dispatch seam, and the
+`fleet-worktree-track.sh scan` reconcile for trees created any other way.
+
+Two things keep that from regressing. Every registered event has a payload
+fixture under `tests/fixtures/hook-payloads/` holding its real stdin key set,
+read out of the CLI rather than the docs (which omit `WorktreeCreate`'s input
+schema and have drifted on others). And `mise run check` runs
+`scripts/check-hook-contracts.sh`, which fails if anything is registered on an
+event whose silence refuses the operation, if a registered event has no
+fixture, or if a decision hook emits JSON naming the wrong event. If you add a
+hook, add its fixture; if the guard reports an event it does not model, read
+that event's dispatch site and record what its silence means before registering
+anything on it.
+
+**If you are writing a handler that can refuse**, say why on a channel the
+operator sees — `systemMessage`, or the event's own decision field. Stderr is
+discarded on most events, so a reason left there is indistinguishable from an
+unexplained platform failure.
+
 ## Resource governance: models, throttling, and the auto-mode line
 
 Three deterministic mechanisms govern what a dispatched unit costs and what it
