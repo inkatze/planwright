@@ -51,7 +51,9 @@
 # are wired as `fleet-liveness.sh hook <event>`, so dropping them would check an
 # invocation the harness never makes. The commands come from the repo's own
 # tracked registration files, as trusted as the rest of the checkout, and each
-# run is bounded by `timeout` with the worker identity neutralised. Point
+# run has the worker identity neutralised and is bounded by `timeout` where that
+# is available — on a host without it the runs are unbounded, which is why the
+# handlers being repo-tracked is the load-bearing half of this argument. Point
 # `--hooks` at a registration file you do not trust and you are executing its
 # commands; that flag exists for this guard's own tests.
 #
