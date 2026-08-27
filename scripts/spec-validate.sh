@@ -368,8 +368,12 @@ debaseline() {
 # Fence-aware via the shared lexer (REQ-C1.2): a bundle that documents the REQ
 # bullet form inside a fence is showing an example, not declaring a second REQ
 # with the id it illustrates — the false duplicate-REQ error this landing fixes.
+#
+# The bullet grammar itself is the shared lib's (format-grammar Task 8;
+# REQ-B1.5): the validator, the selector, and the bundle reader now read one
+# definition of what a requirement bullet is.
 parse_requirements() {
-  awk "$spec_parse_awk_fence"'
+  awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
     function flush() {
       if (cur == "") return
       if (sup) {
@@ -385,8 +389,8 @@ parse_requirements() {
     !ingroup { next }
     /^- / {
       flush()
-      if (match($0, /^- \*\*REQ-[A-Z][0-9]+\.[0-9]+\*\*/)) {
-        id = substr($0, 5, RLENGTH - 6)
+      id = spec_parse_req_bullet_id($0)
+      if (id != "") {
         printf "ALL\t%s\n", id
         if (id in seen) printf "F\thard\tduplicate REQ-ID %s\n", id
         seen[id] = 1
@@ -408,9 +412,10 @@ parse_requirements() {
 
 # Parse design.md D-ID sections. Same tagged tab-separated format as
 # parse_requirements: F findings, plus every D-ID tagged ALLD. Fence-aware
-# via the shared lexer (REQ-C1.2).
+# via the shared lexer (REQ-C1.2), with the heading grammar itself from the
+# shared lib (Task 8; REQ-B1.5).
 parse_design() {
-  awk "$spec_parse_awk_fence"'
+  awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
     function flush() {
       if (cur == "") return
       if (!hd) printf "F\tgap\t%s missing field: Decision\n", cur
@@ -418,22 +423,20 @@ parse_design() {
       if (!hc) printf "F\tgap\t%s missing field: Chosen because\n", cur
       cur = ""
     }
-    /^### D-[0-9]+:/ {
+    spec_parse_dec_attempt($0) {
       flush()
-      match($0, /^### D-[0-9]+/)
-      id = substr($0, 5, RLENGTH - 4)
+      id = spec_parse_dec_id($0)
+      if (id == "") {
+        # D- prefix without the <n>: shape: surface it rather than silently
+        # treating a typo as ordinary prose (mirror of the malformed-task rule).
+        printf "F\tgap\tmalformed decision heading at design.md:%d (expected ### D-<n>: <title>)\n", NR
+        next
+      }
       printf "ALLD\t%s\n", id
       if (id in seen) printf "F\thard\tduplicate D-ID %s\n", id
       seen[id] = 1
       cur = id
       hd = ha = hc = 0
-      next
-    }
-    /^### D-/ {
-      # D- prefix without the <n>: shape: surface it rather than silently
-      # treating a typo as ordinary prose (mirror of the malformed-task rule).
-      flush()
-      printf "F\tgap\tmalformed decision heading at design.md:%d (expected ### D-<n>: <title>)\n", NR
       next
     }
     /^## / || /^### / { flush(); next }
@@ -450,8 +453,11 @@ parse_design() {
 # parse_requirements: F findings, plus every well-formed task id tagged ALLT.
 # Fence-aware via the shared lexer (REQ-C1.2): a fenced mock block neither
 # duplicates the id it illustrates nor reports the definition fields it omits.
+# The heading and definition-field grammars are the shared lib's (Task 8;
+# REQ-B1.5), so "which five bullets are a task definition" has one answer here,
+# in the canonical extraction, and in the bundle reader.
 parse_tasks() {
-  awk "$spec_parse_awk_fence"'
+  awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
     function flush() {
       if (cur == "") return
       if (!fdel) printf "F\tgap\tTask %s missing field: Deliverables\n", cur
@@ -461,11 +467,45 @@ parse_tasks() {
       if (!feff) printf "F\tgap\tTask %s missing field: Estimated effort\n", cur
       cur = ""
     }
+    # Name a dependency written PAST a parenthetical. The shared extraction
+    # drops the parenthetical and everything after it — deliberately, so a
+    # trailing cross-spec clause cannot contribute a phantom edge — which
+    # silently costs a real dep authored past it, and a lost edge makes an
+    # unready task look ready. Applies the same tokenize-then-validate-whole
+    # rule the extraction uses to the discarded tail, so the shapes the in-repo
+    # bundles use (a qualifier or cross-spec clause LAST, naming only REQ- and
+    # D- ids) stay quiet: none of those tokens passes the task-id grammar.
+    function dep_after_paren(s,   tail, n, a, i, tok) {
+      tail = s
+      if (!sub(/^[^(]*\(/, "", tail)) return
+      # Step past the qualifier before scanning. An id INSIDE it is dropped on
+      # purpose — carrying a cross-spec reference there is what the
+      # parenthetical is for — so only what follows the close is a lost local
+      # dep. An unclosed qualifier has no interior to protect (the sub finds no
+      # close and leaves the tail whole), so everything after the open counts.
+      #
+      # Known bound, deliberate: one step, not a depth scan. A second or nested
+      # qualifier can still put an id in scanning range and draw a spurious
+      # warning. No in-repo bundle carries either shape, and this is a warning
+      # over a line the extraction has already truncated, so the depth counter
+      # that would close the gap costs more than the gap does (pinned below).
+      sub(/^[^)]*\)/, "", tail)
+      gsub(/[,;]/, " ", tail)
+      n = split(tail, a, " ")
+      for (i = 1; i <= n; i++) {
+        tok = a[i]
+        sub(/\.+$/, "", tok)
+        if (spec_parse_is_task_id(tok)) {
+          printf "F\tgap\tTask %s dependency %s at tasks.md:%d falls after a parenthetical, which swallows the rest of the line: the edge is dropped from the task graph\n", cur, tok, NR
+          return
+        }
+      }
+    }
     /^## / { flush(); next }
-    /^### Task / {
+    spec_parse_is_task_heading($0) {
       flush()
-      id = $3
-      if (id !~ /^[0-9]+(\.[0-9]+)?$/) {
+      id = spec_parse_task_id($0)
+      if (id == "") {
         printf "F\tgap\tmalformed task id at tasks.md:%d (expected <n> or <n>.<m>)\n", NR
         next
       }
@@ -478,11 +518,14 @@ parse_tasks() {
     }
     /^### / { flush(); next }
     cur == "" { next }
-    /^- \*\*Deliverables:\*\*/ { fdel = 1 }
-    /^- \*\*Done when:\*\*/ { fdw = 1 }
-    /^- \*\*Dependencies:\*\*/ { fdep = 1 }
-    /^- \*\*Citations:\*\*/ { fcit = 1 }
-    /^- \*\*Estimated effort:\*\*/ { feff = 1 }
+    {
+      fld = spec_parse_task_field($0)
+      if (fld == "deliverables") fdel = 1
+      else if (fld == "donewhen") fdw = 1
+      else if (fld == "dependencies") { fdep = 1; dep_after_paren($0) }
+      else if (fld == "citations") fcit = 1
+      else if (fld == "effort") feff = 1
+    }
     END { flush() }
   ' "$1"
 }
@@ -505,7 +548,7 @@ parse_tasks() {
 # a fenced example of a version-1 tasks.md is documentation rather than a ban
 # violation (REQ-C1.2).
 parse_tasks_v2() {
-  awk "$spec_parse_awk_fence"'
+  awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
     # Normalize a trailing CR first: the heading arms below are
     # EOL-anchored, and a CRLF-saved file must not slip a banned heading
     # past the ban (or hide a payload section) on line endings alone.
@@ -525,13 +568,10 @@ parse_tasks_v2() {
     /^## Deferred[ \t]*$/       { section = "Deferred"; in_task = 0; next }
     /^## Out of scope[ \t]*$/   { section = "Out of scope"; in_task = 0; next }
     /^## / { section = ""; in_task = 0; next }
-    /^### Task / {
+    spec_parse_is_task_heading($0) {
       in_task = 1
-      curid = ""
-      if ($3 ~ /^[0-9]+(\.[0-9]+)?$/) {
-        printf "TID\t%s\n", $3
-        curid = $3
-      }
+      curid = spec_parse_task_id($0)
+      if (curid != "") printf "TID\t%s\n", curid
       next
     }
     /^### / { in_task = 0; next }
@@ -731,8 +771,9 @@ baseline_checks() {
     # stable-ID diff have to parse the same grammar, or a fenced mock id
     # present in BOTH revisions reads as an id that vanished.
     old_ids=$(debaseline "$old_req" requirements.md \
-      | grep -oE '^- \*\*REQ-[A-Z][0-9]+\.[0-9]+\*\*' \
-      | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+') || old_ids=
+      | awk "$spec_parse_awk_grammar"'
+        { id = spec_parse_req_bullet_id($0); if (id != "") print id }
+      ') || old_ids=
     printf '%s\n' "$old_ids" | while read -r oid; do
       [ -n "$oid" ] || continue
       set_in "$oid" "$all_req_ids" \
@@ -794,7 +835,9 @@ baseline_checks() {
   fi
   if [ -n "$old_des" ]; then
     old_ids=$(debaseline "$old_des" design.md \
-      | grep -oE '^### D-[0-9]+:' | grep -oE 'D-[0-9]+') || old_ids=
+      | awk "$spec_parse_awk_grammar"'
+        { id = spec_parse_dec_id($0); if (id != "") print id }
+      ') || old_ids=
     printf '%s\n' "$old_ids" | while read -r oid; do
       [ -n "$oid" ] || continue
       set_in "$oid" "$all_d_ids" \
@@ -804,7 +847,9 @@ baseline_checks() {
   fi
   if [ -n "$old_tsk" ]; then
     old_ids=$(debaseline "$old_tsk" tasks.md \
-      | awk '/^### Task / && $3 ~ /^[0-9]+(\.[0-9]+)?$/ { print $3 }') || old_ids=
+      | awk "$spec_parse_awk_grammar"'
+        { id = spec_parse_task_id($0); if (id != "") print id }
+      ') || old_ids=
     printf '%s\n' "$old_ids" | while read -r oid; do
       [ -n "$oid" ] || continue
       if set_in "$oid" "$all_t_ids"; then
@@ -1081,8 +1126,15 @@ validate_bundle() {
     # Fence-stripped (REQ-C1.2): a fenced entry heading is an example of the
     # test-spec form, and must not be able to satisfy coverage for a REQ that
     # has no real entry — the fail-OPEN half of fence-awareness.
-    heads=$(defence "$bdir/test-spec.md" | grep '^### ' \
-      | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+') || heads=
+    # Every id on an entry heading, not just the first: one heading may name
+    # more than one REQ, and each of those is covered (Task 8; REQ-B1.5).
+    heads=$(defence "$bdir/test-spec.md" \
+      | awk "$spec_parse_awk_grammar"'
+        /^### / {
+          n = split(spec_parse_req_tokens($0), t, " ")
+          for (i = 1; i <= n; i++) print t[i]
+        }
+      ') || heads=
     printf '%s\n' "$live_req_ids" | while read -r rid; do
       [ -n "$rid" ] || continue
       set_in "$rid" "$heads" \

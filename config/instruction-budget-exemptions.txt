@@ -110,17 +110,27 @@ declared-exception|start-load:self-review|Below the 2x start-load restoration ta
 declared-exception|closure:spec-kickoff|Below the 2x closure restoration target (margin 1515 < target 2000) after inception Task 3 grew doctrine/decision-domains.md, discovery-rigor.md, and validation-rigor.md — all three point-of-use docs in /spec-kickoff's manifest (the sign-off gap check and lens pass); the closure floor (1000) is not breached. Same disposition as the sibling entries above: the growth is the REQ-I1.2 / REQ-I1.3 deliverable, already density-trimmed. Diet back to target deferred to instruction-headroom relief.
 
 # Standing below-target exception for /execute-task (instruction-headroom D-11,
-# REQ-D1.6). anchor-integrity Task 5 adds the act-on-findings re-anchor ritual
-# (D-5, REQ-C1.1-C1.3) to the convergence step and the in-flight-amendment
-# section: the stale-anchor pre-flight and the binding of a convergence finding
-# that edits the spec to that ritual. The body sat one word above its 2x
-# per-file restoration target before this task, so any conforming addition
-# trips the below-target warning; the per-file floor stays intact, so this is a
-# below-target shortfall, never a floor-breach. The addition was already
-# minimized structurally — the pre-flight was placed in the amendment section
-# that states the expression-only and meaning-class lanes rather than restated
-# beside them, and the convergence paragraph is a one-line binding — and the
-# general doctrine statement this task also lands went to doctrine/spec-format.md,
-# whose permanent per-file exemption and capped aggregate charge keep it off
-# every dependent's start-load and closure budgets. What remains is gating law.
-declared-exception|skills/execute-task/SKILL.md|Below the 2x per-file restoration target after anchor-integrity Task 5 added the act-on-findings re-anchor ritual (D-5, REQ-C1.1-C1.3) to the convergence step and the in-flight-amendment section; the per-file floor is not breached. The body was one word above target beforehand, so any conforming addition trips this; the added prose is gating law, already minimized by placing the pre-flight in the amendment section rather than restating the lanes beside it. Diet back to target deferred to instruction-headroom relief.
+# REQ-D1.6). Two specs grew the same convergence step and arrived together in
+# this merge, so ONE entry covers both — the surface is the file, not the task,
+# and a second entry naming the same surface would suppress nothing extra while
+# going stale independently. merge-currency-guard Task 3 (REQ-B1.1, REQ-B1.5,
+# D-4) adds the convergence-loop `main`-sync call, its mechanism offloaded to
+# scripts/converge-sync-main.sh so the body grows by one instruction rather than
+# a paragraph, and the residue already at the floor of what the requirement's
+# three clauses can say (run it once per pass at the top; halt on a non-zero
+# exit with its reason; the PR still only opens draft). anchor-integrity Task 5
+# (D-5, REQ-C1.1-C1.3) adds the act-on-findings re-anchor ritual to that same
+# step and to the in-flight-amendment section: the stale-anchor pre-flight and
+# the binding of a convergence finding that edits the spec to that ritual. It
+# too was minimized structurally — the pre-flight sits in the amendment section
+# that already states the expression-only and meaning-class lanes rather than
+# being restated beside them, the convergence paragraph is a one-line binding,
+# and the general doctrine statement went to doctrine/spec-format.md, whose
+# permanent per-file exemption and capped aggregate charge keep it off every
+# dependent's start-load and closure budgets. Each task entered its own baseline
+# a handful of words above the 2x target, so either addition alone trips the
+# below-target warning and the pair widens the shortfall; the per-file floor
+# stays intact, so this is a below-target shortfall, never a floor-breach. Only
+# the per-file surface is affected — start-load and closure both stay above
+# target. What remains, on both counts, is gating law.
+declared-exception|skills/execute-task/SKILL.md|Below the 2x per-file restoration target (margin 284 < target 500) after merge-currency-guard Task 3 added the convergence-loop `main`-sync invocation (REQ-B1.1, REQ-B1.5, D-4) and anchor-integrity Task 5 added the act-on-findings re-anchor ritual (D-5, REQ-C1.1-C1.3), both landing on the convergence step and merged together here; the per-file floor (250) is not breached. One entry covers both because the surface is the file. Each was already minimized structurally — the sync mechanism lives in scripts/converge-sync-main.sh so only the one-line call is charged here, and the re-anchor pre-flight sits in the in-flight-amendment section rather than restating the lanes beside it — and each entered its own baseline within a handful of words of target, so no conforming form of either addition holds it. Diet back to target deferred to instruction-headroom relief; do not trim the sync instruction, the re-anchor ritual, or the surrounding convergence law to reabsorb it. Carrying both additions leaves the margin close enough to the floor that the next same-file addition has to bring relief or a compensating trim in the same change (REQ-E1.1) rather than widen this entry again.

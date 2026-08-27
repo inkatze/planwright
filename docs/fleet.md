@@ -1,7 +1,10 @@
 # Fleet operation: the approachable path
 
 planwright can run a **fleet**: several specs advancing at once, each unit
-executed by its own isolated worker, supervised by a meta-tower. This guide is
+executed by its own isolated worker, supervised by a meta-tower. This is
+planwright as an **agentic software factory**: standardized inputs (signed
+specs), an automated assembly path, automated quality control, and a human
+review gate at the end of the line. This guide is
 the approachable path into that mode — one command, one surface to watch, no
 multiplexer knowledge required. The approachable path is the *default*
 presentation of fleet operation, not a simplified fallback: full execution
@@ -804,6 +807,19 @@ dispatch-entry set, so an out-of-enum command is refused at every overlay layer
 (REQ-E1.2), and the dispatch table and the convergence knob can never both claim
 the same skill.
 
+The table itself now lives in `scripts/allocation-select.sh`, generalized so
+any launch point can resolve through one resolver rather than fleet dispatch
+alone (model-allocation D-5); `fleet-resource-select.sh` is the fleet-scoped
+front door onto it and its CLI is unchanged. Each column reads the general
+`allocation_<column>_<task-type>` knob first, and the `fleet_*` knobs named
+above are its **deprecated fallback**: core ships all nine of those general
+knobs (three columns across the three task types) as `unset`, which is exactly
+what keeps the legacy family in charge, so an existing overlay keeps working
+untouched and needs no migration.
+The legacy family is documented, not removed. The same family also carries
+rows for the surfaces that select nothing today, which ship `inherit` instead.
+Per-knob detail is in the [options reference](options-reference.md).
+
 **Throttling is reactive, off Claude Code's own signal.** There is no
 supported way to query account-level usage, so the fleet reacts to the one
 authoritative signal that exists: the native rate-limit prompt a session
@@ -1038,7 +1054,8 @@ are in the [options reference](options-reference.md).
 | `max_parallel_units` | Per-spec concurrency cap | Your per-spec load | `3` — bounded parallelism out of the box |
 | `fleet_max_parallel_units` | Fleet-wide bound across all specs | Your total fleet load | `3` — enabling the meta-tower never multiplies load until you raise it |
 | `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you (`none` / `tmux-popup` / `os-notify` / `editor-toast` / `statusline`) | `none` — pull-only, dependency-free, nothing fires until you opt in |
-| `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
+| `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
+| `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, with fleet dispatch the only one wired to read it so far (Task 6 wires the rest) | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the surfaces that select nothing today — configure nothing, observe no change |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
 
 Style values never gate capability: every knob's default keeps the full
