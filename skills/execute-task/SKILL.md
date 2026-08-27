@@ -329,21 +329,36 @@ After each returns:
   next skill; once the sequence has run, proceed to PR creation, folding each
   skill's audit record — the four bucket tables (per `finding-categorization`),
   the declined log, the pending-sign-off checklist, and any queued
-  Needs-human-judgment forks — into the PR body.
+  Needs-human-judgment forks — into the PR body. One queued fork stops PR
+  creation: a meaning-class spec finding is contract drift, and the
+  meaning-class refusal below governs it.
 - **Safety stop** (wider-suite failure, loop detection, iteration cap): the
   branch may be known-broken. Surface the stop reason and halt; do not run later
   review-sequence skills or open a PR over a broken branch.
 - **Hard-disqualifier finding** a review-sequence skill surfaced but could not
   resolve autonomously: a stop condition — hand off for human direction.
 
+**A convergence finding whose fix edits this spec's anchored content** is an in-flight
+amendment, never a direct edit: it takes the ritual below — the stale-anchor
+pre-flight first, then the expression-only lane or the meaning-class refusal.
+
 ## In-flight amendments (D-19, REQ-A3.3, REQ-F1.10)
 
-If implementation reveals the spec itself needs an edit, classify it on the
-amendment axis (the `spec-format` amendment ritual):
+If implementation or convergence reveals the spec itself needs an edit, the
+meta-spec's writer prose (`spec-format`, *Sign-off records and content
+anchors*) governs what this skill owes. **Pre-flight first:** before the first
+edit, recompute the anchor with the brief's most recent recorded command; a
+mismatch, an absent or unparseable entry, and a failed recompute each block the
+edit alike — surface the condition instead of editing on top of it. A blocked
+edit takes its disposition from its route: a convergence finding queues as an
+irreducible fork routed to the anchor repair, folded into the PR body; an edit
+this task's own implementation work revealed is a **stop condition** — record
+the unit to `tasks.md` Awaiting input and halt. With the pre-flight clean,
+classify the edit on the amendment axis:
 
 - **Expression-only** (a typo, ambiguity, or gap-fill consistent with the
-  accepted decisions): fix it in place with a dated `## Changelog` entry riding
-  this task's PR, and write a **marked self-re-anchor entry** to the brief's
+  accepted decisions): fix it in place in **one commit** with a dated
+  `## Changelog` entry, and a **marked self-re-anchor entry** to the brief's
   amendment log — `Class: expression-only`, citing the changelog line, anchor by
   `scripts/spec-anchor.sh specs/<spec>` written last. This is the one anchor
   entry an execution skill may write.
