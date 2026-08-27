@@ -51,8 +51,9 @@
 # are wired as `fleet-liveness.sh hook <event>`, so dropping them would check an
 # invocation the harness never makes. The commands come from the repo's own
 # tracked registration files, as trusted as the rest of the checkout, and each
-# run has the worker identity neutralised and is bounded by `timeout` where that
-# is available — on a host without it the runs are unbounded, which is why the
+# run has the worker identity neutralised and is bounded by `timeout` (or the
+# `gtimeout` the Homebrew coreutils build installs on macOS) where one is
+# available — on a host with neither the runs are unbounded, which is why the
 # handlers being repo-tracked is the load-bearing half of this argument. Point
 # `--hooks` at a registration file you do not trust and you are executing its
 # commands; that flag exists for this guard's own tests.
@@ -208,10 +209,23 @@ run_hook() {
   # attention surface the operator reads. The identity vars are dropped and the
   # fleet state root is pointed at a scratch directory, so a handler that writes
   # state writes it somewhere disposable.
+  # BOUNDING BINARY. `timeout` is coreutils and is not stock macOS, where the
+  # Homebrew build installs it as `gtimeout`, so probing only `timeout` would
+  # take the unbounded branch on a Mac that HAS a bounding tool sitting right
+  # there. ready-guard.sh's `timeout_bin` already widened the probe for this
+  # reason; this is the same widening. The unbounded fallback below still
+  # stands for a host with neither — that is the deliberate degrade the header
+  # names, and this only narrows how often it is reached.
+  hook_timeout_bin=""
   if command -v timeout >/dev/null 2>&1; then
+    hook_timeout_bin=timeout
+  elif command -v gtimeout >/dev/null 2>&1; then
+    hook_timeout_bin=gtimeout
+  fi
+  if [ -n "$hook_timeout_bin" ]; then
     env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
       PLANWRIGHT_FLEET_STATE_DIR="$SCRATCH/fleet" \
-      timeout "$HOOK_TIMEOUT" "$@" 2>/dev/null
+      "$hook_timeout_bin" "$HOOK_TIMEOUT" "$@" 2>/dev/null
   else
     env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
       PLANWRIGHT_FLEET_STATE_DIR="$SCRATCH/fleet" \

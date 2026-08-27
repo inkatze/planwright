@@ -441,6 +441,54 @@ assert_contains "a finding carries a remedy" "remedy:" "$out"
 assert_not_contains "findings are not bare failure markers" "FAIL: unknown" "$out"
 
 # ---------------------------------------------------------------------------
+# 4. The hook runs are bounded on macOS too, not just where `timeout` exists.
+# ---------------------------------------------------------------------------
+# `timeout` is coreutils and is not stock macOS; the Homebrew build installs it
+# as `gtimeout`. A probe that only looks for `timeout` therefore runs handlers
+# UNBOUNDED on a Mac that has a bounding tool sitting right there, which is the
+# one host where a misbehaving hook could hang `mise run check` indefinitely.
+#
+# Driven through a PATH mirroring the real one MINUS `timeout`, plus a
+# `gtimeout` shim that records its invocation and then execs the real bounding
+# tool, so the assertion is "the guard reached for gtimeout", not "the guard
+# happened to still work".
+tbin_dir="$TMP/notimeout"
+mkdir -p "$tbin_dir"
+real_timeout=$(command -v timeout || true)
+if [ -z "$real_timeout" ]; then
+  echo "ok: gtimeout probe (skipped: no timeout binary on this host to mirror)"
+else
+  old_ifs=$IFS
+  IFS=:
+  for d in $PATH; do
+    [ -d "$d" ] || continue
+    for f in "$d"/*; do
+      [ -e "$f" ] || continue
+      b=${f##*/}
+      [ "$b" = timeout ] && continue
+      [ "$b" = gtimeout ] && continue
+      [ -e "$tbin_dir/$b" ] || ln -s "$f" "$tbin_dir/$b" 2>/dev/null || true
+    done
+  done
+  IFS=$old_ifs
+  witness="$TMP/gtimeout-was-used"
+  {
+    echo '#!/bin/sh'
+    echo "printf 'x' >>\"$witness\""
+    echo "exec \"$real_timeout\" \"\$@\""
+  } >"$tbin_dir/gtimeout"
+  chmod +x "$tbin_dir/gtimeout"
+  rm -f "$witness"
+  PATH="$tbin_dir" "$GUARD" >/dev/null 2>&1
+  if [ -s "$witness" ]; then
+    echo "ok: hook runs are bounded via gtimeout when timeout is absent (macOS shape)"
+  else
+    echo "FAIL: the guard ran hooks unbounded with gtimeout available (timeout-only probe)" >&2
+    failures=$((failures + 1))
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 if [ "$failures" -eq 0 ]; then
   echo "PASS: check-hook-contracts"
   exit 0
