@@ -330,8 +330,8 @@ After each returns:
   skill's audit record — the four bucket tables (per `finding-categorization`),
   the declined log, the pending-sign-off checklist, and any queued
   Needs-human-judgment forks — into the PR body. One queued fork does not ride
-  the PR: a meaning-class spec finding is contract drift, and the stop
-  condition below governs it.
+  the PR: a meaning-class spec finding is contract drift, and the meaning-class
+  refusal below governs it.
 - **Safety stop** (wider-suite failure, loop detection, iteration cap): the
   branch may be known-broken. Surface the stop reason and halt; do not run later
   review-sequence skills or open a PR over a broken branch.
