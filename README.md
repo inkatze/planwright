@@ -12,15 +12,18 @@ on its own — while you keep the two controls that matter: **sign-off** and
 
 Think autopilot, not a replacement crew. How well it flies is bounded by how
 good your spec is, so planwright's whole investment is getting the spec right
-before any code is written. Under the hood it is **loop engineering with
-guardrails**: the agent runs in autonomous review-and-execute loops (bounded by
-iteration caps, convergence criteria, and no-progress detection), and every
-irreversible action stops at a human checkpoint.
+before any code is written. Under the hood it is a guardrailed **agent
+harness**: the model brings the intelligence; planwright brings the
+verification loops, bounded iteration, no-progress detection, and hard human
+checkpoints that make autonomous coding shippable. Run one spec and it is an
+autopilot; run several and it is an
+[agentic software factory](#run-it-as-a-software-factory) with a human quality
+gate at the end of the line.
 
 > **Status: v1, self-hosting.** The founding spec (`specs/bootstrap/`) that
 > defines planwright v1 is complete, and planwright now develops itself through
 > the same pipeline it ships. It is young software — expect rough edges, and
-> please report what you find.
+> please [report what you find](https://github.com/inkatze/planwright/issues/new/choose).
 
 **New here?** The [getting-started guide](docs/getting-started.md) takes you
 from a clean machine to running the pipeline end to end.
@@ -93,6 +96,28 @@ controls:
 
 The [getting-started guide](docs/getting-started.md) walks each step in depth.
 
+## Run it as a software factory
+
+One signed-off spec is autopilot; several at once is a factory floor. Fleet
+mode turns planwright into a small **agentic software factory**: standardized
+inputs (signed specs), an automated assembly path (isolated workers in
+dedicated worktrees), automated quality control (test-first execution, full
+CI, bounded review convergence), and a human review gate at the end of the
+line.
+
+```text
+/orchestrate --fleet
+```
+
+That one command autodetects the execution backends on your host, starts a
+meta-tower that supervises every Ready or Active spec (one subordinate tower
+per spec, one isolated worker per task, all under a fleet-wide concurrency
+bound), and renders a single attention surface: a decision queue plus
+per-worker heartbeats. You answer only the questions that are yours. The same
+two controls hold at fleet scale: every unit executes from a spec you signed,
+and every PR lands as a draft for you to merge. See
+[Fleet operation](docs/fleet.md).
+
 ## How it works
 
 ### The two controls
@@ -127,7 +152,8 @@ The format is specified in full in
 
 ## Commands
 
-planwright ships eleven skills; each is a slash command in Claude Code.
+planwright ships a skill for each pipeline stage; each is a slash command in
+Claude Code.
 
 | Stage | Command | What it does |
 | --- | --- | --- |
@@ -154,6 +180,26 @@ them over its core. Defaults live in
 the [options reference](docs/options-reference.md) (an undocumented option fails
 CI). See [Customizing with overlays](docs/overlays.md) for the full model.
 
+## How it compares
+
+Spec-driven development has many good tools; most stop at the spec. planwright's
+bet is that the spec is only half the story: the other half is the guardrailed
+harness that takes a signed spec all the way to reviewed draft PRs, at fleet
+scale if you want it.
+
+| | [GitHub Spec Kit](https://github.com/github/spec-kit) | [Kiro](https://kiro.dev) | [OpenSpec](https://github.com/Fission-AI/OpenSpec) | planwright |
+| --- | --- | --- | --- | --- |
+| Spec authoring | ✅ specify / plan / tasks | ✅ spec-first IDE | ✅ lightweight change deltas | ✅ four-file bundle with a human sign-off gate |
+| Autonomous execution | hands off to your agent | inside the IDE | hands off to your agent | ✅ test-first, full CI, bounded loops |
+| Review convergence | — | — | — | ✅ autonomous review-and-fix until clean |
+| Delivery | — | — | — | ✅ draft PRs; merge stays human |
+| Parallel orchestration | — | — | — | ✅ multi-spec fleet mode |
+| Runs on | agent-agnostic CLI | AWS IDE | agent-agnostic CLI | Claude Code, natively (no second framework) |
+
+If you want an agent-agnostic spec format, Spec Kit and OpenSpec are excellent.
+If you live in Claude Code and want the spec *executed*, reviewed, and
+delivered while you keep sign-off and merge, that is planwright.
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md) — install, the GitHub requirement,
@@ -161,15 +207,14 @@ CI). See [Customizing with overlays](docs/overlays.md) for the full model.
 - [Customizing with overlays](docs/overlays.md) — the four-layer model and
   per-kind merge rules.
 - [Conventions](docs/conventions.md) — branch, worktree, and repo conventions.
-- [Orchestration state](docs/orchestration-state.md) — the derived-projection
-  model: how progress is derived from git/GitHub evidence, the single-writer
-  reconcile, and the no-remote flow. Version-keyed off each bundle's
-  `Format-version:`: a format-version 2 bundle drops the committed snapshot
-  entirely and reads status through the on-demand render.
+- [Orchestration state](docs/orchestration-state.md) — how progress is derived
+  from git/GitHub evidence rather than kept in a mutable ledger.
 - [Fleet operation](docs/fleet.md) — the approachable path: the one entry
   command, the decision queue, the persona-to-seams mapping, and the
   execution-backend seam (autodetect, the degradation ladder, plugging in
   your own backend) — no multiplexer knowledge required.
+- [Per-tower checkouts](docs/per-tower-checkouts.md) — running several towers
+  on one repository without them racing over a shared local `main`.
 - [Options reference](docs/options-reference.md) — every configuration option.
 - [Doctrine](doctrine/README.md) — the framework's rule docs: validation and
   discovery rigor, finding categorization, engineering decisions, security
@@ -181,7 +226,7 @@ CI). See [Customizing with overlays](docs/overlays.md) for the full model.
 
 ```text
 .claude-plugin/   plugin + marketplace manifests (the install path)
-skills/           the eleven planwright skills (one directory each)
+skills/           the planwright skills (one directory each)
 doctrine/         the framework rule docs
 scripts/          portable-shell entry points (installer, resolver, checks)
 config/           tracked default config
@@ -195,12 +240,9 @@ tests/            shell tests for the scripts
 planwright pins its toolchain with [mise](https://mise.jdx.dev): run
 `mise install` once and `scripts/wire-githooks.sh` once per clone (the
 tracked git-hook backstop; the gate fails loudly on an unwired clone), then
-`mise run check` runs the full gate — shell tests,
-shellcheck, shfmt, markdownlint, yamllint, conventional-commit lint, manifest +
-link + options-reference checks, the ledger structural-corruption +
-duplicate-Status guard, the spec validator, the hook-wiring check, and a
-gitleaks scan. It is the
-same gate CI runs on every pull request. This is dev tooling only;
+`mise run check` runs the full gate: tests, linters and formatters, the spec
+and manifest validators, and a secret scan. It is the same gate CI runs on
+every pull request (`mise tasks` lists each check). This is dev tooling only;
 planwright's runtime scripts stay plain portable bash. See
 [Contributing](docs/CONTRIBUTING.md) for the workflow.
 

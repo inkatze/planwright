@@ -333,6 +333,42 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 
 ## Changelog
 
+- 2026-08-26 — **REQ-H1.3 finding, recorded (Task 10): removing
+  `bootstrap-sha` is NOT safe, and the key stays.** Verified against
+  release-please `v17.6.0` `src/manifest.ts` (the version
+  `googleapis/release-please-action@v5.0.0` depends on, as `^17.6.0` in its
+  `package.json` — a caret range, so a build resolves any later 17.x).
+  With the key absent, release-please does **not** fail loudly; it
+  regenerates from *further back*, not less far. `needsBootstrap` is
+  recomputed every run as `releasesFound < expectedReleases`, so it is true
+  in exactly the race window obs:fd6c2f4f describes, not only on a repo's
+  first run. The commit-collection loop then breaks on one of three
+  conditions: a configured `lastReleaseSha`; `needsBootstrap && commit.sha
+  === this.bootstrapSha`; or `!needsBootstrap && releaseCommitsFound >=
+  expectedShas`. With `bootstrapSha` undefined the second can never match
+  and the third is gated off, so the loop runs to exhaustion of the
+  merge-commit iterator, bounded only by `commitSearchDepth`
+  (`DEFAULT_COMMIT_SEARCH_DEPTH = 500`). `commitsAfterSha(commits,
+  undefined)` then returns every collected commit, and the manifest backfill
+  ("No latest release found ... but a previous version was specified in the
+  manifest") runs *after* collection and only synthesizes the tag name for
+  the bump, bounding nothing. That depth is a scan cap on the branch's
+  commit history, not on merge commits — `mergeCommitIterator` walks every
+  commit with its associated PR, and this repo squash-merges its PRs, so no
+  merge commit sits between `71ea089f` and HEAD; the 18 this history does
+  hold are all older, inside the very segment an unbounded walk would newly
+  cover. Net: the key currently stops collection at
+  `71ea089f`, and that already yielded #339's 124 entries; dropping it would
+  walk to the root commit instead, since this repo's whole history sits well
+  inside the 500 cap — a strictly larger bogus proposal, still with no loud
+  failure. This confirms D-14's
+  rejection of "remove `bootstrap-sha` outright" was correct, inverts
+  obs:fd6c2f4f's fix (3) hypothesis that absence "should make the failure
+  loud rather than generative", and closes REQ-H1.3 with no follow-up task
+  proposed. It also contradicts the upstream manifest-releaser doc's claim
+  that the value "will be ignored for all subsequent runs" once a
+  release-please PR has merged: #339 is the empirical counterexample, and
+  the `needsBootstrap` recomputation above is the mechanism.
 - 2026-08-25 — Pre-merge amendment on the spec PR (#353), meaning-class: new
   **REQ-H** (release-proposal integrity) with **D-13**/**D-14** and Tasks 9-10,
   covering the release-please bootstrap race recorded as obs:fd6c2f4f — the

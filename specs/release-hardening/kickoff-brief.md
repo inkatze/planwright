@@ -537,3 +537,66 @@ Lens-pass: §9 "Amendment 3" — the delta-scoped lens review above, canonical
 table and all dispositions recorded in this section
 Anchor: `c8502e7ece784bcde91f69dec9d9a09b2bd5f8f5` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Re-anchor — REQ-H1.3 finding recorded (2026-08-26)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by `/execute-task` on Task 10.
+
+**Why the anchor moved:** `requirements.md` gained the `## Changelog` entry
+REQ-H1.3 commissions. REQ-H1.3's whole obligation is "establish and record the
+fact"; recording the established fact executes an accepted decision rather than
+changing one, so the delta is expression-only. No requirement, decision, or
+task text was edited — in particular D-14's `Alternatives considered:` entry
+for "Remove `bootstrap-sha` outright" is left exactly as signed, because the
+finding vindicates its reasoning rather than revising it.
+
+**Cites the changelog line:** the 2026-08-26 `## Changelog` entry in
+`requirements.md` ("REQ-H1.3 finding, recorded (Task 10): removing
+`bootstrap-sha` is NOT safe, and the key stays").
+
+Task 10's other half (REQ-H1.2) is **not** delivered: it halted on
+meaning-class contract drift, recorded in `tasks.md` `## Awaiting input` and
+routed to a `/spec-kickoff` delta re-walkthrough. That entry sits outside the
+anchor's `tasks.md` extraction (task-definition content only), verified by
+isolation: with the `requirements.md` edit set aside, the bundle recomputes to
+`c8502e7e`, the prior entry's value.
+
+Class: expression-only
+Anchor: `00bb891f207f57dfc74c0440c9995cacb592521a` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`
+
+### Re-anchor — merge-commit clause corrected in the REQ-H1.3 finding (2026-08-26)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by `/panel-review` on Task 10.
+
+**Why the anchor moved:** one supporting clause of the `## Changelog` entry
+above was factually wrong. It read "this repo squash-merges, so it holds no
+merge commits at all"; `origin/main` holds 18. The measurement behind it
+(`git rev-list --merges --count`, cited in commit `78c0218`) was taken over
+`71ea089f..HEAD`, which returns 0, but the claim it supports is about the walk
+*past* `71ea089f` — and all 18 merge commits sit in `root..71ea089f`, exactly
+the segment an unbounded walk would newly cover. The clause now scopes the
+measurement to the range it was taken over and states the count for the rest.
+
+**What did not change:** the finding's conclusion, which never depended on the
+clause. The scan cap is on the branch's commit history rather than on merge
+commits either way, all 433 commits sit inside the 500 cap, and removing
+`bootstrap-sha` still walks to the root commit with no loud failure. The key
+stays; D-14 is untouched.
+
+**Also corrected, anchor-neutral:** the `## Awaiting input` bullet in
+`tasks.md` used an em-dash after its bold lead, which lands first in the
+rendered payload because `spec-parse.sh` strips `- **Task <id>**` before
+emitting. `sanitize_printable`'s C1 byte-range strip then mangled it into a
+replacement character in `mise run status` (documented as the intended trade
+in `scripts/echo-safety.sh`, so the fix belongs on the authoring side). Now a
+colon. The bullet's remaining em-dashes sit on continuation lines, which that
+extractor never reads, so they render nothing and were left alone. Re-verified by isolation with that edit in
+place: with the `requirements.md` edit set aside, the bundle still recomputes
+to `c8502e7e`.
+
+Class: expression-only
+Anchor: `99502f9688a480ff4b3fbbe23d3c014acf907355` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`

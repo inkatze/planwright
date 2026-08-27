@@ -1,0 +1,32 @@
+#!/bin/sh
+# planwright pre-commit dispatcher (anchor-integrity Task 4; REQ-D1.3, D-6):
+# runs the repo's lefthook pre-commit jobs — today, the anchor-freshness mirror
+# scoped to commits that stage `specs/**` (see lefthook.yml).
+#
+# It lives here, rather than being installed by `lefthook install`, because
+# core.hooksPath already points at this tracked directory (guard-coverage D-2,
+# scripts/wire-githooks.sh): letting lefthook install itself would have it
+# overwrite the tracked hooks. So the install step for the mirror is the clone's
+# existing one — scripts/wire-githooks.sh — and nothing new to remember.
+#
+# Best-effort by design (the normative gate is `mise run check` in CI). Every
+# arm below is a clean, silent no-op: no lefthook on PATH, no lefthook.yml (a
+# branch predating this hook), or no guard script. A missing convenience must
+# never block a commit.
+#
+# Deliberate human bypass: `git commit --no-verify`, or temporarily unsetting
+# core.hooksPath.
+set -u
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+command -v lefthook >/dev/null 2>&1 || exit 0
+
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -f "$top/lefthook.yml" ] || exit 0
+[ -x "$top/scripts/check-anchor-freshness.sh" ] || exit 0
+
+# --no-auto-install belt-and-braces with lefthook.yml's `no_auto_install`: the
+# tracked hooks in this directory are never lefthook's to rewrite.
+lefthook run pre-commit --no-auto-install

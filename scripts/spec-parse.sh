@@ -29,9 +29,15 @@
 #                               spec bundles prepends (Task 6; REQ-C1.2)
 #   spec_parse_fence_balance    the fence-imbalance probe behind the
 #                               validator's REQ-D1.11 flag (Task 6)
+#   $spec_parse_awk_grammar     the line-80 families — REQ bullets, D-ID
+#                               headings, task headings, the five task
+#                               definition fields, and the
+#                               `Dependencies:`/`Citations:` token extractions
+#                               — as awk source, the same prepend shape
+#                               (Task 8; REQ-B1.5)
 #
-# The line-80 surfaces (REQ bullets, D-headings, `Dependencies:`/`Citations:`
-# tokens) follow as their tasks land.
+# With Task 8 the lib holds every family D-4 named, so the grammar has one
+# home rather than a decided one.
 #
 # Surface: internal-only (format-grammar kickoff brief, risk register row 6).
 # In-repo scripts are the only supported consumers; no adopter stability
@@ -690,3 +696,195 @@ spec_parse_parked_map() {
   spec_parse__nul_screen "$1" || return 1
   LC_ALL=C awk "$spec_parse_awk_fence$spec_parse__parked_awk" <"$1"
 }
+
+# --- The line-80 grammar (Task 8; REQ-B1.5 · D-4) ----------------------------
+#
+# The last families D-4 named: requirement bullets, D-ID headings, task
+# headings, the five task definition fields, and the `Dependencies:` /
+# `Citations:` token extractions. Named for the frozen legacy observation
+# (line 80) that recorded them living in three independent encodings across
+# scripts/spec-validate.sh, scripts/orchestrate-select.sh, and
+# scripts/spec-model.sh.
+#
+# Shipped as awk SOURCE each program prepends, the $spec_parse_awk_fence
+# precedent and for the same reasons: those three consumers each drive their
+# own awk program over the file, so a filter process would cost them NR (which
+# the validator's findings cite as `<file>:<n>`) and split one parse into two
+# exit statuses (REQ-B1.6f). Composes with the fence lexer by concatenation —
+# put the fence source FIRST, since its rules must run before any consumer
+# rule, and function definitions are order-free:
+#
+#   LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
+#     spec_parse_is_task_heading($0) { id = spec_parse_task_id($0); ... }
+#   ' <"$file"
+#
+# Every function takes the WHOLE line and returns a scalar, so a consumer never
+# re-derives a lead pattern to slice past: `spec_parse_dec_title` gives what
+# follows the decision id, `spec_parse_task_field_value` what follows a
+# definition bullet's bolded lead. The list-returning functions
+# (`spec_parse_req_tokens`, `spec_parse_dep_ids`, `spec_parse_cite_ids`) return
+# a SPACE-PADDED list (" 1 6 "), which the callers either split or membership-
+# test with `index(list, " " x " ")` — the space padding is what makes that test
+# whole-token.
+#
+# Known bound, deliberate: no CR trim. The task-heading parse reads the third
+# whitespace field exactly as the three pre-lib copies did, and the canonical
+# extraction (spec_parse_extract_tasks) reads the same field for its sort key,
+# where a CR trim would move the content anchor of every CRLF checkout
+# (REQ-B1.2 forbids that). CRLF tolerance lives in the families that CAN carry
+# it — the header-block and parked-map parses, which trim before matching.
+#
+# Grammars, all pinned to the meta-spec (doctrine/spec-format.md):
+#   REQ id      REQ-<letter><n>.<m>, bulleted as `- **<id>**` at column 0
+#   D id        D-<n>, headed as `### D-<n>: <title>`
+#   task id     <n> or <n>.<m>, headed as `### Task <id> — <title>`
+# shellcheck disable=SC2016,SC2034 # awk source, not a shell expansion; the
+# consumers that prepend it to their own awk program are the only users, and
+# they live outside this file
+spec_parse_awk_grammar='
+  # --- Requirement bullets -------------------------------------------------
+  # The id lead of a requirement bullet, or "" when the line is not one. The
+  # bolded lead is `- **` <id> `**`, so a caller wanting the text after it
+  # slices from length(id) + 7 rather than reading RLENGTH back out.
+  function spec_parse_req_bullet_id(s) {
+    if (match(s, /^- \*\*REQ-[A-Z][0-9]+\.[0-9]+\*\*/))
+      return substr(s, 5, RLENGTH - 6)
+    return ""
+  }
+  # Every REQ id token anywhere on the line, space-padded and in line order.
+  # A test-spec entry heading may name more than one, and coverage counts them
+  # all — the property the single-match form below cannot express.
+  function spec_parse_req_tokens(s,   out) {
+    out = " "
+    while (match(s, /REQ-[A-Z][0-9]+\.[0-9]+/)) {
+      out = out substr(s, RSTART, RLENGTH) " "
+      s = substr(s, RSTART + RLENGTH)
+    }
+    return out
+  }
+  # The FIRST REQ id token on the line, or "" — for callers that model one
+  # entry per heading.
+  function spec_parse_req_token(s) {
+    if (match(s, /REQ-[A-Z][0-9]+\.[0-9]+/)) return substr(s, RSTART, RLENGTH)
+    return ""
+  }
+
+  # --- Decision headings ---------------------------------------------------
+  # An ATTEMPT at a decision heading: the `### D-` lead, conforming or not.
+  # The distinction the malformed-heading finding rests on — without it a typo
+  # ("### D-four: …") reads as ordinary prose and is never reported.
+  function spec_parse_dec_attempt(s) { return (s ~ /^### D-/) }
+  # The decision id of a CONFORMING heading (`### D-<n>: <title>`, colon
+  # required), or "".
+  function spec_parse_dec_id(s) {
+    if (s !~ /^### D-[0-9]+:/) return ""
+    match(s, /^### D-[0-9]+/)
+    return substr(s, 5, RLENGTH - 4)
+  }
+  # What follows the id: the title, colon and surrounding whitespace removed.
+  function spec_parse_dec_title(s,   id, line) {
+    id = spec_parse_dec_id(s)
+    if (id == "") return ""
+    line = substr(s, length(id) + 5)
+    sub(/^:[ \t]*/, "", line)
+    sub(/[ \t]+$/, "", line)
+    return line
+  }
+
+  # --- Task headings -------------------------------------------------------
+  function spec_parse_is_task_id(s) { return (s ~ /^[0-9]+(\.[0-9]+)?$/) }
+  function spec_parse_is_task_heading(s) { return (s ~ /^### Task /) }
+  # The task id of a heading whose third field passes the id grammar, or "".
+  # Classification and grammar validation stay distinct gates (REQ-B1.6e): a
+  # line can BE a task heading and still yield no id.
+  function spec_parse_task_id(s,   a, n) {
+    if (!spec_parse_is_task_heading(s)) return ""
+    n = split(s, a, " ")
+    if (n < 3) return ""
+    if (!spec_parse_is_task_id(a[3])) return ""
+    return a[3]
+  }
+  # The title past the id and its em dash, or "" when the heading carries no
+  # conforming id.
+  function spec_parse_task_title(s,   id, t) {
+    id = spec_parse_task_id(s)
+    if (id == "") return ""
+    t = s
+    sub(/^### Task [0-9]+(\.[0-9]+)?[[:space:]]*/, "", t)
+    sub(/^—[[:space:]]*/, "", t)
+    return t
+  }
+
+  # --- Task definition fields ----------------------------------------------
+  # The canonical name of the definition field a bullet declares, or "" for
+  # anything else (a state annotation, a prose bullet). The same five fields
+  # the canonical extraction keeps.
+  function spec_parse_task_field(s) {
+    if (s ~ /^- \*\*Deliverables:\*\*/) return "deliverables"
+    if (s ~ /^- \*\*Done when:\*\*/) return "donewhen"
+    if (s ~ /^- \*\*Dependencies:\*\*/) return "dependencies"
+    if (s ~ /^- \*\*Citations:\*\*/) return "citations"
+    if (s ~ /^- \*\*Estimated effort:\*\*/) return "effort"
+    return ""
+  }
+  # The payload after the bolded lead of a definition bullet, leading
+  # whitespace left intact (a caller that folds whitespace does it at its own
+  # output site).
+  function spec_parse_task_field_value(s) {
+    sub(/^- \*\*[^*]+:\*\*/, "", s)
+    return s
+  }
+
+  # --- Dependency tokens ---------------------------------------------------
+  # The local dependency ids a `**Dependencies:**` bullet declares, space-
+  # padded and in line order. One extraction where there had been two, so the
+  # selector graph and the model graph cannot disagree about an edge.
+  #
+  # Rules, each inherited from one of the two pre-lib copies and kept for the
+  # reason it was there:
+  #   * a parenthetical is dropped whole, together with any cross-spec carry
+  #     clause it introduces ("(REQ-A1.8 / D-9 - the producer is elsewhere)"),
+  #     so ids from another bundle are never extracted (from the selector);
+  #   * commas AND semicolons separate, because a prose list uses both;
+  #   * tokens are grammar-validated whole rather than digit-scraped out of
+  #     the residue (from the bundle reader) - so an unqualified "D-9" sitting
+  #     outside a parenthetical contributes no phantom edge 9;
+  #   * a trailing run of sentence periods is stripped per token, so a prose
+  #     entry ("Task 1.", "2.1.") still yields its id. A task id always ends
+  #     in a digit, so this only ever removes punctuation.
+  # (No apostrophes in this awk program: it is single-quoted in the shell.)
+  function spec_parse_dep_ids(s,   n, a, i, tok, out) {
+    sub(/.*\*\*Dependencies:\*\*/, "", s)
+    sub(/\(.*/, "", s)
+    gsub(/[,;]/, " ", s)
+    n = split(s, a, " ")
+    out = " "
+    for (i = 1; i <= n; i++) {
+      tok = a[i]
+      sub(/\.+$/, "", tok)
+      if (spec_parse_is_task_id(tok)) out = out tok " "
+    }
+    return out
+  }
+
+  # --- Citation tokens -----------------------------------------------------
+  # Every D-id and REQ-id token on the line, space-padded and in line order,
+  # with `owner` (the id of the citing element) skipped so an inline
+  # `*(Cites: ...)*` on a requirement bullet never self-cites. Deliberately
+  # reads the WHOLE line rather than slicing past a lead: the two shapes that
+  # carry citations are a `- **Citations:**` bullet and an inline annotation,
+  # and scraping the line serves both. Duplicates are preserved - the grammar
+  # classifies, and de-duplication is left to each consumer.
+  function spec_parse_cite_ids(s, owner,   n, a, i, tok, out) {
+    gsub(/[^A-Za-z0-9.-]+/, " ", s)
+    n = split(s, a, " ")
+    out = " "
+    for (i = 1; i <= n; i++) {
+      tok = a[i]
+      sub(/\.$/, "", tok)
+      if (tok == owner) continue
+      if (tok ~ /^D-[0-9]+$/ || tok ~ /^REQ-[A-Z][0-9]+\.[0-9]+$/) out = out tok " "
+    }
+    return out
+  }
+'
