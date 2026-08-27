@@ -371,6 +371,58 @@ seqs=$(run_led rows race:unit | cut -f1)
   || fail "13j: racing launches produced duplicate sequence numbers"
 echo "ok: concurrent same-unit launches serialize on the per-unit lock"
 
+# --- 13c. a fatal signal ENDS the run; it never resumes unlocked -----------
+#
+# The lock's whole guarantee is that derive-then-append is one critical section.
+# A bare `trap release_unit_lock ... TERM` breaks it: the handler runs, releases
+# the lock, and then execution RETURNS into the unfinished section — where
+# `record` still exports PLANWRIGHT_ALLOC_LOCK_HELD, so the append skips its own
+# acquire too and writes with no lock held at all. The observable contract that
+# pins the fix is the exit status: a signalled resolve must terminate, never
+# report success. (Verified on both shells of the support bar: dash and bash
+# each run the handler and resume.)
+
+reset_state
+escalation_ready 3
+# `exec`, so the backgrounded pid IS the engine rather than the env-setting
+# subshell around it: signalling the wrapper would report a killed wrapper and
+# pass whatever the engine did.
+(
+  export PATH="$stubbin:$PATH" \
+    PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG=""
+  exec /bin/bash "$AD" resolve sig:unit --key drain --step s1 --attempt 1
+) >/dev/null 2>&1 &
+sig_pid=$!
+# Wait for the lock to actually appear rather than sleeping a fixed interval.
+# `take_unit_lock` runs at the END of the config-resolver chain, so a short fixed
+# sleep signals BEFORE any trap is armed: the run then dies on the default
+# disposition and reports 143 whether or not the handler is correct, passing
+# against the very bug it is meant to pin. Synchronizing on the lock file puts
+# the signal inside the critical section, which is the only place the assertion
+# means anything.
+lockp="$fleet_home/allocation/.lock.sig:unit"
+sig_waited=0
+while [ ! -L "$lockp" ]; do
+  sleep 0.05
+  sig_waited=$((sig_waited + 1))
+  [ "$sig_waited" -lt 600 ] \
+    || fail "13k: the resolve never took the unit lock, so the signal had nothing to interrupt"
+done
+# The lock file is created by the `lock` child; the traps are armed a beat later
+# in the parent. Settle past that hand-off so the signal cannot land in the
+# unarmed gap and pass for the same wrong reason a fixed sleep does.
+sleep 0.2
+kill -TERM "$sig_pid" 2>/dev/null || true
+sig_rc=0
+wait "$sig_pid" 2>/dev/null || sig_rc=$?
+[ "$sig_rc" = 143 ] \
+  || fail "13k: a SIGTERM'd resolve exited $sig_rc, want 143 — the handler released the lock and the run resumed unlocked"
+echo "ok: a fatal signal ends the run rather than resuming the critical section unlocked"
+
 # --- 14. the shipped config carries the knobs this engine reads -----------
 
 real_cfg="$here/../config/defaults.yml"

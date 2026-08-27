@@ -406,7 +406,20 @@ take_unit_lock() {
   # releases), so ownership cannot be inferred from a pid — it has to be carried.
   ALLOC_LOCK_TOKEN=$("$LEDGER" lock "$UNIT") || exit 2
   ALLOC_LOCK_TAKEN=yes
-  trap release_unit_lock EXIT HUP INT TERM
+  # The EXIT trap is the cleanup; the fatal-signal traps re-`exit` so the
+  # interrupted critical section does NOT resume with the lock released. A bare
+  # `trap release_unit_lock ... TERM` would run the handler and then RETURN into
+  # the unfinished derive-then-append, unlocked — and `record` still exports
+  # PLANWRIGHT_ALLOC_LOCK_HELD, so the append would skip its own acquire too,
+  # letting a concurrent same-unit launch derive the same sequence number. The
+  # explicit exit re-enters the EXIT trap, so the release still runs. Same shape
+  # as the sibling lock-holders scripts/fleet-attention.sh and
+  # scripts/tasks-pr-sync.sh; SIGKILL stays unrecoverable and falls to the stale
+  # break.
+  trap release_unit_lock EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 }
 
 release_unit_lock() {
