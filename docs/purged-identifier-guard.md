@@ -25,6 +25,20 @@ the hook catches it at write time, and the CI range scan backs the hook up for
 the clones it never runs in — an unwired clone, a `--no-verify` commit, or a
 fork PR whose author never wired anything.
 
+The write-time screen reads only what git will **keep**. Comment lines, and
+everything below a `--verbose` scissors line, are dropped by git's own message
+cleanup after the hook runs, so screening them would refuse the very commit
+that removes a reintroduction. Which character opens a comment is
+`core.commentChar` (or the newer `core.commentString`), so the screen reads
+that setting rather than assuming `#`: under a non-default character git keeps
+the `#` lines, and a screen that always stripped them would wave an identifier
+straight into permanent history. The `auto` setting is the one case the screen
+cannot resolve — git chooses the character while composing the message, and the
+finished file no longer shows which candidate it picked — so under `auto`
+nothing is stripped and the whole message is screened. That over-screens git's
+own template lines, which is the fail-closed direction. The CI range scan never
+strips comments at all, since by then the message is exactly what git kept.
+
 ## What is committed
 
 `config/purged-identifiers.seed` holds SHA-256 hashes and two directives, and

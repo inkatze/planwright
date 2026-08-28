@@ -480,6 +480,43 @@ msg="$r/msg.txt"
 out="$(git -C "$r" commit --cleanup=scissors -F "$msg" 2>&1)"
 assert_exit "a --verbose scissors diff naming the token does not refuse the commit" 0 $?
 
+# core.commentChar is configurable, and what counts as a comment has to follow
+# it. Under a non-default character git KEEPS '#' lines in the message, so a
+# screen that always strips them would wave the token straight into permanent
+# history.
+r="$(wired_repo hook-commentchar)"
+seed_into "$r" "$TOKEN"
+git -C "$r" config core.commentChar ';'
+printf 'content\n' >"$r/doc.md"
+git -C "$r" add doc.md
+msg="$r/msg.txt"
+printf 'chore: a clean subject\n\n# %s\n' "$TOKEN" >"$msg"
+out="$(git -C "$r" commit -F "$msg" 2>&1)"
+assert_exit "a '#' line is screened when core.commentChar is not '#'" 1 $?
+
+# The other direction: the configured character IS stripped, so a remediation
+# commit is not refused for the comment it carries.
+r="$(wired_repo hook-commentchar-strip)"
+seed_into "$r" "$TOKEN"
+git -C "$r" config core.commentChar ';'
+printf 'content\n' >"$r/doc.md"
+git -C "$r" add doc.md
+msg="$r/msg.txt"
+printf 'chore: a clean subject\n\n; a comment naming %s\n' "$TOKEN" >"$msg"
+out="$(git -C "$r" commit -F "$msg" 2>&1)"
+assert_exit "the configured comment character is still stripped" 0 $?
+
+# A regex-metacharacter comment char must be matched literally, not compiled.
+r="$(wired_repo hook-commentchar-meta)"
+seed_into "$r" "$TOKEN"
+git -C "$r" config core.commentChar '$'
+printf 'content\n' >"$r/doc.md"
+git -C "$r" add doc.md
+msg="$r/msg.txt"
+printf 'chore: a clean subject\n\n$ a comment naming %s\n' "$TOKEN" >"$msg"
+out="$(git -C "$r" commit -F "$msg" 2>&1)"
+assert_exit "a regex-metacharacter comment character is matched literally" 0 $?
+
 # A wired clone that can write history but cannot screen it is the hole the
 # hook closes, so an unreachable scanner is a refusal, not a skip.
 r="$(wired_repo hook-noscanner)"

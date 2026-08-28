@@ -139,7 +139,8 @@ use strict;
 use warnings;
 use Digest::SHA qw(sha256_hex);
 
-my ($seed_path, $mode) = @ARGV;
+my ($seed_path, $mode, $comment_char) = @ARGV;
+$comment_char = "#" unless defined $comment_char && $comment_char ne "";
 
 sub closed {
     print STDERR "check-purged-identifiers: $_[0]\n";
@@ -353,13 +354,30 @@ if ($mode eq "tree") {
     # scissors line on are stripped by message cleanup after the hook runs, so
     # screening them would reject a remediation commit for the diff it removes.
     # Dropped lines are blanked, not deleted, so reported line numbers still
-    # match the file the author is looking at. Assumes the default
-    # core.commentChar, the same assumption githooks/commit-msg documents.
+    # match the file the author is looking at.
+    #
+    # Which character opens a comment is core.commentChar, read by the caller
+    # and passed in: under a non-default setting git KEEPS the hash lines, so a
+    # screen that always stripped them would wave an identifier straight into
+    # permanent history. Quoted before use, never compiled as a pattern -- the
+    # configured value can be a regex metacharacter such as $ or |.
+    #
+    # "auto" means git picked the character while composing the message, from a
+    # candidate list, according to what the message already contained. The
+    # finished file cannot tell us which one it settled on, so nothing is
+    # stripped: over-screening a few generated template lines is the fail-closed
+    # direction, where guessing wrong would skip real content.
+    my $auto      = ($comment_char eq "auto");
+    my $cq        = quotemeta($comment_char);
     my @kept;
     my $scissored = 0;
     for my $line (split /\n/, $text, -1) {
-        $scissored = 1 if $line =~ /\A#\s*-{2,}\s*>8\s*-{2,}/;
-        push @kept, ($scissored || $line =~ /\A#/) ? "" : $line;
+        if ($auto) {
+            push @kept, $line;
+            next;
+        }
+        $scissored = 1 if $line =~ /\A$cq\s*-{2,}\s*>8\s*-{2,}/;
+        push @kept, ($scissored || $line =~ /\A$cq/) ? "" : $line;
     }
     scan_text("commit message", join("\n", @kept));
     print "check-purged-identifiers: commit message clean against $seed_count seed(s).\n"
@@ -400,7 +418,16 @@ if [ -n "$message_file" ]; then
       "'$message_file'" >&2
     exit 2
   fi
-  perl -e "$scan_program" -- "$seed_file" message <"$message_file"
+  # What opens a comment line is configurable, and git's own message cleanup
+  # follows the setting. Read it here so the screen strips exactly what git
+  # will drop and screens exactly what git will keep. core.commentString is
+  # the newer multi-character spelling; core.commentChar is its alias.
+  comment_char=$(git config --get core.commentString 2>/dev/null || true)
+  if [ -z "$comment_char" ]; then
+    comment_char=$(git config --get core.commentChar 2>/dev/null || true)
+  fi
+  [ -n "$comment_char" ] || comment_char='#'
+  perl -e "$scan_program" -- "$seed_file" message "$comment_char" <"$message_file"
   exit
 fi
 
