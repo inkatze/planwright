@@ -520,8 +520,15 @@ case "$cmd" in
       exit 0
     fi
     # Base: origin/HEAD where resolvable (the native `fresh` baseRef shape),
-    # else the current HEAD.
+    # else the current HEAD. Resolvable means resolvable to a COMMIT:
+    # `symbolic-ref --quiet` still succeeds on a DANGLING symref (a renamed or
+    # pruned remote default branch), which without the verify gate would turn
+    # every creation into a refusal instead of the documented HEAD fallback.
     hc_base=$(git -C "$hc_root" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || hc_base=""
+    if [ -n "$hc_base" ] \
+      && ! git -C "$hc_root" rev-parse --verify --quiet "$hc_base^{commit}" >/dev/null 2>&1; then
+      hc_base=""
+    fi
     [ -n "$hc_base" ] || hc_base=HEAD
     mkdir -p "$hc_root/.claude/worktrees" 2>/dev/null || {
       warn "cannot create $hc_root/.claude/worktrees — echoing nothing"

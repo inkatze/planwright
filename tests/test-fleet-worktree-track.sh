@@ -364,6 +364,23 @@ case $(wt list) in
 esac
 echo "ok: hook-remove records the removal and exits 0 (jq and sed-fallback paths)"
 
+# 11. A DANGLING origin/HEAD (symref present, its target ref gone — a renamed
+#     or pruned remote default branch) must fall back to HEAD, not turn every
+#     creation into a refusal: `symbolic-ref --quiet` still succeeds on a
+#     dangling symref, so resolvability needs its own gate.
+base_repo="$tmp/base-fb"
+git_env git init -q -b main "$base_repo"
+(cd "$base_repo" && echo seed >f && git_env git add f && git_env git commit -qm seed)
+(cd "$base_repo" && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/gone)
+base_real=$(cd "$base_repo" && pwd -P)
+rc=0
+out=$(cd "$base_repo" && printf '%s' '{"hook_event_name":"WorktreeCreate","name":"fb-wt"}' \
+  | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (dangling origin/HEAD) exit $rc, expected 0"
+[ "$out" = "$base_real/.claude/worktrees/fb-wt" ] \
+  || fail "a dangling origin/HEAD must fall back to HEAD and still create (got: '$out')"
+echo "ok: a dangling origin/HEAD falls back to HEAD instead of refusing all creation"
+
 # 10. A STALE registered worktree (admin entry present, directory gone) must
 #     not reattach: echoing the dead path reports success on a tree that does
 #     not exist. The acceptable outcomes are a fresh create or a refusal —
