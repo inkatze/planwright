@@ -364,6 +364,24 @@ case $(wt list) in
 esac
 echo "ok: hook-remove records the removal and exits 0 (jq and sed-fallback paths)"
 
+# 10. A STALE registered worktree (admin entry present, directory gone) must
+#     not reattach: echoing the dead path reports success on a tree that does
+#     not exist. The acceptable outcomes are a fresh create or a refusal —
+#     never a non-existent path on the decision channel.
+rm -rf "$fleet_home"
+stale_payload='{"hook_event_name":"WorktreeCreate","name":"stale-wt"}'
+out=$(cd "$main_repo" && printf '%s' "$stale_payload" | wt hook-create) \
+  || fail "stale-reattach setup: initial create failed"
+[ -d "$out" ] || fail "stale-reattach setup: no directory created"
+rm -rf "$out"
+rc=0
+out=$(cd "$main_repo" && printf '%s' "$stale_payload" | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (stale registered entry) exit $rc, expected 0"
+if [ -n "$out" ] && [ ! -d "$out" ]; then
+  fail "hook-create echoed a nonexistent directory for a stale entry (got: '$out')"
+fi
+echo "ok: a stale registered worktree never reattaches to a dead path"
+
 # 9. Symlink screens: a dangling symlink at the target (invisible to `-e`) is
 #    refused and PRESERVED — the failure path must not `rm -rf` an object this
 #    hook did not create. A symlinked worktrees root is likewise refused

@@ -470,12 +470,32 @@ case "$cmd" in
     fi
     hc_target="$hc_root/.claude/worktrees/$hc_name"
     # Idempotent reattach: a target already registered as a worktree of this
-    # repo is echoed as-is (and re-recorded), never re-created.
+    # repo is echoed (and re-recorded), never re-created — after the SAME
+    # physical-path containment check the create path applies, so a stale or
+    # symlinked-out entry never reaches the decision channel.
     if git -C "$hc_root" worktree list --porcelain 2>/dev/null \
       | grep -Fxq "worktree $hc_target"; then
-      printf '%s\n' "$hc_target"
-      (do_record add "$hc_target" >/dev/null 2>&1) || true
-      exit 0
+      if [ ! -d "$hc_target" ]; then
+        # A stale (prunable) admin entry: the directory is gone. Echoing the
+        # dead path would report success on a nonexistent tree — prune the
+        # entry and fall through to a fresh create instead (which may still
+        # refuse on the leftover branch; a legible refusal beats a phantom
+        # success).
+        git -C "$hc_root" worktree prune >/dev/null 2>&1 || true
+      else
+        hc_real=$(cd "$hc_target" 2>/dev/null && pwd -P) || hc_real=""
+        hc_root_real=$(cd "$hc_root" 2>/dev/null && pwd -P) || hc_root_real=""
+        case $hc_real in
+          "$hc_root_real"/.claude/worktrees/*) ;;
+          *)
+            warn "registered worktree at $hc_target resolves outside the worktrees root — echoing nothing"
+            exit 0
+            ;;
+        esac
+        printf '%s\n' "$hc_real"
+        (do_record add "$hc_real" >/dev/null 2>&1) || true
+        exit 0
+      fi
     fi
     if [ -e "$hc_target" ]; then
       warn "WorktreeCreate target already exists and is not a worktree of this repo — echoing nothing"
