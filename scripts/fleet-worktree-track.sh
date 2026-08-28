@@ -495,6 +495,10 @@ case "$cmd" in
             exit 0
             ;;
         esac
+        if ! valid_path "$hc_real"; then
+          warn "registered worktree's physical path fails the emit grammar — echoing nothing"
+          exit 0
+        fi
         printf '%s\n' "$hc_real"
         (do_record add "$hc_real" >/dev/null 2>&1) || true
         exit 0
@@ -568,21 +572,33 @@ case "$cmd" in
     fi
     # Containment re-check on the CREATED path: worktree add follows symlinks,
     # so verify the physical path still sits under the repo root before it is
-    # echoed on the decision channel; a breakout is undone, not tracked.
+    # echoed on the decision channel; anything unverifiable is undone, not
+    # tracked. Three distinct failures, diagnosed apart: an UNRESOLVABLE path
+    # (a cd failure is not a breakout), an emit-grammar failure (the echoed
+    # path must satisfy valid_path, the header's stored/emitted promise), and
+    # the actual breakout.
     hc_real=$(cd "$hc_target" 2>/dev/null && pwd -P) || hc_real=""
     hc_root_real=$(cd "$hc_root" 2>/dev/null && pwd -P) || hc_root_real=""
-    case $hc_real in
-      "$hc_root_real"/.claude/worktrees/*) ;;
-      *)
-        warn "created worktree resolved outside $hc_root_real/.claude/worktrees — removing it and echoing nothing"
-        git -C "$hc_root" worktree remove --force "$hc_target" >/dev/null 2>&1 \
-          || rm -rf "$hc_target" 2>/dev/null || true
-        # Same leftover-branch discipline as the failed-add arm above.
-        git -C "$hc_root" branch -D "$hc_branch" >/dev/null 2>&1 || true
-        git -C "$hc_root" worktree prune >/dev/null 2>&1 || true
-        exit 0
-        ;;
-    esac
+    hc_bad=""
+    if [ -z "$hc_real" ] || [ -z "$hc_root_real" ]; then
+      hc_bad="cannot resolve the created worktree's physical path"
+    elif ! valid_path "$hc_real"; then
+      hc_bad="created worktree's physical path fails the emit grammar"
+    else
+      case $hc_real in
+        "$hc_root_real"/.claude/worktrees/*) ;;
+        *) hc_bad="created worktree resolved outside $(sanitize_printable "$hc_root_real")/.claude/worktrees" ;;
+      esac
+    fi
+    if [ -n "$hc_bad" ]; then
+      warn "$hc_bad — removing it and echoing nothing"
+      git -C "$hc_root" worktree remove --force "$hc_target" >/dev/null 2>&1 \
+        || rm -rf "$hc_target" 2>/dev/null || true
+      # Same leftover-branch discipline as the failed-add arm above.
+      git -C "$hc_root" branch -D "$hc_branch" >/dev/null 2>&1 || true
+      git -C "$hc_root" worktree prune >/dev/null 2>&1 || true
+      exit 0
+    fi
     printf '%s\n' "$hc_real"
     (do_record add "$hc_real" >/dev/null 2>&1) || true
     exit 0
