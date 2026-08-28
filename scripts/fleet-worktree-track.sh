@@ -246,18 +246,21 @@ extract_worktree_path() {
 }
 
 # extract_name <json> — pull `.name` from a WorktreeCreate hook payload via jq
-# where present, else a bounded sed. A valid worktree name carries no backslash
-# (the grammar below), so a backslash in the sed capture is an escape the sed
-# path cannot decode — refuse it (emit nothing) rather than hand back a
-# mis-parsed name, mirroring extract_worktree_path's fail-closed posture.
+# where present, else a bounded sed. jq is AUTHORITATIVE where present: an
+# absent, null, or empty top-level `.name` (or unparseable JSON) is a refusal,
+# never a downgrade to the sed capture — sed's unanchored match would promote
+# a NESTED "name" key from anywhere in the payload. The sed fallback serves
+# only a jq-less host (the documented degrade). A valid worktree name carries
+# no backslash (the grammar below), so a backslash in the sed capture is an
+# escape the sed path cannot decode — refuse it (emit nothing) rather than
+# hand back a mis-parsed name, mirroring extract_worktree_path's fail-closed
+# posture.
 extract_name() {
   en_in=$1
   if command -v jq >/dev/null 2>&1; then
     en_v=$(printf '%s' "$en_in" | jq -r '.name // empty' 2>/dev/null) || en_v=""
-    if [ -n "$en_v" ]; then
-      printf '%s' "$en_v"
-      return 0
-    fi
+    printf '%s' "$en_v"
+    return 0
   fi
   en_sed=$(printf '%s' "$en_in" \
     | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \

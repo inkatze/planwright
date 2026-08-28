@@ -364,6 +364,21 @@ case $(wt list) in
 esac
 echo "ok: hook-remove records the removal and exits 0 (jq and sed-fallback paths)"
 
+# 8. jq is AUTHORITATIVE where present: a payload whose top-level `name` is
+#    empty (or absent) must refuse even when a NESTED "name" key exists —
+#    falling through to the unanchored sed capture would promote the nested
+#    key to the created worktree name.
+command -v jq >/dev/null 2>&1 || fail "this suite needs jq on PATH (the authoritative-parse case)"
+rm -rf "$fleet_home"
+nested_evil='{"hook_event_name":"WorktreeCreate","name":"","meta":{"name":"evil"}}'
+rc=0
+out=$(cd "$main_repo" && printf '%s' "$nested_evil" | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (empty name, nested decoy) exit $rc, expected 0"
+[ -z "$out" ] || fail "an empty top-level name must refuse, not promote a nested key (got: '$out')"
+[ ! -e "$main_repo/.claude/worktrees/evil" ] \
+  || fail "the nested decoy name was created despite jq being present"
+echo "ok: jq-present parsing is authoritative — a nested name key is never promoted"
+
 # 7. A failed `git worktree add` cleans up the branch it created: the refusal
 #    leaves no `worktree-<flattened>` ref behind, so the same name self-heals
 #    once the obstruction is gone (instead of hitting the branch-collision
