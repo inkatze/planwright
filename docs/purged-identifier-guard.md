@@ -140,10 +140,16 @@ scripts/seed-purged-identifiers.sh --add    # merge into the existing seeds
 ```
 
 The script reads **stdin only**. It never accepts an identifier as an argument
-(argv is visible in `ps` and in shell history), never echoes what it read, and
-reports a rejected line by its position rather than its content. It writes the
-seed file through a temporary file and a rename, so an interrupted run cannot
-leave behind a truncated list.
+(argv is visible in `ps` and in shell history), never prints back what it read,
+and reports a rejected line by its position rather than its content. It writes
+the seed file through a temporary file and a rename, so an interrupted run
+cannot leave behind a truncated list.
+
+One thing it deliberately does not do is turn off terminal echo. Typing at the
+interactive prompt displays on your own terminal like any other input; the
+guarantees above are about what the *script* records and emits, not about what
+the terminal draws. Nothing typed there reaches shell history either way, since
+only the command name is a command.
 
 Two inputs are refused: a line that normalizes to fewer than four characters
 (it would match common word runs everywhere and turn the guard into noise) and

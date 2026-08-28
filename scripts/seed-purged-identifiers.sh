@@ -10,9 +10,11 @@
 #
 # NON-LOGGING BY CONSTRUCTION. The plaintext is read from STDIN only. It is
 # never accepted as an argument (argv is visible in `ps` and in shell
-# history), never echoed back, and never printed on any success or error
-# path — a rejected line is reported by its position, not its content. Give
-# it a pipe or a heredoc, or type into it interactively:
+# history), never echoed back by this script, and never printed on any success
+# or error path — a rejected line is reported by its position, not its content.
+# What this does NOT do is turn off terminal echo: type at the prompt and your
+# own terminal displays it, so treat a shared screen accordingly. Give it a
+# pipe or a heredoc, or type into it interactively:
 #
 #     scripts/seed-purged-identifiers.sh          # then type, one per line, ^D
 #     scripts/seed-purged-identifiers.sh --add    # merge into the existing seeds
@@ -81,7 +83,9 @@ fi
 
 if [ -t 0 ]; then
   echo "seed-purged-identifiers: reading identifiers from stdin, one per line." >&2
-  echo "  Nothing you type is echoed, stored in plaintext, or written to history." >&2
+  echo "  Nothing you type is printed back, stored in plaintext, taken as an" >&2
+  echo "  argument, or written to shell history. Your TERMINAL still shows what" >&2
+  echo "  you type -- this script does not turn echo off." >&2
   echo "  End with Ctrl-D." >&2
 fi
 
