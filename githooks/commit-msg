@@ -70,9 +70,26 @@ if [ ! -x "$screen" ]; then
     "failing closed rather than committing an unscreened message" >&2
   exit 1
 fi
-if ! "$screen" --message-file "$1" >/dev/null; then
-  echo "planwright githooks: commit-msg: refusing the message above" \
-    "(purged identifiers stay purged; reword rather than widening the guard)" >&2
-  exit 1
-fi
+# The scanner separates a hit (exit 1) from a guard that could not run at all
+# (exit 2: unreadable, malformed or below-floor seed file, no perl). Both
+# refuse the commit, but they need different remedies: telling an author to
+# reword a clean message because the SEED file is missing sends them to fix the
+# one thing that is not broken. The scanner has already printed the specific
+# reason to stderr in either case.
+"$screen" --message-file "$1" >/dev/null
+screen_status=$?
+case $screen_status in
+  0) ;;
+  1)
+    echo "planwright githooks: commit-msg: refusing the message above" \
+      "(purged identifiers stay purged; reword rather than widening the guard)" >&2
+    exit 1
+    ;;
+  *)
+    echo "planwright githooks: commit-msg: the purged-identifier screen could not run" \
+      "(reason above); refusing rather than committing an unscreened message." >&2
+    echo "  This is a setup problem, not a problem with your message." >&2
+    exit 1
+    ;;
+esac
 exit 0
