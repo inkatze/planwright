@@ -709,9 +709,9 @@ echo "ok: the gh PR probe passes an explicit --limit (no default-page truncation
 #     paragraph, so it misses a relocated trailer; the engine must scan the
 #     whole message (%B) and still derive completion — regardless of how the PR
 #     was merged or what the branch was named. Regression guard for the
-#     footer-only read that failed grammar-backed-explain Task 1 in acme-billing-
-#     services (PR squash-merged from a non-convention branch: the gh head-ref
-#     mapping found no match AND the trailer was mid-body → task mis-derived).
+#     footer-only read that failed grammar-backed-explain Task 1 in acme-billing
+#     (PR squash-merged from a non-convention branch: the gh head-ref mapping
+#     found no match AND the trailer was mid-body → task mis-derived).
 # ---------------------------------------------------------------------------
 srepo="$tmp/squashtrailer"
 sspec="$srepo/specs/demo"

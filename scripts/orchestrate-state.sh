@@ -160,10 +160,10 @@ fi
 # lives on the remote until the local base is fetched AND fast-forwarded; if the
 # operator runs orchestrate before a fetch has reached local main, the trailer
 # sits on origin/main but NOT on local main, so a base-only scan misses it and
-# the task is re-dispatched even though it is genuinely merged (the acme-billing-
-# services grammar-backed-explain shape: local main lagged origin/main, the PR
-# merged from a non-convention branch so the gh head-ref map also missed, and
-# the trailer was the only completion anchor). Scan the UNION of base and its
+# the task is re-dispatched even though it is genuinely merged (the acme-billing
+# grammar-backed-explain shape: local main lagged origin/main, the PR merged
+# from a non-convention branch so the gh head-ref map also missed, and the
+# trailer was the only completion anchor). Scan the UNION of base and its
 # remote-tracking counterpart so completion survives a stale local base. This
 # adds no network I/O (it reads whatever git already fetched) and never regresses
 # a local-only repo: with no upstream and no origin/<base>, the union is just
