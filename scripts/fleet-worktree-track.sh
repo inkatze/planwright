@@ -481,6 +481,15 @@ case "$cmd" in
       warn "WorktreeCreate target already exists and is not a worktree of this repo — echoing nothing"
       exit 0
     fi
+    # Symlink screen BEFORE any filesystem write: `mkdir -p`, `git worktree
+    # add`, and the failure-path `rm -rf` all FOLLOW symlink components, and a
+    # DANGLING leaf symlink is invisible to the `-e` check above. A symlinked
+    # `.claude`, worktrees root, or leaf is a refusal, never a traversal (the
+    # sibling dispatch primitive's discipline).
+    if [ -L "$hc_root/.claude" ] || [ -L "$hc_root/.claude/worktrees" ] || [ -L "$hc_target" ]; then
+      warn "WorktreeCreate refuses a symlinked .claude, worktrees root, or target — echoing nothing"
+      exit 0
+    fi
     # Branch: worktree-<name> with "/" flattened to "-" (the native single-
     # segment shape, extended). A pre-existing branch is a refusal, not a
     # reuse: silently attaching to an unknown branch's history is the forged-
@@ -500,6 +509,14 @@ case "$cmd" in
     }
     if ! git -C "$hc_root" worktree add -b "$hc_branch" "$hc_target" "$hc_base" >/dev/null 2>&1; then
       warn "git worktree add failed for $hc_target (branch $hc_branch, base $hc_base) — echoing nothing"
+      # Race guard: a concurrent create for the same name may have WON between
+      # the pre-checks and this add (`add -b`'s atomic non-zero exit is the
+      # real collision detector). If git now lists the target, the tree and
+      # the branch are the winner's — touch nothing.
+      if git -C "$hc_root" worktree list --porcelain 2>/dev/null \
+        | grep -Fxq "worktree $hc_target"; then
+        exit 0
+      fi
       rm -rf "$hc_target" 2>/dev/null || true
       # `add -b` creates the branch before the checkout, so a partway failure
       # can leave `refs/heads/$hc_branch` behind — which the collision check

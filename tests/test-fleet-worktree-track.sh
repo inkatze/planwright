@@ -364,6 +364,35 @@ case $(wt list) in
 esac
 echo "ok: hook-remove records the removal and exits 0 (jq and sed-fallback paths)"
 
+# 9. Symlink screens: a dangling symlink at the target (invisible to `-e`) is
+#    refused and PRESERVED — the failure path must not `rm -rf` an object this
+#    hook did not create. A symlinked worktrees root is likewise refused
+#    before anything materializes on the far side.
+rm -rf "$fleet_home"
+ln -s /nonexistent-planwright-probe "$main_repo/.claude/worktrees/dangle"
+rc=0
+out=$(cd "$main_repo" && printf '%s' '{"hook_event_name":"WorktreeCreate","name":"dangle"}' \
+  | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (dangling symlink target) exit $rc, expected 0"
+[ -z "$out" ] || fail "a dangling symlink at the target must refuse (got: '$out')"
+[ -L "$main_repo/.claude/worktrees/dangle" ] \
+  || fail "the refusal deleted the operator's symlink at the target"
+rm -f "$main_repo/.claude/worktrees/dangle"
+symroot_repo="$tmp/symroot"
+git_env git init -q -b main "$symroot_repo"
+(cd "$symroot_repo" && echo seed >f && git_env git add f && git_env git commit -qm seed)
+outside="$tmp/outside-target"
+mkdir -p "$outside" "$symroot_repo/.claude"
+ln -s "$outside" "$symroot_repo/.claude/worktrees"
+rc=0
+out=$(cd "$symroot_repo" && printf '%s' '{"hook_event_name":"WorktreeCreate","name":"escapee"}' \
+  | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (symlinked worktrees root) exit $rc, expected 0"
+[ -z "$out" ] || fail "a symlinked worktrees root must refuse (got: '$out')"
+[ -z "$(ls -A "$outside")" ] || fail "the symlinked root materialized content outside the repo"
+[ -L "$symroot_repo/.claude/worktrees" ] || fail "the refusal disturbed the symlinked root"
+echo "ok: symlinked worktrees roots and dangling symlink targets are refused untouched"
+
 # 8. jq is AUTHORITATIVE where present: a payload whose top-level `name` is
 #    empty (or absent) must refuse even when a NESTED "name" key exists —
 #    falling through to the unanchored sed capture would promote the nested
