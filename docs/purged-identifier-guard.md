@@ -31,8 +31,8 @@ fork PR whose author never wired anything.
 nothing else:
 
 ```text
-min-seeds: 3
-max-words: 2
+min-seeds: <count>
+max-words: <n>
 <64 lowercase hex characters>
 ...
 ```
@@ -48,8 +48,12 @@ guard — lowering the floor to match is possible, but it is a visible diff on a
 tracked file, which is the honest limit of what a committed floor can promise.
 
 `max-words` is the word count of the widest seeded identifier, and it bounds
-the scanner's candidate window (below). It is derived from the seeds, so it
-cannot be set too low to catch them.
+the scanner's candidate window (below). The seeding path derives it from what
+it ingested, so a generated file always spans its own seeds. Nothing re-derives
+it at scan time, though: hand-lowering it would narrow the window past a
+multi-word seed while the guard still reported green — the same honest limit
+`min-seeds` has, and the same reason the seed file is generated rather than
+edited.
 
 **Accepted residual (D-5).** The purged identifiers are low-entropy names, so
 their hashes are offline-guessable by anyone motivated to guess the names
