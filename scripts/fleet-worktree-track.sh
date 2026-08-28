@@ -498,6 +498,13 @@ case "$cmd" in
     if ! git -C "$hc_root" worktree add -b "$hc_branch" "$hc_target" "$hc_base" >/dev/null 2>&1; then
       warn "git worktree add failed for $hc_target (branch $hc_branch, base $hc_base) — echoing nothing"
       rm -rf "$hc_target" 2>/dev/null || true
+      # `add -b` creates the branch before the checkout, so a partway failure
+      # can leave `refs/heads/$hc_branch` behind — which the collision check
+      # above would then refuse FOREVER for this name. The branch's absence was
+      # pre-checked this invocation, so deleting it here removes only what this
+      # failed create made; prune drops any half-registered admin entry.
+      git -C "$hc_root" branch -D "$hc_branch" >/dev/null 2>&1 || true
+      git -C "$hc_root" worktree prune >/dev/null 2>&1 || true
       exit 0
     fi
     # Containment re-check on the CREATED path: worktree add follows symlinks,
@@ -511,6 +518,9 @@ case "$cmd" in
         warn "created worktree resolved outside $hc_root_real/.claude/worktrees — removing it and echoing nothing"
         git -C "$hc_root" worktree remove --force "$hc_target" >/dev/null 2>&1 \
           || rm -rf "$hc_target" 2>/dev/null || true
+        # Same leftover-branch discipline as the failed-add arm above.
+        git -C "$hc_root" branch -D "$hc_branch" >/dev/null 2>&1 || true
+        git -C "$hc_root" worktree prune >/dev/null 2>&1 || true
         exit 0
         ;;
     esac

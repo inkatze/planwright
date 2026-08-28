@@ -364,6 +364,28 @@ case $(wt list) in
 esac
 echo "ok: hook-remove records the removal and exits 0 (jq and sed-fallback paths)"
 
+# 7. A failed `git worktree add` cleans up the branch it created: the refusal
+#    leaves no `worktree-<flattened>` ref behind, so the same name self-heals
+#    once the obstruction is gone (instead of hitting the branch-collision
+#    refusal forever). Driven by a FILE squatting the nested name's parent
+#    path, which makes `add` fail creating leading directories.
+rm -rf "$fleet_home"
+: >"$main_repo/.claude/worktrees/parent"
+blocked='{"hook_event_name":"WorktreeCreate","name":"parent/child"}'
+rc=0
+out=$(cd "$main_repo" && printf '%s' "$blocked" | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (blocked add) exit $rc, expected 0"
+[ -z "$out" ] || fail "hook-create (blocked add) must echo NOTHING (got: '$out')"
+(cd "$main_repo" && git show-ref --verify --quiet refs/heads/worktree-parent-child) \
+  && fail "a failed git worktree add left the worktree-parent-child branch behind" || true
+rm -f "$main_repo/.claude/worktrees/parent"
+rc=0
+out=$(cd "$main_repo" && printf '%s' "$blocked" | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (retry after unblocking) exit $rc, expected 0"
+[ "$out" = "$main_real/.claude/worktrees/parent/child" ] \
+  || fail "the name must self-heal once the obstruction is gone (got: '$out')"
+echo "ok: a failed git worktree add leaves no branch behind, so the name self-heals"
+
 # 6. Hostile / non-absolute paths are refused by the direct CLI.
 rm -rf "$fleet_home"
 for bad in 'relative/path' '-x' ''; do
