@@ -21,18 +21,25 @@
 # path to the created worktree" as its stdout result ("hook failure or missing
 # path fails creation"; any non-zero exit also fails it). So `hook-create`
 # reads `.name`, grammar-checks it, CREATES `<repo>/.claude/worktrees/<name>`
-# on a fresh `worktree-<flattened-name>` branch (based on `origin/HEAD` where
-# resolvable, else the current `HEAD` — the native `fresh` baseRef shape), and
-# echoes the created path. Every refusal — a malformed or absent name, no git
-# repo at the cwd, a branch or directory collision, a failed `git worktree
-# add` — echoes NOTHING (creation fails closed, visibly, never under a forged
-# name) and STILL exits 0. The registry write is a synchronous best-effort
-# side effect with a SHORT bounded lock wait (LOCK_MAX_TRIES=100 × the 0.02s
-# retry sleep => ~2s worst case), so a contended lock can never stall
-# creation beyond that bound and never fail it; a skipped write self-heals on
-# the next `scan`. `WorktreeRemove` keeps its genuinely different
-# `worktree_path` input shape and is fire-and-forget (failures logged in
-# debug only).
+# under the PRIMARY checkout's root on a fresh `worktree-<flattened-name>`
+# branch (based on `origin/HEAD` where it resolves to a commit, else the
+# current `HEAD` — the native `fresh` baseRef shape), containment-checks the
+# physical result, and echoes it. A target already registered as a LIVE
+# worktree of this repo reattaches idempotently (same containment check,
+# physical path echoed); a stale registration of it is pruned. Every refusal
+# — a malformed or absent name, no git binary, no repo, a symlinked
+# component, a directory or branch collision, a refname-invalid flattening, a
+# failed `git worktree add`, or an unverifiable created path — echoes NOTHING
+# (creation fails closed, visibly, never under a forged name), undoes what
+# this invocation created, and STILL exits 0. The registry write is a
+# synchronous best-effort side effect with a SHORT bounded lock wait
+# (LOCK_MAX_TRIES=100 × the 0.02s retry sleep => ~2s worst case), so a
+# contended lock can never stall the RECORDING beyond that bound and never
+# fails creation; the checkout itself is the unbounded part, run with stdin
+# closed and GIT_TERMINAL_PROMPT=0 so it cannot block on input. A skipped
+# write self-heals on the next `scan`. `WorktreeRemove` keeps its genuinely
+# different `worktree_path` input shape and is fire-and-forget (failures are
+# discarded, not logged).
 #
 # NOT A DAEMON ACTION. Tracking is bookkeeping, not a destructive daemon action:
 # it is NOT gated by the `fleet_daemon_pause` kill-switch (which pauses
@@ -54,12 +61,14 @@
 #   fleet-worktree-track.sh record-remove <path>   push a removal (idempotent)
 #   fleet-worktree-track.sh list                   print tracked paths, one/line
 #   fleet-worktree-track.sh scan [<repo-root>]     disk-scan reconcile (fallback)
-#   fleet-worktree-track.sh hook-create            WorktreeCreate handler (stdin)
+#   fleet-worktree-track.sh hook-create            WorktreeCreate handler (stdin):
+#                                                  CREATES the worktree + branch
 #   fleet-worktree-track.sh hook-remove            WorktreeRemove handler (stdin)
 #
 # Exit codes: 0 success; 2 usage / refused malformed path; 2 also a lock/
 #   filesystem error on the direct CLI (fail closed). The hook handlers always
-#   exit 0 (they must never break a lifecycle operation).
+#   exit 0 (they must never break a lifecycle operation) — for hook-create, 0
+#   with an EMPTY stdout is a refused creation, not a success.
 #
 # POSIX sh on the macOS + Linux support bar. All input is data; no eval (REQ-K1.5).
 # jq is used for JSON parsing WHERE PRESENT with a bounded sed fallback (the
@@ -215,9 +224,10 @@ do_record() {
   return 0
 }
 
-# extract_worktree_path <json> — pull `.worktree_path` from a hook payload via
-# jq where present, else a bounded sed (filesystem paths carry no escaped
-# quotes, so the simple capture is safe). Prints the path (empty if none).
+# extract_worktree_path <json> — pull `.worktree_path` from a WorktreeRemove
+# hook payload via jq where present, else a bounded sed. Prints the path
+# (empty if none); its only caller is hook-remove, where a refused parse means
+# no removal record (self-healed by the next `scan`), never a wrong one.
 extract_worktree_path() {
   ewp_in=$1
   if command -v jq >/dev/null 2>&1; then
@@ -231,11 +241,11 @@ extract_worktree_path() {
   # JSON-unescape, so a worktree_path VALUE carrying a backslash-escape mis-parses
   # — an embedded `"` arrives as `\"` and truncates the capture; an embedded `\`
   # arrives as `\\` and doubles — yielding a WRONG path that still passes
-  # valid_path and would be echoed on the WorktreeCreate decision channel. A
-  # backslash in the sed result is exactly that untrustworthy signal (a real
-  # fleet worktree path carries none), so refuse it: emit nothing, and the caller
-  # fails CLOSED (hook-create echoes nothing => creation refused, never under a
-  # mis-parsed name). jq, the primary path, unescapes correctly and is unaffected.
+  # valid_path and would land a wrong removal in the registry. A backslash in
+  # the sed result is exactly that untrustworthy signal (a real fleet worktree
+  # path carries none), so refuse it: emit nothing, and hook-remove records
+  # nothing (fail closed; the missed removal self-heals on the next `scan`).
+  # jq, the primary path, unescapes correctly and is unaffected.
   ewp_sed=$(printf '%s' "$ewp_in" \
     | sed -n 's/.*"worktree_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
     | head -1)
@@ -453,6 +463,14 @@ case "$cmd" in
     # exit; a skipped record self-heals on the next sweep's `scan`.
     LOCK_MAX_TRIES=100
     hc_in=$(cat 2>/dev/null) || hc_in=""
+    # The payload is consumed; nothing below may block on input. `worktree
+    # add` runs a checkout that can fire a repo post-checkout hook or filter
+    # which reads stdin (a tty on manual invocation) or prompts for
+    # credentials — close the one and forbid the other so a hang cannot
+    # masquerade as a slow create.
+    exec </dev/null
+    GIT_TERMINAL_PROMPT=0
+    export GIT_TERMINAL_PROMPT
     hc_name=$(extract_name "$hc_in")
     if [ -z "$hc_name" ]; then
       warn "WorktreeCreate payload carried no name — echoing nothing"

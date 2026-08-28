@@ -43,7 +43,14 @@
 #     fallback;
 #   - `hook-remove` records a removal from its stdin payload and exits 0,
 #     including via the sed fallback on a jq-less host;
-#   - hostile / non-absolute paths are refused by the direct CLI (exit non-zero).
+#   - hostile / non-absolute paths are refused by the direct CLI (exit non-zero);
+#   - the hardening arms: a failed `git worktree add` leaves no branch behind
+#     (the name self-heals), jq-present parsing is authoritative (a nested
+#     "name" decoy never promotes), symlinked worktrees roots and dangling
+#     symlink targets refuse untouched, a stale registered worktree never
+#     reattaches to a dead path, a dangling `origin/HEAD` falls back to HEAD,
+#     dot-led segments and refname-invalid flattenings refuse cleanly, and
+#     creation from inside a linked worktree lands under the primary checkout.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-worktree-track.sh
