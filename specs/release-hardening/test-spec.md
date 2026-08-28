@@ -7,9 +7,11 @@
 
 Every REQ is pinned to at least one verification path. The release scripts are
 plain portable shell with an existing per-script test family under `tests/`
-(run by `mise run check`), so `[test]` is the honest default here; the two
-non-executable requirements (a spec-text restatement and a recorded finding)
-are `[design-level]`.
+(run by `mise run check`), so `[test]` is the honest default here; the
+non-executable requirements (spec-text restatements and recorded findings,
+tagged in their entries below) are `[design-level]`.
+*(Amended at the 2026-08-25 bootstrap-race amendment: the count dropped, since
+REQ-H1.3 adds a third.)*
 
 ## REQ-A — Fail-closed comparator signaling
 
@@ -196,3 +198,39 @@ required status check on the release PR, checked via `gh api`) and by the
 README caveat (including its PAT/App-token remedy); a `[manual]` review confirms
 the caveat text. The finding itself is a point-in-time external-state
 verification, not a repeatable test.
+
+## REQ-H — release-proposal integrity
+
+### REQ-H1.1 — release-please skips while an untagged window is open [test]
+
+`.github/workflows/release-please.yml` carries a guard invoking
+`scripts/release-window-check.sh` before the release-please step.
+`tests/test-release-please.sh` asserts the guard exists, precedes the proposal
+step, and splits the script's tri-state: exit 1 skips (a pending publish is a
+normal state, not a broken build) while exit 2 fails the job, so an
+undeterminable state never reads as an open window. Two further cases cover
+the guard's prerequisites, both of which fail silently rather than loudly if
+missed: the checkout fetches tags and `origin/main` (without tags the
+comparator reports "no releases yet" and the job skips every run), and it
+resolves the repository's own default branch rather than any ref carried by
+the triggering `workflow_run`. Verified end to end by a release cycle
+producing no proposal between version-PR merge and signed-tag publication.
+
+### REQ-H1.2 — a backdated release proposal fails CI [test]
+
+Two fixtures, both required. Negative: a proposal whose `CHANGELOG.md` diff adds
+entries at or below the latest release tag by SemVer precedence — the #339
+shape — fails the check, and is confirmed to fail for that reason rather than
+incidentally. Positive: a proposal covering only commits since the latest tag
+passes. A third fixture pins the comparison basis: a proposal whose entries
+carry fresh dates but already-released versions still fails, so a date-based
+implementation cannot pass the suite. The check reads the proposal artifact
+only, so no fixture may depend on how release-please was induced to misread
+history.
+
+### REQ-H1.3 — bootstrap-sha behaviour established and recorded [manual + design-level]
+
+The verified behaviour of release-please 17.6.0 with `bootstrap-sha` absent is
+recorded in the bundle changelog, together with the evidence that established
+it. Satisfied by the record existing and being sourced; removal of the key is
+explicitly not required by this REQ.

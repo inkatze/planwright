@@ -182,14 +182,16 @@ law is `orchestration-concurrency` (read here). Ordered steps:
      backs merge detection (`orchestrate-state.sh`'s union scan, REQ-D1.2), so a
      task merged on `origin` but not local `main` isn't re-dispatched.
    - **Validate the entry** (brief's most recent, from the resolved ref; formats:
-     `spec-format`): a **sanctioned command form** (any on that doc's
-     sanctioned list), a **sanctioned writer** (a
+     `spec-format`): a **sanctioned command form**, a **sanctioned writer** (a
      `/spec-kickoff` sign-off or the marked `Class: expression-only` ritual), and
      — meaning-class — a dispositioned `Lens-pass:`.
    - **Compare** against `dispatch-fetch.sh`'s anchor. **Match** → proceed.
      **Mismatch** → halt (remedy: `/spec-kickoff` delta re-walkthrough). **No /
      unparseable / non-sanctioned / wrong-writer entry** → halt (remedy: repair the
-     record per REQ-F1.10). Halts go to Awaiting input; no bypass flag.
+     record per REQ-F1.10). A **pre-change entry** (predating the
+     header-`**Status:**` exclusion, or whole-file form) mismatches over unedited
+     content; remedy: the one-time classify-then-self-re-anchor. Halts go to
+     Awaiting input; no bypass flag.
 3. **Create the task branch as the first durable act** (REQ-A1.1, D-3), via the
    worktree step below, cut from `main`, named `planwright/<spec>/task-<id>` (a
    bundle: one `task-<id>-<id>` branch, D-36) from grammar-validated ids only.
@@ -222,8 +224,8 @@ SSH-agent indirection before signed commits.
 **Resource governance** (REQ-E1.1–REQ-E1.4; contract in `docs/fleet.md`):
 `scripts/fleet-throttle.sh check` before dispatch — exit 1 = paused until reset
 (skip the iteration; pipe rate-limit prompts to `observe`);
-`scripts/fleet-resource-select.sh select <task-type>` resolves the unit's
-model/effort/command; `scripts/fleet-dispatch-guard.sh check-launch
+`scripts/allocation-adapt.sh resolve <unit> --key <task-type>` resolves the
+unit's admit/model/effort/command; `scripts/fleet-dispatch-guard.sh check-launch
 <launch-argv>` (or `check-inherited`, in-process) lints the launch — a refusal is
 a stop condition, never bypassed.
 
@@ -404,10 +406,10 @@ attended, present it and wait.
 
 | Condition | Trigger |
 | --- | --- |
-| Spec not Ready or Active | Step 4: status outside {Ready, Active}. Prompt `/spec-kickoff` for Draft; never auto-chain. |
+| Spec not Ready or Active | Step 4: status outside {Ready, Active}. Prompt `/spec-kickoff` for Draft. |
 | Missing/erroring validator | Step 5 (dispatch path): absent/non-executable, or Ready/Active errors (fail closed). |
 | No / partial kickoff brief | Step 6: no brief, or one without its anchor line. |
-| Freshness-gate halt | Locked-window gate: anchor mismatch, or an absent / unparseable / non-sanctioned / wrong-writer entry. |
+| Freshness-gate halt | The locked-window gate, which enumerates its cases. |
 | Taskless / unreadable tasks.md | Selection exit 2. |
 | Selection transient-evidence hold | Selection exit 3 (v2): a configured remote's evidence fetch failed; report and end cleanly (lock-contention shape), not a halt — a later step re-selects. |
 | Lock contention | `acquire` exit 1: clean no-op, skip the step (bookkeeping reconciles). |
@@ -426,9 +428,8 @@ These hold at every step:
   (REQ-C1.3). No bypass flag exists for either.
 - **Never** auto-chain into `/spec-kickoff` (REQ-J1.3) — name the command, do not
   run it.
-- **Never** merge a PR or mark one ready for review, and **never** create a
-  non-draft PR (REQ-J1.1, REQ-F1.6) — `/execute-task` opens drafts; the draft→ready
-  flip and the merge are the human's.
+- **Never** merge a PR, mark one ready, or create a non-draft PR (REQ-J1.1,
+  REQ-F1.6) — `/execute-task` opens drafts; ready and merge are the human's.
 - **Never** write or commit `tasks.md` section placement at dispatch — the record
   is the task branch (first durable act) + runtime marker (D-1, D-3, REQ-A1.1), so
   `main` carries no dispatch commit and worker bases stay pristine (REQ-A1.2);

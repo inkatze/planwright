@@ -1,7 +1,10 @@
 # Fleet operation: the approachable path
 
 planwright can run a **fleet**: several specs advancing at once, each unit
-executed by its own isolated worker, supervised by a meta-tower. This guide is
+executed by its own isolated worker, supervised by a meta-tower. This is
+planwright as an **agentic software factory**: standardized inputs (signed
+specs), an automated assembly path, automated quality control, and a human
+review gate at the end of the line. This guide is
 the approachable path into that mode — one command, one surface to watch, no
 multiplexer knowledge required. The approachable path is the *default*
 presentation of fleet operation, not a simplified fallback: full execution
@@ -577,6 +580,86 @@ fence held by an unknown-liveness peer, which surfaces through the strand
 path instead). The querying tower's own record is excluded, so asking about
 a fence you yourself hold returns `unknown-owner`.
 
+`fleet-presence.sh attribute` takes the same arguments and answers the fence
+sweep's different question — *who* holds this fence and are they alive:
+`owner <tower-id> <live|unknown|dead|ambiguous>`, or `unknown-owner`. It
+includes your own record (reported live, no death probe) so your in-flight
+units do not read as orphans, reports a dead owner rather than filtering it
+out, and never GCs. `ambiguous` is a recycled pid: a composite identity
+`p<pid>.t<start-hash>.c<checkout-hash>` pins the start time of the process
+that published it, so a live pid whose start hash no longer matches is a
+different process — unclassifiable, and surfaced rather than honored.
+
+## The per-unit fence: one tower per unit
+
+Presence is awareness. The thing that stops two towers dispatching one unit is
+a **ref on `origin`** (concurrent-orchestrator-coordination D-5, D-8, D-11):
+before a worker forks, a tower creates `refs/planwright-fence/<spec>/<unit-id>`
+with an expect-absent compare-and-swap.
+
+**`/orchestrate` does not call this yet.** The mechanism below is complete and
+verified, but wiring it into the tower's dispatch step needs more room than
+that skill's instruction budget has left, so it is queued as a follow-up. Until
+then the commands are yours to run, and concurrent towers still coordinate only
+through presence. `origin` is the one substrate every clone shares and git
+serializes ref updates on it, so exactly one tower wins a unit; it is also
+death-surviving, because the ref lives on the server rather than in the
+tower's process. The ref points at the current `origin/main` tip — an
+existing commit — so fencing adds no history to `main`.
+
+```sh
+scripts/fleet-fence.sh check --checkout <repo-root> --spec <spec> <unit-id>
+scripts/fleet-fence.sh fence --checkout <repo-root> --spec <spec> <unit-id>...
+scripts/fleet-fence.sh gc    --checkout <repo-root> --spec <spec> <unit-id>...
+scripts/fleet-fence.sh list  --checkout <repo-root> [--spec <spec>]
+scripts/fleet-fence.sh sweep --checkout <repo-root> --spec <spec> \
+  (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>]
+```
+
+`check` is the selection guard: exit 0 the unit is fenced (skip it), exit 1 it
+is free. `fence` takes the unit: exit 0 you hold it, **exit 3 a peer already
+does — back off and select another**, exit 4 a transient `origin` failure
+(dispatch nothing this pass, retry), exit 5 no `origin` at all, which is the
+genuine single-host solo posture where there is no peer to collide with and
+dispatch proceeds unfenced. Several unit ids fence a cohesion bundle in one
+`git push --atomic`, all-or-none: a peer holding **any** member — lead or not
+— backs the whole bundle off, and nothing is left fenced behind.
+
+**Read the per-ref status, never the exit code.** git resolves a same-value
+ref update to `[up to date]` *before* it evaluates the lease, and every racing
+tower pushes the same `origin/main` tip, so the losing tower's push exits 0.
+The winner is the ref whose `--porcelain` status is `*` (new reference); `=`
+means a peer got there first. The scripts already do this; it matters if you
+are reading the push transcript, or writing anything that fences by hand.
+
+A fence lives until its unit is **terminal** — the PR merged, or the ledger
+marks it done. An open, unmerged PR is *not* terminal, so the fence persists
+across the whole open-PR window. `gc` deletes a terminal unit's fence and is
+idempotent, so two towers cleaning up the same fence never collide.
+
+`sweep` is the backstop for a tower that exited before its unit finished. It
+classifies **terminal first, then liveness**: a terminal unit's fence is
+deleted whoever owns it; a live owner's fence is left alone; and everything
+else — a dead owner, an owner it cannot classify, a fence no presence record
+admits to — is **surfaced to the decision queue, never reclaimed**. Taking
+over a dead tower's half-finished unit is your call, so the sweep raises an
+item offering `reclaim` / `investigate` / `dismiss` and stops there. A fence
+nobody admits to is held quietly for one heartbeat interval first, because
+that is also what a tower looks like between fencing a unit and its next
+heartbeat; the wait is stamped in the queue entry itself, so it holds across
+towers and survives a tower that dies mid-wait. An already-raised strand is
+skipped while its queue entry is younger than `--min-interval`, measured from
+when it was first raised; after that it is re-examined each pass. Either way a
+queue of unresolved strands never turns into a storm of `origin` reads: however
+many strands are queued, the sweep reads the fence namespace and derives state
+once per pass. Deleting a terminal fence does cost a further `origin` read and
+a push per fence, but only for the fences that actually went terminal.
+
+If `gh` is installed but cannot answer, the sweep still deletes fences whose
+units are provably done from git alone (a merged branch or the completion
+trailer) and holds everything else, printing `hold`: it will not raise a
+strand against a unit whose merged PR it simply could not see.
+
 ## Scaling out: the meta-tower
 
 `/orchestrate --fleet` supervises **all** Ready/Active specs by launching a
@@ -780,6 +863,41 @@ escalation are deliberately not gated (pausing the record of what happened
 would hide problems). Backoff and disable actions log through the audit
 trail; a human clears the streak with `crash-reset`.
 
+### What planwright registers, and the event it deliberately does not
+
+The liveness hooks above are observers: they watch a session and write to the
+attention store, and a session behaves identically whether they fire or not.
+That is true of every event planwright registers — `PreToolUse`, `PostToolUse`,
+`SessionStart`, `SessionEnd`, `Stop`, `StopFailure`, `Notification`,
+`PermissionRequest`, `WorktreeRemove`. Some of them *can* block, but only if a
+handler explicitly says so; a quiet handler changes nothing.
+
+`WorktreeCreate` is the exception, and planwright does not register it.
+Registering a hook there **replaces** native git worktree creation: the hook
+becomes the creator, and a handler that stays quiet has refused the operation.
+planwright once registered a passive tracker on it, reading a `worktree_path`
+that event never sends (it sends a bare `name`), so the tracker echoed nothing
+and worktree creation broke on every installed machine — with the reason on
+stderr, which the harness discards. So worktree tracking rides two paths that
+cannot refuse anything instead: `record-create` at the dispatch seam, and the
+`fleet-worktree-track.sh scan` reconcile for trees created any other way.
+
+Two things keep that from regressing. Every registered event has a payload
+fixture under `tests/fixtures/hook-payloads/` holding its real stdin key set,
+read out of the CLI rather than the docs (which omit `WorktreeCreate`'s input
+schema and have drifted on others). And `mise run check` runs
+`scripts/check-hook-contracts.sh`, which fails if anything is registered on an
+event whose silence refuses the operation, if a registered event has no
+fixture, or if a decision hook emits JSON naming the wrong event. If you add a
+hook, add its fixture; if the guard reports an event it does not model, read
+that event's dispatch site and record what its silence means before registering
+anything on it.
+
+**If you are writing a handler that can refuse**, say why on a channel the
+operator sees — `systemMessage`, or the event's own decision field. Stderr is
+discarded on most events, so a reason left there is indistinguishable from an
+unexplained platform failure.
+
 ## Resource governance: models, throttling, and the auto-mode line
 
 Three deterministic mechanisms govern what a dispatched unit costs and what it
@@ -803,6 +921,19 @@ construction — the `fleet_command_*` enum is exactly the non-nestable
 dispatch-entry set, so an out-of-enum command is refused at every overlay layer
 (REQ-E1.2), and the dispatch table and the convergence knob can never both claim
 the same skill.
+
+The table itself now lives in `scripts/allocation-select.sh`, generalized so
+any launch point can resolve through one resolver rather than fleet dispatch
+alone (model-allocation D-5); `fleet-resource-select.sh` is the fleet-scoped
+front door onto it and its CLI is unchanged. Each column reads the general
+`allocation_<column>_<task-type>` knob first, and the `fleet_*` knobs named
+above are its **deprecated fallback**: core ships all nine of those general
+knobs (three columns across the three task types) as `unset`, which is exactly
+what keeps the legacy family in charge, so an existing overlay keeps working
+untouched and needs no migration.
+The legacy family is documented, not removed. The same family also carries
+rows for the surfaces that select nothing today, which ship `inherit` instead.
+Per-knob detail is in the [options reference](options-reference.md).
 
 **Throttling is reactive, off Claude Code's own signal.** There is no
 supported way to query account-level usage, so the fleet reacts to the one
@@ -929,6 +1060,53 @@ un-degraded `normal` policy — the operator has assumed manual control, so the
 ladder stops degrading rather than blocking dispatch. The whole path is
 deterministic script logic with no LLM call.
 
+**Adaptation: `scripts/allocation-adapt.sh`.** Everything above prices a unit by
+its *type*. Nothing in it notices that a particular unit turned out harder than
+the table assumed. `allocation-adapt.sh resolve <unit> --key <task-type>` is the
+layer that does (model-allocation D-2, D-6, D-8): it derives the unit's current
+tier from that unit's own append-only **allocation ledger**, moves it at most one
+ladder step per triggering incident, then applies the clamps above and emits the
+same `admit / model / effort / command / concurrency / rung / reserved` shape, so
+fleet dispatch reads it as a drop-in. It **ships inert**:
+`allocation_adaptation` defaults to `off`, and with it off the answer is
+byte-identical to `fleet-allocate.sh`'s — pinned field by field in the tests
+across every rung and with the signal both present and absent.
+
+Turn it on and a tier moves only on **work-shaped** events, passed as `--event`:
+a step failure or retry, a flailing classification, review-sequence
+non-convergence, or a worker petition. The list is a closed allowlist —
+infrastructure trouble (an audit write error, a config hard-fail, a backend
+launch error) is *refused* rather than counted, because no model tier fixes it
+and counting it would burn the unit's adjustment budget. Escalation raises effort
+a level until `high`, then raises the model one alias **keeping effort `high`**.
+Each event carries an idempotency identity (unit, step, attempt, incident), so a
+failure and the retry it caused collapse to one step while independent incidents
+stack one step each, and a crash replay re-derives instead of double-counting.
+`allocation_adjustment_cap` bounds how far one unit may travel from its starting
+tier — a net step count in *each* direction, refunded by reversals.
+
+Three properties are worth knowing when reading a ledger. A **clamp is not a
+de-escalation**: a proposal the rung or a cap cut down is recorded as *clamped*
+and the unit's own ladder position is untouched, so the next boundary proposes
+from where the ladder actually is. While the usage signal is **unavailable**,
+escalation above the starting tier is denied but an already-escalated unit
+**holds** — no claw-back. And a unit that *cannot* escalate (a denial, an
+exhausted cap, the ladder top) gets no new stuck state: the existing crash-loop
+backoff and disable threshold govern, and the ledger is what explains why
+escalation was unavailable when that escalation reaches a human.
+
+The ledger lives at `<fleet-home>/allocation/<unit>.tsv`, one file per unit, and
+`scripts/allocation-ledger.sh` is its store: `rows` prints a unit's history,
+`derive` recomputes its tier from records plus config, and `stats` reports size
+and derivation cost (also folded into `fleet-stats.sh render`, which is where a
+scan-cost problem shows up first). An unreadable or corrupt ledger does not block
+a launch: the unit launches at its **last recorded tier** with adjustments
+suspended and the degradation surfaced, never silently. Governance events —
+an escalation, a denial, a binding clamp, an inheritance, a degraded read —
+additionally mirror one row each into the shared audit trail under mechanism
+`allocation`, so the fleet-wide view keeps a single surface; routine resolutions
+stay in the per-unit ledger.
+
 **Credit-continuation defaults to decline-and-wait, never auto-spend.** The
 rate-limit wall sometimes offers a *credit-continuation* prompt — "spend
 credits / extra usage to continue past the limit".
@@ -1038,7 +1216,8 @@ are in the [options reference](options-reference.md).
 | `max_parallel_units` | Per-spec concurrency cap | Your per-spec load | `3` — bounded parallelism out of the box |
 | `fleet_max_parallel_units` | Fleet-wide bound across all specs | Your total fleet load | `3` — enabling the meta-tower never multiplies load until you raise it |
 | `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you (`none` / `tmux-popup` / `os-notify` / `editor-toast` / `statusline`) | `none` — pull-only, dependency-free, nothing fires until you opt in |
-| `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
+| `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
+| `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, with fleet dispatch the only one wired to read it so far (Task 6 wires the rest) | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the surfaces that select nothing today — configure nothing, observe no change |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
 
 Style values never gate capability: every knob's default keeps the full

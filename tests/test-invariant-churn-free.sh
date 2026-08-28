@@ -99,9 +99,12 @@ git -C "$repo" config user.email test@example.com
 git -C "$repo" config user.name test
 git -C "$repo" config commit.gpgsign false
 git -C "$repo" remote add origin https://example.invalid/demo.git
-v2_heads "Demo — Requirements" >"$sd/requirements.md"
-v2_heads "Demo — Design" >"$sd/design.md"
-v2_heads "Demo — Test Spec" >"$sd/test-spec.md"
+# Body content after the header block is not decoration: a header block that
+# runs to end of file is malformed input the content anchor refuses
+# (anchor-integrity REQ-A1.2), so a heads-only file is not an anchorable bundle.
+{ v2_heads "Demo — Requirements" && printf '%s\n' '## Goal' '' 'Demo.'; } >"$sd/requirements.md"
+{ v2_heads "Demo — Design" && printf '%s\n' '## Decisions' '' 'Demo.'; } >"$sd/design.md"
+{ v2_heads "Demo — Test Spec" && printf '%s\n' '## Coverage' '' 'Demo.'; } >"$sd/test-spec.md"
 write_v2_tasks "$sd/tasks.md" "(none yet)"
 git -C "$repo" add -A
 git -C "$repo" commit -qm "chore: fixture"

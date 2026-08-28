@@ -3,7 +3,7 @@
 # check (guard-coverage Task 2; D-2, D-3; REQ-A1.2, REQ-A1.3).
 #
 # Contract under test:
-#   - the four tracked, extensionless portable-shell hooks reject, in a wired
+#   - the tracked, extensionless portable-shell hooks reject, in a wired
 #     fixture repo: amend (the positions the client hook can detect: bare
 #     `--amend`, and the `-c`/`-C HEAD` message-reuse forms — the `--amend
 #     -m`/`-F` family reaches prepare-commit-msg as source `message` and is
@@ -59,7 +59,7 @@ repo_root=$(cd "$here/.." && pwd)
 HOOKS_SRC="$repo_root/githooks"
 WIRE="$repo_root/scripts/wire-githooks.sh"
 CHECK="$repo_root/scripts/check-githooks.sh"
-HOOK_NAMES="pre-push pre-rebase prepare-commit-msg commit-msg"
+HOOK_NAMES="pre-push pre-rebase prepare-commit-msg commit-msg pre-commit"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -153,6 +153,7 @@ done
 (cd "$r" && printf '' | ./githooks/pre-push origin "file://$origin" >/dev/null 2>&1) || :
 (cd "$r" && ./githooks/pre-rebase >/dev/null 2>&1) || :
 (cd "$r" && ./githooks/prepare-commit-msg /dev/null message >/dev/null 2>&1) || :
+(cd "$r" && ./githooks/pre-commit >/dev/null 2>&1) || :
 echo warm >"$tmp/warm.msg"
 (cd "$r" && ./githooks/commit-msg "$tmp/warm.msg" >/dev/null 2>&1) || :
 gitc "$r" add githooks scripts config

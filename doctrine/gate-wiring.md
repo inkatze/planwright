@@ -6,7 +6,8 @@ wiring a gate-wired skill (`/self-review`, `/polish`, and `/execute-task`'s
 convergence step) implements. The two share one contract; where this one names
 a bucket, predicate, or zone, the categorization doctrine's definition governs.
 
-Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6.
+Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 ·
+operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -167,10 +168,10 @@ The **declined log** accompanies the tables wherever they emit:
 
 Declined findings remain re-raisable at PR review (REQ-C1.6).
 
-The tables and declined log emit both in the handoff summary and in the draft
-PR body (REQ-E1.5). Table content is a committed artifact: finding text and
-captured output must respect artifact data-hygiene
-([Security Posture](security-posture.md)) before landing in a PR body.
+The tables and declined log are artifact-side (REQ-E1.5). Table content is a
+committed artifact: finding text and captured output must respect artifact
+data-hygiene ([Security Posture](security-posture.md)) before landing in a PR
+body.
 
 ## Resolution ladder procedure
 
@@ -220,10 +221,13 @@ sign-off).
 
 ## Loop-end handoff
 
-At loop end, emit in this order: the four tables, the declined log, the
-pending-sign-off checklist, and the queued irreducible forks with their
-bespoke options. The parent skill folds them into the draft PR body per the
-PR-body assembly section below (REQ-E1.5).
+At loop end the full record — the four tables, the declined log, the
+pending-sign-off checklist, then the queued forks and their bespoke options,
+in that order — is **artifact-side**, folded into the draft PR body per
+PR-body assembly below (REQ-E1.5). The **turn** gets its projection:
+per-bucket counts, the actionable residue (pending sign-offs, open forks), and
+where the full record landed
+([Interaction Style](interaction-style.md), the arbitration).
 
 ## PR-body assembly
 
@@ -251,9 +255,7 @@ template-expanded: each skill supplies its own summary inputs.
 fixed-column wrap only inserts ragged mid-sentence breaks. Line breaks in the
 emitted body appear only where markdown is structural (list items, table rows,
 code fences, headings), never mid-paragraph. (This governs the emitted PR body,
-not this file's own source,
-which wraps per markdownlint; the example below is code-fenced so it shows the
-unwrapped body verbatim.)
+not this file's own source, which wraps per markdownlint.)
 
 **Updates keep the structure** (REQ-A1.4). Re-emitting the body on a later
 push regenerates the summary and the collapsed audit in place, preserving this
@@ -330,8 +332,8 @@ Closes the unowned-refresh gap REQ-E1 names: stamps the reconcile's completion a
 
 ## Consumers and conformance
 
-`/self-review` and `/polish` (Task 11) and `/execute-task`'s convergence step
-(Task 12) implement this wiring. The conformance scenarios live in the
+`/self-review`, `/polish`, and `/execute-task`'s convergence step implement
+this wiring. The conformance scenarios live in the
 bootstrap test-spec's REQ-C1.3, REQ-C1.4, and REQ-C1.7 entries
 (state/trigger/outcome), exercised by the manual-verification sweep the work
 fork's first run carries, with the REQ-C1.5 and REQ-C1.6 manual entries.

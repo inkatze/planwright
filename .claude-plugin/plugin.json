@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "planwright",
   "displayName": "Planwright",
-  "description": "Autopilot for spec-driven development. The human signs off and merges; planwright flies the spec.",
-  "version": "0.33.0",
+  "description": "Autopilot for spec-driven development. The human signs off and merges; planwright flies the spec. Scales to a multi-spec fleet: an agentic software factory on Claude Code primitives.",
+  "version": "0.34.0",
   "author": {
     "name": "Diego Romero",
     "email": "jd@inkatze.com"
@@ -13,13 +13,15 @@
   "repository": "https://github.com/inkatze/planwright",
   "keywords": [
     "spec-driven-development",
-    "orchestration",
-    "autonomy",
-    "workflow",
+    "software-factory",
+    "agentic-coding",
+    "agent-orchestration",
+    "harness-engineering",
     "loop-engineering",
     "human-in-the-loop",
     "guardrails",
     "agentic",
+    "ai-agents",
     "claude-code"
   ],
   "defaultEnabled": true

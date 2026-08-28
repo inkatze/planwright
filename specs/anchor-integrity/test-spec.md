@@ -71,28 +71,33 @@ consumers (`/orchestrate`, `/execute-task`) cite it. Verified by review.
 
 ### REQ-C1.1 — Stale-anchor pre-flight [Gherkin + manual]
 
-Scenario: given a signed bundle whose brief anchor no longer recomputes
-equal — or whose entry is absent or unparseable, or whose recompute
-errors — when a planwright-shipped skill is about to edit the bundle,
-then it surfaces the condition and applies no bundle edit. True-negative:
-given a fresh anchor, the pre-flight proceeds without noise. Exercised
-manually in the next live act-on-findings run over a signed spec.
+Given a signed bundle whose brief anchor no longer recomputes equal, When
+a planwright-shipped skill is about to edit that bundle, Then it surfaces
+the condition And applies no bundle edit. Given instead a brief whose
+most recent entry is absent or unparseable, or whose recompute errors,
+Then the same block fires — the failure modes are not distinguished.
+True-negative: Given a fresh anchor, Then the pre-flight proceeds without
+noise. Exercised manually in the next live act-on-findings run over a
+signed spec.
 
 ### REQ-C1.2 — Expression-only self-ritual [Gherkin + manual]
 
-Scenario: given a validated expression-only finding on a signed bundle,
-when the skill applies it, then the same change contains the dated
-Changelog entry and the marked `Class: expression-only` self-re-anchor
-entry citing it, all in one commit, and the REQ-D1.1 guard is green
+Given a validated expression-only finding on a signed bundle, When the
+skill applies it, Then the edit, the dated Changelog entry, and the
+marked `Class: expression-only` self-re-anchor entry citing it all land
+in one commit And the REQ-D1.1 guard is green
 afterwards. Exercised manually at the next live act-on-findings run over
 a signed spec (the REQ-C1.1 occasion); the guard provides the mechanical
 backstop.
 
 ### REQ-C1.3 — Meaning-class refusal and routing [Gherkin + manual]
 
-Scenario: given a validated meaning-class finding on a signed bundle, when
-the skill routes findings, then the bundle is untouched and the handoff
-names `/spec-kickoff` as the route. Exercised manually in live runs.
+Given a validated meaning-class finding on a signed bundle, When the skill
+routes findings, Then the bundle is untouched And the handoff names
+`/spec-kickoff` as the route And no anchor entry is written. Exercised
+manually in live runs.
+*(Amended at Task 5 execution 2026-08-26: the no-anchor-entry outcome, already
+implied by REQ-C1.3's writership sentence, made explicit.)*
 
 ### REQ-C1.4 — Kickoff terminal recompute [Gherkin + manual]
 

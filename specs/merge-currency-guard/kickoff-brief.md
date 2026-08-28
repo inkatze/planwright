@@ -367,3 +367,25 @@ Anchor: `dea482f102506bd6953e521596389a0b29ca4809` — computed as
 Signed off: 2026-07-24 (machine-written; expression-only self-re-anchor per
 `spec-format` — no human re-sign-off required, auditable and one revert from
 undone)
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`12f5159`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `a511fc4fb553e3ac9d67e12274255eefe58991c5` — computed as
+`scripts/spec-anchor.sh specs/merge-currency-guard`

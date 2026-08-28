@@ -10,6 +10,11 @@ shfmt = "3.13.1"
 markdownlint-cli2 = "0.19.0"
 yamllint = "1.37"
 gitleaks = "8.30.0"
+# Runs the best-effort pre-commit mirror in lefthook.yml, reached through the
+# tracked githooks/pre-commit dispatcher. Not this repo's hooks manager
+# (guard-coverage D-2 keeps that job with githooks/); a contributor without it
+# still commits, and CI still runs the normative check task.
+lefthook = "2.1.11"
 
 [tasks.release]
 description = "Sign and publish the pending release tag on this repo (autopilot-reflex REQ-F1.3, D-8). Repo-local ergonomics only: a thin wrapper over scripts/release-publish.sh, which has no mise dependency and is invokable directly anywhere (REQ-D1.9)."
@@ -40,8 +45,8 @@ description = "markdownlint on prose (specs get the scoped specs/.markdownlint.j
 run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' 'specs/**/*.md' 'templates/**/*.md' '!specs/_observations/**'"
 
 [tasks."lint:yaml"]
-description = "yamllint on tracked config and workflows"
-run = "yamllint --strict config/ .github/"
+description = "yamllint on tracked config, workflows, and the pre-commit mirror config"
+run = "yamllint --strict config/ .github/ lefthook.yml"
 
 [tasks."lint:commits"]
 description = "conventional-commit format lint on commits ahead of origin/main (length is enforced on the PR title in CI, not per-commit)"
@@ -105,6 +110,10 @@ run = "/bin/bash scripts/check-glob-allow-rules.sh"
 description = "structural-corruption + duplicate-Status guards over committed tasks.md snapshots (REQ-E1.1, REQ-E1.2)"
 run = "/bin/bash scripts/check-ledger.sh"
 
+[tasks."check:anchor-freshness"]
+description = "anchor-freshness guard over every non-Draft, non-terminal bundle: the brief's most recent anchor entry parses, uses a sanctioned command form, and recomputes equal; an edit to anchored content since the baseline carries a dated Changelog entry (anchor-integrity Task 4, REQ-D1.1, REQ-D1.2, REQ-D1.4, D-6)"
+run = "/bin/sh scripts/check-anchor-freshness.sh"
+
 [tasks."check:obs"]
 description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4)"
 run = "/bin/bash scripts/check-obs.sh"
@@ -128,6 +137,14 @@ run = "/bin/sh scripts/check-githooks.sh"
 [tasks."check:purged-identifiers"]
 description = "purged-identifier guard: fail if an identifier deliberately purged from this history reappears in the tracked tree, matched as SHA-256 over normalized candidates so no plaintext is committed; fails closed on a missing, malformed, or below-floor seed file (guard-coverage Task 3, REQ-B1.1, REQ-B1.2, REQ-H1.3, D-5)"
 run = "/bin/sh scripts/check-purged-identifiers.sh"
+
+[tasks."check:hook-contracts"]
+description = "hook-registration guard over all three surfaces planwright registers through (hooks.json plus the worker and tower settings fragments): every registered event is modelled and payload-fixture-pinned, nothing is registered on an event whose silence refuses the operation (the WorktreeCreate outage shape) unless it is that operation's declared implementer, and decision hooks — run as registered, arguments included, with the worker identity neutralised — emit JSON naming their own event; fails closed on an unmodelled event or unreadable wiring (fleet-lifecycle-closure Task 2, REQ-H1.1, REQ-H1.2, D-11)"
+run = "/bin/bash scripts/check-hook-contracts.sh"
+
+[tasks."check:doctrine-index"]
+description = "doctrine/*.md ↔ doctrine/README.md index bijection (guard-coverage REQ-F1.1)"
+run = "/bin/bash scripts/check-doctrine-index.sh"
 
 [tasks."check:doctrine-manifest"]
 description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
@@ -165,12 +182,15 @@ depends = [
   "check:options",
   "check:glob-allow-rules",
   "check:ledger",
+  "check:anchor-freshness",
   "check:obs",
   "check:instructions",
   "check:no-ci-evals",
   "check:workflow-posture",
   "check:githooks",
   "check:purged-identifiers",
+  "check:hook-contracts",
+  "check:doctrine-index",
   "check:doctrine-manifest",
   "check:specs",
   "scan:secrets",

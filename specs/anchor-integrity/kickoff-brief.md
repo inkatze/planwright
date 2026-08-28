@@ -307,4 +307,73 @@ Anchor: `48504616fd42e71fb9f4a49d8fbda691c844f606` — computed as
 
 ## Amendment log
 
-(none yet)
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`15a0217`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `efb063055a3fea858bacfd26d74db52ab0e408d8` — computed as
+`scripts/spec-anchor.sh specs/anchor-integrity`
+
+### Re-anchor — Task 5 expression-only edits (2026-08-26)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Sign-off records and content anchors*),
+recorded by the `/execute-task` run that implements Task 5 — the task that
+writes this very ritual into the act-on-findings skills.
+
+**Why the anchor moved:** three expression-only edits inside the bundle,
+none of them touching an accepted decision. `tasks.md` records the
+placement Task 5's deliverable line explicitly left to execution (the
+general doctrine statement went to the meta-spec's writer prose rather
+than `gate-wiring.md`, with the reason). `test-spec.md` restates the
+REQ-C1.1, REQ-C1.2, and REQ-C1.3 verification entries in the canonical
+Given/When/Then state/trigger/outcome form used elsewhere in the format,
+asserting the same scenarios; REQ-C1.3 additionally spells out the
+no-anchor-entry outcome its own writership sentence already implies.
+`requirements.md` carries the paired changelog entry. No REQ, D-ID, or
+`Done when:` condition changes meaning.
+
+**Cites the changelog line:** the 2026-08-26 `## Changelog` entry in
+`specs/anchor-integrity/requirements.md` ("Task 5 expression-only
+edits").
+
+Class: expression-only
+Anchor: `d1cbd08b58953e791bc5358523f6883d73065a45` — computed as
+`scripts/spec-anchor.sh specs/anchor-integrity`
+
+### Re-anchor — Task 5 amendment annotations (2026-08-26)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Sign-off records and content anchors*),
+recorded by the `/self-review` pass over the Task 5 branch.
+
+**Why the anchor moved:** the review pass found that the entry above amended
+two records in place without the format's trailing `*(Amended at …)*`
+annotation, which the amendment ritual requires so a record names the event
+that changed it. Task 5's deliverable line and the REQ-C1.3 verification
+entry now carry it. The REQ-C1.1 and REQ-C1.2 entries are deliberately left
+unannotated — their restatement changed form, not substance. Nothing else in
+the bundle changed.
+
+**Cites the changelog line:** the second 2026-08-26 `## Changelog` entry in
+`specs/anchor-integrity/requirements.md` ("Amendment annotations added for
+the Task 5 edits above").
+
+Class: expression-only
+Anchor: `ee41c38a3cf173b0f047acf732f85fbbfaa4d3d1` — computed as
+`scripts/spec-anchor.sh specs/anchor-integrity`

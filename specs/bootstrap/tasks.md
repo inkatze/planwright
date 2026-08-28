@@ -43,6 +43,17 @@ first.
 
 ## Awaiting input
 
+- **anchor re-review pending** — the anchor-integrity re-anchor sweep
+  (anchor-integrity D-3, REQ-A1.4) classified this bundle's anchored-content
+  delta since its last recorded anchor as meaning-class: four `Superseded-by:`
+  pointers were added to D-2, D-26, D-40, and D-44 (2026-06-28/29, landed in
+  the kickoff-lifecycle and orchestration-concurrency spec PRs) and a
+  supersession changes what an accepted decision means. The sweep therefore
+  wrote no machine re-anchor entry here and the freshness gate stays failed
+  closed for this bundle. Remedy: the meta-spec reopen cycle this bundle's
+  `Done` status admits, which re-records the anchor at sign-off and removes
+  this bullet.
+
 ## Completed
 
 ### Task 19 — Packaging finalization & onboarding docs

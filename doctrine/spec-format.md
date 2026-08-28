@@ -301,7 +301,10 @@ return), the bullet's free text carrying that same annotation. Where a block
 genuinely must leave the file, a dated `## Changelog` entry naming the retired id
 authorizes the removal — the escape REQ supersession already has, and the only
 one the stable-ID check accepts. The named token is a task id in the task-id
-grammar, and it must be the id of the block that actually left: an unnamed
+grammar, written in the `Task <id>` citation form this format already defines for
+task references, because an unqualified number is indistinguishable from a date
+component or any other digit in the prose; and it must be the id of the block
+that actually left: an unnamed
 removal, or one naming a different id, stays a renumbered-or-removed error. When a whole REQ
 group is superseded, its `test-spec.md` entries are removed rather than left as
 orphans pointing at retired IDs, with the tombstone recorded in the same dated
@@ -623,6 +626,29 @@ line; misclassification is auditable and one revert from undone. Execution
 skills' brief writes are confined to named sections (risk register,
 observations) and never produce anchor entries.
 
+**What a writer owes when it acts on findings.** The permission above is one
+half of the contract; this is the other. Two routes reach the same edit — a
+skill applying a review finding to a signed (Ready or Active) bundle, and a
+skill acting on an edit its own implementation work revealed — and both owe
+the three things below, in order. What triggers them is an edit to **anchored
+content**; the orchestration-state and placement writes the anchor excludes by
+construction are bookkeeping, and a stale anchor never blocks one. First, a
+**stale-anchor pre-flight** before the skill's first such edit to that bundle:
+recompute with the brief's most recent recorded command and surface instead
+of editing when the anchor mismatches, when the entry is absent or
+unparseable, or when the recompute itself fails — all of them block alike,
+because none of them can say what the recorded anchor covers, and editing on
+top of an unknown baseline is what makes the drift unrecoverable. Second, for
+an **expression-only** edit, the full ritual in the same change: the edit,
+its dated Changelog entry, and the marked `Class: expression-only`
+self-re-anchor entry citing that entry, landing in **one commit**, so no
+commit in history carries an edited bundle under an anchor that no longer
+describes it. Third, **refusal** of a meaning-class edit: the bundle stays
+untouched and the handoff names a `/spec-kickoff` delta re-walkthrough as the
+route, because meaning-class writership is `/spec-kickoff`'s alone. This binds
+the act, not the shipping vehicle: a review skill delivered from another
+repository owes the same three, and follows through its own repository.
+
 ### The content anchor
 
 The anchor (REQ-F1.9, D-45) is the hash of the per-file digest list: each
@@ -761,6 +787,25 @@ closed to Awaiting input, naming the remedy:
   Remedy: make the tool resolvable, either by supplying the checked tree's
   canonical script or by setting a root the chain reads (the arms are listed
   under *Sanctioned command forms* above).
+
+**Pre-change anchors: the one-time self-re-anchor.** An entry recorded before
+the header-block `**Status:**` exclusion landed (the 2026-07-26 *Anchor-scope
+exclusion* changelog entry), or recorded with the interim whole-file form,
+covers a scope the canonical tool no longer computes — so it halts as a
+mismatch over content nobody edited. planwright's own bundles were swept in the
+change's own PR (anchor-integrity D-3, REQ-A1.4); an adopter bundle at either
+format version carries the same repair, once, and it is the bundle owner's to
+make. It is not a bare re-record: classify the bundle's anchored-content delta
+since the recorded entry first, diffing from the commit that introduced that
+entry's anchor line. A lifecycle-only or expression-only delta takes the
+machine `Class: expression-only` entry, citing the delta that actually moved
+the anchor rather than the scope change by reflex. A meaning-class delta — and
+any delta the classification cannot resolve, which defaults to meaning-class —
+takes the re-review ritual the bundle's status admits instead: a
+`/spec-kickoff` delta re-walkthrough for `Ready` or `Active`, the reopen cycle
+for `Done`. That is what keeps a one-time repair from laundering an unreviewed
+meaning edit. An entry written under the amended semantics never needs the
+remedy again.
 
 **Resolving the recorded command.** All sanctioned forms are accepted, and the
 form recorded in the entry is the one recomputed with — a consumer never
@@ -1012,3 +1057,46 @@ bundle would have to migrate to:
   *(format-grammar D-1, D-5, D-6, D-7, D-10, D-11, D-12, D-13, D-14 · REQ-A1.1,
   REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8,
   REQ-A1.10, REQ-D1.4, REQ-D1.8.)*
+- 2026-08-24 — Pre-change anchor remedy named. The execution-validity halt
+  guidance states the one-time self-re-anchor for an entry recorded before the
+  2026-07-26 anchor-scope exclusion or with the interim whole-file form, and
+  pins the classification that gates it: lifecycle-only or expression-only
+  takes the machine entry citing the delta that actually moved the anchor,
+  while a meaning-class or unresolvable delta takes the status-apt re-review
+  ritual instead (*Execution validity*). The in-repo corpus was swept under
+  that rule in the same PR as the tool-side scope change; this entry names the
+  remedy for bundles the sweep could not reach. **No version bump:** no rule
+  changes — a halt case that already existed gains its remedy in writing.
+  *(anchor-integrity D-3 · REQ-A1.5.)*
+- 2026-08-24 — Fence enforcement caught up, and the retirement escape's form
+  pinned. The 2026-07-29 entry above stated the fence rule while naming the
+  parses that were not yet fence-aware; they now are. The canonical `tasks.md`
+  extraction and `spec-validate.sh`'s requirement, decision, task-heading, and
+  version-2 ledger grammars all read through one shared lexer in
+  `scripts/spec-parse.sh`, so fenced illustration neither raises findings of its
+  own nor satisfies a check a real record would; the unbalanced-fence flag and
+  the changelog-named retirement escape ship with them. **No version bump:** no
+  rule makes a conforming bundle nonconforming, and no in-repo bundle's content
+  anchor moves (verified by a recompute over every bundle, before and after).
+  The one authoring clarification: the retirement escape names its id in the
+  `Task <id>` citation form this format already defines, because an unqualified
+  number cannot be told apart from a date component or any other digit in the
+  entry's prose (*`tasks.md`*, superseded and retired tasks).
+  *(format-grammar D-5, D-9, D-12 · REQ-C1.2, REQ-C1.4, REQ-D1.6, REQ-D1.11.)*
+- 2026-08-26 — What a writer owes when it acts on findings. The writer prose
+  gains the obligation half of the anchor-writership contract, alongside the
+  permission it already stated: a skill editing anchored content in a signed
+  bundle — applying a review finding to it, or acting on an edit its own
+  implementation work revealed — runs the stale-anchor pre-flight before its
+  first such edit (blocking on a mismatch, an absent or unparseable entry, and
+  a failed recompute alike), lands an expression-only edit with its Changelog
+  entry and marked self-re-anchor entry in one commit, and refuses a
+  meaning-class finding to a `/spec-kickoff` delta re-walkthrough (*Sign-off
+  records and content anchors*). Stated here rather than in `gate-wiring.md`
+  because that doc scopes itself to this repository's three gate-wired skills,
+  while this obligation binds the act: a review skill shipped from another
+  repository owes the same three and follows through its own. The named skills
+  instantiate it in their own prose as the same task. **No version bump:** no
+  authoring rule changes — a writer obligation that was already implied by the
+  expression-only lane becomes explicit.
+  *(anchor-integrity D-5 · REQ-C1.1, REQ-C1.2, REQ-C1.3.)*
