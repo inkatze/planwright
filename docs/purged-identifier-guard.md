@@ -92,10 +92,21 @@ caught:
 | Inside a `mailto:` | `mailto:someone@acme-internal.example` |
 | Inside a longer slug | `my-acme-internal-notes` |
 | Inside a path | `../acme_internal/README.md` |
+| A tracked file or directory name | `docs/acme-internal/notes.md`, even with clean contents |
+| A symlink target | `ln -s acme-internal link`, whose target string git stores as the link content |
 
 The URL, `mailto:` and slug cases are not special-cased. They fall out of rule
 1: those punctuation marks are word separators like any other, so the
 identifier still appears as a complete run of consecutive words.
+
+The last two rows are why the scan reads more than file contents. A path is
+tracked data: git records it as permanently as any line of prose, and
+REQ-B1.1 asks the guard to fire when an identifier reappears anywhere in the
+tracked tree. A symlink is the same point in a sharper form, since git stores
+the target path *as* the link content, so the string is tracked bytes even
+though the file behind it is not the repository's to read. Names are therefore
+screened for every tracked entry, including entries whose contents are skipped
+as binary.
 
 ## Out of scope
 
@@ -110,9 +121,9 @@ in either direction:
 | Split across a line break | `acme-`↵`internal` | Candidates are built per line |
 | A typo or an altered spelling | `acme-internl` | Not a normalization variant; nothing short of fuzzy matching would catch it, and fuzzy matching overblocks |
 | Non-ASCII lookalikes | `аcme-internal` (Cyrillic `а`) | Words are ASCII alphanumeric runs |
-| Binary files | a NUL byte in the first 8 KiB | No line-oriented text to normalize; the probe is bounded so a large file is never read whole |
+| A binary file's contents | a NUL byte in the first 8 KiB | No line-oriented text to normalize; the probe is bounded so a large file is never read whole. Its tracked *name* is still screened |
 | Untracked or ignored files | a scratch file, `.gitignore`d output | `git ls-files` is the tracked-tree definition REQ-B1.1 names |
-| A symlink's target | a tracked link pointing outside the repository | A symlink tracks a path, not the content behind it |
+| The contents of a symlink's target | a tracked link pointing outside the repository | The link is never followed; reading the file behind it would scan content the repository does not own. The target *string* is screened |
 
 The first three are the load-bearing ones: the guard trades a class of
 near-miss reintroductions for never firing on unrelated text that merely
@@ -166,11 +177,21 @@ The report is a location and nothing else:
 
 ```text
 check-purged-identifiers: docs/example.md:42: a purged identifier reappears (matched text withheld)
+check-purged-identifiers: docs/[redacted]-[redacted]/notes.md: a purged identifier reappears in the tracked path (matched text withheld)
+check-purged-identifiers: link.txt: a purged identifier reappears in the symlink target (matched text withheld)
 ```
 
 The matched text is never printed. A guard that echoed its match would publish
 the identifier into a CI log instead of into the tree, which is not an
 improvement. Open the reported line to see what it found.
+
+A path match is the one case where the location *is* the matched text, so the
+path cannot be echoed raw. Every word run that took part in the match is
+replaced with `[redacted]` and the rest of the path is left intact, which keeps
+the report actionable — the surviving directory and extension are enough to
+find the entry — without reproducing the identifier. Rename the entry rather
+than opening it; for a symlink, the target string is what carries the match, so
+the link itself is what needs repointing.
 
 Filenames and commit ranges reaching this guard are contributor-controlled, so
 they are treated as data: a filename is stripped of non-printable bytes before

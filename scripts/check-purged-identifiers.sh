@@ -206,6 +206,55 @@ sub report_line {
     $hits++;
 }
 
+# report_where <label> <what> — the same withholding, for a match that has no
+# line number because it is not in a line: a path, or a symlink target.
+sub report_where {
+    print STDERR "check-purged-identifiers: $_[0]: a purged identifier reappears in the $_[1] (matched text withheld)\n";
+    $hits++;
+}
+
+# matches <text> — true when any candidate the text yields is seeded. The
+# candidate walk report_line uses, without the reporting.
+sub matches {
+    my ($text) = @_;
+    my @w = map { lc } ($text =~ /([A-Za-z0-9]+)/g);
+    return 0 unless @w;
+    for my $i (0 .. $#w) {
+        my $candidate = "";
+        for my $len (0 .. $max_words - 1) {
+            last if $i + $len > $#w;
+            $candidate .= $w[$i + $len];
+            return 1 if $seeds{ sha256_hex($candidate) };
+        }
+    }
+    return 0;
+}
+
+# redact <text> — the text with every word run that takes part in a seeded
+# candidate replaced by a marker, separators and non-matching runs intact. It
+# is what makes a path reportable at all: the operator still sees which
+# directory and which part of the name to fix, and the identifier itself
+# reaches no log. Splitting on a captured pattern alternates separator and
+# word fields, so the word runs are exactly the odd indices.
+sub redact {
+    my ($text) = @_;
+    my @parts = split /([A-Za-z0-9]+)/, $text, -1;
+    my @widx  = grep { $_ % 2 == 1 } (0 .. $#parts);
+    my @w     = map  { lc $parts[$_] } @widx;
+    my %hide;
+    for my $i (0 .. $#w) {
+        my $candidate = "";
+        for my $len (0 .. $max_words - 1) {
+            last if $i + $len > $#w;
+            $candidate .= $w[$i + $len];
+            next unless $seeds{ sha256_hex($candidate) };
+            $hide{$_} = 1 for ($i .. $i + $len);
+        }
+    }
+    $parts[ $widx[$_] ] = "[redacted]" for keys %hide;
+    return join("", @parts);
+}
+
 # scan_line <label> <lineno> <line> — one line of text against the seed set.
 sub scan_line {
     my ($label, $lineno, $line) = @_;
@@ -245,11 +294,34 @@ if ($mode eq "tree") {
     }
     my $scanned = 0;
     for my $path (@paths) {
+        # The path itself is tracked content: git records it as permanently as
+        # any line of prose, so a reintroduction carried by a file or
+        # directory name is one the guard has to see (REQ-B1.1, "anywhere in
+        # the tracked tree"). Checked before the -f screen below, so a binary
+        # file name is still read even though its content is not.
+        #
+        # A path match is the one case where the location IS the matched text,
+        # so the label has to be redacted before it is echoed -- reporting it
+        # raw would publish the identifier into a CI log, the very swap this
+        # guard refuses to make everywhere else.
+        my $path_hit = matches($path);
+        my $label = safe_label($path_hit ? redact($path) : $path);
+        report_where($label, "tracked path") if $path_hit;
+
         # A symlink tracks a target path, not the target file: following it
-        # would scan content the repository does not own. A path git lists but
-        # the checkout lacks (a sparse checkout, a broken link) is skipped
-        # rather than fatal; the scan reports on what is actually present.
-        next if -l $path;
+        # would scan content the repository does not own. But git stores that
+        # target string AS the link blob, so that string is tracked content
+        # even though the file behind it is not ours to read. Scan the target,
+        # never the file it points at.
+        if (-l $path) {
+            my $target = readlink $path;
+            report_where($label, "symlink target")
+                if defined $target && matches($target);
+            next;
+        }
+        # A path git lists but the checkout lacks (a sparse checkout, a broken
+        # link) is skipped rather than fatal; the scan reports on what is
+        # actually present.
         next unless -f $path;
         open my $fh, "<:raw", $path or next;
         # Binary exclusion by a bounded probe: a NUL byte in the first 8 KiB.
@@ -264,7 +336,6 @@ if ($mode eq "tree") {
         }
         seek $fh, 0, 0;
         $scanned++;
-        my $label  = safe_label($path);
         my $lineno = 0;
         while (my $line = <$fh>) {
             $line =~ s/\r?\n\z//;

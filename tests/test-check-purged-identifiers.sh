@@ -269,7 +269,8 @@ git -C "$r" add doc.md
 (cd "$r" && "$SCAN" --seed-file config/purged-identifiers.seed >/dev/null 2>&1)
 assert_exit "a relative --seed-file resolves against the caller's directory" 1 $?
 
-# A symlink tracks a target path, not the target's content.
+# A symlink tracks a target path, not the target's content. The link's own
+# target STRING is scanned (below); the file behind it is still never opened.
 r="$(new_repo symlink)"
 seed_into "$r" "$TOKEN"
 printf 'clean tracked content\n' >"$r/doc.md"
@@ -278,6 +279,52 @@ ln -s "$TMP/outside-target.txt" "$r/link.txt"
 git -C "$r" add doc.md link.txt
 (cd "$r" && "$SCAN" >/dev/null 2>&1)
 assert_exit "a tracked symlink is not followed out of the repository" 0 $?
+
+# ---------------------------------------------------------------------------
+# The tracked tree is every tracked BYTE, not only file content: a path git
+# records and a symlink's target blob publish an identifier exactly as
+# permanently as a line of prose does (REQ-B1.1, "anywhere in the tracked
+# tree"). Each of these carries the token ONLY outside file content.
+# ---------------------------------------------------------------------------
+
+r="$(new_repo pathname)"
+seed_into "$r" "$TOKEN"
+printf 'entirely clean content\n' >"$r/$TOKEN-notes.md"
+git -C "$r" add -- "$TOKEN-notes.md"
+out="$(cd "$r" && "$SCAN" 2>&1)"
+assert_exit "a token in a tracked FILENAME fails the scan" 1 $?
+assert_contains "the filename report says it matched the path" "tracked path" "$out"
+assert_absent "the filename report withholds the matched text" "$TOKEN" "$out"
+
+r="$(new_repo dirname)"
+seed_into "$r" "$TOKEN"
+mkdir -p "$r/$TOKEN/nested"
+printf 'entirely clean content\n' >"$r/$TOKEN/nested/file.md"
+git -C "$r" add -- "$TOKEN"
+(cd "$r" && "$SCAN" >/dev/null 2>&1)
+assert_exit "a token in a tracked DIRECTORY name fails the scan" 1 $?
+
+# git stores a symlink's target path AS the blob's content, so the target
+# string is tracked content the guard would otherwise never read.
+r="$(new_repo symlink-target)"
+seed_into "$r" "$TOKEN"
+printf 'clean tracked content\n' >"$r/doc.md"
+ln -s "$TOKEN" "$r/harmless-link"
+git -C "$r" add doc.md harmless-link
+out="$(cd "$r" && "$SCAN" 2>&1)"
+assert_exit "a token in a tracked SYMLINK TARGET fails the scan" 1 $?
+assert_contains "the symlink report says it matched the target" "symlink target" "$out"
+assert_absent "the symlink report withholds the matched text" "$TOKEN" "$out"
+
+# A binary file's CONTENT is out of scope, but the name it is tracked under
+# is still text the guard reads.
+r="$(new_repo binary-name)"
+seed_into "$r" "$TOKEN"
+printf 'tracked and clean\n' >"$r/doc.md"
+printf 'header\000payload\n' >"$r/$TOKEN.bin"
+git -C "$r" add -- doc.md "$TOKEN.bin"
+(cd "$r" && "$SCAN" >/dev/null 2>&1)
+assert_exit "a token in a BINARY file's name still fails the scan" 1 $?
 
 # A filename is untrusted text: an embedded escape sequence must not reach
 # the reader's terminal through the report (echo discipline).
@@ -449,6 +496,12 @@ printf 'content\n' >"$r/doc.md"
 git -C "$r" add doc.md
 out="$(git -C "$r" commit -m 'chore: a clean subject' 2>&1)"
 assert_exit "the hook fails closed when the seed file is unreachable" 1 $?
+# The scanner separates a match (exit 1) from a guard that could not run
+# (exit 2), and the hook has to keep them apart: telling an author to reword a
+# perfectly clean message because the SEED file is missing sends them to fix
+# the one thing that is not broken.
+assert_contains "an unrunnable guard is reported as a setup problem" "setup problem" "$out"
+assert_absent "an unrunnable guard does not tell the author to reword" "reword" "$out"
 
 # The Task 2 screen this hook extends still fires, and still first.
 r="$(wired_repo hook-squash)"
