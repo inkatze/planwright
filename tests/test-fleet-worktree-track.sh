@@ -364,6 +364,22 @@ case $(wt list) in
 esac
 echo "ok: hook-remove records the removal and exits 0 (jq and sed-fallback paths)"
 
+# 13. Invoked from INSIDE a linked worktree (the normal fleet case: a worker
+#     session requesting a sibling), the new worktree must land under the
+#     PRIMARY checkout's worktrees root — not nest inside the current
+#     worktree, where removing the parent would silently delete it.
+rm -rf "$fleet_home"
+inside="$main_real/.claude/worktrees/hooked-wt"
+[ -d "$inside" ] || fail "from-inside setup: the hooked-wt worktree from test 4 is missing"
+rc=0
+out=$(cd "$inside" && printf '%s' '{"hook_event_name":"WorktreeCreate","name":"from-inside"}' \
+  | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (from inside a linked worktree) exit $rc, expected 0"
+[ "$out" = "$main_real/.claude/worktrees/from-inside" ] \
+  || fail "creation from inside a worktree must target the primary checkout (got: '$out')"
+[ ! -e "$inside/.claude" ] || fail "creation nested a worktree tree inside the invoking worktree"
+echo "ok: creation from inside a linked worktree lands under the primary checkout"
+
 # 12. Grammar tightening: a dot-led segment (`.git` would sit inside the
 #     worktrees root and confuse git discovery) refuses, and a name whose
 #     flattened `worktree-<name>` branch is refname-invalid (`a..b`) refuses

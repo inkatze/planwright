@@ -466,7 +466,22 @@ case "$cmd" in
       warn "no git binary on PATH — cannot create a worktree; echoing nothing"
       exit 0
     fi
-    hc_root=$(git rev-parse --show-toplevel 2>/dev/null) || hc_root=""
+    # Resolve the PRIMARY checkout's root, not the current worktree's: invoked
+    # from inside a linked worktree (a worker session requesting a sibling),
+    # `--show-toplevel` would nest the new tree at
+    # `<worktree>/.claude/worktrees/<name>`, where removing the parent
+    # worktree silently deletes the child (the obs:de85a7f0 defect). The
+    # common gitdir names the primary checkout; a root whose gitdir is not a
+    # `.git` directory (a bare repo) falls back to the current toplevel.
+    hc_common=$(git rev-parse --git-common-dir 2>/dev/null) || hc_common=""
+    case $hc_common in
+      "" | /*) ;;
+      *) hc_common=$(cd "$hc_common" 2>/dev/null && pwd -P) || hc_common="" ;;
+    esac
+    case $hc_common in
+      */.git) hc_root=${hc_common%/.git} ;;
+      *) hc_root=$(git rev-parse --show-toplevel 2>/dev/null) || hc_root="" ;;
+    esac
     if [ -z "$hc_root" ] || ! valid_path "$hc_root"; then
       warn "WorktreeCreate outside a git repository (or an unusable repo root) — echoing nothing"
       exit 0
