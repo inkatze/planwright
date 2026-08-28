@@ -273,11 +273,14 @@ extract_name() {
 
 # valid_name <name> — the worktree-name grammar (the EnterWorktree shape):
 # "/"-separated segments of letters, digits, dots, underscores, and dashes,
-# max 64 chars total. Additionally refused: an empty or dot-only segment (so
-# `..` traversal and hidden-relative segments cannot form), a leading dash on
-# any segment (option injection), and any control byte. The name is DATA —
-# checked by case-glob, never evaluated — and with `..` and absolute forms
-# refused, `<root>/.claude/worktrees/<name>` is contained by construction.
+# max 64 chars total. Additionally refused: an empty segment, a DOT-LED
+# segment (so `..` traversal cannot form and hidden names — `.git`, `.claude`
+# — cannot land inside the worktrees root, where git discovery or tooling
+# globs would misread them), a leading dash on any segment (option
+# injection), and any control byte. The name is DATA — checked by case-glob,
+# never evaluated — so the LEXICAL `<root>/.claude/worktrees/<name>` cannot
+# escape the root; symlinked components are screened separately before any
+# write, and the physical result is containment-re-checked after creation.
 valid_name() {
   vn=$1
   [ -n "$vn" ] || return 1
@@ -290,7 +293,7 @@ valid_name() {
   IFS=/
   for vn_seg in $vn; do
     case $vn_seg in
-      "" | -* | . | .. | *[!A-Za-z0-9._-]*)
+      "" | -* | .* | *[!A-Za-z0-9._-]*)
         IFS=$old_ifs
         return 1
         ;;
@@ -456,7 +459,7 @@ case "$cmd" in
       exit 0
     fi
     if ! valid_name "$hc_name"; then
-      warn "WorktreeCreate name failed the grammar (segments of [A-Za-z0-9._-], no dot-only or dash-led segment, max 64 chars) — echoing nothing"
+      warn "WorktreeCreate name failed the grammar (segments of [A-Za-z0-9._-], no dot-led or dash-led segment, max 64 chars) — echoing nothing"
       exit 0
     fi
     if ! command -v git >/dev/null 2>&1; then
@@ -515,6 +518,15 @@ case "$cmd" in
     # reuse: silently attaching to an unknown branch's history is the forged-
     # name risk in a different coat.
     hc_branch="worktree-$(printf '%s' "$hc_name" | tr '/' '-')"
+    # The name grammar and git's refname grammar are not the same set: `a..b`,
+    # a trailing dot, or a `.lock` suffix pass valid_name but make the
+    # flattened branch refname-invalid, and `git worktree add -b` would fail
+    # with the generic add-failure warning. Refuse up front with the real
+    # reason instead.
+    if ! git check-ref-format --branch "$hc_branch" >/dev/null 2>&1; then
+      warn "WorktreeCreate name flattens to an invalid branch name ($hc_branch) — echoing nothing"
+      exit 0
+    fi
     if git -C "$hc_root" show-ref --verify --quiet "refs/heads/$hc_branch"; then
       warn "WorktreeCreate branch $hc_branch already exists — echoing nothing (remove or rename the branch, or pick another worktree name)"
       exit 0

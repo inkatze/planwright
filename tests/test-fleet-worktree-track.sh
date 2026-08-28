@@ -364,6 +364,19 @@ case $(wt list) in
 esac
 echo "ok: hook-remove records the removal and exits 0 (jq and sed-fallback paths)"
 
+# 12. Grammar tightening: a dot-led segment (`.git` would sit inside the
+#     worktrees root and confuse git discovery) refuses, and a name whose
+#     flattened `worktree-<name>` branch is refname-invalid (`a..b`) refuses
+#     CLEANLY — no branch left behind, nothing created.
+rm -rf "$fleet_home"
+refuse "dot-led segment (.git)" '{"hook_event_name":"WorktreeCreate","name":".git"}'
+[ ! -e "$main_repo/.claude/worktrees/.git" ] || fail "a .git name still created something"
+refuse "refname-invalid flattening (a..b)" '{"hook_event_name":"WorktreeCreate","name":"a..b"}'
+(cd "$main_repo" && git show-ref --verify --quiet refs/heads/worktree-a..b) \
+  && fail "the refname-invalid refusal left a branch behind" || true
+[ ! -e "$main_repo/.claude/worktrees/a..b" ] || fail "a refname-invalid name still created something"
+echo "ok: dot-led segments and refname-invalid flattenings refuse cleanly"
+
 # 11. A DANGLING origin/HEAD (symref present, its target ref gone — a renamed
 #     or pruned remote default branch) must fall back to HEAD, not turn every
 #     creation into a refusal: `symbolic-ref --quiet` still succeeds on a
