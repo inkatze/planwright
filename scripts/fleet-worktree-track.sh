@@ -268,7 +268,10 @@ extract_worktree_path() {
 extract_name() {
   en_in=$1
   if command -v jq >/dev/null 2>&1; then
-    en_v=$(printf '%s' "$en_in" | jq -r '.name // empty' 2>/dev/null) || en_v=""
+    # select(type == "string") also refuses a NON-STRING `.name` (a number or
+    # boolean would round-trip through `-r` as an accepted-looking name; the
+    # contract types name as a string, so a coercion is a refusal).
+    en_v=$(printf '%s' "$en_in" | jq -r '.name | select(type == "string")' 2>/dev/null) || en_v=""
     printf '%s' "$en_v"
     return 0
   fi
@@ -544,12 +547,29 @@ case "$cmd" in
     # Symlink screen BEFORE any filesystem write: `mkdir -p`, `git worktree
     # add`, and the failure-path `rm -rf` all FOLLOW symlink components, and a
     # DANGLING leaf symlink is invisible to the `-e` check above. A symlinked
-    # `.claude`, worktrees root, or leaf is a refusal, never a traversal (the
-    # sibling dispatch primitive's discipline).
-    if [ -L "$hc_root/.claude" ] || [ -L "$hc_root/.claude/worktrees" ] || [ -L "$hc_target" ]; then
-      warn "WorktreeCreate refuses a symlinked .claude, worktrees root, or target — echoing nothing"
+    # `.claude` or worktrees root is a refusal, never a traversal (the sibling
+    # dispatch primitive's discipline).
+    if [ -L "$hc_root/.claude" ] || [ -L "$hc_root/.claude/worktrees" ]; then
+      warn "WorktreeCreate refuses a symlinked .claude or worktrees root — echoing nothing"
       exit 0
     fi
+    # Nested names add intermediate components (`a` and `a/b` for `a/b/c`); an
+    # EXISTING one that is a symlink would carry the add — and the failure
+    # path's `rm -rf` — outside the root exactly like a symlinked worktrees
+    # root, so walk every prefix of the target (leaf included) and refuse a
+    # symlinked component. A not-yet-existing component cannot be a symlink.
+    hc_walk="$hc_root/.claude/worktrees"
+    old_ifs=$IFS
+    IFS=/
+    for hc_seg in $hc_name; do
+      hc_walk="$hc_walk/$hc_seg"
+      if [ -L "$hc_walk" ]; then
+        IFS=$old_ifs
+        warn "WorktreeCreate refuses a symlinked component on the target path — echoing nothing"
+        exit 0
+      fi
+    done
+    IFS=$old_ifs
     # Branch: worktree-<name> with "/" flattened to "-" (the native single-
     # segment shape, extended). A pre-existing branch is a refusal, not a
     # reuse: silently attaching to an unknown branch's history is the forged-

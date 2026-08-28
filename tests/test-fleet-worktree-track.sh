@@ -501,6 +501,41 @@ out=$(cd "$main_repo" && printf '%s' "$blocked" | wt hook-create 2>/dev/null) ||
   || fail "the name must self-heal once the obstruction is gone (got: '$out')"
 echo "ok: a failed git worktree add leaves no branch behind, so the name self-heals"
 
+# 14. An INTERMEDIATE symlink component under the worktrees root (a nested
+#     name's parent pre-planted as a symlink) is refused BEFORE any write: the
+#     refusal comes from the symlink screen (not from the post-create
+#     containment teardown, which would mean content already landed outside),
+#     and nothing is registered or left behind on either side.
+rm -rf "$fleet_home"
+mid_outside="$tmp/mid-outside"
+mkdir -p "$mid_outside"
+ln -s "$mid_outside" "$main_repo/.claude/worktrees/midlink"
+rc=0
+out=$(cd "$main_repo" && printf '%s' '{"hook_event_name":"WorktreeCreate","name":"midlink/wt"}' \
+  | wt hook-create 2>"$tmp/err14") || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (intermediate symlink) exit $rc, expected 0"
+[ -z "$out" ] || fail "an intermediate symlink component must refuse (got: '$out')"
+grep -qi "symlink" "$tmp/err14" \
+  || fail "the refusal must come from the symlink screen, not the post-create teardown (stderr: '$(cat "$tmp/err14")')"
+[ -z "$(ls -A "$mid_outside")" ] || fail "content materialized outside via the intermediate symlink"
+[ -L "$main_repo/.claude/worktrees/midlink" ] || fail "the refusal disturbed the intermediate symlink"
+(cd "$main_repo" && git show-ref --verify --quiet refs/heads/worktree-midlink-wt) \
+  && fail "the intermediate-symlink refusal left a branch behind" || true
+rm -f "$main_repo/.claude/worktrees/midlink"
+echo "ok: an intermediate symlink component refuses before any write"
+
+# 15. A non-string `.name` (the WorktreeCreate contract types it as a string)
+#     is a refusal, never a coercion: `{"name": 0}` must not become a
+#     worktree named `0`.
+rm -rf "$fleet_home"
+rc=0
+out=$(cd "$main_repo" && printf '%s' '{"hook_event_name":"WorktreeCreate","name":0}' \
+  | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (non-string name) exit $rc, expected 0"
+[ -z "$out" ] || fail "a non-string name must refuse, not coerce (got: '$out')"
+[ ! -e "$main_repo/.claude/worktrees/0" ] || fail "a numeric name payload was coerced and created"
+echo "ok: a non-string name refuses instead of coercing"
+
 # 6. Hostile / non-absolute paths are refused by the direct CLI.
 rm -rf "$fleet_home"
 for bad in 'relative/path' '-x' ''; do
