@@ -160,7 +160,7 @@ fi
 # lives on the remote until the local base is fetched AND fast-forwarded; if the
 # operator runs orchestrate before a fetch has reached local main, the trailer
 # sits on origin/main but NOT on local main, so a base-only scan misses it and
-# the task is re-dispatched even though it is genuinely merged (the paycalc-
+# the task is re-dispatched even though it is genuinely merged (the acme-billing-
 # services grammar-backed-explain shape: local main lagged origin/main, the PR
 # merged from a non-convention branch so the gh head-ref map also missed, and
 # the trailer was the only completion anchor). Scan the UNION of base and its
@@ -174,7 +174,7 @@ scan_refs="$base"
 # Prefer the configured upstream (correct when tracking is set); fall back to a
 # conventional origin/<base> when base is a local branch with no tracking config
 # (git does not require `main` to track `origin/main`, yet the merged trailer may
-# still sit there — exactly the untracked-local-main paycalc case).
+# still sit there — exactly the untracked-local-main acme-billing case).
 remote_base=$(git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name \
   "$base@{upstream}" 2>/dev/null || true)
 if [ -z "$remote_base" ] && git -C "$repo_root" show-ref --verify --quiet "refs/heads/$base" \

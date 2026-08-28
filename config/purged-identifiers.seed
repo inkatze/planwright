@@ -17,10 +17,8 @@
 # to that many consecutive words when building candidates.
 #
 # Rules and the in/out-of-scope shape tables: docs/purged-identifier-guard.md
-min-seeds: 5
-max-words: 2
-2b6e492c88c764090136203b2ca862bf48c5c7b9c3eb8bb09190a7e2d66fd951
-3781049acb7fd5d7de257b5522345fccce1e56f50ea02589ab65256ed359f37f
+min-seeds: 3
+max-words: 1
 4020f230fb1eea958587c98573fd5ecad9d0e5bda3e2246621473b7789be4e31
 a44613095b29c69e52c78cee207dcf34b7b57f351082d9a72c991539e05d555a
 cff5952c7c757295144b3ea961455042f1d26754450f088fe6cfd8972f3f54e0
