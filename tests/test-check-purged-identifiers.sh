@@ -682,6 +682,26 @@ assert_contains "the too-short refusal reports the POSITION, not the value" "std
 out="$(printf '///\n' | (cd "$r" && "$SEEDER" --seed-file "$TMP/nonword.seed" 2>&1))"
 assert_exit "the seeder refuses a line with nothing to normalize" 2 $?
 
+# The write goes through an exclusive temp file and a rename, so neither the
+# destination nor anything it points at is written through, and no predictable
+# temp name is left for a symlink to be planted at.
+r="$(new_repo seeder-symlink)"
+mkdir -p "$r/config"
+printf 'DO NOT CLOBBER\n' >"$TMP/seed-victim.txt"
+ln -s "$TMP/seed-victim.txt" "$r/config/purged-identifiers.seed"
+printf '%s\n' "$TOKEN" | (cd "$r" && "$SEEDER" >/dev/null 2>&1)
+assert_exit "the seeder writes over a symlinked destination" 0 $?
+assert_contains "a symlinked destination is not written through" "DO NOT CLOBBER" \
+  "$(cat "$TMP/seed-victim.txt")"
+if [ -L "$r/config/purged-identifiers.seed" ]; then
+  echo "FAIL: the destination is still a symlink after seeding" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: the destination is replaced by a regular file"
+fi
+stray_tmp="$(find "$r/config" -name '*tmp*' -o -name '.purged-seed*' | wc -l)"
+assert_exit "the seeder leaves no temp file behind" 0 "$stray_tmp"
+
 # --add merges rather than replacing, and deduplicates.
 r="$(new_repo seeder-add)"
 mkdir -p "$r/config"

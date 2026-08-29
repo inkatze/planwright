@@ -167,8 +167,10 @@ scripts/seed-purged-identifiers.sh --add    # merge into the existing seeds
 The script reads **stdin only**. It never accepts an identifier as an argument
 (argv is visible in `ps` and in shell history), never prints back what it read,
 and reports a rejected line by its position rather than its content. It writes
-the seed file through a temporary file and a rename, so an interrupted run
-cannot leave behind a truncated list.
+the seed file through an exclusively created temporary file in the destination
+directory and then renames it, so an interrupted run cannot leave behind a
+truncated list, a symlink at the destination is replaced rather than written
+through, and there is no predictable temp name for one to be planted at.
 
 One thing it deliberately does not do is turn off terminal echo. Typing at the
 interactive prompt displays on your own terminal like any other input; the
