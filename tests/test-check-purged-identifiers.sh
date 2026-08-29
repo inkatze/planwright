@@ -706,6 +706,7 @@ add_onto() {
 }
 
 H3='3333333333333333333333333333333333333333333333333333333333333333'
+H4='4444444444444444444444444444444444444444444444444444444444444444'
 
 out="$(add_onto nowords "min-seeds: 1
 $H3
@@ -732,6 +733,24 @@ max-words: 2
 $H3
 ")"
 assert_exit "--add refuses a duplicated min-seeds directive" 2 $?
+
+# min-seeds carries semantics, not just a shape. Accepting a file the scanner
+# fails closed on and rewriting it into one that passes is the guard being
+# quietly repaired into a weaker working state: a floor of 5 against 2 hashes
+# means three seeds went missing, and lowering the floor to match buries that.
+out="$(add_onto zerofloor "min-seeds: 0
+max-words: 2
+$H3
+")"
+assert_exit "--add refuses a zero min-seeds floor" 2 $?
+
+out="$(add_onto belowfloor "min-seeds: 5
+max-words: 2
+$H3
+$H4
+")"
+assert_exit "--add refuses a hash count below the declared floor" 2 $?
+assert_contains "the below-floor refusal names both numbers" "below" "$out"
 
 # The window must never narrow below what the carried hashes were seeded with.
 r2="$(new_repo add-window)"

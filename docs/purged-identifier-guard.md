@@ -176,9 +176,13 @@ guarantees above are about what the *script* records and emits, not about what
 the terminal draws. Nothing typed there reaches shell history either way, since
 only the command name is a command.
 
-`--add` reads the existing file with **exactly** the grammar the scanner
-enforces, and refuses anything the scanner would reject: a missing, duplicated,
-or out-of-range directive is a re-seed, not something to merge into. The strict
+`--add` reads the existing file with **exactly** the checks the scanner
+applies, and refuses anything the scanner would reject: a missing, duplicated,
+zero, or out-of-range directive is a re-seed, not something to merge into, and
+so is a hash count below the declared floor. That last one matters most. The
+floor is a claim about how many seeds *should* be present, so a file holding
+fewer has lost some; recomputing the floor from what survived would stop the
+scanner failing closed and never mention the missing seeds again. The strict
 reader is the point rather than an inconvenience. A looser one would rewrite a
 malformed file into a well-formed one that carries every old hash forward under
 a window derived from the new input alone, leaving the wider seeds permanently

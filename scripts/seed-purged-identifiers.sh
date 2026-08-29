@@ -131,6 +131,8 @@ if ($mode eq "add") {
             bail("existing seed line $lineno: duplicate min-seeds directive")
                 if defined $seen_floor;
             $seen_floor = $1 + 0;
+            bail("existing seed line $lineno: min-seeds is 0, which is not a floor at all")
+                if $seen_floor < 1;
             next;
         }
         bail("existing seed line $lineno is not a 64-char lowercase hex hash")
@@ -147,6 +149,13 @@ if ($mode eq "add") {
         unless $prev_max_words;
     bail("the existing seed file declares no min-seeds directive, so it is malformed; re-seed it rather than adding to it")
         unless defined $seen_floor;
+    # The floor is a claim about how many seeds SHOULD be present, so a file
+    # holding fewer has lost some. Rewriting it with a floor recomputed from
+    # what survived would bury that: the scanner stops failing closed and the
+    # missing seeds are never mentioned again.
+    my $carried = scalar keys %hash;
+    bail("the existing seed file holds $carried hash(es), below its declared min-seeds of $seen_floor; seeds have gone missing, so re-seed rather than adding to it")
+        if $carried < $seen_floor;
 }
 
 my $max_words = $prev_max_words;
