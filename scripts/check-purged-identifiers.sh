@@ -350,34 +350,39 @@ if ($mode eq "tree") {
 } elsif ($mode eq "message") {
     my $text = do { local $/; <STDIN> };
     closed("the commit message is empty") unless defined $text && $text =~ /\S/;
-    # Screen what git will KEEP. Comment lines and everything from a --verbose
-    # scissors line on are stripped by message cleanup after the hook runs, so
-    # screening them would reject a remediation commit for the diff it removes.
-    # Dropped lines are blanked, not deleted, so reported line numbers still
-    # match the file the author is looking at.
+    # Screen what git will KEEP, which is very nearly everything.
     #
-    # Which character opens a comment is core.commentChar, read by the caller
-    # and passed in: under a non-default setting git KEEPS the hash lines, so a
-    # screen that always stripped them would wave an identifier straight into
-    # permanent history. Quoted before use, never compiled as a pattern -- the
-    # configured value can be a regex metacharacter such as $ or |.
+    # Comment lines are NOT dropped here, and that is deliberate. git removes
+    # them only when the message goes through an editor: with -F or -m the
+    # cleanup mode is "whitespace", which keeps them, so a hash line in a -F
+    # commit is permanent history like any other. A screen that always stripped
+    # them would blank the very text git was about to publish. Screening them
+    # costs a false positive only when an editor session WOULD have removed
+    # them, and the identifiers that could appear in a git-generated template are
+    # branch names and paths -- things the tree scan already refuses.
     #
-    # "auto" means git picked the character while composing the message, from a
-    # candidate list, according to what the message already contained. The
-    # finished file cannot tell us which one it settled on, so nothing is
-    # stripped: over-screening a few generated template lines is the fail-closed
-    # direction, where guessing wrong would skip real content.
+    # Everything from a --verbose scissors line on IS dropped, because git
+    # truncates it under every cleanup mode that produces one, so screening it
+    # would reject a remediation commit for the diff it removes. Dropped lines
+    # are blanked, not deleted, so reported line numbers still match the file
+    # the author is looking at.
+    #
+    # The scissors marker is written with the configured comment character,
+    # read by the caller and passed in. Quoted before use, never compiled as a
+    # pattern -- the configured value can be a regex metacharacter such as $
+    # or |. Under "auto" git chose the character while composing the message
+    # and the finished file no longer shows which candidate it picked, so no
+    # scissors line is recognised and the whole message is screened, the
+    # fail-closed direction.
     my $auto      = ($comment_char eq "auto");
     my $cq        = quotemeta($comment_char);
     my @kept;
     my $scissored = 0;
     for my $line (split /\n/, $text, -1) {
-        if ($auto) {
-            push @kept, $line;
-            next;
+        if (!$auto && $line =~ /\A$cq\s*-{2,}\s*>8\s*-{2,}/) {
+            $scissored = 1;
         }
-        $scissored = 1 if $line =~ /\A$cq\s*-{2,}\s*>8\s*-{2,}/;
-        push @kept, ($scissored || $line =~ /\A$cq/) ? "" : $line;
+        push @kept, $scissored ? "" : $line;
     }
     scan_text("commit message", join("\n", @kept));
     print "check-purged-identifiers: commit message clean against $seed_count seed(s).\n"
@@ -420,8 +425,15 @@ if [ -n "$message_file" ]; then
   fi
   # What opens a comment line is configurable, and git's own message cleanup
   # follows the setting. Read it here so the screen strips exactly what git
-  # will drop and screens exactly what git will keep. core.commentString is
-  # the newer multi-character spelling; core.commentChar is its alias.
+  # will drop and screens exactly what git will keep.
+  #
+  # core.commentChar and core.commentString are aliases of each other, not a
+  # primary and a variant: git >= 2.45 accepts a multi-byte string in EITHER,
+  # while older git ignores commentString and rejects a multi-byte commentChar.
+  # They stay separate keys on read, though, so setting one does not make the
+  # other resolve, and both have to be consulted. When a config sets both, the
+  # later line wins; commentString is preferred here because the pairing git
+  # documents for cross-version configs puts it last for exactly that reason.
   comment_char=$(git config --get core.commentString 2>/dev/null || true)
   if [ -z "$comment_char" ]; then
     comment_char=$(git config --get core.commentChar 2>/dev/null || true)

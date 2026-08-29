@@ -455,9 +455,11 @@ git -C "$r" add doc.md
 out="$(git -C "$r" commit -m 'chore: a clean subject and body' 2>&1)"
 assert_exit "the hook lets a clean message through" 0 $?
 
-# Text git will strip is screened out first: a comment line, and the diff a
-# --verbose commit appends below the scissors line. Otherwise the commit that
-# REMOVES a reintroduction would be the one the hook refuses.
+# A comment line is NOT exempt. git strips comments only when the message goes
+# through an editor; with -F or -m the cleanup mode is "whitespace", which
+# keeps them, so a hash line in a -F commit is permanent history like any
+# other. Screening it is what stops the guard from blanking the very text git
+# is about to publish.
 r="$(wired_repo hook-comment)"
 seed_into "$r" "$TOKEN"
 printf 'content\n' >"$r/doc.md"
@@ -465,7 +467,18 @@ git -C "$r" add doc.md
 msg="$r/msg.txt"
 printf 'chore: a clean subject\n\n# a comment naming %s\n' "$TOKEN" >"$msg"
 out="$(git -C "$r" commit -F "$msg" 2>&1)"
-assert_exit "a comment line naming the token does not refuse the commit" 0 $?
+assert_exit "a comment line naming the token is screened, since -F keeps it" 1 $?
+
+# Proof of the premise the case above rests on: git really does keep it.
+r="$(wired_repo hook-comment-kept)"
+seed_into "$r" "$TOKEN2"
+printf 'content\n' >"$r/doc.md"
+git -C "$r" add doc.md
+msg="$r/msg.txt"
+printf 'chore: a clean subject\n\n# an ordinary comment\n' >"$msg"
+git -C "$r" commit -q -F "$msg" >/dev/null 2>&1
+assert_contains "git keeps a '#' line in a -F commit, so screening it is right" \
+  "# an ordinary comment" "$(git -C "$r" log -1 --format=%B)"
 
 r="$(wired_repo hook-scissors)"
 seed_into "$r" "$TOKEN"
@@ -480,31 +493,34 @@ msg="$r/msg.txt"
 out="$(git -C "$r" commit --cleanup=scissors -F "$msg" 2>&1)"
 assert_exit "a --verbose scissors diff naming the token does not refuse the commit" 0 $?
 
-# core.commentChar is configurable, and what counts as a comment has to follow
-# it. Under a non-default character git KEEPS '#' lines in the message, so a
-# screen that always strips them would wave the token straight into permanent
-# history.
+# A comment line is screened whatever character opens it: none of them are
+# exempt, because git keeps them all in a -F commit.
 r="$(wired_repo hook-commentchar)"
 seed_into "$r" "$TOKEN"
 git -C "$r" config core.commentChar ';'
 printf 'content\n' >"$r/doc.md"
 git -C "$r" add doc.md
 msg="$r/msg.txt"
-printf 'chore: a clean subject\n\n# %s\n' "$TOKEN" >"$msg"
+printf 'chore: a clean subject\n\n; %s\n' "$TOKEN" >"$msg"
 out="$(git -C "$r" commit -F "$msg" 2>&1)"
-assert_exit "a '#' line is screened when core.commentChar is not '#'" 1 $?
+assert_exit "a comment line is screened whatever character opens it" 1 $?
 
-# The other direction: the configured character IS stripped, so a remediation
-# commit is not refused for the comment it carries.
-r="$(wired_repo hook-commentchar-strip)"
+# What core.commentChar DOES still govern is the scissors marker, since git
+# writes it with the configured character. Miss that and a --verbose
+# remediation commit gets refused for the diff it is removing.
+r="$(wired_repo hook-scissors-char)"
 seed_into "$r" "$TOKEN"
 git -C "$r" config core.commentChar ';'
 printf 'content\n' >"$r/doc.md"
 git -C "$r" add doc.md
 msg="$r/msg.txt"
-printf 'chore: a clean subject\n\n; a comment naming %s\n' "$TOKEN" >"$msg"
-out="$(git -C "$r" commit -F "$msg" 2>&1)"
-assert_exit "the configured comment character is still stripped" 0 $?
+{
+  printf 'chore: a clean subject\n\n'
+  printf '; ------------------------ >8 ------------------------\n'
+  printf 'diff --git a/doc.md b/doc.md\n-old line naming %s\n' "$TOKEN"
+} >"$msg"
+out="$(git -C "$r" commit --cleanup=scissors -F "$msg" 2>&1)"
+assert_exit "a scissors marker written with the configured character truncates" 0 $?
 
 # A regex-metacharacter comment char must be matched literally, not compiled.
 r="$(wired_repo hook-commentchar-meta)"
@@ -513,8 +529,12 @@ git -C "$r" config core.commentChar '$'
 printf 'content\n' >"$r/doc.md"
 git -C "$r" add doc.md
 msg="$r/msg.txt"
-printf 'chore: a clean subject\n\n$ a comment naming %s\n' "$TOKEN" >"$msg"
-out="$(git -C "$r" commit -F "$msg" 2>&1)"
+{
+  printf 'chore: a clean subject\n\n'
+  printf '$ ------------------------ >8 ------------------------\n'
+  printf 'diff --git a/doc.md b/doc.md\n-old line naming %s\n' "$TOKEN"
+} >"$msg"
+out="$(git -C "$r" commit --cleanup=scissors -F "$msg" 2>&1)"
 assert_exit "a regex-metacharacter comment character is matched literally" 0 $?
 
 # A wired clone that can write history but cannot screen it is the hole the

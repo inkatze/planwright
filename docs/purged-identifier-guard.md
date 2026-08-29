@@ -25,19 +25,30 @@ the hook catches it at write time, and the CI range scan backs the hook up for
 the clones it never runs in — an unwired clone, a `--no-verify` commit, or a
 fork PR whose author never wired anything.
 
-The write-time screen reads only what git will **keep**. Comment lines, and
-everything below a `--verbose` scissors line, are dropped by git's own message
-cleanup after the hook runs, so screening them would refuse the very commit
-that removes a reintroduction. Which character opens a comment is
-`core.commentChar` (or the newer `core.commentString`), so the screen reads
-that setting rather than assuming `#`: under a non-default character git keeps
-the `#` lines, and a screen that always stripped them would wave an identifier
-straight into permanent history. The `auto` setting is the one case the screen
-cannot resolve — git chooses the character while composing the message, and the
-finished file no longer shows which candidate it picked — so under `auto`
-nothing is stripped and the whole message is screened. That over-screens git's
-own template lines, which is the fail-closed direction. The CI range scan never
-strips comments at all, since by then the message is exactly what git kept.
+The write-time screen reads what git will **keep**, which is very nearly
+everything.
+
+Comment lines are screened, not exempt. git removes them only when the message
+goes through an editor; with `-F` or `-m` the cleanup mode is `whitespace`,
+which keeps them, so a `#` line in a `-F` commit becomes permanent history like
+any other. A screen that always stripped them would blank the very text git was
+about to publish. The cost is a false positive only where an editor session
+*would* have removed the line, and the identifiers that could appear in a
+git-generated template are branch names and paths — things the tree scan
+already refuses.
+
+Everything from a `--verbose` scissors line on **is** dropped, because git
+truncates it, so screening it would refuse the very commit that removes a
+reintroduction. That marker is written with the configured comment character,
+which is why the screen reads `core.commentChar` (or `core.commentString`,
+its alias) rather than assuming `#`. Under `auto` git picks the character while
+composing the message and the finished file no longer shows which candidate it
+chose, so no scissors line is recognised and the whole message is screened —
+the fail-closed direction. (`auto` is deprecated upstream and slated for
+removal in Git 3.0.)
+
+The CI range scan strips nothing at all, since by then the message is already
+exactly what git kept.
 
 ## What is committed
 
