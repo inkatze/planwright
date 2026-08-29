@@ -113,18 +113,40 @@ my %hash;
 my $prev_max_words = 0;
 if ($mode eq "add") {
     open my $fh, "<", $seed_path or bail("--add needs an existing seed file at $seed_path");
+    my $seen_floor;
     my $lineno = 0;
     while (my $line = <$fh>) {
         $lineno++;
         $line =~ s/\r?\n\z//;
         next if $line =~ /\A\s*\z/ || $line =~ /\A\s*#/;
-        if ($line =~ /\Amax-words:[ ]([0-9]{1,2})\z/) { $prev_max_words = $1 + 0; next }
-        next if $line =~ /\Amin-seeds:[ ][0-9]{1,4}\z/;
+        if ($line =~ /\Amax-words:[ ]([0-9]{1,2})\z/) {
+            bail("existing seed line $lineno: duplicate max-words directive")
+                if $prev_max_words;
+            $prev_max_words = $1 + 0;
+            bail("existing seed line $lineno: max-words must be between 1 and 8, not $prev_max_words")
+                if $prev_max_words < 1 || $prev_max_words > 8;
+            next;
+        }
+        if ($line =~ /\Amin-seeds:[ ]([0-9]{1,4})\z/) {
+            bail("existing seed line $lineno: duplicate min-seeds directive")
+                if defined $seen_floor;
+            $seen_floor = $1 + 0;
+            next;
+        }
         bail("existing seed line $lineno is not a 64-char lowercase hex hash")
             unless $line =~ /\A[0-9a-f]{64}\z/;
         $hash{$line} = 1;
     }
     close $fh;
+    # A directive the scanner requires but this reader tolerated would be the
+    # worst kind of hole: the rewrite carries every old hash forward under a
+    # window derived from the NEW input alone, so seeds wider than it become
+    # permanently unmatchable while the check still reports green. Refuse the
+    # malformed file instead, and say to re-seed rather than add to it.
+    bail("the existing seed file declares no max-words directive, so it is malformed; re-seed it rather than adding to it")
+        unless $prev_max_words;
+    bail("the existing seed file declares no min-seeds directive, so it is malformed; re-seed it rather than adding to it")
+        unless defined $seen_floor;
 }
 
 my $max_words = $prev_max_words;

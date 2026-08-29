@@ -672,6 +672,55 @@ assert_contains "--add deduplicates the overlap" "2 seed hash(es)" "$out"
 out="$(printf '%s\n' "$TOKEN" | (cd "$r" && "$SEEDER" --add --seed-file "$TMP/absent.seed" 2>&1))"
 assert_exit "--add against a missing seed file is an error" 2 $?
 
+# --add reads the existing file with EXACTLY the grammar the scanner enforces.
+# A looser reader is how a guard goes quietly weak: carrying hashes forward
+# under a narrower window than they were seeded with leaves them permanently
+# unmatchable while the check still reports green.
+
+# add_onto <slug> <existing-seed-body> — run --add over a planted seed file.
+add_onto() {
+  ar="$(new_repo "add-$1")"
+  mkdir -p "$ar/config"
+  printf '%s' "$2" >"$ar/config/purged-identifiers.seed"
+  printf 'zzqsolo\n' | (cd "$ar" && "$SEEDER" --add 2>&1)
+}
+
+H3='3333333333333333333333333333333333333333333333333333333333333333'
+
+out="$(add_onto nowords "min-seeds: 1
+$H3
+")"
+assert_exit "--add refuses an existing file with no max-words directive" 2 $?
+assert_contains "the no-max-words refusal says what is wrong" "max-words" "$out"
+
+out="$(add_onto widewords "min-seeds: 1
+max-words: 12
+$H3
+")"
+assert_exit "--add refuses an out-of-range max-words rather than carrying it" 2 $?
+
+out="$(add_onto dupewords "min-seeds: 1
+max-words: 2
+max-words: 1
+$H3
+")"
+assert_exit "--add refuses a duplicated max-words directive" 2 $?
+
+out="$(add_onto dupefloor "min-seeds: 1
+min-seeds: 2
+max-words: 2
+$H3
+")"
+assert_exit "--add refuses a duplicated min-seeds directive" 2 $?
+
+# The window must never narrow below what the carried hashes were seeded with.
+r2="$(new_repo add-window)"
+mkdir -p "$r2/config"
+printf 'zzq alpha beta gamma\n' | (cd "$r2" && "$SEEDER" >/dev/null 2>&1)
+printf 'zzqsolo\n' | (cd "$r2" && "$SEEDER" --add >/dev/null 2>&1)
+assert_contains "--add never narrows the window below the carried seeds" "max-words: 4" \
+  "$(cat "$r2/config/purged-identifiers.seed")"
+
 # The seeder and the scanner must agree on normalization: a seed provisioned
 # in one spelling is caught in every other. This is the contract that keeps
 # the two sides from drifting apart.

@@ -165,6 +165,16 @@ guarantees above are about what the *script* records and emits, not about what
 the terminal draws. Nothing typed there reaches shell history either way, since
 only the command name is a command.
 
+`--add` reads the existing file with **exactly** the grammar the scanner
+enforces, and refuses anything the scanner would reject: a missing, duplicated,
+or out-of-range directive is a re-seed, not something to merge into. The strict
+reader is the point rather than an inconvenience. A looser one would rewrite a
+malformed file into a well-formed one that carries every old hash forward under
+a window derived from the new input alone, leaving the wider seeds permanently
+unmatchable while the check reported green — a guard that looks armed and is
+not. The window itself only ever widens: `--add` keeps the larger of the
+existing and incoming values.
+
 Two inputs are refused: a line that normalizes to fewer than four characters
 (it would match common word runs everywhere and turn the guard into noise) and
 one longer than eight words (beyond the scanner's candidate window).
