@@ -58,6 +58,7 @@ nothing else:
 ```text
 min-seeds: <count>
 max-words: <n>
+min-max-words: <n>
 <64 lowercase hex characters>
 ...
 ```
@@ -74,11 +75,37 @@ tracked file, which is the honest limit of what a committed floor can promise.
 
 `max-words` is the word count of the widest seeded identifier, and it bounds
 the scanner's candidate window (below). The seeding path derives it from what
-it ingested, so a generated file always spans its own seeds. Nothing re-derives
-it at scan time, though: hand-lowering it would narrow the window past a
-multi-word seed while the guard still reported green — the same honest limit
-`min-seeds` has, and the same reason the seed file is generated rather than
-edited.
+it ingested, so a generated file always spans its own seeds.
+
+`min-max-words` is the floor under that window, and it is what stops the
+window being narrowed after the fact. Hand-lowering `max-words` would otherwise
+leave every wider seed unmatchable while the hash count and `min-seeds` both
+stayed untouched, so nothing would fire and the check would report green. The
+scanner refuses a file whose `max-words` has fallen below this floor, exactly
+as it refuses one whose hash count has fallen below `min-seeds`. It is
+**required**, not optional: a floor that only applies when its own line is
+present is disarmed by deleting that line.
+
+Its **absence** is treated differently by surface, deliberately. The tree scan
+and the commit-range scan fail closed on a seed file that has no
+`min-max-words` line, and that is where the anti-tamper property actually
+lives: deleting the line becomes a visible diff CI refuses. The write-time
+message screen tolerates the absence and carries on, because a seed file
+predating the directive would otherwise wedge every commit in a wired clone —
+including the commit that lands the re-seed. Nothing the hook guards gets
+weaker, since token screening is hash comparison and the window floor does not
+enter into it. Hook best-effort, CI authoritative, the same layering the
+comment-line case uses.
+
+A `min-max-words` that is *present* is enforced everywhere, the hook included.
+Only its absence is tolerated, and only on that one surface.
+
+Arming the floor on a seed file that predates it means one run of the seeder,
+since the value is derived from the seeds and deriving it needs the plaintext:
+
+```bash
+scripts/seed-purged-identifiers.sh   # type the identifiers, one per line, Ctrl-D
+```
 
 **Accepted residual (D-5).** The purged identifiers are low-entropy names, so
 their hashes are offline-guessable by anyone motivated to guess the names
@@ -204,9 +231,11 @@ Every one of these exits non-zero rather than passing vacuously, per the
 fail-closed posture REQ-H1.3 sets for every guard this repository ships:
 
 - the seed file is missing, unreadable, empty, or holds zero hashes;
-- either directive is missing or duplicated, `min-seeds` is `0`, or
-  `max-words` is outside 1–8;
+- any directive is missing or duplicated, `min-seeds` is `0`, or `max-words`
+  or `min-max-words` is outside 1–8 (a missing `min-max-words` is the one
+  exception the write-time screen tolerates, per the section above);
 - the hash count is below the declared `min-seeds`;
+- `max-words` is below the declared `min-max-words`;
 - any line is neither a comment, a directive, nor a bare hash;
 - the tracked tree enumerates zero scannable files, a commit range yields zero
   commits, or a screened commit message is empty;

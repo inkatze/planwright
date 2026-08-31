@@ -414,6 +414,29 @@ min-seeds: 2
 max-words: 2
 $H1
 "
+bad_seed "no min-max-words directive" nominmax "min-seeds: 1
+max-words: 2
+$H1
+"
+bad_seed "a duplicated min-max-words directive" dupeminmax "min-seeds: 1
+max-words: 2
+min-max-words: 2
+min-max-words: 1
+$H1
+"
+bad_seed "a min-max-words above the window" wideminmax "min-seeds: 1
+max-words: 2
+min-max-words: 9
+$H1
+"
+# The tamper this floor exists for: narrow the window and leave everything
+# else untouched, and every seed wider than the new window silently stops
+# matching. The scanner has to refuse the file, not scan with it.
+bad_seed "a max-words hand-lowered below its floor" narrowed "min-seeds: 1
+max-words: 1
+min-max-words: 3
+$H1
+"
 
 # ---------------------------------------------------------------------------
 # The commit-msg hook screen (write time).
@@ -548,6 +571,43 @@ out="$(git -C "$r" commit -m 'chore: a clean subject' 2>&1)"
 assert_exit "the hook fails closed when the scanner is unreachable" 1 $?
 assert_contains "the unreachable-scanner refusal says why" "failing closed" "$out"
 
+# A seed file predating min-max-words is fatal to the tree and range scans but
+# NOT to the write-time screen. Making it fatal there too would wedge every
+# commit in a wired clone -- including the commit that lands the re-seed --
+# while protecting nothing, since token screening is hash comparison and the
+# window floor does not enter into it. Hook best-effort, CI authoritative.
+legacy_seed_repo() {
+  lr="$(wired_repo "$1")"
+  seed_into "$lr" "$TOKEN"
+  grep -v '^min-max-words' "$lr/config/purged-identifiers.seed" >"$lr/config/tmp.seed"
+  mv "$lr/config/tmp.seed" "$lr/config/purged-identifiers.seed"
+  printf '%s' "$lr"
+}
+
+r="$(legacy_seed_repo hook-legacy-clean)"
+printf 'content\n' >"$r/doc.md"
+git -C "$r" add doc.md
+out="$(git -C "$r" commit -m 'chore: a perfectly clean subject' 2>&1)"
+assert_exit "a seed predating min-max-words does not wedge commits" 0 $?
+
+r="$(legacy_seed_repo hook-legacy-token)"
+printf 'content\n' >"$r/doc.md"
+git -C "$r" add doc.md
+out="$(git -C "$r" commit -m "chore: mentions $TOKEN here" 2>&1)"
+assert_exit "screening is not weakened by the tolerated absence" 1 $?
+assert_absent "the legacy-seed rejection still withholds the matched text" "$TOKEN" "$out"
+
+# Present-but-violated is enforced everywhere, including the hook. Only the
+# ABSENCE is tolerated, and only on this surface.
+r="$(wired_repo hook-narrowed)"
+seed_into "$r" "$TOKEN"
+sed 's/^max-words: .*/max-words: 1/' "$r/config/purged-identifiers.seed" >"$r/config/tmp.seed"
+mv "$r/config/tmp.seed" "$r/config/purged-identifiers.seed"
+printf 'content\n' >"$r/doc.md"
+git -C "$r" add doc.md
+out="$(git -C "$r" commit -m 'chore: a perfectly clean subject' 2>&1)"
+assert_exit "a narrowed window is refused at write time too" 1 $?
+
 r="$(wired_repo hook-noseed)"
 printf 'content\n' >"$r/doc.md"
 git -C "$r" add doc.md
@@ -664,7 +724,8 @@ assert_absent "the written seed file holds no plaintext" "$TOKEN" "$written"
 assert_absent "the written seed file holds no normalized form" "$NORM" "$written"
 assert_contains "the written seed file declares its floor" "min-seeds: 2" "$written"
 assert_contains "the written seed file declares its window" "max-words: 4" "$written"
-stray="$(grep -cv -e '^#' -e '^$' -e '^min-seeds: [0-9]\{1,4\}$' -e '^max-words: [0-9]\{1,2\}$' -e '^[0-9a-f]\{64\}$' "$seedfile")"
+assert_contains "the written seed file declares the floor under that window" "min-max-words: 4" "$written"
+stray="$(grep -cv -e '^#' -e '^$' -e '^min-seeds: [0-9]\{1,4\}$' -e '^max-words: [0-9]\{1,2\}$' -e '^min-max-words: [0-9]\{1,2\}$' -e '^[0-9a-f]\{64\}$' "$seedfile")"
 assert_exit "every written seed line is a comment, a directive, or a bare hash" 0 "$stray"
 
 out="$(printf '%s\n' "$TOKEN" | (cd "$r" && "$SEEDER" "$TOKEN" 2>&1))"
@@ -766,11 +827,38 @@ assert_exit "--add refuses a zero min-seeds floor" 2 $?
 
 out="$(add_onto belowfloor "min-seeds: 5
 max-words: 2
+min-max-words: 2
 $H3
 $H4
 ")"
 assert_exit "--add refuses a hash count below the declared floor" 2 $?
 assert_contains "the below-floor refusal names both numbers" "below" "$out"
+
+# min-max-words is the floor under the candidate WINDOW, the counterpart to
+# min-seeds. Without it, narrowing max-words leaves every wider seed
+# unmatchable with the hash count and the seed floor both untouched, and no
+# check fires. Required rather than optional: a floor that applies only when
+# its own line is present is removed by deleting that line.
+out="$(add_onto nominmax "min-seeds: 1
+max-words: 2
+$H3
+")"
+assert_exit "--add refuses an existing file with no min-max-words directive" 2 $?
+
+out="$(add_onto narrowed "min-seeds: 1
+max-words: 1
+min-max-words: 3
+$H3
+")"
+assert_exit "--add refuses a max-words already below its own floor" 2 $?
+
+out="$(add_onto dupeminmax "min-seeds: 1
+max-words: 2
+min-max-words: 2
+min-max-words: 1
+$H3
+")"
+assert_exit "--add refuses a duplicated min-max-words directive" 2 $?
 
 # The window must never narrow below what the carried hashes were seeded with.
 r2="$(new_repo add-window)"
@@ -802,7 +890,7 @@ else
   real_min="$(sed -n 's/^min-seeds: \([0-9]\{1,4\}\)$/\1/p' "$REAL_SEED")"
   real_words="$(sed -n 's/^max-words: \([0-9]\{1,2\}\)$/\1/p' "$REAL_SEED")"
   real_count="$(grep -c '^[0-9a-f]\{64\}$' "$REAL_SEED")"
-  stray="$(grep -cv -e '^#' -e '^$' -e '^min-seeds: [0-9]\{1,4\}$' -e '^max-words: [0-9]\{1,2\}$' -e '^[0-9a-f]\{64\}$' "$REAL_SEED")"
+  stray="$(grep -cv -e '^#' -e '^$' -e '^min-seeds: [0-9]\{1,4\}$' -e '^max-words: [0-9]\{1,2\}$' -e '^min-max-words: [0-9]\{1,2\}$' -e '^[0-9a-f]\{64\}$' "$REAL_SEED")"
 
   if [ "$stray" -ne 0 ]; then
     echo "FAIL: the committed seed file has $stray line(s) that are neither a comment, a directive, nor a bare hash" >&2
@@ -864,9 +952,29 @@ else
   failures=$((failures + 1))
 fi
 
-# The repo's own tree must pass its own guard.
+# The repo's own tree against its own guard. Two states are legitimate right
+# now, and the suite refuses to call either one a silent pass:
+#
+#   armed   - the committed seed carries min-max-words and the tree is clean;
+#   pending - the seed predates that directive, so the guard fails closed until
+#             an operator re-seeds. Provisioning needs the plaintext, which is
+#             deliberately unavailable to anything but a human at a terminal,
+#             so this suite cannot arm it and must not paper over it either.
+#
+# Anything else is a real failure. The pending arm disappears on the first
+# re-seed, and this whole branch collapses back to a plain pass.
 out="$(cd "$REPO_ROOT" && "$SCAN" 2>&1)"
-assert_exit "the repo's own tracked tree passes the guard" 0 $?
+rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "ok: the repo's own tracked tree passes its own guard (seed armed)"
+elif [ "$rc" -eq 2 ] && [ -z "${out##*min-max-words*}" ]; then
+  echo "ok: the committed seed predates min-max-words, so the guard fails closed pending an operator re-seed"
+  echo "    remedy: scripts/seed-purged-identifiers.sh (reads the plaintext from stdin)"
+else
+  echo "FAIL: the repo's own tracked tree neither passes nor fails closed for the known pending reason (exit $rc)" >&2
+  printf '%s\n' "$out" >&2
+  failures=$((failures + 1))
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2

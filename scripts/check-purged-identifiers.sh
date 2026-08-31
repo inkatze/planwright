@@ -153,7 +153,7 @@ sub closed {
 # ---- every plaintext-shaped line: the file cannot carry a readable identifier
 # ---- without failing this parse (REQ-B1.2).
 open my $sfh, "<", $seed_path or closed("cannot open seed file: $!");
-my (%seeds, $min_seeds, $max_words);
+my (%seeds, $min_seeds, $max_words, $min_max_words);
 my $sline = 0;
 while (my $line = <$sfh>) {
     $sline++;
@@ -162,6 +162,15 @@ while (my $line = <$sfh>) {
     if ($line =~ /\Amin-seeds:[ ]([0-9]{1,4})\z/) {
         closed("seed line $sline: duplicate min-seeds directive") if defined $min_seeds;
         $min_seeds = $1 + 0;
+        next;
+    }
+    # Order matters: min-max-words is tested BEFORE max-words, because the
+    # max-words pattern would otherwise never see it -- but a leading-anchored
+    # match cannot confuse them anyway, and testing the longer key first keeps
+    # that independent of the anchor.
+    if ($line =~ /\Amin-max-words:[ ]([0-9]{1,2})\z/) {
+        closed("seed line $sline: duplicate min-max-words directive") if defined $min_max_words;
+        $min_max_words = $1 + 0;
         next;
     }
     if ($line =~ /\Amax-words:[ ]([0-9]{1,2})\z/) {
@@ -179,10 +188,38 @@ close $sfh;
 
 closed("seed file declares no min-seeds directive") unless defined $min_seeds;
 closed("seed file declares no max-words directive") unless defined $max_words;
+# min-seeds stops the seed list being emptied; min-max-words stops the
+# candidate WINDOW being narrowed under it, which would leave every wider seed
+# unmatchable with the hash count and the seed floor both untouched.
+#
+# ABSENCE is treated differently by surface, deliberately. The tree scan and
+# the commit-range scan fail closed on it, and that is where the anti-tamper
+# property lives: deleting the line is then a visible diff CI refuses. The
+# write-time message screen does NOT, because a seed file predating the
+# directive would otherwise wedge every commit in a wired clone -- the hook
+# could not even be used to land the re-seed. Nothing the hook actually guards
+# gets weaker: token screening is hash comparison, which the window floor does
+# not affect. Same layering as the comment-line case, hook best-effort and CI
+# authoritative.
+#
+# A min-max-words that is PRESENT is enforced everywhere, including the hook.
+# Only its absence is tolerated, and only there.
+if (!defined $min_max_words && $mode ne "message") {
+    closed("seed file declares no min-max-words directive; re-seed with scripts/seed-purged-identifiers.sh to add it");
+}
 closed("min-seeds is 0: a guard with no floor could run green on an empty seed file")
     if $min_seeds < 1;
 closed("max-words must be between 1 and 8, not $max_words")
     if $max_words < 1 || $max_words > 8;
+if (defined $min_max_words) {
+    closed("min-max-words must be between 1 and 8, not $min_max_words")
+        if $min_max_words < 1 || $min_max_words > 8;
+    closed("max-words is $max_words, below the declared min-max-words floor of $min_max_words: seeds wider than the window would never match")
+        if $max_words < $min_max_words;
+} elsif ($mode eq "message") {
+    print STDERR "check-purged-identifiers: note: this seed file predates the min-max-words floor.\n";
+    print STDERR "  Screening continues; CI refuses the file until it is re-seeded (scripts/seed-purged-identifiers.sh).\n";
+}
 my $seed_count = scalar keys %seeds;
 closed("seed file holds $seed_count hash(es), below its own declared min-seeds of $min_seeds")
     if $seed_count < $min_seeds;
