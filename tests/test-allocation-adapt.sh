@@ -409,11 +409,32 @@ echo "ok: concurrent same-unit launches serialize on the per-unit lock"
 
 reset_state
 escalation_ready 3
+# Hold the engine INSIDE the armed critical section while the signal lands,
+# instead of racing it. The locked append is the only place the engine runs
+# `date` with PLANWRIGHT_ALLOC_LOCK_HELD in the environment (`record` sets it
+# for exactly that call, strictly after take_unit_lock has armed the traps), so
+# a `date` stub that blocks on a fifo under that variable pins the engine
+# there: no signal-before-the-traps false pass, and no fast-machine false fail
+# where the resolve finishes before the signal arrives. The stub's marker file
+# is the synchronization point; the fifo write is the release.
+sigstub="$tmp/sigstub"
+mkdir -p "$sigstub"
+sig_real_date=$(command -v date) || fail "13k: no date on PATH"
+mkfifo "$tmp/sig-gate" || fail "13k: could not create the gate fifo"
+cat >"$sigstub/date" <<EOF
+#!/bin/sh
+if [ "\${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "sig:unit" ] && [ ! -e "$tmp/sig-released" ]; then
+  : >"$tmp/sig-blocked"
+  cat "$tmp/sig-gate" >/dev/null
+fi
+exec "$sig_real_date" "\$@"
+EOF
+chmod +x "$sigstub/date"
 # `exec`, so the backgrounded pid IS the engine rather than the env-setting
 # subshell around it: signalling the wrapper would report a killed wrapper and
 # pass whatever the engine did.
 (
-  export PATH="$stubbin:$PATH" \
+  export PATH="$sigstub:$stubbin:$PATH" \
     PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
@@ -422,26 +443,20 @@ escalation_ready 3
   exec /bin/bash "$AD" resolve sig:unit --key drain --step s1 --attempt 1
 ) >/dev/null 2>&1 &
 sig_pid=$!
-# Wait for the lock to actually appear rather than sleeping a fixed interval.
-# `take_unit_lock` runs at the END of the config-resolver chain, so a short fixed
-# sleep signals BEFORE any trap is armed: the run then dies on the default
-# disposition and reports 143 whether or not the handler is correct, passing
-# against the very bug it is meant to pin. Synchronizing on the lock file puts
-# the signal inside the critical section, which is the only place the assertion
-# means anything.
-lockp="$fleet_home/allocation/.lock.sig:unit"
 sig_waited=0
-while [ ! -L "$lockp" ]; do
+while [ ! -e "$tmp/sig-blocked" ]; do
   sleep 0.05
   sig_waited=$((sig_waited + 1))
   [ "$sig_waited" -lt 600 ] \
-    || fail "13k: the resolve never took the unit lock, so the signal had nothing to interrupt"
+    || fail "13k: the resolve never reached the locked append, so the signal had nothing to interrupt"
 done
-# The lock file is created by the `lock` child; the traps are armed a beat later
-# in the parent. Settle past that hand-off so the signal cannot land in the
-# unarmed gap and pass for the same wrong reason a fixed sleep does.
-sleep 0.2
-kill -TERM "$sig_pid" 2>/dev/null || true
+kill -TERM "$sig_pid" 2>/dev/null \
+  || fail "13k: the engine was gone before the signal could land"
+# Release the gate AFTER the signal is delivered: the pending TERM fires at the
+# next command boundary inside the critical section. The released marker keeps
+# any later locked `date` call from re-blocking on a fifo nobody will write.
+: >"$tmp/sig-released"
+printf '' >"$tmp/sig-gate"
 sig_rc=0
 wait "$sig_pid" 2>/dev/null || sig_rc=$?
 [ "$sig_rc" = 143 ] \
