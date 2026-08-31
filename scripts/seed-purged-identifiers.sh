@@ -261,7 +261,7 @@ close $out or bail("cannot close $tmp: $!");
 rename $tmp, $seed_path or bail("cannot rename $tmp to $seed_path: $!");
 
 # Counts only. Nothing derived from the plaintext is printed.
-print "seed-purged-identifiers: wrote $count seed hash(es) to $seed_path (min-seeds: $count, max-words: $max_words).\n";
+print "seed-purged-identifiers: wrote $count seed hash(es) to $seed_path (min-seeds: $count, max-words: $max_words, min-max-words: $min_max_words).\n";
 print "seed-purged-identifiers: commit the seed file; the plaintext stays out of the repo.\n";
 exit 0;
 '
