@@ -74,11 +74,23 @@ mise run check      # the full local equivalent of the CI gate
 - the ledger structural-corruption + duplicate-Status guard over `tasks.md`
   snapshots;
 - the spec validator over `specs/`, the anchor-freshness guard over every
-  signed bundle, and the hook-backstop wiring check.
+  signed bundle, the hook-backstop wiring check, and the purged-identifier
+  guard (see below).
 
 GitHub Actions runs the same gate on every pull request. This is dev tooling
 only — planwright's **runtime** scripts stay plain portable bash with no mise
 dependency.
+
+### Purged identifiers
+
+A handful of identifiers were removed from this history deliberately, and
+`check:purged-identifiers` keeps them out — of the tracked tree, of commit
+messages at write time via `githooks/commit-msg`, and of a PR's whole commit
+range via a CI step for the clones that hook never runs in. It compares
+SHA-256 over normalized text, so nothing readable is committed and a match
+reports its location without echoing what it matched. The normalization rules,
+the shapes it does and does not catch, and the stdin-only provisioning path
+are in [purged-identifier-guard.md](purged-identifier-guard.md).
 
 ### Test timing, measured out of gate
 
