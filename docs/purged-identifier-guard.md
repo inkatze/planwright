@@ -52,7 +52,7 @@ exactly what git kept.
 
 ## What is committed
 
-`config/purged-identifiers.seed` holds SHA-256 hashes and two directives, and
+`config/purged-identifiers.seed` holds SHA-256 hashes and three directives, and
 nothing else:
 
 ```text
@@ -64,7 +64,7 @@ min-max-words: <n>
 ```
 
 No plaintext is recorded anywhere in the repository. Anything in that file that
-is not a comment, one of the two directives, or a bare 64-character lowercase
+is not a comment, one of the three directives, or a bare 64-character lowercase
 hex hash is a malformed seed file, which is how the format rules out a
 plaintext line rather than merely discouraging one.
 

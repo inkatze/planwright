@@ -29,11 +29,14 @@
 # `acme.internal` therefore seed one and the same hash. See
 # docs/purged-identifier-guard.md.
 #
-# THE FLOOR. The written file declares `min-seeds: <count>` and
-# `max-words: <n>`, both derived from what was ingested. The scanner fails
-# closed if the hash count ever drops below the declared floor, so deleting
-# seed lines cannot quietly disarm the guard (REQ-B1.2, REQ-H1.3); lowering
-# the floor is possible but is a visible diff on a tracked file.
+# THE FLOORS. The written file declares three directives, all derived from
+# what was ingested: `min-seeds: <count>`, `max-words: <n>`, and
+# `min-max-words: <n>`. The scanner fails closed if the hash count drops below
+# min-seeds, so deleting seed lines cannot quietly disarm the guard, and if
+# max-words drops below min-max-words, so narrowing the candidate window
+# cannot quietly leave the wider seeds unmatchable (REQ-B1.2, REQ-H1.3).
+# Lowering a floor is still possible, but it is a visible diff on a tracked
+# file, which is the honest limit of what a committed floor can promise.
 #
 # Usage: seed-purged-identifiers.sh [--add] [--seed-file <path>]
 #   default   replace the seed file with exactly what stdin supplied
