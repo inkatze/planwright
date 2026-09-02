@@ -18,9 +18,9 @@ guard). Doctrine and contract deliverables are `[design-level]`.
 ### REQ-A1.1 — deterministic availability probe [test]
 
 `fleet-messaging.sh probe` fixture tests: the invoking session's socket env
-present + version sufficient reads available; env absent, version short, or
-malformed input reads absent; no configuration value can force available
-without the probe.
+present + version at or above the pin of record reads available; env
+absent, version below the pin, or malformed input reads absent; no
+configuration value can force available without the probe.
 
 ### REQ-A1.6 — eligibility derived from session-grade, fail-safe [test + design-level]
 
@@ -48,13 +48,17 @@ deliverable.
 
 ### REQ-B1.1 — deterministic launch names [test + manual]
 
-Grammar tests for name derivation per rung; a live dispatch per
-session-grade rung shows the worker under its derived name in the listing.
+Grammar tests for name derivation per rung and for the tower launch seams;
+a live dispatch per session-grade rung shows the worker under its derived
+name in the listing, and a fleet-launched tower appears under its derived
+name.
 
 ### REQ-B1.2 — read-back and registry record [test + manual]
 
-Tests that the recorded name is the observed one; a manual collision check
-(two same-named launches) records the CLI's variant, not the request.
+Tests that the recorded name and socket path are the observed ones, in the
+worker registry for a worker and in the tower marker for a tower; a manual
+collision check (two same-named launches) records the CLI's variant, not
+the request.
 
 ### REQ-B1.3 — names validated as data [test]
 
@@ -101,7 +105,9 @@ the routine path (script-level, statically greppable).
 
 ### REQ-D1.2 — pointer payload, store re-read [test]
 
-Doorbell grammar tests (minimal fields, validation, length bounds);
+Doorbell grammar tests against the D-15 line (the five fields, the kind
+set, the handle grammar on worker and instance, the 256-byte bound, no
+control bytes; producer and receiver share one fixture table);
 `doorbell-read` refuses hostile pointers and, for a spoofed pointer whose
 content contradicts the store, returns only store content, never the
 message content.
@@ -115,7 +121,8 @@ classification verified unchanged when notices are absent.
 ### REQ-D1.4 — lost signals healed by the sweep [test]
 
 With doorbells suppressed, the retained healing sweep surfaces the store row
-within the documented cadence (same fixture as REQ-E1.2).
+within `messaging_heal_cadence_seconds`, driven by the injected `--now`
+clock rather than wall time (same fixture as REQ-E1.2).
 
 ### REQ-D1.5 — tower socket path propagation [test]
 
@@ -129,8 +136,8 @@ sweep with a single logged notice, never a retry loop.
 ### REQ-E1.1 — cadence demotion where push is live [test]
 
 Each demoted consumer reads the derived eligibility and the probe: push
-present demotes to the documented cadence; push absent keeps today's cadence
-(fixture-forced both ways).
+present demotes to `messaging_heal_cadence_seconds` (one value, every
+consumer); push absent keeps today's cadence (fixture-forced both ways).
 
 ### REQ-E1.2 — healing sweep never removed [test]
 
@@ -163,16 +170,17 @@ tower→worker resolves one value stricter, saturating at `doorbell`
 
 ### REQ-F1.4 — send-time pressure demotion [test]
 
-Monitor-output fixtures: pressure reported demotes one value, saturating at
-`doorbell`, and writes one log line per demoted send (none otherwise);
-pressure cleared restores; no mode state file exists after any sequence;
-the decision path is script-only.
+Usage-gate rung fixtures: a rung at or above `reduce-concurrency` demotes
+one value, saturating at `doorbell`, and writes one log line per demoted
+send (none otherwise); a rung below it, or an unavailable gate, applies no
+demotion; the context-budget monitor's output is ignored; no mode state
+file exists after any sequence; the decision path is script-only.
 
 ### REQ-F1.5 — cross-machine double gate [manual]
 
-Live checks: a cross-machine send without the knob is refused; with the
-knob it still prompts for approval; script paths post to local socket paths
-only (fixture); both shipped settings profiles carry
+Live checks: a cross-machine send with `messaging_cross_machine` off is
+refused; with it on the send still prompts for approval; script paths post
+to local socket paths only (fixture); both shipped settings profiles carry
 `isolatePeerMachines: true` (design-level review of the profiles).
 
 ## REQ-G — Degradation & carried floors
@@ -205,8 +213,24 @@ confirms delivery with no correctness side effect.
 ### REQ-G1.5 — the doctrine document [design-level]
 
 The messaging-transport doctrine exists, resolves through the rule-doc
-chain, states the signal-vs-record rule, the fallback obligation, and the
-discipline ladder, and is cited by the shipped scripts and prose.
+chain, states the signal-vs-record rule, the fallback obligation (with the
+per-path fallback table), the discipline ladder, and the cross-machine
+transit note, and is cited by the shipped scripts and prose.
+
+### REQ-G1.6 — no new lifecycle resource class [design-level]
+
+Review of the doctrine doc's declaration against the lifecycle-closure
+floor's class contract: the inbox socket, the idle-notice subscription, and
+the tower socket path record are each accounted for as harness-owned,
+self-closing, or riding an existing class, with the reason stated, so no
+row is missing by omission.
+
+### REQ-G1.7 — inter-orchestrator-coordination doctrine amended [design-level]
+
+Review that the amended doctrine's steer-in-flight section names messaging
+first and attributed buffer-paste as the fallback, that its tower↔tower
+paragraph cross-references REQ-G1.4's advisory rule, and that
+`mise run check:links` and `check:doctrine-index` pass on the amended doc.
 
 ## REQ-H — Security & hygiene
 
@@ -223,3 +247,11 @@ against the store.
 Echo-sanitization tests on every message-derived output; design-level
 review that no shipped path places secrets or sensitive operational detail
 in message text, with the cross-machine transit note in the doctrine doc.
+
+### REQ-H1.3 — one enforcement point [test]
+
+A source audit over the shipped scripts (statically greppable, the same
+shape as the relay's send-keys audit): every inbox-socket post and every
+doorbell parse lives in `fleet-messaging.sh`; `orchestrate-relay.sh` and
+`fleet-decision.sh` reach it by delegation only; the audit fails on any
+other script that opens a socket path or matches the D-15 tag.

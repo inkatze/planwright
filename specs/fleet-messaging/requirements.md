@@ -32,8 +32,9 @@ correctness-critical.
 - Deterministic, per-session availability probing, and per-rung messaging
   eligibility derived from the backend capability contract's existing
   session-grade property.
-- Deterministic session identity: fleet-launched sessions named from the
-  existing handle grammar so they are addressable peers.
+- Deterministic session identity: fleet-launched sessions (workers, and
+  towers launched by the meta-tower or the watchdog) named from the existing
+  handle grammar so they are addressable peers.
 - Downward delivery (tower→worker steer and decision answers) over messaging,
   messaging-first on every steer-advertising rung that is eligible, with the
   rung's existing attributed steer delivery as fallback.
@@ -43,11 +44,15 @@ correctness-critical.
 - The store-load reduction: demoting signal-purpose poll cadences to a
   documented low-cadence healing sweep wherever a push path is live.
 - Settings and profile wiring: worker inbound-message acceptance, tower
-  acceptance, the `messaging_discipline` knob, and the cross-machine opt-in.
+  acceptance, and the three knobs (`messaging_discipline`,
+  `messaging_cross_machine`, `messaging_heal_cadence_seconds`) with their
+  config, options-reference, and fleet-doc rows.
 - Tower↔tower advisory messages (replacing operator hand-relay), bound by the
   nothing-on-the-correctness-path rule.
 - A doctrine statement (the messaging-transport doctrine) making the
-  signal-vs-record rule and the discipline ladder citable.
+  signal-vs-record rule and the discipline ladder citable, and the amendment
+  of the inter-orchestrator-coordination doctrine whose steer-in-flight
+  mechanism of record this bundle changes.
 
 ### Out of scope
 
@@ -69,8 +74,9 @@ correctness-critical.
 - **Observe-in-flight.** Messaging carries signals, not live worker output;
   screen/stream observation keeps its existing mechanisms.
 - **Cross-machine fleets as a default posture.** Cross-machine messaging
-  exists only behind the opt-in knob and per-send operator approval (D-5);
-  remote sessions are not fleet peers for presence, liveness, or dispatch.
+  exists only behind the opt-in knob (`messaging_cross_machine`) and per-send
+  operator approval (D-5); remote sessions are not fleet peers for presence,
+  liveness, or dispatch.
 - **Agent teams and workflows.** The Claude-Code-primitives-only principle
   carries; this bundle adopts the messaging primitive alone.
 
@@ -78,11 +84,12 @@ correctness-critical.
 
 - **REQ-A1.1** Messaging availability SHALL be determined per session by a
   deterministic probe (the invoking session's inbox-socket environment
-  presence plus CLI version comparison), never assumed from configuration or
-  memory.
+  presence plus CLI version comparison against the pin of record, REQ-A1.4),
+  never assumed from configuration or memory; a version below the pin reads
+  absent.
   *(Cites: D-17, D-11.)*
   *(Amended at revision 2026-09-02: probe scoped to the invoking session;
-  the host-level gate is gone with D-6.)*
+  the host-level gate is gone with D-6; the version threshold is the pin.)*
 - **REQ-A1.2** The capability SHALL be advertised per backend rung through the
   backend capability contract's property mechanism; an unknown, unprobeable,
   or malformed advertisement reads as absent (fail-safe), and rungs with no
@@ -116,22 +123,35 @@ correctness-critical.
   *(Cites: D-1, D-17.)*
 - **REQ-A1.4** The platform contract this bundle consumes (environment
   variables, socket protocol, tool semantics, version gates) SHALL be pinned
-  to a verified CLI version per task and guarded by fixture tests, so contract
-  drift fails visibly, never as a silent no-op.
+  to one verified CLI version — the pin of record, held in the drift guard's
+  fixture — and guarded by fixture tests, so contract drift fails visibly,
+  never as a silent no-op. Every task that touches the platform surface
+  re-verifies against the running CLI and updates the pin; no task carries
+  its own copy.
   *(Cites: D-11, obs:16facd5b, research: Claude Code cross-session messaging
   docs (Sources).)*
+  *(Amended at revision 2026-09-02: one pin of record, re-verified per task,
+  replacing a per-task pin.)*
 
 ## REQ-B — Addressable identity
 
-- **REQ-B1.1** Fleet-launched sessions (workers and towers) SHALL be named
-  deterministically from the existing fleet handle grammar via the launch
-  `--name` mechanism, so every fleet peer is addressable without listing
-  round-trips.
+- **REQ-B1.1** Fleet-launched sessions (workers, and towers launched by the
+  meta-tower or the watchdog) SHALL be named deterministically from the
+  existing fleet handle grammar via the launch `--name` mechanism, so every
+  fleet-launched peer is addressable without listing round-trips. An
+  operator-launched tower is not fleet-launched: it is addressed by a
+  listing round-trip on the low-rate advisory path only.
   *(Cites: D-8, obs:d4d66281.)*
-- **REQ-B1.2** The actual post-launch name SHALL be read back and recorded in
-  the worker registry (the CLI renames collisions to variants; the
-  recorded name is the observed one, never the requested one assumed).
+  *(Amended at revision 2026-09-02: the tower launch seams named and the
+  operator-launched carve-out stated.)*
+- **REQ-B1.2** The actual post-launch name SHALL be read back and recorded —
+  in the worker registry for a worker, in the tower marker for a tower,
+  together with the session's inbox socket path (the CLI renames collisions
+  to variants; the recorded name is the observed one, never the requested
+  one assumed).
   *(Cites: D-8.)*
+  *(Amended at revision 2026-09-02: the tower marker named as the tower-side
+  record.)*
 - **REQ-B1.3** Names and addresses SHALL be validated against their declared
   grammar as data before any use in addressing, paths, or echoed output.
   *(Cites: D-8; the security-posture doctrine.)*
@@ -183,8 +203,9 @@ correctness-critical.
   pointer payload. The receiver is the tower session, and its only sanctioned
   action on a doorbell is the deterministic store re-read verb, which
   validates the pointer as data and returns store truth; doorbell content
-  itself is never acted on.
-  *(Cites: D-16, D-7, D-12.)*
+  itself is never acted on. The payload's field set and bounds are the wire
+  grammar D-15 fixes.
+  *(Cites: D-15, D-16, D-7, D-12.)*
   *(Amended at revision 2026-09-02: receiver named (the tower session) and
   the re-read bound to a script verb.)*
 - **REQ-D1.3** Completion and idle signaling SHALL use the harness's one-shot
@@ -208,8 +229,11 @@ correctness-critical.
 
 - **REQ-E1.1** Wherever a push path is advertised and wired, signal-purpose
   polling (attention-store watches, status/dashboard signal reads) SHALL
-  demote to a documented low-cadence healing sweep.
+  demote to a documented low-cadence healing sweep whose cadence is one
+  overlay-resolved knob (`messaging_heal_cadence_seconds`) applied to every
+  demoted consumer, never a per-consumer value.
   *(Cites: D-16, obs:8b694bdb.)*
+  *(Amended at revision 2026-09-02: the cadence knob named, singular.)*
 - **REQ-E1.2** The healing sweep SHALL never be removed: the channel is lossy
   by contract, so level-triggered derivation from ground truth remains the
   healing path at every discipline value.
@@ -239,15 +263,18 @@ correctness-critical.
   *(Amended at revision 2026-09-02: knob-to-direction anchoring and the
   saturating floor stated, from the kickoff §3 intent.)*
 - **REQ-F1.4** The effective value SHALL be evaluated at send time by
-  deterministic script logic over the existing usage monitor — one value down
+  deterministic script logic over the existing usage gate — one value down
   under reported pressure, saturating at `doorbell`, restored when pressure
   clears, with one log line per send that runs demoted — with no stored mode
-  state and no LLM in the demotion decision.
+  state and no LLM in the demotion decision. Reported pressure means the
+  usage gate's audit-derived rung at or above `reduce-concurrency`, read the
+  same way in both directions; the context-budget monitor is not a pressure
+  input.
   *(Cites: D-4.)*
   *(Amended at revision 2026-09-02: logging is per demoted send, not per
-  transition; the floor is stated.)*
+  transition; the floor and the pressure signal are stated.)*
 - **REQ-F1.5** A cross-machine send SHALL require both the opt-in config knob
-  and per-send operator approval. Only a model-composed send can be
+  (`messaging_cross_machine`, default off) and per-send operator approval. Only a model-composed send can be
   cross-machine (script paths post to a local socket path and are
   same-machine by construction), so the approval gate is the harness's own
   tool-call prompt; the shipped settings profiles carry
@@ -285,7 +312,25 @@ correctness-critical.
 - **REQ-G1.5** The signal-vs-record rule, the fallback obligation, and the
   discipline ladder SHALL ship as a doctrine document
   (the messaging-transport doctrine) that skills and scripts cite, rather
-  than living only inside this bundle.
+  than living only inside this bundle. The doctrine carries the per-path
+  fallback table REQ-G1.1 requires and the cross-machine transit note
+  REQ-H1.2 requires.
+  *(Cites: D-13.)*
+  *(Amended at revision 2026-09-02: the fallback table and transit note
+  placed in the doctrine.)*
+- **REQ-G1.6** Messaging SHALL acquire no new worker-side resource class
+  under the lifecycle-closure floor, and the doctrine document SHALL declare
+  so: the inbox socket is harness-owned and closes with the session; the
+  idle-notice subscription is tower-side and self-closing (it fires once or
+  expires) and needs no detector because silence is never a signal; the
+  tower's socket path record rides the tower marker's existing lifecycle.
+  *(Cites: D-13; the fleet-coordination-floor doctrine.)*
+- **REQ-G1.7** The inter-orchestrator-coordination doctrine SHALL be amended
+  in the same delivery as the messaging-transport doctrine: its
+  steer-in-flight section becomes messaging-first with attributed
+  buffer-paste as the fallback, and its tower↔tower paragraph
+  cross-references the advisory rule (REQ-G1.4), so the mechanism of record
+  it pins does not contradict this bundle.
   *(Cites: D-13.)*
 
 ## REQ-H — Security & hygiene
@@ -311,6 +356,12 @@ correctness-critical.
   operational detail; cross-machine messages transit third-party
   infrastructure and are held to committed-artifact hygiene.
   *(Cites: D-5; the security-posture doctrine.)*
+- **REQ-H1.3** All messaging mechanics SHALL live in one audited script
+  (`fleet-messaging.sh`): the relay and the decision channel deliver by
+  delegation, and no other shipped script posts to an inbox socket or parses
+  a doorbell, so validation, data-only handling, and discipline enforcement
+  have exactly one home.
+  *(Cites: D-12.)*
 
 ## Changelog
 
@@ -331,6 +382,20 @@ correctness-critical.
   D-7, D-9, D-10, D-12, D-14. Goal and scope aligned on demotion (nothing
   removed). Status stays Draft; the re-kickoff walks this revision as its
   delta.
+- 2026-09-02 — Revision, clusters B and C of the worklist (meaning-class
+  additions; proposals signed off by cluster). New: REQ-H1.3 (single
+  enforcement point, from D-12), REQ-G1.6 (no new lifecycle resource class),
+  REQ-G1.7 (inter-orchestrator-coordination doctrine amended), D-15
+  (doorbell wire grammar). Named: `messaging_cross_machine`,
+  `messaging_heal_cadence_seconds`. Amended in place: REQ-A1.1 (version
+  threshold is the pin of record), A1.4 (one pin, re-verified per task),
+  B1.1/B1.2 (fleet-launched towers named; tower marker as their record),
+  D1.2 (cites D-15), E1.1 (the cadence knob), F1.4 (pressure defined as
+  the usage gate's rung ≥ `reduce-concurrency`), G1.5; D-4, D-8, D-11,
+  D-13, D-16. Tasks: orphan REQs wired (G1.1–G1.3, H1.2), every deliverable
+  gated by a Done-when clause, Task 4 gains the tower launch seams, Task 8
+  depends on Task 4 (invalidating the brief's 8↛4 non-edge, for the
+  re-kickoff), Task 7 gains the injected-clock seam.
 
 ## Sources
 

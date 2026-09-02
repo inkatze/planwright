@@ -70,10 +70,12 @@ content, written before the signal. Downward deliveries (steer, decision
 answers) are instructions addressed to a session, not signals: they carry
 their text, and for a decision answer the persisted answer artifact (D-9) is
 the recovery source, never a second record. The level-triggered healing
-sweep is retained at every discipline value, demoted to a documented
-low-cadence sweep where push is live. This generalizes the
-push-first-reconcile-backed pattern fleet-autonomy D-1 established and its
-worktree tracker (fleet-autonomy D-7) applied.
+sweep is retained at every discipline value, demoted where push is live to
+one documented cadence (`messaging_heal_cadence_seconds`, shipped default
+300, overlay-resolved) shared by every demoted consumer. This generalizes
+the push-first-reconcile-backed pattern fleet-autonomy D-1 established and
+its worktree tracker (fleet-autonomy D-7) applied.
+*(Amended at revision 2026-09-02: the cadence knob and its default named.)*
 
 **Alternatives considered:**
 - Full payload in every upward message. Rejected because: a dropped or held
@@ -127,17 +129,20 @@ a documented fallback beats two live paths.
 `doorbell` < `tiered` < `open`, shipped default `tiered`, resolved through
 the standard overlay layers. The knob value names the worker→tower value;
 tower→worker resolves one value stricter. The *effective* value is evaluated
-at send time by deterministic script logic reading the existing usage
-monitor: reported pressure steps the effective value down one, and clearing
-restores it. Both offsets saturate at `doorbell`, so the composition is
+at send time by deterministic script logic reading the existing usage gate
+(`fleet-usage-gate.sh`, whose rung is derived from the audit trail):
+pressure means a rung at or above `reduce-concurrency`, read the same way in
+both directions, and it steps the effective value down one; clearing
+restores it. The context-budget monitor is not a pressure input: it is a
+binary, tower-only handoff trigger. Both offsets saturate at `doorbell`, so the composition is
 `effective = max(doorbell, knob − direction offset − pressure demotion)` and
 their order is immaterial. The ladder gates model-composed traffic only;
 deterministic script sends (doorbell posts upward, script-posted answers and
 steers downward) ride at every value. Every send that runs demoted writes
 one log line; no stored mode state, no daemon flip, no LLM in the decision.
 *(Amended at revision 2026-09-02: direction anchoring, saturating floor,
-order-free composition, and per-send logging stated, from the kickoff §2–3
-intent.)*
+order-free composition, per-send logging, and the pressure signal stated,
+from the kickoff §2–3 intent.)*
 
 **Alternatives considered:**
 - A fixed tiered rule for everyone. Rejected because: the operator's desired
@@ -277,9 +282,16 @@ nuisance rather than a correctness attack.
 
 **Decision:** Every fleet-launched session is named at launch via `--name`
 using the existing fleet handle grammar; the actual name is read back after
-launch (the CLI renames collisions to variants) and recorded in the
-worker registry. Names are validated as data before addressing, path
-use, or echo.
+launch (the CLI renames collisions to variants) and recorded — in the worker
+registry for a worker, in the tower marker for a tower — together with the
+session's inbox socket path. Fleet-launched towers are the meta-tower's
+subordinates and the watchdog's relaunches; an operator-launched tower is
+not fleet-launched and is addressed by a listing round-trip on the
+tower↔tower advisory path alone, whose rate is low enough that the
+per-signal cost rejected below does not apply. Names are validated as data
+before addressing, path use, or echo.
+*(Amended at revision 2026-09-02: the tower launch seams, the tower marker
+as their record, and the operator-launched carve-out stated.)*
 
 **Alternatives considered:**
 - Relying on harness-generated names plus listing round-trips. Rejected
@@ -362,11 +374,15 @@ stuck-detector failure shape.
 
 **Decision:** The messaging contract surface this bundle consumes
 (environment variables, socket line protocol, tool semantics, version
-gates) is treated as a version-sensitive external contract: each task
-records the CLI version it verified against (the launch-pin precedent),
+gates) is treated as a version-sensitive external contract: one pin of
+record — the verified CLI version held in the drift guard's fixture — is
+what the probe compares against and what every platform-touching task
+re-verifies and updates (the launch-pin precedent, execution-backends D-4);
 runtime behavior goes through the deterministic probe (D-17), and parsing is
 fixture-tested so a harness-side change fails a visible test or probe,
 never a silent no-op.
+*(Amended at revision 2026-09-02: one pin of record replaces a per-task
+record; it is also the probe's version threshold.)*
 
 **Alternatives considered:**
 - Trusting documented behavior without per-version verification. Rejected
@@ -402,8 +418,17 @@ handling, discipline enforcement) live in one testable place.
 **Decision:** The durable rule — messages are ephemeral signals, files/git
 are the record; push-first, healing-sweep-backed; discipline is laddered and
 pressure-demoted — ships as its own doctrine document, cited by the skills
-and scripts that apply it. The fleet-coordination-floor doctrine is not
-amended.
+and scripts that apply it. It also carries the per-path fallback table
+(REQ-G1.1), the cross-machine transit note (REQ-H1.2), and the declaration
+that messaging acquires no new resource class under the lifecycle-closure
+floor (REQ-G1.6). The fleet-coordination-floor doctrine is not amended. The
+inter-orchestrator-coordination doctrine *is*, in the same delivery
+(REQ-G1.7): it pins attributed buffer-paste as the steer-in-flight mechanism
+of record and already sanctions tower↔tower paste between co-located
+towers, both of which this bundle changes, so leaving it unamended would
+have two doctrine documents contradicting each other.
+*(Amended at revision 2026-09-02: the doctrine's extra contents and the
+inter-orchestrator-coordination amendment stated.)*
 
 **Alternatives considered:**
 - A sixth floor in the fleet-coordination-floor doctrine. Rejected because:
@@ -436,3 +461,29 @@ citation of the floor.)*
 
 **Chosen because:** it replaces exactly the manual relay burden while
 leaving every authoritative surface untouched.
+
+### D-15: Doorbell wire grammar — one bounded ASCII line, five fields, receiver uses only the worker id  (R)
+
+**Decision:** A doorbell is exactly one line: `<tag> <version> <kind>
+<worker> <instance>`, space-separated, printable ASCII only, the whole line
+bounded at 256 bytes with no control bytes. `<tag>` is the fixed protocol
+tag (`planwright-doorbell`), `<version>` the grammar version (`1`),
+`<kind>` one of `attention`, `fork`, `park`, `complete`, and `<worker>` and
+`<instance>` are in the existing worker/scope handle grammar. The producer
+(`fleet-messaging.sh doorbell`) refuses to emit anything else; the receiver
+verb (`doorbell-read`) validates every field as data, uses only `<worker>`
+— to select the store row it re-reads — and never echoes an unvalidated
+field. Any line failing the grammar is refused with a sanitized diagnostic
+and drives nothing.
+
+**Alternatives considered:**
+- A structured (JSON) payload. Rejected because: it invites content the
+  pointer-only rule (D-16) forbids, needs a parser on a socket any same-user
+  process can write to, and buys nothing the five fields do not.
+- Free-text with a worker id somewhere in it. Rejected because: an
+  unanchored grammar cannot be length-bounded or screened by shape, which is
+  the whole defense the untrusted-socket posture (D-7) rests on.
+
+**Chosen because:** a fixed-arity line is the cheapest thing a hook can
+emit and the easiest thing a receiver can refuse; the producer and receiver
+share one definition, so Task 2 and Task 6 cannot drift apart.
