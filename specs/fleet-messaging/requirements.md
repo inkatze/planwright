@@ -396,6 +396,20 @@ correctness-critical.
   gated by a Done-when clause, Task 4 gains the tower launch seams, Task 8
   depends on Task 4 (invalidating the brief's 8↛4 non-edge, for the
   re-kickoff), Task 7 gains the injected-clock seam.
+- 2026-09-02 — Revision, cluster D of the worklist (expression-only:
+  verification-path repairs consistent with the A/B/C decisions). Tags
+  corrected (A1.4 test + manual with its CI arm stated as
+  self-referential; D1.2 and H1.4 gain the manual arm for model behavior;
+  F1.5 manual + design-level; G1.4 test + manual + design-level; C1.4 and
+  E1.3 split their platform-guarantee and diff-review clauses out of the
+  test arm). Baselines named (A1.5's frozen pre-messaging fixtures, E1.1's
+  frozen pre-reduction intervals, Task 6's unmodified liveness tests).
+  Unreachable branches repaired (the idle-notice expired case dropped as
+  indistinguishable from absent by D-10; the wrong-owner socket branch
+  fixture-driven through a test-only owner override; the probe's positive
+  branch through a test-only version override). Vacuous Done-when clauses
+  replaced by evaluable criteria in Tasks 2, 3, 4, 5, 6, 8; D-8 states the
+  collision-rename behavior as unverified with the recorded-outcome rule.
 
 ## Sources
 

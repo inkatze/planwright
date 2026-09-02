@@ -33,16 +33,22 @@ needs both the sender's probe and a recorded target address.
 ### REQ-A1.5 — absence changes nothing on the signal paths [test]
 
 With the probe forced absent, delivery, doorbell, idle-notice, and
-demoted-sweep consumers take exactly today's code paths (fixture-diffed
-behavior in the suite); launch naming and inbound settings are applied and
-verified inert (fixture).
+demoted-sweep consumers take exactly today's code paths: their emitted
+commands and outputs are byte-identical to the pre-messaging outputs frozen
+as fixtures when Task 2 lands (the comparand); launch naming and inbound
+settings are applied and verified inert against the same fixtures.
 
-### REQ-A1.4 — platform-contract drift guard [test]
+### REQ-A1.4 — platform-contract drift guard [test + manual]
 
-The drift-guard fixtures assert the pinned contract assumptions (env-var
-names, socket line framing, version gates) and fail visibly when violated;
-the verified CLI version is recorded and asserted present in the task's
-deliverable.
+Two arms, stated honestly. The CI arm is self-referential by construction:
+the drift-guard fixtures freeze the pinned contract assumptions (env-var
+names, socket line framing and response shape, the pin of record) and
+prove planwright's own parsers and probe match them, failing with a
+diagnostic naming the assumption when a repo-side change breaks one; CI
+has no live harness, so it cannot see the platform move. The live arm is
+the manual re-verification each platform-touching task's Done-when
+performs against the running CLI, which updates the pin; a CLI newer than
+the pin is what that arm exists to catch.
 
 ## REQ-B — Addressable identity
 
@@ -57,8 +63,10 @@ name.
 
 Tests that the recorded name and socket path are the observed ones, in the
 worker registry for a worker and in the tower marker for a tower; a manual
-collision check (two same-named launches) records the CLI's variant, not
-the request.
+collision check (two same-named launches) records whichever outcome the CLI
+actually produces — a renamed variant, a refusal, or a duplicate — never
+the requested name, and a refusal or duplicate is surfaced as a dispatch
+failure.
 
 ### REQ-B1.3 — names validated as data [test]
 
@@ -91,9 +99,13 @@ delivered.
 
 ### REQ-C1.4 — no impersonation, no permission answering [test + design-level]
 
-By-construction review of the delivery path (design-level) plus tests that
-message text is handled as data (no eval/expansion path; a permission-park
-record is never answered via the messaging arm).
+Tests that message text is handled as data (the post reads the message
+file, never splices its content; a permission-park record is refused by
+the claim before any delivery attempt) and the source audit that the
+messaging arm contains no `send-keys` or prompt-answer path. That a
+delivered message cannot approve a permission prompt is a platform
+guarantee (Sources), reviewed design-level, not a repo behavior under
+test.
 
 ## REQ-D — Upward signals
 
@@ -103,14 +115,16 @@ A simulated worker hook event posts a doorbell to a test-bound socket via
 the script path only; the test asserts no model invocation is present on
 the routine path (script-level, statically greppable).
 
-### REQ-D1.2 — pointer payload, store re-read [test]
+### REQ-D1.2 — pointer payload, store re-read [test + manual]
 
 Doorbell grammar tests against the D-15 line (the five fields, the kind
 set, the handle grammar on worker and instance, the 256-byte bound, no
 control bytes; producer and receiver share one fixture table);
 `doorbell-read` refuses hostile pointers and, for a spoofed pointer whose
 content contradicts the store, returns only store content, never the
-message content.
+message content. That the tower session invokes only `doorbell-read` on a
+doorbell is model behavior under `/orchestrate` prose: exercised by the
+local behavioral eval or recorded as a manual check, never asserted by CI.
 
 ### REQ-D1.3 — idle notices as supplement [manual]
 
@@ -128,8 +142,11 @@ clock rather than wall time (same fixture as REQ-E1.2).
 
 Dispatch-env fixtures: the path is present at worker launch and the
 fallback marker read works when it is not; a missing, dangling, or
-wrong-owner socket path degrades the doorbell path cleanly to the healing
-sweep with a single logged notice, never a retry loop.
+wrong-owner socket path degrades the doorbell path to the healing sweep
+with exit 0, exactly one logged notice, and no retry. The owner check is a
+predicate taking a test-only observed-owner override (`--owner-uid`), so
+the wrong-owner branch is fixture-driven rather than needing a second OS
+user.
 
 ## REQ-E — Store-load reduction
 
@@ -137,7 +154,9 @@ sweep with a single logged notice, never a retry loop.
 
 Each demoted consumer reads the derived eligibility and the probe: push
 present demotes to `messaging_heal_cadence_seconds` (one value, every
-consumer); push absent keeps today's cadence (fixture-forced both ways).
+consumer); push absent keeps today's cadence, meaning the consumer's
+pre-reduction default interval frozen as a fixture when Task 7 lands
+(fixture-forced both ways).
 
 ### REQ-E1.2 — healing sweep never removed [test]
 
@@ -146,8 +165,9 @@ signal at every discipline value, including `open`.
 
 ### REQ-E1.3 — record semantics untouched [test + design-level]
 
-Diff-review of the reduction changes (design-level: reads and cadences only)
-plus store-schema tests asserting no write path or record shape changed.
+Diff-review of the reduction changes (design-level: only reads and cadences
+touched, no write path changed) plus the existing store-schema fixtures
+passing unmodified (test: record shape unchanged).
 
 ## REQ-F — Settings & discipline
 
@@ -173,10 +193,11 @@ tower→worker resolves one value stricter, saturating at `doorbell`
 Usage-gate rung fixtures: a rung at or above `reduce-concurrency` demotes
 one value, saturating at `doorbell`, and writes one log line per demoted
 send (none otherwise); a rung below it, or an unavailable gate, applies no
-demotion; the context-budget monitor's output is ignored; no mode state
-file exists after any sequence; the decision path is script-only.
+demotion; the context-budget monitor's output is ignored; the worker state
+directory listing is identical before and after any `effective-mode`
+sequence (no mode state written); the decision path is script-only.
 
-### REQ-F1.5 — cross-machine double gate [manual]
+### REQ-F1.5 — cross-machine double gate [manual + design-level]
 
 Live checks: a cross-machine send with `messaging_cross_machine` off is
 refused; with it on the send still prompts for approval; script paths post
@@ -203,12 +224,13 @@ Review against the fleet-coordination floors: no LLM in daemon mechanics,
 never-impersonate, non-authoring, no auto-merge, and the
 deterministic-attention floor's operator push left to `merge-currency-guard`.
 
-### REQ-G1.4 — advisory-only tower↔tower [test + manual]
+### REQ-G1.4 — advisory-only tower↔tower [test + manual + design-level]
 
-Prose and guard review that no advisory path writes fence, presence, or
-`tasks.md` state and that the advisory rule cites the assume-multiplicity
-floor rather than restating authority; a live advisory message check
-confirms delivery with no correctness side effect.
+Test: after an advisory send against a test-bound socket, the fence refs,
+the presence file, and `tasks.md` are byte-identical to before. Design-level:
+prose and guard review that no advisory path writes those surfaces and that
+the advisory rule cites the assume-multiplicity floor rather than restating
+authority. Manual: a live advisory message check confirms delivery.
 
 ### REQ-G1.5 — the doctrine document [design-level]
 
@@ -234,13 +256,15 @@ paragraph cross-references REQ-G1.4's advisory rule, and that
 
 ## REQ-H — Security & hygiene
 
-### REQ-H1.4 — inbound content untrusted [test]
+### REQ-H1.4 — inbound content untrusted [test + manual]
 
 Hostile doorbell/message fixtures (control bytes, over-length, forged
 worker ids, contradicting content) are screened, sanitized before echo, and
 a doorbell drives action only through `doorbell-read`'s store re-read;
 steer and advisory text is screened and sanitized but never re-validated
-against the store.
+against the store. That a receiving session treats steer or advisory text
+as advisory is model behavior: exercised by the local behavioral eval or
+recorded as a manual check.
 
 ### REQ-H1.2 — message hygiene [test + design-level]
 

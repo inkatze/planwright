@@ -289,9 +289,15 @@ subordinates and the watchdog's relaunches; an operator-launched tower is
 not fleet-launched and is addressed by a listing round-trip on the
 tower↔tower advisory path alone, whose rate is low enough that the
 per-signal cost rejected below does not apply. Names are validated as data
-before addressing, path use, or echo.
+before addressing, path use, or echo. The collision-rename behavior is
+documented, not yet observed: Task 4's live collision check records
+whichever outcome the CLI produces (rename, refusal, or duplicate),
+read-back records that outcome, a refusal or duplicate surfaces as a
+dispatch failure rather than being assumed away, and a non-rename outcome
+amends this decision.
 *(Amended at revision 2026-09-02: the tower launch seams, the tower marker
-as their record, and the operator-launched carve-out stated.)*
+as their record, the operator-launched carve-out, and the unverified
+collision behavior stated.)*
 
 **Alternatives considered:**
 - Relying on harness-generated names plus listing round-trips. Rejected

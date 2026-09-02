@@ -53,10 +53,14 @@
   guard (fixture-tested contract assumptions carrying the pin of record).
 - **Done when:** the test suite covers accept/refuse paths for every
   subcommand including hostile input (control bytes, over-length, traversal
-  tokens) and the demotion values; probe reads absent on a host without the
-  feature; the drift guard fixture carries the pin of record and fails
-  visibly when it is absent or when a pinned contract assumption is
-  violated; the source audit passes; shell lint and secret scan pass.
+  tokens) and the demotion values; `probe` takes a test-only
+  `--cli-version` override and reads available with the socket env present
+  and a version at or above the pin injected, absent with either missing or
+  the version below the pin, and absent on a host without the feature; the
+  drift guard fixture carries the pin of record and exits non-zero with a
+  stderr diagnostic naming the failed assumption when the pin is absent or
+  a pinned contract assumption is violated; the source audit passes; shell
+  lint and secret scan pass.
 - **Dependencies:** 1
 - **Citations:** D-4, D-7, D-11, D-12, D-15, D-17 · REQ-A1.1, REQ-A1.4,
   REQ-A1.5, REQ-C1.5, REQ-D1.2, REQ-F1.4, REQ-H1.2, REQ-H1.3, REQ-H1.4
@@ -73,8 +77,9 @@
   `messaging_cross_machine` documented as the cue to relax that setting,
   with the harness tool-call prompt as the per-send approval.
 - **Done when:** a dispatched worker on each session-grade rung accepts an
-  inbound message unattended in a live check; the dispatch seam fails
-  visibly (not silently) when settings delivery fails; both shipped
+  inbound message unattended in a live check; the dispatch seam exits
+  non-zero with a stderr diagnostic naming the undelivered profile when
+  settings delivery fails (fixture); both shipped
   profiles carry the inbound and isolation settings and `mise run lint:json`
   and `check:hook-contracts` pass; a cross-machine send without the knob is
   refused and with the knob still prompts; the task re-verifies against the
@@ -95,10 +100,12 @@
   data before addressing, path use, or echo.
 - **Done when:** a dispatched worker on each session-grade rung appears in
   the sender-side listing under its derived name; a fleet-launched tower's
-  marker carries its observed name and socket path; a collision-renamed
-  variant is recorded as observed; hostile name input is refused by grammar
-  tests; the task re-verifies against the running CLI and updates the pin
-  of record.
+  marker carries its observed name and socket path; the live collision
+  check (two same-named launches) records whichever outcome the CLI
+  produces — rename, refusal, or duplicate — in the task PR, read-back
+  records that outcome as observed, and a non-rename outcome amends D-8;
+  hostile name input is refused by grammar tests; the task re-verifies
+  against the running CLI and updates the pin of record.
 - **Dependencies:** 2
 - **Citations:** D-8, D-11 · REQ-A1.4, REQ-B1.1, REQ-B1.2, REQ-B1.3 ·
   obs:d4d66281
@@ -115,11 +122,13 @@
   covering the new delivery shape; each consumer's header naming its
   fallback.
 - **Done when:** delivery prefers messaging on steer-advertising eligible
-  rungs and falls back cleanly when refused or absent (fixture-forced
-  against a test-bound socket); a steer-less rung receives no delivery; the
-  fork record is never re-opened on delivery failure and the persisted
-  artifact recovers the answer; the no-impersonation and
-  no-permission-answer properties hold by construction in tests; the tower
+  rungs and, when refused or absent (fixture-forced against a test-bound
+  socket), descends the ladder with exit 0 and one logged notice per rung,
+  never a retry; a steer-less rung receives no delivery; the fork record is
+  never re-opened on delivery failure and the persisted artifact recovers
+  the answer; the source audit proves the messaging arm contains no
+  `send-keys` or prompt-answer path and fixture tests prove message text
+  reaches the post as a file reference, never spliced; the tower
   command-guard fixture table covers the send shape with zero false-allows;
   a live tmux check delivers an answer end to end; the task re-verifies
   against the running CLI and updates the pin of record.
@@ -139,16 +148,17 @@
   downward delivery, for accepting rungs, as a completion supplement;
   per-worker debug-log send visibility (never the audit trail); tower inbox
   socket path propagation at the dispatch seam (dispatch env with the tower
-  marker record Task 4 writes as fallback, validated before use); each
-  consumer's header naming its fallback.
+  marker record Task 4 writes as fallback, validated before use through an
+  owner predicate with a test-only `--owner-uid` override); each consumer's
+  header naming its fallback.
 - **Done when:** a worker hook event produces a doorbell on a test-bound
   socket with a grammar-valid payload and no model turn; `doorbell-read`
   refuses every hostile fixture and returns only store content for a
   spoofed pointer; a doorbell post writes one line to the per-worker debug
   log and no row to the audit trail (fixture); an idle notice arrives in a
-  live two-session check; liveness classification is unchanged with notices
-  absent; the task re-verifies against the running CLI and updates the pin
-  of record.
+  live two-session check; the existing liveness classification tests pass
+  unmodified with notices absent (the baseline); the task re-verifies
+  against the running CLI and updates the pin of record.
 - **Dependencies:** 2, 3, 4
 - **Citations:** D-7, D-10, D-11, D-15, D-16 · REQ-A1.4, REQ-D1.1,
   REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5, REQ-G1.1, REQ-H1.4 · obs:67861aa6
@@ -187,8 +197,10 @@
 - **Done when:** the prose lands under `scripts/check-instructions.sh`
   budgets; the advisory rule cites the assume-multiplicity floor for
   authority over the division of work; a live tower↔tower advisory message
-  check passes; the behavioral guidance is exercised by a local (never-CI)
-  behavioral eval or recorded as a manual check.
+  check passes and the fence refs, presence file, and `tasks.md` are
+  byte-identical before and after it; the behavioral guidance is recorded
+  as a manual check in the task PR (a local behavioral eval may back the
+  record; neither runs in CI).
 - **Dependencies:** 2, 3, 4
 - **Citations:** D-4, D-8, D-14 · REQ-F1.2, REQ-F1.3, REQ-G1.2, REQ-G1.3,
   REQ-G1.4
