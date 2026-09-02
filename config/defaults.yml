@@ -366,6 +366,24 @@ allocation_adaptation: "off"
 # before any arithmetic use; the ladder ends are hard stops regardless of the cap.
 allocation_adjustment_cap: 2
 
+# How many escalations over a unit's whole history make it worth telling future
+# drafting about (model-allocation D-11; REQ-F1.2, REQ-E1.1). At a unit's
+# terminal state — completion or crash-loop disable — scripts/allocation-
+# feedback.sh records one observation fragment when the unit ended above its
+# starting tier, OR when its escalation count reached this threshold. The second
+# condition is the CHURN case the first cannot see: a unit that climbed twice and
+# was talked back down twice ends exactly where it started, having spent its
+# whole adjustment budget getting there.
+#
+# The default matches allocation_adjustment_cap, so the count condition reads as
+# "this unit used its entire climb budget" whether or not it stayed up there.
+# Lower it to hear about single escalations; raise it to hear only about the
+# repeat offenders. A positive integer, validated against the pinned numeric
+# grammar before any comparison. Subordinate to allocation_adaptation in
+# practice: with adaptation off nothing escalates, so no unit reaches either
+# condition and the shipped posture records nothing (D-13).
+allocation_feedback_threshold: 2
+
 # The bounded fallback hold, in seconds, when a native rate-limit signal is
 # detected but its reset time cannot be parsed (fleet-autonomy D-12,
 # REQ-E1.3; kickoff risk row 24). The rate-limit prompt is version-sensitive

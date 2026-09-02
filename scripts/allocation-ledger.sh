@@ -35,7 +35,7 @@
 #   12 res_effort    /  (`-` when nothing was resolved, e.g. a withheld unit)
 #   13 scope      `unit` (moves the unit's tier) or `step` (this launch only)
 #   14 outcome    resolved | applied | withheld | denied | ignored | no-op |
-#                 inherit | degraded
+#                 inherit | degraded | recorded
 #   15 inputs     a bounded `key=value;...` list: trigger, rung, clamps
 #                 applied, fallback or inheritance taken
 #
@@ -183,7 +183,10 @@ valid_effort_cell() {
 }
 
 ALLOC_SCOPES='unit step'
-ALLOC_OUTCOMES='resolved applied withheld denied ignored no-op inherit degraded'
+# `recorded` is the terminal-state feedback mark's outcome (REQ-F1.2), and it is
+# its own value rather than a reuse of `applied` because `applied` means a
+# ladder step landed — the one reading a feedback row must never invite.
+ALLOC_OUTCOMES='resolved applied withheld denied ignored no-op inherit degraded recorded'
 
 in_set() {
   for _is in $2; do
@@ -656,8 +659,16 @@ case "$cmd" in
     [ -r "$lt_file" ] || exit 0
     # The last row carrying a REAL resolved tier — a withheld or inherit row
     # records no tier, and a torn row is skipped rather than trusted.
+    #
+    # `feedback` rows are excluded because they are not launches. The
+    # terminal-state mark allocation-feedback.sh writes carries the unit's
+    # DERIVED final tier in the resolved columns, which is a ladder position and
+    # not a post-clamp value; letting it answer here would hand a degraded
+    # relaunch a tier the unit never actually ran at (more expensive than the
+    # last launch, wherever a clamp had bound it). This verb answers "the last
+    # tier a launch used", so only launch rows may answer it.
     awk -F '\t' '
-      NF == 15 && $11 != "-" && $11 != "inherit" { m = $11; e = $12 }
+      NF == 15 && $6 != "feedback" && $11 != "-" && $11 != "inherit" { m = $11; e = $12 }
       END { if (m != "") printf "%s\t%s\n", m, e }
     ' "$lt_file"
     ;;
