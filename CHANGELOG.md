@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.0](https://github.com/inkatze/planwright/compare/v0.35.0...v0.36.0) (2026-09-02)
+
+
+### Features
+
+* **spec:** tower-front-door kickoff sign-off ([#377](https://github.com/inkatze/planwright/issues/377)) ([045861c](https://github.com/inkatze/planwright/commit/045861cca0d5b20aceffdb91a1c1e57fdeaf60e6))
+
 ## [0.35.0](https://github.com/inkatze/planwright/compare/v0.34.0...v0.35.0) (2026-08-31)
 
 
