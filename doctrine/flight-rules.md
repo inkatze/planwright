@@ -74,9 +74,11 @@ hold on both rules, overridden or not.
 ### Decomposition (REQ-C1.6)
 
 One ask may fan into several flights, one per coherent unit, each routed on its
-own and each with its own stated grounds. A mixed-stake ask is decomposed, not
-routed by its riskiest clause: filing the whole thing because one part touches a
-zone re-imposes the entry fee the routing rule exists to remove.
+own and each with its own stated grounds. The permission exists so that a
+mixed-stake ask need not be routed by its riskiest clause: filing the whole thing
+because one part touches a zone re-imposes the entry fee the routing rule exists
+to remove. It stays a permission — an ask that is one coherent unit stays one
+flight.
 
 ## The flight boundary (REQ-C1.6)
 
