@@ -147,9 +147,10 @@ Every guarantee about work surviving the tower is stated in the
 > swept, or durably surfaced to the operator. Never silent.
 
 Concretely: flights run on rungs that outlive the session that dispatched them,
-and their worktrees, branches, and records are durable, so a killed tower does not
-take the work with it (REQ-F1.3). The guarantee is that residues are bounded and
-swept *or* surfaced — not that nothing is ever left behind. Dead flight workers
+and their worktrees, branches, and records are durable (REQ-F1.3). What that buys
+is itself stated in the bounded form rather than as an absolute: a killed tower
+leaves every residue bounded and swept, or durably surfaced — never silently
+lost. It is not a promise that nothing is ever left behind. Dead flight workers
 inherit the fleet crash-loop policy (D-10, REQ-F1.5): bounded backoff relaunch
 against the flight's own worktree and branch, then escalation to the human at the
 disable threshold.
