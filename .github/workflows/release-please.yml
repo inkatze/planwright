@@ -25,9 +25,11 @@
 # bump re-listing already-released commits (PR #339: 124 of them). The guard
 # step below reuses scripts/release-window-check.sh — the ONE definition of the
 # window, shared with the release-window lock — and skips the proposal for the
-# span the lock already holds merges shut. It self-clears: once the tag is
-# published the check passes and the next `ci` completion on main proposes
-# normally, so nothing is dropped.
+# span the lock already holds merges shut. Nothing is dropped in the meantime
+# precisely because of that lock: no release-worthy commit can land on main
+# while the guard is suppressing proposals. Note the guard does NOT re-arm on
+# publication by itself — pushing the signed tag runs no `ci` workflow, so the
+# next proposal comes with the next commit to land on main after the tag.
 #
 # "on" is quoted so yamllint's truthy rule (which this repo runs on .github/)
 # does not flag the key, matching ci.yml.
@@ -65,9 +67,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # The window guard needs a checkout: rl_latest_release_tag reads local
-      # `git tag -l`, and a tagless checkout reports "no release tags yet,
-      # window open" and would skip the job forever, silently.
+      # The window guard needs a checkout so the check script is in the
+      # workspace at all; the fetch below is what gives it the tags to compare
+      # against.
       #
       # `ref` pins the repository's OWN default branch and never
       # github.event.workflow_run.head_sha. This job holds contents: write and
@@ -76,30 +78,57 @@ jobs:
       # guard-coverage D-6 accepted that residual because the job checked out no
       # PR code; pinning the default branch is what keeps that acceptance true
       # now that it checks something out.
+      #
+      # persist-credentials: false so the write-scoped GITHUB_TOKEN is not left
+      # in .git/config for the rest of the job, which goes on to run a
+      # third-party action. Nothing here needs it: this is a public repo, so the
+      # fetch below is anonymous, and release-please receives its token
+      # explicitly via the `token:` input.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
           ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
 
-      # Pin origin/main (the state the guard judges) and the release tags.
-      # actions/checkout configures a narrow fetch refspec, so the explicit one
-      # is required — same fetch release-window.yml already proves out.
+      # Pin origin/main (the state the guard judges) and the release tags:
+      # rl_latest_release_tag reads local `git tag -l`, and against a tagless
+      # checkout the check reports an open window and would skip the proposal
+      # on every run, silently. actions/checkout configures a narrow fetch
+      # refspec, so the explicit one is required — the same fetch
+      # release-window.yml already proves out. `main` is spelled literally here
+      # and in the guard's --ref below, matching release-window.yml; renaming
+      # the default branch means updating both alongside the `ref:` above.
       - run: git fetch --force --tags origin +refs/heads/main:refs/remotes/origin/main
 
-      # Split the check's TRI-STATE exit, never merely its non-zero-ness: 0 is
-      # no window (propose), 1 is an open window (a pending publish is a normal
-      # state, so skip and stay green), and 2 is fail-closed could-not-determine
-      # (so fail). The script mints 2 as a distinct status precisely so a
-      # consumer can tell "no window" from "could not tell" (REQ-A1.3, D-2);
-      # folding it into the skip would launder an unreadable state into a green,
-      # silent no-op — the fail-open shape this guard exists to remove.
+      # Split the check's exit status, never merely its non-zero-ness: 0 is no
+      # window (propose), 1 is an open window (a pending publish is a normal
+      # state, so skip the proposal and stay green), and 2 is fail-closed
+      # could-not-determine, whether a usage error or a comparator failure (so
+      # fail). Any other status fails too — the `*)` arm is deliberately not
+      # `2)`. The script mints 2 as a distinct status precisely so a consumer
+      # can tell "no window" from "could not tell" (REQ-A1.3, D-2); folding it
+      # into the skip would launder an unreadable state into a green, silent
+      # no-op — the fail-open shape this guard exists to remove.
+      #
+      # `shell: bash` is what actually selects `-e -o pipefail`; an undeclared
+      # `run:` gets only `-e`, and the pipefail assumption is load-bearing if a
+      # pipeline is ever added to this body.
       - id: window-check
+        shell: bash
         run: |
           rc=0
           /bin/bash scripts/release-window-check.sh --ref origin/main || rc=$?
           case "$rc" in
             0) echo 'open=false' >>"$GITHUB_OUTPUT" ;;
-            1) echo 'open=true' >>"$GITHUB_OUTPUT" ;;
+            1)
+              echo 'open=true' >>"$GITHUB_OUTPUT"
+              # Record the suppression: the job concludes green with only a
+              # step-level skip, so without this a suppressed proposal looks
+              # exactly like a delivered one in the Actions list.
+              echo 'Release proposal suppressed: an untagged release window' \
+                'is open. Publish the signed tag to resume proposals.' \
+                >>"$GITHUB_STEP_SUMMARY"
+              ;;
             *)
               echo "release-please: release-window-check.sh exited $rc — the" \
                 "release state could not be determined; failing closed." >&2
