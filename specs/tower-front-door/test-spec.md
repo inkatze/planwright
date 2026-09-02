@@ -1,7 +1,7 @@
 # Tower front door — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-08-27
+**Status:** Ready
+**Last reviewed:** 2026-09-01
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -9,9 +9,12 @@ Coverage mix: `[test]` where automation is honest (grammar, sweep, guard,
 record-template, and budget checks run by `mise run check` and the repo
 CI; behavioral-eval fixtures on the plugin eval harness, whose
 operability caveat is recorded at Task 11), `[Gherkin]` for the five
-acceptance scenarios, `[manual]` for the demo script and conversational
-posture, `[design-level]` where an artifact's existence and coverage is
-the verification.
+acceptance scenarios, `[manual]` for the demo script (a Task 13
+deliverable) and conversational posture, `[design-level]` where an
+artifact's existence and coverage is the verification. Eval-backed
+`[test]` entries run on the eval harness outside the repo CI — the
+standing `check-no-ci-evals.sh` guard structurally keeps evals out of
+CI — and are exercised on demand, not on the merge gate.
 
 ## REQ-A — The entrance
 
@@ -19,9 +22,10 @@ the verification.
 
 Scenario (chat-only demo): given a small, safe ask in plain language,
 when the tower routes and dispatches, then the user's next interaction
-is a draft-PR link, no spec file was created, and no machinery was named
-in the conversation. Manual: the demo script exercises the same flow
-live.
+is a draft-PR link, no spec file was created, and no pipeline machinery
+was named in the conversation (the flight-rule words with their gloss
+are permitted, per REQ-A1.1). Manual: the demo script exercises the same
+flow live.
 
 ### REQ-A1.2 — Tower frugality [manual]
 
@@ -40,6 +44,13 @@ new shapes by construction.
 The shipped implementation consists of skills, hooks, scripts, and
 file-based state; the review confirms no second framework or daemon
 beyond the fleet layer's existing definitions.
+
+### REQ-A1.5 — The window, without supervision [manual + design-level]
+
+Demo: mid-orchestration, asking the tower about that spec's status
+yields an on-demand answer from durable evidence with no machinery
+knowledge required; review confirms no code path polls or renders
+spec-mode execution unprompted.
 
 ## REQ-B — The router
 
@@ -79,7 +90,9 @@ behavior in the dispatch-path tests).
 ### REQ-B1.6 — Eval gates the docs [design-level]
 
 Task 12 depends on Task 11 in `tasks.md`; the dependency edge is the
-verification that no doc claim precedes the passing gate.
+verification that no user-facing doc claim precedes the passing gate
+(doctrine and skill text state the routing rule as law, which the
+rescoped REQ permits ahead of the eval).
 
 ## REQ-C — Visual flight
 
@@ -110,9 +123,20 @@ by the tower.
 
 ### REQ-C1.5 — Governed parallelism [test]
 
-Dispatch tests assert a flight beyond the configured parallel-unit cap
-queues rather than launches, using the existing fleet concurrency knobs
-with no flight-specific cap machinery.
+Dispatch tests assert a flight beyond the existing `max_parallel_units`
+value is declined at dispatch with a stated re-ask path — no durable
+queue, no new store, no new knob — and that a freed slot makes the
+re-asked flight dispatchable.
+
+### REQ-C1.6 — Flight boundary [test + design-level]
+
+Dispatch tests assert a read-only offload creates no flight branch,
+worktree, draft PR, or record and returns its result to the
+conversation; that a mid-offload mutation need returns as a new routed
+request; and that a decomposed ask yields one routed flight per unit.
+The flight-rules doctrine doc states the boundary (mutating work only),
+and review confirms no code path mints flight identity for read-only
+work.
 
 ## REQ-D — Instrument flight
 
@@ -145,9 +169,9 @@ the existing machinery.
 ### REQ-E1.1 — The content contract [test + manual]
 
 Template unit tests assert every contract element (ask, route and
-grounds, audit tables, declined log, pending-sign-off checklist, worker
-handle, revert path) is present; manual PR inspection on the demo
-flights.
+grounds, audit tables, declined log, pending-sign-off checklist, any
+rigor scoping applied, worker handle, revert path) is present; manual PR
+inspection on the demo flights.
 
 ### REQ-E1.2 — Adaptive home, declared [test]
 
@@ -158,9 +182,10 @@ statement at routing time.
 
 ### REQ-E1.3 — Derived index is cache [test]
 
-Delete-and-resweep reproduces the index byte-equivalently from evidence;
-the index path is never tracked; no code path treats the index as
-authoritative over git or forge evidence.
+Delete-and-resweep reproduces the index equivalently (stable
+serialization; timestamps excluded) from evidence; the index path is
+never tracked; no code path treats the index as authoritative over git
+or forge evidence.
 
 ### REQ-E1.4 — Specless traceability [design-level]
 
@@ -168,13 +193,23 @@ The flight-rules doctrine doc states the definition (ask, route and
 grounds, evidence, revert path), and the record template implements it;
 existence plus the REQ-E1.1 tests are the verification.
 
+### REQ-E1.5 — Human-first record rendering [test + manual]
+
+Template unit tests assert, in both homes, that the lead carries no
+restated prompt and the collapsed section carries every REQ-E1.1
+contract element with the ask sanitized and markup-neutralized (an ask
+containing a fence or closing tag cannot break the collapse or the
+sweep's parse); manual review of demo-flight PRs confirms the lead reads
+as a human author's what/why/verification.
+
 ## REQ-F — Attention and survival
 
 ### REQ-F1.1 — Decision-queue posture [manual + test]
 
 Attention tests assert only actionable items and lifecycle events are
 pushed; the demo runs confirm status is available on demand and each
-completion reports its PR link.
+completion reports its landing reference (PR link, or branch and record
+path on the no-remote arm).
 
 ### REQ-F1.2 — Deterministic push [test]
 
@@ -223,14 +258,16 @@ flag exists in any shipped surface.
 
 ### REQ-G1.3 — New commits only [test]
 
-Guard tests assert force-push, amend, squash, and rebase remain denied
-under the tower posture on every flight branch.
+Guard tests (Task 10) assert force-push, amend, squash, and rebase
+remain denied under the tower and worker postures (the deny rules are
+branch-agnostic, so flight branches are covered by construction).
 
 ### REQ-G1.4 — Drafts always [test]
 
 PR creation on both paths is asserted draft; the ready-flip deny holds
-for the tower; the kickoff spec-PR exception is untouched by this
-bundle (asserted by absence of change).
+under the tower and worker postures; the kickoff spec-PR exception is
+untouched by this bundle (asserted by absence of change to that flow's
+tests).
 
 ### REQ-G1.5 — Seams reused [design-level]
 
@@ -242,9 +279,10 @@ not duplication; the two minted pieces carry their seam-misfit notes
 
 ### REQ-H1.1 — Glossary supersession [test + design-level]
 
-Doc-drift tethers pin the glossary's Tower and Orchestrator entries and
-the transitional note; the meta-spec changelog entry exists with no
-version bump.
+The Task 2 pin-check pins the glossary's Tower and Orchestrator entries,
+the transitional note (older prose and tower-named scripts/config both
+covered), and the Orchestrator-vs-Operator distinction line; the
+meta-spec changelog entry exists with no version bump.
 
 ### REQ-H1.2 — Definitional sites only in v1 [design-level]
 
@@ -253,9 +291,9 @@ a live Deferred entry with its gate.
 
 ### REQ-H1.3 — README leads with /tower [test + manual]
 
-Doc-drift tethers pin the README lead and the demotion placements;
-manual read of the newcomer path confirms no internal machinery is
-required knowledge.
+The Task 12 pin-checks pin the README lead, the demotion placements, and
+the two-controls restatement; manual read of the newcomer path confirms
+no pipeline machinery is required knowledge.
 
 ### REQ-H1.4 — Flight-rules naming and gloss [test]
 

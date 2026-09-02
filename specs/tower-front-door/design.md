@@ -1,7 +1,7 @@
 # Tower front door — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-08-27
+**Status:** Ready
+**Last reviewed:** 2026-09-01
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -70,6 +70,13 @@ repo's own precedent for a vocabulary collision (the dual-registry
 naming, legacy observations log line 144 — left unconsumed for its own
 drain) is resolution by distinct layer names, with the premium name on
 the user-facing layer.
+
+*(Amended at kickoff lens review 2026-09-01: the tower-lifecycle
+watchdog/relaunch family — `fleet-tower-watchdog.sh`, the
+`tower_relaunch_*` knobs — stays orchestrator machinery: the chat tower
+does not register under it in v1, and the REQ-H1.1 transitional note
+covers those names. The line-144 precedent is cited as the problem that
+motivates distinct layer names, not as a resolved precedent.)*
 
 ### D-3: Flight rules named visual flight / instrument flight  (N)
 
@@ -180,6 +187,17 @@ ritual.
 posture, the PR-as-audit-surface has direct precedent, and the adaptive
 arm keeps the no-remote path first-class instead of degraded-to-nothing.
 
+*(Amended at kickoff lens review 2026-09-01: "the kickoff-brief class"
+reads as: an audit artifact, not an accumulator — it collects no
+deferred decisions, so it owes no named reader or drain ritual; the
+pending-sign-off checklist it renders keeps its own PR-review drain.
+The record-directory classification of `specs/_flights/` lands in the
+meta-spec via Task 3's amendment. Seam-misfit note (existing-seam-reuse
+domain): the shared fleet-audit trail misfits as a per-flight record
+store — no row identity, silent truncation, lock contention, write
+amplification (obs:fcc5f742, obs:2bea1358) — so the per-flight record
+home is minted.)*
+
 ### D-7: One convergence sequence, proportionality inside it  (N)
 
 **Decision:** Visual flight runs the identical configured
@@ -219,6 +237,10 @@ renders through the existing fleet-attention seam and
 is the settled fleet posture, and the live failure where PR-ready
 reached the human only via tower polling (obs:bfc6faf0) makes
 deterministic push the recorded lesson, not a preference.
+
+*(Amended at kickoff lens review 2026-09-01: "draft-PR link" reads
+adaptively as the landing reference — the PR link, or the branch and
+record path on the no-remote arm, per REQ-F1.1.)*
 
 ### D-9: Reconstruction on both surfaces over one shared sweep  (N)
 
@@ -337,6 +359,11 @@ delta needs human sign-off. The tower can never self-grant permissions
 **Chosen because:** the seed states this constraint at verbatim
 strength, and the guard corpus findings this session mined show posture
 divergence, not posture reuse, is where the live failures were.
+
+*(Amended at kickoff lens review 2026-09-01: "chat-tower" in this
+decision is transitional drafting shorthand for the tower session; the
+qualified term ships in no deliverable, per D-2's rejection of qualified
+coexistence.)*
 
 ### D-15: Post-sign-off orchestration on explicit ask only  (N)
 
