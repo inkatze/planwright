@@ -1,36 +1,41 @@
 # Fleet Messaging — Test Spec
 
 **Status:** Draft
-**Last reviewed:** 2026-08-27
+**Last reviewed:** 2026-09-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
 Coverage mix: script-level behavior (probe parsing, grammar validation,
-mode resolution, ordering, doorbell framing against a test-bound socket) is
-`[test]` and runs in the repo's shell suite in CI. Live two-session flows
-(real message delivery, held/refused outcomes, idle notices) are `[manual]`,
-optionally exercised by a local behavioral eval that never runs in CI (the
-evals-never-in-CI guard). Doctrine and contract deliverables are
-`[design-level]`.
+mode resolution, ordering, doorbell framing and post outcomes against a
+test-bound socket speaking the pinned protocol) is `[test]` and runs in the
+repo's shell suite in CI. Live two-session flows (real message delivery,
+held/refused outcomes, idle notices) are `[manual]`, optionally exercised
+by a local behavioral eval that never runs in CI (the evals-never-in-CI
+guard). Doctrine and contract deliverables are `[design-level]`.
 
 ## REQ-A — Availability & advertisement
 
 ### REQ-A1.1 — deterministic availability probe [test]
 
-`fleet-messaging.sh probe` fixture tests: socket env present + version
-sufficient reads available; env absent, version short, or malformed input
-reads absent; no configuration value can force available without the probe.
+`fleet-messaging.sh probe` fixture tests: the invoking session's socket env
+present + version sufficient reads available; env absent, version short, or
+malformed input reads absent; no configuration value can force available
+without the probe.
 
-### REQ-A1.2 — per-rung advertisement, fail-safe [test + design-level]
+### REQ-A1.6 — eligibility derived from session-grade, fail-safe [test + design-level]
 
-Contract-table review for every shipped rung (design-level), plus tests
-that an unknown, unprobeable, or malformed advertisement resolves to
-absent and that socket-less rungs (subagent, in-session) never advertise it.
+Contract-doc review that the derivation names the session-grade column as
+its source and adds no column (design-level), plus tests that the derivation
+maps `yes` to eligible and `no`, `deferred`, unknown, and malformed values to
+ineligible for every shipped rung read from the registry, and that a send
+needs both the sender's probe and a recorded target address.
 
-### REQ-A1.3 — absence changes nothing [test]
+### REQ-A1.5 — absence changes nothing on the signal paths [test]
 
-With the probe forced absent, delivery, doorbell, and diet consumers take
-exactly today's code paths (fixture-diffed behavior in the suite).
+With the probe forced absent, delivery, doorbell, idle-notice, and
+demoted-sweep consumers take exactly today's code paths (fixture-diffed
+behavior in the suite); launch naming and inbound settings are applied and
+verified inert (fixture).
 
 ### REQ-A1.4 — platform-contract drift guard [test]
 
@@ -60,20 +65,25 @@ metacharacters) are refused before addressing, path use, or echo.
 
 ### REQ-C1.1 — messaging-first with fallback ladder [test + manual]
 
-Fixture-forced refusal/absence walks messaging → paste → park in order; a
-live tmux check delivers a steer via messaging end to end.
+Fixture-forced refusal/absence against a test-bound socket walks messaging
+→ the rung's attributed steer delivery → operator handoff in order; a
+steer-less rung (`headless-oneshot`) receives no delivery; a live tmux check
+delivers a steer via messaging end to end.
 
 ### REQ-C1.2 — claim, persist, then deliver; never re-claim [test]
 
 Ordering tests against the decision-channel store: the answer artifact
-exists before any delivery attempt; induced delivery failure leaves the
-fork closed and the artifact recoverable; no code path re-claims.
+exists before any delivery attempt; induced delivery failure (socket absent
+or refusing) leaves the fork closed and the artifact recoverable; no code
+path re-claims.
 
-### REQ-C1.3 — delivery outcomes consumed [test + manual]
+### REQ-C1.5 — synchronous outcomes consumed; held surfaced only [test + manual]
 
-Sender-side notice handling tests (held/refused/dropped/expired fixtures)
-trigger the fallback; a live held-message check (receiver holding inbound)
-is surfaced, never presumed delivered.
+Post-outcome tests against a test-bound socket speaking the pinned protocol:
+refused and a failed post trigger the fallback; held is surfaced as
+unconfirmed and never re-sent; accepted is not reported as delivered. A live
+held-message check (receiver holding inbound) is surfaced, never presumed
+delivered.
 
 ### REQ-C1.4 — no impersonation, no permission answering [test + design-level]
 
@@ -91,44 +101,45 @@ the routine path (script-level, statically greppable).
 
 ### REQ-D1.2 — pointer payload, store re-read [test]
 
-Doorbell grammar tests (minimal fields, validation, length bounds); a
-spoofed doorbell whose content contradicts the store cannot drive tower
-action past the re-read in the handling tests.
+Doorbell grammar tests (minimal fields, validation, length bounds);
+`doorbell-read` refuses hostile pointers and, for a spoofed pointer whose
+content contradicts the store, returns only store content, never the
+message content.
 
 ### REQ-D1.3 — idle notices as supplement [manual]
 
-A live two-session check: subscription at dispatch, notice on worker idle;
-liveness classification verified unchanged when notices are absent or
-expired.
+A live two-session check: the tower session subscribes after dispatch and
+re-arms after a delivered steer, a notice arrives on worker idle; liveness
+classification verified unchanged when notices are absent.
 
-### REQ-D1.4 — lost signals healed by reconcile [test]
+### REQ-D1.4 — lost signals healed by the sweep [test]
 
-With doorbells suppressed, the retained reconcile surfaces the store row
-within the documented floor interval (same fixture as REQ-E1.2).
+With doorbells suppressed, the retained healing sweep surfaces the store row
+within the documented cadence (same fixture as REQ-E1.2).
 
-### REQ-D1.5 — tower address propagation [test]
+### REQ-D1.5 — tower socket path propagation [test]
 
-Dispatch-env fixtures: the address is present at worker launch and the
-fallback record read works when it is not; a missing, dangling, or
-wrong-owner socket path degrades the doorbell path cleanly to the reconcile
-floor with a single logged notice, never a retry loop.
+Dispatch-env fixtures: the path is present at worker launch and the
+fallback marker read works when it is not; a missing, dangling, or
+wrong-owner socket path degrades the doorbell path cleanly to the healing
+sweep with a single logged notice, never a retry loop.
 
-## REQ-E — Store-load diet
+## REQ-E — Store-load reduction
 
 ### REQ-E1.1 — cadence demotion where push is live [test]
 
-Each demoted consumer reads the advertised capability: push present demotes
-to the documented floor; push absent keeps today's cadence (fixture-forced
-both ways).
+Each demoted consumer reads the derived eligibility and the probe: push
+present demotes to the documented cadence; push absent keeps today's cadence
+(fixture-forced both ways).
 
-### REQ-E1.2 — reconcile never removed [test]
+### REQ-E1.2 — healing sweep never removed [test]
 
-Suppressed-push healing test (shared with REQ-D1.4): the reconcile floor
-recovers the signal at every discipline mode, including `open`.
+Suppressed-push healing test (shared with REQ-D1.4): the sweep recovers the
+signal at every discipline value, including `open`.
 
 ### REQ-E1.3 — record semantics untouched [test + design-level]
 
-Diff-review of the diet changes (design-level: reads and cadences only)
+Diff-review of the reduction changes (design-level: reads and cadences only)
 plus store-schema tests asserting no write path or record shape changed.
 
 ## REQ-F — Settings & discipline
@@ -146,33 +157,37 @@ default `tiered`, unknown values refused with a visible diagnostic.
 
 ### REQ-F1.3 — direction asymmetry [test]
 
-`effective-mode` tests: at each setting, worker→tower resolves one rung
-more permissive than tower→worker.
+`effective-mode` tests: the knob value is the worker→tower value and
+tower→worker resolves one value stricter, saturating at `doorbell`
+(`doorbell` resolves `doorbell` in both directions).
 
 ### REQ-F1.4 — send-time pressure demotion [test]
 
-Monitor-output fixtures: pressure reported demotes one rung and logs;
+Monitor-output fixtures: pressure reported demotes one value, saturating at
+`doorbell`, and writes one log line per demoted send (none otherwise);
 pressure cleared restores; no mode state file exists after any sequence;
 the decision path is script-only.
 
 ### REQ-F1.5 — cross-machine double gate [manual]
 
 Live checks: a cross-machine send without the knob is refused; with the
-knob it still prompts for approval; fleet profiles carry the
-`isolatePeerMachines` recommendation (design-level review of the profile).
+knob it still prompts for approval; script paths post to local socket paths
+only (fixture); both shipped settings profiles carry
+`isolatePeerMachines: true` (design-level review of the profiles).
 
 ## REQ-G — Degradation & carried floors
 
 ### REQ-G1.1 — named fallback per path [test + design-level]
 
 Each messaging path's header names its fallback (design-level review);
-fixture-forced absence reaches it without operator intervention (shared
-with REQ-A1.3).
+fixture-forced absence reaches it with no operator step to select it
+(shared with REQ-A1.5).
 
 ### REQ-G1.2 — no state of record on messages [design-level]
 
-Bundle and implementation review: every message payload is a pointer or
-advisory; no consumer treats message content as durable state.
+Bundle and implementation review: every upward payload is a pointer and
+every downward or advisory message is instruction text with its record
+behind it; no consumer treats message content as durable state.
 
 ### REQ-G1.3 — carried floors unchanged [design-level]
 
@@ -183,22 +198,25 @@ deterministic-attention floor's operator push left to `merge-currency-guard`.
 ### REQ-G1.4 — advisory-only tower↔tower [test + manual]
 
 Prose and guard review that no advisory path writes fence, presence, or
-ledger state; a live advisory message check confirms delivery with no
-correctness side effect.
+`tasks.md` state and that the advisory rule cites the assume-multiplicity
+floor rather than restating authority; a live advisory message check
+confirms delivery with no correctness side effect.
 
 ### REQ-G1.5 — the doctrine document [design-level]
 
-`doctrine/messaging-transport.md` exists, resolves through the rule-doc
+The messaging-transport doctrine exists, resolves through the rule-doc
 chain, states the signal-vs-record rule, the fallback obligation, and the
 discipline ladder, and is cited by the shipped scripts and prose.
 
 ## REQ-H — Security & hygiene
 
-### REQ-H1.1 — inbound content untrusted [test]
+### REQ-H1.4 — inbound content untrusted [test]
 
 Hostile doorbell/message fixtures (control bytes, over-length, forged
-worker ids, contradicting content) are screened, sanitized before echo,
-and cannot drive action past the store re-read.
+worker ids, contradicting content) are screened, sanitized before echo, and
+a doorbell drives action only through `doorbell-read`'s store re-read;
+steer and advisory text is screened and sanitized but never re-validated
+against the store.
 
 ### REQ-H1.2 — message hygiene [test + design-level]
 
