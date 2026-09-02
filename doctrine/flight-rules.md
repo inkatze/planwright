@@ -39,8 +39,9 @@ Three classes of signal decide it:
   Done-when the user would agree with, it files. This lane is judgment and says
   so — it is not a mechanical trigger dressed as one (D-4, REQ-B1.2).
 - **Advisory only.** Size proxies — diff size, file count, estimated effort —
-  inform the statement and never decide it. A large but safe and reversible ask
-  flies visual (D-4, REQ-B1.2).
+  inform the statement and never decide it. Size alone never files an ask: a
+  large but safe and reversible one is not escalated for being large (D-4,
+  REQ-B1.2).
 
 ### Grounds are stated, always (REQ-B1.3)
 
