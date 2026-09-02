@@ -641,6 +641,38 @@ refuse_bare() {
   done
 }
 
+# register_dispatch <worker> <scope> <dir> — write the dispatch record through
+# the one registration seam (fleet-lifecycle-closure Task 3; REQ-E1.1,
+# REQ-E1.2). The SUPERVISOR pid is the death handle: it owns the fifos, the
+# journal, and the worker's lifetime, so it is what a close verb acts on, and
+# it is the pid this rung's own liveness already reads. A supervisor that
+# already exited (a very fast run, evidenced by `result`) leaves no pid to
+# record; the record still lands, with that column blank rather than with a
+# stale pid a later reaper could act on.
+#
+# Best-effort by contract (REQ-E1.4): the exit is discarded so a registry
+# failure never fails a launch whose supervisor is already up. stderr is left
+# alone on purpose — an unregistered worker is the leak this closes.
+register_dispatch() {
+  rd_reg="$script_dir/fleet-register.sh"
+  [ -x "$rd_reg" ] || return 0
+  rd_scope=$2
+  # A resume relaunch carries no scope argument; the launch that created the
+  # worker persisted it, so read it back rather than recording the unit as
+  # scopeless on every recovery.
+  [ -n "$rd_scope" ] || rd_scope=$(cat "$3/scope" 2>/dev/null) || rd_scope=''
+  [ -n "$rd_scope" ] || rd_scope=unknown
+  rd_pid=${4:-}
+  [ -n "$rd_pid" ] || rd_pid=$(cat "$3/supervisor.pid" 2>/dev/null) || rd_pid=''
+  set -- --handle "$1" --scope "$rd_scope" \
+    --backend stream-json-persistent --state-dir "$3"
+  case $rd_pid in
+    '' | 0* | *[!0-9]*) ;;
+    *) set -- "$@" --death-handle "process $rd_pid" ;;
+  esac
+  /bin/sh "$rd_reg" "$@" >/dev/null || true
+}
+
 # --- subcommands ------------------------------------------------------------
 
 cmd_launch() {
@@ -751,6 +783,9 @@ cmd_launch() {
   fi
 
   if [ "$foreground" = 1 ]; then
+    # This process becomes the supervisor, so it is its own death handle; the
+    # record has to land before supervise blocks.
+    register_dispatch "$worker" "$scope" "$dir" "$$"
     supervise "$worker" "$dir" "$init_msg" "$@"
     return $?
   fi
@@ -778,6 +813,7 @@ cmd_launch() {
   li=0
   while [ "$li" -lt 50 ]; do
     if [ -f "$dir/supervisor.pid" ] || [ -f "$dir/result" ]; then
+      register_dispatch "$worker" "$scope" "$dir"
       printf 'launched %s dir %s\n' "$worker" "$dir"
       return 0
     fi

@@ -154,6 +154,22 @@ reject_handle() {
   exit 2
 }
 
+# register_dispatch <handle> <backend> [<death-handle>] — write the dispatch
+# record through the one registration seam (fleet-lifecycle-closure Task 3;
+# REQ-E1.1, REQ-E1.4). Best-effort BY CONTRACT: the exit is discarded so a
+# registry that cannot be written never fails a dispatch that already
+# succeeded, while stderr is deliberately NOT discarded — a dispatch the fleet
+# has no record of is exactly the leak this bundle exists to close, and the
+# operator has to be able to see it happen.
+register_dispatch() {
+  rd_reg="$script_dir/fleet-register.sh"
+  [ -x "$rd_reg" ] || return 0
+  rd_death=${3:-}
+  set -- --handle "$1" --scope offload --backend "$2"
+  [ -n "$rd_death" ] && set -- "$@" --death-handle "$rd_death"
+  /bin/sh "$rd_reg" "$@" >/dev/null || true
+}
+
 # Emit the observe/attach hint pair for a backend, per its advertised set in
 # the capability contract: tmux advertises can_observe=true and
 # interactive=true; subagent advertises neither, so its report carries the
@@ -240,6 +256,12 @@ cmd_dispatch() {
 
   case "$backend" in
     print)
+      # A print-rung unit spawns nothing until a human runs the command, so its
+      # dispatch record is the ONLY evidence it exists (REQ-D1.8) — which is
+      # precisely why it is registered, with `none` as its death handle: this
+      # rung has no process to attribute or terminate, and saying so is not the
+      # same as leaving the column blank.
+      register_dispatch "print-$$" print none
       printf 'status\tprepared\n'
       printf 'backend\tprint\n'
       printf 'handle\tnone: no process exists until the human runs the launch command\n'
@@ -290,6 +312,19 @@ cmd_dispatch() {
     echo "$me: dispatch failed: tmux returned an unusable window id: '$(sanitize_printable "$handle" "(unprintable)")'" >&2
     exit 1
   fi
+  # The death handle needs the window's SESSION as well as its id, asked of the
+  # already-validated window id rather than reconstructed from a listing. A
+  # session name outside the death-evidence token charset (it may carry a `:`
+  # or `/`, which that predicate refuses) is left out rather than allowed to
+  # sink the whole record: an inventory entry with one blank column beats no
+  # entry at all.
+  death=''
+  sess=$(tmux display-message -p -t "$handle" '#{session_name}' 2>/dev/null) || sess=''
+  case $sess in
+    '' | -* | *[!A-Za-z0-9._@%-]*) ;;
+    *) death="tmux-window $sess $handle" ;;
+  esac
+  register_dispatch "$handle" tmux "$death"
   printf 'status\tdispatched\n'
   printf 'backend\ttmux\n'
   printf 'handle\t%s\n' "$handle"

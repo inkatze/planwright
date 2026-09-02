@@ -102,7 +102,30 @@ through the surface that already owns it, never re-read a second way:
 | Attention store | the store `fleet-attention.sh` maintains | scope, pushed state, age |
 | Stream-json capture | `fleet-streamjson.sh status` + the per-worker runtime dir | supervisor liveness, pending-request count, the session-id join key |
 | `claude agents --json` | `fleet-liveness.sh oracle --list` (the hardened scanner) | busy / waiting / idle per session |
-| Dispatch records | `fleet-state.sh registry` | the dispatched scope (the fallback when the attention store has none, and the only scope a registry-only worker has); workers on backends with **no runtime presence** (`print`), rendered with a visible `n/a` state — never silently omitted |
+| Dispatch records | `fleet-state.sh registry` | the dispatched scope (the fallback when the attention store has none, and the only scope a registry-only worker has); the owning tower; workers on backends with **no runtime presence** (`print`), rendered with a visible `n/a` state — never silently omitted |
+
+### The dispatch record
+
+Every dispatch seam registers its worker at launch, through one helper
+(`scripts/fleet-register.sh`) into the one store — the tmux worktree rung, the
+headless rung, the stream-json supervisor, and `/offload`'s tmux and print
+rungs. A record carries what closing a worker needs when the tower that
+launched it is gone: the handle, the **owner token** (which tower dispatched
+it), the backend, the state directory, and the death handle
+(`process <pid>`, `tmux-window <session> <window>`, or `none` for a rung that
+spawns no process). A column with nothing to put in it is written as `-`, and
+reads as the gap it is — an unowned record renders `unknown-owner` rather than
+being attributed to anyone, because a destructive verb reads that column.
+
+Registration is best-effort by design: a registry that cannot be written
+**warns and never fails the dispatch**, since a running worker is a fact and
+its bookkeeping is a record of one. The gap closes on the next scan.
+
+The owner token comes from the presence surface's tower identity. A tower that
+already knows its own identity exports it as `PLANWRIGHT_TOWER_ID`; a seam can
+also be given `--session-id` / `--pid`, or find the identity inputs in
+`PLANWRIGHT_TOWER_SESSION_ID` / `PLANWRIGHT_TOWER_PID`. With none of those, the
+dispatch is recorded as unknown-owner and says so on stderr.
 
 Every render starts with a per-source availability line
 (`ok` / `absent` / `unavailable`): a source that is missing is **marked**, and

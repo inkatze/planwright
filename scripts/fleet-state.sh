@@ -64,12 +64,42 @@
 # record is written, so a traversal token, an embedded tab/newline, or a control
 # character is refused rather than tearing the append-only registry.
 #
+# THE DISPATCH RECORD (fleet-lifecycle-closure Task 3; D-12, REQ-E1.2,
+# REQ-D1.5). A record is what a close verb reads when the dispatching tower is
+# gone, so it carries what closing a worker needs without its dispatcher:
+#
+#   <epoch> <worker> <scope> <owner> <backend> <state-dir> <death-handle>
+#
+# tab-separated, one per line, append-only, last record for a worker wins.
+# `state-dir` is the directory that IDENTIFIES the worker on disk — the one a
+# close verb matches processes against — which is the unit state directory on
+# the two session-grade rungs and the worktree on the tmux rung. It is not the
+# scratch-temp class of the coordination floor's resource table, which the tmux
+# rung does not acquire at all.
+# `owner` is the dispatching tower's identity token (the presence surface's
+# `identity`), so two towers are never confused for one another and a record's
+# owner is attributable without inference. `death-handle` is the presence
+# surface's own grammar — `process <pid>` or `tmux-window <session> <window>`,
+# plus the literal `none` for a rung that spawns no process (the `print` rung:
+# REQ-D1.8 exempts it from reaping, and recording that fact is not the same as
+# leaving the column blank).
+#
+# An unsupplied optional field is written as `-`, which no field grammar admits,
+# so absent is never confused with a value. A record predating this shape (three
+# columns) still parses: its owner is absent, and a reader classifies it
+# unknown-owner rather than attributing it to anyone. A MALFORMED field is a
+# different case and is refused at write — a hostile token must not reach the
+# store, and a reaper must never read a pseudo-evidence death handle
+# (`timeout <n>`) the evidence predicate itself refuses (REQ-A1.7).
+#
 # Usage:
 #   fleet-state.sh root                       resolve & print the fleet home.
 #   fleet-state.sh lock                       acquire the advisory lock (0 held,
 #                                             1 a live holder has it, 2 error).
 #   fleet-state.sh unlock                     release the lock (idempotent, 0).
-#   fleet-state.sh register <worker> <scope>  append a worker/scope record.
+#   fleet-state.sh register <worker> <scope> [--owner <token>]
+#       [--backend <name>] [--state-dir <abs-dir>] [--death-handle <handle>]
+#                                             append a dispatch record.
 #   fleet-state.sh registry                   print the registry records.
 #   fleet-state.sh bound-incr <max>           check-and-increment the fleet
 #                                             counter under the bound (0 granted
@@ -129,6 +159,94 @@ valid_field() {
     "" | . | .. | *[!A-Za-z0-9._=@:-]*) return 1 ;;
   esac
   [ "${#vf_v}" -le 128 ]
+}
+
+# The OWNER-TOKEN grammar (REQ-D1.5, REQ-K1.4). The presence surface's tower
+# identity is a session UUID or the composite `p<pid>.t<hash>.c<hash>`; both sit
+# inside this conservative charset. The grammar is stated as a charset rather
+# than as those two shapes so this store does not re-decide what a tower
+# identity looks like — that is fleet-presence.sh's call — while still refusing
+# whitespace, separators, control bytes, and a leading dash, none of which any
+# identity shape produces and each of which would tear a record or misdirect a
+# path built from it. Bounded to 128 chars, like every other field.
+valid_owner() {
+  vo_v=$1
+  case $vo_v in
+    "" | . | .. | *[!A-Za-z0-9._-]*) return 1 ;;
+    -*) return 1 ;;
+  esac
+  [ "${#vo_v}" -le 128 ]
+}
+
+# The BACKEND grammar: a kebab rung name, lowercase, no leading dash, ≤64. The
+# rung SET is the capability contract's (doctrine/backend-capability-contract.md)
+# and is deliberately not enumerated here — a store that hard-codes it makes
+# adding a rung a two-file change and drifts the moment it is missed. What this
+# grammar owes is containment: no separator, no metacharacter, no control byte.
+valid_backend() {
+  vb_v=$1
+  case $vb_v in
+    "" | -* | *[!a-z0-9-]*) return 1 ;;
+  esac
+  [ "${#vb_v}" -le 64 ]
+}
+
+# The STATE-DIRECTORY grammar (REQ-K1.4). A close verb matches processes against
+# this path, so it must be absolute (a relative path means something different
+# in every cwd a later reader has) and free of a `..` segment (which would let a
+# record name a directory outside the tree it claims). Control bytes, tabs, and
+# newlines are refused: they would tear the record or drive the terminal of
+# whoever renders it.
+valid_state_dir() {
+  vsd_v=$1
+  case $vsd_v in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case $vsd_v in
+    */../* | */.. | ../*) return 1 ;;
+  esac
+  [ "${#vsd_v}" -le 4096 ] || return 1
+  # Any C0 control byte or DEL, stripped: if the value changes, it carried one.
+  [ "$(printf '%s' "$vsd_v" | tr -d '\000-\037\177')" = "$vsd_v" ]
+}
+
+# The tmux token charset fleet-death-evidence.sh validates against (no `:` or
+# `/`), so a handle this store accepts is one that predicate can consume.
+valid_tmux_token() {
+  vtt_v=$1
+  case $vtt_v in
+    "" | -* | *[!A-Za-z0-9._@%-]*) return 1 ;;
+  esac
+  [ "${#vtt_v}" -le 128 ]
+}
+
+# The DEATH-HANDLE grammar, mirroring fleet-presence.sh's `is_handle` plus the
+# `none` arm. A pseudo-evidence class (`timeout`, `silence`, `heartbeat`) is not
+# an unrecognized value to be stored and puzzled over later — the evidence
+# predicate refuses it outright (REQ-A1.7), so the store refuses it too, and a
+# record can never hand a reaper a basis its own predicate would reject.
+valid_death_handle() {
+  vdh_v=$1
+  case $vdh_v in
+    none) return 0 ;;
+    "process "*)
+      vdh_pid=${vdh_v#process }
+      case $vdh_pid in
+        "" | 0* | *[!0-9]*) return 1 ;;
+      esac
+      [ "${#vdh_pid}" -le 10 ]
+      ;;
+    "tmux-window "*)
+      vdh_rest=${vdh_v#tmux-window }
+      case $vdh_rest in
+        *" "*) ;;
+        *) return 1 ;;
+      esac
+      valid_tmux_token "${vdh_rest%% *}" && valid_tmux_token "${vdh_rest#* }"
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 # resolve_root — print the fleet home per the D-11 chain, or fail (exit 2) when
@@ -411,20 +529,75 @@ case $cmd in
     ;;
 
   register)
-    worker="${2:-}"
-    scope="${3:-}"
+    shift
+    worker=""
+    scope=""
+    owner="-"
+    backend="-"
+    state_dir="-"
+    death_handle="-"
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --owner | --backend | --state-dir | --death-handle)
+          if [ "$#" -lt 2 ]; then
+            echo "fleet-state: register: $1 needs a value" >&2
+            exit 2
+          fi
+          case $1 in
+            --owner) owner=$2 ;;
+            --backend) backend=$2 ;;
+            --state-dir) state_dir=$2 ;;
+            --death-handle) death_handle=$2 ;;
+          esac
+          shift 2
+          ;;
+        --*)
+          echo "fleet-state: register: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
+          exit 2
+          ;;
+        *)
+          if [ -z "$worker" ]; then
+            worker=$1
+          elif [ -z "$scope" ]; then
+            scope=$1
+          else
+            echo "fleet-state: register: unexpected argument" >&2
+            exit 2
+          fi
+          shift
+          ;;
+      esac
+    done
     if [ -z "$worker" ] || [ -z "$scope" ]; then
-      echo "usage: fleet-state.sh register <worker> <scope>" >&2
+      echo "usage: fleet-state.sh register <worker> <scope> [--owner <token>] [--backend <name>] [--state-dir <abs-dir>] [--death-handle <handle>]" >&2
       exit 2
     fi
-    # Validate BOTH fields before any write (REQ-F1.1, REQ-A1.6): a hostile
-    # identifier is refused, nothing is written.
+    # Validate EVERY field before any write (REQ-F1.1, REQ-A1.6, REQ-K1.4): a
+    # hostile identifier is refused and nothing is written. The `-` sentinel
+    # passes each arm untouched because no grammar admits it, so "absent" needs
+    # no separate flag to distinguish it from a value.
     if ! valid_field "$worker"; then
       echo "fleet-state: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
       echo "fleet-state: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
+      exit 2
+    fi
+    if [ "$owner" != "-" ] && ! valid_owner "$owner"; then
+      echo "fleet-state: refusing malformed owner token '$(sanitize_printable "$owner" "(unprintable owner)")' (must match ^[A-Za-z0-9._-]{1,128}\$, no leading dash)" >&2
+      exit 2
+    fi
+    if [ "$backend" != "-" ] && ! valid_backend "$backend"; then
+      echo "fleet-state: refusing malformed backend '$(sanitize_printable "$backend" "(unprintable backend)")' (must match ^[a-z0-9-]{1,64}\$, no leading dash)" >&2
+      exit 2
+    fi
+    if [ "$state_dir" != "-" ] && ! valid_state_dir "$state_dir"; then
+      echo "fleet-state: refusing malformed state directory '$(sanitize_printable "$state_dir" "(unprintable state dir)")' (must be an absolute path with no '..' segment and no control bytes)" >&2
+      exit 2
+    fi
+    if [ "$death_handle" != "-" ] && ! valid_death_handle "$death_handle"; then
+      echo "fleet-state: refusing malformed death handle '$(sanitize_printable "$death_handle" "(unprintable death handle)")' (must be 'none', 'process <pid>', or 'tmux-window <session> <window>')" >&2
       exit 2
     fi
     spin_acquire "$lock" || exit 2
@@ -451,7 +624,8 @@ case $cmd in
       fi
     fi
     if [ "$rc" = 0 ]; then
-      printf '%s\t%s\t%s\n' "$now" "$worker" "$scope" >>"$reg_tmp" || rc=2
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$worker" "$scope" \
+        "$owner" "$backend" "$state_dir" "$death_handle" >>"$reg_tmp" || rc=2
     fi
     if [ "$rc" = 0 ]; then
       mv -f "$reg_tmp" "$registry" || rc=2

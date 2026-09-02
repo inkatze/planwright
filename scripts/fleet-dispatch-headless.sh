@@ -607,6 +607,21 @@ do_launch() {
     l_waited=$((l_waited + 1))
   done
 
+  # Register the dispatch (fleet-lifecycle-closure Task 3; REQ-E1.1, REQ-E1.2).
+  # The runner pid is the death handle, matching what this rung already treats
+  # as the unit's liveness subject: it owns the completion write and forwards
+  # its own death into a terminal record, so it — not the worker — is what a
+  # close verb acts on. Best-effort by contract (REQ-E1.4): the exit is
+  # discarded so a registry failure never fails a launch that has already
+  # produced a live runner, while the warning stays on stderr where the
+  # operator sees it.
+  REG="$script_dir/fleet-register.sh"
+  if [ -x "$REG" ]; then
+    /bin/sh "$REG" --handle "$l_handle" --scope "$l_scope" \
+      --backend headless-oneshot --state-dir "$unit_dir" \
+      --death-handle "process $l_pid" >/dev/null || true
+  fi
+
   printf 'headless\thandle\t%s\n' "$l_handle"
   printf 'headless\tpid\t%s\n' "$l_pid"
   printf 'headless\tstate-dir\t%s\n' "$(sanitize_printable "$unit_dir")"

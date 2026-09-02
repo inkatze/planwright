@@ -153,6 +153,56 @@ EOF
   exit 2
 }
 
+REGISTER="$script_dir/fleet-register.sh"
+
+# register_dispatch <handle> <scope> <worktree> <death-handle> — write the
+# dispatch record through the one registration seam (fleet-lifecycle-closure
+# Task 3; REQ-E1.1, REQ-E1.2). Best-effort BY CONTRACT (REQ-E1.4): the exit is
+# discarded, because a worktree and a worker that exist are facts, and failing
+# a dispatch over its bookkeeping would trade the thing for the record of it.
+# stderr is deliberately left alone — a dispatch the fleet has no record of is
+# the leak this bundle exists to close, so it has to be visible.
+register_dispatch() {
+  [ -x "$REGISTER" ] || return 0
+  rd_death=${4:-}
+  set -- --handle "$1" --scope "$2" --backend tmux --state-dir "$3"
+  [ -n "$rd_death" ] && set -- "$@" --death-handle "$rd_death"
+  /bin/sh "$REGISTER" "$@" >/dev/null || true
+}
+
+# tmux_death_handle <worktree> — the `tmux-window <session> <window>` handle for
+# the worker session this dispatch just created, or nothing.
+#
+# `claude --worktree <suffix> --tmux=classic` names the session itself, so the
+# name is not derivable here and has to be discovered. It is discovered by
+# POSITIVE MATCH on the worktree path — the same discipline a close verb owes
+# (match the worker's directory, never a bare process name) — rather than by
+# diffing the session list around the launch, which would attribute whichever
+# session happened to appear alongside it. Anything short of exactly one match
+# yields nothing: an unattributable record is a visible gap, and a WRONG death
+# handle is a reaper aimed at someone else's window.
+tmux_death_handle() {
+  command -v tmux >/dev/null 2>&1 || return 1
+  tdh_hit=$(tmux list-panes -a -F '#{pane_current_path}	#{session_name}	#{window_id}' 2>/dev/null \
+    | awk -F'\t' -v p="$1" '$1 == p { print $2 "\t" $3 }' | sort -u) || return 1
+  [ -n "$tdh_hit" ] || return 1
+  # More than one candidate: refuse to guess. Counted rather than pattern-
+  # matched, because a `$(printf '\n')` in a case glob is the empty string —
+  # command substitution strips the trailing newline — and would match every
+  # value, turning this guard into an unconditional refusal.
+  [ "$(printf '%s\n' "$tdh_hit" | wc -l | tr -d ' ')" = 1 ] || return 1
+  tdh_sess=${tdh_hit%%	*}
+  tdh_win=${tdh_hit##*	}
+  # The death-evidence tmux token charset (no `:` or `/`): a name outside it is
+  # one fleet-death-evidence.sh would refuse anyway.
+  for tdh_t in "$tdh_sess" "$tdh_win"; do
+    case $tdh_t in
+      '' | -* | *[!A-Za-z0-9._@%-]*) return 1 ;;
+    esac
+  done
+  printf 'tmux-window %s %s\n' "$tdh_sess" "$tdh_win"
+}
+
 # --- Token grammars (D-36), validated BEFORE any interpolation ---------------
 # A `..` substring is rejected outright (path traversal) in every token, even
 # though the charsets below already exclude `/`.
@@ -695,6 +745,27 @@ do_dispatch() {
     "$MARKER" write "$_spec_dir" "$_id" >/dev/null 2>&1 </dev/null || true
   fi
 
+  # Register the dispatch (fleet-lifecycle-closure Task 3; REQ-E1.1). BEFORE
+  # the attach, not after: the record is evidence a dispatch was attempted, and
+  # an attach that dies partway is exactly the case that must not go
+  # unrecorded. The death handle is filled in below, once the worker's tmux
+  # session exists to name — the registry is an append log whose last record
+  # for a worker wins, so the completed record supersedes this one with no
+  # second store and no update path.
+  #
+  # The handle is the D-36 task identity, not the window id the tmux rung uses
+  # elsewhere: this seam does not learn a window id until after the attach, and
+  # a handle has to be stable from the dispatch onward to be the thing a record
+  # and a heartbeat agree on. It is deliberately the shape of the headless
+  # rung's, so the two dispatch paths for one task read alike.
+  #
+  # The create-only arm registers nothing: it launches no worker, and the rung
+  # that does launch into this worktree registers its own, which a record here
+  # would double.
+  if [ "$_no_attach" -eq 0 ]; then
+    register_dispatch "tmux-$_spec-task-$_id" "$_spec:$_id" "$_worktree" ""
+  fi
+
   # --- Attach (gated on create success) ------------------------------------
   # We only reach here with the worktree created on the exact D-36 branch, so
   # the attach never targets a missing or wrong worktree.
@@ -727,6 +798,19 @@ do_dispatch() {
   else
     do_attach "$_suffix"
   fi
+  _attach_rc=$?
+  # The worker's tmux session only exists once the attach has run, so this is
+  # the first moment its death handle is nameable. Supersede the dispatch
+  # record written above with the complete one; on a failed attach, or a
+  # session that cannot be positively matched, the earlier record stands and
+  # its blank column reads as the gap it is.
+  if [ "$_attach_rc" -eq 0 ]; then
+    _death=$(tmux_death_handle "$_worktree") || _death=''
+    if [ -n "$_death" ]; then
+      register_dispatch "tmux-$_spec-task-$_id" "$_spec:$_id" "$_worktree" "$_death"
+    fi
+  fi
+  return "$_attach_rc"
 }
 
 # --- Entry -------------------------------------------------------------------
