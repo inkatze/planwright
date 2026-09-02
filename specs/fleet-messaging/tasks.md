@@ -85,8 +85,9 @@
   refused and with the knob still prompts; the task re-verifies against the
   running CLI and updates the pin of record.
 - **Dependencies:** 1
-- **Citations:** D-3, D-5, D-11 · REQ-A1.4, REQ-F1.1, REQ-F1.5 ·
-  obs:eea622de, obs:58aa232e
+- **Citations:** D-3, D-5, D-11, D-18 · REQ-A1.4, REQ-F1.1, REQ-F1.5 ·
+  obs:eea622de, obs:58aa232e; the worker-permission-ergonomics pending
+  note (Sources)
 - **Estimated effort:** 1 day
 
 ### Task 4 — Addressable identity at the dispatch seams
@@ -161,7 +162,7 @@
   against the running CLI and updates the pin of record.
 - **Dependencies:** 2, 3, 4
 - **Citations:** D-7, D-10, D-11, D-15, D-16 · REQ-A1.4, REQ-D1.1,
-  REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5, REQ-G1.1, REQ-H1.4 · obs:67861aa6
+  REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5, REQ-G1.1, REQ-H1.4
 - **Estimated effort:** 2 days
 
 ### Task 7 — The store-load reduction

@@ -62,9 +62,16 @@ correctness-critical.
 - **Fixing the store's lost-append and lock-race defects.** This bundle only
   reduces the store's signal-rate load; store hardening remains its own spec,
   and the relevant observations stay live for it.
-- **The operator-facing merge-ready push.** `merge-currency-guard` owns it. A
-  message delivered to a *tower* is still an LLM path and never satisfies the
-  deterministic-attention floor.
+- **The operator-facing merge-ready push.** Its ownership lives in the
+  fleet-coordination-floor doctrine's assignment to `merge-currency-guard`
+  and in that bundle's pending amendment note (Sources); that bundle's
+  signed scope does not carry it yet. A message delivered to a *tower* is
+  still an LLM path and never satisfies the deterministic-attention floor.
+- **The general worker-settings-profile delivery mechanism and the dead
+  `--settings` hook fix.** Owned by the `worker-permission-ergonomics`
+  amendment (its pending note, Sources). This bundle wires only the
+  messaging settings, through the interim pattern that note also records,
+  and adopts the mechanism when it lands (REQ-F1.1).
 - **Reopening `concurrent-orchestrator-coordination`'s signed design.** Its
   file-based presence surface and origin fences stay as that bundle and the
   fleet-coordination-floor doctrine place them; this bundle adds an advisory
@@ -190,7 +197,7 @@ correctness-critical.
 - **REQ-C1.4** Delivery SHALL never impersonate the worker's input and never
   answer a worker's permission prompt; message text is data end to end, with
   no eval or expansion path.
-  *(Cites: D-3; carried orchestration-fleet relay doctrine.)*
+  *(Cites: D-3; the inter-orchestrator-coordination doctrine.)*
 
 ## REQ-D — Upward signals
 
@@ -213,8 +220,10 @@ correctness-critical.
   only: the tower session subscribes after dispatch and re-arms after each
   downward delivery it makes; positive-evidence-of-death liveness is
   unchanged, and the absence of a notice is never read as a signal.
-  *(Cites: D-10, obs:67861aa6.)*
-  *(Amended at revision 2026-09-02: subscriber and re-arm policy stated.)*
+  *(Cites: D-10.)*
+  *(Amended at revision 2026-09-02: subscriber and re-arm policy stated;
+  the obs:67861aa6 citation dropped, its subject being CI wall-clock
+  against the tool-call ceiling, not completion signaling.)*
 - **REQ-D1.4** A lost, held, or dropped signal SHALL be healed by the retained
   level-triggered healing sweep; no messaging signal is correctness-critical.
   *(Cites: D-16.)*
@@ -248,8 +257,14 @@ correctness-critical.
 - **REQ-F1.1** Dispatched worker settings SHALL enable unattended inbound
   acceptance (`crossSessionInbound: accept`) through a mechanism verified to
   apply in that rung's session type, and delivering those settings to the
-  worker is part of the dispatch seam, not operator memory.
-  *(Cites: D-3, obs:eea622de, obs:58aa232e.)*
+  worker is part of the dispatch seam, not operator memory. The general
+  profile-delivery mechanism is owned by the `worker-permission-ergonomics`
+  amendment (Sources); this bundle wires the messaging settings through the
+  currently verified interim pattern and adopts that mechanism when it
+  lands.
+  *(Cites: D-18, obs:eea622de, obs:58aa232e.)*
+  *(Amended at revision 2026-09-02: backed by D-18; ownership of the
+  general delivery mechanism cross-referenced.)*
 - **REQ-F1.2** Messaging discipline SHALL be a config knob
   (`messaging_discipline`), laddered `doorbell` < `tiered` < `open`, default
   `tiered`, resolved through the standard overlay layers.
@@ -297,11 +312,16 @@ correctness-critical.
   that must survive a crash was mis-sent, and the record it points at is the
   durable artifact.
   *(Cites: D-1, D-16.)*
-- **REQ-G1.3** The existing floors carry unchanged: no LLM in daemon
-  mechanics, never-impersonate, the tower non-authoring boundary, no
-  auto-merge, and the deterministic-attention floor — a message to a tower
-  never substitutes for the operator-facing deterministic push.
-  *(Cites: D-1; the fleet-coordination-floor doctrine.)*
+- **REQ-G1.3** The existing floors carry unchanged: every floor the
+  fleet-coordination-floor doctrine states, the never-impersonate rule the
+  inter-orchestrator-coordination doctrine states, and the never-auto-merge
+  invariant — a message to a tower never substitutes for the
+  deterministic-attention floor's operator-facing push, and no floor is
+  restated here.
+  *(Cites: D-1; the fleet-coordination-floor doctrine; the
+  inter-orchestrator-coordination doctrine.)*
+  *(Amended at revision 2026-09-02: the copied floor list, which matched
+  neither doctrine, replaced by citations.)*
 - **REQ-G1.4** Tower↔tower messages SHALL be advisory only: a message never
   claims, releases, or resolves a unit of work; authority over the division
   of work stays exactly where the fleet-coordination-floor doctrine's
@@ -410,6 +430,20 @@ correctness-critical.
   branch through a test-only version override). Vacuous Done-when clauses
   replaced by evaluable criteria in Tasks 2, 3, 4, 5, 6, 8; D-8 states the
   collision-rename behavior as unverified with the recorded-outcome rule.
+- 2026-09-02 — Revision, cluster E of the worklist (evidence hygiene;
+  meaning-class for D-18, expression-only otherwise). Observation state
+  restored to what the bundle mined: obs:67861aa6, obs:8b694bdb,
+  obs:eea622de, obs:58aa232e moved back to live entries with their
+  Consumed-by lines removed; the last three become cited-not-consumed and
+  obs:67861aa6 is no longer cited (mischaracterized at drafting). New
+  D-18 backs REQ-F1.1; D-7 extended in place with the socket path
+  propagation mechanism behind REQ-D1.5 and cites obs:2bea1358. Citation
+  repairs: REQ-C1.4 cites the inter-orchestrator-coordination doctrine;
+  REQ-G1.3's copied floor list replaced by citations; D-8 and D-11 name
+  their precedents. Ownership: the merge-ready push entry softened to the
+  doctrine's assignment plus the pending note; a new out-of-scope entry
+  routes general profile delivery to the `worker-permission-ergonomics`
+  amendment, cross-referenced from REQ-F1.1 and Sources.
 
 ## Sources
 
@@ -434,25 +468,33 @@ correctness-critical.
   confirmed (the delivery-ACK gap REQ-C1.2/D-9 narrows).
 - **obs:b7618838** — tower command-guard defers the attributed tmux relay
   send shape (friction the messaging-first ladder removes).
-- **obs:eea622de** — worker-settings delivery gap: dispatched workers sat
-  ~8 hours on unanswered prompts because no step delivered their settings
-  profile (REQ-F1.1 folds delivery into the dispatch seam).
 - **obs:d4d66281** — worker identity env never wired at dispatch, leaving
   workers on the capture-pane fallback (REQ-B names identity at launch).
-- **obs:8b694bdb** — dashboard polling pays an uncached 2–10s oracle probe
-  per tick (the reduction's motivating duty-cycle evidence, REQ-E1.1).
-- **obs:67861aa6** — long-running work stalls unnoticed because completion
-  signaling relies on polling (REQ-D1.3's idle-notice case).
-- **obs:58aa232e** — hooks in a `--settings` file never register in `-p`
-  sessions; the verified working pattern constrains REQ-F1.1's wiring.
 - **Cited, not consumed** (evidence for decisions here, but their defects
   remain live for their own specs): obs:16facd5b (harness hook-contract
   drift, the WorktreeCreate incident behind D-11), obs:b47b3043 and
   obs:404d3b7b (same-user-writable trust surfaces behind REQ-H1.4),
-  obs:bfc6faf0 (push-over-poll incident owned by `merge-currency-guard`).
+  obs:bfc6faf0 (push-over-poll incident owned by `merge-currency-guard`),
+  obs:2bea1358 (audit-trail write amplification under the fleet lock, the
+  reason D-7 keeps sends out of the audit trail), obs:8b694bdb (the
+  uncached dashboard oracle probe: the duty-cycle evidence behind
+  REQ-E1.1, whose stated fix — source-reader caching — is outside the
+  reduction's scope), obs:eea622de and obs:58aa232e (the worker-settings
+  delivery gap and the dead `--settings` hook path: they constrain
+  REQ-F1.1's wiring, and the `worker-permission-ergonomics` amendment owns
+  their fix). The 2026-08-27 draft had consumed the last three and
+  obs:67861aa6; the 2026-09-02 revision restored all four to live, and
+  obs:67861aa6 (CI wall-clock against the tool-call ceiling) is no longer
+  cited: none of its asks appear in this bundle.
 - **Pending note `specs/_pending/merge-currency-guard-amendment.md`** —
   the deterministic PR-ready push seed; stays pending for
   `merge-currency-guard`, cross-referenced by the out-of-scope entry above.
+- **Pending note
+  `specs/_pending/worker-permission-ergonomics-amendment.md`** — routes
+  profile delivery at dispatch (obs:eea622de) and the dead `--settings`
+  hook (obs:a4a4fa59) to that bundle's amendment; cross-referenced by the
+  out-of-scope entry and REQ-F1.1 above, and the source of the interim
+  wiring pattern Task 3 uses.
 - **Prior bundles:** `orchestration-fleet` (relay doctrine, capability
   contract), `concurrent-orchestrator-coordination` (presence, fences,
   single-host posture), `fleet-hardening` (decision channel, attention push),

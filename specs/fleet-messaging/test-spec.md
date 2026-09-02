@@ -173,9 +173,10 @@ passing unmodified (test: record shape unchanged).
 
 ### REQ-F1.1 — worker inbound acceptance wired at dispatch [test + manual]
 
-Dispatch-seam tests that the settings profile reaches the worker (visible
-failure when it cannot); a live per-rung check that an unattended worker
-accepts an inbound message.
+Dispatch-seam tests that the messaging settings reach the worker through
+the interim pattern D-18 names (exit non-zero with a diagnostic naming the
+undelivered profile when they cannot); a live per-rung check that an
+unattended worker accepts an inbound message.
 
 ### REQ-F1.2 — the discipline knob [test]
 

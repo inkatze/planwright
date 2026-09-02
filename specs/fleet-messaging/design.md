@@ -255,9 +255,17 @@ the tower session receives it as a message, and its only sanctioned action
 is the deterministic store re-read verb (`fleet-messaging.sh doorbell-read`,
 D-12), which validates the pointer as data and returns store truth (D-16);
 receivers grammar-screen, length-bound, and echo-sanitize before any use.
-Send visibility goes to the per-worker debug log, not the audit trail.
-*(Amended at revision 2026-09-02: the receiver named and the re-read bound
-to a script verb.)*
+Send visibility goes to the per-worker debug log, not the audit trail
+(obs:2bea1358). The tower's inbox socket path reaches a worker
+deterministically: the dispatch seam sets it in the worker's launch
+environment (the `fleet-dispatch-env.sh` precedent), the tower marker
+record D-8 writes is the fallback read, and the hook validates the path
+before any post — an existing socket whose owner is the invoking user — so
+a missing or invalid path degrades the doorbell to the healing sweep with
+one logged notice and no retry.
+*(Amended at revision 2026-09-02: the receiver named, the re-read bound to
+a script verb, the socket path propagation mechanism stated, the
+write-amplification evidence cited.)*
 
 **Alternatives considered:**
 - Worker-model `SendMessage` for routine signals. Rejected because: spends a
@@ -305,7 +313,7 @@ collision behavior stated.)*
   the fleet would repeat per signal.
 - Trusting the requested name without read-back. Rejected because: collision
   renames make the requested name silently wrong — the identity-on-the-wire
-  gap in a new coat.
+  gap obs:d4d66281 recorded, in a new coat.
 
 **Chosen because:** deterministic identity at the dispatch seam is what the
 worker-identity observation (obs:d4d66281) asked for, and read-back makes
@@ -396,8 +404,9 @@ record; it is also the probe's version threshold.)*
   hook contract silently no-op'ing a core mechanism fleet-wide.
 
 **Chosen because:** planwright already learned this lesson twice (the
-non-`--bare` pin, the hook-contract correction); paying the pin-and-probe
-cost up front is cheaper than a silent fleet-wide outage.
+non-`--bare` launch pin, execution-backends D-12; the hook-contract
+correction, obs:16facd5b); paying the pin-and-probe cost up front is
+cheaper than a silent fleet-wide outage.
 
 ### D-12: One enforcement point — `fleet-messaging.sh`; relay and decision channel delegate  (N)
 
@@ -493,3 +502,31 @@ and drives nothing.
 **Chosen because:** a fixed-arity line is the cheapest thing a hook can
 emit and the easiest thing a receiver can refuse; the producer and receiver
 share one definition, so Task 2 and Task 6 cannot drift apart.
+
+### D-18: Inbound acceptance wiring — the messaging settings ride the verified interim pattern until the owned delivery mechanism lands  (R)
+
+**Decision:** Worker inbound acceptance (`crossSessionInbound: accept`) and
+tower acceptance are settings content this bundle owns; the mechanism that
+delivers a settings profile to a dispatched worker is owned by the
+`worker-permission-ergonomics` amendment (its pending note). Until that
+lands, the messaging settings are wired through the pattern obs:58aa232e
+verified end to end — `.claude/settings.local.json` at the checkout root,
+gated on the dispatch env so interactive sessions see a no-op — because
+`--settings`-file hooks do not register in `-p` sessions while its
+permission keys do apply. Delivery is part of the dispatch seam and fails
+visibly, never silently (obs:eea622de). When the owned mechanism lands,
+Task 3's wiring migrates onto it without changing the settings content.
+
+**Alternatives considered:**
+- Owning general profile delivery here. Rejected because: the pending note
+  already routes that work to `worker-permission-ergonomics`, whose guard
+  the profile carries; two bundles claiming one seam is the drift the
+  observation log exists to prevent.
+- Waiting for the amendment before wiring anything. Rejected because: the
+  messaging settings are one key, the interim pattern is verified, and
+  blocking downward delivery on another bundle's schedule buys nothing.
+
+**Chosen because:** it separates what this bundle owns (the settings
+content and its visible-failure delivery obligation) from what a sibling
+owns (the delivery mechanism), with a verified interim path and a named
+migration.
