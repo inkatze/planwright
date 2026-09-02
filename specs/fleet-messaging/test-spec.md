@@ -6,10 +6,10 @@
 **Execution:** derived — see the status render
 
 Coverage mix: script-level behavior (probe parsing, grammar validation,
-mode resolution, ordering, doorbell framing and post outcomes against a
+knob resolution, ordering, doorbell framing and post outcomes against a
 test-bound socket speaking the pinned protocol) is `[test]` and runs in the
 repo's shell suite in CI. Live two-session flows (real message delivery,
-held/refused outcomes, idle notices) are `[manual]`, optionally exercised
+held and refused outcomes, idle notices) are `[manual]`, optionally exercised
 by a local behavioral eval that never runs in CI (the evals-never-in-CI
 guard). Doctrine and contract deliverables are `[design-level]`.
 
@@ -28,7 +28,7 @@ Contract-doc review that the derivation names the session-grade column as
 its source and adds no column (design-level), plus tests that the derivation
 maps `yes` to eligible and `no`, `deferred`, unknown, and malformed values to
 ineligible for every shipped rung read from the registry, and that a send
-needs both the sender's probe and a recorded target address.
+needs both the sender's probe and a recorded target inbox socket path.
 
 ### REQ-A1.5 — absence changes nothing on the signal paths [test]
 
@@ -79,7 +79,7 @@ metacharacters) are refused before addressing, path use, or echo.
 
 Fixture-forced refusal/absence against a test-bound socket walks messaging
 → the rung's attributed steer delivery → operator handoff in order; a
-steer-less rung (`headless-oneshot`) receives no delivery; a live tmux check
+steer-less rung (`headless-oneshot`) receives no delivery; a live `tmux` check
 delivers a steer via messaging end to end.
 
 ### REQ-C1.2 — claim, persist, then deliver; never re-claim [test]
@@ -196,7 +196,7 @@ one value, saturating at `doorbell`, and writes one log line per demoted
 send (none otherwise); a rung below it, or an unavailable gate, applies no
 demotion; the context-budget monitor's output is ignored; the worker state
 directory listing is identical before and after any `effective-mode`
-sequence (no mode state written); the decision path is script-only.
+sequence (no discipline state written); the decision path is script-only.
 
 ### REQ-F1.5 — cross-machine double gate [manual + design-level]
 

@@ -22,7 +22,7 @@ cited from the bundle's goal.
 
 **Alternatives considered:**
 - Full state replacement (the seed's literal reading). Rejected because:
-  messages are lossy and ephemeral (held/refused/expired/dropped, nothing
+  messages are lossy and ephemeral (held, refused, dropped, expired; nothing
   persisted), every delivery lands as a model turn — colliding with the
   no-LLM-daemon-mechanics floor for anything mechanical — and availability is
   gated by version, provider, and feature flags, so state would need a file
@@ -97,7 +97,7 @@ artifact behind it.
 **Decision:** Tower→worker steer and decision-answer delivery prefer
 messaging on every rung that advertises steer-in-flight and is eligible
 (D-17), `tmux` included. The fallback ladder is messaging → the rung's
-existing attributed steer delivery (tmux buffer-paste; the backend's
+existing attributed steer delivery (`tmux` buffer-paste; the backend's
 equivalent elsewhere) → operator handoff (today's undelivered-answer
 surfacing). A rung whose contract row lacks steer-in-flight
 (`headless-oneshot`: no pend path, ambiguity routes to the queue) receives
@@ -106,7 +106,7 @@ no downward delivery.
 rungs; the contract row is not flipped.)*
 
 **Alternatives considered:**
-- Paste-first on tmux, messaging only elsewhere. Rejected because: it keeps
+- Paste-first on `tmux`, messaging only elsewhere. Rejected because: it keeps
   two primary delivery paths alive, retains the tower command-guard friction
   on the attributed send shape (obs:b7618838), and forfeits the
   harness-attributed channel on the richest rung.
@@ -139,7 +139,8 @@ binary, tower-only handoff trigger. Both offsets saturate at `doorbell`, so the 
 their order is immaterial. The ladder gates model-composed traffic only;
 deterministic script sends (doorbell posts upward, script-posted answers and
 steers downward) ride at every value. Every send that runs demoted writes
-one log line; no stored mode state, no daemon flip, no LLM in the decision.
+one log line; no stored discipline state, no daemon flip, no LLM in the
+decision.
 *(Amended at revision 2026-09-02: direction anchoring, saturating floor,
 order-free composition, per-send logging, and the pressure signal stated,
 from the kickoff §2–3 intent.)*
@@ -226,7 +227,7 @@ grammar keeps its arity; the contract doc gains only the derivation rule.
 *Availability* is a property of a session, read by a deterministic probe
 run inside that session: its own inbox-socket environment presence plus CLI
 version comparison. A send is possible when the sending session's probe
-reads available and the target has a recorded address. Consumers key on the
+reads available and the target has a recorded inbox socket path. Consumers key on the
 derived eligibility and the probe, never on backend names.
 
 **Alternatives considered:**

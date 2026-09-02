@@ -10,7 +10,7 @@
 planwright's fleet signals — worker→tower attention and decision forks,
 tower→worker steering and answers, completion notices — ride mechanisms built
 before the harness had any native inter-session channel: `capture-pane`
-screen-scraping, tmux buffer-paste, and a file store that doubles as durable
+screen-scraping, `tmux` buffer-paste, and a file store that doubles as durable
 record *and* signaling bus, so every signal pays a store write under a
 contended lock and every consumer polls. Claude Code now ships cross-session
 messaging (`ListAgents`/`SendMessage`, per-session inbox sockets, one-shot
@@ -111,7 +111,7 @@ correctness-critical.
   property — a rung whose session-grade is `yes` can bind an inbox socket,
   `no` and `deferred` rungs cannot — with no new contract column or adapter
   field; availability for any send is the per-session probe (REQ-A1.1) in the
-  sending session plus a recorded address for the target. An unknown or
+  sending session plus a recorded inbox socket path for the target. An unknown or
   malformed session-grade value reads as ineligible (fail-safe).
   *(Cites: D-17.)*
 - **REQ-A1.3** Where the capability is absent, every consumer SHALL behave
@@ -122,8 +122,9 @@ correctness-critical.
   preparation REQ-B1.1 and REQ-F1.1 require (launch naming, inbound settings)
   is a behavior change on every host, so the no-change rule is scoped to the
   signal paths.
-- **REQ-A1.5** (supersedes REQ-A1.3) Where the capability is absent, every
-  consumer of the signal transport (downward delivery, doorbells and idle
+- **REQ-A1.5** (supersedes REQ-A1.3) Where messaging is unavailable in the
+  session or the rung is ineligible (REQ-A1.1, REQ-A1.6), every consumer of
+  the signal transport (downward delivery, doorbells and idle
   notices, the demoted sweeps) SHALL take exactly today's code path; the
   dispatch-seam preparation that makes a session addressable and accepting
   (REQ-B1.1, REQ-F1.1) is unconditional and inert without messaging.
@@ -280,8 +281,8 @@ correctness-critical.
 - **REQ-F1.4** The effective value SHALL be evaluated at send time by
   deterministic script logic over the existing usage gate — one value down
   under reported pressure, saturating at `doorbell`, restored when pressure
-  clears, with one log line per send that runs demoted — with no stored mode
-  state and no LLM in the demotion decision. Reported pressure means the
+  clears, with one log line per send that runs demoted — with no stored
+  discipline state and no LLM in the demotion decision. Reported pressure means the
   usage gate's audit-derived rung at or above `reduce-concurrency`, read the
   same way in both directions; the context-budget monitor is not a pressure
   input.
@@ -444,6 +445,24 @@ correctness-critical.
   doctrine's assignment plus the pending note; a new out-of-scope entry
   routes general profile delivery to the `worker-permission-ergonomics`
   amendment, cross-referenced from REQ-F1.1 and Sources.
+- 2026-09-02 — Revision, cluster F of the worklist (expression-only, one
+  terminology sweep; this entry is the record, no per-record annotations).
+  Term mapping applied across all four files: "capability"/"property" for
+  messaging → "availability" (per session) and "eligibility" (per rung);
+  "peer-messaging" → "cross-session messaging"; ladder "rung" → "value"
+  (rung is reserved for backends and the usage gate); "message discipline"
+  → "messaging discipline"; "reconcile floor/poll" → "healing sweep" and
+  "healing cadence"; "store-load diet" → "store-load reduction"; ladder
+  "park" → "operator handoff"; doctrine references by doctrine name;
+  "tower-guard" → "tower command-guard"; "bare mode" → "interactive
+  (non-`-p`)"; rung-generic ladder statements say "attributed steer
+  delivery", not "paste"; "fleet profiles" → the shipped settings
+  profiles by file name; "worker/scope registry" → "worker registry";
+  "task ledger" → "the `tasks.md` record"; "store lock" → "fleet lock";
+  "mode state" → "discipline state"; contract rung ids backticked; the
+  delivery-outcome set written in one order (accepted, held, refused,
+  dropped, expired); "inbox address" → "inbox socket path". Superseded
+  records keep their original wording.
 
 ## Sources
 
@@ -498,5 +517,6 @@ correctness-critical.
 - **Prior bundles:** `orchestration-fleet` (relay doctrine, capability
   contract), `concurrent-orchestrator-coordination` (presence, fences,
   single-host posture), `fleet-hardening` (decision channel, attention push),
-  `fleet-autonomy` (attention store, monitors, D-18 floor),
+  `fleet-autonomy` (attention store, monitors, the no-LLM-daemon-mechanics
+  floor its D-18 records),
   `execution-backends` (contract extension precedent, launch pinning).

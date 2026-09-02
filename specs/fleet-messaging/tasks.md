@@ -46,7 +46,7 @@
   `doorbell` (a D-15 line posted to a target inbox socket), and
   `doorbell-read` (the receiver's store re-read verb: validates a D-15 line
   as data and returns store truth, never message content); fixture tests
-  for probe parsing, grammar refusal, mode resolution, outcome handling,
+  for probe parsing, grammar refusal, knob resolution, outcome handling,
   echo sanitization of every message-derived output, and doorbell framing
   against a test-bound socket; the source audit proving no other shipped
   script posts to a socket or parses a doorbell; the platform-contract drift
@@ -131,7 +131,7 @@
   `send-keys` or prompt-answer path and fixture tests prove message text
   reaches the post as a file reference, never spliced; the tower
   command-guard fixture table covers the send shape with zero false-allows;
-  a live tmux check delivers an answer end to end; the task re-verifies
+  a live `tmux` check delivers an answer end to end; the task re-verifies
   against the running CLI and updates the pin of record.
 - **Dependencies:** 2, 3, 4
 - **Citations:** D-3, D-9, D-11, D-12 · REQ-A1.4, REQ-C1.1, REQ-C1.2,
