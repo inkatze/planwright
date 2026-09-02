@@ -466,7 +466,7 @@ render() {
   if [ ! -s "$WS/wrk.rows" ]; then
     printf 'workers: (none)\n'
   else
-    printf '%-20s %-26s %-16s %-11s %-5s %-8s %-10s %s\n' \
+    printf '%-20s %-26s %-16s %-11s %-5s %-8s %-30s %s\n' \
       WORKER SCOPE STATE SJ PEND ORACLE VIA OWNER
     while IFS="$TAB" read -r _ rd_w rd_scope rd_via rd_state rd_age rd_sj rd_pend rd_oracle rd_owner; do
       # A worker known only from its dispatch record has no runtime presence
@@ -478,7 +478,7 @@ render() {
       else
         rd_cell="$rd_state(${rd_age}s)"
       fi
-      printf '%-20s %-26s %-16s %-11s %-5s %-8s %-10s %s\n' \
+      printf '%-20s %-26s %-16s %-11s %-5s %-8s %-30s %s\n' \
         "$(sanitize_printable "$rd_w" "?")" \
         "$(sanitize_printable "$rd_scope" "?")" \
         "$(sanitize_printable "$rd_cell" "?")" \

@@ -161,13 +161,33 @@ reject_handle() {
 # succeeded, while stderr is deliberately NOT discarded — a dispatch the fleet
 # has no record of is exactly the leak this bundle exists to close, and the
 # operator has to be able to see it happen.
+#
+# Readable, not executable: the call is `/bin/sh <path>`, so the exec bit is
+# not what it depends on, and gating on `-x` would let a checkout with
+# core.fileMode=false silently switch registration off with nothing on stderr.
 register_dispatch() {
   rd_reg="$script_dir/fleet-register.sh"
-  [ -x "$rd_reg" ] || return 0
+  if [ ! -r "$rd_reg" ]; then
+    printf '%s\n' "$me: cannot register $1: $rd_reg is missing or unreadable; this worker will not appear in the fleet inventory" >&2
+    return 0
+  fi
   rd_death=${3:-}
   set -- --handle "$1" --scope offload --backend "$2"
   [ -n "$rd_death" ] && set -- "$@" --death-handle "$rd_death"
-  /bin/sh "$rd_reg" "$@" >/dev/null || true
+  /bin/sh "$rd_reg" "$@" >/dev/null </dev/null || true
+}
+
+# offload_handle <prefix> — a handle unique over TIME, not just within this
+# process. A bare `$$` recycles within hours on a busy host, and the registry is
+# last-record-wins per handle: a later dispatch drawing the same pid would
+# silently mask an earlier record, which for the print rung is the only evidence
+# that unit exists at all (REQ-D1.8).
+offload_handle() {
+  oh_now=$(date +%s 2>/dev/null) || oh_now=0
+  case $oh_now in
+    '' | *[!0-9]*) oh_now=0 ;;
+  esac
+  printf '%s-%s-%s\n' "$1" "$oh_now" "$$"
 }
 
 # Emit the observe/attach hint pair for a backend, per its advertised set in
@@ -205,6 +225,19 @@ cmd_report() {
       ;;
   esac
   valid_handle "$backend" "$handle" || reject_handle "$backend"
+  # The subagent rung's ONLY seam (fleet-lifecycle-closure Task 3; REQ-E1.1).
+  # Its spawn is harness-native — the skill dispatches through the harness Agent
+  # tool and then calls `report` — so this is the single point at which a
+  # subagent worker can enter the fleet's inventory, and leaving it out would
+  # make "every dispatch seam registers" false for a rung that really does
+  # produce a live worker. Its death handle is `none`: the subagent has no
+  # separate OS process, it dies with the tower, and the capability contract
+  # marks the whole process-tree class trivial for this rung.
+  #
+  # A `report` for a tmux handle is a RE-report of a worker `dispatch` already
+  # registered, so it registers nothing: this subcommand verifies no dispatch
+  # and no liveness, and a re-report is not evidence of a new one.
+  [ "$backend" = subagent ] && register_dispatch "$handle" subagent none
   # `reported`, never `dispatched`: this subcommand verified no dispatch and
   # no liveness — only the handle's grammar (see the header contract).
   printf 'status\treported\n'
@@ -261,7 +294,7 @@ cmd_dispatch() {
       # precisely why it is registered, with `none` as its death handle: this
       # rung has no process to attribute or terminate, and saying so is not the
       # same as leaving the column blank.
-      register_dispatch "print-$$" print none
+      register_dispatch "$(offload_handle print)" print none
       printf 'status\tprepared\n'
       printf 'backend\tprint\n'
       printf 'handle\tnone: no process exists until the human runs the launch command\n'
@@ -320,10 +353,24 @@ cmd_dispatch() {
   # entry at all.
   death=''
   sess=$(tmux display-message -p -t "$handle" '#{session_name}' 2>/dev/null) || sess=''
-  case $sess in
-    '' | -* | *[!A-Za-z0-9._@%-]*) ;;
-    *) death="tmux-window $sess $handle" ;;
-  esac
+  # BOTH halves are checked against the death-evidence token charset, not just
+  # the session: `valid_handle tmux` above admits `:` and `/`, which that
+  # predicate refuses, so an unchecked window id would build a death handle the
+  # store rejects — and a rejected field costs the WHOLE record rather than the
+  # one column. An inventory entry with a blank column beats no entry at all.
+  for tok in "$sess" "$handle"; do
+    case $tok in
+      '' | -* | *[!A-Za-z0-9._@%-]*)
+        sess=''
+        break
+        ;;
+    esac
+    [ "${#tok}" -le 128 ] || {
+      sess=''
+      break
+    }
+  done
+  [ -n "$sess" ] && death="tmux-window $sess $handle"
   register_dispatch "$handle" tmux "$death"
   printf 'status\tdispatched\n'
   printf 'backend\ttmux\n'
