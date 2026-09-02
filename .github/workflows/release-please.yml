@@ -16,6 +16,19 @@
 # release PR is the release approval and stays a human act; no path here
 # merges it (REQ-C1.4).
 #
+# THE UNTAGGED WINDOW (release-hardening Task 9; REQ-H1.1, D-13; obs:fd6c2f4f):
+# this workflow fires when `ci` completes on main, which is precisely the window
+# where the version PR has merged but the signed tag does not exist yet —
+# publication is human-gated and may sit overnight, so every release passes
+# through it. release-please, unable to see a latest release, does not fail
+# loudly: it regenerates from `bootstrap-sha` and proposes a plausible-looking
+# bump re-listing already-released commits (PR #339: 124 of them). The guard
+# step below reuses scripts/release-window-check.sh — the ONE definition of the
+# window, shared with the release-window lock — and skips the proposal for the
+# span the lock already holds merges shut. It self-clears: once the tag is
+# published the check passes and the next `ci` completion on main proposes
+# normally, so nothing is dropped.
+#
 # "on" is quoted so yamllint's truthy rule (which this repo runs on .github/)
 # does not flag the key, matching ci.yml.
 name: release-please
@@ -52,9 +65,55 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # The window guard needs a checkout: rl_latest_release_tag reads local
+      # `git tag -l`, and a tagless checkout reports "no release tags yet,
+      # window open" and would skip the job forever, silently.
+      #
+      # `ref` pins the repository's OWN default branch and never
+      # github.event.workflow_run.head_sha. This job holds contents: write and
+      # pull-requests: write, and its head_branch == 'main' filter is satisfiable
+      # by a fork PR whose head branch is literally named `main` (obs:131af768).
+      # guard-coverage D-6 accepted that residual because the job checked out no
+      # PR code; pinning the default branch is what keeps that acceptance true
+      # now that it checks something out.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      # Pin origin/main (the state the guard judges) and the release tags.
+      # actions/checkout configures a narrow fetch refspec, so the explicit one
+      # is required — same fetch release-window.yml already proves out.
+      - run: git fetch --force --tags origin +refs/heads/main:refs/remotes/origin/main
+
+      # Split the check's TRI-STATE exit, never merely its non-zero-ness: 0 is
+      # no window (propose), 1 is an open window (a pending publish is a normal
+      # state, so skip and stay green), and 2 is fail-closed could-not-determine
+      # (so fail). The script mints 2 as a distinct status precisely so a
+      # consumer can tell "no window" from "could not tell" (REQ-A1.3, D-2);
+      # folding it into the skip would launder an unreadable state into a green,
+      # silent no-op — the fail-open shape this guard exists to remove.
+      - id: window-check
+        run: |
+          rc=0
+          /bin/bash scripts/release-window-check.sh --ref origin/main || rc=$?
+          case "$rc" in
+            0) echo 'open=false' >>"$GITHUB_OUTPUT" ;;
+            1) echo 'open=true' >>"$GITHUB_OUTPUT" ;;
+            *)
+              echo "release-please: release-window-check.sh exited $rc — the" \
+                "release state could not be determined; failing closed." >&2
+              exit 1
+              ;;
+          esac
+
+      # Gated on the PROVEN-closed window (== 'false', not != 'true'): an unset
+      # or unexpected verdict skips the proposal rather than proposing anyway.
+      #
       # Pinned to a full commit SHA (supply-chain discipline; risk register
       # row 6). Bump the SHA and the version comment together.
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5.0.0
+      - if: steps.window-check.outputs.open == 'false'
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json

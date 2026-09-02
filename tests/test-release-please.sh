@@ -1,6 +1,7 @@
 #!/bin/bash
 # Tests for the release-please PR-only configuration and the opt-in adopter
-# template (Task 5, specs/autopilot-reflex).
+# template (Task 5, specs/autopilot-reflex), plus the untagged-window guard on
+# the proposal job (Task 9, specs/release-hardening).
 #
 # Covers the testable slice of the task's verification paths:
 #   REQ-C1.2 — .claude-plugin/plugin.json $.version is the version source of
@@ -12,6 +13,14 @@
 #   REQ-F1.1 — the release-PR body carries the merge-then-publish instructions.
 #   REQ-G1.3 — the templates ship in an opt-in location and never auto-land in
 #              an active workflow path.
+#
+# And from specs/release-hardening (REQ-H1.1, D-13; obs:fd6c2f4f, obs:131af768):
+#   REQ-H1.1 — the proposal job is guarded by scripts/release-window-check.sh,
+#              the guard precedes the proposal step and splits that script's
+#              tri-state exit (0 proceeds, 1 skips, 2 fails), over a checkout
+#              that carries the tags and origin/main and resolves the
+#              repository's own default branch rather than any ref the
+#              triggering workflow_run carries.
 #
 # The remaining REQ-C1.1 / REQ-C1.5 checks are [manual] (a live release-PR
 # cycle) and are exercised in the organic proof (Task 11), not here.
@@ -102,7 +111,9 @@ for wf in "$WORKFLOW" "$TEMPLATE_WORKFLOW"; do
   # No direct tagging / Release creation in the workflow itself. Strip only
   # whole-line comments (leading `#`), so an inline-commented tag/Release
   # command on a live line is still caught (a `#` anywhere no longer hides it).
-  if grep -nE '(git tag|gh release create|gh api[^#]*releases)' "$wf" \
+  # -H so the `path:line:` prefix matches that filter; a bare `grep -n` emits
+  # `line:` and the exclusion never fires.
+  if grep -nHE '(git tag|gh release create|gh api[^#]*releases)' "$wf" \
     | grep -vE ':[0-9]+:[[:space:]]*#' | grep -q .; then
     fail "C1.3 $label contains a direct tag/Release-creation command"
   else
@@ -228,6 +239,192 @@ if grep -q "$SENTINEL" "$WORKFLOW"; then
   fail "G1.3 the live release workflow is marked as a template"
 else
   pass "G1.3 the live release workflow is not marked as a template"
+fi
+
+# --- REQ-H1.1: the untagged-window guard on the proposal job ------------------
+# obs:fd6c2f4f: the workflow_run trigger fires on `ci` completing on main, which
+# is exactly the window where the version PR has merged but the signed tag does
+# not exist yet — so every release passes through it, and release-please
+# regenerates from bootstrapSha rather than failing loudly. The guard closes the
+# trigger; these cases keep it closed.
+
+# The step id the proposal step's `if:` reads. Named once so the assertions
+# below and the workflow stay pinned to the same wiring.
+GUARD_STEP_ID="window-check"
+
+guard_line="$(grep -nE 'release-window-check\.sh' "$WORKFLOW" | head -1 | cut -d: -f1)"
+proposal_line="$(grep -nE 'uses:[[:space:]]*googleapis/release-please-action@' "$WORKFLOW" \
+  | head -1 | cut -d: -f1)"
+
+if [ -n "$guard_line" ]; then
+  pass "H1.1 the proposal workflow invokes scripts/release-window-check.sh"
+else
+  fail "H1.1 the proposal workflow has no release-window-check.sh guard"
+fi
+
+# The guard judges main's state, not the checkout's working tree: --ref
+# origin/main is the same base-reading release-window.yml uses.
+if grep -qE 'release-window-check\.sh[[:space:]]+--ref[[:space:]]+origin/main' "$WORKFLOW"; then
+  pass "H1.1 the guard judges origin/main (--ref), not the working tree"
+else
+  fail "H1.1 the guard does not pass --ref origin/main"
+fi
+
+# Ordering: a guard that ran after the proposal step would gate nothing.
+if [ -n "$guard_line" ] && [ -n "$proposal_line" ] && [ "$guard_line" -lt "$proposal_line" ]; then
+  pass "H1.1 the guard precedes the release-please proposal step"
+else
+  fail "H1.1 the guard does not precede the release-please proposal step"
+fi
+
+# The proposal step must actually consume the guard's verdict, in the
+# fail-closed direction: `== 'false'` runs only on a proven-closed window, so an
+# unset or unexpected output skips the proposal rather than proposing anyway.
+if grep -qE "if:[^#]*steps\.${GUARD_STEP_ID}\.outputs\.open[[:space:]]*==[[:space:]]*'false'" \
+  "$WORKFLOW"; then
+  pass "H1.1 the proposal step runs only when the guard proved the window closed"
+else
+  fail "H1.1 the proposal step is not gated on steps.${GUARD_STEP_ID}.outputs.open == 'false'"
+fi
+
+# --- REQ-H1.1: the guard's prerequisites (both fail SILENTLY if missed) -------
+# rl_latest_release_tag reads local `git tag -l`, so a tagless checkout reports
+# "no release tags yet, window open" and skips the job forever, silently.
+if grep -qE 'uses:[[:space:]]*actions/checkout@[0-9a-f]{40}([[:space:]]|$)' "$WORKFLOW"; then
+  pass "H1.1 the proposal workflow checks out the repo (actions/checkout, SHA-pinned)"
+else
+  fail "H1.1 the proposal workflow has no SHA-pinned actions/checkout"
+fi
+
+if grep -qE '^[[:space:]]*fetch-depth:[[:space:]]*0[[:space:]]*$' "$WORKFLOW"; then
+  pass "H1.1 the checkout brings full history (fetch-depth: 0)"
+else
+  fail "H1.1 the checkout does not set fetch-depth: 0"
+fi
+
+# actions/checkout configures a narrow fetch refspec, so the explicit refspec is
+# required to populate refs/remotes/origin/main and the release tags.
+if grep -qE 'git fetch --force --tags origin \+refs/heads/main:refs/remotes/origin/main' \
+  "$WORKFLOW"; then
+  pass "H1.1 the checkout explicitly fetches the tags and origin/main"
+else
+  fail "H1.1 the checkout does not explicitly fetch --tags and origin/main"
+fi
+
+# obs:131af768: this job holds contents: write and pull-requests: write, and its
+# head_branch == 'main' filter is satisfiable by a fork PR whose head branch is
+# literally named `main`. guard-coverage D-6 accepted that residual BECAUSE the
+# job checked out no PR code; adding a checkout only keeps that acceptance true
+# if the checkout resolves the repository's own default branch.
+if grep -qE "ref:[[:space:]]*\\\$\{\{[[:space:]]*github\.event\.repository\.default_branch[[:space:]]*\}\}" \
+  "$WORKFLOW"; then
+  pass "H1.1 the checkout pins the repository's own default branch"
+else
+  fail "H1.1 the checkout does not pin github.event.repository.default_branch"
+fi
+
+# head_sha is never a legitimate ref in this workflow: it is the triggering
+# run's head, which a fork PR controls.
+# -H so the `path:line:` prefix matches the whole-line-comment filter its
+# siblings above use; a bare `grep -n` emits `line:` and the filter never fires.
+if grep -nHE 'head_sha' "$WORKFLOW" | grep -vE ':[0-9]+:[[:space:]]*#' | grep -q .; then
+  fail "H1.1 the workflow references workflow_run head_sha outside a comment"
+else
+  pass "H1.1 the workflow never references the triggering run's head_sha"
+fi
+
+# Nor may any checkout input resolve a workflow_run-carried ref by another name.
+if grep -nE '^[[:space:]]*ref:' "$WORKFLOW" | grep -qE 'workflow_run'; then
+  fail "H1.1 a checkout ref: resolves a workflow_run-carried ref"
+else
+  pass "H1.1 no checkout ref: resolves a workflow_run-carried ref"
+fi
+
+# --- REQ-H1.1: the tri-state split, exercised rather than grepped ------------
+# The defect this pins is reading the script's exit as merely non-zero: 1 is an
+# open window (a normal pending publish, so SKIP) and 2 is fail-closed
+# could-not-determine (so FAIL). Folding 2 into the skip would launder an
+# unreadable state into a green no-op — the fail-open shape REQ-A1.3 exists to
+# remove. So run the shipped guard body against a stub comparator.
+#
+# Extract the guard step's `run:` block scalar and dedent it. Same strict
+# block-style subset check-workflow-posture.sh models: the body is every line
+# indented deeper than the block's first line.
+guard_script="$(
+  awk -v id="$GUARD_STEP_ID" '
+    $0 ~ ("^[[:space:]]*-[[:space:]]+id:[[:space:]]*" id "[[:space:]]*$") { instep = 1; next }
+    instep && /^[[:space:]]*run:[[:space:]]*\|[[:space:]]*$/ { inrun = 1; next }
+    inrun {
+      if ($0 ~ /^[[:space:]]*$/) { print ""; next }
+      match($0, /^[[:space:]]*/)
+      if (base == 0) base = RLENGTH
+      if (RLENGTH < base) exit
+      print substr($0, base + 1)
+    }
+  ' "$WORKFLOW"
+)"
+
+if [ -n "$guard_script" ]; then
+  pass "H1.1 the guard step '$GUARD_STEP_ID' carries an extractable run: body"
+else
+  fail "H1.1 no run: body found for guard step '$GUARD_STEP_ID' (cannot exercise the tri-state)"
+fi
+
+# Run the extracted body with a stub release-window-check.sh exiting <code>.
+# Echoes: "<guard exit status>|<the open= value it recorded, or empty>".
+run_guard_with_exit() {
+  _rgwe_code="$1"
+  _rgwe_dir="$(mktemp -d "${TMPDIR:-/tmp}/rp-guard.XXXXXX")" || return 1
+  mkdir -p "$_rgwe_dir/scripts"
+  printf '#!/bin/bash\nexit %s\n' "$_rgwe_code" >"$_rgwe_dir/scripts/release-window-check.sh"
+  chmod +x "$_rgwe_dir/scripts/release-window-check.sh"
+  printf '%s\n' "$guard_script" >"$_rgwe_dir/guard.sh"
+  : >"$_rgwe_dir/github_output"
+  # GitHub runs a `run:` block under `bash -e -o pipefail`; match it, or a guard
+  # that only works without -e would pass here and fail on the runner.
+  (
+    cd "$_rgwe_dir" || exit 99
+    GITHUB_OUTPUT="$_rgwe_dir/github_output" bash -eo pipefail guard.sh >/dev/null 2>&1
+  )
+  _rgwe_status=$?
+  _rgwe_open="$(grep -E '^open=' "$_rgwe_dir/github_output" 2>/dev/null | tail -1)"
+  rm -rf "$_rgwe_dir"
+  printf '%s|%s' "$_rgwe_status" "${_rgwe_open#open=}"
+}
+
+if [ -n "$guard_script" ]; then
+  # Exit 0 — no open window: the guard succeeds and clears the proposal step.
+  got="$(run_guard_with_exit 0)"
+  if [ "$got" = "0|false" ]; then
+    pass "H1.1 window check exit 0 → guard succeeds, open=false (proposal runs)"
+  else
+    fail "H1.1 window check exit 0 → expected '0|false', got '$got'"
+  fi
+
+  # Exit 1 — window open: a pending publish is a normal state, so the job SKIPS
+  # the proposal rather than going red.
+  got="$(run_guard_with_exit 1)"
+  if [ "$got" = "0|true" ]; then
+    pass "H1.1 window check exit 1 → guard succeeds, open=true (proposal skipped, job green)"
+  else
+    fail "H1.1 window check exit 1 → expected '0|true', got '$got'"
+  fi
+
+  # Exit 2 — could not determine: FAIL the job. This is the assertion that fails
+  # if someone folds 2 into the skip.
+  got="$(run_guard_with_exit 2)"
+  case "$got" in
+    0\|*) fail "H1.1 window check exit 2 → guard succeeded ('$got'); an unreadable state must fail the job" ;;
+    *\|true | *\|false) fail "H1.1 window check exit 2 → guard recorded an open= verdict ('$got'); it determined nothing" ;;
+    *) pass "H1.1 window check exit 2 → guard fails the job (fail-closed, not skipped)" ;;
+  esac
+
+  # An unmodelled status is fail-closed too, never silently a skip.
+  got="$(run_guard_with_exit 3)"
+  case "$got" in
+    0\|*) fail "H1.1 window check exit 3 (unmodelled) → guard succeeded ('$got'); must fail closed" ;;
+    *) pass "H1.1 window check exit 3 (unmodelled) → guard fails the job (fail-closed)" ;;
+  esac
 fi
 
 # --- JSON validity for every shipped config/manifest -------------------------
