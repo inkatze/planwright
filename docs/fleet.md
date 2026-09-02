@@ -1107,6 +1107,55 @@ additionally mirror one row each into the shared audit trail under mechanism
 `allocation`, so the fleet-wide view keeps a single surface; routine resolutions
 stay in the per-unit ledger.
 
+**Petitioning for a different tier: `scripts/allocation-petition.sh`.** Every
+trigger above is a symptom of a unit going *badly*. Nothing tells the policy the
+opposite — that the remaining steps are mechanical and the tier the table handed
+out is more than the work needs — and nothing lets a worker say "this is harder
+than it looked" before it has failed twice to prove it. The petition is that
+channel (model-allocation D-7), and it is the only signal in the allocation path
+a worker authors.
+
+A worker writes one at a step boundary:
+
+```sh
+scripts/allocation-petition.sh write --worktree "$PWD" \
+  --direction de-escalate --unit <spec>:task-<n> --step <step> --attempt <n> \
+  --reason 'the remaining steps are mechanical'
+```
+
+**When to write one.** Petition to *escalate* when the work in front of you is
+categorically harder than the unit's shape suggested — a subtle concurrency
+contract, a domain the brief under-described, an interface whose semantics have
+to be re-derived rather than read. Petition to *de-escalate* when the remaining
+steps are mechanical: the design is settled and what is left is transcription,
+formatting, or a rote sweep. Do not petition because a step failed — that is
+already a trigger event, and spending a petition on it burns adjustment budget
+the failure would have spent anyway. One petition is one ladder step; if the
+next boundary still needs a different tier, write another.
+
+**What it cannot do.** A petition is a *hint the policy weighs*, never an
+authority. It takes the same single ladder step as any other trigger, spends the
+same `allocation_adjustment_cap` budget, and meets the same clamps, so it can
+never buy a tier the restriction rung or a per-tier cap would refuse. Weighing
+**consumes** it: the artifact is gone afterwards, so signaling again costs a
+fresh write, and a petition can never move a unit twice.
+
+The artifact is untrusted input and is screened as such: a pinned five-line
+grammar under `LC_ALL=C`, a 1 KiB cap, taken only as a contained regular file
+(no symlink followed, no FIFO opened), and claimed by atomic rename before it is
+validated, so two boundaries racing the same unit cannot both weigh it. Anything
+out of grammar, hostile, stale, or filtered out by `allocation_petition` is
+still consumed and lands an `ignored` ledger row — which is where an operator
+sees what a worker said and why it did not count.
+
+**Rungs with no worktree have no petition channel.** The channel is a file in
+the worker's own worktree, so in-session work — the terminal rung, a
+`/execute-task` step running in the operator's session — has nowhere to write
+one. That is a documented degradation, not an error: those units still adapt on
+the work-shaped events, they simply cannot volunteer the signal. It is also why
+`allocation_petition` is subordinate to `allocation_adaptation`: with the master
+knob off there is no ladder position to move, so the artifact is not read at all.
+
 **Credit-continuation defaults to decline-and-wait, never auto-spend.** The
 rate-limit wall sometimes offers a *credit-continuation* prompt — "spend
 credits / extra usage to continue past the limit".

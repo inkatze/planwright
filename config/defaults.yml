@@ -366,6 +366,23 @@ allocation_adaptation: "off"
 # before any arithmetic use; the ladder ends are hard stops regardless of the cap.
 allocation_adjustment_cap: 2
 
+# Which directions of WORKER PETITION the policy will weigh (model-allocation
+# D-7; REQ-C1.3, REQ-C1.6, REQ-E1.1). A worker that finds its unit harder or
+# easier than the table assumed writes a strict-grammar petition at a pinned
+# path in its own worktree; the next launch boundary claims it and weighs it as
+# one trigger input among the others, never as an authority over a clamp or the
+# adjustment cap. `escalate-only` and `de-escalate-only` keep one direction of
+# that signal and ignore the other; `off` keeps none. A petition the knob
+# filters out is still consumed and recorded, so the audit shows what was said
+# and that the knob is why it did not count.
+#
+# Subordinate to allocation_adaptation: with the master knob `off` there is no
+# ladder position to move, so the channel is not read at all and this value has
+# no effect. That is what lets it ship `on` without changing shipped behavior
+# (D-13) — turning adaptation on gets the petition channel that D-7 describes
+# rather than a second knob to discover.
+allocation_petition: "on"
+
 # The bounded fallback hold, in seconds, when a native rate-limit signal is
 # detected but its reset time cannot be parsed (fleet-autonomy D-12,
 # REQ-E1.3; kickoff risk row 24). The rate-limit prompt is version-sensitive

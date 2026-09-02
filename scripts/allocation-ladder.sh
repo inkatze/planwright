@@ -206,8 +206,12 @@ alloc_cheaper() {
 ALLOC_EVENTS_UP='step-failure retry flailing non-convergence petition-escalate'
 ALLOC_EVENTS_DOWN='petition-de-escalate'
 # The non-trigger event classes a row may carry: a routine launch-boundary
-# resolution, an inheritance, and a degraded-mode launch.
-ALLOC_EVENTS_INERT='launch inherit degraded'
+# resolution, an inheritance, a degraded-mode launch, and a petition that was
+# CONSUMED WITHOUT BEING WEIGHED. That last one has no direction by
+# construction — an out-of-grammar artifact has none to read, and a petition the
+# policy knob filtered out must not carry one into replay — so it is inert here
+# and rides the `ignored` outcome instead (D-7, REQ-C1.6).
+ALLOC_EVENTS_INERT='launch inherit degraded petition'
 
 # alloc_event_dir <event>: print `up`, `down`, or `none`. Returns 1 for a token
 # outside the closed set, so an unrecognized event is a refusal, never a
@@ -244,7 +248,7 @@ alloc_incident() {
     step-failure | retry) printf step-failure ;;
     flailing) printf flailing ;;
     non-convergence) printf non-convergence ;;
-    petition-escalate | petition-de-escalate) printf petition ;;
+    petition-escalate | petition-de-escalate | petition) printf petition ;;
     *) return 1 ;;
   esac
 }
