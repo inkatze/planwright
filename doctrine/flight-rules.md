@@ -45,7 +45,7 @@ Three classes of signal decide it:
   large but safe and reversible one is not escalated for being large (D-4,
   REQ-B1.2).
 
-### Grounds are stated, always (REQ-B1.3)
+### Grounds are stated, always (D-4, REQ-B1.3)
 
 Routing is never silent. At routing time the tower states the route and its
 grounds in one line: **the trigger that fired, and the one-line evidence for it**
@@ -132,7 +132,7 @@ decisions, so it owes no named reader and no drain ritual
 ([accumulator-taxonomy](accumulator-taxonomy.md)). The pending-sign-off checklist
 it renders keeps its own PR-review drain.
 
-## Specless traceability (REQ-E1.4)
+## Specless traceability (D-6, REQ-E1.4)
 
 Specless is not traceless. **Specless traceability is the ask, the route and its
 grounds, the evidence, and the revert path, cited in the record.** That is the
