@@ -89,6 +89,12 @@ flight.
 **A flight is a unit of repo-mutating specless work.** "Instrument flight" names a
 route, never a flight unit; nothing on the spec path is a flight.
 
+Every repo mutation is a flight: the tower dispatches, it does not author, and v1
+sanctions no exception — a tower that edits the repo itself has routed nothing and
+recorded nothing (kickoff §3, 2026-09-01). This is the same non-authoring boundary
+the [fleet floors](fleet-coordination-floor.md) already draw around the
+dispatching session, applied to the front door.
+
 - **Read-only asks carry no flight identity.** A read-only ask exceeding the
   inline bound is offloaded through the work-placement axioms and its result
   returns to the conversation — no flight branch, no worktree, no draft PR, no
