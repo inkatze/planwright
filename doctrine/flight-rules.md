@@ -8,7 +8,9 @@ when you file a plan and trust the gauges (D-3).
 
 This doc is the routing rule and the guarantees the specless side owes. It states
 that rule as **law, not as demonstrated behavior** (REQ-B1.6). Throughout, *the
-tower* names the standing conversational front-door session (D-2).
+tower* names the standing conversational front-door session (D-2) — not the
+dispatching `/orchestrate` session that older prose and tower-named scripts also
+call a tower.
 
 The rule is [proportionality](proportionality.md) operationalized one level up:
 stake and reversibility already scale rigor inside a change; here they choose the
