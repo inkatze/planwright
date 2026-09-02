@@ -338,9 +338,17 @@ marking, or the tower non-authoring boundary.
   commit), honoring `orchestration-concurrency`'s no-dispatch-commit-on-`main` floor. When a unit is a
   **cohesion bundle** (a task set dispatched to one worker under a lead branch/PR), the tower SHALL fence
   **every member unit-id** in a single **`git push --atomic`**: if any member is already fenced by a peer,
-  the whole atomic push is **rejected** and the tower backs off the **entire bundle**, so a peer selecting
-  **any** member — lead or non-lead — collides and no non-lead member is left unfenced (the run-4
-  cohesion-bundle keying gap, closed by construction). A tower SHALL coordinate only by **creating, reading,
+  the tower SHALL back off the **entire bundle**, so a peer selecting **any** member — lead or non-lead —
+  collides and no non-lead member is left unfenced (the run-4 cohesion-bundle keying gap, closed by
+  construction). `--atomic` delivers that for a member the server **rejects**, rolling the whole push back;
+  it does **not** for a member whose per-ref status is `=` `[up to date]` (REQ-C1.6), which is not a
+  rejection, so members this tower's own push created can survive a bundle it must abandon. The tower SHALL
+  therefore require **every** member to report `*` `[new reference]` and, where the bundle did not fully
+  win, **delete exactly the members its own push created** — lease-guarded on the value it pushed, so it can
+  never delete a peer's fence — before backing off. A backed-off bundle leaves **no** member fenced, just as
+  it leaves none unfenced.
+  *(Amended at Task 4 execution 2026-08-26: the all-or-none OUTCOME is unchanged; the mechanism gains the
+  compensating delete `--atomic` does not perform for an up-to-date member.)* A tower SHALL coordinate only by **creating, reading,
   and deleting fence refs** and reading the presence surface; it SHALL never directly mutate a peer tower's
   or a worker's branch state.
   *(Cites: D-5, D-8, D-12; the division-of-labor "directly" boundary (Sources).)*
@@ -428,7 +436,14 @@ marking, or the tower non-authoring boundary.
   status** (`--porcelain` / `--push-option` reporting, or the stale-info/non-fast-forward rejection reason in
   stderr), **not by exit code alone**: a per-ref "rejected (stale info / already exists)" is the taken-unit
   back-off, while a connection/transport/permission error with no per-ref rejection is the transient
-  fail-closed-and-retry path. Misclassifying either way costs at most one wasted pass (the authoritative CAS
+  fail-closed-and-retry path. The **taken-unit case is not confined to a rejection**, and this is the
+  load-bearing reading of "not by exit code alone": git resolves a same-value ref update to the per-ref
+  status **`=` `[up to date]`** *before* it evaluates the lease, and every racing tower pushes the **same**
+  `origin/main` tip, so the tower that LOST sees a per-ref success and a **zero** exit. The verdict is
+  therefore **positive**: a member is fenced by this tower only when its per-ref status is **`*`
+  `[new reference]`**; `=` means a peer created it first and is a back-off, exactly like a rejection.
+  *(Amended at Task 4 execution 2026-08-26: the `=` up-to-date status added to the per-ref classification;
+  the exit code was already non-authoritative, this names the case that makes it so.)* Misclassifying either way costs at most one wasted pass (the authoritative CAS
   re-adjudicates next pass), never a double dispatch. The tower SHALL NOT treat a transient
   `origin` failure as the solo posture, and SHALL NOT `--force` or overwrite a fence ref it did not create
   (only the expect-absent lease is ever used). This is the bounded arm of the downgraded guarantee (D-13):
@@ -692,6 +707,29 @@ marking, or the tower non-authoring boundary.
   "second dispatch backend that renames" is removed (the tower pushes the fence by canonical unit-id name
   directly, with no worker branch in the fencing path). Full detail in `kickoff-brief.md` §8 (run 4). The
   bundle stays Draft; re-run `/spec-kickoff` for sign-off.
+- 2026-08-26 — **Expression-only amendment (Task 4 execution).** Implementing the fence found that the
+  pinned CAS command's **exit code does not express the exclusion the CAS decides**: git resolves a
+  same-value ref update to the per-ref status `=` `[up to date]` *before* it evaluates the
+  `--force-with-lease`, and every racing tower pushes the same `origin/main` tip, so a second tower fencing
+  an already-fenced unit gets a per-ref success and exit **0**. Reading the exit code would have let both
+  towers dispatch — the exact guarantee REQ-C1.1 exists to give. REQ-C1.6 already decided the discriminant
+  ("distinguish by the push's per-ref status, not by exit code alone"); what was missing was the case that
+  makes it load-bearing, so the classification is completed and restated **positively**: a member is fenced
+  by this tower only on `*` `[new reference]`, and `=` is a back-off exactly like a rejection. The same
+  finding corrects one consequence for cohesion bundles: because `=` is not a rejection, `git push --atomic`
+  does not roll such a member back, so a bundle that must back off can leave the members its own push
+  created behind. The decided all-or-none **outcome** is unchanged and REQ-C1.2's guarantee is unweakened;
+  the mechanism gains the compensating delete (lease-guarded on the value this tower pushed, so it can never
+  remove a peer's fence) and the requirement now also states that a backed-off bundle leaves no member
+  *fenced*, not only none unfenced. `test-spec.md` gains the corresponding fixture requirement: the
+  collision a bundle actually meets is reachable only by staging the peer's fence between the pre-flight
+  read and the push, so a fixture resting on the pre-flight read alone asserts nothing about the CAS.
+  Amended in place across `requirements.md` (REQ-C1.2, REQ-C1.6), `design.md` (D-5), `tasks.md` (Task 4),
+  and `test-spec.md` (REQ-C1.2), each carrying its amendment annotation. **Expression-only:** no accepted
+  decision is contradicted and no REQ's meaning changes — D-5/D-8's expect-absent CAS on `origin` and
+  REQ-C1.1's guarantee stand exactly as signed off; what changes is an incorrect claim about git's behaviour
+  and an incomplete enumeration, the class `doctrine/spec-format.md` names under *Decided rules over
+  enumerated claims*. Verified against git 2.53.0 with a bare-repo fixture before and after.
 
 ## Sources
 

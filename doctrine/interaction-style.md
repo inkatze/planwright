@@ -12,8 +12,9 @@ internal model.
 
 Citations: REQ-B3.1 · operator-dialogue REQ-A1.1, REQ-A1.2, REQ-B1.3,
 REQ-C1.1, REQ-C1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5,
-REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4 · operator-dialogue D-1, D-3, D-4, D-5,
-D-6, D-7, D-12 · the bootstrap seed (Sources).
+REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-I1.1, REQ-I1.2, REQ-I1.3,
+REQ-I1.4, REQ-I1.5, REQ-J1.3 · operator-dialogue D-1, D-3, D-4, D-5,
+D-6, D-7, D-12, D-14, D-15, D-20, D-21 · the bootstrap seed (Sources).
 
 ## The three disciplines
 
@@ -83,6 +84,38 @@ Self-contained confirmation — the *Confirmations* rule under *Selectors
 with recommendations* below — is a named rule of this discipline, not a
 fourth peer.
 
+## The turn/artifact arbitration
+
+Two rule sets meet at every attended surface; this is where they divide.
+The completeness rules — no silent pruning, the canonical tables, the full
+audit record — govern **artifacts**: bundles, PR bodies, audit records.
+Progressive disclosure governs the **attended turn**. Withholding detail from
+a turn while recording it in the governing artifact is not pruning. Neither
+side yields on its own territory: never thin an artifact citing disclosure,
+never wall the operator citing completeness.
+
+**Every emit mandate declares its destination side.** An instruction whose
+direct object is content delivered to the operator or to an artifact says
+which, in natural phrasing naming the side or the artifact — "emitted at the
+operator", "recorded in the draft PR body". An ambiguous destination is a
+defect to repair, not latitude.
+
+### Turn projection
+
+What reaches the turn is a bounded, actionable **projection** of the
+underlying record, never the record itself:
+
+- **Decisions and questions first**, supporting state second, bookkeeping
+  last — or left out of the turn when an artifact carries it.
+- **Counts stand in for audit tables.** "Four findings applied, one pending
+  sign-off" is the turn; the tables are the artifact.
+- **The whole record stays one request away** — a pointer to the artifact
+  holding it, or a regeneration the operator can ask for next turn. An
+  artifact already holding it satisfies this without being asked.
+
+Density follows *Small bites* below, which bounds the whole turn, not only its
+questions.
+
 ## Session mechanics
 
 ### Progress indicator
@@ -95,11 +128,11 @@ grow), say so and give the count of what is known.
 
 ### Progressive disclosure
 
-Present one layer of detail at a time. Open with the shape of a decision (what
-is being decided and why it matters), then reveal alternatives, then details
-of the selected path. Never paste a wall of everything-at-once; never bury a
-decision in an information dump. Background the operator did not ask for is
-one sentence plus an offer to expand.
+Present one layer of detail at a time: open with the shape of a decision (what
+is being decided and why it matters), then alternatives, then details of the
+selected path. Never paste a wall of everything-at-once; the projection shape
+above is what that means concretely. Background the operator did not ask for
+is one sentence plus an offer to expand.
 
 ### Selectors with recommendations
 
@@ -124,6 +157,14 @@ comparative or long content (diffs, tables, side-by-side snippets) in option
 previews. Pre-selector prose is a short status line only, never the place a
 load-bearing detail lives.
 
+Self-containment is a **floor, not a ceiling**: it obliges the decision plus
+each option's action and consequence, and is never a license for unbounded
+density. Comparative content the choice turns on goes to option previews, so
+the choice stays answerable from the options alone; depth it does not turn on
+goes to an offered in-band layer, supplementary and never load-bearing;
+identifiers appear only where traceability needs them. Restating in full is
+not restating everything.
+
 **Confirmations.** A confirmation is that self-contained rule applied to an
 approval, so each option restates its own action and consequence and the choice
 is answerable from the option set alone. It carries an explicit reject-or-defer
@@ -139,11 +180,18 @@ pre-selected default, no generic labels) is machine-checkable by
 
 ### Running summary
 
-After each phase (and at any natural pause), restate what has been decided so
-far in a compact, cumulative summary: decisions taken, their one-line
-rationale, and what remains open. The summary is the checkpoint that the
-skill heard what the operator said; a misunderstanding surfaces at the next
+After each phase (and at any natural pause), restate to the operator the
+ground just covered: the decisions taken since the previous summary, their
+one-line rationale, and what remains open. The summary is the checkpoint that
+the skill heard what the operator said; a misunderstanding surfaces at the next
 summary, not at session end.
+
+No summary a skill repeats may grow monotonically. Delta-plus-open is bounded
+by construction; a restatement of everything decided so far grows until it is
+itself the wall, and capping a growing input can only drop something silently.
+Where the whole accumulated record is wanted, an artifact holds it, and a
+resume path confirms ground already settled at one line each rather than
+replaying it.
 
 ### Small bites
 
@@ -151,6 +199,12 @@ One question, or one tightly related cluster, per turn. Long elicitation runs
 are sequences of small exchanges, not questionnaires. When several questions
 are genuinely coupled (answering one constrains the others), present them
 together and say why.
+
+The same bound governs a turn's density, not only its questions: one decision
+cluster per turn, plain language leading, and identifiers (REQ and D-IDs,
+anchors, lane names) only where traceability needs them. The bound stays
+qualitative on purpose — concrete numbers live in the turn-shape eval
+fixtures, tunable on evidence without amending doctrine.
 
 ## Application notes
 
@@ -160,7 +214,7 @@ together and say why.
   auto-answered.
 - The rules are a floor, not a script: skills choose the phase names and
   granularity fitting their flow, but every attended flow instantiates the
-  three disciplines and shows the mechanics above.
+  three disciplines, honors the arbitration, and shows the mechanics above.
 - Verification is design-level (REQ-B3.1; operator-dialogue REQ-A1.1,
-  REQ-A1.2): the scope and disciplines are documented here; each surface's
-  instructions show their instantiation.
+  REQ-A1.2, REQ-I1.1): the scope, disciplines, and arbitration are documented
+  here; each surface's instructions show their instantiation.

@@ -15,10 +15,10 @@ argument-hint: "[--nested]"
 The autonomous act-then-review loop (REQ-E2.1, D-12): repeat the `/self-review`
 pass against the feature branch until it drains every action disposition and
 only irreducible Needs-human-judgment forks (if any) remain, then hand off the
-audit record. Polish is **local-only**: it never pushes and never creates or
-touches a PR; its only remote interaction is the read-only fetch that pins
-the base at pre-flight, and iterations never touch the remote (nested
-`/self-review` passes reuse the pinned base without fetching). The pending-sign-off
+audit record. Polish is **local-only** per the invariants below; after the
+read-only fetch that pins the base at pre-flight, iterations never touch the
+remote (nested `/self-review` passes reuse the pinned base without
+fetching). The pending-sign-off
 checklist it emits reaches the draft PR through whichever skill owns PR
 creation (`/execute-task` per REQ-E1.5, or a standalone `/self-review`).
 
@@ -59,7 +59,7 @@ Read the literal flag `--nested` from `$ARGUMENTS` at the start of the run:
   in-session and receives the handoff; the parent owns the PR body the audit
   record lands in.
 
-Either way the loop itself behaves identically and stays local-only. Nested
+The loop behaves identically in both modes. Nested
 invocation is in-session skill composition (REQ-E2.2, D-13): one session, one
 context, hooks fire once per actual tool call, not once per skill layer.
 Record the resolved mode in every iteration summary.
@@ -83,8 +83,7 @@ Record the resolved mode in every iteration summary.
    unavailable for the whole run.
 4. **Initialize the loop ledger**: an iteration counter at zero, plus the
    record of every finding the loop has already dispositioned (applied,
-   resolved, applied pending sign-off, declined, queued). The loop ledger is
-   what makes convergence and loop detection decidable.
+   resolved, applied pending sign-off, declined, queued).
 
 ## Iteration loop
 
@@ -133,6 +132,20 @@ caught here is reworded before it reaches history, never after. Polish never
 amends, squashes, rebases, or force-pushes; each iteration's commits stand as
 the per-iteration audit trail.
 
+**Signed-bundle edits.** Each iteration's nested pass runs the stale-anchor
+pre-flight before its first edit to each Ready or Active bundle's anchored content, per
+the meta-spec's writer prose (`doctrine/spec-format.md`, *Sign-off records and
+content anchors*): a mismatch, an absent or unparseable entry, and a failed
+recompute block that edit alike, and the loop repairs none of them: the
+blocked finding queues as an irreducible fork whose route is the anchor
+repair, and the iteration drains its remaining findings normally. An
+expression-only fix carries its dated Changelog entry and the marked
+`Class: expression-only` self-re-anchor entry citing that entry, in the same
+commit as the edit, so the ritual never spans an iteration boundary. A
+meaning-class fix stays unapplied and queued for a `/spec-kickoff` delta
+re-walkthrough; the ledger keeps it queued rather than re-routing it on a
+later iteration.
+
 ## Safety conditions (mandatory handoff)
 
 Exactly two things interrupt mid-iteration, per the doctrine's pause
@@ -146,9 +159,9 @@ emits empty `none` tables):
 
 | Condition | Trigger |
 | --- | --- |
-| Wider-suite failure | The project's full test/lint/type-check suite fails after an iteration's fixes and the failure cannot be resolved within the findings' own scope. The branch may be broken; a human should look before anything else lands. |
-| Loop detection | A finding the ledger records as applied on the branch (applied, resolved, or applied pending sign-off) is re-discovered in a later iteration (same location, same rule or description; the ledger exception above). The fix is not actually resolving it. |
-| Iteration cap | Ten iterations completed without convergence. A drain that long means discovery keeps producing genuinely new findings; a human should look at why. |
+| Wider-suite failure | The project's full test/lint/type-check suite fails after an iteration's fixes and the failure cannot be resolved within the findings' own scope. |
+| Loop detection | A finding the ledger records as applied on the branch (applied, resolved, or applied pending sign-off) is re-discovered in a later iteration (same location, same rule or description; the ledger exception above). |
+| Iteration cap | Ten iterations completed without convergence. |
 | Dirty tree | Pre-flight found uncommitted changes (stops before iteration one). |
 
 On any safety stop: emit the latest audit record, name the condition, and
@@ -170,8 +183,7 @@ On exit (converged or safety-stopped), emit the loop-end handoff in the
    that ask the human a question. Bespoke options are the actual decision
    branches, never timing labels, per the categorization doctrine.
 6. The final iteration's pass summary (the per-iteration summaries cover
-   the rest), so a parent skill assembling a PR body has the tooling and
-   wider-suite evidence without re-deriving it.
+   the rest).
 
 Standalone, present all of it to the human and put the queued forks to them
 directly. Nested, hand the record to the parent skill, which folds the
