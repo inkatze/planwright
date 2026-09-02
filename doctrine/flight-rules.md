@@ -1,10 +1,11 @@
 # Flight Rules
 
-planwright routes every request onto one of two rules: **visual flight** — specless
-work, where no spec bundle is authored and the audit record carries the trust — or
-**instrument flight**, the spec pipeline. The names are the aviation analogy: visual
-rules when conditions are clear enough to fly by what you can see, instrument rules
-when you file a plan and trust the gauges (D-3).
+planwright routes work that changes the repository onto one of two rules: **visual
+flight** — specless work, where no spec bundle is authored and the audit record
+carries the trust — or **instrument flight**, the spec pipeline. The names are the
+aviation analogy: visual rules when conditions are clear enough to fly by what you
+can see, instrument rules when you file a plan and trust the gauges (D-3). A
+read-only ask sits outside the pair entirely (see *The flight boundary*).
 
 This doc is the routing rule and the guarantees the specless side owes. It states
 that rule as **law, not as demonstrated behavior** (REQ-B1.6). Throughout, *the
