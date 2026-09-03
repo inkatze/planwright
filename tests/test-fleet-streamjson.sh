@@ -29,6 +29,22 @@
 #     metacharacter fixture never reaches a shell), the launch argv carries
 #     the pinned -p stream-json shape, and `--bare` is refused.
 #
+# The close verb and its two lock elections come from a later bundle
+# (fleet-lifecycle-closure), and the cases from c19 on cover it:
+#   - REQ-B1.2: the close terminates the supervisor, the worker, and the
+#     worker's children, SIGTERM before SIGKILL, including a grandchild that
+#     survives SIGTERM and is reparented away from the tree.
+#   - REQ-B1.3: process matching keys on the state directory and the pids it
+#     records; a look-alike operator session and a worker whose handle merely
+#     extends the stopped one both survive, and a source audit over the kill
+#     path asserts no name or command-pattern match.
+#   - REQ-B1.4: the runtime classes are released and the durable record is not.
+#   - REQ-A1.3 / REQ-B1.7: a release that cannot complete reports partial on
+#     its own exit code, a repeat takes exactly what is still held, and a
+#     fully released worker reports already-closed without signalling.
+#   - obs:81ba2dce / obs:917e384e: a `recover.lock` whose holder is gone is
+#     broken, and `launch` elects a single initiator under real contention.
+#
 # Hermetic: every case pins PLANWRIGHT_FLEET_STATE_DIR to a case-local home
 # and PLANWRIGHT_STREAMJSON_CLI to a single env-driven shim (one inode, so a
 # macOS Gatekeeper first-exec assessment happens at most once). Runs
@@ -68,6 +84,8 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #                     control_response arrives, then emit SHIM_RESULT_LINE
 #   SHIM_WATCHDOG     seconds before self-kill while waiting (no-auto-answer)
 #   SHIM_SLEEP        sleep after emitting (crash-window hold)
+#   SHIM_STUBBORN_CHILD  path a SIGTERM-surviving grandchild records its pid in
+#   SHIM_IGNORE_TERM=1   survive SIGTERM, recording each one in <record>/signals
 #   SHIM_EXIT         exit code (default 0)
 printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
 n=${SHIM_READ_FIRST:-1}
@@ -93,6 +111,15 @@ if [ "${SHIM_WAIT_RESPONSE:-0}" = 1 ]; then
   if [ -n "${SHIM_RESULT_LINE:-}" ]; then
     printf '%s\n' "$SHIM_RESULT_LINE"
   fi
+fi
+if [ -n "${SHIM_STUBBORN_CHILD:-}" ]; then
+  # A grandchild that outlives SIGTERM. When its parents die it reparents to
+  # init, which takes it out of any descendant walk recomputed from scratch.
+  (
+    trap '' TERM
+    printf '%s\n' "$$" >"$SHIM_STUBBORN_CHILD"
+    while :; do sleep 1; done
+  ) &
 fi
 if [ "${SHIM_IGNORE_TERM:-0}" = 1 ]; then
   # A worker that survives SIGTERM: the handler records the signal and the
@@ -154,8 +181,19 @@ aenv() {
 # ps_rows — one `<pid> <ppid> <args>` row per process, captured through a
 # variable so the assertion's own `grep` (whose argv would carry the very path
 # being searched for) is never in the snapshot it is searching.
+#
+# Mirrors the script's own degradation: without the fallback, a host whose `ps`
+# rejects `-ww` yields an empty snapshot here, and every "no process survives"
+# assertion below passes for the wrong reason.
 ps_rows() {
-  ps -A -ww -o pid=,ppid=,args= 2>/dev/null
+  pr_out=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || pr_out=''
+  case ${pr_out%%"
+"*} in
+    *[0-9]*) ;;
+    *) pr_out=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || pr_out='' ;;
+  esac
+  [ -n "$pr_out" ] || fail "ps_rows: this host produced no usable process table"
+  printf '%s\n' "$pr_out"
 }
 
 # no_proc_under <dir> — true when no live process references <dir> in its argv.
@@ -1003,7 +1041,13 @@ while [ "$i" -lt 100 ]; do
   i=$((i + 1))
 done
 [ -n "$kid19" ] || fail "c19: the worker's own child never appeared"
-wait_until 100 test -f "$wdir19/journal" || fail "c19: the journal never appeared"
+# The attention upsert follows the journal append, so waiting on the journal
+# file would return before the row this case needs exists.
+i=0
+while [ "$i" -lt 100 ] && [ "$(attention_rows "$home" sjw19)" = 0 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
 [ "$(attention_rows "$home" sjw19)" != 0 ] || fail "c19: no attention record to release"
 
 out=$(senv "$home" "$rec" -- stop sjw19 --grace 2)
@@ -1027,7 +1071,7 @@ wait_until 50 no_proc_under "$wdir19" \
 [ ! -p "$wdir19/in.fifo" ] || fail "c19: the scratch fifos must be released"
 [ ! -p "$wdir19/out.fifo" ] || fail "c19: the scratch fifos must be released"
 [ "$(attention_rows "$home" sjw19)" = 0 ] || fail "c19: the attention record must be released"
-# D-3: a close releases runtime resources and never the durable record.
+# A close releases runtime resources and never the record of the run.
 [ -s "$wdir19/events.jsonl" ] || fail "c19: the event-stream capture must survive a stop"
 [ -s "$wdir19/journal" ] || fail "c19: the receipt journal must survive a stop"
 [ -s "$wdir19/session" ] || fail "c19: the persisted session must survive a stop"
@@ -1047,17 +1091,31 @@ senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 -- \
 wdir20="$home/streamjson/sjw20"
 wait_until 100 test -s "$wdir20/worker.pid" || fail "c20: worker.pid never appeared"
 wrk20=$(cat "$wdir20/worker.pid")
-# The journal row proves the shim is past its emit and into the trap+hold loop,
-# so the TERM handler is installed before the stop.
-wait_until 100 grep -q "^$req_perm$tab" "$wdir20/journal" \
-  || fail "c20: the worker never reached its hold loop"
+# The shim installs its TERM handler only after emitting, and the hold loop's
+# own `sleep` child is the first thing that exists afterwards. Waiting for that
+# child is what proves the handler is in place; the journal row would only
+# prove the supervisor consumed the emitted line.
+i=0
+while [ "$i" -lt 100 ] && [ -z "$(first_child "$wrk20")" ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+[ -n "$(first_child "$wrk20")" ] || fail "c20: the worker never reached its hold loop"
+started=$(date +%s)
 out=$(senv "$home" "$rec" -- stop sjw20 --grace 2)
 rc=$?
+elapsed=$(($(date +%s) - started))
 [ "$rc" = 0 ] || fail "c20: stop should exit 0 after escalating, got rc=$rc ($out)"
 grep -q term "$rec/signals" 2>/dev/null \
   || fail "c20: SIGTERM must be sent before the escalation"
+# The escalation waits out the grace it was given, and does not wait out the
+# default instead: a stop that ignored --grace would take at least the 5s one.
+[ "$elapsed" -ge 2 ] || fail "c20: the grace must elapse before SIGKILL, took ${elapsed}s"
+[ "$elapsed" -lt 30 ] || fail "c20: the close should not run far past its grace, took ${elapsed}s"
 wait_until 100 sh -c "! kill -0 $wrk20 2>/dev/null" \
   || fail "c20: a worker ignoring SIGTERM must be SIGKILLed after the grace"
+wait_until 50 no_proc_under "$wdir20" \
+  || fail "c20: no process may still reference the state directory after the escalation"
 echo "ok: c20 SIGTERM first, SIGKILL after the bounded grace (REQ-B1.2)"
 
 # ---------------------------------------------------------------------------
@@ -1088,31 +1146,125 @@ wait_until 100 sh -c "! kill -0 $wrk21 2>/dev/null" \
   || fail "c21: the worker must be terminated"
 kill -0 "$decoy" 2>/dev/null \
   || fail "c21: the operator session sharing the worker's command shape must survive"
+decoy_kid=$(first_child "$decoy")
 kill -9 "$decoy" 2>/dev/null
+[ -z "$decoy_kid" ] || kill -9 "$decoy_kid" 2>/dev/null
 wait "$decoy" 2>/dev/null
-# Source audit over the candidate-selection path: it may key on the state
-# directory and on the pids the worker's own state records, and on nothing else.
-audit=$(awk '/^stop_candidates\(\)/, /^}/' "$SJ")
-[ -n "$audit" ] || fail "c21: the candidate-selection path was not found for the audit"
-printf '%s\n' "$audit" | grep -q 'sc_dir' \
-  || fail "c21: the candidate-selection path must key on the state directory"
-for bad in claude pgrep killall pkill; do
-  printf '%s\n' "$audit" | grep -q "$bad" \
-    && fail "c21: the kill path must not match on '$bad' (bare-name matching)"
+# A sibling worker whose handle this one is a prefix of. An unanchored search
+# for the state-directory path finds its supervisor, whose argv carries
+# `.../sjw21x` — and then kills a healthy unrelated worker's whole tree.
+printf 'prefix sibling\n' >"$tmp/prompt21x"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+  launch sjw21x execution-backends:4 --prompt-file "$tmp/prompt21x" \
+  >/dev/null || fail "c21: the prefix-sibling launch exited non-zero"
+wdir21x="$home/streamjson/sjw21x"
+wait_until 100 test -s "$wdir21x/worker.pid" || fail "c21: sibling worker.pid never appeared"
+wrk21x=$(cat "$wdir21x/worker.pid")
+sup21x=$(cat "$wdir21x/supervisor.pid")
+out=$(senv "$home" "$rec" -- stop sjw21 --grace 2)
+case $out in
+  "stop sjw21 already-closed") : ;;
+  *) fail "c21: the already-closed worker must stay closed, got: $out" ;;
+esac
+kill -0 "$wrk21x" 2>/dev/null \
+  || fail "c21: a worker whose handle merely extends the stopped one must survive"
+kill -0 "$sup21x" 2>/dev/null \
+  || fail "c21: the prefix sibling's supervisor must survive"
+senv "$home" "$rec" -- stop sjw21x --grace 2 >/dev/null || fail "c21: sibling stop failed"
+# Source audit over the whole kill path — selection *and* the signalling that
+# consumes it. It may key on the state directory and on the pids the worker's
+# own state records, and on nothing else.
+audit=$(
+  awk '/^stop_candidates\(\)/, /^}/' "$SJ"
+  awk '/^release_processes\(\)/, /^}/' "$SJ"
+)
+[ -n "$audit" ] || fail "c21: the kill path was not found for the audit"
+printf '%s\n' "$audit" | grep -q '_supervise' \
+  || fail "c21: the kill path must key on the supervisor's own state-directory argv"
+printf '%s\n' "$audit" | grep -q 'supervisor.pid' \
+  || fail "c21: the kill path must key on the pids the state directory records"
+for bad in claude pgrep killall pkill 'input-format' 'permission-prompt-tool'; do
+  printf '%s\n' "$audit" | grep -q -- "$bad" \
+    && fail "c21: the kill path must not match on '$bad' (name or command-pattern matching)"
 done
-echo "ok: c21 state-directory matching leaves a look-alike operator session untouched (REQ-B1.3)"
+echo "ok: c21 state-directory matching spares a look-alike session and a prefix-sibling worker (REQ-B1.3)"
 
 # ---------------------------------------------------------------------------
 # c22 (REQ-B1.7): a second stop against a worker with nothing still held
 #    returns the distinct already-closed result with exit 0 and signals
 #    nothing.
 # ---------------------------------------------------------------------------
-out=$(senv "$home" "$rec" -- stop sjw21 --grace 2)
+home="$tmp/h22"
+rec="$tmp/r22"
+mkdir -p "$rec"
+printf 'idempotent\n' >"$tmp/prompt22"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 -- \
+  launch sjw22 execution-backends:4 --prompt-file "$tmp/prompt22" \
+  >/dev/null || fail "c22: detached launch exited non-zero"
+wdir22="$home/streamjson/sjw22"
+wait_until 100 test -s "$wdir22/worker.pid" || fail "c22: worker.pid never appeared"
+senv "$home" "$rec" -- stop sjw22 --grace 2 >/dev/null || fail "c22: the first stop failed"
+# The shim records every SIGTERM it survives. A repeat stop that re-signalled
+# the stale recorded pids would add to that file; a repeat that honours the
+# release set signals nothing at all.
+before=$(wc -l <"$rec/signals" 2>/dev/null || echo 0)
+out=$(senv "$home" "$rec" -- stop sjw22 --grace 2)
 rc=$?
+after=$(wc -l <"$rec/signals" 2>/dev/null || echo 0)
 [ "$rc" = 0 ] || fail "c22: a repeat stop must succeed, got rc=$rc ($out)"
-[ "$out" = "stop sjw21 already-closed" ] \
+[ "$out" = "stop sjw22 already-closed" ] \
   || fail "c22: a repeat stop must return the distinct already-closed result, got: $out"
-echo "ok: c22 idempotent close returns a distinct already-closed result (REQ-B1.7)"
+[ "$before" = "$after" ] || fail "c22: a repeat stop must send no signal"
+echo "ok: c22 idempotent close returns a distinct already-closed result and signals nothing (REQ-B1.7)"
+
+# ---------------------------------------------------------------------------
+# c22b (REQ-B1.2, REQ-B1.4): a grandchild that survives SIGTERM is reparented
+#    to init when its parents die, which takes it out of any descendant walk
+#    recomputed from scratch. The close must still account for it rather than
+#    report the process class released over a survivor.
+# ---------------------------------------------------------------------------
+home="$tmp/h22b"
+rec="$tmp/r22b"
+mkdir -p "$rec"
+printf 'stubborn grandchild\n' >"$tmp/prompt22b"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 \
+  SHIM_STUBBORN_CHILD="$tmp/stubborn.pid" -- \
+  launch sjw22b execution-backends:4 --prompt-file "$tmp/prompt22b" \
+  >/dev/null || fail "c22b: detached launch exited non-zero"
+wdir22b="$home/streamjson/sjw22b"
+wait_until 100 test -s "$tmp/stubborn.pid" || fail "c22b: the stubborn grandchild never started"
+stubborn=$(cat "$tmp/stubborn.pid")
+kill -0 "$stubborn" 2>/dev/null || fail "c22b: the stubborn grandchild is not running"
+out=$(senv "$home" "$rec" -- stop sjw22b --grace 2)
+rc=$?
+[ "$rc" = 0 ] || fail "c22b: stop should close the whole tree, got rc=$rc ($out)"
+case $out in
+  "stop sjw22b stopped released="*) : ;;
+  *) fail "c22b: expected a stopped result, got: $out" ;;
+esac
+wait_until 100 sh -c "! kill -0 $stubborn 2>/dev/null" \
+  || fail "c22b: a reparented grandchild must not survive a close that reports success"
+wait_until 50 no_proc_under "$wdir22b" || fail "c22b: the state directory is still referenced"
+echo "ok: c22b a reparented SIGTERM-surviving grandchild is still closed (REQ-B1.2)"
+
+# ---------------------------------------------------------------------------
+# c22c (REQ-A1.3, REQ-B1.4): the lock class is released and named, and an
+#    unknown handle is refused rather than reported closed.
+# ---------------------------------------------------------------------------
+mkdir -p "$wdir22/launch.lock" || fail "c22c: cannot plant the lock"
+out=$(senv "$home" "$rec" -- stop sjw22 --grace 2)
+rc=$?
+[ "$rc" = 0 ] || fail "c22c: stop should release a stranded lock, got rc=$rc ($out)"
+[ "$out" = "stop sjw22 stopped released=locks" ] \
+  || fail "c22c: the lock class must be released and named, got: $out"
+[ ! -e "$wdir22/launch.lock" ] || fail "c22c: the stranded lock must be gone"
+senv "$home" "$rec" -- stop sjw-never-launched >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c22c: an unknown handle must be refused (exit 2), never already-closed"
+senv "$home" "$rec" -- stop sjw22 --grace 0 >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c22c: --grace 0 must be refused"
+senv "$home" "$rec" -- stop sjw22 --grace 99999999 >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c22c: an out-of-range --grace must be refused"
+echo "ok: c22c the lock class releases, and bad handles and graces are refused (REQ-A1.3)"
 
 # ---------------------------------------------------------------------------
 # c23 (REQ-A1.3, REQ-B1.7): a release that cannot complete is reported as
@@ -1137,11 +1289,9 @@ else
   out=$(senv "$home" "$rec" -- stop sjw23 --grace 2 2>/dev/null)
   rc=$?
   chmod 700 "$home/attention" || fail "c23: cannot restore the attention store"
-  [ "$rc" != 0 ] || fail "c23: a partial close must not report success, got: $out"
-  case $out in
-    "stop sjw23 partial released="*"held="*) : ;;
-    *) fail "c23: expected a partial result naming both sets, got: $out" ;;
-  esac
+  [ "$rc" = 6 ] || fail "c23: a partial close must report the partial exit code, got rc=$rc ($out)"
+  [ "$out" = "stop sjw23 partial released=scratch held=attention" ] \
+    || fail "c23: expected the released and held sets named exactly, got: $out"
   case ${out#*held=} in
     *attention*) : ;;
     *) fail "c23: the partial result must name the class it could not release, got: $out" ;;
@@ -1205,25 +1355,52 @@ senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
   launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" \
   >/dev/null || fail "c25: the first launch exited non-zero"
 wdir25="$home/streamjson/sjw25"
+wait_until 100 test -s "$wdir25/supervisor.pid" || fail "c25: supervisor.pid never appeared"
 sup25=$(cat "$wdir25/supervisor.pid")
 # (a) a launch arriving while this worker's supervisor is up is refused, so a
 #     second supervisor never overwrites the first one's pid file.
 senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
-  launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null 2>&1
+  launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >"$tmp/o25a" 2>&1
 [ $? -eq 3 ] || fail "c25a: a launch over a live supervisor must be refused (exit 3)"
+grep -q "already running" "$tmp/o25a" \
+  || fail "c25a: the refusal must be the live-supervisor one, got: $(cat "$tmp/o25a")"
 [ "$(cat "$wdir25/supervisor.pid")" = "$sup25" ] \
   || fail "c25a: the refused launch must not have replaced the supervisor pid file"
 snap25=$(ps_rows)
 n25=$(printf '%s\n' "$snap25" | grep -Fc -- "_supervise sjw25 $wdir25")
 [ "$n25" = 1 ] || fail "c25a: exactly one supervisor expected for the worker, found $n25"
 senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25: stop exited non-zero"
-# (b) the election itself: a launch already in flight (neither supervisor up
-#     yet) holds the lock, and the second caller is refused rather than raced.
-mkdir "$wdir25/launch.lock" || fail "c25: cannot plant the launch lock"
+# (b) the election itself, under genuine contention: several launches start at
+#     once with no supervisor up, so the atomic mkdir is what decides. Exactly
+#     one may win, and the losers must refuse rather than race into `supervise`.
+for n in 1 2 3; do
+  senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+    launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" \
+    >"$tmp/o25b.$n" 2>&1 &
+done
+wait
+won=0
+for n in 1 2 3; do
+  grep -q "^launched sjw25 " "$tmp/o25b.$n" && won=$((won + 1))
+done
+[ "$won" = 1 ] || fail "c25b: exactly one concurrent launch may win the election, $won did"
+snap25=$(ps_rows)
+n25=$(printf '%s\n' "$snap25" | grep -Fc -- "_supervise sjw25 $wdir25")
+[ "$n25" = 1 ] || fail "c25b: exactly one supervisor expected after the race, found $n25"
+senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25b: stop exited non-zero"
+# (c) a lock whose holder is gone is broken, so one hard kill cannot wedge
+#     `launch` the way it used to wedge `recover`; a lock whose holder is this
+#     very shell is not.
+mkdir -p "$wdir25/launch.lock" || fail "c25: cannot plant the launch lock"
+printf '%s\n' "$$" >"$wdir25/launch.lock/holder"
 senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
   launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null 2>&1
-[ $? -eq 3 ] || fail "c25b: a launch already in flight must refuse the second caller (exit 3)"
-rmdir "$wdir25/launch.lock"
-echo "ok: c25 launch elects a single initiator and refuses the second caller (obs:917e384e)"
+[ $? -eq 3 ] || fail "c25c: a launch whose holder is alive must refuse the second caller (exit 3)"
+printf '%s\n' 999999999 >"$wdir25/launch.lock/holder"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+  launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null \
+  || fail "c25c: a lock whose holder is gone must be broken and the launch proceed"
+senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25c: stop exited non-zero"
+echo "ok: c25 launch elects a single initiator under contention and breaks a dead holder's lock (obs:917e384e)"
 
 echo "all fleet-streamjson tests passed"

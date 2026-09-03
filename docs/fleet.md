@@ -407,17 +407,36 @@ recorded answer as the control_response; `recover` resumes a crashed
 worker's session via `--resume`; `status` surfaces completion and liveness
 from the supervisor and the captured event stream.
 
-`stop <worker>` is the close: it terminates the supervisor and its children
-(SIGTERM, then SIGKILL after a bounded grace, since children do not reliably
-die with a parent SIGTERM) and releases the locks, scratch temp, and attention
-record the worker held. Processes are matched on the worker's state-directory
-path, never on a process name, so a stop cannot reach an operator's own
-`claude` session. It never touches the worktree, the branch, or the unit's
-fence — the release set is exactly the reproducible resources, and worktree
-reclamation stays with `fleet-cleanup.sh worktree` and its positive-evidence
-checks. A release it cannot complete is reported as `partial` with the classes
-still held rather than as success, and a repeat stop takes exactly what is
-still held: `already-closed` against a worker holding nothing, no second kill.
+`stop <worker> [--grace <secs>]` is the close: it terminates the supervisor
+and its children (SIGTERM, then SIGKILL after the grace — default 5 seconds,
+1 to 300 — since children do not reliably die with a parent SIGTERM) and
+releases the locks, scratch temp, and attention record the worker held. The
+event capture, the receipt journal, and the persisted session survive a stop:
+they are the durable record, not runtime. It never touches the worktree, the
+branch, or the unit's fence — the release set is exactly the reproducible
+resources, and worktree reclamation stays with `fleet-cleanup.sh worktree` and
+its positive-evidence checks.
+
+Processes are matched on the worker's state directory and on the pids that
+directory records, never on a process name or command pattern — the guarantee
+is that a stop cannot reach an operator's own `claude` session by resembling
+it. The pid half is only as good as the pid files: a pid recorded before a
+crash and reused by the host in the meantime is signalled, which is why a stop
+clears those files once it has confirmed the tree is gone.
+
+Exit codes are the machine-readable half: `0` for `stopped` and for
+`already-closed`, `6` for a `partial` close naming the classes still held, `2`
+for an unknown handle. A repeat stop takes exactly what is still held, so
+`already-closed` means every class is free and nothing was signalled; a repeat
+after a partial close retries only the remainder. A stop does not remove the
+worker's dispatch registry record — `fleet-status.sh` keeps listing a stopped
+worker until the next registry scan reconciles it.
+
+Two adjacent refusals ship with the verb. `recover` breaks a `recover.lock`
+whose holder is gone, so one hard kill mid-recovery no longer disables recovery
+for that worker; and `launch` elects a single initiator, so a second launch for
+a worker that already has one in flight (or a supervisor already up) is refused
+with exit 3 rather than orphaning the first supervisor.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,

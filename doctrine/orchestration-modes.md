@@ -181,8 +181,11 @@ they watch.
 **Dispatching the stream-json-persistent rung (execution-backends D-5).** The
 rung `full-session` usually resolves to is driven entirely through
 `scripts/fleet-streamjson.sh`, never by launching `claude` directly: `launch`
-dispatches a supervisor-owned worker, `status` reports liveness, and `recover`
-resumes it against the persisted session after a supervisor death. Permission
+dispatches a supervisor-owned worker, `status` reports liveness, `recover`
+resumes it against the persisted session after a supervisor death, and `stop`
+is the close a tower invokes when a unit completes — never a bare signal to
+the pids in the worker's state directory, which releases nothing else the
+worker holds and tells the tower nothing about what it left behind. Permission
 and AskUserQuestion `control_request`s surface as decision-queue items with a
 pending-age alarm (`alarm-scan`); the tower **never** auto-answers one — an
 operator-recorded answer is delivered by `answer`. Observe through the

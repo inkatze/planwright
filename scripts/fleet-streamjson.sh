@@ -1,7 +1,10 @@
 #!/bin/sh
 # fleet-streamjson.sh — the stream-json-persistent supervisor primitive
 # (execution-backends Task 4; D-4, D-5 · REQ-A1.3, REQ-A1.9, REQ-E1.1,
-# REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5).
+# REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5). The close verb and its two lock
+# elections come from a later bundle (fleet-lifecycle-closure D-3, D-10 ·
+# REQ-B1.1–B1.4, REQ-B1.7), whose own REQ-A1.3 is a different requirement from
+# the one cited above; qualify the bundle when citing either.
 #
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
@@ -36,6 +39,10 @@
 #   in.fifo/out.fifo the stdio channels the supervisor owns
 #   supervisor.pid / worker.pid / result / recover.lock/ / journal.lock/ /
 #   launch.lock/
+#   .init.* / .journal.* / .session.*  mktemp-beside-target staging files
+#   *.broken.*       a lock directory a stale-break renamed out of the way
+# The last two lines are the scratch class `stop` releases; everything above
+# them is the durable record it keeps.
 # Placing the capture under the fleet home is the strongest reading of the
 # Task 4 "gitignored location outside committed paths" clause: it sits
 # outside every checkout, so it cannot be committed even by force-add. The
@@ -67,25 +74,36 @@
 #
 # THE CLOSE (`stop`). The release set is the runtime a worker acquires:
 # its process tree, the locks it holds, its scratch temp, and its attention
-# record. The tmux-window class is NOT acquired by this rung — a stream-json
-# worker is a detached supervisor/worker pair with no window — and is named
-# here rather than left silently absent, per the floor's declare-every-class
-# rule. The worktree, the branch, and the unit's fence are never touched: the
-# release set is exactly the reproducible resources, and the worktree is the
-# one holding work that cannot be recovered.
+# record. Two classes are named here rather than left silently absent, per the
+# floor's declare-every-class rule. The tmux-window class is not acquired by
+# this rung at all — a stream-json worker is a detached supervisor/worker pair
+# with no window. The dispatch registry record IS written at launch and is NOT
+# released here: it is fleet-wide inventory rather than this worker's runtime,
+# and it self-heals on the next registry scan, so a stopped worker stays listed
+# until that scan runs. The worktree, the branch, and the unit's fence are
+# never touched: the release set is exactly the reproducible resources, and the
+# worktree is the one holding work that cannot be recovered. No audit record is
+# written either — the reap path that needs one owns it, so that an autonomous
+# close writes exactly one record rather than two.
 #
 # Process matching keys on the worker's STATE-DIRECTORY path and on the pids
 # that directory records, never on a process name or command pattern: an
 # operator's own `claude` session shares this worker's command shape exactly,
-# so a name match would kill it. SIGTERM first, SIGKILL after a bounded grace,
-# because children do not reliably die with a parent SIGTERM.
+# so a name match would kill it. The path match is anchored on the supervisor's
+# own `_supervise <worker> <dir>` argv, not on a bare search for the directory,
+# which would also match a sibling worker whose handle this one prefixes and
+# any process merely naming the directory. SIGTERM first, SIGKILL after a
+# bounded grace, because children do not reliably die with a parent SIGTERM.
 #
 # A release that cannot complete is reported as partial with the classes still
 # held, never as success, so a tower can tell a closed worker from one that
-# left residue. Re-invocation is idempotent over the RELEASE SET rather than
-# the invocation: a stop takes exactly the classes still held, so a repeat
-# against a fully released worker reports `already-closed` and signals nothing,
-# while a repeat after a partial close retries only what remains.
+# left residue. A process class that stays held ends the walk: breaking the
+# locks and deleting the stdio fifos of a worker that is demonstrably still
+# running would leave it alive with no channel to answer it on. Re-invocation
+# is idempotent over the RELEASE SET rather than the invocation: a stop takes
+# exactly the classes still held, so a repeat against a fully released worker
+# reports `already-closed` and signals nothing, while a repeat after a partial
+# close retries only what remains.
 #
 # COMPLETION / LIVENESS. This backend's completion/liveness source is the
 # supervisor plus the event stream (the sibling of Task 3's completion
@@ -105,7 +123,9 @@
 #       `launched <worker> dir <dir>`); --foreground runs the supervisor
 #       loop in this process (fixtures; returns the worker's exit code). A
 #       caller-supplied `--bare` (or `-b`) in the extra args is refused
-#       (exit 2): the non-bare pin is structural.
+#       (exit 2): the non-bare pin is structural. Single-initiator: a launch
+#       already in flight for this worker, or a supervisor already up for it,
+#       is refused (exit 3) rather than allowed to orphan the first one.
 #   fleet-streamjson.sh answer <worker> <request-id>
 #       (--response-file <file> | --allow | --deny [--message <text>])
 #       Deliver the recorded answer for a pending request. --allow composes
@@ -131,8 +151,12 @@
 #       scratch temp, and attention record it holds. Prints one of
 #       `stop <worker> stopped released=<classes>`,
 #       `stop <worker> already-closed`, or
-#       `stop <worker> partial released=<classes> held=<classes>`.
-#       <secs> is the SIGTERM-to-SIGKILL grace (default 5).
+#       `stop <worker> partial released=<classes> held=<classes>` (with
+#       `released=-` when nothing was released). <secs> is the
+#       SIGTERM-to-SIGKILL grace: a whole number of seconds from 1 (there is
+#       no zero-grace form; SIGTERM always goes first) to 300, default 5, plus
+#       a fixed settling wait after SIGKILL. An unknown handle is exit 2, not
+#       `already-closed`, so a typo never reads as a successful close.
 #   fleet-streamjson.sh status <worker>
 #       Print `status <worker> <running|completed|dead|unknown> <detail>`
 #       from the recorded pids and the captured event stream.
@@ -146,7 +170,10 @@
 #   partial close: some class of the release set is still held.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,
-# mkfifo, mktemp, `date +%s`, a fractional `sleep`. No eval, no jq
+# mkfifo, mktemp, `date +%s`, a fractional `sleep`, and — for the close —
+# `kill` and a `ps -A -o pid=,ppid=,args=` whose output format is load-bearing
+# (`-ww` is probed and the narrow form accepted, since BSD ps truncates argv to
+# terminal width and busybox ps rejects the flag). No eval, no jq
 # (REQ-K1.5); all parsed content — event lines, request ids, prompt text —
 # is data, never code. Pathname expansion is disabled (set -f).
 set -uf
@@ -286,29 +313,56 @@ stat_mtime() {
   printf '%s\n' "$sm_v"
 }
 
-# --- journal (the REQ-E1.5 durable receipt state) ---------------------------
-# One tab-separated row per request id: id kind received-epoch state [epoch].
-# Mutations run under an mkdir lock, stale-broken past 60s: journal writes
-# are sub-second, so an older lock is a crashed holder, and breaking it can
-# at worst duplicate an attention upsert — never lose a receipt.
+# --- single-initiator locks -------------------------------------------------
 
-# The ages past which each single-initiator lock is a crashed holder rather
-# than a live one, each sized against the operation it covers: a recovery
-# spans a relaunch and its startup wait, a launch's uncovered window closes as
-# soon as `supervise` records a pid (liveness carries it from there).
+# The ages past which a lock whose holder never recorded itself is a crashed
+# holder rather than a live one, each sized against the operation it covers: a
+# recovery spans a relaunch and its startup wait; a launch's unrecorded window
+# closes as soon as it writes its holder pid.
 recover_lock_stale=300
 launch_lock_stale=60
+journal_lock_stale=60
 
-# stale_break <lock-dir> <max-age> — re-take a lock whose holder is gone.
-# Non-zero, leaving the lock alone, when it is younger than <max-age>, when the
-# mtime probe fails (an unreadable lock reads as fresh, so it is refused rather
-# than broken), or when the break-and-retake loses to another caller.
-stale_break() {
-  sb_now=$(now_epoch) || return 1
-  sb_mt=$(stat_mtime "$1") || sb_mt=$sb_now
-  [ $((sb_now - sb_mt)) -gt "$2" ] || return 1
-  rmdir "$1" 2>/dev/null || return 1
-  mkdir "$1" 2>/dev/null
+# lock_take <lock-dir> <max-age> — take an atomic mkdir election, breaking a
+# lock whose holder is gone. Non-zero, lock untouched, when a holder is
+# genuinely live.
+#
+# The holder's pid is recorded inside the lock, so a crashed holder is detected
+# by evidence rather than by an age that cannot tell a crash from a legitimate
+# long hold — a `--foreground` launch holds its lock for the whole run. The age
+# is the fallback for a lock whose holder died before recording itself, and an
+# unreadable mtime reads as fresh, so an unprobeable lock is refused rather
+# than broken.
+#
+# The break renames before it removes: `rmdir` then `mkdir` is not a
+# compare-and-swap, and two callers racing to break one stale lock would both
+# win it. Only one rename can find the directory.
+lock_take() {
+  if mkdir "$1" 2>/dev/null; then
+    printf '%s\n' "$$" >"$1/holder" 2>/dev/null || :
+    return 0
+  fi
+  lt_holder=$(cat "$1/holder" 2>/dev/null) || lt_holder=''
+  if valid_posnum "${lt_holder:-}"; then
+    kill -0 "$lt_holder" 2>/dev/null && return 1
+  else
+    lt_now=$(now_epoch) || return 1
+    lt_mt=$(stat_mtime "$1") || lt_mt=$lt_now
+    [ $((lt_now - lt_mt)) -gt "$2" ] || return 1
+  fi
+  lt_broken="$1.broken.$$"
+  mv "$1" "$lt_broken" 2>/dev/null || return 1
+  rm -rf "$lt_broken" 2>/dev/null || :
+  mkdir "$1" 2>/dev/null || return 1
+  printf '%s\n' "$$" >"$1/holder" 2>/dev/null || :
+}
+
+# lock_drop <lock-dir> — release a lock this process still holds. A lock some
+# other caller has since taken is left alone: without the ownership check, a
+# holder that outlived a break of its own lock would remove its successor's.
+lock_drop() {
+  [ "$(cat "$1/holder" 2>/dev/null)" = "$$" ] || return 0
+  rm -rf "$1" 2>/dev/null || :
 }
 
 # worker_alive <dir> — true when a pid this worker's own state records is live.
@@ -322,6 +376,12 @@ worker_alive() {
   return 1
 }
 
+# --- journal (the REQ-E1.5 durable receipt state) ---------------------------
+# One tab-separated row per request id: id kind received-epoch state [epoch].
+# Mutations run under an mkdir lock, stale-broken past its age: journal writes
+# are sub-second, so an older lock is a crashed holder, and breaking it can
+# at worst duplicate an attention upsert — never lose a receipt.
+
 journal_lock() {
   jl_dir="$1/journal.lock"
   jl_i=0
@@ -330,7 +390,7 @@ journal_lock() {
     if [ "$jl_i" -ge 50 ]; then
       jl_now=$(now_epoch) || return 2
       jl_mt=$(stat_mtime "$jl_dir") || jl_mt=$jl_now
-      if [ $((jl_now - jl_mt)) -gt 60 ]; then
+      if [ $((jl_now - jl_mt)) -gt "$journal_lock_stale" ]; then
         rmdir "$jl_dir" 2>/dev/null
         jl_i=0
         continue
@@ -767,17 +827,32 @@ register_dispatch() {
 
 # --- the close (the release set) --------------------------------------------
 
-# The classes a stop walks, in release order. Processes go FIRST so a live
-# launch's own EXIT trap has already fired by the time the lock class is
-# released: in the other order the dying holder's trap can rmdir a lock a later
-# launch has since taken.
+# The classes a stop walks, in release order. Processes go first because a
+# release that cannot complete aborts the walk: breaking the locks and deleting
+# the stdio fifos of a worker still running would leave it alive with no
+# channel to answer it on and no receipt lock to protect its journal.
 release_classes='process locks scratch attention'
 
-# The locks this rung's worker dir can hold. journal.lock and recover.lock are
-# broken by their own holders' stale-break; launch.lock has none (a
-# --foreground launch holds it for the whole run, so no age can tell a crashed
-# holder from a live one), which is why this verb is its close.
+# The locks this rung's worker dir can hold.
 lock_classes='journal.lock recover.lock launch.lock'
+
+# Scratch is the stdio fifos the supervisor owns, the staging files this
+# script's writers create beside their targets, and the residue of a broken
+# lock. Everything else in the state directory is the durable record a close
+# keeps: the capture, the journal, the session, the stored envelopes, and the
+# result.
+scratch_globs() {
+  case $- in
+    *f*) sg_restore='set -f' ;;
+    *) sg_restore='set +f' ;;
+  esac
+  set +f
+  for sg_p in "$1/in.fifo" "$1/out.fifo" \
+    "$1"/.init.* "$1"/.journal.* "$1"/.session.* "$1"/*.broken.*; do
+    [ -e "$sg_p" ] && printf '%s\n' "$sg_p"
+  done
+  $sg_restore
+}
 
 # ps_rows — one `<pid> <ppid> <args>` row per process on the host.
 #
@@ -806,20 +881,32 @@ ps_rows_shaped() {
   esac
 }
 
-# stop_candidates <dir> — every live pid belonging to the worker whose runtime
-# state lives at <dir>, one per line. Non-zero when the host's process table
-# cannot be read, so a caller reports the class held rather than assuming it is
-# free.
+# stop_candidates <dir> <worker> — every live pid belonging to the worker whose
+# runtime state lives at <dir>, one per line. Non-zero when the host's process
+# table cannot be read, so a caller reports the class held rather than assuming
+# it is free.
 #
-# Two seeds, both anchored on the state directory: the pids that directory's
-# own files record, and any process carrying its path in argv (which is how a
-# detached supervisor whose pid file was lost is still found). The worker's own
-# children carry neither, so they are reached by walking the parent map down
-# from those seeds.
+# Two seeds. The supervisor is matched on the exact `_supervise <worker> <dir>`
+# triple this script re-execs itself with. Searching argv for the bare
+# directory would over-match twice over: one handle prefixes another (`api`
+# against `api2`'s state directory), and any process that merely *names* the
+# directory — an operator tailing the event capture — would be swept in with
+# its whole subtree. The worker, and a supervisor whose argv cannot be read,
+# come from the pids the state directory records. Neither seed is a process
+# name or a command pattern.
+#
+# The worker's own children carry neither the argv nor a pid file, so they are
+# reached by walking the parent map down from the seeds. pid 1 is never a root:
+# an expansion that reached it would enumerate every orphan on the host.
 #
 # The caller's own process and its ancestors are excluded: a close invoked from
 # inside the tree it is closing must not kill the closer mid-release. That case
 # releases nothing and is reported as partial, which is the honest outcome.
+#
+# The match text goes through the environment rather than `awk -v`, which
+# rewrites backslash escapes in the value it assigns: the fleet home is taken
+# verbatim from the operator's configuration, and a `\t` in it would otherwise
+# make the comparison silently target a path nobody asked for.
 stop_candidates() {
   sc_dir=$1
   sc_snap=$(ps_rows) || return 1
@@ -830,15 +917,20 @@ stop_candidates() {
       sc_seed="$sc_seed $sc_p"
     fi
   done
-  printf '%s\n' "$sc_snap" | awk -v d="$sc_dir" -v seeds="$sc_seed" -v me="$$" '
-    {
+  SC_MATCH="_supervise $2 $sc_dir"
+  export SC_MATCH
+  printf '%s\n' "$sc_snap" | awk -v seeds="$sc_seed" -v self_pid="$$" '
+    BEGIN { sup = ENVIRON["SC_MATCH"] }
+    $1 ~ /^[0-9]+$/ {
       ppid[$1] = $2
       order[++n] = $1
-      if (index($0, d)) want[$1] = 1
+      if (index($0, sup)) want[$1] = 1
     }
     END {
       m = split(seeds, s, " ")
       for (i = 1; i <= m; i++) if (s[i] != "") want[s[i]] = 1
+      delete want["0"]
+      delete want["1"]
       for (pass = 1; pass <= n; pass++) {
         grew = 0
         for (i = 1; i <= n; i++) {
@@ -850,96 +942,157 @@ stop_candidates() {
         }
         if (!grew) break
       }
-      safe["1"] = 1
-      p = me
+      # The closer, everything it descends from, and everything under it. The
+      # descendants matter as much as the ancestors: this function runs in a
+      # forked subshell, so a close invoked from inside the tree it closes
+      # would otherwise enumerate its own scanner on every poll and never see
+      # the candidate set empty. pid 0 and pid 1 are filtered from the result
+      # rather than seeded here: seeding them would claim every orphan on the
+      # host, including the orphaned worker a close most needs to find.
+      p = self_pid
       for (i = 0; i <= n; i++) {
-        safe[p] = 1
+        mine[p] = 1
         if (!(p in ppid) || ppid[p] == "" || ppid[p] == "0") break
         p = ppid[p]
+      }
+      for (pass = 1; pass <= n; pass++) {
+        grew = 0
+        for (i = 1; i <= n; i++) {
+          p = order[i]
+          if (!(p in mine) && (ppid[p] in mine)) {
+            mine[p] = 1
+            grew = 1
+          }
+        }
+        if (!grew) break
       }
       # `p in ppid` is presence in the process table. The recorded pids are
       # seeded without a liveness check of their own, so a worker closed while
       # its pid files survive would otherwise report its process class held
       # forever, on two pids that no longer exist.
-      for (p in want) if ((p in ppid) && !(p in safe)) print p
+      for (p in want) {
+        if (!(p in ppid) || (p in mine)) continue
+        if (p == "0" || p == "1") continue
+        print p
+      }
     }'
 }
 
-# release_processes <dir> <grace> — SIGTERM the worker's process tree, then
-# SIGKILL whatever is still there after <grace> seconds. Children do not
+# stop_live <space-separated pids> — the deduplicated subset still signallable,
+# space-separated on stdout.
+stop_live() {
+  sl_out=''
+  for sl_p in $1; do
+    valid_posnum "$sl_p" || continue
+    [ "$sl_p" = 1 ] && continue
+    case " $sl_out " in
+      *" $sl_p "*) continue ;;
+    esac
+    kill -0 "$sl_p" 2>/dev/null || continue
+    sl_out="$sl_out $sl_p"
+  done
+  printf '%s' "${sl_out# }"
+}
+
+# The settling wait after SIGKILL, in seconds. Not operator-tunable: SIGKILL is
+# not refusable, so this bounds how long the kernel takes to reap, not how long
+# a process is given to cooperate.
+kill_settle=5
+
+# The largest grace a caller may ask for.
+grace_max=300
+
+# release_processes <dir> <worker> <grace> — SIGTERM the worker's process tree,
+# then SIGKILL whatever is still there after <grace> seconds. Children do not
 # reliably die with a parent SIGTERM, so the escalation is not optional.
+#
+# The target set accumulates in `stop_tracked` rather than being recomputed
+# from scratch each round. A child that ignores SIGTERM is reparented to pid 1
+# when its parent dies, which drops it out of the descendant walk entirely — a
+# set rebuilt from the walk alone would then find nothing and report the class
+# released while that child ran on, which is the exact leak this verb exists to
+# close. Candidates discovered during the wait are folded in, so a process the
+# worker forks mid-close is signalled too.
+#
+# The wait is bounded by wall clock rather than by a tick count: a poll costs a
+# full process-table scan, so on a busy host a tick is far longer than the
+# sleep and a counted grace would silently be several times the seconds the
+# operator asked for.
 release_processes() {
   rp_dir=$1
-  rp_grace=$2
-  rp_pids=$(stop_candidates "$rp_dir") || {
+  rp_worker=$2
+  rp_grace=$3
+  rp_found=$(stop_candidates "$rp_dir" "$rp_worker") || {
     echo "$me: cannot read the process table; the process class is left held" >&2
     return 1
   }
-  [ -n "$rp_pids" ] || return 0
+  stop_tracked=$(stop_live "$stop_tracked $rp_found")
+  [ -n "$stop_tracked" ] || return 0
   for rp_sig in TERM KILL; do
-    for rp_p in $rp_pids; do
+    for rp_p in $stop_tracked; do
       kill "-$rp_sig" "$rp_p" 2>/dev/null || :
     done
-    rp_left=$([ "$rp_sig" = TERM ] && echo $((rp_grace * 10)) || echo 50)
-    while [ "$rp_left" -gt 0 ]; do
-      rp_pids=$(stop_candidates "$rp_dir") || return 1
-      [ -n "$rp_pids" ] || return 0
+    case $rp_sig in
+      TERM) rp_wait=$rp_grace ;;
+      *) rp_wait=$kill_settle ;;
+    esac
+    rp_now=$(now_epoch) || return 1
+    rp_until=$((rp_now + rp_wait))
+    while :; do
+      rp_found=$(stop_candidates "$rp_dir" "$rp_worker") || return 1
+      stop_tracked=$(stop_live "$stop_tracked $rp_found")
+      if [ -z "$stop_tracked" ]; then
+        # The recorded pids are now the pids of nothing. Left in place they
+        # would re-seed every later scan, and a pid the host reuses would make
+        # `launch` refuse this handle as already running, forever.
+        rm -f "$rp_dir/supervisor.pid" "$rp_dir/worker.pid" 2>/dev/null || :
+        return 0
+      fi
+      rp_now=$(now_epoch) || return 1
+      [ "$rp_now" -lt "$rp_until" ] || break
       sleep 0.1
-      rp_left=$((rp_left - 1))
     done
   done
   return 1
 }
 
 held_process() {
-  hp_pids=$(stop_candidates "$1") || return 0
-  [ -n "$hp_pids" ]
+  hp_found=$(stop_candidates "$1" "$2") || return 0
+  [ -n "$(stop_live "$stop_tracked $hp_found")" ]
 }
 
+# `-e` rather than `-d`: a lock path that exists as a regular file blocks the
+# `mkdir` election just as effectively as a directory does, and gating on `-d`
+# would leave the verb it blocks wedged with nothing able to clear it.
 held_locks() {
   for hl_l in $lock_classes; do
-    [ -d "$1/$hl_l" ] && return 0
+    [ -e "$1/$hl_l" ] && return 0
   done
   return 1
 }
 
+# `rm -rf` rather than `rmdir`: an election lock carries its holder's pid
+# inside it, so it is not an empty directory. The names are literals from
+# `lock_classes` under a directory the caller has already validated.
 release_locks() {
   rl_rc=0
   for rl_l in $lock_classes; do
-    [ -d "$1/$rl_l" ] || continue
-    rmdir "$1/$rl_l" 2>/dev/null || :
-    [ -d "$1/$rl_l" ] && rl_rc=1
+    [ -e "$1/$rl_l" ] || continue
+    rm -rf "${1:?}/$rl_l" 2>/dev/null || :
+    [ -e "$1/$rl_l" ] && rl_rc=1
   done
   return "$rl_rc"
 }
 
-# Scratch is the stdio fifos the supervisor owns plus the mktemp-beside-target
-# staging files this script's writers create. Nothing else in the state
-# directory is scratch: the capture, the journal, the session, and the stored
-# envelopes are the durable record a close keeps.
 held_scratch() {
-  hs_rc=1
-  set +f
-  for hs_p in "$1"/in.fifo "$1"/out.fifo "$1"/.init.* "$1"/.journal.* "$1"/.session.*; do
-    if [ -e "$hs_p" ]; then
-      hs_rc=0
-      break
-    fi
-  done
-  set -f
-  return "$hs_rc"
+  [ -n "$(scratch_globs "$1")" ]
 }
 
 release_scratch() {
-  rs_rc=0
-  set +f
-  for rs_p in "$1"/in.fifo "$1"/out.fifo "$1"/.init.* "$1"/.journal.* "$1"/.session.*; do
-    [ -e "$rs_p" ] || continue
+  scratch_globs "$1" | while IFS= read -r rs_p; do
     rm -f "$rs_p" 2>/dev/null || :
-    [ -e "$rs_p" ] && rs_rc=1
   done
-  set -f
-  return "$rs_rc"
+  [ -z "$(scratch_globs "$1")" ]
 }
 
 # The attention store's layout is read directly, as the sibling fleet scripts
@@ -947,22 +1100,72 @@ release_scratch() {
 # row's presence is what "held" means here. The string coercion is that
 # script's own comparison discipline — a bare `$1 == w` equates all-numeric
 # handles (`1`, `01`, `1.0`) and would report the wrong worker's row.
+#
+# A store that exists but cannot be read counts as held: the same fail-closed
+# posture the process probe takes, so an unreadable store cannot make a class
+# that is still occupied report as released.
 held_attention() {
   [ -f "$1" ] || return 1
-  awk -F'\t' -v w="$2" '($1 "") == (w "") { found = 1 } END { exit found ? 0 : 1 }' "$1"
+  [ -r "$1" ] || return 0
+  awk -F'\t' -v w="$2" '($1 "") == (w "") { found = 1 } END { exit found ? 0 : 1 }' "$1" 2>/dev/null
 }
 
+# Clearing the row is half the release. The other half is the journal: a
+# receipt left `pending` is what `alarm-scan` re-queues a decision item from,
+# so a closed worker would keep re-arming the class this call just released,
+# and an operator answering that item would write into a fifo the same close
+# deleted. A close makes those receipts undeliverable by definition, and a
+# later `--resume` re-opens any the resumed worker asks again.
 release_attention() {
-  /bin/sh "$FA" clear "$1" >/dev/null 2>&1
+  journal_close "$2" || return 1
+  /bin/sh "$FA" clear "$1" >/dev/null
 }
 
-# stop_held <class> <dir> <worker> <attention-store>
+journal_close() {
+  [ -f "$1/journal" ] || return 0
+  awk -F'\t' '$4 == "pending" { found = 1 } END { exit found ? 0 : 1 }' "$1/journal" || return 0
+  journal_lock "$1" || return 1
+  jc_now=$(now_epoch) || jc_now=0
+  jc_tmp=$(mktemp "$1/.journal.XXXXXX") || {
+    journal_unlock "$1"
+    return 1
+  }
+  jc_rc=0
+  awk -F'\t' -v OFS='\t' -v ep="$jc_now" \
+    '$4 == "pending" { $4 = "undeliverable"; $5 = ep } { print }' "$1/journal" >"$jc_tmp" \
+    && mv "$jc_tmp" "$1/journal" || jc_rc=1
+  [ "$jc_rc" = 0 ] || rm -f "$jc_tmp" 2>/dev/null
+  journal_unlock "$1"
+  return "$jc_rc"
+}
+
+# stop_held / stop_release <class> <dir> <worker> <attention-store> <grace>.
+# The unknown-class arms are not defensive filler: a class added to
+# `release_classes` without both arms would otherwise report itself
+# permanently held, or silently released, with nothing on stderr.
 stop_held() {
   case $1 in
-    process) held_process "$2" ;;
+    process) held_process "$2" "$3" ;;
     locks) held_locks "$2" ;;
     scratch) held_scratch "$2" ;;
     attention) held_attention "$4" "$3" ;;
+    *)
+      echo "$me: no held-probe for release class '$1'" >&2
+      return 0
+      ;;
+  esac
+}
+
+stop_release() {
+  case $1 in
+    process) release_processes "$2" "$3" "$5" ;;
+    locks) release_locks "$2" ;;
+    scratch) release_scratch "$2" ;;
+    attention) release_attention "$3" "$2" ;;
+    *)
+      echo "$me: no release for class '$1'" >&2
+      return 1
+      ;;
   esac
 }
 
@@ -1048,20 +1251,11 @@ cmd_launch() {
   # `supervise`, and the second overwrites the first's pid files — orphaning a
   # supervisor that nothing records and nothing can close.
   #
-  # A held lock is broken only when nothing this worker records is alive AND
-  # the lock is past its age: a --foreground launch holds it for the whole run,
-  # so age alone would false-break one, and liveness alone cannot see a launch
-  # still inside its startup window. The two together leave no gap, because a
-  # launch becomes visible to the liveness half as soon as `supervise` records
-  # a pid. `stop` releases the lock class outright, for a lock stranded younger
-  # than its age.
-  if ! mkdir "$dir/launch.lock" 2>/dev/null; then
-    if worker_alive "$dir" || ! stale_break "$dir/launch.lock" "$launch_lock_stale"; then
-      echo "$me: a launch is already in flight for $worker (refused: single initiator)" >&2
-      exit 3
-    fi
+  if ! lock_take "$dir/launch.lock" "$launch_lock_stale"; then
+    echo "$me: a launch is already in flight for $worker (refused: single initiator)" >&2
+    exit 3
   fi
-  trap 'rmdir "$dir/launch.lock" 2>/dev/null' EXIT
+  trap 'lock_drop "$dir/launch.lock"' EXIT
 
   # The election ends when the first launch releases its lock, so a launch
   # arriving after that against a supervisor already up needs its own refusal:
@@ -1355,24 +1549,15 @@ cmd_recover() {
     exit 2
   }
 
-  # Single recovery initiator (REQ-E1.5): the atomic mkdir is the election;
-  # a concurrent second attempt is refused, never raced.
-  #
-  # Stale-broken past the age below, on the sibling journal_lock's pattern: a
-  # SIGKILL between this mkdir and the trap that releases it leaves a directory
-  # no holder owns, and without the break that one kill wedges `recover` for
-  # this worker permanently. A failed mtime probe reads as fresh, so an
-  # unreadable lock refuses rather than getting broken. The threshold sits well
-  # above a detached recovery, which is bounded by the relaunch's own startup
-  # wait; a `--foreground` recovery running longer than this is the one case
-  # the age cannot distinguish from a crash.
-  if ! mkdir "$dir/recover.lock" 2>/dev/null; then
-    if ! stale_break "$dir/recover.lock" "$recover_lock_stale"; then
-      echo "$me: recovery already in progress for $worker (refused: single initiator)" >&2
-      exit 3
-    fi
+  # Single recovery initiator (REQ-E1.5): the election refuses a concurrent
+  # second attempt rather than racing it, and breaks a lock whose holder is
+  # gone — without that break, one SIGKILL between the election and the trap
+  # that releases it wedges `recover` for this worker permanently.
+  if ! lock_take "$dir/recover.lock" "$recover_lock_stale"; then
+    echo "$me: recovery already in progress for $worker (refused: single initiator)" >&2
+    exit 3
   fi
-  trap 'rmdir "$dir/recover.lock" 2>/dev/null' EXIT
+  trap 'lock_drop "$dir/recover.lock"' EXIT
 
   # Orphan liveness BEFORE --resume (REQ-E1.5): a still-alive worker or
   # supervisor is not orphaned; resuming over it would fork the session.
@@ -1383,12 +1568,6 @@ cmd_recover() {
       exit 3
     fi
   done
-
-  # The crashed launch this recovery repairs left its own election lock behind.
-  # The liveness check just above is the evidence that no launch is in flight —
-  # stronger than any age — so the relaunch is not refused by the corpse of the
-  # launch it replaces.
-  rmdir "$dir/launch.lock" 2>/dev/null || :
 
   sid=$(cat "$dir/session" 2>/dev/null) || sid=''
   if ! valid_reqid "${sid:-}"; then
@@ -1412,6 +1591,14 @@ cmd_recover() {
     printf 'recovered %s session %s\n' "$worker" "$sid"
   else
     ec=$?
+    # The relaunch's own refusal (a launch already in flight, or a supervisor
+    # that came up under someone else) is not a resume failure: halting the
+    # unit on it would tell the operator to intervene while a perfectly good
+    # launch is running. Pass the refusal through instead.
+    if [ "$ec" = 3 ]; then
+      echo "$me: relaunch for $worker refused; another launch holds this worker" >&2
+      exit 3
+    fi
     attention_failure "$worker" "$dir" \
       "resume halt: --resume relaunch for worker $worker failed (exit $ec) - unit halted awaiting operator direction"
     echo "$me: --resume relaunch failed for $worker (exit $ec); halt (REQ-E1.5)" >&2
@@ -1440,10 +1627,13 @@ cmd_stop() {
         ;;
     esac
   done
-  valid_posnum "$grace" || {
-    echo "$me: invalid --grace" >&2
+  # The grace is bounded as well as shaped: `valid_posnum` admits fifteen
+  # digits, and a close that waits for a century is indistinguishable from one
+  # that has hung.
+  if ! valid_posnum "$grace" || [ "$grace" -gt "$grace_max" ]; then
+    echo "$me: --grace must be a whole number of seconds, 1 to $grace_max" >&2
     exit 2
-  }
+  fi
   dir=$(worker_dir "$worker") || exit 2
   # A close never removes the state directory, so its absence means this handle
   # names no worker — reported as such rather than as `already-closed`, which
@@ -1452,21 +1642,28 @@ cmd_stop() {
     echo "$me: unknown worker $worker" >&2
     exit 2
   }
+  # The handle grammar blocks traversal tokens but not a symlink planted under
+  # the fleet home, and this verb deletes inside whatever it is handed.
+  [ ! -L "$dir" ] || {
+    echo "$me: refusing to close $worker: its state directory is a symlink" >&2
+    exit 2
+  }
   st_root=$(/bin/sh "$FS" root) || exit 2
   st_store="$st_root/attention/state"
 
+  stop_tracked=''
   st_released=''
   st_held=''
   for st_class in $release_classes; do
     stop_held "$st_class" "$dir" "$worker" "$st_store" || continue
-    case $st_class in
-      process) release_processes "$dir" "$grace" || : ;;
-      locks) release_locks "$dir" || : ;;
-      scratch) release_scratch "$dir" || : ;;
-      attention) release_attention "$worker" || : ;;
-    esac
+    stop_release "$st_class" "$dir" "$worker" "$st_store" "$grace" || :
     if stop_held "$st_class" "$dir" "$worker" "$st_store"; then
       st_held="$st_held,$st_class"
+      # A worker whose tree could not be closed is still running. Releasing the
+      # rest of its runtime from under it would take away the channel an
+      # operator answers it on and the lock that protects its journal, so the
+      # walk stops here and reports what is still held.
+      [ "$st_class" = process ] && break
     else
       st_released="$st_released,$st_class"
     fi
@@ -1484,6 +1681,7 @@ cmd_stop() {
     return 0
   fi
   printf 'stop %s stopped released=%s\n' "$worker" "$st_released"
+  return 0
 }
 
 cmd_alarm_scan() {
