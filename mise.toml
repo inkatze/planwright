@@ -123,7 +123,7 @@ description = "instruction-hygiene size guard: per-file / start-load / closure w
 run = "/bin/bash scripts/check-instructions.sh --closeout"
 
 [tasks."check:no-ci-evals"]
-description = "standing CI-exclusion guard: fail if a kept-eval task (the eval: namespace) is wired into any .github/workflows file, so evals never run in CI (prompt-hygiene Task 4, REQ-C1.6, D-8)"
+description = "standing CI-exclusion guard, so evals never run in CI. Three passes: a workflow-text scan of .github/workflows for a wired-in eval task or a direct runner call; a task-graph closure over depends/depends_post/wait_for from the tasks the workflows invoke, failing if it reaches the eval: namespace; and a scan of the run bodies in that closure, whose own task invocations feed it as edges. Parse boundary: mise.toml only, so file-based task definitions are outside it. Fails closed on an unparseable or zero-task mise.toml, on zero workflow roots, and on any input it cannot read. Run `scripts/check-no-ci-evals.sh --help` for the full contract, including what the graph passes deliberately do not follow."
 run = "/bin/sh scripts/check-no-ci-evals.sh"
 
 [tasks."check:workflow-posture"]
