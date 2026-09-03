@@ -125,7 +125,6 @@ assert_contains "the failure names the hook" "$out" "githooks/pre-commit"
 # 5. The backtick substitution form is the same footgun and is flagged too.
 # ---------------------------------------------------------------------------
 make_root "$tmp/backtick"
-# shellcheck disable=SC2016 # the fixture body is a literal, not an expansion
 write_script "$tmp/backtick/tests/legacy.sh" bare \
   'root=`cd "$(dirname "$0")/.." && pwd`' \
   'echo "$root"'
@@ -141,7 +140,6 @@ assert_contains "the backtick failure names the file" "$out" "tests/legacy.sh"
 make_root "$tmp/no-shebang"
 write_script "$tmp/no-shebang/scripts/ok.sh" unset 'echo fine'
 mkdir -p "$tmp/no-shebang/tests"
-# shellcheck disable=SC2016 # literal fixture text, deliberately not expanded
 printf '%s\n' 'root="$(cd .. && pwd)"' >"$tmp/no-shebang/tests/notes.txt"
 out="$(/bin/bash "$CHECKER" "$tmp/no-shebang" 2>&1)"
 assert "a shebang-less file is not scanned" 0 $?
@@ -151,7 +149,6 @@ assert_not_contains "the clean run does not name the data file" "$out" "notes.tx
 # 7. A comment mentioning the pattern is not a use of it.
 # ---------------------------------------------------------------------------
 make_root "$tmp/comment"
-# shellcheck disable=SC2016 # literal fixture text, deliberately not expanded
 write_script "$tmp/comment/scripts/doc.sh" bare \
   '# A $(cd ...) here would need a top-level unset CDPATH.' \
   'echo fine'
