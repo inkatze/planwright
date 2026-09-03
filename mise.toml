@@ -146,6 +146,10 @@ run = "/bin/bash scripts/check-hook-contracts.sh"
 description = "doctrine/*.md ↔ doctrine/README.md index bijection (guard-coverage REQ-F1.1)"
 run = "/bin/bash scripts/check-doctrine-index.sh"
 
+[tasks."check:cdpath"]
+description = "CDPATH house-pattern guard: fail on any script under scripts/, tests/, or githooks/ that resolves paths through a cd command substitution without a top-level 'unset CDPATH'; enumerates by shebang so the extensionless hooks are covered, and fails closed on a zero-file enumeration (guard-coverage Task 10, REQ-G1.2, REQ-H1.3, D-12)"
+run = "/bin/bash scripts/check-cdpath.sh"
+
 [tasks."check:doctrine-manifest"]
 description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-doctrine-manifest.sh"
@@ -190,6 +194,7 @@ depends = [
   "check:githooks",
   "check:purged-identifiers",
   "check:hook-contracts",
+  "check:cdpath",
   "check:doctrine-index",
   "check:doctrine-manifest",
   "check:specs",
