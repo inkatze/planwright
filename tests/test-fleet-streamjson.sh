@@ -1379,26 +1379,49 @@ senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25: stop exited
 # (b) the election itself, under genuine contention: several launches start at
 #     once with no supervisor up, so the atomic mkdir is what decides. Exactly
 #     one may win, and the losers must refuse rather than race into `supervise`.
-for n in 1 2 3; do
-  senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
-    launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" \
-    >"$tmp/o25b.$n" 2>&1 &
-done
-wait
-won=0
-for n in 1 2 3; do
-  grep -q "^launched sjw25 " "$tmp/o25b.$n" && won=$((won + 1))
-done
-if [ "$won" != 1 ]; then
-  for n in 1 2 3; do
-    printf 'c25b launch %s said: %s\n' "$n" "$(cat "$tmp/o25b.$n")" >&2
+#
+# Only meaningful on a host whose `mkdir` is actually atomic, which is not
+# universal: uutils coreutils 0.8.0, the /usr/bin/mkdir on some images, returns
+# success to several concurrent creators of one path (its sequential EEXIST is
+# correct, so only contention exposes it). That loses the election underneath
+# the script rather than inside it, and the case would report a defect the code
+# does not have. Probed rather than assumed, and skipped out loud: a silent
+# pass here would read as evidence the election holds.
+atomic=1
+mkdir -p "$tmp/mkatom"
+for probe in $(seq 1 25); do
+  : >"$tmp/mkatom/w"
+  for n in 1 2 3 4 5 6 7 8; do
+    (mkdir "$tmp/mkatom/l.$probe" 2>/dev/null && printf 'x\n' >>"$tmp/mkatom/w") &
   done
-  fail "c25b: exactly one concurrent launch may win the election, $won did"
+  wait
+  [ "$(wc -l <"$tmp/mkatom/w")" = 1 ] || atomic=0
+done
+if [ "$atomic" = 0 ]; then
+  echo "SKIP: c25b needs an atomic mkdir; $(command -v mkdir) admits several" >&2
+  echo "      concurrent winners, so it cannot hold an election to test." >&2
+else
+  for n in 1 2 3; do
+    senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+      launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" \
+      >"$tmp/o25b.$n" 2>&1 &
+  done
+  wait
+  won=0
+  for n in 1 2 3; do
+    grep -q "^launched sjw25 " "$tmp/o25b.$n" && won=$((won + 1))
+  done
+  if [ "$won" != 1 ]; then
+    for n in 1 2 3; do
+      printf 'c25b launch %s said: %s\n' "$n" "$(cat "$tmp/o25b.$n")" >&2
+    done
+    fail "c25b: exactly one concurrent launch may win the election, $won did"
+  fi
+  snap25=$(ps_rows)
+  n25=$(printf '%s\n' "$snap25" | grep -Fc -- "_supervise sjw25 $wdir25")
+  [ "$n25" = 1 ] || fail "c25b: exactly one supervisor expected after the race, found $n25"
+  senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25b: stop exited non-zero"
 fi
-snap25=$(ps_rows)
-n25=$(printf '%s\n' "$snap25" | grep -Fc -- "_supervise sjw25 $wdir25")
-[ "$n25" = 1 ] || fail "c25b: exactly one supervisor expected after the race, found $n25"
-senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25b: stop exited non-zero"
 # (c) a lock whose holder is gone is broken, so one hard kill cannot wedge
 #     `launch` the way it used to wedge `recover`; a lock whose holder is this
 #     very shell is not.
