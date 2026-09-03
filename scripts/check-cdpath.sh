@@ -27,10 +27,11 @@
 # repo's own house style for a long substitution.
 #
 # What clears a file: a top-level `unset CDPATH` (any spelling that names
-# CDPATH, including `unset -v` and multi-name forms) or a top-level `CDPATH=`
-# assignment. Heredoc bodies and full-line comments are not code, so an
-# `unset CDPATH` inside one clears nothing — otherwise quoting the remedy in a
-# usage message would exempt the script quoting it.
+# CDPATH, including `unset -v` and multi-name forms) or a top-level assignment
+# of an EMPTY CDPATH. `CDPATH=.:/var` is the bug rather than the remedy, so it
+# clears nothing. Heredoc bodies and full-line comments are not code either, so
+# an `unset CDPATH` inside one clears nothing — otherwise quoting the remedy in
+# a usage message would exempt the script quoting it.
 #
 # Presence is checked, not position. A `cd` substitution that runs before the
 # unset is still a bug, and this guard will not catch that one.
@@ -98,9 +99,10 @@ Flagged: `cd` or `pushd` as the first command inside a `$(...)`, backtick, or
 the opening `$(`.
 
 Cleared by: a top-level `unset CDPATH` (any spelling that names CDPATH) or a
-top-level `CDPATH=` assignment. Heredoc bodies and full-line comments do not
-count. Presence is checked, not position: an unset written after the
-substitution still clears the file here, though it does not fix the bug.
+top-level assignment of an empty CDPATH. A non-empty `CDPATH=...` is the bug,
+not the remedy. Heredoc bodies and full-line comments do not count. Presence is
+checked, not position: an unset written after the substitution still clears the
+file here, though it does not fix the bug.
 
 Exit codes: 0 clean, 1 an offending file, 2 usage or a broken enumeration.
 
