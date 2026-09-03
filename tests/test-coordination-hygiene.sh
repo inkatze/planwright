@@ -358,7 +358,27 @@ grep -qi "symlink" "$tmp/err11" \
   || fail "the surface-root symlink refusal did not name the symlink: $(cat "$tmp/err11")"
 [ -z "$(find "$elsewhere" -mindepth 1 -print -quit)" ] \
   || fail "the surface-root symlink target was written through"
-echo "ok: a surface-root symlink is refused, its target never written through"
+
+# ... and in the DANGLING state too. `docs/fleet.md` promises a symlink-tampered
+# surface is refused "in any state" (exit 4), and the sibling sentinel check
+# already spells out why: a dangling link is the sharper case, since the write
+# would CREATE the attacker-chosen target rather than merely reach an existing
+# one. The mode read cannot reach this state — `-d` is false through a dangling
+# link — so without an explicit bar the operator is sent to fix a writability
+# problem that was never the problem.
+h11b="$tmp/h11b"
+mkdir -p "$h11b"
+ln -s "$tmp/never-created" "$h11b/presence"
+rc=0
+run_fp "$h11b" publish --checkout "$co" --session-id "$uuid_self" --pid $$ \
+  >/dev/null 2>"$tmp/err11b" || rc=$?
+[ "$rc" = 4 ] \
+  || fail "a DANGLING surface-root symlink was not refused (exit $rc, expected 4): $(cat "$tmp/err11b")"
+grep -qi "symlink" "$tmp/err11b" \
+  || fail "the dangling surface-root symlink refusal did not name the symlink: $(cat "$tmp/err11b")"
+[ ! -e "$tmp/never-created" ] \
+  || fail "the dangling surface-root symlink target was created through the redirect"
+echo "ok: a surface-root symlink is refused in both states, its target never written through"
 
 # ---------------------------------------------------------------------------
 # 12. REQ-D1.5 — the fence-ref name: spec id and unit id validated, the

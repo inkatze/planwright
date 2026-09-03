@@ -620,18 +620,6 @@ fi
 # security refusal.
 check_private() {
   cp_dir=$1
-  # Containment on the surface path itself, checked FIRST and on its own
-  # terms: a symlink at any surface or infrastructure root would redirect
-  # every record write, mkdir, and unlink below it to a target this check
-  # never inspected. The mode read below already refuses one incidentally (a
-  # symlink lists as `l…`, not `d???------`), but it refuses it as an
-  # over-broad MODE — sending the operator to chmod a directory whose
-  # permissions were never the problem. Name the redirect instead (REQ-D1.5,
-  # D-9).
-  if [ -L "$cp_dir" ]; then
-    err "security: coordination surface $cp_dir is a symlink — refusing to write the surface through a redirect, whatever it points at (containment, REQ-D1.5/REQ-A1.4); investigate and remove it yourself"
-    exit 4
-  fi
   # ls -ld[n] is the portable mode/owner read (stat's flags differ across
   # BSD/GNU); only the mode and numeric-uid columns are parsed, never a
   # filename (SC2012 n/a).
@@ -656,6 +644,30 @@ check_private() {
   esac
   if [ "$cp_uid" != "$my_uid" ]; then
     err "security: coordination surface $cp_dir is owned by uid $cp_uid, not this user — refusing an attacker-planted or mis-owned surface (verify-or-refuse, REQ-A1.4); investigate and remove it yourself"
+    exit 4
+  fi
+}
+
+# check_surface_not_redirected <dir> — containment on the surface path itself,
+# on its own terms (REQ-D1.5, D-9). A symlink at any surface or infrastructure
+# root would redirect every record write, mkdir, and unlink below it to a
+# target this script never inspected.
+#
+# It runs BEFORE the `-d` test in the callers below, not inside check_private,
+# because the two symlink states fail differently and only one of them ever
+# reaches a mode read. An EXISTING target lists as `l…` rather than
+# `d???------`, so check_private would refuse it, but as an over-broad MODE —
+# sending the operator to chmod a directory whose permissions were never the
+# problem. A DANGLING link is `-d`-false and `-e`-false, so it never reaches
+# check_private at all: it falls through to the mkdir, which fails EEXIST on
+# the link itself and reports a writability problem that is equally not the
+# problem. Both are the same tampering, and `docs/fleet.md` promises exit 4 for
+# a symlink-tampered surface in ANY state; naming the redirect is what makes
+# that promise actionable. The sibling check below draws the same line for the
+# persistence sentinel.
+check_surface_not_redirected() {
+  if [ -L "$1" ]; then
+    err "security: coordination surface $1 is a symlink — refusing to write the surface through a redirect, whatever it points at (containment, REQ-D1.5/REQ-A1.4); investigate and remove it yourself"
     exit 4
   fi
 }
@@ -689,6 +701,7 @@ write_sentinel() {
 # ensure_infra_dir <dir> — sentinel-less infrastructure dirs (sentinels,
 # cadence stamps): mode-explicit create, EEXIST is success, verify-or-refuse.
 ensure_infra_dir() {
+  check_surface_not_redirected "$1"
   if [ ! -d "$1" ]; then
     mkdir -m 0700 "$1" 2>/dev/null || true
   fi
@@ -710,10 +723,14 @@ ensure_infra_dir() {
 ensure_surface_dir() {
   esd_dir=$1
   esd_sentinel=$2
-  # Tamper check FIRST, in every state: a symlinked or non-regular sentinel
-  # must exit 4 (security refusal) even when the surface dir is missing —
-  # never fall through to the vanished check below and read as exit-3
-  # evidence (docs promise exit 4 for symlink-tampered; REQ-A1.4).
+  # Both tamper checks FIRST, in every state, for the same reason: neither the
+  # surface nor its sentinel may be reached through a redirect, and both must
+  # refuse before the state machine below can read the tampering as ordinary
+  # vanished (exit 3) or unwritable (exit 2) evidence.
+  # A symlinked or non-regular sentinel must exit 4 even when the surface dir
+  # is missing, never falling through to the vanished check below to be read as
+  # exit-3 evidence (REQ-A1.4).
+  check_surface_not_redirected "$esd_dir"
   check_sentinel_untampered "$esd_sentinel"
   if [ -d "$esd_dir" ]; then
     check_private "$esd_dir"
