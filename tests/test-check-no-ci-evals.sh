@@ -477,6 +477,44 @@ rc=$?
 assert_exit "a spaced or quoted dotted header still defines its task" 1 "$rc"
 assert_contains "walks through the spaced-header task" "check -(depends)-> build" "$out"
 
+# ---- whitespace around a quoted header segment is not part of the name ----
+mk_case header-quoted-spacing
+cat >"$TMP/header-quoted-spacing/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["ci-gate"]
+run = "true"
+
+[tasks . "ci-gate"]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case header-quoted-spacing)"
+rc=$?
+assert_exit "a spaced quoted header name still resolves its edge" 1 "$rc"
+assert_contains "walks into the quoted-header task" "check -(depends)-> ci-gate" "$out"
+
+# ---- an escaped header name resolves against a plainly written dependency ----
+mk_case header-escaped-name
+cat >"$TMP/header-escaped-name/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["ci-gate"]
+run = "true"
+
+[tasks."\u0063i-gate"]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case header-escaped-name)"
+rc=$?
+assert_exit "an escaped header name resolves its edge" 1 "$rc"
+assert_contains "walks into the escaped-header task" "check -(depends)-> ci-gate" "$out"
+
 # ---- a non-ASCII escape resolves to the task it names ----
 # The C locale makes awk byte-oriented, so the codepoint has to be re-spelled
 # as UTF-8 or the decoded name matches nothing.
@@ -668,6 +706,58 @@ out="$(run_case run-body-escaped-glob)"
 rc=$?
 assert_exit "an escaped wildcard operand is still expanded" 1 "$rc"
 assert_contains "walks the escaped operand's task" "check -(run body)-> all:evals" "$out"
+
+# ---- an operand that begins with the wildcard is still an operand ----
+# Only a token that is nothing but wildcards is shell noise like `rm -rf *`.
+mk_case run-body-leading-glob
+cat >"$TMP/run-body-leading-glob/mise.toml" <<'EOF'
+[tasks.check]
+run = "mise run *:evals"
+
+[tasks."all:evals"]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case run-body-leading-glob)"
+rc=$?
+assert_exit "a leading-wildcard operand is expanded" 1 "$rc"
+assert_contains "walks the leading-wildcard operand's task" "check -(run body)-> all:evals" "$out"
+
+# ---- partial shell quoting inside an operand is removed like the shell does ----
+mk_case run-body-split-quote
+cat >"$TMP/run-body-split-quote/mise.toml" <<'EOF'
+[tasks.check]
+run = 'mise run a"ll":*'
+
+[tasks."all:evals"]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case run-body-split-quote)"
+rc=$?
+assert_exit "quoting inside an operand does not hide it" 1 "$rc"
+assert_contains "walks the requoted operand's task" "check -(run body)-> all:evals" "$out"
+
+# ---- a bare wildcard is shell noise, not a task selector ----
+mk_case run-body-bare-glob
+cat >"$TMP/run-body-bare-glob/mise.toml" <<'EOF'
+[tasks.check]
+run = "mise run build && rm -rf *"
+
+[tasks.build]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case run-body-bare-glob)"
+assert_exit "a bare wildcard in a run body is not read as a selector" 0 $?
 
 # ---- a multi-line string is not modeled outside a run body ----
 mk_case multiline-dep

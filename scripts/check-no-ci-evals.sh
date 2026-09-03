@@ -422,20 +422,31 @@ function strip_quotes(s) {
 # whitespace TOML allows around the dots, so `[tasks . build]` and
 # `["tasks".build]` are read as the task definitions they are rather than
 # skipped as unrecognized.
-function split_key(s, parts,   i, c, q, acc, qd, n) {
-  n = 0; q = ""; acc = ""; qd = 0
+function key_seg(acc, qacc, qch) {
+  if (qch == "") return trim(acc)
+  # TOML has no way to write a key as part quoted and part bare, so reading
+  # one would mean guessing which half names the task.
+  if (trim(acc) != "") { bail("a table key mixing quoted and bare text is not modeled: " acc qacc); return "" }
+  return (qch == "\"") ? decode_esc(qacc) : qacc
+}
+function split_key(s, parts,   i, c, q, acc, qacc, qch, n) {
+  n = 0; q = ""; acc = ""; qacc = ""; qch = ""
   for (i = 1; i <= length(s); i++) {
     c = substr(s, i, 1)
     if (q != "") {
       if (c == q) q = ""
-      else acc = acc c
+      else qacc = qacc c
       continue
     }
-    if (c == "\"" || c == "'") { q = c; qd = 1; continue }
-    if (c == ".") { parts[++n] = qd ? acc : trim(acc); acc = ""; qd = 0; continue }
+    if (c == "\"" || c == "'") { q = c; qch = c; continue }
+    if (c == ".") {
+      parts[++n] = key_seg(acc, qacc, qch)
+      acc = ""; qacc = ""; qch = ""
+      continue
+    }
     acc = acc c
   }
-  parts[++n] = qd ? acc : trim(acc)
+  parts[++n] = key_seg(acc, qacc, qch)
   return n
 }
 
@@ -710,13 +721,14 @@ END {
       # `mise run lint:*;echo` must not read as one token `lint:*;echo`.
       nt = split(r, tok, /[[:space:];&|()<>]+/)
       for (k = 1; k <= nt; k++) {
-        g = strip_quotes(tok[k])
-        # The shell strips these before mise sees the operand, so the guard
-        # must read what mise gets, not what the body spells.
-        gsub(/\\/, "", g)
-        # A bare `*` in a shell body is far more likely `rm -rf *` than a task
-        # selector, so a wildcard operand is read only with a literal prefix.
-        if (g !~ /^[[:alnum:]_.:-]+[*?[]/) continue
+        # The shell removes quoting and escapes before mise sees the operand,
+        # so the guard must read what mise gets, not what the body spells.
+        g = tok[k]
+        gsub(/["'`\\]/, "", g)
+        # A bare `*` is far more likely `rm -rf *` than a task selector, and
+        # anything carrying other shell syntax is not a task name at all.
+        if (g ~ /^[*?]+$/) continue
+        if (g !~ /^[[:alnum:]_.:*?-]*[*?][[:alnum:]_.:*?-]*$/) continue
         if (glob_reaches_eval(g))
           viol[++nviol] = "the run body of CI-invoked task " u " invokes the eval: namespace by wildcard (" g "): " chain(u)
         rx = glob2ere(g)
