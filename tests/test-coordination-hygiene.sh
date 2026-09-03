@@ -310,6 +310,82 @@ rc=0
 echo "ok: usage and environment errors exit 2, never a scan of somewhere else"
 
 # ---------------------------------------------------------------------------
+# 5g. The tracked-tree scan refuses an enumeration it cannot prove complete.
+#     git grep reports a file it cannot stat on STDERR and then omits it from
+#     the candidate list, while its exit status stays 1 — the same 1 that means
+#     "no match". Case 5b reaches the same refusal through an unreadable FILE;
+#     this one comes in through an unreadable PARENT, a different stat failure
+#     at the OS level that git grep reports the same way. Both are pinned
+#     because a change that special-cased one could silently drop the other.
+# ---------------------------------------------------------------------------
+r5g="$tmp/repo-unenumerable"
+mk_repo "$r5g"
+mkdir -p "$r5g/sub"
+printf 'pw-presence-v1%s0123456789abcdef%s%s%s/home/alice/dev/widgets%s-%sdemo-spec/3%s100%s200%sprocess 4242%sfalse\n' \
+  "$TAB" "$TAB" "$uuid_peer" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" \
+  >"$r5g/sub/handover.tsv"
+commit_all "$r5g"
+chmod 000 "$r5g/sub"
+rc=0
+out5g=$("$GUARD" --repo "$r5g" 2>&1) || rc=$?
+chmod 755 "$r5g/sub"
+[ "$rc" = 2 ] \
+  || fail "an unenumerable tracked tree must exit 2, never certify a clean scan (exit $rc): $out5g"
+printf '%s\n' "$out5g" | grep -qi "unscreened\|could not enumerate" \
+  || fail "the enumeration refusal did not say the tree went unscreened: $out5g"
+printf '%s\n' "$out5g" | grep -qi "nothing to screen" \
+  && fail "a tree the scan could not enumerate was reported as nothing to screen"
+echo "ok: a tracked tree the scan cannot fully enumerate is refused, never certified clean"
+
+# A declared artifact carrying two leak classes, for the two fixtures below.
+art5="$tmp/declared-artifact.md"
+{
+  printf -- '- peer checkout /home/alice/dev/widgets\n'
+  printf -- '- death handle: process 4242\n'
+} >"$art5"
+
+# ---------------------------------------------------------------------------
+# 5h. A rule line that lost its tab would split into a name and a pattern both
+#     equal to the whole line — a rule that matches nothing in any file,
+#     forever, while the guard still reports clean. The table is refused
+#     instead, because a screen running a rule that cannot fire is not a screen.
+# ---------------------------------------------------------------------------
+bent="$tmp/bent-rules"
+mkdir -p "$bent"
+cp "$root/scripts/"*.sh "$bent/"
+awk '/^checkout-path\t/ { sub(/\t/, " ") } { print }' "$GUARD" \
+  >"$bent/check-coordination-hygiene.sh"
+grep -q '^checkout-path ' "$bent/check-coordination-hygiene.sh" \
+  || fail "5h fixture did not de-tab the rule line; the case would prove nothing"
+rc=0
+out5h=$(/bin/sh "$bent/check-coordination-hygiene.sh" -- "$art5" 2>&1) || rc=$?
+[ "$rc" = 2 ] \
+  || fail "a malformed rule table must be refused, not screened with a dead rule (exit $rc): $out5h"
+printf '%s\n' "$out5h" | grep -q "malformed rule table entry" \
+  || fail "the malformed-table refusal did not name the rule table: $out5h"
+echo "ok: a rule line missing its tab is refused, never screened with a rule that cannot fire"
+
+# ---------------------------------------------------------------------------
+# 5i. The credential class is delegated, so an absent secret screen means the
+#     artifact was never screened for secrets. The guard refuses rather than
+#     passing on the classes it could still check — and the findings it already
+#     printed stay on stderr, since exit 2 outranks exit 1 without erasing it.
+# ---------------------------------------------------------------------------
+lonely="$tmp/lonely-guard"
+mkdir -p "$lonely"
+cp "$GUARD" "$lonely/"
+cp "$root/scripts/echo-safety.sh" "$lonely/"
+rc=0
+out5i=$(/bin/sh "$lonely/check-coordination-hygiene.sh" -- "$art5" 2>&1) || rc=$?
+[ "$rc" = 2 ] \
+  || fail "a missing secret screen must be refused, never passed as screened (exit $rc): $out5i"
+printf '%s\n' "$out5i" | grep -q "secret screen is missing" \
+  || fail "the refusal did not name the missing secret screen: $out5i"
+printf '%s\n' "$out5i" | grep -q "declared-artifact.md:1: checkout-path" \
+  || fail "exit 2 erased the findings already reported; 2 outranks 1, it does not replace it: $out5i"
+echo "ok: a missing secret screen is refused, and the findings already printed survive it"
+
+# ---------------------------------------------------------------------------
 # 6. REQ-D1.4 — declared-path mode: a PR body is not record-shaped, so the
 #    deployment names it. Both a peer checkout path AND a death handle are
 #    shown not to reach it — the no-leak assertion the Done-when pins.
