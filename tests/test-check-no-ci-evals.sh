@@ -554,6 +554,86 @@ rc=$?
 assert_exit "a depends on an undefined eval: task fails" 1 "$rc"
 assert_contains "names the unresolvable eval dependency" "depends on the eval: namespace" "$out"
 
+# ---- an escaped quote must not end a string and desynchronize the array ----
+mk_case escaped-quote
+cat >"$TMP/escaped-quote/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["a\"b", "eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case escaped-quote)"
+rc=$?
+assert_exit "an escaped quote does not drop the rest of the array" 1 "$rc"
+assert_contains "still reaches the element after the escaped quote" "CI reaches eval task eval:skill" "$out"
+
+# ---- basic-string escapes are decoded before matching ----
+# mise resolves `eval:skill` to `eval:skill`; matching the raw text would
+# let an escape hide the namespace from every pass.
+mk_case unicode-escape
+cat >"$TMP/unicode-escape/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["\u0065val:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case unicode-escape)"
+rc=$?
+assert_exit "a unicode escape in a dependency is decoded" 1 "$rc"
+assert_contains "resolves the escaped name to the real task" "CI reaches eval task eval:skill" "$out"
+
+mk_case unicode-escape-run
+cat >"$TMP/unicode-escape-run/mise.toml" <<'EOF'
+[tasks.check]
+run = "mise run \u0065val:skill"
+EOF
+out="$(run_case unicode-escape-run)"
+assert_exit "a unicode escape in a run body is decoded" 1 $?
+
+# ---- a newline escape must not swallow the token boundary ----
+mk_case newline-escape
+cat >"$TMP/newline-escape/mise.toml" <<'EOF'
+[tasks.check]
+run = "mise run\neval:skill"
+EOF
+out="$(run_case newline-escape)"
+assert_exit "a newline escape does not hide the eval: token boundary" 1 $?
+
+# ---- a run body given as an array is read per element ----
+# Keeping the raw array text would leave `]` glued to the operand, so the
+# wildcard would expand to nothing.
+mk_case run-array
+cat >"$TMP/run-array/mise.toml" <<'EOF'
+[tasks.check]
+run = [
+  "echo [start]",
+  "mise run e*"
+]
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case run-array)"
+assert_exit "a run array's wildcard operand is expanded" 1 $?
+
+# ---- escapes a clean file legitimately uses must not fail it ----
+mk_case escape-falsepos
+cat >"$TMP/escape-falsepos/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["build"]
+run = "grep '\\usepackage' file"
+
+[tasks.build]
+run = "printf 'a\nb'"
+EOF
+out="$(run_case escape-falsepos)"
+rc=$?
+assert_exit "legitimate escapes in a clean file still pass" 0 "$rc"
+
 # ---- a task alias is a root name too ----
 mk_case task-alias
 cat >"$TMP/task-alias/mise.toml" <<'EOF'
@@ -561,7 +641,7 @@ cat >"$TMP/task-alias/mise.toml" <<'EOF'
 run = "true"
 
 [tasks."ci-evals"]
-alias = "ci"
+aliases = ["ci"]
 depends = ["eval:skill"]
 
 [tasks."eval:skill"]
@@ -874,29 +954,36 @@ assert_exit "'-' skips the graph passes" 0 "$rc"
 assert_contains "says there is no task graph" "no task graph to close over" "$out"
 
 # ---- unreadable inputs fail closed rather than reading as empty ----
-mkdir -p "$TMP/unreadable/workflows"
-cp "$TMP/depends-chain/workflows/ci.yml" "$TMP/unreadable/workflows/"
-cp "$TMP/depends-chain/mise.toml" "$TMP/unreadable/"
-chmod 000 "$TMP/unreadable/workflows/ci.yml"
-out="$(run_case unreadable)"
-rc=$?
-chmod 644 "$TMP/unreadable/workflows/ci.yml"
-if [ "$rc" -eq 0 ]; then
-  echo "FAIL: an unreadable workflow file passed vacuously" >&2
-  failures=$((failures + 1))
+# `chmod 000` does not stop root, so under a root test runner these two would
+# fail for a reason that says nothing about the guard.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "ok: unreadable-input cases skipped (running as root)"
 else
-  assert_contains "an unreadable workflow file fails closed" "cannot be read" "$out"
-fi
+  mkdir -p "$TMP/unreadable/workflows"
+  cp "$TMP/depends-chain/workflows/ci.yml" "$TMP/unreadable/workflows/"
+  cp "$TMP/depends-chain/mise.toml" "$TMP/unreadable/"
 
-chmod 000 "$TMP/unreadable/workflows"
-out="$(run_case unreadable)"
-rc=$?
-chmod 755 "$TMP/unreadable/workflows"
-if [ "$rc" -eq 0 ]; then
-  echo "FAIL: an unlistable workflow directory passed vacuously" >&2
-  failures=$((failures + 1))
-else
-  assert_contains "an unlistable workflow directory fails closed" "cannot be listed" "$out"
+  chmod 000 "$TMP/unreadable/workflows/ci.yml"
+  out="$(run_case unreadable)"
+  rc=$?
+  chmod 644 "$TMP/unreadable/workflows/ci.yml"
+  if [ "$rc" -eq 0 ]; then
+    echo "FAIL: an unreadable workflow file passed vacuously" >&2
+    failures=$((failures + 1))
+  else
+    assert_contains "an unreadable workflow file fails closed" "cannot be read" "$out"
+  fi
+
+  chmod 000 "$TMP/unreadable/workflows"
+  out="$(run_case unreadable)"
+  rc=$?
+  chmod 755 "$TMP/unreadable/workflows"
+  if [ "$rc" -eq 0 ]; then
+    echo "FAIL: an unlistable workflow directory passed vacuously" >&2
+    failures=$((failures + 1))
+  else
+    assert_contains "an unlistable workflow directory fails closed" "cannot be listed" "$out"
+  fi
 fi
 
 # ---- usage errors are usage errors, not vacuous passes ----

@@ -402,18 +402,73 @@ function header(h,   inner, name) {
   cur = name
 }
 
-function collect_strings(buf, kind, owner,   rest, s) {
-  rest = buf
-  while (match(rest, /"[^"]*"|'[^']*'/)) {
-    s = substr(rest, RSTART + 1, RLENGTH - 2)
-    rest = substr(rest, RSTART + RLENGTH)
-    if (kind == "alias") addname(s, owner)
-    else adddep(owner, s, kind)
+function hex2dec(h,   i, v, d) {
+  v = 0
+  for (i = 1; i <= length(h); i++) {
+    d = index("0123456789abcdef", tolower(substr(h, i, 1))) - 1
+    if (d < 0) return -1
+    v = v * 16 + d
   }
+  return v
+}
+# TOML basic-string escapes are decoded before matching, so `eval:skill`
+# cannot hide the namespace from a text match that mise itself would resolve.
+# A single left-to-right walk, so a decoded backslash cannot be re-decoded.
+function decode_esc(s,   i, c, n, out, h, w, v) {
+  out = ""
+  i = 1
+  while (i <= length(s)) {
+    c = substr(s, i, 1)
+    if (c != "\\") { out = out c; i++; continue }
+    n = substr(s, i + 1, 1)
+    if (n == "u" || n == "U") {
+      w = (n == "u") ? 4 : 8
+      v = hex2dec(substr(s, i + 2, w))
+      out = out ((v > 0 && v < 256) ? sprintf("%c", v) : "?")
+      i += 2 + w
+    } else if (n == "n" || n == "t" || n == "r") {
+      out = out " "
+      i += 2
+    } else if (n == "") {
+      out = out c
+      i++
+    } else {
+      out = out n
+      i += 2
+    }
+  }
+  return out
+}
+
+# Extracts every quoted string from a value buffer by walking it, so an escaped
+# quote ends nothing: a regex that stopped at `\"` would take the next string's
+# opening quote as its terminator and silently drop the rest of the array.
+function each_string(buf, kind, owner,   i, c, q, esc, acc) {
+  q = ""; esc = 0; acc = ""
+  for (i = 1; i <= length(buf); i++) {
+    c = substr(buf, i, 1)
+    if (q == "") {
+      if (c == "\"" || c == "'") { q = c; acc = ""; esc = 0 }
+      continue
+    }
+    if (esc) { acc = acc c; esc = 0; continue }
+    if (q == "\"" && c == "\\") { acc = acc c; esc = 1; continue }
+    if (c == q) {
+      emit_string((q == "\"") ? decode_esc(acc) : acc, kind, owner)
+      q = ""
+      continue
+    }
+    acc = acc c
+  }
+  if (q != "") bail("unterminated string in a " kind " value")
+}
+function emit_string(s, kind, owner) {
+  if (kind == "run") addrun(owner, s)
+  else if (kind == "alias" || kind == "aliases") addname(s, owner)
+  else adddep(owner, s, kind)
 }
 function finish_array() {
-  if (arrkey == "run") addrun(arrowner, arrbuf)
-  else collect_strings(arrbuf, arrkey, arrowner)
+  each_string(arrbuf, arrkey, arrowner)
   arrkey = ""; arrbuf = ""; arrowner = ""; arrdepth = 0
 }
 
@@ -424,8 +479,9 @@ FILENAME == misefile {
 
   if (mldelim != "") {
     p = index(raw, mldelim)
-    if (p > 0) { if (mlkey == "run") addrun(mlowner, substr(raw, 1, p - 1)); mldelim = ""; mlkey = "" }
-    else if (mlkey == "run") addrun(mlowner, raw)
+    body = (p > 0) ? substr(raw, 1, p - 1) : raw
+    if (mlkey == "run") addrun(mlowner, (mldelim == "\"\"\"") ? decode_esc(body) : body)
+    if (p > 0) { mldelim = ""; mlkey = "" }
     next
   }
 
@@ -461,13 +517,15 @@ FILENAME == misefile {
   if (d3 == "'''" || d3 == "\"\"\"") {
     rest = substr(val, 4)
     p = index(rest, d3)
-    if (p > 0) { if (key == "run") addrun(cur, substr(rest, 1, p - 1)) }
-    else { mldelim = d3; mlkey = key; mlowner = cur; if (key == "run") addrun(cur, rest) }
+    if (p > 0) rest = substr(rest, 1, p - 1)
+    else { mldelim = d3; mlkey = key; mlowner = cur }
+    if (key == "run") addrun(cur, (d3 == "\"\"\"") ? decode_esc(rest) : rest)
     next
   }
   if (SCAN_OPEN) { bail("unterminated string: " line); next }
 
-  if (key != "depends" && key != "depends_post" && key != "wait_for" && key != "run" && key != "alias") next
+  if (key != "depends" && key != "depends_post" && key != "wait_for" && key != "run" \
+    && key != "alias" && key != "aliases") next
 
   if (substr(val, 1, 1) == "[") {
     arrkey = key; arrowner = cur; arrbuf = val; arrdepth = SCAN_DELTA
@@ -475,10 +533,7 @@ FILENAME == misefile {
     if (arrdepth == 0) finish_array()
     next
   }
-  # A run body is matched, never resolved, so the raw value text is kept
-  # verbatim rather than unescaped into a string.
-  if (key == "run") { addrun(cur, val); next }
-  if (substr(val, 1, 1) == "\"" || substr(val, 1, 1) == "'") { collect_strings(val, key, cur); next }
+  if (substr(val, 1, 1) == "\"" || substr(val, 1, 1) == "'") { each_string(val, key, cur); next }
   bail("unrecognized " key " value: " val)
   next
 }
