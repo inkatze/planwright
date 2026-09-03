@@ -43,6 +43,7 @@ resolution path defined below (REQ-I1.1, D-24).
 | [orchestration-modes.md](orchestration-modes.md) | `/orchestrate`'s rare mode branches, read at point of use: the degradation ladder and runtime failover (degrade capability, never safety), the meta-tower (`--meta`: fleet lock, live-count bound, subordinate independence), and the fleet entry (`--fleet`: two-seam presentation, detached multiplexer plumbing, the attention surface) | orchestration-fleet REQ-B1.5, REQ-B1.6, REQ-D1.1, REQ-D1.2, REQ-D1.5, REQ-E1.1, REQ-E1.2, REQ-E1.5 · orchestration-fleet D-3, D-6, D-9, D-12, D-13 |
 | [inter-orchestrator-coordination.md](inter-orchestrator-coordination.md) | The coordination protocol between towers and workers: the division of labor (tower owns reconcile/dispatch/cleanup, worker owns its branch's conflict resolution) and the "directly" boundary; the attributed, non-impersonating relay against a live worker (buffer-paste steer, capture-pane observe, never send-keys, never answer a permission prompt); the relay security bounds (handles validated, output as data) enforced by `scripts/orchestrate-relay.sh` | orchestration-fleet REQ-D1.2, REQ-D1.3, REQ-B1.7, REQ-A1.6 · orchestration-fleet D-7 |
 | [plugin-script-invocation.md](plugin-script-invocation.md) | How the dispatching skills invoke planwright's own scripts: resolve the root once per invocation, call by resolved literal absolute path (never an unexpanded `$VAR/scripts` shape), and the adopter literal-path allow entry | worker-permission-ergonomics REQ-D1.1 · worker-permission-ergonomics D-7 |
+| [flight-rules.md](flight-rules.md) | The per-request choice between visual flight (specless) and instrument flight (the spec pipeline): the automatic / judgment / advisory signals, the stated-grounds form, the semantically-recognized two-way override with its stated reservation, the flight boundary (repo-mutating work only, with the mid-offload and mid-flight re-route rules), the audit-record content contract and its adaptive home, the specless-traceability definition, and the bounded-or-surfaced survival guarantees | tower-front-door REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-C1.6, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-F1.3, REQ-F1.6, REQ-H1.4 · tower-front-door D-1, D-2, D-3, D-4, D-5, D-6, D-7, D-10 |
 
 ## Resolution convention
 
@@ -106,7 +107,10 @@ load-bearing decision. What any of these defer instead of deciding lands in an
 accumulator, and the [Accumulator Taxonomy](accumulator-taxonomy.md)
 guarantees it re-surfaces (no write-only deferral).
 [Proportionality](proportionality.md) governs how strictly
-all of the above scale with what is at stake. The
+all of the above scale with what is at stake, and
+[Flight Rules](flight-rules.md) asks its two questions one level up: per request,
+whether the work flies specless under an audit record or files into the spec
+pipeline, and what the specless route owes in exchange. The
 [Autopilot Reflex](autopilot-reflex.md) is the thought process for closing a
 recurring-manual-ceremony gap — automate up to the irreducible human gates,
 never through them — and supplies the altitude discipline (triggers,

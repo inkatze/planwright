@@ -279,8 +279,8 @@ read_oracle() {
   fi
 }
 
-# read_registry <root|""> <no-root-detail> — reg.tsv: worker scope (last record
-# wins)
+# read_registry <root|""> <no-root-detail> — reg.tsv: worker scope owner (last
+# record wins)
 read_registry() {
   rr_root=$1
   rr_why=$2
@@ -296,21 +296,31 @@ read_registry() {
     return 0
   fi
   rr_n=0
-  # Registry rows: ts worker scope (an append log; the last record for a
-  # worker is its current dispatch record). A read FAILURE (nonzero exit) is
-  # distinct from an empty registry: mark it unavailable rather than
-  # conflating "cannot read" with "no records" (the degrade taxonomy).
+  # Registry rows: ts worker scope owner backend state-dir death-handle (an
+  # append log; the last record for a worker is its current dispatch record).
+  # A read FAILURE (nonzero exit) is distinct from an empty registry: mark it
+  # unavailable rather than conflating "cannot read" with "no records" (the
+  # degrade taxonomy).
   if ! /bin/sh "$FS" registry >"$WS/reg.raw" 2>/dev/null; then
     printf 'source\tregistry\tunavailable\tread-failed\n' >>"$WS/sources"
     return 0
   fi
-  while IFS="$TAB" read -r _ rr_w rr_scope || [ -n "$rr_w" ]; do
+  while IFS="$TAB" read -r _ rr_w rr_scope rr_owner _ || [ -n "$rr_w" ]; do
     [ -n "$rr_w" ] || continue
+    # A record written before the owner column existed has no fourth field, and
+    # one written without a resolvable tower carries the absent sentinel. Both
+    # mean the same thing to a reader — nobody is attributable — so both render
+    # as unknown-owner (REQ-D1.5). Attributing either to someone would be worse
+    # than admitting the gap: a destructive verb reads this column.
+    case ${rr_owner:-} in
+      '' | -) rr_owner=unknown-owner ;;
+    esac
     # Sanitize-and-render (validated at write by fleet-state.sh; a corrupted
     # read degrades visibly rather than dropping the dispatch record).
     rr_w=$(sanitize_printable "$rr_w" "?")
-    printf '%s\t%s\n' "$rr_w" \
-      "$(sanitize_printable "$rr_scope" "-")" >>"$WS/reg.tsv"
+    printf '%s\t%s\t%s\n' "$rr_w" \
+      "$(sanitize_printable "$rr_scope" "-")" \
+      "$(sanitize_printable "$rr_owner" "?")" >>"$WS/reg.tsv"
     rr_n=$((rr_n + 1))
   done <"$WS/reg.raw"
   if [ "$rr_n" -eq 0 ]; then
@@ -374,6 +384,7 @@ emit_merge() {
       # worker is its current dispatch, so overwrite unconditionally. The
       # END resolution lets an attention scope take precedence over it.
       rscope[$1] = $2
+      rowner[$1] = $3
       next
     }
     FILENAME ~ /oracle\.tsv$/ {
@@ -396,12 +407,17 @@ emit_merge() {
           if (sid[w] in ost) oc = ost[sid[w]]
           else if (ostate == "unavailable") oc = "?"
         }
-        printf "worker\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", w, \
+        # The owner-attribution column is APPENDED, never inserted: the merge
+        # stream is a positional contract fleet-dashboard.sh reads by field
+        # number, so a new column at the end costs a consumer nothing while an
+        # inserted one would silently shift every cell it renders.
+        printf "worker\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", w, \
           sc, o, \
           (astate[w] == "" ? "-" : astate[w]), \
           (aage[w] == "" ? "-" : aage[w]), \
           (sjst[w] == "" ? "-" : sjst[w]), \
-          (s[w] ? sjp[w] : "-"), oc
+          (s[w] ? sjp[w] : "-"), oc, \
+          ((w in rowner) && rowner[w] != "" ? rowner[w] : "-")
       }
     }
   ' "$WS/attn.tsv" "$WS/sj.tsv" "$WS/reg.tsv" "$WS/oracle.tsv" >"$WS/workers.raw" || return 2
@@ -450,9 +466,9 @@ render() {
   if [ ! -s "$WS/wrk.rows" ]; then
     printf 'workers: (none)\n'
   else
-    printf '%-20s %-26s %-16s %-11s %-5s %-8s %s\n' \
-      WORKER SCOPE STATE SJ PEND ORACLE VIA
-    while IFS="$TAB" read -r _ rd_w rd_scope rd_via rd_state rd_age rd_sj rd_pend rd_oracle; do
+    printf '%-20s %-26s %-16s %-11s %-5s %-8s %-30s %s\n' \
+      WORKER SCOPE STATE SJ PEND ORACLE VIA OWNER
+    while IFS="$TAB" read -r _ rd_w rd_scope rd_via rd_state rd_age rd_sj rd_pend rd_oracle rd_owner; do
       # A worker known only from its dispatch record has no runtime presence
       # to report: a visible not-applicable state, never a silent omission.
       if [ "$rd_via" = registry ]; then
@@ -462,14 +478,15 @@ render() {
       else
         rd_cell="$rd_state(${rd_age}s)"
       fi
-      printf '%-20s %-26s %-16s %-11s %-5s %-8s %s\n' \
+      printf '%-20s %-26s %-16s %-11s %-5s %-8s %-30s %s\n' \
         "$(sanitize_printable "$rd_w" "?")" \
         "$(sanitize_printable "$rd_scope" "?")" \
         "$(sanitize_printable "$rd_cell" "?")" \
         "$(sanitize_printable "$rd_sj" "?")" \
         "$(sanitize_printable "$rd_pend" "?")" \
         "$(sanitize_printable "$rd_oracle" "?")" \
-        "$(sanitize_printable "$rd_via" "?")"
+        "$(sanitize_printable "$rd_via" "?")" \
+        "$(sanitize_printable "${rd_owner:--}" "?")"
     done <"$WS/wrk.rows" || return 2
   fi
   if [ -s "$WS/ses.rows" ]; then

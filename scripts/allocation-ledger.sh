@@ -25,7 +25,8 @@
 #    2 ts         epoch seconds, stamped under the lock (commit time)
 #    3 unit       the unit identity this ledger belongs to
 #    4 step       the step identity, or `-`
-#    5 attempt    the attempt number
+#    5 attempt    the attempt number, or `0` for a row that belongs to no
+#                 attempt (the terminal-state `feedback` mark)
 #    6 event      the event class (the closed set in allocation-ladder.sh)
 #    7 prop_model    \  the PROPOSED tier: what the ladder resolved to before
 #    8 prop_effort   /  any clamp was applied
@@ -33,11 +34,21 @@
 #   10 clamp_effort  /  upstream contracts bound it
 #   11 res_model     \  the RESOLVED tier: what the launch actually uses
 #   12 res_effort    /  (`-` when nothing was resolved, e.g. a withheld unit)
-#   13 scope      `unit` (moves the unit's tier) or `step` (this launch only)
+#   13 scope      `unit` (the unit's own history) or `step` (this launch only)
 #   14 outcome    resolved | applied | withheld | denied | ignored | no-op |
-#                 inherit | degraded
+#                 inherit | degraded | recorded
 #   15 inputs     a bounded `key=value;...` list: trigger, rung, clamps
 #                 applied, fallback or inheritance taken
+#
+# A `feedback` row is the exception the columns above are worded to admit. It
+# is the terminal-state mark allocation-feedback.sh writes once per unit, after
+# the unit's last launch, and it neither proposes, resolves, nor moves
+# anything: its tier columns DESCRIBE the two tiers its observation names (the
+# configured start, and the derived final ladder position), its scope is `unit`
+# because the row belongs to the unit's history rather than to one launch, and
+# its outcome is `recorded`. A reader that treats columns 7-12 as launch tiers
+# must exclude it, the way `last-tier` does; the derivation and the incident
+# scan need no exclusion, because both gate on outcome `applied`.
 #
 # `ts` and `outcome` are additive to D-6's named field list. The timestamp is
 # what makes a row readable in time order beside the shared trail; `outcome` is
@@ -70,9 +81,11 @@
 # DEGRADED MODE (REQ-F1.1). `health` reports whether the store can be trusted:
 # an unreadable file, a torn or short row, an out-of-enum field, or a
 # non-monotone sequence is UNHEALTHY. `last-tier` stays readable either way, so
-# an unhealthy unit can still launch at its last recorded tier with adjustments
-# suspended rather than being blocked — the caller's decision, surfaced by
-# allocation-adapt.sh.
+# an unhealthy unit can still launch at the last tier a LAUNCH of it used, with
+# adjustments suspended rather than being blocked — the caller's decision,
+# surfaced by allocation-adapt.sh. A unit whose only tier-bearing row is a
+# terminal-state `feedback` mark has no such tier, so `last-tier` answers empty
+# and the caller falls back to the configured starting tier.
 #
 # Usage:
 #   allocation-ledger.sh home                     print the allocation store dir
@@ -88,7 +101,10 @@
 #       <res-model> <res-effort> <scope> <outcome> <inputs>
 #   allocation-ledger.sh rows <unit>              print the unit's rows
 #   allocation-ledger.sh health <unit>            0 healthy, 3 unhealthy
-#   allocation-ledger.sh last-tier <unit>         last RESOLVED tier, or empty
+#   allocation-ledger.sh last-tier <unit>         the last resolved tier a
+#                                                 LAUNCH of this unit used, or
+#                                                 empty (terminal-state
+#                                                 `feedback` marks excluded)
 #   allocation-ledger.sh derive <unit> <start-model> <start-effort>
 #       Print `<model> <effort> <net> <stack-depth> <rows> <escalations>`, TAB
 #       separated — the memoryless derivation.
@@ -183,7 +199,15 @@ valid_effort_cell() {
 }
 
 ALLOC_SCOPES='unit step'
-ALLOC_OUTCOMES='resolved applied withheld denied ignored no-op inherit degraded'
+# `recorded` is the terminal-state feedback mark's outcome (REQ-F1.2). It is its
+# own value rather than a reuse of `applied` because `applied` means a ladder
+# step landed, which is precisely the inference a reader of a feedback row must
+# never draw. The two are a PAIR: `feedback` is the only event that may carry
+# `recorded`, and `recorded` the only outcome a `feedback` row may carry, which
+# is what gives either token a fixed meaning to a reader. check_health enforces
+# it, so a `feedback`/`applied` row (silently inert to replay, since the event
+# is not a trigger) cannot pass as healthy.
+ALLOC_OUTCOMES='resolved applied withheld denied ignored no-op inherit degraded recorded'
 
 in_set() {
   for _is in $2; do
@@ -419,6 +443,14 @@ check_health() {
         if (!($i in ef)) { print "row " NR ": unknown effort in field " i; exit }
       if (!($13 in sc)) { print "row " NR ": unknown scope"; exit }
       if (!($14 in oc)) { print "row " NR ": unknown outcome"; exit }
+      # The feedback/recorded pairing. Enforced here rather than left to the
+      # append grammar because the two columns are independent enums: without
+      # it a `feedback`/`applied` row reads as healthy while replay skips it,
+      # and a `launch`/`recorded` row reads as a mark to the once-per-unit
+      # guard. Either would be a silent change of meaning.
+      if (($6 == "feedback") != ($14 == "recorded")) {
+        print "row " NR ": feedback and recorded must appear together"; exit
+      }
     }
   ' "$ch_file" 2>/dev/null)
   if [ -n "$ch_bad" ]; then
@@ -574,6 +606,15 @@ case "$cmd" in
       echo "allocation-ledger: refusing inputs field (non-empty, <=256 bytes, charset [A-Za-z0-9._=@:;,/+-])" >&2
       exit 2
     }
+    # The feedback/recorded pairing, refused at the boundary as well as flagged
+    # by `health`: a row that breaks it is a caller bug, and catching it here
+    # keeps it out of the store instead of turning the whole ledger unhealthy.
+    if [ "$a_event" = feedback ] || [ "$a_outcome" = recorded ]; then
+      if [ "$a_event" != feedback ] || [ "$a_outcome" != recorded ]; then
+        echo "allocation-ledger: the 'feedback' event and the 'recorded' outcome may appear only together" >&2
+        exit 2
+      fi
+    fi
 
     ensure_store >/dev/null
     a_file=$(ledger_path "$a_unit")
@@ -656,8 +697,16 @@ case "$cmd" in
     [ -r "$lt_file" ] || exit 0
     # The last row carrying a REAL resolved tier — a withheld or inherit row
     # records no tier, and a torn row is skipped rather than trusted.
+    #
+    # `feedback` rows are excluded because they are not launches. The
+    # terminal-state mark allocation-feedback.sh writes carries the unit's
+    # DERIVED final tier in the resolved columns, which is a ladder position and
+    # not a post-clamp value; letting it answer here would hand a degraded
+    # relaunch a tier the unit never actually ran at (more expensive than the
+    # last launch, wherever a clamp had bound it). This verb answers "the last
+    # tier a launch used", so only launch rows may answer it.
     awk -F '\t' '
-      NF == 15 && $11 != "-" && $11 != "inherit" { m = $11; e = $12 }
+      NF == 15 && $6 != "feedback" && $11 != "-" && $11 != "inherit" { m = $11; e = $12 }
       END { if (m != "") printf "%s\t%s\n", m, e }
     ' "$lt_file"
     ;;
