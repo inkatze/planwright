@@ -381,18 +381,19 @@ most recent anchor entry never describes spec content that was not walked.
    REQ-D1.5).** The run's final action, only on a **clean completion** — the
    sign-off record above is written with its anchor (no inconsistency halt, no
    carried open question, every lens finding dispositioned) and any configured
-   verification has converged. That verification is the configurable
-   `review_sequence`-class mechanism (D-7, customization-overlay D-6 /
-   REQ-D1.3), **not a hardcoded** core step: in bare core it is this skill's own
-   walkthrough and Discovery-Rigor lens pass; an overlay may run an additional
-   review pass over the spec PR whose terminal step is this flip. When
+   verification has converged. That verification (informally a "gauntlet") is
+   the configurable `review_sequence`-class mechanism (D-7,
+   customization-overlay D-6 / REQ-D1.3), **not a hardcoded** core step: in bare
+   core it is this skill's own walkthrough and Discovery-Rigor lens pass; an
+   overlay may run an additional review pass over the spec PR whose terminal
+   step is this flip. When
    `mark_spec_pr_ready_on_kickoff` is true (pre-flight step 4) and the
    completion is clean, un-draft the spec PR — but **first gate the flip on the
    head SHA's CI** per `kickoff-verification` (REQ-B1.1, D-3), then **check its
    state** (`gh pr view <spec-PR> --json isDraft,state`) and run `gh pr ready
    <spec-PR>` **only while it is still a draft**; skip it when the PR is already
    ready or merged/closed (a benign no-op that would otherwise exit non-zero and
-   wrongly trip the degradation path). This is the narrow exception to bootstrap
+   trip the degradation path). This is the narrow exception to bootstrap
    D-26's all-drafts rule: **only the spec PR**, and only this skill, marks a PR
    ready; **task PRs stay drafts** (their review is owned by the execution and
    review skills). Merge stays the human's second key —
