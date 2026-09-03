@@ -400,3 +400,28 @@ meaning.
 Class: expression-only
 Anchor: `3f295972e5a1a08aac5ac45c709e645972d3cb02` — computed as
 `scripts/spec-anchor.sh specs/anchor-integrity`
+
+### Re-anchor — Task 6 expression-only edit, second (2026-09-03)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Sign-off records and content anchors*),
+recorded by the same `/execute-task` run, after merging `main`.
+
+**Why the anchor moved:** one expression-only edit inside the bundle.
+Merging `main` left `/spec-kickoff` sitting on its instruction-budget
+floor, so the ritual's mechanics were relocated into the meta-spec and
+the skill kept a pointer; the structural guard split to follow them. The
+REQ-C1.4 verification entry now names both prose surfaces the guard
+spans, because the recorded path otherwise sends a reader to the skill
+alone and the meta-spec half of the contract goes unchecked.
+`requirements.md` carries the paired changelog entry. What the scenario
+asserts is unchanged, and no REQ, D-ID, or `Done when:` condition changes
+meaning.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`specs/anchor-integrity/requirements.md` ("Task 6 expression-only edit,
+second").
+
+Class: expression-only
+Anchor: `b3b6766011394d6f176e29f9576c9895b4abc57d` — computed as
+`scripts/spec-anchor.sh specs/anchor-integrity`

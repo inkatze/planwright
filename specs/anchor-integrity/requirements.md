@@ -285,6 +285,13 @@ doctrine amendments, enforcement as mechanism.
   the scenario in the canonical Given/When/Then form its REQ-C siblings
   took at the 2026-08-26 edit above. What the scenario asserts is
   unchanged; no REQ, D-ID, or `Done when:` condition changes meaning.
+- 2026-09-03 — Task 6 expression-only edit, second. Merging `main` left the
+  skill on its instruction-budget floor, so the ritual's mechanics were
+  relocated into the meta-spec and the skill kept a pointer. The REQ-C1.4
+  verification entry now names both prose surfaces the structural guard
+  spans, since the recorded path otherwise sends a reader to the skill
+  alone. What the scenario asserts is unchanged; no REQ, D-ID, or
+  `Done when:` condition changes meaning.
 
 ## Sources
 
