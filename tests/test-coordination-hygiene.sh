@@ -386,6 +386,48 @@ printf '%s\n' "$out5i" | grep -q "declared-artifact.md:1: checkout-path" \
 echo "ok: a missing secret screen is refused, and the findings already printed survive it"
 
 # ---------------------------------------------------------------------------
+# 5j. A non-regular declared artifact is refused, not read. `-r` is true for a
+#     FIFO and its read blocks until a writer appears, so screening one hangs
+#     the gate — and a guard that hangs reports nothing at all, which is worse
+#     than one that fails. Declared-path mode is the reachable route: it takes
+#     whatever the deployment names, while the tree scan only lists tracked
+#     blobs. The timeout is the assertion; without the type guard this case
+#     never returns.
+# ---------------------------------------------------------------------------
+mkfifo "$tmp/artifact.fifo"
+rc=0
+out5j=$(timeout 10 "$GUARD" -- "$tmp/artifact.fifo" 2>&1) || rc=$?
+[ "$rc" != 124 ] || fail "the guard hung on a FIFO instead of refusing it; a hung guard reports nothing"
+[ "$rc" = 2 ] || fail "a non-regular declared artifact must exit 2 (exit $rc): $out5j"
+printf '%s\n' "$out5j" | grep -q "not a regular file" \
+  || fail "the refusal did not name the file type: $out5j"
+echo "ok: a non-regular declared artifact is refused, never read until it blocks"
+
+# ---------------------------------------------------------------------------
+# 5k. The other half of 5h's malformed-table refusal. A rule that kept its tab
+#     but lost its pattern is `grep -e ""`, which matches every line: where 5h
+#     reports nothing forever, this reports EVERYTHING, flagging every line of
+#     a clean artifact as a leak. Both are the same malformed table, and a
+#     screen nobody believes is as useless as one that never fires.
+# ---------------------------------------------------------------------------
+blank="$tmp/blank-pattern"
+mkdir -p "$blank"
+cp "$root/scripts/"*.sh "$blank/"
+awk '/^checkout-path\t/ { print "checkout-path\t"; next } { print }' "$GUARD" \
+  >"$blank/check-coordination-hygiene.sh"
+clean5k="$tmp/no-leaks-here.md"
+printf 'a line with nothing operational in it\nand another\n' >"$clean5k"
+rc=0
+out5k=$(/bin/sh "$blank/check-coordination-hygiene.sh" -- "$clean5k" 2>&1) || rc=$?
+[ "$rc" = 2 ] \
+  || fail "an empty rule pattern must be refused, not run as a match-everything rule (exit $rc): $out5k"
+printf '%s\n' "$out5k" | grep -q "malformed rule table entry" \
+  || fail "the empty-pattern refusal did not name the rule table: $out5k"
+printf '%s\n' "$out5k" | grep -q "no-leaks-here.md:1:" \
+  && fail "the empty pattern flagged a clean line as a leak instead of refusing the table"
+echo "ok: a rule that kept its tab but lost its pattern is refused, never run as match-everything"
+
+# ---------------------------------------------------------------------------
 # 6. REQ-D1.4 — declared-path mode: a PR body is not record-shaped, so the
 #    deployment names it. Both a peer checkout path AND a death handle are
 #    shown not to reach it — the no-leak assertion the Done-when pins.

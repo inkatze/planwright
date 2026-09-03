@@ -201,6 +201,15 @@ screen_file() {
     unreadable=1
     return
   fi
+  # `-r` is true for a FIFO, whose read blocks until a writer appears — a guard
+  # that hangs reports nothing at all, which is worse than one that fails. The
+  # declared-path mode is the reachable route (the tree scan only ever names
+  # tracked blobs), and it takes whatever the deployment hands it.
+  if [ ! -f "$sf_path" ]; then
+    printf '%s\n' "check-coordination-hygiene: $sf_safe is not a regular file; refusing to screen it" >&2
+    unreadable=1
+    return
+  fi
   sf_oifs=$IFS
   IFS='
 '
@@ -221,6 +230,17 @@ screen_file() {
     esac
     sf_rname=${sf_rule%%"$TAB"*}
     sf_rpat=${sf_rule#*"$TAB"}
+    # The other half of the same malformed-table refusal. An empty pattern is
+    # `grep -e ""`, which matches every line: the no-tab case above reports
+    # nothing forever, this one reports everything, and a screen nobody
+    # believes is as useless as one that never fires. An empty name would file
+    # real hits under no rule at all.
+    if [ -z "$sf_rpat" ] || [ -z "$sf_rname" ]; then
+      echo "check-coordination-hygiene: malformed rule table entry (empty rule name or pattern)" >&2
+      IFS=$sf_oifs
+      unreadable=1
+      return
+    fi
     # Not a pipeline: piping into `cut` would hand back cut's status and throw
     # grep's away, and grep's status is the point — 1 is "no match", 2 is
     # "could not read this", and only one of those means clean. `-a` because
