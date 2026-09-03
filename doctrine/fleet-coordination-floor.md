@@ -285,10 +285,22 @@ The floors above constrain every fleet mechanism; they deliberately absorb
 none of the adjacent mechanisms. Each stays in its own bundle with a single
 owner (concurrent-orchestrator-coordination D-6):
 
+- **Ledger state-safety** — `orchestration-concurrency`, whose derived-projection
+  ledger and per-spec lock are the floor every mechanism here sits on. Coordination
+  adds no second writer to `tasks.md` and no committed state artifact: the presence
+  records and the strand sink are machine-local surfaces, and the peer fence is an
+  `origin` ref deleted when its unit turns terminal, so nothing here crosses that
+  bundle's no-dispatch-commit-on-`main` floor.
 - **Usage and quota governance** — `fleet-autonomy`, which owns the
   reactive rate-limit throttle and the proactive shared-usage governance.
+  Coordination reads no global usage and enforces no quota; it cross-references
+  that owner rather than growing a second one.
 - **The inter-tower relay** — `orchestration-fleet`, whose attributed,
-  non-impersonating relay is consumed as a contract, never forked.
+  non-impersonating relay is consumed as a contract, never forked. The entry
+  point is `scripts/orchestrate-relay.sh`: a tower that needs to steer or observe
+  a live peer asks it for the command, so the never-impersonate discipline stays
+  enforced in one audited place. The same bundle owns meta-tower selection, which
+  coordination consumes on the same terms.
 - **The deterministic PR-ready-push mechanism** — the planned
   `merge-currency-guard` spec, which owns the ready-surface interception
   that mechanism shares with its stale-flip guard.

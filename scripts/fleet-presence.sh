@@ -620,6 +620,18 @@ fi
 # security refusal.
 check_private() {
   cp_dir=$1
+  # Containment on the surface path itself, checked FIRST and on its own
+  # terms: a symlink at any surface or infrastructure root would redirect
+  # every record write, mkdir, and unlink below it to a target this check
+  # never inspected. The mode read below already refuses one incidentally (a
+  # symlink lists as `l…`, not `d???------`), but it refuses it as an
+  # over-broad MODE — sending the operator to chmod a directory whose
+  # permissions were never the problem. Name the redirect instead (REQ-D1.5,
+  # D-9).
+  if [ -L "$cp_dir" ]; then
+    err "security: coordination surface $cp_dir is a symlink — refusing to write the surface through a redirect, whatever it points at (containment, REQ-D1.5/REQ-A1.4); investigate and remove it yourself"
+    exit 4
+  fi
   # ls -ld[n] is the portable mode/owner read (stat's flags differ across
   # BSD/GNU); only the mode and numeric-uid columns are parsed, never a
   # filename (SC2012 n/a).
