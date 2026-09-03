@@ -73,8 +73,9 @@ jobs:
       # machine-local [[name]] memory-link guard over spec files (REQ-D1.1), the
       # options-reference drift check (REQ-K1.8), the tasks.md ledger
       # structural-corruption + duplicate-Status guards (REQ-E1.1, REQ-E1.2),
-      # the spec validator (enforced, REQ-A2.1), and the full-history
-      # gitleaks scan. lint:commits inside `check` covers local runs; the
+      # the hook-registration guard over hooks.json and its payload fixtures
+      # (REQ-H1.1, REQ-H1.2), the spec validator (enforced, REQ-A2.1), and the
+      # full-history gitleaks scan. lint:commits inside `check` covers local runs; the
       # strict PR-range lint is the dedicated step below.
       - run: mise run check
 
@@ -88,6 +89,18 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: /bin/bash scripts/check-commit-msgs.sh "origin/${BASE_REF}..HEAD"
+
+      # Screen the same PR range for purged identifiers, the content half of
+      # the commit-message vector (guard-coverage REQ-B1.1, D-5). githooks/
+      # already screens at write time, but only in a wired clone: this step is
+      # what covers an unwired clone, a --no-verify commit, and a fork PR whose
+      # author never wired anything. A match reports its location only, so the
+      # identifier never lands in this log. base_ref is passed via env per
+      # script-injection hardening practice, as the step above does.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: /bin/sh scripts/check-purged-identifiers.sh --commit-range "origin/${BASE_REF}..HEAD"
 
       # Length is enforced on the PR title instead: it becomes the
       # squash-merge subject and, unlike a pushed commit, stays editable.

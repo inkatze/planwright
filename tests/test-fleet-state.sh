@@ -188,9 +188,11 @@ done
 [ "$reg_rc" = 0 ] || fail "registry race: a concurrent register exited non-zero under contention"
 lines=$(wc -l <"$home_reg/registry" | tr -d ' ')
 [ "$lines" = "$N" ] || fail "registry race: $lines records, expected $N (lost or torn writes)"
-# Every record is well-formed: <epoch>\t<worker>\t<scope>, exactly three fields,
-# no interleaving. A torn write would break the field count on some line.
-malformed=$(awk -F"$tab" 'NF != 3 || $1 !~ /^[0-9]+$/ { c++ } END { print c + 0 }' "$home_reg/registry")
+# Every record is well-formed: the seven-field dispatch record
+# <epoch> <worker> <scope> <owner> <backend> <state-dir> <death-handle>, with
+# `-` in every column this two-argument register left unsupplied. A torn write
+# would break the field count on some line.
+malformed=$(awk -F"$tab" 'NF != 7 || $1 !~ /^[0-9]+$/ { c++ } END { print c + 0 }' "$home_reg/registry")
 [ "$malformed" = "0" ] || fail "registry race: $malformed torn/malformed records"
 distinct=$(cut -f2 "$home_reg/registry" | sort -u | wc -l | tr -d ' ')
 [ "$distinct" = "$N" ] || fail "registry race: $distinct distinct workers, expected $N"

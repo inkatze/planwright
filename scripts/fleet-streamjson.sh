@@ -641,6 +641,66 @@ refuse_bare() {
   done
 }
 
+# register_dispatch <worker> <scope> <dir> <checkout> [<pid>] — write the
+# dispatch record through the one registration seam (fleet-lifecycle-closure
+# Task 3; REQ-E1.1, REQ-E1.2).
+#
+# The SUPERVISOR pid is the death handle: it owns the fifos, the journal, and
+# the worker's lifetime, so it is what a close verb acts on, and it is the pid
+# this rung's own liveness already reads. The caller passes it directly on the
+# foreground path (this process IS the supervisor); on the detached path it is
+# read back from the pid file, which `supervise` writes with a plain redirect —
+# so the file can EXIST while still empty, and a launcher that polled for its
+# existence can read nothing. A short bounded re-read closes that window;
+# failing that, the record lands with the column blank rather than with a pid
+# that is wrong.
+#
+# <checkout> is the TOWER's checkout, passed explicitly because `cmd_launch` may
+# already have cd'd into the worker's directory: a cwd-derived hash there would
+# mint an owner token for a tower that exists nowhere, which is worse than the
+# unknown-owner it would otherwise be.
+#
+# Best-effort by contract (REQ-E1.4): the exit is discarded so a registry
+# failure never fails a launch whose supervisor is already up. stderr is left
+# alone on purpose — an unregistered worker is the leak this closes. Readable,
+# not executable: the call is `/bin/sh <path>`, so a dropped exec bit must not
+# silently switch registration off with nothing on stderr.
+register_dispatch() {
+  rd_reg="$script_dir/fleet-register.sh"
+  if [ ! -r "$rd_reg" ]; then
+    echo "$me: cannot register $1: $rd_reg is missing or unreadable; this worker will not appear in the fleet inventory" >&2
+    return 0
+  fi
+  rd_scope=$2
+  # A resume relaunch carries no scope argument; the launch that created the
+  # worker persisted it, so read it back rather than recording the unit as
+  # scopeless on every recovery. Still nothing found means absent, which the
+  # store spells `-`; inventing a word like `unknown` would read as data.
+  [ -n "$rd_scope" ] || rd_scope=$(cat "$3/scope" 2>/dev/null) || rd_scope=''
+  [ -n "$rd_scope" ] || rd_scope='-'
+  rd_pid=${5:-}
+  rd_tries=0
+  while [ -z "$rd_pid" ] && [ "$rd_tries" -lt 20 ]; do
+    rd_pid=$(cat "$3/supervisor.pid" 2>/dev/null) || rd_pid=''
+    case $rd_pid in
+      '' | 0* | *[!0-9]*) rd_pid='' ;;
+      *) break ;;
+    esac
+    # The supervisor may also have finished already, in which case there is no
+    # pid to wait for and a blank column is the honest record.
+    [ -f "$3/result" ] && break
+    rd_tries=$((rd_tries + 1))
+    sleep 0.05
+  done
+  set -- --handle "$1" --scope "$rd_scope" \
+    --backend stream-json-persistent --state-dir "$3" --checkout "$4"
+  case $rd_pid in
+    '' | 0* | *[!0-9]*) ;;
+    *) set -- "$@" --death-handle "process $rd_pid" ;;
+  esac
+  /bin/sh "$rd_reg" "$@" >/dev/null </dev/null || true
+}
+
 # --- subcommands ------------------------------------------------------------
 
 cmd_launch() {
@@ -742,6 +802,12 @@ cmd_launch() {
     set -- "$@" --resume "$resume_sid"
   fi
 
+  # Capture the TOWER's checkout before any cd: past this point the cwd is the
+  # worker's, and an owner token hashed over that names a tower nobody
+  # published (fleet-register.sh, "The CHECKOUT feeds the composite identity").
+  tower_checkout=$(git rev-parse --show-toplevel 2>/dev/null) || tower_checkout=''
+  [ -n "$tower_checkout" ] || tower_checkout=$(pwd)
+
   if [ -n "$run_cwd" ]; then
     cd "$run_cwd" || {
       rm -f "$init_msg"
@@ -751,6 +817,9 @@ cmd_launch() {
   fi
 
   if [ "$foreground" = 1 ]; then
+    # This process becomes the supervisor, so it is its own death handle; the
+    # record has to land before supervise blocks.
+    register_dispatch "$worker" "$scope" "$dir" "$tower_checkout" "$$"
     supervise "$worker" "$dir" "$init_msg" "$@"
     return $?
   fi
@@ -778,6 +847,7 @@ cmd_launch() {
   li=0
   while [ "$li" -lt 50 ]; do
     if [ -f "$dir/supervisor.pid" ] || [ -f "$dir/result" ]; then
+      register_dispatch "$worker" "$scope" "$dir" "$tower_checkout"
       printf 'launched %s dir %s\n' "$worker" "$dir"
       return 0
     fi

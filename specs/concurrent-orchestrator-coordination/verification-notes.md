@@ -88,3 +88,52 @@ the config, so `SSH_AUTH_SOCK` resolved empty and the fetch and signature
 succeeded through the machine's global plumbing — passing while proving nothing
 about the clone's own env file. The record above is from the re-run with trust
 established and the resolution asserted before the fetch and signing steps.
+
+## Task 4 — Peer fence (per-unit origin CAS at dispatch, operator-surfaced strands)
+
+### 2026-08-26 — Two-clone race for one unit (REQ-C1.6)
+
+Two towers on two **separate clones** of one shared bare `origin`, both reaching
+for the same unit (`coc-demo/9`) in the same pass. A bare-repo fixture in the
+test suite stands in for this in CI; this is the end-to-end run it stands in for.
+
+**The two tower identities** (`scripts/fleet-presence.sh identity`, derived from
+two real live processes, not fabricated pids):
+
+| Tower | Clone | Identity |
+| --- | --- | --- |
+| A | `tower-a` | `p720088.t1524824804.c2467175528` |
+| B | `tower-b` | `p720091.t1524824804.c3789898683` |
+
+The identities share a start-time component and differ in their checkout hash
+(`c2467175528` vs `c3789898683`), which is what confirms two separate clones
+rather than one addressed twice. Each tower saw the other:
+`summary peers=1 sole-tower=no`.
+
+**One winning fence ref.** Both towers ran the same fence command against the
+same unit:
+
+- Tower A: exit `0`, `fenced refs/planwright-fence/coc-demo/9`
+- Tower B: exit `3`, `taken refs/planwright-fence/coc-demo/9`
+
+`origin` ended the race holding exactly one fence ref,
+`refs/planwright-fence/coc-demo/9`, at `eae6fbae` — which is the `origin/main`
+tip itself. `main` stayed at one commit throughout: the fence is a ref at an
+existing commit, so it adds no history (REQ-C1.2).
+
+**Only one worker, and only one PR's worth of branch.** After the race, the
+selection guard reported the unit fenced from *both* clones, so neither would
+re-dispatch it. Tower A (the winner) dispatched; tower B dispatched nothing.
+`origin` finished with a single task branch,
+`refs/heads/planwright/coc-demo/task-9` — one worker, therefore one PR. Had the
+losing tower treated its push's exit code as the verdict it would have dispatched
+too, since git resolves a same-tip update to `[up to date]` and exits 0; the
+winner is read from the per-ref `--porcelain` status instead.
+
+**The fence retired itself on merge.** With task 9 merged to `main`, tower A's
+sweep printed `gc refs/planwright-fence/coc-demo/9` and the fence namespace
+returned to empty (REQ-C1.5).
+
+Run on git 2.53.0, 2026-08-26. Clone names are the run-local ones; the machine
+paths and the towers' death handles are deliberately not recorded here
+(REQ-D1.4).

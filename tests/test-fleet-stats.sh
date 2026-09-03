@@ -70,7 +70,33 @@ case $out in
   *throttle*idle*) ;;
   *) fail "empty render did not report throttle idle (got: $out)" ;;
 esac
+case $out in
+  *allocation*none*) ;;
+  *) fail "empty render did not report no allocation ledgers (got: $out)" ;;
+esac
 echo "ok: an empty fleet home renders the derived-nothing baseline"
+
+# --- 1b. The allocation-ledger instrument surfaces through the stats path
+#     (model-allocation REQ-F1.3): a fixture ledger's SIZE and the cost of
+#     deriving a tier from it are both readable without opening the store.
+led_dir="$fleet_home/allocation"
+mkdir -p "$led_dir"
+awk 'BEGIN {
+  for (i = 1; i <= 50; i++)
+    printf "%d\t1700000000\tinstrument:unit\ts%d\t1\tlaunch\thaiku\tlow\thaiku\tlow\thaiku\tlow\tunit\tresolved\tn=%d\n", i, i, i
+}' >"$led_dir/instrument:unit.tsv"
+out=$(stats render) || fail "render with an allocation ledger failed"
+case $out in
+  *"allocation:"*"1 units, 50 rows,"*"derive "*ms*) ;;
+  *) fail "the stats path does not surface ledger size and derivation latency (got: $out)" ;;
+esac
+line=$(stats line) || fail "line render with an allocation ledger failed"
+case $line in
+  *"alloc "*ms*) ;;
+  *) fail "the compact line does not carry the derivation latency (got: $line)" ;;
+esac
+rm -rf "$led_dir"
+echo "ok: ledger size and derivation latency surface through the existing stats path"
 
 # --- 2. Drive Task 3's watchdog activity through the REAL audit seam, using the
 #       byte-identical mechanism/action tokens scripts/fleet-tower-watchdog.sh

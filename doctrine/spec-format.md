@@ -626,6 +626,29 @@ line; misclassification is auditable and one revert from undone. Execution
 skills' brief writes are confined to named sections (risk register,
 observations) and never produce anchor entries.
 
+**What a writer owes when it acts on findings.** The permission above is one
+half of the contract; this is the other. Two routes reach the same edit — a
+skill applying a review finding to a signed (Ready or Active) bundle, and a
+skill acting on an edit its own implementation work revealed — and both owe
+the three things below, in order. What triggers them is an edit to **anchored
+content**; the orchestration-state and placement writes the anchor excludes by
+construction are bookkeeping, and a stale anchor never blocks one. First, a
+**stale-anchor pre-flight** before the skill's first such edit to that bundle:
+recompute with the brief's most recent recorded command and surface instead
+of editing when the anchor mismatches, when the entry is absent or
+unparseable, or when the recompute itself fails — all of them block alike,
+because none of them can say what the recorded anchor covers, and editing on
+top of an unknown baseline is what makes the drift unrecoverable. Second, for
+an **expression-only** edit, the full ritual in the same change: the edit,
+its dated Changelog entry, and the marked `Class: expression-only`
+self-re-anchor entry citing that entry, landing in **one commit**, so no
+commit in history carries an edited bundle under an anchor that no longer
+describes it. Third, **refusal** of a meaning-class edit: the bundle stays
+untouched and the handoff names a `/spec-kickoff` delta re-walkthrough as the
+route, because meaning-class writership is `/spec-kickoff`'s alone. This binds
+the act, not the shipping vehicle: a review skill delivered from another
+repository owes the same three, and follows through its own repository.
+
 ### The content anchor
 
 The anchor (REQ-F1.9, D-45) is the hash of the per-file digest list: each
@@ -1060,3 +1083,20 @@ bundle would have to migrate to:
   number cannot be told apart from a date component or any other digit in the
   entry's prose (*`tasks.md`*, superseded and retired tasks).
   *(format-grammar D-5, D-9, D-12 · REQ-C1.2, REQ-C1.4, REQ-D1.6, REQ-D1.11.)*
+- 2026-08-26 — What a writer owes when it acts on findings. The writer prose
+  gains the obligation half of the anchor-writership contract, alongside the
+  permission it already stated: a skill editing anchored content in a signed
+  bundle — applying a review finding to it, or acting on an edit its own
+  implementation work revealed — runs the stale-anchor pre-flight before its
+  first such edit (blocking on a mismatch, an absent or unparseable entry, and
+  a failed recompute alike), lands an expression-only edit with its Changelog
+  entry and marked self-re-anchor entry in one commit, and refuses a
+  meaning-class finding to a `/spec-kickoff` delta re-walkthrough (*Sign-off
+  records and content anchors*). Stated here rather than in `gate-wiring.md`
+  because that doc scopes itself to this repository's three gate-wired skills,
+  while this obligation binds the act: a review skill shipped from another
+  repository owes the same three and follows through its own. The named skills
+  instantiate it in their own prose as the same task. **No version bump:** no
+  authoring rule changes — a writer obligation that was already implied by the
+  expression-only lane becomes explicit.
+  *(anchor-integrity D-5 · REQ-C1.1, REQ-C1.2, REQ-C1.3.)*

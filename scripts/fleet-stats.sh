@@ -25,6 +25,15 @@
 #                     relaunch / relaunch-failed / disable (the watchdog acting
 #                     on positive evidence of a dead tower). The healthy
 #                     `reset-backoff` action (trigger tower-alive) is NOT a trip.
+#   allocation      — the per-unit allocation ledgers' SIZE and the cost of
+#                     deriving a tier from the largest of them
+#                     (scripts/allocation-ledger.sh stats; model-allocation
+#                     REQ-F1.3). This is the instrument behind that spec's
+#                     ledger-growth risk: derivation scans a unit's own history,
+#                     so row count and derivation latency are what turn "the
+#                     scan is getting expensive" from a hunch into a reading.
+#                     Read through the sibling's own `stats` verb, so this script
+#                     still never resolves the fleet home itself.
 #   throttle        — Task 7's LIVE throttle state, read straight from
 #                     scripts/fleet-throttle.sh check (engaged-until vs idle),
 #                     never a stale audit row: the audit trail records the
@@ -84,6 +93,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 AUDIT="$script_dir/fleet-audit.sh"
 THROTTLE="$script_dir/fleet-throttle.sh"
 ATTN="$script_dir/fleet-attention.sh"
+LEDGER="$script_dir/allocation-ledger.sh"
 TAB=$(printf '\t')
 
 # utc_iso <epoch>: best-effort UTC rendering, byte-identical to
@@ -204,6 +214,45 @@ derive_throttle() {
   fi
 }
 
+# derive_allocation — the allocation ledgers' size and derivation cost, via
+# scripts/allocation-ledger.sh's own `stats` verb (model-allocation REQ-F1.3).
+# Sets ALLOC_STAT to `<units> units, <rows> rows, <bytes> B, derive <ms>ms`, or
+# `unknown` on any read failure — the same degrade-never-halt posture the other
+# stats take. An absent helper is not an error: a planwright install predating
+# the allocation ledger simply has no such stat, so it reads `none`.
+ALLOC_STAT=""
+derive_allocation() {
+  if [ ! -x "$LEDGER" ]; then
+    ALLOC_STAT="none"
+    return 0
+  fi
+  da_rc=0
+  da_out=$("$LEDGER" stats 2>/dev/null) || da_rc=$?
+  if [ "$da_rc" != 0 ]; then
+    echo "fleet-stats: could not read the allocation ledger stats (allocation-ledger exit $da_rc); allocation stat degraded to unknown" >&2
+    ALLOC_STAT="unknown"
+    return 0
+  fi
+  da_u=$(printf '%s\n' "$da_out" | awk -F "$TAB" '$1 == "units" { print $2; exit }')
+  da_r=$(printf '%s\n' "$da_out" | awk -F "$TAB" '$1 == "rows" { print $2; exit }')
+  da_b=$(printf '%s\n' "$da_out" | awk -F "$TAB" '$1 == "bytes" { print $2; exit }')
+  da_ms=$(printf '%s\n' "$da_out" | awk -F "$TAB" '$1 == "derivation_ms" { print $2; exit }')
+  for da_v in "$da_u" "$da_r" "$da_b" "$da_ms"; do
+    case $da_v in
+      "" | *[!0-9]*)
+        echo "fleet-stats: the allocation ledger stats are malformed; allocation stat degraded to unknown" >&2
+        ALLOC_STAT="unknown"
+        return 0
+        ;;
+    esac
+  done
+  if [ "$da_u" = 0 ]; then
+    ALLOC_STAT="none"
+    return 0
+  fi
+  ALLOC_STAT="$da_u units, $da_r rows, $da_b B, derive ${da_ms}ms"
+}
+
 # queue_count — the decision-queue length via fleet-attention.sh (composition,
 # D-14). Three outcomes, kept distinct:
 #   `deferred` — a healthy exit-0 with EMPTY stdout: a backend advertises
@@ -251,13 +300,16 @@ case $cmd in
     }
     derive_from_audit
     derive_throttle
+    derive_allocation
     s_cleanup=$(sanitize_printable "$LAST_CLEANUP" "?")
     s_trips=$(sanitize_printable "$WATCHDOG_TRIPS" "?")
     s_throttle=$(sanitize_printable "$THROTTLE_STATE" "?")
+    s_alloc=$(sanitize_printable "$ALLOC_STAT" "?")
     printf 'fleet stats (derived on demand; no stored stats file)\n'
     printf '  last cleanup:   %s\n' "$s_cleanup"
     printf '  watchdog trips: %s\n' "$s_trips"
     printf '  throttle:       %s\n' "$s_throttle"
+    printf '  allocation:     %s\n' "$s_alloc"
     exit 0
     ;;
 
@@ -286,8 +338,17 @@ case $cmd in
     s_trips=$(sanitize_printable "$WATCHDOG_TRIPS" "?")
     s_th=$(sanitize_printable "$th" "?")
     s_q=$(sanitize_printable "$q" "?")
-    printf 'planwright | cleanup %s | trips %s | throttle %s | queue %s\n' \
-      "$s_c" "$s_trips" "$s_th" "$s_q"
+    # The compact line carries only the derivation LATENCY: that is the growth
+    # signal an operator watches, and a statusLine has no room for the rest.
+    derive_allocation
+    case $ALLOC_STAT in
+      none) al=none ;;
+      unknown) al='?' ;;
+      *) al="${ALLOC_STAT##*derive }" ;;
+    esac
+    s_al=$(sanitize_printable "$al" "?")
+    printf 'planwright | cleanup %s | trips %s | throttle %s | queue %s | alloc %s\n' \
+      "$s_c" "$s_trips" "$s_th" "$s_q" "$s_al"
     exit 0
     ;;
 

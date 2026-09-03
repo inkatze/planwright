@@ -709,9 +709,9 @@ echo "ok: the gh PR probe passes an explicit --limit (no default-page truncation
 #     paragraph, so it misses a relocated trailer; the engine must scan the
 #     whole message (%B) and still derive completion — regardless of how the PR
 #     was merged or what the branch was named. Regression guard for the
-#     footer-only read that failed grammar-backed-explain Task 1 in paycalc-
-#     services (PR squash-merged from a non-convention branch: the gh head-ref
-#     mapping found no match AND the trailer was mid-body → task mis-derived).
+#     footer-only read that failed grammar-backed-explain Task 1 in acme-billing
+#     (PR squash-merged from a non-convention branch: the gh head-ref mapping
+#     found no match AND the trailer was mid-body → task mis-derived).
 # ---------------------------------------------------------------------------
 srepo="$tmp/squashtrailer"
 sspec="$srepo/specs/demo"
@@ -730,7 +730,7 @@ gitc "$srepo" commit -q -m "base"
 # A squash-style message: subject, then the trailer, then MORE body after it, so
 # the trailer is no longer in the last paragraph (where %(trailers) looks). No
 # task branch and no remote — the trailer is the only completion anchor, exactly
-# the paycalc-services shape.
+# the acme-billing shape.
 gitc "$srepo" commit -q --allow-empty \
   -m "squashed: task 1 work (STEAI-834)" \
   -m "Planwright-Task: demo/1" \
@@ -779,7 +779,7 @@ echo "ok: a case-variant trailer key is recognized (git-parity, no regression)"
 #     Planwright-Task trailer sits on origin/main but NOT on local main, so a
 #     base-only scan misses it and the merged task is re-dispatched. The engine
 #     must scan the UNION of base and its remote-tracking counterpart so
-#     completion survives the lag. Regression guard for the paycalc-services
+#     completion survives the lag. Regression guard for the acme-billing
 #     grammar-backed-explain case #102's whole-message scan did NOT cover: the
 #     trailer read was correct, but it was pointed at a stale local main while
 #     the merged trailer lived on the (already-fetched) origin/main.

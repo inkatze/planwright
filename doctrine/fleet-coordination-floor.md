@@ -193,6 +193,52 @@ fence decides who may work a unit, the reaper decides what processes exist,
 and the audit rule keeping them apart is one line: **if the act would change
 what a future dispatch sees, it is not a reap.**
 
+### An open that can refuse is never registered for observation
+
+**Before registering a hook on a lifecycle event, establish what that event
+reads SILENCE as. Where a registered hook replaces the native operation, a
+hook that says nothing has refused it, and only that operation's implementer
+may be registered there** (fleet-lifecycle-closure REQ-H1.1–REQ-H1.4, D-11).
+
+The floor above is about closing what a worker opened. This is about the open
+itself being correct, and it is mined from planwright doing the opposite.
+`WorktreeCreate` was registered to a passive tracker. The tracker read
+`worktree_path` from a payload that carries `name`, found nothing, echoed
+nothing, and exited 0 — and because that event reads silence as refusal,
+worktree creation broke on every installed machine. Nothing failed until a
+human hand-probed the hook (obs:f51f6b6e).
+
+The corrected contract, verified against the CLI's own payload construction
+across 2.1.226 / 2.1.237 / 2.1.239 / 2.1.241 rather than the published docs,
+which omit it: **`WorktreeCreate` supplies a worktree `name`, and a registered
+hook is the creator — expected to produce the worktree and report its path.
+`WorktreeRemove` supplies a `worktree_path`, because there the worktree already
+exists.** The two are not variants of one shape. The earlier reading, that a
+hook echoes an inbound `worktree_path` unchanged, back-filled remove onto
+create and is superseded (obs:a6f5511b, superseded by obs:46886617).
+
+What this means in practice:
+
+- **Classify by what silence does, not by whether the event can block.**
+  `PreToolUse` and `Stop` can both block, yet a quiet hook on either leaves the
+  operation untouched; registering an observer there is free. `WorktreeCreate`
+  is the other kind. Only the second kind constrains registration (REQ-H1.2).
+- **Wanting observation is not a reason to register.** planwright wanted
+  worktree tracking and that event grants no passive mode, so planwright
+  registers no `WorktreeCreate` hook at all. Tracking rides the two paths that
+  cannot refuse anything: a `record-create` at the dispatch seam and the `scan`
+  reconcile.
+- **A refusal is stated on a channel the operator sees.** Hook stderr is
+  discarded on most events, so a reason left there is indistinguishable from an
+  unexplained platform failure — the property that turned a one-line bug into a
+  binary inspection. Refusals go out as `systemMessage` or the event's decision
+  field (REQ-H1.3, REQ-K1.1).
+- **The contract is pinned, not remembered.** Every registered event has a
+  payload fixture holding its real key set, and
+  `scripts/check-hook-contracts.sh` enforces all of the above in `mise run
+  check`, so the next schema divergence fails a test rather than the fleet
+  (REQ-H1.1).
+
 ### The class contract
 
 Each class's three parts and the mechanism of record for each. The mechanisms

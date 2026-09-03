@@ -198,9 +198,14 @@ canonical name **directly** — so **no worker branch and no dispatch-backend re
 fence never passes through `fleet-dispatch-worktree.sh` or the `claude --worktree`/tmux path, so no backend
 naming behavior can affect it; the two-backend "identical fence ref" framing was a run-4 phantom, since
 neither backend produces the fence ref). A **cohesion-bundle** dispatch fences **every member unit-id** in a single
-**`git push --atomic`**: a fixture where one member is already fenced by a peer shows the whole atomic push
-**rejected** and the tower backing off the entire bundle, so a peer selecting **any** member — lead or
-non-lead — collides (no unfenced member). Asserts the tower only creates / reads / deletes fence refs and
+**`git push --atomic`**: a fixture where one member is already fenced by a peer shows the tower backing off
+the entire bundle, so a peer selecting **any** member — lead or non-lead — collides (no unfenced member) and
+**no member is left fenced** by the abandoned bundle. Because the collision a bundle actually meets is the
+`=` `[up to date]` status rather than a rejection (REQ-C1.6), the fixture stages the race so the peer's
+fence lands **after** the pre-flight read and **before** the push, which is the only interleaving that
+reaches the compare-and-swap; a fixture that relies on the pre-flight read alone asserts nothing about it.
+*(Amended at Task 4 execution 2026-08-26: the staged-race requirement and the no-member-left-fenced
+assertion added.)* Asserts the tower only creates / reads / deletes fence refs and
 reads the presence surface, never writing into a peer tower's or a worker's branch state.
 
 ### REQ-C1.3 — Live-owner fence honored; dead-owner/unclassifiable strand surfaced, never auto-reclaimed [test]

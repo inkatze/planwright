@@ -9,7 +9,8 @@ four buckets. The buckets are an **audit taxonomy, not a decision queue**
 backs it, so the human can review the whole record at the draft PR.
 
 Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
-REQ-C1.7 · D-4, D-5, D-6.
+REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 ·
+operator-dialogue D-14, D-15.
 
 The operational wiring (routing order, commit discipline, the checklist and
 audit-record formats, the ladder procedure, the pause protocol) is specified
@@ -163,9 +164,17 @@ queued for loop end.
 
 ## Presentation (REQ-C1.5)
 
-Skills using the categorization present the four buckets as **four tables in
+Skills using the categorization record the four buckets as **four tables in
 fixed order**: Auto-applicable, Agent-resolvable, Needs sign-off, Needs human
 judgment. An empty bucket still emits its table with a single `none` row (the
 same anti-silent-pruning guard as Discovery Rigor's lens-coverage table). The
-declined-with-rationale log accompanies the tables. The tables are the audit
-record the draft PR carries to review; they are not prompts.
+declined-with-rationale log accompanies the tables. The tables are
+**artifact-side**: the audit record the draft PR carries to review; they are
+not prompts.
+
+A skill composing a turn *about* the pass — a handoff, a progress report, a
+pause — emits a projection of that record rather than the tables: per-bucket
+counts, the actionable residue (pending sign-offs, open forks), and where the
+full record landed. Leaving the tables out of that turn is not pruning,
+because the artifact still carries every row
+([Interaction Style](interaction-style.md), the arbitration).

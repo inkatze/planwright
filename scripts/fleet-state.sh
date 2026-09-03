@@ -64,12 +64,64 @@
 # record is written, so a traversal token, an embedded tab/newline, or a control
 # character is refused rather than tearing the append-only registry.
 #
+# THE DISPATCH RECORD (fleet-lifecycle-closure Task 3; D-12, REQ-E1.2,
+# REQ-D1.5). A record is what a close verb reads when the dispatching tower is
+# gone, so it carries what closing a worker needs without its dispatcher:
+#
+#   <epoch> <worker> <scope> <owner> <backend> <state-dir> <death-handle>
+#
+# tab-separated, one per line, append-only, last record for a worker wins — so a
+# seam that learns a column only after the launch supersedes its own earlier
+# record rather than updating one in place.
+#
+# `state-dir` is the directory that IDENTIFIES the worker on disk, the one a
+# close verb matches processes against, where a rung has one: the unit state
+# directory on the two session-grade rungs, the worktree on the `/orchestrate`
+# tmux rung, and absent on the rungs that keep no directory of their own
+# (`/offload`'s tmux and print rungs). It is not the scratch-temp class of the
+# coordination floor's resource table.
+#
+# `owner` is the dispatching tower's identity token (the presence surface's
+# `identity`), so two towers are never confused for one another and a record's
+# owner is attributable without inference.
+#
+# `death-handle` is the presence surface's own grammar — `process <pid>` or
+# `tmux-window <session> <window>` — plus the literal `none` for a rung that
+# spawns no process (the `print` rung: REQ-D1.8 exempts it from reaping, and
+# recording that fact is not the same as leaving the column blank). TWO READER
+# OBLIGATIONS come with it. `none` is NOT an evidence class:
+# fleet-death-evidence.sh takes `process` and `tmux-window` only and exits 2 on
+# anything else, so a reader must branch on the value before consulting the
+# predicate rather than passing it through. And the column as a whole is an
+# untrusted HINT, not an instruction: this store authenticates no caller (any
+# process running as the operator can append), a bare pid carries no start-time
+# anchor and so cannot be told from a recycled one, and a `tmux-window` pair can
+# name a window that has since been reassigned. A destructive verb owes its own
+# positive death evidence, self-target guard, and post-canonicalization
+# containment check on top of whatever it reads here.
+#
+# An unsupplied optional field is written as `-`. No OPTIONAL field's grammar
+# admits it, so absent is never confused with a value there; `worker` and `scope`
+# share the older, more permissive `valid_field`, which does admit it, so a
+# caller writing a literal `-` scope is indistinguishable from one that supplied
+# none (fleet-register.sh writes exactly that for a scopeless dispatch, on
+# purpose). A record predating this shape (three columns) still parses: its owner
+# is absent, and a reader classifies it unknown-owner rather than attributing it
+# to anyone. A MALFORMED field is a different case and is refused at write — a
+# hostile token must not reach the store, and a reaper must never read a
+# pseudo-evidence death handle (`timeout <n>`) the evidence predicate itself
+# refuses (REQ-A1.7). Refusing rather than blanking makes the whole record fail,
+# which is why fleet-register.sh, not this store, owns the per-field degrade that
+# keeps a live worker's record from being lost to one bad column.
+#
 # Usage:
 #   fleet-state.sh root                       resolve & print the fleet home.
 #   fleet-state.sh lock                       acquire the advisory lock (0 held,
 #                                             1 a live holder has it, 2 error).
 #   fleet-state.sh unlock                     release the lock (idempotent, 0).
-#   fleet-state.sh register <worker> <scope>  append a worker/scope record.
+#   fleet-state.sh register <worker> <scope> [--owner <token>]
+#       [--backend <name>] [--state-dir <abs-dir>] [--death-handle <handle>]
+#                                             append a dispatch record.
 #   fleet-state.sh registry                   print the registry records.
 #   fleet-state.sh bound-incr <max>           check-and-increment the fleet
 #                                             counter under the bound (0 granted
@@ -131,6 +183,103 @@ valid_field() {
   [ "${#vf_v}" -le 128 ]
 }
 
+# The OWNER-TOKEN grammar (REQ-D1.5, REQ-K1.4). The presence surface's tower
+# identity is a session UUID or the composite `p<pid>.t<hash>.c<hash>`; both sit
+# inside this conservative charset. The grammar is stated as a charset rather
+# than as those two shapes so this store does not re-decide what a tower
+# identity looks like — that is fleet-presence.sh's call — while still refusing
+# whitespace, separators, control bytes, and a leading dash, none of which any
+# identity shape produces and each of which would tear a record or misdirect a
+# path built from it. Bounded to 128 chars, like every other field.
+# `unknown-owner` is refused as a VALUE because it is the reader's classification
+# for an absent one (fleet-status.sh). Sentinel and value namespaces have to be
+# disjoint: if a caller could store the literal string, a forged record would be
+# byte-identical to a genuinely unattributed one in the column a destructive verb
+# reads, in both directions.
+valid_owner() {
+  vo_v=$1
+  case $vo_v in
+    "" | . | .. | unknown-owner | *[!A-Za-z0-9._-]*) return 1 ;;
+    -*) return 1 ;;
+  esac
+  [ "${#vo_v}" -le 128 ]
+}
+
+# The BACKEND grammar: a kebab rung name, lowercase, no leading dash, ≤64. The
+# rung SET is the capability contract's (doctrine/backend-capability-contract.md)
+# and is deliberately not enumerated here — a store that hard-codes it makes
+# adding a rung a two-file change and drifts the moment it is missed. What this
+# grammar owes is containment: no separator, no metacharacter, no control byte.
+valid_backend() {
+  vb_v=$1
+  case $vb_v in
+    "" | -* | *[!a-z0-9-]*) return 1 ;;
+  esac
+  [ "${#vb_v}" -le 64 ]
+}
+
+# The STATE-DIRECTORY grammar (REQ-K1.4). A close verb matches processes against
+# this path, so it must be absolute (a relative path means something different
+# in every cwd a later reader has) and free of a `..` segment (which would let a
+# record name a directory outside the tree it claims). Control bytes, tabs, and
+# newlines are refused: they would tear the record or drive the terminal of
+# whoever renders it.
+# The bare `/` is refused too: a close verb matching processes against it would
+# match the operator's whole session. This is a SYNTACTIC check — it does not
+# canonicalize, so a path through a symlink still reads as contained here. A
+# consumer that acts destructively on this column owes its own post-realpath
+# containment check; the store's job is to keep a torn or traversing value out,
+# not to vouch for where the path really points.
+valid_state_dir() {
+  vsd_v=$1
+  case $vsd_v in
+    / | */../* | */.. | ../*) return 1 ;;
+    /*) ;;
+    *) return 1 ;;
+  esac
+  [ "${#vsd_v}" -le 4096 ] || return 1
+  # Any C0 control byte or DEL, stripped: if the value changes, it carried one.
+  [ "$(printf '%s' "$vsd_v" | tr -d '\000-\037\177')" = "$vsd_v" ]
+}
+
+# The tmux token charset fleet-death-evidence.sh validates against (no `:` or
+# `/`), so a handle this store accepts is one that predicate can consume.
+valid_tmux_token() {
+  vtt_v=$1
+  case $vtt_v in
+    "" | -* | *[!A-Za-z0-9._@%-]*) return 1 ;;
+  esac
+  [ "${#vtt_v}" -le 128 ]
+}
+
+# The DEATH-HANDLE grammar, mirroring fleet-presence.sh's `is_handle` plus the
+# `none` arm. A pseudo-evidence class (`timeout`, `silence`, `heartbeat`) is not
+# an unrecognized value to be stored and puzzled over later — the evidence
+# predicate refuses it outright (REQ-A1.7), so the store refuses it too, and a
+# record can never hand a reaper a basis its own predicate would reject.
+valid_death_handle() {
+  vdh_v=$1
+  case $vdh_v in
+    none) return 0 ;;
+    "process "*)
+      vdh_pid=${vdh_v#process }
+      case $vdh_pid in
+        "" | 0* | *[!0-9]*) return 1 ;;
+      esac
+      [ "${#vdh_pid}" -le 10 ]
+      ;;
+    "tmux-window "*)
+      vdh_rest=${vdh_v#tmux-window }
+      case $vdh_rest in
+        *" "*) ;;
+        *) return 1 ;;
+      esac
+      valid_tmux_token "${vdh_rest%% *}" && valid_tmux_token "${vdh_rest#* }"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 # resolve_root — print the fleet home per the D-11 chain, or fail (exit 2) when
 # no arm is derivable (a fleet with no durable home is an error for a writer,
 # unlike an absent overlay layer which is a normal state). The result is used
@@ -186,11 +335,11 @@ resolve_root() {
         fi
         # A name that fails the charset is NEVER interpolated into a path
         # (REQ-F1.1): warn and treat the writer arm as underivable.
-        echo "fleet-state: plugin manifest name '$(sanitize_printable "$rr_name" "(unprintable name)")' is not a valid identifier; refusing to build a fleet path from it" >&2
+        printf '%s\n' "fleet-state: plugin manifest name '$(sanitize_printable "$rr_name" "(unprintable name)")' is not a valid identifier; refusing to build a fleet path from it" >&2
       fi
     fi
   fi
-  echo "fleet-state: cannot resolve a cross-spec fleet home — set \$PLANWRIGHT_FLEET_STATE_DIR (explicit override) or \$CLAUDE_PLUGIN_DATA (plugin mode), or ensure a readable plugin manifest at <claude-dir>/planwright/plugin.json (writer mode; claude-dir is \$CLAUDE_DIR else \$HOME/.claude)" >&2
+  printf '%s\n' "fleet-state: cannot resolve a cross-spec fleet home — set \$PLANWRIGHT_FLEET_STATE_DIR (explicit override) or \$CLAUDE_PLUGIN_DATA (plugin mode), or ensure a readable plugin manifest at <claude-dir>/planwright/plugin.json (writer mode; claude-dir is \$CLAUDE_DIR else \$HOME/.claude)" >&2
   return 2
 }
 
@@ -258,7 +407,7 @@ try_acquire() {
     if [ "$(mkdir_failure_kind "$ta_lock")" = busy ]; then
       return 1
     fi
-    echo "fleet-state: cannot create $ta_lock (home unwritable or filesystem error)" >&2
+    printf '%s\n' "fleet-state: cannot create $ta_lock (home unwritable or filesystem error)" >&2
     return 2
   fi
   ta_min=$(fleet_stale_min)
@@ -286,7 +435,7 @@ try_acquire() {
       if [ "$(mkdir_failure_kind "$ta_lock")" = busy ]; then
         return 1
       fi
-      echo "fleet-state: cannot create $ta_lock after stale break (home unwritable or filesystem error)" >&2
+      printf '%s\n' "fleet-state: cannot create $ta_lock after stale break (home unwritable or filesystem error)" >&2
       return 2
     fi
     return 1
@@ -313,13 +462,20 @@ spin_acquire() {
     try_acquire "$sa_lock"
     sa_rc=$?
     case $sa_rc in
-      0) return 0 ;;
+      0)
+        # Record ownership so the EXIT trap releases what THIS process holds,
+        # and only that. try_acquire is deliberately not the place for it: the
+        # exposed one-shot `lock` command uses it to hand the lock to a caller
+        # who releases it in a later process.
+        HOLD_LOCK=1
+        return 0
+        ;;
       2) return 2 ;;
     esac
     sa_tries=$((sa_tries + 1))
     sleep 0.02
   done
-  echo "fleet-state: gave up acquiring $sa_lock after contention" >&2
+  printf '%s\n' "fleet-state: gave up acquiring $sa_lock after contention" >&2
   return 2
 }
 
@@ -380,7 +536,7 @@ case $cmd in
     # so a typo is a clean usage error (exit 2) that never materializes any
     # fleet-state artifacts (fail-closed / data hygiene, REQ-A1.6). Without this
     # the unconditional mkdir below would create the fleet home on a typo.
-    echo "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
+    printf '%s\n' "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
     exit 2
     ;;
 esac
@@ -389,12 +545,40 @@ esac
 # be one of the six above (unknown was rejected before this point).
 root=$(resolve_root) || exit 2
 if ! mkdir -p "$root" 2>/dev/null; then
-  echo "fleet-state: cannot create fleet home $root" >&2
+  printf '%s\n' "fleet-state: cannot create fleet home $root" >&2
   exit 2
 fi
 lock="$root/.fleet.lock"
 registry="$root/registry"
 counter="$root/concurrency"
+
+# Release an internally-held lock on ANY exit path, including a signal
+# (fleet-lifecycle-closure Task 3). The consumers that take this lock from
+# outside — fleet-attention.sh, fleet-throttle.sh — have carried this discipline
+# all along; this script did not, which was survivable while `register` had no
+# caller and `bound-incr`/`bound-decr` were sub-millisecond machine-to-machine
+# calls. Registration put the critical section on the INTERACTIVE dispatch path,
+# where a Ctrl-C at the wrong instant would leave `.fleet.lock` standing until
+# the stale-break threshold and wedge every fleet writer behind it for that whole
+# window. HOLD_LOCK is set only while this process owns the lock, so the handler
+# can never rmdir a lock someone else holds.
+#
+# INT/TERM re-exit rather than returning: a bare `trap release_lock INT` would
+# run the handler and then RESUME the interrupted critical section with the lock
+# gone, which is the lost update the lock exists to prevent. Byte-for-byte the
+# sibling discipline in fleet-attention.sh. SIGKILL stays unrecoverable and falls
+# to the stale break, as it does everywhere else in the lock family.
+HOLD_LOCK=0
+release_lock() {
+  if [ "$HOLD_LOCK" = 1 ]; then
+    HOLD_LOCK=0
+    rmdir "$lock" 2>/dev/null || true
+  fi
+}
+trap 'release_lock' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 case $cmd in
   lock)
@@ -406,25 +590,89 @@ case $cmd in
     ;;
 
   unlock)
+    # Unconditional, NOT release_lock: this is the external half of the exposed
+    # primitive, releasing a lock a previous process took via `lock`. HOLD_LOCK
+    # is about what THIS process holds and is always 0 here.
     rmdir "$lock" 2>/dev/null || true
     exit 0
     ;;
 
   register)
-    worker="${2:-}"
-    scope="${3:-}"
-    if [ -z "$worker" ] || [ -z "$scope" ]; then
-      echo "usage: fleet-state.sh register <worker> <scope>" >&2
+    shift
+    positional=0
+    worker=""
+    scope=""
+    owner="-"
+    backend="-"
+    state_dir="-"
+    death_handle="-"
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --owner | --backend | --state-dir | --death-handle)
+          if [ "$#" -lt 2 ]; then
+            printf '%s\n' "fleet-state: register: $1 needs a value" >&2
+            exit 2
+          fi
+          case $1 in
+            --owner) owner=$2 ;;
+            --backend) backend=$2 ;;
+            --state-dir) state_dir=$2 ;;
+            --death-handle) death_handle=$2 ;;
+          esac
+          shift 2
+          ;;
+        --*)
+          printf '%s\n' "fleet-state: register: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
+          exit 2
+          ;;
+        *)
+          # Bind by POSITION COUNT, not by emptiness: an empty second argument
+          # is a caller passing an unset variable, and letting the next token
+          # slide into its slot would silently store a record under a scope the
+          # caller never asked for instead of refusing.
+          positional=$((positional + 1))
+          case $positional in
+            1) worker=$1 ;;
+            2) scope=$1 ;;
+            *)
+              printf '%s\n' "fleet-state: register: unexpected argument" >&2
+              exit 2
+              ;;
+          esac
+          shift
+          ;;
+      esac
+    done
+    if [ "$positional" -ne 2 ] || [ -z "$worker" ] || [ -z "$scope" ]; then
+      printf '%s\n' "usage: fleet-state.sh register <worker> <scope> [--owner <token>] [--backend <name>] [--state-dir <abs-dir>] [--death-handle <handle>]" >&2
       exit 2
     fi
-    # Validate BOTH fields before any write (REQ-F1.1, REQ-A1.6): a hostile
-    # identifier is refused, nothing is written.
+    # Validate EVERY field before any write (REQ-F1.1, REQ-A1.6, REQ-K1.4): a
+    # hostile identifier is refused and nothing is written. The `-` sentinel
+    # passes each arm untouched because no grammar admits it, so "absent" needs
+    # no separate flag to distinguish it from a value.
     if ! valid_field "$worker"; then
-      echo "fleet-state: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
+      printf '%s\n' "fleet-state: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-state: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
+      printf '%s\n' "fleet-state: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
+      exit 2
+    fi
+    if [ "$owner" != "-" ] && ! valid_owner "$owner"; then
+      printf '%s\n' "fleet-state: refusing malformed owner token '$(sanitize_printable "$owner" "(unprintable owner)")' (must match ^[A-Za-z0-9._-]{1,128}\$, no leading dash)" >&2
+      exit 2
+    fi
+    if [ "$backend" != "-" ] && ! valid_backend "$backend"; then
+      printf '%s\n' "fleet-state: refusing malformed backend '$(sanitize_printable "$backend" "(unprintable backend)")' (must match ^[a-z0-9-]{1,64}\$, no leading dash)" >&2
+      exit 2
+    fi
+    if [ "$state_dir" != "-" ] && ! valid_state_dir "$state_dir"; then
+      printf '%s\n' "fleet-state: refusing malformed state directory '$(sanitize_printable "$state_dir" "(unprintable state dir)")' (must be an absolute path with no '..' segment and no control bytes)" >&2
+      exit 2
+    fi
+    if [ "$death_handle" != "-" ] && ! valid_death_handle "$death_handle"; then
+      printf '%s\n' "fleet-state: refusing malformed death handle '$(sanitize_printable "$death_handle" "(unprintable death handle)")' (must be 'none', 'process <pid>', or 'tmux-window <session> <window>')" >&2
       exit 2
     fi
     spin_acquire "$lock" || exit 2
@@ -437,8 +685,8 @@ case $cmd in
     now=$(date +%s)
     case $now in
       "" | *[!0-9]*)
-        rmdir "$lock" 2>/dev/null || true
-        echo "fleet-state: could not read a numeric timestamp" >&2
+        release_lock
+        printf '%s\n' "fleet-state: could not read a numeric timestamp" >&2
         exit 2
         ;;
     esac
@@ -451,15 +699,16 @@ case $cmd in
       fi
     fi
     if [ "$rc" = 0 ]; then
-      printf '%s\t%s\t%s\n' "$now" "$worker" "$scope" >>"$reg_tmp" || rc=2
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$worker" "$scope" \
+        "$owner" "$backend" "$state_dir" "$death_handle" >>"$reg_tmp" || rc=2
     fi
     if [ "$rc" = 0 ]; then
       mv -f "$reg_tmp" "$registry" || rc=2
     fi
     [ "$rc" = 0 ] || rm -f "$reg_tmp" 2>/dev/null
-    rmdir "$lock" 2>/dev/null || true
+    release_lock
     if [ "$rc" != 0 ]; then
-      echo "fleet-state: failed to append the registry record" >&2
+      printf '%s\n' "fleet-state: failed to append the registry record" >&2
     fi
     exit "$rc"
     ;;
@@ -477,7 +726,7 @@ case $cmd in
     max="${2:-}"
     case $max in
       "" | *[!0-9]*)
-        echo "fleet-state: bound-incr needs a non-negative integer bound" >&2
+        printf '%s\n' "fleet-state: bound-incr needs a non-negative integer bound" >&2
         exit 2
         ;;
     esac
@@ -486,16 +735,16 @@ case $cmd in
     if [ "$cur" -lt "$max" ]; then
       new=$((cur + 1))
       if atomic_write "$counter" "$new"; then
-        rmdir "$lock" 2>/dev/null || true
+        release_lock
         printf '%s\n' "$new"
         exit 0
       fi
-      rmdir "$lock" 2>/dev/null || true
-      echo "fleet-state: failed to write the fleet counter" >&2
+      release_lock
+      printf '%s\n' "fleet-state: failed to write the fleet counter" >&2
       exit 2
     fi
     # At the bound: no slot granted (the caller must not dispatch another unit).
-    rmdir "$lock" 2>/dev/null || true
+    release_lock
     printf '%s\n' "$cur"
     exit 1
     ;;
@@ -509,12 +758,12 @@ case $cmd in
       new=0
     fi
     if atomic_write "$counter" "$new"; then
-      rmdir "$lock" 2>/dev/null || true
+      release_lock
       printf '%s\n' "$new"
       exit 0
     fi
-    rmdir "$lock" 2>/dev/null || true
-    echo "fleet-state: failed to write the fleet counter" >&2
+    release_lock
+    printf '%s\n' "fleet-state: failed to write the fleet counter" >&2
     exit 2
     ;;
 
@@ -523,7 +772,7 @@ case $cmd in
     # home is created (first case above). This guards against the two command
     # lists drifting — a command added to the fall-through list but not handled
     # here fails loudly rather than silently no-op'ing.
-    echo "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
+    printf '%s\n' "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
     exit 2
     ;;
 esac

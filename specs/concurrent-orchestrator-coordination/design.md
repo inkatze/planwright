@@ -340,9 +340,13 @@ behavior is anywhere in the fencing path. That removes the run-4 phantom entirel
 `claude --worktree` behavior that primitive was built to eliminate, and `git branch -m` appears nowhere. A
 dedicated fence ref the tower pushes by canonical name sidesteps the whole rename/verify burden by
 construction. For a **cohesion bundle**, the tower fences **every member unit-id** in a single
-`git push --atomic`: if any member is already fenced, the whole push is rejected atomically and the tower
-backs off the entire bundle, so no non-lead member is ever left unfenced (the run-4 cohesion-keying hole,
-closed by construction — REQ-C1.2).
+`git push --atomic`: if any member is already fenced, the tower backs off the entire bundle, so no non-lead
+member is ever left unfenced (the run-4 cohesion-keying hole, closed by construction — REQ-C1.2). Atomicity
+covers a member the server rejects; a member reported `=` `[up to date]` is not a rejection and is not
+rolled back, so the tower requires every member to report `*` `[new reference]` and deletes the members its
+own push created before abandoning the bundle (REQ-C1.2, REQ-C1.6).
+*(Amended at Task 4 execution 2026-08-26: the compensating delete named; the all-or-none outcome is
+unchanged.)*
 
 Where `origin` is unreachable, the fence cannot be created, and that condition is **classified, never
 failed open** (D-10, REQ-C1.6): no-`origin`-configured is the genuine no-remote single-host solo posture

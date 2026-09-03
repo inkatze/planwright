@@ -107,6 +107,8 @@
 #       --pid <pid>) [--min-interval <sec>]   (default 30; 0 disables the cap)
 #   fleet-presence.sh owner    --checkout <dir> (--session-id <uuid> |
 #       --pid <pid>) <spec>/<unit-id>
+#   fleet-presence.sh attribute --checkout <dir> (--session-id <uuid> |
+#       --pid <pid>) <spec>/<unit-id>
 #   fleet-presence.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
 #   fleet-presence.sh surface  --checkout <dir>
 #
@@ -125,6 +127,29 @@
 # awareness anomalies (REQ-C1.7) lands with Task 4 — surfaced on stderr
 # here). The querying tower's own record is identity-excluded from the scan,
 # so a tower asking about a fence it itself holds gets `unknown-owner`.
+#
+# ATTRIBUTION (`attribute`, REQ-C1.3). `owner` answers the DISPATCH question —
+# "does a live peer hold this unit?" — so it reads live records only and
+# excludes the caller. The Task 4 fence sweep asks a different one: WHO holds
+# this fence, and are they alive? It therefore gets its own read-only command:
+#
+#   owner <tower-id> <live|unknown|dead|ambiguous>   |   unknown-owner
+#
+# Three deliberate differences from `owner`. It reports the owner's LIVENESS
+# rather than filtering on it, because a dead owner's name is exactly what the
+# strand entry has to carry. It INCLUDES the caller's own record (reported live
+# with no death probe — the caller is demonstrably running), or a tower would
+# read its own in-flight fences as orphans on every pass. And it never GCs: a
+# positively-dead record is reported and left in place for `discover` to sweep,
+# so the classification the sweep needs cannot be destroyed by reading it.
+#
+# `ambiguous` is the reused-pid case (REQ-C1.3, unclassifiable → surfaced,
+# never silently honored). A COMPOSITE identity (p<pid>.t<hash>.c<hash>) pins
+# the start time of the process it was published from, so a live pid whose
+# recomputed start-time hash disagrees is a recycled pid rather than the tower.
+# Residue, documented: a record with a session-UUID identity AND a degraded
+# bare-`process <pid>` handle carries no such cross-check and reads as live —
+# which is why REQ-A1.2 prefers the reuse-resistant tmux-window handle.
 #
 # Exit codes:
 #   0  success (incl. healthy-empty and cadence-capped)
@@ -168,6 +193,7 @@ usage() {
 usage: fleet-presence.sh publish  --checkout <dir> (--session-id <uuid> | --pid <pid>) [--tmux-session <name> --tmux-window <name>] [--specs <csv>] [--fenced <csv>] [--meta]
        fleet-presence.sh discover --checkout <dir> (--session-id <uuid> | --pid <pid>) [--min-interval <sec>]
        fleet-presence.sh owner    --checkout <dir> (--session-id <uuid> | --pid <pid>) <spec>/<unit-id>
+       fleet-presence.sh attribute --checkout <dir> (--session-id <uuid> | --pid <pid>) <spec>/<unit-id>
        fleet-presence.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
        fleet-presence.sh surface  --checkout <dir>
 (publish needs a death handle: the tmux pair, or --pid; flags irrelevant to a subcommand are refused)
@@ -299,11 +325,40 @@ is_tower_id() {
   printf '%s' "$1" | grep -Eq '^p[0-9]{1,10}\.t[0-9]+\.c[0-9]+$'
 }
 
+# reused_pid_ambiguous <tower-id> <handle> — the recycled-pid discriminator
+# (REQ-C1.3). A COMPOSITE identity p<pid>.t<start-hash>.c<checkout-hash> pins
+# the start time of the process the record was published from, so a live pid
+# whose recomputed start hash disagrees is a different process wearing a
+# recycled pid. True (ambiguous) when the cross-check is available and fails,
+# or when the identity and the handle name different pids at all; false when
+# the cross-check does not apply (a tmux-window handle, a session-UUID
+# identity) or cannot be made (no queryable start time), leaving the liveness
+# verdict to stand.
+reused_pid_ambiguous() {
+  rpa_id=$1
+  case "$2" in
+    "process "*) rpa_pid=${2#process } ;;
+    *) return 1 ;;
+  esac
+  case "$rpa_id" in
+    p*.t*.c*) ;;
+    *) return 1 ;;
+  esac
+  rpa_rest=${rpa_id#p}
+  [ "${rpa_rest%%.*}" = "$rpa_pid" ] || return 0
+  rpa_t=${rpa_rest#*.t}
+  rpa_t=${rpa_t%%.*}
+  rpa_start=$(ps -p "$rpa_pid" -o lstart= 2>/dev/null)
+  [ -n "$rpa_start" ] || return 1
+  [ "$(printf '%s' "$rpa_start" | cksum | awk '{print $1}')" = "$rpa_t" ] && return 1
+  return 0
+}
+
 # --- argument parsing ------------------------------------------------------
 
 cmd="${1:-}"
 case "$cmd" in
-  publish | discover | owner | identity | surface) ;;
+  publish | discover | owner | attribute | identity | surface) ;;
   *)
     usage
     exit 2
@@ -346,7 +401,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --pid)
-      refuse_for "publish discover owner identity"
+      refuse_for "publish discover owner attribute identity"
       pid="${2:-}"
       shift 2 || {
         usage
@@ -354,7 +409,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --session-id)
-      refuse_for "publish discover owner identity"
+      refuse_for "publish discover owner attribute identity"
       session_id="${2:-}"
       shift 2 || {
         usage
@@ -411,7 +466,7 @@ while [ "$#" -gt 0 ]; do
       exit 2
       ;;
     *)
-      if [ "$cmd" = owner ] && [ -z "$unit_ref" ]; then
+      if { [ "$cmd" = owner ] || [ "$cmd" = attribute ]; } && [ -z "$unit_ref" ]; then
         unit_ref=$1
         shift
       else
@@ -473,9 +528,9 @@ if ! is_epoch "$min_interval"; then
   err "refusing malformed --min-interval (seconds)"
   exit 2
 fi
-if [ "$cmd" = owner ]; then
+if [ "$cmd" = owner ] || [ "$cmd" = attribute ]; then
   if [ -z "$unit_ref" ] || ! is_unit_ref "$unit_ref"; then
-    err "refusing malformed unit ref (owner takes one <spec>/<unit-id>)"
+    err "refusing malformed unit ref ($cmd takes one <spec>/<unit-id>)"
     exit 2
   fi
 fi
@@ -839,6 +894,7 @@ classify_handle() {
 
 peers=0
 found_owner=""
+found_verdict=""
 
 emit_unreadable_peer() {
   eup_name=$(sanitize_printable "$1" "(unprintable name)")
@@ -867,7 +923,12 @@ owner_match() {
 
 while IFS= read -r name; do
   [ -z "$name" ] && continue
-  [ "$name" = "$identity" ] && continue
+  # `attribute` deliberately keeps the caller's own record: a tower must
+  # attribute the fences IT holds to itself, or the sweep would read every
+  # one of its own in-flight units as an orphan (REQ-C1.3).
+  if [ "$name" = "$identity" ] && [ "$cmd" != attribute ]; then
+    continue
+  fi
   file="$sub/$name"
   # Bounded read: one byte past the record cap is enough to classify
   # oversize as malformed without slurping an arbitrarily large file.
@@ -970,7 +1031,39 @@ PARSED_EOF
     fi
     continue
   fi
-  verdict=$(classify_handle "$r_handle")
+  if [ "$name" = "$identity" ]; then
+    # The caller is demonstrably running: no death probe, and no reused-pid
+    # question to ask about the process asking the question.
+    verdict=alive
+  else
+    verdict=$(classify_handle "$r_handle")
+  fi
+  if [ "$cmd" = attribute ]; then
+    # Read-only: report the holder and its liveness, GC nothing. A dead
+    # owner's record is exactly what the strand entry needs to name, so
+    # reading it must not destroy it — `discover` owns the sweep.
+    case ",$r_fenced," in
+      *",$unit_ref,"*)
+        if [ -n "$found_owner" ]; then
+          err "unit $unit_ref is listed by a second record ('$(sanitize_printable "$r_id" "(unprintable)")' after '$found_owner') — duplicate fence claim surfaced, first match kept"
+        else
+          found_owner=$r_id
+          case "$verdict" in
+            alive)
+              if [ "$name" != "$identity" ] && reused_pid_ambiguous "$r_id" "$r_handle"; then
+                found_verdict=ambiguous
+              else
+                found_verdict=live
+              fi
+              ;;
+            dead) found_verdict=dead ;;
+            *) found_verdict=unknown ;;
+          esac
+        fi
+        ;;
+    esac
+    continue
+  fi
   # The checkout field is the one loose-charset record value; it is
   # sanitized (echo discipline: C0+DEL+C1 stripped) before reaching stdout.
   case "$verdict" in
@@ -1040,6 +1133,15 @@ if [ "$cmd" = discover ] && [ "$min_interval" -gt 0 ]; then
     fi
     stamp_tmp="" # renamed or removed; nothing for the exit trap to collect
   fi
+fi
+
+if [ "$cmd" = attribute ]; then
+  if [ -n "$found_owner" ]; then
+    printf 'owner\t%s\t%s\n' "$found_owner" "$found_verdict"
+  else
+    printf 'unknown-owner\n'
+  fi
+  exit 0
 fi
 
 if [ "$cmd" = owner ]; then
