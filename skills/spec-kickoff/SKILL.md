@@ -399,7 +399,7 @@ most recent anchor entry never describes spec content that was not walked.
    ready; **task PRs stay drafts** (reviewed by the execution and review
    skills). Merge stays the human's second key —
    **never auto-merge**.
-   - **Do not flip** when the completion is not clean by the test above: leave
+   - **Do not flip** when the completion is not clean by the criteria above: leave
      the PR draft and say so in the handoff.
    - **Opt-out:** `mark_spec_pr_ready_on_kickoff: false` suppresses the flip;
      the PR stays draft and the human un-drafts it by hand.
