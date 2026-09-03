@@ -102,7 +102,58 @@ through the surface that already owns it, never re-read a second way:
 | Attention store | the store `fleet-attention.sh` maintains | scope, pushed state, age |
 | Stream-json capture | `fleet-streamjson.sh status` + the per-worker runtime dir | supervisor liveness, pending-request count, the session-id join key |
 | `claude agents --json` | `fleet-liveness.sh oracle --list` (the hardened scanner) | busy / waiting / idle per session |
-| Dispatch records | `fleet-state.sh registry` | the dispatched scope (the fallback when the attention store has none, and the only scope a registry-only worker has); workers on backends with **no runtime presence** (`print`), rendered with a visible `n/a` state — never silently omitted |
+| Dispatch records | `fleet-state.sh registry` | the dispatched scope (the fallback when the attention store has none, and the only scope a registry-only worker has); the owning tower; every worker a seam registered, including backends with **no runtime presence** (`print`, `subagent`) — never silently omitted. A worker no runtime source knows shows a visible `n/a` state, which means "nothing is heartbeating for it", not "it was never launched": a rung whose dispatch-time identity wiring has not landed yet reads the same way |
+
+### The dispatch record
+
+Every dispatch seam registers its worker at launch, through one helper
+(`scripts/fleet-register.sh`) into the one store — the tmux worktree rung, the
+headless rung, the stream-json supervisor, and `/offload`'s tmux, print, and
+subagent rungs. A record carries what closing a worker needs when the tower that
+launched it is gone: the handle, the **owner token** (which tower dispatched
+it), the backend, the state directory where the rung keeps one, and the death
+handle (`process <pid>`, `tmux-window <session> <window>`, or `none` for a rung
+that spawns no process).
+
+A column with nothing to put in it is written `-` and reads as the gap it is. An
+unowned record renders `unknown-owner` rather than being attributed to anyone,
+and a record whose state directory or death handle could not be determined
+carries a blank there rather than a guess — a wrong death handle is a reaper
+aimed at the wrong window, which is worse than none.
+
+The registry is an append log and the **last record for a worker wins**, so a
+seam that only learns a column after the launch supersedes its own earlier
+record instead of updating one in place. The tmux worktree rung does exactly
+that: it registers before the attach, because an attach that dies partway is the
+case that must not go unrecorded, then writes a second, complete record once the
+worker's tmux session exists to name. That session is matched by worktree path
+*and* by having been created during this dispatch, so an operator's own shell
+sitting in the worktree can never be adopted as the worker's.
+
+**Read the death handle as a hint, not an instruction.** The store authenticates
+no caller — anything running as the operator can append — a bare pid carries no
+start-time anchor and so cannot be told from a recycled one, and `none` is not
+an evidence class `fleet-death-evidence.sh` accepts. A destructive verb owes its
+own positive death evidence, self-target guard, and containment check on top of
+whatever it reads here.
+
+Registration is best-effort by design: a registry that cannot be written
+**warns and never fails the dispatch**, since a running worker is a fact and its
+bookkeeping is only a record of one. A single malformed optional column is
+dropped rather than costing the whole record. Note that a failed write is not
+yet self-healing: this registry has one writer, and the periodic reconcile that
+would notice a missing record arrives with the scheduled sweep, so until then
+the warning is the only trace.
+
+The owner token comes from the presence surface's tower identity. A tower that
+already knows its own identity exports it as `PLANWRIGHT_TOWER_ID`; a seam can
+also be given `--session-id` / `--pid` with `--checkout`, or find the same
+inputs in `PLANWRIGHT_TOWER_SESSION_ID` / `PLANWRIGHT_TOWER_PID` /
+`PLANWRIGHT_TOWER_CHECKOUT`. The checkout matters: it is hashed into the
+composite identity, so it has to be the checkout the tower published under, not
+the worker's worktree, or the record names a tower that exists nowhere. With no
+identity resolvable the dispatch is recorded as unknown-owner and says so on
+stderr.
 
 Every render starts with a per-source availability line
 (`ok` / `absent` / `unavailable`): a source that is missing is **marked**, and
