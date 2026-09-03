@@ -98,11 +98,14 @@
 # checked against the `eval:` namespace). Within the file, a strict subset of
 # TOML is modeled: `[tasks.<name>]` and `[tasks."<name>"]` tables, arrays
 # (nested and multi-line), single-line strings, and `'''`/`"""` multi-line
-# strings as a `run` body. Anything else that could define or alter a task — an
-# array-of-tables header, a bare `[tasks]` table, a nested task table, a
-# dotted-key or inline-table task definition, a multi-line string used as a
-# dependency or inside an array, an unterminated string or array, an unreadable
-# value form — is a PARSE FAILURE, never half-read. Comments and quoting are
+# strings as a `run` body. These shapes are a PARSE FAILURE rather than
+# half-read: an array-of-tables header, a bare `[tasks]` table, a nested task
+# table, a dotted-key or inline-table task definition, a multi-line string used
+# as a dependency or inside an array, an unterminated string, key or array, an
+# unreadable value form. A repeated `[tasks.<name>]` header is the one shape
+# read instead of refused: both blocks' edges merge under the one name, which
+# over-blocks and never under-blocks, and mise rejects a file with a duplicate
+# header before this guard's verdict could matter. Comments and quoting are
 # tracked while parsing, so a `#` or a `]` inside a string is structure-neutral
 # and one inside a comment cannot manufacture a dependency; basic-string
 # escapes are decoded before matching, so a name mise resolves to the `eval:`
