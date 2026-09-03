@@ -1389,7 +1389,12 @@ won=0
 for n in 1 2 3; do
   grep -q "^launched sjw25 " "$tmp/o25b.$n" && won=$((won + 1))
 done
-[ "$won" = 1 ] || fail "c25b: exactly one concurrent launch may win the election, $won did"
+if [ "$won" != 1 ]; then
+  for n in 1 2 3; do
+    printf 'c25b launch %s said: %s\n' "$n" "$(cat "$tmp/o25b.$n")" >&2
+  done
+  fail "c25b: exactly one concurrent launch may win the election, $won did"
+fi
 snap25=$(ps_rows)
 n25=$(printf '%s\n' "$snap25" | grep -Fc -- "_supervise sjw25 $wdir25")
 [ "$n25" = 1 ] || fail "c25b: exactly one supervisor expected after the race, found $n25"
@@ -1407,6 +1412,20 @@ senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
   launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null \
   || fail "c25c: a lock whose holder is gone must be broken and the launch proceed"
 senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25c: stop exited non-zero"
+# (d) the pid files are published by rename, never by a bare redirect. A
+#     redirect creates the file before the write lands, and every reader treats
+#     an empty pid file as nothing-recorded — which is what let a second launch
+#     call a live worker dead and start a supervisor over it, and would let
+#     `recover` resume a session that is still running. The window is too
+#     narrow to hit on demand, so the mechanism is what gets pinned.
+audit=$(awk '/^supervise\(\)/, /^}/' "$SJ")
+[ -n "$audit" ] || fail "c25d: the supervisor body was not found for the audit"
+printf '%s\n' "$audit" | grep -qE '>[[:space:]]*"[^"]*\.pid"' \
+  && fail "c25d: a pid file must not be published by a bare redirect"
+for f in supervisor worker; do
+  printf '%s\n' "$audit" | grep -qF "write_pidfile \"\$sv_dir/$f.pid\"" \
+    || fail "c25d: $f.pid must be published through the atomic helper"
+done
 echo "ok: c25 launch elects a single initiator under contention and breaks a dead holder's lock (obs:917e384e)"
 
 echo "all fleet-streamjson tests passed"

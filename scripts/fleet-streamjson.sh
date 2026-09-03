@@ -39,7 +39,7 @@
 #   in.fifo/out.fifo the stdio channels the supervisor owns
 #   supervisor.pid / worker.pid / result / recover.lock/ / journal.lock/ /
 #   launch.lock/
-#   .init.* / .journal.* / .session.*  mktemp-beside-target staging files
+#   .init.* / .journal.* / .session.* / .pid.*  mktemp-beside-target staging
 #   *.broken.*       a lock directory a stale-break renamed out of the way
 # The last two lines are the scratch class `stop` releases; everything above
 # them is the durable record it keeps.
@@ -363,6 +363,24 @@ lock_take() {
 lock_drop() {
   [ "$(cat "$1/holder" 2>/dev/null)" = "$$" ] || return 0
   rm -rf "$1" 2>/dev/null || :
+}
+
+# write_pidfile <path> <pid> — publish a pid file the way this script publishes
+# every other piece of durable state: into a temp beside the target, then
+# renamed over it.
+#
+# A bare redirect creates the file before the write lands, and every reader of
+# these files treats an empty one as "no pid recorded". In that window a launch
+# reports success over a supervisor that never registered itself, the next
+# launch's liveness check calls a live worker dead and starts a second
+# supervisor over it, and `recover` resumes a session that is still running.
+# A rename has no such window: the file is absent or complete, and absent is
+# what every reader already handles.
+write_pidfile() {
+  wp_tmp=$(mktemp "${1%/*}/.pid.XXXXXX") || return 1
+  printf '%s\n' "$2" >"$wp_tmp" && mv "$wp_tmp" "$1" && return 0
+  rm -f "$wp_tmp" 2>/dev/null || :
+  return 1
 }
 
 # worker_alive <dir> — true when a pid this worker's own state records is live.
@@ -699,10 +717,10 @@ supervise() {
   shift 3
   rm -f "$sv_dir/in.fifo" "$sv_dir/out.fifo"
   mkfifo "$sv_dir/in.fifo" "$sv_dir/out.fifo" || return 2
-  printf '%s\n' "$$" >"$sv_dir/supervisor.pid"
+  write_pidfile "$sv_dir/supervisor.pid" "$$" || return 2
   "$@" <"$sv_dir/in.fifo" >"$sv_dir/out.fifo" 2>>"$sv_dir/stderr.log" &
   sv_pid=$!
-  printf '%s\n' "$sv_pid" >"$sv_dir/worker.pid"
+  write_pidfile "$sv_dir/worker.pid" "$sv_pid" || :
   # From here the supervisor writes into the worker's stdin fifo: a worker
   # that exits before reading turns the write into EPIPE, which must end the
   # run cleanly, not kill the supervisor. Set AFTER the spawn so the worker
@@ -848,7 +866,7 @@ scratch_globs() {
   esac
   set +f
   for sg_p in "$1/in.fifo" "$1/out.fifo" \
-    "$1"/.init.* "$1"/.journal.* "$1"/.session.* "$1"/*.broken.*; do
+    "$1"/.init.* "$1"/.journal.* "$1"/.session.* "$1"/.pid.* "$1"/*.broken.*; do
     [ -e "$sg_p" ] && printf '%s\n' "$sg_p"
   done
   $sg_restore
@@ -1343,7 +1361,7 @@ cmd_launch() {
   # is surfaced, never reported as an optimistic `launched`.
   li=0
   while [ "$li" -lt 50 ]; do
-    if [ -f "$dir/supervisor.pid" ] || [ -f "$dir/result" ]; then
+    if [ -s "$dir/supervisor.pid" ] || [ -f "$dir/result" ]; then
       register_dispatch "$worker" "$scope" "$dir" "$tower_checkout"
       printf 'launched %s dir %s\n' "$worker" "$dir"
       return 0
