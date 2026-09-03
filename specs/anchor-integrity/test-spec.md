@@ -99,16 +99,26 @@ manually in live runs.
 *(Amended at Task 5 execution 2026-08-26: the no-anchor-entry outcome, already
 implied by REQ-C1.3's writership sentence, made explicit.)*
 
-### REQ-C1.4 — Kickoff terminal recompute [Gherkin + manual]
+### REQ-C1.4 — Kickoff terminal recompute [Gherkin + test + manual]
 
-Scenario: given expression-only anchored content edited after the
-sign-off record was written, when `/spec-kickoff` reaches its final
-pre-push step, then the anchor is recomputed and re-recorded before the
-push, and the spec PR's squash carries the fresh anchor; given a
-meaning-class post-sign-off edit, the flow re-enters the sign-off walk
-first; given a failing recompute, the push halts. Exercised manually at
-the next `/spec-kickoff` run whose spec PR receives post-sign-off fixes.
-The REQ-D1.1 guard on the PR is the mechanical backstop.
+Given expression-only anchored content edited after the sign-off record
+was written, When `/spec-kickoff` reaches its final pre-push step, Then
+the anchor is recomputed and re-recorded before the push And the spec
+PR's squash carries the fresh anchor. Given instead a meaning-class
+post-sign-off edit, Then the flow re-enters the sign-off walk first.
+Given a failing recompute, Then the push halts. The `[test]` half is a
+structural guard over the skill prose
+(`tests/test-spec-kickoff-terminal-reanchor.sh`), the shape the sibling
+skill-prose gates use: the step exists and cites the requirement, its
+trigger is anchored content edited after the record, it sits before the
+push command, its lane is expression-only, meaning-class routes back
+into the sign-off flow, and a failing recompute halts. Exercised
+manually at the next `/spec-kickoff` run whose spec PR receives
+post-sign-off fixes; the REQ-D1.1 guard on the PR is the mechanical
+backstop.
+*(Amended at Task 6 execution 2026-09-03: the structural guard shipped
+with the task named as the `[test]` half, and the scenario restated in
+the canonical Given/When/Then form its REQ-C siblings use.)*
 
 ## REQ-D — Mechanical guards
 

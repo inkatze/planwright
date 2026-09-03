@@ -377,3 +377,26 @@ the Task 5 edits above").
 Class: expression-only
 Anchor: `ee41c38a3cf173b0f047acf732f85fbbfaa4d3d1` — computed as
 `scripts/spec-anchor.sh specs/anchor-integrity`
+
+### Re-anchor — Task 6 expression-only edit (2026-09-03)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Sign-off records and content anchors*),
+recorded by the `/execute-task` run that implements Task 6.
+
+**Why the anchor moved:** one expression-only edit inside the bundle. The
+REQ-C1.4 verification entry in `test-spec.md` now names the structural
+guard this task ships (`tests/test-spec-kickoff-terminal-reanchor.sh`) as
+its `[test]` half, so the recorded verification path matches what is wired
+rather than understating it, and restates the scenario in the canonical
+Given/When/Then form the REQ-C siblings took at the 2026-08-26 edit.
+`requirements.md` carries the paired changelog entry. What the scenario
+asserts is unchanged, and no REQ, D-ID, or `Done when:` condition changes
+meaning.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`specs/anchor-integrity/requirements.md` ("Task 6 expression-only edit").
+
+Class: expression-only
+Anchor: `3f295972e5a1a08aac5ac45c709e645972d3cb02` — computed as
+`scripts/spec-anchor.sh specs/anchor-integrity`
