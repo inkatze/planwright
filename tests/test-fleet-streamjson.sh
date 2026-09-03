@@ -1251,6 +1251,12 @@ echo "ok: c22b a reparented SIGTERM-surviving grandchild is still closed (REQ-B1
 # c22c (REQ-A1.3, REQ-B1.4): the lock class is released and named, and an
 #    unknown handle is refused rather than reported closed.
 # ---------------------------------------------------------------------------
+# Continues against c22's worker, which is already closed and so holds nothing
+# but the lock planted below. The home is rebound rather than inherited: every
+# other case opens with its own pair, and a case inserted above this one would
+# otherwise silently point these assertions at a different fleet.
+home="$tmp/h22"
+rec="$tmp/r22"
 mkdir -p "$wdir22/launch.lock" || fail "c22c: cannot plant the lock"
 out=$(senv "$home" "$rec" -- stop sjw22 --grace 2)
 rc=$?

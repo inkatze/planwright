@@ -949,17 +949,26 @@ stop_candidates() {
       # the candidate set empty. pid 0 and pid 1 are filtered from the result
       # rather than seeded here: seeding them would claim every orphan on the
       # host, including the orphaned worker a close most needs to find.
+      #
+      # Only the closer itself roots the descendant walk. Rooting it at the
+      # ancestors as well would claim their other children — and since that
+      # chain ends at pid 1, whose descendants are every process on the host,
+      # the exclusion set would swallow the very tree the close is looking for
+      # and every stop would report the process class released over a live
+      # worker.
       p = self_pid
       for (i = 0; i <= n; i++) {
         mine[p] = 1
         if (!(p in ppid) || ppid[p] == "" || ppid[p] == "0") break
         p = ppid[p]
       }
+      kin[self_pid] = 1
       for (pass = 1; pass <= n; pass++) {
         grew = 0
         for (i = 1; i <= n; i++) {
           p = order[i]
-          if (!(p in mine) && (ppid[p] in mine)) {
+          if (!(p in kin) && (ppid[p] in kin)) {
+            kin[p] = 1
             mine[p] = 1
             grew = 1
           }
