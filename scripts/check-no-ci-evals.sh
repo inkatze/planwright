@@ -14,13 +14,19 @@
 #      a. Any mise task in the `eval:` namespace, in ANY invocation form:
 #         `mise run eval:<x>`, the `run` alias `mise r eval:<x>`, the implicit
 #         `mise eval:<x>`, a flag or quote between `run` and the task. The rule
-#         is "a `mise` invocation whose line reaches an `eval:` task", matched
-#         by `mise` followed anywhere on the line by `eval:` — deliberately
-#         permissive, because a security control should fail loud on a
-#         near-miss rather than let a novel invocation form through. Matching
-#         the `eval:` namespace (not the bare substring "eval") still spares a
-#         legitimately named task like `evaluate-release` and prose that merely
-#         says "eval".
+#         is "a line that both invokes `mise` and carries an `eval:` token",
+#         in either order — deliberately permissive, because a security control
+#         should fail loud on a near-miss rather than let a novel invocation
+#         form through. Matching the `eval:` namespace (not the bare substring
+#         "eval") still spares a legitimately named task like
+#         `evaluate-release` and prose that merely says "eval".
+#      c. An `eval:` token on any line that is not a full-line comment, even
+#         with no `mise` beside it. A parameterized invocation puts the task
+#         name somewhere else entirely — a build matrix entry, a workflow input
+#         default, an action's `with:` value — and `mise run ${{ matrix.task }}`
+#         names nothing the other forms can see. Full-line comments are left to
+#         form (a), so prose about the namespace does not fail a build while a
+#         commented-out invocation still does.
 #      b. Invoking a kept-eval runner script directly, bypassing mise entirely
 #         (`sh scripts/prompt-eval.sh …`, `./scripts/behavioral-eval.sh …`).
 #         Both on-demand runners are covered — the guard must see EVERY eval
@@ -240,10 +246,11 @@ fi
 # ---- Pass 1: workflow text ----
 #
 # The mise-invocation alternative is matched in two stages so BOTH conditions
-# hold on the line: the line invokes `mise` (at a TOKEN BOUNDARY, so a word
-# merely ending in `mise` like `premise` does not trigger), and it carries an
-# `eval:` at a TOKEN BOUNDARY (so the `eval` namespace triggers but a substring
-# inside `retrieval:` / `medieval:` / `evaluate-release` does not).
+# hold on the line, in either order: the line invokes `mise` (at a TOKEN
+# BOUNDARY, so a word merely ending in `mise` like `premise` does not trigger),
+# and it carries an `eval:` at a TOKEN BOUNDARY (so the `eval` namespace
+# triggers but a substring inside `retrieval:` / `medieval:` /
+# `evaluate-release` does not).
 #
 # `-a` forces text handling: a NUL byte would otherwise make grep report the
 # file as binary, print nothing, and exit 0 — a silent bypass of this pass.
@@ -260,7 +267,16 @@ grep_rc=$?
 direct="$(grep -aHnE '(^|[^[:alnum:]_-])(prompt-eval|behavioral-eval)\.sh' -- "$@")"
 grep_rc=$?
 [ "$grep_rc" -le 1 ] || fail_closed "grep failed (exit $grep_rc) while matching the eval runners under '$dir'."
-hits="$(printf '%s\n%s' "$mise_eval" "$direct" | grep -v '^[[:space:]]*$' | sort -u || true)"
+# A task name reaches CI without `mise` beside it whenever the invocation is
+# parameterized: a matrix entry, a workflow input default, an action's `with:`
+# value. Full-line comments are excluded here because prose about the
+# namespace is common and the stage above already covers a commented-out
+# invocation.
+named_raw="$(grep -aHnE '(^|[^[:alnum:]_-])eval:' -- "$@")"
+grep_rc=$?
+[ "$grep_rc" -le 1 ] || fail_closed "grep failed (exit $grep_rc) while matching eval: task names under '$dir'."
+named="$(printf '%s\n' "$named_raw" | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' || true)"
+hits="$(printf '%s\n%s\n%s' "$mise_eval" "$direct" "$named" | grep -v '^[[:space:]]*$' | sort -u || true)"
 
 if [ -n "$hits" ]; then
   warn "check-no-ci-evals: an eval task is wired into a CI workflow."
@@ -410,11 +426,6 @@ function unquote(s,   q) {
 function trim(s) {
   sub(/^[[:space:]]+/, "", s)
   sub(/[[:space:]]+$/, "", s)
-  return s
-}
-function strip_quotes(s) {
-  gsub(/^["'`]+/, "", s)
-  gsub(/["'`]+$/, "", s)
   return s
 }
 

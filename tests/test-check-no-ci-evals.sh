@@ -229,6 +229,39 @@ rc=$?
 assert_exit "direct sh scripts/behavioral-eval.sh is caught" 1 "$rc"
 assert_contains "names the behavioral-eval offender" "behav-direct/ci.yml" "$out"
 
+# ---- a task name reaching CI without `mise` on its line ----
+# `mise run ${{ matrix.task }}` names nothing; the name is up in the matrix.
+mkdir -p "$TMP/matrix"
+cat >"$TMP/matrix/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    strategy:
+      matrix:
+        task: [lint, eval:skill]
+    steps:
+      - run: mise run ${{ matrix.task }}
+EOF
+out="$(text_only "$TMP/matrix")"
+rc=$?
+assert_exit "an eval task named in a build matrix is caught" 1 "$rc"
+assert_contains "names the matrix line" "matrix/ci.yml:7" "$out"
+
+# ---- prose about the namespace in a full-line comment is not a wiring ----
+mkdir -p "$TMP/prose"
+cat >"$TMP/prose/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      # the eval: namespace stays manual-only; never wire it in here
+      - run: bash scripts/thing.sh
+EOF
+out="$(text_only "$TMP/prose")"
+assert_exit "a comment naming the namespace is not a wiring" 0 $?
+
 # ---- a NUL byte must not let grep report the file as binary and skip it ----
 mkdir -p "$TMP/nul"
 printf 'jobs:\n  a:\n    steps:\n      - run: mise run check\n\000\n      - run: mise run eval:skill\n' \
@@ -620,7 +653,9 @@ run = "true"
 run = "true"
 EOF
 out="$(run_case glob-dep-all)"
-assert_exit "a catch-all depends wildcard fails" 1 $?
+rc=$?
+assert_exit "a catch-all depends wildcard fails" 1 "$rc"
+assert_contains "reports the catch-all wildcard" "can name the eval: namespace" "$out"
 
 # ---- a wildcard reaching a future eval task by shape is caught ----
 mk_case glob-dep-suffix
@@ -877,7 +912,9 @@ cat >"$TMP/unicode-escape-run/mise.toml" <<'EOF'
 run = "mise run \u0065val:skill"
 EOF
 out="$(run_case unicode-escape-run)"
-assert_exit "a unicode escape in a run body is decoded" 1 $?
+rc=$?
+assert_exit "a unicode escape in a run body is decoded" 1 "$rc"
+assert_contains "names the decoded run-body offender" "invokes an eval harness" "$out"
 
 # ---- a newline escape must not swallow the token boundary ----
 mk_case newline-escape
@@ -886,7 +923,9 @@ cat >"$TMP/newline-escape/mise.toml" <<'EOF'
 run = "mise run\neval:skill"
 EOF
 out="$(run_case newline-escape)"
-assert_exit "a newline escape does not hide the eval: token boundary" 1 $?
+rc=$?
+assert_exit "a newline escape does not hide the eval: token boundary" 1 "$rc"
+assert_contains "names the newline-escaped offender" "invokes an eval harness" "$out"
 
 # ---- a run body given as an array is read per element ----
 # Keeping the raw array text would leave `]` glued to the operand, so the
@@ -903,7 +942,9 @@ run = [
 run = "true"
 EOF
 out="$(run_case run-array)"
-assert_exit "a run array's wildcard operand is expanded" 1 $?
+rc=$?
+assert_exit "a run array's wildcard operand is expanded" 1 "$rc"
+assert_contains "reports the run-array wildcard" "eval: namespace by wildcard" "$out"
 
 # ---- escapes a clean file legitimately uses must not fail it ----
 mk_case escape-falsepos
@@ -980,7 +1021,10 @@ mise run eval:skill
 """
 EOF
 out="$(run_case run-body-basic-multiline)"
-assert_exit "a basic-string multi-line run body is scanned" 1 $?
+out="$(run_case run-body-basic-multiline)"
+rc=$?
+assert_exit "a basic-string multi-line run body is scanned" 1 "$rc"
+assert_contains "names the multi-line run-body offender" "run body of CI-invoked task report invokes an eval harness" "$out"
 
 # ---- a reachable task whose run body calls the eval runner directly ----
 mk_case run-body-runner
