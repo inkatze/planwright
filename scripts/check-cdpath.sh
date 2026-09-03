@@ -155,10 +155,13 @@ trap 'rm -rf "$work"' EXIT
 
 # Enumerate one scope directory at a time so a root containing whitespace or a
 # glob character stays a single argument, and so a find that fails partway is
-# caught instead of silently contributing nothing. -L follows symlinks: a
-# symlinked script still runs, so it still has to be scanned.
+# caught instead of silently contributing nothing. The walk is physical and
+# takes symlinks as leaves rather than following them: a symlinked script still
+# runs, so it still has to be scanned, but descending through a symlinked
+# directory would walk a tree outside the root and report its files as if they
+# lived here. Those are refused below instead.
 for dir in $SCOPE_DIRS; do
-  if ! find -L "$root/$dir" -type f -print0 >>"$work/all" 2>"$work/err"; then
+  if ! find -P "$root/$dir" \( -type f -o -type l \) -print0 >>"$work/all" 2>"$work/err"; then
     fail_closed "find failed under $safe_root/$dir: $(sanitize_printable "$(cat "$work/err")" "(unprintable)")"
   fi
 done
@@ -184,6 +187,12 @@ while IFS= read -r -d '' file; do
       fail_closed "filename contains a newline or tab, refusing to scan: $(sanitize_printable "$rel" "(unprintable filename)")"
       ;;
   esac
+  # A symlinked directory has no honest traversal: following it leaves the
+  # root, and skipping it covers less than the scan claims. -r would not catch
+  # it either, since the directory behind it reads fine.
+  if [ -L "$file" ] && [ -d "$file" ]; then
+    fail_closed "symlinked directory in the scan scope, refusing to follow: $(sanitize_printable "$rel" "(unprintable filename)")"
+  fi
   [ -r "$file" ] \
     || fail_closed "cannot read $(sanitize_printable "$rel" "(unprintable filename)") — the scan would cover less than it claims"
   first=""

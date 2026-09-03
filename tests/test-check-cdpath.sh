@@ -308,6 +308,29 @@ out="$(/bin/bash "$CHECKER" "$tmp/linked" 2>&1)"
 assert "a symlinked offender fails" 1 $?
 assert_contains "the symlinked offender is named" "$out" "scripts/via-link.sh"
 
+# A symlinked directory is the case with no good traversal. Following it walks
+# files outside the root and reports them as if they lived here; not following
+# it covers less than the scan claims. Refusing is the fail-closed third
+# answer (REQ-H1.3).
+make_root "$tmp/linkdir"
+mkdir -p "$tmp/linkdir-target"
+write_script "$tmp/linkdir-target/foreign.sh" bare 'root="$(cd .. && pwd)"'
+write_script "$tmp/linkdir/tests/ok.sh" unset 'echo fine'
+ln -s "$tmp/linkdir-target" "$tmp/linkdir/scripts/vendored"
+out="$(/bin/bash "$CHECKER" "$tmp/linkdir" 2>&1)"
+assert "a symlinked scope subdirectory fails closed" 2 $?
+assert_contains "the refusal names the symlink" "$out" "scripts/vendored"
+assert_not_contains "the scan does not reach outside the root" "$out" "foreign.sh"
+
+# A symlink pointing nowhere cannot be read, so it fails closed for the same
+# reason an unreadable regular file does.
+make_root "$tmp/linkbroken"
+write_script "$tmp/linkbroken/tests/ok.sh" unset 'echo fine'
+ln -s "$tmp/linkbroken/scripts/absent.sh" "$tmp/linkbroken/scripts/dangling.sh"
+out="$(/bin/bash "$CHECKER" "$tmp/linkbroken" 2>&1)"
+assert "a dangling symlink fails closed" 2 $?
+assert_contains "the dangling-symlink failure names it" "$out" "scripts/dangling.sh"
+
 # ---------------------------------------------------------------------------
 # 12. Every offender is reported, not just the first.
 # ---------------------------------------------------------------------------
