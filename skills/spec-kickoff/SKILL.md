@@ -103,9 +103,9 @@ Three modes, selected at pre-flight from status and brief state:
   and 5).
 
 **Change-handling scales with the lifecycle stage (REQ-D1.4).** A Ready bundle
-(signed off, pre-merge, nothing dispatched) takes pre-merge changes through a
-delta re-walkthrough / re-sign-off — not the amendment ritual — and the spec PR
-stays as it was (no reopen). The amendment ritual is reserved for an Active
+takes pre-merge changes through a delta re-walkthrough / re-sign-off — not the
+amendment ritual — and the spec PR stays as it was. The amendment ritual is
+reserved for an Active
 bundle (work in flight), where the change coordinates with execution underway.
 A Done bundle reopens to Draft first (the REQ-A1.6 reopen cycle below) — never
 amended in place. The per-class ritual detail (expression-only changelog +
@@ -162,8 +162,9 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
    step 4's re-validation refuses to record while any remain. Validator absent
    or not executable: an authoring path degrades rather than halts (REQ-K1.7) —
    but a merged signed-off bundle is dispatchable, so this run's sign-off lands
-   unvalidated (whether or not it flips Draft→Ready). Ask the human whether to
-   proceed anyway or stop, install the validator, and re-run.
+   unvalidated (whether or not it flips Draft→Ready). Naming the Draft→Ready
+   flip only when this run flips, ask the human whether to proceed anyway or
+   stop, install the validator, and re-run.
 4. **Read the config.** `commit_on_kickoff`, `mark_spec_pr_ready_on_kickoff`,
    and `kickoff_ready_ci_wait` (default `10m`) from `config/defaults.yml`
    overridden by `<repo>/.claude/planwright.local.yml` (local wins). The
