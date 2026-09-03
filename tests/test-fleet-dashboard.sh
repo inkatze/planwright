@@ -247,6 +247,35 @@ assert_has 'w-print' 'registry-only' "$regonly"
 assert_has 'v-na' 'registry-only' "$regonly"
 
 # ===========================================================================
+# 6b. The owner column (merge field 10) reaches this surface too, and a
+#     pre-owner-column stream still parses.
+#
+#     fleet-status.sh APPENDS the owner rather than inserting it, precisely so
+#     the positional reads here do not shift. Nothing asserted that, which
+#     meant a future INSERTION would silently move every cell this renderer
+#     prints and leave both suites green.
+# ===========================================================================
+reset_shim
+write_fixture \
+  'source|attention|ok|1-workers' \
+  'worker|w-owned|specs/a/task-1|attention,registry|working|3|-|-|-|p42.t7.c9' \
+  'worker|w-unowned|specs/b/task-2|registry|-|-|-|-|-|unknown-owner'
+owned=$("$DASHC" render) || fail "owner-column: nonzero exit"
+assert_has 'p42.t7.c9' 'owner-column' "$owned"
+assert_has 'unknown-owner' 'owner-column' "$owned"
+# The appended column must not have shifted the cells read before it.
+assert_has 'specs/a/task-1' 'owner-column' "$owned"
+assert_has 'v-na' 'owner-column' "$owned"
+
+reset_shim
+write_fixture \
+  'source|attention|ok|1-workers' \
+  'worker|w-legacy|specs/a/task-1|attention|working|3|-|-|-'
+legacy=$("$DASHC" render) || fail "owner-column legacy: nonzero exit"
+assert_has 'w-legacy' 'owner-column-legacy' "$legacy"
+assert_has 'specs/a/task-1' 'owner-column-legacy' "$legacy"
+
+# ===========================================================================
 # 7. Output encoding: worker-authored markup renders inert.
 # ===========================================================================
 reset_shim
