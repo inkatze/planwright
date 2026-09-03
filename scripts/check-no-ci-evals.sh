@@ -9,8 +9,7 @@
 #
 # THREE PASSES.
 #
-#   1. WORKFLOW-TEXT. Scan the workflow files for a wiring of an eval task, in
-#      two forms:
+#   1. WORKFLOW-TEXT. Scan the workflow files for a wiring of an eval task:
 #      a. Any mise task in the `eval:` namespace, in ANY invocation form:
 #         `mise run eval:<x>`, the `run` alias `mise r eval:<x>`, the implicit
 #         `mise eval:<x>`, a flag or quote between `run` and the task. The rule
@@ -20,13 +19,6 @@
 #         form through. Matching the `eval:` namespace (not the bare substring
 #         "eval") still spares a legitimately named task like
 #         `evaluate-release` and prose that merely says "eval".
-#      c. An `eval:` token on any line that is not a full-line comment, even
-#         with no `mise` beside it. A parameterized invocation puts the task
-#         name somewhere else entirely — a build matrix entry, a workflow input
-#         default, an action's `with:` value — and `mise run ${{ matrix.task }}`
-#         names nothing the other forms can see. Full-line comments are left to
-#         form (a), so prose about the namespace does not fail a build while a
-#         commented-out invocation still does.
 #      b. Invoking a kept-eval runner script directly, bypassing mise entirely
 #         (`sh scripts/prompt-eval.sh …`, `./scripts/behavioral-eval.sh …`).
 #         Both on-demand runners are covered — the guard must see EVERY eval
@@ -36,6 +28,13 @@
 #         the test file `tests/test-behavioral-eval.sh` (which CI legitimately
 #         runs via the `tests/*.sh` glob) is NOT mistaken for the runner it
 #         exercises.
+#      c. An `eval:` token on any line that is not a full-line comment, even
+#         with no `mise` beside it. A parameterized invocation puts the task
+#         name somewhere else entirely — a build matrix entry, a workflow input
+#         default, an action's `with:` value — and `mise run ${{ matrix.task }}`
+#         names nothing the other forms can see. Full-line comments are left to
+#         form (a), so prose about the namespace does not fail a build while a
+#         commented-out invocation still does.
 #      This pass reads COMMENTS too, so a comment that looks like a wiring
 #      over-blocks. That is the fail-loud direction and is kept deliberately.
 #

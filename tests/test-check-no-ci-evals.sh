@@ -1021,7 +1021,6 @@ mise run eval:skill
 """
 EOF
 out="$(run_case run-body-basic-multiline)"
-out="$(run_case run-body-basic-multiline)"
 rc=$?
 assert_exit "a basic-string multi-line run body is scanned" 1 "$rc"
 assert_contains "names the multi-line run-body offender" "run body of CI-invoked task report invokes an eval harness" "$out"
