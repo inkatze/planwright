@@ -394,14 +394,25 @@ echo "ok: a missing secret screen is refused, and the findings already printed s
 #     blobs. The timeout is the assertion; without the type guard this case
 #     never returns.
 # ---------------------------------------------------------------------------
-mkfifo "$tmp/artifact.fifo"
-rc=0
-out5j=$(timeout 10 "$GUARD" -- "$tmp/artifact.fifo" 2>&1) || rc=$?
-[ "$rc" != 124 ] || fail "the guard hung on a FIFO instead of refusing it; a hung guard reports nothing"
-[ "$rc" = 2 ] || fail "a non-regular declared artifact must exit 2 (exit $rc): $out5j"
-printf '%s\n' "$out5j" | grep -q "not a regular file" \
-  || fail "the refusal did not name the file type: $out5j"
-echo "ok: a non-regular declared artifact is refused, never read until it blocks"
+#     `timeout` is GNU coreutils, so a stock macOS host has neither it nor the
+#     Homebrew `gtimeout` — a shape this suite's bash 3.2 floor supports. The
+#     case cannot degrade to running unbounded, because without the fix the
+#     behaviour under test IS an indefinite hang and it would take the whole
+#     suite with it, so a host with neither skips this one case rather than
+#     losing the other twenty-one.
+timeout_bin=$(command -v timeout || command -v gtimeout || true)
+if [ -z "$timeout_bin" ]; then
+  echo "ok: a non-regular declared artifact is refused (skipped: neither timeout nor gtimeout on this host)"
+else
+  mkfifo "$tmp/artifact.fifo"
+  rc=0
+  out5j=$("$timeout_bin" 10 "$GUARD" -- "$tmp/artifact.fifo" 2>&1) || rc=$?
+  [ "$rc" != 124 ] || fail "the guard hung on a FIFO instead of refusing it; a hung guard reports nothing"
+  [ "$rc" = 2 ] || fail "a non-regular declared artifact must exit 2 (exit $rc): $out5j"
+  printf '%s\n' "$out5j" | grep -q "not a regular file" \
+    || fail "the refusal did not name the file type: $out5j"
+  echo "ok: a non-regular declared artifact is refused, never read until it blocks"
+fi
 
 # ---------------------------------------------------------------------------
 # 5k. The other half of 5h's malformed-table refusal. A rule that kept its tab
