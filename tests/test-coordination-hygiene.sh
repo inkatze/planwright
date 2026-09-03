@@ -200,6 +200,116 @@ printf '%s\n' "$out6" | grep -qi "private-key-block\|secret" \
 echo "ok: internal hostname and credential classes flagged in committed artifacts"
 
 # ---------------------------------------------------------------------------
+# 5b. REQ-D1.4 — a candidate the scan cannot READ is never passed as clean.
+#     The header promises exit 2 and "this guard never reports on what it has
+#     not read", but shape detection reads the file too: if that read failing
+#     is indistinguishable from "carries no record", an unreadable artifact is
+#     silently skipped and the guard exits 0 — fail-OPEN, in the one direction
+#     a leak guard must never fail. Both the count and the exit code matter:
+#     a tree whose ONLY candidate is unreadable must not report "nothing to
+#     screen".
+# ---------------------------------------------------------------------------
+r5b="$tmp/repo-unreadable"
+mk_repo "$r5b"
+printf 'pw-presence-v1%s0123456789abcdef%s%s%s-%sdemo-spec%sdemo-spec/3%s100%s200%s-%s/home/alice/dev/widgets\n' \
+  "$TAB" "$TAB" "$uuid_peer" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" \
+  >"$r5b/handover.tsv"
+commit_all "$r5b"
+chmod 000 "$r5b/handover.tsv"
+rc=0
+out5b=$("$GUARD" --repo "$r5b" 2>&1) || rc=$?
+chmod 644 "$r5b/handover.tsv"
+[ "$rc" = 2 ] \
+  || fail "an unreadable candidate must exit 2, never pass as clean (exit $rc): $out5b"
+printf '%s\n' "$out5b" | grep -qi "unscreened\|cannot read\|could not read" \
+  || fail "the unreadable refusal did not say the file went unscreened: $out5b"
+printf '%s\n' "$out5b" | grep -qi "nothing to screen" \
+  && fail "an unreadable candidate was reported as nothing to screen"
+echo "ok: a candidate the scan cannot read is refused, never passed as clean"
+
+# ---------------------------------------------------------------------------
+# 5c. REQ-D1.4 — the STRAND SINK is one of the three surfaces this guard names,
+#     and fleet-fence.sh emits its entries verb-prefixed (`strand <ref> <owner>
+#     <liveness>`, sweep's declared grammar), not as a bare ref. A sweep log
+#     that lands in git is the likeliest committed artifact of the three, and it
+#     carries a peer's owner identity and liveness. Detection must follow the
+#     owner's real output grammar, while a prose mention of the namespace still
+#     must not qualify (case 1 pins that direction).
+# ---------------------------------------------------------------------------
+r5c="$tmp/repo-strand"
+mk_repo "$r5c"
+{
+  printf 'strand%srefs/planwright-fence/demo-spec/4%s%s%sdead\n' \
+    "$TAB" "$TAB" "$uuid_peer" "$TAB"
+  printf 'honored%srefs/planwright-fence/demo-spec/5%s%s\n' "$TAB" "$TAB" "$uuid_peer"
+  printf 'peer checkout /home/alice/dev/widgets held by process 4242\n'
+} >"$r5c/sweep-log.tsv"
+commit_all "$r5c"
+rc=0
+out5c=$("$GUARD" --repo "$r5c" 2>&1) || rc=$?
+[ "$rc" = 1 ] \
+  || fail "a committed strand-sink entry must be detected and screened (exit $rc): $out5c"
+printf '%s\n' "$out5c" | grep -q "sweep-log.tsv:3: checkout-path" \
+  || fail "the strand log's checkout path was not flagged: $out5c"
+printf '%s\n' "$out5c" | grep -q "sweep-log.tsv:3: death-handle" \
+  || fail "the strand log's death handle was not flagged: $out5c"
+echo "ok: a verb-prefixed strand-sink entry is detected, not only a bare ref line"
+
+# ---------------------------------------------------------------------------
+# 5d. The private-address rule requires a full dotted quad, so ordinary version
+#     strings are not reported as internal hostnames. A guard that fires on
+#     `macOS 10.15.7` in the only files it screens trains operators to bypass
+#     it, which costs more than the rule earns.
+# ---------------------------------------------------------------------------
+r5d="$tmp/repo-versions"
+mk_repo "$r5d"
+{
+  printf 'refs/planwright-fence/demo-spec/4\n'
+  printf 'built on macOS 10.15.7 with node 10.2.1 and tool 172.16.9\n'
+} >"$r5d/notes.txt"
+commit_all "$r5d"
+rc=0
+out5d=$("$GUARD" --repo "$r5d" 2>&1) || rc=$?
+[ "$rc" = 0 ] \
+  || fail "version strings must not be reported as private addresses (exit $rc): $out5d"
+
+# ... while a real private address in the same shape still is.
+r5e="$tmp/repo-privaddr"
+mk_repo "$r5e"
+{
+  printf 'refs/planwright-fence/demo-spec/4\n'
+  printf 'peer reachable at 10.0.0.5 and 192.168.1.20\n'
+} >"$r5e/notes.txt"
+commit_all "$r5e"
+rc=0
+out5e=$("$GUARD" --repo "$r5e" 2>&1) || rc=$?
+[ "$rc" = 1 ] || fail "a private-address literal must still be flagged (exit $rc): $out5e"
+printf '%s\n' "$out5e" | grep -q "notes.txt:2: internal-hostname" \
+  || fail "private address not flagged at its line: $out5e"
+printf '%s\n' "$out5e" | grep -q "10.0.0.5" \
+  && fail "the guard echoed the address it caught"
+echo "ok: private addresses need a full quad — version strings pass, real literals flagged"
+
+# ---------------------------------------------------------------------------
+# 5f. The guard's exit-2 contract: usage errors are refused, never answered
+#     with a scan of somewhere else. `--repo ''` is the sharp case — an empty
+#     value must not read as "no --repo given" and silently scan the cwd.
+# ---------------------------------------------------------------------------
+rc=0
+"$GUARD" --repo "" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "--repo '' must be a usage error, not a scan of the cwd (exit $rc)"
+rc=0
+"$GUARD" --repo "" "$r5d/notes.txt" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "--repo '' with paths must not bypass the mode exclusion (exit $rc)"
+rc=0
+"$GUARD" --repo "$r5d" --repo "$r5e" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "a repeated --repo must be a usage error (exit $rc)"
+rc=0
+"$GUARD" --repo "$tmp/not-a-git-repo" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "a non-git --repo must exit 2 (exit $rc)"
+echo "ok: usage and environment errors exit 2, never a scan of somewhere else"
+
+# ---------------------------------------------------------------------------
 # 6. REQ-D1.4 — declared-path mode: a PR body is not record-shaped, so the
 #    deployment names it. Both a peer checkout path AND a death handle are
 #    shown not to reach it — the no-leak assertion the Done-when pins.
@@ -320,8 +430,13 @@ write_record pw-presence-v1 "$repo_id" "$uuid_peer" "$co" demo-spec demo-spec/3 
 run_fp "$h8" discover --checkout "$co" --session-id "$uuid_self" --min-interval 0 \
   >/dev/null 2>&1 || true
 [ ! -e "$tmp/pwned" ] || fail "a hostile death handle was executed"
-grep -q "touch" "$tmp/evidence-calls" \
-  && fail "an off-grammar death handle was passed to the death predicate"
+# The assertion is that the log is EMPTY, not that it lacks the word `touch`:
+# the contract is "no predicate call at all", and a needle-based check would
+# also pass for an implementation that word-split the handle and passed only
+# its `process 4242` prefix through — which is a call made with an unvalidated
+# handle, exactly what this case exists to catch.
+[ ! -s "$tmp/evidence-calls" ] \
+  || fail "an off-grammar death handle reached the death predicate: $(cat "$tmp/evidence-calls")"
 echo "ok: an off-grammar death handle never reaches the death predicate"
 
 # ---------------------------------------------------------------------------
@@ -420,8 +535,12 @@ for bad in "../../../heads/main" "4;rm -rf /" "-4"; do
     PATH="$gitstub:$PATH" /bin/sh "$stubbin/fleet-fence.sh" "$sub" --checkout "$co" \
       --spec demo-spec "$bad" >/dev/null 2>&1 || rc=$?
     [ "$rc" = 2 ] || fail "hostile unit id '$bad' not refused by $sub (exit $rc)"
-    grep -q "push" "$tmp/git-calls" \
-      && fail "hostile unit id '$bad' reached a git push on the $sub path"
+    # Empty, not push-free: this stub can never reach a push even on a VALID
+    # id (the ls-remote arm exits first), so a needle-based check would pass
+    # with every id validation stripped out. "No git ran at all" is the
+    # property that actually distinguishes refuse-before-use.
+    [ ! -s "$tmp/git-calls" ] \
+      || fail "hostile unit id '$bad' reached git on the $sub path: $(cat "$tmp/git-calls")"
   done
 done
 : >"$tmp/git-calls"
@@ -429,14 +548,19 @@ rc=0
 PATH="$gitstub:$PATH" /bin/sh "$stubbin/fleet-fence.sh" gc --checkout "$co" \
   --spec "../../heads" 4 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "hostile spec id not refused by gc (exit $rc)"
-grep -q "push" "$tmp/git-calls" && fail "a hostile spec id reached a git push"
+[ ! -s "$tmp/git-calls" ] \
+  || fail "a hostile spec id reached git: $(cat "$tmp/git-calls")"
 echo "ok: hostile unit/spec ids are refused before any origin ref push or delete"
 
 # ---------------------------------------------------------------------------
 # 14. REQ-D1.5 — data-not-code: peer records are never evaluated, and
-#     pathname expansion is off on both coordination scripts.
+#     pathname expansion is off on every coordination script. The guard is held
+#     to the same bar as the two it screens for: it splits a rule table and
+#     grep output on IFS-newline, and both carry bracket and star bytes drawn
+#     from record content, so leaving globbing on lets a field expand against
+#     the working directory.
 # ---------------------------------------------------------------------------
-for src in "$FP" "$FF"; do
+for src in "$FP" "$FF" "$GUARD"; do
   # Comments are stripped first: both files DOCUMENT the no-eval discipline,
   # and a guard that trips on its own rationale teaches nothing.
   sed 's/#.*//' "$src" | grep -Eq '(^|[^[:alnum:]_-])eval[[:space:]]' \

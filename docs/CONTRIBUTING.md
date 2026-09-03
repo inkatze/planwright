@@ -74,8 +74,9 @@ mise run check      # the full local equivalent of the CI gate
 - the ledger structural-corruption + duplicate-Status guard over `tasks.md`
   snapshots;
 - the spec validator over `specs/`, the anchor-freshness guard over every
-  signed bundle, the hook-backstop wiring check, and the purged-identifier
-  guard (see below).
+  signed bundle, the hook-backstop wiring check, the purged-identifier
+  guard (see below), and the coordination-artifact hygiene guard, a clean
+  no-op on a tree that commits no presence record or fence-ref line.
 
 GitHub Actions runs the same gate on every pull request. This is dev tooling
 only — planwright's **runtime** scripts stay plain portable bash with no mise

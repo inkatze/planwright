@@ -620,6 +620,15 @@ fi
 # security refusal.
 check_private() {
   cp_dir=$1
+  # Re-tested here, adjacent to the mode read, even though the callers already
+  # ran check_surface_not_redirected: that test ran several statements and a
+  # fork earlier, and a link planted in between would otherwise be reported as
+  # an over-broad MODE (a symlink lists as `l…`, not `d???------`) — sending
+  # the operator to chmod a directory whose permissions were never the problem.
+  if [ -L "$cp_dir" ]; then
+    err "security: coordination path $(sanitize_printable "$cp_dir" "(unprintable path)") is a symlink — refusing to write it through a redirect, whatever it points at (containment, REQ-D1.5/REQ-A1.4); investigate and remove it yourself"
+    exit 4
+  fi
   # ls -ld[n] is the portable mode/owner read (stat's flags differ across
   # BSD/GNU); only the mode and numeric-uid columns are parsed, never a
   # filename (SC2012 n/a).
@@ -665,9 +674,14 @@ check_private() {
 # a symlink-tampered surface in ANY state; naming the redirect is what makes
 # that promise actionable. The sibling check below draws the same line for the
 # persistence sentinel.
+# It is a point-in-time test, not a race-free containment: anyone who can plant
+# the link before the check can plant it again after. That is why check_private
+# keeps its own copy of the test rather than relying on this one having run —
+# the two are checked at different instants, and the later one is adjacent to
+# the mode read it guards.
 check_surface_not_redirected() {
   if [ -L "$1" ]; then
-    err "security: coordination surface $1 is a symlink — refusing to write the surface through a redirect, whatever it points at (containment, REQ-D1.5/REQ-A1.4); investigate and remove it yourself"
+    err "security: coordination path $(sanitize_printable "$1" "(unprintable path)") is a symlink — refusing to write it through a redirect, whatever it points at (containment, REQ-D1.5/REQ-A1.4); investigate and remove it yourself"
     exit 4
   fi
 }
