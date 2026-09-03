@@ -203,7 +203,7 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
 
 Section by section, in the brief's required structure (`spec-format` defines
 it; written incrementally, one section to disk as signed). It covers components
-1–7; the remaining two (sign-off section, amendment log) are written by the
+1–7; the sign-off section and amendment log are written by the
 sign-off flow below, not walked. Every exchange follows the `interaction-style`
 rules
 (progress indicator `[section <n>/7]`, small bites, selectors with a
@@ -360,10 +360,10 @@ most recent anchor entry never describes spec content that was not walked.
    chore commits land in this push.
    **Terminal re-anchor (REQ-C1.4, D-5):** anchored content edited after the
    sign-off record was written — post-sign-off review or panel fixes on the spec
-   PR included — takes a recompute and re-record as the final pre-push step, so
-   no stale anchor ships in the spec PR or its squash. A failing recompute halts
-   the push. Expression-only edits only: a meaning-class post-sign-off edit
-   re-enters the sign-off flow first. Then push:
+   PR included — takes a recompute and a committed re-record as the final
+   pre-push step, so no stale anchor ships in the PR or its squash. A failing
+   recompute halts the push. Expression-only edits only: a meaning-class
+   post-sign-off edit re-enters the sign-off flow first. Then push:
    `git push -u origin planwright/<spec>/spec`. Then the PR: if one exists for
    the branch, update its body; otherwise `gh pr create --draft` with `--title`
    and `--body`. The title must pass the conventional PR-title lint

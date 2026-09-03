@@ -105,6 +105,18 @@ else
   fail "the step does not state a re-record as the final pre-push step (REQ-C1.4)"
 fi
 
+# The re-record is COMMITTED. REQ-C1.4's purpose is that no stale anchor ships
+# in the spec PR or its squash, which an uncommitted re-record does not achieve:
+# the push would carry the old anchor and leave the new one in the worktree. The
+# meta-spec's expression-only ritual already requires the one-commit landing;
+# the step has to say so too, or a reader reaches `git push` with the re-record
+# still unstaged.
+if printf '%s' "$flat" | grep -qE 'committed re-record|re-record[^.]{0,60}committed'; then
+  ok "the re-record is committed, so the push carries it"
+else
+  fail "the step does not state that the re-record is committed before the push (REQ-C1.4)"
+fi
+
 # Positional mirror of the wording above: the step must physically precede the
 # push command in the file, so an agent reading top-to-bottom reaches it before
 # pushing. Compare the first line of each; a step that drifted below the push
