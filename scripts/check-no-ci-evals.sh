@@ -11,129 +11,216 @@
 #
 #   1. WORKFLOW-TEXT. Scan the workflow files for a wiring of an eval task, in
 #      two forms:
-#      a. Any mise task in the `eval:` namespace (the sibling of `check:`,
-#         `lint:`, `scan:`), in ANY invocation form: `mise run eval:<x>`, the
-#         `run` alias `mise r eval:<x>`, the implicit `mise eval:<x>`, a flag or
-#         quote between `run` and the task. The rule is "a `mise` invocation
-#         whose line reaches an `eval:` task", matched by `mise` followed
-#         anywhere on the line by `eval:` — deliberately permissive, because a
-#         security control should fail loud on a near-miss rather than let a
-#         novel invocation form through. Matching the `eval:` namespace (not the
-#         bare substring "eval") still spares a legitimately named task like
-#         `evaluate-release` and prose that merely says "eval".
+#      a. Any mise task in the `eval:` namespace, in ANY invocation form:
+#         `mise run eval:<x>`, the `run` alias `mise r eval:<x>`, the implicit
+#         `mise eval:<x>`, a flag or quote between `run` and the task. The rule
+#         is "a `mise` invocation whose line reaches an `eval:` task", matched
+#         by `mise` followed anywhere on the line by `eval:` — deliberately
+#         permissive, because a security control should fail loud on a
+#         near-miss rather than let a novel invocation form through. Matching
+#         the `eval:` namespace (not the bare substring "eval") still spares a
+#         legitimately named task like `evaluate-release` and prose that merely
+#         says "eval".
 #      b. Invoking a kept-eval runner script directly, bypassing mise entirely
 #         (`sh scripts/prompt-eval.sh …`, `./scripts/behavioral-eval.sh …`).
 #         Both on-demand runners are covered — the guard must see EVERY eval
 #         harness, not only `prompt-eval.sh`. The runner name is matched at a
-#         leading TOKEN BOUNDARY (`(^|[^[:alnum:]_-])`), so a path or whitespace
-#         before it triggers but a `-`/word-char prefix does not: the test file
-#         `tests/test-behavioral-eval.sh` (which CI legitimately runs via the
-#         `tests/*.sh` glob) is NOT mistaken for the runner it exercises.
+#         leading TOKEN BOUNDARY (`(^|[^[:alnum:]_-])`), so a path or
+#         whitespace before it triggers but a `-`/word-char prefix does not:
+#         the test file `tests/test-behavioral-eval.sh` (which CI legitimately
+#         runs via the `tests/*.sh` glob) is NOT mistaken for the runner it
+#         exercises.
+#      This pass reads COMMENTS too, so a comment that looks like a wiring
+#      over-blocks. That is the fail-loud direction and is kept deliberately.
 #
 #   2. TASK-GRAPH CLOSURE. Text alone misses the indirect wiring: an eval task
 #      reached through a `depends` chain from a task CI does invoke. So the
-#      mise task graph is parsed, the ROOT SET is every task named on a
-#      mise-invoking workflow line (pass 1's invocation-form matching, then a
-#      token-boundary match against the parsed task names), and the closure over
-#      `depends`, `depends_post`, and `wait_for` is walked. Reaching a task in
-#      the `eval:` namespace fails, and the offending chain is printed from its
-#      root. A dependency naming the namespace itself — `depends = ["eval:*"]`,
-#      which mise expands — fails on the name, so a wildcard cannot launder the
-#      edge.
+#      mise task graph is parsed, the ROOT SET is every task (or task alias)
+#      named on a mise-invoking workflow line, and the closure over `depends`,
+#      `depends_post`, and `wait_for` is walked. Reaching a task in the `eval:`
+#      namespace fails, and the offending chain is printed from the workflow
+#      line that rooted it. A dependency naming the namespace — including by
+#      wildcard, `depends = ["eval:*"]` or the catch-all `depends = ["*"]`,
+#      both of which mise expands — fails on the name, so a wildcard cannot
+#      launder the edge, and neither can a dependency on an eval task defined
+#      outside this file.
+#      Unlike pass 1, ROOT extraction skips full-line comments: a comment
+#      cannot invoke anything, and counting one as a root would mask the
+#      zero-roots fail-closed below.
 #
 #   3. RUN-BODY. A task's `run` body can invoke another task, so the graph is
 #      not only its `depends` edges. Every run body in the closure is scanned
 #      with pass 1's matching: invoking an eval task or a runner script there
 #      fails, and a run-body `mise run <task>` feeds the closure as an edge, so
-#      a run-body → depends → `eval:` chain is caught too. Only run bodies of
-#      CI-reachable tasks are scanned; an eval task's own run body naturally
-#      invokes its runner, and that is what being off the closure means.
+#      a run-body → depends → `eval:` chain is caught too. A wildcard operand
+#      (`mise run all:*`) expands the same way a `depends` wildcard does,
+#      except that a BARE `*` is ignored here — in a shell body it is far more
+#      likely `rm -rf *` than a mise task selector. A run body is scanned whole,
+#      so a SHELL comment inside one over-blocks exactly as a workflow comment
+#      does in pass 1; a TOML comment after the value is not body text and is
+#      stripped before matching. Only run bodies of CI-reachable tasks are
+#      scanned; an eval task's own run body naturally invokes its runner, and
+#      that is what being off the closure means.
 #
-# PARSE BOUNDARY (deliberate). `mise.toml` ONLY — the file passed as the second
-# argument, defaulting to `mise.toml` then `.mise.toml` in the working
-# directory. File-based task definitions (`tasks/`, `.mise/tasks/`), imported
-# or included task files, and the `mise.local.toml` / config-path layering are
-# outside the parse: a task defined there is invisible to passes 2 and 3, and a
-# `depends` entry naming one reads as a dangling edge rather than a parse
-# failure. Within the file, a strict subset of TOML is modeled: `[tasks.<name>]`
-# and `[tasks."<name>"]` tables, single-line and multi-line arrays, single-line
-# strings, and `'''`/`"""` multi-line strings. An array-of-tables header, a bare
-# inline `[tasks]` table, and a nested task table are NOT modeled and are
-# reported as parse failures rather than half-read. Run bodies are taken as raw
-# text and matched, never executed, so an escape sequence inside one only ever
-# affects matching. `description` values are prose, not run bodies, and are not
-# scanned — otherwise this file's own documentation of the `eval:` namespace
-# would trip the guard.
+# WHAT THE GRAPH PASSES DO NOT FOLLOW. Both are a backstop against ACCIDENTAL
+# wiring, not a boundary against a committer who controls these files — who
+# could delete the guard or rename the task out of the `eval:` namespace
+# outright. Concretely, and by design:
+#   * A run body is matched as TEXT and never followed. `run = "sh
+#     scripts/foo.sh"` is not opened, so an eval invocation inside that script
+#     is invisible. The same holds for a task declared with mise's `file =`
+#     key, and for any workflow step that runs a script directly.
+#   * Workflow `uses:` is not resolved: a local composite action or a reusable
+#     workflow that wires an eval in is outside all three passes.
+#   * An invocation split across physical lines (a backslash continuation, or
+#     a YAML folded scalar) evades the line-based match, which also means the
+#     task it names never becomes a root and its subtree goes unwalked.
+# Closing any of these means executing or resolving PR-controlled content,
+# which is a bigger hazard than the one being guarded.
 #
-# FAIL-CLOSED. A `mise.toml` that is present but unparseable, or that parses to
-# zero tasks, fails: an unreadable graph cannot show the closure is clean. So do
-# zero roots against a non-empty graph — workflows exist and none of them names
-# a task in the graph, which is indistinguishable from the root extraction
-# having broken, and would otherwise pass vacuously over every task in the file.
-# An ABSENT `mise.toml` is the one vacuous pass: there is no task graph to close
-# over at all, the symmetric case to an absent workflow directory.
+# PARSE BOUNDARY (deliberate). `mise.toml` ONLY: the file passed as the second
+# argument, or by default the first of `mise.toml`, `.mise.toml`,
+# `mise/config.toml`, `.mise/config.toml`, `.config/mise.toml`,
+# `.config/mise/config.toml` found at the repo root. File-based task
+# definitions (`tasks/`, `.mise/tasks/`), imported or included task files, and
+# `mise.local.toml` / `mise.<env>.toml` layering are outside the parse: a task
+# defined there is invisible to passes 2 and 3, and a `depends` entry naming
+# one reads as a dangling edge rather than a parse failure (its name is still
+# checked against the `eval:` namespace). Within the file, a strict subset of
+# TOML is modeled: `[tasks.<name>]` and `[tasks."<name>"]` tables, arrays
+# (nested and multi-line), single-line strings, and `'''`/`"""` multi-line
+# strings. Anything else that could define or alter a task — an
+# array-of-tables header, a bare `[tasks]` table, a nested task table, a
+# dotted-key or inline-table task definition, an unterminated string or array,
+# an unreadable value form — is a PARSE FAILURE, never half-read. Comments and
+# quoting are tracked while parsing, so a `#` or a `]` inside a string is
+# structure-neutral and one inside a comment cannot manufacture a dependency.
+# `description` values are prose and are not scanned as run bodies.
+#
+# FAIL-CLOSED. The guard fails, rather than passing, whenever it cannot prove
+# the closure is clean: a `mise.toml` that is present but unparseable or that
+# parses to zero tasks; zero roots against a non-empty graph (workflows exist
+# and none of them names a task in the graph, which is indistinguishable from
+# the root extraction having broken); a workflow directory or file that cannot
+# be read; a grep or awk that fails rather than reporting; an argument that
+# does not resolve. The one vacuous pass is a repo with no discoverable
+# `mise.toml` at all: there is no task graph to close over, the symmetric case
+# to an absent workflow directory. Pass `-` as the second argument to ask for
+# that state explicitly (the workflow-text pass alone).
 #
 # Untrusted input: workflow files and `mise.toml` are PR-controllable. They are
-# read as text and matched with grep and awk only; no content is ever executed
-# or expanded. The scanned directory and the graph file are the only positional
-# arguments; the only glob is the fixed `*.yml` / `*.yaml` pattern under that
-# directory, so no file content is subject to expansion.
+# read as text and matched with grep and awk; no content is ever executed,
+# sourced, or subjected to path expansion, and no content reaches an awk
+# program-text or `-v` position. One exception worth naming: a `depends`
+# wildcard is compiled into a regular expression, with every non-wildcard
+# character escaped so a crafted pattern cannot inject regex syntax.
 #
-# Both graph passes are a backstop against ACCIDENTAL wiring, not a boundary
-# against a committer who controls these files — who could delete the guard or
-# rename the task out of the `eval:` namespace outright.
+# Usage: check-no-ci-evals.sh [-h|--help] [<workflows-dir> [<mise-toml>|-]]
+#   Defaults, both derived from this script's location so a bare invocation
+#   works from any directory: <repo-root>/.github/workflows, and the first
+#   mise config file listed under PARSE BOUNDARY. An explicitly passed
+#   argument must resolve; `-` for <mise-toml> means "no task graph".
+# Exit: 0 no eval task reachable from CI (or nothing to scan); 1 a violation
+#   or a fail-closed condition, reported on stderr; 2 usage error.
 #
-# Usage: check-no-ci-evals.sh [<workflows-dir> [<mise-toml>]]
-#   Defaults: .github/workflows, then mise.toml or .mise.toml.
-#   -h, --help  print this header.
-# Exit: 0 no eval task reachable from CI (or nothing to scan); 1 a violation or
-#   a fail-closed condition (offending file:line or task chain on stderr);
-#   2 usage error.
-#
-# Portable POSIX sh + grep + awk; bash 3.2 / BSD tooling. C locale pinned so the
-# ERE character classes do not vary by host locale.
+# Portable POSIX sh + grep + sed + awk; bash 3.2 / BSD tooling. C locale pinned
+# so the ERE character classes do not vary by host locale.
 set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-case "${1:-}" in
-  -h | --help)
-    awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"
-    exit 0
-    ;;
-esac
-
-if [ $# -gt 2 ]; then
-  echo "usage: check-no-ci-evals.sh [<workflows-dir> [<mise-toml>]]" >&2
+say() { printf '%s\n' "$*"; }
+warn() { printf '%s\n' "$*" >&2; }
+usage_error() {
+  warn "check-no-ci-evals: $1"
+  warn "usage: check-no-ci-evals.sh [-h|--help] [<workflows-dir> [<mise-toml>|-]]"
   exit 2
+}
+fail_closed() {
+  warn "check-no-ci-evals: $1"
+  exit 1
+}
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)" || usage_error "cannot resolve this script's repository root"
+
+dir=""
+mise_toml=""
+positional=0
+for arg in "$@"; do
+  case "$arg" in
+    -h | --help)
+      sed -e '1d' -e '/^[^#]/,$d' -e 's/^# \{0,1\}//' "$0"
+      exit 0
+      ;;
+    --) break ;;
+  esac
+done
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --)
+      shift
+      break
+      ;;
+    -?*) usage_error "unknown option '$1'" ;;
+    *) break ;;
+  esac
+done
+for arg in "$@"; do
+  positional=$((positional + 1))
+  case "$positional" in
+    1) dir="$arg" ;;
+    2) mise_toml="$arg" ;;
+    *) usage_error "too many arguments" ;;
+  esac
+  [ -n "$arg" ] || usage_error "argument $positional is empty"
+done
+
+if [ "$positional" -ge 1 ]; then
+  [ -d "$dir" ] || usage_error "no workflow directory at '$dir'"
+else
+  dir="$repo_root/.github/workflows"
 fi
 
-dir="${1:-.github/workflows}"
-if [ $# -ge 2 ]; then
-  mise_toml="$2"
-elif [ -f mise.toml ]; then
-  mise_toml="mise.toml"
+if [ "$positional" -ge 2 ]; then
+  if [ "$mise_toml" = "-" ]; then
+    mise_toml=""
+  elif [ ! -f "$mise_toml" ] || [ ! -r "$mise_toml" ]; then
+    usage_error "no readable mise config at '$mise_toml'"
+  fi
 else
-  mise_toml=".mise.toml"
+  for candidate in mise.toml .mise.toml mise/config.toml .mise/config.toml \
+    .config/mise.toml .config/mise/config.toml; do
+    if [ -f "$repo_root/$candidate" ]; then
+      mise_toml="$repo_root/$candidate"
+      break
+    fi
+  done
 fi
 
 # No workflow directory at all: nothing can wire an eval into CI. Vacuously
 # clean (a repo may legitimately ship no workflows).
 if [ ! -d "$dir" ]; then
-  echo "check-no-ci-evals: no workflow directory at '$dir'; nothing to scan."
+  say "check-no-ci-evals: no workflow directory at '$dir'; nothing to scan."
   exit 0
+fi
+# A directory that exists but cannot be listed is not the same fact as one
+# holding no workflows, and only the latter is a legitimate vacuous pass.
+if [ ! -r "$dir" ] || [ ! -x "$dir" ]; then
+  fail_closed "the workflow directory '$dir' cannot be listed, so its contents cannot be scanned."
 fi
 
 # Enumerate the workflow files into the positional parameters. A non-matching
 # glob stays literal, so each candidate is existence-checked before use.
 set --
 for f in "$dir"/*.yml "$dir"/*.yaml; do
-  [ -f "$f" ] && set -- "$@" "$f"
+  [ -f "$f" ] || continue
+  [ -r "$f" ] || fail_closed "the workflow file '$f' cannot be read, so it cannot be scanned."
+  set -- "$@" "$f"
 done
 
 if [ "$#" -eq 0 ]; then
-  echo "check-no-ci-evals: no workflow files under '$dir'; nothing to scan."
+  say "check-no-ci-evals: no workflow files under '$dir'; nothing to scan."
   exit 0
 fi
 
@@ -145,36 +232,39 @@ fi
 # `eval:` at a TOKEN BOUNDARY (so the `eval` namespace triggers but a substring
 # inside `retrieval:` / `medieval:` / `evaluate-release` does not).
 #
-# Two residuals, both accepted. A contrived line that invokes mise AND writes
-# the literal `eval:` after a boundary elsewhere (a trailing `echo "eval: …"`)
-# over-blocks — far rarer than a real `retrieval:` task, and it only causes a
-# spurious CI failure, never a silent bypass. And a `run: |` block that splits
-# the invocation across a backslash-newline continuation executes but evades the
-# same-line match; an accidental multi-line split of `mise run eval:skill` does
-# not happen in practice, so the line-based match is kept deliberately over a
-# continuation-aware state machine.
-#
-# -H forces the filename prefix even for a single file (file:line:match report).
-mise_eval="$(grep -HnE '(^|[^[:alnum:]_-])mise[[:space:]]' "$@" 2>/dev/null | grep -E '(^|[^[:alnum:]_-])eval:' || true)"
-direct="$(grep -HnE '(^|[^[:alnum:]_-])(prompt-eval|behavioral-eval)\.sh' "$@" 2>/dev/null || true)"
+# `-a` forces text handling: a NUL byte would otherwise make grep report the
+# file as binary, print nothing, and exit 0 — a silent bypass of this pass.
+# `--` ends the option list so a workflow directory whose name starts with `-`
+# cannot turn a path into grep options. A grep exit above 1 is a read failure,
+# never "no match", and fails closed.
+# `-H` forces the filename prefix even for a single file (file:line:match).
+mise_lines="$(grep -aHnE '(^|[^[:alnum:]_-])mise[[:space:]]' -- "$@")"
+grep_rc=$?
+[ "$grep_rc" -le 1 ] || fail_closed "grep failed (exit $grep_rc) while reading the workflow files under '$dir'."
+mise_eval="$(printf '%s\n' "$mise_lines" | grep -aE '(^|[^[:alnum:]_-])eval:')"
+grep_rc=$?
+[ "$grep_rc" -le 1 ] || fail_closed "grep failed (exit $grep_rc) while matching the eval: namespace under '$dir'."
+direct="$(grep -aHnE '(^|[^[:alnum:]_-])(prompt-eval|behavioral-eval)\.sh' -- "$@")"
+grep_rc=$?
+[ "$grep_rc" -le 1 ] || fail_closed "grep failed (exit $grep_rc) while matching the eval runners under '$dir'."
 hits="$(printf '%s\n%s' "$mise_eval" "$direct" | grep -v '^[[:space:]]*$' | sort -u || true)"
 
 if [ -n "$hits" ]; then
-  echo "check-no-ci-evals: an eval task is wired into a CI workflow." >&2
-  echo "The kept eval harnesses (the eval: mise namespace — e.g. eval:skill, eval:behavioral)" >&2
-  echo "run on demand only, never in CI or 'mise run check'." >&2
-  echo "Offending references:" >&2
+  warn "check-no-ci-evals: an eval task is wired into a CI workflow."
+  warn "The kept eval harnesses (the eval: mise namespace — e.g. eval:skill, eval:behavioral)"
+  warn "run on demand only, never in CI or 'mise run check'."
+  warn "Offending references:"
   printf '%s\n' "$hits" | while IFS= read -r h; do
-    [ -n "$h" ] && echo "  $h" >&2
+    [ -n "$h" ] && printf '  %s\n' "$h" >&2
   done
   exit 1
 fi
 
 # ---- Passes 2 and 3: task-graph closure and run bodies ----
 
-if [ ! -f "$mise_toml" ]; then
-  echo "check-no-ci-evals: no eval task wired into any workflow under '$dir'."
-  echo "check-no-ci-evals: no mise.toml at '$mise_toml'; no task graph to close over."
+if [ -z "$mise_toml" ]; then
+  say "check-no-ci-evals: no eval task wired into any workflow under '$dir'."
+  say "check-no-ci-evals: no mise config found under '$repo_root'; no task graph to close over."
   exit 0
 fi
 
@@ -186,7 +276,7 @@ function isnamechar(c) {
 # Does <name> appear in <line> as a whole task-name token? `:` and `-` count as
 # name characters, so `check` does not match inside `check:specs`.
 function tokmatch(line, name,   off, pos, before, after) {
-  if (name == "") return 0
+  if (name == "" || index(line, name) == 0) return 0
   off = 1
   while ((pos = index(substr(line, off), name)) > 0) {
     pos += off - 1
@@ -202,9 +292,68 @@ function has_evalns(s) { return s ~ /(^|[^[:alnum:]_-])eval:/ }
 function is_runner(s) { return s ~ /(^|[^[:alnum:]_-])(prompt-eval|behavioral-eval)\.sh/ }
 function bail(why) { if (parse_error == "") parse_error = why }
 
+# Every character outside a wildcard is escaped, so a crafted dependency
+# pattern cannot inject regex syntax or a fatal expression.
+function glob2ere(g,   i, c, out) {
+  out = ""
+  for (i = 1; i <= length(g); i++) {
+    c = substr(g, i, 1)
+    if (c == "*") out = out ".*"
+    else if (c == "?") out = out "."
+    else if (index("\\^$.|+()[]{}", c) > 0) out = out "\\" c
+    else out = out c
+  }
+  return "^" out "$"
+}
+function glob_reaches_eval(g,   rx) {
+  rx = glob2ere(g)
+  return (("eval:" ~ rx) || ("eval:x" ~ rx))
+}
+function has_glob(g) { return (index(g, "*") > 0 || index(g, "?") > 0) }
+
+# Walks one physical line of the config outside any multi-line string, tracking
+# quote state so a `#`, `=` or bracket inside a string is not read as
+# structure. Returns the line with any trailing comment removed, and reports
+# the bracket-depth change, whether a string was left open, and where the
+# first top-level `=` sits.
+function scan(line,   i, c, q, esc, out, depth, eq) {
+  q = ""; esc = 0; out = ""; depth = 0; eq = 0
+  for (i = 1; i <= length(line); i++) {
+    c = substr(line, i, 1)
+    if (q == "\"") {
+      if (esc) esc = 0
+      else if (c == "\\") esc = 1
+      else if (c == "\"") q = ""
+    } else if (q == "'") {
+      if (c == "'") q = ""
+    } else if (c == "#") {
+      break
+    } else if (c == "\"" || c == "'") {
+      q = c
+    } else if (c == "[") {
+      depth++
+    } else if (c == "]") {
+      depth--
+    } else if (c == "=" && eq == 0 && depth == 0) {
+      eq = i
+    }
+    out = out c
+  }
+  SCAN_TEXT = out
+  SCAN_DELTA = depth
+  SCAN_OPEN = (q != "")
+  SCAN_EQ = eq
+}
+
 function addtask(name) {
   if (name == "") { bail("a [tasks...] header with no task name"); return }
   if (!(name in taskset)) { taskset[name] = 1; tasklist[++ntasks] = name }
+  addname(name, name)
+}
+function addname(name, owner) {
+  if (name == "" || (name in nameof)) return
+  nameof[name] = owner
+  namelist[++nnames] = name
 }
 function adddep(owner, dep, kind) {
   ndep[owner]++
@@ -222,66 +371,124 @@ function addedge(from, to, kind) {
   ekind[from, nedge[from]] = kind
 }
 
-function header(h,   inner, name, q) {
-  sub(/[[:space:]]*#.*$/, "", h)
+function unquote(s,   q) {
+  q = substr(s, 1, 1)
+  if ((q == "\"" || q == "'") && length(s) > 1 && substr(s, length(s), 1) == q)
+    return substr(s, 2, length(s) - 2)
+  return s
+}
+function trim(s) {
+  sub(/^[[:space:]]+/, "", s)
+  sub(/[[:space:]]+$/, "", s)
+  return s
+}
+function strip_quotes(s) {
+  gsub(/^["'`]+/, "", s)
+  gsub(/["'`]+$/, "", s)
+  return s
+}
+
+function header(h,   inner, name) {
   cur = ""
   if (substr(h, 1, 2) == "[[") { bail("array-of-tables header not modeled: " h); return }
   if (substr(h, length(h), 1) != "]") { bail("unterminated table header: " h); return }
-  inner = substr(h, 2, length(h) - 2)
+  inner = trim(substr(h, 2, length(h) - 2))
   if (inner == "tasks") { bail("inline [tasks] table not modeled"); return }
   if (substr(inner, 1, 6) != "tasks.") return
-  name = substr(inner, 7)
-  q = substr(name, 1, 1)
-  if ((q == "\"" || q == "'") && substr(name, length(name), 1) == q)
-    name = substr(name, 2, length(name) - 2)
+  name = trim(substr(inner, 7))
+  if (substr(name, 1, 1) == "\"" || substr(name, 1, 1) == "'") name = unquote(name)
   else if (index(name, ".") > 0) { bail("nested task table not modeled: " h); return }
   addtask(name)
   cur = name
 }
 
-function collect_deps(buf, kind, owner,   rest, s) {
+function collect_strings(buf, kind, owner,   rest, s) {
   rest = buf
   while (match(rest, /"[^"]*"|'[^']*'/)) {
     s = substr(rest, RSTART + 1, RLENGTH - 2)
     rest = substr(rest, RSTART + RLENGTH)
-    adddep(owner, s, kind)
+    if (kind == "alias") addname(s, owner)
+    else adddep(owner, s, kind)
   }
 }
 function finish_array() {
   if (arrkey == "run") addrun(arrowner, arrbuf)
-  else collect_deps(arrbuf, arrkey, arrowner)
-  arrkey = ""; arrbuf = ""; arrowner = ""
+  else collect_strings(arrbuf, arrkey, arrowner)
+  arrkey = ""; arrbuf = ""; arrowner = ""; arrdepth = 0
 }
 
-function value_deps(key, val) {
-  if (substr(val, 1, 1) == "[") {
-    arrkey = key; arrbuf = val; arrowner = cur
-    if (index(val, "]") > 0) finish_array()
-  } else if (substr(val, 1, 1) == "\"" || substr(val, 1, 1) == "'") {
-    collect_deps(val, key, cur)
-  } else {
-    bail("unrecognized " key " value: " val)
+FILENAME == misefile {
+  raw = $0
+  if (FNR == 1 && substr(raw, 1, 3) == sprintf("%c%c%c", 239, 187, 191))
+    raw = substr(raw, 4)
+
+  if (mldelim != "") {
+    p = index(raw, mldelim)
+    if (p > 0) { if (mlkey == "run") addrun(mlowner, substr(raw, 1, p - 1)); mldelim = ""; mlkey = "" }
+    else if (mlkey == "run") addrun(mlowner, raw)
+    next
   }
-}
 
-# Run bodies are matched, never resolved, so the raw value text is kept
-# verbatim — quotes and all — instead of being unescaped into a string.
-function value_run(val,   d, rest, p) {
-  d = substr(val, 1, 3)
-  if (d == "'''" || d == "\"\"\"") {
+  scan(trim(raw))
+  line = trim(SCAN_TEXT)
+
+  if (arrkey != "") {
+    arrbuf = arrbuf " " line
+    arrdepth += SCAN_DELTA
+    if (SCAN_OPEN) { bail("unterminated string inside a " arrkey " value"); next }
+    if (arrdepth < 0) { bail("unbalanced brackets in a " arrkey " value"); next }
+    if (arrdepth == 0) finish_array()
+    next
+  }
+
+  if (line == "") next
+  if (substr(line, 1, 1) == "[") { header(line); next }
+
+  if (SCAN_EQ == 0) {
+    bail(SCAN_OPEN ? "unterminated string: " line : "unrecognized line: " line)
+    next
+  }
+  key = unquote(trim(substr(line, 1, SCAN_EQ - 1)))
+  val = trim(substr(line, SCAN_EQ + 1))
+
+  if (cur == "") {
+    if (key == "tasks" || substr(key, 1, 6) == "tasks.")
+      bail("a task defined outside a [tasks.<name>] table is not modeled: " line)
+    next
+  }
+
+  d3 = substr(val, 1, 3)
+  if (d3 == "'''" || d3 == "\"\"\"") {
     rest = substr(val, 4)
-    p = index(rest, d)
-    if (p > 0) { addrun(cur, substr(rest, 1, p - 1)); return }
-    mldelim = d; mlowner = cur
-    addrun(cur, rest)
-    return
+    p = index(rest, d3)
+    if (p > 0) { if (key == "run") addrun(cur, substr(rest, 1, p - 1)) }
+    else { mldelim = d3; mlkey = key; mlowner = cur; if (key == "run") addrun(cur, rest) }
+    next
   }
+  if (SCAN_OPEN) { bail("unterminated string: " line); next }
+
+  if (key != "depends" && key != "depends_post" && key != "wait_for" && key != "run" && key != "alias") next
+
   if (substr(val, 1, 1) == "[") {
-    arrkey = "run"; arrbuf = val; arrowner = cur
-    if (index(val, "]") > 0) finish_array()
-    return
+    arrkey = key; arrowner = cur; arrbuf = val; arrdepth = SCAN_DELTA
+    if (arrdepth < 0) { bail("unbalanced brackets in a " key " value"); next }
+    if (arrdepth == 0) finish_array()
+    next
   }
-  addrun(cur, val)
+  # A run body is matched, never resolved, so the raw value text is kept
+  # verbatim rather than unescaped into a string.
+  if (key == "run") { addrun(cur, val); next }
+  if (substr(val, 1, 1) == "\"" || substr(val, 1, 1) == "'") { collect_strings(val, key, cur); next }
+  bail("unrecognized " key " value: " val)
+  next
+}
+
+{
+  wffiles[FILENAME] = 1
+  l = $0
+  sub(/^[[:space:]]+/, "", l)
+  if (substr(l, 1, 1) == "#") next
+  if (is_mise(l)) { wfline[++nwf] = $0; wfsrc[nwf] = FILENAME ":" FNR }
 }
 
 function chain(t,   path, u) {
@@ -292,47 +499,14 @@ function chain(t,   path, u) {
     t = u
     u = parent[t]
   }
-  return path
+  return (rootsrc[t] == "" ? path : rootsrc[t] " invokes " path)
 }
 function push(v, from, kind) {
-  if (v in seen) return
+  if (v == "" || (v in seen)) return
   seen[v] = 1
   parent[v] = from
   pkind[v] = kind
   queue[++qn] = v
-}
-
-FILENAME == misefile {
-  raw = $0
-  if (mldelim != "") {
-    p = index(raw, mldelim)
-    if (p > 0) { addrun(mlowner, substr(raw, 1, p - 1)); mldelim = "" }
-    else addrun(mlowner, raw)
-    next
-  }
-  if (arrkey != "") {
-    arrbuf = arrbuf " " raw
-    if (index(raw, "]") > 0) finish_array()
-    next
-  }
-  line = raw
-  sub(/^[[:space:]]+/, "", line)
-  sub(/[[:space:]]+$/, "", line)
-  if (line == "" || substr(line, 1, 1) == "#") next
-  if (substr(line, 1, 1) == "[") { header(line); next }
-  eq = index(line, "=")
-  if (eq == 0 || cur == "") next
-  key = substr(line, 1, eq - 1)
-  gsub(/[[:space:]"']/, "", key)
-  val = substr(line, eq + 1)
-  sub(/^[[:space:]]+/, "", val)
-  if (key == "depends" || key == "depends_post" || key == "wait_for") value_deps(key, val)
-  else if (key == "run") value_run(val)
-  next
-}
-
-{
-  if (is_mise($0)) { wfline[++nwf] = $0; wfsrc[nwf] = FILENAME ":" FNR }
 }
 
 END {
@@ -353,34 +527,37 @@ END {
     for (j = 1; j <= ndep[u]; j++) {
       d = deps[u, j]
       matched = 0
-      if (index(d, "*") > 0) {
-        rx = d
-        gsub(/\*/, ".*", rx)
-        rx = "^" rx "$"
-        for (k = 1; k <= ntasks; k++)
-          if (tasklist[k] ~ rx) { addedge(u, tasklist[k], depkind[u, j]); matched = 1 }
-      } else if (d in taskset) {
-        addedge(u, d, depkind[u, j])
+      if (has_glob(d)) {
+        rx = glob2ere(d)
+        for (k = 1; k <= nnames; k++)
+          if (namelist[k] ~ rx) { addedge(u, nameof[namelist[k]], depkind[u, j]); matched = 1 }
+        # A wildcard expands over every task mise knows, including the ones
+        # defined outside this file, so what it CAN reach is the honest test.
+        if (glob_reaches_eval(d)) { nevaldep[u]++; evaldep[u, nevaldep[u]] = depkind[u, j] " = " d }
+      } else if (d in nameof) {
+        addedge(u, nameof[d], depkind[u, j])
         matched = 1
       }
-      # A dependency that resolves to no task in this file is outside the parse
+      # A dependency resolving to no task in this file is outside the parse
       # boundary, so the closure will never walk it. Its name is then the only
       # thing left to read, and naming the eval: namespace is enough.
-      if (!matched && has_evalns(d)) evaldep[u] = depkind[u, j] " = " d
+      if (!matched && has_evalns(d)) { nevaldep[u]++; evaldep[u, nevaldep[u]] = depkind[u, j] " = " d }
     }
   }
 
   qn = 0
   nroots = 0
   for (i = 1; i <= nwf; i++)
-    for (k = 1; k <= ntasks; k++)
-      if (!(tasklist[k] in seen) && tokmatch(wfline[i], tasklist[k])) {
+    for (k = 1; k <= nnames; k++)
+      if (!(nameof[namelist[k]] in seen) && tokmatch(wfline[i], namelist[k])) {
         nroots++
-        rootsrc[tasklist[k]] = wfsrc[i]
-        push(tasklist[k], "", "")
+        rootsrc[nameof[namelist[k]]] = wfsrc[i]
+        push(nameof[namelist[k]], "", "")
       }
   if (nroots == 0) {
-    print "no CI-invoked mise task found: no workflow line names a task from " misefile "."
+    nfiles = 0
+    for (f in wffiles) nfiles++
+    print "no CI-invoked mise task found: none of the " nfiles " workflow file(s) scanned names a task from " misefile "."
     print "with zero roots the closure would pass vacuously over every task in the graph."
     exit 1
   }
@@ -390,18 +567,27 @@ END {
     u = queue[++qi]
     if (u ~ /^eval:/)
       viol[++nviol] = "CI reaches eval task " u ": " chain(u)
-    if (u in evaldep)
-      viol[++nviol] = "task " u " depends on the eval: namespace (" evaldep[u] "): " chain(u)
+    for (j = 1; j <= nevaldep[u]; j++)
+      viol[++nviol] = "task " u " depends on the eval: namespace (" evaldep[u, j] "): " chain(u)
     for (j = 1; j <= nrun[u]; j++) {
       r = runbody[u, j]
-      if ((is_mise(r) && has_evalns(r)) || is_runner(r)) {
-        body = r
-        sub(/^[[:space:]]+/, "", body)
-        viol[++nviol] = "the run body of CI-invoked task " u " invokes an eval harness: " body
+      if ((is_mise(r) && has_evalns(r)) || is_runner(r))
+        viol[++nviol] = "the run body of CI-invoked task " u " invokes an eval harness: " trim(r)
+      if (!is_mise(r)) continue
+      for (k = 1; k <= nnames; k++)
+        if (tokmatch(r, namelist[k])) push(nameof[namelist[k]], u, "run body")
+      nt = split(r, tok, /[[:space:]]+/)
+      for (k = 1; k <= nt; k++) {
+        g = strip_quotes(tok[k])
+        # A bare `*` in a shell body is far more likely `rm -rf *` than a task
+        # selector, so a wildcard operand is read only with a literal prefix.
+        if (g !~ /^[[:alnum:]_.:-]+[*?]/) continue
+        if (glob_reaches_eval(g))
+          viol[++nviol] = "the run body of CI-invoked task " u " invokes the eval: namespace by wildcard (" g "): " chain(u)
+        rx = glob2ere(g)
+        for (k2 = 1; k2 <= nnames; k2++)
+          if (namelist[k2] ~ rx) push(nameof[namelist[k2]], u, "run body")
       }
-      if (is_mise(r))
-        for (k = 1; k <= ntasks; k++)
-          if (tokmatch(r, tasklist[k])) push(tasklist[k], u, "run body")
     }
     for (j = 1; j <= nedge[u]; j++) push(edge[u, j], u, ekind[u, j])
   }
@@ -414,17 +600,23 @@ END {
 AWK
 )"
 
+[ -n "$graph_awk" ] || fail_closed "the task-graph parser could not be assembled, so passes 2 and 3 could not run."
+
 graph_out="$(awk -v misefile="$mise_toml" "$graph_awk" "$mise_toml" "$@")"
 graph_rc=$?
 
-if [ "$graph_rc" -ne 0 ]; then
-  echo "check-no-ci-evals: $(printf '%s' "$graph_out" | head -n 1)" >&2
-  printf '%s\n' "$graph_out" | tail -n +2 | while IFS= read -r l; do
-    [ -n "$l" ] && echo "$l" >&2
+if [ "$graph_rc" -gt 1 ]; then
+  fail_closed "the task-graph parser failed (awk exit $graph_rc) on '$mise_toml'; passes 2 and 3 did not complete."
+fi
+if [ "$graph_rc" -eq 1 ]; then
+  [ -n "$graph_out" ] || fail_closed "the task-graph parser reported a failure without a verdict on '$mise_toml'."
+  warn "check-no-ci-evals: $(printf '%s' "$graph_out" | sed -n '1p')"
+  printf '%s\n' "$graph_out" | sed -e '1d' | while IFS= read -r l; do
+    [ -n "$l" ] && printf '%s\n' "$l" >&2
   done
   exit 1
 fi
 
-echo "check-no-ci-evals: no eval task wired into any workflow under '$dir'."
-echo "check-no-ci-evals: no CI-invoked task in '$mise_toml' reaches the eval: namespace."
+say "check-no-ci-evals: no eval task wired into any workflow under '$dir'."
+say "check-no-ci-evals: no CI-invoked task in '$mise_toml' reaches the eval: namespace."
 exit 0

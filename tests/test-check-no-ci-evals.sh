@@ -8,6 +8,11 @@
 # that feeds that closure. Workflow files and mise.toml are PR-controllable, so
 # the guard treats their contents as untrusted data (grep and awk over text; no
 # eval, no path expansion).
+#
+# Assertion discipline this file learned the hard way: a needle must not be
+# satisfiable by the fixture PATH the guard echoes back, nor by the
+# `check-no-ci-evals:` prefix every message carries. Needles below are phrases
+# only the intended verdict produces.
 set -u
 unset CDPATH
 
@@ -37,26 +42,50 @@ assert_contains() {
       ;;
   esac
 }
+assert_lacks() {
+  # assert_lacks <label> <needle> <haystack>
+  case "$3" in
+    *"$2"*)
+      echo "FAIL: $1 (unexpectedly contains '$2')" >&2
+      echo "----- output -----" >&2
+      printf '%s\n' "$3" >&2
+      echo "------------------" >&2
+      failures=$((failures + 1))
+      ;;
+    *) echo "ok: $1" ;;
+  esac
+}
 
 if [ ! -f "$GUARD" ]; then
   echo "FAIL: guard script missing at $GUARD" >&2
   exit 1
 fi
 
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d)" || {
+  echo "FAIL: mktemp -d failed; cannot build fixtures" >&2
+  exit 1
+}
+trap 'rm -rf "$TMP"' EXIT INT TERM HUP
 
-# The workflow-text pass in isolation. An absent mise.toml leaves the two graph
-# passes with no graph to close over, so these cases exercise the text scan
-# alone and stay unaffected by whatever mise.toml the runner's cwd happens to
-# hold.
-text_only() { "$GUARD" "$1" "$TMP/no-such-mise.toml" 2>&1; }
+# The workflow-text pass in isolation. `-` is the guard's documented "no task
+# graph" argument, so these cases exercise the text scan alone.
+text_only() { "$GUARD" "$1" - 2>&1; }
+
+# Runs the guard keeping the two streams apart, so the "verdicts go to stderr"
+# contract is testable rather than assumed.
+OUT=""
+ERR=""
+RC=0
+run_split() {
+  OUT="$("$@" 2>"$TMP/.stderr")"
+  RC=$?
+  ERR="$(cat "$TMP/.stderr")"
+}
 
 # A benign workflow: the aggregate gate only, no eval task wired in.
 mk_benign() {
-  dir="$1"
-  mkdir -p "$dir"
-  cat >"$dir/ci.yml" <<'EOF'
+  mkdir -p "$1"
+  cat >"$1/ci.yml" <<'EOF'
 name: ci
 "on":
   pull_request:
@@ -91,6 +120,7 @@ out="$(text_only "$TMP/wired1")"
 rc=$?
 assert_exit "mise run eval:skill wired in CI fails" 1 "$rc"
 assert_contains "names the offending workflow file" "evals.yml" "$out"
+assert_contains "says the eval task is wired into a workflow" "wired into a CI workflow" "$out"
 
 # ---- bare `mise eval:skill` (no run subcommand) also fails ----
 mkdir -p "$TMP/wired2"
@@ -199,6 +229,15 @@ rc=$?
 assert_exit "direct sh scripts/behavioral-eval.sh is caught" 1 "$rc"
 assert_contains "names the behavioral-eval offender" "behav-direct/ci.yml" "$out"
 
+# ---- a NUL byte must not let grep report the file as binary and skip it ----
+mkdir -p "$TMP/nul"
+printf 'jobs:\n  a:\n    steps:\n      - run: mise run check\n\000\n      - run: mise run eval:skill\n' \
+  >"$TMP/nul/ci.yml"
+out="$(text_only "$TMP/nul")"
+rc=$?
+assert_exit "a NUL byte in a workflow does not blind the text pass" 1 "$rc"
+assert_contains "still names the eval wiring past the NUL" "wired into a CI workflow" "$out"
+
 # ---- the TEST script name (test-behavioral-eval.sh) is NOT a false positive ----
 # CI legitimately runs the eval harness's own tests via the tests/*.sh glob; the
 # runner-name match is anchored at a token boundary so the `test-` prefix does
@@ -270,8 +309,9 @@ rc=$?
 assert_exit "a word ending in 'mise' (premise) is not flagged" 0 "$rc"
 
 # ---- no workflow directory: vacuously clean ----
-out="$(text_only "$TMP/does-not-exist")"
-assert_exit "absent workflow dir passes vacuously" 0 $?
+out="$("$GUARD" "$TMP/does-not-exist" - 2>&1)"
+rc=$?
+assert_exit "an absent default workflow dir is a usage error when passed" 2 "$rc"
 
 # ---------------------------------------------------------------------------
 # Task-graph closure and run-body passes.
@@ -282,7 +322,7 @@ assert_exit "absent workflow dir passes vacuously" 0 $?
 # ---------------------------------------------------------------------------
 
 mk_case() {
-  # mk_case <name>  — writes the shared workflow; the caller writes mise.toml.
+  # mk_case <name> — writes the shared workflow; the caller writes mise.toml.
   mkdir -p "$TMP/$1/workflows"
   cat >"$TMP/$1/workflows/ci.yml" <<'EOF'
 name: ci
@@ -297,6 +337,7 @@ EOF
 run_case() { "$GUARD" "$TMP/$1/workflows" "$TMP/$1/mise.toml" 2>&1; }
 
 # ---- transitive `depends` chain from a CI-run task reaches eval: ----
+# The eval task's run body is inert, so only pass 2 can produce this verdict.
 mk_case depends-chain
 cat >"$TMP/depends-chain/mise.toml" <<'EOF'
 [tasks.check]
@@ -307,13 +348,15 @@ depends = ["eval:skill"]
 run = "shellcheck scripts/*.sh"
 
 [tasks."eval:skill"]
-run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
+run = "true"
 EOF
 out="$(run_case depends-chain)"
 rc=$?
 assert_exit "transitive depends chain to eval: fails" 1 "$rc"
-assert_contains "names the eval task it reached" "eval:skill" "$out"
-assert_contains "reports the chain from the CI-invoked root" "check" "$out"
+assert_contains "names the eval task it reached" "CI reaches eval task eval:skill" "$out"
+assert_contains "renders the chain with its edge kinds" \
+  "check -(depends)-> lint:shell -(depends)-> eval:skill" "$out"
+assert_contains "roots the chain at the workflow line" "workflows/ci.yml:7 invokes" "$out"
 
 # ---- `depends_post` is an edge too ----
 mk_case depends-post-chain
@@ -332,7 +375,7 @@ EOF
 out="$(run_case depends-post-chain)"
 rc=$?
 assert_exit "transitive depends_post chain to eval: fails" 1 "$rc"
-assert_contains "names the eval task reached via depends_post" "eval:behavioral" "$out"
+assert_contains "labels the depends_post edge" "check -(depends_post)-> report" "$out"
 
 # ---- `wait_for` is an edge too ----
 mk_case wait-for-chain
@@ -351,11 +394,112 @@ EOF
 out="$(run_case wait-for-chain)"
 rc=$?
 assert_exit "transitive wait_for chain to eval: fails" 1 "$rc"
-assert_contains "names the eval task reached via wait_for" "eval:skill" "$out"
+assert_contains "labels the wait_for edge" "check -(wait_for)-> publish" "$out"
 
-# ---- a wildcard dependency onto the eval: namespace is caught ----
-# mise expands `eval:*`, so an exact-name edge lookup alone would let this
-# through even though it wires every eval task into the aggregate.
+# ---- `depends` as a bare string, not an array ----
+mk_case scalar-depends
+cat >"$TMP/scalar-depends/mise.toml" <<'EOF'
+[tasks.check]
+depends = "eval:skill"
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case scalar-depends)"
+rc=$?
+assert_exit "a scalar depends string is followed" 1 "$rc"
+assert_contains "names the eval task from a scalar depends" "CI reaches eval task eval:skill" "$out"
+
+# ---- a multi-line array survives comments, nesting, and brackets in strings ----
+# Closing the array on the first line holding any `]` would drop every element
+# after it, which is a silent bypass rather than a parse failure.
+mk_case array-shapes
+cat >"$TMP/array-shapes/mise.toml" <<'EOF'
+[tasks.check]
+depends = [
+  "build", # the fast ones [shell, md]
+  ["lint", "--fix"],
+  "eval:skill",
+]
+run = "true"
+
+[tasks.build]
+run = "true"
+
+[tasks.lint]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case array-shapes)"
+rc=$?
+assert_exit "a bracket in a comment or a nested array does not truncate depends" 1 "$rc"
+assert_contains "still reaches the element after the bracket" "CI reaches eval task eval:skill" "$out"
+
+# ---- whitespace inside a table header must not hide the task ----
+mk_case header-whitespace
+cat >"$TMP/header-whitespace/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["build"]
+
+[ tasks.build ]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case header-whitespace)"
+rc=$?
+assert_exit "a header with interior whitespace still defines its task" 1 "$rc"
+assert_contains "walks through the whitespace-header task" "check -(depends)-> build" "$out"
+
+# ---- a task defined by a dotted key is a parse failure, never half-read ----
+mk_case dotted-key
+cat >"$TMP/dotted-key/mise.toml" <<'EOF'
+tasks.build.run = "mise run eval:skill"
+
+[tasks.check]
+depends = ["build"]
+run = "true"
+EOF
+out="$(run_case dotted-key)"
+rc=$?
+assert_exit "a dotted-key task definition fails closed" 1 "$rc"
+assert_contains "says the task definition is not modeled" "is not modeled" "$out"
+
+# ---- a multi-line string under a non-run key must not desynchronize the parse ----
+mk_case multiline-description
+cat >"$TMP/multiline-description/mise.toml" <<'EOF'
+[tasks.check]
+description = """
+Example:
+  [tasks.foo]
+"""
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case multiline-description)"
+rc=$?
+assert_exit "a multi-line description does not swallow the task's depends" 1 "$rc"
+assert_contains "still sees the depends after the description body" "CI reaches eval task eval:skill" "$out"
+
+# ---- a UTF-8 BOM must not hide the first table header ----
+mk_case bom
+printf '\357\273\277[tasks.check]\ndepends = ["eval:skill"]\nrun = "true"\n\n[tasks."eval:skill"]\nrun = "true"\n' \
+  >"$TMP/bom/mise.toml"
+out="$(run_case bom)"
+rc=$?
+assert_exit "a BOM does not hide the first task" 1 "$rc"
+assert_contains "reaches the eval task past the BOM" "CI reaches eval task eval:skill" "$out"
+
+# ---- wildcard dependencies onto the eval: namespace are caught ----
+# mise expands these, so an exact-name edge lookup alone would let them through.
 mk_case glob-dep
 cat >"$TMP/glob-dep/mise.toml" <<'EOF'
 [tasks.check]
@@ -368,11 +512,37 @@ EOF
 out="$(run_case glob-dep)"
 rc=$?
 assert_exit "a wildcard depends onto eval:* fails" 1 "$rc"
-assert_contains "names the eval task the wildcard expands to" "eval:skill" "$out"
+assert_contains "names the eval task the wildcard expands to" "CI reaches eval task eval:skill" "$out"
+
+# A wildcard with no colon, and the catch-all, expand over tasks defined
+# outside this file too, so the name is the only honest test.
+mk_case glob-dep-prefix
+cat >"$TMP/glob-dep-prefix/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["eval*"]
+run = "true"
+
+[tasks.build]
+run = "true"
+EOF
+out="$(run_case glob-dep-prefix)"
+rc=$?
+assert_exit "a colon-less eval* wildcard fails" 1 "$rc"
+assert_contains "reports the wildcard dependency" "depends on the eval: namespace" "$out"
+
+mk_case glob-dep-all
+cat >"$TMP/glob-dep-all/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["*"]
+run = "true"
+
+[tasks.lint]
+run = "true"
+EOF
+out="$(run_case glob-dep-all)"
+assert_exit "a catch-all depends wildcard fails" 1 $?
 
 # ---- a dependency on an eval task defined outside the parse boundary ----
-# The edge resolves to nothing in this file, so only the dependency's own name
-# is left to read.
 mk_case dangling-eval-dep
 cat >"$TMP/dangling-eval-dep/mise.toml" <<'EOF'
 [tasks.check]
@@ -382,7 +552,34 @@ EOF
 out="$(run_case dangling-eval-dep)"
 rc=$?
 assert_exit "a depends on an undefined eval: task fails" 1 "$rc"
-assert_contains "names the unresolvable eval dependency" "eval:skill" "$out"
+assert_contains "names the unresolvable eval dependency" "depends on the eval: namespace" "$out"
+
+# ---- a task alias is a root name too ----
+mk_case task-alias
+cat >"$TMP/task-alias/mise.toml" <<'EOF'
+[tasks.check]
+run = "true"
+
+[tasks."ci-evals"]
+alias = "ci"
+depends = ["eval:skill"]
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+cat >"$TMP/task-alias/workflows/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: mise run check
+      - run: mise run ci
+EOF
+out="$(run_case task-alias)"
+rc=$?
+assert_exit "an aliased CI invocation roots its task" 1 "$rc"
+assert_contains "reaches the eval task through the alias" "CI reaches eval task eval:skill" "$out"
 
 # ---- a reachable task whose run body invokes an eval task ----
 # The invoked task is not defined in this mise.toml, so only the run-body
@@ -402,7 +599,23 @@ EOF
 out="$(run_case run-body-direct)"
 rc=$?
 assert_exit "a reachable run body invoking mise run eval: fails" 1 "$rc"
-assert_contains "names the task whose run body wires it in" "report" "$out"
+assert_contains "names the task whose run body wires it in" \
+  "run body of CI-invoked task report invokes an eval harness" "$out"
+
+# ---- the same, in a `\"\"\"` multi-line body ----
+mk_case run-body-basic-multiline
+cat >"$TMP/run-body-basic-multiline/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["report"]
+run = "true"
+
+[tasks.report]
+run = """
+mise run eval:skill
+"""
+EOF
+out="$(run_case run-body-basic-multiline)"
+assert_exit "a basic-string multi-line run body is scanned" 1 $?
 
 # ---- a reachable task whose run body calls the eval runner directly ----
 mk_case run-body-runner
@@ -417,6 +630,9 @@ EOF
 out="$(run_case run-body-runner)"
 rc=$?
 assert_exit "a reachable run body calling the eval runner directly fails" 1 "$rc"
+assert_contains "names the run-body runner offender" \
+  "run body of CI-invoked task report invokes an eval harness" "$out"
+assert_contains "quotes the offending runner call" "behavioral-eval.sh" "$out"
 
 # ---- second order: a run-body invocation feeds the closure as an edge ----
 mk_case run-body-second-order
@@ -434,7 +650,25 @@ EOF
 out="$(run_case run-body-second-order)"
 rc=$?
 assert_exit "a run-body invocation feeding a depends chain to eval: fails" 1 "$rc"
-assert_contains "names the eval task reached through the run-body edge" "eval:skill" "$out"
+assert_contains "labels the run-body edge" "check -(run body)-> bundle" "$out"
+
+# ---- a wildcard run-body operand expands the same way ----
+mk_case run-body-wildcard
+cat >"$TMP/run-body-wildcard/mise.toml" <<'EOF'
+[tasks.check]
+run = "mise run all:*"
+
+[tasks."all:evals"]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case run-body-wildcard)"
+rc=$?
+assert_exit "a wildcard run-body operand is expanded" 1 "$rc"
+assert_contains "walks the wildcard-matched task" "check -(run body)-> all:evals" "$out"
 
 # ---- an eval task nothing CI-invoked reaches is fine ----
 # The shape of the real repo: the eval: namespace exists, and stays outside the
@@ -455,14 +689,54 @@ run = "/bin/bash scripts/run-tests.sh"
 run = "shellcheck scripts/*.sh"
 
 [tasks."eval:skill"]
-description = "on demand only, never in CI"
+description = "on demand only, never run mise run eval:skill in CI"
 run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
 EOF
 out="$(run_case unreachable-eval)"
 rc=$?
 assert_exit "a clean graph with an unreachable eval task passes" 0 "$rc"
+assert_contains "says the closure reaches no eval task" "reaches the eval: namespace" "$out"
 
-# ---- an unparseable mise.toml fails closed ----
+# ---- false positives the graph passes must not produce ----
+# A description is prose, not a run body; a TOML comment cannot create a
+# dependency or a runner call; and a task whose name merely contains `eval` is
+# not in the namespace. Each of these would block the whole `check` aggregate.
+mk_case graph-falsepos
+cat >"$TMP/graph-falsepos/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["retrieval:index", "evaluate-release"] # never add "eval:skill" here
+run = "mise run medieval:build" # do not wire mise run eval:skill in here
+
+[tasks."retrieval:index"]
+description = "mise run eval:skill is the manual command"
+run = "true"
+
+[tasks.evaluate-release]
+run = "true"
+
+[tasks."medieval:build"]
+run = "true"
+EOF
+out="$(run_case graph-falsepos)"
+rc=$?
+assert_exit "descriptions, TOML comments and eval-like names are not flagged" 0 "$rc"
+assert_lacks "no spurious eval verdict" "reachable from CI" "$out"
+
+# ---- a SHELL comment inside a run body still over-blocks, deliberately ----
+# The `#` sits inside the TOML string, so it is body text the guard cannot tell
+# apart from a live invocation. Same fail-loud direction as the text pass.
+mk_case run-body-shell-comment
+cat >"$TMP/run-body-shell-comment/mise.toml" <<'EOF'
+[tasks.check]
+run = "mise run build   # never mise run eval:skill here"
+
+[tasks.build]
+run = "true"
+EOF
+out="$(run_case run-body-shell-comment)"
+assert_exit "a shell comment inside a run body over-blocks" 1 $?
+
+# ---- parse failures, each reported rather than half-read ----
 mk_case unparseable
 cat >"$TMP/unparseable/mise.toml" <<'EOF'
 [tasks.check]
@@ -471,8 +745,64 @@ echo never terminated
 EOF
 out="$(run_case unparseable)"
 rc=$?
-assert_exit "an unparseable mise.toml fails closed" 1 "$rc"
-assert_contains "says it could not parse the task graph" "parse" "$out"
+assert_exit "an unterminated multi-line string fails closed" 1 "$rc"
+assert_contains "says it could not parse the task graph" "could not parse the mise task graph" "$out"
+assert_contains "names the parse reason" "unterminated multi-line string" "$out"
+
+mk_case array-of-tables
+cat >"$TMP/array-of-tables/mise.toml" <<'EOF'
+[[tasks.check]]
+run = "true"
+EOF
+out="$(run_case array-of-tables)"
+rc=$?
+assert_exit "an array-of-tables header fails closed" 1 "$rc"
+assert_contains "names the array-of-tables reason" "array-of-tables header not modeled" "$out"
+
+mk_case inline-tasks
+cat >"$TMP/inline-tasks/mise.toml" <<'EOF'
+[tasks]
+check = "true"
+EOF
+out="$(run_case inline-tasks)"
+rc=$?
+assert_exit "a bare [tasks] table fails closed" 1 "$rc"
+assert_contains "names the inline-table reason" "inline [tasks] table not modeled" "$out"
+
+mk_case nested-table
+cat >"$TMP/nested-table/mise.toml" <<'EOF'
+[tasks.check]
+run = "true"
+
+[tasks.check.env]
+FOO = "bar"
+EOF
+out="$(run_case nested-table)"
+rc=$?
+assert_exit "a nested task table fails closed" 1 "$rc"
+assert_contains "names the nested-table reason" "nested task table not modeled" "$out"
+
+mk_case unterminated-array
+cat >"$TMP/unterminated-array/mise.toml" <<'EOF'
+[tasks.check]
+depends = [
+  "build",
+EOF
+out="$(run_case unterminated-array)"
+rc=$?
+assert_exit "an unterminated array fails closed" 1 "$rc"
+assert_contains "names the unterminated-array reason" "unterminated array" "$out"
+
+mk_case bare-depends
+cat >"$TMP/bare-depends/mise.toml" <<'EOF'
+[tasks.check]
+depends = build
+run = "true"
+EOF
+out="$(run_case bare-depends)"
+rc=$?
+assert_exit "an unquoted depends value fails closed" 1 "$rc"
+assert_contains "names the unrecognized value" "unrecognized depends value" "$out"
 
 # ---- a mise.toml that parses to zero tasks fails closed ----
 mk_case zero-tasks
@@ -483,7 +813,7 @@ EOF
 out="$(run_case zero-tasks)"
 rc=$?
 assert_exit "a zero-task mise.toml fails closed" 1 "$rc"
-assert_contains "says the graph held no tasks" "zero task" "$out"
+assert_contains "says the graph held no tasks" "parsed to zero tasks" "$out"
 
 # ---- workflows that invoke no known mise task fail closed ----
 # Zero roots means the closure would pass vacuously over the whole graph, which
@@ -507,14 +837,88 @@ EOF
 out="$(run_case zero-roots)"
 rc=$?
 assert_exit "zero workflow roots with a non-empty graph fails closed" 1 "$rc"
-assert_contains "says no CI-invoked task was found" "root" "$out"
+assert_contains "says no CI-invoked task was found" "no CI-invoked mise task found" "$out"
+assert_contains "counts the workflow files it scanned" "1 workflow file(s) scanned" "$out"
 
-# ---- an absent mise.toml leaves the graph passes with nothing to close ----
-mk_case absent-mise
-out="$(run_case absent-mise)"
+# ---- a commented-out invocation must not manufacture a root ----
+# Counting a comment as a root would mask the fail-closed above.
+mkdir -p "$TMP/comment-root/workflows"
+cat >"$TMP/comment-root/workflows/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      # the single `mise run check` step is the gate
+      - run: npm test
+EOF
+cat >"$TMP/comment-root/mise.toml" <<'EOF'
+[tasks.check]
+run = "true"
+EOF
+out="$(run_case comment-root)"
 rc=$?
-assert_exit "an absent mise.toml passes with the graph passes skipped" 0 "$rc"
-assert_contains "says the graph passes were skipped" "mise.toml" "$out"
+assert_exit "a comment naming a task does not count as a root" 1 "$rc"
+assert_contains "still reports zero roots" "no CI-invoked mise task found" "$out"
+
+# ---- the explicit no-graph argument runs the text pass alone ----
+mk_case no-graph
+cat >"$TMP/no-graph/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["eval:skill"]
+run = "true"
+EOF
+out="$("$GUARD" "$TMP/no-graph/workflows" - 2>&1)"
+rc=$?
+assert_exit "'-' skips the graph passes" 0 "$rc"
+assert_contains "says there is no task graph" "no task graph to close over" "$out"
+
+# ---- unreadable inputs fail closed rather than reading as empty ----
+mkdir -p "$TMP/unreadable/workflows"
+cp "$TMP/depends-chain/workflows/ci.yml" "$TMP/unreadable/workflows/"
+cp "$TMP/depends-chain/mise.toml" "$TMP/unreadable/"
+chmod 000 "$TMP/unreadable/workflows/ci.yml"
+out="$(run_case unreadable)"
+rc=$?
+chmod 644 "$TMP/unreadable/workflows/ci.yml"
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: an unreadable workflow file passed vacuously" >&2
+  failures=$((failures + 1))
+else
+  assert_contains "an unreadable workflow file fails closed" "cannot be read" "$out"
+fi
+
+chmod 000 "$TMP/unreadable/workflows"
+out="$(run_case unreadable)"
+rc=$?
+chmod 755 "$TMP/unreadable/workflows"
+if [ "$rc" -eq 0 ]; then
+  echo "FAIL: an unlistable workflow directory passed vacuously" >&2
+  failures=$((failures + 1))
+else
+  assert_contains "an unlistable workflow directory fails closed" "cannot be listed" "$out"
+fi
+
+# ---- usage errors are usage errors, not vacuous passes ----
+"$GUARD" --halp >/dev/null 2>&1
+assert_exit "an unknown flag is a usage error" 2 $?
+"$GUARD" a b c >/dev/null 2>&1
+assert_exit "too many arguments is a usage error" 2 $?
+"$GUARD" "" >/dev/null 2>&1
+assert_exit "an empty argument is a usage error" 2 $?
+"$GUARD" "$TMP/benign" "$TMP/no-such-file.toml" >/dev/null 2>&1
+assert_exit "an unresolvable explicit mise config is a usage error" 2 $?
+"$GUARD" "$TMP/benign/ci.yml" - >/dev/null 2>&1
+assert_exit "a file passed as the workflow directory is a usage error" 2 $?
+
+# ---- verdicts go to stderr, clean summaries to stdout ----
+run_split "$GUARD" "$TMP/depends-chain/workflows" "$TMP/depends-chain/mise.toml"
+assert_exit "the violation case exits 1" 1 "$RC"
+assert_contains "the verdict lands on stderr" "CI reaches eval task eval:skill" "$ERR"
+assert_lacks "nothing leaks to stdout on a violation" "eval:skill" "$OUT"
+run_split "$GUARD" "$TMP/unreachable-eval/workflows" "$TMP/unreachable-eval/mise.toml"
+assert_exit "the clean case exits 0" 0 "$RC"
+assert_contains "the clean summary lands on stdout" "reaches the eval: namespace" "$OUT"
 
 # ---- --help documents the passes and the parse boundary ----
 out="$("$GUARD" --help 2>&1)"
@@ -524,15 +928,20 @@ assert_contains "--help documents the workflow-text pass" "WORKFLOW-TEXT" "$out"
 assert_contains "--help documents the task-graph closure pass" "TASK-GRAPH CLOSURE" "$out"
 assert_contains "--help documents the run-body pass" "RUN-BODY" "$out"
 assert_contains "--help documents the parse boundary" "PARSE BOUNDARY" "$out"
+assert_contains "--help documents the fail-closed posture" "FAIL-CLOSED" "$out"
+assert_contains "--help documents what the graph passes do not follow" "DO NOT FOLLOW" "$out"
 
 # ---- the REAL repo workflow set and task graph pass ----
-out="$("$GUARD" "$REPO_ROOT/.github/workflows" "$REPO_ROOT/mise.toml" 2>&1)"
-rc=$?
-assert_exit "real repo workflow set and task graph pass" 0 "$rc"
+run_split "$GUARD" "$REPO_ROOT/.github/workflows" "$REPO_ROOT/mise.toml"
+assert_exit "real repo workflow set and task graph pass" 0 "$RC"
+assert_contains "the real repo runs all three passes" "reaches the eval: namespace" "$OUT"
 
-# ---- default args resolve to .github/workflows and mise.toml ----
-out="$(cd "$REPO_ROOT" && "$GUARD" 2>&1)"
-assert_exit "defaults pass on the real repo" 0 $?
+# ---- defaults resolve to the repo's own workflows and mise config ----
+# Asserting the success line, not just the exit code: the skip path also exits 0.
+run_split "$GUARD"
+assert_exit "defaults pass on the real repo" 0 "$RC"
+assert_contains "defaults resolve the real mise config" "$REPO_ROOT/mise.toml" "$OUT"
+assert_lacks "defaults do not silently skip the graph passes" "no task graph to close over" "$OUT"
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
