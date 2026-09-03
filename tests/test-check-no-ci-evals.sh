@@ -456,6 +456,48 @@ rc=$?
 assert_exit "a header with interior whitespace still defines its task" 1 "$rc"
 assert_contains "walks through the whitespace-header task" "check -(depends)-> build" "$out"
 
+# ---- TOML's permitted whitespace and quoting around the dot ----
+mk_case header-dot-spacing
+cat >"$TMP/header-dot-spacing/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["build", "publish"]
+
+[tasks . build]
+depends = ["eval:skill"]
+run = "true"
+
+["tasks".publish]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case header-dot-spacing)"
+rc=$?
+assert_exit "a spaced or quoted dotted header still defines its task" 1 "$rc"
+assert_contains "walks through the spaced-header task" "check -(depends)-> build" "$out"
+
+# ---- a non-ASCII escape resolves to the task it names ----
+# The C locale makes awk byte-oriented, so the codepoint has to be re-spelled
+# as UTF-8 or the decoded name matches nothing.
+mk_case wide-escape
+cat >"$TMP/wide-escape/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["\u00e9tape"]
+run = "true"
+
+[tasks."étape"]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case wide-escape)"
+rc=$?
+assert_exit "a non-ASCII escape resolves to its task" 1 "$rc"
+assert_contains "walks the escaped non-ASCII name" "check -(depends)-> étape" "$out"
+
 # ---- a task defined by a dotted key is a parse failure, never half-read ----
 mk_case dotted-key
 cat >"$TMP/dotted-key/mise.toml" <<'EOF'

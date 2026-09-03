@@ -100,9 +100,14 @@
 # value form — is a PARSE FAILURE, never half-read. Comments and quoting are
 # tracked while parsing, so a `#` or a `]` inside a string is structure-neutral
 # and one inside a comment cannot manufacture a dependency; basic-string
-# escapes, including `\uXXXX`, are decoded before matching, so a name mise
-# resolves to the `eval:` namespace cannot hide behind its spelling.
-# `description` values are prose and are not scanned as run bodies.
+# escapes are decoded before matching, so a name mise resolves to the `eval:`
+# namespace cannot hide behind its spelling, and an escape naming a character
+# the C locale cannot reproduce is refused rather than approximated.
+# `description` values are prose and are not scanned as run bodies. A `*` or
+# `?` in a dependency is a wildcard; a bracket expression is read as literal
+# text, so it resolves to no task and lands in the same accepted residual as
+# any dependency pointing outside this file, while its `eval:`-reachability is
+# still judged from the text before the bracket.
 #
 # FAIL-CLOSED. The guard fails, rather than passing, whenever it cannot prove
 # the closure is clean: a `mise.toml` that is present but unparseable or that
@@ -413,20 +418,51 @@ function strip_quotes(s) {
   return s
 }
 
-function header(h,   inner, name) {
+# Splits a dotted key into its segments, honoring quoted segments and the
+# whitespace TOML allows around the dots, so `[tasks . build]` and
+# `["tasks".build]` are read as the task definitions they are rather than
+# skipped as unrecognized.
+function split_key(s, parts,   i, c, q, acc, qd, n) {
+  n = 0; q = ""; acc = ""; qd = 0
+  for (i = 1; i <= length(s); i++) {
+    c = substr(s, i, 1)
+    if (q != "") {
+      if (c == q) q = ""
+      else acc = acc c
+      continue
+    }
+    if (c == "\"" || c == "'") { q = c; qd = 1; continue }
+    if (c == ".") { parts[++n] = qd ? acc : trim(acc); acc = ""; qd = 0; continue }
+    acc = acc c
+  }
+  parts[++n] = qd ? acc : trim(acc)
+  return n
+}
+
+function header(h,   inner, n) {
   cur = ""
   if (substr(h, 1, 2) == "[[") { bail("array-of-tables header not modeled: " h); return }
   if (substr(h, length(h), 1) != "]") { bail("unterminated table header: " h); return }
   inner = trim(substr(h, 2, length(h) - 2))
-  if (inner == "tasks") { bail("inline [tasks] table not modeled"); return }
-  if (substr(inner, 1, 6) != "tasks.") return
-  name = trim(substr(inner, 7))
-  if (substr(name, 1, 1) == "\"" || substr(name, 1, 1) == "'") name = unquote(name)
-  else if (index(name, ".") > 0) { bail("nested task table not modeled: " h); return }
-  addtask(name)
-  cur = name
+  n = split_key(inner, kparts)
+  if (kparts[1] != "tasks") return
+  if (n == 1) { bail("inline [tasks] table not modeled"); return }
+  if (n > 2) { bail("nested task table not modeled: " h); return }
+  addtask(kparts[2])
+  cur = kparts[2]
 }
 
+# The C locale makes awk byte-oriented, so a codepoint has to be spelled out
+# as its UTF-8 bytes; emitting the raw number would produce a name that no
+# longer matches the task the config names.
+function utf8(n) {
+  if (n < 128) return sprintf("%c", n)
+  if (n < 2048) return sprintf("%c%c", 192 + int(n / 64), 128 + (n % 64))
+  if (n < 65536)
+    return sprintf("%c%c%c", 224 + int(n / 4096), 128 + int(n / 64) % 64, 128 + (n % 64))
+  return sprintf("%c%c%c%c", 240 + int(n / 262144), 128 + int(n / 4096) % 64, \
+    128 + int(n / 64) % 64, 128 + (n % 64))
+}
 function hex2dec(h,   i, v, d) {
   v = 0
   for (i = 1; i <= length(h); i++) {
@@ -449,7 +485,8 @@ function decode_esc(s,   i, c, n, out, h, w, v) {
     if (n == "u" || n == "U") {
       w = (n == "u") ? 4 : 8
       v = hex2dec(substr(s, i + 2, w))
-      out = out ((v > 0 && v < 256) ? sprintf("%c", v) : "?")
+      if (v < 1) { bail("an escape names no character: \\" n substr(s, i + 2, w)); return s }
+      out = out utf8(v)
       i += 2 + w
     } else if (n == "n" || n == "t" || n == "r") {
       out = out " "
@@ -537,7 +574,7 @@ FILENAME == misefile {
   val = trim(substr(line, SCAN_EQ + 1))
 
   if (cur == "") {
-    if (key == "tasks" || substr(key, 1, 6) == "tasks.")
+    if (split_key(key, kparts) >= 1 && kparts[1] == "tasks")
       bail("a task defined outside a [tasks.<name>] table is not modeled: " line)
     next
   }
