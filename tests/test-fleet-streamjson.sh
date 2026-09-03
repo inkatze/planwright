@@ -94,6 +94,14 @@ if [ "${SHIM_WAIT_RESPONSE:-0}" = 1 ]; then
     printf '%s\n' "$SHIM_RESULT_LINE"
   fi
 fi
+if [ "${SHIM_IGNORE_TERM:-0}" = 1 ]; then
+  # A worker that survives SIGTERM: the handler records the signal and the
+  # loop keeps running, so only SIGKILL ends this process.
+  trap 'printf "term\n" >>"$SHIM_RECORD_DIR/signals"' TERM
+  while :; do
+    sleep 1
+  done
+fi
 if [ -n "${SHIM_SLEEP:-}" ]; then
   sleep "$SHIM_SLEEP"
 fi
@@ -141,6 +149,35 @@ aenv() {
     -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_REPO_ROOT \
     -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS \
     PLANWRIGHT_FLEET_STATE_DIR="$ae_home" /bin/sh "$FA" "$@"
+}
+
+# ps_rows — one `<pid> <ppid> <args>` row per process, captured through a
+# variable so the assertion's own `grep` (whose argv would carry the very path
+# being searched for) is never in the snapshot it is searching.
+ps_rows() {
+  ps -A -ww -o pid=,ppid=,args= 2>/dev/null
+}
+
+# no_proc_under <dir> — true when no live process references <dir> in its argv.
+no_proc_under() {
+  np_snap=$(ps_rows)
+  ! printf '%s\n' "$np_snap" | grep -Fq -- "$1"
+}
+
+# first_child <pid> — the pid of a live child of <pid>, empty when none.
+first_child() {
+  fc_snap=$(ps_rows)
+  printf '%s\n' "$fc_snap" | awk -v p="$1" '$2 == p { print $1; exit }'
+}
+
+# attention_rows <home> <worker> — count of store rows for <worker>.
+attention_rows() {
+  ar_store="$1/attention/state"
+  [ -f "$ar_store" ] || {
+    echo 0
+    return 0
+  }
+  awk -F "$tab" -v w="$2" '($1 "") == (w "") { n++ } END { print n + 0 }' "$ar_store"
 }
 
 # wait_until <timeout-tenths> <cmd...> — poll a condition.
@@ -936,5 +973,257 @@ lock_leg sjw18d "$tmp/statbsd" 0 - 2
 lock_leg sjw18e - - 202001010000.00 3
 lock_leg sjw18f - - - 2
 echo "ok: c18 the mtime probe yields a real epoch under both stat flavors, in both directions (REQ-E1.5)"
+
+# ---------------------------------------------------------------------------
+# c19 (REQ-B1.2, REQ-B1.4, REQ-A1.3): `stop` terminates the supervisor, the
+#    worker, and the worker's own children, releases the runtime set, and
+#    leaves the durable records the state directory also holds.
+# ---------------------------------------------------------------------------
+home="$tmp/h19"
+rec="$tmp/r19"
+mkdir -p "$rec"
+# init + one pending permission request, then the worker holds open: every
+# runtime class (process tree, scratch fifos, attention record) is occupied.
+ev_hold="$tmp/ev-hold"
+printf '%s\n%s\n' "$line_init" "$line_perm" >"$ev_hold"
+printf 'hold open\n' >"$tmp/prompt19"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+  launch sjw19 execution-backends:4 --prompt-file "$tmp/prompt19" \
+  >/dev/null || fail "c19: detached launch exited non-zero"
+wdir19="$home/streamjson/sjw19"
+wait_until 100 test -s "$wdir19/worker.pid" || fail "c19: worker.pid never appeared"
+sup19=$(cat "$wdir19/supervisor.pid")
+wrk19=$(cat "$wdir19/worker.pid")
+kid19=''
+i=0
+while [ "$i" -lt 100 ]; do
+  kid19=$(first_child "$wrk19")
+  [ -n "$kid19" ] && break
+  sleep 0.1
+  i=$((i + 1))
+done
+[ -n "$kid19" ] || fail "c19: the worker's own child never appeared"
+wait_until 100 test -f "$wdir19/journal" || fail "c19: the journal never appeared"
+[ "$(attention_rows "$home" sjw19)" != 0 ] || fail "c19: no attention record to release"
+
+out=$(senv "$home" "$rec" -- stop sjw19 --grace 2)
+rc=$?
+[ "$rc" = 0 ] || fail "c19: stop should exit 0 on a complete release, got rc=$rc ($out)"
+case $out in
+  "stop sjw19 stopped released="*) : ;;
+  *) fail "c19: expected a stopped result, got: $out" ;;
+esac
+for cls in process scratch attention; do
+  case $out in
+    *"$cls"*) : ;;
+    *) fail "c19: the released set must name $cls, got: $out" ;;
+  esac
+done
+wait_until 100 sh -c \
+  "! kill -0 $sup19 2>/dev/null && ! kill -0 $wrk19 2>/dev/null && ! kill -0 $kid19 2>/dev/null" \
+  || fail "c19: supervisor, worker, and the worker's child must all be gone"
+wait_until 50 no_proc_under "$wdir19" \
+  || fail "c19: no process may still reference the worker's state directory"
+[ ! -p "$wdir19/in.fifo" ] || fail "c19: the scratch fifos must be released"
+[ ! -p "$wdir19/out.fifo" ] || fail "c19: the scratch fifos must be released"
+[ "$(attention_rows "$home" sjw19)" = 0 ] || fail "c19: the attention record must be released"
+# D-3: a close releases runtime resources and never the durable record.
+[ -s "$wdir19/events.jsonl" ] || fail "c19: the event-stream capture must survive a stop"
+[ -s "$wdir19/journal" ] || fail "c19: the receipt journal must survive a stop"
+[ -s "$wdir19/session" ] || fail "c19: the persisted session must survive a stop"
+echo "ok: c19 stop terminates the tree, releases the runtime set, keeps the record (REQ-B1.2, REQ-B1.4, REQ-A1.3)"
+
+# ---------------------------------------------------------------------------
+# c20 (REQ-B1.2): SIGTERM first, SIGKILL after the bounded grace — a worker
+#    that survives SIGTERM is still gone when `stop` returns.
+# ---------------------------------------------------------------------------
+home="$tmp/h20"
+rec="$tmp/r20"
+mkdir -p "$rec"
+printf 'ignore term\n' >"$tmp/prompt20"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 -- \
+  launch sjw20 execution-backends:4 --prompt-file "$tmp/prompt20" \
+  >/dev/null || fail "c20: detached launch exited non-zero"
+wdir20="$home/streamjson/sjw20"
+wait_until 100 test -s "$wdir20/worker.pid" || fail "c20: worker.pid never appeared"
+wrk20=$(cat "$wdir20/worker.pid")
+# The journal row proves the shim is past its emit and into the trap+hold loop,
+# so the TERM handler is installed before the stop.
+wait_until 100 grep -q "^$req_perm$tab" "$wdir20/journal" \
+  || fail "c20: the worker never reached its hold loop"
+out=$(senv "$home" "$rec" -- stop sjw20 --grace 2)
+rc=$?
+[ "$rc" = 0 ] || fail "c20: stop should exit 0 after escalating, got rc=$rc ($out)"
+grep -q term "$rec/signals" 2>/dev/null \
+  || fail "c20: SIGTERM must be sent before the escalation"
+wait_until 100 sh -c "! kill -0 $wrk20 2>/dev/null" \
+  || fail "c20: a worker ignoring SIGTERM must be SIGKILLed after the grace"
+echo "ok: c20 SIGTERM first, SIGKILL after the bounded grace (REQ-B1.2)"
+
+# ---------------------------------------------------------------------------
+# c21 (REQ-B1.3): process matching keys on the state directory. An operator
+#    session sharing the worker's command shape survives the stop, and a
+#    source audit confirms no bare-name or command-pattern match exists in
+#    the kill path.
+# ---------------------------------------------------------------------------
+home="$tmp/h21"
+rec="$tmp/r21"
+mkdir -p "$rec"
+# The decoy: the worker's exact command shape, belonging to nobody's state dir.
+env SHIM_RECORD_DIR="$rec" SHIM_READ_FIRST=0 SHIM_SLEEP=120 \
+  "$tmp/bin/claude" -p --input-format stream-json --output-format stream-json \
+  --verbose --permission-prompt-tool stdio </dev/null >/dev/null 2>&1 &
+decoy=$!
+printf 'decoy neighbour\n' >"$tmp/prompt21"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+  launch sjw21 execution-backends:4 --prompt-file "$tmp/prompt21" \
+  >/dev/null || fail "c21: detached launch exited non-zero"
+wdir21="$home/streamjson/sjw21"
+wait_until 100 test -s "$wdir21/worker.pid" || fail "c21: worker.pid never appeared"
+wrk21=$(cat "$wdir21/worker.pid")
+kill -0 "$decoy" 2>/dev/null || fail "c21: the decoy session did not start"
+senv "$home" "$rec" -- stop sjw21 --grace 2 >/dev/null \
+  || fail "c21: stop exited non-zero"
+wait_until 100 sh -c "! kill -0 $wrk21 2>/dev/null" \
+  || fail "c21: the worker must be terminated"
+kill -0 "$decoy" 2>/dev/null \
+  || fail "c21: the operator session sharing the worker's command shape must survive"
+kill -9 "$decoy" 2>/dev/null
+wait "$decoy" 2>/dev/null
+# Source audit over the candidate-selection path: it may key on the state
+# directory and on the pids the worker's own state records, and on nothing else.
+audit=$(awk '/^stop_candidates\(\)/, /^}/' "$SJ")
+[ -n "$audit" ] || fail "c21: the candidate-selection path was not found for the audit"
+printf '%s\n' "$audit" | grep -q 'sc_dir' \
+  || fail "c21: the candidate-selection path must key on the state directory"
+for bad in claude pgrep killall pkill; do
+  printf '%s\n' "$audit" | grep -q "$bad" \
+    && fail "c21: the kill path must not match on '$bad' (bare-name matching)"
+done
+echo "ok: c21 state-directory matching leaves a look-alike operator session untouched (REQ-B1.3)"
+
+# ---------------------------------------------------------------------------
+# c22 (REQ-B1.7): a second stop against a worker with nothing still held
+#    returns the distinct already-closed result with exit 0 and signals
+#    nothing.
+# ---------------------------------------------------------------------------
+out=$(senv "$home" "$rec" -- stop sjw21 --grace 2)
+rc=$?
+[ "$rc" = 0 ] || fail "c22: a repeat stop must succeed, got rc=$rc ($out)"
+[ "$out" = "stop sjw21 already-closed" ] \
+  || fail "c22: a repeat stop must return the distinct already-closed result, got: $out"
+echo "ok: c22 idempotent close returns a distinct already-closed result (REQ-B1.7)"
+
+# ---------------------------------------------------------------------------
+# c23 (REQ-A1.3, REQ-B1.7): a release that cannot complete is reported as
+#    partial, never as success, and the retry takes exactly the classes still
+#    held rather than reporting already-closed.
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: c23 partial-close injection needs a non-root user (running as root)"
+else
+  home="$tmp/h23"
+  rec="$tmp/r23"
+  mkdir -p "$rec"
+  ev23="$tmp/ev23"
+  printf '%s\n%s\n%s\n' "$line_init" "$line_perm" "$line_result" >"$ev23"
+  printf 'partial close\n' >"$tmp/prompt23"
+  senv "$home" "$rec" SHIM_EVENTS="$ev23" -- \
+    launch sjw23 execution-backends:4 --prompt-file "$tmp/prompt23" --foreground \
+    || fail "c23: foreground launch exited non-zero"
+  [ "$(attention_rows "$home" sjw23)" != 0 ] || fail "c23: no attention record to withhold"
+  # Make the attention store unwritable: `clear` fails, the row stays held.
+  chmod 500 "$home/attention" || fail "c23: cannot make the attention store unwritable"
+  out=$(senv "$home" "$rec" -- stop sjw23 --grace 2 2>/dev/null)
+  rc=$?
+  chmod 700 "$home/attention" || fail "c23: cannot restore the attention store"
+  [ "$rc" != 0 ] || fail "c23: a partial close must not report success, got: $out"
+  case $out in
+    "stop sjw23 partial released="*"held="*) : ;;
+    *) fail "c23: expected a partial result naming both sets, got: $out" ;;
+  esac
+  case ${out#*held=} in
+    *attention*) : ;;
+    *) fail "c23: the partial result must name the class it could not release, got: $out" ;;
+  esac
+  [ "$(attention_rows "$home" sjw23)" != 0 ] || fail "c23: the withheld class must still be held"
+  # The retry takes exactly the class still held — and is not already-closed.
+  out=$(senv "$home" "$rec" -- stop sjw23 --grace 2)
+  rc=$?
+  [ "$rc" = 0 ] || fail "c23: the retry should complete the release, got rc=$rc ($out)"
+  [ "$out" = "stop sjw23 stopped released=attention" ] \
+    || fail "c23: the retry must take exactly the class still held, got: $out"
+  [ "$(attention_rows "$home" sjw23)" = 0 ] || fail "c23: the retry must release the class"
+  out=$(senv "$home" "$rec" -- stop sjw23 --grace 2)
+  [ "$out" = "stop sjw23 already-closed" ] \
+    || fail "c23: only a fully released worker reports already-closed, got: $out"
+  echo "ok: c23 a partial close reports partial and the retry drains what is still held (REQ-A1.3, REQ-B1.7)"
+fi
+
+# ---------------------------------------------------------------------------
+# c24 (obs:81ba2dce): a `recover.lock` left behind by a killed recovery is
+#    broken past the documented stale age, so one SIGKILL cannot wedge the
+#    verb permanently; a lock younger than that still refuses.
+# ---------------------------------------------------------------------------
+home="$tmp/h24"
+rec="$tmp/r24"
+mkdir -p "$rec"
+ev24="$tmp/ev24"
+printf '%s\n%s\n' "$line_init" "$line_result" >"$ev24"
+printf 'stale lock\n' >"$tmp/prompt24"
+senv "$home" "$rec" SHIM_EVENTS="$ev24" -- \
+  launch sjw24 execution-backends:4 --prompt-file "$tmp/prompt24" --foreground \
+  || fail "c24: foreground launch exited non-zero"
+wdir24="$home/streamjson/sjw24"
+[ "$(cat "$wdir24/session")" = "$sid" ] || fail "c24: session_id not persisted"
+# (a) a fresh lock is still a live recovery: refused, never broken.
+mkdir "$wdir24/recover.lock" || fail "c24: cannot plant the lock"
+senv "$home" "$rec" SHIM_EVENTS="$ev24" SHIM_READ_FIRST=0 -- \
+  recover sjw24 --foreground >/dev/null 2>&1
+[ $? -eq 3 ] || fail "c24a: a fresh recover.lock must still refuse (exit 3)"
+[ -d "$wdir24/recover.lock" ] || fail "c24a: a fresh lock must not be broken"
+# (b) the same lock aged past the threshold is broken and recovery proceeds.
+touch -t 202001010000.00 "$wdir24/recover.lock" || fail "c24: cannot age the lock"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_EVENTS="$ev24" SHIM_READ_FIRST=0 -- \
+  recover sjw24 --foreground >/dev/null 2>&1 \
+  || fail "c24b: a stale recover.lock must be broken and recovery must succeed"
+grep -q -- "--resume $sid" "$rec/argv" \
+  || fail "c24b: the relaunch after the stale break must resume the persisted session"
+[ ! -d "$wdir24/recover.lock" ] || fail "c24b: the lock must be released after recovery"
+echo "ok: c24 a stale recover.lock is broken, a fresh one still refuses (obs:81ba2dce)"
+
+# ---------------------------------------------------------------------------
+# c25 (obs:917e384e): `launch` elects a single initiator, so two concurrent
+#    launches for one worker leave exactly one supervisor and one pid file.
+# ---------------------------------------------------------------------------
+home="$tmp/h25"
+rec="$tmp/r25"
+mkdir -p "$rec"
+printf 'one initiator\n' >"$tmp/prompt25"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+  launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" \
+  >/dev/null || fail "c25: the first launch exited non-zero"
+wdir25="$home/streamjson/sjw25"
+sup25=$(cat "$wdir25/supervisor.pid")
+# (a) a launch arriving while this worker's supervisor is up is refused, so a
+#     second supervisor never overwrites the first one's pid file.
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+  launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null 2>&1
+[ $? -eq 3 ] || fail "c25a: a launch over a live supervisor must be refused (exit 3)"
+[ "$(cat "$wdir25/supervisor.pid")" = "$sup25" ] \
+  || fail "c25a: the refused launch must not have replaced the supervisor pid file"
+snap25=$(ps_rows)
+n25=$(printf '%s\n' "$snap25" | grep -Fc -- "_supervise sjw25 $wdir25")
+[ "$n25" = 1 ] || fail "c25a: exactly one supervisor expected for the worker, found $n25"
+senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25: stop exited non-zero"
+# (b) the election itself: a launch already in flight (neither supervisor up
+#     yet) holds the lock, and the second caller is refused rather than raced.
+mkdir "$wdir25/launch.lock" || fail "c25: cannot plant the launch lock"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+  launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null 2>&1
+[ $? -eq 3 ] || fail "c25b: a launch already in flight must refuse the second caller (exit 3)"
+rmdir "$wdir25/launch.lock"
+echo "ok: c25 launch elects a single initiator and refuses the second caller (obs:917e384e)"
 
 echo "all fleet-streamjson tests passed"

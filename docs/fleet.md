@@ -407,6 +407,18 @@ recorded answer as the control_response; `recover` resumes a crashed
 worker's session via `--resume`; `status` surfaces completion and liveness
 from the supervisor and the captured event stream.
 
+`stop <worker>` is the close: it terminates the supervisor and its children
+(SIGTERM, then SIGKILL after a bounded grace, since children do not reliably
+die with a parent SIGTERM) and releases the locks, scratch temp, and attention
+record the worker held. Processes are matched on the worker's state-directory
+path, never on a process name, so a stop cannot reach an operator's own
+`claude` session. It never touches the worktree, the branch, or the unit's
+fence — the release set is exactly the reproducible resources, and worktree
+reclamation stays with `fleet-cleanup.sh worktree` and its positive-evidence
+checks. A release it cannot complete is reported as `partial` with the classes
+still held rather than as success, and a repeat stop takes exactly what is
+still held: `already-closed` against a worker holding nothing, no second kill.
+
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
 receipt journal, and request envelopes) is written under the cross-spec
