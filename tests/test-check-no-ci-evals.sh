@@ -418,7 +418,7 @@ mk_case array-shapes
 cat >"$TMP/array-shapes/mise.toml" <<'EOF'
 [tasks.check]
 depends = [
-  "build", # the fast ones [shell, md]
+  "build", # the fast ones ] first
   ["lint", "--fix"],
   "eval:skill",
 ]
@@ -541,6 +541,69 @@ run = "true"
 EOF
 out="$(run_case glob-dep-all)"
 assert_exit "a catch-all depends wildcard fails" 1 $?
+
+# ---- a wildcard reaching a future eval task by shape is caught ----
+mk_case glob-dep-suffix
+cat >"$TMP/glob-dep-suffix/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["*:skill"]
+run = "true"
+
+[tasks.build]
+run = "true"
+EOF
+out="$(run_case glob-dep-suffix)"
+rc=$?
+assert_exit "a suffix wildcard reaching eval:skill fails" 1 "$rc"
+assert_contains "reports it as an eval: namespace dependency" "depends on the eval: namespace" "$out"
+
+# ---- a wildcard matching nothing here cannot be shown clear ----
+# mise expands it over tasks this parse cannot see, so passing would be a
+# guess rather than a proof.
+mk_case glob-dep-unresolved
+cat >"$TMP/glob-dep-unresolved/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["*:corpus"]
+run = "true"
+
+[tasks.build]
+run = "true"
+EOF
+out="$(run_case glob-dep-unresolved)"
+rc=$?
+assert_exit "a wildcard matching no task in this file fails" 1 "$rc"
+assert_contains "says the expansion cannot be shown clear" "cannot be shown clear" "$out"
+
+# ---- a multi-line string is not modeled outside a run body ----
+mk_case multiline-dep
+cat >"$TMP/multiline-dep/mise.toml" <<'EOF'
+[tasks.check]
+depends = """eval:skill"""
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case multiline-dep)"
+rc=$?
+assert_exit "a multi-line string as a dependency fails closed" 1 "$rc"
+assert_contains "names the unmodeled dependency form" "not modeled as a depends value" "$out"
+
+mk_case multiline-in-array
+cat >"$TMP/multiline-in-array/mise.toml" <<'EOF'
+[tasks.check]
+depends = [
+  """build""",
+]
+run = "true"
+
+[tasks.build]
+run = "true"
+EOF
+out="$(run_case multiline-in-array)"
+rc=$?
+assert_exit "a multi-line string inside an array fails closed" 1 "$rc"
+assert_contains "names the unmodeled array element" "multi-line string inside a depends value" "$out"
 
 # ---- a dependency on an eval task defined outside the parse boundary ----
 mk_case dangling-eval-dep

@@ -43,7 +43,9 @@
 #      wildcard, `depends = ["eval:*"]` or the catch-all `depends = ["*"]`,
 #      both of which mise expands — fails on the name, so a wildcard cannot
 #      launder the edge, and neither can a dependency on an eval task defined
-#      outside this file.
+#      outside this file. A wildcard matching no task in this file fails too:
+#      mise would expand it over tasks the parse cannot see, so nothing here
+#      can show the expansion clear.
 #      Unlike pass 1, ROOT extraction skips full-line comments: a comment
 #      cannot invoke anything, and counting one as a root would mask the
 #      zero-roots fail-closed below.
@@ -89,12 +91,15 @@
 # checked against the `eval:` namespace). Within the file, a strict subset of
 # TOML is modeled: `[tasks.<name>]` and `[tasks."<name>"]` tables, arrays
 # (nested and multi-line), single-line strings, and `'''`/`"""` multi-line
-# strings. Anything else that could define or alter a task — an
+# strings as a `run` body. Anything else that could define or alter a task — an
 # array-of-tables header, a bare `[tasks]` table, a nested task table, a
-# dotted-key or inline-table task definition, an unterminated string or array,
-# an unreadable value form — is a PARSE FAILURE, never half-read. Comments and
-# quoting are tracked while parsing, so a `#` or a `]` inside a string is
-# structure-neutral and one inside a comment cannot manufacture a dependency.
+# dotted-key or inline-table task definition, a multi-line string used as a
+# dependency or inside an array, an unterminated string or array, an unreadable
+# value form — is a PARSE FAILURE, never half-read. Comments and quoting are
+# tracked while parsing, so a `#` or a `]` inside a string is structure-neutral
+# and one inside a comment cannot manufacture a dependency; basic-string
+# escapes, including `\uXXXX`, are decoded before matching, so a name mise
+# resolves to the `eval:` namespace cannot hide behind its spelling.
 # `description` values are prose and are not scanned as run bodies.
 #
 # FAIL-CLOSED. The guard fails, rather than passing, whenever it cannot prove
@@ -112,8 +117,9 @@
 # read as text and matched with grep and awk; no content is ever executed,
 # sourced, or subjected to path expansion, and no content reaches an awk
 # program-text or `-v` position. One exception worth naming: a `depends`
-# wildcard is compiled into a regular expression, with every non-wildcard
-# character escaped so a crafted pattern cannot inject regex syntax.
+# wildcard is compiled into a regular expression, with every regex
+# metacharacter other than the two wildcards escaped, so a crafted pattern can
+# neither inject regex syntax nor build an expression that kills awk.
 #
 # Usage: check-no-ci-evals.sh [-h|--help] [<workflows-dir> [<mise-toml>|-]]
 #   Defaults, both derived from this script's location so a bare invocation
@@ -305,9 +311,12 @@ function glob2ere(g,   i, c, out) {
   }
   return "^" out "$"
 }
+# Probes rather than a language-intersection test, which awk cannot do. A
+# wildcard that reaches none of these and resolves to no task in this file is
+# reported separately, so an unprovable expansion never reads as clean.
 function glob_reaches_eval(g,   rx) {
   rx = glob2ere(g)
-  return (("eval:" ~ rx) || ("eval:x" ~ rx))
+  return (("eval:" ~ rx) || ("eval:x" ~ rx) || ("eval:skill" ~ rx) || ("eval:behavioral" ~ rx))
 }
 function has_glob(g) { return (index(g, "*") > 0 || index(g, "?") > 0) }
 
@@ -369,6 +378,10 @@ function addedge(from, to, kind) {
   nedge[from]++
   edge[from, nedge[from]] = to
   ekind[from, nedge[from]] = kind
+}
+function addflag(owner, why) {
+  nflag[owner]++
+  flagged[owner, nflag[owner]] = why
 }
 
 function unquote(s,   q) {
@@ -444,6 +457,10 @@ function decode_esc(s,   i, c, n, out, h, w, v) {
 # quote ends nothing: a regex that stopped at `\"` would take the next string's
 # opening quote as its terminator and silently drop the rest of the array.
 function each_string(buf, kind, owner,   i, c, q, esc, acc) {
+  if (index(buf, "\"\"\"") > 0 || index(buf, "'''") > 0) {
+    bail("a multi-line string inside a " kind " value is not modeled")
+    return
+  }
   q = ""; esc = 0; acc = ""
   for (i = 1; i <= length(buf); i++) {
     c = substr(buf, i, 1)
@@ -515,6 +532,13 @@ FILENAME == misefile {
 
   d3 = substr(val, 1, 3)
   if (d3 == "'''" || d3 == "\"\"\"") {
+    # A multi-line body under a key the closure reads would be silently
+    # dropped, so refuse it; under any other key it is prose to skip past.
+    if (key == "depends" || key == "depends_post" || key == "wait_for" \
+      || key == "alias" || key == "aliases") {
+      bail("a multi-line string is not modeled as a " key " value")
+      next
+    }
     rest = substr(val, 4)
     p = index(rest, d3)
     if (p > 0) rest = substr(rest, 1, p - 1)
@@ -588,7 +612,10 @@ END {
           if (namelist[k] ~ rx) { addedge(u, nameof[namelist[k]], depkind[u, j]); matched = 1 }
         # A wildcard expands over every task mise knows, including the ones
         # defined outside this file, so what it CAN reach is the honest test.
-        if (glob_reaches_eval(d)) { nevaldep[u]++; evaldep[u, nevaldep[u]] = depkind[u, j] " = " d }
+        if (glob_reaches_eval(d))
+          addflag(u, "depends on the eval: namespace (" depkind[u, j] " = " d ")")
+        else if (!matched)
+          addflag(u, "has a wildcard dependency (" depkind[u, j] " = " d ") matching no task in this file, so its expansion cannot be shown clear of the eval: namespace")
       } else if (d in nameof) {
         addedge(u, nameof[d], depkind[u, j])
         matched = 1
@@ -596,7 +623,8 @@ END {
       # A dependency resolving to no task in this file is outside the parse
       # boundary, so the closure will never walk it. Its name is then the only
       # thing left to read, and naming the eval: namespace is enough.
-      if (!matched && has_evalns(d)) { nevaldep[u]++; evaldep[u, nevaldep[u]] = depkind[u, j] " = " d }
+      if (!matched && !has_glob(d) && has_evalns(d))
+        addflag(u, "depends on the eval: namespace (" depkind[u, j] " = " d ")")
     }
   }
 
@@ -622,8 +650,8 @@ END {
     u = queue[++qi]
     if (u ~ /^eval:/)
       viol[++nviol] = "CI reaches eval task " u ": " chain(u)
-    for (j = 1; j <= nevaldep[u]; j++)
-      viol[++nviol] = "task " u " depends on the eval: namespace (" evaldep[u, j] "): " chain(u)
+    for (j = 1; j <= nflag[u]; j++)
+      viol[++nviol] = "task " u " " flagged[u, j] ": " chain(u)
     for (j = 1; j <= nrun[u]; j++) {
       r = runbody[u, j]
       if ((is_mise(r) && has_evalns(r)) || is_runner(r))
