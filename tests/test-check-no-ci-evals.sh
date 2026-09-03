@@ -794,6 +794,26 @@ EOF
 out="$(run_case run-body-bare-glob)"
 assert_exit "a bare wildcard in a run body is not read as a selector" 0 $?
 
+# ---- a shell glob argument is not a task selector ----
+# `mise run lint *.sh` passes files to a task; reading `*.sh` as a selector
+# would fail a clean graph on a wildcard that can match anything.
+mk_case run-body-glob-arg
+cat >"$TMP/run-body-glob-arg/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["fmt"]
+run = "true"
+
+[tasks.fmt]
+run = "mise run lint *.sh"
+
+[tasks.lint]
+run = "true"
+EOF
+out="$(run_case run-body-glob-arg)"
+rc=$?
+assert_exit "a shell glob argument does not fail a clean graph" 0 "$rc"
+assert_lacks "not reported as a namespace wildcard" "by wildcard" "$out"
+
 # ---- a bracket expression in an operand matches one character, like `?` ----
 mk_case run-body-bracket-glob
 cat >"$TMP/run-body-bracket-glob/mise.toml" <<'EOF'

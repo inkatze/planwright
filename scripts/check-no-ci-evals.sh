@@ -751,6 +751,9 @@ END {
         # A bare `*` is far more likely `rm -rf *` than a task selector, and
         # anything carrying other shell syntax is not a task name at all.
         if (g ~ /^[*?]+$/) continue
+        # A wildcard with nothing before it and no namespace separator is a
+        # shell glob argument — `mise run lint *.sh` — not a task selector.
+        if (g ~ /^[*?]/ && index(g, ":") == 0) continue
         if (g !~ /^[[:alnum:]_.:*?-]*[*?][[:alnum:]_.:*?-]*$/) continue
         if (glob_reaches_eval(g))
           viol[++nviol] = "the run body of CI-invoked task " u " invokes the eval: namespace by wildcard (" g "): " chain(u)
