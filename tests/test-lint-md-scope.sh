@@ -99,10 +99,17 @@ lint_md_targets() {
   match_globs "$tmp/globs"
 }
 
-# match_globs <globfile> — the tracked paths the globs in <globfile> resolve to
-# under globby semantics. Exit 2 on an unusable tracked list or an empty result.
+# match_globs <globfile> [allow-empty] — the tracked paths the globs in
+# <globfile> resolve to under globby semantics. Exit 2 on an unusable tracked
+# list or a resolver failure.
+#
+# An empty result is exit 2 by default, because for the scope assertion a glob
+# set reaching nothing is a broken enumeration. A caller that legitimately
+# expects zero matches passes `allow-empty` and gets exit 0 with no output:
+# without that distinction a counting caller cannot tell "resolved to nothing"
+# from "the resolver failed", and would report agreement on a broken resolver.
 match_globs() {
-  local resolved
+  local resolved allow_empty="${2:-}"
   # core.quotePath=false keeps git from C-quoting non-ASCII paths, which would
   # otherwise reach the matcher as an escaped string that no glob matches.
   (cd "$REPO_ROOT" && git -c core.quotePath=false ls-files) >"$tmp/tracked" || return 2
@@ -142,7 +149,10 @@ match_globs() {
       }
     }
   ')" || return 2
-  [ -n "$resolved" ] || return 2
+  if [ -z "$resolved" ]; then
+    [ "$allow_empty" = "allow-empty" ] && return 0
+    return 2
+  fi
   printf '%s\n' "$resolved"
 }
 
@@ -199,7 +209,18 @@ fi
 cross_check() {
   cc_glob="$1"
   printf '%s\n' "$cc_glob" >"$tmp/one-glob"
-  cc_ours="$(match_globs "$tmp/one-glob" | grep -c .)" || cc_ours=0
+  # Resolve and count in separate steps. Counting through a pipe would take the
+  # pipeline status from grep, so a resolver failure would arrive here as a
+  # legitimate count of zero and agree with markdownlint's zero.
+  if ! cc_out="$(match_globs "$tmp/one-glob" allow-empty)"; then
+    fail "the resolver errored on '$cc_glob' instead of returning a count"
+    return
+  fi
+  if [ -z "$cc_out" ]; then
+    cc_ours=0
+  else
+    cc_ours="$(printf '%s\n' "$cc_out" | grep -c .)"
+  fi
   # markdownlint's own count, from markdownlint. Its exit status reports rule
   # violations, which is not what is being compared here.
   cc_theirs="$(cd "$REPO_ROOT" && markdownlint-cli2 "$cc_glob" 2>&1 \
@@ -346,6 +367,25 @@ if [ "$rc" -eq 2 ]; then
   pass "a glob set resolving to zero files fails closed"
 else
   fail "a zero-file glob set did not fail closed (rc $rc)"
+fi
+
+# The counting callers need "resolved to nothing" and "the resolver failed" to
+# be different answers. Collapsing them is what let a broken resolver agree with
+# markdownlint's zero and report a passing cross-check.
+printf '%s\n' 'no-such-dir/**/*.md' >"$tmp/nomatch-glob"
+rc=0
+out="$(match_globs "$tmp/nomatch-glob" allow-empty)" || rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+  pass "allow-empty distinguishes an empty match set from a resolver failure"
+else
+  fail "allow-empty did not return an empty success (rc $rc, out '$out')"
+fi
+rc=0
+match_globs "$tmp/nomatch-glob" >/dev/null 2>&1 || rc=$?
+if [ "$rc" -eq 2 ]; then
+  pass "without allow-empty an empty match set still fails closed"
+else
+  fail "an empty match set did not fail closed by default (rc $rc)"
 fi
 
 if [ "$failures" -gt 0 ]; then

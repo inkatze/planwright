@@ -145,7 +145,11 @@ done
 [ -z "$missing" ] \
   || fail_closed "scope directories missing under $safe_root:$missing — the scan would cover less than it claims"
 
-work="$(mktemp -d)" || fail_closed "could not create a temporary directory"
+# Explicit template (the house pattern, see scripts/check-hook-contracts.sh): a
+# bare `mktemp -d` relies on a default template BSD mktemp does not supply, so
+# it fails outright on the macOS half of the support bar this script claims.
+work="$(mktemp -d "${TMPDIR:-/tmp}/check-cdpath.XXXXXX")" \
+  || fail_closed "could not create a temporary directory"
 trap 'rm -rf "$work"' EXIT
 : >"$work/all"
 
