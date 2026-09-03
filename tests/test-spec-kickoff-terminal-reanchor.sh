@@ -8,20 +8,32 @@
 # mismatch nobody caused. This task closes that window with a terminal recompute
 # as the final pre-push step.
 #
-# Like its siblings this is a skill-prose change: the finishing ritual is
-# procedure the agent reads, not a script, so the mechanical half of REQ-C1.4's
-# verification path is a structural guard over skills/spec-kickoff/SKILL.md (the
-# same shape as tests/test-spec-kickoff-ready-flip.sh and
-# tests/test-execute-task-status-gate.sh). The [manual] half — the next kickoff
-# run whose spec PR receives post-sign-off fixes — is exercised by the human,
-# with the REQ-D1.1 anchor-freshness guard as the mechanical backstop.
+# Like its siblings this is a prose change: the finishing ritual is procedure the
+# agent reads, not a script, so the mechanical half of REQ-C1.4's verification
+# path is a structural guard over that prose (the same shape as
+# tests/test-spec-kickoff-ready-flip.sh and tests/test-execute-task-status-gate.sh).
+# The [manual] half — the next kickoff run whose spec PR receives post-sign-off
+# fixes — is exercised by the human, with the REQ-D1.1 anchor-freshness guard as
+# the mechanical backstop.
 #
-# Asserted properties:
+# The prose lives in two files, so the assertions do too. The ritual's mechanics
+# are meta-spec law that binds every writer of an anchor entry, so they sit in
+# doctrine/spec-format.md; skills/spec-kickoff/SKILL.md carries the pointer that
+# puts them at the right moment in the finishing ritual. Splitting the checks the
+# same way is what keeps a pointer that has drifted loose from its mechanics — or
+# mechanics no procedure reaches — from passing.
+#
+# Asserted properties, skill side:
 #   - the finishing ritual names a terminal re-anchor step and cites REQ-C1.4;
 #   - its trigger is anchored content edited after the sign-off record was
-#     written, naming post-sign-off fixes on the spec PR as covered;
-#   - the recompute and re-record are the FINAL PRE-PUSH step, both by wording
-#     and by position: the step precedes the push command in the file;
+#     written;
+#   - it sends the reader to the meta-spec for the mechanics;
+#   - it is placed before the push command in the file, so an agent reading
+#     top-to-bottom reaches it before pushing.
+#
+# Asserted properties, doctrine side:
+#   - post-sign-off fixes on the spec PR are named as covered by the trigger;
+#   - the recompute and a COMMITTED re-record are the final pre-push step;
 #   - the lane is expression-only; a meaning-class post-sign-off edit re-enters
 #     the sign-off flow before any record is written (meaning-class anchor
 #     writership is not widened by this step);
@@ -37,6 +49,7 @@ unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 skill="$REPO_ROOT/skills/spec-kickoff/SKILL.md"
+doctrine="$REPO_ROOT/doctrine/spec-format.md"
 
 failures=0
 
@@ -53,11 +66,16 @@ if [ ! -f "$skill" ]; then
   echo "FAIL: spec-kickoff SKILL.md missing at $skill" >&2
   exit 1
 fi
+if [ ! -f "$doctrine" ]; then
+  echo "FAIL: spec-format meta-spec missing at $doctrine" >&2
+  exit 1
+fi
 
 # Flatten newlines and squeeze whitespace runs to a single space so the prose
 # assertions match across markdown line-wraps and the indentation that follows
-# them; the raw file is used for the positional check below.
+# them; the raw files are used for the positional check below.
 flat="$(tr '\n' ' ' <"$skill" | tr -s '[:space:]' ' ')"
+flat_doctrine="$(tr '\n' ' ' <"$doctrine" | tr -s '[:space:]' ' ')"
 
 # The step exists and is named, so the handoff and later readers have something
 # to point at. Bind to the step label rather than a bare "recompute", which the
@@ -87,34 +105,15 @@ else
   fail "the trigger is not bound to anchored content edited after the sign-off record (REQ-C1.4)"
 fi
 
-# Post-sign-off fixes on the spec PR are the motivating case and are named, so a
-# reader does not read the trigger as covering only edits made before the first
-# push.
-if printf '%s' "$flat" | grep -qE 'post-sign-off review or panel fixes on the spec PR'; then
-  ok "post-sign-off fixes on the spec PR are named as covered"
+# The pointer sends the reader to the mechanics. A step named and triggered but
+# not sourced is a dead end: the agent knows something is owed at this moment and
+# has nowhere to learn what. The bare name matches the doctrine key and the path
+# alike, which is the point: either form gets the reader there.
+if printf '%s' "$flat" \
+  | grep -qE '[Tt]erminal re-anchor.{0,200}spec-format'; then
+  ok "the step points at the meta-spec for the ritual"
 else
-  fail "post-sign-off fixes on the spec PR are not named as covered by the trigger"
-fi
-
-# The recompute and re-record are the final PRE-PUSH step: both actions are
-# stated (a recompute that is not re-recorded still ships the stale anchor), and
-# they are placed before the push.
-if printf '%s' "$flat" | grep -qE 're-record.{0,60}final pre-push step'; then
-  ok "the recompute is re-recorded as the final pre-push step"
-else
-  fail "the step does not state a re-record as the final pre-push step (REQ-C1.4)"
-fi
-
-# The re-record is COMMITTED. REQ-C1.4's purpose is that no stale anchor ships
-# in the spec PR or its squash, which an uncommitted re-record does not achieve:
-# the push would carry the old anchor and leave the new one in the worktree. The
-# meta-spec's expression-only ritual already requires the one-commit landing;
-# the step has to say so too, or a reader reaches `git push` with the re-record
-# still unstaged.
-if printf '%s' "$flat" | grep -qE 'committed re-record|re-record[^.]{0,60}committed'; then
-  ok "the re-record is committed, so the push carries it"
-else
-  fail "the step does not state that the re-record is committed before the push (REQ-C1.4)"
+  fail "the step does not point at spec-format for the ritual's mechanics (REQ-C1.4)"
 fi
 
 # Positional mirror of the wording above: the step must physically precede the
@@ -130,16 +129,47 @@ else
   fail "the terminal re-anchor step does not precede the push command (re-anchor=${reanchor_line:-none}, push=${push_line:-none})"
 fi
 
+# Post-sign-off fixes on the spec PR are the motivating case and are named, so a
+# reader does not read the trigger as covering only edits made before the first
+# push.
+if printf '%s' "$flat_doctrine" \
+  | grep -qE 'post-sign-off review or panel fixes on the spec PR'; then
+  ok "post-sign-off fixes on the spec PR are named as covered"
+else
+  fail "post-sign-off fixes on the spec PR are not named as covered by the trigger"
+fi
+
+# The recompute and re-record are the final PRE-PUSH step: both actions are
+# stated, since a recompute that is not re-recorded still ships the stale anchor.
+if printf '%s' "$flat_doctrine" | grep -qE 're-record.{0,60}final pre-push step'; then
+  ok "the recompute is re-recorded as the final pre-push step"
+else
+  fail "the ritual does not state a re-record as the final pre-push step (REQ-C1.4)"
+fi
+
+# The re-record is COMMITTED. REQ-C1.4's purpose is that no stale anchor ships
+# in the spec PR or its squash, which an uncommitted re-record does not achieve:
+# the push would carry the old anchor and leave the new one in the worktree. The
+# meta-spec's expression-only ritual already requires the one-commit landing;
+# this ritual has to say so too, or a reader reaches `git push` with the
+# re-record still unstaged. "uncommitted" must not satisfy the check, so the
+# match is anchored on a word boundary.
+if printf '%s' "$flat_doctrine" | grep -qE '(^|[^n])committed re-record'; then
+  ok "the re-record is committed, so the push carries it"
+else
+  fail "the ritual does not state that the re-record is committed before the push (REQ-C1.4)"
+fi
+
 # The lane is expression-only, and a meaning-class post-sign-off edit re-enters
 # the sign-off flow before any record is written. This is what keeps
 # meaning-class anchor writership on the walked-and-signed path (REQ-C1.3's
 # writership rule) instead of letting the terminal step re-sign meaning.
-if printf '%s' "$flat" | grep -qE '[Ee]xpression-only edits only'; then
+if printf '%s' "$flat_doctrine" | grep -qE '[Ee]xpression-only edits only'; then
   ok "the terminal re-anchor lane is expression-only"
 else
-  fail "the terminal re-anchor step does not scope itself to expression-only edits (REQ-C1.4)"
+  fail "the terminal re-anchor ritual does not scope itself to expression-only edits (REQ-C1.4)"
 fi
-if printf '%s' "$flat" \
+if printf '%s' "$flat_doctrine" \
   | grep -qE 'meaning-class post-sign-off edit re-enters the sign-off flow'; then
   ok "a meaning-class post-sign-off edit re-enters the sign-off flow"
 else
@@ -148,7 +178,7 @@ fi
 
 # A failing recompute halts the push. Bind the failure to the halt so an
 # inverted-semantics regression (warn and push anyway) cannot pass.
-if printf '%s' "$flat" | grep -qE 'failing recompute halts the push'; then
+if printf '%s' "$flat_doctrine" | grep -qE 'failing recompute halts the push'; then
   ok "a failing recompute halts the push"
 else
   fail "a failing recompute is not stated to halt the push (REQ-C1.4)"

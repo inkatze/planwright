@@ -350,6 +350,12 @@ validator the first time.
    that cannot complete (it errors) is surfaced as an erroring pass, never
    treated as a clean one.
 
+   **Enumeration cross-check (REQ-E1.2).** In the same pass, flag every
+   enumerated count and corpus claim in the bundle, and either verify it
+   against the surface it enumerates or convert it to a decided rule, per
+   `spec-format`'s *Decided rules over enumerated claims*. Drafting is where
+   the count is born.
+
    Then present the bundle for a final read-through with the cumulative
    summary and the self-critique disposition list.
    Run `scripts/spec-validate.sh specs/<spec>` when present and executable
