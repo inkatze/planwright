@@ -1190,6 +1190,21 @@ rc=$?
 assert_exit "a nested task table fails closed" 1 "$rc"
 assert_contains "names the nested-table reason" "nested task table not modeled" "$out"
 
+mk_case unterminated-key
+cat >"$TMP/unterminated-key/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["build"]
+run = "true"
+
+[tasks."build]
+depends = ["eval:skill"]
+run = "true"
+EOF
+out="$(run_case unterminated-key)"
+rc=$?
+assert_exit "an unterminated quoted header name fails closed" 1 "$rc"
+assert_contains "names the unterminated key reason" "unterminated quoted key segment" "$out"
+
 mk_case unterminated-array
 cat >"$TMP/unterminated-array/mise.toml" <<'EOF'
 [tasks.check]

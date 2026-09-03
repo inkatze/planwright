@@ -458,6 +458,7 @@ function split_key(s, parts,   i, c, q, acc, qacc, qch, esc, n) {
     }
     acc = acc c
   }
+  if (q != "") { bail("unterminated quoted key segment: " s); return 0 }
   parts[++n] = key_seg(acc, qacc, qch)
   return n
 }
@@ -468,7 +469,9 @@ function header(h,   inner, n) {
   if (substr(h, length(h), 1) != "]") { bail("unterminated table header: " h); return }
   inner = trim(substr(h, 2, length(h) - 2))
   n = split_key(inner, kparts)
-  if (kparts[1] != "tasks") return
+  # kparts is reused across calls, so a refused split must not fall through to
+  # the previous header's segments.
+  if (n < 1 || kparts[1] != "tasks") return
   if (n == 1) { bail("inline [tasks] table not modeled"); return }
   if (n > 2) { bail("nested task table not modeled: " h); return }
   addtask(kparts[2])
