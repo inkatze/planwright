@@ -234,9 +234,9 @@ awk -v listfile="$work/list" '
       if (line ~ /^(export[ \t]+)?CDPATH=[ \t]*(;|$)/) cleared = 1
 
       # cd opening a substitution on this line ...
-      if (!badline && line ~ /(\$\(|`|<\()[ \t]*\\?(command[ \t]+|builtin[ \t]+)?(cd|pushd)([ \t]|$)/) badline = opened
+      if (!badline && line ~ /(\$\(|`|<\()[ \t]*[({]?[ \t]*\\?(command[ \t]+|builtin[ \t]+)?(cd|pushd)([ \t]|$)/) badline = opened
       # ... or on the line after a substitution opened with nothing following it.
-      if (!badline && pending && line ~ /^[ \t]*\\?(command[ \t]+|builtin[ \t]+)?(cd|pushd)([ \t]|$)/) badline = opened
+      if (!badline && pending && line ~ /^[ \t]*[({]?[ \t]*\\?(command[ \t]+|builtin[ \t]+)?(cd|pushd)([ \t]|$)/) badline = opened
 
       # An opening `$(` still counts as opening when a line continuation or a
       # trailing comment follows it, both of which are ordinary in a long
@@ -245,7 +245,11 @@ awk -v listfile="$work/list" '
       sub(/[ \t]+$/, "", tail)
       pending = (tail ~ /\$\([ \t]*\\?[ \t]*(#.*)?$/) ? 1 : 0
 
-      if (match(line, /<<-?[ \t]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/)) {
+      # The delimiter charset has to cover what bash accepts, not just word
+      # characters: `<<EOF-1` truncated to `EOF` would never see its terminator
+      # and would swallow the rest of the file, and `<<\DOC` would not register
+      # as a heredoc at all, letting its body clear the file.
+      if (match(line, /<<-?[ \t]*\\?['"'"'"]?[A-Za-z0-9_.+-]+/)) {
         # `echo "<<EOF"` is a string, not a heredoc, and believing otherwise
         # would swallow the rest of the file. Odd quote parity before the
         # operator means it sits inside a string.
@@ -256,6 +260,7 @@ awk -v listfile="$work/list" '
           delim = substr(line, RSTART, RLENGTH)
           dash = (delim ~ /^<<-/)
           sub(/^<<-?[ \t]*/, "", delim)
+          sub(/^\\/, "", delim)
           sub(/^['"'"'"]/, "", delim)
           heredoc = delim
           heredoc_dash = dash
@@ -268,7 +273,10 @@ awk -v listfile="$work/list" '
     return opened
   }
   BEGIN {
-    while ((getline path < listfile) > 0) scan(path)
+    while ((lr = (getline path < listfile)) > 0) scan(path)
+    # An unreadable list is not an empty one; reporting clean over it would be
+    # the same vacuous pass the scan-side check refuses.
+    if (lr < 0) print "!\t" listfile
   }
 ' >"$work/offenders" || fail_closed "the scan could not complete"
 

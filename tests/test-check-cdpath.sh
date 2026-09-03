@@ -207,11 +207,13 @@ make_root "$tmp/forms"
 write_script "$tmp/forms/tests/backtick.sh" bare 'root=`cd .. && pwd`'
 write_script "$tmp/forms/tests/procsub.sh" bare 'read -r root < <(cd .. && pwd)'
 write_script "$tmp/forms/githooks/pushy" bare 'root="$(pushd .. >/dev/null && pwd)"'
+write_script "$tmp/forms/tests/grouped.sh" bare 'root=$({ cd ..; pwd; })'
 out="$(/bin/bash "$CHECKER" "$tmp/forms" 2>&1)"
 assert "the alternate substitution forms fail" 1 $?
 assert_contains "the backtick form is named" "$out" "tests/backtick.sh"
 assert_contains "the process-substitution form is named" "$out" "tests/procsub.sh"
 assert_contains "the pushd form is named" "$out" "githooks/pushy"
+assert_contains "a grouped substitution is named" "$out" "tests/grouped.sh"
 
 # ---------------------------------------------------------------------------
 # 7. A remedy that never runs must not clear the file. Both shapes below look
@@ -233,11 +235,26 @@ write_script "$tmp/inert/scripts/nested.sh" bare \
 write_script "$tmp/inert/tests/reassigned.sh" bare \
   'CDPATH=.:/var' \
   'root="$(cd .. && pwd)"'
+# A delimiter carrying a non-word character, and a backslash-escaped one. Get
+# either wrong and the scanner either never leaves the heredoc (swallowing
+# every later offense) or never enters it (letting the body clear the file).
+write_script "$tmp/inert/githooks/delim-punct" bare \
+  'cat <<EOF-1' \
+  'filler' \
+  'EOF-1' \
+  'root="$(cd .. && pwd)"'
+write_script "$tmp/inert/githooks/delim-escaped" bare \
+  'cat <<\DOC' \
+  'unset CDPATH' \
+  'DOC' \
+  'root="$(cd .. && pwd)"'
 out="$(/bin/bash "$CHECKER" "$tmp/inert" 2>&1)"
 assert "an inert unset does not clear the file" 1 $?
 assert_contains "the heredoc-only unset is rejected" "$out" "scripts/heredoc.sh"
 assert_contains "the function-scoped unset is rejected" "$out" "scripts/nested.sh"
 assert_contains "a non-empty CDPATH assignment is not a remedy" "$out" "tests/reassigned.sh"
+assert_contains "a punctuated heredoc delimiter terminates properly" "$out" "githooks/delim-punct"
+assert_contains "a backslash-escaped heredoc delimiter is recognised" "$out" "githooks/delim-escaped"
 
 # ---------------------------------------------------------------------------
 # 8. The spellings that do fix the bug all count as compliance. Rejecting any
