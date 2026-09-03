@@ -295,7 +295,13 @@ else
   # guard exists to avoid. Any stderr output means the enumeration is not
   # provably complete, so the scan refuses rather than certifying it.
   cand_err=$(mktemp "${TMPDIR:-/tmp}/check-coordination-hygiene.XXXXXX") || exit 2
-  trap 'rm -f "$cand_err"' EXIT INT TERM
+  # Split, not a combined `EXIT INT TERM`: that shape removes the file and then
+  # RESUMES, so a signal landing before the `-s` test below would drop the
+  # enumeration evidence and let the scan certify a tree it never read. Exiting
+  # non-zero keeps the EXIT trap's cleanup while making an interrupted scan a
+  # refusal rather than a pass.
+  trap 'rm -f "$cand_err"' EXIT
+  trap 'exit 130' INT TERM
   cand_rc=0
   candidates=$(git -C "$repo" grep -I -l -F \
     -e 'pw-presence-v1' -e 'refs/planwright-fence/' -- 2>"$cand_err") || cand_rc=$?
