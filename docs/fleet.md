@@ -1107,6 +1107,23 @@ additionally mirror one row each into the shared audit trail under mechanism
 `allocation`, so the fleet-wide view keeps a single surface; routine resolutions
 stay in the per-unit ledger.
 
+**The ledger feeds back into future drafting.** When a unit reaches a terminal
+state, completion or crash-loop disable alike, the terminal-state owner runs
+`scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> --terminal
+<completed|disabled> --scope <repo>`. It replays that unit's ledger and, when
+the history says the starting tier was wrong, records one observation fragment
+through the shared helper, which is how chronic under-estimation reaches the
+next round of `/spec-draft` seed mining. Two conditions fire it: the unit's
+derived final **ladder position** ended above its configured starting tier, or
+its count of applied escalations reached `allocation_feedback_threshold`
+(default `2`). The second is the churn case the first cannot see, since a unit
+that climbed and was talked back down ends where it started with its adjustment
+cap refunded. Emission is once per unit, marked by a `feedback`/`recorded` row
+in the unit's own ledger, so a re-evaluation never re-records; the mark is
+inert to derivation and excluded from `last-tier`, because a ladder position is
+not a tier a launch ran at. With `allocation_adaptation` off nothing escalates,
+so the shipped posture records nothing.
+
 **Credit-continuation defaults to decline-and-wait, never auto-spend.** The
 rate-limit wall sometimes offers a *credit-continuation* prompt — "spend
 credits / extra usage to continue past the limit".
