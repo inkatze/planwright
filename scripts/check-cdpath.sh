@@ -165,13 +165,17 @@ done
 count=0
 newline='
 '
+tab="$(printf '\t')"
 while IFS= read -r -d '' file; do
   rel="${file#"$root"/}"
   # Sanitizing is three forks, so it happens only on the paths that actually
   # reach the terminal, never once per enumerated file.
+  # A newline or a tab in a filename would be swallowed by the newline-
+  # delimited file list or by the tab-delimited offender records below.
+  # Refusing is the fail-closed answer; silently skipping is not.
   case "$file" in
-    *"$newline"*)
-      fail_closed "filename contains a newline, refusing to scan: $(sanitize_printable "$rel" "(unprintable filename)")"
+    *"$newline"* | *"$tab"*)
+      fail_closed "filename contains a newline or tab, refusing to scan: $(sanitize_printable "$rel" "(unprintable filename)")"
       ;;
   esac
   [ -r "$file" ] \
@@ -198,9 +202,13 @@ done <"$work/all"
 # ARGV, so a name containing `=` or a leading `-` is read as a path and never
 # as an awk variable assignment or option.
 awk -v listfile="$work/list" '
-  function scan(path,   line, tail, body, delim, heredoc, pending, badline, cleared, opened) {
+  function scan(path,   line, tail, body, delim, heredoc, pending, badline, cleared, opened, r) {
     heredoc = ""; pending = 0; badline = 0; cleared = 0; opened = 0
-    while ((getline line < path) > 0) {
+    # getline returns -1 when the file cannot be opened or read, which is not
+    # end-of-input. Treating the two alike would silently clear a file the scan
+    # never saw, reachable as a TOCTOU race against the readability check the
+    # selection loop already made.
+    while ((r = (getline line < path)) > 0) {
       opened++
       sub(/\r$/, "", line)
 
@@ -211,8 +219,12 @@ awk -v listfile="$work/list" '
         if (body == heredoc) heredoc = ""
         continue
       }
+      # Neither a comment nor a blank line closes an open substitution, so
+      # neither clears `pending`: `root=$(` followed by an empty line and then
+      # `cd ..` is one substitution, and resetting here would let the blank
+      # line hide it.
       if (line ~ /^[ \t]*#/) continue
-      if (line ~ /^[ \t]*$/) { pending = 0; continue }
+      if (line ~ /^[ \t]*$/) continue
 
       if (line ~ /^unset([ \t]+-[A-Za-z]+)*([ \t]+[A-Za-z_][A-Za-z0-9_]*)*[ \t]+CDPATH([ \t;&|)]|$)/) cleared = 1
       if (line ~ /^(export[ \t]+)?CDPATH=/) cleared = 1
@@ -234,6 +246,7 @@ awk -v listfile="$work/list" '
       }
     }
     close(path)
+    if (r < 0) { print "!\t" path; return 0 }
     if (badline && !cleared) print path "\t" badline
     return opened
   }
@@ -245,6 +258,9 @@ awk -v listfile="$work/list" '
 status=0
 while IFS="$(printf '\t')" read -r file lineno; do
   [ -n "$file" ] || continue
+  if [ "$file" = "!" ]; then
+    fail_closed "could not read $(sanitize_printable "${lineno#"$root"/}" "(unprintable filename)") during the scan — the scan would cover less than it claims"
+  fi
   rel="${file#"$root"/}"
   echo "check-cdpath: $(sanitize_printable "$rel" "(unprintable filename)"):$lineno resolves a path through a cd command substitution but has no top-level 'unset CDPATH'" >&2
   status=1

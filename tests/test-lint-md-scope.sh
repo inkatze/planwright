@@ -78,7 +78,7 @@ lint_md_args() {
 # set is empty or a glob cannot be honoured: either is a broken enumeration,
 # not a clean scope.
 lint_md_targets() {
-  local args resolved
+  local args
   args="$(lint_md_args "$1")" || return 2
   printf '%s\n' "$args" >"$tmp/globs" || return 2
   # git pathspec magic (`:(glob)`, `:!`) is meaningful to git and meaningless
@@ -95,7 +95,9 @@ lint_md_targets() {
 # under globby semantics. Exit 2 on an unusable tracked list or an empty result.
 match_globs() {
   local resolved
-  (cd "$REPO_ROOT" && git ls-files) >"$tmp/tracked" || return 2
+  # core.quotePath=false keeps git from C-quoting non-ASCII paths, which would
+  # otherwise reach the matcher as an escaped string that no glob matches.
+  (cd "$REPO_ROOT" && git -c core.quotePath=false ls-files) >"$tmp/tracked" || return 2
   [ -s "$tmp/tracked" ] || return 2
   resolved="$(awk -v globfile="$1" -v listfile="$tmp/tracked" '
     # Translate one globby pattern to an anchored ERE. `**/` spans directories,

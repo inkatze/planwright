@@ -159,6 +159,25 @@ out="$(/bin/bash "$CHECKER" "$tmp/multiline" 2>&1)"
 assert "a multi-line cd substitution fails" 1 $?
 assert_contains "the multi-line failure names the file" "$out" "scripts/split.sh"
 
+# Blank and comment lines do not close a substitution, so neither may reset the
+# state that carries `$(` to the `cd` below it. Both spellings are valid shell
+# and both would otherwise slip past.
+make_root "$tmp/spaced"
+write_script "$tmp/spaced/scripts/blank.sh" bare \
+  'root=$(' \
+  '' \
+  '  cd "$(dirname "$0")/.." && pwd' \
+  ')'
+write_script "$tmp/spaced/tests/commented.sh" bare \
+  'root=$(' \
+  '  # resolve the repo root' \
+  '  cd .. && pwd' \
+  ')'
+out="$(/bin/bash "$CHECKER" "$tmp/spaced" 2>&1)"
+assert "a blank or comment line does not hide the substitution" 1 $?
+assert_contains "the blank-line offender is named" "$out" "scripts/blank.sh"
+assert_contains "the comment-line offender is named" "$out" "tests/commented.sh"
+
 # ---------------------------------------------------------------------------
 # 6. The other substitution spellings: backtick, process substitution, and
 #    pushd (which consults CDPATH and echoes exactly as cd does).
