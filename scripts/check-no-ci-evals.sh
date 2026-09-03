@@ -109,8 +109,12 @@
 # tracked while parsing, so a `#` or a `]` inside a string is structure-neutral
 # and one inside a comment cannot manufacture a dependency; basic-string
 # escapes are decoded before matching, so a name mise resolves to the `eval:`
-# namespace cannot hide behind its spelling, and an escape naming a character
-# the C locale cannot reproduce is refused rather than approximated.
+# namespace cannot hide behind its spelling. The decoder validates only what
+# it needs to read the graph: a malformed `\u` escape is refused, but one TOML
+# forbids for another reason (a surrogate, an unknown escape letter) is decoded
+# rather than refused. Decoding only ever makes more text match, never less, so
+# such a file over-blocks at worst, and mise rejects it before this guard's
+# verdict could matter.
 # `description` values are prose and are not scanned as run bodies. A `*` or
 # `?` in a dependency is a wildcard; a bracket expression is read as literal
 # text, so it resolves to no task and lands in the same accepted residual as
