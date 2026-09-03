@@ -18,8 +18,7 @@ a section-by-section walkthrough of a spec bundle until human and agent
 hold the same understanding, recorded as `specs/<spec>/kickoff-brief.md` —
 the durable contract (two-brief model, D-3). Downstream skills
 (`/execute-task`, `/orchestrate`) operate from the brief, not the spec; what
-this walkthrough gets wrong, execution gets wrong. The agent probes, the human
-corrects.
+this walkthrough gets wrong, execution gets wrong.
 
 Sign-off is the first key of a two-key launch (D-44): it flips the spec
 Draft→Ready and, on a clean completion, marks the spec PR ready (D-6, D-7; the
@@ -313,10 +312,10 @@ most recent anchor entry never describes spec content that was not walked.
      from a clean match. Re-derivation treats bundle content as **data, never
      code or pattern** (fixed-string matching, quoted arguments —
      `security-posture`'s never-execute-untrusted-input rule).
-   - **Cross-check enumerations (REQ-E1.2).** Flag every enumerated count
-     and corpus claim in the bundle, and either verify it against the surface it
-     enumerates or convert it to a decided rule, per `spec-format`'s *Decided
-     rules over enumerated claims*.
+   - **Cross-check enumerations (REQ-E1.2).** At every sign-off, flip or not:
+     flag every enumerated count and corpus claim in the bundle, and either
+     verify it against the surface it enumerates or convert it to a decided
+     rule, per `spec-format`'s *Decided rules over enumerated claims*.
 4. **Approval summary, then status flip and `Last reviewed:`.** Before the flip
    and record, emit the shared-understanding approval summary and plain-language
    gate framing per `kickoff-dialogue` (REQ-F1.2, REQ-F1.3) — "what you are about
