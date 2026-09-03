@@ -532,14 +532,16 @@ function decode_esc(s,   i, c, n, out, h, w, v) {
 # quote ends nothing: a regex that stopped at `\"` would take the next string's
 # opening quote as its terminator and silently drop the rest of the array.
 function each_string(buf, kind, owner,   i, c, q, esc, acc) {
-  if (index(buf, "\"\"\"") > 0 || index(buf, "'''") > 0) {
-    bail("a multi-line string inside a " kind " value is not modeled")
-    return
-  }
   q = ""; esc = 0; acc = ""
   for (i = 1; i <= length(buf); i++) {
     c = substr(buf, i, 1)
     if (q == "") {
+      # Only a delimiter opening at top level starts a multi-line string; the
+      # same three characters inside a quoted literal are ordinary content.
+      if ((c == "\"" || c == "'") && substr(buf, i, 3) == c c c) {
+        bail("a multi-line string inside a " kind " value is not modeled")
+        return
+      }
       if (c == "\"" || c == "'") { q = c; acc = ""; esc = 0 }
       continue
     }

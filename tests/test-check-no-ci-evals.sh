@@ -862,6 +862,23 @@ rc=$?
 assert_exit "a multi-line string inside an array fails closed" 1 "$rc"
 assert_contains "names the unmodeled array element" "multi-line string inside a depends value" "$out"
 
+# ---- the same three characters INSIDE a quoted literal are just content ----
+# `run = '"""'` is valid TOML, and a guard that fails a clean file teaches
+# people to bypass it.
+mk_case quoted-triple
+cat >"$TMP/quoted-triple/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["build"]
+run = "true"
+
+[tasks.build]
+run = '"""'
+EOF
+out="$(run_case quoted-triple)"
+rc=$?
+assert_exit "a triple-quote inside a quoted literal is content, not a delimiter" 0 "$rc"
+assert_lacks "does not misreport it as a multi-line string" "not modeled" "$out"
+
 # ---- a dependency on an eval task defined outside the parse boundary ----
 mk_case dangling-eval-dep
 cat >"$TMP/dangling-eval-dep/mise.toml" <<'EOF'
