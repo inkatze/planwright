@@ -202,8 +202,8 @@ done <"$work/all"
 # ARGV, so a name containing `=` or a leading `-` is read as a path and never
 # as an awk variable assignment or option.
 awk -v listfile="$work/list" '
-  function scan(path,   line, tail, body, delim, heredoc, pending, badline, cleared, opened, r) {
-    heredoc = ""; pending = 0; badline = 0; cleared = 0; opened = 0
+  function scan(path,   line, tail, body, delim, heredoc, heredoc_dash, pending, badline, cleared, opened, r, pre, dq, sq, dash) {
+    heredoc = ""; heredoc_dash = 0; pending = 0; badline = 0; cleared = 0; opened = 0
     # getline returns -1 when the file cannot be opened or read, which is not
     # end-of-input. Treating the two alike would silently clear a file the scan
     # never saw, reachable as a TOCTOU race against the readability check the
@@ -213,9 +213,11 @@ awk -v listfile="$work/list" '
       sub(/\r$/, "", line)
 
       # Inside a heredoc body nothing is code: not an offense, not a remedy.
+      # `<<-` strips leading tabs from the terminator; plain `<<` requires an
+      # exact match. Stripping spaces for both would close the body early.
       if (heredoc != "") {
         body = line
-        sub(/^[ \t]+/, "", body)
+        if (heredoc_dash) sub(/^\t+/, "", body)
         if (body == heredoc) heredoc = ""
         continue
       }
@@ -227,22 +229,37 @@ awk -v listfile="$work/list" '
       if (line ~ /^[ \t]*$/) continue
 
       if (line ~ /^unset([ \t]+-[A-Za-z]+)*([ \t]+[A-Za-z_][A-Za-z0-9_]*)*[ \t]+CDPATH([ \t;&|)]|$)/) cleared = 1
-      if (line ~ /^(export[ \t]+)?CDPATH=/) cleared = 1
+      # Only an EMPTY assignment counts. `CDPATH=.:/var` is the bug, not a
+      # remedy, and must never read as one.
+      if (line ~ /^(export[ \t]+)?CDPATH=[ \t]*(;|$)/) cleared = 1
 
       # cd opening a substitution on this line ...
       if (!badline && line ~ /(\$\(|`|<\()[ \t]*\\?(command[ \t]+|builtin[ \t]+)?(cd|pushd)([ \t]|$)/) badline = opened
       # ... or on the line after a substitution opened with nothing following it.
       if (!badline && pending && line ~ /^[ \t]*\\?(command[ \t]+|builtin[ \t]+)?(cd|pushd)([ \t]|$)/) badline = opened
 
+      # An opening `$(` still counts as opening when a line continuation or a
+      # trailing comment follows it, both of which are ordinary in a long
+      # substitution.
       tail = line
       sub(/[ \t]+$/, "", tail)
-      pending = (tail ~ /\$\($/) ? 1 : 0
+      pending = (tail ~ /\$\([ \t]*\\?[ \t]*(#.*)?$/) ? 1 : 0
 
       if (match(line, /<<-?[ \t]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/)) {
-        delim = substr(line, RSTART, RLENGTH)
-        sub(/^<<-?[ \t]*/, "", delim)
-        sub(/^['"'"'"]/, "", delim)
-        heredoc = delim
+        # `echo "<<EOF"` is a string, not a heredoc, and believing otherwise
+        # would swallow the rest of the file. Odd quote parity before the
+        # operator means it sits inside a string.
+        pre = substr(line, 1, RSTART - 1)
+        dq = gsub(/"/, "\"", pre)
+        sq = gsub(/'"'"'/, "&", pre)
+        if (dq % 2 == 0 && sq % 2 == 0) {
+          delim = substr(line, RSTART, RLENGTH)
+          dash = (delim ~ /^<<-/)
+          sub(/^<<-?[ \t]*/, "", delim)
+          sub(/^['"'"'"]/, "", delim)
+          heredoc = delim
+          heredoc_dash = dash
+        }
       }
     }
     close(path)

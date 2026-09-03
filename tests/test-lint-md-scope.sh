@@ -88,6 +88,14 @@ lint_md_targets() {
     echo "glob carries git pathspec magic, which markdownlint cannot honour" >&2
     return 2
   fi
+  # Character classes and brace expansion are globby features this matcher does
+  # not implement. Refusing is honest; translating them to literals would make
+  # the resolver quietly disagree with markdownlint, which is the failure this
+  # whole file exists to prevent.
+  if grep -q '[][{}]' "$tmp/globs"; then
+    echo "glob uses a character class or brace expansion, which this matcher does not implement" >&2
+    return 2
+  fi
   match_globs "$tmp/globs"
 }
 
@@ -323,6 +331,10 @@ assert_closed "a run line with no globs" "$tmp/noargs.toml" "takes no arguments"
 sed "s|^run = \"markdownlint-cli2 .*\"$|run = \"markdownlint-cli2 ':(glob)templates/**/*.md'\"|" \
   "$REPO_ROOT/mise.toml" >"$tmp/magic.toml" || exit 1
 assert_closed "a glob carrying git pathspec magic" "$tmp/magic.toml" "pathspec magic"
+
+sed "s|^run = \"markdownlint-cli2 .*\"$|run = \"markdownlint-cli2 'templates/**/*.{md,markdown}'\"|" \
+  "$REPO_ROOT/mise.toml" >"$tmp/braces.toml" || exit 1
+assert_closed "a glob using brace expansion" "$tmp/braces.toml" "does not implement"
 
 # A glob set that resolves to nothing has no diagnostic of its own; it is the
 # emptiness itself that must be refused rather than reported as a clean scope.

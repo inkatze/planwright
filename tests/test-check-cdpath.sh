@@ -178,6 +178,27 @@ assert "a blank or comment line does not hide the substitution" 1 $?
 assert_contains "the blank-line offender is named" "$out" "scripts/blank.sh"
 assert_contains "the comment-line offender is named" "$out" "tests/commented.sh"
 
+# A trailing comment or a line continuation after the opening `$(` still opens
+# a substitution, and a heredoc operator quoted inside a string does not open a
+# heredoc — believing otherwise would swallow the rest of the file.
+make_root "$tmp/opening"
+write_script "$tmp/opening/scripts/trailing.sh" bare \
+  'root=$( # resolve the repo root' \
+  '  cd .. && pwd' \
+  ')'
+write_script "$tmp/opening/tests/continued.sh" bare \
+  "root=\$( \\" \
+  '  cd .. && pwd' \
+  ')'
+write_script "$tmp/opening/githooks/quoted-op" bare \
+  'echo "<<EOF"' \
+  'root="$(cd .. && pwd)"'
+out="$(/bin/bash "$CHECKER" "$tmp/opening" 2>&1)"
+assert "a comment, a continuation, or a quoted heredoc operator hides nothing" 1 $?
+assert_contains "the trailing-comment offender is named" "$out" "scripts/trailing.sh"
+assert_contains "the line-continuation offender is named" "$out" "tests/continued.sh"
+assert_contains "the quoted-operator offender is named" "$out" "githooks/quoted-op"
+
 # ---------------------------------------------------------------------------
 # 6. The other substitution spellings: backtick, process substitution, and
 #    pushd (which consults CDPATH and echoes exactly as cd does).
@@ -209,10 +230,14 @@ write_script "$tmp/inert/scripts/nested.sh" bare \
   '  unset CDPATH' \
   '}' \
   'root="$(cd .. && pwd)"'
+write_script "$tmp/inert/tests/reassigned.sh" bare \
+  'CDPATH=.:/var' \
+  'root="$(cd .. && pwd)"'
 out="$(/bin/bash "$CHECKER" "$tmp/inert" 2>&1)"
 assert "an inert unset does not clear the file" 1 $?
 assert_contains "the heredoc-only unset is rejected" "$out" "scripts/heredoc.sh"
 assert_contains "the function-scoped unset is rejected" "$out" "scripts/nested.sh"
+assert_contains "a non-empty CDPATH assignment is not a remedy" "$out" "tests/reassigned.sh"
 
 # ---------------------------------------------------------------------------
 # 8. The spellings that do fix the bug all count as compliance. Rejecting any
@@ -224,6 +249,7 @@ write_file "$tmp/spellings/scripts/dash-v.sh" '#!/bin/sh' 'unset -v CDPATH' 'r="
 write_file "$tmp/spellings/scripts/multi.sh" '#!/bin/sh' 'unset FOO CDPATH' 'r="$(cd .. && pwd)"'
 write_file "$tmp/spellings/scripts/semi.sh" '#!/bin/sh' 'unset CDPATH; set -u' 'r="$(cd .. && pwd)"'
 write_file "$tmp/spellings/tests/assign.sh" '#!/bin/sh' 'CDPATH=' 'r="$(cd .. && pwd)"'
+write_file "$tmp/spellings/tests/assign-semi.sh" '#!/bin/sh' 'CDPATH=;' 'r="$(cd .. && pwd)"'
 write_file "$tmp/spellings/tests/tolerant.sh" '#!/bin/sh' 'unset CDPATH 2>/dev/null || true' 'r="$(cd .. && pwd)"'
 write_file "$tmp/spellings/githooks/plain" '#!/bin/sh' 'unset CDPATH' 'r="$(cd .. && pwd)"'
 out="$(/bin/bash "$CHECKER" "$tmp/spellings" 2>&1)"
