@@ -105,8 +105,8 @@ Three modes, selected at pre-flight from status and brief state:
 **Change-handling scales with the lifecycle stage (REQ-D1.4).** A Ready bundle
 takes pre-merge changes through a delta re-walkthrough / re-sign-off — not the
 amendment ritual — and the spec PR stays as it was. The amendment ritual is
-reserved for an Active
-bundle (work in flight), where the change coordinates with execution underway.
+reserved for an Active bundle (work in flight), where the change coordinates
+with execution underway.
 A Done bundle reopens to Draft first (the REQ-A1.6 reopen cycle below) — never
 amended in place. The per-class ritual detail (expression-only changelog +
 self-re-anchor vs. meaning-class delta lens pass + fresh anchor) is
