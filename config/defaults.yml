@@ -366,6 +366,38 @@ allocation_adaptation: "off"
 # before any arithmetic use; the ladder ends are hard stops regardless of the cap.
 allocation_adjustment_cap: 2
 
+# How many APPLIED escalations over a unit's whole history make it worth telling
+# future drafting about (model-allocation D-11; REQ-F1.2, REQ-E1.1). At a unit's
+# terminal state (completion or crash-loop disable), scripts/allocation-feedback.sh
+# records ONE observation fragment when the unit's derived final ladder position
+# ended above its configured starting tier, OR when its applied-escalation count
+# reached this threshold.
+#
+# The second condition is the CHURN case the first cannot see. A unit that
+# climbed twice and was talked back down twice ends exactly where it started,
+# and because a reversal REFUNDS the adjustment cap it does not register as
+# budget spent either: the applied-up-step count is the only trace it leaves.
+# The two knobs count different things, so this one does not track the cap.
+#
+# The default of 2 is the smallest count that separates a one-off (a single bad
+# step the ladder absorbed, which is adaptation working) from a pattern. Lower
+# it to hear about single escalations; `0` makes the count condition always
+# true, so every terminal unit records, which is the record-everything end of
+# the dial. Raise it to hear only about the repeat offenders. A non-negative
+# integer, validated against the pinned numeric grammar before any comparison.
+#
+# Emission is once per unit, marked by a `feedback`/`recorded` row in that
+# unit's own allocation ledger, so a re-evaluation after a crash or a sweep does
+# not re-record; a recording-helper failure leaves no mark, surfaces non-zero,
+# and keeps the unit retryable.
+#
+# A unit can be silent for reasons other than this threshold: with
+# allocation_adaptation off nothing escalates, so neither condition is ever
+# reached (D-13, the shipped posture); allocation_adjustment_cap: 0 freezes the
+# ladder, which makes the count condition unreachable too; and a selection key
+# whose starting tier is the `inherit` sentinel has no ladder to evaluate.
+allocation_feedback_threshold: 2
+
 # The bounded fallback hold, in seconds, when a native rate-limit signal is
 # detected but its reset time cannot be parsed (fleet-autonomy D-12,
 # REQ-E1.3; kickoff risk row 24). The rate-limit prompt is version-sensitive
