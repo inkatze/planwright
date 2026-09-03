@@ -759,6 +759,43 @@ EOF
 out="$(run_case run-body-bare-glob)"
 assert_exit "a bare wildcard in a run body is not read as a selector" 0 $?
 
+# ---- a bracket expression in an operand matches one character, like `?` ----
+mk_case run-body-bracket-glob
+cat >"$TMP/run-body-bracket-glob/mise.toml" <<'EOF'
+[tasks.check]
+run = "mise run all:[ab]*"
+
+[tasks."all:aevals"]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case run-body-bracket-glob)"
+rc=$?
+assert_exit "a bracket expression in an operand is expanded" 1 "$rc"
+assert_contains "walks the bracket-matched task" "check -(run body)-> all:aevals" "$out"
+
+# ---- an escaped quote inside a header name is part of the name ----
+mk_case header-escaped-quote
+cat >"$TMP/header-escaped-quote/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["a\"b"]
+run = "true"
+
+[tasks."a\"b"]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case header-escaped-quote)"
+rc=$?
+assert_exit "an escaped quote in a header name parses" 1 "$rc"
+assert_lacks "does not misread it as a mixed key" "mixing quoted and bare text" "$out"
+
 # ---- a multi-line string is not modeled outside a run body ----
 mk_case multiline-dep
 cat >"$TMP/multiline-dep/mise.toml" <<'EOF'

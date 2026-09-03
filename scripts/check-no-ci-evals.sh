@@ -429,12 +429,14 @@ function key_seg(acc, qacc, qch) {
   if (trim(acc) != "") { bail("a table key mixing quoted and bare text is not modeled: " acc qacc); return "" }
   return (qch == "\"") ? decode_esc(qacc) : qacc
 }
-function split_key(s, parts,   i, c, q, acc, qacc, qch, n) {
-  n = 0; q = ""; acc = ""; qacc = ""; qch = ""
+function split_key(s, parts,   i, c, q, acc, qacc, qch, esc, n) {
+  n = 0; q = ""; acc = ""; qacc = ""; qch = ""; esc = 0
   for (i = 1; i <= length(s); i++) {
     c = substr(s, i, 1)
     if (q != "") {
-      if (c == q) q = ""
+      if (esc) { qacc = qacc c; esc = 0 }
+      else if (q == "\"" && c == "\\") { qacc = qacc c; esc = 1 }
+      else if (c == q) q = ""
       else qacc = qacc c
       continue
     }
@@ -725,6 +727,9 @@ END {
         # so the guard must read what mise gets, not what the body spells.
         g = tok[k]
         gsub(/["'`\\]/, "", g)
+        # A bracket expression matches one character, same as `?`, and reducing
+        # it keeps the operand within the shape the filter below recognizes.
+        gsub(/\[[^]]*\]/, "?", g)
         # A bare `*` is far more likely `rm -rf *` than a task selector, and
         # anything carrying other shell syntax is not a task name at all.
         if (g ~ /^[*?]+$/) continue
