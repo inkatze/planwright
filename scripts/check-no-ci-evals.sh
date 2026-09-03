@@ -43,9 +43,11 @@
 #      wildcard, `depends = ["eval:*"]` or the catch-all `depends = ["*"]`,
 #      both of which mise expands — fails on the name, so a wildcard cannot
 #      launder the edge, and neither can a dependency on an eval task defined
-#      outside this file. A wildcard matching no task in this file fails too:
-#      mise would expand it over tasks the parse cannot see, so nothing here
-#      can show the expansion clear.
+#      outside this file. A wildcard is judged by the literal text before its
+#      first wildcard character rather than by what it happens to match here,
+#      because mise expands it over tasks this parse cannot see: `lint:*`
+#      diverges from `eval:` immediately and is clear, while `eval*`,
+#      `*:corpus` and a bare `*` can all name the namespace and fail.
 #      Unlike pass 1, ROOT extraction skips full-line comments: a comment
 #      cannot invoke anything, and counting one as a root would mask the
 #      zero-roots fail-closed below.
@@ -311,14 +313,24 @@ function glob2ere(g,   i, c, out) {
   }
   return "^" out "$"
 }
-# Probes rather than a language-intersection test, which awk cannot do. A
-# wildcard that reaches none of these and resolves to no task in this file is
-# reported separately, so an unprovable expansion never reads as clean.
-function glob_reaches_eval(g,   rx) {
-  rx = glob2ere(g)
-  return (("eval:" ~ rx) || ("eval:x" ~ rx) || ("eval:skill" ~ rx) || ("eval:behavioral" ~ rx))
+# A wildcard matches tasks this parse cannot see, so it is judged by what its
+# pattern COULD name rather than by what it happens to match here: the literal
+# text before its first wildcard. If that prefix and `eval:` still agree where
+# the shorter of them ends, the pattern can name a task in the namespace and
+# cannot be shown clear. `lint:*` diverges at the first character and is clear;
+# `eval*`, `*:corpus` and the catch-all `*` are not.
+function glob_reaches_eval(g,   i, c, p, ns, n) {
+  p = ""
+  for (i = 1; i <= length(g); i++) {
+    c = substr(g, i, 1)
+    if (c == "*" || c == "?" || c == "[") break
+    p = p c
+  }
+  ns = "eval:"
+  n = (length(p) < length(ns)) ? length(p) : length(ns)
+  return (substr(p, 1, n) == substr(ns, 1, n))
 }
-function has_glob(g) { return (index(g, "*") > 0 || index(g, "?") > 0) }
+function has_glob(g) { return (index(g, "*") > 0 || index(g, "?") > 0 || index(g, "[") > 0) }
 
 # Walks one physical line of the config outside any multi-line string, tracking
 # quote state so a `#`, `=` or bracket inside a string is not read as
@@ -613,9 +625,7 @@ END {
         # A wildcard expands over every task mise knows, including the ones
         # defined outside this file, so what it CAN reach is the honest test.
         if (glob_reaches_eval(d))
-          addflag(u, "depends on the eval: namespace (" depkind[u, j] " = " d ")")
-        else if (!matched)
-          addflag(u, "has a wildcard dependency (" depkind[u, j] " = " d ") matching no task in this file, so its expansion cannot be shown clear of the eval: namespace")
+          addflag(u, "has a wildcard dependency (" depkind[u, j] " = " d ") that can name the eval: namespace")
       } else if (d in nameof) {
         addedge(u, nameof[d], depkind[u, j])
         matched = 1
@@ -659,12 +669,17 @@ END {
       if (!is_mise(r)) continue
       for (k = 1; k <= nnames; k++)
         if (tokmatch(r, namelist[k])) push(nameof[namelist[k]], u, "run body")
-      nt = split(r, tok, /[[:space:]]+/)
+      # Shell operators end an operand as surely as whitespace does, so
+      # `mise run lint:*;echo` must not read as one token `lint:*;echo`.
+      nt = split(r, tok, /[[:space:];&|()<>]+/)
       for (k = 1; k <= nt; k++) {
         g = strip_quotes(tok[k])
+        # The shell strips these before mise sees the operand, so the guard
+        # must read what mise gets, not what the body spells.
+        gsub(/\\/, "", g)
         # A bare `*` in a shell body is far more likely `rm -rf *` than a task
         # selector, so a wildcard operand is read only with a literal prefix.
-        if (g !~ /^[[:alnum:]_.:-]+[*?]/) continue
+        if (g !~ /^[[:alnum:]_.:-]+[*?[]/) continue
         if (glob_reaches_eval(g))
           viol[++nviol] = "the run body of CI-invoked task " u " invokes the eval: namespace by wildcard (" g "): " chain(u)
         rx = glob2ere(g)

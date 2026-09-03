@@ -528,7 +528,7 @@ EOF
 out="$(run_case glob-dep-prefix)"
 rc=$?
 assert_exit "a colon-less eval* wildcard fails" 1 "$rc"
-assert_contains "reports the wildcard dependency" "depends on the eval: namespace" "$out"
+assert_contains "reports the wildcard dependency" "can name the eval: namespace" "$out"
 
 mk_case glob-dep-all
 cat >"$TMP/glob-dep-all/mise.toml" <<'EOF'
@@ -555,7 +555,22 @@ EOF
 out="$(run_case glob-dep-suffix)"
 rc=$?
 assert_exit "a suffix wildcard reaching eval:skill fails" 1 "$rc"
-assert_contains "reports it as an eval: namespace dependency" "depends on the eval: namespace" "$out"
+assert_contains "reports it as a wildcard that can name the namespace" "can name the eval: namespace" "$out"
+
+# ---- a wildcard that cannot name the namespace is not flagged ----
+# `lint:` diverges from `eval:` at the first character, so no expansion of it
+# can land in the namespace. Flagging it would block a normal aggregate.
+mk_case glob-dep-clear
+cat >"$TMP/glob-dep-clear/mise.toml" <<'EOF'
+[tasks.check]
+depends = ["lint:*"]
+run = "true"
+
+[tasks."lint:shell"]
+run = "true"
+EOF
+out="$(run_case glob-dep-clear)"
+assert_exit "a wildcard that cannot reach the namespace passes" 0 $?
 
 # ---- a wildcard matching nothing here cannot be shown clear ----
 # mise expands it over tasks this parse cannot see, so passing would be a
@@ -572,7 +587,45 @@ EOF
 out="$(run_case glob-dep-unresolved)"
 rc=$?
 assert_exit "a wildcard matching no task in this file fails" 1 "$rc"
-assert_contains "says the expansion cannot be shown clear" "cannot be shown clear" "$out"
+assert_contains "says the wildcard can name the namespace" "can name the eval: namespace" "$out"
+
+# ---- a shell operator ends a run-body operand ----
+# `mise run lint:*;echo` must not read as the single token `lint:*;echo`,
+# which would expand to nothing and skip the whole sub-graph.
+mk_case run-body-operator
+cat >"$TMP/run-body-operator/mise.toml" <<'EOF'
+[tasks.check]
+run = "mise run all:*;echo done"
+
+[tasks."all:evals"]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case run-body-operator)"
+rc=$?
+assert_exit "a shell operator does not hide a wildcard operand" 1 "$rc"
+assert_contains "walks the task the operand expands to" "check -(run body)-> all:evals" "$out"
+
+# ---- a backslash-escaped wildcard is what the shell hands mise ----
+mk_case run-body-escaped-glob
+cat >"$TMP/run-body-escaped-glob/mise.toml" <<'EOF'
+[tasks.check]
+run = 'mise run all:\*'
+
+[tasks."all:evals"]
+depends = ["eval:skill"]
+run = "true"
+
+[tasks."eval:skill"]
+run = "true"
+EOF
+out="$(run_case run-body-escaped-glob)"
+rc=$?
+assert_exit "an escaped wildcard operand is still expanded" 1 "$rc"
+assert_contains "walks the escaped operand's task" "check -(run body)-> all:evals" "$out"
 
 # ---- a multi-line string is not modeled outside a run body ----
 mk_case multiline-dep
