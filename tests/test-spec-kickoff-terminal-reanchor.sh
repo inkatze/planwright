@@ -152,9 +152,11 @@ fi
 # the push would carry the old anchor and leave the new one in the worktree. The
 # meta-spec's expression-only ritual already requires the one-commit landing;
 # this ritual has to say so too, or a reader reaches `git push` with the
-# re-record still unstaged. "uncommitted" must not satisfy the check, so the
-# match is anchored on a word boundary.
-if printf '%s' "$flat_doctrine" | grep -qE '(^|[^n])committed re-record'; then
+# re-record still unstaged. A negation of the word ("uncommitted", "recommitted")
+# must not satisfy the check, so the leading boundary is spelled out as a
+# pure-POSIX ERE with `[^[:alnum:]_]` — not `\b`, a GNU extension that is a
+# literal backspace under some engines, and not `grep -w`, which is not in POSIX.
+if printf '%s' "$flat_doctrine" | grep -qE '(^|[^[:alnum:]_])committed re-record'; then
   ok "the re-record is committed, so the push carries it"
 else
   fail "the ritual does not state that the re-record is committed before the push (REQ-C1.4)"
