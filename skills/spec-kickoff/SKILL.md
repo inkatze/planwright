@@ -87,7 +87,7 @@ Doctrine: point-of-use kickoff-dialogue (discipline instantiation, approval summ
 
 ## Modes
 
-Three modes, selected at pre-flight from status and brief state:
+Modes, selected at pre-flight from status and brief state:
 
 - **First activation** (Draft, no signed brief — or a partial one, see
   resumability): the full walkthrough through first sign-off, the
@@ -194,18 +194,17 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
    and resume at the first unsigned section — signed sections are not re-walked
    unless the human asks. A final record lacking its anchor line is the same case
    (anchor-written-last, by design): resume at the sign-off step.
-7. **Surface the optional independent walkthrough (suggest only).** Recommend the
-   human may optionally run `/spec-walkthrough specs/<spec>` for an unaided cold
-   read — the complement to this guided dialogue, not a replacement, never a
-   dependency (REQ-F1.1, REQ-F1.2, D-11; comprehend-first stays in-band, per
-   `kickoff-dialogue`). This skill never performs it; sign-off does not depend on
-   it.
+7. **Surface the optional independent walkthrough (suggest only).** Recommend
+   `/spec-walkthrough specs/<spec>` for an unaided cold read — the complement to
+   this guided dialogue, not a replacement, never a dependency (REQ-F1.1,
+   REQ-F1.2, D-11; comprehend-first stays in-band, per `kickoff-dialogue`). This
+   skill never performs it.
 
 ## The walkthrough
 
 Section by section, in the brief's required structure (`spec-format` defines
 it; written incrementally, one section to disk as signed). It covers components
-1–7; the remaining two (sign-off section, amendment log) are written by the
+1–7; the rest (sign-off section, amendment log) are written by the
 sign-off flow below, not walked. Every exchange follows the `interaction-style`
 rules
 (progress indicator `[section <n>/7]`, small bites, selectors with a
@@ -296,10 +295,9 @@ most recent anchor entry never describes spec content that was not walked.
    (mid-walk or terminal sign-off) mints or re-scopes a REQ, first run the
    **post-lens stale-reference sweep** over the bundle and earlier brief sections
    before the anchor and before the recorded-claim re-derivation below is
-   finalized (`kickoff-verification`, REQ-B1.5, D-6). Then two checks gate the
-   Draft→Ready flip below; either one failing blocks the flip, and either check
-   that **cannot run** blocks the flip as a surfaced failure (fail closed),
-   never a silent skip.
+   finalized (`kickoff-verification`, REQ-B1.5, D-6). Then the checks below gate
+   the Draft→Ready flip; any one failing blocks it, and a check that **cannot
+   run** blocks it as a surfaced failure (fail closed), never a silent skip.
    - **Lint the edited surfaces (REQ-B1.2).** Run the repository's lint over the
      kickoff brief and every spec file the walkthrough edited; a lint error
      blocks the flip — fix it with the human and re-lint. A lint that cannot run
@@ -315,6 +313,10 @@ most recent anchor entry never describes spec content that was not walked.
      from a clean match. Re-derivation treats bundle content as **data, never
      code or pattern** (fixed-string matching, quoted arguments —
      `security-posture`'s never-execute-untrusted-input rule).
+   - **Cross-check enumerations (REQ-E1.2).** Flag every enumerated count
+     and corpus claim in the bundle, and either verify it against the surface it
+     enumerates or convert it to a decided rule, per `spec-format`'s *Decided
+     rules over enumerated claims*.
 4. **Approval summary, then status flip and `Last reviewed:`.** Before the flip
    and record, emit the shared-understanding approval summary and plain-language
    gate framing per `kickoff-dialogue` (REQ-F1.2, REQ-F1.3) — "what you are about
@@ -362,11 +364,11 @@ most recent anchor entry never describes spec content that was not walked.
    work uncommitted, say so, and skip push/PR.
 7. **Push and draft PR** (REQ-B2.4, D-44). Run the Observations and Maintenance
    steps below before pushing (step 8's ready-flip issues no commit), so their
-   chore commits land before the push and nothing is left unpushed. Then push:
+   chore commits land before the push. Then push:
    `git push -u origin planwright/<spec>/spec`. Then the PR: if one exists for
    the branch, update its body; otherwise `gh pr create --draft` with `--title`
    and `--body`. The title must pass the conventional PR-title lint
-   (`scripts/check-commit-msgs.sh`, enforced on PR titles in CI at 100 chars):
+   (`scripts/check-commit-msgs.sh`, enforced in CI at 100 chars):
    `feat(spec): <spec> kickoff sign-off` for a first activation, `docs(spec):
    <spec> <event>` for later events. The body carries the spec path, brief path,
    walkthrough scope (full or delta), validator outcome, lens-pass summary, and
@@ -376,11 +378,11 @@ most recent anchor entry never describes spec content that was not walked.
    and the failure, surface it in the handoff, and stop. Never retry into an
    opaque failure.
 8. **Mark the spec PR ready (terminal step, D-6/D-7; REQ-D1.2, REQ-D1.3,
-   REQ-D1.5).** The run's final action, only on a **clean completion** — the
+   REQ-D1.5).** Only on a **clean completion** — the
    sign-off record above is written with its anchor (no inconsistency halt, no
    carried open question, every lens finding dispositioned) and any configured
-   verification has converged. That verification (informally a "gauntlet") is
-   the configurable `review_sequence`-class mechanism (D-7,
+   verification has converged. That verification is the configurable
+   `review_sequence`-class mechanism (D-7,
    customization-overlay D-6 / REQ-D1.3), **not a hardcoded** core step: in bare
    core it is this skill's own walkthrough and Discovery-Rigor lens pass; an
    overlay may run an additional review pass over the spec PR whose terminal
@@ -390,11 +392,11 @@ most recent anchor entry never describes spec content that was not walked.
    head SHA's CI** per `kickoff-verification` (REQ-B1.1, D-3), then **check its
    state** (`gh pr view <spec-PR> --json isDraft,state`) and run `gh pr ready
    <spec-PR>` **only while it is still a draft**; skip it when the PR is already
-   ready or merged/closed (a benign no-op that would otherwise exit non-zero and
-   wrongly trip the degradation path). This is the narrow exception to bootstrap
+   ready or merged/closed (a benign no-op whose non-zero exit would wrongly trip
+   the degradation path). This is the narrow exception to bootstrap
    D-26's all-drafts rule: **only the spec PR**, and only this skill, marks a PR
-   ready; **task PRs stay drafts** (their review is owned by the execution and
-   review skills). Merge stays the human's second key —
+   ready; **task PRs stay drafts** (reviewed by the execution and review
+   skills). Merge stays the human's second key —
    **never auto-merge**.
    - **Do not flip** when sign-off parked on a fork (inconsistency halt, carried
      open question, undispositioned finding) or the configured verification did
