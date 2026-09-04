@@ -299,7 +299,8 @@ sleepy="$(awk -F'\t' '$1=="file" && $2=="test-sleepy.sh"{print $3}' "$report")"
 wall="$(awk -F'\t' '$1=="suite" && $2=="wall"{print $3}' "$report")"
 case "$header" in
   *"clock=seconds"*)
-    echo "ok: no sub-second clock on this host; resolution bound skipped" ;;
+    echo "ok: no sub-second clock on this host; resolution bound skipped"
+    ;;
   *)
     if awk -v t="$sleepy" 'BEGIN{exit !(t >= 0.25 && t < 10)}'; then
       echo "ok: the sleeping file's time is sub-second and plausibly bounded ($sleepy)"

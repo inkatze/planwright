@@ -106,9 +106,9 @@ if [ "${1:-}" = "--run-one" ]; then
   [ -n "$clock" ] || clock="$(probe_clock)"
   started="$(now_ms)"
   if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
-    verdict=done
+    verdict="done"
   else
-    verdict=fail
+    verdict="fail"
   fi
   finished="$(now_ms)"
   # The timing record is this worker's own file, written before the verdict
@@ -119,7 +119,7 @@ if [ "${1:-}" = "--run-one" ]; then
     printf '%s\n' "$elapsed" >"$PLANWRIGHT_TEST_LOG_DIR/$name.time"
   fi
   : >"$PLANWRIGHT_TEST_LOG_DIR/$name.$verdict"
-  if [ "$verdict" = done ]; then
+  if [ "$verdict" = "done" ]; then
     echo "ok: $name (${elapsed:-?}s)"
   else
     echo "FAIL: $name (log printed at end)" >&2

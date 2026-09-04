@@ -53,6 +53,11 @@ specs/*/.tasks-pr-sync.*
 # foreign (REQ-A1.2 contamination isolation by construction).
 specs/*/.orchestrate/
 
+# The per-file timing report scripts/run-tests.sh persists after every suite
+# run and check:test-time reads (guard-coverage D-8). Timings vary every run;
+# only the budget config (config/test-time-budget.yml) is tracked.
+tests/.timing-report.tsv
+
 # === Bootstrap staging ===
 
 # Consumed bootstrap seed — already mined into specs/bootstrap/, kept local only.
