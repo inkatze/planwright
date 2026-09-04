@@ -26,8 +26,13 @@
 #   the text of the harness permission dialog — the question line and the
 #   fixed option labels — which is the ONE positive pane signal that a worker
 #   is blocked on a human rather than mid-tool-call (fleet-lifecycle-closure
-#   REQ-C1.2, obs:4c25e743). Override via FLEET_PANE_PROMPT_SIGNATURES, same
-#   shape as the anchor override.
+#   REQ-C1.2, obs:4c25e743). Verified against the installed CLI bundle at
+#   2.1.260 (`strings` over the binary): the question is `Do you want to
+#   proceed?` for every tool dialog, the option labels are `Yes, and don't
+#   ask again for …`, `Yes, and always allow …`, `No, and tell Claude what to
+#   do differently`; the older per-tool phrasings (`make this edit`, `create
+#   <file>`) no longer exist and are deliberately not listed. Override via
+#   FLEET_PANE_PROMPT_SIGNATURES, same shape as the anchor override.
 #
 # Every needle is matched as a plain substring through the sh `case` glob, so
 # no regex metacharacter in a needle is ever interpreted; the caller lowercases
@@ -79,9 +84,8 @@ prompt_anchors() {
 default_permission_prompt_signatures() {
   cat <<'SIGNATURES'
 do you want to proceed
-do you want to make this edit
-do you want to create
 and don't ask again
+and always allow
 what to do differently
 SIGNATURES
 }

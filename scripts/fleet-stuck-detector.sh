@@ -504,6 +504,17 @@ emit_anomaly() {
   printf 'anomaly\t%s\t%s\n' "$cur_worker" "$1"
 }
 
+# git_ro <dir> <args...> — a read-only git query in a directory the detector
+# did not choose: the worktree may be named by a worker-authored init event,
+# so the target repository's own config is untrusted. No optional index lock
+# (someone else's worktree, possibly mid-command) and no fsmonitor, the one
+# config-driven command `status` would otherwise execute.
+git_ro() {
+  gr_dir=$1
+  shift
+  GIT_OPTIONAL_LOCKS=0 git -C "$gr_dir" -c core.fsmonitor=false "$@"
+}
+
 # --- per-worker classification -----------------------------------------------
 
 # classify_one <worker> — runs the whole signal walk for one handle and
@@ -718,21 +729,19 @@ classify_one() {
   # 8. The worktree and the unlanded check (REQ-C1.4): local git state only.
   eff_worktree=$worktree
   if [ -z "$eff_worktree" ] && [ -n "$eff_state_dir" ] && [ -d "$eff_state_dir" ] \
-    && [ "$(git -C "$eff_state_dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
+    && [ "$(git_ro "$eff_state_dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
     eff_worktree=$eff_state_dir
   fi
   if [ -z "$eff_worktree" ] && [ -n "$events_cwd" ] && [ -d "$events_cwd" ] \
-    && [ "$(git -C "$events_cwd" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
+    && [ "$(git_ro "$events_cwd" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
     eff_worktree=$events_cwd
   fi
   tree=unverifiable
   unpushed=unverifiable
   commits=unverifiable
   if [ -n "$eff_worktree" ] && [ -d "$eff_worktree" ]; then
-    # GIT_OPTIONAL_LOCKS=0 keeps `status` from taking the index lock: this is
-    # a read of someone else's worktree, possibly mid-command.
-    g_status=$(GIT_OPTIONAL_LOCKS=0 git -C "$eff_worktree" status --porcelain 2>/dev/null | head -n 1) && g_ok=1 || g_ok=0
-    if [ "$g_ok" = 1 ] && GIT_OPTIONAL_LOCKS=0 git -C "$eff_worktree" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    g_status=$(git_ro "$eff_worktree" status --porcelain 2>/dev/null | head -n 1) && g_ok=1 || g_ok=0
+    if [ "$g_ok" = 1 ] && git_ro "$eff_worktree" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
       if [ -n "$g_status" ]; then
         tree=dirty
       else
@@ -742,10 +751,10 @@ classify_one() {
       # upstream when one is set; otherwise against every remote-tracking
       # ref the clone has (a branch never pushed is unpushed in full); a
       # clone with no remote-tracking ref at all cannot verify.
-      if GIT_OPTIONAL_LOCKS=0 git -C "$eff_worktree" rev-parse --verify --quiet '@{u}' >/dev/null 2>&1; then
-        unpushed=$(GIT_OPTIONAL_LOCKS=0 git -C "$eff_worktree" rev-list --count '@{u}..HEAD' 2>/dev/null) || unpushed=unverifiable
-      elif [ -n "$(GIT_OPTIONAL_LOCKS=0 git -C "$eff_worktree" branch -r 2>/dev/null | head -n 1)" ]; then
-        unpushed=$(GIT_OPTIONAL_LOCKS=0 git -C "$eff_worktree" rev-list --count HEAD --not --remotes 2>/dev/null) || unpushed=unverifiable
+      if git_ro "$eff_worktree" rev-parse --verify --quiet '@{u}' >/dev/null 2>&1; then
+        unpushed=$(git_ro "$eff_worktree" rev-list --count '@{u}..HEAD' 2>/dev/null) || unpushed=unverifiable
+      elif [ -n "$(git_ro "$eff_worktree" branch -r 2>/dev/null | head -n 1)" ]; then
+        unpushed=$(git_ro "$eff_worktree" rev-list --count HEAD --not --remotes 2>/dev/null) || unpushed=unverifiable
       fi
       case $unpushed in
         "" | *[!0-9]*) unpushed=unverifiable ;;
@@ -753,8 +762,8 @@ classify_one() {
       # The unit branch's own commits: since it diverged from the default
       # branch, the first of these refs that resolves.
       for base in origin/HEAD origin/main origin/master main master; do
-        if GIT_OPTIONAL_LOCKS=0 git -C "$eff_worktree" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
-          commits=$(GIT_OPTIONAL_LOCKS=0 git -C "$eff_worktree" rev-list --count "$base..HEAD" 2>/dev/null) || commits=unverifiable
+        if git_ro "$eff_worktree" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
+          commits=$(git_ro "$eff_worktree" rev-list --count "$base..HEAD" 2>/dev/null) || commits=unverifiable
           break
         fi
       done
