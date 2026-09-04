@@ -115,11 +115,13 @@ fi
 if [ -n "${SHIM_STUBBORN_CHILD:-}" ]; then
   # A grandchild that outlives SIGTERM. When its parents die it reparents to
   # init, which takes it out of any descendant walk recomputed from scratch.
-  (
-    trap '' TERM
-    printf '%s\n' "$$" >"$SHIM_STUBBORN_CHILD"
-    while :; do sleep 1; done
-  ) &
+  #
+  # It has to be a separate `sh -c`, not a `( … ) &` subshell: POSIX `$$` in a
+  # subshell is the *parent's* pid, so a subshell would record the shim's own
+  # pid and every assertion against it would only be re-testing that the worker
+  # died.
+  sh -c 'trap "" TERM; printf "%s\n" "$$" >"$1"; while :; do sleep 1; done' \
+    _ "$SHIM_STUBBORN_CHILD" &
 fi
 if [ "${SHIM_IGNORE_TERM:-0}" = 1 ]; then
   # A worker that survives SIGTERM: the handler records the signal and the
@@ -197,8 +199,14 @@ ps_rows() {
 }
 
 # no_proc_under <dir> — true when no live process references <dir> in its argv.
+#
+# `ps_rows`'s own `fail` cannot end the run from inside a command substitution
+# (its `exit` leaves only the subshell), so the emptiness is re-checked here.
+# Without it an unusable `ps` yields an empty snapshot and every caller's "no
+# process survives" assertion passes over a fully live worker tree.
 no_proc_under() {
-  np_snap=$(ps_rows)
+  np_snap=$(ps_rows) || fail "no_proc_under: this host produced no usable process table"
+  [ -n "$np_snap" ] || fail "no_proc_under: this host produced no usable process table"
   ! printf '%s\n' "$np_snap" | grep -Fq -- "$1"
 }
 
@@ -1108,15 +1116,35 @@ elapsed=$(($(date +%s) - started))
 [ "$rc" = 0 ] || fail "c20: stop should exit 0 after escalating, got rc=$rc ($out)"
 grep -q term "$rec/signals" 2>/dev/null \
   || fail "c20: SIGTERM must be sent before the escalation"
-# The escalation waits out the grace it was given, and does not wait out the
-# default instead: a stop that ignored --grace would take at least the 5s one.
 [ "$elapsed" -ge 2 ] || fail "c20: the grace must elapse before SIGKILL, took ${elapsed}s"
-[ "$elapsed" -lt 30 ] || fail "c20: the close should not run far past its grace, took ${elapsed}s"
 wait_until 100 sh -c "! kill -0 $wrk20 2>/dev/null" \
   || fail "c20: a worker ignoring SIGTERM must be SIGKILLed after the grace"
 wait_until 50 no_proc_under "$wdir20" \
   || fail "c20: no process may still reference the state directory after the escalation"
-echo "ok: c20 SIGTERM first, SIGKILL after the bounded grace (REQ-B1.2)"
+# The close must wait out the grace it was *given*, not a fixed one. An absolute
+# bound cannot show that: the default grace and the settling wait together sit
+# inside any window wide enough to be non-flaky, so a stop that dropped --grace
+# entirely would still pass one. Two closes at different graces do show it,
+# and the comparison is immune to how fast the host is.
+printf 'ignore term longer\n' >"$tmp/prompt20b"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 -- \
+  launch sjw20b execution-backends:4 --prompt-file "$tmp/prompt20b" \
+  >/dev/null || fail "c20: the second launch exited non-zero"
+wdir20b="$home/streamjson/sjw20b"
+wait_until 100 test -s "$wdir20b/worker.pid" || fail "c20: sjw20b worker.pid never appeared"
+wrk20b=$(cat "$wdir20b/worker.pid")
+i=0
+while [ "$i" -lt 100 ] && [ -z "$(first_child "$wrk20b")" ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+[ -n "$(first_child "$wrk20b")" ] || fail "c20: sjw20b never reached its hold loop"
+started=$(date +%s)
+senv "$home" "$rec" -- stop sjw20b --grace 6 >/dev/null || fail "c20: the long-grace stop failed"
+elapsed_long=$(($(date +%s) - started))
+[ $((elapsed_long - elapsed)) -ge 2 ] \
+  || fail "c20: --grace must set the wait; 2s took ${elapsed}s and 6s took ${elapsed_long}s"
+echo "ok: c20 SIGTERM first, SIGKILL after the grace the caller set (REQ-B1.2)"
 
 # ---------------------------------------------------------------------------
 # c21 (REQ-B1.3): process matching keys on the state directory. An operator
@@ -1228,13 +1256,25 @@ rec="$tmp/r22b"
 mkdir -p "$rec"
 printf 'stubborn grandchild\n' >"$tmp/prompt22b"
 senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 \
-  SHIM_STUBBORN_CHILD="$tmp/stubborn.pid" -- \
+  SHIM_STUBBORN_CHILD="$tmp/stubborn22b.pid" -- \
   launch sjw22b execution-backends:4 --prompt-file "$tmp/prompt22b" \
   >/dev/null || fail "c22b: detached launch exited non-zero"
 wdir22b="$home/streamjson/sjw22b"
-wait_until 100 test -s "$tmp/stubborn.pid" || fail "c22b: the stubborn grandchild never started"
-stubborn=$(cat "$tmp/stubborn.pid")
+wait_until 100 test -s "$tmp/stubborn22b.pid" || fail "c22b: the stubborn grandchild never started"
+stubborn=$(cat "$tmp/stubborn22b.pid")
 kill -0 "$stubborn" 2>/dev/null || fail "c22b: the stubborn grandchild is not running"
+# The whole case turns on this pid being a *different* process from the worker.
+# Recorded with a subshell rather than a separate shell it would silently be
+# the worker's own pid, and every assertion below would re-test c19.
+wait_until 100 test -s "$wdir22b/worker.pid" || fail "c22b: worker.pid never appeared"
+[ "$stubborn" != "$(cat "$wdir22b/worker.pid")" ] \
+  || fail "c22b: the grandchild pid must not be the worker's own"
+# It must also be invisible to a state-directory match, so that only the
+# accumulated target set can account for it once it reparents.
+stub_args=$(ps -p "$stubborn" -o args= 2>/dev/null)
+case $stub_args in
+  *"$wdir22b"*) fail "c22b: the grandchild must not carry the state dir in its argv" ;;
+esac
 out=$(senv "$home" "$rec" -- stop sjw22b --grace 2)
 rc=$?
 [ "$rc" = 0 ] || fail "c22b: stop should close the whole tree, got rc=$rc ($out)"
@@ -1397,9 +1437,13 @@ for probe in $(seq 1 25); do
   wait
   [ "$(wc -l <"$tmp/mkatom/w")" = 1 ] || atomic=0
 done
+c25b_ran=1
 if [ "$atomic" = 0 ]; then
-  echo "SKIP: c25b needs an atomic mkdir; $(command -v mkdir) admits several" >&2
-  echo "      concurrent winners, so it cannot hold an election to test." >&2
+  # On stdout, in the suite's own skip form: a run whose only trace of this is
+  # a stderr line reads, in a captured CI log, exactly like one that tested the
+  # election and passed.
+  c25b_ran=0
+  echo "skip: c25b concurrent-election race ($(command -v mkdir) admits several concurrent mkdir winners)"
 else
   for n in 1 2 3; do
     senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
@@ -1408,24 +1452,41 @@ else
   done
   wait
   won=0
+  lost=0
   for n in 1 2 3; do
-    grep -q "^launched sjw25 " "$tmp/o25b.$n" && won=$((won + 1))
+    if grep -q "^launched sjw25 " "$tmp/o25b.$n"; then
+      won=$((won + 1))
+    elif grep -q "already in flight\|already running" "$tmp/o25b.$n"; then
+      # How a loser lost is the point: a crash and a single-initiator refusal
+      # both leave one winner, and only one of them is the election working.
+      lost=$((lost + 1))
+    fi
   done
-  if [ "$won" != 1 ]; then
+  if [ "$won" != 1 ] || [ "$lost" != 2 ]; then
     for n in 1 2 3; do
       printf 'c25b launch %s said: %s\n' "$n" "$(cat "$tmp/o25b.$n")" >&2
     done
-    fail "c25b: exactly one concurrent launch may win the election, $won did"
+    fail "c25b: expected one winner and two refusals, got $won and $lost"
   fi
   snap25=$(ps_rows)
   n25=$(printf '%s\n' "$snap25" | grep -Fc -- "_supervise sjw25 $wdir25")
   [ "$n25" = 1 ] || fail "c25b: exactly one supervisor expected after the race, found $n25"
+  # "one supervisor AND one pid file": the criterion is not met if a loser
+  # overwrote the winner's pid file on its way out.
+  sup25b=$(cat "$wdir25/supervisor.pid" 2>/dev/null) || sup25b=''
+  [ -n "$sup25b" ] || fail "c25b: no supervisor pid file survived the race"
+  printf '%s\n' "$snap25" \
+    | awk -v p="$sup25b" -v m="_supervise sjw25 $wdir25" \
+      '$1 == p && index($0, m) { f = 1 } END { exit f ? 0 : 1 }' \
+    || fail "c25b: supervisor.pid ($sup25b) does not name the surviving supervisor"
   senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25b: stop exited non-zero"
 fi
 # (c) a lock whose holder is gone is broken, so one hard kill cannot wedge
 #     `launch` the way it used to wedge `recover`; a lock whose holder is this
 #     very shell is not.
-mkdir -p "$wdir25/launch.lock" || fail "c25: cannot plant the launch lock"
+# Bare `mkdir`, not `-p`: if the preceding launch leaked its lock, `-p` would
+# silently adopt the leak and the case would test nothing.
+mkdir "$wdir25/launch.lock" || fail "c25c: a launch leaked its lock, or it cannot be planted"
 printf '%s\n' "$$" >"$wdir25/launch.lock/holder"
 senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
   launch sjw25 execution-backends:4 --prompt-file "$tmp/prompt25" >/dev/null 2>&1
@@ -1441,14 +1502,31 @@ senv "$home" "$rec" -- stop sjw25 --grace 2 >/dev/null || fail "c25c: stop exite
 #     call a live worker dead and start a supervisor over it, and would let
 #     `recover` resume a session that is still running. The window is too
 #     narrow to hit on demand, so the mechanism is what gets pinned.
+#     The helper's own body is audited too, not just its call sites: an audit
+#     that only checked `supervise` would still pass if `write_pidfile` were
+#     reverted to a bare redirect, which is exactly the defect being pinned.
 audit=$(awk '/^supervise\(\)/, /^}/' "$SJ")
 [ -n "$audit" ] || fail "c25d: the supervisor body was not found for the audit"
-printf '%s\n' "$audit" | grep -qE '>[[:space:]]*"[^"]*\.pid"' \
-  && fail "c25d: a pid file must not be published by a bare redirect"
 for f in supervisor worker; do
   printf '%s\n' "$audit" | grep -qF "write_pidfile \"\$sv_dir/$f.pid\"" \
     || fail "c25d: $f.pid must be published through the atomic helper"
 done
-echo "ok: c25 launch elects a single initiator under contention and breaks a dead holder's lock (obs:917e384e)"
+helper=$(awk '/^write_pidfile\(\)/, /^}/' "$SJ")
+[ -n "$helper" ] || fail "c25d: write_pidfile was not found for the audit"
+printf '%s\n' "$helper" | grep -q 'mv ' \
+  || fail "c25d: write_pidfile must publish by rename"
+# No redirect anywhere on the publication path may name the target itself,
+# quoted or bare — both forms are the same defect.
+printf '%s\n' "$audit" "$helper" | grep -qE '>[[:space:]]*"?[^ "|&;]*\.pid"?([[:space:]]|$)' \
+  && fail "c25d: a pid file must not be published by a bare redirect"
+# The helper writes its temp and renames it; if the temp were the target the
+# rename would be a no-op and the window would be back.
+printf '%s\n' "$helper" | grep -qE "mv[[:space:]]+\"[\$]wp_tmp\"[[:space:]]+\"[\$]1\"" \
+  || fail "c25d: write_pidfile must rename its staging temp over the target"
+if [ "$c25b_ran" = 1 ]; then
+  echo "ok: c25 launch elects a single initiator under contention and breaks a dead holder's lock (obs:917e384e)"
+else
+  echo "ok: c25 launch refuses a second caller and breaks a dead holder's lock (contention leg skipped) (obs:917e384e)"
+fi
 
 echo "all fleet-streamjson tests passed"

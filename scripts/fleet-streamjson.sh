@@ -854,22 +854,38 @@ release_classes='process locks scratch attention'
 # The locks this rung's worker dir can hold.
 lock_classes='journal.lock recover.lock launch.lock'
 
-# Scratch is the stdio fifos the supervisor owns, the staging files this
-# script's writers create beside their targets, and the residue of a broken
-# lock. Everything else in the state directory is the durable record a close
-# keeps: the capture, the journal, the session, the stored envelopes, and the
-# result.
-scratch_globs() {
+# scratch_walk <dir> <probe|release> — visit every scratch path present under
+# <dir>; zero when at least one was there. Scratch is the stdio fifos the
+# supervisor owns, the staging files this script's writers create beside their
+# targets, and the residue of a broken lock. Everything else in the state
+# directory is the durable record a close keeps: the capture, the journal, the
+# session, the stored envelopes, and the result.
+#
+# The probe and the release share one function because they must share one glob
+# list, and because the paths never become text. Handing a caller a
+# newline-delimited list would split a filename containing a newline into a
+# second, relative path, which the release would then delete from whatever
+# directory the operator happened to run the close in; the worker can create
+# such a name, and its state directory is a path it knows.
+scratch_walk() {
   case $- in
-    *f*) sg_restore='set -f' ;;
-    *) sg_restore='set +f' ;;
+    *f*) sw_restore='set -f' ;;
+    *) sw_restore='set +f' ;;
   esac
   set +f
-  for sg_p in "$1/in.fifo" "$1/out.fifo" \
+  sw_found=1
+  for sw_p in "$1/in.fifo" "$1/out.fifo" \
     "$1"/.init.* "$1"/.journal.* "$1"/.session.* "$1"/.pid.* "$1"/*.broken.*; do
-    [ -e "$sg_p" ] && printf '%s\n' "$sg_p"
+    [ -e "$sw_p" ] || continue
+    sw_found=0
+    [ "$2" = release ] || break
+    # `rm -rf`, not `rm -f`: a lock a stale-break renamed out of the way is a
+    # directory, and `rm -f` cannot remove one. The class would then read held
+    # on every later close, with no re-invocation able to make progress.
+    rm -rf "$sw_p" 2>/dev/null || :
   done
-  $sg_restore
+  $sw_restore
+  return "$sw_found"
 }
 
 # ps_rows — one `<pid> <ppid> <args>` row per process on the host.
@@ -1054,7 +1070,10 @@ release_processes() {
     return 1
   }
   stop_tracked=$(stop_live "$stop_tracked $rp_found")
-  [ -n "$stop_tracked" ] || return 0
+  if [ -z "$stop_tracked" ]; then
+    clear_pidfiles "$rp_dir"
+    return 0
+  fi
   for rp_sig in TERM KILL; do
     for rp_p in $stop_tracked; do
       kill "-$rp_sig" "$rp_p" 2>/dev/null || :
@@ -1069,23 +1088,34 @@ release_processes() {
       rp_found=$(stop_candidates "$rp_dir" "$rp_worker") || return 1
       stop_tracked=$(stop_live "$stop_tracked $rp_found")
       if [ -z "$stop_tracked" ]; then
-        # The recorded pids are now the pids of nothing. Left in place they
-        # would re-seed every later scan, and a pid the host reuses would make
-        # `launch` refuse this handle as already running, forever.
-        rm -f "$rp_dir/supervisor.pid" "$rp_dir/worker.pid" 2>/dev/null || :
+        clear_pidfiles "$rp_dir"
         return 0
       fi
       rp_now=$(now_epoch) || return 1
-      [ "$rp_now" -lt "$rp_until" ] || break
+      # `-le`, so the deadline is a floor: `date +%s` truncates, so a TERM sent
+      # at x.999 would otherwise reach a `-lt` deadline a millisecond later and
+      # escalate having given the worker no grace at all.
+      [ "$rp_now" -le "$rp_until" ] || break
       sleep 0.1
     done
   done
   return 1
 }
 
+# clear_pidfiles <dir> — drop pid files that now record nothing live.
+clear_pidfiles() {
+  rm -f "$1/supervisor.pid" "$1/worker.pid" 2>/dev/null || :
+}
+
 held_process() {
   hp_found=$(stop_candidates "$1" "$2") || return 0
-  [ -n "$(stop_live "$stop_tracked $hp_found")" ]
+  [ -n "$(stop_live "$stop_tracked $hp_found")" ] && return 0
+  # A pid file recording nothing live is still this class's residue, and the
+  # close has to reach it: a supervisor killed before its own cleanup leaves the
+  # file behind, and once the host reuses that pid `launch` refuses the handle
+  # as already running with nothing able to clear it. A worker that ended
+  # cleanly removed its own files, so this does not disturb `already-closed`.
+  [ -e "$1/supervisor.pid" ] || [ -e "$1/worker.pid" ]
 }
 
 # `-e` rather than `-d`: a lock path that exists as a regular file blocks the
@@ -1112,14 +1142,12 @@ release_locks() {
 }
 
 held_scratch() {
-  [ -n "$(scratch_globs "$1")" ]
+  scratch_walk "$1" probe
 }
 
 release_scratch() {
-  scratch_globs "$1" | while IFS= read -r rs_p; do
-    rm -f "$rs_p" 2>/dev/null || :
-  done
-  [ -z "$(scratch_globs "$1")" ]
+  scratch_walk "$1" release
+  ! scratch_walk "$1" probe
 }
 
 # The attention store's layout is read directly, as the sibling fleet scripts
@@ -1150,7 +1178,16 @@ release_attention() {
 
 journal_close() {
   [ -f "$1/journal" ] || return 0
-  awk -F'\t' '$4 == "pending" { found = 1 } END { exit found ? 0 : 1 }' "$1/journal" || return 0
+  # Three outcomes, not two: awk exits 1 for "no pending rows" and something
+  # else entirely when it could not read the journal. Folding the second into
+  # the first would clear the attention row while every receipt stayed pending,
+  # which is the re-arming this function exists to stop.
+  awk -F'\t' '$4 == "pending" { found = 1 } END { exit found ? 0 : 1 }' "$1/journal"
+  case $? in
+    0) ;;
+    1) return 0 ;;
+    *) return 1 ;;
+  esac
   journal_lock "$1" || return 1
   jc_now=$(now_epoch) || jc_now=0
   jc_tmp=$(mktemp "$1/.journal.XXXXXX") || {
