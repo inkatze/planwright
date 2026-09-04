@@ -916,6 +916,14 @@ ps_rows() {
   printf '%s\n' "$pr_out"
 }
 
+# ps_argv_wide — zero when this host's `ps` yields untruncated argv, so a
+# missing argv match is evidence of absence rather than of truncation. The
+# distinction is what lets the close tell "no supervisor is running" from "I
+# cannot see whether one is".
+ps_argv_wide() {
+  ps_rows_shaped "$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null)"
+}
+
 ps_rows_shaped() {
   [ -n "$1" ] || return 1
   prs_first=${1%%"$LF"*}
@@ -1055,18 +1063,36 @@ stop_candidates() {
 # leaving the worker alive, half its children dead, its stdio fifos deleted, and
 # nothing recorded for `launch` to refuse a second supervisor on.
 #
-# The ancestry is tested against the supervisor's argv alone, never the recorded
-# pids, even though `stop_candidates` seeds from both. A pid file outlives the
-# process it names, and a reused pid is very often an ancestor of every shell on
-# the host — a leftover state directory whose `supervisor.pid` now names the
-# session manager would refuse every close for that handle, forever, and this
-# verb is the only one that clears those files, so `launch` and `recover` would
-# refuse it too. The argv match cannot be forged by reuse, and the worker is
-# spawned as a child of the process carrying it, so everything genuinely inside
-# the tree is reachable through it.
+# The ancestry is tested against the supervisor's argv first, and against the
+# recorded pids only when argv cannot be trusted. The two seeds fail in opposite
+# directions and neither is safe alone. A pid file outlives the process it
+# names, and a recycled pid is very often an ancestor of every shell on the
+# host: a leftover state directory whose `supervisor.pid` now names the session
+# manager would make every close for that handle look self-hosted and be
+# refused, forever — and this verb is the only one that clears those files, so
+# `launch` and `recover` would refuse the handle too. The argv match cannot be
+# forged that way, and the worker is spawned as a child of the process carrying
+# it, so everything genuinely inside the tree is reachable through it. But argv
+# is exactly what a narrow `ps` truncates, and there the missing match is not
+# evidence of absence; refusing to fall back would let a real self-close proceed
+# and kill part of its own tree.
+#
+# So the fallback is conditioned on which of those two worlds this host is in.
+# When argv is readable, a missing match means no live supervisor, and an
+# ancestor named by a pid file is a recycled pid to be ignored. When argv is
+# truncated, the recorded pids are all there is, and the close fails closed.
 stop_self_hosted() {
   ssh_snap=$(ps_rows) || return 1
-  printf '%s\n' "$ssh_snap" | SC_MATCH="_supervise $2 $1" awk -v self_pid="$$" '
+  ssh_seed=''
+  if ! ps_argv_wide; then
+    for ssh_f in supervisor.pid worker.pid; do
+      ssh_p=$(cat "$1/$ssh_f" 2>/dev/null) || ssh_p=''
+      if valid_posnum "${ssh_p:-}"; then
+        ssh_seed="$ssh_seed $ssh_p"
+      fi
+    done
+  fi
+  printf '%s\n' "$ssh_snap" | SC_MATCH="_supervise $2 $1" awk -v seeds="$ssh_seed" -v self_pid="$$" '
     BEGIN {
       sup = ENVIRON["SC_MATCH"]
       # `index(s, "")` is 1, so an empty match string would mark every process
@@ -1082,6 +1108,10 @@ stop_self_hosted() {
       if (index($0, sup)) owner[$1] = 1
     }
     END {
+      m = split(seeds, s, " ")
+      for (i = 1; i <= m; i++) if (s[i] != "") owner[s[i]] = 1
+      delete owner["0"]
+      delete owner["1"]
       p = self_pid
       for (i = 0; i <= n; i++) {
         if (p in owner) exit 0

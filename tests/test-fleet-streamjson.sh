@@ -1374,26 +1374,42 @@ wait_until 100 sh -c "! kill -0 $sup22d 2>/dev/null" || fail "c22d: the supervis
 echo "ok: c22d a close from inside the worker's own tree is refused (REQ-B1.3)"
 
 # ---------------------------------------------------------------------------
-# c22e (REQ-B1.7): the self-close refusal keys on the supervisor's argv, never
-#    on the recorded pids. A pid file outlives the process it names, and a
-#    reused pid is very often an ancestor of every shell on the host — seeding
-#    the ancestry test from those files would refuse this handle's close
-#    forever, and since `stop` is the only verb that clears them, `launch` and
-#    `recover` would refuse it too. Unclosable, unlaunchable, unrecoverable.
+# c22e (REQ-B1.3): on a host whose `ps` gives full argv, a recorded pid that is
+#    an ancestor of the closer must NOT read as a self-close. A pid file
+#    outlives the process it names, and a recycled pid is very often an ancestor
+#    of every shell on the host; refusing on one would wedge the handle forever,
+#    and since `stop` is the only verb that clears those files, `launch` and
+#    `recover` would refuse it too — unclosable, unlaunchable, unrecoverable.
 # ---------------------------------------------------------------------------
 wdir22e="$home/streamjson/sjw22e"
 mkdir -p "$wdir22e" || fail "c22e: cannot plant the state dir"
-# $PPID is live and is by construction an ancestor of this shell, which is what
-# a recycled recorded pid looks like from the closer's point of view.
-printf '%s\n' "$PPID" >"$wdir22e/supervisor.pid"
-out=$(senv "$home" "$rec" -- stop sjw22e --grace 2 2>&1)
+# The planted pid is the closer's own, via a wrapper that records itself and
+# then execs the close. It must be an ancestor of the closer to exercise the
+# walk, and it must have no OTHER descendants: `stop_candidates` still seeds
+# `want` from this file and expands downward, and anything under the planted pid
+# that is not also under the closer would be signalled for real. Planting a
+# shell's parent satisfies the first requirement and violates the second — every
+# sibling of this suite, including a parallel `mise` task, is under it.
+# shellcheck disable=SC2016 # $$/$1/$@ below belong to the inner shell, which
+# must record its own pid and then exec, so they are deliberately unexpanded.
+selfpid_close() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+    -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_REPO_ROOT \
+    -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS \
+    -u PLANWRIGHT_STREAMJSON_PENDING_AGE \
+    PLANWRIGHT_FLEET_STATE_DIR="$1" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+    SHIM_RECORD_DIR="$2" \
+    /bin/sh -c 'printf "%s\n" "$$" >"$1"; shift; exec "$@"' _ \
+    "$3" /bin/sh "$SJ" stop "$4" --grace 2 2>&1
+}
+out=$(selfpid_close "$home" "$rec" "$wdir22e/supervisor.pid" sjw22e)
 rc=$?
 [ "$rc" != 3 ] \
-  || fail "c22e: a stale pid naming an ancestor must not read as a self-close: $out"
+  || fail "c22e: a recorded pid that is an ancestor must not read as a self-close: $out"
 [ "$rc" = 0 ] || fail "c22e: the close should have succeeded, got rc=$rc ($out)"
 [ ! -e "$wdir22e/supervisor.pid" ] \
   || fail "c22e: the close must clear the stale pid file, or the handle stays wedged"
-echo "ok: c22e a recycled recorded pid does not masquerade as a self-close (REQ-B1.7)"
+echo "ok: c22e a recorded pid in the closer's ancestry is not a self-close (REQ-B1.3)"
 
 # ---------------------------------------------------------------------------
 # c22c (REQ-A1.3, REQ-B1.4): the lock class is released and named, and an
