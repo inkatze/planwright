@@ -1,7 +1,11 @@
 #!/bin/sh
 # fleet-streamjson.sh — the stream-json-persistent supervisor primitive
 # (execution-backends Task 4; D-4, D-5 · REQ-A1.3, REQ-A1.9, REQ-E1.1,
-# REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5).
+# REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5). The close verb and the single-
+# initiator elections on `launch` and `recover` come from a later bundle
+# (fleet-lifecycle-closure D-3, D-10 · REQ-B1.1–B1.4, REQ-B1.7), whose own
+# REQ-A1.3 is a different requirement from the one cited above; qualify the
+# bundle when citing either.
 #
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
@@ -34,7 +38,15 @@
 #                    undeliverable (the REQ-E1.5 durable receipt)
 #   req-<id>.json    the raw control_request envelope (answer composition)
 #   in.fifo/out.fifo the stdio channels the supervisor owns
-#   supervisor.pid / worker.pid / result / recover.lock/ / journal.lock/
+#   supervisor.pid / worker.pid / result / recover.lock/ / journal.lock/ /
+#   launch.lock/
+#   scope            the dispatch scope, when the launch supplied one
+#   supervisor.log   the detached supervisor's own stderr
+#   .init.* / .journal.* / .session.* / .pid.*  mktemp-beside-target staging
+#   *.broken.*       a lock directory a stale-break renamed out of the way
+# Which of these a close releases is not a property of their order here: the
+# release set is `release_classes` and the globs each class names, and the
+# entries above are listed by what they hold, not by who removes them.
 # Placing the capture under the fleet home is the strongest reading of the
 # Task 4 "gitignored location outside committed paths" clause: it sits
 # outside every checkout, so it cannot be committed even by force-add. The
@@ -64,6 +76,40 @@
 # attention item naming it: never a silent drop, never a silent re-apply to
 # a different request.
 #
+# THE CLOSE (`stop`). The release set is the runtime a worker acquires:
+# its process tree, the locks it holds, its scratch temp, and its attention
+# record. The tmux-window class is named here rather than left silently absent,
+# per the floor's declare-every-class rule: it is not acquired by this rung at
+# all — a stream-json worker is a detached supervisor/worker pair with no
+# window. The dispatch registry record is written at launch and is NOT released
+# here: it is fleet-wide inventory rather than this worker's runtime. Nothing
+# reconciles it yet (`scripts/fleet-register.sh` says so where it writes the
+# record), so a stopped worker keeps its inventory row until the reconcile this
+# bundle plans lands. The worktree, the branch, and the unit's fence are
+# never touched: the release set is exactly the reproducible resources, and the
+# worktree is the one holding work that cannot be recovered. No audit record is
+# written either — the reap path that needs one owns it, so that an autonomous
+# close writes exactly one record rather than two.
+#
+# Process matching keys on the worker's STATE-DIRECTORY path and on the pids
+# that directory records, never on a process name or command pattern: an
+# operator's own `claude` session shares this worker's command shape exactly,
+# so a name match would kill it. The path match is anchored on the supervisor's
+# own `_supervise <worker> <dir>` argv, not on a bare search for the directory,
+# which would also match a sibling worker whose handle this one prefixes and
+# any process merely naming the directory. SIGTERM first, SIGKILL after a
+# bounded grace, because children do not reliably die with a parent SIGTERM.
+#
+# A release that cannot complete is reported as partial with the classes still
+# held, never as success, so a tower can tell a closed worker from one that
+# left residue. A process class that stays held ends the walk: breaking the
+# locks and deleting the stdio fifos of a worker that is demonstrably still
+# running would leave it alive with no channel to answer it on. Re-invocation
+# is idempotent over the RELEASE SET rather than the invocation: a stop takes
+# exactly the classes still held, so a repeat against a fully released worker
+# reports `already-closed` and signals nothing, while a repeat after a partial
+# close retries only what remains.
+#
 # COMPLETION / LIVENESS. This backend's completion/liveness source is the
 # supervisor plus the event stream (the sibling of Task 3's completion
 # signal): `status` reports completed from the captured result event, and
@@ -82,7 +128,11 @@
 #       `launched <worker> dir <dir>`); --foreground runs the supervisor
 #       loop in this process (fixtures; returns the worker's exit code). A
 #       caller-supplied `--bare` (or `-b`) in the extra args is refused
-#       (exit 2): the non-bare pin is structural.
+#       (exit 2): the non-bare pin is structural. Single-initiator: a launch
+#       already in flight for this worker, or any process this worker's state
+#       still records as alive, is refused (exit 3) rather than allowed to
+#       orphan the first one. That second arm covers a live worker under a
+#       dead supervisor, which wants `recover` rather than a second `launch`.
 #   fleet-streamjson.sh answer <worker> <request-id>
 #       (--response-file <file> | --allow | --deny [--message <text>])
 #       Deliver the recorded answer for a pending request. --allow composes
@@ -103,19 +153,39 @@
 #       attention item + notify push. The outcome is operator escalation on
 #       the attention surface — never an auto-answer, never a worker kill.
 #       Prints `alarm <worker> <id> <age>` per firing.
+#   fleet-streamjson.sh stop <worker> [--grace <secs>]
+#       Close the worker: terminate its process tree and release the locks,
+#       scratch temp, and attention record it holds. Prints one of
+#       `stop <worker> stopped released=<classes>`,
+#       `stop <worker> already-closed`, or
+#       `stop <worker> partial released=<classes> held=<classes>`, whose
+#       released field reads `-` when nothing was released (the other two
+#       forms cannot reach that case). <secs> is the SIGTERM-to-SIGKILL grace,
+#       a whole number of seconds bounded by `grace_max` and defaulting to
+#       `grace_default`; passing an out-of-range value prints both. There is no
+#       zero-grace form, since SIGTERM always goes first, and a fixed settling
+#       wait follows the SIGKILL.
+#       An unknown handle is exit 2, not `already-closed`, so a typo never
+#       reads as a successful close, and a close asked for from inside the
+#       worker's own process tree is refused with exit 3 rather than attempted.
 #   fleet-streamjson.sh status <worker>
 #       Print `status <worker> <running|completed|dead|unknown> <detail>`
 #       from the recorded pids and the captured event stream.
 #
 # Exit codes: 0 success; 2 usage error, refused hostile input, or a
 #   filesystem/lock error (fail closed); 3 a semantic refusal (recovery
-#   already in flight / not orphaned / the answer does not apply — the
-#   undeliverable-answer arms exit 3 AFTER surfacing the attention item);
-#   4 recovery halt: no usable session to resume; 5 recovery halt: the
-#   `--resume` relaunch failed.
+#   already in flight / a launch already in flight or over a live supervisor /
+#   not orphaned / a close asked for from inside the worker's own process tree /
+#   the answer does not apply — the undeliverable-answer arms
+#   exit 3 AFTER surfacing the attention item); 4 recovery halt: no usable
+#   session to resume; 5 recovery halt: the `--resume` relaunch failed; 6 a
+#   partial close: some class of the release set is still held.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,
-# mkfifo, mktemp, `date +%s`, a fractional `sleep`. No eval, no jq
+# mkfifo, mktemp, `date +%s`, a fractional `sleep`, and — for the close —
+# `kill` and a `ps -A -o pid=,ppid=,args=` whose output format is load-bearing
+# (`-ww` is probed and the narrow form accepted, since BSD ps truncates argv to
+# terminal width and busybox ps rejects the flag). No eval, no jq
 # (REQ-K1.5); all parsed content — event lines, request ids, prompt text —
 # is data, never code. Pathname expansion is disabled (set -f).
 set -uf
@@ -125,6 +195,8 @@ export LC_ALL
 unset CDPATH
 
 me=fleet-streamjson
+LF='
+'
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # Absolute path to this script, so the detached-supervisor re-exec survives a
@@ -197,6 +269,7 @@ usage() {
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
     echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
+    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>]"
     echo "       fleet-streamjson.sh status <worker>"
   } >&2
   exit 2
@@ -252,9 +325,90 @@ stat_mtime() {
   printf '%s\n' "$sm_v"
 }
 
+# --- single-initiator locks -------------------------------------------------
+
+# The ages past which a lock whose holder never recorded itself is a crashed
+# holder rather than a live one, each sized against the operation it covers: a
+# recovery spans a relaunch and its startup wait; a launch's unrecorded window
+# closes as soon as it writes its holder pid.
+recover_lock_stale=300
+launch_lock_stale=60
+journal_lock_stale=60
+
+# lock_take <lock-dir> <max-age> — take an atomic mkdir election, breaking a
+# lock whose holder is gone. Non-zero, lock untouched, when a holder is
+# genuinely live.
+#
+# The holder's pid is recorded inside the lock, so a crashed holder is detected
+# by evidence rather than by an age that cannot tell a crash from a legitimate
+# long hold — a `--foreground` launch holds its lock for the whole run. The age
+# is the fallback for a lock whose holder died before recording itself, and an
+# unreadable mtime reads as fresh, so an unprobeable lock is refused rather
+# than broken.
+#
+# The break renames before it removes: `rmdir` then `mkdir` is not a
+# compare-and-swap, and two callers racing to break one stale lock would both
+# win it. Only one rename can find the directory.
+lock_take() {
+  if mkdir "$1" 2>/dev/null; then
+    printf '%s\n' "$$" >"$1/holder" 2>/dev/null || :
+    return 0
+  fi
+  lt_holder=$(cat "$1/holder" 2>/dev/null) || lt_holder=''
+  if valid_posnum "${lt_holder:-}"; then
+    kill -0 "$lt_holder" 2>/dev/null && return 1
+  else
+    lt_now=$(now_epoch) || return 1
+    lt_mt=$(stat_mtime "$1") || lt_mt=$lt_now
+    [ $((lt_now - lt_mt)) -gt "$2" ] || return 1
+  fi
+  lt_broken="$1.broken.$$"
+  mv "$1" "$lt_broken" 2>/dev/null || return 1
+  rm -rf "$lt_broken" 2>/dev/null || :
+  mkdir "$1" 2>/dev/null || return 1
+  printf '%s\n' "$$" >"$1/holder" 2>/dev/null || :
+}
+
+# lock_drop <lock-dir> — release a lock this process still holds. A lock some
+# other caller has since taken is left alone: without the ownership check, a
+# holder that outlived a break of its own lock would remove its successor's.
+lock_drop() {
+  [ "$(cat "$1/holder" 2>/dev/null)" = "$$" ] || return 0
+  rm -rf "$1" 2>/dev/null || :
+}
+
+# write_pidfile <path> <pid> — publish a pid file the way this script publishes
+# every other piece of durable state: into a temp beside the target, then
+# renamed over it.
+#
+# A bare redirect creates the file before the write lands, and every reader of
+# these files treats an empty one as "no pid recorded". In that window a launch
+# reports success over a supervisor that never registered itself, the next
+# launch's liveness check calls a live worker dead and starts a second
+# supervisor over it, and `recover` resumes a session that is still running.
+# A rename has no such window: the file is absent or complete, and absent is
+# what every reader already handles.
+write_pidfile() {
+  wp_tmp=$(mktemp "${1%/*}/.pid.XXXXXX") || return 1
+  printf '%s\n' "$2" >"$wp_tmp" && mv "$wp_tmp" "$1" && return 0
+  rm -f "$wp_tmp" 2>/dev/null || :
+  return 1
+}
+
+# worker_alive <dir> — true when a pid this worker's own state records is live.
+worker_alive() {
+  for wa_f in supervisor.pid worker.pid; do
+    wa_p=$(cat "$1/$wa_f" 2>/dev/null) || wa_p=''
+    if valid_posnum "${wa_p:-}" && kill -0 "$wa_p" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # --- journal (the REQ-E1.5 durable receipt state) ---------------------------
 # One tab-separated row per request id: id kind received-epoch state [epoch].
-# Mutations run under an mkdir lock, stale-broken past 60s: journal writes
+# Mutations run under an mkdir lock, stale-broken past its age: journal writes
 # are sub-second, so an older lock is a crashed holder, and breaking it can
 # at worst duplicate an attention upsert — never lose a receipt.
 
@@ -266,7 +420,7 @@ journal_lock() {
     if [ "$jl_i" -ge 50 ]; then
       jl_now=$(now_epoch) || return 2
       jl_mt=$(stat_mtime "$jl_dir") || jl_mt=$jl_now
-      if [ $((jl_now - jl_mt)) -gt 60 ]; then
+      if [ $((jl_now - jl_mt)) -gt "$journal_lock_stale" ]; then
         rmdir "$jl_dir" 2>/dev/null
         jl_i=0
         continue
@@ -575,10 +729,10 @@ supervise() {
   shift 3
   rm -f "$sv_dir/in.fifo" "$sv_dir/out.fifo"
   mkfifo "$sv_dir/in.fifo" "$sv_dir/out.fifo" || return 2
-  printf '%s\n' "$$" >"$sv_dir/supervisor.pid"
+  write_pidfile "$sv_dir/supervisor.pid" "$$" || return 2
   "$@" <"$sv_dir/in.fifo" >"$sv_dir/out.fifo" 2>>"$sv_dir/stderr.log" &
   sv_pid=$!
-  printf '%s\n' "$sv_pid" >"$sv_dir/worker.pid"
+  write_pidfile "$sv_dir/worker.pid" "$sv_pid" || :
   # From here the supervisor writes into the worker's stdin fifo: a worker
   # that exits before reading turns the write into EPIPE, which must end the
   # run cleanly, not kill the supervisor. Set AFTER the spawn so the worker
@@ -701,6 +855,505 @@ register_dispatch() {
   /bin/sh "$rd_reg" "$@" >/dev/null </dev/null || true
 }
 
+# --- the close (the release set) --------------------------------------------
+
+# The classes a stop walks, in release order. Processes go first because a
+# release that cannot complete aborts the walk: breaking the locks and deleting
+# the stdio fifos of a worker still running would leave it alive with no
+# channel to answer it on and no receipt lock to protect its journal.
+release_classes='process locks scratch attention'
+
+# The locks this rung's worker dir can hold.
+lock_classes='journal.lock recover.lock launch.lock'
+
+# scratch_walk <dir> <probe|release> — visit every scratch path present under
+# <dir>; zero when at least one was there. Scratch is the stdio fifos the
+# supervisor owns, the staging files this script's writers create beside their
+# targets, and the residue of a broken lock. Everything else in the state
+# directory is the durable record a close keeps: the capture, the journal, the
+# session, the stored envelopes, and the result.
+#
+# The probe and the release share one function because they must share one glob
+# list, and because the paths never become text. Handing a caller a
+# newline-delimited list would split a filename containing a newline into a
+# second, relative path, which the release would then delete from whatever
+# directory the operator happened to run the close in; the worker can create
+# such a name, and its state directory is a path it knows.
+scratch_walk() {
+  case $- in
+    *f*) sw_restore='set -f' ;;
+    *) sw_restore='set +f' ;;
+  esac
+  set +f
+  sw_found=1
+  for sw_p in "$1/in.fifo" "$1/out.fifo" \
+    "$1"/.init.* "$1"/.journal.* "$1"/.session.* "$1"/.pid.* "$1"/*.broken.*; do
+    [ -e "$sw_p" ] || continue
+    sw_found=0
+    [ "$2" = release ] || break
+    # `rm -rf`, not `rm -f`: a lock a stale-break renamed out of the way is a
+    # directory, and `rm -f` cannot remove one. The class would then read held
+    # on every later close, with no re-invocation able to make progress.
+    rm -rf "$sw_p" 2>/dev/null || :
+  done
+  $sw_restore
+  return "$sw_found"
+}
+
+# ps_rows — one `<pid> <ppid> <args>` row per process on the host.
+#
+# `-ww` is what keeps the supervisor's long argv, which carries the
+# state-directory path the match keys on, from being truncated to terminal
+# width by BSD ps; a ps that rejects the flag degrades to the narrow form
+# rather than to nothing. Each candidate is shape-checked rather than trusted
+# by exit status, the discipline stat_mtime applies to its own two flavors.
+ps_rows() {
+  pr_out=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || pr_out=''
+  if ! ps_rows_shaped "$pr_out"; then
+    pr_out=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || pr_out=''
+    ps_rows_shaped "$pr_out" || return 1
+  fi
+  printf '%s\n' "$pr_out"
+}
+
+ps_rows_shaped() {
+  [ -n "$1" ] || return 1
+  prs_first=${1%%"$LF"*}
+  while [ "${prs_first# }" != "$prs_first" ]; do
+    prs_first=${prs_first# }
+  done
+  case ${prs_first%% *} in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+}
+
+# stop_candidates <dir> <worker> — every live pid belonging to the worker whose
+# runtime state lives at <dir>, one per line. Non-zero when the host's process
+# table cannot be read, so a caller reports the class held rather than assuming
+# it is free.
+#
+# Two seeds. The supervisor is matched on the exact `_supervise <worker> <dir>`
+# triple this script re-execs itself with. Searching argv for the bare
+# directory would over-match twice over: one handle prefixes another (`api`
+# against `api2`'s state directory), and any process that merely *names* the
+# directory — an operator tailing the event capture — would be swept in with
+# its whole subtree. The worker, and a supervisor whose argv cannot be read,
+# come from the pids the state directory records. Neither seed is a process
+# name or a command pattern.
+#
+# The worker's own children carry neither the argv nor a pid file, so they are
+# reached by walking the parent map down from the seeds. pid 1 is never a root:
+# an expansion that reached it would enumerate every orphan on the host.
+#
+# The caller's own process and its ancestors are excluded: a close invoked from
+# inside the tree it is closing must not kill the closer mid-release. That
+# exclusion is also why such a close cannot be allowed to proceed at all: the
+# supervisor and the worker fall inside it while their other children do not, so
+# the walk would signal part of the tree and then report the whole release set
+# free. `stop_self_hosted` refuses that case before this runs.
+#
+# The match text goes through the environment rather than `awk -v`, which
+# rewrites backslash escapes in the value it assigns: the fleet home is taken
+# verbatim from the operator's configuration, and a `\t` in it would otherwise
+# make the comparison silently target a path nobody asked for. It is scoped to
+# the awk invocation rather than exported, so the worker's state-directory path
+# does not end up in the environment of every later child of the close.
+stop_candidates() {
+  sc_dir=$1
+  sc_snap=$(ps_rows) || return 1
+  sc_seed=''
+  for sc_f in supervisor.pid worker.pid; do
+    sc_p=$(cat "$sc_dir/$sc_f" 2>/dev/null) || sc_p=''
+    if valid_posnum "${sc_p:-}"; then
+      sc_seed="$sc_seed $sc_p"
+    fi
+  done
+  printf '%s\n' "$sc_snap" | SC_MATCH="_supervise $2 $sc_dir" awk -v seeds="$sc_seed" -v self_pid="$$" '
+    BEGIN {
+      sup = ENVIRON["SC_MATCH"]
+      # `index(s, "")` is 1, so an empty match string would mark every process
+      # on the host. It cannot be empty as written — the value has a literal
+      # prefix — but this verb sends signals, so the one input whose emptiness
+      # inverts "matches nothing" into "matches everything" is checked rather
+      # than reasoned about. Exiting non-zero reports the class held.
+      if (sup == "") exit 2
+    }
+    $1 ~ /^[0-9]+$/ {
+      ppid[$1] = $2
+      order[++n] = $1
+      if (index($0, sup)) want[$1] = 1
+    }
+    END {
+      m = split(seeds, s, " ")
+      for (i = 1; i <= m; i++) if (s[i] != "") want[s[i]] = 1
+      delete want["0"]
+      delete want["1"]
+      for (pass = 1; pass <= n; pass++) {
+        grew = 0
+        for (i = 1; i <= n; i++) {
+          p = order[i]
+          if (!(p in want) && (p in ppid) && (ppid[p] in want)) {
+            want[p] = 1
+            grew = 1
+          }
+        }
+        if (!grew) break
+      }
+      # The closer, everything it descends from, and everything under it. The
+      # descendants matter as much as the ancestors: this function runs in a
+      # forked subshell, so a close invoked from inside the tree it closes
+      # would otherwise enumerate its own scanner on every poll and never see
+      # the candidate set empty. pid 0 and pid 1 are filtered from the result
+      # rather than seeded here: seeding them would claim every orphan on the
+      # host, including the orphaned worker a close most needs to find.
+      #
+      # Only the closer itself roots the descendant walk. Rooting it at the
+      # ancestors as well would claim their other children — and since that
+      # chain ends at pid 1, whose descendants are every process on the host,
+      # the exclusion set would swallow the very tree the close is looking for
+      # and every stop would report the process class released over a live
+      # worker.
+      p = self_pid
+      for (i = 0; i <= n; i++) {
+        mine[p] = 1
+        if (!(p in ppid) || ppid[p] == "" || ppid[p] == "0") break
+        p = ppid[p]
+      }
+      kin[self_pid] = 1
+      for (pass = 1; pass <= n; pass++) {
+        grew = 0
+        for (i = 1; i <= n; i++) {
+          p = order[i]
+          if (!(p in kin) && (ppid[p] in kin)) {
+            kin[p] = 1
+            mine[p] = 1
+            grew = 1
+          }
+        }
+        if (!grew) break
+      }
+      # `p in ppid` is presence in the process table. The recorded pids are
+      # seeded without a liveness check of their own, so a worker closed while
+      # its pid files survive would otherwise report its process class held
+      # forever, on two pids that no longer exist.
+      for (p in want) {
+        if (!(p in ppid) || (p in mine)) continue
+        if (p == "0" || p == "1") continue
+        print p
+      }
+    }'
+}
+
+# stop_self_hosted <dir> <worker> — zero when this process is running inside the
+# very tree it has been asked to close.
+#
+# Such a close cannot work, and it fails in the worst direction. The candidate
+# walk excludes the closer and everything it descends from, so the supervisor
+# and the worker are invisible to it while their *other* children are not: it
+# would SIGTERM and then SIGKILL part of the tree, find nothing left that it can
+# see, clear the pid files as though the tree were gone, and report `stopped` —
+# leaving the worker alive, half its children dead, its stdio fifos deleted, and
+# nothing recorded for `launch` to refuse a second supervisor on.
+#
+# The ancestry is tested against the supervisor's argv first, and against the
+# recorded pids only when argv cannot be trusted. The two seeds fail in opposite
+# directions and neither is safe alone. A pid file outlives the process it
+# names, and a recycled pid is very often an ancestor of every shell on the
+# host: a leftover state directory whose `supervisor.pid` now names the session
+# manager would make every close for that handle look self-hosted and be
+# refused, forever — and this verb is the only one that clears those files, so
+# `launch` and `recover` would refuse the handle too. The argv match cannot be
+# forged that way, and the worker is spawned as a child of the process carrying
+# it, so everything genuinely inside the tree is reachable through it. But argv
+# is exactly what a narrow `ps` truncates, and there the missing match is not
+# evidence of absence; refusing to fall back would let a real self-close proceed
+# and kill part of its own tree.
+#
+# So the fallback is conditioned on which of those two worlds this host is in.
+# When argv is readable, a missing match means no live supervisor, and an
+# ancestor named by a pid file is a recycled pid to be ignored. When argv is
+# truncated, the recorded pids are all there is, and the close fails closed.
+stop_self_hosted() {
+  # The snapshot and the verdict about its argv fidelity come from one probe.
+  # Taken separately they can disagree — a transient fork failure degrades the
+  # snapshot to the narrow form while an independent retry of `-ww` succeeds —
+  # and the disagreement resolves toward proceeding, which is the direction that
+  # kills.
+  ssh_wide=1
+  ssh_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || ssh_snap=''
+  if ! ps_rows_shaped "$ssh_snap"; then
+    ssh_wide=0
+    ssh_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || ssh_snap=''
+    ps_rows_shaped "$ssh_snap" || return 2
+  fi
+  ssh_seed=''
+  if [ "$ssh_wide" = 0 ]; then
+    for ssh_f in supervisor.pid worker.pid; do
+      ssh_p=$(cat "$1/$ssh_f" 2>/dev/null) || ssh_p=''
+      if valid_posnum "${ssh_p:-}"; then
+        ssh_seed="$ssh_seed $ssh_p"
+      fi
+    done
+  fi
+  printf '%s\n' "$ssh_snap" | SC_MATCH="_supervise $2 $1" awk -v seeds="$ssh_seed" -v self_pid="$$" '
+    BEGIN {
+      sup = ENVIRON["SC_MATCH"]
+      # `index(s, "")` is 1, so an empty match string would mark every process
+      # on the host. It cannot be empty as written — the value has a literal
+      # prefix — but this verb sends signals, so the one input whose emptiness
+      # inverts "matches nothing" into "matches everything" is checked rather
+      # than reasoned about. Exit 2 is the cannot-determine answer, which the
+      # caller refuses on.
+      if (sup == "") exit 2
+    }
+    $1 ~ /^[0-9]+$/ {
+      ppid[$1] = $2
+      n++
+      if (index($0, sup)) owner[$1] = 1
+    }
+    END {
+      # The 0/1 filter applies to the seeds only. An argv match at pid 1 is a
+      # real supervisor running as container init, and discarding it here would
+      # let a self-close from inside that tree proceed.
+      m = split(seeds, s, " ")
+      for (i = 1; i <= m; i++) {
+        if (s[i] != "" && s[i] != "0" && s[i] != "1") owner[s[i]] = 1
+      }
+      p = self_pid
+      for (i = 0; i <= n; i++) {
+        if (p in owner) exit 0
+        if (!(p in ppid) || ppid[p] == "" || ppid[p] == "0" || p == "1") break
+        p = ppid[p]
+      }
+      exit 1
+    }'
+}
+
+# stop_live <space-separated pids> — the deduplicated subset still signallable,
+# space-separated on stdout.
+stop_live() {
+  sl_out=''
+  for sl_p in $1; do
+    valid_posnum "$sl_p" || continue
+    [ "$sl_p" = 1 ] && continue
+    case " $sl_out " in
+      *" $sl_p "*) continue ;;
+    esac
+    kill -0 "$sl_p" 2>/dev/null || continue
+    sl_out="$sl_out $sl_p"
+  done
+  printf '%s' "${sl_out# }"
+}
+
+# The settling wait after SIGKILL, in seconds. Not operator-tunable: SIGKILL is
+# not refusable, so this bounds how long the kernel takes to reap, not how long
+# a process is given to cooperate.
+kill_settle=5
+
+# The largest grace a caller may ask for.
+grace_max=300
+
+# The SIGTERM-to-SIGKILL grace a caller gets without asking.
+grace_default=5
+
+# release_processes <dir> <worker> <grace> — SIGTERM the worker's process tree,
+# then SIGKILL whatever is still there after <grace> seconds. Children do not
+# reliably die with a parent SIGTERM, so the escalation is not optional.
+#
+# The target set accumulates in `stop_tracked` rather than being recomputed
+# from scratch each round. A child that ignores SIGTERM is reparented to pid 1
+# when its parent dies, which drops it out of the descendant walk entirely — a
+# set rebuilt from the walk alone would then find nothing and report the class
+# released while that child ran on, which is the exact leak this verb exists to
+# close. Candidates discovered during the wait are folded in, so a process the
+# worker forks mid-close is signalled too.
+#
+# The wait is bounded by wall clock rather than by a tick count: a poll costs a
+# full process-table scan, so on a busy host a tick is far longer than the
+# sleep and a counted grace would silently be several times the seconds the
+# operator asked for.
+release_processes() {
+  rp_dir=$1
+  rp_worker=$2
+  rp_grace=$3
+  rp_found=$(stop_candidates "$rp_dir" "$rp_worker") || {
+    echo "$me: cannot read the process table; the process class is left held" >&2
+    return 1
+  }
+  stop_tracked=$(stop_live "$stop_tracked $rp_found")
+  if [ -z "$stop_tracked" ]; then
+    clear_pidfiles "$rp_dir"
+    return 0
+  fi
+  for rp_sig in TERM KILL; do
+    for rp_p in $stop_tracked; do
+      kill "-$rp_sig" "$rp_p" 2>/dev/null || :
+    done
+    case $rp_sig in
+      TERM) rp_wait=$rp_grace ;;
+      *) rp_wait=$kill_settle ;;
+    esac
+    rp_now=$(now_epoch) || return 1
+    rp_until=$((rp_now + rp_wait))
+    while :; do
+      rp_found=$(stop_candidates "$rp_dir" "$rp_worker") || return 1
+      stop_tracked=$(stop_live "$stop_tracked $rp_found")
+      if [ -z "$stop_tracked" ]; then
+        clear_pidfiles "$rp_dir"
+        return 0
+      fi
+      rp_now=$(now_epoch) || return 1
+      # `-le`, so the deadline is a floor: `date +%s` truncates, so a TERM sent
+      # at x.999 would otherwise reach a `-lt` deadline a millisecond later and
+      # escalate having given the worker no grace at all.
+      [ "$rp_now" -le "$rp_until" ] || break
+      sleep 0.1
+    done
+  done
+  return 1
+}
+
+# clear_pidfiles <dir> — drop pid files that now record nothing live.
+#
+# `rm -rf`, for the reason `release_locks` uses it: the held-probe gates on mere
+# existence, so anything at those paths that `rm -f` cannot remove — a directory
+# the worker created there — would hold the class forever with no re-invocation
+# able to make progress. `${1:?}` guards the recursive removal against an empty
+# directory argument, and does so by ending the shell rather than the function,
+# which is why the trailing `|| :` on that line does not make it non-fatal.
+clear_pidfiles() {
+  rm -rf "${1:?}/supervisor.pid" "${1:?}/worker.pid" 2>/dev/null || :
+}
+
+held_process() {
+  hp_found=$(stop_candidates "$1" "$2") || return 0
+  [ -n "$(stop_live "$stop_tracked $hp_found")" ] && return 0
+  # A pid file recording nothing live is still this class's residue, and the
+  # close has to reach it: a supervisor killed before its own cleanup leaves the
+  # file behind, and once the host reuses that pid `launch` refuses the handle
+  # as already running with nothing able to clear it. A worker that ended
+  # cleanly removed its own files, so this does not disturb `already-closed`.
+  [ -e "$1/supervisor.pid" ] || [ -e "$1/worker.pid" ]
+}
+
+# `-e` rather than `-d`: a lock path that exists as a regular file blocks the
+# `mkdir` election just as effectively as a directory does, and gating on `-d`
+# would leave the verb it blocks wedged with nothing able to clear it.
+held_locks() {
+  for hl_l in $lock_classes; do
+    [ -e "$1/$hl_l" ] && return 0
+  done
+  return 1
+}
+
+# `rm -rf` rather than `rmdir`: an election lock carries its holder's pid
+# inside it, so it is not an empty directory. The names are literals from
+# `lock_classes` under a directory the caller has already validated.
+release_locks() {
+  rl_rc=0
+  for rl_l in $lock_classes; do
+    [ -e "$1/$rl_l" ] || continue
+    rm -rf "${1:?}/$rl_l" 2>/dev/null || :
+    [ -e "$1/$rl_l" ] && rl_rc=1
+  done
+  return "$rl_rc"
+}
+
+held_scratch() {
+  scratch_walk "$1" probe
+}
+
+release_scratch() {
+  scratch_walk "$1" release
+  ! scratch_walk "$1" probe
+}
+
+# The attention store's layout is read directly, as the sibling fleet scripts
+# already read it: fleet-attention.sh exposes `clear` but no query, and the
+# row's presence is what "held" means here. The string coercion is that
+# script's own comparison discipline — a bare `$1 == w` equates all-numeric
+# handles (`1`, `01`, `1.0`) and would report the wrong worker's row.
+#
+# A store that exists but cannot be read counts as held: the same fail-closed
+# posture the process probe takes, so an unreadable store cannot make a class
+# that is still occupied report as released.
+held_attention() {
+  [ -f "$1" ] || return 1
+  [ -r "$1" ] || return 0
+  awk -F'\t' -v w="$2" '($1 "") == (w "") { found = 1 } END { exit found ? 0 : 1 }' "$1" 2>/dev/null
+}
+
+# Clearing the row is half the release. The other half is the journal: a
+# receipt left `pending` is what `alarm-scan` re-queues a decision item from,
+# so a closed worker would keep re-arming the class this call just released,
+# and an operator answering that item would write into a fifo the same close
+# deleted. A close makes those receipts undeliverable by definition, and a
+# later `--resume` re-opens any the resumed worker asks again.
+release_attention() {
+  journal_close "$2" || return 1
+  /bin/sh "$FA" clear "$1" >/dev/null
+}
+
+journal_close() {
+  [ -f "$1/journal" ] || return 0
+  # Three outcomes, not two: awk exits 1 for "no pending rows" and something
+  # else entirely when it could not read the journal. Folding the second into
+  # the first would clear the attention row while every receipt stayed pending,
+  # which is the re-arming this function exists to stop.
+  awk -F'\t' '$4 == "pending" { found = 1 } END { exit found ? 0 : 1 }' "$1/journal"
+  case $? in
+    0) ;;
+    1) return 0 ;;
+    *)
+      echo "$me: cannot read the receipt journal; the attention class is left held" >&2
+      return 1
+      ;;
+  esac
+  journal_lock "$1" || return 1
+  jc_now=$(now_epoch) || jc_now=0
+  jc_tmp=$(mktemp "$1/.journal.XXXXXX") || {
+    journal_unlock "$1"
+    return 1
+  }
+  jc_rc=0
+  awk -F'\t' -v OFS='\t' -v ep="$jc_now" \
+    '$4 == "pending" { $4 = "undeliverable"; $5 = ep } { print }' "$1/journal" >"$jc_tmp" \
+    && mv "$jc_tmp" "$1/journal" || jc_rc=1
+  [ "$jc_rc" = 0 ] || rm -f "$jc_tmp" 2>/dev/null
+  journal_unlock "$1"
+  return "$jc_rc"
+}
+
+# stop_held / stop_release <class> <dir> <worker> <attention-store> <grace>.
+# The unknown-class arms are not defensive filler: a class added to
+# `release_classes` without both arms would otherwise report itself
+# permanently held, or silently released, with nothing on stderr.
+stop_held() {
+  case $1 in
+    process) held_process "$2" "$3" ;;
+    locks) held_locks "$2" ;;
+    scratch) held_scratch "$2" ;;
+    attention) held_attention "$4" "$3" ;;
+    *)
+      echo "$me: no held-probe for release class '$1'" >&2
+      return 0
+      ;;
+  esac
+}
+
+stop_release() {
+  case $1 in
+    process) release_processes "$2" "$3" "$5" ;;
+    locks) release_locks "$2" ;;
+    scratch) release_scratch "$2" ;;
+    attention) release_attention "$3" "$2" ;;
+    *)
+      echo "$me: no release for class '$1'" >&2
+      return 1
+      ;;
+  esac
+}
+
 # --- subcommands ------------------------------------------------------------
 
 cmd_launch() {
@@ -777,6 +1430,26 @@ cmd_launch() {
   dir=$(worker_dir "$worker") || exit 2
   mkdir -p "$dir" || exit 2
   chmod 700 "$dir" 2>/dev/null || :
+
+  # Single launch initiator, on the atomic-mkdir election `recover` already
+  # uses. Two concurrent launches for one worker otherwise both reach
+  # `supervise`, and the second overwrites the first's pid files — orphaning a
+  # supervisor that nothing records and nothing can close.
+  #
+  if ! lock_take "$dir/launch.lock" "$launch_lock_stale"; then
+    echo "$me: a launch is already in flight for $worker (refused: single initiator)" >&2
+    exit 3
+  fi
+  trap 'lock_drop "$dir/launch.lock"' EXIT
+
+  # The election ends when the first launch releases its lock, so a launch
+  # arriving after that against a supervisor already up needs its own refusal:
+  # it reaches the same double-supervisor outcome by the later route.
+  if worker_alive "$dir"; then
+    echo "$me: worker $worker is already running; launch refused" >&2
+    exit 3
+  fi
+
   if [ -n "$scope" ]; then
     printf '%s\n' "$scope" >"$dir/scope"
   fi
@@ -846,7 +1519,7 @@ cmd_launch() {
   # is surfaced, never reported as an optimistic `launched`.
   li=0
   while [ "$li" -lt 50 ]; do
-    if [ -f "$dir/supervisor.pid" ] || [ -f "$dir/result" ]; then
+    if [ -s "$dir/supervisor.pid" ] || [ -f "$dir/result" ]; then
       register_dispatch "$worker" "$scope" "$dir" "$tower_checkout"
       printf 'launched %s dir %s\n' "$worker" "$dir"
       return 0
@@ -1061,13 +1734,15 @@ cmd_recover() {
     exit 2
   }
 
-  # Single recovery initiator (REQ-E1.5): the atomic mkdir is the election;
-  # a concurrent second attempt is refused, never raced.
-  if ! mkdir "$dir/recover.lock" 2>/dev/null; then
+  # Single recovery initiator (REQ-E1.5): the election refuses a concurrent
+  # second attempt rather than racing it, and breaks a lock whose holder is
+  # gone — without that break, one SIGKILL between the election and the trap
+  # that releases it wedges `recover` for this worker permanently.
+  if ! lock_take "$dir/recover.lock" "$recover_lock_stale"; then
     echo "$me: recovery already in progress for $worker (refused: single initiator)" >&2
     exit 3
   fi
-  trap 'rmdir "$dir/recover.lock" 2>/dev/null' EXIT
+  trap 'lock_drop "$dir/recover.lock"' EXIT
 
   # Orphan liveness BEFORE --resume (REQ-E1.5): a still-alive worker or
   # supervisor is not orphaned; resuming over it would fork the session.
@@ -1101,11 +1776,112 @@ cmd_recover() {
     printf 'recovered %s session %s\n' "$worker" "$sid"
   else
     ec=$?
+    # The relaunch's own refusal (a launch already in flight, or a supervisor
+    # that came up under someone else) is not a resume failure: halting the
+    # unit on it would tell the operator to intervene while a perfectly good
+    # launch is running. Pass the refusal through instead.
+    if [ "$ec" = 3 ]; then
+      echo "$me: relaunch for $worker refused; another launch holds this worker" >&2
+      exit 3
+    fi
     attention_failure "$worker" "$dir" \
       "resume halt: --resume relaunch for worker $worker failed (exit $ec) - unit halted awaiting operator direction"
     echo "$me: --resume relaunch failed for $worker (exit $ec); halt (REQ-E1.5)" >&2
     exit 5
   fi
+}
+
+cmd_stop() {
+  [ $# -ge 1 ] || usage
+  worker=$1
+  shift
+  valid_field "$worker" || {
+    echo "$me: invalid worker handle" >&2
+    exit 2
+  }
+  grace=$grace_default
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --grace)
+        [ $# -ge 2 ] || usage
+        grace=$2
+        shift 2
+        ;;
+      *)
+        usage
+        ;;
+    esac
+  done
+  # The grace is bounded as well as shaped: `valid_posnum` admits fifteen
+  # digits, and a close that waits for a century is indistinguishable from one
+  # that has hung.
+  if ! valid_posnum "$grace" || [ "$grace" -gt "$grace_max" ]; then
+    echo "$me: --grace must be a whole number of seconds, 1 to $grace_max (default $grace_default)" >&2
+    exit 2
+  fi
+  dir=$(worker_dir "$worker") || exit 2
+  # A close never removes the state directory, so its absence means this handle
+  # names no worker — reported as such rather than as `already-closed`, which
+  # would read a typo as a successful close.
+  [ -d "$dir" ] || {
+    echo "$me: unknown worker $worker" >&2
+    exit 2
+  }
+  # The handle grammar blocks traversal tokens but not a symlink planted under
+  # the fleet home, and this verb deletes inside whatever it is handed.
+  [ ! -L "$dir" ] || {
+    echo "$me: refusing to close $worker: its state directory is a symlink" >&2
+    exit 2
+  }
+  # Three answers, not two. "Cannot determine" is refused rather than treated as
+  # "not inside": the whole file's posture on the process class is fail-closed,
+  # and proceeding on an unreadable table is the direction that signals.
+  stop_self_hosted "$dir" "$worker"
+  case $? in
+    0)
+      echo "$me: refusing to close $worker from inside its own process tree" >&2
+      exit 3
+      ;;
+    1) ;;
+    *)
+      echo "$me: cannot read the process table; refusing to close $worker" >&2
+      exit 2
+      ;;
+  esac
+  st_root=$(/bin/sh "$FS" root) || exit 2
+  st_store="$st_root/attention/state"
+
+  stop_tracked=''
+  st_released=''
+  st_held=''
+  for st_class in $release_classes; do
+    stop_held "$st_class" "$dir" "$worker" "$st_store" || continue
+    stop_release "$st_class" "$dir" "$worker" "$st_store" "$grace" || :
+    if stop_held "$st_class" "$dir" "$worker" "$st_store"; then
+      st_held="$st_held,$st_class"
+      # A worker whose tree could not be closed is still running. Releasing the
+      # rest of its runtime from under it would take away the channel an
+      # operator answers it on and the lock that protects its journal, so the
+      # walk stops here and reports what is still held.
+      [ "$st_class" = process ] && break
+    else
+      st_released="$st_released,$st_class"
+    fi
+  done
+  st_released=${st_released#,}
+  st_held=${st_held#,}
+
+  if [ -n "$st_held" ]; then
+    printf 'stop %s partial released=%s held=%s\n' \
+      "$worker" "${st_released:--}" "$st_held"
+    return 6
+  fi
+  if [ -z "$st_released" ]; then
+    printf 'stop %s already-closed\n' "$worker"
+    return 0
+  fi
+  printf 'stop %s stopped released=%s\n' "$worker" "$st_released"
+  return 0
 }
 
 cmd_alarm_scan() {
@@ -1230,6 +2006,7 @@ case $cmd in
   answer) cmd_answer "$@" ;;
   recover) cmd_recover "$@" ;;
   alarm-scan) cmd_alarm_scan "$@" ;;
+  stop) cmd_stop "$@" ;;
   status) cmd_status "$@" ;;
   _supervise) supervise "$@" ;;
   *) usage ;;
