@@ -359,15 +359,17 @@ resolve_root() {
 # emits — the broken-install diagnostic when the tracked defaults are missing or
 # unreadable — must surface for the operator, not be swallowed into a silent 15m
 # fallback. stderr does not affect the numeric stdout capture below.
-# Resolved once per process: the threshold cannot change under a running
-# acquire, and the spin probes it on every contended iteration, which forked
-# config-get.sh once per 20ms per waiter.
+# Resolved once per process into FLEET_STALE_MIN_CACHED: the threshold cannot
+# change under a running acquire, and the spin probes it on every contended
+# iteration, which forked config-get.sh once per 20ms per waiter.
+#
+# This sets a variable instead of printing one, and the callers read that
+# variable instead of capturing it. A `$(fleet_stale_min)` capture would run the
+# body in a SUBSHELL, so the memo assignment would die with it, the guard below
+# would never hit, and the fork-per-spin this exists to remove would remain.
 FLEET_STALE_MIN_CACHED=""
 fleet_stale_min() {
-  if [ -n "$FLEET_STALE_MIN_CACHED" ]; then
-    printf '%s\n' "$FLEET_STALE_MIN_CACHED"
-    return 0
-  fi
+  [ -z "$FLEET_STALE_MIN_CACHED" ] || return 0
   fsm_v=15
   fsm_read=$(PLANWRIGHT_REPO_ROOT="$root" "$script_dir/config-get.sh" stale_lock_threshold) || fsm_read=""
   fsm_read=${fsm_read%m}
@@ -376,8 +378,16 @@ fleet_stale_min() {
     *[!0-9]*) ;;
     *) fsm_v=$fsm_read ;;
   esac
+  # Floor at the default rather than honouring a zero. `find -mmin +0` matches a
+  # lock that is merely seconds old (one second, on BSD find, which rounds the
+  # age up), so a configured 0 breaks LIVE holders mid-critical-section and
+  # loses mutual exclusion by configuration alone. Tested against all-zero
+  # spellings, not just "0". The sibling allocation-ledger.sh floors the same way.
+  case $fsm_v in
+    *[!0]*) ;;
+    *) fsm_v=15 ;;
+  esac
   FLEET_STALE_MIN_CACHED=$fsm_v
-  printf '%s\n' "$fsm_v"
 }
 
 # THE LOCK IS A SYMLINK, and its target is the owner token. `mkdir` was
@@ -440,13 +450,29 @@ try_acquire() {
       # writer permanently. Break it on the same staleness rule, and refuse
       # anything else squatting the path rather than spin out the budget on a
       # wait that cannot end.
-      ta_min=$(fleet_stale_min)
+      fleet_stale_min
+      ta_min=$FLEET_STALE_MIN_CACHED
       if [ -d "$ta_lock" ] && [ -n "$(find "$ta_lock" -maxdepth 0 -mmin +"$ta_min" 2>/dev/null)" ]; then
-        rm -rf "$ta_lock"
-        if ln -s "$ta_token" "$ta_lock" 2>/dev/null \
-          && [ "$(readlink "$ta_lock" 2>/dev/null)" = "$ta_token" ]; then
-          LOCK_TOKEN=$ta_token
-          return 0
+        # `rm -rf` on a SYMLINK would remove the link and not its target, but
+        # `[ ! -L ]` above already excluded that; here the path really is a
+        # directory. Keep it that way if this is ever reshaped.
+        if ! rm -rf "$ta_lock" 2>/dev/null; then
+          # Not contention: the directory cannot be removed at all (unwritable
+          # parent, a sticky parent owned by someone else, EIO). Spinning the
+          # budget out would end in a refusal blaming contention that was never
+          # there, so classify it the way the pre-break create path does.
+          printf '%s\n' "fleet-state: cannot clear $ta_lock after stale break (home unwritable or filesystem error)" >&2
+          return 2
+        fi
+        if ln -s "$ta_token" "$ta_lock" 2>/dev/null; then
+          if [ "$(readlink "$ta_lock" 2>/dev/null)" = "$ta_token" ]; then
+            LOCK_TOKEN=$ta_token
+            return 0
+          fi
+          # A directory raced back in and the link landed inside it. Drop the
+          # stray, exactly as the first create path does, so it neither lingers
+          # nor keeps refreshing that directory's mtime.
+          rm -f "$ta_lock/$ta_token" 2>/dev/null || true
         fi
         return 1
       fi
@@ -460,15 +486,24 @@ try_acquire() {
     # store, not on a peer. One retry separates a holder that released in the
     # gap (benign) from a store that cannot be written at all.
     if ln -s "$ta_token" "$ta_lock" 2>/dev/null; then
-      LOCK_TOKEN=$ta_token
-      return 0
+      # Confirm, for the same reason the first create confirms: a directory that
+      # raced in between the test above and this create takes the link INSIDE
+      # it and still exits 0, which would report a lock we do not hold and send
+      # the caller into its critical section holding nothing.
+      if [ "$(readlink "$ta_lock" 2>/dev/null)" = "$ta_token" ]; then
+        LOCK_TOKEN=$ta_token
+        return 0
+      fi
+      rm -f "$ta_lock/$ta_token" 2>/dev/null || true
+      return 1
     fi
     if [ ! -L "$ta_lock" ]; then
       printf '%s\n' "fleet-state: cannot create $ta_lock (home unwritable or filesystem error)" >&2
       return 2
     fi
   fi
-  ta_min=$(fleet_stale_min)
+  fleet_stale_min
+  ta_min=$FLEET_STALE_MIN_CACHED
   if [ -n "$(find "$ta_lock" -maxdepth 0 -mmin +"$ta_min" 2>/dev/null)" ]; then
     # Claim the stale link by renaming it aside: two breakers cannot both rename
     # the same path, so only the winner re-creates it. The loser's rename fails
@@ -476,6 +511,16 @@ try_acquire() {
     ta_aside="$ta_lock.stale.$ta_token"
     if mv "$ta_lock" "$ta_aside" 2>/dev/null; then
       rm -f "$ta_aside"
+      # The rename WAS the exclusive claim, so take the lock here rather than
+      # leaving the freed path to the next spin. The one-shot `lock` verb calls
+      # try_acquire exactly once: without this it reports busy for a lock the
+      # same call just freed, and disagrees with the legacy-directory break
+      # directly above, which does re-acquire.
+      if ln -s "$ta_token" "$ta_lock" 2>/dev/null \
+        && [ "$(readlink "$ta_lock" 2>/dev/null)" = "$ta_token" ]; then
+        LOCK_TOKEN=$ta_token
+        return 0
+      fi
     fi
   fi
   return 1
@@ -637,7 +682,14 @@ case $cmd in
     # primitive, releasing a lock a previous process took via `lock`. HOLD_LOCK
     # and LOCK_TOKEN describe what THIS process holds, and it holds nothing
     # here, so there is no token to check the target against.
+    #
+    # The rmdir is for a lock left as a directory by the pre-symlink shape:
+    # `rm -f` refuses a directory, so without it this verb reports success over
+    # a home that stays wedged until the stale break fires.
     rm -f "$lock" 2>/dev/null || true
+    if [ -d "$lock" ]; then
+      rmdir "$lock" 2>/dev/null || true
+    fi
     exit 0
     ;;
 

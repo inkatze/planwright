@@ -416,7 +416,123 @@ touch -t 202001010000 "$home_legacy/.fleet.lock" # same holder, now long dead
 legacy_env lock || fail "a stale legacy directory lock was not broken"
 [ -L "$home_legacy/.fleet.lock" ] || fail "the broken legacy lock was not replaced by a symlink"
 legacy_env unlock || fail "unlock after a legacy break exited non-zero"
+# `unlock` is a hard-coded exit 0, so its status asserts nothing on its own;
+# the release has to be observed at the path.
+[ ! -e "$home_legacy/.fleet.lock" ] && [ ! -L "$home_legacy/.fleet.lock" ] \
+  || fail "unlock did not release the lock taken by the legacy break"
 echo "ok: a stale pre-symlink directory lock is broken rather than wedging the home"
+
+# ---------------------------------------------------------------------------
+# `unlock` must clear a lock left as a DIRECTORY by the pre-symlink shape.
+# `rm -f` refuses a directory, so an unlock that only unlinks reports success
+# while the home stays wedged behind a lock the operator was told was released.
+# ---------------------------------------------------------------------------
+home_uld="$tmp/unlock-legacy-home"
+mkdir -p "$home_uld"
+mkdir "$home_uld/.fleet.lock"
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_uld" /bin/sh "$FS" unlock \
+  || fail "unlock against a legacy directory lock exited non-zero"
+[ ! -e "$home_uld/.fleet.lock" ] \
+  || fail "unlock reported success but left the legacy directory lock standing"
+echo "ok: unlock clears a pre-symlink directory lock instead of reporting a false success"
+
+# ---------------------------------------------------------------------------
+# The one-shot `lock` verb against a STALE lock must report 0 (held), not 1.
+# The verb calls try_acquire exactly once, so a break that does not re-acquire
+# hands the caller "busy" for a lock the same call just freed — and the two
+# stale shapes (symlink, legacy directory) must not disagree about it.
+# ---------------------------------------------------------------------------
+home_sl="$tmp/stale-lockverb-home"
+mkdir -p "$home_sl"
+sl_pin="$tmp/stale-lockverb-pin.yml"
+printf 'stale_lock_threshold: 5m\n' >"$sl_pin"
+ln -s "crashed-holder" "$home_sl/.fleet.lock"
+touch -h -t 202001010000 "$home_sl/.fleet.lock"
+rc=0
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_sl" PLANWRIGHT_LOCAL_CONFIG="$sl_pin" \
+  /bin/sh "$FS" lock >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "one-shot lock against a stale symlink exited $rc, expected 0 (it broke the lock, so it holds it)"
+[ -L "$home_sl/.fleet.lock" ] || fail "one-shot lock reported held but left no lock symlink"
+echo "ok: the one-shot lock verb acquires the lock it just broke, on both stale shapes"
+
+# ---------------------------------------------------------------------------
+# A lock symlink whose target is a REAL directory. Breaking it must remove the
+# LINK and never touch what it points at. `mv` and `rm -f` operate on the link,
+# and `[ ! -L ]` keeps the legacy `rm -rf` arm unreachable for links — but the
+# containment comes from those semantics rather than from anything obvious at
+# the call site, so a canary pins it before a future edit (an `rm -rf` here, a
+# `find -delete` there) silently starts deleting the target's contents.
+# ---------------------------------------------------------------------------
+home_canary="$tmp/canary-home"
+mkdir -p "$home_canary"
+canary_dir="$tmp/canary-target"
+mkdir -p "$canary_dir"
+: >"$canary_dir/canary"
+ln -s "$canary_dir" "$home_canary/.fleet.lock"
+touch -h -t 202001010000 "$home_canary/.fleet.lock" # stale, so the break fires
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_canary" PLANWRIGHT_LOCAL_CONFIG="$sl_pin" \
+  /bin/sh "$FS" lock >/dev/null 2>&1 \
+  || fail "a stale lock symlink pointing at a real directory was not broken"
+[ -d "$canary_dir" ] || fail "breaking the lock DELETED the directory its symlink pointed at"
+[ -e "$canary_dir/canary" ] || fail "breaking the lock deleted the contents of the symlink's target"
+echo "ok: breaking a lock symlink removes the link and never its target"
+
+# ---------------------------------------------------------------------------
+# stale_lock_threshold floors at 1 minute. A configured 0 would make
+# `find -mmin +0` match a lock that is merely seconds old (on BSD find, one
+# second old), so a LIVE holder mid-critical-section reads stale and its lock
+# is broken underneath it — mutual exclusion lost by configuration alone.
+# ---------------------------------------------------------------------------
+home_floor="$tmp/floor-home"
+mkdir -p "$home_floor"
+floor_pin="$tmp/floor-pin.yml"
+printf 'stale_lock_threshold: 0m\n' >"$floor_pin"
+ln -s "live-holder" "$home_floor/.fleet.lock"
+touch -h -d "@$(($(date +%s) - 90))" "$home_floor/.fleet.lock" 2>/dev/null \
+  || touch -h -t "$(date -v-90S +%Y%m%d%H%M.%S 2>/dev/null || echo 202001010000)" "$home_floor/.fleet.lock"
+rc=0
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_floor" PLANWRIGHT_LOCAL_CONFIG="$floor_pin" \
+  /bin/sh "$FS" lock >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "a 0m threshold broke a 90s-old LIVE lock (exit $rc); the threshold must floor at 1 minute"
+echo "ok: a 0m stale_lock_threshold floors to the default instead of breaking live locks"
+
+# ---------------------------------------------------------------------------
+# The stale threshold is resolved ONCE per process. It is read on every
+# contended spin, so resolving it per iteration forks config-get.sh ~50 times
+# a second per waiter. A memo written inside a command substitution never
+# reaches the caller, so this asserts the observable count, not the variable.
+# ---------------------------------------------------------------------------
+shim="$tmp/shim-scripts"
+mkdir -p "$shim"
+cp "$here/../scripts/fleet-state.sh" "$shim/fleet-state.sh"
+cp "$here/../scripts/echo-safety.sh" "$shim/echo-safety.sh"
+cg_count="$tmp/config-get-calls"
+: >"$cg_count"
+cat >"$shim/config-get.sh" <<'SHIM'
+#!/bin/sh
+echo call >>"$PLANWRIGHT_CG_COUNT"
+[ "$1" = stale_lock_threshold ] && { echo "15m"; exit 0; }
+exit 1
+SHIM
+chmod +x "$shim/config-get.sh"
+home_cg="$tmp/cachecount-home"
+mkdir -p "$home_cg"
+ln -s "held-by-test" "$home_cg/.fleet.lock" # a live holder, so register must spin
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_CG_COUNT="$cg_count" PLANWRIGHT_FLEET_STATE_DIR="$home_cg" \
+  /bin/sh "$shim/fleet-state.sh" register "w-cache" "scope-cache" >/dev/null 2>&1 &
+cg_pid=$!
+sleep 2 # ~100 spins at the 20ms backoff
+rm -f "$home_cg/.fleet.lock"
+wait "$cg_pid" || fail "the contended register did not complete after the lock was released"
+cg_calls=$(wc -l <"$cg_count" | tr -d ' ')
+[ "$cg_calls" -le 2 ] \
+  || fail "stale_lock_threshold was resolved $cg_calls times in one acquire (expected 1): the per-process memo is not reaching the caller"
+echo "ok: the stale threshold is resolved once per process, not once per contended spin"
 
 # ---------------------------------------------------------------------------
 # 11. Hostile identifiers are rejected BEFORE any path use.
