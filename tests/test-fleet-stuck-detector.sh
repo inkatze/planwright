@@ -707,6 +707,11 @@ printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1b",
 printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1c","name":"Skill","input":{"skill":"planwright:execute-task","args":"then polish"}}]}}\n' >>"$ev9"
 out=$(run "$h9" classify "$w") || fail "stage mention: exited non-zero"
 [ "$(stage_of "$out")" = implementing ] || fail "a mention must not set a stage: '$(stage_of "$out")'"
+# A mention no double quote happens to guard is still a mention: the push
+# needle matches only at a command position.
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1d","name":"Bash","input":{"command":"grep -n '\''git push'\'' scripts/x.sh && echo git push"}}]}}\n' >>"$ev9"
+out=$(run "$h9" classify "$w") || fail "stage unquoted mention: exited non-zero"
+[ "$(stage_of "$out")" = implementing ] || fail "an unquoted mention must not set a stage: '$(stage_of "$out")'"
 printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"skill":"planwright:self-review","args":"--nested"}}]}}\n' >>"$ev9"
 out=$(run "$h9" classify "$w") || fail "stage converging: exited non-zero"
 [ "$(stage_of "$out")" = converging ] || fail "self-review skill: stage '$(stage_of "$out")'"
@@ -718,6 +723,10 @@ printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2b",
 out=$(run "$h9" classify "$w") || fail "partial line: exited non-zero"
 [ "$(stage_of "$out")" = converging ] || fail "a partial last line must not set a stage: '$(stage_of "$out")'"
 printf '"}}]}}\n' >>"$ev9"
+# A push at a command position after an escaped quote is still a push.
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2c","name":"Bash","input":{"command":"git commit -m \\"fix: x\\" && git push origin x"}}]}}\n' >>"$ev9"
+out=$(run "$h9" classify "$w") || fail "stage compound push: exited non-zero"
+[ "$(stage_of "$out")" = handing-off ] || fail "a push after a quoted commit message: stage '$(stage_of "$out")'"
 printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"git push origin planwright/x/task-1"}}]}}\n' >>"$ev9"
 out=$(run "$h9" classify "$w") || fail "stage handing-off: exited non-zero"
 [ "$(stage_of "$out")" = handing-off ] || fail "git push: stage '$(stage_of "$out")'"

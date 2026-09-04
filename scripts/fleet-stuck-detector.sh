@@ -889,8 +889,11 @@ read_journal() {
 # read_events <file> — sets stage and stage_source from the most recent
 # stage-bearing event in a bounded tail of the stream. Only complete lines
 # (ending in `}`) count, so a line the supervisor is mid-append cannot set a
-# stage; the needles are anchored to their JSON keys, so a tool call that
-# merely mentions a marker is not read as the marker.
+# stage; the needles are anchored to their JSON keys, and the push needle
+# matches only at a command position (the start of the command, or after a
+# separator and an optional then/do/else), so a tool call that merely
+# mentions or quotes a marker is not read as the marker. The residue is a
+# separator followed by the words inside one quoted string.
 read_events() {
   stage=-
   stage_source=absent
@@ -901,7 +904,7 @@ read_events() {
     /"type":"result"/ { stage = "completed"; next }
     /"type":"tool_use"/ {
       if ($0 ~ /"name":"Skill"/ && $0 ~ /"skill":"[^"]*(polish|self-review)/) stage = "converging"
-      else if ($0 ~ /"name":"Bash"/ && $0 ~ /"command":"[^"]*git push/) stage = "handing-off"
+      else if ($0 ~ /"name":"Bash"/ && $0 ~ /"command":"( *git push|([^"\\]|\\.)*([;&|({]|\\\\n)( *(then|do|else))? *git push)/) stage = "handing-off"
       else stage = "implementing"
       next
     }
