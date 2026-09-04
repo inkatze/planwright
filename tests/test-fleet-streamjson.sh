@@ -29,8 +29,9 @@
 #     metacharacter fixture never reaches a shell), the launch argv carries
 #     the pinned -p stream-json shape, and `--bare` is refused.
 #
-# The close verb and its two lock elections come from a later bundle
-# (fleet-lifecycle-closure), and the cases from c19 on cover it:
+# The close verb and the single-initiator elections on `launch` and `recover`
+# come from a later bundle (fleet-lifecycle-closure), and the cases from c19 on
+# cover it:
 #   - REQ-B1.2: the close terminates the supervisor, the worker, and the
 #     worker's children, SIGTERM before SIGKILL, including a grandchild that
 #     survives SIGTERM and is reparented away from the tree.

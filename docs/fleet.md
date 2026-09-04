@@ -408,14 +408,18 @@ worker's session via `--resume`; `status` surfaces completion and liveness
 from the supervisor and the captured event stream.
 
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor
-and its children (SIGTERM, then SIGKILL after the grace — default 5 seconds,
-1 to 300 — since children do not reliably die with a parent SIGTERM) and
-releases the locks, scratch temp, and attention record the worker held. The
-event capture, the receipt journal, and the persisted session survive a stop:
-they are the durable record, not runtime. It never touches the worktree, the
-branch, or the unit's fence — the release set is exactly the reproducible
-resources, and worktree reclamation stays with `fleet-cleanup.sh worktree` and
-its positive-evidence checks.
+and its children (SIGTERM, then SIGKILL after the grace, since children do not
+reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
+attention record the worker held. `--grace` takes a whole number of seconds
+within the bounds the script declares; run `stop` with an out-of-range value to
+have it name them. The event capture, the persisted session, and the receipt
+journal survive a stop: they are the durable record, not runtime. The journal
+survives as a file but not untouched — the close marks its still-`pending`
+receipts `undeliverable`, because a close makes them undeliverable by
+definition and a receipt left pending is what `alarm-scan` re-queues a decision
+item from. A stop never touches the worktree, the branch, or the unit's fence:
+the release set is exactly the reproducible resources, and worktree reclamation
+stays with `fleet-cleanup.sh worktree` and its positive-evidence checks.
 
 Processes are matched on the worker's state directory and on the pids that
 directory records, never on a process name or command pattern — the guarantee
@@ -429,14 +433,17 @@ Exit codes are the machine-readable half: `0` for `stopped` and for
 for an unknown handle. A repeat stop takes exactly what is still held, so
 `already-closed` means every class is free and nothing was signalled; a repeat
 after a partial close retries only the remainder. A stop does not remove the
-worker's dispatch registry record — `fleet-status.sh` keeps listing a stopped
-worker until the next registry scan reconciles it.
+worker's dispatch registry record, and nothing reconciles that record yet, so
+`fleet-status.sh` keeps listing a stopped worker until the periodic reconcile
+this bundle plans lands.
 
 Two adjacent refusals ship with the verb. `recover` breaks a `recover.lock`
 whose holder is gone, so one hard kill mid-recovery no longer disables recovery
 for that worker; and `launch` elects a single initiator, so a second launch for
-a worker that already has one in flight (or a supervisor already up) is refused
-with exit 3 rather than orphaning the first supervisor.
+a worker that already has one in flight is refused with exit 3 rather than
+orphaning the first supervisor. The same refusal covers a worker whose state
+still records a live process, which includes a live worker under a dead
+supervisor — that case wants `recover`, not a second `launch`.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,

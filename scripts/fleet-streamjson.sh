@@ -1,10 +1,11 @@
 #!/bin/sh
 # fleet-streamjson.sh — the stream-json-persistent supervisor primitive
 # (execution-backends Task 4; D-4, D-5 · REQ-A1.3, REQ-A1.9, REQ-E1.1,
-# REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5). The close verb and its two lock
-# elections come from a later bundle (fleet-lifecycle-closure D-3, D-10 ·
-# REQ-B1.1–B1.4, REQ-B1.7), whose own REQ-A1.3 is a different requirement from
-# the one cited above; qualify the bundle when citing either.
+# REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5). The close verb and the single-
+# initiator elections on `launch` and `recover` come from a later bundle
+# (fleet-lifecycle-closure D-3, D-10 · REQ-B1.1–B1.4, REQ-B1.7), whose own
+# REQ-A1.3 is a different requirement from the one cited above; qualify the
+# bundle when citing either.
 #
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
@@ -39,10 +40,13 @@
 #   in.fifo/out.fifo the stdio channels the supervisor owns
 #   supervisor.pid / worker.pid / result / recover.lock/ / journal.lock/ /
 #   launch.lock/
+#   scope            the dispatch scope, when the launch supplied one
+#   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .journal.* / .session.* / .pid.*  mktemp-beside-target staging
 #   *.broken.*       a lock directory a stale-break renamed out of the way
-# The last two lines are the scratch class `stop` releases; everything above
-# them is the durable record it keeps.
+# Which of these a close releases is not a property of their order here: the
+# release set is `release_classes` and the globs each class names, and the
+# entries above are listed by what they hold, not by who removes them.
 # Placing the capture under the fleet home is the strongest reading of the
 # Task 4 "gitignored location outside committed paths" clause: it sits
 # outside every checkout, so it cannot be committed even by force-add. The
@@ -74,13 +78,14 @@
 #
 # THE CLOSE (`stop`). The release set is the runtime a worker acquires:
 # its process tree, the locks it holds, its scratch temp, and its attention
-# record. Two classes are named here rather than left silently absent, per the
-# floor's declare-every-class rule. The tmux-window class is not acquired by
-# this rung at all — a stream-json worker is a detached supervisor/worker pair
-# with no window. The dispatch registry record IS written at launch and is NOT
-# released here: it is fleet-wide inventory rather than this worker's runtime,
-# and it self-heals on the next registry scan, so a stopped worker stays listed
-# until that scan runs. The worktree, the branch, and the unit's fence are
+# record. The tmux-window class is named here rather than left silently absent,
+# per the floor's declare-every-class rule: it is not acquired by this rung at
+# all — a stream-json worker is a detached supervisor/worker pair with no
+# window. The dispatch registry record is written at launch and is NOT released
+# here: it is fleet-wide inventory rather than this worker's runtime. Nothing
+# reconciles it yet (`scripts/fleet-register.sh` says so where it writes the
+# record), so a stopped worker keeps its inventory row until the reconcile this
+# bundle plans lands. The worktree, the branch, and the unit's fence are
 # never touched: the release set is exactly the reproducible resources, and the
 # worktree is the one holding work that cannot be recovered. No audit record is
 # written either — the reap path that needs one owns it, so that an autonomous
@@ -124,8 +129,10 @@
 #       loop in this process (fixtures; returns the worker's exit code). A
 #       caller-supplied `--bare` (or `-b`) in the extra args is refused
 #       (exit 2): the non-bare pin is structural. Single-initiator: a launch
-#       already in flight for this worker, or a supervisor already up for it,
-#       is refused (exit 3) rather than allowed to orphan the first one.
+#       already in flight for this worker, or any process this worker's state
+#       still records as alive, is refused (exit 3) rather than allowed to
+#       orphan the first one. That second arm covers a live worker under a
+#       dead supervisor, which wants `recover` rather than a second `launch`.
 #   fleet-streamjson.sh answer <worker> <request-id>
 #       (--response-file <file> | --allow | --deny [--message <text>])
 #       Deliver the recorded answer for a pending request. --allow composes
@@ -151,12 +158,14 @@
 #       scratch temp, and attention record it holds. Prints one of
 #       `stop <worker> stopped released=<classes>`,
 #       `stop <worker> already-closed`, or
-#       `stop <worker> partial released=<classes> held=<classes>` (with
-#       `released=-` when nothing was released). <secs> is the
-#       SIGTERM-to-SIGKILL grace: a whole number of seconds from 1 (there is
-#       no zero-grace form; SIGTERM always goes first) to 300, default 5, plus
-#       a fixed settling wait after SIGKILL. An unknown handle is exit 2, not
-#       `already-closed`, so a typo never reads as a successful close.
+#       `stop <worker> partial released=<classes> held=<classes>`, whose
+#       released field reads `-` when nothing was released (the other two
+#       forms cannot reach that case). <secs> is the SIGTERM-to-SIGKILL grace,
+#       a whole number of seconds bounded by `grace_max` and defaulting to the
+#       `grace` initialiser in `cmd_stop`; there is no zero-grace form, since
+#       SIGTERM always goes first. A fixed settling wait follows the SIGKILL.
+#       An unknown handle is exit 2, not `already-closed`, so a typo never
+#       reads as a successful close.
 #   fleet-streamjson.sh status <worker>
 #       Print `status <worker> <running|completed|dead|unknown> <detail>`
 #       from the recorded pids and the captured event stream.
