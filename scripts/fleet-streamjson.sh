@@ -559,7 +559,17 @@ handle_line() {
       hl_sub=$(json_field "$hl_line" subtype)
       hl_sub=$(sanitize_printable "$hl_sub" unknown | cut -c1-32)
       hl_now=$(now_epoch) || hl_now=0
-      printf 'result\t%s\t%s\n' "$hl_sub" "$hl_now" >"$hl_dir/result"
+      # A frame can claim success and carry is_error at once: an API error
+      # reaches us as ordinary assistant text, so the TURN completed the
+      # protocol while the RUN died. Recording only the subtype loses the half
+      # that says so, and a reader then frees the slot on a worker that did
+      # nothing. Matched on the raw line because json_field reads quoted
+      # strings and this is a JSON boolean.
+      case $hl_line in
+        *'"is_error":true'*) hl_err=true ;;
+        *) hl_err=false ;;
+      esac
+      printf 'result\t%s\t%s\t%s\n' "$hl_sub" "$hl_now" "$hl_err" >"$hl_dir/result"
       ;;
   esac
 }
@@ -1187,7 +1197,15 @@ cmd_status() {
     # rendered `ended`, never conflated with `completed` (a `result` event or
     # an exit=0 fallback is completion).
     st_ec=$(awk -F'\t' 'NR == 1 { print $2 }' "$dir/result")
-    if [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; then
+    st_err=$(awk -F'\t' 'NR == 1 { print $4 }' "$dir/result")
+    if [ "$st_err" = true ]; then
+      # Name both halves: that the frame said success while flagging an error
+      # is the diagnostic, so collapsing it to either one alone hides why the
+      # run is being called ended. Records written before this field existed
+      # have no $4 and keep their old reading.
+      detail=$(sanitize_printable "$detail/is_error=true" unknown | cut -c1-64)
+    fi
+    if { [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; } || [ "$st_err" = true ]; then
       printf 'status %s ended %s\n' "$worker" "$detail"
     else
       printf 'status %s completed %s\n' "$worker" "$detail"

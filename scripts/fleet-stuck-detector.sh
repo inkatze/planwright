@@ -849,10 +849,27 @@ read_completion() {
       "" | *[!A-Za-z0-9_-]*) rc_val=unknown ;;
     esac
     [ "${#rc_val}" -le 32 ] || rc_val=unknown
+    # Field 4 (result records only) carries the frame's is_error flag. A frame
+    # can report subtype success and is_error true at once, because an API
+    # error arrives as assistant text: the turn completed, the run did not.
+    # Reading the subtype alone calls that finished and frees the slot on a
+    # worker that did nothing. Records predating the field have three fields
+    # and keep their previous meaning.
+    rc_err=""
+    case $rc_rest in
+      *"$TAB"*"$TAB"*)
+        rc_after=${rc_rest#*"$TAB"}
+        rc_err=${rc_after#*"$TAB"}
+        ;;
+    esac
     completion="$rc_kind=$rc_val"
     case $completion in
       result=success | exit=0) completion_ok=1 ;;
     esac
+    if [ "$rc_err" = true ]; then
+      completion="$completion/is_error=true"
+      completion_ok=0
+    fi
     return 0
   fi
   if [ -e "$rc_dir/exit" ]; then
