@@ -15,7 +15,8 @@ worker quality.
 **Vocabulary.** The dispatching sessions this guide describes are
 **orchestrators**: `/orchestrate` sessions, one per spec, under a
 meta-orchestrator. **Tower** now names the standing conversational `/tower`
-front-door session instead (the spec-format glossary is the definition's
+front-door session instead (the
+[spec-format glossary](../doctrine/spec-format.md) is the definition's
 home). This guide's body still says "tower" for the orchestrator, and the
 tower-named scripts and knobs it cites (`tower-settings`, the tower marker and
 watchdog family) keep their names until renames land; read "tower" below as
