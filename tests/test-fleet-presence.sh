@@ -1021,9 +1021,12 @@ run "$h19" publish --checkout "$co_b" --session-id "$uuid_b" --pid 4243 \
   --specs demo --fenced demo/2 >/dev/null || fail "liveness: publish B failed"
 sub19=$(run "$h19" surface --checkout "$co_a")
 
+: >"$tmp/evidence-calls"
 out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_a") \
   || fail "liveness (self) failed"
 [ "$out" = "tower	$uuid_a	self" ] || fail "liveness self: got '$out'"
+[ ! -s "$tmp/evidence-calls" ] || fail "liveness probed the caller's own record"
+[ -z "$(find "$h19/presence.cadence" -name '.memo.*' 2>/dev/null)" ] || fail "liveness left a memo behind"
 
 : >"$tmp/evidence-calls"
 printf 'alive\n' >"$tmp/evidence-verdict"
@@ -1070,6 +1073,18 @@ rc=0
 run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b" "$uuid_c" \
   >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "liveness accepted two tower ids (exit $rc)"
+rc=0
+run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "" "$uuid_c" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "liveness let an empty positional be skipped (exit $rc)"
+# A vanished surface fails closed (exit 3), never `no-record`.
+h19v="$tmp/h19v"
+run "$h19v" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 >/dev/null || fail "liveness: vanish setup"
+rm -rf "$(run "$h19v" surface --checkout "$co_a")"
+rc=0
+out=$(run "$h19v" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b" 2>/dev/null) || rc=$?
+[ "$rc" = 3 ] || fail "liveness on a vanished surface exited $rc, expected 3"
+[ -z "$out" ] || fail "liveness on a vanished surface printed '$out'"
 echo "ok: liveness classifies one named tower read-only (self / live / unknown / dead / no-record / unreadable)"
 
 echo "PASS: all fleet-presence tests"

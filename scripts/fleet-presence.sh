@@ -394,6 +394,7 @@ meta=false
 min_interval=30
 unit_ref=""
 tower_ref=""
+tower_ref_seen=0
 
 # Strict per-command grammar: a flag irrelevant to the subcommand is a usage
 # error, never a silent no-op (a `publish --min-interval` or `discover
@@ -487,8 +488,9 @@ while [ "$#" -gt 0 ]; do
       if { [ "$cmd" = owner ] || [ "$cmd" = attribute ]; } && [ -z "$unit_ref" ]; then
         unit_ref=$1
         shift
-      elif [ "$cmd" = liveness ] && [ -z "$tower_ref" ]; then
+      elif [ "$cmd" = liveness ] && [ "$tower_ref_seen" = 0 ]; then
         tower_ref=$1
+        tower_ref_seen=1
         shift
       else
         usage
@@ -879,7 +881,13 @@ listing=$(ls "$sub" 2>/dev/null) || {
 # pass can never be misread as an empty peer set). The stamp is written only
 # after a completed scan; a future-dated stamp (clock step) is ignored so
 # skew can never lock discovery out. owner is a targeted query, never capped.
-ensure_infra_dir "$cadence_dir"
+# `liveness` reads one record and probes one handle: it stamps no cadence
+# and needs no memo, so the read-only query touches no infrastructure dir
+# and cannot fail closed on a write problem.
+memo=""
+if [ "$cmd" != liveness ]; then
+  ensure_infra_dir "$cadence_dir"
+fi
 stamp="$cadence_dir/$repo_id.$identity"
 if [ "$cmd" = discover ] && [ "$min_interval" -gt 0 ]; then
   now=$(date +%s)
@@ -893,17 +901,22 @@ fi
 fde="$script_dir/fleet-death-evidence.sh"
 # The per-pass memo lives in the private cadence dir, not shared $TMPDIR
 # (sibling convention: surface-local temp templates).
-memo=$(mktemp "$cadence_dir/.memo.XXXXXX") || {
-  memo=""
-  err "cannot create the per-pass liveness memo in $cadence_dir — failing closed"
-  exit 2
-}
+if [ "$cmd" != liveness ]; then
+  memo=$(mktemp "$cadence_dir/.memo.XXXXXX") || {
+    memo=""
+    err "cannot create the per-pass liveness memo in $cadence_dir — failing closed"
+    exit 2
+  }
+fi
 
 # classify_handle <handle> — tri-state verdict, memoized per pass so the
 # per-record subprocess fan-out is bounded (≤1 per distinct handle per pass).
 classify_handle() {
   ch_handle=$1
-  ch_hit=$(awk -F'\t' -v h="$ch_handle" '$2 == h { print $1; exit }' "$memo")
+  ch_hit=""
+  if [ -n "$memo" ]; then
+    ch_hit=$(awk -F'\t' -v h="$ch_handle" '$2 == h { print $1; exit }' "$memo")
+  fi
   if [ -n "$ch_hit" ]; then
     printf '%s\n' "$ch_hit"
     return 0
@@ -918,7 +931,9 @@ classify_handle() {
     dead | alive) ;;
     *) ch_verdict=unknown ;; # incl. a refused handle: lost observability, fail closed
   esac
-  printf '%s\t%s\n' "$ch_verdict" "$ch_handle" >>"$memo" 2>/dev/null || true
+  if [ -n "$memo" ]; then
+    printf '%s\t%s\n' "$ch_verdict" "$ch_handle" >>"$memo" 2>/dev/null || true
+  fi
   printf '%s\n' "$ch_verdict"
 }
 
@@ -926,15 +941,23 @@ peers=0
 found_owner=""
 found_verdict=""
 tower_verdict=""
+tower_kind=""
 
 emit_unreadable_peer() {
   eup_name=$(sanitize_printable "$1" "(unprintable name)")
+  if [ "$cmd" = liveness ]; then
+    # The liveness question is answered not-live-but-not-dead: the record
+    # is unreadable, so it is reported as such, left in place, and never
+    # folded into `live` — a consumer owes its own death evidence before
+    # acting (REQ-D1.4).
+    err "presence record for '$eup_name' is unreadable ($2) — reported not-live, left in place, never GC'd (REQ-A1.6)"
+    tower_verdict=unreadable
+    tower_kind=$2
+    return 0
+  fi
   err "skipping unreadable presence record '$eup_name' ($2) — a peer exists but its details are unreadable: assume-live, surfaced, never GC'd (REQ-A1.6)"
   if [ "$cmd" = discover ]; then
     printf 'peer-unreadable\t%s\t%s\n' "$eup_name" "$2"
-  elif [ "$cmd" = liveness ]; then
-    printf 'unreadable\t%s\t%s\n' "$tower_ref" "$2"
-    tower_verdict=unreadable
   fi
   peers=$((peers + 1))
 }
@@ -1069,8 +1092,8 @@ PARSED_EOF
     if [ "$cmd" = discover ]; then
       printf 'foreign-record\t%s\t%s\n' "$(sanitize_printable "$name" "(unprintable name)")" "$r_repo"
     elif [ "$cmd" = liveness ]; then
-      printf 'unreadable\t%s\tforeign-record\n' "$tower_ref"
       tower_verdict=unreadable
+      tower_kind=foreign-record
     fi
     continue
   fi
@@ -1097,7 +1120,6 @@ PARSED_EOF
       dead) tower_verdict=dead ;;
       *) tower_verdict=unknown ;;
     esac
-    printf 'tower\t%s\t%s\n' "$r_id" "$tower_verdict"
     continue
   fi
   if [ "$cmd" = attribute ]; then
@@ -1207,9 +1229,11 @@ if [ "$cmd" = attribute ]; then
 fi
 
 if [ "$cmd" = liveness ]; then
-  if [ -z "$tower_verdict" ]; then
-    printf 'no-record\t%s\n' "$tower_ref"
-  fi
+  case $tower_verdict in
+    "") printf 'no-record\t%s\n' "$tower_ref" ;;
+    unreadable) printf 'unreadable\t%s\t%s\n' "$tower_ref" "$tower_kind" ;;
+    *) printf 'tower\t%s\t%s\n' "$tower_ref" "$tower_verdict" ;;
+  esac
   exit 0
 fi
 

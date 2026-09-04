@@ -1,6 +1,6 @@
-#!/bin/sh
+# shellcheck shell=sh
 # fleet-pane-vocabulary.sh — the codified Claude Code TUI marker vocabulary
-# and the footer classifier over it, SOURCED by every pane consumer
+# and the footer classifier over it (sourced, never executed) by every pane consumer
 # (fleet-pane-detect.sh, fleet-stuck-detector.sh). This is the SINGLE point a
 # tower updates if the TUI footer or dialog text changes — the whole value of
 # codifying the pane discipline once (fleet-hardening D-3) instead of every

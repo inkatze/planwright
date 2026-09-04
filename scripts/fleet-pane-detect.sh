@@ -10,8 +10,9 @@
 # D-1's push-first / reconcile-backstop pattern, carried by D-3). Where a fresh
 # push is present in the attention store the detector DEFERS.
 #
-# It codifies, once, the pane discipline every tower otherwise re-derives — and
-# each ad-hoc re-derivation regressed:
+# It applies the pane discipline codified once in fleet-pane-vocabulary.sh,
+# the discipline every tower otherwise re-derives — and each ad-hoc
+# re-derivation regressed:
 #   - the 2026-07-19 scrollback false-match (a whole-pane busy matcher matching
 #     `esc to interrupt` quoted in the scrollback of an idle session), and
 #   - the 2026-07-18 background-agent false-idle (an absence-of-`esc to
@@ -160,6 +161,10 @@ valid_oracle_cwd() {
 # prompt_anchors, contains_any, raw_classify): one owner for the TUI strings,
 # shared with the stuck-detector so the two can never disagree about what a
 # busy or an at-prompt footer looks like.
+if [ ! -r "$here/fleet-pane-vocabulary.sh" ]; then
+  echo "fleet-pane-detect: required helper $here/fleet-pane-vocabulary.sh missing or not readable" >&2
+  exit 2
+fi
 # shellcheck source=scripts/fleet-pane-vocabulary.sh
 . "$here/fleet-pane-vocabulary.sh"
 

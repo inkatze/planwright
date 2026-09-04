@@ -643,12 +643,13 @@ different process — unclassifiable, and surfaced rather than honored.
 
 `fleet-presence.sh liveness --checkout <repo-root> (--session-id <uuid> |
 --pid <pid>) <tower-id>` asks the third question, the one the stuck-detector's
-owner-attribution axis needs: is the tower a dispatch record names as its
-owner alive? It reads that one record and probes that one handle:
+owner-attribution axis needs: is the tower that a dispatch record names as
+its owner alive? It reads that one record and probes that one handle:
 `tower <tower-id> <self|live|unknown|dead|ambiguous>`, `no-record <tower-id>`
 when the surface holds nothing for it, or `unreadable <tower-id> <kind>` for a
-record it cannot parse. Every word other than `self` and `live` is a distinct
-not-live answer, never folded into live; like `attribute`, it never GCs.
+record it cannot parse or that names another repository. Every word other
+than `self` and `live` is a distinct not-live answer, never folded into live;
+like `attribute`, it never GCs, and it stamps no cadence and writes no memo.
 
 ## The per-unit fence: one tower per unit
 
@@ -966,35 +967,47 @@ because the line was stable *precisely because* the worker was stuck
 (fleet-lifecycle-closure D-4, obs:50eac4ac). So the detector does not watch
 for change. `scripts/fleet-stuck-detector.sh` enumerates four states, each
 established by its **own** positive signal, and a surface carrying none of
-them classifies none of them:
+them classifies none of them. The store's five push states from the
+[liveness section above](#push-based-worker-liveness-events-the-five-states-crash-backoff)
+are *inputs* to this classification, not its output vocabulary: a pushed
+`working` row is one signal among several, and the detector's four words are
+a different axis.
 
 ```sh
 scripts/fleet-stuck-detector.sh classify <worker> [--pane <capture>] \
     [--worktree <dir>] [--tower-id <token>] ...
-scripts/fleet-stuck-detector.sh scan        # every registered or heartbeating worker
+scripts/fleet-stuck-detector.sh scan        # every worker the registry or the store knows
 ```
 
 | State | Established by | Never by |
 | --- | --- | --- |
 | `dead` | `fleet-death-evidence.sh`'s positive verdict on the dispatch record's death handle (REQ-C1.5) | alive, unknown, an errored or refused call, a `none` handle, no handle |
 | `waiting-on-a-human` | a hook push (the attention store's `awaiting-input` row), a pending request in the stream-json journal, or a positively matched permission-prompt signature in a captured pane (REQ-C1.2) | elapsed time, a quiet pane |
-| `finished-but-unreaped` | a session-ended record — the `ended` push, the supervisor's `result`, the headless `exit` — while the worker is not positively dead (REQ-C1.3) | a completion whose work is unlanded (below) |
-| `working` | a pushed `working` row, a running-turn marker in the pane footer, a live supervisor with no result yet | absence of a stop signal |
+| `finished-but-unreaped` | a successful session-ended record — the `ended` push, the supervisor's `result success`, a zero headless `exit` — while the worker is not positively dead (REQ-C1.3) | a completion whose work is unlanded, or a session that ended without completing (below) |
+| `working` | a pushed `working` row, a running-turn marker in the pane footer, or both stream-json runtime pidfiles present with positive alive evidence on the death handle and no result yet | absence of a stop signal |
 
 Precedence runs top to bottom: death evidence outranks a stale push, a queued
 human decision outranks a captured result, a captured result outranks a stale
 working row. Anything else is `unclassified` with a reason (`no-signal`,
-`turn-ended`, `stop-failure`, `completion-unlanded`) — a fifth word, never a
-default state, that a consumer leaves alone and surfaces.
+`turn-ended`, `fork-answered`, `stop-failure`, `completion-failed`,
+`completion-unlanded`) — a fifth word, never a default state, that a consumer
+leaves alone and surfaces. A session that ended without completing (a
+non-zero exit, a non-success result subtype) is `completion-failed`, never
+finished: the supervisor's own status renders it `ended`, and the detector
+agrees.
 
 **A self-reported completion is not sufficient** (REQ-C1.4, obs:cc13d432). A
 worker whose `result=success` sits beside an uncommitted tree or beside
 commits absent from the remote-tracking ref is `unclassified
 completion-unlanded`, not finished. The evidence is local git state only
-(`git status`, the commit count against the upstream) — no fetch, no `gh`, no
-per-worker forge query — so the check is cheap and works offline. The
-worktree comes from `--worktree`, else the registry state dir when that is a
-worktree (the tmux rung), else the stream-json init event's `cwd`; when none
+(the content-free plumbing `ls-files` and `diff-index --cached`, and the
+commit count against the remote-tracking ref: the upstream when set,
+otherwise every remote-tracking ref) — no fetch, no `gh`, no per-worker forge
+query — so the check is cheap and works offline. The worktree comes from
+`--worktree`, else the registry state dir when that is itself a git toplevel
+(the tmux rung records the worktree there); a path the worker authored, such
+as the event stream's `cwd`, is never used, because a worker could point the
+check at any clean repository and launder its own stranded work. When none
 resolves, `tree unverifiable` is reported, which is not "demonstrably
 unlanded".
 
@@ -1024,9 +1037,15 @@ evidence  <handle> <signal> <value>
 anomaly   <handle> <what>
 ```
 
-A malformed store or registry line becomes an `anomaly` row and the worker
-still classifies from what remains; every value is a validated token or
-passes the echo-discipline sanitizer. No model reads any of it.
+The evidence signals and anomaly words are enumerated in the script header,
+in emission order; a worker's anomalies follow its evidence rows. A malformed
+store or registry line becomes an `anomaly` row and the worker still
+classifies from what remains; every value is a validated token or passes the
+echo-discipline sanitizer. No model reads any of it. A periodic sweep uses
+`scan`, which reads each store once and asks the presence surface once per
+distinct owner token; the per-worker `classify` form pays the identity
+resolution on every call unless `--tower-id` or `PLANWRIGHT_TOWER_ID` is
+given.
 
 **The pane signatures are a platform surface.** The permission-dialog text
 and the busy footer markers live in one sourced file,
@@ -1034,9 +1053,9 @@ and the busy footer markers live in one sourced file,
 `FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
 the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
 are verified against the installed CLI's own bundle at each change and
-re-checked by the live-CLI rehearsal (REQ-C1.2's manual half), because a
-silent divergence would degrade the detector to exactly the blind spot it
-exists to close (kickoff risk row 2).
+re-checked by REQ-C1.2's manual half and the REQ-A1.6 deliberate-wedge
+rehearsal, because a silent divergence would degrade the detector to exactly
+the blind spot it exists to close (kickoff risk row 2).
 
 ## Resource governance: models, throttling, and the auto-mode line
 
