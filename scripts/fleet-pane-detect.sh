@@ -10,8 +10,9 @@
 # D-1's push-first / reconcile-backstop pattern, carried by D-3). Where a fresh
 # push is present in the attention store the detector DEFERS.
 #
-# It codifies, once, the pane discipline every tower otherwise re-derives — and
-# each ad-hoc re-derivation regressed:
+# It applies the pane discipline codified once in fleet-pane-vocabulary.sh,
+# the discipline every tower otherwise re-derives — and each ad-hoc
+# re-derivation regressed:
 #   - the 2026-07-19 scrollback false-match (a whole-pane busy matcher matching
 #     `esc to interrupt` quoted in the scrollback of an idle session), and
 #   - the 2026-07-18 background-agent false-idle (an absence-of-`esc to
@@ -155,105 +156,17 @@ valid_oracle_cwd() {
   [ "${#voc_v}" -le 512 ]
 }
 
-# ---------------------------------------------------------------------------
-# The codified marker vocabulary. This is the SINGLE point a tower updates if
-# the Claude Code TUI footer text changes — the whole value of codifying the
-# detector once (D-3) instead of every tower re-deriving a fragile heuristic.
-#
-# Busy markers (case-insensitive substring, matched in the footer region only):
-#   - `esc to interrupt`  — the running-turn spinner line of the MAIN agent;
-#     it always co-occurs with the animated spinner gerund, so matching it
-#     subsumes the spinner-word case for the main agent;
-#   - `background agent` / `to manage` — the background-agent busy footer
-#     (`Waiting for N background agents… (ctrl+b to manage)`), which carries NO
-#     `esc to interrupt`, so it must be matched independently (the 2026-07-18
-#     false-idle);
-#   - the spinner gerunds below — belt-and-suspenders for a spinner line whose
-#     `esc to interrupt` clause has scrolled or wrapped off the captured frame.
-# Positive at-prompt anchors (case-insensitive substring, footer region only):
-#   the stable idle-footer tokens of a worker launched in auto / bypass mode.
-#   Override the anchor set for a bespoke TUI via FLEET_PANE_PROMPT_ANCHORS
-#   (a newline-separated list); unset falls back to the codified default.
-# ---------------------------------------------------------------------------
-busy_markers() {
-  cat <<'EOF'
-esc to interrupt
-background agent
-to manage
-EOF
-}
-spinner_words() {
-  cat <<'EOF'
-thinking…
-cogitating…
-simmering…
-pondering…
-puzzling…
-herding…
-noodling…
-working…
-churning…
-computing…
-EOF
-}
-default_prompt_anchors() {
-  cat <<'EOF'
-? for shortcuts
-auto mode on
-auto-accept edits
-bypass permissions
-bypassing permissions
-plan mode on
-EOF
-}
-# prompt_anchors — emit the anchor needles, always lowercased. raw_classify
-# lowercases the haystack, so the needles must be lowercase too; folding here (a
-# harmless passthrough for the already-lowercase default) means a mixed-case
-# FLEET_PANE_PROMPT_ANCHORS override matches instead of silently never matching.
-prompt_anchors() {
-  if [ -n "${FLEET_PANE_PROMPT_ANCHORS:-}" ]; then
-    printf '%s\n' "$FLEET_PANE_PROMPT_ANCHORS" | tr '[:upper:]' '[:lower:]'
-  else
-    default_prompt_anchors
-  fi
-}
-
-# contains_any <haystack-lowercased> <needle-list-on-stdin> — 0 iff any
-# non-empty needle is a substring of the haystack. Case folding is the caller's
-# job (needles are already lowercase); the sh `case` glob does the substring
-# test, so no regex metacharacter in a needle is ever interpreted.
-contains_any() {
-  ca_hay="$1"
-  while IFS= read -r ca_needle; do
-    [ -n "$ca_needle" ] || continue
-    case "$ca_hay" in
-      *"$ca_needle"*) return 0 ;;
-    esac
-  done
-  return 1
-}
-
-# raw_classify <footer-region-text> — echo idle | busy | indeterminate from the
-# footer region ALONE. Busy takes precedence: a busy marker present is busy
-# regardless of any anchor. Idle requires a positive anchor AND no busy marker.
-# Anything else (no busy marker, no anchor — a blank / loading / mid-render
-# pane) is indeterminate, never idle.
-raw_classify() {
-  rc_footer_lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-  if printf '%s\n' "$(busy_markers)" | { contains_any "$rc_footer_lc"; }; then
-    echo busy
-    return 0
-  fi
-  if printf '%s\n' "$(spinner_words)" | { contains_any "$rc_footer_lc"; }; then
-    echo busy
-    return 0
-  fi
-  if printf '%s\n' "$(prompt_anchors)" | { contains_any "$rc_footer_lc"; }; then
-    echo idle
-    return 0
-  fi
-  echo indeterminate
-}
+# The marker vocabulary and the footer classifier over it are the sourced
+# sibling fleet-pane-vocabulary.sh (busy_markers, spinner_words,
+# prompt_anchors, contains_any, raw_classify): one owner for the TUI strings,
+# shared with the stuck-detector so the two can never disagree about what a
+# busy or an at-prompt footer looks like.
+if [ ! -r "$here/fleet-pane-vocabulary.sh" ]; then
+  echo "fleet-pane-detect: required helper $here/fleet-pane-vocabulary.sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/fleet-pane-vocabulary.sh
+. "$here/fleet-pane-vocabulary.sh"
 
 # fresh_push_exists <root> <worker> <now> <ttl> — 0 iff the attention store
 # holds a row for <worker> whose heartbeat (the commit-time push timestamp) is

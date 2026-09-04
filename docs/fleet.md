@@ -644,6 +644,16 @@ out, and never GCs. `ambiguous` is a recycled pid: a composite identity
 that published it, so a live pid whose start hash no longer matches is a
 different process — unclassifiable, and surfaced rather than honored.
 
+`fleet-presence.sh liveness --checkout <repo-root> (--session-id <uuid> |
+--pid <pid>) <tower-id>` asks the third question, the one the stuck-detector's
+owner-attribution axis needs: is the tower that a dispatch record names as
+its owner alive? It reads that one record and probes that one handle:
+`tower <tower-id> <self|live|unknown|dead|ambiguous>`, `no-record <tower-id>`
+when the surface holds nothing for it, or `unreadable <tower-id> <kind>` for a
+record it cannot parse or that names another repository. Every word other
+than `self` and `live` is a distinct not-live answer, never folded into live;
+like `attribute`, it never GCs, and it stamps no cadence and writes no memo.
+
 ## The per-unit fence: one tower per unit
 
 Presence is awareness. The thing that stops two towers dispatching one unit is
@@ -951,6 +961,104 @@ anything on it.
 operator sees — `systemMessage`, or the event's own decision field. Stderr is
 discarded on most events, so a reason left there is indistinguishable from an
 unexplained platform failure.
+
+## The four-state stuck-detector: positive signals, owner attribution, stage
+
+Every stuck state looks like silence. A monitor that sampled a frozen
+worker's last pane line reported eleven identical healthy heartbeats,
+because the line was stable *precisely because* the worker was stuck
+(fleet-lifecycle-closure D-4, obs:50eac4ac). So the detector does not watch
+for change. `scripts/fleet-stuck-detector.sh` enumerates four states, each
+established by its **own** positive signal, and a surface carrying none of
+them classifies none of them. The store's five push states from the
+[liveness section above](#push-based-worker-liveness-events-the-five-states-crash-backoff)
+are *inputs* to this classification, not its output vocabulary: a pushed
+`working` row is one signal among several, and the detector's four words are
+a different axis.
+
+```sh
+scripts/fleet-stuck-detector.sh classify <worker> [--pane <capture>] \
+    [--worktree <dir>] [--tower-id <token>] ...
+scripts/fleet-stuck-detector.sh scan        # every worker the registry or the store knows
+```
+
+| State | Established by | Never by |
+| --- | --- | --- |
+| `dead` | `fleet-death-evidence.sh`'s positive verdict on the dispatch record's death handle (REQ-C1.5) | alive, unknown, an errored or refused call, a `none` handle, no handle |
+| `waiting-on-a-human` | a hook push (the attention store's `awaiting-input` row), a pending request in the stream-json journal, or a positively matched permission-prompt signature in a captured pane (REQ-C1.2) | elapsed time, a quiet pane |
+| `finished-but-unreaped` | a successful session-ended record — the `ended` push, the supervisor's `result success`, a zero headless `exit` — while the worker is not positively dead (REQ-C1.3) | a completion whose work is unlanded, or a session that ended without completing (below) |
+| `working` | a pushed `working` row, a running-turn marker in the pane footer, or both stream-json runtime pidfiles present with positive alive evidence on the death handle and no result yet | absence of a stop signal |
+
+Precedence runs top to bottom: death evidence outranks a stale push, a queued
+human decision outranks a captured result, a captured result outranks a stale
+working row. Anything else is `unclassified` with a reason (`no-signal`,
+`turn-ended`, `fork-answered`, `stop-failure`, `completion-failed`,
+`completion-unlanded`) — a fifth word, never a default state, that a consumer
+leaves alone and surfaces. A session that ended without completing (a
+non-zero exit, a non-success result subtype) is `completion-failed`, never
+finished: the supervisor's own status renders it `ended`, and the detector
+agrees.
+
+**A self-reported completion is not sufficient** (REQ-C1.4, obs:cc13d432). A
+worker whose `result=success` sits beside an uncommitted tree or beside
+commits absent from the remote-tracking ref is `unclassified
+completion-unlanded`, not finished. The evidence is local git state only
+(the content-free plumbing `ls-files` and `diff-index --cached`, and the
+commit count against the remote-tracking ref: the upstream when set,
+otherwise every remote-tracking ref) — no fetch, no `gh`, no per-worker forge
+query — so the check is cheap and works offline. The worktree comes from
+`--worktree`, else the registry state dir when that is itself a git toplevel
+(the tmux rung records the worktree there); a path the worker authored, such
+as the event stream's `cwd`, is never used, because a worker could point the
+check at any clean repository and launder its own stranded work. When none
+resolves, `tree unverifiable` is reported, which is not "demonstrably
+unlanded".
+
+**Owner attribution rides every state** (REQ-C1.6): `this-tower` when the
+dispatch record's owner token equals this tower's identity (`--tower-id`,
+else `PLANWRIGHT_TOWER_ID`, else `fleet-presence.sh identity`),
+`live-peer` when `fleet-presence.sh liveness` reports the token live, and
+`dead-or-unknown` for everything else — an absent token, a dead or unknown
+or ambiguous tower, a record the surface does not hold, a surface that cannot
+be read, or no identity to ask with. Degradation always lands on
+dead-or-unknown, never on this-tower: the same signal means opposite things
+depending on who owns the worker, and a reaper must never mistake a peer's
+worker for its own.
+
+**Stage** (REQ-C1.7) is a separate axis from liveness, derived cheaply from
+the stream-json event stream's most recent stage-bearing event: `launched`
+(init only), `implementing` (a tool use), `converging` (a review-skill
+invocation), `handing-off` (a push in a Bash tool use), `completed` (a result
+event). With no stream it is `-` and `stage-source absent` says so; the
+unit branch's commit count is reported alongside where a worktree resolves.
+
+**The output is one pinned grammar** (REQ-C1.8), tab-separated:
+
+```text
+worker    <handle> <state> <owner> <stage> <reason>
+evidence  <handle> <signal> <value>
+anomaly   <handle> <what>
+```
+
+The evidence signals and anomaly words are enumerated in the script header,
+in emission order; a worker's anomalies follow its evidence rows. A malformed
+store or registry line becomes an `anomaly` row and the worker still
+classifies from what remains; every value is a validated token or passes the
+echo-discipline sanitizer. No model reads any of it. A periodic sweep uses
+`scan`, which reads each store once and asks the presence surface once per
+distinct owner token; the per-worker `classify` form pays the identity
+resolution on every call unless `--tower-id` or `PLANWRIGHT_TOWER_ID` is
+given.
+
+**The pane signatures are a platform surface.** The permission-dialog text
+and the busy footer markers live in one sourced file,
+`scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`;
+`FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
+the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
+are verified against the installed CLI's own bundle at each change and
+re-checked by REQ-C1.2's manual half and the REQ-A1.6 deliberate-wedge
+rehearsal, because a silent divergence would degrade the detector to exactly
+the blind spot it exists to close (kickoff risk row 2).
 
 ## Resource governance: models, throttling, and the auto-mode line
 
