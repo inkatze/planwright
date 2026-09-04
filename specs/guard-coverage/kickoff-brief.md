@@ -487,3 +487,20 @@ table's knob defaults before and after; only the restated tally moved.
 Class: expression-only
 Anchor: `2c9a9ce6efd97e42e62ebd5073e65cdfd70465fc` — computed as
 `scripts/spec-anchor.sh specs/guard-coverage`
+
+### Re-anchor — foreign citations qualified (2026-09-03)
+
+Marked self-re-anchor for the expression-only edit the format-grammar
+validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): the fork-PR
+isolation note under `## Sources` now names `bootstrap REQ-J1.5`. Each
+qualified id now carries its owning spec's name within the reader's reach
+(the same line, bullet, or block, the scope the rule reads); no requirement
+or decision changes meaning. `Last reviewed:` moves on the edited files.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `825a9dc98ef6aacf966ae1629f57cafacf03cbae` — computed as
+`scripts/spec-anchor.sh specs/guard-coverage`

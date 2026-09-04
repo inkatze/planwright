@@ -30,7 +30,7 @@ cat >"$spec/design.md" <<'EOF'
 **Last reviewed:** 2026-07-12
 **Format-version:** 1
 
-## D-1: Keep the fixture minimal  (N)
+### D-1: Keep the fixture minimal  (N)
 
 **Decision:** one task; the bundle stays Draft to exercise the refusal.
 

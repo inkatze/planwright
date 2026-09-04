@@ -376,4 +376,20 @@ Anchor: `0c9a65df6e41fb2eed701f328855007b0802f6b9` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Re-anchor — Awaiting-input placeholder recorded (2026-09-03)
+
+Marked self-re-anchor for an expression-only edit landed with format-grammar
+Task 3 (format-grammar D-9, REQ-D1.10): the `## Awaiting input` placeholder
+in `tasks.md` became the plain `(none yet)` form, which the validator's
+Awaiting-input purity rule (format-grammar REQ-D1.1) had read as a
+non-reference bullet. That section is outside the content anchor, so the
+anchor moves only for the changelog entry recording the edit and the `Last
+reviewed:` bumps on the edited files; no requirement or decision changes
+meaning.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `f2535d77c6a5868c534019b4be1588cf40d18ef0` — computed as
+`scripts/spec-anchor.sh specs/tower-front-door`

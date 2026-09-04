@@ -444,3 +444,20 @@ the change this entry re-anchors against.
 Class: expression-only
 Anchor: `2fb577fe3f9a422e64c23cec511396f1c0c53777` — computed as
 `scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
+
+### Re-anchor — foreign citations qualified (2026-09-03)
+
+Marked self-re-anchor for the expression-only edit the format-grammar
+validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): D-10's rejected
+alternative now cites the fold-vs-new test as `bootstrap D-21`. Each
+qualified id now carries its owning spec's name within the reader's reach
+(the same line, bullet, or block, the scope the rule reads); no requirement
+or decision changes meaning. `Last reviewed:` moves on the edited files.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `7131f973bea4276a0530d799f9f81fa4d2a1a94a` — computed as
+`scripts/spec-anchor.sh specs/fleet-lifecycle-closure`

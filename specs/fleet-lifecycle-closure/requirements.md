@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-08-19
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -485,6 +485,12 @@ ending and what evidence that authorization required.
   after inspection showed it is a reservation primitive, not a capacity
   ledger, with the authoritative in-flight count already deriving from git.
   Recorded the unshipped `WorktreeCreate` chore fix as a dispatch gate.
+
+- 2026-09-03 — Expression-only: D-10's rejected alternative cites the
+  fold-vs-new test as `bootstrap D-21` instead of a bare `D-21`. Surfaced by
+  the format-grammar validator's citation-range rule (format-grammar REQ-D1.3)
+  on its all-bundle rollout (format-grammar D-9); no requirement or decision
+  changes meaning.
 
 ## Sources
 

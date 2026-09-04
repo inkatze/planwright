@@ -1,7 +1,7 @@
 # Merge Currency Guard — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-24
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -189,7 +189,7 @@ ready PR means what the fleet and the human both assume it means.
 - **REQ-B1.4** `/execute-task` SHALL continue to open only a draft PR and SHALL
   NOT itself perform the draft→ready flip; the in-loop sync changes the head the
   eventual flip lands on, not who flips.
-  *(Cites: `execute-task` SKILL D-21 / REQ-J1.1 · drafting-session decision (2026-07-20).)*
+  *(Cites: `execute-task` SKILL (pair-flow D-21 / bootstrap REQ-J1.1) · drafting-session decision (2026-07-20).)*
 - **REQ-B1.5** The sync mechanism SHALL be implemented as a dedicated script the
   skill invokes in a single line, so the `/execute-task` instruction body does
   not grow a paragraph and stays within its instruction-headroom budget.
@@ -413,6 +413,12 @@ ready PR means what the fleet and the human both assume it means.
   **sync**-related uses stay `main`-specific, which is what `converge-sync-main`
   actually targets (D-4). No predicate change. No REQ or D-ID minted, no
   accepted decision contradicted, no executable behavior introduced.
+
+- 2026-09-03 — Expression-only: REQ-B1.4's citation of the execute-task skill's
+  invariants now reads `pair-flow D-21 / bootstrap REQ-J1.1` instead of bare ids.
+  Surfaced by the format-grammar validator's citation-range rule (format-grammar
+  REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or
+  decision changes meaning.
 
 ## Sources
 

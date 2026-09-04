@@ -32,24 +32,45 @@
 #      grammar lib's fence lexer, so fenced illustration is documentation
 #      rather than content in both directions — it neither raises findings
 #      of its own nor satisfies a check a real record would (REQ-C1.2).
+#  11. Empty requirement: a live REQ bullet whose text, less its citation
+#      annotation, is empty, cited or not (format-grammar REQ-D1.2).
+#  12. Decision shape: an H2 `D-<n>` heading, a colon-less H3 `D-<n>`, and a
+#      period-labelled Decision / Alternatives considered / Chosen because
+#      field are malformed decisions (REQ-D1.5).
+#  13. Task-heading form: a `### Task` heading off the canonical
+#      `### Task <id> — <title>` form is flagged, never parsed into a wrong
+#      id (REQ-D1.7, REQ-A1.10).
+#  14. Citation range (warning at every status, D-13): a `D-<n>`,
+#      `REQ-<id>`, or `Task <id>` token the bundle does not define, carrying
+#      no sibling-spec qualifier on its line, its bullet or paragraph, or
+#      its H3 block, is named as unresolvable (REQ-D1.3). The qualifier
+#      is a sibling bundle's directory name, or a hyphenated namespace
+#      immediately before an id. `## Changelog` is history and not scanned.
+#  15. Dead-path check (warning at every status, D-14): against the
+#      baseline ref, a live REQ whose bullet text changed while its
+#      test-spec entry did not (REQ-D1.8); citation annotations and
+#      whitespace are not text.
 #
 # Format-version 2 (the invariant ledger; invariant-tasks REQ-C1.5,
 # REQ-C1.8, REQ-C1.9, REQ-D1.1 · D-3, D-5, D-7) adds, for v2 bundles only:
 #
-#   11. No placement sections: `## Forward plan`, `## In progress`, and
+#   16. No placement sections: `## Forward plan`, `## In progress`, and
 #       `## Completed` do not exist (task blocks live in `## Tasks`).
-#   12. No state annotation bullets: `Status`, `Last activity`, and
+#   17. No state annotation bullets: `Status`, `Last activity`, and
 #       `Dispatch` bullets do not exist in task blocks (the three
 #       state-annotation tokens the format defines; other bullets are not
 #       this check's concern).
-#   13. Stored `Status:` restricted to the human-gated set — Draft, Ready,
+#   18. Stored `Status:` restricted to the human-gated set — Draft, Ready,
 #       Retired, Superseded; Active and Done are derived, never stored.
-#   14. The static pointer line `**Execution:** derived — see the status
+#   19. The static pointer line `**Execution:** derived — see the status
 #       render` present in every file's header, in its fixed vocabulary.
-#   15. Reference-bullet integrity in the human-payload sections: every
+#   20. Reference-bullet integrity in the human-payload sections: every
 #       `**Task <id>**` bullet names an existing task id, ids pass the
 #       task-id grammar before any use, and a task is parked by at most
 #       one bullet across all three sections.
+#   21. Awaiting-input purity: `## Awaiting input` holds reference bullets
+#       only; any other column-0 bullet there is flagged (format-grammar
+#       REQ-D1.1). Deferred and Out of scope keep tolerating plain bullets.
 #
 # Version keying is fail-closed (REQ-C1.8): a missing or unparseable
 # `Format-version:` is an error at every status — the rules to apply cannot
@@ -68,7 +89,11 @@
 # CI). Integrity violations are errors regardless of status: an unknown
 # status, a missing/unparseable/unsupported format-version,
 # Superseded without its pointer, duplicate IDs, identifier-charset
-# violations, and a transition out of a terminal state.
+# violations, and a transition out of a terminal state. Two heuristics, the
+# citation-range and dead-path checks (rules 14 and 15), are warnings at
+# every status: format-grammar REQ-D1.3 and REQ-D1.8 say "warn", and D-13
+# and D-14 pin why a heuristic never blocks. Finding classes in $fnd: `hard`
+# (error everywhere), `gap` (status-scoped), `soft` (warning everywhere).
 #
 # Usage:
 #   spec-validate.sh [--baseline <ref>] <specs-root | spec-dir>
@@ -361,7 +386,8 @@ debaseline() {
 }
 
 # Parse requirements.md REQ blocks. Tagged tab-separated output:
-#   F <tab> gap|hard <tab> message     — a finding
+#   F <tab> gap|hard <tab> message     — a finding (class vocabulary in the
+#                                        severity note above)
 #   ALL <tab> id                       — every defined REQ-ID
 #   LIVE <tab> id                      — REQ-IDs not marked Superseded-by
 #
@@ -372,9 +398,16 @@ debaseline() {
 # The bullet grammar itself is the shared lib's (format-grammar Task 8;
 # REQ-B1.5): the validator, the selector, and the bundle reader now read one
 # definition of what a requirement bullet is.
+#
+# The cited-but-empty rule (REQ-D1.2) reads the bullet's whole text — the
+# heading line past the id lead plus every continuation line — with the
+# citation annotation removed. The annotation is provenance, not a
+# requirement, so a bullet that is only `*(Cites: ...)*` has nothing to
+# implement or verify; it is flagged for live records only, since a
+# superseded record's body is frozen history.
 parse_requirements() {
   awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
-    function flush() {
+    function flush(   body) {
       if (cur == "") return
       if (sup) {
         printf "SUP\t%s\n", cur
@@ -382,6 +415,9 @@ parse_requirements() {
         printf "LIVE\t%s\n", cur
         if (!cites)
           printf "F\tgap\t%s has no citation annotation (*(Cites: ...)*)\n", cur
+        body = spec_parse_strip_cites(text)
+        if (body !~ /[^ \t\r]/)
+          printf "F\tgap\t%s has no normative prose (a live requirement bullet carries only its citation)\n", cur
       }
       cur = ""
     }
@@ -397,14 +433,20 @@ parse_requirements() {
         cur = id
         cites = ($0 ~ /\(Cites:/)
         sup = ($0 ~ /\*\*Superseded-by: REQ-/)
+        text = spec_parse_req_bullet_text($0)
       } else {
         printf "F\tgap\tprose-only bullet or non-conforming REQ-ID at requirements.md:%d (expected REQ-<letter><n>.<m>)\n", NR
       }
       next
     }
+    # A bullet continues on indented lines only (the wrapped-text rule of
+    # the format); an unindented paragraph after the last bullet of a group
+    # belongs to the group, not to that bullet.
+    cur != "" && /^[^ \t]/ { flush(); next }
     cur != "" {
       if ($0 ~ /\(Cites:/) cites = 1
       if ($0 ~ /\*\*Superseded-by: REQ-/) sup = 1
+      text = text " " $0
     }
     END { flush() }
   ' "$1"
@@ -414,6 +456,13 @@ parse_requirements() {
 # parse_requirements: F findings, plus every D-ID tagged ALLD. Fence-aware
 # via the shared lexer (REQ-C1.2), with the heading grammar itself from the
 # shared lib (Task 8; REQ-B1.5).
+#
+# Two decision shapes the grammar does not recognize are named as malformed
+# rather than misread (REQ-D1.5): a `D-<n>` heading written at H2, which the
+# section rule would otherwise treat as an ordinary section and silently
+# orphan its fields; and a period-labelled field (`**Decision.**`), which
+# would otherwise surface only as the field being missing — true, but it
+# sends the author looking for an absent field instead of a wrong label.
 parse_design() {
   awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
     function flush() {
@@ -422,6 +471,14 @@ parse_design() {
       if (!ha) printf "F\tgap\t%s missing field: Alternatives considered\n", cur
       if (!hc) printf "F\tgap\t%s missing field: Chosen because\n", cur
       cur = ""
+    }
+    function period(label) {
+      printf "F\tgap\t%s field label \"%s.\" is period-labelled (expected **%s:**)\n", cur, label, label
+    }
+    /^## D-[0-9]+/ {
+      flush()
+      printf "F\tgap\tdecision heading at H2 at design.md:%d (expected ### D-<n>: <title>)\n", NR
+      next
     }
     spec_parse_dec_attempt($0) {
       flush()
@@ -444,6 +501,9 @@ parse_design() {
       if ($0 ~ /^\*\*Decision:\*\*/) hd = 1
       if ($0 ~ /^\*\*Alternatives considered:\*\*/) ha = 1
       if ($0 ~ /^\*\*Chosen because:\*\*/) hc = 1
+      if ($0 ~ /^\*\*Decision\.\*\*/) { hd = 1; period("Decision") }
+      if ($0 ~ /^\*\*Alternatives considered\.\*\*/) { ha = 1; period("Alternatives considered") }
+      if ($0 ~ /^\*\*Chosen because\.\*\*/) { hc = 1; period("Chosen because") }
     }
     END { flush() }
   ' "$1"
@@ -506,9 +566,14 @@ parse_tasks() {
       flush()
       id = spec_parse_task_id($0)
       if (id == "") {
-        printf "F\tgap\tmalformed task id at tasks.md:%d (expected <n> or <n>.<m>)\n", NR
+        printf "F\tgap\tmalformed task id at tasks.md:%d (expected ### Task <id> — <title>, with <id> as <n> or <n>.<m>)\n", NR
         next
       }
+      # A conforming id on an off-form heading (REQ-D1.7): the id is still
+      # registered, so the block keeps its identity for every other check
+      # and the finding is the only thing the deviation costs.
+      if (!spec_parse_is_canonical_task_heading($0))
+        printf "F\tgap\tnon-canonical task heading at tasks.md:%d (expected ### Task <id> — <title>, with the em dash)\n", NR
       printf "ALLT\t%s\n", id
       if (id in seen) printf "F\thard\tduplicate task id: Task %s\n", id
       seen[id] = 1
@@ -538,6 +603,10 @@ parse_tasks() {
 #                                 fixed vocabulary or grammar-validated ids)
 #   TID <tab> id                — every well-formed task id defined in the file,
 #                                 for the reference-bullet cross-check below
+#   AB <tab> line               — every column-0 bullet under `## Awaiting
+#                                 input`; reference_bullet_findings() below
+#                                 flags the ones the lib did not classify as a
+#                                 reference bullet (REQ-D1.1 section purity)
 #
 # Reference-bullet classification is NOT here: it comes from the shared lib's
 # parked-map parse (scripts/spec-parse.sh, REQ-B1.4), so this validator applies
@@ -582,14 +651,18 @@ parse_tasks_v2() {
       printf "F\tgap\tstate annotation bullet \"%s\" on %s does not exist in format-version 2 (the Status, Last activity, and Dispatch state annotations are derived state, never stored)\n", tok, loc
       next
     }
+    section == "Awaiting input" && /^- / { printf "AB\t%d\n", NR; next }
   ' "$1"
 }
 
 # reference_bullet_findings <TID-stream> <parked-map-stream> — the v2
 # reference-bullet integrity checks, over the shared lib's parked-map records
 # (REQ-B1.4): every reference names an existing task id, and a task is parked by
-# at most one bullet across all three sections. Tagged output, same shapes the
-# callers already consume:
+# at most one bullet across all three sections. Section purity rides the same
+# records (REQ-D1.1): a column-0 bullet under `## Awaiting input` that the lib
+# emitted as neither `ref` nor `refbad` is not a reference bullet, so the
+# classification stays the lib's and this only reads its verdict. Tagged output,
+# same shapes the callers already consume:
 #   F  <tab> gap <tab> message   — a finding
 #   RB <tab> line <tab> raw-id   — a grammar-violating reference-bullet token,
 #                                  raw (whitespace-free of tabs and newlines by
@@ -618,12 +691,17 @@ reference_bullet_findings() {
       if (c == "out-of-scope") return "Out of scope"
       return c
     }
-    FILENAME == ARGV[1] { if ($1 == "TID") ids[$2] = 1; next }
-    $1 == "refbad" { printf "RB\t%s\t%s\n", $4, $2; next }
+    FILENAME == ARGV[1] {
+      if ($1 == "TID") ids[$2] = 1
+      else if ($1 == "AB") { ab[++nab] = $2 }
+      next
+    }
+    $1 == "refbad" { classified[$4] = 1; printf "RB\t%s\t%s\n", $4, $2; next }
     $1 == "ref" {
       rid = $2
       sec = label($3)
       nr = $4
+      classified[nr] = 1
       if (!(rid in ids))
         printf "F\tgap\treference bullet at tasks.md:%s names unknown task id %s (%s)\n", nr, rid, sec
       if (rid in seensec) {
@@ -634,7 +712,127 @@ reference_bullet_findings() {
       } else
         seensec[rid] = sec
     }
+    END {
+      for (i = 1; i <= nab; i++)
+        if (!(ab[i] in classified))
+          printf "F\tgap\tnon-reference bullet at tasks.md:%s under ## Awaiting input (the section holds reference bullets only: - **Task <id>** <the blocking question>)\n", ab[i]
+    }
   ' "$1" "$2"
+}
+
+# citation_range_findings <dir> <name> — the REQ-D1.3 / D-13 range check,
+# appended to $fnd as `soft` findings (a warning at every status: this is a
+# heuristic, and a heuristic never blocks). Over the four files, fence-aware
+# and `## Changelog` excluded (history names ids as they were), every `D-<n>`,
+# `REQ-<id>`, and `Task <id>` token is resolved against the ids this bundle
+# defines ($all_req_ids / $all_d_ids / $all_t_ids, loaded before the call). A
+# token that does not resolve is fine when a sibling-spec qualifier is in
+# reach; otherwise every occurrence is named with its file and source line, so
+# one fix-what-is-reported pass converges.
+#
+# What counts as a qualifier is the part that has to be honest about its
+# capability. The strong form is a sibling bundle's directory name, taken from
+# the bundle's canonicalized parent directory and screened by the identifier
+# charset: it names a real spec, so its presence anywhere in the scope is a
+# signal ("Carried from bootstrap: D-45, REQ-Z9.9"). The weaker form is a
+# hyphenated lowercase namespace that is NOT a directory here (`pair-flow`,
+# `meta-spec`): ordinary prose is full of hyphenated words, so that form counts
+# only when it sits immediately before an id token, possessive stripped. Either
+# form then reaches the whole line, the enclosing column-0 bullet or paragraph,
+# and the enclosing H3 block (a decision, a task block, a test-spec entry) — a
+# scope a reader's eye also covers, and the one REQ-D1.3 names. A block is an
+# identity, not an ordinal: the counter never resets, so the first H3 of one
+# section shares nothing with the first H3 of the next.
+#
+# Definition lines (a decision or task heading) are not scanned: a heading the
+# grammar rejected already carries its own finding, and re-reporting its id as
+# a foreign citation would contradict it.
+#
+# The fence lexer is prepended rather than run as the defence filter so NR
+# stays the source line number the finding cites. Tokenization mirrors the
+# lib's citation scrape: non-id bytes become spaces, a sentence-final period is
+# stripped per token, and `Task <id>` is read as the two tokens the format
+# defines. Backticks are ordinary separators, so an id in a code span is a
+# citation like any other. The echoed token has passed one of the three id
+# grammars, so it is printable by construction.
+citation_range_findings() {
+  crdir=$1
+  crname=$2
+  crsibs=" "
+  if crparent=$(cd "$crdir/.." 2>/dev/null && pwd); then
+    for crsib in "$crparent"/*/; do
+      crsib=$(basename "$crsib")
+      [ "$crsib" != "$crname" ] || continue
+      check_spec_id "$crsib" || continue
+      crsibs="$crsibs$crsib "
+    done
+  fi
+  crdefs=$(printf '%s\n%s\n%s\n' "$all_req_ids" "$all_d_ids" "$all_t_ids" \
+    | awk '/^[0-9]/ { print "Task " $0; next } NF { print }')
+  for crfile in requirements.md design.md tasks.md test-spec.md; do
+    [ -f "$crdir/$crfile" ] || continue
+    awk -v sibs="$crsibs" -v file="$crfile" -v defs="$crdefs" \
+      "$spec_parse_awk_fence$spec_parse_awk_grammar"'
+      BEGIN {
+        n = split(defs, d, "\n")
+        for (i = 1; i <= n; i++) if (d[i] != "") defined[d[i]] = 1
+      }
+      function is_cite_id(tok) { return (tok ~ /^D-[0-9]+$/ || tok ~ /^REQ-[A-Z][0-9]+\.[0-9]+$/) }
+      function is_sibling(w) { return (index(sibs, " " w " ") > 0) }
+      function is_namespace_word(w) { return (w ~ /^[a-z0-9]+-[a-z0-9-]+$/) }
+      function splittable(s) {
+        gsub(/\047s/, " ", s)
+        gsub(/[^A-Za-z0-9.-]+/, " ", s)
+        return s
+      }
+      { sub(/\r$/, "") }
+      /^## / { in_changelog = (tolower($0) ~ /^## changelog/); block = 0 }
+      /^### / { block = ++nblocks }
+      /^#/ || /^- / || /^[ \t]*$/ { unit++ }
+      {
+        line[NR] = $0
+        skip[NR] = in_changelog || spec_parse_dec_attempt($0) || $0 ~ /^## D-[0-9]+/ || spec_parse_is_task_heading($0)
+        unit_of[NR] = unit
+        block_of[NR] = block
+        n = split(splittable($0), t, " ")
+        qualified = 0
+        for (i = 1; i <= n; i++) {
+          if (is_sibling(t[i])) qualified = 1
+          if (i < n && is_namespace_word(t[i])) {
+            tok = t[i + 1]
+            sub(/\.$/, "", tok)
+            if (is_cite_id(tok)) qualified = 1
+            else if (tok == "Task" && i + 1 < n) {
+              nt = t[i + 2]
+              sub(/\.$/, "", nt)
+              if (spec_parse_is_task_id(nt)) qualified = 1
+            }
+          }
+        }
+        if (qualified) { qualified_line[NR] = 1; qualified_unit[unit] = 1; if (block) qualified_block[block] = 1 }
+      }
+      END {
+        for (nr = 1; nr <= NR; nr++) {
+          if (!(nr in line) || skip[nr]) continue
+          if (qualified_line[nr] || qualified_unit[unit_of[nr]] || (block_of[nr] && qualified_block[block_of[nr]])) continue
+          n = split(splittable(line[nr]), t, " ")
+          for (i = 1; i <= n; i++) {
+            tok = t[i]
+            sub(/\.$/, "", tok)
+            key = ""
+            if (is_cite_id(tok)) key = tok
+            else if (tok == "Task" && i < n) {
+              nt = t[i + 1]
+              sub(/\.$/, "", nt)
+              if (spec_parse_is_task_id(nt)) key = "Task " nt
+            }
+            if (key == "" || (key in defined)) continue
+            printf "soft\t%s at %s:%d is not defined in this bundle and carries no sibling-spec qualifier (a foreign id is qualified by its spec name on the same line or in the enclosing block)\n", key, file, nr
+          }
+        }
+      }
+    ' <"$crdir/$crfile" >>"$fnd"
+  done
 }
 
 # set_in <needle> <newline-list> — exact-membership test.
@@ -700,6 +898,102 @@ task_retirement_named() {
   '
 }
 
+# req_texts <file|-> — one `id<TAB>text` record per requirement bullet: the
+# bullet's text past the id lead plus its continuation lines, the citation
+# annotation removed, whitespace collapsed. The content-based half of the
+# dead-path comparison (REQ-D1.8): a bullet that only moved, re-wrapped, or
+# gained a citation reads as unchanged.
+#
+# Reads a file through the fence lexer, or `-` for text on stdin that the
+# caller has ALREADY fence-stripped (a baseline blob through debaseline, so
+# an unbalanced baseline takes that helper's raw-blob fallback and its finding
+# rather than this reader's silent truncation).
+req_texts() {
+  if [ "$1" = - ]; then cat; else defence "$1"; fi | awk "$spec_parse_awk_grammar"'
+    function flush(   body) {
+      if (cur == "") return
+      body = spec_parse_strip_cites(text)
+      gsub(/[ \t\r]+/, " ", body)
+      sub(/^ /, "", body)
+      sub(/ $/, "", body)
+      printf "%s\t%s\n", cur, body
+      cur = ""
+    }
+    /^## / { flush(); ingroup = ($0 ~ /^## REQ-/); next }
+    !ingroup { next }
+    /^- / {
+      flush()
+      id = spec_parse_req_bullet_id($0)
+      if (id == "") next
+      cur = id
+      text = spec_parse_req_bullet_text($0)
+      next
+    }
+    cur != "" && /^[^ \t]/ { flush(); next }
+    cur != "" { text = text " " $0 }
+    END { flush() }
+  '
+}
+
+# ts_texts <file|-> — one `id<TAB>text` record per REQ id an H3 entry heading
+# names: the heading and the entry body up to the next heading, whitespace
+# collapsed. A heading naming several ids yields one record each, so a shared
+# entry counts for every REQ it covers (the coverage rule's reading).
+ts_texts() {
+  if [ "$1" = - ]; then cat; else defence "$1"; fi | awk "$spec_parse_awk_grammar"'
+    function flush(   body, n, i) {
+      if (ids == "") return
+      body = text
+      gsub(/[ \t\r]+/, " ", body)
+      sub(/^ /, "", body)
+      sub(/ $/, "", body)
+      n = split(ids, t, " ")
+      for (i = 1; i <= n; i++) printf "%s\t%s\n", t[i], body
+      ids = ""
+    }
+    /^## / { flush(); next }
+    /^### / { flush(); ids = spec_parse_req_tokens($0); text = $0; next }
+    ids != "" { text = text " " $0 }
+    END { flush() }
+  '
+}
+
+# dead_path_check <dir> — the coverage-based dead-path check (REQ-D1.8, D-14),
+# appended to $fnd as `soft` findings: a live REQ whose bullet text changed
+# since $baseline while its test-spec entry did not. Both halves are read
+# through req_texts / ts_texts, so the comparison is content-based; only REQs
+# present at both ends with an entry at both ends are compared — a new REQ,
+# a superseded one, and a removed (tombstoned) entry each fall to the checks
+# that own them (coverage, supersession). Shares $old_req and $old_ts with
+# the stable-ID checks: one baseline load per run.
+dead_path_check() {
+  ddir=$1
+  [ -n "$old_req" ] && [ -n "$old_ts" ] || return 0
+  [ -f "$ddir/requirements.md" ] && [ -f "$ddir/test-spec.md" ] || return 0
+  req_texts "$ddir/requirements.md" >"$gtmp/dp.cur_req"
+  printf '%s\n' "$old_req_def" | req_texts - >"$gtmp/dp.old_req"
+  ts_texts "$ddir/test-spec.md" >"$gtmp/dp.cur_ts"
+  debaseline "$old_ts" test-spec.md | ts_texts - >"$gtmp/dp.old_ts"
+  printf '%s\n' "$live_req_ids" | awk 'NF && !seen[$0]++' >"$gtmp/dp.live"
+  # The baseline name reaches awk through the environment, not `-v`: a `-v`
+  # value is escape-processed, and the ref is caller input this script does
+  # not screen (its sibling guard does), so it must stay data end to end.
+  dp_baseline=$baseline awk -F"$tab" '
+    FILENAME == ARGV[1] { cr[$1] = $2; next }
+    FILENAME == ARGV[2] { orq[$1] = $2; next }
+    FILENAME == ARGV[3] { ct[$1] = $2; next }
+    FILENAME == ARGV[4] { ot[$1] = $2; next }
+    {
+      id = $1
+      if (id == "" || !(id in cr) || !(id in orq)) next
+      if (cr[id] == orq[id]) next
+      if (!(id in ct) || !(id in ot)) next
+      if (ct[id] != ot[id]) next
+      printf "soft\t%s changed since %s while its test-spec entry did not (a changed requirement usually needs a changed verification path)\n", id, ENVIRON["dp_baseline"]
+    }
+  ' "$gtmp/dp.cur_req" "$gtmp/dp.old_req" "$gtmp/dp.cur_ts" "$gtmp/dp.old_ts" "$gtmp/dp.live" >>"$fnd"
+}
+
 # Baseline checks for one bundle: terminal-state discipline and the
 # stable-ID never-reused rule, against $baseline. Appends to $fnd. Skipped
 # quietly when the bundle is not in a git work tree or the default baseline
@@ -728,6 +1022,8 @@ baseline_checks() {
   old_req=$(git -C "$bdir" show "$baseline:./requirements.md" 2>/dev/null) || old_req=
   old_des=$(git -C "$bdir" show "$baseline:./design.md" 2>/dev/null) || old_des=
   old_tsk=$(git -C "$bdir" show "$baseline:./tasks.md" 2>/dev/null) || old_tsk=
+  old_ts=$(git -C "$bdir" show "$baseline:./test-spec.md" 2>/dev/null) || old_ts=
+  old_req_def=
 
   # The current bundle's `## Changelog` body, loaded once for both escapes that
   # read it: REQ-A3.3's changelog-on-supersede and REQ-D1.6's task retirement.
@@ -769,8 +1065,11 @@ baseline_checks() {
     esac
     # Fence-stripped before the id sweep (REQ-C1.2): both halves of the
     # stable-ID diff have to parse the same grammar, or a fenced mock id
-    # present in BOTH revisions reads as an id that vanished.
-    old_ids=$(debaseline "$old_req" requirements.md \
+    # present in BOTH revisions reads as an id that vanished. Stripped once
+    # here and reused by the dead-path check, so an unbalanced baseline is
+    # named once rather than per consumer.
+    old_req_def=$(debaseline "$old_req" requirements.md) || old_req_def=
+    old_ids=$(printf '%s\n' "$old_req_def" \
       | awk "$spec_parse_awk_grammar"'
         { id = spec_parse_req_bullet_id($0); if (id != "") print id }
       ') || old_ids=
@@ -845,6 +1144,7 @@ baseline_checks() {
           "$oid" "$baseline" >>"$fnd"
     done
   fi
+  dead_path_check "$bdir"
   if [ -n "$old_tsk" ]; then
     old_ids=$(debaseline "$old_tsk" tasks.md \
       | awk "$spec_parse_awk_grammar"'
@@ -882,8 +1182,16 @@ validate_bundle() {
   hb_path=
   hb_failed=
 
+  # The citation-range check needs every defining file present and fully
+  # parsed, or every id the absent or truncated file defines would be
+  # re-reported as foreign in the other three; the missing-file or fence
+  # finding is the whole story then (REQ-D1.3).
+  range_ok=1
   for bf in requirements.md design.md tasks.md test-spec.md; do
-    [ -f "$bdir/$bf" ] || printf 'gap\tmissing file: %s\n' "$bf" >>"$fnd"
+    if [ ! -f "$bdir/$bf" ]; then
+      printf 'gap\tmissing file: %s\n' "$bf" >>"$fnd"
+      [ "$bf" = test-spec.md ] || range_ok=0
+    fi
   done
 
   # Unbalanced column-0 fence (REQ-D1.11, D-5). Checked before anything reads
@@ -896,6 +1204,7 @@ validate_bundle() {
     [ -f "$bdir/$bf" ] || continue
     fbrc=0
     fbline=$(spec_parse_fence_balance "$bdir/$bf" 2>"$gtmp/fence.err") || fbrc=$?
+    [ "$fbrc" -eq 0 ] || [ "$bf" = test-spec.md ] || range_ok=0
     case $fbrc in
       0) ;;
       3)
@@ -1142,6 +1451,7 @@ validate_bundle() {
     done
   fi
 
+  [ "$range_ok" -eq 0 ] || citation_range_findings "$bdir" "$bname"
   baseline_checks "$bdir"
 
   # Severity mapping (D-25): warnings on Draft and on the frozen terminal
@@ -1155,11 +1465,11 @@ validate_bundle() {
   esac
   while IFS="$tab" read -r class msg; do
     [ -n "$class" ] || continue
-    if [ "$class" = "hard" ]; then
-      sev=ERROR
-    else
-      sev=$gapsev
-    fi
+    case $class in
+      hard) sev=ERROR ;;
+      soft) sev=WARN ;;
+      *) sev=$gapsev ;;
+    esac
     printf 'spec-validate: %s %s: %s\n' "$sev" "$bname" "$msg"
     if [ "$sev" = "ERROR" ]; then
       err=$((err + 1))

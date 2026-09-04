@@ -600,3 +600,21 @@ to `c8502e7e`.
 Class: expression-only
 Anchor: `99502f9688a480ff4b3fbbe23d3c014acf907355` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Re-anchor — foreign citations qualified (2026-09-03)
+
+Marked self-re-anchor for the expression-only edit the format-grammar
+validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): the `### In
+scope` item and the `## Sources` note now name `autopilot-reflex REQ-D1.3`.
+Each qualified id now carries its owning spec's name within the reader's
+reach (the same line, bullet, or block, the scope the rule reads); no
+requirement or decision changes meaning. `Last reviewed:` moves on the
+edited files.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `40d24a74ac732483ba0c41d1dc78ae7e8d02257b` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`

@@ -276,7 +276,8 @@ Task IDs are stable and never reused. A single task id is `<n>` or `<n>.<m>`
 text continues on indented lines.
 
 `### Task <id> — <title>`, with the em dash, is the **only** recognized heading
-form (`scripts/check-ledger.sh` already flags deviations). A heading that begins
+form (`scripts/check-ledger.sh` and `scripts/spec-validate.sh` both flag
+deviations). A heading that begins
 `### Task` and deviates from it — a colon separator, a missing title — is
 malformed, never silently parsed into a wrong id: `### Task 1: title` otherwise
 yields the id `1:`, and the gate evaluator then reports a false unknown-task
@@ -500,7 +501,11 @@ non-Draft v2 bundles and warnings on Draft. Two carve-outs error at *every*
 status, Draft included: a missing or unparseable `Format-version:` — and every
 version-keyed script fails closed on it, never falling open to the v1 write path
 — and a duplicate in-header declaration of either load-bearing key
-(*Header-block extent*), which is unparseable by the same reasoning.
+(*Header-block extent*), which is unparseable by the same reasoning. Two
+heuristics run the other way and warn at *every* status, never blocking: the
+citation-range check on unqualified foreign ids and the coverage-based
+dead-path check on a changed requirement with an unchanged test-spec entry
+(format-grammar D-13, D-14).
 
 ## Stable IDs and supersession
 
@@ -601,7 +606,7 @@ Anchor: `<hash>` — computed as
   - **Qualified cross-spec citations.** Read every namespace-qualified foreign
     citation and confirm it resolves to the record the sentence relies on. The
     division of labour is deliberate: mechanical range and qualifier checking of
-    *unqualified* tokens is the validator's (a hardening rule, not yet landed),
+    *unqualified* tokens is the validator's (its citation-range warning),
     while whether `bootstrap D-25` is the decision being leaned on is a judgment
     no structural check can make — a keyword heuristic would false-positive on
     legitimate cites while lulling readers on subtle ones. A misattributed
@@ -1113,3 +1118,20 @@ bundle would have to migrate to:
   authoring rule changes — a writer obligation that was already implied by the
   expression-only lane becomes explicit.
   *(anchor-integrity D-5 · REQ-C1.1, REQ-C1.2, REQ-C1.3.)*
+- 2026-09-03 — Validator hardening caught up. The 2026-07-29 entry above named
+  the deviant-heading flag, the unqualified-citation range warning, and the
+  rest of the validator hardening as their own task; `scripts/spec-validate.sh`
+  now enforces them: cited-but-empty requirement bullets, decision shapes
+  (an H2 `D-<n>` heading, a period-labelled field), the canonical task-heading
+  form, version-2 Awaiting-input purity, the citation-range warning, and the
+  coverage-based dead-path warning, alongside the duplicate-declaration error
+  the shared lib already refused. Prose here changes only where it said the
+  tooling had not caught up (*Sign-off records and content anchors*, the
+  qualified-cross-spec-citations item; *`tasks.md`*, the heading form), plus
+  the two warn-everywhere heuristics named beside the version-2 validation
+  carve-outs (*Format-version 2*). **No version bump:** no authoring rule
+  changes; every in-repo bundle satisfied the rules before landing, with the
+  handful of bare foreign citations qualified through the expression-only
+  lane.
+  *(format-grammar D-9, D-13, D-14 · REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.5,
+  REQ-D1.7, REQ-D1.8, REQ-D1.9, REQ-D1.10.)*

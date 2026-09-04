@@ -403,6 +403,26 @@ Class: expression-only
 Anchor: `f5aab2529be51c1db424250eecde2d4ad070fdaf` — computed as
 `scripts/spec-anchor.sh specs/fleet-hardening`
 
+### Re-anchor — foreign citations qualified (2026-09-03)
+
+Marked self-re-anchor for the expression-only edit the format-grammar
+validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): the bare `D-36`
+tokens in REQ-B1.4, the `## Sources` tmux note, the `tasks.md` intro and
+Task 10 deliverables, and the REQ-B1.4 test-spec entry now read `bootstrap
+D-36`; the `## Awaiting input` placeholder in `tasks.md` became the plain
+`(none yet)` form (format-grammar REQ-D1.1), outside the anchor. Each
+qualified id now carries its owning spec's name within the reader's reach
+(the same line, bullet, or block, the scope the rule reads); no requirement
+or decision changes meaning. `Last reviewed:` moves on the edited files.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `6d5cec7e4c143f8e9bfc0a767d1e0f325910210c` — computed as
+`scripts/spec-anchor.sh specs/fleet-hardening`
+
 ## 10. Execution research log
 
 <!-- Research-rigor recordings appended during execution (findings, tradeoffs,
