@@ -804,6 +804,15 @@ spec_parse_awk_grammar='
     if (!spec_parse_is_task_id(a[3])) return ""
     return a[3]
   }
+  # Whether a heading that already yields an id is in the ONLY recognized
+  # form, `### Task <id> — <title>`: one space, the em dash, one space, a
+  # non-blank title (doctrine/spec-format.md, *Task block format*). A
+  # heading can carry a conforming id and still be off-form — a hyphen or en
+  # dash for the separator, or no title at all — and those read fine to the
+  # id parse above, so the form check is its own gate (REQ-D1.7).
+  function spec_parse_is_canonical_task_heading(s) {
+    return (s ~ /^### Task [0-9]+(\.[0-9]+)? — [^ \t\r]/)
+  }
   # The title past the id and its em dash, or "" when the heading carries no
   # conforming id.
   function spec_parse_task_title(s,   id, t) {
