@@ -396,9 +396,9 @@ echo "ok: a metacharacter-laden reason is carried as data, never interpolated"
 
 new_wt race
 valid_body escalate u:1 impl 1 'contested' >"$wt/.claude/allocation-petition"
-pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1 >"$tmp/race-a" 2>/dev/null &
+pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1 >"$tmp/race-a" 2>"$tmp/race-a.err" &
 ra=$!
-pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1 >"$tmp/race-b" 2>/dev/null &
+pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1 >"$tmp/race-b" 2>"$tmp/race-b.err" &
 rb=$!
 rca=0
 rcb=0
@@ -408,9 +408,53 @@ wins=0
 for f in "$tmp/race-a" "$tmp/race-b"; do
   [ "$(field verdict <"$f")" = valid ] && wins=$((wins + 1))
 done
-[ "$wins" = 1 ] || fail "7: $wins of two racing consumers weighed the same petition, want exactly 1"
+if [ "$wins" != 1 ]; then
+  # Print what the consumers said before failing. This assertion used to discard
+  # both stderrs, and the sweep destroying a live sibling's claim looked exactly
+  # like an unexplained flake for as long as it did.
+  echo "race-a stderr: $(cat "$tmp/race-a.err" 2>/dev/null)"
+  echo "race-b stderr: $(cat "$tmp/race-b.err" 2>/dev/null)"
+  echo "race-a: $(tr '\n' ' ' <"$tmp/race-a" 2>/dev/null)"
+  echo "race-b: $(tr '\n' ' ' <"$tmp/race-b" 2>/dev/null)"
+  fail "7: $wins of two racing consumers weighed the same petition, want exactly 1"
+fi
 [ "$((rca + rcb))" = 1 ] || fail "7a: the losing consumer did not report 'nothing to claim'"
 echo "ok: two racing consumers move the tier at most once"
+
+# --- 7a2. the sweep must not reap a LIVE consumer's claim ----------------
+#
+# The sweep exists for consumers that died holding a claim. A live sibling's
+# claim file matches the same glob, and reaping one destroys the petition that
+# sibling is about to weigh, leaving it to screen a file that is no longer there
+# and report the artifact malformed. Deterministic here, where case 7 only
+# catches it when the interleaving happens to be wide enough.
+
+new_wt livesweep
+valid_body escalate u:1 impl 1 'contested' >"$wt/.claude/allocation-petition"
+# A real live pid to own the planted claim, and one that outlives the call.
+sleep 30 &
+live_pid=$!
+printf 'x\n' >"$wt/.claude/allocation-petition.claim.$live_pid.0"
+out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) \
+  || fail "7a2: claim alongside a live sibling's file failed"
+[ "$(printf '%s\n' "$out" | field reconciled)" = 0 ] \
+  || fail "7a2: a live consumer's claim was swept as an orphan"
+[ -e "$wt/.claude/allocation-petition.claim.$live_pid.0" ] \
+  || fail "7a2: the live consumer's claim file was deleted"
+kill "$live_pid" 2>/dev/null || true
+# `wait` reports the signal as exit 143, which `set -e` would take as fatal.
+wait "$live_pid" 2>/dev/null || true
+echo "ok: a live consumer's claim is left alone by the sweep"
+
+# The same file, once its owner is gone, IS an orphan and must be reaped. The
+# petition itself was consumed above, so this call has nothing to claim and
+# exits non-zero by contract; the reconcile it reports is the assertion.
+out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) || true
+[ "$(printf '%s\n' "$out" | field reconciled)" = 1 ] \
+  || fail "7a3: a dead consumer's claim was not reconciled"
+[ ! -e "$wt/.claude/allocation-petition.claim.$live_pid.0" ] \
+  || fail "7a3: the dead consumer's claim file survived the sweep"
+echo "ok: a dead consumer's claim is reconciled as an orphan"
 
 # --- 7b. `--hold` is the two-phase claim the engine needs ----------------
 #

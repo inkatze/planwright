@@ -125,6 +125,13 @@ PET_NAME=allocation-petition
 # The whole-file byte cap (D-7). The reason cap below keeps a well-formed
 # petition an order of magnitude under it; this bound is what stops an
 # ill-formed one from ever being read.
+# The pid-reuse guard for the claim sweep below, in minutes. A live owner pid is
+# what marks a claim as still in flight; pid numbers are reused, so a live pid on
+# a claim this old is treated as reuse rather than as an owner. Aligned with the
+# repo's stale_lock_threshold default for the same reason that one is 15: it has
+# to sit far above any real hold, and a claim's hold is milliseconds unless the
+# caller took it with --hold.
+PET_CLAIM_ORPHAN_MIN=15
 PET_MAX_BYTES=1024
 PET_MAX_REASON=200
 PET_LINES=5
@@ -313,6 +320,23 @@ sweep_claims() {
   for sc_f in "$@"; do
     # An unmatched glob expands to itself; that literal names no file.
     [ -e "$sc_f" ] || [ -L "$sc_f" ] || continue
+    # A claim file names the pid that took it, and a LIVE owner is a sibling
+    # consumer mid-flight rather than a crash. Sweeping one destroys the
+    # petition that consumer is about to weigh and leaves it screening a file
+    # that no longer exists, which it reports as a malformed artifact: the
+    # petition is lost and the worker is blamed for it. Only an owner that is
+    # gone leaves an orphan, which is the case this sweep exists for.
+    sc_pid=${sc_f##*"$PET_NAME.claim."}
+    sc_pid=${sc_pid%%.*}
+    case $sc_pid in
+      "" | *[!0-9]*) ;;
+      *)
+        if kill -0 "$sc_pid" 2>/dev/null \
+          && [ -z "$(find "$sc_f" -maxdepth 0 -mmin +"$PET_CLAIM_ORPHAN_MIN" 2>/dev/null)" ]; then
+          continue
+        fi
+        ;;
+    esac
     rm -f "$sc_f" 2>/dev/null && sc_n=$((sc_n + 1))
   done
   printf '%s' "$sc_n"
