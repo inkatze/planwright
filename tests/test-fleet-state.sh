@@ -208,14 +208,14 @@ echo "ok: concurrent registry writes are serialized (no torn records, none lost)
 # ---------------------------------------------------------------------------
 home_ts="$tmp/ts-home"
 mkdir -p "$home_ts"
-mkdir "$home_ts/.fleet.lock" # hold the lock so register must block
+ln -s "held-by-test" "$home_ts/.fleet.lock" # hold the lock so register must block
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home_ts" \
   /bin/sh "$FS" register "worker=late" "scope-late" &
 reg_pid=$!
 sleep 2 # advance the clock while register is blocked on the held lock
 t_release=$(date +%s)
-rmdir "$home_ts/.fleet.lock" # release; register now acquires and stamps
+rm -f "$home_ts/.fleet.lock" # release; register now acquires and stamps
 wait "$reg_pid" || fail "blocked register did not complete after lock release"
 rec_ts=$(cut -f1 "$home_ts/registry")
 case $rec_ts in
@@ -363,12 +363,12 @@ cenv() {
 printf '08\n' >"$home_corrupt/concurrency"
 out=$(cenv bound-incr 10) || fail "bound-incr crashed on a leading-zero counter (should treat it as 0)"
 [ "$out" = "1" ] || fail "corrupt counter not treated as 0: bound-incr printed '$out', expected 1"
-[ ! -d "$home_corrupt/.fleet.lock" ] || fail "bound-incr leaked the lock on a corrupt counter"
+[ ! -L "$home_corrupt/.fleet.lock" ] || fail "bound-incr leaked the lock on a corrupt counter"
 [ "$(cat "$home_corrupt/concurrency")" = "1" ] || fail "corrupt-counter recovery did not land the increment at 1"
 printf '09\n' >"$home_corrupt/concurrency"
 out=$(cenv bound-decr) || fail "bound-decr crashed on a leading-zero counter (should treat it as 0)"
 [ "$out" = "0" ] || fail "corrupt counter not treated as 0: bound-decr printed '$out', expected 0"
-[ ! -d "$home_corrupt/.fleet.lock" ] || fail "bound-decr leaked the lock on a corrupt counter"
+[ ! -L "$home_corrupt/.fleet.lock" ] || fail "bound-decr leaked the lock on a corrupt counter"
 echo "ok: a corrupt (leading-zero) counter is sanitized to 0 — no octal crash, no leaked lock"
 
 # ---------------------------------------------------------------------------
@@ -381,14 +381,42 @@ lenv() {
     PLANWRIGHT_FLEET_STATE_DIR="$home_lock" /bin/sh "$FS" "$@"
 }
 lenv lock || fail "lock: fresh acquire non-zero"
-[ -d "$home_lock/.fleet.lock" ] || fail "lock: lock dir not created"
+[ -L "$home_lock/.fleet.lock" ] || fail "lock: lock symlink not created"
 rc=0
 lenv lock >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "lock: busy acquire exit $rc, expected 1"
 lenv unlock || fail "unlock: non-zero exit"
-[ ! -d "$home_lock/.fleet.lock" ] || fail "unlock: lock not removed"
+[ ! -L "$home_lock/.fleet.lock" ] || fail "unlock: lock not removed"
 lenv unlock || fail "unlock: not idempotent"
 echo "ok: the advisory-lock primitive is exclusive, busy-safe, and idempotent"
+
+# ---------------------------------------------------------------------------
+# A lock left as a DIRECTORY by the pre-symlink shape. `ln -s target dir` puts
+# the link inside dir and exits 0, so an unchecked create reports the lock
+# acquired while holding nothing — the worst possible reading, since the caller
+# then enters its critical section. A live one must read busy; a stale one must
+# be broken, because nothing else reclaims it and it would otherwise wedge every
+# fleet writer permanently.
+# ---------------------------------------------------------------------------
+home_legacy="$tmp/legacy-home"
+mkdir -p "$home_legacy"
+legacy_env() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+    PLANWRIGHT_FLEET_STATE_DIR="$home_legacy" /bin/sh "$FS" "$@"
+}
+mkdir "$home_legacy/.fleet.lock" # a fresh legacy holder
+rc=0
+legacy_env lock >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "a live legacy directory lock reported exit $rc, expected 1 (busy)"
+[ ! -e "$home_legacy/.fleet.lock/$$" ] || fail "the create landed INSIDE the legacy lock directory"
+[ -d "$home_legacy/.fleet.lock" ] || fail "a live legacy lock was removed"
+echo "ok: a live pre-symlink directory lock reads busy, and is never acquired through"
+
+touch -t 202001010000 "$home_legacy/.fleet.lock" # same holder, now long dead
+legacy_env lock || fail "a stale legacy directory lock was not broken"
+[ -L "$home_legacy/.fleet.lock" ] || fail "the broken legacy lock was not replaced by a symlink"
+legacy_env unlock || fail "unlock after a legacy break exited non-zero"
+echo "ok: a stale pre-symlink directory lock is broken rather than wedging the home"
 
 # ---------------------------------------------------------------------------
 # 11. Hostile identifiers are rejected BEFORE any path use.
@@ -449,8 +477,8 @@ echo "ok: bound-incr rejects a malformed bound (non-numeric and empty)"
 # ---------------------------------------------------------------------------
 home_stale="$tmp/stale-home"
 mkdir -p "$home_stale"
-mkdir "$home_stale/.fleet.lock"
-touch -t 202001010000 "$home_stale/.fleet.lock" # crashed holder, back-dated to 2020
+ln -s "crashed-holder" "$home_stale/.fleet.lock"
+touch -h -t 202001010000 "$home_stale/.fleet.lock" # crashed holder, back-dated to 2020
 # Pin stale_lock_threshold via an explicit machine-local config so the break is
 # deterministic regardless of the ambient config-get resolution. An explicit
 # PLANWRIGHT_LOCAL_CONFIG replaces the resolver-derived machine-local layer (the
@@ -480,8 +508,8 @@ echo "ok: a crashed holder's stale lock is broken, not a permanent deadlock"
 # ---------------------------------------------------------------------------
 home_cwd="$tmp/cwd-indep-home"
 mkdir -p "$home_cwd"
-mkdir "$home_cwd/.fleet.lock"
-touch -t 202001010000 "$home_cwd/.fleet.lock" # crashed holder, back-dated to 2020
+ln -s "crashed-holder" "$home_cwd/.fleet.lock"
+touch -h -t 202001010000 "$home_cwd/.fleet.lock" # crashed holder, back-dated to 2020
 hostile_repo="$tmp/hostile-cwd-repo"
 mkdir -p "$hostile_repo/.claude"
 (cd "$hostile_repo" && git init -q) || fail "cwd-indep: could not init the hostile cwd repo"

@@ -510,14 +510,14 @@ echo "ok: worker-key comparison is string-based (numeric-looking handles never c
 # ---------------------------------------------------------------------------
 home16="$tmp/ts-home"
 mkdir -p "$home16"
-mkdir "$home16/.fleet.lock" # hold the Task 9 lock so the heartbeat must block
+ln -s "held-by-test" "$home16/.fleet.lock" # hold the Task 9 lock so the heartbeat must block
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home16" \
   /bin/sh "$FA" heartbeat "worker=late" "spec-t:1" working &
 hb_pid=$!
 sleep 2 # advance the clock while the heartbeat is blocked on the held lock
 t_release=$(date +%s)
-rmdir "$home16/.fleet.lock" # release; the heartbeat now acquires and stamps
+rm -f "$home16/.fleet.lock" # release; the heartbeat now acquires and stamps
 wait "$hb_pid" || fail "blocked heartbeat did not complete after lock release"
 rec_ts=$(cut -f4 "$home16/attention/state")
 case $rec_ts in
