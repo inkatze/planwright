@@ -969,7 +969,15 @@ stop_candidates() {
     fi
   done
   printf '%s\n' "$sc_snap" | SC_MATCH="_supervise $2 $sc_dir" awk -v seeds="$sc_seed" -v self_pid="$$" '
-    BEGIN { sup = ENVIRON["SC_MATCH"] }
+    BEGIN {
+      sup = ENVIRON["SC_MATCH"]
+      # `index(s, "")` is 1, so an empty match string would mark every process
+      # on the host. It cannot be empty as written — the value has a literal
+      # prefix — but this verb sends signals, so the one input whose emptiness
+      # inverts "matches nothing" into "matches everything" is checked rather
+      # than reasoned about. Exiting non-zero reports the class held.
+      if (sup == "") exit 2
+    }
     $1 ~ /^[0-9]+$/ {
       ppid[$1] = $2
       order[++n] = $1
@@ -1059,7 +1067,15 @@ stop_candidates() {
 stop_self_hosted() {
   ssh_snap=$(ps_rows) || return 1
   printf '%s\n' "$ssh_snap" | SC_MATCH="_supervise $2 $1" awk -v self_pid="$$" '
-    BEGIN { sup = ENVIRON["SC_MATCH"] }
+    BEGIN {
+      sup = ENVIRON["SC_MATCH"]
+      # `index(s, "")` is 1, so an empty match string would mark every process
+      # on the host. It cannot be empty as written — the value has a literal
+      # prefix — but this verb sends signals, so the one input whose emptiness
+      # inverts "matches nothing" into "matches everything" is checked rather
+      # than reasoned about. Exiting non-zero reports the class held.
+      if (sup == "") exit 2
+    }
     $1 ~ /^[0-9]+$/ {
       ppid[$1] = $2
       n++
