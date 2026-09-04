@@ -358,10 +358,12 @@ fi
 # The outcome pinned is the pair: allow-layer ALLOW, hook-layer DENY.
 worker_deny=$(jq -r '.permissions.deny[]?' "$WORKER_SETTINGS")
 worker_allow=$(jq -r '.permissions.allow[]?' "$WORKER_SETTINGS")
-if pm_load_rules "$worker_deny" '' "$worker_allow"; then
+pm_rc=0
+pm_load_rules "$worker_deny" '' "$worker_allow" || pm_rc=$?
+if [ "$pm_rc" -eq 0 ]; then
   pass "the worker rule set loaded into the matcher oracle"
 else
-  fail "the worker rule set did not load into the matcher oracle (rc $?)"
+  fail "the worker rule set did not load into the matcher oracle (rc $pm_rc)"
 fi
 
 for cmd in "$BASH_FLIP" "$GAUNTLET_FLIP"; do

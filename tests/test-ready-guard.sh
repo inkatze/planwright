@@ -25,9 +25,10 @@
 # would answer the same for a wrong subcommand, a wrong PR number, or a wrong
 # repo cannot make a fixture pass vacuously.
 #
-# Task 4 owns the mechanically-enforced expected-cell manifest (REQ-D1.1) and
-# the worker-settings deny-over-allow outcome test (REQ-D1.2); this suite covers
-# Task 2's `Done when:` matrix.
+# tests/test-merge-currency-matrix.sh owns the mechanically-enforced
+# expected-cell manifest (REQ-D1.1) and the worker-settings deny-over-allow
+# outcome test (REQ-D1.2); this suite covers Task 2's `Done when:` matrix
+# branch by branch. Both source tests/lib/ready-guard-harness.sh.
 set -u
 unset CDPATH
 LC_ALL=C
