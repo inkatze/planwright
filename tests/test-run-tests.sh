@@ -255,6 +255,118 @@ assert_contains "probe failure is reported as the serial mode" \
 TMPDIR="$tmp/no-such-tmp/x" /bin/bash "$RUNNER" "$tmp/pass" >/dev/null 2>&1
 assert "log-dir mktemp failure exits 2" 2 $?
 
+# 16. Timing capture round-trip (guard-coverage REQ-E1.1, D-8): after a run
+#     the runner persists a per-file timing report beside the suite, one
+#     entry per file, at sub-second resolution, plus the suite wall-clock.
+#     Each worker writes its own record, so the parallel run below is the
+#     concurrency case: every file must still have exactly one entry.
+mkdir -p "$tmp/timed"
+cp "$tmp/pass/test-alpha.sh" "$tmp/timed/test-alpha.sh"
+cat >"$tmp/timed/test-sleepy.sh" <<'EOF'
+#!/bin/bash
+sleep 0.3
+echo "sleepy ran"
+EOF
+cp "$tmp/pass/test-beta.sh" "$tmp/timed/test-beta.sh"
+report="$tmp/timed/.timing-report.tsv"
+rm -f "$report"
+out="$(PLANWRIGHT_TEST_JOBS=3 /bin/bash "$RUNNER" "$tmp/timed" 2>&1)"
+assert "timed suite passes" 0 $?
+if [ -f "$report" ]; then
+  echo "ok: the timing report is written beside the suite"
+else
+  echo "FAIL: no timing report at $report" >&2
+  failures=$((failures + 1))
+fi
+header="$(head -n 1 "$report" 2>/dev/null)"
+case "$header" in
+  "planwright-test-timing	1	"*) echo "ok: the report opens with the versioned header" ;;
+  *)
+    echo "FAIL: unexpected report header: $header" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+for name in test-alpha.sh test-sleepy.sh test-beta.sh; do
+  n="$(grep -c "^file	$name	[0-9][0-9]*\(\.[0-9][0-9]*\)\?\$" "$report" 2>/dev/null)"
+  if [ "$n" -eq 1 ]; then
+    echo "ok: exactly one numeric timing entry for $name"
+  else
+    echo "FAIL: expected one timing entry for $name, found $n" >&2
+    failures=$((failures + 1))
+  fi
+done
+sleepy="$(awk -F'\t' '$1=="file" && $2=="test-sleepy.sh"{print $3}' "$report")"
+wall="$(awk -F'\t' '$1=="suite" && $2=="wall"{print $3}' "$report")"
+case "$header" in
+  *"clock=seconds"*)
+    echo "ok: no sub-second clock on this host; resolution bound skipped"
+    ;;
+  *)
+    if awk -v t="$sleepy" 'BEGIN{exit !(t >= 0.25 && t < 10)}'; then
+      echo "ok: the sleeping file's time is sub-second and plausibly bounded ($sleepy)"
+    else
+      echo "FAIL: sleeping file's time is not plausibly bounded: '$sleepy'" >&2
+      failures=$((failures + 1))
+    fi
+    ;;
+esac
+if awk -v w="$wall" -v t="$sleepy" 'BEGIN{exit !(w != "" && t != "" && w >= t)}'; then
+  echo "ok: the suite wall-clock row is present and covers the slowest file ($wall)"
+else
+  echo "FAIL: suite wall-clock row missing or below the slowest file: '$wall'" >&2
+  failures=$((failures + 1))
+fi
+assert_not_contains "the report contains no verdict-less placeholder" \
+  "	-" "$(cat "$report")"
+
+# The serial fallback writes the same report.
+rm -f "$report"
+PLANWRIGHT_TEST_FORCE_SERIAL=1 /bin/bash "$RUNNER" "$tmp/timed" >/dev/null 2>&1
+assert "serial fallback: timed suite passes" 0 $?
+n="$(grep -c '^file	' "$report" 2>/dev/null)"
+if [ "$n" -eq 3 ]; then
+  echo "ok: serial fallback writes one entry per file"
+else
+  echo "FAIL: serial fallback wrote $n entries, expected 3" >&2
+  failures=$((failures + 1))
+fi
+
+# 17. The report path is overridable, so a caller can direct it elsewhere
+#     without touching the suite directory.
+PLANWRIGHT_TEST_TIMING_REPORT="$tmp/elsewhere.tsv" \
+  /bin/bash "$RUNNER" "$tmp/pass" >/dev/null 2>&1
+assert "an explicit report path is honoured" 0 $?
+if grep -q '^file	test-alpha.sh	' "$tmp/elsewhere.tsv" 2>/dev/null; then
+  echo "ok: the redirected report holds the entries"
+else
+  echo "FAIL: redirected report missing or empty" >&2
+  failures=$((failures + 1))
+fi
+
+# 18. Positive accounting: a file that produced a verdict but no timing entry
+#     fails the run. The fault here is real, not injected — with no usable
+#     clock at all (date and python3 both broken), the worker cannot time the
+#     file, and the run must say so rather than report a green suite whose
+#     budget gate would then fail closed on a hole in the report.
+mkdir -p "$tmp/noclock"
+for bin in date python3; do
+  printf '#!/bin/sh\nexit 1\n' >"$tmp/noclock/$bin"
+  chmod +x "$tmp/noclock/$bin"
+done
+out="$(PATH="$tmp/noclock:$PATH" /bin/bash "$RUNNER" "$tmp/pass" 2>&1)"
+assert "a verdict without a timing entry fails the run" 1 $?
+assert_contains "the timing hole is named" "no timing entry" "$out"
+assert_contains "the timing hole names the file" "test-alpha.sh" "$out"
+
+# 19. A report that cannot be persisted is a loud environment error: the
+#     budget gate downstream would otherwise fail closed on a missing file
+#     with no hint of why.
+out="$(PLANWRIGHT_TEST_TIMING_REPORT="$tmp/no-such-dir/report.tsv" \
+  /bin/bash "$RUNNER" "$tmp/pass" 2>&1)"
+assert "an unwritable report path exits 2" 2 $?
+assert_contains "the unwritable-report failure names the path" \
+  "no-such-dir/report.tsv" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

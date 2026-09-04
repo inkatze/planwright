@@ -65,7 +65,8 @@ mise run check      # the full local equivalent of the CI gate
 
 `mise run check` runs, in one pass:
 
-- the shell test suites (bash 3.2 floor);
+- the shell test suites (bash 3.2 floor), then the test-time budget gate over
+  the timing report that run leaves behind (see below);
 - shellcheck, shfmt, markdownlint, yamllint, and the plugin-manifest validation;
 - conventional-commit lint and a secret scan;
 - the doctrine link-check and the doctrine-index bijection check;
@@ -117,6 +118,21 @@ On CI it runs as the separate opt-in `test-timing` workflow — add the
 labelling re-triggers it: pushing further commits to an already-labelled PR does
 not re-measure, so remove and re-add the label when you want a number for the
 new head.
+
+### Test-time budgets
+
+`mise run test` also persists a per-file timing report (`tests/.timing-report.tsv`,
+gitignored) and `check:test-time` reads it against the committed budgets in
+[`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
+ceiling for every test file, and one for the suite's wall-clock. A measured time
+at or over its budget trips. On GitHub Actions, the reference runner the budgets
+are measured on, that fails `mise run check`; on a dev box it only warns, loudly,
+because local timings measure your machine's contention rather than the file.
+
+A budget is raised only as a conscious, reviewed edit in the PR that needs it,
+with the new measured baseline recorded in the file's comment. Split or slim
+the offending file first, and measure on the reference runner (the gate's own
+CI log prints the full ranked table), never on a shared dev box.
 
 ### The git hook backstop
 
