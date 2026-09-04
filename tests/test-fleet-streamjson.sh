@@ -955,13 +955,19 @@ line_result_err='{"type":"result","subtype":"success","is_error":true,"result":"
 printf '%s\n%s\n' "$line_init" "$line_result_err" >"$ev"
 printf 'overload me\n' >"$tmp/prompt19"
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
-  launch sjw19 execution-backends:5 --prompt-file "$tmp/prompt19" --foreground \
-  >/dev/null 2>&1
+  launch sjw19 execution-backends:4 --prompt-file "$tmp/prompt19" --foreground \
+  >/dev/null 2>&1 || fail "c19: launch exited non-zero"
 out=$(senv "$home" "$rec" -- status sjw19) || fail "c19: status exited non-zero"
 case $out in
   "status sjw19 ended result=success/is_error=true") : ;;
   *) fail "c19: a success subtype carrying is_error must render 'ended' and name both, got: $out" ;;
 esac
+# Pin the on-disk record too, not just the rendering. fleet-stuck-detector.sh
+# parses this same file from its own suite against a hand-written fixture, so
+# nothing else would catch the writer moving the flag or renaming its value —
+# the two would simply stop agreeing about a worker, silently.
+grep -q "^result${tab}success${tab}[0-9][0-9]*${tab}true$" "$home/streamjson/sjw19/result" \
+  || fail "c19: the recorded result row is not <result subtype epoch is_error>: $(cat "$home/streamjson/sjw19/result")"
 echo "ok: c19 a result frame claiming success while carrying is_error is reported ended, not completed"
 
 echo "all fleet-streamjson tests passed"

@@ -839,6 +839,10 @@ echo "ok: no model / network / forge call in the decision path (REQ-K1.5, REQ-C1
 h20="$tmp/h20"
 sd20="$tmp/sd20"
 mkdir -p "$sd20"
+# Death evidence outranks the completion branch, so pin the verdict here rather
+# than inheriting whatever the last section left behind: a stale `dead` would
+# classify these as dead and never exercise the completion path at all.
+printf 'alive\n' >"$tmp/evidence-verdict"
 printf 'result\tsuccess\t1700000000\ttrue\n' >"$sd20/result"
 reg "$h20" "$w" "$s" --owner "$self_id" --backend stream-json-persistent \
   --state-dir "$sd20" --death-handle "process 4242" >/dev/null
@@ -847,6 +851,12 @@ out=$(run "$h20" classify "$w" --worktree "$wt") || fail "is_error classify exit
   || fail "a result carrying is_error classified '$(state_of "$out")', expected unclassified"
 [ "$(reason_of "$out")" = "completion-failed:result=success/is_error=true" ] \
   || fail "is_error completion: reason '$(reason_of "$out")'"
+[ "$(ev "$out" completion)" = "result=success/is_error=true" ] \
+  || fail "is_error completion evidence: '$(ev "$out" completion)'"
+# The headline is "however cleanly the tree landed", so prove the tree was in
+# fact clean — otherwise completion-unlanded would produce the same state word.
+[ "$(ev "$out" tree)" = clean ] || fail "is_error case: tree '$(ev "$out" tree)', expected clean"
+[ "$(ev "$out" unpushed)" = 0 ] || fail "is_error case: unpushed '$(ev "$out" unpushed)', expected 0"
 echo "ok: a result frame flagging is_error is a failed completion, not a finished one (REQ-C1.3, REQ-C1.4)"
 
 # The flag is read as field 4 exactly, not as "the rest of the line". A record
@@ -874,8 +884,10 @@ echo "ok: an explicit is_error=false reads as a clean completion (REQ-C1.3)"
 # additive; three-field records keep their meaning).
 printf 'result\tsuccess\t1700000000\n' >"$sd20/result"
 out=$(run "$h20" classify "$w" --worktree "$wt") || fail "legacy-record classify exited non-zero"
+[ "$(state_of "$out")" = finished-but-unreaped ] \
+  || fail "a three-field result record classified '$(state_of "$out")'"
 [ "$(reason_of "$out")" = "completion:result=success" ] \
   || fail "a three-field result record changed meaning: '$(reason_of "$out")'"
-echo "ok: a result record without the is_error field keeps its previous reading"
+echo "ok: a result record without the is_error field keeps its previous reading (REQ-C1.3)"
 
 echo "PASS: fleet-stuck-detector"
