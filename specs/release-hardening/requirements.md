@@ -42,7 +42,7 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   before creating the GitHub Release on a resume (REQ-B).
 - CI-gate consolidation and scoping: one shared `rl_ci_state` helper in
   `release-lib.sh` used by both publish and arm, with a workflow-scoped
-  window-lock exclusion, plus the REQ-D1.3 gate-semantics clarification
+  window-lock exclusion, plus the autopilot-reflex REQ-D1.3 gate-semantics clarification
   expressed here (REQ-C).
 - Input hardening: canonicalize and containment-check the `version_file`
   path before the filesystem read in `release-pending.sh` (REQ-D).
@@ -333,6 +333,8 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 
 ## Changelog
 
+- 2026-09-03 — Expression-only: the `### In scope` item and the `## Sources` note that cite the gate-semantics requirement now read `autopilot-reflex REQ-D1.3` instead of a bare `REQ-D1.3` (an id this bundle does not define; its D-8 already names the owner). Surfaced by the format-grammar validator's citation-range rule (format-grammar REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or decision changes meaning.
+
 - 2026-08-26 — **REQ-H1.3 finding, recorded (Task 10): removing
   `bootstrap-sha` is NOT safe, and the key stays.** Verified against
   release-please `v17.6.0` `src/manifest.ts` (the version
@@ -515,7 +517,7 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 - **Legacy opportunity line 198** — no `mise` task surfaces
   `release-arm.sh` (only `release`). Consumed into REQ-F1.1 / D-9.
 - **Legacy opportunity line 201** — the publish/window-lock deadlock: the
-  code carve-out shipped (#163) but the REQ-D1.3 spec text never followed.
+  code carve-out shipped (#163) but the autopilot-reflex REQ-D1.3 spec text never followed.
   Consumed into REQ-C1.4 / D-8.
 - **Legacy opportunity line 202** — the window-lock carve-out excludes by
   bare check-run name with no workflow/app scoping, a fail-open surface on a

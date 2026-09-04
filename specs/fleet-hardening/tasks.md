@@ -14,7 +14,7 @@ that closes the seven-hour gap) and Task 4 (the structured decision channel); Ta
 reconcile backstop to Task 2, and Task 4 reuses the tower-side store event-watch
 infrastructure Task 2 builds (and extends the store's separate `decide`/`awaiting-input` path), so
 Task 4 depends on Task 2. Tasks 5, 9, and 10 (the two dispatch-primitive hardenings — ghost-text pin
-and D-36 branch naming — plus the observation-carry path) are otherwise independent of one another.
+and bootstrap D-36 branch naming — plus the observation-carry path) are otherwise independent of one another.
 All tasks depend on Task 1.
 
 ## Tasks
@@ -202,7 +202,7 @@ All tasks depend on Task 1.
 
 ### Task 10 — Deterministic D-36 branch naming in the tmux dispatch primitive
 
-- **Deliverables:** The tmux-backend dispatch primitive produces a worktree on the canonical D-36
+- **Deliverables:** The tmux-backend dispatch primitive produces a worktree on the canonical bootstrap D-36
   branch `planwright/<spec>/task-<id>` deterministically at launch, with no manual post-launch `git
   branch -m` rename step. **Create** via a single
   `git worktree add -b planwright/<spec>/task-<id> .claude/worktrees/<suffix> <base>` call — the
@@ -245,7 +245,7 @@ All tasks depend on Task 1.
 
 ## Awaiting input
 
-- (none yet)
+(none yet)
 
 ## Deferred
 

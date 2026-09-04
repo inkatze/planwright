@@ -764,3 +764,18 @@ the change this entry re-anchors against.
 Class: expression-only
 Anchor: `557f32fbd66778cd94a4ea76c0fbff02aaf77633` — computed as
 `scripts/spec-anchor.sh specs/orchestration-fleet`
+
+### Re-anchor — foreign citations qualified (2026-09-03)
+
+Marked self-re-anchor for the expression-only edit the format-grammar
+validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): the worktree-mechanics seed note under `## Sources` now names `bootstrap D-37`.
+A foreign id now carries its owning spec's name where the reader meets it; no
+requirement or decision changes meaning.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `49f6edf89becb40951a2a5b879d4a27e1a56e3a7` — computed as
+`scripts/spec-anchor.sh specs/orchestration-fleet`

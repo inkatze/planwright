@@ -67,7 +67,7 @@ footer only, never the subject line.
 
 **Alternatives considered:**
 - **Reuse the existing `(Task N)` commit-subject convention.** Rejected: it is
-  ambiguous across specs (Task 9 of which spec?), looser to parse, and was never
+  ambiguous across specs (which spec's ninth task?), looser to parse, and was never
   designed as a machine signal.
 - **Branch-reachability only, with no commit convention.** Rejected: it breaks
   the moment a merged task branch is deleted, and cannot see solo work committed

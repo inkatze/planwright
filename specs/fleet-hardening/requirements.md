@@ -151,7 +151,7 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
   `Bash(<path>/:*)` directory-scoped rule as a likely never-match footgun.
   *(Cites: obs:1d6a2b76 ·)*
   drafting-session decision (2026-07-19).
-- **REQ-B1.4** The tmux-backend dispatch primitive SHALL produce a worktree on the canonical D-36
+- **REQ-B1.4** The tmux-backend dispatch primitive SHALL produce a worktree on the canonical bootstrap D-36
   branch `planwright/<spec>/task-<id>` deterministically at launch, with no manual post-launch
   `git branch -m` rename step.
   *(Cites: obs:4e24463c.)*
@@ -248,6 +248,8 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
 
 ## Changelog
 
+- 2026-09-03 — Expression-only: the bare `D-36` citations (the branch-naming grammar, owned by bootstrap) in REQ-B1.4, the `## Sources` tmux note, the `tasks.md` intro and Task 10 deliverables, and the REQ-B1.4 test-spec entry now read `bootstrap D-36`. Surfaced by the format-grammar validator's citation-range rule (format-grammar REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or decision changes meaning.
+
 - 2026-07-20 — Amendment (`/spec-kickoff`, meaning-class): D-7 / Task 10 dispatch-primitive mechanism
   changed from the unrealizable pure-native `claude --worktree` fold to create-then-attach
   (`git worktree add -b` creates the exact D-36 branch — a narrow, scoped never-shell-`git worktree`
@@ -286,7 +288,7 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
   that required a human override. Consumed; informs REQ-B1.2.
 - **obs:4e24463c** — tmux-classic dispatch primitive: `claude --worktree <suffix> --tmux=classic`
   folds worktree + session + launch into one native command, but still creates a mangled
-  `worktree-<suffix>` branch needing the D-36 rename; `--tmux` (non-classic) uses non-relay-targetable
+  `worktree-<suffix>` branch needing the bootstrap D-36 rename; `--tmux` (non-classic) uses non-relay-targetable
   iTerm2 panes. Consumed; grounds REQ-B1.4.
 - **obs:8eacaa65** — tower-hook-extension amendment: the operator's 2026-07-18 decision to cover the tower
   with a deterministic command-guard, with a distinct tower safe set and an adversarial zero-false-allow

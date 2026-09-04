@@ -324,3 +324,18 @@ the change this entry re-anchors against.
 Class: expression-only
 Anchor: `b249d48b149018d0d925766f407bbecfb1bafa1e` — computed as
 `scripts/spec-anchor.sh specs/format-grammar`
+
+### Re-anchor — foreign citations qualified (2026-09-03)
+
+Marked self-re-anchor for the expression-only edit the format-grammar
+validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): the `## Sources` pointer at obs:ec113dfe now names `invariant-tasks REQ-C1.5`. This bundle's own Task 3 landed the rule, so the fix rides that execution.
+A foreign id now carries its owning spec's name where the reader meets it; no
+requirement or decision changes meaning.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `09bc4b8d9c649b846abefa33792106d5ccd7ede2` — computed as
+`scripts/spec-anchor.sh specs/format-grammar`

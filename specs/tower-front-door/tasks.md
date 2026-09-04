@@ -266,7 +266,7 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
-- (none yet)
+(none yet)
 
 ## Deferred
 

@@ -83,7 +83,7 @@ otherwise unverified).
 
 ### REQ-B1.4 — tmux dispatch yields a D-36 branch with no rename [test + manual]
 
-`[test]`: a fixture asserts the dispatch primitive's resulting branch name matches the D-36 grammar
+`[test]`: a fixture asserts the dispatch primitive's resulting branch name matches the bootstrap D-36 grammar
 `planwright/<spec>/task-<id>` with no post-launch `git branch -m` step — created by the single scoped
 `git worktree add -b` call (D-7), with the mangled `worktree-<suffix>` name provably not the output,
 `<base>` pinned to the freshly-fetched `origin/main`, and `<spec>`/`<id>`/`<suffix>` validated against
