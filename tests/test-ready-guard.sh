@@ -41,9 +41,10 @@ HOOKS_JSON="$REPO_ROOT/hooks/hooks.json"
 # shellcheck source=tests/lib/ready-guard-harness.sh
 . "$REPO_ROOT/tests/lib/ready-guard-harness.sh"
 
-# A second cwd for the P1 wrong-repo fixtures: CONF answers conforming, STALE
-# answers behind. The gh stub picks its answer from the directory it is invoked
-# in, so a fixture can assert WHICH repo the guard queried, not just the verdict.
+# A second cwd for the P1 wrong-repo fixtures: CONF answers already-ready (so
+# the guard defers), STALE answers behind (so it denies). The gh stub picks its
+# answer from the view.json in the directory it is invoked in, so a fixture can
+# assert WHICH repo the guard queried, not just the verdict.
 mkdir -p "$SANDBOX/conf" "$SANDBOX/stale"
 
 echo "### REQ-C1.1 — the predicate: behind_by == 0 AND mergeable == MERGEABLE"

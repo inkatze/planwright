@@ -1,40 +1,46 @@
 # shellcheck shell=bash
-# shellcheck disable=SC2034
 # ready-guard-harness.sh — the shared fixture harness for the ready-guard
 # suites (sourced, never executed): a hermetic PATH, a recording `gh` stub
 # driven by env, side-effect sentinels, the canonical PR answers, and the
-# deny/defer assertions. Task 2's branch-by-branch suite
-# (tests/test-ready-guard.sh) and Task 4's manifest suite
-# (tests/test-merge-currency-matrix.sh) both source it, so the two cannot
-# drift apart on what "deny" and "defer" mean or on how the GitHub surface
-# is stubbed. The SC2034 waiver above covers the fixture constants this file
-# defines for the sourcing suites to consume.
+# deny/defer assertions. tests/test-ready-guard.sh (branch by branch) and
+# tests/test-merge-currency-matrix.sh (the manifest) both source it, so the
+# two cannot drift apart on what "deny" and "defer" mean or on how the GitHub
+# surface is stubbed.
 #
 # Contract the assertions encode:
-#   DENY  <=> exit 0 AND stdout carries "permissionDecision": "deny" with a
+#   DENY  <=> exit 0 AND stdout carries a permissionDecision of "deny" with a
 #             non-empty permissionDecisionReason.
 #   DEFER <=> exit 0 AND stdout is empty/whitespace.
 #   The hook NEVER exits non-zero and NEVER emits allow or ask.
 #
-# The GitHub surface is stubbed, and the stub RECORDS ITS ARGV: assertions can
-# pin the exact argv rather than only the answer, so a stub that would answer
-# the same for a wrong subcommand, a wrong PR number, or a wrong repo cannot
-# make a fixture pass vacuously.
+# The `gh` stub RECORDS ITS ARGV to $STATE/argv.log (one CALL line and one CWD
+# line per invocation), so a suite can pin the exact query rather than only
+# the answer: a stub that would answer the same for a wrong subcommand, a
+# wrong PR number, or a wrong repo cannot make a fixture pass vacuously. The
+# stub also answers from a file when one sits in its working directory
+# ($PWD/view.json for `pr view`, $PWD/behind for the compare call), which is
+# how tests/test-ready-guard.sh tells apart WHICH directory a `cd &&` prefix
+# made the guard query from.
 #
 # Usage:
-#   REPO_ROOT=<checkout>   # optional; defaults to this file's checkout
+#   HOOK=<path>   # optional; the guard under test, default this checkout's
 #   . tests/lib/ready-guard-harness.sh
 #
-# Exits the sourcing suite (status 1) when the guard script, jq, or a timeout
-# binary is absent: neither the guard's bounded path nor the assertions can
-# run without them. Installs an EXIT trap that removes the sandbox.
+# Sourcing runs setup: it exits the sourcing suite (status 1) when the guard
+# script, jq, or a timeout binary is absent, since neither the guard's bounded
+# path nor the assertions can run without them; builds the sandbox and stubs;
+# installs the ONLY EXIT trap (a suite that sets its own replaces it and leaks
+# the sandbox, so keep scratch files under $SANDBOX instead); and calls
+# reset_stub_env once so the knobs below are defined under `set -u`.
 #
-# Knobs a fixture sets in the shell before calling run_hook (they are passed
-# through into the stub's environment):
+# Knobs a fixture sets in the shell before calling run_hook. The STUB_* five
+# are passed through into the stub's environment; RG_SURFACE is passed to the
+# guard as its argument, the way hooks/hooks.json passes it:
 #   STUB_VIEW_JSON / STUB_VIEW_JSON2   the first / second `gh pr view` answer
 #   STUB_VIEW_RC / STUB_VIEW_RC2       their exit codes
 #   STUB_COMPARE_OUT / STUB_COMPARE_RC the compare endpoint's behind_by / exit
 #   RG_SURFACE                         which matcher fired: bash (default) | mcp
+#                                      (not reset by reset_stub_env)
 unset CDPATH
 
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -56,19 +62,24 @@ if [ ! -f "$HOOK" ]; then
   echo "FAIL: ready-guard script missing at $HOOK" >&2
   exit 1
 fi
-for t in jq timeout gtimeout; do
-  command -v "$t" >/dev/null 2>&1 && HAVE_ANY_TIMEOUT=1
-done
 if ! command -v jq >/dev/null 2>&1; then
   echo "FAIL: jq is required to run this suite" >&2
   exit 1
 fi
+# Probe the bounding binaries ONLY. jq was once in this loop, which set the
+# flag on any host with jq and let a host with neither timeout nor gtimeout
+# run the whole suite against the guard's "no timeout binary" denial instead
+# of stopping here with the reason.
+unset HAVE_ANY_TIMEOUT
+for t in timeout gtimeout; do
+  command -v "$t" >/dev/null 2>&1 && HAVE_ANY_TIMEOUT=1
+done
 if [ -z "${HAVE_ANY_TIMEOUT:-}" ]; then
   echo "FAIL: neither timeout nor gtimeout is available; the suite cannot exercise the bounded path" >&2
   exit 1
 fi
 
-SANDBOX="$(mktemp -d)" || exit 1
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/ready-guard.XXXXXX")" || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
 BIN="$SANDBOX/bin"
 STATE="$SANDBOX/state"
@@ -134,8 +145,8 @@ esac
 GHSTUB
 chmod +x "$BIN/gh"
 
-# Side-effect sentinels. `git`, `curl`, and `claude` must never run in the
-# decision path (REQ-D1.4, D-5): each stub drops a marker file, and the
+# Side-effect sentinels. `git`, `curl`, `wget`, and `claude` must never run in
+# the decision path (REQ-D1.4, D-5): each stub drops a marker file, and the
 # assertions require the marker to be absent. They also exit non-zero, so a
 # guard that DID call one and depended on its answer would misbehave visibly.
 for t in git curl wget claude; do
@@ -147,18 +158,28 @@ SENTSTUB
   chmod +x "$BIN/$t"
 done
 
-# A conforming PR: currently a draft, mergeable, and current with its base.
+# The canonical `gh pr view` answers. Currency is NOT in the answer: the
+# compare endpoint supplies it, so a fixture pairs an answer with its own
+# STUB_COMPARE_OUT (0 for current, >0 for behind). SC2034 is waived per
+# constant because the suites, not this file, consume them.
+#
+# A draft, mergeable PR; conforming once paired with behind_by 0.
+# shellcheck disable=SC2034
 VIEW_CONFORMING='{"baseRefName":"main","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
 # A stale PR. It deliberately ALSO reports `mergeStateStatus CLEAN`: on a base
 # without "require up to date" protection that is what GitHub says about a
 # behind PR, so an implementation that regressed to keying currency on
 # mergeStateStatus would read this as conforming and this fixture would catch it
 # (test-spec REQ-C1.1).
+# shellcheck disable=SC2034
 VIEW_BEHIND='{"baseRefName":"main","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","url":"https://github.com/acme/widgets/pull/42"}'
+# shellcheck disable=SC2034
 VIEW_CONFLICTING='{"baseRefName":"main","headRefOid":"cccccccccccccccccccccccccccccccccccccccc","isDraft":true,"mergeable":"CONFLICTING","url":"https://github.com/acme/widgets/pull/42"}'
+# shellcheck disable=SC2034
 VIEW_UNKNOWN='{"baseRefName":"main","headRefOid":"dddddddddddddddddddddddddddddddddddddddd","isDraft":true,"mergeable":"UNKNOWN","url":"https://github.com/acme/widgets/pull/42"}'
 # Already ready. Stale AND conflicting on purpose: REQ-C1.8 requires the no-op
 # to defer "regardless of currency/mergeability state".
+# shellcheck disable=SC2034
 VIEW_ALREADY_READY='{"baseRefName":"main","headRefOid":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","isDraft":false,"mergeable":"CONFLICTING","url":"https://github.com/acme/widgets/pull/42"}'
 
 # run_hook — drive the guard with a payload. Env overrides for the stub are
