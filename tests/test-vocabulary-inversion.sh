@@ -67,6 +67,13 @@ section() {
   ' "$1"
 }
 
+# flatten: join an extracted block into one space-separated line, so a needle
+# that a future rewrap splits across lines (the docs wrap at 80 columns) still
+# matches instead of failing the pin for a whitespace change.
+flatten() {
+  tr '\n' ' ' | tr -s ' '
+}
+
 # entry <glossary-text> <term>: one glossary bullet (`- **<term>** — ...`)
 # through the line before the next bullet.
 entry() {
@@ -81,7 +88,7 @@ glossary="$(section "$SPEC_FORMAT" "## Glossary")"
 versioning="$(section "$SPEC_FORMAT" "## Versioning of this meta-spec")"
 
 # --- Tower: superseded to the front-door session ---------------------------
-tower="$(entry "$glossary" "Tower")"
+tower="$(entry "$glossary" "Tower" | flatten)"
 assert_contains "glossary has a Tower entry" "- **Tower** —" "$tower"
 assert_contains "Tower names the /tower session" "$TOWER_CMD" "$tower"
 assert_contains "Tower is the conversational front-door session" "front-door" "$tower"
@@ -90,7 +97,7 @@ assert_lacks "Tower no longer names the dispatching session" \
   '**Tower** — the dispatching' "$tower"
 
 # --- Orchestrator: minted, with the Operator distinction --------------------
-orch="$(entry "$glossary" "Orchestrator")"
+orch="$(entry "$glossary" "Orchestrator" | flatten)"
 assert_contains "glossary has an Orchestrator entry" "- **Orchestrator** —" "$orch"
 assert_contains "Orchestrator names the /orchestrate session" "$ORCHESTRATE_CMD" "$orch"
 assert_contains "Orchestrator entry says dispatching" "dispatching" "$orch"
@@ -102,7 +109,7 @@ note="$(printf '%s\n' "$glossary" | awk '
   /^- \*\*Transitional note/ { on = 1; print; next }
   on && /^- / { exit }
   on { print }
-')"
+' | flatten)"
 assert_contains "glossary carries a transitional note" "Transitional note" "$note"
 assert_contains "transitional note covers older prose" "older prose" "$note"
 assert_contains "transitional note covers tower-named scripts" "tower-named scripts" "$note"
@@ -117,19 +124,19 @@ supersession_entry="$(printf '%s\n' "$versioning" | awk '
   /^- 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] — / { on = 0 }
   /^- 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] — .*(Glossary|glossary).*(supersession|superseded)/ { on = 1 }
   on { print }
-')"
+' | flatten)"
 assert_contains "versioning records the glossary supersession" "Orchestrator" "$supersession_entry"
 assert_contains "the supersession entry declares no version bump" \
   "No version bump" "$supersession_entry"
 assert_contains "the supersession entry cites its decision" "D-2" "$supersession_entry"
 
 # --- work-placement: consumer naming --------------------------------------
-wp_head="$(awk '/^## / { exit } { print }' "$WORK_PLACEMENT")"
+wp_head="$(awk '/^## / { exit } { print }' "$WORK_PLACEMENT" | flatten)"
 assert_contains "work-placement consumers name the /tower session" "$TOWER_CMD" "$wp_head"
 assert_contains "work-placement consumers name the orchestrator" "orchestrator" "$wp_head"
 
 # --- fleet doc: opening vocabulary ----------------------------------------
-fleet_open="$(awk '/^## The two seams/ { exit } { print }' "$FLEET_DOC")"
+fleet_open="$(awk '/^## The two seams/ { exit } { print }' "$FLEET_DOC" | flatten)"
 assert_contains "fleet opening names the orchestrator" "orchestrator" "$fleet_open"
 assert_contains "fleet opening names the /tower session" "$TOWER_CMD" "$fleet_open"
 assert_lacks "fleet opening no longer says meta-tower" "meta-tower" "$fleet_open"
@@ -139,7 +146,7 @@ desc="$(awk '
   NR == 1 && /^---$/ { fm = 1; next }
   fm && /^---$/ { exit }
   fm { print }
-' "$ORCHESTRATE_SKILL")"
+' "$ORCHESTRATE_SKILL" | flatten)"
 assert_lacks "/orchestrate description drops control tower" "control tower" "$desc"
 assert_contains "/orchestrate description says orchestrator" "orchestrator" "$desc"
 
