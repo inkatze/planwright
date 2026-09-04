@@ -967,7 +967,10 @@ dead_path_check() {
   ts_texts "$ddir/test-spec.md" >"$gtmp/dp.cur_ts"
   debaseline "$old_ts" test-spec.md | ts_texts - >"$gtmp/dp.old_ts"
   printf '%s\n' "$live_req_ids" | awk 'NF && !seen[$0]++' >"$gtmp/dp.live"
-  awk -F"$tab" -v baseline="$baseline" '
+  # The baseline name reaches awk through the environment, not `-v`: a `-v`
+  # value is escape-processed, and the ref is caller input this script does
+  # not screen (its sibling guard does), so it must stay data end to end.
+  dp_baseline=$baseline awk -F"$tab" '
     FILENAME == ARGV[1] { cr[$1] = $2; next }
     FILENAME == ARGV[2] { orq[$1] = $2; next }
     FILENAME == ARGV[3] { ct[$1] = $2; next }
@@ -978,7 +981,7 @@ dead_path_check() {
       if (cr[id] == orq[id]) next
       if (!(id in ct) || !(id in ot)) next
       if (ct[id] != ot[id]) next
-      printf "soft\t%s changed since %s while its test-spec entry did not (a changed requirement usually needs a changed verification path)\n", id, baseline
+      printf "soft\t%s changed since %s while its test-spec entry did not (a changed requirement usually needs a changed verification path)\n", id, ENVIRON["dp_baseline"]
     }
   ' "$gtmp/dp.cur_req" "$gtmp/dp.old_req" "$gtmp/dp.cur_ts" "$gtmp/dp.old_ts" "$gtmp/dp.live" >>"$fnd"
 }
