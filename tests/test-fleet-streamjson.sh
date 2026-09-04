@@ -136,7 +136,15 @@ if [ -n "${SHIM_SELF_CLOSE:-}" ]; then
   # Run a command from inside the worker's own process tree and record what it
   # did. This is how an agent closing its own handle reaches the close verb, and
   # it is the only way to exercise that path: nothing the harness runs is a
-  # descendant of the supervisor.
+  # descendant of the supervisor. It waits for a go-file so the harness can
+  # record the pre-close state first — otherwise a close that wrongly proceeds
+  # deletes the pid files before they can be read, and the case fails during
+  # setup instead of on the assertion that names the defect.
+  if [ -n "${SHIM_SELF_CLOSE_WHEN:-}" ]; then
+    while [ ! -e "$SHIM_SELF_CLOSE_WHEN" ]; do
+      sleep 0.1
+    done
+  fi
   sh -c "$SHIM_SELF_CLOSE" >"$SHIM_RECORD_DIR/selfclose.out" 2>&1
   printf '%s\n' "$?" >"$SHIM_RECORD_DIR/selfclose.rc"
 fi
@@ -1324,13 +1332,15 @@ rec="$tmp/r22d"
 mkdir -p "$rec"
 printf 'self close\n' >"$tmp/prompt22d"
 senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 \
-  SHIM_SELF_CLOSE="/bin/sh '$SJ' stop sjw22d --grace 2" -- \
+  SHIM_SELF_CLOSE="/bin/sh '$SJ' stop sjw22d --grace 2" \
+  SHIM_SELF_CLOSE_WHEN="$tmp/go22d" -- \
   launch sjw22d execution-backends:4 --prompt-file "$tmp/prompt22d" \
   >/dev/null || fail "c22d: detached launch exited non-zero"
 wdir22d="$home/streamjson/sjw22d"
 wait_until 100 test -s "$wdir22d/worker.pid" || fail "c22d: worker.pid never appeared"
 sup22d=$(cat "$wdir22d/supervisor.pid")
 wrk22d=$(cat "$wdir22d/worker.pid")
+: >"$tmp/go22d"
 wait_until 100 test -s "$rec/selfclose.rc" || fail "c22d: the self-close never ran"
 [ "$(cat "$rec/selfclose.rc")" = 3 ] \
   || fail "c22d: a self-close must be refused (exit 3), got $(cat "$rec/selfclose.rc"): $(cat "$rec/selfclose.out")"
