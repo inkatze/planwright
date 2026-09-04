@@ -170,6 +170,17 @@ line_perm='{"type":"control_request","request_id":"'$req_perm'","request":{"subt
 line_q='{"type":"control_request","request_id":"'$req_q'","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which way?","options":[{"label":"a"},{"label":"b"}]}]},"tool_use_id":"t2"}}'
 line_result='{"type":"result","subtype":"success","result":"done","session_id":"'$sid'"}'
 
+# The ambient overlay/config knobs every hermetic runner strips. Held in one
+# array so a knob added here reaches all of them; a runner that hand-copied the
+# list would silently stop scrubbing the next one added, and the failure mode is
+# a case reading the developer's real fleet home.
+env_scrub=(
+  -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME
+  -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_REPO_ROOT
+  -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS
+  -u PLANWRIGHT_STREAMJSON_PENDING_AGE
+)
+
 # senv <home> <record-dir> [SHIM_VAR=val...] -- <args...> — hermetic
 # supervisor invocation: ambient overlay/config knobs stripped, the fleet
 # home and shim pinned per case.
@@ -183,10 +194,7 @@ senv() {
     shift
   done
   shift
-  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
-    -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_REPO_ROOT \
-    -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS \
-    -u PLANWRIGHT_STREAMJSON_PENDING_AGE \
+  env "${env_scrub[@]}" \
     PLANWRIGHT_FLEET_STATE_DIR="$se_home" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
     SHIM_RECORD_DIR="$se_rec" \
@@ -1383,24 +1391,31 @@ echo "ok: c22d a close from inside the worker's own tree is refused (REQ-B1.3)"
 # ---------------------------------------------------------------------------
 wdir22e="$home/streamjson/sjw22e"
 mkdir -p "$wdir22e" || fail "c22e: cannot plant the state dir"
-# The planted pid is the closer's own, via a wrapper that records itself and
-# then execs the close. It must be an ancestor of the closer to exercise the
-# walk, and it must have no OTHER descendants: `stop_candidates` still seeds
-# `want` from this file and expands downward, and anything under the planted pid
-# that is not also under the closer would be signalled for real. Planting a
-# shell's parent satisfies the first requirement and violates the second — every
-# sibling of this suite, including a parallel `mise` task, is under it.
-# shellcheck disable=SC2016 # $$/$1/$@ below belong to the inner shell, which
-# must record its own pid and then exec, so they are deliberately unexpanded.
+# The planted pid is the closer's own: a wrapper records `$$` and then `exec`s
+# the close, so the recorded pid is the process that runs it — the i=0 element
+# of the ancestry walk. It has to be something the walk reaches AND something
+# with no other descendants, because `stop_candidates` still seeds `want` from
+# this file and expands downward; anything under the planted pid that is not
+# also under the closer would be signalled for real. Planting the test shell's
+# parent reaches the walk but violates the second condition: every sibling of
+# this suite, including a parallel `mise` task, sits under it.
+# selfpid_close <home> <rec> <pidfile> <worker> [env=val...] — run `stop` from a
+# wrapper that records its own pid into <pidfile> and then execs, so the
+# recorded pid is the closing process itself.
+# shellcheck disable=SC2016 # $$/$1/$@ belong to the inner shell, which has to
+# record its own pid before exec'ing; expanding them here would defeat that.
 selfpid_close() {
-  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
-    -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_REPO_ROOT \
-    -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS \
-    -u PLANWRIGHT_STREAMJSON_PENDING_AGE \
-    PLANWRIGHT_FLEET_STATE_DIR="$1" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
-    SHIM_RECORD_DIR="$2" \
+  spc_home=$1
+  spc_rec=$2
+  spc_file=$3
+  spc_worker=$4
+  shift 4
+  env "${env_scrub[@]}" "$@" \
+    PLANWRIGHT_FLEET_STATE_DIR="$spc_home" \
+    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+    SHIM_RECORD_DIR="$spc_rec" \
     /bin/sh -c 'printf "%s\n" "$$" >"$1"; shift; exec "$@"' _ \
-    "$3" /bin/sh "$SJ" stop "$4" --grace 2 2>&1
+    "$spc_file" /bin/sh "$SJ" stop "$spc_worker" --grace 2 2>&1
 }
 out=$(selfpid_close "$home" "$rec" "$wdir22e/supervisor.pid" sjw22e)
 rc=$?
@@ -1410,6 +1425,39 @@ rc=$?
 [ ! -e "$wdir22e/supervisor.pid" ] \
   || fail "c22e: the close must clear the stale pid file, or the handle stays wedged"
 echo "ok: c22e a recorded pid in the closer's ancestry is not a self-close (REQ-B1.3)"
+
+# ---------------------------------------------------------------------------
+# c22f (REQ-B1.3): the other half of the same conditional. On a host whose `ps`
+#    truncates argv, a missing supervisor match is not evidence of absence, so
+#    the recorded pids ARE consulted and the close fails closed. Without a case
+#    here the narrow-host branch never executes and could be deleted whole with
+#    the suite still green.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/narrowbin"
+# A `ps` that rejects -ww and truncates args, the busybox shape the script
+# degrades for. It must still emit real pids and ppids, so the ancestry walk is
+# genuine and only the argv is missing.
+cat >"$tmp/narrowbin/ps" <<'NPS'
+#!/bin/sh
+for a in "$@"; do
+  case $a in
+    -ww) exit 1 ;;
+  esac
+done
+/bin/ps "$@" | cut -c1-40
+NPS
+chmod +x "$tmp/narrowbin/ps"
+wdir22f="$home/streamjson/sjw22f"
+mkdir -p "$wdir22f" || fail "c22f: cannot plant the state dir"
+out=$(selfpid_close "$home" "$rec" "$wdir22f/supervisor.pid" sjw22f \
+  PATH="$tmp/narrowbin:$PATH")
+rc=$?
+[ "$rc" = 3 ] \
+  || fail "c22f: with truncated argv the recorded pid must fail closed (exit 3), got rc=$rc ($out)"
+grep -q 'from inside its own process tree' <<EOF || fail "c22f: wrong refusal: $out"
+$out
+EOF
+echo "ok: c22f a truncated-argv host consults the recorded pids and fails closed (REQ-B1.3)"
 
 # ---------------------------------------------------------------------------
 # c22c (REQ-A1.3, REQ-B1.4): the lock class is released and named, and an
