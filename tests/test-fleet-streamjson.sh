@@ -1460,6 +1460,26 @@ EOF
 echo "ok: c22f a truncated-argv host consults the recorded pids and fails closed (REQ-B1.3)"
 
 # ---------------------------------------------------------------------------
+# c22g (REQ-B1.3): a process table that cannot be read at all is a third answer,
+#    not "not self-hosted". Every other probe in the close path fails closed;
+#    this one used to be the exception, and a momentary fork exhaustion was
+#    enough to let a self-close through.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/deadbin"
+printf '#!/bin/sh\nexit 1\n' >"$tmp/deadbin/ps"
+chmod +x "$tmp/deadbin/ps"
+wdir22g="$home/streamjson/sjw22g"
+mkdir -p "$wdir22g" || fail "c22g: cannot plant the state dir"
+out=$(selfpid_close "$home" "$rec" "$wdir22g/supervisor.pid" sjw22g \
+  PATH="$tmp/deadbin:$PATH")
+rc=$?
+[ "$rc" = 2 ] \
+  || fail "c22g: an unreadable process table must refuse the close (exit 2), got rc=$rc ($out)"
+[ -e "$wdir22g/supervisor.pid" ] \
+  || fail "c22g: a refused close must not have cleared the pid file"
+echo "ok: c22g an unreadable process table refuses rather than proceeds (REQ-B1.3)"
+
+# ---------------------------------------------------------------------------
 # c22c (REQ-A1.3, REQ-B1.4): the lock class is released and named, and an
 #    unknown handle is refused rather than reported closed.
 # ---------------------------------------------------------------------------
