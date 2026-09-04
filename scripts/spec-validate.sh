@@ -801,7 +801,12 @@ citation_range_findings() {
           if (i < n && is_namespace_word(t[i])) {
             tok = t[i + 1]
             sub(/\.$/, "", tok)
-            if (is_cite_id(tok) || tok == "Task") qualified = 1
+            if (is_cite_id(tok)) qualified = 1
+            else if (tok == "Task" && i + 1 < n) {
+              nt = t[i + 2]
+              sub(/\.$/, "", nt)
+              if (spec_parse_is_task_id(nt)) qualified = 1
+            }
           }
         }
         if (qualified) { qualified_line[NR] = 1; qualified_unit[unit] = 1; if (block) qualified_block[block] = 1 }

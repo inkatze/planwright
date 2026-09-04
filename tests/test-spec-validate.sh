@@ -2598,6 +2598,18 @@ edit "$dp3/specs/myspec/requirements.md" \
 run_v 0 --baseline HEAD "$dp3/specs"
 has "0 error(s), 0 warning(s)"
 
+# 36o. A hyphenated namespace qualifies through the bare word `Task` only when
+# a task id follows it: `pair-flow Task 7` reaches the line, `pair-flow Task
+# management` is prose and leaves a foreign id on the line unqualified.
+cite Ready 'The pair-flow Task management plan follows D-45.'
+run_v 0 "$root/fixture"
+has "D-45"
+has "not defined in this bundle"
+
+cite Ready 'Carried from pair-flow Task 7: the plan and its D-45.'
+run_v 0 "$root/fixture"
+has "0 error(s), 0 warning(s)"
+
 # --- usage errors ---
 run_v 2
 run_v 2 "$tmp/does-not-exist"
