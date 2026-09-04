@@ -82,7 +82,7 @@ do you want to proceed
 do you want to make this edit
 do you want to create
 and don't ask again
-tell claude what to do differently
+what to do differently
 SIGNATURES
 }
 
