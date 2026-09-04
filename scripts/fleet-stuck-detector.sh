@@ -860,6 +860,7 @@ read_completion() {
       *"$TAB"*"$TAB"*)
         rc_after=${rc_rest#*"$TAB"}
         rc_err=${rc_after#*"$TAB"}
+        rc_err=${rc_err%%"$TAB"*}
         ;;
     esac
     completion="$rc_kind=$rc_val"

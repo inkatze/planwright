@@ -847,7 +847,28 @@ out=$(run "$h20" classify "$w" --worktree "$wt") || fail "is_error classify exit
   || fail "a result carrying is_error classified '$(state_of "$out")', expected unclassified"
 [ "$(reason_of "$out")" = "completion-failed:result=success/is_error=true" ] \
   || fail "is_error completion: reason '$(reason_of "$out")'"
-echo "ok: a result frame flagging is_error is a failed completion, not a finished one"
+echo "ok: a result frame flagging is_error is a failed completion, not a finished one (REQ-C1.3, REQ-C1.4)"
+
+# The flag is read as field 4 exactly, not as "the rest of the line". A record
+# carrying a further field must still flag, or the next additive field silently
+# turns every failed completion back into a finished one — and the supervisor,
+# which reads $4 positionally, would go on reporting `ended` while this detector
+# reported the opposite about the same worker.
+printf 'result\tsuccess\t1700000000\ttrue\tfuture\n' >"$sd20/result"
+out=$(run "$h20" classify "$w" --worktree "$wt") || fail "five-field classify exited non-zero"
+[ "$(reason_of "$out")" = "completion-failed:result=success/is_error=true" ] \
+  || fail "a fifth field dropped the is_error flag: reason '$(reason_of "$out")'"
+echo "ok: is_error is read as field 4 exactly, so a later added field cannot mask it (REQ-C1.3)"
+
+# The shape the supervisor now writes on every clean run: field 4 present and
+# `false`. This is the common case post-change and must read as a completion.
+printf 'result\tsuccess\t1700000000\tfalse\n' >"$sd20/result"
+out=$(run "$h20" classify "$w" --worktree "$wt") || fail "false-flag classify exited non-zero"
+[ "$(state_of "$out")" = finished-but-unreaped ] \
+  || fail "a four-field record flagged false classified '$(state_of "$out")'"
+[ "$(reason_of "$out")" = "completion:result=success" ] \
+  || fail "an explicit false flag changed the reading: '$(reason_of "$out")'"
+echo "ok: an explicit is_error=false reads as a clean completion (REQ-C1.3)"
 
 # The same record without the flag stays a clean completion (the field is
 # additive; three-field records keep their meaning).
