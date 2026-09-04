@@ -605,10 +605,11 @@ echo "ok: bound-incr rejects a malformed bound (non-numeric and empty)"
 # 12. Stale-break liveness: a lock left behind by a CRASHED holder (a stale
 #     lock older than the threshold) must not deadlock the fleet forever — a new
 #     acquirer breaks it and proceeds. (This is the recoverable, single-acquirer
-#     property. The concurrent-multi-breaker mutual-exclusion corner of the
-#     mkdir stale-break — shared with the sibling orchestrate-lock.sh — is a
-#     documented known limitation queued for a lock-discipline follow-up, not
-#     asserted here.)
+#     property. The concurrent-multi-breaker corner is narrowed but not closed
+#     by the symlink shape's rename-aside claim — a breaker descheduled between
+#     its staleness probe and its rename can still displace a successor's live
+#     lock, and the legacy-directory break has no atomic claim at all — so it
+#     remains unasserted here.)
 # ---------------------------------------------------------------------------
 home_stale="$tmp/stale-home"
 mkdir -p "$home_stale"

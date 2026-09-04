@@ -33,11 +33,14 @@
 # THE NAMED PRIMITIVE (reshaped R1). Because the cross-spec store is read by the
 # attention surface (Task 12) while the meta-tower's fleet-bound accounting
 # (Task 6) writes it, this script provides a named cross-spec concurrency-control
-# primitive — a fleet-level advisory lock (à la the sibling's orchestrate-lock.sh)
-# at `<root>/.fleet.lock`, taken with an atomic mkdir and broken when stale. Its
+# primitive — a fleet-level advisory lock at `<root>/.fleet.lock`, taken with an
+# atomic symlink create carrying an owner token, and broken when stale. Its
 # guarantee: concurrent registry writes are serialized (no torn record) and the
 # fleet-bound check-and-increment cannot over-count (no two towers exceed the
-# bound). `lock`/`unlock` expose the primitive for consumers with their own
+# bound). It fills the same role as the sibling orchestrate-lock.sh but no
+# longer shares its mechanism: that sibling still takes its lock with mkdir,
+# which was measured not to exclude reliably here (see the lock's own note
+# below). `lock`/`unlock` expose the primitive for consumers with their own
 # critical sections; `register`/`bound-incr`/`bound-decr` are the built-in
 # consumers. The bound VALUE and policy are Task 6's; the atomic MECHANISM is
 # here.
@@ -50,11 +53,12 @@
 # never this counter. This counter's role is to close the sub-second window
 # between a meta step deciding and a subordinate tower materializing its
 # branch/marker. It is NOT self-healing: a holder that crashes between
-# `bound-incr` and `bound-decr` leaks its slot (same crash-recovery gap as the
-# stale-lock break — a known limitation deferred to the lock-family owner-token
-# redesign; tracked in specs/_observations, fleet-bound-slot-leak /
-# shared-lock-stale-break-race). A consumer must not treat this counter as a
-# durable occupancy tally; the git-derived count is what reconciles.
+# `bound-incr` and `bound-decr` leaks its slot. The LOCK now carries the owner
+# token that redesign called for (see the lock's own note below, including what
+# it does and does not close); this COUNTER does not, and its leak is still
+# tracked in specs/_observations as fleet-bound-slot-leak. A consumer must not
+# treat this counter as a durable occupancy tally; the git-derived count is what
+# reconciles.
 #
 # REQ-F1.1 / REQ-A1.6 (parsed input is data, never an executed path; artifact
 # data hygiene). The plugin-namespace `name` is grammar-validated (kebab charset,
@@ -135,7 +139,9 @@
 # POSIX sh targeting the macOS + Linux support bar (bash 3.2 / BSD tooling), not
 # strict POSIX: it deliberately uses a few widely-portable extensions — `date
 # +%s`, `find -mmin`, and a fractional `sleep` (each documented at its use site)
-# — plus mkdir/mktemp/awk. No eval, no jq/fish/mise (REQ-K1.5). All input is
+# — plus mkdir/mktemp/awk, and `ln -s`/`readlink` for the advisory lock, whose
+# correctness depends on them: a missing `readlink` makes every acquire fail to
+# confirm a lock it really took, and the caller then leaves that lock standing. No eval, no jq/fish/mise (REQ-K1.5). All input is
 # treated as data. Pathname expansion is disabled (set -f): the script does no
 # intentional globbing.
 set -uf
@@ -403,10 +409,21 @@ fleet_stale_min() {
 # THE OWNER TOKEN is what makes release safe. `release_lock` reads the target
 # back and unlinks ONLY when it is still ours, so the clobber this lock family
 # documented as a known limitation — a holder returning after its lock was
-# broken and deleting the CURRENT holder's lock — cannot happen. The stale
-# break claims the link by an atomic rename first, so two breakers cannot both
-# win. The token is `<pid>-<epoch>`: two live processes cannot share a pid,
-# which is all the uniqueness it needs.
+# broken and deleting the CURRENT holder's lock — cannot happen ON THE
+# IN-PROCESS PATH. The scope of that is worth stating plainly, because the
+# exposed `lock`/`unlock` pair does NOT get it: `lock` prints no token and
+# `unlock` accepts none, so a cross-process release is still unconditional and
+# can delete a successor's lock. Closing that means handing the token to the
+# caller the way allocation-ledger.sh does, which is an API change to every
+# consumer and is deliberately not made here.
+#
+# The stale break claims a SYMLINK by an atomic rename first, so two breakers
+# racing the same link cannot both win it. Two residuals survive that: a
+# breaker descheduled between its staleness probe and its rename can still
+# rename a SUCCESSOR's live link aside, and the legacy-directory break below
+# clears with `rm -rf` rather than a rename and so has no atomic claim at all.
+# The token is `<pid>-<epoch>`: two live processes cannot share a pid, which is
+# all the uniqueness it needs among concurrent holders.
 #
 # The spin budget stays well under the stale threshold so an exhausted waiter
 # fails closed rather than breaking a lock that is merely busy.
