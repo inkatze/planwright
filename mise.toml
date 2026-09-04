@@ -154,6 +154,10 @@ run = "/bin/bash scripts/check-doctrine-index.sh"
 description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-doctrine-manifest.sh"
 
+[tasks."check:cdpath"]
+description = "CDPATH house-pattern guard: fail on any shell file under scripts/, tests/, or githooks/ that resolves paths through a cd command substitution without a top-level 'unset CDPATH'; enumerates by shebang or .sh suffix so both the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (guard-coverage Task 10, REQ-G1.2, REQ-H1.3, D-12)"
+run = "/bin/bash scripts/check-cdpath.sh"
+
 [tasks."eval:skill"]
 description = "kept prompt-eval suite (on demand only, never in CI or `check`): pass^3 behavioral evals over instruction files via `claude -p --bare`; needs a Claude CLI + ANTHROPIC_API_KEY (prompt-hygiene Task 4, REQ-C1.4, D-6/D-7/D-8)"
 run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
@@ -197,6 +201,7 @@ depends = [
   "check:hook-contracts",
   "check:doctrine-index",
   "check:doctrine-manifest",
+  "check:cdpath",
   "check:specs",
   "scan:secrets",
 ]
