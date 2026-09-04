@@ -412,9 +412,8 @@ parse_requirements() {
         printf "LIVE\t%s\n", cur
         if (!cites)
           printf "F\tgap\t%s has no citation annotation (*(Cites: ...)*)\n", cur
-        body = text
-        gsub(/\*\(Cites:.*\)\*/, "", body)
-        if (body !~ /[^ \t]/)
+        body = spec_parse_strip_cites(text)
+        if (body !~ /[^ \t\r]/)
           printf "F\tgap\t%s has no normative prose (a live requirement bullet carries only its citation)\n", cur
       }
       cur = ""
@@ -431,12 +430,16 @@ parse_requirements() {
         cur = id
         cites = ($0 ~ /\(Cites:/)
         sup = ($0 ~ /\*\*Superseded-by: REQ-/)
-        text = substr($0, length(id) + 7)
+        text = spec_parse_req_bullet_text($0)
       } else {
         printf "F\tgap\tprose-only bullet or non-conforming REQ-ID at requirements.md:%d (expected REQ-<letter><n>.<m>)\n", NR
       }
       next
     }
+    # A bullet continues on indented lines only (the wrapped-text rule of
+    # the format); an unindented paragraph after the last bullet of a group
+    # belongs to the group, not to that bullet.
+    cur != "" && /^[^ \t]/ { flush(); next }
     cur != "" {
       if ($0 ~ /\(Cites:/) cites = 1
       if ($0 ~ /\*\*Superseded-by: REQ-/) sup = 1
@@ -716,97 +719,111 @@ reference_bullet_findings() {
 
 # citation_range_findings <dir> <name> — the REQ-D1.3 / D-13 range check,
 # appended to $fnd as `soft` findings (a warning at every status: this is a
-# heuristic, and a heuristic never blocks). Over the four files, fence-stripped
+# heuristic, and a heuristic never blocks). Over the four files, fence-aware
 # and `## Changelog` excluded (history names ids as they were), every `D-<n>`,
 # `REQ-<id>`, and `Task <id>` token is resolved against the ids this bundle
 # defines ($all_req_ids / $all_d_ids / $all_t_ids, loaded before the call). A
 # token that does not resolve is fine when a sibling-spec qualifier is in
-# reach; otherwise it is named with its file and line.
+# reach; otherwise every occurrence is named with its file and source line, so
+# one fix-what-is-reported pass converges.
 #
 # What counts as a qualifier is the part that has to be honest about its
 # capability. The strong form is a sibling bundle's directory name, taken from
-# the bundle's parent directory and screened by the identifier charset: it
-# names a real spec, so its presence anywhere in the scope is a signal
-# ("Carried from bootstrap: D-45, REQ-Z9.9"). The weaker form is a hyphenated
-# lowercase namespace that is NOT a directory here (`pair-flow`, `meta-spec`):
-# ordinary prose is full of hyphenated words, so that form counts only when it
-# sits immediately before an id token, possessive stripped. Either form then
-# reaches the whole line, the enclosing column-0 bullet or paragraph, and the
-# enclosing H3 block (a decision, a task block, a test-spec entry) — a scope a
-# reader's eye also covers, and the one REQ-D1.3 names.
+# the bundle's canonicalized parent directory and screened by the identifier
+# charset: it names a real spec, so its presence anywhere in the scope is a
+# signal ("Carried from bootstrap: D-45, REQ-Z9.9"). The weaker form is a
+# hyphenated lowercase namespace that is NOT a directory here (`pair-flow`,
+# `meta-spec`): ordinary prose is full of hyphenated words, so that form counts
+# only when it sits immediately before an id token, possessive stripped. Either
+# form then reaches the whole line, the enclosing column-0 bullet or paragraph,
+# and the enclosing H3 block (a decision, a task block, a test-spec entry) — a
+# scope a reader's eye also covers, and the one REQ-D1.3 names. A block is an
+# identity, not an ordinal: the counter never resets, so the first H3 of one
+# section shares nothing with the first H3 of the next.
 #
-# Tokenization mirrors the lib's citation scrape: non-id bytes become spaces,
-# a sentence-final period is stripped per token, and `Task <id>` is read as
-# the two tokens the format defines. Backticks are ordinary separators, so an
-# id in a code span is a citation like any other. The echoed token has passed
-# one of the three id grammars, so it is printable by construction.
+# Definition lines (a decision or task heading) are not scanned: a heading the
+# grammar rejected already carries its own finding, and re-reporting its id as
+# a foreign citation would contradict it.
+#
+# The fence lexer is prepended rather than run as the defence filter so NR
+# stays the source line number the finding cites. Tokenization mirrors the
+# lib's citation scrape: non-id bytes become spaces, a sentence-final period is
+# stripped per token, and `Task <id>` is read as the two tokens the format
+# defines. Backticks are ordinary separators, so an id in a code span is a
+# citation like any other. The echoed token has passed one of the three id
+# grammars, so it is printable by construction.
 citation_range_findings() {
-  crd=$1
+  crdir=$1
+  crname=$2
   crsibs=" "
-  for crs in "$(dirname "$crd")"/*/; do
-    crs=$(basename "$crs")
-    [ "$crs" != "$2" ] || continue
-    check_spec_id "$crs" || continue
-    crsibs="$crsibs$crs "
-  done
+  if crparent=$(cd "$crdir/.." 2>/dev/null && pwd); then
+    for crsib in "$crparent"/*/; do
+      crsib=$(basename "$crsib")
+      [ "$crsib" != "$crname" ] || continue
+      check_spec_id "$crsib" || continue
+      crsibs="$crsibs$crsib "
+    done
+  fi
   crdefs=$(printf '%s\n%s\n%s\n' "$all_req_ids" "$all_d_ids" "$all_t_ids" \
     | awk '/^[0-9]/ { print "Task " $0; next } NF { print }')
-  for crf in requirements.md design.md tasks.md test-spec.md; do
-    [ -f "$crd/$crf" ] || continue
-    defence "$crd/$crf" | awk -v sibs="$crsibs" -v file="$crf" -v defs="$crdefs
-" '
-      function isid(tok) { return (tok ~ /^D-[0-9]+$/ || tok ~ /^REQ-[A-Z][0-9]+\.[0-9]+$/) }
-      function issib(w) { return (index(sibs, " " w " ") > 0) }
-      function ishyph(w) { return (w ~ /^[a-z0-9]+-[a-z0-9-]+$/ && w !~ /^(D|REQ)-/) }
-      function tokens(s) {
+  for crfile in requirements.md design.md tasks.md test-spec.md; do
+    [ -f "$crdir/$crfile" ] || continue
+    awk -v sibs="$crsibs" -v file="$crfile" -v defs="$crdefs" \
+      "$spec_parse_awk_fence$spec_parse_awk_grammar"'
+      BEGIN {
+        n = split(defs, d, "\n")
+        for (i = 1; i <= n; i++) if (d[i] != "") defined[d[i]] = 1
+      }
+      function is_cite_id(tok) { return (tok ~ /^D-[0-9]+$/ || tok ~ /^REQ-[A-Z][0-9]+\.[0-9]+$/) }
+      function is_sibling(w) { return (index(sibs, " " w " ") > 0) }
+      function is_namespace_word(w) { return (w ~ /^[a-z0-9]+-[a-z0-9-]+$/) }
+      function splittable(s) {
         gsub(/\047s/, " ", s)
         gsub(/[^A-Za-z0-9.-]+/, " ", s)
         return s
       }
       { sub(/\r$/, "") }
-      /^## / { clog = (tolower($0) ~ /^## changelog/); h3 = 0 }
-      /^### / { h3++ }
+      /^## / { in_changelog = (tolower($0) ~ /^## changelog/); block = 0 }
+      /^### / { block = ++nblocks }
       /^#/ || /^- / || /^[ \t]*$/ { unit++ }
       {
         line[NR] = $0
-        inclog[NR] = clog
-        U[NR] = unit
-        H[NR] = h3
-        n = split(tokens($0), t, " ")
-        q = 0
+        skip[NR] = in_changelog || spec_parse_dec_attempt($0) || $0 ~ /^## D-[0-9]+/ || spec_parse_is_task_heading($0)
+        unit_of[NR] = unit
+        block_of[NR] = block
+        n = split(splittable($0), t, " ")
+        qualified = 0
         for (i = 1; i <= n; i++) {
-          if (issib(t[i])) q = 1
-          if (i < n && ishyph(t[i])) {
+          if (is_sibling(t[i])) qualified = 1
+          if (i < n && is_namespace_word(t[i])) {
             tok = t[i + 1]
             sub(/\.$/, "", tok)
-            if (isid(tok) || tok == "Task") q = 1
+            if (is_cite_id(tok) || tok == "Task") qualified = 1
           }
         }
-        if (q) { lq[NR] = 1; uq[unit] = 1; if (h3) hq[h3] = 1 }
+        if (qualified) { qualified_line[NR] = 1; qualified_unit[unit] = 1; if (block) qualified_block[block] = 1 }
       }
       END {
         for (nr = 1; nr <= NR; nr++) {
-          if (inclog[nr]) continue
-          if (lq[nr] || uq[U[nr]] || (H[nr] && hq[H[nr]])) continue
-          n = split(tokens(line[nr]), t, " ")
+          if (!(nr in line) || skip[nr]) continue
+          if (qualified_line[nr] || qualified_unit[unit_of[nr]] || (block_of[nr] && qualified_block[block_of[nr]])) continue
+          n = split(splittable(line[nr]), t, " ")
           for (i = 1; i <= n; i++) {
             tok = t[i]
             sub(/\.$/, "", tok)
             key = ""
-            if (isid(tok)) key = tok
+            if (is_cite_id(tok)) key = tok
             else if (tok == "Task" && i < n) {
               nt = t[i + 1]
               sub(/\.$/, "", nt)
-              if (nt ~ /^[0-9]+(\.[0-9]+)?$/) key = "Task " nt
+              if (spec_parse_is_task_id(nt)) key = "Task " nt
             }
-            if (key == "" || index(defs, key "\n")) continue
-            if (key in said) continue
-            said[key] = 1
+            if (key == "" || (key in defined)) continue
             printf "soft\t%s at %s:%d is not defined in this bundle and carries no sibling-spec qualifier (a foreign id is qualified by its spec name on the same line or in the enclosing block)\n", key, file, nr
           }
         }
       }
-    ' >>"$fnd"
+    ' <"$crdir/$crfile" >>"$fnd"
   done
 }
 
@@ -878,13 +895,17 @@ task_retirement_named() {
 # annotation removed, whitespace collapsed. The content-based half of the
 # dead-path comparison (REQ-D1.8): a bullet that only moved, re-wrapped, or
 # gained a citation reads as unchanged.
+#
+# Reads a file through the fence lexer, or `-` for text on stdin that the
+# caller has ALREADY fence-stripped (a baseline blob through debaseline, so
+# an unbalanced baseline takes that helper's raw-blob fallback and its finding
+# rather than this reader's silent truncation).
 req_texts() {
-  defence "$1" | awk "$spec_parse_awk_grammar"'
+  if [ "$1" = - ]; then cat; else defence "$1"; fi | awk "$spec_parse_awk_grammar"'
     function flush(   body) {
       if (cur == "") return
-      body = text
-      gsub(/\*\(Cites:.*\)\*/, "", body)
-      gsub(/[ \t]+/, " ", body)
+      body = spec_parse_strip_cites(text)
+      gsub(/[ \t\r]+/, " ", body)
       sub(/^ /, "", body)
       sub(/ $/, "", body)
       printf "%s\t%s\n", cur, body
@@ -897,9 +918,10 @@ req_texts() {
       id = spec_parse_req_bullet_id($0)
       if (id == "") next
       cur = id
-      text = substr($0, length(id) + 7)
+      text = spec_parse_req_bullet_text($0)
       next
     }
+    cur != "" && /^[^ \t]/ { flush(); next }
     cur != "" { text = text " " $0 }
     END { flush() }
   '
@@ -910,11 +932,11 @@ req_texts() {
 # collapsed. A heading naming several ids yields one record each, so a shared
 # entry counts for every REQ it covers (the coverage rule's reading).
 ts_texts() {
-  defence "$1" | awk "$spec_parse_awk_grammar"'
+  if [ "$1" = - ]; then cat; else defence "$1"; fi | awk "$spec_parse_awk_grammar"'
     function flush(   body, n, i) {
       if (ids == "") return
       body = text
-      gsub(/[ \t]+/, " ", body)
+      gsub(/[ \t\r]+/, " ", body)
       sub(/^ /, "", body)
       sub(/ $/, "", body)
       n = split(ids, t, " ")
@@ -941,10 +963,10 @@ dead_path_check() {
   [ -n "$old_req" ] && [ -n "$old_ts" ] || return 0
   [ -f "$ddir/requirements.md" ] && [ -f "$ddir/test-spec.md" ] || return 0
   req_texts "$ddir/requirements.md" >"$gtmp/dp.cur_req"
-  printf '%s\n' "$old_req" | req_texts - >"$gtmp/dp.old_req"
+  printf '%s\n' "$old_req_def" | req_texts - >"$gtmp/dp.old_req"
   ts_texts "$ddir/test-spec.md" >"$gtmp/dp.cur_ts"
-  printf '%s\n' "$old_ts" | ts_texts - >"$gtmp/dp.old_ts"
-  printf '%s\n' "$live_req_ids" >"$gtmp/dp.live"
+  debaseline "$old_ts" test-spec.md | ts_texts - >"$gtmp/dp.old_ts"
+  printf '%s\n' "$live_req_ids" | awk 'NF && !seen[$0]++' >"$gtmp/dp.live"
   awk -F"$tab" -v baseline="$baseline" '
     FILENAME == ARGV[1] { cr[$1] = $2; next }
     FILENAME == ARGV[2] { orq[$1] = $2; next }
@@ -990,6 +1012,7 @@ baseline_checks() {
   old_des=$(git -C "$bdir" show "$baseline:./design.md" 2>/dev/null) || old_des=
   old_tsk=$(git -C "$bdir" show "$baseline:./tasks.md" 2>/dev/null) || old_tsk=
   old_ts=$(git -C "$bdir" show "$baseline:./test-spec.md" 2>/dev/null) || old_ts=
+  old_req_def=
 
   # The current bundle's `## Changelog` body, loaded once for both escapes that
   # read it: REQ-A3.3's changelog-on-supersede and REQ-D1.6's task retirement.
@@ -1031,8 +1054,11 @@ baseline_checks() {
     esac
     # Fence-stripped before the id sweep (REQ-C1.2): both halves of the
     # stable-ID diff have to parse the same grammar, or a fenced mock id
-    # present in BOTH revisions reads as an id that vanished.
-    old_ids=$(debaseline "$old_req" requirements.md \
+    # present in BOTH revisions reads as an id that vanished. Stripped once
+    # here and reused by the dead-path check, so an unbalanced baseline is
+    # named once rather than per consumer.
+    old_req_def=$(debaseline "$old_req" requirements.md) || old_req_def=
+    old_ids=$(printf '%s\n' "$old_req_def" \
       | awk "$spec_parse_awk_grammar"'
         { id = spec_parse_req_bullet_id($0); if (id != "") print id }
       ') || old_ids=
@@ -1145,8 +1171,16 @@ validate_bundle() {
   hb_path=
   hb_failed=
 
+  # The citation-range check needs every defining file present and fully
+  # parsed, or every id the absent or truncated file defines would be
+  # re-reported as foreign in the other three; the missing-file or fence
+  # finding is the whole story then (REQ-D1.3).
+  range_ok=1
   for bf in requirements.md design.md tasks.md test-spec.md; do
-    [ -f "$bdir/$bf" ] || printf 'gap\tmissing file: %s\n' "$bf" >>"$fnd"
+    if [ ! -f "$bdir/$bf" ]; then
+      printf 'gap\tmissing file: %s\n' "$bf" >>"$fnd"
+      [ "$bf" = test-spec.md ] || range_ok=0
+    fi
   done
 
   # Unbalanced column-0 fence (REQ-D1.11, D-5). Checked before anything reads
@@ -1159,6 +1193,7 @@ validate_bundle() {
     [ -f "$bdir/$bf" ] || continue
     fbrc=0
     fbline=$(spec_parse_fence_balance "$bdir/$bf" 2>"$gtmp/fence.err") || fbrc=$?
+    [ "$fbrc" -eq 0 ] || [ "$bf" = test-spec.md ] || range_ok=0
     case $fbrc in
       0) ;;
       3)
@@ -1405,7 +1440,7 @@ validate_bundle() {
     done
   fi
 
-  citation_range_findings "$bdir" "$bname"
+  [ "$range_ok" -eq 0 ] || citation_range_findings "$bdir" "$bname"
   baseline_checks "$bdir"
 
   # Severity mapping (D-25): warnings on Draft and on the frozen terminal

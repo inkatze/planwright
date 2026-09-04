@@ -1466,6 +1466,22 @@ eq "task heading is recognized" "1" \
   "$(gval 'spec_parse_is_task_heading(L)' '### Task A — Not an id')"
 eq "task title" "Line-80 grammar migration" \
   "$(gval 'spec_parse_task_title(L)' '### Task 8 — Line-80 grammar migration')"
+# The canonical form is its own gate over headings that already yield an id:
+# em dash between single spaces, then a title.
+eq "canonical heading" "1" \
+  "$(gval 'spec_parse_is_canonical_task_heading(L)' '### Task 8 — Line-80 grammar migration')"
+eq "canonical dotted heading" "1" \
+  "$(gval 'spec_parse_is_canonical_task_heading(L)' '### Task 2.5 — A split task')"
+eq "hyphen separator is not canonical" "0" \
+  "$(gval 'spec_parse_is_canonical_task_heading(L)' '### Task 8 - Line-80 grammar migration')"
+eq "en dash separator is not canonical" "0" \
+  "$(gval 'spec_parse_is_canonical_task_heading(L)' '### Task 8 – Line-80 grammar migration')"
+eq "missing title is not canonical" "0" \
+  "$(gval 'spec_parse_is_canonical_task_heading(L)' '### Task 8 —')"
+eq "missing separator is not canonical" "0" \
+  "$(gval 'spec_parse_is_canonical_task_heading(L)' '### Task 8 Line-80 grammar migration')"
+eq "colon form is not canonical" "0" \
+  "$(gval 'spec_parse_is_canonical_task_heading(L)' '### Task 8: Line-80 grammar migration')"
 echo "ok: the task-heading grammar validates the id before it becomes a record"
 
 # 11d. The five definition fields, and the payload after the bolded lead. A

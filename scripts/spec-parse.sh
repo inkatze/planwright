@@ -751,6 +751,27 @@ spec_parse_awk_grammar='
       return substr(s, 5, RLENGTH - 6)
     return ""
   }
+  # The bullet text past the id lead (`- **<id>**`), or "" when the line is
+  # not a requirement bullet. Leading whitespace is left intact.
+  function spec_parse_req_bullet_text(s,   id) {
+    id = spec_parse_req_bullet_id(s)
+    if (id == "") return ""
+    return substr(s, length(id) + 7)
+  }
+  # The text with every `*(Cites: ...)*` annotation removed, each as the
+  # BOUNDED span from its opener to the first `)*` after it. A greedy regex
+  # would run to the last `)*` on the line and swallow prose sitting between
+  # two annotations or after an emphasized parenthetical. An unterminated
+  # opener drops the rest of the text: the annotation is what it opened.
+  function spec_parse_strip_cites(s,   i, rest, j) {
+    while ((i = index(s, "*(Cites:")) > 0) {
+      rest = substr(s, i + 8)
+      j = index(rest, ")*")
+      if (j == 0) return substr(s, 1, i - 1)
+      s = substr(s, 1, i - 1) substr(rest, j + 2)
+    }
+    return s
+  }
   # Every REQ id token anywhere on the line, space-padded and in line order.
   # A test-spec entry heading may name more than one, and coverage counts them
   # all — the property the single-match form below cannot express.
@@ -806,12 +827,13 @@ spec_parse_awk_grammar='
   }
   # Whether a heading that already yields an id is in the ONLY recognized
   # form, `### Task <id> — <title>`: one space, the em dash, one space, a
-  # non-blank title (doctrine/spec-format.md, *Task block format*). A
+  # title (doctrine/spec-format.md, *Task block format*; the same regex
+  # scripts/check-ledger.sh applies, so the two guards agree). A
   # heading can carry a conforming id and still be off-form — a hyphen or en
   # dash for the separator, or no title at all — and those read fine to the
   # id parse above, so the form check is its own gate (REQ-D1.7).
   function spec_parse_is_canonical_task_heading(s) {
-    return (s ~ /^### Task [0-9]+(\.[0-9]+)? — [^ \t\r]/)
+    return (s ~ /^### Task [0-9]+(\.[0-9]+)? — ./)
   }
   # The title past the id and its em dash, or "" when the heading carries no
   # conforming id.

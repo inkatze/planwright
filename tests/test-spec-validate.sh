@@ -2345,6 +2345,205 @@ edit "$dp/specs/myspec/requirements.md" \
 run_v 0 --baseline HEAD "$dp/specs"
 has "0 error(s), 0 warning(s)"
 
+# --- 36. Review-pass regressions over the hardening rules ---
+# Each case below pins a defect the self-review pass reproduced against the
+# first landing of rules 16-21; the fixture fails on that landing and passes
+# on the fix.
+
+# 36a. The H3 qualifier scope is a block identity, not a per-section ordinal:
+# a qualifier in the first H3 block of one section must not reach the first
+# H3 block of a later section.
+mkdir -p "$root/bootstrap"
+write_bundle "$root/fixture" Ready
+cat >>"$root/fixture/design.md" <<'EOF'
+
+Carried from bootstrap: D-45.
+
+## Another section
+
+### First block here
+
+Leans on D-46 with no name in reach.
+EOF
+run_v 0 "$root/fixture"
+has "D-46"
+lacks "D-45"
+
+# 36b. The enclosing bullet reaches its continuation lines even with no H3
+# block around it (the unit scope, isolated from the H3 scope).
+write_bundle "$root/fixture" Ready
+cat >>"$root/fixture/design.md" <<'EOF'
+
+## Carried context
+
+- Carried from bootstrap: the severity model
+  (D-45) and the identifier discipline
+  (REQ-Z9.9).
+
+A separate paragraph leaning on D-46.
+EOF
+run_v 0 "$root/fixture"
+has "D-46"
+lacks "D-45"
+lacks "REQ-Z9.9"
+
+# 36c. A hyphenated namespace's possessive still qualifies the token it
+# precedes (the sibling-directory possessive is qualified by membership
+# alone, so this is the case that needs the possessive strip).
+cite Ready "Widgets follow pair-flow's D-45 severity model."
+run_v 0 "$root/fixture"
+has "0 error(s), 0 warning(s)"
+
+# 36d. Every occurrence is reported, not the first per file: a fix-what-is-
+# reported loop must converge in one pass.
+write_bundle "$root/fixture" Ready
+printf '\nFirst mention of D-45 here.\n\nSecond mention of D-45 there.\n' >>"$root/fixture/design.md"
+run_v 0 "$root/fixture"
+has "D-45 at design.md:18"
+has "D-45 at design.md:20"
+
+# 36e. Line numbers cite the source file, not the fence-stripped view.
+write_bundle "$root/fixture" Ready
+cat >>"$root/fixture/design.md" <<'EOF'
+
+```markdown
+### D-9: an illustrated decision
+one
+two
+```
+
+Leans on D-45 after the fence.
+EOF
+run_v 0 "$root/fixture"
+has "D-45 at design.md:24"
+
+# 36f. Trips land in requirements.md and tasks.md too, and a dotted
+# `Task <id>` token is read as one citation.
+write_bundle "$root/fixture" Ready
+edit "$root/fixture/requirements.md" \
+  's/^- \*\*REQ-X1.2\*\* The gadget SHALL exist\.$/- **REQ-X1.2** The gadget SHALL exist per D-45./'
+edit "$root/fixture/tasks.md" \
+  's/^- \*\*Done when:\*\* The widget exists\.$/- **Done when:** The widget exists and Task 7.2 agrees./'
+run_v 0 "$root/fixture"
+has "D-45 at requirements.md:"
+has "Task 7.2 at tasks.md:"
+
+# 36g. A missing defining file does not turn every in-bundle id into a
+# foreign one: the missing-file finding is the whole story.
+write_bundle "$root/fixture" Ready
+rm "$root/fixture/design.md"
+run_v 1 "$root/fixture"
+has "missing file: design.md"
+lacks "not defined in this bundle"
+
+# 36h. A relative bundle path sees the same siblings as an absolute one.
+cite Ready 'Widgets follow the bootstrap D-45 severity model.'
+rc=0
+out=$(cd "$root" && "$validator" fixture 2>&1) || rc=$?
+[ "$rc" -eq 0 ] || fail "validating by relative path failed: $out"
+has "0 error(s), 0 warning(s)"
+rm -rf "$root/bootstrap"
+
+# 36i. The cited-but-empty rule reads a CRLF bullet the same as an LF one.
+write_bundle "$root/fixture" Ready
+edit "$root/fixture/requirements.md" \
+  's/^- \*\*REQ-X1.2\*\* The gadget SHALL exist\.$/- **REQ-X1.2** *(Cites: D-1.)*/'
+edit "$root/fixture/requirements.md" '/^- \*\*REQ-X1.2\*\*/{n;d;}'
+awk '{ printf "%s\r\n", $0 }' "$root/fixture/requirements.md" >"$root/fixture/requirements.md.new"
+mv "$root/fixture/requirements.md.new" "$root/fixture/requirements.md"
+run_v 1 "$root/fixture"
+has "REQ-X1.2 has no normative prose"
+
+# 36j. The citation annotation is stripped as a bounded span: prose after it,
+# and an emphasized parenthetical after it, are still prose.
+write_bundle "$root/fixture" Ready
+edit "$root/fixture/requirements.md" \
+  's/^- \*\*REQ-X1.2\*\* The gadget SHALL exist\.$/- **REQ-X1.2** *(Cites: D-1.)* The gadget SHALL exist *(emphasis added)*./'
+edit "$root/fixture/requirements.md" '/^- \*\*REQ-X1.2\*\*/{n;d;}'
+run_v 0 "$root/fixture"
+has "0 error(s), 0 warning(s)"
+
+# 36k. Dead-path: the same bounded strip keeps an edit after the annotation
+# visible; a heading naming two REQs covers both; a superseded REQ that keeps
+# an unchanged entry is exempt; a duplicate id warns once; an unbalanced
+# baseline fence is named rather than silently disabling the check.
+dp2="$tmp/deadpath2"
+rm -rf "$dp2"
+mkdir -p "$dp2"
+git -C "$dp2" init -q
+write_bundle "$dp2/specs/myspec" Active
+edit "$dp2/specs/myspec/requirements.md" \
+  's/^- \*\*REQ-X1.2\*\* The gadget SHALL exist\.$/- **REQ-X1.2** *(Cites: D-1.)* The gadget SHALL exist *(emphasis added)*./'
+edit "$dp2/specs/myspec/requirements.md" '/^- \*\*REQ-X1.2\*\*/{n;d;}'
+edit "$dp2/specs/myspec/test-spec.md" \
+  's/^### REQ-X1.2 — gadget exists \[manual\]$/### REQ-X1.1 and REQ-X1.2 — both exist [manual]/'
+edit "$dp2/specs/myspec/test-spec.md" '/^### REQ-X1.1 — widget exists \[test\]$/,/^$/d'
+git -C "$dp2" add -A
+git -C "$dp2" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm fixture
+run_v 0 --baseline HEAD "$dp2/specs"
+has "0 error(s), 0 warning(s)"
+
+edit "$dp2/specs/myspec/requirements.md" 's/The gadget SHALL exist \*(emphasis added)\*\./The gadget SHALL hum *(emphasis added)*./'
+run_v 0 --baseline HEAD "$dp2/specs"
+has "REQ-X1.2 changed since HEAD"
+
+git -C "$dp2" checkout -q -- specs
+edit "$dp2/specs/myspec/requirements.md" \
+  's/^- \*\*REQ-X1.1\*\* The widget SHALL exist\.$/- **REQ-X1.1** The widget SHALL exist and glow./'
+run_v 0 --baseline HEAD "$dp2/specs"
+has "REQ-X1.1 changed since HEAD"
+
+git -C "$dp2" checkout -q -- specs
+edit "$dp2/specs/myspec/requirements.md" \
+  's/^- \*\*REQ-X1.1\*\* The widget SHALL exist\.$/- **REQ-X1.1** The widget SHALL exist. **Superseded-by: REQ-X1.2** (2026-06-13)/'
+edit "$dp2/specs/myspec/requirements.md" \
+  's/^- 2026-06-12 — created\.$/&\
+- 2026-06-13 — REQ-X1.1 superseded by REQ-X1.2./'
+run_v 0 --baseline HEAD "$dp2/specs"
+lacks "REQ-X1.1 changed"
+
+git -C "$dp2" checkout -q -- specs
+edit "$dp2/specs/myspec/requirements.md" \
+  's/^- \*\*REQ-X1.1\*\* The widget SHALL exist\.$/- **REQ-X1.1** The widget SHALL exist and glow.\
+  *(Cites: D-1.)*\
+- **REQ-X1.1** The widget SHALL exist and glow./'
+run_v 1 --baseline HEAD "$dp2/specs"
+n=$(printf '%s\n' "$out" | grep -c 'REQ-X1.1 changed since HEAD') || n=0
+[ "$n" -eq 1 ] || fail "duplicate id produced $n dead-path warnings: $out"
+
+git -C "$dp2" checkout -q -- specs
+edit "$dp2/specs/myspec/test-spec.md" 's/^Coverage is a fixture mix\.$/&\
+\
+```markdown/'
+git -C "$dp2" add -A
+git -C "$dp2" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm unbalanced
+edit "$dp2/specs/myspec/test-spec.md" '/^```markdown$/d'
+edit "$dp2/specs/myspec/requirements.md" \
+  's/^- \*\*REQ-X1.1\*\* The widget SHALL exist\.$/- **REQ-X1.1** The widget SHALL exist and glow./'
+run_v 1 --baseline HEAD "$dp2/specs"
+has "unclosed column-0 code fence in the HEAD baseline"
+has "REQ-X1.1 changed since HEAD"
+
+# 36l. The colon-less H3 decision heading errors on Ready like its siblings.
+write_bundle "$root/fixture" Ready
+cat >>"$root/fixture/design.md" <<'EOF'
+
+### D-2 Missing colon
+
+**Decision:** orphan that must be surfaced.
+EOF
+run_v 1 "$root/fixture"
+has "ERROR"
+has "malformed decision heading"
+
+# 36m. Deviant dotted task headings are flagged on the trip side too.
+deviant Draft '### Task 1.5 - Hyphen with a dotted id'
+run_v 0 "$root/fixture"
+has "non-canonical task heading"
+deviant Draft '### Task 1.5'
+run_v 0 "$root/fixture"
+has "non-canonical task heading"
+
 # --- usage errors ---
 run_v 2
 run_v 2 "$tmp/does-not-exist"

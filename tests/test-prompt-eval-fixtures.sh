@@ -82,11 +82,13 @@ if [ -n "$PLUGIN" ]; then
   else
     fail "print-ready bundle is not Status: Ready"
   fi
-  # Validates 0/0 (errors block execution on an executable spec)
-  if out="$("$PLUGIN/scripts/spec-validate.sh" "$spec" 2>&1)"; then
+  # Validates 0/0 (errors block execution on an executable spec; a warning
+  # would pass the exit status and still be a fixture defect)
+  if out="$("$PLUGIN/scripts/spec-validate.sh" "$spec" 2>&1)" \
+    && printf '%s\n' "$out" | grep -q '0 error(s), 0 warning(s)'; then
     ok "print-ready bundle validates clean ($out)"
   else
-    fail "print-ready bundle does not validate: $out"
+    fail "print-ready bundle does not validate clean: $out"
   fi
   # The signed brief's anchor recomputes to a match (freshness gate would pass).
   recorded="$(grep -oE '[0-9a-f]{40}' "$spec/kickoff-brief.md" | head -n1)"
@@ -120,6 +122,14 @@ if grep -q '^\*\*Status:\*\* Draft' "$w/specs/demo/requirements.md" 2>/dev/null;
   ok "refuse-draft bundle is Status: Draft"
 else
   fail "refuse-draft bundle is not Status: Draft"
+fi
+# The refusal must come from the status gate alone, so the bundle is otherwise
+# conforming: no finding at any severity.
+if out="$("$PLUGIN/scripts/spec-validate.sh" "$w/specs/demo" 2>&1)" \
+  && printf '%s\n' "$out" | grep -q '0 error(s), 0 warning(s)'; then
+  ok "refuse-draft bundle validates clean ($out)"
+else
+  fail "refuse-draft bundle does not validate clean: $out"
 fi
 
 # ---- each assert.jq actually grades: passing outcome true, failing false -----
