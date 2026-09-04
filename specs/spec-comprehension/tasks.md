@@ -19,7 +19,7 @@ view tasks they cover.
 
 ## Forward plan
 
-(none — all tasks dispatched or complete)
+(none yet)
 
 ## In progress
 
@@ -33,7 +33,7 @@ view tasks they cover.
 
 ### Task 1 — Command scaffold
 
-- **Status:** Completed — merged via PR #30 (merge commit `bd7860d`) on 2026-06-17
+- **Status:** Completed · PR #30 merged 2026-06-17
 - **Deliverables:** the `/spec-walkthrough` skill entry point; argument and flag
   parsing (spec path, scope selector, reveal flag); spec-identifier charset
   validation and path containment check; read-only and status-agnostic bundle
@@ -48,7 +48,7 @@ view tasks they cover.
 
 ### Task 2 — Bundle reader model
 
-- **Status:** Completed — merged via PR #32 (merge commit `6ca54c4`) on 2026-06-17
+- **Status:** Completed · PR #32 merged 2026-06-17
 - **Deliverables:** a parser that reads the four files into a normalized
   in-memory model preserving every identifier as a hidden back-pointer (the
   substrate every view renders from), reusing the existing format parsers where
@@ -63,7 +63,7 @@ view tasks they cover.
 
 ### Task 3 — Plain-language translation layer
 
-- **Status:** Completed — merged via PR #38 (merge commit `36ec2ce`) on 2026-06-17
+- **Status:** Completed · PR #38 merged 2026-06-17
 - **Deliverables:** the lossless layered-view translator (plain rendering with
   retained back-pointers), the precision-preservation guardrail that never
   softens a normative token, and the reveal mapping that exposes identifiers and
@@ -78,7 +78,7 @@ view tasks they cover.
 
 ### Task 4 — Spec-at-a-glance one-pager renderer
 
-- **Status:** Completed — merged via PR #43 (merge commit `b285999`) on 2026-06-17
+- **Status:** Completed · PR #43 merged 2026-06-18
 - **Deliverables:** the narrative one-pager view (prose, length-bounded), each
   load-bearing claim carrying its back-pointer, with the load-bearing "killer
   items" foregrounded.
@@ -91,7 +91,7 @@ view tasks they cover.
 
 ### Task 5 — Teach-back challenge
 
-- **Status:** Completed — merged via PR #44 (merge commit `0c022a3`) on 2026-06-17
+- **Status:** Completed · PR #44 merged 2026-06-18
 - **Deliverables:** claim extraction from the bundle's own assertions; the
   in-artifact agree / disagree / unsure self-paced checklist; the optional
   in-session walk through the same claims; response recording that never
@@ -106,7 +106,7 @@ view tasks they cover.
 
 ### Task 6 — HTML assembly and styling
 
-- **Status:** Completed — merged via PR #51 (merge commit `e3d62f7`) on 2026-06-18
+- **Status:** Completed · PR #51 merged 2026-06-18
 - **Deliverables:** assembly of the rendered views into one self-contained HTML
   artifact; MIT-licensed styling (Tailwind CSS plus DaisyUI) with only used CSS
   inlined and the MIT notice included; the reveal toggle; the silent-read-first
@@ -126,7 +126,7 @@ view tasks they cover.
 
 ### Task 8 — Decision-map view
 
-- **Status:** Completed — merged via PR #55 (merge commit `d4186d9`) on 2026-06-18
+- **Status:** Completed · PR #55 merged 2026-06-18
 - **Deliverables:** the ADR-shaped decision-map view rendering each decision as
   Context → Decision → Alternative-rejected → Consequence in plain language,
   surfacing the rejected alternative and the cost.
@@ -139,7 +139,7 @@ view tasks they cover.
 
 ### Task 7 — Dependency-graph and critical-path view
 
-- **Status:** Completed — merged via PR #56 (merge commit `cf46a2b`) on 2026-06-18
+- **Status:** Completed · PR #56 merged 2026-06-18
 - **Deliverables:** the drawn dependency-graph view as inline SVG with the
   critical path and parallelism visible and plain labels, reusing
   `scripts/orchestrate-select.sh`'s critical-path computation; the optional
@@ -155,7 +155,7 @@ view tasks they cover.
 
 ### Task 10 — Sibling discoverability touchpoints
 
-- **Status:** Completed — merged via PR #61 (merge commit `c7451c0`) on 2026-06-18
+- **Status:** Completed · PR #61 merged 2026-06-18
 - **Deliverables:** suggest-only lines added to `/spec-draft`'s handoff,
   `/spec-kickoff`'s pre-flight, and `/resume`, each recommending
   `/spec-walkthrough` as an independent human step, none auto-invoking it.
@@ -168,7 +168,7 @@ view tasks they cover.
 
 ### Task 9 — Scope selection and stage-aware framing
 
-- **Status:** Completed — merged via PR #63 (merge commit `2561cc6`) on 2026-06-18
+- **Status:** Completed · PR #63 merged 2026-06-18
 - **Deliverables:** the whole-bundle default plus partial selectors (one file,
   one requirement group, the decision set, the task graph, a single decision's
   blast radius); status-auto-detected framing for Draft, Active, Done, and
@@ -182,7 +182,7 @@ view tasks they cover.
 
 ### Task 11 — Tests and test-spec coverage
 
-- **Status:** Completed — merged via PR #67 (merge commit `63d6c9a`) on 2026-06-19
+- **Status:** Completed · PR #67 merged 2026-06-19
 - **Deliverables:** automated fixtures across the views (model, translation,
   one-pager, teach-back, graph, decision-map, scope); an offline
   self-containment check (the artifact opens with no network and no installed
@@ -198,7 +198,7 @@ view tasks they cover.
 
 ### Task 12 — Docs and maintenance
 
-- **Status:** Completed — merged via PR #66 (merge commit `7ad2914`) on 2026-06-19
+- **Status:** Completed · PR #66 merged 2026-06-19
 - **Deliverables:** command documentation (invocation, scope selectors, reveal
   flag, the optional Graphviz enhancement); any options-reference rows for new
   config; the completion-time doctrine drift-observation wiring.

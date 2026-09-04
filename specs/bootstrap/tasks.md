@@ -39,7 +39,11 @@ first.
 
 ## Forward plan
 
+(none yet)
+
 ## In progress
+
+(none yet)
 
 ## Awaiting input
 
@@ -76,7 +80,7 @@ first.
 - **Estimated effort:** 1 day
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-19` · dispatched 2026-06-17T03:21Z ·
   branch `planwright/bootstrap/task-19` · worktree `.claude/worktrees/task-19`
-- **Status:** Completed · PR #27 merged 2026-06-17 (gauntlet panel-pairing → self-review → copilot-pairing converged; Diego-directed `$schema` + CI `claude plugin validate` enforcement; 2 pending-sign-off items applied on-branch [`a3e5d3c` repo_root fail-closed guard, `17d2702` schema-gate test], Copilot zero unresolved threads, author.email Keep; anchor intact `b331a686` → no /spec-kickoff. **Bootstrap v1 feature-complete** — Forward plan empty.)
+- **Status:** Completed · PR #27 merged 2026-06-17
 
 ### Task 20 — Validation Rigor amendment: bi-directional re-validation + whole-system reproduction
 
@@ -101,7 +105,7 @@ first.
 - **Estimated effort:** half day
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-20` · dispatched 2026-06-16T23:36Z ·
   branch `planwright/bootstrap/task-20` · worktree `.claude/worktrees/task-20`
-- **Status:** Completed · PR #25 merged 2026-06-16 (gauntlet panel-pairing → self-review → copilot-pairing converged; panel sign-off fix + Copilot threads addressed, all signed; content anchor intact `b331a686` → no /spec-kickoff needed)
+- **Status:** Completed · PR #25 merged 2026-06-17
 
 ### Task 16 — Builder skill + core catalog + lifecycle hooks
 
@@ -122,7 +126,7 @@ first.
 - **Estimated effort:** 1.5 days
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-16` · dispatched 2026-06-15T20:02Z ·
   branch `planwright/bootstrap/task-16` · worktree `.claude/worktrees/task-16`
-- **Status:** Completed · PR #20 merged 2026-06-15 (clean redo on a fresh signed branch; PR #17 closed/superseded, content preserved at tag `pw/t16-salvage`; gauntlet panel-pairing → self-review → copilot-pairing converged, constrained-reader scope fork resolved before merge)
+- **Status:** Completed · PR #20 merged 2026-06-15
 
 ### Task 13 — `/orchestrate`
 
@@ -191,7 +195,7 @@ first.
 - **Estimated effort:** half day
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-1` · dispatched 2026-06-11T20:57Z ·
   branch `planwright/bootstrap/task-1` · worktree `.claude/worktrees/task-1`
-- **Status:** Completed · PR #3 merged
+- **Status:** Completed · PR #3 merged 2026-06-11
 
 ### Task 2 — Self-hosting: quality guards & CI
 
@@ -209,7 +213,7 @@ first.
 - **Estimated effort:** 1 day
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-2` · dispatched 2026-06-11T23:55Z ·
   branch `planwright/bootstrap/task-2` · worktree `.claude/worktrees/task-2`
-- **Status:** Completed · PR #7 merged
+- **Status:** Completed · PR #7 merged 2026-06-12
 
 ### Task 3 — Migrate framework intelligence into doctrine docs
 
@@ -231,7 +235,7 @@ first.
 - **Estimated effort:** 2.5 days
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-3` · dispatched 2026-06-11T20:42Z ·
   branch `planwright/bootstrap/task-3` · worktree `.claude/worktrees/task-3`
-- **Status:** Completed · PR #2 merged
+- **Status:** Completed · PR #2 merged 2026-06-11
 
 ### Task 4 — Four-file format meta-spec
 
@@ -268,7 +272,7 @@ first.
   branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-14` · dispatched 2026-06-12T19:30Z ·
   branch `planwright/bootstrap/task-14` · worktree `.claude/worktrees/task-14`
-- **Status:** Completed · PR #4 merged
+- **Status:** Completed · PR #4 merged 2026-06-12
 
 ### Task 5 — Status-aware validator
 
@@ -288,7 +292,7 @@ first.
 - **Estimated effort:** 1 day
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-5` · dispatched 2026-06-12T20:30Z ·
   branch `planwright/bootstrap/task-5` · worktree `.claude/worktrees/task-5`
-- **Status:** Completed · PR #9 merged
+- **Status:** Completed · PR #9 merged 2026-06-12
 
 ### Task 6 — Hooks & operational integration
 
@@ -307,7 +311,7 @@ first.
 - **Estimated effort:** 1 day
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-6` · dispatched 2026-06-12T23:35Z ·
   branch `planwright/bootstrap/task-6` · worktree `.claude/worktrees/task-6`
-- **Status:** Completed · PR #13 merged
+- **Status:** Completed · PR #13 merged 2026-06-13
 
 ### Task 7 — Finding categorization & act-then-review gate wiring
 
@@ -325,7 +329,7 @@ first.
 - **Estimated effort:** 1 day
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
   branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
-- **Status:** Completed · PR #5 merged
+- **Status:** Completed · PR #5 merged 2026-06-12
 
 ### Task 8 — `/spec-draft`
 
@@ -347,7 +351,7 @@ first.
 - **Estimated effort:** 1.5 days
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-8` · dispatched 2026-06-12T21:55Z ·
   branch `planwright/bootstrap/task-8` · worktree `.claude/worktrees/task-8`
-- **Status:** Completed · PR #11 merged
+- **Status:** Completed · PR #11 merged 2026-06-12
 
 ### Task 9 — `/spec-kickoff`
 
@@ -389,7 +393,7 @@ first.
   authorization; logged in the observations log for the pending fence-grammar
   delta re-walkthrough. The task itself is not blocked: the review gauntlet ran
   to completion (task state stays In progress / draft-pr-ready).
-- **Status:** Completed · PR #12 merged
+- **Status:** Completed · PR #12 merged 2026-06-13
 
 ### Task 10 — Accumulator taxonomy & `GATE(when:)` convention + `/drain`
 
@@ -409,7 +413,7 @@ first.
 - **Estimated effort:** 1 day
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-10` · dispatched 2026-06-12T20:30Z ·
   branch `planwright/bootstrap/task-10` · worktree `.claude/worktrees/task-10`
-- **Status:** Completed · PR #10 merged
+- **Status:** Completed · PR #10 merged 2026-06-13
 
 ### Task 11 — `/self-review` + `/polish`
 
@@ -427,7 +431,7 @@ first.
 - **Estimated effort:** 1.5 days
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-11` · dispatched 2026-06-12T19:35Z ·
   branch `planwright/bootstrap/task-11` · worktree `.claude/worktrees/task-11`
-- **Status:** Completed · PR #8 merged
+- **Status:** Completed · PR #8 merged 2026-06-12
 
 ### Task 12 — `/execute-task`
 
@@ -453,7 +457,7 @@ first.
 - **Estimated effort:** 1.5 days
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-12` · dispatched 2026-06-12T19:30Z ·
   branch `planwright/bootstrap/task-12` · worktree `.claude/worktrees/task-12`
-- **Status:** Completed · PR #15 merged
+- **Status:** Completed · PR #15 merged 2026-06-13
 
 ### Task 14 — `/resume`
 
@@ -465,7 +469,7 @@ first.
 - **Dependencies:** 9
 - **Citations:** D-30, D-42 · REQ-F2.1, REQ-B3.2
 - **Estimated effort:** half day
-- **Status:** Completed · PR #14 merged
+- **Status:** Completed · PR #14 merged 2026-06-13
 
 ### Task 15 — Engineering decision-process doctrine doc
 
@@ -484,7 +488,7 @@ first.
 - **Estimated effort:** 1.5 days
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-15` · dispatched 2026-06-11T22:16Z ·
   branch `planwright/bootstrap/task-15` · worktree `.claude/worktrees/task-15`
-- **Status:** Completed · PR #6 merged
+- **Status:** Completed · PR #6 merged 2026-06-12
 
 ### Task 17 — Spec lifecycle & evolution mechanics
 
@@ -508,7 +512,7 @@ first.
   12's** deliverable (merged via PR #15); it is not duplicated here. This task ships the one
   genuinely-unbuilt clause: the **supersede→changelog validator invariant**. Task-definition
   fields unchanged (no spec amendment; the content anchor is preserved).
-- **Status:** Completed · PR #16 merged
+- **Status:** Completed · PR #16 merged 2026-06-15
 
 ## Deferred
 

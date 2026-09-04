@@ -18,7 +18,23 @@ of the release chain after T1 and can run in parallel throughout.
 
 ## Forward plan
 
-(none)
+### Task 11 — Organic proof: planwright's first automated signed release
+
+- **Deliverables:** planwright's next release cut end-to-end through the
+  machinery: the release PR proposed automatically, the human merges it, the
+  publish produces the signed annotated tag on the observed merge SHA and the
+  GitHub Release from the CHANGELOG section; the lock observed red in the
+  window and green after. Human-gated organic acceptance: the framework
+  prepares and verifies; the human merges and signs.
+- **Done when:** `git tag -v` verifies the published release tag; the GitHub
+  Release exists with the CHANGELOG-section body; the tagged SHA is the
+  release-merge SHA; `release-pending.sh` reports none; the required check is
+  green on `main`.
+- **Dependencies:** Task 5, Task 6, Task 7, Task 9.
+- **Citations:** D-1, D-3, D-4, D-5, D-6 · REQ-I1.1, REQ-I1.2
+- **Estimated effort:** 0.25d
+- **Status:** Completed · v0.4.0 released 2026-07-13
+- **Last activity:** 2026-07-13
 
 ## In progress
 
@@ -221,24 +237,6 @@ of the release chain after T1 and can run in parallel throughout.
 - **Citations:** D-12 · REQ-D1.2, REQ-D1.3
 - **Estimated effort:** 1.0d
 - **Status:** Completed · PR #161 merged 2026-07-13
-- **Last activity:** 2026-07-13
-
-### Task 11 — Organic proof: planwright's first automated signed release
-
-- **Deliverables:** planwright's next release cut end-to-end through the
-  machinery: the release PR proposed automatically, the human merges it, the
-  publish produces the signed annotated tag on the observed merge SHA and the
-  GitHub Release from the CHANGELOG section; the lock observed red in the
-  window and green after. Human-gated organic acceptance: the framework
-  prepares and verifies; the human merges and signs.
-- **Done when:** `git tag -v` verifies the published release tag; the GitHub
-  Release exists with the CHANGELOG-section body; the tagged SHA is the
-  release-merge SHA; `release-pending.sh` reports none; the required check is
-  green on `main`.
-- **Dependencies:** Task 5, Task 6, Task 7, Task 9.
-- **Citations:** D-1, D-3, D-4, D-5, D-6 · REQ-I1.1, REQ-I1.2
-- **Estimated effort:** 0.25d
-- **Status:** Completed · v0.4.0 released 2026-07-13
 - **Last activity:** 2026-07-13
 
 ## Deferred

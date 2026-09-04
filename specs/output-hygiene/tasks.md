@@ -15,7 +15,7 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 
 ## Forward plan
 
-(none — all live tasks complete)
+(none yet)
 
 ## In progress
 

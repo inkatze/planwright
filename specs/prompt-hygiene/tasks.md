@@ -13,11 +13,11 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## Forward plan
 
-(none)
+(none yet)
 
 ## In progress
 
-(none)
+(none yet)
 
 ## Awaiting input
 

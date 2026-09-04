@@ -23,6 +23,18 @@ D-9: never ship a lifecycle state with no exit.
 
 ## Forward plan
 
+(none yet)
+
+## In progress
+
+(none yet)
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
 ### Task 5 — `/orchestrate` gate: Ready or Active
 
 - **Deliverables:** the `orchestrate` skill's pre-flight refusal updated from
@@ -36,6 +48,7 @@ D-9: never ship a lifecycle state with no exit.
 - **Dependencies:** Task 1.
 - **Citations:** D-1 · REQ-C1.1, REQ-C1.3
 - **Estimated effort:** half day
+- **Status:** Completed · PR #86 merged 2026-06-29
 
 ### Task 7 — Downstream core status surfaces recognize Ready
 
@@ -49,12 +62,11 @@ D-9: never ship a lifecycle state with no exit.
 - **Dependencies:** Task 1.
 - **Citations:** D-1, D-8 · REQ-E1.1, REQ-E1.2
 - **Estimated effort:** half day
-
-## In progress
+- **Status:** Completed · PR #85 merged 2026-06-29
 
 ### Task 8 — Migration sweep + docs + changelog reconcile
 
-- **Status:** PR #99 draft
+- **Status:** Completed · PR #99 merged 2026-07-01
 - **Last activity:** 2026-06-30
 - **Deliverables:** a one-time migration applying the derived rule to existing
   bundles (Active-with-no-progress → Ready; for example `orchestration-concurrency`,
@@ -76,15 +88,9 @@ D-9: never ship a lifecycle state with no exit.
 - **Citations:** D-4 · REQ-A1.7
 - **Estimated effort:** half day
 
-## Awaiting input
-
-(none yet)
-
-## Completed
-
 ### Task 1 — Meta-spec: six-status lifecycle + bootstrap supersede pointers
 
-- **Status:** Completed — PR #80 merged 2026-06-29 (merge commit `8f9f03c`).
+- **Status:** Completed · PR #80 merged 2026-06-29
 - **Deliverables:** `doctrine/spec-format.md` status table and transitions updated
   to Draft → Ready → Active → Done (Retired/Superseded terminal), with `Ready`
   defined ("signed off, validated, executable, no work started") and `Active`
@@ -102,7 +108,7 @@ D-9: never ship a lifecycle state with no exit.
 
 ### Task 2 — Status-aware validator recognizes Ready (errors-block)
 
-- **Status:** Completed — PR #87 merged 2026-06-29 (merge commit `714bac2`).
+- **Status:** Completed · PR #87 merged 2026-06-29
 - **Deliverables:** `scripts/spec-validate.sh` updated so `Ready` is a recognized
   status (status enum) and `Ready` findings map to errors-block severity alongside
   Active and Done; Draft→Ready, Ready→Active, Ready→Done (direct completion),
@@ -119,7 +125,7 @@ D-9: never ship a lifecycle state with no exit.
 
 ### Task 6 — Derived reconcile of the bundle `Status:` header (extend the single writer)
 
-- **Status:** Completed — PR #92 merged 2026-06-29 (merge commit `ea0e8e0`).
+- **Status:** Completed · PR #92 merged 2026-06-30
 - **Deliverables:** `orchestration-concurrency`'s single level-triggered reconcile
   writer extended to compute and reconcile the bundle `Status:` header from the
   task-state derivation: `Active` iff any task derives In-progress or Completed,
@@ -141,7 +147,7 @@ D-9: never ship a lifecycle state with no exit.
 
 ### Task 3 — `/spec-kickoff` flips Draft→Ready; change-handling scales by lifecycle stage
 
-- **Status:** Completed — PR #97 merged 2026-06-30 (merge commit `e3df013`).
+- **Status:** Completed · PR #97 merged 2026-06-30
 - **Deliverables:** the `spec-kickoff` skill updated so sign-off flips Draft→`Ready`
   (not Active), mirrors Status across all four files, bumps `Last reviewed`, and
   writes the sign-off record with the content anchor last (unchanged ordering);
@@ -161,7 +167,7 @@ D-9: never ship a lifecycle state with no exit.
 
 ### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + bootstrap D-26 exception
 
-- **Status:** Completed — PR #98 merged 2026-06-30 (merge commit `003718f`).
+- **Status:** Completed · PR #98 merged 2026-06-30
 - **Deliverables:** the `spec-kickoff` skill marks the spec PR ready (un-draft) as
   the terminal step of clean completion, after the configured verification has
   converged; it does not flip if sign-off parked on a fork or verification did not

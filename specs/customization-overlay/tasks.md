@@ -10,7 +10,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## Forward plan
 
-(none — all tasks dispatched or complete)
+(none yet)
 
 ## In progress
 
@@ -24,7 +24,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 1 — Capability-vs-style boundary doctrine
 
-- **Status:** Completed — PR #28 merged 2026-06-17 (merge commit `480cf64`).
+- **Status:** Completed · PR #28 merged 2026-06-17
 - **Deliverables:** A new doctrine doc `customization-boundary.md` defining the
   capability-vs-style rule, its decision-time criteria, the default tilt toward
   overlay, and the two worked examples (review-gauntlet ordering as style;
@@ -40,7 +40,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 2 — Overlay-root resolution primitive
 
-- **Status:** Completed — PR #29 merged 2026-06-17 (merge commit `ccb7b55`).
+- **Status:** Completed · PR #29 merged 2026-06-17
 - **Deliverables:** `scripts/resolve-overlay-root.sh` resolving the four layer
   roots — core, adopter (via the `$PLANWRIGHT_ADOPTER_OVERLAY` →
   `$CLAUDE_PLUGIN_DATA/overlay/` → `<claude-dir>/planwright/<name>/overlay/`
@@ -63,7 +63,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 4 — Doctrine-overlay resolution
 
-- **Status:** Completed — PR #39 merged 2026-06-17 (merge commit `49b6226`).
+- **Status:** Completed · PR #39 merged 2026-06-17
 - **Deliverables:** `resolve-rule-doc.sh` extended to insert the adopter,
   repo-tracked, and machine-local doctrine roots (`doctrine/` for adopter and
   repo-tracked, `doctrine.local/` for machine-local, per D-4) into its
@@ -85,7 +85,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 3 — Four-layer config resolution
 
-- **Status:** Completed — PR #37 merged 2026-06-17 (merge commit `f859ef8`).
+- **Status:** Completed · PR #37 merged 2026-06-18
 - **Deliverables:** `config-get.sh` extended to read the adopter and
   repo-tracked layers through the Task 2 primitive (four-layer
   last-layer-wins), the malformed-by-layer policy (degrade+warn for
@@ -104,7 +104,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 5 — Catalog-overlay resolution
 
-- **Status:** Completed — PR #40 merged 2026-06-17 (merge commit `b6a9407`).
+- **Status:** Completed · PR #40 merged 2026-06-18
 - **Deliverables:** A catalog discovery path that unions core seed entries
   with overlay entries (append/union, supersede-by-id) for the decision-domains
   catalog and the guard catalog, with a `--explain` provenance mode, the
@@ -136,7 +136,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 6 — `review_sequence` config knob
 
-- **Status:** Completed — PR #47 merged 2026-06-18 (merge commit `9b23bfb`).
+- **Status:** Completed · PR #47 merged 2026-06-18
 - **Deliverables:** The `review_sequence` config option (an ordered list of
   nestable review-skill names) with a default reproducing today's convergence
   behavior, documented in `docs/options-reference.md`, and `/execute-task`'s
@@ -155,7 +155,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 7 — Adopter docs & onboarding
 
-- **Status:** Completed — PR #52 merged 2026-06-18 (merge commit `3cb660d`).
+- **Status:** Completed · PR #52 merged 2026-06-18
 - **Deliverables:** Adopter-facing documentation of the overlay mechanism: the
   four layers, each kind's per-layer locations, the merge rules, the
   malformed-by-layer policy, the `--explain` affordance, the two worked

@@ -33,9 +33,15 @@ T4→T3 dependency to "fix" the apparent ordering.
 
 ## Forward plan
 
+(none yet)
+
 ## In progress
 
+(none yet)
+
 ## Awaiting input
+
+(none yet)
 
 ## Completed
 
@@ -64,7 +70,7 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Dependencies:** none
 - **Citations:** D-1 · D-2 · REQ-C1.1, REQ-C1.2, REQ-A1.3, REQ-F1.1
 - **Estimated effort:** 2 days
-- **Status:** Completed · PR #82 merged 2026-06-28
+- **Status:** Completed · PR #82 merged 2026-06-29
 
 ### Task 2 — Commit-trailer emission
 
@@ -148,7 +154,7 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Dependencies:** none
 - **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-F1.1
 - **Estimated effort:** 1 day
-- **Status:** Completed · PR #81 merged 2026-06-28
+- **Status:** Completed · PR #81 merged 2026-06-29
 
 ### Task 7 — Structural-corruption guards + CI
 
