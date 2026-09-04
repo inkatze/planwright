@@ -654,6 +654,19 @@ route, because meaning-class writership is `/spec-kickoff`'s alone. This binds
 the act, not the shipping vehicle: a review skill delivered from another
 repository owes the same three, and follows through its own repository.
 
+**The terminal re-anchor, before the push.** The anchor line is written last,
+but the push comes after it, so anything editing anchored content in that
+window — post-sign-off review or panel fixes on the spec PR included — leaves
+the recorded anchor describing text the bundle no longer holds, and pushing
+ships that staleness into the PR and its squash. The sign-off flow therefore
+takes a recompute and a committed re-record as its final pre-push step
+(the uncommitted one leaves the fresh anchor in the worktree while the push
+carries the old). A failing recompute halts the push, on the same reasoning
+as the pre-flight above: a recompute that cannot say what the recorded anchor
+covers cannot clear it either. Expression-only edits only — a meaning-class
+post-sign-off edit re-enters the sign-off flow first, which is where
+meaning-class writership lives (anchor-integrity D-5, REQ-C1.4).
+
 ### The content anchor
 
 The anchor (REQ-F1.9, D-45) is the hash of the per-file digest list: each

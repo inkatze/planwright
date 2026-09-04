@@ -138,6 +138,10 @@ run = "/bin/sh scripts/check-githooks.sh"
 description = "purged-identifier guard: fail if an identifier deliberately purged from this history reappears in the tracked tree, matched as SHA-256 over normalized candidates so no plaintext is committed; fails closed on a missing, malformed, or below-floor seed file (guard-coverage Task 3, REQ-B1.1, REQ-B1.2, REQ-H1.3, D-5)"
 run = "/bin/sh scripts/check-purged-identifiers.sh"
 
+[tasks."check:coordination-hygiene"]
+description = "conditional coordination-artifact hygiene guard: when a coordination record (a presence record, a fence-ref line) has actually landed in the tracked tree, screen it for a peer tower's checkout path, its death handle, internal hostnames, and credentials; a tree that commits none is a clean no-op (concurrent-orchestrator-coordination Task 5, REQ-D1.4, D-9)"
+run = "/bin/sh scripts/check-coordination-hygiene.sh"
+
 [tasks."check:hook-contracts"]
 description = "hook-registration guard over all three surfaces planwright registers through (hooks.json plus the worker and tower settings fragments): every registered event is modelled and payload-fixture-pinned, nothing is registered on an event whose silence refuses the operation (the WorktreeCreate outage shape) unless it is that operation's declared implementer, and decision hooks — run as registered, arguments included, with the worker identity neutralised — emit JSON naming their own event; fails closed on an unmodelled event or unreadable wiring (fleet-lifecycle-closure Task 2, REQ-H1.1, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-hook-contracts.sh"
@@ -149,6 +153,10 @@ run = "/bin/bash scripts/check-doctrine-index.sh"
 [tasks."check:doctrine-manifest"]
 description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-doctrine-manifest.sh"
+
+[tasks."check:cdpath"]
+description = "CDPATH house-pattern guard: fail on any shell file under scripts/, tests/, or githooks/ that resolves paths through a cd command substitution without a top-level 'unset CDPATH'; enumerates by shebang or .sh suffix so both the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (guard-coverage Task 10, REQ-G1.2, REQ-H1.3, D-12)"
+run = "/bin/bash scripts/check-cdpath.sh"
 
 [tasks."eval:skill"]
 description = "kept prompt-eval suite (on demand only, never in CI or `check`): pass^3 behavioral evals over instruction files via `claude -p --bare`; needs a Claude CLI + ANTHROPIC_API_KEY (prompt-hygiene Task 4, REQ-C1.4, D-6/D-7/D-8)"
@@ -189,9 +197,11 @@ depends = [
   "check:workflow-posture",
   "check:githooks",
   "check:purged-identifiers",
+  "check:coordination-hygiene",
   "check:hook-contracts",
   "check:doctrine-index",
   "check:doctrine-manifest",
+  "check:cdpath",
   "check:specs",
   "scan:secrets",
 ]
