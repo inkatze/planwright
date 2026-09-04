@@ -284,6 +284,11 @@ emit_body() {
         printf "<dt>pending</dt><dd>%s</dd>\n", cell(wpd[i])
         printf "<dt>oracle</dt><dd>%s</dd>\n", cell(wor[i])
         printf "<dt>via</dt><dd>%s</dd>\n", cell(wvia[i])
+        # The owner has to reach THIS surface too: an unattributable worker
+        # renders unknown-owner in the CLI table, and a glance surface that
+        # silently omits it would hide exactly the degrade the operator is
+        # meant to see, since a destructive verb reads that column.
+        printf "<dt>owner</dt><dd>%s</dd>\n", cell(wow[i])
         print "</dl>"
         print "</li>"
       }
@@ -298,6 +303,10 @@ emit_body() {
       nw++
       wh[nw] = $2; wsc[nw] = $3; wvia[nw] = $4; wst[nw] = $5
       wag[nw] = $6; wsj[nw] = $7; wpd[nw] = $8; wor[nw] = $9
+      # Field 10 is the owning tower. The merge appends it, so the positional
+      # reads above did not shift; a pre-owner-column stream leaves it empty,
+      # which cell() renders as the em-dash gap.
+      wow[nw] = $10
       wb[nw] = bucket(wst[nw], wpd[nw], wor[nw])
       cnt[wb[nw]]++
       next

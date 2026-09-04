@@ -159,7 +159,7 @@ case $w in
   *"${tab}idle${tab}"*) ;; *) fail "2 w2 attention state missing: '$w'" ;;
 esac
 case $w in
-  worker"${tab}w2${tab}spec=beta:task-2${tab}attention${tab}idle${tab}"*"${tab}-${tab}-${tab}-") ;;
+  worker"${tab}w2${tab}spec=beta:task-2${tab}attention${tab}idle${tab}"*"${tab}-${tab}-${tab}-${tab}-") ;;
   *) fail "2 w2 absent-source cells not dashed: '$w'" ;;
 esac
 echo "ok: attention-only cell renders the worker and marks the missing sources"
@@ -178,7 +178,7 @@ esac
 w=$(merge_line "$out" worker w3)
 [ -n "$w" ] || fail "3: streamjson-only worker omitted"
 case $w in
-  worker"${tab}w3${tab}-${tab}streamjson${tab}-${tab}-${tab}running${tab}0${tab}-") ;;
+  worker"${tab}w3${tab}-${tab}streamjson${tab}-${tab}-${tab}running${tab}0${tab}-${tab}-") ;;
   *) fail "3 w3 row shape: '$w'" ;;
 esac
 echo "ok: streamjson-only cell renders the worker from the runtime dir"
@@ -238,7 +238,7 @@ case $(merge_line "$out" source oracle) in
 esac
 w=$(merge_line "$out" worker w6)
 case $w in
-  *"$tab?") ;; *) fail "6 w6 oracle cell not '?': '$w'" ;;
+  *"$tab?$tab-") ;; *) fail "6 w6 oracle cell not '?': '$w'" ;;
 esac
 echo "ok: an unavailable oracle degrades visibly (source line + ? cells)"
 
@@ -260,7 +260,7 @@ esac
 w=$(merge_line "$out" worker pw7)
 [ -n "$w" ] || fail "7: registry-only (print) worker omitted"
 case $w in
-  worker"${tab}pw7${tab}spec=eps:task-9${tab}registry${tab}-${tab}-${tab}-${tab}-${tab}-") ;;
+  worker"${tab}pw7${tab}spec=eps:task-9${tab}registry${tab}-${tab}-${tab}-${tab}-${tab}-${tab}unknown-owner") ;;
   *) fail "7 pw7 row shape: '$w'" ;;
 esac
 rout=$(run "$h7" "$oshim" render) || fail "7 render: non-zero exit"
@@ -449,7 +449,7 @@ EOF
 out=$(run "$h16" "$oshim" merge) || fail "16 merge: non-zero exit"
 w=$(merge_line "$out" worker w16)
 case $w in
-  worker"${tab}w16${tab}-${tab}streamjson${tab}-${tab}-${tab}running${tab}0${tab}waiting") ;;
+  worker"${tab}w16${tab}-${tab}streamjson${tab}-${tab}-${tab}running${tab}0${tab}waiting${tab}-") ;;
   *) fail "16: streamjson+oracle join shape wrong: '$w'" ;;
 esac
 # The joined oracle session must not also appear as an unjoined session line.
