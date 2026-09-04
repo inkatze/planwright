@@ -1,7 +1,7 @@
 # Format grammar & parser unification — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -358,7 +358,13 @@ doctrine stops being homeless prose asserted only in scattered tests.
   extension (REQ-A1.2/REQ-D1.9, D-6), the 7→4 dependency edge, the
   mismatched-id retirement trip case, and two wording corrections.
 
-- 2026-09-03 — Expression-only (Task 3 execution): the `## Sources` pointer at obs:ec113dfe names its requirement as `invariant-tasks REQ-C1.5` instead of a bare `REQ-C1.5`, surfaced by this bundle's own citation-range rule (REQ-D1.3) on its all-bundle rollout (D-9). No requirement or decision changes meaning.
+- 2026-09-03 — Expression-only (Task 3 execution): the `## Sources` pointer
+  at obs:ec113dfe names its requirement as `invariant-tasks REQ-C1.5`
+  instead of a bare `REQ-C1.5`, surfaced by this bundle's own
+  citation-range rule (REQ-D1.3) on its all-bundle rollout (D-9); the
+  REQ-D1.2 and REQ-D1.3 test-spec entries describe their fixture ids
+  without naming them as bare tokens, after the rule's block-scope fix
+  surfaced them. No requirement or decision changes meaning.
 
 ## Sources
 

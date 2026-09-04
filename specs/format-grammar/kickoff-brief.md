@@ -329,13 +329,18 @@ Anchor: `b249d48b149018d0d925766f407bbecfb1bafa1e` — computed as
 
 Marked self-re-anchor for the expression-only edit the format-grammar
 validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
-its all-bundle rollout run (format-grammar D-9, REQ-D1.10): the `## Sources` pointer at obs:ec113dfe now names `invariant-tasks REQ-C1.5`. This bundle's own Task 3 landed the rule, so the fix rides that execution.
-A foreign id now carries its owning spec's name where the reader meets it; no
-requirement or decision changes meaning.
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): the `## Sources`
+pointer at obs:ec113dfe now names `invariant-tasks REQ-C1.5`, and the
+REQ-D1.2 and REQ-D1.3 test-spec entries describe their fixture ids without
+naming bare tokens, after the rule's block-scope fix surfaced them. This
+bundle's own Task 3 landed the rule, so the fixes ride that execution. Each
+qualified id now carries its owning spec's name within the reader's reach
+(the same line, bullet, or block, the scope the rule reads); no requirement
+or decision changes meaning. `Last reviewed:` moves on the edited files.
 
 **Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
 `requirements.md`.
 
 Class: expression-only
-Anchor: `09bc4b8d9c649b846abefa33792106d5ccd7ede2` — computed as
+Anchor: `105e7d714c9b9fc2664611b9e50dc7fd331ca49a` — computed as
 `scripts/spec-anchor.sh specs/format-grammar`

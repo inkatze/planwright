@@ -535,13 +535,17 @@ Anchor: `4a2c0486e0d583ee65a797506ff9f17816f1d19d` — computed as
 
 Marked self-re-anchor for the expression-only edit the format-grammar
 validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
-its all-bundle rollout run (format-grammar D-9, REQ-D1.10): REQ-F1.1 now cites `bootstrap D-36`, and D-2's rejected alternative no longer names a `Task 9` this bundle does not define. The bundle also gains the `## Changelog` section it lacked, so the entry has a home.
-A foreign id now carries its owning spec's name where the reader meets it; no
-requirement or decision changes meaning.
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): REQ-F1.1 now
+cites `bootstrap D-36`, and D-2's rejected alternative no longer names a
+`Task 9` this bundle does not define. The bundle also gains the `##
+Changelog` section it lacked, so the entry has a home. Each qualified id now
+carries its owning spec's name within the reader's reach (the same line,
+bullet, or block, the scope the rule reads); no requirement or decision
+changes meaning. `Last reviewed:` moves on the edited files.
 
 **Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
 `requirements.md`.
 
 Class: expression-only
-Anchor: `1cceef97e73b3395d0e7a72ecdf6a5bfa193c364` — computed as
+Anchor: `5c41a70cf22f90d08d83cf968a6cbb5a8714d893` — computed as
 `scripts/spec-anchor.sh specs/orchestration-concurrency`

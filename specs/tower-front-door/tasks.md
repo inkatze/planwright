@@ -1,7 +1,7 @@
 # Tower front door — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-01
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 

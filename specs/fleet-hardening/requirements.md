@@ -1,7 +1,7 @@
 # Fleet Hardening — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-20
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -248,7 +248,12 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
 
 ## Changelog
 
-- 2026-09-03 — Expression-only: the bare `D-36` citations (the branch-naming grammar, owned by bootstrap) in REQ-B1.4, the `## Sources` tmux note, the `tasks.md` intro and Task 10 deliverables, and the REQ-B1.4 test-spec entry now read `bootstrap D-36`. Surfaced by the format-grammar validator's citation-range rule (format-grammar REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or decision changes meaning.
+- 2026-09-03 — Expression-only: the bare `D-36` citations (the branch-naming grammar, owned by
+  bootstrap) in REQ-B1.4, the `## Sources` tmux note, the `tasks.md` intro and Task 10 deliverables,
+  and the REQ-B1.4 test-spec entry now read `bootstrap D-36`; the `## Awaiting input` placeholder in
+  `tasks.md` is likewise the plain `(none yet)` form (format-grammar REQ-D1.1), outside the anchor.
+  Surfaced by the format-grammar validator's citation-range rule (format-grammar REQ-D1.3) on its
+  all-bundle rollout (format-grammar D-9); no requirement or decision changes meaning.
 
 - 2026-07-20 — Amendment (`/spec-kickoff`, meaning-class): D-7 / Task 10 dispatch-primitive mechanism
   changed from the unrealizable pure-native `claude --worktree` fold to create-then-attach

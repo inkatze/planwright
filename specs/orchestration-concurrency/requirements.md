@@ -1,7 +1,7 @@
 # Orchestration Concurrency — Requirements
 
 **Status:** Done
-**Last reviewed:** 2026-06-30
+**Last reviewed:** 2026-09-03
 **Format-version:** 1
 
 ## Goal
@@ -187,7 +187,14 @@ this contract.
 
 ## Changelog
 
-- 2026-09-03 — Expression-only: REQ-F1.1 cites the task-id grammar's owner as `bootstrap D-36` instead of a bare `D-36`, and D-2's rejected alternative asks "which spec's ninth task?" instead of naming a `Task 9` this bundle does not define. Surfaced by the format-grammar validator's citation-range rule (format-grammar REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or decision changes meaning. This bundle had no `## Changelog` section before this entry.
+- 2026-09-03 — Expression-only: REQ-F1.1 cites the task-id grammar's
+  owner as `bootstrap D-36` instead of a bare `D-36`, and D-2's rejected
+  alternative asks "which spec's ninth task?" instead of naming a `Task
+  9` this bundle does not define. Surfaced by the format-grammar
+  validator's citation-range rule (format-grammar REQ-D1.3) on its
+  all-bundle rollout (format-grammar D-9); no requirement or decision
+  changes meaning. This bundle had no `## Changelog` section before this
+  entry.
 
 ## Sources
 

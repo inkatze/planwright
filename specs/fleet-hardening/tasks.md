@@ -1,7 +1,7 @@
 # Fleet Hardening — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-07-20
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 

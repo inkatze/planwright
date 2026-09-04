@@ -1,7 +1,7 @@
 # Merge Currency Guard — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-24
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -414,7 +414,11 @@ ready PR means what the fleet and the human both assume it means.
   actually targets (D-4). No predicate change. No REQ or D-ID minted, no
   accepted decision contradicted, no executable behavior introduced.
 
-- 2026-09-03 — Expression-only: REQ-B1.4's citation of the execute-task skill's invariants now reads `pair-flow D-21 / bootstrap REQ-J1.1` instead of bare ids. Surfaced by the format-grammar validator's citation-range rule (format-grammar REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or decision changes meaning.
+- 2026-09-03 — Expression-only: REQ-B1.4's citation of the execute-task skill's
+  invariants now reads `pair-flow D-21 / bootstrap REQ-J1.1` instead of bare ids.
+  Surfaced by the format-grammar validator's citation-range rule (format-grammar
+  REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or
+  decision changes meaning.
 
 ## Sources
 

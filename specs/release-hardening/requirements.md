@@ -1,7 +1,7 @@
 # Release Hardening — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -333,7 +333,12 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 
 ## Changelog
 
-- 2026-09-03 — Expression-only: the `### In scope` item and the `## Sources` note that cite the gate-semantics requirement now read `autopilot-reflex REQ-D1.3` instead of a bare `REQ-D1.3` (an id this bundle does not define; its D-8 already names the owner). Surfaced by the format-grammar validator's citation-range rule (format-grammar REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or decision changes meaning.
+- 2026-09-03 — Expression-only: the `### In scope` item and the `## Sources` note
+  that cite the gate-semantics requirement now read `autopilot-reflex REQ-D1.3`
+  instead of a bare `REQ-D1.3` (an id this bundle does not define; its D-8 already
+  names the owner). Surfaced by the format-grammar validator's citation-range rule
+  (format-grammar REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no
+  requirement or decision changes meaning.
 
 - 2026-08-26 — **REQ-H1.3 finding, recorded (Task 10): removing
   `bootstrap-sha` is NOT safe, and the key stays.** Verified against

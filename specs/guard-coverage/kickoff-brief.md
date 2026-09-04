@@ -492,13 +492,15 @@ Anchor: `2c9a9ce6efd97e42e62ebd5073e65cdfd70465fc` — computed as
 
 Marked self-re-anchor for the expression-only edit the format-grammar
 validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
-its all-bundle rollout run (format-grammar D-9, REQ-D1.10): the fork-PR isolation note under `## Sources` now names `bootstrap REQ-J1.5`.
-A foreign id now carries its owning spec's name where the reader meets it; no
-requirement or decision changes meaning.
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): the fork-PR
+isolation note under `## Sources` now names `bootstrap REQ-J1.5`. Each
+qualified id now carries its owning spec's name within the reader's reach
+(the same line, bullet, or block, the scope the rule reads); no requirement
+or decision changes meaning. `Last reviewed:` moves on the edited files.
 
 **Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
 `requirements.md`.
 
 Class: expression-only
-Anchor: `796bdba761aa1feec80f8c2c00cd90095359f1ae` — computed as
+Anchor: `825a9dc98ef6aacf966ae1629f57cafacf03cbae` — computed as
 `scripts/spec-anchor.sh specs/guard-coverage`

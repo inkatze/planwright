@@ -1,7 +1,7 @@
 # Orchestration Fleet — Requirements
 
 **Status:** Done
-**Last reviewed:** 2026-06-29
+**Last reviewed:** 2026-09-03
 **Format-version:** 1
 
 ## Goal
@@ -504,7 +504,11 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   brief Amendment log.
   *(Cites: kickoff-brief Amendment log (2026-07-04); kickoff-lifecycle D-2.)*
 
-- 2026-09-03: Expression-only: the worktree-mechanics seed note under `## Sources` names the native-worktree decision as `bootstrap D-37` instead of a bare `D-37`. Surfaced by the format-grammar validator's citation-range rule (format-grammar REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or decision changes meaning.
+- 2026-09-03: Expression-only: the worktree-mechanics seed note under `## Sources`
+  names the native-worktree decision as `bootstrap D-37` instead of a bare `D-37`.
+  Surfaced by the format-grammar validator's citation-range rule (format-grammar
+  REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or
+  decision changes meaning.
 
 ## Sources
 
