@@ -474,6 +474,25 @@ h5_new=$(awk -F "$TAB" 'END { print $1 }' "$h5_file")
 h5_dupes=$(awk -F "$TAB" 'NF == 15 { c[$1]++ } END { for (k in c) if (c[k] > 1) n++; print n + 0 }' "$h5_file")
 [ "$h5_dupes" = 0 ] || fail "9l: the append reused a sequence number the ledger already carried"
 
+# The attempt column carries `valid_count`'s grammar, not merely "some digits".
+# `append` refuses a leading-zero spelling, so a `health` that accepts one
+# passes rows the writer could never have produced: the ledger reads as healthy
+# while carrying a row no append path explains. Built with printf rather than an
+# awk field assignment, because awk's strnum handling would turn `01` back into
+# `1` and test nothing.
+h6=health6:unit
+h6_file=$("$LEDGER" path "$h6")
+mkdir -p "$(dirname "$h6_file")"
+printf '1\t%s\t%s\ts\t01\tlaunch\tsonnet\tmedium\tsonnet\tmedium\tsonnet\tmedium\tunit\tresolved\tx=1\n' \
+  "$now" "$h6" >"$h6_file"
+if "$LEDGER" health "$h6" >/dev/null 2>&1; then
+  fail "9m: a leading-zero attempt was reported healthy"
+fi
+# `0` is a legal count, so health must not tighten past what append accepts.
+printf '1\t%s\t%s\ts\t0\tlaunch\tsonnet\tmedium\tsonnet\tmedium\tsonnet\tmedium\tunit\tresolved\tx=1\n' \
+  "$now" "$h6" >"$h6_file"
+"$LEDGER" health "$h6" || fail "9n: attempt 0 was reported unhealthy, but it is a legal count"
+
 # --- 10. instrumentation and scale (REQ-F1.3) -----------------------------
 
 stats=$("$LEDGER" stats) || fail "10a: stats failed"
