@@ -705,7 +705,7 @@ echo "ok: a hook-registering contract row resolves through the helper-backed gat
 # keep the scratch copy free of the other sibling scripts.
 nofl="$tmp/nofl"
 mkdir -p "$nofl"
-cp "$FPD" "$here/../scripts/echo-safety.sh" "$nofl/"
+cp "$FPD" "$here/../scripts/echo-safety.sh" "$here/../scripts/fleet-pane-vocabulary.sh" "$nofl/"
 out=$(/bin/sh "$nofl/fleet-pane-detect.sh" classify --pane "$idle_pane" \
   --backend stream-json-persistent --worker w-nofl --root "$gate_root" \
   --reconcile-ttl 120 --now 1234567 --state-dir "$tmp/nofl-state") \
