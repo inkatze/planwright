@@ -32,21 +32,21 @@
 #      grammar lib's fence lexer, so fenced illustration is documentation
 #      rather than content in both directions — it neither raises findings
 #      of its own nor satisfies a check a real record would (REQ-C1.2).
-#  16. Cited-but-empty requirement: a live REQ bullet whose text, less its
-#      citation annotation, is empty (format-grammar REQ-D1.2).
-#  17. Decision shape: an H2 `D-<n>` heading, a colon-less H3 `D-<n>`, and a
+#  11. Empty requirement: a live REQ bullet whose text, less its citation
+#      annotation, is empty, cited or not (format-grammar REQ-D1.2).
+#  12. Decision shape: an H2 `D-<n>` heading, a colon-less H3 `D-<n>`, and a
 #      period-labelled Decision / Alternatives considered / Chosen because
 #      field are malformed decisions (REQ-D1.5).
-#  18. Task-heading form: a `### Task` heading off the canonical
+#  13. Task-heading form: a `### Task` heading off the canonical
 #      `### Task <id> — <title>` form is flagged, never parsed into a wrong
 #      id (REQ-D1.7, REQ-A1.10).
-#  19. Citation range (warning at every status, D-13): a `D-<n>`,
+#  14. Citation range (warning at every status, D-13): a `D-<n>`,
 #      `REQ-<id>`, or `Task <id>` token the bundle does not define, carrying
 #      no sibling-spec qualifier on its line, its bullet or paragraph, or
 #      its H3 block, is named as unresolvable (REQ-D1.3). The qualifier
 #      is a sibling bundle's directory name, or a hyphenated namespace
 #      immediately before an id. `## Changelog` is history and not scanned.
-#  20. Dead-path check (warning at every status, D-14): against the
+#  15. Dead-path check (warning at every status, D-14): against the
 #      baseline ref, a live REQ whose bullet text changed while its
 #      test-spec entry did not (REQ-D1.8); citation annotations and
 #      whitespace are not text.
@@ -54,17 +54,17 @@
 # Format-version 2 (the invariant ledger; invariant-tasks REQ-C1.5,
 # REQ-C1.8, REQ-C1.9, REQ-D1.1 · D-3, D-5, D-7) adds, for v2 bundles only:
 #
-#   11. No placement sections: `## Forward plan`, `## In progress`, and
+#   16. No placement sections: `## Forward plan`, `## In progress`, and
 #       `## Completed` do not exist (task blocks live in `## Tasks`).
-#   12. No state annotation bullets: `Status`, `Last activity`, and
+#   17. No state annotation bullets: `Status`, `Last activity`, and
 #       `Dispatch` bullets do not exist in task blocks (the three
 #       state-annotation tokens the format defines; other bullets are not
 #       this check's concern).
-#   13. Stored `Status:` restricted to the human-gated set — Draft, Ready,
+#   18. Stored `Status:` restricted to the human-gated set — Draft, Ready,
 #       Retired, Superseded; Active and Done are derived, never stored.
-#   14. The static pointer line `**Execution:** derived — see the status
+#   19. The static pointer line `**Execution:** derived — see the status
 #       render` present in every file's header, in its fixed vocabulary.
-#   15. Reference-bullet integrity in the human-payload sections: every
+#   20. Reference-bullet integrity in the human-payload sections: every
 #       `**Task <id>**` bullet names an existing task id, ids pass the
 #       task-id grammar before any use, and a task is parked by at most
 #       one bullet across all three sections.
@@ -89,9 +89,11 @@
 # CI). Integrity violations are errors regardless of status: an unknown
 # status, a missing/unparseable/unsupported format-version,
 # Superseded without its pointer, duplicate IDs, identifier-charset
-# violations, and a transition out of a terminal state. Two heuristics — the
-# citation-range and dead-path checks (rules 19 and 20) — are warnings at
-# every status (format-grammar D-9, D-13, D-14): a heuristic never blocks.
+# violations, and a transition out of a terminal state. Two heuristics, the
+# citation-range and dead-path checks (rules 14 and 15), are warnings at
+# every status: format-grammar REQ-D1.3 and REQ-D1.8 say "warn", and D-13
+# and D-14 pin why a heuristic never blocks. Finding classes in $fnd: `hard`
+# (error everywhere), `gap` (status-scoped), `soft` (warning everywhere).
 #
 # Usage:
 #   spec-validate.sh [--baseline <ref>] <specs-root | spec-dir>
@@ -384,7 +386,8 @@ debaseline() {
 }
 
 # Parse requirements.md REQ blocks. Tagged tab-separated output:
-#   F <tab> gap|hard <tab> message     — a finding
+#   F <tab> gap|hard <tab> message     — a finding (class vocabulary in the
+#                                        severity note above)
 #   ALL <tab> id                       — every defined REQ-ID
 #   LIVE <tab> id                      — REQ-IDs not marked Superseded-by
 #

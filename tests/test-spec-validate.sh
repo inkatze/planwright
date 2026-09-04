@@ -73,6 +73,29 @@
 #   27. Baseline-side fence-awareness (REQ-C1.2): both halves of the
 #       stable-ID diff parse the same grammar, so a fenced mock id present
 #       in both revisions is not read as an id that vanished.
+#   28. An unbalanced baseline fence never hides a removal: the baseline is
+#       compared raw, with a finding naming the malformed revision.
+#   29. Duplicate in-header declarations (format-grammar REQ-D1.9) error at
+#       Draft and Ready alike, in the authoritative file and in a mirror.
+#   30. Cited-but-empty requirement bullets (REQ-D1.2): status-scoped; a
+#       wrapped annotation is still only an annotation; prose on a
+#       continuation line counts; a superseded record is exempt.
+#   31. Malformed decision shapes (REQ-D1.5): an H2 `D-<n>` heading and a
+#       period-labelled field are named as such, once.
+#   32. Canonical task-heading enforcement (REQ-D1.7): every separator or
+#       title deviation is flagged; the dotted canonical form passes.
+#   33. v2 Awaiting-input purity (REQ-D1.1): any non-reference column-0
+#       bullet there is flagged; the other payload sections and v1 are not.
+#   34. Citation range (REQ-D1.3, D-13): an undefined `D-<n>`, `REQ-<id>`,
+#       or `Task <id>` token warns at every status unless a sibling-spec
+#       qualifier is in reach (line, bullet or paragraph, H3 block);
+#       `## Changelog` and fenced illustration are not scanned.
+#   35. Coverage-based dead-path check (REQ-D1.8, D-14): a changed REQ with
+#       an unchanged test-spec entry warns; citation-only, position, and
+#       whitespace changes do not; a superseded REQ is exempt.
+#   36. Review-pass regressions over sections 30-35 (block identity of the
+#       H3 scope, source line numbers, every occurrence named, CRLF,
+#       bounded citation strip, group prose, baseline fence handling).
 #
 # Runs standalone: ./tests/test-spec-validate.sh
 set -eu
@@ -2204,8 +2227,9 @@ cite Ready 'Widgets follow the bootstrap D-45 severity model and its REQ-Z9.9.'
 run_v 0 "$root/fixture"
 has "0 error(s), 0 warning(s)"
 
-# A hyphenated foreign namespace that is not a directory qualifies the token
-# it immediately precedes, and reaches the rest of the line.
+# A hyphenated foreign namespace that is not a directory counts only when it
+# immediately precedes an id token; it then reaches the whole line (both
+# directions), the enclosing bullet or paragraph, and the enclosing H3 block.
 cite Ready 'Widgets follow the pair-flow D-45 severity model and REQ-Z9.9.'
 run_v 0 "$root/fixture"
 has "0 error(s), 0 warning(s)"
@@ -2253,9 +2277,8 @@ run_v 0 "$root/fixture"
 has "D-46"
 lacks "D-45"
 
-# In-range tokens pass (the base fixture cites D-1 and REQ-X1.1 throughout),
-# and so does the bundle's own name (a self-reference is not a qualifier
-# need). The `## Changelog` section is history and is not scanned; fenced
+# In-range tokens pass (the base fixture cites D-1 and REQ-X1.1 throughout).
+# The `## Changelog` section is history and is not scanned; fenced
 # illustration is not scanned either.
 write_bundle "$root/fixture" Ready
 edit "$root/fixture/requirements.md" \

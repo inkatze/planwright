@@ -34,7 +34,11 @@
 #                               definition fields, and the
 #                               `Dependencies:`/`Citations:` token extractions
 #                               — as awk source, the same prepend shape
-#                               (Task 8; REQ-B1.5)
+#                               (Task 8; REQ-B1.5); the canonical task-heading
+#                               form, the requirement-bullet text slice, and
+#                               the bounded citation-annotation strip joined
+#                               it with the validator hardening (Task 3;
+#                               REQ-D1.2, REQ-D1.7, REQ-D1.8)
 #
 # With Task 8 the lib holds every family D-4 named, so the grammar has one
 # home rather than a decided one.
