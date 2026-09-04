@@ -161,7 +161,13 @@ rc=0
 out=$(printf '%s' "$payload" | wt hook-remove) || rc=$?
 [ "$rc" = 0 ] || fail "hook-remove exit $rc, expected 0"
 [ -z "$out" ] || fail "hook-remove must stay silent on a payload it could read (got: '$out')"
-case $(wt list) in
+# Assert the read SUCCEEDED before reading absence into it. `case $(wt list)`
+# discards the exit status, and a failing `list` prints nothing — which is
+# indistinguishable from "the entry is gone", so the assertion would pass on a
+# registry it never actually read. Absence checks need the status; the presence
+# checks further down already fail closed on empty output.
+listing=$(wt list) || fail "list failed after hook-remove, so its absence check would be vacuous"
+case $listing in
   *"/work/hooked-wt"*) fail "hook-remove did not drop the worktree" ;;
 esac
 echo "ok: hook-remove records the removal, stays silent, and exits 0"
@@ -190,7 +196,12 @@ rc=0
 printf '%s' "$payload" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
   /bin/bash "$WT" hook-remove >/dev/null 2>&1 || rc=$?
 [ "$rc" = 0 ] || fail "hook-remove (no jq) exit $rc, expected 0"
-case $(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" list 2>/dev/null) in
+# Same reasoning as the absence check in 4: take the status, or a failed read
+# reads as a successful removal. The `2>/dev/null` here makes it worse, since it
+# hides the diagnostic that would otherwise hint at what happened.
+listing=$(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" list 2>/dev/null) \
+  || fail "list failed after hook-remove (no jq), so its absence check would be vacuous"
+case $listing in
   *"/work/hooked-wt"*) fail "hook-remove (no jq) did not drop the worktree via the sed fallback" ;;
 esac
 echo "ok: hook-remove extracts the path via the sed fallback when jq is absent"
