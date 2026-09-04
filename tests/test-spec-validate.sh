@@ -2567,6 +2567,37 @@ deviant Draft '### Task 1.5'
 run_v 0 "$root/fixture"
 has "non-canonical task heading"
 
+# 36n. A bullet ends at the first unindented line: group prose after the last
+# bullet is the group's, so it neither hides an empty bullet nor reads as a
+# requirement edit.
+write_bundle "$root/fixture" Ready
+edit "$root/fixture/requirements.md" \
+  's/^- \*\*REQ-X1.2\*\* The gadget SHALL exist\.$/- **REQ-X1.2** *(Cites: D-1.)*/'
+edit "$root/fixture/requirements.md" '/^- \*\*REQ-X1.2\*\*/{n;d;}'
+edit "$root/fixture/requirements.md" \
+  's/^- \*\*REQ-X1.2\*\* \*(Cites: D-1\.)\*$/&\
+\
+Group note: the gadget family is scoped to widgets./'
+run_v 1 "$root/fixture"
+has "REQ-X1.2 has no normative prose"
+
+dp3="$tmp/deadpath3"
+rm -rf "$dp3"
+mkdir -p "$dp3"
+git -C "$dp3" init -q
+write_bundle "$dp3/specs/myspec" Active
+edit "$dp3/specs/myspec/requirements.md" \
+  's/^  \*(Cites: D-1\.)\*$/&/'
+printf '\nGroup note: the gadget family is scoped to widgets.\n' \
+  | awk 'FNR == NR { note = note $0 "\n"; next } { print } /^  \*\(Cites: D-1\.\)\*$/ && ++n == 2 { printf "%s", note }' - "$dp3/specs/myspec/requirements.md" >"$dp3/specs/myspec/requirements.md.new"
+mv "$dp3/specs/myspec/requirements.md.new" "$dp3/specs/myspec/requirements.md"
+git -C "$dp3" add -A
+git -C "$dp3" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm fixture
+edit "$dp3/specs/myspec/requirements.md" \
+  's/^Group note: the gadget family is scoped to widgets\.$/Group note: the gadget family is scoped to widgets and sprockets./'
+run_v 0 --baseline HEAD "$dp3/specs"
+has "0 error(s), 0 warning(s)"
+
 # --- usage errors ---
 run_v 2
 run_v 2 "$tmp/does-not-exist"
