@@ -183,11 +183,7 @@ rung `full-session` usually resolves to is driven entirely through
 `scripts/fleet-streamjson.sh`, never by launching `claude` directly: `launch`
 dispatches a supervisor-owned worker, `status` reports liveness, `recover`
 resumes it against the persisted session after a supervisor death, and `stop`
-is the close for a worker a tower wants gone — never a bare signal to the pids
-in the worker's state directory, which releases nothing else the worker holds
-and tells the tower nothing about what it left behind. The verb ships; wiring a
-tower to invoke it on unit completion is a later task, so today it is the
-operator's close. Permission
+is the close no tower invokes yet (`docs/fleet.md`). Permission
 and AskUserQuestion `control_request`s surface as decision-queue items with a
 pending-age alarm (`alarm-scan`); the tower **never** auto-answers one — an
 operator-recorded answer is delivered by `answer`. Observe through the
