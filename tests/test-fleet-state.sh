@@ -510,8 +510,12 @@ mkdir -p "$home_floor"
 floor_pin="$tmp/floor-pin.yml"
 printf 'stale_lock_threshold: 0m\n' >"$floor_pin"
 ln -s "live-holder" "$home_floor/.fleet.lock"
+# GNU first, then BSD. A last-resort constant would be WORSE than no fixture:
+# any fixed old date reads stale against the floored threshold, so the case
+# would fail claiming the floor did not hold when really the clock was wrong.
 touch -h -d "@$(($(date +%s) - 90))" "$home_floor/.fleet.lock" 2>/dev/null \
-  || touch -h -t "$(date -v-90S +%Y%m%d%H%M.%S 2>/dev/null || echo 202001010000)" "$home_floor/.fleet.lock"
+  || touch -h -t "$(date -v-90S +%Y%m%d%H%M.%S)" "$home_floor/.fleet.lock" 2>/dev/null \
+  || fail "could not back-date the lock 90s (neither GNU touch -d nor BSD date -v worked)"
 rc=0
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home_floor" PLANWRIGHT_LOCAL_CONFIG="$floor_pin" \
