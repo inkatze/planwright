@@ -161,9 +161,10 @@
 #       `stop <worker> partial released=<classes> held=<classes>`, whose
 #       released field reads `-` when nothing was released (the other two
 #       forms cannot reach that case). <secs> is the SIGTERM-to-SIGKILL grace,
-#       a whole number of seconds bounded by `grace_max` and defaulting to the
-#       `grace` initialiser in `cmd_stop`; there is no zero-grace form, since
-#       SIGTERM always goes first. A fixed settling wait follows the SIGKILL.
+#       a whole number of seconds bounded by `grace_max` and defaulting to
+#       `grace_default`; passing an out-of-range value prints both. There is no
+#       zero-grace form, since SIGTERM always goes first, and a fixed settling
+#       wait follows the SIGKILL.
 #       An unknown handle is exit 2, not `already-closed`, so a typo never
 #       reads as a successful close.
 #   fleet-streamjson.sh status <worker>
@@ -943,8 +944,10 @@ ps_rows_shaped() {
 # an expansion that reached it would enumerate every orphan on the host.
 #
 # The caller's own process and its ancestors are excluded: a close invoked from
-# inside the tree it is closing must not kill the closer mid-release. That case
-# releases nothing and is reported as partial, which is the honest outcome.
+# inside the tree it is closing must not kill the closer mid-release. That
+# exclusion is also why such a close cannot be allowed to proceed at all —
+# `stop_self_hosted` refuses it before the walk starts, because a walk that
+# cannot see the supervisor would report the whole release set free.
 #
 # The match text goes through the environment rather than `awk -v`, which
 # rewrites backslash escapes in the value it assigns: the fleet home is taken
@@ -1030,6 +1033,50 @@ stop_candidates() {
     }'
 }
 
+# stop_self_hosted <dir> <worker> — zero when this process is running inside the
+# very tree it has been asked to close.
+#
+# Such a close cannot work, and the failure is silent in the worst direction:
+# the candidate walk excludes the closer and everything it descends from, so the
+# supervisor it should be signalling is exactly what it cannot see. It would
+# find nothing to kill, clear the pid files as though the tree were gone, and
+# then release the locks and delete the stdio fifos of a worker that is still
+# running — reporting `stopped` while leaving it alive with no channel, and with
+# nothing recorded for `launch` to refuse a second supervisor on. Refusing is
+# the only honest answer; the close has to come from outside.
+stop_self_hosted() {
+  ssh_snap=$(ps_rows) || return 1
+  ssh_seed=''
+  for ssh_f in supervisor.pid worker.pid; do
+    ssh_p=$(cat "$1/$ssh_f" 2>/dev/null) || ssh_p=''
+    if valid_posnum "${ssh_p:-}"; then
+      ssh_seed="$ssh_seed $ssh_p"
+    fi
+  done
+  SC_MATCH="_supervise $2 $1"
+  export SC_MATCH
+  printf '%s\n' "$ssh_snap" | awk -v seeds="$ssh_seed" -v self_pid="$$" '
+    BEGIN { sup = ENVIRON["SC_MATCH"] }
+    $1 ~ /^[0-9]+$/ {
+      ppid[$1] = $2
+      n++
+      if (index($0, sup)) owner[$1] = 1
+    }
+    END {
+      m = split(seeds, s, " ")
+      for (i = 1; i <= m; i++) if (s[i] != "") owner[s[i]] = 1
+      delete owner["0"]
+      delete owner["1"]
+      p = self_pid
+      for (i = 0; i <= n; i++) {
+        if (p in owner) exit 0
+        if (!(p in ppid) || ppid[p] == "" || ppid[p] == "0" || p == "1") break
+        p = ppid[p]
+      }
+      exit 1
+    }'
+}
+
 # stop_live <space-separated pids> — the deduplicated subset still signallable,
 # space-separated on stdout.
 stop_live() {
@@ -1053,6 +1100,9 @@ kill_settle=5
 
 # The largest grace a caller may ask for.
 grace_max=300
+
+# The SIGTERM-to-SIGKILL grace a caller gets without asking.
+grace_default=5
 
 # release_processes <dir> <worker> <grace> — SIGTERM the worker's process tree,
 # then SIGKILL whatever is still there after <grace> seconds. Children do not
@@ -1112,8 +1162,13 @@ release_processes() {
 }
 
 # clear_pidfiles <dir> — drop pid files that now record nothing live.
+#
+# `rm -rf`, for the reason `release_locks` uses it: the held-probe gates on mere
+# existence, so anything at those paths that `rm -f` cannot remove — a directory
+# the worker created there — would hold the class forever with no re-invocation
+# able to make progress.
 clear_pidfiles() {
-  rm -f "$1/supervisor.pid" "$1/worker.pid" 2>/dev/null || :
+  rm -rf "${1:?}/supervisor.pid" "${1:?}/worker.pid" 2>/dev/null || :
 }
 
 held_process() {
@@ -1195,7 +1250,10 @@ journal_close() {
   case $? in
     0) ;;
     1) return 0 ;;
-    *) return 1 ;;
+    *)
+      echo "$me: cannot read the receipt journal; the attention class is left held" >&2
+      return 1
+      ;;
   esac
   journal_lock "$1" || return 1
   jc_now=$(now_epoch) || jc_now=0
@@ -1687,7 +1745,7 @@ cmd_stop() {
     echo "$me: invalid worker handle" >&2
     exit 2
   }
-  grace=5
+  grace=$grace_default
   while [ $# -gt 0 ]; do
     case $1 in
       --grace)
@@ -1704,7 +1762,7 @@ cmd_stop() {
   # digits, and a close that waits for a century is indistinguishable from one
   # that has hung.
   if ! valid_posnum "$grace" || [ "$grace" -gt "$grace_max" ]; then
-    echo "$me: --grace must be a whole number of seconds, 1 to $grace_max" >&2
+    echo "$me: --grace must be a whole number of seconds, 1 to $grace_max (default $grace_default)" >&2
     exit 2
   fi
   dir=$(worker_dir "$worker") || exit 2
@@ -1721,6 +1779,10 @@ cmd_stop() {
     echo "$me: refusing to close $worker: its state directory is a symlink" >&2
     exit 2
   }
+  if stop_self_hosted "$dir" "$worker"; then
+    echo "$me: refusing to close $worker from inside its own process tree" >&2
+    exit 3
+  fi
   st_root=$(/bin/sh "$FS" root) || exit 2
   st_store="$st_root/attention/state"
 

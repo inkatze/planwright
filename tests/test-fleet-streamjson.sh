@@ -132,6 +132,14 @@ if [ "${SHIM_IGNORE_TERM:-0}" = 1 ]; then
     sleep 1
   done
 fi
+if [ -n "${SHIM_SELF_CLOSE:-}" ]; then
+  # Run a command from inside the worker's own process tree and record what it
+  # did. This is how an agent closing its own handle reaches the close verb, and
+  # it is the only way to exercise that path: nothing the harness runs is a
+  # descendant of the supervisor.
+  sh -c "$SHIM_SELF_CLOSE" >"$SHIM_RECORD_DIR/selfclose.out" 2>&1
+  printf '%s\n' "$?" >"$SHIM_RECORD_DIR/selfclose.rc"
+fi
 if [ -n "${SHIM_SLEEP:-}" ]; then
   sleep "$SHIM_SLEEP"
 fi
@@ -213,9 +221,17 @@ no_proc_under() {
 
 # first_child <pid> — the pid of a live child of <pid>, empty when none.
 first_child() {
-  fc_snap=$(ps_rows)
+  fc_snap=$(ps_rows) || fail "first_child: this host produced no usable process table"
   printf '%s\n' "$fc_snap" | awk -v p="$1" '$2 == p { print $1; exit }'
 }
+
+# Every close assertion rests on the process table, and the helpers above are
+# called through `wait_until`, which runs its predicate with both streams
+# discarded — a `fail` raised inside one would end the run with nothing on
+# screen to say why. Prove the table is readable here instead, once, where the
+# message survives.
+ps_rows >/dev/null \
+  || fail "this host produced no usable process table; the close assertions cannot run"
 
 # attention_rows <home> <worker> — count of store rows for <worker>.
 attention_rows() {
@@ -1145,6 +1161,13 @@ senv "$home" "$rec" -- stop sjw20b --grace 6 >/dev/null || fail "c20: the long-g
 elapsed_long=$(($(date +%s) - started))
 [ $((elapsed_long - elapsed)) -ge 2 ] \
   || fail "c20: --grace must set the wait; 2s took ${elapsed}s and 6s took ${elapsed_long}s"
+# The difference pins that --grace is read; these pin that it is read in the
+# unit it documents. Without them a close that took the grace as tenths, or as
+# minutes, would still show the right difference.
+[ "$elapsed" -lt 30 ] || fail "c20: a 2s grace should not take ${elapsed}s"
+[ "$elapsed_long" -lt 60 ] || fail "c20: a 6s grace should not take ${elapsed_long}s"
+wait_until 50 no_proc_under "$wdir20b" \
+  || fail "c20: the long-grace worker left a process referencing its state directory"
 echo "ok: c20 SIGTERM first, SIGKILL after the grace the caller set (REQ-B1.2)"
 
 # ---------------------------------------------------------------------------
@@ -1273,6 +1296,7 @@ wait_until 100 test -s "$wdir22b/worker.pid" || fail "c22b: worker.pid never app
 # It must also be invisible to a state-directory match, so that only the
 # accumulated target set can account for it once it reparents.
 stub_args=$(ps -p "$stubborn" -o args= 2>/dev/null)
+[ -n "$stub_args" ] || fail "c22b: cannot read the grandchild's argv to check it"
 case $stub_args in
   *"$wdir22b"*) fail "c22b: the grandchild must not carry the state dir in its argv" ;;
 esac
@@ -1287,6 +1311,45 @@ wait_until 100 sh -c "! kill -0 $stubborn 2>/dev/null" \
   || fail "c22b: a reparented grandchild must not survive a close that reports success"
 wait_until 50 no_proc_under "$wdir22b" || fail "c22b: the state directory is still referenced"
 echo "ok: c22b a reparented SIGTERM-surviving grandchild is still closed (REQ-B1.2)"
+
+# ---------------------------------------------------------------------------
+# c22d (REQ-B1.3, REQ-B1.4): a close invoked from inside the worker's own tree
+#    is refused. The candidate walk excludes the closer and its ancestors, so
+#    such a close cannot see the supervisor it is meant to signal; left to
+#    proceed it reports the whole release set free over a live worker and
+#    deletes the pid files that would otherwise stop a second launch.
+# ---------------------------------------------------------------------------
+home="$tmp/h22d"
+rec="$tmp/r22d"
+mkdir -p "$rec"
+printf 'self close\n' >"$tmp/prompt22d"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 \
+  SHIM_SELF_CLOSE="/bin/sh '$SJ' stop sjw22d --grace 2" -- \
+  launch sjw22d execution-backends:4 --prompt-file "$tmp/prompt22d" \
+  >/dev/null || fail "c22d: detached launch exited non-zero"
+wdir22d="$home/streamjson/sjw22d"
+wait_until 100 test -s "$wdir22d/worker.pid" || fail "c22d: worker.pid never appeared"
+sup22d=$(cat "$wdir22d/supervisor.pid")
+wrk22d=$(cat "$wdir22d/worker.pid")
+wait_until 100 test -s "$rec/selfclose.rc" || fail "c22d: the self-close never ran"
+[ "$(cat "$rec/selfclose.rc")" = 3 ] \
+  || fail "c22d: a self-close must be refused (exit 3), got $(cat "$rec/selfclose.rc"): $(cat "$rec/selfclose.out")"
+# Refused means nothing was touched: the tree is intact, and the pid files that
+# stop a second launch are still there. A close that proceeded would report the
+# whole set released, delete both files, and let `launch` start a second
+# supervisor over this one.
+kill -0 "$sup22d" 2>/dev/null || fail "c22d: the refused close killed the supervisor"
+kill -0 "$wrk22d" 2>/dev/null || fail "c22d: the refused close killed the worker"
+[ -s "$wdir22d/supervisor.pid" ] || fail "c22d: the refused close cleared supervisor.pid"
+[ -s "$wdir22d/worker.pid" ] || fail "c22d: the refused close cleared worker.pid"
+[ -p "$wdir22d/in.fifo" ] || fail "c22d: the refused close deleted the worker's channel"
+senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
+  launch sjw22d execution-backends:4 --prompt-file "$tmp/prompt22d" >/dev/null 2>&1
+[ $? -eq 3 ] || fail "c22d: a launch over the still-live worker must still be refused"
+# And a close from outside still works.
+senv "$home" "$rec" -- stop sjw22d --grace 2 >/dev/null || fail "c22d: the outside close failed"
+wait_until 100 sh -c "! kill -0 $sup22d 2>/dev/null" || fail "c22d: the supervisor survived"
+echo "ok: c22d a close from inside the worker's own tree is refused (REQ-B1.3)"
 
 # ---------------------------------------------------------------------------
 # c22c (REQ-A1.3, REQ-B1.4): the lock class is released and named, and an
@@ -1436,7 +1499,7 @@ for probe in $(seq 1 25); do
     (mkdir "$tmp/mkatom/l.$probe" 2>/dev/null && printf 'x\n' >>"$tmp/mkatom/w") &
   done
   wait
-  [ "$(wc -l <"$tmp/mkatom/w")" = 1 ] || atomic=0
+  [ "$(wc -l <"$tmp/mkatom/w" | tr -d ' ')" = 1 ] || atomic=0
 done
 c25b_ran=1
 if [ "$atomic" = 0 ]; then
@@ -1457,7 +1520,7 @@ else
   for n in 1 2 3; do
     if grep -q "^launched sjw25 " "$tmp/o25b.$n"; then
       won=$((won + 1))
-    elif grep -q "already in flight\|already running" "$tmp/o25b.$n"; then
+    elif grep -qE "already in flight|already running" "$tmp/o25b.$n"; then
       # How a loser lost is the point: a crash and a single-initiator refusal
       # both leave one winner, and only one of them is the election working.
       lost=$((lost + 1))
