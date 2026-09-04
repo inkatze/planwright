@@ -1165,7 +1165,9 @@ release_processes() {
 # `rm -rf`, for the reason `release_locks` uses it: the held-probe gates on mere
 # existence, so anything at those paths that `rm -f` cannot remove — a directory
 # the worker created there — would hold the class forever with no re-invocation
-# able to make progress.
+# able to make progress. `${1:?}` guards the recursive removal against an empty
+# directory argument, and does so by ending the shell rather than the function,
+# which is why the trailing `|| :` on that line does not make it non-fatal.
 clear_pidfiles() {
   rm -rf "${1:?}/supervisor.pid" "${1:?}/worker.pid" 2>/dev/null || :
 }
