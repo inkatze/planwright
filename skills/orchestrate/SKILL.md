@@ -4,7 +4,8 @@ description: >
   Advance one planwright spec by one step: pick the next ready unit
   critical-path-first (or a cohesion bundle), run the freshness gate, record the
   dispatch under the per-spec lock, and dispatch /execute-task via the backend. A
-  stateless, disposable control tower; a reconcile sweep rebuilds from disk. Never
+  stateless, disposable orchestrator session; a reconcile sweep rebuilds from disk.
+  Never
   merges,
   marks a PR ready, or auto-chains into /spec-kickoff. --bookkeeping runs the drain
   + PR reconcile; --watch loops the step.

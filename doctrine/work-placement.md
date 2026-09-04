@@ -1,12 +1,16 @@
 # Work Placement
 
-Where should a unit of work run: inline in the tower's own context, or offloaded
-to a worker — and if offloaded, on which rung? planwright answers with two
-axioms. They are rules about how a tower *thinks*, not about what backends *are*
-(that is the [backend capability contract](backend-capability-contract.md)), and
-they have two consumers: the `/offload` skill — the sole home of adaptive
-backend selection — and the tower's own inline-vs-offload judgment during
-orchestration.
+Where should a unit of work run: inline in the placing session's own context,
+or offloaded to a worker — and if offloaded, on which rung? planwright answers
+with two axioms. They are rules about how a placing session *thinks*, not about
+what backends *are* (that is the
+[backend capability contract](backend-capability-contract.md)), and they have
+two consumers: the `/offload` skill — the sole home of adaptive backend
+selection — and the placing session's own inline-vs-offload judgment: the
+tower's (the standing `/tower` front-door session, the sense the
+[spec-format glossary](spec-format.md) fixes) per request, and the
+orchestrator's (the dispatching `/orchestrate` session) during orchestration.
+The body below says "tower"; every axiom binds the orchestrator identically.
 
 Citations: execution-backends REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4,
 REQ-C1.5 · execution-backends D-1; obs:3414579b.

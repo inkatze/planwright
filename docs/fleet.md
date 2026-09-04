@@ -1,7 +1,7 @@
 # Fleet operation: the approachable path
 
 planwright can run a **fleet**: several specs advancing at once, each unit
-executed by its own isolated worker, supervised by a meta-tower. This is
+executed by its own isolated worker, supervised by a meta-orchestrator. This is
 planwright as an **agentic software factory**: standardized inputs (signed
 specs), an automated assembly path, automated quality control, and a human
 review gate at the end of the line. This guide is
@@ -11,6 +11,15 @@ presentation of fleet operation, not a simplified fallback: full execution
 quality (session-grade, steerable, parallel workers, with the richest backend
 your host offers) stays available underneath it — the surface never costs you
 worker quality.
+
+**Vocabulary.** The dispatching sessions this guide describes are
+**orchestrators**: `/orchestrate` sessions, one per spec, under a
+meta-orchestrator. **Tower** now names the standing conversational `/tower`
+front-door session instead (the spec-format glossary is the definition's
+home). This guide's body still says "tower" for the orchestrator, and the
+tower-named scripts and knobs it cites (`tower-settings`, the tower marker and
+watchdog family) keep their names until renames land; read "tower" below as
+the orchestrator.
 
 ## The one command
 
@@ -36,8 +45,9 @@ command does three things, and asks before the one choice that is yours:
    silently pick; unattended runs resolve `dispatch_backend` from config and
    degrade safely — see the
    [options reference](options-reference.md)).
-2. **Starts the tower(s)**: a meta-tower supervising every Ready/Active spec,
-   launching a subordinate tower per spec, each dispatching workers into
+2. **Starts the orchestrator(s)**: a meta-orchestrator supervising every
+   Ready/Active spec, launching a subordinate orchestrator per spec, each
+   dispatching workers into
    isolated worktrees, all under the fleet concurrency bound.
 3. **Renders the attention surface**: the decision queue plus a per-worker
    heartbeat view, re-rendered as the fleet advances.
