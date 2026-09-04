@@ -1191,7 +1191,6 @@ cmd_status() {
   if [ -f "$dir/result" ]; then
     st_kind=$(awk -F'\t' 'NR == 1 { print $1 }' "$dir/result")
     detail=$(awk -F'\t' 'NR == 1 { print $1 "=" $2 }' "$dir/result")
-    detail=$(sanitize_printable "$detail" unknown | cut -c1-64)
     # A `result` event is a completion; an `exit` fallback record with a
     # non-zero code is a worker that ended without completing the protocol —
     # rendered `ended`, never conflated with `completed` (a `result` event or
@@ -1203,8 +1202,11 @@ cmd_status() {
       # is the diagnostic, so collapsing it to either one alone hides why the
       # run is being called ended. Records written before this field existed
       # have no $4 and keep their old reading.
-      detail=$(sanitize_printable "$detail/is_error=true" unknown | cut -c1-64)
+      detail="$detail/is_error=true"
     fi
+    # Composed first, bounded once: truncating before the suffix is appended
+    # can cut the suffix back off, leaving `ended` with nothing saying why.
+    detail=$(sanitize_printable "$detail" unknown | cut -c1-64)
     if { [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; } || [ "$st_err" = true ]; then
       printf 'status %s ended %s\n' "$worker" "$detail"
     else
