@@ -386,8 +386,17 @@ rc=0
 lenv lock >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "lock: busy acquire exit $rc, expected 1"
 lenv unlock || fail "unlock: non-zero exit"
-[ ! -L "$home_lock/.fleet.lock" ] || fail "unlock: lock not removed"
+# `! -e` as well as `! -L`: a lock leaked in any OTHER shape (a directory left
+# by the pre-symlink code, a regular file) is still a wedged home, and `-L`
+# alone reports it clean.
+[ ! -e "$home_lock/.fleet.lock" ] && [ ! -L "$home_lock/.fleet.lock" ] \
+  || fail "unlock: lock not removed"
 lenv unlock || fail "unlock: not idempotent"
+# The exit status above is a constant; idempotence is that the path is still
+# clear and a fresh acquire still succeeds.
+[ ! -e "$home_lock/.fleet.lock" ] || fail "unlock: a second unlock left something at the lock path"
+lenv lock || fail "unlock: the lock could not be re-acquired after two unlocks"
+lenv unlock || fail "unlock: non-zero exit on the trailing release"
 echo "ok: the advisory-lock primitive is exclusive, busy-safe, and idempotent"
 
 # ---------------------------------------------------------------------------
@@ -400,15 +409,25 @@ echo "ok: the advisory-lock primitive is exclusive, busy-safe, and idempotent"
 # ---------------------------------------------------------------------------
 home_legacy="$tmp/legacy-home"
 mkdir -p "$home_legacy"
+# Pin the threshold for the same reason case 12 pins it: without it an ambient
+# machine-local stale_lock_threshold (a pathological 99999999m, say) makes the
+# back-dated directory below read FRESH and the stale-break half fails.
+legacy_pin="$tmp/legacy-pin.yml"
+printf 'stale_lock_threshold: 5m\n' >"$legacy_pin"
 legacy_env() {
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-    PLANWRIGHT_FLEET_STATE_DIR="$home_legacy" /bin/sh "$FS" "$@"
+    PLANWRIGHT_FLEET_STATE_DIR="$home_legacy" PLANWRIGHT_LOCAL_CONFIG="$legacy_pin" \
+    /bin/sh "$FS" "$@"
 }
 mkdir "$home_legacy/.fleet.lock" # a fresh legacy holder
 rc=0
 legacy_env lock >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "a live legacy directory lock reported exit $rc, expected 1 (busy)"
-[ ! -e "$home_legacy/.fleet.lock/$$" ] || fail "the create landed INSIDE the legacy lock directory"
+# The stray a create-into-directory would leave is named for the TOKEN
+# (<fleet-state pid>-<epoch>), never for this shell's $$, so assert the
+# directory is EMPTY rather than probing one name that can never match.
+[ -z "$(find "$home_legacy/.fleet.lock" -mindepth 1 2>/dev/null)" ] \
+  || fail "the create landed INSIDE the legacy lock directory"
 [ -d "$home_legacy/.fleet.lock" ] || fail "a live legacy lock was removed"
 echo "ok: a live pre-symlink directory lock reads busy, and is never acquired through"
 
