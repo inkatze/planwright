@@ -429,8 +429,13 @@ crash and reused by the host in the meantime is signalled, which is why a stop
 clears those files once it has confirmed the tree is gone.
 
 Exit codes are the machine-readable half: `0` for `stopped` and for
-`already-closed`, `6` for a `partial` close naming the classes still held, `2`
-for an unknown handle. A repeat stop takes exactly what is still held, so
+`already-closed`, `6` for a `partial` close naming the classes still held, `3`
+for a close refused because it was asked for from inside the worker's own
+process tree, and `2` for an unknown handle or a process table the close could
+not read. The `3` and the second `2` are both refusals to attempt the close, so
+a caller retries them at its peril: a self-hosted close is refused
+deterministically and will never succeed from that process.
+A repeat stop takes exactly what is still held, so
 `already-closed` means every class is free and nothing was signalled; a repeat
 after a partial close retries only the remainder. A stop does not remove the
 worker's dispatch registry record, and nothing reconciles that record yet, so
