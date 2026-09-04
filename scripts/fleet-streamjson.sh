@@ -166,7 +166,8 @@
 #       zero-grace form, since SIGTERM always goes first, and a fixed settling
 #       wait follows the SIGKILL.
 #       An unknown handle is exit 2, not `already-closed`, so a typo never
-#       reads as a successful close.
+#       reads as a successful close, and a close asked for from inside the
+#       worker's own process tree is refused with exit 3 rather than attempted.
 #   fleet-streamjson.sh status <worker>
 #       Print `status <worker> <running|completed|dead|unknown> <detail>`
 #       from the recorded pids and the captured event stream.
@@ -174,7 +175,8 @@
 # Exit codes: 0 success; 2 usage error, refused hostile input, or a
 #   filesystem/lock error (fail closed); 3 a semantic refusal (recovery
 #   already in flight / a launch already in flight or over a live supervisor /
-#   not orphaned / the answer does not apply — the undeliverable-answer arms
+#   not orphaned / a close asked for from inside the worker's own process tree /
+#   the answer does not apply — the undeliverable-answer arms
 #   exit 3 AFTER surfacing the attention item); 4 recovery halt: no usable
 #   session to resume; 5 recovery halt: the `--resume` relaunch failed; 6 a
 #   partial close: some class of the release set is still held.
@@ -945,14 +947,17 @@ ps_rows_shaped() {
 #
 # The caller's own process and its ancestors are excluded: a close invoked from
 # inside the tree it is closing must not kill the closer mid-release. That
-# exclusion is also why such a close cannot be allowed to proceed at all —
-# `stop_self_hosted` refuses it before the walk starts, because a walk that
-# cannot see the supervisor would report the whole release set free.
+# exclusion is also why such a close cannot be allowed to proceed at all: the
+# supervisor and the worker fall inside it while their other children do not, so
+# the walk would signal part of the tree and then report the whole release set
+# free. `stop_self_hosted` refuses that case before this runs.
 #
 # The match text goes through the environment rather than `awk -v`, which
 # rewrites backslash escapes in the value it assigns: the fleet home is taken
 # verbatim from the operator's configuration, and a `\t` in it would otherwise
-# make the comparison silently target a path nobody asked for.
+# make the comparison silently target a path nobody asked for. It is scoped to
+# the awk invocation rather than exported, so the worker's state-directory path
+# does not end up in the environment of every later child of the close.
 stop_candidates() {
   sc_dir=$1
   sc_snap=$(ps_rows) || return 1
@@ -963,9 +968,7 @@ stop_candidates() {
       sc_seed="$sc_seed $sc_p"
     fi
   done
-  SC_MATCH="_supervise $2 $sc_dir"
-  export SC_MATCH
-  printf '%s\n' "$sc_snap" | awk -v seeds="$sc_seed" -v self_pid="$$" '
+  printf '%s\n' "$sc_snap" | SC_MATCH="_supervise $2 $sc_dir" awk -v seeds="$sc_seed" -v self_pid="$$" '
     BEGIN { sup = ENVIRON["SC_MATCH"] }
     $1 ~ /^[0-9]+$/ {
       ppid[$1] = $2
@@ -1036,26 +1039,26 @@ stop_candidates() {
 # stop_self_hosted <dir> <worker> — zero when this process is running inside the
 # very tree it has been asked to close.
 #
-# Such a close cannot work, and the failure is silent in the worst direction:
-# the candidate walk excludes the closer and everything it descends from, so the
-# supervisor it should be signalling is exactly what it cannot see. It would
-# find nothing to kill, clear the pid files as though the tree were gone, and
-# then release the locks and delete the stdio fifos of a worker that is still
-# running — reporting `stopped` while leaving it alive with no channel, and with
-# nothing recorded for `launch` to refuse a second supervisor on. Refusing is
-# the only honest answer; the close has to come from outside.
+# Such a close cannot work, and it fails in the worst direction. The candidate
+# walk excludes the closer and everything it descends from, so the supervisor
+# and the worker are invisible to it while their *other* children are not: it
+# would SIGTERM and then SIGKILL part of the tree, find nothing left that it can
+# see, clear the pid files as though the tree were gone, and report `stopped` —
+# leaving the worker alive, half its children dead, its stdio fifos deleted, and
+# nothing recorded for `launch` to refuse a second supervisor on.
+#
+# The ancestry is tested against the supervisor's argv alone, never the recorded
+# pids, even though `stop_candidates` seeds from both. A pid file outlives the
+# process it names, and a reused pid is very often an ancestor of every shell on
+# the host — a leftover state directory whose `supervisor.pid` now names the
+# session manager would refuse every close for that handle, forever, and this
+# verb is the only one that clears those files, so `launch` and `recover` would
+# refuse it too. The argv match cannot be forged by reuse, and the worker is
+# spawned as a child of the process carrying it, so everything genuinely inside
+# the tree is reachable through it.
 stop_self_hosted() {
   ssh_snap=$(ps_rows) || return 1
-  ssh_seed=''
-  for ssh_f in supervisor.pid worker.pid; do
-    ssh_p=$(cat "$1/$ssh_f" 2>/dev/null) || ssh_p=''
-    if valid_posnum "${ssh_p:-}"; then
-      ssh_seed="$ssh_seed $ssh_p"
-    fi
-  done
-  SC_MATCH="_supervise $2 $1"
-  export SC_MATCH
-  printf '%s\n' "$ssh_snap" | awk -v seeds="$ssh_seed" -v self_pid="$$" '
+  printf '%s\n' "$ssh_snap" | SC_MATCH="_supervise $2 $1" awk -v self_pid="$$" '
     BEGIN { sup = ENVIRON["SC_MATCH"] }
     $1 ~ /^[0-9]+$/ {
       ppid[$1] = $2
@@ -1063,10 +1066,6 @@ stop_self_hosted() {
       if (index($0, sup)) owner[$1] = 1
     }
     END {
-      m = split(seeds, s, " ")
-      for (i = 1; i <= m; i++) if (s[i] != "") owner[s[i]] = 1
-      delete owner["0"]
-      delete owner["1"]
       p = self_pid
       for (i = 0; i <= n; i++) {
         if (p in owner) exit 0

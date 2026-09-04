@@ -141,8 +141,14 @@ if [ -n "${SHIM_SELF_CLOSE:-}" ]; then
   # deletes the pid files before they can be read, and the case fails during
   # setup instead of on the assertion that names the defect.
   if [ -n "${SHIM_SELF_CLOSE_WHEN:-}" ]; then
-    while [ ! -e "$SHIM_SELF_CLOSE_WHEN" ]; do
+    # Bounded: if the case fails before it can create the go-file, the harness
+    # tears down its tmp dir and the file can never appear. An unbounded wait
+    # here would leave this shim spinning forever, holding out.fifo open so the
+    # supervisor never sees EOF either — two processes surviving the run.
+    sc_i=0
+    while [ ! -e "$SHIM_SELF_CLOSE_WHEN" ] && [ "$sc_i" -lt 600 ]; do
       sleep 0.1
+      sc_i=$((sc_i + 1))
     done
   fi
   sh -c "$SHIM_SELF_CLOSE" >"$SHIM_RECORD_DIR/selfclose.out" 2>&1
@@ -1169,11 +1175,13 @@ senv "$home" "$rec" -- stop sjw20b --grace 6 >/dev/null || fail "c20: the long-g
 elapsed_long=$(($(date +%s) - started))
 [ $((elapsed_long - elapsed)) -ge 2 ] \
   || fail "c20: --grace must set the wait; 2s took ${elapsed}s and 6s took ${elapsed_long}s"
-# The difference pins that --grace is read; these pin that it is read in the
-# unit it documents. Without them a close that took the grace as tenths, or as
-# minutes, would still show the right difference.
-[ "$elapsed" -lt 30 ] || fail "c20: a 2s grace should not take ${elapsed}s"
-[ "$elapsed_long" -lt 60 ] || fail "c20: a 6s grace should not take ${elapsed_long}s"
+# The difference pins that --grace is read at all; this pins the unit. A close
+# reading the grace as tenths already fails the difference check above (0.4s
+# apart), but one reading it as minutes passes it comfortably, so the only unit
+# error left to catch is a too-large one — hence an upper bound and no lower
+# one. It is set far above any plausible scheduling delay, since this suite is
+# expected to run alongside a parallel `mise run check`.
+[ "$elapsed_long" -lt 120 ] || fail "c20: a 6s grace should not take ${elapsed_long}s"
 wait_until 50 no_proc_under "$wdir20b" \
   || fail "c20: the long-grace worker left a process referencing its state directory"
 echo "ok: c20 SIGTERM first, SIGKILL after the grace the caller set (REQ-B1.2)"
@@ -1344,6 +1352,10 @@ wrk22d=$(cat "$wdir22d/worker.pid")
 wait_until 100 test -s "$rec/selfclose.rc" || fail "c22d: the self-close never ran"
 [ "$(cat "$rec/selfclose.rc")" = 3 ] \
   || fail "c22d: a self-close must be refused (exit 3), got $(cat "$rec/selfclose.rc"): $(cat "$rec/selfclose.out")"
+# Exit 3 is shared with every other semantic refusal, so the code alone would
+# also be satisfied by, say, the launch-in-flight arm firing for another reason.
+grep -q 'from inside its own process tree' "$rec/selfclose.out" \
+  || fail "c22d: the refusal must be the self-close one, got: $(cat "$rec/selfclose.out")"
 # Refused means nothing was touched: the tree is intact, and the pid files that
 # stop a second launch are still there. A close that proceeded would report the
 # whole set released, delete both files, and let `launch` start a second
@@ -1360,6 +1372,28 @@ senv "$home" "$rec" SHIM_EVENTS="$ev_hold" SHIM_SLEEP=120 -- \
 senv "$home" "$rec" -- stop sjw22d --grace 2 >/dev/null || fail "c22d: the outside close failed"
 wait_until 100 sh -c "! kill -0 $sup22d 2>/dev/null" || fail "c22d: the supervisor survived"
 echo "ok: c22d a close from inside the worker's own tree is refused (REQ-B1.3)"
+
+# ---------------------------------------------------------------------------
+# c22e (REQ-B1.7): the self-close refusal keys on the supervisor's argv, never
+#    on the recorded pids. A pid file outlives the process it names, and a
+#    reused pid is very often an ancestor of every shell on the host — seeding
+#    the ancestry test from those files would refuse this handle's close
+#    forever, and since `stop` is the only verb that clears them, `launch` and
+#    `recover` would refuse it too. Unclosable, unlaunchable, unrecoverable.
+# ---------------------------------------------------------------------------
+wdir22e="$home/streamjson/sjw22e"
+mkdir -p "$wdir22e" || fail "c22e: cannot plant the state dir"
+# $PPID is live and is by construction an ancestor of this shell, which is what
+# a recycled recorded pid looks like from the closer's point of view.
+printf '%s\n' "$PPID" >"$wdir22e/supervisor.pid"
+out=$(senv "$home" "$rec" -- stop sjw22e --grace 2 2>&1)
+rc=$?
+[ "$rc" != 3 ] \
+  || fail "c22e: a stale pid naming an ancestor must not read as a self-close: $out"
+[ "$rc" = 0 ] || fail "c22e: the close should have succeeded, got rc=$rc ($out)"
+[ ! -e "$wdir22e/supervisor.pid" ] \
+  || fail "c22e: the close must clear the stale pid file, or the handle stays wedged"
+echo "ok: c22e a recycled recorded pid does not masquerade as a self-close (REQ-B1.7)"
 
 # ---------------------------------------------------------------------------
 # c22c (REQ-A1.3, REQ-B1.4): the lock class is released and named, and an
