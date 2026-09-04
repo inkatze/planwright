@@ -102,10 +102,10 @@ Modes, selected at pre-flight from status and brief state:
   and 5).
 
 **Change-handling scales with the lifecycle stage (REQ-D1.4).** A Ready bundle
-(signed off, pre-merge, nothing dispatched) takes pre-merge changes through a
-delta re-walkthrough / re-sign-off — not the amendment ritual — and the spec PR
-stays as it was (no reopen). The amendment ritual is reserved for an Active
-bundle (work in flight), where the change coordinates with execution underway.
+takes pre-merge changes through a delta re-walkthrough / re-sign-off — not the
+amendment ritual — and the spec PR stays as it was. The amendment ritual is
+reserved for an Active bundle (work in flight), where the change coordinates
+with execution underway.
 A Done bundle reopens to Draft first (the REQ-A1.6 reopen cycle below) — never
 amended in place. The per-class ritual detail (expression-only changelog +
 self-re-anchor vs. meaning-class delta lens pass + fresh anchor) is
@@ -350,9 +350,8 @@ most recent anchor entry never describes spec content that was not walked.
    run (flip, `Last reviewed:`, applied findings) is on disk; it fails closed on
    a defective bundle — surface its stderr and stop with no anchor line, never
    hand-roll it. Absent that script, descend `spec-format`'s sanctioned-form
-   list (logical before interim whole-file), recording the exact command used. This flow is the only
-   writer of a meaning-class entry; it writes an expression-only entry (no lens
-   pass, citing the changelog line) only when the human classified the entire
+   list (logical before interim whole-file), recording the exact command used. It
+   writes an expression-only entry only when the human classified the entire
    delta expression-only.
 6. **Commit** (D-41) when `commit_on_kickoff` is true: one commit on
    `planwright/<spec>/spec` with the brief, the four spec files, and any
@@ -363,7 +362,10 @@ most recent anchor entry never describes spec content that was not walked.
    work uncommitted, say so, and skip push/PR.
 7. **Push and draft PR** (REQ-B2.4, D-44). Run the Observations and Maintenance
    steps below before pushing (step 8's ready-flip issues no commit), so their
-   chore commits land before the push. Then push:
+   chore commits land before the push.
+   **Terminal re-anchor (REQ-C1.4, D-5):** anchored content edited after the
+   sign-off record was written takes `spec-format`'s recompute-and-re-record
+   ritual as the final pre-push step. Then push:
    `git push -u origin planwright/<spec>/spec`. Then the PR: if one exists for
    the branch, update its body; otherwise `gh pr create --draft` with `--title`
    and `--body`. The title must pass the conventional PR-title lint
@@ -397,9 +399,8 @@ most recent anchor entry never describes spec content that was not walked.
    ready; **task PRs stay drafts** (reviewed by the execution and review
    skills). Merge stays the human's second key —
    **never auto-merge**.
-   - **Do not flip** when sign-off parked on a fork (inconsistency halt, carried
-     open question, undispositioned finding) or the configured verification did
-     not converge: leave the PR draft and say so in the handoff.
+   - **Do not flip** when the completion is not clean by the criteria above: leave
+     the PR draft and say so in the handoff.
    - **Opt-out:** `mark_spec_pr_ready_on_kickoff: false` suppresses the flip;
      the PR stays draft and the human un-drafts it by hand.
    - **Degrade, never retry into opacity (bootstrap REQ-K1.6/K1.7):** if the
