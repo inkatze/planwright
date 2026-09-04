@@ -34,7 +34,11 @@
 #                    undeliverable (the REQ-E1.5 durable receipt)
 #   req-<id>.json    the raw control_request envelope (answer composition)
 #   in.fifo/out.fifo the stdio channels the supervisor owns
-#   supervisor.pid / worker.pid / result / recover.lock/ / journal.lock/
+#   result           the run outcome, one tab-separated row:
+#                    result <subtype> <epoch> [is_error] | exit <rc> <epoch>
+#                    is_error ∈ true|false, absent on records written before
+#                    the field existed (read as false)
+#   supervisor.pid / worker.pid / recover.lock/ / journal.lock/
 # Placing the capture under the fleet home is the strongest reading of the
 # Task 4 "gitignored location outside committed paths" clause: it sits
 # outside every checkout, so it cannot be committed even by force-add. The
@@ -66,7 +70,8 @@
 #
 # COMPLETION / LIVENESS. This backend's completion/liveness source is the
 # supervisor plus the event stream (the sibling of Task 3's completion
-# signal): `status` reports completed from the captured result event, and
+# signal): `status` reports completed from the captured result event, `ended`
+# when that event flagged is_error (the turn completed, the run did not), and
 # dead only on positive evidence (fleet-death-evidence.sh `process <pid>`
 # verdicts for both recorded pids) — silence is never death.
 #
@@ -104,7 +109,7 @@
 #       the attention surface — never an auto-answer, never a worker kill.
 #       Prints `alarm <worker> <id> <age>` per firing.
 #   fleet-streamjson.sh status <worker>
-#       Print `status <worker> <running|completed|dead|unknown> <detail>`
+#       Print `status <worker> <running|completed|ended|dead|unknown> <detail>`
 #       from the recorded pids and the captured event stream.
 #
 # Exit codes: 0 success; 2 usage error, refused hostile input, or a
@@ -1191,17 +1196,15 @@ cmd_status() {
   if [ -f "$dir/result" ]; then
     st_kind=$(awk -F'\t' 'NR == 1 { print $1 }' "$dir/result")
     detail=$(awk -F'\t' 'NR == 1 { print $1 "=" $2 }' "$dir/result")
-    # A `result` event is a completion; an `exit` fallback record with a
-    # non-zero code is a worker that ended without completing the protocol —
-    # rendered `ended`, never conflated with `completed` (a `result` event or
-    # an exit=0 fallback is completion).
+    # A `result` event is a completion unless the frame flagged is_error — the
+    # turn completed the protocol while the run died — and an `exit` fallback
+    # with a non-zero code is a worker that ended without completing it. Both
+    # render `ended`, never conflated with `completed`.
     st_ec=$(awk -F'\t' 'NR == 1 { print $2 }' "$dir/result")
     st_err=$(awk -F'\t' 'NR == 1 { print $4 }' "$dir/result")
     if [ "$st_err" = true ]; then
-      # Name both halves: that the frame said success while flagging an error
-      # is the diagnostic, so collapsing it to either one alone hides why the
-      # run is being called ended. Records written before this field existed
-      # have no $4 and keep their old reading.
+      # Name both halves: the contradiction is the diagnostic, so collapsing it
+      # to either one alone hides why the run is being called ended.
       detail="$detail/is_error=true"
     fi
     # Composed first, bounded once: truncating before the suffix is appended
