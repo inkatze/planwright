@@ -916,14 +916,6 @@ ps_rows() {
   printf '%s\n' "$pr_out"
 }
 
-# ps_argv_wide — zero when this host's `ps` yields untruncated argv, so a
-# missing argv match is evidence of absence rather than of truncation. The
-# distinction is what lets the close tell "no supervisor is running" from "I
-# cannot see whether one is".
-ps_argv_wide() {
-  ps_rows_shaped "$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null)"
-}
-
 ps_rows_shaped() {
   [ -n "$1" ] || return 1
   prs_first=${1%%"$LF"*}
@@ -1082,9 +1074,20 @@ stop_candidates() {
 # ancestor named by a pid file is a recycled pid to be ignored. When argv is
 # truncated, the recorded pids are all there is, and the close fails closed.
 stop_self_hosted() {
-  ssh_snap=$(ps_rows) || return 1
+  # The snapshot and the verdict about its argv fidelity come from one probe.
+  # Taken separately they can disagree — a transient fork failure degrades the
+  # snapshot to the narrow form while an independent retry of `-ww` succeeds —
+  # and the disagreement resolves toward proceeding, which is the direction that
+  # kills.
+  ssh_wide=1
+  ssh_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || ssh_snap=''
+  if ! ps_rows_shaped "$ssh_snap"; then
+    ssh_wide=0
+    ssh_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || ssh_snap=''
+    ps_rows_shaped "$ssh_snap" || return 2
+  fi
   ssh_seed=''
-  if ! ps_argv_wide; then
+  if [ "$ssh_wide" = 0 ]; then
     for ssh_f in supervisor.pid worker.pid; do
       ssh_p=$(cat "$1/$ssh_f" 2>/dev/null) || ssh_p=''
       if valid_posnum "${ssh_p:-}"; then
@@ -1099,7 +1102,8 @@ stop_self_hosted() {
       # on the host. It cannot be empty as written — the value has a literal
       # prefix — but this verb sends signals, so the one input whose emptiness
       # inverts "matches nothing" into "matches everything" is checked rather
-      # than reasoned about. Exiting non-zero reports the class held.
+      # than reasoned about. Exit 2 is the cannot-determine answer, which the
+      # caller refuses on.
       if (sup == "") exit 2
     }
     $1 ~ /^[0-9]+$/ {
@@ -1108,10 +1112,13 @@ stop_self_hosted() {
       if (index($0, sup)) owner[$1] = 1
     }
     END {
+      # The 0/1 filter applies to the seeds only. An argv match at pid 1 is a
+      # real supervisor running as container init, and discarding it here would
+      # let a self-close from inside that tree proceed.
       m = split(seeds, s, " ")
-      for (i = 1; i <= m; i++) if (s[i] != "") owner[s[i]] = 1
-      delete owner["0"]
-      delete owner["1"]
+      for (i = 1; i <= m; i++) {
+        if (s[i] != "" && s[i] != "0" && s[i] != "1") owner[s[i]] = 1
+      }
       p = self_pid
       for (i = 0; i <= n; i++) {
         if (p in owner) exit 0
@@ -1826,10 +1833,21 @@ cmd_stop() {
     echo "$me: refusing to close $worker: its state directory is a symlink" >&2
     exit 2
   }
-  if stop_self_hosted "$dir" "$worker"; then
-    echo "$me: refusing to close $worker from inside its own process tree" >&2
-    exit 3
-  fi
+  # Three answers, not two. "Cannot determine" is refused rather than treated as
+  # "not inside": the whole file's posture on the process class is fail-closed,
+  # and proceeding on an unreadable table is the direction that signals.
+  stop_self_hosted "$dir" "$worker"
+  case $? in
+    0)
+      echo "$me: refusing to close $worker from inside its own process tree" >&2
+      exit 3
+      ;;
+    1) ;;
+    *)
+      echo "$me: cannot read the process table; refusing to close $worker" >&2
+      exit 2
+      ;;
+  esac
   st_root=$(/bin/sh "$FS" root) || exit 2
   st_store="$st_root/attention/state"
 
