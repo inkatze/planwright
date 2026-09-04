@@ -1006,4 +1006,70 @@ out=$(run "$h18b" attribute --checkout "$co_a" --session-id "$uuid_a" demo/7) \
 [ "$out" = "owner	$skew	ambiguous" ] || fail "attribute reused pid: got '$out'"
 echo "ok: attribute resolves a fence's owner with liveness, read-only, self included"
 
+# ---------------------------------------------------------------------------
+# 19. fleet-lifecycle-closure REQ-C1.6 — `liveness <tower-id>`: the read-only
+#     per-tower classification the stuck-detector's owner-attribution axis
+#     consumes. Self is reported without a death probe; a peer is classified
+#     through the evidence predicate; absent, malformed, and unknown verdicts
+#     each keep their own word so a consumer can never read them as live; and
+#     nothing is ever GC'd by reading it.
+# ---------------------------------------------------------------------------
+h19="$tmp/h19"
+run "$h19" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  --specs demo --fenced demo/1 >/dev/null || fail "liveness: publish A failed"
+run "$h19" publish --checkout "$co_b" --session-id "$uuid_b" --pid 4243 \
+  --specs demo --fenced demo/2 >/dev/null || fail "liveness: publish B failed"
+sub19=$(run "$h19" surface --checkout "$co_a")
+
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_a") \
+  || fail "liveness (self) failed"
+[ "$out" = "tower	$uuid_a	self" ] || fail "liveness self: got '$out'"
+
+: >"$tmp/evidence-calls"
+printf 'alive\n' >"$tmp/evidence-verdict"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b") \
+  || fail "liveness (live peer) failed"
+[ "$out" = "tower	$uuid_b	live" ] || fail "liveness live peer: got '$out'"
+grep -q '^process 4243$' "$tmp/evidence-calls" \
+  || fail "liveness did not consult the evidence predicate for the peer's own handle"
+[ "$(wc -l <"$tmp/evidence-calls" | tr -d ' ')" = 1 ] \
+  || fail "liveness probed more than the named tower (fan-out must be one handle)"
+
+printf 'unknown\n' >"$tmp/evidence-verdict"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b") \
+  || fail "liveness (unknown) failed"
+[ "$out" = "tower	$uuid_b	unknown" ] || fail "liveness unknown: got '$out'"
+
+printf 'dead\n' >"$tmp/evidence-verdict"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b") \
+  || fail "liveness (dead) failed"
+[ "$out" = "tower	$uuid_b	dead" ] || fail "liveness dead: got '$out'"
+[ -f "$sub19/$uuid_b" ] || fail "liveness GC'd a positively-dead record (must be read-only)"
+
+uuid_c="cccccccc-cccc-cccc-cccc-cccccccccccc"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_c") \
+  || fail "liveness (absent) failed"
+[ "$out" = "no-record	$uuid_c" ] || fail "liveness absent: got '$out'"
+
+printf 'garbage\n' >"$sub19/$uuid_c"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_c" 2>/dev/null) \
+  || fail "liveness (malformed) failed"
+[ "$out" = "unreadable	$uuid_c	malformed" ] || fail "liveness malformed: got '$out'"
+rm -f "$sub19/$uuid_c"
+
+# The composite form is admissible as a query token, and a malformed token
+# never reaches the surface as a path component.
+printf 'alive\n' >"$tmp/evidence-verdict"
+for bad in "../evil" "not-a-tower" "" "p1.t.c"; do
+  rc=0
+  run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$bad" \
+    >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "liveness accepted a malformed tower id '$bad' (exit $rc)"
+done
+rc=0
+run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b" "$uuid_c" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "liveness accepted two tower ids (exit $rc)"
+echo "ok: liveness classifies one named tower read-only (self / live / unknown / dead / no-record / unreadable)"
+
 echo "PASS: all fleet-presence tests"

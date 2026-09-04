@@ -641,6 +641,15 @@ out, and never GCs. `ambiguous` is a recycled pid: a composite identity
 that published it, so a live pid whose start hash no longer matches is a
 different process — unclassifiable, and surfaced rather than honored.
 
+`fleet-presence.sh liveness --checkout <repo-root> (--session-id <uuid> |
+--pid <pid>) <tower-id>` asks the third question, the one the stuck-detector's
+owner-attribution axis needs: is the tower a dispatch record names as its
+owner alive? It reads that one record and probes that one handle:
+`tower <tower-id> <self|live|unknown|dead|ambiguous>`, `no-record <tower-id>`
+when the surface holds nothing for it, or `unreadable <tower-id> <kind>` for a
+record it cannot parse. Every word other than `self` and `live` is a distinct
+not-live answer, never folded into live; like `attribute`, it never GCs.
+
 ## The per-unit fence: one tower per unit
 
 Presence is awareness. The thing that stops two towers dispatching one unit is

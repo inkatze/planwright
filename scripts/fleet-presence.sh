@@ -110,6 +110,8 @@
 #   fleet-presence.sh attribute --checkout <dir> (--session-id <uuid> |
 #       --pid <pid>) <spec>/<unit-id>
 #   fleet-presence.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
+#   fleet-presence.sh liveness --checkout <dir> (--session-id <uuid> |
+#       --pid <pid>) <tower-id>
 #   fleet-presence.sh surface  --checkout <dir>
 #
 # discover output (tab-separated):
@@ -142,6 +144,20 @@
 # read its own in-flight fences as orphans on every pass. And it never GCs: a
 # positively-dead record is reported and left in place for `discover` to sweep,
 # so the classification the sweep needs cannot be destroyed by reading it.
+#
+# LIVENESS (`liveness`, fleet-lifecycle-closure REQ-C1.6). The stuck-detector's
+# owner-attribution axis asks a third question: is the tower NAMED by a
+# dispatch record's owner token alive? It is `attribute` keyed by tower id
+# instead of unit ref — read-only, caller's own record included (reported
+# `self`, no death probe), a single handle probed, never a GC:
+#
+#   tower <tower-id> <self|live|unknown|dead|ambiguous>
+#   no-record <tower-id>                   no record on this repo's surface
+#   unreadable <tower-id> <malformed|schema-skew|unreadable|foreign-record>
+#
+# Every non-`live`/`self` word is a distinct not-live answer the consumer
+# maps to its dead-or-unknown bucket; none of them is ever folded into
+# `live`, and an unreadable surface exits 3 as the other read commands do.
 #
 # `ambiguous` is the reused-pid case (REQ-C1.3, unclassifiable → surfaced,
 # never silently honored). A COMPOSITE identity (p<pid>.t<hash>.c<hash>) pins
@@ -195,6 +211,7 @@ usage: fleet-presence.sh publish  --checkout <dir> (--session-id <uuid> | --pid 
        fleet-presence.sh owner    --checkout <dir> (--session-id <uuid> | --pid <pid>) <spec>/<unit-id>
        fleet-presence.sh attribute --checkout <dir> (--session-id <uuid> | --pid <pid>) <spec>/<unit-id>
        fleet-presence.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
+       fleet-presence.sh liveness --checkout <dir> (--session-id <uuid> | --pid <pid>) <tower-id>
        fleet-presence.sh surface  --checkout <dir>
 (publish needs a death handle: the tmux pair, or --pid; flags irrelevant to a subcommand are refused)
 USAGE
@@ -358,7 +375,7 @@ reused_pid_ambiguous() {
 
 cmd="${1:-}"
 case "$cmd" in
-  publish | discover | owner | attribute | identity | surface) ;;
+  publish | discover | owner | attribute | identity | liveness | surface) ;;
   *)
     usage
     exit 2
@@ -376,6 +393,7 @@ tmux_window=""
 meta=false
 min_interval=30
 unit_ref=""
+tower_ref=""
 
 # Strict per-command grammar: a flag irrelevant to the subcommand is a usage
 # error, never a silent no-op (a `publish --min-interval` or `discover
@@ -401,7 +419,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --pid)
-      refuse_for "publish discover owner attribute identity"
+      refuse_for "publish discover owner attribute identity liveness"
       pid="${2:-}"
       shift 2 || {
         usage
@@ -409,7 +427,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --session-id)
-      refuse_for "publish discover owner attribute identity"
+      refuse_for "publish discover owner attribute identity liveness"
       session_id="${2:-}"
       shift 2 || {
         usage
@@ -468,6 +486,9 @@ while [ "$#" -gt 0 ]; do
     *)
       if { [ "$cmd" = owner ] || [ "$cmd" = attribute ]; } && [ -z "$unit_ref" ]; then
         unit_ref=$1
+        shift
+      elif [ "$cmd" = liveness ] && [ -z "$tower_ref" ]; then
+        tower_ref=$1
         shift
       else
         usage
@@ -531,6 +552,15 @@ fi
 if [ "$cmd" = owner ] || [ "$cmd" = attribute ]; then
   if [ -z "$unit_ref" ] || ! is_unit_ref "$unit_ref"; then
     err "refusing malformed unit ref ($cmd takes one <spec>/<unit-id>)"
+    exit 2
+  fi
+fi
+# The tower id is validated before it can name a file: the grammar admits
+# only the UUID and composite forms, so a traversal token never reaches the
+# surface as a path component.
+if [ "$cmd" = liveness ]; then
+  if [ -z "$tower_ref" ] || ! is_tower_id "$tower_ref"; then
+    err "refusing malformed tower id (liveness takes one UUID or p<pid>.t<hash>.c<hash> token)"
     exit 2
   fi
 fi
@@ -895,12 +925,16 @@ classify_handle() {
 peers=0
 found_owner=""
 found_verdict=""
+tower_verdict=""
 
 emit_unreadable_peer() {
   eup_name=$(sanitize_printable "$1" "(unprintable name)")
   err "skipping unreadable presence record '$eup_name' ($2) — a peer exists but its details are unreadable: assume-live, surfaced, never GC'd (REQ-A1.6)"
   if [ "$cmd" = discover ]; then
     printf 'peer-unreadable\t%s\t%s\n' "$eup_name" "$2"
+  elif [ "$cmd" = liveness ]; then
+    printf 'unreadable\t%s\t%s\n' "$tower_ref" "$2"
+    tower_verdict=unreadable
   fi
   peers=$((peers + 1))
 }
@@ -923,10 +957,16 @@ owner_match() {
 
 while IFS= read -r name; do
   [ -z "$name" ] && continue
-  # `attribute` deliberately keeps the caller's own record: a tower must
-  # attribute the fences IT holds to itself, or the sweep would read every
-  # one of its own in-flight units as an orphan (REQ-C1.3).
-  if [ "$name" = "$identity" ] && [ "$cmd" != attribute ]; then
+  # `liveness` is a targeted query: only the named record is read and only
+  # its handle is probed, so the fan-out is one predicate call, not a scan.
+  if [ "$cmd" = liveness ] && [ "$name" != "$tower_ref" ]; then
+    continue
+  fi
+  # `attribute` and `liveness` deliberately keep the caller's own record: a
+  # tower must attribute the fences and workers IT holds to itself, or the
+  # sweep would read every one of its own in-flight units as an orphan
+  # (REQ-C1.3).
+  if [ "$name" = "$identity" ] && [ "$cmd" != attribute ] && [ "$cmd" != liveness ]; then
     continue
   fi
   file="$sub/$name"
@@ -1028,6 +1068,9 @@ PARSED_EOF
     err "presence record '$(sanitize_printable "$name" "(unprintable name)")' carries repo id $r_repo inside the $repo_id sub-surface — anomaly surfaced, excluded from the peer set, left in place"
     if [ "$cmd" = discover ]; then
       printf 'foreign-record\t%s\t%s\n' "$(sanitize_printable "$name" "(unprintable name)")" "$r_repo"
+    elif [ "$cmd" = liveness ]; then
+      printf 'unreadable\t%s\tforeign-record\n' "$tower_ref"
+      tower_verdict=unreadable
     fi
     continue
   fi
@@ -1037,6 +1080,25 @@ PARSED_EOF
     verdict=alive
   else
     verdict=$(classify_handle "$r_handle")
+  fi
+  if [ "$cmd" = liveness ]; then
+    # Read-only, like `attribute`: the verdict is reported and the record is
+    # left in place whatever it says.
+    case "$verdict" in
+      alive)
+        if [ "$name" = "$identity" ]; then
+          tower_verdict=self
+        elif reused_pid_ambiguous "$r_id" "$r_handle"; then
+          tower_verdict=ambiguous
+        else
+          tower_verdict=live
+        fi
+        ;;
+      dead) tower_verdict=dead ;;
+      *) tower_verdict=unknown ;;
+    esac
+    printf 'tower\t%s\t%s\n' "$r_id" "$tower_verdict"
+    continue
   fi
   if [ "$cmd" = attribute ]; then
     # Read-only: report the holder and its liveness, GC nothing. A dead
@@ -1140,6 +1202,13 @@ if [ "$cmd" = attribute ]; then
     printf 'owner\t%s\t%s\n' "$found_owner" "$found_verdict"
   else
     printf 'unknown-owner\n'
+  fi
+  exit 0
+fi
+
+if [ "$cmd" = liveness ]; then
+  if [ -z "$tower_verdict" ]; then
+    printf 'no-record\t%s\n' "$tower_ref"
   fi
   exit 0
 fi
