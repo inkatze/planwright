@@ -129,6 +129,9 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+# The record separator for the result file, needed to anchor a field match to a
+# real field boundary rather than a name prefix.
+TAB=$(printf '\t')
 me=fleet-streamjson
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
@@ -1193,15 +1196,32 @@ cmd_status() {
     printf 'status %s unknown no-runtime-dir\n' "$worker"
     return 0
   fi
-  if [ -f "$dir/result" ]; then
-    st_kind=$(awk -F'\t' 'NR == 1 { print $1 }' "$dir/result")
-    detail=$(awk -F'\t' 'NR == 1 { print $1 "=" $2 }' "$dir/result")
+  # ONE read, with every field parsed from that single snapshot. The writer
+  # truncates and rewrites this file in place, so separate reads can straddle
+  # the empty window and disagree with each other: four independent reads
+  # returned `completed` 156 times in 400 against a file whose writer only ever
+  # wrote an is_error record. That direction of failure is the one this record
+  # exists to prevent, so the verdict must not be assembled from fields taken at
+  # different instants. read_completion in fleet-stuck-detector.sh reads it this
+  # way already; this is the sibling catching up.
+  #
+  # A torn or empty snapshot is NOT evidence of completion. It falls through to
+  # the liveness check below, which is the honest answer while a write is in
+  # flight.
+  st_line=$(head -c 4096 "$dir/result" 2>/dev/null | head -n 1) || st_line=""
+  st_seen=0
+  case $st_line in
+    result"$TAB"* | exit"$TAB"*) st_seen=1 ;;
+  esac
+  if [ "$st_seen" = 1 ]; then
+    st_kind=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $1 }')
+    detail=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $1 "=" $2 }')
     # A `result` event is a completion unless the frame flagged is_error — the
     # turn completed the protocol while the run died — and an `exit` fallback
     # with a non-zero code is a worker that ended without completing it. Both
     # render `ended`, never conflated with `completed`.
-    st_ec=$(awk -F'\t' 'NR == 1 { print $2 }' "$dir/result")
-    st_err=$(awk -F'\t' 'NR == 1 { print $4 }' "$dir/result")
+    st_ec=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $2 }')
+    st_err=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $4 }')
     if [ "$st_err" = true ]; then
       # Name both halves: the contradiction is the diagnostic, so collapsing it
       # to either one alone hides why the run is being called ended.
