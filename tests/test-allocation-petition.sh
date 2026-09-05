@@ -509,6 +509,43 @@ rec=$(printf '%s\n' "$out" | field reconciled)
 [ "$rec" -le 16 ] || fail "7a6: reconcile reported $rec, above the 16-slot cap"
 echo "ok: the reconcile count is bounded by one claim namespace"
 
+# A claim name is worker-chosen, so its epoch is untrusted input like any other.
+# A FUTURE epoch must not read as live: the subtraction would go negative,
+# compare under the window, and the file would be neither swept nor counted —
+# slipping past the reconcile cap on the branch that never reaches the counter.
+new_wt futureclaim
+valid_body escalate u:1 impl 1 'future' >"$wt/.claude/allocation-petition"
+printf 'x\n' >"$wt/.claude/allocation-petition.claim.$$.$(($(date +%s) + 99999)).0"
+out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) \
+  || fail "7a7: claim alongside a future-dated claim failed"
+[ "$(printf '%s\n' "$out" | field reconciled)" = 1 ] \
+  || fail "7a7: a future-dated claim was treated as a live owner"
+echo "ok: a future-dated claim name is not mistaken for a live owner"
+
+# An over-long epoch must not reach the arithmetic: dash treats an over-long
+# integer literal as fatal, which would kill the sweep and suppress the
+# crash-window audit for as long as the file sat there.
+new_wt hugeepoch
+valid_body escalate u:1 impl 1 'huge' >"$wt/.claude/allocation-petition"
+printf 'x\n' >"$wt/.claude/allocation-petition.claim.$$.99999999999999999999999.0"
+out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) \
+  || fail "7a8: an over-long epoch killed the claim"
+[ "$(printf '%s\n' "$out" | field verdict)" = valid ] \
+  || fail "7a8: the sweep died on an over-long epoch and took the claim with it"
+echo "ok: an over-long epoch in a claim name does not kill the sweep"
+
+# `write` must refuse an out-of-grammar attempt rather than emit an artifact
+# that every later claim will reject as oversize.
+new_wt longattempt
+long_attempt=$(awk 'BEGIN { while (i++ < 1100) printf "9" }')
+if pet write --worktree "$wt" --direction escalate --unit u:1 --step impl \
+  --attempt "$long_attempt" --reason 'too long' 2>/dev/null; then
+  fail "7a9: write accepted an unbounded attempt"
+fi
+[ ! -e "$wt/.claude/allocation-petition" ] \
+  || fail "7a9: write emitted an artifact it should have refused"
+echo "ok: write refuses an unbounded attempt rather than emitting a doomed artifact"
+
 # --- 7b. `--hold` is the two-phase claim the engine needs ----------------
 #
 # The engine must not lose the audit if it dies between taking the petition and

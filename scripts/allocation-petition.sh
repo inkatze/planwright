@@ -144,6 +144,12 @@ PET_CLAIM_ORPHAN_SEC=900
 # anti-spam reasoning, applied to the claim namespace and not only the artifact).
 # Anything above the cap is swept by later calls.
 PET_CLAIM_MAX_RECONCILE=16
+# The worker owns the directory these files live in, so their COUNT is
+# worker-chosen. Without a scan budget a planted pile turns every later boundary
+# into a linear scan under the unit lock, which is work a worker can impose for
+# free and never stop imposing. One namespace is 16; this is generous slack over
+# that, and anything past it is swept by later calls.
+PET_CLAIM_MAX_SCAN=256
 PET_MAX_BYTES=1024
 PET_MAX_REASON=200
 PET_LINES=5
@@ -168,6 +174,11 @@ valid_identity() {
 # engine keys incidents on the attempt verbatim, and `01` and `1` must not spell
 # the same attempt two ways.
 valid_count() {
+  # Bounded like valid_identity. Without a length bound `write` accepts an
+  # attempt long enough to push the artifact past the size cap, so the write
+  # succeeds and every later claim refuses the file as oversize — breaking the
+  # "refused here rather than written" contract this check exists to keep.
+  [ "${#1}" -le 10 ] || return 1
   case $1 in
     "" | *[!0-9]*) return 1 ;;
     0 | [1-9]*) return 0 ;;
@@ -322,6 +333,7 @@ cmd_write() {
 # one crash from being re-audited at every later boundary.
 sweep_claims() {
   sc_n=0
+  sc_seen=0
   # A clock we cannot read yields 0, which makes every claim read as ancient and
   # sweepable: the sweep degrades toward reaping, never toward shielding.
   sc_now=$(date +%s 2>/dev/null) || sc_now=0
@@ -338,6 +350,8 @@ sweep_claims() {
   for sc_f in "$@"; do
     # An unmatched glob expands to itself; that literal names no file.
     [ -e "$sc_f" ] || [ -L "$sc_f" ] || continue
+    sc_seen=$((sc_seen + 1))
+    [ "$sc_seen" -le "$PET_CLAIM_MAX_SCAN" ] || break
     # A claim file names the pid that took it, and a LIVE owner is a sibling
     # consumer mid-flight rather than a crash. Sweeping one destroys the
     # petition that consumer is about to weigh and leaves it screening a file
@@ -358,8 +372,21 @@ sweep_claims() {
         case $sc_epoch in
           "" | *[!0-9]*) ;;
           *)
-            if kill -0 "$sc_pid" 2>/dev/null \
-              && [ "$((sc_now - sc_epoch))" -le "$PET_CLAIM_ORPHAN_SEC" ]; then
+            # LENGTH FIRST, before any arithmetic on it. dash treats an
+            # over-long integer literal as a FATAL error ("Illegal number"),
+            # so an over-long epoch in a worker-chosen filename would kill this
+            # sweep outright and suppress the crash-window audit for as long as
+            # that file sat there. bash wraps silently; /bin/sh here is dash.
+            #
+            # A FUTURE epoch is not a live claim, it is a forged one. Without
+            # this the subtraction goes negative, compares under the window,
+            # and the file is treated as live — never swept AND never counted,
+            # so it slips past the reconcile cap on the branch that never
+            # reaches the counter.
+            if [ "${#sc_epoch}" -le 10 ] \
+              && [ "$sc_epoch" -le "$sc_now" ] \
+              && [ "$((sc_now - sc_epoch))" -le "$PET_CLAIM_ORPHAN_SEC" ] \
+              && kill -0 "$sc_pid" 2>/dev/null; then
               sc_live=1
             fi
             ;;
