@@ -986,7 +986,7 @@ scripts/fleet-stuck-detector.sh scan        # every worker the registry or the s
 | --- | --- | --- |
 | `dead` | `fleet-death-evidence.sh`'s positive verdict on the dispatch record's death handle (REQ-C1.5) | alive, unknown, an errored or refused call, a `none` handle, no handle |
 | `waiting-on-a-human` | a hook push (the attention store's `awaiting-input` row), a pending request in the stream-json journal, or a positively matched permission-prompt signature in a captured pane (REQ-C1.2) | elapsed time, a quiet pane |
-| `finished-but-unreaped` | a successful session-ended record — the `ended` push, the supervisor's `result success`, a zero headless `exit` — while the worker is not positively dead (REQ-C1.3) | a completion whose work is unlanded, or a session that ended without completing (below) |
+| `finished-but-unreaped` | a successful session-ended record — the `ended` push, the supervisor's `result success` not flagged `is_error`, a zero headless `exit` — while the worker is not positively dead (REQ-C1.3) | a completion whose work is unlanded, a frame flagging `is_error`, or a session that ended without completing (below) |
 | `working` | a pushed `working` row, a running-turn marker in the pane footer, or both stream-json runtime pidfiles present with positive alive evidence on the death handle and no result yet | absence of a stop signal |
 
 Precedence runs top to bottom: death evidence outranks a stale push, a queued
@@ -995,9 +995,10 @@ working row. Anything else is `unclassified` with a reason (`no-signal`,
 `turn-ended`, `fork-answered`, `stop-failure`, `completion-failed`,
 `completion-unlanded`) — a fifth word, never a default state, that a consumer
 leaves alone and surfaces. A session that ended without completing (a
-non-zero exit, a non-success result subtype) is `completion-failed`, never
-finished: the supervisor's own status renders it `ended`, and the detector
-agrees.
+non-zero exit, a non-success result subtype, or a success subtype whose frame
+flagged `is_error` — the turn completed the protocol while the run died) is
+`completion-failed`, never finished: for a non-zero exit and for a flagged
+frame the supervisor's own status renders it `ended`, and the detector agrees.
 
 **A self-reported completion is not sufficient** (REQ-C1.4, obs:cc13d432). A
 worker whose `result=success` sits beside an uncommitted tree or beside

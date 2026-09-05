@@ -34,7 +34,11 @@
 #                    undeliverable (the REQ-E1.5 durable receipt)
 #   req-<id>.json    the raw control_request envelope (answer composition)
 #   in.fifo/out.fifo the stdio channels the supervisor owns
-#   supervisor.pid / worker.pid / result / recover.lock/ / journal.lock/
+#   result           the run outcome, one tab-separated row:
+#                    result <subtype> <epoch> [is_error] | exit <rc> <epoch>
+#                    is_error ∈ true|false, absent on records written before
+#                    the field existed (read as false)
+#   supervisor.pid / worker.pid / recover.lock/ / journal.lock/
 # Placing the capture under the fleet home is the strongest reading of the
 # Task 4 "gitignored location outside committed paths" clause: it sits
 # outside every checkout, so it cannot be committed even by force-add. The
@@ -66,7 +70,8 @@
 #
 # COMPLETION / LIVENESS. This backend's completion/liveness source is the
 # supervisor plus the event stream (the sibling of Task 3's completion
-# signal): `status` reports completed from the captured result event, and
+# signal): `status` reports completed from the captured result event, `ended`
+# when that event flagged is_error (the turn completed, the run did not), and
 # dead only on positive evidence (fleet-death-evidence.sh `process <pid>`
 # verdicts for both recorded pids) — silence is never death.
 #
@@ -104,7 +109,7 @@
 #       the attention surface — never an auto-answer, never a worker kill.
 #       Prints `alarm <worker> <id> <age>` per firing.
 #   fleet-streamjson.sh status <worker>
-#       Print `status <worker> <running|completed|dead|unknown> <detail>`
+#       Print `status <worker> <running|completed|ended|dead|unknown> <detail>`
 #       from the recorded pids and the captured event stream.
 #
 # Exit codes: 0 success; 2 usage error, refused hostile input, or a
@@ -124,6 +129,9 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+# The record separator for the result file, needed to anchor a field match to a
+# real field boundary rather than a name prefix.
+TAB=$(printf '\t')
 me=fleet-streamjson
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
@@ -559,7 +567,17 @@ handle_line() {
       hl_sub=$(json_field "$hl_line" subtype)
       hl_sub=$(sanitize_printable "$hl_sub" unknown | cut -c1-32)
       hl_now=$(now_epoch) || hl_now=0
-      printf 'result\t%s\t%s\n' "$hl_sub" "$hl_now" >"$hl_dir/result"
+      # A frame can claim success and carry is_error at once: an API error
+      # reaches us as ordinary assistant text, so the TURN completed the
+      # protocol while the RUN died. Recording only the subtype loses the half
+      # that says so, and a reader then frees the slot on a worker that did
+      # nothing. Matched on the raw line because json_field reads quoted
+      # strings and this is a JSON boolean.
+      case $hl_line in
+        *'"is_error":true'*) hl_err=true ;;
+        *) hl_err=false ;;
+      esac
+      printf 'result\t%s\t%s\t%s\n' "$hl_sub" "$hl_now" "$hl_err" >"$hl_dir/result"
       ;;
   esac
 }
@@ -1178,16 +1196,41 @@ cmd_status() {
     printf 'status %s unknown no-runtime-dir\n' "$worker"
     return 0
   fi
-  if [ -f "$dir/result" ]; then
-    st_kind=$(awk -F'\t' 'NR == 1 { print $1 }' "$dir/result")
-    detail=$(awk -F'\t' 'NR == 1 { print $1 "=" $2 }' "$dir/result")
+  # ONE read, with every field parsed from that single snapshot. The writer
+  # truncates and rewrites this file in place, so separate reads can straddle
+  # the empty window and disagree with each other: four independent reads
+  # returned `completed` 156 times in 400 against a file whose writer only ever
+  # wrote an is_error record. That direction of failure is the one this record
+  # exists to prevent, so the verdict must not be assembled from fields taken at
+  # different instants. read_completion in fleet-stuck-detector.sh reads it this
+  # way already; this is the sibling catching up.
+  #
+  # A torn or empty snapshot is NOT evidence of completion. It falls through to
+  # the liveness check below, which is the honest answer while a write is in
+  # flight.
+  st_line=$(head -c 4096 "$dir/result" 2>/dev/null | head -n 1) || st_line=""
+  st_seen=0
+  case $st_line in
+    result"$TAB"* | exit"$TAB"*) st_seen=1 ;;
+  esac
+  if [ "$st_seen" = 1 ]; then
+    st_kind=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $1 }')
+    detail=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $1 "=" $2 }')
+    # A `result` event is a completion unless the frame flagged is_error — the
+    # turn completed the protocol while the run died — and an `exit` fallback
+    # with a non-zero code is a worker that ended without completing it. Both
+    # render `ended`, never conflated with `completed`.
+    st_ec=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $2 }')
+    st_err=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $4 }')
+    if [ "$st_err" = true ]; then
+      # Name both halves: the contradiction is the diagnostic, so collapsing it
+      # to either one alone hides why the run is being called ended.
+      detail="$detail/is_error=true"
+    fi
+    # Composed first, bounded once: truncating before the suffix is appended
+    # can cut the suffix back off, leaving `ended` with nothing saying why.
     detail=$(sanitize_printable "$detail" unknown | cut -c1-64)
-    # A `result` event is a completion; an `exit` fallback record with a
-    # non-zero code is a worker that ended without completing the protocol —
-    # rendered `ended`, never conflated with `completed` (a `result` event or
-    # an exit=0 fallback is completion).
-    st_ec=$(awk -F'\t' 'NR == 1 { print $2 }' "$dir/result")
-    if [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; then
+    if { [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; } || [ "$st_err" = true ]; then
       printf 'status %s ended %s\n' "$worker" "$detail"
     else
       printf 'status %s completed %s\n' "$worker" "$detail"

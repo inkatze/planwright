@@ -937,4 +937,37 @@ lock_leg sjw18e - - 202001010000.00 3
 lock_leg sjw18f - - - 2
 echo "ok: c18 the mtime probe yields a real epoch under both stat flavors, in both directions (REQ-E1.5)"
 
+# ---------------------------------------------------------------------------
+# c19: a result frame may claim success and carry is_error at the same time.
+#     An API error (a 529, say) arrives as ordinary assistant TEXT, so the turn
+#     succeeds in protocol terms while the RUN failed: the frame reports
+#     subtype "success" and is_error true together, on a worker that then exits
+#     0 with nothing done. A reader that consults only the subtype calls that a
+#     clean completion, frees the slot and moves on. The state must be `ended`,
+#     and the detail must show BOTH halves, because the contradiction is the
+#     diagnostic.
+# ---------------------------------------------------------------------------
+home="$tmp/h19"
+rec="$tmp/r19"
+mkdir -p "$rec"
+ev="$tmp/ev19"
+line_result_err='{"type":"result","subtype":"success","is_error":true,"result":"API Error: 529 Overloaded","session_id":"'$sid'"}'
+printf '%s\n%s\n' "$line_init" "$line_result_err" >"$ev"
+printf 'overload me\n' >"$tmp/prompt19"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw19 execution-backends:4 --prompt-file "$tmp/prompt19" --foreground \
+  >/dev/null 2>&1 || fail "c19: launch exited non-zero"
+out=$(senv "$home" "$rec" -- status sjw19) || fail "c19: status exited non-zero"
+case $out in
+  "status sjw19 ended result=success/is_error=true") : ;;
+  *) fail "c19: a success subtype carrying is_error must render 'ended' and name both, got: $out" ;;
+esac
+# Pin the on-disk record too, not just the rendering. fleet-stuck-detector.sh
+# parses this same file from its own suite against a hand-written fixture, so
+# nothing else would catch the writer moving the flag or renaming its value —
+# the two would simply stop agreeing about a worker, silently.
+grep -q "^result${tab}success${tab}[0-9][0-9]*${tab}true$" "$home/streamjson/sjw19/result" \
+  || fail "c19: the recorded result row is not <result subtype epoch is_error>: $(cat "$home/streamjson/sjw19/result")"
+echo "ok: c19 a result frame claiming success while carrying is_error is reported ended, not completed"
+
 echo "all fleet-streamjson tests passed"
