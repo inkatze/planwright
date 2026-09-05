@@ -202,7 +202,7 @@ now_epoch() {
 #     one-shot `lock`/`unlock` primitive (D-11). We spin the one-shot acquire so
 #     an attention write is never dropped under contention, matching fleet-state
 #     spin_acquire's bounded 20ms backoff. HOLD_LOCK gates release so we never
-#     rmdir a lock we do not hold. On a fatal signal the trap releases AND exits
+#     unlink a lock we do not hold. On a fatal signal the trap releases AND exits
 #     (below) rather than resuming the critical section unlocked.
 HOLD_LOCK=0
 
