@@ -76,6 +76,32 @@
 # at every layer, so disjointness holds by CONSTRUCTION rather than only for
 # the shipped defaults.
 #
+# THE STEP-TYPE AXIS (Task 5; D-8, D-12, REQ-C1.3) is the table's SECOND key.
+# A selection key prices a whole unit; a step type prices ONE STEP of it — the
+# implementation step, or one of the review-sequence step classes. The two axes
+# are resolved by separate verbs over separate knob families and never mix:
+#
+#   allocation_<column>_step_<step-type>    model | effort. No command column.
+#
+# NO STEP TYPE CARRIES THE COMMAND COLUMN, and that is load-bearing rather than
+# an omission. The command enum is the carrier of the review-sequence-
+# disjointness invariant (REQ-A1.4, above): it must stay exactly the
+# dispatch-entry set and must never name a nestable review skill. Step types
+# ARE named after nestable review skills, so letting the two axes share the
+# command column is precisely how that invariant would be lost. Keeping the
+# axes separate means adding a review step class cannot widen the command enum
+# — the enum is untouched by construction, not merely by convention.
+#
+# THE SHIPPED DEFAULT IS `inherit` for every step type, so a step resolves to
+# the unit's own tier and per-step keys change runtime behavior by exactly
+# nothing until an operator configures one (D-13).
+#
+# APPLICATION IS ONE-DIRECTIONAL, and this script does NOT perform it: it only
+# resolves the configured cell. allocation-adapt.sh owns the comparison — a
+# step tier CHEAPER than the unit's current tier applies for that launch alone
+# and is scope-marked in the ledger; an equal or more expensive one is ignored
+# with a row (D-8). A step may never ratchet a unit up.
+#
 # HOW THE CHOICE IS APPLIED is the launching backend's job, per its advertised
 # capability — not this script's. This script only resolves.
 #
@@ -88,6 +114,12 @@
 #   allocation-select.sh list
 #       Print the full table, one TSV row per key:
 #       <key>TAB<model>TAB<effort>TAB<command>.
+#   allocation-select.sh step-tier <step-type>
+#       Print one step type's configured tier as <model>TAB<effort>, each
+#       `inherit` when that column is unconfigured. No command column, ever.
+#   allocation-select.sh list-steps
+#       Print the shipped step types, one TSV row each:
+#       <step-type>TAB<model>TAB<effort>.
 #
 # Environment: honors every override the shared knob resolver honors
 # (PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY,
@@ -150,10 +182,26 @@ NO_COLUMN=-
 # The table's key order, used by `list`.
 KEYS="execution bookkeeping drain orchestrate_dispatch execute_step offload"
 
+# The SHIPPED step types, used by `list-steps`: /execute-task's implementation
+# step, then one per review-sequence step class.
+#
+# The step-type key space is OPEN by construction rather than a closed enum.
+# The nestable review-skill set is DISCOVERED from the skills tree
+# (resolve-review-sequence.sh owns that predicate), so a second copy of it here
+# would drift — and a stale copy would REFUSE a legitimately configured step
+# class rather than degrade, turning an operator's working config into a launch
+# failure. Instead any charset-valid step type resolves, and one with no
+# configured knob resolves to `inherit`, which applies nothing. A review skill
+# added tomorrow therefore inherits silently and correctly with no edit here.
+# This list is what `list-steps` enumerates and what config/defaults.yml ships
+# rows for; it is a shipped set, not a validation boundary.
+STEP_KEYS="implementation polish self-review"
+
 usage() {
-  echo "usage: allocation-select.sh resolve <key> <column> | select <key> | list" >&2
-  echo "  keys:    $KEYS" >&2
-  echo "  columns: model | effort | command (command: fleet task types only)" >&2
+  echo "usage: allocation-select.sh resolve <key> <column> | select <key> | list | step-tier <step-type> | list-steps" >&2
+  echo "  keys:       $KEYS" >&2
+  echo "  columns:    model | effort | command (command: fleet task types only)" >&2
+  echo "  step types: $STEP_KEYS (open set; any unconfigured one resolves to inherit)" >&2
 }
 
 # key_row <key>: 0 with the row parameters set, 1 for an unknown key. The
@@ -281,6 +329,55 @@ emit_row() {
   printf '%s\t%s\t%s\n' "$er_model" "$er_effort" "$er_command"
 }
 
+# valid_step_type <token>: 0 for the SKILL-NAME charset (^[a-z][a-z0-9-]*$),
+# bounded at 64 bytes. Checked BEFORE the token is spliced into a knob name, so
+# a hostile step type never reaches the shared resolver, config-get, or a path.
+# The bound is the knob-name length the resolver will accept the result under.
+valid_step_type() {
+  case $1 in
+    "" | [!a-z]*) return 1 ;;
+    *[!a-z0-9-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 64 ]
+}
+
+# step_knob_suffix <step-type>: the knob-name spelling of a step type. Knob
+# names are ^[a-z][a-z0-9_]*$ (config-get's queryable charset) while skill
+# names are ^[a-z][a-z0-9-]*$, so `-` maps to `_` (`self-review` ->
+# `self_review`). The map is INJECTIVE over the skill charset — a skill name
+# can never contain `_` — so two distinct step types can never collide on one
+# knob, which is what keeps the config file's keys unambiguous.
+step_knob_suffix() {
+  printf '%s' "$1" | tr -- - _
+}
+
+# resolve_step_col <step-type> <column>: one cell of a step type's configured
+# tier. Deliberately NOT resolve_col: there is no legacy `fleet_*` counterpart
+# to fall back to (these knobs are new, so no overlay can predate them) and no
+# `unset` sentinel, because `inherit` already IS this family's shipped default
+# and a second "not set" spelling would only be ambiguous. `command` is not a
+# case here at all — see the header on why the axes stay separate.
+resolve_step_col() {
+  require_resolver
+  rsc_suffix=$(step_knob_suffix "$1")
+  case $2 in
+    model) rsc_enum=$MODEL_VALUES ;;
+    effort) rsc_enum=$EFFORT_VALUES ;;
+    *) exit 5 ;; # unreachable: callers pass column names they own
+  esac
+  rsc_out=$("$RESOLVER" --key "allocation_$2_step_$rsc_suffix" --type enum \
+    --values "$rsc_enum $INHERIT_SENTINEL" --fallback "$INHERIT_SENTINEL") || exit $?
+  printf '%s' "$rsc_out"
+}
+
+# emit_step_row <step-type>: the TSV tier for one step type. Two columns, never
+# three: a step type carries no command column.
+emit_step_row() {
+  esr_model=$(resolve_step_col "$1" model) || exit $?
+  esr_effort=$(resolve_step_col "$1" effort) || exit $?
+  printf '%s\t%s\n' "$esr_model" "$esr_effort"
+}
+
 [ "$#" -ge 1 ] || {
   usage
   exit 2
@@ -337,6 +434,32 @@ case "$cmd" in
 "
     done
     printf '%s' "$rows"
+    ;;
+  step-tier)
+    if [ "$#" -ne 1 ]; then
+      usage
+      exit 2
+    fi
+    if ! valid_step_type "$1"; then
+      echo "allocation-select: refusing malformed step type '$(sanitize_printable "$1" "(unprintable step type)")' (must match ^[a-z][a-z0-9-]*\$, at most 64 bytes)" >&2
+      exit 2
+    fi
+    emit_step_row "$1"
+    ;;
+  list-steps)
+    if [ "$#" -ne 0 ]; then
+      usage
+      exit 2
+    fi
+    # Same all-or-nothing posture as `list`: a later-row resolver hard-fail
+    # must not leave partial output on stdout.
+    st_rows=""
+    for st_key in $STEP_KEYS; do
+      st_row=$(emit_step_row "$st_key") || exit $?
+      st_rows="$st_rows$st_key	$st_row
+"
+    done
+    printf '%s' "$st_rows"
     ;;
   *)
     usage

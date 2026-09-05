@@ -67,6 +67,36 @@
 # Recompute-identical is preserved by construction: the memo never outlives the
 # boundary, so the next launch re-derives from the records on disk.
 #
+# THE PER-STEP KEY IS ONE-DIRECTIONAL (D-8, D-12, REQ-C1.3). A launch may name
+# the STEP TYPE it is for — the implementation step, or a review-sequence step
+# class. allocation-select.sh resolves that step type's configured tier; this
+# script decides whether it applies, and the rule is asymmetric on purpose:
+#
+#   - a step tier CHEAPER than the unit's current tier applies TO THAT LAUNCH
+#     ONLY, recorded with scope `step`;
+#   - an equal or MORE EXPENSIVE one is IGNORED, with a `step`-scoped row saying
+#     so. A step may never ratchet a unit up.
+#
+# The scope mark is the whole safety property: `alloc_replay` drops every
+# non-`unit` row before it reads anything else, so a step-scoped launch cannot
+# reach the unit's ladder position, consume adjustment budget, or survive into
+# the next boundary. `derive` therefore answers with the unit's tier whether or
+# not a step tier was just applied — the restore-after property, held by
+# construction rather than by remembering to undo something.
+#
+# A step tier is STATIC CONFIGURATION, not adaptation, so it is deliberately NOT
+# gated behind `allocation_adaptation`: it moves no ladder, keys off no event,
+# and reads no signal. Gating it would make a per-step config knob require
+# turning on the whole adaptive engine to have any effect. D-13's
+# defaults-change-nothing claim is carried instead by the knobs themselves,
+# every one of which ships `inherit`.
+#
+# A tier is a JOINT point, so a step type that configures only one column has
+# the other FILLED FROM THE UNIT'S CURRENT TIER before the cheaper-than
+# comparison. That is what lets "run reviews at low effort" be expressed without
+# also pinning a model, and it keeps the one-directional test on the joint
+# result rather than on one column in isolation.
+#
 # A CLAMP IS NOT DE-ESCALATION (D-8). A clamped proposal is recorded as clamped;
 # the unit's own ladder position is untouched, so the next boundary proposes from
 # where the ladder actually is, and clamping consumes no adjustment budget.
@@ -88,6 +118,7 @@
 # Usage:
 #   allocation-adapt.sh resolve <unit> --key <selection-key>
 #       [--step <step>] [--attempt <n>] [--event <class>]... [--reserved]
+#       [--step-type <class>]
 #
 #     PASS A STEP AND ATTEMPT WITH ANY --event. The idempotency key is
 #     (unit, step, attempt, incident), and `--step` defaults to `-` with
@@ -107,11 +138,17 @@
 #       adaptation       on | off | suspended
 #       proposed_model / proposed_effort   the tier BEFORE the clamps
 #       net              net ladder displacement from the starting tier
+#       step_scope       none (no step type named) | inherit (named, but
+#                        unconfigured) | applied (a cheaper step tier took
+#                        effect for this launch) | ignored (an equal or more
+#                        expensive one was refused)
 #       degraded         no | ledger | clamp-input
 #   allocation-adapt.sh derive <unit> --key <selection-key>
 #     Print the unit's derived tier without recording anything (a read-only view
 #     for operators and for `/execute-task`-style callers that only need to know
-#     where a unit currently sits).
+#     where a unit currently sits). A `--step-type` is accepted and ignored here,
+#     which is the contract rather than an oversight: `derive` answers where the
+#     UNIT sits, and a step tier is never part of that answer.
 #
 # Exit codes: 0 success; 2 usage error or hostile/out-of-grammar input; 4 a
 #   malformed repo-tracked knob (resolver hard-fail, propagated); 5 broken
@@ -151,7 +188,7 @@ MECHANISM=allocation
 TAB=$(printf '\t')
 
 usage() {
-  echo "usage: allocation-adapt.sh resolve <unit> --key <selection-key> [--step <step>] [--attempt <n>] [--event <class>]... [--reserved] | derive <unit> --key <selection-key>" >&2
+  echo "usage: allocation-adapt.sh resolve <unit> --key <selection-key> [--step <step>] [--attempt <n>] [--event <class>]... [--reserved] [--step-type <class>] | derive <unit> --key <selection-key>" >&2
 }
 
 require_exec() {
@@ -449,6 +486,8 @@ ATTEMPT=1
 RESERVED=no
 EVENTS=""
 DEGRADED=no
+STEP_TYPE=""
+STEP_SCOPE=none
 
 parse_args() {
   [ "$#" -ge 1 ] || {
@@ -497,6 +536,29 @@ parse_args() {
           exit 2
         fi
         EVENTS="$EVENTS $2"
+        shift 2
+        ;;
+      --step-type)
+        [ "$#" -ge 2 ] || {
+          usage
+          exit 2
+        }
+        # The SKILL-NAME charset, checked here rather than left to the selection
+        # resolver for the same reason the unit and step identities are: by the
+        # time the sibling would refuse it this script has read config and taken
+        # a lock, and the diagnostic would point at the resolver instead of the
+        # argument. The two checks are deliberately identical.
+        case $2 in
+          "" | [!a-z]* | *[!a-z0-9-]*)
+            echo "allocation-adapt: refusing malformed step type '$(sanitize_printable "$2" "(unprintable step type)")'" >&2
+            exit 2
+            ;;
+        esac
+        [ "${#2}" -le 64 ] || {
+          echo "allocation-adapt: step type is longer than 64 characters" >&2
+          exit 2
+        }
+        STEP_TYPE=$2
         shift 2
         ;;
       --reserved)
@@ -571,6 +633,7 @@ emit() {
   printf 'proposed_model\t%s\n' "$8"
   printf 'proposed_effort\t%s\n' "$9"
   printf 'net\t%s\n' "${10}"
+  printf 'step_scope\t%s\n' "$STEP_SCOPE"
   printf 'degraded\t%s\n' "$DEGRADED"
 }
 
@@ -648,6 +711,16 @@ cmd_resolve() {
   if [ "$START_MODEL" = inherit ] || [ "$START_EFFORT" = inherit ]; then
     record inherit "$START_MODEL" "$START_EFFORT" - - "$START_MODEL" "$START_EFFORT" \
       unit inherit "key=$KEY;rung=$RUNG;inherit=full" || true
+    # A step type named at an INHERIT surface is refused rather than applied:
+    # "cheaper than the unit's tier" is undefined when the surface has no tier
+    # of its own, and applying it anyway would turn an inheriting launch into a
+    # governed one through the back door. The refusal is recorded, never silent
+    # (REQ-F1.1).
+    if [ -n "$STEP_TYPE" ]; then
+      STEP_SCOPE=ignored
+      record step-tier inherit inherit - - "$START_MODEL" "$START_EFFORT" \
+        step ignored "key=$KEY;step-type=$STEP_TYPE;reason=inherit-surface" || true
+    fi
     release_unit_lock
     queue_mirror inherit "unit $UNIT launched inheriting its ambient model and effort at key $KEY"
     flush_mirror
@@ -701,7 +774,14 @@ cmd_resolve() {
     apply_events
   fi
 
-  clamp_tier "$CUR_MODEL" "$CUR_EFFORT"
+  # The per-step key sits BETWEEN the ladder and the clamps, and the order is
+  # the contract: the step tier is compared against the unit's DERIVED tier (so
+  # a unit that escalated is what a review step is measured against), and the
+  # clamps then bind on whatever the step actually launches at (so a step tier
+  # can never be used to slip past a clamp).
+  apply_step_type
+
+  clamp_tier "$LAUNCH_MODEL" "$LAUNCH_EFFORT"
 
   if [ "$CL_ADMIT" = withheld ]; then
     res_m=-
@@ -713,8 +793,12 @@ cmd_resolve() {
     outcome=resolved
     [ "$DEGRADED" = no ] || outcome=degraded
   fi
-  record launch "$CUR_MODEL" "$CUR_EFFORT" "$CL_MODEL" "$CL_EFFORT" "$res_m" "$res_e" \
-    unit "$outcome" "key=$KEY;rung=$RUNG;clamps=$CL_CLAMPS;signal=$USAGE;adaptation=$ADAPT_STATE" \
+  # The proposal recorded here is the tier that actually entered the clamps.
+  # With no step type named it IS the unit's derived tier, so this row is
+  # byte-identical to what it has always been; with one applied, recording the
+  # unit's tier instead would leave a clamped step launch unexplainable.
+  record launch "$LAUNCH_MODEL" "$LAUNCH_EFFORT" "$CL_MODEL" "$CL_EFFORT" "$res_m" "$res_e" \
+    unit "$outcome" "key=$KEY;rung=$RUNG;clamps=$CL_CLAMPS;signal=$USAGE;adaptation=$ADAPT_STATE;step=$STEP_SCOPE" \
     || true
 
   release_unit_lock
@@ -733,7 +817,58 @@ cmd_resolve() {
   flush_mirror
 
   emit "$CL_ADMIT" "$res_m" "$res_e" "$COMMAND" "$CONCURRENCY" "$RUNG" \
-    "$ADAPT_STATE" "$CUR_MODEL" "$CUR_EFFORT" "$NET"
+    "$ADAPT_STATE" "$LAUNCH_MODEL" "$LAUNCH_EFFORT" "$NET"
+}
+
+# apply_step_type: decide whether this launch's named step type lowers it, and
+# record the decision. Reads CUR_MODEL / CUR_EFFORT (the unit's derived tier)
+# and sets LAUNCH_MODEL / LAUNCH_EFFORT (the tier this launch proposes to the
+# clamps) plus STEP_SCOPE. It NEVER writes CUR_MODEL / CUR_EFFORT / NET: that is
+# the restore-after property, and keeping the unit's variables out of this
+# function is how it is enforced rather than merely intended.
+apply_step_type() {
+  LAUNCH_MODEL=$CUR_MODEL
+  LAUNCH_EFFORT=$CUR_EFFORT
+  STEP_SCOPE=none
+  [ -n "$STEP_TYPE" ] || return 0
+
+  ast_row=$("$SELECT" step-tier "$STEP_TYPE") || exit $?
+  ast_m=$(printf '%s' "$ast_row" | cut -f1)
+  ast_e=$(printf '%s' "$ast_row" | cut -f2)
+
+  # Unconfigured in both columns: the shipped state, and the one that must cost
+  # nothing. The step launches at the unit's tier; the row records that it did
+  # so by inheritance rather than by a decision (REQ-F1.1's inheritance case).
+  if [ "$ast_m" = inherit ] && [ "$ast_e" = inherit ]; then
+    STEP_SCOPE=inherit
+    record step-tier inherit inherit - - "$CUR_MODEL" "$CUR_EFFORT" \
+      step inherit "key=$KEY;step-type=$STEP_TYPE;step=inherit" || true
+    return 0
+  fi
+
+  # Compose the joint point before comparing: an unconfigured column takes the
+  # unit's current value, so the cheaper-than test is over two whole tiers.
+  ast_pm=$ast_m
+  ast_pe=$ast_e
+  [ "$ast_pm" = inherit ] && ast_pm=$CUR_MODEL
+  [ "$ast_pe" = inherit ] && ast_pe=$CUR_EFFORT
+
+  # `-1` is "strictly cheaper". Anything else — equal, more expensive, or an
+  # unreadable comparison (alloc_cost_cmp prints nothing and returns 2) — takes
+  # the ignore path, so the failure mode is a step that runs at the unit's tier
+  # rather than one that runs somewhere unintended.
+  ast_cmp=$(alloc_cost_cmp "$ast_pm" "$ast_pe" "$CUR_MODEL" "$CUR_EFFORT") || ast_cmp=""
+  if [ "$ast_cmp" = "-1" ]; then
+    LAUNCH_MODEL=$ast_pm
+    LAUNCH_EFFORT=$ast_pe
+    STEP_SCOPE=applied
+    record step-tier "$ast_pm" "$ast_pe" - - "$ast_pm" "$ast_pe" \
+      step applied "key=$KEY;step-type=$STEP_TYPE;unit=$CUR_MODEL/$CUR_EFFORT" || true
+    return 0
+  fi
+  STEP_SCOPE=ignored
+  record step-tier "$ast_pm" "$ast_pe" - - "$CUR_MODEL" "$CUR_EFFORT" \
+    step ignored "key=$KEY;step-type=$STEP_TYPE;unit=$CUR_MODEL/$CUR_EFFORT;reason=not-cheaper" || true
 }
 
 # apply_events: move the ladder at most one step per distinct INCIDENT class, in

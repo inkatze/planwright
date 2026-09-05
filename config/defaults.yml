@@ -338,6 +338,42 @@ allocation_effort_execute_step: inherit
 allocation_model_offload: inherit
 allocation_effort_offload: inherit
 
+# PER-STEP selection keys (model-allocation D-8, D-12; REQ-C1.3, REQ-E1.1).
+# The selection keys above price a whole UNIT. These price one STEP of it: the
+# implementation step, and each review-sequence step class (one knob pair per
+# nestable review skill). Today every review pass inherits the unit's tier, so
+# nothing ever starts cheap; these are the knobs that let it.
+#
+# ALL SHIP `inherit`, so every step resolves to the unit's own tier and the
+# golden baseline is reproduced exactly. Landing the mechanism changes runtime
+# behavior by nothing; turning it on is a separate operator decision (D-13).
+#
+# APPLICATION IS ONE-DIRECTIONAL. A configured tier CHEAPER than the unit's
+# current tier applies for that step's launch only and is scope-marked in the
+# unit's allocation ledger; an equal or more expensive one is IGNORED with a
+# ledger row. A step can lower its own launch, never ratchet the unit up, and a
+# scope-marked launch never moves the unit's own ladder position (D-8).
+#
+# The two columns compose: leave one `inherit` and it is filled from the unit's
+# current tier before the cheaper-than comparison, so `..._effort_step_polish:
+# low` alone means "run polish at low effort on whatever model the unit is on".
+#
+# There is NO command column here, deliberately. The command enum is what
+# carries the review-sequence-disjointness invariant (REQ-E1.2) and must never
+# name a nestable review skill; step types are named after exactly those
+# skills, so the axes stay separate and the enum stays untouched by
+# construction.
+#
+# The key space is OPEN: a review skill added later needs no row here — its
+# knob is absent from every layer and resolves to `inherit`, which applies
+# nothing. These rows are the shipped set, not the legal set.
+allocation_model_step_implementation: inherit
+allocation_effort_step_implementation: inherit
+allocation_model_step_polish: inherit
+allocation_effort_step_polish: inherit
+allocation_model_step_self_review: inherit
+allocation_effort_step_self_review: inherit
+
 # Execution-time ADAPTATION: whether a unit's tier may move at a launch boundary
 # in response to what execution actually revealed (model-allocation D-2, D-8,
 # D-13; REQ-C1.1, REQ-C1.2, REQ-E1.1). `off` is the shipped posture and the

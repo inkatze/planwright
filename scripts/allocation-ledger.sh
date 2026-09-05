@@ -451,6 +451,15 @@ check_health() {
       if (($6 == "feedback") != ($14 == "recorded")) {
         print "row " NR ": feedback and recorded must appear together"; exit
       }
+      # A step-tier row records a decision about ONE launch, so `step` is the
+      # only scope that can mean anything for it; at `unit` scope it would read
+      # as part of the history the unit itself carries, which is the exact
+      # opposite of what a scope mark is for. Checked ONE-DIRECTIONALLY on purpose: `step-tier`
+      # implies `step`, but `step` does not imply `step-tier`, so a later
+      # step-scoped record (a per-step inheritance row, say) needs no edit here.
+      if ($6 == "step-tier" && $13 != "step") {
+        print "row " NR ": a step-tier row must be step-scoped"; exit
+      }
     }
   ' "$ch_file" 2>/dev/null)
   if [ -n "$ch_bad" ]; then
