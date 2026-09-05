@@ -110,6 +110,8 @@
 #   fleet-presence.sh attribute --checkout <dir> (--session-id <uuid> |
 #       --pid <pid>) <spec>/<unit-id>
 #   fleet-presence.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
+#   fleet-presence.sh liveness --checkout <dir> (--session-id <uuid> |
+#       --pid <pid>) <tower-id>
 #   fleet-presence.sh surface  --checkout <dir>
 #
 # discover output (tab-separated):
@@ -142,6 +144,20 @@
 # read its own in-flight fences as orphans on every pass. And it never GCs: a
 # positively-dead record is reported and left in place for `discover` to sweep,
 # so the classification the sweep needs cannot be destroyed by reading it.
+#
+# LIVENESS (`liveness`, fleet-lifecycle-closure REQ-C1.6). The stuck-detector's
+# owner-attribution axis asks a third question: is the tower NAMED by a
+# dispatch record's owner token alive? It is `attribute` keyed by tower id
+# instead of unit ref — read-only, caller's own record included (reported
+# `self`, no death probe), a single handle probed, never a GC:
+#
+#   tower <tower-id> <self|live|unknown|dead|ambiguous>
+#   no-record <tower-id>                   no record on this repo's surface
+#   unreadable <tower-id> <malformed|schema-skew|unreadable|foreign-record>
+#
+# Every non-`live`/`self` word is a distinct not-live answer the consumer
+# maps to its dead-or-unknown bucket; none of them is ever folded into
+# `live`, and an unreadable surface exits 3 as the other read commands do.
 #
 # `ambiguous` is the reused-pid case (REQ-C1.3, unclassifiable → surfaced,
 # never silently honored). A COMPOSITE identity (p<pid>.t<hash>.c<hash>) pins
@@ -195,6 +211,7 @@ usage: fleet-presence.sh publish  --checkout <dir> (--session-id <uuid> | --pid 
        fleet-presence.sh owner    --checkout <dir> (--session-id <uuid> | --pid <pid>) <spec>/<unit-id>
        fleet-presence.sh attribute --checkout <dir> (--session-id <uuid> | --pid <pid>) <spec>/<unit-id>
        fleet-presence.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
+       fleet-presence.sh liveness --checkout <dir> (--session-id <uuid> | --pid <pid>) <tower-id>
        fleet-presence.sh surface  --checkout <dir>
 (publish needs a death handle: the tmux pair, or --pid; flags irrelevant to a subcommand are refused)
 USAGE
@@ -358,7 +375,7 @@ reused_pid_ambiguous() {
 
 cmd="${1:-}"
 case "$cmd" in
-  publish | discover | owner | attribute | identity | surface) ;;
+  publish | discover | owner | attribute | identity | liveness | surface) ;;
   *)
     usage
     exit 2
@@ -376,6 +393,8 @@ tmux_window=""
 meta=false
 min_interval=30
 unit_ref=""
+tower_ref=""
+tower_ref_seen=0
 
 # Strict per-command grammar: a flag irrelevant to the subcommand is a usage
 # error, never a silent no-op (a `publish --min-interval` or `discover
@@ -401,7 +420,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --pid)
-      refuse_for "publish discover owner attribute identity"
+      refuse_for "publish discover owner attribute identity liveness"
       pid="${2:-}"
       shift 2 || {
         usage
@@ -409,7 +428,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --session-id)
-      refuse_for "publish discover owner attribute identity"
+      refuse_for "publish discover owner attribute identity liveness"
       session_id="${2:-}"
       shift 2 || {
         usage
@@ -468,6 +487,10 @@ while [ "$#" -gt 0 ]; do
     *)
       if { [ "$cmd" = owner ] || [ "$cmd" = attribute ]; } && [ -z "$unit_ref" ]; then
         unit_ref=$1
+        shift
+      elif [ "$cmd" = liveness ] && [ "$tower_ref_seen" = 0 ]; then
+        tower_ref=$1
+        tower_ref_seen=1
         shift
       else
         usage
@@ -531,6 +554,15 @@ fi
 if [ "$cmd" = owner ] || [ "$cmd" = attribute ]; then
   if [ -z "$unit_ref" ] || ! is_unit_ref "$unit_ref"; then
     err "refusing malformed unit ref ($cmd takes one <spec>/<unit-id>)"
+    exit 2
+  fi
+fi
+# The tower id is validated before it can name a file: the grammar admits
+# only the UUID and composite forms, so a traversal token never reaches the
+# surface as a path component.
+if [ "$cmd" = liveness ]; then
+  if [ -z "$tower_ref" ] || ! is_tower_id "$tower_ref"; then
+    err "refusing malformed tower id (liveness takes one UUID or p<pid>.t<hash>.c<hash> token)"
     exit 2
   fi
 fi
@@ -620,6 +652,15 @@ fi
 # security refusal.
 check_private() {
   cp_dir=$1
+  # Re-tested here, adjacent to the mode read, even though the callers already
+  # ran check_surface_not_redirected: that test ran several statements and a
+  # fork earlier, and a link planted in between would otherwise be reported as
+  # an over-broad MODE (a symlink lists as `l…`, not `d???------`) — sending
+  # the operator to chmod a directory whose permissions were never the problem.
+  if [ -L "$cp_dir" ]; then
+    err "security: coordination path $(sanitize_printable "$cp_dir" "(unprintable path)") is a symlink — refusing to write it through a redirect, whatever it points at (containment, REQ-D1.5/REQ-A1.4); investigate and remove it yourself"
+    exit 4
+  fi
   # ls -ld[n] is the portable mode/owner read (stat's flags differ across
   # BSD/GNU); only the mode and numeric-uid columns are parsed, never a
   # filename (SC2012 n/a).
@@ -644,6 +685,35 @@ check_private() {
   esac
   if [ "$cp_uid" != "$my_uid" ]; then
     err "security: coordination surface $cp_dir is owned by uid $cp_uid, not this user — refusing an attacker-planted or mis-owned surface (verify-or-refuse, REQ-A1.4); investigate and remove it yourself"
+    exit 4
+  fi
+}
+
+# check_surface_not_redirected <dir> — containment on the surface path itself,
+# on its own terms (REQ-D1.5, D-9). A symlink at any surface or infrastructure
+# root would redirect every record write, mkdir, and unlink below it to a
+# target this script never inspected.
+#
+# It runs BEFORE the `-d` test in the callers below, not inside check_private,
+# because the two symlink states fail differently and only one of them ever
+# reaches a mode read. An EXISTING target lists as `l…` rather than
+# `d???------`, so check_private would refuse it, but as an over-broad MODE —
+# sending the operator to chmod a directory whose permissions were never the
+# problem. A DANGLING link is `-d`-false and `-e`-false, so it never reaches
+# check_private at all: it falls through to the mkdir, which fails EEXIST on
+# the link itself and reports a writability problem that is equally not the
+# problem. Both are the same tampering, and `docs/fleet.md` promises exit 4 for
+# a symlink-tampered surface in ANY state; naming the redirect is what makes
+# that promise actionable. The sibling check below draws the same line for the
+# persistence sentinel.
+# It is a point-in-time test, not a race-free containment: anyone who can plant
+# the link before the check can plant it again after. That is why check_private
+# keeps its own copy of the test rather than relying on this one having run —
+# the two are checked at different instants, and the later one is adjacent to
+# the mode read it guards.
+check_surface_not_redirected() {
+  if [ -L "$1" ]; then
+    err "security: coordination path $(sanitize_printable "$1" "(unprintable path)") is a symlink — refusing to write it through a redirect, whatever it points at (containment, REQ-D1.5/REQ-A1.4); investigate and remove it yourself"
     exit 4
   fi
 }
@@ -677,6 +747,7 @@ write_sentinel() {
 # ensure_infra_dir <dir> — sentinel-less infrastructure dirs (sentinels,
 # cadence stamps): mode-explicit create, EEXIST is success, verify-or-refuse.
 ensure_infra_dir() {
+  check_surface_not_redirected "$1"
   if [ ! -d "$1" ]; then
     mkdir -m 0700 "$1" 2>/dev/null || true
   fi
@@ -698,10 +769,14 @@ ensure_infra_dir() {
 ensure_surface_dir() {
   esd_dir=$1
   esd_sentinel=$2
-  # Tamper check FIRST, in every state: a symlinked or non-regular sentinel
-  # must exit 4 (security refusal) even when the surface dir is missing —
-  # never fall through to the vanished check below and read as exit-3
-  # evidence (docs promise exit 4 for symlink-tampered; REQ-A1.4).
+  # Both tamper checks FIRST, in every state, for the same reason: neither the
+  # surface nor its sentinel may be reached through a redirect, and both must
+  # refuse before the state machine below can read the tampering as ordinary
+  # vanished (exit 3) or unwritable (exit 2) evidence.
+  # A symlinked or non-regular sentinel must exit 4 even when the surface dir
+  # is missing, never falling through to the vanished check below to be read as
+  # exit-3 evidence (REQ-A1.4).
+  check_surface_not_redirected "$esd_dir"
   check_sentinel_untampered "$esd_sentinel"
   if [ -d "$esd_dir" ]; then
     check_private "$esd_dir"
@@ -849,7 +924,13 @@ listing=$(ls "$sub" 2>/dev/null) || {
 # pass can never be misread as an empty peer set). The stamp is written only
 # after a completed scan; a future-dated stamp (clock step) is ignored so
 # skew can never lock discovery out. owner is a targeted query, never capped.
-ensure_infra_dir "$cadence_dir"
+# `liveness` reads one record and probes one handle: it stamps no cadence
+# and needs no memo, so the read-only query touches no infrastructure dir
+# and cannot fail closed on a write problem.
+memo=""
+if [ "$cmd" != liveness ]; then
+  ensure_infra_dir "$cadence_dir"
+fi
 stamp="$cadence_dir/$repo_id.$identity"
 if [ "$cmd" = discover ] && [ "$min_interval" -gt 0 ]; then
   now=$(date +%s)
@@ -863,17 +944,22 @@ fi
 fde="$script_dir/fleet-death-evidence.sh"
 # The per-pass memo lives in the private cadence dir, not shared $TMPDIR
 # (sibling convention: surface-local temp templates).
-memo=$(mktemp "$cadence_dir/.memo.XXXXXX") || {
-  memo=""
-  err "cannot create the per-pass liveness memo in $cadence_dir — failing closed"
-  exit 2
-}
+if [ "$cmd" != liveness ]; then
+  memo=$(mktemp "$cadence_dir/.memo.XXXXXX") || {
+    memo=""
+    err "cannot create the per-pass liveness memo in $cadence_dir — failing closed"
+    exit 2
+  }
+fi
 
 # classify_handle <handle> — tri-state verdict, memoized per pass so the
 # per-record subprocess fan-out is bounded (≤1 per distinct handle per pass).
 classify_handle() {
   ch_handle=$1
-  ch_hit=$(awk -F'\t' -v h="$ch_handle" '$2 == h { print $1; exit }' "$memo")
+  ch_hit=""
+  if [ -n "$memo" ]; then
+    ch_hit=$(awk -F'\t' -v h="$ch_handle" '$2 == h { print $1; exit }' "$memo")
+  fi
   if [ -n "$ch_hit" ]; then
     printf '%s\n' "$ch_hit"
     return 0
@@ -888,16 +974,30 @@ classify_handle() {
     dead | alive) ;;
     *) ch_verdict=unknown ;; # incl. a refused handle: lost observability, fail closed
   esac
-  printf '%s\t%s\n' "$ch_verdict" "$ch_handle" >>"$memo" 2>/dev/null || true
+  if [ -n "$memo" ]; then
+    printf '%s\t%s\n' "$ch_verdict" "$ch_handle" >>"$memo" 2>/dev/null || true
+  fi
   printf '%s\n' "$ch_verdict"
 }
 
 peers=0
 found_owner=""
 found_verdict=""
+tower_verdict=""
+tower_kind=""
 
 emit_unreadable_peer() {
   eup_name=$(sanitize_printable "$1" "(unprintable name)")
+  if [ "$cmd" = liveness ]; then
+    # The liveness question is answered not-live-but-not-dead: the record
+    # is unreadable, so it is reported as such, left in place, and never
+    # folded into `live` — a consumer owes its own death evidence before
+    # acting (REQ-D1.4).
+    err "presence record for '$eup_name' is unreadable ($2) — reported not-live, left in place, never GC'd (REQ-A1.6)"
+    tower_verdict=unreadable
+    tower_kind=$2
+    return 0
+  fi
   err "skipping unreadable presence record '$eup_name' ($2) — a peer exists but its details are unreadable: assume-live, surfaced, never GC'd (REQ-A1.6)"
   if [ "$cmd" = discover ]; then
     printf 'peer-unreadable\t%s\t%s\n' "$eup_name" "$2"
@@ -923,10 +1023,16 @@ owner_match() {
 
 while IFS= read -r name; do
   [ -z "$name" ] && continue
-  # `attribute` deliberately keeps the caller's own record: a tower must
-  # attribute the fences IT holds to itself, or the sweep would read every
-  # one of its own in-flight units as an orphan (REQ-C1.3).
-  if [ "$name" = "$identity" ] && [ "$cmd" != attribute ]; then
+  # `liveness` is a targeted query: only the named record is read and only
+  # its handle is probed, so the fan-out is one predicate call, not a scan.
+  if [ "$cmd" = liveness ] && [ "$name" != "$tower_ref" ]; then
+    continue
+  fi
+  # `attribute` and `liveness` deliberately keep the caller's own record: a
+  # tower must attribute the fences and workers IT holds to itself, or the
+  # sweep would read every one of its own in-flight units as an orphan
+  # (REQ-C1.3).
+  if [ "$name" = "$identity" ] && [ "$cmd" != attribute ] && [ "$cmd" != liveness ]; then
     continue
   fi
   file="$sub/$name"
@@ -1028,6 +1134,9 @@ PARSED_EOF
     err "presence record '$(sanitize_printable "$name" "(unprintable name)")' carries repo id $r_repo inside the $repo_id sub-surface — anomaly surfaced, excluded from the peer set, left in place"
     if [ "$cmd" = discover ]; then
       printf 'foreign-record\t%s\t%s\n' "$(sanitize_printable "$name" "(unprintable name)")" "$r_repo"
+    elif [ "$cmd" = liveness ]; then
+      tower_verdict=unreadable
+      tower_kind=foreign-record
     fi
     continue
   fi
@@ -1037,6 +1146,24 @@ PARSED_EOF
     verdict=alive
   else
     verdict=$(classify_handle "$r_handle")
+  fi
+  if [ "$cmd" = liveness ]; then
+    # Read-only, like `attribute`: the verdict is reported and the record is
+    # left in place whatever it says.
+    case "$verdict" in
+      alive)
+        if [ "$name" = "$identity" ]; then
+          tower_verdict=self
+        elif reused_pid_ambiguous "$r_id" "$r_handle"; then
+          tower_verdict=ambiguous
+        else
+          tower_verdict=live
+        fi
+        ;;
+      dead) tower_verdict=dead ;;
+      *) tower_verdict=unknown ;;
+    esac
+    continue
   fi
   if [ "$cmd" = attribute ]; then
     # Read-only: report the holder and its liveness, GC nothing. A dead
@@ -1141,6 +1268,15 @@ if [ "$cmd" = attribute ]; then
   else
     printf 'unknown-owner\n'
   fi
+  exit 0
+fi
+
+if [ "$cmd" = liveness ]; then
+  case $tower_verdict in
+    "") printf 'no-record\t%s\n' "$tower_ref" ;;
+    unreadable) printf 'unreadable\t%s\t%s\n' "$tower_ref" "$tower_kind" ;;
+    *) printf 'tower\t%s\t%s\n' "$tower_ref" "$tower_verdict" ;;
+  esac
   exit 0
 fi
 

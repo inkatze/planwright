@@ -1,7 +1,9 @@
 #!/bin/bash
 # permission-matcher.sh — a documented re-implementation of Claude Code's Bash
 # permission-rule matcher, used as the test oracle for the deny/allow fixture
-# table (guard-coverage Task 1, D-4, REQ-A1.1).
+# table (guard-coverage Task 1, D-4, REQ-A1.1) and, in
+# tests/test-merge-currency-matrix.sh, to show the worker profile's allow entry
+# admits a ready-flip the ready-guard hook still denies.
 #
 # THIS IS A MODEL, NOT THE MATCHER. It encodes the semantics Claude Code's
 # permission documentation states, so that a deny-list edit that re-opens a known
