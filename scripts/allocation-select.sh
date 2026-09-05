@@ -332,7 +332,10 @@ emit_row() {
 # valid_step_type <token>: 0 for the SKILL-NAME charset (^[a-z][a-z0-9-]*$),
 # bounded at 64 bytes. Checked BEFORE the token is spliced into a knob name, so
 # a hostile step type never reaches the shared resolver, config-get, or a path.
-# The bound is the knob-name length the resolver will accept the result under.
+# The 64-byte bound is this file's own: neither config-get nor the shared knob
+# resolver caps a key's length, so nothing downstream requires it. It exists to
+# keep the derived knob name readable in a config file and the step type inside
+# the ledger `inputs` budget it is interpolated into.
 valid_step_type() {
   case $1 in
     "" | [!a-z]*) return 1 ;;
@@ -441,7 +444,8 @@ case "$cmd" in
       exit 2
     fi
     if ! valid_step_type "$1"; then
-      echo "allocation-select: refusing malformed step type '$(sanitize_printable "$1" "(unprintable step type)")' (must match ^[a-z][a-z0-9-]*\$, at most 64 bytes)" >&2
+      printf 'allocation-select: refusing malformed step type %s (must match ^[a-z][a-z0-9-]*$, at most 64 bytes)\n' \
+        "'$(sanitize_printable "$1" "(unprintable step type)")'" >&2
       exit 2
     fi
     emit_step_row "$1"

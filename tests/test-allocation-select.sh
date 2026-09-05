@@ -66,8 +66,8 @@ mlocal_cfg="$repo/.claude/planwright.local.yml"
 
 # The shipped core defaults for the whole knob family, kept in lockstep with
 # config/defaults.yml (test 11 asserts the real file carries the same rows).
-# The nine fleet-keyed general knobs ship the `unset` sentinel, which is what
-# arms the `fleet_*` fallback; the six non-fleet ones ship `inherit`.
+# The fleet-keyed general knobs ship the `unset` sentinel, which is what
+# arms the `fleet_*` fallback; every other row here ships `inherit`.
 cat >"$core_cfg" <<'EOF'
 fleet_model_execution: opus
 fleet_model_bookkeeping: sonnet
@@ -593,8 +593,10 @@ for st in implementation polish self-review; do
   run select "$st" >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "'select $st' exited $rc, want 2: a step type is not a selection key"
 done
+steps_now=$(run list-steps) || fail "list-steps exited nonzero"
+[ -n "$steps_now" ] || fail "list-steps emitted nothing, so the leak check below would be vacuous"
 for k in execution bookkeeping drain orchestrate_dispatch execute_step offload; do
-  printf '%s\n' "$(run list-steps)" | grep -qx "$k	.*" \
+  printf '%s\n' "$steps_now" | grep -qx "$k	.*" \
     && fail "selection key '$k' leaked into the step-type table"
 done
 # And the command enum itself is still exactly the dispatch-entry set: no

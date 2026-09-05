@@ -347,26 +347,30 @@ allocation_effort_offload: inherit
 # ALL SHIP `inherit`, so every step resolves to the unit's own tier and the
 # golden baseline is reproduced exactly. Landing the mechanism changes runtime
 # behavior by nothing; turning it on is a separate operator decision (D-13).
+# Nothing passes a step type yet either — Task 6 wires the launch points — so
+# setting one of these changes nothing at all until that lands.
 #
-# APPLICATION IS ONE-DIRECTIONAL. A configured tier CHEAPER than the unit's
-# current tier applies for that step's launch only and is scope-marked in the
-# unit's allocation ledger; an equal or more expensive one is IGNORED with a
-# ledger row. A step can lower its own launch, never ratchet the unit up, and a
-# scope-marked launch never moves the unit's own ladder position (D-8).
+# The rule these obey is D-8's, and design.md owns it: application is
+# ONE-DIRECTIONAL. A tier cheaper than the unit's current tier applies to that
+# step's launch alone and is scope-marked in the ledger; an equal or more
+# expensive one is ignored with a row. The two columns compose, so leaving one
+# `inherit` fills it from the unit's tier before the comparison — which is how
+# "run polish at low effort on whatever model the unit is on" is expressed,
+# though a unit already at `low` makes that tier EQUAL, and equal is ignored.
 #
-# The two columns compose: leave one `inherit` and it is filled from the unit's
-# current tier before the cheaper-than comparison, so `..._effort_step_polish:
-# low` alone means "run polish at low effort on whatever model the unit is on".
+# A PREREQUISITE worth knowing before setting one: a step tier needs a unit
+# tier to be cheaper than, so at a selection key whose own tier is `inherit`
+# (every non-fleet surface above, including the `execute_step` key an
+# implementation step resolves through) a configured step tier is refused with
+# a ledger row. Give the surface a tier first, or the step knob stays inert.
 #
-# There is NO command column here, deliberately. The command enum is what
-# carries the review-sequence-disjointness invariant (REQ-E1.2) and must never
-# name a nestable review skill; step types are named after exactly those
-# skills, so the axes stay separate and the enum stays untouched by
-# construction.
+# There is NO command column here, deliberately. The command enum carries the
+# review-sequence-disjointness invariant (REQ-A1.4) and must never name a
+# nestable review skill; step types are named after exactly those skills, so
+# the axes stay separate and the enum is untouched by construction.
 #
-# The key space is OPEN: a review skill added later needs no row here — its
-# knob is absent from every layer and resolves to `inherit`, which applies
-# nothing. These rows are the shipped set, not the legal set.
+# The key space is OPEN: a review skill added later needs no row here, because
+# its knob is absent from every layer and resolves to `inherit`.
 allocation_model_step_implementation: inherit
 allocation_effort_step_implementation: inherit
 allocation_model_step_polish: inherit

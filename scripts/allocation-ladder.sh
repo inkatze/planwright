@@ -213,12 +213,9 @@ ALLOC_EVENTS_DOWN='petition-de-escalate'
 # mark in particular must stay inert: it is written AFTER the unit's last launch
 # and records history rather than making any.
 #
-# `step-tier` is inert for a second, independent reason worth stating because it
-# is the safety property per-step keys rest on: its rows are STEP-scoped, and
-# replay drops a non-`unit` row before it ever reads the event column. So a
-# step-type decision cannot reach the unit's ladder through either gate, which
-# is what makes the restore-after property hold by construction rather than by
-# the replay remembering to special-case it.
+# `step-tier` rows are also STEP-scoped, so replay drops them on the scope test
+# before it reads the event column at all — two independent gates, which is what
+# keeps a step-type decision out of the unit's ladder.
 ALLOC_EVENTS_INERT='launch inherit degraded feedback step-tier'
 
 # alloc_event_dir <event>: print `up`, `down`, or `none`. Returns 1 for a token
