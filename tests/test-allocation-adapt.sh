@@ -480,7 +480,6 @@ done
 grep -qE '^allocation_adaptation: "?off"?$' "$real_cfg" \
   || fail "14: the master knob must ship 'off' (D-13)"
 
-
 # --- 15. per-step selection keys (Task 5; D-8, D-12, REQ-C1.3) -------------
 #
 # A step-type tier is STATIC configuration keyed by step class, not adaptation:

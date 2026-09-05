@@ -508,7 +508,6 @@ PATH="$stubbin:$PATH" claude >/dev/null 2>&1 || true
 rm -f "$tmp/invocations"
 echo "ok: the no-LLM stub is verified reachable"
 
-
 # 14. The STEP-TYPE axis (Task 5; D-8, D-12, REQ-C1.3, REQ-E1.1).
 #
 #     A second key over the same table: the selection key prices a unit, a step
