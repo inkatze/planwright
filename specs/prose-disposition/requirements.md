@@ -1,7 +1,7 @@
 # Prose disposition — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-09-03
+**Status:** Ready
+**Last reviewed:** 2026-09-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -19,12 +19,14 @@ finding per commit, never batched. Composed, one wording nit becomes one
 commit, one checklist entry, and one human sign-off decision. Measured on
 tower-front-door Task 1: 42 insertions and 24 deletions of doctrine prose
 became 30 commits and a 30-item sign-off queue across two review passes
-(obs:0d6a3ed8, the tower-front-door Task 1 PR in Sources). Source comments
-are the largest such surface: `scripts/*.sh` carries 20,807 comment lines
-against 33,843 code lines, 30 percent of them in 138 blocks of 25 lines or
-more, and the mass is neither restatement nor junk: 132 of those 138 blocks
-cite a spec, 109 also carry rationale, and 2 of 2,526 blocks duplicate
-spec or doctrine prose (obs:a81cee76). Every such block is an untested
+(obs:a81cee76, the issue correction and the tower-front-door Task 1 PR in
+Sources). Source comments are the largest such surface: `scripts/*.sh`
+carries 20,807 comment lines against 33,843 code lines, over 40 percent of
+them (8,729 lines) in 138 blocks of 25 lines or more, and the mass is
+neither restatement nor junk: 132 of those 138 blocks cite a spec, 109 also
+carry rationale, and 2 of 2,526 blocks duplicate spec or doctrine prose
+(the 2026-09-03 comment inventory and the issue correction, Sources). Every
+such block is an untested
 assertion about behaviour that the rigor lenses will keep reconciling with
 the code, forever, at a commit and a sign-off decision each.
 
@@ -75,14 +77,15 @@ work, is recorded in D-1 and cited here from the goal.
   two phases, evidence-free blocks by rule and the large evidenced headers
   by reading, with the verification method as a deliverable: reproducible
   measurement, mechanical code-invariance, and an independent reading pass
-  recorded in each cleanup PR.
+  recorded in each cleanup PR (in full for Phase B, on a named sample for
+  Phase A).
 - Closing the deliverables gap for the scripts reachable through neither a
   commit trailer nor an owning bundle's deliverables, in the bundles that
   own them.
 
 ### Out of scope
 
-- Relocating the sign-off marker to a commit trailer and moving the approval
+- Relocating the pending-sign-off marker to a commit trailer and moving the approval
   act to the merge (planwright issue #384). This bundle names the marker
   abstractly and records the sequencing risk with that work in D-5; it does
   not change the carrier or the approval semantics.
@@ -116,8 +119,11 @@ work, is recorded in D-1 and cited here from the goal.
   an enumeration the diff contradicts); documentation missing for behaviour
   or a contract the change introduces (a config knob without its reference
   row, a flag without usage text, a new script without its purpose stated);
-  and a violation reported by a documentation guard the project ships.
-  *(Cites: D-2, obs:a81cee76, obs:0d6a3ed8.)*
+  a violation reported by a documentation guard the project ships; and prose
+  two readers would act differently on (an interpretation fork), the code
+  set's counterpart of the spec lens set's ambiguity lens.
+  *(Cites: D-2, obs:a81cee76, obs:0d6a3ed8, obs:c2afd203, obs:fb37c4bf,
+  kickoff §3 REQ-A (2026-09-04).)*
 - **REQ-A1.2** Across every lens set in `doctrine/artifact-lenses.md`, prose
   that is merely improvable (phrasing, emphasis, or a precision preference)
   with no falsifying code, no contradicting sibling statement, and no reader
@@ -133,12 +139,22 @@ work, is recorded in D-1 and cited here from the goal.
 ## REQ-B — Prose finding classification
 
 - **REQ-B1.1** A validated finding whose fix edits only prose (comments,
-  documentation, doctrine, skill instructions, or configuration commentary)
-  SHALL be classed on the meta-spec's amendment axis: expression-only when no
-  normative statement changes meaning (no MUST, SHALL, SHALL NOT, or MAY, no
-  threshold, enumerated value, or interface fact is added, removed, or
-  altered), meaning-class otherwise.
-  *(Cites: D-3, spec-format (Sources).)*
+  documentation, doctrine, skill instructions, spec bundles, or
+  configuration commentary) SHALL be classed by extending the meta-spec's
+  amendment axis to prose: expression-only when no normative statement
+  changes meaning, meaning-class otherwise (the meta-spec's rule that a new
+  REQ or D-ID is meaning-class stands unchanged; an added sentence that
+  states no normative statement is expression-only). A normative
+  statement is any statement of obligation, permission, or prohibition
+  however it is worded, plus any threshold, enumerated value, or interface
+  fact; it changes meaning when it is added, removed, or altered. For the
+  preservation check the statements are enumerated with the help of a word
+  list kept in `doctrine/finding-categorization.md`, seeded with the RFC
+  keywords (MUST, SHALL, SHALL NOT, MAY) and the plain imperatives (never,
+  always, only, must not) and grown on evidence by the ordinary
+  doctrine-edit route (a changelog line, expression-only unless a rule
+  changes); the list is the check's search aid, never the definition.
+  *(Cites: D-3, spec-format (Sources), kickoff §3 REQ-B (2026-09-04).)*
 - **REQ-B1.2** An expression-only prose fix SHALL satisfy the Auto-applicable
   tool-grounding condition in one of two ways: a rule reported by a prose
   guard the project ships (the doctrine index and link checks, the
@@ -148,15 +164,17 @@ work, is recorded in D-1 and cited here from the goal.
   identical, performed as `doctrine/validation-rigor.md`'s non-testable
   substitute. The audit row SHALL carry the grounding used.
   *(Cites: D-3, obs:0d6a3ed8.)*
-- **REQ-B1.3** The "any external contract" clause in the Auto-applicable and
-  Needs-sign-off predicates SHALL be defined for prose as a normative rule a
-  reader outside the PR relies on; wording that changes no such rule is not an
-  external-contract change and SHALL NOT route to Needs sign-off on that
-  clause alone.
+- **REQ-B1.3** The Auto-applicable external-contract disqualifier ("any
+  external contract") and the Needs-sign-off external-interface route ("any
+  external interface") in `doctrine/finding-categorization.md` SHALL be
+  defined for prose as a normative rule a reader outside the PR relies on;
+  wording that changes no such rule is not an external-contract change and
+  SHALL NOT route to Needs sign-off on either clause alone.
   *(Cites: D-3.)*
 - **REQ-B1.4** The prose of a file the PR itself introduces (a
-  documentation, doctrine, or skill file absent from the PR's base, whole;
-  the comments of a new code file) SHALL carry no external contract until
+  documentation, doctrine, or skill file absent from the PR's base under
+  git's rename detection, whole; the comments of a new code file; a moved or
+  renamed file is pre-existing) SHALL carry no external contract until
   the PR merges: review-loop edits to that prose are internal, applied and
   batched with the iteration's action commit, and reviewed as part of the
   new content in the PR diff. The code of a new file keeps the existing
@@ -171,20 +189,23 @@ work, is recorded in D-1 and cited here from the goal.
 ## REQ-C — Commit discipline for prose
 
 - **REQ-C1.1** Needs-sign-off fixes that edit only prose SHALL batch into one
-  commit per loop iteration whose body carries a manifest: one line per fix
-  naming the file, the rule as it read before, and the rule as it reads
-  after. The pending-sign-off marker, in whatever carrier
-  `doctrine/gate-wiring.md` defines at the time, is stamped once on the
-  batch.
-  *(Cites: D-5.)*
+  commit per loop iteration (one act-then-review cycle of the review loop,
+  a term `doctrine/gate-wiring.md` SHALL define where the batching rule
+  lands) whose body carries a commit manifest: one line per fix
+  naming the file, the rule as it read before (`absent` for an added
+  passage), and the rule as it reads after. The pending-sign-off marker, in
+  whatever carrier `doctrine/gate-wiring.md` defines at the time, is stamped
+  once on the batch.
+  *(Cites: D-5, obs:2e9b7741, obs:77e452b4, obs:2bba6bcf.)*
 - **REQ-C1.2** The pending-sign-off checklist SHALL render a batched commit
   as one entry with one sub-item per manifest line, carrying the batch's
   revert command and stating that rejecting a single sub-item is a hand edit
-  guided by the manifest.
+  guided by the commit manifest.
   *(Cites: D-5.)*
 - **REQ-C1.3** One commit per finding SHALL remain the rule for any
-  Needs-sign-off fix that changes code behaviour, so a targeted revert stays
-  available exactly where it matters.
+  Needs-sign-off fix that changes code behaviour, including a fix that edits
+  code and its prose together, so a targeted revert stays available exactly
+  where it matters.
   *(Cites: D-5.)*
 - **REQ-C1.4** The Needs-sign-off audit table SHALL keep one row per finding
   for a batched commit, rows sharing the commit and the checklist id, so the
@@ -199,10 +220,13 @@ work, is recorded in D-1 and cited here from the goal.
   doctrine sections, restating at most the one-line gist each step needs.
   *(Cites: D-6, obs:8fa65f3f, instruction-hygiene (Sources).)*
 - **REQ-D1.2** Landing the doctrine amendments SHALL include a
-  surface-pattern sweep over `skills/`, `doctrine/`, and `docs/` for the
-  superseded wording (the unbatched one-commit-per-finding rule, the
-  unscoped Documentation lens phrasing), with every straggler updated in the
-  same change, per `doctrine/validation-rigor.md`'s contract-reword rule.
+  surface-pattern sweep over `doctrine/` and `docs/` for the superseded
+  wording, and the skill instantiation that follows SHALL sweep `skills/`,
+  each with every straggler updated in the same change, per
+  `doctrine/validation-rigor.md`'s contract-reword rule. The patterns are at
+  least the literal phrases `one per finding`, `never batched`, and
+  `Documentation (docstrings`, and the only permitted surviving hits are
+  under `specs/` (changelogs, this bundle) and `specs/_observations/`.
   *(Cites: D-6, obs:8fa65f3f.)*
 - **REQ-D1.3** The instruction-budget guard SHALL pass after the amendments
   with no new raise entry; a warn-threshold crossing on an amended rule doc
@@ -226,7 +250,11 @@ work, is recorded in D-1 and cited here from the goal.
   as the file's bounded usage section; a cross-file protocol moves to the
   doctrine or design page that owns it, with a one-line pointer left behind;
   restatement and history are deleted; a warning against a wrong edit stays
-  beside the code it guards.
+  beside the code it guards. The doc SHALL state how the taxonomy maps onto
+  REQ-E1.1: the why and the warning are admitted reasons (a constraint
+  invisible at that spot is a why); an own-surface contract is the admitted
+  caller-contract reason; a cross-file protocol is not admitted in a comment
+  beyond its one-line pointer; restatement and history are the prohibitions.
   *(Cites: D-8, drafting-session decision (2026-09-03).)*
 - **REQ-E1.3** The doc SHALL state the comment-block budget model: the unit
   is the largest contiguous comment block per file, thresholds are in lines
@@ -234,64 +262,98 @@ work, is recorded in D-1 and cited here from the goal.
   and two suppression forms exist, each requiring a recorded reason.
   *(Cites: D-9.)*
 - **REQ-E1.4** The doc SHALL be enrolled in the doctrine index and cited by
-  the guard's header as its normative home, and the guard's own header SHALL
-  stay within the budget the guard enforces.
+  the guard's header as its normative home, and the guard's own largest
+  comment block SHALL stay under the warn threshold it enforces (usage text
+  printed from code is not a comment block).
   *(Cites: D-7, obs:a3c3d55b.)*
 - **REQ-E1.5** The provenance rule SHALL name where the script-to-spec link
   lives instead of the comment: the commit's task trailer and the owning
-  bundle's task deliverables. A script reachable through neither is a
-  deliverables gap to close in the owning bundle, never a citation to add to
-  the script.
-  *(Cites: D-14, drafting-session decision (2026-09-03).)*
+  bundle's task deliverables. A script is linked when its basename appears
+  in any bundle's `tasks.md` or `design.md`, or when any commit touching it
+  carries a `Planwright-Task:` trailer; a script reachable through neither is
+  a deliverables gap to close in its owning bundle, never a citation to add
+  to the script. The owning bundle is the one the script's first
+  `Planwright-Task:` trailer names; absent any trailer, the bundle whose
+  decisions the script implements, chosen and stated with its reason in the
+  cleanup PR body. The unlinked set is recomputed by that test, per family
+  by each Phase B task and whole at closeout, never carried as a list.
+  *(Cites: D-14, drafting-session decision (2026-09-03), the script-to-spec
+  link measurement (Sources), kickoff §3 REQ-E (2026-09-04).)*
 
 ## REQ-F — Comment-block budget guard
 
 - **REQ-F1.1** `scripts/check-comment-budget.sh` SHALL measure, for every
   file in its surface, the largest contiguous run of comment lines, where a
   comment line is optional leading whitespace followed by `#` excluding the
-  shebang, and a blank line or a code line ends the run, and SHALL compare
+  shebang, a code line is a non-blank non-comment line, and a blank line or
+  a code line ends the run, and SHALL compare
   that length against the `comment_block_warn` and `comment_block_error`
   knobs with boundary-inclusive comparison, reporting a warning or an error
-  per offending file with the block's starting line.
+  per offending file with the block's starting line. A warning SHALL leave
+  the exit status zero; an unsuppressed error SHALL exit non-zero.
   *(Cites: D-9, D-10.)*
-- **REQ-F1.2** The guard's surface SHALL be every tracked file whose comment
-  syntax is `#` under `scripts/`, `tests/`, `githooks/`, `hooks/`, and
-  `config/` (shell and YAML); the definition of a comment line SHALL be
+- **REQ-F1.2** The guard's surface SHALL be, among tracked files: shell
+  files (`*.sh`, and the extensionless shebang-bearing hooks in
+  `githooks/`) under `scripts/`, `tests/`, `githooks/`, and `hooks/`; YAML
+  files (`*.yml`, `*.yaml`) under `config/`; and the root-level tool
+  configuration `lefthook.yml` and `mise.toml` and the workflow YAML under
+  `.github/workflows/`. Other files under those directories (the
+  suppression list itself, JSON, seeds) are outside it. The definition of a
+  comment line SHALL be
   stated once in the guard's usage text with its known limit, that a heredoc
   body line beginning with `#` counts as a comment line, named honestly.
   *(Cites: D-10, obs:949b0ba3.)*
 - **REQ-F1.3** The guard SHALL read `config/comment-budget-exemptions.txt`
   as data with two forms: `exempt|<path>|<reason>`, permanent with a standing
-  reason, and `pending-cleanup|<path>|Task <N>|<reason>`, transitional,
-  removed by that task's own PR and refused when `--closeout` is passed. A
-  reason-less or malformed entry SHALL be an error; an entry whose file no
-  longer trips any threshold SHALL be a named cleanup warning, never an
-  error.
+  reason (an own-surface section with no other home, or a file where the
+  heredoc limit misfires), and `pending-cleanup|<path>|Task <N>|<reason>`,
+  transitional, naming the Phase B task whose family owns the file and
+  removed by that task's PR at the latest (an earlier cleanup PR that brings
+  the file under threshold removes it, the stale-entry warning being the
+  signal). Under `--closeout` every `pending-cleanup` entry SHALL be an error
+  regardless of the file's current measurement. Otherwise a reason-less or
+  malformed entry SHALL be an error, and an entry whose file no longer trips
+  any threshold SHALL be a named cleanup warning, never an error.
   *(Cites: D-9, D-11.)*
 - **REQ-F1.4** The knobs SHALL live in `config/defaults.yml`, resolve through
   the four-layer configuration chain, be documented in the options reference
   under the existing coverage guard, and abort the guard fail-loud when
   missing or non-numeric.
   *(Cites: D-9.)*
-- **REQ-F1.5** `--audit` SHALL emit the per-file inventory (block count,
+- **REQ-F1.5** `--audit [<path>]` SHALL emit, over the surface under the
+  working tree or the given path, the per-file inventory (block count,
   comment lines, code lines, the largest block and its starting line) ranked
-  by largest block, plus corpus totals, and SHALL classify each block of two
-  or more lines by its evidence (cites a spec, requirement, decision, or task
-  identifier; carries rationale language; neither), with the patterns used
-  stated in the usage text. Run against the `v0.36.0` tree, it SHALL
-  reproduce the recorded 2026-09-03 headline figures in Sources.
-  *(Cites: D-12, obs:a81cee76.)*
+  by largest block, plus corpus totals, where a block throughout the audit
+  is a run of two or more comment lines, and SHALL classify each block by
+  its evidence (cites a spec, requirement, decision, or task identifier;
+  carries rationale language; neither), reporting words per block
+  informationally, with the patterns used stated in the usage text. Run
+  over the `v0.36.0` tree's `scripts/*.sh` (materialized from the tag into
+  a temporary directory), it SHALL reproduce the pattern-independent
+  headline figures in Sources (the count of blocks and their line total,
+  the count of blocks at or above the error threshold and their line total)
+  and SHALL record the largest block and its evidence-class counts as the
+  baseline of record, since the largest-block figure differs by a boundary
+  between the two sources and the patterns behind the 2026-09-03 counts
+  were not recorded.
+  *(Cites: D-9, D-12, obs:a81cee76, the 2026-09-03 comment inventory
+  (Sources), kickoff §3 REQ-F (2026-09-04).)*
 - **REQ-F1.6** `--code-invariant <ref>` SHALL compare, for every surface
-  file changed between `<ref>` and the working tree, the sequence of
-  non-comment lines, and SHALL exit non-zero naming any file whose
-  non-comment content differs.
+  file changed between the merge-base of `<ref>` and the working tree, the
+  sequence of code lines (non-blank non-comment lines), treating a surface
+  file added or deleted since the merge-base as a difference, and SHALL
+  exit non-zero naming any file whose code-line sequence differs.
   *(Cites: D-12.)*
 - **REQ-F1.7** The guard SHALL be wired as a `check:comment-budget` task
   inside `mise run check`, so the CI gate runs it, with `--closeout` passed by
-  planwright's own task once the cleanup completes, and SHALL have a
+  planwright's own task once the cleanup completes, SHALL have a
   staged-path-scoped pre-commit mirror job with the same best-effort,
-  CI-normative posture as the anchor-freshness job.
-  *(Cites: D-9, D-11, anchor-integrity (Sources).)*
+  CI-normative posture as the anchor-freshness job, and SHALL have a
+  PR-only CI step, patterned on the existing base-ref steps, that runs
+  `--code-invariant` against the base branch when the PR title's scope is
+  `comments` and skips otherwise.
+  *(Cites: D-9, D-11, D-12, anchor-integrity (Sources), kickoff §5
+  (2026-09-04).)*
 - **REQ-F1.8** Every input the guard reads (file contents, the suppression
   list, knob values) SHALL be treated as untrusted data: nothing is passed to
   a shell for evaluation, paths resolve inside the repository root, and
@@ -299,62 +361,116 @@ work, is recorded in D-1 and cited here from the goal.
   *(Cites: D-9, security-posture (Sources).)*
 - **REQ-F1.9** The guard SHALL ship with tests covering threshold arithmetic
   and boundary inclusivity, shebang exclusion, run-breaking on blank and code
-  lines, the heredoc limit, every suppression form including malformed and
-  stale entries, `--closeout`, `--audit` output shape, and
-  `--code-invariant` on a changed and an unchanged file.
+  lines, the heredoc limit, the surface and its exclusions, every
+  suppression form including malformed and stale entries, `--closeout`,
+  `--audit` output shape and its block floor, `--code-invariant` on a
+  changed and an unchanged file and on an added file, knob resolution
+  through the configuration chain and the fail-loud abort, the
+  untrusted-input refusals, the shipped defaults, the generated baseline,
+  and the guard header's citation of the rule doc.
   *(Cites: D-9.)*
 - **REQ-F1.10** The shipped defaults SHALL be a warn threshold of 12 lines
   and an error threshold of 25 lines, and the guard SHALL land with a
   generated `pending-cleanup` allowance for every file the error threshold
-  catches at landing, each naming the cleanup task that removes it, so the
-  aggregate check stays green from the day the guard lands.
+  catches at landing, each naming the Phase B task whose family owns the
+  file, so the aggregate check stays green from the day the guard lands.
   *(Cites: D-9, D-11, obs:a81cee76.)*
 
 ## REQ-G — Cleanup and verification
 
-- **REQ-G1.1** No cleanup commit SHALL land before the doctrine amendments
-  and the skill instantiation have merged; the cleanup tasks carry explicit
-  dependency edges on them.
-  *(Cites: D-13.)*
-- **REQ-G1.2** Phase A SHALL disposition every evidence-free block (no
-  rationale language and no spec citation, per the inventory's
-  classification) under the taxonomy: deleted where the code carries the
-  information, kept where it names a non-obvious why or a warning. Its PR
-  SHALL carry the `--audit` figures before and after and the evidence-free
-  count remaining.
-  *(Cites: D-8, D-12.)*
+- **REQ-G1.1** Neither the rule doc, nor the guard, nor any cleanup commit
+  SHALL land before the doctrine amendments and the skill instantiation have
+  merged, and the guard SHALL land before the first cleanup commit; the
+  rule-doc, guard, and cleanup tasks carry explicit dependency edges
+  enforcing that order.
+  *(Cites: D-13, kickoff §4 (2026-09-04).)*
+- **REQ-G1.2** Phase A SHALL disposition every evidence-free block (a block
+  of two or more lines with no rationale language and no spec citation, per
+  the inventory's classification) under the taxonomy: deleted where the
+  code carries the information, kept where it names a non-obvious why or a
+  warning. Its PR SHALL carry the `--audit` figures before and after, the
+  list of kept evidence-free blocks each with its reason (completeness:
+  the after-audit's evidence-free count equals that list's length), and the
+  independent reading pass's record over a named sample of at least ten
+  kept blocks across at least three files, or all of them if fewer, with
+  every disagreement resolved before merge.
+  *(Cites: D-8, D-12, kickoff §8 lens pass (2026-09-04).)*
 - **REQ-G1.3** Phase B SHALL read every block at or above the error
-  threshold and disposition it block by block under the taxonomy, remove
-  provenance per REQ-E1.1, relocate cross-file protocol text to its owning
-  doctrine doc or a design page with a pointer, keep own-surface usage
-  sections bounded, and record an `exempt` entry with its reason for a
-  genuinely long own-surface section with no other home.
-  *(Cites: D-8, D-13, D-14.)*
-- **REQ-G1.4** Every cleanup PR SHALL pass `--code-invariant` against its
-  base, proving the change touched comments only, and SHALL pass the
-  project's shell format and lint checks.
-  *(Cites: D-12.)*
+  threshold in the audit run at the task's start and disposition it block
+  by block under the taxonomy, remove provenance per REQ-E1.1, relocate
+  cross-file protocol text to its owning doctrine doc or a design page with
+  a pointer (a relocated page opens with a one-paragraph summary and names
+  the scripts that implement the protocol), keep own-surface usage sections
+  bounded (under the error threshold, or printed from code), and record an
+  `exempt` entry with its reason only for an own-surface section that
+  remains over the error threshold because the taxonomy offers it no split
+  and no other home.
+  *(Cites: D-8, D-13, D-14, kickoff §8 lens pass (2026-09-04).)*
+- **REQ-G1.4** Every Phase A and Phase B cleanup PR SHALL declare itself
+  with a `comments` title scope, SHALL pass `--code-invariant` against its
+  base in the PR-only CI step that runs on declared PRs, proving that no
+  code line in a surface file changed (edits to non-surface files, such as
+  relocated protocol pages and owning-bundle amendments, are reviewed in
+  the diff), SHALL record that result in its PR body beside the audit
+  figures, and SHALL pass the project's shell format and lint checks.
+  *(Cites: D-12, kickoff §5 (2026-09-04).)*
 - **REQ-G1.5** Every Phase B PR SHALL carry an independent verification
   record: a second reading pass, from a fresh session or a non-Anthropic
   review backend, that confirms for each touched file that every removed
   line's information is recoverable from the code, the git history, or the
   named destination, and that every surviving block names its taxonomy
-  reason; disagreements are dispositioned in the PR before merge.
-  *(Cites: D-12, drafting-session decision (2026-09-03).)*
+  reason, each relocation its destination, and each `exempt` entry its
+  reason; every disagreement is resolved by the author in the PR before
+  merge (the line restored or the record amended), and the operator's merge
+  is the binding approval.
+  *(Cites: D-12, drafting-session decision (2026-09-03), kickoff §8 lens
+  pass (2026-09-04).)*
 - **REQ-G1.6** The cleanup SHALL close the deliverables gap for every script
-  reachable through neither a commit trailer nor an owning bundle's
-  deliverables, by naming the script in its owning bundle's task deliverables
-  as an expression-only amendment with the changelog entry and self-re-anchor
-  the meta-spec requires.
+  REQ-E1.5's link test finds unlinked, by naming the script in its owning
+  bundle's task deliverables (owner per REQ-E1.5) as an expression-only
+  amendment with the changelog entry and self-re-anchor the meta-spec
+  requires.
   *(Cites: D-14, spec-format (Sources).)*
 - **REQ-G1.7** The cleanup is complete when `check:comment-budget --closeout`
   passes with zero `pending-cleanup` entries, every remaining `exempt` entry
   carries its reason, and the final `--audit` figures are recorded in the
-  closeout PR beside the 2026-09-03 baseline.
+  closeout PR beside the Task 4 baseline of record.
   *(Cites: D-12, D-13.)*
 
 ## Changelog
 
+- 2026-09-04 — Kickoff walkthrough: the Documentation lens gains an
+  interpretation-fork class (REQ-A1.1); a normative statement is defined by
+  meaning, with a word list as the search aid (REQ-B1.1); a renamed file is
+  pre-existing (REQ-B1.4); manifest and mixed-fix wording (REQ-C1.1,
+  REQ-C1.3); the script-to-spec link test stated (REQ-E1.5); code line
+  defined (REQ-F1.1, REQ-F1.6); root config files join the surface
+  (REQ-F1.2, D-10); transitional-entry removal timing (REQ-F1.3); the
+  reproduction target narrowed and the Task 4 audit made the baseline of
+  record (REQ-F1.5, REQ-G1.7); Phase A spot-check sample (REQ-G1.2); a
+  Deferred normative-diff guard; the rule doc and the guard wait for the
+  skill instantiation (Tasks 3 and 4 depend on Task 2, enforcing D-13,
+  REQ-G1.1); code invariance enforced by a PR-only CI step on PRs declaring
+  a `comments` title scope (REQ-F1.7, REQ-G1.4); two decision domains moved
+  to touched-and-decided in the design's cross-cutting walk. Sign-off lens
+  pass: the audit takes a path, counts blocks of two or more lines, reports
+  words per block, and reproduces the Sources figures over `scripts/*.sh`
+  at the tag with the largest block recorded rather than reproduced
+  (REQ-F1.5); invariance compares against the merge-base and treats added
+  or deleted surface files as differences (REQ-F1.6); warn leaves the exit
+  zero (REQ-F1.1); the surface is stated per directory (REQ-F1.2);
+  transitional entries name Phase B tasks and are errors under closeout
+  (REQ-F1.3, REQ-F1.10); the guard's own block stays under warn (REQ-E1.4);
+  the sweep splits by surface between Tasks 1 and 2 with literal patterns
+  (REQ-D1.2); the owning-bundle tie-break (REQ-E1.5, REQ-G1.6); Phase A's
+  sample rule, completeness test, and independent pass (REQ-G1.2); Phase
+  B's block set, exempt binding, and relocated-page shape (REQ-G1.3);
+  invariance scope and claim (REQ-G1.4); disagreement resolution and the
+  operator's merge as binding approval (REQ-G1.5); the extended test list
+  (REQ-F1.9); the taxonomy-to-reasons mapping (REQ-E1.2); vocabulary fixes
+  (commit manifest, loop iteration, spec bundles as prose, the
+  pending-sign-off marker); figure and citation repairs in the Goal and
+  Sources.
 - 2026-09-03 — Initial draft: bundle elicited from the comment-volume
   measurement, the tower-front-door Task 1 sign-off record, and the issue
   correction that reframed the problem onto the disposition machinery; four
@@ -389,7 +505,10 @@ work, is recorded in D-1 and cited here from the goal.
   guard's `--audit` once Task 4 lands): 2,526 blocks of two or more comment
   lines, 20,119 lines; 138 blocks at 25 lines or more holding 8,729 lines;
   1,422 evidence-free blocks holding 5,224 lines; 2 blocks duplicating spec
-  or doctrine prose; the largest block 251 lines.
+  or doctrine prose; the largest block 251 lines (252 in issue #391's table
+  and in obs:a81cee76, a boundary difference). The classifier patterns behind the evidence
+  classes were not recorded, so the Task 4 audit run is the baseline of
+  record for those counts.
 - **The script-to-spec link measurement** (2026-09-03 drafting session): of
   130 scripts, 67 are named in an owning bundle's tasks or design, 77 carry a
   task trailer somewhere in their history, 102 have at least one of the two,
@@ -422,8 +541,9 @@ work, is recorded in D-1 and cited here from the goal.
   owns; this bundle's batching is written against them abstractly.
 - **planwright issues #384, #383, #380** — the adjacent work named in Out of
   scope.
-- **Prior bundles**: bootstrap (owner of the three amended doctrine docs and
-  the four-bucket taxonomy), prompt-hygiene and instruction-headroom (the
+- **Prior bundles**: bootstrap (owner of the three composing-rule docs and
+  the four-bucket taxonomy), inception (owner of `artifact-lenses.md` and
+  its lens sets), prompt-hygiene and instruction-headroom (the
   budget-guard shape, the suppression-list convention, the transitional
   allowance and closeout pattern), output-hygiene (the marker and PR-body
   contract), anchor-integrity (the pre-commit mirror posture), skill-rigor

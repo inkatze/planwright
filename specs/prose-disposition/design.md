@@ -1,7 +1,7 @@
 # Prose disposition — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-09-03
+**Status:** Ready
+**Last reviewed:** 2026-09-04
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -44,10 +44,12 @@ value and local work.
 
 ### D-2: The Documentation lens gets a defect class  (N)
 
-**Decision:** The code lens set's Documentation lens flags three things and
+**Decision:** The code lens set's Documentation lens flags four things and
 nothing else: prose the change falsifies or leaves stale, documentation
-missing for behaviour or a contract the change introduces, and a violation
-a shipped documentation guard reports. A cross-set sentence in the
+missing for behaviour or a contract the change introduces, a violation
+a shipped documentation guard reports, and prose two readers would act
+differently on (an interpretation fork, the code set's counterpart of the
+spec set's ambiguity lens). A cross-set sentence in the
 artifact-lenses doc states that merely improvable prose is not a finding in
 any lens set, and every documentation finding names its class. The
 coverage-table row carries the class per finding.
@@ -71,6 +73,8 @@ readers (a claim the code contradicts) and removes the finding that only
 costs them (a phrasing that could be sharper), without touching the
 no-pruning discipline: the coverage row still emits, now with the class
 that shows whether a pass stayed inside its scope.
+*(Amended at kickoff walkthrough 2026-09-04: interpretation-fork class
+added, so REQ-A1.1's classes cover every conjunct of REQ-A1.2's test.)*
 
 ### D-3: Prose findings ride the meta-spec's amendment axis  (N)
 
@@ -80,7 +84,12 @@ amendments. Expression-only prose is Auto-applicable: its grounding is
 either a prose-guard rule or a recorded normative-preservation check (the
 normative statements of the passage listed before and after, identical),
 its fix is mechanical by construction, and no behaviour changes because no
-rule changed. Meaning-class prose to a pre-existing surface keeps the
+rule changed. A normative statement is any obligation, permission, or
+prohibition however worded, plus thresholds, enumerated values, and
+interface facts; the categorization doc keeps a word list (RFC keywords
+plus the plain imperatives) as the check's search aid and grows it on
+evidence, and a future normative-diff guard is the mechanism that list
+seeds (a Deferred entry in `tasks.md`). Meaning-class prose to a pre-existing surface keeps the
 Needs-sign-off route, and on a signed bundle is refused to the kickoff
 re-walkthrough. "External contract", for prose, means a normative rule a
 reader outside the PR relies on.
@@ -101,6 +110,9 @@ reader outside the PR relies on.
 **Chosen because:** the axis exists, has a human-classified precedent at
 every sign-off, and is what the meta-spec's writer obligations already key
 on; reusing it costs one paragraph and no new vocabulary.
+*(Amended at kickoff walkthrough 2026-09-04: normative statement defined by
+meaning rather than by the RFC keywords alone, since planwright's doctrine
+states most rules as plain imperatives; a word list is the search aid.)*
 
 ### D-4: A prose surface the PR introduces carries no external contract until it merges  (N)
 
@@ -210,8 +222,9 @@ last-write-wins, a fence's semantics) moves to the doctrine doc or a design
 page that owns it, with a one-line pointer left behind. Restatement of what
 the code does and history (task numbers, risk rows, review notes) are
 deleted. A warning against a plausible wrong edit stays beside the code it
-guards. An `exempt` entry is reserved for an own-surface section that is
-genuinely long and has no other home.
+guards. An `exempt` entry is reserved for an own-surface section that
+remains over the error threshold because the taxonomy offers it no split
+and no other home, and for a file where the heredoc limit misfires (D-10).
 
 **Alternatives considered:**
 - One destination for all survivors (a design page per script family).
@@ -258,10 +271,12 @@ throughout.
 where the surfaces are alike and departs only where comments differ from
 instruction files.
 
-### D-10: Surface — every tracked `#`-commented file under scripts, tests, githooks, hooks, config  (N)
+### D-10: Surface — every tracked `#`-commented file under scripts, tests, githooks, hooks, config, plus root tool config  (N)
 
 **Decision:** Shell files under `scripts/`, `tests/` (including its sourced
-library), `githooks/`, and `hooks/`, plus YAML under `config/`. The
+library), `githooks/`, and `hooks/`, plus YAML under `config/`, plus the
+root-level tool configuration (`lefthook.yml`, `mise.toml`) and the workflow
+YAML under `.github/workflows/`. The
 comment-line definition is stated once in the guard's usage text with its
 known limit: a heredoc body line beginning with `#` counts as a comment
 line, and a file where that misfires takes an `exempt` entry naming it.
@@ -276,6 +291,9 @@ line, and a file where that misfires takes an `exempt` entry naming it.
 
 **Chosen because:** `#` is the one comment syntax across these files, so one
 definition covers them all, and the limit is named rather than hidden.
+*(Amended at kickoff walkthrough 2026-09-04: root-level tool configuration
+and workflow YAML added; same syntax, and the workflow-header drift cited in
+Sources is the defect class the guard exists for.)*
 
 ### D-11: The guard lands green, with a generated transitional baseline  (N)
 
@@ -299,12 +317,14 @@ passes `--closeout` once the cleanup completes.
 **Decision:** Each cleanup PR proves itself three ways. Reproducible
 measurement: the guard's `--audit` is the inventory, run before and after,
 figures in the PR body. Mechanical code invariance: `--code-invariant`
-compares the non-comment lines of every touched file against the base and
-fails on any difference. Independent reading: a second pass from a fresh
-session or a non-Anthropic review backend confirms every removed line is
-recoverable from the code, the history, or its named destination, and every
-surviving block names its taxonomy reason; disagreements are dispositioned
-in the PR.
+compares the code lines (non-blank, non-comment) of every touched surface
+file against the merge-base and fails on any difference. Independent
+reading: a second pass from a fresh session or a non-Anthropic review
+backend confirms every removed line is recoverable from the code, the
+history, or its named destination, and every surviving block names its
+taxonomy reason (in full for Phase B; over a named sample for Phase A);
+disagreements are resolved by the author in the PR, and the operator's
+merge is the binding approval.
 
 **Alternatives considered:**
 - The author's own verification. Rejected because: the operator requires the
@@ -317,6 +337,11 @@ in the PR.
 
 **Chosen because:** the first two legs are cheap and exact, and the third is
 scoped to what only a reader can judge.
+*(Amended at kickoff walkthrough 2026-09-04: the code-invariance leg is
+enforced by a PR-only CI step on PRs declaring a `comments` title scope,
+using the base-ref plumbing and title lint the workflow already has, so a
+cheap exact leg is a gate rather than an author attestation; the worker
+still records the result in the PR body for the second reader.)*
 
 ### D-13: Ordering — doctrine, skills, guard, Phase A, Phase B, closeout  (N)
 
@@ -339,14 +364,19 @@ explicit dependency edges on the doctrine tasks.
 skills apply the doctrine, the guard measures the cleanup, the closeout
 proves the guard.
 
-### D-14: Provenance leaves source; the 28-script gap closes at its source  (N)
+### D-14: Provenance leaves source; the deliverables gap closes at its source  (N)
 
 **Decision:** No spec, requirement, decision, or task identifier, PR link,
 or review note remains in a comment. The script-to-spec link lives in the
-commit's task trailer and the owning bundle's task deliverables. The 28
-scripts today reachable through neither are named in their owning bundle's
-deliverables as expression-only amendments (changelog entry plus the
-machine self-re-anchor), riding the Phase B PR for their script family.
+commit's task trailer and the owning bundle's task deliverables. The
+scripts REQ-E1.5's link test finds unlinked (28 at the 2026-09-03
+measurement) are named in their owning bundle's deliverables as
+expression-only amendments (changelog entry plus the machine
+self-re-anchor), riding the Phase B PR for their script family; the set is
+recomputed, never carried.
+*(Amended at kickoff walkthrough 2026-09-04: the fixed 28-script list
+replaced by REQ-E1.5's recomputed test, per the meta-spec's cite-the-source
+rule.)*
 
 **Alternatives considered:**
 - Keep one owning pointer per file. Rejected because: it is one provenance
@@ -371,13 +401,31 @@ citations in code.
   config chain, the suppression-list convention, the aggregate check, the
   pre-commit mirror, and the echo sanitizer are reused rather than minted,
   D-9 through D-11); `llm-output-quality` (the disposition rules change
-  what the review loop produces and lists, D-2 through D-5);
-  `human-comprehension` (how a batched entry renders in the checklist, D-5).
-  Not applicable: `auth`, `data-storage`, `caching`, `queues-async`,
-  `concurrency`, `deploy-migration` (every change is one revert from undone),
+  what the review loop produces and lists, D-2 through D-5; the two
+  load-bearing agent reads carry their acceptance bars: the preservation
+  check by its recorded before-and-after lists with the word list as search
+  aid, REQ-B1.2, and the reading pass by resolved disagreements, REQ-G1.5);
+  `human-comprehension` (how a batched entry renders in the checklist, D-5;
+  the audit inventory ranked by largest block for the worker and reviewer,
+  REQ-F1.5; a relocated protocol page opening with a summary, REQ-G1.3);
+  `knowledge-engineering` (the five-reason taxonomy and the
+  normative-statement word list are vocabularies the surviving comments,
+  verification records, and audit rows are written in; the taxonomy decided
+  with the operator, D-8, the list grown by the ordinary doctrine-edit
+  route, REQ-B1.1); `concurrency` (the parallel Phase B PRs share the
+  exemptions file and may share an owning bundle; the merge-ordering rule
+  is in the kickoff brief's risk register); `org-design` (when the second
+  reader and the author disagree, the author resolves in the PR and the
+  operator's merge is the binding approval, REQ-G1.5). Not applicable:
+  `auth`, `data-storage`, `caching`, `queues-async`, `deploy-migration`
+  (every change is one revert from undone; a cleanup PR reverted after
+  closeout is re-admitted by a re-added transitional entry, risk register),
   `dependency-adoption` (plain portable shell, nothing new),
   `versioning-scheme`, `product-strategy`, `packaging-pricing`,
-  `knowledge-engineering`, `org-design`, `ip-posture`.
+  `ip-posture`.
+  *(Amended at kickoff walkthrough 2026-09-04: three domains moved from
+  not-applicable to touched and decided, and the acceptance bars named for
+  the two domains the sign-off lens pass found under-decided.)*
 - **Research rigor.** No trigger fired except the security-touching pattern
   (path handling over PR-controllable input), answered by applying the
   security-posture doc in REQ-F1.8; declared here so the scoping is not
