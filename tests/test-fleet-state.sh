@@ -394,7 +394,8 @@ lenv unlock || fail "unlock: non-zero exit"
 lenv unlock || fail "unlock: not idempotent"
 # The exit status above is a constant; idempotence is that the path is still
 # clear and a fresh acquire still succeeds.
-[ ! -e "$home_lock/.fleet.lock" ] || fail "unlock: a second unlock left something at the lock path"
+[ ! -e "$home_lock/.fleet.lock" ] && [ ! -L "$home_lock/.fleet.lock" ] \
+  || fail "unlock: a second unlock left something at the lock path"
 lenv lock || fail "unlock: the lock could not be re-acquired after two unlocks"
 lenv unlock || fail "unlock: non-zero exit on the trailing release"
 echo "ok: the advisory-lock primitive is exclusive, busy-safe, and idempotent"
@@ -454,7 +455,16 @@ env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   || fail "unlock against a legacy directory lock exited non-zero"
 [ ! -e "$home_uld/.fleet.lock" ] \
   || fail "unlock reported success but left the legacy directory lock standing"
-echo "ok: unlock clears a pre-symlink directory lock instead of reporting a false success"
+# A directory it CANNOT clear must not be reported as released. rmdir takes an
+# empty directory only, so this is the half an empty-directory case never sees.
+mkdir "$home_uld/.fleet.lock"
+: >"$home_uld/.fleet.lock/stray"
+rc=0
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_uld" /bin/sh "$FS" unlock >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "unlock over a non-empty directory lock exited $rc, expected 2 (it did not release it)"
+rm -rf "$home_uld/.fleet.lock"
+echo "ok: unlock clears a pre-symlink directory lock, and refuses to claim one it cannot clear"
 
 # ---------------------------------------------------------------------------
 # The one-shot `lock` verb against a STALE lock must report 0 (held), not 1.
@@ -500,7 +510,7 @@ env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
 echo "ok: breaking a lock symlink removes the link and never its target"
 
 # ---------------------------------------------------------------------------
-# stale_lock_threshold floors at 1 minute. A configured 0 would make
+# stale_lock_threshold refuses a zero and falls back to the default. A 0 makes
 # `find -mmin +0` match a lock that is merely seconds old (on BSD find, one
 # second old), so a LIVE holder mid-critical-section reads stale and its lock
 # is broken underneath it — mutual exclusion lost by configuration alone.
@@ -520,8 +530,18 @@ rc=0
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home_floor" PLANWRIGHT_LOCAL_CONFIG="$floor_pin" \
   /bin/sh "$FS" lock >/dev/null 2>&1 || rc=$?
-[ "$rc" = 1 ] || fail "a 0m threshold broke a 90s-old LIVE lock (exit $rc); the threshold must floor at 1 minute"
-echo "ok: a 0m stale_lock_threshold floors to the default instead of breaking live locks"
+[ "$rc" = 1 ] || fail "a 0m threshold broke a 90s-old LIVE lock (exit $rc); a zero threshold must floor to the default"
+# Companion: the SAME fixture with a 1m threshold must break. Without it the
+# case above passes just as well when the pinned config is never read at all,
+# because the 15m default would also decline to break a 90s-old lock.
+floor_live="$tmp/floor-live-pin.yml"
+printf 'stale_lock_threshold: 1m\n' >"$floor_live"
+rc=0
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_floor" PLANWRIGHT_LOCAL_CONFIG="$floor_live" \
+  /bin/sh "$FS" lock >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "a 1m threshold did not break the same 90s-old lock (exit $rc): the pinned config is not being read"
+echo "ok: a 0m stale_lock_threshold floors to the default, and a real 1m threshold still breaks"
 
 # ---------------------------------------------------------------------------
 # The stale threshold is resolved ONCE per process. It is read on every
@@ -553,6 +573,10 @@ sleep 2 # ~100 spins at the 20ms backoff
 rm -f "$home_cg/.fleet.lock"
 wait "$cg_pid" || fail "the contended register did not complete after the lock was released"
 cg_calls=$(wc -l <"$cg_count" | tr -d ' ')
+# The lower bound matters as much as the upper: a 0 would mean the acquire was
+# never contended and the case proved nothing.
+[ "$cg_calls" -ge 1 ] \
+  || fail "the contended acquire never resolved stale_lock_threshold at all ($cg_calls): the case did not exercise the spin"
 [ "$cg_calls" -le 2 ] \
   || fail "stale_lock_threshold was resolved $cg_calls times in one acquire (expected 1): the per-process memo is not reaching the caller"
 echo "ok: the stale threshold is resolved once per process, not once per contended spin"

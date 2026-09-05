@@ -139,11 +139,12 @@
 # POSIX sh targeting the macOS + Linux support bar (bash 3.2 / BSD tooling), not
 # strict POSIX: it deliberately uses a few widely-portable extensions — `date
 # +%s`, `find -mmin`, and a fractional `sleep` (each documented at its use site)
-# — plus mkdir/mktemp/awk, and `ln -s`/`readlink` for the advisory lock, whose
-# correctness depends on them: a missing `readlink` makes every acquire fail to
-# confirm a lock it really took, and the caller then leaves that lock standing. No eval, no jq/fish/mise (REQ-K1.5). All input is
-# treated as data. Pathname expansion is disabled (set -f): the script does no
-# intentional globbing.
+# — plus mkdir/mktemp/awk, and `ln -s`/`readlink`/`mv` for the advisory lock,
+# whose correctness depends on all three. A missing `readlink` is the sharp
+# one: acquires cannot confirm a lock they really took, and releases cannot
+# recognise their own, so locks are both falsely reported busy and leaked.
+# No eval, no jq/fish/mise (REQ-K1.5). All input is treated as data. Pathname
+# expansion is disabled (set -f): the script does no intentional globbing.
 set -uf
 
 LC_ALL=C
@@ -388,7 +389,9 @@ fleet_stale_min() {
   # lock that is merely seconds old (one second, on BSD find, which rounds the
   # age up), so a configured 0 breaks LIVE holders mid-critical-section and
   # loses mutual exclusion by configuration alone. Tested against all-zero
-  # spellings, not just "0". The sibling allocation-ledger.sh floors the same way.
+  # spellings, not just "0". allocation-ledger.sh floors to the same value by
+  # an arithmetic test; this one is a string test because the case above has
+  # already guaranteed a non-empty run of digits.
   case $fsm_v in
     *[!0]*) ;;
     *) fsm_v=15 ;;
@@ -409,8 +412,10 @@ fleet_stale_min() {
 # THE OWNER TOKEN is what makes release safe. `release_lock` reads the target
 # back and unlinks ONLY when it is still ours, so the clobber this lock family
 # documented as a known limitation — a holder returning after its lock was
-# broken and deleting the CURRENT holder's lock — cannot happen ON THE
-# IN-PROCESS PATH. The scope of that is worth stating plainly, because the
+# broken and deleting the CURRENT holder's lock — is closed ON THE IN-PROCESS
+# PATH down to a probe-then-act window: release_lock reads the target and then
+# unlinks, and a holder descheduled between those two can still unlink a
+# successor's link. The scope is worth stating plainly, because the
 # exposed `lock`/`unlock` pair does NOT get it: `lock` prints no token and
 # `unlock` accepts none, so a cross-process release is still unconditional and
 # can delete a successor's lock. Closing that means handing the token to the
@@ -428,9 +433,11 @@ fleet_stale_min() {
 # The spin budget stays well under the stale threshold so an exhausted waiter
 # fails closed rather than breaking a lock that is merely busy.
 
-# try_acquire <lockdir> — one atomic symlink create with a stale break. Exit 0
+# try_acquire <lockpath> — an atomic symlink create with a stale break. Exit 0
 # held (LOCK_TOKEN set), 1 a live holder has it (or a transient create race the
-# caller should retry), 2 a real error — never masked as a clean "busy".
+# caller should retry), 2 a real error. The 1-versus-2 split is the point of
+# the classification below, though it is not airtight: a toolchain missing
+# readlink cannot confirm a create it really made, and that reads as busy.
 LOCK_TOKEN=""
 try_acquire() {
   ta_lock=$1
@@ -470,14 +477,25 @@ try_acquire() {
       fleet_stale_min
       ta_min=$FLEET_STALE_MIN_CACHED
       if [ -d "$ta_lock" ] && [ -n "$(find "$ta_lock" -maxdepth 0 -mmin +"$ta_min" 2>/dev/null)" ]; then
-        # `rm -rf` on a SYMLINK would remove the link and not its target, but
-        # `[ ! -L ]` above already excluded that; here the path really is a
-        # directory. Keep it that way if this is ever reshaped.
+        # `rm -rf` on a SYMLINK removes the link and not its target, which is
+        # what keeps this bounded: `[ ! -L ]` above screened for a directory,
+        # but that test and this removal are separated by two forks, so a peer
+        # can replace the directory with its own live link in between and this
+        # will unlink it. Reshaping toward anything that follows links (a
+        # trailing slash, find -delete) turns that into deleting the target.
         if ! rm -rf "$ta_lock" 2>/dev/null; then
-          # Not contention: the directory cannot be removed at all (unwritable
-          # parent, a sticky parent owned by someone else, EIO). Spinning the
-          # budget out would end in a refusal blaming contention that was never
-          # there, so classify it the way the pre-break create path does.
+          # Two very different causes, and returning the wrong one is costly
+          # either way: a peer writing into the directory as we remove it is
+          # transient (ENOTEMPTY, clears on the next spin), while an unwritable
+          # or faulted parent never clears and would spin the budget out into a
+          # refusal blaming contention that was never there. Probe the parent to
+          # tell them apart, the way the pre-symlink code's mkdir_failure_kind
+          # did. dirname, not ${1%/*}: the in-shell trim yields "" for a single
+          # leading slash and would misread the probe.
+          ta_parent=$(dirname "$ta_lock")
+          if [ -d "$ta_parent" ] && [ -w "$ta_parent" ]; then
+            return 1
+          fi
           printf '%s\n' "fleet-state: cannot clear $ta_lock after stale break (home unwritable or filesystem error)" >&2
           return 2
         fi
@@ -533,17 +551,22 @@ try_acquire() {
       # try_acquire exactly once: without this it reports busy for a lock the
       # same call just freed, and disagrees with the legacy-directory break
       # directly above, which does re-acquire.
-      if ln -s "$ta_token" "$ta_lock" 2>/dev/null \
-        && [ "$(readlink "$ta_lock" 2>/dev/null)" = "$ta_token" ]; then
-        LOCK_TOKEN=$ta_token
-        return 0
+      if ln -s "$ta_token" "$ta_lock" 2>/dev/null; then
+        if [ "$(readlink "$ta_lock" 2>/dev/null)" = "$ta_token" ]; then
+          LOCK_TOKEN=$ta_token
+          return 0
+        fi
+        # Same stray drop as the other two create paths: a directory that
+        # raced in takes the link inside itself, and leaving it there both
+        # lingers and keeps refreshing that directory's mtime.
+        rm -f "$ta_lock/$ta_token" 2>/dev/null || true
       fi
     fi
   fi
   return 1
 }
 
-# spin_acquire <lockdir> — retry try_acquire until held, for a bounded budget,
+# spin_acquire <lockpath> — retry try_acquire until held, for a bounded budget,
 # so a check-and-increment or a registry append is never dropped under
 # contention (the one-shot `lock` command keeps the caller's-policy contract; an
 # internal consumer must not lose its update). A real error (rc 2) aborts at
@@ -706,6 +729,14 @@ case $cmd in
     rm -f "$lock" 2>/dev/null || true
     if [ -d "$lock" ]; then
       rmdir "$lock" 2>/dev/null || true
+    fi
+    # rmdir takes an EMPTY directory only, so a directory holding a stray (one
+    # of try_acquire's create-into-a-directory races losing its cleanup) still
+    # stands here. Saying so is the point: reporting a release that did not
+    # happen is what sends the operator away from a home that is still wedged.
+    if [ -e "$lock" ] || [ -L "$lock" ]; then
+      printf '%s\n' "fleet-state: could not release $lock (it is not a lock symlink and is not an empty directory)" >&2
+      exit 2
     fi
     exit 0
     ;;
