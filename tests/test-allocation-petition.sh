@@ -357,7 +357,7 @@ assert_sanitized 4j "$out"
   || fail "4j: the reader followed the symlinked container and consumed the outside file"
 echo "ok: every hostile artifact is consumed, ignored, and echoed sanitized"
 
-# --- 5. stale bindings: the unit/step/attempt identity is asserted --------
+# --- 5. stale bindings: the unit/step identity is asserted ----------------
 
 new_wt staleunit
 valid_body escalate other:9 impl 1 'not mine' >"$wt/.claude/allocation-petition"
@@ -367,9 +367,18 @@ new_wt stalestep
 valid_body escalate u:1 review 1 'wrong step' >"$wt/.claude/allocation-petition"
 hostile_check 5b stale-step
 
-new_wt staleattempt
-valid_body escalate u:1 impl 7 'wrong attempt' >"$wt/.claude/allocation-petition"
-hostile_check 5c stale-attempt
+# The ATTEMPT deliberately does not bind. D-7 defines staleness as "wrong unit
+# or step" and REQ-C1.6 pins the binding as "unit and step identity"; neither
+# includes the attempt count. It matters in the flow the channel exists for: a
+# worker petitions at the end of one attempt and the boundary that reads it is
+# the relaunch at the next, so an attempt-strict check would go stale on every
+# retry — the main escalate path.
+new_wt otherattempt
+valid_body escalate u:1 impl 7 'written under a different attempt' >"$wt/.claude/allocation-petition"
+out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) \
+  || fail "5c: a petition from another attempt was not weighed"
+[ "$(printf '%s\n' "$out" | field verdict)" = valid ] \
+  || fail "5c: the attempt count was treated as part of the binding"
 
 # The positive half of the same binding.
 new_wt matched
@@ -377,7 +386,7 @@ valid_body de-escalate u:1 impl 1 'the rest is mechanical' >"$wt/.claude/allocat
 out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) || fail "5d: claim failed"
 [ "$(printf '%s\n' "$out" | field verdict)" = valid ] || fail "5d: a matching petition was not weighed"
 [ "$(printf '%s\n' "$out" | field direction)" = de-escalate ] || fail "5e: direction did not round-trip"
-echo "ok: the unit/step/attempt binding is asserted in both directions"
+echo "ok: the unit/step binding is asserted both ways, and the attempt does not bind"
 
 # --- 6. a shell-metacharacter reason is data, never code ------------------
 
@@ -428,23 +437,32 @@ echo "ok: two racing consumers move the tier at most once"
 # sibling is about to weigh, leaving it to screen a file that is no longer there
 # and report the artifact malformed. Deterministic here, where case 7 only
 # catches it when the interleaving happens to be wide enough.
+#
+# The claim's age comes from its NAME, not its mtime: `mv` is rename(2) and
+# preserves mtime, so a claimed file carries the time the worker WROTE the
+# petition — normally a boundary earlier. An mtime-based guard would read every
+# ordinary petition as pre-expired and sweep live consumers, which is the very
+# defect the guard exists to prevent, so these fixtures pin the naming.
 
 new_wt livesweep
 valid_body escalate u:1 impl 1 'contested' >"$wt/.claude/allocation-petition"
-# A real live pid to own the planted claim, and one that outlives the call.
 sleep 30 &
 live_pid=$!
-printf 'x\n' >"$wt/.claude/allocation-petition.claim.$live_pid.0"
+now_s=$(date +%s)
+live_claim="$wt/.claude/allocation-petition.claim.$live_pid.$now_s.0"
+printf 'x\n' >"$live_claim"
+# Back-date the FILE while leaving the name current: an mtime-reading guard
+# sweeps this, a name-reading one does not. This is the regression pin.
+touch -t 202001010000 "$live_claim"
 out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) \
   || fail "7a2: claim alongside a live sibling's file failed"
 [ "$(printf '%s\n' "$out" | field reconciled)" = 0 ] \
   || fail "7a2: a live consumer's claim was swept as an orphan"
-[ -e "$wt/.claude/allocation-petition.claim.$live_pid.0" ] \
-  || fail "7a2: the live consumer's claim file was deleted"
+[ -e "$live_claim" ] || fail "7a2: the live consumer's claim file was deleted"
 kill "$live_pid" 2>/dev/null || true
 # `wait` reports the signal as exit 143, which `set -e` would take as fatal.
 wait "$live_pid" 2>/dev/null || true
-echo "ok: a live consumer's claim is left alone by the sweep"
+echo "ok: a live consumer's claim is left alone, judged by name and not by mtime"
 
 # The same file, once its owner is gone, IS an orphan and must be reaped. The
 # petition itself was consumed above, so this call has nothing to claim and
@@ -452,9 +470,44 @@ echo "ok: a live consumer's claim is left alone by the sweep"
 out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) || true
 [ "$(printf '%s\n' "$out" | field reconciled)" = 1 ] \
   || fail "7a3: a dead consumer's claim was not reconciled"
-[ ! -e "$wt/.claude/allocation-petition.claim.$live_pid.0" ] \
-  || fail "7a3: the dead consumer's claim file survived the sweep"
+[ ! -e "$live_claim" ] || fail "7a3: the dead consumer's claim file survived the sweep"
 echo "ok: a dead consumer's claim is reconciled as an orphan"
+
+# A claim in the pre-epoch naming shape has no claim time to trust, so it is an
+# orphan by construction: it can only predate this guard.
+new_wt legacyclaim
+valid_body escalate u:1 impl 1 'legacy' >"$wt/.claude/allocation-petition"
+printf 'x\n' >"$wt/.claude/allocation-petition.claim.$$.0"
+out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) \
+  || fail "7a4: claim alongside a legacy-named claim failed"
+[ "$(printf '%s\n' "$out" | field reconciled)" = 1 ] \
+  || fail "7a4: a pre-epoch claim name was not reconciled"
+echo "ok: a claim named in the pre-epoch shape is reconciled"
+
+# `kill -0 0` signals the caller's process GROUP and always succeeds, so a claim
+# naming pid 0 would shield itself from the sweep forever.
+new_wt pidzero
+valid_body escalate u:1 impl 1 'pid zero' >"$wt/.claude/allocation-petition"
+printf 'x\n' >"$wt/.claude/allocation-petition.claim.0.$(date +%s).0"
+out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) \
+  || fail "7a5: claim alongside a pid-0 claim failed"
+[ "$(printf '%s\n' "$out" | field reconciled)" = 1 ] \
+  || fail "7a5: a claim naming pid 0 shielded itself from the sweep"
+echo "ok: a claim naming pid 0 is not mistaken for a live owner"
+
+# One claim namespace is 16 slots, so the reconcile count is capped there: a
+# planted pile must not buy an unbounded number of ledger rows under the lock.
+new_wt floodclaims
+valid_body escalate u:1 impl 1 'flood' >"$wt/.claude/allocation-petition"
+i=0
+while [ "$i" -lt 40 ]; do
+  printf 'x\n' >"$wt/.claude/allocation-petition.claim.$$.1.$i"
+  i=$((i + 1))
+done
+out=$(pet claim --worktree "$wt" --unit u:1 --step impl --attempt 1) || true
+rec=$(printf '%s\n' "$out" | field reconciled)
+[ "$rec" -le 16 ] || fail "7a6: reconcile reported $rec, above the 16-slot cap"
+echo "ok: the reconcile count is bounded by one claim namespace"
 
 # --- 7b. `--hold` is the two-phase claim the engine needs ----------------
 #

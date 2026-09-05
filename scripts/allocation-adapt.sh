@@ -393,7 +393,7 @@ record() {
     # A failed append is an unhealthy ledger by definition: adjustments are
     # already suspended by the time this can matter, and the failure is
     # surfaced rather than swallowed (REQ-F1.1's "never silent").
-    echo "allocation-adapt: could not append to the allocation ledger for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+    printf '%s\n' "allocation-adapt: could not append to the allocation ledger for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
     DEGRADED=ledger
     return 1
   }
@@ -458,7 +458,7 @@ release_unit_lock() {
 # channel must not fail a launch); the stderr line is unconditional, which is
 # what makes "never silently" true even where no channel is configured.
 surface_degradation() {
-  echo "allocation-adapt: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' is launching DEGRADED — $1" >&2
+  printf '%s\n' "allocation-adapt: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' is launching DEGRADED — $1" >&2
   [ -x "$ATTENTION" ] || return 0
   "$ATTENTION" notify "allocation: unit $UNIT degraded — $1" >/dev/null 2>&1 || true
 }
@@ -521,7 +521,7 @@ parse_args() {
         # before it can reach a ledger row or move a tier.
         if ! alloc_event_dir "$2" >/dev/null 2>&1 \
           || [ "$(alloc_event_dir "$2")" = none ]; then
-          echo "allocation-adapt: '$(sanitize_printable "$2" "(unprintable event)")' is not a trigger event ($ALLOC_EVENTS_UP $ALLOC_EVENTS_DOWN)" >&2
+          printf '%s\n' "allocation-adapt: '$(sanitize_printable "$2" "(unprintable event)")' is not a trigger event ($ALLOC_EVENTS_UP $ALLOC_EVENTS_DOWN)" >&2
           exit 2
         fi
         EVENTS="$EVENTS $2"
@@ -540,7 +540,7 @@ parse_args() {
         shift 2
         ;;
       *)
-        echo "allocation-adapt: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
+        printf '%s\n' "allocation-adapt: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
         exit 2
         ;;
     esac
@@ -554,7 +554,7 @@ parse_args() {
   # taken a lock, and the diagnostic points at the store rather than the argument.
   case $UNIT in
     "" | *[!A-Za-z0-9._=@:-]*)
-      echo "allocation-adapt: refusing malformed unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+      printf '%s\n' "allocation-adapt: refusing malformed unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
       exit 2
       ;;
   esac
@@ -570,7 +570,7 @@ parse_args() {
   case $STEP in
     -) ;;
     "" | *[!A-Za-z0-9._=@:-]*)
-      echo "allocation-adapt: refusing malformed step '$(sanitize_printable "$STEP" "(unprintable step)")'" >&2
+      printf '%s\n' "allocation-adapt: refusing malformed step '$(sanitize_printable "$STEP" "(unprintable step)")'" >&2
       exit 2
       ;;
     *)
@@ -584,12 +584,12 @@ parse_args() {
   # verbatim, and `01` and `1` would key the same incident under two spellings.
   case $ATTEMPT in
     "" | *[!0-9]*)
-      echo "allocation-adapt: refusing non-numeric attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")'" >&2
+      printf '%s\n' "allocation-adapt: refusing non-numeric attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")'" >&2
       exit 2
       ;;
     0 | [1-9]*) ;;
     *)
-      echo "allocation-adapt: refusing attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")' — a leading zero is not a count" >&2
+      printf '%s\n' "allocation-adapt: refusing attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")' — a leading zero is not a count" >&2
       exit 2
       ;;
   esac
@@ -696,7 +696,12 @@ consume_petition() {
   # goes to stderr instead, sanitized, where the worker log keeps it beside the
   # row that records what it did.
   cp_reason=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "reason" { print $2; exit }')
-  echo "allocation-adapt: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' petitioned to $cp_dir — $(sanitize_printable "$cp_reason" "(unprintable reason)")" >&2
+  # printf, not echo: /bin/sh is dash on Linux, whose echo expands backslash
+  # escapes, so a reason containing the four literal characters \033 becomes a
+  # real ESC byte on the operator's terminal. sanitize_printable correctly
+  # leaves them alone — they ARE printable — so the sanitizer is not the leak;
+  # the echo is. This is the one surface carrying worker-authored text.
+  printf '%s\n' "allocation-adapt: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' petitioned to $cp_dir — $(sanitize_printable "$cp_reason" "(unprintable reason)")" >&2
 
   # The policy knob filters by DIRECTION. A filtered petition is still consumed
   # and recorded: the worker said something, and the audit is where an operator

@@ -91,7 +91,7 @@
 #         reason       the sanitized single-line reason (valid only)
 #         detail       why it was refused (invalid only): symlink, not-regular,
 #                      empty, oversize, control-bytes, torn, grammar,
-#                      stale-unit, stale-step, stale-attempt
+#                      stale-unit, stale-step
 #         claimed      the held claimed file's path (`--hold` only)
 #
 # Exit codes: 0 a petition was claimed (`verdict` says whether it was weighable);
@@ -125,13 +125,25 @@ PET_NAME=allocation-petition
 # The whole-file byte cap (D-7). The reason cap below keeps a well-formed
 # petition an order of magnitude under it; this bound is what stops an
 # ill-formed one from ever being read.
-# The pid-reuse guard for the claim sweep below, in minutes. A live owner pid is
-# what marks a claim as still in flight; pid numbers are reused, so a live pid on
-# a claim this old is treated as reuse rather than as an owner. Aligned with the
-# repo's stale_lock_threshold default for the same reason that one is 15: it has
-# to sit far above any real hold, and a claim's hold is milliseconds unless the
-# caller took it with --hold.
-PET_CLAIM_ORPHAN_MIN=15
+# The pid-reuse guard for the claim sweep below, in seconds. A live owner pid
+# marks a claim as still in flight; pid numbers are reused, so a live pid on a
+# claim older than this is reuse rather than an owner.
+#
+# The age is read from the CLAIM FILENAME, never from the file's mtime. `mv` is
+# rename(2) and preserves mtime, so a claimed file carries the time the WORKER
+# WROTE the petition — normally one boundary earlier — not the time it was
+# claimed. An mtime-based guard therefore treats every ordinary petition as
+# pre-expired and sweeps live consumers, which is the whole defect this guard
+# exists to prevent. The sibling locks age a mkdir-created directory, where
+# mtime does mean "held since"; that invariant does not survive the copy.
+PET_CLAIM_ORPHAN_SEC=900
+# One claim namespace is 16 slots (see take_claim), so a legitimate sweep never
+# exceeds that. Each reconciled claim costs the caller a ledger row, so the
+# count is capped: a hostile worker planting claim files must not be able to
+# spend an unbounded number of audit writes under the unit lock (D-7's
+# anti-spam reasoning, applied to the claim namespace and not only the artifact).
+# Anything above the cap is swept by later calls.
+PET_CLAIM_MAX_RECONCILE=16
 PET_MAX_BYTES=1024
 PET_MAX_REASON=200
 PET_LINES=5
@@ -197,7 +209,7 @@ cmd_path() {
     exit 2
   }
   cp_wt=$(cd "$1" 2>/dev/null && pwd -P) || {
-    echo "allocation-petition: worktree '$(sanitize_printable "$1" "(unprintable path)")' is not a directory" >&2
+    printf '%s\n' "allocation-petition: worktree '$(sanitize_printable "$1" "(unprintable path)")' is not a directory" >&2
     exit 2
   }
   printf '%s/%s/%s\n' "$cp_wt" "$PET_SUBDIR" "$PET_NAME"
@@ -227,7 +239,7 @@ cmd_write() {
       --attempt) w_attempt=$2 ;;
       --reason) w_reason=$2 ;;
       *)
-        echo "allocation-petition: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
+        printf '%s\n' "allocation-petition: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
         exit 2
         ;;
     esac
@@ -237,22 +249,22 @@ cmd_write() {
   case $w_dir in
     escalate | de-escalate) ;;
     *)
-      echo "allocation-petition: direction '$(sanitize_printable "$w_dir" "(unprintable direction)")' is not escalate or de-escalate" >&2
+      printf '%s\n' "allocation-petition: direction '$(sanitize_printable "$w_dir" "(unprintable direction)")' is not escalate or de-escalate" >&2
       exit 2
       ;;
   esac
   valid_identity "$w_unit" || {
-    echo "allocation-petition: refusing malformed unit '$(sanitize_printable "$w_unit" "(unprintable unit)")'" >&2
+    printf '%s\n' "allocation-petition: refusing malformed unit '$(sanitize_printable "$w_unit" "(unprintable unit)")'" >&2
     exit 2
   }
   if [ "$w_step" != - ]; then
     valid_identity "$w_step" || {
-      echo "allocation-petition: refusing malformed step '$(sanitize_printable "$w_step" "(unprintable step)")'" >&2
+      printf '%s\n' "allocation-petition: refusing malformed step '$(sanitize_printable "$w_step" "(unprintable step)")'" >&2
       exit 2
     }
   fi
   valid_count "$w_attempt" || {
-    echo "allocation-petition: refusing malformed attempt '$(sanitize_printable "$w_attempt" "(unprintable attempt)")'" >&2
+    printf '%s\n' "allocation-petition: refusing malformed attempt '$(sanitize_printable "$w_attempt" "(unprintable attempt)")'" >&2
     exit 2
   }
   printable_line "$w_reason" || {
@@ -265,7 +277,7 @@ cmd_write() {
   }
 
   w_wtp=$(cd "${w_wt:-.}" 2>/dev/null && pwd -P) || {
-    echo "allocation-petition: worktree '$(sanitize_printable "$w_wt" "(unprintable path)")' is not a directory" >&2
+    printf '%s\n' "allocation-petition: worktree '$(sanitize_printable "$w_wt" "(unprintable path)")' is not a directory" >&2
     exit 2
   }
   if [ -L "$w_wtp/$PET_SUBDIR" ]; then
@@ -310,6 +322,12 @@ cmd_write() {
 # one crash from being re-audited at every later boundary.
 sweep_claims() {
   sc_n=0
+  # A clock we cannot read yields 0, which makes every claim read as ancient and
+  # sweepable: the sweep degrades toward reaping, never toward shielding.
+  sc_now=$(date +%s 2>/dev/null) || sc_now=0
+  case $sc_now in
+    "" | *[!0-9]*) sc_now=0 ;;
+  esac
   # Globbing is off script-wide (set -f). Enable it for exactly one expansion
   # and turn it straight back off, so no later word in this function can pick up
   # pathname expansion it did not ask for.
@@ -326,18 +344,34 @@ sweep_claims() {
     # that no longer exists, which it reports as a malformed artifact: the
     # petition is lost and the worker is blamed for it. Only an owner that is
     # gone leaves an orphan, which is the case this sweep exists for.
-    sc_pid=${sc_f##*"$PET_NAME.claim."}
-    sc_pid=${sc_pid%%.*}
+    sc_rest=${sc_f##*"$PET_NAME.claim."}
+    sc_pid=${sc_rest%%.*}
+    sc_after=${sc_rest#*.}
+    sc_epoch=${sc_after%%.*}
+    sc_live=0
     case $sc_pid in
-      "" | *[!0-9]*) ;;
+      # `kill -0 0` signals the caller's whole process GROUP and always
+      # succeeds, so a claim named `.claim.0.` would shield itself from the
+      # sweep forever. Zero is not a pid a claim can legitimately carry.
+      "" | 0 | *[!0-9]*) ;;
       *)
-        if kill -0 "$sc_pid" 2>/dev/null \
-          && [ -z "$(find "$sc_f" -maxdepth 0 -mmin +"$PET_CLAIM_ORPHAN_MIN" 2>/dev/null)" ]; then
-          continue
-        fi
+        case $sc_epoch in
+          "" | *[!0-9]*) ;;
+          *)
+            if kill -0 "$sc_pid" 2>/dev/null \
+              && [ "$((sc_now - sc_epoch))" -le "$PET_CLAIM_ORPHAN_SEC" ]; then
+              sc_live=1
+            fi
+            ;;
+        esac
         ;;
     esac
-    rm -f "$sc_f" 2>/dev/null && sc_n=$((sc_n + 1))
+    [ "$sc_live" = 0 ] || continue
+    rm -f "$sc_f" 2>/dev/null || continue
+    sc_n=$((sc_n + 1))
+    # Stop COUNTING past the cap, not sweeping: cleanup stays cheap, while the
+    # caller's ledger rows — one per reconciled claim — stay bounded.
+    [ "$sc_n" -lt "$PET_CLAIM_MAX_RECONCILE" ] || break
   done
   printf '%s' "$sc_n"
 }
@@ -348,9 +382,16 @@ sweep_claims() {
 take_claim() {
   tc_src="$1/$PET_NAME"
   [ -e "$tc_src" ] || [ -L "$tc_src" ] || return 1
+  # The claim time is carried in the NAME because rename preserves mtime; see
+  # PET_CLAIM_ORPHAN_SEC. A clock we cannot read yields 0, which ages the claim
+  # out immediately rather than shielding it forever.
+  tc_now=$(date +%s 2>/dev/null) || tc_now=0
+  case $tc_now in
+    "" | *[!0-9]*) tc_now=0 ;;
+  esac
   tc_i=0
   while [ "$tc_i" -lt 16 ]; do
-    tc_dst="$1/$PET_NAME.claim.$$.$tc_i"
+    tc_dst="$1/$PET_NAME.claim.$$.$tc_now.$tc_i"
     tc_i=$((tc_i + 1))
     # Never rename over an existing claim: that would destroy a record the
     # reconcile owes an audit row. The sweep above normally leaves none, so this
@@ -450,7 +491,6 @@ cmd_claim() {
   c_wt=""
   c_unit=""
   c_step=-
-  c_attempt=1
   c_hold=no
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -468,16 +508,20 @@ cmd_claim() {
       --worktree) c_wt=$2 ;;
       --unit) c_unit=$2 ;;
       --step) c_step=$2 ;;
-      --attempt) c_attempt=$2 ;;
+      # Accepted so the launch boundary can pass one identity to every
+      # allocation helper, and deliberately not stored: the attempt does not
+      # bind the petition (see the staleness check). Discarding it here rather
+      # than keeping an unread variable keeps that fact visible.
+      --attempt) : ;;
       *)
-        echo "allocation-petition: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
+        printf '%s\n' "allocation-petition: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
         exit 2
         ;;
     esac
     shift 2
   done
   valid_identity "$c_unit" || {
-    echo "allocation-petition: refusing malformed unit '$(sanitize_printable "$c_unit" "(unprintable unit)")'" >&2
+    printf '%s\n' "allocation-petition: refusing malformed unit '$(sanitize_printable "$c_unit" "(unprintable unit)")'" >&2
     exit 2
   }
   [ -n "$c_wt" ] || {
@@ -489,7 +533,7 @@ cmd_claim() {
   c_dir=$(resolve_container "$c_wt") || c_rc=$?
   if [ "$c_rc" != 0 ]; then
     if [ "$c_rc" = 3 ]; then
-      echo "allocation-petition: '$PET_SUBDIR' in worktree '$(sanitize_printable "$c_wt" "(unprintable path)")' is a symlink — no petition channel" >&2
+      printf '%s\n' "allocation-petition: '$PET_SUBDIR' in worktree '$(sanitize_printable "$c_wt" "(unprintable path)")' is a symlink — no petition channel" >&2
     fi
     printf 'reconciled\t0\nverdict\tnone\ndirection\t-\n'
     return 1
@@ -516,18 +560,28 @@ cmd_claim() {
       c_rest=${c_rest#*"$TAB"}
       c_pstep=${c_rest%%"$TAB"*}
       c_rest=${c_rest#*"$TAB"}
-      c_patt=${c_rest%%"$TAB"*}
+      # Field 4 is the attempt. The grammar still carries it — it is part of
+      # what the worker recorded, and the screen validates its shape — but it
+      # does not bind the petition, so it is stepped over rather than read.
       c_preason=${c_rest#*"$TAB"}
-      # The binding: a petition speaks for ONE unit at ONE step and attempt.
-      # Anything else is stale — a leftover from a previous step, or a file
-      # planted for a unit that never wrote it — and is ignored with a row
-      # rather than weighed for whoever happens to read it next.
+      # The binding: a petition speaks for ONE unit at ONE step. Anything else
+      # is stale — a leftover from a previous step, or a file planted for a unit
+      # that never wrote it — and is ignored with a row rather than weighed for
+      # whoever happens to read it next.
+      #
+      # ATTEMPT IS DELIBERATELY NOT PART OF THIS. D-7 defines staleness as
+      # "wrong unit or step" and REQ-C1.6 pins the binding as "unit and step
+      # identity"; neither makes the attempt count part of it. Requiring it to
+      # match would also break the channel in the flow it exists for: a worker
+      # petitions at the end of attempt N, and the boundary that reads it is the
+      # relaunch at attempt N+1, so an attempt-strict check goes stale on every
+      # retry — the main escalate path. The attempt still binds ELSEWHERE, as
+      # part of the event idempotency key in allocation-adapt.sh, which is a
+      # different mechanism with a different job.
       if [ "$c_punit" != "$c_unit" ]; then
         c_detail=stale-unit
       elif [ "$c_pstep" != "$c_step" ]; then
         c_detail=stale-step
-      elif [ "$c_patt" != "$c_attempt" ]; then
-        c_detail=stale-attempt
       else
         c_detail=""
       fi
