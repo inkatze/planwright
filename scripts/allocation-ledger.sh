@@ -451,6 +451,15 @@ check_health() {
       if (($6 == "feedback") != ($14 == "recorded")) {
         print "row " NR ": feedback and recorded must appear together"; exit
       }
+      # A step-tier row records a decision about ONE launch, so `step` is the
+      # only scope that can mean anything for it; at `unit` scope it would read
+      # as part of the history the unit itself carries, which is the exact
+      # opposite of what a scope mark is for. One-directional on purpose:
+      # `step-tier` implies `step`, but `step` does not imply `step-tier`, so a
+      # later step-scoped record needs no edit here.
+      if ($6 == "step-tier" && $13 != "step") {
+        print "row " NR ": a step-tier row must be step-scoped"; exit
+      }
     }
   ' "$ch_file" 2>/dev/null)
   if [ -n "$ch_bad" ]; then
@@ -598,6 +607,16 @@ case "$cmd" in
       echo "allocation-ledger: refusing unknown scope '$(sanitize_printable "$a_scope" "(unprintable scope)")'" >&2
       exit 2
     }
+    # The step-tier/step pairing, refused at the boundary as well as flagged by
+    # `health`, for the reason the feedback rule below states: the store is
+    # append-only, so a row that only `health` catches makes that unit's ledger
+    # unhealthy forever, with no repair path — a strictly worse outcome than
+    # refusing the write. One-directional, matching the health rule: `step-tier`
+    # implies `step`, `step` does not imply `step-tier`.
+    if [ "$a_event" = step-tier ] && [ "$a_scope" != step ]; then
+      echo "allocation-ledger: refusing a step-tier row at '$(sanitize_printable "$a_scope" "(unprintable scope)")' scope — a step-tier row records one launch and must be step-scoped" >&2
+      exit 2
+    fi
     in_set "$a_outcome" "$ALLOC_OUTCOMES" || {
       echo "allocation-ledger: refusing unknown outcome '$(sanitize_printable "$a_outcome" "(unprintable outcome)")'" >&2
       exit 2
@@ -706,7 +725,7 @@ case "$cmd" in
     # last launch, wherever a clamp had bound it). This verb answers "the last
     # tier a launch used", so only launch rows may answer it.
     awk -F '\t' '
-      NF == 15 && $6 != "feedback" && $11 != "-" && $11 != "inherit" { m = $11; e = $12 }
+      NF == 15 && $13 == "unit" && $6 != "feedback" && $11 != "-" && $11 != "inherit" { m = $11; e = $12 }
       END { if (m != "") printf "%s\t%s\n", m, e }
     ' "$lt_file"
     ;;

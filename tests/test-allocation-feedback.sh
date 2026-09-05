@@ -95,6 +95,12 @@ allocation_model_execute_step: inherit
 allocation_effort_execute_step: inherit
 allocation_model_offload: inherit
 allocation_effort_offload: inherit
+allocation_model_step_implementation: inherit
+allocation_effort_step_implementation: inherit
+allocation_model_step_polish: inherit
+allocation_effort_step_polish: inherit
+allocation_model_step_self_review: inherit
+allocation_effort_step_self_review: inherit
 allocation_adaptation: off
 allocation_adjustment_cap: 4
 allocation_feedback_threshold: 2

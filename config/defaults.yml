@@ -338,6 +338,46 @@ allocation_effort_execute_step: inherit
 allocation_model_offload: inherit
 allocation_effort_offload: inherit
 
+# PER-STEP selection keys (model-allocation D-8, D-12; REQ-C1.3, REQ-E1.1).
+# The selection keys above price a whole UNIT. These price one STEP of it: the
+# implementation step, and each review-sequence step class (one knob pair per
+# nestable review skill). Today every review pass inherits the unit's tier, so
+# nothing ever starts cheap; these are the knobs that let it.
+#
+# ALL SHIP `inherit`, so every step resolves to the unit's own tier and the
+# golden baseline is reproduced exactly. Landing the mechanism changes runtime
+# behavior by nothing; turning it on is a separate operator decision (D-13).
+# Nothing passes a step type yet either — Task 6 wires the launch points — so
+# setting one of these changes nothing at all until that lands.
+#
+# The rule these obey is D-8's, and design.md owns it: application is
+# ONE-DIRECTIONAL. A tier cheaper than the unit's current tier applies to that
+# step's launch alone and is scope-marked in the ledger; an equal or more
+# expensive one is ignored with a row. The two columns compose, so leaving one
+# `inherit` fills it from the unit's tier before the comparison — which is how
+# "run polish at low effort on whatever model the unit is on" is expressed,
+# though a unit already at `low` makes that tier EQUAL, and equal is ignored.
+#
+# A PREREQUISITE worth knowing before setting one: a step tier needs a unit
+# tier to be cheaper than, so at a selection key whose own tier is `inherit`
+# (every non-fleet surface above, including the `execute_step` key an
+# implementation step resolves through) a configured step tier is refused with
+# a ledger row. Give the surface a tier first, or the step knob stays inert.
+#
+# There is NO command column here, deliberately. The command enum carries the
+# review-sequence-disjointness invariant (REQ-A1.4) and must never name a
+# nestable review skill; step types are named after exactly those skills, so
+# the axes stay separate and the enum is untouched by construction.
+#
+# The key space is OPEN: a review skill added later needs no row here, because
+# its knob is absent from every layer and resolves to `inherit`.
+allocation_model_step_implementation: inherit
+allocation_effort_step_implementation: inherit
+allocation_model_step_polish: inherit
+allocation_effort_step_polish: inherit
+allocation_model_step_self_review: inherit
+allocation_effort_step_self_review: inherit
+
 # Execution-time ADAPTATION: whether a unit's tier may move at a launch boundary
 # in response to what execution actually revealed (model-allocation D-2, D-8,
 # D-13; REQ-C1.1, REQ-C1.2, REQ-E1.1). `off` is the shipped posture and the
