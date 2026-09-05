@@ -474,4 +474,210 @@ done
 grep -qE '^allocation_adaptation: "?off"?$' "$real_cfg" \
   || fail "14: the master knob must ship 'off' (D-13)"
 
+
+# --- 15. per-step selection keys (Task 5; D-8, D-12, REQ-C1.3) -------------
+#
+# A step-type tier is STATIC configuration keyed by step class, not adaptation:
+# it never moves the unit's own ladder position. Its application is strictly
+# ONE-DIRECTIONAL — a cheaper configured tier applies for that step's launch
+# only and is scope-marked in the ledger; an equal or more expensive one is
+# ignored with a row. A step may never ratchet a unit up.
+
+# step_knobs <step-type-suffix> <model> <effort>: configure one step type
+# through the machine-local layer (also the REQ-E1.1 overlay assertion for it).
+# `-` leaves that column unconfigured, which is the shipped `inherit`.
+step_knobs() {
+  [ "$2" = - ] || printf 'allocation_model_step_%s: %s\n' "$1" "$2" >>"$mlocal_cfg"
+  [ "$3" = - ] || printf 'allocation_effort_step_%s: %s\n' "$1" "$3" >>"$mlocal_cfg"
+}
+
+# step_rows <unit>: the unit's STEP-scoped ledger rows (column 13).
+step_rows() {
+  run_led rows "$1" | awk -F "$TAB" 'NF == 15 && $13 == "step" { print }'
+}
+
+# --- 15a. defaults: every step resolves to the unit's tier -----------------
+#
+# The golden baseline (opus/high at `execution`), reached through the step-type
+# path with nothing configured. This is the claim that landing per-step keys
+# changes runtime behavior by exactly nothing.
+
+reset_state
+out=$(run resolve stepdef:unit --key execution --step-type implementation) \
+  || fail "15a: resolve with a step type failed"
+[ "$(printf '%s\n' "$out" | field model)" = opus ] \
+  || fail "15a: an unconfigured step type must resolve to the unit's tier, got $(printf '%s\n' "$out" | field model)"
+[ "$(printf '%s\n' "$out" | field effort)" = high ] \
+  || fail "15a: an unconfigured step type must keep the unit's effort"
+[ "$(printf '%s\n' "$out" | field step_scope)" = inherit ] \
+  || fail "15a: an unconfigured step type must report an inherit step scope"
+echo "ok: with defaults a step resolves to the unit's tier"
+
+# Every shipped review-sequence step class behaves the same way by default.
+for st in polish self-review; do
+  reset_state
+  out=$(run resolve "stepdef:$st" --key execution --step-type "$st") \
+    || fail "15a: resolve --step-type $st failed"
+  [ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = opus/high ] \
+    || fail "15a: review step class '$st' must default to the unit's tier"
+done
+echo "ok: every shipped review-sequence step class defaults to the unit's tier"
+
+# --- 15b. a cheaper configured step tier applies, scope-marked -------------
+
+reset_state
+step_knobs self_review haiku low
+out=$(run resolve cheap:unit --key execution --step-type self-review) \
+  || fail "15b: resolve with a cheaper step tier failed"
+[ "$(printf '%s\n' "$out" | field model)" = haiku ] \
+  || fail "15b: a cheaper step tier must apply, got $(printf '%s\n' "$out" | field model)"
+[ "$(printf '%s\n' "$out" | field effort)" = low ] \
+  || fail "15b: the cheaper step tier's effort must apply"
+[ "$(printf '%s\n' "$out" | field step_scope)" = applied ] \
+  || fail "15b: an applied step tier must report an applied step scope"
+[ "$(step_rows cheap:unit | wc -l | tr -d ' ')" = 1 ] \
+  || fail "15b: an applied step tier must leave exactly one step-scoped ledger row"
+[ "$(step_rows cheap:unit | awk -F "$TAB" '{ print $14 }')" = applied ] \
+  || fail "15b: the step-scoped row must carry the applied outcome"
+echo "ok: a cheaper configured step tier applies and is scope-marked"
+
+# --- 15c. the restore-after fixture ----------------------------------------
+#
+# The one property that makes step scope safe: a scope-marked step launch must
+# not leak into the unit's own ladder position. Run it against a unit that has
+# ACTUALLY MOVED — a defaults-only unit sits at its starting tier either way, so
+# it cannot tell a preserved ladder from an absent one.
+
+reset_state
+escalation_ready
+step_knobs self_review haiku low
+# One escalation: bookkeeping starts at sonnet/medium, so this lands sonnet/high.
+out=$(run resolve restore:unit --key bookkeeping --step s1 --attempt 1 --event step-failure) \
+  || fail "15c: the seeding escalation failed"
+[ "$(printf '%s\n' "$out" | field effort)" = high ] \
+  || fail "15c: the fixture unit did not escalate, so there is no ladder position to preserve"
+pre=$(run derive restore:unit --key bookkeeping) || fail "15c: derive before the step failed"
+pre_tier="$(printf '%s\n' "$pre" | field model)/$(printf '%s\n' "$pre" | field effort)"
+[ "$pre_tier" = sonnet/high ] || fail "15c: the pre-step tier should be sonnet/high, got $pre_tier"
+
+out=$(run resolve restore:unit --key bookkeeping --step s2 --attempt 1 --step-type self-review) \
+  || fail "15c: the scope-marked step launch failed"
+[ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = haiku/low ] \
+  || fail "15c: the cheaper step tier did not take effect at the step's launch"
+[ "$(printf '%s\n' "$out" | field step_scope)" = applied ] \
+  || fail "15c: the step launch was not scope-marked"
+
+post=$(run derive restore:unit --key bookkeeping) || fail "15c: derive after the step failed"
+post_tier="$(printf '%s\n' "$post" | field model)/$(printf '%s\n' "$post" | field effort)"
+[ "$post_tier" = "$pre_tier" ] \
+  || fail "15c: RESTORE-AFTER: the unit's derived tier changed across a scope-marked step launch ($pre_tier -> $post_tier)"
+[ "$(printf '%s\n' "$post" | field net)" = 1 ] \
+  || fail "15c: a scope-marked step launch must not consume adjustment budget"
+echo "ok: restore-after — a scope-marked step launch leaves the unit's ladder position untouched"
+
+# --- 15d. an equal or more expensive step tier is IGNORED with a row -------
+
+reset_state
+step_knobs polish fable high
+out=$(run resolve up:unit --key execution --step-type polish) \
+  || fail "15d: resolve with a more expensive step tier failed"
+[ "$(printf '%s\n' "$out" | field model)" = opus ] \
+  || fail "15d: a more expensive step tier must be IGNORED, got $(printf '%s\n' "$out" | field model)"
+[ "$(printf '%s\n' "$out" | field effort)" = high ] \
+  || fail "15d: the unit's effort must be untouched by an ignored step tier"
+[ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] \
+  || fail "15d: an ignored step tier must report an ignored step scope"
+[ "$(step_rows up:unit | awk -F "$TAB" '{ print $14 }')" = ignored ] \
+  || fail "15d: an ignored step tier must leave a step-scoped ledger row recording the ignore"
+echo "ok: a more expensive step tier is ignored with a ledger row"
+
+# An EQUAL tier is ignored on the same terms: one-directional means strictly
+# cheaper, so a step tier that merely restates the unit's tier records an
+# ignore rather than a spurious application.
+reset_state
+step_knobs polish opus high
+out=$(run resolve eq:unit --key execution --step-type polish) \
+  || fail "15d: resolve with an equal step tier failed"
+[ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] \
+  || fail "15d: a step tier equal to the unit's tier must be ignored, not applied"
+echo "ok: a step tier equal to the unit's tier is ignored"
+
+# --- 15e. a step tier never ratchets the unit UP ---------------------------
+#
+# The ignore must be inert to derivation as well as to the launch: a unit that
+# saw a more expensive step tier is still at the tier its own ladder says.
+
+reset_state
+escalation_ready
+step_knobs polish fable high
+run resolve noratchet:unit --key bookkeeping --step s1 --attempt 1 --event step-failure >/dev/null \
+  || fail "15e: the seeding escalation failed"
+run resolve noratchet:unit --key bookkeeping --step s2 --attempt 1 --step-type polish >/dev/null \
+  || fail "15e: the ignored step launch failed"
+out=$(run derive noratchet:unit --key bookkeeping) || fail "15e: derive failed"
+[ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = sonnet/high ] \
+  || fail "15e: an ignored step tier ratcheted the unit's own tier"
+[ "$(printf '%s\n' "$out" | field net)" = 1 ] \
+  || fail "15e: an ignored step tier moved the unit's net displacement"
+echo "ok: a step tier never ratchets a unit up"
+
+# --- 15f. a partially configured step tier composes, then compares ---------
+#
+# A tier is a JOINT point, so an unconfigured column is filled from the unit's
+# current tier before the comparison — which is what makes "just run reviews at
+# low effort" express, and keeps the one-directional test on the joint result.
+
+reset_state
+step_knobs polish - low
+out=$(run resolve part:unit --key execution --step-type polish) \
+  || fail "15f: resolve with an effort-only step tier failed"
+[ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = opus/low ] \
+  || fail "15f: an effort-only cheaper step tier must compose with the unit's model"
+[ "$(printf '%s\n' "$out" | field step_scope)" = applied ] || fail "15f: it should have applied"
+echo "ok: a partially configured step tier composes with the unit's tier"
+
+# The same composition in the expensive direction is still ignored.
+reset_state
+step_knobs polish - high
+out=$(run resolve partup:unit --key bookkeeping --step-type polish) \
+  || fail "15f: resolve with an effort-only raise failed"
+[ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = sonnet/medium ] \
+  || fail "15f: an effort-only RAISE must be ignored"
+[ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] || fail "15f: it should have been ignored"
+echo "ok: a partially configured step tier is one-directional too"
+
+# --- 15g. no step type at all is the unchanged path ------------------------
+
+reset_state
+step_knobs self_review haiku low
+out=$(run resolve nostep:unit --key execution) || fail "15g: resolve without a step type failed"
+[ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = opus/high ] \
+  || fail "15g: a launch that names no step type must not pick up a step tier"
+[ "$(printf '%s\n' "$out" | field step_scope)" = none ] \
+  || fail "15g: a launch with no step type must report step_scope none"
+[ -z "$(step_rows nostep:unit)" ] \
+  || fail "15g: a launch with no step type must leave no step-scoped ledger row"
+echo "ok: a launch naming no step type is the unchanged path"
+
+# --- 15h. a hostile step type is refused at the argument boundary ----------
+
+reset_state
+for bad in "" "../etc" "a b" "Self-Review" "step;rm" "_leading"; do
+  rc=0
+  run resolve hostile:unit --key execution --step-type "$bad" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] \
+    || fail "15h: step type '$bad' exited $rc, want 2 (refused at the argument boundary)"
+done
+echo "ok: a hostile step type is refused before it reaches a knob name"
+
+# --- 15i. the shipped config carries the step-type knobs -------------------
+
+for k in allocation_model_step_implementation allocation_effort_step_implementation \
+  allocation_model_step_polish allocation_effort_step_polish \
+  allocation_model_step_self_review allocation_effort_step_self_review; do
+  grep -q "^$k:" "$real_cfg" || fail "15i: config/defaults.yml is missing '$k'"
+  grep -qE "^$k: inherit\$" "$real_cfg" \
+    || fail "15i: '$k' must ship 'inherit' so defaults reproduce today's behavior (D-13)"
+done
+echo "ok: every step-type knob ships the inherit sentinel"
 echo "PASS: allocation-adapt ($(basename "$0"))"
