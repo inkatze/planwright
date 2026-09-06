@@ -458,14 +458,14 @@ out=$(crash_to_disable A7 \
 reset_liveness
 adaptation_off
 pw_shipped "$AD" resolve "$unit" --key execution --step s1 --attempt 1 \
-  --event step-failure >/dev/null || fail "A8: the shipped-posture launch failed"
+  --event step-failure >/dev/null || fail "A8s1: the shipped-posture launch failed"
 pw_shipped "$AD" resolve "$unit" --key execution --step s2 --attempt 1 \
-  --event step-failure >/dev/null || fail "A8: the second shipped-posture launch failed"
+  --event step-failure >/dev/null || fail "A8s2: the second shipped-posture launch failed"
 
 pw_shipped "$FLV" crash-record "$worker" "$wscope" --now 1000 >/dev/null \
-  || fail "A8: shipped crash 1 failed"
+  || fail "A8s3: shipped crash 1 failed"
 pw_shipped "$FLV" crash-record "$worker" "$wscope" --now 1100 >/dev/null \
-  || fail "A8: shipped crash 2 failed"
+  || fail "A8s4: shipped crash 2 failed"
 out=$(pw_shipped "$FLV" crash-record "$worker" "$wscope" --now 1200 \
   --alloc-unit "$unit" --alloc-key execution \
   --obs-scope planwright --obs-dir "$obsdir") \
@@ -658,7 +658,7 @@ pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
 rc=0
 err="$tmp/b1.err"
 pwf "$FF" gc --checkout "$co" --spec demo 1 \
-  --alloc-key 'bad\033[31mINJECTED' --obs-scope planwright >/dev/null 2>"$err" || rc=$?
+  --alloc-key 'bad\n\033[31mINJECTED' --obs-scope planwright >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 2 ] || fail "B1f: a malformed --alloc-key should exit 2, got $rc"
 [ "$(awk 'END { print NR }' "$err")" = 1 ] \
   || fail "B1g: the refusal spans several lines — an escape was re-expanded: $(od -c <"$err" | head -3)"
@@ -804,7 +804,7 @@ printf '%s\n' "$out" | grep -q "^gc${TAB}refs/planwright-fence/demo/1$" \
 [ "$(frag_count "$fence_obs")" = 0 ] \
   || fail "B3c3: an unhealthy ledger still recorded a fragment"
 
-# --- B3d. the caller may name the observations store ----------------------
+# --- B3e. the caller may name the observations store ----------------------
 reset_fence
 adaptation_on
 escalate "$fence_unit" execution s1
@@ -813,11 +813,11 @@ named="$tmp/named-obs"
 rm -rf "$named"
 pwf "$FF" gc --checkout "$co" --spec demo 1 \
   --alloc-key execution --obs-scope planwright --obs-dir "$named" >/dev/null 2>&1 \
-  || fail "B3d: the gc with a named store failed"
+  || fail "B3d0: the gc with a named store failed"
 [ "$(frag_count "$named")" = 1 ] \
-  || fail "B3d1: the fragment did not land in the caller's store"
+  || fail "B3e1: the fragment did not land in the caller's store"
 [ "$(frag_count "$fence_obs")" = 0 ] \
-  || fail "B3d2: the fragment also landed in the default store"
+  || fail "B3e2: the fragment also landed in the default store"
 
 # A relative store is the checkout's, not the tower's cwd — this command has a
 # repo root and uses it.
@@ -828,9 +828,11 @@ escalate "$fence_unit" execution s2
 rm -rf "$co/rel-obs"
 pwf "$FF" gc --checkout "$co" --spec demo 1 \
   --alloc-key execution --obs-scope planwright --obs-dir rel-obs >/dev/null 2>&1 \
-  || fail "B3d3: the gc with a relative store failed"
+  || fail "B3e3: the gc with a relative store failed"
 [ "$(frag_count "$co/rel-obs")" = 1 ] \
-  || fail "B3d4: a relative --obs-dir did not resolve against the checkout"
+  || fail "B3e4: a relative --obs-dir did not resolve against the checkout"
+[ "$(frag_count "$fence_obs")" = 0 ] \
+  || fail "B3e5: a relative --obs-dir also wrote to the default store"
 rm -rf "$co/rel-obs"
 
 # --- B4. once per unit across a repeated sweep ----------------------------
@@ -844,12 +846,12 @@ escalate "$fence_unit" execution s1
 escalate "$fence_unit" execution s2
 pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
   --alloc-key execution --obs-scope planwright >/dev/null 2>&1 \
-  || fail "B4: seeding the first recording failed"
-[ "$(frag_count "$fence_obs")" = 1 ] || fail "B4: the seeding pass did not record"
+  || fail "B4s1: seeding the first recording failed"
+[ "$(frag_count "$fence_obs")" = 1 ] || fail "B4s2: the seeding pass did not record"
 refence
 pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
   --alloc-key execution --obs-scope planwright >/dev/null 2>&1 \
-  || fail "B4: the repeat sweep failed"
+  || fail "B4c: the repeat sweep failed"
 [ "$(frag_count "$fence_obs")" = 1 ] \
   || fail "B4a: a repeated sweep re-recorded ($(frag_count "$fence_obs") fragments)"
 [ "$(marks_of "$fence_unit")" = 1 ] \
@@ -881,9 +883,9 @@ rm -f "$fence_obs"
 reset_fence
 adaptation_off
 pw_shipped "$AD" resolve "$fence_unit" --key execution --step s1 --attempt 1 \
-  --event step-failure >/dev/null || fail "B6: the shipped-posture launch failed"
+  --event step-failure >/dev/null || fail "B6s1: the shipped-posture launch failed"
 pw_shipped "$AD" resolve "$fence_unit" --key execution --step s2 --attempt 1 \
-  --event step-failure >/dev/null || fail "B6: the second shipped-posture launch failed"
+  --event step-failure >/dev/null || fail "B6s2: the second shipped-posture launch failed"
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
   PATH="$ghbin:$stubbin:$PATH" \
   PLANWRIGHT_BASE_REF=main \

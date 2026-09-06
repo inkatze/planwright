@@ -480,7 +480,7 @@ queue_disable_escalation() {
 report_terminal_feedback() {
   [ -n "$ALLOC_UNIT" ] || return 0
   if [ ! -x "$AFB" ]; then
-    echo "fleet-liveness: allocation-feedback.sh is missing or not executable; no feedback observation was evaluated, and the disable stands" >&2
+    printf '%s\n' "fleet-liveness: allocation-feedback.sh is missing or not executable; no feedback observation was evaluated, and the disable stands" >&2
     return 0
   fi
   # printf, not echo: `sanitize_printable` strips control BYTES but leaves a
