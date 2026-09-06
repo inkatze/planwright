@@ -477,9 +477,8 @@ h5_dupes=$(awk -F "$TAB" 'NF == 15 { c[$1]++ } END { for (k in c) if (c[k] > 1) 
 # The attempt column carries `valid_count`'s grammar, not merely "some digits".
 # `append` refuses a leading-zero spelling, so a `health` that accepts one
 # passes rows the writer could never have produced: the ledger reads as healthy
-# while carrying a row no append path explains. Built with printf rather than an
-# awk field assignment, because awk's strnum handling would turn `01` back into
-# `1` and test nothing.
+# while carrying a row no append path explains. Written whole rather than through
+# corrupt_cell, which rewrites h4's file rather than a fresh unit's.
 h6=health6:unit
 h6_file=$("$LEDGER" path "$h6")
 mkdir -p "$(dirname "$h6_file")"
