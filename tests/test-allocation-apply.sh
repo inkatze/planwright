@@ -173,6 +173,7 @@ echo "ok: a fully capable backend applies both dimensions with no inheritance ro
 # 3. A no-capability backend inherits both, and says so in the ledger
 #    (REQ-B1.2, fixture 2).
 # --------------------------------------------------------------------------
+set_repo_knobs 'allocation_model_offload: opus' 'allocation_effort_offload: high'
 out=$(run plan --key offload --backend in-session --unit u-none) \
   || fail "no-capability plan exited nonzero"
 [ "$(field "$out" capability)" = none ] \
@@ -202,6 +203,7 @@ echo "ok: a no-capability backend inherits both dimensions and records a full-in
 # 4. A partially capable backend sets the model and inherits the effort
 #    (REQ-B1.2, fixture 3; D-10's per-dimension clause).
 # --------------------------------------------------------------------------
+set_repo_knobs 'allocation_model_offload: opus' 'allocation_effort_offload: high'
 out=$(run plan --key offload --backend subagent --unit u-partial) \
   || fail "partial-capability plan exited nonzero"
 [ "$(field "$out" capability)" = model ] \
@@ -243,6 +245,7 @@ echo "ok: a partially capable backend applies the model, inherits the effort, an
 # --------------------------------------------------------------------------
 # A pluggable backend name with no `planwright-backend-<name>` adapter on PATH:
 # the probe cannot answer, which the contract treats as no capability.
+set_repo_knobs 'allocation_model_offload: opus' 'allocation_effort_offload: high'
 out=$(run plan --key offload --backend absent-probe --unit u-probe-error) \
   || fail "errored-probe plan exited nonzero (it must degrade, not fail)"
 [ "$(field "$out" capability)" = error ] \
@@ -262,6 +265,31 @@ case "$(inputs_of u-probe-error 2)" in
   *) fail "errored-probe audit row inputs are $(inputs_of u-probe-error 2)" ;;
 esac
 echo "ok: an errored capability probe inherits both dimensions and is audited as a probe error"
+
+# --------------------------------------------------------------------------
+# 5b. The mirror of the partial case (REQ-B1.2, D-10's per-dimension clause):
+#     a backend that can set the EFFORT but not the model. No shipped rung
+#     advertises this, so it comes from a pluggable adapter — without it only
+#     one of the two per-dimension directions is ever exercised.
+# --------------------------------------------------------------------------
+cat >"$stubbin/planwright-backend-effortonly" <<'ADAPTER'
+#!/bin/sh
+[ "$1" = advertise ] && printf '%s
+' "false false false false true no light false effort"
+ADAPTER
+chmod +x "$stubbin/planwright-backend-effortonly"
+set_repo_knobs 'allocation_model_offload: opus' 'allocation_effort_offload: high'
+out=$(run plan --key offload --backend effortonly --unit u-effort) || fail "effort-only plan exited nonzero"
+[ "$(field "$out" capability)" = effort ] || fail "the effort-only adapter advertised $(field "$out" capability)"
+[ "$(field "$out" model)" = inherit ] || fail "an effort-only backend applied a model: $(field "$out" model)"
+[ "$(field "$out" effort)" = high ] || fail "an effort-only backend did not apply the effort: $(field "$out" effort)"
+[ "$(field "$out" model_source)" = inherit-capability ] || fail "effort-only model_source is $(field "$out" model_source)"
+[ "$(field "$out" effort_source)" = applied ] || fail "effort-only effort_source is $(field "$out" effort_source)"
+case "$(inputs_of u-effort 2)" in
+  *dim=model*) ;;
+  *) fail "the effort-only row does not name the inherited dimension: $(inputs_of u-effort 2)" ;;
+esac
+echo "ok: an effort-capable backend applies the effort and inherits the model"
 
 # --------------------------------------------------------------------------
 # 6. No unit, no launch plan: an inheritance with nowhere to be recorded is
@@ -296,7 +324,13 @@ done
 # A control byte in a refused name must not survive into the diagnostic.
 set +e
 run plan --key "$(printf 'off\007load')" --backend tmux --unit u-hostile >/dev/null 2>"$tmp/err"
+rc=$?
 set -e
+[ "$rc" = 2 ] || fail "a control-byte key exited $rc, expected 2"
+# A silent refusal would satisfy the strip check vacuously: the diagnostic must
+# exist, name the rejected thing, and carry no control byte.
+[ -s "$tmp/err" ] || fail "the control-byte refusal carried no diagnostic at all"
+grep -q 'selection key' "$tmp/err" || fail "the refusal does not say what it rejected"
 if LC_ALL=C grep -q '[[:cntrl:]]' "$tmp/err"; then
   fail "the refusal diagnostic re-emitted a control byte"
 fi
@@ -317,6 +351,99 @@ $b"
 PATH="$stubbin:$PATH" claude >/dev/null 2>&1 || true
 [ -s "$tmp/invocations" ] || fail "the outbound-client stub is unreachable; case 8 is vacuous"
 echo "ok: application is deterministic and reaches no outbound client"
+
+# --------------------------------------------------------------------------
+# 9. A WITHHELD admission is not a launch plan (REQ-B1.2, the admission gate).
+#    When the usage rung defers, the engine answers `admit withheld` with no
+#    tier at all. Applying that as if it were a tier would push work past the
+#    gate at every surface this task wired, so the plan is refused.
+# --------------------------------------------------------------------------
+set_repo_knobs 'allocation_model_offload: opus' 'allocation_effort_offload: high'
+env_run "$REPO_ROOT/scripts/fleet-audit.sh" record usage-gate defer-all seed 'seed the rung' >/dev/null 2>&1 \
+  || fail "seeding the defer-all rung failed"
+set +e
+out=$(run plan --key offload --backend tmux --unit u-withheld 2>"$tmp/err")
+rc=$?
+set -e
+[ "$rc" = 3 ] || fail "a withheld admission exited $rc, expected 3"
+printf '%s\n' "$out" | grep -q "^admit${TAB}withheld$" \
+  || fail "a withheld plan does not carry the admit row: $out"
+[ "$(field "$out" model)" = inherit ] \
+  || fail "a withheld plan proposed a model: $(field "$out" model)"
+grep -qi withheld "$tmp/err" || fail "the withheld refusal is not surfaced on stderr"
+# The withheld unit must not collect a capability-inheritance row: nothing
+# launched, so nothing inherited.
+rows u-withheld | awk -F "$TAB" '$6 == "inherit" && $15 ~ /cause=/ { found = 1 }
+  END { exit found ? 1 : 0 }' \
+  || fail "a withheld unit collected a spurious capability-inheritance row"
+# Clear the rung again for the cases below.
+env_run "$REPO_ROOT/scripts/fleet-audit.sh" record usage-gate normal seed 'reset the rung' >/dev/null 2>&1 \
+  || fail "resetting the rung failed"
+echo "ok: a withheld admission is refused rather than applied as a tier"
+
+# --------------------------------------------------------------------------
+# 10. A version-skewed capability accessor is a BROKEN INSTALL, not a probe
+#     error. An accessor still emitting the legacy eight-field set would
+#     otherwise read as "this backend cannot set a tier" and inherit silently,
+#     which is the same fail-open dressed as a capability gap.
+# --------------------------------------------------------------------------
+# A skewed INSTALL: the script resolves its siblings beside itself, so the
+# faithful way to stage version skew is a directory holding this script next to
+# a stale accessor.
+skew="$tmp/skew-install"
+mkdir -p "$skew"
+cp "$AP" "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/allocation-adapt.sh" \
+  "$REPO_ROOT/scripts/allocation-ledger.sh" "$REPO_ROOT/scripts/allocation-ladder.sh" \
+  "$REPO_ROOT/scripts/allocation-select.sh" "$REPO_ROOT/scripts/fleet-resource-select.sh" \
+  "$REPO_ROOT/scripts/resolve-config-knob.sh" "$REPO_ROOT/scripts/config-get.sh" \
+  "$REPO_ROOT/scripts/fleet-state.sh" "$REPO_ROOT/scripts/fleet-usage-gate.sh" \
+  "$REPO_ROOT/scripts/fleet-daemon-gate.sh" "$REPO_ROOT/scripts/fleet-audit.sh" \
+  "$REPO_ROOT/scripts/fleet-allocate.sh" "$REPO_ROOT/scripts/resolve-overlay-root.sh" \
+  "$skew/" 2>/dev/null || true
+cat >"$skew/orchestrate-backends.sh" <<'SKEW'
+#!/bin/sh
+# A stale sibling: the pre-extension eight-field answer.
+[ "$1" = caps ] || exit 2
+printf '%s\n' "true true true false true yes full-session true"
+SKEW
+chmod +x "$skew/orchestrate-backends.sh"
+set +e
+out=$(env_run "$skew/allocation-apply.sh" plan --key offload \
+  --backend tmux --unit u-skew 2>"$tmp/err")
+rc=$?
+set -e
+[ "$rc" = 5 ] || fail "a version-skewed accessor exited $rc, expected 5 (broken install)"
+grep -qi "version-skewed\|field" "$tmp/err" \
+  || fail "the skew diagnostic does not name the arity problem"
+echo "ok: a version-skewed capability accessor is a broken install, not a silent inherit"
+
+# --------------------------------------------------------------------------
+# 11. An unreachable allocation store gets its OWN exit code, so a caller can
+#     degrade on it without also degrading on a rejected argument.
+# --------------------------------------------------------------------------
+set +e
+out=$(PLANWRIGHT_FLEET_STATE_DIR="" CLAUDE_PLUGIN_DATA="" CLAUDE_DIR="$tmp/no-such-dir" \
+  PATH="$stubbin:$PATH" PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" PLANWRIGHT_REPO_ROOT="$repo" \
+  PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$AP" plan --key offload --backend tmux \
+  --unit u-nostore 2>"$tmp/err")
+rc=$?
+set -e
+[ "$rc" = 6 ] || fail "an unreachable allocation store exited $rc, expected 6"
+[ -z "$out" ] || fail "an unreachable store still printed a plan: $out"
+echo "ok: an unreachable allocation store has its own exit code"
+
+# --------------------------------------------------------------------------
+# 12. The attempt grammar matches the engine's: a leading zero is refused here
+#     rather than two helpers deep, where it would surface as a store fault.
+# --------------------------------------------------------------------------
+set +e
+run plan --key offload --backend tmux --unit u-att --attempt 01 >/dev/null 2>"$tmp/err"
+rc=$?
+set -e
+[ "$rc" = 2 ] || fail "a leading-zero attempt exited $rc, expected 2"
+grep -qi attempt "$tmp/err" || fail "the leading-zero refusal does not name the attempt"
+echo "ok: the attempt grammar matches the engine's, refused locally"
 
 clear_repo_knobs
 echo "ALL PASS: allocation-apply"

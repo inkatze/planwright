@@ -193,7 +193,11 @@ ok "the print rung carries the resolved tier into the command it hands over"
 # 5. Degraded mode: an unreachable allocation store does not refuse dispatch,
 #    but it is never silent about launching at the ambient tier.
 # --------------------------------------------------------------------------
-set_knobs
+# The knobs stay SET: with an empty config the launch would carry no tier
+# whether or not the store were reachable, so the assertion below would hold
+# vacuously. Configuring a tier first is what makes "the tier was dropped
+# because it could not be recorded" a real claim.
+set_knobs 'allocation_model_offload: sonnet' 'allocation_effort_offload: low'
 rc=0
 out=$(PATH="$stubbin:$PATH" \
   PLANWRIGHT_FLEET_STATE_DIR="" \
@@ -218,13 +222,16 @@ ok "an unreachable allocation store degrades to an ambient launch and says so"
 #    file so a skill losing the step fails by name rather than in aggregate.
 # --------------------------------------------------------------------------
 pin_skill() {
-  # $1 skill file, $2 the selection key that surface must resolve
+  # $1 skill file, $2 the selection key that surface must resolve.
+  # The key must appear on the SAME invocation as the helper: a bare `grep` for
+  # either alone is satisfiable by prose that has lost the step (and for
+  # `offload` the key is a word the file uses throughout), so the pin is the
+  # `--key <key>` argument of an `allocation-apply.sh plan` call.
   ps_f="$REPO_ROOT/skills/$1/SKILL.md"
   [ -f "$ps_f" ] || fail "skills/$1/SKILL.md missing"
-  grep -q 'allocation-apply.sh' "$ps_f" \
-    || fail "skills/$1/SKILL.md does not name the apply layer at its launch point"
-  grep -q -- "$2" "$ps_f" \
-    || fail "skills/$1/SKILL.md does not name its selection key '$2'"
+  # The invocation may wrap across lines, so join the file before matching.
+  tr '\n' ' ' <"$ps_f" | grep -q "allocation-apply\.sh plan --key $2" \
+    || fail "skills/$1/SKILL.md does not resolve key '$2' through allocation-apply.sh at its launch point"
 }
 pin_skill orchestrate orchestrate_dispatch
 pin_skill execute-task execute_step
@@ -253,8 +260,8 @@ ok "the in-session rung's inheritance is documented as its pinned degradation"
 # --------------------------------------------------------------------------
 grep -q 'per-step session launch' "$TEST_SPEC" \
   || fail "the test spec does not enumerate the per-step session launch surface by name"
-grep -q 'orchestrate' "$TEST_SPEC" \
-  || fail "the test spec does not name the orchestrate dispatch surface"
+grep -q 'single-spec dispatch launch' "$TEST_SPEC" \
+  || fail "the test spec does not enumerate the single-spec dispatch launch surface by name"
 ok "the manual remainder is enumerated by name in the test spec"
 
 echo "ALL PASS: allocation-launch-wiring"

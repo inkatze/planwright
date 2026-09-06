@@ -65,8 +65,28 @@ ok() {
   echo "ok: $1"
 }
 
+# Dispatch now resolves a launch tier, which reaches the allocation store and
+# the config overlays. Every invocation is therefore pinned to this test's own
+# sandbox: without this the suite would read the developer's repo config (so a
+# local `allocation_model_offload:` would flip the exact-launch assertions) and
+# WRITE REAL LEDGER ROWS into the operator's state directory on any machine
+# where a fleet home resolves.
+sandbox_env() {
+  PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet-home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$tmp/core-defaults.yml" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
+    PLANWRIGHT_REPO_ROOT="$tmp/repo-root" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    "$@"
+}
+mkdir -p "$tmp/fleet-home" "$tmp/adopter" "$tmp/repo-root/.claude"
+cp "$here/../config/defaults.yml" "$tmp/core-defaults.yml" || {
+  echo "FAIL: cannot seed the core config" >&2
+  exit 1
+}
+
 run() {
-  /bin/sh "$script" "$@"
+  sandbox_env /bin/sh "$script" "$@"
 }
 
 # PATH-stub invocation confined to a function-local command prefix (never a
@@ -74,7 +94,7 @@ run() {
 # shell-dependent).
 stubbin="$tmp/bin"
 run_stub() {
-  PATH="$stubbin:$PATH" /bin/sh "$script" "$@"
+  PATH="$stubbin:$PATH" sandbox_env /bin/sh "$script" "$@"
 }
 
 if [ ! -x "$script" ]; then

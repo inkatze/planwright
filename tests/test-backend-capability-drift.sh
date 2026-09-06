@@ -147,6 +147,42 @@ assert "a drifted caps_for() value fails" 1 $?
 assert_contains "the caps_for() failure names the field" "$out" "overhead"
 
 # ---------------------------------------------------------------------------
+# 4b. The tier_control column is drift-guarded like every other field, and its
+#     own enum is enforced. A column added to the contract without these two
+#     would be tethered in appearance only.
+# ---------------------------------------------------------------------------
+make_trio "$tmp/tier-drift"
+write_registry "$tmp/tier-drift" <<'EOF'
+#!/bin/sh
+caps_for() {
+  case "$1" in
+    alpha) echo "true true true false true yes full-session true model" ;;
+    beta) echo "false false false false na deferred none false both" ;;
+    *) return 1 ;;
+  esac
+}
+EOF
+out="$(run_trio "$tmp/tier-drift")"
+assert "a drifted tier_control value fails" 1 $?
+assert_contains "the tier_control drift names the field" "$out" "tier_control"
+assert_contains "the tier_control drift names the backend" "$out" "alpha"
+
+# An out-of-enum tier_control is a fail-closed PARSE error (exit 2), not a
+# silent mismatch: the normalizer must not fall through to the boolean one.
+make_trio "$tmp/tier-token"
+write_contract "$tmp/tier-token" <<'EOF'
+# Fixture Backend Capability Contract
+
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | true | true | false | true | yes | `full-session` | true | `sometimes` |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false | `both` |
+EOF
+out="$(run_trio "$tmp/tier-token")"
+assert "an out-of-enum tier_control fails closed" 2 $?
+assert_contains "the bad tier_control names the value" "$out" "sometimes"
+
+# ---------------------------------------------------------------------------
 # 5. Divergence seeded in surface 3 (the fleet table) is caught, on both the
 #    observe/steer column and the session-grade column.
 # ---------------------------------------------------------------------------

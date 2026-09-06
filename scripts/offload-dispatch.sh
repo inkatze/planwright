@@ -59,7 +59,10 @@
 # `claude` launches here are not `-p`-family sites, so the non-`--bare`
 # launch pin (REQ-A1.5, D-12) does not apply to this script.
 #
-# Exit codes: 0 success; 1 dispatch failed (failure report emitted); 2 usage /
+# Exit codes: 0 success; 1 dispatch failed (failure report emitted); 3 the unit
+# is withheld by the admission gate (nothing dispatched); 4 a malformed
+# repo-tracked knob and 5 a broken install, both propagated from the launch-tier
+# resolver; 2 usage /
 # hostile input / refused backend / missing, empty, unreadable, or unsafe
 # prompt file / missing echo-safety helper / internal resolution failure.
 #
@@ -129,22 +132,28 @@ resolve_tier() {
     echo "$me: required helper $apply_helper missing or not readable" >&2
     exit 2
   fi
-  rt_plan=$("$apply_helper" plan --key offload --backend "$1" --unit "$2")
+  rt_plan=$(/bin/sh "$apply_helper" plan --key offload --backend "$1" --unit "$2")
   rt_rc=$?
   if [ "$rt_rc" -ne 0 ]; then
-    # A malformed knob or a broken install is a CONFIG/INSTALL fault: those are
-    # loud and fatal, because silently ignoring an operator's setting is the
-    # by-layer malformed policy's whole objection. Anything else means the
-    # allocation store could not be reached — most often no resolvable fleet
-    # home — which is an availability question, not a correctness one. There
-    # the posture is the ledger's own degraded mode (REQ-F1.1): launch at the
-    # ambient tier with adjustments suspended and the degradation SURFACED,
-    # rather than refusing to dispatch work over a missing audit store. It is
-    # still not silent, which is the property REQ-B1.2 actually protects.
-    case "$rt_rc" in
-      4 | 5) exit "$rt_rc" ;;
-    esac
-    echo "$me: dispatch: the allocation store is unavailable; launching at the ambient model and effort with the tier unrecorded (degraded)" >&2
+    # ONLY an unreachable allocation store degrades, and it says so on its own
+    # exit code (6). That is an availability question: refusing to dispatch
+    # work because an audit store is missing trades a real capability for a
+    # bookkeeping one, so the posture is the ledger's own degraded mode
+    # (REQ-F1.1) — launch at the ambient tier, surfaced, never silent.
+    #
+    # Everything else is FATAL. A rejected argument, a withheld unit, a
+    # malformed knob, a broken install and a failed audit write are all
+    # different faults, and laundering any of them through the degrade branch
+    # would produce exactly the unaudited ambient launch REQ-B1.2 exists to
+    # prevent — while blaming a store that was never touched.
+    if [ "$rt_rc" -ne 6 ]; then
+      case "$rt_rc" in
+        3) echo "$me: dispatch: the unit is withheld by the admission gate; not dispatching" >&2 ;;
+        *) echo "$me: dispatch: could not resolve a launch tier (allocation-apply exit $rt_rc)" >&2 ;;
+      esac
+      exit "$rt_rc"
+    fi
+    echo "$me: dispatch: the allocation store is unreachable; launching at the ambient model and effort with the tier unrecorded (degraded)" >&2
     TIER_MODEL=inherit
     TIER_EFFORT=inherit
     return 0
@@ -510,6 +519,18 @@ case "$sub" in
           ;;
       esac
     done
+    if [ -n "$d_unit" ]; then
+      case $d_unit in
+        *[!A-Za-z0-9._=@:-]*)
+          echo "$me: dispatch: refusing malformed --unit '$(sanitize_printable "$d_unit" "(unprintable)")'" >&2
+          exit 2
+          ;;
+      esac
+      if [ "${#d_unit}" -gt 128 ]; then
+        echo "$me: dispatch: --unit exceeds 128 bytes" >&2
+        exit 2
+      fi
+    fi
     cmd_dispatch "$d_backend" "$d_promptfile" "$d_unit"
     ;;
   report)

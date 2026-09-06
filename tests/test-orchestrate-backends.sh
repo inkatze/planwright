@@ -23,7 +23,7 @@
 #     `advertise` with a well-formed capability set; a malformed/absent adapter
 #     is reported absent.
 #   - The adapter `advertise` grammar is 6→8 back-compatible (execution-backends
-#     D-13, REQ-A1.7): an eight-field line parses fully; a legacy six-field line
+#     D-13, REQ-A1.7): eight- and nine-field lines parse fully; a legacy six-field line
 #     is accepted with fail-safe defaults (hook_registration=false, overhead
 #     treated as the most conservative class, full-session+supervisor); a
 #     seven-field or nine-plus-field line is malformed and fails closed with a
@@ -452,7 +452,7 @@ echo "ok: detect sanitizes a refused invalid name's control bytes and continues"
 
 # ---------------------------------------------------------------------------
 # 17. detect: a well-formed first six tokens followed by an extra trailing token
-#     is a SEVEN-field line — malformed under the 6-or-8 grammar (REQ-A1.7) →
+#     is a SEVEN-field line — malformed under the 6-or-8-or-9 grammar (REQ-A1.7) →
 #     reported absent, with the visible malformed-line diagnostic (never a
 #     silent absence).
 # ---------------------------------------------------------------------------
@@ -639,7 +639,7 @@ echo "ok: present fails closed on malformed rows, empty input, and stray args"
 #     raw ESC reaches stderr), the same terminal-escape guard detect applies.
 # ---------------------------------------------------------------------------
 rc=0
-printf '%s\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\tfull-session\ttrue\n' "$(printf 'ev\033]0;PWNED\007il')" \
+printf '%s\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\tfull-session\ttrue\tboth\n' "$(printf 'ev\033]0;PWNED\007il')" \
   | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 2 ] || fail "present: a control-byte backend name returned $rc, expected 2"
 if LC_ALL=C grep -q "$(printf '\033')" "$err"; then
@@ -819,6 +819,7 @@ PATH="$BIN" "$BACKENDS" caps plugbad >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 1 ] || fail "caps of a bad-tier_control pluggable: exit $rc, expected 1 (absent)"
 grep -q "invalid tier_control token" "$err" \
   || fail "a bad tier_control must carry its own visible diagnostic"
+out=$(PATH="$BIN" "$BACKENDS" caps plug) || fail "caps plug: re-read exited non-zero"
 [ "$(printf '%s\n' "$out" | cut -d' ' -f2)" = true ] \
   || fail "caps plug: can_observe (field 2) should be true"
 
@@ -1011,7 +1012,7 @@ PATH="$BIN" "$BACKENDS" caps emptyline >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 1 ] || fail "caps of an empty advertise line: exit $rc, expected 1"
 grep -q "empty advertise line" "$err" \
   || fail "caps: an empty advertise line must get its own empty-line diagnostic"
-echo "ok: the adapter grammar is 6-or-8 with fail-closed, diagnosed malformed arities"
+echo "ok: the adapter grammar is 6-or-8-or-9 with fail-closed, diagnosed malformed arities"
 
 # ---------------------------------------------------------------------------
 # 33. Advertise-line input hygiene (REQ-A1.9): the line is length-bounded and

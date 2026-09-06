@@ -24,10 +24,10 @@
 #
 # Subcommands:
 #   rung <backend|caps>
-#       Print the ladder rung of a shipped backend name, or of a six- or
-#       eight-field advertised caps string `interactive can_observe
+#       Print the ladder rung of a shipped backend name, or of a six-,
+#       eight-, or nine-field advertised caps string `interactive can_observe
 #       can_steer_inflight provides_attention_surface supports_parallel
-#       session_grade [overhead hook_registration]` (the 6->8 grammar,
+#       session_grade [overhead hook_registration tier_control]` (the 6->8->9 grammar,
 #       execution-backends D-13 — classification reads the first six fields).
 #       Output is one of 1|2|3|4|manual. An unknown backend or unclassifiable
 #       caps exits 2. The execution-backends rows classify as rung 2
@@ -213,16 +213,16 @@ EOF
       return 1
       ;;
   esac
-  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_rest=''
-  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_rest <<EOF
+  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_tc='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_tc f_rest <<EOF
 $ac_line
 EOF
   if [ -n "$f_rest" ]; then
-    advertise_malformed "$1" "expected 6 or 8 whitespace-separated fields, got 9 or more"
+    advertise_malformed "$1" "expected 6, 8, or 9 whitespace-separated fields, got 10 or more"
     return 1
   fi
   if [ -n "$f_ov" ] && [ -z "$f_hr" ]; then
-    advertise_malformed "$1" "expected 6 or 8 whitespace-separated fields, got 7"
+    advertise_malformed "$1" "expected 6, 8, or 9 whitespace-separated fields, got 7"
     return 1
   fi
   for f in "$f_i" "$f_o" "$f_s" "$f_a" "$f_p"; do
@@ -260,7 +260,20 @@ EOF
         ;;
     esac
   fi
-  echo "$f_i $f_o $f_s $f_a $f_p $f_g $f_ov $f_hr"
+  # Same conservative default as the sibling: an adapter that does not claim it
+  # can set a launch dimension is never assumed able to.
+  if [ -z "$f_tc" ]; then
+    f_tc='none'
+  else
+    case "$f_tc" in
+      both | model | effort | none) ;;
+      *)
+        advertise_malformed "$1" "invalid tier_control token"
+        return 1
+        ;;
+    esac
+  fi
+  printf '%s\n' "$f_i $f_o $f_s $f_a $f_p $f_g $f_ov $f_hr $f_tc"
 }
 
 # The advertised caps of a backend by name: a shipped name via the contract
@@ -275,7 +288,7 @@ caps_of_backend() {
   fi
 }
 
-# Classify a six- or eight-field caps string onto the ladder (the 6->8
+# Classify a six-, eight-, or nine-field caps string onto the ladder (the 6->8
 # grammar, execution-backends D-13: classification reads the first six fields;
 # when the appended overhead/hook_registration fields are present they are
 # validated, never classified on — a seven-field string is malformed). Reads

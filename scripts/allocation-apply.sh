@@ -47,6 +47,9 @@
 #     Print the launch plan as TAB-separated `key<TAB>value` lines:
 #       key             the selection key that was resolved
 #       backend         the backend the plan was built for
+#       admit           yes | withheld — the admission gate's answer, carried
+#                       through from the engine. A withheld unit resolves no
+#                       tier and must not be launched (exit 3).
 #       capability      both | model | effort | none | error
 #                       (`error` = the capability probe could not answer, which
 #                       is treated as no capability and audited as such)
@@ -57,9 +60,15 @@
 #                       way, so a reader never has to infer it
 #
 # Exit codes: 0 a plan was printed; 2 usage error, hostile or out-of-grammar
-#   input, or a missing unit; 4 a malformed repo-tracked knob (propagated from
-#   the resolver chain); 5 broken install (a sibling helper missing). A
-#   capability probe that fails is NOT an error — it degrades to inheritance
+#   input, or a failed ledger write; 3 the unit is WITHHELD by the admission
+#   gate (the plan is printed, carrying `admit withheld`, and applies nothing —
+#   a caller must not launch); 4 a malformed repo-tracked knob (propagated from
+#   the resolver chain); 5 broken install (a sibling helper missing, or a
+#   capability accessor answering the wrong arity); 6 the allocation store is
+#   unreachable, so no launch can be audited. 6 is deliberately its own code:
+#   it is the one failure a caller may reasonably degrade past, and collapsing
+#   it into 2 would make every rejected argument look like a missing store.
+#   A capability probe that fails is NOT an error — it degrades to inheritance
 #   and is audited (D-10).
 #
 # POSIX sh on the macOS + Linux support bar. All input is data (REQ-K1.5).
@@ -93,6 +102,17 @@ for helper in "$ADAPT" "$LEDGER" "$BACKENDS"; do
     exit 5
   }
 done
+
+# Every sibling is POSIX sh and is invoked through the interpreter rather than
+# relying on its exec bit: a `core.fileMode=false` checkout or a tarball
+# extraction can leave the bit off, and a launch must not turn that into a
+# silent degrade (the same reason offload-dispatch.sh calls its own siblings
+# this way). The readability check above is the real broken-install gate.
+run_helper() {
+  rh_target=$1
+  shift
+  /bin/sh "$rh_target" "$@"
+}
 
 usage() {
   printf '%s\n' "usage: $me plan --key <selection-key> --backend <backend> --unit <unit> [--step <step>] [--attempt <n>]" >&2
@@ -138,11 +158,16 @@ valid_step() {
   valid_unit "${1:-}"
 }
 
+# The engine's attempt grammar, mirrored exactly: it refuses a leading zero
+# because `01` and `1` would key the same incident under two spellings, and it
+# sets no private length bound. Diverging here would push the refusal two
+# helpers deep, which is what checking it locally exists to prevent.
 valid_attempt() {
   case ${1:-} in
     '' | *[!0-9]*) return 1 ;;
+    0[0-9]*) return 1 ;;
   esac
-  [ "${#1}" -le 9 ]
+  return 0
 }
 
 sub=${1-}
@@ -247,7 +272,16 @@ valid_attempt "$ATTEMPT" || {
 # config-level ledger row; this script consumes its answer rather than
 # re-deriving one (the single-resolver discipline, D-5).
 # --------------------------------------------------------------------------
-adapt_out=$("$ADAPT" resolve "$UNIT" --key "$KEY" --step "$STEP" --attempt "$ATTEMPT")
+# Probe the store FIRST, so an unreachable one is reported as itself rather
+# than as whatever the engine happens to fail with. This is the single
+# condition a caller may degrade past, and it must not be confused with a
+# rejected argument or a failed write.
+if ! run_helper "$LEDGER" home >/dev/null 2>&1; then
+  printf '%s\n' "$me: the allocation store is unreachable, so no launch can be audited" >&2
+  exit 6
+fi
+
+adapt_out=$(run_helper "$ADAPT" resolve "$UNIT" --key "$KEY" --step "$STEP" --attempt "$ATTEMPT")
 adapt_rc=$?
 if [ "$adapt_rc" -ne 0 ]; then
   exit "$adapt_rc"
@@ -266,15 +300,56 @@ RES_EFFORT=$(tier_field effort) || {
   printf '%s\n' "$me: the resolver returned no effort row — broken or outdated install" >&2
   exit 5
 }
+# The PROPOSED tier, for the ledger's proposed columns. The engine reports it
+# separately from the resolved tier; writing the resolved value into both would
+# make the two columns mean the same thing on this script's rows and a
+# different thing on the engine's.
+PROP_MODEL=$(tier_field proposed_model) || PROP_MODEL=$RES_MODEL
+PROP_EFFORT=$(tier_field proposed_effort) || PROP_EFFORT=$RES_EFFORT
+
+# The ADMISSION gate. A withheld unit resolves no tier at all (the engine
+# answers `-` for both dimensions), so there is nothing to apply and nothing
+# that may be launched. Treating `-` as a tier would push deferred work past
+# the gate at every surface this script serves, which is the opposite of what
+# the gate is for — so the plan is printed for the caller to read and the exit
+# code refuses the launch outright.
+ADMIT=$(tier_field admit) || ADMIT=yes
+if [ "$ADMIT" = withheld ]; then
+  printf '%s\n' "$me: unit withheld by the admission gate at key $KEY; not launching" >&2
+  printf 'key\t%s\n' "$KEY"
+  printf 'backend\t%s\n' "$BACKEND"
+  printf 'admit\twithheld\n'
+  printf 'capability\t-\n'
+  printf 'model\tinherit\n'
+  printf 'effort\tinherit\n'
+  printf 'model_source\twithheld\n'
+  printf 'effort_source\twithheld\n'
+  exit 3
+fi
 
 # --------------------------------------------------------------------------
 # Probe the backend's advertised tier_control (field 9 of the capability set).
 # A probe that cannot answer is treated as NO capability and audited as such,
 # never as a dispatch failure (D-10).
 # --------------------------------------------------------------------------
+# The accessor's own stderr flows through: a malformed adapter's advertise
+# diagnostic is an operator-actionable fact the contract insists is never a
+# silent absence, and swallowing it would leave `cause=probe-error` in the
+# ledger with nothing saying why.
 CAPABILITY=error
-if caps_line=$("$BACKENDS" caps "$BACKEND" 2>/dev/null); then
-  probe=$(printf '%s\n' "$caps_line" | awk '{ print $9 }')
+if caps_line=$(run_helper "$BACKENDS" caps "$BACKEND"); then
+  # Arity is checked before the field is read. A sibling still answering the
+  # pre-extension eight-field set would otherwise yield an empty ninth field,
+  # which would read as "this backend cannot set a tier" and inherit silently
+  # — a version skew wearing a capability gap's clothes. The sibling consumer
+  # of this accessor takes the same posture (fleet-liveness.sh).
+  # shellcheck disable=SC2086 # deliberate word splitting: that is the count
+  set -- $caps_line
+  if [ "$#" -ne 9 ]; then
+    printf '%s\n' "$me: the capability accessor answered $# field(s), expected 9 — version-skewed install" >&2
+    exit 5
+  fi
+  probe=$9
   case "$probe" in
     both | model | effort | none) CAPABILITY=$probe ;;
     *) CAPABILITY=error ;;
@@ -333,6 +408,12 @@ fi
 cap_inherited=no
 case "$MODEL_SOURCE" in inherit-capability | inherit-probe-error) cap_inherited=yes ;; esac
 case "$EFFORT_SOURCE" in inherit-capability | inherit-probe-error) cap_inherited=yes ;; esac
+# A probe that ERRORED is worth a row even when the config resolved to
+# `inherit` and nothing was going to be applied anyway. Under the shipped
+# default that is the common case, and without this a broken adapter would
+# never appear in the audit record at all — the one operator-actionable half
+# of an inheritance, permanently invisible.
+[ "$CAPABILITY" = error ] && cap_inherited=yes
 
 if [ "$cap_inherited" = yes ]; then
   if [ "$MODEL_SOURCE" = applied ] || [ "$EFFORT_SOURCE" = applied ]; then
@@ -356,13 +437,14 @@ if [ "$cap_inherited" = yes ]; then
   esac
   # `cap` records what was advertised; on an errored probe there is no
   # advertised value, so it records the probe outcome instead.
+  [ -n "$dims" ] || dims=none
   inputs="key=$KEY;backend=$BACKEND;cap=$CAPABILITY;inherit=$extent;cause=$cause;dim=$dims"
   # The proposed tier is what the policy resolved; the resolved cells are what
   # the launch actually carries, per dimension — `inherit` where the backend
   # could not set it. Clamp cells are `-`: this layer applies no clamp, the
   # engine owns those.
-  "$LEDGER" append "$UNIT" "$STEP" "$ATTEMPT" inherit \
-    "$RES_MODEL" "$RES_EFFORT" - - \
+  run_helper "$LEDGER" append "$UNIT" "$STEP" "$ATTEMPT" inherit \
+    "$PROP_MODEL" "$PROP_EFFORT" - - \
     "$APPLY_MODEL" "$APPLY_EFFORT" unit inherit "$inputs" >/dev/null || {
     printf '%s\n' "$me: could not record the inheritance for unit $(sanitize_printable "$UNIT" "(unprintable unit)")" >&2
     exit 2
@@ -371,8 +453,11 @@ fi
 
 printf 'key\t%s\n' "$KEY"
 printf 'backend\t%s\n' "$BACKEND"
+printf 'admit\tyes\n'
 printf 'capability\t%s\n' "$CAPABILITY"
 printf 'model\t%s\n' "$APPLY_MODEL"
 printf 'effort\t%s\n' "$APPLY_EFFORT"
 printf 'model_source\t%s\n' "$MODEL_SOURCE"
 printf 'effort_source\t%s\n' "$EFFORT_SOURCE"
+
+exit 0
