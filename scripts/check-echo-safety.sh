@@ -364,7 +364,7 @@ awk -v listfile="$work/list" '
     if (depth >= 400) { toodeep = 1; return }
     depth++
     savedq[depth] = dq; savesq[depth] = sq; isbt[depth] = bt
-    dq = 0; sq = 0; cmd[depth] = ""; atcmd = 1; argn[depth] = 0; inarg[depth] = 0; fmtb[depth] = 0
+    dq = 0; sq = 0; cmd[depth] = ""; atcmd = 1; argn[depth] = 0; inarg[depth] = 0; fmtb[depth] = 0; redirpend[depth] = 0
   }
   function pop_depth() {
     if (depth <= 0) return
@@ -389,10 +389,16 @@ awk -v listfile="$work/list" '
     if (w == "case") { ncase++; casedep[ncase] = depth; return }
     if (w == "esac") { if (ncase > 0) ncase--; return }
     if (w in transparent) return
+    if (cmd[depth] == "" && w ~ /^-/) return
     finish_assign(depth)
     cmd[depth] = w
     atcmd = 0; argn[depth] = 0; inarg[depth] = 1; fmtb[depth] = 0
-    if (w == "sanitize_printable") {
+    redirpend[depth] = 0; pctesc[depth] = 0
+    # Keyed on the sanitizer FAMILY, not one spelling. spec-scope.sh and
+    # spec-assemble.sh carry inline copies named sanitize_echo, and a guard
+    # that matched only the canonical name reported both files clean over
+    # eight live call sites.
+    if (w ~ /^sanitize_/) {
       if (pend_assign != "" && depth > pend_depth) pend_san = 1
       if (depth > 0 && is_echo_ancestor(depth - 1)) hits[ln] = "direct"
       else if (depth > 0 && is_fmt_ancestor(depth - 1)) hits[ln] = "format"
@@ -401,7 +407,7 @@ awk -v listfile="$work/list" '
   }
   function is_wordstart(p) {
     return (p == "" || p == " " || p == "\t" || p == "\n" || p == ";" \
-      || p == "&" || p == "|" || p == "(" || p == "{" || p == "}")
+      || p == "&" || p == "|" || p == "(" || p == ")" || p == "{" || p == "}")
   }
   # Consumes a heredoc operator and returns the index just past it, recording
   # the delimiter so the body can be skipped. Getting the delimiter charset
@@ -421,7 +427,12 @@ awk -v listfile="$work/list" '
       while (j <= n && substr(s, j, 1) != q) { delim = delim substr(s, j, 1); j++ }
       j++
     } else {
-      while (j <= n && substr(s, j, 1) ~ /[A-Za-z0-9_.+-]/) { delim = delim substr(s, j, 1); j++ }
+      # A delimiter is an ordinary word. Restricting it to a word-character
+      # charset refuses real shell: `<<!EOF!` and `<<EOF:1` both ship in
+      # scripts on a stock system, and refusing them fails a clean tree.
+      while (j <= n && index(" \t<>&|;()\"\047`", substr(s, j, 1)) == 0) {
+        delim = delim substr(s, j, 1); j++
+      }
     }
     # A `<<` whose delimiter matches nothing leaves the body extent unknown,
     # so the body would be read as code. Refusing beats guessing.
@@ -438,12 +449,33 @@ awk -v listfile="$work/list" '
       # format operand (argument 1) can be told from the %s operands after it.
       if (!sq && !dq && !esc) {
         if (c == " " || c == "\t") inarg[depth] = 0
-        else if (cmd[depth] != "" && !inarg[depth]) { inarg[depth] = 1; argn[depth]++ }
+        else if (cmd[depth] != "" && !inarg[depth]) {
+          inarg[depth] = 1
+          # A redirection target is not an argument. Counting it shifts every
+          # later operand by one, and `printf >&2 "..."` — house style here —
+          # then hides its format operand from the format check entirely.
+          if (redirpend[depth]) redirpend[depth] = 0
+          else argn[depth]++
+        }
+        if (c == ">" || c == "<") {
+          if (inarg[depth]) { argn[depth]--; inarg[depth] = 0 }
+          redirpend[depth] = 1
+        }
       }
       # Checked regardless of quote state: the format operand is normally a
       # quoted literal, which the branches below skip over wholesale.
-      if (cmd[depth] == "printf" && argn[depth] == 1 && c == "%" \
-        && substr(s, i + 1, 1) == "b") fmtb[depth] = 1
+      if (cmd[depth] == "printf" && argn[depth] == 1 && c == "%") {
+        if (pctesc[depth]) {
+          pctesc[depth] = 0            # the second `%` of a literal `%%`
+        } else {
+          pctesc[depth] = 1
+          k = i + 1
+          while (k <= n && index("-+ #0123456789.*\047", substr(s, k, 1)) > 0) k++
+          if (substr(s, k, 1) == "b") fmtb[depth] = 1
+        }
+      } else if (c != "%") {
+        pctesc[depth] = 0
+      }
       if (esc) { esc = 0; prev = c; i++; continue }
       if (c == "\\") {
         if (sq) { prev = c; i++; continue }
@@ -465,7 +497,18 @@ awk -v listfile="$work/list" '
           push_depth(0); prev = "("; i += 2; continue
         }
         if (c2 == "{") {
-          rest = substr(s, i + 2); j = index(rest, "}")
+          # The FIRST `}` is the wrong one for a nested expansion: the POSIX
+          # trim idiom `${x#"${x%%[! ]*}"}` closes an inner brace there, and
+          # resuming after it re-reads the tail as code, where a stray quote
+          # flips the string state for the rest of the file — a silent miss,
+          # or a bogus unterminated-string refusal.
+          bdepth = 1; j = 0
+          for (k = i + 2; k <= n; k++) {
+            ch = substr(s, k, 1)
+            if (ch == "{") bdepth++
+            else if (ch == "}") { bdepth--; if (bdepth == 0) { j = k - i - 1; break } }
+          }
+          rest = substr(s, i + 2)
           name = (j > 0) ? substr(rest, 1, j - 1) : rest
           # `${#v}` expands to a LENGTH and `${!v}` to a NAME. Neither carries
           # the sanitized value, so neither is content reaching the command.
@@ -514,26 +557,28 @@ awk -v listfile="$work/list" '
       # unchecked — which is exactly what it did before this was tracked.
       if (c == ")") {
         if (ncase > 0 && depth == casedep[ncase]) {
-          finish_assign(depth); cmd[depth] = ""; atcmd = 1
+          finish_assign(depth); cmd[depth] = ""; atcmd = 1; redirpend[depth] = 0
         } else if (depth > 0) {
           pop_depth()
         } else {
-          finish_assign(depth); cmd[depth] = ""; atcmd = 1
+          finish_assign(depth); cmd[depth] = ""; atcmd = 1; redirpend[depth] = 0
         }
         prev = c; i++; continue
       }
       if (c == "{" && is_wordstart(prev)) {
-        finish_assign(depth); cmd[depth] = ""; atcmd = 1; prev = c; i++; continue
+        finish_assign(depth); cmd[depth] = ""; atcmd = 1; redirpend[depth] = 0; prev = c; i++; continue
       }
       # `>&2` and `2>&1`: the `&` is part of the redirection, not a control
       # operator. Resetting on it makes `echo >&2 "..."` parse `2` as the
       # command word, and the echo is never seen — a spelling this repo uses.
       if (c == "&" && (prev == ">" || prev == "<")) { prev = c; i++; continue }
       if (c == ";" || c == "&" || c == "|") {
-        finish_assign(depth); cmd[depth] = ""; atcmd = 1; prev = c; i++; continue
+        finish_assign(depth); cmd[depth] = ""; atcmd = 1; redirpend[depth] = 0; prev = c; i++; continue
       }
       if (c == "<" && substr(s, i + 1, 1) == "<" && cmd[depth] != "#arith") {
-        i = heredoc_op(s, i); prev = "H"; continue
+        # The delimiter is the operator operand and is consumed here, so the
+        # redirect is complete; leaving it pending would eat the next word.
+        i = heredoc_op(s, i); redirpend[depth] = 0; prev = "H"; continue
       }
       # Scanned forward rather than matched against substr(s, i): that copies
       # the whole line remainder once per word token, which is quadratic in the
@@ -542,6 +587,7 @@ awk -v listfile="$work/list" '
       while (j <= n && index(STOP, substr(s, j, 1)) == 0) j++
       if (j > i) {
         w = substr(s, i, j - i)
+        if (w == "--" && argn[depth] == 1) argn[depth]--
         if (atcmd) word_at_cmd(w, ln)
         i = j; prev = "w"; continue
       }
@@ -553,7 +599,7 @@ awk -v listfile="$work/list" '
     split("", cmd); split("", savedq); split("", savesq); split("", isbt)
     split("", sanvar); split("", othervar); split("", refname); split("", refline)
     split("", hits)
-    cmd[0] = ""; nref = 0; ncase = 0; split("", casedep); split("", argn); split("", inarg); split("", refkind); split("", fmtb)
+    cmd[0] = ""; nref = 0; ncase = 0; split("", casedep); split("", argn); split("", inarg); split("", refkind); split("", fmtb); split("", redirpend); split("", pctesc)
     toodeep = 0; baddelim = 0
     pend_assign = ""; pend_san = 0; pend_depth = 0
     heredoc = ""; heredoc_dash = 0; pend_heredoc = ""; pend_dash = 0
@@ -568,7 +614,12 @@ awk -v listfile="$work/list" '
       if (heredoc != "") {
         body = line
         if (heredoc_dash) sub(/^\t+/, "", body)
-        if (body == heredoc) heredoc = ""
+        # `V=`cat <<EOF ... EOF`` closes the substitution on the terminator
+        # line. The terminator is still the terminator; only the closer that
+        # follows it belongs to the enclosing command.
+        term = body
+        sub(/[`)]+[ \t]*$/, "", term)
+        if (body == heredoc || term == heredoc) heredoc = ""
         continue
       }
       tokenize(line, maxln)
@@ -577,7 +628,7 @@ awk -v listfile="$work/list" '
       } else if (sq || dq) {
         # An unterminated string carries the command onto the next line.
       } else {
-        finish_assign(depth); cmd[depth] = ""; atcmd = 1
+        finish_assign(depth); cmd[depth] = ""; atcmd = 1; redirpend[depth] = 0
       }
       if (pend_heredoc != "") {
         heredoc = pend_heredoc; heredoc_dash = pend_dash; pend_heredoc = ""
@@ -659,19 +710,19 @@ while IFS="$(printf '\t')" read -r file lineno kind extra; do
   safe_rel="$(sanitize_printable "$rel" "(unprintable filename)")"
   case "$kind" in
     format)
-      printf 'check-echo-safety: %s:%s puts sanitize_printable output in the printf FORMAT operand; pass it as a %s argument instead\n' \
+      printf 'check-echo-safety: %s:%s puts sanitized output in the printf FORMAT operand; pass it as a %s argument instead\n' \
         "$safe_rel" "$lineno" "'%s'" >&2
       ;;
     percentb)
-      printf 'check-echo-safety: %s:%s passes sanitize_printable output to a printf %s conversion, which expands escapes in the argument; use %s\n' \
+      printf 'check-echo-safety: %s:%s passes sanitized output to a printf %s conversion, which expands escapes in the argument; use %s\n' \
         "$safe_rel" "$lineno" "'%b'" "'%s'" >&2
       ;;
     variable)
-      printf 'check-echo-safety: %s:%s echoes a variable holding sanitize_printable output; print it with printf instead\n' \
+      printf 'check-echo-safety: %s:%s echoes a variable holding sanitized output; print it with printf instead\n' \
         "$safe_rel" "$lineno" >&2
       ;;
     *)
-      printf 'check-echo-safety: %s:%s passes sanitize_printable output through echo; print it with printf instead\n' \
+      printf 'check-echo-safety: %s:%s passes sanitized output through echo; print it with printf instead\n' \
         "$safe_rel" "$lineno" >&2
       ;;
   esac

@@ -499,11 +499,23 @@ write_file "$tmp/partial-q/scripts/openquote.sh" '#!/bin/sh' 'echo "never closed
 out="$(/bin/bash "$CHECKER" "$tmp/partial-q" 2>&1)"
 assert "a file ending inside a string fails closed" 2 $?
 
+# A delimiter is an ordinary word, and unusual ones are real: `<<!EOF!` ships
+# in ppp on a stock system, and a charset narrow enough to reject it refuses a
+# clean tree. These must scan normally.
+make_root "$tmp/odd-delim"
+filler "$tmp/odd-delim"
+write_file "$tmp/odd-delim/scripts/bang.sh" '#!/bin/sh' 'cat <<!EOF!' 'body' '!EOF!' 'printf "%s\n" ok'
+write_file "$tmp/odd-delim/scripts/colon.sh" '#!/bin/sh' 'cat <<EOF:1' 'body' 'EOF:1' 'printf "%s\n" ok'
+write_file "$tmp/odd-delim/scripts/at.sh" '#!/bin/sh' 'cat <<@NOPE' 'body' '@NOPE' 'printf "%s\n" ok'
+out="$(/bin/bash "$CHECKER" "$tmp/odd-delim" 2>&1)"
+assert "unusual but valid heredoc delimiters scan clean" 0 $?
+
+# A `<<` with no delimiter at all leaves the body extent unknowable.
 make_root "$tmp/partial-d"
 filler "$tmp/partial-d"
-write_file "$tmp/partial-d/scripts/baddelim.sh" '#!/bin/sh' 'cat <<@NOPE' 'body' '@NOPE'
+write_file "$tmp/partial-d/scripts/baddelim.sh" '#!/bin/sh' 'cat <<' 'body'
 out="$(/bin/bash "$CHECKER" "$tmp/partial-d" 2>&1)"
-assert "an unparseable heredoc delimiter fails closed" 2 $?
+assert "a heredoc with no delimiter fails closed" 2 $?
 assert_contains "the delimiter refusal says the extent is unknown" "$out" "cannot parse"
 
 # A symlink is followed only to a regular file. One pointing at a FIFO would
@@ -518,6 +530,64 @@ if mkfifo "$tmp/fifo-target" 2>/dev/null; then
 else
   echo "ok: mkfifo unavailable, skipping the FIFO refusal case"
 fi
+
+# ---------------------------------------------------------------------------
+# 12e. Shapes a second review round caught, after running the guard over four
+#      hundred real system shell scripts. The clean-side cases matter most:
+#      four of those four hundred were refused by a guard that should have
+#      passed them, which is how a guard gets switched off.
+# ---------------------------------------------------------------------------
+make_root "$tmp/round2-clean"
+filler "$tmp/round2-clean"
+# The POSIX trim idiom nests a braced word inside a braced word. Closing on the
+# first `}` re-reads the tail as code, where the stray quote flips the string
+# state for the rest of the file.
+write_script "$tmp/round2-clean/scripts/trim.sh" \
+  'lead=${x#"${x%%[! ]*}"}' \
+  'printf "%s\n" "$lead"'
+# A heredoc terminator may share its line with the closer of the substitution
+# that contains it.
+write_file "$tmp/round2-clean/scripts/backtick.sh" '#!/bin/sh' 'V=`cat <<_EOF_' 'body' '_EOF_`' 'printf "%s\n" "$V"'
+# `%%` is a literal percent; the `b` after it is text, not a conversion.
+write_script "$tmp/round2-clean/scripts/pctpct.sh" \
+  'safe=$(sanitize_printable "$x")' \
+  'printf "%s: 100%%bytes\n" "$safe"'
+# A redirection before the operands must not shift the argument index.
+write_script "$tmp/round2-clean/scripts/redirok.sh" \
+  'printf >&2 "%s\n" "$(sanitize_printable "$x")"' \
+  'printf -- "%s\n" "$(sanitize_printable "$y")"'
+out="$(/bin/bash "$CHECKER" "$tmp/round2-clean" 2>&1)"
+assert "real-world shell shapes stay clean" 0 $?
+
+make_root "$tmp/round2-bad"
+filler "$tmp/round2-bad"
+# The same nesting must not hide an offender written between two of them.
+write_script "$tmp/round2-bad/scripts/trimhide.sh" \
+  'lead=${x#"${x%%[! ]*}"}' \
+  'echo "w: $(sanitize_printable "$m")" >&2' \
+  'trail=${y%"${y##*[! ]}"}'
+# A leading redirection or `--` must not hide the format operand.
+write_script "$tmp/round2-bad/scripts/redirfmt.sh" 'printf >&2 "$(sanitize_printable "$x")\n"'
+write_script "$tmp/round2-bad/scripts/dashfmt.sh" 'printf -- "$(sanitize_printable "$x")\n"'
+write_script "$tmp/round2-bad/scripts/redirpctb.sh" 'printf >&2 "%b\n" "$(sanitize_printable "$x")"'
+# A %b conversion carrying a flag, width or precision is still %b.
+write_script "$tmp/round2-bad/scripts/pctbwide.sh" 'printf "%-20b\n" "$(sanitize_printable "$x")"'
+# A function whose brace abuts its parens still has a body.
+write_script "$tmp/round2-bad/scripts/nospace.sh" 'foo(){ echo "$(sanitize_printable "$x")"; }'
+# An option to a transparent prefix must not take the command slot.
+write_script "$tmp/round2-bad/scripts/optprefix.sh" 'command -p echo "$(sanitize_printable "$x")"'
+# A sanitizer under another name is the same hazard. spec-scope.sh and
+# spec-assemble.sh carry inline copies called sanitize_echo, and keying on one
+# spelling reported both clean over eight live call sites.
+write_script "$tmp/round2-bad/scripts/othername.sh" \
+  'safe=$(sanitize_echo "$x")' \
+  'echo "scope: $safe" >&2'
+out="$(/bin/bash "$CHECKER" "$tmp/round2-bad" 2>&1)"
+assert "the second-round misses are caught" 1 $?
+for f in scripts/trimhide.sh scripts/redirfmt.sh scripts/dashfmt.sh scripts/redirpctb.sh \
+  scripts/pctbwide.sh scripts/nospace.sh scripts/optprefix.sh scripts/othername.sh; do
+  assert_contains "$f is caught" "$out" "$f"
+done
 
 # ---------------------------------------------------------------------------
 # 13. The allowlist. It exempts the exact paths of files open in other PRs, and
