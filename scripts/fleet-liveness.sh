@@ -226,12 +226,19 @@
 #       row cannot silently reset the streak). Exit 4/5: propagated
 #       config/install hard-fails from the knob resolver.
 #   fleet-liveness.sh crash-record <worker> <scope> [--now <epoch>]
+#       [--alloc-unit <unit> --alloc-key <selection-key>
+#        --obs-scope <scope> --obs-dir <dir>]
 #       Record one crash; prints `<count> <delay>` or `disabled <count>`
 #       BEFORE the escalation/audit side effects — the counter is durable
 #       once the line prints, so never re-invoke for the same crash on a
 #       non-zero exit (a retry double-counts; a lost disable escalation
 #       self-heals via crash-check). Exit 4/5: propagated config/install
 #       hard-fails.
+#       The four identity flags are ALL-OR-NONE and reach
+#       allocation-feedback.sh unchanged, which owns their grammars: they name
+#       the unit whose DISABLE this call is reporting to the escalation
+#       feedback loop (REQ-F1.2). Omitted, no evaluation runs at all. Supplied,
+#       the evaluation is best-effort — see report_terminal_feedback below.
 #   fleet-liveness.sh crash-check <worker> [--now <epoch>]
 #       Exit 0 relaunch authorized; 1 backing off or daemon layer paused;
 #       3 disabled (never relaunch; reported ahead of the kill-switch so
@@ -267,6 +274,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 FAU="$script_dir/fleet-audit.sh"
+AFB="$script_dir/allocation-feedback.sh"
 FDE="$script_dir/fleet-death-evidence.sh"
 FDG="$script_dir/fleet-daemon-gate.sh"
 RCK="$script_dir/resolve-config-knob.sh"
@@ -425,6 +433,38 @@ queue_disable_escalation() {
     "investigate before any relaunch" \
     "investigate|reset the streak and relaunch|park the unit" \
     high >/dev/null
+}
+
+# report_terminal_feedback — the crash-loop disable's half of REQ-F1.2's
+# escalation feedback loop. A disabled worker is TERMINAL (no further relaunch
+# is ever authorized), and a unit that crash-looped at the top of its ladder is
+# exactly the chronically under-estimated task the loop most needs to hear
+# about, so the disable reports it.
+#
+# THE IDENTITY IS THE CALLER'S TO SUPPLY, and that is not ceremony. This
+# subcommand is handed a worker HANDLE and a fleet scope, and neither is the
+# allocation ledger's unit key; the selection key is persisted nowhere at all
+# (it is an argv flag at every launch boundary); and the observation scope is
+# the host repo's, which nothing here can resolve. Deriving any of them would
+# be inventing exactly the fields the recording helper refuses to invent.
+#
+# NON-FATAL BY CONSTRUCTION. The disable is already durable and already
+# audited when this runs, and a supervisor must never re-invoke crash-record
+# for the same crash — so a recording failure that changed this exit code
+# would trade a real terminal transition for an observation. The evaluation's
+# stderr flows through untouched (its refusals are surfaced, never dropped);
+# its stdout is discarded, because this subcommand's stdout is the record line
+# a supervisor parses.
+report_terminal_feedback() {
+  [ -n "$ALLOC_UNIT" ] || return 0
+  if [ ! -x "$AFB" ]; then
+    echo "fleet-liveness: allocation-feedback.sh is missing or not executable; the disable stands, no feedback observation was evaluated" >&2
+    return 0
+  fi
+  "$AFB" evaluate "$ALLOC_UNIT" --key "$ALLOC_KEY" --terminal disabled \
+    --scope "$OBS_SCOPE" --obs-dir "$OBS_DIR" >/dev/null \
+    || echo "fleet-liveness: the allocation-feedback evaluation for unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")' did not complete (its own reason is above); the disable stands" >&2
+  return 0
 }
 
 # atomic_write_file <file> <content> — same-dir temp + rename.
@@ -1819,6 +1859,10 @@ case "$cmd" in
       exit 2
     fi
     now=""
+    ALLOC_UNIT=""
+    ALLOC_KEY=""
+    OBS_SCOPE=""
+    OBS_DIR=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --now)
@@ -1829,12 +1873,35 @@ case "$cmd" in
           now=$2
           shift 2
           ;;
+        --alloc-unit | --alloc-key | --obs-scope | --obs-dir)
+          if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+            echo "fleet-liveness: $1 needs a non-empty value" >&2
+            exit 2
+          fi
+          case "$1" in
+            --alloc-unit) ALLOC_UNIT=$2 ;;
+            --alloc-key) ALLOC_KEY=$2 ;;
+            --obs-scope) OBS_SCOPE=$2 ;;
+            --obs-dir) OBS_DIR=$2 ;;
+          esac
+          shift 2
+          ;;
         *)
           echo "fleet-liveness: unknown crash-record option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
           exit 2
           ;;
       esac
     done
+    # The terminal-feedback identity is ALL-OR-NONE. A caller that wired three
+    # of the four has a bug, and accepting it would reproduce the failure this
+    # wiring exists to close: an evaluation that never runs and never says so.
+    # The values themselves are left to allocation-feedback.sh, which owns
+    # every one of these grammars and refuses out-of-grammar input on its own.
+    if [ -n "$ALLOC_UNIT$ALLOC_KEY$OBS_SCOPE$OBS_DIR" ] \
+      && { [ -z "$ALLOC_UNIT" ] || [ -z "$ALLOC_KEY" ] || [ -z "$OBS_SCOPE" ] || [ -z "$OBS_DIR" ]; }; then
+      echo "fleet-liveness: --alloc-unit, --alloc-key, --obs-scope and --obs-dir are all-or-none; give all four to report this unit's terminal state to the escalation feedback loop, or none to record the crash without it" >&2
+      exit 2
+    fi
     if [ -z "$now" ]; then
       now=$(now_epoch)
       if [ -z "$now" ]; then
@@ -1903,6 +1970,10 @@ case "$cmd" in
         echo "fleet-liveness: failed to queue the disable escalation (crash-check re-queues it)" >&2
         exit 2
       }
+      # LAST, and never fatal: the human-facing half of this transition (the
+      # audit row and the decision-queue entry) is already committed above,
+      # and the feedback observation must not be able to cost either of them.
+      report_terminal_feedback
       exit 0
     fi
     printf '%s %s\n' "$count" "$delay"

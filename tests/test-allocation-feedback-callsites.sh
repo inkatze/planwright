@@ -400,6 +400,24 @@ out=$(pw_shipped "$FLV" crash-record "$worker" "$wscope" --now 1200 \
 [ "$(marks_of "$unit")" = 0 ] \
   || fail "A8d: the wiring marked a ledger on SHIPPED defaults"
 
+# The silence has to be the LADDER's, not an empty fixture's: the unit really
+# did launch twice on a triggering event, and the evaluation really did run and
+# reach neither firing condition. Asserted through the evaluation's own report,
+# because the call site discards its stdout.
+rows=$(pw_shipped "$LEDGER" rows "$unit" | awk 'END { print NR + 0 }')
+[ "$rows" -gt 0 ] \
+  || fail "A8e: the shipped-posture unit has no ledger history, so A8c/A8d prove nothing"
+verdict=$(pw_shipped "$sbin/allocation-feedback.sh" evaluate "$unit" \
+  --key execution --terminal disabled --scope planwright --obs-dir "$obsdir")
+printf '%s\n' "$verdict" | grep -q "^fired${TAB}no$" \
+  || fail "A8f: the shipped-posture evaluation fired: $verdict"
+printf '%s\n' "$verdict" | grep -q "^reason${TAB}below-thresholds$" \
+  || fail "A8g: expected below-thresholds on shipped defaults, got: $verdict"
+printf '%s\n' "$verdict" | grep -q "^escalations${TAB}0$" \
+  || fail "A8h: shipped defaults escalated a unit ($verdict)"
+[ "$(frag_count "$obsdir")" = 0 ] \
+  || fail "A8i: the shipped-posture evaluation recorded a fragment"
+
 # ==========================================================================
 # Part B — the COMPLETED owner: scripts/fleet-fence.sh sweep
 # ==========================================================================

@@ -154,7 +154,7 @@ usage: fleet-fence.sh refname --spec <spec> <unit-id>
        fleet-fence.sh fence   --checkout <dir> --spec <spec> <unit-id>...
        fleet-fence.sh gc      --checkout <dir> --spec <spec> <unit-id>...
        fleet-fence.sh list    --checkout <dir> [--spec <spec>]
-       fleet-fence.sh sweep   --checkout <dir> --spec <spec> (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>]
+       fleet-fence.sh sweep   --checkout <dir> --spec <spec> (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>] [--alloc-key <selection-key> --obs-scope <scope>]
 USAGE
 }
 
@@ -232,6 +232,8 @@ session_id=""
 grace=30
 min_interval=30
 units=""
+alloc_key=""
+obs_scope=""
 
 # A flag irrelevant to the subcommand is a usage error, never a validated-then-
 # ignored no-op (the sibling fleet-presence.sh discipline).
@@ -294,6 +296,22 @@ while [ "$#" -gt 0 ]; do
         exit 2
       }
       ;;
+    --alloc-key)
+      refuse_for "sweep"
+      alloc_key="${2:-}"
+      shift 2 || {
+        usage
+        exit 2
+      }
+      ;;
+    --obs-scope)
+      refuse_for "sweep"
+      obs_scope="${2:-}"
+      shift 2 || {
+        usage
+        exit 2
+      }
+      ;;
     --*)
       usage
       exit 2
@@ -333,6 +351,13 @@ case "$cmd" in
       usage
       exit 2
     }
+    # ALL-OR-NONE, like the sibling crash-loop disable: a sweep wired with one
+    # half of the terminal-feedback identity would evaluate nothing and say
+    # nothing, which is the silent-inertness failure this wiring closes.
+    if [ -n "$alloc_key$obs_scope" ] && { [ -z "$alloc_key" ] || [ -z "$obs_scope" ]; }; then
+      err "--alloc-key and --obs-scope are all-or-none; give both to report a terminal unit's completion to the escalation feedback loop, or neither to sweep without it"
+      exit 2
+    fi
     ;;
 esac
 
@@ -546,6 +571,40 @@ if [ "$cmd" = gc ]; then
   exit $?
 fi
 
+# report_terminal_feedback <unit-id> — the unit-completion half of REQ-F1.2's
+# escalation feedback loop, reported from the one place the fleet observes a
+# unit going terminal and acts on it: the sweep's terminal branch, which is
+# where the fence's whole documented lifecycle ends ("deleted at its unit's
+# terminal transition"). The unit is exactly as terminal as the GC below
+# treats it: both read the same `completed` verdict from the same derivation.
+#
+# THE LEDGER UNIT KEY is `<spec>:task-<id>`, assembled from the two values the
+# sweep already holds, because the fence's own id (`is_unit_id`) is the bare
+# task id the branch grammar uses. The selection key and the observation scope
+# cannot be derived from anything here — the key is persisted nowhere, and the
+# scope is the host repo's — so the caller names them.
+#
+# The observations store is the CHECKOUT's, not a cwd-relative default: this
+# sweep is handed the host repo root, and the fragment belongs in that repo's
+# store rather than wherever the tower happens to be standing.
+#
+# NON-FATAL, and it runs BEFORE the GC. A transient `origin` failure can hold
+# the delete for later passes, and there is no reason an observation should
+# wait on one; the once-per-unit ledger mark is what keeps those later passes
+# from recording again. The evaluation's stdout is discarded because this
+# command's stdout is a parsed record stream; its stderr flows through.
+report_terminal_feedback() {
+  [ -n "$alloc_key" ] || return 0
+  if [ ! -x "$AFB" ]; then
+    err "allocation-feedback.sh is missing or not executable; the fence lifecycle is unaffected, no feedback observation was evaluated"
+    return 0
+  fi
+  "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
+    --scope "$obs_scope" --obs-dir "$checkout/specs/_observations" >/dev/null \
+    || err "the allocation-feedback evaluation for unit '$spec:task-$1' did not complete (its own reason is above); the fence lifecycle is unaffected"
+  return 0
+}
+
 # --- the durable, dedup'd operator sink (REQ-C1.7, D-7) --------------------
 #
 # "Surfaced" means a durable, deduplicated, operator-facing entry delivered by
@@ -575,6 +634,7 @@ fi
 FA="$script_dir/fleet-attention.sh"
 FP="$script_dir/fleet-presence.sh"
 OS="$script_dir/orchestrate-state.sh"
+AFB="$script_dir/allocation-feedback.sh"
 
 sink_cache=""
 
@@ -764,6 +824,7 @@ if [ "$cmd" = sweep ]; then
         printf 'anomaly\t%s\t%s\n' "$ref" "unrepresentable-fence-ref"
         continue
       }
+      report_terminal_feedback "$unit"
       if gc_refs; then
         sink_clear "$tkey"
         sink_clear "$skey"
