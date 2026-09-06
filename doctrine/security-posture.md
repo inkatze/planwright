@@ -52,13 +52,20 @@ stricter bar than the code they help review:
   containment-checked after canonicalization before any read or write.
   Hostile input is a clean refusal, never a path.
 - **Echo discipline.** Untrusted content (spec-file values, branch names,
-  parsed identifiers) is stripped of non-printable bytes before it is echoed,
-  so an embedded escape sequence cannot drive the terminal. The canonical
-  sanitizer is `scripts/echo-safety.sh` (`sanitize_printable`), sourced by the
-  migrated command-tier callers (`spec-validate.sh`, `spec-walkthrough.sh`);
-  `spec-assemble.sh` (deliberately self-contained) and `spec-scope.sh` (a
-  tracked follow-up) keep inline copies. The awk `gsub(/[^[:print:]]/, "")`
-  header parsers are its in-awk form.
+  parsed identifiers) is stripped of non-printable bytes before it is printed.
+  The canonical sanitizer is `scripts/echo-safety.sh` (`sanitize_printable`),
+  sourced by the migrated command-tier callers (`spec-validate.sh`,
+  `spec-walkthrough.sh`); `spec-assemble.sh` (deliberately self-contained) and
+  `spec-scope.sh` (a tracked follow-up) keep inline copies. The awk
+  `gsub(/[^[:print:]]/, "")` header parsers are its in-awk form.
+- **Sanitizing is only half of it.** The sanitizer strips control BYTES and
+  correctly leaves backslashes alone, and `/bin/sh` on Linux is dash, whose
+  `echo` expands backslash escapes and turns surviving escape TEXT back into a
+  live ESC. So an argument made entirely of printable characters still drives
+  the terminal if it is echoed. Sanitized text is printed with `printf`, never
+  `echo`, in any script an sh interpreter runs;
+  `scripts/check-echo-safety.sh` enforces that and bash-interpreter files are
+  exempt because bash does not expand escapes.
 - **Stay auditable.** Scripts are plain portable shell, small enough to
   read before trusting, and gated by planwright's self-hosting quality
   guards (shell lint and secret scan, per the dogfooding decision D-32).
