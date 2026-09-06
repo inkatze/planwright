@@ -125,8 +125,14 @@ shebang_interp() {
     *) return 0 ;;
   esac
   _si=${1#'#!'}
+  # Splitting is wanted here; GLOBBING is not. A shebang is file content, so on
+  # a fork PR it is attacker-authored, and `#!*/bash` would otherwise expand
+  # against the working directory and could name this file bash — skipping a
+  # file that dash actually runs. `set -f` makes the split word-only.
+  set -f
   # shellcheck disable=SC2086 # deliberate splitting: a shebang is whitespace-separated
   set -- $_si
+  set +f
   _prog=${1:-}
   if [ "${_prog##*/}" = "env" ]; then
     shift
@@ -260,11 +266,14 @@ while IFS= read -r -d '' file; do
       fail_closed "filename contains a newline or tab, refusing to scan: $(sanitize_printable "$rel" "(unprintable filename)")"
       ;;
   esac
-  # A symlinked directory has no honest traversal: following it leaves the
-  # root, and skipping it covers less than the scan claims. -r would not catch
-  # it either, since the directory behind it reads fine.
-  if [ -L "$file" ] && [ -d "$file" ]; then
-    fail_closed "symlinked directory in the scan scope, refusing to follow: $(sanitize_printable "$rel" "(unprintable filename)")"
+  # A symlink is followed only to a regular file. A symlinked directory has no
+  # honest traversal (following it leaves the root; skipping it covers less
+  # than the scan claims), and a symlink to a FIFO or a character device is
+  # worse than either: reading it blocks forever with no writer, or never ends
+  # on /dev/zero, so the guard hangs instead of answering. -r rules out none of
+  # these — the thing behind the link reads fine.
+  if [ -L "$file" ] && [ ! -f "$file" ]; then
+    fail_closed "symlink in the scan scope does not resolve to a regular file, refusing to follow: $(sanitize_printable "$rel" "(unprintable filename)")"
   fi
   [ -r "$file" ] \
     || fail_closed "cannot read $(sanitize_printable "$rel" "(unprintable filename)") — the scan would cover less than it claims"
@@ -277,14 +286,16 @@ while IFS= read -r -d '' file; do
       *) continue ;;
     esac ;;
   esac
-  # Only an interpreter that expands echo escapes is at risk. bash, zsh and ksh
-  # do not (absent xpg_echo), so their files are safe as written and are counted
-  # rather than scanned. Everything else — sh, dash, an unrecognised shebang, or
-  # no shebang at all — is scanned, because a sourced library inherits whichever
-  # interpreter sourced it and an unknown one has to be assumed hazardous.
+  # bash is the ONLY interpreter here whose `echo` leaves backslash escapes
+  # alone (absent xpg_echo), so a bash file is safe as written and is counted
+  # rather than scanned. zsh and the ksh family are deliberately not exempt:
+  # their `echo` follows System V and expands escapes, so they are as exposed
+  # as dash. Everything else — sh, dash, an unrecognised shebang, or no shebang
+  # at all — is scanned too, because a sourced library inherits whichever
+  # interpreter sourced it and an unknown one must be assumed hazardous.
   shebang_interp "$first"
   case "$interp" in
-    bash | zsh | ksh | ksh93 | mksh | pdksh)
+    bash)
       skipped=$((skipped + 1))
       continue
       ;;
@@ -310,6 +321,14 @@ awk -v listfile="$work/list" '
     for (j = 0; j <= d; j++) if (cmd[j] == "echo") return 1
     return 0
   }
+  # printf expands escapes in its FORMAT operand in every shell, so the
+  # remedy this guard prescribes has an unsafe spelling of its own:
+  # `printf "$(sanitize_printable "$x")\n"` is worse than the echo it replaced.
+  # Untrusted text belongs in a %s argument, never in the format.
+  function is_fmt_ancestor(d,   j) {
+    for (j = 0; j <= d; j++) if (cmd[j] == "printf" && argn[j] == 1) return 1
+    return 0
+  }
   # An assignment is only over when something terminates it at ITS OWN depth. A
   # command word inside its right-hand side — which is exactly where the
   # sanitizer call sits in `safe="$(sanitize_printable "$x")"` — must not close
@@ -321,9 +340,12 @@ awk -v listfile="$work/list" '
     }
   }
   function push_depth(bt) {
+    # A file with hundreds of unclosed `$(` is not shell anyone wrote, and the
+    # per-depth arrays grow with it. Refusing is the fail-closed answer.
+    if (depth >= 400) { toodeep = 1; return }
     depth++
     savedq[depth] = dq; savesq[depth] = sq; isbt[depth] = bt
-    dq = 0; sq = 0; cmd[depth] = ""; atcmd = 1
+    dq = 0; sq = 0; cmd[depth] = ""; atcmd = 1; argn[depth] = 0; inarg[depth] = 0
   }
   function pop_depth() {
     if (depth <= 0) return
@@ -332,8 +354,8 @@ awk -v listfile="$work/list" '
   }
   function record_ref(name, ln) {
     if (name == "") return
-    if (!is_echo_ancestor(depth)) return
-    nref++; refname[nref] = name; refline[nref] = ln
+    if (is_echo_ancestor(depth)) { nref++; refname[nref] = name; refline[nref] = ln; refkind[nref] = "variable"; return }
+    if (is_fmt_ancestor(depth)) { nref++; refname[nref] = name; refline[nref] = ln; refkind[nref] = "format" }
   }
   function word_at_cmd(w, ln) {
     if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
@@ -349,10 +371,11 @@ awk -v listfile="$work/list" '
     if (w in transparent) return
     finish_assign(depth)
     cmd[depth] = w
-    atcmd = 0
+    atcmd = 0; argn[depth] = 0; inarg[depth] = 1
     if (w == "sanitize_printable") {
       if (pend_assign != "" && depth > pend_depth) pend_san = 1
       if (depth > 0 && is_echo_ancestor(depth - 1)) hits[ln] = "direct"
+      else if (depth > 0 && is_fmt_ancestor(depth - 1)) hits[ln] = "format"
     }
   }
   function is_wordstart(p) {
@@ -379,7 +402,10 @@ awk -v listfile="$work/list" '
     } else {
       while (j <= n && substr(s, j, 1) ~ /[A-Za-z0-9_.+-]/) { delim = delim substr(s, j, 1); j++ }
     }
-    if (delim != "") { pend_heredoc = delim; pend_dash = dash }
+    # A `<<` whose delimiter matches nothing leaves the body extent unknown,
+    # so the body would be read as code. Refusing beats guessing.
+    if (delim == "") { baddelim = 1; return j }
+    pend_heredoc = delim; pend_dash = dash
     return j
   }
   function tokenize(s, ln,   n, i, c, c2, w, name, j, rest) {
@@ -387,6 +413,12 @@ awk -v listfile="$work/list" '
     if (esc) esc = 0
     while (i <= n) {
       c = substr(s, i, 1)
+      # Track which argument of the current command we are inside, so the
+      # format operand (argument 1) can be told from the %s operands after it.
+      if (!sq && !dq && !esc) {
+        if (c == " " || c == "\t") inarg[depth] = 0
+        else if (cmd[depth] != "" && !inarg[depth]) { inarg[depth] = 1; argn[depth]++ }
+      }
       if (esc) { esc = 0; prev = c; i++; continue }
       if (c == "\\") {
         if (sq) { prev = c; i++; continue }
@@ -410,9 +442,18 @@ awk -v listfile="$work/list" '
         if (c2 == "{") {
           rest = substr(s, i + 2); j = index(rest, "}")
           name = (j > 0) ? substr(rest, 1, j - 1) : rest
-          sub(/^[#!]/, "", name)
+          # `${#v}` expands to a LENGTH and `${!v}` to a NAME. Neither carries
+          # the sanitized value, so neither is content reaching the command.
+          if (name ~ /^[#!]/) name = ""
           sub(/[^A-Za-z0-9_].*$/, "", name)
           record_ref(name, ln)
+          # `${x:-$(sanitize_printable "$y")}` is a live substitution. Skipping
+          # the word whole would step straight over it, so when the body holds
+          # one, resume scanning just past the name instead.
+          body = (j > 0) ? substr(rest, 1, j - 1) : rest
+          if (index(body, "$(") > 0 || index(body, "`") > 0) {
+            i += 2 + length(name); prev = "x"; continue
+          }
           i += (j > 0) ? (2 + j) : (n + 1)
           prev = "}"; continue
         }
@@ -430,7 +471,18 @@ awk -v listfile="$work/list" '
       }
       if (dq) { prev = c; i++; continue }
       if (c == "#" && is_wordstart(prev)) break
-      if (c == "(") { push_depth(0); prev = c; i++; continue }
+      if (c == "(") {
+        if (atcmd && substr(s, i + 1, 1) == "(") {
+          push_depth(0); push_depth(0)
+          cmd[depth] = "#arith"; cmd[depth - 1] = "#arith"; atcmd = 0
+          prev = "("; i += 2; continue
+        }
+        # The optional open paren of a case pattern — `(a) cmd ...` — opens no
+        # subshell. Pushing a depth for it desynchronises the stack and the
+        # command in that arm is then read as an argument.
+        if (ncase > 0 && depth == casedep[ncase] && atcmd) { prev = c; i++; continue }
+        push_depth(0); prev = c; i++; continue
+      }
       # In `a) echo ...`, the `)` ends a case PATTERN and opens a command
       # position; it closes nothing. Reading it as a paren close leaves the
       # echo inside that arm parsed as an argument, and every case arm goes
@@ -448,16 +500,25 @@ awk -v listfile="$work/list" '
       if (c == "{" && is_wordstart(prev)) {
         finish_assign(depth); cmd[depth] = ""; atcmd = 1; prev = c; i++; continue
       }
+      # `>&2` and `2>&1`: the `&` is part of the redirection, not a control
+      # operator. Resetting on it makes `echo >&2 "..."` parse `2` as the
+      # command word, and the echo is never seen — a spelling this repo uses.
+      if (c == "&" && (prev == ">" || prev == "<")) { prev = c; i++; continue }
       if (c == ";" || c == "&" || c == "|") {
         finish_assign(depth); cmd[depth] = ""; atcmd = 1; prev = c; i++; continue
       }
       if (c == "<" && substr(s, i + 1, 1) == "<" && cmd[depth] != "#arith") {
         i = heredoc_op(s, i); prev = "H"; continue
       }
-      if (match(substr(s, i), "^[^ \t;&|()<>{}\"\047$#`\\\\]+")) {
-        w = substr(s, i, RLENGTH)
+      # Scanned forward rather than matched against substr(s, i): that copies
+      # the whole line remainder once per word token, which is quadratic in the
+      # line length and reachable from a file a fork PR authors.
+      j = i
+      while (j <= n && index(STOP, substr(s, j, 1)) == 0) j++
+      if (j > i) {
+        w = substr(s, i, j - i)
         if (atcmd) word_at_cmd(w, ln)
-        i += RLENGTH; prev = "w"; continue
+        i = j; prev = "w"; continue
       }
       prev = c; i++
     }
@@ -467,7 +528,8 @@ awk -v listfile="$work/list" '
     split("", cmd); split("", savedq); split("", savesq); split("", isbt)
     split("", sanvar); split("", othervar); split("", refname); split("", refline)
     split("", hits)
-    cmd[0] = ""; nref = 0; ncase = 0; split("", casedep)
+    cmd[0] = ""; nref = 0; ncase = 0; split("", casedep); split("", argn); split("", inarg); split("", refkind)
+    toodeep = 0; baddelim = 0
     pend_assign = ""; pend_san = 0; pend_depth = 0
     heredoc = ""; heredoc_dash = 0; pend_heredoc = ""; pend_dash = 0
     maxln = 0
@@ -498,6 +560,12 @@ awk -v listfile="$work/list" '
     }
     close(path)
     if (r < 0) { print "!\t0\tunreadable\t" path; return }
+    if (toodeep) { print "!\t0\ttoodeep\t" path; return }
+    # Reaching EOF inside a heredoc body or an unterminated string means the
+    # rest of the file was never read as code. Reporting clean over it is the
+    # silent-undercoverage failure the contract here rules out.
+    if (baddelim) { print "!\t0\tbaddelim\t" path; return }
+    if (heredoc != "" || sq || dq) { print "!\t0\tunterminated\t" path; return }
     finish_assign(0)
     # A variable is evidence only when every assignment to it came from the
     # sanitizer. One assignment from anywhere else and the name no longer says
@@ -505,7 +573,7 @@ awk -v listfile="$work/list" '
     # starts crying wolf.
     for (k = 1; k <= nref; k++) {
       if ((refname[k] in sanvar) && !(refname[k] in othervar)) {
-        if (!(refline[k] in hits)) hits[refline[k]] = "variable"
+        if (!(refline[k] in hits)) hits[refline[k]] = refkind[k]
       }
     }
     for (ln = 1; ln <= maxln; ln++) {
@@ -514,20 +582,46 @@ awk -v listfile="$work/list" '
   }
   BEGIN {
     split("if then else elif fi do done while until for case esac in select " \
-      "function time command builtin exec nohup env ! { } [[", tw, " ")
+      "function time command builtin exec nohup env ! { } [[ " \
+      "local export readonly typeset declare", tw, " ")
     for (t in tw) transparent[tw[t]] = 1
+    # The characters that end a bare word. Held as a string so the scan can ask
+    # index() per character instead of running a regex over the line remainder.
+    STOP = " \t;&|()<>{}\"\047$#`\\"
     while ((lr = (getline path < listfile)) > 0) scan(path)
     # An unreadable list is not an empty one; reporting clean over it would be
     # the same vacuous pass the scan-side check refuses.
     if (lr < 0) print "!\t0\tunreadable\t" listfile
   }
-' >"$work/offenders" || fail_closed "the scan could not complete"
+' >"$work/offenders" 2>"$work/awkerr" \
+  || fail_closed "the scan could not complete: $(sanitize_printable "$(cat "$work/awkerr")" "(unprintable diagnostic)")"
+# awk names the offending path in its own diagnostics, and a filename is
+# attacker-authored on a fork PR. Every other print path here is sanitized;
+# this one would not be if it went straight to the terminal.
+if [ -s "$work/awkerr" ]; then
+  fail_closed "the scan reported a diagnostic: $(sanitize_printable "$(cat "$work/awkerr")" "(unprintable diagnostic)")"
+fi
 
 : >"$work/allowed-hit"
+# An unquoted heredoc body would run command substitution on the allowlist. It
+# holds six literal paths today, but it is explicitly meant to be edited, and
+# an entry carrying a backtick must not be executed by the guard reading it.
+printf '%s\n' "$ALLOWLIST" >"$work/allowlist"
 status=0
 while IFS="$(printf '\t')" read -r file lineno kind extra; do
   [ -n "$file" ] || continue
   if [ "$file" = "!" ]; then
+    case "$kind" in
+      unterminated)
+        fail_closed "$(sanitize_printable "${extra#"$root"/}" "(unprintable filename)") ends inside a heredoc or an unterminated string — the scan did not read all of it as code, so it cannot report it clean"
+        ;;
+      baddelim)
+        fail_closed "$(sanitize_printable "${extra#"$root"/}" "(unprintable filename)") opens a heredoc whose delimiter the scan cannot parse — the body's extent is unknown, so it cannot report it clean"
+        ;;
+    esac
+    if [ "$kind" = "toodeep" ]; then
+      fail_closed "nesting depth in $(sanitize_printable "${extra#"$root"/}" "(unprintable filename)") exceeds what the scan will follow — refusing rather than reporting a file it did not finish reading"
+    fi
     fail_closed "could not read $(sanitize_printable "${extra#"$root"/}" "(unprintable filename)") during the scan — the scan would cover less than it claims"
   fi
   rel="${file#"$root"/}"
@@ -538,7 +632,10 @@ while IFS="$(printf '\t')" read -r file lineno kind extra; do
       ;;
   esac
   safe_rel="$(sanitize_printable "$rel" "(unprintable filename)")"
-  if [ "$kind" = "variable" ]; then
+  if [ "$kind" = "format" ]; then
+    printf 'check-echo-safety: %s:%s puts sanitize_printable output in the printf FORMAT operand; pass it as a '"'"'%%s'"'"' argument instead — the format is expanded by every shell, bash included, so this is worse than the echo it replaces\n' \
+      "$safe_rel" "$lineno" >&2
+  elif [ "$kind" = "variable" ]; then
     printf 'check-echo-safety: %s:%s echoes a variable holding sanitize_printable output; use printf '"'"'%%s\\n'"'"' instead — the sanitizer strips control BYTES but keeps backslashes, so a PRINTABLE-ONLY argument still reaches the terminal as a live ESC under dash\n' \
       "$safe_rel" "$lineno" >&2
   else
@@ -563,9 +660,7 @@ while IFS= read -r entry; do
   else
     stale="$stale $entry"
   fi
-done <<EOF
-$ALLOWLIST
-EOF
+done <"$work/allowlist"
 
 [ -z "$stale" ] \
   || fail_closed "allowlist entries no longer violate and must be removed —$(sanitize_printable "$stale" " (unprintable)") (each exists only while its file is open in another pull request; the allowlist shrinks to empty)"

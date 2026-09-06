@@ -379,25 +379,50 @@ write_file "$tmp/interp/githooks/dash-hook" '#!/bin/dash' 'echo "$(sanitize_prin
 # directive names bash and must NOT be read as the interpreter — the repo's own
 # echo-safety.sh carries exactly such a line and is sourced by /bin/sh scripts.
 write_file "$tmp/interp/tests/lib/sourced.sh" '# shellcheck shell=bash' 'echo "$(sanitize_printable "$x")"'
+# zsh and the ksh family are at risk too, and this is the easy thing to get
+# wrong: their `echo` follows System V and expands escapes. Only bash's leaves
+# them alone. Exempting the whole "not sh" family would be a silent hole.
+write_file "$tmp/interp/githooks/zsh-hook" '#!/bin/zsh' 'echo "$(sanitize_printable "$x")"'
+write_file "$tmp/interp/scripts/ksh.sh" '#!/bin/ksh' 'echo "$(sanitize_printable "$x")"'
+write_file "$tmp/interp/scripts/mksh.sh" '#!/bin/mksh' 'echo "$(sanitize_printable "$x")"'
+# An unrecognised shebang is scanned, not skipped: an unknown interpreter has
+# to be assumed hazardous.
+write_file "$tmp/interp/scripts/unknown.sh" '#!/usr/bin/env whatnot' 'echo "$(sanitize_printable "$x")"'
 out="$(/bin/bash "$CHECKER" "$tmp/interp" 2>&1)"
 assert "the at-risk interpreters are flagged" 1 $?
 assert_contains "a /bin/sh script is flagged" "$out" "scripts/dash-sh.sh"
 assert_contains "an env sh script is flagged" "$out" "scripts/env-sh.sh"
 assert_contains "a dash hook is flagged" "$out" "githooks/dash-hook"
 assert_contains "a shebang-less sourced library is flagged" "$out" "tests/lib/sourced.sh"
+assert_contains "a zsh hook is flagged, not exempted" "$out" "githooks/zsh-hook"
+assert_contains "a ksh script is flagged, not exempted" "$out" "scripts/ksh.sh"
+assert_contains "an mksh script is flagged, not exempted" "$out" "scripts/mksh.sh"
+assert_contains "an unrecognised shebang is scanned" "$out" "scripts/unknown.sh"
 
 make_root "$tmp/interp-safe"
 filler "$tmp/interp-safe"
 write_file "$tmp/interp-safe/scripts/envbash.sh" '#!/usr/bin/env bash' 'echo "$(sanitize_printable "$x")"'
 write_file "$tmp/interp-safe/scripts/binbash.sh" '#!/bin/bash' 'echo "$(sanitize_printable "$x")"'
 write_file "$tmp/interp-safe/scripts/optbash.sh" '#!/usr/bin/env -S bash -eu' 'echo "$(sanitize_printable "$x")"'
-write_file "$tmp/interp-safe/githooks/zsh-hook" '#!/bin/zsh' 'echo "$(sanitize_printable "$x")"'
 out="$(/bin/bash "$CHECKER" "$tmp/interp-safe" 2>&1)"
-assert "a bash-family interpreter is not at risk and is not flagged" 0 $?
+assert "bash is not at risk and is not flagged" 0 $?
 assert_not_contains "the env-bash file is not named" "$out" "envbash.sh"
 assert_not_contains "the bin-bash file is not named" "$out" "binbash.sh"
 assert_not_contains "the option-bearing env shebang is not named" "$out" "optbash.sh"
-assert_not_contains "the zsh hook is not named" "$out" "zsh-hook"
+
+# A shebang is file content, so on a fork PR it is attacker-authored. Splitting
+# it must not glob. `#!/usr/bin/env *` run from a directory that happens to
+# contain a file named `bash` would otherwise expand to it and buy the file an
+# exemption from the very check dash makes necessary. The run below is exactly
+# that setup: it must still flag the file.
+make_root "$tmp/interp-glob"
+filler "$tmp/interp-glob"
+write_file "$tmp/interp-glob/scripts/globby.sh" '#!/usr/bin/env *' 'echo "$(sanitize_printable "$x")"'
+mkdir -p "$tmp/globcwd"
+: >"$tmp/globcwd/bash"
+out="$(cd "$tmp/globcwd" && /bin/bash "$CHECKER" "$tmp/interp-glob" 2>&1)"
+assert "a globbing shebang does not buy an exemption" 1 $?
+assert_contains "the globbing-shebang file is scanned and flagged" "$out" "scripts/globby.sh"
 
 # ---------------------------------------------------------------------------
 # 13. The allowlist. It exempts the exact paths of files open in other PRs, and
