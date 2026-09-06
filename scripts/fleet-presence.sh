@@ -218,7 +218,7 @@ USAGE
 }
 
 err() {
-  echo "fleet-presence: $1" >&2
+  printf 'fleet-presence: %s\n' "$1" >&2
 }
 
 # --- grammars (validated BEFORE any path or command use, REQ-D1.5) ---------
