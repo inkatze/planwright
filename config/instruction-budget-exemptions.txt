@@ -48,11 +48,12 @@ exempt|doctrine/spec-format.md|Permanent per-file-floor exemption (REQ-B1.3a), T
 # added the observation-carry step to skills/orchestrate/SKILL.md after this
 # spec's restoration campaign brought the body to its 2x target; model-allocation
 # then added the terminal-state reports and funded them with an in-file trim, so
-# it left both surfaces essentially where it found them. Both surfaces sit below their 2x restoration
-# targets with the safety floors intact — no margin figure is transcribed here,
-# because the guard's audit line prints the live values every run and a copied
-# count rots (the two entries below and the spec-format.md exemption take the
-# same posture, and the counts this block used to carry had already gone stale). So
+# it left both surfaces essentially where it found them. Both sit below their 2x
+# restoration targets with the safety floors intact — no margin figure is
+# transcribed here, because the guard's audit line prints the live values every
+# run and a copied count rots (the two entries below and the spec-format.md
+# exemption take the same posture, and the counts this block used to carry had
+# already gone stale). So
 # this is a below-target shortfall, never a floor-breach. The diet back to target
 # is deferred to instruction-headroom relief rather than trimming either spec's
 # just-landed doctrine here; these exceptions keep the closing gate

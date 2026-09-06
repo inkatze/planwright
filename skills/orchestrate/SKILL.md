@@ -271,7 +271,7 @@ reconcile, or an attributed relay).
   worktree per unit; completion notifies the tower, and its questions funnel to
   the tower's single prompt queue. A human merges the shipped
   `config/worker-settings.json` profile into the worker's settings; its deny
-  block denies merge, force-push, amend and more (planwright never edits
+  block covers merge, force-push, amend and more (planwright never edits
   settings.json, REQ-I1.2).
 - **tmux** (opt-in). An interactive worker in a named window via `claude
   --worktree`. Detect stuck/finished/errored workers with **capture-pane only** —
