@@ -100,7 +100,7 @@
 #       so both report a terminal unit's completion to the escalation feedback
 #       loop before retiring its fence. Omitted, no evaluation runs. `--obs-dir`
 #       names the observations store, defaulting to the checkout's own. See
-#       report_terminal_feedback below.
+#       report_terminal_feedback.
 #
 # Output (tab-separated where machine-read):
 #   fence:  `fenced <ref>` per won member, or `taken <ref>` / `solo no-origin`
