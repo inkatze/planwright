@@ -276,7 +276,16 @@ valid_attempt "$ATTEMPT" || {
 # than as whatever the engine happens to fail with. This is the single
 # condition a caller may degrade past, and it must not be confused with a
 # rejected argument or a failed write.
-if ! run_helper "$LEDGER" home >/dev/null 2>&1; then
+alloc_store=$(run_helper "$LEDGER" home 2>/dev/null) || alloc_store=''
+# `home` only NAMES the store; a path that cannot be created or written is just
+# as unreachable, and it is the shape an operator actually hits (a fleet home
+# that is a regular file, a read-only volume). Checking it here is what keeps
+# that case on exit 6 instead of surfacing as a generic write failure two
+# helpers deep, indistinguishable from a rejected argument. `mkdir -p` on an
+# existing store is a no-op, and the store is created on first append anyway.
+if [ -z "$alloc_store" ] \
+  || ! mkdir -p "$alloc_store" 2>/dev/null \
+  || [ ! -w "$alloc_store" ]; then
   printf '%s\n' "$me: the allocation store is unreachable, so no launch can be audited" >&2
   exit 6
 fi
