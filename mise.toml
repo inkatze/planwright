@@ -159,7 +159,7 @@ description = "CDPATH house-pattern guard: fail on any shell file under scripts/
 run = "/bin/bash scripts/check-cdpath.sh"
 
 [tasks."check:echo-safety"]
-description = "printf-not-echo guard over sanitized output: fail on a shell file under scripts/, tests/, or githooks/ that passes `sanitize_printable` output through `echo`, directly or through a variable, or into the printf FORMAT operand (dash re-expands the backslash escape TEXT the sanitizer legitimately preserves, handing the terminal to whoever authored the input); enumerates by shebang or .sh suffix, exempts bash-shebang files (bash does not expand escapes) and a shrinking allowlist of paths open in other PRs, and fails closed on anything that would narrow the scan or on a stale allowlist entry"
+description = "printf-not-echo guard over sanitized output: fail on a shell file under scripts/, tests/, or githooks/ that passes `sanitize_printable` output through `echo`, directly or through a variable, into the printf FORMAT operand, or to a printf `%b` (dash re-expands the backslash escape TEXT the sanitizer legitimately preserves, handing the terminal to whoever authored the input); enumerates by shebang or .sh suffix, keys on the sanitizer family rather than one function name, exempts bash-shebang files only (zsh and ksh expand escapes too) and a shrinking allowlist of paths open in other PRs, and fails closed on anything that would narrow the scan or on a stale allowlist entry"
 run = "/bin/bash scripts/check-echo-safety.sh"
 
 [tasks."eval:skill"]

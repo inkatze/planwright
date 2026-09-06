@@ -713,8 +713,14 @@ assert "--help exits clean" 0 $?
 assert_contains "--help names the remedy" "$out" "printf"
 assert_contains "--help explains why the sanitizer is not enough" "$out" "dash"
 assert_contains "--help documents the allowlist" "$out" "allowlist"
-assert_contains "--help says bash-interpreter files are skipped" "$out" "bash"
+# Asserting the bare word "bash" would pass against help text that says the
+# opposite, which is how this paragraph went stale once already.
+assert_contains "--help names bash as the only skipped interpreter" "$out" "names bash, and nothing else"
+assert_contains "--help says zsh and ksh are not skipped" "$out" "NOT skipped"
 assert_contains "--help says a shebang-less file is still scanned" "$out" "NO shebang"
+assert_contains "--help names the printf format operand as flagged" "$out" "FORMAT operand"
+assert_contains "--help names the %b conversion as flagged" "$out" "%b"
+assert_contains "--help says an absent allowlisted file is skipped" "$out" "not applicable"
 /bin/bash "$CHECKER" -h >/dev/null 2>&1
 assert "-h is accepted too" 0 $?
 

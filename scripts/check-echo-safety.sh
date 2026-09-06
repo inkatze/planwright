@@ -13,13 +13,14 @@
 # text. /bin/sh on Linux is dash, whose `echo` expands backslash escapes, so it
 # turns that literal text back into a real ESC. Worker-authored content then
 # reaches the operator's terminal with live escape sequences, through the
-# scripts whose whole job is to contain it. This is reproduced, not theoretical:
-# a genuine ESC byte reaches stderr from a PRINTABLE-ONLY argument, which is why
-# "the sanitizer already handles this" is the wrong answer.
+# scripts whose whole job is to contain it. `tests/test-check-echo-safety.sh`
+# pins the mechanism; the natural objection, that the sanitizer already handles
+# this, is what the failure message answers directly.
 #
-# The class has been reintroduced repeatedly, including by an author whose
-# brief warned about it by name. Vigilance has demonstrably failed, which is
-# what makes this a guard rather than a review note.
+# Vigilance had already failed on this before the guard existed: the tree
+# carried it in a hundred and ten call sites at once, including three files
+# whose inline sanitizer under another name hid them from the first version of
+# this scan.
 #
 # THE INTERPRETER IS THE HAZARD, NOT THE DIRECTORY. This is the subtlety most
 # likely to be misread. Only a script run by a POSIX sh that expands echo
@@ -30,13 +31,17 @@
 # shebang IS scanned, because a sourced library runs under whichever interpreter
 # sourced it, and dash is one of them.
 #
-# What counts as an offense:
-#   - a `sanitize_printable` command substitution appearing anywhere inside an
-#     `echo` command's arguments, at any nesting depth (an inner `printf` does
-#     not launder it: the outermost command decides whether the escapes come
-#     back to life);
+# What counts as an offense, all four of them sanitized text reaching a
+# command that expands escapes:
+#   - a sanitizer substitution anywhere inside an `echo` command's arguments,
+#     at any nesting depth (an inner `printf` does not launder it: the
+#     outermost command decides whether the escapes come back to life);
 #   - a variable whose only assignments come from such a substitution, expanded
-#     inside an `echo` — the same defect one alias away.
+#     inside an `echo` — the same defect one alias away;
+#   - either of those in the printf FORMAT operand, which every shell expands,
+#     bash included, so it is worse than the echo it replaced;
+#   - either of those passed to a printf `%b`, which expands escapes in the
+#     argument.
 #
 # What is not an offense: a comment, a heredoc body, or a single-quoted string
 # mentioning the pattern. Every file that documents this rule contains one, so
@@ -65,7 +70,8 @@
 #   check-echo-safety.sh --help | -h
 #
 # Exit codes: 0 clean, 1 an offending file, 2 usage, a broken enumeration, or a
-# stale allowlist entry. Anything that would make the scan cover less than it
+# stale allowlist entry with no offender beside it (an offender decides the
+# code when both are present; both are always reported). Anything that would make the scan cover less than it
 # claims — an absent root or scope directory, an unreadable file, a `find` that
 # fails partway, a scan reaching no files at all — is exit 2, never a clean
 # report.
@@ -183,16 +189,19 @@ Scanned: every sh-interpreted file under scripts/, tests/, and githooks/,
 reached either by shebang or by an .sh suffix, so both the extensionless
 githooks/ hooks and the sourced shebang-less libraries are covered.
 
-Skipped: files whose shebang names bash, zsh or ksh. Only an interpreter that
-expands echo escapes is at risk, and bash does not unless xpg_echo is set, so
-those files are safe as written and rewriting them would be churn. A file with
-NO shebang is scanned, not skipped: a sourced library runs under whichever
-interpreter sourced it, and dash is one of them.
+Skipped: files whose shebang names bash, and nothing else. bash is the only
+shell here whose `echo` leaves escapes alone (absent xpg_echo), so those files
+are safe as written and rewriting them would be churn. zsh and the ksh family
+are NOT skipped: their `echo` follows System V and expands escapes. A file with
+NO shebang is scanned too: a sourced library runs under whichever interpreter
+sourced it, and dash is one of them.
 
-Flagged: a `sanitize_printable` substitution inside an `echo` command's
-arguments at any depth (an inner `printf` does not launder an outer `echo`),
-and a variable assigned only from such a substitution then expanded inside an
-`echo`. Comments, heredoc bodies and single-quoted strings are prose, not
+Flagged: sanitized text reaching a command that expands escapes — inside an
+`echo` command's arguments at any depth (an inner `printf` does not launder an
+outer `echo`), through a variable assigned only from a sanitizer then expanded
+inside an `echo`, in the printf FORMAT operand, or passed to a printf `%b`.
+Detection keys on the sanitizer family, so an inline copy under another name
+counts. Comments, heredoc bodies and single-quoted strings are prose, not
 calls, and are never flagged.
 
 Not flagged: a value reaching `echo` through a helper function's positional
@@ -201,10 +210,12 @@ parameters. That needs interprocedural dataflow, not a lexical scan.
 Allowlist: a short, in-script list of exact repo-relative paths, each present
 only because that file is open in another pull request. It shrinks to empty as
 those merge, and an entry whose file no longer violates is reported as stale
-and fails the guard rather than lingering.
+and fails the guard rather than lingering. An entry whose file is absent under
+the scanned root is simply not applicable and is skipped.
 
 Exit codes: 0 clean, 1 an offending file, 2 usage, a broken enumeration, or a
-stale allowlist entry.
+stale allowlist entry with no offender beside it. Both are always reported;
+when both are present the offender decides the code.
 EOF
 }
 
@@ -680,8 +691,8 @@ fi
 
 : >"$work/allowed-hit"
 # An unquoted heredoc body would run command substitution on the allowlist. It
-# holds six literal paths today, but it is explicitly meant to be edited, and
-# an entry carrying a backtick must not be executed by the guard reading it.
+# holds plain paths today, but it is explicitly meant to be edited, and an
+# entry carrying a backtick must not be executed by the guard reading it.
 printf '%s\n' "$ALLOWLIST" >"$work/allowlist"
 status=0
 while IFS="$(printf '\t')" read -r file lineno kind extra; do
