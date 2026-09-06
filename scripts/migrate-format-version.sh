@@ -190,7 +190,7 @@ check_spec_id() {
 # refuse <name> <reason> — report a refused bundle (sanitized) and count it.
 refuse() {
   rn=$(sanitize_printable "$1" "(unprintable name)")
-  echo "refused: $rn — $2" >&2
+  printf '%s\n' "refused: $rn — $2" >&2
   refused=$((refused + 1))
 }
 

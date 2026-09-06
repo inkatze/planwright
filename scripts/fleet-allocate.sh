@@ -294,7 +294,7 @@ cmd_resolve() {
         reserved=yes
         ;;
       --*)
-        echo "fleet-allocate: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
+        printf '%s\n' "fleet-allocate: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
         return 2
         ;;
       *)
@@ -332,7 +332,7 @@ cmd_resolve() {
   if ! in_enum "$base_model" "$MODEL_VALUES" \
     || ! in_enum "$base_effort" "$EFFORT_VALUES" \
     || ! in_enum "$base_command" "$COMMAND_VALUES"; then
-    echo "fleet-allocate: resource-select returned a malformed row (model='$(sanitize_printable "$base_model" "?")' effort='$(sanitize_printable "$base_effort" "?")' command='$(sanitize_printable "$base_command" "?")') — broken or outdated install" >&2
+    printf '%s\n' "fleet-allocate: resource-select returned a malformed row (model='$(sanitize_printable "$base_model" "?")' effort='$(sanitize_printable "$base_effort" "?")' command='$(sanitize_printable "$base_command" "?")') — broken or outdated install" >&2
     exit 5
   fi
 
@@ -362,7 +362,7 @@ cmd_resolve() {
   # The current rung, derived from the shared audit trail (D-28).
   rung=$("$GATE" rung) || exit $?
   ridx=$(rung_index "$rung") || {
-    echo "fleet-allocate: usage-gate returned an unrecognized rung '$(sanitize_printable "$rung" "(unprintable)")'" >&2
+    printf '%s\n' "fleet-allocate: usage-gate returned an unrecognized rung '$(sanitize_printable "$rung" "(unprintable)")'" >&2
     exit 4
   }
 
@@ -370,7 +370,7 @@ cmd_resolve() {
   # defer-heavy withholds heavy units unless reserved.
   admit=yes
   base_tier=$(tier_of_model "$base_model") || {
-    echo "fleet-allocate: base selection yielded an unknown model '$(sanitize_printable "$base_model" "(unprintable)")'" >&2
+    printf '%s\n' "fleet-allocate: base selection yielded an unknown model '$(sanitize_printable "$base_model" "(unprintable)")'" >&2
     exit 4
   }
   if [ "$rung" = defer-all ]; then
@@ -448,7 +448,7 @@ cmd_guard() {
   # Session-grade floor: the model must be a real Claude Code session alias,
   # never a lighter-weight-script sentinel (Out of scope) or any other token.
   if ! tier_of_model "$g_model" >/dev/null 2>&1; then
-    echo "fleet-allocate: guard violation — '$(sanitize_printable "$g_model" "(unprintable model)")' is not a session-grade model alias (fable opus sonnet haiku); degrade never drops below a full session-grade worker" >&2
+    printf '%s\n' "fleet-allocate: guard violation — '$(sanitize_printable "$g_model" "(unprintable model)")' is not a session-grade model alias (fable opus sonnet haiku); degrade never drops below a full session-grade worker" >&2
     return 3
   fi
   # Determinism/permission floor: never `--permission-mode auto` (REQ-E1.4).

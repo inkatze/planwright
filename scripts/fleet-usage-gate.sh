@@ -498,7 +498,7 @@ derive_rung() {
     normal | downshift | reduce-concurrency | defer-heavy | defer-all) printf '%s' "$dr_last" ;;
     "") printf 'normal' ;;
     *)
-      echo "fleet-usage-gate: the last usage-gate audit action ('$(sanitize_printable "$dr_last" "(unprintable)")') is not a known rung — refusing to derive a silent 'normal' from a corrupt trail" >&2
+      printf '%s\n' "fleet-usage-gate: the last usage-gate audit action ('$(sanitize_printable "$dr_last" "(unprintable)")') is not a known rung — refusing to derive a silent 'normal' from a corrupt trail" >&2
       return 2
       ;;
   esac
@@ -720,7 +720,7 @@ case "$cmd" in
       fable | opus) tier=heavy ;;
       sonnet | haiku) tier=cheap ;;
       *)
-        echo "fleet-usage-gate: unknown model '$(sanitize_printable "$model" "(unprintable model)")' (fable opus sonnet haiku)" >&2
+        printf '%s\n' "fleet-usage-gate: unknown model '$(sanitize_printable "$model" "(unprintable model)")' (fable opus sonnet haiku)" >&2
         exit 2
         ;;
     esac

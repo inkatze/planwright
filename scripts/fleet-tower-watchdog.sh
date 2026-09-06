@@ -142,7 +142,7 @@ spec_dir=$(cd "$spec_dir_raw" 2>/dev/null && pwd -P) || {
 spec=$(basename "$spec_dir")
 case "$spec" in
   "" | -* | *[!a-z0-9-]*)
-    echo "fleet-tower-watchdog: refusing malformed spec id '$(sanitize_printable "$spec" "(unprintable)")'" >&2
+    printf '%s\n' "fleet-tower-watchdog: refusing malformed spec id '$(sanitize_printable "$spec" "(unprintable)")'" >&2
     exit 2
     ;;
 esac

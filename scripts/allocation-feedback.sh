@@ -263,7 +263,7 @@ parse_args() {
         shift 2
         ;;
       *)
-        echo "allocation-feedback: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
+        printf '%s\n' "allocation-feedback: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
         exit 2
         ;;
     esac
@@ -275,13 +275,13 @@ parse_args() {
   }
 
   valid_unit "$UNIT" || {
-    echo "allocation-feedback: refusing malformed unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' (the ledger's identity charset, no leading hyphen, 1-128 bytes)" >&2
+    printf '%s\n' "allocation-feedback: refusing malformed unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' (the ledger's identity charset, no leading hyphen, 1-128 bytes)" >&2
     exit 2
   }
   case $TERMINAL in
     completed | disabled) ;;
     *)
-      echo "allocation-feedback: '$(sanitize_printable "$TERMINAL" "(unprintable state)")' is not a terminal state (completed | disabled)" >&2
+      printf '%s\n' "allocation-feedback: '$(sanitize_printable "$TERMINAL" "(unprintable state)")' is not a terminal state (completed | disabled)" >&2
       exit 2
       ;;
   esac
@@ -321,7 +321,7 @@ parse_args() {
         [ -n "$TASK" ] || TASK=${UNIT#*:task-}
         ;;
       *)
-        echo "allocation-feedback: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' does not encode <spec>:task-<id>; pass --spec and --task" >&2
+        printf '%s\n' "allocation-feedback: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' does not encode <spec>:task-<id>; pass --spec and --task" >&2
         exit 2
         ;;
     esac
@@ -375,7 +375,7 @@ take_unit_lock() {
     return 0
   fi
   ALLOC_LOCK_TOKEN=$("$LEDGER" lock "$UNIT") || {
-    echo "allocation-feedback: could not take the per-unit allocation lock for '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+    printf '%s\n' "allocation-feedback: could not take the per-unit allocation lock for '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
     exit 2
   }
   ALLOC_LOCK_TAKEN=yes
@@ -403,7 +403,7 @@ ledger_append() {
 # makes "never silently" true where no channel is configured); the attention
 # seam is best effort.
 surface_degradation() {
-  echo "allocation-feedback: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' evaluated DEGRADED — $1" >&2
+  printf '%s\n' "allocation-feedback: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' evaluated DEGRADED — $1" >&2
   [ -x "$ATTENTION" ] || return 0
   "$ATTENTION" notify "allocation: feedback for unit $UNIT degraded — $1" >/dev/null 2>&1 || true
 }
@@ -489,7 +489,7 @@ cmd_evaluate() {
       ;;
     *)
       release_unit_lock
-      echo "allocation-feedback: could not read the allocation ledger for '$(sanitize_printable "$UNIT" "(unprintable unit)")' (health exit $health_rc): $(sanitize_printable "$health_err" "(unprintable detail)")" >&2
+      printf '%s\n' "allocation-feedback: could not read the allocation ledger for '$(sanitize_printable "$UNIT" "(unprintable unit)")' (health exit $health_rc): $(sanitize_printable "$health_err" "(unprintable detail)")" >&2
       exit 2
       ;;
   esac
@@ -505,14 +505,14 @@ cmd_evaluate() {
     1) ;;
     *)
       release_unit_lock
-      echo "allocation-feedback: could not read the feedback mark for '$(sanitize_printable "$UNIT" "(unprintable unit)")'; refusing rather than risking a duplicate observation" >&2
+      printf '%s\n' "allocation-feedback: could not read the feedback mark for '$(sanitize_printable "$UNIT" "(unprintable unit)")'; refusing rather than risking a duplicate observation" >&2
       exit 2
       ;;
   esac
 
   derived=$("$LEDGER" derive "$UNIT" "$START_MODEL" "$START_EFFORT") || {
     release_unit_lock
-    echo "allocation-feedback: could not derive the tier for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+    printf '%s\n' "allocation-feedback: could not derive the tier for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
     exit 2
   }
   FINAL_MODEL=$(printf '%s' "$derived" | cut -f1)
@@ -523,7 +523,7 @@ cmd_evaluate() {
   case $ESCALATIONS in
     "" | *[!0-9]*)
       release_unit_lock
-      echo "allocation-feedback: the ledger's derivation returned a non-numeric escalation count for '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+      printf '%s\n' "allocation-feedback: the ledger's derivation returned a non-numeric escalation count for '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
       exit 2
       ;;
   esac
@@ -533,7 +533,7 @@ cmd_evaluate() {
   # does, and silently answering "no" is the loss-shaped direction.
   cmp=$(alloc_cost_cmp "$FINAL_MODEL" "$FINAL_EFFORT" "$START_MODEL" "$START_EFFORT") || {
     release_unit_lock
-    echo "allocation-feedback: could not compare the derived tier against the starting tier for '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+    printf '%s\n' "allocation-feedback: could not compare the derived tier against the starting tier for '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
     exit 2
   }
   above=no
@@ -573,7 +573,7 @@ cmd_evaluate() {
   # what REQ-F1.2's "surfaced, never dropped" asks for.
   if ! fragment=$("$OBS" "$@"); then
     release_unit_lock
-    echo "allocation-feedback: the observation recording helper refused to record for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' (its own reason is above); no ledger mark was written, so this unit stays retryable" >&2
+    printf '%s\n' "allocation-feedback: the observation recording helper refused to record for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' (its own reason is above); no ledger mark was written, so this unit stays retryable" >&2
     emit no record-failed "$FINAL_MODEL" "$FINAL_EFFORT" "$ESCALATIONS" -
     exit 1
   fi
@@ -600,7 +600,7 @@ cmd_evaluate() {
     case $uid in
       [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
       *)
-        echo "allocation-feedback: could not read an 8-hex UID off '$(sanitize_printable "$fragment" "(unprintable path)")'; the mark will carry obs=unknown and the ledger loses its citation handle" >&2
+        printf '%s\n' "allocation-feedback: could not read an 8-hex UID off '$(sanitize_printable "$fragment" "(unprintable path)")'; the mark will carry obs=unknown and the ledger loses its citation handle" >&2
         uid=unknown
         ;;
     esac
@@ -621,7 +621,7 @@ cmd_evaluate() {
     # consumer piping this through `head`) would otherwise skip the release and
     # leave the unit's lock held until the stale break.
     release_unit_lock
-    echo "allocation-feedback: recorded a fragment for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' but could not mark the ledger; a later evaluation will record a duplicate" >&2
+    printf '%s\n' "allocation-feedback: recorded a fragment for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' but could not mark the ledger; a later evaluation will record a duplicate" >&2
     em_frag=-
     [ "$fragment_ok" = no ] || em_frag=$fragment
     emit yes mark-failed "$FINAL_MODEL" "$FINAL_EFFORT" "$ESCALATIONS" "$em_frag"

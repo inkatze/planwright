@@ -145,14 +145,14 @@ case "$cmd" in
         --dangerously-skip-permissions)
           # The total-bypass flag: no prompt, no classifier, no allowlist.
           # Refused outright wherever it sits, whatever else the argv says.
-          echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --dangerously-skip-permissions removes the worker-settings allowlist from the approval path entirely (REQ-E1.4/D-19)" >&2
+          printf '%s\n' "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --dangerously-skip-permissions removes the worker-settings allowlist from the approval path entirely (REQ-E1.4/D-19)" >&2
           exit 1
           ;;
         --permission-mode)
           if [ "$#" -eq 0 ]; then
             # A trailing bare flag has no value; Claude Code would reject
             # the launch anyway, but an unverifiable mode is refused here.
-            echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --permission-mode has no value" >&2
+            printf '%s\n' "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --permission-mode has no value" >&2
             exit 1
           fi
           flag_value=$1
@@ -164,7 +164,7 @@ case "$cmd" in
         --settings | --settings=*)
           if [ "$tok" = --settings ]; then
             if [ "$#" -eq 0 ]; then
-              echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --settings has no value" >&2
+              printf '%s\n' "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --settings has no value" >&2
               exit 1
             fi
             settings_path=$1
@@ -175,11 +175,11 @@ case "$cmd" in
           if ! pinned=$(settings_default_mode "$settings_path"); then
             # Fail closed: a mode source the guard cannot read proves
             # nothing about the mode the worker would run under.
-            echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': settings fragment '$(sanitize_printable "$settings_path" "(unprintable path)")' is missing or unreadable (D-19: the mode source must be verifiable)" >&2
+            printf '%s\n' "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': settings fragment '$(sanitize_printable "$settings_path" "(unprintable path)")' is missing or unreadable (D-19: the mode source must be verifiable)" >&2
             exit 1
           fi
           if refused_mode "$pinned"; then
-            echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': settings fragment '$(sanitize_printable "$settings_path" "(unprintable path)")' pins defaultMode to $pinned (REQ-E1.4/D-19)" >&2
+            printf '%s\n' "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': settings fragment '$(sanitize_printable "$settings_path" "(unprintable path)")' pins defaultMode to $pinned (REQ-E1.4/D-19)" >&2
             exit 1
           fi
           if [ -n "$pinned" ]; then
@@ -198,16 +198,16 @@ case "$cmd" in
       # never satisfy the explicit-mode gate below.
       case "$flag_value" in
         "")
-          echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --permission-mode has an empty value — not a mode source" >&2
+          printf '%s\n' "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --permission-mode has an empty value — not a mode source" >&2
           exit 1
           ;;
         -*)
-          echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --permission-mode value '$(sanitize_printable "$flag_value" "(unprintable value)")' looks like a flag, not a mode" >&2
+          printf '%s\n' "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --permission-mode value '$(sanitize_printable "$flag_value" "(unprintable value)")' looks like a flag, not a mode" >&2
           exit 1
           ;;
       esac
       if refused_mode "$flag_value"; then
-        echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --permission-mode $flag_value is never used for fleet workers (REQ-E1.4/D-19; the worker-settings allowlist is the sole approval mechanism)" >&2
+        printf '%s\n' "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --permission-mode $flag_value is never used for fleet workers (REQ-E1.4/D-19; the worker-settings allowlist is the sole approval mechanism)" >&2
         exit 1
       fi
       mode_source="explicit --permission-mode $flag_value"
@@ -217,7 +217,7 @@ case "$cmd" in
     # non-auto mode source, so an ambient user-settings auto default can
     # never leak into a worker.
     if [ -z "$mode_source" ]; then
-      echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': no explicit non-auto permission-mode source in the argv (risk 20 — pass --permission-mode <mode> or --settings <worker-settings fragment>; absence of the auto flag is not a mode)" >&2
+      printf '%s\n' "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': no explicit non-auto permission-mode source in the argv (risk 20 — pass --permission-mode <mode> or --settings <worker-settings fragment>; absence of the auto flag is not a mode)" >&2
       exit 1
     fi
     exit 0
@@ -245,11 +245,11 @@ case "$cmd" in
     if ! ambient=$(settings_default_mode "$user_settings"); then
       # Present but unreadable: fail closed, same as an unverifiable
       # launch-time mode source.
-      echo "fleet-dispatch-guard: refusing in-process dispatch: user settings '$(sanitize_printable "$user_settings" "(unprintable path)")' exist but cannot be read (unverifiable inherited mode)" >&2
+      printf '%s\n' "fleet-dispatch-guard: refusing in-process dispatch: user settings '$(sanitize_printable "$user_settings" "(unprintable path)")' exist but cannot be read (unverifiable inherited mode)" >&2
       exit 1
     fi
     if refused_mode "$ambient"; then
-      echo "fleet-dispatch-guard: refusing in-process dispatch: the hosting session inherits defaultMode $ambient from '$(sanitize_printable "$user_settings" "(unprintable path)")' (risk 19 — an in-process worker would run under it; REQ-E1.4/D-19)" >&2
+      printf '%s\n' "fleet-dispatch-guard: refusing in-process dispatch: the hosting session inherits defaultMode $ambient from '$(sanitize_printable "$user_settings" "(unprintable path)")' (risk 19 — an in-process worker would run under it; REQ-E1.4/D-19)" >&2
       exit 1
     fi
     exit 0

@@ -128,7 +128,7 @@ done
 spec_id=$(basename "$spec_dir")
 case "$spec_id" in
   '' | *[!a-z0-9-]* | [!a-z0-9]*)
-    echo "spec-status: invalid spec id '$(sanitize_printable "$spec_id")'" >&2
+    printf '%s\n' "spec-status: invalid spec id '$(sanitize_printable "$spec_id")'" >&2
     exit 2
     ;;
 esac
@@ -152,7 +152,7 @@ case "$fv" in
     exit 2
     ;;
   *)
-    echo "spec-status: unparseable Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
+    printf '%s\n' "spec-status: unparseable Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
     exit 2
     ;;
 esac
@@ -172,7 +172,7 @@ case "$stored" in
     exit 2
     ;;
   *)
-    echo "spec-status: unrecognized stored status '$(sanitize_printable "$stored")' in $req_md" >&2
+    printf '%s\n' "spec-status: unrecognized stored status '$(sanitize_printable "$stored")' in $req_md" >&2
     exit 2
     ;;
 esac
@@ -292,7 +292,7 @@ engine_rc=$?
 if [ "$engine_rc" -ne 0 ]; then
   err=$(cat "$engine_err" 2>/dev/null)
   rm -f "$engine_err"
-  echo "spec-status: derivation engine failed: $(sanitize_printable "$err" '(no diagnostic)')" >&2
+  printf '%s\n' "spec-status: derivation engine failed: $(sanitize_printable "$err" '(no diagnostic)')" >&2
   exit 2
 fi
 rm -f "$engine_err"
