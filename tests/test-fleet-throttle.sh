@@ -671,9 +671,25 @@ while :; do
   [ "$rc" != 1 ] && break
   [ $(($(now) - started)) -le 30 ] || fail "3s anchor did not elapse within 30s"
 done
-printf '%s\n' "$sig" | run observe >/dev/null 2>&1 || fail "observe (post-elapse re-observation) failed"
+# The re-observation anchors 3 seconds out, so the observe and the check that
+# follows it have to land inside that window. On a loaded machine the two
+# subprocess invocations alone can take the whole 3 seconds, after which the
+# anchor has honestly elapsed and `check` reports not-engaged for the right
+# reason. Retry the pair rather than reading that as a regression; a genuine
+# failure to re-engage never becomes timely, so the assertion still bites.
 rc=0
-run check >/dev/null 2>&1 || rc=$?
+attempt=0
+while :; do
+  attempt=$((attempt + 1))
+  t_before=$(now)
+  printf '%s\n' "$sig" | run observe >/dev/null 2>&1 || fail "observe (post-elapse re-observation) failed"
+  rc=0
+  run check >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 1 ] && break
+  # Not engaged: only excusable if the pair outran the 3-second anchor.
+  [ $(($(now) - t_before)) -ge 3 ] || break
+  [ "$attempt" -lt 5 ] || fail "re-engage never observed within its anchor after $attempt attempts"
+done
 [ "$rc" = 1 ] \
   || fail "the same excerpt after elapse is a fresh event and must re-engage (check exit $rc)"
 echo "ok: an elapsed anchor re-engages on the next observation"
