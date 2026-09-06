@@ -255,6 +255,9 @@ fill() {
   fi_cmd=$1
   fi_cmd=${fi_cmd//<absolute-primary-checkout>/$co}
   fi_cmd=${fi_cmd//<spec>/demo}
+  # The batched form first: the gc line takes several ids, so `<unit-id>...` has
+  # to resolve before the bare token would eat its stem and leave a stray `...`.
+  fi_cmd=${fi_cmd//<unit-id>.../1}
   fi_cmd=${fi_cmd//<unit-id>/1}
   fi_cmd=${fi_cmd//<repo-name>/planwright}
   fi_cmd=${fi_cmd//<worker-handle>/$worker}

@@ -350,12 +350,12 @@ REQ-F1.2; `docs/fleet.md`). Neither report may cost the transition it hangs off:
 surface the failure and carry on.
 
 ```sh
-scripts/fleet-fence.sh gc --checkout <absolute-primary-checkout> --spec <spec> <unit-id> --alloc-key execution --obs-scope <repo-name>
+scripts/fleet-fence.sh gc --checkout <absolute-primary-checkout> --spec <spec> <unit-id>... --alloc-key execution --obs-scope <repo-name>
 scripts/fleet-liveness.sh crash-record <worker-handle> <worker-scope> --alloc-unit <spec>:task-<unit-id> --alloc-key execution --obs-scope <repo-name> --obs-dir <absolute-primary-checkout>/specs/_observations
 ```
 
-The first on each unit step 2 resolves as merged, which also retires any fence
-held; the second on the dead worker step 3 proved, before step 4 parks it, under
+The first over the units step 2 resolves as merged, which also retires any fence
+held; the second on the dead worker step 3 proved, after step 4 parks it, under
 that unit's recorded handle (the crash streak is keyed by it). Neither authorizes
 a relaunch.
 

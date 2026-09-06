@@ -937,6 +937,13 @@ terminal state, so `crash-record` reports it to the escalation feedback loop
 when given the identity to report — `--alloc-unit`, `--alloc-key`,
 `--obs-scope` and `--obs-dir`, all-or-none. `/orchestrate`'s reconcile is what
 gives it: it runs this on the dead worker it proved before parking the orphan.
+The report goes **after** the orphan is parked, not before. `crash-record` is
+not idempotent — its own contract forbids re-invoking it for the same crash —
+and the reconcile is stateless, so the parked entry is the only thing that stops
+the next pass observing that same death and counting it again. Ordering it after
+the park trades a crash that goes uncounted when a pass dies mid-step for a
+spurious disable, and an uncounted crash is much the cheaper loss.
+
 Note what that does **not** buy on its own. The streak is per worker handle and
 the reconcile never re-dispatches, so one reconcile pass records one crash; the
 disable — and with it the `disabled` report — is reached only when the same

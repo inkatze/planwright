@@ -48,6 +48,12 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+# Isolate git fully from the host's global/system config: signing
+# (commit.gpgsign plus a signer that blocks non-interactively) and a global
+# core.hooksPath would otherwise hang or reshape this suite's fixture commits.
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+
 here=$(cd "$(dirname "$0")" && pwd)
 REAL_DEFAULTS="$here/../config/defaults.yml"
 TAB=$(printf '\t')
@@ -58,7 +64,14 @@ fail() {
 }
 
 tmp=$(mktemp -d)
+# The fatal signals too: bash runs no EXIT trap when killed by an untrapped
+# INT/TERM, and the fixture holds a bare repo, a clone and a fleet state dir.
+# The signal arms re-exit, because a trapped handler otherwise resumes into a
+# fixture it has just deleted.
 trap 'rm -rf "$tmp"' EXIT
+trap 'rm -rf "$tmp"; exit 130' INT
+trap 'rm -rf "$tmp"; exit 143' TERM
+trap 'rm -rf "$tmp"; exit 129' HUP
 
 # Every script resolves its siblings through its own dir, so the suite runs
 # them out of one copied tree (the sweep suite's fixture shape).
@@ -177,6 +190,7 @@ env_run() {
   shift
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
     -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+    -u PLANWRIGHT_ALLOC_LOCK_HELD \
     PATH="$stubbin:$PATH" \
     PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$er_defaults" \
@@ -619,6 +633,8 @@ fence_obs="$co/specs/_observations"
 # base ref the reachability read measures against.
 pwf() {
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
+    -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+    -u PLANWRIGHT_ALLOC_LOCK_HELD \
     PATH="$ghbin:$stubbin:$PATH" \
     PLANWRIGHT_BASE_REF=main \
     PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
