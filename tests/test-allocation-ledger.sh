@@ -378,6 +378,22 @@ led append "$h_unit" s 1 launch sonnet medium sonnet medium sonnet high unit res
 last=$("$LEDGER" last-tier "$h_unit") || fail "9b: last-tier failed on a healthy ledger"
 [ "$last" = "sonnet${TAB}high" ] || fail "9b: last-tier is '$last', want the RESOLVED tier"
 
+# A HALF-inherited row is not a launch tier. A backend that could set the model
+# but not the effort (model-allocation REQ-B1.2) records a concrete model beside
+# an `inherit` effort; answering with that pair would hand a degraded relaunch a
+# tier that is half a sentinel, so both cells must be real to answer.
+p_unit=partial:unit
+led append "$p_unit" s 1 launch sonnet medium sonnet medium sonnet high unit resolved 'x=1'
+led append "$p_unit" s 2 inherit opus high - - opus inherit unit inherit 'inherit=partial'
+last=$("$LEDGER" last-tier "$p_unit") || fail "9b2: last-tier failed after a partial row"
+[ "$last" = "sonnet${TAB}high" ] \
+  || fail "9b2: a half-inherited row answered last-tier: '$last'"
+# The complementary direction stays intact: a fully-resolved later row still wins.
+led append "$p_unit" s 3 launch haiku low haiku low haiku low unit resolved 'x=1'
+last=$("$LEDGER" last-tier "$p_unit")
+[ "$last" = "haiku${TAB}low" ] \
+  || fail "9b2: a later fully-resolved row must win, got '$last'"
+
 # A torn row (a short write) makes the ledger unhealthy without destroying the
 # readable history before it.
 h_file=$("$LEDGER" path "$h_unit")

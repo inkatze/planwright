@@ -696,7 +696,13 @@ case "$cmd" in
     lt_file=$(ledger_path "$1")
     [ -r "$lt_file" ] || exit 0
     # The last row carrying a REAL resolved tier — a withheld or inherit row
-    # records no tier, and a torn row is skipped rather than trusted.
+    # records no tier, and a torn row is skipped rather than trusted. BOTH
+    # cells must be real: a row that inherited only one dimension (a backend
+    # that could set the model but not the effort, model-allocation REQ-B1.2)
+    # carries a concrete model beside an `inherit` effort, and answering with
+    # that pair would hand a degraded relaunch a tier that is half a sentinel.
+    # The caller already discards an invalid pair, so this narrows what the
+    # verb can say without changing what any caller does.
     #
     # `feedback` rows are excluded because they are not launches. The
     # terminal-state mark allocation-feedback.sh writes carries the unit's
@@ -706,7 +712,9 @@ case "$cmd" in
     # last launch, wherever a clamp had bound it). This verb answers "the last
     # tier a launch used", so only launch rows may answer it.
     awk -F '\t' '
-      NF == 15 && $6 != "feedback" && $11 != "-" && $11 != "inherit" { m = $11; e = $12 }
+      NF == 15 && $6 != "feedback" \
+        && $11 != "-" && $11 != "inherit" \
+        && $12 != "-" && $12 != "inherit" { m = $11; e = $12 }
       END { if (m != "") printf "%s\t%s\n", m, e }
     ' "$lt_file"
     ;;
