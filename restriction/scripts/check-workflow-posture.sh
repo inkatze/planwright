@@ -109,19 +109,12 @@
 # Two ways that strip costs a false failure, both loud and both fixed by
 # reformatting: a `#` that is literal content earlier on the line (inside a
 # quoted string, or in a block-scalar body) truncates the scanned text before
-# the clause, and a TRAILING comment whose last character is a backslash joins
-# the line after it into the same logical line and takes that line's clause
-# with it. A third shape needs no strip to bite: the `privileged` verdict this
-# assertion hangs off is set by the secret scan, which reads comments on
-# purpose, so a read-only `workflow_run` workflow carrying `secrets.NAME` in a
-# TRAILING comment is judged privileged and asked for the clause too. Both
-# shapes need the trailing position — a full-line comment is dropped before
-# either the join or any scan — which is also why a paragraph explaining a
-# deleted clause, the usual narration shape, is never mistaken for the clause.
-#
-# The negation disqualifier reads one physical line, so an `!(` opening on its
-# own line above the clause is not seen; that is the same written-on-purpose
-# class as the residuals above, not a shape anyone reaches by accident.
+# the clause, and a comment whose last character is a backslash joins the line
+# after it into the same logical line and takes that line's clause with it. A
+# third shape needs no strip to bite: the `privileged` verdict this assertion
+# hangs off is set by the secret scan, which reads comments on purpose, so a
+# read-only `workflow_run` workflow that merely MENTIONS `secrets.NAME` in a
+# comment is judged privileged and asked for the clause too.
 #
 # Remote reusable workflows (`owner/repo/.github/workflows/x.yml@ref`) are not
 # fetched, and do not need to be: GitHub scopes a called workflow's
@@ -307,14 +300,11 @@ function scan_refs(t, nr,   low, s, tok) {
   # right operand is guarded against `github.repository_owner` and
   # `github.repository_id`, which merely start the same way and, compared with
   # an `owner/repo` string, can never be true — a dead gate, not a live one.
-  # `!=` cannot match at all, and an `!(` opening directly onto the clause
-  # disqualifies it, so neither spelling of an inverted clause counts. The
-  # disqualifier reads the clause's own polarity rather than the line's,
-  # because a second, unrelated negated condition beside a live clause is
-  # ordinary expression-writing.
+  # `!=` cannot match at all, and an `!(…)` anywhere on the line disqualifies
+  # it, so neither spelling of an inverted clause counts.
   if ((low ~ /github\.event\.workflow_run\.head_repository\.full_name[ \t]*==[ \t]*github\.repository[^a-z0-9_]/ ||
        low ~ /github\.repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository\.full_name/) &&
-      low !~ /![ \t]*\([ \t]*github\.(event\.workflow_run\.head_repository|repository[ \t]*==)/)
+      low !~ /![ \t]*\(/)
     printf "H\t%d\n", nr
 }
 BEGIN {

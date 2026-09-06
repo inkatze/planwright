@@ -1,0 +1,116 @@
+---
+# planwright self-hosting CI (Task 2, REQ-G1.7): every guard the repo
+# prescribes runs on every PR. The single `mise run check` step is the same
+# aggregate gate contributors run locally, with tool versions pinned in
+# mise.toml (contributor/CI parity by construction). Actions are pinned to
+# full commit SHAs (supply-chain discipline per the security posture).
+#
+# "on" is quoted so yamllint's truthy rule (which this repo runs on
+# .github/) does not flag the key.
+name: ci
+
+"on":
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Full history: gitleaks scans all commits and the commit lint walks
+      # the PR range.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+
+      # mise pinned: 2026.6.3 regressed the pipx backend (it passes pip an
+      # `--uploaded-prior-to` flag the runner's pip rejects, breaking the
+      # yamllint install). 2026.6.1 installs the same pinned tools cleanly.
+      # Revisit when a later mise fixes the pipx path.
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4.1.0
+        with:
+          version: 2026.6.1
+
+      # Install the Claude Code CLI so `mise run check`'s lint:plugin-schema
+      # step ENFORCES the manifest schema (claude plugin validate) instead of
+      # degrading to a skip. `claude plugin validate` is a purely local schema
+      # check: it needs no authentication or API key, so no secret is wired
+      # here. Pinned to an exact version for CI/local parity, the same
+      # discipline mise.toml applies to its other tools; keep the pin at or
+      # above 2.1.154 (the release that added the defaultEnabled manifest field
+      # this repo sets). npm installs the same native binary as the standalone
+      # installer and puts `claude` on PATH; `claude --version` then fails the
+      # step loudly if the install did not work, so the schema gate can never
+      # silently fall back to its skip path.
+      - run: |
+          npm install -g @anthropic-ai/claude-code@2.1.179
+          claude --version
+
+      # Wire the tracked hook backstop before the aggregate gate verifies it:
+      # the pinned wire-then-verify contract (guard-coverage REQ-A1.3, D-3).
+      # check:githooks inside `mise run check` then proves the wiring
+      # decidably — an unwired runner fails loud, never a silent skip.
+      # NOTE: from this step on, every git operation in the job runs under
+      # the PR's githooks/ (amends and main-pushes get rejected; and
+      # prepare-commit-msg is not suppressed by --no-verify). Any future
+      # step that writes commits belongs before this one, or must bypass
+      # deliberately.
+      - run: /bin/sh scripts/wire-githooks.sh
+
+      # The aggregate gate: shell tests, shellcheck, shfmt, markdownlint,
+      # yamllint, plugin-manifest JSON lint, plugin/marketplace schema
+      # validation (claude plugin validate; enforced here because the step
+      # above installs the Claude Code CLI on the runner), doctrine link-check, the
+      # machine-local [[name]] memory-link guard over spec files (REQ-D1.1), the
+      # options-reference drift check (REQ-K1.8), the tasks.md ledger
+      # structural-corruption + duplicate-Status guards (REQ-E1.1, REQ-E1.2),
+      # the hook-registration guard over hooks.json and its payload fixtures
+      # (REQ-H1.1, REQ-H1.2), the spec validator (enforced, REQ-A2.1), and the
+      # full-history gitleaks scan. lint:commits inside `check` covers local runs; the
+      # strict PR-range lint is the dedicated step below.
+      - run: mise run check
+
+      # Conventional-commit FORMAT lint over exactly the PR's commits. The
+      # local task skips quietly when there is nothing ahead of origin/main;
+      # on a PR an empty or malformed range must fail instead. Length is NOT
+      # enforced per-commit: the framework never rewrites history, so an
+      # overlong WIP subject would be permanently unfixable. base_ref is the
+      # target branch, passed via env per script-injection hardening practice.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: /bin/bash scripts/check-commit-msgs.sh "origin/${BASE_REF}..HEAD"
+
+      # Screen the same PR range for purged identifiers, the content half of
+      # the commit-message vector (guard-coverage REQ-B1.1, D-5). githooks/
+      # already screens at write time, but only in a wired clone: this step is
+      # what covers an unwired clone, a --no-verify commit, and a fork PR whose
+      # author never wired anything. A match reports its location only, so the
+      # identifier never lands in this log. base_ref is passed via env per
+      # script-injection hardening practice, as the step above does.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: /bin/sh scripts/check-purged-identifiers.sh --commit-range "origin/${BASE_REF}..HEAD"
+
+      # Length is enforced on the PR title instead: it becomes the
+      # squash-merge subject and, unlike a pushed commit, stays editable.
+      # --marker title additionally rejects a [pending-sign-off] marker in the
+      # title (REQ-C1.4): the title must stay marker-free so the squash subject
+      # never carries a relic marker. The title is passed via env (never
+      # interpolated into the shell) per script-injection hardening practice.
+      - if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PR_TITLE" \
+            | /bin/bash scripts/check-commit-msgs.sh --max-length 100 --marker title --stdin

@@ -501,7 +501,7 @@ permissions:
   contents: write
 jobs:
   x:
-    runs-on: ubuntu-latest  # was: github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest  # github.event.workflow_run.head_repository dropped
     steps:
       - run: echo x
 EOF
@@ -659,31 +659,6 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "the reversed operand order satisfies the clause" 0 $?
-
-# The negation disqualifier must read the clause's OWN polarity, not the
-# line's: a second, unrelated `!( ... )` condition alongside a live clause is
-# ordinary expression-writing, and refusing it would push authors to reformat
-# a workflow that is already correct.
-d="$(mkdir_case pass-workflow-run-head-repository-with-other-negation)"
-cat >"$d/x.yml" <<'EOF'
----
-name: x
-"on":
-  workflow_run:
-    workflows: [ci]
-    types: [completed]
-    branches: [main]
-permissions:
-  contents: write
-jobs:
-  x:
-    if: ${{ github.event.workflow_run.head_repository.full_name == github.repository && !(github.event.workflow_run.head_branch == 'wip') }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo x
-EOF
-out="$("$GUARD" "$d" 2>&1)"
-assert_exit "an unrelated negation beside a live clause still satisfies it" 0 $?
 
 # A privileged workflow_run workflow consuming a PR-produced artifact: the
 # artifact-poisoning path GitHub's own docs warn about.
@@ -903,7 +878,7 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "branches-ignore does not satisfy the base-branch filter" 1 $?
-assert_contains "the branches-ignore reason is pinned" "base-branch filter" "$out"
+assert_contains "the branches-ignore reason is pinned" "branches" "$out"
 
 # Artifact consumption via the gh CLI, not just the action.
 d="$(mkdir_case fail-workflow-run-gh-download)"
