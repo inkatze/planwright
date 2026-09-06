@@ -93,6 +93,11 @@
 #   fleet-fence.sh list    --checkout <dir> [--spec <spec>]
 #   fleet-fence.sh sweep   --checkout <dir> --spec <spec>
 #       (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>]
+#       [--alloc-key <selection-key> --obs-scope <scope>]
+#       The two identity flags are all-or-none. Supplied, each unit the sweep
+#       finds TERMINAL is reported to the escalation feedback loop as
+#       `completed` before its fence is retired; omitted, no evaluation runs.
+#       See report_terminal_feedback below.
 #
 # Output (tab-separated where machine-read):
 #   fence:  `fenced <ref>` per won member, or `taken <ref>` / `solo no-origin`
@@ -571,6 +576,37 @@ if [ "$cmd" = gc ]; then
   exit $?
 fi
 
+# --- the durable, dedup'd operator sink (REQ-C1.7, D-7) --------------------
+#
+# "Surfaced" means a durable, deduplicated, operator-facing entry delivered by
+# PUSH through `orchestration-fleet`'s attention surface — never a transient
+# log line, never poll-only. That surface is consumed as-is (REQ-D1.1); this
+# script only supplies the keys and the text.
+#
+# Deduplication IS the key. Every entry is keyed by a digest of the fence-ref
+# name plus the owner identity (record identity for an anomaly), so the same
+# strand re-observed on successive passes upserts the same row rather than
+# stacking a new one — and the row is only written when it is absent, so its
+# timestamp stays pinned to FIRST observation.
+#
+# That pinned timestamp is also the tower's cross-pass memory. A stateless
+# tower keeps no local store, so the one-pass grace re-check an unknown-owner
+# orphan needs (REQ-C1.3) lives in the sink: the first sighting writes a
+# TENTATIVE entry stamped with its first-seen time, and a later pass promotes
+# it to a surfaced strand only once a heartbeat interval has elapsed since
+# then. Because the stamp is in the shared sink rather than in the tower, the
+# grace window holds cross-tower: a second tower sweeping immediately after
+# the first reads the same first-seen time and cannot short-circuit it.
+#
+# Data hygiene (REQ-D1.4): an entry names the unit and the owner's TOWER
+# IDENTITY only. The peer's checkout path and its death handle never reach it
+# — `attribute` returns neither.
+
+FA="$script_dir/fleet-attention.sh"
+FP="$script_dir/fleet-presence.sh"
+OS="$script_dir/orchestrate-state.sh"
+AFB="$script_dir/allocation-feedback.sh"
+
 # report_terminal_feedback <unit-id> — the unit-completion half of REQ-F1.2's
 # escalation feedback loop, reported from the one place the fleet observes a
 # unit going terminal and acts on it: the sweep's terminal branch, which is
@@ -604,37 +640,6 @@ report_terminal_feedback() {
     || err "the allocation-feedback evaluation for unit '$spec:task-$1' did not complete (its own reason is above); the fence lifecycle is unaffected"
   return 0
 }
-
-# --- the durable, dedup'd operator sink (REQ-C1.7, D-7) --------------------
-#
-# "Surfaced" means a durable, deduplicated, operator-facing entry delivered by
-# PUSH through `orchestration-fleet`'s attention surface — never a transient
-# log line, never poll-only. That surface is consumed as-is (REQ-D1.1); this
-# script only supplies the keys and the text.
-#
-# Deduplication IS the key. Every entry is keyed by a digest of the fence-ref
-# name plus the owner identity (record identity for an anomaly), so the same
-# strand re-observed on successive passes upserts the same row rather than
-# stacking a new one — and the row is only written when it is absent, so its
-# timestamp stays pinned to FIRST observation.
-#
-# That pinned timestamp is also the tower's cross-pass memory. A stateless
-# tower keeps no local store, so the one-pass grace re-check an unknown-owner
-# orphan needs (REQ-C1.3) lives in the sink: the first sighting writes a
-# TENTATIVE entry stamped with its first-seen time, and a later pass promotes
-# it to a surfaced strand only once a heartbeat interval has elapsed since
-# then. Because the stamp is in the shared sink rather than in the tower, the
-# grace window holds cross-tower: a second tower sweeping immediately after
-# the first reads the same first-seen time and cannot short-circuit it.
-#
-# Data hygiene (REQ-D1.4): an entry names the unit and the owner's TOWER
-# IDENTITY only. The peer's checkout path and its death handle never reach it
-# — `attribute` returns neither.
-
-FA="$script_dir/fleet-attention.sh"
-FP="$script_dir/fleet-presence.sh"
-OS="$script_dir/orchestrate-state.sh"
-AFB="$script_dir/allocation-feedback.sh"
 
 sink_cache=""
 
