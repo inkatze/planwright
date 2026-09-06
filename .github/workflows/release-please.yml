@@ -72,7 +72,7 @@ jobs:
     # the `success` it acts on, so a green fork run proposes a release off a
     # `main` that may itself be red. The clause is also what
     # scripts/check-workflow-posture.sh's assertion 4 now requires of every
-    # privileged workflow_run workflow.
+    # privileged workflow_run workflow under .github/workflows/.
     if: >-
       github.event.workflow_run.head_repository.full_name == github.repository &&
       github.event.workflow_run.conclusion == 'success' &&

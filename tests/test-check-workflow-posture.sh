@@ -486,6 +486,180 @@ EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "a commented-out head_repository clause does not satisfy the guard" 1 $?
 
+# Same, in the TRAILING comment position, which the secret scan deliberately
+# does read (over-blocking there errs loud; here it would err silent).
+d="$(mkdir_case fail-workflow-run-head-repository-trailing-comment)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest  # github.event.workflow_run.head_repository dropped
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a trailing-comment head_repository mention does not satisfy the guard" 1 $?
+
+# The mention must be the EQUALITY that scopes the trigger, not any use of the
+# field. This fixture is the exact shape the assertion exists to prevent: the
+# fork's own repository handed to `actions/checkout` inside the write-token
+# job. A bare substring scan would read that as evidence of hardening and pass
+# the workflow that clones PR-authored code.
+d="$(mkdir_case fail-workflow-run-head-repository-as-checkout)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.workflow_run.head_repository.full_name }}
+      - run: ./build.sh
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "head_repository used as a checkout input does not satisfy the guard" 1 $?
+assert_contains "the missing originating-repository clause is still named" \
+  "head_repository" "$out"
+
+# An INVERTED clause is not a scoping clause either: `!=` fires the privileged
+# job for exactly the runs the assertion exists to exclude.
+d="$(mkdir_case fail-workflow-run-head-repository-inverted)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: >-
+      github.event.workflow_run.head_repository.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "an inverted head_repository clause does not satisfy the guard" 1 $?
+
+# `!( … == … )` is the other spelling of the same inversion, so refusing only
+# `!=` would leave the hole open in the shape a reader skims past.
+d="$(mkdir_case fail-workflow-run-head-repository-negated)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: ${{ !(github.event.workflow_run.head_repository.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a negated head_repository clause does not satisfy the guard" 1 $?
+
+# `github.repository_owner` and `github.repository_id` are different contexts
+# that merely start the same way. Compared against `owner/repo` neither can
+# ever be true, so a job gated on one never runs — and the guard must not read
+# a dead gate as a live one.
+for ctx in github.repository_owner github.repository_id; do
+  d="$(mkdir_case "fail-workflow-run-${ctx##*.}")"
+  cat >"$d/x.yml" <<EOF
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: >-
+      github.event.workflow_run.head_repository.full_name == $ctx
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+  out="$("$GUARD" "$d" 2>&1)"
+  assert_exit "$ctx does not satisfy the originating-repository clause" 1 $?
+done
+
+# The clause must be live YAML, not shell narration: a `#` anywhere earlier on
+# the line ends the scanned text, so a comment inside a `run:` body cannot
+# stand in for the gate however exactly it quotes it.
+d="$(mkdir_case fail-workflow-run-head-repository-shell-comment)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo hi;# we used to gate on github.event.workflow_run.head_repository.full_name == github.repository
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a shell comment does not satisfy the originating-repository clause" 1 $?
+
+# Operand order is the author's choice, not the guard's.
+d="$(mkdir_case pass-workflow-run-head-repository-reversed)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: >-
+      github.repository == github.event.workflow_run.head_repository.full_name
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "the reversed operand order satisfies the clause" 0 $?
+
 # A privileged workflow_run workflow consuming a PR-produced artifact: the
 # artifact-poisoning path GitHub's own docs warn about.
 d="$(mkdir_case fail-workflow-run-artifact)"
@@ -704,6 +878,7 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "branches-ignore does not satisfy the base-branch filter" 1 $?
+assert_contains "the branches-ignore reason is pinned" "branches" "$out"
 
 # Artifact consumption via the gh CLI, not just the action.
 d="$(mkdir_case fail-workflow-run-gh-download)"
@@ -724,6 +899,7 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "gh run download counts as consuming a PR artifact" 1 $?
+assert_contains "the gh-download reason is pinned" "artifact" "$out"
 
 # An unrecognized permission level proves nothing about the token, so it is
 # treated exactly like write (REQ-H1.3).
@@ -894,6 +1070,7 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "a continued gh run download counts as consuming a PR artifact" 1 $?
+assert_contains "the continued gh-download reason is pinned" "artifact" "$out"
 
 # A secret split across a YAML double-quoted escaped line break. YAML drops the
 # break AND joins with no space, so GitHub resolves the secret while a scanner

@@ -401,11 +401,10 @@ else
   fail "H1.1 the checkout does not explicitly fetch --tags and origin/main"
 fi
 
-# obs:131af768: this job holds contents: write and pull-requests: write, and its
-# head_branch == 'main' filter is satisfiable by a fork PR whose head branch is
-# literally named `main`. guard-coverage D-6 accepted that residual BECAUSE the
-# job checked out no PR code; adding a checkout only keeps that acceptance true
-# if the checkout resolves the repository's own default branch.
+# This job holds contents: write and pull-requests: write. The head_repository
+# clause asserted above is what keeps a fork's run from firing it at all; the
+# default-branch pin asserted here is the second line, so an edit to that `if:`
+# cannot quietly make the checkout resolve PR-authored content.
 if grep -qE "ref:[[:space:]]*\\\$\{\{[[:space:]]*github\.event\.repository\.default_branch[[:space:]]*\}\}" \
   "$WORKFLOW"; then
   pass "H1.1 the checkout pins the repository's own default branch"
