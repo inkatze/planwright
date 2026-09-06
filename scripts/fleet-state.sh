@@ -443,6 +443,14 @@ try_acquire() {
   ta_lock=$1
   ta_ts=$(date +%s 2>/dev/null) || ta_ts=0
   ta_token="$$-$ta_ts"
+  # Claim the token BEFORE any create can publish it. Every create below is
+  # `ln -s` followed by a `$(readlink ...)` fork, so assigning the token after
+  # the confirm leaves an instant where the link exists and the EXIT trap does
+  # not yet know it is ours — a signal there leaks the lock until the stale
+  # break. Setting it first cannot produce a false release: release_lock
+  # unlinks only when the link's TARGET equals this token, and a token we never
+  # managed to publish matches no link.
+  LOCK_TOKEN=$ta_token
   # Attempt the create only when NOTHING occupies the path, and confirm it
   # afterwards. `ln -s target dir` puts the link INSIDE dir and exits 0, so
   # against a directory squatting the lock path — a lock left by the pre-symlink
@@ -453,7 +461,6 @@ try_acquire() {
   if [ ! -e "$ta_lock" ] && [ ! -L "$ta_lock" ]; then
     if ln -s "$ta_token" "$ta_lock" 2>/dev/null; then
       if [ "$(readlink "$ta_lock" 2>/dev/null)" = "$ta_token" ]; then
-        LOCK_TOKEN=$ta_token
         return 0
       fi
       # A directory appeared between the test and the create, so the link went
@@ -501,7 +508,6 @@ try_acquire() {
         fi
         if ln -s "$ta_token" "$ta_lock" 2>/dev/null; then
           if [ "$(readlink "$ta_lock" 2>/dev/null)" = "$ta_token" ]; then
-            LOCK_TOKEN=$ta_token
             return 0
           fi
           # A directory raced back in and the link landed inside it. Drop the
@@ -526,7 +532,6 @@ try_acquire() {
       # it and still exits 0, which would report a lock we do not hold and send
       # the caller into its critical section holding nothing.
       if [ "$(readlink "$ta_lock" 2>/dev/null)" = "$ta_token" ]; then
-        LOCK_TOKEN=$ta_token
         return 0
       fi
       rm -f "$ta_lock/$ta_token" 2>/dev/null || true
@@ -553,7 +558,6 @@ try_acquire() {
       # directly above, which does re-acquire.
       if ln -s "$ta_token" "$ta_lock" 2>/dev/null; then
         if [ "$(readlink "$ta_lock" 2>/dev/null)" = "$ta_token" ]; then
-          LOCK_TOKEN=$ta_token
           return 0
         fi
         # Same stray drop as the other two create paths: a directory that
@@ -585,14 +589,7 @@ spin_acquire() {
     try_acquire "$sa_lock"
     sa_rc=$?
     case $sa_rc in
-      0)
-        # Record ownership so the EXIT trap releases what THIS process holds,
-        # and only that. try_acquire is deliberately not the place for it: the
-        # exposed one-shot `lock` command uses it to hand the lock to a caller
-        # who releases it in a later process.
-        HOLD_LOCK=1
-        return 0
-        ;;
+      0) return 0 ;;
       2) return 2 ;;
     esac
     sa_tries=$((sa_tries + 1))
@@ -683,24 +680,29 @@ counter="$root/concurrency"
 # calls. Registration put the critical section on the INTERACTIVE dispatch path,
 # where a Ctrl-C at the wrong instant would leave `.fleet.lock` standing until
 # the stale-break threshold and wedge every fleet writer behind it for that whole
-# window. HOLD_LOCK is set only while this process owns the lock, so the handler
-# can never unlink a lock someone else holds.
+# window. What marks the lock as ours is the OWNER TOKEN, which try_acquire
+# assigns in the same step that creates the link. That matters for when the
+# signal lands: ownership recorded by the caller AFTER try_acquire returned
+# leaves a gap, and a TERM inside it found HOLD_LOCK still 0 and declined to
+# release a lock this process genuinely held, wedging every later fleet writer
+# until the stale break. Comparing the token against the link target is also
+# what stops the handler unlinking a lock someone else now holds: a holder whose
+# lock was broken as stale reads a different target and releases nothing. That
+# comparison is a read then an unlink, so a holder descheduled between the two
+# can still unlink a successor's link — a narrower window than the one it
+# replaces, not an absent one.
 #
 # INT/TERM re-exit rather than returning: a bare `trap release_lock INT` would
 # run the handler and then RESUME the interrupted critical section with the lock
 # gone, which is the lost update the lock exists to prevent. Byte-for-byte the
 # sibling discipline in fleet-attention.sh. SIGKILL stays unrecoverable and falls
 # to the stale break, as it does everywhere else in the lock family.
-HOLD_LOCK=0
 release_lock() {
-  if [ "$HOLD_LOCK" = 1 ]; then
-    HOLD_LOCK=0
-    # Only when the lock is still OURS. Without this check a holder whose lock
-    # was broken as stale would come back and unlink the CURRENT holder's lock,
-    # which is the clobber the mkdir shape documented as a known limitation.
-    if [ "$(readlink "$lock" 2>/dev/null)" = "$LOCK_TOKEN" ]; then
-      rm -f "$lock" 2>/dev/null || true
-    fi
+  # The empty-token test short-circuits before $lock is read, which also keeps
+  # this safe if a signal arrives before the home is resolved.
+  if [ -n "$LOCK_TOKEN" ] && [ "$(readlink "$lock" 2>/dev/null)" = "$LOCK_TOKEN" ]; then
+    LOCK_TOKEN=""
+    rm -f "$lock" 2>/dev/null || true
   fi
 }
 trap 'release_lock' EXIT
@@ -714,14 +716,21 @@ case $cmd in
     # matching orchestrate-lock.sh. Consumers with a custom critical section
     # acquire here and release with `unlock`.
     try_acquire "$lock"
-    exit $?
+    ta_rc=$?
+    # Disown: this lock belongs to the CALLER's later `unlock`, not to this
+    # process's EXIT trap, which now releases on the token alone. Disowning
+    # AFTER the acquire rather than never adopting is deliberate — a signal
+    # before this line releases the lock and exits non-zero, so a caller that
+    # never learned it acquired is never left holding a leaked one.
+    LOCK_TOKEN=""
+    exit $ta_rc
     ;;
 
   unlock)
     # Unconditional, NOT release_lock: this is the external half of the exposed
-    # primitive, releasing a lock a previous process took via `lock`. HOLD_LOCK
-    # and LOCK_TOKEN describe what THIS process holds, and it holds nothing
-    # here, so there is no token to check the target against.
+    # primitive, releasing a lock a previous process took via `lock`. LOCK_TOKEN
+    # describes what THIS process holds, and it holds nothing here, so there is
+    # no token to check the target against.
     #
     # The rmdir is for a lock left as a directory by the pre-symlink shape:
     # `rm -f` refuses a directory, so without it this verb reports success over

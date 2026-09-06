@@ -582,6 +582,47 @@ cg_calls=$(wc -l <"$cg_count" | tr -d ' ')
 echo "ok: the stale threshold is resolved once per process, not once per contended spin"
 
 # ---------------------------------------------------------------------------
+# A signal delivered AFTER the lock is taken but BEFORE the caller records
+# ownership must still release it. try_acquire creates the link and returns;
+# its caller does its bookkeeping afterwards, so anything that gates release on
+# that bookkeeping declines to release a lock the process genuinely holds and
+# wedges every later fleet writer until the stale break — the outcome the trap
+# discipline exists to prevent.
+#
+# The real window is sub-millisecond, so this widens it by fault injection: a
+# copy of the script with a sleep between the acquire and the caller's
+# bookkeeping. The injection is asserted, because an anchor that silently stops
+# matching would turn the whole case green without testing anything.
+# ---------------------------------------------------------------------------
+shim2="$tmp/shim-term"
+mkdir -p "$shim2"
+cp "$here/../scripts/echo-safety.sh" "$here/../scripts/config-get.sh" "$shim2/"
+sed 's/^    sa_rc=\$?$/    sa_rc=$?\
+    sleep 3/' "$here/../scripts/fleet-state.sh" >"$shim2/fleet-state.sh"
+chmod +x "$shim2/fleet-state.sh"
+[ "$(grep -c '^    sleep 3$' "$shim2/fleet-state.sh")" = 1 ] \
+  || fail "the acquire-window fault injection did not apply; its anchor in spin_acquire moved"
+home_term="$tmp/term-window-home"
+mkdir -p "$home_term"
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_term" \
+  /bin/sh "$shim2/fleet-state.sh" register "w-term" "scope-term" >/dev/null 2>&1 &
+term_pid=$!
+# Wait for the LOCK to appear rather than for a wall-clock guess: its presence
+# is proof the acquire returned, which is the start of the window under test.
+term_waited=0
+while [ ! -L "$home_term/.fleet.lock" ]; do
+  term_waited=$((term_waited + 1))
+  [ "$term_waited" -lt 400 ] || fail "the fault-injected register never took the lock"
+  sleep 0.02
+done
+kill -TERM "$term_pid" 2>/dev/null || true
+wait "$term_pid" 2>/dev/null || true
+[ ! -L "$home_term/.fleet.lock" ] && [ ! -e "$home_term/.fleet.lock" ] \
+  || fail "a TERM between the acquire and the caller's bookkeeping leaked the lock"
+echo "ok: a signal in the acquire window releases the lock instead of leaking it"
+
+# ---------------------------------------------------------------------------
 # 11. Hostile identifiers are rejected BEFORE any path use.
 # ---------------------------------------------------------------------------
 # 11a. A hostile plugin-namespace manifest name (path traversal) never reaches
