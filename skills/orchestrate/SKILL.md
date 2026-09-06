@@ -229,7 +229,7 @@ unit's admit/model/effort/command; `scripts/fleet-dispatch-guard.sh check-launch
 <launch-argv>` (or `check-inherited`, in-process) lints the launch — a refusal is
 a stop condition, never bypassed.
 
-Single-spec dispatch keys it by surface instead:
+Single-spec dispatch keys the tier by surface:
 `scripts/allocation-apply.sh plan --key orchestrate_dispatch --backend <b>
 --unit <u>`, applied per `backend-capability-contract`'s *Applying a resolved
 tier*.

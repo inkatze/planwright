@@ -325,3 +325,16 @@ Class: expression-only
 Changelog: requirements.md `## Changelog`, entry dated 2026-09-05
 Anchor: `8340476cef8b3e4e53d3cf26dd6f8605e5c2a06a` — computed as
 `scripts/spec-anchor.sh specs/model-allocation`
+
+**2026-09-05 — Task 6 review, expression-only.** The enumeration added above is
+corrected in place: its count now matches the three paths it lists, the
+`/orchestrate` pointer names the resource-governance step that actually carries
+the resolution rather than the Dispatch heading below it, and the `/offload`
+subagent hand-off is given the same numbered shape and recorded manual pass as
+its two siblings instead of trailing as prose. Nothing new is decided: the
+scriptable/manual split, and which surfaces fall on each side, are unchanged.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog`, second entry dated 2026-09-05
+Anchor: `3827ce2f27413b3a6ac060b846341b0398d5dc03` — computed as
+`scripts/spec-anchor.sh specs/model-allocation`

@@ -180,8 +180,8 @@ work or order.
 
 **Launch tier.** A per-step session is a launch: resolve
 `scripts/allocation-apply.sh plan --key execute_step --backend <backend> --unit
-<spec>/<id> --step <step>` and apply it per `backend-capability-contract`'s
-*Applying a resolved tier*. The terminal rung sets none, inheriting the
+<spec>:task-<id> --step <step>` and apply it per `backend-capability-contract`'s
+*Applying a resolved tier*. The terminal rung advertises none, inheriting the
 operator's session.
 
 **State-safety holds in both modes (REQ-C1.4):** every `tasks.md` placement move

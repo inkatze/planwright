@@ -202,35 +202,6 @@ that hosts a separate worker satisfies them; the backends that do not (`print`
 and `in-session`) are the manual/synchronous escape hatch called out in their
 rows below.
 
-### Applying a resolved tier
-
-`tier_control` reads off how each backend launches. The four rungs that spawn a
-`claude` process advertise `both` — including `print`, whose printed command
-line *is* its launch, so the flags are words of the command it hands the
-operator. `subagent` is the per-dimension case the column exists for: the
-harness-native launch takes a model parameter and no effort parameter, so it
-advertises `model`.
-
-Every launch point resolves a plan (`scripts/allocation-apply.sh plan --key
-<surface> --backend <b> --unit <u>`) and applies it under three rules:
-
-- **Per dimension.** Apply `model` and `effort` only where `tier_control`
-  covers them; a value of `inherit` applies nothing.
-- **As discrete argv elements or launch parameters** — `--model` and its value
-  as separate arguments — never interpolated into a command string.
-- **Never silently.** Full inheritance, partial inheritance, and an errored
-  capability probe each leave a ledger row naming the dimension and the cause.
-
-**The in-session rung's pinned degradation (REQ-B1.3, D-4).** Work on the
-`in-session` rung (the `/offload` sense: the operator's own session, inline)
-runs in a session that already exists, so there is no launch at which a tier
-could be set. It **inherits the operator's session model and effort**, always,
-whatever the policy resolved. That is the rung's pinned degradation, not a
-reason to refuse it: planwright does not switch a running session's model
-mid-flight, so inheritance is the only honest outcome, and what the requirement
-demands is that it be *recorded*. An operator wanting a different tier changes
-their own session or picks a rung that can set one.
-
 - **`tmux`.** The richest backend: an interactive `claude --worktree` worker in a
   named window. `capture-pane` provides observe-in-flight; attributed
   `load-buffer`/`paste-buffer` provides steer-in-flight (never `send-keys`
@@ -300,6 +271,37 @@ launch, completion signal, positive-evidence-of-death liveness) and
 (Task 4). (The `PLANWRIGHT_BACKEND_*` presence overrides are a deliberate
 test/early-adopter escape hatch that bypasses these defaults; forcing a rung
 present makes it selectable regardless of its dispatch wiring.)
+
+## Applying a resolved tier
+
+`tier_control` reads off how each backend's launch is *expressed*. The rungs
+whose launch is a `claude` command line advertise `both`, because that line can
+carry a model and an effort parameter. `print` is one of them even though it
+spawns nothing: the command it hands the operator is its launch, and dropping
+the flags there would lose the operator's configured tier as surely as any
+other silent inheritance. `subagent` is the per-dimension case the column
+exists for — the harness-native launch takes a model parameter and no effort
+parameter, so it advertises `model`.
+
+Every launch point resolves a plan through `scripts/allocation-apply.sh` (its
+own usage string is the argument contract) and applies it under these rules:
+
+- **Per dimension.** Apply `model` and `effort` only where `tier_control`
+  covers them; a value of `inherit` applies nothing.
+- **As discrete argv elements or launch parameters** — `--model` and its value
+  as separate arguments — never interpolated into a command string.
+- **Never silently.** Full inheritance, partial inheritance, and an errored
+  capability probe each leave a ledger row naming the dimension and the cause.
+
+**The in-session rung's pinned degradation (REQ-B1.3, D-4).** Work on the
+`in-session` rung (the `/offload` sense: the operator's own session, inline)
+runs in a session that already exists, so there is no launch at which a tier
+could be set. It **inherits the operator's session model and effort**, always,
+whatever the policy resolved. That is the rung's pinned degradation, not a
+reason to refuse it: planwright does not switch a running session's model
+mid-flight, so inheritance is the only honest outcome, and what the requirement
+demands is that it be *recorded*. An operator wanting a different tier changes
+their own session or picks a rung that can set one.
 
 ## The pinned degradation ladder
 

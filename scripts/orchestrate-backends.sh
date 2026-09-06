@@ -586,7 +586,7 @@ EOF
 
 # caps <backend>: print the nine-field advertised capability set for one
 # backend (interactive can_observe can_steer_inflight provides_attention_surface
-# supports_parallel session_grade overhead hook_registration) — the read
+# supports_parallel session_grade overhead hook_registration tier_control) — the read
 # accessor a capability-gated
 # consumer (Task 5's peer-pane /context corroboration reads can_observe) asks
 # instead of re-deriving the contract table (avoids the duplication the

@@ -157,7 +157,8 @@ caps_helper="$script_dir/orchestrate-backends.sh"
 can_observe=""
 if [ -x "$caps_helper" ]; then
   caps_line=$("$caps_helper" caps "$backend" 2>/dev/null) || caps_line=""
-  # Field 2 of "interactive can_observe can_steer ... hook_registration".
+  # Field 2 of "interactive can_observe can_steer ... hook_registration
+  # tier_control".
   # shellcheck disable=SC2086
   set -- $caps_line
   can_observe=${2-}

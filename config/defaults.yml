@@ -301,11 +301,11 @@ fleet_command_drain: drain
 # REQ-A1.2, REQ-A1.3). scripts/allocation-select.sh resolves one
 # model/effort/command row per SELECTION KEY, keyed so that any launch point
 # can read it rather than fleet dispatch alone, and these knobs are its
-# configuration. Every launch point planwright ships now reads it: fleet
-# dispatch by task type, and single-spec /orchestrate dispatch,
-# /execute-task's per-step sessions, and /offload by surface. Each column
-# resolves allocation_<column>_<key>
-# first, then the legacy fleet_<column>_<key> above, then the shipped default.
+# configuration. Every launch point planwright ships reads it: fleet dispatch
+# by task type, and single-spec /orchestrate dispatch, /execute-task's per-step
+# sessions, and /offload by surface. Each column resolves
+# allocation_<column>_<key> first, then the legacy fleet_<column>_<key> above,
+# then the shipped default.
 #
 # The nine fleet-keyed knobs ship the `unset` sentinel: that is how a flat
 # config file spells "this general knob is not set", and it is what arms the
@@ -327,10 +327,10 @@ allocation_command_drain: unset
 # /execute-task's per-step sessions, and /offload dispatch. Each consults the
 # resolver before it launches (REQ-B1.1), and their shipped default is the
 # explicit `inherit` sentinel, so the resolver is asked, applies nothing, and
-# the launch keeps its ambient model/effort — exactly what these surfaces did
-# before they were wired. The capability ships dark (D-13); what the wiring
-# adds by default is the ledger row saying the tier was inherited, not a
-# different launch. Setting one to a model alias or effort level starts
+# the launch keeps its ambient model/effort. The capability ships dark (D-13):
+# by default the only observable difference from an unwired launch is the
+# ledger row saying the tier was inherited. Setting one to a model alias or
+# effort level starts
 # governing that surface, applied as far as the launching backend's advertised
 # tier_control allows and with any remaining inheritance recorded (REQ-B1.2).
 # There is no command column here: only a fleet dispatch turns a selection into

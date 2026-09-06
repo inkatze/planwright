@@ -59,14 +59,16 @@ enumerated by name below (skill-prose launch paths that only an interactive
 session exercises) and verified by a recorded manual pass at Task 6 review — an
 unenumerated surface cannot be silently reclassified as manual.
 
-**The `[manual]` remainder, enumerated (Task 6).** Two launch points construct
-their launch in skill prose rather than in a script, so no test can execute
-them; each is pinned statically instead (the prose must name
+**The `[manual]` remainder, enumerated (Task 6).** Three application paths are
+borne by skill prose rather than by a script, so no test can execute them. Two
+are launch points in their own right; the third is `/offload`'s subagent rung,
+whose plan is script-tested but whose hand-off is not. Each is pinned statically (the prose must name
 `scripts/allocation-apply.sh` and its own selection key, asserted by
 `tests/test-allocation-launch-wiring.sh`) and exercised by hand at review:
 
 1. **`/orchestrate`'s single-spec dispatch launch** (`skills/orchestrate/SKILL.md`,
-   the Dispatch section; key `orchestrate_dispatch`). The tower resolves the plan
+   the resource-governance step that precedes dispatch; key
+   `orchestrate_dispatch`). The tower resolves the plan
    and passes the values to `fleet-dispatch-worktree.sh` /
    `fleet-dispatch-headless.sh` as discrete post-`--` argv. Manual pass: dispatch
    one unit with a configured non-`inherit` tier and confirm the launch argv
@@ -78,11 +80,13 @@ them; each is pinned statically instead (the prose must name
    session's launch carries it, and that the terminal rung's context-clear reseed
    records the in-session inheritance instead.
 
-`/offload`'s **subagent** rung is a third prose-borne application path: the
-harness Agent tool launches it, so the skill reads the plan and passes the model
-as a launch parameter. Its plan resolution is covered by
-`tests/test-allocation-apply.sh` (the partially-capable fixture is this rung);
-only the hand-off of the value to the harness is manual.
+3. **`/offload`'s subagent rung hand-off** (`skills/offload/SKILL.md`, the
+   dispatch step; key `offload`). The harness Agent tool launches it, so the
+   skill reads the plan and passes the model as a launch parameter. Its plan
+   resolution is covered by `tests/test-allocation-apply.sh`; only the hand-off
+   of the value to the harness is manual. Manual pass: offload one petition to
+   the subagent rung with a configured tier and confirm the agent is launched
+   at the resolved model.
 
 ### REQ-B1.2 — capability-aware application, audited inheritance [test]
 

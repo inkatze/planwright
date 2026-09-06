@@ -339,9 +339,10 @@ backend self-describes against the
 `can_steer_inflight` (deliver an attributed message into a busy worker),
 `provides_attention_surface`, `supports_parallel`, plus whether its workers are
 **session-grade** — launched as full top-level sessions that survive the
-tower's death — and two cost/plumbing properties: `overhead` (the fixed
-per-dispatch cost class) and `hook_registration` (whether the worker's process
-fires planwright's hooks, which selects its liveness mechanism). Backend
+tower's death — and three cost/plumbing properties: `tier_control` (which
+launch-tier dimensions it can set), `overhead` (the fixed per-dispatch cost
+class) and `hook_registration` (whether the worker's process fires planwright's
+hooks, which selects its liveness mechanism). Backend
 selection and the degradation ladder below key on this advertised set, not on
 the backend's name; the per-backend dispatch wiring itself is still name-keyed
 today, pending later wiring (see the
@@ -500,8 +501,8 @@ nothing installed beyond Claude Code still operates the whole pipeline.
 
 A new terminal or multiplexer plugs in by advertising the contract — no edit
 to planwright's skills. You ship an executable `planwright-backend-<name>` on
-`PATH` that answers `advertise` with one capability line (eight fields; a
-legacy six-field line still parses with fail-safe defaults);
+`PATH` that answers `advertise` with one capability line (nine fields; legacy
+six- and eight-field lines still parse with fail-safe defaults);
 `/orchestrate` autodetects it, reads the set, places it on the ladder, and offers
 it like any shipped backend. A backend whose advertisement is missing or
 malformed is never selected (unknown capabilities fail safe). The exact adapter
@@ -1094,7 +1095,7 @@ knobs (three columns across the three task types) as `unset`, which is exactly
 what keeps the legacy family in charge, so an existing overlay keeps working
 untouched and needs no migration.
 The legacy family is documented, not removed. The same family also carries
-rows for the surfaces that select nothing today, which ship `inherit` instead.
+rows for the three non-fleet surfaces, which ship `inherit` instead.
 Per-knob detail is in the [options reference](options-reference.md).
 
 **Throttling is reactive, off Claude Code's own signal.** There is no
@@ -1396,7 +1397,7 @@ are in the [options reference](options-reference.md).
 | `fleet_max_parallel_units` | Fleet-wide bound across all specs | Your total fleet load | `3` — enabling the meta-tower never multiplies load until you raise it |
 | `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you (`none` / `tmux-popup` / `os-notify` / `editor-toast` / `statusline`) | `none` — pull-only, dependency-free, nothing fires until you opt in |
 | `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
-| `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, and every launch point planwright ships now reads it (fleet dispatch by task type; single-spec dispatch, per-step sessions, and offload by surface), applying each dimension only as far as the launching backend's advertised `tier_control` allows and recording any inheritance | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the surfaces that select nothing today — configure nothing, observe no change |
+| `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, and every launch point planwright ships now reads it (fleet dispatch by task type; single-spec dispatch, per-step sessions, and offload by surface), applying each dimension only as far as the launching backend's advertised `tier_control` allows and recording any inheritance | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the three non-fleet surfaces — configure nothing, observe no change |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
 
 Style values never gate capability: every knob's default keeps the full

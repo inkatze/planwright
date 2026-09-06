@@ -93,8 +93,7 @@ or abort.
 resolves its model and reasoning effort through the shared policy at the
 `offload` selection key before launching, and applies each dimension only as
 far as the selected backend advertises it can set one. The scripted rungs do
-this inside the primitive — pass `--unit <id>` so the petition's allocation is
-recorded against an identity you name rather than a derived one. For the
+this inside the primitive. For the
 **subagent** rung, which the harness launches rather than the primitive, run
 `scripts/allocation-apply.sh plan --key offload --backend subagent --unit <id>`
 first and pass its `model` value as the Agent tool's model parameter, applying
@@ -123,8 +122,9 @@ By the selected rung:
   session, which step 2 should normally have caught. Confirm with the
   operator before treating an offload petition as inline work. This rung
   advertises no tier control at all, so the work inherits the operator's own
-  session model and effort — its pinned degradation, recorded like any other
-  inheritance (REQ-B1.3; the capability contract's in-session section).
+  session model and effort: its pinned degradation (REQ-B1.3; the capability
+  contract's in-session section). Nothing is dispatched, so resolve the plan
+  yourself if you want the inheritance on the record.
 - **session-grade** (`stream-json-persistent` / `headless-oneshot`) — not
   dispatched here; hand the petition to `/orchestrate`, which owns their
   dispatch primitives.
