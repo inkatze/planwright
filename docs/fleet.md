@@ -675,9 +675,11 @@ existing commit — so fencing adds no history to `main`.
 scripts/fleet-fence.sh check --checkout <repo-root> --spec <spec> <unit-id>
 scripts/fleet-fence.sh fence --checkout <repo-root> --spec <spec> <unit-id>...
 scripts/fleet-fence.sh gc    --checkout <repo-root> --spec <spec> <unit-id>...
+                             [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
 scripts/fleet-fence.sh list  --checkout <repo-root> [--spec <spec>]
 scripts/fleet-fence.sh sweep --checkout <repo-root> --spec <spec> \
   (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>]
+  [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
 ```
 
 `check` is the selection guard: exit 0 the unit is fenced (skip it), exit 1 it
@@ -925,7 +927,11 @@ masked. `crash-check` consults the operator kill-switch
 (`fleet_daemon_pause`) before authorizing any relaunch; bookkeeping and
 escalation are deliberately not gated (pausing the record of what happened
 would hide problems). Backoff and disable actions log through the audit
-trail; a human clears the streak with `crash-reset`.
+trail; a human clears the streak with `crash-reset`. A disable is also a unit's
+terminal state, so `crash-record` will report it to the escalation feedback
+loop when given the identity to report — `--alloc-unit`, `--alloc-key`,
+`--obs-scope` and `--obs-dir`, all-or-none — described with its `completed`
+twin where the ledger's feedback loop is covered below.
 
 ### What planwright registers, and the event it deliberately does not
 
@@ -1272,16 +1278,25 @@ stay in the per-unit ledger.
 **The ledger feeds back into future drafting.** When a unit reaches a terminal
 state, completion or crash-loop disable alike, the terminal-state owner runs
 `scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> --terminal
-<completed|disabled> --scope <repo>`. There are two such owners, and each
-reports the state it owns: `scripts/fleet-fence.sh sweep` reports `completed`
-from its terminal branch, where the fence lifecycle ends, and
+<completed|disabled> --scope <repo>`. Two commands own those transitions and
+report them **when asked to**: each takes the identity as opt-in flags and
+runs no evaluation without them, so
+nothing here fires until whatever drives these commands supplies them. Each
+reports the state it owns. `scripts/fleet-fence.sh` reports `completed` as it
+retires a fence — from `gc`, the normal transition a tower runs on the unit it
+just finished, and from `sweep`'s terminal branch, the backstop for a tower
+that exited first; a unit that travels both routes still records once, because
+the ledger mark is what bounds emission rather than the route.
 `scripts/fleet-liveness.sh crash-record` reports `disabled` from the disable
 branch. Both take the unit's identity from their caller — the ledger unit key
-(which the sweep assembles from the spec and unit id it already holds), the
+(which the fence assembles from the spec and unit id it already holds), the
 selection key, and the observation scope are flags, all-or-none, because none
 of them can be derived from what a terminal-state owner knows. Neither call can
 cost the transition it hangs off: a recording failure is surfaced and the
-disable still stands, the fence is still GC'd. It replays that unit's ledger and, when
+disable still stands, the fence is still retired. That last point cuts both
+ways, and the diagnostics say so — the fence goes whatever the evaluation
+returned, so a failed evaluation there loses that unit's observation rather
+than deferring it. It replays that unit's ledger and, when
 the history says the starting tier was wrong, records one observation fragment
 through the shared helper, which is how chronic under-estimation reaches the
 next round of `/spec-draft` seed mining. Two conditions fire it: the unit's

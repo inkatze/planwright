@@ -234,11 +234,11 @@
 #       non-zero exit (a retry double-counts; a lost disable escalation
 #       self-heals via crash-check). Exit 4/5: propagated config/install
 #       hard-fails.
-#       The four identity flags are ALL-OR-NONE and reach
-#       allocation-feedback.sh unchanged, which owns their grammars: they name
-#       the unit whose DISABLE this call is reporting to the escalation
-#       feedback loop (REQ-F1.2). Omitted, no evaluation runs at all. Supplied,
-#       the evaluation is best-effort — see report_terminal_feedback below.
+#       The identity flags are ALL-OR-NONE and reach allocation-feedback.sh
+#       unchanged, which owns their grammars: they name the unit whose DISABLE
+#       this call is reporting to the escalation feedback loop (REQ-F1.2).
+#       Omitted, no evaluation runs at all. Supplied, the evaluation is
+#       best-effort — see report_terminal_feedback.
 #   fleet-liveness.sh crash-check <worker> [--now <epoch>]
 #       Exit 0 relaunch authorized; 1 backing off or daemon layer paused;
 #       3 disabled (never relaunch; reported ahead of the kill-switch so
@@ -275,6 +275,15 @@ FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 FAU="$script_dir/fleet-audit.sh"
 AFB="$script_dir/allocation-feedback.sh"
+
+# The terminal-feedback identity. Initialized HERE, not only in the arm that
+# parses it: report_terminal_feedback reads all four under `set -u`, and a
+# value left to the environment would let an inherited one drive an
+# evaluation no flag ever named.
+ALLOC_UNIT=""
+ALLOC_KEY=""
+OBS_SCOPE=""
+OBS_DIR=""
 FDE="$script_dir/fleet-death-evidence.sh"
 FDG="$script_dir/fleet-daemon-gate.sh"
 RCK="$script_dir/resolve-config-knob.sh"
@@ -293,6 +302,19 @@ valid_field() {
     "" | . | .. | *[!A-Za-z0-9._=@:-]*) return 1 ;;
   esac
   [ "${#vf_v}" -le 128 ]
+}
+
+# valid_identifier_token: the shape a selection key and an observation scope
+# both have. Checked HERE, not only by the sibling that consumes them, because
+# a value outside it reaches an operator's terminal through that sibling's own
+# diagnostics — and this shell's `echo` re-expands a literal backslash escape
+# into the control byte the shared sanitizer strips. Refusing the backslash at
+# the boundary is what makes that unreachable, whatever any callee does.
+valid_identifier_token() {
+  case $1 in
+    "" | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 64 ]
 }
 
 # A non-negative epoch/seconds integer: no sign, no leading zero (shell
@@ -458,16 +480,30 @@ queue_disable_escalation() {
 report_terminal_feedback() {
   [ -n "$ALLOC_UNIT" ] || return 0
   if [ ! -x "$AFB" ]; then
-    echo "fleet-liveness: allocation-feedback.sh is missing or not executable; the disable stands, no feedback observation was evaluated" >&2
+    echo "fleet-liveness: allocation-feedback.sh is missing or not executable; no feedback observation was evaluated, and the disable stands" >&2
     return 0
   fi
   # printf, not echo: `sanitize_printable` strips control BYTES but leaves a
-  # literal backslash alone, and this script runs under a /bin/sh that is dash
-  # on Linux, whose `echo` re-expands `\n` into the control byte the sanitizer
-  # just removed. The neighbours predate this and carry the same exposure.
-  "$AFB" evaluate "$ALLOC_UNIT" --key "$ALLOC_KEY" --terminal disabled \
-    --scope "$OBS_SCOPE" --obs-dir "$OBS_DIR" >/dev/null \
-    || printf '%s\n' "fleet-liveness: the allocation-feedback evaluation for unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")' did not complete (its own reason is above); the disable stands" >&2
+  # literal backslash alone, and this runs under a /bin/sh that is dash on
+  # Linux, whose `echo` re-expands it into the byte just stripped. Defence in
+  # depth here (the unit reaching this line already passed a charset with no
+  # backslash in it) and load-bearing where a value is refused, which by
+  # definition prints one that did not.
+  # The inherited-hold variable is cleared: it is honored on unit-name equality
+  # alone, and nothing on this path holds an allocation lock, so any value
+  # reaching here came from an ancestor and would suppress a real acquire.
+  rtf_rc=0
+  (
+    unset PLANWRIGHT_ALLOC_LOCK_HELD
+    "$AFB" evaluate "$ALLOC_UNIT" --key "$ALLOC_KEY" --terminal disabled \
+      --scope "$OBS_SCOPE" --obs-dir "$OBS_DIR" >/dev/null
+  ) || rtf_rc=$?
+  # The exit code is named rather than collapsed: the callee distinguishes a
+  # broken install, a malformed repo-tracked knob, a refused recording, and a
+  # published fragment whose mark failed, and an operator reading one line of
+  # stderr cannot tell those apart from the prose alone.
+  [ "$rtf_rc" -eq 0 ] \
+    || printf '%s\n' "fleet-liveness: the allocation-feedback evaluation for unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")' exited $rtf_rc (its own reason is above); the disable stands, and this crash is not re-recorded, so the observation is LOST rather than deferred" >&2
   return 0
 }
 
@@ -1848,7 +1884,7 @@ case "$cmd" in
 
   crash-record)
     if [ "$#" -lt 2 ]; then
-      echo "usage: fleet-liveness.sh crash-record <worker> <scope> [--now <epoch>]" >&2
+      echo "usage: fleet-liveness.sh crash-record <worker> <scope> [--now <epoch>] [--alloc-unit <unit> --alloc-key <selection-key> --obs-scope <scope> --obs-dir <dir>]" >&2
       exit 2
     fi
     worker=$1
@@ -1863,10 +1899,6 @@ case "$cmd" in
       exit 2
     fi
     now=""
-    ALLOC_UNIT=""
-    ALLOC_KEY=""
-    OBS_SCOPE=""
-    OBS_DIR=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --now)
@@ -1896,22 +1928,60 @@ case "$cmd" in
           ;;
       esac
     done
-    # The terminal-feedback identity is ALL-OR-NONE. A caller that wired three
-    # of the four has a bug, and accepting it would reproduce the failure this
-    # wiring exists to close: an evaluation that never runs and never says so.
+    # The terminal-feedback identity is ALL-OR-NONE. A caller that wired some
+    # but not all of it has a bug, and accepting that would reproduce the very
+    # failure this wiring closes: an evaluation that never runs and never says
+    # so.
     if [ -n "$ALLOC_UNIT$ALLOC_KEY$OBS_SCOPE$OBS_DIR" ] \
       && { [ -z "$ALLOC_UNIT" ] || [ -z "$ALLOC_KEY" ] || [ -z "$OBS_SCOPE" ] || [ -z "$OBS_DIR" ]; }; then
       echo "fleet-liveness: --alloc-unit, --alloc-key, --obs-scope and --obs-dir are all-or-none; give all four to report this unit's terminal state to the escalation feedback loop, or none to record the crash without it" >&2
       exit 2
     fi
-    # The unit is refused where it ENTERS, the way this subcommand's worker and
-    # scope arguments are. allocation-feedback.sh checks it again on its own
-    # side, but by then this value has already reached a diagnostic here, and
-    # `valid_field`'s charset is the ledger's identity charset exactly.
-    if [ -n "$ALLOC_UNIT" ] && ! valid_field "$ALLOC_UNIT"; then
-      printf '%s\n' "fleet-liveness: refusing malformed --alloc-unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")'" >&2
+    # Refused where they ENTER, the way this subcommand's worker and scope
+    # arguments are, rather than only by the sibling that consumes them: by
+    # then each value has already reached a diagnostic — here, or inside that
+    # sibling — and a diagnostic is a terminal write.
+    #
+    # The leading-hyphen rule is the one the ledger's own charset does not
+    # carry and this needs anyway: the unit becomes a positional argument to
+    # several sibling invocations, where a hyphen-leading token is what an
+    # option parser reads as a flag. `valid_field` alone would admit it.
+    case $ALLOC_UNIT in
+      "") ;;
+      -*)
+        printf '%s\n' "fleet-liveness: refusing a hyphen-leading --alloc-unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")': it becomes a positional argument to sibling invocations, where an option parser reads it as a flag" >&2
+        exit 2
+        ;;
+      *)
+        if ! valid_field "$ALLOC_UNIT"; then
+          printf '%s\n' "fleet-liveness: refusing malformed --alloc-unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")'" >&2
+          exit 2
+        fi
+        ;;
+    esac
+    if [ -n "$ALLOC_KEY" ] && ! valid_identifier_token "$ALLOC_KEY"; then
+      printf '%s\n' "fleet-liveness: refusing malformed --alloc-key '$(sanitize_printable "$ALLOC_KEY" "(unprintable key)")' (an identifier token opening with an alphanumeric)" >&2
       exit 2
     fi
+    if [ -n "$OBS_SCOPE" ] && ! valid_identifier_token "$OBS_SCOPE"; then
+      printf '%s\n' "fleet-liveness: refusing malformed --obs-scope '$(sanitize_printable "$OBS_SCOPE" "(unprintable scope)")' (an identifier token opening with an alphanumeric)" >&2
+      exit 2
+    fi
+    # A path cannot be grammar-checked, so the one property checked here is
+    # ABSOLUTE. It buys one specific thing, not containment: this subcommand
+    # has no repo root to resolve against — the sibling fence derives its
+    # store from a verified checkout, this has nothing to derive from — so a
+    # relative value would land the fragment beside whatever directory the
+    # supervisor happened to be standing in. Containment proper stays with
+    # obs-record.sh, which canonicalizes the store and refuses the symlink and
+    # hyphen-leading cases behind this.
+    case $OBS_DIR in
+      "" | /*) ;;
+      *)
+        printf '%s\n' "fleet-liveness: refusing a relative --obs-dir; name the observations store by absolute path" >&2
+        exit 2
+        ;;
+    esac
     if [ -z "$now" ]; then
       now=$(now_epoch)
       if [ -z "$now" ]; then

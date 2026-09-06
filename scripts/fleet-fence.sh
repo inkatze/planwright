@@ -90,14 +90,17 @@
 #   fleet-fence.sh check   --checkout <dir> --spec <spec> <unit-id>
 #   fleet-fence.sh fence   --checkout <dir> --spec <spec> <unit-id>...
 #   fleet-fence.sh gc      --checkout <dir> --spec <spec> <unit-id>...
+#       [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
 #   fleet-fence.sh list    --checkout <dir> [--spec <spec>]
 #   fleet-fence.sh sweep   --checkout <dir> --spec <spec>
 #       (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>]
-#       [--alloc-key <selection-key> --obs-scope <scope>]
-#       The two identity flags are all-or-none. Supplied, each unit the sweep
-#       finds TERMINAL is reported to the escalation feedback loop as
-#       `completed` before its fence is retired; omitted, no evaluation runs.
-#       See report_terminal_feedback below.
+#       [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
+#       The identity flags are all-or-none, and `gc` takes them too: that
+#       verb is the NORMAL terminal transition and this sweep is the backstop,
+#       so both report a terminal unit's completion to the escalation feedback
+#       loop before retiring its fence. Omitted, no evaluation runs. `--obs-dir`
+#       names the observations store, defaulting to the checkout's own. See
+#       report_terminal_feedback below.
 #
 # Output (tab-separated where machine-read):
 #   fence:  `fenced <ref>` per won member, or `taken <ref>` / `solo no-origin`
@@ -157,9 +160,9 @@ usage() {
 usage: fleet-fence.sh refname --spec <spec> <unit-id>
        fleet-fence.sh check   --checkout <dir> --spec <spec> <unit-id>
        fleet-fence.sh fence   --checkout <dir> --spec <spec> <unit-id>...
-       fleet-fence.sh gc      --checkout <dir> --spec <spec> <unit-id>...
+       fleet-fence.sh gc      --checkout <dir> --spec <spec> <unit-id>... [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
        fleet-fence.sh list    --checkout <dir> [--spec <spec>]
-       fleet-fence.sh sweep   --checkout <dir> --spec <spec> (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>] [--alloc-key <selection-key> --obs-scope <scope>]
+       fleet-fence.sh sweep   --checkout <dir> --spec <spec> (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>] [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
 USAGE
 }
 
@@ -182,6 +185,14 @@ is_spec_id() {
 is_unit_id() {
   [ "${#1}" -le 32 ] || return 1
   printf '%s' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
+}
+
+# The shape a selection key and an observation scope both have.
+is_identifier_token() {
+  case "$1" in
+    "" | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 64 ]
 }
 
 is_pid() {
@@ -239,6 +250,7 @@ min_interval=30
 units=""
 alloc_key=""
 obs_scope=""
+obs_dir=""
 
 # A flag irrelevant to the subcommand is a usage error, never a validated-then-
 # ignored no-op (the sibling fleet-presence.sh discipline).
@@ -301,21 +313,22 @@ while [ "$#" -gt 0 ]; do
         exit 2
       }
       ;;
-    --alloc-key)
-      refuse_for "sweep"
-      alloc_key="${2:-}"
-      shift 2 || {
-        usage
+    # An explicitly EMPTY value is refused rather than read as the flag being
+    # omitted: the two are indistinguishable downstream, and the difference is
+    # whether the terminal-state evaluation runs at all. Silently disabling it
+    # is the failure the all-or-none rule below exists to prevent.
+    --alloc-key | --obs-scope | --obs-dir)
+      refuse_for "gc sweep"
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+        err "$1 needs a non-empty value"
         exit 2
-      }
-      ;;
-    --obs-scope)
-      refuse_for "sweep"
-      obs_scope="${2:-}"
-      shift 2 || {
-        usage
-        exit 2
-      }
+      fi
+      case "$1" in
+        --alloc-key) alloc_key=$2 ;;
+        --obs-scope) obs_scope=$2 ;;
+        --obs-dir) obs_dir=$2 ;;
+      esac
+      shift 2
       ;;
     --*)
       usage
@@ -356,15 +369,28 @@ case "$cmd" in
       usage
       exit 2
     }
-    # ALL-OR-NONE, like the sibling crash-loop disable: a sweep wired with one
-    # half of the terminal-feedback identity would evaluate nothing and say
-    # nothing, which is the silent-inertness failure this wiring closes.
-    if [ -n "$alloc_key$obs_scope" ] && { [ -z "$alloc_key" ] || [ -z "$obs_scope" ]; }; then
-      err "--alloc-key and --obs-scope are all-or-none; give both to report a terminal unit's completion to the escalation feedback loop, or neither to sweep without it"
-      exit 2
-    fi
     ;;
 esac
+
+# ALL-OR-NONE, like the sibling crash-loop disable: a terminal transition wired
+# with one half of the feedback identity would evaluate nothing and say
+# nothing, which is the silent-inertness failure this wiring closes.
+if [ -n "$alloc_key$obs_scope" ] && { [ -z "$alloc_key" ] || [ -z "$obs_scope" ]; }; then
+  err "--alloc-key and --obs-scope are all-or-none; give both to report a terminal unit's completion to the escalation feedback loop, or neither to retire its fence without it"
+  exit 2
+fi
+# Both are identifier tokens, and both are checked HERE rather than only by the
+# sibling that consumes them: a value outside the grammar reaches an operator's
+# terminal through that sibling's own diagnostics, and this shell's `echo`
+# re-expands a literal backslash escape into the control byte the shared
+# sanitizer strips.
+for f in "$alloc_key" "$obs_scope"; do
+  [ -z "$f" ] && continue
+  if ! is_identifier_token "$f"; then
+    err "refusing a malformed --alloc-key/--obs-scope '$(sanitize_printable "$f" "(unprintable value)")': an identifier token [A-Za-z0-9._-] opening with an alphanumeric, <=64"
+    exit 2
+  fi
+done
 
 if [ "$cmd" != list ] || [ -n "$spec" ]; then
   if ! is_spec_id "$spec"; then
@@ -571,7 +597,75 @@ gc_refs() {
   return 0
 }
 
+AFB="$script_dir/allocation-feedback.sh"
+
+# report_terminal_feedback <unit-id> — the unit-completion half of REQ-F1.2's
+# escalation feedback loop, called from both places a fence is retired: `gc`,
+# the normal transition where the caller asserts its unit finished, and the
+# sweep's terminal branch, the backstop where this script derives that verdict
+# itself. In the sweep the unit is exactly as terminal as the GC treats it,
+# because both read the same `completed` answer from the same derivation.
+#
+# THE LEDGER UNIT KEY is `<spec>:task-<id>`, assembled from the two values the
+# sweep already holds, because the fence's own id (`is_unit_id`) is the bare
+# task id the branch grammar uses. The selection key and the observation scope
+# cannot be derived from anything here — the key is persisted nowhere, and the
+# scope is the host repo's — so the caller names them.
+#
+# The observations store defaults to the CHECKOUT's rather than a cwd-relative
+# one, because this sweep is handed the host repo root and a fragment belongs
+# in that repo's store, not wherever the tower happens to be standing. It stays
+# overridable because the fragment and the ledger mark have DIFFERENT
+# LIFETIMES: the mark lands in the cross-spec fleet home, the fragment in a
+# working tree, and a caller pointed at a tree that will be abandoned needs to
+# name a store that outlives the mark.
+#
+# NON-FATAL, and it runs BEFORE the GC, which is right for the crash axis and
+# accepted on the failure axis. A crash between the two leaves the mark
+# durable, so the next pass short-circuits and retires the fence. But a
+# FAILED evaluation is not retried here: the GC below retires the fence
+# whatever this returned, and the terminal branch is reachable only while the
+# fence exists, so the observation for that unit is lost rather than deferred.
+# That is the deliberate trade — a fence held open because telemetry failed
+# would block re-dispatch of a finished unit, which costs more than the
+# observation — and it is why the diagnostic says lost rather than retried.
+#
+# The inherited-hold variable is cleared: it is honored on unit-name equality
+# alone, and this loop evaluates many units, so a value inherited from an
+# ancestor holding ONE unit's lock would suppress the acquire for that unit
+# here while the ancestor still held it.
+#
+# The evaluation's stdout is discarded because this command's stdout is a
+# parsed record stream; its stderr flows through.
+report_terminal_feedback() {
+  [ -n "$alloc_key" ] || return 0
+  if [ ! -x "$AFB" ]; then
+    err "allocation-feedback.sh is missing or not executable; no feedback observation was evaluated, and the fence lifecycle is unaffected"
+    return 0
+  fi
+  rtf_dir=$obs_dir
+  [ -n "$rtf_dir" ] || rtf_dir="$checkout/specs/_observations"
+  rtf_rc=0
+  (
+    unset PLANWRIGHT_ALLOC_LOCK_HELD
+    "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
+      --scope "$obs_scope" --obs-dir "$rtf_dir" >/dev/null
+  ) || rtf_rc=$?
+  [ "$rtf_rc" -eq 0 ] || err "the allocation-feedback evaluation for unit '$(sanitize_printable "$spec:task-$1" "(unprintable unit)")' exited $rtf_rc (its own reason is above); this unit's fence is retired regardless, so the observation is LOST, not deferred"
+  return 0
+}
+
 if [ "$cmd" = gc ]; then
+  # `gc` is the NORMAL terminal transition — a tower retiring the fence of a
+  # unit it just finished — while `sweep` is the backstop for a tower that
+  # exited first. Reporting from only one would leave the common case silent,
+  # so both report; the once-per-unit ledger mark is what makes a unit that
+  # travels both routes record once. Here the caller ASSERTS terminality by
+  # asking for the delete, which is the callee's own contract: the terminal
+  # state is the caller's to report.
+  for u in $units; do
+    report_terminal_feedback "$u"
+  done
   gc_refs
   exit $?
 fi
@@ -605,41 +699,6 @@ fi
 FA="$script_dir/fleet-attention.sh"
 FP="$script_dir/fleet-presence.sh"
 OS="$script_dir/orchestrate-state.sh"
-AFB="$script_dir/allocation-feedback.sh"
-
-# report_terminal_feedback <unit-id> — the unit-completion half of REQ-F1.2's
-# escalation feedback loop, reported from the one place the fleet observes a
-# unit going terminal and acts on it: the sweep's terminal branch, which is
-# where the fence's whole documented lifecycle ends ("deleted at its unit's
-# terminal transition"). The unit is exactly as terminal as the GC below
-# treats it: both read the same `completed` verdict from the same derivation.
-#
-# THE LEDGER UNIT KEY is `<spec>:task-<id>`, assembled from the two values the
-# sweep already holds, because the fence's own id (`is_unit_id`) is the bare
-# task id the branch grammar uses. The selection key and the observation scope
-# cannot be derived from anything here — the key is persisted nowhere, and the
-# scope is the host repo's — so the caller names them.
-#
-# The observations store is the CHECKOUT's, not a cwd-relative default: this
-# sweep is handed the host repo root, and the fragment belongs in that repo's
-# store rather than wherever the tower happens to be standing.
-#
-# NON-FATAL, and it runs BEFORE the GC. A transient `origin` failure can hold
-# the delete for later passes, and there is no reason an observation should
-# wait on one; the once-per-unit ledger mark is what keeps those later passes
-# from recording again. The evaluation's stdout is discarded because this
-# command's stdout is a parsed record stream; its stderr flows through.
-report_terminal_feedback() {
-  [ -n "$alloc_key" ] || return 0
-  if [ ! -x "$AFB" ]; then
-    err "allocation-feedback.sh is missing or not executable; the fence lifecycle is unaffected, no feedback observation was evaluated"
-    return 0
-  fi
-  "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
-    --scope "$obs_scope" --obs-dir "$checkout/specs/_observations" >/dev/null \
-    || err "the allocation-feedback evaluation for unit '$spec:task-$1' did not complete (its own reason is above); the fence lifecycle is unaffected"
-  return 0
-}
 
 sink_cache=""
 
@@ -825,11 +884,11 @@ if [ "$cmd" = sweep ]; then
       # deleting the string read off `origin`: REQ-D1.5 wants BOTH halves —
       # `git check-ref-format` and the literal prefix — before any delete, and
       # the prefix test above is only the second of them.
+      report_terminal_feedback "$unit"
       refs=$(fence_refname "$spec" "$unit") || {
         printf 'anomaly\t%s\t%s\n' "$ref" "unrepresentable-fence-ref"
         continue
       }
-      report_terminal_feedback "$unit"
       if gc_refs; then
         sink_clear "$tkey"
         sink_clear "$skey"

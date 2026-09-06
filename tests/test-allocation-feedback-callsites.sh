@@ -68,6 +68,33 @@ cp "$here/../scripts/"*.sh "$sbin/"
 
 FLV="$sbin/fleet-liveness.sh"
 FF="$sbin/fleet-fence.sh"
+
+# The evaluation is invoked as a SIBLING of the call site, so the seam that
+# records whether a call site was reached is that sibling's own path. The
+# wrapper appends its argv and then execs the real script, so every assertion
+# below is made against real behavior, not a stub's.
+#
+# This is what separates "ran and recorded nothing" from "never ran" — the
+# distinction the shipped-posture sections turn on, and one that no assertion
+# about absent output can make on its own.
+real_afb="$sbin/allocation-feedback.real.sh"
+mv "$sbin/allocation-feedback.sh" "$real_afb"
+calls="$tmp/afb-calls"
+: >"$calls"
+cat >"$sbin/allocation-feedback.sh" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$calls"
+exec "$real_afb" "\$@"
+EOF
+chmod +x "$sbin/allocation-feedback.sh"
+
+call_count() {
+  awk 'END { print NR + 0 }' "$calls"
+}
+
+calls_reset() {
+  : >"$calls"
+}
 AD="$sbin/allocation-adapt.sh"
 LEDGER="$sbin/allocation-ledger.sh"
 FUG="$sbin/fleet-usage-gate.sh"
@@ -208,9 +235,9 @@ escalate() {
 # Part A — the DISABLED owner: scripts/fleet-liveness.sh crash-record
 # ==========================================================================
 
-worker=headless-demo-task-1
-wscope=demo:1
-unit=demo:task-1
+worker=headless-alpha-task-1
+wscope=alpha:1
+unit=alpha:task-1
 
 # crash_to_disable <label> [extra crash-record args...]: three crashes at the
 # shipped threshold of 3, the third of which disables. Only the LAST call
@@ -230,6 +257,7 @@ reset_liveness() {
   rm -rf "$fleet_home" "$obsdir"
   mkdir -p "$fleet_home" "$obsdir"
   chmod 700 "$fleet_home"
+  calls_reset
 }
 
 # --- A1. the identity flags are all-or-none -------------------------------
@@ -271,8 +299,9 @@ pw "$FLV" crash-record "$worker" "$wscope" --now 1000 \
 [ "$rc" = 2 ] || fail "A1e: a malformed --alloc-unit should exit 2, got $rc"
 [ "$(awk 'END { print NR }' "$err")" = 1 ] \
   || fail "A1f: the refusal spans several lines — an escape was re-expanded: $(od -c <"$err" | head -3)"
-LC_ALL=C grep -q '[[:cntrl:]]' "$err" \
-  && fail "A1g: the refusal emitted a control byte: $(od -c <"$err" | head -3)"
+if LC_ALL=C grep -q '[[:cntrl:]]' "$err"; then
+  fail "A1g: the refusal emitted a control byte: $(od -c <"$err" | head -3)"
+fi
 
 # --- A2. no identity flags: the owner is byte-identical to before ----------
 reset_liveness
@@ -282,6 +311,25 @@ out=$(crash_to_disable A2) || fail "A2: the disabling crash-record failed"
   || fail "A2b: an unwired crash-record recorded an observation"
 [ "$(marks_of "$unit")" = 0 ] \
   || fail "A2c: an unwired crash-record wrote a ledger mark"
+[ "$(call_count)" = 0 ] \
+  || fail "A2d: an unwired crash-record invoked the evaluation anyway"
+
+# --- A2b. a sub-threshold crash reports nothing, flags or no flags ---------
+#
+# This is what pins the call INSIDE the disable branch. Hoisted one level out,
+# every crash would report `disabled`, and every other assertion in Part A
+# would still pass.
+reset_liveness
+out=$(pw "$FLV" crash-record "$worker" "$wscope" --now 1000 \
+  --alloc-unit "$unit" --alloc-key execution \
+  --obs-scope planwright --obs-dir "$obsdir") \
+  || fail "A2b: the sub-threshold crash-record failed"
+case $out in
+  "1 "*) ;;
+  *) fail "A2b1: expected a backoff line, got '$out'" ;;
+esac
+[ "$(call_count)" = 0 ] \
+  || fail "A2b2: a sub-threshold crash reported a terminal state (calls=$(call_count))"
 
 # --- A3. the disable evaluates, fires, and records exactly one fragment ----
 reset_liveness
@@ -303,11 +351,20 @@ out=$(crash_to_disable A3 \
 [ "$(marks_of "$unit")" = 1 ] \
   || fail "A3c: expected exactly one feedback mark, got $(marks_of "$unit")"
 
+[ "$(call_count)" = 1 ] \
+  || fail "A3f: expected exactly one evaluation, got $(call_count)"
+grep -q -- '--terminal disabled' "$calls" \
+  || fail "A3g: the disable did not report the disabled terminal state: $(cat "$calls")"
+grep -q -- "$unit --key execution" "$calls" \
+  || fail "A3h: the call site did not pass the caller's unit and key: $(cat "$calls")"
+
 frag=$(fragments "$obsdir")
 grep -q 'terminal state disabled' "$frag" \
   || fail "A3d: the fragment does not name the disabled terminal state"
-grep -q 'unit demo:task-1' "$frag" \
+grep -q "unit $unit" "$frag" \
   || fail "A3e: the fragment does not name the unit the caller reported"
+grep -q '^- [0-9-]* \[planwright\] ' "$frag" \
+  || fail "A3e2: the fragment does not carry the caller's observation scope: $(cat "$frag")"
 
 # --- A4. once per unit across a REPEATED terminal report -------------------
 #
@@ -360,6 +417,8 @@ out=$(crash_to_disable A6 \
 [ -s "$err" ] || fail "A6c: the recording failure was swallowed (empty stderr)"
 grep -q 'allocation-feedback' "$err" \
   || fail "A6d: stderr does not name the failing evaluation: $(cat "$err")"
+[ "$(frag_count "$badobs")" = 0 ] \
+  || fail "A6e1: a failed recording still published a fragment"
 [ "$(marks_of "$unit")" = 0 ] \
   || fail "A6e: a failed recording still left a mark (the unit is no longer retryable)"
 
@@ -377,6 +436,8 @@ out=$(pw "$FLV" crash-record "$worker" "$wscope" --now 1300 \
 # --- A7. an `inherit` selection key is never evaluated ---------------------
 reset_liveness
 adaptation_on
+escalate "$unit" execution s1
+escalate "$unit" execution s2
 out=$(crash_to_disable A7 \
   --alloc-unit "$unit" --alloc-key offload \
   --obs-scope planwright --obs-dir "$obsdir") \
@@ -414,6 +475,9 @@ out=$(pw_shipped "$FLV" crash-record "$worker" "$wscope" --now 1200 \
   || fail "A8c: the wiring recorded an observation on SHIPPED defaults"
 [ "$(marks_of "$unit")" = 0 ] \
   || fail "A8d: the wiring marked a ledger on SHIPPED defaults"
+# The no-op is the LADDER's, not a call site that quietly did nothing.
+[ "$(call_count)" = 1 ] \
+  || fail "A8d2: the shipped-posture disable did not reach the evaluation (calls=$(call_count))"
 
 # The silence has to be the LADDER's, not an empty fixture's: the unit really
 # did launch twice on a triggering event, and the evaluation really did run and
@@ -550,6 +614,7 @@ reset_fence() {
     | while read -r r; do
       [ -z "$r" ] || git -C "$origin" update-ref -d "$r"
     done
+  calls_reset
   refence
 }
 
@@ -564,13 +629,27 @@ pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
   --obs-scope planwright >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "B1b: a lone --obs-scope on sweep should exit 2, got $rc"
 
-# The new flags belong to `sweep` alone: the sibling discipline is that a flag
-# irrelevant to the subcommand is a usage error, never a validated-then-
-# ignored no-op.
+# The flags belong to `gc` as well as `sweep`, and to nothing else: `gc` is the
+# NORMAL terminal transition (a tower retiring the fence of a unit it just
+# finished) while the sweep is the backstop for a tower that exited first, so
+# wiring only the sweep would leave the common case silent.
 rc=0
-pwf "$FF" gc --checkout "$co" --spec demo 1 \
+pwf "$FF" fence --checkout "$co" --spec demo 2 \
   --alloc-key execution --obs-scope planwright >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "B1c: the identity flags should be refused for gc, got $rc"
+[ "$rc" = 2 ] || fail "B1c: the identity flags should be refused for fence, got $rc"
+
+# An explicitly EMPTY value is not the flag being omitted. Read as omission it
+# would silently disable the evaluation, which is what all-or-none exists to
+# stop — and the pair being empty TOGETHER is the case the all-or-none test
+# alone cannot catch.
+rc=0
+pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
+  --alloc-key '' --obs-scope '' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "B1d: an explicitly empty identity pair should exit 2, got $rc"
+rc=0
+pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
+  --alloc-key '' --obs-scope planwright >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "B1e: an explicitly empty --alloc-key should exit 2, got $rc"
 
 # --- B2. no identity flags: the sweep is byte-identical to before ----------
 reset_fence
@@ -580,8 +659,10 @@ printf '%s\n' "$out" | grep -q "^gc${TAB}refs/planwright-fence/demo/1$" \
   || fail "B2a: the terminal fence was not GC'd: $out"
 [ "$(frag_count "$fence_obs")" = 0 ] \
   || fail "B2b: an unwired sweep recorded an observation"
-[ -d "$fence_obs" ] \
-  && fail "B2c: an unwired sweep created an observations store"
+[ ! -d "$fence_obs" ] \
+  || fail "B2c: an unwired sweep created an observations store"
+[ "$(call_count)" = 0 ] \
+  || fail "B2d: an unwired sweep invoked the evaluation anyway"
 
 # --- B3. the terminal branch evaluates, fires, and GCs --------------------
 reset_fence
@@ -597,14 +678,23 @@ out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
 # be in it.
 printf '%s\n' "$out" | grep -q "^gc${TAB}refs/planwright-fence/demo/1$" \
   || fail "B3a: the terminal fence was not GC'd: $out"
-printf '%s\n' "$out" | grep -q '^fired' \
-  && fail "B3b: the evaluation contaminated the sweep's record stream"
-origin_refs | grep -q 'demo/1$' \
-  && fail "B3c: the terminal fence survived the sweep"
+if printf '%s\n' "$out" | grep -q '^fired'; then
+  fail "B3b: the evaluation contaminated the sweep's record stream"
+fi
+if origin_refs | grep -q 'demo/1$'; then
+  fail "B3c: the terminal fence survived the sweep"
+fi
 [ "$(frag_count "$fence_obs")" = 1 ] \
   || fail "B3d: expected one fragment, got $(frag_count "$fence_obs")"
 [ "$(marks_of "$fence_unit")" = 1 ] \
   || fail "B3e: expected one feedback mark, got $(marks_of "$fence_unit")"
+
+[ "$(call_count)" = 1 ] \
+  || fail "B3h: expected exactly one evaluation, got $(call_count)"
+grep -q -- '--terminal completed' "$calls" \
+  || fail "B3i: the sweep did not report the completed terminal state: $(cat "$calls")"
+grep -q -- 'demo:task-1 --key execution' "$calls" \
+  || fail "B3j: the sweep did not assemble the <spec>:task-<id> unit key: $(cat "$calls")"
 
 frag=$(fragments "$fence_obs")
 grep -q 'terminal state completed' "$frag" \
@@ -612,10 +702,95 @@ grep -q 'terminal state completed' "$frag" \
 grep -q 'unit demo:task-1' "$frag" \
   || fail "B3g: the fragment does not carry the <spec>:task-<id> unit key"
 
+# --- B3a. a NON-terminal fence in the same pass reports nothing -----------
+#
+# This is what pins the call INSIDE the sweep's terminal branch. Moved up into
+# the loop body, every fenced unit would report `completed`, and every other
+# assertion in Part B would still pass. Unit 2 has no merge, no trailer and no
+# PR, so the derivation holds it non-terminal.
+reset_fence
+adaptation_on
+escalate "$fence_unit" execution s1
+escalate "$fence_unit" execution s2
+escalate "demo:task-2" execution s1
+escalate "demo:task-2" execution s2
+pwf "$FF" fence --checkout "$co" --spec demo 2 >/dev/null \
+  || fail "B3a: fencing the non-terminal unit failed"
+calls_reset
+
+out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ --min-interval 0 \
+  --alloc-key execution --obs-scope planwright 2>/dev/null) \
+  || fail "B3a1: the mixed sweep failed"
+[ "$(call_count)" = 1 ] \
+  || fail "B3a2: expected one evaluation for the one terminal unit, got $(call_count): $(cat "$calls")"
+if grep -q 'demo:task-2' "$calls"; then
+  fail "B3a3: a NON-terminal unit was reported as completed: $(cat "$calls")"
+fi
+origin_refs | grep -q 'demo/2$' \
+  || fail "B3a4: the non-terminal fence was retired"
+[ "$(marks_of "demo:task-2")" = 0 ] \
+  || fail "B3a5: a non-terminal unit was marked"
+
+# --- B3b. the normal terminal transition (`gc`) reports too ---------------
+reset_fence
+adaptation_on
+escalate "$fence_unit" execution s1
+escalate "$fence_unit" execution s2
+
+out=$(pwf "$FF" gc --checkout "$co" --spec demo 1 \
+  --alloc-key execution --obs-scope planwright 2>/dev/null) \
+  || fail "B3b: the wired gc failed"
+printf '%s\n' "$out" | grep -q "^gc${TAB}refs/planwright-fence/demo/1$" \
+  || fail "B3b1: gc did not retire the fence: $out"
+if printf '%s\n' "$out" | grep -q '^fired'; then
+  fail "B3b2: the evaluation contaminated gc's record stream"
+fi
+[ "$(call_count)" = 1 ] \
+  || fail "B3b3: gc did not reach the evaluation (calls=$(call_count))"
+grep -q -- '--terminal completed' "$calls" \
+  || fail "B3b4: gc did not report the completed terminal state: $(cat "$calls")"
+[ "$(frag_count "$fence_obs")" = 1 ] \
+  || fail "B3b5: expected one fragment from gc, got $(frag_count "$fence_obs")"
+
+# A unit that travels BOTH routes records once: the mark bounds emission, not
+# the route it arrived by.
+refence
+out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
+  --alloc-key execution --obs-scope planwright 2>/dev/null) \
+  || fail "B3b6: the sweep after a gc failed"
+[ "$(frag_count "$fence_obs")" = 1 ] \
+  || fail "B3b7: a unit retired by both routes recorded twice"
+[ "$(marks_of "$fence_unit")" = 1 ] \
+  || fail "B3b8: a unit retired by both routes carries two marks"
+
+# --- B3c. an unhealthy ledger degrades: nothing recorded, nothing failed ---
+reset_fence
+adaptation_on
+escalate "$fence_unit" execution s1
+escalate "$fence_unit" execution s2
+led=$(pw "$LEDGER" path "$fence_unit") || fail "B3c: could not resolve the ledger path"
+printf 'torn\trow\n' >>"$led"
+out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
+  --alloc-key execution --obs-scope planwright 2>/dev/null) \
+  || fail "B3c1: an unhealthy ledger failed the sweep"
+printf '%s\n' "$out" | grep -q "^gc${TAB}refs/planwright-fence/demo/1$" \
+  || fail "B3c2: an unhealthy ledger held the fence: $out"
+[ "$(frag_count "$fence_obs")" = 0 ] \
+  || fail "B3c3: an unhealthy ledger still recorded a fragment"
+
 # --- B4. once per unit across a repeated sweep ----------------------------
 #
-# The fence is gone after B3, so re-fence to make the terminal branch run
-# again — the same shape a crash between the recording and the GC leaves.
+# The fence is gone after the pass above, so re-fence to make the terminal
+# branch run again — the same shape a crash between the recording and the GC
+# leaves.
+reset_fence
+adaptation_on
+escalate "$fence_unit" execution s1
+escalate "$fence_unit" execution s2
+pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
+  --alloc-key execution --obs-scope planwright >/dev/null 2>&1 \
+  || fail "B4: seeding the first recording failed"
+[ "$(frag_count "$fence_obs")" = 1 ] || fail "B4: the seeding pass did not record"
 refence
 out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
   --alloc-key execution --obs-scope planwright 2>/dev/null) \
@@ -641,6 +816,8 @@ printf '%s\n' "$out" | grep -q "^gc${TAB}refs/planwright-fence/demo/1$" \
   || fail "B5b: the fence was not GC'd after a recording failure: $out"
 grep -q 'allocation-feedback' "$err" \
   || fail "B5c: the recording failure was swallowed: $(cat "$err")"
+[ "$(frag_count "$fence_obs")" = 0 ] \
+  || fail "B5d1: a failed recording still published a fragment"
 [ "$(marks_of "$fence_unit")" = 0 ] \
   || fail "B5d: a failed recording still left a mark"
 rm -f "$fence_obs"
@@ -648,6 +825,10 @@ rm -f "$fence_obs"
 # --- B6. THE SHIPPED POSTURE: a no-op on the real defaults ----------------
 reset_fence
 adaptation_off
+pw_shipped "$AD" resolve "$fence_unit" --key execution --step s1 --attempt 1 \
+  --event step-failure >/dev/null || fail "B6: the shipped-posture launch failed"
+pw_shipped "$AD" resolve "$fence_unit" --key execution --step s2 --attempt 1 \
+  --event step-failure >/dev/null || fail "B6: the second shipped-posture launch failed"
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
   PATH="$ghbin:$stubbin:$PATH" \
   PLANWRIGHT_BASE_REF=main \
@@ -663,5 +844,22 @@ env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
   || fail "B6b: the wiring recorded an observation on SHIPPED defaults"
 [ "$(marks_of "$fence_unit")" = 0 ] \
   || fail "B6c: the wiring marked a ledger on SHIPPED defaults"
+[ "$(call_count)" = 1 ] \
+  || fail "B6d: the shipped-posture sweep did not reach the evaluation (calls=$(call_count))"
+
+# As in Part A, the silence has to be the LADDER's rather than an empty
+# fixture's: the unit launched twice on a triggering event under the shipped
+# defaults, and the evaluation still reached neither firing condition.
+rows=$(pw_shipped "$LEDGER" rows "$fence_unit" | awk 'END { print NR + 0 }')
+[ "$rows" -gt 0 ] \
+  || fail "B6e: the shipped-posture unit has no ledger history, so B6b/B6c prove nothing"
+verdict=$(pw_shipped "$sbin/allocation-feedback.sh" evaluate "$fence_unit" \
+  --key execution --terminal completed --scope planwright --obs-dir "$fence_obs")
+printf '%s\n' "$verdict" | grep -q "^fired${TAB}no$" \
+  || fail "B6f: the shipped-posture evaluation fired: $verdict"
+printf '%s\n' "$verdict" | grep -q "^reason${TAB}below-thresholds$" \
+  || fail "B6g: expected below-thresholds on shipped defaults, got: $verdict"
+printf '%s\n' "$verdict" | grep -q "^escalations${TAB}0$" \
+  || fail "B6h: shipped defaults escalated a unit ($verdict)"
 
 echo "PASS: tests/test-allocation-feedback-callsites.sh"
