@@ -146,7 +146,7 @@ esac
 
 # ---------------------------------------------------------------------------
 # Floor 1 — capability gate. Resolve the backend's advertised can_observe
-# (field 2 of the eight-field caps string) through the shared accessor. Any
+# (field 2 of the nine-field caps string) through the shared accessor. Any
 # outcome other than a clean can_observe=true — an incapable shipped backend,
 # an unknown/adapterless pluggable (caps exits non-zero), or a caps helper that
 # cannot be run — reports the mechanism ABSENT and hands the decision to the
