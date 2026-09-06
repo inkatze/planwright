@@ -661,11 +661,14 @@ a **ref on `origin`** (concurrent-orchestrator-coordination D-5, D-8, D-11):
 before a worker forks, a tower creates `refs/planwright-fence/<spec>/<unit-id>`
 with an expect-absent compare-and-swap.
 
-**`/orchestrate` does not call this yet.** The mechanism below is complete and
-verified, but wiring it into the tower's dispatch step needs more room than
-that skill's instruction budget has left, so it is queued as a follow-up. Until
-then the commands are yours to run, and concurrent towers still coordinate only
-through presence. `origin` is the one substrate every clone shares and git
+**`/orchestrate` takes no fence yet.** `gc` it does run — the reconcile calls it
+on each unit it moves to Completed, which is also how that unit's completion
+reaches the escalation feedback loop below. But `check` and `fence`, the two that
+would actually stop a second tower dispatching a unit, need more room in the
+dispatch step than that skill's instruction budget has left, so they are queued
+as a follow-up. Until then those two are yours to run, concurrent towers still
+coordinate only through presence, and `sweep` has nothing to reclaim because
+nothing takes a fence for it to find. `origin` is the one substrate every clone shares and git
 serializes ref updates on it, so exactly one tower wins a unit; it is also
 death-surviving, because the ref lives on the server rather than in the
 tower's process. The ref points at the current `origin/main` tip — an
@@ -1279,9 +1282,11 @@ stay in the per-unit ledger.
 state, completion or crash-loop disable alike, the terminal-state owner runs
 `scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> --terminal
 <completed|disabled> --scope <repo>`. Two commands own those transitions and
-report them **when asked to**: each takes the identity as opt-in flags and
-runs no evaluation without them, so
-nothing here fires until whatever drives these commands supplies them. Each
+report them **when asked to**: each takes the identity as opt-in flags and runs
+no evaluation without them. `/orchestrate`'s reconcile is what supplies them —
+it is the one pass that observes both terminal states, a merged unit as it moves
+to Completed and a dead worker before it parks the orphan — so that is where the
+loop is driven from, and the invocations it runs are written out there. Each
 reports the state it owns. `scripts/fleet-fence.sh` reports `completed` as it
 retires a fence — from `gc`, the normal transition a tower runs on the unit it
 just finished, and from `sweep`'s terminal branch, the backstop for a tower
