@@ -178,19 +178,11 @@ work or order.
   backend that can do neither degrades to `per-unit` (degrade capability, never
   safety).
 
-**Launch tier for a per-step session** (model-allocation D-4, D-10; REQ-B1.1,
-REQ-B1.2). A `per-step` session is a launch, so it resolves one: run
-`scripts/allocation-apply.sh plan --key execute_step --backend <backend>
---unit <spec>/<id> --step <step-name>` before spawning, and pass the `model`
-and `effort` values to the spawn as **discrete argv elements or launch
-parameters** — never interpolated into a command string — applying nothing for
-a dimension whose value is `inherit`. The plan applies only what the backend
-advertises it can set and records what it inherited. Shipped defaults resolve
-to `inherit`, so every step session launches exactly as it does today, with a
-row saying it inherited. The terminal rung's context-clear-and-reseed
-approximation sets no tier at all: it stays in the operator's own session, so
-it inherits that session's model and effort (the in-session rung's pinned
-degradation, REQ-B1.3), which the same row records.
+**Launch tier.** A per-step session is a launch: resolve
+`scripts/allocation-apply.sh plan --key execute_step --backend <backend> --unit
+<spec>/<id> --step <step>` and apply it per `backend-capability-contract`'s
+*Applying a resolved tier*. The terminal rung sets none, inheriting the
+operator's session.
 
 **State-safety holds in both modes (REQ-C1.4):** every `tasks.md` placement move
 goes **only** through the sibling reconcile under the per-spec lock, no per-step

@@ -95,21 +95,17 @@ definition like the capabilities above:
   `fleet-liveness.sh push-capable` selects the push mechanism from it — and
   never key on backend names.
 - **`tier_control`** — which dimensions of the launch tier the backend can
-  actually **set** at dispatch: the model, the reasoning effort, both, or
-  neither. The selection policy only *chooses* a tier; applying it is the
-  dispatching backend's job, and a backend that cannot set a dimension inherits
-  the ambient value for it (model-allocation D-10, REQ-B1.2). The pinned values
-  are `both` | `model` | `effort` | `none`. *Evaluable:* at the moment this
-  backend launches a worker, is there a launch parameter it can carry that
-  fixes the worker's model (a `--model` argv element, a subagent launch
-  parameter), and is there one that fixes its reasoning effort? Two independent
-  yes/no answers, which is why the field is per dimension rather than a single
-  boolean — a backend can commonly do the first and not the second. `none` is
-  not a defect to route around: inheritance is a legitimate, *audited*
-  degradation, and refusing dispatch over it would turn a capability gap into
-  an availability failure. Consumers read this field —
-  `scripts/allocation-apply.sh` decides per-dimension application from it — and
-  never key on backend names.
+  actually **set** at dispatch: `both` | `model` | `effort` | `none`
+  (model-allocation D-10, REQ-B1.2). The selection policy only *chooses* a
+  tier; applying it is the dispatching backend's job. *Evaluable:* at the moment
+  this backend launches a worker, is there a launch parameter it can carry that
+  fixes the worker's model, and is there one that fixes its reasoning effort?
+  Two independent answers, which is why the field is per dimension — a backend
+  commonly does the first and not the second. `none` is not a defect to route
+  around: inheritance is a legitimate, *audited* degradation, and refusing
+  dispatch over it would turn a capability gap into an availability failure.
+  Consumers read this field — `scripts/allocation-apply.sh` decides
+  per-dimension application from it — and never key on backend names.
 
 ## The advertisement set
 
@@ -206,30 +202,34 @@ that hosts a separate worker satisfies them; the backends that do not (`print`
 and `in-session`) are the manual/synchronous escape hatch called out in their
 rows below.
 
-The `tier_control` column reads off how each backend launches. The four rungs
-that spawn a `claude` process (`tmux`, `stream-json-persistent`,
-`headless-oneshot`, and `print`, whose printed command line is its launch) can
-carry both a model and an effort launch parameter, so they advertise `both`;
-`print` applies them as words of the command it hands the operator, which is
-the whole of what that rung does. `subagent` is the per-dimension case the
-column exists for: the harness-native launch takes a model parameter and has no
-effort parameter, so it advertises `model` and inherits the ambient effort.
-`in-session` advertises `none` — see the pinned degradation below.
+### Applying a resolved tier
 
-**The in-session rung's pinned degradation (model-allocation REQ-B1.3, D-4).**
-Work placed on the `in-session` rung (the `/offload` work-placement sense: the
-operator's own session, running the work inline) runs in a session that already
-exists, and no launch happens at which a tier could be set. It therefore
-**inherits the operator's session model and effort**, always, whatever the
-selection policy resolved. This is the rung's pinned degradation, not a bug to
-route around and not a reason to refuse the rung: planwright does not switch a
-running session's model mid-flight, so inheritance is the only honest outcome,
-and the requirement it carries is that the inheritance be **recorded** rather
-than silent. Every in-session placement that resolved a tier writes the
-full-inheritance ledger row like any other capability gap, so an operator
-reading the ledger can see the work ran at whatever their session was set to.
-An operator who wants a different tier for that work changes their own session
-or places the work on a rung that can set one.
+`tier_control` reads off how each backend launches. The four rungs that spawn a
+`claude` process advertise `both` — including `print`, whose printed command
+line *is* its launch, so the flags are words of the command it hands the
+operator. `subagent` is the per-dimension case the column exists for: the
+harness-native launch takes a model parameter and no effort parameter, so it
+advertises `model`.
+
+Every launch point resolves a plan (`scripts/allocation-apply.sh plan --key
+<surface> --backend <b> --unit <u>`) and applies it under three rules:
+
+- **Per dimension.** Apply `model` and `effort` only where `tier_control`
+  covers them; a value of `inherit` applies nothing.
+- **As discrete argv elements or launch parameters** — `--model` and its value
+  as separate arguments — never interpolated into a command string.
+- **Never silently.** Full inheritance, partial inheritance, and an errored
+  capability probe each leave a ledger row naming the dimension and the cause.
+
+**The in-session rung's pinned degradation (REQ-B1.3, D-4).** Work on the
+`in-session` rung (the `/offload` sense: the operator's own session, inline)
+runs in a session that already exists, so there is no launch at which a tier
+could be set. It **inherits the operator's session model and effort**, always,
+whatever the policy resolved. That is the rung's pinned degradation, not a
+reason to refuse it: planwright does not switch a running session's model
+mid-flight, so inheritance is the only honest outcome, and what the requirement
+demands is that it be *recorded*. An operator wanting a different tier changes
+their own session or picks a rung that can set one.
 
 - **`tmux`.** The richest backend: an interactive `claude --worktree` worker in a
   named window. `capture-pane` provides observe-in-flight; attributed
