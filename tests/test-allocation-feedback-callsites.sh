@@ -308,11 +308,11 @@ reset_liveness
 out=$(crash_to_disable A2) || fail "A2: the disabling crash-record failed"
 [ "$out" = "disabled 3" ] || fail "A2a: expected 'disabled 3', got '$out'"
 [ "$(frag_count "$obsdir")" = 0 ] \
-  || fail "A2b: an unwired crash-record recorded an observation"
+  || fail "A2x1: an unwired crash-record recorded an observation"
 [ "$(marks_of "$unit")" = 0 ] \
-  || fail "A2c: an unwired crash-record wrote a ledger mark"
+  || fail "A2x2: an unwired crash-record wrote a ledger mark"
 [ "$(call_count)" = 0 ] \
-  || fail "A2d: an unwired crash-record invoked the evaluation anyway"
+  || fail "A2x3: an unwired crash-record invoked the evaluation anyway"
 
 # --- A2b. a sub-threshold crash reports nothing, flags or no flags ---------
 #
@@ -432,6 +432,38 @@ out=$(pw "$FLV" crash-record "$worker" "$wscope" --now 1300 \
   || fail "A6f: the retry after repair failed"
 [ "$(frag_count "$badobs")" = 1 ] \
   || fail "A6g: the unit did not stay retryable after a recording failure"
+
+# --- A6b. a PUBLISHED fragment whose mark failed is not a lost observation --
+#
+# Exit 1 means two different things and only the evaluation's stdout says
+# which. Here the fragment lands and the ledger mark cannot, which the callee
+# reports on its own stderr as "recorded a fragment ... but could not mark" —
+# so a call site that answered "the observation is LOST" would contradict the
+# line printed immediately above it and point the operator the wrong way.
+reset_liveness
+adaptation_on
+escalate "$unit" execution s1
+escalate "$unit" execution s2
+led_file=$(pw "$LEDGER" path "$unit")
+pw "$FLV" crash-record "$worker" "$wscope" --now 1000 >/dev/null \
+  || fail "A6b: crash 1 failed"
+pw "$FLV" crash-record "$worker" "$wscope" --now 1100 >/dev/null \
+  || fail "A6b: crash 2 failed"
+chmod 400 "$led_file"
+err="$tmp/a6b.err"
+out=$(pw "$FLV" crash-record "$worker" "$wscope" --now 1200 \
+  --alloc-unit "$unit" --alloc-key execution \
+  --obs-scope planwright --obs-dir "$obsdir" 2>"$err") \
+  || fail "A6b1: a mark failure failed the disable itself"
+chmod 600 "$led_file"
+[ "$out" = "disabled 3" ] || fail "A6b2: expected 'disabled 3', got '$out'"
+if grep -q 'observation is LOST' "$err"; then
+  fail "A6b3: a published fragment was reported as a lost observation: $(cat "$err")"
+fi
+grep -q 'RECORDED' "$err" \
+  || fail "A6b4: the published-but-unmarked state was not surfaced: $(cat "$err")"
+[ "$(frag_count "$obsdir")" = 1 ] \
+  || fail "A6b5: expected the fragment to be published, got $(frag_count "$obsdir")"
 
 # --- A7. an `inherit` selection key is never evaluated ---------------------
 reset_liveness
@@ -703,17 +735,17 @@ out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
 # The sweep's stdout is a parsed record stream; the evaluation's TSV must not
 # be in it.
 printf '%s\n' "$out" | grep -q "^gc${TAB}refs/planwright-fence/demo/1$" \
-  || fail "B3a: the terminal fence was not GC'd: $out"
+  || fail "B3x1: the terminal fence was not GC'd: $out"
 if printf '%s\n' "$out" | grep -q '^fired'; then
-  fail "B3b: the evaluation contaminated the sweep's record stream"
+  fail "B3x2: the evaluation contaminated the sweep's record stream"
 fi
 if origin_refs | grep -q 'demo/1$'; then
-  fail "B3c: the terminal fence survived the sweep"
+  fail "B3x3: the terminal fence survived the sweep"
 fi
 [ "$(frag_count "$fence_obs")" = 1 ] \
-  || fail "B3d: expected one fragment, got $(frag_count "$fence_obs")"
+  || fail "B3x4: expected one fragment, got $(frag_count "$fence_obs")"
 [ "$(marks_of "$fence_unit")" = 1 ] \
-  || fail "B3e: expected one feedback mark, got $(marks_of "$fence_unit")"
+  || fail "B3x5: expected one feedback mark, got $(marks_of "$fence_unit")"
 
 [ "$(call_count)" = 1 ] \
   || fail "B3h: expected exactly one evaluation, got $(call_count)"
@@ -724,9 +756,9 @@ grep -q -- 'demo:task-1 --key execution' "$calls" \
 
 frag=$(fragments "$fence_obs")
 grep -q 'terminal state completed' "$frag" \
-  || fail "B3f: the fragment does not name the completed terminal state"
+  || fail "B3x6: the fragment does not name the completed terminal state"
 grep -q 'unit demo:task-1' "$frag" \
-  || fail "B3g: the fragment does not carry the <spec>:task-<id> unit key"
+  || fail "B3x7: the fragment does not carry the <spec>:task-<id> unit key"
 
 # --- B3a. a NON-terminal fence in the same pass reports nothing -----------
 #
@@ -813,7 +845,7 @@ named="$tmp/named-obs"
 rm -rf "$named"
 pwf "$FF" gc --checkout "$co" --spec demo 1 \
   --alloc-key execution --obs-scope planwright --obs-dir "$named" >/dev/null 2>&1 \
-  || fail "B3d0: the gc with a named store failed"
+  || fail "B3e0: the gc with a named store failed"
 [ "$(frag_count "$named")" = 1 ] \
   || fail "B3e1: the fragment did not land in the caller's store"
 [ "$(frag_count "$fence_obs")" = 0 ] \

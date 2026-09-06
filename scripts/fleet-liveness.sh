@@ -493,17 +493,28 @@ report_terminal_feedback() {
   # alone, and nothing on this path holds an allocation lock, so any value
   # reaching here came from an ancestor and would suppress a real acquire.
   rtf_rc=0
-  (
-    unset PLANWRIGHT_ALLOC_LOCK_HELD
-    "$AFB" evaluate "$ALLOC_UNIT" --key "$ALLOC_KEY" --terminal disabled \
-      --scope "$OBS_SCOPE" --obs-dir "$OBS_DIR" >/dev/null
+  # stdout is CAPTURED rather than discarded: it never reaches this
+  # subcommand's own record line, which is what the discard protected, and it
+  # carries the one field separating exit 1's two meanings — a refused
+  # recording that published nothing, from a published fragment whose ledger
+  # mark failed. Those call for opposite operator responses.
+  rtf_out=$(
+    if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "$ALLOC_UNIT" ]; then
+      "$AFB" evaluate "$ALLOC_UNIT" --key "$ALLOC_KEY" --terminal disabled \
+        --scope "$OBS_SCOPE" --obs-dir "$OBS_DIR"
+    else
+      unset PLANWRIGHT_ALLOC_LOCK_HELD
+      "$AFB" evaluate "$ALLOC_UNIT" --key "$ALLOC_KEY" --terminal disabled \
+        --scope "$OBS_SCOPE" --obs-dir "$OBS_DIR"
+    fi
   ) || rtf_rc=$?
-  # The exit code is named rather than collapsed: the callee distinguishes a
-  # broken install, a malformed repo-tracked knob, a refused recording, and a
-  # published fragment whose mark failed, and an operator reading one line of
-  # stderr cannot tell those apart from the prose alone.
-  [ "$rtf_rc" -eq 0 ] \
-    || printf '%s\n' "fleet-liveness: the allocation-feedback evaluation for unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")' exited $rtf_rc (its own reason is above); the disable stands, and this crash is not re-recorded, so the observation is LOST rather than deferred" >&2
+  [ "$rtf_rc" -eq 0 ] && return 0
+  rtf_reason=$(printf '%s\n' "$rtf_out" | awk -F'\t' '$1 == "reason" { print $2; exit }')
+  if [ "$rtf_reason" = mark-failed ]; then
+    printf '%s\n' "fleet-liveness: the allocation-feedback evaluation for unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")' published its fragment but could not mark the ledger (exit $rtf_rc); the observation is RECORDED, and a later evaluation of this unit would publish a duplicate" >&2
+  else
+    printf '%s\n' "fleet-liveness: the allocation-feedback evaluation for unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")' exited $rtf_rc${rtf_reason:+ (reason $rtf_reason)}; the disable stands, and this crash is not re-recorded, so the observation is LOST rather than deferred" >&2
+  fi
   return 0
 }
 

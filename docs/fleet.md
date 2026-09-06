@@ -1288,18 +1288,25 @@ just finished, and from `sweep`'s terminal branch, the backstop for a tower
 that exited first; a unit that travels both routes still records once, because
 the ledger mark is what bounds emission rather than the route.
 `scripts/fleet-liveness.sh crash-record` reports `disabled` from the disable
-branch. Both take the unit's identity from their caller — the ledger unit key
-(which the fence assembles from the spec and unit id it already holds), the
-selection key, and the observation scope are flags, all-or-none, because none
-of them can be derived from what a terminal-state owner knows. Neither call can
-cost the transition it hangs off: a recording failure is surfaced and the
-disable still stands, the fence is still retired. That last point cuts both
-ways, and the diagnostics say so — the fence goes whatever the evaluation
-returned, so a failed evaluation there loses that unit's observation rather
-than deferring it. It replays that unit's ledger and, when
-the history says the starting tier was wrong, records one observation fragment
-through the shared helper, which is how chronic under-estimation reaches the
-next round of `/spec-draft` seed mining. Two conditions fire it: the unit's
+branch. Both take the unit's identity from their caller, as all-or-none flags,
+because none of it can be derived from what a terminal-state owner knows: the
+ledger unit key (which the fence assembles from the spec and unit id it already
+holds), the selection key, the observation scope, and — for `crash-record`,
+which has no repo root to resolve one against — the observations store.
+
+Neither call can cost the transition it hangs off: a recording failure is
+surfaced and the disable still stands, the fence is still retired. That cuts
+both ways, and the diagnostics say so. The fence is retired whatever the
+evaluation returned, so a failed evaluation there loses that unit's
+observation rather than deferring it; and because the two sit on opposite
+sides of their transitions — the fence reports before retiring, the disable
+after committing its audit and escalation — an audit or queue failure exits
+before the disable ever reports.
+
+`allocation-feedback.sh` replays that unit's ledger and, when the history says
+the starting tier was wrong, records one observation fragment through the
+shared helper, which is how chronic under-estimation reaches the next round of
+`/spec-draft` seed mining. Two conditions fire it: the unit's
 derived final **ladder position** ended above its configured starting tier, or
 its count of applied escalations reached `allocation_feedback_threshold`
 (default `2`). The second is the churn case the first cannot see, since a unit

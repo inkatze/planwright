@@ -662,13 +662,46 @@ report_terminal_feedback() {
     # mean the same thing from wherever the sweep was launched.
     *) rtf_dir="$checkout/$obs_dir" ;;
   esac
+  # Rooting a relative store at the checkout is not containment, so the one
+  # escape that rooting cannot stop is refused outright. obs-record.sh confines
+  # `entries/` under whatever store it is given; it never asks whether that
+  # store should have been reachable from here.
+  case $rtf_dir in
+    *..*)
+      err "refusing an --obs-dir containing '..': name the observations store without traversal"
+      return 0
+      ;;
+  esac
   rtf_rc=0
-  (
-    unset PLANWRIGHT_ALLOC_LOCK_HELD
-    "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
-      --scope "$obs_scope" --obs-dir "$rtf_dir" >/dev/null
+  # stdout is CAPTURED rather than discarded. It still never reaches this
+  # command's own record stream, which is what the discard was protecting, and
+  # it carries the one field that separates exit 1's two meanings: a refused
+  # recording that published nothing, from a published fragment whose ledger
+  # mark failed. Those two call for opposite operator responses.
+  rtf_out=$(
+    if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "$spec:task-$1" ]; then
+      # A hold for exactly this unit is real and inherited: honoring it is what
+      # keeps the non-reentrant lock from deadlocking against its own owner.
+      "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
+        --scope "$obs_scope" --obs-dir "$rtf_dir"
+    else
+      # Any other value belongs to some other unit and would suppress a real
+      # acquire here — this command retires many units in one pass.
+      unset PLANWRIGHT_ALLOC_LOCK_HELD
+      "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
+        --scope "$obs_scope" --obs-dir "$rtf_dir"
+    fi
   ) || rtf_rc=$?
-  [ "$rtf_rc" -eq 0 ] || err "the allocation-feedback evaluation for unit '$(sanitize_printable "$spec:task-$1" "(unprintable unit)")' exited $rtf_rc (its own reason is above); this unit's fence is retired regardless, so the observation is LOST, not deferred"
+  [ "$rtf_rc" -eq 0 ] && return 0
+  rtf_reason=$(printf '%s\n' "$rtf_out" | awk -F'\t' '$1 == "reason" { print $2; exit }')
+  case $rtf_reason in
+    mark-failed)
+      err "the allocation-feedback evaluation for unit '$(sanitize_printable "$spec:task-$1" "(unprintable unit)")' published its fragment but could not mark the ledger (exit $rtf_rc); the observation is RECORDED — a later evaluation of this unit will publish a duplicate"
+      ;;
+    *)
+      err "the allocation-feedback evaluation for unit '$(sanitize_printable "$spec:task-$1" "(unprintable unit)")' exited $rtf_rc${rtf_reason:+ (reason $rtf_reason)}; this unit's fence is retired regardless, so the observation is LOST, not deferred"
+      ;;
+  esac
   return 0
 }
 
@@ -901,11 +934,14 @@ if [ "$cmd" = sweep ]; then
       # deleting the string read off `origin`: REQ-D1.5 wants BOTH halves —
       # `git check-ref-format` and the literal prefix — before any delete, and
       # the prefix test above is only the second of them.
-      report_terminal_feedback "$unit"
       refs=$(fence_refname "$spec" "$unit") || {
         printf 'anomaly\t%s\t%s\n' "$ref" "unrepresentable-fence-ref"
         continue
       }
+      # After the containment re-derivation, before the delete: a unit whose
+      # ref cannot be re-derived keeps its fence, and must not carry a durable
+      # once-per-unit mark saying it was retired.
+      report_terminal_feedback "$unit"
       if gc_refs; then
         sink_clear "$tkey"
         sink_clear "$skey"
