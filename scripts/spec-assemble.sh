@@ -166,7 +166,7 @@ case ${scope:-whole} in
         show_verify=1
         ;;
       *)
-        echo "spec-assemble: scope '$scope_safe' names no source file" >&2
+        printf '%s\n' "spec-assemble: scope '$scope_safe' names no source file" >&2
         exit 2
         ;;
     esac
@@ -175,7 +175,7 @@ case ${scope:-whole} in
     rgroup=${scope#reqs:}
     case $rgroup in
       "" | *[!A-Z]*)
-        echo "spec-assemble: scope '$scope_safe' is not a requirement group" >&2
+        printf '%s\n' "spec-assemble: scope '$scope_safe' is not a requirement group" >&2
         exit 2
         ;;
     esac
@@ -198,7 +198,7 @@ case ${scope:-whole} in
     dnum=${dnum#d-}
     case $dnum in
       "" | *[!0-9]*)
-        echo "spec-assemble: scope '$scope_safe' is not a decision id" >&2
+        printf '%s\n' "spec-assemble: scope '$scope_safe' is not a decision id" >&2
         exit 2
         ;;
     esac
@@ -208,7 +208,7 @@ case ${scope:-whole} in
     show_blast=1
     ;;
   *)
-    echo "spec-assemble: unknown scope '$scope_safe'" >&2
+    printf '%s\n' "spec-assemble: unknown scope '$scope_safe'" >&2
     exit 2
     ;;
 esac
