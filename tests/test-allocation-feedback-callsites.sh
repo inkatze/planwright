@@ -10,10 +10,10 @@
 # existed no caller reported one. This file is the wiring's own suite.
 #
 # The two owners, and why each is the one:
-#   completed  scripts/fleet-fence.sh `sweep`, in the TERMINAL branch. The
-#              fence's documented lifecycle is "deleted at its unit's terminal
-#              transition", and that branch is where the fleet reads the
-#              authoritative `completed` derivation and acts on it.
+#   completed  scripts/fleet-fence.sh, wherever a fence is retired: `gc`, the
+#              normal transition a tower runs on the unit it just finished, and
+#              `sweep`'s terminal branch, the backstop for a tower that exited
+#              first. A unit retired by both routes still records once.
 #   disabled   scripts/fleet-liveness.sh `crash-record`, in the disable
 #              branch. The crash-loop disable is the other terminal state:
 #              no further relaunch is ever authorized.
@@ -323,7 +323,7 @@ reset_liveness
 out=$(pw "$FLV" crash-record "$worker" "$wscope" --now 1000 \
   --alloc-unit "$unit" --alloc-key execution \
   --obs-scope planwright --obs-dir "$obsdir") \
-  || fail "A2b: the sub-threshold crash-record failed"
+  || fail "A2b0: the sub-threshold crash-record failed"
 case $out in
   "1 "*) ;;
   *) fail "A2b1: expected a backoff line, got '$out'" ;;
@@ -498,7 +498,7 @@ printf '%s\n' "$verdict" | grep -q "^escalations${TAB}0$" \
   || fail "A8i: the shipped-posture evaluation recorded a fragment"
 
 # ==========================================================================
-# Part B — the COMPLETED owner: scripts/fleet-fence.sh sweep
+# Part B — the COMPLETED owner: scripts/fleet-fence.sh (gc and sweep)
 # ==========================================================================
 #
 # The sweep needs a real `origin` and a real spec bundle, because terminality
@@ -651,6 +651,32 @@ pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
   --alloc-key '' --obs-scope planwright >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "B1e: an explicitly empty --alloc-key should exit 2, got $rc"
 
+# A malformed value is refused, and the refusal must not re-emit what it was
+# handed. This is Part A's escape assertion on the other owner: its diagnostics
+# go through a different helper, and a value that fails the grammar is exactly
+# the population that carries a backslash.
+rc=0
+err="$tmp/b1.err"
+pwf "$FF" gc --checkout "$co" --spec demo 1 \
+  --alloc-key 'bad\033[31mINJECTED' --obs-scope planwright >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "B1f: a malformed --alloc-key should exit 2, got $rc"
+[ "$(awk 'END { print NR }' "$err")" = 1 ] \
+  || fail "B1g: the refusal spans several lines — an escape was re-expanded: $(od -c <"$err" | head -3)"
+if LC_ALL=C grep -q '[[:cntrl:]]' "$err"; then
+  fail "B1h: the refusal emitted a control byte: $(od -c <"$err" | head -3)"
+fi
+rc=0
+pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
+  --alloc-key execution --obs-scope 'bad scope' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "B1i: a malformed --obs-scope should exit 2, got $rc"
+
+# `--obs-dir` without the identity it belongs to would be accepted and ignored,
+# which this file's flag discipline forbids.
+rc=0
+pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
+  --obs-dir "$tmp/elsewhere" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "B1j: a lone --obs-dir should exit 2, got $rc"
+
 # --- B2. no identity flags: the sweep is byte-identical to before ----------
 reset_fence
 out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ 2>/dev/null) \
@@ -715,7 +741,7 @@ escalate "$fence_unit" execution s2
 escalate "demo:task-2" execution s1
 escalate "demo:task-2" execution s2
 pwf "$FF" fence --checkout "$co" --spec demo 2 >/dev/null \
-  || fail "B3a: fencing the non-terminal unit failed"
+  || fail "B3a0: fencing the non-terminal unit failed"
 calls_reset
 
 out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ --min-interval 0 \
@@ -739,7 +765,7 @@ escalate "$fence_unit" execution s2
 
 out=$(pwf "$FF" gc --checkout "$co" --spec demo 1 \
   --alloc-key execution --obs-scope planwright 2>/dev/null) \
-  || fail "B3b: the wired gc failed"
+  || fail "B3b0: the wired gc failed"
 printf '%s\n' "$out" | grep -q "^gc${TAB}refs/planwright-fence/demo/1$" \
   || fail "B3b1: gc did not retire the fence: $out"
 if printf '%s\n' "$out" | grep -q '^fired'; then
@@ -755,8 +781,8 @@ grep -q -- '--terminal completed' "$calls" \
 # A unit that travels BOTH routes records once: the mark bounds emission, not
 # the route it arrived by.
 refence
-out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
-  --alloc-key execution --obs-scope planwright 2>/dev/null) \
+pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
+  --alloc-key execution --obs-scope planwright >/dev/null 2>&1 \
   || fail "B3b6: the sweep after a gc failed"
 [ "$(frag_count "$fence_obs")" = 1 ] \
   || fail "B3b7: a unit retired by both routes recorded twice"
@@ -768,7 +794,7 @@ reset_fence
 adaptation_on
 escalate "$fence_unit" execution s1
 escalate "$fence_unit" execution s2
-led=$(pw "$LEDGER" path "$fence_unit") || fail "B3c: could not resolve the ledger path"
+led=$(pw "$LEDGER" path "$fence_unit") || fail "B3c0: could not resolve the ledger path"
 printf 'torn\trow\n' >>"$led"
 out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
   --alloc-key execution --obs-scope planwright 2>/dev/null) \
@@ -777,6 +803,35 @@ printf '%s\n' "$out" | grep -q "^gc${TAB}refs/planwright-fence/demo/1$" \
   || fail "B3c2: an unhealthy ledger held the fence: $out"
 [ "$(frag_count "$fence_obs")" = 0 ] \
   || fail "B3c3: an unhealthy ledger still recorded a fragment"
+
+# --- B3d. the caller may name the observations store ----------------------
+reset_fence
+adaptation_on
+escalate "$fence_unit" execution s1
+escalate "$fence_unit" execution s2
+named="$tmp/named-obs"
+rm -rf "$named"
+pwf "$FF" gc --checkout "$co" --spec demo 1 \
+  --alloc-key execution --obs-scope planwright --obs-dir "$named" >/dev/null 2>&1 \
+  || fail "B3d: the gc with a named store failed"
+[ "$(frag_count "$named")" = 1 ] \
+  || fail "B3d1: the fragment did not land in the caller's store"
+[ "$(frag_count "$fence_obs")" = 0 ] \
+  || fail "B3d2: the fragment also landed in the default store"
+
+# A relative store is the checkout's, not the tower's cwd — this command has a
+# repo root and uses it.
+reset_fence
+adaptation_on
+escalate "$fence_unit" execution s1
+escalate "$fence_unit" execution s2
+rm -rf "$co/rel-obs"
+pwf "$FF" gc --checkout "$co" --spec demo 1 \
+  --alloc-key execution --obs-scope planwright --obs-dir rel-obs >/dev/null 2>&1 \
+  || fail "B3d3: the gc with a relative store failed"
+[ "$(frag_count "$co/rel-obs")" = 1 ] \
+  || fail "B3d4: a relative --obs-dir did not resolve against the checkout"
+rm -rf "$co/rel-obs"
 
 # --- B4. once per unit across a repeated sweep ----------------------------
 #
@@ -792,8 +847,8 @@ pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
   || fail "B4: seeding the first recording failed"
 [ "$(frag_count "$fence_obs")" = 1 ] || fail "B4: the seeding pass did not record"
 refence
-out=$(pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
-  --alloc-key execution --obs-scope planwright 2>/dev/null) \
+pwf "$FF" sweep --checkout "$co" --spec demo --pid $$ \
+  --alloc-key execution --obs-scope planwright >/dev/null 2>&1 \
   || fail "B4: the repeat sweep failed"
 [ "$(frag_count "$fence_obs")" = 1 ] \
   || fail "B4a: a repeated sweep re-recorded ($(frag_count "$fence_obs") fragments)"

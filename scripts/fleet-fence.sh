@@ -166,8 +166,12 @@ usage: fleet-fence.sh refname --spec <spec> <unit-id>
 USAGE
 }
 
+# printf, not echo: this runs under a /bin/sh that is dash on Linux, whose
+# `echo` re-expands a literal backslash escape into the control byte
+# `sanitize_printable` strips. Every refusal below prints a value that just
+# failed its grammar, which is precisely the population that carries one.
 err() {
-  echo "fleet-fence: $1" >&2
+  printf '%s\n' "fleet-fence: $1" >&2
 }
 
 # --- grammars (validated BEFORE any ref or path use, REQ-D1.5) -------------
@@ -377,6 +381,10 @@ esac
 # nothing, which is the silent-inertness failure this wiring closes.
 if [ -n "$alloc_key$obs_scope" ] && { [ -z "$alloc_key" ] || [ -z "$obs_scope" ]; }; then
   err "--alloc-key and --obs-scope are all-or-none; give both to report a terminal unit's completion to the escalation feedback loop, or neither to retire its fence without it"
+  exit 2
+fi
+if [ -n "$obs_dir" ] && [ -z "$alloc_key" ]; then
+  err "--obs-dir names the store for the terminal-state feedback observation, so it needs --alloc-key and --obs-scope beside it; without them no evaluation runs and this flag would be accepted and ignored"
   exit 2
 fi
 # Both are identifier tokens, and both are checked HERE rather than only by the
@@ -612,9 +620,10 @@ AFB="$script_dir/allocation-feedback.sh"
 # cannot be derived from anything here — the key is persisted nowhere, and the
 # scope is the host repo's — so the caller names them.
 #
-# The observations store defaults to the CHECKOUT's rather than a cwd-relative
-# one, because this sweep is handed the host repo root and a fragment belongs
-# in that repo's store, not wherever the tower happens to be standing. It stays
+# The observations store is the CHECKOUT's — the default, and the root a
+# relative `--obs-dir` resolves against — because this command is handed the
+# host repo root and a fragment belongs in that repo's store, not wherever the
+# tower happens to be standing. It stays
 # overridable because the fragment and the ledger mark have DIFFERENT
 # LIFETIMES: the mark lands in the cross-spec fleet home, the fragment in a
 # working tree, and a caller pointed at a tree that will be abandoned needs to
@@ -643,8 +652,16 @@ report_terminal_feedback() {
     err "allocation-feedback.sh is missing or not executable; no feedback observation was evaluated, and the fence lifecycle is unaffected"
     return 0
   fi
-  rtf_dir=$obs_dir
-  [ -n "$rtf_dir" ] || rtf_dir="$checkout/specs/_observations"
+  rtf_dir="$checkout/specs/_observations"
+  case $obs_dir in
+    "") ;;
+    /*) rtf_dir=$obs_dir ;;
+    # Relative resolves against the checkout rather than the tower's cwd. The
+    # sibling crash-record has no repo root to resolve against and so refuses a
+    # relative store outright; here there is one, and using it makes the flag
+    # mean the same thing from wherever the sweep was launched.
+    *) rtf_dir="$checkout/$obs_dir" ;;
+  esac
   rtf_rc=0
   (
     unset PLANWRIGHT_ALLOC_LOCK_HELD
