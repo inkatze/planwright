@@ -156,8 +156,11 @@ grep -q 'Summarize the release notes' "$tmp/tmux-argv" && fail "dispatch tmux: p
 # ...and the (absolute) prompt-file path must actually be passed to the worker.
 grep -qF "$promptfile" "$tmp/tmux-argv" || fail "dispatch tmux: prompt-file path absent from the worker argv"
 # `--` pins the prompt as a positional: leading-dash petition content can
-# never be parsed as a claude option.
-grep -q 'claude -- ' "$tmp/tmux-argv" || fail "dispatch tmux: claude launch not pinned with -- end-of-options"
+# never be parsed as a claude option. Any resolved launch-tier flags arrive as
+# argv the spawned shell forwards through "$@", ahead of that pin, so they are
+# never spliced into the script text.
+grep -q 'claude "$@" -- ' "$tmp/tmux-argv" \
+  || fail "dispatch tmux: claude launch not pinned with -- end-of-options"
 ok "dispatch tmux reports the spawned window handle; petition rides an absolutized file read behind --"
 
 # 4b. a RELATIVE prompt-file path is absolutized before dispatch. The

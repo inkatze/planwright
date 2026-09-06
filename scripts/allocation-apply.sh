@@ -123,12 +123,19 @@ valid_backend() {
   [ "${#1}" -le 64 ]
 }
 
-valid_step() {
+# Unit and step identity: the ledger's own key grammar, checked here so a
+# malformed one is named by this script rather than surfacing from two helpers
+# deep. Step widens it by the `-` sentinel for a launch with no step identity.
+valid_unit() {
   case ${1:-} in
-    '') return 1 ;;
-    *[!A-Za-z0-9._/-]*) return 1 ;;
+    '' | *[!A-Za-z0-9._=@:-]*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
+}
+
+valid_step() {
+  [ "${1:-}" = - ] && return 0
+  valid_unit "${1:-}"
 }
 
 valid_attempt() {
@@ -220,6 +227,10 @@ valid_backend "$BACKEND" || {
 # silent ambient launch this script exists to prevent (REQ-B1.2).
 [ -n "$UNIT" ] || {
   printf '%s\n' "$me: --unit is required: an inheritance with no unit identity cannot be recorded, and an unrecorded inheritance is a silent ambient launch" >&2
+  exit 2
+}
+valid_unit "$UNIT" || {
+  printf '%s\n' "$me: refusing malformed unit: $(sanitize_printable "$UNIT" "(unprintable unit)")" >&2
   exit 2
 }
 valid_step "$STEP" || {

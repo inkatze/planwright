@@ -229,6 +229,19 @@ unit's admit/model/effort/command; `scripts/fleet-dispatch-guard.sh check-launch
 <launch-argv>` (or `check-inherited`, in-process) lints the launch — a refusal is
 a stop condition, never bypassed.
 
+**Launch tier for a single-spec dispatch** (model-allocation D-4, D-10;
+REQ-B1.1, REQ-B1.2). A fleet dispatch keys the resolver by task type, above. A
+single-spec dispatch keys it by surface: run `scripts/allocation-apply.sh plan
+--key orchestrate_dispatch --backend <selected> --unit <unit>` before building
+the launch, and pass its `model` and `effort` values to the dispatch primitive
+as **discrete argv elements** after the `--` separator (`--model <value>`,
+`--effort <value>` as separate arguments), applying nothing for a dimension
+whose value is `inherit` and never interpolating a value into a command string.
+The plan applies only what the selected backend advertises it can set and
+records anything it inherited. Shipped defaults resolve to `inherit`, so the
+launch is exactly today's until an operator configures a tier; the audit row is
+written either way.
+
 ## Dispatch (REQ-F1.8, D-38)
 
 Dispatch the unit's `/execute-task <ids>` into its worktree via the selected

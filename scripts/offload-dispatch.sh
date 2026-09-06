@@ -89,6 +89,10 @@ fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
 
+# The launch-tier plan comes from the shared apply layer, never from a local
+# copy of the selection rules (model-allocation D-5, REQ-B1.1).
+apply_helper="$script_dir/allocation-apply.sh"
+
 # A literal newline, for the prompt-file path safety check below.
 nl='
 '
@@ -102,7 +106,83 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 usage() {
-  echo "$me: usage: $me <dispatch <backend> <prompt-file> | report <backend> <handle>>" >&2
+  echo "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] | report <backend> <handle>>" >&2
+}
+
+# --------------------------------------------------------------------------
+# Launch-tier resolution (model-allocation Task 6; D-4, D-10, REQ-B1.1,
+# REQ-B1.2). Every dispatch consults the shared resolver before it launches,
+# and applies what the selected backend advertises it can set. With the shipped
+# `inherit` default nothing is applied and the launch is exactly today's, with
+# an audit row saying it inherited (D-13).
+#
+# Sets TIER_MODEL and TIER_EFFORT to a value to apply, or `inherit` to apply
+# nothing. Never builds a command line: the caller splices these in as discrete
+# argv elements.
+# --------------------------------------------------------------------------
+TIER_MODEL=inherit
+TIER_EFFORT=inherit
+
+resolve_tier() {
+  # $1 backend, $2 unit
+  if [ ! -r "$apply_helper" ]; then
+    echo "$me: required helper $apply_helper missing or not readable" >&2
+    exit 2
+  fi
+  rt_plan=$("$apply_helper" plan --key offload --backend "$1" --unit "$2")
+  rt_rc=$?
+  if [ "$rt_rc" -ne 0 ]; then
+    # A malformed knob or a broken install is a CONFIG/INSTALL fault: those are
+    # loud and fatal, because silently ignoring an operator's setting is the
+    # by-layer malformed policy's whole objection. Anything else means the
+    # allocation store could not be reached — most often no resolvable fleet
+    # home — which is an availability question, not a correctness one. There
+    # the posture is the ledger's own degraded mode (REQ-F1.1): launch at the
+    # ambient tier with adjustments suspended and the degradation SURFACED,
+    # rather than refusing to dispatch work over a missing audit store. It is
+    # still not silent, which is the property REQ-B1.2 actually protects.
+    case "$rt_rc" in
+      4 | 5) exit "$rt_rc" ;;
+    esac
+    echo "$me: dispatch: the allocation store is unavailable; launching at the ambient model and effort with the tier unrecorded (degraded)" >&2
+    TIER_MODEL=inherit
+    TIER_EFFORT=inherit
+    return 0
+  fi
+  TIER_MODEL=$(printf '%s\n' "$rt_plan" | awk -F '\t' '$1 == "model" { print $2 }')
+  TIER_EFFORT=$(printf '%s\n' "$rt_plan" | awk -F '\t' '$1 == "effort" { print $2 }')
+  # Emission-boundary enum check, the same posture as the prompt-file charset
+  # check below: these values become argv elements and, for the print rung,
+  # words of a command a human runs. A value outside the closed enum means a
+  # broken install upstream, and it stops here rather than being emitted.
+  case "$TIER_MODEL" in
+    inherit | fable | opus | sonnet | haiku) ;;
+    *)
+      echo "$me: dispatch: the resolver returned an out-of-enum model — broken or outdated install" >&2
+      exit 2
+      ;;
+  esac
+  case "$TIER_EFFORT" in
+    inherit | low | medium | high) ;;
+    *)
+      echo "$me: dispatch: the resolver returned an out-of-enum effort — broken or outdated install" >&2
+      exit 2
+      ;;
+  esac
+}
+
+# The unit a dispatch records its allocation against. The caller names it with
+# `--unit`; absent that, it is derived from the petition file so a dispatch
+# still lands in a ledger of its own rather than a shared bucket.
+derive_unit() {
+  du_v="offload:$(basename -- "$1")"
+  case $du_v in
+    *[!A-Za-z0-9._=@:-]*) du_v='' ;;
+  esac
+  if [ -z "$du_v" ] || [ "${#du_v}" -gt 128 ]; then
+    du_v="offload:petition"
+  fi
+  printf '%s' "$du_v"
 }
 
 # Per-backend handle grammar, mirroring orchestrate-relay.sh: input is DATA —
@@ -249,6 +329,7 @@ cmd_report() {
 cmd_dispatch() {
   backend=$1
   promptfile=$2
+  unit=${3:-}
   case "$backend" in
     tmux | print) ;;
     subagent)
@@ -287,6 +368,9 @@ cmd_dispatch() {
     exit 2
   fi
 
+  [ -n "$unit" ] || unit=$(derive_unit "$promptfile")
+  resolve_tier "$backend" "$unit"
+
   case "$backend" in
     print)
       # A print-rung unit spawns nothing until a human runs the command, so its
@@ -298,7 +382,14 @@ cmd_dispatch() {
       printf 'status\tprepared\n'
       printf 'backend\tprint\n'
       printf 'handle\tnone: no process exists until the human runs the launch command\n'
-      printf "launch\tclaude -- \"\$(cat -- '%s')\"\n" "$promptfile"
+      # The printed command line IS this rung's launch, so a resolved tier has
+      # to travel in it as its own words — that is what `print` advertising
+      # tier_control means. The values are enum-checked at resolve_tier, so
+      # nothing outside the closed model/effort sets can reach this line.
+      pf_tier=''
+      [ "$TIER_MODEL" = inherit ] || pf_tier="$pf_tier --model $TIER_MODEL"
+      [ "$TIER_EFFORT" = inherit ] || pf_tier="$pf_tier --effort $TIER_EFFORT"
+      printf "launch\tclaude%s -- \"\$(cat -- '%s')\"\n" "$pf_tier" "$promptfile"
       printf 'observe\tnone: spawn deferred to the human\n'
       printf 'attach\trun the launch command in your own terminal\n'
       return 0
@@ -322,11 +413,20 @@ cmd_dispatch() {
     echo "$me: dispatch: cannot create the stderr capture file" >&2
     exit 2
   }
-  # shellcheck disable=SC2016 # single quotes are deliberate: $1 expands in the
-  # SPAWNED shell (argv-passed prompt path), never here — no content splicing.
+  # A resolved tier reaches the worker as DISCRETE argv elements appended after
+  # the prompt path, consumed by the spawned shell's `"$@"` — never spliced
+  # into the `sh -c` script text, which is what the argv-discipline clause of
+  # REQ-B1.2 is about. Built with `set --` so each flag and its value stay
+  # separate words with no re-splitting anywhere in the path.
+  set -- offload-worker "$promptfile"
+  [ "$TIER_MODEL" = inherit ] || set -- "$@" --model "$TIER_MODEL"
+  [ "$TIER_EFFORT" = inherit ] || set -- "$@" --effort "$TIER_EFFORT"
+  # shellcheck disable=SC2016 # single quotes are deliberate: $1/$@ expand in
+  # the SPAWNED shell (argv-passed prompt path and tier flags), never here — no
+  # content splicing.
   handle=$(tmux new-window -d -P -F '#{window_id}' -n "offload-$$" -c "$cwd" \
-    /bin/sh -c 'p=$(cat -- "$1") || exit 1; exec claude -- "$p"' \
-    offload-worker "$promptfile" 2>"$tmux_err")
+    /bin/sh -c 'p=$(cat -- "$1") || exit 1; shift; exec claude "$@" -- "$p"' \
+    "$@" 2>"$tmux_err")
   rc=$?
   err_text=$(cat "$tmux_err" 2>/dev/null)
   rm -f "$tmux_err"
@@ -386,11 +486,31 @@ sub=$1
 shift
 case "$sub" in
   dispatch)
-    [ "$#" -eq 2 ] || {
+    [ "$#" -ge 2 ] || {
       usage
       exit 2
     }
-    cmd_dispatch "$1" "$2"
+    d_backend=$1
+    d_promptfile=$2
+    shift 2
+    d_unit=''
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --unit)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          d_unit=$2
+          shift 2
+          ;;
+        *)
+          usage
+          exit 2
+          ;;
+      esac
+    done
+    cmd_dispatch "$d_backend" "$d_promptfile" "$d_unit"
     ;;
   report)
     [ "$#" -eq 2 ] || {

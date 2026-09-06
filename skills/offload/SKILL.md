@@ -89,6 +89,21 @@ or abort.
 
 ### 5. Dispatch through the seam
 
+**Launch tier (model-allocation D-4, D-10; REQ-B1.1, REQ-B1.2).** Every rung
+resolves its model and reasoning effort through the shared policy at the
+`offload` selection key before launching, and applies each dimension only as
+far as the selected backend advertises it can set one. The scripted rungs do
+this inside the primitive — pass `--unit <id>` so the petition's allocation is
+recorded against an identity you name rather than a derived one. For the
+**subagent** rung, which the harness launches rather than the primitive, run
+`scripts/allocation-apply.sh plan --key offload --backend subagent --unit <id>`
+first and pass its `model` value as the Agent tool's model parameter, applying
+nothing when it is `inherit`. Shipped defaults resolve to `inherit` at every
+rung, so unless the operator has configured a tier this changes no launch; what
+it always does is leave a row saying which dimensions were inherited. Never
+launch a rung without resolving: an unrecorded ambient launch is the one
+outcome this is here to prevent.
+
 By the selected rung:
 
 - **subagent** — dispatch via the harness Agent tool (background), then run
@@ -100,13 +115,16 @@ By the selected rung:
 - **tmux** or **print** — write the petition to a `mktemp`-created temp file
   (never a predictable path like `/tmp/petition.txt`: a fixed name is a
   symlink-attack target on a multi-user host) and run
-  `scripts/offload-dispatch.sh dispatch <backend> <file>`. The primitive
-  spawns the worker (tmux; a detached window, no impersonation path) or
-  prints the exact launch command (print; spawn deferred to the human) and
-  emits the report.
+  `scripts/offload-dispatch.sh dispatch <backend> <file> --unit <id>`. The
+  primitive resolves the launch tier, spawns the worker (tmux; a detached
+  window, no impersonation path) or prints the exact launch command (print;
+  spawn deferred to the human) and emits the report.
 - **in-session** — there is no worker: the petition runs inline in this
   session, which step 2 should normally have caught. Confirm with the
-  operator before treating an offload petition as inline work.
+  operator before treating an offload petition as inline work. This rung
+  advertises no tier control at all, so the work inherits the operator's own
+  session model and effort — its pinned degradation, recorded like any other
+  inheritance (REQ-B1.3; the capability contract's in-session section).
 - **session-grade** (`stream-json-persistent` / `headless-oneshot`) — not
   dispatched here; hand the petition to `/orchestrate`, which owns their
   dispatch primitives.
