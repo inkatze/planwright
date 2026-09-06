@@ -661,18 +661,20 @@ a **ref on `origin`** (concurrent-orchestrator-coordination D-5, D-8, D-11):
 before a worker forks, a tower creates `refs/planwright-fence/<spec>/<unit-id>`
 with an expect-absent compare-and-swap.
 
-**`/orchestrate` takes no fence yet.** `gc` it does run — the reconcile calls it
-on each unit it moves to Completed, which is also how that unit's completion
+**`/orchestrate` takes no fence yet.** It does run `gc` — the reconcile calls it
+on each unit that resolves as merged, which is also how that unit's completion
 reaches the escalation feedback loop below. But `check` and `fence`, the two that
 would actually stop a second tower dispatching a unit, need more room in the
 dispatch step than that skill's instruction budget has left, so they are queued
 as a follow-up. Until then those two are yours to run, concurrent towers still
-coordinate only through presence, and `sweep` has nothing to reclaim because
-nothing takes a fence for it to find. `origin` is the one substrate every clone shares and git
-serializes ref updates on it, so exactly one tower wins a unit; it is also
-death-surviving, because the ref lives on the server rather than in the
-tower's process. The ref points at the current `origin/main` tip — an
-existing commit — so fencing adds no history to `main`.
+coordinate only through presence, and `sweep` — the backstop — finds nothing to
+reclaim until something takes a fence for it to find.
+
+`origin` is the one substrate every clone shares and git serializes ref updates
+on it, so exactly one tower wins a unit; it is also death-surviving, because the
+ref lives on the server rather than in the tower's process. The ref points at
+the current `origin/main` tip — an existing commit — so fencing adds no history
+to `main`.
 
 ```sh
 scripts/fleet-fence.sh check --checkout <repo-root> --spec <spec> <unit-id>
@@ -931,10 +933,12 @@ masked. `crash-check` consults the operator kill-switch
 escalation are deliberately not gated (pausing the record of what happened
 would hide problems). Backoff and disable actions log through the audit
 trail; a human clears the streak with `crash-reset`. A disable is also a unit's
-terminal state, so `crash-record` will report it to the escalation feedback
-loop when given the identity to report — `--alloc-unit`, `--alloc-key`,
-`--obs-scope` and `--obs-dir`, all-or-none — described with its `completed`
-twin where the ledger's feedback loop is covered below.
+terminal state, so `crash-record` reports it to the escalation feedback loop
+when given the identity to report — `--alloc-unit`, `--alloc-key`,
+`--obs-scope` and `--obs-dir`, all-or-none. `/orchestrate`'s reconcile is what
+gives it: it runs this on the dead worker it proved before parking the orphan.
+Described with its `completed` twin where the ledger's feedback loop is covered
+below.
 
 ### What planwright registers, and the event it deliberately does not
 

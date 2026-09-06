@@ -53,6 +53,13 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+# Isolate git fully from the host's global/system config: signing
+# (commit.gpgsign plus a signer that blocks non-interactively) and a global
+# core.hooksPath would otherwise hang or reshape the fixture commits. The sweep
+# suite's posture, for the same reason.
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+
 here=$(cd "$(dirname "$0")" && pwd)
 REAL_DEFAULTS="$here/../config/defaults.yml"
 SKILL="$here/../skills/orchestrate/SKILL.md"
@@ -67,7 +74,10 @@ fail() {
 [ -r "$REAL_DEFAULTS" ] || fail "config/defaults.yml is missing or unreadable"
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+# The fatal signals as well as EXIT: bash runs no EXIT trap when killed by an
+# untrapped INT/TERM, and this fixture holds a bare repo, a clone and a fleet
+# state dir that a Ctrl-C would otherwise leak.
+trap 'rm -rf "$tmp"' EXIT INT TERM HUP
 
 # The extracted commands are split on whitespace to build an argv, so a fixture
 # path carrying a space would silently produce a different command than the one
@@ -237,14 +247,13 @@ extract_invocation() {
 # green — the failure mode a grep-only test has by construction.
 fill() {
   fi_cmd=$1
-  fi_cmd=${fi_cmd//<primary-checkout>/$co}
+  fi_cmd=${fi_cmd//<absolute-checkout>/$co}
   fi_cmd=${fi_cmd//<spec>/demo}
   fi_cmd=${fi_cmd//<unit-id>/1}
-  fi_cmd=${fi_cmd//<unit>/$unit}
   fi_cmd=${fi_cmd//<repo-name>/planwright}
   fi_cmd=${fi_cmd//<worker-handle>/$worker}
   fi_cmd=${fi_cmd//<worker-scope>/$wscope}
-  fi_cmd=${fi_cmd//scripts\//$sbin/}
+  fi_cmd=${fi_cmd/#scripts\//$sbin/}
   case $fi_cmd in
     *'<'*'>'*)
       fail "the skill's invocation carries a placeholder this fixture cannot fill: $fi_cmd"
@@ -302,14 +311,25 @@ echo "ok R2: the fixture unit carries real ledger history under the shipped defa
 # ==========================================================================
 calls_reset
 filled=$(fill "$gc_cmd")
-# shellcheck disable=SC2086 # deliberate word-split: the skill's line IS the argv
+# The skill's line IS the argv, so it is split on whitespace — with pathname
+# expansion off, because a token of it is a filesystem path and a glob character
+# reaching the split would hand the callee a different command than the one
+# documented (the discipline every script here runs under).
+set -f
+# shellcheck disable=SC2086 # deliberate word-split, guarded by set -f above
 set -- $filled
+set +f
 pw "$@" >/dev/null 2>"$tmp/gc-err" \
   || fail "R3a: the invocation the skill documents failed: $(cat "$tmp/gc-err")"
 [ "$(call_count)" = 1 ] \
   || fail "R3b: the documented fence-gc invocation did not reach the evaluation (calls=$(call_count))"
-grep -q -- "--terminal completed" "$calls" \
-  || fail "R3c: fence gc reached the evaluation without reporting 'completed': $(cat "$calls")"
+# The SUBJECT is asserted beside the state. The fence assembles the ledger unit
+# key from the spec and unit id the skill's line hands it, so a placeholder that
+# filled wrongly would still reach the evaluation — just about a unit that is
+# not the one being retired, which every later assertion here would read as a
+# clean no-op.
+grep -q -- "evaluate $unit .*--terminal completed" "$calls" \
+  || fail "R3c: fence gc did not evaluate $unit as completed: $(cat "$calls")"
 [ "$(frag_count)" = 0 ] \
   || fail "R3d: the shipped posture recorded an observation through fence gc"
 [ "$(marks_of "$unit")" = 0 ] \
@@ -322,15 +342,25 @@ echo "ok R3: the documented fence-gc invocation runs, reaches the evaluation, an
 #
 # Only the DISABLING crash is terminal, so the same command run to the shipped
 # `fleet_crash_disable_threshold` reaches the evaluation exactly once. Running
-# the identical documented line every time is the point: the tower is not told
-# to count crashes and pass the flags only on the last one.
+# the documented line unchanged every time is the point: the tower is not told
+# to count crashes and pass the flags only on the last one. The one addition is
+# `--now`, which pins the clock so the streak is the fixture's rather than the
+# wall's; it is not part of what the skill documents.
 calls_reset
 filled=$(fill "$cr_cmd")
-# shellcheck disable=SC2086 # deliberate word-split: the skill's line IS the argv
+set -f
+# shellcheck disable=SC2086 # deliberate word-split, guarded by set -f (see R3)
 set -- $filled
-threshold=$(awk -F': *' '/^fleet_crash_disable_threshold:/ { print $2; exit }' "$REAL_DEFAULTS")
+set +f
+# Read through the resolver the callee itself reads (fleet-liveness.sh's `knob`,
+# same key, type and fallback), not a second parser of the same YAML: a
+# hand-rolled reader here would drift from the real one on a trailing comment or
+# a quoted value, and this suite would then disagree with the code it tests.
+threshold=$(pw "$sbin/resolve-config-knob.sh" --key fleet_crash_disable_threshold \
+  --type posint --fallback 3) \
+  || fail "R4a: could not resolve fleet_crash_disable_threshold"
 case $threshold in
-  "" | *[!0-9]*) fail "R4a: could not read fleet_crash_disable_threshold off the shipped defaults" ;;
+  "" | *[!0-9]*) fail "R4a: fleet_crash_disable_threshold resolved to '$threshold'" ;;
 esac
 i=1
 while [ "$i" -le "$threshold" ]; do
@@ -342,8 +372,8 @@ grep -q '^disabled ' "$tmp/cr-out" \
   || fail "R4c: $threshold crashes did not disable the worker: $(cat "$tmp/cr-out")"
 [ "$(call_count)" = 1 ] \
   || fail "R4d: the documented crash-record invocation did not reach the evaluation exactly once (calls=$(call_count))"
-grep -q -- "--terminal disabled" "$calls" \
-  || fail "R4e: crash-record reached the evaluation without reporting 'disabled': $(cat "$calls")"
+grep -q -- "evaluate $unit .*--terminal disabled" "$calls" \
+  || fail "R4e: crash-record did not evaluate $unit as disabled: $(cat "$calls")"
 [ "$(frag_count)" = 0 ] \
   || fail "R4f: the shipped posture recorded an observation through crash-record"
 [ "$(marks_of "$unit")" = 0 ] \
