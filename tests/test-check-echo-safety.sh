@@ -471,8 +471,12 @@ write_script "$tmp/fmt/scripts/badfmt.sh" 'printf "$(sanitize_printable "$x")\n"
 write_script "$tmp/fmt/scripts/badfmtvar.sh" \
   'safe=$(sanitize_printable "$x")' \
   'printf "prefix $safe\n"'
+# `%b` is the other unsafe printf spelling: it expands escapes in the ARGUMENT,
+# so it revives exactly what `%s` leaves inert.
+write_script "$tmp/fmt/scripts/pctb.sh" 'printf "%b\n" "$(sanitize_printable "$x")"'
 out="$(/bin/bash "$CHECKER" "$tmp/fmt" 2>&1)"
 assert "untrusted text in the printf format operand fails" 1 $?
+assert_contains "a %b conversion on sanitized output is caught" "$out" "scripts/pctb.sh"
 assert_contains "the direct format-operand call is caught" "$out" "scripts/badfmt.sh"
 assert_contains "the variable in the format operand is caught" "$out" "scripts/badfmtvar.sh"
 assert_contains "the message names the format operand" "$out" "FORMAT operand"

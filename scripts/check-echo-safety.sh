@@ -42,11 +42,17 @@
 # mentioning the pattern. Every file that documents this rule contains one, so
 # reading them as code would make the guard flag its own explanation.
 #
-# Known limit: a value that reaches `echo` through a helper function's
-# positional parameters (`fail_closed "$(sanitize_printable "$x")"` where
-# `fail_closed` echoes "$1") is not detected. Following it needs interprocedural
-# dataflow rather than a lexical scan. Presence, not position, is checked for
-# the variable form: an `echo` written above the assignment still counts.
+# Known limits, all of them the same shape — the value stops being traceable by
+# reading one command:
+#   - through a helper function's positional parameters (`err "$(sanitize_
+#     printable "$x")"` where `err` echoes "$1"). Following that needs
+#     interprocedural dataflow, not a lexical scan, and it is the gap most
+#     likely to hide a real one: fix the helper, not each call site.
+#   - through a second variable (`a=$(sanitize_printable "$x"); b=$a; echo
+#     "$b"`). Only the first hop is followed.
+#   - through `eval`, or an `echo` whose command name is itself quoted.
+# Presence, not position, is checked for the variable form: an `echo` written
+# above the assignment still counts.
 #
 # Scope is every sh-interpreted shell file under scripts/, tests/, and
 # githooks/, reached either by shebang or by an .sh suffix. Neither test alone
@@ -336,6 +342,12 @@ awk -v listfile="$work/list" '
     for (j = 0; j <= d; j++) if (cmd[j] == "printf" && argn[j] == 1) return 1
     return 0
   }
+  # `%b` is the other unsafe printf spelling: it expands escapes in the
+  # ARGUMENT, so `printf %b "$safe"` revives exactly what %s leaves inert.
+  function is_pctb_ancestor(d,   j) {
+    for (j = 0; j <= d; j++) if (cmd[j] == "printf" && fmtb[j] && argn[j] > 1) return 1
+    return 0
+  }
   # An assignment is only over when something terminates it at ITS OWN depth. A
   # command word inside its right-hand side — which is exactly where the
   # sanitizer call sits in `safe="$(sanitize_printable "$x")"` — must not close
@@ -352,7 +364,7 @@ awk -v listfile="$work/list" '
     if (depth >= 400) { toodeep = 1; return }
     depth++
     savedq[depth] = dq; savesq[depth] = sq; isbt[depth] = bt
-    dq = 0; sq = 0; cmd[depth] = ""; atcmd = 1; argn[depth] = 0; inarg[depth] = 0
+    dq = 0; sq = 0; cmd[depth] = ""; atcmd = 1; argn[depth] = 0; inarg[depth] = 0; fmtb[depth] = 0
   }
   function pop_depth() {
     if (depth <= 0) return
@@ -362,7 +374,8 @@ awk -v listfile="$work/list" '
   function record_ref(name, ln) {
     if (name == "") return
     if (is_echo_ancestor(depth)) { nref++; refname[nref] = name; refline[nref] = ln; refkind[nref] = "variable"; return }
-    if (is_fmt_ancestor(depth)) { nref++; refname[nref] = name; refline[nref] = ln; refkind[nref] = "format" }
+    if (is_fmt_ancestor(depth)) { nref++; refname[nref] = name; refline[nref] = ln; refkind[nref] = "format"; return }
+    if (is_pctb_ancestor(depth)) { nref++; refname[nref] = name; refline[nref] = ln; refkind[nref] = "percentb" }
   }
   function word_at_cmd(w, ln) {
     if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
@@ -378,11 +391,12 @@ awk -v listfile="$work/list" '
     if (w in transparent) return
     finish_assign(depth)
     cmd[depth] = w
-    atcmd = 0; argn[depth] = 0; inarg[depth] = 1
+    atcmd = 0; argn[depth] = 0; inarg[depth] = 1; fmtb[depth] = 0
     if (w == "sanitize_printable") {
       if (pend_assign != "" && depth > pend_depth) pend_san = 1
       if (depth > 0 && is_echo_ancestor(depth - 1)) hits[ln] = "direct"
       else if (depth > 0 && is_fmt_ancestor(depth - 1)) hits[ln] = "format"
+      else if (depth > 0 && is_pctb_ancestor(depth - 1)) hits[ln] = "percentb"
     }
   }
   function is_wordstart(p) {
@@ -426,6 +440,10 @@ awk -v listfile="$work/list" '
         if (c == " " || c == "\t") inarg[depth] = 0
         else if (cmd[depth] != "" && !inarg[depth]) { inarg[depth] = 1; argn[depth]++ }
       }
+      # Checked regardless of quote state: the format operand is normally a
+      # quoted literal, which the branches below skip over wholesale.
+      if (cmd[depth] == "printf" && argn[depth] == 1 && c == "%" \
+        && substr(s, i + 1, 1) == "b") fmtb[depth] = 1
       if (esc) { esc = 0; prev = c; i++; continue }
       if (c == "\\") {
         if (sq) { prev = c; i++; continue }
@@ -535,7 +553,7 @@ awk -v listfile="$work/list" '
     split("", cmd); split("", savedq); split("", savesq); split("", isbt)
     split("", sanvar); split("", othervar); split("", refname); split("", refline)
     split("", hits)
-    cmd[0] = ""; nref = 0; ncase = 0; split("", casedep); split("", argn); split("", inarg); split("", refkind)
+    cmd[0] = ""; nref = 0; ncase = 0; split("", casedep); split("", argn); split("", inarg); split("", refkind); split("", fmtb)
     toodeep = 0; baddelim = 0
     pend_assign = ""; pend_san = 0; pend_depth = 0
     heredoc = ""; heredoc_dash = 0; pend_heredoc = ""; pend_dash = 0
@@ -643,6 +661,10 @@ while IFS="$(printf '\t')" read -r file lineno kind extra; do
     format)
       printf 'check-echo-safety: %s:%s puts sanitize_printable output in the printf FORMAT operand; pass it as a %s argument instead\n' \
         "$safe_rel" "$lineno" "'%s'" >&2
+      ;;
+    percentb)
+      printf 'check-echo-safety: %s:%s passes sanitize_printable output to a printf %s conversion, which expands escapes in the argument; use %s\n' \
+        "$safe_rel" "$lineno" "'%b'" "'%s'" >&2
       ;;
     variable)
       printf 'check-echo-safety: %s:%s echoes a variable holding sanitize_printable output; print it with printf instead\n' \
