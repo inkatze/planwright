@@ -1272,7 +1272,16 @@ stay in the per-unit ledger.
 **The ledger feeds back into future drafting.** When a unit reaches a terminal
 state, completion or crash-loop disable alike, the terminal-state owner runs
 `scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> --terminal
-<completed|disabled> --scope <repo>`. It replays that unit's ledger and, when
+<completed|disabled> --scope <repo>`. There are two such owners, and each
+reports the state it owns: `scripts/fleet-fence.sh sweep` reports `completed`
+from its terminal branch, where the fence lifecycle ends, and
+`scripts/fleet-liveness.sh crash-record` reports `disabled` from the disable
+branch. Both take the unit's identity from their caller — the ledger unit key
+(which the sweep assembles from the spec and unit id it already holds), the
+selection key, and the observation scope are flags, all-or-none, because none
+of them can be derived from what a terminal-state owner knows. Neither call can
+cost the transition it hangs off: a recording failure is surfaced and the
+disable still stands, the fence is still GC'd. It replays that unit's ledger and, when
 the history says the starting tier was wrong, records one observation fragment
 through the shared helper, which is how chronic under-estimation reaches the
 next round of `/spec-draft` seed mining. Two conditions fire it: the unit's
