@@ -37,7 +37,9 @@
 #   result           the run outcome, one tab-separated row:
 #                    result <subtype> <epoch> [is_error] | exit <rc> <epoch>
 #                    is_error ∈ true|false, absent on records written before
-#                    the field existed (read as false)
+#                    the field existed (read as false). Newline-terminated:
+#                    the terminator is what says the writer finished, so a row
+#                    without one is a write in flight, never a completion.
 #   supervisor.pid / worker.pid / recover.lock/ / journal.lock/
 # Placing the capture under the fleet home is the strongest reading of the
 # Task 4 "gitignored location outside committed paths" clause: it sits
@@ -132,6 +134,10 @@ unset CDPATH
 # The record separator for the result file, needed to anchor a field match to a
 # real field boundary rather than a name prefix.
 TAB=$(printf '\t')
+# The record TERMINATOR. The writers below end every record with it, so its
+# presence is what distinguishes a record from a snapshot of one being written.
+NL=$(printf '\nx')
+NL=${NL%x}
 me=fleet-streamjson
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
@@ -1202,17 +1208,31 @@ cmd_status() {
   # returned `completed` 156 times in 400 against a file whose writer only ever
   # wrote an is_error record. That direction of failure is the one this record
   # exists to prevent, so the verdict must not be assembled from fields taken at
-  # different instants. read_completion in fleet-stuck-detector.sh reads it this
-  # way already; this is the sibling catching up.
+  # different instants. read_completion in fleet-stuck-detector.sh already takes
+  # its snapshot in one read; this is the sibling catching up. It enforces the
+  # same terminator rule below, so the two agree on a torn snapshot as well —
+  # it reports the record malformed where this one falls through to liveness.
   #
   # A torn or empty snapshot is NOT evidence of completion. It falls through to
   # the liveness check below, which is the honest answer while a write is in
   # flight.
-  st_line=$(head -c 4096 "$dir/result" 2>/dev/null | head -n 1) || st_line=""
+  # Completeness is the TERMINATOR, not the leading field: the writers emit a
+  # record in one newline-ended printf, so an unterminated snapshot is one they
+  # have not finished (a short write on a full disk leaves one on disk for
+  # good). A prefix of an is_error record still opens `result<TAB>` and still
+  # parses as subtype success, so stopping at the kind word calls a dead run
+  # clean. Not the field count: a terminated two-field record is a shape
+  # fleet-status.sh already renders completed.
+  st_raw=$(
+    head -c 4096 "$dir/result" 2>/dev/null
+    printf x
+  )
+  st_raw=${st_raw%x}
   st_seen=0
-  case $st_line in
-    result"$TAB"* | exit"$TAB"*) st_seen=1 ;;
+  case $st_raw in
+    result"$TAB"*"$NL"* | exit"$TAB"*"$NL"*) st_seen=1 ;;
   esac
+  st_line=${st_raw%%"$NL"*}
   if [ "$st_seen" = 1 ]; then
     st_kind=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $1 }')
     detail=$(printf '%s\n' "$st_line" | awk -F'\t' 'NR == 1 { print $1 "=" $2 }')

@@ -826,7 +826,10 @@ REC
 # otherwise) from the stream-json supervisor's `result` record
 # (result <subtype> <epoch> [is_error] | exit <rc> <epoch>) or the headless
 # runner's `exit` record (<rc> <epoch>). A frame flagging is_error is never a
-# success, whatever its subtype claims. One bounded read per record.
+# success, whatever its subtype claims. The `result` record is newline-
+# terminated and an unterminated one is refused as malformed; the headless
+# `exit` record carries no such check, so a torn one there still reads as a
+# completion. One bounded read per record.
 read_completion() {
   completion=absent
   completion_ok=0
@@ -837,7 +840,28 @@ read_completion() {
       note_anomaly result-unreadable
       return 0
     fi
-    rc_line=$(head -c 4096 "$rc_dir/result" 2>/dev/null | head -n 1) || rc_line=""
+    # The writer truncates and rewrites this record in place, and a short write
+    # on a full disk leaves a partial one on disk for good. A prefix of an
+    # is_error record still opens `result<TAB>` and still parses as subtype
+    # success, so a reader that stops at the leading fields calls a dead run a
+    # clean completion — and this reader's verdict is what frees a slot.
+    # Completeness is the TERMINATOR the writer always emits, not the field
+    # count: a terminated two-field record is a shape other consumers already
+    # read. An unterminated snapshot is a write in flight, reported as a
+    # malformed record rather than guessed at.
+    rc_raw=$(
+      head -c 4096 "$rc_dir/result" 2>/dev/null
+      printf x
+    )
+    rc_raw=${rc_raw%x}
+    case $rc_raw in
+      *"$NL"*) ;;
+      *)
+        note_anomaly result-record-malformed
+        return 0
+        ;;
+    esac
+    rc_line=${rc_raw%%"$NL"*}
     rc_kind=${rc_line%%"$TAB"*}
     rc_rest=${rc_line#*"$TAB"}
     rc_val=${rc_rest%%"$TAB"*}

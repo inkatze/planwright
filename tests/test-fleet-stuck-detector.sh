@@ -12,7 +12,10 @@
 #     stability classifies working; a prompt signature outranks a stale
 #     working push; a hook-pushed awaiting-input row is the primary signal;
 #   - REQ-C1.3: a worker whose session ended while its process persists is
-#     finished-but-unreaped, distinct from working and from dead;
+#     finished-but-unreaped, distinct from working and from dead; a result
+#     record flagging is_error is a failed completion whatever its subtype
+#     claims, the flag is read as field 4 exactly, and an unterminated record
+#     snapshot is refused rather than read as a completion;
 #   - REQ-C1.4: a self-reported completion with an uncommitted tree or with
 #     commits absent from the remote-tracking ref never classifies finished,
 #     the evidence is local git state only, and no forge is queried;
@@ -889,5 +892,20 @@ out=$(run "$h20" classify "$w" --worktree "$wt") || fail "legacy-record classify
 [ "$(reason_of "$out")" = "completion:result=success" ] \
   || fail "a three-field result record changed meaning: '$(reason_of "$out")'"
 echo "ok: a result record without the is_error field keeps its previous reading (REQ-C1.3)"
+
+# The supervisor truncates and rewrites this record in place, so a reader can
+# catch a snapshot it has not finished, and a short write on a full disk leaves
+# one on disk for good. A prefix of the is_error record above still opens
+# `result<TAB>` and still parses as subtype success, so a reader that stops at
+# the leading fields calls a dead run a clean completion — and this reader's
+# verdict is the one a tower acts on to free the slot. Completeness is the
+# terminator the writer always emits.
+printf 'result\tsuccess\t' >"$sd20/result"
+out=$(run "$h20" classify "$w" --worktree "$wt") || fail "torn-record classify exited non-zero"
+[ "$(state_of "$out")" != finished-but-unreaped ] \
+  || fail "an unterminated snapshot was read as a finished completion"
+[ "$(ev "$out" completion)" = absent ] \
+  || fail "an unterminated snapshot is not a completion record: '$(ev "$out" completion)'"
+echo "ok: an unterminated result snapshot is not read as a completion (REQ-C1.3)"
 
 echo "PASS: fleet-stuck-detector"

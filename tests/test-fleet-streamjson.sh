@@ -970,4 +970,59 @@ grep -q "^result${tab}success${tab}[0-9][0-9]*${tab}true$" "$home/streamjson/sjw
   || fail "c19: the recorded result row is not <result subtype epoch is_error>: $(cat "$home/streamjson/sjw19/result")"
 echo "ok: c19 a result frame claiming success while carrying is_error is reported ended, not completed"
 
+# ---------------------------------------------------------------------------
+# c20: the result file is truncated and rewritten in place, so a reader can
+#      catch a snapshot the writer has not finished — a short write on a full
+#      disk leaves one on disk outright. A prefix of an is_error record still
+#      starts `result<TAB>` and still parses as subtype success, so a check
+#      that stops at the leading field calls a dead run clean: the exact
+#      direction this record exists to close. Completeness is the line
+#      terminator the writers always emit, not the field count — a
+#      newline-terminated two-field record is a shape fleet-status.sh already
+#      renders completed, and rejecting it here would change a verdict this
+#      block was never asked to touch.
+# ---------------------------------------------------------------------------
+home="$tmp/h20"
+rec="$tmp/r20"
+mkdir -p "$rec"
+
+# verdict <case> <record-bytes> <required-verdict-word>
+verdict() {
+  v_name=$1
+  v_bytes=$2
+  v_want=$3
+  mkdir -p "$home/streamjson/$v_name" || fail "c20/$v_name: cannot plant the dir"
+  printf '%s' "$v_bytes" >"$home/streamjson/$v_name/result"
+  v_out=$(senv "$home" "$rec" -- status "$v_name") \
+    || fail "c20/$v_name: status exited non-zero"
+  case $v_out in
+    *" $v_want "*) : ;;
+    *) fail "c20/$v_name: expected verdict $v_want, got: $v_out" ;;
+  esac
+}
+
+# Unterminated: the verdict must be the liveness answer for a dir with no pids,
+# not a fabricated one in either direction — `ended` would be as invented as
+# `completed` here.
+verdict sjw20a "result$tab" unknown
+verdict sjw20b "result${tab}success$tab" unknown
+verdict sjw20c "result${tab}success" unknown
+verdict sjw20d "result${tab}success${tab}17887" unknown
+verdict sjw20e "exit${tab}0" unknown
+# Terminated: every shape a writer actually emits keeps its verdict.
+verdict sjw20f "result${tab}success${tab}1700000000
+" completed
+verdict sjw20g "result${tab}success${tab}1700000000${tab}true
+" ended
+verdict sjw20h "exit${tab}0${tab}1700000000
+" completed
+verdict sjw20i "exit${tab}1${tab}1700000000
+" ended
+# fleet-status.sh consumes this surface and its suite pins a two-field record
+# as completed; the terminator, not the field count, is what says the writer
+# finished.
+verdict sjw20j "result${tab}0
+" completed
+echo "ok: c20 an unterminated result snapshot is not read as a completion"
+
 echo "all fleet-streamjson tests passed"
