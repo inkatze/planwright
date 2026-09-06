@@ -76,8 +76,14 @@ fail() {
 tmp=$(mktemp -d)
 # The fatal signals as well as EXIT: bash runs no EXIT trap when killed by an
 # untrapped INT/TERM, and this fixture holds a bare repo, a clone and a fleet
-# state dir that a Ctrl-C would otherwise leak.
-trap 'rm -rf "$tmp"' EXIT INT TERM HUP
+# state dir that a Ctrl-C would otherwise leak. The signal arms re-exit rather
+# than returning, because a trapped handler otherwise RESUMES the script — which
+# would carry on against a fixture it had just deleted and fail somewhere
+# misleading.
+trap 'rm -rf "$tmp"' EXIT
+trap 'rm -rf "$tmp"; exit 130' INT
+trap 'rm -rf "$tmp"; exit 143' TERM
+trap 'rm -rf "$tmp"; exit 129' HUP
 
 # The extracted commands are split on whitespace to build an argv, so a fixture
 # path carrying a space would silently produce a different command than the one
@@ -247,7 +253,7 @@ extract_invocation() {
 # green — the failure mode a grep-only test has by construction.
 fill() {
   fi_cmd=$1
-  fi_cmd=${fi_cmd//<absolute-checkout>/$co}
+  fi_cmd=${fi_cmd//<absolute-primary-checkout>/$co}
   fi_cmd=${fi_cmd//<spec>/demo}
   fi_cmd=${fi_cmd//<unit-id>/1}
   fi_cmd=${fi_cmd//<repo-name>/planwright}

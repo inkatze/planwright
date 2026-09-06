@@ -170,7 +170,7 @@ law is `orchestration-concurrency` (read here). Ordered steps:
    dispatch against spec content changed since sign-off and against a **stale local
    `main`**:
    - **Fetch-before-gate** (D-9, REQ-D1.1). `scripts/dispatch-fetch.sh --spec
-     specs/<spec> <absolute-checkout>` fetches `origin` (bounded by
+     specs/<spec> <primary-checkout>` fetches `origin` (bounded by
      `dispatch_fetch_ttl`, coalesced with the reconcile-sweep fetch, **no
      local-`main` advance**) and prints the fetched **`origin/main`** anchor
      (re-pointing `spec-anchor.sh`). Exit **0** → gate vs `origin/main`; **3**
@@ -270,8 +270,9 @@ reconcile, or an attributed relay).
 - **subagent**. A background worker with isolated context and a native
   worktree per unit; completion notifies the tower, and its questions funnel to
   the tower's single prompt queue. A human merges the shipped
-  `config/worker-settings.json` profile into the worker's settings; it denies
-  merge, force-push and amend (planwright never edits settings.json, REQ-I1.2).
+  `config/worker-settings.json` profile into the worker's settings; its deny
+  block denies merge, force-push, amend and more (planwright never edits
+  settings.json, REQ-I1.2).
 - **tmux** (opt-in). An interactive worker in a named window via `claude
   --worktree`. Detect stuck/finished/errored workers with **capture-pane only** —
   **never** send-keys impersonation. Relay attributed messages via tmux
@@ -319,7 +320,7 @@ arms read the declared `Format-version:`; unparseable fails closed, never the v1
 write (D-7). The sweep:
 
 1. **Refresh the remote view (best-effort).** `scripts/dispatch-fetch.sh
-   --best-effort <absolute-checkout>` — the same bounded fetch the gate uses (D-9),
+   --best-effort <primary-checkout>` — the same bounded fetch the gate uses (D-9),
    coalesced with it onto one TTL-stamped fetch instead of one per `--watch`
    cycle. `--best-effort` is one attempt (no retries); a reconcile tolerates
    staleness. Remote-tracking refs only; **no local-`main` advance**. Any nonzero
@@ -349,8 +350,8 @@ REQ-F1.2; `docs/fleet.md`). Neither report may cost the transition it hangs off:
 surface the failure and carry on.
 
 ```sh
-scripts/fleet-fence.sh gc --checkout <absolute-checkout> --spec <spec> <unit-id> --alloc-key execution --obs-scope <repo-name>
-scripts/fleet-liveness.sh crash-record <worker-handle> <worker-scope> --alloc-unit <spec>:task-<unit-id> --alloc-key execution --obs-scope <repo-name> --obs-dir <absolute-checkout>/specs/_observations
+scripts/fleet-fence.sh gc --checkout <absolute-primary-checkout> --spec <spec> <unit-id> --alloc-key execution --obs-scope <repo-name>
+scripts/fleet-liveness.sh crash-record <worker-handle> <worker-scope> --alloc-unit <spec>:task-<unit-id> --alloc-key execution --obs-scope <repo-name> --obs-dir <absolute-primary-checkout>/specs/_observations
 ```
 
 The first on each unit step 2 resolves as merged, which also retires any fence

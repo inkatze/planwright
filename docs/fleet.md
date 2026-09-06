@@ -937,8 +937,12 @@ terminal state, so `crash-record` reports it to the escalation feedback loop
 when given the identity to report — `--alloc-unit`, `--alloc-key`,
 `--obs-scope` and `--obs-dir`, all-or-none. `/orchestrate`'s reconcile is what
 gives it: it runs this on the dead worker it proved before parking the orphan.
-Described with its `completed` twin where the ledger's feedback loop is covered
-below.
+Note what that does **not** buy on its own. The streak is per worker handle and
+the reconcile never re-dispatches, so one reconcile pass records one crash; the
+disable — and with it the `disabled` report — is reached only when the same
+handle dies `fleet_crash_disable_threshold` times, which today means a human
+re-dispatching it. The `completed` half needs no such help. Described with its
+twin where the ledger's feedback loop is covered below.
 
 ### What planwright registers, and the event it deliberately does not
 
