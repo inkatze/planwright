@@ -259,6 +259,21 @@ pw "$FLV" crash-record "$worker" "$wscope" --now 1000 \
 [ ! -e "$fleet_home/liveness/crash/$worker" ] \
   || fail "A1d: a usage error still wrote a crash record"
 
+# A malformed unit is refused where it enters, and the refusal must not
+# re-emit what it was handed. `/bin/sh` is dash on Linux, whose `echo`
+# re-expands a literal backslash escape into the control byte the sanitizer
+# strips — so the diagnostic is checked for the BYTE, not the two characters.
+rc=0
+err="$tmp/a1.err"
+pw "$FLV" crash-record "$worker" "$wscope" --now 1000 \
+  --alloc-unit 'demo:task-1\n\033[31mINJECTED' --alloc-key execution \
+  --obs-scope planwright --obs-dir "$obsdir" >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "A1e: a malformed --alloc-unit should exit 2, got $rc"
+[ "$(awk 'END { print NR }' "$err")" = 1 ] \
+  || fail "A1f: the refusal spans several lines — an escape was re-expanded: $(od -c <"$err" | head -3)"
+LC_ALL=C grep -q '[[:cntrl:]]' "$err" \
+  && fail "A1g: the refusal emitted a control byte: $(od -c <"$err" | head -3)"
+
 # --- A2. no identity flags: the owner is byte-identical to before ----------
 reset_liveness
 out=$(crash_to_disable A2) || fail "A2: the disabling crash-record failed"

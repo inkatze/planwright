@@ -461,9 +461,13 @@ report_terminal_feedback() {
     echo "fleet-liveness: allocation-feedback.sh is missing or not executable; the disable stands, no feedback observation was evaluated" >&2
     return 0
   fi
+  # printf, not echo: `sanitize_printable` strips control BYTES but leaves a
+  # literal backslash alone, and this script runs under a /bin/sh that is dash
+  # on Linux, whose `echo` re-expands `\n` into the control byte the sanitizer
+  # just removed. The neighbours predate this and carry the same exposure.
   "$AFB" evaluate "$ALLOC_UNIT" --key "$ALLOC_KEY" --terminal disabled \
     --scope "$OBS_SCOPE" --obs-dir "$OBS_DIR" >/dev/null \
-    || echo "fleet-liveness: the allocation-feedback evaluation for unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")' did not complete (its own reason is above); the disable stands" >&2
+    || printf '%s\n' "fleet-liveness: the allocation-feedback evaluation for unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")' did not complete (its own reason is above); the disable stands" >&2
   return 0
 }
 
@@ -1895,11 +1899,17 @@ case "$cmd" in
     # The terminal-feedback identity is ALL-OR-NONE. A caller that wired three
     # of the four has a bug, and accepting it would reproduce the failure this
     # wiring exists to close: an evaluation that never runs and never says so.
-    # The values themselves are left to allocation-feedback.sh, which owns
-    # every one of these grammars and refuses out-of-grammar input on its own.
     if [ -n "$ALLOC_UNIT$ALLOC_KEY$OBS_SCOPE$OBS_DIR" ] \
       && { [ -z "$ALLOC_UNIT" ] || [ -z "$ALLOC_KEY" ] || [ -z "$OBS_SCOPE" ] || [ -z "$OBS_DIR" ]; }; then
       echo "fleet-liveness: --alloc-unit, --alloc-key, --obs-scope and --obs-dir are all-or-none; give all four to report this unit's terminal state to the escalation feedback loop, or none to record the crash without it" >&2
+      exit 2
+    fi
+    # The unit is refused where it ENTERS, the way this subcommand's worker and
+    # scope arguments are. allocation-feedback.sh checks it again on its own
+    # side, but by then this value has already reached a diagnostic here, and
+    # `valid_field`'s charset is the ledger's identity charset exactly.
+    if [ -n "$ALLOC_UNIT" ] && ! valid_field "$ALLOC_UNIT"; then
+      printf '%s\n' "fleet-liveness: refusing malformed --alloc-unit '$(sanitize_printable "$ALLOC_UNIT" "(unprintable unit)")'" >&2
       exit 2
     fi
     if [ -z "$now" ]; then
