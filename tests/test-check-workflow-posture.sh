@@ -112,7 +112,8 @@ out="$("$GUARD" "$d" 2>&1)"
 assert_exit "stored secret in a push-only workflow passes" 0 $?
 
 # Reachability scoping, direction 2: a privileged workflow_run workflow is
-# fine while it keeps its base-branch filter and consumes no PR artifact.
+# fine while it keeps its base-branch filter, pins the originating repository,
+# and consumes no PR artifact.
 d="$(mkdir_case pass-workflow-run-filtered)"
 cat >"$d/release.yml" <<'EOF'
 ---
@@ -126,6 +127,8 @@ permissions:
   contents: write
 jobs:
   release:
+    if: >-
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - run: ./release.sh
@@ -134,6 +137,28 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "filtered privileged workflow_run passes" 0 $?
+
+# An UNprivileged workflow_run workflow needs neither clause: assertion 4 is
+# scoped to the ones that actually hold write permissions or secrets, and a
+# read-only observer has no privilege for a fork run to borrow.
+d="$(mkdir_case pass-workflow-run-readonly)"
+cat >"$d/observe.yml" <<'EOF'
+---
+name: observe
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./observe.sh
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "unprivileged workflow_run needs no head_repository clause" 0 $?
 
 # The two permission shorthands that are read-only-or-less.
 d="$(mkdir_case pass-shorthands)"
@@ -408,6 +433,58 @@ EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "privileged workflow_run without a base-branch filter fails" 1 $?
 assert_contains "the missing filter is named" "branches" "$out"
+
+# A privileged workflow_run workflow that keeps its base-branch filter but
+# never says WHO produced the triggering run. `branches:` and a `head_branch`
+# guard both match the triggering run's head branch, so a fork PR from a branch
+# named `main` — the default name — satisfies both and fires the job with the
+# base repo's write token.
+d="$(mkdir_case fail-workflow-run-no-head-repository)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "privileged workflow_run without a head_repository clause fails" 1 $?
+assert_contains "the missing originating-repository clause is named" \
+  "head_repository" "$out"
+
+# The clause must be live, not narrated: a full-line comment mentioning it does
+# not satisfy the assertion. This is the regression shape that matters — the
+# clause gets deleted while the paragraph explaining it stays behind.
+d="$(mkdir_case fail-workflow-run-head-repository-commented)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    # github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a commented-out head_repository clause does not satisfy the guard" 1 $?
 
 # A privileged workflow_run workflow consuming a PR-produced artifact: the
 # artifact-poisoning path GitHub's own docs warn about.

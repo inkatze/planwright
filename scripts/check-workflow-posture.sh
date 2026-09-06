@@ -26,10 +26,17 @@
 #      governed by assertion 2. Reachability follows local reusable-workflow
 #      `uses:` edges.
 #   4. Any `workflow_run` workflow holding write permissions or secrets keeps a
-#      base-branch filter and consumes no PR-produced artifact. A `workflow_run`
-#      fired by a fork PR's workflow runs with the base repo's secrets and write
-#      token, so an unfiltered one — or one that unpacks an artifact the PR
-#      produced — is the documented cache/artifact-poisoning path.
+#      base-branch filter, pins the ORIGINATING repository, and consumes no
+#      PR-produced artifact. A `workflow_run` fired by a fork PR's workflow runs
+#      with the base repo's secrets and write token, so an unfiltered one — or
+#      one that unpacks an artifact the PR produced — is the documented
+#      cache/artifact-poisoning path. The branch filter alone does not scope the
+#      trigger to this repository: `branches:` matches the TRIGGERING run's head
+#      branch, and a fork PR's head branch is the fork's ref, so a fork PR from a
+#      branch named like the base branch satisfies it. Only a
+#      `github.event.workflow_run.head_repository` clause says who produced the
+#      run, which is what decides whether an outsider can choose when the
+#      privileged job fires and whose CI verdict it acts on.
 #
 # Cache and artifact posture beyond assertion 4 carries no standing check: an
 # accepted residual recorded in D-6, covered by the REQ-C1.1 audit only.
@@ -75,6 +82,19 @@
 # not do, so it is an accepted residual on the same footing as the cache
 # posture above — assertion 4 raises the cost of the artifact-poisoning path
 # rather than proving it shut.
+#
+# The originating-repository half is a text scan for the same reason, and its
+# residual runs the other way: it proves the clause is PRESENT somewhere in the
+# file, not that it gates the privileged job. The expression it must appear in
+# is a job `if:`, whose ordinary `>-` spelling is a block scalar this parser
+# reads as leaf content, and whether an expression is a gate is exactly the
+# evaluation the parser does not do. So the check catches the regression that
+# happens (the clause is deleted, or the workflow never had one) and not the
+# evasion that would have to be written on purpose (the clause parked in an
+# `env:` value, or one job carrying it while a second privileged job in the
+# same file does not). What it does refuse is the clause surviving only as
+# narration: full-line comments never reach the scan and a trailing comment is
+# stripped before it, so a paragraph outliving the clause it explains fails.
 #
 # Remote reusable workflows (`owner/repo/.github/workflows/x.yml@ref`) are not
 # fetched, and do not need to be: GitHub scopes a called workflow's
@@ -154,6 +174,7 @@ trap 'rm -rf "$work"' EXIT
 #   S <job> inherit                 a job-level `secrets: inherit`
 #   R <line> <name>                 a stored-secret reference (GITHUB_TOKEN excluded)
 #   A <line>                        an artifact-download reference
+#   H <line>                        a workflow_run head_repository reference
 read -r -d '' awk_parser <<'AWK_PARSER' || true
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function unquote(s) { sub(/^["']/, "", s); sub(/["']$/, "", s); return s }
@@ -239,6 +260,11 @@ function scan_refs(t, nr,   low, s, tok) {
     if (tok != "github_token") printf "R\t%d\t%s\n", nr, toupper(tok)
   }
   if (low ~ /download-artifact/ || low ~ /gh[ \t]+run[ \t]+download/) printf "A\t%d\n", nr
+  # Strip a trailing comment before this one match: a mention parked in a
+  # comment must not satisfy an assertion (unlike the secret scan above, where
+  # scanning comments over-blocks and so errs loud).
+  sub(/[ \t]+#.*$/, "", low)
+  if (low ~ /github\.event\.workflow_run\.head_repository/) printf "H\t%d\n", nr
 }
 BEGIN {
   section = ""; on_child = -1; perm_child = -1; jobs_child = -1
@@ -579,6 +605,9 @@ if [ "$parse_failed" -eq 0 ]; then
       if [ "$privileged" -eq 1 ]; then
         if [ -z "$(fact "$i" W)" ]; then
           fail "$file: privileged \`workflow_run\` workflow ($reason) has no \`branches:\` base-branch filter, so a fork PR's workflow can trigger it with the base repo's token"
+        fi
+        if [ -z "$(fact "$i" H)" ]; then
+          fail "$file: privileged \`workflow_run\` workflow ($reason) never references \`github.event.workflow_run.head_repository\`, so nothing scopes the trigger to runs this repository produced — a fork PR from a branch named like the base branch satisfies the branch filter and fires it with the base repo's token"
         fi
         while IFS=$'\t' read -r _ ln; do
           [ -n "${ln:-}" ] || continue
