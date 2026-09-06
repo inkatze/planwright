@@ -201,9 +201,14 @@ now_epoch() {
 # --- the Task 9 advisory lock, consumed through fleet-state.sh's exposed
 #     one-shot `lock`/`unlock` primitive (D-11). We spin the one-shot acquire so
 #     an attention write is never dropped under contention, matching fleet-state
-#     spin_acquire's bounded 20ms backoff. HOLD_LOCK gates release so we never
-#     unlink a lock we do not hold. On a fatal signal the trap releases AND exits
-#     (below) rather than resuming the critical section unlocked.
+#     spin_acquire's bounded 20ms backoff. On a fatal signal the trap releases
+#     AND exits (below) rather than resuming the critical section unlocked.
+#     HOLD_LOCK gates WHETHER we release, and that is all it does — two things
+#     it is not: `unlock` is unconditional and takes no token, so a release
+#     after our own lock was broken as stale unlinks whoever holds it now; and
+#     the flag is set after `lock` returns, so a signal in that gap leaves a
+#     lock we do hold unreleased until the stale break. Both need the owner
+#     token to cross the process boundary, which the primitive does not yet do.
 HOLD_LOCK=0
 
 release_lock() {
