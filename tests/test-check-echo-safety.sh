@@ -64,7 +64,7 @@ if [ ! -f "$CHECKER" ]; then
   exit 1
 fi
 
-tmp="$(mktemp -d)" || exit 1
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-check-echo-safety.XXXXXX")" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 make_root() {
@@ -77,7 +77,7 @@ write_file() {
   shift
   mkdir -p "$(dirname "$wf_path")" || exit 1
   for wf_line in "$@"; do
-    echo "$wf_line"
+    printf '%s\n' "$wf_line"
   done >"$wf_path" || exit 1
 }
 
@@ -425,6 +425,97 @@ assert "a globbing shebang does not buy an exemption" 1 $?
 assert_contains "the globbing-shebang file is scanned and flagged" "$out" "scripts/globby.sh"
 
 # ---------------------------------------------------------------------------
+# 12c. Shapes a review pass caught the guard answering clean over. Each was
+#      reproduced against the guard before it was fixed, so each is a
+#      regression test rather than a hypothetical.
+# ---------------------------------------------------------------------------
+make_root "$tmp/missed"
+filler "$tmp/missed"
+# The `&` of a redirection is not a command separator. Read as one, the `2`
+# becomes the command word and the echo is never seen — and this repo writes
+# redirect-first echoes, so the miss was live.
+write_script "$tmp/missed/scripts/redir.sh" 'echo >&2 "$(sanitize_printable "$x")"'
+# A braced word holding a live substitution must be scanned, not stepped over.
+write_script "$tmp/missed/scripts/brace.sh" 'echo "${x:-$(sanitize_printable "$y")}"'
+# The POSIX case spelling: the opening paren of the pattern opens no subshell.
+write_script "$tmp/missed/scripts/parencase.sh" \
+  'case $x in' \
+  '(a) echo "$(sanitize_printable "$y")" ;;' \
+  'esac'
+# A declaration prefix must not eat the command slot, or the assignment is
+# never recorded and echoing the variable afterwards looks clean.
+write_script "$tmp/missed/scripts/decl.sh" \
+  'export safe=$(sanitize_printable "$x")' \
+  'echo "$safe"'
+write_script "$tmp/missed/tests/decl-local.sh" \
+  'local safe=$(sanitize_printable "$x")' \
+  'echo "$safe"'
+# `(( x << 2 ))` is arithmetic, not a heredoc. Mistaking it swallows the rest.
+write_script "$tmp/missed/scripts/arithcmd.sh" \
+  '(( x << 2 ))' \
+  'echo "$(sanitize_printable "$y")"'
+out="$(/bin/bash "$CHECKER" "$tmp/missed" 2>&1)"
+assert "the shapes that answered clean now fail" 1 $?
+for f in scripts/redir.sh scripts/brace.sh scripts/parencase.sh scripts/decl.sh \
+  tests/decl-local.sh scripts/arithcmd.sh; do
+  assert_contains "$f is caught" "$out" "$f"
+done
+
+# The remedy has an unsafe spelling of its own. printf expands its FORMAT
+# operand in every shell, bash included, so untrusted text there is worse than
+# the echo it replaced — and a guard that prescribes printf without checking
+# how it is spelled invites exactly that as the next regression.
+make_root "$tmp/fmt"
+filler "$tmp/fmt"
+write_script "$tmp/fmt/scripts/badfmt.sh" 'printf "$(sanitize_printable "$x")\n"'
+write_script "$tmp/fmt/scripts/badfmtvar.sh" \
+  'safe=$(sanitize_printable "$x")' \
+  'printf "prefix $safe\n"'
+out="$(/bin/bash "$CHECKER" "$tmp/fmt" 2>&1)"
+assert "untrusted text in the printf format operand fails" 1 $?
+assert_contains "the direct format-operand call is caught" "$out" "scripts/badfmt.sh"
+assert_contains "the variable in the format operand is caught" "$out" "scripts/badfmtvar.sh"
+assert_contains "the message names the format operand" "$out" "FORMAT operand"
+
+# ---------------------------------------------------------------------------
+# 12d. A file the scan did not finish reading as code must be a refusal, not a
+#      clean report. This is the contract the guard states about coverage, and
+#      it is the one an undercounting scan quietly breaks.
+# ---------------------------------------------------------------------------
+make_root "$tmp/openhd"
+filler "$tmp/openhd"
+write_file "$tmp/openhd/scripts/openheredoc.sh" '#!/bin/sh' 'cat <<DOC' 'body never terminated'
+out="$(/bin/bash "$CHECKER" "$tmp/openhd" 2>&1)"
+assert "a file ending inside a heredoc fails closed" 2 $?
+assert_contains "the refusal names the file" "$out" "scripts/openheredoc.sh"
+
+make_root "$tmp/partial-q"
+filler "$tmp/partial-q"
+write_file "$tmp/partial-q/scripts/openquote.sh" '#!/bin/sh' 'echo "never closed'
+out="$(/bin/bash "$CHECKER" "$tmp/partial-q" 2>&1)"
+assert "a file ending inside a string fails closed" 2 $?
+
+make_root "$tmp/partial-d"
+filler "$tmp/partial-d"
+write_file "$tmp/partial-d/scripts/baddelim.sh" '#!/bin/sh' 'cat <<@NOPE' 'body' '@NOPE'
+out="$(/bin/bash "$CHECKER" "$tmp/partial-d" 2>&1)"
+assert "an unparseable heredoc delimiter fails closed" 2 $?
+assert_contains "the delimiter refusal says the extent is unknown" "$out" "cannot parse"
+
+# A symlink is followed only to a regular file. One pointing at a FIFO would
+# otherwise block the read forever, hanging the gate instead of answering.
+make_root "$tmp/fifo"
+filler "$tmp/fifo"
+if mkfifo "$tmp/fifo-target" 2>/dev/null; then
+  ln -s "$tmp/fifo-target" "$tmp/fifo/scripts/pipe.sh"
+  out="$(/bin/bash "$CHECKER" "$tmp/fifo" 2>&1)"
+  assert "a symlink to a FIFO fails closed instead of hanging" 2 $?
+  assert_contains "the FIFO refusal names the link" "$out" "scripts/pipe.sh"
+else
+  echo "ok: mkfifo unavailable, skipping the FIFO refusal case"
+fi
+
+# ---------------------------------------------------------------------------
 # 13. The allowlist. It exempts the exact paths of files open in other PRs, and
 #     nothing else. An entry that no longer violates is a bookkeeping error, so
 #     the allowlist cannot outlive the merges it was created for.
@@ -556,7 +647,7 @@ assert "-h is accepted too" 0 $?
 # ---------------------------------------------------------------------------
 # 18. Done-when, on the real corpus: planting the defect in a copy of the real
 #     tree turns the check red. Synthetic fixtures cannot show that the guard
-#     still works against 300-odd real files, and the converted files are the
+#     still works against the whole real corpus, and the converted files are the
 #     thing that has to stay converted.
 # ---------------------------------------------------------------------------
 mkdir -p "$tmp/work"
@@ -574,7 +665,7 @@ assert_contains "the red run names the planted file" "$out" "scripts/planted-off
 rm -f "$tmp/work/scripts/planted-offender.sh"
 
 # Reverting one converted script to its echo spelling must also go red — this
-# is what stops the 28 conversions from silently regressing.
+# is what stops the converted call sites from silently regressing.
 victim="$tmp/work/scripts/spec-status.sh"
 if [ ! -f "$victim" ]; then
   echo "FAIL: expected a converted script at scripts/spec-status.sh" >&2

@@ -165,8 +165,8 @@ does not expand its operands, so it is inert.
 
 Remedy: rewrite the call site.
 
-  echo "prefix $(sanitize_printable "$x")" >&2
-  printf 'prefix %s\n' "$(sanitize_printable "$x")" >&2
+  echo "prefix $(sanitize_printable "$x")" >&2          # wrong
+  printf 'prefix %s\n' "$(sanitize_printable "$x")" >&2  # right
 
 Keep the sanitizer: it is what strips the control bytes. `printf` is what stops
 the surviving printable escape TEXT from being re-expanded. Both are needed.
@@ -254,13 +254,17 @@ done
 : >"$work/list"
 count=0
 skipped=0
+dropped=0
 newline='
 '
 tab="$(printf '\t')"
 while IFS= read -r -d '' file; do
   rel="${file#"$root"/}"
-  # Sanitizing is three forks, so it happens only on the paths that actually
-  # reach the terminal, never once per enumerated file.
+  # Sanitizing forks, so it happens only on the paths that actually reach the
+  # terminal, never once per enumerated file.
+  # A newline or a tab in a filename would be swallowed by the newline-
+  # delimited file list or by the tab-delimited offender records below.
+  # Refusing is the fail-closed answer; silently skipping is not.
   case "$file" in
     *"$newline"* | *"$tab"*)
       fail_closed "filename contains a newline or tab, refusing to scan: $(sanitize_printable "$rel" "(unprintable filename)")"
@@ -283,7 +287,10 @@ while IFS= read -r -d '' file; do
     '#!'*) ;;
     *) case "$file" in
       *.sh) ;;
-      *) continue ;;
+      *)
+        dropped=$((dropped + 1))
+        continue
+        ;;
     esac ;;
   esac
   # bash is the ONLY interpreter here whose `echo` leaves backslash escapes
@@ -632,16 +639,20 @@ while IFS="$(printf '\t')" read -r file lineno kind extra; do
       ;;
   esac
   safe_rel="$(sanitize_printable "$rel" "(unprintable filename)")"
-  if [ "$kind" = "format" ]; then
-    printf 'check-echo-safety: %s:%s puts sanitize_printable output in the printf FORMAT operand; pass it as a '"'"'%%s'"'"' argument instead — the format is expanded by every shell, bash included, so this is worse than the echo it replaces\n' \
-      "$safe_rel" "$lineno" >&2
-  elif [ "$kind" = "variable" ]; then
-    printf 'check-echo-safety: %s:%s echoes a variable holding sanitize_printable output; use printf '"'"'%%s\\n'"'"' instead — the sanitizer strips control BYTES but keeps backslashes, so a PRINTABLE-ONLY argument still reaches the terminal as a live ESC under dash\n' \
-      "$safe_rel" "$lineno" >&2
-  else
-    printf 'check-echo-safety: %s:%s passes sanitize_printable output through echo; use printf '"'"'%%s\\n'"'"' instead — the sanitizer strips control BYTES but keeps backslashes, so a PRINTABLE-ONLY argument still reaches the terminal as a live ESC under dash\n' \
-      "$safe_rel" "$lineno" >&2
-  fi
+  case "$kind" in
+    format)
+      printf 'check-echo-safety: %s:%s puts sanitize_printable output in the printf FORMAT operand; pass it as a %s argument instead\n' \
+        "$safe_rel" "$lineno" "'%s'" >&2
+      ;;
+    variable)
+      printf 'check-echo-safety: %s:%s echoes a variable holding sanitize_printable output; print it with printf instead\n' \
+        "$safe_rel" "$lineno" >&2
+      ;;
+    *)
+      printf 'check-echo-safety: %s:%s passes sanitize_printable output through echo; print it with printf instead\n' \
+        "$safe_rel" "$lineno" >&2
+      ;;
+  esac
   status=1
 done <"$work/offenders"
 
@@ -655,18 +666,28 @@ stale=""
 while IFS= read -r entry; do
   [ -n "$entry" ] || continue
   [ -e "$root/$entry" ] || continue
-  if grep -qxF -- "$entry" "$work/allowed-hit" 2>/dev/null; then
+  if grep -qxF -- "$entry" "$work/allowed-hit"; then
     allowed=$((allowed + 1))
   else
     stale="$stale $entry"
   fi
 done <"$work/allowlist"
 
-[ -z "$stale" ] \
-  || fail_closed "allowlist entries no longer violate and must be removed —$(sanitize_printable "$stale" " (unprintable)") (each exists only while its file is open in another pull request; the allowlist shrinks to empty)"
+# A stale entry is a bookkeeping error and a real offender is a security
+# defect, so when both are present the offender decides the exit code. Reported
+# either way: reporting only the bookkeeping would bury the defect under it.
+if [ -n "$stale" ]; then
+  printf 'check-echo-safety: allowlist entries no longer violate and must be removed —%s (each exists only while its file is open in another pull request; the allowlist shrinks to empty)\n' \
+    "$(sanitize_printable "$stale" " (unprintable)")" >&2
+  [ "$status" -ne 0 ] || exit 2
+fi
+
+if [ "$status" -ne 0 ]; then
+  printf 'check-echo-safety: the sanitizer strips control BYTES but keeps backslashes, so a PRINTABLE-ONLY argument still reaches the terminal as a live ESC under dash. See --help for the remedy.\n' >&2
+fi
 
 if [ "$status" -eq 0 ]; then
-  printf 'check-echo-safety: clean (%s files, %s allowlisted; %s bash-interpreter files not at risk)\n' \
-    "$count" "$allowed" "$skipped"
+  printf 'check-echo-safety: clean (%s files scanned, of which %s allowlisted; %s bash-interpreter files not at risk, %s not shell)\n' \
+    "$count" "$allowed" "$skipped" "$dropped"
 fi
 exit "$status"
