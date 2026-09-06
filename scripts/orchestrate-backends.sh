@@ -16,12 +16,14 @@
 #       Print one TSV row per PRESENT backend, richest rung first:
 #         backend<TAB>interactive<TAB>can_observe<TAB>can_steer_inflight<TAB>\
 #         provides_attention_surface<TAB>supports_parallel<TAB>session_grade<TAB>\
-#         overhead<TAB>hook_registration
+#         overhead<TAB>hook_registration<TAB>tier_control
 #       The five advertised booleans are true|false|na (na = a capability that
 #       is structurally inapplicable, distinct from an absent one); session_grade
 #       is yes|no|deferred; overhead is the pinned cost-class enum
-#       none|light|full-session|full-session+supervisor and hook_registration is
-#       true|false (execution-backends REQ-A1.1, REQ-A1.8). `in-session` and
+#       none|light|full-session|full-session+supervisor; hook_registration is
+#       true|false (execution-backends REQ-A1.1, REQ-A1.8); and tier_control is
+#       both|model|effort|none, the launch-tier dimensions the backend can set
+#       (model-allocation D-10, REQ-B1.2). `in-session` and
 #       `print` are always present; `subagent` is present by default (the
 #       harness-native runtime); `tmux` is present iff it resolves on PATH. Both
 #       execution-backends rows now have dispatch support and are present iff
@@ -106,19 +108,20 @@ unset CDPATH
 # The advertised capability set of each shipped backend, verbatim from the
 # contract table (doctrine/backend-capability-contract.md). Fields, in order:
 # interactive can_observe can_steer_inflight provides_attention_surface
-# supports_parallel session_grade overhead hook_registration
-# (the 6->8 extension: execution-backends D-13, REQ-A1.1-A1.4, REQ-A1.8).
+# supports_parallel session_grade overhead hook_registration tier_control
+# (the 6->8 extension: execution-backends D-13, REQ-A1.1-A1.4, REQ-A1.8; the
+# 8->9 tier_control extension: model-allocation D-10, REQ-B1.2).
 # Keep in lockstep with that table — the drift guard in
 # tests/test-orchestrate-backends.sh fails CI on any divergence (REQ-A1.6).
 # ---------------------------------------------------------------------------
 caps_for() {
   case "$1" in
-    tmux) echo "true true true false true yes full-session true" ;;
-    stream-json-persistent) echo "false true true false true yes full-session+supervisor true" ;;
-    headless-oneshot) echo "false false false false true yes full-session true" ;;
-    subagent) echo "false false false false true no light false" ;;
-    print) echo "false false false false na deferred none false" ;;
-    in-session) echo "false na na false false no none false" ;;
+    tmux) echo "true true true false true yes full-session true both" ;;
+    stream-json-persistent) echo "false true true false true yes full-session+supervisor true both" ;;
+    headless-oneshot) echo "false false false false true yes full-session true both" ;;
+    subagent) echo "false false false false true no light false model" ;;
+    print) echo "false false false false na deferred none false both" ;;
+    in-session) echo "false na na false false no none false none" ;;
     *) return 1 ;;
   esac
 }
@@ -188,11 +191,11 @@ advertise_malformed() {
 }
 
 # The advertised set of a pluggable backend, obtained from its adapter. Echoes
-# the eight validated fields — a legacy six-field line is accepted with the
+# the nine validated fields — legacy six- and eight-field lines are accepted with
 # fail-safe defaults (hook_registration=false, overhead=full-session+supervisor,
 # the most conservative class; execution-backends D-13) — or returns 1 when
-# there is no adapter on PATH or its output is not a well-formed six- or
-# eight-field capability set (the fail-safe absent case; a malformed line is
+# there is no adapter on PATH or its output is not a well-formed six-, eight-,
+# or nine-field capability set (the fail-safe absent case; a malformed line is
 # additionally diagnosed via advertise_malformed). The advertise line is
 # untrusted input (REQ-A1.9): first line only, length-bounded, and stripped of
 # non-printable bytes BEFORE any parse, use, or echo.
@@ -229,23 +232,23 @@ EOF
       return 1
       ;;
   esac
-  # Tokenize: a well-formed set is six or eight known tokens (6->8
-  # back-compatible grammar; seven or nine-plus is malformed). Arity is judged
-  # on the POST-strip tokens — a token stripped to nothing drops out of the
-  # count, degrading conservatively (a 7th all-control-byte token parses as a
-  # legacy six-field line taking the most conservative defaults). The read
+  # Tokenize: a well-formed set is six, eight, or nine known tokens (the
+  # 6->8->9 back-compatible grammar; seven or ten-plus is malformed). Arity is
+  # judged on the POST-strip tokens — a token stripped to nothing drops out of
+  # the count, degrading conservatively (a 7th all-control-byte token parses as
+  # a legacy six-field line taking the most conservative defaults). The read
   # targets are `f_`-prefixed so this helper never clobbers a caller's loop
   # variable (`p`, `rung`) — sh has no lexical scope.
-  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_rest=''
-  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_rest <<EOF
+  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_tc='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_tc f_rest <<EOF
 $ac_line
 EOF
   if [ -n "$f_rest" ]; then
-    advertise_malformed "$1" "expected 6 or 8 whitespace-separated fields, got 9 or more"
+    advertise_malformed "$1" "expected 6, 8, or 9 whitespace-separated fields, got 10 or more"
     return 1
   fi
   if [ -n "$f_ov" ] && [ -z "$f_hr" ]; then
-    advertise_malformed "$1" "expected 6 or 8 whitespace-separated fields, got 7"
+    advertise_malformed "$1" "expected 6, 8, or 9 whitespace-separated fields, got 7"
     return 1
   fi
   for f in "$f_i" "$f_o" "$f_s" "$f_a" "$f_p"; do
@@ -284,7 +287,23 @@ EOF
         ;;
     esac
   fi
-  echo "$f_i $f_o $f_s $f_a $f_p $f_g $f_ov $f_hr"
+  # An adapter that does not say it can set a launch tier is taken as unable to
+  # (model-allocation D-10): the consumer then inherits both dimensions and
+  # audits it, which is the safe direction — assuming capability would apply a
+  # flag the adapter may silently drop, leaving the ledger claiming a tier the
+  # worker never ran at.
+  if [ -z "$f_tc" ]; then
+    f_tc='none'
+  else
+    case "$f_tc" in
+      both | model | effort | none) ;;
+      *)
+        advertise_malformed "$1" "invalid tier_control token"
+        return 1
+        ;;
+    esac
+  fi
+  echo "$f_i $f_o $f_s $f_a $f_p $f_g $f_ov $f_hr $f_tc"
 }
 
 # Echo the advertised set of a backend IF it is present, else return 1. Handles
@@ -303,7 +322,7 @@ resolve_caps() {
 # Unattended-eligible: an autonomous tower may silently pick it. True iff the
 # advertised set has interactive=false (never strand a run waiting on a human)
 # AND session_grade!=deferred (excludes the manual `print` rung, whose spawn is
-# deferred to a human). Reads the eight-field caps string on $1 (fields 1 and
+# deferred to a human). Reads the nine-field caps string on $1 (fields 1 and
 # 6; the trailing fields land in f_rest and are not consulted).
 eligible() {
   f_i='' f_g='' f_rest=''
@@ -313,15 +332,15 @@ EOF
   [ "$f_i" = false ] && [ "$f_g" != deferred ]
 }
 
-# Print one detect TSV row: $1 backend, $2 eight-field caps string. Read targets
+# Print one detect TSV row: $1 backend, $2 nine-field caps string. Read targets
 # are `f_`-prefixed so this helper never clobbers a caller's loop variable.
 emit_row() {
   er_b=$1
-  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_rest <<EOF
+  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_tc f_rest <<EOF
 $2
 EOF
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$er_b" "$f_i" "$f_o" "$f_s" "$f_a" "$f_p" "$f_g" "$f_ov" "$f_hr"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$er_b" "$f_i" "$f_o" "$f_s" "$f_a" "$f_p" "$f_g" "$f_ov" "$f_hr" "$f_tc"
 }
 
 cmd_detect() {
@@ -488,12 +507,12 @@ cmd_present() {
   #
   # Strict field-count guard first: TAB is IFS whitespace, so the token split
   # below collapses consecutive tabs (an empty field) and could re-align a
-  # hand-corrupted row into nine valid-looking tokens. A well-formed detect
-  # row has exactly eight tabs; anything else fails closed here.
+  # hand-corrupted row into ten valid-looking tokens. A well-formed detect
+  # row has exactly nine tabs; anything else fails closed here.
   pr_tab=$(printf '\t')
   while IFS= read -r pr_line; do
     pr_tabs=$(printf '%s' "$pr_line" | tr -cd "$pr_tab")
-    if [ "${#pr_tabs}" -ne 8 ]; then
+    if [ "${#pr_tabs}" -ne 9 ]; then
       # Show at most the first field, capped: a zero-tab line has no field
       # boundary to strip at, and an uncapped echo would reproduce an
       # arbitrarily long corrupted line in the diagnostic.
@@ -504,7 +523,7 @@ cmd_present() {
   done <<EOF
 $pr_input
 EOF
-  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_ov p_hr p_rest; do
+  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_ov p_hr p_tc p_rest; do
     if ! valid_name "$p_b" || [ -n "$p_rest" ]; then
       printf '%s\n' "orchestrate-backends: present: malformed detect row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
       return 2
@@ -539,6 +558,13 @@ EOF
         return 2
         ;;
     esac
+    case "$p_tc" in
+      both | model | effort | none) ;;
+      *)
+        printf '%s\n' "orchestrate-backends: present: malformed tier_control in row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
+        return 2
+        ;;
+    esac
   done <<EOF
 $pr_input
 EOF
@@ -550,7 +576,7 @@ EOF
   printf 'is independent: the decision queue is the default attention surface for\n'
   printf 'every pick; a backend that provides its own surface is marked below and\n'
   printf 'deferred to.\n\n'
-  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_ov p_hr p_rest; do
+  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_ov p_hr p_tc p_rest; do
     emit_block "$p_b" "$p_i" "$p_o" "$p_s" "$p_a" "$p_p" "$p_g" "$p_ov" "$p_hr"
   done <<EOF
 $pr_input
@@ -558,7 +584,7 @@ EOF
   return 0
 }
 
-# caps <backend>: print the eight-field advertised capability set for one
+# caps <backend>: print the nine-field advertised capability set for one
 # backend (interactive can_observe can_steer_inflight provides_attention_surface
 # supports_parallel session_grade overhead hook_registration) — the read
 # accessor a capability-gated

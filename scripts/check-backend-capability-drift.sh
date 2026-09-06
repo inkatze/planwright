@@ -35,6 +35,9 @@
 #   * **`overhead` is compared literally** (after decoration stripping), since
 #     its values are identifiers (`full-session+supervisor`, `light`, `none`),
 #     not an enum of synonyms.
+#   * **`tier_control` has its own closed enum** (`both`, `model`, `effort`,
+#     `none`): it is per-dimension rather than a boolean, so running it through
+#     the boolean normalizer would reject every legal value.
 #   * **One observe/steer cell covers both fields.** docs/fleet.md merges
 #     `can_observe` and `can_steer_inflight` into a single "Observe / steer"
 #     column; `yes / no` maps to the pair, and a single value (`n/a`) applies
@@ -48,7 +51,7 @@
 #
 # Any of the three surfaces parsing to zero rows exits 2, as does a missing
 # input file, a capability table whose header does not carry the expected
-# columns, a `caps_for()` arm that does not emit exactly the eight contract
+# columns, a `caps_for()` arm that does not emit exactly the nine contract
 # fields, a backend name outside the identifier grammar
 # `scripts/orchestrate-backends.sh` enforces in `valid_name()`, and a second
 # row for a backend a surface already named. A vacuous or ambiguous parse must
@@ -118,8 +121,8 @@ for path in "$contract" "$registry" "$fleet"; do
     || fail_closed "input file not found: $(sanitize_printable "$path" "(unprintable path)")"
 done
 
-# The eight contract fields, in the order `caps_for()` emits them.
-FIELDS="interactive can_observe can_steer_inflight provides_attention_surface supports_parallel session_grade overhead hook_registration"
+# The nine contract fields, in the order `caps_for()` emits them.
+FIELDS="interactive can_observe can_steer_inflight provides_attention_surface supports_parallel session_grade overhead hook_registration tier_control"
 
 # Fleet-table rows that name a semantic value rather than a backend.
 SEMANTIC_ROWS="full-session"
@@ -152,9 +155,15 @@ function ngrade(v,  t) {
   if (t == "n/a" || t == "na") return "na"
   return "!" t
 }
+function ntier(v,  t) {
+  t = token(v)
+  if (t == "both" || t == "model" || t == "effort" || t == "none") return t
+  return "!" t
+}
 function nfield(f, v) {
   if (f == "session_grade") return ngrade(v)
   if (f == "overhead") return tolower(strip(v))
+  if (f == "tier_control") return ntier(v)
   return nbool(v)
 }
 function emit(b, f, v) { printf "%s\t%s\t%s\n", b, f, v }
@@ -178,7 +187,7 @@ function accept(b) {
 
 # ---------------------------------------------------------------------------
 # Surface 1: the prose capability table. Located by its header row — first cell
-# `Backend`, and a column for every one of the eight fields. A header that no
+# `Backend`, and a column for every one of the nine fields. A header that no
 # longer carries them all is not this table, so a renamed column fails closed
 # rather than silently parsing a neighbouring table.
 # ---------------------------------------------------------------------------
@@ -243,7 +252,7 @@ contract_facts="$(awk -v fields="$FIELDS" "$awk_lib"'
 contract_status=$?
 safe_contract="$(sanitize_printable "$contract" "(unprintable path)")"
 case "$contract_status" in
-  3) fail_closed "could not find the backend capability table in $safe_contract (no header row carrying all eight contract columns)" ;;
+  3) fail_closed "could not find the backend capability table in $safe_contract (no header row carrying all nine contract columns)" ;;
   4) fail_closed "the backend capability table in $safe_contract parsed to zero rows" ;;
   5) fail_closed "malformed backend capability table in $safe_contract: $(parse_detail "$contract_facts")" ;;
   0) ;;
@@ -252,7 +261,7 @@ esac
 contract_facts="$(strip_detail "$contract_facts")"
 
 # ---------------------------------------------------------------------------
-# Surface 2: the `caps_for()` registry. Each case arm emits the eight fields as
+# Surface 2: the `caps_for()` registry. Each case arm emits the nine fields as
 # a space-separated string, in FIELDS order.
 # ---------------------------------------------------------------------------
 registry_facts="$(awk -v fields="$FIELDS" "$awk_lib"'

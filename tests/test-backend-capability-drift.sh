@@ -66,18 +66,18 @@ make_trio() {
   write_contract "$1" <<'EOF'
 # Fixture Backend Capability Contract
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `alpha` | true | true | true | false | true | yes | `full-session` | true |
-| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | true | true | false | true | yes | `full-session` | true | `both` |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false | `both` |
 EOF
   write_registry "$1" <<'EOF'
 #!/bin/sh
 # Fixture registry.
 caps_for() {
   case "$1" in
-    alpha) echo "true true true false true yes full-session true" ;;
-    beta) echo "false false false false na deferred none false" ;;
+    alpha) echo "true true true false true yes full-session true both" ;;
+    beta) echo "false false false false na deferred none false both" ;;
     *) return 1 ;;
   esac
 }
@@ -118,10 +118,10 @@ make_trio "$tmp/contract-drift"
 write_contract "$tmp/contract-drift" <<'EOF'
 # Fixture Backend Capability Contract
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `alpha` | true | false | true | false | true | yes | `full-session` | true |
-| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | false | true | false | true | yes | `full-session` | true | `both` |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false | `both` |
 EOF
 out="$(run_trio "$tmp/contract-drift")"
 assert "a drifted prose-contract row fails" 1 $?
@@ -136,8 +136,8 @@ write_registry "$tmp/registry-drift" <<'EOF'
 #!/bin/sh
 caps_for() {
   case "$1" in
-    alpha) echo "true true true false true yes light true" ;;
-    beta) echo "false false false false na deferred none false" ;;
+    alpha) echo "true true true false true yes light true both" ;;
+    beta) echo "false false false false na deferred none false both" ;;
     *) return 1 ;;
   esac
 }
@@ -198,17 +198,17 @@ make_trio "$tmp/na-spelling"
 write_contract "$tmp/na-spelling" <<'EOF'
 # Fixture Backend Capability Contract
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `alpha` | true | true | true | false | true | yes | `full-session` | true |
-| `beta` | false | n/a | n/a | false | n/a | deferred | `none` | false |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | true | true | false | true | yes | `full-session` | true | `both` |
+| `beta` | false | n/a | n/a | false | n/a | deferred | `none` | false | `both` |
 EOF
 write_registry "$tmp/na-spelling" <<'EOF'
 #!/bin/sh
 caps_for() {
   case "$1" in
-    alpha) echo "true true true false true yes full-session true" ;;
-    beta) echo "false na na false na deferred none false" ;;
+    alpha) echo "true true true false true yes full-session true both" ;;
+    beta) echo "false na na false na deferred none false both" ;;
     *) return 1 ;;
   esac
 }
@@ -246,11 +246,11 @@ make_trio "$tmp/extra-prose"
 write_contract "$tmp/extra-prose" <<'EOF'
 # Fixture Backend Capability Contract
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `alpha` | true | true | true | false | true | yes | `full-session` | true |
-| `beta` | false | false | false | false | n/a | deferred | `none` | false |
-| `gamma` | false | false | false | false | true | no | `light` | false |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | true | true | false | true | yes | `full-session` | true | `both` |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false | `both` |
+| `gamma` | false | false | false | false | true | no | `light` | false | `both` |
 EOF
 out="$(run_trio "$tmp/extra-prose")"
 assert "a prose backend absent from caps_for() fails" 1 $?
@@ -261,9 +261,9 @@ write_registry "$tmp/extra-registry" <<'EOF'
 #!/bin/sh
 caps_for() {
   case "$1" in
-    alpha) echo "true true true false true yes full-session true" ;;
-    beta) echo "false false false false na deferred none false" ;;
-    gamma) echo "false false false false true no light false" ;;
+    alpha) echo "true true true false true yes full-session true both" ;;
+    beta) echo "false false false false na deferred none false both" ;;
+    gamma) echo "false false false false true no light false both" ;;
     *) return 1 ;;
   esac
 }
@@ -356,10 +356,10 @@ make_trio "$tmp/bad-token"
 write_contract "$tmp/bad-token" <<'EOF'
 # Fixture Backend Capability Contract
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `alpha` | true | maybe | true | false | true | yes | `full-session` | true |
-| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | maybe | true | false | true | yes | `full-session` | true | `both` |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false | `both` |
 EOF
 out="$(run_trio "$tmp/bad-token")"
 assert "an unrecognized capability token fails closed" 2 $?
@@ -372,7 +372,7 @@ write_registry "$tmp/short-arm" <<'EOF'
 caps_for() {
   case "$1" in
     alpha) echo "true true true false true yes full-session" ;;
-    beta) echo "false false false false na deferred none false" ;;
+    beta) echo "false false false false na deferred none false both" ;;
     *) return 1 ;;
   esac
 }
@@ -391,10 +391,10 @@ make_trio "$tmp/short-row"
 write_contract "$tmp/short-row" <<'EOF'
 # Fixture Backend Capability Contract
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `alpha` | true | true | true | false | true | yes | `full-session` |
-| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false | `both` |
 EOF
 out="$(run_trio "$tmp/short-row")"
 assert "a short prose contract row fails closed" 2 $?
@@ -408,10 +408,10 @@ make_trio "$tmp/bad-name"
 write_contract "$tmp/bad-name" <<'EOF'
 # Fixture Backend Capability Contract
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `a.b` | true | true | true | false | true | yes | `full-session` | true |
-| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `a.b` | true | true | true | false | true | yes | `full-session` | true | `both` |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false | `both` |
 EOF
 out="$(run_trio "$tmp/bad-name")"
 assert "a backend name outside the identifier grammar fails closed" 2 $?
@@ -438,11 +438,11 @@ make_trio "$tmp/dupe-backend"
 write_contract "$tmp/dupe-backend" <<'EOF'
 # Fixture Backend Capability Contract
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `alpha` | true | true | true | false | true | yes | `full-session` | true |
-| `alpha` | true | true | true | false | true | yes | `full-session` | true |
-| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | true | true | false | true | yes | `full-session` | true | `both` |
+| `alpha` | true | true | true | false | true | yes | `full-session` | true | `both` |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false | `both` |
 EOF
 out="$(run_trio "$tmp/dupe-backend")"
 assert "a duplicate backend row fails closed" 2 $?
@@ -484,7 +484,7 @@ assert "a missing fleet doc is an error" 2 $?
 #     of the shipped registry turns the check red.
 # ---------------------------------------------------------------------------
 mkdir -p "$tmp/real"
-sed 's/^    subagent) echo "false false false false true no light false" ;;/    subagent) echo "false true false false true no light false" ;;/' \
+sed 's/^    subagent) echo "false false false false true no light false model" ;;/    subagent) echo "false true false false true no light false model" ;;/' \
   "$REPO_ROOT/scripts/orchestrate-backends.sh" >"$tmp/real/backends.sh"
 if cmp -s "$tmp/real/backends.sh" "$REPO_ROOT/scripts/orchestrate-backends.sh"; then
   echo "FAIL: the caps_for() edit fixture matched nothing (the registry's row shape moved)" >&2
@@ -519,16 +519,16 @@ make_trio "$tmp/second-contract-table"
 write_contract "$tmp/second-contract-table" <<'EOF'
 # Fixture Backend Capability Contract
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `alpha` | true | true | true | false | true | yes | `full-session` | true |
-| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | true | true | false | true | yes | `full-session` | true | `both` |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false | `both` |
 
 ## An illustrative table, not the registry
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `hypothetical` | true | true | true | false | true | yes | `light` | true |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `hypothetical` | true | true | true | false | true | yes | `light` | true | `both` |
 EOF
 out="$(run_trio "$tmp/second-contract-table")"
 assert "a later capability table in the prose contract is not merged" 0 $?

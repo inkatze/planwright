@@ -107,20 +107,21 @@ unset CDPATH
 # The advertised capability set of each shipped backend, verbatim from the
 # contract table (doctrine/backend-capability-contract.md). Fields, in order:
 # interactive can_observe can_steer_inflight provides_attention_surface
-# supports_parallel session_grade overhead hook_registration (the 6->8
-# extension, execution-backends D-13). Keep in lockstep with that table (and
-# with orchestrate-backends.sh's identical table, which the CI drift guard
-# checks against the doc). The classifier below reads only the first six
-# fields; the appended two are validated, never classified on.
+# supports_parallel session_grade overhead hook_registration tier_control (the
+# 6->8 extension, execution-backends D-13; the 8->9 tier_control extension,
+# model-allocation D-10). Keep in lockstep with that table (and with
+# orchestrate-backends.sh's identical table, which the CI drift guard checks
+# against the doc). The classifier below reads only the first six fields; the
+# appended three are validated, never classified on.
 # ---------------------------------------------------------------------------
 caps_for() {
   case "$1" in
-    tmux) echo "true true true false true yes full-session true" ;;
-    stream-json-persistent) echo "false true true false true yes full-session+supervisor true" ;;
-    headless-oneshot) echo "false false false false true yes full-session true" ;;
-    subagent) echo "false false false false true no light false" ;;
-    print) echo "false false false false na deferred none false" ;;
-    in-session) echo "false na na false false no none false" ;;
+    tmux) echo "true true true false true yes full-session true both" ;;
+    stream-json-persistent) echo "false true true false true yes full-session+supervisor true both" ;;
+    headless-oneshot) echo "false false false false true yes full-session true both" ;;
+    subagent) echo "false false false false true no light false model" ;;
+    print) echo "false false false false na deferred none false both" ;;
+    in-session) echo "false na na false false no none false none" ;;
     *) return 1 ;;
   esac
 }
@@ -282,8 +283,8 @@ caps_of_backend() {
 # has no lexical scope). Echoes 1|2|3|4|manual, or returns 1 when the set is
 # not well-formed or does not classify.
 rung_of_caps() {
-  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_rest=''
-  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_rest <<EOF
+  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_tc='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_tc f_rest <<EOF
 $1
 EOF
   [ -z "$f_rest" ] || return 1
@@ -307,6 +308,12 @@ EOF
     esac
     case "$f_hr" in
       true | false) ;;
+      *) return 1 ;;
+    esac
+  fi
+  if [ -n "$f_tc" ]; then
+    case "$f_tc" in
+      both | model | effort | none) ;;
       *) return 1 ;;
     esac
   fi

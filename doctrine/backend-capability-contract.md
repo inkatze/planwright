@@ -70,8 +70,9 @@ observe and steer are foregrounded as advertised booleans below, while
 session-grade is a distinct quality property tracked per backend (the
 degradation ladder and the backend table order backends partly by it).
 
-The contract also names two advertised **properties** (execution-backends
-REQ-A1.1), each with an evaluable definition like the capabilities above:
+The contract also names three advertised **properties** (execution-backends
+REQ-A1.1; the third added by model-allocation D-10), each with an evaluable
+definition like the capabilities above:
 
 - **`overhead`** — the backend's fixed per-dispatch cost class
   (execution-backends D-6): a small qualitative enum, not a latency
@@ -93,6 +94,22 @@ REQ-A1.1), each with an evaluable definition like the capabilities above:
   fire and reach the fleet state? Consumers read this field —
   `fleet-liveness.sh push-capable` selects the push mechanism from it — and
   never key on backend names.
+- **`tier_control`** — which dimensions of the launch tier the backend can
+  actually **set** at dispatch: the model, the reasoning effort, both, or
+  neither. The selection policy only *chooses* a tier; applying it is the
+  dispatching backend's job, and a backend that cannot set a dimension inherits
+  the ambient value for it (model-allocation D-10, REQ-B1.2). The pinned values
+  are `both` | `model` | `effort` | `none`. *Evaluable:* at the moment this
+  backend launches a worker, is there a launch parameter it can carry that
+  fixes the worker's model (a `--model` argv element, a subagent launch
+  parameter), and is there one that fixes its reasoning effort? Two independent
+  yes/no answers, which is why the field is per dimension rather than a single
+  boolean — a backend can commonly do the first and not the second. `none` is
+  not a defect to route around: inheritance is a legitimate, *audited*
+  degradation, and refusing dispatch over it would turn a capability gap into
+  an availability failure. Consumers read this field —
+  `scripts/allocation-apply.sh` decides per-dimension application from it — and
+  never key on backend names.
 
 ## The advertisement set
 
@@ -102,8 +119,8 @@ A backend self-describes with an advertised capability set — the five booleans
 { interactive, can_observe, can_steer_inflight, provides_attention_surface, supports_parallel }
 ```
 
-plus the three per-backend quality/cost properties recorded in the table below:
-session-grade, `overhead`, and `hook_registration`.
+plus the four per-backend quality/cost properties recorded in the table below:
+session-grade, `overhead`, `hook_registration`, and `tier_control`.
 
 - **`interactive`** — the backend hosts a session a human could attach to and
   drive directly (tmux). This governs unattended selection: an unattended tower
@@ -129,7 +146,8 @@ per-backend toggles: a backend that cannot meet *those two* is the
 manual/synchronous escape hatch, described in its row below. Session-grade spawn
 is the third varying property; it is not one of the advertised booleans but is
 recorded per backend in the table below and orders the degradation ladder,
-alongside the `overhead` and `hook_registration` properties defined above.
+alongside the `overhead`, `hook_registration`, and `tier_control` properties
+defined above.
 
 ## Orchestrator adaptation
 
@@ -172,14 +190,14 @@ pinned ladder order below. `n/a` marks a capability that is structurally
 inapplicable (there is no separate worker to observe or steer), distinct from
 `false` (a separate worker exists but the capability is absent).
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `tmux` | true | true | true | false | true | yes | `full-session` | true |
-| `stream-json-persistent` | false | true | true | false | true | yes | `full-session+supervisor` | true |
-| `headless-oneshot` | false | false | false | false | true | yes | `full-session` | true |
-| `subagent` | false | false | false | false | true | no | `light` | false |
-| `print` | false | false | false | false | n/a | deferred | `none` | false |
-| `in-session` | false | n/a | n/a | false | false | no | `none` | false |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` | `tier_control` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `tmux` | true | true | true | false | true | yes | `full-session` | true | `both` |
+| `stream-json-persistent` | false | true | true | false | true | yes | `full-session+supervisor` | true | `both` |
+| `headless-oneshot` | false | false | false | false | true | yes | `full-session` | true | `both` |
+| `subagent` | false | false | false | false | true | no | `light` | false | `model` |
+| `print` | false | false | false | false | n/a | deferred | `none` | false | `both` |
+| `in-session` | false | n/a | n/a | false | false | no | `none` | false | `none` |
 
 The `Session-grade` column appears because session-grade genuinely varies across
 backends. The two baseline capabilities — named-addressable units and
@@ -187,6 +205,31 @@ positive-evidence-of-death liveness — get no column because every shipped back
 that hosts a separate worker satisfies them; the backends that do not (`print`
 and `in-session`) are the manual/synchronous escape hatch called out in their
 rows below.
+
+The `tier_control` column reads off how each backend launches. The four rungs
+that spawn a `claude` process (`tmux`, `stream-json-persistent`,
+`headless-oneshot`, and `print`, whose printed command line is its launch) can
+carry both a model and an effort launch parameter, so they advertise `both`;
+`print` applies them as words of the command it hands the operator, which is
+the whole of what that rung does. `subagent` is the per-dimension case the
+column exists for: the harness-native launch takes a model parameter and has no
+effort parameter, so it advertises `model` and inherits the ambient effort.
+`in-session` advertises `none` — see the pinned degradation below.
+
+**The in-session rung's pinned degradation (model-allocation REQ-B1.3, D-4).**
+Work placed on the `in-session` rung (the `/offload` work-placement sense: the
+operator's own session, running the work inline) runs in a session that already
+exists, and no launch happens at which a tier could be set. It therefore
+**inherits the operator's session model and effort**, always, whatever the
+selection policy resolved. This is the rung's pinned degradation, not a bug to
+route around and not a reason to refuse the rung: planwright does not switch a
+running session's model mid-flight, so inheritance is the only honest outcome,
+and the requirement it carries is that the inheritance be **recorded** rather
+than silent. Every in-session placement that resolved a tier writes the
+full-inheritance ledger row like any other capability gap, so an operator
+reading the ledger can see the work ran at whatever their session was set to.
+An operator who wants a different tier for that work changes their own session
+or places the work on a rung that can set one.
 
 - **`tmux`.** The richest backend: an interactive `claude --worktree` worker in a
   named window. `capture-pane` provides observe-in-flight; attributed
@@ -306,24 +349,28 @@ satisfy.
 
 A backend adapter is an executable named `planwright-backend-<name>` on `PATH`
 that answers `advertise` by printing its capability set as one
-whitespace-separated line of **eight fields**, in contract order
-(execution-backends D-13, REQ-A1.7):
+whitespace-separated line of **nine fields**, in contract order
+(execution-backends D-13, REQ-A1.7; model-allocation D-10):
 
 ```text
-interactive can_observe can_steer_inflight provides_attention_surface supports_parallel session_grade overhead hook_registration
+interactive can_observe can_steer_inflight provides_attention_surface supports_parallel session_grade overhead hook_registration tier_control
 ```
 
 The first five are the advertised booleans (each `true`, `false`, or `na` for a
 structurally-inapplicable capability); the sixth carries session-grade (`yes`,
 `no`, or `deferred`); the seventh is the `overhead` class (one of the pinned
-enum above); the eighth is the `hook_registration` boolean (`true` or `false`).
+enum above); the eighth is the `hook_registration` boolean (`true` or `false`);
+the ninth is `tier_control` (`both`, `model`, `effort`, or `none`).
 A pluggable backend advertises these in the line because — unlike the shipped
 backends — it has no row in the table above for planwright to read them from.
 
-The grammar is **6→8 back-compatible**: a legacy **six-field** line remains
-valid, taken with fail-safe defaults — `hook_registration=false` and `overhead`
-treated as the most conservative class, `full-session+supervisor`. Any other
-arity (seven, nine or more) is **malformed**, and a malformed line fails closed
+The grammar is **6→8→9 back-compatible**: a legacy **six-field** or
+**eight-field** line remains valid, taken with fail-safe defaults — a six-field
+line gets `hook_registration=false` and `overhead` treated as the most
+conservative class, `full-session+supervisor`; a six- or eight-field line gets
+`tier_control=none`, the most conservative value, because a backend that does
+not say it can set a dimension must never be assumed able to. Any other arity
+(seven, ten or more) is **malformed**, and a malformed line fails closed
 with a **visible diagnostic** on stderr — the backend is never selected, and
 the refusal is never a silent absence. Advertise lines are treated as untrusted
 input (execution-backends REQ-A1.9): the first line is length-bounded (512
@@ -331,4 +378,7 @@ bytes) and stripped of control bytes (the echo-safety C0/DEL/C1 range)
 **before** any parse, use, or echo, and no diagnostic reproduces line content.
 `/orchestrate` reports an adapter absent (the fail-safe: a backend whose
 capabilities are unknown is never selected) when `advertise` is missing or its
-output is not a well-formed six- or eight-field set.
+output is not a well-formed six-, eight-, or nine-field set. An adapter that
+cannot be probed at all is not a dispatch failure: the capability consumer
+treats an errored probe as `none` and audits the resulting inheritance
+(model-allocation REQ-B1.2).

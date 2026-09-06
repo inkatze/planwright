@@ -561,7 +561,7 @@ echo "ok: present renders the two-seam presentation with the detached-plumbing n
 #     DEFERS its own queue (the --surface-provided deferral, D-13) — the
 #     attention-seam half of adapt-to-advertised.
 # ---------------------------------------------------------------------------
-row=$(printf 'cmuxish\ttrue\ttrue\ttrue\ttrue\ttrue\tyes\tfull-session\ttrue\n')
+row=$(printf 'cmuxish\ttrue\ttrue\ttrue\ttrue\ttrue\tyes\tfull-session\ttrue\tboth\n')
 out=$(printf '%s\n' "$row" | "$BACKENDS" present) \
   || fail "present exited non-zero on a provides-surface row"
 cb=$(block_of "$out" cmuxish)
@@ -583,31 +583,38 @@ printf 'tmux\ttrue\ttrue\n' | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
 grep -q "malformed detect row" "$err" \
   || fail "present: a short row must get the malformed-detect-row diagnostic"
 rc=0
-printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tmaybe\tfull-session\ttrue\n' \
+printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tmaybe\tfull-session\ttrue\tboth\n' \
   | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 2 ] || fail "present: an invalid session_grade returned $rc, expected 2"
 grep -q "malformed session_grade" "$err" \
   || fail "present: an invalid session_grade must get its own diagnostic, not a generic one"
 rc=0
-printf 'tmux\tmaybe\ttrue\ttrue\tfalse\ttrue\tyes\tfull-session\ttrue\n' \
+printf 'tmux\tmaybe\ttrue\ttrue\tfalse\ttrue\tyes\tfull-session\ttrue\tboth\n' \
   | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 2 ] || fail "present: an invalid capability boolean returned $rc, expected 2"
 grep -q "malformed capability field" "$err" \
   || fail "present: an invalid capability boolean must get the capability-field diagnostic"
-# The two appended columns validate too: a bad overhead class and a bad
-# hook_registration token each fail closed with their own diagnostic.
+# The three appended columns validate too: a bad overhead class, a bad
+# hook_registration token, and a bad tier_control token each fail closed with
+# their own diagnostic.
 rc=0
-printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\tenormous\ttrue\n' \
+printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\tenormous\ttrue\tboth\n' \
   | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 2 ] || fail "present: an invalid overhead class returned $rc, expected 2"
 grep -q "malformed overhead" "$err" \
   || fail "present: an invalid overhead class must get its own diagnostic"
 rc=0
-printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\tfull-session\tmaybe\n' \
+printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\tfull-session\tmaybe\tboth\n' \
   | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 2 ] || fail "present: an invalid hook_registration returned $rc, expected 2"
 grep -q "malformed hook_registration" "$err" \
   || fail "present: an invalid hook_registration must get its own diagnostic"
+rc=0
+printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\tfull-session\ttrue\tsometimes\n' \
+  | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "present: an invalid tier_control returned $rc, expected 2"
+grep -q "malformed tier_control" "$err" \
+  || fail "present: an invalid tier_control must get its own diagnostic"
 # A legacy seven-column row (the pre-extension detect shape) is no longer a
 # well-formed detect row: present's input is detect's OWN output, so a
 # column-count mismatch means a broken producer and fails closed.
@@ -621,7 +628,7 @@ rc=0
 printf '' | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "present: empty input returned $rc, expected 2 (detect always emits rows)"
 rc=0
-printf 'subagent\tfalse\tfalse\tfalse\tfalse\ttrue\tno\tlight\tfalse\n' \
+printf 'subagent\tfalse\tfalse\tfalse\tfalse\ttrue\tno\tlight\tfalse\tmodel\n' \
   | "$BACKENDS" present extra >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "present: a stray positional arg returned $rc, expected 2"
 echo "ok: present fails closed on malformed rows, empty input, and stray args"
@@ -649,7 +656,7 @@ echo "ok: present sanitizes a refused hostile row's control bytes"
 #     backend list. Guards the two-loop validate-then-render structure.
 # ---------------------------------------------------------------------------
 rc=0
-outp=$(printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\tfull-session\ttrue\nBAD ROW\n' \
+outp=$(printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\tfull-session\ttrue\tboth\nBAD ROW\n' \
   | "$BACKENDS" present 2>/dev/null) || rc=$?
 [ "$rc" = 2 ] || fail "present: valid-then-malformed input returned $rc, expected 2"
 [ -z "$outp" ] \
@@ -659,12 +666,12 @@ echo "ok: present emits no partial surface when a later row is malformed"
 # ---------------------------------------------------------------------------
 # 24. present: strict field count — TAB is IFS whitespace, so a hand-corrupted
 #     row with an empty field (consecutive tabs) would collapse and could
-#     re-align into nine valid-looking tokens; the eight-tab count guard must
-#     refuse it. Here: empty eighth field plus a stray trailing token, which
+#     re-align into ten valid-looking tokens; the nine-tab count guard must
+#     refuse it. Here: an empty eighth field plus a stray trailing token, which
 #     token-collapse alone would mis-read as a well-formed row.
 # ---------------------------------------------------------------------------
 rc=0
-printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\t\tfull-session\ttrue\n' \
+printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\t\tfull-session\ttrue\tboth\n' \
   | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "present: a double-tab (empty-field) row returned $rc, expected 2"
 # The malformed-row diagnostic is capped: a zero-tab line has no field boundary
@@ -675,18 +682,18 @@ printf '%0300d\n' 0 | tr '0' 'x' | "$BACKENDS" present >/dev/null 2>"$err" || rc
 [ "$(wc -c <"$err")" -lt 160 ] \
   || fail "present: the malformed-row diagnostic must cap the echoed line"
 echo "ok: present refuses a row whose tab count betrays an empty field"
-# The complementary shape: exactly eight tabs with an empty MIDDLE field passes
+# The complementary shape: exactly nine tabs with an empty MIDDLE field passes
 # the tab-count guard, so only the field-validation loop can catch it — after
 # token collapse the trailing vars land empty/shifted (p_p lands 'yes').
 # Pins the loop interplay so a reorder of the validate loops cannot silently
 # accept a collapsed row. No stdout: the fail-closed guarantee holds here too.
 rc=0
-outp=$(printf 'tmux\ttrue\t\ttrue\tfalse\ttrue\tyes\tfull-session\ttrue\n' \
+outp=$(printf 'tmux\ttrue\t\ttrue\tfalse\ttrue\tyes\tfull-session\ttrue\tboth\n' \
   | "$BACKENDS" present 2>/dev/null) || rc=$?
-[ "$rc" = 2 ] || fail "present: an eight-tab empty-middle-field row returned $rc, expected 2"
+[ "$rc" = 2 ] || fail "present: a nine-tab empty-middle-field row returned $rc, expected 2"
 [ -z "$outp" ] \
-  || fail "present: an eight-tab empty-middle-field row must emit no output, got '$outp'"
-echo "ok: present refuses an eight-tab row whose empty middle field collapses"
+  || fail "present: a nine-tab empty-middle-field row must emit no output, got '$outp'"
+echo "ok: present refuses a nine-tab row whose empty middle field collapses"
 
 # ---------------------------------------------------------------------------
 # 25. echo discipline on the dispatcher: an unknown subcommand carrying
@@ -710,7 +717,7 @@ echo "ok: the dispatcher sanitizes an unknown subcommand's control bytes"
 #     surface=na, parallel=na must render only its true features, carry no
 #     plumbing note, and fall to the default attention line.
 # ---------------------------------------------------------------------------
-row=$(printf 'plugna\tna\ttrue\ttrue\tna\tna\tyes\tfull-session\tfalse\n')
+row=$(printf 'plugna\tna\ttrue\ttrue\tna\tna\tyes\tfull-session\tfalse\tboth\n')
 out=$(printf '%s\n' "$row" | "$BACKENDS" present) \
   || fail "present exited non-zero on an na-heavy row"
 nb=$(block_of "$out" plugna)
@@ -728,14 +735,14 @@ printf '%s\n' "$nb" | grep -q "decision queue (default)" \
 echo "ok: present skips na-typed fields on a rendered row"
 
 # ---------------------------------------------------------------------------
-# 27. caps <backend>: the read accessor prints one backend's eight-field
+# 27. caps <backend>: the read accessor prints one backend's nine-field
 #     advertised capability set, PRESENCE-AGNOSTIC for a shipped backend
 #     (advertisement is a static property of the backend type). tmux advertises
 #     can_observe=true (field 2); subagent and in-session do not — the exact
 #     gate Task 5's peer-pane /context corroboration reads.
 # ---------------------------------------------------------------------------
 out=$("$BACKENDS" caps tmux) || fail "caps tmux exited non-zero"
-[ "$out" = "true true true false true yes full-session true" ] \
+[ "$out" = "true true true false true yes full-session true both" ] \
   || fail "caps tmux: got '$out', expected the contract-table row"
 # Field 2 (can_observe) is what the capability gate reads.
 obs=$(printf '%s\n' "$out" | cut -d' ' -f2)
@@ -753,7 +760,7 @@ out=$("$BACKENDS" caps in-session) || fail "caps in-session exited non-zero"
 # its static capability set (the gate asks about the backend type, not the host).
 out=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" caps tmux) \
   || fail "caps tmux (forced absent) exited non-zero"
-[ "$out" = "true true true false true yes full-session true" ] \
+[ "$out" = "true true true false true yes full-session true both" ] \
   || fail "caps must be presence-agnostic for a shipped backend"
 echo "ok: caps prints a shipped backend's advertised set, presence-agnostic"
 
@@ -791,8 +798,27 @@ echo "ok: caps fails safe (absent) and fails closed (usage) as specified"
 # ---------------------------------------------------------------------------
 make_adapter plug false true true false true yes
 out=$(PATH="$BIN" "$BACKENDS" caps plug) || fail "caps of a present pluggable: exited non-zero"
-[ "$out" = "false true true false true yes full-session+supervisor false" ] \
+[ "$out" = "false true true false true yes full-session+supervisor false none" ] \
   || fail "caps plug: got '$out', expected the adapter's set with the fail-safe defaults"
+# tier_control's fail-safe default is `none` on every legacy arity: an adapter
+# that does not claim it can set a launch dimension must never be assumed able
+# to, or the ledger would claim a tier the worker never ran at.
+make_adapter plug8 false true true false true yes light true
+out=$(PATH="$BIN" "$BACKENDS" caps plug8) || fail "caps of an eight-field pluggable: exited non-zero"
+[ "$out" = "false true true false true yes light true none" ] \
+  || fail "caps plug8: got '$out', expected tier_control to default to none"
+# A nine-field adapter is taken at its word.
+make_adapter plug9 false true true false true yes light true model
+out=$(PATH="$BIN" "$BACKENDS" caps plug9) || fail "caps of a nine-field pluggable: exited non-zero"
+[ "$out" = "false true true false true yes light true model" ] \
+  || fail "caps plug9: got '$out', expected the advertised tier_control verbatim"
+# An out-of-enum tier_control is malformed: the backend fails safe to absent.
+make_adapter plugbad false true true false true yes light true sometimes
+rc=0
+PATH="$BIN" "$BACKENDS" caps plugbad >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 1 ] || fail "caps of a bad-tier_control pluggable: exit $rc, expected 1 (absent)"
+grep -q "invalid tier_control token" "$err" \
+  || fail "a bad tier_control must carry its own visible diagnostic"
 [ "$(printf '%s\n' "$out" | cut -d' ' -f2)" = true ] \
   || fail "caps plug: can_observe (field 2) should be true"
 
@@ -812,11 +838,11 @@ echo "ok: caps resolves a present pluggable adapter and fails safe on a malforme
 #     values, not merely doc↔script parity).
 # ---------------------------------------------------------------------------
 out=$("$BACKENDS" caps headless-oneshot) || fail "caps headless-oneshot exited non-zero"
-[ "$out" = "false false false false true yes full-session true" ] \
+[ "$out" = "false false false false true yes full-session true both" ] \
   || fail "caps headless-oneshot: got '$out', expected the REQ-A1.2 pinned set"
 out=$("$BACKENDS" caps stream-json-persistent) \
   || fail "caps stream-json-persistent exited non-zero"
-[ "$out" = "false true true false true yes full-session+supervisor true" ] \
+[ "$out" = "false true true false true yes full-session+supervisor true both" ] \
   || fail "caps stream-json-persistent: got '$out', expected the REQ-A1.3 pinned set"
 echo "ok: caps answers the REQ-A1.2/REQ-A1.3 pinned sets for the new rows"
 
@@ -914,35 +940,46 @@ sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
 echo "ok: the new contract rows probe the installed CLI and honor the env presence overrides"
 
 # ---------------------------------------------------------------------------
-# 32. Adapter grammar, 6→8 back-compatible (D-13, REQ-A1.7): an eight-field
-#     line parses fully (echoed verbatim by caps); a nine-field line is
-#     malformed; both malformed arities carry the visible diagnostic, and the
-#     malformed backend is never in the candidate set (fail closed, asserted by
-#     exit code, absence, and diagnostic).
+# 32. Adapter grammar, 6→8→9 back-compatible (D-13, REQ-A1.7; model-allocation
+#     D-10): an eight-field line parses with tier_control defaulting to `none`,
+#     a nine-field line parses fully, a TEN-field line is malformed; the
+#     malformed arity carries the visible diagnostic, and the malformed backend
+#     is never in the candidate set (fail closed, asserted by exit code,
+#     absence, and diagnostic).
 # ---------------------------------------------------------------------------
 make_adapter full8 false true true false true yes light true
 out=$(PATH="$BIN" "$BACKENDS" caps full8) || fail "caps of an eight-field adapter: non-zero"
-[ "$out" = "false true true false true yes light true" ] \
-  || fail "caps full8: got '$out', expected the eight-field set verbatim"
+[ "$out" = "false true true false true yes light true none" ] \
+  || fail "caps full8: got '$out', expected the eight-field set with tier_control none"
 out=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect full8 2>/dev/null) \
   || fail "detect(eight-field adapter) non-zero"
 [ "$(field_of "$out" full8 8)" = light ] \
   || fail "detect: an eight-field adapter's overhead must be carried through"
 [ "$(field_of "$out" full8 9)" = true ] \
   || fail "detect: an eight-field adapter's hook_registration must be carried through"
-make_adapter nine9 false true true false true yes light true EXTRA
-rc=0
-PATH="$BIN" "$BACKENDS" caps nine9 >/dev/null 2>"$err" || rc=$?
-[ "$rc" = 1 ] || fail "caps of a nine-field adapter: exit $rc, expected 1 (fail-safe absent)"
-grep -q "malformed advertise line" "$err" \
-  || fail "caps: a nine-field advertise line must get the visible malformed diagnostic"
-out=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect nine9 2>"$err") \
+[ "$(field_of "$out" full8 10)" = none ] \
+  || fail "detect: an eight-field adapter's tier_control must default to none"
+make_adapter full9 false true true false true yes light true effort
+out=$(PATH="$BIN" "$BACKENDS" caps full9) || fail "caps of a nine-field adapter: non-zero"
+[ "$out" = "false true true false true yes light true effort" ] \
+  || fail "caps full9: got '$out', expected the nine-field set verbatim"
+out=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect full9 2>/dev/null) \
   || fail "detect(nine-field adapter) non-zero"
-row_present "$out" nine9 \
-  && fail "detect: a nine-field adapter must be absent from the candidate set"
+[ "$(field_of "$out" full9 10)" = effort ] \
+  || fail "detect: a nine-field adapter's tier_control must be carried through"
+make_adapter ten10 false true true false true yes light true both EXTRA
+rc=0
+PATH="$BIN" "$BACKENDS" caps ten10 >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 1 ] || fail "caps of a ten-field adapter: exit $rc, expected 1 (fail-safe absent)"
 grep -q "malformed advertise line" "$err" \
-  || fail "detect: a nine-field advertise line must get the visible malformed diagnostic"
-# Bad token values in the two appended fields are malformed too.
+  || fail "caps: a ten-field advertise line must get the visible malformed diagnostic"
+out=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect ten10 2>"$err") \
+  || fail "detect(ten-field adapter) non-zero"
+row_present "$out" ten10 \
+  && fail "detect: a ten-field adapter must be absent from the candidate set"
+grep -q "malformed advertise line" "$err" \
+  || fail "detect: a ten-field advertise line must get the visible malformed diagnostic"
+# Bad token values in the appended fields are malformed too.
 make_adapter badov false true true false true yes enormous true
 rc=0
 PATH="$BIN" "$BACKENDS" caps badov >/dev/null 2>"$err" || rc=$?
@@ -1008,7 +1045,7 @@ EOF
 chmod +x "$BIN/planwright-backend-b512" "$BIN/planwright-backend-b513"
 out=$(PATH="$BIN" "$BACKENDS" caps b512) \
   || fail "caps of an exactly-512-byte advertise line: expected acceptance"
-[ "$out" = "false true true false true yes full-session+supervisor false" ] \
+[ "$out" = "false true true false true yes full-session+supervisor false none" ] \
   || fail "caps b512: got '$out', expected the padded legacy line to parse"
 rc=0
 PATH="$BIN" "$BACKENDS" caps b513 >/dev/null 2>"$err" || rc=$?
@@ -1026,7 +1063,7 @@ EOF
 chmod +x "$BIN/planwright-backend-escline"
 out=$(PATH="$BIN" "$BACKENDS" caps escline 2>"$err") \
   || fail "caps of an esc-laden advertise line: expected acceptance after stripping"
-[ "$out" = "false true true false true yes full-session+supervisor false" ] \
+[ "$out" = "false true true false true yes full-session+supervisor false none" ] \
   || fail "caps escline: got '$out', expected the stripped line to parse as legacy six-field"
 # Strip-before-echo: a malformed line whose tokens carry control + printable
 # escape payloads is refused with a diagnostic that never reproduces the line's
@@ -1057,19 +1094,19 @@ echo "ok: advertise lines are length-bounded and stripped before use or echo"
 CONTRACT_DOC="$here/../doctrine/backend-capability-contract.md"
 [ -f "$CONTRACT_DOC" ] || fail "doctrine/backend-capability-contract.md missing"
 
-# Parse the doc's backend table into "name f1..f8" lines: a data row is a
-# 9-column markdown row whose first cell is a backticked backend name. Cells
+# Parse the doc's backend table into "name f1..f9" lines: a data row is a
+# 10-column markdown row whose first cell is a backticked backend name. Cells
 # are trimmed, backticks dropped, and the doc's n/a display form normalized to
 # the script's `na` token.
 parse_contract_rows() {
-  # NF must be EXACTLY 11 (leading empty + 9 cells + trailing empty): a doc
+  # NF must be EXACTLY 12 (leading empty + 10 cells + trailing empty): a doc
   # table that grows a column the script lacks changes NF, drops the row here,
   # and fails the per-name coverage check below — the one-directional drift a
   # >= guard would silently pass.
   awk -F'|' '
-    NF == 11 && $2 ~ /^[[:space:]]*`[a-z0-9-]+`[[:space:]]*$/ {
+    NF == 12 && $2 ~ /^[[:space:]]*`[a-z0-9-]+`[[:space:]]*$/ {
       out = ""
-      for (i = 2; i <= 10; i++) {
+      for (i = 2; i <= 11; i++) {
         v = $i
         gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
         gsub(/`/, "", v)
@@ -1080,7 +1117,7 @@ parse_contract_rows() {
     }' "$1"
 }
 
-# The guard: every doc row must have a caps answer equal to its eight fields,
+# The guard: every doc row must have a caps answer equal to its nine fields,
 # the row set must cover all six shipped backends, and the doc must pin the
 # ladder ordering and overhead enum. Returns non-zero on any divergence.
 check_drift() {
@@ -1117,7 +1154,7 @@ check_drift "$CONTRACT_DOC" \
 # exists to prove). Assert the seed actually changed the copy first, so a doc
 # rewording can never turn this into a vacuous same-file comparison.
 # shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
-sed 's/^| `subagent` | false | false | false | false | true | no | `light` | false |$/| `subagent` | false | false | false | false | true | no | `light` | true |/' \
+sed 's/^| `subagent` | false | false | false | false | true | no | `light` | false | `model` |$/| `subagent` | false | false | false | false | true | no | `light` | true | `model` |/' \
   "$CONTRACT_DOC" >"$tmp/contract-diverged.md"
 cmp -s "$CONTRACT_DOC" "$tmp/contract-diverged.md" \
   && fail "drift guard: the divergence seed no longer matches the doc (fixture rot)"
