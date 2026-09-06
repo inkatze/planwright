@@ -350,8 +350,8 @@ loop (model-allocation REQ-F1.2; `docs/fleet.md`). Neither report may cost the
 transition it hangs off: surface the failure and carry on.
 
 ```sh
-scripts/fleet-fence.sh gc --checkout <primary-checkout> --spec <spec> <unit-id> --alloc-key execution --obs-scope <obs-scope>
-scripts/fleet-liveness.sh crash-record <worker-handle> <worker-scope> --alloc-unit <unit> --alloc-key execution --obs-scope <obs-scope> --obs-dir <primary-checkout>/specs/_observations
+scripts/fleet-fence.sh gc --checkout <primary-checkout> --spec <spec> <unit-id> --alloc-key execution --obs-scope <repo-name>
+scripts/fleet-liveness.sh crash-record <worker-handle> <worker-scope> --alloc-unit <unit> --alloc-key execution --obs-scope <repo-name> --obs-dir <primary-checkout>/specs/_observations
 ```
 
 The first on each unit step 2 moved to Completed, which also retires its fence;

@@ -241,7 +241,7 @@ fill() {
   fi_cmd=${fi_cmd//<spec>/demo}
   fi_cmd=${fi_cmd//<unit-id>/1}
   fi_cmd=${fi_cmd//<unit>/$unit}
-  fi_cmd=${fi_cmd//<obs-scope>/planwright}
+  fi_cmd=${fi_cmd//<repo-name>/planwright}
   fi_cmd=${fi_cmd//<worker-handle>/$worker}
   fi_cmd=${fi_cmd//<worker-scope>/$wscope}
   fi_cmd=${fi_cmd//scripts\//$sbin/}
