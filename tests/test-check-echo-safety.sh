@@ -322,6 +322,47 @@ assert "a continued echo is caught" 1 $?
 assert_contains "the continued offender is named" "$out" "scripts/split.sh"
 
 # ---------------------------------------------------------------------------
+# 12a. Shapes a paren-counting scan gets wrong. The case arm is the one that
+#      matters most here: `a) echo ...` ends a PATTERN, and a scanner that
+#      reads that `)` as a paren close parses the arm's echo as an argument and
+#      silently stops checking every case arm in the tree. This repo is full of
+#      them. The backtick and bare-substitution spellings, and an arithmetic
+#      `<<` that must not be mistaken for a heredoc, round it out.
+# ---------------------------------------------------------------------------
+make_root "$tmp/shapes"
+filler "$tmp/shapes"
+write_script "$tmp/shapes/scripts/casearm.sh" \
+  'case "$v" in' \
+  '  a) echo "$(sanitize_printable "$x")" ;;' \
+  '  *) printf "%s\n" ok ;;' \
+  'esac'
+write_script "$tmp/shapes/scripts/bare.sh" 'echo $(sanitize_printable "$x")'
+write_script "$tmp/shapes/scripts/backtick.sh" 'echo "`sanitize_printable "$x"`"'
+write_script "$tmp/shapes/scripts/arith.sh" \
+  'n=$(( 1 << 3 ))' \
+  'printf "%s\n" "$n"' \
+  'echo "$(sanitize_printable "$x")"'
+out="$(/bin/bash "$CHECKER" "$tmp/shapes" 2>&1)"
+assert "the paren- and heredoc-adjacent shapes are caught" 1 $?
+assert_contains "an echo inside a case arm is caught" "$out" "scripts/casearm.sh"
+assert_contains "an unquoted substitution is caught" "$out" "scripts/bare.sh"
+assert_contains "a backtick substitution is caught" "$out" "scripts/backtick.sh"
+assert_contains "an arithmetic << does not swallow the rest of the file" "$out" "scripts/arith.sh"
+
+# A case statement that contains no violation must stay clean — the tracking
+# above must not turn every `)` into a finding.
+make_root "$tmp/shapes-ok"
+filler "$tmp/shapes-ok"
+write_script "$tmp/shapes-ok/scripts/casearm.sh" \
+  'case "$v" in' \
+  '  a) printf "%s\n" "$(sanitize_printable "$x")" ;;' \
+  '  b) v=$(printf "%s" "$x") ;;' \
+  'esac' \
+  'printf "%s\n" done'
+out="$(/bin/bash "$CHECKER" "$tmp/shapes-ok" 2>&1)"
+assert "a clean case statement stays clean" 0 $?
+
+# ---------------------------------------------------------------------------
 # 12b. The interpreter is the hazard, not the directory. Only a shell whose
 #      `echo` expands backslash escapes can revive the sanitizer's surviving
 #      escape TEXT, and bash's does not. Flagging a bash-shebang file would be

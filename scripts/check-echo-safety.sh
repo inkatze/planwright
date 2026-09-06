@@ -114,15 +114,15 @@ fail_closed() {
 
 # The interpreter a shebang actually selects, as a bare program name, resolving
 # the `#!/usr/bin/env <prog>` form (and any env options or VAR=value operands
-# before the program). Empty for a file with no shebang. `set --` inside a
-# function touches only the function's own positional parameters.
+# before the program). Sets `interp`, empty for a file with no shebang: the
+# answer is wanted once per enumerated file, and returning it through a command
+# substitution would fork for every one of them. `set --` inside a function
+# touches only the function's own positional parameters.
 shebang_interp() {
+  interp=""
   case "$1" in
     '#!'*) ;;
-    *)
-      printf ''
-      return 0
-      ;;
+    *) return 0 ;;
   esac
   _si=${1#'#!'}
   # shellcheck disable=SC2086 # deliberate splitting: a shebang is whitespace-separated
@@ -138,7 +138,7 @@ shebang_interp() {
     done
     _prog=${1:-}
   fi
-  printf '%s' "${_prog##*/}"
+  interp=${_prog##*/}
 }
 
 usage() {
@@ -282,7 +282,8 @@ while IFS= read -r -d '' file; do
   # rather than scanned. Everything else — sh, dash, an unrecognised shebang, or
   # no shebang at all — is scanned, because a sourced library inherits whichever
   # interpreter sourced it and an unknown one has to be assumed hazardous.
-  case "$(shebang_interp "$first")" in
+  shebang_interp "$first"
+  case "$interp" in
     bash | zsh | ksh | ksh93 | mksh | pdksh)
       skipped=$((skipped + 1))
       continue
@@ -340,6 +341,11 @@ awk -v listfile="$work/list" '
       pend_assign = w; sub(/=.*$/, "", pend_assign); pend_san = 0; pend_depth = depth
       return
     }
+    # `case` and `esac` are transparent keywords, but the pattern list between
+    # them changes what a `)` means, so the construct is tracked before the
+    # keyword is waved through.
+    if (w == "case") { ncase++; casedep[ncase] = depth; return }
+    if (w == "esac") { if (ncase > 0) ncase--; return }
     if (w in transparent) return
     finish_assign(depth)
     cmd[depth] = w
@@ -425,7 +431,20 @@ awk -v listfile="$work/list" '
       if (dq) { prev = c; i++; continue }
       if (c == "#" && is_wordstart(prev)) break
       if (c == "(") { push_depth(0); prev = c; i++; continue }
-      if (c == ")") { pop_depth(); prev = c; i++; continue }
+      # In `a) echo ...`, the `)` ends a case PATTERN and opens a command
+      # position; it closes nothing. Reading it as a paren close leaves the
+      # echo inside that arm parsed as an argument, and every case arm goes
+      # unchecked — which is exactly what it did before this was tracked.
+      if (c == ")") {
+        if (ncase > 0 && depth == casedep[ncase]) {
+          finish_assign(depth); cmd[depth] = ""; atcmd = 1
+        } else if (depth > 0) {
+          pop_depth()
+        } else {
+          finish_assign(depth); cmd[depth] = ""; atcmd = 1
+        }
+        prev = c; i++; continue
+      }
       if (c == "{" && is_wordstart(prev)) {
         finish_assign(depth); cmd[depth] = ""; atcmd = 1; prev = c; i++; continue
       }
@@ -448,7 +467,7 @@ awk -v listfile="$work/list" '
     split("", cmd); split("", savedq); split("", savesq); split("", isbt)
     split("", sanvar); split("", othervar); split("", refname); split("", refline)
     split("", hits)
-    cmd[0] = ""; nref = 0
+    cmd[0] = ""; nref = 0; ncase = 0; split("", casedep)
     pend_assign = ""; pend_san = 0; pend_depth = 0
     heredoc = ""; heredoc_dash = 0; pend_heredoc = ""; pend_dash = 0
     maxln = 0
