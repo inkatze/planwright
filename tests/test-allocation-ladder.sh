@@ -136,7 +136,10 @@ echo "ok: r5 both roster maps fail closed off the roster"
 # ---------------------------------------------------------------------------
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-sed "s/^ALLOC_MODELS='haiku sonnet opus fable'\$/ALLOC_MODELS='haiku sonnet inserted opus fable'/" \
+#     Anchored on the cheapest alias rather than the whole roster line: the
+#     roster is append-only, so matching it in full would make a legitimate
+#     append fail this control even though the contract still holds.
+sed "s/^ALLOC_MODELS='haiku /ALLOC_MODELS='haiku inserted /" \
   "$LADDER" >"$tmp/mutated.sh"
 grep -q "inserted" "$tmp/mutated.sh" \
   || fail "r6: the mutation did not apply — the roster line no longer matches, so this control proves nothing"

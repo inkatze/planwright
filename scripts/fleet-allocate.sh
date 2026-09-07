@@ -424,7 +424,10 @@ cmd_resolve() {
         capval=$(cap_of "$eff_model") || exit 4
         if [ "$gpct" -ge "$capval" ]; then
           emcost=$(model_cost "$eff_model")
-          [ "$emcost" -ge 3 ] && break # haiku floor: nothing cheaper to fall to
+          # The cheapest rung: cost counts down from the top, so the floor IS
+          # the top rank. A literal here would be wrong the moment a model is
+          # appended, which is the drift the shared roster exists to stop.
+          [ "$emcost" -ge "$ALLOC_MODEL_TOP" ] && break
           eff_model=$(model_at_cost "$((emcost + 1))")
         else
           break
