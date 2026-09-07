@@ -489,9 +489,11 @@ report_terminal_feedback() {
   # depth here (the unit reaching this line already passed a charset with no
   # backslash in it) and load-bearing where a value is refused, which by
   # definition prints one that did not.
-  # The inherited-hold variable is cleared: it is honored on unit-name equality
-  # alone, and nothing on this path holds an allocation lock, so any value
-  # reaching here came from an ancestor and would suppress a real acquire.
+  # The inherited-hold variable is honored only on unit-name equality. A hold
+  # for exactly this unit is real and inherited, and honoring it is what keeps
+  # the non-reentrant lock from deadlocking against its own owner; any other
+  # value belongs to some other unit and would suppress a real acquire, so that
+  # is the case the else arm clears.
   rtf_rc=0
   # stdout is CAPTURED rather than discarded: it never reaches this
   # subcommand's own record line, which is what the discard protected, and it

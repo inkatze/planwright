@@ -240,11 +240,14 @@ marks_of() {
 # command, taken from the fenced block verbatim. Exactly one match is required:
 # zero means the caller is gone (the regression this file exists for), and more
 # than one means the fixture cannot tell which the tower is told to run.
+# The needle is matched LITERALLY at position 1 (awk index, not grep): a script
+# path carries dots, and as a regex those match any byte, so the guard would
+# accept a line this fixture never meant to run.
 extract_invocation() {
-  ei_hits=$(grep -c -- "^$1 " "$SKILL" || true)
+  ei_hits=$(awk -v p="$1 " 'index($0, p) == 1 { n++ } END { print n + 0 }' "$SKILL")
   [ "$ei_hits" = 1 ] \
     || fail "expected exactly one '$1' invocation in skills/orchestrate/SKILL.md, found $ei_hits — the escalation feedback loop's caller is missing or ambiguous"
-  grep -- "^$1 " "$SKILL"
+  awk -v p="$1 " 'index($0, p) == 1' "$SKILL"
 }
 
 # fill <command>: substitute this fixture's values for the skill's
