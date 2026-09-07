@@ -58,25 +58,40 @@ fi
 # line and fails loud), as scripts/check-workflow-posture.sh.
 uncommented() { sed 's/#.*$//' "$1"; }
 
-# Emit the body of a workflow's `pull_request:` trigger block: the lines
-# indented deeper than the key itself. A bare `pull_request:` yields nothing,
-# which is exactly the defect state. Comments are stripped first, so
+# Emit the body of a workflow's `<key>:` block: the lines indented deeper than
+# the key itself. A bare `pull_request:` yields nothing, which is exactly the
+# defect state. Comments are stripped first, so
 # `types: [opened]  # TODO: add edited` cannot satisfy the C2 scan below —
 # over-matching here would be a false PASS, the one direction that hides the
 # defect this file exists to catch.
-pr_trigger_block() {
-  uncommented "$1" | awk '
+block_body() {
+  uncommented "$1" | awk -v key="$2" '
     {
       n = match($0, /[^ ]/)
       if (n == 0) next
       indent = n - 1
-      if ($0 ~ /^[[:space:]]*pull_request:[[:space:]]*$/) {
-        inpr = 1
-        prindent = indent
+      if ($0 ~ "^[[:space:]]*" key ":[[:space:]]*$") {
+        inblock = 1
+        blockindent = indent
         next
       }
-      if (inpr && indent <= prindent) inpr = 0
-      if (inpr) print
+      if (inblock && indent <= blockindent) inblock = 0
+      if (inblock) print
+    }
+  '
+}
+
+# Emit every concurrency group string a workflow declares: the `group:` values
+# inside a `concurrency:` block, top-level or job-level. Scoped to that block
+# because `group:` is also a runs-on key (runner groups), and reading one of
+# those would point the uniqueness check below at a string that is not a
+# concurrency group at all.
+concurrency_groups() {
+  block_body "$1" concurrency | awk '
+    /^[[:space:]]*group:[[:space:]]*/ {
+      sub(/^[[:space:]]*group:[[:space:]]*/, "")
+      sub(/[[:space:]]*$/, "")
+      if ($0 != "") print
     }
   '
 }
@@ -88,7 +103,10 @@ metadata_workflows=""
 for wf in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
   [ -f "$wf" ] || continue
   # Only a pull_request-triggered workflow can read the PR payload at all.
-  grep -qE '^[[:space:]]*pull_request:[[:space:]]*$' "$wf" || continue
+  # Stripped like every other scan here: reading the raw file would drop a
+  # workflow whose trigger line carries a trailing comment, and a workflow
+  # dropped from this set is never checked by C2 at all.
+  uncommented "$wf" | grep -qE '^[[:space:]]*pull_request:[[:space:]]*$' || continue
   if uncommented "$wf" \
     | grep -qE 'github\.event\.pull_request\.(title|body)'; then
     metadata_workflows="$metadata_workflows $wf"
@@ -105,7 +123,7 @@ fi
 # --- C2: that gate fires on `edited`, so a correction is re-checkable --------
 for wf in $metadata_workflows; do
   label="${wf#"$REPO_ROOT"/}"
-  if pr_trigger_block "$wf" | grep -qE '(^|[^a-z_])edited([^a-z_]|$)'; then
+  if block_body "$wf" pull_request | grep -qE '(^|[^a-z_])edited([^a-z_]|$)'; then
     pass "C2 $label lints editable PR metadata and fires on edited"
   else
     fail "C2 $label reads github.event.pull_request.title/body but its
@@ -121,30 +139,30 @@ groups=""
 group_count=0
 for wf in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
   [ -f "$wf" ] || continue
-  g="$(uncommented "$wf" \
-    | awk '/^[[:space:]]*group:[[:space:]]*/ {
-        sub(/^[[:space:]]*group:[[:space:]]*/, "")
-        sub(/[[:space:]]*$/, "")
-        print
-        exit
-      }')"
-  [ -n "$g" ] || continue
-  group_count=$((group_count + 1))
-  # Group keys are case-insensitive per GitHub's concurrency reference, so
-  # compare them that way or a casing-only difference would read as unique.
-  g_fold="$(printf '%s' "$g" | tr '[:upper:]' '[:lower:]')"
-  if printf '%s\n' "$groups" | grep -qxF "$g_fold"; then
-    fail "C3 ${wf#"$REPO_ROOT"/} reuses concurrency group '$g' — groups are
+  # Fed by here-doc rather than a pipe: a `while read` on the right-hand side
+  # of a pipe runs in a subshell, and the counter and failure tally raised in
+  # the body would be discarded with it.
+  while IFS= read -r g; do
+    [ -n "$g" ] || continue
+    group_count=$((group_count + 1))
+    # Group keys are case-insensitive per GitHub's concurrency reference, so
+    # compare them that way or a casing-only difference would read as unique.
+    g_fold="$(printf '%s' "$g" | tr '[:upper:]' '[:lower:]')"
+    if printf '%s\n' "$groups" | grep -qxF "$g_fold"; then
+      fail "C3 ${wf#"$REPO_ROOT"/} reuses concurrency group '$g' — groups are
     repository-scoped, so these two workflows cancel each other"
-  fi
-  groups="$groups
+    fi
+    groups="$groups
 $g_fold"
+  done <<EOF
+$(concurrency_groups "$wf")
+EOF
 done
 
 if [ "$group_count" -ge 2 ]; then
-  pass "C3 $group_count workflows declare a concurrency group, all distinct"
+  pass "C3 $group_count concurrency group(s) declared across workflows, all distinct"
 else
-  fail "C3 only $group_count workflow(s) declare a concurrency group —
+  fail "C3 only $group_count concurrency group(s) found —
     too few for the uniqueness check to mean anything"
 fi
 
@@ -170,7 +188,7 @@ fi
 
 for wf in $code_gate_workflows; do
   label="${wf#"$REPO_ROOT"/}"
-  if pr_trigger_block "$wf" | grep -qE '(^|[^a-z_])edited([^a-z_]|$)'; then
+  if block_body "$wf" pull_request | grep -qE '(^|[^a-z_])edited([^a-z_]|$)'; then
     fail "C4 $label runs the code gate AND fires on edited — a title or body
     edit would cancel the in-flight run testing the code (same concurrency
     group: github.ref is refs/pull/<n>/merge for every activity type)"
