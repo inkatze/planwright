@@ -87,10 +87,23 @@ block_body() {
 # those would point the uniqueness check below at a string that is not a
 # concurrency group at all.
 concurrency_groups() {
-  block_body "$1" concurrency | awk '
+  # q carries the two YAML quote characters so the single-quoted awk program
+  # below never has to contain one.
+  block_body "$1" concurrency | awk -v q="\"'" '
     /^[[:space:]]*group:[[:space:]]*/ {
       sub(/^[[:space:]]*group:[[:space:]]*/, "")
       sub(/[[:space:]]*$/, "")
+      # Quotes delimit a YAML scalar rather than belonging to it, so
+      # `group: "ci-x"` and `group: ci-x` name one group to GitHub and have to
+      # compare equal here. Only a matching surrounding pair is stripped: a
+      # lone leading or trailing quote is left alone rather than half-removed.
+      if (length($0) >= 2) {
+        first = substr($0, 1, 1)
+        last = substr($0, length($0), 1)
+        if (first == last && index(q, first) > 0) {
+          $0 = substr($0, 2, length($0) - 2)
+        }
+      }
       if ($0 != "") print
     }
   '
