@@ -55,10 +55,10 @@ Selection is a table with three columns — **model**, **effort**, and
 | Selection key | The work it prices |
 | --- | --- |
 | `execution` | the `/execute-task` workhorse — judgment-heavy unit execution |
-| `bookkeeping` | the reconcile and PR-sync sweep |
+| `bookkeeping` | the `--bookkeeping` sweep: drain plus PR reconcile |
 | `drain` | the read-only gate pass |
 | `orchestrate_dispatch` | a single-spec `/orchestrate` dispatch |
-| `execute_step` | one of `/execute-task`'s per-step sessions |
+| `execute_step` | one of `/execute-task`'s per-step sessions, under `per-step` `dispatch_isolation` |
 | `offload` | an `/offload` dispatch |
 
 The first three are the **fleet task types**; the last three are the non-fleet
@@ -152,11 +152,12 @@ values arrive through the *legacy* `fleet_*` knobs, since the general ones ship
 allocation_adaptation: "on"
 ```
 
-Quote the value. `on` and `off` are YAML 1.1 booleans; the shipped config
-quotes them for exactly this reason, and the resolver strips the quotes to get
-the string the enum expects. The same applies to any knob whose value is `on`
-or `off` — `allocation_petition` included, so write
-`allocation_petition: "off"`, not `allocation_petition: off`.
+Quote the value. planwright's own config reader is line-based and takes it
+either way, so an unquoted `on` resolves identically today — but `on` and `off`
+are YAML 1.1 booleans, so a strict YAML linter flags them and another reader
+could change their type. The shipped config quotes them for exactly that
+reason. Do the same for any knob whose value is `on` or `off`,
+`allocation_petition` included.
 
 With it on, the engine derives the unit's current tier from that unit's own
 ledger and may move it one rung per triggering incident at each launch
@@ -174,9 +175,17 @@ concrete tier first.
 
 ### Which knob won
 
-When a value is not what you expected, ask the resolver rather than reasoning
-about layers. Each resolver has an `--explain` provenance mode that names the
-supplying layer alongside the value.
+When a value is not what you expected, ask rather than reasoning about layers.
+`scripts/config-get.sh --explain <knob>` prints `<layer><TAB><value>` — the
+layer that supplied it and what it said:
+
+```text
+$ scripts/config-get.sh --explain allocation_adaptation
+core    off        # <- a literal TAB separates the two
+```
+
+That is the provenance surface; the allocation resolvers themselves take no
+`--explain`.
 
 Two precedences are at work, and they compose in one direction only. The
 **family** precedence above runs first and across all layers at once: the
@@ -286,8 +295,11 @@ It is the route a tier travels.
 
 **The cost comparator** is what answers "is this tier cheaper than that one".
 It is **model-major, effort-minor**: every `opus` point outranks every `sonnet`
-point regardless of effort. The clamps use it, and so does the one-directional
-per-step test.
+point regardless of effort. The one-directional per-step test uses it directly,
+and so does the feedback loop's "ended above where it started" check. The
+clamps work from the same two underlying orders without the joint comparator —
+the downshift ceiling caps each dimension independently, and a per-tier cap
+walks the model order alone.
 
 The underlying orders are `haiku < sonnet < opus < fable` for models and
 `low < medium < high` for effort. The comparator sorts by model first and uses
@@ -409,8 +421,9 @@ append-only store, one file per unit:
 ```
 
 `<fleet-home>` is planwright's cross-spec state directory — the same home the
-fleet's own state lives under, resolved for you rather than configured by hand.
-Rather than reconstruct the path, ask:
+fleet's own state lives under. It is derived, not a config knob; only the
+`PLANWRIGHT_FLEET_STATE_DIR` environment variable overrides it. Rather than
+reconstruct the path, ask:
 `scripts/allocation-ledger.sh home` prints `<fleet-home>/allocation`, and
 `path <unit>` prints one unit's file; listing that directory is how you find
 which units have ledgers at all.
@@ -422,7 +435,7 @@ like `<spec>:task-<n>`, for example `model-allocation:task-7`.
 | Command | What it gives you |
 | --- | --- |
 | `allocation-ledger.sh rows <unit>` | the unit's full history, one row per record, no header |
-| `allocation-ledger.sh derive <unit> <start-model> <start-effort>` | the tier those rows imply, plus net displacement, rows, and escalation count |
+| `allocation-ledger.sh derive <unit> <start-model> <start-effort>` | six TAB-separated fields: the model and effort those rows imply, net displacement, unreversed-escalation stack depth, rows scanned, and applied-escalation count |
 | `allocation-ledger.sh last-tier <unit>` | the tier the unit's last real launch used |
 | `allocation-ledger.sh health <unit>` | exit `0` healthy, `3` unhealthy, with the offending row named |
 | `allocation-ledger.sh stats [<unit>]` | units, rows, bytes, and derivation cost |
@@ -436,9 +449,18 @@ scripts/allocation-adapt.sh resolve <unit> --key <selection-key> \
 ```
 
 It prints TAB-separated `key<TAB>value` lines: `admit` (`yes` or `withheld`),
-`model` and `effort` (the resolved tier, or `inherit`), `command`,
+`model` and `effort` (the resolved tier, `inherit` at an inheriting surface, or
+`-` when the unit was withheld), `command`,
 `concurrency`, `rung`, `reserved`, `adaptation`, `proposed_model` and
 `proposed_effort`, `net`, `step_scope`, `degraded`, and `petition`.
+
+**On growth, honestly.** The store is append-only and there is no compaction
+today: a unit's file grows by one row per launch plus one per adjustment, and
+it is retained after the unit finishes. Per-unit files keep each scan bounded
+by that unit's own history rather than the fleet's, so this is a disk-space
+question rather than a latency one, and `stats` is how you watch both — it
+reports units, rows, bytes, and derivation cost, and the same numbers surface
+through `fleet-stats.sh render`.
 
 Derivation is **memoryless**: it replays the rows against the *configured*
 starting tier you pass in, which you read off the selection key's knobs (or the
@@ -491,9 +513,9 @@ The `outcome` column takes one of nine values:
 | Outcome | Meaning |
 | --- | --- |
 | `resolved` | a routine launch-boundary resolution — the normal launch row |
-| `applied` | a ladder rung actually moved |
+| `applied` | a ladder rung actually moved — or, on a `step`-scoped `step-tier` row, a cheaper step tier took effect for one launch |
 | `withheld` | the restriction rung refused to admit the unit at all; no tier was resolved |
-| `denied` | an escalation was refused; `inputs` names which — `reason=signal-unavailable`, `reason=clamp-input`, or `reason=adjustment-cap` |
+| `denied` | an escalation, or a de-escalation, was refused; `inputs` names why — `reason=signal-unavailable`, `reason=clamp-input`, or `reason=adjustment-cap` |
 | `ignored` | something was consumed and deliberately not acted on |
 | `no-op` | nothing to do — typically the ladder top or floor |
 | `inherit` | the launch kept its ambient value |
@@ -502,7 +524,7 @@ The `outcome` column takes one of nine values:
 
 ### A worked history
 
-This is real output from `rows`, for an `execution` unit whose operator
+This is a real history, re-columned for reading, for an `execution` unit whose operator
 configured a starting tier of `sonnet`/`low`, with `allocation_adaptation` on
 and `allocation_adjustment_cap` at its default of `2`. Fields are
 TAB-separated; the timestamps are elided as `...` and the rows are wrapped
@@ -544,16 +566,18 @@ key. Here is a real row for an `execution` unit an operator started at
 
 It **proposed** `fable`/`high`, a per-tier budget cap **clamped** it to
 `opus`/`high`, and that is what **resolved**. So the answer to "why did this run
-on opus when I configured fable" is in one row: `clamps=cap` at `signal=58` —
-the `fable` cap threshold is `55`, the `opus` one is `70`, so at 58 `fable` was
-withdrawn and `opus` was the nearest surviving cheaper model, effort preserved.
+on opus when I configured fable" is in one row: `clamps=cap` at `signal=58`.
+The `fable` cap threshold is `55` and the `opus` cap threshold is `70`, so at 58
+`fable` was withdrawn and `opus` was the nearest surviving cheaper model, with
+effort preserved.
 
 That row also shows that a cap can bind while the rung is still `normal`. The
-two read different things: the restriction rung compares each usage window
-against its own threshold, while the caps compare the more restrictive window
-against a per-model threshold, and the lowest cap threshold sits below where the
-rung starts to climb. `rung=normal` beside a binding cap is not a
-contradiction.
+two read different things: the restriction rung compares **each** usage window
+against its own threshold, while `signal=` and the caps use the **more
+restrictive** of the two. Here the `fable` cap (55) sits below the weekly
+downshift threshold (60), so a weekly reading of 58 withdrew `fable` while both
+windows were still under their rung thresholds. `rung=normal` beside a binding
+cap is not a contradiction.
 
 The members `clamps=` can carry:
 
@@ -591,36 +615,71 @@ policy consumes unchanged, documented in [Fleet operation](fleet.md):
 Crucially, a clamp leaves the unit's **own ladder position untouched**. The
 next boundary proposes from where the ladder actually is, not from where the
 clamp pushed the last launch. That is why a clamped proposal is never recorded
-as a de-escalation. Only two things move a unit's own ladder position down: a
-de-escalate petition, and — for one launch only, without changing the unit's
-position — a cheaper per-step tier, which is why its row is `step`-scoped.
+as a de-escalation. Exactly one thing moves a unit's own ladder position down:
+a de-escalate petition. A cheaper per-step tier lowers one launch without
+touching that position, which is why its row is `step`-scoped.
 
 A **withheld** unit is not a failure. The restriction rung declined to admit it
 at all, so no tier was resolved and the dispatch returns to the existing defer
 path to be attempted again at a later boundary, when the rung has eased.
 
-The other `inputs` keys worth knowing: `key=` names the selection key, `rung=`
-the restriction rung in force, `signal=` the usage reading, `adaptation=`
-whether the engine was `on`, `off`, or `suspended`, `step=` the per-step
-outcome for that launch (`none`, `inherit`, `applied`, or `ignored`), and
-`trigger=` the event that caused an adjustment row.
+### The `inputs` keys
+
+`inputs` is the column that explains the row. Which keys appear depends on what
+kind of row it is:
+
+| Key | On which rows | What it holds |
+| --- | --- | --- |
+| `key=` | launch, inherit, step-tier | the selection key that priced the unit |
+| `rung=` | launch, inherit | the restriction rung in force |
+| `clamps=` | launch | which clamps bound, comma-separated, or `none` |
+| `signal=` | launch | the usage reading, or `unavailable` |
+| `adaptation=` | launch | `on`, `off`, or `suspended` |
+| `step=` | launch | the per-step outcome for this launch: `none`, `inherit`, `applied`, or `ignored` |
+| `step-type=` | step-tier | the step class named at this launch (`implementation`, `polish`, …) |
+| `unit=` | step-tier | the unit's tier at that moment, as `<model>/<effort>` — what the step tier was compared against |
+| `trigger=` | adjustment | the event class that caused the adjustment |
+| `dir=` | adjustment | `up` or `down` |
+| `net=` | adjustment | the unit's net applied-step count after this row |
+| `reason=` | denied, ignored, no-op | why it did not apply — `adjustment-cap`, `signal-unavailable`, `clamp-input`, `ladder-top`, `ladder-floor`, `orphaned-claim`, `policy-<value>`, `inherit-surface`, or a petition refusal detail |
+| `direction=` | ignored petition | the direction the filtered petition asked for |
+| `backend=` | inherit | the dispatching backend |
+| `cap=` | inherit | that backend's advertised `tier_control`, or `error` |
+| `inherit=` | inherit | `full` or `partial` |
+| `dim=` | inherit | which dimensions were inherited: `model`, `effort`, `model,effort`, or `none` |
+| `cause=` | inherit | `capability` or `probe-error` |
+
+Note that `cap` means two different things depending on where you read it:
+`clamps=cap` is a per-tier **budget** cap that bound, while `cap=` on an
+inherit row is the backend's advertised **capability**. Same three letters,
+different columns, unrelated meanings.
 
 ### Reading a degraded-mode decision
 
-A unit launches **degraded** when its ledger cannot be trusted — unreadable, a
-torn or short row, an out-of-enum field, a non-monotone sequence — or when a
-clamp input could not be read at all. A degraded launch is never blocked and
-never silent. It shows up on three surfaces:
+There are two degradations, and they behave differently:
+
+- **`ledger`** — the unit's ledger cannot be trusted: unreadable, a torn or
+  short row, an out-of-enum field, a non-monotone sequence.
+- **`clamp-input`** — a clamp input could not be read. Most importantly, an
+  unreadable **rung** fails closed to `downshift`, so the row you read shows
+  `rung=downshift` for a rung that was never actually measured. A step tier
+  that cannot be compared degrades the same way.
+
+A degraded launch is never blocked and never silent. It shows up on three
+surfaces:
 
 1. **The ledger row.** The `launch` row's `outcome` is `degraded`, and its
-   `inputs` carries `adaptation=suspended`:
+   `inputs` says which state the engine was in:
 
    ```text
    2 ... planwright:task-13 impl 2 launch opus high opus high opus high unit degraded key=execution;rung=normal;clamps=none;signal=58;adaptation=suspended;step=none
    ```
 
    Note that the `event` is still `launch` — it is the `outcome` that says
-   `degraded`.
+   `degraded`. Do not expect `adaptation=suspended` on every degraded row: it
+   reads `suspended` only when the ledger is what degraded and adaptation was
+   on. A degraded row may equally carry `adaptation=on` (an unreadable clamp
+   input) or `adaptation=off` (adaptation off over an unhealthy ledger).
 
 2. **The resolver's own output.** `allocation-adapt.sh resolve` prints a
    `degraded` field valued `no`, `ledger`, or `clamp-input`, alongside an
@@ -632,10 +691,19 @@ never silent. It shows up on three surfaces:
    allocation-adapt: unit '<unit>' is launching DEGRADED — <detail>
    ```
 
-What degraded mode *does*: the unit launches at its **last recorded tier** — or
-at the configured starting tier when no launch row is readable — and all
-adjustments are **suspended**. It is a launch that still happens, with the
-ladder frozen and the reason on the record.
+What degraded mode *does* depends on which degradation fired:
+
+- **`ledger`, adaptation on.** The unit launches at its **last recorded
+  tier** — or at the configured starting tier when no launch row is readable —
+  and all adjustments are **suspended**.
+- **`ledger`, adaptation off.** The proposal is the configured starting tier,
+  as it always is with the master knob off. The ill health is still reported;
+  it simply has no ladder position to preserve.
+- **`clamp-input`.** The unit launches at its **derived** tier and adaptation
+  stays `on`. Only escalation is denied; a de-escalate petition still moves the
+  ladder down.
+
+In every case it is a launch that still happens, with the reason on the record.
 
 Do not hand-edit or delete a ledger to clear a degradation. `health <unit>`
 names the offending row:
@@ -645,19 +713,31 @@ allocation-ledger: ledger '<path>' is unhealthy — row 2: 1 fields, want 15
 ```
 
 The store is append-only and a unit whose ledger is unhealthy still launches,
-so the safe move is to read the named row and, if it is genuinely corrupt,
-retire that unit's file deliberately rather than editing rows in place.
+so the safe move is to read the named row first. If it is genuinely corrupt,
+retire the whole file rather than editing rows in place: move
+`<fleet-home>/allocation/<unit>.tsv` aside. The next launch then finds no rows,
+which puts the unit back at its configured starting tier with its history
+preserved beside it for inspection.
+
+The table above is the read path. `allocation-ledger.sh` also has `append`,
+`lock`, and `unlock` verbs, which are how the engine writes rows under the
+per-unit lock; they are not an operator surface, and `append` in particular is
+what the "do not hand-edit" warning is about.
 
 **An unavailable usage signal is not a degradation.** It is a known state, not
 a broken read: while the signal is unavailable, escalation above the starting
 tier is `denied` and a unit already above its starting tier **holds** — no
-claw-back — with adaptation still `on`. Only a clamp input that could not be
-read at all produces `degraded` with `clamp-input`.
+claw-back — with adaptation still `on`. A unit currently *below* its starting
+tier may still climb back up to it; only the steps above the start are denied.
+Only a clamp input that could not be read at all produces `degraded` with
+`clamp-input`.
 
-Governance events — a withheld unit, a binding clamp, an escalation, a denial,
-an inheritance, a degraded read — additionally mirror one row each into the
-shared fleet audit trail under the mechanism name `allocation`, so a fleet-wide
-view keeps a single surface. Routine resolutions stay in the per-unit ledger.
+Governance events additionally mirror one row each into the shared fleet audit
+trail under the mechanism name `allocation`, so a fleet-wide view keeps a
+single surface: a withheld unit, a binding clamp, an escalation or
+de-escalation, a denial, either ladder-end no-op, an inheritance, a degraded
+read, and a petition that was policy-filtered or reconciled from an orphaned
+claim. Routine resolutions stay in the per-unit ledger.
 
 ### Two row shapes that are not launches
 
@@ -670,8 +750,9 @@ A reader treating columns 7–12 as launch tiers must exclude both of these:
   it is always `step`-scoped, and it carries `applied` the way an escalation
   does.
 
-An outcome test alone will not separate them — use the `scope` and `event`
-columns.
+An outcome test alone will not separate them — use the `event` column. A
+`feedback` row is `unit`-scoped just like a launch, so only the `step-tier` row
+is additionally distinguished by `scope`.
 
 ## The worker petition
 
@@ -691,8 +772,11 @@ scripts/allocation-petition.sh write --worktree "$PWD" \
 ```
 
 The grammar is pinned and closed: exactly five lines — `direction` (`escalate`
-or `de-escalate`), `unit`, `step`, `attempt`, `reason` — capped at 1 KiB and
-parsed under `LC_ALL=C`. Anything else is out of grammar.
+or `de-escalate`), `unit`, `step`, `attempt`, `reason` — with the whole file
+capped at 1 KiB and parsed under `LC_ALL=C`. The reason is one line of
+printable ASCII, at most 200 bytes. Anything else is out of grammar, and
+`write` **refuses** out-of-grammar input rather than publishing an artifact the
+reader would only throw away.
 
 **When to write one.** Petition to *escalate* when the work ahead is
 categorically harder than the unit's shape suggested. Petition to
@@ -704,10 +788,10 @@ spent on it burns budget the failure would have spent anyway.
 
 **Weighing consumes it.** Consumption starts by atomically renaming the
 artifact out of the pinned path — the claim — and only then validating it, so
-two boundaries racing the same unit cannot both weigh one petition. Once the
-ledger row has landed the claimed file is removed, so the pinned path is empty
-again. One petition moves the tier at most one rung, ever; signaling again
-costs the worker a fresh write.
+two boundaries racing the same unit cannot both weigh one petition. That rename
+is what empties the pinned path; once the ledger row has landed, the claimed
+file beside it is removed too. One petition moves the tier at most one rung,
+ever; signaling again costs the worker a fresh write.
 
 The claimed file is removed *after* the row, not before, so a crash in that
 narrow window leaves an **orphaned claim** beside the pinned path. Nothing is
@@ -723,7 +807,7 @@ ledger row carrying the reason:
 | Situation | Recorded as |
 | --- | --- |
 | valid, weighed, moved the tier | `applied` on a `petition-escalate` / `petition-de-escalate` row |
-| out of grammar, oversize, control bytes, a symlink, a non-regular file, a torn read | `ignored`, `reason=grammar` (or the specific refusal detail) |
+| refused by screening | `ignored`, `reason=<detail>` — one of `grammar`, `empty`, `oversize`, `control-bytes`, `torn`, `symlink`, `not-regular` |
 | written for a different unit | `ignored`, `reason=stale-unit` |
 | written for a different step | `ignored`, `reason=stale-step` |
 | filtered by `allocation_petition` | `ignored`, `reason=policy-<value>` |
@@ -835,7 +919,10 @@ dimension**:
 `dispatch_backend` ships the semantic value `full-session`, which resolves to
 the richest session-grade rung the host advertises — so on a default install
 your dispatches get whichever concrete backend that selects, and its row above
-is the one that applies. A backend you plug in yourself advertises its own
+is the one that applies. On a host advertising no *eligible* session-grade rung
+it degrades to `subagent`, then `in-session`: precisely the two rows above that
+cannot carry a full tier, so the tier you configured is the thing that quietly
+stops being applied. A backend you plug in yourself advertises its own
 `tier_control`, and one that does not say it can set a dimension is taken as
 `none`.
 
@@ -846,11 +933,12 @@ capability probe that errors is treated as no capability — inherit, and
 audited.
 
 Inheritance is never silent. Every one of these writes an `inherit` row whose
-`inputs` names the backend, the advertised capability, whether the inheritance
-was `full` or `partial`, which dimensions it covered, and the cause:
-`cause=capability` for an advertised `none`, `cause=probe-error` for a probe
-that broke. The two are distinguished because a broken probe is
-operator-actionable and an advertised `none` is not.
+`inputs` carries `backend=`, `cap=`, `inherit=`, `dim=`, and `cause=` — the
+keys tabulated above. `cause=capability` covers any advertised capability that
+does not reach the dimension, including the uncovered half of a `model`-only
+backend; `cause=probe-error` means the probe itself broke. The two are
+distinguished because a broken probe is operator-actionable and an advertised
+`none` is not.
 
 **The in-session rung's inheritance is its pinned degradation.** Work running
 in the operator's own session — the in-session work-placement rung — inherits
