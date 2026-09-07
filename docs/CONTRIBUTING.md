@@ -118,6 +118,32 @@ labelling re-triggers it: pushing further commits to an already-labelled PR does
 not re-measure, so remove and re-add the label when you want a number for the
 new head.
 
+### Spec status drift, checked out of gate
+
+A bundle's `**Status:**` header is stored text, and on a Format-version 2 bundle
+it is the one thing that never moves: the lifecycle state is derived from live
+task evidence and deliberately never written back, and the reconcile refuses to
+touch it. So the header can read `Ready` long after every task is complete, and
+a reader who trusts it mistakes a finished bundle for outstanding backlog. That
+has already happened once.
+
+```bash
+mise run check:spec-status-drift
+```
+
+It fails when a bundle's derived state is `Done` while its header stores
+something else, naming each bundle and both values. It reads its verdict from
+`scripts/spec-status.sh` rather than deriving anything itself, and it never
+edits a bundle: repairing a flagged header is a human lifecycle act.
+
+Deliberately **not** in `mise run check`, for two reasons. It runs the
+derivation engine once per bundle (a git-history walk plus a `gh` probe), so a
+full tree costs a minute or two rather than the fraction of a second the
+text-scanning guards cost. And the bundles it currently reports are real drift
+whose repair has to be signed off rather than automated. Run it when you are
+about to trust a status header — reporting on what is outstanding, picking up a
+bundle, or closing one out.
+
 ### The git hook backstop
 
 The hard history invariants (never push `main`, never amend, squash, fixup,

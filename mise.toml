@@ -159,7 +159,7 @@ description = "CDPATH house-pattern guard: fail on any shell file under scripts/
 run = "/bin/bash scripts/check-cdpath.sh"
 
 [tasks."check:spec-status-drift"]
-description = "stored-vs-derived spec status guard: fail on a bundle whose derived state is Done while its **Status:** header stores something else — the v2 shape where the header is never written back and a finished bundle reads as backlog. Derivation is read from scripts/spec-status.sh, never recomputed; Retired/Superseded and derived-Active-over-stored-Ready are deliberately not flagged. Fails closed on an unreadable bundle, a failing render, a transient evidence failure, or an empty enumeration. Not in `check`: it runs the derivation engine per bundle (git history plus a gh probe), so it is an on-demand and pre-PR guard"
+description = "stored-vs-derived spec status guard: fail on a bundle whose derived state is Done while its **Status:** header stores something else — the v2 shape where the header is never written back and a finished bundle reads as backlog. Derivation is read from scripts/spec-status.sh, never recomputed; Retired/Superseded and derived-Active-over-stored-Ready are deliberately not flagged. Fails closed on an unreadable bundle, a symlinked bundle directory, a failing render, a transient evidence failure, or an empty enumeration. Not in `check`: it runs the derivation engine per bundle (git history plus a gh probe), so it is an on-demand guard, documented in docs/CONTRIBUTING.md"
 run = "/bin/bash scripts/check-spec-status-drift.sh"
 
 [tasks."eval:skill"]

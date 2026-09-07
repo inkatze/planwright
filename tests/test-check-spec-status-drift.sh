@@ -178,6 +178,25 @@ assert_contains "drift: the report names the stored value" "$out" "Ready"
 assert_contains "drift: the report names the derived value" "$out" "Done"
 assert_not_contains "drift: the bundle with work outstanding is not reported" \
   "$out" "specs/healthy"
+# A failing run is the one an operator actually reads, so it carries the same
+# coverage numbers the clean run does.
+assert_contains "drift: the failing run reports its coverage" \
+  "$out" "2 bundles scanned, 2 judged, 1 drifted"
+
+# The guard resolves its own directory through a cd command substitution, so it
+# owes the house regression test for that pattern (scripts/check-cdpath.sh):
+# run it under a CDPATH holding a decoy `scripts` directory and assert the
+# resolved path is still right. Invoking it by a BARE RELATIVE path is what
+# makes cd consult CDPATH at all — an absolute or ./-prefixed path bypasses it,
+# so the ambient environment proves nothing. Asserting the named bundle rather
+# than a bare exit code is the point: a corrupted self_dir loses the render and
+# fails for a different-looking reason.
+decoy="$tmp/decoy"
+mkdir -p "$decoy/scripts"
+out=$(cd "$REPO_ROOT" && CDPATH="$decoy" /bin/bash scripts/check-spec-status-drift.sh "$repo" 2>&1)
+rc=$?
+assert "CDPATH: a decoy CDPATH does not derail the scan" 1 "$rc"
+assert_contains "CDPATH: the drifted bundle is still identified" "$out" "specs/drifted"
 
 # ---------------------------------------------------------------------------
 # 2. THE NEGATIVE CONTROL. Every bundle here is stored correctly, and between
@@ -220,6 +239,11 @@ rc=$?
 assert "negative control: a correctly stored tree passes" 0 "$rc"
 assert_contains "negative control: the clean report names the scanned count" \
   "$out" "6 bundles"
+# Scanned and judged are different facts. Four of these six make no derived
+# claim at all, and counting them as coverage would overstate what the run
+# proved — the clean line has to say which number is which.
+assert_contains "negative control: the clean report separates judged from scanned" \
+  "$out" "6 bundles scanned, 2 judged"
 assert_not_contains "negative control: derived Active is not drift" "$out" "specs/healthy"
 assert_not_contains "negative control: a Draft bundle is not drift" "$out" "specs/drafted"
 assert_not_contains "negative control: a Retired bundle is never flagged" \
@@ -371,7 +395,66 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 10. The guard is wired as a mise task. An unwired guard is one nobody runs.
+# 10. Fail-closed: a symlinked bundle directory. Following it would read a
+#     bundle from outside the root while reporting it under a path inside the
+#     root; skipping it would cover less than the scan claims. Neither is
+#     honest, so it is refused.
+# ---------------------------------------------------------------------------
+repo="$tmp/symlinked"
+new_repo "$repo"
+write_bundle "$repo/specs/real" Ready 2 1
+write_bundle "$tmp/outside/elsewhere" Ready 2 1
+ln -s "$tmp/outside/elsewhere" "$repo/specs/elsewhere"
+seal "$repo"
+
+out=$("$CHECKER" "$repo" 2>&1)
+rc=$?
+assert "fail-closed: a symlinked bundle directory exits 2" 2 "$rc"
+assert_contains "fail-closed: the refused symlink is named" "$out" "elsewhere"
+
+# ---------------------------------------------------------------------------
+# 11. Fail-closed: a bundle whose requirements.md is present but whose tasks.md
+#     is absent. Absent and unreadable are different facts, and an incomplete
+#     bundle must not be described as a permissions failure.
+# ---------------------------------------------------------------------------
+repo="$tmp/notasks"
+new_repo "$repo"
+write_bundle "$repo/specs/half" Ready 2 1
+rm "$repo/specs/half/tasks.md"
+seal "$repo"
+
+out=$("$CHECKER" "$repo" 2>&1)
+rc=$?
+assert "fail-closed: a bundle with no tasks.md exits 2" 2 "$rc"
+assert_contains "fail-closed: the missing file is named as missing" "$out" "no tasks.md"
+
+# ---------------------------------------------------------------------------
+# 12. Fail-closed: a directory name that is not a spec id. The render would
+#     refuse it downstream anyway; refusing it here is what makes the
+#     diagnostic name the real problem instead of a generic render failure.
+# ---------------------------------------------------------------------------
+repo="$tmp/badname"
+new_repo "$repo"
+write_bundle "$repo/specs/Bad_Name" Ready 2 1
+seal "$repo"
+
+out=$("$CHECKER" "$repo" 2>&1)
+rc=$?
+assert "fail-closed: a non-spec-id bundle directory exits 2" 2 "$rc"
+assert_contains "fail-closed: the offending name is reported as not a spec id" \
+  "$out" "not a spec id"
+
+# ---------------------------------------------------------------------------
+# 13. An explicitly empty root is a usage error, not an instruction to scan the
+#     default tree. `${1:-default}` substitutes on empty as well as unset, so
+#     without this the guard would silently report on a tree the caller never
+#     named.
+# ---------------------------------------------------------------------------
+out=$("$CHECKER" "" 2>&1)
+assert "usage: an empty root argument exits 2" 2 $?
+
+# ---------------------------------------------------------------------------
+# 14. The guard is wired as a mise task. An unwired guard is one nobody runs.
 # ---------------------------------------------------------------------------
 if grep -q '^\[tasks."check:spec-status-drift"\]' "$REPO_ROOT/mise.toml"; then
   echo "ok: wiring: the guard has a mise task"
@@ -384,6 +467,17 @@ if grep -q 'check-spec-status-drift.sh' "$REPO_ROOT/mise.toml"; then
 else
   echo "FAIL: wiring: the mise task does not invoke check-spec-status-drift.sh" >&2
   failures=$((failures + 1))
+fi
+# The exclusion from the `check` aggregate is a decision, not an omission: the
+# guard runs the derivation engine once per bundle, and the bundles it reports
+# today are real drift whose repair is a human lifecycle act. Pinning the
+# absence is what stops it being "fixed" into the gate by someone reading the
+# omission as an oversight.
+if grep -q '"check:spec-status-drift",' "$REPO_ROOT/mise.toml"; then
+  echo "FAIL: wiring: the guard is in the check aggregate, but it derives per bundle and is deliberately on-demand" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: wiring: the guard is deliberately outside the check aggregate"
 fi
 
 if [ "$failures" -ne 0 ]; then
