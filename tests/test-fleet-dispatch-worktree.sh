@@ -651,6 +651,26 @@ c16() {
   }
   printf '%s\n' "$OUT" | grep 'attach-plan' | grep 'launch' | grep -q 'opus' \
     || fail "c16: --model opus did not flow into the launch plan"
+
+  # --effort is on the same sanctioned list (model-allocation D-10): it selects
+  # capability and cost, never permission or trust. Its value is held to the
+  # effort enum rather than merely shape-checked, so the refusal cases differ
+  # from --model's and are worth their own coverage.
+  run_prim dispatch demo 25 --repo-root "$tmp/primary" --attach-dry-run -- --effort enormous
+  [ "$RC" -eq 2 ] || fail "c16: an out-of-enum '--effort enormous' not refused (exit $RC)"
+  run_prim dispatch demo 26 --repo-root "$tmp/primary" --attach-dry-run -- --effort
+  [ "$RC" -eq 2 ] || fail "c16: '--effort' with no value not refused (exit $RC)"
+  run_prim dispatch demo 27 --repo-root "$tmp/primary" --attach-dry-run -- --effort=
+  [ "$RC" -eq 2 ] || fail "c16: empty '--effort=' not refused (exit $RC)"
+  run_prim dispatch demo 28 --repo-root "$tmp/primary" --attach-dry-run -- --effort=enormous
+  [ "$RC" -eq 2 ] || fail "c16: attached out-of-enum '--effort=enormous' not refused (exit $RC)"
+  run_prim dispatch demo 29 --repo-root "$tmp/primary" --attach-dry-run -- --effort low
+  [ "$RC" -eq 0 ] || {
+    fail "c16: benign --effort launch refused (exit $RC)"
+    return
+  }
+  printf '%s\n' "$OUT" | grep 'attach-plan' | grep 'launch' | grep -q 'low' \
+    || fail "c16: --effort low did not flow into the launch plan"
 }
 
 # ---------------------------------------------------------------------------
