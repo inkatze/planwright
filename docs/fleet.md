@@ -339,9 +339,10 @@ backend self-describes against the
 `can_steer_inflight` (deliver an attributed message into a busy worker),
 `provides_attention_surface`, `supports_parallel`, plus whether its workers are
 **session-grade** — launched as full top-level sessions that survive the
-tower's death — and two cost/plumbing properties: `overhead` (the fixed
-per-dispatch cost class) and `hook_registration` (whether the worker's process
-fires planwright's hooks, which selects its liveness mechanism). Backend
+tower's death — and three cost/plumbing properties: `tier_control` (which
+launch-tier dimensions it can set), `overhead` (the fixed per-dispatch cost
+class) and `hook_registration` (whether the worker's process fires planwright's
+hooks, which selects its liveness mechanism). Backend
 selection and the degradation ladder below key on this advertised set, not on
 the backend's name; the per-backend dispatch wiring itself is still name-keyed
 today, pending later wiring (see the
@@ -500,8 +501,8 @@ nothing installed beyond Claude Code still operates the whole pipeline.
 
 A new terminal or multiplexer plugs in by advertising the contract — no edit
 to planwright's skills. You ship an executable `planwright-backend-<name>` on
-`PATH` that answers `advertise` with one capability line (eight fields; a
-legacy six-field line still parses with fail-safe defaults);
+`PATH` that answers `advertise` with one capability line (nine fields; legacy
+six- and eight-field lines still parse with fail-safe defaults);
 `/orchestrate` autodetects it, reads the set, places it on the ladder, and offers
 it like any shipped backend. A backend whose advertisement is missing or
 malformed is never selected (unknown capabilities fail safe). The exact adapter
@@ -1095,8 +1096,10 @@ knobs (three columns across the three task types) as `unset`, which is exactly
 what keeps the legacy family in charge, so an existing overlay keeps working
 untouched and needs no migration.
 The legacy family is documented, not removed. The same family also carries
-rows for the surfaces that select nothing today, which ship `inherit` instead.
-Per-knob detail is in the [options reference](options-reference.md).
+rows for the three non-fleet surfaces, which ship `inherit` instead.
+Per-knob detail is in the [options reference](options-reference.md); the
+operator's guide to the whole policy — the ladder, the ledger, the petition,
+and how to turn any of it on — is [Model allocation](allocation.md).
 
 **Throttling is reactive, off Claude Code's own signal.** There is no
 supported way to query account-level usage, so the fleet reacts to the one
@@ -1270,10 +1273,59 @@ additionally mirror one row each into the shared audit trail under mechanism
 `allocation`, so the fleet-wide view keeps a single surface; routine resolutions
 stay in the per-unit ledger.
 
+**Petitioning for a different tier: `scripts/allocation-petition.sh`.** Every
+trigger above is a symptom of a unit going *badly*. Nothing tells the policy the
+opposite — that the remaining steps are mechanical and the tier the table handed
+out is more than the work needs — and nothing lets a worker say "this is harder
+than it looked" before it has failed twice to prove it. The petition is that
+channel (model-allocation D-7), and it is the only signal in the allocation path
+a worker authors.
+
+A worker writes one at a step boundary:
+
+```sh
+scripts/allocation-petition.sh write --worktree "$PWD" \
+  --direction de-escalate --unit <spec>:task-<n> --step <step> --attempt <n> \
+  --reason 'the remaining steps are mechanical'
+```
+
+**When to write one.** Petition to *escalate* when the work in front of you is
+categorically harder than the unit's shape suggested — a subtle concurrency
+contract, a domain the brief under-described, an interface whose semantics have
+to be re-derived rather than read. Petition to *de-escalate* when the remaining
+steps are mechanical: the design is settled and what is left is transcription,
+formatting, or a rote sweep. Do not petition because a step failed — that is
+already a trigger event, and spending a petition on it burns adjustment budget
+the failure would have spent anyway. One petition is one ladder step; if the
+next boundary still needs a different tier, write another.
+
+**What it cannot do.** A petition is a *hint the policy weighs*, never an
+authority. It takes the same single ladder step as any other trigger, spends the
+same `allocation_adjustment_cap` budget, and meets the same clamps, so it can
+never buy a tier the restriction rung or a per-tier cap would refuse. Weighing
+**consumes** it: the artifact is gone afterwards, so signaling again costs a
+fresh write, and a petition can never move a unit twice.
+
+The artifact is untrusted input and is screened as such: a pinned five-line
+grammar under `LC_ALL=C`, a 1 KiB cap, taken only as a contained regular file
+(no symlink followed, no FIFO opened), and claimed by atomic rename before it is
+validated, so two boundaries racing the same unit cannot both weigh it. Anything
+out of grammar, hostile, stale, or filtered out by `allocation_petition` is
+still consumed and lands an `ignored` ledger row — which is where an operator
+sees what a worker said and why it did not count.
+
+**Rungs with no worktree have no petition channel.** The channel is a file in
+the worker's own worktree, so in-session work — the terminal rung, a
+`/execute-task` step running in the operator's session — has nowhere to write
+one. That is a documented degradation, not an error: those units still adapt on
+the work-shaped events, they simply cannot volunteer the signal. It is also why
+`allocation_petition` is subordinate to `allocation_adaptation`: with the master
+knob off there is no ladder position to move, so the artifact is not read at all.
+
 **The ledger feeds back into future drafting.** When a unit reaches a terminal
 state, completion or crash-loop disable alike, the terminal-state owner runs
 `scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> --terminal
-<completed|disabled> --scope <repo>`. It replays that unit's ledger and, when
+<completed|disabled> --scope <scope>`. It replays that unit's ledger and, when
 the history says the starting tier was wrong, records one observation fragment
 through the shared helper, which is how chronic under-estimation reaches the
 next round of `/spec-draft` seed mining. Two conditions fire it: the unit's
@@ -1397,7 +1449,7 @@ are in the [options reference](options-reference.md).
 | `fleet_max_parallel_units` | Fleet-wide bound across all specs | Your total fleet load | `3` — enabling the meta-tower never multiplies load until you raise it |
 | `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you (`none` / `tmux-popup` / `os-notify` / `editor-toast` / `statusline`) | `none` — pull-only, dependency-free, nothing fires until you opt in |
 | `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
-| `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, with fleet dispatch the only one wired to read it so far (Task 6 wires the rest) | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the surfaces that select nothing today — configure nothing, observe no change |
+| `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, and every launch point planwright ships now reads it (fleet dispatch by task type; single-spec dispatch, per-step sessions, and offload by surface), applying each dimension only as far as the launching backend's advertised `tier_control` allows and recording any inheritance | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the three non-fleet surfaces — configure nothing, observe no change |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
 
 Style values never gate capability: every knob's default keeps the full
