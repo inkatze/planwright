@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.37.0](https://github.com/inkatze/planwright/compare/v0.36.0...v0.37.0) (2026-09-07)
+
+
+### Features
+
+* **allocation:** let a worker ask for a different model tier ([#407](https://github.com/inkatze/planwright/issues/407)) ([08953c9](https://github.com/inkatze/planwright/commit/08953c9429b2b38ec95da15bb42aa376e155a2f9))
+* **allocation:** per-step selection keys, applied one-directionally ([#411](https://github.com/inkatze/planwright/issues/411)) ([038b8e0](https://github.com/inkatze/planwright/commit/038b8e0d471f7d14819e858d86414298e48fe3b7))
+* **allocation:** record an observation when a unit needed more than it started with ([#389](https://github.com/inkatze/planwright/issues/389)) ([a1d2f31](https://github.com/inkatze/planwright/commit/a1d2f314e9e50dd18cfc4fe08e1f08dc0e59d293))
+* **allocation:** resolve a launch tier at every launch point, not just the fleet ([#412](https://github.com/inkatze/planwright/issues/412)) ([743ef80](https://github.com/inkatze/planwright/commit/743ef80232e1908cda3d08b281880adeab1871f3))
+* **fleet:** classify every worker into four positive states with its owner ([#400](https://github.com/inkatze/planwright/issues/400)) ([e69806c](https://github.com/inkatze/planwright/commit/e69806c1cfdef49fd9352dfad14853e3ef3d93b9))
+* **fleet:** register every dispatch and stamp it with its tower ([#387](https://github.com/inkatze/planwright/issues/387)) ([01c58e4](https://github.com/inkatze/planwright/commit/01c58e4e49a7a899ef0a8267fbc9f74cf7f2f97d))
+* **guard:** screen committed coordination artifacts for peer operational detail ([#396](https://github.com/inkatze/planwright/issues/396)) ([d34475f](https://github.com/inkatze/planwright/commit/d34475f13b2718b75940befee23116d95e2806ec))
+* **guards:** flag cd substitutions missing unset CDPATH, pin lint:md template scope ([#398](https://github.com/inkatze/planwright/issues/398)) ([abdf9d9](https://github.com/inkatze/planwright/commit/abdf9d9ae5fb83af3a90562efa0e399a1821d2a0))
+* **guards:** follow the mise task graph when keeping evals out of CI ([#397](https://github.com/inkatze/planwright/issues/397)) ([8383643](https://github.com/inkatze/planwright/commit/8383643370eaaf6a8c215b18397214bf6c921b4c))
+* **release:** skip the release proposal while a publish is pending ([#382](https://github.com/inkatze/planwright/issues/382)) ([c3a8465](https://github.com/inkatze/planwright/commit/c3a846558c57210d96d15a6a6417c7e396ba626e))
+* **skills:** cross-check enumerated claims at drafting and sign-off ([#392](https://github.com/inkatze/planwright/issues/392)) ([3acdc8e](https://github.com/inkatze/planwright/commit/3acdc8ea330fa4a144269a1cd49ab6f668acbba9))
+* **spec-kickoff:** re-anchor before the push when a fix lands after sign-off ([#395](https://github.com/inkatze/planwright/issues/395)) ([77b6ae1](https://github.com/inkatze/planwright/commit/77b6ae16cb989e3df55ae08922bc94ea28d32e81))
+* **spec:** prose-disposition kickoff sign-off ([#410](https://github.com/inkatze/planwright/issues/410)) ([dc0442a](https://github.com/inkatze/planwright/commit/dc0442a9e9aea6240073ed848d80055ec5bab9f8))
+
+
+### Bug Fixes
+
+* **allocation:** hold the ledger health check to the grammar append enforces ([#404](https://github.com/inkatze/planwright/issues/404)) ([76f1ff9](https://github.com/inkatze/planwright/commit/76f1ff9133dc9c4de14ff41e0692655585a7781b))
+* **fleet:** stop reading a killed worker's result frame as a completion ([#408](https://github.com/inkatze/planwright/issues/408)) ([d094274](https://github.com/inkatze/planwright/commit/d094274e7d04904027e664384b3f6f6b528a91df))
+
 ## [0.36.0](https://github.com/inkatze/planwright/compare/v0.35.0...v0.36.0) (2026-09-02)
 
 

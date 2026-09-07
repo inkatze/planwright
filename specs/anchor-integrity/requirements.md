@@ -279,6 +279,19 @@ doctrine amendments, enforcement as mechanism.
   `*(Amended at …)*` annotation, so each is findable from the record itself
   rather than only from this changelog. The REQ-C1.1 and REQ-C1.2 entries
   are left unannotated: their restatement changed form, not substance.
+- 2026-09-03 — Task 6 expression-only edit. The REQ-C1.4 verification entry
+  names the structural guard the task ships as its `[test]` half, so the
+  recorded verification path matches what is actually wired, and restates
+  the scenario in the canonical Given/When/Then form its REQ-C siblings
+  took at the 2026-08-26 edit above. What the scenario asserts is
+  unchanged; no REQ, D-ID, or `Done when:` condition changes meaning.
+- 2026-09-03 — Task 6 expression-only edit, second. Merging `main` left the
+  skill on its instruction-budget floor, so the ritual's mechanics were
+  relocated into the meta-spec and the skill kept a pointer. The REQ-C1.4
+  verification entry now names both prose surfaces the structural guard
+  spans, since the recorded path otherwise sends a reader to the skill
+  alone. What the scenario asserts is unchanged; no REQ, D-ID, or
+  `Done when:` condition changes meaning.
 
 ## Sources
 
