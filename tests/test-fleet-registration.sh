@@ -109,7 +109,16 @@ done
 
 tmp=$(cd "$(mktemp -d)" && pwd -P)
 cleanup() {
-  for pf in "$tmp"/state*/*/pid "$tmp"/sj-*/*/supervisor.pid; do
+  # A detached supervisor outlives the case that launched it, and the rm -rf
+  # below unlinks the fifo it is reading — after which it blocks in read()
+  # forever, holding a deleted state directory. So the pid sweep has to match
+  # the layout the rungs actually write. The streamjson rung writes
+  # <home>/streamjson/<worker>/supervisor.pid, and the `home` helper puts every
+  # home under $tmp/fleet-<case>; the two globs this loop carried before
+  # (state*/ and sj-*/) match no path this file has ever created, so the body
+  # never ran once and every full-suite run leaked a supervisor permanently.
+  for pf in "$tmp"/fleet-*/streamjson/*/supervisor.pid \
+    "$tmp"/state*/*/pid "$tmp"/sj-*/*/supervisor.pid; do
     [ -f "$pf" ] || continue
     p=$(cat "$pf" 2>/dev/null) || continue
     case $p in '' | *[!0-9]*) continue ;; esac
@@ -474,7 +483,28 @@ EOF
     else
       fail "c3: the stream-json rung wrote no registry record"
     fi
-    ok c3 "the stream-json rung registers a complete record"
+    # The launch above is DETACHED, so it leaves a live supervisor behind. Close
+    # it here rather than leaving it to the EXIT trap: a leaked supervisor is
+    # invisible to every assertion in this file, so if the trap's sweep ever
+    # stops matching again, nothing would notice except the process table.
+    # Asserting the close here is what keeps that sweep honest.
+    sjpid=$(cat "$h/streamjson/w-c3/supervisor.pid" 2>/dev/null) || sjpid=''
+    case $sjpid in
+      '' | *[!0-9]*) fail "c3: the launch recorded no supervisor pid to close" ;;
+    esac
+    kill -0 "$sjpid" 2>/dev/null \
+      || fail "c3: the recorded supervisor was already gone — this close proves nothing"
+    kill "$sjpid" 2>/dev/null
+    sjwait=0
+    while kill -0 "$sjpid" 2>/dev/null && [ "$sjwait" -lt 100 ]; do
+      sjwait=$((sjwait + 1))
+      sleep 0.05
+    done
+    if kill -0 "$sjpid" 2>/dev/null; then
+      kill -9 "$sjpid" 2>/dev/null
+      fail "c3: the supervisor survived a TERM and had to be killed — it would have leaked"
+    fi
+    ok c3 "the stream-json rung registers a complete record and leaves no supervisor"
   else
     ok c3 "skipped (stream-json launch unavailable in this environment)"
   fi
