@@ -116,8 +116,12 @@ esac
 printf '' | /bin/bash "$CHECKER" --stdin >/dev/null 2>&1
 assert "empty input is a usage error" 2 $?
 
-# 6. Range mode lints git history: a temp repo with one good and one bad
-#    commit fails over the full range and passes over the good-only range.
+# 6. Range mode REPORTS rather than fails. A commit that already exists cannot
+#    be corrected without the history rewrite the framework forbids, so a
+#    non-conventional subject there is surfaced and the range still passes —
+#    the same treatment subject length has always had, for the same reason.
+#    githooks/commit-msg is what refuses the subject while it is still a file
+#    on disk; case 10 pins the two to the same verdict.
 #    The fixture repo must be hermetic: a contributor's global git config
 #    (commit signing through an agent socket, hooks, templates) must not be
 #    able to break fixture commits.
@@ -133,10 +137,91 @@ trap 'rm -rf "$tmp"' EXIT
   git -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m "bad subject line"
 ) || exit 1
 (cd "$tmp" && /bin/bash "$CHECKER" "HEAD~1..HEAD" >/dev/null 2>&1)
-assert "range mode catches the bad commit" 1 $?
+assert "range mode does not fail on frozen history" 0 $?
+#    Reported, though — silence here would hide it entirely, since the range
+#    lint is the only place an already-pushed subject is ever looked at.
+out="$(cd "$tmp" && /bin/bash "$CHECKER" "HEAD~1..HEAD" 2>&1)"
+case "$out" in
+  *"not conventional"*"bad subject line"*) ;;
+  *)
+    echo "FAIL: range mode must still REPORT the bad subject, got: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+case "$out" in
+  *"1 non-conventional"*) ;;
+  *)
+    echo "FAIL: range mode must summarise the count it reported, got: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+#    Control: the SAME subject through the editable path still fails, so the
+#    exemption above is scoped to frozen history and is not the rule going
+#    slack everywhere.
+printf 'bad subject line\n' | /bin/bash "$CHECKER" --stdin >/dev/null 2>&1
+assert "the same subject still fails on the editable path" 1 $?
 (cd "$tmp" && git -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m "fix: good again" \
   && /bin/bash "$CHECKER" "HEAD~1..HEAD" >/dev/null 2>&1)
 assert "range mode passes a clean range" 0 $?
+
+# 10. The hook and this script must agree on what "conventional" means.
+#     Enforcement now lives in two places on purpose — the hook refuses a
+#     subject while it can still be edited, this script reports one that
+#     cannot — and two implementations of one rule is precisely how a rule
+#     starts meaning two things. Every subject below must get the same verdict
+#     from both. Merge/Revert and the squash!/fixup!/amend! subjects are
+#     excluded: the hook owns refusals this script deliberately skips.
+HOOK="$(cd "$(dirname "$0")/.." && pwd)/githooks/commit-msg"
+if [ ! -f "$HOOK" ]; then
+  echo "FAIL: githooks/commit-msg missing at $HOOK" >&2
+  failures=$((failures + 1))
+else
+  hook_msg="$tmp/hookmsg"
+  agree=0
+  for corpus_subject in \
+    'feat: a plain one' \
+    'fix(scope): with a scope' \
+    'feat(a.b-c)!: breaking with a dotted scope' \
+    'chore: ok' \
+    'docs: ok' \
+    'wip: not a type' \
+    'notatype: nope' \
+    'no colon at all' \
+    'feat:missing the space' \
+    'feat: ' \
+    'FEAT: uppercase type' \
+    'feat(SCOPE): uppercase scope'; do
+    printf '%s\n' "$corpus_subject" >"$hook_msg"
+    script_rc=0
+    printf '%s\n' "$corpus_subject" | /bin/bash "$CHECKER" --stdin >/dev/null 2>&1 || script_rc=1
+    hook_rc=0
+    (cd "$(dirname "$HOOK")/.." && /bin/sh "$HOOK" "$hook_msg" >/dev/null 2>&1) || hook_rc=1
+    if [ "$script_rc" != "$hook_rc" ]; then
+      echo "FAIL: hook and script disagree on '$corpus_subject' (script=$script_rc hook=$hook_rc)" >&2
+      failures=$((failures + 1))
+    else
+      agree=$((agree + 1))
+    fi
+  done
+  #  A corpus that stopped reaching either implementation would agree
+  #  vacuously, so require that it actually exercised both verdicts.
+  if [ "$agree" -lt 12 ]; then
+    echo "FAIL: only $agree of 12 corpus subjects were compared" >&2
+    failures=$((failures + 1))
+  fi
+  printf '%s\n' 'feat: a plain one' >"$hook_msg"
+  (cd "$(dirname "$HOOK")/.." && /bin/sh "$HOOK" "$hook_msg" >/dev/null 2>&1) \
+    || {
+      echo "FAIL: the hook rejects a valid subject — the agreement above proves nothing" >&2
+      failures=$((failures + 1))
+    }
+  printf '%s\n' 'wip: nope' >"$hook_msg"
+  if (cd "$(dirname "$HOOK")/.." && /bin/sh "$HOOK" "$hook_msg" >/dev/null 2>&1); then
+    echo "FAIL: the hook accepts a non-conventional subject — it is not screening at all" >&2
+    failures=$((failures + 1))
+  fi
+  echo "ok: the hook and the range lint agree on what conventional means"
+fi
 
 # 7. No arguments at all is a usage error with help text.
 /bin/bash "$CHECKER" >/dev/null 2>&1
