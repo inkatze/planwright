@@ -501,7 +501,7 @@ live_refs() {
     | grep -v "$2" \
     | cut -d: -f1 | sort -u | tr '\n' ' '
 }
-step_callers=$(live_refs -- '--step-type' 'allocation-adapt\.sh')
+step_callers=$(live_refs '--step-type' 'allocation-adapt\.sh:')
 if [ -n "$step_callers" ]; then
   fail "21a: something now passes --step-type ($step_callers) — docs/allocation.md still says nothing does"
 fi
