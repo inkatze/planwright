@@ -65,7 +65,7 @@
 # launch-tier resolver and the second also raised here when its plan is missing
 # a row this reads or carries an out-of-enum tier; 2 usage /
 # hostile input / refused backend / missing, empty, unreadable, or unsafe
-# prompt file / missing echo-safety helper / internal resolution failure.
+# prompt file / a missing sibling helper / internal resolution failure.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, input
 # treated as data only (REQ-K1.5). Pathname expansion is disabled (set -f) so
@@ -92,6 +92,30 @@ if [ ! -r "$echo_safety" ]; then
 fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
+
+# The model roster the emission-boundary check below reads. Sourced rather than
+# spelled again: a literal copy here would refuse a legitimately-added model as
+# "out of enum" the moment the roster grows, which is a broken-install exit on
+# a healthy install.
+ladder="$script_dir/allocation-ladder.sh"
+if [ ! -r "$ladder" ]; then
+  echo "$me: required helper $ladder missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/allocation-ladder.sh
+. "$ladder"
+
+# od_in_roster <value> <space-separated roster>: 0 when the value is a member,
+# or the `inherit` sentinel — which is not a tier but a legal plan row meaning
+# "apply nothing". `set -f` keeps the unquoted $2 word-split from globbing, so
+# a token like `*` is compared literally rather than expanded.
+od_in_roster() {
+  [ "$1" = inherit ] && return 0
+  for od_m in $2; do
+    [ "$1" = "$od_m" ] && return 0
+  done
+  return 1
+}
 
 # The launch-tier plan comes from the shared apply layer, never from a local
 # copy of the selection rules (model-allocation D-5, REQ-B1.1).
@@ -173,20 +197,14 @@ resolve_tier() {
   # words of a command a human runs. A value outside the closed enum means a
   # broken install upstream, and it stops here rather than being emitted — on
   # the install exit code, not the usage one this used to borrow.
-  case "$TIER_MODEL" in
-    inherit | fable | opus | sonnet | haiku) ;;
-    *)
-      echo "$me: dispatch: the resolver returned an out-of-enum model — broken or outdated install" >&2
-      exit 5
-      ;;
-  esac
-  case "$TIER_EFFORT" in
-    inherit | low | medium | high) ;;
-    *)
-      echo "$me: dispatch: the resolver returned an out-of-enum effort — broken or outdated install" >&2
-      exit 5
-      ;;
-  esac
+  if ! od_in_roster "$TIER_MODEL" "$ALLOC_MODELS"; then
+    echo "$me: dispatch: the resolver returned an out-of-enum model — broken or outdated install" >&2
+    exit 5
+  fi
+  if ! od_in_roster "$TIER_EFFORT" "$ALLOC_EFFORTS"; then
+    echo "$me: dispatch: the resolver returned an out-of-enum effort — broken or outdated install" >&2
+    exit 5
+  fi
 }
 
 # The unit a dispatch records its allocation against. The caller names it with

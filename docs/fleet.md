@@ -662,23 +662,30 @@ a **ref on `origin`** (concurrent-orchestrator-coordination D-5, D-8, D-11):
 before a worker forks, a tower creates `refs/planwright-fence/<spec>/<unit-id>`
 with an expect-absent compare-and-swap.
 
-**`/orchestrate` does not call this yet.** The mechanism below is complete and
-verified, but wiring it into the tower's dispatch step needs more room than
-that skill's instruction budget has left, so it is queued as a follow-up. Until
-then the commands are yours to run, and concurrent towers still coordinate only
-through presence. `origin` is the one substrate every clone shares and git
-serializes ref updates on it, so exactly one tower wins a unit; it is also
-death-surviving, because the ref lives on the server rather than in the
-tower's process. The ref points at the current `origin/main` tip — an
-existing commit — so fencing adds no history to `main`.
+**`/orchestrate` takes no fence yet.** It does run `gc` — the reconcile calls it
+on each unit that resolves as merged, which is also how that unit's completion
+reaches the escalation feedback loop below. But `check` and `fence`, the two that
+would actually stop a second tower dispatching a unit, need more room in the
+dispatch step than that skill's instruction budget has left, so they are queued
+as a follow-up. Until then those two are yours to run, concurrent towers still
+coordinate only through presence, and `sweep` — the backstop — finds nothing to
+reclaim until something takes a fence for it to find.
+
+`origin` is the one substrate every clone shares and git serializes ref updates
+on it, so exactly one tower wins a unit; it is also death-surviving, because the
+ref lives on the server rather than in the tower's process. The ref points at
+the current `origin/main` tip — an existing commit — so fencing adds no history
+to `main`.
 
 ```sh
 scripts/fleet-fence.sh check --checkout <repo-root> --spec <spec> <unit-id>
 scripts/fleet-fence.sh fence --checkout <repo-root> --spec <spec> <unit-id>...
 scripts/fleet-fence.sh gc    --checkout <repo-root> --spec <spec> <unit-id>...
+                             [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
 scripts/fleet-fence.sh list  --checkout <repo-root> [--spec <spec>]
 scripts/fleet-fence.sh sweep --checkout <repo-root> --spec <spec> \
   (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>]
+  [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
 ```
 
 `check` is the selection guard: exit 0 the unit is fenced (skip it), exit 1 it
@@ -926,7 +933,24 @@ masked. `crash-check` consults the operator kill-switch
 (`fleet_daemon_pause`) before authorizing any relaunch; bookkeeping and
 escalation are deliberately not gated (pausing the record of what happened
 would hide problems). Backoff and disable actions log through the audit
-trail; a human clears the streak with `crash-reset`.
+trail; a human clears the streak with `crash-reset`. A disable is also a unit's
+terminal state, so `crash-record` reports it to the escalation feedback loop
+when given the identity to report — `--alloc-unit`, `--alloc-key`,
+`--obs-scope` and `--obs-dir`, all-or-none. `/orchestrate`'s reconcile is what
+gives it: it runs this on the dead worker it proved before parking the orphan.
+The report goes **after** the orphan is parked, not before. `crash-record` is
+not idempotent — its own contract forbids re-invoking it for the same crash —
+and the reconcile is stateless, so the parked entry is the only thing that stops
+the next pass observing that same death and counting it again. Ordering it after
+the park trades a crash that goes uncounted when a pass dies mid-step for a
+spurious disable, and an uncounted crash is much the cheaper loss.
+
+Note what that does **not** buy on its own. The streak is per worker handle and
+the reconcile never re-dispatches, so one reconcile pass records one crash; the
+disable — and with it the `disabled` report — is reached only when the same
+handle dies `fleet_crash_disable_threshold` times, which today takes a human
+re-dispatching it under that same handle. The `completed` half needs no such help. Described with its
+twin where the ledger's feedback loop is covered below.
 
 ### What planwright registers, and the event it deliberately does not
 
@@ -1325,10 +1349,37 @@ knob off there is no ladder position to move, so the artifact is not read at all
 **The ledger feeds back into future drafting.** When a unit reaches a terminal
 state, completion or crash-loop disable alike, the terminal-state owner runs
 `scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> --terminal
-<completed|disabled> --scope <scope>`. It replays that unit's ledger and, when
-the history says the starting tier was wrong, records one observation fragment
-through the shared helper, which is how chronic under-estimation reaches the
-next round of `/spec-draft` seed mining. Two conditions fire it: the unit's
+<completed|disabled> --scope <scope>`. Two commands own those transitions and
+report them **when asked to**: each takes the identity as opt-in flags and runs
+no evaluation without them. `/orchestrate`'s reconcile is what supplies them —
+it is the one pass that observes both terminal states, a merged unit as it moves
+to Completed and a dead worker before it parks the orphan — so that is where the
+loop is driven from, and the invocations it runs are written out there. Each
+reports the state it owns. `scripts/fleet-fence.sh` reports `completed` as it
+retires a fence — from `gc`, the normal transition a tower runs on the unit it
+just finished, and from `sweep`'s terminal branch, the backstop for a tower
+that exited first; a unit that travels both routes still records once, because
+the ledger mark is what bounds emission rather than the route.
+`scripts/fleet-liveness.sh crash-record` reports `disabled` from the disable
+branch. Both take the unit's identity from their caller, as all-or-none flags,
+because none of it can be derived from what a terminal-state owner knows: the
+ledger unit key (which the fence assembles from the spec and unit id it already
+holds), the selection key, the observation scope, and — for `crash-record`,
+which has no repo root to resolve one against — the observations store.
+
+Neither call can cost the transition it hangs off: a recording failure is
+surfaced and the disable still stands, the fence is still retired. That cuts
+both ways, and the diagnostics say so. The fence is retired whatever the
+evaluation returned, so a failed evaluation there loses that unit's
+observation rather than deferring it; and because the two sit on opposite
+sides of their transitions — the fence reports before retiring, the disable
+after committing its audit and escalation — an audit or queue failure exits
+before the disable ever reports.
+
+`allocation-feedback.sh` replays that unit's ledger and, when the history says
+the starting tier was wrong, records one observation fragment through the
+shared helper, which is how chronic under-estimation reaches the next round of
+`/spec-draft` seed mining. Two conditions fire it: the unit's
 derived final **ladder position** ended above its configured starting tier, or
 its count of applied escalations reached `allocation_feedback_threshold`
 (default `2`). The second is the churn case the first cannot see, since a unit

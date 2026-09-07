@@ -42,10 +42,11 @@ is telemetry: new ledger rows, and a sparse mirror of governance events into
 the shared audit trail. Turning any of it on is a deliberate, reversible
 overlay edit.
 
-Two parts of the mechanism are **complete but not yet wired to a caller**, and
-are called out again where they are described: the per-step tiers (nothing
-passes a step type at a launch yet) and the feedback evaluation (nothing
-invokes it at a unit's terminal state yet).
+One part of the mechanism is **complete but not yet wired to a caller**, and is
+called out again where it is described: the per-step tiers, since nothing passes
+a step type at a launch yet. The feedback evaluation *is* wired —
+`/orchestrate`'s reconcile reports each terminal state — but what it can observe
+today is still bounded, which its own section sets out.
 
 ## The knob family, and how `fleet_*` fits
 
@@ -874,10 +875,16 @@ keeps the unit retryable.
 
 **On reachability, honestly.** Two things bound how often you will see a
 fragment today. First, with `allocation_adaptation` `off` — the shipped
-value — nothing escalates, so neither condition is ever reached. Second,
-planwright does not yet invoke this evaluation automatically at unit completion
-or crash-loop disable; the terminal-state owner runs it. The mechanism is
-complete and tested, and it is not yet wired to a caller.
+value — nothing escalates, so neither condition is ever reached. Second, the
+two terminal states are not equally live. `/orchestrate`'s reconcile is what
+reports them, and it is the one pass that sees both: `scripts/fleet-fence.sh
+gc` reports `completed`, and since it reports *before* it retires the ref, that
+arm reaches the evaluation end to end. `scripts/fleet-liveness.sh crash-record`
+reports `disabled`, but a disable takes `fleet_crash_disable_threshold` crashes
+on a single worker handle, and the reconcile parks an orphan rather than
+re-dispatching it — so that streak advances only when a human re-dispatches the
+unit under the same handle. Treat the `disabled` arm as conditionally reachable,
+not routine.
 
 ## Why the escalation path is fixed
 

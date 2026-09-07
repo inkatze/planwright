@@ -163,13 +163,36 @@ fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
 
+# The model roster and the ladder's rank map, sourced rather than restated:
+# allocation-ladder.sh is the single definition, and a second copy here is the
+# drift its header exists to prevent. Guarded on the same terms as the
+# sanitizer above, for the same reason.
+ladder="$script_dir/allocation-ladder.sh"
+if [ ! -r "$ladder" ]; then
+  echo "allocation-select: tier ladder '$ladder' is missing or not readable — broken install" >&2
+  exit 5
+fi
+# shellcheck source=scripts/allocation-ladder.sh
+. "$ladder"
+
 RESOLVER="$script_dir/resolve-config-knob.sh"
 
-# The stable per-column enums (REQ-A1.4): model to the Claude Code aliases —
-# aliases, not dated model ids, so the enum survives model releases; effort to
-# the three reasoning tiers; command to the dispatch-entry set.
-MODEL_VALUES="fable opus sonnet haiku"
-EFFORT_VALUES="low medium high"
+# The stable per-column enums (REQ-A1.4): model to the Claude Code aliases the
+# ladder's roster names — aliases, not dated model ids, so the enum survives
+# model releases; effort to the three reasoning tiers; command to the
+# dispatch-entry set.
+#
+# THE MODEL ENUM IS THE STARTING ROSTER, which is the ladder's roster minus its
+# top. The top model is ESCALATION-ONLY: the successor rule raises effort to
+# `high` and only then the model one alias, so (top, high) is the top's one
+# reachable coordinate. A unit CONFIGURED to start there would begin with the
+# ladder's whole headroom already spent and no rung to escalate into, which is
+# not a tier this table can price. Naming it in a config is therefore refused
+# on exactly the terms `inherit` at a fleet key is refused — as an out-of-enum
+# value under the by-layer policy, so the diagnostic points at the knob that is
+# wrong. Escalation still reaches the top; only STARTING there is refused.
+MODEL_VALUES="$ALLOC_START_MODELS_DESC"
+EFFORT_VALUES="$ALLOC_EFFORTS"
 COMMAND_VALUES="execute-task orchestrate drain"
 
 # The sentinels. `unset` spells "this general knob is not set" in a flat config
