@@ -378,6 +378,41 @@ led append "$h_unit" s 1 launch sonnet medium sonnet medium sonnet high unit res
 last=$("$LEDGER" last-tier "$h_unit") || fail "9b: last-tier failed on a healthy ledger"
 [ "$last" = "sonnet${TAB}high" ] || fail "9b: last-tier is '$last', want the RESOLVED tier"
 
+# A HALF-inherited row is not a launch tier. A backend that could set the model
+# but not the effort (model-allocation REQ-B1.2) records a concrete model beside
+# an `inherit` effort; answering with that pair would hand a degraded relaunch a
+# tier that is half a sentinel, so both cells must be real to answer.
+p_unit=partial:unit
+led append "$p_unit" s 1 launch sonnet medium sonnet medium sonnet high unit resolved 'x=1'
+led append "$p_unit" s 2 inherit opus high - - opus inherit unit inherit 'inherit=partial'
+last=$("$LEDGER" last-tier "$p_unit") || fail "9b2: last-tier failed after a partial row"
+[ "$last" = "sonnet${TAB}high" ] \
+  || fail "9b2: a half-inherited row answered last-tier: '$last'"
+# The complementary direction stays intact: a fully-resolved later row still wins.
+led append "$p_unit" s 3 launch haiku low haiku low haiku low unit resolved 'x=1'
+last=$("$LEDGER" last-tier "$p_unit") || fail "9b2: last-tier failed after a later resolved row"
+[ "$last" = "haiku${TAB}low" ] \
+  || fail "9b2: a later fully-resolved row must win, got '$last'"
+
+# The mirror shape: an effort-capable, model-incapable backend records a
+# concrete effort beside an inherited model. It is the same half-sentinel and
+# must be refused the same way.
+m_unit=mirror:unit
+led append "$m_unit" s 1 launch sonnet medium sonnet medium sonnet high unit resolved 'x=1'
+led append "$m_unit" s 2 inherit opus high - - inherit low unit inherit 'inherit=partial'
+last=$("$LEDGER" last-tier "$m_unit") || fail "9b3: last-tier failed after a mirrored partial row"
+[ "$last" = "sonnet${TAB}high" ] \
+  || fail "9b3: a half-inherited row (model side) answered last-tier: '$last'"
+
+# The case a degraded relaunch actually depends on: a unit whose ONLY
+# tier-bearing row is half-inherited has no launch tier to offer, so the verb
+# must answer empty rather than hand back a pair carrying a sentinel.
+o_unit=onlypartial:unit
+led append "$o_unit" s 1 inherit opus high - - opus inherit unit inherit 'inherit=partial'
+last=$("$LEDGER" last-tier "$o_unit") || fail "9b4: last-tier failed on a partial-only ledger"
+[ -z "$last" ] \
+  || fail "9b4: a partial-only ledger must offer no launch tier, got '$last'"
+
 # A torn row (a short write) makes the ledger unhealthy without destroying the
 # readable history before it.
 h_file=$("$LEDGER" path "$h_unit")

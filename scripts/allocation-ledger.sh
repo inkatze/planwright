@@ -725,7 +725,18 @@ case "$cmd" in
     [ -r "$lt_file" ] || exit 0
     # The last `launch` row carrying a REAL resolved tier — a withheld or
     # inherit row records no tier, and a torn row is skipped rather than
-    # trusted.
+    # trusted. BOTH cells must be real: a row that inherited only one dimension
+    # (a backend that could set the model but not the effort, model-allocation
+    # REQ-B1.2) carries a concrete model beside an `inherit` effort, and
+    # answering with that pair would hand a degraded relaunch a tier that is
+    # half a sentinel.
+    #
+    # This DOES change what a degraded relaunch lands on, deliberately. The
+    # caller (allocation-adapt.sh's suspended-ledger path) used to receive the
+    # half-real pair, fail its own tier validation, and fall back to the
+    # starting tier; now the row is skipped here and an earlier fully-resolved
+    # row can answer instead, so the relaunch resumes from that tier rather
+    # than restarting from the beginning of the ladder.
     #
     # The event test is an ALLOWLIST, and that shape is the point. Several row
     # types carry a tier in the resolved columns without being a launch: the
@@ -741,7 +752,9 @@ case "$cmd" in
     # `unit` scope for the same reason, against a reader `alloc_replay` does not
     # cover: a step-scoped launch is one launch's decision, never the unit's.
     awk -F '\t' '
-      NF == 15 && $6 == "launch" && $13 == "unit" && $11 != "-" && $11 != "inherit" { m = $11; e = $12 }
+      NF == 15 && $6 == "launch" && $13 == "unit" \
+        && $11 != "-" && $11 != "inherit" \
+        && $12 != "-" && $12 != "inherit" { m = $11; e = $12 }
       END { if (m != "") printf "%s\t%s\n", m, e }
     ' "$lt_file"
     ;;

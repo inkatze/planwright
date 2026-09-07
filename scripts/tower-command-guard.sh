@@ -901,9 +901,13 @@ guard_tmux() {
 # --plugin-dir (inject servers/agents/plugins), --add-dir (widen filesystem) — so
 # an allowlist is the only robust pin: it fails closed on every one of those AND
 # on any future flag, where a denylist leaks. The dispatch primitive's own launch
-# shape (`claude --worktree <suffix> [--tmux=classic] [--model <m>]`) is on the
-# allowlist, so the fail-closed posture never floods a routine launch; a
-# non-standard launch simply falls to the normal permission flow.
+# shape (`claude --worktree <suffix> [--tmux=classic] [--model <m>] [--effort
+# <e>]`) is on the allowlist, so the fail-closed posture never floods a routine
+# launch; a non-standard launch simply falls to the normal permission flow.
+# `--effort` sits beside `--model` for the same reason: both select capability
+# and cost and neither touches the permission or trust layer this pin exists to
+# hold. Governed launches now carry it (model-allocation D-10), so leaving it
+# off would make every tier-applying dispatch prompt.
 guard_claude() {
   local i a saw_worktree=0 expect_value=0
   for ((i = 1; i < cwn; i++)); do
@@ -928,8 +932,8 @@ guard_claude() {
         expect_value=1 # space-form value (the bare worktree suffix) follows
         ;;
       --worktree=*) saw_worktree=1 ;;
-      --model | --fallback-model) expect_value=1 ;; # value-taking safe flags (space form)
-      --model=* | --fallback-model=*) ;;            # =form: value attached
+      --model | --fallback-model | --effort) expect_value=1 ;; # value-taking safe flags (space form)
+      --model=* | --fallback-model=* | --effort=*) ;;          # =form: value attached
       --tmux | --tmux=* | --continue | -c | --resume | -r | --resume=* | -r=*) ;;
       *) return 1 ;; # unrecognized flag or positional: DEFER (fail closed)
     esac

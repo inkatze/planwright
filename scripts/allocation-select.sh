@@ -11,10 +11,12 @@
 # selection logic lives in exactly one place (D-5, the existing-seam-reuse
 # disposition).
 #
-# Fleet dispatch is the only caller wired so far; the rows for the other three
-# surfaces exist and resolve, and Task 6 wires those surfaces to read them.
-# Until then they resolve to `inherit` and nothing changes at those surfaces,
-# which is the shipped posture anyway (D-13).
+# Every launch point reads this table: fleet dispatch by task type, and
+# single-spec /orchestrate dispatch, /execute-task's per-step sessions, and
+# /offload by surface. The three non-fleet rows ship the `inherit` sentinel, so
+# the resolver is consulted and applies nothing until an operator configures a
+# tier, which is the shipped posture (D-13). How the choice is APPLIED is
+# scripts/allocation-apply.sh's job, per the backend's advertised capability.
 #
 # Resolution stays DETERMINISTIC table lookup plus config-file reads: no
 # network, no LLM call, no subprocess beyond the shared knob resolver chain

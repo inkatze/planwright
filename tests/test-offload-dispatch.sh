@@ -65,8 +65,28 @@ ok() {
   echo "ok: $1"
 }
 
+# Dispatch now resolves a launch tier, which reaches the allocation store and
+# the config overlays. Every invocation is therefore pinned to this test's own
+# sandbox: without this the suite would read the developer's repo config (so a
+# local `allocation_model_offload:` would flip the exact-launch assertions) and
+# WRITE REAL LEDGER ROWS into the operator's state directory on any machine
+# where a fleet home resolves.
+sandbox_env() {
+  PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet-home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$tmp/core-defaults.yml" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
+    PLANWRIGHT_REPO_ROOT="$tmp/repo-root" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    "$@"
+}
+mkdir -p "$tmp/fleet-home" "$tmp/adopter" "$tmp/repo-root/.claude"
+cp "$here/../config/defaults.yml" "$tmp/core-defaults.yml" || {
+  echo "FAIL: cannot seed the core config" >&2
+  exit 1
+}
+
 run() {
-  /bin/sh "$script" "$@"
+  sandbox_env /bin/sh "$script" "$@"
 }
 
 # PATH-stub invocation confined to a function-local command prefix (never a
@@ -74,7 +94,7 @@ run() {
 # shell-dependent).
 stubbin="$tmp/bin"
 run_stub() {
-  PATH="$stubbin:$PATH" /bin/sh "$script" "$@"
+  PATH="$stubbin:$PATH" sandbox_env /bin/sh "$script" "$@"
 }
 
 if [ ! -x "$script" ]; then
@@ -156,8 +176,11 @@ grep -q 'Summarize the release notes' "$tmp/tmux-argv" && fail "dispatch tmux: p
 # ...and the (absolute) prompt-file path must actually be passed to the worker.
 grep -qF "$promptfile" "$tmp/tmux-argv" || fail "dispatch tmux: prompt-file path absent from the worker argv"
 # `--` pins the prompt as a positional: leading-dash petition content can
-# never be parsed as a claude option.
-grep -q 'claude -- ' "$tmp/tmux-argv" || fail "dispatch tmux: claude launch not pinned with -- end-of-options"
+# never be parsed as a claude option. Any resolved launch-tier flags arrive as
+# argv the spawned shell forwards through "$@", ahead of that pin, so they are
+# never spliced into the script text.
+grep -q 'claude "$@" -- ' "$tmp/tmux-argv" \
+  || fail "dispatch tmux: claude launch not pinned with -- end-of-options"
 ok "dispatch tmux reports the spawned window handle; petition rides an absolutized file read behind --"
 
 # 4b. a RELATIVE prompt-file path is absolutized before dispatch. The
