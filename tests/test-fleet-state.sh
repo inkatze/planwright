@@ -363,12 +363,14 @@ cenv() {
 printf '08\n' >"$home_corrupt/concurrency"
 out=$(cenv bound-incr 10) || fail "bound-incr crashed on a leading-zero counter (should treat it as 0)"
 [ "$out" = "1" ] || fail "corrupt counter not treated as 0: bound-incr printed '$out', expected 1"
-[ ! -L "$home_corrupt/.fleet.lock" ] || fail "bound-incr leaked the lock on a corrupt counter"
+[ ! -L "$home_corrupt/.fleet.lock" ] && [ ! -e "$home_corrupt/.fleet.lock" ] \
+  || fail "bound-incr leaked the lock on a corrupt counter"
 [ "$(cat "$home_corrupt/concurrency")" = "1" ] || fail "corrupt-counter recovery did not land the increment at 1"
 printf '09\n' >"$home_corrupt/concurrency"
 out=$(cenv bound-decr) || fail "bound-decr crashed on a leading-zero counter (should treat it as 0)"
 [ "$out" = "0" ] || fail "corrupt counter not treated as 0: bound-decr printed '$out', expected 0"
-[ ! -L "$home_corrupt/.fleet.lock" ] || fail "bound-decr leaked the lock on a corrupt counter"
+[ ! -L "$home_corrupt/.fleet.lock" ] && [ ! -e "$home_corrupt/.fleet.lock" ] \
+  || fail "bound-decr leaked the lock on a corrupt counter"
 echo "ok: a corrupt (leading-zero) counter is sanitized to 0 — no octal crash, no leaked lock"
 
 # ---------------------------------------------------------------------------

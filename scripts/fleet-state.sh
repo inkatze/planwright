@@ -122,7 +122,9 @@
 #   fleet-state.sh root                       resolve & print the fleet home.
 #   fleet-state.sh lock                       acquire the advisory lock (0 held,
 #                                             1 a live holder has it, 2 error).
-#   fleet-state.sh unlock                     release the lock (idempotent, 0).
+#   fleet-state.sh unlock                     release the lock (0 released or
+#                                             already free, 2 the path is still
+#                                             standing and could not be cleared).
 #   fleet-state.sh register <worker> <scope> [--owner <token>]
 #       [--backend <name>] [--state-dir <abs-dir>] [--death-handle <handle>]
 #                                             append a dispatch record.
