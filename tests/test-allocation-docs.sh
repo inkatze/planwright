@@ -486,12 +486,14 @@ EOF
 [ "$rows_checked" -ge 3 ] || fail "20b: expected at least 3 worked ledger rows in the doc, found $rows_checked"
 section_ok "every worked ledger row in the doc carries all 15 fields ($rows_checked rows)"
 
-# --- 21. the two "not yet wired" claims go stale loudly --------------------
+# --- 21. the wiring claims track the tree in both directions ---------------
 
-# The doc states that nothing passes a step type and nothing invokes the
-# feedback evaluation. Both become lies the moment a caller lands, and the
-# options reference already rotted this exact way once. Fail when a caller
-# appears, so the doc edit is forced at wiring time.
+# The doc states that nothing passes a step type. That becomes a lie the moment
+# a caller lands, and the options reference already rotted this exact way once,
+# so a caller appearing forces the doc edit. The feedback evaluation is the
+# other side of the same rule: it now HAS callers and the doc describes them, so
+# the rot to catch is the reverse — the wiring going away, or the doc dropping
+# the bound that keeps the `disabled` arm from reading as routine.
 begin
 # Comment lines are excluded: both scripts are referred to by name in sibling
 # header prose, which is documentation, not a call site.
@@ -505,13 +507,16 @@ step_callers=$(live_refs '--step-type' 'allocation-adapt\.sh:')
 if [ -n "$step_callers" ]; then
   fail "21a: something now passes --step-type ($step_callers) — docs/allocation.md still says nothing does"
 fi
-fb_callers=$(live_refs 'allocation-feedback\.sh' 'allocation-feedback\.sh:')
-if [ -n "$fb_callers" ]; then
-  fail "21b: something now invokes allocation-feedback.sh ($fb_callers) — docs/allocation.md still says nothing does"
-fi
 grep -qi 'not yet wired to a caller' "$DOC" \
-  || fail "21c: the doc no longer states the unwired posture these guards protect"
-section_ok "the two 'not yet wired to a caller' claims still hold"
+  || fail "21b: the doc no longer states the unwired posture the --step-type guard protects"
+
+fb_callers=$(live_refs 'allocation-feedback\.sh' 'allocation-feedback\.sh:')
+if [ -z "$fb_callers" ]; then
+  fail "21c: nothing invokes allocation-feedback.sh — docs/allocation.md describes a wired feedback loop"
+fi
+doc_has 'crash-record' "21d: the doc does not name the command that reports the disabled terminal state"
+doc_has 'conditionally reachable' "21e: the doc no longer bounds the disabled arm's reachability"
+section_ok "the --step-type claim still holds and the wired feedback half matches the tree"
 
 # --- 22. the repo's own doc guards pass over the touched files -------------
 
