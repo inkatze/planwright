@@ -142,9 +142,11 @@
 # strict POSIX: it deliberately uses a few widely-portable extensions — `date
 # +%s`, `find -mmin`, and a fractional `sleep` (each documented at its use site)
 # — plus mkdir/mktemp/awk, and `ln -s`/`readlink`/`mv` for the advisory lock,
-# whose correctness depends on all three. A missing `readlink` is the sharp
-# one: acquires cannot confirm a lock they really took, and releases cannot
-# recognise their own, so locks are both falsely reported busy and leaked.
+# whose correctness depends on all three. `readlink` is the sharp one, since
+# acquires confirm with it and releases recognise their own with it, so its
+# absence would otherwise report locks busy and leak them; the acquire path
+# checks for it and exits 2. That check is at the lock, not here: `root`,
+# `registry` and `unlock` never read a link target and keep working without it.
 # No eval, no jq/fish/mise (REQ-K1.5). All input is treated as data. Pathname
 # expansion is disabled (set -f): the script does no intentional globbing.
 set -uf
@@ -435,14 +437,41 @@ fleet_stale_min() {
 # The spin budget stays well under the stale threshold so an exhausted waiter
 # fails closed rather than breaking a lock that is merely busy.
 
+# Every create below is confirmed by reading the link back, so a confirm that
+# cannot run is indistinguishable from a create a peer won. Without readlink
+# try_acquire creates its own link, judges it foreign, reports busy, and leaves
+# it standing until the stale break — the one-shot `lock` returns 1, and the
+# internal callers spin the whole budget before blaming contention that was
+# never there. Refuse at the lock rather than at the top of the script: `root`,
+# `registry` and `unlock` read no link target and stay correct without the tool,
+# so failing them on a dependency they never use would be its own regression.
+#
+# Memoized like fleet_stale_min and for the same reason — spin_acquire calls
+# try_acquire up to a thousand times — and assigned in the function body rather
+# than through a `$(...)` capture, which would run the body in a subshell and
+# take the memo down with it.
+READLINK_CHECKED=""
+require_readlink() {
+  [ -z "$READLINK_CHECKED" ] || return 0
+  if ! command -v readlink >/dev/null 2>&1; then
+    printf '%s\n' "fleet-state: readlink not found — the advisory lock cannot be confirmed or released without it" >&2
+    return 2
+  fi
+  READLINK_CHECKED=yes
+  return 0
+}
+
 # try_acquire <lockpath> — an atomic symlink create with a stale break. Exit 0
 # held (LOCK_TOKEN set), 1 a live holder has it (or a transient create race the
-# caller should retry), 2 a real error. The 1-versus-2 split is the point of
-# the classification below, though it is not airtight: a toolchain missing
-# readlink cannot confirm a create it really made, and that reads as busy.
+# caller should retry), 2 a real error.
 LOCK_TOKEN=""
 try_acquire() {
   ta_lock=$1
+  # Before the first create, so a toolchain that cannot confirm a lock never
+  # materializes one. This is also what keeps release_lock safe: LOCK_TOKEN is
+  # set nowhere but below, so a refusal here leaves it empty and the handler's
+  # readlink comparison is never reached.
+  require_readlink || return 2
   ta_ts=$(date +%s 2>/dev/null) || ta_ts=0
   ta_token="$$-$ta_ts"
   # Claim the token BEFORE any create can publish it. Every create below is

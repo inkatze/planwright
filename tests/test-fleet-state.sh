@@ -625,6 +625,103 @@ wait "$term_pid" 2>/dev/null || true
 echo "ok: a signal in the acquire window releases the lock instead of leaking it"
 
 # ---------------------------------------------------------------------------
+# A toolchain WITHOUT `readlink`. Every lock create is confirmed by reading the
+# link back, so a confirm that cannot run reads as a create somebody else won:
+# try_acquire makes its own link, judges it foreign, and reports busy while that
+# link stands until the stale break. Measured before the guard existed: `lock`
+# exited 1 with its own token still at the lock path, and `register` /
+# `bound-incr` spun the entire budget (~27s) before failing with a diagnostic
+# blaming contention that was never there.
+#
+# The guard sits AT THE LOCK, not at the top of the script, which is what the
+# root/registry/unlock half below pins: those verbs never confirm a link, and
+# failing them on a tool they do not use would be its own regression.
+# ---------------------------------------------------------------------------
+norl_bin="$tmp/no-readlink-bin"
+mkdir -p "$norl_bin"
+# A curated toolchain rather than a filtered copy of PATH: the tools
+# fleet-state.sh and the config helpers it forks actually use, minus readlink.
+# Under-enumerating it cannot quietly turn this case green — the readlink-
+# restored control at the end runs the same verbs over this same PATH and has
+# to succeed, so a stub too thin to work fails there instead of passing here.
+for t in awk bash cat date dirname find grep head ln mkdir mktemp mv rm rmdir sed sleep sort tail tr; do
+  t_path=$(command -v "$t") || fail "no-readlink stub: cannot resolve $t on this host"
+  ln -s "$t_path" "$norl_bin/$t"
+done
+# Asserted, not assumed: if readlink stayed reachable the whole case would pass
+# while testing nothing at all.
+if env PATH="$norl_bin" /bin/sh -c 'command -v readlink' >/dev/null 2>&1; then
+  fail "no-readlink stub: readlink is still reachable, so this case would assert nothing"
+fi
+
+norl_env() {
+  norl_home=$1
+  shift
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+    PATH="$norl_bin" PLANWRIGHT_FLEET_STATE_DIR="$norl_home" /bin/sh "$FS" "$@"
+}
+
+# Every verb that takes the lock: refuse with exit 2 and a diagnostic naming the
+# tool, and leave NOTHING behind. Exit 1 is the specific misreport the guard
+# exists to prevent, so it is called out by name in the failure text.
+for norl_verb in lock register bound-incr; do
+  case $norl_verb in
+    lock) set -- lock ;;
+    register) set -- register "w-norl" "scope-norl" ;;
+    bound-incr) set -- bound-incr 5 ;;
+  esac
+  norl_home="$tmp/no-readlink-$norl_verb"
+  norl_err="$tmp/no-readlink-$norl_verb.err"
+  rc=0
+  norl_env "$norl_home" "$@" >/dev/null 2>"$norl_err" || rc=$?
+  [ "$rc" = 2 ] \
+    || fail "$norl_verb without readlink exited $rc, expected 2 (1 is the busy misreport the guard exists to prevent)"
+  grep -q 'readlink' "$norl_err" \
+    || fail "$norl_verb without readlink exited 2 but never named the missing tool: $(cat "$norl_err")"
+  [ ! -e "$norl_home/.fleet.lock" ] && [ ! -L "$norl_home/.fleet.lock" ] \
+    || fail "$norl_verb without readlink left a lock standing it could never confirm"
+done
+echo "ok: without readlink the lock is refused, not taken, misreported busy, and leaked"
+
+# The verbs that never read a link target must be untouched by the guard. This
+# is the half a top-of-script fast-fail turns red, and the reason the guard is
+# placed where the dependency is actually used.
+norl_env "$tmp/no-readlink-plain" root >/dev/null \
+  || fail "root without readlink exited non-zero; the guard is not at the lock path"
+norl_env "$tmp/no-readlink-plain" registry >/dev/null \
+  || fail "registry without readlink exited non-zero; the guard is not at the lock path"
+# `unlock` is deliberately NOT guarded: it unlinks and rmdirs, and reads no link
+# target, so it stays correct without the tool. Pinned here so a later
+# broad-brush guard cannot quietly take away the one release path that still
+# works on a toolchain missing readlink.
+mkdir -p "$tmp/no-readlink-unlock"
+ln -s "12345-999" "$tmp/no-readlink-unlock/.fleet.lock"
+norl_env "$tmp/no-readlink-unlock" unlock \
+  || fail "unlock without readlink exited non-zero; it reads no link target and must still release"
+[ ! -e "$tmp/no-readlink-unlock/.fleet.lock" ] && [ ! -L "$tmp/no-readlink-unlock/.fleet.lock" ] \
+  || fail "unlock without readlink reported a release that did not happen"
+echo "ok: without readlink, root/registry/unlock — the verbs that confirm no link — still work"
+
+# Negative control: the SAME stub PATH, readlink restored. This separates "the
+# tool is missing" from "the stub PATH was too thin", and stops the guard from
+# being a blanket refusal that passes the case above for the wrong reason.
+ln -s "$(command -v readlink)" "$norl_bin/readlink"
+norl_ctl="$tmp/readlink-restored"
+norl_env "$norl_ctl" lock \
+  || fail "negative control: lock failed with readlink present on the stub PATH"
+[ -L "$norl_ctl/.fleet.lock" ] \
+  || fail "negative control: lock reported success but took no lock"
+norl_env "$norl_ctl" unlock \
+  || fail "negative control: unlock failed with readlink present on the stub PATH"
+norl_env "$norl_ctl" register "w-ctl" "scope-ctl" >/dev/null \
+  || fail "negative control: register failed with readlink present on the stub PATH"
+[ "$(norl_env "$norl_ctl" bound-incr 5)" = 1 ] \
+  || fail "negative control: bound-incr did not grant the first slot with readlink present"
+[ ! -e "$norl_ctl/.fleet.lock" ] && [ ! -L "$norl_ctl/.fleet.lock" ] \
+  || fail "negative control: a verb left the lock standing with readlink present"
+echo "ok: with readlink restored on the same PATH the guard stays silent and every verb works"
+
+# ---------------------------------------------------------------------------
 # 11. Hostile identifiers are rejected BEFORE any path use.
 # ---------------------------------------------------------------------------
 # 11a. A hostile plugin-namespace manifest name (path traversal) never reaches
