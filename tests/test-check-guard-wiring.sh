@@ -105,6 +105,33 @@ run_cg "$r" >/dev/null || fail "g3: a properly wired guard should pass: $(cat "$
 echo "ok: g3 the same guard passes once the aggregate depends on it"
 
 # ---------------------------------------------------------------------------
+# g3b: an edge made by a RUN BODY, not by a depends list. The script documents
+#      that a reached task calling `mise run <task>` extends the closure, and
+#      nothing exercised it — so the extraction could have stopped working
+#      silently, which is the failure this whole file exists to prevent.
+# ---------------------------------------------------------------------------
+r="$tmp/r3b"
+mkrepo "$r" "check:outer" "mise run check:inner"
+cat >>"$r/mise.toml" <<'TOML'
+
+[tasks."check:inner"]
+run = "/bin/sh scripts/check-planted.sh"
+TOML
+printf '#!/bin/sh\nexit 0\n' >"$r/scripts/check-planted.sh"
+grep -q 'check-planted.sh' "$r/mise.toml" \
+  || fail "g3b: the fixture no longer runs the guard anywhere"
+grep -q '"check:inner"' "$r/mise.toml" \
+  || fail "g3b: the fixture's inner task is gone"
+#      Nothing DEPENDS on check:inner: its only path from the aggregate is the
+#      `mise run` call inside check:outer's body. If that edge is not followed,
+#      the guard is unreachable and the check must fail.
+grep -q 'depends.*check:inner' "$r/mise.toml" \
+  && fail "g3b: the fixture gained a depends edge — the run-body path is no longer the only one"
+run_cg "$r" >/dev/null \
+  || fail "g3b: a guard reachable only through a run-body 'mise run' was not found: $(cat "$tmp/err")"
+echo "ok: g3b a run body's own 'mise run' extends the closure"
+
+# ---------------------------------------------------------------------------
 # g4: REACHABILITY, NOT PRESENCE. The guard is named in the run body of a task
 #     that exists and is spelled correctly — but nothing depends on that task.
 # ---------------------------------------------------------------------------
