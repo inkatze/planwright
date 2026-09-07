@@ -465,7 +465,7 @@ The members `clamps=` can carry:
 | --- | --- |
 | `none` | nothing bound |
 | `defer-all` | the rung withheld the unit entirely |
-| `defer-heavy` | the rung withheld a unit in the expensive band |
+| `defer-heavy` | the rung withheld a unit in the heavy band (`opus`, `fable`) |
 | `downshift` | the downshift ceiling cut the model, the effort, or both |
 | `cap` | a per-tier budget cap stepped the model to the nearest surviving cheaper one, effort preserved |
 | `reserved-exempt` | the unit was dispatched reserved, and the clamps passed it through |
