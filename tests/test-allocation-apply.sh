@@ -66,7 +66,7 @@ cp "$REPO_ROOT/config/defaults.yml" "$core_cfg" || fail "seeding the core config
 # stubbed for the same reason a capability probe must never need one.
 stubbin="$tmp/stubbin"
 mkdir -p "$stubbin"
-for c in claude curl wget gh; do
+for c in claude curl wget gh tmux; do
   cat >"$stubbin/$c" <<EOF
 #!/bin/sh
 echo "$c" >>"$tmp/invocations"
@@ -370,6 +370,12 @@ printf '%s\n' "$out" | grep -q "^admit${TAB}withheld$" \
   || fail "a withheld plan does not carry the admit row: $out"
 [ "$(field "$out" model)" = inherit ] \
   || fail "a withheld plan proposed a model: $(field "$out" model)"
+# The gate answers before the backend is probed, so the plan reports the
+# capability as unprobed rather than claiming the backend cannot set a tier.
+# Pinned with the header's enum: the value is part of the contract a consumer
+# parses, and the two drifting apart is what makes a plan unreadable.
+[ "$(field "$out" capability)" = - ] \
+  || fail "a withheld plan reported a probed capability: $(field "$out" capability)"
 grep -qi withheld "$tmp/err" || fail "the withheld refusal is not surfaced on stderr"
 # The withheld unit must not collect a capability-inheritance row: nothing
 # launched, so nothing inherited.

@@ -50,14 +50,19 @@
 #       admit           yes | withheld — the admission gate's answer, carried
 #                       through from the engine. A withheld unit resolves no
 #                       tier and must not be launched (exit 3).
-#       capability      both | model | effort | none | error
+#       capability      both | model | effort | none | error | -
 #                       (`error` = the capability probe could not answer, which
-#                       is treated as no capability and audited as such)
+#                       is treated as no capability and audited as such; `-` =
+#                       the probe never ran. That is the withheld plan: the
+#                       admission gate answers before the backend is asked, so
+#                       the capability is UNKNOWN, not `none`. Reporting `none`
+#                       there would assert the backend cannot set a tier, which
+#                       nothing established.)
 #       model / effort  the value to APPLY, or `inherit` to apply nothing and
 #                       let the launch keep its ambient value
 #       model_source    applied | inherit-config | inherit-capability |
-#       effort_source   inherit-probe-error — why each dimension came out that
-#                       way, so a reader never has to infer it
+#       effort_source   inherit-probe-error | withheld — why each dimension
+#                       came out that way, so a reader never has to infer it
 #
 # Exit codes: 0 a plan was printed; 2 usage error, hostile or out-of-grammar
 #   input, or a failed ledger write; 3 the unit is WITHHELD by the admission
