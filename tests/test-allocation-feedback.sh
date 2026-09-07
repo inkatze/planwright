@@ -314,7 +314,12 @@ run_led append model-allocation:task-c s2 1 launch sonnet medium - - sonnet medi
   || fail "5: planting the canary row failed"
 out=$(evaluate model-allocation:task-c drain completed) || fail "5: evaluate failed"
 [ "$(printf '%s\n' "$out" | field fired)" = yes ] || fail "5a: the canary fixture did not fire"
-case $(cat "$(fragments)") in
+# Bind rather than read inside the `case` word, so `set -e` sees a failed read,
+# and require content: an absent, unreadable, or empty fragment otherwise
+# matches nothing and passes this leak check without reading a thing.
+frag_text=$(cat "$(fragments)")
+[ -n "$frag_text" ] || fail "5b (precondition): the fragment is empty, so nothing was searched"
+case $frag_text in
   *CANARYLEAK*) fail "5b: ledger inputs text reached the committed fragment" ;;
 esac
 echo "ok: text planted in the ledger's inputs column never reaches the fragment"
