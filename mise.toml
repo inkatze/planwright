@@ -160,7 +160,7 @@ run = "/bin/sh scripts/check-guard-wiring.sh"
 
 [tasks."check:backend-capability-drift"]
 description = "backend capability-contract drift check: the prose contract, caps_for() and the fleet.md backend table must agree on every backend"
-run = "/bin/sh scripts/check-backend-capability-drift.sh"
+run = "/bin/bash scripts/check-backend-capability-drift.sh"
 
 [tasks."check:cdpath"]
 description = "CDPATH house-pattern guard: fail on any shell file under scripts/, tests/, or githooks/ that resolves paths through a cd command substitution without a top-level 'unset CDPATH'; enumerates by shebang or .sh suffix so both the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (guard-coverage Task 10, REQ-G1.2, REQ-H1.3, D-12)"

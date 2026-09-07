@@ -36,7 +36,10 @@ for t in jq mise; do
 done
 
 # An unchecked mktemp leaves $tmp empty and the trap then runs `rm -rf ""`.
-tmp=$(mktemp -d) || fail "mktemp -d failed"
+# The explicit template is not decoration: BSD mktemp supplies no default one,
+# so a bare `mktemp -d` is a usage error on macOS (same reason
+# tests/test-check-hook-contracts.sh spells it out).
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-check-guard-wiring.XXXXXX") || fail "mktemp -d failed"
 [ -n "$tmp" ] && [ -d "$tmp" ] || fail "mktemp -d produced no directory"
 trap 'rm -rf "$tmp"' EXIT
 
