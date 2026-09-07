@@ -12,7 +12,10 @@
 #     stability classifies working; a prompt signature outranks a stale
 #     working push; a hook-pushed awaiting-input row is the primary signal;
 #   - REQ-C1.3: a worker whose session ended while its process persists is
-#     finished-but-unreaped, distinct from working and from dead;
+#     finished-but-unreaped, distinct from working and from dead; a result
+#     record flagging is_error is a failed completion whatever its subtype
+#     claims, the flag is read as field 4 exactly, and an unterminated record
+#     snapshot is refused rather than read as a completion;
 #   - REQ-C1.4: a self-reported completion with an uncommitted tree or with
 #     commits absent from the remote-tracking ref never classifies finished,
 #     the evidence is local git state only, and no forge is queried;
@@ -828,5 +831,81 @@ for f in "$FSD" "$here/../scripts/fleet-pane-vocabulary.sh"; do
     && fail "$(basename "$f") reaches the remote (REQ-C1.4: local git state only)"
 done
 echo "ok: no model / network / forge call in the decision path (REQ-K1.5, REQ-C1.4)"
+
+# ---------------------------------------------------------------------------
+# A result record whose fourth field flags is_error is a FAILED completion,
+# however cleanly the tree landed. The supervisor renders such a frame `ended`;
+# this detector has to agree, or the two disagree about the same worker and the
+# optimistic reading wins. Records written before the field existed carry three
+# fields and must keep their old meaning.
+# ---------------------------------------------------------------------------
+h20="$tmp/h20"
+sd20="$tmp/sd20"
+mkdir -p "$sd20"
+# Death evidence outranks the completion branch, so pin the verdict here rather
+# than inheriting whatever the last section left behind: a stale `dead` would
+# classify these as dead and never exercise the completion path at all.
+printf 'alive\n' >"$tmp/evidence-verdict"
+printf 'result\tsuccess\t1700000000\ttrue\n' >"$sd20/result"
+reg "$h20" "$w" "$s" --owner "$self_id" --backend stream-json-persistent \
+  --state-dir "$sd20" --death-handle "process 4242" >/dev/null
+out=$(run "$h20" classify "$w" --worktree "$wt") || fail "is_error classify exited non-zero"
+[ "$(state_of "$out")" = unclassified ] \
+  || fail "a result carrying is_error classified '$(state_of "$out")', expected unclassified"
+[ "$(reason_of "$out")" = "completion-failed:result=success/is_error=true" ] \
+  || fail "is_error completion: reason '$(reason_of "$out")'"
+[ "$(ev "$out" completion)" = "result=success/is_error=true" ] \
+  || fail "is_error completion evidence: '$(ev "$out" completion)'"
+# The headline is "however cleanly the tree landed", so prove the tree was in
+# fact clean — otherwise completion-unlanded would produce the same state word.
+[ "$(ev "$out" tree)" = clean ] || fail "is_error case: tree '$(ev "$out" tree)', expected clean"
+[ "$(ev "$out" unpushed)" = 0 ] || fail "is_error case: unpushed '$(ev "$out" unpushed)', expected 0"
+echo "ok: a result frame flagging is_error is a failed completion, not a finished one (REQ-C1.3, REQ-C1.4)"
+
+# The flag is read as field 4 exactly, not as "the rest of the line". A record
+# carrying a further field must still flag, or the next additive field silently
+# turns every failed completion back into a finished one — and the supervisor,
+# which reads $4 positionally, would go on reporting `ended` while this detector
+# reported the opposite about the same worker.
+printf 'result\tsuccess\t1700000000\ttrue\tfuture\n' >"$sd20/result"
+out=$(run "$h20" classify "$w" --worktree "$wt") || fail "five-field classify exited non-zero"
+[ "$(reason_of "$out")" = "completion-failed:result=success/is_error=true" ] \
+  || fail "a fifth field dropped the is_error flag: reason '$(reason_of "$out")'"
+echo "ok: is_error is read as field 4 exactly, so a later added field cannot mask it (REQ-C1.3)"
+
+# The shape the supervisor now writes on every clean run: field 4 present and
+# `false`. This is the common case post-change and must read as a completion.
+printf 'result\tsuccess\t1700000000\tfalse\n' >"$sd20/result"
+out=$(run "$h20" classify "$w" --worktree "$wt") || fail "false-flag classify exited non-zero"
+[ "$(state_of "$out")" = finished-but-unreaped ] \
+  || fail "a four-field record flagged false classified '$(state_of "$out")'"
+[ "$(reason_of "$out")" = "completion:result=success" ] \
+  || fail "an explicit false flag changed the reading: '$(reason_of "$out")'"
+echo "ok: an explicit is_error=false reads as a clean completion (REQ-C1.3)"
+
+# The same record without the flag stays a clean completion (the field is
+# additive; three-field records keep their meaning).
+printf 'result\tsuccess\t1700000000\n' >"$sd20/result"
+out=$(run "$h20" classify "$w" --worktree "$wt") || fail "legacy-record classify exited non-zero"
+[ "$(state_of "$out")" = finished-but-unreaped ] \
+  || fail "a three-field result record classified '$(state_of "$out")'"
+[ "$(reason_of "$out")" = "completion:result=success" ] \
+  || fail "a three-field result record changed meaning: '$(reason_of "$out")'"
+echo "ok: a result record without the is_error field keeps its previous reading (REQ-C1.3)"
+
+# The supervisor truncates and rewrites this record in place, so a reader can
+# catch a snapshot it has not finished, and a short write on a full disk leaves
+# one on disk for good. A prefix of the is_error record above still opens
+# `result<TAB>` and still parses as subtype success, so a reader that stops at
+# the leading fields calls a dead run a clean completion — and this reader's
+# verdict is the one a tower acts on to free the slot. Completeness is the
+# terminator the writer always emits.
+printf 'result\tsuccess\t' >"$sd20/result"
+out=$(run "$h20" classify "$w" --worktree "$wt") || fail "torn-record classify exited non-zero"
+[ "$(state_of "$out")" != finished-but-unreaped ] \
+  || fail "an unterminated snapshot was read as a finished completion"
+[ "$(ev "$out" completion)" = absent ] \
+  || fail "an unterminated snapshot is not a completion record: '$(ev "$out" completion)'"
+echo "ok: an unterminated result snapshot is not read as a completion (REQ-C1.3)"
 
 echo "PASS: fleet-stuck-detector"
