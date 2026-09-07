@@ -454,7 +454,7 @@ READLINK_CHECKED=""
 require_readlink() {
   [ -z "$READLINK_CHECKED" ] || return 0
   if ! command -v readlink >/dev/null 2>&1; then
-    printf '%s\n' "fleet-state: readlink not found — the advisory lock cannot be confirmed or released without it" >&2
+    printf '%s\n' "fleet-state: readlink not found — a lock cannot be confirmed as this process's own without it, so acquiring and releasing one safely is unavailable ('unlock', 'register' and 'registry' read no link target and keep working)" >&2
     return 2
   fi
   READLINK_CHECKED=yes
@@ -770,12 +770,17 @@ case $cmd in
     if [ -d "$lock" ]; then
       rmdir "$lock" 2>/dev/null || true
     fi
-    # rmdir takes an EMPTY directory only, so a directory holding a stray (one
-    # of try_acquire's create-into-a-directory races losing its cleanup) still
-    # stands here. Saying so is the point: reporting a release that did not
-    # happen is what sends the operator away from a home that is still wedged.
+    # Both removals above discard their exit status, so reaching here says only
+    # one thing for certain: the path is still present. WHY is not known — a
+    # non-empty directory (rmdir takes an empty one only, and try_acquire's
+    # create-into-a-directory race can lose its cleanup and leave a stray), or
+    # an `rm` that failed on a perfectly ordinary lock symlink because the
+    # parent is not writable. The diagnostic reports the observable condition
+    # rather than guessing which; naming a shape this branch never checked
+    # sends the operator to inspect the wrong thing. What matters either way is
+    # that the release did not happen and the home is still wedged.
     if [ -e "$lock" ] || [ -L "$lock" ]; then
-      printf '%s\n' "fleet-state: could not release $lock (it is not a lock symlink and is not an empty directory)" >&2
+      printf '%s\n' "fleet-state: could not release $lock (it is still present after both removals; check its type and the parent directory's permissions)" >&2
       exit 2
     fi
     exit 0

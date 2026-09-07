@@ -438,8 +438,9 @@ touch -t 202001010000 "$home_legacy/.fleet.lock" # same holder, now long dead
 legacy_env lock || fail "a stale legacy directory lock was not broken"
 [ -L "$home_legacy/.fleet.lock" ] || fail "the broken legacy lock was not replaced by a symlink"
 legacy_env unlock || fail "unlock after a legacy break exited non-zero"
-# `unlock` is a hard-coded exit 0, so its status asserts nothing on its own;
-# the release has to be observed at the path.
+# Its zero status is not on its own proof of a release — the observation at
+# the path below is. (`unlock` does report a failure it can see: the case
+# further down covers the branch where the path survives both removals.)
 [ ! -e "$home_legacy/.fleet.lock" ] && [ ! -L "$home_legacy/.fleet.lock" ] \
   || fail "unlock did not release the lock taken by the legacy break"
 echo "ok: a stale pre-symlink directory lock is broken rather than wedging the home"
@@ -866,5 +867,45 @@ inj_err=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home_inj" /bin/sh "$FS" register "worker-ok" "$esc" 2>&1 >/dev/null) || true
 assert_no_cntrl "$inj_err" "register scope diagnostic"
 echo "ok: untrusted diagnostics are stripped of control/escape bytes (no terminal/log injection)"
+
+# ---------------------------------------------------------------------------
+# `unlock` must REPORT a release that did not happen, whatever the reason. The
+# two removals discard their exit status, so the only thing this branch knows
+# is that the path is still there — it could be a non-empty directory, or an
+# ordinary lock symlink whose parent is not writable. The diagnostic used to
+# assert the first ("it is not a lock symlink"), which sends an operator
+# hitting the second to inspect the wrong thing entirely.
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: unlock permission case needs a non-root user (root ignores the directory mode)"
+else
+  home_perm="$tmp/perm-home"
+  mkdir -p "$home_perm"
+  penv() {
+    env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+      PLANWRIGHT_FLEET_STATE_DIR="$home_perm" /bin/sh "$FS" "$@"
+  }
+  penv lock || fail "perm: could not take the lock to begin with"
+  [ -L "$home_perm/.fleet.lock" ] || fail "perm: the lock is not a symlink, so this case tests nothing"
+  chmod 500 "$home_perm" || fail "perm: could not make the home unwritable"
+  # `|| rc=$?` on the assignment itself: under `set -e` a failing command
+  # substitution ends the script before the next line runs, which would skip
+  # the chmod below and leave the fixture undeletable.
+  rc=0
+  out=$(penv unlock 2>&1) || rc=$?
+  chmod 700 "$home_perm"
+  [ "$rc" = 2 ] || fail "perm: an unlock that could not remove the lock must exit 2, got $rc"
+  case $out in
+    *"still present"*) ;;
+    *) fail "perm: the diagnostic should report the observable condition, got: $out" ;;
+  esac
+  case $out in
+    *"not a lock symlink"*)
+      fail "perm: the diagnostic asserts a shape this branch never checked, on a genuine symlink: $out"
+      ;;
+  esac
+  penv unlock >/dev/null 2>&1 || fail "perm: unlock should succeed once the home is writable again"
+  echo "ok: an unlock blocked by permissions reports the condition it can see, not a guessed shape"
+fi
 
 echo "ALL PASS: fleet-state.sh"
