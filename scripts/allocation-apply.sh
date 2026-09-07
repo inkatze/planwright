@@ -262,10 +262,20 @@ valid_step "$STEP" || {
   printf '%s\n' "$me: refusing malformed step: $(sanitize_printable "$STEP" "(unprintable step)")" >&2
   exit 2
 }
-valid_attempt "$ATTEMPT" || {
-  printf '%s\n' "$me: refusing non-numeric attempt: $(sanitize_printable "$ATTEMPT" "(unprintable attempt)")" >&2
+if ! valid_attempt "$ATTEMPT"; then
+  # The grammar refuses two different things, and the engine spells them apart.
+  # Calling `01` non-numeric sends a reader hunting for a character that is not
+  # there, so the leading-zero arm says what it actually objects to.
+  case $ATTEMPT in
+    0[0-9]*)
+      printf '%s\n' "$me: refusing attempt $(sanitize_printable "$ATTEMPT" "(unprintable attempt)") — a leading zero is not a count" >&2
+      ;;
+    *)
+      printf '%s\n' "$me: refusing non-numeric attempt: $(sanitize_printable "$ATTEMPT" "(unprintable attempt)")" >&2
+      ;;
+  esac
   exit 2
-}
+fi
 
 # --------------------------------------------------------------------------
 # Resolve the tier. The engine owns selection, adaptation, clamps, and the

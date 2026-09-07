@@ -443,7 +443,25 @@ rc=$?
 set -e
 [ "$rc" = 2 ] || fail "a leading-zero attempt exited $rc, expected 2"
 grep -qi attempt "$tmp/err" || fail "the leading-zero refusal does not name the attempt"
+# The two refusals the grammar carries are not the same fact, and the engine
+# spells them apart (allocation-adapt.sh). Calling `01` non-numeric sends a
+# reader looking for a character that is not there.
+grep -qi 'leading zero' "$tmp/err" \
+  || fail "the leading-zero refusal does not name the leading zero: $(cat "$tmp/err")"
+grep -qi 'non-numeric' "$tmp/err" \
+  && fail "the leading-zero refusal calls a numeric attempt non-numeric: $(cat "$tmp/err")"
 echo "ok: the attempt grammar matches the engine's, refused locally"
+
+# 12b. A genuinely non-numeric attempt keeps the non-numeric wording, so
+#      splitting the diagnostic above did not simply rename both arms.
+set +e
+run plan --key offload --backend tmux --unit u-att --attempt abc >/dev/null 2>"$tmp/err"
+rc=$?
+set -e
+[ "$rc" = 2 ] || fail "a non-numeric attempt exited $rc, expected 2"
+grep -qi 'non-numeric' "$tmp/err" \
+  || fail "the non-numeric refusal lost its wording: $(cat "$tmp/err")"
+echo "ok: a non-numeric attempt is refused as non-numeric"
 
 clear_repo_knobs
 echo "ALL PASS: allocation-apply"
