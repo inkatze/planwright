@@ -216,6 +216,18 @@ for key in 'key=' 'rung=' 'signal=' 'adaptation=' 'trigger='; do
 done
 echo "ok: the clamp vocabulary and the launch row's inputs keys are documented"
 
+# --- 8j. the resolver's output fields --------------------------------------
+
+# The doc enumerates what `allocation-adapt.sh resolve` prints so a reader can
+# parse it. Those field names are emitted by the engine, so tether them.
+resolve_fields=$(sed -n "s/^[[:space:]]*printf '\([a-z_]*\)\\\\t%s\\\\n'.*/\1/p" \
+  "$root/scripts/allocation-adapt.sh" | sort -u)
+[ -n "$resolve_fields" ] || fail "8j: no resolve output fields parsed out of allocation-adapt.sh"
+for f in $resolve_fields; do
+  doc_has "$f" "8k: resolver output field '$f' undocumented"
+done
+echo "ok: the resolver's output fields are documented"
+
 # --- 9. REQ-B1.3 — the in-session rung's inheritance, stated ---------------
 
 # test-spec.md: "verified by a content check that the Task 7 doc states it (not

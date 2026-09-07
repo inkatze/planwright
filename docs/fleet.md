@@ -1325,7 +1325,7 @@ knob off there is no ladder position to move, so the artifact is not read at all
 **The ledger feeds back into future drafting.** When a unit reaches a terminal
 state, completion or crash-loop disable alike, the terminal-state owner runs
 `scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> --terminal
-<completed|disabled> --scope <repo>`. It replays that unit's ledger and, when
+<completed|disabled> --scope <scope>`. It replays that unit's ledger and, when
 the history says the starting tier was wrong, records one observation fragment
 through the shared helper, which is how chronic under-estimation reaches the
 next round of `/spec-draft` seed mining. Two conditions fire it: the unit's
