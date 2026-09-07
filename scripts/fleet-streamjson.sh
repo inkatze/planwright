@@ -369,7 +369,9 @@ lock_take() {
   fi
   lt_holder=$(cat "$1/holder" 2>/dev/null) || lt_holder=''
   if valid_posnum "${lt_holder:-}"; then
-    kill -0 "$lt_holder" 2>/dev/null && return 1
+    # Not `kill -0`: an EPERM holder is alive, and breaking its lock would let
+    # two callers into the critical section at once.
+    pid_live "$lt_holder" && return 1
   else
     lt_now=$(now_epoch) || return 1
     lt_mt=$(stat_mtime "$1") || lt_mt=$lt_now
@@ -408,11 +410,23 @@ write_pidfile() {
   return 1
 }
 
+# pid_live <pid> — true when the pid names a live process, INCLUDING one this
+# user may not signal. `kill -0` conflates two answers: "no such process" and
+# EPERM, which means the process is alive and owned by someone else. Reading
+# the second as death is how a live lock gets broken out from under its holder
+# and how a second launch proceeds over a running worker. `ps -p` answers
+# existence regardless of ownership and is consulted only after `kill -0` has
+# already said no, so the common path stays fork-free.
+pid_live() {
+  kill -0 "$1" 2>/dev/null && return 0
+  ps -p "$1" >/dev/null 2>&1
+}
+
 # worker_alive <dir> — true when a pid this worker's own state records is live.
 worker_alive() {
   for wa_f in supervisor.pid worker.pid; do
     wa_p=$(cat "$1/$wa_f" 2>/dev/null) || wa_p=''
-    if valid_posnum "${wa_p:-}" && kill -0 "$wa_p" 2>/dev/null; then
+    if valid_posnum "${wa_p:-}" && pid_live "$wa_p"; then
       return 0
     fi
   done
@@ -1319,6 +1333,16 @@ release_attention() {
 
 journal_close() {
   [ -f "$1/journal" ] || return 0
+  # Readable, not merely present. The exit-code reading below leans on awk
+  # separating "no pending rows" (1) from "could not read" (something else),
+  # and busybox awk does not make that separation — an unreadable journal
+  # exits 1 there and would clear the attention row with every receipt still
+  # pending. Checking first makes the distinction independent of which awk
+  # this host ships.
+  [ -r "$1/journal" ] || {
+    echo "$me: the receipt journal is unreadable; the attention class is left held" >&2
+    return 1
+  }
   # Three outcomes, not two: awk exits 1 for "no pending rows" and something
   # else entirely when it could not read the journal. Folding the second into
   # the first would clear the attention row while every receipt stayed pending,
@@ -1451,6 +1475,15 @@ cmd_launch() {
   refuse_bare "$@" || exit 2
 
   dir=$(worker_dir "$worker") || exit 2
+  # The handle grammar blocks traversal tokens but not a symlink planted under
+  # the fleet home, and this verb creates fifos and pid files inside whatever
+  # it is handed. The close verb already refuses a symlinked state directory;
+  # refusing it here too is what stops one being FOLLOWED in the first place,
+  # which is the earlier and more useful of the two checks.
+  [ ! -L "$dir" ] || {
+    echo "$me: refusing to launch $worker: its state directory is a symlink" >&2
+    exit 2
+  }
   mkdir -p "$dir" || exit 2
   chmod 700 "$dir" 2>/dev/null || :
 

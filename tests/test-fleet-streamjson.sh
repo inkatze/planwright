@@ -1809,4 +1809,91 @@ verdict sjw27j "result${tab}0
 " completed
 echo "ok: c27 an unterminated result snapshot is not read as a completion"
 
+# ---------------------------------------------------------------------------
+# c28 (REQ-B1.3): `launch` refuses a symlinked state directory. The handle
+#     grammar blocks traversal tokens but not a symlink planted under the
+#     fleet home, and launch creates fifos and pid files inside whatever it is
+#     handed. The close verb already refused one; refusing it here is what
+#     stops it being FOLLOWED at all.
+# ---------------------------------------------------------------------------
+home="$tmp/h28"
+mkdir -p "$home/streamjson" "$tmp/outside28"
+ln -s "$tmp/outside28" "$home/streamjson/sjw28"
+printf 'x\n' >"$tmp/prompt28"
+if senv "$home" "$tmp/r28" -- launch sjw28 spec-c28:1 --prompt-file "$tmp/prompt28" >/dev/null 2>&1; then
+  fail "c28: launch accepted a symlinked state directory"
+fi
+[ "$(find "$tmp/outside28" -type f | wc -l | tr -d ' ')" = 0 ] \
+  || fail "c28: launch wrote through the symlink into $tmp/outside28"
+#     Control: the same launch against a real directory gets past this guard,
+#     so the refusal above is the symlink and not the fixture.
+rm -f "$home/streamjson/sjw28"
+mkdir -p "$home/streamjson/sjw28"
+senv "$home" "$tmp/r28" -- launch sjw28 spec-c28:1 --prompt-file "$tmp/prompt28" >/dev/null 2>&1
+sjw28_rc=$?
+[ "$sjw28_rc" != 2 ] \
+  || fail "c28 control: a real state directory was refused too — the guard is not symlink-specific"
+echo "ok: c28 launch refuses a symlinked state directory (REQ-B1.3)"
+
+# ---------------------------------------------------------------------------
+# c29 (REQ-E1.5): an UNREADABLE receipt journal leaves the attention class
+#     HELD, so the close reports partial rather than clearing an attention row
+#     whose receipts are all still pending. The close tells "no pending rows"
+#     from "could not read" by awk's exit code, and busybox awk does not
+#     separate those, so readability has to be checked rather than assumed.
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: c29 unreadable-journal injection needs a non-root user (running as root)"
+else
+  home="$tmp/h29"
+  rec="$tmp/r29"
+  mkdir -p "$rec"
+  ev29="$tmp/ev29"
+  printf '%s\n%s\n%s\n' "$line_init" "$line_perm" "$line_result" >"$ev29"
+  printf 'unreadable journal\n' >"$tmp/prompt29"
+  senv "$home" "$rec" SHIM_EVENTS="$ev29" -- \
+    launch sjw29 execution-backends:4 --prompt-file "$tmp/prompt29" --foreground \
+    || fail "c29: foreground launch exited non-zero"
+  wdir29="$home/streamjson/sjw29"
+  [ -f "$wdir29/journal" ] || fail "c29: no journal to make unreadable"
+  chmod 000 "$wdir29/journal" || fail "c29: cannot make the journal unreadable"
+  #   The hazard is BUSYBOX awk, which exits 1 for an unreadable operand where
+  #   gnu/mawk exit 2. On a host with the latter the pre-existing exit-code
+  #   arm already covers this, so a test run against the host's own awk passes
+  #   whether or not the readability check exists — it proves nothing about
+  #   the fix. Shim an awk with busybox's exit code so the case actually
+  #   exercises the precondition it is about.
+  mkdir -p "$tmp/bin29"
+  real_awk=$(command -v awk) || fail "c29: no awk to delegate to"
+  cat >"$tmp/bin29/awk" <<AWKSHIM
+#!/bin/sh
+# busybox-shaped: an unreadable operand exits 1, not 2.
+for a in "\$@"; do
+  case \$a in -*) continue ;; esac
+  if [ -e "\$a" ] && [ ! -r "\$a" ]; then exit 1; fi
+done
+exec $real_awk "\$@"
+AWKSHIM
+  chmod +x "$tmp/bin29/awk"
+  printf 'x\n' >"$tmp/probe29"
+  chmod 000 "$tmp/probe29"
+  PATH="$tmp/bin29:$PATH" awk '{ print }' "$tmp/probe29" >/dev/null 2>&1
+  [ "$?" = 1 ] || fail "c29: the awk shim does not reproduce busybox's exit 1 — this case would prove nothing"
+  chmod 644 "$tmp/probe29"
+  out=$(PATH="$tmp/bin29:$PATH" senv "$home" "$rec" -- stop sjw29 --grace 2 2>&1)
+  chmod 644 "$wdir29/journal" 2>/dev/null
+  case $out in
+    *"partial"*"held="*attention*) ;;
+    *) fail "c29: an unreadable journal should hold the attention class, got: $out" ;;
+  esac
+  #   Control: with the journal readable the same close, same shimmed awk,
+  #   releases attention — so the hold above is the unreadable journal and not
+  #   the shim breaking the close outright.
+  out=$(PATH="$tmp/bin29:$PATH" senv "$home" "$rec" -- stop sjw29 --grace 2 2>&1)
+  case $out in
+    *"held="*attention*) fail "c29 control: attention stayed held with a readable journal: $out" ;;
+  esac
+  echo "ok: c29 an unreadable receipt journal leaves the attention class held (REQ-E1.5)"
+fi
+
 echo "all fleet-streamjson tests passed"
