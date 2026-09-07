@@ -504,6 +504,12 @@ EOF
       kill -9 "$sjpid" 2>/dev/null
       fail "c3: the supervisor survived a TERM and had to be killed — it would have leaked"
     fi
+    # Retire the pid files now that the process behind them is gone. The EXIT
+    # trap sweeps these paths and SIGKILLs whatever they name; a pid that has
+    # already exited can be reused by an unrelated process before the trap
+    # runs, and the sweep cannot tell the difference. Closing the worker
+    # without retiring its record just moves the hazard downstream.
+    rm -f "$h/streamjson/w-c3/supervisor.pid" "$h/streamjson/w-c3/worker.pid"
     ok c3 "the stream-json rung registers a complete record and leaves no supervisor"
   else
     ok c3 "skipped (stream-json launch unavailable in this environment)"
