@@ -1302,14 +1302,14 @@ case "$cmd" in
     hook_reg=''
     caps_rc=0
     if caps_line=$("$caps_helper" caps "$backend"); then
-      # Field 8 of the eight-field advertised set. Word-split a trusted
+      # Field 8 of the nine-field advertised set. Word-split a trusted
       # accessor answer; hook_registration is grammar-validated at the source.
       # shellcheck disable=SC2086
       set -- $caps_line
-      if [ "$#" -ne 8 ]; then
+      if [ "$#" -ne 9 ]; then
         # A caps answer with the wrong arity means a version-skewed accessor
         # (e.g. a stale pre-extension sibling), not an unknown backend.
-        echo "fleet-liveness: capability accessor answered $# field(s), expected 8 — version-skewed install at $caps_helper" >&2
+        echo "fleet-liveness: capability accessor answered $# field(s), expected 9 — version-skewed install at $caps_helper" >&2
         exit 2
       fi
       hook_reg=${8-}

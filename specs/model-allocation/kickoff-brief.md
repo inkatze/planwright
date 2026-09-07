@@ -307,3 +307,34 @@ Lens-pass: the terminal lens review recorded in this section (coverage table,
 validation statement, and clustered dispositions above)
 Anchor: `371e1d46cafbddc33abe3bf902dc8e1dc1b4f54e` — computed as
 `scripts/spec-anchor.sh specs/model-allocation`
+
+## Amendment log
+
+**2026-09-05 — Task 6 execution, expression-only.** REQ-B1.1's test-spec entry
+reserved the enumeration of its `[manual]` remainder for Task 6 ("enumerated by
+name in Task 6"); executing Task 6 filled that gap in place. The entry now names
+the two skill-prose launch points that no test can execute — `/orchestrate`'s
+single-spec dispatch launch and `/execute-task`'s per-step session launch — plus
+the `/offload` subagent rung's prose hand-off of the resolved model to the
+harness, each with the static pin that holds it and the manual pass that
+verifies it at review. Nothing was decided here that the bundle had not already
+decided: no REQ or D-ID was added, removed, or given a new meaning, and the
+scriptable/manual split is the one REQ-B1.1 already draws.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog`, entry dated 2026-09-05
+Anchor: `8340476cef8b3e4e53d3cf26dd6f8605e5c2a06a` — computed as
+`scripts/spec-anchor.sh specs/model-allocation`
+
+**2026-09-05 — Task 6 review, expression-only.** The enumeration added above is
+corrected in place: its count now matches the three paths it lists, the
+`/orchestrate` pointer names the resource-governance step that actually carries
+the resolution rather than the Dispatch heading below it, and the `/offload`
+subagent hand-off is given the same numbered shape and recorded manual pass as
+its two siblings instead of trailing as prose. Nothing new is decided: the
+scriptable/manual split, and which surfaces fall on each side, are unchanged.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog`, second entry dated 2026-09-05
+Anchor: `3827ce2f27413b3a6ac060b846341b0398d5dc03` — computed as
+`scripts/spec-anchor.sh specs/model-allocation`
