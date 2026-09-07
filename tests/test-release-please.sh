@@ -156,9 +156,13 @@ for wf in "$WORKFLOW" "$TEMPLATE_WORKFLOW"; do
   # completes CI in the base repo and fires this contents:write job: an
   # outsider then controls when it runs, and the `success` it reports is the
   # FORK's verdict, so a green fork run can propose a release off a red main.
-  # Whole-line comments are stripped so the clause must be live, not narrated.
-  if grep -nHE 'head_repository\.full_name[[:space:]]*==[[:space:]]*github\.repository' "$wf" \
-    | grep -vE ':[0-9]+:[[:space:]]*#' | grep -q .; then
+  # Everything from the first `#` on is stripped, so the clause must be live
+  # content: a TRAILING comment naming it does not satisfy this, which dropping
+  # only whole-line comments would have allowed. Same treatment, and the same
+  # accepted residual (a literal `#` earlier on the line truncates it and fails
+  # loud), as the scan in scripts/check-workflow-posture.sh.
+  if sed 's/#.*$//' "$wf" \
+    | grep -qE 'head_repository\.full_name[[:space:]]*==[[:space:]]*github\.repository'; then
     pass "C1.1 $label fires only for runs produced by this repository"
   else
     fail "C1.1 $label does not pin workflow_run to head_repository == github.repository"

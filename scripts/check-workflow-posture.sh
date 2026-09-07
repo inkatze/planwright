@@ -309,12 +309,14 @@ function scan_refs(t, nr,   low, s, tok) {
   # an `owner/repo` string, can never be true — a dead gate, not a live one.
   # `!=` cannot match at all, and an `!(` opening directly onto the clause
   # disqualifies it, so neither spelling of an inverted clause counts. The
-  # disqualifier reads the clause's own polarity rather than the line's,
-  # because a second, unrelated negated condition beside a live clause is
-  # ordinary expression-writing.
+  # disqualifier names the clause on BOTH sides of that `!(` — including the
+  # reversed operand order in full — so it reads the clause's own polarity
+  # rather than the line's: a second, unrelated negated condition beside a live
+  # clause is ordinary expression-writing, and that stays true when the
+  # unrelated condition happens to negate an equality on `github.repository`.
   if ((low ~ /github\.event\.workflow_run\.head_repository\.full_name[ \t]*==[ \t]*github\.repository[^a-z0-9_]/ ||
        low ~ /github\.repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository\.full_name/) &&
-      low !~ /![ \t]*\([ \t]*github\.(event\.workflow_run\.head_repository|repository[ \t]*==)/)
+      low !~ /![ \t]*\([ \t]*github\.(event\.workflow_run\.head_repository|repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository)/)
     printf "H\t%d\n", nr
 }
 BEGIN {

@@ -685,6 +685,30 @@ EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "an unrelated negation beside a live clause still satisfies it" 0 $?
 
+# The same shape, but the unrelated negation happens to negate an equality on
+# `github.repository` itself. The disqualifier is meant to read the CLAUSE's
+# polarity, not the line's, so this must still satisfy the assertion.
+d="$(mkdir_case pass-workflow-run-head-repository-with-unrelated-repository-negation)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: ${{ github.event.workflow_run.head_repository.full_name == github.repository && !(github.repository == 'someone/mirror') }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "an unrelated negated github.repository equality still satisfies the clause" 0 $?
+
 # A privileged workflow_run workflow consuming a PR-produced artifact: the
 # artifact-poisoning path GitHub's own docs warn about.
 d="$(mkdir_case fail-workflow-run-artifact)"
