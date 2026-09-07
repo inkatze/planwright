@@ -986,7 +986,7 @@ scripts/fleet-stuck-detector.sh scan        # every worker the registry or the s
 | --- | --- | --- |
 | `dead` | `fleet-death-evidence.sh`'s positive verdict on the dispatch record's death handle (REQ-C1.5) | alive, unknown, an errored or refused call, a `none` handle, no handle |
 | `waiting-on-a-human` | a hook push (the attention store's `awaiting-input` row), a pending request in the stream-json journal, or a positively matched permission-prompt signature in a captured pane (REQ-C1.2) | elapsed time, a quiet pane |
-| `finished-but-unreaped` | a successful session-ended record — the `ended` push, the supervisor's `result success`, a zero headless `exit` — while the worker is not positively dead (REQ-C1.3) | a completion whose work is unlanded, or a session that ended without completing (below) |
+| `finished-but-unreaped` | a successful session-ended record — the `ended` push, the supervisor's `result success` not flagged `is_error`, a zero headless `exit` — while the worker is not positively dead (REQ-C1.3) | a completion whose work is unlanded, a frame flagging `is_error`, or a session that ended without completing (below) |
 | `working` | a pushed `working` row, a running-turn marker in the pane footer, or both stream-json runtime pidfiles present with positive alive evidence on the death handle and no result yet | absence of a stop signal |
 
 Precedence runs top to bottom: death evidence outranks a stale push, a queued
@@ -995,9 +995,10 @@ working row. Anything else is `unclassified` with a reason (`no-signal`,
 `turn-ended`, `fork-answered`, `stop-failure`, `completion-failed`,
 `completion-unlanded`) — a fifth word, never a default state, that a consumer
 leaves alone and surfaces. A session that ended without completing (a
-non-zero exit, a non-success result subtype) is `completion-failed`, never
-finished: the supervisor's own status renders it `ended`, and the detector
-agrees.
+non-zero exit, a non-success result subtype, or a success subtype whose frame
+flagged `is_error` — the turn completed the protocol while the run died) is
+`completion-failed`, never finished: for a non-zero exit and for a flagged
+frame the supervisor's own status renders it `ended`, and the detector agrees.
 
 **A self-reported completion is not sufficient** (REQ-C1.4, obs:cc13d432). A
 worker whose `result=success` sits beside an uncommitted tree or beside
@@ -1268,6 +1269,55 @@ an escalation, a denial, a binding clamp, an inheritance, a degraded read —
 additionally mirror one row each into the shared audit trail under mechanism
 `allocation`, so the fleet-wide view keeps a single surface; routine resolutions
 stay in the per-unit ledger.
+
+**Petitioning for a different tier: `scripts/allocation-petition.sh`.** Every
+trigger above is a symptom of a unit going *badly*. Nothing tells the policy the
+opposite — that the remaining steps are mechanical and the tier the table handed
+out is more than the work needs — and nothing lets a worker say "this is harder
+than it looked" before it has failed twice to prove it. The petition is that
+channel (model-allocation D-7), and it is the only signal in the allocation path
+a worker authors.
+
+A worker writes one at a step boundary:
+
+```sh
+scripts/allocation-petition.sh write --worktree "$PWD" \
+  --direction de-escalate --unit <spec>:task-<n> --step <step> --attempt <n> \
+  --reason 'the remaining steps are mechanical'
+```
+
+**When to write one.** Petition to *escalate* when the work in front of you is
+categorically harder than the unit's shape suggested — a subtle concurrency
+contract, a domain the brief under-described, an interface whose semantics have
+to be re-derived rather than read. Petition to *de-escalate* when the remaining
+steps are mechanical: the design is settled and what is left is transcription,
+formatting, or a rote sweep. Do not petition because a step failed — that is
+already a trigger event, and spending a petition on it burns adjustment budget
+the failure would have spent anyway. One petition is one ladder step; if the
+next boundary still needs a different tier, write another.
+
+**What it cannot do.** A petition is a *hint the policy weighs*, never an
+authority. It takes the same single ladder step as any other trigger, spends the
+same `allocation_adjustment_cap` budget, and meets the same clamps, so it can
+never buy a tier the restriction rung or a per-tier cap would refuse. Weighing
+**consumes** it: the artifact is gone afterwards, so signaling again costs a
+fresh write, and a petition can never move a unit twice.
+
+The artifact is untrusted input and is screened as such: a pinned five-line
+grammar under `LC_ALL=C`, a 1 KiB cap, taken only as a contained regular file
+(no symlink followed, no FIFO opened), and claimed by atomic rename before it is
+validated, so two boundaries racing the same unit cannot both weigh it. Anything
+out of grammar, hostile, stale, or filtered out by `allocation_petition` is
+still consumed and lands an `ignored` ledger row — which is where an operator
+sees what a worker said and why it did not count.
+
+**Rungs with no worktree have no petition channel.** The channel is a file in
+the worker's own worktree, so in-session work — the terminal rung, a
+`/execute-task` step running in the operator's session — has nowhere to write
+one. That is a documented degradation, not an error: those units still adapt on
+the work-shaped events, they simply cannot volunteer the signal. It is also why
+`allocation_petition` is subordinate to `allocation_adaptation`: with the master
+knob off there is no ladder position to move, so the artifact is not read at all.
 
 **The ledger feeds back into future drafting.** When a unit reaches a terminal
 state, completion or crash-loop disable alike, the terminal-state owner runs

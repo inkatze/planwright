@@ -206,17 +206,20 @@ alloc_cheaper() {
 ALLOC_EVENTS_UP='step-failure retry flailing non-convergence petition-escalate'
 ALLOC_EVENTS_DOWN='petition-de-escalate'
 # The non-trigger event classes a row may carry: a routine launch-boundary
-# resolution, an inheritance, a degraded-mode launch, the terminal-state
-# feedback mark allocation-feedback.sh writes once per unit (REQ-F1.2), and the
-# per-step tier decision (Task 5, REQ-C1.3). None of them moves a tier —
-# `alloc_event_dir` answers `none` — so replay walks past them, and the feedback
-# mark in particular must stay inert: it is written AFTER the unit's last launch
-# and records history rather than making any.
+# resolution, an inheritance, a degraded-mode launch, a petition that was
+# CONSUMED WITHOUT BEING WEIGHED, the terminal-state feedback mark
+# allocation-feedback.sh writes once per unit (REQ-F1.2), and the per-step tier
+# decision (REQ-C1.3). None of them moves a tier — `alloc_event_dir` answers
+# `none` — so replay walks past them. The petition case has no direction by
+# construction: an out-of-grammar artifact has none to read, and one the policy
+# knob filtered out must not carry a direction into replay, so it rides the
+# `ignored` outcome instead (D-7, REQ-C1.6). The feedback mark is written AFTER
+# the unit's last launch and records history rather than making any.
 #
 # `step-tier` rows are also STEP-scoped, so replay drops them on the scope test
 # before it reads the event column at all — two independent gates, which is what
 # keeps a step-type decision out of the unit's ladder.
-ALLOC_EVENTS_INERT='launch inherit degraded feedback step-tier'
+ALLOC_EVENTS_INERT='launch inherit degraded petition feedback step-tier'
 
 # alloc_event_dir <event>: print `up`, `down`, or `none`. Returns 1 for a token
 # outside the closed set, so an unrecognized event is a refusal, never a
@@ -253,7 +256,7 @@ alloc_incident() {
     step-failure | retry) printf step-failure ;;
     flailing) printf flailing ;;
     non-convergence) printf non-convergence ;;
-    petition-escalate | petition-de-escalate) printf petition ;;
+    petition-escalate | petition-de-escalate | petition) printf petition ;;
     *) return 1 ;;
   esac
 }
