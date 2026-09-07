@@ -52,12 +52,20 @@ if [ ! -d "$WORKFLOW_DIR" ]; then
   exit 1
 fi
 
+# Strip trailing comments before scanning for content, so a comment that merely
+# NAMES an expression is never mistaken for a use of it. Same normalization,
+# and the same accepted residual (a literal `#` inside a value truncates the
+# line and fails loud), as scripts/check-workflow-posture.sh.
+uncommented() { sed 's/#.*$//' "$1"; }
+
 # Emit the body of a workflow's `pull_request:` trigger block: the lines
-# indented deeper than the key itself, whole-line comments dropped. A bare
-# `pull_request:` yields nothing, which is exactly the defect state.
+# indented deeper than the key itself. A bare `pull_request:` yields nothing,
+# which is exactly the defect state. Comments are stripped first, so
+# `types: [opened]  # TODO: add edited` cannot satisfy the C2 scan below —
+# over-matching here would be a false PASS, the one direction that hides the
+# defect this file exists to catch.
 pr_trigger_block() {
-  awk '
-    /^[[:space:]]*#/ { next }
+  uncommented "$1" | awk '
     {
       n = match($0, /[^ ]/)
       if (n == 0) next
@@ -70,14 +78,8 @@ pr_trigger_block() {
       if (inpr && indent <= prindent) inpr = 0
       if (inpr) print
     }
-  ' "$1"
+  '
 }
-
-# Strip trailing comments before scanning for content, so a comment that merely
-# NAMES an expression is never mistaken for a use of it. Same normalization,
-# and the same accepted residual (a literal `#` inside a value truncates the
-# line and fails loud), as scripts/check-workflow-posture.sh.
-uncommented() { sed 's/#.*$//' "$1"; }
 
 # --- C1: the metadata gate is discoverable -----------------------------------
 # Every workflow that reads PR metadata a human can edit after the fact. This
