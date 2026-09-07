@@ -701,8 +701,12 @@ case "$cmd" in
     # that could set the model but not the effort, model-allocation REQ-B1.2)
     # carries a concrete model beside an `inherit` effort, and answering with
     # that pair would hand a degraded relaunch a tier that is half a sentinel.
-    # The caller already discards an invalid pair, so this narrows what the
-    # verb can say without changing what any caller does.
+    # This DOES change what a degraded relaunch lands on, deliberately. The
+    # caller (allocation-adapt.sh's suspended-ledger path) used to receive the
+    # half-real pair, fail its own tier validation, and fall back to the
+    # starting tier; now the row is skipped here and an earlier fully-resolved
+    # row can answer instead, so the relaunch resumes from that tier rather
+    # than restarting from the beginning of the ladder.
     #
     # `feedback` rows are excluded because they are not launches. The
     # terminal-state mark allocation-feedback.sh writes carries the unit's

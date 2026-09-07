@@ -61,8 +61,9 @@
 #
 # Exit codes: 0 success; 1 dispatch failed (failure report emitted); 3 the unit
 # is withheld by the admission gate (nothing dispatched); 4 a malformed
-# repo-tracked knob and 5 a broken install, both propagated from the launch-tier
-# resolver; 2 usage /
+# repo-tracked knob and 5 a broken install, the first propagated from the
+# launch-tier resolver and the second also raised here when its plan is missing
+# a row this reads or carries an out-of-enum tier; 2 usage /
 # hostile input / refused backend / missing, empty, unreadable, or unsafe
 # prompt file / missing echo-safety helper / internal resolution failure.
 #
@@ -160,22 +161,30 @@ resolve_tier() {
   fi
   TIER_MODEL=$(printf '%s\n' "$rt_plan" | awk -F '\t' '$1 == "model" { print $2 }')
   TIER_EFFORT=$(printf '%s\n' "$rt_plan" | awk -F '\t' '$1 == "effort" { print $2 }')
+  # A plan that exits 0 without the rows this reads is a resolver from another
+  # version, not a bad argument. Named before the enum check so the diagnostic
+  # says the row is absent rather than calling an empty value out-of-enum.
+  if [ -z "$TIER_MODEL" ] || [ -z "$TIER_EFFORT" ]; then
+    echo "$me: dispatch: the resolver's plan is missing a model or effort row — broken or outdated install" >&2
+    exit 5
+  fi
   # Emission-boundary enum check, the same posture as the prompt-file charset
   # check below: these values become argv elements and, for the print rung,
   # words of a command a human runs. A value outside the closed enum means a
-  # broken install upstream, and it stops here rather than being emitted.
+  # broken install upstream, and it stops here rather than being emitted — on
+  # the install exit code, not the usage one this used to borrow.
   case "$TIER_MODEL" in
     inherit | fable | opus | sonnet | haiku) ;;
     *)
       echo "$me: dispatch: the resolver returned an out-of-enum model — broken or outdated install" >&2
-      exit 2
+      exit 5
       ;;
   esac
   case "$TIER_EFFORT" in
     inherit | low | medium | high) ;;
     *)
       echo "$me: dispatch: the resolver returned an out-of-enum effort — broken or outdated install" >&2
-      exit 2
+      exit 5
       ;;
   esac
 }

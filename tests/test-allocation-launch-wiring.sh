@@ -217,6 +217,54 @@ esac
 ok "an unreachable allocation store degrades to an ambient launch and says so"
 
 # --------------------------------------------------------------------------
+# 5b. A plan this version cannot read is a BROKEN INSTALL, not a usage error.
+#     resolve_tier's own diagnostic already says "broken or outdated install",
+#     and the header reserves exit 5 for exactly that while 2 means usage or
+#     hostile input, so exiting 2 here contradicted both. A missing row and an
+#     out-of-enum value are the same condition (the resolver answered something
+#     this version does not understand) and both must land on 5.
+# --------------------------------------------------------------------------
+skew_od="$tmp/od-install"
+mkdir -p "$skew_od"
+cp "$OD" "$REPO_ROOT/scripts/echo-safety.sh" "$skew_od/" || fail "staging the od install"
+stage_plan() {
+  # $1 the plan body a stubbed apply layer answers with.
+  cat >"$skew_od/allocation-apply.sh" <<STUB
+#!/bin/sh
+$1
+exit 0
+STUB
+  chmod +x "$skew_od/allocation-apply.sh"
+}
+run_skew_od() {
+  PATH="$stubbin:$PATH" \
+    PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$skew_od/offload-dispatch.sh" "$@" 2>"$tmp/err"
+}
+set_knobs
+# An out-of-enum model.
+stage_plan "printf 'admit\tyes\n'; printf 'model\tgpt-9\n'; printf 'effort\thigh\n'"
+rc=0
+run_skew_od dispatch print "$promptfile" --unit 'offload:skew1' >/dev/null || rc=$?
+[ "$rc" = 5 ] \
+  || fail "an out-of-enum model exited $rc, expected 5 (broken install): $(cat "$tmp/err")"
+# A MISSING model row: the same class, and it must not be reported as an
+# out-of-enum value, which would send a reader looking for a value that is
+# not there.
+stage_plan "printf 'admit\tyes\n'; printf 'effort\thigh\n'"
+rc=0
+run_skew_od dispatch print "$promptfile" --unit 'offload:skew2' >/dev/null || rc=$?
+[ "$rc" = 5 ] \
+  || fail "a missing model row exited $rc, expected 5 (broken install): $(cat "$tmp/err")"
+grep -qi 'missing\|no model row\|incomplete' "$tmp/err" \
+  || fail "a missing plan row is reported as something other than missing: $(cat "$tmp/err")"
+ok "a plan this version cannot read is a broken install, not a usage error"
+
+# --------------------------------------------------------------------------
 # 6. The prose pin (REQ-B1.1): each launch point that constructs its launch in
 #    SKILL prose names the resolver at the point it launches. Asserted per
 #    file so a skill losing the step fails by name rather than in aggregate.
