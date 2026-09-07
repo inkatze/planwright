@@ -27,8 +27,9 @@
 #                           pane (REQ-C1.2, obs:4c25e743). Never elapsed time.
 #   finished-but-unreaped   a successful session-ended signal — the attention
 #                           store's `ended` row (SessionEnd), a stream-json
-#                           `result success` record, a zero `exit` record —
-#                           while the worker is not positively dead (REQ-C1.3).
+#                           `result success` record not flagged is_error, a
+#                           zero `exit` record — while the worker is not
+#                           positively dead (REQ-C1.3).
 #                           A completion whose work is demonstrably unlanded
 #                           (an uncommitted tree, commits absent from the
 #                           remote-tracking ref) is NOT finished (REQ-C1.4,
@@ -36,7 +37,8 @@
 #                           reason `completion-unlanded`, so a positive-looking
 #                           status can never hide stranded work. A session that
 #                           ended WITHOUT completing — a non-zero exit, a
-#                           non-success result subtype — is `unclassified`
+#                           non-success result subtype, or a success subtype
+#                           whose frame flagged is_error — is `unclassified`
 #                           with reason `completion-failed`, never finished
 #                           (the supervisor's own status renders it `ended`,
 #                           never `completed`, and this detector agrees).
@@ -111,8 +113,8 @@
 # unreadable|presence-unavailable|unrecognized|no-identity|absent),
 # attention (the store's state word, or -), attention-status
 # (present|absent|unreadable|malformed), attention-reason, death
-# (dead|alive|unknown|none|absent), completion (result=<subtype>|exit=<rc>|
-# session-ended|absent), journal-pending, worktree, tree (clean|dirty|
+# (dead|alive|unknown|none|absent), completion (result=<subtype>[/is_error=true]
+# |exit=<rc>|session-ended|absent), journal-pending, worktree, tree (clean|dirty|
 # unverifiable|-), unpushed (<n>|unverifiable|-), commits (<n>|unverifiable),
 # pane (permission-prompt|busy|idle-prompt|indeterminate|absent),
 # stage-source (events|absent). Anomaly words: registry-malformed,
@@ -820,10 +822,14 @@ REC
 }
 
 # read_completion <runtime-dir> — sets completion (absent | result=<subtype>
-# | exit=<rc>) and completion_ok (1 for a success, 0 otherwise) from the
-# stream-json supervisor's `result` record (result <subtype> <epoch> | exit
-# <rc> <epoch>) or the headless runner's `exit` record (<rc> <epoch>). One
-# bounded read per record.
+# [/is_error=true] | exit=<rc>) and completion_ok (1 for a success, 0
+# otherwise) from the stream-json supervisor's `result` record
+# (result <subtype> <epoch> [is_error] | exit <rc> <epoch>) or the headless
+# runner's `exit` record (<rc> <epoch>). A frame flagging is_error is never a
+# success, whatever its subtype claims. The `result` record is newline-
+# terminated and an unterminated one is refused as malformed; the headless
+# `exit` record carries no such check, so a torn one there still reads as a
+# completion. One bounded read per record.
 read_completion() {
   completion=absent
   completion_ok=0
@@ -834,7 +840,28 @@ read_completion() {
       note_anomaly result-unreadable
       return 0
     fi
-    rc_line=$(head -c 4096 "$rc_dir/result" 2>/dev/null | head -n 1) || rc_line=""
+    # The writer truncates and rewrites this record in place, and a short write
+    # on a full disk leaves a partial one on disk for good. A prefix of an
+    # is_error record still opens `result<TAB>` and still parses as subtype
+    # success, so a reader that stops at the leading fields calls a dead run a
+    # clean completion — and this reader's verdict is what frees a slot.
+    # Completeness is the TERMINATOR the writer always emits, not the field
+    # count: a terminated two-field record is a shape other consumers already
+    # read. An unterminated snapshot is a write in flight, reported as a
+    # malformed record rather than guessed at.
+    rc_raw=$(
+      head -c 4096 "$rc_dir/result" 2>/dev/null
+      printf x
+    )
+    rc_raw=${rc_raw%x}
+    case $rc_raw in
+      *"$NL"*) ;;
+      *)
+        note_anomaly result-record-malformed
+        return 0
+        ;;
+    esac
+    rc_line=${rc_raw%%"$NL"*}
     rc_kind=${rc_line%%"$TAB"*}
     rc_rest=${rc_line#*"$TAB"}
     rc_val=${rc_rest%%"$TAB"*}
@@ -849,10 +876,27 @@ read_completion() {
       "" | *[!A-Za-z0-9_-]*) rc_val=unknown ;;
     esac
     [ "${#rc_val}" -le 32 ] || rc_val=unknown
+    # Field 4 carries the frame's is_error flag; only `result` records write
+    # it today, though the column is read for either kind. A frame can report
+    # subtype success and is_error true at once, because an API error arrives
+    # as assistant text: the turn completed, the run did not. Records
+    # predating the field have three fields and keep their previous meaning.
+    rc_err=""
+    case $rc_rest in
+      *"$TAB"*"$TAB"*)
+        rc_after=${rc_rest#*"$TAB"}
+        rc_err=${rc_after#*"$TAB"}
+        rc_err=${rc_err%%"$TAB"*}
+        ;;
+    esac
     completion="$rc_kind=$rc_val"
     case $completion in
       result=success | exit=0) completion_ok=1 ;;
     esac
+    if [ "$rc_err" = true ]; then
+      completion="$completion/is_error=true"
+      completion_ok=0
+    fi
     return 0
   fi
   if [ -e "$rc_dir/exit" ]; then
