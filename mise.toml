@@ -127,7 +127,7 @@ description = "standing CI-exclusion guard, so evals never run in CI. Three pass
 run = "/bin/sh scripts/check-no-ci-evals.sh"
 
 [tasks."check:workflow-posture"]
-description = "fork-PR posture guard: no pull_request_target; read-only EFFECTIVE per-job permissions and zero stored secrets (secrets.GITHUB_TOKEN exempt) on everything reachable from pull_request, followed through local reusable-workflow uses:; privileged workflow_run keeps its base-branch filter and consumes no PR artifact; fails closed on a workflow it cannot parse (guard-coverage Task 4, REQ-C1.2, REQ-H1.3, D-6)"
+description = "fork-PR posture guard: no pull_request_target; read-only EFFECTIVE per-job permissions and zero stored secrets (secrets.GITHUB_TOKEN exempt) on everything reachable from pull_request, followed through local reusable-workflow uses:; privileged workflow_run keeps its base-branch filter, pins the originating repository (head_repository.full_name == github.repository), and consumes no PR artifact; fails closed on a workflow it cannot parse (guard-coverage Task 4, REQ-C1.2, REQ-H1.3, D-6)"
 run = "/bin/bash scripts/check-workflow-posture.sh"
 
 [tasks."check:githooks"]
