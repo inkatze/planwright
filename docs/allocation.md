@@ -116,9 +116,10 @@ Both are overlay edits. The two layers you will most likely use, of the four the
 
 Keys are **flat**, one `key: value` per line. Nesting them under a map is not a
 different spelling of the same thing — the parser will not see them at all. A
-value outside a knob's enum is malformed, and the by-layer policy applies: a
-repo-tracked layer hard-fails, an adopter or machine-local layer warns and
-degrades to the core default.
+value outside a knob's enum is malformed, and the by-layer policy in
+[Customizing with overlays](overlays.md) applies: a repo-tracked layer
+hard-fails, while an adopter or machine-local layer warns loudly and degrades
+rather than failing the run.
 
 ### Setting a starting tier
 
@@ -534,25 +535,25 @@ one launch.
 **A clamp is not an outcome, and it is not a de-escalation.** This is the
 single most common misreading. A clamped launch still carries the outcome
 `resolved`; the clamp is recorded in the `inputs` column, under the `clamps=`
-key. Here is a real row for an `execution` unit at the shipped starting tier
-`opus`/`high`, launched while the account's usage signal read 75:
+key. Here is a real row for an `execution` unit an operator started at
+`fable`/`high`, launched with the weekly usage window at 58%:
 
 ```text
-1 ... planwright:task-13 impl 1 launch opus high sonnet high sonnet high unit resolved key=execution;rung=normal;clamps=cap;signal=75;adaptation=on;step=none
+1 ... planwright:task-13 impl 1 launch fable high opus high opus high unit resolved key=execution;rung=normal;clamps=cap;signal=58;adaptation=on;step=none
 ```
 
-It **proposed** `opus`/`high`, a per-tier budget cap **clamped** it to
-`sonnet`/`high`, and that is what **resolved**. So the answer to "why did this
-run on sonnet when I configured opus" is in one row: `clamps=cap` at
-`signal=75` — the `opus` cap threshold is `70`, the `sonnet` one is `90`, so at
-75 `opus` was withdrawn and `sonnet` was the nearest surviving cheaper model,
-effort preserved.
+It **proposed** `fable`/`high`, a per-tier budget cap **clamped** it to
+`opus`/`high`, and that is what **resolved**. So the answer to "why did this run
+on opus when I configured fable" is in one row: `clamps=cap` at `signal=58` —
+the `fable` cap threshold is `55`, the `opus` one is `70`, so at 58 `fable` was
+withdrawn and `opus` was the nearest surviving cheaper model, effort preserved.
 
-That row also shows why `rung=` and `signal=` can look out of step: the
-restriction rung has a minimum dwell before it transitions, so it lags the raw
-signal, while the per-tier caps are a stateless read of the signal at that
-instant. A `normal` rung beside a high signal is the ladder not having moved
-yet, not a contradiction.
+That row also shows that a cap can bind while the rung is still `normal`. The
+two read different things: the restriction rung compares each usage window
+against its own threshold, while the caps compare the more restrictive window
+against a per-model threshold, and the lowest cap threshold sits below where the
+rung starts to climb. `rung=normal` beside a binding cap is not a
+contradiction.
 
 The members `clamps=` can carry:
 
@@ -615,7 +616,7 @@ never silent. It shows up on three surfaces:
    `inputs` carries `adaptation=suspended`:
 
    ```text
-   2 ... planwright:task-13 impl 2 launch sonnet high sonnet high sonnet high unit degraded key=execution;rung=normal;clamps=none;signal=75;adaptation=suspended;step=none
+   2 ... planwright:task-13 impl 2 launch opus high opus high opus high unit degraded key=execution;rung=normal;clamps=none;signal=58;adaptation=suspended;step=none
    ```
 
    Note that the `event` is still `launch` — it is the `outcome` that says
