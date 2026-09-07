@@ -1097,7 +1097,9 @@ what keeps the legacy family in charge, so an existing overlay keeps working
 untouched and needs no migration.
 The legacy family is documented, not removed. The same family also carries
 rows for the three non-fleet surfaces, which ship `inherit` instead.
-Per-knob detail is in the [options reference](options-reference.md).
+Per-knob detail is in the [options reference](options-reference.md); the
+operator's guide to the whole policy — the ladder, the ledger, the petition,
+and how to turn any of it on — is [Model allocation](allocation.md).
 
 **Throttling is reactive, off Claude Code's own signal.** There is no
 supported way to query account-level usage, so the fleet reacts to the one

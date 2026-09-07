@@ -10,6 +10,11 @@ Every option present in the default config must have a row here.
 `scripts/check-options-reference.sh` enforces that; planwright's CI runs it
 (wired in by the self-hosting CI task) and fails on an undocumented option.
 
+The rows are per-knob and deliberately terse about how the knobs compose. For
+the `allocation_*` and `fleet_*` selection families, the narrative version —
+precedence and sentinels, the ladder, the ledger, the petition lifecycle — is
+[Model allocation](allocation.md).
+
 Config-model fallback: a skill that finds a config file absent, unreadable,
 or malformed falls back to the tracked defaults below and surfaces a
 warning when it reads the config, before any default-driven action fires
