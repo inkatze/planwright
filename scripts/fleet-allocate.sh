@@ -164,8 +164,13 @@ model_cost() {
 # is what lets a downshift walk off the bottom without a special case.
 model_at_cost() {
   mac_r=$((ALLOC_MODEL_TOP - $1))
+  # Clamped at BOTH ends. The case statement this replaced was total — every
+  # index outside the roster answered with the cheapest alias — and a caller
+  # that relied on that should not start getting an empty string back.
   if [ "$mac_r" -lt 0 ]; then
     mac_r=0
+  elif [ "$mac_r" -gt "$ALLOC_MODEL_TOP" ]; then
+    mac_r=$ALLOC_MODEL_TOP
   fi
   alloc_model_at "$mac_r"
 }
@@ -419,7 +424,12 @@ cmd_resolve() {
     if [ "$gpct" != unavailable ]; then
       resolve_caps
       cap_guard=0
-      while [ "$cap_guard" -lt 8 ]; do # bounded: at most 4 tiers to step through
+      # Bounded by the roster rather than a literal: the walk steps down at
+      # most one tier per pass, so twice the roster's height is ample headroom
+      # and stays ample when a model is appended. The old literal came with a
+      # comment stating the tier count, which is exactly the copied value this
+      # change exists to stop keeping.
+      while [ "$cap_guard" -lt $(((ALLOC_MODEL_TOP + 1) * 2)) ]; do
         cap_guard=$((cap_guard + 1))
         capval=$(cap_of "$eff_model") || exit 4
         if [ "$gpct" -ge "$capval" ]; then

@@ -65,7 +65,7 @@
 # launch-tier resolver and the second also raised here when its plan is missing
 # a row this reads or carries an out-of-enum tier; 2 usage /
 # hostile input / refused backend / missing, empty, unreadable, or unsafe
-# prompt file / missing echo-safety helper / internal resolution failure.
+# prompt file / a missing sibling helper / internal resolution failure.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, input
 # treated as data only (REQ-K1.5). Pathname expansion is disabled (set -f) so
