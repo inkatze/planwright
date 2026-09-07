@@ -40,15 +40,22 @@
 #   15 inputs     a bounded `key=value;...` list: trigger, rung, clamps
 #                 applied, fallback or inheritance taken
 #
-# A `feedback` row is the exception the columns above are worded to admit. It
-# is the terminal-state mark allocation-feedback.sh writes once per unit, after
-# the unit's last launch, and it neither proposes, resolves, nor moves
-# anything: its tier columns DESCRIBE the two tiers its observation names (the
-# configured start, and the derived final ladder position), its scope is `unit`
-# because the row belongs to the unit's history rather than to one launch, and
-# its outcome is `recorded`. A reader that treats columns 7-12 as launch tiers
-# must exclude it, the way `last-tier` does; the derivation and the incident
-# scan need no exclusion, because both gate on outcome `applied`.
+# A `feedback` row and a `step-tier` row are the exceptions the columns above
+# are worded to admit; neither one is a launch. The `feedback` row is the
+# terminal-state mark allocation-feedback.sh writes once per unit, after the
+# unit's last launch, and it neither proposes, resolves, nor moves anything:
+# its tier columns DESCRIBE the two tiers its observation names (the configured
+# start, and the derived final ladder position), its scope is `unit` because the
+# row belongs to the unit's history rather than to one launch, and its outcome
+# is `recorded`. A `step-tier` row records what one launch decided about a
+# per-step tier: the tier it weighed in the proposal columns, `-` in the
+# resolved columns, and `step` scope, which `append` and `health` both enforce.
+#
+# A reader that treats columns 7-12 as launch tiers must exclude both, and an
+# outcome test alone will not do it — a `step-tier` row carries `applied` the
+# way an escalation does. `last-tier` excludes them by answering from `launch`
+# rows alone; the derivation and the incident scan exclude them by scope,
+# before either one reads an outcome.
 #
 # `ts` and `outcome` are additive to D-6's named field list. The timestamp is
 # what makes a row readable in time order beside the shared trail; `outcome` is
@@ -83,9 +90,11 @@
 # non-monotone sequence is UNHEALTHY. `last-tier` stays readable either way, so
 # an unhealthy unit can still launch at the last tier a LAUNCH of it used, with
 # adjustments suspended rather than being blocked — the caller's decision,
-# surfaced by allocation-adapt.sh. A unit whose only tier-bearing row is a
-# terminal-state `feedback` mark has no such tier, so `last-tier` answers empty
-# and the caller falls back to the configured starting tier.
+# surfaced by allocation-adapt.sh. A unit with no unit-scoped `launch` row
+# carrying a tier has no such tier — its only tier-bearing rows being a
+# terminal-state `feedback` mark, say, or the ladder movement of a boundary
+# whose launch was then withheld — so `last-tier` answers empty and the caller
+# falls back to the configured starting tier.
 #
 # Usage:
 #   allocation-ledger.sh home                     print the allocation store dir
@@ -103,8 +112,8 @@
 #   allocation-ledger.sh health <unit>            0 healthy, 3 unhealthy
 #   allocation-ledger.sh last-tier <unit>         the last resolved tier a
 #                                                 LAUNCH of this unit used, or
-#                                                 empty (terminal-state
-#                                                 `feedback` marks excluded)
+#                                                 empty (only unit-scoped
+#                                                 `launch` rows answer)
 #   allocation-ledger.sh derive <unit> <start-model> <start-effort>
 #       Print `<model> <effort> <net> <stack-depth> <rows> <escalations>`, TAB
 #       separated — the memoryless derivation.
