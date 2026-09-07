@@ -1176,7 +1176,10 @@ stop_live() {
     case " $sl_out " in
       *" $sl_p "*) continue ;;
     esac
-    kill -0 "$sl_p" 2>/dev/null || continue
+    # pid_live, not `kill -0`: dropping a live-but-unsignallable pid here
+    # would empty the process class and report the tree stopped over a worker
+    # still running.
+    pid_live "$sl_p" || continue
     sl_out="$sl_out $sl_p"
   done
   printf '%s' "${sl_out# }"
@@ -1703,8 +1706,8 @@ cmd_answer() {
   sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
   wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
   channel_ok=1
-  valid_posnum "${sup_pid:-}" && kill -0 "$sup_pid" 2>/dev/null || channel_ok=0
-  valid_posnum "${wrk_pid:-}" && kill -0 "$wrk_pid" 2>/dev/null || channel_ok=0
+  valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" || channel_ok=0
+  valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid" || channel_ok=0
   [ -p "$dir/in.fifo" ] || channel_ok=0
   if [ "$channel_ok" = 0 ]; then
     journal_set_state "$dir" "$req" undeliverable "$now"
@@ -1804,7 +1807,7 @@ cmd_recover() {
   # supervisor is not orphaned; resuming over it would fork the session.
   for pidfile in worker.pid supervisor.pid; do
     pid=$(cat "$dir/$pidfile" 2>/dev/null) || pid=''
-    if valid_posnum "${pid:-}" && kill -0 "$pid" 2>/dev/null; then
+    if valid_posnum "${pid:-}" && pid_live "$pid"; then
       echo "$me: $pidfile ($pid) still alive for $worker - not orphaned, recovery refused" >&2
       exit 3
     fi
@@ -2067,8 +2070,8 @@ cmd_status() {
   fi
   sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
   wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
-  if valid_posnum "${sup_pid:-}" && kill -0 "$sup_pid" 2>/dev/null \
-    && valid_posnum "${wrk_pid:-}" && kill -0 "$wrk_pid" 2>/dev/null; then
+  if valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" \
+    && valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid"; then
     printf 'status %s running supervisor=%s worker=%s\n' "$worker" "$sup_pid" "$wrk_pid"
     return 0
   fi

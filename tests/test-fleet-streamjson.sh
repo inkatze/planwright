@@ -1896,4 +1896,49 @@ AWKSHIM
   echo "ok: c29 an unreadable receipt journal leaves the attention class held (REQ-E1.5)"
 fi
 
+# ---------------------------------------------------------------------------
+# c30 (REQ-E1.5): a live worker this user cannot SIGNAL is still a live
+#     worker. `kill -0` answers "may I signal it", not "does it exist": on a
+#     pid owned by another uid it fails with EPERM exactly as it does for a
+#     pid that is gone. Every liveness site here reads that as death, and the
+#     costs differ per site — the close reports a running tree stopped, and
+#     `recover` treats a running worker as orphaned and resumes over it,
+#     forking the session its own comment says must never fork.
+#
+#     pid 1 is the portable EPERM subject: it always exists and a non-root
+#     user can never signal it.
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: c30 needs a non-root user (root can signal pid 1, so there is no EPERM case)"
+elif kill -0 1 2>/dev/null; then
+  echo "skip: c30 this host lets us signal pid 1, so it offers no EPERM case"
+else
+  home="$tmp/h30"
+  wdir30="$home/streamjson/sjw30"
+  mkdir -p "$wdir30" "$tmp/r30"
+  printf '1\n' >"$wdir30/worker.pid"
+  printf '1\n' >"$wdir30/supervisor.pid"
+  printf 'sess30\n' >"$wdir30/session"
+  out=$(senv "$home" "$tmp/r30" -- recover sjw30 2>&1)
+  rc30=$?
+  [ "$rc30" = 3 ] \
+    || fail "c30: recover should refuse a live-but-unsignallable worker (exit 3), got $rc30: $out"
+  case $out in
+    *"still alive"*) ;;
+    *) fail "c30: the refusal should say the worker is still alive, got: $out" ;;
+  esac
+  #   Control: the same call with a pid that is genuinely gone DOES treat the
+  #   worker as orphaned, so the refusal above is the EPERM pid and not
+  #   recover refusing everything.
+  dead30=$(sh -c 'echo $$')
+  while kill -0 "$dead30" 2>/dev/null; do dead30=$((dead30 + 1)); done
+  printf '%s\n' "$dead30" >"$wdir30/worker.pid"
+  printf '%s\n' "$dead30" >"$wdir30/supervisor.pid"
+  out=$(senv "$home" "$tmp/r30" -- recover sjw30 2>&1)
+  case $out in
+    *"still alive"*) fail "c30 control: a dead pid was reported still alive: $out" ;;
+  esac
+  echo "ok: c30 a live worker this user cannot signal is not treated as orphaned (REQ-E1.5)"
+fi
+
 echo "all fleet-streamjson tests passed"
