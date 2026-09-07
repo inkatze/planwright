@@ -122,7 +122,15 @@ cleanup() {
     [ -f "$pf" ] || continue
     p=$(cat "$pf" 2>/dev/null) || continue
     case $p in '' | *[!0-9]*) continue ;; esac
-    kill -9 "$p" 2>/dev/null
+    # Confirm the pid is still one of ours before signalling it. A recorded pid
+    # whose process has already exited can be reused by anything on the machine
+    # before this sweep runs, and a SIGKILL to a stranger is not recoverable.
+    # The in-case close retires its own pid files, so this covers the paths
+    # that never reach one: a case that fails early, or a future case that
+    # forgets. `-o command=` is the spelling both BSD and GNU ps accept.
+    case $(ps -o command= -p "$p" 2>/dev/null) in
+      *fleet-streamjson.sh* | *fleet-dispatch-headless.sh*) kill -9 "$p" 2>/dev/null ;;
+    esac
   done
   rm -rf "$tmp"
 }
