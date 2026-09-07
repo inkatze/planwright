@@ -239,6 +239,102 @@ pin_skill offload offload
 ok "every prose launch point names the apply layer and its own selection key"
 
 # --------------------------------------------------------------------------
+# 6b. Naming the resolver is not enough: the prose must also say what to do
+#     with the answer's EXIT CODE. A withheld unit gets a well-formed plan
+#     carrying `model inherit` / `effort inherit` and then exit 3, so prose
+#     that describes only how to apply the plan reads as "apply nothing" and
+#     launches the withheld unit at the ambient tier — the fail-open the shell
+#     caller already refuses in offload-dispatch.sh. The two layers must not
+#     disagree about one contract.
+# --------------------------------------------------------------------------
+pin_admit() {
+  pa_f="$REPO_ROOT/skills/$1/SKILL.md"
+  pa_j=$(tr '\n' ' ' <"$pa_f")
+  # Scoped to the launch point, not the whole file: `/orchestrate` already says
+  # "exit 3" about an unrelated selection hold, and a file-wide grep passes on
+  # that while the launch point still says nothing.
+  case $pa_j in
+    *'allocation-apply.sh plan --key'*) ;;
+    *) fail "skills/$1/SKILL.md has no apply invocation to scope the admit pin to" ;;
+  esac
+  pa_after=${pa_j#*allocation-apply.sh plan --key}
+  # Lowercased: the clause opens a sentence at some surfaces and not others,
+  # and the pin is about the contract being stated, not its capitalisation.
+  pa_window=$(printf '%s\n' "${pa_after:0:400}" | tr '[:upper:]' '[:lower:]')
+  case $pa_window in
+    *'exit 3'*) ;;
+    *) fail "skills/$1/SKILL.md does not name exit 3 at its launch point" ;;
+  esac
+  case $pa_window in
+    *withheld*) ;;
+    *) fail "skills/$1/SKILL.md names exit 3 at its launch point without saying the unit is withheld" ;;
+  esac
+}
+pin_admit orchestrate
+pin_admit execute-task
+pin_admit offload
+ok "every prose launch point names the withheld exit code and refuses to launch on it"
+
+# --------------------------------------------------------------------------
+# 6c. Reachability: the documented command is EXECUTED, not merely matched.
+#     A prose contract nothing runs is how a stale invocation survives review,
+#     so each skill's own invocation is lifted out of the file, its <...>
+#     placeholders filled, and run against a withheld unit. The assertion is
+#     the one the prose now promises: exit 3, and a plan that says withheld.
+#     This is the shape used for the reachability pin on the sibling launch
+#     contract; it works here because the admission gate answers before the
+#     capability probe, so no real backend has to exist for the check.
+# --------------------------------------------------------------------------
+apply_env() {
+  PATH="$stubbin:$PATH" \
+    PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$@"
+}
+apply_env "$REPO_ROOT/scripts/fleet-audit.sh" record usage-gate defer-all seed \
+  'seed the rung' >/dev/null 2>&1 || fail "seeding the defer-all rung failed"
+
+reach_skill() {
+  # Saved before the `set --` below rebinds the positionals out from under it.
+  rs_skill=$1
+  # Lift this skill's own invocation out of its prose (it may wrap across
+  # lines, and it is delimited by the closing backtick of its code span).
+  rs_cmd=$(tr '\n' ' ' <"$REPO_ROOT/skills/$rs_skill/SKILL.md" \
+    | grep -o 'scripts/allocation-apply\.sh plan --key [^`]*' | head -1)
+  [ -n "$rs_cmd" ] || fail "skills/$rs_skill/SKILL.md has no extractable apply invocation"
+  # Fill every <placeholder> with a token legal in all three grammars, so what
+  # runs is the documented command rather than a rewritten one.
+  rs_cmd=$(printf '%s\n' "$rs_cmd" | sed 's/<[^<>]*>/u/g')
+  case $rs_cmd in
+    *'<'* | *'>'*) fail "skills/$rs_skill/SKILL.md left an unfilled placeholder: $rs_cmd" ;;
+  esac
+  # The gate withholds a configured tier; under the shipped `inherit` default
+  # it has nothing to withhold and answers `yes`. So configure this surface's
+  # own key first, or the case would pass for the wrong reason.
+  rs_key=$(printf '%s\n' "$rs_cmd" | sed -n 's/.*--key \([a-z_][a-z_]*\).*/\1/p')
+  [ -n "$rs_key" ] || fail "skills/$rs_skill/SKILL.md's invocation names no selection key"
+  set_knobs "allocation_model_$rs_key: opus" "allocation_effort_$rs_key: high"
+  # shellcheck disable=SC2086 # the lifted invocation is the argv under test
+  set -- $rs_cmd
+  shift
+  rs_rc=0
+  rs_out=$(apply_env "$REPO_ROOT/scripts/allocation-apply.sh" "$@" 2>"$tmp/err") || rs_rc=$?
+  [ "$rs_rc" = 3 ] \
+    || fail "skills/$rs_skill/SKILL.md's documented command exited $rs_rc on a withheld unit, expected 3: $rs_cmd"
+  printf '%s\n' "$rs_out" | grep -q "^admit	withheld$" \
+    || fail "skills/$rs_skill/SKILL.md's documented command did not report the unit withheld: $rs_out"
+}
+reach_skill orchestrate
+reach_skill execute-task
+reach_skill offload
+apply_env "$REPO_ROOT/scripts/fleet-audit.sh" record usage-gate normal seed \
+  'reset the rung' >/dev/null 2>&1 || fail "resetting the rung failed"
+ok "each documented launch command runs and refuses a withheld unit with exit 3"
+
+# --------------------------------------------------------------------------
 # 7. REQ-B1.3: the in-session rung's inheritance is documented as its pinned
 #    degradation — a content check, not mere existence.
 # --------------------------------------------------------------------------

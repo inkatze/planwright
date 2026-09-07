@@ -63,8 +63,9 @@
 #   input, or a failed ledger write; 3 the unit is WITHHELD by the admission
 #   gate (the plan is printed, carrying `admit withheld`, and applies nothing —
 #   a caller must not launch); 4 a malformed repo-tracked knob (propagated from
-#   the resolver chain); 5 broken install (a sibling helper missing, or a
-#   capability accessor answering the wrong arity); 6 the allocation store is
+#   the resolver chain); 5 broken install (a sibling helper missing, a
+#   capability accessor answering the wrong arity, or a resolver answering
+#   without one of the rows this script reads); 6 the allocation store is
 #   unreachable, so no launch can be audited. 6 is deliberately its own code:
 #   it is the one failure a caller may reasonably degrade past, and collapsing
 #   it into 2 would make every rejected argument look like a missing store.
@@ -332,7 +333,16 @@ PROP_EFFORT=$(tier_field proposed_effort) || PROP_EFFORT=$RES_EFFORT
 # the gate at every surface this script serves, which is the opposite of what
 # the gate is for — so the plan is printed for the caller to read and the exit
 # code refuses the launch outright.
-ADMIT=$(tier_field admit) || ADMIT=yes
+#
+# A MISSING admit row fails closed, like the missing model and effort rows
+# above and for the same reason: the engine answers all three on this one call,
+# so an absent admit is a version-skewed sibling rather than a silence meaning
+# `yes`. Defaulting it open would launch exactly the units the gate withheld,
+# which is the one direction this script must never fail in.
+ADMIT=$(tier_field admit) || {
+  printf '%s\n' "$me: the resolver returned no admit row — broken or outdated install" >&2
+  exit 5
+}
 if [ "$ADMIT" = withheld ]; then
   printf '%s\n' "$me: unit withheld by the admission gate at key $KEY; not launching" >&2
   printf 'key\t%s\n' "$KEY"

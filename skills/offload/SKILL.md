@@ -97,7 +97,8 @@ this inside the primitive. For the
 **subagent** rung, which the harness launches rather than the primitive, run
 `scripts/allocation-apply.sh plan --key offload --backend subagent --unit <id>`
 first and pass its `model` value as the Agent tool's model parameter, applying
-nothing when it is `inherit`. Shipped defaults resolve to `inherit` at every
+nothing when it is `inherit`. Exit 3 means the unit is withheld: do not launch
+it. Only exit 6 degrades to an ambient launch. Shipped defaults resolve to `inherit` at every
 rung, so unless the operator has configured a tier this changes no launch; what
 it always does is leave a row saying which dimensions were inherited. Never
 launch a rung without resolving: an unrecorded ambient launch is the one

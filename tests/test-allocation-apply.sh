@@ -418,6 +418,50 @@ grep -qi "version-skewed\|field" "$tmp/err" \
 echo "ok: a version-skewed capability accessor is a broken install, not a silent inherit"
 
 # --------------------------------------------------------------------------
+# 10b. An engine that answers NO admit row is a broken install too, and it must
+#      fail CLOSED. The admission gate is the one direction that must never
+#      default open: reading a missing row as `yes` would launch precisely the
+#      units the usage gate withheld, at every surface this task wired. The
+#      missing model and effort rows two checks above already exit 5; admit is
+#      answered by the same engine on the same call, so its absence is the same
+#      version skew and takes the same code.
+# --------------------------------------------------------------------------
+noadmit="$tmp/noadmit-install"
+mkdir -p "$noadmit"
+cp "$AP" "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/allocation-ledger.sh" \
+  "$REPO_ROOT/scripts/orchestrate-backends.sh" "$REPO_ROOT/scripts/allocation-ladder.sh" \
+  "$REPO_ROOT/scripts/allocation-select.sh" "$REPO_ROOT/scripts/fleet-resource-select.sh" \
+  "$REPO_ROOT/scripts/resolve-config-knob.sh" "$REPO_ROOT/scripts/config-get.sh" \
+  "$REPO_ROOT/scripts/fleet-state.sh" "$REPO_ROOT/scripts/fleet-usage-gate.sh" \
+  "$REPO_ROOT/scripts/fleet-daemon-gate.sh" "$REPO_ROOT/scripts/fleet-audit.sh" \
+  "$REPO_ROOT/scripts/fleet-allocate.sh" "$REPO_ROOT/scripts/resolve-overlay-root.sh" \
+  "$noadmit/" 2>/dev/null || true
+# A pre-admission-gate engine: it resolves a tier, and never answers `admit`.
+cat >"$noadmit/allocation-adapt.sh" <<'NOADMIT'
+#!/bin/sh
+# A stale sibling: resolves a tier but predates the admission gate.
+[ "$1" = resolve ] || exit 2
+printf 'model\topus\n'
+printf 'effort\thigh\n'
+printf 'proposed_model\topus\n'
+printf 'proposed_effort\thigh\n'
+NOADMIT
+chmod +x "$noadmit/allocation-adapt.sh"
+set +e
+out=$(env_run "$noadmit/allocation-apply.sh" plan --key offload \
+  --backend tmux --unit u-noadmit 2>"$tmp/err")
+rc=$?
+set -e
+[ "$rc" = 5 ] \
+  || fail "an engine answering no admit row exited $rc, expected 5 (broken install); plan was: $out"
+# The specific fail-open this guards: not merely a nonzero exit, but never a
+# printed plan that a caller could read as an admitted launch.
+printf '%s\n' "$out" | grep -q "^admit${TAB}yes$" \
+  && fail "a missing admit row was defaulted to admitted: $out"
+grep -qi "admit" "$tmp/err" || fail "the missing-admit diagnostic does not name the admit row"
+echo "ok: a missing admit row fails closed rather than defaulting to admitted"
+
+# --------------------------------------------------------------------------
 # 11. An unreachable allocation store gets its OWN exit code, so a caller can
 #     degrade on it without also degrading on a rejected argument.
 # --------------------------------------------------------------------------
