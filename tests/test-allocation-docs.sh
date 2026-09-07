@@ -169,6 +169,33 @@ for detail in stale-unit stale-step; do
 done
 echo "ok: the pinned petition path and its staleness details are documented"
 
+# --- 7g. the per-step knobs are named, not just alluded to ------------------
+
+# The doc spends a prerequisite paragraph on per-step tiers. A reader cannot act
+# on it without the knob names, so every step knob core ships must appear.
+step_knobs=$(sed -n 's/^\(allocation_[a-z]*_step_[a-z_]*\):.*/\1/p' "$CONFIG")
+[ -n "$step_knobs" ] || fail "7g: no per-step knobs parsed out of config/defaults.yml"
+for k in $step_knobs; do
+  doc_has "$k" "7h: per-step knob '$k' is not named in the doc"
+done
+echo "ok: every shipped per-step knob is named in the doc"
+
+# --- 7i. the restriction rungs the ledger's `rung=` field can carry ---------
+
+# `rung=` appears in the doc's own worked rows; a reader who cannot map its
+# values has to leave the page. The ladder is the upstream gate's, so tether to
+# it rather than restating it independently.
+rung_line=$(grep -m1 -- 'normal -> downshift' "$root/scripts/fleet-usage-gate.sh") \
+  || fail "7i: the restriction-rung ladder is no longer stated in fleet-usage-gate.sh"
+for rung in normal downshift reduce-concurrency defer-heavy defer-all; do
+  case $rung_line in
+    *"$rung"*) ;;
+    *) fail "7j: '$rung' is no longer on the upstream rung ladder" ;;
+  esac
+  doc_has "$rung" "7k: restriction rung '$rung' undocumented"
+done
+echo "ok: every restriction rung the ledger can name is documented"
+
 # --- 8f. the clamp vocabulary ----------------------------------------------
 
 # A clamp is NOT an outcome value — it is read off the `clamps=` member of a

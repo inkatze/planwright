@@ -17,7 +17,11 @@ without sending you to the source:
 
 Per-knob detail lives in the [options reference](options-reference.md); the
 four-layer config model is in [Customizing with overlays](overlays.md); the
-fleet-scoped operational story is in [Fleet operation](fleet.md).
+budget machinery this policy consumes — the usage signal, the restriction
+ladder, the per-tier caps — is in [Fleet operation](fleet.md).
+
+Commands below are written `scripts/<name>.sh`, relative to a planwright
+checkout or the installed plugin root.
 
 ## The shipped posture: the mechanism is dark
 
@@ -38,14 +42,28 @@ is telemetry: new ledger rows, and a sparse mirror of governance events into
 the shared audit trail. Turning any of it on is a deliberate, reversible
 overlay edit.
 
+Two parts of the mechanism are **complete but not yet wired to a caller**, and
+are called out again where they are described: the per-step tiers (nothing
+passes a step type at a launch yet) and the feedback evaluation (nothing
+invokes it at a unit's terminal state yet).
+
 ## The knob family, and how `fleet_*` fits
 
 Selection is a table with three columns — **model**, **effort**, and
-**command** — resolved per **selection key**. There are six keys: the three
-fleet task types (`execution`, `bookkeeping`, `drain`) and the three non-fleet
-surfaces (`orchestrate_dispatch`, `execute_step`, `offload`). Only a fleet
-dispatch consumes the command column, because only a fleet dispatch turns a
-selection into a slash-command invocation.
+**command** — resolved per **selection key**. There are six keys:
+
+| Selection key | The work it prices |
+| --- | --- |
+| `execution` | the `/execute-task` workhorse — judgment-heavy unit execution |
+| `bookkeeping` | the reconcile and PR-sync sweep |
+| `drain` | the read-only gate pass |
+| `orchestrate_dispatch` | a single-spec `/orchestrate` dispatch |
+| `execute_step` | one of `/execute-task`'s per-step sessions |
+| `offload` | an `/offload` dispatch |
+
+The first three are the **fleet task types**; the last three are the non-fleet
+surfaces. Only a fleet dispatch consumes the command column, because only a
+fleet dispatch turns a selection into a slash-command invocation.
 
 Each column resolves in a strict three-step precedence:
 
@@ -88,11 +106,16 @@ review-sequence-disjointness invariant holds at every overlay layer: a
 Two independent decisions: what tier a unit **starts** at, and whether that
 tier is allowed to **move**.
 
+Both are overlay edits. The layers you will most likely use:
+
+| Layer | File | Scope |
+| --- | --- | --- |
+| repo-tracked | `<repo>/.claude/planwright.yml` | the team, committed |
+| machine-local | `<repo>/.claude/planwright.local.yml` | this machine, gitignored |
+
 ### Setting a starting tier
 
-A unit's starting tier is whatever its selection key resolves to. Set it in
-your overlay — `<repo>/.claude/planwright.local.yml` for one machine, the
-repo-tracked layer for the team:
+A unit's starting tier is whatever its selection key resolves to:
 
 ```yaml
 # Take over the fleet execution tier from the legacy knob.
@@ -104,7 +127,9 @@ allocation_model_offload: haiku
 allocation_effort_offload: low
 ```
 
-The shipped starting tiers, for reference:
+The starting tiers you get out of the box. At the three fleet task types these
+values arrive through the *legacy* `fleet_*` knobs, since the general ones ship
+`unset`:
 
 | Selection key | Model | Effort |
 | --- | --- | --- |
@@ -116,36 +141,73 @@ The shipped starting tiers, for reference:
 ### Enabling adaptation
 
 ```yaml
-allocation_adaptation: on
+allocation_adaptation: "on"
 ```
 
-With it `on`, the engine derives the unit's current tier from that unit's own
+Quote the value. `on` and `off` are YAML 1.1 booleans; the shipped config
+quotes them for exactly this reason, and the resolver strips the quotes to get
+the string the enum expects.
+
+With it on, the engine derives the unit's current tier from that unit's own
 ledger and may move it one rung per triggering incident at each launch
 boundary. With it `off` — the shipped value — the answer is byte-identical to
 static selection, and a trigger event is inert.
+
+A **launch boundary** is any point where planwright starts a session or agent
+for a unit: its first launch, a step relaunch, or a retry. Tiers move only
+there, which is why there is no mid-run oscillation to worry about.
 
 Two prerequisites are easy to miss:
 
 - **An inheriting key has no ladder.** A selection key whose starting tier is
   `inherit` has no position to move from, so adaptation does nothing there. To
   adapt a non-fleet surface you must give it a concrete tier first.
-- **A per-step tier needs a unit tier to be cheaper than.** Per-step knobs are
-  one-directional: a step tier applies only when it is *strictly cheaper* than
-  the unit's current tier. At a key that itself inherits, a configured step
-  tier is refused and recorded.
+- **A per-step tier needs a unit tier to be cheaper than.** See below.
 
 The four adaptation knobs and their shipped defaults:
 
 | Knob | Default | What it does |
 | --- | --- | --- |
 | `allocation_adaptation` | `off` | the master switch; `off` means no tier ever moves |
-| `allocation_adjustment_cap` | `2` | net rungs a unit may travel, in each direction |
+| `allocation_adjustment_cap` | `2` | net applied steps a unit may travel, in each direction |
 | `allocation_petition` | `on` | which petition directions are weighed; subordinate to the master knob |
 | `allocation_feedback_threshold` | `2` | applied escalations that make a unit worth reporting |
 
-`allocation_petition` ships `on` and still changes nothing, because it is
-subordinate: with the master knob `off` there is no ladder position to move, so
-the petition channel is never read.
+`allocation_petition` takes `on`, `off`, `escalate-only`, or `de-escalate-only`.
+It ships `on` and still changes nothing, because it is subordinate: with the
+master knob `off` there is no ladder position to move, so the petition channel
+is never read.
+
+### Per-step tiers
+
+Separate knobs price one *step* of a unit rather than the whole unit, one pair
+per step class:
+
+```yaml
+allocation_model_step_implementation: inherit
+allocation_effort_step_implementation: inherit
+allocation_model_step_polish: inherit
+allocation_effort_step_polish: inherit
+allocation_model_step_self_review: inherit
+allocation_effort_step_self_review: inherit
+```
+
+The key space is open: a review skill added later needs no row, because its
+knob is absent from every layer and resolves to `inherit`. The knob name is the
+skill name with `-` written as `_`.
+
+Application is **one-directional**. A step tier applies only when it is
+*strictly cheaper* than the unit's current tier, and then only for that step's
+launch, scope-marked in the ledger. An equal or more expensive one is ignored
+with a ledger row, so a step can lower its own launch and can never ratchet the
+unit up. The two columns compose: leave one `inherit` and it is filled in from
+the unit's tier before the comparison. And because a step tier needs a unit
+tier to be cheaper *than*, a configured step tier at a key that itself
+`inherit`s is refused with a ledger row — give the surface a tier first.
+
+**Not yet reachable.** No launch point passes a step type today, so setting one
+of these changes nothing at all until a caller does. The knobs, the resolver,
+and the one-directional rule are complete and tested; the wiring is not there.
 
 ## The ladder: how a tier moves
 
@@ -171,21 +233,26 @@ one errors, and neither one wraps.
 
 ### Two orderings, deliberately different
 
-This is the part that is easy to get wrong, so it is stated separately.
+Two separate things are called "the ladder" in casual speech, and they are not
+the same ordering. Keeping them apart is what makes a ledger row readable.
 
-- The **model ladder** is `haiku < sonnet < opus < fable`.
-- The **effort ladder** is `low < medium < high`.
-- **Movement** follows the successor rule above: the path.
-- **Cost comparison** — "is this tier cheaper than that one?" — is
-  **model-major, effort-minor**: every `opus` point outranks every `sonnet`
-  point regardless of effort. That is the comparator, used by the clamps and by
-  the one-directional per-step test.
+**The movement path** is the successor rule above — effort first, then model.
+It is the route a tier travels.
 
-They are not the same ordering, and the successor path deliberately **skips**
-cost-order points. From `sonnet/high` the next rung is `opus/high` — never
-`opus/low`, even though `opus/low` sits between them in cost order. The ladder
-is the path; the cost order is the comparator. Reading a ledger with the wrong
-one in mind is the most likely way to misread a row.
+**The cost comparator** is what answers "is this tier cheaper than that one".
+It is **model-major, effort-minor**: every `opus` point outranks every `sonnet`
+point regardless of effort. The clamps use it, and so does the one-directional
+per-step test.
+
+The underlying orders are `haiku < sonnet < opus < fable` for models and
+`low < medium < high` for effort. The comparator sorts by model first and uses
+effort only to break ties within one model; the movement path does not.
+
+The consequence: the successor path deliberately **skips** cost-order points.
+From `sonnet/high` the next rung is `opus/high` — never `opus/low`, even though
+`opus/low` sits between them in cost order. The path is not a walk up the cost
+ordering, and reading a ledger with the wrong one in mind is the likeliest way
+to misread a row.
 
 ### Starting tier determines headroom
 
@@ -207,41 +274,48 @@ want a unit to be able to climb in response to trouble, start it lower.
 
 ### Events, and how they stack
 
-A tier moves only on **work-shaped** events, passed at a launch boundary. The
+A tier moves only on **work-shaped** events, reported at a launch boundary. The
 closed allowlist:
 
-| Event class | Direction |
-| --- | --- |
-| `step-failure` | up |
-| `retry` | up |
-| `flailing` | up |
-| `non-convergence` | up |
-| `petition-escalate` | up |
-| `petition-de-escalate` | down |
+| Event class | Direction | What it means |
+| --- | --- | --- |
+| `step-failure` | up | a step failed |
+| `retry` | up | a step is being retried |
+| `flailing` | up | the stuck-detector classified the worker as making no progress |
+| `non-convergence` | up | a review sequence did not converge |
+| `petition-escalate` | up | a worker asked for a more capable tier |
+| `petition-de-escalate` | down | a worker asked for a cheaper tier |
 
 Infrastructure trouble — an audit write error, a config hard-fail, a backend
 launch error — is **refused**, not counted. No model tier fixes a broken
 launcher, and counting it would burn the unit's adjustment budget on mechanism
 trouble.
 
-Stacking is per **incident class**, not per event. Each event carries an
-idempotency identity of unit, step, attempt, and incident, and the incident
-classes collapse like this:
+Every event carries an idempotency identity of **unit, step, attempt, and
+incident class**, and the incident classes collapse like this:
 
 - `step-failure` and `retry` share the incident `step-failure`;
 - `flailing` is its own incident;
 - `non-convergence` is its own incident;
-- all three petition events share the incident `petition`.
+- all three petition event classes — `petition-escalate`,
+  `petition-de-escalate`, and the bare `petition` class used for a petition
+  that was consumed without being weighed — share the incident `petition`.
 
-At one launch boundary, **each distinct incident contributes at most one
+**At one launch boundary, each distinct incident contributes at most one
 rung**, and each applied rung appends its own ledger row. So a failure and the
 retry it caused move the tier one rung and write one row, while a failure plus
-a petition are independent incidents and move it two rungs with two rows. A
-crash replay re-derives from the same rows rather than double-counting.
+a petition are independent incidents and move it two rungs with two rows.
 
-There are six further event classes that appear in the ledger but move
-nothing — `launch`, `inherit`, `degraded`, `petition`, `feedback`, and
-`step-tier`. They are records, not triggers; derivation walks past them.
+**A later attempt is a fresh identity.** Because `attempt` is part of the key,
+a step that fails, is retried, and fails again reports its second failure under
+a new attempt number — a new identity, which moves the tier again. The collapse
+rule prevents double-counting one incident *within* a boundary; it does not
+freeze a unit that keeps failing across boundaries. A crash replay, by
+contrast, re-derives from the same rows and does not double-count.
+
+Six further event classes appear in the ledger but move nothing — `launch`,
+`inherit`, `degraded`, `petition`, `feedback`, and `step-tier`. They are
+records, not triggers; derivation walks past them.
 
 ## Capping how far a unit may travel
 
@@ -249,10 +323,12 @@ nothing — `launch`, `inherit`, `degraded`, `petition`, `feedback`, and
 allocation_adjustment_cap: 2
 ```
 
-The cap bounds **net displacement in each direction**: at most this many rungs
-of net climb above the starting tier, and this many below it. It is a net
-figure, so **reversals refund**: a unit that escalates twice and is then talked
-back down one rung has spent one rung of its upward budget, not three.
+The cap bounds a **net count of applied ladder steps**, in each direction: at
+most this many net up-steps, and this many net down-steps. It is a step tally
+rather than a ladder distance — the up and down paths need not retrace one
+another — and it is a *net* figure, so **reversals refund**: a unit that
+escalates twice and is then talked back down once has spent one step of its
+upward budget, not three.
 
 - `0` freezes a unit at its starting tier while leaving the ledger and every
   record intact — the audit without the movement.
@@ -269,26 +345,36 @@ what explains *why* escalation was unavailable when that reaches a human.
 ## Reading the ledger
 
 The ledger is how you answer "why did this unit run on that model". It is an
-append-only, one-file-per-unit store:
+append-only store, one file per unit:
 
 ```text
 <fleet-home>/allocation/<unit>.tsv
 ```
 
-`scripts/allocation-ledger.sh` is the store's front door:
+`scripts/allocation-ledger.sh home` prints `<fleet-home>/allocation`, and
+`path <unit>` prints one unit's file. A **unit id** looks like
+`<spec>:task-<n>` — for example `model-allocation:task-7`.
 
 | Command | What it gives you |
 | --- | --- |
-| `allocation-ledger.sh rows <unit>` | the unit's full history, one row per record |
+| `allocation-ledger.sh rows <unit>` | the unit's full history, one row per record, no header |
 | `allocation-ledger.sh derive <unit> <start-model> <start-effort>` | the tier those rows imply, plus net displacement, rows, and escalation count |
 | `allocation-ledger.sh last-tier <unit>` | the tier the unit's last real launch used |
-| `allocation-ledger.sh health <unit>` | exit `0` healthy, `3` unhealthy |
+| `allocation-ledger.sh health <unit>` | exit `0` healthy, `3` unhealthy, with the offending row named |
 | `allocation-ledger.sh stats [<unit>]` | units, rows, bytes, and derivation cost |
-| `allocation-ledger.sh path <unit>` | where that unit's file lives |
+| `allocation-ledger.sh home` / `path <unit>` | where the store, or one unit's file, lives |
+
+To ask what a unit *would* resolve to right now, rather than what it did:
+
+```sh
+scripts/allocation-adapt.sh resolve <unit> --key <selection-key> \
+  [--step <step>] [--attempt <n>] [--event <class>]...
+```
 
 Derivation is **memoryless**: it replays the rows against the *configured*
-starting tier you pass in. The tier is never stored as a current value, so the
-same rows plus the same config always yield the same answer — and changing the
+starting tier you pass in, which you read off the selection key's knobs (or the
+shipped table above). The tier is never stored as a current value, so the same
+rows plus the same config always yield the same answer — and changing the
 configured starting tier moves the whole replay with it.
 
 ### The row schema
@@ -305,43 +391,73 @@ One TAB-separated row per record, fifteen fields, in this order:
 | 6 | `event` | the event class |
 | 7 | `prop_model` | proposed model — what the ladder wanted, before any clamp |
 | 8 | `prop_effort` | proposed effort, likewise |
-| 9 | `clamp_model` | the proposal after the budget contracts bound it |
+| 9 | `clamp_model` | the proposal after the budget contracts bound it, or `-` |
 | 10 | `clamp_effort` | likewise |
-| 11 | `res_model` | the model the launch actually used |
-| 12 | `res_effort` | the effort it actually used |
+| 11 | `res_model` | the model the launch actually used, or `-` if nothing ran |
+| 12 | `res_effort` | the effort it actually used, or `-` |
 | 13 | `scope` | `unit` (the unit's own history) or `step` (this launch only) |
 | 14 | `outcome` | what the row did — see below |
 | 15 | `inputs` | a bounded `key=value;...` list explaining the decision |
 
 The three tier pairs are the heart of it. **Proposed** is what the policy
 wanted, **clamped** is what the budget allowed, and **resolved** is what ran.
-Comparing columns 7–8 against 9–10 tells you whether a clamp bound; comparing
-9–10 against 11–12 tells you whether anything else intervened.
+Only a `launch` row fills all three; an adjustment row leaves the clamp columns
+`-`, and a row where nothing ran leaves the resolved columns `-` too.
 
 The `outcome` column takes one of nine values:
 
 | Outcome | Meaning |
 | --- | --- |
-| `resolved` | a routine launch-boundary resolution |
+| `resolved` | a routine launch-boundary resolution — the normal launch row |
 | `applied` | a ladder rung actually moved |
 | `withheld` | the restriction rung refused to admit the unit at all; no tier was resolved |
-| `denied` | an escalation was refused (signal unavailable, a clamp input, or the adjustment cap) |
+| `denied` | an escalation was refused (an unavailable usage signal, an unreadable clamp input, or the adjustment cap) |
 | `ignored` | something was consumed and deliberately not acted on |
 | `no-op` | nothing to do — typically the ladder top or floor |
 | `inherit` | the launch kept its ambient value |
 | `degraded` | the launch happened with an untrustworthy read |
 | `recorded` | the once-per-unit terminal-state feedback mark |
 
+### A worked history
+
+This is a real ledger for a `drain` unit — starting tier `sonnet`/`low` — with
+`allocation_adaptation` on and `allocation_adjustment_cap` at its default of
+`2`. Columns are TAB-separated; they are shown here wrapped for reading.
+
+```text
+1  ...  impl  1  launch        sonnet low     sonnet low  sonnet low  unit  resolved  key=drain;rung=normal;clamps=none;signal=10;adaptation=on;step=none
+2  ...  impl  2  step-failure  sonnet medium  -      -    sonnet medium  unit  applied   trigger=step-failure;dir=up;net=1
+3  ...  impl  2  launch        sonnet medium  sonnet medium  sonnet medium  unit  resolved  key=drain;rung=normal;clamps=none;signal=10;adaptation=on;step=none
+4  ...  impl  3  step-failure  sonnet high    -      -    sonnet high    unit  applied   trigger=step-failure;dir=up;net=2
+5  ...  impl  3  flailing      sonnet high    -      -    -      -       unit  denied    trigger=flailing;reason=adjustment-cap
+6  ...  impl  3  launch        sonnet high    sonnet high  sonnet high  unit  resolved  key=drain;rung=normal;clamps=none;signal=10;adaptation=on;step=none
+```
+
+Read it as a story. Row 1: the unit launched at its starting tier, nothing
+bound. Row 2: attempt 2's step failure moved it one rung, to `sonnet`/`medium`
+(`net=1`), and row 3 is the launch that used it. Row 4: attempt 3 failed again
+— a new attempt, so a new identity, so another rung — to `sonnet`/`high`
+(`net=2`). Row 5: a `flailing` event at the same boundary was an independent
+incident and would have stacked, but the adjustment cap of `2` was now spent,
+so it was `denied` with `reason=adjustment-cap` and both resolved columns `-`.
+Row 6 launched at `sonnet`/`high` regardless.
+
 ### Reading a clamp
 
 **A clamp is not an outcome, and it is not a de-escalation.** This is the
 single most common misreading. A clamped launch still carries the outcome
 `resolved`; the clamp is recorded in the `inputs` column, under the `clamps=`
-key. A launch row's `inputs` looks like this:
+key. Here is a real row for an `execution` unit whose starting tier is
+`opus`/`high`, launched while the account's usage signal read 95:
 
 ```text
-key=execution;rung=downshift;clamps=downshift;signal=74;adaptation=on;step=none
+1  ...  impl  1  launch  opus high  haiku high  haiku high  unit  resolved  key=execution;rung=normal;clamps=cap;signal=95;adaptation=on;step=none
 ```
+
+It **proposed** `opus`/`high`, a per-tier budget cap **clamped** it to
+`haiku`/`high`, and that is what **resolved**. So the answer to "why did this
+run on haiku when I configured opus" is in one row: `clamps=cap` at
+`signal=95`.
 
 The members `clamps=` can carry:
 
@@ -349,44 +465,87 @@ The members `clamps=` can carry:
 | --- | --- |
 | `none` | nothing bound |
 | `defer-all` | the rung withheld the unit entirely |
-| `defer-heavy` | the rung withheld a heavy-tier unit |
+| `defer-heavy` | the rung withheld a unit in the expensive band |
 | `downshift` | the downshift ceiling cut the model, the effort, or both |
 | `cap` | a per-tier budget cap stepped the model to the nearest surviving cheaper one, effort preserved |
-| `reserved-exempt` | the unit was dispatched reserved and the clamps passed it through |
+| `reserved-exempt` | the unit was dispatched reserved, and the clamps passed it through |
+
+The vocabulary those tokens come from belongs to the budget machinery this
+policy consumes unchanged, documented in [Fleet operation](fleet.md):
+
+- the **restriction rung** is the account-wide throttle position, climbing
+  `normal` → `downshift` → `reduce-concurrency` → `defer-heavy` → `defer-all`;
+  it appears as `rung=`;
+- the **usage signal** (`signal=`) is the percentage of the account's usage
+  window consumed, so higher is more constrained; `unavailable` means it could
+  not be read;
+- the **per-tier caps** (`fleet_cap_fable`, `fleet_cap_opus`,
+  `fleet_cap_sonnet`, `fleet_cap_haiku`) each withdraw one model once usage
+  reaches their threshold — the more expensive the tier, the lower the
+  threshold;
+- the **downshift ceiling** (`fleet_downshift_model`, `fleet_downshift_effort`)
+  caps model and effort independently from the `downshift` rung upward;
+- a **reserved** unit is one dispatched `--reserved`, the operator's "keep the
+  capable tier for the genuinely hardest unit"; it is exempt from `downshift`,
+  `defer-heavy`, and the caps, but still yields at `defer-all`.
 
 Crucially, a clamp leaves the unit's **own ladder position untouched**. The
 next boundary proposes from where the ladder actually is, not from where the
 clamp pushed the last launch. That is why a clamped proposal is never recorded
-as a de-escalation: only a petition or a cheaper per-step tier moves a unit
-down.
+as a de-escalation. Only two things move a unit's own ladder position down: a
+de-escalate petition, and — for one launch only, without changing the unit's
+position — a cheaper per-step tier, which is why its row is `step`-scoped.
+
+A **withheld** unit is not a failure. The restriction rung declined to admit it
+at all, so no tier was resolved and the dispatch returns to the existing defer
+path to be attempted again at a later boundary, when the rung has eased.
 
 The other `inputs` keys worth knowing: `key=` names the selection key, `rung=`
-the restriction rung in force, `signal=` the usage reading (or `unavailable`),
-`adaptation=` whether the engine was `on`, `off`, or `suspended`, and
+the restriction rung in force, `signal=` the usage reading, `adaptation=`
+whether the engine was `on`, `off`, or `suspended`, `step=` the per-step
+outcome for that launch (`none`, `inherit`, `applied`, or `ignored`), and
 `trigger=` the event that caused an adjustment row.
 
 ### Reading a degraded-mode decision
 
-A unit launches **degraded** when its ledger cannot be trusted — unreadable,
-a torn or short row, an out-of-enum field, a non-monotone sequence — or when a
-clamp input could not be read. A degraded launch is never blocked and never
-silent. It shows up on three surfaces:
+A unit launches **degraded** when its ledger cannot be trusted — unreadable, a
+torn or short row, an out-of-enum field, a non-monotone sequence — or when a
+clamp input could not be read at all. A degraded launch is never blocked and
+never silent. It shows up on three surfaces:
 
 1. **The ledger row.** The `launch` row's `outcome` is `degraded`, and its
-   `inputs` carries `adaptation=suspended`.
+   `inputs` carries `adaptation=suspended`:
+
+   ```text
+   2  ...  impl  2  launch  haiku high  haiku high  haiku high  unit  degraded  key=execution;rung=normal;clamps=none;signal=95;adaptation=suspended;step=none
+   ```
+
 2. **The resolver's own output.** `allocation-adapt.sh resolve` prints a
    `degraded` field valued `no`, `ledger`, or `clamp-input`, alongside an
    `adaptation` field valued `on`, `off`, or `suspended`.
-3. **A surfaced message**, on stderr and through the attention path:
+3. **A surfaced message**, on stderr and through the attention path that feeds
+   your decision queue:
 
    ```text
    allocation-adapt: unit '<unit>' is launching DEGRADED — <detail>
    ```
 
-What degraded mode *does*: the unit launches at its **last recorded tier** —
-or at the configured starting tier when no launch row is readable — and all
+What degraded mode *does*: the unit launches at its **last recorded tier** — or
+at the configured starting tier when no launch row is readable — and all
 adjustments are **suspended**. It is a launch that still happens, with the
 ladder frozen and the reason on the record.
+
+Do not hand-edit or delete a ledger to clear a degradation. `health <unit>`
+names the offending row; the store is append-only and a unit whose ledger is
+unhealthy still launches, so the safe move is to read the named row and, if it
+is genuinely corrupt, retire that unit's file deliberately rather than editing
+rows in place.
+
+**An unavailable usage signal is not a degradation.** It is a known state, not
+a broken read: while the signal is unavailable, escalation above the starting
+tier is `denied` and a unit already above its starting tier **holds** — no
+claw-back — with adaptation still `on`. Only a clamp input that could not be
+read at all produces `degraded` with `clamp-input`.
 
 Governance events — a withheld unit, a binding clamp, an escalation, a denial,
 an inheritance, a degraded read — additionally mirror one row each into the
@@ -484,8 +643,12 @@ its history can be replayed to ask whether its starting tier was wrong:
 
 ```sh
 scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> \
-  --terminal <completed|disabled> --scope <scope>
+  --terminal <completed|disabled> --scope planwright
 ```
+
+`--scope` is the observation scope the fragment is filed under, the same scope
+vocabulary the observations accumulator uses (`planwright` for the framework
+itself, `repo` for the consuming repo).
 
 Two conditions fire it, as an OR:
 
@@ -500,11 +663,11 @@ reversal refunds the adjustment cap it does not register as budget spent
 either — the applied-escalation count is the only trace it leaves.
 
 When it fires, one observation fragment is recorded through the shared
-recording helper, naming the spec, task, terminal state, both tiers, the
-escalation count and the threshold. It carries no worker-authored free prose.
-That fragment is mined by `/spec-draft`'s seed pass, which is how chronic
-under-estimation reaches the next round of authoring rather than recurring
-silently.
+recording helper (`scripts/obs-record.sh`), naming the spec, task, terminal
+state, both tiers, the escalation count and the threshold. It carries no
+worker-authored free prose. That fragment is mined by `/spec-draft`'s seed
+pass, which is how chronic under-estimation reaches the next round of authoring
+rather than recurring silently.
 
 Emission is **once per unit**, marked by a `feedback` / `recorded` row in that
 unit's own ledger, so a re-evaluation after a crash or a sweep does not
@@ -559,13 +722,14 @@ A backend that can set the model but not the effort applies the model and
 inherits the ambient effort, with the **partial** inheritance marked in the
 ledger row. A backend that can set neither inherits both, marked likewise. A
 capability probe that errors is treated as no capability — inherit, and
-audited, with the cause distinguished (`inherit-probe-error` rather than
-`inherit-capability`), because a probe that broke is operator-actionable and an
-advertised `none` is not.
+audited.
 
 Inheritance is never silent. Every one of these writes an `inherit` row whose
-`inputs` names the backend, the capability, whether the inheritance was `full`
-or `partial`, and which dimensions were affected.
+`inputs` names the backend, the advertised capability, whether the inheritance
+was `full` or `partial`, which dimensions it covered, and the cause:
+`cause=capability` for an advertised `none`, `cause=probe-error` for a probe
+that broke. The two are distinguished because a broken probe is
+operator-actionable and an advertised `none` is not.
 
 **The in-session rung's inheritance is its pinned degradation.** Work running
 in the operator's own session — the in-session work-placement rung — inherits
