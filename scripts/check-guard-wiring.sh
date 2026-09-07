@@ -10,26 +10,37 @@
 # one level up — the check is vacuous because it is never evaluated at all.
 #
 # WHAT THIS CHECKS. Each scripts/check-*.sh must be named either
-#   (a) inside the run body of a mise task REACHABLE from the `check`
-#       aggregate, or
-#   (b) inside a .github/workflows/*.yml file, or
+#   (a) in the RUN BODY of a mise task reachable from the `check` aggregate,
+#   (b) inside a .github/workflows/*.yml or *.yaml file, or
 #   (c) in the tracked allowlist, which must say who runs it instead.
 #
-# REACHABILITY, NOT MERE PRESENCE. Grepping the whole of mise.toml would accept
-# a guard wired into a task that nothing depends on — which is precisely the
-# state being guarded against, so the guard would be vacuous in its own terms.
-# The `check` aggregate's `depends` closure is walked instead, and a run body's
+# REACHABILITY, NOT MERE PRESENCE. Searching the whole task file would accept a
+# guard wired into a task nothing depends on — which is precisely the state
+# being guarded against, so the guard would be vacuous in its own terms. The
+# `check` aggregate's dependency closure is walked instead, and a run body's
 # own `mise run <task>` feeds that closure as an edge.
 #
-# PARSE BOUNDARY. mise.toml only. Tasks defined in mise.local.toml or in file
-# tasks are invisible here, and a `depends` entry naming one reads as a
-# dangling edge. A dangling edge is REPORTED, never silently dropped: an edge
-# this parse cannot follow is exactly how a guard would appear reachable
-# without being reachable.
+# THE RUN BODY, NOT THE WHOLE TASK. A task's description is prose, not
+# execution: a guard merely NAMED in one is not run by it. Reading the task
+# graph structurally is what keeps those apart — an earlier revision of this
+# script matched task text as a blob and accepted a script mentioned only in a
+# description, which is the exact hole this file exists to close.
 #
-# FAILS CLOSED on anything that would narrow the scan to nothing: no mise.toml,
-# a mise.toml parsing to zero tasks, no `check` task, a closure of zero tasks,
-# no workflows directory, or zero check-*.sh scripts found. Each of those would
+# THE GRAPH COMES FROM MISE, NOT FROM PARSING ITS FILE. `mise tasks --json`
+# renders the task runner's own resolved view: quoting, multi-line arrays,
+# aliases and wildcard expansion are its business, not this script's. A
+# hand-rolled parser of someone else's file format drifts from it silently and
+# is wrong in ways nobody can predict; this asks the owner instead.
+#
+# PARSE BOUNDARY, ENFORCED RATHER THAN DOCUMENTED. Only tasks defined in the
+# repo's own mise.toml count. mise layers mise.local.toml and file tasks on
+# top, and a machine-local task is not wiring any other checkout has, so a
+# guard reachable only through one must not read as wired here. Tasks are
+# filtered on their reported source.
+#
+# FAILS CLOSED on anything that would narrow the scan to nothing: no mise, no
+# task graph, a graph with zero tasks, no `check` task, a closure of zero
+# tasks, no workflows directory, or zero check-*.sh found. Each of those would
 # otherwise make this script exit 0 having proven nothing.
 #
 # Usage: check-guard-wiring.sh [--repo-root <dir>]
@@ -69,8 +80,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-[ -d "$repo_root" ] || {
-  echo "$me: repo root '$repo_root' is not a directory" >&2
+repo_root=$(cd "$repo_root" 2>/dev/null && pwd) || {
+  echo "$me: repo root is not a readable directory" >&2
   exit 5
 }
 
@@ -82,110 +93,79 @@ allowfile="$repo_root/scripts/guard-wiring-allow.txt"
   echo "$me: $misefile is missing or unreadable — the closure would prove nothing" >&2
   exit 5
 }
-[ -d "$workflow_dir" ] || {
-  echo "$me: $workflow_dir is missing — half the wiring surface would go unread" >&2
+[ -d "$workflow_dir" ] && [ -r "$workflow_dir" ] || {
+  echo "$me: $workflow_dir is missing or unreadable — half the wiring surface would go unread" >&2
   exit 5
 }
 
-# The reached wiring text: the run bodies of every mise task reachable from
-# `check`, walked over depends/depends_post/wait_for and over `mise run <task>`
-# appearing inside a reached body. Emitted as plain text for the membership
-# scan below; diagnostics go to stderr and are surfaced verbatim.
-reached=$(
-  awk -v root=check '
-    function bail(why) { parse_error = why; exit }
-    # A task block runs from its header to the next top-level table header.
-    /^\[/ {
-      if ($0 ~ /^\[tasks\./) {
-        name = $0
-        sub(/^\[tasks\./, "", name)
-        sub(/\]$/, "", name)
-        gsub(/^"|"$/, "", name)
-        if (name == "") bail("a [tasks.*] header with an empty name")
-        cur = name
-        seen[cur] = 1
-        ntasks++
-      } else {
-        cur = ""
-      }
-      next
-    }
-    cur != "" { body[cur] = body[cur] "\n" $0 }
-    END {
-      if (parse_error != "") {
-        print "PARSE\t" parse_error
-        exit
-      }
-      if (ntasks == 0) {
-        print "PARSE\tmise.toml parsed to zero tasks"
-        exit
-      }
-      if (!(root in seen)) {
-        print "PARSE\tno [tasks." root "] block, so there is no gate to walk"
-        exit
-      }
-      # Breadth-first over the edges each reached body declares.
-      queue[1] = root
-      inq[root] = 1
-      head = 1
-      tail = 1
-      while (head <= tail) {
-        t = queue[head++]
-        b = body[t]
-        # depends / depends_post / wait_for operands, and run-body mise calls.
-        # Both are quoted or bare task names; take every quoted token on a
-        # depends-ish line and every operand of a `mise run`.
-        n = split(b, lines, "\n")
-        indep = 0
-        for (i = 1; i <= n; i++) {
-          l = lines[i]
-          if (l ~ /^[[:space:]]*(depends|depends_post|wait_for)[[:space:]]*=/) indep = 1
-          if (indep) {
-            m = l
-            while (match(m, /"[^"]+"/)) {
-              tok = substr(m, RSTART + 1, RLENGTH - 2)
-              m = substr(m, RSTART + RLENGTH)
-              edge[t, ++nedge[t]] = tok
-              if (tok ~ /\*/) { wild[tok] = 1; continue }
-              if (!(tok in inq)) { inq[tok] = 1; queue[++tail] = tok }
-              if (!(tok in seen)) dangling[tok] = dangling[tok] " " t
-            }
-            if (l ~ /\]/) indep = 0
-          }
-          if (l ~ /mise[[:space:]]+run[[:space:]]/) {
-            m = l
-            if (match(m, /mise[[:space:]]+run[[:space:]]+[A-Za-z0-9:_.-]+/)) {
-              tok = substr(m, RSTART, RLENGTH)
-              sub(/^mise[[:space:]]+run[[:space:]]+/, "", tok)
-              if (tok !~ /\*/) {
-                if (!(tok in inq)) { inq[tok] = 1; queue[++tail] = tok }
-                if (!(tok in seen)) dangling[tok] = dangling[tok] " " t
-              } else wild[tok] = 1
-            }
-          }
-        }
-      }
-      nreached = 0
-      for (t in inq) if (t in seen) nreached++
-      if (nreached == 0) {
-        print "PARSE\tthe closure from " root " reached zero known tasks"
-        exit
-      }
-      for (t in dangling) print "DANGLING\t" t "\t" dangling[t]
-      for (w in wild) print "WILDCARD\t" w
-      print "COUNT\t" nreached
-      for (t in inq) if (t in seen) print "BODY\t" t body[t]
-    }
-  ' "$misefile"
-)
+for tool in jq mise; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "$me: '$tool' is not on PATH — cannot read the task graph, refusing to guess" >&2
+    exit 5
+  }
+done
 
-parse_err=$(printf '%s\n' "$reached" | sed -n 's/^PARSE\t//p')
-if [ -n "$parse_err" ]; then
-  echo "$me: $parse_err — failing closed rather than reporting a clean scan" >&2
+# The task graph, as mise itself resolves it. MISE_TRUSTED_CONFIG_PATHS keeps a
+# fixture checkout (and a fresh clone) from stopping on the trust prompt; this
+# only ever LISTS tasks, never runs one.
+graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --json 2>/dev/null) || graph=''
+[ -n "$graph" ] || {
+  echo "$me: 'mise tasks --json' produced nothing in $repo_root — failing closed rather than reporting a clean scan" >&2
   exit 5
-fi
+}
 
-reached_count=$(printf '%s\n' "$reached" | sed -n 's/^COUNT\t//p')
+# One jq pass: filter to this repo's own mise.toml, union the three edge kinds
+# with the `mise run <task>` calls a run body makes, walk the closure from
+# `check`, and emit the reached run bodies plus the diagnostics. A dangling
+# edge (naming no task in this file) is reported, never silently dropped: an
+# edge the walk cannot follow is exactly how a guard appears reachable without
+# being reachable.
+report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
+  [ .[] | select(.source == $src)
+    | { name: .name,
+        run: ((.run // []) | join("\n")),
+        deps: ((.depends // []) + (.depends_post // []) + (.wait_for // [])) } ]
+  | map(. + { deps: (.deps + ([ .run
+        | match("mise[[:space:]]+run[[:space:]]+((?:-[^[:space:]]+[[:space:]]+)*)([A-Za-z0-9:_.*-]+)"; "g")
+        | .captures[1].string ]))
+    })                                                              as $tasks
+  | ($tasks | map({key: .name, value: .}) | from_entries)           as $by
+  | def grow($seen):
+      ($seen + ($seen | map($by[.].deps // []) | add // []) | unique) as $next
+      | if ($next | length) == ($seen | length) then $seen else grow($next) end;
+    (if ($by | has("check")) then grow(["check"]) else null end)     as $reached
+  | if $tasks == [] then "PARSE\tthe task graph holds no task from this repo mise.toml"
+    elif $reached == null then "PARSE\tno `check` task in the graph, so there is no gate to walk"
+    else
+      ([ $reached[] | . as $n | select($by | has($n)) ]) as $known
+      | if ($known | length) == 0 then "PARSE\tthe closure from check reached zero known tasks"
+        else
+          ( "COUNT\t\($known | length)" ),
+          ( [ $reached[] | . as $n | select(($by | has($n)) | not) ] | unique | .[] | "DANGLING\t\(.)" ),
+          ( [ $reached[] | select(test("\\*")) ] | unique | .[] | "WILDCARD\t\(.)" ),
+          ( "BODIES" ),
+          ( $known[] | $by[.].run )
+        end
+    end
+') || {
+  echo "$me: could not read the task graph — failing closed" >&2
+  exit 5
+}
+
+case $report in
+  PARSE*)
+    echo "$me: ${report#PARSE?} — failing closed rather than reporting a clean scan" >&2
+    exit 5
+    ;;
+esac
+
+# Split the report at the BODIES marker. No sed \t anywhere: BSD sed reads \t
+# as a literal `t`, so a tab-delimited pattern silently matches nothing on
+# macOS and the haystack would lose every task body.
+meta=$(printf '%s\n' "$report" | awk '/^BODIES$/ { exit } { print }')
+bodies=$(printf '%s\n' "$report" | awk 'f { print } /^BODIES$/ { f = 1 }')
+
+reached_count=$(printf '%s\n' "$meta" | awk -F'\t' '$1 == "COUNT" { print $2; exit }')
 case ${reached_count:-0} in
   '' | *[!0-9]* | 0)
     echo "$me: the task-graph walk reported no reached tasks — failing closed" >&2
@@ -193,10 +173,12 @@ case ${reached_count:-0} in
     ;;
 esac
 
-# The membership haystack: reached run bodies plus every workflow file.
+# The membership haystack: reached run bodies plus every workflow file. Both
+# YAML spellings — GitHub accepts .yaml, so matching only .yml would report a
+# genuinely wired guard as unwired.
 haystack=$(
-  printf '%s\n' "$reached" | sed -n '/^BODY\t/,$p'
-  find "$workflow_dir" -type f -name '*.yml' -exec cat {} + 2>/dev/null
+  printf '%s\n' "$bodies"
+  find "$workflow_dir" -type f \( -name '*.yml' -o -name '*.yaml' \) -exec cat {} + 2>/dev/null
 )
 [ -n "$haystack" ] || {
   echo "$me: the wiring text came back empty — failing closed" >&2
@@ -209,14 +191,22 @@ guards=$(find "$repo_root/scripts" -maxdepth 1 -type f -name 'check-*.sh' 2>/dev
   exit 5
 }
 
+# The allowlist's first field. Leading whitespace is stripped BEFORE the field
+# split, so an indented entry is read rather than silently blanked into
+# nothing — a dropped exemption reads as an unwired guard and sends whoever
+# hits it looking in the wrong place.
 allowed=''
 if [ -r "$allowfile" ]; then
-  allowed=$(sed -e 's/#.*//' -e 's/[[:space:]].*$//' "$allowfile" | grep -v '^$' || true)
+  allowed=$(awk '{ sub(/#.*/, ""); sub(/^[[:space:]]+/, ""); sub(/[[:space:]].*$/, ""); if ($0 != "") print }' "$allowfile")
 fi
 
 rc=0
 unwired=''
-for g in $guards; do
+# Read the guard list a line at a time: a path containing a space would be
+# split into fragments by a `for` over the unquoted list, and every fragment
+# would then read as an unwired guard.
+while IFS= read -r g; do
+  [ -n "$g" ] || continue
   b=${g##*/}
   if printf '%s\n' "$haystack" | grep -qF -- "$b"; then
     case " $allowed " in
@@ -232,7 +222,9 @@ for g in $guards; do
   esac
   unwired="$unwired $b"
   rc=1
-done
+done <<EOF
+$guards
+EOF
 
 for a in $allowed; do
   [ -f "$repo_root/scripts/$a" ] || {
@@ -243,15 +235,17 @@ done
 
 if [ -n "$unwired" ]; then
   for b in $unwired; do
-    echo "$me: scripts/$b is reached by no task in the \`check\` closure and by no workflow" >&2
+    echo "$me: scripts/$b is run by no task in the \`check\` closure and by no workflow" >&2
   done
   echo "$me: a guard nothing runs cannot fail. Wire it into \`check\`, or add it to scripts/guard-wiring-allow.txt naming who runs it instead." >&2
 fi
 
-printf '%s\n' "$reached" | sed -n 's/^DANGLING\t\([^\t]*\)\t\(.*\)/'"$me"': note: depends edge on \1 (from\2) names no task in mise.toml — outside the parse boundary/p' >&2
-printf '%s\n' "$reached" | sed -n 's/^WILDCARD\t/'"$me"': note: wildcard edge not expanded: /p' >&2
+printf '%s\n' "$meta" | awk -F'\t' -v me="$me" '
+  $1 == "DANGLING" { print me ": note: dependency on `" $2 "` names no task in this repo mise.toml — outside the parse boundary" > "/dev/stderr" }
+  $1 == "WILDCARD" { print me ": note: wildcard dependency not expanded: " $2 > "/dev/stderr" }
+'
 
 if [ "$rc" = 0 ]; then
-  echo "$me: ok, every scripts/check-*.sh is reached ($reached_count tasks in the check closure)"
+  echo "$me: ok, every scripts/check-*.sh is run ($reached_count tasks in the check closure)"
 fi
 exit $rc

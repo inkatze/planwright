@@ -4,10 +4,15 @@
 # This file carries an obligation the others do not: the script under test
 # exists because guards that cannot fail keep shipping, so a test suite that
 # cannot fail here would be the same defect one level up. Every positive
-# assertion below is paired with a planted negative that the guard must catch,
-# and the reachability case (g4) is the one that separates this from a grep:
-# a guard named in mise.toml but wired into a task `check` never depends on is
-# exactly the state being guarded against.
+# assertion below is paired with a planted negative that the guard must catch.
+#
+# Two cases are load-bearing beyond ordinary coverage:
+#   g4  reachability, not presence — a guard wired into a task nothing depends
+#       on is the exact state the check exists to catch, and a search over the
+#       task file rather than its graph would pass it;
+#   g4b a guard NAMED in a task's description but run by nothing. An earlier
+#       revision of the script matched task text as a blob and accepted it,
+#       which made the guard vacuous in its own terms.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-check-guard-wiring.sh
@@ -26,33 +31,39 @@ fail() {
 }
 
 [ -x "$CG" ] || fail "scripts/check-guard-wiring.sh missing or not executable"
+for t in jq mise; do
+  command -v "$t" >/dev/null 2>&1 || fail "$t is required to exercise the task-graph reader"
+done
 
-tmp=$(mktemp -d)
+# An unchecked mktemp leaves $tmp empty and the trap then runs `rm -rf ""`.
+tmp=$(mktemp -d) || fail "mktemp -d failed"
+[ -n "$tmp" ] && [ -d "$tmp" ] || fail "mktemp -d produced no directory"
 trap 'rm -rf "$tmp"' EXIT
 
-# mkrepo <dir> — a minimal tree with the three surfaces the guard reads: a
-# mise.toml with a `check` aggregate, a workflows directory, and scripts/.
+# mkrepo <dir> [extra-task-name] [extra-task-run] [wf-ext]
+#   A minimal tree with the three surfaces the guard reads. The optional extra
+#   task is appended AND added to the aggregate's depends, built by generating
+#   the file rather than patching it: `sed 's/…\n…/'` inserts a literal `n`
+#   on BSD sed, so a fixture patched that way is silently malformed on macOS
+#   and the case it supports stops testing anything there.
 mkrepo() {
   mr=$1
+  mr_task=${2:-}
+  mr_run=${3:-}
+  mr_ext=${4:-yml}
+  rm -rf "$mr"
   mkdir -p "$mr/scripts" "$mr/.github/workflows"
-  cat >"$mr/mise.toml" <<'TOML'
-[tasks.check]
-depends = [
-  "check:alpha",
-]
-
-[tasks."check:alpha"]
-run = "/bin/sh scripts/check-alpha.sh"
-
-[tasks."check:orphaned"]
-run = "/bin/sh scripts/check-beta.sh"
-TOML
-  cat >"$mr/.github/workflows/ci.yml" <<'YML'
-jobs:
-  build:
-    steps:
-      - run: /bin/sh scripts/check-gamma.sh
-YML
+  {
+    printf '[tasks.check]\ndepends = [\n  "check:alpha",\n'
+    [ -n "$mr_task" ] && printf '  "%s",\n' "$mr_task"
+    printf ']\n\n[tasks."check:alpha"]\nrun = "/bin/sh scripts/check-alpha.sh"\n'
+    printf '\n[tasks."check:orphaned"]\nrun = "/bin/sh scripts/check-beta.sh"\n'
+    if [ -n "$mr_task" ]; then
+      printf '\n[tasks."%s"]\nrun = "%s"\n' "$mr_task" "$mr_run"
+    fi
+  } >"$mr/mise.toml"
+  printf 'jobs:\n  build:\n    steps:\n      - run: /bin/sh scripts/check-gamma.sh\n' \
+    >"$mr/.github/workflows/ci.$mr_ext"
   for g in alpha gamma; do
     printf '#!/bin/sh\nexit 0\n' >"$mr/scripts/check-$g.sh"
     chmod +x "$mr/scripts/check-$g.sh"
@@ -70,8 +81,7 @@ echo "ok: g1 the repository's own guards are all reached"
 
 # ---------------------------------------------------------------------------
 # g2: a guard wired into nothing is caught, and named. POSITIVE CONTROL for
-#     every passing case below: without this, a guard that had silently
-#     stopped scanning would make all of them pass.
+#     every passing case below.
 # ---------------------------------------------------------------------------
 r="$tmp/r2"
 mkrepo "$r"
@@ -82,27 +92,18 @@ grep -q 'check-planted.sh' "$tmp/err" \
 echo "ok: g2 an unwired guard fails the check and is named"
 
 # ---------------------------------------------------------------------------
-# g3: the same guard, wired into a task the aggregate depends on, passes. This
-#     is what proves g2's failure came from the wiring and not from the file's
-#     mere existence.
+# g3: the same guard, run by a task the aggregate depends on, passes — which
+#     proves g2's failure came from the wiring and not the file's existence.
 # ---------------------------------------------------------------------------
 r="$tmp/r3"
-mkrepo "$r"
+mkrepo "$r" "check:planted" "/bin/sh scripts/check-planted.sh"
 printf '#!/bin/sh\nexit 0\n' >"$r/scripts/check-planted.sh"
-cat >>"$r/mise.toml" <<'TOML'
-
-[tasks."check:planted"]
-run = "/bin/sh scripts/check-planted.sh"
-TOML
-sed -i.bak 's/  "check:alpha",/  "check:alpha",\n  "check:planted",/' "$r/mise.toml"
 run_cg "$r" >/dev/null || fail "g3: a properly wired guard should pass: $(cat "$tmp/err")"
 echo "ok: g3 the same guard passes once the aggregate depends on it"
 
 # ---------------------------------------------------------------------------
-# g4: REACHABILITY, NOT PRESENCE. The guard is named in mise.toml, in a task
+# g4: REACHABILITY, NOT PRESENCE. The guard is named in the run body of a task
 #     that exists and is spelled correctly — but nothing depends on that task.
-#     A grep over mise.toml would pass this. It is the exact state the check
-#     exists to catch, so it must fail.
 # ---------------------------------------------------------------------------
 r="$tmp/r4"
 mkrepo "$r"
@@ -110,39 +111,79 @@ printf '#!/bin/sh\nexit 0\n' >"$r/scripts/check-beta.sh"
 grep -q 'check-beta.sh' "$r/mise.toml" \
   || fail "g4: the fixture no longer names the guard in mise.toml — this case would prove nothing"
 run_cg "$r" >/dev/null \
-  && fail "g4: a guard in an unreachable task passed — the check is a grep, not a reachability walk"
+  && fail "g4: a guard in an unreachable task passed — the check is a search, not a reachability walk"
 grep -q 'check-beta.sh' "$tmp/err" || fail "g4: the unreachable guard was not named"
 echo "ok: g4 a guard in a task the aggregate never reaches still fails"
 
 # ---------------------------------------------------------------------------
-# g5: a workflow counts as wiring, since CI runs it directly.
+# g4b: A DESCRIPTION IS NOT EXECUTION. The guard is named in a reachable
+#      task's description and run by nothing. Regression: an earlier revision
+#      read task text as a blob and passed this, which made the check vacuous
+#      in exactly its own terms.
 # ---------------------------------------------------------------------------
-r="$tmp/r5"
+r="$tmp/r4b"
 mkrepo "$r"
-run_cg "$r" >/dev/null || fail "g5: a workflow-wired guard should pass: $(cat "$tmp/err")"
-grep -q 'check-gamma.sh' "$r/.github/workflows/ci.yml" \
-  || fail "g5: the fixture no longer wires a guard through a workflow"
-echo "ok: g5 a guard a workflow runs counts as reached"
+printf '#!/bin/sh\nexit 0\n' >"$r/scripts/check-ghost.sh"
+cat >>"$r/mise.toml" <<'TOML'
+
+[tasks."check:mentions"]
+description = "prose naming scripts/check-ghost.sh without ever running it"
+run = "/bin/sh scripts/check-alpha.sh"
+TOML
+# Make it reachable, so the only reason it could pass is the description.
+{
+  printf '[tasks.check]\ndepends = ["check:alpha", "check:mentions"]\n\n'
+  sed -n '/\[tasks."check:alpha"\]/,$p' "$r/mise.toml"
+} >"$r/mise.toml.new"
+mv "$r/mise.toml.new" "$r/mise.toml"
+grep -q 'check-ghost.sh' "$r/mise.toml" \
+  || fail "g4b: the fixture no longer mentions the guard at all — this case would prove nothing"
+run_cg "$r" >/dev/null \
+  && fail "g4b: a guard named only in a description passed — a description is not execution"
+grep -q 'check-ghost.sh' "$tmp/err" || fail "g4b: the merely-mentioned guard was not named"
+#      Control: the very same guard, moved into the run body, passes. Without
+#      this the case above could pass because the fixture is broken.
+r="$tmp/r4c"
+mkrepo "$r" "check:mentions" "/bin/sh scripts/check-ghost.sh"
+printf '#!/bin/sh\nexit 0\n' >"$r/scripts/check-ghost.sh"
+run_cg "$r" >/dev/null \
+  || fail "g4b control: the same guard in a run body should pass: $(cat "$tmp/err")"
+echo "ok: g4b a description that names a guard is not wiring, but a run body is"
 
 # ---------------------------------------------------------------------------
-# g6: the allowlist exempts, and its two rot modes both fail. An exemption
-#     nobody rechecks is how an allowlist becomes a hiding place.
+# g5: a workflow counts as wiring, in BOTH YAML spellings. GitHub accepts
+#     .yaml, so matching only .yml would call a wired guard unwired.
+# ---------------------------------------------------------------------------
+for ext in yml yaml; do
+  r="$tmp/r5$ext"
+  mkrepo "$r" "" "" "$ext"
+  [ -f "$r/.github/workflows/ci.$ext" ] || fail "g5: the .$ext fixture was not written"
+  run_cg "$r" >/dev/null || fail "g5: a .$ext workflow-wired guard should pass: $(cat "$tmp/err")"
+done
+echo "ok: g5 a guard a workflow runs counts as reached, .yml and .yaml alike"
+
+# ---------------------------------------------------------------------------
+# g6: the allowlist exempts, and its rot modes fail. An exemption nobody
+#     rechecks is how an allowlist becomes a hiding place.
 # ---------------------------------------------------------------------------
 r="$tmp/r6"
 mkrepo "$r"
 printf '#!/bin/sh\nexit 0\n' >"$r/scripts/check-planted.sh"
 printf 'check-planted.sh  run by the frobnicator\n' >"$r/scripts/guard-wiring-allow.txt"
 run_cg "$r" >/dev/null || fail "g6: an allowlisted guard should pass: $(cat "$tmp/err")"
+#     An INDENTED entry is still an entry: stripping from the first blank
+#     before trimming the leading run would blank the line and drop it.
+printf '   check-planted.sh  run by the frobnicator\n' >"$r/scripts/guard-wiring-allow.txt"
+run_cg "$r" >/dev/null || fail "g6: an indented allowlist entry was silently dropped"
 #     rot mode 1: the entry names a script that no longer exists.
-printf 'check-planted.sh  run by the frobnicator\ncheck-vanished.sh  run by nobody\n' \
-  >"$r/scripts/guard-wiring-allow.txt"
+printf 'check-planted.sh  x\ncheck-vanished.sh  run by nobody\n' >"$r/scripts/guard-wiring-allow.txt"
 run_cg "$r" >/dev/null && fail "g6: a stale allowlist entry was accepted"
 grep -q 'check-vanished.sh' "$tmp/err" || fail "g6: the stale entry was not named"
 #     rot mode 2: the entry names a guard that is in fact wired.
-printf 'check-alpha.sh  run by the frobnicator\n' >"$r/scripts/guard-wiring-allow.txt"
+printf 'check-alpha.sh  x\n' >"$r/scripts/guard-wiring-allow.txt"
 run_cg "$r" >/dev/null && fail "g6: an allowlist entry shadowing a wired guard was accepted"
 grep -q 'check-alpha.sh' "$tmp/err" || fail "g6: the redundant entry was not named"
-echo "ok: g6 the allowlist exempts, and both of its rot modes fail"
+echo "ok: g6 the allowlist exempts (indented too), and both rot modes fail"
 
 # ---------------------------------------------------------------------------
 # g7: every input that would make the scan vacuous fails CLOSED (exit 5)
