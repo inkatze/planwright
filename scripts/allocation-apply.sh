@@ -348,6 +348,17 @@ ADMIT=$(tier_field admit) || {
   printf '%s\n' "$me: the resolver returned no admit row — broken or outdated install" >&2
   exit 5
 }
+# `admit` is a CLOSED enum, and it is read as one. Testing only for `withheld`
+# would send every other token — a version-skewed spelling, a truncated read, a
+# torn row — down the admitted path, which is the missing-row fail-open above
+# arriving through a value instead of an absence.
+case "$ADMIT" in
+  yes | withheld) ;;
+  *)
+    printf '%s\n' "$me: the resolver answered an out-of-enum admit: $(sanitize_printable "$ADMIT" "(unprintable admit)") — broken or outdated install" >&2
+    exit 5
+    ;;
+esac
 if [ "$ADMIT" = withheld ]; then
   printf '%s\n' "$me: unit withheld by the admission gate at key $KEY; not launching" >&2
   printf 'key\t%s\n' "$KEY"

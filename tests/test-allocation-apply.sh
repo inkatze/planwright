@@ -468,6 +468,35 @@ grep -qi "admit" "$tmp/err" || fail "the missing-admit diagnostic does not name 
 echo "ok: a missing admit row fails closed rather than defaulting to admitted"
 
 # --------------------------------------------------------------------------
+# 10c. A GARBLED admit answer fails closed too. `admit` is a closed enum
+#      (`yes | withheld`), and testing only for `withheld` would treat every
+#      other token — a version-skewed spelling, a truncated read, a torn row —
+#      as admitted. That is the same fail-open as the missing row above,
+#      arriving through a value rather than an absence.
+# --------------------------------------------------------------------------
+cat >"$noadmit/allocation-adapt.sh" <<'GARBLED'
+#!/bin/sh
+# A sibling answering an admit token outside the enum.
+[ "$1" = resolve ] || exit 2
+printf 'admit\tmaybe\n'
+printf 'model\topus\n'
+printf 'effort\thigh\n'
+printf 'proposed_model\topus\n'
+printf 'proposed_effort\thigh\n'
+GARBLED
+chmod +x "$noadmit/allocation-adapt.sh"
+set +e
+out=$(env_run "$noadmit/allocation-apply.sh" plan --key offload \
+  --backend tmux --unit u-garbled 2>"$tmp/err")
+rc=$?
+set -e
+[ "$rc" = 5 ] \
+  || fail "an out-of-enum admit exited $rc, expected 5 (broken install); plan was: $out"
+printf '%s\n' "$out" | grep -q "^admit${TAB}yes$" \
+  && fail "an out-of-enum admit was laundered into an admitted plan: $out"
+echo "ok: an out-of-enum admit fails closed rather than reading as admitted"
+
+# --------------------------------------------------------------------------
 # 11. An unreachable allocation store gets its OWN exit code, so a caller can
 #     degrade on it without also degrading on a rejected argument.
 # --------------------------------------------------------------------------
