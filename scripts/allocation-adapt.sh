@@ -85,9 +85,32 @@
 # unchanged; the ledger is what explains WHY escalation was unavailable when
 # that escalation reaches a human.
 #
+# THE PETITION IS A TRIGGER INPUT, NOT AN AUTHORITY (D-7, REQ-C1.3, REQ-C1.6).
+# Given `--worktree`, a boundary reads the worker's petition artifact through
+# scripts/allocation-petition.sh and folds a valid one into the SAME event list
+# the work-shaped triggers use — so it takes one ladder step, spends the same
+# adjustment budget, and meets the same clamps. Three properties are worth
+# stating because each is a place this could have gone wrong:
+#
+#   - CONSUMPTION IS THE PETITION'S OWN IDEMPOTENCY (REQ-C1.7). The cross-
+#     boundary incident key that stops a replayed failure from double-counting
+#     is deliberately NOT applied to the petition incident: the artifact is gone
+#     once weighed, so a second petition at the same step is a second signal the
+#     worker paid for, not a replay of the first.
+#   - AN UNWEIGHED PETITION IS STILL RECORDED. Out of grammar, hostile, stale,
+#     or filtered out by the policy knob — every one is consumed and lands an
+#     `ignored` row, so the audit shows what was said and why it did not count.
+#     A claimed file left behind by a consumer that died before its row landed
+#     is reconciled the same way at the next boundary.
+#   - THE MASTER KNOB GOVERNS THE CHANNEL. With `allocation_adaptation` off the
+#     artifact is not read at all: there is no tier to move, so claiming one
+#     would consume a signal nothing could act on. Rungs with no worktree have
+#     no channel either, a documented degradation rather than an error.
+#
 # Usage:
 #   allocation-adapt.sh resolve <unit> --key <selection-key>
 #       [--step <step>] [--attempt <n>] [--event <class>]... [--reserved]
+#       [--worktree <dir>]
 #
 #     PASS A STEP AND ATTEMPT WITH ANY --event. The idempotency key is
 #     (unit, step, attempt, incident), and `--step` defaults to `-` with
@@ -108,6 +131,7 @@
 #       proposed_model / proposed_effort   the tier BEFORE the clamps
 #       net              net ladder displacement from the starting tier
 #       degraded         no | ledger | clamp-input
+#       petition         none | escalate | de-escalate | ignored
 #   allocation-adapt.sh derive <unit> --key <selection-key>
 #     Print the unit's derived tier without recording anything (a read-only view
 #     for operators and for `/execute-task`-style callers that only need to know
@@ -146,12 +170,13 @@ GATE="$script_dir/fleet-usage-gate.sh"
 KILL="$script_dir/fleet-daemon-gate.sh"
 AUDIT="$script_dir/fleet-audit.sh"
 ATTENTION="$script_dir/fleet-attention.sh"
+PETITION="$script_dir/allocation-petition.sh"
 
 MECHANISM=allocation
 TAB=$(printf '\t')
 
 usage() {
-  echo "usage: allocation-adapt.sh resolve <unit> --key <selection-key> [--step <step>] [--attempt <n>] [--event <class>]... [--reserved] | derive <unit> --key <selection-key>" >&2
+  echo "usage: allocation-adapt.sh resolve <unit> --key <selection-key> [--step <step>] [--attempt <n>] [--event <class>]... [--reserved] [--worktree <dir>] | derive <unit> --key <selection-key>" >&2
 }
 
 require_exec() {
@@ -368,7 +393,7 @@ record() {
     # A failed append is an unhealthy ledger by definition: adjustments are
     # already suspended by the time this can matter, and the failure is
     # surfaced rather than swallowed (REQ-F1.1's "never silent").
-    echo "allocation-adapt: could not append to the allocation ledger for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+    printf '%s\n' "allocation-adapt: could not append to the allocation ledger for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
     DEGRADED=ledger
     return 1
   }
@@ -433,7 +458,7 @@ release_unit_lock() {
 # channel must not fail a launch); the stderr line is unconditional, which is
 # what makes "never silently" true even where no channel is configured.
 surface_degradation() {
-  echo "allocation-adapt: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' is launching DEGRADED — $1" >&2
+  printf '%s\n' "allocation-adapt: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' is launching DEGRADED — $1" >&2
   [ -x "$ATTENTION" ] || return 0
   "$ATTENTION" notify "allocation: unit $UNIT degraded — $1" >/dev/null 2>&1 || true
 }
@@ -449,6 +474,9 @@ ATTEMPT=1
 RESERVED=no
 EVENTS=""
 DEGRADED=no
+WORKTREE=""
+PETITION_STATE=none
+PETITION_CLAIM=""
 
 parse_args() {
   [ "$#" -ge 1 ] || {
@@ -493,7 +521,7 @@ parse_args() {
         # before it can reach a ledger row or move a tier.
         if ! alloc_event_dir "$2" >/dev/null 2>&1 \
           || [ "$(alloc_event_dir "$2")" = none ]; then
-          echo "allocation-adapt: '$(sanitize_printable "$2" "(unprintable event)")' is not a trigger event ($ALLOC_EVENTS_UP $ALLOC_EVENTS_DOWN)" >&2
+          printf '%s\n' "allocation-adapt: '$(sanitize_printable "$2" "(unprintable event)")' is not a trigger event ($ALLOC_EVENTS_UP $ALLOC_EVENTS_DOWN)" >&2
           exit 2
         fi
         EVENTS="$EVENTS $2"
@@ -503,8 +531,16 @@ parse_args() {
         RESERVED=yes
         shift
         ;;
+      --worktree)
+        [ "$#" -ge 2 ] || {
+          usage
+          exit 2
+        }
+        WORKTREE=$2
+        shift 2
+        ;;
       *)
-        echo "allocation-adapt: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
+        printf '%s\n' "allocation-adapt: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
         exit 2
         ;;
     esac
@@ -518,7 +554,7 @@ parse_args() {
   # taken a lock, and the diagnostic points at the store rather than the argument.
   case $UNIT in
     "" | *[!A-Za-z0-9._=@:-]*)
-      echo "allocation-adapt: refusing malformed unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+      printf '%s\n' "allocation-adapt: refusing malformed unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
       exit 2
       ;;
   esac
@@ -534,7 +570,7 @@ parse_args() {
   case $STEP in
     -) ;;
     "" | *[!A-Za-z0-9._=@:-]*)
-      echo "allocation-adapt: refusing malformed step '$(sanitize_printable "$STEP" "(unprintable step)")'" >&2
+      printf '%s\n' "allocation-adapt: refusing malformed step '$(sanitize_printable "$STEP" "(unprintable step)")'" >&2
       exit 2
       ;;
     *)
@@ -548,12 +584,12 @@ parse_args() {
   # verbatim, and `01` and `1` would key the same incident under two spellings.
   case $ATTEMPT in
     "" | *[!0-9]*)
-      echo "allocation-adapt: refusing non-numeric attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")'" >&2
+      printf '%s\n' "allocation-adapt: refusing non-numeric attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")'" >&2
       exit 2
       ;;
     0 | [1-9]*) ;;
     *)
-      echo "allocation-adapt: refusing attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")' — a leading zero is not a count" >&2
+      printf '%s\n' "allocation-adapt: refusing attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")' — a leading zero is not a count" >&2
       exit 2
       ;;
   esac
@@ -572,6 +608,129 @@ emit() {
   printf 'proposed_effort\t%s\n' "$9"
   printf 'net\t%s\n' "${10}"
   printf 'degraded\t%s\n' "$DEGRADED"
+  printf 'petition\t%s\n' "$PETITION_STATE"
+}
+
+# ---------------------------------------------------------------------------
+# The petition channel (D-7, REQ-C1.3, REQ-C1.6, REQ-C1.7)
+# ---------------------------------------------------------------------------
+
+# consume_petition: claim and weigh this boundary's worker petition, appending
+# its event class to EVENTS when the policy admits it. Runs UNDER the unit lock
+# and only on the adaptation path, so every row it lands shares the critical
+# section with the replay it is about to influence.
+#
+# Held, not one-shot: the claimed file survives until `discard_petition` runs
+# after the ladder rows are committed, so a crash in that window leaves
+# something for the next boundary's reconcile to audit rather than nothing.
+consume_petition() {
+  [ -n "$WORKTREE" ] || return 0
+  if [ ! -x "$PETITION" ]; then
+    # A missing helper is the no-channel degradation, not a failed launch: the
+    # tier still moves on events, which is the whole pre-petition behavior.
+    echo "allocation-adapt: the petition helper is missing or not executable — no petition channel this boundary" >&2
+    return 0
+  fi
+  cp_policy=$(resolve_enum allocation_petition "on off escalate-only de-escalate-only" on) || exit $?
+
+  # The helper's stderr is passed through, not swallowed: every line it writes
+  # is already sanitized, and the two it can produce — a worktree with no usable
+  # channel, and a usage error that would mean this call site is wrong — are
+  # both things an operator reading a worker log needs to see.
+  cp_out=$("$PETITION" claim --worktree "$WORKTREE" --unit "$UNIT" \
+    --step "$STEP" --attempt "$ATTEMPT" --hold)
+  cp_rc=$?
+
+  # An orphaned claim is a consumer that died between taking a petition and
+  # recording it. Each owes one ignored-with-audit row; the helper has already
+  # cleared them, so this window is audited exactly once.
+  cp_orphans=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "reconciled" { print $2; exit }')
+  case $cp_orphans in
+    "" | *[!0-9]*) cp_orphans=0 ;;
+  esac
+  while [ "$cp_orphans" -gt 0 ]; do
+    cp_orphans=$((cp_orphans - 1))
+    record petition "$CUR_MODEL" "$CUR_EFFORT" - - - - unit ignored \
+      "trigger=petition;reason=orphaned-claim" || true
+    queue_mirror ignored "unit $UNIT reconciled an orphaned petition claim"
+  done
+
+  [ "$cp_rc" -eq 0 ] || return 0
+  PETITION_CLAIM=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "claimed" { print $2; exit }')
+  cp_verdict=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "verdict" { print $2; exit }')
+  cp_dir=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "direction" { print $2; exit }')
+
+  if [ "$cp_verdict" != valid ]; then
+    cp_detail=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "detail" { print $2; exit }')
+    case $cp_detail in
+      "" | *[!a-z-]*) cp_detail=grammar ;;
+    esac
+    PETITION_STATE=ignored
+    record petition "$CUR_MODEL" "$CUR_EFFORT" - - - - unit ignored \
+      "trigger=petition;reason=$cp_detail" || true
+    # Deliberately NOT mirrored. The shared trail carries sparse GOVERNANCE
+    # events — what the fleet's own policy decided — and a worker writing a file
+    # its parser could not use is that worker's output, not a fleet decision. It
+    # stays in the unit's own ledger, where an operator investigating that unit
+    # finds it, and the trail keeps the volume budget the store split bought.
+    return 0
+  fi
+
+  # The direction lands in an event class and a ledger row, so it is re-checked
+  # against the enum here rather than trusted from a sibling's stdout. A helper
+  # that somehow reported a valid petition with a direction outside the enum is
+  # the anomaly; treat it as unusable.
+  case $cp_dir in
+    escalate | de-escalate) ;;
+    *)
+      PETITION_STATE=ignored
+      record petition "$CUR_MODEL" "$CUR_EFFORT" - - - - unit ignored \
+        "trigger=petition;reason=grammar" || true
+      return 0
+      ;;
+  esac
+
+  # The worker's reason is the one piece of free prose in this path. It does NOT
+  # enter the ledger: the `inputs` field is a `key=value;` list over a charset
+  # with no space in it, so prose could only land there mangled or mangling. It
+  # goes to stderr instead, sanitized, where the worker log keeps it beside the
+  # row that records what it did.
+  cp_reason=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "reason" { print $2; exit }')
+  # printf, not echo: /bin/sh is dash on Linux, whose echo expands backslash
+  # escapes, so a reason containing the four literal characters \033 becomes a
+  # real ESC byte on the operator's terminal. sanitize_printable correctly
+  # leaves them alone — they ARE printable — so the sanitizer is not the leak;
+  # the echo is. This is the one surface carrying worker-authored text.
+  printf '%s\n' "allocation-adapt: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' petitioned to $cp_dir — $(sanitize_printable "$cp_reason" "(unprintable reason)")" >&2
+
+  # The policy knob filters by DIRECTION. A filtered petition is still consumed
+  # and recorded: the worker said something, and the audit is where an operator
+  # sees that the knob is what silenced it.
+  cp_allowed=no
+  case $cp_policy in
+    on) cp_allowed=yes ;;
+    escalate-only) [ "$cp_dir" = escalate ] && cp_allowed=yes ;;
+    de-escalate-only) [ "$cp_dir" = de-escalate ] && cp_allowed=yes ;;
+  esac
+  if [ "$cp_allowed" = no ]; then
+    PETITION_STATE=ignored
+    record petition "$CUR_MODEL" "$CUR_EFFORT" - - - - unit ignored \
+      "trigger=petition;reason=policy-$cp_policy;direction=$cp_dir" || true
+    queue_mirror ignored "unit $UNIT ignored a $cp_dir petition under petition policy $cp_policy"
+    return 0
+  fi
+
+  PETITION_STATE=$cp_dir
+  EVENTS="$EVENTS petition-$cp_dir"
+}
+
+# discard_petition: drop the held claim once its rows are committed. Called
+# after the ladder has recorded, never before — the gap between the two is
+# exactly what the reconcile above exists to cover.
+discard_petition() {
+  [ -n "$PETITION_CLAIM" ] || return 0
+  rm -f "$PETITION_CLAIM" 2>/dev/null || true
+  PETITION_CLAIM=""
 }
 
 cmd_resolve() {
@@ -698,7 +857,9 @@ cmd_resolve() {
     CUR_MODEL=$ALLOC_MODEL
     CUR_EFFORT=$ALLOC_EFFORT
     NET=$ALLOC_NET
+    consume_petition
     apply_events
+    discard_petition
   fi
 
   clamp_tier "$CUR_MODEL" "$CUR_EFFORT"
@@ -748,8 +909,14 @@ apply_events() {
       *" $ae_inc "*) continue ;;
     esac
     ae_seen="$ae_seen $ae_inc"
-    # And never twice for the same incident across boundaries.
-    incident_seen "$ae_inc" && continue
+    # And never twice for the same incident across boundaries — except the
+    # petition, whose own single-consumption lifecycle is that guarantee
+    # (REQ-C1.7). The artifact is gone once weighed, so a second petition at the
+    # same (step, attempt) is a fresh signal the worker had to re-arm, and
+    # reading it as a replay would silently swallow it.
+    if [ "$ae_inc" != petition ]; then
+      incident_seen "$ae_inc" && continue
+    fi
 
     ae_dir=$(alloc_event_dir "$ae_ev")
     if [ "$ae_dir" = up ]; then
