@@ -1097,7 +1097,9 @@ what keeps the legacy family in charge, so an existing overlay keeps working
 untouched and needs no migration.
 The legacy family is documented, not removed. The same family also carries
 rows for the three non-fleet surfaces, which ship `inherit` instead.
-Per-knob detail is in the [options reference](options-reference.md).
+Per-knob detail is in the [options reference](options-reference.md); the
+operator's guide to the whole policy — the ladder, the ledger, the petition,
+and how to turn any of it on — is [Model allocation](allocation.md).
 
 **Throttling is reactive, off Claude Code's own signal.** There is no
 supported way to query account-level usage, so the fleet reacts to the one
@@ -1323,7 +1325,7 @@ knob off there is no ladder position to move, so the artifact is not read at all
 **The ledger feeds back into future drafting.** When a unit reaches a terminal
 state, completion or crash-loop disable alike, the terminal-state owner runs
 `scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> --terminal
-<completed|disabled> --scope <repo>`. It replays that unit's ledger and, when
+<completed|disabled> --scope <scope>`. It replays that unit's ledger and, when
 the history says the starting tier was wrong, records one observation fragment
 through the shared helper, which is how chronic under-estimation reaches the
 next round of `/spec-draft` seed mining. Two conditions fire it: the unit's

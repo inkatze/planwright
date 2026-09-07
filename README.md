@@ -215,6 +215,9 @@ delivered while you keep sign-off and merge, that is planwright.
   your own backend) — no multiplexer knowledge required.
 - [Per-tower checkouts](docs/per-tower-checkouts.md) — running several towers
   on one repository without them racing over a shared local `main`.
+- [Model allocation](docs/allocation.md) — which model and effort a unit runs
+  on, how that adapts to what execution reveals, and how to read the ledger
+  that explains it.
 - [Options reference](docs/options-reference.md) — every configuration option.
 - [Doctrine](doctrine/README.md) — the framework's rule docs: validation and
   discovery rigor, finding categorization, engineering decisions, security
