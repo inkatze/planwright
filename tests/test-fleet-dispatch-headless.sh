@@ -413,6 +413,46 @@ h9() {
   code=0
   printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --add-dir / >/dev/null 2>&1 || code=$?
   [ "$code" -eq 2 ] || fail "h9: --add-dir off the allowlist must be refused (exit 2), got $code"
+  # --effort is sanctioned on the same terms as --model (it selects capability
+  # and cost, never permission or trust), but its value is held to planwright's
+  # effort enum rather than merely shape-checked.
+  rm -rf "$STATE"
+  make_fake "$rec"
+  code=0
+  printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --effort low >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 0 ] || fail "h9: the sanctioned --effort flag was refused (exit $code)"
+  wait_for "$STATE/$ID/exit" 300 || fail "h9: the --effort launch never completed"
+  # Adjacency, not mere presence: the argv log accumulates across the launches
+  # above, so two independent greps would pass on a spliced or reordered
+  # forwarding. Discreteness is the property under test.
+  if ! awk '$0 == "--effort" { seen = NR } seen && NR == seen + 1 && $0 == "low" { ok = 1 }
+    END { exit ok ? 0 : 1 }' "$rec/argv"; then
+    fail "h9: --effort and its value were not forwarded as adjacent discrete argv elements"
+  fi
+  # The remaining arms of the new allowlist entry: a missing value, the
+  # attached form, and an attached out-of-enum value.
+  rm -rf "$STATE"
+  code=0
+  printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --effort >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] || fail "h9: --effort with no value must be refused (exit 2), got $code"
+  rm -rf "$STATE"
+  make_fake "$rec"
+  code=0
+  printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --effort=high >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 0 ] || fail "h9: the attached --effort=high form was refused (exit $code)"
+  rm -rf "$STATE"
+  code=0
+  printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --effort= >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] || fail "h9: an empty attached --effort= must be refused (exit 2), got $code"
+  rm -rf "$STATE"
+  code=0
+  printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --effort=enormous >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] || fail "h9: an attached out-of-enum --effort must be refused (exit 2), got $code"
+  rm -rf "$STATE"
+  code=0
+  printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --effort enormous >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] || fail "h9: an out-of-enum --effort must be refused (exit 2), got $code"
+  [ -e "$STATE/$ID/pid" ] && fail "h9: a refused --effort launch must launch nothing"
   pass "h9: launch args are a strict allowlist — sanctioned pass, escalation refused (S1)"
 }
 

@@ -162,21 +162,27 @@ wait instead.
 
 The mode resolved in pre-flight step 10 governs how this unit's **steps** — the
 implementation phase (test-first loop, research, security pass, CI), then each
-`review_sequence` skill — are **hosted**. It changes only the hosting, not the
-work or order.
+`review_sequence` skill — are **hosted**. It changes hosting, not work or order.
 
 - **`per-unit`** (strictly preserved): the whole unit runs in **one session** —
   implement, run CI, invoke each `review_sequence` skill inline with `--nested`,
   then push and open the PR. Context carries across steps.
 - **`per-step`** (the assigned-decision default): each step runs in its **own
-  fresh `/resume`-seeded session**, so context stays bounded and each review's
-  perspective is uncontaminated by prior steps. The order is unchanged; each step
-  is seeded from durable state alone (brief, `tasks.md` snapshot, git log, open
-  PR) and commits its work with the `Planwright-Task:` trailer. Realization is
+  fresh session**, seeded by `/resume` from durable state alone (brief,
+  `tasks.md` snapshot, git log, open PR), so context stays bounded and each
+  review's perspective is uncontaminated by prior steps. Each step commits its
+  work with the `Planwright-Task:` trailer. Realization is
   the backend's job (D-2): a session-grade backend spawns a session per step; the
   terminal rung (D-3) approximates it with a context clear + `/resume` reseed; a
-  backend that can do neither degrades to `per-unit` (degrade capability, never
+  backend doing neither degrades to `per-unit` (degrade capability, never
   safety).
+
+**Launch tier.** A per-step session is a launch: resolve
+`scripts/allocation-apply.sh plan --key execute_step --backend <backend> --unit
+<spec>:task-<id> --step <step>` and apply per `backend-capability-contract`'s
+*Applying a resolved tier*. Exit 3 is withheld: do not launch; only exit 6
+degrades. The terminal rung advertises none, inheriting the operator's
+session.
 
 **State-safety holds in both modes (REQ-C1.4):** every `tasks.md` placement move
 goes **only** through the sibling reconcile under the per-spec lock, no per-step

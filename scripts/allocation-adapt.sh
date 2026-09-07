@@ -67,6 +67,36 @@
 # Recompute-identical is preserved by construction: the memo never outlives the
 # boundary, so the next launch re-derives from the records on disk.
 #
+# THE PER-STEP KEY IS ONE-DIRECTIONAL (D-8, D-12, REQ-C1.3). A launch may name
+# the STEP TYPE it is for — the implementation step, or a review-sequence step
+# class. allocation-select.sh resolves that step type's configured tier; this
+# script decides whether it applies, and the rule is asymmetric on purpose:
+#
+#   - a step tier CHEAPER than the unit's current tier applies TO THAT LAUNCH
+#     ONLY, recorded with scope `step`;
+#   - an equal or MORE EXPENSIVE one is IGNORED, with a `step`-scoped row saying
+#     so. A step may never ratchet a unit up.
+#
+# The scope mark is the whole safety property: `alloc_replay` drops every
+# non-`unit` row before it reads anything else, so a step-scoped launch cannot
+# reach the unit's ladder position, consume adjustment budget, or survive into
+# the next boundary. `derive` therefore answers with the unit's tier whether or
+# not a step tier was just applied — the restore-after property, held by
+# construction rather than by remembering to undo something.
+#
+# A step tier is STATIC CONFIGURATION, not adaptation, so it is deliberately NOT
+# gated behind `allocation_adaptation`: it moves no ladder, keys off no event,
+# and reads no signal. Gating it would make a per-step config knob require
+# turning on the whole adaptive engine to have any effect. D-13's
+# defaults-change-nothing claim is carried instead by the knobs themselves,
+# every one of which ships `inherit`.
+#
+# A tier is a JOINT point, so a step type that configures only one column has
+# the other FILLED FROM THE UNIT'S CURRENT TIER before the cheaper-than
+# comparison. That is what lets "run reviews at low effort" be expressed without
+# also pinning a model, and it keeps the one-directional test on the joint
+# result rather than on one column in isolation.
+#
 # A CLAMP IS NOT DE-ESCALATION (D-8). A clamped proposal is recorded as clamped;
 # the unit's own ladder position is untouched, so the next boundary proposes from
 # where the ladder actually is, and clamping consumes no adjustment budget.
@@ -85,9 +115,32 @@
 # unchanged; the ledger is what explains WHY escalation was unavailable when
 # that escalation reaches a human.
 #
+# THE PETITION IS A TRIGGER INPUT, NOT AN AUTHORITY (D-7, REQ-C1.3, REQ-C1.6).
+# Given `--worktree`, a boundary reads the worker's petition artifact through
+# scripts/allocation-petition.sh and folds a valid one into the SAME event list
+# the work-shaped triggers use — so it takes one ladder step, spends the same
+# adjustment budget, and meets the same clamps. Three properties are worth
+# stating because each is a place this could have gone wrong:
+#
+#   - CONSUMPTION IS THE PETITION'S OWN IDEMPOTENCY (REQ-C1.7). The cross-
+#     boundary incident key that stops a replayed failure from double-counting
+#     is deliberately NOT applied to the petition incident: the artifact is gone
+#     once weighed, so a second petition at the same step is a second signal the
+#     worker paid for, not a replay of the first.
+#   - AN UNWEIGHED PETITION IS STILL RECORDED. Out of grammar, hostile, stale,
+#     or filtered out by the policy knob — every one is consumed and lands an
+#     `ignored` row, so the audit shows what was said and why it did not count.
+#     A claimed file left behind by a consumer that died before its row landed
+#     is reconciled the same way at the next boundary.
+#   - THE MASTER KNOB GOVERNS THE CHANNEL. With `allocation_adaptation` off the
+#     artifact is not read at all: there is no tier to move, so claiming one
+#     would consume a signal nothing could act on. Rungs with no worktree have
+#     no channel either, a documented degradation rather than an error.
+#
 # Usage:
 #   allocation-adapt.sh resolve <unit> --key <selection-key>
 #       [--step <step>] [--attempt <n>] [--event <class>]... [--reserved]
+#       [--step-type <class>] [--worktree <dir>]
 #
 #     PASS A STEP AND ATTEMPT WITH ANY --event. The idempotency key is
 #     (unit, step, attempt, incident), and `--step` defaults to `-` with
@@ -107,11 +160,21 @@
 #       adaptation       on | off | suspended
 #       proposed_model / proposed_effort   the tier BEFORE the clamps
 #       net              net ladder displacement from the starting tier
+#       step_scope       none (no step type named) | inherit (named, but
+#                        unconfigured in both columns — or named at a surface
+#                        that itself inherits) | applied (a strictly cheaper
+#                        step tier took effect for this launch) | ignored (a
+#                        configured step tier was refused: equal or more
+#                        expensive, or named at an inheriting surface, which
+#                        has no tier of its own to be cheaper than)
 #       degraded         no | ledger | clamp-input
+#       petition         none | escalate | de-escalate | ignored
 #   allocation-adapt.sh derive <unit> --key <selection-key>
 #     Print the unit's derived tier without recording anything (a read-only view
 #     for operators and for `/execute-task`-style callers that only need to know
-#     where a unit currently sits).
+#     where a unit currently sits). A `--step-type` is accepted and ignored here,
+#     which is the contract rather than an oversight: `derive` answers where the
+#     UNIT sits, and a step tier is never part of that answer.
 #
 # Exit codes: 0 success; 2 usage error or hostile/out-of-grammar input; 4 a
 #   malformed repo-tracked knob (resolver hard-fail, propagated); 5 broken
@@ -146,12 +209,13 @@ GATE="$script_dir/fleet-usage-gate.sh"
 KILL="$script_dir/fleet-daemon-gate.sh"
 AUDIT="$script_dir/fleet-audit.sh"
 ATTENTION="$script_dir/fleet-attention.sh"
+PETITION="$script_dir/allocation-petition.sh"
 
 MECHANISM=allocation
 TAB=$(printf '\t')
 
 usage() {
-  echo "usage: allocation-adapt.sh resolve <unit> --key <selection-key> [--step <step>] [--attempt <n>] [--event <class>]... [--reserved] | derive <unit> --key <selection-key>" >&2
+  echo "usage: allocation-adapt.sh resolve <unit> --key <selection-key> [--step <step>] [--attempt <n>] [--event <class>]... [--reserved] [--step-type <class>] [--worktree <dir>] | derive <unit> --key <selection-key> [--step-type <class>] (accepted, ignored: derive answers where the UNIT sits)" >&2
 }
 
 require_exec() {
@@ -368,7 +432,7 @@ record() {
     # A failed append is an unhealthy ledger by definition: adjustments are
     # already suspended by the time this can matter, and the failure is
     # surfaced rather than swallowed (REQ-F1.1's "never silent").
-    echo "allocation-adapt: could not append to the allocation ledger for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+    printf '%s\n' "allocation-adapt: could not append to the allocation ledger for unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
     DEGRADED=ledger
     return 1
   }
@@ -379,11 +443,17 @@ record() {
 # (step, attempt, incident) key — applied, or a ladder-end no-op. A prior DENIAL
 # is not terminal: it was conditional on transient state, so the next boundary
 # re-evaluates it.
+#
+# Scoped to `unit` rows for the same reason `alloc_replay` is: step-scoped rows
+# share this key space and carry outcome `applied` too, so without the gate this
+# scan would rest on no step-scoped event ever being NAMED like an incident
+# class. That is a coincidence, not a guarantee — and a step row that did
+# collide would silently suppress a real escalation.
 incident_seen() {
   is_file=$("$LEDGER" path "$UNIT" 2>/dev/null) || return 1
   [ -r "$is_file" ] || return 1
   is_hit=$(awk -F "$TAB" -v st="$STEP" -v at="$ATTEMPT" -v inc="$1" '
-    NF == 15 && $4 == st && $5 == at && ($14 == "applied" || $14 == "no-op") {
+    NF == 15 && $13 == "unit" && $4 == st && $5 == at && ($14 == "applied" || $14 == "no-op") {
       cls = $6
       if (cls == "retry") cls = "step-failure"
       else if (cls == "petition-escalate" || cls == "petition-de-escalate") cls = "petition"
@@ -433,7 +503,7 @@ release_unit_lock() {
 # channel must not fail a launch); the stderr line is unconditional, which is
 # what makes "never silently" true even where no channel is configured.
 surface_degradation() {
-  echo "allocation-adapt: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' is launching DEGRADED — $1" >&2
+  printf '%s\n' "allocation-adapt: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' is launching DEGRADED — $1" >&2
   [ -x "$ATTENTION" ] || return 0
   "$ATTENTION" notify "allocation: unit $UNIT degraded — $1" >/dev/null 2>&1 || true
 }
@@ -449,6 +519,15 @@ ATTEMPT=1
 RESERVED=no
 EVENTS=""
 DEGRADED=no
+STEP_TYPE=""
+STEP_SCOPE=none
+LAUNCH_MODEL=""
+LAUNCH_EFFORT=""
+STEP_MODEL=inherit
+STEP_EFFORT=inherit
+WORKTREE=""
+PETITION_STATE=none
+PETITION_CLAIM=""
 
 parse_args() {
   [ "$#" -ge 1 ] || {
@@ -493,18 +572,50 @@ parse_args() {
         # before it can reach a ledger row or move a tier.
         if ! alloc_event_dir "$2" >/dev/null 2>&1 \
           || [ "$(alloc_event_dir "$2")" = none ]; then
-          echo "allocation-adapt: '$(sanitize_printable "$2" "(unprintable event)")' is not a trigger event ($ALLOC_EVENTS_UP $ALLOC_EVENTS_DOWN)" >&2
+          printf '%s\n' "allocation-adapt: '$(sanitize_printable "$2" "(unprintable event)")' is not a trigger event ($ALLOC_EVENTS_UP $ALLOC_EVENTS_DOWN)" >&2
           exit 2
         fi
         EVENTS="$EVENTS $2"
+        shift 2
+        ;;
+      --step-type)
+        [ "$#" -ge 2 ] || {
+          usage
+          exit 2
+        }
+        # The SKILL-NAME charset, checked here rather than left to the selection
+        # resolver for the same reason the unit and step identities are: by the
+        # time the sibling would refuse it this script has read config and taken
+        # a lock, and the diagnostic would point at the resolver instead of the
+        # argument. The two checks are deliberately identical.
+        case $2 in
+          "" | [!a-z]* | *[!a-z0-9-]*)
+            printf 'allocation-adapt: refusing malformed step type %s\n' \
+              "'$(sanitize_printable "$2" "(unprintable step type)")'" >&2
+            exit 2
+            ;;
+        esac
+        [ "${#2}" -le 64 ] || {
+          echo "allocation-adapt: step type is longer than 64 characters" >&2
+          exit 2
+        }
+        STEP_TYPE=$2
         shift 2
         ;;
       --reserved)
         RESERVED=yes
         shift
         ;;
+      --worktree)
+        [ "$#" -ge 2 ] || {
+          usage
+          exit 2
+        }
+        WORKTREE=$2
+        shift 2
+        ;;
       *)
-        echo "allocation-adapt: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
+        printf '%s\n' "allocation-adapt: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
         exit 2
         ;;
     esac
@@ -518,7 +629,7 @@ parse_args() {
   # taken a lock, and the diagnostic points at the store rather than the argument.
   case $UNIT in
     "" | *[!A-Za-z0-9._=@:-]*)
-      echo "allocation-adapt: refusing malformed unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
+      printf '%s\n' "allocation-adapt: refusing malformed unit '$(sanitize_printable "$UNIT" "(unprintable unit)")'" >&2
       exit 2
       ;;
   esac
@@ -534,7 +645,7 @@ parse_args() {
   case $STEP in
     -) ;;
     "" | *[!A-Za-z0-9._=@:-]*)
-      echo "allocation-adapt: refusing malformed step '$(sanitize_printable "$STEP" "(unprintable step)")'" >&2
+      printf '%s\n' "allocation-adapt: refusing malformed step '$(sanitize_printable "$STEP" "(unprintable step)")'" >&2
       exit 2
       ;;
     *)
@@ -548,12 +659,12 @@ parse_args() {
   # verbatim, and `01` and `1` would key the same incident under two spellings.
   case $ATTEMPT in
     "" | *[!0-9]*)
-      echo "allocation-adapt: refusing non-numeric attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")'" >&2
+      printf '%s\n' "allocation-adapt: refusing non-numeric attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")'" >&2
       exit 2
       ;;
     0 | [1-9]*) ;;
     *)
-      echo "allocation-adapt: refusing attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")' — a leading zero is not a count" >&2
+      printf '%s\n' "allocation-adapt: refusing attempt '$(sanitize_printable "$ATTEMPT" "(unprintable attempt)")' — a leading zero is not a count" >&2
       exit 2
       ;;
   esac
@@ -571,7 +682,131 @@ emit() {
   printf 'proposed_model\t%s\n' "$8"
   printf 'proposed_effort\t%s\n' "$9"
   printf 'net\t%s\n' "${10}"
+  printf 'step_scope\t%s\n' "$STEP_SCOPE"
   printf 'degraded\t%s\n' "$DEGRADED"
+  printf 'petition\t%s\n' "$PETITION_STATE"
+}
+
+# ---------------------------------------------------------------------------
+# The petition channel (D-7, REQ-C1.3, REQ-C1.6, REQ-C1.7)
+# ---------------------------------------------------------------------------
+
+# consume_petition: claim and weigh this boundary's worker petition, appending
+# its event class to EVENTS when the policy admits it. Runs UNDER the unit lock
+# and only on the adaptation path, so every row it lands shares the critical
+# section with the replay it is about to influence.
+#
+# Held, not one-shot: the claimed file survives until `discard_petition` runs
+# after the ladder rows are committed, so a crash in that window leaves
+# something for the next boundary's reconcile to audit rather than nothing.
+consume_petition() {
+  [ -n "$WORKTREE" ] || return 0
+  if [ ! -x "$PETITION" ]; then
+    # A missing helper is the no-channel degradation, not a failed launch: the
+    # tier still moves on events, which is the whole pre-petition behavior.
+    echo "allocation-adapt: the petition helper is missing or not executable — no petition channel this boundary" >&2
+    return 0
+  fi
+  cp_policy=$(resolve_enum allocation_petition "on off escalate-only de-escalate-only" on) || exit $?
+
+  # The helper's stderr is passed through, not swallowed: every line it writes
+  # is already sanitized, and the two it can produce — a worktree with no usable
+  # channel, and a usage error that would mean this call site is wrong — are
+  # both things an operator reading a worker log needs to see.
+  cp_out=$("$PETITION" claim --worktree "$WORKTREE" --unit "$UNIT" \
+    --step "$STEP" --attempt "$ATTEMPT" --hold)
+  cp_rc=$?
+
+  # An orphaned claim is a consumer that died between taking a petition and
+  # recording it. Each owes one ignored-with-audit row; the helper has already
+  # cleared them, so this window is audited exactly once.
+  cp_orphans=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "reconciled" { print $2; exit }')
+  case $cp_orphans in
+    "" | *[!0-9]*) cp_orphans=0 ;;
+  esac
+  while [ "$cp_orphans" -gt 0 ]; do
+    cp_orphans=$((cp_orphans - 1))
+    record petition "$CUR_MODEL" "$CUR_EFFORT" - - - - unit ignored \
+      "trigger=petition;reason=orphaned-claim" || true
+    queue_mirror ignored "unit $UNIT reconciled an orphaned petition claim"
+  done
+
+  [ "$cp_rc" -eq 0 ] || return 0
+  PETITION_CLAIM=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "claimed" { print $2; exit }')
+  cp_verdict=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "verdict" { print $2; exit }')
+  cp_dir=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "direction" { print $2; exit }')
+
+  if [ "$cp_verdict" != valid ]; then
+    cp_detail=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "detail" { print $2; exit }')
+    case $cp_detail in
+      "" | *[!a-z-]*) cp_detail=grammar ;;
+    esac
+    PETITION_STATE=ignored
+    record petition "$CUR_MODEL" "$CUR_EFFORT" - - - - unit ignored \
+      "trigger=petition;reason=$cp_detail" || true
+    # Deliberately NOT mirrored. The shared trail carries sparse GOVERNANCE
+    # events — what the fleet's own policy decided — and a worker writing a file
+    # its parser could not use is that worker's output, not a fleet decision. It
+    # stays in the unit's own ledger, where an operator investigating that unit
+    # finds it, and the trail keeps the volume budget the store split bought.
+    return 0
+  fi
+
+  # The direction lands in an event class and a ledger row, so it is re-checked
+  # against the enum here rather than trusted from a sibling's stdout. A helper
+  # that somehow reported a valid petition with a direction outside the enum is
+  # the anomaly; treat it as unusable.
+  case $cp_dir in
+    escalate | de-escalate) ;;
+    *)
+      PETITION_STATE=ignored
+      record petition "$CUR_MODEL" "$CUR_EFFORT" - - - - unit ignored \
+        "trigger=petition;reason=grammar" || true
+      return 0
+      ;;
+  esac
+
+  # The worker's reason is the one piece of free prose in this path. It does NOT
+  # enter the ledger: the `inputs` field is a `key=value;` list over a charset
+  # with no space in it, so prose could only land there mangled or mangling. It
+  # goes to stderr instead, sanitized, where the worker log keeps it beside the
+  # row that records what it did.
+  cp_reason=$(printf '%s\n' "$cp_out" | awk -F "$TAB" '$1 == "reason" { print $2; exit }')
+  # printf, not echo: /bin/sh is dash on Linux, whose echo expands backslash
+  # escapes, so a reason containing the four literal characters \033 becomes a
+  # real ESC byte on the operator's terminal. sanitize_printable correctly
+  # leaves them alone — they ARE printable — so the sanitizer is not the leak;
+  # the echo is. This is the one surface carrying worker-authored text.
+  printf '%s\n' "allocation-adapt: unit '$(sanitize_printable "$UNIT" "(unprintable unit)")' petitioned to $cp_dir — $(sanitize_printable "$cp_reason" "(unprintable reason)")" >&2
+
+  # The policy knob filters by DIRECTION. A filtered petition is still consumed
+  # and recorded: the worker said something, and the audit is where an operator
+  # sees that the knob is what silenced it.
+  cp_allowed=no
+  case $cp_policy in
+    on) cp_allowed=yes ;;
+    escalate-only) [ "$cp_dir" = escalate ] && cp_allowed=yes ;;
+    de-escalate-only) [ "$cp_dir" = de-escalate ] && cp_allowed=yes ;;
+  esac
+  if [ "$cp_allowed" = no ]; then
+    PETITION_STATE=ignored
+    record petition "$CUR_MODEL" "$CUR_EFFORT" - - - - unit ignored \
+      "trigger=petition;reason=policy-$cp_policy;direction=$cp_dir" || true
+    queue_mirror ignored "unit $UNIT ignored a $cp_dir petition under petition policy $cp_policy"
+    return 0
+  fi
+
+  PETITION_STATE=$cp_dir
+  EVENTS="$EVENTS petition-$cp_dir"
+}
+
+# discard_petition: drop the held claim once its rows are committed. Called
+# after the ladder has recorded, never before — the gap between the two is
+# exactly what the reconcile above exists to cover.
+discard_petition() {
+  [ -n "$PETITION_CLAIM" ] || return 0
+  rm -f "$PETITION_CLAIM" 2>/dev/null || true
+  PETITION_CLAIM=""
 }
 
 cmd_resolve() {
@@ -638,6 +873,26 @@ cmd_resolve() {
   ADAPTATION=$(resolve_enum allocation_adaptation "on off" off) || exit $?
   CAP=$(resolve_nonnegint allocation_adjustment_cap 2) || exit $?
 
+  # The named step type's configured tier. Resolved HERE, outside the lock, for
+  # two reasons: it is static configuration that depends on nothing derived
+  # under the lock (the same hoist `base=` above takes), so holding the per-unit
+  # lock across two config-resolver chains would serialize same-unit launches
+  # for no gain; and a malformed step knob is a resolver hard-fail, which must
+  # land BEFORE `apply_events` commits ladder movement rather than after — an
+  # abort between the two would consume an escalation that produced no launch.
+  STEP_MODEL=inherit
+  STEP_EFFORT=inherit
+  if [ -n "$STEP_TYPE" ]; then
+    st_row=$("$SELECT" step-tier "$STEP_TYPE") || exit $?
+    STEP_MODEL=${st_row%%"$TAB"*}
+    STEP_EFFORT=${st_row#*"$TAB"}
+    alloc_valid_tier "$STEP_MODEL" "$STEP_EFFORT" 2>/dev/null \
+      || [ "$STEP_MODEL" = inherit ] || [ "$STEP_EFFORT" = inherit ] || {
+      echo "allocation-adapt: selection resolver returned an unusable step tier for step type '$(sanitize_printable "$STEP_TYPE" "(unprintable step type)")'" >&2
+      exit 5
+    }
+  fi
+
   # Take the unit's lock for the WHOLE derive-then-append critical section, so a
   # concurrent same-unit launch cannot read the tier this one is about to move.
   take_unit_lock
@@ -648,6 +903,24 @@ cmd_resolve() {
   if [ "$START_MODEL" = inherit ] || [ "$START_EFFORT" = inherit ]; then
     record inherit "$START_MODEL" "$START_EFFORT" - - "$START_MODEL" "$START_EFFORT" \
       unit inherit "key=$KEY;rung=$RUNG;inherit=full" || true
+    # A step type named at an INHERIT surface has nothing to be cheaper THAN:
+    # the surface has no tier of its own. An unconfigured step type inherits
+    # like everything else here; a CONFIGURED one is refused, because applying
+    # it would turn an inheriting launch into a governed one through the back
+    # door. The two are recorded distinctly so the ledger says which happened
+    # (REQ-F1.1), and an operator is never told their configuration was refused
+    # when they configured nothing.
+    if [ -n "$STEP_TYPE" ]; then
+      if [ "$STEP_MODEL" = inherit ] && [ "$STEP_EFFORT" = inherit ]; then
+        STEP_SCOPE=inherit
+        record step-tier inherit inherit - - - - \
+          step inherit "key=$KEY;step-type=$STEP_TYPE;step=inherit" || true
+      else
+        STEP_SCOPE=ignored
+        record step-tier "$STEP_MODEL" "$STEP_EFFORT" - - - - \
+          step ignored "key=$KEY;step-type=$STEP_TYPE;reason=inherit-surface" || true
+      fi
+    fi
     release_unit_lock
     queue_mirror inherit "unit $UNIT launched inheriting its ambient model and effort at key $KEY"
     flush_mirror
@@ -698,10 +971,19 @@ cmd_resolve() {
     CUR_MODEL=$ALLOC_MODEL
     CUR_EFFORT=$ALLOC_EFFORT
     NET=$ALLOC_NET
+    consume_petition
     apply_events
+    discard_petition
   fi
 
-  clamp_tier "$CUR_MODEL" "$CUR_EFFORT"
+  # The per-step key sits BETWEEN the ladder and the clamps, and the order is
+  # the contract: the step tier is compared against the unit's DERIVED tier (so
+  # a unit that escalated is what a review step is measured against), and the
+  # clamps then bind on whatever the step actually launches at (so a step tier
+  # can never be used to slip past a clamp).
+  apply_step_type
+
+  clamp_tier "$LAUNCH_MODEL" "$LAUNCH_EFFORT"
 
   if [ "$CL_ADMIT" = withheld ]; then
     res_m=-
@@ -713,8 +995,21 @@ cmd_resolve() {
     outcome=resolved
     [ "$DEGRADED" = no ] || outcome=degraded
   fi
-  record launch "$CUR_MODEL" "$CUR_EFFORT" "$CL_MODEL" "$CL_EFFORT" "$res_m" "$res_e" \
-    unit "$outcome" "key=$KEY;rung=$RUNG;clamps=$CL_CLAMPS;signal=$USAGE;adaptation=$ADAPT_STATE" \
+  # The proposal recorded here is the tier that actually entered the clamps.
+  # With no step type named it IS the unit's derived tier, so this row is
+  # byte-identical to what it has always been; with one applied, recording the
+  # unit's tier instead would leave a clamped step launch unexplainable.
+  #
+  # The SCOPE follows the same rule. A launch that ran at a step tier is "this
+  # launch only" by definition, and marking it `unit` would let `last-tier` —
+  # which answers "the tier this unit last launched at", and is what a degraded
+  # relaunch falls back to — hand the step's tier back as the unit's own. That
+  # is the leak the scope mark exists to prevent, through a reader `alloc_replay`
+  # does not cover.
+  launch_scope=unit
+  [ "$STEP_SCOPE" = applied ] && launch_scope=step
+  record launch "$LAUNCH_MODEL" "$LAUNCH_EFFORT" "$CL_MODEL" "$CL_EFFORT" "$res_m" "$res_e" \
+    "$launch_scope" "$outcome" "key=$KEY;rung=$RUNG;clamps=$CL_CLAMPS;signal=$USAGE;adaptation=$ADAPT_STATE;step=$STEP_SCOPE" \
     || true
 
   release_unit_lock
@@ -733,7 +1028,65 @@ cmd_resolve() {
   flush_mirror
 
   emit "$CL_ADMIT" "$res_m" "$res_e" "$COMMAND" "$CONCURRENCY" "$RUNG" \
-    "$ADAPT_STATE" "$CUR_MODEL" "$CUR_EFFORT" "$NET"
+    "$ADAPT_STATE" "$LAUNCH_MODEL" "$LAUNCH_EFFORT" "$NET"
+}
+
+# apply_step_type: decide whether this launch's named step type lowers it, and
+# record the decision. Reads CUR_MODEL / CUR_EFFORT (the unit's derived tier)
+# and sets LAUNCH_MODEL / LAUNCH_EFFORT (the tier this launch proposes to the
+# clamps) plus STEP_SCOPE. It NEVER writes CUR_MODEL / CUR_EFFORT / NET: that is
+# the restore-after property, and keeping the unit's variables out of this
+# function is how it is enforced rather than merely intended.
+apply_step_type() {
+  LAUNCH_MODEL=$CUR_MODEL
+  LAUNCH_EFFORT=$CUR_EFFORT
+  STEP_SCOPE=none
+  [ -n "$STEP_TYPE" ] || return 0
+
+  # Every step row records a DECISION about one launch, never a launch outcome,
+  # so its resolved columns are `-`. Writing a tier there would make the row
+  # answer `last-tier` — the degraded-relaunch fallback — with a value that is
+  # pre-clamp, and that the unit may never have run at (the launch was still
+  # withheld). The launch row is the one that says what ran.
+  if [ "$STEP_MODEL" = inherit ] && [ "$STEP_EFFORT" = inherit ]; then
+    STEP_SCOPE=inherit
+    record step-tier inherit inherit - - - - \
+      step inherit "key=$KEY;step-type=$STEP_TYPE;step=inherit" || true
+    return 0
+  fi
+
+  # Compose the joint point before comparing: a tier is a (model, effort) pair,
+  # so an unconfigured column takes the unit's current value and the
+  # cheaper-than test is over two whole tiers rather than one column.
+  ast_pm=$STEP_MODEL
+  ast_pe=$STEP_EFFORT
+  [ "$ast_pm" = inherit ] && ast_pm=$CUR_MODEL
+  [ "$ast_pe" = inherit ] && ast_pe=$CUR_EFFORT
+
+  # `-1` is STRICTLY cheaper, in the model-major cost order D-8 pins. Equal and
+  # more expensive both take the ignore path, which is what one-directional
+  # means. A comparison that cannot be performed is recorded as its own reason
+  # rather than as `not-cheaper`, so a ledger row never claims a verdict the
+  # code did not reach.
+  if ast_cmp=$(alloc_cost_cmp "$ast_pm" "$ast_pe" "$CUR_MODEL" "$CUR_EFFORT"); then
+    ast_reason=not-cheaper
+  else
+    ast_cmp=""
+    ast_reason=uncomparable
+    DEGRADED=clamp-input
+  fi
+
+  if [ "$ast_cmp" = "-1" ]; then
+    LAUNCH_MODEL=$ast_pm
+    LAUNCH_EFFORT=$ast_pe
+    STEP_SCOPE=applied
+    record step-tier "$ast_pm" "$ast_pe" - - - - \
+      step applied "key=$KEY;step-type=$STEP_TYPE;unit=$CUR_MODEL/$CUR_EFFORT" || true
+    return 0
+  fi
+  STEP_SCOPE=ignored
+  record step-tier "$ast_pm" "$ast_pe" - - - - \
+    step ignored "key=$KEY;step-type=$STEP_TYPE;unit=$CUR_MODEL/$CUR_EFFORT;reason=$ast_reason" || true
 }
 
 # apply_events: move the ladder at most one step per distinct INCIDENT class, in
@@ -748,8 +1101,14 @@ apply_events() {
       *" $ae_inc "*) continue ;;
     esac
     ae_seen="$ae_seen $ae_inc"
-    # And never twice for the same incident across boundaries.
-    incident_seen "$ae_inc" && continue
+    # And never twice for the same incident across boundaries — except the
+    # petition, whose own single-consumption lifecycle is that guarantee
+    # (REQ-C1.7). The artifact is gone once weighed, so a second petition at the
+    # same (step, attempt) is a fresh signal the worker had to re-arm, and
+    # reading it as a replay would silently swallow it.
+    if [ "$ae_inc" != petition ]; then
+      incident_seen "$ae_inc" && continue
+    fi
 
     ae_dir=$(alloc_event_dir "$ae_ev")
     if [ "$ae_dir" = up ]; then

@@ -150,6 +150,23 @@ for wf in "$WORKFLOW" "$TEMPLATE_WORKFLOW"; do
   else
     fail "C1.1 $label missing the workflow_run / success / main gate"
   fi
+  # ...and pinned to a run this repository produced. `conclusion` and
+  # `head_branch` both describe the TRIGGERING run, never who produced it, so
+  # without this clause a fork PR from a branch named `main` (the default name)
+  # completes CI in the base repo and fires this contents:write job: an
+  # outsider then controls when it runs, and the `success` it reports is the
+  # FORK's verdict, so a green fork run can propose a release off a red main.
+  # Everything from the first `#` on is stripped, so the clause must be live
+  # content: a TRAILING comment naming it does not satisfy this, which dropping
+  # only whole-line comments would have allowed. Same treatment, and the same
+  # accepted residual (a literal `#` earlier on the line truncates it and fails
+  # loud), as the scan in scripts/check-workflow-posture.sh.
+  if sed 's/#.*$//' "$wf" \
+    | grep -qE 'head_repository\.full_name[[:space:]]*==[[:space:]]*github\.repository'; then
+    pass "C1.1 $label fires only for runs produced by this repository"
+  else
+    fail "C1.1 $label does not pin workflow_run to head_repository == github.repository"
+  fi
 done
 
 # The live workflow's workflow_run references a workflow named `ci`; that
@@ -388,11 +405,10 @@ else
   fail "H1.1 the checkout does not explicitly fetch --tags and origin/main"
 fi
 
-# obs:131af768: this job holds contents: write and pull-requests: write, and its
-# head_branch == 'main' filter is satisfiable by a fork PR whose head branch is
-# literally named `main`. guard-coverage D-6 accepted that residual BECAUSE the
-# job checked out no PR code; adding a checkout only keeps that acceptance true
-# if the checkout resolves the repository's own default branch.
+# This job holds contents: write and pull-requests: write. The head_repository
+# clause asserted above is what keeps a fork's run from firing it at all; the
+# default-branch pin asserted here is the second line, so an edit to that `if:`
+# cannot quietly make the checkout resolve PR-authored content.
 if grep -qE "ref:[[:space:]]*\\\$\{\{[[:space:]]*github\.event\.repository\.default_branch[[:space:]]*\}\}" \
   "$WORKFLOW"; then
   pass "H1.1 the checkout pins the repository's own default branch"
