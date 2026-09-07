@@ -435,7 +435,7 @@ check_health() {
       if ($1 + 0 <= prev) { print "row " NR ": sequence is not strictly increasing"; exit }
       prev = $1 + 0
       if ($2 !~ /^[0-9]+$/) { print "row " NR ": non-numeric timestamp"; exit }
-      if ($5 !~ /^[0-9]+$/) { print "row " NR ": non-numeric attempt"; exit }
+      if ($5 !~ /^(0|[1-9][0-9]*)$/) { print "row " NR ": malformed attempt"; exit }
       if (!($6 in ev)) { print "row " NR ": unknown event class"; exit }
       for (i = 7; i <= 11; i += 2)
         if (!($i in md)) { print "row " NR ": unknown model in field " i; exit }
