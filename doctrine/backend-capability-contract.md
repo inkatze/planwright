@@ -292,12 +292,11 @@ own usage string is the argument contract) and applies it under these rules:
   as separate arguments — never interpolated into a command string.
 - **Never silently.** Full inheritance, partial inheritance, and an errored
   capability probe each leave a ledger row naming the dimension and the cause.
-- **On the exit code, not the plan alone.** Exit 3 is a unit the admission gate
-  withheld. The plan still prints, carrying `inherit` in both dimensions, so a
-  caller that reads only the plan applies nothing and launches exactly what the
-  gate refused. Do not launch it. Exit 6 (the allocation store is unreachable)
-  is the single code a caller may degrade past, launching at the ambient tier
-  and saying so; every other nonzero code aborts the launch.
+- **On the exit code, not the plan alone.** Exit 3 means the gate withheld the
+  unit: the plan still prints, carrying `inherit` in both dimensions, so a
+  caller reading only the plan launches what the gate refused. Do not launch.
+  Only exit 6 (unreachable store) may be degraded past, launching at the ambient
+  tier and saying so; every other nonzero aborts.
 
 **The in-session rung's pinned degradation (REQ-B1.3, D-4).** Work on the
 `in-session` rung (the `/offload` sense: the operator's own session, inline)
