@@ -166,7 +166,7 @@ new_wt() {
 
 reset_state() {
   rm -rf "$fleet_home"
-  rm -f "$mlocal_cfg" "$tmp/invocations"
+  rm -f "$mlocal_cfg"
 }
 
 # adaptation_on [cap]: arm the master knob (and optionally the cap) through the
@@ -762,5 +762,22 @@ grep -q '`allocation_petition`' "$here/../docs/options-reference.md" \
 /bin/bash "$here/../scripts/check-options-reference.sh" >/dev/null \
   || fail "17c: check-options-reference failed"
 echo "ok: the knob ships documented and the options-reference guard passes"
+
+# --- 18. no outbound client was reached anywhere above (REQ-A1.1) ---------
+# The stubs have been recording since the first case; the ledger is never
+# cleared between them, so this covers the whole run rather than the last case.
+
+[ ! -f "$tmp/invocations" ] \
+  || fail "18: an outbound client was invoked in the petition path: $(sort -u "$tmp/invocations" | tr '\n' ' ')"
+echo "ok: the petition path reached zero outbound clients"
+
+# --- 19. positive control: the stubs really are on PATH -------------------
+# Without this, case 18 would also pass if the stubs were never reachable.
+
+rm -f "$tmp/invocations"
+PATH="$stubbin:$PATH" claude >/dev/null 2>&1 || true
+[ -f "$tmp/invocations" ] || fail "19: stub positive control failed (stub not reachable on PATH)"
+rm -f "$tmp/invocations"
+echo "ok: the no-LLM stubs are verified reachable"
 
 echo "PASS: allocation-petition ($(basename "$0"))"
