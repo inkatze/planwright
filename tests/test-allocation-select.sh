@@ -40,6 +40,7 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 AS="$here/../scripts/allocation-select.sh"
 FRS="$here/../scripts/fleet-resource-select.sh"
+LADDER="$here/../scripts/allocation-ladder.sh"
 GOLDEN="$here/fixtures/allocation-golden-baseline.tsv"
 TAB=$(printf '\t')
 
@@ -230,9 +231,9 @@ got=$(run select execution 2>/dev/null) || fail "fallback(b): select execution e
   || fail "REQ-A1.3(b): an unset general knob must fall back to fleet_*, got '$got'"
 #    (c) general only: the `allocation_*` knob decides.
 reset_layers
-printf 'allocation_model_execution: fable\nallocation_effort_execution: medium\nallocation_command_execution: orchestrate\n' >"$mlocal_cfg"
+printf 'allocation_model_execution: sonnet\nallocation_effort_execution: medium\nallocation_command_execution: orchestrate\n' >"$mlocal_cfg"
 got=$(run select execution 2>/dev/null) || fail "fallback(c): select execution exited nonzero"
-[ "$got" = "fable${TAB}medium${TAB}orchestrate" ] \
+[ "$got" = "sonnet${TAB}medium${TAB}orchestrate" ] \
   || fail "REQ-A1.3(c): a set general knob must decide, got '$got'"
 #    (d) both set: the general knob wins over the legacy one.
 reset_layers
@@ -240,12 +241,12 @@ cat >"$mlocal_cfg" <<'EOF'
 fleet_model_execution: haiku
 fleet_effort_execution: low
 fleet_command_execution: drain
-allocation_model_execution: fable
+allocation_model_execution: sonnet
 allocation_effort_execution: medium
 allocation_command_execution: orchestrate
 EOF
 got=$(run select execution 2>/dev/null) || fail "fallback(d): select execution exited nonzero"
-[ "$got" = "fable${TAB}medium${TAB}orchestrate" ] \
+[ "$got" = "sonnet${TAB}medium${TAB}orchestrate" ] \
   || fail "REQ-A1.3(d): the general knob must win over fleet_*, got '$got'"
 #    Precedence is per column and per key: an untouched sibling is unmoved.
 got=$(run select bookkeeping 2>/dev/null) || fail "fallback: select bookkeeping exited nonzero"
@@ -334,6 +335,58 @@ for col in model effort; do
     || fail "'inherit' on a fleet task-type $col knob must hard-fail exit 4, got $rc"
 done
 echo "ok: inherit is refused at the fleet task-type keys"
+
+# 5d. The ladder top is ESCALATION-ONLY: it is reachable by escalating, never
+#     by configuration. The successor rule raises effort to `high` and only
+#     then the model one alias, so (top, high) is the top's one reachable
+#     coordinate — a unit configured to START there would open with the whole
+#     ladder's headroom already spent. The refusal is the same by-layer policy
+#     `inherit` gets above, and it covers every knob family that can name a
+#     starting tier: the general one, the deprecated legacy one, and the
+#     per-step one.
+# The roster is read from the ladder rather than spelled here, so appending a
+# model moves this case onto the new top instead of quietly testing a rung that
+# has stopped being one.
+# shellcheck source=scripts/allocation-ladder.sh
+. "$LADDER"
+top_model=''
+for m in $ALLOC_MODELS; do top_model=$m; done
+[ -n "$top_model" ] \
+  || fail "the ladder's roster is empty — this case would otherwise assert nothing"
+for knob in allocation_model_execution fleet_model_execution allocation_model_step_polish; do
+  reset_layers
+  printf '%s: %s\n' "$knob" "$top_model" >"$tracked_cfg"
+  rc=0
+  case $knob in
+    *_step_*) run step-tier polish >/dev/null 2>&1 || rc=$? ;;
+    *) run resolve execution model >/dev/null 2>&1 || rc=$? ;;
+  esac
+  [ "$rc" = 4 ] \
+    || fail "'$top_model' on $knob must hard-fail exit 4 as an escalation-only tier, got $rc"
+done
+#     Control: the alias one rung below the top IS configurable on all three,
+#     so the refusal above is the escalation-only rule and not a knob that
+#     stopped accepting models altogether.
+below_top=''
+prev=''
+for m in $ALLOC_MODELS; do
+  if [ "$m" = "$top_model" ]; then below_top=$prev; fi
+  prev=$m
+done
+[ -n "$below_top" ] || fail "could not derive the alias below the ladder top"
+for knob in allocation_model_execution fleet_model_execution allocation_model_step_polish; do
+  reset_layers
+  printf '%s: %s\n' "$knob" "$below_top" >"$tracked_cfg"
+  case $knob in
+    *_step_*) got=$(run step-tier polish) || fail "control: step-tier exited nonzero for $below_top" ;;
+    *) got=$(run resolve execution model) || fail "control: resolve exited nonzero for $below_top" ;;
+  esac
+  case $got in
+    "$below_top"*) ;;
+    *) fail "control: $knob should accept '$below_top', got '$got'" ;;
+  esac
+done
+echo "ok: the ladder top is refused as a starting tier while the rung below it is not"
 
 # 6. The command column is fleet-only (D-5): asking a non-fleet surface for it
 #    is a refusal, not an empty string, and `select` marks it absent with `-`.
@@ -479,6 +532,10 @@ broken="$tmp/broken-tree"
 mkdir -p "$broken"
 cp "$AS" "$broken/allocation-select.sh"
 cp "$here/../scripts/echo-safety.sh" "$broken/echo-safety.sh"
+# The ladder is copied too: its own guard runs BEFORE the resolver is ever
+# consulted, so withholding it here would make this case exit 5 for 12c's
+# reason instead of its own.
+cp "$LADDER" "$broken/allocation-ladder.sh"
 rc=0
 PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken/allocation-select.sh" select execution >/dev/null 2>&1 || rc=$?
 [ "$rc" = 5 ] || fail "missing shared resolver: exit $rc, expected 5 (broken install)"
@@ -495,10 +552,35 @@ broken_es="$tmp/broken-echo-safety"
 mkdir -p "$broken_es"
 cp "$AS" "$broken_es/allocation-select.sh"
 cp "$here/../scripts/resolve-config-knob.sh" "$broken_es/resolve-config-knob.sh"
+cp "$LADDER" "$broken_es/allocation-ladder.sh"
 rc=0
 PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken_es/allocation-select.sh" select execution >/dev/null 2>&1 || rc=$?
 [ "$rc" = 5 ] || fail "missing echo-safety.sh: exit $rc, expected 5 (broken install)"
 echo "ok: a missing echo-discipline sanitizer is broken-install exit 5"
+
+# 12c. A missing allocation-ladder.sh is the third face of the same broken
+#      install. The roster and its rank map live there and are sourced, not
+#      restated, so without the ladder the model column has no enum at all and
+#      every value would resolve against an empty one. Guarded rather than
+#      sourced bare for the reason 12b gives. Only the ladder is withheld: the
+#      resolver and the sanitizer are present, so a pass here can come from no
+#      other guard.
+broken_lad="$tmp/broken-ladder"
+mkdir -p "$broken_lad"
+cp "$AS" "$broken_lad/allocation-select.sh"
+cp "$here/../scripts/resolve-config-knob.sh" "$broken_lad/resolve-config-knob.sh"
+cp "$here/../scripts/echo-safety.sh" "$broken_lad/echo-safety.sh"
+cp "$here/../scripts/config-get.sh" "$broken_lad/config-get.sh"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken_lad/allocation-select.sh" select execution >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "missing allocation-ladder.sh: exit $rc, expected 5 (broken install)"
+#      Control: the same tree with the ladder restored resolves cleanly, so the
+#      exit above is the missing ladder and not the trimmed tree itself.
+cp "$LADDER" "$broken_lad/allocation-ladder.sh"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken_lad/allocation-select.sh" resolve execution model) \
+  || fail "control: the restored tree should resolve, but exited nonzero"
+[ "$got" = opus ] || fail "control: the restored tree resolved '$got', expected the shipped default"
+echo "ok: a missing tier ladder is broken-install exit 5"
 
 # 13. Positive control for the zero-invocation stub: the stub IS reachable on
 #     the prefixed PATH, so test 3's assertion is not vacuous.

@@ -262,8 +262,20 @@ tower_relaunch_disable_threshold: 3
 # D-22/REQ-G1.5, the customization-overlay REQ-E1.4 by-layer malformed
 # policy) so an overlay can
 # route a tier to a different model without a code change. Legal values are
-# the stable Claude Code model aliases (fable | opus | sonnet | haiku) —
-# aliases, not dated model ids, so the enum survives model releases. Effort
+# the stable Claude Code model aliases — aliases, not dated model ids, so the
+# enum survives model releases — MINUS the ladder top, which is
+# escalation-only: opus | sonnet | haiku.
+#
+# WHY THE TOP IS NOT A STARTING TIER. The adaptation ladder escalates by
+# raising effort to `high` and only then the model one alias, so (fable, high)
+# is the only coordinate at which fable is ever reached. A unit configured to
+# START there would open with the ladder's entire headroom already spent and
+# no rung left to escalate into. Escalation still reaches fable; naming it
+# here does not. A config that does is refused under the same by-layer policy
+# as any other out-of-enum value. The roster itself lives in
+# scripts/allocation-ladder.sh and is APPEND-ONLY: a new model goes above the
+# current top, never between two existing ones, because rank is that list's
+# index and the ledger replays recorded directions through it. Effort
 # and command are overlay-tunable too, through the knobs in the next block
 # (fleet-autonomy Task 10, D-24, REQ-E1.8). Selection is deterministic table
 # lookup: no LLM call is ever in the resolution path (D-18).
@@ -313,6 +325,9 @@ fleet_command_drain: drain
 # outrank every existing fleet_* overlay, which is exactly the upgrade-day
 # behavior change REQ-A1.2 forbids. The fleet_* family stays a DEPRECATED
 # FALLBACK — documented, never removed — so those overlays keep working.
+#
+# The model column takes the same starting-tier enum as the fleet_* family
+# above, ladder top excluded, for the reason spelled out there.
 allocation_model_execution: unset
 allocation_model_bookkeeping: unset
 allocation_model_drain: unset
@@ -375,6 +390,10 @@ allocation_effort_offload: inherit
 #
 # The key space is OPEN: a review skill added later needs no row here, because
 # its knob is absent from every layer and resolves to `inherit`.
+#
+# The model column takes the starting-tier enum (ladder top excluded, see the
+# fleet_model_* block above). A step tier only ever applies when it is CHEAPER
+# than the unit's, so the top could never apply here in any case.
 allocation_model_step_implementation: inherit
 allocation_effort_step_implementation: inherit
 allocation_model_step_polish: inherit

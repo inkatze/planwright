@@ -52,9 +52,23 @@
 
 # The model aliases in COST order, cheapest first. Rank is an index into it, so
 # a HIGHER rank is a MORE EXPENSIVE model (the opposite polarity from
-# fleet-allocate.sh's cost index — that one counts downward from `fable`).
+# fleet-allocate.sh's cost index — that one counts downward from the top).
 # Keeping the ladder's own polarity ascending is what makes "escalate" a `+1`
 # here and keeps the successor rule readable.
+#
+# THIS IS THE ONLY ROSTER. A consumer needing the aliases as a column enum, a
+# rank, or a cost index reads the variables and functions below rather than
+# spelling the list again; a second copy is the drift this file exists to
+# prevent.
+#
+# THE ROSTER IS APPEND-ONLY. A new model goes at the END, above the current
+# top; one is never INSERTED between two existing entries and never removed.
+# Insertion is the hazard, not addition. Rank is this list's index, and replay
+# is memoryless: it re-derives a unit's tier by stepping the DIRECTIONS its
+# ledger recorded back through the successor rule, so renumbering the ranks
+# changes what every past run replays to. Appending shifts no existing rank.
+# tests/test-allocation-ladder.sh pins each shipped alias to its rank BY NAME,
+# so an insertion fails loudly there while an append passes.
 #
 # Both lists double as the COLUMN ENUMS a sourcing script hands to the shared
 # knob resolver as `--values`, which is a use shellcheck cannot see across the
@@ -63,30 +77,58 @@
 ALLOC_MODELS='haiku sonnet opus fable'
 # shellcheck disable=SC2034 # consumed by the sourcing script, not here
 ALLOC_EFFORTS='low medium high'
-ALLOC_MODEL_TOP=3
-ALLOC_EFFORT_TOP=2
 
-# alloc_model_rank <alias>: 0 (haiku) .. 3 (fable). Returns 1 on an unknown
-# alias so every caller fails closed rather than defaulting to a tier.
+# Derived from the two rosters, never restated: the top rank of each, and the
+# expensive-first spelling the consumer enums read in.
+ALLOC_MODEL_TOP=-1
+# shellcheck disable=SC2034 # consumed by the sourcing script, not here
+ALLOC_MODELS_DESC=''
+for al_x in $ALLOC_MODELS; do
+  ALLOC_MODEL_TOP=$((ALLOC_MODEL_TOP + 1))
+  ALLOC_MODELS_DESC="$al_x${ALLOC_MODELS_DESC:+ }$ALLOC_MODELS_DESC"
+done
+ALLOC_EFFORT_TOP=-1
+for al_x in $ALLOC_EFFORTS; do
+  ALLOC_EFFORT_TOP=$((ALLOC_EFFORT_TOP + 1))
+done
+unset al_x
+
+# The STARTING-tier roster: every model except the ladder top. The top is
+# ESCALATION-ONLY — the successor rule makes (top, high) its one reachable
+# coordinate, so naming it as a configured starting tier would hand a unit the
+# whole ladder's headroom at launch with nothing left to escalate into.
+# allocation-select.sh resolves configured starting tiers against these.
+# shellcheck disable=SC2034 # consumed by the sourcing script, not here
+ALLOC_START_MODELS=${ALLOC_MODELS% *}
+# shellcheck disable=SC2034 # consumed by the sourcing script, not here
+ALLOC_START_MODELS_DESC=${ALLOC_MODELS_DESC#* }
+
+# alloc_model_rank <alias>: the alias's index into ALLOC_MODELS, 0 at the
+# cheapest. Returns 1 on an unknown alias so every caller fails closed rather
+# than defaulting to a tier.
 alloc_model_rank() {
-  case $1 in
-    haiku) printf 0 ;;
-    sonnet) printf 1 ;;
-    opus) printf 2 ;;
-    fable) printf 3 ;;
-    *) return 1 ;;
-  esac
+  al_i=0
+  for al_x in $ALLOC_MODELS; do
+    if [ "$al_x" = "$1" ]; then
+      printf '%s' "$al_i"
+      return 0
+    fi
+    al_i=$((al_i + 1))
+  done
+  return 1
 }
 
 # alloc_model_at <rank>: the inverse. Returns 1 on an out-of-range rank.
 alloc_model_at() {
-  case $1 in
-    0) printf haiku ;;
-    1) printf sonnet ;;
-    2) printf opus ;;
-    3) printf fable ;;
-    *) return 1 ;;
-  esac
+  al_i=0
+  for al_x in $ALLOC_MODELS; do
+    if [ "$al_i" = "$1" ]; then
+      printf '%s' "$al_x"
+      return 0
+    fi
+    al_i=$((al_i + 1))
+  done
+  return 1
 }
 
 # alloc_effort_rank <effort>: 0 (low) .. 2 (high). Returns 1 on an unknown value.
@@ -117,14 +159,22 @@ alloc_valid_tier() {
 }
 
 # alloc_is_top <model> <effort>: 0 at the ladder top, where a further escalation
-# has nowhere to go and is recorded as a no-op.
+# has nowhere to go and is recorded as a no-op. Derived from the rosters, so
+# appending a model moves the top with it rather than leaving this pinned to
+# what used to be the most expensive alias.
 alloc_is_top() {
-  [ "$1" = fable ] && [ "$2" = high ]
+  al_v=$(alloc_model_rank "$1") || return 1
+  [ "$al_v" -eq "$ALLOC_MODEL_TOP" ] || return 1
+  al_v=$(alloc_effort_rank "$2") || return 1
+  [ "$al_v" -eq "$ALLOC_EFFORT_TOP" ]
 }
 
 # alloc_is_bottom <model> <effort>: 0 at the ladder floor.
 alloc_is_bottom() {
-  [ "$1" = haiku ] && [ "$2" = low ]
+  al_v=$(alloc_model_rank "$1") || return 1
+  [ "$al_v" -eq 0 ] || return 1
+  al_v=$(alloc_effort_rank "$2") || return 1
+  [ "$al_v" -eq 0 ]
 }
 
 # alloc_successor <model> <effort>: print the next tier UP the movement path as

@@ -226,7 +226,8 @@ ok "an unreachable allocation store degrades to an ambient launch and says so"
 # --------------------------------------------------------------------------
 skew_od="$tmp/od-install"
 mkdir -p "$skew_od"
-cp "$OD" "$REPO_ROOT/scripts/echo-safety.sh" "$skew_od/" || fail "staging the od install"
+cp "$OD" "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/allocation-ladder.sh" \
+  "$skew_od/" || fail "staging the od install"
 stage_plan() {
   # $1 the plan body a stubbed apply layer answers with.
   cat >"$skew_od/allocation-apply.sh" <<STUB
