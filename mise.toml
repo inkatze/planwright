@@ -154,6 +154,14 @@ run = "/bin/bash scripts/check-doctrine-index.sh"
 description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-doctrine-manifest.sh"
 
+[tasks."check:guard-wiring"]
+description = "guard-reachability check: every scripts/check-*.sh must be named in the run body of a mise task reachable from the `check` aggregate, in a workflow, or in scripts/guard-wiring-allow.txt with who runs it instead. A guard nothing invokes cannot fail, which is indistinguishable from one that always passes. Fails closed on anything that would narrow the scan to nothing"
+run = "/bin/sh scripts/check-guard-wiring.sh"
+
+[tasks."check:backend-capability-drift"]
+description = "backend capability-contract drift check: the prose contract, caps_for() and the fleet.md backend table must agree on every backend"
+run = "/bin/sh scripts/check-backend-capability-drift.sh"
+
 [tasks."check:cdpath"]
 description = "CDPATH house-pattern guard: fail on any shell file under scripts/, tests/, or githooks/ that resolves paths through a cd command substitution without a top-level 'unset CDPATH'; enumerates by shebang or .sh suffix so both the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (guard-coverage Task 10, REQ-G1.2, REQ-H1.3, D-12)"
 run = "/bin/bash scripts/check-cdpath.sh"
@@ -202,6 +210,8 @@ depends = [
   "check:doctrine-index",
   "check:doctrine-manifest",
   "check:cdpath",
+  "check:guard-wiring",
+  "check:backend-capability-drift",
   "check:specs",
   "scan:secrets",
 ]
