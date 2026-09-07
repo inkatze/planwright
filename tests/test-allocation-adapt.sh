@@ -334,15 +334,24 @@ out=$(run resolve floor:unit --key drain --step s2 --attempt 1 --event petition-
 [ "$(printf '%s\n' "$out" | field model)" = haiku ] || fail "7c: the ladder floor is not a hard stop"
 [ "$(rows_with floor:unit no-op)" -ge 1 ] || fail "7d: a floored de-escalation must record a no-op row"
 
-# The ladder TOP is a hard stop too, with its own no-op row.
+# The ladder TOP is a hard stop too, with its own no-op row. The top is
+# ESCALATION-ONLY, so this fixture has to CLIMB to it rather than configure it:
+# it starts one rung below at `high` effort, where a single successor step
+# lands exactly on the top.
 reset_state
 adaptation_on 4
-printf 'allocation_model_drain: fable\nallocation_effort_drain: high\n' >>"$mlocal_cfg"
+printf 'allocation_model_drain: opus\nallocation_effort_drain: high\n' >>"$mlocal_cfg"
 capture_signal 10 10
 out=$(run resolve top:unit --key drain --step s1 --attempt 1 --event step-failure) \
   || fail "7: resolve failed"
-[ "$(printf '%s\n' "$out" | field model)" = fable ] || fail "7e: the ladder top should hold at fable"
-[ "$(rows_with top:unit no-op)" -ge 1 ] || fail "7f: a ladder-top escalation must record a no-op row"
+[ "$(printf '%s\n' "$out" | field model)" = fable ] \
+  || fail "7e: one escalation from (opus, high) should land on the ladder top"
+[ "$(printf '%s\n' "$out" | field effort)" = high ] \
+  || fail "7e: the successor rule keeps effort high across a model step"
+out=$(run resolve top:unit --key drain --step s2 --attempt 1 --event step-failure) \
+  || fail "7: resolve failed"
+[ "$(printf '%s\n' "$out" | field model)" = fable ] || fail "7f: the ladder top should hold at fable"
+[ "$(rows_with top:unit no-op)" -ge 1 ] || fail "7g: a ladder-top escalation must record a no-op row"
 echo "ok: de-escalation reverses before mirroring; both ladder ends are hard stops"
 
 # --- 13. inherit surfaces, and stuck states folding into crash-loop -------
@@ -603,13 +612,16 @@ echo "ok: restore-after — a scope-marked step launch leaves the unit's ladder 
 
 # --- 15d. an equal or more expensive step tier is IGNORED with a row -------
 
+#      Keyed on `bookkeeping` rather than `execution`: the unit has to sit
+#      BELOW the top of the configurable range for a more expensive step tier
+#      to be expressible at all, now that the ladder top is escalation-only.
 reset_state
-step_knobs polish fable high
-out=$(run resolve up:unit --key execution --step-type polish) \
+step_knobs polish opus high
+out=$(run resolve up:unit --key bookkeeping --step-type polish) \
   || fail "15d: resolve with a more expensive step tier failed"
-[ "$(printf '%s\n' "$out" | field model)" = opus ] \
+[ "$(printf '%s\n' "$out" | field model)" = sonnet ] \
   || fail "15d: a more expensive step tier must be IGNORED, got $(printf '%s\n' "$out" | field model)"
-[ "$(printf '%s\n' "$out" | field effort)" = high ] \
+[ "$(printf '%s\n' "$out" | field effort)" = medium ] \
   || fail "15d: the unit's effort must be untouched by an ignored step tier"
 [ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] \
   || fail "15d: an ignored step tier must report an ignored step scope"
@@ -635,7 +647,7 @@ echo "ok: a step tier equal to the unit's tier is ignored"
 
 reset_state
 escalation_ready
-step_knobs polish fable high
+step_knobs polish opus high
 run resolve noratchet:unit --key bookkeeping --step s1 --attempt 1 --event step-failure >/dev/null \
   || fail "15e: the seeding escalation failed"
 run resolve noratchet:unit --key bookkeeping --step s2 --attempt 1 --step-type polish >/dev/null \
