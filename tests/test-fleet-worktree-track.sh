@@ -166,7 +166,7 @@ out=$(printf '%s' "$payload" | wt hook-remove) || rc=$?
 # indistinguishable from "the entry is gone", so the assertion would pass on a
 # registry it never actually read. Absence checks need the status; the presence
 # checks further down already fail closed on empty output.
-listing=$(wt list) || fail "list failed after hook-remove, so its absence check would be vacuous"
+listing=$(wt list) || fail "list failed (exit $?) after hook-remove, so its absence check would be vacuous"
 case $listing in
   *"/work/hooked-wt"*) fail "hook-remove did not drop the worktree" ;;
 esac
@@ -198,9 +198,10 @@ printf '%s' "$payload" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
 [ "$rc" = 0 ] || fail "hook-remove (no jq) exit $rc, expected 0"
 # Same reasoning as the absence check in 4: take the status, or a failed read
 # reads as a successful removal. The `2>/dev/null` here makes it worse, since it
-# hides the diagnostic that would otherwise hint at what happened.
+# hides the diagnostic that would otherwise hint at what happened, which leaves
+# the exit status as the only thing left to report.
 listing=$(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" list 2>/dev/null) \
-  || fail "list failed after hook-remove (no jq), so its absence check would be vacuous"
+  || fail "list failed (exit $?) after hook-remove (no jq), so its absence check would be vacuous"
 case $listing in
   *"/work/hooked-wt"*) fail "hook-remove (no jq) did not drop the worktree via the sed fallback" ;;
 esac
