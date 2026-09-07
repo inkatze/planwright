@@ -756,6 +756,23 @@ out=$(run resolve wh:unit --key execution --step-type polish) || fail "15j: the 
   || fail "15j: a withheld step launch left a tier behind: $(run_led last-tier wh:unit | tr "$TAB" /)"
 echo "ok: a withheld step launch leaves no step tier for a degraded relaunch"
 
+# The same hole, reached without a step type at all: an ESCALATION row carries
+# the post-move ladder tier in its resolved columns at `unit` scope, so when the
+# launch it escalated for is withheld — leaving the launch row`s tier `-` — it
+# is the last row `last-tier` can see. A degraded relaunch would then start at a
+# tier the unit never ran at, and one the clamps had just refused to admit.
+
+reset_state
+escalation_ready
+seed_rung defer-all
+out=$(run resolve esc:unit --key execution --event step-failure) \
+  || fail "15j: the withheld escalated launch failed"
+[ "$(printf '%s\n' "$out" | field admit)" = withheld ] \
+  || fail "15j: the escalation fixture should be withheld"
+[ -z "$(run_led last-tier esc:unit)" ] \
+  || fail "15j: a withheld escalated launch left a tier behind: $(run_led last-tier esc:unit | tr "$TAB" /)"
+echo "ok: a withheld escalated launch leaves no ladder tier for a degraded relaunch"
+
 # --- 15k. clamps still bind on what the step actually launches at ----------
 #
 # apply_step_type moved the tier that enters clamp_tier. Every other step

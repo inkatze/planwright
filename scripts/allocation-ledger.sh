@@ -714,18 +714,25 @@ case "$cmd" in
     require_unit "$1"
     lt_file=$(ledger_path "$1")
     [ -r "$lt_file" ] || exit 0
-    # The last row carrying a REAL resolved tier — a withheld or inherit row
-    # records no tier, and a torn row is skipped rather than trusted.
+    # The last `launch` row carrying a REAL resolved tier — a withheld or
+    # inherit row records no tier, and a torn row is skipped rather than
+    # trusted.
     #
-    # `feedback` rows are excluded because they are not launches. The
-    # terminal-state mark allocation-feedback.sh writes carries the unit's
-    # DERIVED final tier in the resolved columns, which is a ladder position and
-    # not a post-clamp value; letting it answer here would hand a degraded
-    # relaunch a tier the unit never actually ran at (more expensive than the
-    # last launch, wherever a clamp had bound it). This verb answers "the last
-    # tier a launch used", so only launch rows may answer it.
+    # The event test is an ALLOWLIST, and that shape is the point. Several row
+    # types carry a tier in the resolved columns without being a launch: the
+    # terminal-state `feedback` mark records the unit's derived final ladder
+    # position, and an escalation or de-escalation row records the position the
+    # ladder moved to. Both are pre-clamp values the unit may never have run at,
+    # and a withheld launch records no tier of its own, so whichever of them
+    # came last would answer in its place — handing a degraded relaunch a tier
+    # the clamps had just refused to admit. Excluding them one event at a time
+    # only holds until the next row type starts carrying a tier; naming the one
+    # event that may answer holds by construction.
+    #
+    # `unit` scope for the same reason, against a reader `alloc_replay` does not
+    # cover: a step-scoped launch is one launch's decision, never the unit's.
     awk -F '\t' '
-      NF == 15 && $13 == "unit" && $6 != "feedback" && $11 != "-" && $11 != "inherit" { m = $11; e = $12 }
+      NF == 15 && $6 == "launch" && $13 == "unit" && $11 != "-" && $11 != "inherit" { m = $11; e = $12 }
       END { if (m != "") printf "%s\t%s\n", m, e }
     ' "$lt_file"
     ;;
