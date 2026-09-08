@@ -38,7 +38,9 @@ name: release-please
 # Gated on CI success on main (REQ-C1.1): this runs only after the `ci`
 # workflow completes successfully on main, so a release is never proposed off
 # a red main. workflow_run fires on the default branch's workflows; the job's
-# conclusion guard keeps it to green runs.
+# conclusion guard keeps it to green runs, and its head_repository guard keeps
+# it to runs this repository produced — the branch filter here cannot, because
+# it matches the TRIGGERING run's head branch, which a fork PR controls.
 "on":
   workflow_run:
     workflows: [ci]
@@ -61,7 +63,18 @@ concurrency:
 
 jobs:
   release-please:
+    # head_repository first, because the other two clauses describe the
+    # triggering run without saying who produced it. `ci` has a bare
+    # `pull_request` trigger, so a fork PR completes it in this repository, and
+    # a fork PR's head branch is the fork's ref — `main` by default. Without
+    # this clause an outsider both chooses WHEN this contents:write job runs
+    # (re-creating a release PR a maintainer deliberately closed) and supplies
+    # the `success` it acts on, so a green fork run proposes a release off a
+    # `main` that may itself be red. The clause is also what
+    # scripts/check-workflow-posture.sh's assertion 4 now requires of every
+    # privileged workflow_run workflow under .github/workflows/.
     if: >-
+      github.event.workflow_run.head_repository.full_name == github.repository &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
@@ -73,11 +86,10 @@ jobs:
       #
       # `ref` pins the repository's OWN default branch and never
       # github.event.workflow_run.head_sha. This job holds contents: write and
-      # pull-requests: write, and its head_branch == 'main' filter is satisfiable
-      # by a fork PR whose head branch is literally named `main` (obs:131af768).
-      # guard-coverage D-6 accepted that residual because the job checked out no
-      # PR code; pinning the default branch is what keeps that acceptance true
-      # now that it checks something out.
+      # pull-requests: write, and the job's head_repository clause is what keeps
+      # a fork's run from firing it at all; this pin is the second line, so a
+      # future edit to that `if:` cannot silently make the checkout resolve
+      # PR-authored content.
       #
       # persist-credentials: false so the write-scoped GITHUB_TOKEN is not left
       # in .git/config for the rest of the job, which goes on to run a

@@ -5,7 +5,9 @@ Code `Bash(...)` glob rules. Glob rules are easy to write and easy to break
 silently: a `:*` that lands mid-pattern never fires, a rule anchored at
 end-of-string is evaded by one trailing flag, and a rule nobody asserts can be
 deleted with a green suite. To make those failures mechanical rather than a
-matter of careful reading, `tests/test-permission-matcher.sh` asserts a fixture
+matter of careful reading, `tests/test-permission-matcher.sh` (and, for the
+worker profile's `gh pr ready` entries, `tests/test-merge-currency-matrix.sh`)
+asserts a fixture
 table of real `git push` / `git commit` invocations against a **documented
 re-implementation** of Claude Code's matcher, kept in
 `tests/lib/permission-matcher.sh`.

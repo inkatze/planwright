@@ -286,8 +286,9 @@ still degrades behavior.
 - **Cadence.** On demand, and when the instruction files under eval change.
   Never per-commit: the suite is not part of `mise run check` and never runs
   in GitHub CI (cost, nondeterministic gating, and an API-key requirement in
-  a public repo). A standing CI-exclusion check (a prompt-hygiene Task 4
-  deliverable) enforces that no eval task is wired into a CI workflow.
+  a public repo). A standing CI-exclusion check enforces that no eval task is
+  wired into a CI workflow, nor reachable from one through the mise task graph
+  declared in `mise.toml`.
 - **Artifact hygiene.** A recorded eval artifact carries the per-fixture
   graded outcome, the fixture identifier (the paired comparison needs it),
   and the per-run cost — and nothing more. It is scrubbed of machine-local

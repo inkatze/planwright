@@ -216,6 +216,16 @@ default-preserving configuration — shipped defaults change no behavior at any 
 
 ## Changelog
 
+- 2026-09-05 — Expression-only, during Task 6 review: the enumeration below is
+  corrected in place — the count reconciled with the three paths it lists, the
+  `/orchestrate` pointer moved to the step that actually carries the resolution,
+  and the subagent hand-off given the same shape (and manual pass) as its two
+  siblings instead of trailing as prose. No REQ or D-ID changed.
+- 2026-09-05 — Expression-only, during Task 6 execution: REQ-B1.1's test-spec
+  entry gains the by-name enumeration of the `[manual]` remainder it had
+  reserved for Task 6 (the two skill-prose launch points, plus the offload
+  subagent rung's prose hand-off), with each one's static pin and its recorded
+  manual pass. Gap-fill against the accepted decision; no REQ or D-ID changed.
 - 2026-08-24 — Initial draft, elicited via `/spec-draft`. Fold-detection found heavy
   overlap with fleet-autonomy's resource-governance group; spun new per the
   spin-new triggers (independently ownable, spans non-fleet surfaces, bundle-size),

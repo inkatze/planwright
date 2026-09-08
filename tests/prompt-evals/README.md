@@ -147,5 +147,8 @@ Each fixture drives one skill headlessly and grades observable outcomes.
 Evals cost tokens, gate nondeterministically, and need an API key that has no
 place in a public repo's CI. The suite is **not** part of `mise run check` and
 never runs in GitHub CI. `scripts/check-no-ci-evals.sh` (which *is* part of
-`mise run check`) fails if any `eval:` task is wired into a workflow file, so the
-invariant is enforced structurally, not by mere absence from the aggregate.
+`mise run check`) fails if any `eval:` task, or a direct `prompt-eval.sh` call,
+is wired into a workflow file, and equally if a task CI does invoke reaches one
+through the task graph declared in `mise.toml` — so the invariant is enforced
+structurally, not by mere absence from the aggregate. Run the guard with
+`--help` for its parse boundary and what it deliberately does not follow.
