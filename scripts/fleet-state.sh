@@ -610,7 +610,11 @@ try_acquire() {
         mv "$ta_aside" "$ta_lock" 2>/dev/null || rm -f "$ta_aside" 2>/dev/null || true
         return 1
       fi
-      rm -f "$ta_aside"
+      # Best-effort, like the restore path above: the rename already made the
+      # claim, so a failure to delete the renamed-aside link leaves litter and
+      # nothing more. Letting its status or its stderr escape would report
+      # trouble on a path that succeeded.
+      rm -f "$ta_aside" 2>/dev/null || true
       # The rename WAS the exclusive claim, so take the lock here rather than
       # leaving the freed path to the next spin. The one-shot `lock` verb calls
       # try_acquire exactly once: without this it reports busy for a lock the
