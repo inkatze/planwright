@@ -515,12 +515,18 @@ try_acquire() {
       fleet_stale_min
       ta_min=$FLEET_STALE_MIN_CACHED
       if [ -d "$ta_lock" ] && [ -n "$(find "$ta_lock" -maxdepth 0 -mmin +"$ta_min" 2>/dev/null)" ]; then
-        # `rm -rf` on a SYMLINK removes the link and not its target, which is
-        # what keeps this bounded: `[ ! -L ]` above screened for a directory,
-        # but that test and this removal are separated by two forks, so a peer
-        # can replace the directory with its own live link in between and this
-        # will unlink it. Reshaping toward anything that follows links (a
-        # trailing slash, find -delete) turns that into deleting the target.
+        # `rm -rf` on a SYMLINK removes the link and not its target, which
+        # bounds the DAMAGE but not the race: `[ ! -L ]` above screened for a
+        # directory, and that test and this removal are separated by two forks,
+        # so a peer can replace the directory with its own live link in between
+        # and this will unlink it — leaving two callers holding this home.
+        # MEASURED with that window widened: 11 of 12 rounds granted the lock
+        # twice. It is NOT closed here. A rename-and-inspect fix of the shape
+        # the symlink break below uses was tried and only moved the rate to
+        # 7 of 12, so it is recorded as an open hazard rather than shipped as a
+        # fix nobody can rely on (obs, this branch). Reshaping toward anything
+        # that follows links (a trailing slash, find -delete) makes it worse
+        # still, turning the unlink into deleting the target.
         if ! rm -rf "$ta_lock" 2>/dev/null; then
           # Two very different causes, and returning the wrong one is costly
           # either way: a peer writing into the directory as we remove it is
@@ -576,11 +582,34 @@ try_acquire() {
   fleet_stale_min
   ta_min=$FLEET_STALE_MIN_CACHED
   if [ -n "$(find "$ta_lock" -maxdepth 0 -mmin +"$ta_min" 2>/dev/null)" ]; then
-    # Claim the stale link by renaming it aside: two breakers cannot both rename
-    # the same path, so only the winner re-creates it. The loser's rename fails
-    # because the source is already gone.
+    # Claim the stale link by renaming it aside. Two breakers cannot both rename
+    # the same path — but that alone does NOT make the loser's rename fail, and
+    # an earlier revision of this comment claimed it did. The winner re-creates
+    # the lock immediately after its own rename, so a loser descheduled between
+    # its staleness probe and its rename finds a live link at the path and
+    # renames THAT aside successfully. Both then hold the lock. Measured: with
+    # that window widened, 12 of 12 rounds granted it twice.
+    #
+    # So the rename is checked rather than assumed. Read the target being
+    # broken first; if what actually moved is not that target, the rename took
+    # a live lock some peer created in the gap. Put it back and report busy.
+    ta_stale_target=$(readlink "$ta_lock" 2>/dev/null) || ta_stale_target=''
+    if [ -z "$ta_stale_target" ]; then
+      # Nothing to compare against, so the break cannot be shown to be safe.
+      # (`lock` requires readlink, so this is a vanished or unreadable link,
+      # not a missing tool.)
+      return 1
+    fi
     ta_aside="$ta_lock.stale.$ta_token"
     if mv "$ta_lock" "$ta_aside" 2>/dev/null; then
+      if [ "$(readlink "$ta_aside" 2>/dev/null)" != "$ta_stale_target" ]; then
+        # A peer's live lock, not the stale one probed. Restore it; if the path
+        # has since been taken again the restore fails, and dropping the aside
+        # is then the only correct move — either way this caller does not hold
+        # the lock and says so.
+        mv "$ta_aside" "$ta_lock" 2>/dev/null || rm -f "$ta_aside" 2>/dev/null || true
+        return 1
+      fi
       rm -f "$ta_aside"
       # The rename WAS the exclusive claim, so take the lock here rather than
       # leaving the freed path to the next spin. The one-shot `lock` verb calls
