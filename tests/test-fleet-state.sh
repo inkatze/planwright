@@ -665,11 +665,12 @@ norl_env() {
 # Every verb that takes the lock: refuse with exit 2 and a diagnostic naming the
 # tool, and leave NOTHING behind. Exit 1 is the specific misreport the guard
 # exists to prevent, so it is called out by name in the failure text.
-for norl_verb in lock register bound-incr; do
+for norl_verb in lock register bound-incr bound-decr; do
   case $norl_verb in
     lock) set -- lock ;;
     register) set -- register "w-norl" "scope-norl" ;;
     bound-incr) set -- bound-incr 5 ;;
+    bound-decr) set -- bound-decr 5 ;;
   esac
   norl_home="$tmp/no-readlink-$norl_verb"
   norl_err="$tmp/no-readlink-$norl_verb.err"
@@ -683,6 +684,33 @@ for norl_verb in lock register bound-incr; do
     || fail "$norl_verb without readlink left a lock standing it could never confirm"
 done
 echo "ok: without readlink the lock is refused, not taken, misreported busy, and leaked"
+
+# The diagnostic must describe the partition this case actually proves. It was
+# wrong once — it listed `register` among the verbs that keep working, while
+# the loop above proves `register` is refused — so the two are pinned to each
+# other here rather than left to agree by inspection.
+norl_msg=$(cat "$tmp/no-readlink-lock.err")
+for norl_taking in lock register bound-incr bound-decr; do
+  case "$norl_msg" in
+    *"$norl_taking"*) ;;
+    *) fail "the readlink diagnostic does not name '$norl_taking' among the verbs it refuses: $norl_msg" ;;
+  esac
+done
+for norl_working in root registry unlock; do
+  case "$norl_msg" in
+    *"$norl_working"*) ;;
+    *) fail "the readlink diagnostic does not name '$norl_working' among the verbs that keep working: $norl_msg" ;;
+  esac
+done
+#   And the halves must not be swapped: the refused verbs have to appear before
+#   the working ones, which is what makes the sentence say what it means.
+norl_head=${norl_msg%%refused*}
+case "$norl_head" in
+  *registry* | *unlock*)
+    fail "the readlink diagnostic lists a still-working verb among the refused ones: $norl_msg"
+    ;;
+esac
+echo "ok: the readlink diagnostic names the same partition this case proves"
 
 # The verbs that never read a link target must be untouched by the guard. This
 # is the half a top-of-script fast-fail turns red, and the reason the guard is

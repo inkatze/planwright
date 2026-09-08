@@ -454,7 +454,7 @@ READLINK_CHECKED=""
 require_readlink() {
   [ -z "$READLINK_CHECKED" ] || return 0
   if ! command -v readlink >/dev/null 2>&1; then
-    printf '%s\n' "fleet-state: readlink not found — a lock cannot be confirmed as this process's own without it, so acquiring and releasing one safely is unavailable ('unlock', 'register' and 'registry' read no link target and keep working)" >&2
+    printf '%s\n' "fleet-state: readlink not found — a lock cannot be confirmed as this process's own without it, so every verb that TAKES one is refused (lock, register, bound-incr, bound-decr); root, registry and unlock read no link target and keep working" >&2
     return 2
   fi
   READLINK_CHECKED=yes
