@@ -49,7 +49,7 @@ description = "yamllint on tracked config, workflows, and the pre-commit mirror 
 run = "yamllint --strict config/ .github/ lefthook.yml"
 
 [tasks."lint:commits"]
-description = "conventional-commit format lint on commits ahead of origin/main (length is enforced on the PR title in CI, not per-commit)"
+description = "conventional-commit lint on commits ahead of origin/main. Reports rather than fails: an existing subject cannot be corrected without rewriting history, so format and length are both enforced where the subject is still editable — githooks/commit-msg at write time, and the PR title in CI"
 run = '''
 if ! git rev-parse --verify --quiet origin/main >/dev/null; then
   echo "lint:commits: origin/main not found; skipping (CI enforces the PR range)"
