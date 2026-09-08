@@ -7,6 +7,11 @@
 #
 # "on" is quoted so yamllint's truthy rule (which this repo runs on
 # .github/) does not flag the key.
+#
+# The PR-TITLE lint is deliberately NOT here — it lives in pr-title.yml, which
+# fires on `edited` so a corrected title can be re-checked. Keep it there: this
+# workflow's concurrency group does not vary by activity type, so a title edit
+# reaching it would cancel the in-flight run testing the code.
 name: ci
 
 "on":
@@ -79,12 +84,18 @@ jobs:
       # strict PR-range lint is the dedicated step below.
       - run: mise run check
 
-      # Conventional-commit FORMAT lint over exactly the PR's commits. The
-      # local task skips quietly when there is nothing ahead of origin/main;
-      # on a PR an empty or malformed range must fail instead. Length is NOT
-      # enforced per-commit: the framework never rewrites history, so an
-      # overlong WIP subject would be permanently unfixable. base_ref is the
-      # target branch, passed via env per script-injection hardening practice.
+      # Conventional-commit lint over exactly the PR's commits. The local task
+      # skips quietly when there is nothing ahead of origin/main; on a PR an
+      # empty or malformed range must fail instead.
+      #
+      # Neither length NOR format is ENFORCED per-commit: the framework never
+      # rewrites history, so a violation in either would be permanently
+      # unfixable and the pull request permanently red. Both are reported here
+      # and enforced where the subject is still editable — githooks/commit-msg
+      # at write time, and the PR title in the step above, which is the
+      # squash-merge subject and therefore the only one that reaches main.
+      # base_ref is the target branch, passed via env per script-injection
+      # hardening practice.
       - if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
@@ -101,16 +112,3 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: /bin/sh scripts/check-purged-identifiers.sh --commit-range "origin/${BASE_REF}..HEAD"
-
-      # Length is enforced on the PR title instead: it becomes the
-      # squash-merge subject and, unlike a pushed commit, stays editable.
-      # --marker title additionally rejects a [pending-sign-off] marker in the
-      # title (REQ-C1.4): the title must stay marker-free so the squash subject
-      # never carries a relic marker. The title is passed via env (never
-      # interpolated into the shell) per script-injection hardening practice.
-      - if: github.event_name == 'pull_request'
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          printf '%s\n' "$PR_TITLE" \
-            | /bin/bash scripts/check-commit-msgs.sh --max-length 100 --marker title --stdin

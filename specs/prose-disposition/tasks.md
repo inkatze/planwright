@@ -214,7 +214,7 @@ can be measured by it.
 
 ## Awaiting input
 
-- (none yet)
+(none yet)
 
 ## Deferred
 

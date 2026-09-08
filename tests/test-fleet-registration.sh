@@ -109,11 +109,28 @@ done
 
 tmp=$(cd "$(mktemp -d)" && pwd -P)
 cleanup() {
-  for pf in "$tmp"/state*/*/pid "$tmp"/sj-*/*/supervisor.pid; do
+  # A detached supervisor outlives the case that launched it, and the rm -rf
+  # below unlinks the fifo it is reading — after which it blocks in read()
+  # forever, holding a deleted state directory. So the pid sweep has to match
+  # the layout the rungs actually write. The streamjson rung writes
+  # <home>/streamjson/<worker>/supervisor.pid, and the `home` helper puts every
+  # home under $tmp/fleet-<case>; the two globs this loop carried before
+  # (state*/ and sj-*/) match no path this file has ever created, so the body
+  # never ran once and every full-suite run leaked a supervisor permanently.
+  for pf in "$tmp"/fleet-*/streamjson/*/supervisor.pid \
+    "$tmp"/state*/*/pid "$tmp"/sj-*/*/supervisor.pid; do
     [ -f "$pf" ] || continue
     p=$(cat "$pf" 2>/dev/null) || continue
     case $p in '' | *[!0-9]*) continue ;; esac
-    kill -9 "$p" 2>/dev/null
+    # Confirm the pid is still one of ours before signalling it. A recorded pid
+    # whose process has already exited can be reused by anything on the machine
+    # before this sweep runs, and a SIGKILL to a stranger is not recoverable.
+    # The in-case close retires its own pid files, so this covers the paths
+    # that never reach one: a case that fails early, or a future case that
+    # forgets. `-o command=` is the spelling both BSD and GNU ps accept.
+    case $(ps -o command= -p "$p" 2>/dev/null) in
+      *fleet-streamjson.sh* | *fleet-dispatch-headless.sh*) kill -9 "$p" 2>/dev/null ;;
+    esac
   done
   rm -rf "$tmp"
 }
@@ -474,7 +491,34 @@ EOF
     else
       fail "c3: the stream-json rung wrote no registry record"
     fi
-    ok c3 "the stream-json rung registers a complete record"
+    # The launch above is DETACHED, so it leaves a live supervisor behind. Close
+    # it here rather than leaving it to the EXIT trap: a leaked supervisor is
+    # invisible to every assertion in this file, so if the trap's sweep ever
+    # stops matching again, nothing would notice except the process table.
+    # Asserting the close here is what keeps that sweep honest.
+    sjpid=$(cat "$h/streamjson/w-c3/supervisor.pid" 2>/dev/null) || sjpid=''
+    case $sjpid in
+      '' | *[!0-9]*) fail "c3: the launch recorded no supervisor pid to close" ;;
+    esac
+    kill -0 "$sjpid" 2>/dev/null \
+      || fail "c3: the recorded supervisor was already gone — this close proves nothing"
+    kill "$sjpid" 2>/dev/null
+    sjwait=0
+    while kill -0 "$sjpid" 2>/dev/null && [ "$sjwait" -lt 100 ]; do
+      sjwait=$((sjwait + 1))
+      sleep 0.05
+    done
+    if kill -0 "$sjpid" 2>/dev/null; then
+      kill -9 "$sjpid" 2>/dev/null
+      fail "c3: the supervisor survived a TERM and had to be killed — it would have leaked"
+    fi
+    # Retire the pid files now that the process behind them is gone. The EXIT
+    # trap sweeps these paths and SIGKILLs whatever they name; a pid that has
+    # already exited can be reused by an unrelated process before the trap
+    # runs, and the sweep cannot tell the difference. Closing the worker
+    # without retiring its record just moves the hazard downstream.
+    rm -f "$h/streamjson/w-c3/supervisor.pid" "$h/streamjson/w-c3/worker.pid"
+    ok c3 "the stream-json rung registers a complete record and leaves no supervisor"
   else
     ok c3 "skipped (stream-json launch unavailable in this environment)"
   fi
@@ -791,7 +835,9 @@ env PLANWRIGHT_FLEET_STATE_DIR="$h" /bin/sh -c '
 ' _ "$FS" >/dev/null 2>&1
 # Whether the TERM landed inside the critical section or before it, the lock
 # must not be standing afterwards.
-[ -d "$h/.fleet.lock" ] && fail "e8: a signalled register left the shared fleet lock held"
+if [ -L "$h/.fleet.lock" ] || [ -e "$h/.fleet.lock" ]; then
+  fail "e8: a signalled register left the shared fleet lock held"
+fi
 env PLANWRIGHT_FLEET_STATE_DIR="$h" /bin/sh "$FS" register w-e8b spec-e8:2 >/dev/null 2>&1 \
   || fail "e8: a later registration could not acquire the lock"
 ok e8 "an interrupted registration releases the shared lock"

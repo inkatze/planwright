@@ -408,6 +408,49 @@ recorded answer as the control_response; `recover` resumes a crashed
 worker's session via `--resume`; `status` surfaces completion and liveness
 from the supervisor and the captured event stream.
 
+`stop <worker> [--grace <secs>]` is the close: it terminates the supervisor
+and its children (SIGTERM, then SIGKILL after the grace, since children do not
+reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
+attention record the worker held. `--grace` takes a whole number of seconds
+within the bounds the script declares; run `stop` with an out-of-range value to
+have it name them. The event capture, the persisted session, and the receipt
+journal survive a stop: they are the durable record, not runtime. The journal
+survives as a file but not untouched — the close marks its still-`pending`
+receipts `undeliverable`, because a close makes them undeliverable by
+definition and a receipt left pending is what `alarm-scan` re-queues a decision
+item from. A stop never touches the worktree, the branch, or the unit's fence:
+the release set is exactly the reproducible resources, and worktree reclamation
+stays with `fleet-cleanup.sh worktree` and its positive-evidence checks.
+
+Processes are matched on the worker's state directory and on the pids that
+directory records, never on a process name or command pattern — the guarantee
+is that a stop cannot reach an operator's own `claude` session by resembling
+it. The pid half is only as good as the pid files: a pid recorded before a
+crash and reused by the host in the meantime is signalled, which is why a stop
+clears those files once it has confirmed the tree is gone.
+
+Exit codes are the machine-readable half: `0` for `stopped` and for
+`already-closed`, `6` for a `partial` close naming the classes still held, `3`
+for a close refused because it was asked for from inside the worker's own
+process tree, and `2` for an unknown handle or a process table the close could
+not read. The `3` and the second `2` are both refusals to attempt the close, so
+a caller retries them at its peril: a self-hosted close is refused
+deterministically and will never succeed from that process.
+A repeat stop takes exactly what is still held, so
+`already-closed` means every class is free and nothing was signalled; a repeat
+after a partial close retries only the remainder. A stop does not remove the
+worker's dispatch registry record, and nothing reconciles that record yet, so
+`fleet-status.sh` keeps listing a stopped worker until the periodic reconcile
+this bundle plans lands.
+
+Two adjacent refusals ship with the verb. `recover` breaks a `recover.lock`
+whose holder is gone, so one hard kill mid-recovery no longer disables recovery
+for that worker; and `launch` elects a single initiator, so a second launch for
+a worker that already has one in flight is refused with exit 3 rather than
+orphaning the first supervisor. The same refusal covers a worker whose state
+still records a live process, which includes a live worker under a dead
+supervisor — that case wants `recover`, not a second `launch`.
+
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
 receipt journal, and request envelopes) is written under the cross-spec
@@ -662,23 +705,30 @@ a **ref on `origin`** (concurrent-orchestrator-coordination D-5, D-8, D-11):
 before a worker forks, a tower creates `refs/planwright-fence/<spec>/<unit-id>`
 with an expect-absent compare-and-swap.
 
-**`/orchestrate` does not call this yet.** The mechanism below is complete and
-verified, but wiring it into the tower's dispatch step needs more room than
-that skill's instruction budget has left, so it is queued as a follow-up. Until
-then the commands are yours to run, and concurrent towers still coordinate only
-through presence. `origin` is the one substrate every clone shares and git
-serializes ref updates on it, so exactly one tower wins a unit; it is also
-death-surviving, because the ref lives on the server rather than in the
-tower's process. The ref points at the current `origin/main` tip — an
-existing commit — so fencing adds no history to `main`.
+**`/orchestrate` takes no fence yet.** It does run `gc` — the reconcile calls it
+on each unit that resolves as merged, which is also how that unit's completion
+reaches the escalation feedback loop below. But `check` and `fence`, the two that
+would actually stop a second tower dispatching a unit, need more room in the
+dispatch step than that skill's instruction budget has left, so they are queued
+as a follow-up. Until then those two are yours to run, concurrent towers still
+coordinate only through presence, and `sweep` — the backstop — finds nothing to
+reclaim until something takes a fence for it to find.
+
+`origin` is the one substrate every clone shares and git serializes ref updates
+on it, so exactly one tower wins a unit; it is also death-surviving, because the
+ref lives on the server rather than in the tower's process. The ref points at
+the current `origin/main` tip — an existing commit — so fencing adds no history
+to `main`.
 
 ```sh
 scripts/fleet-fence.sh check --checkout <repo-root> --spec <spec> <unit-id>
 scripts/fleet-fence.sh fence --checkout <repo-root> --spec <spec> <unit-id>...
 scripts/fleet-fence.sh gc    --checkout <repo-root> --spec <spec> <unit-id>...
+                             [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
 scripts/fleet-fence.sh list  --checkout <repo-root> [--spec <spec>]
 scripts/fleet-fence.sh sweep --checkout <repo-root> --spec <spec> \
   (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>]
+  [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
 ```
 
 `check` is the selection guard: exit 0 the unit is fenced (skip it), exit 1 it
@@ -926,7 +976,24 @@ masked. `crash-check` consults the operator kill-switch
 (`fleet_daemon_pause`) before authorizing any relaunch; bookkeeping and
 escalation are deliberately not gated (pausing the record of what happened
 would hide problems). Backoff and disable actions log through the audit
-trail; a human clears the streak with `crash-reset`.
+trail; a human clears the streak with `crash-reset`. A disable is also a unit's
+terminal state, so `crash-record` reports it to the escalation feedback loop
+when given the identity to report — `--alloc-unit`, `--alloc-key`,
+`--obs-scope` and `--obs-dir`, all-or-none. `/orchestrate`'s reconcile is what
+gives it: it runs this on the dead worker it proved before parking the orphan.
+The report goes **after** the orphan is parked, not before. `crash-record` is
+not idempotent — its own contract forbids re-invoking it for the same crash —
+and the reconcile is stateless, so the parked entry is the only thing that stops
+the next pass observing that same death and counting it again. Ordering it after
+the park trades a crash that goes uncounted when a pass dies mid-step for a
+spurious disable, and an uncounted crash is much the cheaper loss.
+
+Note what that does **not** buy on its own. The streak is per worker handle and
+the reconcile never re-dispatches, so one reconcile pass records one crash; the
+disable — and with it the `disabled` report — is reached only when the same
+handle dies `fleet_crash_disable_threshold` times, which today takes a human
+re-dispatching it under that same handle. The `completed` half needs no such help. Described with its
+twin where the ledger's feedback loop is covered below.
 
 ### What planwright registers, and the event it deliberately does not
 
@@ -1325,10 +1392,37 @@ knob off there is no ladder position to move, so the artifact is not read at all
 **The ledger feeds back into future drafting.** When a unit reaches a terminal
 state, completion or crash-loop disable alike, the terminal-state owner runs
 `scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> --terminal
-<completed|disabled> --scope <scope>`. It replays that unit's ledger and, when
-the history says the starting tier was wrong, records one observation fragment
-through the shared helper, which is how chronic under-estimation reaches the
-next round of `/spec-draft` seed mining. Two conditions fire it: the unit's
+<completed|disabled> --scope <scope>`. Two commands own those transitions and
+report them **when asked to**: each takes the identity as opt-in flags and runs
+no evaluation without them. `/orchestrate`'s reconcile is what supplies them —
+it is the one pass that observes both terminal states, a merged unit as it moves
+to Completed and a dead worker before it parks the orphan — so that is where the
+loop is driven from, and the invocations it runs are written out there. Each
+reports the state it owns. `scripts/fleet-fence.sh` reports `completed` as it
+retires a fence — from `gc`, the normal transition a tower runs on the unit it
+just finished, and from `sweep`'s terminal branch, the backstop for a tower
+that exited first; a unit that travels both routes still records once, because
+the ledger mark is what bounds emission rather than the route.
+`scripts/fleet-liveness.sh crash-record` reports `disabled` from the disable
+branch. Both take the unit's identity from their caller, as all-or-none flags,
+because none of it can be derived from what a terminal-state owner knows: the
+ledger unit key (which the fence assembles from the spec and unit id it already
+holds), the selection key, the observation scope, and — for `crash-record`,
+which has no repo root to resolve one against — the observations store.
+
+Neither call can cost the transition it hangs off: a recording failure is
+surfaced and the disable still stands, the fence is still retired. That cuts
+both ways, and the diagnostics say so. The fence is retired whatever the
+evaluation returned, so a failed evaluation there loses that unit's
+observation rather than deferring it; and because the two sit on opposite
+sides of their transitions — the fence reports before retiring, the disable
+after committing its audit and escalation — an audit or queue failure exits
+before the disable ever reports.
+
+`allocation-feedback.sh` replays that unit's ledger and, when the history says
+the starting tier was wrong, records one observation fragment through the
+shared helper, which is how chronic under-estimation reaches the next round of
+`/spec-draft` seed mining. Two conditions fire it: the unit's
 derived final **ladder position** ended above its configured starting tier, or
 its count of applied escalations reached `allocation_feedback_threshold`
 (default `2`). The second is the churn case the first cannot see, since a unit

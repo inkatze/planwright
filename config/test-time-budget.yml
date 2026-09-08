@@ -1,0 +1,32 @@
+---
+# Test wall-clock budgets for `check:test-time` (scripts/check-test-time.sh).
+#
+# Two ceilings over the shell suite's measured wall-clock, in seconds. A
+# measured time GREATER THAN OR EQUAL TO its budget trips the gate.
+#
+#   per_file_seconds     one ceiling for every tests/*.sh file alike
+#   suite_total_seconds  the runner's wall-clock for the whole `mise run test`
+#
+# CI hard-fails, local warns. The budgets are measured on the reference runner
+# (GitHub Actions, inside `mise run check`, under the parallel runner and the
+# aggregate's concurrent guards), so an overrun there fails the gate. On a dev
+# box the same overrun only warns loudly: core count, contention, and platform
+# cost differ from the runner by more than any headroom covers, so local
+# numbers are not the baseline and are never what a budget is set from.
+#
+# Bump consciously. A budget is raised only as a deliberate, reviewed edit in
+# the PR that needs it — never silently, never to make a red run green. Split
+# or slim the offending file first; if the cost is real, raise the budget and
+# record the new measured baseline and the headroom below, so the next reader
+# sees why the number is what it is. The 30–50% headroom covers runner noise
+# only, not growth: growth is exactly what this file exists to make visible.
+#
+# Derivation (2026-09-03, PROVISIONAL): set generously for the calibration
+# run of the PR that introduces this gate. The pre-gate baseline is the
+# reference-runner measurement recorded in the Task 6 PR (serial best-of-3,
+# slowest file 40.988s, serial sum 343.396s), which is a different scheduling
+# context from the parallel gated run and so bounds the gate's numbers from
+# below only. The first CI-mode run of this gate prints the in-context
+# baseline; these values are replaced from it, plus headroom, in the same PR.
+per_file_seconds: 120
+suite_total_seconds: 600

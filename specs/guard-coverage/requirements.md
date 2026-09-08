@@ -1,7 +1,7 @@
 # Guard Coverage — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -320,6 +320,12 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
   fixture drives off the table's own knob list rather than a literal
   count.
 
+- 2026-09-03 — Expression-only: the fork-PR isolation note under `##
+  Sources` names its requirement as `bootstrap REQ-J1.5` instead of a
+  bare `REQ-J1.5`. Surfaced by the format-grammar validator's
+  citation-range rule (format-grammar REQ-D1.3) on its all-bundle rollout
+  (format-grammar D-9); no requirement or decision changes meaning.
+
 ## Sources
 
 - **The invocation brief (2026-07-17).** The `/spec-draft` invocation
@@ -346,7 +352,7 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
 - **Pinned-action note (2026-06-11, legacy observations).** CI action SHA
   pins have no freshness path; catalog-entry candidate.
 - **Fork-PR isolation note (2026-06-11, legacy observations).** The
-  REQ-J1.5 public-release re-audit of the `pull_request` execution path
+  bootstrap REQ-J1.5 public-release re-audit of the `pull_request` execution path
   was mandated and remains outstanding.
 - **CDPATH note (2026-06-17, legacy observations).** `unset CDPATH` is
   enforced only by convention; the test harness's own unset masks

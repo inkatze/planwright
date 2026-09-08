@@ -52,7 +52,14 @@ concurrency:
 
 jobs:
   release-please:
+    # head_repository first: the other two clauses describe the triggering run
+    # without saying who produced it, and a `workflow_run` fires for a fork PR's
+    # run with YOUR write token. A fork PR's head branch is the fork's ref
+    # (`main` by default), so `head_branch` and the `branches:` filter above
+    # both match one. Keep this clause verbatim when you adjust the branch
+    # names — `github.repository` needs no editing.
     if: >-
+      github.event.workflow_run.head_repository.full_name == github.repository &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
