@@ -217,10 +217,14 @@ suite_finished="$(now_ms)"
 # after the pool has drained, so no two writers ever touch it. A file with a
 # verdict marker but no record is a hole the budget gate would fail closed
 # on; naming it here is the honest half of that contract.
-report_tmp="$report.tmp.$$"
-{
-  printf 'planwright-test-timing\t1\tclock=%s\tmode=%s\tjobs=%s\n' "$clock" "$mode" "$jobs"
-} >"$report_tmp" 2>/dev/null || report_tmp=""
+# Staged beside its destination under an explicit mktemp template (a
+# predictable name would be a symlink target for anyone sharing the
+# directory), then moved into place in one step.
+report_tmp="$(mktemp "$report.XXXXXX" 2>/dev/null)" || report_tmp=""
+if [ -n "$report_tmp" ]; then
+  printf 'planwright-test-timing\t1\tclock=%s\tmode=%s\tjobs=%s\n' "$clock" "$mode" "$jobs" >"$report_tmp" \
+    || report_tmp=""
+fi
 
 fails=0
 for t in "${files[@]}"; do
