@@ -835,7 +835,9 @@ env PLANWRIGHT_FLEET_STATE_DIR="$h" /bin/sh -c '
 ' _ "$FS" >/dev/null 2>&1
 # Whether the TERM landed inside the critical section or before it, the lock
 # must not be standing afterwards.
-[ -d "$h/.fleet.lock" ] && fail "e8: a signalled register left the shared fleet lock held"
+if [ -L "$h/.fleet.lock" ] || [ -e "$h/.fleet.lock" ]; then
+  fail "e8: a signalled register left the shared fleet lock held"
+fi
 env PLANWRIGHT_FLEET_STATE_DIR="$h" /bin/sh "$FS" register w-e8b spec-e8:2 >/dev/null 2>&1 \
   || fail "e8: a later registration could not acquire the lock"
 ok e8 "an interrupted registration releases the shared lock"
