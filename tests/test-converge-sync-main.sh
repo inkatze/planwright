@@ -3,7 +3,10 @@
 # `/execute-task` runs at the top of each `review_sequence` pass, plus the
 # structural assertions over that wiring (merge-currency-guard Task 3; D-4;
 # REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-D1.3,
-# REQ-K1.1).
+# REQ-K1.1). This is the deep suite for the script; the bundle's manifest
+# suite, tests/test-merge-currency-matrix.sh, pins the REQ-D1.3 required cases
+# coarsely (exit code and reason) so their existence is mechanically enforced,
+# and points back here for everything else.
 #
 # Contract under test:
 #   - a clean `origin/main` advance lands on the branch, by fast-forward when

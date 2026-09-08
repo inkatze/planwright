@@ -1,0 +1,9 @@
+# Guards that scripts/check-guard-wiring.sh must NOT require in the `check`
+# closure, each with who runs it instead. An entry here is a claim that
+# something else invokes the script; the guard rejects an entry naming a
+# script that does not exist, or one that turns out to be wired after all, so
+# a stale exemption fails rather than quietly widening the exemption set.
+#
+#   <script basename>    <who runs it>
+
+check-confirmation.sh   invoked with a confirmation on stdin by scripts/rubric-grade.sh and the behavioral-eval fixtures; it is a validator the eval harness calls per confirmation, not a repo-wide gate, and check:no-ci-evals deliberately keeps that harness out of CI

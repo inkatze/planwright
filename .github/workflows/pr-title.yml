@@ -1,0 +1,52 @@
+---
+# Conventional-commit lint over the PR TITLE. Deliberately its own workflow
+# rather than a step in ci.yml.
+#
+# The title is metadata a human edits after the fact, so the gate has to fire
+# on `edited` or it can reject an input it can never re-check: correcting the
+# title raises no event ci.yml listens for, and `gh run rerun` replays the
+# original event payload, re-reading the stale title. The only exits were a
+# spurious commit or a close/reopen.
+#
+# But `edited` could not simply be added to ci.yml's trigger. GitHub renders
+# `github.ref` as refs/pull/<n>/merge for every pull_request activity type, so
+# an edit and a code push share ci.yml's `ci-${{ github.ref }}` group; under
+# cancel-in-progress, retitling a PR mid-run would cancel the run testing its
+# code. `edited` also fires on body edits and base changes, so that would spend
+# the full 15-minute gate on events where no code moved.
+#
+# Concurrency groups are scoped to the repository, not the workflow file, so
+# the separate file only helps because the group string below differs from
+# ci.yml's. tests/test-pr-title-trigger.sh holds both halves of that.
+name: pr-title
+
+"on":
+  pull_request:
+    types: [opened, reopened, edited, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Shallow by default: this job needs the checked-in script, not history.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      # Length is enforced on the PR title rather than per commit: the title
+      # becomes the squash-merge subject and, unlike a pushed commit, stays
+      # editable. --marker title additionally rejects a [pending-sign-off]
+      # marker in the title (REQ-C1.4), so the squash subject never carries a
+      # relic marker. The title is passed via env, never interpolated into the
+      # shell, per script-injection hardening practice.
+      - env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PR_TITLE" \
+            | /bin/bash scripts/check-commit-msgs.sh --max-length 100 --marker title --stdin

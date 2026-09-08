@@ -40,6 +40,7 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 AS="$here/../scripts/allocation-select.sh"
 FRS="$here/../scripts/fleet-resource-select.sh"
+LADDER="$here/../scripts/allocation-ladder.sh"
 GOLDEN="$here/fixtures/allocation-golden-baseline.tsv"
 TAB=$(printf '\t')
 
@@ -66,8 +67,8 @@ mlocal_cfg="$repo/.claude/planwright.local.yml"
 
 # The shipped core defaults for the whole knob family, kept in lockstep with
 # config/defaults.yml (test 11 asserts the real file carries the same rows).
-# The nine fleet-keyed general knobs ship the `unset` sentinel, which is what
-# arms the `fleet_*` fallback; the six non-fleet ones ship `inherit`.
+# The fleet-keyed general knobs ship the `unset` sentinel, which is what
+# arms the `fleet_*` fallback; every other row here ships `inherit`.
 cat >"$core_cfg" <<'EOF'
 fleet_model_execution: opus
 fleet_model_bookkeeping: sonnet
@@ -93,6 +94,12 @@ allocation_model_execute_step: inherit
 allocation_effort_execute_step: inherit
 allocation_model_offload: inherit
 allocation_effort_offload: inherit
+allocation_model_step_implementation: inherit
+allocation_effort_step_implementation: inherit
+allocation_model_step_polish: inherit
+allocation_effort_step_polish: inherit
+allocation_model_step_self_review: inherit
+allocation_effort_step_self_review: inherit
 EOF
 
 # Stub outbound clients: any invocation is an LLM/API call in the resolution
@@ -224,9 +231,9 @@ got=$(run select execution 2>/dev/null) || fail "fallback(b): select execution e
   || fail "REQ-A1.3(b): an unset general knob must fall back to fleet_*, got '$got'"
 #    (c) general only: the `allocation_*` knob decides.
 reset_layers
-printf 'allocation_model_execution: fable\nallocation_effort_execution: medium\nallocation_command_execution: orchestrate\n' >"$mlocal_cfg"
+printf 'allocation_model_execution: sonnet\nallocation_effort_execution: medium\nallocation_command_execution: orchestrate\n' >"$mlocal_cfg"
 got=$(run select execution 2>/dev/null) || fail "fallback(c): select execution exited nonzero"
-[ "$got" = "fable${TAB}medium${TAB}orchestrate" ] \
+[ "$got" = "sonnet${TAB}medium${TAB}orchestrate" ] \
   || fail "REQ-A1.3(c): a set general knob must decide, got '$got'"
 #    (d) both set: the general knob wins over the legacy one.
 reset_layers
@@ -234,12 +241,12 @@ cat >"$mlocal_cfg" <<'EOF'
 fleet_model_execution: haiku
 fleet_effort_execution: low
 fleet_command_execution: drain
-allocation_model_execution: fable
+allocation_model_execution: sonnet
 allocation_effort_execution: medium
 allocation_command_execution: orchestrate
 EOF
 got=$(run select execution 2>/dev/null) || fail "fallback(d): select execution exited nonzero"
-[ "$got" = "fable${TAB}medium${TAB}orchestrate" ] \
+[ "$got" = "sonnet${TAB}medium${TAB}orchestrate" ] \
   || fail "REQ-A1.3(d): the general knob must win over fleet_*, got '$got'"
 #    Precedence is per column and per key: an untouched sibling is unmoved.
 got=$(run select bookkeeping 2>/dev/null) || fail "fallback: select bookkeeping exited nonzero"
@@ -328,6 +335,58 @@ for col in model effort; do
     || fail "'inherit' on a fleet task-type $col knob must hard-fail exit 4, got $rc"
 done
 echo "ok: inherit is refused at the fleet task-type keys"
+
+# 5d. The ladder top is ESCALATION-ONLY: it is reachable by escalating, never
+#     by configuration. The successor rule raises effort to `high` and only
+#     then the model one alias, so (top, high) is the top's one reachable
+#     coordinate — a unit configured to START there would open with the whole
+#     ladder's headroom already spent. The refusal is the same by-layer policy
+#     `inherit` gets above, and it covers every knob family that can name a
+#     starting tier: the general one, the deprecated legacy one, and the
+#     per-step one.
+# The roster is read from the ladder rather than spelled here, so appending a
+# model moves this case onto the new top instead of quietly testing a rung that
+# has stopped being one.
+# shellcheck source=scripts/allocation-ladder.sh
+. "$LADDER"
+top_model=''
+for m in $ALLOC_MODELS; do top_model=$m; done
+[ -n "$top_model" ] \
+  || fail "the ladder's roster is empty — this case would otherwise assert nothing"
+for knob in allocation_model_execution fleet_model_execution allocation_model_step_polish; do
+  reset_layers
+  printf '%s: %s\n' "$knob" "$top_model" >"$tracked_cfg"
+  rc=0
+  case $knob in
+    *_step_*) run step-tier polish >/dev/null 2>&1 || rc=$? ;;
+    *) run resolve execution model >/dev/null 2>&1 || rc=$? ;;
+  esac
+  [ "$rc" = 4 ] \
+    || fail "'$top_model' on $knob must hard-fail exit 4 as an escalation-only tier, got $rc"
+done
+#     Control: the alias one rung below the top IS configurable on all three,
+#     so the refusal above is the escalation-only rule and not a knob that
+#     stopped accepting models altogether.
+below_top=''
+prev=''
+for m in $ALLOC_MODELS; do
+  if [ "$m" = "$top_model" ]; then below_top=$prev; fi
+  prev=$m
+done
+[ -n "$below_top" ] || fail "could not derive the alias below the ladder top"
+for knob in allocation_model_execution fleet_model_execution allocation_model_step_polish; do
+  reset_layers
+  printf '%s: %s\n' "$knob" "$below_top" >"$tracked_cfg"
+  case $knob in
+    *_step_*) got=$(run step-tier polish) || fail "control: step-tier exited nonzero for $below_top" ;;
+    *) got=$(run resolve execution model) || fail "control: resolve exited nonzero for $below_top" ;;
+  esac
+  case $got in
+    "$below_top"*) ;;
+    *) fail "control: $knob should accept '$below_top', got '$got'" ;;
+  esac
+done
+echo "ok: the ladder top is refused as a starting tier while the rung below it is not"
 
 # 6. The command column is fleet-only (D-5): asking a non-fleet surface for it
 #    is a refusal, not an empty string, and `select` marks it absent with `-`.
@@ -456,8 +515,8 @@ fixture_knobs=$(grep '^allocation_' "$core_cfg")
 # Guard the guard: an empty list would walk zero rows and report a clean pass,
 # which is the one way this check can lie. Same non-vacuity discipline as the
 # PATH stub's positive control.
-[ "$(printf '%s\n' "$fixture_knobs" | wc -l | tr -d ' ')" = 15 ] \
-  || fail "expected 15 allocation_* knobs in the core fixture, got: $fixture_knobs"
+[ "$(printf '%s\n' "$fixture_knobs" | wc -l | tr -d ' ')" = 21 ] \
+  || fail "expected 21 allocation_* knobs in the core fixture, got: $fixture_knobs"
 while IFS= read -r kv; do
   [ -n "$kv" ] || continue
   grep -q "^$kv\$" "$real_defaults" \
@@ -473,6 +532,10 @@ broken="$tmp/broken-tree"
 mkdir -p "$broken"
 cp "$AS" "$broken/allocation-select.sh"
 cp "$here/../scripts/echo-safety.sh" "$broken/echo-safety.sh"
+# The ladder is copied too: its own guard runs BEFORE the resolver is ever
+# consulted, so withholding it here would make this case exit 5 for 12c's
+# reason instead of its own.
+cp "$LADDER" "$broken/allocation-ladder.sh"
 rc=0
 PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken/allocation-select.sh" select execution >/dev/null 2>&1 || rc=$?
 [ "$rc" = 5 ] || fail "missing shared resolver: exit $rc, expected 5 (broken install)"
@@ -489,10 +552,35 @@ broken_es="$tmp/broken-echo-safety"
 mkdir -p "$broken_es"
 cp "$AS" "$broken_es/allocation-select.sh"
 cp "$here/../scripts/resolve-config-knob.sh" "$broken_es/resolve-config-knob.sh"
+cp "$LADDER" "$broken_es/allocation-ladder.sh"
 rc=0
 PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken_es/allocation-select.sh" select execution >/dev/null 2>&1 || rc=$?
 [ "$rc" = 5 ] || fail "missing echo-safety.sh: exit $rc, expected 5 (broken install)"
 echo "ok: a missing echo-discipline sanitizer is broken-install exit 5"
+
+# 12c. A missing allocation-ladder.sh is the third face of the same broken
+#      install. The roster and its rank map live there and are sourced, not
+#      restated, so without the ladder the model column has no enum at all and
+#      every value would resolve against an empty one. Guarded rather than
+#      sourced bare for the reason 12b gives. Only the ladder is withheld: the
+#      resolver and the sanitizer are present, so a pass here can come from no
+#      other guard.
+broken_lad="$tmp/broken-ladder"
+mkdir -p "$broken_lad"
+cp "$AS" "$broken_lad/allocation-select.sh"
+cp "$here/../scripts/resolve-config-knob.sh" "$broken_lad/resolve-config-knob.sh"
+cp "$here/../scripts/echo-safety.sh" "$broken_lad/echo-safety.sh"
+cp "$here/../scripts/config-get.sh" "$broken_lad/config-get.sh"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken_lad/allocation-select.sh" select execution >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "missing allocation-ladder.sh: exit $rc, expected 5 (broken install)"
+#      Control: the same tree with the ladder restored resolves cleanly, so the
+#      exit above is the missing ladder and not the trimmed tree itself.
+cp "$LADDER" "$broken_lad/allocation-ladder.sh"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken_lad/allocation-select.sh" resolve execution model) \
+  || fail "control: the restored tree should resolve, but exited nonzero"
+[ "$got" = opus ] || fail "control: the restored tree resolved '$got', expected the shipped default"
+echo "ok: a missing tier ladder is broken-install exit 5"
 
 # 13. Positive control for the zero-invocation stub: the stub IS reachable on
 #     the prefixed PATH, so test 3's assertion is not vacuous.
@@ -502,4 +590,145 @@ PATH="$stubbin:$PATH" claude >/dev/null 2>&1 || true
 rm -f "$tmp/invocations"
 echo "ok: the no-LLM stub is verified reachable"
 
+# 14. The STEP-TYPE axis (Task 5; D-8, D-12, REQ-C1.3, REQ-E1.1).
+#
+#     A second key over the same table: the selection key prices a unit, a step
+#     type prices one step of it. What is asserted here is the RESOLUTION half
+#     (this script's job); the one-directional APPLICATION half lives in
+#     tests/test-allocation-adapt.sh, which is the script that performs it.
+
+# 14a. Every shipped step type defaults to `inherit` in both columns, which is
+#      what makes per-step keys change nothing until an operator acts (D-13).
+reset_layers
+steps=$(run list-steps) || fail "list-steps exited nonzero"
+[ "$(printf '%s\n' "$steps" | wc -l | tr -d ' ')" = 3 ] \
+  || fail "list-steps: expected the 3 shipped step types, got: $steps"
+for st in implementation polish self-review; do
+  printf '%s\n' "$steps" | grep -qx "$st	inherit	inherit" \
+    || fail "list-steps: step type '$st' should ship inherit/inherit, got: $steps"
+done
+echo "ok: every shipped step type defaults to inherit in both columns"
+
+# 14b. A step type with NO row in any layer still resolves — the key space is
+#      open, so a review skill added later inherits rather than hard-failing.
+reset_layers
+got=$(run step-tier panel-review 2>/dev/null) || fail "an unshipped step type should still resolve"
+[ "$got" = "inherit	inherit" ] \
+  || fail "an unshipped step type should resolve to inherit/inherit, got '$got'"
+echo "ok: an unshipped step type resolves to inherit rather than failing"
+
+# 14c. The knobs resolve through the overlay layers (REQ-E1.1), and the
+#      hyphen-to-underscore knob spelling is what a review skill's name maps to.
+reset_layers
+printf 'allocation_model_step_self_review: haiku\nallocation_effort_step_self_review: low\n' >"$mlocal_cfg"
+got=$(run step-tier self-review) || fail "step-tier self-review exited nonzero"
+[ "$got" = "haiku	low" ] || fail "a configured step tier should resolve, got '$got'"
+# The unconfigured columns of a DIFFERENT step type are untouched by it.
+got=$(run step-tier polish) || fail "step-tier polish exited nonzero"
+[ "$got" = "inherit	inherit" ] || fail "step types must not bleed into one another, got '$got'"
+echo "ok: step-type knobs resolve through the overlay layers, per step type"
+
+# 14d. One column at a time is legal: the other stays `inherit` and the engine
+#      composes it against the unit's tier.
+reset_layers
+printf 'allocation_effort_step_polish: low\n' >"$mlocal_cfg"
+got=$(run step-tier polish) || fail "step-tier polish exited nonzero"
+[ "$got" = "inherit	low" ] || fail "an effort-only step tier should leave the model inherit, got '$got'"
+echo "ok: a step type may configure one column and inherit the other"
+
+# 14e. A step tier carries the column ENUMS, under the by-layer malformed
+#      policy: a machine-local out-of-enum value degrades to the shipped
+#      default rather than launching something that is not a model.
+reset_layers
+printf 'allocation_model_step_polish: gpt-5\n' >"$mlocal_cfg"
+rc=0
+got=$(run step-tier polish 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "a malformed machine-local step tier should degrade, exit $rc"
+[ "$got" = "inherit	inherit" ] \
+  || fail "a malformed step tier should degrade to inherit, got '$got'"
+# A repo-tracked one is a hard fail on the same terms as every other knob.
+reset_layers
+printf 'allocation_model_step_polish: gpt-5\n' >"$tracked_cfg"
+rc=0
+run step-tier polish >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "a malformed repo-tracked step tier should hard-fail 4, got $rc"
+echo "ok: step tiers follow the by-layer malformed policy"
+
+# 14f. THE DISJOINTNESS GUARD (REQ-E1.2/REQ-A1.4).
+#
+#      Step types are named after nestable review skills. The command enum is
+#      what carries review-sequence disjointness and must never name one. The
+#      two axes are therefore kept apart, and this is the assertion that they
+#      stayed apart: no step type carries a command column, a step type is not
+#      a selection key, and a selection key is not a step type. If a future
+#      change merged the namespaces, one of these goes red before a review
+#      skill name can reach the command column.
+reset_layers
+for st in implementation polish self-review; do
+  got=$(run step-tier "$st") || fail "step-tier $st exited nonzero"
+  [ "$(printf '%s' "$got" | awk -F '\t' '{ print NF }')" = 2 ] \
+    || fail "step type '$st' emitted a third column — the command column must never reach a step type"
+  rc=0
+  run resolve "$st" command >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "'resolve $st command' exited $rc, want 2: a step type is not a selection key"
+  rc=0
+  run select "$st" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "'select $st' exited $rc, want 2: a step type is not a selection key"
+done
+steps_now=$(run list-steps) || fail "list-steps exited nonzero"
+[ -n "$steps_now" ] || fail "list-steps emitted nothing, so the leak check below would be vacuous"
+for k in execution bookkeeping drain orchestrate_dispatch execute_step offload; do
+  printf '%s\n' "$steps_now" | grep -qx "$k	.*" \
+    && fail "selection key '$k' leaked into the step-type table"
+done
+# And the command enum itself is still exactly the dispatch-entry set: no
+# nestable review skill has been admitted to it at any layer.
+commands=$(run list | awk -F '\t' '$4 != "-" { print $4 }' | sort -u)
+[ "$(printf '%s\n' "$commands" | tr '\n' ' ')" = "drain execute-task orchestrate " ] \
+  || fail "the command enum drifted from the dispatch-entry set: $commands"
+for skill in polish self-review panel-review copilot-review; do
+  rc=0
+  printf 'allocation_command_execution: %s\n' "$skill" >"$mlocal_cfg"
+  got=$(run resolve execution command 2>/dev/null) || rc=$?
+  [ "$rc" = 0 ] && [ "$got" != "$skill" ] \
+    || fail "a nestable review skill ('$skill') was admitted to the command column"
+done
+reset_layers
+echo "ok: the step-type axis never touches the command column (disjointness holds)"
+
+# 14g. A hostile step type is refused before it can reach a knob name or a path.
+reset_layers
+for bad in "" "../../etc/passwd" "a b" "Polish" "step;rm -rf" "_x" "-x" "x_y"; do
+  rc=0
+  run step-tier "$bad" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "step-tier '$bad' exited $rc, want 2"
+done
+# A 65-byte name is over the bound; 64 is not.
+rc=0
+run step-tier "$(printf 'a%.0s' $(seq 65))" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "an over-long step type should be refused, got $rc"
+run step-tier "$(printf 'a%.0s' $(seq 64))" >/dev/null 2>&1 \
+  || fail "a 64-byte step type is within the bound and should resolve"
+echo "ok: a hostile or over-long step type is refused"
+
+# 14h. Arity: both new verbs refuse extra or missing arguments.
+for args in "step-tier" "step-tier a b" "list-steps extra"; do
+  rc=0
+  # shellcheck disable=SC2086 # deliberate word splitting of the argv fixture
+  run $args >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "'$args' exited $rc, want 2 (usage error)"
+done
+echo "ok: the step-type verbs enforce their arity"
+
+# 14i. The shipped config carries a row for every step type list-steps names,
+#      and every one of them ships `inherit`.
+real_cfg="$here/../config/defaults.yml"
+for st in implementation polish self-review; do
+  suffix=$(printf '%s' "$st" | tr -- - _)
+  for col in model effort; do
+    grep -qE "^allocation_${col}_step_${suffix}: inherit\$" "$real_cfg" \
+      || fail "config/defaults.yml must ship 'allocation_${col}_step_${suffix}: inherit'"
+  done
+done
+echo "ok: the shipped config carries an inherit row for every step type"
 echo "ALL PASS: allocation-select"
