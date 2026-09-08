@@ -1,7 +1,7 @@
 # Format grammar & parser unification — Test spec
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -170,13 +170,14 @@ bullet in a v1 bundle bypasses the rule (v2-only scope).
 
 ### REQ-D1.2 — Cited-but-empty REQ [test]
 
-Fixtures: a live `- **REQ-X1.1** *(Cites: D-1.)*` bullet with no normative
-prose is flagged; a prose-bearing bullet passes; a superseded (non-live)
-empty bullet bypasses the rule.
+Fixtures: a live bullet carrying only its citation annotation
+(`*(Cites: D-1.)*`) and no normative prose is flagged; a prose-bearing
+bullet passes; a superseded (non-live) empty bullet bypasses the rule.
 
 ### REQ-D1.3 — Out-of-range unqualified tokens [test]
 
-Fixtures: a bare `D-45` in a bundle defining D-1..D-8 warns; an
+Fixtures: the fixture-bundle's `D-45` (bare, outside its D-1..D-8 range)
+warns; an
 out-of-range bare `REQ-<id>` token and an out-of-range bare `Task <id>`
 citation token warn identically; the same tokens qualified by a
 sibling-spec name on the line pass; in-range bare tokens pass.
