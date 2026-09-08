@@ -57,9 +57,10 @@ esac
 #
 # Deliberately zero forks, like the subject check above: this runs on every
 # commit. The pattern is `type(scope)!: description` over the commitlint
-# conventional type set, kept in step with scripts/check-commit-msgs.sh, which
-# tests/test-githooks.sh pins so the two cannot drift into accepting different
-# subjects. Merge and Revert subjects are skipped for the reason that file
+# conventional type set, kept in step with scripts/check-commit-msgs.sh. The
+# two are pinned to each other by tests/test-check-commit-msgs.sh, which feeds
+# one corpus to both and requires the same verdict, so they cannot drift into
+# accepting different subjects. Merge and Revert subjects are skipped for the reason that file
 # gives: git writes them, so refusing them would block the normal merge flow.
 # Bypass stays --no-verify, the same deliberate escape hatch as every screen
 # in this hook.

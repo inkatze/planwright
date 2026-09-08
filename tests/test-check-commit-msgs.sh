@@ -177,7 +177,7 @@ if [ ! -f "$HOOK" ]; then
   failures=$((failures + 1))
 else
   hook_msg="$tmp/hookmsg"
-  agree=0
+  compared=0
   for corpus_subject in \
     'feat: a plain one' \
     'fix(scope): with a scope' \
@@ -199,14 +199,17 @@ else
     if [ "$script_rc" != "$hook_rc" ]; then
       echo "FAIL: hook and script disagree on '$corpus_subject' (script=$script_rc hook=$hook_rc)" >&2
       failures=$((failures + 1))
-    else
-      agree=$((agree + 1))
     fi
+    compared=$((compared + 1))
   done
-  #  A corpus that stopped reaching either implementation would agree
-  #  vacuously, so require that it actually exercised both verdicts.
-  if [ "$agree" -lt 12 ]; then
-    echo "FAIL: only $agree of 12 corpus subjects were compared" >&2
+  #  Counts COMPARISONS, not agreements: a disagreement already fails per
+  #  subject above, and counting only agreements here would report "11 of 12
+  #  compared" for a corpus where all twelve were compared and one disagreed —
+  #  blaming the harness for a real finding. What this guards is the other
+  #  case: a loop that stopped reaching either implementation would emit no
+  #  per-subject failure at all and pass vacuously.
+  if [ "$compared" -ne 12 ]; then
+    echo "FAIL: the corpus loop ran $compared times, expected 12 — it is not exercising both implementations" >&2
     failures=$((failures + 1))
   fi
   printf '%s\n' 'feat: a plain one' >"$hook_msg"
