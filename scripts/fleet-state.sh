@@ -628,6 +628,25 @@ try_acquire() {
         # raced in takes the link inside itself, and leaving it there both
         # lingers and keeps refreshing that directory's mtime.
         rm -f "$ta_lock/$ta_token" 2>/dev/null || true
+      elif [ ! -L "$ta_lock" ]; then
+        # The claim was made — this caller renamed the stale lock aside — and
+        # the re-create then failed with nothing at the path. That is the
+        # store, not a peer: falling through to `return 1` would report BUSY
+        # for a lock this call had just freed, which is the exact misreport
+        # the no-readlink guard above exists to prevent, and it sends an
+        # internal consumer spinning its whole budget before blaming
+        # contention that never happened. Same diagnostic and exit as the
+        # create path earlier, which reaches the same conclusion the same way.
+        #
+        # Untested deliberately: a fixture cannot open this window. Every
+        # permission or path trick that stops the symlink create also stops
+        # the rename above it, since both need write on the same directory —
+        # so the case would exercise the rename failing, not this. The one
+        # condition that genuinely separates them is a full filesystem (the
+        # rename needs no new space, the symlink does), which needs a
+        # filesystem this suite cannot make.
+        printf '%s\n' "fleet-state: cannot create $ta_lock (home unwritable or filesystem error)" >&2
+        return 2
       fi
     fi
   fi
