@@ -777,7 +777,27 @@ supervise() {
     # worker is already spawned, so it is closed here rather than left behind
     # — a supervisor that cannot record its worker must not leave one running
     # that nothing can find.
+    # Bounded, TERM then KILL. A plain `wait` here would hang forever on a
+    # worker that ignores SIGTERM or is wedged, turning a pid-file failure
+    # into a launch that never returns — a worse outcome than the leak this
+    # close exists to prevent. KILL cannot be ignored, so the reap after it
+    # returns promptly.
+    #
+    # Reasoned, not measured, and the reason is worth recording: a test cannot
+    # reliably make this worker ignore TERM. The signal is sent within a few
+    # syscalls of the spawn, so the worker is usually killed before it has run
+    # its first line, and the unbounded version therefore returns promptly too.
+    # A case built on that race would pass for the wrong reason more often
+    # than it caught anything.
     kill "$sv_pid" 2>/dev/null || :
+    sv_wait=0
+    while kill -0 "$sv_pid" 2>/dev/null && [ "$sv_wait" -lt 20 ]; do
+      sv_wait=$((sv_wait + 1))
+      sleep 0.1
+    done
+    if kill -0 "$sv_pid" 2>/dev/null; then
+      kill -9 "$sv_pid" 2>/dev/null || :
+    fi
     wait "$sv_pid" 2>/dev/null || :
     echo "$me: could not publish worker.pid for $sv_worker; the worker was closed rather than left unrecorded" >&2
     return 2
