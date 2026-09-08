@@ -112,7 +112,8 @@ out="$("$GUARD" "$d" 2>&1)"
 assert_exit "stored secret in a push-only workflow passes" 0 $?
 
 # Reachability scoping, direction 2: a privileged workflow_run workflow is
-# fine while it keeps its base-branch filter and consumes no PR artifact.
+# fine while it keeps its base-branch filter, pins the originating repository,
+# and consumes no PR artifact.
 d="$(mkdir_case pass-workflow-run-filtered)"
 cat >"$d/release.yml" <<'EOF'
 ---
@@ -126,6 +127,8 @@ permissions:
   contents: write
 jobs:
   release:
+    if: >-
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - run: ./release.sh
@@ -134,6 +137,28 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "filtered privileged workflow_run passes" 0 $?
+
+# An UNprivileged workflow_run workflow needs neither clause: assertion 4 is
+# scoped to the ones that actually hold write permissions or secrets, and a
+# read-only observer has no privilege for a fork run to borrow.
+d="$(mkdir_case pass-workflow-run-readonly)"
+cat >"$d/observe.yml" <<'EOF'
+---
+name: observe
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./observe.sh
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "unprivileged workflow_run needs no head_repository clause" 0 $?
 
 # The two permission shorthands that are read-only-or-less.
 d="$(mkdir_case pass-shorthands)"
@@ -409,6 +434,281 @@ out="$("$GUARD" "$d" 2>&1)"
 assert_exit "privileged workflow_run without a base-branch filter fails" 1 $?
 assert_contains "the missing filter is named" "branches" "$out"
 
+# A privileged workflow_run workflow that keeps its base-branch filter but
+# never says WHO produced the triggering run. `branches:` and a `head_branch`
+# guard both match the triggering run's head branch, so a fork PR from a branch
+# named `main` — the default name — satisfies both and fires the job with the
+# base repo's write token.
+d="$(mkdir_case fail-workflow-run-no-head-repository)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "privileged workflow_run without a head_repository clause fails" 1 $?
+assert_contains "the missing originating-repository clause is named" \
+  "head_repository" "$out"
+
+# The clause must be live, not narrated: a full-line comment mentioning it does
+# not satisfy the assertion. This is the regression shape that matters — the
+# clause gets deleted while the paragraph explaining it stays behind.
+d="$(mkdir_case fail-workflow-run-head-repository-commented)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    # github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a commented-out head_repository clause does not satisfy the guard" 1 $?
+
+# Same, in the TRAILING comment position, which the secret scan deliberately
+# does read (over-blocking there errs loud; here it would err silent).
+d="$(mkdir_case fail-workflow-run-head-repository-trailing-comment)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest  # was: github.event.workflow_run.head_repository.full_name == github.repository
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a trailing-comment head_repository mention does not satisfy the guard" 1 $?
+
+# The mention must be the EQUALITY that scopes the trigger, not any use of the
+# field. This fixture is the exact shape the assertion exists to prevent: the
+# fork's own repository handed to `actions/checkout` inside the write-token
+# job. A bare substring scan would read that as evidence of hardening and pass
+# the workflow that clones PR-authored code.
+d="$(mkdir_case fail-workflow-run-head-repository-as-checkout)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.workflow_run.head_repository.full_name }}
+      - run: ./build.sh
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "head_repository used as a checkout input does not satisfy the guard" 1 $?
+assert_contains "the missing originating-repository clause is still named" \
+  "head_repository" "$out"
+
+# An INVERTED clause is not a scoping clause either: `!=` fires the privileged
+# job for exactly the runs the assertion exists to exclude.
+d="$(mkdir_case fail-workflow-run-head-repository-inverted)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: >-
+      github.event.workflow_run.head_repository.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "an inverted head_repository clause does not satisfy the guard" 1 $?
+
+# `!( … == … )` is the other spelling of the same inversion, so refusing only
+# `!=` would leave the hole open in the shape a reader skims past.
+d="$(mkdir_case fail-workflow-run-head-repository-negated)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: ${{ !(github.event.workflow_run.head_repository.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a negated head_repository clause does not satisfy the guard" 1 $?
+
+# `github.repository_owner` and `github.repository_id` are different contexts
+# that merely start the same way. Compared against `owner/repo` neither can
+# ever be true, so a job gated on one never runs — and the guard must not read
+# a dead gate as a live one.
+for ctx in github.repository_owner github.repository_id; do
+  d="$(mkdir_case "fail-workflow-run-${ctx##*.}")"
+  cat >"$d/x.yml" <<EOF
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: >-
+      github.event.workflow_run.head_repository.full_name == $ctx
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+  out="$("$GUARD" "$d" 2>&1)"
+  assert_exit "$ctx does not satisfy the originating-repository clause" 1 $?
+done
+
+# The clause must be live YAML, not shell narration: a `#` anywhere earlier on
+# the line ends the scanned text, so a comment inside a `run:` body cannot
+# stand in for the gate however exactly it quotes it.
+d="$(mkdir_case fail-workflow-run-head-repository-shell-comment)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo hi;# we used to gate on github.event.workflow_run.head_repository.full_name == github.repository
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a shell comment does not satisfy the originating-repository clause" 1 $?
+
+# Operand order is the author's choice, not the guard's.
+d="$(mkdir_case pass-workflow-run-head-repository-reversed)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: >-
+      github.repository == github.event.workflow_run.head_repository.full_name
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "the reversed operand order satisfies the clause" 0 $?
+
+# The negation disqualifier must read the clause's OWN polarity, not the
+# line's: a second, unrelated `!( ... )` condition alongside a live clause is
+# ordinary expression-writing, and refusing it would push authors to reformat
+# a workflow that is already correct.
+d="$(mkdir_case pass-workflow-run-head-repository-with-other-negation)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: ${{ github.event.workflow_run.head_repository.full_name == github.repository && !(github.event.workflow_run.head_branch == 'wip') }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "an unrelated negation beside a live clause still satisfies it" 0 $?
+
+# The same shape, but the unrelated negation happens to negate an equality on
+# `github.repository` itself. The disqualifier is meant to read the CLAUSE's
+# polarity, not the line's, so this must still satisfy the assertion.
+d="$(mkdir_case pass-workflow-run-head-repository-with-unrelated-repository-negation)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    if: ${{ github.event.workflow_run.head_repository.full_name == github.repository && !(github.repository == 'someone/mirror') }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "an unrelated negated github.repository equality still satisfies the clause" 0 $?
+
 # A privileged workflow_run workflow consuming a PR-produced artifact: the
 # artifact-poisoning path GitHub's own docs warn about.
 d="$(mkdir_case fail-workflow-run-artifact)"
@@ -627,6 +927,7 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "branches-ignore does not satisfy the base-branch filter" 1 $?
+assert_contains "the branches-ignore reason is pinned" "base-branch filter" "$out"
 
 # Artifact consumption via the gh CLI, not just the action.
 d="$(mkdir_case fail-workflow-run-gh-download)"
@@ -647,6 +948,7 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "gh run download counts as consuming a PR artifact" 1 $?
+assert_contains "the gh-download reason is pinned" "artifact" "$out"
 
 # An unrecognized permission level proves nothing about the token, so it is
 # treated exactly like write (REQ-H1.3).
@@ -817,6 +1119,7 @@ jobs:
 EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "a continued gh run download counts as consuming a PR artifact" 1 $?
+assert_contains "the continued gh-download reason is pinned" "artifact" "$out"
 
 # A secret split across a YAML double-quoted escaped line break. YAML drops the
 # break AND joins with no space, so GitHub resolves the secret while a scanner

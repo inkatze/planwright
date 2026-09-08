@@ -47,6 +47,81 @@ case $subject in
     ;;
 esac
 
+# ---- conventional-subject screen.
+# Write time is the ONLY moment a subject can be required to conform. Once the
+# commit exists the framework will not rewrite it, so the CI range lint reports
+# rather than fails — a non-conventional subject there has no remedy short of
+# the rewrite the framework forbids, and a permanently red pull request is what
+# that asymmetry used to produce. Here the message is still a file on disk, so
+# a refusal costs the author one edit.
+#
+# Deliberately zero forks, like the subject check above: this runs on every
+# commit. The pattern is `type(scope)!: description` over the commitlint
+# conventional type set, kept in step with scripts/check-commit-msgs.sh. The
+# two are pinned to each other by tests/test-check-commit-msgs.sh, which feeds
+# one corpus to both and requires the same verdict, so they cannot drift into
+# accepting different subjects. Merge and Revert subjects are skipped for the reason that file
+# gives: git writes them, so refusing them would block the normal merge flow.
+# Bypass stays --no-verify, the same deliberate escape hatch as every screen
+# in this hook.
+case $subject in
+  "Merge "* | "Revert "*) ;;
+  *)
+    cm_ok=1
+    cm_head=${subject%%:*}
+    cm_head=${cm_head%!}
+    # Split an optional `(scope)` off the type. The scope charset is checked
+    # too: the shared pattern allows only lowercase, digits, dot and dash, and
+    # a hook that waved through `feat(SCOPE)` would be a second, laxer rule
+    # wearing the same name.
+    case $cm_head in
+      *"("*)
+        cm_scope=${cm_head#*(}
+        case $cm_scope in
+          *")") cm_scope=${cm_scope%)} ;;
+          *) cm_ok= ;;
+        esac
+        case $cm_scope in
+          '' | *[!a-z0-9.-]*) cm_ok= ;;
+        esac
+        cm_type=${cm_head%%(*}
+        ;;
+      *) cm_type=$cm_head ;;
+    esac
+    case $cm_type in
+      build | chore | ci | docs | feat | fix | perf | refactor | revert | style | test) ;;
+      *) cm_ok= ;;
+    esac
+    # The separator is the FIRST colon, and it must be followed by exactly one
+    # space and then a non-space. Looking for ": " anywhere in the subject is
+    # not the same test and is more permissive: it accepts
+    # `fix(scope):missing space: ok`, whose later ": " has nothing to do with
+    # the type separator, while the shared pattern rejects it. That gap let
+    # the hook pass subjects the range lint reports.
+    cm_after=${subject#*:}
+    case $cm_after in
+      " ") cm_ok= ;;
+      " "*)
+        # Exactly one space: a second one means an empty description with
+        # padding, which the shared pattern's `[^ ]` rejects too.
+        case ${cm_after#?} in
+          " "*) cm_ok= ;;
+        esac
+        ;;
+      *) cm_ok= ;;
+    esac
+    if [ -z "$cm_ok" ]; then
+      echo "planwright githooks: commit-msg: subject is not conventional:" \
+        "$subject" >&2
+      echo "planwright githooks: expected 'type(scope): description' with type" \
+        "one of build chore ci docs feat fix perf refactor revert style test." \
+        "Fixing it now costs one edit; after the commit exists nothing can," \
+        "because history is never rewritten." >&2
+      exit 1
+    fi
+    ;;
+esac
+
 # ---- purged-identifier screen (Task 3; D-5; REQ-B1.1, REQ-H1.3).
 # Unlike the subject check above this one forks (a single perl pass over the
 # message) — the per-commit latency D-2 records as an accepted residual. The

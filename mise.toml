@@ -49,7 +49,7 @@ description = "yamllint on tracked config, workflows, and the pre-commit mirror 
 run = "yamllint --strict config/ .github/ lefthook.yml"
 
 [tasks."lint:commits"]
-description = "conventional-commit format lint on commits ahead of origin/main (length is enforced on the PR title in CI, not per-commit)"
+description = "conventional-commit lint on commits ahead of origin/main. Reports rather than fails: an existing subject cannot be corrected without rewriting history, so format and length are both enforced where the subject is still editable — githooks/commit-msg at write time, and the PR title in CI"
 run = '''
 if ! git rev-parse --verify --quiet origin/main >/dev/null; then
   echo "lint:commits: origin/main not found; skipping (CI enforces the PR range)"
@@ -127,7 +127,7 @@ description = "standing CI-exclusion guard, so evals never run in CI. Three pass
 run = "/bin/sh scripts/check-no-ci-evals.sh"
 
 [tasks."check:workflow-posture"]
-description = "fork-PR posture guard: no pull_request_target; read-only EFFECTIVE per-job permissions and zero stored secrets (secrets.GITHUB_TOKEN exempt) on everything reachable from pull_request, followed through local reusable-workflow uses:; privileged workflow_run keeps its base-branch filter and consumes no PR artifact; fails closed on a workflow it cannot parse (guard-coverage Task 4, REQ-C1.2, REQ-H1.3, D-6)"
+description = "fork-PR posture guard: no pull_request_target; read-only EFFECTIVE per-job permissions and zero stored secrets (secrets.GITHUB_TOKEN exempt) on everything reachable from pull_request, followed through local reusable-workflow uses:; privileged workflow_run keeps its base-branch filter, pins the originating repository (head_repository.full_name == github.repository), and consumes no PR artifact; fails closed on a workflow it cannot parse (guard-coverage Task 4, REQ-C1.2, REQ-H1.3, D-6)"
 run = "/bin/bash scripts/check-workflow-posture.sh"
 
 [tasks."check:githooks"]
@@ -154,6 +154,14 @@ run = "/bin/bash scripts/check-doctrine-index.sh"
 description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-doctrine-manifest.sh"
 
+[tasks."check:guard-wiring"]
+description = "guard-reachability check: every scripts/check-*.sh must be named in the run body of a mise task reachable from the `check` aggregate, in a workflow, or in scripts/guard-wiring-allow.txt with who runs it instead. A guard nothing invokes cannot fail, which is indistinguishable from one that always passes. Fails closed on anything that would narrow the scan to nothing"
+run = "/bin/sh scripts/check-guard-wiring.sh"
+
+[tasks."check:backend-capability-drift"]
+description = "backend capability-contract drift check: the prose contract, caps_for() and the fleet.md backend table must agree on every backend"
+run = "/bin/bash scripts/check-backend-capability-drift.sh"
+
 [tasks."check:cdpath"]
 description = "CDPATH house-pattern guard: fail on any shell file under scripts/, tests/, or githooks/ that resolves paths through a cd command substitution without a top-level 'unset CDPATH'; enumerates by shebang or .sh suffix so both the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (guard-coverage Task 10, REQ-G1.2, REQ-H1.3, D-12)"
 run = "/bin/bash scripts/check-cdpath.sh"
@@ -161,6 +169,10 @@ run = "/bin/bash scripts/check-cdpath.sh"
 [tasks."check:echo-safety"]
 description = "printf-not-echo guard over sanitized output: fail on a shell file under scripts/, tests/, or githooks/ that passes `sanitize_printable` output through `echo`, directly or through a variable, into the printf FORMAT operand, or to a printf `%b` (dash re-expands the backslash escape TEXT the sanitizer legitimately preserves, handing the terminal to whoever authored the input); enumerates by shebang or .sh suffix, keys on the sanitizer family rather than one function name, exempts bash-shebang files only (zsh and ksh expand escapes too) and a shrinking allowlist of paths open in other PRs, and fails closed on anything that would narrow the scan or on a stale allowlist entry"
 run = "/bin/bash scripts/check-echo-safety.sh"
+[tasks."check:test-time"]
+description = "test wall-clock budget gate: reads the per-file timing report scripts/run-tests.sh persisted (never re-runs the suite; the depends edge orders it after `test`) and compares it against config/test-time-budget.yml; measured >= budget trips, hard-failing on GitHub Actions and warning loudly elsewhere; fails closed on a missing, empty, malformed, or stale report, or a discovered test file with no entry (guard-coverage Task 7, REQ-E1.1, REQ-H1.3, D-8)"
+depends = ["test"]
+run = "/bin/bash scripts/check-test-time.sh"
 
 [tasks."eval:skill"]
 description = "kept prompt-eval suite (on demand only, never in CI or `check`): pass^3 behavioral evals over instruction files via `claude -p --bare`; needs a Claude CLI + ANTHROPIC_API_KEY (prompt-hygiene Task 4, REQ-C1.4, D-6/D-7/D-8)"
@@ -182,6 +194,7 @@ run = "gitleaks detect --no-banner --redact --source ."
 description = "Everything: the local equivalent of the CI gate (.github/workflows/ci.yml runs the same tasks)"
 depends = [
   "test",
+  "check:test-time",
   "lint:shell",
   "lint:fmt",
   "lint:md",
@@ -207,6 +220,8 @@ depends = [
   "check:doctrine-manifest",
   "check:cdpath",
   "check:echo-safety",
+  "check:guard-wiring",
+  "check:backend-capability-drift",
   "check:specs",
   "scan:secrets",
 ]

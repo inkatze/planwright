@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-08-19
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -295,7 +295,7 @@ bundle.
 **Alternatives considered:**
 - Take the whole recorded set in one pass over the supervisor's concurrency
   surface. Rejected because: it widens the bundle from lifecycle closure into
-  general supervisor hardening, and the D-21 "one feature a reader holds in
+  general supervisor hardening, and the bootstrap D-21 "one feature a reader holds in
   their head" test fails.
 - Take none, and build the new verbs on the locks as they stand. Rejected
   because: a close verb built on a lock with a known permanent-wedge path
