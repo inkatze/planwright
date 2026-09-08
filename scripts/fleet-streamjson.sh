@@ -780,8 +780,11 @@ supervise() {
     # Bounded, TERM then KILL. A plain `wait` here would hang forever on a
     # worker that ignores SIGTERM or is wedged, turning a pid-file failure
     # into a launch that never returns — a worse outcome than the leak this
-    # close exists to prevent. KILL cannot be ignored, so the reap after it
-    # returns promptly.
+    # close exists to prevent. KILL cannot be caught or ignored, so the reap
+    # is bounded by the kernel rather than by the worker's cooperation — not
+    # the same as prompt: a task wedged in uninterruptible I/O stays until
+    # that I/O ends, and nothing in userspace shortens it. What this removes
+    # is the unbounded wait on a worker that simply chooses not to exit.
     #
     # Reasoned, not measured, and the reason is worth recording: a test cannot
     # reliably make this worker ignore TERM. The signal is sent within a few
