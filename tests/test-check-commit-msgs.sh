@@ -171,6 +171,13 @@ assert "range mode passes a clean range" 0 $?
 #     starts meaning two things. Every subject below must get the same verdict
 #     from both. Merge/Revert and the squash!/fixup!/amend! subjects are
 #     excluded: the hook owns refusals this script deliberately skips.
+#
+#     Three of these carry a LATER `: ` that is not the type separator. The
+#     hook once looked for `": "` anywhere in the subject, which is a weaker
+#     test than "the first colon is followed by a space", and it accepted
+#     `fix(scope):missing space: ok` while this script rejected it — a real
+#     divergence, not a hypothetical one, found because the corpus lacked the
+#     shape rather than because anyone reasoned about it.
 HOOK="$(cd "$(dirname "$0")/.." && pwd)/githooks/commit-msg"
 if [ ! -f "$HOOK" ]; then
   echo "FAIL: githooks/commit-msg missing at $HOOK" >&2
@@ -188,6 +195,9 @@ else
     'notatype: nope' \
     'no colon at all' \
     'feat:missing the space' \
+    'fix(scope):missing space: ok' \
+    'feat:no space but: later' \
+    'feat:  double space after the colon' \
     'feat: ' \
     'FEAT: uppercase type' \
     'feat(SCOPE): uppercase scope'; do
@@ -208,8 +218,8 @@ else
   #  blaming the harness for a real finding. What this guards is the other
   #  case: a loop that stopped reaching either implementation would emit no
   #  per-subject failure at all and pass vacuously.
-  if [ "$compared" -ne 12 ]; then
-    echo "FAIL: the corpus loop ran $compared times, expected 12 — it is not exercising both implementations" >&2
+  if [ "$compared" -ne 15 ]; then
+    echo "FAIL: the corpus loop ran $compared times, expected 15 — it is not exercising both implementations" >&2
     failures=$((failures + 1))
   fi
   printf '%s\n' 'feat: a plain one' >"$hook_msg"

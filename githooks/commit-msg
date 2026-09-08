@@ -68,7 +68,6 @@ case $subject in
   "Merge "* | "Revert "*) ;;
   *)
     cm_ok=1
-    cm_rest=${subject#*: }
     cm_head=${subject%%:*}
     cm_head=${cm_head%!}
     # Split an optional `(scope)` off the type. The scope charset is checked
@@ -93,14 +92,23 @@ case $subject in
       build | chore | ci | docs | feat | fix | perf | refactor | revert | style | test) ;;
       *) cm_ok= ;;
     esac
-    # `: ` must be present, the description non-empty, and it must not start
-    # with a space (the `[^ ]` the shared pattern requires).
-    case $subject in
-      *": "*) ;;
+    # The separator is the FIRST colon, and it must be followed by exactly one
+    # space and then a non-space. Looking for ": " anywhere in the subject is
+    # not the same test and is more permissive: it accepts
+    # `fix(scope):missing space: ok`, whose later ": " has nothing to do with
+    # the type separator, while the shared pattern rejects it. That gap let
+    # the hook pass subjects the range lint reports.
+    cm_after=${subject#*:}
+    case $cm_after in
+      " ") cm_ok= ;;
+      " "*)
+        # Exactly one space: a second one means an empty description with
+        # padding, which the shared pattern's `[^ ]` rejects too.
+        case ${cm_after#?} in
+          " "*) cm_ok= ;;
+        esac
+        ;;
       *) cm_ok= ;;
-    esac
-    case $cm_rest in
-      '' | ' '*) cm_ok= ;;
     esac
     if [ -z "$cm_ok" ]; then
       echo "planwright githooks: commit-msg: subject is not conventional:" \
