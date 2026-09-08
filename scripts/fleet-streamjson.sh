@@ -769,7 +769,19 @@ supervise() {
   write_pidfile "$sv_dir/supervisor.pid" "$$" || return 2
   "$@" <"$sv_dir/in.fifo" >"$sv_dir/out.fifo" 2>>"$sv_dir/stderr.log" &
   sv_pid=$!
-  write_pidfile "$sv_dir/worker.pid" "$sv_pid" || :
+  if ! write_pidfile "$sv_dir/worker.pid" "$sv_pid"; then
+    # Fatal, like its sibling one line above, and for a sharper reason than
+    # symmetry. `recover` decides a worker is orphaned by reading these pid
+    # files; a worker running with no pid file published is invisible to that
+    # check, so a resume would start a second session over a live one. The
+    # worker is already spawned, so it is closed here rather than left behind
+    # — a supervisor that cannot record its worker must not leave one running
+    # that nothing can find.
+    kill "$sv_pid" 2>/dev/null || :
+    wait "$sv_pid" 2>/dev/null || :
+    echo "$me: could not publish worker.pid for $sv_worker; the worker was closed rather than left unrecorded" >&2
+    return 2
+  fi
   # From here the supervisor writes into the worker's stdin fifo: a worker
   # that exits before reading turns the write into EPIPE, which must end the
   # run cleanly, not kill the supervisor. Set AFTER the spawn so the worker
@@ -1321,6 +1333,17 @@ held_attention() {
   [ -f "$1" ] || return 1
   [ -r "$1" ] || return 0
   awk -F'\t' -v w="$2" '($1 "") == (w "") { found = 1 } END { exit found ? 0 : 1 }' "$1" 2>/dev/null
+  ha_rc=$?
+  # Three outcomes from two exit codes plus everything else. The caller reads
+  # any non-zero as "not held" and skips the class, so an awk that failed
+  # outright — a broken tool, an I/O error mid-read — would silently take the
+  # attention class out of the release set and let the close report success it
+  # never earned. Only a clean exit 1 means not held; anything the tool could
+  # not answer counts as held, and the close reports partial instead.
+  case $ha_rc in
+    1) return 1 ;;
+    *) return 0 ;;
+  esac
 }
 
 # Clearing the row is half the release. The other half is the journal: a

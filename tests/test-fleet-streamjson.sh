@@ -1941,4 +1941,87 @@ else
   echo "ok: c30 a live worker this user cannot signal is not treated as orphaned (REQ-E1.5)"
 fi
 
+# ---------------------------------------------------------------------------
+# c31 (REQ-E1.5): a supervisor that cannot publish worker.pid CLOSES the
+#     worker rather than running one nothing can find. `recover` decides a
+#     worker is orphaned by reading these pid files, so a live worker with no
+#     pid file published is invisible to that check and a resume would start a
+#     second session over it. Its sibling supervisor.pid write is already
+#     fatal; this one was not.
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: c31 needs a non-root user (root writes into a mode-500 directory)"
+else
+  home="$tmp/h31"
+  wdir31="$home/streamjson/sjw31"
+  mkdir -p "$wdir31" "$tmp/r31"
+  ev="$tmp/ev31"
+  printf '%s\n%s\n' "$line_init" "$line_result" >"$ev"
+  printf 'p\n' >"$tmp/prompt31"
+  #   Block only the worker.pid publish: a directory the publish cannot rename
+  #   into. supervisor.pid is written before this and still succeeds, so the
+  #   case exercises the second write and not a broken state directory.
+  mkdir -m 500 "$wdir31/worker.pid"
+  out=$(senv "$home" "$tmp/r31" SHIM_EVENTS="$ev" -- \
+    launch sjw31 execution-backends:4 --prompt-file "$tmp/prompt31" --foreground 2>&1)
+  rc31=$?
+  chmod 700 "$wdir31/worker.pid" 2>/dev/null
+  [ "$rc31" != 0 ] \
+    || fail "c31: a launch that could not publish worker.pid reported success: $out"
+  case $out in
+    *worker.pid*) ;;
+    *) fail "c31: the failure never named the pid file it could not publish: $out" ;;
+  esac
+  #   And no worker is left running behind that failure.
+  leaked=0
+  for c31p in $(pgrep -f "fleet-streamjson.sh _supervise sjw31" 2>/dev/null); do
+    leaked=$((leaked + 1))
+    kill "$c31p" 2>/dev/null
+  done
+  [ "$leaked" = 0 ] || fail "c31: $leaked supervisor(s) survived a failed pid publish"
+  echo "ok: c31 a worker that cannot be recorded is closed, not left running (REQ-E1.5)"
+fi
+
+# ---------------------------------------------------------------------------
+# c32 (REQ-A1.3, REQ-B1.7): when the attention probe cannot ANSWER, the class
+#     counts as held. The caller reads any non-zero as "not held" and skips
+#     the class, so an awk that failed outright would drop attention from the
+#     release set and let the close report a success it never earned. Only a
+#     clean "no such row" means not held.
+# ---------------------------------------------------------------------------
+home="$tmp/h32"
+rec="$tmp/r32"
+mkdir -p "$rec"
+ev32="$tmp/ev32"
+printf '%s\n%s\n%s\n' "$line_init" "$line_perm" "$line_result" >"$ev32"
+printf 'held probe\n' >"$tmp/prompt32"
+senv "$home" "$rec" SHIM_EVENTS="$ev32" -- \
+  launch sjw32 execution-backends:4 --prompt-file "$tmp/prompt32" --foreground \
+  || fail "c32: foreground launch exited non-zero"
+#   An awk that cannot answer: exits 2 for everything, the way a broken tool or
+#   a mid-read I/O error would. Exit 2 is neither of the codes the probe reads.
+mkdir -p "$tmp/bin32"
+c32_awk=$(command -v awk) || fail "c32: no awk to delegate to"
+cat >"$tmp/bin32/awk" <<AWKFAIL
+#!/bin/sh
+# Fails ONLY on the attention store. A shim that failed for everything would
+# stop the close at its process-table read instead, which fails closed for a
+# different reason and would prove nothing about this one.
+for a in "\$@"; do
+  case \$a in *attention*) exit 2 ;; esac
+done
+exec $c32_awk "\$@"
+AWKFAIL
+chmod +x "$tmp/bin32/awk"
+PATH="$tmp/bin32:$PATH" awk 'BEGIN { exit 0 }' </dev/null 2>/dev/null \
+  || fail "c32: the shim broke ordinary awk — it must only fail on the attention store"
+PATH="$tmp/bin32:$PATH" awk '{ print }' "$home/attention" >/dev/null 2>&1
+[ "$?" = 2 ] || fail "c32: the shim does not fail on the attention store — this case would prove nothing"
+out=$(PATH="$tmp/bin32:$PATH" senv "$home" "$rec" -- stop sjw32 --grace 2 2>&1)
+case $out in
+  *"held="*attention*) ;;
+  *) fail "c32: an unanswerable attention probe should hold the class, got: $out" ;;
+esac
+echo "ok: c32 an attention probe that cannot answer counts as held (REQ-A1.3)"
+
 echo "all fleet-streamjson tests passed"
