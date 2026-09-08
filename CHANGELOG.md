@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.38.0](https://github.com/inkatze/planwright/compare/v0.37.0...v0.38.0) (2026-09-08)
+
+
+### Features
+
+* **allocation:** state the model roster once and keep the top escalation-only ([#422](https://github.com/inkatze/planwright/issues/422)) ([d50aef0](https://github.com/inkatze/planwright/commit/d50aef0cecb3cab9d5fd0362b5a7a8835bfd565a))
+* **fleet:** give the stream-json rung a close verb and a single-initiator launch ([#399](https://github.com/inkatze/planwright/issues/399)) ([f6f3e2b](https://github.com/inkatze/planwright/commit/f6f3e2b6e12b1cc9ab2c8196f1c46b8997a1773e))
+* **guards:** fail the gate on a guard the gate never runs ([#424](https://github.com/inkatze/planwright/issues/424)) ([dec28f1](https://github.com/inkatze/planwright/commit/dec28f1b2ac79c9de344cc41f4b1b517a18d9b75))
+* **spec:** fleet-messaging kickoff sign-off ([#426](https://github.com/inkatze/planwright/issues/426)) ([ccdebb7](https://github.com/inkatze/planwright/commit/ccdebb78d31fa9f65b2670cbe2e6fd6399dde571))
+
+
+### Bug Fixes
+
+* **allocation:** run the escalation feedback loop at a unit's terminal states ([#413](https://github.com/inkatze/planwright/issues/413)) ([3877751](https://github.com/inkatze/planwright/commit/3877751a02f11b4b8052aab99db3dea7c0412894))
+* **ci:** lint the PR title on a trigger that can re-check a correction ([#420](https://github.com/inkatze/planwright/issues/420)) ([6f38a80](https://github.com/inkatze/planwright/commit/6f38a80a79abf133057ccb0a4f9306b0ad76e1e2))
+* **ci:** stop a frozen commit subject reddening a pull request forever ([#425](https://github.com/inkatze/planwright/issues/425)) ([a1b80d3](https://github.com/inkatze/planwright/commit/a1b80d32908f3398adde78fc80b1ac2fdc4094fa))
+* **fleet:** fail closed when the supervisor cannot record or probe its worker ([#427](https://github.com/inkatze/planwright/issues/427)) ([8fec7ea](https://github.com/inkatze/planwright/commit/8fec7ea7a358e65be6de50e5fe2ceb0327599598))
+* **test:** close the supervisor the registration fixture leaked every run ([#423](https://github.com/inkatze/planwright/issues/423)) ([a527b86](https://github.com/inkatze/planwright/commit/a527b86e24ea98fd20a9b57e9cbba38490da6df8))
+
 ## [0.37.0](https://github.com/inkatze/planwright/compare/v0.36.0...v0.37.0) (2026-09-07)
 
 
