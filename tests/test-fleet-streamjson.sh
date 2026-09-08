@@ -2017,11 +2017,17 @@ PATH="$tmp/bin32:$PATH" awk 'BEGIN { exit 0 }' </dev/null 2>/dev/null \
   || fail "c32: the shim broke ordinary awk — it must only fail on the attention store"
 PATH="$tmp/bin32:$PATH" awk '{ print }' "$home/attention" >/dev/null 2>&1
 [ "$?" = 2 ] || fail "c32: the shim does not fail on the attention store — this case would prove nothing"
-out=$(PATH="$tmp/bin32:$PATH" senv "$home" "$rec" -- stop sjw32 --grace 2 2>&1)
+rc32=0
+out=$(PATH="$tmp/bin32:$PATH" senv "$home" "$rec" -- stop sjw32 --grace 2 2>&1) || rc32=$?
 case $out in
   *"held="*attention*) ;;
   *) fail "c32: an unanswerable attention probe should hold the class, got: $out" ;;
 esac
+#     And the exit code, not only the text: a partial close is a distinct
+#     status in this verb's contract, and asserting the wording alone would
+#     let a regression that reported success alongside a held class pass.
+[ "$rc32" = 6 ] \
+  || fail "c32: a partial close must exit 6, got $rc32: $out"
 echo "ok: c32 an attention probe that cannot answer counts as held (REQ-A1.3)"
 
 echo "all fleet-streamjson tests passed"

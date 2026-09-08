@@ -793,12 +793,16 @@ supervise() {
     # A case built on that race would pass for the wrong reason more often
     # than it caught anything.
     kill "$sv_pid" 2>/dev/null || :
+    # pid_live, not `kill -0`: an unsignalable worker reads as dead to the
+    # bare probe, which would end the poll early, skip the KILL, and drop
+    # straight into the unbounded wait this bound exists to remove — the hang
+    # coming back through the check meant to prevent it.
     sv_wait=0
-    while kill -0 "$sv_pid" 2>/dev/null && [ "$sv_wait" -lt 20 ]; do
+    while pid_live "$sv_pid" && [ "$sv_wait" -lt 20 ]; do
       sv_wait=$((sv_wait + 1))
       sleep 0.1
     done
-    if kill -0 "$sv_pid" 2>/dev/null; then
+    if pid_live "$sv_pid"; then
       kill -9 "$sv_pid" 2>/dev/null || :
     fi
     wait "$sv_pid" 2>/dev/null || :
