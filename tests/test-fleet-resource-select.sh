@@ -179,10 +179,10 @@ echo "ok: the selectable command set is disjoint from the nestable-review-skill 
 # 6. The model column is overlay-tunable per task type: a machine-local
 #    override wins (D-22/REQ-G1.5), and only the targeted type changes.
 reset_layers
-printf 'fleet_model_execution: fable\n' >"$mlocal_cfg"
+printf 'fleet_model_execution: haiku\n' >"$mlocal_cfg"
 out=$(run select execution 2>/dev/null) || fail "overlay: select execution exited nonzero"
-[ "$out" = "fable${TAB}high${TAB}execute-task" ] \
-  || fail "overlay: expected the machine-local 'fable' to win, got '$out'"
+[ "$out" = "haiku${TAB}high${TAB}execute-task" ] \
+  || fail "overlay: expected the machine-local 'haiku' to win, got '$out'"
 out=$(run select bookkeeping 2>/dev/null) || fail "overlay: select bookkeeping exited nonzero"
 [ "$out" = "sonnet${TAB}medium${TAB}orchestrate" ] \
   || fail "overlay: bookkeeping must be unaffected by the execution override, got '$out'"

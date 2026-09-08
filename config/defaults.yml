@@ -262,8 +262,22 @@ tower_relaunch_disable_threshold: 3
 # D-22/REQ-G1.5, the customization-overlay REQ-E1.4 by-layer malformed
 # policy) so an overlay can
 # route a tier to a different model without a code change. Legal values are
-# the stable Claude Code model aliases (fable | opus | sonnet | haiku) —
-# aliases, not dated model ids, so the enum survives model releases. Effort
+# the stable Claude Code model aliases — aliases, not dated model ids, so the
+# enum survives model releases — MINUS the ladder top, which is
+# escalation-only. The roster and the resulting starting-tier set both live in
+# scripts/allocation-ladder.sh; no copy of either is kept here, because a copy
+# would be wrong the first time a model is added and nothing would say so.
+#
+# WHY THE TOP IS NOT A STARTING TIER. The adaptation ladder escalates by
+# raising effort to `high` and only then the model one alias, so the top
+# model's only reachable coordinate is at `high` effort. A unit configured to
+# START there would open with the ladder's entire headroom already spent and
+# no rung left to escalate into. Escalation still reaches the top; naming it
+# here does not. A config that does is refused under the same by-layer policy
+# as any other out-of-enum value. The roster is APPEND-ONLY: a new model goes
+# above the current top, never between two existing ones, because rank is that
+# list's index and the ledger replays recorded directions through it — so
+# which alias is escalation-only moves when the roster grows. Effort
 # and command are overlay-tunable too, through the knobs in the next block
 # (fleet-autonomy Task 10, D-24, REQ-E1.8). Selection is deterministic table
 # lookup: no LLM call is ever in the resolution path (D-18).
@@ -301,10 +315,11 @@ fleet_command_drain: drain
 # REQ-A1.2, REQ-A1.3). scripts/allocation-select.sh resolves one
 # model/effort/command row per SELECTION KEY, keyed so that any launch point
 # can read it rather than fleet dispatch alone, and these knobs are its
-# configuration. Fleet dispatch is the only launch point wired to it so far;
-# Task 6 wires the rest, so setting a non-fleet key below changes nothing at
-# its surface until then. Each column resolves allocation_<column>_<key>
-# first, then the legacy fleet_<column>_<key> above, then the shipped default.
+# configuration. Every launch point planwright ships reads it: fleet dispatch
+# by task type, and single-spec /orchestrate dispatch, /execute-task's per-step
+# sessions, and /offload by surface. Each column resolves
+# allocation_<column>_<key> first, then the legacy fleet_<column>_<key> above,
+# then the shipped default.
 #
 # The nine fleet-keyed knobs ship the `unset` sentinel: that is how a flat
 # config file spells "this general knob is not set", and it is what arms the
@@ -312,6 +327,9 @@ fleet_command_drain: drain
 # outrank every existing fleet_* overlay, which is exactly the upgrade-day
 # behavior change REQ-A1.2 forbids. The fleet_* family stays a DEPRECATED
 # FALLBACK — documented, never removed — so those overlays keep working.
+#
+# The model column takes the same starting-tier enum as the fleet_* family
+# above, ladder top excluded, for the reason spelled out there.
 allocation_model_execution: unset
 allocation_model_bookkeeping: unset
 allocation_model_drain: unset
@@ -322,21 +340,68 @@ allocation_command_execution: unset
 allocation_command_bookkeeping: unset
 allocation_command_drain: unset
 
-# The three surfaces that perform no selection today: single-spec /orchestrate
-# dispatch, /execute-task's per-step sessions, and /offload dispatch. None of
-# them calls the resolver yet (Task 6 wires them), and their shipped default is
-# the explicit `inherit` sentinel, so that once wired the resolver is consulted
-# (REQ-B1.1 holds) but applies nothing and the launch keeps its ambient
-# model/effort. The capability ships dark either way (D-13). Setting one to a
-# model alias or effort level starts governing that surface from the point its
-# wiring lands, not before. There is no command column here: only a fleet
-# dispatch turns a selection into a slash-command invocation (D-5).
+# The three surfaces outside fleet dispatch: single-spec /orchestrate dispatch,
+# /execute-task's per-step sessions, and /offload dispatch. Each consults the
+# resolver before it launches (REQ-B1.1), and their shipped default is the
+# explicit `inherit` sentinel, so the resolver is asked, applies nothing, and
+# the launch keeps its ambient model/effort. The capability ships dark (D-13):
+# by default the only observable difference from an unwired launch is the
+# ledger row saying the tier was inherited. Setting one to a model alias or
+# effort level starts
+# governing that surface, applied as far as the launching backend's advertised
+# tier_control allows and with any remaining inheritance recorded (REQ-B1.2).
+# There is no command column here: only a fleet dispatch turns a selection into
+# a slash-command invocation (D-5).
 allocation_model_orchestrate_dispatch: inherit
 allocation_effort_orchestrate_dispatch: inherit
 allocation_model_execute_step: inherit
 allocation_effort_execute_step: inherit
 allocation_model_offload: inherit
 allocation_effort_offload: inherit
+
+# PER-STEP selection keys (model-allocation D-8, D-12; REQ-C1.3, REQ-E1.1).
+# The selection keys above price a whole UNIT. These price one STEP of it: the
+# implementation step, and each review-sequence step class (one knob pair per
+# nestable review skill). Today every review pass inherits the unit's tier, so
+# nothing ever starts cheap; these are the knobs that let it.
+#
+# ALL SHIP `inherit`, so every step resolves to the unit's own tier and the
+# golden baseline is reproduced exactly. Landing the mechanism changes runtime
+# behavior by nothing; turning it on is a separate operator decision (D-13).
+# Nothing passes a step type yet either — Task 6 wires the launch points — so
+# setting one of these changes nothing at all until that lands.
+#
+# The rule these obey is D-8's, and design.md owns it: application is
+# ONE-DIRECTIONAL. A tier cheaper than the unit's current tier applies to that
+# step's launch alone and is scope-marked in the ledger; an equal or more
+# expensive one is ignored with a row. The two columns compose, so leaving one
+# `inherit` fills it from the unit's tier before the comparison — which is how
+# "run polish at low effort on whatever model the unit is on" is expressed,
+# though a unit already at `low` makes that tier EQUAL, and equal is ignored.
+#
+# A PREREQUISITE worth knowing before setting one: a step tier needs a unit
+# tier to be cheaper than, so at a selection key whose own tier is `inherit`
+# (every non-fleet surface above, including the `execute_step` key an
+# implementation step resolves through) a configured step tier is refused with
+# a ledger row. Give the surface a tier first, or the step knob stays inert.
+#
+# There is NO command column here, deliberately. The command enum carries the
+# review-sequence-disjointness invariant (REQ-A1.4) and must never name a
+# nestable review skill; step types are named after exactly those skills, so
+# the axes stay separate and the enum is untouched by construction.
+#
+# The key space is OPEN: a review skill added later needs no row here, because
+# its knob is absent from every layer and resolves to `inherit`.
+#
+# The model column takes the starting-tier enum (ladder top excluded, see the
+# fleet_model_* block above). A step tier only ever applies when it is CHEAPER
+# than the unit's, so the top could never apply here in any case.
+allocation_model_step_implementation: inherit
+allocation_effort_step_implementation: inherit
+allocation_model_step_polish: inherit
+allocation_effort_step_polish: inherit
+allocation_model_step_self_review: inherit
+allocation_effort_step_self_review: inherit
 
 # Execution-time ADAPTATION: whether a unit's tier may move at a launch boundary
 # in response to what execution actually revealed (model-allocation D-2, D-8,
@@ -366,6 +431,22 @@ allocation_adaptation: "off"
 # before any arithmetic use; the ladder ends are hard stops regardless of the cap.
 allocation_adjustment_cap: 2
 
+# Which directions of WORKER PETITION the policy will weigh (model-allocation
+# D-7; REQ-C1.3, REQ-C1.6, REQ-E1.1). A worker that finds its unit harder or
+# easier than the table assumed writes a strict-grammar petition at a pinned
+# path in its own worktree; the next launch boundary claims it and weighs it as
+# one trigger input among the others, never as an authority over a clamp or the
+# adjustment cap. `escalate-only` and `de-escalate-only` keep one direction of
+# that signal and ignore the other; `off` keeps none. A petition the knob
+# filters out is still consumed and recorded, so the audit shows what was said
+# and that the knob is why it did not count.
+#
+# Subordinate to allocation_adaptation: with the master knob `off` there is no
+# ladder position to move, so the channel is not read at all and this value has
+# no effect. That is what lets it ship `on` without changing shipped behavior
+# (D-13) — turning adaptation on gets the petition channel that D-7 describes
+# rather than a second knob to discover.
+allocation_petition: "on"
 # How many APPLIED escalations over a unit's whole history make it worth telling
 # future drafting about (model-allocation D-11; REQ-F1.2, REQ-E1.1). At a unit's
 # terminal state (completion or crash-loop disable), scripts/allocation-feedback.sh

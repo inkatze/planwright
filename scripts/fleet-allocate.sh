@@ -90,8 +90,23 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
+# The two sourced siblings, guarded rather than sourced bare. `.` is a POSIX
+# special built-in, so a conforming shell aborts on a missing file — but bash
+# outside POSIX mode, which the suite and CI run, only warns and carries on
+# with the sourced definitions absent. The guard makes a half-installed tree
+# the documented exit 5 on either shell.
+for dep in echo-safety.sh allocation-ladder.sh; do
+  if [ ! -r "$script_dir/$dep" ]; then
+    echo "fleet-allocate: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
+    exit 5
+  fi
+done
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+# The model roster and its rank map. Sourced, never restated: a second copy of
+# the roster is the drift allocation-ladder.sh's header exists to prevent.
+# shellcheck source=scripts/allocation-ladder.sh
+. "$script_dir/allocation-ladder.sh"
 
 RESOLVER="$script_dir/resolve-config-knob.sh"
 SELECT="$script_dir/fleet-resource-select.sh"
@@ -101,8 +116,11 @@ KILL="$script_dir/fleet-daemon-gate.sh"
 MECHANISM=budget-allocate
 TAB=$(printf '\t')
 
-MODEL_VALUES="fable opus sonnet haiku"
-EFFORT_VALUES="low medium high"
+# The FULL roster here, not the starting one: escalation legitimately reaches
+# the ladder top, so a resolved row naming it is valid at this surface even
+# though configuring it as a starting tier is refused upstream.
+MODEL_VALUES="$ALLOC_MODELS_DESC"
+EFFORT_VALUES="$ALLOC_EFFORTS"
 COMMAND_VALUES="execute-task orchestrate drain"
 
 usage() {
@@ -130,25 +148,31 @@ require_exec() {
 # model_cost <alias>: the tier COST index, expensive -> cheap. A higher index is
 # CHEAPER, so "the cheaper of two models" is a numeric max and stepping down a
 # tier is +1. Returns 1 on an unknown alias (caller validates first).
+#
+# This is the ladder's rank with the polarity flipped, derived rather than
+# spelled again — the ladder counts UP from the cheapest so that "escalate" is
+# a `+1` there, and this surface counts DOWN from the top so that "downshift"
+# is a `+1` here. Two hand-written maps of one roster is exactly how the two
+# polarities would drift apart.
 model_cost() {
-  case $1 in
-    fable) printf 0 ;;
-    opus) printf 1 ;;
-    sonnet) printf 2 ;;
-    haiku) printf 3 ;;
-    *) return 1 ;;
-  esac
+  mc_r=$(alloc_model_rank "$1") || return 1
+  printf '%s' "$((ALLOC_MODEL_TOP - mc_r))"
 }
 
-# model_at_cost <index>: the alias for a cost index (the inverse). haiku is the
-# cheapest floor; an index past it clamps to haiku.
+# model_at_cost <index>: the alias for a cost index (the inverse). The cheapest
+# alias is the floor; an index past it clamps there rather than failing, which
+# is what lets a downshift walk off the bottom without a special case.
 model_at_cost() {
-  case $1 in
-    0) printf fable ;;
-    1) printf opus ;;
-    2) printf sonnet ;;
-    *) printf haiku ;;
-  esac
+  mac_r=$((ALLOC_MODEL_TOP - $1))
+  # Clamped at BOTH ends. The case statement this replaced was total — every
+  # index outside the roster answered with the cheapest alias — and a caller
+  # that relied on that should not start getting an empty string back.
+  if [ "$mac_r" -lt 0 ]; then
+    mac_r=0
+  elif [ "$mac_r" -gt "$ALLOC_MODEL_TOP" ]; then
+    mac_r=$ALLOC_MODEL_TOP
+  fi
+  alloc_model_at "$mac_r"
 }
 
 # cheaper_model <a> <b>: print whichever of two aliases is cheaper — the less
@@ -400,12 +424,20 @@ cmd_resolve() {
     if [ "$gpct" != unavailable ]; then
       resolve_caps
       cap_guard=0
-      while [ "$cap_guard" -lt 8 ]; do # bounded: at most 4 tiers to step through
+      # Bounded by the roster rather than a literal: the walk steps down at
+      # most one tier per pass, so twice the roster's height is ample headroom
+      # and stays ample when a model is appended. The old literal came with a
+      # comment stating the tier count, which is exactly the copied value this
+      # change exists to stop keeping.
+      while [ "$cap_guard" -lt $(((ALLOC_MODEL_TOP + 1) * 2)) ]; do
         cap_guard=$((cap_guard + 1))
         capval=$(cap_of "$eff_model") || exit 4
         if [ "$gpct" -ge "$capval" ]; then
           emcost=$(model_cost "$eff_model")
-          [ "$emcost" -ge 3 ] && break # haiku floor: nothing cheaper to fall to
+          # The cheapest rung: cost counts down from the top, so the floor IS
+          # the top rank. A literal here would be wrong the moment a model is
+          # appended, which is the drift the shared roster exists to stop.
+          [ "$emcost" -ge "$ALLOC_MODEL_TOP" ] && break
           eff_model=$(model_at_cost "$((emcost + 1))")
         else
           break

@@ -378,6 +378,32 @@ validate_launch_extra() {
         exit 2
         ;;
       --model=* | --fallback-model=*) shift ;;
+      --effort)
+        # The launch-tier effort dimension (model-allocation D-10, REQ-B1.2).
+        # Sanctioned for the same reason `--model` is: it selects capability and
+        # cost, never permission or trust, so it is outside what the
+        # escalation pin exists to stop. Its value is checked against
+        # planwright's own effort enum rather than merely shape-checked, because
+        # the resolver can emit nothing else and a wider value here could only
+        # come from a hand-built launch.
+        [ "$#" -ge 2 ] || {
+          warn "launch flag $1 needs a value"
+          exit 2
+        }
+        case $2 in
+          low | medium | high) ;;
+          *)
+            warn "launch flag --effort has an out-of-enum value: $2"
+            exit 2
+            ;;
+        esac
+        shift 2
+        ;;
+      --effort=low | --effort=medium | --effort=high) shift ;;
+      --effort=*)
+        warn "launch flag --effort has an empty or out-of-enum value: $1"
+        exit 2
+        ;;
       --continue | -c) shift ;;
       --resume | -r)
         shift

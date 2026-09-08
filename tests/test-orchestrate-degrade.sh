@@ -346,12 +346,12 @@ PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=
 [ "$("$DEGRADE" read "$sd")" = stream-json-persistent ] \
   || fail "the rung-2 tie must resolve to the pinned richer rung (stream-json-persistent)"
 
-# Degrade's own adapter_caps copy enforces the 6-or-8 grammar: a nine-field and
-# a bad-overhead adapter are fail-safe SKIPPED as failover candidates (the
+# Degrade's own adapter_caps copy enforces the 6-or-8-or-9 grammar: a TEN-field
+# and a bad-overhead adapter are fail-safe SKIPPED as failover candidates (the
 # descent lands on the next safe rung), with the visible malformed diagnostic.
 cat >"$BIN/planwright-backend-nine" <<'EOF'
 #!/bin/sh
-[ "$1" = advertise ] && echo "false false false false true yes light true EXTRA"
+[ "$1" = advertise ] && echo "false false false false true yes light true both EXTRA"
 EOF
 cat >"$BIN/planwright-backend-badov" <<'EOF'
 #!/bin/sh
@@ -365,6 +365,34 @@ PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux nine badov in-session >/dev/nul
   || fail "malformed-adapter candidates must be skipped fail-safe (expected in-session)"
 grep -q "malformed advertise line" "$tmp/fo-err" \
   || fail "failover: a malformed candidate's advertise line must be diagnosed, not silently skipped"
+
+# A contract-current NINE-field adapter is a healthy candidate. Rejecting it
+# here while orchestrate-backends.sh accepts it would make the two surfaces
+# disagree about which backends exist, and silently drop a working rung out of
+# the ladder (model-allocation D-10).
+cat >"$BIN/planwright-backend-ninegood" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] && echo "false false false false true yes light true model"
+EOF
+chmod +x "$BIN/planwright-backend-ninegood"
+sd=$(new_spec_dir)
+PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux ninegood in-session >/dev/null 2>&1 \
+  || fail "failover with a nine-field candidate exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = ninegood ] \
+  || fail "a contract-current nine-field adapter must be selectable, got $("$DEGRADE" read "$sd")"
+# ...and an out-of-enum tier_control is malformed, fail-safe skipped.
+cat >"$BIN/planwright-backend-ninebad" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] && echo "false false false false true yes light true sometimes"
+EOF
+chmod +x "$BIN/planwright-backend-ninebad"
+sd=$(new_spec_dir)
+PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux ninebad in-session >/dev/null 2>"$tmp/fo-err2" \
+  || fail "failover with a bad-tier_control candidate exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = in-session ] \
+  || fail "a bad tier_control must be skipped fail-safe (expected in-session)"
+grep -q "malformed advertise line" "$tmp/fo-err2" \
+  || fail "failover: a bad tier_control must carry the malformed diagnostic"
 
 # Empty candidate list: the shipped presence probe fills it in (F4). With
 # subagent forced present — and stream-json-persistent pinned absent, since
