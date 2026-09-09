@@ -35,23 +35,6 @@ normative token the explanation does convey (MUST, SHALL, SHALL NOT, MAY, a
 threshold, an enumerated state) is preserved verbatim, never softened into
 vague prose.
 
-Names come from the operator's world, not the artifact's. An identifier that
-only means something to a reader with the file open — a test case's ordinal,
-a requirement or design id, a task number, an observation hash, a branch
-suffix — is translated before it is spoken, and the thing is named by what it
-does. The test: if answering "what is that?" would require the operator to
-open something, it is not a word to say to them. Carry the identifier after
-the plain statement when traceability needs it, never instead of one.
-
-This applies to SPEECH, which is where it is hardest to notice. The
-outward-facing-text rule that governs pull request titles, review replies and
-commit messages enumerates artifacts, and an agent can satisfy every one of
-them while narrating an internal label to the operator's face for an entire
-session — the one surface with no reader but the operator, and no file for
-them to open. Repeating an explanation while keeping the label does not
-discharge this: if the operator asks what a name means, the name is the
-defect, not the explanation around it.
-
 ### Interview to completeness
 
 Elicitation is goal-directed against the spec's dependency structure. The
