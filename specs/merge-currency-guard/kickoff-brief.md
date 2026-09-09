@@ -389,3 +389,21 @@ the change this entry re-anchors against.
 Class: expression-only
 Anchor: `a511fc4fb553e3ac9d67e12274255eefe58991c5` — computed as
 `scripts/spec-anchor.sh specs/merge-currency-guard`
+
+### Re-anchor — foreign citations qualified (2026-09-03)
+
+Marked self-re-anchor for the expression-only edit the format-grammar
+validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): REQ-B1.4's
+citation of the execute-task skill's invariants now reads `pair-flow D-21 /
+bootstrap REQ-J1.1`. Each qualified id now carries its owning spec's name
+within the reader's reach (the same line, bullet, or block, the scope the
+rule reads); no requirement or decision changes meaning. `Last reviewed:`
+moves on the edited files.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `357529848c3227de226e031b72e849d254f9cd74` — computed as
+`scripts/spec-anchor.sh specs/merge-currency-guard`

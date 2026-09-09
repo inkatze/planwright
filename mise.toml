@@ -49,7 +49,7 @@ description = "yamllint on tracked config, workflows, and the pre-commit mirror 
 run = "yamllint --strict config/ .github/ lefthook.yml"
 
 [tasks."lint:commits"]
-description = "conventional-commit format lint on commits ahead of origin/main (length is enforced on the PR title in CI, not per-commit)"
+description = "conventional-commit lint on commits ahead of origin/main. Reports rather than fails: an existing subject cannot be corrected without rewriting history, so format and length are both enforced where the subject is still editable — githooks/commit-msg at write time, and the PR title in CI"
 run = '''
 if ! git rev-parse --verify --quiet origin/main >/dev/null; then
   echo "lint:commits: origin/main not found; skipping (CI enforces the PR range)"
@@ -166,6 +166,11 @@ run = "/bin/bash scripts/check-backend-capability-drift.sh"
 description = "CDPATH house-pattern guard: fail on any shell file under scripts/, tests/, or githooks/ that resolves paths through a cd command substitution without a top-level 'unset CDPATH'; enumerates by shebang or .sh suffix so both the extensionless hooks and the sourced libraries are covered, and fails closed on anything that would narrow the scan (guard-coverage Task 10, REQ-G1.2, REQ-H1.3, D-12)"
 run = "/bin/bash scripts/check-cdpath.sh"
 
+[tasks."check:test-time"]
+description = "test wall-clock budget gate: reads the per-file timing report scripts/run-tests.sh persisted (never re-runs the suite; the depends edge orders it after `test`) and compares it against config/test-time-budget.yml; measured >= budget trips, hard-failing on GitHub Actions and warning loudly elsewhere; fails closed on a missing, empty, malformed, or stale report, or a discovered test file with no entry (guard-coverage Task 7, REQ-E1.1, REQ-H1.3, D-8)"
+depends = ["test"]
+run = "/bin/bash scripts/check-test-time.sh"
+
 [tasks."eval:skill"]
 description = "kept prompt-eval suite (on demand only, never in CI or `check`): pass^3 behavioral evals over instruction files via `claude -p --bare`; needs a Claude CLI + ANTHROPIC_API_KEY (prompt-hygiene Task 4, REQ-C1.4, D-6/D-7/D-8)"
 run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
@@ -186,6 +191,7 @@ run = "gitleaks detect --no-banner --redact --source ."
 description = "Everything: the local equivalent of the CI gate (.github/workflows/ci.yml runs the same tasks)"
 depends = [
   "test",
+  "check:test-time",
   "lint:shell",
   "lint:fmt",
   "lint:md",

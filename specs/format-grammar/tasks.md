@@ -206,7 +206,7 @@ parked in `## Awaiting input` on the instruction-headroom condition
 
 ## Deferred
 
-- (none yet)
+(none yet)
 
 ## Out of scope
 

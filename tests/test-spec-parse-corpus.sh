@@ -608,7 +608,7 @@ l80_task() {
   l80_task 1 Root none 'D-1 · REQ-Y1.1'
   l80_task 2 Middle 'Task 1.' 'D-1'
   l80_task 3 Leaf 'Task 1; Task 2 (REQ-Y1.2 / D-1 — a carry clause naming ids)' 'REQ-Y1.2'
-  l80_task 4 Tail 'Task 3; see D-9 for context' 'D-1'
+  l80_task 4 Tail 'Task 3; see pair-flow D-9 for context' 'D-1'
   printf '## Notes\n\nThe block format:\n\n'
   printf '```markdown\n'
   l80_task 9 Illustration '7' 'D-9'

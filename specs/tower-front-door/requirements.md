@@ -1,7 +1,7 @@
 # Tower front door — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-01
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -365,6 +365,13 @@ the mechanism filling the entrance seam.
   obs:7f0b4274 added); `tasks.md` ownership sweep, Done-when hardening,
   Task 13 (acceptance demo script) added; `test-spec.md` entries aligned
   and E-group reordered.
+
+- 2026-09-03 — Expression-only: the `## Awaiting input` placeholder in
+  `tasks.md` is the plain `(none yet)` form rather than a bullet, which
+  the format-grammar validator's Awaiting-input purity rule
+  (format-grammar REQ-D1.1) reads as a non-reference bullet; that section
+  is outside the content anchor. No requirement or decision changes
+  meaning.
 
 ## Sources
 
