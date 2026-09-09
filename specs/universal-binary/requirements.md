@@ -1,7 +1,7 @@
 # Universal Binary — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-09-08
+**Status:** Ready
+**Last reviewed:** 2026-09-09
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -54,9 +54,10 @@ discipline.
   cites.
 - The two baseline hardenings: the advisory-lock primitive and the echo
   discipline, landed in shell before any bake-off.
-- The verdict record: one design decision per tier, minted by amendment
-  with a scoped re-sign-off, superseding the bootstrap runtime decision and
-  restating the readable-shell doctrine line as substrate-neutral criteria.
+- The verdict record: one design decision per surviving tier, minted by
+  amendment with a scoped re-sign-off, superseding the bootstrap runtime
+  decision and restating the readable-shell doctrine line as
+  substrate-neutral criteria.
 - Delivery of a compiled artifact, should a verdict select one: release
   assets, provenance, checksum pinning, first-use fetch, both delivery
   modes, fail-closed paths.
@@ -72,9 +73,10 @@ discipline.
   only the scripts they call may change substrate, which is why the script
   entry points skills invoke are frozen (REQ-E1.2). Any instruction-headroom
   relief that follows is a side effect, not a deliverable.
-- Native Windows support (PowerShell without Git Bash). A compiled artifact
-  may make it possible; it is recorded as a Deferred opportunity, never a
-  requirement of this bundle.
+- Windows support in either supported form (PowerShell, or Git Bash with
+  Git for Windows). A compiled artifact may make it possible; the Git Bash
+  form is recorded as a Deferred opportunity, never a requirement of this
+  bundle.
 - Changing pipeline semantics: the spec format, the status lifecycle, the
   permission model, and the fleet protocols keep their meaning. A migrated
   primitive is behaviour-identical, proven by differential tests, and any
@@ -86,13 +88,20 @@ discipline.
 ## REQ-A — Partition and attribution
 
 - **REQ-A1.1** A shipped script SHALL partition every script in the shipped
-  script layer into exactly one tier — hook (invoked by a hook
-  registration or a tracked git hook), skill-called (named by a skill
-  body), library (invoked only by other scripts), dev-check (invoked only
-  by the repository's check tasks and workflows), or tests-only — derived
-  from the call graph on demand, together with a coupling profile naming
-  the external processes the script drives; the partition is never
-  maintained as a hand-written list.
+  script layer — every file under `scripts/` with a shell shebang or a
+  `.sh` suffix, plus the tracked git hooks — into exactly one tier: hook
+  (invoked by a hook registration or a tracked git hook), skill-called
+  (named by a skill body), library (invoked only by other scripts),
+  dev-check (invoked only by a task in `mise.toml`, the check aggregate's
+  tasks and on-demand tasks alike, or by a workflow), or tests-only. A
+  script matching more than one definition takes the first in that order.
+  The partition is derived from the call graph on demand, never maintained
+  as a hand-written list, and carries per script a coupling profile naming
+  every command word the script invokes that is not a POSIX shell builtin,
+  plus a shell-mutation flag set when the script `eval`s or `source`s
+  non-literal text. A script whose tier changes after its tier's verdict
+  is signed is an Awaiting-input entry that blocks its migration until the
+  human names the governing verdict.
   *(Cites: D-3.)*
 - **REQ-A1.2** Every observation in the mined set (the live fragments and
   the unconsumed frozen-legacy lines the drafting session selected, cited in
@@ -101,31 +110,54 @@ discipline.
   echo-sanitization, duplicated-primitive, perf-spawn-cost, portability,
   lint-gap, plugin-delivery, test-flakiness, instruction-headroom,
   auditability — producing a tier-by-class pain matrix; a fragment naming
-  no script is attributed by a recorded manual pass, never dropped.
+  no script is attributed by a recorded manual pass the executing worker
+  performs into a committed file, never dropped; a class the pass finds
+  missing is proposed as an Awaiting-input entry and added by amendment,
+  never minted by the script; and the operator re-reads a sample of twenty
+  manual attributions at the scoped re-sign-off, sending the pass back
+  when more than two disagree.
   *(Cites: D-4.)*
-- **REQ-A1.3** The partition SHALL flag every script with no live caller
-  outside `scripts/` and `tests/`, and no such script SHALL be migrated:
-  each is removed or given a caller before its tier's migration task starts.
+- **REQ-A1.3** The partition SHALL flag every script that is not reachable
+  through the call graph from a live entry point — a hook registration, a
+  tracked git hook, a skill body, or a `mise.toml` task or workflow — so
+  that a script invoked only by other flagged scripts, or only by tests, is
+  flagged too; a mention in any Markdown file that is not a skill body is
+  not a caller, and a non-literal invocation is reported as unresolved,
+  never as a caller. No flagged script SHALL be migrated: the only two
+  remedies are removal from the layer (a test helper relocates under
+  `tests/`) and a registered caller (an operator tool becomes a `mise.toml`
+  task), applied before any migration task starts and, for a script in the
+  dissolved tests-only tier, before Task 9 drafts its verdicts. The
+  tests-only tier is dissolved by this flag and carries no profile, screen,
+  verdict, or migration task.
   *(Cites: D-3.)*
-- **REQ-A1.4** The pain matrix and the maintenance-cost baseline SHALL be
-  committed as dated snapshots outside the bundle, regenerable by the
-  scripts that produced them, and the bundle SHALL cite them rather than
-  copy their figures into anchored prose.
+- **REQ-A1.4** The pain matrix, the maintenance-cost baseline, each tier's
+  bake-off report, the screen record, and the constraint profiles SHALL be
+  committed as dated snapshots under `docs/`, regenerable by the scripts
+  that produced them, and the bundle SHALL cite them rather than copy their
+  figures into its prose; the `## Sources` and `## Changelog` sections of
+  any bundle file are dated provenance and are exempt from that rule and
+  from the guard that enforces it, and so are the measurement and
+  cost-benefit lines of a verdict decision, which REQ-C1.5 requires to
+  carry the report's figures.
   *(Cites: D-4.)*
 
 ## REQ-B — Constraint profiles
 
 - **REQ-B1.1** Installing planwright through either delivery mode and
   running any adopter-tier script SHALL NOT require a compiler,
-  interpreter, or package manager beyond a POSIX shell, `git`, and the
-  tools the bootstrap requirements already name; any non-shell artifact an
-  adopter tier runs SHALL be prebuilt.
-  *(Cites: D-1; the invocation seed (Sources); bootstrap REQ-K1.5.)*
-- **REQ-B1.2** Each tier SHALL carry a derived constraint profile stating
-  its audience (adopter runtime or dev-only), its latency budget, its
-  correctness needs, its platform reach, its auditability weight, and the
-  delivery modes it must survive; the profile is derived from the partition
-  and the pain matrix and recorded before the tier is screened.
+  interpreter, or package manager beyond a POSIX shell, `git`, and `gh`
+  (the runtime set the bootstrap decision records); any non-shell artifact
+  an adopter tier runs SHALL be prebuilt.
+  *(Cites: D-1; the invocation seed (Sources); bootstrap D-34, bootstrap
+  REQ-K1.5.)*
+- **REQ-B1.2** Each tier other than tests-only SHALL carry a derived
+  constraint profile stating its audience (adopter runtime or dev-only),
+  its latency budget, its correctness needs, its platform reach, its
+  auditability weight (high, medium, or low), the delivery modes it must
+  survive, and which side of the tier boundary precedent it falls on; the
+  profile is derived from the partition and the pain matrix and recorded
+  before the tier is screened.
   *(Cites: D-5.)*
 - **REQ-B1.3** Both delivery modes — the plugin marketplace copy and the
   `~/.claude/` writer — SHALL deliver whatever artifact a tier's verdict
@@ -134,61 +166,106 @@ discipline.
   *(Cites: D-9.)*
 - **REQ-B1.4** The CI platform matrix SHALL cover Linux with glibc, macOS
   with the system `bash` and BSD userland, and Linux with musl running
-  `dash` as `/bin/sh` and busybox tools; the bake-off harness SHALL run on
-  every platform in the matrix, and the existing shell suite SHALL run there
-  informationally until it is green, at which point it becomes blocking.
+  `dash` as `/bin/sh` and busybox tools, the last as a stock Alpine
+  container on the Linux runner; the shell suite as it stands at the head
+  of the branch adding a platform's job SHALL pass on that platform before
+  the platform joins the pull-request workflow, and every step of every
+  job on every platform SHALL fail the run on failure and every job SHALL
+  be a required status check from the day it joins — no informational mode
+  and no promotion step; the Alpine job SHALL run the shell suite, the
+  bake-off harness, and the install smoke check, and a step needing a tool
+  without a musl build SHALL run on Linux with glibc only and be named in
+  the workflow; the bake-off harness SHALL run on every platform in the
+  matrix.
   *(Cites: D-13.)*
 - **REQ-B1.5** The hook tier's latency budget SHALL be stated as no
   regression against the shell implementation measured on the same runner
-  in the same harness run, never as an absolute figure.
+  in the same harness run, never as an absolute figure: the candidate's
+  median over the harness's fixed run count SHALL NOT exceed the shell
+  median by more than the shell measurement's own run-to-run spread.
   *(Cites: D-14.)*
 
 ## REQ-C — Candidate screen and bake-off
 
 - **REQ-C1.1** The candidate set SHALL contain, at minimum, shell in its
   hardened form with a shared library, Go, and Rust for adopter tiers, and
-  additionally interpreted runtimes for dev-only tiers; any further
-  candidate the distribution research surfaces enters only through the
-  screen of REQ-C1.2.
+  additionally Python and Node as interpreted runtimes for the dev-check
+  tier; any further candidate the distribution research surfaces enters
+  only through the screen of REQ-C1.2, and enters in one of two classes
+  the screen record names: a *full candidate*, which implements every
+  representative primitive of the tier whose bake-off it enters under the
+  differential fixtures, or a *comparison point*, which is measured by the
+  harness on the harness's trivial-program fixture (one specified program
+  for every comparison point: cold start, binary size, transitive
+  dependencies, matrix pass or fail, delivery through both modes) and
+  never implements a primitive; a comparison point SHALL NOT be selected by
+  a verdict without first being promoted to a full candidate through a
+  further bake-off.
   *(Cites: D-6.)*
 - **REQ-C1.2** Every candidate SHALL be screened against the hard
   constraint and the tier's constraint profile before any prototype is
-  written, and a candidate screened out SHALL be recorded with the
-  constraint that excluded it.
+  written; a candidate whose transitive runtime dependencies carry a
+  licence incompatible with planwright's outbound licence SHALL be screened
+  out; and a candidate screened out SHALL be recorded with every constraint
+  that excluded it.
   *(Cites: D-6.)*
-- **REQ-C1.3** A tier SHALL receive its own bake-off only when its
-  constraint profile differs on a hard axis (audience, per-call latency
+- **REQ-C1.3** A surviving tier SHALL receive its own bake-off only when
+  its constraint profile differs on a hard axis (audience, per-call latency
   budget, auditability weight) from every tier already decided, or when its
   pain matrix row carries a defect class no earlier bake-off exercised;
   otherwise it SHALL inherit the nearest decided tier's verdict, and the
   inheritance SHALL be recorded with the profile comparison that justified
-  it.
+  it; where a tier's screen leaves exactly one surviving candidate, the
+  tier MAY instead be settled by the screen record, with the screen
+  comparison in place of a bake-off. A tier is decided once its bake-off
+  report or screen record is complete, evaluated in task order; the
+  nearest decided tier is the one matching on the most hard axes, ties
+  going to the earlier-decided tier.
   *(Cites: D-5.)*
-- **REQ-C1.4** A bake-off SHALL implement one representative primitive per
-  surviving candidate against the same contract and the same fixtures, and
-  SHALL measure, for each: correctness under the existing tests including
-  any red ones, call-site latency over repeated runs, external processes
-  spawned per invocation, source size, transitive dependency count, pass or
-  fail per platform in the matrix, delivery through both modes, whether the
-  invocation stays a literal path a static allowlist can match,
-  implementation time, and review findings raised by the convergence pass.
+- **REQ-C1.4** A bake-off SHALL implement the representative primitives
+  its task names in every full candidate against the same contract and the
+  same fixtures, and SHALL measure, for each full candidate: correctness as
+  the count of existing tests passed and failed, tests red for shell
+  included in the denominator; call-site latency over the harness's fixed
+  run count; external processes spawned per invocation; source size in
+  bytes of the prototype's own sources; transitive dependency count (for
+  shell, the count of distinct external commands invoked), with every
+  runtime dependency listed with its licence, last release date, and the
+  standard-library alternative considered; pass or fail per platform in
+  the matrix; delivery through both modes; whether the invocation stays a
+  literal path a static allowlist can match; whether a failed invocation
+  can be replayed and read offline from its recorded inputs without a
+  rebuild; implementation time as wall-clock from dispatch to the first
+  green differential run; and review findings raised by the convergence
+  pass, as a count per candidate normalised by source size over a fixed
+  number of convergence runs the report states, a single run being
+  recorded as unqualified. A comparison point is measured on the
+  trivial-program set of REQ-C1.1 only.
   *(Cites: D-7.)*
 - **REQ-C1.5** Every measurement a verdict cites SHALL be reproducible by
-  the shipped harness from a single command, and a verdict SHALL NOT cite a
-  figure the harness did not produce.
+  the shipped harness from a single command; every numeric token in a
+  verdict's rationale SHALL name the report field it came from and equal
+  that field's value in the committed report for that tier's bake-off; the
+  report a verdict cites SHALL be committed as a dated snapshot under the
+  verdict's own name; and a report schema change SHALL add fields only,
+  never rename or remove one a signed verdict cites.
   *(Cites: D-7.)*
-- **REQ-C1.6** Bake-off prototypes SHALL run under the production
-  differential fixtures from the start, so a winning prototype is
-  promotable into the migration rather than rewritten.
+- **REQ-C1.6** Bake-off prototypes SHALL execute against every fixture in
+  the production differential set from the start, with every failure
+  recorded per fixture (passing is not required at prototype stage), so a
+  winning prototype is promotable into the migration rather than
+  rewritten.
   *(Cites: D-17.)*
 
 ## REQ-D — Verdict record
 
-- **REQ-D1.1** Each tier's verdict SHALL be recorded as one design
-  decision whose *Chosen because* is the harness measurements and the
-  cost-benefit line, minted through the meaning-class amendment ritual with
-  a scoped re-sign-off; no verdict is minted by a skill on its own
-  authority.
+- **REQ-D1.1** Each surviving tier's verdict SHALL be recorded as one
+  design decision whose *Chosen because* is the harness measurements of
+  its own bake-off, or the inherited verdict's measurements with the
+  REQ-C1.3 profile comparison, or the screen record where the screen
+  settled it, together with the cost-benefit line; minted through the
+  meaning-class amendment ritual with a scoped re-sign-off; no verdict is
+  minted by a skill on its own authority.
   *(Cites: D-8.)*
 - **REQ-D1.2** This bundle's altitude decision SHALL supersede the
   bootstrap runtime decision, and the supersession SHALL be recorded in the
@@ -196,11 +273,14 @@ discipline.
   decision's body.
   *(Cites: D-1; bootstrap D-34.)*
 - **REQ-D1.3** The security-posture doctrine line that scripts are plain
-  portable shell small enough to read SHALL be restated as
-  substrate-neutral auditability criteria — source in the repository,
-  reproducible build, pinned checksum, invocation by literal path — before
-  any non-shell verdict is minted, and the restatement SHALL preserve every
-  normative token the original carried.
+  portable shell small enough to read, gated by the self-hosting quality
+  guards, SHALL be restated as substrate-neutral auditability criteria —
+  source in the repository, reproducible build, pinned checksum, invocation
+  by a resolved literal absolute path, and lint plus secret scan for the
+  substrate under the check aggregate — before any non-shell verdict is
+  minted, and the restatement SHALL preserve every normative token the
+  original carried, a normative token being each modal verb together with
+  the duty it attaches to.
   *(Cites: D-16.)*
 
 ## REQ-E — Migration gates
@@ -211,23 +291,35 @@ discipline.
   *(Cites: D-18, D-8.)*
 - **REQ-E1.2** Every script entry point a skill body, a hook registration,
   or a tracked git hook names SHALL keep its path, its argument contract,
-  its stdout contract, and its exit codes through the migration; a migrated
-  entry point becomes a shim that delegates, and the shim is what the
-  allowlist and the writer keep delivering.
+  its stdout bytes and stderr class as recorded by the entry-point fixture,
+  and its exit codes through the migration; a migrated entry point becomes
+  a shim that delegates, and the shim is what the allowlist and the writer
+  keep delivering; a fetch or verification failure inside a shim SHALL
+  exit with one dedicated code reserved across every shim, with its
+  message on stderr, so a caller can tell it from the entry point's own
+  failures.
   *(Cites: D-10.)*
 - **REQ-E1.3** A migrated implementation SHALL be proven behaviour-identical
-  by differential tests over recorded fixtures before the shell
+  by differential tests over recorded fixtures — at least the entry-point
+  fixture plus one fixture per documented exit code, recorded in a
+  committed parity file the suite regenerates — before the shell
   implementation is removed; the shell implementation SHALL remain
-  selectable until parity is recorded and SHALL keep running under the
-  differential suite in CI for as long as it exists; and removal of a shell
-  implementation is a human-directed step, never an autonomous one.
+  selectable for as long as it exists, through a selector key in the
+  operator-owned machine-local configuration layer that no agent-writable
+  path reaches, and SHALL keep running under the differential suite in CI
+  for as long as it exists; removal of a shell implementation is a
+  human-directed step, never an autonomous one: no removal is proposed
+  until the operator names the tier, the question is re-put to the
+  operator at the first release after parity is recorded, and until then
+  the differential suite's ongoing cost is a line in the tier's
+  cost-benefit record.
   *(Cites: D-10.)*
 - **REQ-E1.4** Where a tier's verdict keeps it on shell, that tier's
-  migration SHALL consist of the class fixes the evidence names — shared
-  library consolidation of duplicated primitives, the lock primitive, the
-  printf discipline with its lint guard, a source guard, an injectable
-  clock for time-anchored tests — each cited to the observations that
-  recorded it.
+  migration SHALL consist of the class fixes the pain matrix names that
+  the REQ-E1.5 baselines did not already land — at drafting: shared
+  library consolidation of duplicated primitives, a source guard enforcing
+  guarded sourcing of the sanitizer, an injectable clock for time-anchored
+  tests — each cited to the observations that recorded it.
   *(Cites: D-11, D-12.)*
 - **REQ-E1.5** The lock primitive and the echo discipline SHALL be hardened
   in shell before any bake-off measures a shell candidate, so that no
@@ -237,67 +329,103 @@ discipline.
 
 ## REQ-F — Delivery of compiled artifacts
 
-- **REQ-F1.1** A compiled artifact SHALL live under `scripts/` or the
-  plugin data directory and SHALL be invoked by a literal path through the
-  plugin root; the plugin SHALL never carry a top-level `bin/` directory.
+- **REQ-F1.1** A compiled artifact an adopter tier runs SHALL live under
+  the plugin data directory; the shim that invokes it SHALL live under
+  `scripts/` and every invocation of a shim SHALL be a resolved literal
+  absolute path per the plugin-script-invocation doctrine, while the shim
+  MAY exec the artifact by an absolute data-directory path it derives; the
+  plugin SHALL never carry a top-level `bin/` directory.
   *(Cites: D-9; research: Claude Code plugin docs (Sources).)*
-- **REQ-F1.2** Compiled artifacts SHALL be built by CI from the tagged
-  source, signed where the platform requires a signature to execute,
-  attached to the release with a provenance attestation, and pinned by
-  checksum in the repository tree; a fetch SHALL verify the pinned checksum
-  before the artifact is executable, SHALL fail closed when no hasher is
-  available rather than skip verification, and a missing, mismatched, or
-  unverifiable artifact SHALL fail closed with a message naming the shell
-  fallback.
+- **REQ-F1.2** Compiled artifacts SHALL be built by CI on every release
+  from the tagged source, signed where the platform requires a signature
+  to execute, attached to the release with a provenance attestation and a
+  NOTICE file generated from the dependency list, and pinned by checksum
+  in the repository tree; a fetch SHALL download to a temporary path keyed
+  by plugin version, operating system, and architecture, verify the pinned
+  checksum, and rename atomically only after verification, removing an
+  unverifiable file so the next invocation retries; it SHALL remove
+  artifacts of superseded versions after a successful fetch, serialize
+  concurrent first uses through the shared lock primitive, fail closed
+  when no hasher is available rather than skip verification, and on a
+  missing, mismatched, or unverifiable artifact fail closed with a message
+  naming the selector that chooses the shell implementation; the entry
+  point SHALL NOT invoke the shell implementation itself. The mirror
+  address, the offline switch, and the shell selector SHALL be named
+  options with safe defaults in the configuration defaults file and a row
+  each in the options reference; the offline switch suppresses the fetch
+  and selects the shell implementation.
   *(Cites: D-9.)*
-- **REQ-F1.3** A compiled artifact SHALL carry the plugin's version and
-  SHALL verify it against the installed manifest at invocation, refusing to
-  run across a skew.
+- **REQ-F1.3** A compiled artifact SHALL carry the plugin's version, and
+  the shim SHALL verify it against the installed manifest at every
+  invocation, refusing to run unless the two version strings are equal; a
+  plugin version with no published asset for the running platform fails
+  closed with the same message rather than fetching a mismatched asset.
   *(Cites: D-9.)*
 - **REQ-F1.4** Fetched artifacts and any runtime state SHALL live under the
-  plugin data directory, never under the plugin root, which changes on every
-  update.
+  plugin data directory (`CLAUDE_PLUGIN_DATA` in plugin mode, the writer's
+  per-plugin state home under the Claude directory in writer mode, per
+  the storage-classes doctrine), never under the plugin root, which changes
+  on every update.
   *(Cites: D-9.)*
 - **REQ-F1.5** The `~/.claude/` writer SHALL deliver the shim and the
   fetch path for any compiled artifact, or the verdict SHALL record writer
   mode as unsupported for that tier with the shell fallback named.
   *(Cites: D-9; REQ-B1.3.)*
 - **REQ-F1.6** The macOS matrix job SHALL exercise a fetched artifact's
-  first execution on Apple silicon, so that the signature the platform
-  requires and its first-run assessment of a downloaded executable are
-  verified in CI rather than by hand.
+  first execution on Apple silicon with the quarantine attribute set on
+  the fetched file, so that the signature the platform requires and its
+  first-run assessment of a downloaded executable are verified in CI
+  rather than by hand, under a per-execution timeout the job names.
   *(Cites: D-13, D-9.)*
 
 ## REQ-G — Cost-benefit record
 
 - **REQ-G1.1** A shipped script SHALL compute the maintenance-cost baseline
-  from git history and the accumulator — fix-typed commit rate on the
-  script layer, observation inflow by defect class, the check aggregate's
-  wall-clock, and handoffs caused by load-sensitive test failures — as a
-  dated, regenerable snapshot.
+  from git history and the accumulator — fix-typed commits per calendar
+  month touching the script layer, observation inflow by defect class per
+  month, the check aggregate's wall-clock, and worker runs ended by a human
+  hand-back that an observation in the test-flakiness class attributes to
+  a load-sensitive test failure — as a dated, regenerable snapshot.
   *(Cites: D-15.)*
-- **REQ-G1.2** Every tier verdict SHALL carry a cost-benefit line stating
-  the migration effort, the ongoing cost delta against the baseline, which
-  defect classes the substrate structurally eliminates and which it merely
-  relocates, how much of any measured gain the restructured-shell candidate
-  also captured, and the same figures for the stay-in-shell option,
-  presented at equal weight.
+- **REQ-G1.2** Every surviving tier's verdict SHALL carry a cost-benefit
+  line stating the migration effort, the ongoing cost delta against the
+  baseline as the projected monthly fix-typed commit rate and observation
+  inflow after migration derived from the classes the substrate
+  eliminates, which defect classes the substrate structurally eliminates
+  and which it merely relocates, how much of any measured gain the
+  restructured-shell candidate also captured, and the same figures for the
+  stay-in-shell option, presented at equal weight.
   *(Cites: D-15.)*
-- **REQ-G1.3** Each bake-off SHALL log implementation time per candidate
-  and the review findings the convergence pass raised per candidate, and
-  the migration effort in a verdict SHALL be extrapolated from the logged
-  porting rate rather than estimated from judgment.
+- **REQ-G1.3** Each bake-off SHALL log implementation time per full
+  candidate and the review findings the convergence pass raised per full
+  candidate, and
+  the migration effort in a verdict SHALL be extrapolated as the tier's
+  shell source size times the logged porting rate per unit of source size
+  from its own or its inherited bake-off rather than estimated from
+  judgment; a verdict settled by screen states the absence explicitly and
+  the guard accepts the explicit absence.
   *(Cites: D-7, D-15.)*
 - **REQ-G1.4** The verdict record SHALL state a break-even condition under
-  which the migration's benefit exceeds its cost, or SHALL state explicitly
-  that none exists for that tier.
+  which the migration's benefit exceeds its cost, expressed as a threshold
+  on a field of the cost baseline with the value at which it is met, or
+  SHALL state explicitly that none exists for that tier.
   *(Cites: D-15.)*
 
 ## Changelog
 
+- 2026-09-09 — Amended at kickoff (first-activation walkthrough and
+  sign-off lens pass, recorded in `kickoff-brief.md`): tests-only tier
+  dissolved by the REQ-A1.3 flag and liveness made transitive; Sources and
+  Changelog exempt from the number-copy guard; repair-first platform
+  matrix with every job blocking from the day it joins (D-13 amended) and
+  the Alpine job scoped; full candidates versus comparison points
+  (REQ-C1.1, D-6 annotated); the human re-sign-off made the gate rather
+  than a Task 9 deliverable; Task 2.1 and Task 4.1 added; the lens pass's
+  dispositions applied across REQ-A through REQ-G.
 - 2026-09-08 — Draft. Bundle elicited by `/spec-draft` from the invocation
   seed, the mined accumulator, the frozen legacy log, and the platform and
-  distribution research recorded in the Sources.
+  distribution research recorded in the Sources; spun as a new bundle after
+  fold-detection (D-2).
 
 ## Sources
 
@@ -317,9 +445,11 @@ discipline.
 - **Drafting-session measurements (2026-09-07).** On the drafting host the
   script layer held 138 scripts and 65,722 lines under `scripts/`, 103 of
   them `#!/bin/sh`; 42 scripts are named by skill bodies and 14 by hook
-  registrations and git hooks; 16 have no caller outside `scripts/` and
-  `tests/`; the call-graph partition counted 15 hook, 41 skill-called, 51
-  library, 24 dev-check, and 6 tests-only scripts; observation mentions per
+  registrations and git hooks; 16 had no caller outside `scripts/` and
+  `tests/` under the pre-amendment direct-caller reading; the call-graph
+  partition counted 15 hook, 41 skill-called, 51 library, 24 dev-check,
+  and 6 tests-only scripts, one short of the file count, a discrepancy the
+  Task 2 script reconciles; observation mentions per
   tier were 54, 123, 116, 50, and 8. `shellcheck` and `shfmt` were clean.
   The PreToolUse ready guard ran in about 0.02 s on the fixture payload;
   whole-corpus validation in 6.9 s; one bundle's status render in 3.2 s.
@@ -337,8 +467,10 @@ discipline.
   keeps as the hard constraint, and the dogfooding decision under which the
   bake-off harness and the CI matrix run.
 - **doctrine/security-posture.md, "Framework-script security".** The
-  "Stay auditable" rule REQ-D1.3 restates: scripts are plain portable
-  shell, small enough to read before trusting.
+  "Stay auditable" rule REQ-D1.3 restates, in full: scripts are plain
+  portable shell, small enough to read before trusting, and gated by
+  planwright's self-hosting quality guards (shell lint and secret scan,
+  per the bootstrap dogfooding decision D-32).
 - **format-grammar D-3, D-4.** The shared sourceable parse library, the
   in-shell consolidation precedent the hardened-shell candidate builds on.
 - **research: Claude Code plugin docs** (code.claude.com/docs/en/plugins,
@@ -479,8 +611,9 @@ discipline.
   obs:31f2eac3, obs:59087817, obs:e347c573, obs:2237ec28, obs:34ae9280,
   obs:11f65c68, obs:4683c7a9, obs:eca7625e, obs:131af768, obs:d95cb0da,
   obs:58d07579, obs:d2ffdc78, obs:683025b7, obs:f6601f8f. Shell that
-  leaves `.sh` files escapes every gate. Frame the source-guard and lint
-  measurements of D-7; cited, not consumed.
+  leaves `.sh` files escapes every gate. Frame the lint guard of D-12 and
+  the source guard of REQ-E1.4 (D-7 carries no lint field); cited, not
+  consumed.
 - **Observations, plugin-delivery class:** obs:65c35236, obs:8b0691cd,
   obs:33812f90, obs:5cc481d6, obs:a4a4fa59, obs:58aa232e, obs:d4d2236e,
   obs:54e8035d, obs:614d4db7, obs:dd8e3d7e, obs:4fe3d8a4, obs:b085ac53,
@@ -491,7 +624,8 @@ discipline.
   obs:562be3ae, obs:00dccd4e, obs:fd6c2f4f, obs:b48fa0a1, obs:b4f695d6,
   obs:cc6d5ac1, obs:4dda9fe1, obs:7ad46e46, obs:01629047, obs:680c2761,
   obs:65fea955, obs:fd4c2ad6, obs:b1414bbd, obs:c83d930d, obs:2076522e,
-  obs:bed09898. Version skew between the plugin cache and the checkout,
+  obs:bed09898, obs:a826597a. Version skew between the plugin cache and
+  the checkout,
   hook registrations that silently never resolve, allowlists that match
   literal command prefixes. Frame D-9, D-10, and REQ-F; cited, not
   consumed.
@@ -514,7 +648,9 @@ discipline.
   obs:9c5071dd, obs:404d3b7b, obs:54d48a47. A readable allowlist rationale
   is what makes sign-off meaningful; an offline replay of a plain hook
   found a root cause; a compiled primitive was the broken one. Frame the
-  equal-weight stay-in-shell option of D-15 and the criteria of D-16.
+  equal-weight stay-in-shell option of D-15 and the criteria of D-16;
+  obs:0087f433 and obs:7bc5e8b6 also sit in the lock class and are
+  consumed there by Task 1.
 - **Frozen legacy log lines (`specs/_observations/opportunities.md`),
   unconsumed at drafting:** the 2026-06-11 locale-dependent range globs
   line; the 2026-07-09 awk-implementation-dependent NUL screen line; the

@@ -1,7 +1,7 @@
 # Universal Binary — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-09-08
+**Status:** Ready
+**Last reviewed:** 2026-09-09
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -80,6 +80,11 @@ with no live caller. It runs on demand as a repository task.
 **Chosen because:** the partition already runs as a one-off in the
 drafting session; shipping it makes the first step of the method
 reproducible and keeps the enumeration out of the bundle.
+*(Amended at kickoff 2026-09-09: liveness is transitive from an entry
+point, a Markdown mention outside a skill body is not a caller, a script
+matching two tier definitions takes the first in the listed order, the
+coupling profile carries a shell-mutation flag, and the tests-only tier is
+dissolved by the flag; REQ-A1.1 and REQ-A1.3 carry the wording.)*
 
 ### D-4: The pain matrix and cost baseline are dated snapshots, cited not copied  (N)
 
@@ -96,6 +101,12 @@ regenerable; the bundle and the verdicts cite them.
 
 **Chosen because:** cite-don't-copy is the format's own convention for
 enumerations the bundle cannot avoid.
+*(Amended at kickoff 2026-09-09: the snapshot set widens to each tier's
+bake-off report, the screen record, and the constraint profiles; the
+Sources and Changelog sections and a verdict's measurement and
+cost-benefit lines are exempt from the number-copy guard; the snapshots
+are work product committed under `docs/`, not runtime state, in the
+storage-classes doctrine's terms; a report schema only ever adds fields.)*
 
 ### D-5: Bake-off breadth follows an inheritance rule  (N)
 
@@ -122,6 +133,11 @@ there, may be settled by the screen alone.
 direction rather than a picked breadth, and an explicit inheritance rule is
 that way: it is checkable against the profiles, and the record shows why a
 tier was or was not measured.
+*(Amended at kickoff 2026-09-09: the rule applies to the tiers other than
+tests-only; a tier whose screen leaves one surviving candidate may be
+settled by the screen record; "decided" means bake-off report or screen
+record complete, in task order, and "nearest" means most hard axes
+matched, ties to the earlier-decided tier; REQ-C1.3 carries the wording.)*
 
 ### D-6: Candidate set — hardened shell, Go, Rust; research-admitted additions through the screen  (N)
 
@@ -174,6 +190,9 @@ runner, while Rust needs a signing step and, for cross-compilation to
 macOS, an Apple SDK whose licence keeps it off community build images.
 The survey found the common third options and excluded most of them on
 official statements, so the screen record starts full rather than empty.
+*(Amended at kickoff 2026-09-09: Zig and Bun-compiled TypeScript are
+comparison points per REQ-C1.1 — measured on a trivial program, never
+implementing a primitive, never selectable without a further bake-off.)*
 
 ### D-7: The measurement contract  (N)
 
@@ -201,6 +220,11 @@ costs about as much as the whole binary would.
 **Chosen because:** the operator asked that the answer be methodological;
 a fixed contract with a reproducing harness is what makes two verdicts
 comparable and one verdict re-checkable.
+*(Amended at kickoff 2026-09-09: the contract applies per full candidate;
+comparison points are measured on the trivial-program subset only; the
+contract gains a dependency listing with licence and maintenance status,
+an offline-replayability field, and a normalised review-findings count
+over a fixed number of convergence runs; REQ-C1.4 carries the wording.)*
 
 ### D-8: A verdict is minted by amendment with a scoped re-sign-off  (N)
 
@@ -266,6 +290,26 @@ assessment from re-firing on every plugin update, which a binary under the
 versioned plugin root would suffer; the fail-closed fallback keeps an
 offline first run from becoming a silent degradation, where the survey found
 most flagship installers verify nothing at all.
+*(Amended at kickoff 2026-09-09: the fetch keys the cached artifact by
+plugin version, operating system, and architecture, downloads to a
+temporary path and renames atomically only after verification, removes
+an unverifiable file and artifacts of superseded versions, and serializes
+concurrent first uses through the D-11 lock; a fetch or verification
+failure exits with one code reserved across every shim, with the message
+on stderr, and the entry point never falls back to shell by itself; the
+version check is exact and CI builds assets on every release, a version
+with no asset failing closed; the mirror address, offline switch, and
+shell selector are named options with safe defaults in the configuration
+defaults file and options-reference rows, the offline switch suppressing
+the fetch and selecting shell; the `SessionStart` prefetch is a Task 10
+deliverable with a bounded timeout that never blocks session start; the
+data directory is `CLAUDE_PLUGIN_DATA` in plugin mode and the writer's
+per-plugin state home in writer mode, per the storage-classes doctrine,
+which records that home as interim; the asset build hangs off the
+existing release-please release rather than a parallel tagging path; each
+release carries a NOTICE file generated from the dependency list; and the
+shipped asset and docs page use a release name checked for trademark
+collision.)*
 
 ### D-10: Migration is a strangler behind frozen entry points  (N)
 
@@ -292,6 +336,15 @@ unnoticed for four); removal is a human-directed step.
 **Chosen because:** the shim keeps the invocation shape allowlists match,
 keeps the writer's copy contract, and makes each tier's cutover a revert
 away from undone.
+*(Amended at kickoff 2026-09-09: the selector is a key in the
+operator-owned machine-local configuration layer, out of reach of any
+agent-writable path, and stays honoured for as long as the shell
+implementation exists; parity means at least the entry-point fixture plus
+one fixture per documented exit code in a committed parity file; no
+removal is proposed until the operator names the tier, the question is
+re-put at the first release after parity, and the differential suite's
+cost is a line in the cost-benefit record until then; REQ-E1.3 carries
+the wording.)*
 
 ### D-11: The lock baseline uses an atomic-create primitive with an owner token  (N)
 
@@ -318,6 +371,9 @@ turns green.
 the atomic-create shape, and the concurrency domain asks for the stack's
 idiomatic primitive rather than a hand-rolled one; this is the closest a
 portable shell floor offers.
+*(Amended at kickoff 2026-09-09: a lock is stale when the owner token's
+process is absent, never by age; a nested acquire under the same token
+succeeds and the lock is held until the outermost release.)*
 
 ### D-12: The echo baseline is a printf discipline with a lint guard  (N)
 
@@ -341,13 +397,24 @@ baseline placement on the same reasoning as D-11.
 ### D-13: The platform matrix is glibc, macOS, and musl with dash and busybox  (N)
 
 **Decision:** CI gains a macOS job (system `bash` 3.2, BSD awk and sed)
-and an Alpine job (musl, `dash` as `/bin/sh`, busybox tools) beside the
-existing Ubuntu job. The bake-off harness is blocking on all three; the
-existing shell suite runs informationally on the new platforms until green,
-then becomes blocking. The macOS job exercises a fetched artifact's first
-execution so the platform's assessment of a downloaded executable is a
-test, not a manual step. Windows through Git Bash is not required and is
-recorded as a Deferred opportunity.
+and an Alpine job (musl, `dash` as `/bin/sh`, busybox tools, run as a
+stock Alpine container on the Linux runner, since the host offers no
+Alpine runner) beside the existing Ubuntu job. The existing shell suite
+is repaired on both new platforms first, as its own task, after the lock
+and echo baselines that turn its known reds green, and a platform joins
+the pull-request workflow only once the suite passes there; from that day
+every job on every platform is blocking, with no informational mode and
+no promotion switch. The Alpine job runs the shell suite, the harness,
+and the install smoke check; steps needing a tool with no musl build stay
+on Ubuntu and are named in the workflow, so nothing on Alpine can skip
+silently. When a platform goes red for a runner or image reason rather
+than a planwright defect, the revert is a PR removing that job, merged on
+the remaining green platforms, recorded as an observation, and the job
+re-joins under the repair rule. The macOS job exercises a fetched
+artifact's first execution, quarantine attribute set, so the platform's
+assessment of a downloaded executable is a test, not a manual step.
+Windows through Git Bash is not required and is recorded as a Deferred
+opportunity.
 
 **Alternatives considered:**
 - Keep Ubuntu only and trust the claimed floor. Rejected because: the
@@ -355,16 +422,22 @@ recorded as a Deferred opportunity.
   first-execution stall, and dash echo behaviour that Ubuntu never
   exercises; two entries also retracted macOS attributions that a matrix
   would have settled in minutes.
-- Make the existing suite blocking on the new platforms from day one.
-  Rejected because: reds unrelated to this bundle would block every PR;
-  informational-until-green is the proportionate form.
+- Run the existing suite informationally on the new platforms until it is
+  green, then promote it to blocking. Rejected because: a promotion switch
+  needs an owner and can undo itself or be forgotten, and an advisory job
+  is decoration nobody reads; the operator chose to pay the repair cost up
+  front, at kickoff, so that no switch exists. The cost accepted is that
+  the amount of repair is unknown until the first run on each platform.
 - Add Windows. Rejected because: no planwright document promises it, and
   the operator did not select it; the compiled path may make it cheap
   later, which the Deferred bullet records.
 
 **Chosen because:** these are the platforms the plugin host documents,
 minus the one nobody has asked for, and they cover every portability
-finding the accumulator holds.
+finding the accumulator holds; repairing first keeps every job blocking
+and honest from its first day.
+*(Amended at kickoff 2026-09-09: repair-first replaces
+informational-until-green.)*
 
 ### D-14: The hook latency budget is no regression against shell on the same runner  (N)
 
@@ -424,17 +497,20 @@ the interaction doctrine already imposes, applied to a design record.
 ### D-16: The auditability criteria go to doctrine; the method stays in the spec  (N)
 
 **Decision:** The security-posture line that scripts are plain portable
-shell small enough to read is restated as substrate-neutral criteria —
-source in the repository, reproducible build, pinned checksum, invocation
-by literal path — before any non-shell verdict is minted. The
+shell small enough to read, gated by the self-hosting quality guards, is
+restated as substrate-neutral criteria — source in the repository,
+reproducible build, pinned checksum, invocation by a resolved literal
+absolute path, and lint plus secret scan for the substrate under the
+check aggregate — before any non-shell verdict is minted. The
 substrate-selection method itself is recorded here, not in a doctrine
-document, until a second instance shows it generalizes.
+document; when a second bundle applies the method end to end, the
+operator decides at that bundle's kickoff whether it moves to doctrine.
 
 **Alternatives considered:**
 - Leave the doctrine line as is and amend only if a compiled verdict
   lands. Rejected because: the line would then be false at the moment the
-  verdict is signed, and a doctrine amendment after the fact is the drift
-  the manifest guard exists to catch.
+  verdict is signed, and a doctrine amendment after the fact is exactly
+  the drift the re-sign-off's normative-token check exists to catch.
 - Ship the method as a doctrine document now. Rejected because: the
   customization boundary's default tilt keeps an unproven generalization
   out of core; one instance is not evidence.
@@ -486,8 +562,9 @@ are dev-only and recorded on the checklist; the bake-off scores transitive
 dependency count so a runtime dependency tree is a measured cost (D-7).
 Versioning: a compiled artifact carries the plugin's SemVer version and is
 checked at invocation (D-9). Existing-seam reuse: fetched artifacts use the
-machine-local state home the platform documents; no new state home is
-minted (D-9).
+machine-local state home the platform documents, named per the
+storage-classes doctrine; no new state home is minted (D-9), and the new
+guards are placed against the catalog seam below.
 
 **Research triggers.** New dependency (compiler toolchains in CI, release
 tooling), unfamiliar domain (binary distribution for a plugin), a
@@ -508,8 +585,18 @@ partition must confirm that before any tier moves.
 the survey found tested in a mature mixed system is the package manager
 whose shell tier is exactly what must run before or without its engine
 (version, environment, exec, self-update, bootstrap) behind a single
-override switch; the profiles of Task 3 should say for each tier which
-side of that line it falls on.
+override switch; the profiles of Task 3 say for each surviving tier which
+side of that line it falls on (a REQ-B1.2 field).
+
+**Guards and the catalog seam.** Every guard this bundle adds (the lock
+lint, the echo lint, the entry-point guard, the number-copy guard, the two
+verdict guards, the supersession guard, the placement guard, the
+single-implementation guard) ships as `scripts/check-<name>.sh` wired as
+`check:<name>` in the check aggregate, per the guard-wiring guard. They are
+project-specific invariants, not universal mechanical guards, so they live
+as check tasks rather than guard-catalog entries; the catalog seam is named
+here and declined for that reason. The compiled-asset build hangs off the
+existing release-please release rather than a parallel tagging path.
 
 **Data hygiene.** The pain matrix, the cost baseline, and the bake-off
 report are committed artifacts: they carry script names, UIDs, and figures,
