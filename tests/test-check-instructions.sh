@@ -205,7 +205,7 @@ assert_absent "closing gate: no unexcepted below-target warning on the real corp
 # reads a warning that did not fire as an entry nobody needs. That inverted the
 # signal at the worst moment: the operator was told to delete the note exactly
 # when the thing it deferred came due.
-esc_root="$(mktemp -d)"
+esc_root="$(mktemp -d)" || exit 1
 mkdir -p "$esc_root/skills/demo" "$esc_root/doctrine" "$esc_root/config" "$esc_root/hooks"
 cp "$REPO_ROOT/config/defaults.yml" "$esc_root/config/defaults.yml"
 printf 'exempt|doctrine/none.md|placeholder\ndeclared-exception|closure:demo|deferred restoration, recorded here\n' \
@@ -215,7 +215,10 @@ awk 'BEGIN { for (i = 0; i < 200; i++) printf "word " }' >>"$esc_root/skills/dem
 printf '# big\n\n' >"$esc_root/doctrine/big.md"
 awk 'BEGIN { for (i = 0; i < 19500; i++) printf "word " }' >>"$esc_root/doctrine/big.md"
 esc_out="$(/bin/bash "$CHECKER" --root "$esc_root" 2>&1 || true)"
-rm -rf "$esc_root"
+# Guarded rather than bare: the mktemp above is checked, so this is never
+# `rm -rf ""` today — the test states the precondition it relies on instead
+# of leaving a recursive delete resting on a variable being non-empty.
+[ -n "$esc_root" ] && [ -d "$esc_root" ] && rm -rf "$esc_root"
 # The fixture must actually breach, or the two assertions below prove nothing.
 assert_contains "escalation fixture reaches a floor breach" "floor-breach: closure:demo" "$esc_out"
 assert_contains "a breached surface with a declared exception escalates" \
