@@ -317,6 +317,12 @@ out=$(evaluate model-allocation:task-c drain completed) || fail "5: evaluate fai
 # Bind rather than read inside the `case` word, so `set -e` sees a failed read,
 # and require content: an absent, unreadable, or empty fragment otherwise
 # matches nothing and passes this leak check without reading a thing.
+# Count first, the way sections 9b and 12f do. `cat "$(fragments)"` on zero
+# fragments fails with an opaque cat error, and on more than one it joins the
+# paths with a newline and cats a filename — both report the wrong thing about
+# a leak check whose whole job is to say precisely what it searched.
+[ "$(frag_count)" = 1 ] \
+  || fail "5b (precondition): expected exactly one fragment to search, found $(frag_count)"
 frag_text=$(cat "$(fragments)")
 [ -n "$frag_text" ] || fail "5b (precondition): the fragment is empty, so nothing was searched"
 case $frag_text in
