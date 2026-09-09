@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.39.0](https://github.com/inkatze/planwright/compare/v0.38.0...v0.39.0) (2026-09-08)
+
+
+### Features
+
+* **guards:** gate the test suite's wall-clock against committed budgets ([#403](https://github.com/inkatze/planwright/issues/403)) ([c75f006](https://github.com/inkatze/planwright/commit/c75f006de418a22b7509a8828277ac6ee22854a0))
+* **validator:** doctrine-grounded hardening rules (format-grammar task 3) ([#401](https://github.com/inkatze/planwright/issues/401)) ([d866e67](https://github.com/inkatze/planwright/commit/d866e6799c8ea898815923ca839fa00345273b40))
+
+
+### Bug Fixes
+
+* **fleet:** give the fleet lock a primitive that actually excludes ([#409](https://github.com/inkatze/planwright/issues/409)) ([2dc5363](https://github.com/inkatze/planwright/commit/2dc53636a536a244a212502180c8974cf0c264dd))
+
 ## [0.38.0](https://github.com/inkatze/planwright/compare/v0.37.0...v0.38.0) (2026-09-08)
 
 
