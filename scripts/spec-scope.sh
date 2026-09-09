@@ -112,7 +112,7 @@ case ${scope:-whole} in
     case $name in
       requirements | design | tasks | test-spec) kind="file" ;;
       *)
-        echo "spec-scope: scope '$scope_safe' names no source file (expected file:requirements|design|tasks|test-spec)" >&2
+        printf '%s\n' "spec-scope: scope '$scope_safe' names no source file (expected file:requirements|design|tasks|test-spec)" >&2
         exit 2
         ;;
     esac
@@ -121,7 +121,7 @@ case ${scope:-whole} in
     group=${scope#reqs:}
     case $group in
       "" | *[!A-Z]*)
-        echo "spec-scope: scope '$scope_safe' is not a requirement group (expected reqs:<GROUP>, uppercase letters)" >&2
+        printf '%s\n' "spec-scope: scope '$scope_safe' is not a requirement group (expected reqs:<GROUP>, uppercase letters)" >&2
         exit 2
         ;;
     esac
@@ -139,7 +139,7 @@ case ${scope:-whole} in
     target=${target#d-}
     case $target in
       "" | *[!0-9]*)
-        echo "spec-scope: scope '$scope_safe' is not a decision id (expected decision:<id>)" >&2
+        printf '%s\n' "spec-scope: scope '$scope_safe' is not a decision id (expected decision:<id>)" >&2
         exit 2
         ;;
     esac
@@ -147,7 +147,7 @@ case ${scope:-whole} in
     kind=decision
     ;;
   *)
-    echo "spec-scope: unknown scope '$scope_safe' (valid: whole, file:<name>, reqs:<GROUP>, decisions, tasks, decision:<id>)" >&2
+    printf '%s\n' "spec-scope: unknown scope '$scope_safe' (valid: whole, file:<name>, reqs:<GROUP>, decisions, tasks, decision:<id>)" >&2
     exit 2
     ;;
 esac

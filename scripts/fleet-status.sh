@@ -510,7 +510,7 @@ TAB=$(printf '\t')
 cmd=$1
 shift
 [ $# -eq 0 ] || {
-  echo "$me: $cmd: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
+  printf '%s\n' "$me: $cmd: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
   exit 2
 }
 

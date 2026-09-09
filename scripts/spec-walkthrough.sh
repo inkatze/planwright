@@ -269,12 +269,12 @@ case ${scope:-whole} in
         if [ -f "$bundle_dir/$name.md" ]; then
           scope_label="file $name.md"
         else
-          echo "spec-walkthrough: scope '$scope_safe' names a file absent from specs/$spec; available files: $present" >&2
+          printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a file absent from specs/$spec; available files: $present" >&2
           exit 1
         fi
         ;;
       *)
-        echo "spec-walkthrough: scope '$scope_safe' names no source file; available files: $present" >&2
+        printf '%s\n' "spec-walkthrough: scope '$scope_safe' names no source file; available files: $present" >&2
         exit 1
         ;;
     esac
@@ -283,18 +283,18 @@ case ${scope:-whole} in
     group=${scope#reqs:}
     case $group in
       "" | *[!A-Z]*)
-        echo "spec-walkthrough: scope '$scope_safe' is not a requirement group (expected reqs:<GROUP>); available groups: $(req_groups)" >&2
+        printf '%s\n' "spec-walkthrough: scope '$scope_safe' is not a requirement group (expected reqs:<GROUP>); available groups: $(req_groups)" >&2
         exit 1
         ;;
     esac
     if [ ! -f "$bundle_dir/requirements.md" ]; then
-      echo "spec-walkthrough: scope '$scope_safe' names a requirement group, but requirements.md is absent from specs/$spec" >&2
+      printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a requirement group, but requirements.md is absent from specs/$spec" >&2
       exit 1
     fi
     if grep -qE "^## REQ-$group( |\$)" "$bundle_dir/requirements.md" 2>/dev/null; then
       scope_label="requirement group $group"
     else
-      echo "spec-walkthrough: scope '$scope_safe' resolves to no requirement group in specs/$spec; available groups: $(req_groups)" >&2
+      printf '%s\n' "spec-walkthrough: scope '$scope_safe' resolves to no requirement group in specs/$spec; available groups: $(req_groups)" >&2
       exit 1
     fi
     ;;
@@ -320,23 +320,23 @@ case ${scope:-whole} in
     did=${did#d-}
     case $did in
       "" | *[!0-9]*)
-        echo "spec-walkthrough: scope '$scope_safe' is not a decision id (expected decision:<id>); available decisions: $(decision_ids)" >&2
+        printf '%s\n' "spec-walkthrough: scope '$scope_safe' is not a decision id (expected decision:<id>); available decisions: $(decision_ids)" >&2
         exit 1
         ;;
     esac
     if [ ! -f "$bundle_dir/design.md" ]; then
-      echo "spec-walkthrough: scope '$scope_safe' names a decision, but design.md is absent from specs/$spec" >&2
+      printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a decision, but design.md is absent from specs/$spec" >&2
       exit 1
     fi
     if grep -qE "^### D-$did:" "$bundle_dir/design.md" 2>/dev/null; then
       scope_label="decision D-$did"
     else
-      echo "spec-walkthrough: scope '$scope_safe' resolves to no decision in specs/$spec; available decisions: $(decision_ids)" >&2
+      printf '%s\n' "spec-walkthrough: scope '$scope_safe' resolves to no decision in specs/$spec; available decisions: $(decision_ids)" >&2
       exit 1
     fi
     ;;
   *)
-    echo "spec-walkthrough: unknown scope '$scope_safe'; valid scopes: whole, file:<name>, reqs:<group>, decisions, tasks, decision:<id>" >&2
+    printf '%s\n' "spec-walkthrough: unknown scope '$scope_safe'; valid scopes: whole, file:<name>, reqs:<group>, decisions, tasks, decision:<id>" >&2
     exit 1
     ;;
 esac

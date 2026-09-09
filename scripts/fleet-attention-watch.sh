@@ -314,7 +314,7 @@ case $cmd in
           shift 2
           ;;
         *)
-          echo "fleet-attention-watch: unknown liveness option '$(sanitize_printable "$1" "(unprintable)")'" >&2
+          printf '%s\n' "fleet-attention-watch: unknown liveness option '$(sanitize_printable "$1" "(unprintable)")'" >&2
           exit 2
           ;;
       esac
@@ -377,7 +377,7 @@ case $cmd in
           shift
           ;;
         *)
-          echo "fleet-attention-watch: unknown watch option '$(sanitize_printable "$1" "(unprintable)")'" >&2
+          printf '%s\n' "fleet-attention-watch: unknown watch option '$(sanitize_printable "$1" "(unprintable)")'" >&2
           exit 2
           ;;
       esac
@@ -433,7 +433,7 @@ case $cmd in
     ;;
 
   *)
-    echo "fleet-attention-watch: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (pass|reconcile|watch|liveness)" >&2
+    printf '%s\n' "fleet-attention-watch: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (pass|reconcile|watch|liveness)" >&2
     exit 2
     ;;
 esac

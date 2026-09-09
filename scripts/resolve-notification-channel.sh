@@ -157,11 +157,11 @@ fi
 # The winning value is malformed. Apply the REQ-E1.4 by-layer policy.
 case "$layer" in
   repo-tracked)
-    echo "resolve-notification-channel: repo-tracked overlay sets notification_channel to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not one of none/tmux-popup/os-notify/editor-toast/statusline); refusing to silently degrade a shared team value" >&2
+    printf '%s\n' "resolve-notification-channel: repo-tracked overlay sets notification_channel to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not one of none/tmux-popup/os-notify/editor-toast/statusline); refusing to silently degrade a shared team value" >&2
     exit 4
     ;;
   adopter | machine-local)
-    echo "resolve-notification-channel: warning: the $layer overlay sets notification_channel to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not one of none/tmux-popup/os-notify/editor-toast/statusline); degrading to the core default" >&2
+    printf '%s\n' "resolve-notification-channel: warning: the $layer overlay sets notification_channel to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not one of none/tmux-popup/os-notify/editor-toast/statusline); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. config-get keeps PLANWRIGHT_CONFIG_DEFAULTS; we only blank
     # the three overlay roots. mktemp gives an empty repo root (no
@@ -196,15 +196,15 @@ case "$layer" in
       emit_trimmed "$core_value"
       exit 0
     fi
-    echo "resolve-notification-channel: the core default notification_channel ('$(sanitize_printable "$core_value" "(unprintable value)")') is itself malformed — broken install" >&2
+    printf '%s\n' "resolve-notification-channel: the core default notification_channel ('$(sanitize_printable "$core_value" "(unprintable value)")') is itself malformed — broken install" >&2
     exit 5
     ;;
   core)
-    echo "resolve-notification-channel: the core default notification_channel ('$(sanitize_printable "$value" "(unprintable value)")') is malformed — broken install" >&2
+    printf '%s\n' "resolve-notification-channel: the core default notification_channel ('$(sanitize_printable "$value" "(unprintable value)")') is malformed — broken install" >&2
     exit 5
     ;;
   *)
-    echo "resolve-notification-channel: config-get named an unrecognized layer '$(sanitize_printable "$layer" "(unprintable layer)")'" >&2
+    printf '%s\n' "resolve-notification-channel: config-get named an unrecognized layer '$(sanitize_printable "$layer" "(unprintable layer)")'" >&2
     exit 5
     ;;
 esac

@@ -302,11 +302,11 @@ esac
 # they key a store lookup or a state filename (a tab / newline / control char
 # would silently break both). Same discipline as fleet-liveness.sh.
 valid_field "$worker" || {
-  echo "fleet-pane-detect: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+  printf '%s\n' "fleet-pane-detect: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
   exit 2
 }
 valid_field "$scope" || {
-  echo "fleet-pane-detect: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+  printf '%s\n' "fleet-pane-detect: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
   exit 2
 }
 # The oracle join key, validated whenever the flag was SEEN. A rejected value
@@ -319,12 +319,12 @@ valid_field "$scope" || {
 # classification loss for that worker. (The liveness helper's own arms stay
 # strict exit-2 refusals; this relaxation is the detector's alone.)
 if [ "$oracle_cwd_given" = 1 ] && ! valid_oracle_cwd "$oracle_cwd"; then
-  echo "fleet-pane-detect: --cwd '$(sanitize_printable "$oracle_cwd" "(unprintable cwd)")' is not a usable oracle join key (absolute, printable, backslash-free, <=512 chars); skipping the oracle, pane heuristics only" >&2
+  printf '%s\n' "fleet-pane-detect: --cwd '$(sanitize_printable "$oracle_cwd" "(unprintable cwd)")' is not a usable oracle join key (absolute, printable, backslash-free, <=512 chars); skipping the oracle, pane heuristics only" >&2
   oracle_cwd=""
 fi
 
 [ -f "$pane" ] && [ -r "$pane" ] || {
-  echo "fleet-pane-detect: pane file not readable: $(sanitize_printable "$pane" "(unprintable path)")" >&2
+  printf '%s\n' "fleet-pane-detect: pane file not readable: $(sanitize_printable "$pane" "(unprintable path)")" >&2
   exit 2
 }
 
@@ -350,7 +350,7 @@ else
     tmux | stream-json-persistent | headless-oneshot) push_capable=0 ;;
     subagent | print | in-session) push_capable=1 ;;
     *)
-      echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no liveness helper to resolve it)" >&2
+      printf '%s\n' "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no liveness helper to resolve it)" >&2
       exit 2
       ;;
   esac
@@ -359,7 +359,7 @@ case $push_capable in
   0) ;; # push-capable — apply the freshness gate below
   1) ;; # hook-less — the detector is the primary path; skip the gate
   *)
-    echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via fleet-liveness push-capable)" >&2
+    printf '%s\n' "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via fleet-liveness push-capable)" >&2
     exit 2
     ;;
 esac
@@ -450,7 +450,7 @@ if [ "$state_shared_tmp" = 1 ]; then
   # must re-prove it is still ours and not a redirect planted since.
   [ -d "$state_dir" ] || mkdir -m 0700 "$state_dir" 2>/dev/null || true
   if ! state_dir_trusted "$state_dir"; then
-    echo "fleet-pane-detect: refusing the shared fallback state dir $(sanitize_printable "$state_dir" "(unprintable path)") — not a private per-user directory (foreign owner or symlink redirect); pane heuristics unavailable, the defer gates still answer" >&2
+    printf '%s\n' "fleet-pane-detect: refusing the shared fallback state dir $(sanitize_printable "$state_dir" "(unprintable path)") — not a private per-user directory (foreign owner or symlink redirect); pane heuristics unavailable, the defer gates still answer" >&2
     state_ok=0
   fi
 elif ! mkdir -p "$state_dir" 2>/dev/null; then
@@ -476,7 +476,7 @@ state_file="$state_dir/$key"
 reset_debounce_state() {
   [ "$state_ok" = 1 ] || return 0
   if [ -e "$state_file" ] && ! rm -f "$state_file" 2>/dev/null; then
-    echo "fleet-pane-detect: could not reset the debounce state $(sanitize_printable "$state_file" "(unprintable path)") — a stale frame pair may confirm early" >&2
+    printf '%s\n' "fleet-pane-detect: could not reset the debounce state $(sanitize_printable "$state_file" "(unprintable path)") — a stale frame pair may confirm early" >&2
   fi
 }
 
@@ -523,7 +523,7 @@ if [ -n "$oracle_cwd" ] && [ -x "$FL" ]; then
           exit 0
           ;;
         *)
-          echo "fleet-pane-detect: the liveness helper answered with an unrecognized verdict '$(sanitize_printable "$o_v" "(unprintable verdict)")'; falling back to the pane heuristics" >&2
+          printf '%s\n' "fleet-pane-detect: the liveness helper answered with an unrecognized verdict '$(sanitize_printable "$o_v" "(unprintable verdict)")'; falling back to the pane heuristics" >&2
           ;;
       esac
       ;;
@@ -542,7 +542,7 @@ fi
 # now does its absence fail closed (the defer gates above answered without
 # it whenever they could).
 if [ "$state_ok" != 1 ]; then
-  echo "fleet-pane-detect: cannot use the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
+  printf '%s\n' "fleet-pane-detect: cannot use the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
   exit 2
 fi
 
@@ -587,7 +587,7 @@ fi
 
 # Persist the new state atomically (same-dir temp + rename).
 state_tmp=$(mktemp "$state_dir/.tmp.XXXXXX" 2>/dev/null) || {
-  echo "fleet-pane-detect: cannot create a temp file under $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
+  printf '%s\n' "fleet-pane-detect: cannot create a temp file under $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
   exit 2
 }
 if ! printf '%s\n%s\n' "$raw" "$confirmed" >"$state_tmp"; then

@@ -178,7 +178,7 @@ spec=$2
 shift 2
 
 if ! valid_spec "$spec"; then
-  echo "fleet-tower-marker: refusing malformed spec id '$(sanitize_printable "$spec" "(unprintable spec)")'" >&2
+  printf '%s\n' "fleet-tower-marker: refusing malformed spec id '$(sanitize_printable "$spec" "(unprintable spec)")'" >&2
   exit 2
 fi
 
@@ -240,7 +240,7 @@ case "$cmd" in
     case "$mode" in
       unattended | interactive) ;;
       *)
-        echo "fleet-tower-marker: refusing mode '$(sanitize_printable "$mode" "(unprintable mode)")' — the D-4 recovery split admits only 'unattended' or 'interactive'" >&2
+        printf '%s\n' "fleet-tower-marker: refusing mode '$(sanitize_printable "$mode" "(unprintable mode)")' — the D-4 recovery split admits only 'unattended' or 'interactive'" >&2
         exit 2
         ;;
     esac
