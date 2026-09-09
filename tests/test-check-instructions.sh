@@ -198,6 +198,35 @@ assert_exit "real repo passes the guard (no transitional allowances remain)" 0 $
 # type.
 assert_absent "closing gate: no floor-breach warning on the real corpus" "WARN: floor-breach:" "$out"
 assert_absent "closing gate: no unexcepted below-target warning on the real corpus" "WARN: below-target:" "$out"
+
+# A declared exception on a surface that has fallen PAST its floor must escalate,
+# not read as spent. below-target only fires while the floor is intact, so a
+# surface that degrades into a breach stops firing it — and the staleness sweep
+# reads a warning that did not fire as an entry nobody needs. That inverted the
+# signal at the worst moment: the operator was told to delete the note exactly
+# when the thing it deferred came due.
+esc_root="$(mktemp -d)"
+mkdir -p "$esc_root/skills/demo" "$esc_root/doctrine" "$esc_root/config" "$esc_root/hooks"
+cp "$REPO_ROOT/config/defaults.yml" "$esc_root/config/defaults.yml"
+printf 'exempt|doctrine/none.md|placeholder\ndeclared-exception|closure:demo|deferred restoration, recorded here\n' \
+  >"$esc_root/config/instruction-budget-exemptions.txt"
+printf '# demo\n\nDoctrine: run-start big\n\n' >"$esc_root/skills/demo/SKILL.md"
+awk 'BEGIN { for (i = 0; i < 200; i++) printf "word " }' >>"$esc_root/skills/demo/SKILL.md"
+printf '# big\n\n' >"$esc_root/doctrine/big.md"
+awk 'BEGIN { for (i = 0; i < 19500; i++) printf "word " }' >>"$esc_root/doctrine/big.md"
+esc_out="$(/bin/bash "$CHECKER" --root "$esc_root" 2>&1 || true)"
+rm -rf "$esc_root"
+# The fixture must actually breach, or the two assertions below prove nothing.
+assert_contains "escalation fixture reaches a floor breach" "floor-breach: closure:demo" "$esc_out"
+assert_contains "a breached surface with a declared exception escalates" \
+  "declared-exception escalated: closure:demo" "$esc_out"
+# The cleanup line still fires, and should: a declared-exception never silences
+# a floor-breach (D-11), so an entry that now excuses nothing is correctly
+# reported stale. What was missing is WHY it went inert. Both lines together are
+# the contract — the escalation above says the deferral came due, the cleanup
+# below says the entry is now inert. Either alone misleads.
+assert_contains "the stale-entry line still fires, per the never-silence-a-breach rule" \
+  "cleanup: no live below-target or use-site warning names 'closure:demo'" "$esc_out"
 assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
 # A single --audit capture serves both the unmeasured closing-gate check and the
 # transitional-allowance assertions. "unmeasured" is an --audit-only surface
