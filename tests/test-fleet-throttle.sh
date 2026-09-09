@@ -686,6 +686,13 @@ while :; do
   rc=0
   run check >/dev/null 2>&1 || rc=$?
   [ "$rc" = 1 ] && break
+  # Only a clean "not engaged" is excusable. `check` reports 0 for that and 1
+  # for engaged; anything else is a real failure, and letting it reach the
+  # timing allowance below would retry it four more times and then report it
+  # as "never observed" — the wrong diagnosis, on a slow machine, for a fault
+  # that has nothing to do with timing.
+  [ "$rc" = 0 ] \
+    || fail "check exited $rc, which is neither 'not engaged' (0) nor 'engaged' (1)"
   # Not engaged: only excusable if the pair outran the 3-second anchor.
   [ $(($(now) - t_before)) -ge 3 ] || break
   [ "$attempt" -lt 5 ] || fail "re-engage never observed within its anchor after $attempt attempts"
