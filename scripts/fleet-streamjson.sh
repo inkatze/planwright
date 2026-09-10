@@ -440,56 +440,27 @@ worker_alive() {
 # at worst duplicate an attention upsert — never lose a receipt.
 
 journal_lock() {
+  # Delegated to the file's own election primitive rather than hand-rolled here.
+  # It already answers every hazard this lock met: the break renames before it
+  # removes, so two waiters cannot both win one stale lock; the holder's pid is
+  # recorded inside, so a live holder is never broken on age alone; and the drop
+  # is ownership-checked, so a holder that outlived a break of its own lock
+  # leaves its successor's alone. The spin is what this lock adds -- callers
+  # here wait for a busy journal rather than failing on the first refusal.
   jl_dir="$1/journal.lock"
   jl_i=0
-  while ! mkdir "$jl_dir" 2>/dev/null; do
+  until lock_take "$jl_dir" "$journal_lock_stale"; do
     jl_i=$((jl_i + 1))
     if [ "$jl_i" -ge 50 ]; then
-      jl_now=$(now_epoch) || return 2
-      jl_mt=$(stat_mtime "$jl_dir") || jl_mt=$jl_now
-      if [ $((jl_now - jl_mt)) -gt "$journal_lock_stale" ]; then
-        # The owner stamp lives inside the lock directory, so it has to go
-        # before the rmdir can succeed. Skipping this would leave a non-empty
-        # directory that rmdir silently refuses, disabling stale-breaking
-        # altogether -- a lock nobody could ever reclaim.
-        rm -f "$jl_dir/owner" 2>/dev/null
-        rmdir "$jl_dir" 2>/dev/null
-        jl_i=0
-        continue
-      fi
       echo "$me: journal lock busy at $jl_dir" >&2
       return 2
     fi
     sleep 0.1
   done
-  # Stamp the holder. The break above is age-based, so a hold that outlives the
-  # threshold can be broken while its holder is still live and still inside its
-  # critical section; without this stamp that holder's unlock would then remove
-  # the NEW holder's lock and put two writers on one journal. A pid is enough to
-  # tell the two apart: no other live process can share ours.
-  printf '%s\n' "$$" >"$jl_dir/owner" 2>/dev/null || :
 }
 
 journal_unlock() {
-  ju_dir="$1/journal.lock"
-  ju_owner=$(cat "$ju_dir/owner" 2>/dev/null) || ju_owner=''
-  # Ours, proven, or we leave it alone. A stamp naming someone else means the
-  # lock was broken out from under us and re-taken. An ABSENT stamp means the
-  # same thing often enough to matter: acquiring is `mkdir` then stamp, so a
-  # successor sits unstamped for a moment, and treating that as permission to
-  # remove would delete the very exclusion this check exists to protect --
-  # the original hazard, through a window one instruction wide.
-  #
-  # So this fails closed, and the cost is bounded rather than absent: a lock
-  # whose stamp never landed (a full disk, or one created before stamping
-  # existed) is not released by its holder and waits for the age-based break
-  # instead. A stall bounded by that threshold is the cheaper failure than two
-  # writers on one journal.
-  if [ "$ju_owner" != "$$" ]; then
-    return 0
-  fi
-  rm -f "$ju_dir/owner" 2>/dev/null
-  rmdir "$ju_dir" 2>/dev/null
+  lock_drop "$1/journal.lock"
 }
 
 # journal_state <dir> <id> — print the id's state field, empty when the id

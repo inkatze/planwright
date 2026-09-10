@@ -1049,11 +1049,11 @@ lock_leg() {
   ll_owner=${6:--}
   ll_dir="$home/streamjson/$ll_name"
   mkdir -p "$ll_dir/journal.lock" || fail "c18/$ll_name: cannot plant the lock"
-  # A real held lock carries an owner stamp inside it, so a planted lock has to
-  # be able to as well: the stale break must remove that file before its rmdir,
-  # and a break that forgot to would leave a non-empty directory rmdir refuses,
-  # making the lock permanently unbreakable.
-  [ "$ll_owner" = '-' ] || printf '%s\n' "$ll_owner" >"$ll_dir/journal.lock/owner" \
+  # A real held lock records its holder inside, so a planted lock has to be
+  # able to as well. The stamp is a dead pid on purpose: a LIVE holder is never
+  # broken on age (that is the point of recording it), so a leg meaning to
+  # exercise the age fallback has to name a process that is gone.
+  [ "$ll_owner" = '-' ] || printf '%s\n' "$ll_owner" >"$ll_dir/journal.lock/holder" \
     || fail "c18/$ll_name: cannot stamp the planted lock"
   [ "$ll_stamp" = '-' ] || touch -t "$ll_stamp" "$ll_dir/journal.lock" \
     || fail "c18/$ll_name: cannot age the lock"
@@ -1084,16 +1084,19 @@ lock_leg sjw18d "$tmp/statbsd" 0 - 2
 #     Linux CI runner, BSD on the macOS floor).
 lock_leg sjw18e - - 202001010000.00 3
 lock_leg sjw18f - - - 2
-# (g) An aged lock carrying an owner stamp, the shape a real held lock has.
-#     rmdir refuses a non-empty directory, so a break that did not clear the
-#     stamp first would silently stop breaking anything and this leg would
-#     report busy (2) rather than reaching the refusal (3).
-lock_leg sjw18g - - 202001010000.00 3 12345
-# (h) The same stamp on a FRESH lock is still busy, so (g) is not passing
-#     merely because a stamped lock is always broken.
-lock_leg sjw18h - - - 2 12345
+# (g) A FRESH lock whose recorded holder is gone: broken on the evidence, not
+#     on the clock. This is what recording the holder buys over an age-only
+#     break -- a crashed holder is reclaimed at once instead of stranding the
+#     journal for the whole threshold. It also proves the break copes with a
+#     non-empty directory, which an rmdir-only break would not.
+lock_leg sjw18g - - - 3 2147483646
+# (h) A fresh lock whose holder is THIS test, a process that is demonstrably
+#     alive: refused. Together with (g) this pins the evidence as the thing
+#     being read -- (g) cannot be passing merely because stamped locks always
+#     break, and (h) cannot be passing merely because fresh ones never do.
+lock_leg sjw18h - - - 2 $$
 echo "ok: c18 the mtime probe yields a real epoch under both stat flavors, in both directions (REQ-E1.5)"
-echo "ok: c18 an owner-stamped lock is still stale-breakable, and only when aged (REQ-E1.5)"
+echo "ok: c18 a recorded holder decides the break by liveness, not by age (REQ-E1.5)"
 
 # ---------------------------------------------------------------------------
 # c19 (REQ-B1.2, REQ-B1.4, REQ-A1.3): `stop` terminates the supervisor, the
