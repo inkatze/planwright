@@ -408,8 +408,10 @@ rat8_code=$?
 [ -n "$rat8_root" ] && [ -d "$rat8_root" ] && rm -rf "$rat8_root"
 assert_absent "an oversized margin never reaches the integer comparison" \
   "integer expected" "$rat8_out"
-assert_contains "an oversized margin is refused at the parse" \
-  "has no usable declared margin" "$rat8_out"
+assert_contains "an oversized margin is named as too large, not as non-numeric" \
+  "too large to compare" "$rat8_out"
+assert_absent "an out-of-range value is never called not-a-whole-number" \
+  "which is not one" "$rat8_out"
 assert_exit "an oversized margin fails the check rather than passing quietly" 1 "$rat8_code"
 
 # A margin recorded only after the entry is accepted. Appended beside the parse,
@@ -425,6 +427,35 @@ assert_contains "an entry with no reason is refused" \
 assert_absent "and a refused entry records no margin" \
   "margin never evaluated" "$rat9_out"
 assert_exit "a reason-less entry fails the check" 1 "$rat9_code"
+
+# A surface carrying the margin table's own separator corrupts every lookup
+# against it. This one still matches the real `closure:demo` and hands the
+# comparison a value the shell rejects as a non-integer, which the enclosing
+# `if` reads as false -- so the ratchet reports itself evaluated, compares
+# nothing, and the run exits clean. Refused at the parse instead.
+rat10_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat10_root" "$(printf 'declared-exception|closure:demo\tjunk|18900|a surface carrying a tab')"
+rat10_out="$(/bin/bash "$CHECKER" --root "$rat10_root" 2>&1)"
+rat10_code=$?
+[ -n "$rat10_root" ] && [ -d "$rat10_root" ] && rm -rf "$rat10_root"
+assert_absent "a tabbed surface never reaches the integer comparison" \
+  "integer expected" "$rat10_out"
+assert_contains "a surface carrying a separator is refused" \
+  "contains a tab or newline" "$rat10_out"
+assert_exit "a tabbed surface fails the check rather than passing quietly" 1 "$rat10_code"
+
+# One margin per surface. lookup_margin returns the first matching row, so a
+# second entry would be silently ignored and the surface held to the earlier
+# figure while its own file appears to supersede it.
+rat11_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat11_root" 'declared-exception|closure:demo|1|first
+declared-exception|closure:demo|18885|second, silently ignored'
+rat11_out="$(/bin/bash "$CHECKER" --root "$rat11_root" 2>&1)"
+rat11_code=$?
+[ -n "$rat11_root" ] && [ -d "$rat11_root" ] && rm -rf "$rat11_root"
+assert_contains "a second margin for one surface is refused" \
+  "declares a second margin" "$rat11_out"
+assert_exit "a duplicate margin fails the check" 1 "$rat11_code"
 assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
 # A single --audit capture serves both the unmeasured closing-gate check and the
 # transitional-allowance assertions. "unmeasured" is an --audit-only surface

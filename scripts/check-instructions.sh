@@ -361,16 +361,20 @@ fi
 # A reason-less entry of any form is an error; an unparseable line is an error
 # (REQ-B1.3, REQ-B1.8). Content is data, never evaluated (REQ-B1.9).
 ########################################################################
-exempt_paths=""                 # permanent per-file exemptions (newline-separated paths)
-exempt_reasons=""               # "path\treason" records for echoing
-pd_file_paths=""                # transitional per-file allowances (paths)
-pd_startload=""                 # transitional start-load allowances (skill names)
-pd_closure=""                   # transitional closure allowances (skill names)
-pd_tasks=""                     # "<budget>\t<target>\t<task>" — the allowance's Task field (REQ-D1.2)
-declared_exception_surfaces=""  # standing below-target/use-site exceptions (keys)
-declared_exception_reasons=""   # "surface\treason" records for echoing
-declared_exception_used=""      # surface keys whose named warning fired this run
-declared_exception_margins=""   # "surface\t<margin>" — the margin the exception was granted at
+exempt_paths=""                   # permanent per-file exemptions (newline-separated paths)
+exempt_reasons=""                 # "path\treason" records for echoing
+pd_file_paths=""                  # transitional per-file allowances (paths)
+pd_startload=""                   # transitional start-load allowances (skill names)
+pd_closure=""                     # transitional closure allowances (skill names)
+pd_tasks=""                       # "<budget>\t<target>\t<task>" — the allowance's Task field (REQ-D1.2)
+declared_exception_surfaces=""    # standing below-target/use-site exceptions (keys)
+declared_exception_reasons=""     # "surface\treason" records for echoing
+declared_exception_used=""        # surface keys whose named warning fired this run
+declared_exception_margins=""     # "surface\t<margin>" — the margin the exception was granted at
+declared_exception_margin_keys="" # surfaces already carrying a margin (one each)
+de_tab="$(printf '\t')"           # the margin table's separators, for the surface guard
+de_nl="
+"
 declared_exception_ratcheted="" # surface keys the ratchet actually evaluated this run
 raise_entries=""                # "knob\tvalue\treason" raise rationales
 
@@ -478,6 +482,20 @@ $budget	$target	$task"
           err "declared-exception for '$(sanitize_printable "$surface" "?")' has no reason (a recorded reason is required)"
           continue
         fi
+        # The margin table is tab-delimited and newline-separated, so a surface
+        # carrying either splits a row and every lookup against it reads the
+        # wrong field. Not cosmetic: a key like `closure:demo<TAB>junk` still
+        # matches the real `closure:demo` and hands the comparison a value the
+        # shell rejects as a non-integer, which the enclosing `if` reads as
+        # false -- so the ratchet reports itself evaluated, compares nothing,
+        # and the run exits clean. Refused here, while the key is still data
+        # rather than a table row.
+        case $surface in
+          *"$de_tab"* | *"$de_nl"*)
+            err "declared-exception surface '$(sanitize_printable "$surface" "?")' contains a tab or newline, the margin table's own separators; a key carrying one cannot be looked up"
+            continue
+            ;;
+        esac
         # The SURFACE decides whether a margin is even looked for. A use-site
         # surface never reaches the headroom check, so it carries no margin and
         # everything after the key is reason -- and reading a margin there would
@@ -533,7 +551,17 @@ $budget	$target	$task"
               # entry that plainly carries one sends the author looking in the
               # wrong place.
               if [ -n "$de_candidate" ]; then
-                err "declared-exception for '$(sanitize_printable "$surface" "?")' has no usable declared margin (expected declared-exception|<surface>|<margin>|<reason>, <margin> a whole number); the field before the reason reads '$(sanitize_printable "$de_candidate" "?")', which is not one"
+                # Two different mistakes, and naming the wrong one sends the
+                # author to the wrong fix: a value out of range IS a whole
+                # number and wants reducing, not reformatting.
+                case $de_candidate in
+                  *[!0-9]*)
+                    err "declared-exception for '$(sanitize_printable "$surface" "?")' has no usable declared margin (expected declared-exception|<surface>|<margin>|<reason>, <margin> a whole number); the field before the reason reads '$(sanitize_printable "$de_candidate" "?")', which is not one"
+                    ;;
+                  *)
+                    err "declared-exception for '$(sanitize_printable "$surface" "?")' has a declared margin too large to compare (the field before the reason reads '$(sanitize_printable "$de_candidate" "?")'); a margin is a word count and must fit the shell's integer range, so reduce the value rather than reformat it"
+                    ;;
+                esac
               else
                 err "declared-exception for '$(sanitize_printable "$surface" "?")' has no declared margin (expected declared-exception|<surface>|<margin>|<reason>); an exception without one cannot be held to the margin it was granted at"
               fi
@@ -550,6 +578,16 @@ $budget	$target	$task"
         # lookup_margin, so a refused entry could mark a surface ratcheted or
         # raise a widening of its own.
         if [ -n "$de_margin" ]; then
+          # One margin per surface. lookup_margin returns the first matching
+          # row, so a second entry for the same key is silently ignored -- the
+          # surface stays held to the earlier margin while its own file appears
+          # to supersede it, and nothing reports the discarded one.
+          if in_list "$surface" "$declared_exception_margin_keys"; then
+            err "declared-exception for '$(sanitize_printable "$surface" "?")' declares a second margin; one surface carries one margin, and a later entry would be silently ignored rather than replacing the first"
+            continue
+          fi
+          declared_exception_margin_keys="$declared_exception_margin_keys
+$surface"
           declared_exception_margins="$declared_exception_margins
 $surface	$de_margin"
         fi

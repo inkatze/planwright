@@ -56,11 +56,13 @@ exempt|doctrine/spec-format.md|Permanent per-file-floor exemption (REQ-B1.3a), T
 # spec's restoration campaign brought the body to its 2x target; model-allocation
 # then added the terminal-state reports and funded them with an in-file trim, so
 # it left both surfaces essentially where it found them. Both sit below their 2x
-# restoration targets with the safety floors intact — no margin figure is
-# transcribed here, because the guard's audit line prints the live values every
-# run and a copied count rots (the two entries below and the spec-format.md
-# exemption take the same posture, and the counts this block used to carry had
-# already gone stale). So this is a below-target shortfall, never a floor-breach.
+# restoration targets with the safety floors intact. The entries below now DO
+# carry a margin figure, and the reasoning that once argued against transcribing
+# one is what makes it safe: a copied count rotted because nothing checked it,
+# and the guard compares these every run, so a stale number fails the check
+# instead of quietly misinforming a reader. The spec-format.md exemption keeps
+# the older posture, having no margin to be held to. So this is a below-target
+# shortfall, never a floor-breach.
 # The diet back to target is deferred to instruction-headroom relief rather than
 # trimming either spec's just-landed doctrine here; these exceptions keep the
 # closing gate honest about the state without silently deferring gating law (the
@@ -94,9 +96,10 @@ declared-exception|closure:orchestrate|1002|Below the 2x closure restoration tar
 # The surface is named and the cause recorded, so the closing gate stays honest.
 # anchor-integrity Task 7 (the sign-off enumeration cross-check) lands the same
 # way and leaves the surface sitting exactly ON its floor, which is why the entry
-# below stops transcribing a margin figure: the guard's own audit line prints the
-# live margin every run, and a copied number goes stale the next time this file
-# moves — the failure mode the spec-format.md exemption already records, and the
+# below carries the margin it was granted at rather than omitting one: a copied
+# number went stale because nothing compared it, and the guard now compares this
+# one every run, so a stale figure fails the check rather than misinforming
+# quietly — the inverse of the failure the spec-format.md exemption records, and the
 # one D-8 names in general.
 # anchor-integrity Task 6 (the kickoff terminal re-anchor) is the next addition
 # Task 7's entry anticipated, and it brings the compensating trim rather than
