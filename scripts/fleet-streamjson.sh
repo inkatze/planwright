@@ -473,13 +473,19 @@ journal_lock() {
 journal_unlock() {
   ju_dir="$1/journal.lock"
   ju_owner=$(cat "$ju_dir/owner" 2>/dev/null) || ju_owner=''
-  # Ours only. A stamp naming someone else means the lock was broken out from
-  # under us and re-taken, so removing it would be removing their exclusion.
-  # An absent or unreadable stamp falls through to the old unconditional
-  # behaviour rather than leaking the lock forever: a directory created before
-  # this stamp existed, or a stamp write that failed on a full disk, must still
-  # be releasable by its holder.
-  if [ -n "$ju_owner" ] && [ "$ju_owner" != "$$" ]; then
+  # Ours, proven, or we leave it alone. A stamp naming someone else means the
+  # lock was broken out from under us and re-taken. An ABSENT stamp means the
+  # same thing often enough to matter: acquiring is `mkdir` then stamp, so a
+  # successor sits unstamped for a moment, and treating that as permission to
+  # remove would delete the very exclusion this check exists to protect --
+  # the original hazard, through a window one instruction wide.
+  #
+  # So this fails closed, and the cost is bounded rather than absent: a lock
+  # whose stamp never landed (a full disk, or one created before stamping
+  # existed) is not released by its holder and waits for the age-based break
+  # instead. A stall bounded by that threshold is the cheaper failure than two
+  # writers on one journal.
+  if [ "$ju_owner" != "$$" ]; then
     return 0
   fi
   rm -f "$ju_dir/owner" 2>/dev/null
