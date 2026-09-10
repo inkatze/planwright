@@ -475,37 +475,37 @@ $budget	$target	$task"
           err "declared-exception for '$(sanitize_printable "$surface" "?")' has no reason (a recorded reason is required)"
           continue
         fi
-        # Split the margin off the front of the reason. A margin is a run of
-        # digits in its own field, so the legacy three-field form is recognised
-        # by its absence rather than by counting pipes: a reason may itself
-        # contain a pipe, and counting would misread one as a margin.
-        de_margin=""
-        de_candidate=""
-        de_head="${reason%%|*}"
-        if [ "$de_head" != "$reason" ] && [ -n "$de_head" ]; then
-          # Kept for the diagnostic below: when this field is not a number the
-          # entry is refused, and the refusal has to show what was actually
-          # there rather than report the field as missing.
-          de_candidate="$de_head"
-          case $de_head in
-            *[!0-9]*) ;;
-            *)
-              de_margin="$de_head"
-              reason="${reason#*|}"
-              ;;
-          esac
-        fi
-        # A use-site surface never reaches the headroom check, so it has no
-        # margin to ratchet; requiring one there would demand a number that can
-        # never be compared against anything.
+        # The SURFACE decides whether a margin is even looked for. A use-site
+        # surface never reaches the headroom check, so it carries no margin and
+        # everything after the key is reason -- and reading a margin there would
+        # misjudge a legitimate reason that happens to open with digits and
+        # contain a pipe ("123|foo"), refusing an entry that is well formed.
+        # Deciding by surface first removes the ambiguity instead of documenting
+        # it; the cost is that a stray margin on a use-site entry is absorbed
+        # into its reason rather than refused, which is the cheaper way to be
+        # wrong than rejecting valid entries.
         case $surface in
-          use-site:*)
-            if [ -n "$de_margin" ]; then
-              err "declared-exception for '$(sanitize_printable "$surface" "?")' carries a margin, but a use-site surface has no headroom margin to ratchet"
-              continue
-            fi
-            ;;
+          use-site:*) ;;
           *)
+            # A margin is a run of digits in its own field, so a three-field
+            # entry is recognised by its absence rather than by counting pipes:
+            # a reason may contain one, and counting would misread it.
+            de_margin=""
+            de_candidate=""
+            de_head="${reason%%|*}"
+            if [ "$de_head" != "$reason" ] && [ -n "$de_head" ]; then
+              # Kept for the diagnostic below: when this field is not a number
+              # the entry is refused, and the refusal has to show what was
+              # actually there rather than report the field as missing.
+              de_candidate="$de_head"
+              case $de_head in
+                *[!0-9]*) ;;
+                *)
+                  de_margin="$de_head"
+                  reason="${reason#*|}"
+                  ;;
+              esac
+            fi
             if [ -z "$de_margin" ]; then
               # Two mistakes reach here and the entry cannot tell them apart --
               # a three-field entry predating the margin, and a four-field one

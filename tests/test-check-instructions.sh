@@ -338,16 +338,29 @@ assert_contains "an exception with no declared margin is refused" \
   "has no declared margin" "$rat4_out"
 assert_exit "a margin-less exception fails the check" 1 "$rat4_code"
 
-# A use-site surface never reaches the headroom check, so a margin on one could
-# never be compared; accepting it would ship a number that reads as enforcement.
+# A use-site surface never reaches the headroom check, so no margin is read from
+# one: everything after the key is reason. That matters for a reason which
+# merely LOOKS like it opens with a margin -- digits, then a pipe -- because
+# reading one there would refuse a well-formed entry. The surface decides
+# whether a margin is looked for at all, so this parses as reason text and the
+# run stays clean.
 rat5_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat5_root" 'declared-exception|use-site:demo/pou|500|a use-site key has no headroom margin'
+ratchet_fixture "$rat5_root" 'declared-exception|use-site:demo/pou|123|a reason opening with digits and a pipe'
 rat5_out="$(/bin/bash "$CHECKER" --root "$rat5_root" 2>&1)"
 rat5_code=$?
 [ -n "$rat5_root" ] && [ -d "$rat5_root" ] && rm -rf "$rat5_root"
-assert_contains "a use-site exception carrying a margin is refused" \
-  "has no headroom margin to ratchet" "$rat5_out"
-assert_exit "a use-site margin fails the check" 1 "$rat5_code"
+# The observable that separates the two parses: reading a margin here would
+# record one against a surface no headroom check ever measures, which the
+# vacuity sweep reports as inert. Its absence is what proves no margin was read
+# -- asserting on the error text alone passed either way, because the wrong
+# parse produces a warning rather than an error.
+assert_absent "a digits-then-pipe reason on a use-site entry is not read as a margin" \
+  "declared-exception margin never evaluated" "$rat5_out"
+# The reason must also survive whole, digits and pipe included, rather than
+# being silently split with its head eaten as a margin.
+assert_contains "the whole reason is kept, not split at the pipe" \
+  "123|a reason opening with digits and a pipe" "$rat5_out"
+assert_exit "a use-site entry whose reason looks like a margin still passes" 0 "$rat5_code"
 
 # A margin that is present but unusable must not be reported as absent. The two
 # mistakes are indistinguishable from the entry alone, so the refusal shows the
