@@ -484,7 +484,7 @@ $budget	$target	$task"
         # it; the cost is that a stray margin on a use-site entry is absorbed
         # into its reason rather than refused, which is the cheaper way to be
         # wrong than rejecting valid entries.
-        case $surface in
+        case "$surface" in
           use-site:*) ;;
           *)
             # A margin is a run of digits in its own field, so a three-field
@@ -498,7 +498,7 @@ $budget	$target	$task"
               # the entry is refused, and the refusal has to show what was
               # actually there rather than report the field as missing.
               de_candidate="$de_head"
-              case $de_head in
+              case "$de_head" in
                 *[!0-9]*) ;;
                 *)
                   de_margin="$de_head"
