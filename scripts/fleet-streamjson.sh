@@ -709,8 +709,8 @@ handle_line() {
             return 0
           fi
           printf '%s\n' "$hl_line" >"$hl_dir/req-$hl_id.json"
+          attention_settled "$hl_worker" "$hl_dir"
           journal_unlock "$hl_dir"
-          attention_upsert "$hl_worker" "$hl_dir" "$hl_id" "$hl_kind"
           return 0
           ;;
       esac
@@ -726,8 +726,19 @@ handle_line() {
         return 0
       fi
       printf '%s\n' "$hl_line" >"$hl_dir/req-$hl_id.json"
+      # Derived and published INSIDE the journal lock. The queue row is a
+      # projection of journal state, so reading that state and writing the row
+      # have to be one step: with the publish outside, `answer` lands between
+      # them, marks the row answered and clears the queue, and this write then
+      # re-posts a decision the operator already made. Deriving instead of
+      # publishing the id captured above is the other half -- the row carries
+      # the OLDEST still-pending request, which the just-appended id is not
+      # when an earlier one is still open. Held across the shell-out on
+      # purpose; it is milliseconds against a five-second lock timeout, and
+      # nothing reachable from here re-takes this lock or takes the attention
+      # store's lock ahead of it.
+      attention_settled "$hl_worker" "$hl_dir"
       journal_unlock "$hl_dir"
-      attention_upsert "$hl_worker" "$hl_dir" "$hl_id" "$hl_kind"
       ;;
     *'"type":"system"'*'"subtype":"init"'*)
       hl_sid=$(json_field "$hl_line" session_id)
@@ -1801,8 +1812,8 @@ cmd_answer() {
         "answer for worker $worker request $short was delivered but the receipt could not be marked answered - the journal is stale, do not re-answer, investigate disk/store"
       exit 2
     fi
-    journal_unlock "$dir"
     attention_settled "$worker" "$dir"
+    journal_unlock "$dir"
     printf 'answered %s %s\n' "$worker" "$req"
   else
     journal_set_state "$dir" "$req" undeliverable "$now"

@@ -718,7 +718,19 @@ senv "$home" "$rec" -- answer sjw12 "$req_perm" --allow >/dev/null \
 wait "$launch12" || fail "c12: the worker run did not end cleanly"
 grep -q "^$req_perm$tab.*${tab}answered" "$wdir12/journal" \
   || fail "c12: the request should be answered after the first run"
-[ "$(aenv "$home" queue --count)" = 0 ] || fail "c12: queue should be clear after the answer"
+# Reported, not just asserted. This invariant is a projection of journal state
+# written by two processes, so when it breaks the question is always "what did
+# the store say, and when relative to the journal" -- and a bare boolean sends
+# the next reader digging for it. The timestamps are the diagnosis: a store row
+# stamped at or after the journal's answered row is a write that outlived the
+# answer it contradicts.
+q12_count="$(aenv "$home" queue --count 2>"$tmp/q12.err")"
+if [ "$q12_count" != 0 ]; then
+  q12_err="$(tr '\n' ' ' <"$tmp/q12.err")"
+  q12_store="$(tr '\n' '~' <"$home/attention/state" 2>&1)"
+  q12_journal="$(tr '\n' '~' <"$wdir12/journal" 2>&1)"
+  fail "c12: queue should be clear after the answer, got '$q12_count' (stderr: ${q12_err}; store: ${q12_store}; journal: ${q12_journal})"
+fi
 # Now simulate the resume: the same request id re-surfaces on the event
 # stream (the CLI re-issues the unprocessed ask). handle_line must re-open it.
 ev_re="$tmp/ev12re"
