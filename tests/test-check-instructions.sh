@@ -348,6 +348,24 @@ rat5_code=$?
 assert_contains "a use-site exception carrying a margin is refused" \
   "has no headroom margin to ratchet" "$rat5_out"
 assert_exit "a use-site margin fails the check" 1 "$rat5_code"
+
+# A margin that is present but unusable must not be reported as absent. The two
+# mistakes are indistinguishable from the entry alone, so the refusal shows the
+# field it read rather than asserting which one was made -- telling an author
+# their entry has no margin when it plainly carries one sends them looking in
+# the wrong place.
+rat6_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat6_root" 'declared-exception|closure:demo|-5|a margin that is not a whole number'
+rat6_out="$(/bin/bash "$CHECKER" --root "$rat6_root" 2>&1)"
+rat6_code=$?
+[ -n "$rat6_root" ] && [ -d "$rat6_root" ] && rm -rf "$rat6_root"
+assert_contains "an unusable margin is refused as unusable, not as missing" \
+  "has no usable declared margin" "$rat6_out"
+assert_contains "the refusal shows the field it actually read" \
+  "the field before the reason reads" "$rat6_out"
+assert_absent "an entry carrying a margin is never told it has none" \
+  "has no declared margin (expected" "$rat6_out"
+assert_exit "an unusable margin fails the check" 1 "$rat6_code"
 assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
 # A single --audit capture serves both the unmeasured closing-gate check and the
 # transitional-allowance assertions. "unmeasured" is an --audit-only surface

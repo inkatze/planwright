@@ -478,8 +478,13 @@ $budget	$target	$task"
         # by its absence rather than by counting pipes: a reason may itself
         # contain a pipe, and counting would misread one as a margin.
         de_margin=""
+        de_candidate=""
         de_head="${reason%%|*}"
         if [ "$de_head" != "$reason" ] && [ -n "$de_head" ]; then
+          # Kept for the diagnostic below: when this field is not a number the
+          # entry is refused, and the refusal has to show what was actually
+          # there rather than report the field as missing.
+          de_candidate="$de_head"
           case $de_head in
             *[!0-9]*) ;;
             *)
@@ -500,7 +505,17 @@ $budget	$target	$task"
             ;;
           *)
             if [ -z "$de_margin" ]; then
-              err "declared-exception for '$(sanitize_printable "$surface" "?")' has no declared margin (expected declared-exception|<surface>|<margin>|<reason>); an exception without one cannot be held to the margin it was granted at"
+              # Two mistakes reach here and the entry cannot tell them apart --
+              # a three-field entry predating the margin, and a four-field one
+              # whose margin is not a number. Show the field that was read
+              # instead of claiming which, since asserting "no margin" about an
+              # entry that plainly carries one sends the author looking in the
+              # wrong place.
+              if [ -n "$de_candidate" ]; then
+                err "declared-exception for '$(sanitize_printable "$surface" "?")' has no usable declared margin (expected declared-exception|<surface>|<margin>|<reason>, <margin> a whole number); the field before the reason reads '$(sanitize_printable "$de_candidate" "?")', which is not one"
+              else
+                err "declared-exception for '$(sanitize_printable "$surface" "?")' has no declared margin (expected declared-exception|<surface>|<margin>|<reason>); an exception without one cannot be held to the margin it was granted at"
+              fi
               continue
             fi
             declared_exception_margins="$declared_exception_margins
