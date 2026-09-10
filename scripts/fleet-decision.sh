@@ -102,7 +102,7 @@ case $cmd in
     # deliver to must be refused before we consume the answer. orchestrate-relay
     # owns the per-backend handle grammar; reuse it rather than re-deriving.
     if ! "$RELAY" validate-handle "$backend" "$handle" >/dev/null 2>&1; then
-      echo "$me: refusing an invalid $(sanitize_printable "$backend" "(backend)") handle '$(sanitize_printable "$handle" "(handle)")' before answering" >&2
+      printf '%s\n' "$me: refusing an invalid $(sanitize_printable "$backend" "(backend)") handle '$(sanitize_printable "$handle" "(handle)")' before answering" >&2
       exit 2
     fi
     # Atomic claim by label under the store lock (first-answer-wins). Its stderr
@@ -128,7 +128,7 @@ case $cmd in
     }
     answers_dir="$root/attention/answers"
     if ! mkdir -p "$answers_dir" 2>/dev/null; then
-      echo "$me: cannot create the answers dir $(sanitize_printable "$answers_dir" "(dir)") (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
+      printf '%s\n' "$me: cannot create the answers dir $(sanitize_printable "$answers_dir" "(dir)") (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
       exit 4
     fi
     answer_file="$answers_dir/$worker"
@@ -158,14 +158,14 @@ case $cmd in
     # persisted at $answer_file, so the tower re-emits the delivery from it (exit
     # 4, consumed-but-undelivered) — it must NOT re-claim the closed fork.
     if ! "$RELAY" relay-command "$backend" "$handle" "$answer_file"; then
-      echo "$me: the answer was claimed and persisted at $(sanitize_printable "$answer_file" "(file)") but the delivery command could not be emitted; re-emit from that artifact (do not re-claim)" >&2
+      printf '%s\n' "$me: the answer was claimed and persisted at $(sanitize_printable "$answer_file" "(file)") but the delivery command could not be emitted; re-emit from that artifact (do not re-claim)" >&2
       exit 4
     fi
     exit 0
     ;;
 
   *)
-    echo "$me: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (answer)" >&2
+    printf '%s\n' "$me: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (answer)" >&2
     exit 2
     ;;
 esac

@@ -52,10 +52,12 @@ stricter bar than the code they help review:
   containment-checked after canonicalization before any read or write.
   Hostile input is a clean refusal, never a path.
 - **Echo discipline.** Untrusted content (spec-file values, branch names,
-  parsed identifiers) is stripped of non-printable bytes before it is echoed,
-  so an embedded escape sequence cannot drive the terminal. The canonical
-  sanitizer is `scripts/echo-safety.sh` (`sanitize_printable`), sourced by the
-  migrated command-tier callers (`spec-validate.sh`, `spec-walkthrough.sh`);
+  parsed identifiers) is stripped of non-printable bytes and printed with
+  `printf`, never `echo`: the sanitizer keeps backslashes, and dash's `echo`
+  expands those back into a live ESC. `check:echo-safety` catches most, not
+  all. The canonical sanitizer is `scripts/echo-safety.sh`
+  (`sanitize_printable`), sourced by the migrated
+  command-tier callers (`spec-validate.sh`, `spec-walkthrough.sh`);
   `spec-assemble.sh` (deliberately self-contained) and `spec-scope.sh` (a
   tracked follow-up) keep inline copies. The awk `gsub(/[^[:print:]]/, "")`
   header parsers are its in-awk form.

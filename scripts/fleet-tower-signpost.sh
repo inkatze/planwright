@@ -138,7 +138,7 @@ for marker in "$towers_dir"/*; do
   "$FDE" process "$m_pid" >/dev/null 2>&1 || ev_rc=$?
   [ "$ev_rc" -eq 0 ] || continue
   if ! valid_session_id "$m_sid"; then
-    echo "fleet-tower-signpost: an orphaned interactive-tower marker for spec '$(sanitize_printable "$m_spec" "(spec)")' carries no valid session id; repair or clear it with scripts/fleet-tower-marker.sh" >&2
+    printf '%s\n' "fleet-tower-signpost: an orphaned interactive-tower marker for spec '$(sanitize_printable "$m_spec" "(spec)")' carries no valid session id; repair or clear it with scripts/fleet-tower-marker.sh" >&2
     continue
   fi
   printf 'planwright: an interactively-led tower for spec %s appears to have died (pid %s: positive evidence, no live process). Resume that conversation with:\n\n    claude --resume %s\n\n(run it from %s). Nothing was auto-resumed and the marker was kept; after resuming or abandoning it, clear it with: scripts/fleet-tower-marker.sh clear %s\n' \

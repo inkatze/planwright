@@ -198,6 +198,59 @@ assert_exit "real repo passes the guard (no transitional allowances remain)" 0 $
 # type.
 assert_absent "closing gate: no floor-breach warning on the real corpus" "WARN: floor-breach:" "$out"
 assert_absent "closing gate: no unexcepted below-target warning on the real corpus" "WARN: below-target:" "$out"
+
+# A declared exception on a surface that has fallen PAST its floor must escalate,
+# not read as spent. below-target only fires while the floor is intact, so a
+# surface that degrades into a breach stops firing it — and the staleness sweep
+# reads a warning that did not fire as an entry nobody needs. That inverted the
+# signal at the worst moment: the operator was told to delete the note exactly
+# when the thing it deferred came due.
+esc_root="$(mktemp -d)" || exit 1
+mkdir -p "$esc_root/skills/demo" "$esc_root/doctrine" "$esc_root/config" "$esc_root/hooks"
+cp "$REPO_ROOT/config/defaults.yml" "$esc_root/config/defaults.yml"
+printf 'exempt|doctrine/none.md|placeholder\ndeclared-exception|closure:demo|deferred restoration, recorded here\n' \
+  >"$esc_root/config/instruction-budget-exemptions.txt"
+# Sized so the CLOSURE floor is the only thing this fixture breaches. The docs
+# are point-of-use, so they land on the closure without touching start-load, and
+# each is kept far enough under the doctrine error threshold that none of them
+# floor-breaches on its own. That is what lets the exit code below mean
+# something: with no error and no rival breach in the fixture, any non-zero exit
+# or any second floor-breach is a regression rather than fixture noise.
+esc_docs='pou1 pou2 pou3 pou4 pou5 pou6'
+{
+  printf '# demo\n\n'
+  for d in $esc_docs; do printf 'Doctrine: point-of-use %s (case %s)\n' "$d" "$d"; done
+  printf '\nThe body names %s so the reverse use-site check stays quiet.\n\n' "$esc_docs"
+  awk 'BEGIN { for (i = 0; i < 150; i++) printf "word " }'
+} >"$esc_root/skills/demo/SKILL.md"
+for d in $esc_docs; do
+  {
+    printf '# %s\n\n' "$d"
+    awk 'BEGIN { for (i = 0; i < 3200; i++) printf "word " }'
+  } >"$esc_root/doctrine/$d.md"
+done
+esc_out="$(/bin/bash "$CHECKER" --root "$esc_root" 2>&1)"
+esc_code=$?
+# Guarded rather than bare: the mktemp above is checked, so this is never
+# `rm -rf ""` today — the test states the precondition it relies on instead
+# of leaving a recursive delete resting on a variable being non-empty.
+[ -n "$esc_root" ] && [ -d "$esc_root" ] && rm -rf "$esc_root"
+# Asserted, not discarded. The earlier form swallowed the status with `|| true`,
+# which is the one thing every other case in this file refuses to do: a breach is
+# a warning, so the run must still exit clean, and an unexpected ERROR would
+# otherwise pass unnoticed behind the content assertions.
+assert_exit "a floor breach is a warning, so the run still exits clean" 0 "$esc_code"
+# The fixture must actually breach, or the assertions below prove nothing.
+assert_contains "escalation fixture reaches a floor breach" "floor-breach: closure:demo" "$esc_out"
+assert_contains "a breached surface with a declared exception escalates" \
+  "declared-exception escalated: closure:demo" "$esc_out"
+# The cleanup line still fires, and should: a declared-exception never silences
+# a floor-breach (D-11), so an entry that now excuses nothing is correctly
+# reported stale. What was missing is WHY it went inert. Both lines together are
+# the contract — the escalation above says the deferral came due, the cleanup
+# below says the entry is now inert. Either alone misleads.
+assert_contains "the stale-entry line still fires, per the never-silence-a-breach rule" \
+  "cleanup: no live below-target or use-site warning names 'closure:demo'" "$esc_out"
 assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
 # A single --audit capture serves both the unmeasured closing-gate check and the
 # transitional-allowance assertions. "unmeasured" is an --audit-only surface

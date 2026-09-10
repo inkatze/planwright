@@ -718,6 +718,17 @@ headroom_check() {
   _hcm=$(($2 - $1))
   if [ "$_hcm" -lt "$3" ]; then
     warn "floor-breach: $(sanitize_printable "$4" "?") margin=$_hcm below headroom floor $3 (error threshold $2, words $1)"
+    if in_list "$4" "$declared_exception_surfaces"; then
+      # The entry is NOT marked used: a declared-exception never silences a
+      # floor-breach (D-11), and an entry that excuses nothing is correctly
+      # reported stale by the sweep below. But "remove the stale entry" is the
+      # whole story only if the reader knows WHY it went inert, and it went
+      # inert because the surface fell past its floor — the deferral it records
+      # came due rather than lapsed. Named rather than pointed at: the cleanup
+      # line is emitted by a later sweep, so "below" would be true of a full
+      # run and false for anyone reading one grepped line.
+      warn "declared-exception escalated: $(sanitize_printable "$4" "?") has fallen past its headroom floor — its declared-exception entry is now inert because the restoration it defers came due, not because it lapsed; the cleanup line naming it is that consequence, not tidying"
+    fi
   elif [ "$_hcm" -lt $(($3 * 2)) ]; then
     if in_list "$4" "$declared_exception_surfaces"; then
       declared_exception_used="$declared_exception_used

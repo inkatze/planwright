@@ -197,11 +197,11 @@ case "$cmd" in
     trigger=$3
     reasoning=$4
     if ! valid_field "$mechanism"; then
-      echo "fleet-audit: refusing malformed mechanism '$(sanitize_printable "$mechanism" "(unprintable mechanism)")'" >&2
+      printf '%s\n' "fleet-audit: refusing malformed mechanism '$(sanitize_printable "$mechanism" "(unprintable mechanism)")'" >&2
       exit 2
     fi
     if ! valid_field "$action"; then
-      echo "fleet-audit: refusing malformed action '$(sanitize_printable "$action" "(unprintable action)")'" >&2
+      printf '%s\n' "fleet-audit: refusing malformed action '$(sanitize_printable "$action" "(unprintable action)")'" >&2
       exit 2
     fi
     if ! valid_text "$trigger"; then
@@ -336,14 +336,14 @@ case "$cmd" in
       esac
     done
     if [ -n "$q_mech" ] && ! valid_field "$q_mech"; then
-      echo "fleet-audit: refusing malformed mechanism filter '$(sanitize_printable "$q_mech" "(unprintable mechanism)")'" >&2
+      printf '%s\n' "fleet-audit: refusing malformed mechanism filter '$(sanitize_printable "$q_mech" "(unprintable mechanism)")'" >&2
       exit 2
     fi
     for bound in "$q_since" "$q_until"; do
       [ -z "$bound" ] && continue
       case "$bound" in
         *[!0-9]*)
-          echo "fleet-audit: a time bound must be epoch seconds (got '$(sanitize_printable "$bound" "(unprintable bound)")')" >&2
+          printf '%s\n' "fleet-audit: a time bound must be epoch seconds (got '$(sanitize_printable "$bound" "(unprintable bound)")')" >&2
           exit 2
           ;;
       esac

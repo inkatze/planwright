@@ -149,7 +149,7 @@ case "$cmd" in
       exit 2
     fi
     if ! known_type "$1"; then
-      echo "fleet-resource-select: unknown task type '$(sanitize_printable "$1" "(unprintable type)")' (execution | bookkeeping | drain)" >&2
+      printf '%s\n' "fleet-resource-select: unknown task type '$(sanitize_printable "$1" "(unprintable type)")' (execution | bookkeeping | drain)" >&2
       exit 2
     fi
     require_delegate
