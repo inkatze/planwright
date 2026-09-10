@@ -1031,12 +1031,15 @@ mkdir -p "$rec"
 unknown_req='cccc2222-dddd-eeee-ffff-000011112222'
 
 # lock_leg <name> <path-override|-> <shim-age-secs|-> <touch-stamp|-> <want-rc>
+#          [owner-stamp|-]
 # Plants a worker dir holding a locked journal, runs one `answer` against it,
 # and asserts the outcome the stale-break decision produces. The shim's mtime
 # is derived from the clock AT CALL TIME (age 0 = fresh, 3600 = well past the
 # 60s threshold): each leg spends ~5s in the lock spin, so a timestamp stamped
 # once at case start would drift across the threshold on a loaded machine and
-# flip the fresh legs.
+# flip the fresh legs. The optional owner stamp plants the file a real held
+# lock carries, so a leg can exercise the break against the shape it will
+# actually meet rather than against an empty directory.
 lock_leg() {
   ll_name=$1
   ll_path=$2
