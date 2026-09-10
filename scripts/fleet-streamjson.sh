@@ -2063,34 +2063,57 @@ cmd_alarm_scan() {
     [ -f "$as_dir/journal" ] || continue
     as_worker=${as_dir##*/}
     valid_field "$as_worker" || continue
+    # Candidate ids only. Everything the escalation acts on -- kind, received
+    # epoch, state -- is re-read under the lock below, because this read is
+    # unlocked and its values can be stale by the time the lock is taken.
+    # Carrying them forward from here is what let a re-opened request be
+    # escalated against the age this scan measured.
     awk -F'\t' -v now="$now" -v thr="$threshold" \
-      '$4 == "pending" && (now - $3) > thr { print $1 "\t" $2 "\t" now - $3 }' \
-      "$as_dir/journal" | while IFS="$(printf '\t')" read -r a_id a_kind a_age; do
+      '$4 == "pending" && (now - $3) > thr { print $1 }' \
+      "$as_dir/journal" | while read -r a_id; do
       valid_reqid "$a_id" || continue
       # Escalation only (the kickoff-pinned alarm outcome): the queue item
       # is re-upserted at high priority and the notify seam is pushed —
       # never an auto-answer, never a worker kill.
       #
       # Re-read under the lock before publishing, for the reason handle_line
-      # and answer do. The awk above read this journal unlocked and the rows it
-      # returned may already be answered: an answer landing between that scan
-      # and this upsert would be undone by it, re-posting a decision the
-      # operator just made — the same stale queue row this projection is
-      # supposed to prevent, arriving through the sweep instead of the worker.
-      # A busy journal skips this worker for this pass; the next scan retries,
-      # which is cheaper than publishing a row that was already wrong.
-      journal_lock "$as_dir" || continue
-      as_still_pending=0
-      [ "$(journal_state "$as_dir" "$a_id")" = pending ] && as_still_pending=1
-      if [ "$as_still_pending" = 1 ]; then
-        attention_upsert "$as_worker" "$as_dir" "$a_id" "$a_kind" high
+      # and answer do. The awk above read this journal unlocked, so an answer
+      # landing between that scan and this upsert would be undone by it,
+      # re-posting a decision the operator just made — the same stale queue row
+      # this projection prevents, arriving through the sweep.
+      #
+      # The whole ROW is re-read, not just the state. A request can be answered
+      # and then re-opened by handle_line with a fresh received epoch while this
+      # waits for the lock; a state-only check sees `pending` again and escalates
+      # against the age the first scan measured, marking a request overdue that
+      # has not yet had its threshold. The kind can change with it, so that is
+      # taken from the same read.
+      #
+      # A lock this scan cannot take ends the worker, not the request: `continue`
+      # would send every remaining row of a busy worker through the same retry
+      # budget, turning one skip into seconds of spinning. The next pass retries
+      # the whole worker.
+      if ! journal_lock "$as_dir"; then
+        break
       fi
+      as_row=$(awk -F'\t' -v id="$a_id" '$1 == id { print $2 "\t" $3 "\t" $4; exit }' \
+        "$as_dir/journal" 2>/dev/null) || as_row=''
       journal_unlock "$as_dir"
-      [ "$as_still_pending" = 1 ] || continue
+      as_now_kind=${as_row%%"$TAB"*}
+      as_rest=${as_row#*"$TAB"}
+      as_recv=${as_rest%%"$TAB"*}
+      as_state=${as_rest#*"$TAB"}
+      [ "$as_state" = pending ] || continue
+      valid_posnum "${as_recv:-}" || continue
+      as_age=$((now - as_recv))
+      [ "$as_age" -gt "$threshold" ] || continue
+      journal_lock "$as_dir" || break
+      attention_upsert "$as_worker" "$as_dir" "$a_id" "$as_now_kind" high
+      journal_unlock "$as_dir"
       /bin/sh "$FA" notify \
-        "stream-json worker $as_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${a_age}s past threshold" \
+        "stream-json worker $as_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${as_age}s past threshold" \
         >/dev/null 2>&1 || :
-      printf 'alarm %s %s %s\n' "$as_worker" "$a_id" "$a_age"
+      printf 'alarm %s %s %s\n' "$as_worker" "$a_id" "$as_age"
     done
   done
   set -f
