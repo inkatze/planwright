@@ -456,6 +456,21 @@ rat11_code=$?
 assert_contains "a second margin for one surface is refused" \
   "declares a second margin" "$rat11_out"
 assert_exit "a duplicate margin fails the check" 1 "$rat11_code"
+
+# An all-zero margin of any length is zero, and must normalise to it rather than
+# being judged by its written length. The zero-stripping is subtle enough to be
+# read the wrong way round -- on no match the suffix strip returns the string
+# unchanged, not empty -- so this pins the outcome instead of the reasoning.
+rat13_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat13_root" 'declared-exception|closure:demo|000000000000000000000|an all-zero margin, written long'
+rat13_out="$(/bin/bash "$CHECKER" --root "$rat13_root" 2>&1)"
+rat13_code=$?
+[ -n "$rat13_root" ] && [ -d "$rat13_root" ] && rm -rf "$rat13_root"
+assert_absent "an all-zero margin is not judged too large by its written length" \
+  "too large to compare" "$rat13_out"
+assert_absent "and reaches the comparison rather than erroring in it" \
+  "integer expected" "$rat13_out"
+assert_exit "a margin of zero can never be widened past, so the run stays clean" 0 "$rat13_code"
 assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
 # A single --audit capture serves both the unmeasured closing-gate check and the
 # transitional-allowance assertions. "unmeasured" is an --audit-only surface

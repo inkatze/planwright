@@ -842,9 +842,16 @@ classify() {
 # exempt doc carries no headroom floor (REQ-D1.1) — nor an unmeasured skill. Both
 # warnings are warnings only: they never touch the exit code. The surface key is
 # sanitized before it reaches the terminal (echo discipline).
-# lookup_margin <surface> -> echo the declared margin, or nothing when the
-# surface carries no margin-bearing declared-exception.
+# lookup_margin <surface> -> set LOOKUP_MARGIN to the declared margin, or empty
+# when the surface carries no margin-bearing declared-exception.
+#
+# Through a global rather than stdout, because the caller runs once per file and
+# once per aggregate: a `$(...)` here would fork per surface, and forks that
+# scale with the corpus are what the guard-performance invariant forbids
+# (instruction-headroom design, the kickoff lens pass). The neighbouring helpers
+# return this way for the same reason.
 lookup_margin() {
+  LOOKUP_MARGIN=""
   case "
 $declared_exception_margins
 " in
@@ -852,7 +859,7 @@ $declared_exception_margins
 $1	"*)
       _lm="${declared_exception_margins#*"
 $1	"}"
-      printf '%s' "${_lm%%
+      LOOKUP_MARGIN="${_lm%%
 *}"
       ;;
   esac
@@ -864,7 +871,8 @@ headroom_check() {
   # further spending. Checked before the band logic and independent of it,
   # because a surface can widen while still sitting comfortably above target —
   # which is exactly the slide that goes unseen, since no warning fires there.
-  _hcd="$(lookup_margin "$4")"
+  lookup_margin "$4"
+  _hcd="$LOOKUP_MARGIN"
   if [ -n "$_hcd" ]; then
     declared_exception_ratcheted="$declared_exception_ratcheted
 $4"
