@@ -42,7 +42,10 @@
 #     class's floor knob is a named floor-breach warning on every run, and a
 #     margin below twice the floor (the restoration target) a named below-target
 #     warning; both are warnings, never errors — a permanently exempt doc carries
-#     no floor;
+#     no floor. A surface whose `declared-exception` records the margin it was
+#     granted at is additionally held to it: a margin BELOW that one is a
+#     widening and a fail-closed error, so this class of finding is not
+#     warning-only once an exception is in play;
 #   - enforces the raise-rationale rule (instruction-headroom D-12, REQ-A1.4): an
 #     effective instruction_budget_*_warn / *_error value above its shipped core
 #     default is a fail-closed error unless a matching `raise|` entry records it;
@@ -484,14 +487,18 @@ $budget	$target	$task"
         # it; the cost is that a stray margin on a use-site entry is absorbed
         # into its reason rather than refused, which is the cheaper way to be
         # wrong than rejecting valid entries.
+        # Reset per entry, before the branch: only one arm below assigns these,
+        # and a value surviving from the previous line would be recorded against
+        # this surface. `set -u` catches the first entry; a later one would
+        # simply inherit a wrong margin, which is worse for being silent.
+        de_margin=""
+        de_candidate=""
         case "$surface" in
           use-site:*) ;;
           *)
             # A margin is a run of digits in its own field, so a three-field
             # entry is recognised by its absence rather than by counting pipes:
             # a reason may contain one, and counting would misread it.
-            de_margin=""
-            de_candidate=""
             de_head="${reason%%|*}"
             if [ "$de_head" != "$reason" ] && [ -n "$de_head" ]; then
               # Kept for the diagnostic below: when this field is not a number
@@ -501,8 +508,20 @@ $budget	$target	$task"
               case "$de_head" in
                 *[!0-9]*) ;;
                 *)
-                  de_margin="$de_head"
-                  reason="${reason#*|}"
+                  # Bounded, not merely numeric. The comparison downstream is
+                  # the shell's integer test, and a value past its range makes
+                  # that test print "integer expected" and return non-zero
+                  # WITHOUT reaching err -- the ratchet then silently does
+                  # nothing and the run still exits clean. A guard that reports
+                  # success while failing to run is worse than one that refuses
+                  # the input, so an unrepresentable margin is refused here.
+                  de_zeros="${de_head%%[!0]*}"
+                  de_norm="${de_head#"$de_zeros"}"
+                  [ -n "$de_norm" ] || de_norm=0
+                  if [ "${#de_norm}" -le 18 ]; then
+                    de_margin="$de_norm"
+                    reason="${reason#*|}"
+                  fi
                   ;;
               esac
             fi
@@ -520,13 +539,19 @@ $budget	$target	$task"
               fi
               continue
             fi
-            declared_exception_margins="$declared_exception_margins
-$surface	$de_margin"
             ;;
         esac
         if [ -z "$reason" ]; then
           err "declared-exception for '$(sanitize_printable "$surface" "?")' has no reason (a recorded reason is required)"
           continue
+        fi
+        # Recorded only now, with the entry fully accepted. Appending it beside
+        # the parse let a line that the reason check then rejected still reach
+        # lookup_margin, so a refused entry could mark a surface ratcheted or
+        # raise a widening of its own.
+        if [ -n "$de_margin" ]; then
+          declared_exception_margins="$declared_exception_margins
+$surface	$de_margin"
         fi
         declared_exception_surfaces="$declared_exception_surfaces
 $surface"

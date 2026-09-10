@@ -395,6 +395,36 @@ assert_absent "a glob in a surface key does not match closure:demo" \
 assert_contains "a glob-bearing key matches nothing and is reported inert" \
   "declared-exception margin never evaluated" "$rat7_out"
 assert_exit "a key that matches nothing warns rather than failing" 0 "$rat7_code"
+
+# A margin past the shell's integer range must be refused at the parse, not
+# carried to the comparison. Left to reach it, `[ -lt ]` prints "integer
+# expected" and returns non-zero without ever calling err, so the ratchet
+# silently does nothing and the run still exits clean -- the guard reporting
+# success precisely because it failed to run.
+rat8_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat8_root" 'declared-exception|closure:demo|99999999999999999999999|a margin past the integer range'
+rat8_out="$(/bin/bash "$CHECKER" --root "$rat8_root" 2>&1)"
+rat8_code=$?
+[ -n "$rat8_root" ] && [ -d "$rat8_root" ] && rm -rf "$rat8_root"
+assert_absent "an oversized margin never reaches the integer comparison" \
+  "integer expected" "$rat8_out"
+assert_contains "an oversized margin is refused at the parse" \
+  "has no usable declared margin" "$rat8_out"
+assert_exit "an oversized margin fails the check rather than passing quietly" 1 "$rat8_code"
+
+# A margin recorded only after the entry is accepted. Appended beside the parse,
+# a line the reason check then rejects still reached lookup_margin and could
+# mark a surface ratcheted or raise a widening of its own.
+rat9_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat9_root" 'declared-exception|closure:demo|1|'
+rat9_out="$(/bin/bash "$CHECKER" --root "$rat9_root" 2>&1)"
+rat9_code=$?
+[ -n "$rat9_root" ] && [ -d "$rat9_root" ] && rm -rf "$rat9_root"
+assert_contains "an entry with no reason is refused" \
+  "has no reason" "$rat9_out"
+assert_absent "and a refused entry records no margin" \
+  "margin never evaluated" "$rat9_out"
+assert_exit "a reason-less entry fails the check" 1 "$rat9_code"
 assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
 # A single --audit capture serves both the unmeasured closing-gate check and the
 # transitional-allowance assertions. "unmeasured" is an --audit-only surface

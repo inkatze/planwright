@@ -17,7 +17,14 @@
 #       <budget> is one of: file | start-load | closure
 #       <target>  is a file path (file) or a skill name (start-load | closure)
 #
-#   declared-exception|<surface>|<reason>
+#   declared-exception|<surface>|<margin>|<reason>   (margin-bearing surfaces)
+#   declared-exception|<surface>|<reason>            (use-site: surfaces only)
+#       <margin> is the surface's headroom margin when the exception was
+#       granted. It is a ratchet: the deferral may stand, but a later run
+#       whose margin falls BELOW it is a widening and a fail-closed error,
+#       answered by a compensating trim or by governed relief, never by
+#       editing the number upward. A use-site surface never reaches the
+#       headroom check, so it carries no margin and keeps the short form.
 #       Standing exception (instruction-headroom D-11, REQ-D1.6) that excuses
 #       exactly the warning it names — a below-target warning (whose <surface> is
 #       the surface key the warning prints: a file path, or `start-load:<skill>` /
