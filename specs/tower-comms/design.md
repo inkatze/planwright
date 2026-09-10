@@ -1,12 +1,12 @@
 # Tower comms — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-09-09
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Origin tags: `N` = new decision, minted in this bundle's drafting session
-(2026-09-08). Foreign IDs are namespace-qualified.
+Origin tags: `N` = new decision, minted in this bundle (drafting session
+2026-09-08 unless dated otherwise). Foreign IDs are namespace-qualified.
 
 ## Decision log
 
@@ -63,12 +63,20 @@ stays the worker seam, and the operator-facing layer is separate and small.
 
 **Decision:** The queue store holds the index and delivery state only.
 Each item's content lives where its kind already lives: a worker's question
-in the owning spec's Awaiting-input list and the attention store; a request
-or a standing decision in the action-item ledger, or in an observation
-fragment tagged as a capture or as standing until the ledger ships; news in
-the attention store. The store is framework runtime state in the
-storage-classes sense: losable, rebuilt from the content homes, costing at
-most one repeated delivery.
+in the worker attention store row and, when parked, the owning spec's
+Awaiting-input bullet; a request, an approval, or a standing decision in the
+action-item ledger, or in the pre-ship fallback until it ships; news in the
+attention store. The store is framework runtime state in the storage-classes
+sense: losable, rebuilt from the content homes, costing at most one
+redelivery per delivered-but-open item, plus the shelve deadlines and
+settling reasons that live nowhere else and any undelivered
+attention-sourced item whose source row moved on. It keeps only the open
+items and the settled ones still inside the catch-up window, so its size
+tracks what is live rather than everything that ever happened.
+*(Amended at kickoff 2026-09-09: worker-question home and the
+dropped-news exception.)*
+*(Amended at kickoff sign-off lens 2026-09-09: the fallback home, the honest
+loss budget, and retention to the catch-up horizon.)*
 
 **Alternatives considered:**
 - One store under the fleet home holding content too. Rejected because: a
@@ -87,13 +95,20 @@ ledger's ownership intact with nothing new to keep consistent.
 
 **Decision:** An item is news, question, approval, request, or standing
 decision. A record is a single line of constrained fields, in the shape the
-attention and registry stores already use: stable identifier, kind, urgency,
-origin (source worker or operator turn, timestamp), pointer to the content
+attention and registry stores already use: stable identifier, kind, urgency
+(the attention store's `high` / `normal` / `low`; a worker question inherits
+its row's priority), origin (source worker or operator turn, timestamp),
+pointer to the content
 home, closing condition, and delivery state. Every field is validated
 against its grammar before a write, and every rendered value passes the
 echo-safety sanitizer. The closing condition names the human action that
-resolves the item (an answer, a go-ahead, a shelve) or the evidence that
-settles it; a record promising a future automatic step is refused.
+resolves the item (an answer, a go-ahead) or the evidence that settles it; a
+record promising a future automatic step is refused. A standing decision is
+registered like any other item and is the one kind never delivered and never
+ranked: what closes it is the operator revoking the rule.
+*(Amended at kickoff sign-off lens 2026-09-09: a shelve dropped from the
+resolving actions, and the standing kind named as never delivered, with the
+operator's revocation as what closes it.)*
 
 **Alternatives considered:**
 - Free-form markdown per item. Rejected because: unparseable by the settling
@@ -103,18 +118,38 @@ settles it; a record promising a future automatic step is refused.
   surface for no field this record needs.
 
 **Chosen because:** it is the proven local idiom, and the refused-promise
-rule closes the park-note failure on record.
+rule closes the park-note failure on record (obs:9dfdea07).
 
 ### D-5: Settling by evidence; process events are claims  (N)
 
-**Decision:** Before any delivery, a settling pass runs the queue against
-the events since the last pass. An item settles only on evidence the
+**Decision:** The settling pass, run by the `settle` verb, is
+level-triggered: each pass re-evaluates every open item's closing condition
+against the evidence available now, rather than replaying the events since
+the last pass. One pass runs per tower-loop iteration and serves the
+delivery that follows it, consuming the reconcile sweep's already-derived
+evidence and its TTL-stamped fetch instead of polling again, and gathering
+that evidence outside the fleet lock. An item settles only on evidence the
 reconcile sweep already trusts (an open or merged PR, commits on the branch,
-a closed ledger item, a worker's question answered by another route) or on a
-matching written standing decision. A worker's completion report, a result
-frame, or a status line is a claim and settles nothing. Same-question items
-merge into one that names every source; contradicting items deliver as one
-decision. Every settled item records what settled it.
+a closed ledger item, a worker's question answered by another route, which
+means an acknowledgement on the item, a `claim` close on the worker's
+record, or a matching standing decision) or on a matching written standing
+decision. A worker's completion report, a result frame, or a status line is
+a claim and settles nothing, and a source that cannot be reached is logged
+as unavailable rather than read as silence. Same-question items merge into
+one that names every source; contradicting items collapse into one delivered
+item naming both. Both rules are mechanical, since the script never calls a
+model: key every open, unleased, undelivered candidate in one pass; merge on
+identical normalised question text and option set, where normalised means
+case-folded, whitespace-collapsed, with the origin worker handle and
+worktree path removed by fixed-string replacement, except that an item
+carrying a worker command merges only on byte equality after that removal;
+pair at most two items of the same kind naming the same subject key (worker
+handle, PR number, or branch), the result carrying the highest urgency and
+the oldest age of its sources; anything subtler is the tower session's
+judgment at delivery. Every settled item records what settled it.
+*(Amended at kickoff sign-off lens 2026-09-09: level-triggered and once per
+loop iteration, evidence sourcing and unavailability, the merge and pair
+keys, and the pair as one delivered item.)*
 
 **Alternatives considered:**
 - Trust the worker's own completion signal. Rejected because: three workers
@@ -131,15 +166,39 @@ falsify.
 
 **Decision:** The queue script owns delivery: `next` hands over at most one
 item, ordered by consequence (blocked workers, approvals, requests, news;
-then urgency, then age); `ack` records the operator's reply; `shelve` parks
-an item with a bounded return. The tower knocks with one line, waits for a
-reply, delivers the item, and waits again; any reply releases the next item.
-After an autonomous stretch the first turn explains where things stand, not
-what the tower did. The vocabulary is borrowed from the process-industry
-alarm standard (every surfaced item actionable; acknowledgement logged;
-shelving time-limited with automatic return; suppression by design traces to
-a written rule) and from on-call tooling (acknowledging halts escalation; an
-acknowledged item re-triggers after a timeout).
+then urgency, then age) and runs the settling pass before it selects;
+`settle` runs that pass on its own; `list` prints the open set; `knock`
+renders the line `next` returns, so the text has one home and `next` keeps
+the state and the lease; `ack` closes an item; `shelve` parks an item with a
+bounded return; `counts` gives the per-kind open counts the status-line
+field reads; `catchup` renders the settled-since-last-reply picture with
+reasons and the open counts by kind, bounded to the most recent
+`tower_catchup_limit` items plus a remainder count, so `next` stays one
+item. Knock-first is enforced by `next` itself, and the only thing that
+confirms attention is a marker the harness wrote: the prompt-submit hook
+stamps the operator's last reply time into a per-tower marker file it alone
+owns, lock-free so the write is never dropped, and `next` reads that marker
+and hands over nothing until it shows a reply later than its own last
+delivery. Attention is tracked per tower and lapses after the quiet
+interval. The cadence is one knock per attention session, not per item (a
+knock per item would be the rejected go-ahead alternative under another
+name): the tower knocks with one line, waits for a reply, delivers the item,
+and waits again; each reply releases the next item without a fresh knock
+until attention lapses. `ack` closes an item and never releases the next, so
+a tower cannot open its own gate. A store, marker, or log that cannot be
+written is surfaced as an error in the turn, never silently skipped; a
+failed delivery-line append is the one fail-open case, because the
+redelivery it risks is already inside the loss budget. After an autonomous
+stretch the first turn explains where things stand, not what the tower did.
+The vocabulary is borrowed from the
+process-industry alarm standard (every surfaced item actionable;
+acknowledgement logged; shelving time-limited with automatic return;
+suppression by design traces to a written rule) and from on-call
+tooling (acknowledging halts escalation; an acknowledged item
+re-triggers after a timeout).
+*(Amended at kickoff sign-off lens 2026-09-09: the verb list named once, the
+harness-written attention marker, `ack` no longer releasing the next item,
+and the fail-open delivery-line case.)*
 
 **Alternatives considered:**
 - A prose rule "one item per turn" and nothing mechanical. Rejected because:
@@ -154,11 +213,16 @@ human long ago converge on the same verbs.
 
 ### D-7: News is queued and urgency-gated; content waits for confirmed attention  (N)
 
-**Decision:** A news item carries an urgency. An urgent one may knock; a
-non-urgent one waits for the operator's next engagement or for a request.
-In either case the content is delivered only once the operator has
-confirmed attention, so news never interrupts and never lands where it will
-not be read.
+**Decision:** A news item carries an urgency. An urgent one may knock in the
+conversation; a non-urgent one waits for the operator's next engagement or
+for a request. In either case the content is delivered only once the
+operator has confirmed attention, so news never interrupts and never lands
+where it will not be read. No news pushes while the operator is away,
+whatever its urgency: the attended knock is the whole escalation, because
+waking someone for something they need do nothing about is the noise this
+bundle exists to remove.
+*(Amended at kickoff sign-off lens 2026-09-09: no news of any urgency
+pushes while the operator is away.)*
 
 **Alternatives considered:**
 - Every report interrupts as it happens. Rejected because: it is today's
@@ -188,14 +252,27 @@ away.
 
 ### D-9: Away detection by quiet interval; knock once, again only on worsening  (N)
 
-**Decision:** A conversation knock with no reply within a configured quiet
-interval marks the operator away; any reply marks them present. While away,
-a knock also goes through the configured notification channel via the
-existing notification seam. It fires once when the first blocking item
-appears and again only when the situation worsens: more blocked workers, or
-a blocked item passing a configured age. Two knobs: the quiet interval and
-the re-knock age, each with a documented default and an options-reference
-row.
+**Decision:** A conversation knock with no reply within the quiet interval
+marks the operator away in that tower's conversation; any reply marks them
+present. Away and present are per tower conversation, because the knock that
+went unanswered was one tower's; the push that follows is deduped per item
+across towers under the fleet lock, so two towers holding the same item wake
+the operator once. The push fires on the transition into away while a
+blocking item is open, and again only when the situation worsens: more
+blocked workers, or a blocked item passing the re-knock age. Channels of
+`none` and `statusline` are push-less, so on those the item simply waits.
+
+The knobs, named once here and used by that name everywhere:
+`tower_quiet_interval` and `tower_lease_interval` (the queue-store task),
+`tower_reknock_age` and `tower_shelve_return` (the delivery task),
+`tower_tick_gap_max`, `tower_log_rotate_age`, `tower_report_window` and
+`tower_hook_lock_wait` (the log and baseline tasks), and
+`tower_catchup_limit` (the settling task). Each carries a documented default
+and an options-reference row, and every interval among them accepts
+sub-second values so the tests do not have to wait in real time.
+*(Amended at kickoff sign-off lens 2026-09-09: away scoped per tower, the
+push transition and its dedupe, the push-less channels, and the naming of
+the config keys.)*
 
 **Alternatives considered:**
 - Only an explicit "I'm away" switches modes. Rejected because: a forgotten
@@ -231,14 +308,30 @@ followed on PR bodies and commit messages, now extended to speech.
 ### D-11: Inbound capture — echo one line; standing decisions are ledger items  (N)
 
 **Decision:** Anything the operator asks for becomes a queue item in the
-same turn, echoed in one line, with no confirmation required. Its content is
-written to the action-item ledger when it exists, and to an observation
-fragment tagged as a capture until then. A reply meaning "always" or "from
-now on" becomes a standing decision: a ledger item of the standing kind (an
-observation fragment tagged as standing until the ledger ships), carrying
-the rule in the operator's words, what it covers, and when it was said. This
-bundle therefore depends on the ledger's substrate task for the durable
-home, and carries the fallback so that nothing blocks on that bundle.
+same turn, echoed in one line, with no confirmation required; a question the
+tower answers inside the turn is not an ask. That lighter form overrides
+operator-dialogue REQ-L1.1's confirmation clause while keeping its intent,
+which is that nothing the operator said gets transcribed away unrecorded.
+Content is written to the action-item ledger when it exists, and until then
+to the pre-ship fallback: one machine-local, untracked, owner-only
+ledger-shaped file under the fleet home holding captured requests,
+approvals, and standing decisions. A reply meaning "always" or "from now on"
+becomes a standing decision: a ledger item of the standing kind, carrying
+the rule in the operator's words, what it covers, and when it was said. When
+the rule covers worker commands, its coverage is a list of literal command
+prefixes, each validated against the constrained grammar (non-empty, no
+control byte, no leading whitespace); otherwise coverage is free text in the
+operator's words, and such a rule is surfaced beside an open item naming the
+same subject rather than settling anything mechanically, with the tower's
+reply that applies it naming the rule. Mechanical settling by a rule is
+therefore confined to permission prompts. This bundle depends on the
+ledger's substrate task for the durable home, and carries the fallback so
+that nothing blocks on that bundle.
+*(Amended at kickoff 2026-09-09: coverage grammar scoped to worker
+commands; other rules surfaced, never settled mechanically.)*
+*(Amended at kickoff sign-off lens 2026-09-09: the fallback moved to a
+machine-local file under the fleet home, the REQ-L1.1 override recorded, and
+mechanical settling confined to permission prompts.)*
 
 **Alternatives considered:**
 - Echo and wait for a yes, matching the operator-dialogue capture rule
@@ -258,14 +351,38 @@ weight, and the ledger is the home the companion bundle already claims.
 **Decision:** A worker's harness permission prompt that falls strictly
 inside a written standing decision is answered as the operator's answer,
 delivered by the tower through the sanctioned answer channel, and the log
-names the rule. A prompt outside every written standing decision reaches
-the operator. The tower never answers one from its own judgment, a
-standing decision never covers a reserved control (the ready flip, the
-merge), and mentioning a prompt in a turn does not count as the operator
-deciding it.
-The invariant that a tower never answers a permission prompt is read as
-"never from its own judgment"; the standing decision is the operator's
-recorded answer, which the answer channel already requires as input.
+names the rule. The command the match reads is not scraped from prose: the
+`PermissionRequest` hook captures it from the harness payload into a
+`command` field on the permission record, beside a positive marker (the
+attention store's ninth field, `permission`) the same hook stamps, and a
+record carrying neither is refused rather than guessed at. Strictly inside
+means that command starts with one of the rule's literal prefixes under
+fixed-string comparison, never a pattern, with a token boundary after the
+prefix, and that everything after the prefix falls inside a conservative
+allowlist (characters in `[A-Za-z0-9._/@:=+-]`, spaces, and quoted-string
+interiors), which is what an enumerated denylist of shell operators could
+never be: complete. A mechanical refusal runs on the reserved-control shapes
+(merge, ready, force-push, amend, squash, rebase) whatever a rule's coverage
+claims, and `capture` refuses to record a rule that reaches one. Command
+text put in front of the operator is ASCII-only, any other byte shown as an
+escape beside a warning, so no approval is given to text that renders as
+something else. The answer channel, which today refuses every
+permission-park, accepts such an answer only when it names the standing
+decision, and at that boundary it resolves the named decision, confirms it
+is of the standing kind, and re-runs the match against the parked command
+itself; the item settles only once that answer is confirmed to have exited
+zero, and a non-zero exit leaves it open with the attempt logged. A prompt
+outside every written standing decision reaches the operator. The tower
+never answers one from its own judgment, and mentioning a prompt in a turn
+does not count as the operator deciding it. This overrides
+orchestration-fleet REQ-B1.7 as written: its never-answer rule is read as
+never-from-the-tower's-own-judgment, an override recorded in the kickoff
+brief; the standing decision is the operator's recorded answer, which the
+answer channel already requires as input.
+*(Amended at kickoff sign-off lens 2026-09-09: the hook-captured `command`
+field and its marker, the allowlist replacing the operator denylist, the
+mechanical reserved-control refusal, ASCII-only display, and settling on a
+confirmed exit-0 answer.)*
 
 **Alternatives considered:**
 - Permission prompts never touch standing decisions. Rejected because: it
@@ -304,14 +421,42 @@ answer to cost is a recorded raise sized to the actual residue.
 
 ### D-14: The event log and the scorecard  (N)
 
-**Decision:** Every queue event is one JSON line under the fleet home, in
-the shape the kickoff dialogue's decision log already uses (schema version,
-monotonic sequence, kind, payload), never committed. The scorecard is
-computed from the log alone: the headline is the operator's load (items that
-reached the operator per hour of fleet work against items settled without
-them); secondary measures are blocked-worker wait, multi-ask turns, friction
-moments, jargon counts over delivered text, and items lost across restarts.
-It runs on demand and never in CI.
+**Decision:** Every queue event is one flat JSON line of string and number
+values with no nesting, under the fleet home, in the shape the kickoff
+dialogue's decision log already uses (schema version, monotonic sequence,
+kind, payload), never committed, written and read by the script's own awk
+with no `jq` dependency. The `log` verb is where the secret-shaped redaction
+runs, for every event kind, so the hook and `capture` reuse one helper
+instead of each carrying a copy. Operator replies are written as `reply`
+events by a deterministic prompt-submit hook active only in tower sessions,
+through the `log` verb so they inherit the lock and the sequence, waiting
+for the lock no longer than `tower_hook_lock_wait` and then dropping the
+line and bumping a dropped-line counter rather than delaying the turn.
+Because a line can be dropped that way, the log is not what confirms
+attention (D-6's marker is); deliveries are written by `next` and
+`acknowledged` events by `ack`, distinct from replies, so the log does not
+depend on the session remembering to log. Every `reply`, `acknowledged`,
+`delivered`, `knocked`, and `tick` line carries the writing tower's
+identity, without which two towers' lines are indistinguishable. Each
+tower-loop pass writes a tick carrying the live-worker count, coalesced with
+the previous one when that count is unchanged, which gives the headline its
+denominator: fleet hours are computed per tower from its own tick stream and
+the intervals unioned, and an interval between ticks longer than
+`tower_tick_gap_max` is excluded and reported as a gap beside the headline.
+The sequence lives in a counter file read and bumped under the lock; the log
+rotates by age with a floor that keeps the experiment's own sessions
+readable, rotating inside that same critical section, and `report` reads the
+window bounded by `tower_report_window`. The scorecard is computed from the
+log alone: the headline is the operator's load (items that reached the
+operator per hour of fleet work, wall-clock with at least one live worker,
+against items settled without them); secondary measures are blocked-worker
+wait, multi-ask turns, items delivered in prose with no queue record,
+friction moments, jargon counts over delivered text, and items lost across
+restarts. It runs on demand and never in CI.
+*(Amended at kickoff sign-off lens 2026-09-09: flat JSON read by the
+script's own awk, redaction homed in the `log` verb, tower identity on every
+line, per-tower fleet hours, the sequence counter and age rotation, and the
+measure of items delivered in prose.)*
 
 **Alternatives considered:**
 - Grade from session transcripts. Rejected because: the transcript format is
@@ -358,13 +503,117 @@ them behind a gated deferral whose gate is the experiment's measured result.
 **Chosen because:** the operator asked to measure effectiveness before
 doing more; the gate makes the boundary a finding, not a guess.
 
+### D-17: A native queue indicator on the statusline channel  (N, kickoff 2026-09-09)
+
+**Decision:** The queue exposes what is waiting through the existing
+`statusline` notification channel: the Claude Code status line, driven by
+planwright's own render script from the fleet home, which already composes
+the worker decision queue's length under `queue`. The queue's field is a
+distinct one named `waiting`, bounded in width to the top item's kind plus
+one total (per-kind counts stay with the `counts` verb, which feeds it),
+under a label that unmistakably reads as planwright's. The read is lock-free
+and best-effort: a store that cannot be read, a torn or malformed line, or a
+kind outside the closed set all degrade to one distinct unreadable marker,
+never a blank or a zero, because a zero reads as "nothing waiting" and that
+is the one thing a broken read cannot claim. The render is fleet-autonomy
+REQ-F1.2's and is extended in place with that bundle's contract unchanged;
+it reads the store only, renders only while a live tower presence exists,
+and renders only while that channel is selected, exactly as the fleet stats
+do today; that channel coupling is an accepted limitation of the seam. The
+operator sees that decisions or actions are waiting without asking.
+*(Amended at kickoff sign-off lens 2026-09-09: the unreadable marker, the
+live-presence condition, and the owning requirement named.)*
+
+**Alternatives considered:**
+- Fold the counts into the one-line knock pushed through every channel.
+  Rejected because: it changes the attention capability's transport
+  contract, which this bundle consumes and never re-owns.
+- No indicator; the knock is the only signal. Rejected because: the
+  operator asked for a native signal that does not depend on reading the
+  conversation.
+
+**Chosen because:** the operator asked for it, the seam exists, and it is
+pull-shaped, so it costs the session nothing and cannot interrupt.
+
+### D-18: Delivery is leased per tower  (N, kickoff 2026-09-09)
+
+**Decision:** The single-spec tower, the meta-tower, and the fleet loop can
+run at once on one host over the one queue, so `next` leases the item it
+hands over to the calling tower under the fleet advisory lock. The lease is
+taken at every hand-over: at the knock for an attention session's first
+item, at each `next` for the ones after it. The knock pins the item it
+named, so an item arriving above it waits rather than silently replacing
+what the operator was told about, and `next` knocks again when the top item
+has changed. Release is by event, not by clock: acknowledgement, a shelve,
+settling, absorption into a merge, positive evidence of the holder's death,
+or the holder having no live presence; the lease interval is only the
+backstop for what none of those reach, it is renewed on each reply of the
+holding tower, and it is floored at the quiet interval so an attended
+conversation never loses the item it is holding. A tower whose attention is
+confirmed may preempt a lease held by one whose attention is not, since the
+operator is demonstrably in the first conversation. Mutual exclusion is the
+lock's; the tower's presence identity is only the lease's owner label,
+resolved once per tower with the same flags its presence publish used, and a
+caller with no presence identity leases under a tower-session-scoped
+fallback identity written into the store. No item is delivered by two towers
+at once on a host, and a tower that dies mid-delivery loses its lease rather
+than the item. Towers on separate hosts are out of scope: the advisory lock
+they would have to share is not.
+*(Amended at kickoff sign-off lens 2026-09-09: leases taken at every
+hand-over, the knock's pin, the event-driven release set, renewal and the
+interval floor, preemption by an attended tower, and the scope narrowed to
+one host.)*
+
+**Alternatives considered:**
+- Scope items to the tower's own specs, with meta and fleet towers taking
+  everything. Rejected because: a single-spec tower running under a fleet
+  tower still double-delivers that spec's items.
+- Accept double delivery as a risk. Rejected because: the recorded failures
+  are about the operator's load, and answering the same question twice in
+  two terminals is that load.
+
+**Chosen because:** it is the `claim` verb's first-answer-wins idiom applied
+to delivery, over the presence seam the fleet already keeps.
+
+### D-19: A session-relayed push channel  (N, kickoff sign-off lens 2026-09-09)
+
+**Decision:** A `push` value joins the notification channel enum, and it is
+the one channel this bundle adds. On it the notify seam writes a
+pending-push marker under the fleet home, deduped per item under the fleet
+lock, and does nothing else; the tower session relays the marker on its next
+step by calling Claude Code's push-notification tool, which reaches the
+operator's desktop, and their phone when Remote Control is connected, and
+which suppresses itself while the operator is actively working. The relayed
+line is one line under 200 characters in the D-10 register, so it reads on a
+lock screen. The script therefore still owns no transport, which is what
+keeps the out-of-scope boundary honest: the marker is a file, and the only
+thing that can call the tool is a session.
+
+**Alternatives considered:**
+- Leave phone reach to the existing channel adapters. Rejected because: none
+  of them reaches a phone, and the failure on record is a night of blocked
+  workers nobody saw; the tool that does reach one can only be called from
+  inside a session, so no adapter could have been written for it.
+- Have the tower call the tool directly at the moment it decides to knock,
+  with no marker. Rejected because: the decision to push happens inside the
+  script, under the lock, where the dedupe lives; a session-side decision
+  would push once per tower for the same item.
+
+**Chosen because:** it is the only route to the operator's phone the harness
+offers, it costs the script nothing but a marker file, and the tool already
+declines to interrupt an operator who is present.
+
 ## Cross-cutting concerns
 
 - **Decision domains walked.** Queues and async work: delivery is at least
   once, keyed by stable identifier, so redelivery is idempotent; ordering is
   load-bearing and owned by `next`. Concurrency: every store write rides the
   fleet advisory lock; a crash mid-write leaves an atomically renamed
-  complete file. Human comprehension and information UX: the surface is
+  complete file; delivery across concurrent towers is leased (D-18). The
+  advisory lock carries no holder token, so a writer holds it far below the
+  stale threshold and re-reads and compares the store before the rename,
+  which is the mitigation available rather than a fix. Human
+  comprehension and information UX: the surface is
   novel, so research ran first (D-6, D-9). Existing-seam reuse: the minted
   store is recorded with its nearest seam and why it does not fit (D-2).
 - **Intervention contract.** The finding-categorization doctrine states the
@@ -374,7 +623,9 @@ doing more; the gate makes the boundary a finding, not a guess.
 - **Attention capability doc.** Its writer enumeration is stale; Task 10
   refreshes it while adding the sibling queue as a reader.
 - **Tower headroom.** The tower's own context budget is the step-count proxy
-  the context-budget doctrine defines; this bundle adds no signal and
-  changes nothing there. A queue whose settling pass runs each step keeps
-  the tower's per-step reading bounded, which is the only headroom effect
-  intended.
+  the context-budget doctrine defines, and this bundle moves it in two
+  directions at once: a hand-over of one item with the shortest context that
+  answers it shrinks what each step reads, while the knock, the catch-up,
+  and the capture echo add turns, and the step-count proxy counts turns. The
+  intended net is smaller steps rather than fewer, and Task 8 measures the
+  per-step context growth instead of asserting it.
