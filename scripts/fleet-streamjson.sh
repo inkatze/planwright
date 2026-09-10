@@ -709,6 +709,10 @@ handle_line() {
             return 0
           fi
           printf '%s\n' "$hl_line" >"$hl_dir/req-$hl_id.json"
+          # Derived under the lock for the reason the sibling site below spells
+          # out. Note this surfaces the oldest still-pending request rather
+          # than the one just re-opened: when an earlier request is also open,
+          # that older one is what the row is supposed to carry.
           attention_settled "$hl_worker" "$hl_dir"
           journal_unlock "$hl_dir"
           return 0
@@ -733,10 +737,14 @@ handle_line() {
       # re-posts a decision the operator already made. Deriving instead of
       # publishing the id captured above is the other half -- the row carries
       # the OLDEST still-pending request, which the just-appended id is not
-      # when an earlier one is still open. Held across the shell-out on
-      # purpose; it is milliseconds against a five-second lock timeout, and
-      # nothing reachable from here re-takes this lock or takes the attention
-      # store's lock ahead of it.
+      # when an earlier one is still open. Held across the shell-out
+      # deliberately: nothing reachable from here re-takes this lock or takes
+      # the attention store's lock ahead of it, so it cannot deadlock. The
+      # cost is real though -- a hung fleet-attention.sh now stalls this
+      # worker's journal operations, where before it left them free. A waiter
+      # reports `journal lock busy` once its retry budget runs out, and the
+      # stale break reclaims the lock at journal_lock_stale. That is the price
+      # of writing the row and the state it reflects as one step.
       attention_settled "$hl_worker" "$hl_dir"
       journal_unlock "$hl_dir"
       ;;
