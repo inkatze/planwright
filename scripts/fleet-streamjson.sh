@@ -435,9 +435,15 @@ worker_alive() {
 
 # --- journal (the REQ-E1.5 durable receipt state) ---------------------------
 # One tab-separated row per request id: id kind received-epoch state [epoch].
-# Mutations run under an mkdir lock, stale-broken past its age: journal writes
-# are sub-second, so an older lock is a crashed holder, and breaking it can
-# at worst duplicate an attention upsert — never lose a receipt.
+# Mutations run under the file's own election lock. That premise used to be
+# "journal writes are sub-second, so an older lock is a crashed holder", and it
+# stopped holding when this path began publishing the queue projection inside
+# the critical section: a hold now spans a shell-out and an old lock is no
+# longer evidence of a crash. So age is the fallback, not the test. The
+# election reads the holder pid first and refuses to break a live one, which is
+# what makes a long legitimate hold safe; the age branch applies only to a lock
+# with no usable holder stamp. The cost of refusing is on the other side and is
+# real: a wedged holder is not reclaimed at all, only waited out.
 
 journal_lock() {
   # Delegated to the file's own election primitive rather than hand-rolled here.
@@ -2064,7 +2070,23 @@ cmd_alarm_scan() {
       # Escalation only (the kickoff-pinned alarm outcome): the queue item
       # is re-upserted at high priority and the notify seam is pushed —
       # never an auto-answer, never a worker kill.
-      attention_upsert "$as_worker" "$as_dir" "$a_id" "$a_kind" high
+      #
+      # Re-read under the lock before publishing, for the reason handle_line
+      # and answer do. The awk above read this journal unlocked and the rows it
+      # returned may already be answered: an answer landing between that scan
+      # and this upsert would be undone by it, re-posting a decision the
+      # operator just made — the same stale queue row this projection is
+      # supposed to prevent, arriving through the sweep instead of the worker.
+      # A busy journal skips this worker for this pass; the next scan retries,
+      # which is cheaper than publishing a row that was already wrong.
+      journal_lock "$as_dir" || continue
+      as_still_pending=0
+      [ "$(journal_state "$as_dir" "$a_id")" = pending ] && as_still_pending=1
+      if [ "$as_still_pending" = 1 ]; then
+        attention_upsert "$as_worker" "$as_dir" "$a_id" "$a_kind" high
+      fi
+      journal_unlock "$as_dir"
+      [ "$as_still_pending" = 1 ] || continue
       /bin/sh "$FA" notify \
         "stream-json worker $as_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${a_age}s past threshold" \
         >/dev/null 2>&1 || :

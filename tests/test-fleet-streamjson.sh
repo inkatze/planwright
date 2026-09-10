@@ -344,6 +344,30 @@ printf '%s\n' "$q" | grep -q "OVERDUE" \
 # Escalation never auto-answers: the row is still pending.
 grep -q "^$req_perm$tab.*${tab}pending" "$wdir/journal" \
   || fail "c2: alarm escalation must not settle the request"
+# An alarm scan must not publish the projection while another writer holds the
+# journal. The sweep reads to find aged requests and then publishes; without
+# serialising those two steps an answer landing between them is undone by the
+# publish, re-posting a decision the operator just made. The race window itself
+# is not stageable deterministically, but the property that closes it is: with
+# the journal held by a live holder, the scan must decline to publish and leave
+# the request for the next pass rather than writing a row it cannot vouch for.
+cp "$wdir/journal" "$tmp/j2.orig" || fail "c2: cannot snapshot the journal"
+aenv "$home" clear sjw1 >/dev/null 2>&1 || :
+mkdir -p "$wdir/journal.lock" || fail "c2: cannot plant the journal lock"
+printf '%s\n' "$$" >"$wdir/journal.lock/holder" || fail "c2: cannot stamp the lock"
+out=$(senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900) \
+  || fail "c2: alarm-scan over a held journal exited non-zero"
+[ -z "$out" ] || fail "c2: a held journal must yield no alarm line, got: $out"
+[ "$(aenv "$home" queue --count)" = 0 ] \
+  || fail "c2: an alarm scan must not publish a queue row while the journal is held"
+rm -rf "$wdir/journal.lock"
+# Put the fixture back: later cases share this worker's journal and queue row,
+# and a case that leaves borrowed state changed breaks them from a distance,
+# which is a worse failure to read than the one it was testing.
+cp "$tmp/j2.orig" "$wdir/journal" || fail "c2: cannot restore the journal"
+senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900 >/dev/null \
+  || fail "c2: cannot restore the escalated queue row"
+echo "ok: c2 an alarm scan declines to publish while the journal is held (REQ-E1.1)"
 echo "ok: c2 pending-age alarm fires past threshold, escalation only (REQ-E1.1)"
 
 # ---------------------------------------------------------------------------
@@ -1084,17 +1108,26 @@ lock_leg sjw18d "$tmp/statbsd" 0 - 2
 #     Linux CI runner, BSD on the macOS floor).
 lock_leg sjw18e - - 202001010000.00 3
 lock_leg sjw18f - - - 2
+# The stamped legs need a pid that is deterministically dead, not one assumed
+# to be: a host where the assumed pid happens to be live would either fail the
+# leg or, worse, quietly stop exercising the path it names. Spawn one and reap
+# it, the way c7 does.
+: >"$tmp/deadpid.probe" &
+dead_pid=$!
+wait "$dead_pid" 2>/dev/null
 # (g) A FRESH lock whose recorded holder is gone: broken on the evidence, not
 #     on the clock. This is what recording the holder buys over an age-only
 #     break -- a crashed holder is reclaimed at once instead of stranding the
 #     journal for the whole threshold. It also proves the break copes with a
 #     non-empty directory, which an rmdir-only break would not.
-lock_leg sjw18g - - - 3 2147483646
-# (h) A fresh lock whose holder is THIS test, a process that is demonstrably
-#     alive: refused. Together with (g) this pins the evidence as the thing
-#     being read -- (g) cannot be passing merely because stamped locks always
-#     break, and (h) cannot be passing merely because fresh ones never do.
-lock_leg sjw18h - - - 2 $$
+lock_leg sjw18g - - - 3 "$dead_pid"
+# (h) An AGED lock whose holder is this test, a process demonstrably alive:
+#     still refused. Aged is the load-bearing half. A fresh one would prove
+#     nothing, because an implementation that broke every lock past the
+#     threshold would pass it too; only an aged lock that is NOT broken shows
+#     the liveness check outranking the clock, which is the contract this
+#     delegation rests on.
+lock_leg sjw18h - - 202001010000.00 2 $$
 echo "ok: c18 the mtime probe yields a real epoch under both stat flavors, in both directions (REQ-E1.5)"
 echo "ok: c18 a recorded holder decides the break by liveness, not by age (REQ-E1.5)"
 
