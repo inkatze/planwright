@@ -333,7 +333,8 @@ fi
 #   pending-diet|<budget>|<target>|Task <N>|<reason>
 #       transitional allowance; <budget> = file | start-load | closure;
 #       <target> = a file path (file) or a skill name (start-load/closure).
-#   declared-exception|<surface>|<margin>|<reason>
+#   declared-exception|<surface>|<margin>|<reason>   (margin-bearing surfaces)
+#   declared-exception|<surface>|<reason>            (use-site: surfaces only)
 #       standing exception (instruction-headroom D-11, REQ-D1.6) excusing exactly
 #       the warning it names — a below-target warning (whose <surface> is the key
 #       the warning prints) or a use-site warning (<surface> = use-site:<skill>/
@@ -345,8 +346,9 @@ fi
 #       BELOW the declared one is a widening and a fail-closed error, remedied by
 #       a compensating trim or by governed relief (`raise|`), never by editing
 #       the number upward. A `use-site:` surface never reaches the headroom
-#       check, so it carries no margin; every other surface must, and a
-#       margin-less entry is an error rather than an unratcheted exception.
+#       check, so it carries no margin and keeps the three-field form above;
+#       every other surface must carry one, and a margin-less entry is an
+#       error rather than an unratcheted exception.
 #   raise|<knob>|<value>|<reason>
 #       the recorded rationale for a budget raise (instruction-headroom D-12,
 #       REQ-A1.4): required when an effective instruction_budget_*_warn / *_error
