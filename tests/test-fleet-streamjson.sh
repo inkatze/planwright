@@ -726,9 +726,14 @@ grep -q "^$req_perm$tab.*${tab}answered" "$wdir12/journal" \
 # answer it contradicts.
 q12_count="$(aenv "$home" queue --count 2>"$tmp/q12.err")"
 if [ "$q12_count" != 0 ]; then
-  q12_err="$(tr '\n' ' ' <"$tmp/q12.err")"
-  q12_store="$(tr '\n' '~' <"$home/attention/state" 2>&1)"
-  q12_journal="$(tr '\n' '~' <"$wdir12/journal" 2>&1)"
+  # Grouped, because `2>&1` on the command catches tr's stderr but not the
+  # SHELL's: a missing state file fails at the redirection, before tr runs, so
+  # the error goes to the test's own stderr and the captured string is empty --
+  # a diagnostic that reports nothing exactly when the file it wanted is the
+  # thing that is wrong.
+  q12_err="$({ tr '\n' ' ' <"$tmp/q12.err"; } 2>&1)"
+  q12_store="$({ tr '\n' '~' <"$home/attention/state"; } 2>&1)"
+  q12_journal="$({ tr '\n' '~' <"$wdir12/journal"; } 2>&1)"
   fail "c12: queue should be clear after the answer, got '$q12_count' (stderr: ${q12_err}; store: ${q12_store}; journal: ${q12_journal})"
 fi
 # Now simulate the resume: the same request id re-surfaces on the event
@@ -1038,8 +1043,15 @@ lock_leg() {
   ll_age=$3
   ll_stamp=$4
   ll_want=$5
+  ll_owner=${6:--}
   ll_dir="$home/streamjson/$ll_name"
   mkdir -p "$ll_dir/journal.lock" || fail "c18/$ll_name: cannot plant the lock"
+  # A real held lock carries an owner stamp inside it, so a planted lock has to
+  # be able to as well: the stale break must remove that file before its rmdir,
+  # and a break that forgot to would leave a non-empty directory rmdir refuses,
+  # making the lock permanently unbreakable.
+  [ "$ll_owner" = '-' ] || printf '%s\n' "$ll_owner" >"$ll_dir/journal.lock/owner" \
+    || fail "c18/$ll_name: cannot stamp the planted lock"
   [ "$ll_stamp" = '-' ] || touch -t "$ll_stamp" "$ll_dir/journal.lock" \
     || fail "c18/$ll_name: cannot age the lock"
   ll_pre=()
@@ -1069,7 +1081,16 @@ lock_leg sjw18d "$tmp/statbsd" 0 - 2
 #     Linux CI runner, BSD on the macOS floor).
 lock_leg sjw18e - - 202001010000.00 3
 lock_leg sjw18f - - - 2
+# (g) An aged lock carrying an owner stamp, the shape a real held lock has.
+#     rmdir refuses a non-empty directory, so a break that did not clear the
+#     stamp first would silently stop breaking anything and this leg would
+#     report busy (2) rather than reaching the refusal (3).
+lock_leg sjw18g - - 202001010000.00 3 12345
+# (h) The same stamp on a FRESH lock is still busy, so (g) is not passing
+#     merely because a stamped lock is always broken.
+lock_leg sjw18h - - - 2 12345
 echo "ok: c18 the mtime probe yields a real epoch under both stat flavors, in both directions (REQ-E1.5)"
+echo "ok: c18 an owner-stamped lock is still stale-breakable, and only when aged (REQ-E1.5)"
 
 # ---------------------------------------------------------------------------
 # c19 (REQ-B1.2, REQ-B1.4, REQ-A1.3): `stop` terminates the supervisor, the

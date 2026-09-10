@@ -448,6 +448,11 @@ journal_lock() {
       jl_now=$(now_epoch) || return 2
       jl_mt=$(stat_mtime "$jl_dir") || jl_mt=$jl_now
       if [ $((jl_now - jl_mt)) -gt "$journal_lock_stale" ]; then
+        # The owner stamp lives inside the lock directory, so it has to go
+        # before the rmdir can succeed. Skipping this would leave a non-empty
+        # directory that rmdir silently refuses, disabling stale-breaking
+        # altogether -- a lock nobody could ever reclaim.
+        rm -f "$jl_dir/owner" 2>/dev/null
         rmdir "$jl_dir" 2>/dev/null
         jl_i=0
         continue
@@ -457,10 +462,28 @@ journal_lock() {
     fi
     sleep 0.1
   done
+  # Stamp the holder. The break above is age-based, so a hold that outlives the
+  # threshold can be broken while its holder is still live and still inside its
+  # critical section; without this stamp that holder's unlock would then remove
+  # the NEW holder's lock and put two writers on one journal. A pid is enough to
+  # tell the two apart: no other live process can share ours.
+  printf '%s\n' "$$" >"$jl_dir/owner" 2>/dev/null || :
 }
 
 journal_unlock() {
-  rmdir "$1/journal.lock" 2>/dev/null
+  ju_dir="$1/journal.lock"
+  ju_owner=$(cat "$ju_dir/owner" 2>/dev/null) || ju_owner=''
+  # Ours only. A stamp naming someone else means the lock was broken out from
+  # under us and re-taken, so removing it would be removing their exclusion.
+  # An absent or unreadable stamp falls through to the old unconditional
+  # behaviour rather than leaking the lock forever: a directory created before
+  # this stamp existed, or a stamp write that failed on a full disk, must still
+  # be releasable by its holder.
+  if [ -n "$ju_owner" ] && [ "$ju_owner" != "$$" ]; then
+    return 0
+  fi
+  rm -f "$ju_dir/owner" 2>/dev/null
+  rmdir "$ju_dir" 2>/dev/null
 }
 
 # journal_state <dir> <id> — print the id's state field, empty when the id
