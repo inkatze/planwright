@@ -740,11 +740,15 @@ handle_line() {
       # when an earlier one is still open. Held across the shell-out
       # deliberately: nothing reachable from here re-takes this lock or takes
       # the attention store's lock ahead of it, so it cannot deadlock. The
-      # cost is real though -- a hung fleet-attention.sh now stalls this
-      # worker's journal operations, where before it left them free. A waiter
-      # reports `journal lock busy` once its retry budget runs out, and the
-      # stale break reclaims the lock at journal_lock_stale. That is the price
-      # of writing the row and the state it reflects as one step.
+      # cost is real and is NOT bounded by the stale break, which is what an
+      # earlier revision of this comment claimed: the election refuses to break
+      # a lock whose holder is live, on purpose, so a wedged fleet-attention.sh
+      # is not reclaimed at journal_lock_stale at all. Other journal writers
+      # spin their retry budget, report busy, and stay out until this call
+      # returns. An attention-store hang therefore becomes a journal stall for
+      # this worker. Bounding that needs a kill-safe shell-out or a recovery
+      # path neither this change nor the primitive provides; it is recorded
+      # rather than papered over.
       attention_settled "$hl_worker" "$hl_dir"
       journal_unlock "$hl_dir"
       ;;
