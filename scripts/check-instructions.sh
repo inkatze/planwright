@@ -468,7 +468,7 @@ $budget	$target	$task"
         surface="${rest%%|*}"
         reason="${rest#*|}"
         if [ "$surface" = "$rest" ] || [ -z "$surface" ]; then
-          err "malformed declared-exception entry (expected declared-exception|<surface>|<margin>|<reason>): $(sanitize_printable "$raw" "?")"
+          err "malformed declared-exception entry (expected declared-exception|<surface>|<margin>|<reason>, or declared-exception|<surface>|<reason> for a use-site surface): $(sanitize_printable "$raw" "?")"
           continue
         fi
         if [ -z "$reason" ] || [ "$reason" = "$rest" ]; then

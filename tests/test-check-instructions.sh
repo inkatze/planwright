@@ -366,6 +366,22 @@ assert_contains "the refusal shows the field it actually read" \
 assert_absent "an entry carrying a margin is never told it has none" \
   "has no declared margin (expected" "$rat6_out"
 assert_exit "an unusable margin fails the check" 1 "$rat6_code"
+
+# The surface key reaches a case pattern and a parameter-expansion pattern, so
+# glob metacharacters in it must match themselves and nothing else. They do,
+# because the key is quoted inside both patterns -- pinned here so a later edit
+# that drops the quoting cannot silently turn a key into a wildcard that
+# borrows another surface's margin.
+rat7_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat7_root" 'declared-exception|closure:dem*|18900|a key carrying a glob metacharacter'
+rat7_out="$(/bin/bash "$CHECKER" --root "$rat7_root" 2>&1)"
+rat7_code=$?
+[ -n "$rat7_root" ] && [ -d "$rat7_root" ] && rm -rf "$rat7_root"
+assert_absent "a glob in a surface key does not match closure:demo" \
+  "declared-exception widened: closure:dem*" "$rat7_out"
+assert_contains "a glob-bearing key matches nothing and is reported inert" \
+  "declared-exception margin never evaluated" "$rat7_out"
+assert_exit "a key that matches nothing warns rather than failing" 0 "$rat7_code"
 assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
 # A single --audit capture serves both the unmeasured closing-gate check and the
 # transitional-allowance assertions. "unmeasured" is an --audit-only surface
