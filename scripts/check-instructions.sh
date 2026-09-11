@@ -343,6 +343,11 @@ fi
 #       the warning prints) or a use-site warning (<surface> = use-site:<skill>/
 #       <doc>); never a floor-breach. A stale entry is a cleanup warning, not
 #       an error.
+#       RESERVED PREFIX: on a margin-bearing surface the first pipe-delimited
+#       segment after the key is the margin field, so a reason cannot begin with
+#       a segment reading `margin=...`. Such a reason is read as a malformed
+#       margin and refused. Everything else is reason text, pipes included; put
+#       any leading `margin=` wording later in the sentence, or after a pipe.
 #       margin=<N> is the surface's headroom margin when the exception was granted,
 #       and it is what makes the entry a ratchet: the deferral may stand, but the
 #       surface may not spend past where it stood when it was granted. A margin
@@ -521,8 +526,19 @@ $budget	$target	$task"
             # enforcing a figure nobody declared, with the reason quietly
             # truncated. `margin=` cannot be produced by accident.
             de_head="${reason%%|*}"
+            de_tagged=0
             case "$de_head" in
               margin=*)
+                de_tagged=1
+                # A separator has to follow the margin field. Without one there
+                # is no reason at all, and the strip below is a no-op that
+                # leaves `margin=1` standing in as its own rationale -- so the
+                # required-reason check passes on an entry that carries none,
+                # which is the fail-closed grammar bypassed by a missing pipe.
+                if [ "$de_head" = "$reason" ]; then
+                  err "declared-exception for '$(sanitize_printable "$surface" "?")' has a margin but no reason after it (expected declared-exception|<surface>|margin=<N>|<reason>)"
+                  continue
+                fi
                 de_candidate="${de_head#margin=}"
                 reason="${reason#*|}"
                 case "$de_candidate" in
@@ -546,12 +562,14 @@ $budget	$target	$task"
                 ;;
             esac
             if [ -z "$de_margin" ]; then
-              if [ -z "$de_candidate" ]; then
+              # Three distinct mistakes, and naming the wrong one sends the
+              # author to the wrong repair: no tag at all, a tag with nothing
+              # after it, and a tagged value that cannot be compared.
+              if [ "$de_tagged" = 0 ]; then
                 err "declared-exception for '$(sanitize_printable "$surface" "?")' has no declared margin (expected declared-exception|<surface>|margin=<N>|<reason>); an exception without one cannot be held to the margin it was granted at"
+              elif [ -z "$de_candidate" ]; then
+                err "declared-exception for '$(sanitize_printable "$surface" "?")' has an empty margin: margin= carries no value, and an exception cannot be held to a figure that was never written"
               else
-                # An out-of-range value IS a whole number and wants reducing,
-                # not reformatting; naming the wrong mistake sends the author to
-                # the wrong fix.
                 case "$de_candidate" in
                   *[!0-9]*)
                     err "declared-exception for '$(sanitize_printable "$surface" "?")' has an unusable declared margin: margin= carries '$(sanitize_printable "$de_candidate" "?")', which is not a whole number"

@@ -19,6 +19,11 @@
 #
 #   declared-exception|<surface>|margin=<N>|<reason>  (margin-bearing surfaces)
 #   declared-exception|<surface>|<reason>            (use-site: surfaces only)
+#       RESERVED PREFIX: on a margin-bearing surface the first pipe-delimited
+#       segment after the key is the margin field, so a reason cannot begin with
+#       a segment reading `margin=...`. Such a reason is read as a malformed
+#       margin and refused. Everything else is reason text, pipes included; put
+#       any leading `margin=` wording later in the sentence, or after a pipe.
 #       margin=<N> is the surface's headroom margin when the exception was
 #       granted. It is a ratchet: the deferral may stand, but a later run
 #       whose margin falls BELOW it is a widening and a fail-closed error,

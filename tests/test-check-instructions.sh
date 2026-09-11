@@ -487,6 +487,42 @@ assert_contains "an untagged numeric field is not mistaken for a margin" \
 assert_absent "and no margin is recorded from it" \
   "declared-exception widened" "$rat14_out"
 assert_exit "a margin-less entry fails rather than borrowing one from its reason" 1 "$rat14_code"
+
+# A tagged margin with no separator after it carries no reason, and the strip
+# that follows is a no-op that leaves the margin field standing in as its own
+# rationale -- so the required-reason check passes on an entry that has none.
+rat15_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat15_root" 'declared-exception|closure:demo|margin=1'
+rat15_out="$(/bin/bash "$CHECKER" --root "$rat15_root" 2>&1)"
+rat15_code=$?
+[ -n "$rat15_root" ] && [ -d "$rat15_root" ] && rm -rf "$rat15_root"
+assert_contains "a margin with nothing after it is refused" \
+  "margin but no reason after it" "$rat15_out"
+assert_exit "a reason-less tagged entry fails the check" 1 "$rat15_code"
+
+# An empty margin is a different mistake from a missing one, and saying "no
+# declared margin" about an entry that plainly writes `margin=` sends the author
+# looking for a field that is already there.
+rat16_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat16_root" 'declared-exception|closure:demo|margin=|a reason'
+rat16_out="$(/bin/bash "$CHECKER" --root "$rat16_root" 2>&1)"
+rat16_code=$?
+[ -n "$rat16_root" ] && [ -d "$rat16_root" ] && rm -rf "$rat16_root"
+assert_contains "an empty margin is named as empty" "has an empty margin" "$rat16_out"
+assert_absent "and not reported as missing" "has no declared margin" "$rat16_out"
+assert_exit "an empty margin fails the check" 1 "$rat16_code"
+
+# The tag reserves its prefix. A reason cannot open with a `margin=` segment,
+# which is a real constraint on reason text rather than an accident, so it is
+# pinned here alongside the documentation that states it.
+rat17_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat17_root" 'declared-exception|closure:demo|margin=follow-up|the reserved prefix'
+rat17_out="$(/bin/bash "$CHECKER" --root "$rat17_root" 2>&1)"
+rat17_code=$?
+[ -n "$rat17_root" ] && [ -d "$rat17_root" ] && rm -rf "$rat17_root"
+assert_contains "a reason opening with the reserved prefix is refused as a margin" \
+  "which is not a whole number" "$rat17_out"
+assert_exit "the reserved prefix fails the check rather than silently eating the reason" 1 "$rat17_code"
 assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
 # A single --audit capture serves both the unmeasured closing-gate check and the
 # transitional-allowance assertions. "unmeasured" is an --audit-only surface
