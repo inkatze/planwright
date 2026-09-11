@@ -2093,23 +2093,31 @@ cmd_alarm_scan() {
       # would send every remaining row of a busy worker through the same retry
       # budget, turning one skip into seconds of spinning. The next pass retries
       # the whole worker.
+      # ONE lock, held from the re-read through the publish. An earlier revision
+      # of this took the lock twice -- read, unlock, decide, relock, publish --
+      # which put the whole decision outside any lock and let an answer settle
+      # the request in the gap, so the publish overwrote it. That is the very
+      # row this change exists to prevent, reintroduced by the fix for the age
+      # predicate. Every skip path below unlocks before it leaves.
       if ! journal_lock "$as_dir"; then
         break
       fi
       as_row=$(awk -F'\t' -v id="$a_id" '$1 == id { print $2 "\t" $3 "\t" $4; exit }' \
         "$as_dir/journal" 2>/dev/null) || as_row=''
-      journal_unlock "$as_dir"
       as_now_kind=${as_row%%"$TAB"*}
       as_rest=${as_row#*"$TAB"}
       as_recv=${as_rest%%"$TAB"*}
       as_state=${as_rest#*"$TAB"}
-      [ "$as_state" = pending ] || continue
-      valid_posnum "${as_recv:-}" || continue
-      as_age=$((now - as_recv))
-      [ "$as_age" -gt "$threshold" ] || continue
-      journal_lock "$as_dir" || break
-      attention_upsert "$as_worker" "$as_dir" "$a_id" "$as_now_kind" high
+      as_fired=0
+      if [ "$as_state" = pending ] && valid_posnum "${as_recv:-}"; then
+        as_age=$((now - as_recv))
+        if [ "$as_age" -gt "$threshold" ]; then
+          attention_upsert "$as_worker" "$as_dir" "$a_id" "$as_now_kind" high
+          as_fired=1
+        fi
+      fi
       journal_unlock "$as_dir"
+      [ "$as_fired" = 1 ] || continue
       /bin/sh "$FA" notify \
         "stream-json worker $as_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${as_age}s past threshold" \
         >/dev/null 2>&1 || :
