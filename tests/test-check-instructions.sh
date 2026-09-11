@@ -211,7 +211,7 @@ cp "$REPO_ROOT/config/defaults.yml" "$esc_root/config/defaults.yml"
 # The declared margin is deliberately far below anything this fixture can
 # produce, so the ratchet can never fire here: this case is about escalation on
 # a floor breach, and a widening error would mask what it is asserting.
-printf 'exempt|doctrine/none.md|placeholder\ndeclared-exception|closure:demo|1|deferred restoration, recorded here\n' \
+printf 'exempt|doctrine/none.md|placeholder\ndeclared-exception|closure:demo|margin=1|deferred restoration, recorded here\n' \
   >"$esc_root/config/instruction-budget-exemptions.txt"
 # Sized so the CLOSURE floor is the only thing this fixture breaches. The docs
 # are point-of-use, so they land on the closure without touching start-load, and
@@ -278,7 +278,7 @@ ratchet_fixture() {
 }
 
 rat_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat_root" 'declared-exception|closure:demo|18900|granted when the surface had more room than it does now'
+ratchet_fixture "$rat_root" 'declared-exception|closure:demo|margin=18900|granted when the surface had more room than it does now'
 rat_out="$(/bin/bash "$CHECKER" --root "$rat_root" 2>&1)"
 rat_code=$?
 [ -n "$rat_root" ] && [ -d "$rat_root" ] && rm -rf "$rat_root"
@@ -296,7 +296,7 @@ assert_exit "a widening fails the check rather than warning" 1 "$rat_code"
 # off-by-one here would redden the gate for every exception the moment it is
 # recorded, which would make the whole mechanism unusable.
 rat2_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat2_root" 'declared-exception|closure:demo|18885|granted at exactly the margin the surface still has'
+ratchet_fixture "$rat2_root" 'declared-exception|closure:demo|margin=18885|granted at exactly the margin the surface still has'
 rat2_out="$(/bin/bash "$CHECKER" --root "$rat2_root" 2>&1)"
 rat2_code=$?
 [ -n "$rat2_root" ] && [ -d "$rat2_root" ] && rm -rf "$rat2_root"
@@ -314,7 +314,7 @@ assert_exit "an unwidened exception leaves the check clean" 0 "$rat2_code"
 # link between the entry and the check, so a typo or a renamed surface produces
 # an exception that looks ratcheted and is not.
 rat3_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat3_root" 'declared-exception|closure:no-such-skill|900|the key names a surface no run measures'
+ratchet_fixture "$rat3_root" 'declared-exception|closure:no-such-skill|margin=900|the key names a surface no run measures'
 rat3_out="$(/bin/bash "$CHECKER" --root "$rat3_root" 2>&1)"
 rat3_code=$?
 [ -n "$rat3_root" ] && [ -d "$rat3_root" ] && rm -rf "$rat3_root"
@@ -368,14 +368,14 @@ assert_exit "a use-site entry whose reason looks like a margin still passes" 0 "
 # their entry has no margin when it plainly carries one sends them looking in
 # the wrong place.
 rat6_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat6_root" 'declared-exception|closure:demo|-5|a margin that is not a whole number'
+ratchet_fixture "$rat6_root" 'declared-exception|closure:demo|margin=-5|a margin that is not a whole number'
 rat6_out="$(/bin/bash "$CHECKER" --root "$rat6_root" 2>&1)"
 rat6_code=$?
 [ -n "$rat6_root" ] && [ -d "$rat6_root" ] && rm -rf "$rat6_root"
 assert_contains "an unusable margin is refused as unusable, not as missing" \
-  "has no usable declared margin" "$rat6_out"
+  "has an unusable declared margin" "$rat6_out"
 assert_contains "the refusal shows the field it actually read" \
-  "the field before the reason reads" "$rat6_out"
+  "margin= carries" "$rat6_out"
 assert_absent "an entry carrying a margin is never told it has none" \
   "has no declared margin (expected" "$rat6_out"
 assert_exit "an unusable margin fails the check" 1 "$rat6_code"
@@ -386,7 +386,7 @@ assert_exit "an unusable margin fails the check" 1 "$rat6_code"
 # that drops the quoting cannot silently turn a key into a wildcard that
 # borrows another surface's margin.
 rat7_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat7_root" 'declared-exception|closure:dem*|18900|a key carrying a glob metacharacter'
+ratchet_fixture "$rat7_root" 'declared-exception|closure:dem*|margin=18900|a key carrying a glob metacharacter'
 rat7_out="$(/bin/bash "$CHECKER" --root "$rat7_root" 2>&1)"
 rat7_code=$?
 [ -n "$rat7_root" ] && [ -d "$rat7_root" ] && rm -rf "$rat7_root"
@@ -402,7 +402,7 @@ assert_exit "a key that matches nothing warns rather than failing" 0 "$rat7_code
 # silently does nothing and the run still exits clean -- the guard reporting
 # success precisely because it failed to run.
 rat8_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat8_root" 'declared-exception|closure:demo|99999999999999999999999|a margin past the integer range'
+ratchet_fixture "$rat8_root" 'declared-exception|closure:demo|margin=99999999999999999999999|a margin past the integer range'
 rat8_out="$(/bin/bash "$CHECKER" --root "$rat8_root" 2>&1)"
 rat8_code=$?
 [ -n "$rat8_root" ] && [ -d "$rat8_root" ] && rm -rf "$rat8_root"
@@ -418,7 +418,7 @@ assert_exit "an oversized margin fails the check rather than passing quietly" 1 
 # a line the reason check then rejects still reached lookup_margin and could
 # mark a surface ratcheted or raise a widening of its own.
 rat9_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat9_root" 'declared-exception|closure:demo|1|'
+ratchet_fixture "$rat9_root" 'declared-exception|closure:demo|margin=1|'
 rat9_out="$(/bin/bash "$CHECKER" --root "$rat9_root" 2>&1)"
 rat9_code=$?
 [ -n "$rat9_root" ] && [ -d "$rat9_root" ] && rm -rf "$rat9_root"
@@ -434,7 +434,7 @@ assert_exit "a reason-less entry fails the check" 1 "$rat9_code"
 # `if` reads as false -- so the ratchet reports itself evaluated, compares
 # nothing, and the run exits clean. Refused at the parse instead.
 rat10_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat10_root" "$(printf 'declared-exception|closure:demo\tjunk|18900|a surface carrying a tab')"
+ratchet_fixture "$rat10_root" "$(printf 'declared-exception|closure:demo\tjunk|margin=18900|a surface carrying a tab')"
 rat10_out="$(/bin/bash "$CHECKER" --root "$rat10_root" 2>&1)"
 rat10_code=$?
 [ -n "$rat10_root" ] && [ -d "$rat10_root" ] && rm -rf "$rat10_root"
@@ -448,8 +448,8 @@ assert_exit "a tabbed surface fails the check rather than passing quietly" 1 "$r
 # second entry would be silently ignored and the surface held to the earlier
 # figure while its own file appears to supersede it.
 rat11_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat11_root" 'declared-exception|closure:demo|1|first
-declared-exception|closure:demo|18885|second, silently ignored'
+ratchet_fixture "$rat11_root" 'declared-exception|closure:demo|margin=1|first
+declared-exception|closure:demo|margin=18885|second, silently ignored'
 rat11_out="$(/bin/bash "$CHECKER" --root "$rat11_root" 2>&1)"
 rat11_code=$?
 [ -n "$rat11_root" ] && [ -d "$rat11_root" ] && rm -rf "$rat11_root"
@@ -462,7 +462,7 @@ assert_exit "a duplicate margin fails the check" 1 "$rat11_code"
 # read the wrong way round -- on no match the suffix strip returns the string
 # unchanged, not empty -- so this pins the outcome instead of the reasoning.
 rat13_root="$(mktemp -d)" || exit 1
-ratchet_fixture "$rat13_root" 'declared-exception|closure:demo|000000000000000000000|an all-zero margin, written long'
+ratchet_fixture "$rat13_root" 'declared-exception|closure:demo|margin=000000000000000000000|an all-zero margin, written long'
 rat13_out="$(/bin/bash "$CHECKER" --root "$rat13_root" 2>&1)"
 rat13_code=$?
 [ -n "$rat13_root" ] && [ -d "$rat13_root" ] && rm -rf "$rat13_root"
@@ -471,6 +471,22 @@ assert_absent "an all-zero margin is not judged too large by its written length"
 assert_absent "and reaches the comparison rather than erroring in it" \
   "integer expected" "$rat13_out"
 assert_exit "a margin of zero can never be widened past, so the run stays clean" 0 "$rat13_code"
+
+# The case the tag exists for. Untagged, this entry is indistinguishable from a
+# margin-bearing one whose margin is 123: the parser would accept it, ratchet
+# the surface against a figure nobody declared, and silently truncate the reason
+# to everything after the first pipe. Tagged, a reason opening with digits is
+# just a reason, and the missing margin is reported as missing.
+rat14_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat14_root" 'declared-exception|closure:demo|123|a reason opening with digits and a pipe'
+rat14_out="$(/bin/bash "$CHECKER" --root "$rat14_root" 2>&1)"
+rat14_code=$?
+[ -n "$rat14_root" ] && [ -d "$rat14_root" ] && rm -rf "$rat14_root"
+assert_contains "an untagged numeric field is not mistaken for a margin" \
+  "has no declared margin" "$rat14_out"
+assert_absent "and no margin is recorded from it" \
+  "declared-exception widened" "$rat14_out"
+assert_exit "a margin-less entry fails rather than borrowing one from its reason" 1 "$rat14_code"
 assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
 # A single --audit capture serves both the unmeasured closing-gate check and the
 # transitional-allowance assertions. "unmeasured" is an --audit-only surface

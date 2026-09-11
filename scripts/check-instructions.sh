@@ -336,14 +336,14 @@ fi
 #   pending-diet|<budget>|<target>|Task <N>|<reason>
 #       transitional allowance; <budget> = file | start-load | closure;
 #       <target> = a file path (file) or a skill name (start-load/closure).
-#   declared-exception|<surface>|<margin>|<reason>   (margin-bearing surfaces)
+#   declared-exception|<surface>|margin=<N>|<reason>  (margin-bearing surfaces)
 #   declared-exception|<surface>|<reason>            (use-site: surfaces only)
 #       standing exception (instruction-headroom D-11, REQ-D1.6) excusing exactly
 #       the warning it names — a below-target warning (whose <surface> is the key
 #       the warning prints) or a use-site warning (<surface> = use-site:<skill>/
 #       <doc>); never a floor-breach. A stale entry is a cleanup warning, not
 #       an error.
-#       <margin> is the surface's headroom margin when the exception was granted,
+#       margin=<N> is the surface's headroom margin when the exception was granted,
 #       and it is what makes the entry a ratchet: the deferral may stand, but the
 #       surface may not spend past where it stood when it was granted. A margin
 #       BELOW the declared one is a widening and a fail-closed error, remedied by
@@ -475,7 +475,7 @@ $budget	$target	$task"
         surface="${rest%%|*}"
         reason="${rest#*|}"
         if [ "$surface" = "$rest" ] || [ -z "$surface" ]; then
-          err "malformed declared-exception entry (expected declared-exception|<surface>|<margin>|<reason>, or declared-exception|<surface>|<reason> for a use-site surface): $(sanitize_printable "$raw" "?")"
+          err "malformed declared-exception entry (expected declared-exception|<surface>|margin=<N>|<reason>, or declared-exception|<surface>|<reason> for a use-site surface): $(sanitize_printable "$raw" "?")"
           continue
         fi
         if [ -z "$reason" ] || [ "$reason" = "$rest" ]; then
@@ -514,56 +514,52 @@ $budget	$target	$task"
         case "$surface" in
           use-site:*) ;;
           *)
-            # A margin is a run of digits in its own field, so a three-field
-            # entry is recognised by its absence rather than by counting pipes:
-            # a reason may contain one, and counting would misread it.
+            # The margin field is TAGGED, not positional. A bare number could
+            # not be told apart from a reason that happens to open with digits
+            # and a pipe, so an author who forgot the margin had the first
+            # segment of their reason silently accepted as one -- a ratchet
+            # enforcing a figure nobody declared, with the reason quietly
+            # truncated. `margin=` cannot be produced by accident.
             de_head="${reason%%|*}"
-            if [ "$de_head" != "$reason" ] && [ -n "$de_head" ]; then
-              # Kept for the diagnostic below: when this field is not a number
-              # the entry is refused, and the refusal has to show what was
-              # actually there rather than report the field as missing.
-              de_candidate="$de_head"
-              case "$de_head" in
-                *[!0-9]*) ;;
-                *)
-                  # Bounded, not merely numeric. The comparison downstream is
-                  # the shell's integer test, and a value past its range makes
-                  # that test print "integer expected" and return non-zero
-                  # WITHOUT reaching err -- the ratchet then silently does
-                  # nothing and the run still exits clean. A guard that reports
-                  # success while failing to run is worse than one that refuses
-                  # the input, so an unrepresentable margin is refused here.
-                  de_zeros="${de_head%%[!0]*}"
-                  de_norm="${de_head#"$de_zeros"}"
-                  [ -n "$de_norm" ] || de_norm=0
-                  if [ "${#de_norm}" -le 18 ]; then
-                    de_margin="$de_norm"
-                    reason="${reason#*|}"
-                  fi
-                  ;;
-              esac
-            fi
-            if [ -z "$de_margin" ]; then
-              # Two mistakes reach here and the entry cannot tell them apart --
-              # a three-field entry predating the margin, and a four-field one
-              # whose margin is not a number. Show the field that was read
-              # instead of claiming which, since asserting "no margin" about an
-              # entry that plainly carries one sends the author looking in the
-              # wrong place.
-              if [ -n "$de_candidate" ]; then
-                # Two different mistakes, and naming the wrong one sends the
-                # author to the wrong fix: a value out of range IS a whole
-                # number and wants reducing, not reformatting.
-                case $de_candidate in
-                  *[!0-9]*)
-                    err "declared-exception for '$(sanitize_printable "$surface" "?")' has no usable declared margin (expected declared-exception|<surface>|<margin>|<reason>, <margin> a whole number); the field before the reason reads '$(sanitize_printable "$de_candidate" "?")', which is not one"
-                    ;;
+            case "$de_head" in
+              margin=*)
+                de_candidate="${de_head#margin=}"
+                reason="${reason#*|}"
+                case "$de_candidate" in
+                  "" | *[!0-9]*) ;;
                   *)
-                    err "declared-exception for '$(sanitize_printable "$surface" "?")' has a declared margin too large to compare (the field before the reason reads '$(sanitize_printable "$de_candidate" "?")'); a margin is a word count and must fit the shell's integer range, so reduce the value rather than reformat it"
+                    # Bounded, not merely numeric. The comparison downstream is
+                    # the shell's integer test, and a value past its range makes
+                    # that test print "integer expected" and return non-zero
+                    # WITHOUT reaching err -- the ratchet then silently does
+                    # nothing and the run still exits clean. A guard that
+                    # reports success while failing to run is worse than one
+                    # that refuses the input.
+                    de_zeros="${de_candidate%%[!0]*}"
+                    de_norm="${de_candidate#"$de_zeros"}"
+                    [ -n "$de_norm" ] || de_norm=0
+                    if [ "${#de_norm}" -le 18 ]; then
+                      de_margin="$de_norm"
+                    fi
                     ;;
                 esac
+                ;;
+            esac
+            if [ -z "$de_margin" ]; then
+              if [ -z "$de_candidate" ]; then
+                err "declared-exception for '$(sanitize_printable "$surface" "?")' has no declared margin (expected declared-exception|<surface>|margin=<N>|<reason>); an exception without one cannot be held to the margin it was granted at"
               else
-                err "declared-exception for '$(sanitize_printable "$surface" "?")' has no declared margin (expected declared-exception|<surface>|<margin>|<reason>); an exception without one cannot be held to the margin it was granted at"
+                # An out-of-range value IS a whole number and wants reducing,
+                # not reformatting; naming the wrong mistake sends the author to
+                # the wrong fix.
+                case "$de_candidate" in
+                  *[!0-9]*)
+                    err "declared-exception for '$(sanitize_printable "$surface" "?")' has an unusable declared margin: margin= carries '$(sanitize_printable "$de_candidate" "?")', which is not a whole number"
+                    ;;
+                  *)
+                    err "declared-exception for '$(sanitize_printable "$surface" "?")' has a declared margin too large to compare (margin= carries '$(sanitize_printable "$de_candidate" "?")'); a margin is a word count and must fit the shell's integer range, so reduce the value rather than reformat it"
+                    ;;
+                esac
               fi
               continue
             fi

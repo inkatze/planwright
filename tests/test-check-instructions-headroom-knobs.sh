@@ -257,7 +257,7 @@ t15q="$tmproot/t15q"
 scaffold "$t15q"
 make_skill "$t15q" small 100
 esc="$(printf '\033')"
-printf 'declared-exception|skills/ghost/SKILL.md|1|stale%swith a control byte\n' "$esc" \
+printf 'declared-exception|skills/ghost/SKILL.md|margin=1|stale%swith a control byte\n' "$esc" \
   >"$t15q/config/instruction-budget-exemptions.txt"
 out="$(/bin/bash "$CHECKER" --root "$t15q" 2>&1)"
 assert_exit "a control-byte rationale does not fail the guard" 0 $?
@@ -289,7 +289,7 @@ out="$(/bin/bash "$CHECKER" --root "$t15t" 2>&1)"
 assert_contains "aggregate below-target names the start-load surface key" \
   "below-target: start-load:aggbt" "$out"
 cat >>"$t15t/config/instruction-budget-exemptions.txt" <<'EOF'
-declared-exception|start-load:aggbt|1|accepted: this start-load is intentionally near budget
+declared-exception|start-load:aggbt|margin=1|accepted: this start-load is intentionally near budget
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t15t" 2>&1)"
 assert_exit "an aggregate declared-exception keeps the guard green" 0 $?
@@ -377,7 +377,7 @@ out="$(/bin/bash "$CHECKER" --root "$t15x" 2>&1)"
 assert_contains "aggregate below-target names the closure surface key" \
   "below-target: closure:aggclbt" "$out"
 cat >>"$t15x/config/instruction-budget-exemptions.txt" <<'EOF'
-declared-exception|closure:aggclbt|1|accepted: this closure is intentionally near budget
+declared-exception|closure:aggclbt|margin=1|accepted: this closure is intentionally near budget
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t15x" 2>&1)"
 assert_exit "an aggregate closure declared-exception keeps the guard green" 0 $?
