@@ -344,6 +344,30 @@ printf '%s\n' "$q" | grep -q "OVERDUE" \
 # Escalation never auto-answers: the row is still pending.
 grep -q "^$req_perm$tab.*${tab}pending" "$wdir/journal" \
   || fail "c2: alarm escalation must not settle the request"
+# An alarm scan must not publish the projection while another writer holds the
+# journal. The sweep reads to find aged requests and then publishes; without
+# serialising those two steps an answer landing between them is undone by the
+# publish, re-posting a decision the operator just made. The race window itself
+# is not stageable deterministically, but the property that closes it is: with
+# the journal held by a live holder, the scan must decline to publish and leave
+# the request for the next pass rather than writing a row it cannot vouch for.
+cp "$wdir/journal" "$tmp/j2.orig" || fail "c2: cannot snapshot the journal"
+aenv "$home" clear sjw1 >/dev/null 2>&1 || :
+mkdir -p "$wdir/journal.lock" || fail "c2: cannot plant the journal lock"
+printf '%s\n' "$$" >"$wdir/journal.lock/holder" || fail "c2: cannot stamp the lock"
+out=$(senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900) \
+  || fail "c2: alarm-scan over a held journal exited non-zero"
+[ -z "$out" ] || fail "c2: a held journal must yield no alarm line, got: $out"
+[ "$(aenv "$home" queue --count)" = 0 ] \
+  || fail "c2: an alarm scan must not publish a queue row while the journal is held"
+rm -rf "$wdir/journal.lock"
+# Put the fixture back: later cases share this worker's journal and queue row,
+# and a case that leaves borrowed state changed breaks them from a distance,
+# which is a worse failure to read than the one it was testing.
+cp "$tmp/j2.orig" "$wdir/journal" || fail "c2: cannot restore the journal"
+senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900 >/dev/null \
+  || fail "c2: cannot restore the escalated queue row"
+echo "ok: c2 an alarm scan declines to publish while the journal is held (REQ-E1.1)"
 echo "ok: c2 pending-age alarm fires past threshold, escalation only (REQ-E1.1)"
 
 # ---------------------------------------------------------------------------
@@ -718,7 +742,24 @@ senv "$home" "$rec" -- answer sjw12 "$req_perm" --allow >/dev/null \
 wait "$launch12" || fail "c12: the worker run did not end cleanly"
 grep -q "^$req_perm$tab.*${tab}answered" "$wdir12/journal" \
   || fail "c12: the request should be answered after the first run"
-[ "$(aenv "$home" queue --count)" = 0 ] || fail "c12: queue should be clear after the answer"
+# Reported, not just asserted. This invariant is a projection of journal state
+# written by two processes, so when it breaks the question is always "what did
+# the store say, and when relative to the journal" -- and a bare boolean sends
+# the next reader digging for it. The timestamps are the diagnosis: a store row
+# stamped at or after the journal's answered row is a write that outlived the
+# answer it contradicts.
+q12_count="$(aenv "$home" queue --count 2>"$tmp/q12.err")"
+if [ "$q12_count" != 0 ]; then
+  # Grouped, because `2>&1` on the command catches tr's stderr but not the
+  # SHELL's: a missing state file fails at the redirection, before tr runs, so
+  # the error goes to the test's own stderr and the captured string is empty --
+  # a diagnostic that reports nothing exactly when the file it wanted is the
+  # thing that is wrong.
+  q12_err="$({ tr '\n' ' ' <"$tmp/q12.err"; } 2>&1)"
+  q12_store="$({ tr '\n' '~' <"$home/attention/state"; } 2>&1)"
+  q12_journal="$({ tr '\n' '~' <"$wdir12/journal"; } 2>&1)"
+  fail "c12: queue should be clear after the answer, got '$q12_count' (stderr: ${q12_err}; store: ${q12_store}; journal: ${q12_journal})"
+fi
 # Now simulate the resume: the same request id re-surfaces on the event
 # stream (the CLI re-issues the unprocessed ask). handle_line must re-open it.
 ev_re="$tmp/ev12re"
@@ -1014,20 +1055,30 @@ mkdir -p "$rec"
 unknown_req='cccc2222-dddd-eeee-ffff-000011112222'
 
 # lock_leg <name> <path-override|-> <shim-age-secs|-> <touch-stamp|-> <want-rc>
+#          [owner-stamp|-]
 # Plants a worker dir holding a locked journal, runs one `answer` against it,
 # and asserts the outcome the stale-break decision produces. The shim's mtime
 # is derived from the clock AT CALL TIME (age 0 = fresh, 3600 = well past the
 # 60s threshold): each leg spends ~5s in the lock spin, so a timestamp stamped
 # once at case start would drift across the threshold on a loaded machine and
-# flip the fresh legs.
+# flip the fresh legs. The optional owner stamp plants the file a real held
+# lock carries, so a leg can exercise the break against the shape it will
+# actually meet rather than against an empty directory.
 lock_leg() {
   ll_name=$1
   ll_path=$2
   ll_age=$3
   ll_stamp=$4
   ll_want=$5
+  ll_owner=${6:--}
   ll_dir="$home/streamjson/$ll_name"
   mkdir -p "$ll_dir/journal.lock" || fail "c18/$ll_name: cannot plant the lock"
+  # A real held lock records its holder inside, so a planted lock has to be
+  # able to as well. The stamp is a dead pid on purpose: a LIVE holder is never
+  # broken on age (that is the point of recording it), so a leg meaning to
+  # exercise the age fallback has to name a process that is gone.
+  [ "$ll_owner" = '-' ] || printf '%s\n' "$ll_owner" >"$ll_dir/journal.lock/holder" \
+    || fail "c18/$ll_name: cannot stamp the planted lock"
   [ "$ll_stamp" = '-' ] || touch -t "$ll_stamp" "$ll_dir/journal.lock" \
     || fail "c18/$ll_name: cannot age the lock"
   ll_pre=()
@@ -1057,7 +1108,28 @@ lock_leg sjw18d "$tmp/statbsd" 0 - 2
 #     Linux CI runner, BSD on the macOS floor).
 lock_leg sjw18e - - 202001010000.00 3
 lock_leg sjw18f - - - 2
+# The stamped legs need a pid that is deterministically dead, not one assumed
+# to be: a host where the assumed pid happens to be live would either fail the
+# leg or, worse, quietly stop exercising the path it names. Spawn one and reap
+# it, the way c7 does.
+: >"$tmp/deadpid.probe" &
+dead_pid=$!
+wait "$dead_pid" 2>/dev/null
+# (g) A FRESH lock whose recorded holder is gone: broken on the evidence, not
+#     on the clock. This is what recording the holder buys over an age-only
+#     break -- a crashed holder is reclaimed at once instead of stranding the
+#     journal for the whole threshold. It also proves the break copes with a
+#     non-empty directory, which an rmdir-only break would not.
+lock_leg sjw18g - - - 3 "$dead_pid"
+# (h) An AGED lock whose holder is this test, a process demonstrably alive:
+#     still refused. Aged is the load-bearing half. A fresh one would prove
+#     nothing, because an implementation that broke every lock past the
+#     threshold would pass it too; only an aged lock that is NOT broken shows
+#     the liveness check outranking the clock, which is the contract this
+#     delegation rests on.
+lock_leg sjw18h - - 202001010000.00 2 $$
 echo "ok: c18 the mtime probe yields a real epoch under both stat flavors, in both directions (REQ-E1.5)"
+echo "ok: c18 a recorded holder decides the break by liveness, not by age (REQ-E1.5)"
 
 # ---------------------------------------------------------------------------
 # c19 (REQ-B1.2, REQ-B1.4, REQ-A1.3): `stop` terminates the supervisor, the

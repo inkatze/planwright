@@ -435,23 +435,29 @@ worker_alive() {
 
 # --- journal (the REQ-E1.5 durable receipt state) ---------------------------
 # One tab-separated row per request id: id kind received-epoch state [epoch].
-# Mutations run under an mkdir lock, stale-broken past its age: journal writes
-# are sub-second, so an older lock is a crashed holder, and breaking it can
-# at worst duplicate an attention upsert — never lose a receipt.
+# Mutations run under the file's own election lock. That premise used to be
+# "journal writes are sub-second, so an older lock is a crashed holder", and it
+# stopped holding when this path began publishing the queue projection inside
+# the critical section: a hold now spans a shell-out and an old lock is no
+# longer evidence of a crash. So age is the fallback, not the test. The
+# election reads the holder pid first and refuses to break a live one, which is
+# what makes a long legitimate hold safe; the age branch applies only to a lock
+# with no usable holder stamp. The cost of refusing is on the other side and is
+# real: a wedged holder is not reclaimed at all, only waited out.
 
 journal_lock() {
+  # Delegated to the file's own election primitive rather than hand-rolled here.
+  # It already answers every hazard this lock met: the break renames before it
+  # removes, so two waiters cannot both win one stale lock; the holder's pid is
+  # recorded inside, so a live holder is never broken on age alone; and the drop
+  # is ownership-checked, so a holder that outlived a break of its own lock
+  # leaves its successor's alone. The spin is what this lock adds -- callers
+  # here wait for a busy journal rather than failing on the first refusal.
   jl_dir="$1/journal.lock"
   jl_i=0
-  while ! mkdir "$jl_dir" 2>/dev/null; do
+  until lock_take "$jl_dir" "$journal_lock_stale"; do
     jl_i=$((jl_i + 1))
     if [ "$jl_i" -ge 50 ]; then
-      jl_now=$(now_epoch) || return 2
-      jl_mt=$(stat_mtime "$jl_dir") || jl_mt=$jl_now
-      if [ $((jl_now - jl_mt)) -gt "$journal_lock_stale" ]; then
-        rmdir "$jl_dir" 2>/dev/null
-        jl_i=0
-        continue
-      fi
       echo "$me: journal lock busy at $jl_dir" >&2
       return 2
     fi
@@ -460,7 +466,7 @@ journal_lock() {
 }
 
 journal_unlock() {
-  rmdir "$1/journal.lock" 2>/dev/null
+  lock_drop "$1/journal.lock"
 }
 
 # journal_state <dir> <id> — print the id's state field, empty when the id
@@ -709,8 +715,12 @@ handle_line() {
             return 0
           fi
           printf '%s\n' "$hl_line" >"$hl_dir/req-$hl_id.json"
+          # Derived under the lock for the reason the sibling site below spells
+          # out. Note this surfaces the oldest still-pending request rather
+          # than the one just re-opened: when an earlier request is also open,
+          # that older one is what the row is supposed to carry.
+          attention_settled "$hl_worker" "$hl_dir"
           journal_unlock "$hl_dir"
-          attention_upsert "$hl_worker" "$hl_dir" "$hl_id" "$hl_kind"
           return 0
           ;;
       esac
@@ -726,8 +736,27 @@ handle_line() {
         return 0
       fi
       printf '%s\n' "$hl_line" >"$hl_dir/req-$hl_id.json"
+      # Derived and published INSIDE the journal lock. The queue row is a
+      # projection of journal state, so reading that state and writing the row
+      # have to be one step: with the publish outside, `answer` lands between
+      # them, marks the row answered and clears the queue, and this write then
+      # re-posts a decision the operator already made. Deriving instead of
+      # publishing the id captured above is the other half -- the row carries
+      # the OLDEST still-pending request, which the just-appended id is not
+      # when an earlier one is still open. Held across the shell-out
+      # deliberately: nothing reachable from here re-takes this lock or takes
+      # the attention store's lock ahead of it, so it cannot deadlock. The
+      # cost is real and is NOT bounded by the stale break, which is what an
+      # earlier revision of this comment claimed: the election refuses to break
+      # a lock whose holder is live, on purpose, so a wedged fleet-attention.sh
+      # is not reclaimed at journal_lock_stale at all. Other journal writers
+      # spin their retry budget, report busy, and stay out until this call
+      # returns. An attention-store hang therefore becomes a journal stall for
+      # this worker. Bounding that needs a kill-safe shell-out or a recovery
+      # path neither this change nor the primitive provides; it is recorded
+      # rather than papered over.
+      attention_settled "$hl_worker" "$hl_dir"
       journal_unlock "$hl_dir"
-      attention_upsert "$hl_worker" "$hl_dir" "$hl_id" "$hl_kind"
       ;;
     *'"type":"system"'*'"subtype":"init"'*)
       hl_sid=$(json_field "$hl_line" session_id)
@@ -1801,8 +1830,8 @@ cmd_answer() {
         "answer for worker $worker request $short was delivered but the receipt could not be marked answered - the journal is stale, do not re-answer, investigate disk/store"
       exit 2
     fi
-    journal_unlock "$dir"
     attention_settled "$worker" "$dir"
+    journal_unlock "$dir"
     printf 'answered %s %s\n' "$worker" "$req"
   else
     journal_set_state "$dir" "$req" undeliverable "$now"
@@ -2034,18 +2063,65 @@ cmd_alarm_scan() {
     [ -f "$as_dir/journal" ] || continue
     as_worker=${as_dir##*/}
     valid_field "$as_worker" || continue
+    # Candidate ids only. Everything the escalation acts on -- kind, received
+    # epoch, state -- is re-read under the lock below, because this read is
+    # unlocked and its values can be stale by the time the lock is taken.
+    # Carrying them forward from here is what let a re-opened request be
+    # escalated against the age this scan measured.
     awk -F'\t' -v now="$now" -v thr="$threshold" \
-      '$4 == "pending" && (now - $3) > thr { print $1 "\t" $2 "\t" now - $3 }' \
-      "$as_dir/journal" | while IFS="$(printf '\t')" read -r a_id a_kind a_age; do
+      '$4 == "pending" && (now - $3) > thr { print $1 }' \
+      "$as_dir/journal" | while read -r a_id; do
       valid_reqid "$a_id" || continue
       # Escalation only (the kickoff-pinned alarm outcome): the queue item
       # is re-upserted at high priority and the notify seam is pushed —
       # never an auto-answer, never a worker kill.
-      attention_upsert "$as_worker" "$as_dir" "$a_id" "$a_kind" high
+      #
+      # Re-read under the lock before publishing, for the reason handle_line
+      # and answer do. The awk above read this journal unlocked, so an answer
+      # landing between that scan and this upsert would be undone by it,
+      # re-posting a decision the operator just made — the same stale queue row
+      # this projection prevents, arriving through the sweep.
+      #
+      # The whole ROW is re-read, not just the state. A request can be answered
+      # and then re-opened by handle_line with a fresh received epoch while this
+      # waits for the lock; a state-only check sees `pending` again and escalates
+      # against the age the first scan measured, marking a request overdue that
+      # has not yet had its threshold. The kind can change with it, so that is
+      # taken from the same read.
+      #
+      # A lock this scan cannot take ends the worker, not the request: `continue`
+      # would send every remaining row of a busy worker through the same retry
+      # budget, turning one skip into seconds of spinning. The next pass retries
+      # the whole worker.
+      # ONE lock, held from the re-read through the publish. An earlier revision
+      # of this took the lock twice -- read, unlock, decide, relock, publish --
+      # which put the whole decision outside any lock and let an answer settle
+      # the request in the gap, so the publish overwrote it. That is the very
+      # row this change exists to prevent, reintroduced by the fix for the age
+      # predicate. Every skip path below unlocks before it leaves.
+      if ! journal_lock "$as_dir"; then
+        break
+      fi
+      as_row=$(awk -F'\t' -v id="$a_id" '$1 == id { print $2 "\t" $3 "\t" $4; exit }' \
+        "$as_dir/journal" 2>/dev/null) || as_row=''
+      as_now_kind=${as_row%%"$TAB"*}
+      as_rest=${as_row#*"$TAB"}
+      as_recv=${as_rest%%"$TAB"*}
+      as_state=${as_rest#*"$TAB"}
+      as_fired=0
+      if [ "$as_state" = pending ] && valid_posnum "${as_recv:-}"; then
+        as_age=$((now - as_recv))
+        if [ "$as_age" -gt "$threshold" ]; then
+          attention_upsert "$as_worker" "$as_dir" "$a_id" "$as_now_kind" high
+          as_fired=1
+        fi
+      fi
+      journal_unlock "$as_dir"
+      [ "$as_fired" = 1 ] || continue
       /bin/sh "$FA" notify \
-        "stream-json worker $as_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${a_age}s past threshold" \
+        "stream-json worker $as_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${as_age}s past threshold" \
         >/dev/null 2>&1 || :
-      printf 'alarm %s %s %s\n' "$as_worker" "$a_id" "$a_age"
+      printf 'alarm %s %s %s\n' "$as_worker" "$a_id" "$as_age"
     done
   done
   set -f
