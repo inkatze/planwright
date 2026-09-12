@@ -86,6 +86,66 @@ usage() {
   exit 2
 }
 
+# resolve_self — print this wrapper's absolute path.
+#
+# For a bare name (no directory component), resolve it via PATH first so we have
+# a path to absolutize — never `dirname`-of-a-bare-name (`.`), which would
+# fabricate a CWD-relative "/<cwd>/<name>". `command -v` may itself return a
+# RELATIVE path when PATH holds a relative element (e.g. `PATH=scripts:...`), so
+# its result is absolutized below rather than trusted as-is. If a directory
+# cannot be resolved, the value is kept rather than collapsed to a broken
+# "/<basename>".
+resolve_self() {
+  rs_self=$0
+  case $rs_self in
+    */*) ;;
+    *)
+      rs_found=$(command -v "$rs_self" 2>/dev/null) || rs_found=
+      [ -n "$rs_found" ] && rs_self=$rs_found
+      ;;
+  esac
+  case $rs_self in
+    /*) ;;
+    */*)
+      rs_dir=$(cd "$(dirname "$rs_self")" 2>/dev/null && pwd) || rs_dir=
+      [ -n "$rs_dir" ] && rs_self="$rs_dir/$(basename "$rs_self")"
+      ;;
+  esac
+  printf '%s\n' "$rs_self"
+}
+
+# planwright_root — print the installation root this wrapper belongs to, derived
+# from its own location (<root>/scripts/fleet-dispatch-env.sh). Self-location is
+# what makes it survive a plugin update: a captured version-bearing path, or a
+# symlink pointing at one, goes stale the moment the version changes, which is
+# exactly the ephemeral-value capture the machine-local-environment rule forbids.
+# Prints nothing when the parent cannot be resolved.
+planwright_root() {
+  pr_self=$(resolve_self)
+  case $pr_self in
+    */*) (cd "$(dirname "$pr_self")/.." 2>/dev/null && pwd -P) ;;
+  esac
+}
+
+# export_root_vars — publish the resolved root as the two variables the guard's
+# own resolution chain reads (worker-command-guard.sh: $PLANWRIGHT_ROOT, then
+# $CLAUDE_PLUGIN_ROOT, then <claude-dir>/planwright).
+#
+# Claude Code exports CLAUDE_PLUGIN_ROOT only for a hook it delivers from plugin
+# context; a hook arriving through a `--settings` fragment gets no such context,
+# so without this the fragment's hook command resolves against an empty value and
+# never runs — every dispatched worker then prompts on every routine command.
+#
+# Unlike the ghost-text pin, these do NOT override an inherited value: both are
+# documented operator overrides (tests, adopters pointing at a checkout), and the
+# wrapper must not silently outrank a root the operator chose.
+export_root_vars() {
+  er_root=$(planwright_root)
+  [ -n "$er_root" ] || return 0
+  [ -n "${PLANWRIGHT_ROOT:-}" ] || { PLANWRIGHT_ROOT=$er_root; export PLANWRIGHT_ROOT; }
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || { CLAUDE_PLUGIN_ROOT=$er_root; export CLAUDE_PLUGIN_ROOT; }
+}
+
 if [ "$#" -eq 0 ]; then
   usage
 fi
@@ -93,6 +153,11 @@ fi
 if [ "$1" = "--print" ]; then
   [ "$#" -eq 1 ] || usage
   printf '%s=%s\n' "$GHOST_TEXT_KEY" "$GHOST_TEXT_VALUE"
+  _root=$(planwright_root)
+  if [ -n "$_root" ]; then
+    printf 'PLANWRIGHT_ROOT=%s\n' "${PLANWRIGHT_ROOT:-$_root}"
+    printf 'CLAUDE_PLUGIN_ROOT=%s\n' "${CLAUDE_PLUGIN_ROOT:-$_root}"
+  fi
   exit 0
 fi
 
@@ -103,32 +168,10 @@ if [ "$1" = "--emit-launch" ]; then
   # repo-contained scripts/*.sh path the worker-command-guard trusts (REQ-A1.10
   # of worker-permission-ergonomics), so the constructed launch is auto-approved
   # without a permission flood (D-5, REQ-B1.2).
-  self=$0
-  # For a bare name (no directory component), resolve it via PATH first so we
-  # have a path to absolutize — never `dirname`-of-a-bare-name (`.`), which would
-  # fabricate a CWD-relative "/<cwd>/<name>" verb. `command -v` may itself return
-  # a RELATIVE path when PATH holds a relative element (e.g. `PATH=scripts:...`),
-  # so its result is absolutized by the next block, not trusted as-is.
-  case $self in
-    */*) ;; # already has a directory component
-    *)
-      _resolved=$(command -v "$self" 2>/dev/null) || _resolved=
-      [ -n "$_resolved" ] && self=$_resolved
-      ;;
-  esac
-  # Absolutize any path that still carries a directory component but is not yet
-  # absolute (a relative `$0` like `scripts/fleet-dispatch-env.sh`, or a relative
-  # `command -v` result). If the directory cannot be resolved, keep the value
-  # rather than collapsing to a broken "/<basename>". A value that is still a
-  # bare name here means `command -v` found nothing; leave it, and the guard
-  # resolves it against the launch cwd — the honest fallback, not a fabrication.
-  case $self in
-    /*) ;; # already absolute
-    */*)
-      _dir=$(cd "$(dirname "$self")" 2>/dev/null && pwd) || _dir=
-      [ -n "$_dir" ] && self="$_dir/$(basename "$self")"
-      ;;
-  esac
+  # A value that is still a bare name after resolution means `command -v` found
+  # nothing; the guard then resolves it against the launch cwd — the honest
+  # fallback, not a fabrication.
+  self=$(resolve_self)
   # Construct the launch line: the wrapper prefix (which applies the pin when the
   # line is exec'd) followed by the caller-supplied launch argv. The prefix is
   # emitted by CODE — the pin is a structural property of dispatch, never a prose
@@ -179,4 +222,5 @@ fi
 # command. `export` makes the value visible to the launched session and every
 # descendant it spawns; the unconditional set overrides any inherited value.
 export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
+export_root_vars
 exec "$@"
