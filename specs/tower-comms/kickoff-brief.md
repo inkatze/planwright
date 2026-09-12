@@ -731,4 +731,22 @@ Anchor: `2f461e0c6e78d2cce6d4a2b73f4c8bec4ec5e268` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Re-anchor — Task 7 expression-only edit (2026-09-12)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Sign-off records and content anchors*),
+recorded by the `/execute-task` run for Task 7 at its convergence pass.
+
+**Why the anchor moved:** one expression-only edit inside the bundle. The
+test-spec entries for REQ-E1.7 and REQ-I1.4 assign the no-subject judgment
+sentence and the scope statement to the rule doc Task 7 delivers, but Task
+7's `Citations:` line named neither requirement; it now does. Both files
+bump `Last reviewed:`. `requirements.md` carries the paired changelog
+entry. No REQ, D-ID, or `Done when:` condition changes meaning.
+
+**Cites the changelog line:** the 2026-09-12 `## Changelog` entry in
+`specs/tower-comms/requirements.md` ("Task 7 expression-only edit").
+
+Class: expression-only
+Anchor: `6fca6cf8ebc13883ce351a5f2e84f7a6df49bcf5` — computed as
+`scripts/spec-anchor.sh specs/tower-comms`

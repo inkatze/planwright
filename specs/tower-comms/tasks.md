@@ -1,7 +1,7 @@
 # Tower comms — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-09
+**Last reviewed:** 2026-09-12
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -353,7 +353,7 @@ baseline exists, so the experiment has an honest before.
   in the PR body beside the raise.
 - **Dependencies:** none
 - **Citations:** D-10, D-13 · REQ-C1.3, REQ-C1.8, REQ-D1.1, REQ-D1.2,
-  REQ-D1.3, REQ-E1.6, REQ-I1.1, REQ-I1.2, REQ-I1.3
+  REQ-D1.3, REQ-E1.6, REQ-E1.7, REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4
 - **Estimated effort:** 1 day
 
 ### Task 8 — Wiring into the tower loop
