@@ -363,3 +363,27 @@ edited files.
 Class: expression-only
 Anchor: `015ac10f13b358303848780ebb47f9bef35df4e0` — computed as
 `scripts/spec-anchor.sh specs/format-grammar`
+
+### Re-anchor — manual scenario steps corrected (2026-09-12)
+
+Marked self-re-anchor for the expression-only corrections this bundle's
+Task 7 convergence pass made to its own test-spec (REQ-F1.1, REQ-F1.3).
+The REQ-F1.1 exercise steps now describe a run that the repository's gates
+permit and the skill's routing actually takes: Arm A edits the working
+tree without committing, so the anchor mismatches without tripping the
+pre-commit guard; Arm B selects its bundle by the render's derived status
+line, since an all-completed bundle renders Done and cannot be amended;
+the mode is read from the walk the skill enters; and each exercised arm is
+recorded in the observations log, since this bundle will have derived Done
+before the next real occurrence. REQ-F1.3 states the absent-catalog read as
+the clean empty result it is, and names a reachable form of the manual
+condition. The 2026-09-12 changelog bullet for the first edit also has one
+sentence reworded to the declarative form its neighbours use. No
+requirement or decision changes meaning.
+
+**Cites the changelog line:** the second 2026-09-12 `## Changelog` entry
+in `requirements.md`.
+
+Class: expression-only
+Anchor: `6ccccf4299b8124865c1d7508bb3c62ad9b414fb` — computed as
+`scripts/spec-anchor.sh specs/format-grammar`

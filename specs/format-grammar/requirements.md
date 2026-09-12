@@ -369,8 +369,19 @@ doctrine stops being homeless prose asserted only in scattered tests.
   entries name their verification homes. REQ-F1.1 carries the documented
   manual scenario with its exercise steps for both routing arms; REQ-F1.2
   and REQ-F1.3 name the fixture test that ships with the task and what it
-  asserts. Gap-fill the entries already promised; no requirement or
-  decision changes meaning.
+  asserts. The entries gap-fill homes the walkthrough left to this task;
+  no requirement or decision changes meaning.
+- 2026-09-12 — Expression-only (Task 7 convergence): the REQ-F1.1 manual
+  steps corrected after review. Arm A edits the working tree without
+  committing, so the anchor mismatches without tripping the pre-commit
+  guard; Arm B selects by the render's derived bundle status line, since
+  an all-completed bundle renders Done and cannot be amended; the mode is
+  read from the walk the skill enters, not an announcement; and each
+  exercised arm is recorded in the observations log, since this bundle
+  will have derived Done by then. REQ-F1.3 says the absent-catalog read
+  returns a clean empty result (it does not fail) and names a reachable
+  form of the manual condition. No requirement or decision changes
+  meaning.
 
 ## Sources
 

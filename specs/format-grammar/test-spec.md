@@ -284,42 +284,51 @@ of its `[manual]` entries (live-spec scope).
 A documented scenario: invoking `/spec-kickoff` against a Ready bundle with
 pre-merge changes routes to delta re-walkthrough, against an Active bundle
 to the amendment ritual; exercised and recorded at the next real occurrence
-of each arm, per the steps below (the `/drain` per-spec `[manual]`
-inventory keeps the obligation visible until then). The routing rule under
-test is the skill's pre-flight mode selection and its Modes section; both
-arms invoke `/spec-kickoff specs/<spec>` on a signed bundle and read the
-mode the skill announces.
+of each arm, per the steps below. While this bundle is live the `/drain`
+per-spec `[manual]` inventory lists the obligation; once it derives Done the
+obligation lives in the observations log, where each arm's record also
+goes (an `obs-record.sh` fragment naming the bundle exercised and the mode
+entered), since a Done bundle is never amended in place. The routing rule
+under test is the skill's pre-flight mode selection and its Modes section;
+both arms invoke `/spec-kickoff specs/<spec>` on a signed bundle and read
+the mode the skill enters, visible in the walk it opens and the
+amendment-log entry it writes.
 
 Arm A, Ready bundle with a pre-merge change routes to the delta
 re-walkthrough:
 
-1. Pick a bundle whose stored `**Status:**` is Ready with its spec PR still
-   open and no unit dispatched (`mise run status specs/<spec>` renders
-   nothing In progress or Completed).
-2. On the spec branch, edit anchored content (a requirement's wording) and
-   commit it, so the brief's most recent anchor no longer recomputes.
-3. Invoke `/spec-kickoff specs/<spec>`. Expected: the freshness comparison
-   reports the mismatch and the skill enters the delta re-walkthrough,
-   deriving the delta from the spec files' history since the entry and
-   confirming its scope before walking; it does not offer the amendment
-   ritual, and the spec PR stays as it was.
+1. Pick a bundle whose status render (`mise run status specs/<spec>`)
+   ends in a derived bundle status of Ready: signed, spec PR still open,
+   no unit dispatched.
+2. Edit anchored content in the working tree (a requirement's wording)
+   without committing. The freshness comparison reads the working tree,
+   so the brief's most recent anchor now recomputes to a different hash;
+   leaving the edit uncommitted keeps the anchor-freshness pre-commit
+   guard out of the exercise, and the re-walkthrough's own re-anchor is
+   what lands it.
+3. Invoke `/spec-kickoff specs/<spec>`. Expected: the comparison reports
+   the mismatch and the skill enters the delta re-walkthrough, deriving
+   the delta from the spec files' history since the entry plus the
+   uncommitted edit and confirming its scope before walking; it does not
+   offer the amendment ritual, and the spec PR stays as it was.
 
 Arm B, Active bundle takes a human-declared amendment:
 
-1. Pick a bundle rendering as Active (`mise run status specs/<spec>` shows
-   at least one In-progress or Completed unit; on a format-version 2 bundle
-   the stored header still reads Ready, which is expected).
+1. Pick a bundle whose status render ends in a derived bundle status of
+   Active: work in flight, at least one unit still open. A bundle whose
+   units are all completed renders Done and cannot take an amendment
+   (it reopens through `/spec-draft --extend`), so it does not qualify.
+   On a format-version 2 bundle the stored header still reads Ready,
+   which is expected; the derived line is the criterion.
 2. With the anchor fresh (no content edit), invoke
-   `/spec-kickoff specs/<spec>`. Expected: the comparison matches, the skill
-   asks what the human brings, and declaring an amendment enters the
+   `/spec-kickoff specs/<spec>`. Expected: the comparison matches, the
+   skill asks what the human brings, and declaring an amendment enters the
    amendment ritual, classified meaning-class or expression-only at
    sign-off; the skill never infers the amendment from the bundle's state.
 
 Negative check, both arms: a Ready bundle is never offered the amendment
 ritual, and an Active bundle's declared amendment is never routed through a
-whole-bundle re-walkthrough. Record each exercised arm as a dated
-`## Changelog` bullet in this bundle naming the bundle exercised and the
-mode observed (an expression-only edit, with its self-re-anchor).
+whole-bundle re-walkthrough.
 
 ### REQ-F1.2 — Expression-only anchor-entry production [test]
 
@@ -337,24 +346,26 @@ commit, the anchor line written last); runs
 `scripts/check-anchor-freshness.sh` over the bundle as that commit left it
 and expects the entry's hash reported as a clean recompute; and proves the
 acceptance is the parser's, not vacuous, by refusing the same entry with
-its hash rewritten (stale-anchor error) and with a non-sanctioned command
-form.
+its hash rewritten (the recompute error naming both hashes) and with a
+non-sanctioned command form.
 
 ### REQ-F1.3 — Catalog-absent degradation [test + manual]
 
 The script half is the fixture: `resolve-catalog.sh` with no resolvable
-decision-domains catalog fails cleanly `[test]`. Home:
-`tests/test-kickoff-verification-homes.sh`: the gap check's own read,
-`scripts/resolve-catalog.sh decision-domains`, with every overlay variable
-stripped and each layer root pointed at an empty directory exits 0 with
-empty stdout and no stderr noise (the clean absent result the skill reads);
+decision-domains catalog returns a clean empty result rather than an error
+`[test]`. Home: `tests/test-kickoff-verification-homes.sh`: the gap check's
+own read, `scripts/resolve-catalog.sh decision-domains`, with every overlay
+variable stripped and each layer root pointed at an empty directory exits 0
+with empty stdout and no stderr noise (the absent result the skill reads);
 the contrast arm with the shipped seed present resolves non-empty, so the
 empty result is the absent verdict rather than a resolver that prints
 nothing. The skill's degrade-to-one-line-notice-and-proceed decision is
 prose behavior no fixture executes; it is exercised and recorded at the
-next real catalog-absent kickoff `[manual]`: run `/spec-kickoff` on a host
-with no decision-domains catalog in any layer and confirm the run notes
-the skip in one line, skips the gap check, records the skip in the brief's
+next real catalog-absent kickoff `[manual]`. The core seed ships with the
+plugin, so that occurrence is an install whose seed is missing or a run
+with the layer roots redirected to empty directories, as the fixture does:
+run `/spec-kickoff` under that condition and confirm the run notes the
+skip in one line, skips the gap check, records the skip in the brief's
 risk register, and proceeds to sign-off.
 
 ## REQ-G — Sequencing constraint
