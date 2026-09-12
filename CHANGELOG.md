@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.40.0](https://github.com/inkatze/planwright/compare/v0.39.0...v0.40.0) (2026-09-12)
+
+
+### Features
+
+* **guards:** hold a budget exception to the margin it was granted at ([#439](https://github.com/inkatze/planwright/issues/439)) ([e7501d7](https://github.com/inkatze/planwright/commit/e7501d7d129e21e5df15490777b04f6f9993ba43))
+* **guards:** say why a budget exception went inert, not just that it did ([#432](https://github.com/inkatze/planwright/issues/432)) ([7845727](https://github.com/inkatze/planwright/commit/784572778a1e8d15083458564fd3727ad098fdbc))
+* **spec:** tower-comms kickoff sign-off ([#437](https://github.com/inkatze/planwright/issues/437)) ([d10eb82](https://github.com/inkatze/planwright/commit/d10eb82232317d0fa92a086d01d68af5d5a23122))
+* **spec:** universal-binary kickoff sign-off ([#436](https://github.com/inkatze/planwright/issues/436)) ([bd0ab0c](https://github.com/inkatze/planwright/commit/bd0ab0c777a4258d30457cf62b1217cab4032098))
+
+
+### Bug Fixes
+
+* **dispatch:** let a dispatched worker actually do routine work ([#441](https://github.com/inkatze/planwright/issues/441)) ([17d919b](https://github.com/inkatze/planwright/commit/17d919be6557e3d2dd5d81ae69d61dd3f3e78168))
+* **fleet:** write the queue row under the lock that guards what it reflects ([#438](https://github.com/inkatze/planwright/issues/438)) ([85af215](https://github.com/inkatze/planwright/commit/85af215d1de000fa124ce424cf0282afff3a14da))
+
 ## [0.39.0](https://github.com/inkatze/planwright/compare/v0.38.0...v0.39.0) (2026-09-08)
 
 
