@@ -63,7 +63,7 @@ fail() {
 
 [ -x "$GUARD" ] || fail "scripts/check-anchor-freshness.sh missing or not executable"
 [ -x "$RESOLVER" ] || fail "scripts/resolve-catalog.sh missing or not executable"
-[ -f "$FIXTURE" ] || fail "fixture missing at $FIXTURE"
+[ -f "$FIXTURE" ] && [ -r "$FIXTURE" ] || fail "fixture missing or unreadable at $FIXTURE"
 
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
@@ -71,10 +71,15 @@ trap 'rm -rf "$tmp"' EXIT
 git -C "$repo" cat-file -e "$LANDING^{commit}" 2>/dev/null \
   || fail "landing commit $LANDING is not reachable (a shallow clone, or git itself unavailable); the fixture's provenance cannot be checked"
 
-# at_landing <path> — the file as the landing commit holds it.
-at_landing() {
-  git -C "$repo" show "$LANDING:$1"
-}
+# The bundle exactly as the landing commit left it, read once: every section
+# works from these files, so a failed read fails here by name instead of
+# surfacing downstream as a content claim about the fixture.
+landed="$tmp/landed"
+mkdir -p "$landed"
+for f in requirements design tasks test-spec kickoff-brief; do
+  git -C "$repo" show "$LANDING:specs/$BUNDLE/$f.md" >"$landed/$f.md" \
+    || fail "could not read specs/$BUNDLE/$f.md at $LANDING"
+done
 
 OUT=
 RC=0
@@ -103,8 +108,7 @@ $OUT" ;;
 ########################################################################
 # 1. Captured, not authored
 ########################################################################
-at_landing "specs/$BUNDLE/kickoff-brief.md" \
-  | awk -v h="$HEADING" 'index($0, h) == 1 { p = 1 } p' >"$tmp/captured.md"
+awk -v h="$HEADING" 'index($0, h) == 1 { p = 1 } p' "$landed/kickoff-brief.md" >"$tmp/captured.md"
 [ -s "$tmp/captured.md" ] || fail "the landing commit's brief carries no entry opening with '$HEADING'"
 cmp -s "$tmp/captured.md" "$FIXTURE" \
   || fail "fixture diverges from the entry at $LANDING; re-capture it rather than editing it"
@@ -123,11 +127,11 @@ cited=$(grep 'Cites the changelog line' "$FIXTURE" \
 # Scoped to the `## Changelog` section, the way the guard's own pairing check
 # reads dated bullets: a dated bullet elsewhere in the file is not a citation
 # target.
-at_landing "specs/$BUNDLE/requirements.md" | awk -v d="- $cited" '
+awk -v d="- $cited" '
   /^## / { in_ch = ($0 ~ /^## Changelog[ \t]*$/); next }
   in_ch && index($0, d) == 1 { found = 1 }
   END { exit !found }
-' || fail "cited changelog date $cited has no dated bullet under ## Changelog at $LANDING"
+' "$landed/requirements.md" || fail "cited changelog date $cited has no dated bullet under ## Changelog at $LANDING"
 echo "ok: entry cites a changelog entry that exists ($cited)"
 
 # Anchor-written-last: the final two non-blank lines are the `Anchor:` line
@@ -154,9 +158,7 @@ hash=$(grep '^Anchor:' "$FIXTURE" | sed -n 's/.*`\([0-9a-f]\{40\}\)`.*/\1/p' | h
 # recomputes over.
 f3="$tmp/f3/specs"
 mkdir -p "$f3/$BUNDLE"
-for f in requirements design tasks test-spec kickoff-brief; do
-  at_landing "specs/$BUNDLE/$f.md" >"$f3/$BUNDLE/$f.md"
-done
+cp "$landed"/*.md "$f3/$BUNDLE/"
 run_guard "$f3"
 assert_rc "captured entry recomputes clean over its landed content" 0
 assert_has "the ok record names the entry's hash" "ok     $BUNDLE — anchor $hash"
