@@ -139,24 +139,36 @@ planwright_root() {
 # Unlike the ghost-text pin, these do NOT override an inherited value: both are
 # documented operator overrides (tests, adopters pointing at a checkout), and the
 # wrapper must not silently outrank a root the operator chose.
+# warn_unresolved_root — say so, once, when neither an operator value nor
+# self-location produced a root. Not fatal: the launch's own mode source is the
+# settings fragment, not this. But never silent, because the only symptom is a
+# worker prompting on every routine command, which reads as a hung worker
+# rather than as a path that never resolved.
+warn_unresolved_root() {
+  [ "${root_warned:-0}" = 1 ] && return 0
+  root_warned=1
+  echo "fleet-dispatch-env.sh: cannot derive the planwright root from $0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
+}
+
+# An operator value stands on its own: it must survive even when self-location
+# fails, since the two are independent answers to the same question and either
+# alone is complete. That branch is guarded by construction rather than by a
+# test — reaching it needs a $0 that resolves to nothing, which cannot be staged
+# from a test that has to invoke this script by a path in the first place.
 export_root_vars() {
   er_root=$(planwright_root)
-  if [ -z "$er_root" ]; then
-    # Not fatal — the launch's own mode source is the settings fragment, not
-    # this — but never silent: without a root the worker's auto-approve hook
-    # cannot resolve, and the only symptom is a worker that prompts on every
-    # routine command, which reads as a hung worker rather than a broken path.
-    echo "fleet-dispatch-env.sh: cannot derive the planwright root from \$0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
-    return 0
-  fi
-  [ -n "${PLANWRIGHT_ROOT:-}" ] || {
-    PLANWRIGHT_ROOT=$er_root
+  er_pw=${PLANWRIGHT_ROOT:-$er_root}
+  er_cp=${CLAUDE_PLUGIN_ROOT:-$er_root}
+  [ -n "$er_pw" ] && {
+    PLANWRIGHT_ROOT=$er_pw
     export PLANWRIGHT_ROOT
   }
-  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || {
-    CLAUDE_PLUGIN_ROOT=$er_root
+  [ -n "$er_cp" ] && {
+    CLAUDE_PLUGIN_ROOT=$er_cp
     export CLAUDE_PLUGIN_ROOT
   }
+  { [ -n "$er_pw" ] && [ -n "$er_cp" ]; } || warn_unresolved_root
+  return 0
 }
 
 if [ "$#" -eq 0 ]; then
@@ -166,11 +178,15 @@ fi
 if [ "$1" = "--print" ]; then
   [ "$#" -eq 1 ] || usage
   printf '%s=%s\n' "$GHOST_TEXT_KEY" "$GHOST_TEXT_VALUE"
+  # Same resolution and the same diagnostic as the exec path: a launcher that
+  # cannot wrap the exec builds its environment from these lines alone, so an
+  # operator override omitted here is an override lost.
   _root=$(planwright_root)
-  if [ -n "$_root" ]; then
-    printf 'PLANWRIGHT_ROOT=%s\n' "${PLANWRIGHT_ROOT:-$_root}"
-    printf 'CLAUDE_PLUGIN_ROOT=%s\n' "${CLAUDE_PLUGIN_ROOT:-$_root}"
-  fi
+  _pw=${PLANWRIGHT_ROOT:-$_root}
+  _cp=${CLAUDE_PLUGIN_ROOT:-$_root}
+  [ -n "$_pw" ] && printf 'PLANWRIGHT_ROOT=%s\n' "$_pw"
+  [ -n "$_cp" ] && printf 'CLAUDE_PLUGIN_ROOT=%s\n' "$_cp"
+  { [ -n "$_pw" ] && [ -n "$_cp" ]; } || warn_unresolved_root
   exit 0
 fi
 
