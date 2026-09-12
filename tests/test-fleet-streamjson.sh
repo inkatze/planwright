@@ -611,6 +611,16 @@ esac
 case $argv_line in
   *--bare*) fail "c9: --bare must never appear in a launch argv (D-12)" ;;
 esac
+# The permission-mode source is structural, not a caller's responsibility:
+# Claude Code honors `defaultMode: "auto"` from the operator's own user
+# settings, so a launch carrying no readable --settings fragment silently
+# inherits it and fleet-dispatch-guard.sh refuses the argv (risk row 20).
+case $argv_line in
+  *"--settings "*worker-settings.json*) : ;;
+  *) fail "c9: the launch argv must pin --settings <worker-settings fragment>: $argv_line" ;;
+esac
+"$here/../scripts/fleet-dispatch-guard.sh" check-launch $argv_line >/dev/null 2>&1 \
+  || fail "c9: the pinned launch argv must pass fleet-dispatch-guard check-launch"
 # shellcheck disable=SC2016 # matching the literal '$(touch' substring, not expanding it
 grep -q '\$(touch PWNED-marker)' "$rec/stdin" \
   || fail "c9: the metacharacter prompt must reach the worker as literal data"
