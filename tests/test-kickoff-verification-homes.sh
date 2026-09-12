@@ -39,6 +39,10 @@ export LC_ALL
 # corrupting derived paths (house pattern, see sibling tests).
 unset CDPATH
 
+# An inherited repository override (a `git bisect run` or `rebase --exec`
+# parent exports one) would redirect every `git -C "$repo"` read below.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/.." && pwd)
 GUARD="$repo/scripts/check-anchor-freshness.sh"
