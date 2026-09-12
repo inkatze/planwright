@@ -5,23 +5,23 @@ across its guided walkthrough and sign-off, plus the two artifacts that
 instantiation adds: the shared-understanding approval summary that replaces the
 bare verdict-demand, and the structured decision/transcript log the behavioral
 eval grades. `interaction-style` defines the disciplines and session mechanics;
-this doc records how the kickoff surface applies them; lifting them out keeps
+this doc records how the kickoff surface applies them, and the skill follows
+the mechanics here at each point of use; lifting them out keeps
 `skills/spec-kickoff/SKILL.md` within its instruction budget (D-10).
 
 Citations: operator-dialogue REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5,
 REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-C1.5, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-F1.1,
 REQ-F1.2, REQ-F1.3, REQ-G1.3, REQ-G1.6, REQ-H1.3 · operator-dialogue D-2, D-3,
-D-4, D-5, D-6, D-9, D-10.
+D-4, D-5, D-6, D-9, D-10, D-19.
 
 ## Comprehend before interviewing (teach to the frontier, D-2)
 
 Kickoff builds its faithful model of the spec **in-band, before it interviews**
 — inside the live dialogue where the operator already is, with no separate
 command or generated file on the critical path (the optional
-`/spec-walkthrough` cold read stays a suggestion, never a dependency; the
-walkthrough's out-of-band failure is the direct evidence, D-2). The Goal &
-glossary restatement (walkthrough section 2) is that comprehension step: the
-agent restates what the spec is for, rules out, and assumes, and surfaces
+`/spec-walkthrough` cold read stays a suggestion, never a dependency, D-2). The
+Goal & glossary restatement (walkthrough section 2) is that comprehension step:
+the agent restates what the spec is for, rules out, and assumes, and surfaces
 implicit terms, before the requirements interview begins.
 
 Teaching happens inside the same dialogue, pitched at the operator's frontier —
@@ -88,14 +88,14 @@ amended answer invalidates.
 - **Changed answer reopens dependents (REQ-C1.2).** An amended upstream answer
   reopens the dependent brief decisions it invalidates rather than leaving a
   stale answer standing.
-- **Bounded, need-driven.** At most five questions per multi-turn pass, per
-  `interaction-style`.
+- **Bounded, need-driven.** At most five questions per multi-turn pass, asked
+  only when needed (`interaction-style`).
 - **Clerical/judgment split (REQ-C1.4).** The skill carries the clerical weight
   — deriving candidate answers, formatting, tracking state — and asks the
   operator only for judgment, never for the skill's own bookkeeping.
-- **Input robustness (REQ-C1.5).** Unparseable input gets a re-prompt restating
-  what is needed, never a silent advance, and moves neither the section, the
-  sign-off, nor the uptake estimate.
+- **Input robustness (REQ-C1.5).** Input the skill cannot parse gets a
+  re-prompt restating what is needed, never a silent advance, and moves none of
+  the section, the sign-off, or the uptake estimate.
 
 ## Present without steering (D-3, D-6)
 
@@ -156,23 +156,25 @@ bundle: the committed artifacts stay the brief and the four spec files.
 
 - **Form.** JSON Lines — one self-contained JSON object per line, appended as the
   session proceeds. Escape-safe and non-code-bearing by construction: emitted
-  and parsed as **data, never executed**, every surfaced value data per
-  `security-posture`. Each record carries a schema
-  version (`v`), a monotonic `seq`, the `phase`, a `kind`
+  and parsed as **data, never executed**, every surfaced value treated as data
+  per `security-posture`. Each record carries a schema version (`v`), a
+  monotonic `seq`, the `phase`, a `kind`
   (`present` / `ask` / `answer` / `decision` / `turn`), and its payload; the
   schema is versioned so the grader contract survives a format change.
 - **Records.** Each presentation, question, operator answer, and recorded
   decision across the walk and sign-off — including the approval summary and the
-  final sign-off decision — is one record; each turn-side emission (a running
-  summary, the resume confirmation, the lens-pass projection, the handoff) is
-  mirrored as a `turn` record (`interaction-style`, *Turn projection*; D-19).
-  Operator answers are captured
+  final sign-off decision — is one record. Operator answers are captured
   verbatim after the echo-safety sanitizer, so no surfaced value carries a
   control sequence into the log.
+- **Turn records.** Each projection the run emits at the operator — a running
+  summary, the resume confirmation, the lens-pass projection, the handoff — is
+  additionally mirrored as one `turn` record carrying that projection as
+  emitted, distinct from the per-exchange records above (`interaction-style`,
+  *Turn projection*; D-19).
 - **Independence.** The log records what was presented and decided; it carries
   **no** self-graded verdict or score of the spec. The in-session self-audit is a
   non-scoring diagnostic, never an acceptance score of record (REQ-H1.3,
-  preserving the independence firewall).
+  the independence firewall).
 - **Eval-only runs.** Under the behavioral-eval harness the kickoff runs with
   publishing disabled — no push, no PR, no ready-flip — and any driver-produced
   sign-off record is marked eval-only / non-authoritative, so an eval run never
@@ -184,8 +186,10 @@ bundle: the committed artifacts stay the brief and the four spec files.
 
 Absent this doc, `/spec-kickoff` follows the load-bearing spine inline: comprehend
 the spec in-band before interviewing, teach the frontier and fade via a
-lightweight per-concept estimate (no learner model), backward-chain the bundle's
-open questions (bounded per pass), present without steering, emit the approval
-summary in place of a verdict-demand, frame the gates in plain language, and
-emit the structured log — noting the missing doc. `interaction-style`
-(run-start) still supplies the discipline definitions.
+lightweight per-concept uptake estimate (no learner model), interview to
+completeness by backward-chaining the bundle's open questions (bounded per
+pass), present without steering, emit the shared-understanding approval summary
+in place of a verdict-demand, frame the gates in plain language, and emit the
+structured decision/transcript log with its turn records — and note the
+missing doc. `interaction-style` (run-start) still supplies the discipline
+definitions.

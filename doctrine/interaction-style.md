@@ -14,7 +14,7 @@ Citations: REQ-B3.1 · operator-dialogue REQ-A1.1, REQ-A1.2, REQ-B1.3,
 REQ-C1.1, REQ-C1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5,
 REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-I1.1, REQ-I1.2, REQ-I1.3,
 REQ-I1.4, REQ-I1.5, REQ-J1.3 · operator-dialogue D-1, D-3, D-4, D-5,
-D-6, D-7, D-12, D-14, D-15, D-20, D-21 · the bootstrap seed (Sources).
+D-6, D-7, D-12, D-14, D-15, D-19, D-20, D-21 · the bootstrap seed (Sources).
 
 ## The three disciplines
 
@@ -112,9 +112,11 @@ underlying record, never the record itself:
 - **The whole record stays one request away** — a pointer to the artifact
   holding it, or a regeneration the operator can ask for next turn. An
   artifact already holding it satisfies this without being asked.
-- **The turn is mirrored.** A surface appends each turn-side emission to its
-  structured decision/transcript log as a `turn` record, so the eval grades
-  the artifact and never the pane.
+- **The turn is mirrored.** A surface that keeps the structured
+  decision/transcript log the behavioral eval grades (`kickoff-dialogue`
+  records its form) appends each projection it emits as one `turn` record,
+  sanitized like its other records; without a harness-provided log it says the
+  mirror is skipped, never improvising one into the repository.
 
 Density follows *Small bites* below, which bounds the whole turn, not only its
 questions.
@@ -152,8 +154,7 @@ doctrine are resolved and reported, not asked.
 **Self-contained.** The selector prompt carries everything needed to answer
 it. In a terminal the open selector hides the prose emitted before it, so the
 operator answering sees only the question, the options, and their previews.
-Never
-assume they can read what came earlier, and never tell them to scroll up.
+Never tell them to scroll up.
 Restate the decision and its load-bearing context in the question text; put
 each option's action and consequence in that option's description; put
 comparative or long content (diffs, tables, side-by-side snippets) in option
@@ -190,8 +191,8 @@ the skill heard what the operator said; a misunderstanding surfaces at the next
 summary, not at session end.
 
 No summary a skill repeats may grow monotonically. Delta-plus-open is bounded
-by construction; a restatement of everything decided so far grows until it is
-itself the wall, and capping a growing input can only drop something silently.
+by construction; a restatement of everything decided so far grows into the
+wall, and capping it can only drop something silently.
 Where the whole accumulated record is wanted, an artifact holds it, and a
 resume path confirms ground already settled at one line each rather than
 replaying it.
