@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for the authoring-surface repairs (operator-dialogue Task 10; REQ-J1.1,
-# REQ-J1.3, REQ-J1.5; D-15, D-19, D-21).
+# REQ-J1.3, REQ-J1.5, REQ-I1.4; D-15, D-19, D-21).
 #
 # Task 10 repairs the two authoring skills against the turn/artifact
 # arbitration: /spec-draft's running summary becomes delta-plus-open and its
@@ -10,12 +10,14 @@
 # becomes a projection; both mirror their turn-side emissions into the
 # structured log as turn records.
 #
-# The REQ-J1.1/J1.3/J1.5 test-spec arms grade eval transcripts against fixtures
-# the enforcement task owns. The assertions here are the cheap mechanical floor
-# under that lane, the same role tests/test-operator-dialogue-doctrine.sh plays
-# for Task 7: they pin that each converted form is stated where the sweep found
+# REQ-J1.3 and REQ-J1.5 grade eval transcripts against fixtures the
+# enforcement task owns, and REQ-J1.1's design-level half is a human review
+# at the acceptance join. The assertions here are the cheap mechanical floor
+# under both, the same role tests/test-operator-dialogue-doctrine.sh plays for
+# Task 7: they pin that each converted form is stated where the sweep found
 # the wall, that the superseded wording does not creep back, and that each
-# surface cites the arbitration. They do not judge the prose.
+# repaired form cites the arbitration. They pin presence, not ordering (the
+# eval's decisions-first invariant owns that), and they do not judge the prose.
 #
 # Plain bash 3.2, inline asserts (sibling convention).
 set -u
@@ -86,50 +88,68 @@ for f in "$SKILLS/spec-draft/SKILL.md" "$SKILLS/spec-kickoff/SKILL.md" \
   fi
 done
 
-draft="$(flatten <"$SKILLS/spec-draft/SKILL.md")"
 kickoff="$(flatten <"$SKILLS/spec-kickoff/SKILL.md")"
 
 # ---------------------------------------------------------------------------
 # 1. REQ-J1.3 / D-21 — /spec-draft's per-phase running summary is
-#    delta-plus-open, and the monotonic "everything decided so far" form is
+#    delta-plus-open (the form itself, not the read-through's reference to
+#    it), cites the rule, and the monotonic "summary of everything" form is
 #    gone from the elicitation rule.
 # ---------------------------------------------------------------------------
 elicit="$(section "$SKILLS/spec-draft/SKILL.md" "Elicitation")"
-assert_contains "spec-draft: the elicitation section exists" "phase" "$elicit"
+assert_contains "spec-draft: the elicitation section exists" "Six phases" "$elicit"
 assert_contains "spec-draft: the running summary is delta-plus-open" \
-  "delta-plus-open" "$elicit"
+  "running summary in delta-plus-open form" "$elicit"
 assert_contains "spec-draft: the summary carries what remains open" \
   "remains open" "$elicit"
+assert_contains "spec-draft: the summary rule cites the arbitration" \
+  "turn/artifact arbitration" "$elicit"
 assert_absent "spec-draft: the monotonic summary wording is gone" \
-  "everything decided so far" "$elicit"
+  "summary of everything" "$elicit"
 
 # ---------------------------------------------------------------------------
-# 2. REQ-J1.5 / D-15 — the phase-6 read-through is a projection: a bounded
-#    excerpt with the bundle as the artifact, self-critique dispositions as
-#    counts plus open questions; never the assembled bundle plus a cumulative
-#    summary in one turn.
+# 2. REQ-J1.5 / D-15 — the phase-6 read-through is a projection: never the
+#    assembled bundle, a bounded excerpt with the bundle as the artifact, the
+#    self-critique dispositions as counts plus open questions, and the full
+#    list one request away.
 # ---------------------------------------------------------------------------
 assert_contains "spec-draft: the read-through is a projection" \
-  "projection" "$elicit"
+  "read-through as a projection" "$elicit"
+assert_contains "spec-draft: the read-through is never the assembled bundle" \
+  "never the assembled bundle" "$elicit"
+assert_contains "spec-draft: the bundle on disk is the artifact" \
+  "the bundle on disk is the artifact" "$elicit"
 assert_contains "spec-draft: the read-through carries a bounded excerpt" \
   "bounded excerpt" "$elicit"
-assert_contains "spec-draft: dispositions reach the turn as counts" \
-  "as counts" "$elicit"
-assert_contains "spec-draft: open questions still reach the turn" \
-  "open questions" "$elicit"
+assert_contains "spec-draft: dispositions reach the turn as counts plus open questions" \
+  "dispositions as counts plus the open questions" "$elicit"
+assert_contains "spec-draft: the full disposition list stays one request away" \
+  "full disposition list one request away" "$elicit"
+assert_contains "spec-draft: the read-through cites the arbitration" \
+  "interaction-style\`, the arbitration" "$elicit"
 assert_absent "spec-draft: the cumulative read-through wording is gone" \
-  "cumulative summary" "$draft"
+  "cumulative summary" "$elicit"
 
 # ---------------------------------------------------------------------------
 # 3. REQ-J1.3 — /spec-kickoff's resume path confirms signed sections at one
-#    line each instead of replaying them.
+#    line each instead of replaying them, and the walkthrough's own summary
+#    names the delta-plus-open form.
 # ---------------------------------------------------------------------------
 pre="$(section "$SKILLS/spec-kickoff/SKILL.md" "Pre-flight")"
-assert_contains "spec-kickoff: the pre-flight section exists" "brief" "$pre"
+assert_contains "spec-kickoff: the pre-flight section exists" \
+  "Detect a partial brief" "$pre"
 assert_contains "spec-kickoff: resume confirms signed sections at one line each" \
-  "one line each" "$pre"
+  "signed sections at one line each" "$pre"
+assert_contains "spec-kickoff: resume never replays signed content" \
+  "never a replay" "$pre"
 assert_absent "spec-kickoff: the resume replay wording is gone" \
-  "running summary of every signed section" "$pre"
+  "summary of every signed section" "$kickoff"
+
+walk="$(section "$SKILLS/spec-kickoff/SKILL.md" "The walkthrough")"
+assert_contains "spec-kickoff: the walkthrough section exists" \
+  "Header block" "$walk"
+assert_contains "spec-kickoff: the walkthrough summary is delta-plus-open" \
+  "delta-plus-open running summary" "$walk"
 
 # ---------------------------------------------------------------------------
 # 4. REQ-I1.4 / D-15 — the lens-coverage table declares its side: recorded in
@@ -138,54 +158,70 @@ assert_absent "spec-kickoff: the resume replay wording is gone" \
 #    the skill's own sign-off step states the split too.
 # ---------------------------------------------------------------------------
 signoff="$(section "$SKILLS/spec-kickoff/SKILL.md" "Sign-off")"
-assert_contains "spec-kickoff: the sign-off section exists" "anchor" "$signoff"
-assert_contains "spec-kickoff: the lens table is artifact-side" \
-  "artifact-side" "$signoff"
+assert_contains "spec-kickoff: the sign-off section exists" \
+  "The lens review pass" "$signoff"
+assert_contains "spec-kickoff: the lens table is recorded in full artifact-side" \
+  "dispositions are artifact-side, recorded in full" "$signoff"
 assert_contains "spec-kickoff: the turn carries counts plus notable rows" \
-  "notable rows" "$signoff"
+  "counts plus the notable rows" "$signoff"
 
 lensrev="$(section "$DOCTRINE/kickoff-verification.md" \
   "Sign-off lens review — scope and fan-out (REQ-A3.3, D-45)")"
 assert_contains "kickoff-verification: the lens review section exists" \
   "Lens-coverage table" "$lensrev"
-assert_contains "kickoff-verification: the lens table is artifact-side" \
-  "artifact-side" "$lensrev"
+assert_contains "kickoff-verification: the canonical table is artifact-side" \
+  "canonical table is recorded artifact-side" "$lensrev"
 assert_contains "kickoff-verification: the turn carries counts plus notable rows" \
-  "notable rows" "$lensrev"
+  "counts plus the notable rows" "$lensrev"
+assert_contains "kickoff-verification: the lens table cites the arbitration" \
+  "interaction-style\`, the arbitration" "$lensrev"
 assert_absent "kickoff-verification: the side-less emit mandate is gone" \
-  "Emit the canonical lens-coverage table." "$lensrev"
+  "Emit the" "$lensrev"
 
 # ---------------------------------------------------------------------------
 # 5. REQ-J1.5 / D-15 — the handoff report is a projection: counts plus the
-#    actionable residue at the turn, the full report artifact-side.
+#    actionable residue at the turn, the full report artifact-side once the
+#    PR body can carry it, regenerated on request when no PR exists, and the
+#    merge step conditional on the PR being ready.
 # ---------------------------------------------------------------------------
 assert_contains "spec-kickoff: the handoff is a projection" \
-  "projection" "$signoff"
+  "The turn is its projection" "$signoff"
 assert_contains "spec-kickoff: the handoff carries the actionable residue" \
   "actionable residue" "$signoff"
+assert_contains "spec-kickoff: the full report lands in the PR body" \
+  "written into the PR body" "$signoff"
+assert_contains "spec-kickoff: the full report is regenerated when no PR exists" \
+  "regenerated on request" "$signoff"
+assert_contains "spec-kickoff: the next step is conditional on readiness" \
+  "merge the spec PR once ready" "$signoff"
+assert_contains "spec-kickoff: the handoff cites the arbitration" \
+  "interaction-style\`, the arbitration" "$signoff"
 
 # ---------------------------------------------------------------------------
-# 6. D-19 — both surfaces mirror their turn-side emissions into the structured
-#    log as turn records, and the log schema names the record kind.
+# 6. D-19 — both surfaces mirror their projections into the structured log as
+#    turn records at the emission point, the log schema names the record
+#    kind and its distinct role, and the projection rule scopes the mirror to
+#    surfaces that keep the log.
 # ---------------------------------------------------------------------------
-assert_contains "spec-draft: turn-side emissions are mirrored as turn records" \
-  "turn\` record" "$draft"
-assert_contains "spec-kickoff: turn-side emissions are mirrored as turn records" \
-  "turn\` record" "$kickoff"
+assert_contains "spec-draft: phase summaries are mirrored as turn records" \
+  "mirrored into the structured decision/transcript log as a \`turn\` record" \
+  "$elicit"
+assert_contains "spec-kickoff: the run's projections are mirrored as turn records" \
+  "mirrored into it as a \`turn\` record" "$walk"
 log="$(section "$DOCTRINE/kickoff-dialogue.md" \
   "The structured decision/transcript log (REQ-G1.3, D-9)")"
 assert_contains "kickoff-dialogue: the log section exists" "JSON Lines" "$log"
 assert_contains "kickoff-dialogue: the schema names the turn record kind" \
-  "\`turn\`" "$log"
+  "/ \`turn\`)" "$log"
+assert_contains "kickoff-dialogue: turn records mirror each projection" \
+  "mirrored as one \`turn\` record" "$log"
 proj="$(section "$DOCTRINE/interaction-style.md" "Turn projection")"
 assert_contains "interaction-style: the projection is mirrored into the log" \
-  "turn\` record" "$proj"
-
-# ---------------------------------------------------------------------------
-# 7. Done-when — each repaired surface cites the arbitration by name.
-# ---------------------------------------------------------------------------
-assert_contains "spec-draft cites the arbitration" "arbitration" "$draft"
-assert_contains "spec-kickoff cites the arbitration" "arbitration" "$kickoff"
+  "as one \`turn\` record" "$proj"
+assert_contains "interaction-style: the mirror is scoped to surfaces keeping the log" \
+  "A surface that keeps" "$proj"
+assert_contains "interaction-style: an absent log is said, never improvised" \
+  "never improvising" "$proj"
 
 if [ "$failures" -ne 0 ]; then
   echo "test-operator-dialogue-authoring: $failures assertion(s) failed" >&2
