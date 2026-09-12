@@ -327,4 +327,78 @@ lb2=$(bufname_of "$(printf '%s\n' "$out2" | grep 'tmux load-buffer')")
   || fail "relay-command must use a buffer name unique per invocation (both were '$lb1'); a fixed server-global buffer races across concurrent relays"
 echo "ok: relay buffer name is unique per invocation and consistent within one (no cross-relay race)"
 
+# ---------------------------------------------------------------------------
+# 14. The tmux paste is ONE LINE, a pointer to the message file, never the body.
+#     Measured on Claude Code 2.1.270: a multi-line paste becomes a
+#     "[Pasted text #N +M lines]" placeholder the CLI never submits, and it
+#     wedges every later paste behind it. The old emission (`printf header;
+#     cat -- <file>`) was multi-line for EVERY message. Now the loaded payload
+#     is a single printf of header + `read <absolute file>`, whatever the
+#     file holds.
+# ---------------------------------------------------------------------------
+multi="$tmp/multi-line.txt"
+printf 'line one\nline two\nline three\n' >"$multi"
+out=$("$RELAY" relay-command tmux "@3" "$multi") \
+  || fail "relay-command tmux exited non-zero on a multi-line message"
+load=$(printf '%s\n' "$out" | grep 'tmux load-buffer')
+case "$load" in
+  *"cat -- "*) fail "relay-command must not paste the message body (the body is what made the paste multi-line)" ;;
+  *) : ;;
+esac
+case "$load" in
+  "printf '%s\\n' '[planwright tower relay -> @3] read $multi' | tmux load-buffer -b "*) : ;;
+  *) fail "relay-command must load exactly one pointer line (header + read <file>), got: $load" ;;
+esac
+# The payload the emitted command loads is what tmux pastes: run the load half
+# with tmux replaced by a recorder and count the lines it receives.
+mkdir -p "$tmp/fakebin"
+cat >"$tmp/fakebin/tmux" <<'EOF'
+#!/bin/sh
+cat >"$FAKE_TMUX_OUT"
+EOF
+chmod +x "$tmp/fakebin/tmux"
+FAKE_TMUX_OUT="$tmp/pasted.txt" PATH="$tmp/fakebin:$PATH" sh -c "$load" \
+  || fail "the emitted load-buffer line did not run"
+[ "$(wc -l <"$tmp/pasted.txt" | tr -d ' ')" = 1 ] \
+  || fail "the pasted payload must be exactly one newline-terminated line, got $(wc -l <"$tmp/pasted.txt") lines"
+case "$(cat "$tmp/pasted.txt")" in
+  "[planwright tower relay -> @3] read $multi") : ;;
+  *) fail "the pasted line must be the attributed pointer, got: $(cat "$tmp/pasted.txt")" ;;
+esac
+# A relative message path is emitted absolute: the worker's cwd is not the tower's.
+(cd "$tmp" && "$RELAY" relay-command tmux "@3" "multi-line.txt") >"$tmp/rel.out" \
+  || fail "relay-command tmux exited non-zero on a relative message path"
+grep -q "read $multi'" "$tmp/rel.out" \
+  || fail "relay-command must emit the message path absolute, got: $(cat "$tmp/rel.out")"
+echo "ok: tmux relay pastes exactly one pointer line and never the message body"
+
+# ---------------------------------------------------------------------------
+# 15. stream-json: the sanctioned unattended steer path. relay-command emits the
+#     sibling supervisor's `steer` by its literal path with the message file as
+#     data; observe-command emits its `status`; the handle grammar is enforced.
+# ---------------------------------------------------------------------------
+sj_dir=$(cd "$(dirname "$RELAY")" && pwd)
+out=$("$RELAY" relay-command stream-json "fg-task-7" "$msg") \
+  || fail "relay-command stream-json exited non-zero on a valid handle+message"
+[ "$out" = "'$sj_dir/fleet-streamjson.sh' steer 'fg-task-7' --message-file '$msg'" ] \
+  || fail "relay-command stream-json must emit the literal-path steer invocation, got: $out"
+case "$out" in
+  *send-keys* | *paste-buffer* | *"\$"*) fail "relay-command stream-json must emit no paste, no send-keys, no variable" ;;
+  *) : ;;
+esac
+out=$("$RELAY" observe-command stream-json "fg-task-7") \
+  || fail "observe-command stream-json exited non-zero"
+[ "$out" = "'$sj_dir/fleet-streamjson.sh' status 'fg-task-7'" ] \
+  || fail "observe-command stream-json must emit the literal-path status read, got: $out"
+rc_of 0 "validate-handle stream-json accepts the supervisor handle grammar" -- \
+  "$RELAY" validate-handle stream-json "worker.v2@host-1"
+# shellcheck disable=SC2016 # '$(id)' is a literal hostile handle, not an expansion
+for bad in "fg task" "a:b" "x=y" "a/b" "-h" '$(id)' "%1" . ..; do
+  rc_of 2 "validate-handle stream-json must reject '$bad'" -- \
+    "$RELAY" validate-handle stream-json "$bad"
+done
+rc_of 2 "relay-command stream-json must reject a missing message file" -- \
+  "$RELAY" relay-command stream-json "fg-task-7" "$tmp/does-not-exist.txt"
+echo "ok: stream-json relay/observe emit the supervisor's steer/status by literal path; handle grammar enforced"
+
 echo "PASS: test-orchestrate-relay.sh"

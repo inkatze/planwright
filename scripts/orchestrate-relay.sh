@@ -25,11 +25,24 @@
 #       Print the ATTRIBUTED, non-impersonating relay command for a live worker.
 #       tmux: a buffer-paste delivery (`load-buffer`/`paste-buffer`) — NEVER a
 #       `send-keys` path (REQ-D1.3: no impersonation of the worker's input). The
-#       message is DATA: the emitted command reads the message FILE (`cat`),
-#       never inlines its content, so message text is never spliced into the
-#       command as code (REQ-B1.7: worker/tower output is data, no eval/expansion
-#       path). The relay carries a fixed attribution header naming the tower
-#       origin and target. subagent: harness-native — there is no screen-scrape
+#       pasted payload is EXACTLY ONE LINE, a pointer: the attribution header
+#       naming the tower origin and target, then `read <message-file>`. The
+#       message body itself is never pasted. Measured on Claude Code 2.1.270:
+#       a multi-line paste lands in the input box as a "[Pasted text #N +M
+#       lines]" placeholder that nothing submits, and once the box holds
+#       multi-line text every later paste is stuck behind it; a short single
+#       line is what the CLI can submit on its own trailing newline. Even that
+#       submission is timing-dependent (the same one-line paste submitted in
+#       some runs and sat in the box in others), so a paste STAGES a relay and
+#       the tower confirms delivery through observe-command — it never assumes
+#       it. The message is DATA in both forms: the emitted command names the
+#       message FILE, never inlines its content, so message text is never
+#       spliced into the command as code (REQ-B1.7: worker/tower output is
+#       data, no eval/expansion path). stream-json: the sanctioned unattended
+#       path — prints the `fleet-streamjson.sh steer` invocation, which writes
+#       the attributed message as a user turn on the worker's own stdin (a
+#       real submit, journaled in the worker's state dir) and never touches an
+#       input box. subagent: harness-native — there is no screen-scrape
 #       surface at all; empty stdout, exit 0 (the tower relays via its own prompt
 #       queue). Exit 2 on an invalid handle, a missing/unsafe message file, an
 #       unknown backend, or usage.
@@ -37,8 +50,10 @@
 #   observe-command <backend> <handle>
 #       Print the observe-in-flight status-read command (REQ-D1.3). tmux:
 #       `capture-pane -p` — a read, never a write; the handle is validated first.
-#       subagent: harness-native (completion/notification is the surface); empty
-#       stdout, exit 0. Exit 2 on an invalid handle, an unknown backend, or usage.
+#       stream-json: `fleet-streamjson.sh status <handle>` (running,
+#       awaiting-input, completed, ended, dead, unknown). subagent:
+#       harness-native (completion/notification is the surface); empty stdout,
+#       exit 0. Exit 2 on an invalid handle, an unknown backend, or usage.
 #
 # What this script NEVER does, by construction (REQ-B1.7, REQ-D1.3, D-7): it
 # never emits a `send-keys` impersonation path, never answers a worker's harness
@@ -106,6 +121,15 @@ valid_handle() {
     subagent)
       case "$2" in
         *[!A-Za-z0-9_.-]*) return 1 ;;
+      esac
+      ;;
+    stream-json)
+      # The supervisor's own worker-handle grammar (fleet-streamjson.sh
+      # valid_field), minus `=` and `:`, which a handle never needs and which
+      # would otherwise ride into the emitted single-quoted argument.
+      case "$2" in
+        *[!A-Za-z0-9_.@-]*) return 1 ;;
+        . | ..) return 1 ;;
       esac
       ;;
     *) return 1 ;;
@@ -178,11 +202,45 @@ case "$sub" in
         # lines below name the SAME buffer, while two concurrent invocations
         # (distinct live PIDs) never collide. It is a DATA-free literal (digits).
         buf="planwright-relay-$$"
+        # The pasted payload is a single pointer line, never the body (see the
+        # header: a multi-line paste is a placeholder the CLI never submits and
+        # it poisons the box for every later paste). The worker reads the file
+        # itself, so the path is made absolute here — its cwd is not the
+        # tower's — and re-checked after canonicalization, since the check
+        # above ran on the spelling the tower gave, not on the one emitted.
+        msg_abs=$(cd -- "$(dirname -- "$msg")" 2>/dev/null && pwd -P) || msg_abs=''
+        [ -n "$msg_abs" ] && msg_abs="$msg_abs/$(basename -- "$msg")"
+        valid_msgfile "$msg_abs" || {
+          printf '%s\n' "$me: message file path unsafe to relay once made absolute: $(sanitize_printable "$msg" "(unprintable path)")" >&2
+          exit 2
+        }
         # Attributed buffer-paste delivery. The header is a fixed literal (tower
-        # origin + target); the message body is `cat`'d from the file, so its
-        # content is DATA and never enters the command as code. NEVER send-keys.
-        printf '%s\n' "{ printf '%s\\n' '[planwright tower relay -> $handle]'; cat -- '$msg'; } | tmux load-buffer -b $buf -"
+        # origin + target); the pointer names the message FILE, so its content
+        # is DATA and never enters the command as code. NEVER send-keys.
+        printf '%s\n' "printf '%s\\n' '[planwright tower relay -> $handle] read $msg_abs' | tmux load-buffer -b $buf -"
         printf '%s\n' "tmux paste-buffer -b $buf -t '$handle' -d"
+        exit 0
+        ;;
+      stream-json)
+        valid_handle stream-json "$handle" || reject_handle stream-json
+        valid_msgfile "$msg" || {
+          printf '%s\n' "$me: message file missing or path unsafe to relay: $(sanitize_printable "$msg" "(unprintable path)")" >&2
+          exit 2
+        }
+        # The supervisor writes the attributed message onto the worker's own
+        # stdin as a user turn: a submit that needs no input box and leaves a
+        # receipt in the worker's state dir. The sibling script is named by the
+        # literal path next to this one (the shape the tower command-guard
+        # approves), never through a variable. The install path is bound into
+        # a single-quoted literal the same way the message path is, so it gets
+        # the same refusal on a quote or newline.
+        case "$script_dir" in
+          *"'"* | *"$nl"*)
+            echo "$me: install path unsafe to emit inside a single-quoted command" >&2
+            exit 2
+            ;;
+        esac
+        printf '%s\n' "'$script_dir/fleet-streamjson.sh' steer '$handle' --message-file '$msg'"
         exit 0
         ;;
       subagent)
@@ -210,6 +268,17 @@ case "$sub" in
         # Observe-in-flight: a read, never a write. capture-pane -p prints the
         # pane to stdout for the tower to classify as DATA.
         printf '%s\n' "tmux capture-pane -p -t '$handle'"
+        exit 0
+        ;;
+      stream-json)
+        valid_handle stream-json "$handle" || reject_handle stream-json
+        case "$script_dir" in
+          *"'"* | *"$nl"*)
+            echo "$me: install path unsafe to emit inside a single-quoted command" >&2
+            exit 2
+            ;;
+        esac
+        printf '%s\n' "'$script_dir/fleet-streamjson.sh' status '$handle'"
         exit 0
         ;;
       subagent)

@@ -1,14 +1,10 @@
 # Inter-Orchestrator Coordination
 
-planwright already runs fleets — but historically only as the emergent behavior
-of a skilled tmux operator hand-relaying messages between towers and workers.
-This doctrine productizes that tribal operational protocol into a first-class,
-enforceable capability with two parts: an explicit **division of labor** and an
-**attributed, non-impersonating relay that works against a live, busy worker**.
-
-The relay's mechanics are enforced by one audited script,
-`scripts/orchestrate-relay.sh`, so the never-impersonate discipline lives in a
-single tested place rather than being re-derived per relay.
+This doctrine turns the tmux operator's hand-relay protocol between towers and
+workers into an enforceable capability with two parts: an explicit **division
+of labor** and an **attributed, non-impersonating relay that works against a
+live, busy worker**. One audited script, `scripts/orchestrate-relay.sh`,
+enforces the relay's mechanics.
 
 Citations: orchestration-fleet REQ-D1.2 (division of labor), orchestration-fleet
 REQ-D1.3 (attributed, non-impersonating relay), orchestration-fleet REQ-B1.7
@@ -72,23 +68,29 @@ Messages are delivered by a **buffer-paste** mechanism (under tmux,
 elsewhere), clearly **marked as tower-originated** so the worker can tell a
 relayed instruction from its own reasoning or the human's. The relay **never**
 uses `send-keys`-style impersonation — typing into a worker's input line as if
-the human typed it. That would be an authorization decision implemented as
-fragile screen-scraping with no audit trail (the same rejection bootstrap D-38
-made); attributed buffer-paste keeps the human's authorization boundary intact.
+the human typed it: an authorization decision made by screen-scraping with no
+audit trail (the rejection bootstrap D-38 made).
 
 `scripts/orchestrate-relay.sh relay-command tmux <handle> <message-file>` emits
 exactly this: a buffer-paste command carrying a fixed attribution header, with
-the message body read from a file (see data discipline below). It emits no
+the message body left in its file (see data discipline below). It emits no
 `send-keys` path by construction, and a source audit (its test) proves the code
 contains none.
+
+**A paste stages; the CLI submits.** On Claude Code 2.1.270 a multi-line paste
+becomes an unsubmittable `[Pasted text]` placeholder that blocks every later
+paste, and a one-line paste submits only sometimes. So the tmux paste is **one
+pointer line** (`… read <absolute message file>`), never the body, and delivery
+is confirmed by observe-command, never assumed. `relay-command stream-json`
+instead emits `fleet-streamjson.sh steer`: a user turn on the worker's own
+stdin, a real submit with a receipt row — the unattended path.
 
 ### Observe-in-flight: capture-pane, a read never a write
 
 Status is read by **capture-pane** (or the backend's observe-in-flight
 equivalent) — a read of the worker's surface, never a write to it.
 `orchestrate-relay.sh observe-command tmux <handle>` emits the `capture-pane -p`
-read. The captured text is then classified by the tower as **data** (see below),
-which guards against acting on a misread of a stale or partial frame.
+read. The captured text is then classified by the tower as **data** (see below).
 
 ### Never answer a worker's permission prompt
 
@@ -112,14 +114,12 @@ These are the [Security Posture](security-posture.md) applied to relay
 - **Handles are validated before use.** A worker handle parsed for targeting
   (a tmux window/pane id, a subagent unit id) is validated against a declared
   per-backend grammar *before* it is ever used to address a worker, so a hostile
-  handle — shell metacharacters, command substitution, whitespace, an
-  option-injection leading dash, an over-length token — is refused, never
+  handle is refused, never
   interpolated. `orchestrate-relay.sh validate-handle <backend> <handle>` is the
   declared grammar; every relay/observe command validates the handle first.
 - **Message text is data.** The relay command references the message *file*; it
-  never inlines the message content into the command, so a message full of shell
-  metacharacters is delivered verbatim to the worker and never spliced into the
-  tower's command as code.
+  never inlines the message content into the command, so message content is
+  never spliced into the tower's command as code.
 
 ## Data hygiene of coordination artifacts
 

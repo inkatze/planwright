@@ -154,6 +154,20 @@
 #       behavior=allow with updatedInput sliced from the stored envelope;
 #       --deny composes behavior=deny (optional message); --response-file
 #       supplies the full response body (AskUserQuestion answers use this).
+#   fleet-streamjson.sh steer <worker> --message-file <file>
+#       Deliver a tower-originated message to a LIVE worker as a user turn on
+#       its own stdin: the file's text, under the fixed attribution header
+#       `[planwright tower relay -> <worker>]`, JSON-encoded into one user
+#       frame on the fifo. This is the steer-in-flight path for this rung
+#       (doctrine/inter-orchestrator-coordination.md): a real submit that
+#       needs no input box, so it does not depend on a paste landing at an
+#       idle prompt, and it leaves a receipt — `<dir>/steers`, one
+#       `<epoch>\t<bytes>\t<file>` row per delivery — where a pane paste
+#       leaves nothing. It is NOT an answer: it never composes a
+#       control_response and never touches the receipt journal, so it cannot
+#       settle a pending permission request (the tower may not answer those).
+#       The file is data (64 KiB cap, refused whole when over, non-empty); a
+#       dead channel is exit 3, never a hang. Prints `steered <worker> <bytes>`.
 #   fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]
 #       Single-initiator crash recovery: refuse when a recovery is already
 #       in flight (exit 3) or the worker/supervisor is still alive (exit 3),
@@ -291,6 +305,7 @@ usage() {
   {
     echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--cwd <dir>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>])"
+    echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
     echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
     echo "       fleet-streamjson.sh stop <worker> [--grace <secs>]"
@@ -1926,6 +1941,91 @@ cmd_answer() {
   fi
 }
 
+# steer <worker> --message-file <file> — see the header. The delivery shape
+# mirrors `answer` (channel liveness before the fifo open, one line written
+# under the journal lock so two writers never interleave frames) but the frame
+# is a USER turn, and the only state it writes is its own receipt row.
+cmd_steer() {
+  [ $# -ge 1 ] || usage
+  worker=$1
+  shift
+  valid_field "$worker" || {
+    echo "$me: invalid worker handle" >&2
+    exit 2
+  }
+  st_file=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --message-file)
+        [ $# -ge 2 ] || usage
+        st_file=$2
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$st_file" ] || usage
+  if [ ! -f "$st_file" ] || [ ! -r "$st_file" ]; then
+    echo "$me: --message-file missing or unreadable" >&2
+    exit 2
+  fi
+  # One byte past the cap, so an oversize message is refused whole rather
+  # than truncated into a message the worker reads as complete.
+  st_bytes=$(head -c 65537 "$st_file" | wc -c | tr -d ' ')
+  if [ "$st_bytes" -gt 65536 ]; then
+    echo "$me: --message-file exceeds the 64 KiB cap (refused, not truncated)" >&2
+    exit 2
+  fi
+  if [ "$(tr -d '[:space:]' <"$st_file" | wc -c | tr -d ' ')" = 0 ]; then
+    echo "$me: --message-file is empty" >&2
+    exit 2
+  fi
+  dir=$(worker_dir "$worker") || exit 2
+  [ -d "$dir" ] || {
+    echo "$me: unknown worker $worker" >&2
+    exit 2
+  }
+  # The receipt row carries the path as given; a tab or newline in it would
+  # split the row, so such a path is refused rather than recorded mangled.
+  case $st_file in
+    *"$TAB"* | *"$NL"*)
+      echo "$me: --message-file path may not contain a tab or newline" >&2
+      exit 2
+      ;;
+  esac
+
+  journal_lock "$dir" || exit 2
+  now=$(now_epoch) || now=0
+  # Channel liveness BEFORE the fifo open, for the reason `answer` gives: a
+  # fifo with no reader blocks its opener forever. Same accepted TOCTOU.
+  sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
+  wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
+  channel_ok=1
+  valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" || channel_ok=0
+  valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid" || channel_ok=0
+  [ -p "$dir/in.fifo" ] || channel_ok=0
+  if [ "$channel_ok" = 0 ]; then
+    journal_unlock "$dir"
+    echo "$me: steer not delivered: channel for worker $worker is dead (recover the worker first)" >&2
+    exit 3
+  fi
+  st_body=$(json_escape_file "$st_file") || {
+    journal_unlock "$dir"
+    exit 2
+  }
+  trap '' PIPE
+  if printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[planwright tower relay -> %s]\\n%s"}]}}\n' \
+    "$worker" "$st_body" >>"$dir/in.fifo" 2>/dev/null; then
+    printf '%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" >>"$dir/steers" || :
+    journal_unlock "$dir"
+    printf 'steered %s %s\n' "$worker" "$st_bytes"
+  else
+    journal_unlock "$dir"
+    echo "$me: steer not delivered: write to worker $worker stdin failed (recover the worker first)" >&2
+    exit 3
+  fi
+}
+
 cmd_recover() {
   [ $# -ge 1 ] || usage
   worker=$1
@@ -2312,6 +2412,7 @@ shift
 case $cmd in
   launch) cmd_launch "$@" ;;
   answer) cmd_answer "$@" ;;
+  steer) cmd_steer "$@" ;;
   recover) cmd_recover "$@" ;;
   alarm-scan) cmd_alarm_scan "$@" ;;
   stop) cmd_stop "$@" ;;
