@@ -175,6 +175,7 @@ run_guard "$f3"
 assert_rc "captured entry recomputes clean over its landed content" 0
 assert_has "the ok record names the entry's hash" "ok     $BUNDLE — anchor $hash"
 assert_has "the summary counts exactly one ok and no errors" "1 ok, 0 notice(s), 0 error(s)"
+echo "ok: the freshness guard recomputes the captured entry clean"
 
 ########################################################################
 # 4. Discriminating, not vacuous
@@ -205,6 +206,7 @@ grep -q "specs/$BUNDLE specs/$BUNDLE" "$f5/$BUNDLE/kickoff-brief.md" || fail "th
 run_guard "$f5"
 assert_rc "a non-sanctioned command form on the captured entry is refused" 1
 assert_has "the refusal names the non-sanctioned form" "non-sanctioned command form"
+echo "ok: a rewritten hash and a non-sanctioned form are both refused"
 
 ########################################################################
 # 5. Catalog-absent degradation, script half
