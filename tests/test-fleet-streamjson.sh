@@ -634,7 +634,32 @@ senv "$home" "$rec" -- \
   >/dev/null 2>&1
 [ $? -eq 2 ] || fail "c9: a caller-supplied --bare must be refused (exit 2)"
 [ ! -s "$rec/argv" ] || fail "c9: the refused launch must never spawn the worker"
-echo "ok: c9 pinned non-bare launch shape, prompt-as-data, --bare refused (REQ-A1.9, D-12)"
+# The same structure for the mode source: a caller-supplied --settings (either
+# spelling) would let a second fragment override the pinned one.
+for sj_settings in "--settings" "--settings=$tmp/other.json"; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch sjw9c execution-backends:4 --prompt-file "$tmp/prompt9" --foreground -- \
+    "$sj_settings" "$tmp/other.json" >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "c9: a caller-supplied $sj_settings must be refused (exit 2)"
+  [ ! -s "$rec/argv" ] || fail "c9: the refused --settings launch must never spawn the worker"
+done
+# Fail closed when the fragment cannot be read: a copy of scripts/ with no
+# config/ sibling has no mode source, and must refuse rather than launch a
+# worker that inherits the operator's permission mode.
+mkdir -p "$tmp/nocfg"
+cp -R "$here/../scripts" "$tmp/nocfg/scripts"
+: >"$rec/argv"
+env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" \
+  PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" \
+  /bin/sh "$tmp/nocfg/scripts/fleet-streamjson.sh" \
+  launch sjw9d execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
+  >/dev/null 2>"$tmp/nocfg.err"
+[ $? -eq 7 ] || fail "c9: a missing worker-settings fragment must refuse the launch (exit 7)"
+grep -q "worker-settings.json" "$tmp/nocfg.err" \
+  || fail "c9: the fragment refusal must name the resolved path"
+[ ! -s "$rec/argv" ] || fail "c9: the fragment-less launch must never spawn the worker"
+echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data, --bare and --settings refused, missing fragment fails closed (REQ-A1.9, D-12, D-19)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.
