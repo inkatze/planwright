@@ -27,9 +27,9 @@ that?" would need the operator to open a file, it is not a word to say to
 them. When the operator asks what a name means, the name is the defect. Drop
 it rather than explaining around it.
 
-The scorecard counts jargon in delivered text against the word list the queue
-script (`scripts/tower-queue.sh`) ships for that count. That list is the
-inventory of words to avoid; this doc does not restate it.
+The scorecard counts jargon in delivered text against a word list that ships
+beside the queue script for that count. That list is the inventory of words
+to avoid; this doc does not restate it.
 
 ## The first turn after silence
 
