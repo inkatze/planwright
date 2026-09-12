@@ -13,8 +13,10 @@
 #      to THIS one dispatch primitive (D-7). `<base>` is the freshly-fetched
 #      `origin/main` (never stale local `main` or the tower's HEAD — the
 #      fetch-before-act discipline of D-9, via scripts/dispatch-fetch.sh);
-#      `<suffix>` is a DETERMINISTIC function of (spec, task-id): `task-<id>`,
-#      the branch's own final segment (docs/conventions.md worktree placement);
+#      `<suffix>` is a DETERMINISTIC function of (spec, task-id):
+#      `<spec>-task-<id>`. The spec segment is what keeps it unique —
+#      `.claude/worktrees/` is one flat namespace, so the bare `task-<id>` form
+#      collided between any two specs sharing a task number;
 #      and `<spec>` / `<id>` / `<suffix>` are VALIDATED against the D-36 grammar
 #      BEFORE interpolation and passed to git as ARGV (never spliced into a shell
 #      string), so no shell metacharacter or `..` path-traversal can reach the
@@ -256,14 +258,30 @@ valid_id() {
   return 0
 }
 
-# worktree suffix: the branch's final segment `task-<id>`.
+# worktree suffix: `<spec>-task-<id>`.
+#
+# The spec segment is load-bearing, not decoration. `.claude/worktrees/` is one
+# flat namespace shared by every spec, so a bare `task-<id>` collides whenever
+# two specs carry the same task number — which is the common case, not a corner
+# one. A collision makes the second dispatch fail on an existing directory, so
+# the unit cannot be dispatched at all while the first holds it.
+#
+# The BARE form is still accepted so `attach` keeps working against worktrees
+# placed before the spec segment existed; only construction changed.
 valid_suffix() {
   reject_dotdot "$1" || return 1
   case $1 in
-    '' | *[!a-z0-9.-]* | [!a-z]*) return 1 ;;
+    '' | *[!a-z0-9.-]* | [!a-z0-9]*) return 1 ;;
   esac
-  printf '%s' "$1" | grep -Eq '^task-[0-9]+(\.[0-9]+)?$' || return 1
-  [ "${#1}" -le 72 ] || return 1
+  # The spec half must admit the WHOLE spec grammar, which starts [a-z0-9] —
+  # requiring a letter here would reject a legal spec like `2fa` before git
+  # ever sees it.
+  printf '%s' "$1" | grep -Eq '^([a-z0-9][a-z0-9-]*-)?task-[0-9]+(\.[0-9]+)?$' || return 1
+  # The bound must clear what the grammars upstream of it can actually produce:
+  # a spec is up to 64 characters, `-task-` adds 6, and a dotted id adds several
+  # more, so the old 72 rejected a legal max-length spec outright — the suffix
+  # only started carrying the spec in this change, so 72 predates the overflow.
+  [ "${#1}" -le 128 ] || return 1
   return 0
 }
 
@@ -578,7 +596,7 @@ do_dispatch() {
     warn "invalid task id (D-36 grammar): $_id"
     exit 2
   }
-  _suffix="task-$_id"
+  _suffix="$_spec-task-$_id"
   valid_suffix "$_suffix" || {
     warn "invalid worktree suffix (D-36 grammar): $_suffix"
     exit 2

@@ -89,6 +89,10 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #   SHIM_IGNORE_TERM=1   survive SIGTERM, recording each one in <record>/signals
 #   SHIM_EXIT         exit code (default 0)
 printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
+# The wrapper execs this shim, so it cannot appear in argv; what it leaves
+# behind is the environment, which is the property worth asserting.
+printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'plugin_root=%s\n' "${CLAUDE_PLUGIN_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
 i=0
 while [ "$i" -lt "$n" ]; do
@@ -611,12 +615,49 @@ esac
 case $argv_line in
   *--bare*) fail "c9: --bare must never appear in a launch argv (D-12)" ;;
 esac
+# The worker is launched THROUGH the environment-hardening wrapper (D-10,
+# REQ-D1.1). The wrapper execs the CLI, so it never appears in the CLI's own
+# argv — what it leaves is the environment. Without a resolvable planwright
+# root the worker-settings auto-approve hook cannot find its own script, so the
+# worker asks permission for commands the guard would have approved, which
+# presents as a hung worker rather than a blocked one.
+grep -qx 'ghost=false' "$rec/env" \
+  || fail "c9: the launched CLI must inherit the ghost-text pin: $(cat "$rec/env" 2>/dev/null)"
+root_line=$(grep '^plugin_root=' "$rec/env" | tail -n 1)
+case ${root_line#plugin_root=} in
+  /*) [ -f "${root_line#plugin_root=}/scripts/fleet-streamjson.sh" ] \
+    || fail "c9: CLAUDE_PLUGIN_ROOT does not point at a planwright root: $root_line" ;;
+  *) fail "c9: the launched CLI must inherit an absolute CLAUDE_PLUGIN_ROOT, got: $root_line" ;;
+esac
+# The permission-mode source is structural, not a caller's responsibility:
+# Claude Code honors `defaultMode: "auto"` from the operator's own user
+# settings, so a launch carrying no readable --settings fragment silently
+# inherits it and fleet-dispatch-guard.sh refuses the argv (risk row 20).
+case $argv_line in
+  *"--settings "*worker-settings.json*) : ;;
+  *) fail "c9: the launch argv must pin --settings <worker-settings fragment>: $argv_line" ;;
+esac
+# shellcheck disable=SC2086 # the recorded argv must re-split into the guard's argument vector
+"$here/../scripts/fleet-dispatch-guard.sh" check-launch $argv_line >/dev/null 2>&1 \
+  || fail "c9: the pinned launch argv must pass fleet-dispatch-guard check-launch"
 # shellcheck disable=SC2016 # matching the literal '$(touch' substring, not expanding it
 grep -q '\$(touch PWNED-marker)' "$rec/stdin" \
   || fail "c9: the metacharacter prompt must reach the worker as literal data"
 grep -q '\\t' "$rec/stdin" || fail "c9: tab should arrive JSON-escaped"
 [ ! -e "PWNED-marker" ] && [ ! -e "$tmp/PWNED-marker" ] \
   || fail "c9: prompt text reached a shell (command substitution executed)"
+# The posture refusal: a pinned fragment is not a pinned posture if a caller can
+# append a flag that overrides it. Each of these either outranks the fragment's
+# defaultMode or removes the allowlist from the approval path entirely.
+for _flag in --permission-mode --permission-mode=auto --dangerously-skip-permissions; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch "sjw9m$$" execution-backends:4 --prompt-file "$tmp/prompt9" --foreground -- "$_flag" \
+    >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "c9: a caller-supplied '$_flag' must be refused (exit 2)"
+  [ ! -s "$rec/argv" ] || fail "c9: the refused launch ('$_flag') must never spawn the worker"
+done
+
 # The structural refusal: a caller-supplied --bare never launches.
 : >"$rec/argv"
 senv "$home" "$rec" -- \
@@ -624,7 +665,32 @@ senv "$home" "$rec" -- \
   >/dev/null 2>&1
 [ $? -eq 2 ] || fail "c9: a caller-supplied --bare must be refused (exit 2)"
 [ ! -s "$rec/argv" ] || fail "c9: the refused launch must never spawn the worker"
-echo "ok: c9 pinned non-bare launch shape, prompt-as-data, --bare refused (REQ-A1.9, D-12)"
+# The same structure for the mode source: a caller-supplied --settings (either
+# spelling) would let a second fragment override the pinned one.
+for sj_settings in "--settings" "--settings=$tmp/other.json"; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch sjw9c execution-backends:4 --prompt-file "$tmp/prompt9" --foreground -- \
+    "$sj_settings" "$tmp/other.json" >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "c9: a caller-supplied $sj_settings must be refused (exit 2)"
+  [ ! -s "$rec/argv" ] || fail "c9: the refused --settings launch must never spawn the worker"
+done
+# Fail closed when the fragment cannot be read: a copy of scripts/ with no
+# config/ sibling has no mode source, and must refuse rather than launch a
+# worker that inherits the operator's permission mode.
+mkdir -p "$tmp/nocfg"
+cp -R "$here/../scripts" "$tmp/nocfg/scripts"
+: >"$rec/argv"
+env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" \
+  PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" SHIM_RECORD_DIR="$rec" \
+  /bin/sh "$tmp/nocfg/scripts/fleet-streamjson.sh" \
+  launch sjw9d execution-backends:4 --prompt-file "$tmp/prompt9" --foreground \
+  >/dev/null 2>"$tmp/nocfg.err"
+[ $? -eq 7 ] || fail "c9: a missing worker-settings fragment must refuse the launch (exit 7)"
+grep -q "worker-settings.json" "$tmp/nocfg.err" \
+  || fail "c9: the fragment refusal must name the resolved path"
+[ ! -s "$rec/argv" ] || fail "c9: the fragment-less launch must never spawn the worker"
+echo "ok: c9 pinned non-bare launch shape with the settings pin, prompt-as-data, --bare and --settings refused, missing fragment fails closed (REQ-A1.9, D-12, D-19)"
 
 # ---------------------------------------------------------------------------
 # c10: hostile inputs are refused before any path use.

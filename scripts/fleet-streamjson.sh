@@ -9,11 +9,20 @@
 #
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
-# --output-format stream-json --verbose --permission-prompt-tool stdio`,
-# non-`--bare` pinned per D-12/REQ-A1.5 — pinning means never passing
-# `--bare`, and this script additionally REFUSES a caller-supplied `--bare`),
-# captures every event line, and converts the one verified deadlock — a
-# `can_use_tool` control_request pends forever if unanswered — into the
+# --output-format stream-json --verbose --permission-prompt-tool stdio
+# --settings <config/worker-settings.json>`; non-`--bare` pinned per
+# D-12/REQ-A1.5, and the worker-settings fragment pinned per fleet-autonomy
+# D-19/REQ-E1.4. Pinning means never passing `--bare`, always passing the
+# fragment resolved from this script's own location, and REFUSING a
+# caller-supplied `--bare` or `--settings`. The fragment is the mode source:
+# Claude Code honors a `defaultMode` of auto from the operator's own user
+# settings, so a worker launched without a readable fragment inherits the LLM
+# approval classifier in place of the human-reviewed allowlist, and the stdio
+# prompt tool never fires under it. A missing or unreadable fragment therefore
+# refuses the launch instead of degrading.
+#
+# The supervisor captures every event line, and converts the one verified
+# deadlock — a `can_use_tool` control_request pends forever if unanswered — into the
 # existing attention-store discipline: every receipt writes a decision-queue
 # item (an attention-store `decide` row; the store IS the queue, no new
 # surface, per the kickoff resolution of D-5) plus a durable journal record a
@@ -185,7 +194,9 @@
 #   the answer does not apply — the undeliverable-answer arms
 #   exit 3 AFTER surfacing the attention item); 4 recovery halt: no usable
 #   session to resume; 5 recovery halt: the `--resume` relaunch failed; 6 a
-#   partial close: some class of the release set is still held.
+#   partial close: some class of the release set is still held; 7 the
+#   worker-settings fragment the launch pins is missing or unreadable; 8 the
+#   dispatch-env wrapper the launch goes through is missing or unreadable.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,
 # mkfifo, mktemp, `date +%s`, a fractional `sleep`, and — for the close —
@@ -900,6 +911,72 @@ refuse_bare() {
   done
 }
 
+# refuse_settings <arg...> — the permission posture is structural too: the
+# launch pins the reviewed worker-settings fragment, and a caller-supplied
+# `--settings` (either spelling) would let a second fragment override it.
+refuse_settings() {
+  for rs_a in "$@"; do
+    case $rs_a in
+      --settings | --settings=*)
+        echo "$me: refusing '--settings' in the launch argv - the worker-settings pin is structural (fleet-autonomy D-19, REQ-E1.4)" >&2
+        return 2
+        ;;
+    esac
+  done
+}
+
+# refuse_mode_overrides <arg...> — the settings pin is only structural if the
+# caller cannot out-argue it. Each flag below either overrides the fragment's
+# defaultMode or removes the allowlist from the approval path entirely, so a
+# pinned fragment with `--permission-mode auto` appended after it is not a
+# pinned posture at all. Refused for the same reason `--bare` is: the launch
+# shape belongs to this script, not to a caller (fleet-autonomy D-19, REQ-E1.4).
+refuse_mode_overrides() {
+  for rm_a in "$@"; do
+    case $rm_a in
+      --dangerously-skip-permissions | --permission-mode | --permission-mode=*)
+        echo "$me: refusing '$rm_a' in the launch argv - it would override the pinned worker-settings posture (fleet-autonomy D-19, REQ-E1.4)" >&2
+        return 2
+        ;;
+    esac
+  done
+}
+
+# worker_settings_path — print the reviewed permission fragment the launch
+# pins, resolved from this script's own location so a marketplace install
+# finds it. Fails closed when it cannot be read: an unverifiable mode source is
+# no mode source, and a worker launched without one inherits the operator's
+# (see the header).
+worker_settings_path() {
+  ws_dir=$(cd "$script_dir/../config" 2>/dev/null && pwd -P) || ws_dir="$script_dir/../config"
+  ws_path="$ws_dir/worker-settings.json"
+  if [ ! -f "$ws_path" ] || [ ! -r "$ws_path" ]; then
+    echo "$me: refusing to launch: worker-settings fragment $ws_path missing or unreadable - without it the worker inherits the operator's permission mode (fleet-autonomy D-19, REQ-E1.4)" >&2
+    return 7
+  fi
+  printf '%s\n' "$ws_path"
+}
+
+# dispatch_env_path — print the environment-hardening wrapper the worker is
+# launched THROUGH. D-10/REQ-D1.1 say every fleet-launched session goes through
+# it; this rung used to exec the CLI directly, so its workers got neither the
+# ghost-text pin nor a resolvable planwright root — and without the root the
+# worker-settings auto-approve hook cannot find its script, so the worker asks
+# permission for commands the guard would have approved. Fails closed: a launch
+# that cannot apply the pin is not the pinned launch shape.
+dispatch_env_path() {
+  de_dir=$(cd -- "$script_dir" 2>/dev/null && pwd -P) || de_dir="$script_dir"
+  de_path="$de_dir/fleet-dispatch-env.sh"
+  # Invoked directly (it heads the launch argv), so the exec bit is what the
+  # launch depends on; a readable-but-not-executable wrapper would otherwise
+  # surface much later as an opaque worker exit 126.
+  if [ ! -x "$de_path" ]; then
+    echo "$me: refusing to launch: dispatch-env wrapper $de_path missing or not executable - the worker would run without the ghost-text pin and without a resolvable planwright root (fleet-autonomy D-10, REQ-D1.1)" >&2
+    return 8
+  fi
+  printf '%s\n' "$de_path"
+}
+
 # register_dispatch <worker> <scope> <dir> <checkout> [<pid>] — write the
 # dispatch record through the one registration seam (fleet-lifecycle-closure
 # Task 3; REQ-E1.1, REQ-E1.2).
@@ -1555,6 +1632,10 @@ cmd_launch() {
     fi
   fi
   refuse_bare "$@" || exit 2
+  refuse_settings "$@" || exit 2
+  refuse_mode_overrides "$@" || exit 2
+  worker_settings=$(worker_settings_path) || exit 7
+  dispatch_env=$(dispatch_env_path) || exit 8
 
   dir=$(worker_dir "$worker") || exit 2
   # The handle grammar blocks traversal tokens but not a symlink planted under
@@ -1604,11 +1685,14 @@ cmd_launch() {
     }
   fi
 
-  # The pinned launch shape (REQ-A1.3, D-12): -p with stream-json both ways,
+  # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-10, D-19): the
+  # environment-hardening wrapper in front (it execs the rest, so the fifos
+  # below still attach to the CLI), then -p with stream-json both ways,
   # --verbose (required with -p stream-json output), the stdio permission
-  # prompt tool (the receipt channel), and NEVER --bare.
-  set -- "$cli" -p --input-format stream-json --output-format stream-json \
-    --verbose --permission-prompt-tool stdio "$@"
+  # prompt tool (the receipt channel), the reviewed worker-settings fragment
+  # (the mode source), and NEVER --bare.
+  set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
+    --verbose --permission-prompt-tool stdio --settings "$worker_settings" "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"
   fi

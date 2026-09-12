@@ -151,9 +151,10 @@ c1() {
     | grep -q '^worktree-'; then
     fail "c1: a mangled worktree-<suffix> branch exists (rename footgun not avoided)"
   fi
-  # The worktree is placed at .claude/worktrees/task-10 (branch's final segment).
-  [ -d "$tmp/primary/.claude/worktrees/task-10" ] \
-    || fail "c1: worktree dir .claude/worktrees/task-10 not created"
+  # The worktree is placed at .claude/worktrees/demo-task-10 (spec-qualified, so
+  # two specs sharing a task number do not collide in the flat namespace).
+  [ -d "$tmp/primary/.claude/worktrees/demo-task-10" ] \
+    || fail "c1: worktree dir .claude/worktrees/demo-task-10 not created"
   # The primitive contains NO `git branch -m` rename (the Done-when's zero-rename
   # clause) — the D-36 name is a create-time output, never a post-launch rename.
   # Strip comments first (the header comment names the rename it AVOIDS).
@@ -288,10 +289,10 @@ c6() {
   # A prior dispatch that died: branch + worktree exist and carry real work, but
   # there is NO live session and NO dispatch marker (an orphan).
   gitc "$tmp/primary" worktree add -q -b planwright/demo/task-10 \
-    "$tmp/primary/.claude/worktrees/task-10" "$base"
-  printf 'orphan work\n' >"$tmp/primary/.claude/worktrees/task-10/work.txt"
-  gitc "$tmp/primary/.claude/worktrees/task-10" add -A
-  gitc "$tmp/primary/.claude/worktrees/task-10" commit -q -m "orphaned work"
+    "$tmp/primary/.claude/worktrees/demo-task-10" "$base"
+  printf 'orphan work\n' >"$tmp/primary/.claude/worktrees/demo-task-10/work.txt"
+  gitc "$tmp/primary/.claude/worktrees/demo-task-10" add -A
+  gitc "$tmp/primary/.claude/worktrees/demo-task-10" commit -q -m "orphaned work"
   work_tip=$(gitc "$tmp/primary" rev-parse planwright/demo/task-10)
 
   run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
@@ -304,7 +305,7 @@ c6() {
   now_tip=$(gitc "$tmp/primary" rev-parse planwright/demo/task-10)
   [ "$now_tip" = "$work_tip" ] \
     || fail "c6: adopted branch lost its work ($work_tip -> $now_tip)"
-  [ -d "$tmp/primary/.claude/worktrees/task-10" ] \
+  [ -d "$tmp/primary/.claude/worktrees/demo-task-10" ] \
     || fail "c6: no worktree placed after adoption"
 }
 
@@ -320,7 +321,7 @@ c7() {
   fresh_origin=$(gitc "$tmp/primary" rev-parse origin/main)
   # A leftover empty dir where the worktree would go (git worktree add would
   # otherwise SILENTLY create into it).
-  mkdir -p "$tmp/primary/.claude/worktrees/task-10"
+  mkdir -p "$tmp/primary/.claude/worktrees/demo-task-10"
 
   run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 0 ] || {
@@ -368,7 +369,7 @@ c8() {
   }
   gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-10 \
     || fail "c8: branch missing after rollback+recreate"
-  [ -d "$tmp/primary/.claude/worktrees/task-10" ] \
+  [ -d "$tmp/primary/.claude/worktrees/demo-task-10" ] \
     || fail "c8: worktree not placed after rollback+recreate"
   # The recreated (rolled-back) branch is based on the FRESH origin/main.
   [ "$(gitc "$tmp/primary" rev-parse planwright/demo/task-10)" = "$fresh" ] \
@@ -579,7 +580,7 @@ c14() {
   # Negative: raw dangerous git worktree forms are NOT allowed (they DEFER, and
   # the deny floor c11 blocks them).
   for cmd in \
-    'git worktree add -b planwright/demo/task-10 .claude/worktrees/task-10 origin/main' \
+    'git worktree add -b planwright/demo/task-10 .claude/worktrees/demo-task-10 origin/main' \
     'git worktree add --force /tmp/x main' \
     'git worktree add --detach /tmp/y'; do
     if guard_allows "$(guard "$cmd")"; then
@@ -589,7 +590,7 @@ c14() {
 }
 
 # ---------------------------------------------------------------------------
-# c15 — a dotted-decimal id (3.5) is a valid D-36 token and yields task-3.5.
+# c15 — a dotted-decimal id (3.5) is a valid D-36 token and yields demo-task-3.5.
 # ---------------------------------------------------------------------------
 c15() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c15.XXXXXX")
@@ -606,8 +607,8 @@ c15() {
     || fail "c15: dotted-id branch '$(dfield "$OUT" branch)' != planwright/demo/task-3.5"
   gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-3.5 \
     || fail "c15: refs/heads/planwright/demo/task-3.5 not created"
-  [ -d "$tmp/primary/.claude/worktrees/task-3.5" ] \
-    || fail "c15: worktree dir task-3.5 not created"
+  [ -d "$tmp/primary/.claude/worktrees/demo-task-3.5" ] \
+    || fail "c15: worktree dir demo-task-3.5 not created"
 }
 
 # ---------------------------------------------------------------------------
@@ -718,7 +719,7 @@ c18() {
 
   # A non-empty, unregistered dir at the worktree path that is a STANDALONE repo
   # (its `.git` is a directory), not a worktree remnant (gitlink file). No branch.
-  wt="$tmp/primary/.claude/worktrees/task-30"
+  wt="$tmp/primary/.claude/worktrees/demo-task-30"
   mkdir -p "$wt"
   git -c init.defaultBranch=main init -q "$wt"
   printf 'precious\n' >"$wt/keep.txt"
@@ -755,9 +756,9 @@ c19() {
     || fail "c19: branch '$(dfield "$OUT" branch)' != planwright/demo/task-40"
   # The primitive reports PHYSICAL paths (pwd -P); compare in kind.
   _phys=$(cd "$tmp/primary" && pwd -P)
-  [ "$(dfield "$OUT" worktree)" = "$_phys/.claude/worktrees/task-40" ] \
+  [ "$(dfield "$OUT" worktree)" = "$_phys/.claude/worktrees/demo-task-40" ] \
     || fail "c19: worktree line missing or wrong: '$(dfield "$OUT" worktree)'"
-  [ -d "$tmp/primary/.claude/worktrees/task-40" ] \
+  [ -d "$tmp/primary/.claude/worktrees/demo-task-40" ] \
     || fail "c19: --no-attach did not create the worktree"
   gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-40 \
     || fail "c19: --no-attach did not create the D-36 branch"
@@ -783,7 +784,7 @@ c20() {
   if gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-50; then
     fail "c20: a refused --no-attach launch must not create the branch"
   fi
-  [ -d "$tmp/primary/.claude/worktrees/task-50" ] \
+  [ -d "$tmp/primary/.claude/worktrees/demo-task-50" ] \
     && fail "c20: a refused --no-attach launch must not create the worktree"
 }
 
@@ -804,7 +805,7 @@ c21() {
   if gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-60; then
     fail "c21: a refused flag combination must not create the branch"
   fi
-  [ -d "$tmp/primary/.claude/worktrees/task-60" ] \
+  [ -d "$tmp/primary/.claude/worktrees/demo-task-60" ] \
     && fail "c21: a refused flag combination must not create the worktree"
 
   # The reverse order must be refused identically (the precedence today is fixed
@@ -817,7 +818,89 @@ c21() {
   fi
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21; do
+# ---------------------------------------------------------------------------
+# c22 — two specs sharing a task number get separate worktrees. `.claude/
+# worktrees/` is one flat namespace, so the bare `task-<id>` suffix made the
+# second dispatch fail on the first one's directory and the unit could not be
+# dispatched at all while the first held it.
+# ---------------------------------------------------------------------------
+c22() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c22.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  mkdir -p "$tmp/primary/specs/other"
+  printf 'v1\n' >"$tmp/primary/specs/other/requirements.md"
+  gitc "$tmp/primary" add -A
+  gitc "$tmp/primary" commit -q -m "second spec"
+
+  run_prim dispatch demo 1 --repo-root "$tmp/primary" --no-attach
+  [ "$RC" -eq 0 ] || {
+    fail "c22: first dispatch exited $RC (expected 0)"
+    return
+  }
+  run_prim dispatch other 1 --repo-root "$tmp/primary" --no-attach
+  [ "$RC" -eq 0 ] || {
+    fail "c22: a second spec's task 1 exited $RC — the suffix still collides"
+    return
+  }
+
+  [ -d "$tmp/primary/.claude/worktrees/demo-task-1" ] \
+    || fail "c22: demo task 1 worktree missing"
+  [ -d "$tmp/primary/.claude/worktrees/other-task-1" ] \
+    || fail "c22: other task 1 worktree missing"
+
+  # The branch names are untouched by the suffix change: the tasks-PR-sync hook
+  # maps a merged branch back to its task through exactly this spelling (D-36).
+  gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-1 \
+    || fail "c22: planwright/demo/task-1 missing"
+  gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/other/task-1 \
+    || fail "c22: planwright/other/task-1 missing"
+}
+
+# ---------------------------------------------------------------------------
+# c23 — a max-length spec name still dispatches. The suffix carries the spec
+# now, so the length bound has to clear spec (64) + "-task-" (6) + a dotted id;
+# the pre-change bound of 72 rejected that combination outright.
+# ---------------------------------------------------------------------------
+c23() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c23.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  # 64 characters: the longest spec id the D-36 grammar admits.
+  longspec=$(printf 'a%.0s' $(seq 1 64))
+  [ "${#longspec}" -eq 64 ] || {
+    fail "c23: fixture spec is ${#longspec} chars, expected 64"
+    return
+  }
+  mkdir -p "$tmp/primary/specs/$longspec"
+  printf 'x\n' >"$tmp/primary/specs/$longspec/requirements.md"
+  gitc "$tmp/primary" add -A
+  gitc "$tmp/primary" commit -q -m "long spec"
+
+  # A spec may begin with a digit, so the suffix grammar has to admit one too;
+  # requiring a letter rejected a legal spec before git ever saw it.
+  mkdir -p "$tmp/primary/specs/2fa"
+  printf 'x\n' >"$tmp/primary/specs/2fa/requirements.md"
+  gitc "$tmp/primary" add -A
+  gitc "$tmp/primary" commit -q -m "digit-leading spec"
+  run_prim dispatch 2fa 4 --repo-root "$tmp/primary" --no-attach
+  [ "$RC" -eq 0 ] || fail "c23: a digit-leading spec exited $RC — the suffix grammar is narrower than the spec grammar"
+  [ -d "$tmp/primary/.claude/worktrees/2fa-task-4" ] \
+    || fail "c23: worktree for the digit-leading spec was not created"
+
+  run_prim dispatch "$longspec" 3.5 --repo-root "$tmp/primary" --no-attach
+  [ "$RC" -eq 0 ] || {
+    fail "c23: max-length spec with a dotted id exited $RC — the suffix bound is too tight"
+    return
+  }
+  [ -d "$tmp/primary/.claude/worktrees/$longspec-task-3.5" ] \
+    || fail "c23: worktree for the max-length spec was not created"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true
