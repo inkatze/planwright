@@ -236,10 +236,12 @@ present="$tmp/present"
 mkdir -p "$present/repo"
 rc=0
 base PLANWRIGHT_ROOT="$repo" PLANWRIGHT_REPO_ROOT="$present/repo" \
-  /bin/bash "$RESOLVER" decision-domains >"$present/out" 2>/dev/null || rc=$?
-[ "$rc" -eq 0 ] || fail "present decision-domains catalog: expected exit 0, got $rc"
+  /bin/bash "$RESOLVER" decision-domains >"$present/out" 2>"$present/err" || rc=$?
+[ "$rc" -eq 0 ] || fail "present decision-domains catalog: expected exit 0, got $rc. stderr:
+$(cat "$present/err")"
 grep -q '^  - id: ' "$present/out" \
-  || fail "present decision-domains catalog: expected at least one entry on stdout"
+  || fail "present decision-domains catalog: expected at least one entry on stdout, got:
+$(cat "$present/out")"
 echo "ok: the shipped decision-domains seed resolves non-empty"
 
 echo "All kickoff-verification-homes tests passed."
