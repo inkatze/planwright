@@ -16,13 +16,27 @@
 # instead of the fleet quietly losing its auto-approve hook again.
 #
 # Skips rather than fails when the CLI is absent, so it stays CI-safe.
+#
+# shellcheck disable=SC2016
+# The unexpanded literals ARE the subject: this file compares hook-command
+# spellings as written, so a single-quoted `$CLAUDE_PLUGIN_ROOT` is intentional
+# everywhere it appears and expanding one would test nothing.
 set -u
+
+# A CDPATH-resolved cd echoes its destination into a command substitution.
+unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/.." && pwd)
-fail() { echo "FAIL: $*" >&2; exit 1; }
+fail() {
+  echo "FAIL: $*" >&2
+  exit 1
+}
 
-command -v claude >/dev/null 2>&1 || { echo "skip: claude CLI not on PATH"; exit 0; }
+command -v claude >/dev/null 2>&1 || {
+  echo "skip: claude CLI not on PATH"
+  exit 0
+}
 
 tmp=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmp"' EXIT
@@ -69,8 +83,9 @@ PY
 frag="$root/config/worker-settings.json"
 cmd=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['hooks']['PreToolUse'][0]['hooks'][0]['command'])" "$frag")
 case $cmd in
-  '${CLAUDE_PLUGIN_ROOT}'*|'"${CLAUDE_PLUGIN_ROOT}"'*)
-    fail "config/worker-settings.json uses the braced spelling, which substitutes empty under --settings: $cmd" ;;
+  '${CLAUDE_PLUGIN_ROOT}'* | '"${CLAUDE_PLUGIN_ROOT}"'*)
+    fail "config/worker-settings.json uses the braced spelling, which substitutes empty under --settings: $cmd"
+    ;;
   '$CLAUDE_PLUGIN_ROOT'*) : ;;
   *) fail "unexpected hook command spelling in config/worker-settings.json: $cmd" ;;
 esac

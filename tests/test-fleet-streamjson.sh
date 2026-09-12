@@ -619,6 +619,7 @@ case $argv_line in
   *"--settings "*worker-settings.json*) : ;;
   *) fail "c9: the launch argv must pin --settings <worker-settings fragment>: $argv_line" ;;
 esac
+# shellcheck disable=SC2086 # the recorded argv must re-split into the guard's argument vector
 "$here/../scripts/fleet-dispatch-guard.sh" check-launch $argv_line >/dev/null 2>&1 \
   || fail "c9: the pinned launch argv must pass fleet-dispatch-guard check-launch"
 # shellcheck disable=SC2016 # matching the literal '$(touch' substring, not expanding it

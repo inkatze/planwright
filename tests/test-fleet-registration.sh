@@ -599,7 +599,7 @@ if command -v git >/dev/null 2>&1; then
   mkdir -p "$stub"
   printf '#!/bin/sh\nexit 0\n' >"$stub/claude"
   chmod +x "$stub/claude"
-  wt5="$repo/.claude/worktrees/task-1"
+  wt5="$repo/.claude/worktrees/spec-c5-task-1"
   cat >"$stub/tmux" <<EOF
 #!/bin/sh
 case "\$1" in
@@ -653,7 +653,7 @@ EOF
       /bin/sh "$FDW" dispatch spec-c5 2 --repo-root "$repo" "$arm" >/dev/null 2>&1
     [ -f "$h2/registry" ] \
       && fail "c5: $arm registered a worker it never launched"
-    git -C "$repo" worktree remove --force "$repo/.claude/worktrees/task-2" >/dev/null 2>&1
+    git -C "$repo" worktree remove --force "$repo/.claude/worktrees/spec-c5-task-2" >/dev/null 2>&1
     git -C "$repo" branch -D planwright/spec-c5/task-2 >/dev/null 2>&1
   done
   ok c5b "the create-only and dry-run arms register nothing"

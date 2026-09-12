@@ -142,8 +142,14 @@ planwright_root() {
 export_root_vars() {
   er_root=$(planwright_root)
   [ -n "$er_root" ] || return 0
-  [ -n "${PLANWRIGHT_ROOT:-}" ] || { PLANWRIGHT_ROOT=$er_root; export PLANWRIGHT_ROOT; }
-  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || { CLAUDE_PLUGIN_ROOT=$er_root; export CLAUDE_PLUGIN_ROOT; }
+  [ -n "${PLANWRIGHT_ROOT:-}" ] || {
+    PLANWRIGHT_ROOT=$er_root
+    export PLANWRIGHT_ROOT
+  }
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || {
+    CLAUDE_PLUGIN_ROOT=$er_root
+    export CLAUDE_PLUGIN_ROOT
+  }
 }
 
 if [ "$#" -eq 0 ]; then

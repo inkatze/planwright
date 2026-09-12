@@ -61,25 +61,43 @@ else
 fi
 
 # --- REQ-C1.1: a PreToolUse (Bash) hook references the script via
-#     ${CLAUDE_PLUGIN_ROOT} ---------------------------------------------------
+#     $CLAUDE_PLUGIN_ROOT -----------------------------------------------------
 # The hook must live under a Bash matcher (it only analyzes Bash commands,
-# REQ-A1.7) and reference the plugin script through the same
-# ${CLAUDE_PLUGIN_ROOT} mechanism hooks/hooks.json uses, so it resolves under a
-# marketplace install. Anchor the two required substrings into ONE contiguous
-# pattern (`${CLAUDE_PLUGIN_ROOT}`, an optional closing quote, then the exact
-# `/scripts/worker-command-guard.sh` path) rather than testing each substring
-# independently: two independent `test()`s could pass a malformed command that
-# merely mentions both tokens in unrelated positions, which would not pin the
-# exact wiring REQ-C1.1 requires.
+# REQ-A1.7) and reference the plugin script through $CLAUDE_PLUGIN_ROOT, so it
+# resolves under a marketplace install. Anchor the two required substrings into
+# ONE contiguous pattern rather than testing each independently: two separate
+# `test()`s could pass a malformed command that merely mentions both tokens in
+# unrelated positions, which would not pin the exact wiring REQ-C1.1 requires.
+#
+# The BARE spelling is required and the braced one is refused. Claude Code
+# consumes the literal `${CLAUDE_PLUGIN_ROOT}` token as a plugin-context
+# substitution; this fragment reaches a worker through `--settings`, which
+# carries no plugin context, so the braced form substitutes EMPTY and the hook
+# silently never runs — every dispatched worker then prompts on every routine
+# command. hooks/hooks.json keeps the braced form legitimately: that one IS
+# delivered in plugin context. tests/test-settings-fragment-hook-expansion.sh
+# pins the CLI behaviour this rule depends on.
 if jq -e '
   (.hooks.PreToolUse // [])
   | map(select(.matcher == "Bash"))
   | map(.hooks[]? | select(.type == "command") | .command)
-  | any(test("\\$\\{CLAUDE_PLUGIN_ROOT\\}\"?/scripts/worker-command-guard\\.sh"))
+  | any(test("\\$CLAUDE_PLUGIN_ROOT\"?/scripts/worker-command-guard\\.sh"))
 ' "$worker_settings" >/dev/null 2>&1; then
-  ok "worker-settings carries a PreToolUse(Bash) hook referencing the script via \${CLAUDE_PLUGIN_ROOT} (REQ-C1.1)"
+  ok "worker-settings carries a PreToolUse(Bash) hook referencing the script via \$CLAUDE_PLUGIN_ROOT (REQ-C1.1)"
 else
-  fail "worker-settings has no PreToolUse(Bash) command hook referencing \${CLAUDE_PLUGIN_ROOT}/$HOOK_REL (REQ-C1.1)"
+  fail "worker-settings has no PreToolUse(Bash) command hook referencing \$CLAUDE_PLUGIN_ROOT/$HOOK_REL (REQ-C1.1)"
+fi
+
+# The braced spelling must not come back: it is the exact regression that made
+# the auto-approve hook inert under --settings.
+if jq -e '
+  (.hooks.PreToolUse // [])
+  | map(.hooks[]? | select(.type == "command") | .command)
+  | any(test("\\$\\{CLAUDE_PLUGIN_ROOT\\}"))
+' "$worker_settings" >/dev/null 2>&1; then
+  fail "worker-settings uses the braced \${CLAUDE_PLUGIN_ROOT} spelling, which substitutes empty under --settings (REQ-C1.1)"
+else
+  ok "worker-settings avoids the braced spelling that substitutes empty under --settings"
 fi
 
 # The wiring must point at a hook script that actually exists (Task 1 shipped it).
