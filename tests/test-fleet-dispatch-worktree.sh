@@ -880,6 +880,17 @@ c23() {
   gitc "$tmp/primary" add -A
   gitc "$tmp/primary" commit -q -m "long spec"
 
+  # A spec may begin with a digit, so the suffix grammar has to admit one too;
+  # requiring a letter rejected a legal spec before git ever saw it.
+  mkdir -p "$tmp/primary/specs/2fa"
+  printf 'x\n' >"$tmp/primary/specs/2fa/requirements.md"
+  gitc "$tmp/primary" add -A
+  gitc "$tmp/primary" commit -q -m "digit-leading spec"
+  run_prim dispatch 2fa 4 --repo-root "$tmp/primary" --no-attach
+  [ "$RC" -eq 0 ] || fail "c23: a digit-leading spec exited $RC — the suffix grammar is narrower than the spec grammar"
+  [ -d "$tmp/primary/.claude/worktrees/2fa-task-4" ] \
+    || fail "c23: worktree for the digit-leading spec was not created"
+
   run_prim dispatch "$longspec" 3.5 --repo-root "$tmp/primary" --no-attach
   [ "$RC" -eq 0 ] || {
     fail "c23: max-length spec with a dotted id exited $RC — the suffix bound is too tight"

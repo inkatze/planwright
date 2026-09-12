@@ -95,8 +95,14 @@ Worktrees always land at:
 <repo>/.claude/worktrees/<branch-suffix>
 ```
 
-where `<branch-suffix>` is the branch's final segment (`task-6`, `spec`).
-The placement convention is the contract; the launch mechanism is
+where `<branch-suffix>` is `<spec>-task-<id>` for a task worktree
+(`tower-comms-task-6`), and the branch's final segment otherwise (`spec`).
+A task worktree carries the spec because `.claude/worktrees/` is one flat
+namespace: two specs numbering a task the same way would otherwise resolve to
+one directory, and the second dispatch would fail on the first one's.
+Branch names are unaffected — a task branch stays
+`planwright/<spec>/task-<id>`, which is how a merged branch maps back to its
+task. The placement convention is the contract; the launch mechanism is
 incidental — any worktree placed there is attachable with
 `claude --worktree <name>` regardless of which backend created it.
 

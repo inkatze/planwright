@@ -646,6 +646,18 @@ grep -q '\$(touch PWNED-marker)' "$rec/stdin" \
 grep -q '\\t' "$rec/stdin" || fail "c9: tab should arrive JSON-escaped"
 [ ! -e "PWNED-marker" ] && [ ! -e "$tmp/PWNED-marker" ] \
   || fail "c9: prompt text reached a shell (command substitution executed)"
+# The posture refusal: a pinned fragment is not a pinned posture if a caller can
+# append a flag that overrides it. Each of these either outranks the fragment's
+# defaultMode or removes the allowlist from the approval path entirely.
+for _flag in --permission-mode --permission-mode=auto --dangerously-skip-permissions; do
+  : >"$rec/argv"
+  senv "$home" "$rec" -- \
+    launch "sjw9m$$" execution-backends:4 --prompt-file "$tmp/prompt9" --foreground -- "$_flag" \
+    >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "c9: a caller-supplied '$_flag' must be refused (exit 2)"
+  [ ! -s "$rec/argv" ] || fail "c9: the refused launch ('$_flag') must never spawn the worker"
+done
+
 # The structural refusal: a caller-supplied --bare never launches.
 : >"$rec/argv"
 senv "$home" "$rec" -- \

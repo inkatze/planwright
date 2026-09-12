@@ -271,9 +271,12 @@ valid_id() {
 valid_suffix() {
   reject_dotdot "$1" || return 1
   case $1 in
-    '' | *[!a-z0-9.-]* | [!a-z]*) return 1 ;;
+    '' | *[!a-z0-9.-]* | [!a-z0-9]*) return 1 ;;
   esac
-  printf '%s' "$1" | grep -Eq '^([a-z][a-z0-9-]*-)?task-[0-9]+(\.[0-9]+)?$' || return 1
+  # The spec half must admit the WHOLE spec grammar, which starts [a-z0-9] —
+  # requiring a letter here would reject a legal spec like `2fa` before git
+  # ever sees it.
+  printf '%s' "$1" | grep -Eq '^([a-z0-9][a-z0-9-]*-)?task-[0-9]+(\.[0-9]+)?$' || return 1
   # The bound must clear what the grammars upstream of it can actually produce:
   # a spec is up to 64 characters, `-task-` adds 6, and a dotted id adds several
   # more, so the old 72 rejected a legal max-length spec outright — the suffix

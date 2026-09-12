@@ -41,11 +41,18 @@ fail() {
   exit 1
 }
 
+command -v jq >/dev/null 2>&1 || {
+  echo "FAIL: jq is required to run this suite" >&2
+  exit 1
+}
+
 # The STATIC half runs everywhere: it reads the shipped fragment and asserts the
 # spelling, needs no CLI, no key, and no network, and is the guard that actually
-# catches a regression in day-to-day work.
+# catches a regression in day-to-day work. jq rather than python3 because the
+# sibling suite reading this same fragment already treats jq as its JSON tool
+# and python3 as optional.
 frag="$root/config/worker-settings.json"
-cmd=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['hooks']['PreToolUse'][0]['hooks'][0]['command'])" "$frag")
+cmd=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$frag")
 case $cmd in
   *'${CLAUDE_PLUGIN_ROOT}'*)
     fail "config/worker-settings.json uses the braced spelling, which substitutes empty under --settings: $cmd"
@@ -91,13 +98,10 @@ chmod +x "$root_with_space/probe-hook.sh"
 # probe <hook-command> -> prints "fired" or "silent"
 probe() {
   rm -f "$marker"
-  PROBE_DIR="$tmp" python3 - "$tmp" "$1" <<'PY'
-import json,sys
-d,c=sys.argv[1],sys.argv[2]
-json.dump({'permissions':{'defaultMode':'default','allow':[]},
- 'hooks':{'PreToolUse':[{'matcher':'Bash','hooks':[{'type':'command','command':c}]}]}},
- open(d+'/settings.json','w'))
-PY
+  jq -n --arg cmd "$1" '{
+    permissions: { defaultMode: "default", allow: [] },
+    hooks: { PreToolUse: [ { matcher: "Bash", hooks: [ { type: "command", command: $cmd } ] } ] }
+  }' >"$tmp/settings.json"
   (cd "$root" && env CLAUDE_PLUGIN_ROOT="$root_with_space" PROBE_DIR="$root_with_space" \
     timeout 90 claude -p --settings "$tmp/settings.json" \
     "Run exactly this bash command and nothing else: git status --short" \

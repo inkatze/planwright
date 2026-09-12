@@ -925,6 +925,23 @@ refuse_settings() {
   done
 }
 
+# refuse_mode_overrides <arg...> — the settings pin is only structural if the
+# caller cannot out-argue it. Each flag below either overrides the fragment's
+# defaultMode or removes the allowlist from the approval path entirely, so a
+# pinned fragment with `--permission-mode auto` appended after it is not a
+# pinned posture at all. Refused for the same reason `--bare` is: the launch
+# shape belongs to this script, not to a caller (fleet-autonomy D-19, REQ-E1.4).
+refuse_mode_overrides() {
+  for rm_a in "$@"; do
+    case $rm_a in
+      --dangerously-skip-permissions | --permission-mode | --permission-mode=*)
+        echo "$me: refusing '$rm_a' in the launch argv - it would override the pinned worker-settings posture (fleet-autonomy D-19, REQ-E1.4)" >&2
+        return 2
+        ;;
+    esac
+  done
+}
+
 # worker_settings_path — print the reviewed permission fragment the launch
 # pins, resolved from this script's own location so a marketplace install
 # finds it. Fails closed when it cannot be read: an unverifiable mode source is
@@ -950,8 +967,11 @@ worker_settings_path() {
 dispatch_env_path() {
   de_dir=$(cd -- "$script_dir" 2>/dev/null && pwd -P) || de_dir="$script_dir"
   de_path="$de_dir/fleet-dispatch-env.sh"
-  if [ ! -r "$de_path" ]; then
-    echo "$me: refusing to launch: dispatch-env wrapper $de_path missing or unreadable - the worker would run without the ghost-text pin and without a resolvable planwright root (fleet-autonomy D-10, REQ-D1.1)" >&2
+  # Invoked directly (it heads the launch argv), so the exec bit is what the
+  # launch depends on; a readable-but-not-executable wrapper would otherwise
+  # surface much later as an opaque worker exit 126.
+  if [ ! -x "$de_path" ]; then
+    echo "$me: refusing to launch: dispatch-env wrapper $de_path missing or not executable - the worker would run without the ghost-text pin and without a resolvable planwright root (fleet-autonomy D-10, REQ-D1.1)" >&2
     return 8
   fi
   printf '%s\n' "$de_path"
@@ -1613,6 +1633,7 @@ cmd_launch() {
   fi
   refuse_bare "$@" || exit 2
   refuse_settings "$@" || exit 2
+  refuse_mode_overrides "$@" || exit 2
   worker_settings=$(worker_settings_path) || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
 
