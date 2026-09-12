@@ -108,7 +108,14 @@ $OUT" ;;
 ########################################################################
 # 1. Captured, not authored
 ########################################################################
-awk -v h="$HEADING" 'index($0, h) == 1 { p = 1 } p' "$landed/kickoff-brief.md" >"$tmp/captured.md"
+# The entry runs from its heading to the next same-level heading or the end
+# of the brief, so a re-capture of a non-terminal entry cannot pull in the
+# entries after it.
+awk -v h="$HEADING" '
+  index($0, h) == 1 { p = 1; print; next }
+  p && /^### / { exit }
+  p
+' "$landed/kickoff-brief.md" >"$tmp/captured.md"
 [ -s "$tmp/captured.md" ] || fail "the landing commit's brief carries no entry opening with '$HEADING'"
 cmp -s "$tmp/captured.md" "$FIXTURE" \
   || fail "fixture diverges from the entry at $LANDING; re-capture it rather than editing it"
@@ -145,9 +152,14 @@ $tail_pair" ;;
 esac
 echo "ok: entry ends on its anchor line"
 
+# One entry carries one anchor record; the guard reads a brief's most recent
+# entry, so a fixture holding two would have the sections below disagree on
+# which hash they mean.
+anchors=$(grep -c '^Anchor:' "$FIXTURE")
+[ "$anchors" -eq 1 ] || fail "fixture carries $anchors Anchor: lines; a captured entry carries exactly one"
 # SC2016: the backticks are Markdown, not command substitution.
 # shellcheck disable=SC2016
-hash=$(grep '^Anchor:' "$FIXTURE" | sed -n 's/.*`\([0-9a-f]\{40\}\)`.*/\1/p' | head -n 1)
+hash=$(grep '^Anchor:' "$FIXTURE" | sed -n 's/.*`\([0-9a-f]\{40\}\)`.*/\1/p')
 [ -n "$hash" ] || fail "entry's Anchor line carries no 40-hex hash"
 
 ########################################################################
