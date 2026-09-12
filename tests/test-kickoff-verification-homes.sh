@@ -76,7 +76,7 @@ OUT=
 RC=0
 run_guard() {
   RC=0
-  OUT=$("$GUARD" "$1" 2>&1) || RC=$?
+  OUT=$("$GUARD" "$@" 2>&1) || RC=$?
 }
 
 assert_rc() {
