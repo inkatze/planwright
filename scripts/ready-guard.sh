@@ -302,8 +302,9 @@ raw_evidences_ready_flip() {
 }
 
 # --------------------------------------------------------------------------
-# Bash-surface tokenizer. Splits the fully-expanded command (Claude Code
-# expands variables before the hook sees it) into segments on the unquoted
+# Bash-surface tokenizer. Splits the command string as written (Claude Code
+# hands a hook the raw `tool_input.command`, `$VAR` references unexpanded —
+# measured on CLI 2.1.270) into segments on the unquoted
 # control operators `;` `&&` `||` `|` `&` and newlines, and each segment into
 # words, honoring single quotes, double quotes, and backslash escapes. It never
 # executes, evals, or expands anything it scans (REQ-C1.5).

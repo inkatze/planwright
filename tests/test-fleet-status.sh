@@ -273,7 +273,8 @@ esac
 echo "ok: a print-backend unit renders from its dispatch record with an n/a marker"
 
 # ---------------------------------------------------------------------------
-# 8. Streamjson detail: pending journal rows are counted; a result file
+# 8. Streamjson detail: pending journal rows are counted and a live worker
+#    carrying them reads awaiting-input, never running; a result file
 #    renders completed.
 # ---------------------------------------------------------------------------
 h8="$tmp/h8"
@@ -285,7 +286,7 @@ printf 'result\t0\n' >"$h8/streamjson/w8c/result"
 printf '[]\n' >"$ofix"
 out=$(run "$h8" "$oshim" merge) || fail "8 merge: non-zero exit"
 case $(merge_line "$out" worker w8p) in
-  *"${tab}running${tab}2${tab}"*) ;;
+  *"${tab}awaiting-input${tab}2${tab}"*) ;;
   *) fail "8 w8p pending count: '$(merge_line "$out" worker w8p)'" ;;
 esac
 case $(merge_line "$out" worker w8c) in

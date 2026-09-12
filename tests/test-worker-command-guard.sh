@@ -546,6 +546,102 @@ assert_defer "unresolvable root arm allows nothing" "$PLUGIN_ROOT/scripts/plug.s
 HOOK_ENV=()
 assert_defer "plugin path with no root arm resolving to it" "$PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
 
+# --- Arm 5: the roots Claude Code itself installed the plugin at ---------------
+# The 2026-09-12 stall: the launcher exported ITS root (a checkout) as arms 1-2,
+# the worker's skill text resolved `${CLAUDE_PLUGIN_ROOT}` to the marketplace
+# cache, and every plugin-script call deferred. The hook now also trusts what
+# <claude-dir>/plugins/installed_plugins.json records and every version dir
+# under <claude-dir>/plugins/cache/*/planwright/, with the same containment
+# discipline as the other arms.
+echo "### REQ-A1.10 — installed-plugin roots (arm 5)"
+CDIR="$SANDBOX/cdir"
+INST_JSON_ROOT="$CDIR/inst/planwright/0.40.0"
+INST_CACHE_ROOT="$CDIR/plugins/cache/mkt/planwright/0.41.0"
+INST_CACHE_DECOY="$CDIR/plugins/cache/mkt/planwright-evil/0.41.0"
+INST_CACHE_OTHER="$CDIR/plugins/cache/mkt/otherplugin/0.41.0"
+mkdir -p "$INST_JSON_ROOT/scripts" "$INST_CACHE_ROOT/scripts" "$INST_CACHE_ROOT/tests" \
+  "$INST_CACHE_DECOY/scripts" "$INST_CACHE_OTHER/scripts" "$CDIR/plugins"
+: >"$INST_JSON_ROOT/scripts/plug.sh"
+: >"$INST_CACHE_ROOT/scripts/plug.sh"
+: >"$INST_CACHE_ROOT/tests/plug.sh"
+: >"$INST_CACHE_DECOY/scripts/plug.sh"
+: >"$INST_CACHE_OTHER/scripts/plug.sh"
+jq -n --arg p "$INST_JSON_ROOT" \
+  '{version: 2, plugins: {"planwright@planwright": [{scope: "user", installPath: $p, version: "0.40.0"}], "other@mkt": [{installPath: "/nope"}]}}' \
+  >"$CDIR/plugins/installed_plugins.json"
+HOOK_ENV=("CLAUDE_DIR=$CDIR" "HOME=$SANDBOX/nohome")
+assert_allow "arm 5 — installed_plugins.json installPath" "$INST_JSON_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_allow "arm 5 — marketplace cache version dir" "$INST_CACHE_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_allow "arm 5 — the stalled shape: a loop over a cache-root script" \
+  "for d in a b; do printf '%s -> ' \$d; $INST_CACHE_ROOT/scripts/plug.sh \$d; done" Bash "$PLUGIN_CWD"
+assert_defer "arm 5 — a cache plugin that is not planwright" "$INST_CACHE_OTHER/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "arm 5 — a name-PREFIX sibling under the cache" "$INST_CACHE_DECOY/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "arm 5 — tests/ under an installed root stays untrusted" "$INST_CACHE_ROOT/tests/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "arm 5 — .. escaping an installed root" "$INST_CACHE_ROOT/scripts/../../../../../inst/planwright/0.40.0/scripts/plug.sh" Bash "$PLUGIN_CWD"
+printf '{not json' >"$CDIR/plugins/installed_plugins.json"
+assert_defer "arm 5 — a malformed record trusts nothing from it" "$INST_JSON_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_allow "arm 5 — the cache walk survives a malformed record" "$INST_CACHE_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=("CLAUDE_DIR=$SANDBOX/no-such-dir" "HOME=$SANDBOX/nohome")
+assert_defer "arm 5 — no claude dir, nothing trusted" "$INST_CACHE_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=()
+
+# --- Same-command variable tracking (the raw-command premise) ---------------
+# Claude Code hands the hook the command as written: `$P` arrives unexpanded.
+# The verifier resolves exactly one class of expansion itself — a standalone,
+# unconditional, top-level assignment of a bare absolute path inside a trusted
+# root — and every other `$` in a verb still defers.
+echo "### REQ-A1.9 — tracked assignment of a trusted-root path"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+assert_allow "tracked: the 2026-09-12 stalled command shape" \
+  "P=$PLUGIN_ROOT && for d in a b c; do printf '%s -> ' \$d; \$P/scripts/plug.sh \$d; done; echo; grep -n 'Status:' specs/x.md | head" Bash "$PLUGIN_CWD"
+assert_allow "tracked: \$P verb" "P=$PLUGIN_ROOT && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_allow "tracked: \${P} verb" "P=$PLUGIN_ROOT && \${P}/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_allow "tracked: double-quoted \"\$P\" expands" "P=$PLUGIN_ROOT && \"\$P\"/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_allow "tracked: quoted VALUE is still an assignment" "P=\"$PLUGIN_ROOT\" && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_allow "tracked: semicolon-separated" "P=$PLUGIN_ROOT; \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_allow "tracked: two assignments chained by &&" "A=$PLUGIN_ROOT && B=$PLUGIN_ROOT/scripts && \$A/scripts/plug.sh && \$B/plug.sh" Bash "$PLUGIN_CWD"
+assert_allow "tracked: later assignment wins" "P=$PLUGIN_ROOT/scripts && P=$PLUGIN_ROOT && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: an earlier untrusted assignment defers the whole command" "P=$PLUGIN_DECOY && P=$PLUGIN_ROOT && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_allow "tracked: used inside a later if body" "P=$PLUGIN_ROOT; if true; then \$P/scripts/plug.sh; fi" Bash "$PLUGIN_CWD"
+assert_allow "tracked: bash \$P/<script>" "P=$PLUGIN_ROOT && bash \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_allow "tracked: repo root through the cwd's checkout" "R=$SANDBOX && \$R/scripts/ok.sh" Bash "$SANDBOX"
+assert_allow "tracked: a lone assignment runs nothing" "P=$PLUGIN_ROOT" Bash "$PLUGIN_CWD"
+# NEGATIVES: every way the substitution could differ from what the shell does,
+# or name something the hook does not trust.
+assert_defer "untracked: single-quoted '\$P' is literal" "P=$PLUGIN_ROOT && '\$P'/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_defer "untracked: backslash-escaped \\\$P is literal" "P=$PLUGIN_ROOT && \\\$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_defer "untracked: whole-word quoted 'P=..' is a command" "'P=$PLUGIN_ROOT' && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_defer "untracked: \${P:-x} modifier" "P=$PLUGIN_ROOT && \${P:-/tmp}/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_defer "untracked: unknown variable" "\$Q/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_defer "untracked: value outside every trusted root" "P=$SANDBOX/install/outside && \$P/evil.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: name-PREFIX decoy root as value" "P=$PLUGIN_DECOY && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: value with a glob" "P=$PLUGIN_ROOT/* && \$P/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: value with .. that escapes" "P=$PLUGIN_ROOT/../../.. && \$P/etc/x.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: value carries an expansion" "P=\$Q && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: tilde value" "P=~ && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: IFS even with a trusted value" "IFS=$PLUGIN_ROOT && \$IFS/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: PATH even with a trusted value" "PATH=$PLUGIN_ROOT && \$PATH/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: CDPATH" "CDPATH=$PLUGIN_ROOT && \$CDPATH/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: BASH_ENV" "BASH_ENV=$PLUGIN_ROOT && \$BASH_ENV/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: PS4" "PS4=$PLUGIN_ROOT && \$PS4/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: an exported name (HOME)" "HOME=$PLUGIN_ROOT && \$HOME/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "P=/already-exported")
+assert_defer "untracked: a name present in the hook's environment" "P=$PLUGIN_ROOT && \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+assert_defer "untracked: assignment conditional after a command (&&)" "true && P=$PLUGIN_ROOT; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: assignment conditional after a command (||)" "false || P=$PLUGIN_ROOT; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: assignment inside a loop body" "for d in a; do P=$PLUGIN_ROOT; done; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: assignment inside an if body" "if true; then P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: assignment in a pipeline" "P=$PLUGIN_ROOT | cat; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: assignment backgrounded" "P=$PLUGIN_ROOT & \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: assignment PREFIX still defers" "P=$PLUGIN_ROOT \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: the table does not cross into fish -c" "P=$PLUGIN_ROOT && fish -c '\$P/scripts/plug.sh'" Bash "$PLUGIN_CWD"
+assert_defer "untracked: substituted verb still needs a trusted script" "P=$PLUGIN_ROOT && \$P/notscripts.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: substituted path with .. escaping" "P=$PLUGIN_ROOT && \$P/scripts/../../outside/evil.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: substitution never widens the verb set" "P=$PLUGIN_ROOT && rm -rf \$P" Bash "$PLUGIN_CWD"
+assert_defer "untracked: a closer with no opener" "P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=()
+
 echo "### REQ-A1.9 — grammar-conservative deferral"
 assert_defer "env-assignment prefix BASH_ENV" "BASH_ENV=/tmp/x bash scripts/ok.sh"
 assert_defer "env-assignment LD_PRELOAD" "LD_PRELOAD=/tmp/x cat f"

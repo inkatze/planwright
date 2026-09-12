@@ -26,16 +26,24 @@
 #     branch of every classifier is defer, so "zero false-allows" is guaranteed
 #     by construction, not merely across the test corpus (REQ-B1.3, REQ-B1.7).
 #
-# Analysis model: the fully-expanded command (Claude Code expands variables
-# before the hook sees it) is split — quote- and operator-aware — into segments
-# on the control operators `;` `&&` `||` `|` `&` and newlines; EVERY segment's
-# simple command must be independently known-safe (REQ-A1.4). A command is
-# known-safe only when (a) its verb is on the enumerated allowlist below, (b)
-# its flags/args designate no output/target file and enable no write or
-# arbitrary execution (REQ-A1.8), and (c) it uses no construct the analyzer
+# Analysis model: the command string EXACTLY as the model wrote it — Claude Code
+# hands a hook the raw `tool_input.command`, with `$VAR` references and
+# assignments unexpanded (measured on CLI 2.1.270 against a `--settings` hook;
+# the earlier claim here that variables arrive expanded was never true, and
+# every shape built on it deferred). It is split — quote- and operator-aware —
+# into segments on the control operators `;` `&&` `||` `|` `&` and newlines;
+# EVERY segment's simple command must be independently known-safe (REQ-A1.4). A
+# command is known-safe only when (a) its verb is on the enumerated allowlist
+# below, (b) its flags/args designate no output/target file and enable no write
+# or arbitrary execution (REQ-A1.8), and (c) it uses no construct the analyzer
 # cannot confidently parse — command/process substitution, here-docs, subshell
 # or brace grouping, env-assignment prefixes, path-prefixed verbs, escaped
-# operators, ANSI-C quoting — all of which defer (REQ-A1.9). Repo `scripts/*.sh`
+# operators, ANSI-C quoting — all of which defer (REQ-A1.9). The ONE expansion
+# the analyzer resolves itself is a variable the same command assigned a
+# literal, trusted-root path to (`P=/root && $P/scripts/x.sh`; see
+# track_assignment and expand_word): the substitution reproduces what the shell
+# will do for exactly that value class and nothing else, and every other `$`
+# left in a verb defers. Repo `scripts/*.sh`
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
 # path canonicalizes INSIDE the repository, and an INSTALLED planwright root's
 # `scripts/*.sh` is trusted after canonicalizing inside a root the hook resolves
@@ -95,10 +103,19 @@ emit_allow() {
 # unquoted literal (0, the default for operators and plain words). classify of a
 # redirect operand uses it: a quoted operand is never a bare fd-number or bare
 # /dev/null, so it must not read as a safe fd-dup / null-write (REQ-A1.4).
+# The optional fourth arg records whether the word carries a LITERAL `$` — one
+# produced by single quotes or a backslash — that the shell will NOT expand.
+# expand_word refuses to substitute into such a word, since it cannot tell a
+# literal `$` from an expanding one once the quotes are gone. The optional fifth
+# arg is the offset within the word at which quoting FIRST began (-1 when the
+# word is bare): track_assignment needs the name and the `=` of an assignment
+# to be unquoted, which the whole-word flag cannot tell from a quoted value.
 tok_push() {
   TOK_TYPE[TOK_N]=$1
   TOK_VAL[TOK_N]=$2
   TOK_QUOTED[TOK_N]=${3:-0}
+  TOK_NOEXP[TOK_N]=${4:-0}
+  TOK_QPOS[TOK_N]=${5:--1}
   TOK_N=$((TOK_N + 1))
 }
 
@@ -106,18 +123,26 @@ tokenize() {
   local s=$1
   local n=${#s}
   local i=0
-  local cur='' have=0 curq=0
+  local cur='' have=0 curq=0 curx=0 curqp=-1
   local c nc j k dc dn fdpfx
 
   # _flush: push the accumulated word (if any) as a W token carrying its
-  # quoting-provenance flag, then reset the accumulator.
+  # quoting-provenance, literal-dollar and quote-start flags, then reset the
+  # accumulator.
   _flush() {
     if [ "$have" = 1 ]; then
-      tok_push W "$cur" "$curq"
+      tok_push W "$cur" "$curq" "$curx" "$curqp"
       cur=''
       have=0
       curq=0
+      curx=0
+      curqp=-1
     fi
+  }
+  # _quoting: record where quoting first began in the current word.
+  _quoting() {
+    [ "$curq" = 1 ] || curqp=${#cur}
+    curq=1
   }
 
   while [ "$i" -lt "$n" ]; do
@@ -129,10 +154,11 @@ tokenize() {
         case $nc in
           "'" | '"' | ';' | '&' | '|' | '<' | '>' | '(' | ')') return 1 ;; # escaped op/quote
           "$NL") return 1 ;;                                               # line continuation
+          '$') curx=1 ;;                                                   # literal dollar
         esac
+        _quoting
         cur="$cur$nc"
         have=1
-        curq=1
         i=$((i + 2))
         ;;
       "'")
@@ -143,9 +169,10 @@ tokenize() {
           j=$((j + 1))
         done
         [ "$j" -lt "$n" ] || return 1 # unbalanced single quote
+        case $k in *'$'*) curx=1 ;; esac
+        _quoting
         cur="$cur$k"
         have=1
-        curq=1
         i=$((j + 1))
         ;;
       '"')
@@ -156,6 +183,7 @@ tokenize() {
           if [ "$dc" = "\\" ]; then
             dn=${s:j+1:1}
             [ -n "$dn" ] || return 1
+            [ "$dn" = '$' ] && curx=1 # \$ inside double quotes is literal
             k="$k$dn"
             j=$((j + 2))
             continue
@@ -170,9 +198,9 @@ tokenize() {
           j=$((j + 1))
         done
         [ "$j" -lt "$n" ] || return 1 # unbalanced double quote
+        _quoting
         cur="$cur$k"
         have=1
-        curq=1
         i=$((j + 1))
         ;;
       '`') return 1 ;; # backtick substitution
@@ -244,12 +272,14 @@ tokenize() {
           # A quoted digit run is a word (bash only reads an UNQUOTED digit run
           # as this redirect's fd number), so an fd prefix is bare digits only.
           case $cur in
-            '' | *[!0-9]*) tok_push W "$cur" "$curq" ;;
-            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" || fdpfx=$cur ;;
+            '' | *[!0-9]*) tok_push W "$cur" "$curq" "$curx" "$curqp" ;;
+            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" "$curx" "$curqp" || fdpfx=$cur ;;
           esac
           cur=''
           have=0
           curq=0
+          curx=0
+          curqp=-1
         fi
         if [ "$c" = '<' ]; then
           nc=${s:i+1:1}
@@ -432,58 +462,115 @@ is_repo_script() {
   esac
 }
 
-# is_planwright_script <path> <cwd>: 0 when <path> is a `.sh` under the
-# `scripts/` directory of a RESOLVED planwright installation root (REQ-A1.5,
-# REQ-A1.10). This is the installed-plugin twin of is_repo_script: a dispatched
-# worker runs planwright's OWN scripts from wherever the plugin is installed,
-# which is outside the repo checkout and so can never satisfy repo containment.
-#
-# The root chain is the one every other planwright script resolves its own root
-# with (scripts/resolve-rule-doc.sh, config-get.sh, resolve-review-sequence.sh,
-# resolve-overlay-root.sh), highest precedence first:
+# planwright_roots: print, one per line and canonicalized, every planwright
+# installation root this hook trusts its `scripts/*.sh` under. The chain is the
+# one every other planwright script resolves its own root with
+# (scripts/resolve-rule-doc.sh, config-get.sh, resolve-review-sequence.sh,
+# resolve-overlay-root.sh), highest precedence first, plus the arm that ties
+# the hook to the root the WORKER actually runs scripts from:
 #
 #   1. $PLANWRIGHT_ROOT            explicit override (tests, adopters)
 #   2. $CLAUDE_PLUGIN_ROOT         plugin delivery, when Claude Code exports it
 #   3. <claude-dir>/planwright     writer delivery ($CLAUDE_DIR else $HOME/.claude)
 #   4. $HOOK_SELF_ROOT             this hook's own sibling root (`dirname $0`/..)
+#   5. every installed root        what Claude Code records in
+#                                  <claude-dir>/plugins/installed_plugins.json
+#                                  for a planwright plugin, plus every version
+#                                  directory under the marketplace cache
+#                                  (<claude-dir>/plugins/cache/*/planwright/*)
 #
 # Arm 4 is what makes this allowance need NO per-machine, version-pinned settings
 # entry: the guard ships at <root>/scripts/worker-command-guard.sh, so it can
-# always locate its own root — including under a marketplace install whose root
-# carries the plugin VERSION in its path (so nothing breaks on the next plugin
-# update), and including the real-world case where CLAUDE_PLUGIN_ROOT is not
-# exported into a hook's environment. Trusting the guard's own siblings is the
-# same trust boundary as trusting the guard itself: every root comes from the
-# session environment or the hook's own location, NEVER from the analyzed command
-# (which stays inert data, REQ-B1.1).
+# always locate its own root. Arm 5 exists because arms 1-4 all resolve to the
+# root the LAUNCHER lives in (the dispatch-env wrapper exports its own root as
+# arms 1 and 2), while the skill text a worker executes is loaded from wherever
+# Claude Code installed the plugin, and `${CLAUDE_PLUGIN_ROOT}` in that text
+# substitutes to THAT root. A tower driving a checkout's scripts/ therefore
+# launched workers whose every plugin-script call — the first thing
+# /execute-task does — named a root the hook did not trust, and deferred
+# (2026-09-12, format-grammar task 7). The installed roots are Claude Code's own
+# record and its own cache layout, never a value taken from the analyzed command
+# (REQ-B1.1); they are resolved once at load (INSTALLED_ROOTS below).
 #
 # Each root is canonicalized (`cd … && pwd -P`, resolving `..` segments and
-# symlinked components) BEFORE the compare and skipped when it does not resolve;
-# containment then goes through canon_under, so a `..` segment in the path, a
-# symlinked leaf, or a sibling directory that merely shares the root's name
-# PREFIX never passes. `tests/` is deliberately NOT trusted here (an install
-# ships no tests/), keeping this addition strictly narrower than the repo case.
-is_planwright_script() {
-  local p=$1 cwd=$2 claude_dir='' r root full rel
-  case $p in
-    *.sh) ;;
-    *) return 1 ;;
-  esac
+# symlinked components) and skipped when it does not resolve; containment then
+# goes through canon_under, so a `..` segment in the path, a symlinked leaf, or
+# a sibling directory that merely shares the root's name PREFIX never passes.
+planwright_roots() {
+  local claude_dir='' r root
   if [ -n "${CLAUDE_DIR:-}" ]; then
     claude_dir=$CLAUDE_DIR
   elif [ -n "${HOME:-}" ]; then
     claude_dir="$HOME/.claude"
   fi
-  for r in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
-    "${claude_dir:+$claude_dir/planwright}" "${HOOK_SELF_ROOT:-}"; do
+  {
+    printf '%s\n' "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
+      "${claude_dir:+$claude_dir/planwright}" "${HOOK_SELF_ROOT:-}"
+    printf '%s\n' "${INSTALLED_ROOTS:-}"
+  } | while IFS= read -r r; do
     [ -n "$r" ] || continue
     root=$(cd "$r" 2>/dev/null && pwd -P) || continue
+    printf '%s\n' "$root"
+  done
+}
+
+# installed_planwright_roots: arm 5's raw (uncanonicalized) candidates, from the
+# sibling resolver the stream-json launch preflight reads too — one computation
+# of "which roots does a worker run scripts from", so the launcher's proof and
+# this hook's trust can never disagree again. Its jq read is the same dependency
+# the payload read already has; absent the resolver or jq it yields nothing,
+# never a guess.
+installed_planwright_roots() {
+  [ -n "${HOOK_SELF_ROOT:-}" ] || return 0
+  [ -r "$HOOK_SELF_ROOT/scripts/resolve-installed-roots.sh" ] || return 0
+  /bin/sh "$HOOK_SELF_ROOT/scripts/resolve-installed-roots.sh" 2>/dev/null || :
+}
+
+# is_planwright_script <path> <cwd>: 0 when <path> is a `.sh` under the
+# `scripts/` directory of a resolved planwright installation root (REQ-A1.5,
+# REQ-A1.10). This is the installed-plugin twin of is_repo_script: a dispatched
+# worker runs planwright's OWN scripts from wherever the plugin is installed,
+# which is outside the repo checkout and so can never satisfy repo containment.
+# `tests/` is deliberately NOT trusted here (an install ships no tests/), keeping
+# this addition strictly narrower than the repo case.
+is_planwright_script() {
+  local p=$1 cwd=$2 root full rel
+  case $p in
+    *.sh) ;;
+    *) return 1 ;;
+  esac
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
     full=$(canon_under "$p" "$cwd" "$root") || continue
     rel=${full#"$root"/}
     case $rel in
       scripts/*) return 0 ;;
     esac
-  done
+  done <<EOF
+$(planwright_roots)
+EOF
+  return 1
+}
+
+# is_trusted_dir <canonical-dir> <cwd>: 0 when the directory is, or sits inside,
+# the repo checkout or a resolved planwright root. Bounds what a tracked
+# assignment may name (see track_assignment); the verb built from it is still
+# verified by is_trusted_script afterwards.
+is_trusted_dir() {
+  local canon=$1 cwd=$2 root
+  if root=$(repo_root_of "$cwd"); then
+    case $canon in
+      "$root" | "$root"/*) return 0 ;;
+    esac
+  fi
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    case $canon in
+      "$root" | "$root"/*) return 0 ;;
+    esac
+  done <<EOF
+$(planwright_roots)
+EOF
   return 1
 }
 
@@ -1171,6 +1258,161 @@ guard_git() {
 # that DO have a write/set/exec vector carry an explicit guard above, and every
 # writer / command-runner / arbitrary-exec verb is simply absent here and so
 # defers (REQ-A1.8 recognized-safe-invocation rule).
+# --------------------------------------------------------------------------
+# Same-command variable tracking: the one expansion the analyzer resolves.
+#
+# Claude Code hands the hook the raw command, so `P=<root> && $P/scripts/x.sh`
+# — the shape a worker produces when it abbreviates the resolved root the
+# doctrine step tells it to call scripts under — reaches the verifier with `$P`
+# unexpanded, and a verb carrying `$` can never canonicalize. Rather than defer
+# the shape the hook exists to approve, the verifier tracks a standalone
+# assignment and substitutes it into later words, under bounds that keep the
+# substitution IDENTICAL to what the shell will do:
+#   * the value is a bare absolute path of [A-Za-z0-9/._-] only — no `$`, glob
+#     character, tilde, whitespace, or quote residue — so expanding it yields
+#     exactly that string, with no word splitting and no globbing;
+#   * the value canonicalizes to, or inside, a trusted root (the repo checkout
+#     or a resolved planwright root), so whatever the variable later names is
+#     already code the hook trusts, and the verb built from it still goes
+#     through is_trusted_script;
+#   * the NAME is a plain identifier, is not present in the hook's own
+#     environment (an exported variable reaches every child the command runs:
+#     PATH, LD_*, GIT_*, anything the operator exported), and is not a name the
+#     shell itself consumes unexported (IFS, CDPATH, the BASH_* family, PS4...);
+#   * the name and the `=` are unquoted (a quoted value is fine: quote removal
+#     already happened and the charset rule applies to what is left), and the
+#     word is the WHOLE simple command — an assignment PREFIX before a verb
+#     still defers (REQ-A1.9);
+#   * the assignment is unconditional and at the top level of the command:
+#     opened by nothing, by `;`, or by `&&` directly after another tracked
+#     assignment; closed by `;`, `&&`, `||` or the end. A `|` or `&` on either
+#     side runs it in a subshell and a `&&`/`||` after a real command makes it
+#     conditional; a loop/if/case body may not run at all. In every one of those
+#     the variable can be unset for what follows, so nothing is tracked (the
+#     segment itself is still harmless and passes; only the substitution is
+#     withheld).
+# A word carrying a literal `$` (single quotes, backslash) is never substituted,
+# an unknown `$NAME` is left in place (the verb then defers as before), and the
+# table is per analyze_command entry, so a `fish -c` inner string starts empty.
+
+# assign_name_ok <name>: the NAME rule above.
+assign_name_ok() {
+  local name=$1
+  case $name in
+    '' | *[!A-Za-z0-9_]* | [0-9]*) return 1 ;;
+  esac
+  case $name in
+    IFS | PATH | CDPATH | HOME | ENV | BASH_ENV | SHELL | PWD | OLDPWD | TMPDIR | TMOUT | \
+      GLOBIGNORE | EXECIGNORE | FIGNORE | PROMPT_COMMAND | POSIXLY_CORRECT | FUNCNEST | \
+      HOSTFILE | INPUTRC | IGNOREEOF | TIMEFORMAT | histchars | auto_resume | \
+      OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
+      BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
+  esac
+  # Indirect expansion reads the hook's OWN environment (and its own shell
+  # variables, which over-defers harmlessly) — never the analyzed command.
+  [ -z "${!name+x}" ] || return 1
+  return 0
+}
+
+# assign_value_ok <value> <cwd>: the VALUE rule above.
+assign_value_ok() {
+  local v=$1 cwd=$2 canon
+  case $v in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case $v in
+    *[!A-Za-z0-9/._-]*) return 1 ;;
+  esac
+  canon=$(cd "$v" 2>/dev/null && pwd -P) || return 1
+  is_trusted_dir "$canon" "$cwd"
+}
+
+# track_assignment <word> <quote-start> : 0 when the word is a standalone
+# assignment the rules admit, leaving its halves in PENDING_ASSIGN_N / _V for
+# verify_tokens to commit once it knows the segment was unconditional.
+track_assignment() {
+  local w=$1 qpos=$2 name value eqpos
+  case $w in
+    [A-Za-z_]*=*) ;;
+    *) return 1 ;;
+  esac
+  name=${w%%=*}
+  value=${w#*=}
+  eqpos=${#name}
+  # The name and the `=` must be bare: a word quoted from its start is a
+  # command whose name merely contains `=`, not an assignment.
+  if [ "$qpos" -ge 0 ] && [ "$qpos" -le "$eqpos" ]; then
+    return 1
+  fi
+  assign_name_ok "$name" || return 1
+  assign_value_ok "$value" "$HOOK_CWD" || return 1
+  PENDING_ASSIGN_N=$name
+  PENDING_ASSIGN_V=$value
+  return 0
+}
+
+# expand_word <word>: substitute every `$NAME` / `${NAME}` whose NAME the
+# table holds (latest assignment wins, as in the shell); any other `$` — an
+# unknown name, a `${NAME:-...}` modifier, a bare `$` — is left in place so the
+# word still defers downstream. Prints the result.
+expand_word() {
+  local w=$1
+  local out='' i=0 n=${#w} c name j k found v
+  while [ "$i" -lt "$n" ]; do
+    c=${w:i:1}
+    if [ "$c" != '$' ]; then
+      out="$out$c"
+      i=$((i + 1))
+      continue
+    fi
+    name=''
+    if [ "${w:i+1:1}" = '{' ]; then
+      j=$((i + 2))
+      while [ "$j" -lt "$n" ] && [ "${w:j:1}" != '}' ]; do
+        name="$name${w:j:1}"
+        j=$((j + 1))
+      done
+      if [ "$j" -ge "$n" ]; then
+        out="$out$c"
+        i=$((i + 1))
+        continue
+      fi
+      k=$((j + 1))
+    else
+      j=$((i + 1))
+      while [ "$j" -lt "$n" ]; do
+        case ${w:j:1} in
+          [A-Za-z0-9_]) name="$name${w:j:1}" ;;
+          *) break ;;
+        esac
+        j=$((j + 1))
+      done
+      k=$j
+    fi
+    found=''
+    case $name in
+      '' | *[!A-Za-z0-9_]*) ;;
+      *)
+        for ((v = VAR_C - 1; v >= 0; v--)); do
+          if [ "${VAR_N[v]}" = "$name" ]; then
+            found=${VAR_V[v]}
+            break
+          fi
+        done
+        ;;
+    esac
+    if [ -n "$found" ]; then
+      out="$out$found"
+      i=$k
+    else
+      out="$out$c"
+      i=$((i + 1))
+    fi
+  done
+  printf '%s' "$out"
+}
+
 classify_verb() {
   local verb=$1
   case $verb in
@@ -1215,7 +1457,23 @@ verify_simple() {
   # A command with redirects but no words (pure `> file`) already handled;
   # an empty simple command (e.g. a trailing separator) is a no-op.
   [ "$cwn" -ge 1 ] || return 0
+  # Resolve the tracked assignments into this command's words first, so a verb
+  # or script path written through `$ROOT` is verified as the literal path the
+  # shell will run. Words carrying a literal `$` are left alone.
+  if [ "$VAR_C" -gt 0 ]; then
+    for ((i = 0; i < cwn; i++)); do
+      case ${cw[i]} in
+        *'$'*) [ "${cx[i]}" = 0 ] && cw[i]=$(expand_word "${cw[i]}") ;;
+      esac
+    done
+  fi
   verb=${cw[0]}
+  # A standalone assignment (the whole simple command is one `NAME=value`
+  # word) that the tracking rules admit runs nothing and is recorded for the
+  # words that follow; whether it is committed is verify_tokens' call.
+  if [ "$cwn" -eq 1 ] && track_assignment "$verb" "${cqp[0]}"; then
+    return 0
+  fi
   # Inline environment-assignment prefix (REQ-A1.9): VAR=value [cmd].
   case $verb in
     [A-Za-z_]*=*)
@@ -1254,16 +1512,47 @@ verify_tokens() {
   local idx=0 typ val
   local mode=normal # normal | skip | casehead | casepat | casebody
   local case_depth=0
+  # Nesting depth of for/while/until/if/case bodies, and the operator that
+  # opened the current segment ('' at the start, a control operator, or `ctl`
+  # for a reserved-word boundary): together they decide whether a tracked
+  # assignment was unconditional (see track_assignment).
+  local ctl_depth=0 seg_open='' prev_commit=0
   # Accumulators for the current simple command (dynamic scope: verify_simple
-  # reads these). Reset by fin().
-  local -a cw=() ro=() rt=()
+  # reads these): words, their literal-dollar flags, their quote-start offsets,
+  # and the redirects. Reset by fin().
+  local -a cw=() cx=() cqp=() ro=() rt=()
   local cwn=0 rn=0
 
-  # fin: finalize the current simple command (verify it) and reset. Only called
-  # in normal / casebody accumulation modes.
+  # fin <closing-op>: finalize the current simple command (verify it), commit a
+  # tracked assignment when its segment was unconditional and top-level, and
+  # reset. Only called in normal / casebody accumulation modes.
   fin() {
+    local close=$1 ok=0
+    PENDING_ASSIGN_N=''
+    PENDING_ASSIGN_V=''
     verify_simple || return 1
+    if [ -n "$PENDING_ASSIGN_N" ] && [ "$ctl_depth" -eq 0 ]; then
+      case $seg_open in
+        '' | ';') ok=1 ;;
+        '&&') [ "$prev_commit" = 1 ] && ok=1 ;;
+      esac
+      case $close in
+        ';' | '&&' | '||' | end) ;;
+        *) ok=0 ;;
+      esac
+    fi
+    if [ "$ok" = 1 ]; then
+      VAR_N[VAR_C]=$PENDING_ASSIGN_N
+      VAR_V[VAR_C]=$PENDING_ASSIGN_V
+      VAR_C=$((VAR_C + 1))
+      prev_commit=1
+    else
+      prev_commit=0
+    fi
+    seg_open=$close
     cw=()
+    cx=()
+    cqp=()
     ro=()
     rt=()
     cwn=0
@@ -1289,6 +1578,7 @@ verify_tokens() {
         mode=casepat
       elif [ "$typ" = W ] && [ "$val" = "esac" ]; then
         case_depth=$((case_depth - 1))
+        ctl_depth=$((ctl_depth - 1))
         mode=normal
       fi
       idx=$((idx + 1))
@@ -1300,6 +1590,7 @@ verify_tokens() {
         mode=casebody
       elif [ "$typ" = W ] && [ "$val" = "esac" ]; then
         case_depth=$((case_depth - 1))
+        ctl_depth=$((ctl_depth - 1))
         mode=normal
       fi
       # `(` (optional leading pattern paren) and `|` (alternation) are skipped.
@@ -1310,11 +1601,11 @@ verify_tokens() {
     if [ "$typ" = O ]; then
       case $val in
         ';' | '&&' | '||' | '|' | '&')
-          fin || return 1
+          fin "$val" || return 1
           ;;
         ';;')
           if [ "$mode" = casebody ]; then
-            fin || return 1
+            fin ctl || return 1
             mode=casepat
           else
             return 1 # `;;` outside a case is malformed
@@ -1354,21 +1645,34 @@ verify_tokens() {
     if [ "$cwn" -eq 0 ] && is_reserved "$val"; then
       case $val in
         for | select)
-          fin || return 1
+          fin ctl || return 1
+          ctl_depth=$((ctl_depth + 1))
           mode=skip
           ;;
-        while | until | if | then | elif | else | fi | do | done)
-          fin || return 1 # boundary; regions on both sides are commands
+        while | until | if)
+          fin ctl || return 1
+          ctl_depth=$((ctl_depth + 1))
+          ;;
+        then | elif | else | do)
+          fin ctl || return 1 # boundary; regions on both sides are commands
+          ;;
+        fi | done)
+          fin ctl || return 1
+          ctl_depth=$((ctl_depth - 1))
+          [ "$ctl_depth" -ge 0 ] || return 1 # a closer with no opener: defer
           ;;
         'case')
-          fin || return 1
+          fin ctl || return 1
           case_depth=$((case_depth + 1))
+          ctl_depth=$((ctl_depth + 1))
           [ "$case_depth" -gt 1 ] && return 1 # nested case: defer
           mode=casehead
           ;;
         'esac')
-          fin || return 1
+          fin ctl || return 1
           case_depth=$((case_depth - 1))
+          ctl_depth=$((ctl_depth - 1))
+          [ "$ctl_depth" -ge 0 ] || return 1
           mode=normal
           ;;
         'in')
@@ -1381,6 +1685,8 @@ verify_tokens() {
 
     # Ordinary word: append to the current simple command.
     cw[cwn]=$val
+    cx[cwn]=${TOK_NOEXP[idx]}
+    cqp[cwn]=${TOK_QPOS[idx]}
     cwn=$((cwn + 1))
     idx=$((idx + 1))
   done
@@ -1388,7 +1694,8 @@ verify_tokens() {
   # Finalize the trailing simple command and require a clean end state.
   [ "$mode" = normal ] || return 1
   [ "$case_depth" -eq 0 ] || return 1
-  fin || return 1
+  [ "$ctl_depth" -eq 0 ] || return 1
+  fin end || return 1
   return 0
 }
 
@@ -1401,9 +1708,14 @@ analyze_command() {
   local cmd=$1 depth=$2
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
-  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=()
+  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=() TOK_NOEXP=() TOK_QPOS=()
   local TOK_N=0
   local HOOK_DEPTH=$depth
+  # The tracked-assignment table (track_assignment / expand_word), fresh per
+  # entry so a `fish -c` inner string never inherits the outer shell's.
+  local -a VAR_N=() VAR_V=()
+  local VAR_C=0
+  local PENDING_ASSIGN_N='' PENDING_ASSIGN_V=''
   tokenize "$cmd" || return 1
   verify_tokens "$depth"
 }
@@ -1464,6 +1776,10 @@ TAB=$'\t'
 # any payload is read, and left empty when it cannot be resolved (in which case
 # that arm simply never fires). Never derived from the analyzed command.
 HOOK_SELF_ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || HOOK_SELF_ROOT=''
+# Arm 5 of the same chain: the roots Claude Code itself installed the plugin
+# at, resolved once at load from its own record and cache (never from the
+# analyzed command). Empty when neither exists.
+INSTALLED_ROOTS=$(installed_planwright_roots) || INSTALLED_ROOTS=''
 
 # Fail safe on any unexpected signal: empty stdout, exit 0 (REQ-B1.7). The hook
 # never blocks a worker's tool call.

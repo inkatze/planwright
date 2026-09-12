@@ -184,8 +184,11 @@
 #       reads as a successful close, and a close asked for from inside the
 #       worker's own process tree is refused with exit 3 rather than attempted.
 #   fleet-streamjson.sh status <worker>
-#       Print `status <worker> <running|completed|ended|dead|unknown> <detail>`
-#       from the recorded pids and the captured event stream.
+#       Print `status <worker> <running|awaiting-input|completed|ended|dead|
+#       unknown> <detail>` from the recorded pids, the receipt journal and the
+#       captured event stream. `awaiting-input` is a live worker with a pending
+#       control_request: the detail carries `pending=<n> oldest=<age>s`, so a
+#       worker that cannot proceed never reads as a healthy `running`.
 #
 # Exit codes: 0 success; 2 usage error, refused hostile input, or a
 #   filesystem/lock error (fail closed); 3 a semantic refusal (recovery
@@ -196,7 +199,37 @@
 #   session to resume; 5 recovery halt: the `--resume` relaunch failed; 6 a
 #   partial close: some class of the release set is still held; 7 the
 #   worker-settings fragment the launch pins is missing or unreadable; 8 the
-#   dispatch-env wrapper the launch goes through is missing or unreadable.
+#   dispatch-env wrapper the launch goes through is missing or unreadable; 9
+#   the launch preflight could not prove the worker's auto-approve hook will
+#   approve its opening plugin-script call (see LAUNCH PREFLIGHT).
+#
+# LAUNCH PREFLIGHT. A dispatched worker's first move is fixed and predictable:
+# /execute-task resolves its doctrine by calling scripts under the planwright
+# root before any task work. Twice that call fell outside what the dispatch
+# plumbing approved and the worker pended on its first tool call with nothing
+# to say so (2026-09-12, format-grammar task 7: the guard trusted the root the
+# LAUNCHER lives in, the skill called scripts under the root Claude Code
+# INSTALLED the plugin at). So before spawning, `launch` runs the wired hook
+# (scripts/worker-command-guard.sh, through the same dispatch-env wrapper and
+# so with the same environment the worker gets) against a synthetic PreToolUse
+# payload for `<root>/scripts/resolve-rule-doc.sh spec-format`, once per root
+# the worker could run scripts from: this launcher's own root and every root
+# scripts/resolve-installed-roots.sh names. A root the hook does not approve
+# refuses the launch with exit 9, naming the root and the command, because the
+# worker would otherwise stall on exactly that call. PLANWRIGHT_STREAMJSON_
+# GUARD_PREFLIGHT=warn downgrades the refusal to a warning (an operator who
+# intends to answer every prompt by hand); =off skips the proof.
+#
+# ESCALATION TICK. The pending-age alarm used to be scan-only (`alarm-scan`),
+# and nothing in the fleet ran the scan, so a worker parked on an unanswerable
+# request stayed a `running` worker with one pending journal row for as long as
+# nobody looked. The supervisor now runs the same journal scan itself, for its
+# own worker, every PLANWRIGHT_STREAMJSON_ALARM_TICK seconds (default 60): a
+# receipt pending longer than PLANWRIGHT_STREAMJSON_PENDING_AGE (default 900)
+# is escalated to a high-priority queue item and pushed through the notify
+# seam once, on the tick that crosses the threshold. Scan-based over the
+# durable journal, so it holds the same crash-window properties `alarm-scan`
+# has, and still never auto-answers and never kills the worker.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,
 # mkfifo, mktemp, `date +%s`, a fractional `sleep`, and — for the close —
@@ -849,6 +882,18 @@ supervise() {
     echo "$me: could not publish worker.pid for $sv_worker; the worker was closed rather than left unrecorded" >&2
     return 2
   fi
+  # The ESCALATION TICK (see the header): a background scan of this worker's
+  # own journal, so a receipt pending past the threshold surfaces within one
+  # tick of crossing it whether or not anything else ever runs `alarm-scan`.
+  # Started BEFORE the stdin fifo is opened on fd 3 below: a child holding
+  # that fd would keep the worker's stdin open after the supervisor closed it,
+  # and the EOF that ends a finished worker would never arrive. Re-exec'd
+  # under its own `_tick` verb rather than forked as a subshell: a subshell
+  # keeps this process's `_supervise <worker> <dir>` argv, and everything that
+  # counts or closes supervisors matches on exactly that.
+  /bin/sh "$self" _tick "$sv_worker" "$sv_dir" "$$" "$sv_pid" \
+    >/dev/null 2>>"$sv_dir/supervisor.log" </dev/null &
+  sv_ticker=$!
   # From here the supervisor writes into the worker's stdin fifo: a worker
   # that exits before reading turns the write into EPIPE, which must end the
   # run cleanly, not kill the supervisor. Set AFTER the spawn so the worker
@@ -873,6 +918,8 @@ supervise() {
     printf '%s\n' "$sv_line" >>"$sv_dir/events.jsonl"
     handle_line "$sv_worker" "$sv_dir" "$sv_line"
   done <"$sv_dir/out.fifo"
+  kill "$sv_ticker" 2>/dev/null || :
+  wait "$sv_ticker" 2>/dev/null || :
   wait "$sv_init_writer" 2>/dev/null || :
   rm -f "$sv_init"
   exec 3>&-
@@ -975,6 +1022,64 @@ dispatch_env_path() {
     return 8
   fi
   printf '%s\n' "$de_path"
+}
+
+# guard_preflight <dispatch-env> <cwd> — the LAUNCH PREFLIGHT (see the
+# header): prove the wired hook approves a worker's opening plugin-script call
+# under every root it could name, before anything is spawned. Prints nothing
+# on success; on a refusal names each root that failed and returns 9 (or 0 with
+# the same message when PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn).
+guard_preflight() {
+  gp_env=$1
+  gp_cwd=$2
+  gp_mode=${PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT:-refuse}
+  case $gp_mode in
+    refuse | warn) ;;
+    off) return 0 ;;
+    *)
+      echo "$me: invalid PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT '$gp_mode' (refuse|warn|off)" >&2
+      return 2
+      ;;
+  esac
+  gp_dir=$(cd -- "$(dirname "$gp_env")" 2>/dev/null && pwd -P) || gp_dir=$(dirname "$gp_env")
+  gp_guard="$gp_dir/worker-command-guard.sh"
+  if [ ! -r "$gp_guard" ]; then
+    echo "$me: launch preflight: the auto-approve hook $gp_guard is missing or unreadable; the worker would prompt on every routine command" >&2
+    [ "$gp_mode" = warn ] && return 0
+    return 9
+  fi
+  gp_launcher=$(cd -- "$gp_dir/.." 2>/dev/null && pwd -P) || gp_launcher=''
+  gp_tmp=$(mktemp) || return 2
+  gp_seen=''
+  {
+    printf '%s\n' "$gp_launcher"
+    /bin/sh "$gp_dir/resolve-installed-roots.sh" 2>/dev/null || :
+  } | while IFS= read -r gp_root; do
+    [ -n "$gp_root" ] || continue
+    gp_root=$(cd -- "$gp_root" 2>/dev/null && pwd -P) || continue
+    case "$gp_seen" in *"|$gp_root|"*) continue ;; esac
+    gp_seen="$gp_seen|$gp_root|"
+    gp_cmd="$gp_root/scripts/resolve-rule-doc.sh spec-format"
+    gp_payload=$(printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s"},"cwd":"%s"}' \
+      "$(printf '%s' "$gp_cmd" | json_escape)" "$(printf '%s' "$gp_cwd" | json_escape)")
+    gp_out=$(printf '%s\n' "$gp_payload" | "$gp_env" "$gp_guard" 2>/dev/null) || gp_out=''
+    case $gp_out in
+      *'"permissionDecision":"allow"'*) ;;
+      *) printf '%s\n' "$gp_root" ;;
+    esac
+  done >"$gp_tmp"
+  gp_failed=$(cat "$gp_tmp" 2>/dev/null)
+  rm -f "$gp_tmp"
+  [ -n "$gp_failed" ] || return 0
+  printf '%s\n' "$gp_failed" | while IFS= read -r gp_root; do
+    echo "$me: launch preflight: the auto-approve hook does not approve '$gp_root/scripts/resolve-rule-doc.sh spec-format' - a worker whose skill resolves to that root stalls on its first doctrine call (check jq is installed, and that the hook resolves the root: PLANWRIGHT_ROOT / CLAUDE_PLUGIN_ROOT / scripts/resolve-installed-roots.sh)" >&2
+  done
+  if [ "$gp_mode" = warn ]; then
+    echo "$me: launch preflight: continuing anyway (PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn)" >&2
+    return 0
+  fi
+  echo "$me: refusing to launch: the worker would pend on its opening plugin-script call (exit 9; PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn to launch regardless)" >&2
+  return 9
 }
 
 # register_dispatch <worker> <scope> <dir> <checkout> [<pid>] — write the
@@ -1636,6 +1741,9 @@ cmd_launch() {
   refuse_mode_overrides "$@" || exit 2
   worker_settings=$(worker_settings_path) || exit 7
   dispatch_env=$(dispatch_env_path) || exit 8
+  guard_preflight "$dispatch_env" "${run_cwd:-$PWD}"
+  gp_rc=$?
+  [ "$gp_rc" -eq 0 ] || exit "$gp_rc"
 
   dir=$(worker_dir "$worker") || exit 2
   # The handle grammar blocks traversal tokens but not a symlink planted under
@@ -2106,6 +2214,39 @@ cmd_stop() {
   return 0
 }
 
+# cmd__tick <worker> <dir> <supervisor-pid> <worker-pid> — the escalation
+# tick's own process (internal; spawned by supervise). Sleeps in one-second
+# steps, leaving the instant either pid is gone so a closed worker never keeps
+# a ticker behind, and runs this worker's pending-age scan every
+# PLANWRIGHT_STREAMJSON_ALARM_TICK seconds (default 60) against
+# PLANWRIGHT_STREAMJSON_PENDING_AGE (default 900).
+cmd__tick() {
+  [ $# -eq 4 ] || usage
+  tk_worker=$1
+  tk_dir=$2
+  tk_sup=$3
+  tk_wrk=$4
+  valid_field "$tk_worker" || exit 2
+  valid_posnum "$tk_sup" || exit 2
+  valid_posnum "$tk_wrk" || exit 2
+  [ -d "$tk_dir" ] || exit 2
+  tk_tick=${PLANWRIGHT_STREAMJSON_ALARM_TICK:-60}
+  valid_posnum "$tk_tick" || tk_tick=60
+  tk_thr=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-900}
+  valid_posnum "$tk_thr" || tk_thr=900
+  tk_i=0
+  while :; do
+    sleep 1
+    pid_live "$tk_sup" || exit 0
+    pid_live "$tk_wrk" || exit 0
+    tk_i=$((tk_i + 1))
+    [ "$tk_i" -ge "$tk_tick" ] || continue
+    tk_i=0
+    [ -f "$tk_dir/journal" ] || continue
+    alarm_scan_worker "$tk_worker" "$tk_dir" '' "$tk_thr" "$tk_tick" >/dev/null || :
+  done
+}
+
 cmd_alarm_scan() {
   now=''
   threshold=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-900}
@@ -2147,68 +2288,91 @@ cmd_alarm_scan() {
     [ -f "$as_dir/journal" ] || continue
     as_worker=${as_dir##*/}
     valid_field "$as_worker" || continue
-    # Candidate ids only. Everything the escalation acts on -- kind, received
-    # epoch, state -- is re-read under the lock below, because this read is
-    # unlocked and its values can be stale by the time the lock is taken.
-    # Carrying them forward from here is what let a re-opened request be
-    # escalated against the age this scan measured.
-    awk -F'\t' -v now="$now" -v thr="$threshold" \
-      '$4 == "pending" && (now - $3) > thr { print $1 }' \
-      "$as_dir/journal" | while read -r a_id; do
-      valid_reqid "$a_id" || continue
-      # Escalation only (the kickoff-pinned alarm outcome): the queue item
-      # is re-upserted at high priority and the notify seam is pushed —
-      # never an auto-answer, never a worker kill.
-      #
-      # Re-read under the lock before publishing, for the reason handle_line
-      # and answer do. The awk above read this journal unlocked, so an answer
-      # landing between that scan and this upsert would be undone by it,
-      # re-posting a decision the operator just made — the same stale queue row
-      # this projection prevents, arriving through the sweep.
-      #
-      # The whole ROW is re-read, not just the state. A request can be answered
-      # and then re-opened by handle_line with a fresh received epoch while this
-      # waits for the lock; a state-only check sees `pending` again and escalates
-      # against the age the first scan measured, marking a request overdue that
-      # has not yet had its threshold. The kind can change with it, so that is
-      # taken from the same read.
-      #
-      # A lock this scan cannot take ends the worker, not the request: `continue`
-      # would send every remaining row of a busy worker through the same retry
-      # budget, turning one skip into seconds of spinning. The next pass retries
-      # the whole worker.
-      # ONE lock, held from the re-read through the publish. An earlier revision
-      # of this took the lock twice -- read, unlock, decide, relock, publish --
-      # which put the whole decision outside any lock and let an answer settle
-      # the request in the gap, so the publish overwrote it. That is the very
-      # row this change exists to prevent, reintroduced by the fix for the age
-      # predicate. Every skip path below unlocks before it leaves.
-      if ! journal_lock "$as_dir"; then
-        break
+    alarm_scan_worker "$as_worker" "$as_dir" "$now" "$threshold" ''
+  done
+  set -f
+}
+
+# alarm_scan_worker <worker> <dir> <now> <threshold> <tick> — one worker's
+# pending-age scan, shared by `alarm-scan` (every worker, on demand) and the
+# supervisor's escalation tick (its own worker, on a cadence). <now> empty
+# means the clock. <tick> empty means every overdue receipt is pushed through
+# the notify seam on every call, the on-demand contract; a tick width means
+# the push happens once, on the call whose window contains the crossing, while
+# the high-priority queue row is re-upserted on every call (idempotent, and the
+# row is what an attention watch reacts to). Prints `alarm <worker> <id> <age>`
+# per firing.
+alarm_scan_worker() {
+  as_worker=$1
+  as_dir=$2
+  as_now=$3
+  as_thr=$4
+  as_tick=$5
+  if [ -z "$as_now" ]; then
+    as_now=$(now_epoch) || return 2
+  fi
+  # Candidate ids only. Everything the escalation acts on -- kind, received
+  # epoch, state -- is re-read under the lock below, because this read is
+  # unlocked and its values can be stale by the time the lock is taken.
+  # Carrying them forward from here is what let a re-opened request be
+  # escalated against the age this scan measured.
+  awk -F'\t' -v now="$as_now" -v thr="$as_thr" \
+    '$4 == "pending" && (now - $3) > thr { print $1 }' \
+    "$as_dir/journal" | while read -r a_id; do
+    valid_reqid "$a_id" || continue
+    # Escalation only (the kickoff-pinned alarm outcome): the queue item
+    # is re-upserted at high priority and the notify seam is pushed —
+    # never an auto-answer, never a worker kill.
+    #
+    # Re-read under the lock before publishing, for the reason handle_line
+    # and answer do. The awk above read this journal unlocked, so an answer
+    # landing between that scan and this upsert would be undone by it,
+    # re-posting a decision the operator just made — the same stale queue row
+    # this projection prevents, arriving through the sweep.
+    #
+    # The whole ROW is re-read, not just the state. A request can be answered
+    # and then re-opened by handle_line with a fresh received epoch while this
+    # waits for the lock; a state-only check sees `pending` again and escalates
+    # against the age the first scan measured, marking a request overdue that
+    # has not yet had its threshold. The kind can change with it, so that is
+    # taken from the same read.
+    #
+    # A lock this scan cannot take ends the worker, not the request: `continue`
+    # would send every remaining row of a busy worker through the same retry
+    # budget, turning one skip into seconds of spinning. The next pass retries
+    # the whole worker.
+    # ONE lock, held from the re-read through the publish. An earlier revision
+    # of this took the lock twice -- read, unlock, decide, relock, publish --
+    # which put the whole decision outside any lock and let an answer settle
+    # the request in the gap, so the publish overwrote it. That is the very
+    # row this change exists to prevent, reintroduced by the fix for the age
+    # predicate. Every skip path below unlocks before it leaves.
+    if ! journal_lock "$as_dir"; then
+      break
+    fi
+    as_row=$(awk -F'\t' -v id="$a_id" '$1 == id { print $2 "\t" $3 "\t" $4; exit }' \
+      "$as_dir/journal" 2>/dev/null) || as_row=''
+    as_now_kind=${as_row%%"$TAB"*}
+    as_rest=${as_row#*"$TAB"}
+    as_recv=${as_rest%%"$TAB"*}
+    as_state=${as_rest#*"$TAB"}
+    as_fired=0
+    if [ "$as_state" = pending ] && valid_posnum "${as_recv:-}"; then
+      as_age=$((as_now - as_recv))
+      if [ "$as_age" -gt "$as_thr" ]; then
+        attention_upsert "$as_worker" "$as_dir" "$a_id" "$as_now_kind" high
+        as_fired=1
       fi
-      as_row=$(awk -F'\t' -v id="$a_id" '$1 == id { print $2 "\t" $3 "\t" $4; exit }' \
-        "$as_dir/journal" 2>/dev/null) || as_row=''
-      as_now_kind=${as_row%%"$TAB"*}
-      as_rest=${as_row#*"$TAB"}
-      as_recv=${as_rest%%"$TAB"*}
-      as_state=${as_rest#*"$TAB"}
-      as_fired=0
-      if [ "$as_state" = pending ] && valid_posnum "${as_recv:-}"; then
-        as_age=$((now - as_recv))
-        if [ "$as_age" -gt "$threshold" ]; then
-          attention_upsert "$as_worker" "$as_dir" "$a_id" "$as_now_kind" high
-          as_fired=1
-        fi
-      fi
-      journal_unlock "$as_dir"
-      [ "$as_fired" = 1 ] || continue
+    fi
+    journal_unlock "$as_dir"
+    [ "$as_fired" = 1 ] || continue
+    if [ -z "$as_tick" ] || [ "$as_age" -le $((as_thr + as_tick)) ]; then
       /bin/sh "$FA" notify \
         "stream-json worker $as_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${as_age}s past threshold" \
         >/dev/null 2>&1 || :
-      printf 'alarm %s %s %s\n' "$as_worker" "$a_id" "$as_age"
-    done
+    fi
+    printf 'alarm %s %s %s\n' "$as_worker" "$a_id" "$as_age"
   done
-  set -f
 }
 
 cmd_status() {
@@ -2282,6 +2446,26 @@ cmd_status() {
   wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
   if valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" \
     && valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid"; then
+    # A live worker with a pending receipt is not making progress: it is
+    # waiting on an answer nobody may be about to give. Say so, with the
+    # count and the oldest age, rather than the `running` that read as
+    # healthy for the twenty minutes a stalled worker sat on its first call.
+    st_pend=0
+    st_oldest=''
+    if [ -f "$dir/journal" ]; then
+      st_pend=$(awk -F'\t' '$4 == "pending" { n++ } END { print n + 0 }' \
+        "$dir/journal" 2>/dev/null) || st_pend=0
+      st_oldest=$(awk -F'\t' '$4 == "pending" && $3 ~ /^[0-9]+$/ { if (o == "" || $3 < o) o = $3 } END { print o }' \
+        "$dir/journal" 2>/dev/null) || st_oldest=''
+    fi
+    if valid_posnum "${st_pend:-}" && valid_posnum "${st_oldest:-}"; then
+      st_now=$(now_epoch) || st_now=$st_oldest
+      st_age=$((st_now - st_oldest))
+      [ "$st_age" -ge 0 ] || st_age=0
+      printf 'status %s awaiting-input pending=%s oldest=%ss supervisor=%s worker=%s\n' \
+        "$worker" "$st_pend" "$st_age" "$sup_pid" "$wrk_pid"
+      return 0
+    fi
     printf 'status %s running supervisor=%s worker=%s\n' "$worker" "$sup_pid" "$wrk_pid"
     return 0
   fi
@@ -2314,6 +2498,7 @@ case $cmd in
   answer) cmd_answer "$@" ;;
   recover) cmd_recover "$@" ;;
   alarm-scan) cmd_alarm_scan "$@" ;;
+  _tick) cmd__tick "$@" ;;
   stop) cmd_stop "$@" ;;
   status) cmd_status "$@" ;;
   _supervise) supervise "$@" ;;

@@ -402,11 +402,31 @@ non-`--bare` stream-json shape and passes the prompt as data on stdin
 (never interpolated into a shell command line); every `can_use_tool` or
 AskUserQuestion control_request becomes a decision-queue item in the
 attention store plus a durable journal receipt, with a scan-based
-pending-age alarm (`alarm-scan`) that escalates overdue items — it never
-auto-answers and never kills a worker. `answer` delivers the operator's
-recorded answer as the control_response; `recover` resumes a crashed
-worker's session via `--resume`; `status` surfaces completion and liveness
-from the supervisor and the captured event stream.
+pending-age alarm that escalates overdue items — it never auto-answers and
+never kills a worker. The supervisor runs that scan itself for its own
+worker on a cadence (`PLANWRIGHT_STREAMJSON_ALARM_TICK`, default 60s), so a
+receipt pending past `PLANWRIGHT_STREAMJSON_PENDING_AGE` (default 900s)
+becomes a high-priority queue item plus one notify push within a tick of
+crossing the threshold, with nothing else having to run `alarm-scan` (the
+on-demand sweep over every worker, which remains). `answer` delivers the
+operator's recorded answer as the control_response; `recover` resumes a
+crashed worker's session via `--resume`; `status` surfaces completion and
+liveness from the supervisor, the journal and the captured event stream — a
+live worker with a pending receipt reports `awaiting-input pending=<n>
+oldest=<age>s`, never a healthy-looking `running`.
+
+Before spawning anything, `launch` proves the worker's auto-approve hook
+(`scripts/worker-command-guard.sh`, run through the same dispatch-env wrapper
+the worker gets) will approve the worker's opening move — the
+`<root>/scripts/resolve-rule-doc.sh` call `/execute-task` makes before any
+task work — once per root the worker could run scripts from: the launcher's
+own root and every root `scripts/resolve-installed-roots.sh` names (Claude
+Code's `installed_plugins.json` record and its marketplace cache). A root the
+hook does not approve refuses the launch with exit 9, naming the root and the
+command, because the worker would otherwise pend on exactly that call with
+nothing to say so; `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn` downgrades
+that to a warning, `off` skips the proof. The hook trusts the same resolver's
+roots, so the proof and the trust cannot diverge.
 
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor
 and its children (SIGTERM, then SIGKILL after the grace, since children do not
