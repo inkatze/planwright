@@ -22,11 +22,18 @@
 #                                           environment (the normal path: a
 #                                           backend spawns the session through
 #                                           this)
-#   fleet-dispatch-env.sh --print           print the KEY=VALUE assignment,
+#   fleet-dispatch-env.sh --print           print the KEY=VALUE assignments,
 #                                           one per line, for a launcher that
 #                                           cannot wrap the exec (e.g. a tmux
 #                                           relay that prepends it to the
-#                                           launch command)
+#                                           launch command). Values are printed
+#                                           RAW, so a caller that re-splits them
+#                                           through a shell must quote them
+#                                           itself: the root is a filesystem
+#                                           path and may contain spaces. A
+#                                           caller that can wrap the exec should
+#                                           prefer --emit-launch, which quotes
+#                                           every token for exactly this reason.
 #   fleet-dispatch-env.sh --emit-launch <launch-argv...>
 #                                           print the pin-carrying WRAPPED launch
 #                                           command line — this wrapper's own
@@ -107,7 +114,7 @@ resolve_self() {
   case $rs_self in
     /*) ;;
     */*)
-      rs_dir=$(cd "$(dirname "$rs_self")" 2>/dev/null && pwd) || rs_dir=
+      rs_dir=$(cd -- "$(dirname "$rs_self")" 2>/dev/null && pwd) || rs_dir=
       [ -n "$rs_dir" ] && rs_self="$rs_dir/$(basename "$rs_self")"
       ;;
   esac
@@ -123,7 +130,7 @@ resolve_self() {
 planwright_root() {
   pr_self=$(resolve_self)
   case $pr_self in
-    */*) (cd "$(dirname "$pr_self")/.." 2>/dev/null && pwd -P) ;;
+    */*) (cd -- "$(dirname "$pr_self")/.." 2>/dev/null && pwd -P) ;;
   esac
 }
 
