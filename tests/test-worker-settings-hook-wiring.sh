@@ -64,7 +64,9 @@ fi
 #     $CLAUDE_PLUGIN_ROOT -----------------------------------------------------
 # The hook must live under a Bash matcher (it only analyzes Bash commands,
 # REQ-A1.7) and reference the plugin script through $CLAUDE_PLUGIN_ROOT, so it
-# resolves under a marketplace install. Anchor the two required substrings into
+# resolves under a marketplace install. The quoting is required, not incidental:
+# the command is shell-evaluated, so an unquoted path word-splits on a root
+# containing a space and the hook silently never runs. Anchor the substrings into
 # ONE contiguous pattern rather than testing each independently: two separate
 # `test()`s could pass a malformed command that merely mentions both tokens in
 # unrelated positions, which would not pin the exact wiring REQ-C1.1 requires.
@@ -81,7 +83,7 @@ if jq -e '
   (.hooks.PreToolUse // [])
   | map(select(.matcher == "Bash"))
   | map(.hooks[]? | select(.type == "command") | .command)
-  | any(test("\\$CLAUDE_PLUGIN_ROOT\"?/scripts/worker-command-guard\\.sh"))
+  | any(test("\"\\$CLAUDE_PLUGIN_ROOT\"/scripts/worker-command-guard\\.sh"))
 ' "$worker_settings" >/dev/null 2>&1; then
   ok "worker-settings carries a PreToolUse(Bash) hook referencing the script via \$CLAUDE_PLUGIN_ROOT (REQ-C1.1)"
 else

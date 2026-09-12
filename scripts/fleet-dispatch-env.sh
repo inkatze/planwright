@@ -141,7 +141,14 @@ planwright_root() {
 # wrapper must not silently outrank a root the operator chose.
 export_root_vars() {
   er_root=$(planwright_root)
-  [ -n "$er_root" ] || return 0
+  if [ -z "$er_root" ]; then
+    # Not fatal — the launch's own mode source is the settings fragment, not
+    # this — but never silent: without a root the worker's auto-approve hook
+    # cannot resolve, and the only symptom is a worker that prompts on every
+    # routine command, which reads as a hung worker rather than a broken path.
+    echo "fleet-dispatch-env.sh: cannot derive the planwright root from \$0; the worker's auto-approve hook will not resolve and it will prompt on every command" >&2
+    return 0
+  fi
   [ -n "${PLANWRIGHT_ROOT:-}" ] || {
     PLANWRIGHT_ROOT=$er_root
     export PLANWRIGHT_ROOT

@@ -858,7 +858,38 @@ c22() {
     || fail "c22: planwright/other/task-1 missing"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22; do
+# ---------------------------------------------------------------------------
+# c23 — a max-length spec name still dispatches. The suffix carries the spec
+# now, so the length bound has to clear spec (64) + "-task-" (6) + a dotted id;
+# the pre-change bound of 72 rejected that combination outright.
+# ---------------------------------------------------------------------------
+c23() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c23.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  # 64 characters: the longest spec id the D-36 grammar admits.
+  longspec=$(printf 'a%.0s' $(seq 1 64))
+  [ "${#longspec}" -eq 64 ] || {
+    fail "c23: fixture spec is ${#longspec} chars, expected 64"
+    return
+  }
+  mkdir -p "$tmp/primary/specs/$longspec"
+  printf 'x\n' >"$tmp/primary/specs/$longspec/requirements.md"
+  gitc "$tmp/primary" add -A
+  gitc "$tmp/primary" commit -q -m "long spec"
+
+  run_prim dispatch "$longspec" 3.5 --repo-root "$tmp/primary" --no-attach
+  [ "$RC" -eq 0 ] || {
+    fail "c23: max-length spec with a dotted id exited $RC — the suffix bound is too tight"
+    return
+  }
+  [ -d "$tmp/primary/.claude/worktrees/$longspec-task-3.5" ] \
+    || fail "c23: worktree for the max-length spec was not created"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true
