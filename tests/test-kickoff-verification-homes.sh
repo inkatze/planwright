@@ -52,7 +52,7 @@ FIXTURE="$repo/tests/fixtures/kickoff-entries/invariant-tasks-amendment-6.md"
 # The captured entry's provenance: the commit that landed format-grammar
 # Task 4's expression-only self-re-anchor into the invariant-tasks brief, and
 # the heading that opens the entry there.
-LANDING=ff1f67b
+LANDING=ff1f67b86cb363fa724de922c34473a83fbf3eb4
 BUNDLE=invariant-tasks
 HEADING='### Amendment 6 '
 
@@ -69,7 +69,7 @@ tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 git -C "$repo" cat-file -e "$LANDING^{commit}" 2>/dev/null \
-  || fail "landing commit $LANDING is not reachable (shallow clone?); the fixture's provenance cannot be checked"
+  || fail "landing commit $LANDING is not reachable (a shallow clone, or git itself unavailable); the fixture's provenance cannot be checked"
 
 # at_landing <path> — the file as the landing commit holds it.
 at_landing() {
