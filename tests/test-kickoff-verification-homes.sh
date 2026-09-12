@@ -184,6 +184,7 @@ f4="$tmp/f4/specs"
 mkdir -p "$f4/$BUNDLE"
 cp "$f3/$BUNDLE"/*.md "$f4/$BUNDLE/"
 sed "s/$hash/$stale/" "$f3/$BUNDLE/kickoff-brief.md" >"$f4/$BUNDLE/kickoff-brief.md"
+grep -q "$stale" "$f4/$BUNDLE/kickoff-brief.md" || fail "the hash rewrite did not apply"
 run_guard "$f4"
 assert_rc "a rewritten hash in the captured entry is a stale-anchor error" 1
 assert_has "the stale record names the rewritten hash" "$stale"
