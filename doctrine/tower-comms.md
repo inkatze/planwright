@@ -4,7 +4,8 @@ How a tower session talks to the operator. Which item is delivered, when, in
 what order, and what closes it is the queue script's job; this doc holds only
 what no script can enforce: the words. It binds tower sessions (`/orchestrate`
 in its single-spec, meta, and fleet forms, and `/tower` once it ships); other
-attended skills adopt it only through the bundle's gated deferral.
+attended skills adopt it only after the experiment this spec runs shows the
+rules helped.
 
 Citations: tower-comms REQ-C1.3, REQ-C1.8, REQ-D1.1, REQ-D1.2, REQ-D1.3,
 REQ-E1.6, REQ-E1.7, REQ-I1.1, REQ-I1.2, REQ-I1.4 · tower-comms D-10, D-13,
@@ -36,7 +37,8 @@ to avoid; this doc does not restate it.
 After a stretch with no operator turn, the first attended turn says where
 things stand, in plain words. It does not report what the tower did; that
 record stays in the log and is available on request. Compose the picture from
-the catch-up list, and show the list itself only when the operator asks for it.
+the catch-up list (what settled while the operator was away, with the reason
+for each), and show the list itself only when the operator asks for it.
 
 ## One item, answerable alone
 

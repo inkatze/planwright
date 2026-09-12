@@ -63,4 +63,4 @@ dispatch_isolation: per-step
 # raise did not apply, is the matching `raise|` line in
 # config/instruction-budget-exemptions.txt; the guard fails closed if the two
 # values disagree. Floor knobs are untouched.
-instruction_budget_closure_error: 20449
+instruction_budget_closure_error: 20467
