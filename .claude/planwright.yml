@@ -55,3 +55,12 @@ review_sequence: [self-review]
 # the core default, but config/defaults.yml tracks flipping that default as risk
 # row R3, so this repo states it explicitly rather than inheriting it.
 dispatch_isolation: per-step
+
+# The reachable-closure budget, raised by the measured size of
+# doctrine/tower-comms.md (tower-comms D-13, REQ-I1.3): the tower skills sit at
+# their closure floors, so the conversation rule doc could not land as a
+# point-of-use read without this. The rationale, and why the rungs below a
+# raise did not apply, is the matching `raise|` line in
+# config/instruction-budget-exemptions.txt; the guard fails closed if the two
+# values disagree. Floor knobs are untouched.
+instruction_budget_closure_error: 20449
