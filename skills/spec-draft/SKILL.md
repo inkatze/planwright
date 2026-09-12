@@ -30,20 +30,22 @@ documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain):
 `research-rigor` (REQ-D1.5 wires its triggers into drafting),
 `security-posture` (artifact data-hygiene for everything committed), and
 `proportionality`. Four more are read point-of-use, at the step that applies
-them: the elicitation reads `spec-format` at its start (the meta-spec; the
-gists earlier steps need are stated inline, so only the full law defers, and
-no bundle write happens before the load); the design phase reads
+them: the elicitation reads `spec-format` at its start (the meta-spec the
+bundle must conform to; the gists that earlier steps need are stated at
+those steps, so only the full law defers, and no bundle write happens before
+the load); the design phase reads
 `engineering-decisions` (governs design-phase
 recommendations) and `customization-boundary` (the capability-vs-style
 scoping call the design phase applies when a candidate feature looks like a
 packaged preference — see Design step 3); the altitude gate reads
-`autopilot-reflex` (D-11's altitude gate: the trigger classes, the phase
-re-anchor, and the trigger-scoped altitude record; the trigger summaries
-earlier steps need are stated inline, so only the full law defers). Their
+`autopilot-reflex` (D-11 wires it into drafting: the seed-claim and mid-flow
+trigger classes, the phase re-anchor, and the trigger-scoped altitude record;
+Seed gathering and Elicitation carry the trigger summaries they need, so
+only the full law defers). Their
 definitions govern wherever this skill names a concept. If one of those does not
 resolve — at run start or at its point of use — halt with a clear message naming
 the missing doc and the chain consulted (REQ-K1.7: a clear message is the
-graceful arm; proceeding without doctrine is the opaque failure). Also
+graceful arm). Also
 resolve `decision-domains` (the design phase walks its catalog) — this one
 degrades instead of halting: if absent, the design phase notes the missing
 catalog in one line and proceeds (the builder/catalog wiring is a hook
@@ -190,8 +192,7 @@ hint, not a command. Skipped only when `--extend` already named the target.
 
 1. Scan every existing spec under `specs/` (any non-terminal status: Draft,
    Ready, Active, Done). Read each bundle's `requirements.md` Goal and Scope
-   sections — bounded input by design; full-bundle reads don't scale and the
-   overlap signal lives in goal/scope. A malformed bundle (missing
+   sections — bounded by design; the overlap signal lives in goal/scope. A malformed bundle (missing
    `requirements.md`, unparseable header) is skipped with a notice naming
    it; the scan never halts the session over someone else's broken bundle
    (REQ-K1.7 — the validator owns reporting it).
@@ -246,18 +247,18 @@ Operates on the existing bundle per the meta-spec's stable-ID discipline:
 
 Six phases, each governed by the interaction-style rules: show the progress
 indicator (`[<phase> <n>/6]`), work in small bites, present decisions as
-selectors with a recommendation, end each phase with the running summary in
-delta-plus-open form — the decisions since the previous summary and what
-remains open, never a restatement of everything so far (`interaction-style`'s
-turn/artifact arbitration: the bundle on disk is the cumulative record) — and,
-per the phase re-anchor (`doctrine/autopilot-reflex.md`, REQ-H1.2), that
-summary **restates the claimed altitude and flags any drift** between the
-claim and what the elicitation is currently producing ("the seed claimed
-doctrine; the last phase produced only mechanism tasks"). The restatement is
-cheap; its absence is how a session that opened at one altitude silently
-slides to another. Every turn-side emission (each phase summary, the
-read-through below) is mirrored into the structured decision/transcript log
-as a `turn` record (D-19). Before
+selectors with a recommendation, and end each phase with the running summary
+in delta-plus-open form: the decisions since the previous summary, their
+one-line rationale, and what remains open, never a restatement of everything
+so far (`interaction-style`'s *Running summary* rule under the turn/artifact
+arbitration; the bundle on disk is the cumulative record). Each such
+projection (a phase summary, the read-through below) is mirrored into the
+structured decision/transcript log as a `turn` record (D-19). Per the phase
+re-anchor (`doctrine/autopilot-reflex.md`, REQ-H1.2), the summary also
+**restates the claimed altitude and flags any drift** between the claim and
+what the elicitation is currently producing ("the seed claimed doctrine; the
+last phase produced only mechanism tasks"). The restatement is cheap; its
+absence is how a session silently slides altitude. Before
 phase 1, resolve and read `spec-format` (its point-of-use read): the
 meta-spec defines every structural convention referenced here and governs
 the Completion bundle write; follow it exactly so the bundle passes the
@@ -355,11 +356,13 @@ validator the first time.
    `spec-format`'s *Decided rules over enumerated claims*. Drafting is where
    the count is born.
 
-   Then the read-through turn is a projection, never the assembled bundle (the
-   arbitration): the bundle on disk is the artifact; the turn carries a
-   bounded excerpt (the goal and each file's section headings with counts),
-   the self-critique dispositions as counts plus the open questions surfaced
-   to the human, and the delta-plus-open summary.
+   Then present the read-through as a projection, never the assembled bundle
+   (`interaction-style`, the arbitration): the bundle on disk is the artifact;
+   the turn carries a bounded excerpt (the goal and the section headings with
+   counts), the self-critique dispositions as counts plus the
+   open questions surfaced to the human (an erroring pass named as such,
+   never counted as clean), and the delta-plus-open summary, with the full
+   disposition list one request away.
    Run `scripts/spec-validate.sh specs/<spec>` when present and executable
    (findings are warnings on Draft: surface them, fix structural ones,
    let the human defer judgment ones); validator absent: note it and
@@ -389,8 +392,7 @@ committed prose neutralizes them.
    about this rule does), wrap the mention in an inline code span (`` `[[name]]` ``)
    so it reads as documentation, not a live link. This is mechanically
    backstopped: `check:memory-links` (`scripts/check-memory-links.sh`, under
-   `mise run check`) flags any bare `[[name]]` token in a committed spec file
-   (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`), so a draft that
+   `mise run check`) flags any bare `[[name]]` token in a committed spec file, so a draft that
    skips this step fails CI rather than shipping an unresolvable reference.
 3. **Commit** (D-41) when `commit_on_draft` is true: one commit on
    `planwright/<spec>/spec` containing the four files and the
@@ -400,9 +402,8 @@ committed prose neutralizes them.
    set: leave the work uncommitted and say so explicitly.
 4. **Hand off.** Report: the bundle path and branch, validator outcome,
    seeds consumed (and archived), fold-detection outcome, and the next step —
-   `/spec-kickoff specs/<spec>` for the walkthrough and sign-off. Push, PR,
-   and the Active flip all belong to kickoff and the human. This skill stops
-   here.
+   `/spec-kickoff specs/<spec>` for the walkthrough and sign-off. Push, PR, and
+   the status flip belong to kickoff and the human; this skill stops here.
    - Optionally recommend `/spec-walkthrough specs/<spec>` for an unaided,
      plain-language read before sign-off (REQ-F1.1, REQ-F1.2, D-11) — a
      suggestion only, never a step this skill performs.
