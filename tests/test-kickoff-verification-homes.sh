@@ -192,10 +192,15 @@ assert_has "the stale record names the recomputed hash" "$hash"
 f5="$tmp/f5/specs"
 mkdir -p "$f5/$BUNDLE"
 cp "$f3/$BUNDLE"/*.md "$f5/$BUNDLE/"
+# The payload's last token is still a valid spec directory, so the guard's
+# argument-grammar arm accepts it and only the recomposition of the whole
+# command can refuse it: the check this control exists to exercise. A
+# payload ending in a foreign token would be refused one arm earlier and
+# prove nothing about recomposition.
 # shellcheck disable=SC2016
-sed 's|^`scripts/spec-anchor.sh specs/'"$BUNDLE"'`$|`scripts/spec-anchor.sh specs/'"$BUNDLE"'; echo x`|' \
+sed 's|^`scripts/spec-anchor.sh specs/'"$BUNDLE"'`$|`scripts/spec-anchor.sh specs/'"$BUNDLE"' specs/'"$BUNDLE"'`|' \
   "$f3/$BUNDLE/kickoff-brief.md" >"$f5/$BUNDLE/kickoff-brief.md"
-grep -q 'echo x' "$f5/$BUNDLE/kickoff-brief.md" || fail "the command-form rewrite did not apply"
+grep -q "specs/$BUNDLE specs/$BUNDLE" "$f5/$BUNDLE/kickoff-brief.md" || fail "the command-form rewrite did not apply"
 run_guard "$f5"
 assert_rc "a non-sanctioned command form on the captured entry is refused" 1
 assert_has "the refusal names the non-sanctioned form" "non-sanctioned command form"
