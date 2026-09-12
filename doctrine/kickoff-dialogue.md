@@ -30,9 +30,9 @@ scaffolding fade across sections so a later section is not re-explained at the
 depth of the first. **Normative tokens are preserved verbatim.** Any normative
 token the explanation does convey — MUST, SHALL, SHALL NOT, MAY, a threshold, an
 enumerated state — appears unsoftened, never paraphrased into vague prose
-(REQ-B1.5). Tokens for concepts legitimately skipped as already-held are not
-conveyed; non-distortion of what *is* presented is the rule, not presence of
-every source token.
+(REQ-B1.5). Tokens for concepts the run legitimately skips as already-held are
+simply not conveyed; non-distortion of what *is* presented is the rule, not
+presence of every source token.
 
 ### Adaptive-level calibration: the running per-concept estimate (D-4)
 
@@ -40,8 +40,7 @@ Calibration is the mechanism of the teach-to-the-frontier discipline above, not 
 fourth discipline. The depth each explanation is pitched at (the frontier teaching
 above) is driven
 by a **lightweight running per-concept estimate** of what the operator has picked
-up — a run-local heuristic sense, held per concept (a spec term, a requirement's
-intent, a design rationale, a pipeline mechanic) and updated as the dialogue
+up — a run-local heuristic sense, held per concept and updated as the dialogue
 proceeds. It is not a stored profile, a score, or a formal learner model.
 
 - **Frontier detection (REQ-B1.3).** Before explaining a concept, the skill reads
@@ -49,9 +48,8 @@ proceeds. It is not a stored profile, a score, or a formal learner model.
   their own words, a question that presupposes it, an answer that applies it, or
   explicit prior exposure. A concept demonstrably held is skipped or named in
   passing; the gap between what the operator holds and what the section needs is
-  what gets taught. Demonstrated command raises the estimate for that concept; a
-  confusion signal (a mis-restatement, a question exposing a gap) lowers it and
-  pulls the explanation back down.
+  what gets taught. Demonstrated command raises the estimate for that concept;
+  a confusion signal lowers it and pulls the explanation back down.
 - **Fade across sections (REQ-B1.3).** As the estimate rises the scaffolding
   tapers: a concept taught in full early is referenced, not re-derived, when it
   recurs later, and the shared vocabulary the early sections built is assumed.
@@ -59,19 +57,16 @@ proceeds. It is not a stored profile, a score, or a formal learner model.
   vocabulary but new to the task-graph mechanics still gets the task graph taught.
 - **The no-model bound (REQ-B1.4, D-4 proportionality).** The estimate stays
   deliberately lightweight: a running sense carried in the live dialogue, never
-  knowledge tracing, a knowledge-space lattice, an HMM, or any machinery that
+  knowledge tracing or any machinery that
   models the operator formally — the borrowable core is "teach the frontier,
   fade," not the learner model behind it. When uptake is uncertain the skill
   teaches rather than guesses held: an over-explanation costs a sentence, a wrong
   skip loses the operator.
-- **The estimate never absorbs garbage (REQ-C1.5, REQ-B1.4).** Unparseable
-  input leaves the per-concept estimate where it was (it earns a re-prompt, per
-  *Interview to completeness*), so malformed input can neither inflate a
-  concept to "held" nor corrupt later depth.
-
-Depth is all this varies: a normative token that a presented concept carries
-stays verbatim, however tersely it is pitched (*Comprehend before interviewing*,
-REQ-B1.5) — skipping a held concept is allowed, softening a presented one is not.
+- **The estimate never absorbs garbage (REQ-C1.5, REQ-B1.4).** Input the skill
+  cannot parse leaves the per-concept estimate exactly where it was (it earns
+  a re-prompt, per *Interview to completeness*), so malformed input can
+  neither inflate a concept to "held" nor corrupt the calibration behind later
+  depth.
 
 ## Interview to completeness by backward-chaining (D-5)
 
@@ -113,8 +108,8 @@ is marked only when it passes the grounding test.
 
 Immediately before the sign-off decision, kickoff emits a compact **"here is
 what you are about to approve, and what changes downstream"** summary — this
-replaces a bare verdict-demand ("does this look good?"), which asks the operator
-to certify quality the skill will not itself assess. The summary restates, as
+replaces the bare verdict-demand ("does this look good?") that asks the
+operator to certify quality the skill will not assess. The summary restates, as
 information the operator can act on:
 
 - **What is being approved:** the decisions the brief now records (goal, the
