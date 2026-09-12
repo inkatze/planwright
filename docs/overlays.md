@@ -324,7 +324,9 @@ a permission prompt per call.
 
 The **primary** approval path for those invocations is the auto-approve hook
 wired into [`config/worker-settings.json`](../config/worker-settings.json), which
-inspects the *expanded* command and allows the known-safe set. As
+inspects the command *as the worker wrote it* (Claude Code hands a hook the
+raw `tool_input.command`, variables unexpanded; the hook resolves a
+same-command literal-root assignment itself) and allows the known-safe set. As
 **defense-in-depth beneath that hook** — most relevant on the hook's degraded
 path (when `jq` is absent the hook defers everything) — an adopter may add a
 literal-path allow entry to their **worker** settings that persistent-allows the
