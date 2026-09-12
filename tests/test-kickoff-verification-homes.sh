@@ -11,7 +11,7 @@
 #      rule for expression-only entries): the entry is explicitly marked
 #      `Class: expression-only`, cites a dated `## Changelog` entry that exists
 #      in the bundle's requirements at that commit, and ends on its anchor
-#      line (anchor-written-last).
+#      record: the `Anchor:` line and its command (anchor-written-last).
 #   3. The freshness-gate parser accepts it (REQ-F1.2): over the bundle as it
 #      stood at the landing commit, scripts/check-anchor-freshness.sh reads the
 #      captured entry as the most recent one, accepts its command form, and
@@ -65,8 +65,18 @@ fail() {
 [ -x "$RESOLVER" ] || fail "scripts/resolve-catalog.sh missing or not executable"
 [ -f "$FIXTURE" ] && [ -r "$FIXTURE" ] || fail "fixture missing or unreadable at $FIXTURE"
 
-tmp=$(mktemp -d) || exit 1
+# The explicit template is not decoration: BSD mktemp supplies no default
+# one, so a bare `mktemp -d` is a usage error on macOS.
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-kickoff-verification-homes.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"' EXIT
+
+# Every overlay-affecting variable stripped, so a catalog on the host cannot
+# leak into an arm that claims one is absent.
+base() {
+  env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
+    -u PLANWRIGHT_ADOPTER_OVERLAY -u CLAUDE_PLUGIN_DATA \
+    -u PLANWRIGHT_REPO_ROOT -u HOME "$@"
+}
 
 git -C "$repo" cat-file -e "$LANDING^{commit}" 2>/dev/null \
   || fail "landing commit $LANDING is not reachable (a shallow clone, or git itself unavailable); the fixture's provenance cannot be checked"
@@ -131,9 +141,10 @@ echo "ok: entry carries the expression-only mark"
 cited=$(grep 'Cites the changelog line' "$FIXTURE" \
   | sed -n 's/.*\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\).*/\1/p' | head -n 1)
 [ -n "$cited" ] || fail "entry cites no dated changelog line"
-# Scoped to the `## Changelog` section, the way the guard's own pairing check
-# reads dated bullets: a dated bullet elsewhere in the file is not a citation
-# target.
+# Scoped to the `## Changelog` section, as the guard's pairing check scopes
+# its own scan: a dated bullet elsewhere in the file is not a citation
+# target. Only requirements.md is read, the changelog's home per the
+# meta-spec.
 awk -v d="- $cited" '
   /^## / { in_ch = ($0 ~ /^## Changelog[ \t]*$/); next }
   in_ch && index($0, d) == 1 { found = 1 }
@@ -147,10 +158,10 @@ tail_pair=$(grep -v '^[[:space:]]*$' "$FIXTURE" | tail -n 2)
 case $tail_pair in
   "Anchor: "*"
 "'`'*'`') ;;
-  *) fail "entry does not end on its anchor line and command. Tail:
+  *) fail "entry does not end on its anchor record. Tail:
 $tail_pair" ;;
 esac
-echo "ok: entry ends on its anchor line"
+echo "ok: entry ends on its anchor record"
 
 # One entry carries one anchor record; the guard reads a brief's most recent
 # entry, so a fixture holding two would have the sections below disagree on
@@ -191,9 +202,9 @@ assert_rc "a rewritten hash in the captured entry is a stale-anchor error" 1
 assert_has "the stale record names the rewritten hash" "$stale"
 assert_has "the stale record names the recomputed hash" "$hash"
 
-f5="$tmp/f5/specs"
-mkdir -p "$f5/$BUNDLE"
-cp "$f3/$BUNDLE"/*.md "$f5/$BUNDLE/"
+f4b="$tmp/f4b/specs"
+mkdir -p "$f4b/$BUNDLE"
+cp "$f3/$BUNDLE"/*.md "$f4b/$BUNDLE/"
 # The payload's last token is still a valid spec directory, so the guard's
 # argument-grammar arm accepts it and only the recomposition of the whole
 # command can refuse it: the check this control exists to exercise. A
@@ -201,9 +212,9 @@ cp "$f3/$BUNDLE"/*.md "$f5/$BUNDLE/"
 # prove nothing about recomposition.
 # shellcheck disable=SC2016
 sed 's|^`scripts/spec-anchor.sh specs/'"$BUNDLE"'`$|`scripts/spec-anchor.sh specs/'"$BUNDLE"' specs/'"$BUNDLE"'`|' \
-  "$f3/$BUNDLE/kickoff-brief.md" >"$f5/$BUNDLE/kickoff-brief.md"
-grep -q "specs/$BUNDLE specs/$BUNDLE" "$f5/$BUNDLE/kickoff-brief.md" || fail "the command-form rewrite did not apply"
-run_guard "$f5"
+  "$f3/$BUNDLE/kickoff-brief.md" >"$f4b/$BUNDLE/kickoff-brief.md"
+grep -q "specs/$BUNDLE specs/$BUNDLE" "$f4b/$BUNDLE/kickoff-brief.md" || fail "the command-form rewrite did not apply"
+run_guard "$f4b"
 assert_rc "a non-sanctioned command form on the captured entry is refused" 1
 assert_has "the refusal names the non-sanctioned form" "non-sanctioned command form"
 echo "ok: a rewritten hash and a non-sanctioned form are both refused"
@@ -211,20 +222,15 @@ echo "ok: a rewritten hash and a non-sanctioned form are both refused"
 ########################################################################
 # 5. Catalog-absent degradation, script half
 ########################################################################
-# Every overlay-affecting variable stripped, each layer root pointed at an
-# empty directory: no decision-domains catalog is resolvable anywhere.
-base() {
-  env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
-    -u PLANWRIGHT_ADOPTER_OVERLAY -u CLAUDE_PLUGIN_DATA \
-    -u PLANWRIGHT_REPO_ROOT -u HOME "$@"
-}
+# Each layer root pointed at an empty directory: no decision-domains catalog
+# is resolvable anywhere.
 absent="$tmp/absent"
 mkdir -p "$absent/core" "$absent/adopter" "$absent/repo"
-rc=0
+resolver_rc=0
 base PLANWRIGHT_ROOT="$absent/core" PLANWRIGHT_ADOPTER_OVERLAY="$absent/adopter" \
   PLANWRIGHT_REPO_ROOT="$absent/repo" \
-  /bin/bash "$RESOLVER" decision-domains >"$absent/out" 2>"$absent/err" || rc=$?
-[ "$rc" -eq 0 ] || fail "absent decision-domains catalog: expected exit 0, got $rc. stderr:
+  /bin/bash "$RESOLVER" decision-domains >"$absent/out" 2>"$absent/err" || resolver_rc=$?
+[ "$resolver_rc" -eq 0 ] || fail "absent decision-domains catalog: expected exit 0, got $resolver_rc. stderr:
 $(cat "$absent/err")"
 [ ! -s "$absent/out" ] || fail "absent decision-domains catalog: expected empty stdout, got:
 $(cat "$absent/out")"
@@ -236,10 +242,10 @@ echo "ok: absent decision-domains catalog resolves to a clean empty result"
 # empty result above is the absent verdict, not a resolver that prints nothing.
 present="$tmp/present"
 mkdir -p "$present/repo"
-rc=0
+resolver_rc=0
 base PLANWRIGHT_ROOT="$repo" PLANWRIGHT_REPO_ROOT="$present/repo" \
-  /bin/bash "$RESOLVER" decision-domains >"$present/out" 2>"$present/err" || rc=$?
-[ "$rc" -eq 0 ] || fail "present decision-domains catalog: expected exit 0, got $rc. stderr:
+  /bin/bash "$RESOLVER" decision-domains >"$present/out" 2>"$present/err" || resolver_rc=$?
+[ "$resolver_rc" -eq 0 ] || fail "present decision-domains catalog: expected exit 0, got $resolver_rc. stderr:
 $(cat "$present/err")"
 grep -q '^  - id: ' "$present/out" \
   || fail "present decision-domains catalog: expected at least one entry on stdout, got:
