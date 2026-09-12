@@ -5,10 +5,8 @@ across its guided walkthrough and sign-off, plus the two artifacts that
 instantiation adds: the shared-understanding approval summary that replaces the
 bare verdict-demand, and the structured decision/transcript log the behavioral
 eval grades. `interaction-style` defines the disciplines and session mechanics;
-this doc records how the kickoff surface applies them. The skill names each at
-its point of use and follows the mechanics here; lifting them out keeps
-`skills/spec-kickoff/SKILL.md` within its instruction budget (D-10) while the
-full instantiation stays authoritative in one place.
+this doc records how the kickoff surface applies them; lifting them out keeps
+`skills/spec-kickoff/SKILL.md` within its instruction budget (D-10).
 
 Citations: operator-dialogue REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5,
 REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-C1.5, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-F1.1,
@@ -32,9 +30,9 @@ scaffolding fade across sections so a later section is not re-explained at the
 depth of the first. **Normative tokens are preserved verbatim.** Any normative
 token the explanation does convey — MUST, SHALL, SHALL NOT, MAY, a threshold, an
 enumerated state — appears unsoftened, never paraphrased into vague prose
-(REQ-B1.5). Tokens for concepts the run legitimately skips as already-held are
-simply not conveyed; non-distortion of what *is* presented is the rule, not
-presence of every source token.
+(REQ-B1.5). Tokens for concepts legitimately skipped as already-held are not
+conveyed; non-distortion of what *is* presented is the rule, not presence of
+every source token.
 
 ### Adaptive-level calibration: the running per-concept estimate (D-4)
 
@@ -66,10 +64,10 @@ proceeds. It is not a stored profile, a score, or a formal learner model.
   fade," not the learner model behind it. When uptake is uncertain the skill
   teaches rather than guesses held: an over-explanation costs a sentence, a wrong
   skip loses the operator.
-- **The estimate never absorbs garbage (REQ-C1.5, REQ-B1.4).** Input the skill
-  cannot parse leaves the per-concept estimate exactly where it was (it earns a
-  re-prompt, per *Interview to completeness*), so malformed input can neither
-  inflate a concept to "held" nor corrupt the calibration that drives later depth.
+- **The estimate never absorbs garbage (REQ-C1.5, REQ-B1.4).** Unparseable
+  input leaves the per-concept estimate where it was (it earns a re-prompt, per
+  *Interview to completeness*), so malformed input can neither inflate a
+  concept to "held" nor corrupt later depth.
 
 Depth is all this varies: a normative token that a presented concept carries
 stays verbatim, however tersely it is pitched (*Comprehend before interviewing*,
@@ -90,15 +88,14 @@ amended answer invalidates.
 - **Changed answer reopens dependents (REQ-C1.2).** An amended upstream answer
   reopens the dependent brief decisions it invalidates rather than leaving a
   stale answer standing.
-- **Bounded, need-driven (interaction-style).** At most five questions per
-  multi-turn pass, asked only when actually needed, so the interview converges
-  rather than interrogates.
+- **Bounded, need-driven.** At most five questions per multi-turn pass, per
+  `interaction-style`.
 - **Clerical/judgment split (REQ-C1.4).** The skill carries the clerical weight
   — deriving candidate answers, formatting, tracking state — and asks the
   operator only for judgment, never for the skill's own bookkeeping.
-- **Input robustness (REQ-C1.5).** Operator input the skill cannot parse gets a
-  re-prompt restating what is needed, never a silent advance; garbage input does
-  not move the section, the sign-off, or the running uptake estimate.
+- **Input robustness (REQ-C1.5).** Unparseable input gets a re-prompt restating
+  what is needed, never a silent advance, and moves neither the section, the
+  sign-off, nor the uptake estimate.
 
 ## Present without steering (D-3, D-6)
 
@@ -158,15 +155,18 @@ a scraped pane (REQ-G1.3). It is a run-local diagnostic, not part of the signed
 bundle: the committed artifacts stay the brief and the four spec files.
 
 - **Form.** JSON Lines — one self-contained JSON object per line, appended as the
-  session proceeds. This is escape-safe and non-code-bearing by construction:
-  the log is emitted and parsed as **data, never executed**, and every surfaced
-  value is treated as data per `security-posture`. Each record carries a schema
+  session proceeds. Escape-safe and non-code-bearing by construction: emitted
+  and parsed as **data, never executed**, every surfaced value data per
+  `security-posture`. Each record carries a schema
   version (`v`), a monotonic `seq`, the `phase`, a `kind`
-  (`present` / `ask` / `answer` / `decision`), and its payload; the schema is
-  versioned so the grader contract survives a format change.
+  (`present` / `ask` / `answer` / `decision` / `turn`), and its payload; the
+  schema is versioned so the grader contract survives a format change.
 - **Records.** Each presentation, question, operator answer, and recorded
   decision across the walk and sign-off — including the approval summary and the
-  final sign-off decision — is one record. Operator answers are captured
+  final sign-off decision — is one record; each turn-side emission (a running
+  summary, the resume confirmation, the lens-pass projection, the handoff) is
+  mirrored as a `turn` record (`interaction-style`, *Turn projection*; D-19).
+  Operator answers are captured
   verbatim after the echo-safety sanitizer, so no surfaced value carries a
   control sequence into the log.
 - **Independence.** The log records what was presented and decided; it carries
@@ -183,11 +183,9 @@ bundle: the committed artifacts stay the brief and the four spec files.
 ## Degradation
 
 Absent this doc, `/spec-kickoff` follows the load-bearing spine inline: comprehend
-the spec in-band before interviewing, pitch each explanation at the operator's
-frontier and fade scaffolding across sections via a lightweight per-concept uptake
-estimate (no learner model), interview to completeness by
-backward-chaining the bundle's open questions (bounded per pass), present without
-steering, emit the shared-understanding approval summary in place of a
-verdict-demand, frame the gates in plain language, and emit the structured
-decision/transcript log — and it notes the missing doc. `interaction-style`
-(run-start) still supplies the discipline definitions the spine instantiates.
+the spec in-band before interviewing, teach the frontier and fade via a
+lightweight per-concept estimate (no learner model), backward-chain the bundle's
+open questions (bounded per pass), present without steering, emit the approval
+summary in place of a verdict-demand, frame the gates in plain language, and
+emit the structured log — noting the missing doc. `interaction-style`
+(run-start) still supplies the discipline definitions.

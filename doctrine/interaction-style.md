@@ -112,6 +112,9 @@ underlying record, never the record itself:
 - **The whole record stays one request away** — a pointer to the artifact
   holding it, or a regeneration the operator can ask for next turn. An
   artifact already holding it satisfies this without being asked.
+- **The turn is mirrored.** A surface appends each turn-side emission to its
+  structured decision/transcript log as a `turn` record, so the eval grades
+  the artifact and never the pane.
 
 Density follows *Small bites* below, which bounds the whole turn, not only its
 questions.
