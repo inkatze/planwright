@@ -1,7 +1,7 @@
 # Format grammar & parser unification — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-09-12
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -365,6 +365,12 @@ doctrine stops being homeless prose asserted only in scattered tests.
   REQ-D1.2 and REQ-D1.3 test-spec entries describe their fixture ids
   without naming them as bare tokens, after the rule's block-scope fix
   surfaced them. No requirement or decision changes meaning.
+- 2026-09-12 — Expression-only (Task 7 execution): the REQ-F test-spec
+  entries name their verification homes. REQ-F1.1 carries the documented
+  manual scenario with its exercise steps for both routing arms; REQ-F1.2
+  and REQ-F1.3 name the fixture test that ships with the task and what it
+  asserts. Gap-fill the entries already promised; no requirement or
+  decision changes meaning.
 
 ## Sources
 

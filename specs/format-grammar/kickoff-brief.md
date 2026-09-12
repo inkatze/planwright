@@ -344,3 +344,22 @@ or decision changes meaning. `Last reviewed:` moves on the edited files.
 Class: expression-only
 Anchor: `105e7d714c9b9fc2664611b9e50dc7fd331ca49a` — computed as
 `scripts/spec-anchor.sh specs/format-grammar`
+
+### Re-anchor — kickoff verification homes named (2026-09-12)
+
+Marked self-re-anchor for the expression-only edit this bundle's Task 7
+lands in its own test-spec (D-17, REQ-F1.1, REQ-F1.2, REQ-F1.3): the three
+REQ-F entries now name their verification homes. REQ-F1.1 carries the
+documented manual scenario with exercise steps for both routing arms, the
+form its `[manual]` tag and the Task 7 Done-when promised; REQ-F1.2 and
+REQ-F1.3 name the fixture test that ships with the task and what it
+asserts. Each entry gap-fills a home the walkthrough already assigned; no
+requirement or decision changes meaning. `Last reviewed:` moves on the
+edited files.
+
+**Cites the changelog line:** the 2026-09-12 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `015ac10f13b358303848780ebb47f9bef35df4e0` — computed as
+`scripts/spec-anchor.sh specs/format-grammar`
