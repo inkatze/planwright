@@ -74,9 +74,13 @@ at_landing() {
 
 OUT=
 RC=0
+# The fixture tree carries no scripts/ of its own, so the guard resolves its
+# anchor tool through the root chain; pinning the chain's head at this
+# checkout keeps a planwright installed elsewhere on the host from supplying
+# the recompute.
 run_guard() {
   RC=0
-  OUT=$("$GUARD" "$@" 2>&1) || RC=$?
+  OUT=$(PLANWRIGHT_ROOT="$repo" "$GUARD" "$@" 2>&1) || RC=$?
 }
 
 assert_rc() {
