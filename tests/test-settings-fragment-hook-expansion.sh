@@ -41,6 +41,32 @@ fail() {
   exit 1
 }
 
+# The STATIC half runs everywhere: it reads the shipped fragment and asserts the
+# spelling, needs no CLI, no key, and no network, and is the guard that actually
+# catches a regression in day-to-day work.
+frag="$root/config/worker-settings.json"
+cmd=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['hooks']['PreToolUse'][0]['hooks'][0]['command'])" "$frag")
+case $cmd in
+  *'${CLAUDE_PLUGIN_ROOT}'*)
+    fail "config/worker-settings.json uses the braced spelling, which substitutes empty under --settings: $cmd"
+    ;;
+  '"$CLAUDE_PLUGIN_ROOT"'/*) : ;;
+  *) fail "config/worker-settings.json must reference the guard as \"\$CLAUDE_PLUGIN_ROOT\"/... (quoted, unbraced), got: $cmd" ;;
+esac
+echo "ok: the shipped fragment uses the quoted, unbraced spelling"
+
+# The LIVE half drives the real CLI to re-measure the behaviour the static rule
+# rests on. It is opt-in because it costs tokens, needs an API key, and gates
+# nondeterministically — the same three reasons scripts/check-no-ci-evals.sh
+# keeps the eval suites out of CI. Run it by hand when a CLI upgrade might have
+# moved the behaviour:
+#
+#   PLANWRIGHT_LIVE_CLI_PROBE=1 bash tests/test-settings-fragment-hook-expansion.sh
+[ "${PLANWRIGHT_LIVE_CLI_PROBE:-}" = 1 ] || {
+  echo "skip: live-CLI probe (set PLANWRIGHT_LIVE_CLI_PROBE=1 to re-measure)"
+  exit 0
+}
+
 command -v claude >/dev/null 2>&1 || {
   echo "skip: claude CLI not on PATH"
   exit 0
@@ -76,14 +102,31 @@ PY
     timeout 90 claude -p --settings "$tmp/settings.json" \
     "Run exactly this bash command and nothing else: git status --short" \
     >/dev/null 2>&1)
+  cli_rc=$?
+  # A non-zero CLI exit means the environment could not answer (no auth, no
+  # network, timeout). That is not evidence about hook loading, so it is
+  # reported distinctly rather than collapsing into "silent" — otherwise an
+  # unauthenticated run fails claiming hooks are not loaded, which is a wrong
+  # diagnosis of a working codebase.
+  [ "$cli_rc" -eq 0 ] || {
+    echo "cli-failed"
+    return
+  }
   [ -f "$marker" ] && echo fired || echo silent
 }
 
 # Guard against a vacuous pass: if a literal quoted path does not fire, the probe
 # itself is broken (or hooks are not loaded at all) and every result below would
 # be meaningless.
-[ "$(probe "\"$root_with_space\"/probe-hook.sh")" = fired ] \
-  || fail "a literal-path hook did not fire — hooks are not loaded from --settings, so this pin cannot be evaluated"
+sanity=$(probe "\"$root_with_space\"/probe-hook.sh")
+case $sanity in
+  cli-failed)
+    echo "skip: the claude CLI could not complete a run (auth, network, or timeout); the live probe proves nothing here"
+    exit 0
+    ;;
+  fired) : ;;
+  *) fail "a literal-path hook did not fire though the CLI ran cleanly — hooks are no longer loaded from --settings" ;;
+esac
 
 # The spelling the fragment must use: unbraced (survives the plugin-context
 # substitution) and quoted (survives a root containing a space).
@@ -99,15 +142,4 @@ PY
 [ "$(probe '$CLAUDE_PLUGIN_ROOT/probe-hook.sh')" = silent ] \
   || echo "note: unquoted \$CLAUDE_PLUGIN_ROOT now survives a spaced root; quoting stays correct, the constraint merely relaxed"
 
-# The shipped fragment must use the spelling that survives.
-frag="$root/config/worker-settings.json"
-cmd=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['hooks']['PreToolUse'][0]['hooks'][0]['command'])" "$frag")
-case $cmd in
-  *'${CLAUDE_PLUGIN_ROOT}'*)
-    fail "config/worker-settings.json uses the braced spelling, which substitutes empty under --settings: $cmd"
-    ;;
-  '"$CLAUDE_PLUGIN_ROOT"'/*) : ;;
-  *) fail "config/worker-settings.json must reference the guard as \"\$CLAUDE_PLUGIN_ROOT\"/... (quoted, unbraced), got: $cmd" ;;
-esac
-
-echo "ok: settings-fragment hook expansion pinned (quoted-unbraced fires; braced and unquoted do not)"
+echo "ok: live probe re-measured (quoted-unbraced fires; braced and unquoted do not)"
