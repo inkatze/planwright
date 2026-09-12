@@ -195,7 +195,8 @@
 #   exit 3 AFTER surfacing the attention item); 4 recovery halt: no usable
 #   session to resume; 5 recovery halt: the `--resume` relaunch failed; 6 a
 #   partial close: some class of the release set is still held; 7 the
-#   worker-settings fragment the launch pins is missing or unreadable.
+#   worker-settings fragment the launch pins is missing or unreadable; 8 the
+#   dispatch-env wrapper the launch goes through is missing or unreadable.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,
 # mkfifo, mktemp, `date +%s`, a fractional `sleep`, and — for the close —
@@ -939,6 +940,23 @@ worker_settings_path() {
   printf '%s\n' "$ws_path"
 }
 
+# dispatch_env_path — print the environment-hardening wrapper the worker is
+# launched THROUGH. D-10/REQ-D1.1 say every fleet-launched session goes through
+# it; this rung used to exec the CLI directly, so its workers got neither the
+# ghost-text pin nor a resolvable planwright root — and without the root the
+# worker-settings auto-approve hook cannot find its script, so the worker asks
+# permission for commands the guard would have approved. Fails closed: a launch
+# that cannot apply the pin is not the pinned launch shape.
+dispatch_env_path() {
+  de_dir=$(cd -- "$script_dir" 2>/dev/null && pwd -P) || de_dir="$script_dir"
+  de_path="$de_dir/fleet-dispatch-env.sh"
+  if [ ! -r "$de_path" ]; then
+    echo "$me: refusing to launch: dispatch-env wrapper $de_path missing or unreadable - the worker would run without the ghost-text pin and without a resolvable planwright root (fleet-autonomy D-10, REQ-D1.1)" >&2
+    return 8
+  fi
+  printf '%s\n' "$de_path"
+}
+
 # register_dispatch <worker> <scope> <dir> <checkout> [<pid>] — write the
 # dispatch record through the one registration seam (fleet-lifecycle-closure
 # Task 3; REQ-E1.1, REQ-E1.2).
@@ -1596,6 +1614,7 @@ cmd_launch() {
   refuse_bare "$@" || exit 2
   refuse_settings "$@" || exit 2
   worker_settings=$(worker_settings_path) || exit 7
+  dispatch_env=$(dispatch_env_path) || exit 8
 
   dir=$(worker_dir "$worker") || exit 2
   # The handle grammar blocks traversal tokens but not a symlink planted under
@@ -1645,11 +1664,13 @@ cmd_launch() {
     }
   fi
 
-  # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-19): -p with
-  # stream-json both ways, --verbose (required with -p stream-json output),
-  # the stdio permission prompt tool (the receipt channel), the reviewed
-  # worker-settings fragment (the mode source), and NEVER --bare.
-  set -- "$cli" -p --input-format stream-json --output-format stream-json \
+  # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-10, D-19): the
+  # environment-hardening wrapper in front (it execs the rest, so the fifos
+  # below still attach to the CLI), then -p with stream-json both ways,
+  # --verbose (required with -p stream-json output), the stdio permission
+  # prompt tool (the receipt channel), the reviewed worker-settings fragment
+  # (the mode source), and NEVER --bare.
+  set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
     --verbose --permission-prompt-tool stdio --settings "$worker_settings" "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"

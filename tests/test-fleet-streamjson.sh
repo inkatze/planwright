@@ -89,6 +89,10 @@ cat >"$tmp/bin/claude" <<'SHIM'
 #   SHIM_IGNORE_TERM=1   survive SIGTERM, recording each one in <record>/signals
 #   SHIM_EXIT         exit code (default 0)
 printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
+# The wrapper execs this shim, so it cannot appear in argv; what it leaves
+# behind is the environment, which is the property worth asserting.
+printf 'ghost=%s\n' "${CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'plugin_root=%s\n' "${CLAUDE_PLUGIN_ROOT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
 i=0
 while [ "$i" -lt "$n" ]; do
@@ -610,6 +614,20 @@ case $argv_line in
 esac
 case $argv_line in
   *--bare*) fail "c9: --bare must never appear in a launch argv (D-12)" ;;
+esac
+# The worker is launched THROUGH the environment-hardening wrapper (D-10,
+# REQ-D1.1). The wrapper execs the CLI, so it never appears in the CLI's own
+# argv — what it leaves is the environment. Without a resolvable planwright
+# root the worker-settings auto-approve hook cannot find its own script, so the
+# worker asks permission for commands the guard would have approved, which
+# presents as a hung worker rather than a blocked one.
+grep -qx 'ghost=false' "$rec/env" \
+  || fail "c9: the launched CLI must inherit the ghost-text pin: $(cat "$rec/env" 2>/dev/null)"
+root_line=$(grep '^plugin_root=' "$rec/env" | tail -n 1)
+case ${root_line#plugin_root=} in
+  /*) [ -f "${root_line#plugin_root=}/scripts/fleet-streamjson.sh" ] \
+    || fail "c9: CLAUDE_PLUGIN_ROOT does not point at a planwright root: $root_line" ;;
+  *) fail "c9: the launched CLI must inherit an absolute CLAUDE_PLUGIN_ROOT, got: $root_line" ;;
 esac
 # The permission-mode source is structural, not a caller's responsibility:
 # Claude Code honors `defaultMode: "auto"` from the operator's own user
