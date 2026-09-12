@@ -102,11 +102,11 @@ Modes, selected at pre-flight from status and brief state:
   and 5).
 
 **Change-handling scales with the lifecycle stage (REQ-D1.4).** A Ready bundle
-takes pre-merge changes through a delta re-walkthrough / re-sign-off, the spec
-PR staying as it was; the amendment ritual is reserved for an Active bundle
-(work in flight). A Done bundle reopens to Draft first (the REQ-A1.6 reopen
-cycle below) — never amended in place. The per-class ritual detail is
-`spec-format`'s *amendment ritual*.
+takes pre-merge changes through a delta re-walkthrough / re-sign-off, not the
+amendment ritual, the spec PR staying as it was; the amendment ritual is
+reserved for an Active bundle (work in flight). A Done bundle reopens to Draft
+first (the REQ-A1.6 reopen cycle below) — never amended in place. The
+per-class ritual detail is `spec-format`'s *amendment ritual*.
 
 A **reopened bundle** (Status Draft with a complete signed brief — the
 REQ-A3.1 / REQ-A1.6 reopen cycle) is a scoped kickoff of the delta, not a first
@@ -423,8 +423,7 @@ sensitive detail; neutralize what discussion surfaces before writing it.
 
 ## Observations
 
-When anything outside this kickoff's scope surfaces during the walk (doctrine or
-tooling gaps, recurring friction, an uncatalogued decision domain), record one
+When anything outside this kickoff's scope surfaces during the walk, record one
 fragment per item through the shared helper `scripts/obs-record.sh --slug
 <topic> --scope <repo> --text '<observation>'` (resolved under the planwright
 root) and commit it (with the sign-off commit, or as its own chore commit);
