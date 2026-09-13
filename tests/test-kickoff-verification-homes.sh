@@ -173,8 +173,7 @@ echo "ok: entry ends on its anchor record"
 # which hash they mean.
 anchors=$(grep -c '^Anchor:' "$FIXTURE")
 [ "$anchors" -eq 1 ] || fail "fixture carries $anchors Anchor: lines; a captured entry carries exactly one"
-# SC2016: the backticks are Markdown, not command substitution.
-# shellcheck disable=SC2016
+# shellcheck disable=SC2016 # the backticks are Markdown, not a substitution
 hash=$(grep '^Anchor:' "$FIXTURE" | sed -n 's/.*`\([0-9a-f]\{40\}\)`.*/\1/p')
 [ -n "$hash" ] || fail "entry's Anchor line carries no 40-hex hash"
 
@@ -215,7 +214,7 @@ cp "$f3/$BUNDLE"/*.md "$f4b/$BUNDLE/"
 # command can refuse it: the check this control exists to exercise. A
 # payload ending in a foreign token would be refused one arm earlier and
 # prove nothing about recomposition.
-# shellcheck disable=SC2016
+# shellcheck disable=SC2016 # the backticks are Markdown, not a substitution
 sed 's|^`scripts/spec-anchor.sh specs/'"$BUNDLE"'`$|`scripts/spec-anchor.sh specs/'"$BUNDLE"' specs/'"$BUNDLE"'`|' \
   "$f3/$BUNDLE/kickoff-brief.md" >"$f4b/$BUNDLE/kickoff-brief.md"
 grep -q "specs/$BUNDLE specs/$BUNDLE" "$f4b/$BUNDLE/kickoff-brief.md" || fail "the command-form rewrite did not apply"
