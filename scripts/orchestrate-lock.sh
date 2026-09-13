@@ -47,19 +47,16 @@
 # clean skip that --bookkeeping reconciles). Keeping the policy at the call
 # site is what lets one primitive serve both without a second implementation.
 #
-# Usage: orchestrate-lock.sh acquire|release <spec-dir>
+# Usage: orchestrate-lock.sh acquire <spec-dir> [--owner-pid <pid>]
+#        orchestrate-lock.sh release <spec-dir>
 #   acquire  take the lock, breaking one whose owner process is gone. Exit 0
-#            on a held lock, 1 when another live holder has it (a clean no-op
-#            — the caller skips this step; --bookkeeping reconciles a dropped
-#            move), 2 on a real error or a refused (malformed/hostile) spec
-#            dir.
+#            on a held lock, 1 when a holder has it (a clean no-op: the caller
+#            skips this step and --bookkeeping reconciles a dropped move), 2 on
+#            a real error or a refused (malformed/hostile) spec dir.
 #   release  clear the lock unconditionally (idempotent: a missing lock is
 #            fine). Exit 0, or 2 when the path could not be cleared at all. It
 #            also clears a lock DIRECTORY left by the retired mkdir shape, so
 #            an in-place upgrade recovers itself.
-#
-# Usage: orchestrate-lock.sh acquire <spec-dir> [--owner-pid <pid>]
-#        orchestrate-lock.sh release <spec-dir>
 #
 # Portable POSIX sh. `flock` is not an option: it is absent on macOS, inside
 # the support bar, and it is process-bound, which neither caller here is.

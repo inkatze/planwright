@@ -854,8 +854,8 @@ do_dispatch() {
   # /orchestrate flow provides that serialization (it records the marker under
   # the per-spec lock BEFORE dispatching, so a concurrent B sees A's marker and
   # aborts). Giving the marker an owner token to close the direct-invocation race
-  # is a lock-discipline change deferred repo-wide across the planwright lock
-  # family (see scripts/fleet-state.sh's stale-break note), not resolved here. A
+  # is a marker-discipline change, not resolved here: the lock family carries
+  # owner tokens, the dispatch marker does not. A
   # failed attach leaves the marker stamped, so a retry reads already-in-flight
   # until the marker ages past LIVENESS_TTL — bounded, never a PERMANENT wedge.
   [ -x "$TRACK" ] && "$TRACK" record-create "$_worktree" >/dev/null 2>&1 </dev/null || true

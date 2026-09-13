@@ -924,12 +924,12 @@ run_reconcile() {
     return 0
   fi
   # Set rr_lockspec BEFORE arming the trap so the EXIT trap, once armed, always
-  # sees the locked spec dir (closing the trap-armed-but-still-empty race). This does NOT make the post-acquire window leak-free: a signal
+  # sees the locked spec dir (closing the trap-armed-but-still-empty race).
+  # This does NOT make the post-acquire window leak-free: a signal
   # delivered between acquire succeeding and the trap arming still terminates
-  # without running cleanup. That residual is now self-healing rather than
-  # timed: the hold is owned by THIS pid (--owner-pid above), so the next
-  # caller finds the owner gone and breaks it at once instead of waiting out a
-  # threshold. Release through the same primitive (idempotent) and clean any
+  # without running cleanup. That residual is self-healing: the hold is owned
+  # by THIS pid (--owner-pid above), so the next caller finds the owner gone
+  # and breaks it at once. Release through the same primitive (idempotent) and clean any
   # half-written temp. The explicit exit on a fatal signal makes the EXIT
   # cleanup run under shells (dash) that skip EXIT traps on signal-default
   # termination; SIGKILL leaves the release to that same owner-absence break.

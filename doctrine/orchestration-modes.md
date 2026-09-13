@@ -98,10 +98,10 @@ at the fleet tier:
 
 1. **Acquire the fleet advisory lock** — `scripts/fleet-state.sh lock` (the
    named cross-spec concurrency primitive under `${CLAUDE_PLUGIN_DATA}`),
-   serializing concurrent meta-towers and printing the owner token. Exit 1
-   (it is held) is a **clean no-op**: skip this step. Hold it only
-   across the decision below, never across a subordinate's execution (the
-   D-10 discipline at the fleet tier).
+   serializing concurrent meta-towers, printing the owner token. Exit 1
+   (it is held) is a **clean no-op**: skip this step. Hold it only across
+   the decision below, never across a subordinate's execution (the D-10
+   discipline at the fleet tier).
 2. **Select across the fleet**, under the lock:
    `scripts/orchestrate-meta-select.sh specs/<a> specs/<b> …`. It reads each
    spec's **live derivation** (`orchestrate-state.sh` /
@@ -130,7 +130,7 @@ at the fleet tier:
    observation.)
 4. **Release the fleet lock** before launching
    (`scripts/fleet-state.sh unlock <token>`); the token-less form is the
-   escape hatch.
+   operator's escape hatch.
 5. **Launch the subordinate tower** for the chosen spec: dispatch
    `/orchestrate <spec>` (one step) via the selected backend (the skill's
    backend-selection law applies unchanged). The subordinate runs its own

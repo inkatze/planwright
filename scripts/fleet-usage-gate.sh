@@ -224,8 +224,10 @@ HOLD_LOCK=0
 CUR_TMP=""
 # Release the lock AND reap any in-flight cache write temp on ANY exit, signals
 # included (the fleet-throttle.sh trap discipline): a SIGINT/SIGTERM
-# mid-critical-section must not leave the shared cross-spec lock held until the
-# stale-break threshold, nor litter the signal dir with a `.signal.XXXXXX`
+# mid-critical-section must not leave the shared cross-spec lock held (nothing
+# auto-breaks it: the hold spans processes and has no owner to probe, so only
+# an explicit token-less `unlock` clears one), nor litter the signal dir with a
+# `.signal.XXXXXX`
 # orphan. INT/TERM route through EXIT via explicit exits with the conventional
 # codes. Inlined (not a named cleanup function) so the trap reference is visible
 # to static analysis.
