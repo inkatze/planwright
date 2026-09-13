@@ -2355,22 +2355,22 @@ cmd_alarm_scan() {
 # row is what an attention watch reacts to). Prints `alarm <worker> <id> <age>`
 # per firing.
 alarm_scan_worker() {
-  as_worker=$1
-  as_dir=$2
-  as_now=$3
-  as_thr=$4
-  as_tick=$5
-  if [ -z "$as_now" ]; then
-    as_now=$(now_epoch) || return 2
+  aw_worker=$1
+  aw_dir=$2
+  aw_now=$3
+  aw_thr=$4
+  aw_tick=$5
+  if [ -z "$aw_now" ]; then
+    aw_now=$(now_epoch) || return 2
   fi
   # Candidate ids only. Everything the escalation acts on -- kind, received
   # epoch, state -- is re-read under the lock below, because this read is
   # unlocked and its values can be stale by the time the lock is taken.
   # Carrying them forward from here is what let a re-opened request be
   # escalated against the age this scan measured.
-  awk -F'\t' -v now="$as_now" -v thr="$as_thr" \
+  awk -F'\t' -v now="$aw_now" -v thr="$aw_thr" \
     '$4 == "pending" && (now - $3) > thr { print $1 }' \
-    "$as_dir/journal" | while read -r a_id; do
+    "$aw_dir/journal" | while read -r a_id; do
     valid_reqid "$a_id" || continue
     # Escalation only (the kickoff-pinned alarm outcome): the queue item
     # is re-upserted at high priority and the notify seam is pushed —
@@ -2399,31 +2399,31 @@ alarm_scan_worker() {
     # the request in the gap, so the publish overwrote it. That is the very
     # row this change exists to prevent, reintroduced by the fix for the age
     # predicate. Every skip path below unlocks before it leaves.
-    if ! journal_lock "$as_dir"; then
+    if ! journal_lock "$aw_dir"; then
       break
     fi
-    as_row=$(awk -F'\t' -v id="$a_id" '$1 == id { print $2 "\t" $3 "\t" $4; exit }' \
-      "$as_dir/journal" 2>/dev/null) || as_row=''
-    as_now_kind=${as_row%%"$TAB"*}
-    as_rest=${as_row#*"$TAB"}
-    as_recv=${as_rest%%"$TAB"*}
-    as_state=${as_rest#*"$TAB"}
-    as_fired=0
-    if [ "$as_state" = pending ] && valid_posnum "${as_recv:-}"; then
-      as_age=$((as_now - as_recv))
-      if [ "$as_age" -gt "$as_thr" ]; then
-        attention_upsert "$as_worker" "$as_dir" "$a_id" "$as_now_kind" high
-        as_fired=1
+    aw_row=$(awk -F'\t' -v id="$a_id" '$1 == id { print $2 "\t" $3 "\t" $4; exit }' \
+      "$aw_dir/journal" 2>/dev/null) || aw_row=''
+    aw_now_kind=${aw_row%%"$TAB"*}
+    aw_rest=${aw_row#*"$TAB"}
+    aw_recv=${aw_rest%%"$TAB"*}
+    aw_state=${aw_rest#*"$TAB"}
+    aw_fired=0
+    if [ "$aw_state" = pending ] && valid_posnum "${aw_recv:-}"; then
+      aw_age=$((aw_now - aw_recv))
+      if [ "$aw_age" -gt "$aw_thr" ]; then
+        attention_upsert "$aw_worker" "$aw_dir" "$a_id" "$aw_now_kind" high
+        aw_fired=1
       fi
     fi
-    journal_unlock "$as_dir"
-    [ "$as_fired" = 1 ] || continue
-    if [ -z "$as_tick" ] || [ "$as_age" -le $((as_thr + as_tick)) ]; then
+    journal_unlock "$aw_dir"
+    [ "$aw_fired" = 1 ] || continue
+    if [ -z "$aw_tick" ] || [ "$aw_age" -le $((aw_thr + aw_tick)) ]; then
       /bin/sh "$FA" notify \
-        "stream-json worker $as_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${as_age}s past threshold" \
+        "stream-json worker $aw_worker: request $(printf '%s' "$a_id" | cut -c1-8) pending ${aw_age}s past threshold" \
         >/dev/null 2>&1 || :
     fi
-    printf 'alarm %s %s %s\n' "$as_worker" "$a_id" "$as_age"
+    printf 'alarm %s %s %s\n' "$aw_worker" "$a_id" "$aw_age"
   done
 }
 
