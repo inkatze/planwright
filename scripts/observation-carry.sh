@@ -59,7 +59,6 @@
 # Environment overrides (tests, worktree callers):
 #   PLANWRIGHT_OBSERVATION_CARRY_STATE_DIR  dir holding the advisory lock
 #       (default <repo>/.claude/orchestrate.local, gitignored by `.claude/*.local/`).
-#   PLANWRIGHT_LOCAL_CONFIG                  passed through to config-get.sh.
 #
 # Portable POSIX sh + git + gh (bash 3.2 / BSD compatible, no eval; all external
 # input is treated as data). Pathname expansion is disabled (set -f).
@@ -77,7 +76,16 @@ if [ -r "$script_dir/echo-safety.sh" ]; then
 else
   sanitize_printable() { printf '%s' "$1" | tr -d '\000-\037\177\200-\237'; }
 fi
-config_get="$script_dir/config-get.sh"
+# The one advisory-lock primitive. There is no inline fallback on purpose: a
+# carry that could not take a real lock could open a second chore PR, so a
+# missing library is a refusal rather than a degraded lock.
+if [ -r "$script_dir/lock-lib.sh" ]; then
+  # shellcheck source=scripts/lock-lib.sh
+  . "$script_dir/lock-lib.sh"
+else
+  printf '%s\n' "observation-carry: scripts/lock-lib.sh is missing — the carry lock cannot be taken" >&2
+  exit 2
+fi
 
 usage() {
   printf '%s\n' "usage: observation-carry.sh [--branch <name>] [--base <ref>] [--source <ref>] [--obs-dir <rel>] [--dry-run] <repo-root>" >&2
@@ -333,55 +341,49 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 
 # --- Advisory lock: serialize the push+PR critical section --------------------
-# A per-repo mkdir lock (atomic, process-surviving) so two concurrent carries
-# cannot both push+open a PR. A live holder → clean no-op (the other run is
-# carrying). A stale holder (older than stale_lock_threshold) is broken and
-# re-acquired.
+# A per-repo advisory lock through scripts/lock-lib.sh so two concurrent carries
+# cannot both push+open a PR. The lock IS an atomic symlink whose target names
+# the holding process, and this carry takes it and releases it inside ONE
+# invocation — nothing here hands a hold to a later process — so the ordinary
+# (non-detached) form is right and a holder that died is provably dead by its
+# pid's absence. A live holder → clean no-op (the other run is carrying this
+# same stranded set). A holder whose process is gone is broken and re-acquired.
+# AGE IS NEVER CONSULTED: a carry that has held the lock for an hour is still
+# carrying, and a lock taken a second ago by a process that has since died is
+# already garbage.
 state_dir="${PLANWRIGHT_OBSERVATION_CARRY_STATE_DIR:-$repo_root/.claude/orchestrate.local}"
-lock_dir="$state_dir/observation-carry.lock"
+lock_path="$state_dir/observation-carry.lock"
 mkdir -p -- "$state_dir" 2>/dev/null || true
 
-stale_min=15
-if [ -x "$config_get" ]; then
-  cv=$("$config_get" stale_lock_threshold 2>/dev/null) || cv=""
-  cv=${cv%m}
-  case "$cv" in
-    '' | *[!0-9]* | 0?*) ;;
-    *) stale_min=$cv ;;
-  esac
-fi
+# Waiting out a holder buys nothing: the run holding the lock is carrying THIS
+# stranded set, so a waiter that eventually wins finds the set already carried
+# and no-ops anyway. The budget is small on purpose — enough to absorb a hold
+# that is mid-release, or the library's "the path changed under me, come back"
+# answer, and not enough to queue a carry behind another carry.
+lock_tries=50
 
-lock_held=0
-# acquire_lock exit codes (mirrors orchestrate-lock.sh's real-error-vs-contention
-# split): 0 held; 1 live contention (another carry holds it — a clean no-op);
-# 2 real error (mkdir failed AND the lock dir does not exist — an unwritable
-# state dir or filesystem fault). A real error must NOT be misread as contention:
-# reporting a clean no-op while observations are still stranded would be a silent
-# drop, so the caller degrades on 2.
+# acquire_lock exit codes (the contract the caller below depends on, unchanged —
+# it mirrors orchestrate-lock.sh's real-error-vs-contention split): 0 held; 1
+# live contention (another carry holds it — a clean no-op); 2 real error (an
+# unwritable state dir, a filesystem fault, or something that is not a lock
+# squatting the path). A real error must NOT be misread as contention: reporting
+# a clean no-op while observations are still stranded would be a silent drop, so
+# the caller degrades on 2. pw_lock_acquire draws exactly that line already.
 acquire_lock() {
-  if mkdir -- "$lock_dir" 2>/dev/null; then
-    lock_held=1
-    return 0
+  # The in-place upgrade from the retired `mkdir` shape. A DIRECTORY at the lock
+  # path is a lock the previous implementation left behind; nothing releases one
+  # any more, and the library refuses to wait on a non-symlink, so it would wedge
+  # every future carry until someone deleted it by hand. Clear it before the
+  # first acquire — and ONLY when the path is a real directory, never a symlink,
+  # because a symlink IS the live lock and force-clearing it would double-grant.
+  if [ ! -L "$lock_path" ] && [ -d "$lock_path" ]; then
+    pw_lock_break_force "$lock_path" || return 2
   fi
-  # mkdir failed. If the lock dir does not exist, this is a real error (the state
-  # dir is unwritable or the filesystem faulted), never contention.
-  [ -d "$lock_dir" ] || return 2
-  # Contention: break a stale holder (older than the threshold), then retry.
-  if find "$lock_dir" -maxdepth 0 -mmin +"$stale_min" 2>/dev/null | grep -q .; then
-    rmdir -- "$lock_dir" 2>/dev/null || true
-    if mkdir -- "$lock_dir" 2>/dev/null; then
-      lock_held=1
-      return 0
-    fi
-    # Post-break: same distinction — an absent lock dir is a real error, a
-    # present one means another holder won the race.
-    [ -d "$lock_dir" ] || return 2
-  fi
-  return 1
+  pw_lock_acquire "$lock_path" "$lock_tries"
 }
 release_lock() {
-  [ "$lock_held" -eq 1 ] && rmdir -- "$lock_dir" 2>/dev/null || true
-  lock_held=0
+  pw_lock_release "$lock_path" 2>/dev/null || :
+  return 0
 }
 # Temp artifacts, declared before the trap so `cleanup` can reference them under
 # `set -u` even if a signal arrives before they are assigned.
@@ -390,7 +392,9 @@ msg_file=""
 # Invoked indirectly through the traps below (SC2329 cannot see trap-string uses).
 # shellcheck disable=SC2329
 cleanup() {
-  release_lock
+  # First, and unconditionally: a handler that cleans up temp files before it
+  # drops the lock is a handler that can die holding the lock.
+  pw_lock_release_all
   [ -n "$tmp_index" ] && rm -f -- "$tmp_index" 2>/dev/null
   [ -n "$msg_file" ] && rm -f -- "$msg_file" 2>/dev/null
   return 0
@@ -406,10 +410,10 @@ trap 'cleanup; exit 143' TERM
 acquire_lock
 lock_rc=$?
 if [ "$lock_rc" -eq 2 ]; then
-  # Real error creating the lock (unwritable state dir / filesystem fault): the
-  # observations are still stranded, so degrade non-silently rather than report a
-  # clean no-op that would drop them.
-  degrade "the carry lock could not be created (state dir unwritable or filesystem error)"
+  # Real error taking the lock (unwritable state dir, filesystem fault, or a
+  # non-lock squatting the path): the observations are still stranded, so degrade
+  # non-silently rather than report a clean no-op that would drop them.
+  degrade "the carry lock could not be taken (state dir unwritable, filesystem error, or the lock path is not a lock)"
 fi
 if [ "$lock_rc" -ne 0 ]; then
   # Another carry holds the lock — a clean no-op (it will carry this set).
