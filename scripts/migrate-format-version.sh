@@ -148,7 +148,7 @@ gtmp=$(mktemp -d) || {
   echo "migrate-format-version: mktemp failed (cannot allocate a work dir)" >&2
   exit 2
 }
-# The held lock dir for the EXIT trap (empty when nothing is held) — the
+# The spec dir whose lock is held, for the EXIT trap (empty when free). The
 # same idiom as tasks-pr-sync.sh's rm_lock_and_tmp: a caught signal or an
 # unexpected abort releases the per-spec lock instead of leaving other
 # writers behind it. A SIGKILL skips this, and the hold being owned by THIS

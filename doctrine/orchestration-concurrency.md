@@ -89,8 +89,8 @@ the unit is orphaning considered.
 
 **Orphan only when all three hold** (else leave the entry alone):
 
-1. the entry is **older than the grace threshold** (default: the stale-lock
-   threshold, D-10);
+1. the entry is **older than the grace threshold**
+   (`stale_marker_threshold`);
 2. the backend's **liveness is observable from this session** — a worker
    dispatched by *another* tower is not yours to judge; **print-backend units
    are exempt**: no process exists until the human pastes the command, so

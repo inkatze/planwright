@@ -145,8 +145,9 @@ now_epoch() {
 HOLD_LOCK=0
 # Release on ANY exit, signals included (the fleet-attention.sh trap
 # discipline): a SIGINT/SIGTERM mid-critical-section must not leave the
-# shared cross-spec lock held until the stale-break threshold. INT/TERM
-# route through EXIT via explicit exits with the conventional codes.
+# shared cross-spec lock held, because nothing auto-breaks a detached hold
+# and only an explicit token-less `unlock` clears one. INT/TERM route
+# through EXIT via explicit exits with the conventional codes.
 trap 'release_lock' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM

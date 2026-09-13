@@ -721,9 +721,10 @@ which puts the unit back at its configured starting tier with its history
 preserved beside it for inspection.
 
 The table above is the read path. `allocation-ledger.sh` also has `append`,
-`lock`, and `unlock` verbs, which are how the engine writes rows under the
-per-unit lock; they are not an operator surface, and `append` in particular is
-what the "do not hand-edit" warning is about.
+`lock` (which prints the owner token `unlock` verifies), `unlock`, and `owner`
+verbs, which are how the engine writes rows under the per-unit lock; they are
+not an operator surface, and `append` in particular is what the "do not
+hand-edit" warning is about.
 
 **An unavailable usage signal is not a degradation.** It is a known state, not
 a broken read: while the signal is unavailable, escalation above the starting

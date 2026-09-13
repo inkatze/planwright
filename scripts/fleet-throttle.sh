@@ -92,9 +92,9 @@
 # row can carry an OLDER reset than the state file holds. Live throttle
 # state is always `check`/the state file, never audit-row recency; the
 # trail is the action history, not the state. And the max-of-resets
-# guarantee holds on the normal contention path; the known fleet-state
-# stale-lock double-break race (a crash-recovery corner) can momentarily
-# admit two writers, the same caveat every consumer of that lock carries.
+# guarantee holds under contention: the fleet-state lock admits one writer
+# at a time, its break path included, since a break fires only on a
+# provably absent owner and serializes through a claim link.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk
 # without interval expressions, `date +%s`, a fractional sleep for the lock

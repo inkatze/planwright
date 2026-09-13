@@ -145,7 +145,7 @@ Planwright-Task: orchestration-concurrency/6
 commits**, add it yourself — either with git's native flag:
 
 ```sh
-git commit -m "fix(lock): break a stale lock at the threshold" \
+git commit -m "fix(lock): release the spec lock on SIGTERM" \
   --trailer "Planwright-Task: orchestration-concurrency/6"
 ```
 
