@@ -370,7 +370,7 @@ release_lock() {
 }
 acquire_lock_or_busy() {
   al_rc=0
-  "$LOCK" acquire "$spec_dir" >/dev/null 2>&1 || al_rc=$?
+  "$LOCK" acquire "$spec_dir" --owner-pid "$$" >/dev/null 2>&1 || al_rc=$?
   case $al_rc in
     0)
       HOLD_LOCK=1

@@ -913,7 +913,7 @@ run_reconcile() {
     return 0
   fi
   rr_rc=0
-  "$lock_sh" acquire "$rr_dir" || rr_rc=$?
+  "$lock_sh" acquire "$rr_dir" --owner-pid "$$" || rr_rc=$?
   if [ "$rr_rc" -ne 0 ]; then
     log "lock unavailable (acquire exit $rr_rc); skipping (bookkeeping reconciles)"
     # acquire 1 = busy (a clean skip); 2 = error/refusal. The CLI surfaces a
@@ -927,12 +927,13 @@ run_reconcile() {
   # sees a populated lock dir (closing the trap-armed-but-lockdir-still-empty
   # race). This does NOT make the post-acquire window leak-free: a signal
   # delivered between acquire succeeding and the trap arming still terminates
-  # without running cleanup — that residual window falls to the stale-break,
-  # exactly like SIGKILL below. Release through the same primitive (idempotent
-  # rmdir) and clean any half-written temp. The explicit exit on a fatal signal
-  # makes the EXIT cleanup run under shells (dash) that skip EXIT traps on
-  # signal-default termination; SIGKILL remains unrecoverable and falls to the
-  # stale-break.
+  # without running cleanup. That residual is now self-healing rather than
+  # timed: the hold is owned by THIS pid (--owner-pid above), so the next
+  # caller finds the owner gone and breaks it at once instead of waiting out a
+  # threshold. Release through the same primitive (idempotent) and clean any
+  # half-written temp. The explicit exit on a fatal signal makes the EXIT
+  # cleanup run under shells (dash) that skip EXIT traps on signal-default
+  # termination; SIGKILL leaves the release to that same owner-absence break.
   rr_lockdir=$rr_dir
   tmpf=""
   trap 'rm_lock_and_tmp' EXIT

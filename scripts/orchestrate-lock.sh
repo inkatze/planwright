@@ -8,19 +8,35 @@
 # primitive), so the orchestrator and the hook — which may run concurrently
 # against the same primary checkout — mutually exclude by construction.
 #
-# The lock is a directory at <spec-dir>/.orchestrate.lock, taken with an
-# atomic mkdir and broken when older than stale_lock_threshold. The branch ref
-# is the natural fence (D-4): because a lock holder writes no authoritative
-# state (D-1), a stale holder acting after lease expiry cannot corrupt derived
-# state, so no fencing tokens are added. The lock is held only across the brief
-# state-changing move and released before /execute-task runs, so it never
-# serializes execution (D-10).
+# The lock is taken through scripts/lock-lib.sh, the one advisory-lock
+# primitive in the tree: an atomic symlink create whose target is an owner
+# token. The branch ref is the natural fence (D-4): because a lock holder
+# writes no authoritative state (D-1), a holder acting after it lost the lock
+# cannot corrupt derived state, so no fencing tokens are added. The lock is
+# held only across the brief state-changing move and released before
+# /execute-task runs, so it never serializes execution (D-10).
+#
+# WHO OWNS THE HOLD decides when it can be broken, and the two callers of this
+# script differ:
+#
+#   * /orchestrate acquires at the start of its dispatch window and releases at
+#     the end, several tool invocations later. Nothing of its own runs in
+#     between, so there is no process whose absence could prove the lock dead:
+#     that is a DETACHED hold, never auto-broken, cleared by `release` (which
+#     an operator can run by hand if a crash left one standing).
+#   * a script that acquires, works, and releases inside ONE invocation passes
+#     `--owner-pid $$`. Its hold is owned by a live process, so a crash leaves
+#     a lock the next caller breaks on its own — no waiting, no operator.
+#
+# The default is the detached form, because it is the one that cannot silently
+# lose exclusion: a caller that forgets the flag gets a lock that is too sticky
+# rather than one that evaporates the moment it is taken.
 #
 # REQ-F1.1 (parsed input is data, never an executed path): the spec id is read
 # from the canonicalized spec-dir basename and validated against the spec-id
 # grammar `^[a-z0-9][a-z0-9-]*$` (max 64), and the spec dir must resolve under
 # a `specs/` parent after symlink resolution, so the derived lock path is
-# containment-checked before any mkdir/rmdir. A malformed or hostile spec dir
+# containment-checked before any create or unlink. A malformed or hostile spec dir
 # (bad charset, traversal, a symlink escaping the tree) is a clean refusal
 # (exit 2, diagnostic, no lock touched), never an out-of-tree lock path.
 #
@@ -32,21 +48,20 @@
 # site is what lets one primitive serve both without a second implementation.
 #
 # Usage: orchestrate-lock.sh acquire|release <spec-dir>
-#   acquire  mkdir the lock; break + re-acquire a stale one. Exit 0 on a held
-#            lock, 1 when another live holder has it (a clean no-op — the
-#            caller skips this step; --bookkeeping reconciles a dropped move),
-#            2 on a real error or a refused (malformed/hostile) spec dir.
-#   release  rmdir the lock (idempotent: a missing lock is fine). Exit 0.
+#   acquire  take the lock, breaking one whose owner process is gone. Exit 0
+#            on a held lock, 1 when another live holder has it (a clean no-op
+#            — the caller skips this step; --bookkeeping reconciles a dropped
+#            move), 2 on a real error or a refused (malformed/hostile) spec
+#            dir.
+#   release  clear the lock unconditionally (idempotent: a missing lock is
+#            fine). Exit 0. It also clears a lock DIRECTORY left by the
+#            retired mkdir shape, so an in-place upgrade recovers itself.
 #
-# stale_lock_threshold is read via scripts/config-get.sh (defaults + the
-# per-repo override, D-33), normalized from `<n>m`/bare minutes; an absent
-# key uses 15m and a malformed value falls back to 15m with a warning (the
-# config-model fallback rule, matching the hook).
+# Usage: orchestrate-lock.sh acquire <spec-dir> [--owner-pid <pid>]
+#        orchestrate-lock.sh release <spec-dir>
 #
-# Portable POSIX sh: mkdir-atomicity is the lock primitive (not flock, which
-# is non-portable and process-bound); a mkdir lock survives the acquiring
-# process, which is what lets /orchestrate hold it across the move and a
-# crash fall through to the stale-break.
+# Portable POSIX sh. `flock` is not an option: it is absent on macOS, inside
+# the support bar, and it is process-bound, which neither caller here is.
 set -u
 
 LC_ALL=C
@@ -56,9 +71,35 @@ unset CDPATH
 cmd="${1:-}"
 spec_dir="${2:-}"
 if [ -z "$cmd" ] || [ -z "$spec_dir" ]; then
-  echo "usage: orchestrate-lock.sh acquire|release <spec-dir>" >&2
+  echo "usage: orchestrate-lock.sh acquire|release <spec-dir> [--owner-pid <pid>]" >&2
   exit 2
 fi
+shift 2 2>/dev/null || true
+
+owner_pid=""
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --owner-pid)
+      [ "$#" -ge 2 ] || {
+        echo "orchestrate-lock: --owner-pid needs a pid" >&2
+        exit 2
+      }
+      owner_pid=$2
+      shift 2
+      ;;
+    *)
+      echo "orchestrate-lock: unknown option '$1'" >&2
+      exit 2
+      ;;
+  esac
+done
+case $owner_pid in
+  '') ;;
+  *[!0-9]*)
+    echo "orchestrate-lock: --owner-pid must be a number" >&2
+    exit 2
+    ;;
+esac
 if [ ! -d "$spec_dir" ]; then
   echo "orchestrate-lock: no such spec dir: $spec_dir" >&2
   exit 2
@@ -96,9 +137,22 @@ esac
 
 lock="$canon_dir/.orchestrate.lock"
 
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh" || {
+  echo "orchestrate-lock: cannot load the lock primitive $script_dir/lock-lib.sh" >&2
+  exit 2
+}
+
 case "$cmd" in
   release)
-    rmdir "$lock" 2>/dev/null || true
+    # Unconditional and idempotent, which is what makes it the recovery path
+    # for a detached hold whose owner never came back. It also clears a lock
+    # DIRECTORY left by the retired mkdir shape.
+    pw_lock_break_force "$lock" || {
+      echo "orchestrate-lock: cannot clear $lock (something that is not a lock is at that path)" >&2
+      exit 2
+    }
     exit 0
     ;;
   acquire) ;;
@@ -108,54 +162,27 @@ case "$cmd" in
     ;;
 esac
 
-# Resolve stale_lock_threshold (minutes). The local override lives at the
-# repo root (<spec-dir>/../..), the layout the lock protocol assumes.
-threshold_min=15
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-repo_root=$(cd "$canon_dir/../.." 2>/dev/null && pwd) || repo_root=""
-local_cfg=""
-[ -n "$repo_root" ] && local_cfg="$repo_root/.claude/planwright.local.yml"
-
-# config-get's stderr is NOT suppressed: it is silent on a found/absent key,
-# and the one thing it does emit — the broken-install diagnostic when the
-# tracked defaults are missing/unreadable — is exactly what should surface
-# rather than be swallowed into a silent 15m fallback.
-v=$(PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
-  "$script_dir/config-get.sh" stale_lock_threshold) || v=""
-v=${v%m}
-case "$v" in
-  '') ;; # key absent everywhere: the tracked default (15) stands
-  *[!0-9]*)
-    echo "orchestrate-lock: ignoring malformed stale_lock_threshold; using ${threshold_min}m" >&2
+# One attempt, not a spin: the caller owns the failure policy off the exit code
+# (REQ-D1.2), and a busy lock is a clean skip for both callers rather than
+# something to wait out. The stale break inside the attempt is what turns a
+# dead owner's lock into a held one, in the same call.
+rc=0
+if [ -n "$owner_pid" ]; then
+  pw_lock_acquire_for "$lock" "$owner_pid" 1 || rc=$?
+else
+  pw_lock_try_detached "$lock" || rc=$?
+fi
+case $rc in
+  0) exit 0 ;;
+  1)
+    # Held by a live holder: a clean no-op. No diagnostic — this is the
+    # expected outcome under contention and both callers treat it as a skip.
+    exit 1
     ;;
-  *) threshold_min=$v ;;
-esac
-
-# Atomic acquire; break a stale holder, then retry once.
-if mkdir "$lock" 2>/dev/null; then
-  exit 0
-fi
-# mkdir failed. Distinguish real contention (the lock dir now exists, held by
-# another holder) from a genuine error (unwritable spec dir, filesystem fault)
-# where the lock never got created. Masking the latter as a clean "busy" no-op
-# would make /orchestrate skip the spec forever; fail closed instead.
-if [ ! -d "$lock" ]; then
-  echo "orchestrate-lock: cannot create $lock (spec dir unwritable or filesystem error)" >&2
-  exit 2
-fi
-if [ -n "$(find "$lock" -maxdepth 0 -mmin +"$threshold_min" 2>/dev/null)" ]; then
-  rm -rf "$lock"
-  if mkdir "$lock" 2>/dev/null; then
-    exit 0
-  fi
-  # Same distinction as the initial mkdir: no lock dir means a real error
-  # (fail closed), a present one means another holder won the post-break race.
-  if [ ! -d "$lock" ]; then
-    echo "orchestrate-lock: cannot create $lock after stale break (spec dir unwritable or filesystem error)" >&2
+  *)
+    # A real error (unwritable spec dir, a non-lock squatting the path). The
+    # library already said what it was on stderr. Masking it as a clean busy
+    # would make /orchestrate skip the spec forever; fail closed instead.
     exit 2
-  fi
-  echo "orchestrate-lock: contention after stale break; skipping ($lock)" >&2
-  exit 1
-fi
-# Held by a live holder within the threshold: clean no-op.
-exit 1
+    ;;
+esac

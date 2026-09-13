@@ -435,6 +435,27 @@ pw_lock_acquire_detached() {
   _pw_lock_acquire_core "$1" "${2:-$PW_LOCK_MAX_TRIES}" detached
 }
 
+# pw_lock_acquire_for <path> <owner-pid> [<max-tries>] — take the lock ON
+# BEHALF OF another process. A short-lived CLI that acquires for a caller which
+# then does the work would otherwise name ITSELF as owner, and the lock would
+# read as dead the instant the CLI exited. The caller passes its own pid and
+# the hold stays as alive as the caller is. The pid is not verified live here:
+# a caller naming a pid that is already gone gets a lock anyone may break,
+# which is the correct outcome and not an error.
+pw_lock_acquire_for() {
+  if [ "$#" -lt 2 ] || [ -z "${1:-}" ] || [ -z "${2:-}" ]; then
+    _pw_lock_usage pw_lock_acquire_for
+    return 2
+  fi
+  case $2 in
+    '' | *[!0-9]*)
+      printf '%s\n' "lock-lib: pw_lock_acquire_for needs a numeric owner pid" >&2
+      return 2
+      ;;
+  esac
+  _pw_lock_acquire_core "$1" "${3:-$PW_LOCK_MAX_TRIES}" "$2"
+}
+
 # pw_lock_release <path> — give up one depth of this shell's hold, unlinking
 # at the outermost. 0 released or deepened-down, 1 this shell does not hold it
 # (including the case where the hold was broken underneath it), 2 the unlink

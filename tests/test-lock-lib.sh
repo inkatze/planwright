@@ -465,6 +465,35 @@ else
   pass "the cross-process release unlinks the lock"
 fi
 
+# ---------------------------------------------------------------------------
+# 14. A lock taken on behalf of another process is owned by that process
+# ---------------------------------------------------------------------------
+#
+# A short-lived CLI that acquires for a caller would otherwise name ITSELF as
+# owner, and the lock would read as dead the instant the CLI exited.
+
+sleep 45 &
+live_pid=$!
+$SH -c '. "$1"; pw_lock_acquire_for "$2/for.lock" "$3"' sh "$LIB" "$tmp" "$live_pid" >/dev/null 2>&1
+assert_exit "acquire_for takes the lock" 0 $?
+case "$(readlink "$tmp/for.lock")" in
+  "$live_pid"-*) pass "the token names the owner this caller nominated" ;;
+  *) fail "the token names the owner this caller nominated (got '$(readlink "$tmp/for.lock")')" ;;
+esac
+# The acquiring shell is long gone; the nominated owner is not, so the hold
+# stands.
+run_sh x 'pw_lock_acquire "$1/for.lock" 5' >/dev/null 2>&1
+assert_exit "the hold outlives the process that took it" 1 $?
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
+# Once the nominated owner is gone, the lock is breakable at once.
+run_sh x 'pw_lock_acquire "$1/for.lock" 5' >/dev/null 2>&1
+assert_exit "the hold dies with the owner it nominated" 0 $?
+rm -f "$tmp"/for.lock*
+
+run_sh x 'pw_lock_acquire_for "$1/bad.lock" "not-a-pid"' >/dev/null 2>&1
+assert_exit "a non-numeric owner pid is a usage error" 2 $?
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else
