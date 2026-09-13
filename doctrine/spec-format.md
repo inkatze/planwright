@@ -926,8 +926,23 @@ the declared format-version:
   brief" means the kickoff brief.
 - **Bucket** — one of the four finding categories of the autonomy gate:
   Auto-applicable, Agent-resolvable, Needs sign-off, Needs human judgment.
-- **Tower** — the dispatching `/orchestrate` session (control tower). It
-  holds no in-memory state beyond the current step and is disposable.
+- **Tower** — the standing conversational front-door session (`/tower`):
+  it converses with the operator, delegates repo-mutating work to isolated
+  workers as flights, and escalates big or risky work into the spec pipeline
+  (tower-front-door D-2). Superseded meaning: older prose used "tower" for
+  the dispatching session, now the **Orchestrator**.
+- **Orchestrator** — the dispatching `/orchestrate` session (tower-front-door
+  D-2; formerly "tower" or "control tower"). It holds no in-memory state
+  beyond the current step and is disposable. Not the Operator: the operator
+  is the human above both sessions, who signs off and merges; the
+  orchestrator is an agent session dispatching under the operator's policy.
+- **Transitional note (tower-front-door D-2)** — until the pervasive prose
+  sweep lands, older prose may still say "tower" for the orchestrator, and
+  tower-named scripts and config (`tower-settings`, `tower-command-guard`,
+  the fleet tower-marker family, the tower watchdog and `tower_relaunch_*`
+  knobs) keep their names and may serve either session until renames land
+  (the watchdog family serves the orchestrator alone in v1); read such a
+  name by the session it is wired to, not by the word.
 - **Observations log** — the canonical name for the observations
   accumulator: per-entry fragment files under
   `specs/_observations/entries/` (live) and `specs/_observations/archive/`
@@ -1135,3 +1150,15 @@ bundle would have to migrate to:
   lane.
   *(format-grammar D-9, D-13, D-14 · REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.5,
   REQ-D1.7, REQ-D1.8, REQ-D1.9, REQ-D1.10.)*
+- 2026-09-03 — Glossary supersession: Tower and Orchestrator. **Tower** now
+  names the standing conversational front-door session (`/tower`);
+  **Orchestrator** is minted for the dispatching `/orchestrate` session, with
+  a one-line distinction from Operator, the human; and a transitional note
+  covers the older prose that still says "tower" for the orchestrator and the
+  tower-named scripts and config that serve either session until renames land
+  (*Glossary*). The other definitional sites — work-placement's consumer
+  naming, the fleet doc's opening vocabulary, the `/orchestrate` description —
+  move in the same change; the pervasive prose sweep is deferred behind its
+  gate. **No version bump:** no authoring rule changes — a glossary term
+  changes referent and a second is minted.
+  *(tower-front-door D-2 · REQ-H1.1, REQ-H1.2.)*
