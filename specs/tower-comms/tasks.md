@@ -452,17 +452,7 @@ baseline exists, so the experiment has an honest before.
 
 ## Awaiting input
 
-- **Task 7** — The unit is complete on its branch and pushed, but the final
-  full `mise run check` on that tree failed in `tests/test-fleet-streamjson.sh`
-  case c20 ("sjw20b never reached its hold loop": a ten-second wait for a shim
-  worker's child process under the parallel test fan-out), which the diff
-  (doctrine text, one config knob, one config entry, spec citations) does not
-  touch; the first full run on the same content was green, and the file passes
-  alone, which the recorded flaky-suites observation says is not by itself a
-  disproof. Halted per the never-retry rule for a logic-classified failure.
-  Decision owed: re-run the full check on the branch, or open the draft PR and
-  let the reference runner decide; the drafted PR body is in the worktree's
-  handover brief.
+(none yet)
 
 ## Deferred
 
