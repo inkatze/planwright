@@ -1,0 +1,1 @@
+- 2026-09-12 [planwright] lint:md's glob does not include tests/**, so the fixture READMEs under tests/fixtures/ (hook-payloads, kickoff-entries) carry conventions no markdown gate reads; drift there is invisible to mise run check.
