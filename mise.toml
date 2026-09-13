@@ -32,6 +32,10 @@ run = '/bin/bash scripts/run-tests.sh'
 description = "Render a spec bundle's derived execution status (the canonical read surface for format-version 2 bundles; invariant-tasks D-6). Usage: mise run status specs/<spec>"
 run = "scripts/spec-status.sh"
 
+[tasks."tower:report"]
+description = "Print the tower-comms scorecard from the event log under the fleet home (tower-comms D-14, REQ-G1.2): the operator's load per hour of fleet work against items settled without them, with the secondary measures. On demand only, never wired into check or CI (REQ-G1.5); scripts/tower-queue.sh report takes --log, --now, --window and --tick-gap-max for a fixture or a narrower run"
+run = "scripts/tower-queue.sh report"
+
 [tasks."lint:shell"]
 description = "shellcheck on scripts, tests, sourced test libraries under tests/lib/, and the extensionless githooks/ hooks (whole-directory glob: everything in githooks/ must be shell; the tools read the shebang)"
 run = "shellcheck scripts/*.sh tests/*.sh tests/lib/*.sh githooks/*"

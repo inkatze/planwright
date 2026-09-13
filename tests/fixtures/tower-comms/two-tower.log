@@ -1,0 +1,4 @@
+{"v":1,"seq":1,"ts":900000,"kind":"tick","tower":"T1","live":1,"until":903600}
+{"v":1,"seq":2,"ts":901800,"kind":"tick","tower":"T2","live":1,"until":905400}
+{"v":1,"seq":3,"ts":902000,"kind":"delivered","tower":"T1","item":"a","text":"PR #12 is ready for review","asks":1}
+{"v":1,"seq":4,"ts":903000,"kind":"delivered","tower":"T2","item":"b","text":"PR #13 is ready for review","asks":1}

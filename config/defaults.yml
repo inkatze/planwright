@@ -690,3 +690,26 @@ instruction_budget_injected_warn: 200
 # convention can set it false (the assertion then does not fire) — absent in every
 # layer it defaults off. Overlay-tunable; the mechanism is core.
 instruction_manifest_completeness_required: true
+
+# Tower-comms event log and scorecard (tower-comms D-14; REQ-A1.4, REQ-G1.2,
+# REQ-G1.6, REQ-G1.7). Every value is a time span: a bare number is seconds,
+# and the ms/s/m/h/d suffixes are all legal, sub-second included, so a hook
+# wait can be 500ms. Resolved through scripts/resolve-config-knob.sh as the
+# duration type with the REQ-E1.4 by-layer malformed policy.
+#
+# tower_hook_lock_wait   how long every tower-queue verb waits for the fleet
+#                        lock before reporting the expiry as an error; the
+#                        prompt-submit hook drops its reply line at expiry
+#                        rather than delay the operator's turn.
+# tower_log_rotate_age   lines older than this rotate out of the event log on
+#                        the next write, floored at tower_report_window so
+#                        the experiment's own sessions stay readable.
+# tower_report_window    the window `report` reads: the scorecard covers the
+#                        log lines inside it.
+# tower_tick_gap_max     a stretch between consecutive ticks longer than this
+#                        is excluded from the fleet-hours denominator and
+#                        reported as a gap; it also bounds tick coalescing.
+tower_hook_lock_wait: 2s
+tower_log_rotate_age: 30d
+tower_report_window: 7d
+tower_tick_gap_max: 10m
