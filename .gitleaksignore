@@ -1,0 +1,5 @@
+# Fingerprints gitleaks skips on its history walk (commit:file:rule:line).
+# Each entry is a test fixture that is secret-shaped by design; the current
+# file spells it as two adjacent strings, but the commit named here carried
+# it contiguously and history is never rewritten.
+f7c99d5755a7470ea826b8990af8b0a0410eeeb5:tests/test-tower-queue-log.sh:aws-access-token:236
