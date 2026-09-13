@@ -414,7 +414,10 @@ pw_lock_acquire() {
 # is no pid whose absence could prove the lock dead. The token records the word
 # `detached` where a pid would go, and the liveness probe reports it alive —
 # which is the honest answer, since nothing about it is knowable — so it is
-# never auto-broken. THE CONSEQUENCE IS DELIBERATE AND WORTH SEEING: a detached
+# never auto-broken. The acquirer's pid still goes into the token after that
+# word — not to be probed, but so two detached holds minted in the same second
+# cannot collide and let one caller's release unlink the other's lock.
+# THE CONSEQUENCE IS DELIBERATE AND WORTH SEEING: a detached
 # hold whose owner crashed is cleared by an explicit release, not by waiting.
 # That is the trade the liveness rule makes: it never breaks a live lock, and in
 # exchange it cannot guess about a hold with no owner to ask about.
@@ -423,7 +426,7 @@ pw_lock_try_detached() {
     _pw_lock_usage pw_lock_try_detached
     return 2
   fi
-  _pw_lock_try_core "$1" detached
+  _pw_lock_try_core "$1" "detached-$$"
 }
 
 # pw_lock_acquire_detached <path> [<max-tries>] — the spinning form.
@@ -432,7 +435,7 @@ pw_lock_acquire_detached() {
     _pw_lock_usage pw_lock_acquire_detached
     return 2
   fi
-  _pw_lock_acquire_core "$1" "${2:-$PW_LOCK_MAX_TRIES}" detached
+  _pw_lock_acquire_core "$1" "${2:-$PW_LOCK_MAX_TRIES}" "detached-$$"
 }
 
 # pw_lock_acquire_for <path> <owner-pid> [<max-tries>] — take the lock ON

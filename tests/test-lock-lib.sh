@@ -412,6 +412,16 @@ case "$(readlink "$tmp/det.lock")" in
   *) fail "a detached hold records no pid where a pid would go (got '$(readlink "$tmp/det.lock")')" ;;
 esac
 
+# Two detached holds taken in the same second are still distinguishable, so one
+# caller's release cannot unlink the other's lock.
+run_sh x 'pw_lock_acquire_detached "$1/det2.lock"' >/dev/null 2>&1
+if [ "$(readlink "$tmp/det.lock")" = "$(readlink "$tmp/det2.lock")" ]; then
+  fail "two detached holds get distinct tokens"
+else
+  pass "two detached holds get distinct tokens"
+fi
+rm -f "$tmp/det2.lock"
+
 # The acquiring process is long gone, and the hold still stands.
 run_sh x 'pw_lock_acquire "$1/det.lock" 5' >/dev/null 2>&1
 assert_exit "a detached hold survives its acquirer and is not broken" 1 $?
