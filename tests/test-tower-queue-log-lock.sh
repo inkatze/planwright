@@ -249,6 +249,34 @@ grep -q '"item":"old2"' "$log_file" && fail "a torn first line stopped rotation 
 grep -q '"item":"tor' "$log_file" || fail "the torn first line was deleted"
 echo "ok: a torn first line does not stop rotation, nor trigger a purge"
 
+# --- a torn last line costs one event, not two --------------------------------
+
+rm -f "$log_file" "$seq_file"
+printf '{"v":1,"seq":1,"ts":7500,"kind":"born","item":"torn' >"$log_file"
+printf '1\n' >"$seq_file"
+chmod 0600 "$log_file" "$seq_file"
+run log born --now 7600 item=after >/dev/null 2>&1 || fail "append after a torn line: exit"
+[ "$(line_count "$log_file")" = 2 ] || fail "a torn last line swallowed the next event"
+grep -q '^{"v":1,"seq":2,"ts":7600,"kind":"born","item":"after"}$' "$log_file" \
+  || fail "the appended line did not land whole: $(last_line)"
+grep -q '"item":"torn' "$log_file" || fail "the torn line was lost"
+echo "ok: an append after a torn line closes the tear instead of landing inside it"
+
+# Coalescing rewrites the log around the last line, and an unterminated last
+# line must not shift which line that is.
+rm -f "$log_file" "$seq_file"
+{
+  printf '{"v":1,"seq":1,"ts":5000,"kind":"born","item":"first"}\n'
+  printf '{"v":1,"seq":2,"ts":5010,"kind":"tick","tower":"t","live":2,"until":5010}'
+} >"$log_file"
+printf '2\n' >"$seq_file"
+chmod 0600 "$log_file" "$seq_file"
+run log tick --tower t --now 5020 live=2 >/dev/null 2>&1 || fail "coalescing tick: exit"
+[ "$(line_count "$log_file")" = 2 ] || fail "coalescing over an unterminated last line: $(line_count "$log_file") lines, expected 2"
+grep -q '"item":"first"' "$log_file" || fail "coalescing deleted the line before the tick"
+grep -q '"until":5020' "$log_file" || fail "the tick did not coalesce"
+echo "ok: coalescing keeps every line before the tick it merges into"
+
 # --- owner-only surface -------------------------------------------------------
 
 # shellcheck disable=SC2012

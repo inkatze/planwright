@@ -808,9 +808,12 @@ cmd_log() {
         exit 6
       }
       WORK_TMP=$co_tmp
-      total=$(wc -l <"$log_file" | tr -d ' ')
       {
-        awk -v n="$total" 'NR < n' "$log_file"
+        # Everything but the last record. A line count would disagree with
+        # `tail -n 1` above whenever the final line is unterminated — the
+        # count sees terminated lines, tail sees records — and the rewrite
+        # would then drop a good line along with the one it means to replace.
+        awk 'NR > 1 { print prev } { prev = $0 }' "$log_file"
         printf '%s\n' "$merged"
       } >"$co_tmp" 2>/dev/null || {
         err "coalescing failed while rewriting the log"
@@ -843,10 +846,22 @@ cmd_log() {
   line="$line$payload"
   [ "$kind" != tick ] || line="$line,\"until\":$now"
   line="$line}"
+  # A final line left unterminated by an earlier torn write has no newline to
+  # end it, so a bare append lands INSIDE it and one tear costs two events.
+  # Close the tear first: the torn line stays whole enough for report to count
+  # it as malformed, and this line lands on its own.
+  torn=0
+  if [ -s "$log_file" ] && [ -n "$(tail -c 1 "$log_file" 2>/dev/null)" ]; then
+    torn=1
+    err "the event log's last line is unterminated (a torn write); closing it so this line lands whole"
+  fi
   # The subshell keeps a failed redirect's raw shell diagnostic (which names
   # a line number and a bare path) off stderr: what reaches the operator is
   # this script's own sanitized line and nothing else.
-  (printf '%s\n' "$line" >>"$log_file") 2>/dev/null || {
+  (
+    [ "$torn" = 0 ] || printf '\n'
+    printf '%s\n' "$line"
+  ) >>"$log_file" 2>/dev/null || {
     err "cannot append to the event log"
     exit 6
   }
