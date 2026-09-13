@@ -275,7 +275,6 @@ pointer line, and the derivation-as-read-surface rule lives in
 The thresholds this model relies on, with safe defaults, are in the
 [options reference](options-reference.md):
 
-- `stale_lock_threshold`: when a per-spec advisory lock is treated as stale.
 - `stale_marker_threshold`: when a runtime marker whose branch has no commits is
   treated as stale, reverting the task to Ready.
 
