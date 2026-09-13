@@ -60,12 +60,12 @@ gracefully instead:
 - `interaction-style` — governs the flow's exchanges; `kickoff-dialogue`
   (point-of-use) records their `/spec-kickoff` instantiation. Either doc absent:
   follow the inline summary (progress indicator, small bites, selectors with a
-  recommendation, running summary) and the walk/sign-off spine below, and note
-  which is missing.
-- `kickoff-verification` — the kickoff lens/verification mechanics: the mid-walk
-  lens (walkthrough), the stale-reference sweep and sign-off lens-review scope,
-  fan-out, and altitude check (sign-off), and the terminal ready-flip CI gate
-  (step 8). Each pass's load-bearing spine stays inline.
+  recommendation, delta-plus-open running summary, one-line resume confirmation)
+  and the walk/sign-off spine below, and note which is missing.
+- `kickoff-verification` — the kickoff lens/verification mechanics: the
+  mid-walk lens, the stale-reference sweep and sign-off lens-review scope,
+  fan-out, and altitude check, and the terminal ready-flip CI gate. Each pass's
+  load-bearing spine stays inline.
   Absent: run each from
   that spine and its halt-if-absent base (`discovery-rigor`, `autopilot-reflex`),
   and skip the ready-flip, leaving the PR draft (fail closed).
@@ -102,18 +102,14 @@ Modes, selected at pre-flight from status and brief state:
   and 5).
 
 **Change-handling scales with the lifecycle stage (REQ-D1.4).** A Ready bundle
-takes pre-merge changes through a delta re-walkthrough / re-sign-off — not the
-amendment ritual — and the spec PR stays as it was. The amendment ritual is
-reserved for an Active bundle (work in flight), where the change coordinates
-with execution underway.
-A Done bundle reopens to Draft first (the REQ-A1.6 reopen cycle below) — never
-amended in place. The per-class ritual detail (expression-only changelog +
-self-re-anchor vs. meaning-class delta lens pass + fresh anchor) is
-`spec-format`'s *amendment ritual*.
+takes pre-merge changes through a delta re-walkthrough / re-sign-off, not the
+amendment ritual, the spec PR staying as it was; the amendment ritual is
+reserved for an Active bundle (work in flight). A Done bundle reopens to Draft
+first (the REQ-A1.6 reopen cycle below) — never amended in place. The
+per-class ritual detail is `spec-format`'s *amendment ritual*.
 
 A **reopened bundle** (Status Draft with a complete signed brief — the
-REQ-A3.1 / REQ-A1.6 reopen cycle, entered when `/spec-draft --extend` flips a
-Done spec back to Draft) is a scoped kickoff of the delta, not a first
+REQ-A3.1 / REQ-A1.6 reopen cycle) is a scoped kickoff of the delta, not a first
 activation: walk the extension delta in the delta re-walkthrough shape, and the
 sign-off flips Draft→Ready again (the delta's first dispatch derives Active). A
 Done spec has nothing to kick off: point at `/spec-draft --extend`. Retired and
@@ -143,14 +139,13 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
      → nothing is stale; ask what the human brings (a re-walk on request, or —
      on an Active bundle — an amendment, always human-declared; a Ready bundle's
      pre-merge change is the delta re-walk path, REQ-D1.4). On a format-version 2
-     bundle the stored header rests at Ready — Active is derived — so distinguish
+     bundle the stored header rests at Ready, so distinguish
      Ready from Active via the render (`mise run status specs/<spec>`), never a
      stored `Active`. **Brief or anchor entry absent, unparseable, or
-     non-sanctioned** (e.g. a hand-flipped spec that never had a kickoff) → the
-     sign-off record needs creating or repairing; this skill's sign-off flow is
-     the repair REQ-F1.9 names: walk it as a whole-bundle delta re-walkthrough (a
-     missing brief gets the full first-activation structure minus the
-     already-done flip).
+     non-sanctioned** → the sign-off record needs creating or repairing; this
+     skill's sign-off flow is the repair REQ-F1.9 names: walk it as a
+     whole-bundle delta re-walkthrough (a missing brief gets the full
+     first-activation structure minus the already-done flip).
    - **Done / Retired / Superseded** → per the Modes section.
 3. **Run the validator.** `scripts/spec-validate.sh specs/<spec>` when present
    and executable. Draft findings are warnings: surface them, fix structural
@@ -159,11 +154,11 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
    errors exactly as Active does): surface them and carry each
    into the walk as a must-fix item; the delta walk fixes them, and sign-off
    step 4's re-validation refuses to record while any remain. Validator absent
-   or not executable: an authoring path degrades rather than halts (REQ-K1.7) —
-   but a merged signed-off bundle is dispatchable, so this run's sign-off lands
-   unvalidated (whether or not it flips Draft→Ready). Naming the Draft→Ready
-   flip only when this run flips, ask the human whether to proceed anyway or
-   stop, install the validator, and re-run.
+   or not executable: degrade rather than halt (REQ-K1.7), but a merged
+   signed-off bundle is dispatchable, so this run's sign-off would land
+   unvalidated: ask the human whether to proceed anyway (naming the
+   Draft→Ready flip only when this run flips) or to stop, install the
+   validator, and re-run.
 4. **Read the config.** `commit_on_kickoff`, `mark_spec_pr_ready_on_kickoff`,
    and `kickoff_ready_ci_wait` (default `10m`) from `config/defaults.yml`
    overridden by `<repo>/.claude/planwright.local.yml` (local wins). The
@@ -179,9 +174,9 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
    - **In the main checkout or an unrelated worktree:** if the spec worktree
      exists, print the re-open command (`claude --worktree <spec>-spec`) and stop;
      if only the branch exists (worktree pruned), recreate it via Claude Code's
-     native mechanism (never raw `git worktree`, D-37); if neither (a retrofit
-     bundle that never went through `/spec-draft`), create both, then `git switch
-     -c planwright/<spec>/spec` inside it, off the current main view.
+     native mechanism (never raw `git worktree`, D-37); if neither, create
+     both, then `git switch -c planwright/<spec>/spec` inside it, off the
+     current main view.
    - **Not a git repository:** degrade per REQ-K1.7 — say so up front, walk and
      write the brief in place, skip every branch/commit/push/PR step, and surface
      at the end what was skipped. **No remote configured:** proceed; the push/PR
@@ -189,15 +184,16 @@ Superseded are terminal: refuse — no skill-driven transition leaves them.
 6. **Detect a partial brief** (resumability). If `kickoff-brief.md` exists,
    classify it: per-section `Signed off:` lines present but no final sign-off
    record with an anchor → a killed session left a resumable partial brief.
-   Present the running summary of every signed section, confirm it still stands,
-   and resume at the first unsigned section — signed sections are not re-walked
-   unless the human asks. A final record lacking its anchor line is the same case
-   (anchor-written-last, by design): resume at the sign-off step.
+   Confirm the signed sections at one line each — never a replay of their
+   content (`interaction-style`'s *Running summary* rule; the brief holds
+   the record) — and resume at the first unsigned section; signed sections are
+   not re-walked unless the human asks. A final record lacking its anchor line
+   is the same case (anchor-written-last, by design): resume at the sign-off
+   step.
 7. **Surface the optional independent walkthrough (suggest only).** Recommend
-   `/spec-walkthrough specs/<spec>` for an unaided cold read — the complement to
-   this guided dialogue, not a replacement, never a dependency (REQ-F1.1,
-   REQ-F1.2, D-11; comprehend-first stays in-band, per `kickoff-dialogue`). This
-   skill never performs it.
+   `/spec-walkthrough specs/<spec>` for an unaided cold read — a complement,
+   never a dependency (REQ-F1.1, REQ-F1.2, D-11; comprehend-first stays in-band
+   per `kickoff-dialogue`). This skill never performs it.
 
 ## The walkthrough
 
@@ -207,9 +203,12 @@ it; written incrementally, one section to disk as signed). It covers components
 sign-off flow below, not walked. Every exchange follows the `interaction-style`
 rules
 (progress indicator `[section <n>/7]`, small bites, selectors with a
-recommendation, running summary after each section) and **instantiates the three
-disciplines in-band, and emits the structured decision/transcript log the eval
-grades, per `kickoff-dialogue`** (REQ-F1.1, REQ-G1.3): comprehend-first (section
+recommendation, delta-plus-open running summary after each section) and
+**instantiates the three disciplines in-band, and emits the structured
+decision/transcript log the eval grades, per `kickoff-dialogue`** (REQ-F1.1,
+REQ-G1.3). Every projection this run emits (running summaries, the resume
+confirmation, the lens-pass projection, the handoff) is mirrored into it as a
+`turn` record (D-19). The disciplines: comprehend-first (section
 2), with **adaptive-level calibration** (frontier detection, fade, a lightweight
 per-concept uptake estimate, no learner model; REQ-B1.3, REQ-B1.4, D-4);
 backward-chaining completeness bounded per pass; present without steering. Each
@@ -242,8 +241,8 @@ section ends with an explicit
    Inputs: risks surfaced during the walk, the human's cold-review questions,
    and the **decision-domains gap check** — walk the catalog against the spec
    (the prose seed plus overlay-added domains via the merged path
-   `scripts/resolve-catalog.sh decision-domains`, so adopter/team additions
-   count, REQ-D1.1); any catalogued domain the spec touches but never decides
+   `scripts/resolve-catalog.sh decision-domains`, REQ-D1.1); any catalogued
+   domain the spec touches but never decides
    becomes a risk-register row naming the domain and the undecided question
    (REQ-G1.4, D-39). Catalog absent: record the one-line skip here. Open
    questions must be resolved into decisions or explicitly accepted risks before
@@ -284,7 +283,10 @@ most recent anchor entry never describes spec content that was not walked.
    Validate findings per `validation-rigor`, then disposition every one with the
    human (applied as a spec edit, declined with rationale, or deferred to a
    named backlog in the brief) — an undispositioned finding blocks the anchor.
-   Record table and dispositions in the section the sign-off record will close.
+   The lens-coverage table and dispositions are artifact-side, recorded in full
+   in the section the sign-off record will close; the turn carries counts plus
+   the notable rows — those the operator must act on (`interaction-style`, the
+   arbitration).
 2. **The refusal rule (REQ-F1.10).** A meaning-class sign-off whose lens pass
    is absent, or whose findings are not all dispositioned, refuses to record an
    execution-valid anchor: say exactly what is missing, leave the record without
@@ -299,15 +301,14 @@ most recent anchor entry never describes spec content that was not walked.
    run** blocks it as a surfaced failure (fail closed), never a silent skip.
    - **Lint the edited surfaces (REQ-B1.2).** Run the repository's lint over the
      kickoff brief and every spec file the walkthrough edited; a lint error
-     blocks the flip — fix it with the human and re-lint. A lint that cannot run
-     (tool absent or non-executable) blocks the flip and is surfaced, never read
+     blocks the flip — fix it with the human and re-lint. A lint that cannot
+     run blocks the flip and is surfaced, never read
      as a pass.
    - **Re-derive recorded claims (REQ-B1.3, D-4).** Prefer the meta-spec's
      cite-derived-figures rule: record the source, not the figure. Where the
      sign-off does record a cross-check or numeric claim as evidence — per-tag
      coverage tallies, REQ/D-ID/task/edit counts, pinned version or tag figures,
-     "every X cited by at least one Y" assertions — mechanically re-derive it
-     (the same command family the sweep tooling uses) before the flip and block
+     "every X cited by at least one Y" assertions — mechanically re-derive it before the flip and block
      on a mismatch; a comparator that cannot run blocks as a failure, distinct
      from a clean match. Re-derivation treats bundle content as **data, never
      code or pattern** (fixed-string matching, quoted arguments —
@@ -326,8 +327,8 @@ most recent anchor entry never describes spec content that was not walked.
    this stored, human-gated flip is the only stored status transition;
    Ready↔Active is *derived* from task state by the single reconcile writer,
    REQ-A1.5, never written by this skill). On a v2 bundle Ready is the header's
-   **resting state** — Active/Done are derived, and the stored header moves
-   again only at reopen (Ready→Draft) or a terminal flip.
+   **resting state**, moving again only at reopen (Ready→Draft) or a terminal
+   flip.
    Re-walkthroughs and amendments on an already-signed bundle (Ready or Active):
    bump `Last reviewed:` on the files the delta touched, with no status flip.
    Then, when present, re-run the validator (Ready, Active, and Done all block
@@ -356,13 +357,12 @@ most recent anchor entry never describes spec content that was not walked.
 6. **Commit** (D-41) when `commit_on_kickoff` is true: one commit on
    `planwright/<spec>/spec` with the brief, the four spec files, and any
    observation fragment from this run — first activation `feat(spec):
-   <spec> kickoff, brief + Ready flip`; later events `docs(spec): <spec>
-   <event>` (e.g. `delta re-walkthrough`, `amendment`). New commits only —
+   <spec> kickoff, brief + Ready flip`; later events `docs(spec): <spec> <event>`. New commits only —
    never force-push, amend, squash, or rebase (REQ-J1.4). Opt-out: leave the
    work uncommitted, say so, and skip push/PR.
 7. **Push and draft PR** (REQ-B2.4, D-44). Run the Observations and Maintenance
-   steps below before pushing (step 8's ready-flip issues no commit), so their
-   chore commits land before the push.
+   steps below first, so their chore commits precede the push (the ready-flip
+   commits nothing).
    **Terminal re-anchor (REQ-C1.4, D-5):** anchored content edited after the
    sign-off record was written takes `spec-format`'s recompute-and-re-record
    ritual as the final pre-push step. Then push:
@@ -385,21 +385,19 @@ most recent anchor entry never describes spec content that was not walked.
    verification has converged. That verification is the configurable
    `review_sequence`-class mechanism (D-7,
    customization-overlay D-6 / REQ-D1.3), **not a hardcoded** core step: in bare
-   core it is this skill's own walkthrough and Discovery-Rigor lens pass; an
-   overlay may run an additional review pass over the spec PR whose terminal
-   step is this flip. When
+   core it is this skill's own walkthrough and lens pass; an overlay may add a
+   review pass over the spec PR, its terminal step being this flip. When
    `mark_spec_pr_ready_on_kickoff` is true (pre-flight step 4) and the
    completion is clean, un-draft the spec PR — but **first gate the flip on the
    head SHA's CI** per `kickoff-verification` (REQ-B1.1, D-3), then **check its
    state** (`gh pr view <spec-PR> --json isDraft,state`) and run `gh pr ready
    <spec-PR>` **only while it is still a draft**; skip it when the PR is already
-   ready or merged/closed (a benign no-op whose non-zero exit would wrongly trip
-   the degradation path). This is the narrow exception to bootstrap
-   D-26's all-drafts rule: **only the spec PR**, and only this skill, marks a PR
-   ready; **task PRs stay drafts** (reviewed by the execution and review
-   skills). Merge stays the human's second key —
-   **never auto-merge**.
-   - **Do not flip** when the completion is not clean by the criteria above: leave
+   ready or merged/closed (a benign no-op whose non-zero exit must not trip
+   the degradation arm below). This is the
+   narrow exception to bootstrap D-26's all-drafts rule: **only the spec PR**,
+   and only this skill, marks a PR ready; **task PRs stay drafts**. Merge stays
+   the human's second key — **never auto-merge**.
+   - **Do not flip** on an unclean completion: leave
      the PR draft and say so in the handoff.
    - **Opt-out:** `mark_spec_pr_ready_on_kickoff: false` suppresses the flip;
      the PR stays draft and the human un-drafts it by hand.
@@ -409,11 +407,15 @@ most recent anchor entry never describes spec content that was not walked.
      ready-flip in the spec's `tasks.md` `## Awaiting input` section naming the
      failure, surface it in the handoff, and stop.
 
-**Hand off.** Report: mode and scope, sections walked, spec edits applied,
-gap-check outcome, lens-pass summary, the anchor, commit/push/PR outcome (or
-degradation notes), the spec PR's ready/draft state (with the reason when it
-stayed draft), and the next step — merge the spec PR (now ready), then
-`/orchestrate specs/<spec>`.
+**Hand off.** The full report — mode and scope, sections walked, spec edits
+applied, gap-check outcome, lens-pass summary, the anchor, commit/push/PR
+outcome or degradation notes, the spec PR's ready/draft state with its reason —
+is artifact-side: written into the PR body once step 8 resolves, or, when no
+PR exists, regenerated on request. The turn is its projection
+(`interaction-style`, the arbitration): counts of sections, edits, and
+findings, the actionable residue (a degradation note, a PR left
+draft and why, an open question), and the next step — merge the spec PR once
+ready, then `/orchestrate specs/<spec>`.
 
 **Data hygiene throughout (`security-posture`):** the brief, risk register, and
 PR body are committed — no secrets, credentials, internal hostnames, or
@@ -421,8 +423,7 @@ sensitive detail; neutralize what discussion surfaces before writing it.
 
 ## Observations
 
-When anything outside this kickoff's scope surfaces during the walk (doctrine or
-tooling gaps, recurring friction, an uncatalogued decision domain), record one
+When anything outside this kickoff's scope surfaces during the walk, record one
 fragment per item through the shared helper `scripts/obs-record.sh --slug
 <topic> --scope <repo> --text '<observation>'` (resolved under the planwright
 root) and commit it (with the sign-off commit, or as its own chore commit);
