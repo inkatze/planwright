@@ -18,6 +18,15 @@
 # needs no jq. Neither half ever guesses. <claude-dir> is $CLAUDE_DIR, else
 # $HOME/.claude; with neither set nothing is printed.
 #
+# Usage:
+#   resolve-installed-roots.sh
+#   No arguments; <claude-dir> comes from the environment as described above.
+#
+# Exit codes: 0 always. An unset home, an absent or unreadable record, an
+#   absent jq, and an empty cache are each empty output, never a failure:
+#   callers read empty as "no installed roots" and the arm it feeds does not
+#   fire.
+#
 # POSIX sh; pathname expansion is used for the cache walk only.
 set -u
 unset CDPATH

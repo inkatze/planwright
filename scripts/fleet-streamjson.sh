@@ -111,8 +111,10 @@
 # so a name match would kill it. The path match is anchored on the supervisor's
 # own `_supervise <worker> <dir>` argv, not on a bare search for the directory,
 # which would also match a sibling worker whose handle this one prefixes and
-# any process merely naming the directory. SIGTERM first, SIGKILL after a
-# bounded grace, because children do not reliably die with a parent SIGTERM.
+# any process merely naming the directory (the supervisor's own escalation
+# tick, `_tick <worker> <dir> ...`, is one, and is reached only as the
+# supervisor's child). SIGTERM first, SIGKILL after a bounded grace, because
+# children do not reliably die with a parent SIGTERM.
 #
 # A release that cannot complete is reported as partial with the classes still
 # held, never as success, so a tower can tell a closed worker from one that
@@ -211,16 +213,20 @@
 # plumbing approved and the worker pended on its first tool call with nothing
 # to say so (2026-09-12, format-grammar task 7: the guard trusted the root the
 # LAUNCHER lives in, the skill called scripts under the root Claude Code
-# INSTALLED the plugin at). So before spawning, `launch` runs the wired hook
-# (scripts/worker-command-guard.sh, through the same dispatch-env wrapper and
-# so with the same environment the worker gets) against a synthetic PreToolUse
-# payload for `<root>/scripts/resolve-rule-doc.sh spec-format`, once per root
-# the worker could run scripts from: this launcher's own root and every root
-# scripts/resolve-installed-roots.sh names. A root the hook does not approve
-# refuses the launch with exit 9, naming the root and the command, because the
-# worker would otherwise stall on exactly that call. PLANWRIGHT_STREAMJSON_
-# GUARD_PREFLIGHT=warn downgrades the refusal to a warning (an operator who
-# intends to answer every prompt by hand); =off skips the proof.
+# INSTALLED the plugin at). So before spawning, `launch` runs the hook the
+# worker will run (scripts/worker-command-guard.sh under the CLAUDE_PLUGIN_ROOT
+# the dispatch-env wrapper exports, through that wrapper and so with the
+# environment the worker gets) against a synthetic PreToolUse payload for
+# `<root>/scripts/resolve-rule-doc.sh spec-format`, once per root the worker
+# could run scripts from: this launcher's own root, that plugin root, and every
+# root the scripts/resolve-installed-roots.sh beside the hook names. A root the
+# hook does not approve refuses the launch with exit 9, naming the root and the
+# command, because the worker would otherwise stall on exactly that call; a
+# hook that is missing or not executable, or a proof that could not run at
+# all, refuses the same way. PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT is `refuse`
+# by default; =warn downgrades every refusal to a warning (an operator who
+# intends to answer every prompt by hand); =off skips the proof; any other
+# value is a usage error (exit 2).
 #
 # ESCALATION TICK. The pending-age alarm used to be scan-only (`alarm-scan`),
 # and nothing in the fleet ran the scan, so a worker parked on an unanswerable
@@ -1261,8 +1267,9 @@ ps_rows_shaped() {
 # come from the pids the state directory records. Neither seed is a process
 # name or a command pattern.
 #
-# The worker's own children carry neither the argv nor a pid file, so they are
-# reached by walking the parent map down from the seeds. pid 1 is never a root:
+# The worker's own children, and the supervisor's escalation tick, carry
+# neither the argv nor a pid file, so they are reached by walking the parent
+# map down from the seeds. pid 1 is never a root:
 # an expansion that reached it would enumerate every orphan on the host.
 #
 # The caller's own process and its ancestors are excluded: a close invoked from

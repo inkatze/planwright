@@ -416,18 +416,25 @@ live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
 row carries a readable epoch), never a healthy-looking `running`.
 
-Before spawning anything, `launch` proves the worker's auto-approve hook
-(`scripts/worker-command-guard.sh`, run through the same dispatch-env wrapper
-the worker gets) will approve the worker's opening move — the
+Before spawning anything, `launch` proves the auto-approve hook the worker
+will run (`scripts/worker-command-guard.sh` under the plugin root the
+dispatch-env wrapper exports, run through that wrapper so it sees the worker's
+environment) will approve the worker's opening move — the
 `<root>/scripts/resolve-rule-doc.sh` call `/execute-task` makes before any
 task work — once per root the worker could run scripts from: the launcher's
-own root and every root `scripts/resolve-installed-roots.sh` names (Claude
-Code's `installed_plugins.json` record and its marketplace cache). A root the
-hook does not approve refuses the launch with exit 9, naming the root and the
-command, because the worker would otherwise pend on exactly that call with
-nothing to say so; `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn` downgrades
-that to a warning, `off` skips the proof. The hook trusts the same resolver's
-roots, so the proof and the trust cannot diverge.
+own root, that plugin root, and every root `scripts/resolve-installed-roots.sh`
+names (Claude Code's `installed_plugins.json` record and its marketplace
+cache). A root the hook does not approve refuses the launch with exit 9,
+naming the root and the command, because the worker would otherwise pend on
+exactly that call with nothing to say so; a hook that is missing or not
+executable, or a proof that could not run at all, refuses the same way.
+`PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
+downgrades every refusal to a warning and launches, `off` skips the proof, and
+any other value is a usage error. The installed roots the proof covers are
+read through the same resolver the hook trusts them from, so that set cannot
+diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
+`CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
+without a proof of their own.
 
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor
 and its children (SIGTERM, then SIGKILL after the grace, since children do not
