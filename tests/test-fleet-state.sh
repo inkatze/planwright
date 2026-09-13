@@ -946,8 +946,8 @@ if [ "${PLANWRIGHT_TEST_SKIP_PERM:-}" != 1 ]; then
   old_umask=$(umask)
   umask 002
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-    PLANWRIGHT_FLEET_STATE_DIR="$home_new" /bin/sh "$FS" registry >/dev/null ||
-    fail "fresh home: registry should succeed"
+    PLANWRIGHT_FLEET_STATE_DIR="$home_new" /bin/sh "$FS" registry >/dev/null \
+    || fail "fresh home: registry should succeed"
   umask "$old_umask"
   mode=$(ls -ld "$home_new" | cut -c1-10)
   case $mode in
@@ -960,8 +960,8 @@ if [ "${PLANWRIGHT_TEST_SKIP_PERM:-}" != 1 ]; then
   mkdir -p "$home_pre"
   chmod 755 "$home_pre"
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-    PLANWRIGHT_FLEET_STATE_DIR="$home_pre" /bin/sh "$FS" registry >/dev/null ||
-    fail "pre-existing home: registry should succeed"
+    PLANWRIGHT_FLEET_STATE_DIR="$home_pre" /bin/sh "$FS" registry >/dev/null \
+    || fail "pre-existing home: registry should succeed"
   mode=$(ls -ld "$home_pre" | cut -c1-10)
   case $mode in
     drwxr-xr-x) ;;
