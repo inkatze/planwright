@@ -145,8 +145,9 @@ emits empty `none` tables):
 | Dirty tree | Pre-flight found uncommitted changes (stops before iteration one). |
 
 On any safety stop: emit the latest audit record, name the condition, and
-hand off. Work already committed stays committed (each item one revert from
-undone); a stop never resets, stashes, or rewrites prior dispositions.
+hand off. Work already committed stays committed, each item undone by the
+revert its checklist entry names; a stop never resets, stashes, or rewrites
+prior dispositions.
 
 ## Handoff
 
@@ -154,9 +155,9 @@ On exit (converged or safety-stopped), emit the loop-end handoff in the
 `gate-wiring` order, accumulated across all iterations:
 
 1. The lens-coverage table from the final pass.
-2. The wiring doc's loop-end handoff in its formats — the four bucket tables,
-   the declined log, and the pending-sign-off checklist regenerated from the
-   `[pending-sign-off]` commits ahead of the base.
+2. In the wiring doc's formats: the four bucket tables, the declined log, and
+   the pending-sign-off checklist regenerated from the `[pending-sign-off]`
+   commits ahead of the base.
 3. The queued irreducible forks with their bespoke options: the only items
    that ask the human a question.
 4. The final iteration's pass summary (the per-iteration summaries cover

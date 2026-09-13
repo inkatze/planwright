@@ -99,8 +99,10 @@ mechanical dogfood set.
 A versioned artifact with no release automation is a recurring ceremony gap
 (the [autopilot-reflex](autopilot-reflex.md) reflex): the version bump and the
 signed tag fire only when a human remembers them. The `release-tagging` breadth
-entry lets the builder recommend closing that gap. It is advisory-only like
-every breadth entry (REQ-G1.1, D-13), with two facets:
+entry lets the builder recommend closing that gap. Like every breadth entry
+it is advisory-only and carries `detect: manual`, so it never auto-fires from
+a file glob and stays out of the `--core` mechanical set (REQ-G1.1, D-13). It
+has two facets:
 
 - **Detection facet.** The signal that the guard is worth recommending: the
   repo ships a **versioned artifact** (a `plugin.json`, `package.json`,
@@ -123,7 +125,10 @@ every breadth entry (REQ-G1.1, D-13), with two facets:
     signer-agnostic step that cuts the signed annotated tag on the observed
     release-merge commit.
 
-The policy the scaffold realizes is [release-tagging.md](release-tagging.md);
+The policy the scaffold realizes — detection and proposal automated,
+approval is the human merge, publish human-gated and signed, the window
+locked, merge and publish never autonomous — is
+[release-tagging.md](release-tagging.md);
 this entry is the builder-facing consent surface that doc's mechanism row
 (capability in core, mechanism as opt-in template, value as config) points at.
 
@@ -222,9 +227,11 @@ decision as design / Needs human judgment and routes it into the deferral
 mechanism as a `GATE(when: …)` entry (see
 [finding-categorization.md](finding-categorization.md) for the bucket
 boundaries and [gate-wiring.md](gate-wiring.md) for the gate mechanics).
-Mechanical guards apply; load-bearing decisions escalate, and a departure from
-a recommended guard is recorded with its reasoning
-([proportionality.md](proportionality.md)), never taken silently.
+Mechanical guards apply; load-bearing decisions escalate. This advises and
+weighs rather than rigidly enforcing — rigor scales with stake and
+reversibility ([proportionality.md](proportionality.md)) — and any departure
+from a recommended guard is recorded with its reasoning where the next reader
+will find it, never taken silently.
 
 ## Dogfooding
 

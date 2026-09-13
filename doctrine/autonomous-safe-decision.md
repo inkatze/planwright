@@ -46,10 +46,11 @@ gate concept it maps to; nothing here is a new permission.
   brief-alignment citation. The tower may land this autonomously because the
   proof, not the tower's judgment, is what backs it (the Agent-resolvable
   predicate).
-- **Needs sign-off** — apply the single recommended fix **on the branch** in its
-  own commit and add a pending-sign-off checklist entry. The tower's autonomous
-  act is the *application*, deferred for the human's *judgment* to PR review,
-  where they approve by leaving the commit or reject with one revert. The tower
+- **Needs sign-off** — apply the single recommended fix **on the branch** per
+  the wiring doc's commit discipline and add a pending-sign-off checklist
+  entry. The tower's autonomous act is the *application*, deferred for the
+  human's *judgment* to PR review, where they approve by leaving the commit or
+  reject with the revert the checklist entry names. The tower
   never blocks mid-loop waiting for this approval (the Needs-sign-off bucket and
   the pending-sign-off checklist in [Gate Wiring](gate-wiring.md)).
 

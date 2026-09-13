@@ -87,8 +87,8 @@ The agent has a single specific recommended fix and validation converged with
 high confidence, but the change warrants explicit human review. Under
 act-then-review the fix is **applied on the branch** and listed in a
 **pending-sign-off checklist** in the draft PR description (REQ-C1.3): the
-human approves by leaving it in place and rejects with one revert, at PR
-review. No mid-loop prompt fires for findings outside the hard-disqualifier
+human approves by leaving it in place and rejects it at PR review with the
+revert the checklist entry names. No mid-loop prompt fires for findings outside the hard-disqualifier
 zones, which pause first.
 
 Route here when any of these hold:
@@ -145,12 +145,14 @@ changes meaning when it is added, removed, or altered. Enumerate an edited
 passage's statements with this search aid — MUST, SHALL, SHALL NOT, MAY,
 never, always, only, must not — never as the definition: a rule stated in
 none of those words is still a normative statement. The list grows on
-evidence by the ordinary doctrine-edit route.
+evidence by the ordinary doctrine-edit route: a changelog line,
+expression-only unless a rule changes.
 
 **Expression-only prose is Auto-applicable.** Its fix is mechanical and no
 rule changed, so only tool-grounding is in question, and that is met either
 by a rule a prose guard the project ships reports (doctrine index, links,
-instruction budget, markdown lint, the comment-block guard) or by a
+instruction budget, markdown lint, a gloss or pin check, the comment-block
+guard) or by a
 **recorded normative-preservation check**: the passage's normative statements
 listed before and after and shown identical,
 [Validation Rigor](validation-rigor.md)'s non-testable substitute. The audit
@@ -194,8 +196,8 @@ Exactly two things interrupt a loop mid-flight; nothing else does.
 
 A pause hands the disposition to the human: a zone finding's recommended fix
 is not applied until the human directs it, however clear the fix looks.
-Everything else flows through the gate to one of its terminal dispositions
-without interrupting.
+Everything else flows through the gate to one of the five terminal
+dispositions [Gate Wiring](gate-wiring.md) enumerates, without interrupting.
 
 ## Presentation (REQ-C1.5)
 

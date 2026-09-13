@@ -202,9 +202,9 @@ extended with the lens-coverage table at the front and the pass summary at
 the end):
 
 1. The lens-coverage table.
-2. The wiring doc's loop-end handoff in its formats — the four bucket tables,
-   the declined log, and the pending-sign-off checklist regenerated from the
-   `[pending-sign-off]` commits ahead of the base.
+2. In the wiring doc's formats: the four bucket tables, the declined log, and
+   the pending-sign-off checklist regenerated from the `[pending-sign-off]`
+   commits ahead of the base.
 3. Queued irreducible forks with their bespoke options; in an attended
    standalone run these are the only questions presented to the human.
 4. The pass summary: resolved mode, base used, tooling and wider-suite

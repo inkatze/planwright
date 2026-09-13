@@ -40,7 +40,8 @@ added over making subjective calls.
   structure: new duplication introduced, nesting deepened, an abstraction
   muddled, naming made worse. Pre-existing mess unrelated to the diff is out
   of scope.
-- Anchor flags in tool output where possible, per the both-modes rule above.
+- Anchor flags in tool output where possible. A named rule from a tool the
+  project runs is grounded; "this could be cleaner" is not, and is dropped.
 - Prefer follow-up suggestions over blocking findings. "Consider as a
   follow-up" is usually the right framing.
 - Do not propose alternative architectures, rewrites, or stylistic

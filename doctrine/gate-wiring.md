@@ -27,9 +27,10 @@ runs first: a hard-disqualifier zone forces a pause regardless of the finding's
 bucket.
 
 1. **Zone screen.** If the finding, or any file its fix would touch, falls in
-   a hard-disqualifier zone (the categorization doctrine's list), trigger a
-   hard pause (see Pause protocol). Record the recommended fix; do not apply
-   it.
+   a hard-disqualifier zone (the categorization doctrine's list:
+   security-sensitive code, migrations or destructive operations, CI
+   configuration, lockfiles, secrets files), trigger a hard pause (see Pause
+   protocol). Record the recommended fix; do not apply it.
 2. **Bucket assignment** per the categorization predicates. When a predicate
    condition is uncertain, route downward exactly as the categorization
    doctrine directs (toward Needs sign-off or Needs human judgment), never
@@ -120,7 +121,7 @@ checklist. The marker must never appear in the **PR title** (it becomes the
 squash-merge subject, landing on mainline); the PR-title lint rejects it there
 (`--marker title`).
 
-**Where marked subjects end up.** A squash merge, the sanctioned one,
+**Merge-strategy matrix.** Where marked subjects end up: a squash merge, the sanctioned one,
 concatenates them into the squash body as relic text under a clean PR title;
 a merge commit keeps them as ancestor history, an accurate record, under a
 clean merge subject; rebase-merge would land them on mainline and is
@@ -212,9 +213,9 @@ fork blocking further progress on the unit hard-pauses instead of queuing.
 
 ## Pause protocol
 
-The categorization doctrine's two triggers interrupt mid-loop (REQ-C1.4);
-everything else flows to loop end. What a pause does depends on who is
-watching:
+Exactly two triggers interrupt mid-loop (REQ-C1.4): the zone screen fires,
+or an irreducible fork blocks progress. Everything else flows to loop end.
+What a pause does depends on who is watching:
 
 - **Attended session.** Stop the loop. Present the finding, the triggering
   zone or fork, and the recommended fix or concrete alternatives. Wait for
@@ -224,7 +225,9 @@ watching:
   with the finding, the trigger, and the recommended fix or alternatives, then
   end the step. Work already applied stays on the branch as committed: a pause
   never resets, stashes, or rewrites prior dispositions. The pause content
-  respects artifact data-hygiene ([Security Posture](security-posture.md)).
+  respects artifact data-hygiene ([Security Posture](security-posture.md)):
+  describe the zone finding without reproducing secrets or sensitive
+  operational detail.
 
 The human's direction is the finding's disposition: the finding does not
 re-enter the routing order and the zone screen does not fire again. The agent
@@ -255,7 +258,8 @@ template-expanded: each skill supplies its own summary inputs.
 1. **A human summary, above the fold** (REQ-A1.1): what changed and why, how to
    review it, the task IDs the PR implements, the REQs satisfied, and the open
    pending-sign-off items. Prose plus a short fact list a reviewer reads
-   without expanding anything.
+   without expanding anything. Each emitting skill names which inputs feed the
+   summary (its task IDs, REQ citations, test additions).
 2. **The complete audit record, collapsed** (REQ-A1.2): the loop-end handoff,
    plus `/self-review`'s lens-coverage table and pass summary, inside a
    `<details>` block, so it never buries the summary.
@@ -314,22 +318,23 @@ Closes the unowned-refresh gap REQ-E1 names: a merged task's block gets `Complet
 | 1 | the stamp's degraded case is documented as no stamp | reworded to the date-only form | meaning-class prose, pre-existing surface | `def5678` | PS-1 |
 | 2 | the no-remote arm states a duty its REQ permits | reworded to the permission | meaning-class prose, pre-existing surface | `def5678` | PS-1 |
 
-`Agent-resolvable`, `Needs human judgment`, and the declined log each emit their `none` row here.
+*(Elided for space: `Agent-resolvable`, `Needs human judgment` and the declined log each emit their `none` row, which a real record always carries in full.)*
 
 ## Pending sign-off
 
 - [ ] **PS-1** 2 meaning-class prose fixes · commit `def5678`
   - Route reason: meaning-class prose on surfaces that predate the PR
   - `docs/annotations.md` — before: the degraded case prints no stamp · after: it prints the date-only form
-  - `scripts/tasks-pr-sync.sh` — before: the no-remote arm must stamp · after: it may stamp
-  - Reject with: `git revert def5678`
+  - `scripts/tasks-pr-sync.sh` header comment — before: the no-remote arm must stamp · after: it may stamp
+  - Reject with: `git revert def5678`; rejecting one sub-item is a hand edit the manifest guides
 
 </details>
 ```
 
 ## Consumers and conformance
 
-The conformance scenarios live in the
-bootstrap test-spec's REQ-C1.3, REQ-C1.4, and REQ-C1.7 entries
+`/self-review`, `/polish`, and `/execute-task`'s convergence step implement
+this wiring. The conformance scenarios live in the bootstrap test-spec's
+REQ-C1.3, REQ-C1.4, and REQ-C1.7 entries
 (state/trigger/outcome), exercised by the manual-verification sweep the work
 fork's first run carries, with the REQ-C1.5 and REQ-C1.6 manual entries.

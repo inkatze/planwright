@@ -40,15 +40,16 @@ record the pass writes, never a mandate to render every row at the operator
 6. Naming, readability, structure (only flag when the change under review
    worsens it; see [Refactor Instinct](refactor-instinct.md))
 7. Documentation — the prose surfaces (docstrings, READMEs, specs, ADRs,
-   config docs, doctrine), flagged for four defect classes and nothing else:
-   prose the change falsifies or leaves stale (a claim about behaviour, a
-   value, or an enumeration the diff contradicts); documentation missing for
-   behaviour or a contract the change introduces (a knob without its
-   reference row, a flag without usage text); a violation a documentation
-   guard the project ships reports; and prose two readers would act
-   differently on (an interpretation fork, this set's counterpart of the spec
-   set's ambiguity lens). Merely improvable prose is not a finding, here or
-   in any set ([Artifact Lenses](artifact-lenses.md))
+   config docs, doctrine and project-memory sections), flagged for four
+   defect classes and nothing else: prose the change falsifies or leaves
+   stale (a claim about behaviour, a value, or an enumeration the diff
+   contradicts); documentation missing for behaviour or a contract the change
+   introduces (a knob without its reference row, a flag without usage text, a
+   new script without its purpose stated); a violation a documentation guard
+   the project ships reports; and prose two readers would act differently on
+   (an interpretation fork, this set's counterpart of the spec set's
+   ambiguity lens). Merely improvable prose is not a finding, here or in any
+   set ([Artifact Lenses](artifact-lenses.md)).
 8. Tests / verification (coverage of new behavior, missing failing-case
    tests, brittle assertions)
 9. Cross-file consistency (did the change break a documented invariant or a
@@ -61,7 +62,8 @@ audit record the draft PR carries, or the brief section a spec review writes),
 one row per lens, before any per-finding output. Empty lenses must show `none`
 with a one-line reason; this is what makes silent pruning visible. The table
 is **artifact-side**: a turn reporting the pass carries its projection
-instead ([Interaction Style](interaction-style.md), the arbitration).
+instead — counts plus the findings the operator must act on, the table one
+request away ([Interaction Style](interaction-style.md), the arbitration).
 
 | Lens | Findings | Notes |
 | --- | --- | --- |
@@ -102,8 +104,8 @@ Tool output is grounded; vibes are not. Cite the rule when flagging.
 A single agent walking all lenses still self-prunes within its context
 window. For diffs beyond a few hunks, spawn parallel read-only sub-agents
 instead, one per lens, each with a narrow brief: find issues in this diff for
-one lens only, exhaustively, returning `none` with a one-line reason if there
-are none. Pass the shared tooling output to every sub-agent. The coordinator
+one lens only; be exhaustive within the lens; severity-pruning is forbidden;
+return `none` with a one-line reason if there are none. Pass the shared tooling output to every sub-agent. The coordinator
 merges, dedupes (a finding hitting two lenses gets one row with both lens
 labels), then runs the self-critique pass. Skills that perform discovery
 specify when to fan out versus run inline.
@@ -116,8 +118,11 @@ feels under-represented, and add what turns up. This pass is mandatory. Its
 cost is small; its payoff is that nobody has to re-run the skill to drain
 second-pass findings.
 
-Scoping any part of this doctrine (running inline instead of fanning out on a
-trivial diff, say) is declared, never silent
-([proportionality.md](proportionality.md)).
+Rigor scales with stake and reversibility (see
+[proportionality.md](proportionality.md)). A skill that scopes any part of
+this doctrine (running inline instead of fanning out on a trivial diff, say)
+declares the scoping explicitly, in the skill; silent scoping is
+non-conforming.
 
-Skills cite this document the same way they cite Validation Rigor.
+Skills cite this document the same way they cite Validation Rigor. The
+canonical lens list lives here so individual skills do not drift.
