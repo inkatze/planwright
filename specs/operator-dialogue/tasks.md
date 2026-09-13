@@ -315,7 +315,7 @@ Tasks 11–12 on 7+8, and Task 13 (acceptance) is that lane's join over 9–12.
 ## Awaiting input
 
 - **Task 10** Converged and committed on `planwright/operator-dialogue/task-10`
-  (HEAD 877009b, seven `[pending-sign-off]` commits, unpushed, no PR) but the
+  (seven `[pending-sign-off]` commits ending at 877009b, unpushed, no PR) but the
   local `mise run check` failed three times on fleet timing tests this unit
   does not touch, under a load average of 35–50 from concurrent workers:
   the runner's scratch directory vanished mid-run (test-fleet-state.sh), then
