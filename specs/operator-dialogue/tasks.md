@@ -314,7 +314,19 @@ Tasks 11–12 on 7+8, and Task 13 (acceptance) is that lane's join over 9–12.
 
 ## Awaiting input
 
-(none yet)
+- **Task 10** Converged and committed on `planwright/operator-dialogue/task-10`
+  (HEAD 877009b, seven `[pending-sign-off]` commits, unpushed, no PR) but the
+  local `mise run check` failed three times on fleet timing tests this unit
+  does not touch, under a load average of 35–50 from concurrent workers:
+  the runner's scratch directory vanished mid-run (test-fleet-state.sh), then
+  two bounded-wait timeouts (test-fleet-streamjson.sh c20, test-fleet-throttle.sh
+  re-engage). Each passes in isolation, and the same prose passed the gate
+  before the convergence commits. Both transient retries are spent, so this
+  is reclassified logic per D-25. Decide: push and open the draft PR so the
+  reference runner adjudicates (`git push -u origin
+  planwright/operator-dialogue/task-10`; the assembled PR body is at
+  `.claude/relay/operator-dialogue-task-10-pr-body.md`), or re-run the gate on
+  a quiet machine first.
 
 ## Deferred
 
