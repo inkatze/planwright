@@ -249,6 +249,39 @@ grep -q '"item":"old2"' "$log_file" && fail "a torn first line stopped rotation 
 grep -q '"item":"tor' "$log_file" || fail "the torn first line was deleted"
 echo "ok: a torn first line does not stop rotation, nor trigger a purge"
 
+# --- the counter is a cache of the log's own sequence -------------------------
+
+# An absent or malformed counter must not restart the sequence at 1 against a
+# log that already holds higher values: that is how two lines get one number.
+for broken in absent garbage; do
+  rm -f "$log_file" "$seq_file"
+  printf '{"v":1,"seq":7,"ts":7700,"kind":"born","item":"a"}\n' >"$log_file"
+  chmod 0600 "$log_file"
+  if [ "$broken" = garbage ]; then
+    printf 'not-a-number\n' >"$seq_file"
+    chmod 0600 "$seq_file"
+  fi
+  run log born --now 7710 item=b >/dev/null 2>&1 || fail "$broken counter: exit"
+  grep -q '"seq":8,' "$log_file" || fail "$broken counter: the sequence restarted against the log: $(last_line)"
+  [ "$(cat "$seq_file")" = 8 ] || fail "$broken counter: the counter holds $(cat "$seq_file"), expected 8"
+done
+echo "ok: an absent or malformed counter is repaired from the log, not restarted"
+
+# The counter is written after the line it numbers: an append that never lands
+# must not burn a sequence number, because the hole it leaves reads exactly
+# like a rotated-away line.
+rm -f "$log_file" "$seq_file"
+run log born --now 7800 item=one >/dev/null || fail "first write: exit"
+chmod 0400 "$log_file"
+rc=0
+run log born --now 7810 item=two >/dev/null 2>&1 || rc=$?
+chmod 0600 "$log_file"
+[ "$rc" = 6 ] || fail "a refused append: exit $rc, expected 6"
+[ "$(cat "$seq_file")" = 1 ] || fail "a failed append burned a sequence number (counter is $(cat "$seq_file"), expected 1)"
+run log born --now 7820 item=three >/dev/null || fail "write after the refused append: exit"
+grep -q '"seq":2,' "$log_file" || fail "the sequence did not continue after a refused append: $(last_line)"
+echo "ok: a failed append leaves the sequence where it was"
+
 # --- a torn last line costs one event, not two --------------------------------
 
 rm -f "$log_file" "$seq_file"

@@ -592,6 +592,34 @@ read_counter() {
   esac
 }
 
+# last_logged_seq — the highest sequence carried by the log's own last lines,
+# or 0. The counter file is a cache of this: every line records the sequence
+# it was given, so a counter that went missing or malformed is recoverable
+# rather than a reason to restart at 1 against a log holding higher values,
+# which is how two lines end up sharing one number. The tail is the window
+# that matters, the log being append-ordered.
+last_logged_seq() {
+  [ -s "$log_file" ] || {
+    printf '0\n'
+    return 0
+  }
+  tail -n 20 "$log_file" 2>/dev/null | awk "$AWK_PARSE"'
+    { if (!parse($0, F, T) || !header_ok(F, T)) next
+      s = F["seq"] + 0
+      if (s > m) m = s }
+    END { printf "%d\n", m + 0 }'
+}
+
+# write_counter <n> — the counter, replaced through a same-dir temp. 0 written,
+# 1 the surface refused it.
+write_counter() {
+  PENDING_TMP=$(mktemp "$surface/.seq.XXXXXX" 2>/dev/null) || return 1
+  printf '%s\n' "$1" >"$PENDING_TMP" 2>/dev/null || return 1
+  mv -f "$PENDING_TMP" "$seq_file" 2>/dev/null || return 1
+  PENDING_TMP=""
+  return 0
+}
+
 # rewrite_log — replace the log's contents with the file at $1 via a
 # same-dir temp and rename, so a lock-free reader never sees a torn file.
 rewrite_log() {
@@ -733,7 +761,7 @@ cmd_log() {
     0) ;;
     1)
       err "the fleet lock stayed busy for the whole tower_hook_lock_wait; dropping this '$kind' line rather than writing unlocked (counted in events.dropped)"
-      (printf '%s\t%s\n' "$now" "$kind" >>"$dropped_file") 2>/dev/null \
+      (printf '%s\t%s\n' "$now" "$kind") 2>/dev/null >>"$dropped_file" \
         || err "the dropped line could not be counted either: events.dropped would not take it"
       exit 3
       ;;
@@ -830,16 +858,15 @@ cmd_log() {
   fi
 
   seq=$(read_counter "$seq_file")
-  seq=$((seq + 1))
-  PENDING_TMP=$(mktemp "$surface/.seq.XXXXXX" 2>/dev/null) || {
-    err "cannot create a scratch file for the sequence counter"
-    exit 6
-  }
-  if ! printf '%s\n' "$seq" >"$PENDING_TMP" 2>/dev/null || ! mv -f "$PENDING_TMP" "$seq_file" 2>/dev/null; then
-    err "cannot write the sequence counter"
-    exit 6
+  logged=$(last_logged_seq)
+  case $logged in
+    "" | *[!0-9]*) logged=0 ;;
+  esac
+  if [ "$logged" -gt "$seq" ]; then
+    err "the sequence counter is behind the event log (counter $seq, log $logged); continuing from the log's own last sequence"
+    seq=$logged
   fi
-  PENDING_TMP=""
+  seq=$((seq + 1))
 
   line="{\"v\":$SCHEMA,\"seq\":$seq,\"ts\":$now,\"kind\":\"$kind\""
   [ -z "$tower" ] || line="$line,\"tower\":\"$tower\""
@@ -857,14 +884,23 @@ cmd_log() {
   fi
   # The subshell keeps a failed redirect's raw shell diagnostic (which names
   # a line number and a bare path) off stderr: what reaches the operator is
-  # this script's own sanitized line and nothing else.
+  # this script's own sanitized line and nothing else. The stderr redirect
+  # comes FIRST — redirections apply left to right, and a failing append
+  # reports itself against whatever stderr is at that moment.
   (
     [ "$torn" = 0 ] || printf '\n'
     printf '%s\n' "$line"
-  ) >>"$log_file" 2>/dev/null || {
+  ) 2>/dev/null >>"$log_file" || {
     err "cannot append to the event log"
     exit 6
   }
+  # After the line it numbers, never before: a counter bumped first burns a
+  # sequence number on an append that then fails, and the hole that leaves is
+  # indistinguishable from a rotated-away line, which is the one thing the
+  # sequence exists to tell apart. A counter that does not land is repaired by
+  # the next write, which reads the log.
+  write_counter "$seq" \
+    || err "the line landed but the sequence counter did not; the next write repairs it from the log"
   exit 0
 }
 
