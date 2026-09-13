@@ -672,6 +672,57 @@ c16() {
   echo "ok c16: base fallback is consistent (parent falls back to local main, no spurious degrade)"
 }
 
+# ---------------------------------------------------------------------------
+# Case 17 — the carry commit is SIGNED when the repo configures signing.
+# commit-tree is plumbing: it ignores commit.gpgsign and signs only when passed
+# -S, so every carry commit used to be unsigned, and on a repo whose ruleset
+# wants signed commits each carry PR needed an approval it had not earned.
+# ssh signing needs only a key file (no agent), so this runs on a CI runner.
+# The fallback arm is covered by every other case here: none configures
+# signing, and all of them still produce a carry commit.
+# ---------------------------------------------------------------------------
+c17() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.c17.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  if ! command -v ssh-keygen >/dev/null 2>&1; then
+    echo "skip c17: ssh-keygen unavailable"
+    return 0
+  fi
+  ssh-keygen -q -t ed25519 -N '' -C carry-test -f "$tmp/signkey" </dev/null 2>/dev/null \
+    || {
+      echo "skip c17: could not generate a signing key"
+      return 0
+    }
+
+  repo="$tmp/repo"
+  seed_repo "$repo"
+  gitc "$repo" config gpg.format ssh
+  gitc "$repo" config user.signingkey "$tmp/signkey"
+  gitc "$repo" checkout -q -b planwright/fleet-hardening/task-9
+  add_frags "$repo" tower ssssiiii
+  gh="$tmp/bin"
+  make_gh_stub "$gh"
+
+  out=$(run_carry "$gh" "$tmp/ghstate" "$repo" 2>"$tmp/err") \
+    || fail "c17: carry should succeed with signing configured, got $? — $(cat "$tmp/err")"
+  [ "$(tag_val "$out" carry)" = created ] \
+    || fail "c17: expected carry=created, got: $out"
+
+  # The carry pushes straight to the bare origin without creating a local ref,
+  # so the commit is read there — the same surface origin_entries uses.
+  sig=$(gitc "$repo.git" log --format='%G?' -1 planwright/chore/observations 2>/dev/null) \
+    || fail "c17: the carry branch should exist on origin"
+  case $sig in
+    G | U)
+      # G: verified against an allowed-signers file. U: signature present but
+      # the key is not in one — which is what a throwaway key gives us, and is
+      # still proof the commit was signed rather than left bare (N).
+      ;;
+    *) fail "c17: the carry commit should carry a signature, got %G?=$sig" ;;
+  esac
+  echo "ok c17: the carry commit is signed when the repo configures signing"
+}
+
 c1
 c2
 c3
@@ -688,4 +739,5 @@ c13
 c14
 c15
 c16
+c17
 echo "ALL PASS: observation-carry"
