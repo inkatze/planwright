@@ -57,7 +57,7 @@
 #   scope            the dispatch scope, when the launch supplied one
 #   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .journal.* / .session.* / .pid.*  mktemp-beside-target staging
-#   *.lock.break.*   a break claim, or its aside, a crashed breaker left behind
+#   *.lock#break#*   a break claim, or its aside, a crashed breaker left behind
 #   *.broken.*       residue of the retired `mkdir` lock's own stale break
 # Which of these a close releases is not a property of their order here: the
 # release set is `release_classes` and the globs each class names, and the
@@ -1193,7 +1193,7 @@ scratch_walk() {
   sw_found=1
   for sw_p in "$1/in.fifo" "$1/out.fifo" \
     "$1"/.init.* "$1"/.journal.* "$1"/.session.* "$1"/.pid.* \
-    "$1"/*.lock.break.* "$1"/*.broken.*; do
+    "$1"/*.lock#break#* "$1"/*.broken.*; do
     # `-L` as well as `-e`: the lock residue this sweeps includes links whose
     # target is a token rather than a file, and `-e` follows a link and reads
     # those as absent — the one shape the glob was widened to catch.
@@ -1574,14 +1574,23 @@ held_locks() {
 # over it: an acquire refuses a path occupied by something that is not a lock
 # symlink rather than guessing, so one such directory wedges every verb for
 # this worker until something removes it. That is what makes this the in-place
-# upgrade path, and why it is gated on `-d` and not on mere existence — a
-# SYMLINK at the path is a live lock and breaking it would double-grant.
+# upgrade path. The library's clear is what makes it safe: it takes a directory
+# and only a directory, in one step, so a peer that wins the path in between
+# keeps its live lock rather than having it deleted by a recovery.
+#
+# A failure to clear is surfaced rather than swallowed: the caller is `recover`,
+# and a recovery that cannot clear the thing blocking it must not go on to
+# report contention for a condition that will not clear.
 clear_legacy_lock_dirs() {
+  cl_rc=0
   for cl_l in $lock_classes; do
-    [ ! -L "$1/$cl_l" ] || continue
-    [ -d "$1/$cl_l" ] || continue
-    pw_lock_break_force "${1:?}/$cl_l" >/dev/null 2>&1 || :
+    pw_lock_clear_legacy "$1/$cl_l" 2>/dev/null
+    if [ "$?" -eq 2 ]; then
+      printf '%s\n' "$me: cannot clear the legacy lock directory $1/$cl_l (parent unwritable or filesystem error)" >&2
+      cl_rc=2
+    fi
   done
+  return "$cl_rc"
 }
 
 # `pw_lock_break_force` rather than a bare `rm`: it is the primitive's own
@@ -2202,6 +2211,15 @@ cmd_recover() {
     esac
   done
   dir=$(worker_dir "$worker") || exit 2
+  # Before anything reaches inside it: `-d` FOLLOWS a link, so a state
+  # directory planted as a symlink would send every path below — including the
+  # legacy clear's removals — into whatever it points at. `launch` and `close`
+  # refuse one for the same reason; this verb removes things, so it refuses
+  # first.
+  [ ! -L "$dir" ] || {
+    echo "$me: refusing to recover $worker: its state directory is a symlink" >&2
+    exit 2
+  }
   [ -d "$dir" ] || {
     echo "$me: unknown worker $worker" >&2
     exit 2
@@ -2210,8 +2228,10 @@ cmd_recover() {
   # `recover` is the verb an operator reaches for when a worker is stuck, so it
   # is where a fleet home predating the symlink primitive gets its in-place
   # upgrade: one lock left as a directory by the retired shape refuses every
-  # acquire for this worker, including the election below.
-  clear_legacy_lock_dirs "$dir"
+  # acquire for this worker, including the election below. A clear that fails
+  # is fatal here rather than swallowed: the election would otherwise report
+  # contention for a condition that will not clear.
+  clear_legacy_lock_dirs "$dir" || exit 2
 
   # Single recovery initiator (REQ-E1.5): the election refuses a concurrent
   # second attempt rather than racing it, and breaks a lock whose holder's

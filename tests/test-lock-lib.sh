@@ -103,7 +103,7 @@ rm -f "$tmp/a.lock"
 
 # A live holder: a background sleep whose pid goes into a hand-built token, so
 # the lock's owner is demonstrably a running process that is not this test.
-sleep 45 &
+sleep 120 &
 live_pid=$!
 ln -s "$live_pid-0-1" "$tmp/busy.lock"
 
@@ -176,7 +176,7 @@ rmdir "$tmp/legacy.lock"
 # 5. Release is ownership-verified
 # ---------------------------------------------------------------------------
 
-sleep 45 &
+sleep 120 &
 live_pid=$!
 ln -s "$live_pid-0-1" "$tmp/other.lock"
 run_sh x 'pw_lock_release "$1/other.lock"' >/dev/null 2>&1
@@ -365,7 +365,7 @@ assert_eq "every breaker's update landed once the dead lock was broken" \
 # The break leaves no litter behind: the aside and claim links it uses to
 # serialize breakers are transient, not state the next acquire has to reason
 # about.
-leftovers="$(find "$tmp" -maxdepth 1 -name 'brk.lock.*' 2>/dev/null | wc -l | tr -d ' ')"
+leftovers="$(find "$tmp" -maxdepth 1 -name 'brk.lock?*' 2>/dev/null | wc -l | tr -d ' ')"
 assert_eq "the stale break leaves no aside or claim links behind" "0" "$leftovers"
 
 # ---------------------------------------------------------------------------
@@ -448,11 +448,47 @@ else
   pass "break_force removes the legacy lock directory"
 fi
 
-# A regular file is not a lock and is not something to guess about.
+# A regular file at a lock path is not a lock either, and no acquire will take
+# the path over it — so the escape hatch has to be able to clear it, or nothing
+# can.
 : >"$tmp/file.lock"
 run_sh x 'pw_lock_break_force "$1/file.lock"' >/dev/null 2>&1
-assert_exit "break_force refuses to remove a regular file" 2 $?
-rm -f "$tmp/file.lock"
+assert_exit "break_force clears a regular file squatting the lock path" 0 $?
+if [ -e "$tmp/file.lock" ]; then
+  fail "break_force removes the squatting file"
+else
+  pass "break_force removes the squatting file"
+fi
+
+# A lock path is a registry key as well as a filename, and the registry is
+# newline-delimited: a path carrying a newline would forge a second record
+# naming a path the signal handler would then unlink.
+run_sh x 'pw_lock_try "$1/a
+1 forged /etc/passwd"' >/dev/null 2>&1
+assert_exit "a lock path containing a newline is refused" 2 $?
+run_sh x 'pw_lock_release "$1/a
+1 forged /etc/passwd"' >/dev/null 2>&1
+assert_exit "so is releasing one" 2 $?
+
+# An owner pid of zero names no process, so a hold minted from it would read
+# dead the instant it existed.
+run_sh x 'pw_lock_acquire_for "$1/zero.lock" 0' >/dev/null 2>&1
+assert_exit "an owner pid of zero is refused" 2 $?
+
+# A hold taken on behalf of another process must not sit in THIS shell's
+# release registry: a trap here would drop a lock the nominated owner is still
+# inside.
+sleep 120 &
+live_pid=$!
+run_sh x "pw_lock_trap_install; pw_lock_acquire_for \"\$1/behalf.lock\" $live_pid" >/dev/null 2>&1
+if [ -L "$tmp/behalf.lock" ]; then
+  pass "a hold taken on behalf of another process survives this shell's exit"
+else
+  fail "a hold taken on behalf of another process survives this shell's exit"
+fi
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
+rm -f "$tmp"/behalf.lock*
 
 # ---------------------------------------------------------------------------
 # 13. The cross-process release still proves ownership
@@ -482,7 +518,7 @@ fi
 # A short-lived CLI that acquires for a caller would otherwise name ITSELF as
 # owner, and the lock would read as dead the instant the CLI exited.
 
-sleep 45 &
+sleep 120 &
 live_pid=$!
 $SH -c '. "$1"; pw_lock_acquire_for "$2/for.lock" "$3"' sh "$LIB" "$tmp" "$live_pid" >/dev/null 2>&1
 assert_exit "acquire_for takes the lock" 0 $?
@@ -585,6 +621,271 @@ run_sh x '
 assert_eq "the registry knows about the hold before the link is confirmed" \
   "registry-first" "$(sed -n 1p "$tmp/order.trace" 2>/dev/null)"
 rm -f "$tmp/order.lock" "$tmp/order.trace"
+
+# ---------------------------------------------------------------------------
+# 18. A hold broken underneath a nested holder still owes every release
+# ---------------------------------------------------------------------------
+#
+# The shell holds the path twice, something clears the link out from under it
+# (an operator's unconditional release, a stale break), and it takes the lock
+# again. It now owes THREE releases, not one: collapsing the depth would make
+# the first release unlink while the two outer sections are still inside.
+
+run_sh x '
+  pw_lock_acquire "$1/nest.lock" || exit 9
+  pw_lock_acquire "$1/nest.lock" || exit 8
+  rm -f "$1/nest.lock"
+  pw_lock_acquire "$1/nest.lock" || exit 7
+  pw_lock_release "$1/nest.lock" || exit 6
+  [ -L "$1/nest.lock" ] || exit 5
+  pw_lock_release "$1/nest.lock" || exit 4
+  [ -L "$1/nest.lock" ] || exit 3
+  pw_lock_release "$1/nest.lock" || exit 2
+  [ ! -L "$1/nest.lock" ] || exit 1
+' >/dev/null 2>&1
+assert_exit "a re-take after a break keeps the releases the shell still owes" 0 $?
+rm -f "$tmp"/nest.lock*
+
+# ---------------------------------------------------------------------------
+# 19. Release unlinks before it forgets
+# ---------------------------------------------------------------------------
+#
+# The mirror of case 17. A record dropped ahead of its unlink is a lock the
+# signal handler can no longer see, which is the same leak in the same window
+# on the way out.
+
+run_sh x '
+  ORDER_TRACE="$1/rel.trace"
+  pw_lock_acquire "$1/rel.lock" || exit 9
+  readlink() {
+    case $PW_LOCK_HELD in
+      *rel.lock*) printf "still-recorded\n" >>"$ORDER_TRACE" ;;
+      *) printf "already-forgotten\n" >>"$ORDER_TRACE" ;;
+    esac
+    command readlink "$@"
+  }
+  pw_lock_release "$1/rel.lock"
+' >/dev/null 2>&1
+assert_eq "release still has the hold recorded when it verifies ownership" \
+  "still-recorded" "$(sed -n 1p "$tmp/rel.trace" 2>/dev/null)"
+rm -f "$tmp/rel.lock" "$tmp/rel.trace"
+
+# ---------------------------------------------------------------------------
+# 20. Two processes acquiring for one owner in the same second differ
+# ---------------------------------------------------------------------------
+#
+# The token is what a cross-process release compares against, so two CLIs that
+# minted the same one would let a replayed release of the first hold unlink the
+# second holder's live lock.
+
+sleep 120 &
+live_pid=$!
+t1="$($SH -c '. "$1"; pw_lock_acquire_for "$2/u1.lock" "$3" >/dev/null 2>&1; printf "%s" "$(readlink "$2/u1.lock")"' sh "$LIB" "$tmp" "$live_pid")"
+t2="$($SH -c '. "$1"; pw_lock_acquire_for "$2/u2.lock" "$3" >/dev/null 2>&1; printf "%s" "$(readlink "$2/u2.lock")"' sh "$LIB" "$tmp" "$live_pid")"
+if [ -n "$t1" ] && [ "$t1" != "$t2" ]; then
+  pass "two processes acquiring for one owner mint distinct tokens"
+else
+  fail "two processes acquiring for one owner mint distinct tokens (got '$t1' twice)"
+fi
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
+rm -f "$tmp"/u1.lock* "$tmp"/u2.lock*
+
+# ---------------------------------------------------------------------------
+# 21. The escape hatch collects the break residue belonging to its lock
+# ---------------------------------------------------------------------------
+#
+# A breaker killed mid-break leaves a claim link. It is harmless while its
+# owner can be probed, and permanent once that pid is recycled — at which point
+# the stale break for that lock stops working.
+
+ln -s "detached-1-1-1" "$tmp/res.lock"
+ln -s "1-1-1-1" "$tmp/res.lock#break#1_1_1"
+run_sh x 'pw_lock_break_force "$1/res.lock"' >/dev/null 2>&1
+assert_exit "break_force clears the lock" 0 $?
+left="$(find "$tmp" -maxdepth 1 -name 'res.lock*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "break_force collects the break residue too" "0" "$left"
+
+# ---------------------------------------------------------------------------
+# 22. The break reclaims a claim its own breaker died holding
+# ---------------------------------------------------------------------------
+#
+# Without this the path is wedged for good: the dead owner's lock is breakable,
+# but every breaker finds a claim it must not step on and reports busy.
+
+sh -c 'exit 0' &
+dead_pid=$!
+wait "$dead_pid" 2>/dev/null
+ln -s "$dead_pid-0-0-1" "$tmp/orphan.lock"
+ln -s "$dead_pid-0-0-2" "$tmp/orphan.lock#break#$dead_pid-0-0-1"
+run_sh x 'pw_lock_acquire "$1/orphan.lock" 40' >/dev/null 2>&1
+assert_exit "a claim left by a dead breaker is reclaimed, not waited on" 0 $?
+rm -f "$tmp"/orphan.lock*
+
+# A claim whose breaker is STILL RUNNING is left alone: that breaker is mid-act
+# and stepping on it is how two callers end up breaking the same lock.
+sleep 120 &
+live_pid=$!
+ln -s "$dead_pid-0-0-1" "$tmp/held.lock"
+ln -s "$live_pid-0-0-1" "$tmp/held.lock#break#$dead_pid-0-0-1"
+run_sh x 'pw_lock_acquire "$1/held.lock" 5' >/dev/null 2>&1
+rc=$?
+if kill -0 "$live_pid" 2>/dev/null; then
+  assert_exit "a claim whose breaker is still running is left alone" 1 "$rc"
+  assert_eq "and the running breaker's claim survives" \
+    "$live_pid-0-0-1" "$(readlink "$tmp/held.lock#break#$dead_pid-0-0-1")"
+else
+  fail "the live-breaker fixture outlived its own breaker; the case proved nothing"
+fi
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
+rm -f "$tmp"/held.lock*
+
+# ---------------------------------------------------------------------------
+# 23. release_all proves ownership too
+# ---------------------------------------------------------------------------
+#
+# It is the handler that runs after a process has been broken, so it is the one
+# release most likely to be looking at somebody else's lock.
+
+out="$(run_sh x '
+  pw_lock_acquire "$1/ra.lock" || exit 9
+  rm -f "$1/ra.lock"
+  ln -s "successor-token" "$1/ra.lock"
+  pw_lock_release_all
+  printf "%s\n" "$(readlink "$1/ra.lock")"
+')"
+assert_eq "release_all leaves a successor's lock alone" "successor-token" "$out"
+rm -f "$tmp/ra.lock"
+
+# ---------------------------------------------------------------------------
+# 24. Trap install is one-shot, so it cannot replace a caller's own handlers
+# ---------------------------------------------------------------------------
+
+out="$(run_sh x '
+  pw_lock_trap_install
+  trap "printf mine" EXIT
+  pw_lock_trap_install
+')"
+assert_eq "a second trap_install leaves the caller's handler in place" "mine" "$out"
+
+# ---------------------------------------------------------------------------
+# 25. INT and HUP release too, with the documented exit codes
+# ---------------------------------------------------------------------------
+
+for sig in INT HUP; do
+  case $sig in
+    INT) want=130 ;;
+    *) want=129 ;;
+  esac
+  rm -f "$tmp/s.lock" "$tmp/s.ready"
+  $SH -c '
+    . "$1"
+    pw_lock_trap_install
+    pw_lock_acquire "$2/s.lock" || exit 9
+    printf "held\n" >"$2/s.ready"
+    i=0
+    while [ "$i" -lt 200 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+  ' sh "$LIB" "$tmp" &
+  sig_pid=$!
+  i=0
+  while [ ! -f "$tmp/s.ready" ] && [ "$i" -lt 200 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  got=0
+  kill -"$sig" "$sig_pid" 2>/dev/null
+  wait "$sig_pid" || got=$?
+  if [ -L "$tmp/s.lock" ]; then
+    fail "a $sig'd holder releases its lock"
+  else
+    pass "a $sig'd holder releases its lock"
+  fi
+  # The exit code is asserted for every signal a bash parent can actually
+  # observe. It cannot observe INT: a non-interactive bash reports 0 from
+  # `wait` for a child that handled SIGINT and exited, whatever the child
+  # exited with. Asserting it there would pin bash's reporting, not the
+  # library's behaviour.
+  if [ "$sig" != INT ]; then
+    assert_eq "a $sig'd holder exits $want" "$want" "$got"
+  fi
+done
+rm -f "$tmp/s.lock" "$tmp/s.ready"
+
+# ---------------------------------------------------------------------------
+# 26. clear_legacy takes a directory and refuses everything else
+# ---------------------------------------------------------------------------
+
+mkdir "$tmp/leg.lock"
+run_sh x 'pw_lock_clear_legacy "$1/leg.lock"' >/dev/null 2>&1
+assert_exit "clear_legacy takes a lock directory" 0 $?
+if [ -e "$tmp/leg.lock" ]; then
+  fail "clear_legacy removed the directory"
+else
+  pass "clear_legacy removed the directory"
+fi
+
+# A SYMLINK is a live lock. Clearing one out of a recovery path is how two
+# callers end up inside the same critical section.
+sleep 120 &
+live_pid=$!
+ln -s "$live_pid-0-0-1" "$tmp/leg.lock"
+run_sh x 'pw_lock_clear_legacy "$1/leg.lock"' >/dev/null 2>&1
+assert_exit "clear_legacy refuses a live lock" 1 $?
+assert_eq "and leaves it exactly as it found it" \
+  "$live_pid-0-0-1" "$(readlink "$tmp/leg.lock")"
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
+rm -f "$tmp"/leg.lock*
+
+run_sh x 'pw_lock_clear_legacy "$1/absent.lock"' >/dev/null 2>&1
+assert_exit "clear_legacy on a free path is a clean nothing-to-do" 1 $?
+
+# ---------------------------------------------------------------------------
+# 27. The liveness probe's edges
+# ---------------------------------------------------------------------------
+#
+# A process this shell may not signal answers EPERM, and reading that as absent
+# would break a live holder's lock — the double-grant the whole design exists
+# to prevent. pid 1 is the one process every host has and no ordinary user may
+# signal.
+
+run_sh x 'pw_lock_owner_alive "1-0-0-1"' >/dev/null 2>&1
+assert_exit "a process this shell may not signal reads as alive" 0 $?
+run_sh x 'pw_lock_owner_alive "0-0-0-1"' >/dev/null 2>&1
+assert_exit "pid zero names no process" 1 $?
+run_sh x 'pw_lock_owner_alive "99999999999999999999-0-0-1"' >/dev/null 2>&1
+assert_exit "a pid wider than any host assigns names no process" 1 $?
+run_sh x 'pw_lock_owner_alive' >/dev/null 2>&1
+assert_exit "and asking about nothing is not an error a caller has to handle" 1 $?
+
+# ---------------------------------------------------------------------------
+# 28. A budget of zero or nonsense means the default, never no waiting at all
+# ---------------------------------------------------------------------------
+
+sleep 120 &
+live_pid=$!
+ln -s "$live_pid-0-0-1" "$tmp/bud.lock"
+start=$(date +%s)
+run_sh x 'pw_lock_acquire "$1/bud.lock" 25' >/dev/null 2>&1
+rc=$?
+mid=$(date +%s)
+if kill -0 "$live_pid" 2>/dev/null; then
+  assert_exit "a bounded acquire against a live holder reports busy" 1 "$rc"
+  if [ "$((mid - start))" -le 30 ]; then
+    pass "and a small budget really is small"
+  else
+    fail "and a small budget really is small (took $((mid - start))s)"
+  fi
+else
+  fail "the live-holder fixture outlived its own holder; the case proved nothing"
+fi
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
+rm -f "$tmp/bud.lock"
 
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."

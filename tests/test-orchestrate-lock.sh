@@ -137,17 +137,22 @@ else
 fi
 
 # 9. --owner-pid is validated as data, like every other argument here.
-rc=0
-err=$(/bin/bash "$LOCK" acquire "$spec" --owner-pid 'not-a-pid' 2>&1 >/dev/null) || rc=$?
-[ "$rc" = 2 ] || fail "bad owner pid: exit $rc, expected 2"
-case $err in
-  *"must be a number"*) ;;
-  *) fail "bad owner pid: missing diagnostic (got: $err)" ;;
-esac
+for bad in 'not-a-pid' '' '0'; do
+  rc=0
+  err=$(/bin/bash "$LOCK" acquire "$spec" --owner-pid "$bad" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" = 2 ] || fail "owner pid '$bad': exit $rc, expected 2"
+  case $err in
+    *"must be a non-zero number"*) ;;
+    *) fail "owner pid '$bad': missing diagnostic (got: $err)" ;;
+  esac
+  if [ -L "$lock" ] || [ -e "$lock" ]; then
+    fail "owner pid '$bad': a lock was taken anyway"
+  fi
+done
 rc=0
 err=$(/bin/bash "$LOCK" acquire "$spec" --frobnicate 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 2 ] || fail "unknown option: exit $rc, expected 2"
-echo "ok: a malformed --owner-pid and an unknown option are clean refusals"
+echo "ok: an empty, zero or malformed --owner-pid and an unknown option are clean refusals"
 
 # 10. REQ-F1.1: the lock path is derived from a grammar-validated spec id. A
 #     spec dir whose id fails the spec-id grammar (`^[a-z0-9][a-z0-9-]*$`) is a

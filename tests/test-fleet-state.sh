@@ -490,17 +490,21 @@ env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   || fail "unlock left a non-empty legacy directory lock standing"
 echo "ok: unlock clears a retired-shape directory lock even with a stray inside it"
 
-# A REGULAR FILE at the lock path is nobody's lock and nothing here can judge
-# what it is, so the clear refuses it rather than deleting a file it does not
-# understand.
+# A REGULAR FILE at the lock path is nobody's lock, and no acquire will take
+# the path over it — so the escape hatch has to clear it. If it refused, the
+# fleet home would be wedged with nothing in the tree able to unwedge it.
 : >"$home_uld/.fleet.lock"
 rc=0
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home_uld" /bin/sh "$FS" unlock >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "unlock over a regular file at the lock path exited $rc, expected 2"
-[ -f "$home_uld/.fleet.lock" ] || fail "unlock deleted a regular file it could not judge"
-rm -f "$home_uld/.fleet.lock"
-echo "ok: unlock refuses a regular file squatting the lock path instead of deleting it"
+[ "$rc" = 0 ] || fail "unlock over a regular file at the lock path exited $rc, expected 0"
+[ ! -e "$home_uld/.fleet.lock" ] || fail "unlock left a regular file squatting the lock path"
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_uld" /bin/sh "$FS" lock >/dev/null 2>&1 \
+  || fail "the lock path is still unusable after the squatting file was cleared"
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_uld" /bin/sh "$FS" unlock >/dev/null 2>&1 || :
+echo "ok: unlock clears a regular file squatting the lock path, so the path is usable again"
 
 # ---------------------------------------------------------------------------
 # The one-shot `lock` verb against a lock whose OWNER IS GONE must report 0

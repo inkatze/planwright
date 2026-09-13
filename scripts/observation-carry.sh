@@ -373,12 +373,12 @@ acquire_lock() {
   # The in-place upgrade from the retired `mkdir` shape. A DIRECTORY at the lock
   # path is a lock the previous implementation left behind; nothing releases one
   # any more, and the library refuses to wait on a non-symlink, so it would wedge
-  # every future carry until someone deleted it by hand. Clear it before the
-  # first acquire — and ONLY when the path is a real directory, never a symlink,
-  # because a symlink IS the live lock and force-clearing it would double-grant.
-  if [ ! -L "$lock_path" ] && [ -d "$lock_path" ]; then
-    pw_lock_break_force "$lock_path" || return 2
-  fi
+  # every future carry until someone deleted it by hand. The library's clear is
+  # what makes this safe to do unconditionally: it takes a directory and only a
+  # directory, in one step, so a peer that wins the path meanwhile keeps its
+  # live lock.
+  pw_lock_clear_legacy "$lock_path"
+  [ "$?" -ne 2 ] || return 2
   pw_lock_acquire "$lock_path" "$lock_tries"
 }
 release_lock() {
@@ -406,6 +406,12 @@ cleanup() {
 trap 'cleanup' EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
+# HUP as well, and for the ordinary reason rather than a theoretical one: a
+# carry dies by hangup whenever the terminal or ssh session that started it
+# goes away, which is the most likely way a long push-and-open-a-PR run ends
+# badly. Without it the shell terminates on the default action and the EXIT
+# trap never runs, leaving the lock and both temp files behind.
+trap 'cleanup; exit 129' HUP
 
 acquire_lock
 lock_rc=$?

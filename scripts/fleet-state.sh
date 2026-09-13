@@ -524,16 +524,22 @@ case $cmd in
     pw_lock_acquire_detached "$lock" 1
     ta_rc=$?
     if [ "$ta_rc" = 0 ]; then
-      # Disown before printing: this lock belongs to the CALLER's later
-      # `unlock`, not to this process's EXIT handler. Disowning AFTER the
-      # acquire rather than never adopting is deliberate — a signal before this
-      # line releases the lock and exits non-zero, so a caller that never
-      # learned it acquired is never left holding a leaked one.
+      # HAND THE TOKEN OVER FIRST, THEN DISOWN. The lock belongs to the
+      # CALLER's later `unlock`, not to this process's EXIT handler, so it must
+      # be disowned before this process exits — but only once the caller
+      # actually has the token. Disowning first and then failing to write it
+      # (a reader that exited, a closed pipe) would leave a detached hold
+      # nothing can prove dead and no token anywhere to release it with, which
+      # wedges every fleet writer until an operator intervenes. This order
+      # trades that for its opposite: a signal in the gap releases a lock the
+      # caller believes it holds, and its later `unlock` is then a clean no-op.
+      if ! printf '%s\n' "$PW_LOCK_TOKEN"; then
+        printf '%s\n' "fleet-state: could not hand back the lock token; releasing rather than leaving a hold nobody can name" >&2
+        pw_lock_release "$lock" >/dev/null 2>&1 || :
+        exit 2
+      fi
       # shellcheck disable=SC2034 # lock-lib.sh's release path reads it, not this file
       PW_LOCK_HELD=''
-      # The token is the whole point of the verb: it is what lets the caller's
-      # release prove the lock is still its own.
-      printf '%s\n' "$PW_LOCK_TOKEN"
     fi
     exit $ta_rc
     ;;

@@ -54,8 +54,9 @@
 #            move), 2 on a real error or a refused (malformed/hostile) spec
 #            dir.
 #   release  clear the lock unconditionally (idempotent: a missing lock is
-#            fine). Exit 0. It also clears a lock DIRECTORY left by the
-#            retired mkdir shape, so an in-place upgrade recovers itself.
+#            fine). Exit 0, or 2 when the path could not be cleared at all. It
+#            also clears a lock DIRECTORY left by the retired mkdir shape, so
+#            an in-place upgrade recovers itself.
 #
 # Usage: orchestrate-lock.sh acquire <spec-dir> [--owner-pid <pid>]
 #        orchestrate-lock.sh release <spec-dir>
@@ -77,6 +78,7 @@ fi
 shift 2 2>/dev/null || true
 
 owner_pid=""
+owner_pid_given=0
 while [ "$#" -gt 0 ]; do
   case $1 in
     --owner-pid)
@@ -85,6 +87,7 @@ while [ "$#" -gt 0 ]; do
         exit 2
       }
       owner_pid=$2
+      owner_pid_given=1
       shift 2
       ;;
     *)
@@ -93,13 +96,18 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
-case $owner_pid in
-  '') ;;
-  *[!0-9]*)
-    echo "orchestrate-lock: --owner-pid must be a number" >&2
-    exit 2
-    ;;
-esac
+if [ "$owner_pid_given" = 1 ]; then
+  # An empty or zero value is refused rather than treated as absent: the
+  # absent case takes the DETACHED hold, which nothing auto-breaks, so a caller
+  # writing `--owner-pid "$maybe_unset"` would silently get the stickiest lock
+  # available and a success exit. Zero names no process at all.
+  case $owner_pid in
+    '' | 0 | *[!0-9]*)
+      echo "orchestrate-lock: --owner-pid must be a non-zero number" >&2
+      exit 2
+      ;;
+  esac
+fi
 if [ ! -d "$spec_dir" ]; then
   echo "orchestrate-lock: no such spec dir: $spec_dir" >&2
   exit 2
@@ -150,7 +158,11 @@ case "$cmd" in
     # for a detached hold whose owner never came back. It also clears a lock
     # DIRECTORY left by the retired mkdir shape.
     pw_lock_break_force "$lock" || {
-      echo "orchestrate-lock: cannot clear $lock (something that is not a lock is at that path)" >&2
+      # What is known is only that the path is still occupied. WHY is not: the
+      # removal can fail on an unwritable spec dir as readily as on something
+      # unusual at the path, and naming one of those sends the operator to
+      # inspect the wrong thing.
+      echo "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
       exit 2
     }
     exit 0

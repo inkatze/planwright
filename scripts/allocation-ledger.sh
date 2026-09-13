@@ -446,7 +446,14 @@ case "$cmd" in
     # Detached, not pid-owned: this process exits the moment the token is
     # printed, so there would be no owner left for a liveness probe to ask
     # about.
-    pw_lock_acquire_detached "$(lock_path "$1")" || exit 2
+    l_lock=$(lock_path "$1")
+    pw_lock_acquire_detached "$l_lock"
+    l_rc=$?
+    if [ "$l_rc" -eq 1 ]; then
+      echo "allocation-ledger: gave up acquiring $l_lock after contention" >&2
+      exit 2
+    fi
+    [ "$l_rc" -eq 0 ] || exit 2
     # The token goes back to the caller so its `unlock` can prove ownership.
     printf '%s\n' "$PW_LOCK_TOKEN"
     ;;
@@ -492,8 +499,10 @@ case "$cmd" in
     # path is this script's business, not its caller's — so the question gets a
     # verb instead of a second implementation of the path convention. An unheld
     # lock prints nothing and still succeeds: absence is an answer.
-    pw_lock_owner "$(lock_path "$1")"
-    printf '\n'
+    # Sanitized, because the token is a symlink target and a symlink target is
+    # whatever the writer put there: this verb exists to be read by a person,
+    # and a control sequence in it would drive their terminal.
+    printf '%s\n' "$(sanitize_printable "$(pw_lock_owner "$(lock_path "$1")")" "")"
     ;;
 
   append)
@@ -603,7 +612,15 @@ case "$cmd" in
       # installing the library's is the documented way to get a signal-safe
       # release for the hold this arm is about to take.
       pw_lock_trap_install
-      pw_lock_acquire "$a_lock" || exit 2
+      pw_lock_acquire "$a_lock"
+      a_rc=$?
+      if [ "$a_rc" -eq 1 ]; then
+        # The library says nothing on a budget it merely exhausted, and an
+        # append that exits without a word leaves its caller reporting a ledger
+        # failure with no cause.
+        echo "allocation-ledger: gave up acquiring $a_lock after contention" >&2
+      fi
+      [ "$a_rc" -eq 0 ] || exit 2
       a_token=$PW_LOCK_TOKEN
     fi
     # The sequence is derived from the file under the lock, so two racing

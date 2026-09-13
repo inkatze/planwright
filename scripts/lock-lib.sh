@@ -52,15 +52,22 @@
 # another user is still a process), so the probe errs toward refusing to break.
 #
 # THE BREAK CANNOT DOUBLE-GRANT, and the mechanism is a claim link rather than
-# a bare unlink. A breaker first takes `<lock>.break.<dead-token>` by the same
+# a bare unlink. A breaker first takes `<lock>#break#<dead-token>` by the same
 # atomic create, so only one caller can be breaking a given owner at a time.
+# THE `#` IS LOAD-BEARING: the working paths this library derives sit in the
+# same directory as the locks themselves, so a caller that builds lock paths
+# out of user input could otherwise name one of them and have its own lock
+# deleted by an unrelated breaker. `#` is outside every lock-name grammar in
+# the tree, which is what keeps the two namespaces apart.
 # Holding that claim, the lock provably still belongs to the dead owner —
 # changing it requires a break, and a break requires this claim — so the
-# replacement is safe, and it is done by renaming a freshly made link OVER the
-# path in one step rather than unlink-then-create, leaving no instant where the
-# path is free for a peer to create into. A breaker that dies holding the claim
-# is itself reclaimed by owner-liveness, by an ownership-verified rename that
-# two reclaimers cannot both win.
+# replacement is safe. It unlinks and re-creates rather than renaming over the
+# path, because a rename FOLLOWS a link whose target is a directory; the gap
+# that opens is harmless, since nobody legitimately holds a lock whose owner is
+# gone, and a peer that wins the free path in between takes a lock it is
+# entitled to while the breaker's own create fails and it reports busy. A
+# breaker that dies holding the claim is itself reclaimed by owner-liveness, by
+# an ownership-verified rename that two reclaimers cannot both win.
 #
 # RELEASE IS OWNERSHIP-VERIFIED. `pw_lock_release` reads the link's target back
 # and unlinks only while it is still this holder's token, so the classic
@@ -85,10 +92,12 @@
 #     thing in the existing handler, and arm that handler before the first
 #     acquire.
 #
-# Exit codes are uniform across the verbs: 0 success, 1 a live holder has it
-# (or, for release, the lock is not ours), 2 a real error — an unusable lock
-# path, a missing `readlink`, or an exhausted acquire budget. A bounded acquire
-# FAILS CLOSED: it never breaks a lock it could not prove dead.
+# Exit codes are uniform across the verbs: 0 success, 1 the lock stayed with a
+# holder (for release: it is not ours), 2 a real error — an unusable lock path,
+# a missing `readlink`, an unwritable parent. An exhausted acquire budget is 1,
+# not 2: the caller waited and did not get it, which is the same answer as a
+# holder that never let go. A bounded acquire FAILS CLOSED either way — it
+# never breaks a lock it could not prove dead.
 #
 # POSIX sh on the macOS + Linux support bar. No bashisms, no `local`.
 #
@@ -115,9 +124,33 @@ PW_LOCK_NL='
 # anyway, but a caller that retries forever is its own kind of outage.
 PW_LOCK_MAX_TRIES=5000
 PW_LOCK_SLEEP=0.02
+# How many spins between examinations of the holder. Probing every spin forks
+# `readlink` fifty times a second per waiter for a condition that cannot become
+# true faster than the holder can exit.
+PW_LOCK_PROBE_EVERY=50
 
 _pw_lock_usage() {
   printf '%s\n' "lock-lib: $1 needs a lock path" >&2
+}
+
+# _pw_lock_path_ok <verb> <path> — 0 usable, 1 refused (with a diagnostic).
+# The registry is a newline-delimited record per held lock, so a path carrying
+# a newline would forge a second record: the hold would never be found again by
+# its own release, and a crafted one names a path the signal handler would
+# unlink. Nothing in the tree passes such a path; refusing it here is what
+# keeps that true.
+_pw_lock_path_ok() {
+  if [ -z "$2" ]; then
+    _pw_lock_usage "$1"
+    return 1
+  fi
+  case $2 in
+    *"$PW_LOCK_NL"*)
+      printf '%s\n' "lock-lib: $1 refuses a lock path containing a newline" >&2
+      return 1
+      ;;
+  esac
+  return 0
 }
 
 # Every create is confirmed by reading the link back, so a shell that cannot
@@ -183,7 +216,11 @@ _pw_lock_mint() {
     esac
   fi
   PW_LOCK_SEQ=$((PW_LOCK_SEQ + 1))
-  _pw_lock_new_token="$1-$PW_LOCK_EPOCH-$PW_LOCK_SEQ"
+  # The minting process's own pid is in there even when the OWNER is somebody
+  # else: without it, two short-lived CLIs acquiring for the same owner in the
+  # same second mint the same token, and a replayed release of the first hold
+  # would unlink the second one's live lock.
+  _pw_lock_new_token="$1-$PW_LOCK_EPOCH-$$-$PW_LOCK_SEQ"
 }
 
 # pw_lock_owner_alive <token> — 0 the token names a running process, 1 it does
@@ -192,18 +229,26 @@ _pw_lock_mint() {
 # it as live would wedge the path forever. A DETACHED token is the deliberate
 # exception and always reads alive — see pw_lock_acquire_detached.
 pw_lock_owner_alive() {
+  [ "$#" -ge 1 ] || return 1
   _pwa_pid=${1%%-*}
   case $_pwa_pid in
     detached) return 0 ;;
     '' | *[!0-9]*) return 1 ;;
   esac
+  # Width before value: a digit string wider than any pid a system assigns
+  # names no process, and handing it to shell arithmetic below errors out to
+  # stderr instead of answering, which would then be read as a verdict.
+  [ "${#_pwa_pid}" -le 10 ] || return 1
   [ "$_pwa_pid" -gt 0 ] || return 1
   kill -0 "$_pwa_pid" 2>/dev/null && return 0
   # `kill -0` fails for two very different reasons and only one of them means
   # absent. A process owned by another user answers EPERM, and breaking ITS
   # lock is the double-grant this whole file exists to prevent, so an EPERM
   # reads as alive. `ps` is the second opinion where the message is unfamiliar.
-  _pwa_err=$(kill -0 "$_pwa_pid" 2>&1) || :
+  # LC_ALL is pinned for the capture rather than assumed from the caller: the
+  # match below is on the error TEXT, and a translated message would read as
+  # absent and break a live process's lock.
+  _pwa_err=$(LC_ALL=C kill -0 "$_pwa_pid" 2>&1) || :
   case $_pwa_err in
     *[Pp]ermission* | *[Pp]ermitted*) return 0 ;;
   esac
@@ -216,18 +261,34 @@ pw_lock_owner_alive() {
 # pw_lock_owner <path> — print the holder's token (nothing, and no newline, for
 # a path nobody holds).
 pw_lock_owner() {
+  [ "$#" -ge 1 ] && [ -n "${1:-}" ] || return 1
   _pwo_target=$(readlink "$1" 2>/dev/null) || _pwo_target=''
   printf '%s' "$_pwo_target"
 }
 
-# _pw_lock_slug <token> — a filename-safe rendering of a token that may have
-# come from a foreign writer and may therefore contain anything but NUL.
+# _pw_lock_slug <token> — set _pw_lock_slug_out to a filename-safe rendering of
+# a token that may have come from a foreign writer and may therefore contain
+# anything but NUL. In-shell rather than `printf | tr | cut`: this runs inside
+# the acquire spin, where three processes per attempt is the difference between
+# a waiter that costs nothing and one that costs fifty spawns a second.
 _pw_lock_slug() {
-  printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-64
+  _pwg_in=$1
+  _pwg_out=''
+  _pwg_n=0
+  while [ -n "$_pwg_in" ] && [ "$_pwg_n" -lt 64 ]; do
+    _pwg_c=${_pwg_in%"${_pwg_in#?}"}
+    _pwg_in=${_pwg_in#?}
+    _pwg_n=$((_pwg_n + 1))
+    case $_pwg_c in
+      [A-Za-z0-9._-]) _pwg_out="$_pwg_out$_pwg_c" ;;
+      *) _pwg_out="${_pwg_out}_" ;;
+    esac
+  done
+  _pw_lock_slug_out=$_pwg_out
 }
 
-# _pw_lock_publish <lock> <token> — create the link and take the hold. 0 held
-# (PW_LOCK_TOKEN set), 1 the path was not won.
+# _pw_lock_publish <lock> <token> [<depth>] — create the link and take the
+# hold. 0 held (PW_LOCK_TOKEN set), 1 the path was not won.
 #
 # THE REGISTRY ENTRY IS WRITTEN FIRST, because the signal handler releases what
 # the registry names: between a create that has landed on disk and a registry
@@ -239,7 +300,8 @@ _pw_lock_slug() {
 _pw_lock_publish() {
   _pwp_lock=$1
   _pwp_token=$2
-  _pw_lock_store "$_pwp_lock" "$_pwp_token" 1
+  _pwp_depth=${3:-1}
+  _pw_lock_store "$_pwp_lock" "$_pwp_token" "$_pwp_depth"
   if ln -s "$_pwp_token" "$_pwp_lock" 2>/dev/null \
     && [ "$(readlink "$_pwp_lock" 2>/dev/null)" = "$_pwp_token" ]; then
     PW_LOCK_TOKEN=$_pwp_token
@@ -248,7 +310,10 @@ _pw_lock_publish() {
   # `ln -s target dir` files the link INSIDE a directory squatting the path and
   # still exits 0, so an unconfirmed create is not a hold. Drop the stray and
   # the bookkeeping together.
-  rm -f "$_pwp_lock/$_pwp_token" 2>/dev/null || :
+  # The stray only exists when a directory took the create, so ask before
+  # spawning `rm`: on a contended lock this runs once per spin, and a process
+  # per spin for a condition that is almost never true is the whole cost.
+  [ ! -d "$_pwp_lock" ] || rm -f "$_pwp_lock/$_pwp_token" 2>/dev/null || :
   _pw_lock_store "$_pwp_lock" '' 0
   return 1
 }
@@ -260,10 +325,19 @@ _pw_lock_break() {
   _pwb_lock=$1
   _pwb_dead=$2
   _pwb_token=$3
-  _pwb_claim="$_pwb_lock.break.$(_pw_lock_slug "$_pwb_dead")"
+  _pwb_depth=${4:-1}
+  _pw_lock_slug "$_pwb_dead"
+  _pwb_claim="$_pwb_lock#break#$_pw_lock_slug_out"
+  # The CLAIM is owned by this process, whatever the lock itself will be owned
+  # by. A detached token always reads alive, so a claim minted from one could
+  # never be reclaimed: a breaker killed mid-break would leave the path
+  # permanently unbreakable. The break is a live, in-process act, so the pid
+  # naming it is the honest owner.
+  _pw_lock_mint "$$"
+  _pwb_claim_token=$_pw_lock_new_token
 
-  if ! ln -s "$_pwb_token" "$_pwb_claim" 2>/dev/null \
-    || [ "$(readlink "$_pwb_claim" 2>/dev/null)" != "$_pwb_token" ]; then
+  if ! ln -s "$_pwb_claim_token" "$_pwb_claim" 2>/dev/null \
+    || [ "$(readlink "$_pwb_claim" 2>/dev/null)" != "$_pwb_claim_token" ]; then
     # Either a peer is breaking this same owner — in which case waiting is
     # correct and there is nothing to do — or a breaker died holding the claim,
     # which would wedge the path forever. Reclaim only the second case, and
@@ -272,7 +346,7 @@ _pw_lock_break() {
     # clears the claim and the other comes back on the next spin.
     _pwb_holder=$(readlink "$_pwb_claim" 2>/dev/null) || _pwb_holder=''
     if [ -n "$_pwb_holder" ] && ! pw_lock_owner_alive "$_pwb_holder"; then
-      _pwb_aside="$_pwb_claim.dead.$_pwb_token"
+      _pwb_aside="$_pwb_claim#dead#$_pwb_claim_token"
       if mv -f "$_pwb_claim" "$_pwb_aside" 2>/dev/null; then
         if [ "$(readlink "$_pwb_aside" 2>/dev/null)" = "$_pwb_holder" ]; then
           rm -f "$_pwb_aside" 2>/dev/null || :
@@ -313,8 +387,15 @@ _pw_lock_break() {
   # so nobody legitimately holds this path, and a peer that wins the free path
   # in between takes a lock it is entitled to — this caller's own create then
   # fails and it reports busy rather than claiming a hold it does not have.
-  rm -f "$_pwb_lock" 2>/dev/null || :
-  if _pw_lock_publish "$_pwb_lock" "$_pwb_token"; then
+  if ! rm -f "$_pwb_lock" 2>/dev/null; then
+    # The owner is gone and the lock cannot be removed, which is the parent
+    # directory or the filesystem, never a peer. Saying "busy" here would send
+    # the caller to wait out a condition that does not clear.
+    printf '%s\n' "lock-lib: cannot clear $_pwb_lock after its owner was found absent (parent unwritable or filesystem error)" >&2
+    rm -f "$_pwb_claim" 2>/dev/null || :
+    return 2
+  fi
+  if _pw_lock_publish "$_pwb_lock" "$_pwb_token" "${_pwb_depth:-1}"; then
     rm -f "$_pwb_claim" 2>/dev/null || :
     return 0
   fi
@@ -322,14 +403,19 @@ _pw_lock_break() {
   return 1
 }
 
-# _pw_lock_try_core <path> <owner-field> — one acquisition attempt, no waiting.
-# <owner-field> becomes the token's leading field: this process's pid for an
-# ordinary hold, the word `detached` for a hold with no owning process.
+# _pw_lock_try_core <path> <owner-field> <probe> — one acquisition attempt, no
+# waiting. <owner-field> becomes the token's leading field: this process's pid
+# for an ordinary hold, the word `detached` for a hold with no owning process.
+# <probe> 1 examines a holder and breaks it if its owner is gone; 0 reports
+# busy without looking, which is what a spin does between strides.
 _pw_lock_try_core() {
   _pwt_lock=$1
   _pwt_owner_field=$2
+  _pwt_probe=$3
+  _pw_lock_probe_again=0
   _pw_lock_require_readlink || return 2
 
+  _pwt_depth=1
   if _pw_lock_lookup "$_pwt_lock"; then
     if [ "$(readlink "$_pwt_lock" 2>/dev/null)" = "$_pw_lock_token" ]; then
       _pw_lock_store "$_pwt_lock" "$_pw_lock_token" "$((_pw_lock_depth + 1))"
@@ -337,34 +423,52 @@ _pw_lock_try_core() {
       return 0
     fi
     # The registry says we hold it and the path disagrees: the lock was broken
-    # or removed under us. Drop the bookkeeping and contend like anyone else,
-    # rather than releasing someone else's link later on its strength.
+    # or removed under us. Contend like anyone else — but KEEP THE DEPTH. The
+    # nested releases this shell still owes have not gone anywhere, and
+    # collapsing to 1 would make the first of them unlink while the outer
+    # sections are still inside.
+    _pwt_depth=$((_pw_lock_depth + 1))
     _pw_lock_store "$_pwt_lock" '' 0
   fi
 
   _pw_lock_mint "$_pwt_owner_field"
   _pwt_token=$_pw_lock_new_token
 
-  # `ln -s target dir` puts the link INSIDE a directory squatting the path and
-  # still exits 0, so the create is confirmed before it is believed. An
-  # unconfirmed create would report a lock this caller does not hold and send
-  # it into its critical section holding nothing.
-  _pw_lock_publish "$_pwt_lock" "$_pwt_token" && return 0
+  # Only attempt the create when the path looks free. The create is the
+  # exclusion, so attempting it blindly is correct but not free: on a contended
+  # lock it is a process per spin for a create that cannot win.
+  if [ ! -L "$_pwt_lock" ] && [ ! -e "$_pwt_lock" ]; then
+    # `ln -s target dir` puts the link INSIDE a directory squatting the path
+    # and still exits 0, so the create is confirmed before it is believed. An
+    # unconfirmed create would report a lock this caller does not hold and send
+    # it into its critical section holding nothing.
+    _pw_lock_publish "$_pwt_lock" "$_pwt_token" "$_pwt_depth" && return 0
+  fi
 
   # `-L` and not `-e` asks the right question: the lock IS the link, whatever
   # it points at, and `-e` follows it and reads false for a dangling one.
   if [ -L "$_pwt_lock" ]; then
+    # Reading the owner costs a process, and an owner does not stop being alive
+    # between one spin and the next. A spin that is not on a probe stride says
+    # busy without asking, the way the code this replaces strided its own
+    # staleness probe.
+    [ "$_pwt_probe" = 1 ] || return 1
     _pwt_owner=$(readlink "$_pwt_lock" 2>/dev/null) || _pwt_owner=''
     if [ -z "$_pwt_owner" ]; then
-      # It vanished between the create and the read. Nothing is proven; the
+      # It vanished between the test and the read. Nothing is proven; the
       # caller's next attempt sees a settled path.
       return 1
     fi
     if pw_lock_owner_alive "$_pwt_owner"; then
       return 1
     fi
-    _pw_lock_break "$_pwt_lock" "$_pwt_owner" "$_pwt_token" || return 1
-    return 0
+    _pw_lock_break "$_pwt_lock" "$_pwt_owner" "$_pwt_token" "$_pwt_depth"
+    _pwt_rc=$?
+    # A break that did not win found something in motion — a peer breaking the
+    # same owner, or a claim it has just reclaimed — so the next spin looks
+    # again rather than waiting out a stride for a situation that is changing.
+    [ "$_pwt_rc" -eq 0 ] || _pw_lock_probe_again=1
+    return "$_pwt_rc"
   fi
 
   if [ -e "$_pwt_lock" ]; then
@@ -379,8 +483,19 @@ _pw_lock_try_core() {
   # Nothing is at the path, so nothing was holding it: the create failed on the
   # store rather than on a peer. One retry separates a holder that released in
   # the gap (benign) from a store that cannot be written at all.
-  _pw_lock_publish "$_pwt_lock" "$_pwt_token" && return 0
+  _pw_lock_publish "$_pwt_lock" "$_pwt_token" "$_pwt_depth" && return 0
   if [ ! -L "$_pwt_lock" ] && [ ! -e "$_pwt_lock" ]; then
+    # An empty path after two failed creates is ambiguous: the store may be
+    # unwritable, or two peers may simply have released in the gaps. Ask the
+    # parent directly rather than concluding — under real contention the second
+    # reading is the common one, and calling it a broken store aborts a budget
+    # that would have succeeded.
+    _pwt_parent=${_pwt_lock%/*}
+    [ "$_pwt_parent" != "$_pwt_lock" ] || _pwt_parent=.
+    [ -n "$_pwt_parent" ] || _pwt_parent=/
+    if [ -d "$_pwt_parent" ] && [ -w "$_pwt_parent" ]; then
+      return 1
+    fi
     printf '%s\n' "lock-lib: cannot create $_pwt_lock (parent unwritable or filesystem error)" >&2
     return 2
   fi
@@ -398,7 +513,18 @@ _pw_lock_acquire_core() {
   esac
   _pwq_tries=0
   while :; do
-    _pw_lock_try_core "$_pwq_lock" "$_pwq_owner_field"
+    # The first attempt always looks at the holder; after that only every
+    # PW_LOCK_PROBE_EVERY-th one does. A holder's liveness cannot change faster
+    # than the waiter can notice, and probing it every spin costs a process
+    # fifty times a second for an answer that was the same last time.
+    if [ "$_pwq_tries" -eq 0 ] \
+      || [ "${_pw_lock_probe_again:-0}" -eq 1 ] \
+      || [ $((_pwq_tries % PW_LOCK_PROBE_EVERY)) -eq 0 ]; then
+      _pwq_probe=1
+    else
+      _pwq_probe=0
+    fi
+    _pw_lock_try_core "$_pwq_lock" "$_pwq_owner_field" "$_pwq_probe"
     _pwq_rc=$?
     [ "$_pwq_rc" -eq 0 ] && return 0
     [ "$_pwq_rc" -eq 2 ] && return 2
@@ -413,20 +539,14 @@ _pw_lock_acquire_core() {
 # PW_LOCK_TOKEN is the token to prove it), 1 a live holder has it, 2 a real
 # error.
 pw_lock_try() {
-  if [ "$#" -lt 1 ] || [ -z "${1:-}" ]; then
-    _pw_lock_usage pw_lock_try
-    return 2
-  fi
-  _pw_lock_try_core "$1" "$$"
+  _pw_lock_path_ok pw_lock_try "${1:-}" || return 2
+  _pw_lock_try_core "$1" "$$" 1
 }
 
 # pw_lock_acquire <path> [<max-tries>] — spin until held or the budget runs
 # out. 0 held, 1 a live holder kept it for the whole budget, 2 a real error.
 pw_lock_acquire() {
-  if [ "$#" -lt 1 ] || [ -z "${1:-}" ]; then
-    _pw_lock_usage pw_lock_acquire
-    return 2
-  fi
+  _pw_lock_path_ok pw_lock_acquire "${1:-}" || return 2
   _pw_lock_acquire_core "$1" "${2:-$PW_LOCK_MAX_TRIES}" "$$"
 }
 
@@ -443,19 +563,13 @@ pw_lock_acquire() {
 # That is the trade the liveness rule makes: it never breaks a live lock, and in
 # exchange it cannot guess about a hold with no owner to ask about.
 pw_lock_try_detached() {
-  if [ "$#" -lt 1 ] || [ -z "${1:-}" ]; then
-    _pw_lock_usage pw_lock_try_detached
-    return 2
-  fi
-  _pw_lock_try_core "$1" "detached-$$"
+  _pw_lock_path_ok pw_lock_try_detached "${1:-}" || return 2
+  _pw_lock_try_core "$1" "detached-$$" 1
 }
 
 # pw_lock_acquire_detached <path> [<max-tries>] — the spinning form.
 pw_lock_acquire_detached() {
-  if [ "$#" -lt 1 ] || [ -z "${1:-}" ]; then
-    _pw_lock_usage pw_lock_acquire_detached
-    return 2
-  fi
+  _pw_lock_path_ok pw_lock_acquire_detached "${1:-}" || return 2
   _pw_lock_acquire_core "$1" "${2:-$PW_LOCK_MAX_TRIES}" "detached-$$"
 }
 
@@ -467,17 +581,20 @@ pw_lock_acquire_detached() {
 # a caller naming a pid that is already gone gets a lock anyone may break,
 # which is the correct outcome and not an error.
 pw_lock_acquire_for() {
-  if [ "$#" -lt 2 ] || [ -z "${1:-}" ] || [ -z "${2:-}" ]; then
-    _pw_lock_usage pw_lock_acquire_for
-    return 2
-  fi
-  case $2 in
-    '' | *[!0-9]*)
-      printf '%s\n' "lock-lib: pw_lock_acquire_for needs a numeric owner pid" >&2
+  _pw_lock_path_ok pw_lock_acquire_for "${1:-}" || return 2
+  case ${2:-} in
+    '' | 0 | *[!0-9]*)
+      printf '%s\n' "lock-lib: pw_lock_acquire_for needs a non-zero numeric owner pid" >&2
       return 2
       ;;
   esac
-  _pw_lock_acquire_core "$1" "${3:-$PW_LOCK_MAX_TRIES}" "$2"
+  _pw_lock_acquire_core "$1" "${3:-$PW_LOCK_MAX_TRIES}" "$2" || return $?
+  # The hold belongs to the nominated process, not to this one, so it must not
+  # sit in this shell's release registry: a trap here would drop a lock the
+  # caller is still inside. The registry entry did its job — it covered the
+  # instant between the create and the confirm — and is dropped now.
+  _pw_lock_store "$1" '' 0
+  return 0
 }
 
 # pw_lock_release <path> — give up one depth of this shell's hold, unlinking
@@ -485,10 +602,7 @@ pw_lock_acquire_for() {
 # (including the case where the hold was broken underneath it), 2 the unlink
 # failed.
 pw_lock_release() {
-  if [ "$#" -lt 1 ] || [ -z "${1:-}" ]; then
-    _pw_lock_usage pw_lock_release
-    return 2
-  fi
+  _pw_lock_path_ok pw_lock_release "${1:-}" || return 2
   _pwr_lock=$1
   _pw_lock_lookup "$_pwr_lock" || return 1
   if [ "$_pw_lock_depth" -gt 1 ]; then
@@ -496,11 +610,23 @@ pw_lock_release() {
     return 0
   fi
   _pwr_token=$_pw_lock_token
+  # THE UNLINK COMES FIRST AND THE BOOKKEEPING AFTER, the mirror image of the
+  # acquire: dropping the record first would open an instant where the link is
+  # on disk and the armed handler no longer knows to release it, which is the
+  # same leak, in the same window, on the way out.
+  #
+  # A holder whose lock was broken finds a stranger's token here and leaves it
+  # alone, which is the whole reason the token exists.
+  if [ "$(readlink "$_pwr_lock" 2>/dev/null)" != "$_pwr_token" ]; then
+    _pw_lock_store "$_pwr_lock" '' 0
+    return 1
+  fi
+  if ! rm -f "$_pwr_lock" 2>/dev/null; then
+    # Still ours and still on disk. Leave the hold recorded so the handler
+    # tries again at exit rather than leaving a lock nothing will release.
+    return 2
+  fi
   _pw_lock_store "$_pwr_lock" '' 0
-  # The verified unlink. A holder whose lock was broken finds a stranger's
-  # token here and leaves it alone, which is the whole reason the token exists.
-  [ "$(readlink "$_pwr_lock" 2>/dev/null)" = "$_pwr_token" ] || return 1
-  rm -f "$_pwr_lock" 2>/dev/null || return 2
   return 0
 }
 
@@ -509,13 +635,32 @@ pw_lock_release() {
 # happens only while the link is that token's. 0 released, 1 the lock is not
 # that token's (including: already gone), 2 the unlink failed.
 pw_lock_release_token() {
-  if [ "$#" -lt 2 ] || [ -z "${1:-}" ] || [ -z "${2:-}" ]; then
+  _pw_lock_path_ok pw_lock_release_token "${1:-}" || return 2
+  if [ -z "${2:-}" ]; then
     _pw_lock_usage pw_lock_release_token
     return 2
   fi
   [ "$(readlink "$1" 2>/dev/null)" = "$2" ] || return 1
   rm -f "$1" 2>/dev/null || return 2
   return 0
+}
+
+# _pw_lock_sweep_claims <lock> — remove the break claims and asides belonging to
+# one lock. A breaker killed mid-break leaves one behind, and nothing else
+# collects it: it is harmless to an acquire (a claim is reclaimed by its own
+# owner-liveness) right up until the breaker's pid is recycled, after which it
+# reads alive forever and the stale break for that lock stops working.
+_pw_lock_sweep_claims() {
+  case $- in
+    *f*) _pwk_restore='set -f' ;;
+    *) _pwk_restore='set +f' ;;
+  esac
+  set +f
+  for _pwk_p in "$1"'#break#'*; do
+    [ -L "$_pwk_p" ] || [ -e "$_pwk_p" ] || continue
+    rm -rf "$_pwk_p" 2>/dev/null || :
+  done
+  $_pwk_restore
 }
 
 # pw_lock_break_force <path> — clear a lock WITHOUT proving ownership. This is
@@ -526,10 +671,8 @@ pw_lock_release_token() {
 # what makes an in-place upgrade from that shape possible at all. 0 the path is
 # clear, 2 something is there that this cannot safely remove.
 pw_lock_break_force() {
-  if [ "$#" -lt 1 ] || [ -z "${1:-}" ]; then
-    _pw_lock_usage pw_lock_break_force
-    return 2
-  fi
+  _pw_lock_path_ok pw_lock_break_force "${1:-}" || return 2
+  _pw_lock_sweep_claims "$1"
   if [ -L "$1" ]; then
     rm -f "$1" 2>/dev/null || return 2
     return 0
@@ -538,7 +681,40 @@ pw_lock_break_force() {
     rm -rf "$1" 2>/dev/null || return 2
     return 0
   fi
-  [ ! -e "$1" ] || return 2
+  # A regular file at a lock path is not a lock either, and an acquire refuses
+  # to take the path over it. If the escape hatch refused it too, nothing in
+  # the tree could clear it.
+  if [ -e "$1" ]; then
+    rm -f "$1" 2>/dev/null || return 2
+  fi
+  return 0
+}
+
+# pw_lock_clear_legacy <path> — clear a lock DIRECTORY left by the retired
+# `mkdir` shape, and nothing else. 0 cleared, 1 there was no legacy directory
+# to clear (including: a live lock is there), 2 the removal failed.
+#
+# A caller cannot do this with a test and pw_lock_break_force: the test and the
+# removal are two steps, and a peer taking the path in between would have its
+# LIVE lock deleted — a double grant out of a recovery path. The rename below
+# is the claim: it moves whatever is at the path in one step, and what moved is
+# then inspected before anything is removed.
+pw_lock_clear_legacy() {
+  _pw_lock_path_ok pw_lock_clear_legacy "${1:-}" || return 2
+  [ ! -L "$1" ] || return 1
+  [ -d "$1" ] || return 1
+  PW_LOCK_SEQ=$((PW_LOCK_SEQ + 1))
+  _pwc_aside="$1#legacy#$$-$PW_LOCK_SEQ"
+  rm -rf "$_pwc_aside" 2>/dev/null || :
+  mv -f "$1" "$_pwc_aside" 2>/dev/null || return 1
+  if [ -L "$_pwc_aside" ] || [ ! -d "$_pwc_aside" ]; then
+    # A peer's live lock, not the legacy directory probed. Put it back; if the
+    # path has since been taken again the restore fails and dropping the aside
+    # is the only correct move, and it is a link rather than a tree.
+    mv -f "$_pwc_aside" "$1" 2>/dev/null || rm -f "$_pwc_aside" 2>/dev/null || :
+    return 1
+  fi
+  rm -rf "$_pwc_aside" 2>/dev/null || return 2
   return 0
 }
 
@@ -552,11 +728,15 @@ pw_lock_release_all() {
     _pwx_tail=${_pwx_line#* }
     _pwx_token=${_pwx_tail%% *}
     _pwx_path=${_pwx_tail#* }
-    _pw_lock_store "$_pwx_path" '' 0
+    # Unlink before forgetting, for the reason pw_lock_release gives: a second
+    # signal landing inside this loop re-enters it, and a record dropped ahead
+    # of its unlink is a lock the re-entry can no longer see.
     if [ "$(readlink "$_pwx_path" 2>/dev/null)" = "$_pwx_token" ]; then
       rm -f "$_pwx_path" 2>/dev/null || :
     fi
+    _pw_lock_store "$_pwx_path" '' 0
   done
+  PW_LOCK_TOKEN=''
   return 0
 }
 
