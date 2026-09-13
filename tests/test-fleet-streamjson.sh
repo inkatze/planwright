@@ -65,6 +65,9 @@ fail() {
 }
 
 [ -x "$SJ" ] || fail "scripts/fleet-streamjson.sh missing or not executable"
+# The launch preflight runs the worker-command-guard, whose payload read needs
+# jq; without it every launch below would refuse for the wrong reason.
+command -v jq >/dev/null 2>&1 || fail "jq is required: the launch preflight runs the auto-approve hook"
 [ -x "$FA" ] || fail "scripts/fleet-attention.sh missing or not executable"
 
 tmp=$(mktemp -d)
@@ -182,7 +185,8 @@ env_scrub=(
   -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME
   -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_REPO_ROOT
   -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS
-  -u PLANWRIGHT_STREAMJSON_PENDING_AGE
+  -u PLANWRIGHT_STREAMJSON_PENDING_AGE -u PLANWRIGHT_STREAMJSON_ALARM_TICK
+  -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
 )
 
 # senv <home> <record-dir> [SHIM_VAR=val...] -- <args...> — hermetic
@@ -450,9 +454,11 @@ wdir5="$home/streamjson/sjw5"
 wait_until 100 grep -q "^$req_perm$tab" "$wdir5/journal" \
   || fail "c5: the pending journal row never appeared"
 out=$(senv "$home" "$rec" -- status sjw5) || fail "c5: status exited non-zero"
+# A live worker parked on a pending receipt is waiting, not running: the
+# verdict says so and carries the count and the oldest age.
 case $out in
-  "status sjw5 running "*) : ;;
-  *) fail "c5: status should report running mid-flight, got: $out" ;;
+  "status sjw5 awaiting-input pending=1 oldest="*"s supervisor="*" worker="*) : ;;
+  *) fail "c5: status should report awaiting-input with the pending count mid-flight, got: $out" ;;
 esac
 out=$(senv "$home" "$rec" -- answer sjw5 "$req_perm" --allow) \
   || fail "c5: answer exited non-zero"
@@ -2167,5 +2173,218 @@ esac
 [ "$rc32" = 6 ] \
   || fail "c32: a partial close must exit 6, got $rc32: $out"
 echo "ok: c32 an attention probe that cannot answer counts as held (REQ-A1.3)"
+
+# ---------------------------------------------------------------------------
+# c33: the LAUNCH PREFLIGHT. A worker's first move is a plugin-script call
+#    under whichever root its skill resolves to; a launch whose wired hook
+#    would not approve that call refuses (exit 9) instead of spawning a worker
+#    that pends on it — the 2026-09-12 stall, where the hook trusted the
+#    launcher's checkout and the skill called scripts under the marketplace
+#    cache. The roots come from scripts/resolve-installed-roots.sh, the same
+#    resolver the hook reads, so the proof and the trust cannot diverge.
+# ---------------------------------------------------------------------------
+home="$tmp/h33"
+rec="$tmp/r33"
+mkdir -p "$rec"
+ev="$tmp/ev33"
+printf '%s\n%s\n' "$line_init" "$line_result" >"$ev"
+printf 'preflight\n' >"$tmp/prompt33"
+cdir="$tmp/cdir33"
+# An installed root the resolver names that the hook cannot approve a script
+# under: it exists, but carries no scripts/ dir, so containment cannot resolve.
+bad_root="$cdir/inst/planwright/0.99.0"
+mkdir -p "$bad_root" "$cdir/plugins"
+jq -n --arg p "$bad_root" \
+  '{plugins: {"planwright@planwright": [{installPath: $p, version: "0.99.0"}]}}' \
+  >"$cdir/plugins/installed_plugins.json"
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" -- \
+  launch sjw33 execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33.err"
+[ $? -eq 9 ] || fail "c33: a root the hook does not approve must refuse the launch (exit 9), stderr: $(cat "$tmp/pf33.err")"
+grep -q "$bad_root/scripts/resolve-rule-doc.sh" "$tmp/pf33.err" \
+  || fail "c33: the refusal must name the root and the command it could not approve, got: $(cat "$tmp/pf33.err")"
+! grep -q "does not approve '$(cd "$here/.." && pwd -P)/scripts/" "$tmp/pf33.err" \
+  || fail "c33: only the bad root fails; the launcher's own root must pass the proof"
+[ ! -s "$rec/argv" ] || fail "c33: a refused preflight must never spawn the worker"
+[ ! -d "$home/streamjson/sjw33" ] || fail "c33: a refused preflight must leave no runtime dir behind"
+# warn: the same failure is reported and the launch proceeds.
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" \
+  PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=warn -- \
+  launch sjw33w execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33w.err" \
+  || fail "c33: warn mode must launch, stderr: $(cat "$tmp/pf33w.err")"
+grep -q "$bad_root/scripts/resolve-rule-doc.sh" "$tmp/pf33w.err" \
+  || fail "c33: warn mode must still report the root it could not approve"
+grep -q "continuing anyway" "$tmp/pf33w.err" || fail "c33: warn mode must say it is continuing"
+[ -s "$rec/argv" ] || fail "c33: warn mode must spawn the worker"
+# A well-formed installed root — the marketplace-cache shape a worker's skill
+# actually resolves to — passes the proof with no env pointing at it: the hook
+# trusts it through the resolver, exactly as the worker's calls will be.
+good_root="$cdir/plugins/cache/mkt/planwright/0.98.0"
+mkdir -p "$good_root/scripts"
+: >"$good_root/scripts/resolve-rule-doc.sh"
+jq -n --arg p "$good_root" \
+  '{plugins: {"planwright@planwright": [{installPath: $p, version: "0.98.0"}]}}' \
+  >"$cdir/plugins/installed_plugins.json"
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" -- \
+  launch sjw33g execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33g.err" \
+  || fail "c33: an approvable installed root must launch, stderr: $(cat "$tmp/pf33g.err")"
+# Silent from the preflight's side; the launch's own registration notes may
+# still print (no tower identity in this harness).
+! grep -q "launch preflight" "$tmp/pf33g.err" \
+  || fail "c33: a passing preflight must be silent, got: $(cat "$tmp/pf33g.err")"
+[ -s "$rec/argv" ] || fail "c33: the passing launch must spawn the worker"
+# An unknown mode value is a usage error, never a silent skip.
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" \
+  PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=maybe -- \
+  launch sjw33m execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c33: an unknown preflight mode must be refused (exit 2)"
+# off: the proof is skipped outright, a root the hook would refuse included.
+jq -n --arg p "$bad_root" \
+  '{plugins: {"planwright@planwright": [{installPath: $p, version: "0.99.0"}]}}' \
+  >"$cdir/plugins/installed_plugins.json"
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" \
+  PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off -- \
+  launch sjw33o execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33o.err" \
+  || fail "c33: off mode must launch, stderr: $(cat "$tmp/pf33o.err")"
+! grep -q "launch preflight" "$tmp/pf33o.err" || fail "c33: off mode must not run the proof"
+[ -s "$rec/argv" ] || fail "c33: off mode must spawn the worker"
+# The proof is of the hook the WORKER runs: the wrapper keeps a CLAUDE_PLUGIN_ROOT
+# the launcher was started with, and the worker-settings hook resolves through
+# that variable, so a launcher carrying another install's root must prove that
+# install's guard (here: a root with no guard at all), not this checkout's copy.
+preset="$cdir/preset-root"
+mkdir -p "$preset"
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS="$ev" -- \
+  launch sjw33p execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33p.err"
+[ $? -eq 9 ] || fail "c33: a preset plugin root without the guard must refuse (exit 9), stderr: $(cat "$tmp/pf33p.err")"
+grep -q "$preset/scripts/worker-command-guard.sh" "$tmp/pf33p.err" \
+  || fail "c33: the refusal must name the guard under the worker's plugin root, got: $(cat "$tmp/pf33p.err")"
+[ ! -s "$rec/argv" ] || fail "c33: a missing worker-side guard must never spawn the worker"
+# The proof's own failure is a refusal with a cause, never a pass: a record it
+# cannot create exits 2 and says why.
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" "TMPDIR=$cdir/no-such-tmp" SHIM_EVENTS="$ev" -- \
+  launch sjw33t execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33t.err"
+[ $? -eq 2 ] || fail "c33: an unwritable proof record must refuse (exit 2), stderr: $(cat "$tmp/pf33t.err")"
+grep -q "cannot create a temp file for the proof record" "$tmp/pf33t.err" \
+  || fail "c33: the temp-file failure must be named, got: $(cat "$tmp/pf33t.err")"
+[ ! -s "$rec/argv" ] || fail "c33: a proof that could not run must never spawn the worker"
+echo "ok: c33 launch preflight proves the hook approves the opening plugin-script call per root, refuses (9) or warns otherwise (fleet-autonomy D-19)"
+
+# ---------------------------------------------------------------------------
+# c34: the ESCALATION TICK. A receipt pending past the threshold is escalated
+#    by the supervisor itself, within a tick, with nothing else running
+#    `alarm-scan` — and still never answered, never killed.
+# ---------------------------------------------------------------------------
+home="$tmp/h34"
+rec="$tmp/r34"
+mkdir -p "$rec"
+ev="$tmp/ev34"
+printf '%s\n%s\n' "$line_init" "$line_perm" >"$ev"
+printf 'park me\n' >"$tmp/prompt34"
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" \
+  PLANWRIGHT_STREAMJSON_PENDING_AGE=1 PLANWRIGHT_STREAMJSON_ALARM_TICK=1 -- \
+  launch sjw34 execution-backends:4 --prompt-file "$tmp/prompt34" --foreground &
+launch34=$!
+wdir34="$home/streamjson/sjw34"
+wait_until 100 grep -q "^$req_perm$tab" "$wdir34/journal" \
+  || fail "c34: the pending journal row never appeared"
+# The receipt queues its row at normal priority; the tick promotes it to
+# high once the age passes the threshold. Bounded wait: 1s threshold + 1s
+# tick, plus scheduling slack.
+overdue34() { aenv "$home" queue | grep "sjw34" | grep -q '^- \[high\]'; }
+wait_until 100 overdue34 \
+  || fail "c34: the supervisor tick never escalated the overdue receipt, queue: $(aenv "$home" queue)"
+grep -q "^$req_perm$tab.*${tab}pending" "$wdir34/journal" \
+  || fail "c34: escalation must not settle the request"
+grep -q control_response "$rec/stdin" 2>/dev/null \
+  && fail "c34: escalation must never auto-answer"
+out=$(senv "$home" "$rec" -- status sjw34) || fail "c34: status exited non-zero"
+case $out in
+  "status sjw34 awaiting-input pending=1 "*) : ;;
+  *) fail "c34: an escalated worker is still awaiting-input, got: $out" ;;
+esac
+# The worker is untouched: answering still completes the run.
+senv "$home" "$rec" -- answer sjw34 "$req_perm" --allow >/dev/null \
+  || fail "c34: answer after escalation exited non-zero"
+wait "$launch34" || fail "c34: the run did not end cleanly after the answer"
+[ "$(aenv "$home" queue --count)" = 0 ] \
+  || fail "c34: the queue should clear once the escalated request settles"
+echo "ok: c34 the supervisor escalates an overdue receipt within a tick; escalation only (REQ-E1.1)"
+
+# ---------------------------------------------------------------------------
+# c35: the status verdict's shapes, from fabricated state. A live worker with
+#    no pending row is `running`; with a pending row whose epoch is unreadable
+#    it is still `awaiting-input` (age unknown), never back to `running`; a
+#    dead supervisor with pending rows is neither.
+# ---------------------------------------------------------------------------
+home="$tmp/h35"
+w35="$home/streamjson/sjw35"
+mkdir -p "$w35"
+printf '%s\n' "$$" >"$w35/supervisor.pid"
+printf '%s\n' "$$" >"$w35/worker.pid"
+out=$(senv "$home" "$tmp/r35" -- status sjw35) || fail "c35: status exited non-zero"
+case $out in
+  "status sjw35 running supervisor=$$ worker=$$") : ;;
+  *) fail "c35: a live worker with no journal must read running, got: $out" ;;
+esac
+printf 'req-a\tpermission\t100\tanswered\t200\n' >"$w35/journal"
+out=$(senv "$home" "$tmp/r35" -- status sjw35) || fail "c35: status exited non-zero"
+case $out in
+  "status sjw35 running "*) : ;;
+  *) fail "c35: a live worker with only settled rows must read running, got: $out" ;;
+esac
+printf 'req-b\tpermission\tnot-an-epoch\tpending\t\n' >>"$w35/journal"
+out=$(senv "$home" "$tmp/r35" -- status sjw35) || fail "c35: status exited non-zero"
+case $out in
+  "status sjw35 awaiting-input pending=1 oldest=unknown supervisor=$$ worker=$$") : ;;
+  *) fail "c35: a pending row with an unreadable epoch must still read awaiting-input, got: $out" ;;
+esac
+printf 'req-c\tpermission\t100\tpending\t\n' >>"$w35/journal"
+out=$(senv "$home" "$tmp/r35" -- status sjw35) || fail "c35: status exited non-zero"
+case $out in
+  "status sjw35 awaiting-input pending=2 oldest="[0-9]*"s supervisor=$$ worker=$$") : ;;
+  *) fail "c35: the count covers every pending row and the age the readable ones, got: $out" ;;
+esac
+sh -c ':' &
+dead35=$!
+wait "$dead35"
+printf '%s\n' "$dead35" >"$w35/supervisor.pid"
+out=$(senv "$home" "$tmp/r35" -- status sjw35) || :
+case $out in
+  "status sjw35 awaiting-input"* | "status sjw35 running"*) fail "c35: a dead supervisor must never read live, got: $out" ;;
+  "status sjw35 "*) : ;;
+  *) fail "c35: unexpected status shape: $out" ;;
+esac
+echo "ok: c35 status reads running only with no pending row, awaiting-input on any pending row, and never live for a dead supervisor"
+
+# ---------------------------------------------------------------------------
+# c36: the escalation tick's own ingress. Internal, but reachable, so a bad
+#    argv is a refusal with a cause, and the directory must be the worker's own.
+# ---------------------------------------------------------------------------
+home="$tmp/h36"
+w36="$home/streamjson/sjw36"
+mkdir -p "$w36" "$tmp/elsewhere36"
+senv "$home" "$tmp/r36" -- _tick sjw36 "$w36" >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c36: a short argv must be a usage error (exit 2)"
+senv "$home" "$tmp/r36" -- _tick sjw36 "$tmp/elsewhere36" "$$" "$$" >/dev/null 2>"$tmp/tk36.err"
+[ $? -eq 2 ] || fail "c36: a directory that is not the worker's own must be refused (exit 2)"
+grep -q "is not the state directory of worker sjw36" "$tmp/tk36.err" \
+  || fail "c36: the refusal must say which directory was rejected, got: $(cat "$tmp/tk36.err")"
+senv "$home" "$tmp/r36" -- _tick sjw36 "$w36" nope "$$" >/dev/null 2>"$tmp/tk36b.err"
+[ $? -eq 2 ] || fail "c36: a non-numeric pid must be refused (exit 2)"
+grep -q "pids must be positive integers" "$tmp/tk36b.err" \
+  || fail "c36: the pid refusal must be named, got: $(cat "$tmp/tk36b.err")"
+echo "ok: c36 the tick refuses a malformed argv or a foreign directory, and says so"
 
 echo "all fleet-streamjson tests passed"

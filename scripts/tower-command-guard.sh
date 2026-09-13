@@ -47,8 +47,9 @@
 #     branch of every classifier is defer, so "zero false-allows" is guaranteed
 #     by construction, not merely across the test corpus (REQ-C1.3).
 #
-# Analysis model (inherited verbatim from the worker guard): the fully-expanded
-# command (Claude Code expands variables before the hook sees it) is split —
+# Analysis model (inherited from the worker guard): the command string exactly
+# as written — Claude Code hands a hook the raw `tool_input.command`, with
+# `$VAR` references unexpanded (measured on CLI 2.1.270) — is split —
 # quote- and operator-aware — into segments on the control operators `;` `&&`
 # `||` `|` `&` and newlines; EVERY segment's simple command must be
 # independently known-safe. A command is known-safe only when its verb is on the
