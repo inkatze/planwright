@@ -454,8 +454,7 @@ wait_until 100 grep -q "^$req_perm$tab" "$wdir5/journal" \
   || fail "c5: the pending journal row never appeared"
 out=$(senv "$home" "$rec" -- status sjw5) || fail "c5: status exited non-zero"
 # A live worker parked on a pending receipt is waiting, not running: the
-# verdict says so and carries the count and the oldest age, so the twenty
-# minutes a stalled worker once spent reading as healthy cannot recur.
+# verdict says so and carries the count and the oldest age.
 case $out in
   "status sjw5 awaiting-input pending=1 oldest="*"s supervisor="*" worker="*) : ;;
   *) fail "c5: status should report awaiting-input with the pending count mid-flight, got: $out" ;;
