@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.41.0](https://github.com/inkatze/planwright/compare/v0.40.0...v0.41.0) (2026-09-13)
+
+
+### Features
+
+* **doctrine:** add the tower conversation rule doc and its budget raise ([#445](https://github.com/inkatze/planwright/issues/445)) ([4c37bdc](https://github.com/inkatze/planwright/commit/4c37bdc85246c80bacb1bbc618f58085d0dd3ce2))
+* **tower-comms:** ship the event log and the scorecard (task 1) ([#451](https://github.com/inkatze/planwright/issues/451)) ([e8b1bbf](https://github.com/inkatze/planwright/commit/e8b1bbf7b610ee19edc7601798cdc21546cc4411))
+
+
+### Bug Fixes
+
+* **fleet:** approve a worker's opening plugin-script call, and say when it cannot ([#443](https://github.com/inkatze/planwright/issues/443)) ([59dc820](https://github.com/inkatze/planwright/commit/59dc8208c04b922e24506c1c565dab64c0569ee3))
+* **fleet:** report the stall class honestly at the dispatch and relay layers ([#444](https://github.com/inkatze/planwright/issues/444)) ([cfe3065](https://github.com/inkatze/planwright/commit/cfe30650a36d1d593f0da519ed326df0062e7af5))
+* **guards:** stop one branch's fixture from reddening every sibling's gate ([#453](https://github.com/inkatze/planwright/issues/453)) ([fc36d67](https://github.com/inkatze/planwright/commit/fc36d67b489253e4187c516fab5eb6db0eb45824))
+
 ## [0.40.0](https://github.com/inkatze/planwright/compare/v0.39.0...v0.40.0) (2026-09-12)
 
 
