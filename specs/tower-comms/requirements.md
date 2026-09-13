@@ -1,7 +1,7 @@
 # Tower comms — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-09
+**Last reviewed:** 2026-09-12
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -646,6 +646,16 @@ measured evidence (D-15, D-16).
   with a machine-local ledger-shaped file under the fleet home, named the
   nine config keys, and stated the loss budget honestly. Every task, every
   decision touched, and the paired test-spec entries updated.
+- 2026-09-12 — Task 7 expression-only edit. Task 7's `Citations:` line now
+  names REQ-E1.7 and REQ-I1.4, whose test-spec entries already pin the
+  no-subject judgment sentence and the scope statement to the rule doc the
+  task delivers; the citations were the only place the pairing was missing.
+  No REQ, D-ID, or `Done when:` condition changes meaning.
+- 2026-09-12 — Task 7 expression-only edit, second. Task 7's `Citations:`
+  line now names D-16, the scope decision the rule doc's own scope
+  statement and its doctrine index row already cite; the task line was the
+  one surface that did not. No REQ, D-ID, or `Done when:` condition changes
+  meaning.
 
 ## Sources
 
