@@ -208,7 +208,10 @@ echo "ok: a delivered turn and an operator reply log with no queue present"
 
 # --- every event kind writes, and redaction covers all of them ----------------
 
-secret_token="ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
+# Every secret-shaped fixture is spelled as two adjacent strings so the
+# literal never appears contiguously in the source or the scanner's history
+# walk (the house pattern, see tests/test-inception-secret-screen.sh).
+secret_token="ghp_""ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
 kinds="born settled merged knocked delivered acknowledged shelved pushed session tick reply dropped unavailable refused"
 before=$(line_count "$log_file")
 n=0
@@ -233,11 +236,11 @@ after=$(line_count "$log_file")
 echo "ok: every event kind appends one line and the secret-shaped value is redacted in each"
 
 for v in \
-  'AKIAABCDEFGHIJKLMNOP' \
-  'xoxb-0123456789abcdef' \
-  'sk-abcdefghijklmnopqrstuvwxyz' \
-  'password=abcdefghijklmnopqrstuvwxyz' \
-  '-----BEGIN RSA PRIVATE KEY-----'; do
+  "AKIA""ABCDEFGHIJKLMNOP" \
+  "xoxb-""0123456789abcdef" \
+  "sk-""abcdefghijklmnopqrstuvwxyz" \
+  "password=""abcdefghijklmnopqrstuvwxyz" \
+  "-----BEGIN RSA ""PRIVATE KEY-----"; do
   run log born --now 3000 item=s "text=before $v after" || fail "born with '$v': exit"
   l=$(last_line)
   case "$l" in
