@@ -587,6 +587,7 @@ rows below; existing rows are never overwritten.
 | 20 | Captured requests, approvals, and standing decisions live in a machine-local file under the fleet home until the ledger ships, so they do not travel across machines and a request spoken mid-run dies with the machine | Owner-only file, survives tower death; the Deferred cutover entry gates on the ledger gaining a standing kind. Early signal: a standing decision missing on a second machine |
 | 21 | The new session-relayed `push` channel depends on the tower session calling the push tool on its next step, so a stalled tower never relays a pending push | The marker persists until relayed and is deduped per item; a successor tower relays on start. Early signal: a pending-push marker older than the quiet interval with no push event logged |
 | 22 | Attention rests on a per-tower marker file written by the prompt-submit hook; a session without the plugin's hooks never confirms attention | Fleet guide documents the hook as part of the tower's install; `next` surfaces "no attention marker" as an error rather than knocking forever. Early signal: knocks with no marker advance across a whole session |
+| 23 | The Task 7 raise is sized to the rule doc alone, but wiring it in (Task 8) adds the manifest line and the one-line gist to a tower skill body that sits within a few words of its per-file floor; the guard's audit puts that body at a margin equal to its exception's pinned figure, so any added body word is a widening on the per-file surface, and the same words are charged to the closure, where the raise covers only the doc | Task 8 funds its manifest line and gist with a compensating trim in the same skill body (skill-rigor REQ-E1.1); the per-file ratchet forces that trim regardless of the closure raise, and the trim nets the closure charge back to the doc's own size; until Task 8 lands, the raise's headroom sits unspent above both closure exceptions and is reserved for the doc, so a spend by another change surfaces on Task 8's branch as a widening it did not cause. Early signal: `check:instructions` reporting a widened declared exception on the Task 8 branch |
 
 **Open questions.** None carried: every question raised in the walk was
 resolved into a decision or an accepted risk above.
@@ -730,4 +731,42 @@ Anchor: `2f461e0c6e78d2cce6d4a2b73f4c8bec4ec5e268` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Re-anchor — Task 7 expression-only edit (2026-09-12)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Sign-off records and content anchors*),
+recorded by the `/execute-task` run for Task 7 at its convergence pass.
+
+**Why the anchor moved:** one expression-only edit inside the bundle. The
+test-spec entries for REQ-E1.7 and REQ-I1.4 assign the no-subject judgment
+sentence and the scope statement to the rule doc Task 7 delivers, but Task
+7's `Citations:` line named neither requirement; it now does. Both files
+bump `Last reviewed:`. `requirements.md` carries the paired changelog
+entry. No REQ, D-ID, or `Done when:` condition changes meaning.
+
+**Cites the changelog line:** the 2026-09-12 `## Changelog` entry in
+`specs/tower-comms/requirements.md` ("Task 7 expression-only edit").
+
+Class: expression-only
+Anchor: `6fca6cf8ebc13883ce351a5f2e84f7a6df49bcf5` — computed as
+`scripts/spec-anchor.sh specs/tower-comms`
+
+### Re-anchor — Task 7 expression-only edit, second (2026-09-12)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Sign-off records and content anchors*),
+recorded by the review pass for Task 7.
+
+**Why the anchor moved:** one expression-only edit inside the bundle. Task
+7's `Citations:` line now names D-16, the scope decision the rule doc and
+its doctrine index row already cite; the task line was the one surface
+that did not. `requirements.md` carries the paired changelog entry. No
+REQ, D-ID, or `Done when:` condition changes meaning.
+
+**Cites the changelog line:** the 2026-09-12 `## Changelog` entry in
+`specs/tower-comms/requirements.md` ("Task 7 expression-only edit,
+second").
+
+Class: expression-only
+Anchor: `4572a73c96edf7e6925127c8dbcfd32775f7cd3d` — computed as
+`scripts/spec-anchor.sh specs/tower-comms`
