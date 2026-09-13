@@ -448,6 +448,8 @@ if [ "$state_shared_tmp" = 1 ]; then
   # already exists, so -p is unnecessary and its -m caveat does not apply), then
   # validate on EVERY use — the dir persists across invocations, so a later run
   # must re-prove it is still ours and not a redirect planted since.
+  # The trust check below, not this status, decides whether the dir is usable.
+  # not-a-lock: mode-pinned bootstrap; a peer winning the create is success
   [ -d "$state_dir" ] || mkdir -m 0700 "$state_dir" 2>/dev/null || true
   if ! state_dir_trusted "$state_dir"; then
     printf '%s\n' "fleet-pane-detect: refusing the shared fallback state dir $(sanitize_printable "$state_dir" "(unprintable path)") — not a private per-user directory (foreign owner or symlink redirect); pane heuristics unavailable, the defer gates still answer" >&2

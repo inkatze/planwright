@@ -749,6 +749,7 @@ write_sentinel() {
 ensure_infra_dir() {
   check_surface_not_redirected "$1"
   if [ ! -d "$1" ]; then
+    # not-a-lock: mode-pinned bootstrap; the [ -d ] below is what fails closed
     mkdir -m 0700 "$1" 2>/dev/null || true
   fi
   if [ ! -d "$1" ]; then
@@ -799,6 +800,8 @@ ensure_surface_dir() {
     exit 3
   fi
   write_sentinel "$esd_sentinel"
+  # The failure arm re-tests for the directory rather than trusting this status.
+  # not-a-lock: mode-pinned bootstrap; a concurrent one's EEXIST is success
   if ! mkdir -m 0700 "$esd_dir" 2>/dev/null; then
     if [ ! -d "$esd_dir" ]; then
       err "cannot create presence surface $esd_dir — failing closed; fix the fleet home's writability and retry"
