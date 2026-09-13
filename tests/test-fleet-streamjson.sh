@@ -185,7 +185,8 @@ env_scrub=(
   -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME
   -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_REPO_ROOT
   -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS
-  -u PLANWRIGHT_STREAMJSON_PENDING_AGE
+  -u PLANWRIGHT_STREAMJSON_PENDING_AGE -u PLANWRIGHT_STREAMJSON_ALARM_TICK
+  -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
 )
 
 # senv <home> <record-dir> [SHIM_VAR=val...] -- <args...> — hermetic
@@ -2203,6 +2204,8 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" -- \
 [ $? -eq 9 ] || fail "c33: a root the hook does not approve must refuse the launch (exit 9), stderr: $(cat "$tmp/pf33.err")"
 grep -q "$bad_root/scripts/resolve-rule-doc.sh" "$tmp/pf33.err" \
   || fail "c33: the refusal must name the root and the command it could not approve, got: $(cat "$tmp/pf33.err")"
+! grep -q "does not approve '$(cd "$here/.." && pwd -P)/scripts/" "$tmp/pf33.err" \
+  || fail "c33: only the bad root fails; the launcher's own root must pass the proof"
 [ ! -s "$rec/argv" ] || fail "c33: a refused preflight must never spawn the worker"
 [ ! -d "$home/streamjson/sjw33" ] || fail "c33: a refused preflight must leave no runtime dir behind"
 # warn: the same failure is reported and the launch proceeds.
@@ -2240,6 +2243,18 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" \
   launch sjw33m execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
   >/dev/null 2>&1
 [ $? -eq 2 ] || fail "c33: an unknown preflight mode must be refused (exit 2)"
+# off: the proof is skipped outright, a root the hook would refuse included.
+jq -n --arg p "$bad_root" \
+  '{plugins: {"planwright@planwright": [{installPath: $p, version: "0.99.0"}]}}' \
+  >"$cdir/plugins/installed_plugins.json"
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" \
+  PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off -- \
+  launch sjw33o execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33o.err" \
+  || fail "c33: off mode must launch, stderr: $(cat "$tmp/pf33o.err")"
+! grep -q "launch preflight" "$tmp/pf33o.err" || fail "c33: off mode must not run the proof"
+[ -s "$rec/argv" ] || fail "c33: off mode must spawn the worker"
 # The proof is of the hook the WORKER runs: the wrapper keeps a CLAUDE_PLUGIN_ROOT
 # the launcher was started with, and the worker-settings hook resolves through
 # that variable, so a launcher carrying another install's root must prove that
