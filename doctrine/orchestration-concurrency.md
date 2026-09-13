@@ -35,9 +35,8 @@ advisory lock** is not part of the record; it is the mechanism that
 serializes the freshness-gate-plus-branch-create-plus-marker-write window so
 that window is atomic against a concurrent tower or the `tasks-pr-sync` hook.
 The lock path and protocol are shared with `tasks-pr-sync.sh` so the
-two exclude each other: one primitive (`scripts/lock-lib.sh`), an atomic
-create carrying an owner token, broken only when that owner's process is
-absent. An `acquire` exit 1 (another live holder) is a
+two exclude each other: one primitive, `scripts/lock-lib.sh`, broken only
+on owner absence. An `acquire` exit 1 (another live holder) is a
 **clean no-op**: skip the step — another tower or the hook holds it, and
 `--bookkeeping` reconciles anything dropped. The lock is released the moment
 the write window closes, before dispatch, and is never held across execution:
