@@ -494,6 +494,34 @@ rm -f "$tmp"/for.lock*
 run_sh x 'pw_lock_acquire_for "$1/bad.lock" "not-a-pid"' >/dev/null 2>&1
 assert_exit "a non-numeric owner pid is a usage error" 2 $?
 
+# ---------------------------------------------------------------------------
+# 15. The lock-holder list in the library's header is the truth
+# ---------------------------------------------------------------------------
+#
+# The header names the scripts that take their locks through this library, and
+# a list like that rots the moment someone adopts a sixth script or drops one.
+# Compare it against what the tree actually sources, so the claim cannot
+# outlive its accuracy.
+
+listed="$(sed -n 's|^#   \(scripts/[a-z0-9-]*\.sh\).*|\1|p' "$LIB" | sort -u)"
+# Two signals, because the tree sources it two ways: a literal `. <path>`, and
+# where the path goes through a variable, the shellcheck source= directive the
+# house style requires at the site. The guard is excluded because its usage
+# text shows the remedy as an example, which reads the same to a line scan.
+sourcing="$(grep -lE '^[[:space:]]*(\. .*lock-lib\.sh|# shellcheck source=scripts/lock-lib\.sh$)' \
+  "$REPO_ROOT"/scripts/*.sh 2>/dev/null \
+  | sed "s|^$REPO_ROOT/||" \
+  | grep -vE '^scripts/(lock-lib|check-lock-primitive)\.sh$' | sort -u)"
+if [ -z "$listed" ]; then
+  fail "the header's lock-holder list could not be read"
+elif [ "$listed" = "$sourcing" ]; then
+  pass "every script the header lists sources the library, and no other does"
+else
+  fail "the header's lock-holder list has drifted from the tree
+  listed but not sourcing:  $(comm -23 <(printf '%s\n' "$listed") <(printf '%s\n' "$sourcing") | tr '\n' ' ')
+  sourcing but not listed:  $(comm -13 <(printf '%s\n' "$listed") <(printf '%s\n' "$sourcing") | tr '\n' ' ')"
+fi
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else
