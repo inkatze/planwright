@@ -900,7 +900,76 @@ c23() {
     || fail "c23: worktree for the max-length spec was not created"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23; do
+# ---------------------------------------------------------------------------
+# c24 — the branch is checked out under ANOTHER registered worktree path (the
+# pre-`<spec>-task-<id>` flat `task-<id>` layout). Neither GC arm can act on
+# it: git refuses a second checkout and refuses to delete a checked-out branch.
+# Before the fix the reconcile fell through to those arms and reported
+# "failed to recreate ... after rolling back a partial create" (exit 5) over a
+# branch it had neither rolled back nor lost. Now: exit 6, the message names
+# the holding path and the move that resolves it, and nothing is changed —
+# with and without work on the branch.
+# ---------------------------------------------------------------------------
+c24() {
+  for variant in bare work; do
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c24.XXXXXX")
+    iso_env "$tmp"
+    seed_repo "$tmp"
+    base=$(gitc "$tmp/primary" rev-parse main)
+    old="$tmp/primary/.claude/worktrees/task-10"
+    gitc "$tmp/primary" worktree add -q -b planwright/demo/task-10 "$old" "$base"
+    if [ "$variant" = work ]; then
+      printf 'work\n' >"$old/work.txt"
+      gitc "$old" add -A
+      gitc "$old" commit -q -m "work under the old layout"
+    fi
+    tip=$(gitc "$tmp/primary" rev-parse planwright/demo/task-10)
+
+    ERR=$("$PRIM" dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run 2>&1 >/dev/null </dev/null)
+    RC=$?
+    [ "$RC" -eq 6 ] \
+      || fail "c24/$variant: expected exit 6 (checked out elsewhere), got $RC: $ERR"
+    case $ERR in
+      *"already checked out at $old"*) : ;;
+      *) fail "c24/$variant: message must name the holding path $old, got: $ERR" ;;
+    esac
+    case $ERR in
+      *"git worktree move '$old' '$tmp/primary/.claude/worktrees/demo-task-10'"*) : ;;
+      *) fail "c24/$variant: message must carry the resolving move command, got: $ERR" ;;
+    esac
+    case $ERR in
+      *"rolling back"* | *"partial create"* | *"failed to adopt"*) fail "c24/$variant: the roll-back/adopt misreport is still reachable: $ERR" ;;
+      *) : ;;
+    esac
+    [ "$(gitc "$tmp/primary" rev-parse planwright/demo/task-10)" = "$tip" ] \
+      || fail "c24/$variant: branch tip changed"
+    [ "$(gitc "$old" branch --show-current)" = "planwright/demo/task-10" ] \
+      || fail "c24/$variant: the old-path checkout was disturbed"
+    [ ! -e "$tmp/primary/.claude/worktrees/demo-task-10" ] \
+      || fail "c24/$variant: a worktree was created at the new path despite the refusal"
+    rm -rf "$tmp"
+  done
+}
+
+# ---------------------------------------------------------------------------
+# c25 — the same old-path checkout with a LIVE dispatch marker is in-flight
+# (exit 3), never the exit-6 refusal: liveness still outranks the layout check.
+# ---------------------------------------------------------------------------
+c25() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c25.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  base=$(gitc "$tmp/primary" rev-parse main)
+  gitc "$tmp/primary" worktree add -q -b planwright/demo/task-10 \
+    "$tmp/primary/.claude/worktrees/task-10" "$base"
+  mkdir -p "$tmp/markers"
+  date +%s >"$tmp/markers/10"
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 3 ] || fail "c25: a live old-path checkout must read as in-flight (exit 3), got $RC"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

@@ -55,6 +55,15 @@
 #     already-in-flight. A leftover EMPTY `.claude/worktrees/<suffix>` dir (which
 #     `git worktree add` would otherwise SILENTLY create into) is cleaned, not
 #     silently reused.
+#   - Branch CHECKED OUT ELSEWHERE (under a registered worktree at some other
+#     path: the pre-`<spec>-task-<id>` flat `task-<id>` layout, or a checkout
+#     made by hand) -> stop with exit 6 naming that path. It is neither a
+#     partial create nor an adoptable orphan: git refuses to check a branch out
+#     twice and refuses to delete a checked-out branch, so the GC arms above
+#     cannot act on it and would only misreport a roll-back that never ran.
+#     Nothing is touched; the message carries the `git worktree move` that
+#     brings the checkout to the path this primitive expects. A live session
+#     under the old path's name still reads as in-flight (exit 3).
 #
 # Exception scope (D-7). The `git worktree add` shell-out is confined to THIS
 # primitive: a guard over the bundle's dispatch/tower sources (tests/test-fleet-
@@ -100,6 +109,9 @@
 #      failed after retries (stale ref) — the dispatch must not proceed on a
 #      stale base.
 #   5  create failed for a non-reconcilable reason (fs/lock/internal error).
+#   6  the branch is checked out under another registered worktree path and
+#      no live session holds it: nothing was changed; the message names the
+#      path and the `git worktree move` that resolves it.
 #
 # Portable POSIX sh (bash 3.2 / BSD compatible): no eval, no bashisms, input
 # treated as data only.
@@ -302,15 +314,25 @@ valid_suffix() {
 LIVENESS_SKIP_TMUX="${PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX:-0}"
 
 is_live() {
-  # $1 spec-dir  $2 id  $3 suffix
+  # $1 spec-dir  $2 id  $3 suffix  [$4 alternate session name]
+  # $4 is the basename of a worktree path that already holds the branch (see
+  # branch_checkout_path): a session attached under that older name is as live
+  # as one under the current suffix.
   _sd=$1
   _id=$2
   _suffix=$3
+  _alt=${4:-}
 
   if [ "$LIVENESS_SKIP_TMUX" != 1 ] && command -v tmux >/dev/null 2>&1; then
     if tmux has-session -t "=$_suffix" 2>/dev/null \
       || tmux has-session -t "=worktree-$_suffix" 2>/dev/null; then
       return 0
+    fi
+    if [ -n "$_alt" ] && [ "$_alt" != "$_suffix" ]; then
+      if tmux has-session -t "=$_alt" 2>/dev/null \
+        || tmux has-session -t "=worktree-$_alt" 2>/dev/null; then
+        return 0
+      fi
     fi
   fi
 
@@ -348,6 +370,20 @@ is_registered_worktree() {
 # Does <branch> exist in <repo>?
 branch_exists() {
   git -C "$1" show-ref --verify --quiet "refs/heads/$2"
+}
+
+# Print the registered worktree path that has <branch> checked out, empty when
+# none does. The porcelain stream is one block per worktree (`worktree <abs>`,
+# then `HEAD`, then `branch refs/heads/<name>` for an attached checkout); the
+# first block whose branch line matches wins. Fixed-string compare on the
+# whole line, as is_registered_worktree does, so a branch whose name merely
+# extends this one never matches.
+branch_checkout_path() {
+  # $1 repo-root  $2 branch
+  git -C "$1" worktree list --porcelain 2>/dev/null \
+    | awk -v want="branch refs/heads/$2" '
+        index($0, "worktree ") == 1 { p = substr($0, 10) }
+        $0 == want { print p; exit }'
 }
 
 # Does <branch> carry commits beyond <base> (real work worth adopting)?
@@ -730,9 +766,25 @@ do_dispatch() {
 
   if [ "$_created" -eq 0 ]; then
     # Reconcile: distinguish LIVE (abort) from STALE (GC-adopt / roll back).
-    if is_live "$_spec_dir" "$_id" "$_suffix"; then
+    # A checkout of the branch at some OTHER registered path counts toward
+    # liveness under that path's own session name (the old flat layout named
+    # its sessions after `task-<id>`).
+    _held_at=$(branch_checkout_path "$_repo_root" "$_branch")
+    [ "$_held_at" != "$_worktree" ] || _held_at=''
+    _held_name=''
+    [ -z "$_held_at" ] || _held_name=$(basename "$_held_at")
+    if is_live "$_spec_dir" "$_id" "$_suffix" "$_held_name"; then
       warn "already-in-flight: a live dispatch holds $_branch (aborting)"
       exit 3
+    fi
+
+    # Checked out elsewhere and not live: the GC arms below cannot act on it
+    # (git refuses a second checkout of a branch and refuses to delete a
+    # checked-out one), so stop here with the state named, before anything is
+    # removed or rolled back.
+    if [ -n "$_held_at" ]; then
+      warn "branch $_branch is already checked out at $_held_at, not at $_worktree; nothing was changed. Bring the checkout to the expected path: git worktree move '$_held_at' '$_worktree' (or remove it: git worktree remove '$_held_at'), then dispatch again"
+      exit 6
     fi
 
     # Stale orphan. Remove any leftover worktree checkout (disposable).

@@ -46,10 +46,10 @@ match it.
 
 This is the root-cause fix beneath the auto-approve `PreToolUse` hook wired into
 `config/worker-settings.json`: the hook reads the command as written (a `$VAR`
-arrives unexpanded; it resolves only a same-command assignment of a trusted
-root) and allows the known-safe set, but on its degraded path (when `jq` is
-absent it defers everything) only the literal invocation shape stays
-approvable. The two
+arrives unexpanded, measured on CLI 2.1.270; it resolves only a same-command
+assignment of a trusted root) and allows the known-safe set, but on its degraded
+path (when `jq` is absent it defers everything) only the literal invocation shape
+stays approvable. The two
 are complementary — the hook is the primary path, literal-path invocation is
 defense-in-depth independent of it.
 
