@@ -118,12 +118,13 @@ $OUT" ;;
 ########################################################################
 # 1. Captured, not authored
 ########################################################################
-# The entry runs from its heading to the next same-level heading or the end
-# of the brief, so a re-capture of a non-terminal entry cannot pull in the
-# entries after it.
+# The entry runs from its heading to the next heading at its level or above
+# (a deeper heading inside the entry is content), or the end of the brief,
+# so a re-capture of a non-terminal entry cannot pull in the entries or the
+# section after it. A second heading opening the same way ends it too.
 awk -v h="$HEADING" '
-  index($0, h) == 1 { p = 1; print; next }
-  p && /^### / { exit }
+  index($0, h) == 1 { if (p) exit; p = 1; print; next }
+  p && /^#(#|##)? / { exit }
   p
 ' "$landed/kickoff-brief.md" >"$tmp/captured.md"
 [ -s "$tmp/captured.md" ] || fail "the landing commit's brief carries no entry opening with '$HEADING'"
