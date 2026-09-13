@@ -226,6 +226,33 @@ _pw_lock_slug() {
   printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-64
 }
 
+# _pw_lock_publish <lock> <token> — create the link and take the hold. 0 held
+# (PW_LOCK_TOKEN set), 1 the path was not won.
+#
+# THE REGISTRY ENTRY IS WRITTEN FIRST, because the signal handler releases what
+# the registry names: between a create that has landed on disk and a registry
+# that does not know about it, a signal leaks the lock until somebody breaks
+# it. An entry for a create that then fails costs nothing — every release
+# re-reads the link and unlinks only its own token, so an entry matching
+# nothing does nothing — which is what makes writing it early the cheap side
+# of the trade.
+_pw_lock_publish() {
+  _pwp_lock=$1
+  _pwp_token=$2
+  _pw_lock_store "$_pwp_lock" "$_pwp_token" 1
+  if ln -s "$_pwp_token" "$_pwp_lock" 2>/dev/null \
+    && [ "$(readlink "$_pwp_lock" 2>/dev/null)" = "$_pwp_token" ]; then
+    PW_LOCK_TOKEN=$_pwp_token
+    return 0
+  fi
+  # `ln -s target dir` files the link INSIDE a directory squatting the path and
+  # still exits 0, so an unconfirmed create is not a hold. Drop the stray and
+  # the bookkeeping together.
+  rm -f "$_pwp_lock/$_pwp_token" 2>/dev/null || :
+  _pw_lock_store "$_pwp_lock" '' 0
+  return 1
+}
+
 # _pw_lock_break <lock> <dead-token> <our-token> — replace a lock whose owner
 # is gone. 0 the lock is now ours, 1 it is not (a peer is breaking it, a peer
 # holds it, or the break lost a race and declined to guess).
@@ -287,8 +314,7 @@ _pw_lock_break() {
   # in between takes a lock it is entitled to — this caller's own create then
   # fails and it reports busy rather than claiming a hold it does not have.
   rm -f "$_pwb_lock" 2>/dev/null || :
-  if ln -s "$_pwb_token" "$_pwb_lock" 2>/dev/null \
-    && [ "$(readlink "$_pwb_lock" 2>/dev/null)" = "$_pwb_token" ]; then
+  if _pw_lock_publish "$_pwb_lock" "$_pwb_token"; then
     rm -f "$_pwb_claim" 2>/dev/null || :
     return 0
   fi
@@ -323,14 +349,7 @@ _pw_lock_try_core() {
   # still exits 0, so the create is confirmed before it is believed. An
   # unconfirmed create would report a lock this caller does not hold and send
   # it into its critical section holding nothing.
-  if ln -s "$_pwt_token" "$_pwt_lock" 2>/dev/null; then
-    if [ "$(readlink "$_pwt_lock" 2>/dev/null)" = "$_pwt_token" ]; then
-      PW_LOCK_TOKEN=$_pwt_token
-      _pw_lock_store "$_pwt_lock" "$_pwt_token" 1
-      return 0
-    fi
-    rm -f "$_pwt_lock/$_pwt_token" 2>/dev/null || :
-  fi
+  _pw_lock_publish "$_pwt_lock" "$_pwt_token" && return 0
 
   # `-L` and not `-e` asks the right question: the lock IS the link, whatever
   # it points at, and `-e` follows it and reads false for a dangling one.
@@ -345,8 +364,6 @@ _pw_lock_try_core() {
       return 1
     fi
     _pw_lock_break "$_pwt_lock" "$_pwt_owner" "$_pwt_token" || return 1
-    PW_LOCK_TOKEN=$_pwt_token
-    _pw_lock_store "$_pwt_lock" "$_pwt_token" 1
     return 0
   fi
 
@@ -362,12 +379,7 @@ _pw_lock_try_core() {
   # Nothing is at the path, so nothing was holding it: the create failed on the
   # store rather than on a peer. One retry separates a holder that released in
   # the gap (benign) from a store that cannot be written at all.
-  if ln -s "$_pwt_token" "$_pwt_lock" 2>/dev/null \
-    && [ "$(readlink "$_pwt_lock" 2>/dev/null)" = "$_pwt_token" ]; then
-    PW_LOCK_TOKEN=$_pwt_token
-    _pw_lock_store "$_pwt_lock" "$_pwt_token" 1
-    return 0
-  fi
+  _pw_lock_publish "$_pwt_lock" "$_pwt_token" && return 0
   if [ ! -L "$_pwt_lock" ] && [ ! -e "$_pwt_lock" ]; then
     printf '%s\n' "lock-lib: cannot create $_pwt_lock (parent unwritable or filesystem error)" >&2
     return 2

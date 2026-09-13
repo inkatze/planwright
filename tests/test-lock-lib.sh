@@ -560,6 +560,32 @@ fi
 rm -f "$tmp"/dirtarget.lock*
 rm -rf "$tmp/target-dir"
 
+# ---------------------------------------------------------------------------
+# 17. The hold is recorded BEFORE the link is published
+# ---------------------------------------------------------------------------
+#
+# The signal handler releases what the registry names, so any instant where the
+# link exists on disk and the registry does not know about it is an instant
+# where a signal leaks the lock until someone breaks it. The ordering is not
+# observable from outside, so it is pinned from the inside: the confirm step
+# reads the link back through `readlink`, and a stand-in for `readlink` can
+# report what the registry held at that moment.
+
+run_sh x '
+  ORDER_TRACE="$1/order.trace"
+  readlink() {
+    case $PW_LOCK_HELD in
+      *order.lock*) printf "registry-first\n" >>"$ORDER_TRACE" ;;
+      *) printf "link-first\n" >>"$ORDER_TRACE" ;;
+    esac
+    command readlink "$@"
+  }
+  pw_lock_acquire "$1/order.lock"
+' >/dev/null 2>&1
+assert_eq "the registry knows about the hold before the link is confirmed" \
+  "registry-first" "$(sed -n 1p "$tmp/order.trace" 2>/dev/null)"
+rm -f "$tmp/order.lock" "$tmp/order.trace"
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else
