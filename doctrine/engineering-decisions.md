@@ -1,12 +1,11 @@
 # Engineering Decisions
 
-planwright's skills make engineering choices constantly: which idiom to
-follow, which tool to defer to, which library to adopt, which decision to
-refuse to make alone. This doc encodes the decision process those choices
-run through. It is the doctrine half of the engineering builder (D-15); the
-builder skill applies it mechanically where it can and escalates where it
-must, and the [decision-domains catalog](decision-domains.md) supplies the
-triggers that activate the escalation rule.
+planwright's skills make engineering choices constantly. This doc encodes the
+decision process those choices run through. It is the doctrine half of the
+engineering builder (D-15); the builder skill applies it mechanically where it
+can and escalates where it must, and the
+[decision-domains catalog](decision-domains.md) supplies the triggers that
+activate the escalation rule.
 
 Citations: REQ-G1.1, REQ-G1.3, REQ-G1.6 · D-15, D-16.
 
@@ -75,9 +74,8 @@ answer one command away. But the actual choices underneath (session versus
 token, identity provider versus owned credentials, how tenancy is drawn)
 are architecture-defining and often business differentiators. Auto-stamping
 the stack default flattens a load-bearing decision into a checkbox. The
-same flattening risk applies to data modeling, security posture, and
-integration surface — the [decision-domains catalog](decision-domains.md)
-enumerates the domains and their triggers.
+same flattening risk runs through the [decision-domains
+catalog](decision-domains.md)'s domains and their triggers.
 
 Recognizing which seemingly-mechanical decisions are load-bearing is the
 process's primary intelligence; it is what separates an engineering

@@ -433,4 +433,28 @@ Anchor: `b506544c0d609f9cbb88525f8df145ae2f933ab0` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### 2026-09-13 — Task 1 execution: the prose Auto-applicable lane deferred to Task 10
+
+Task 1's amendments to `doctrine/finding-categorization.md` could not all land
+under the instruction budget. `/self-review`'s mandatory-at-start closure sits
+on the margin its declared exception pins it to, so the doc could not grow by
+the full amount; the compensating trim that would have funded it was taken,
+measured, and found by the convergence pass to have cut fifteen rules rather
+than restatement, all of which were restored. The operator's disposition was
+to split rather than fund: REQ-B1.2, REQ-B1.3 and REQ-B1.4 move to a new
+Task 10 that funds its own budget within what REQ-D1.3 permits, and Task 1
+lands the remaining rules honestly complete. No REQ or D-ID changes meaning:
+`design.md` is untouched and `requirements.md` gains only its changelog entry.
+Two consequences the changelog records rather than hides: REQ-D1.3's
+same-change diet clause is delivered by no task, so `doctrine/gate-wiring.md`
+lands over its per-file warn threshold by the operator's decision, superseding
+risk row 7's mitigation; and until Task 10 lands, the expression-only class
+reaches no bucket of its own, so both classes terminate in Needs sign-off and
+the classification is vocabulary rather than routing. Cites the changelog
+line: the `## Changelog` entry in `requirements.md` dated 2026-09-13 ("Task 1
+execution: the Auto-applicable lane for expression-only prose … moves out of
+Task 1 into a new Task 10").
+
+Class: expression-only
+Anchor: `6ab09f85968fbcd59ec93037a3695c5ea0c86d3d` — computed as
+`scripts/spec-anchor.sh specs/prose-disposition`
