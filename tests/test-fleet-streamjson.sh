@@ -2241,6 +2241,20 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" \
   launch sjw33m execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
   >/dev/null 2>&1
 [ $? -eq 2 ] || fail "c33: an unknown preflight mode must be refused (exit 2)"
+# The proof is of the hook the WORKER runs: the wrapper keeps a CLAUDE_PLUGIN_ROOT
+# the launcher was started with, and the worker-settings hook resolves through
+# that variable, so a launcher carrying another install's root must prove that
+# install's guard (here: a root with no guard at all), not this checkout's copy.
+preset="$cdir/preset-root"
+mkdir -p "$preset"
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS="$ev" -- \
+  launch sjw33p execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33p.err"
+[ $? -eq 9 ] || fail "c33: a preset plugin root without the guard must refuse (exit 9), stderr: $(cat "$tmp/pf33p.err")"
+grep -q "$preset/scripts/worker-command-guard.sh" "$tmp/pf33p.err" \
+  || fail "c33: the refusal must name the guard under the worker's plugin root, got: $(cat "$tmp/pf33p.err")"
+[ ! -s "$rec/argv" ] || fail "c33: a missing worker-side guard must never spawn the worker"
 echo "ok: c33 launch preflight proves the hook approves the opening plugin-script call per root, refuses (9) or warns otherwise (fleet-autonomy D-19)"
 
 # ---------------------------------------------------------------------------

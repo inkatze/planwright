@@ -1042,18 +1042,27 @@ guard_preflight() {
       ;;
   esac
   gp_dir=$(cd -- "$(dirname "$gp_env")" 2>/dev/null && pwd -P) || gp_dir=$(dirname "$gp_env")
-  gp_guard="$gp_dir/worker-command-guard.sh"
+  gp_launcher=$(cd -- "$gp_dir/.." 2>/dev/null && pwd -P) || gp_launcher=''
+  # The hook a worker runs is the one under the CLAUDE_PLUGIN_ROOT the wrapper
+  # exports (config/worker-settings.json names it through that variable): this
+  # launcher's root, unless the launcher itself was started with one already
+  # set, in which case another install's copy gates the worker. Prove that
+  # file, and read the installed roots through the resolver beside it, so the
+  # proof is of what the worker is actually gated by.
+  gp_hook_root=$("$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1)
+  [ -n "$gp_hook_root" ] || gp_hook_root=$gp_launcher
+  gp_hook_root=$(cd -- "$gp_hook_root" 2>/dev/null && pwd -P) || gp_hook_root=$gp_launcher
+  gp_guard="$gp_hook_root/scripts/worker-command-guard.sh"
   if [ ! -r "$gp_guard" ]; then
     echo "$me: launch preflight: the auto-approve hook $gp_guard is missing or unreadable; the worker would prompt on every routine command" >&2
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
-  gp_launcher=$(cd -- "$gp_dir/.." 2>/dev/null && pwd -P) || gp_launcher=''
   gp_tmp=$(mktemp) || return 2
   gp_seen=''
   {
-    printf '%s\n' "$gp_launcher"
-    /bin/sh "$gp_dir/resolve-installed-roots.sh" 2>/dev/null || :
+    printf '%s\n' "$gp_launcher" "$gp_hook_root"
+    /bin/sh "$gp_hook_root/scripts/resolve-installed-roots.sh" 2>/dev/null || :
   } | while IFS= read -r gp_root; do
     [ -n "$gp_root" ] || continue
     gp_root=$(cd -- "$gp_root" 2>/dev/null && pwd -P) || continue
