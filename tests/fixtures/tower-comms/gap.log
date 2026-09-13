@@ -1,0 +1,3 @@
+{"v":1,"seq":1,"ts":900000,"kind":"tick","tower":"T1","live":1,"until":900600}
+{"v":1,"seq":2,"ts":904200,"kind":"tick","tower":"T1","live":1,"until":904800}
+{"v":1,"seq":3,"ts":904300,"kind":"delivered","tower":"T1","item":"a","text":"The build is green","asks":1}

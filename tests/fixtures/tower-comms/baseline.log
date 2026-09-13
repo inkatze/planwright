@@ -1,0 +1,19 @@
+{"v":1,"seq":1,"ts":900000,"kind":"session","tower":"T1","event":"start"}
+{"v":1,"seq":2,"ts":900000,"kind":"tick","tower":"T1","live":2,"until":903600}
+{"v":1,"seq":3,"ts":900100,"kind":"born","item":"q1","item_kind":"question","worker":"w1"}
+{"v":1,"seq":4,"ts":900200,"kind":"knocked","tower":"T1","item":"q1"}
+{"v":1,"seq":5,"ts":900300,"kind":"reply","tower":"T1","text":"yes"}
+{"v":1,"seq":6,"ts":900400,"kind":"delivered","tower":"T1","item":"q1","text":"Worker w1 asks whether to keep the REQ-A1.4 test; see fleet-state.sh","asks":1}
+{"v":1,"seq":7,"ts":900700,"kind":"reply","tower":"T1","text":"what does REQ-A1.4 mean?"}
+{"v":1,"seq":8,"ts":900800,"kind":"acknowledged","tower":"T1","item":"q1"}
+{"v":1,"seq":9,"ts":901000,"kind":"born","item":"n1","item_kind":"news"}
+{"v":1,"seq":10,"ts":901100,"kind":"settled","item":"n1","reason":"pr-merged"}
+{"v":1,"seq":11,"ts":901200,"kind":"delivered","tower":"T1","text":"Two things: the reconcile sweep finished and the anchor moved","asks":2}
+{"v":1,"seq":12,"ts":901300,"kind":"reply","tower":"T1","text":"please rerun the tests"}
+{"v":1,"seq":13,"ts":903600,"kind":"tick","tower":"T1","live":0,"until":905400}
+{"v":1,"seq":14,"ts":905400,"kind":"tick","tower":"T1","live":1,"until":907200}
+{"v":1,"seq":15,"ts":907300,"kind":"born","item":"q2","item_kind":"question","worker":"w2"}
+{"v":1,"seq":16,"ts":907400,"kind":"dropped","item":"n2","reason":"rebuild"}
+{"v":1,"seq":17,"ts":907400,"kind":"session","tower":"T1","event":"rebuild"}
+{"v":1,"seq":18,"ts":907500,"kind":"tick","tower":"T1","live":1,"until":907800}
+{"v":1,"seq":19,"ts":907900,"kind":"reply","tower":"T1","text":"Please rerun the tests"}

@@ -747,7 +747,22 @@ esac
 # Every command below needs the resolved home to exist. cmd is now guaranteed to
 # be one of the six above (unknown was rejected before this point).
 root=$(resolve_root) || exit 2
-if ! mkdir -p "$root" 2>/dev/null; then
+# A home we create is owner-only from birth: `mkdir -p` alone takes the caller's
+# umask, so a umask-002 host got 0775, and everything private underneath (the
+# registry, the tower-comms surface) is only as private as the directory holding
+# it. Consumers that verify their own surface refuse a widened parent, so the
+# default has to be tight rather than merely documented. The umask is narrowed
+# around the mkdir rather than chmod-ing after it: it is a builtin (so this
+# still works where PATH carries no chmod), and it leaves no window in which the
+# directory exists group-writable. A home that already exists is untouched —
+# mkdir -p is a no-op on it, and its permissions are its owner's call, not ours
+# to tighten underneath a deliberately shared one.
+_prev_umask=$(umask)
+umask 0077
+_mkdir_rc=0
+mkdir -p "$root" 2>/dev/null || _mkdir_rc=$?
+umask "$_prev_umask"
+if [ "$_mkdir_rc" != 0 ]; then
   printf '%s\n' "fleet-state: cannot create fleet home $root" >&2
   exit 2
 fi
