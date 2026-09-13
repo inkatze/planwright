@@ -335,6 +335,25 @@ run log born --now 9000 item=loose >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "loosened directory mode: exit $rc, expected 4"
 [ "$(line_count "$log_file")" = "$before" ] || fail "loosened directory mode: the write went through"
 chmod 0700 "$log_dir"
+# A setgid fleet home makes every mkdir under it inherit the bit, so the
+# sub-surface this script creates itself lists as drwx--S---: still owner-only,
+# and refusing it would hard-fail every write on a surface nothing widened.
+chmod 2700 "$log_dir"
+run log born --now 9010 item=setgid >/dev/null 2>&1 || fail "setgid sub-surface: the write was refused"
+chmod 0700 "$log_dir"
+echo "ok: an inherited setgid bit is not a widened sub-surface"
+
+# The fleet home is another script's surface: verified, never narrowed here,
+# and a home anyone but its owner can write to is one where the sub-surface
+# can be swapped between this script's check and its write.
+chmod 0770 "$home"
+rc=0
+run log born --now 9011 item=widehome >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "group-writable fleet home: exit $rc, expected 4"
+chmod 0755 "$home"
+run log born --now 9012 item=narrowhome >/dev/null 2>&1 || fail "a 0755 fleet home was refused"
+echo "ok: a fleet home writable beyond its owner refuses the write"
+
 chmod 0640 "$log_file"
 rc=0
 run log born --now 9001 item=loose >/dev/null 2>&1 || rc=$?

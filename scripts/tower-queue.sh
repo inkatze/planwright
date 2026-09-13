@@ -290,12 +290,25 @@ resolve_log_knobs() {
   KNOB_DIR=""
 }
 
-# redact <value> — the one secret-shaped redaction helper (REQ-G1.8). The
-# rules mirror inception-secret-screen.sh's built-in screen; a match is
+# redact <value> [<key>] — the one secret-shaped redaction helper (REQ-G1.8).
+# The rules mirror inception-secret-screen.sh's built-in screen; a match is
 # replaced by `[redacted:<rule>]`, the text around it kept. `#` delimits the
 # sed expressions because `/` appears inside a bracket expression.
+#
+# The key is screened with the value because the log's own CLI shape puts the
+# assignment's left half OUTSIDE the value: `password=<opaque>` as an argument
+# and `password=<opaque>` inside a sentence are the same secret, but only the
+# second one has the `key<sep>value` run the opaque-assignment rule needs. So
+# for a secret-shaped key, an opaque run at the head of the value is that
+# assignment's right half and goes the same way.
 redact() {
-  printf '%s' "$1" | sed -E \
+  _rv=$1
+  case "${2:-}" in
+    *api_key* | *apikey* | *api-key* | *secret* | *token* | *password* | *passwd*)
+      _rv=$(printf '%s' "$_rv" | sed -E 's#^[A-Za-z0-9/+=_-]{20,}#[redacted:opaque-assignment]#')
+      ;;
+  esac
+  printf '%s' "$_rv" | sed -E \
     -e 's#-----BEGIN ([A-Z]+ )?PRIVATE KEY-----#[redacted:private-key-block]#g' \
     -e 's#(AKIA|ASIA)[0-9A-Z]{16}#[redacted:aws-access-key-id]#g' \
     -e 's#gh[pousr]_[A-Za-z0-9]{36,}#[redacted:github-token]#g' \
@@ -383,8 +396,14 @@ check_private_dir() {
   fi
   # shellcheck disable=SC2086
   set -- $_cl
+  # The group and other columns must carry no permission at all, but the
+  # EXECUTE column of each also spells the setgid and sticky bits: a setgid
+  # fleet home makes every mkdir under it inherit the bit, so a sub-surface
+  # this script just created at 0700 lists as `drwx--S---`. Nothing widened
+  # there, and refusing it would hard-fail every write with advice ("chmod
+  # 700 it") that a fresh mkdir undoes.
   case "${1:-}" in
-    d???------ | d???------[@.]*) ;;
+    d???--[-S]--[-T] | d???--[-S]--[-T][@.]*) ;;
     *)
       err "security: the sub-surface is not verifiably owner-only (mode ${1:-unreadable}); chmod 700 it yourself after finding out how it widened"
       exit 4
@@ -438,10 +457,51 @@ resolve_surface() {
   dropped_file="$surface/events.dropped"
 }
 
+# The fleet home is fleet-state's surface, not this script's: created here
+# only when absent, and otherwise verified rather than narrowed (REQ-A1.4).
+# It is verified at all because the 0700 sub-surface below it is only as
+# private as the directory that holds it — a home anyone but its owner can
+# write to is one where the sub-surface can be moved aside and replaced
+# between the checks below and the write they guard.
+check_home() {
+  if [ -L "$home" ]; then
+    err "security: the fleet home $(sanitize_printable "$home" "(unprintable path)") is a symlink — refusing to write through a redirect"
+    exit 4
+  fi
+  # shellcheck disable=SC2012
+  _hl=$(ls -ldn "$home" 2>/dev/null) || _hl=""
+  if [ -z "$_hl" ]; then
+    err "the fleet home $(sanitize_printable "$home" "(unprintable path)") vanished while being verified"
+    exit 4
+  fi
+  # shellcheck disable=SC2086
+  set -- $_hl
+  # Only the two WRITE columns: a home readable or traversable by others is
+  # the ordinary shape (fleet-state creates it under the caller's umask), and
+  # narrowing someone else's surface is not this script's call.
+  case "${1:-}" in
+    d????-??-? | d????-??-?[@.]*) ;;
+    *)
+      err "security: the fleet home is writable beyond its owner (mode ${1:-unreadable}); the private surface under it is only as private as the home, so chmod go-w it yourself after finding out how it widened"
+      exit 4
+      ;;
+  esac
+  if [ "${3:-}" != "$my_uid" ]; then
+    err "security: the fleet home is owned by uid ${3:-?}, not this user; refusing it"
+    exit 4
+  fi
+}
+
 ensure_surface() {
   if [ ! -d "$home" ]; then
-    mkdir -p "$home" 2>/dev/null || true
-    chmod 0700 "$home" 2>/dev/null || true
+    mkdir -p "$home" 2>/dev/null || {
+      err "cannot create the fleet home $(sanitize_printable "$home" "(unprintable path)")"
+      exit 6
+    }
+    chmod 0700 "$home" 2>/dev/null || {
+      err "cannot narrow the fleet home $(sanitize_printable "$home" "(unprintable path)") to 0700"
+      exit 6
+    }
   fi
   if [ -L "$surface" ]; then
     err "security: the sub-surface $(sanitize_printable "$surface" "(unprintable path)") is a symlink — refusing to write through a redirect"
@@ -454,6 +514,17 @@ ensure_surface() {
     err "cannot create the sub-surface $(sanitize_printable "$surface" "(unprintable path)")"
     exit 6
   fi
+  verify_surface
+}
+
+# Every check the write path makes, in one place so it can be repeated: the
+# checks below and the writes they guard are separated by the whole bounded
+# lock wait, plus rotation and coalescing, so a surface tested once before the
+# wait says nothing about the surface being written afterwards. Re-tested
+# under the lock for the same reason fleet-presence keeps its symlink test
+# adjacent to the mode read it guards.
+verify_surface() {
+  check_home
   check_private_dir "$surface"
   check_private_file "$log_file"
   check_private_file "$seq_file"
@@ -701,7 +772,7 @@ cmd_log() {
         if is_number "$val"; then
           payload="$payload,\"$key\":$val"
         else
-          payload="$payload,\"$key\":\"$(json_escape "$(redact "$val")")\""
+          payload="$payload,\"$key\":\"$(json_escape "$(redact "$val" "$key")")\""
         fi
         ;;
       *)
@@ -767,6 +838,10 @@ cmd_log() {
       ;;
     *) exit 6 ;;
   esac
+
+  # Under the lock now, so the surface is re-verified adjacent to the writes
+  # that follow rather than trusted from before the wait.
+  verify_surface
 
   # Rotation removes only what it can positively judge as old: a line this
   # script parses, whose header it reads, carrying a timestamp behind the
@@ -869,7 +944,10 @@ cmd_log() {
   seq=$((seq + 1))
 
   line="{\"v\":$SCHEMA,\"seq\":$seq,\"ts\":$now,\"kind\":\"$kind\""
-  [ -z "$tower" ] || line="$line,\"tower\":\"$tower\""
+  # The identity is a string value like any other: its grammar admits
+  # exactly the shape of an access key id or an opaque bearer token, and the
+  # header promises every string value is screened whatever the kind.
+  [ -z "$tower" ] || line="$line,\"tower\":\"$(json_escape "$(redact "$tower")")\""
   line="$line$payload"
   [ "$kind" != tick ] || line="$line,\"until\":$now"
   line="$line}"
@@ -966,6 +1044,16 @@ cmd_report() {
   fi
   if [ -z "$log_path" ]; then
     resolve_surface
+    # The verify-or-refuse gate is the read path's too (REQ-A1.4). A
+    # redirected or foreign-owned log feeds the scorecard whatever it points
+    # at, and a fabricated scorecard printed at exit 0 reads exactly like a
+    # real one. `--log` stays unverified: it is the fixture and test hatch,
+    # and its path came from the caller rather than from the fleet home.
+    if [ -d "$surface" ] || [ -L "$surface" ]; then
+      check_home
+      check_private_dir "$surface"
+      check_private_file "$log_file"
+    fi
     log_path=$log_file
   fi
   if [ ! -f "$log_path" ] || [ ! -r "$log_path" ]; then

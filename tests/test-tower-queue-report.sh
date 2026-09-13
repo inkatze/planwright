@@ -170,6 +170,25 @@ PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" unlock
 [ "$(value_of delivered_items "$got")" = 1 ] || fail "live log delivered_items: $(value_of delivered_items "$got")"
 echo "ok: report reads the live log under the fleet home without taking the lock"
 
+# The verify-or-refuse gate is the read path's too: a redirected live log
+# feeds the scorecard whatever it points at, and a fabricated scorecard at
+# exit 0 reads exactly like a real one.
+live_log="$home/tower-comms/events.log"
+mv "$live_log" "$tmp/elsewhere.log"
+ln -s "$tmp/elsewhere.log" "$live_log"
+rc=0
+run report --now 804000 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "symlinked live log: exit $rc, expected 4"
+rm -f "$live_log"
+mv "$tmp/elsewhere.log" "$live_log"
+chmod 0640 "$live_log"
+rc=0
+run report --now 804000 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "loosened live log mode: exit $rc, expected 4"
+chmod 0600 "$live_log"
+run report --now 804000 >/dev/null || fail "report after the surface was put back: exit"
+echo "ok: report refuses a live log that is redirected or not owner-only"
+
 # --- the jargon list is what the count reads ------------------------------------
 
 printf '{"v":1,"seq":1,"ts":100,"kind":"delivered","tower":"T","text":"The Attention Store and the fleet home; a worker; obs:4b14e93a; D-14; tower_report_window","asks":1}\n' >"$tmp/jargon.log"

@@ -254,6 +254,49 @@ for v in \
 done
 echo "ok: each built-in secret shape is redacted inside its surrounding text"
 
+# The assignment a secret-shaped field KEY makes lives outside the value, so a
+# screen that reads the value alone never sees it: `password=<opaque>` on the
+# command line is the same secret as `password=<opaque>` inside a sentence.
+opaque="S3cretValue""0123456789012345"
+for k in password passwd secret client_secret api_key auth_token; do
+  run log delivered --tower "$tower" --now 3100 "$k=$opaque" || fail "$k: exit"
+  l=$(last_line)
+  case "$l" in
+    *"$opaque"*) fail "$k: the value survived redaction: $l" ;;
+  esac
+  case "$l" in
+    *'[redacted:opaque-assignment]'*) ;;
+    *) fail "$k: redaction marker missing: $l" ;;
+  esac
+done
+# An ordinary key keeps its value: the key screen is the assignment's left
+# half, not a blanket ban on long values.
+run log delivered --tower "$tower" --now 3110 "item=$opaque" || fail "item: exit"
+case "$(last_line)" in
+  *"$opaque"*) ;;
+  *) fail "an ordinary key's value was redacted: $(last_line)" ;;
+esac
+echo "ok: a secret-shaped field key redacts its own value"
+
+# The tower identity is a string value like any other: its grammar admits
+# exactly the shape of an access key id or an opaque bearer token.
+key_shaped="AKIA""ABCDEFGHIJKLMNOP"
+run log knocked --tower "$key_shaped" --now 3120 item=q1 || fail "key-shaped tower: exit"
+l=$(last_line)
+case "$l" in
+  *"$key_shaped"*) fail "a key-shaped tower identity was written verbatim: $l" ;;
+esac
+case "$l" in
+  *'"tower":"[redacted:aws-access-key-id]"'*) ;;
+  *) fail "the tower identity did not pass through redaction: $l" ;;
+esac
+run log knocked --tower "$tower" --now 3130 item=q1 || fail "ordinary tower: exit"
+case "$(last_line)" in
+  *'"tower":"p123.t456.c789"'*) ;;
+  *) fail "an ordinary tower identity was altered: $(last_line)" ;;
+esac
+echo "ok: the tower identity passes through redaction too"
+
 # --- tick coalescing ----------------------------------------------------------
 
 rm -f "$log_file" "$seq_file"
