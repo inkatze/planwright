@@ -442,9 +442,16 @@ work, is recorded in D-1 and cited here from the goal.
 - 2026-09-13 — Task 1 execution: the Auto-applicable lane for expression-only
   prose (REQ-B1.2, REQ-B1.3, REQ-B1.4) moves out of Task 1 into a new Task 10,
   which owns funding its own instruction budget; Task 1's Deliverables,
-  Done-when and Citations no longer claim it, and its gate-wiring
-  per-file-warn clause moves with it. No requirement or decision changes: the
-  same REQs are delivered, by a different task. Placement and scope only.
+  Done-when and Citations no longer claim it. Every REQ keeps its meaning;
+  REQ-B1.2, REQ-B1.3 and REQ-B1.4 keep their delivery under a different task.
+  Two consequences are recorded rather than papered over: REQ-D1.3's
+  same-change diet for a warn-threshold crossing on an amended rule doc is
+  delivered by no task, so `doctrine/gate-wiring.md` lands 49 words over its
+  per-file warn threshold with the operator's decision not to spend words on a
+  warning that does not fail the gate (superseding the mitigation in the
+  brief's risk row 7); and the expression-only class now reaches no bucket of
+  its own until Task 10 lands, so the classification is vocabulary until then
+  and both classes terminate in Needs sign-off.
 
 - 2026-09-04 — Kickoff walkthrough: the Documentation lens gains an
   interpretation-fork class (REQ-A1.1); a normative statement is defined by

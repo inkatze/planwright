@@ -21,7 +21,8 @@ can be measured by it.
   scoped to its four defect classes, with the defect class carried in the
   coverage row's Notes cell so the canonical table keeps its columns;
   the cross-set improvable-is-not-a-finding sentence in
-  `doctrine/artifact-lenses.md`; the prose classification in
+  `doctrine/artifact-lenses.md`; the prose classification and the
+  Needs-sign-off route meaning-class prose keeps, in
   `doctrine/finding-categorization.md`; the batching rule, manifest form,
   batched checklist rendering, and per-finding audit rows in
   `doctrine/gate-wiring.md`, with the term loop iteration defined there and
@@ -45,8 +46,8 @@ can be measured by it.
 
 - **Deliverables:** `skills/self-review/SKILL.md`, `skills/polish/SKILL.md`,
   and the convergence prose of `skills/execute-task/SKILL.md` citing the
-  amended sections for lens scoping, prose classification, the
-  PR-introduced-surface rule, and the batched commit discipline; the
+  amended sections for lens scoping, prose classification, and the batched
+  commit discipline; the
   surface-pattern sweep over `skills/` for the superseded wording, with
   every straggler fixed in the same change and the patterns searched listed
   in the PR body.
@@ -219,21 +220,24 @@ can be measured by it.
   external-contract definition for prose and its disposal of both the
   Auto-applicable disqualifier and the Needs-sign-off external-interface
   route; the PR-introduced-surface rule; the matching `doctrine/README.md`
-  index row and `Citations:` entries; and whatever budget relief lets the
-  three rules land.
+  index row and `Citations:` entries; and the instantiation of these three
+  rules in `skills/self-review/SKILL.md`, `skills/polish/SKILL.md` and the
+  convergence prose of `skills/execute-task/SKILL.md`, which Task 2 leaves to
+  this task because it cannot cite a section that does not yet exist. This
+  task funds its own instruction budget within what REQ-D1.3 permits: Task 1
+  measured the run-start dedupe diet and spent it, and its convergence pass
+  found the diet had cut fifteen rules that had to be restored, so the room
+  this task needs is not there. If no funding REQ-D1.3 permits exists, that is
+  an escalation, not a licence to widen the budget.
 - **Done when:** each rule REQ-B1.2, REQ-B1.3 and REQ-B1.4 states appears in
   `doctrine/finding-categorization.md`; the routing scenarios in
   `test-spec.md` under REQ-B1.2, REQ-B1.3 and REQ-B1.4 walk against the
   amended text and reach the stated disposition, each walk recorded in the PR
-  body; `doctrine/gate-wiring.md` sits under its per-file warn threshold; and
-  `mise run check` is green. This task owns funding its own instruction
-  budget. The run-start dedupe diet is exhausted: Task 1 took it, measured it,
-  and its convergence pass found that it had cut fifteen rules which had to be
-  restored, so funding here means relief (a `raise` entry, a `pending-diet`
-  allowance, or a `declared-exception`, each carrying its recorded rationale)
-  or a narrowed requirement — never a further trim of run-start doctrine.
-- **Dependencies:** 1
-- **Citations:** D-3, D-4 · REQ-B1.2, REQ-B1.3, REQ-B1.4
+  body; each of the three skills names the governing section and restates at
+  most a one-line gist (REQ-D1.1); `check:instructions` passes and the
+  suppression list gains no `raise` entry; and `mise run check` is green.
+- **Dependencies:** 1, 2
+- **Citations:** D-3, D-6 · REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-D1.1, REQ-D1.3
 - **Estimated effort:** half day
 
 ## Awaiting input

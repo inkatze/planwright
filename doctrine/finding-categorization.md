@@ -142,9 +142,10 @@ sentence that states no normative statement is expression-only.
 A **normative statement** is any obligation, permission, or prohibition
 however worded, plus any threshold, enumerated value, or interface fact; it
 changes meaning when it is added, removed, or altered. Enumerate an edited
-passage's statements with this search aid — MUST, SHALL, SHALL NOT, MAY,
-never, always, only, must not — never as the definition: a rule stated in
-none of those words is still a normative statement. The list grows on
+passage's statements — the list a preservation check compares before and
+after — with this search aid: MUST, SHALL, SHALL NOT, MAY, never, always,
+only, must not. It is never the definition; a rule stated in none of those
+words is still a normative statement. The list grows on
 evidence by the ordinary doctrine-edit route: a changelog line,
 expression-only unless a rule changes.
 
