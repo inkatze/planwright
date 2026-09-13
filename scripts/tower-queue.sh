@@ -56,7 +56,10 @@
 #
 # Reads the log lock-free (a torn or malformed line is counted and skipped,
 # never fatal), keeps the lines inside the `tower_report_window` window, and
-# prints `<measure><TAB><value>` lines. The headline is the operator's load:
+# prints `<measure><TAB><value>` lines. Every measure is the window's except
+# `malformed`, which is the whole file's: a line that will not parse carries
+# no timestamp to place it in a window, and that count is the only evidence
+# the operator ever gets that a write tore. The headline is the operator's load:
 # items that reached the operator per hour of fleet work, against items
 # settled without them. Fleet hours are wall-clock with at least one live
 # worker, computed per tower from its own tick stream (a tick's span counts
@@ -69,7 +72,10 @@
 # queue record, friction (what-does-that-mean replies, and a request of three
 # or more words repeated), jargon in delivered text (spec identifiers,
 # internal names, and the terms listed in tower-jargon.txt beside this
-# script), and items dropped at a rebuild. `--log` and `--now` exist for
+# script), items dropped at a rebuild, and the lines `log` itself dropped at
+# a lock-wait expiry (read from `events.dropped` beside the log), without
+# which the rest is computed from the survivors and printed as confident
+# fact. `--log` and `--now` exist for
 # fixtures and tests. On demand only: `mise run tower:report`, never CI
 # (REQ-G1.5).
 #
@@ -1108,28 +1114,48 @@ cmd_report() {
     err "no event log to read at $(sanitize_printable "$log_path" "(unprintable path)")"
     exit 1
   fi
+  # Beside the log it belongs to, so a fixture log and the live one are read
+  # the same way; an absent file simply counts zero.
+  case "$log_path" in
+    */*) dropped_path="${log_path%/*}/events.dropped" ;;
+    *) dropped_path="events.dropped" ;;
+  esac
+  [ -r "$dropped_path" ] || dropped_path=""
   [ -r "$JARGON" ] || {
     err "the jargon word list $JARGON is missing — broken install"
     exit 5
   }
 
-  awk -v now="$now" -v window="$window" -v gap_max="$gap_max" -v jargon_file="$JARGON" -v q="'" "$AWK_PARSE"'
+  # The log arrives on stdin, never as a trailing operand: awk reads an
+  # operand shaped like `name=value` as a variable assignment, so a relative
+  # --log path whose text before the first `=` is an awk identifier would be
+  # consumed as one, leaving the program with no file to read — all zeros at
+  # exit 0, or a wait on stdin.
+  awk -v now="$now" -v window="$window" -v gap_max="$gap_max" -v jargon_file="$JARGON" \
+    -v dropped_file="$dropped_path" -v q="'" "$AWK_PARSE"'
   function norm_text(s) {
     s = tolower(s)
     gsub(/[^a-z0-9]+/, " ", s)
     sub(/^ /, "", s); sub(/ $/, "", s)
     return s
   }
+  # Every needle here is delimiter-padded (" term "), and back-to-back repeats
+  # SHARE the delimiter between them: consuming the whole needle eats the
+  # space the next match needs to start, so "drain drain" scored one. Resuming
+  # one character back leaves that delimiter in place.
   function count_phrase(hay, needle,    c, p, rest) {
     c = 0; rest = hay
-    while ((p = index(rest, needle)) > 0) { c++; rest = substr(rest, p + length(needle)) }
+    while ((p = index(rest, needle)) > 0) { c++; rest = substr(rest, p + length(needle) - 1) }
     return c
   }
+  # Only `.` and `:` can reach here: the tokenizer below replaces every byte
+  # outside [A-Za-z0-9.:_/-] with a space before splitting, so a wider class
+  # would read as protection that nothing needs.
   function strip_punct(t) {
-    sub(/[.,;:!?)]+$/, "", t); sub(/^[("]+/, "", t)
+    sub(/[.:]+$/, "", t)
     return t
   }
-  function jargon(text,    padded, i, ntok, tok, t) {
+  function jargon(text,    padded, i, ntok, tok, t, w) {
     padded = " " norm_text(text) " "
     for (i = 1; i <= nterms; i++) terms_hit += count_phrase(padded, " " terms[i] " ")
     t = text
@@ -1151,6 +1177,16 @@ cmd_report() {
     close(jargon_file)
     re_what = "[^a-z]what(" q "s| is| are| does| do)[^a-z]"
     ws = now - window; we = now + 0
+    # The lines `log` dropped at a lock-wait expiry. Without them the
+    # scorecard is computed from the survivors and printed as confident fact,
+    # with nothing to say part of the window went unrecorded.
+    dropped = 0
+    if (dropped_file != "") {
+      while ((getline dl < dropped_file) > 0) {
+        if (split(dl, dp, "\t") >= 1 && dp[1] + 0 >= ws && dp[1] + 0 <= we) dropped++
+      }
+      close(dropped_file)
+    }
     lines = 0; malformed = 0; nticks = 0; nint = 0
     delivered_prose = 0; multi_ask = 0; friction_meaning = 0; friction_repeat = 0
     terms_hit = 0; ident_hit = 0; internal_hit = 0; lost = 0
@@ -1251,6 +1287,7 @@ cmd_report() {
     printf "window_end\t%d\n", we
     printf "lines\t%d\n", lines
     printf "malformed\t%d\n", malformed
+    printf "dropped_lines\t%d\n", dropped
     printf "towers\t%d\n", ntow
     printf "fleet_hours\t%.2f\n", hours
     printf "tick_gaps\t%d\n", gaps
@@ -1270,7 +1307,7 @@ cmd_report() {
     printf "jargon_internal\t%d\n", internal_hit
     printf "jargon_terms\t%d\n", terms_hit
     printf "lost_across_restart\t%d\n", lost
-  }' "$log_path"
+  }' <"$log_path"
 }
 
 cmd=${1:-}

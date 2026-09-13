@@ -2,6 +2,7 @@ window_start	300200
 window_end	905000
 lines	3
 malformed	0
+dropped_lines	0
 towers	1
 fleet_hours	0.33
 tick_gaps	1

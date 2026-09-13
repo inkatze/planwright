@@ -171,6 +171,42 @@ got=$(run report --log "$tmp/dirty.log" --now 905000) || fail "dirty log: exit"
 [ "$(value_of delivered_items "$got")" = 1 ] || fail "a malformed line leaked into a measure"
 echo "ok: malformed lines are counted and skipped, never fatal"
 
+# A relative --log path whose text before the first `=` is an awk identifier
+# is an assignment to awk, not a file: the scorecard printed all zeros at exit
+# 0 for a log it never opened.
+cp "$fixtures/baseline.log" "$tmp/data=x.log"
+got=$(cd "$tmp" \
+  && PLANWRIGHT_FLEET_STATE_DIR="$home" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+    /bin/sh "$TQ" report --log "data=x.log" --now 908000 </dev/null) \
+  || fail "assignment-shaped --log path: exit"
+[ "$(value_of lines "$got")" = 19 ] || fail "assignment-shaped --log path: lines $(value_of lines "$got"), expected 19"
+echo "ok: a --log path shaped like an awk assignment is still read as a file"
+
+# The lines `log` dropped at a lock-wait expiry are a measure of their own:
+# without them the scorecard is the survivors' and says so nowhere.
+mkdir -p "$tmp/drops"
+cp "$fixtures/gap.log" "$tmp/drops/events.log"
+{
+  printf '904900\tborn\n'
+  printf '100\tborn\n'
+} >"$tmp/drops/events.dropped"
+got=$(run report --log "$tmp/drops/events.log" --now 905000) || fail "dropped-count report: exit"
+[ "$(value_of dropped_lines "$got")" = 1 ] \
+  || fail "dropped_lines: $(value_of dropped_lines "$got"), expected 1 (the one inside the window)"
+echo "ok: lines dropped at a lock-wait expiry are counted inside the window"
+
+# A repeated term shares the delimiter between its two occurrences, so a
+# counter that consumes the whole padded needle scores the worst offenders
+# lowest.
+printf '{"v":1,"seq":1,"ts":100,"kind":"delivered","tower":"T","text":"drain drain drain and the sweep sweep","asks":1}\n' >"$tmp/repeat.log"
+got=$(run report --log "$tmp/repeat.log" --now 200) || fail "repeat report: exit"
+[ "$(value_of jargon_terms "$got")" = 5 ] \
+  || fail "jargon_terms over back-to-back repeats: $(value_of jargon_terms "$got"), expected 5"
+echo "ok: back-to-back repeats of a listed term each count"
+
 got=$(run report --log "$tmp/empty.log" --now 905000 2>/dev/null) && fail "a missing --log path reported"
 : >"$tmp/empty.log"
 got=$(run report --log "$tmp/empty.log" --now 905000) || fail "empty log: exit"

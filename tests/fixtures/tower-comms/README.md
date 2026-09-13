@@ -7,6 +7,11 @@ is recorded beside the arithmetic below; the window is the default seven
 days and the tick-gap bound the default ten minutes unless a test overrides
 them.
 
+`dropped_lines` counts the lines `log` dropped at a lock-wait expiry, read
+from an `events.dropped` file beside the log; no fixture ships one, so it is
+zero throughout. `malformed` is the whole file's count rather than the
+window's, a line that will not parse carrying no timestamp to place it.
+
 Fleet hours come from the tick lines alone: a tick's `[ts, until]` span
 counts when its `live` count is above zero, the stretch from one tick's
 `until` to the next tick's `ts` on the same tower counts when the earlier
