@@ -9,7 +9,8 @@ Any review workflow that generates findings (rather than only validating
 pre-existing ones) applies this on its discovery pass.
 
 Citations: REQ-D1.1 · operator-dialogue REQ-I1.1, REQ-I1.4 ·
-operator-dialogue D-14.
+operator-dialogue D-14 · prose-disposition REQ-A1.1, REQ-A1.3 ·
+prose-disposition D-2.
 
 ## Lens checklist, no silent pruning
 
@@ -38,8 +39,16 @@ record the pass writes, never a mandate to render every row at the operator
 5. Concurrency / state (race conditions, idempotency, ordering, retries)
 6. Naming, readability, structure (only flag when the change under review
    worsens it; see [Refactor Instinct](refactor-instinct.md))
-7. Documentation (docstrings, READMEs, specs, ADRs, config docs, doctrine
-   and project-memory sections)
+7. Documentation — the prose surfaces (docstrings, READMEs, specs, ADRs,
+   config docs, doctrine), flagged for four defect classes and nothing else:
+   prose the change falsifies or leaves stale (a claim about behaviour, a
+   value, or an enumeration the diff contradicts); documentation missing for
+   behaviour or a contract the change introduces (a knob without its
+   reference row, a flag without usage text); a violation a documentation
+   guard the project ships reports; and prose two readers would act
+   differently on (an interpretation fork, this set's counterpart of the spec
+   set's ambiguity lens). Merely improvable prose is not a finding, here or
+   in any set ([Artifact Lenses](artifact-lenses.md))
 8. Tests / verification (coverage of new behavior, missing failing-case
    tests, brittle assertions)
 9. Cross-file consistency (did the change break a documented invariant or a
@@ -50,12 +59,9 @@ record the pass writes, never a mandate to render every row at the operator
 After walking the lenses, record this table into the pass's artifact (the
 audit record the draft PR carries, or the brief section a spec review writes),
 one row per lens, before any per-finding output. Empty lenses must show `none`
-with a one-line reason; this is what makes silent pruning visible.
-
-The table is **artifact-side**. A turn reporting the pass carries its
-projection instead: counts plus the findings the operator must act on, the
-table one request away
-([Interaction Style](interaction-style.md), the arbitration).
+with a one-line reason; this is what makes silent pruning visible. The table
+is **artifact-side**: a turn reporting the pass carries its projection
+instead ([Interaction Style](interaction-style.md), the arbitration).
 
 | Lens | Findings | Notes |
 | --- | --- | --- |
@@ -77,6 +83,10 @@ inapplicable to the change (the concurrency lens on a documentation-only
 diff). `n/a` requires a one-line reason in the Notes column. Skipping a row
 is not allowed.
 
+The **Documentation** row's Notes cell names the defect class behind each
+finding it counts, so a pass that produced only preference findings reads as
+a scoping violation rather than as coverage.
+
 ## Tool-grounded discovery first
 
 Before relying on judgment, run what the project ships: linters, formatters,
@@ -92,12 +102,11 @@ Tool output is grounded; vibes are not. Cite the rule when flagging.
 A single agent walking all lenses still self-prunes within its context
 window. For diffs beyond a few hunks, spawn parallel read-only sub-agents
 instead, one per lens, each with a narrow brief: find issues in this diff for
-one lens only; be exhaustive within the lens; severity-pruning is forbidden;
-if there are no findings, return `none` with a one-line reason. Pass the
-shared tooling output to every sub-agent. The coordinator merges, dedupes (a
-finding hitting two lenses gets one row with both lens labels), then runs the
-self-critique pass. Skills that perform discovery specify when to fan out
-versus run inline.
+one lens only, exhaustively, returning `none` with a one-line reason if there
+are none. Pass the shared tooling output to every sub-agent. The coordinator
+merges, dedupes (a finding hitting two lenses gets one row with both lens
+labels), then runs the self-critique pass. Skills that perform discovery
+specify when to fan out versus run inline.
 
 ## Self-critique pass before reporting
 
@@ -115,5 +124,4 @@ this doctrine (for example, running inline instead of fanning out on a
 trivial diff) declares the scoping explicitly; silent scoping is
 non-conforming.
 
-Skills cite this document the same way they cite Validation Rigor. The
-canonical lens list lives here so individual skills do not drift.
+Skills cite this document the same way they cite Validation Rigor.

@@ -10,12 +10,11 @@ backs it, so the human can review the whole record at the draft PR.
 
 Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
 REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 ·
-operator-dialogue D-14, D-15.
+operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.2,
+REQ-B1.3, REQ-B1.4, REQ-B1.5 · prose-disposition D-3, D-4.
 
-The operational wiring (routing order, commit discipline, the checklist and
-audit-record formats, the ladder procedure, the pause protocol) is specified
-in [Gate Wiring](gate-wiring.md), which implements the buckets and
-principles defined here.
+The operational wiring is specified in [Gate Wiring](gate-wiring.md), which
+implements the buckets and principles defined here.
 
 ## The principle: honest decision shape
 
@@ -41,17 +40,18 @@ checklist) and merges. Merge cadence is the autopilot's throttle.
 
 ## The four buckets
 
+A predicate condition that is uncertain routes the finding **downward** — to
+Needs sign-off, or to Needs human judgment when the uncertainty is which path
+to take rather than whether to apply a known fix — never upward.
+
 ### 1. Auto-applicable
 
 The agent applies the fix immediately and records an audit row. All four
-conditions must hold; if any is uncertain, the finding routes to Needs
-sign-off (or Needs human judgment when the uncertainty is about which path to
-take rather than whether to apply a known fix).
+conditions must hold.
 
-1. **Tool-grounded.** A specific rule was cited by a linter, formatter,
-   type-checker, static analyzer, or dead-code detector run against the
-   project. "This looks like a bug" does not qualify; a named rule from a tool
-   the project ships does. The rule citation appears in the audit row.
+1. **Tool-grounded.** A named rule cited by a linter, formatter, type-checker,
+   static analyzer, or dead-code detector the project ships, quoted in the
+   audit row. "This looks like a bug" does not qualify.
 2. **Mechanical fix.** A rename, reformat, drop-unused, missing import,
    missing newline, typo, inferable type annotation, or similar single-step
    transform. No design decision, no choice between alternatives.
@@ -67,8 +67,7 @@ take rather than whether to apply a known fix).
 
 The agent resolves the finding with the same discipline a careful engineer
 would apply, and the audit row carries the proof. All four predicate
-conditions must hold (REQ-C1.2); if any is uncertain, the finding routes to
-Needs sign-off (or Needs human judgment when the path itself is ambiguous).
+conditions must hold (REQ-C1.2).
 
 1. **Failing-then-passing regression test.** A test exists that fails on the
    current code for the finding's exact reason, written and confirmed to fail
@@ -82,18 +81,15 @@ Needs sign-off (or Needs human judgment when the path itself is ambiguous).
    under Hard pauses below always route to Needs sign-off or Needs human
    judgment, regardless of how clean the test evidence is.
 
-The audit row records the test path, the before and after test output, the CI
-run and result, and the brief-alignment citation.
-
 ### 3. Needs sign-off
 
 The agent has a single specific recommended fix and validation converged with
 high confidence, but the change warrants explicit human review. Under
 act-then-review the fix is **applied on the branch** and listed in a
-**pending-sign-off checklist** in the draft PR description (REQ-C1.3). The
+**pending-sign-off checklist** in the draft PR description (REQ-C1.3): the
 human approves by leaving it in place and rejects with one revert, at PR
 review. No mid-loop prompt fires for findings outside the hard-disqualifier
-zones (which pause first; see Hard pauses).
+zones, which pause first.
 
 Route here when any of these hold:
 
@@ -128,12 +124,53 @@ human, surfaced **at loop end** with bespoke options.
 
 **Bespoke options, never timing labels.** The options presented must be the
 actual decision branches: the concrete design alternatives, or a specific
-question with concrete answers ("strict reject / lenient coerce", "retry the
-full operation / retry the failed sub-step / fail fast"). Generic timing
-options ("address now / defer / dismiss") are forbidden in this bucket. The
+question with concrete answers ("strict reject / lenient coerce"). Generic
+timing options ("address now / defer / dismiss") are forbidden here. The
 forcing function: if the options collapse to timing, the finding is
 misrouted. A single recommended fix belongs in Needs sign-off, applied on the
 branch with the checklist entry carrying the recommendation.
+
+## Prose findings
+
+A finding whose fix edits only prose — comments, documentation, doctrine,
+skill instructions, spec bundles, configuration commentary — is classed on
+[`spec-format.md`](spec-format.md)'s amendment axis, extended to prose:
+**expression-only** when no normative statement changes meaning,
+**meaning-class** otherwise. A new REQ or D-ID stays meaning-class; an added
+sentence that states no normative statement is expression-only.
+
+A **normative statement** is any obligation, permission, or prohibition
+however worded, plus any threshold, enumerated value, or interface fact; it
+changes meaning when it is added, removed, or altered. Enumerate an edited
+passage's statements with this search aid — MUST, SHALL, SHALL NOT, MAY,
+never, always, only, must not — never as the definition: a rule stated in
+none of those words is still a normative statement. The list grows on
+evidence by the ordinary doctrine-edit route.
+
+**Expression-only prose is Auto-applicable.** Its fix is mechanical and no
+rule changed, so only tool-grounding is in question, and that is met either
+by a rule a prose guard the project ships reports (doctrine index, links,
+instruction budget, markdown lint, the comment-block guard) or by a
+**recorded normative-preservation check**: the passage's normative statements
+listed before and after and shown identical,
+[Validation Rigor](validation-rigor.md)'s non-testable substitute. The audit
+row carries which.
+
+**External contract, for prose, is a normative rule a reader outside the PR
+relies on.** Wording that changes no such rule is not an external-contract
+change, and neither that disqualifier nor the external-interface route alone
+sends it to Needs sign-off.
+
+**Prose in a file the PR introduces carries no external contract until it
+merges** — a documentation, doctrine, or skill file absent from the PR's base
+under rename detection, whole, and a new code file's comments; a moved or
+renamed file is pre-existing. Review-loop edits to it are internal: applied
+and batched with the iteration's action commit, no checklist entry, reviewed
+as new content in the PR diff. A new file's code keeps its existing routes.
+
+**Meaning-class prose on a surface that predates the PR keeps the
+Needs-sign-off route**, and on a signed spec bundle is refused to a
+`/spec-kickoff` delta re-walkthrough per the meta-spec's writer obligations.
 
 ## Declined-with-rationale (REQ-C1.6)
 
@@ -157,10 +194,8 @@ Exactly two things interrupt a loop mid-flight; nothing else does.
 
 A pause hands the disposition to the human: a zone finding's recommended fix
 is not applied until the human directs it, however clear the fix looks.
-
-Everything else flows through the gate without interrupting: applied,
-resolved with evidence, applied pending sign-off, declined with rationale, or
-queued for loop end.
+Everything else flows through the gate to one of its terminal dispositions
+without interrupting.
 
 ## Presentation (REQ-C1.5)
 
@@ -172,9 +207,8 @@ declined-with-rationale log accompanies the tables. The tables are
 **artifact-side**: the audit record the draft PR carries to review; they are
 not prompts.
 
-A skill composing a turn *about* the pass — a handoff, a progress report, a
-pause — emits a projection of that record rather than the tables: per-bucket
-counts, the actionable residue (pending sign-offs, open forks), and where the
-full record landed. Leaving the tables out of that turn is not pruning,
+A skill composing a turn *about* the pass emits a projection of that record
+rather than the tables: per-bucket counts, the actionable residue, and where
+the full record landed. Leaving the tables out of that turn is not pruning,
 because the artifact still carries every row
 ([Interaction Style](interaction-style.md), the arbitration).

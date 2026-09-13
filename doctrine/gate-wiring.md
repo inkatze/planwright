@@ -7,7 +7,9 @@ convergence step) implements. The two share one contract; where this one names
 a bucket, predicate, or zone, the categorization doctrine's definition governs.
 
 Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 ·
-operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15.
+operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 ·
+prose-disposition REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 ·
+prose-disposition D-5.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -17,7 +19,6 @@ The wiring starts where [Validation Rigor](validation-rigor.md) ends: its
 input is validated findings, each carrying the evidence that confirmed it. Its
 output is a disposition per finding plus the audit record (four tables,
 declined log, pending-sign-off checklist) the draft PR carries to review.
-Discovery and validation are upstream.
 
 ## Routing order
 
@@ -26,10 +27,9 @@ runs first: a hard-disqualifier zone forces a pause regardless of the finding's
 bucket.
 
 1. **Zone screen.** If the finding, or any file its fix would touch, falls in
-   a hard-disqualifier zone (the categorization doctrine's list:
-   security-sensitive code, migrations or destructive operations, CI
-   configuration, lockfiles, secrets files), trigger a hard pause (see Pause
-   protocol). Record the recommended fix; do not apply it.
+   a hard-disqualifier zone (the categorization doctrine's list), trigger a
+   hard pause (see Pause protocol). Record the recommended fix; do not apply
+   it.
 2. **Bucket assignment** per the categorization predicates. When a predicate
    condition is uncertain, route downward exactly as the categorization
    doctrine directs (toward Needs sign-off or Needs human judgment), never
@@ -39,17 +39,16 @@ bucket.
    - *Agent-resolvable* → resolve with the evidence row (failing-then-passing
      test, CI result, and a brief-alignment citation naming the brief section
      or REQ/D-ID it aligns with).
-   - *Needs sign-off* → apply on the branch in its own commit, add a
-     pending-sign-off checklist entry (see below).
+   - *Needs sign-off* → apply on the branch per the commit discipline below,
+     add a pending-sign-off checklist entry.
    - *Needs-human-judgment candidate* → climb the resolution ladder (see
      below). A rung that answers re-routes the finding to the disposition the
      answer implies, with the rung's citation recorded. Only an irreducible
      fork stays in the bucket: it queues for loop end, or hard-pauses if it
      blocks further progress on the unit.
-4. **Declined-with-rationale** is available at any step after validation: the
-   agent may close the finding without applying it, recording the reasoning
-   in the declined log. Declining is a disposition, not an exemption from
-   recording.
+4. **Declined-with-rationale** is available at any step after validation,
+   closing the finding without applying it and recording the reasoning in the
+   declined log: a disposition, not an exemption from recording.
 
 Every routed finding ends in exactly one of five terminal dispositions:
 applied, resolved with evidence, applied pending sign-off, declined with
@@ -60,19 +59,37 @@ There is no silent drop.
 ## Commit discipline
 
 Commit granularity is part of the contract; history is never rewritten (new
-commits only).
+commits only). A **loop iteration** is one act-then-review cycle: the pass
+that discovers, validates, and dispositions a set of findings, closing when
+the next review pass opens.
 
-- **Needs-sign-off items commit one per finding**, never batched, so
-  `git revert <sha>` undoes exactly one finding. The commit subject ends with
-  the `[pending-sign-off]` marker, so the branch itself identifies these
-  commits.
+- **A Needs-sign-off fix that changes code behaviour commits on its own**, so
+  `git revert <sha>` undoes exactly one finding. A fix that edits code and
+  its prose together is that code fix's commit, never a batch member.
+- **Needs-sign-off fixes that edit only prose batch** into one commit per
+  loop iteration, carrying the manifest below. A partial revert there is a
+  hand edit the manifest guides: the per-finding revert guarantee earns its
+  cost for behaviour, where a partial revert can break things, and not for
+  wording.
+- Both sign-off shapes end their subject with the `[pending-sign-off]`
+  marker, stamped once on a batch, so the branch itself identifies them.
 - **Auto-applicable and Agent-resolvable items may batch** into one commit
   per loop iteration; their audit rows record the commit they landed in.
   Declared scoping (per [Proportionality](proportionality.md)): not pending a
-  human decision, so iteration-granular revert suffices; the per-finding
-  guarantee is reserved for the sign-off bucket.
+  human decision, so iteration-granular revert suffices.
 - Regression tests written for Agent-resolvable items land in the same
   commit as the fix they prove.
+
+**The prose batch's manifest.** The commit body carries one line per fix: the
+file, the rule as it read before (`absent` for an added passage), and the
+rule as it reads after.
+
+```text
+- doctrine/proportionality.md — before: a declared scoping names the rung
+  · after: a declared scoping names the doctrine it narrows
+- doctrine/research-rigor.md — before: absent · after: a version-sensitive
+  API is a research trigger
+```
 
 ## The `[pending-sign-off]` marker
 
@@ -83,9 +100,8 @@ subject, after the conventional prefix and description:
 type(scope): description [pending-sign-off]
 ```
 
-End-of-subject is the one canonical position; a pre-prefix marker
-(`[pending-sign-off] type(scope): …`) or a mid-subject marker breaks the
-conventional format or slips the format check.
+End-of-subject is the one canonical position: a pre-prefix or mid-subject
+marker breaks the conventional format or slips the format check.
 
 **Emit-time guard (REQ-C1.3), not range-time.** A skill writing a marked
 commit self-lints the subject before committing, while it can still reword —
@@ -104,14 +120,11 @@ checklist. The marker must never appear in the **PR title** (it becomes the
 squash-merge subject, landing on mainline); the PR-title lint rejects it there
 (`--marker title`).
 
-**Merge-strategy matrix.** Where a branch's marked subjects end up depends on
-the merge strategy:
-
-| Strategy | Marked subjects | Merge subject |
-| --- | --- | --- |
-| Squash (sanctioned) | concatenated into the squash **body** as relic text | the PR title — kept marker-free by `--marker title` |
-| Merge commit | persist as ancestor history (an accurate record) | the merge subject itself is clean |
-| Rebase-merge | would land marked subjects directly on mainline | **forbidden framework-wide** (never rebase); excluded by invariant, not handled |
+**Where marked subjects end up.** A squash merge, the sanctioned one,
+concatenates them into the squash body as relic text under a clean PR title;
+a merge commit keeps them as ancestor history, an accurate record, under a
+clean merge subject; rebase-merge would land them on mainline and is
+forbidden framework-wide, excluded by invariant rather than handled.
 
 ## Pending-sign-off checklist
 
@@ -134,13 +147,22 @@ never from a side state file.
   *including* commits a later revert undid (a reverted item drops out of the
   rendered checklist but keeps its number as a gap). IDs are thus stable
   across regenerations and never reused, with no side state persisted.
-- The operative semantics are the doctrine's: the human approves an item by
-  leaving its commit in place (the draft→ready flip with the commit still
-  present is the approval) and rejects it with the named revert, at PR review.
-  The checkbox is a reading aid for review progress, not the approval
-  mechanism.
+- The operative semantics are the doctrine's; the checkbox is a reading aid
+  for review progress, not the approval mechanism.
 - An empty checklist still emits, with a single `none` row (the same
   anti-silent-pruning guard as the four tables).
+
+A batched prose commit renders as **one entry with one sub-item per manifest
+line**:
+
+```markdown
+- [ ] **PS-2** 2 meaning-class prose fixes · commit `<sha>`
+  - Route reason: meaning-class prose on surfaces that predate the PR
+  - `<file>` — before: `<rule>` · after: `<rule>`
+  - `<file>` — before: absent · after: `<rule>`
+  - Reject with: `git revert <sha>`; rejecting one sub-item is a hand edit
+    the manifest guides
+```
 
 ## Audit record formats
 
@@ -166,27 +188,21 @@ The **declined log** accompanies the tables wherever they emit:
 | --- | --- |
 | Declined log | # · Finding · Validation summary · Rationale · Where re-raisable |
 
-Declined findings remain re-raisable at PR review (REQ-C1.6).
+A batched prose commit keeps **one Needs-sign-off row per finding**, the rows
+sharing a Commit and a Checklist ID: batching changes the commit, never the
+audit record's granularity.
 
-The tables and declined log are artifact-side (REQ-E1.5). Table content is a
-committed artifact: finding text and captured output must respect artifact
-data-hygiene ([Security Posture](security-posture.md)) before landing in a PR
-body.
+Table content is a committed artifact: finding text and captured output must
+respect artifact data-hygiene ([Security Posture](security-posture.md)) before
+landing in a PR body.
 
 ## Resolution ladder procedure
 
-For each Needs-human-judgment candidate, climb in order and stop at the first
-rung that answers (REQ-C1.7). A lower rung never second-guesses a higher one.
-
-1. **Brief or spec citation.** Search the kickoff brief and the spec bundle
-   for a decision, constraint, or REQ that answers the fork. Answered →
-   adopt, record `rung 1: <brief section or REQ/D-ID>`.
-2. **Research.** Apply [Research Rigor](research-rigor.md): official docs,
-   the library's own source and tests, issues and RFCs. Answered → adopt,
-   record `rung 2: <sources consulted>`.
-3. **Project convention.** Search the project's established patterns and
-   sibling implementations. Answered → adopt, record
-   `rung 3: <precedent cited>`.
+For each Needs-human-judgment candidate, climb the categorization doctrine's
+three rungs in order and stop at the first that answers (REQ-C1.7). A lower
+rung never second-guesses a higher one. Answered → adopt, recording the rung
+that answered: `rung 1: <brief section or REQ/D-ID>`,
+`rung 2: <sources consulted>`, `rung 3: <precedent cited>`.
 
 Recording is mandatory at every consulted rung, answered or not: the ladder
 record in the judgment table must show which rungs were climbed and what each
@@ -207,10 +223,8 @@ What a pause does depends on who is watching:
   unit to `tasks.md` Awaiting input (the halt destination REQ-F1.5 defines),
   with the finding, the trigger, and the recommended fix or alternatives, then
   end the step. Work already applied stays on the branch as committed: a pause
-  never resets, stashes, or rewrites prior dispositions. The pause content must
-  respect artifact data-hygiene ([Security Posture](security-posture.md)):
-  describe the zone finding without reproducing secrets or sensitive
-  operational detail.
+  never resets, stashes, or rewrites prior dispositions. The pause content
+  respects artifact data-hygiene ([Security Posture](security-posture.md)).
 
 The human's direction is the finding's disposition: the finding does not
 re-enter the routing order and the zone screen does not fire again. The agent
@@ -225,8 +239,7 @@ At loop end the full record — the four tables, the declined log, the
 pending-sign-off checklist, then the queued forks and their bespoke options,
 in that order — is **artifact-side**, folded into the draft PR body per
 PR-body assembly below (REQ-E1.5). The **turn** gets its projection:
-per-bucket counts, the actionable residue (pending sign-offs, open forks), and
-where the full record landed
+per-bucket counts, the actionable residue, and where the full record landed
 ([Interaction Style](interaction-style.md), the arbitration).
 
 ## PR-body assembly
@@ -242,12 +255,10 @@ template-expanded: each skill supplies its own summary inputs.
 1. **A human summary, above the fold** (REQ-A1.1): what changed and why, how to
    review it, the task IDs the PR implements, the REQs satisfied, and the open
    pending-sign-off items. Prose plus a short fact list a reviewer reads
-   without expanding anything. Each emitting skill names which inputs feed the
-   summary (its task IDs, REQ citations, test additions).
-2. **The complete audit record, collapsed** (REQ-A1.2): the loop-end handoff
-   (the four bucket tables, the declined log, the pending-sign-off checklist,
-   and any queued forks, plus `/self-review`'s lens-coverage table and pass
-   summary) inside a `<details>` block, so it never buries the summary.
+   without expanding anything.
+2. **The complete audit record, collapsed** (REQ-A1.2): the loop-end handoff,
+   plus `/self-review`'s lens-coverage table and pass summary, inside a
+   `<details>` block, so it never buries the summary.
    Collapsed is not abridged: every table and row the wiring emits is present
    inside the block.
 
@@ -265,8 +276,7 @@ flattened out of its `<details>`. Body content outside the generated sections
 
 **Pending-sign-off items appear in both places**: named in the summary, so a
 reviewer sees the open decisions without expanding the audit, and in full
-inside the collapsed checklist (commit `sha` and named revert per item). The
-summary lists them; the checklist is authoritative.
+inside the collapsed checklist, which is authoritative.
 
 ### Example
 
@@ -279,14 +289,14 @@ per [`spec-format.md`](spec-format.md).
 ```markdown
 ## Summary
 
-Closes the unowned-refresh gap REQ-E1 names: stamps the reconcile's completion annotation so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>`, degrading with no remote to a date-only form or no stamp.
+Closes the unowned-refresh gap REQ-E1 names: a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>`, degrading to a date-only form with no remote.
 
 **How to review:** `scripts/tasks-pr-sync.sh` and its `tests/` fixtures.
 
 - **Tasks:** output-hygiene/7 · **REQs:** REQ-E1.1, REQ-E1.2
 - **Brief:** `specs/output-hygiene/kickoff-brief.md`
-- **Tests:** `tests/tasks-pr-sync.bats` — merged-PR evidence yields the canonical string; a no-remote fixture yields the date-only form or no stamp, never an invented PR number.
-- **Pending sign-off:** PS-1 (annotation-format wording) — see the collapsed checklist.
+- **Tests:** `tests/tasks-pr-sync.bats` — merged-PR evidence yields the canonical string; a no-remote fixture yields the date-only form, never an invented PR number.
+- **Pending sign-off:** PS-1 (2 prose fixes) — see the collapsed checklist.
 
 <details>
 <summary>Audit record</summary>
@@ -297,34 +307,21 @@ Closes the unowned-refresh gap REQ-E1 names: stamps the reconcile's completion a
 | --- | --- | --- | --- | --- |
 | 1 | unquoted expansion in the stamp path | shellcheck SC2086 | quoted it | `abc1234` |
 
-## Agent-resolvable
-
-| # | Finding | Test | Before → after | CI | Brief alignment | Commit |
-| --- | --- | --- | --- | --- | --- | --- |
-| none | | | | | | |
-
 ## Needs sign-off
 
 | # | Finding | Fix applied | Route reason | Commit | Checklist ID |
 | --- | --- | --- | --- | --- | --- |
-| 1 | wording touches a documented output format | reworded the degraded-case string | user-observable doc contract | `def5678` | PS-1 |
+| 1 | the stamp's degraded case is documented as no stamp | reworded to the date-only form | meaning-class prose, pre-existing surface | `def5678` | PS-1 |
+| 2 | the no-remote arm states a duty its REQ permits | reworded to the permission | meaning-class prose, pre-existing surface | `def5678` | PS-1 |
 
-## Needs human judgment
-
-| # | Fork | Ladder record | Outcome | Options |
-| --- | --- | --- | --- | --- |
-| none | | | | |
-
-## Declined log
-
-| # | Finding | Validation summary | Rationale | Where re-raisable |
-| --- | --- | --- | --- | --- |
-| none | | | | |
+`Agent-resolvable`, `Needs human judgment`, and the declined log each emit their `none` row here.
 
 ## Pending sign-off
 
-- [ ] **PS-1** annotation-format wording reworded for the no-remote case · commit `def5678`
-  - Route reason: touches a documented output format a downstream reader parses
+- [ ] **PS-1** 2 meaning-class prose fixes · commit `def5678`
+  - Route reason: meaning-class prose on surfaces that predate the PR
+  - `docs/annotations.md` — before: the degraded case prints no stamp · after: it prints the date-only form
+  - `scripts/tasks-pr-sync.sh` — before: the no-remote arm must stamp · after: it may stamp
   - Reject with: `git revert def5678`
 
 </details>
@@ -332,8 +329,7 @@ Closes the unowned-refresh gap REQ-E1 names: stamps the reconcile's completion a
 
 ## Consumers and conformance
 
-`/self-review`, `/polish`, and `/execute-task`'s convergence step implement
-this wiring. The conformance scenarios live in the
+The conformance scenarios live in the
 bootstrap test-spec's REQ-C1.3, REQ-C1.4, and REQ-C1.7 entries
 (state/trigger/outcome), exercised by the manual-verification sweep the work
 fork's first run carries, with the REQ-C1.5 and REQ-C1.6 manual entries.
