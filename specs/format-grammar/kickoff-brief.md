@@ -344,3 +344,66 @@ or decision changes meaning. `Last reviewed:` moves on the edited files.
 Class: expression-only
 Anchor: `105e7d714c9b9fc2664611b9e50dc7fd331ca49a` — computed as
 `scripts/spec-anchor.sh specs/format-grammar`
+
+### Re-anchor — kickoff verification homes named (2026-09-12)
+
+Marked self-re-anchor for the expression-only edit this bundle's Task 7
+lands in its own test-spec (D-17, REQ-F1.1, REQ-F1.2, REQ-F1.3): the three
+REQ-F entries now name their verification homes. REQ-F1.1 carries the
+documented manual scenario with exercise steps for both routing arms, the
+form its `[manual]` tag and the Task 7 Done-when promised; REQ-F1.2 and
+REQ-F1.3 name the fixture test that ships with the task and what it
+asserts. Each entry gap-fills a home the walkthrough already assigned; no
+requirement or decision changes meaning. `Last reviewed:` moves on the
+edited files.
+
+**Cites the changelog line:** the 2026-09-12 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `015ac10f13b358303848780ebb47f9bef35df4e0` — computed as
+`scripts/spec-anchor.sh specs/format-grammar`
+
+### Re-anchor — manual scenario steps corrected (2026-09-12)
+
+Marked self-re-anchor for the expression-only corrections this bundle's
+Task 7 convergence pass made to its own test-spec (REQ-F1.1, REQ-F1.3).
+The REQ-F1.1 exercise steps now describe a run that the repository's gates
+permit and the skill's routing actually takes: Arm A edits the working
+tree without committing, so the anchor mismatches without tripping the
+pre-commit guard; Arm B selects its bundle by the render's derived status
+line, since an all-completed bundle renders Done and cannot be amended;
+the mode is read from the walk the skill enters; and each exercised arm is
+recorded in the observations log, since this bundle will have derived Done
+before the next real occurrence. REQ-F1.3 states the absent-catalog read as
+the clean empty result it is, and names a reachable form of the manual
+condition. The 2026-09-12 changelog bullet for the first edit also has one
+sentence reworded to the declarative form its neighbours use. No
+requirement or decision changes meaning.
+
+**Cites the changelog line:** the second 2026-09-12 `## Changelog` entry
+in `requirements.md`.
+
+Class: expression-only
+Anchor: `6ccccf4299b8124865c1d7508bb3c62ad9b414fb` — computed as
+`scripts/spec-anchor.sh specs/format-grammar`
+
+### Re-anchor — REQ-F entries annotated and their glosses corrected (2026-09-12)
+
+Marked self-re-anchor for the expression-only corrections the `/self-review`
+pass over the Task 7 branch made to this bundle's test-spec (REQ-F1.1,
+REQ-F1.2, REQ-F1.3). The three entries amended in place at execution and
+convergence now carry the format's trailing `*(Amended at …)*` annotation,
+which the amendment ritual requires so a record names the event that changed
+it. REQ-F1.1's arm preconditions now state the status derivation the render
+applies instead of glosses that over- or under-stated it; REQ-F1.2 says
+which of its checks the freshness-gate parser makes and which the test makes
+textually; REQ-F1.3 describes the layer roots as the fixture sets them. No
+requirement or decision changes meaning.
+
+**Cites the changelog line:** the third 2026-09-12 `## Changelog` entry in
+`requirements.md` ("Expression-only (Task 7 review)").
+
+Class: expression-only
+Anchor: `faa96f6e18984237582fc7581ecf889e137505f7` — computed as
+`scripts/spec-anchor.sh specs/format-grammar`

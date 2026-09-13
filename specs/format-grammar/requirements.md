@@ -1,7 +1,7 @@
 # Format grammar & parser unification — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-09-12
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -365,6 +365,34 @@ doctrine stops being homeless prose asserted only in scattered tests.
   REQ-D1.2 and REQ-D1.3 test-spec entries describe their fixture ids
   without naming them as bare tokens, after the rule's block-scope fix
   surfaced them. No requirement or decision changes meaning.
+- 2026-09-12 — Expression-only (Task 7 execution): the REQ-F test-spec
+  entries name their verification homes. REQ-F1.1 carries the documented
+  manual scenario with its exercise steps for both routing arms; REQ-F1.2
+  and REQ-F1.3 name the fixture test that ships with the task and what it
+  asserts. The entries gap-fill homes the walkthrough left to this task;
+  no requirement or decision changes meaning.
+- 2026-09-12 — Expression-only (Task 7 convergence): the REQ-F1.1 manual
+  steps corrected after review. Arm A edits the working tree without
+  committing, so the anchor mismatches without tripping the pre-commit
+  guard; Arm B selects by the render's derived bundle status line, since
+  an all-completed bundle renders Done and cannot be amended; the mode is
+  read from the walk the skill enters, not an announcement; and each
+  exercised arm is recorded in the observations log, since this bundle
+  will have derived Done by then. REQ-F1.3 says the absent-catalog read
+  returns a clean empty result (it does not fail) and names a reachable
+  form of the manual condition. No requirement or decision changes
+  meaning.
+- 2026-09-12 — Expression-only (Task 7 review): the three REQ-F test-spec
+  entries, amended in place at execution and convergence, carry the
+  format's trailing `*(Amended at …)*` annotation. REQ-F1.1's arm
+  preconditions state the derivation the render applies: Ready is no task
+  yet deriving In-progress (dispatch alone does not move it), Active is a
+  task In-progress or Completed with work remaining, and Done needs no live
+  Awaiting-input bullet; the open spec PR is named as the arm's premise
+  rather than something the render reports. REQ-F1.2 says which checks are
+  the parser's (the anchor record) and which the test makes textually (the
+  marks and anchor-last). REQ-F1.3 describes the layer roots as the fixture
+  sets them. No requirement or decision changes meaning.
 
 ## Sources
 

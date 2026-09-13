@@ -1,7 +1,7 @@
 # Format grammar & parser unification — Test spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-09-12
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -284,22 +284,105 @@ of its `[manual]` entries (live-spec scope).
 A documented scenario: invoking `/spec-kickoff` against a Ready bundle with
 pre-merge changes routes to delta re-walkthrough, against an Active bundle
 to the amendment ritual; exercised and recorded at the next real occurrence
-of each, per the Task 7 documented steps.
+of each arm, per the steps below. While this bundle is live the `/drain`
+per-spec `[manual]` inventory lists the obligation; once it derives Done the
+obligation lives in the observations log, where each arm's record also
+goes (an `obs-record.sh` fragment naming the bundle exercised and the mode
+entered), since a Done bundle is never amended in place. The routing rule
+under test is the skill's pre-flight mode selection and its Modes section;
+both arms invoke `/spec-kickoff specs/<spec>` on a signed bundle and read
+the mode the skill enters, visible in the walk it opens and the
+amendment-log entry it writes.
+
+Arm A, Ready bundle with a pre-merge change routes to the delta
+re-walkthrough:
+
+1. Pick a bundle whose status render (`mise run status specs/<spec>`)
+   ends in a derived bundle status of Ready: signed, with no task yet
+   deriving In-progress (a dispatched but unstarted unit still renders
+   Ready). The spec PR being still open is the pre-merge premise this arm
+   exercises, not something the render reports; check it on the PR.
+2. Edit anchored content in the working tree (a requirement's wording)
+   without committing. The freshness comparison reads the working tree,
+   so the brief's most recent anchor now recomputes to a different hash;
+   leaving the edit uncommitted keeps the anchor-freshness pre-commit
+   guard out of the exercise, and the re-walkthrough's own re-anchor is
+   what lands it.
+3. Invoke `/spec-kickoff specs/<spec>`. Expected: the comparison reports
+   the mismatch and the skill enters the delta re-walkthrough, deriving
+   the delta from the spec files' history since the entry plus the
+   uncommitted edit and confirming its scope before walking; it does not
+   offer the amendment ritual, and the spec PR stays as it was.
+
+Arm B, Active bundle takes a human-declared amendment:
+
+1. Pick a bundle whose status render ends in a derived bundle status of
+   Active: a task derives In-progress, or Completed with work remaining.
+   A bundle whose whole Done universe derives Completed with no live
+   Awaiting-input bullet renders Done and cannot take an amendment (it
+   reopens through `/spec-draft --extend`), so it does not qualify. On a
+   format-version 2 bundle the stored header still reads Ready, which is
+   expected; the derived line is the criterion.
+2. With the anchor fresh (no content edit), invoke
+   `/spec-kickoff specs/<spec>`. Expected: the comparison matches, the
+   skill asks what the human brings, and declaring an amendment enters the
+   amendment ritual, classified meaning-class or expression-only at
+   sign-off; the skill never infers the amendment from the bundle's state.
+
+Negative check, both arms: a Ready bundle is never offered the amendment
+ritual, and an Active bundle's declared amendment is never routed through a
+whole-bundle re-walkthrough.
+
+*(Amended at Task 7 execution 2026-09-12: exercise steps for both arms
+added; corrected at Task 7 convergence and review the same day.)*
 
 ### REQ-F1.2 — Expression-only anchor-entry production [test]
 
-Fixture: a captured real skill-produced expression-only entry (e.g. the
-one Task 4 writes into invariant-tasks — marked class, changelog citation,
-anchor line last) parses as execution-valid by the freshness-gate parser;
-the fixture is the captured output, not a hand-authored golden.
+Fixture: a captured real skill-produced expression-only entry (the one
+Task 4 wrote into invariant-tasks — marked class, changelog citation,
+anchor line last) is execution-valid: its marks are present and its anchor
+record parses and recomputes clean under the freshness-gate parser; the
+fixture is the captured output, not a hand-authored golden. Home:
+`tests/test-kickoff-verification-homes.sh` over
+`tests/fixtures/kickoff-entries/invariant-tasks-amendment-6.md`. The test
+re-derives the fixture from the commit that landed the entry and fails on
+any divergence (captured, never edited); checks textually, since no
+shipped script reads them, the execution-validity marks (the
+`Class: expression-only` line, a citation of a dated `## Changelog` bullet
+that exists in that bundle's requirements at that commit) and the writing
+rule that the anchor line comes last; runs
+`scripts/check-anchor-freshness.sh` over the bundle as that commit left it
+and expects the entry's hash reported as a clean recompute; and proves the
+acceptance is the parser's, not vacuous, by refusing the same entry with
+its hash rewritten (the recompute error naming both hashes) and with a
+non-sanctioned command form.
+
+*(Amended at Task 7 execution 2026-09-12: home named and what it asserts
+stated; reworded at Task 7 review the same day to say which checks are the
+parser's.)*
 
 ### REQ-F1.3 — Catalog-absent degradation [test + manual]
 
 The script half is the fixture: `resolve-catalog.sh` with no resolvable
-decision-domains catalog fails cleanly `[test]`. The skill's
-degrade-to-one-line-notice-and-proceed decision is prose behavior no
-fixture executes; it is exercised and recorded at the next real
-catalog-absent kickoff `[manual]`.
+decision-domains catalog returns a clean empty result rather than an error
+`[test]`. Home: `tests/test-kickoff-verification-homes.sh`: the gap check's
+own read, `scripts/resolve-catalog.sh decision-domains`, with every overlay
+variable stripped, the core and adopter roots pointed at empty directories
+and the repo root at a directory holding no `.claude`, exits 0 with empty
+stdout and no stderr noise (the absent result the skill reads);
+the contrast arm with the shipped seed present resolves non-empty, so the
+empty result is the absent verdict rather than a resolver that prints
+nothing. The skill's degrade-to-one-line-notice-and-proceed decision is
+prose behavior no fixture executes; it is exercised and recorded at the
+next real catalog-absent kickoff `[manual]`. The core seed ships with the
+plugin, so that occurrence is an install whose seed is missing or a run
+with the layer roots redirected to empty directories, as the fixture does:
+run `/spec-kickoff` under that condition and confirm the run notes the
+skip in one line, skips the gap check, records the skip in the brief's
+risk register, and proceeds to sign-off.
+
+*(Amended at Task 7 execution 2026-09-12: home named; corrected at Task 7
+convergence and review the same day.)*
 
 ## REQ-G — Sequencing constraint
 
