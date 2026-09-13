@@ -214,7 +214,29 @@ can be measured by it.
 
 ## Awaiting input
 
-(none yet)
+- **Task 1** — Blocked a second time on the same instruction budget, now with
+  the residue measured. The operator's answer to the first park was to fund
+  the amendments with a dedupe-only compensating trim, and that trim landed
+  and went green. A four-lens review pass then showed the trim had cut fifteen
+  rules, not only restatement: each was the last place a rule lived for at
+  least one skill that loads the doc, checked against the doctrine manifests.
+  Restoring them is not optional, and it puts the budget back over. What is
+  left needs **165 words of further dedupe in the docs `/self-review` and
+  `/polish` load at run start, at least 50 of them from
+  `doctrine/gate-wiring.md` itself** — the doc is 50 words over its own 2,500
+  warn threshold, `start-load:self-review` sits 159 words below the margin its
+  declared exception pins it to, and `start-load:polish` sits 165 words below
+  its restoration target, which `tests/test-check-instructions.sh` fails on.
+  `/builder` is funded and clear. Those 165 words are not reachable by dedupe:
+  what remains in that doc set is either law or the rationale attached to it,
+  and cutting either is the clause-shortening the operator ruled out. The
+  options left are relief the operator has so far excluded (a `raise` entry, a
+  `pending-diet` allowance, or a `declared-exception` for `start-load:polish`,
+  which is the form `doctrine/instruction-hygiene.md` prescribes for a surface
+  above its floor but short of target), or narrowing what REQ-A, REQ-B and
+  REQ-C require the amended docs to say, which is a `/spec-kickoff` delta
+  re-walkthrough. Work is on `planwright/prose-disposition/task-1`; the
+  doctrine is correct and every guard but `check:instructions` is green.
 
 ## Deferred
 
