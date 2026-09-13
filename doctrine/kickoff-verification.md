@@ -56,7 +56,10 @@ line of defense against spec bugs execution feedback cannot catch (D-45).
 - **Fan-out.** One read-only sub-agent per canonical lens for any non-trivial
   delta per `discovery-rigor`; walk inline only for small, narrow deltas, and
   declare the path taken.
-- **Lens-coverage table.** Emit the canonical lens-coverage table.
+- **Lens-coverage table.** The canonical table is recorded artifact-side, in
+  full, in the brief section the sign-off record closes; the turn carries its
+  counts plus the notable rows — those the operator must act on
+  (`interaction-style`, the arbitration).
 
 ### Kickoff-specific altitude check (REQ-H1.3)
 
