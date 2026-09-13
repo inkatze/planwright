@@ -1,0 +1,1 @@
+- 2026-09-12 [planwright] REQ-F1.3 (format-grammar) covers only the absent-layer branch of resolve-catalog.sh: a core seed that is present but unreadable or parses to zero entries hard-fails with exit 1 and loud stderr per the resolver's by-layer policy, and neither the spec nor any verification home says what the kickoff gap check does with that verdict.
