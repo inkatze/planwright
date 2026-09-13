@@ -21,27 +21,24 @@ can be measured by it.
   scoped to its four defect classes, with the defect class carried in the
   coverage row's Notes cell so the canonical table keeps its columns;
   the cross-set improvable-is-not-a-finding sentence in
-  `doctrine/artifact-lenses.md`; the prose classification, grounding,
-  external-contract definition, and PR-introduced-surface rule in
+  `doctrine/artifact-lenses.md`; the prose classification in
   `doctrine/finding-categorization.md`; the batching rule, manifest form,
   batched checklist rendering, and per-finding audit rows in
-  `doctrine/gate-wiring.md`, with the term loop iteration defined there,
-  its example updated, and a diet applied to keep the doc under its warn
-  threshold; the surface-pattern sweep over `doctrine/` and `docs/` for the
-  superseded wording, with every straggler fixed in the same change.
-- **Done when:** each rule REQ-A, REQ-B, and REQ-C states appears in the
-  named doc; the routing scenarios in `test-spec.md` under REQ-B1.2,
-  REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-C1.1, and REQ-C1.3 walk against the
-  amended text and reach the stated disposition, each walk recorded in the
-  PR body; the REQ-D1.2 grep over `doctrine/` and `docs/` returns no hit;
-  `check:links`, `check:doctrine-index`, and `check:instructions` pass, the
-  suppression list gains no `raise` entry, and the guard's output carries no
-  floor-breach warning and no doctrine-warn line for
-  `doctrine/gate-wiring.md`.
+  `doctrine/gate-wiring.md`, with the term loop iteration defined there and
+  its example updated; the surface-pattern sweep over `doctrine/` and `docs/`
+  for the superseded wording, with every straggler fixed in the same change.
+- **Done when:** each rule REQ-A, REQ-B1.1, REQ-B1.5 and REQ-C states appears
+  in the named doc; the routing scenarios in `test-spec.md` under REQ-B1.5,
+  REQ-C1.1, and REQ-C1.3 walk against the amended text and reach the stated
+  disposition, each walk recorded in the PR body; the REQ-D1.2 grep over
+  `doctrine/` and `docs/` returns no hit; `check:links`,
+  `check:doctrine-index`, and `check:instructions` pass, the suppression list
+  gains no `raise` entry, and the guard's output carries no floor-breach
+  warning.
 - **Dependencies:** none
-- **Citations:** D-1, D-2, D-3, D-4, D-5, D-6 · REQ-A1.1, REQ-A1.2, REQ-A1.3,
-  REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-C1.1, REQ-C1.2,
-  REQ-C1.3, REQ-C1.4, REQ-D1.2, REQ-D1.3
+- **Citations:** D-1, D-2, D-3, D-5, D-6 · REQ-A1.1, REQ-A1.2, REQ-A1.3,
+  REQ-B1.1, REQ-B1.5, REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-D1.2,
+  REQ-D1.3
 - **Estimated effort:** 1 day
 
 ### Task 2 — Skill instantiation and straggler sweep
@@ -212,31 +209,36 @@ can be measured by it.
 - **Citations:** D-11, D-12, D-13 · REQ-G1.7, REQ-F1.7
 - **Estimated effort:** half day
 
+### Task 10 — The Auto-applicable lane for expression-only prose
+
+- **Deliverables:** in `doctrine/finding-categorization.md`, the rule that
+  expression-only prose is Auto-applicable together with its two groundings
+  (a rule a prose guard the project ships reports, or a recorded
+  normative-preservation check performed as `doctrine/validation-rigor.md`'s
+  non-testable substitute) and the audit row that carries which was used; the
+  external-contract definition for prose and its disposal of both the
+  Auto-applicable disqualifier and the Needs-sign-off external-interface
+  route; the PR-introduced-surface rule; the matching `doctrine/README.md`
+  index row and `Citations:` entries; and whatever budget relief lets the
+  three rules land.
+- **Done when:** each rule REQ-B1.2, REQ-B1.3 and REQ-B1.4 states appears in
+  `doctrine/finding-categorization.md`; the routing scenarios in
+  `test-spec.md` under REQ-B1.2, REQ-B1.3 and REQ-B1.4 walk against the
+  amended text and reach the stated disposition, each walk recorded in the PR
+  body; `doctrine/gate-wiring.md` sits under its per-file warn threshold; and
+  `mise run check` is green. This task owns funding its own instruction
+  budget. The run-start dedupe diet is exhausted: Task 1 took it, measured it,
+  and its convergence pass found that it had cut fifteen rules which had to be
+  restored, so funding here means relief (a `raise` entry, a `pending-diet`
+  allowance, or a `declared-exception`, each carrying its recorded rationale)
+  or a narrowed requirement — never a further trim of run-start doctrine.
+- **Dependencies:** 1
+- **Citations:** D-3, D-4 · REQ-B1.2, REQ-B1.3, REQ-B1.4
+- **Estimated effort:** half day
+
 ## Awaiting input
 
-- **Task 1** — Blocked a second time on the same instruction budget, now with
-  the residue measured. The operator's answer to the first park was to fund
-  the amendments with a dedupe-only compensating trim, and that trim landed
-  and went green. A four-lens review pass then showed the trim had cut fifteen
-  rules, not only restatement: each was the last place a rule lived for at
-  least one skill that loads the doc, checked against the doctrine manifests.
-  Restoring them is not optional, and it puts the budget back over. What is
-  left needs **165 words of further dedupe in the docs `/self-review` and
-  `/polish` load at run start, at least 50 of them from
-  `doctrine/gate-wiring.md` itself** — the doc is 50 words over its own 2,500
-  warn threshold, `start-load:self-review` sits 159 words below the margin its
-  declared exception pins it to, and `start-load:polish` sits 165 words below
-  its restoration target, which `tests/test-check-instructions.sh` fails on.
-  `/builder` is funded and clear. Those 165 words are not reachable by dedupe:
-  what remains in that doc set is either law or the rationale attached to it,
-  and cutting either is the clause-shortening the operator ruled out. The
-  options left are relief the operator has so far excluded (a `raise` entry, a
-  `pending-diet` allowance, or a `declared-exception` for `start-load:polish`,
-  which is the form `doctrine/instruction-hygiene.md` prescribes for a surface
-  above its floor but short of target), or narrowing what REQ-A, REQ-B and
-  REQ-C require the amended docs to say, which is a `/spec-kickoff` delta
-  re-walkthrough. Work is on `planwright/prose-disposition/task-1`; the
-  doctrine is correct and every guard but `check:instructions` is green.
+(none yet)
 
 ## Deferred
 

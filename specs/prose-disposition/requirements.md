@@ -439,6 +439,13 @@ work, is recorded in D-1 and cited here from the goal.
 
 ## Changelog
 
+- 2026-09-13 — Task 1 execution: the Auto-applicable lane for expression-only
+  prose (REQ-B1.2, REQ-B1.3, REQ-B1.4) moves out of Task 1 into a new Task 10,
+  which owns funding its own instruction budget; Task 1's Deliverables,
+  Done-when and Citations no longer claim it, and its gate-wiring
+  per-file-warn clause moves with it. No requirement or decision changes: the
+  same REQs are delivered, by a different task. Placement and scope only.
+
 - 2026-09-04 — Kickoff walkthrough: the Documentation lens gains an
   interpretation-fork class (REQ-A1.1); a normative statement is defined by
   meaning, with a word list as the search aid (REQ-B1.1); a renamed file is

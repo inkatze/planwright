@@ -433,4 +433,22 @@ Anchor: `b506544c0d609f9cbb88525f8df145ae2f933ab0` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### 2026-09-13 — Task 1 execution: the prose Auto-applicable lane deferred to Task 10
+
+Task 1's amendments to `doctrine/finding-categorization.md` could not all land
+under the instruction budget. `/self-review`'s mandatory-at-start closure sits
+on the margin its declared exception pins it to, so the doc could not grow by
+the full amount; the compensating trim that would have funded it was taken,
+measured, and found by the convergence pass to have cut fifteen rules rather
+than restatement, all of which were restored. The operator's disposition was
+to split rather than fund: REQ-B1.2, REQ-B1.3 and REQ-B1.4 move to a new
+Task 10 that owns its own budget funding, and Task 1 lands the remaining rules
+honestly complete. `requirements.md` and `design.md` are untouched — every REQ
+and D-ID keeps its meaning and its delivery, under a different task.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-09-13 ("Task 1
+execution: the Auto-applicable lane for expression-only prose … moves out of
+Task 1 into a new Task 10").
+Anchor: `0be92ca74ea5dd6915e2b81671f88248da027199` — computed as
+`scripts/spec-anchor.sh specs/prose-disposition`

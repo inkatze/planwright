@@ -10,8 +10,8 @@ backs it, so the human can review the whole record at the draft PR.
 
 Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
 REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 ·
-operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.2,
-REQ-B1.3, REQ-B1.4, REQ-B1.5 · prose-disposition D-3, D-4.
+operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.5 ·
+prose-disposition D-3.
 
 The operational wiring is specified in [Gate Wiring](gate-wiring.md), which
 implements the buckets and principles defined here.
@@ -147,28 +147,6 @@ never, always, only, must not — never as the definition: a rule stated in
 none of those words is still a normative statement. The list grows on
 evidence by the ordinary doctrine-edit route: a changelog line,
 expression-only unless a rule changes.
-
-**Expression-only prose is Auto-applicable.** Its fix is mechanical and no
-rule changed, so only tool-grounding is in question, and that is met either
-by a rule a prose guard the project ships reports (doctrine index, links,
-instruction budget, markdown lint, a gloss or pin check, the comment-block
-guard) or by a
-**recorded normative-preservation check**: the passage's normative statements
-listed before and after and shown identical,
-[Validation Rigor](validation-rigor.md)'s non-testable substitute. The audit
-row carries which.
-
-**External contract, for prose, is a normative rule a reader outside the PR
-relies on.** Wording that changes no such rule is not an external-contract
-change, and neither that disqualifier nor the external-interface route alone
-sends it to Needs sign-off.
-
-**Prose in a file the PR introduces carries no external contract until it
-merges** — a documentation, doctrine, or skill file absent from the PR's base
-under rename detection, whole, and a new code file's comments; a moved or
-renamed file is pre-existing. Review-loop edits to it are internal: applied
-and batched with the iteration's action commit, no checklist entry, reviewed
-as new content in the PR diff. A new file's code keeps its existing routes.
 
 **Meaning-class prose on a surface that predates the PR keeps the
 Needs-sign-off route**, and on a signed spec bundle is refused to a
