@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.41.0](https://github.com/inkatze/planwright/compare/v0.40.0...v0.41.0) (2026-09-13)
+
+
+### Features
+
+* **doctrine:** add the tower conversation rule doc and its budget raise ([#445](https://github.com/inkatze/planwright/issues/445)) ([4c37bdc](https://github.com/inkatze/planwright/commit/4c37bdc85246c80bacb1bbc618f58085d0dd3ce2))
+
 ## [0.40.0](https://github.com/inkatze/planwright/compare/v0.39.0...v0.40.0) (2026-09-12)
 
 
