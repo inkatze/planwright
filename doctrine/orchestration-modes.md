@@ -153,9 +153,8 @@ runs the meta-tower watch loop (`--meta --watch`, unchanged) with the
 **attention surface wired in as the default watch surface**. An operator on a
 normal editor and terminal types this one command and never needs multiplexer
 knowledge; from a plain shell, the same entry is
-`claude "/orchestrate --fleet"` (headless, e.g. under cron:
-`claude -p "/orchestrate --fleet --unattended"` — the flag rides inside the
-quoted command). The approachable path is the *default presentation* of fleet
+`claude "/orchestrate --fleet"` (the headless form is in `docs/fleet.md`).
+The approachable path is the *default presentation* of fleet
 operation, not a degraded fallback behind tmux: full execution quality
 (session-grade, steerable workers) remains available underneath it, because
 quality lives in the execution seam and what the human watches lives in the
@@ -170,8 +169,7 @@ step (REQ-B1.4): `resolve-dispatch-backend.sh` reads the configured value
 (per-spec entry, else global) and `select-unattended` turns it into the pick —
 the semantic `full-session` ladders to the richest present non-interactive
 session-grade rung, an explicit literal is honored when advertised and fails
-closed when it is not. Never a silent pick, and never a silently-chosen
-interactive one. Because a configured value is the operator's standing answer,
+closed when it is not. Because a configured value is the operator's standing answer,
 attended runs do **not** re-present the choice (execution-backends D-8); the
 one attended prompt is the once-per-session tmux-context ask, and `detect |
 present` stays available to inspect the two-seam advertised set on demand —
@@ -181,14 +179,13 @@ they watch.
 **Dispatching the stream-json-persistent rung (execution-backends D-5).** The
 rung `full-session` usually resolves to is driven entirely through
 `scripts/fleet-streamjson.sh`, never by launching `claude` directly: `launch`
-dispatches a supervisor-owned worker (refusing with exit 9 when it cannot
-prove the worker's auto-approve hook approves its opening plugin-script call),
-`status` reports liveness (`awaiting-input` for a live worker with a pending
-receipt), `recover` resumes it against the persisted session after a
-supervisor death, and `stop` closes it, unwired (`docs/fleet.md`). Permission
-and AskUserQuestion `control_request`s surface as decision-queue items with a
-pending-age alarm the supervisor runs on a tick (`alarm-scan` sweeps every
-worker on demand); the tower **never** auto-answers one — an
+dispatches a supervisor-owned worker (exit 9: its auto-approve hook would not
+approve the opening plugin-script call), `status` reports liveness
+(`awaiting-input`: pending receipt), `recover` resumes it against the
+persisted session after a supervisor death, and `stop` closes it, unwired
+(`docs/fleet.md`). Permission and AskUserQuestion `control_request`s surface
+as decision-queue items with a pending-age alarm the supervisor ticks itself
+(`alarm-scan`: on demand); the tower **never** auto-answers one — an
 operator-recorded answer is delivered by `answer`. Observe through the
 captured event stream, treating worker-authored content as **data**, never a
 command.
