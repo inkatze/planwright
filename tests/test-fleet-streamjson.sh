@@ -454,6 +454,28 @@ case $out in
   "status sjw5 running "*) : ;;
   *) fail "c5: status should report running mid-flight, got: $out" ;;
 esac
+# steer (the steer-in-flight path for this rung): a tower message reaches the
+# live worker as a USER turn on its stdin, attributed, with a receipt row —
+# and it settles nothing: the pending request is still pending afterwards.
+printf 'merge main into your branch.\nthen "re-run" the gate\n' >"$tmp/steer5"
+out=$(senv "$home" "$rec" -- steer sjw5 --message-file "$tmp/steer5") \
+  || fail "c5: steer exited non-zero"
+case $out in
+  "steered sjw5 "[0-9]*) : ;;
+  *) fail "c5: unexpected steer output: $out" ;;
+esac
+wait_until 100 grep -q '"type":"user"' "$rec/stdin" \
+  || fail "c5: the steered user turn never reached the worker stdin"
+grep '"type":"user"' "$rec/stdin" | grep -q '\[planwright tower relay -> sjw5\]\\nmerge main into your branch.\\nthen \\"re-run\\" the gate' \
+  || fail "c5: the steer must carry the attribution header and the JSON-encoded message text"
+grep -q control_response "$rec/stdin" \
+  && fail "c5: steer must never compose a control_response"
+grep -q "^$req_perm$tab.*${tab}pending" "$wdir5/journal" \
+  || fail "c5: steer must not settle the pending request"
+[ "$(wc -l <"$wdir5/steers" | tr -d ' ')" = 1 ] \
+  || fail "c5: steer should leave exactly one receipt row"
+grep -q "$tab$tmp/steer5\$" "$wdir5/steers" \
+  || fail "c5: the steer receipt should name the message file"
 out=$(senv "$home" "$rec" -- answer sjw5 "$req_perm" --allow) \
   || fail "c5: answer exited non-zero"
 [ "$out" = "answered sjw5 $req_perm" ] || fail "c5: unexpected answer output: $out"
@@ -471,6 +493,25 @@ grep -q "^$req_perm$tab.*${tab}answered" "$wdir5/journal" \
 [ "$(aenv "$home" queue --count)" = 0 ] \
   || fail "c5: the queue should clear once the only pending request settles"
 echo "ok: c5 recorded answer delivered as the control_response; journal + queue settle (REQ-E1.4)"
+
+# steer refusals on the now-settled (dead-channel) c5 worker: a dead channel is
+# a visible exit 3, never a hang on the fifo; a missing, empty, or oversize
+# message file is refused (exit 2) before the channel is touched.
+senv "$home" "$rec" -- steer sjw5 --message-file "$tmp/steer5" >/dev/null 2>&1
+[ $? -eq 3 ] || fail "c5: steer over a dead channel must exit 3"
+[ "$(wc -l <"$wdir5/steers" | tr -d ' ')" = 1 ] \
+  || fail "c5: a refused steer must leave no receipt row"
+senv "$home" "$rec" -- steer sjw5 --message-file "$tmp/no-such-steer" >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c5: steer with a missing message file must exit 2"
+printf '  \n\n' >"$tmp/steer-empty"
+senv "$home" "$rec" -- steer sjw5 --message-file "$tmp/steer-empty" >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c5: steer with a blank message file must exit 2"
+head -c 65537 /dev/zero | tr '\0' 'x' >"$tmp/steer-big"
+senv "$home" "$rec" -- steer sjw5 --message-file "$tmp/steer-big" >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c5: steer with an oversize message file must exit 2 (refused whole)"
+senv "$home" "$rec" -- steer 'sjw5;x' --message-file "$tmp/steer5" >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c5: steer must refuse an out-of-grammar worker handle"
+echo "ok: c5b steer refuses a dead channel (3) and bad message files (2) without a receipt"
 
 # ---------------------------------------------------------------------------
 # c6 (REQ-E1.4): undeliverable answers surface visibly — unknown request,
