@@ -710,16 +710,15 @@ c17() {
 
   # The carry pushes straight to the bare origin without creating a local ref,
   # so the commit is read there — the same surface origin_entries uses.
-  sig=$(gitc "$repo.git" log --format='%G?' -1 planwright/chore/observations 2>/dev/null) \
+  #
+  # Presence of the `gpgsig` header is the assertion, not `%G?`: verifying an
+  # SSH signature needs gpg.ssh.allowedSignersFile, which a throwaway key has
+  # no entry in and a CI runner has no config for, so `%G?` reports N for a
+  # perfectly signed commit. The header is there either way.
+  head=$(gitc "$repo.git" rev-parse planwright/chore/observations 2>/dev/null) \
     || fail "c17: the carry branch should exist on origin"
-  case $sig in
-    G | U)
-      # G: verified against an allowed-signers file. U: signature present but
-      # the key is not in one — which is what a throwaway key gives us, and is
-      # still proof the commit was signed rather than left bare (N).
-      ;;
-    *) fail "c17: the carry commit should carry a signature, got %G?=$sig" ;;
-  esac
+  gitc "$repo.git" cat-file commit "$head" | grep -q '^gpgsig' \
+    || fail "c17: the carry commit carries no signature header"
   echo "ok c17: the carry commit is signed when the repo configures signing"
 }
 
