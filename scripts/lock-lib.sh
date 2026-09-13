@@ -2,9 +2,26 @@
 # lock-lib.sh — the one advisory-lock primitive for planwright's script layer
 # (sourced, never executed).
 #
-# THE LOCK-HOLDER LIST. Every script that implements an advisory lock sources
-# this file and takes its locks through it; nothing in the tree acquires a lock
-# any other way. As of this writing that list is:
+# THE VERBS. Exit codes are uniform: 0 success, 1 the lock stayed with a holder
+# (for a release: it is not ours), 2 a real error.
+#
+#   pw_lock_trap_install                 arm the signal-safe release
+#   pw_lock_release_all                  release everything this shell holds
+#   pw_lock_try <path>                   one attempt
+#   pw_lock_acquire <path> [<tries>]     spin
+#   pw_lock_try_detached <path>          one attempt at a hold with no owner
+#   pw_lock_acquire_detached <path> [n]  the spinning form
+#   pw_lock_acquire_for <path> <pid> [n] acquire on behalf of another process
+#   pw_lock_release <path>               ownership-verified, reentrancy-aware
+#   pw_lock_release_token <path> <tok>   the same, from another process
+#   pw_lock_break_force <path>           clear without proving ownership
+#   pw_lock_clear_legacy <path>          clear a retired-shape lock DIRECTORY
+#   pw_lock_owner <path>                 print the holder's token
+#   pw_lock_owner_alive <token>          0 the owner is running, 1 it is gone
+#   PW_LOCK_TOKEN                        set by a successful acquire
+#
+# THE LOCK-HOLDER LIST. Every script that implements an ADVISORY LOCK sources
+# this file and takes its locks through it:
 #
 #   scripts/orchestrate-lock.sh   the per-spec orchestration lock
 #   scripts/fleet-state.sh        the fleet state registry and its counters
@@ -12,11 +29,15 @@
 #   scripts/fleet-streamjson.sh   the supervisor's journal/launch/recover locks
 #   scripts/observation-carry.sh  the observation carry's push+PR section
 #
-# Everything else that takes a lock does so by calling one of those five, so
-# adopting them adopts the tree. scripts/check-lock-primitive.sh enforces the
-# rule that keeps the list honest: `mkdir` is retired as an acquisition
-# primitive, and an un-annotated `mkdir` whose exit status is read as a
-# lock-acquisition signal is a build failure.
+# Everything else that takes an advisory lock does so by calling one of those,
+# so adopting them adopts the tree. The list is pinned against the tree by
+# tests/test-lock-lib.sh, which is what stops it outliving its accuracy;
+# scripts/check-lock-primitive.sh keeps the underlying rule, that `mkdir` is
+# retired as an acquisition primitive. Two exclusion mechanisms are outside
+# this family on purpose and are not advisory locks: the petition claim in
+# scripts/allocation-petition.sh, a rename election over files a consumer may
+# be reading, and the expect-absent git-ref lease in scripts/fleet-fence.sh,
+# which has to serialize across clones where no local lock can reach.
 #
 # WHY `mkdir` IS RETIRED. It was measured losing mutual exclusion in the
 # ordinary acquire / read-modify-write / release cycle: twelve concurrent
@@ -41,6 +62,17 @@
 # epoch separates it from a link left by a dead process that once had the same
 # pid, and the sequence number separates two holds taken by one process. The
 # token is what makes release safe and what makes staleness answerable.
+#
+# A LOCK PATH IS A REGISTRY KEY as well as a filename. The registry of held
+# locks is one newline-terminated record per lock, so a path carrying a newline
+# is refused; and this file derives working paths beside the lock with a `#`
+# in them, so a caller that builds lock paths out of user input must keep `#`
+# out of them or one caller's lock can be another's break claim.
+#
+# THE HOLD BELONGS TO THE PROCESS THAT TAKES IT. `$$` is the parent's pid in a
+# subshell, a pipeline stage and a command substitution, so a lock taken in one
+# of those names a process that may exit while the hold stands. Acquire in the
+# process that will hold it.
 #
 # STALE MEANS THE OWNER'S PROCESS IS ABSENT — NEVER AN AGE. An age threshold
 # answers a question nobody asked: a lock held for twenty minutes by a running
