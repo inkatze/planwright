@@ -71,7 +71,6 @@ last_line() {
   tail -n 1 "$log_file"
 }
 
-
 # --- sequence monotonic across two writers under the lock ---------------------
 
 rm -f "$log_file" "$seq_file"
