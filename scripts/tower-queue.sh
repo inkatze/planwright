@@ -425,6 +425,9 @@ resolve_surface() {
     err "cannot resolve the current uid"
     exit 6
   }
+  # fleet-state.sh owns this name; it is read here only to check the link's
+  # target against the token this process holds, never to create the lock.
+  LOCK_PATH="$home/.fleet.lock"
   surface="$home/tower-comms"
   log_file="$surface/events.log"
   seq_file="$surface/events.seq"
@@ -458,13 +461,30 @@ ensure_surface() {
 # ---------------------------------------------------------------------------
 
 HOLD_LOCK=0
+LOCK_PATH=""
+LOCK_TOKEN=""
+LOCK_CHILD=""
 PENDING_TMP=""
 WORK_TMP=""
 KNOB_DIR=""
+# fleet-state disowns the lock its `lock` verb takes to this caller, and its
+# `unlock` is an unconditional `rm -f` its own header calls out as able to
+# delete a successor's lock. What closes both is the discipline try_acquire
+# documents: claim ownership BEFORE anything can publish the link, and unlink
+# only while the link is still ours. The claim here is the pid of the forked
+# child, which is the `<pid>-<epoch>` owner token fleet-state writes, recorded
+# before that child can be waited on; the check is the link's target read back.
+# So a signal inside the acquire window still releases a lock this process
+# took, and a lock broken as stale and retaken by a peer reads back a foreign
+# target and is left standing.
 release_lock() {
-  if [ "$HOLD_LOCK" = 1 ]; then
-    "$FS" unlock >/dev/null 2>&1 || true
-    HOLD_LOCK=0
+  [ "$HOLD_LOCK" = 1 ] || return 0
+  HOLD_LOCK=0
+  [ -n "$LOCK_PATH" ] || return 0
+  _lt=$(readlink "$LOCK_PATH" 2>/dev/null) || _lt=""
+  [ -n "$_lt" ] || return 0
+  if [ "$_lt" = "$LOCK_TOKEN" ] || { [ -n "$LOCK_CHILD" ] && [ "${_lt%%-*}" = "$LOCK_CHILD" ]; }; then
+    rm -f "$LOCK_PATH" 2>/dev/null || true
   fi
 }
 # Every scratch path this script mints is tracked, because each one is
@@ -496,27 +516,63 @@ clock_s() {
   esac
 }
 
+# wait_tries <seconds> — the attempt budget that stands in for the deadline
+# when the clock will not answer. Each attempt costs a fork plus the sleep
+# below, so a budget scaled to the sleep keeps the wait near the configured
+# bound; without it the deadline comparison reads `0 >= w`, which is never
+# true, and the prompt-submit hook's caller waits forever.
+wait_tries() {
+  awk -v w="$1" 'BEGIN {
+    n = int(w / 0.02)
+    if (n > 100000) n = 100000
+    printf "%d\n", n + 25 }'
+}
+
 # acquire_lock <seconds> — take fleet-state's one-shot lock, retrying a busy
 # holder until the wall-clock deadline (every attempt is a fork, so the bound
-# is a deadline, not a try count). 0 held; 1 the wait expired; 2 a real error.
+# is a deadline, not a try count) or, with no readable clock, until the
+# attempt budget runs out. 0 held; 1 the wait expired; 2 a real error.
 acquire_lock() {
-  _deadline=$(awk -v s="$(clock_s)" -v w="$1" 'BEGIN { printf "%.3f\n", s + w }')
+  _deadline=$(clock_s)
+  if [ -n "$_deadline" ]; then
+    _deadline=$(awk -v s="$_deadline" -v w="$1" 'BEGIN { printf "%.3f\n", s + w }')
+    _tries=0
+  else
+    _tries=$(wait_tries "$1")
+  fi
   while :; do
-    "$FS" lock >/dev/null 2>&1
+    # Forked rather than run in the foreground so the pid inside the owner
+    # token is this process's knowledge BEFORE the child can publish the link.
+    LOCK_TOKEN=""
+    "$FS" lock >/dev/null 2>&1 &
+    LOCK_CHILD=$!
+    HOLD_LOCK=1
+    wait "$LOCK_CHILD"
     _rc=$?
     case $_rc in
       0)
-        HOLD_LOCK=1
+        LOCK_TOKEN=$(readlink "$LOCK_PATH" 2>/dev/null) || LOCK_TOKEN=""
         return 0
         ;;
-      1) ;;
+      1) HOLD_LOCK=0 ;;
       *)
+        HOLD_LOCK=0
         err "cannot acquire the fleet lock (fleet-state exit $_rc)"
         return 2
         ;;
     esac
-    if awk -v now="$(clock_s)" -v dl="$_deadline" 'BEGIN { exit (now >= dl) ? 0 : 1 }'; then
-      return 1
+    if [ -n "$_deadline" ]; then
+      _cnow=$(clock_s)
+      if [ -z "$_cnow" ]; then
+        _deadline=""
+        _tries=$(wait_tries "$1")
+      elif awk -v now="$_cnow" -v dl="$_deadline" 'BEGIN { exit (now >= dl) ? 0 : 1 }'; then
+        return 1
+      fi
+    fi
+    if [ -z "$_deadline" ]; then
+      _tries=$((_tries - 1))
+      [ "$_tries" -gt 0 ] || return 1
     fi
     sleep 0.02
   done

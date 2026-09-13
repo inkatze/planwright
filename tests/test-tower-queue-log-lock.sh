@@ -121,6 +121,42 @@ grep -q 'lock' "$tmp/err" || fail "saturated lock: expiry not reported on stderr
 run log born --now 8001 item=after >/dev/null || fail "write after unlock: exit"
 echo "ok: the lock wait is bounded by tower_hook_lock_wait, the expiry is an error, the line is dropped and counted"
 
+# The wait stays bounded when the clock will not answer: a deadline computed
+# from an empty `date` is a comparison that can never be true, and the caller
+# this bound protects is the prompt-submit hook.
+stub_bin="$tmp/stub-bin"
+mkdir -p "$stub_bin"
+printf '#!/bin/sh\nexit 1\n' >"$stub_bin/date"
+chmod 0755 "$stub_bin/date"
+printf 'tower_hook_lock_wait: 200ms\n' >"$local_cfg"
+PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" lock || fail "could not take the fleet lock for the clockless case"
+rc=0
+PATH="$stub_bin:$PATH" \
+  PLANWRIGHT_FLEET_STATE_DIR="$home" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+  PLANWRIGHT_REPO_ROOT="$tmp" \
+  PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+  timeout 20 /bin/sh "$TQ" log born --now 8100 item=noclock >/dev/null 2>&1 || rc=$?
+PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" unlock
+[ "$rc" != 124 ] || fail "no clock: the bounded wait spun until the test's own timeout"
+[ "$rc" = 3 ] || fail "no clock: exit $rc, expected 3 (the wait expired, the line dropped)"
+echo "ok: the lock wait is bounded even with no readable clock"
+
+# The lock is fleet-state's, disowned to this caller: a lock this process did
+# not take is never released by it, whatever this process's own wait did.
+ln -s "999999-1" "$home/.fleet.lock" || fail "could not plant a foreign lock"
+rc=0
+run log born --now 8110 item=foreign >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "foreign lock: exit $rc, expected 3"
+[ -L "$home/.fleet.lock" ] || fail "a lock this process never took was released by it"
+[ "$(readlink "$home/.fleet.lock")" = "999999-1" ] || fail "the foreign lock's target changed"
+rm -f "$home/.fleet.lock"
+: >"$local_cfg"
+run log born --now 8111 item=clean >/dev/null || fail "write after the foreign lock: exit"
+[ ! -e "$home/.fleet.lock" ] && [ ! -L "$home/.fleet.lock" ] \
+  || fail "a completed write left the fleet lock standing"
+echo "ok: the lock this process takes is released, a peer's is left alone"
+
 # A malformed team-shared value is a hard fail (the REQ-E1.4 by-layer policy).
 mkdir -p "$tmp/.claude"
 printf 'tower_hook_lock_wait: soon\n' >"$tmp/.claude/planwright.yml"
