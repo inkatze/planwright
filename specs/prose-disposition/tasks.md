@@ -214,7 +214,23 @@ can be measured by it.
 
 ## Awaiting input
 
-(none yet)
+- **Task 1** — The amendments are written and committed, and every guard in
+  `mise run check` is green except `check:instructions`, which blocks the
+  landing. `doctrine/finding-categorization.md` is a run-start doc for
+  `/builder`, `/self-review`, and `/polish`, and the first two sit exactly on
+  the margins their declared exceptions pin them to (515 and 566 words), so
+  the doc cannot grow by a word without the guard reporting a widened
+  exception; REQ-B requires it to grow. A same-change diet of the three
+  amended docs funded 269 words of the cost, leaving 256 words of residue on
+  `/builder`'s start-load and 343 on `/self-review`'s. Every remaining rung
+  needs a call the brief did not make: a compensating trim of run-start
+  doctrine this bundle does not touch (`doctrine/guard-catalog.md`,
+  `doctrine/engineering-decisions.md`, `skills/builder/SKILL.md`;
+  `doctrine/decision-domains.md` is off limits by the recorded instruction in
+  its own exception entry), a transitional `pending-diet` allowance naming a
+  diet task this bundle does not have, or governed relief, which REQ-D1.3
+  forbids. Work is on `planwright/prose-disposition/task-1`; no PR was opened
+  over a red gate.
 
 ## Deferred
 
