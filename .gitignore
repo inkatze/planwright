@@ -39,6 +39,9 @@ mise.local.toml
 
 # Optional handover brief — transient per-worktree cache (design.md D-2/D-3).
 .claude/handover.md
+# Worker scratch staged for relay: consumed by the orchestrator, never tracked.
+# An uncommitted leftover here fails the release publisher's clean-tree gate.
+.claude/relay/
 
 # Worker allocation petitions (model-allocation D-7) — the strict-grammar
 # artifact a worker writes to ask the allocation policy for a different tier,

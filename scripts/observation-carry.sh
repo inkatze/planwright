@@ -512,7 +512,18 @@ msg_file=$(mktemp "${TMPDIR:-/tmp}/observation-carry.msg.XXXXXX") || {
   printf '%s\n' "$stranded" | sed 's#.*/##;s/^/- /'
 } >"$msg_file"
 
-commit=$(g commit-tree "$new_tree" -p "$parent" -F "$msg_file" 2>/dev/null) || commit=""
+# `-S` explicitly: commit-tree is plumbing and ignores commit.gpgsign, so every
+# commit this script produced was unsigned. On a repo whose ruleset wants signed
+# commits that made each carry PR need an extra approval it had not earned. An
+# unsignable host still gets its carry — the fragments matter more than the
+# signature, and the squash that lands them is signed by the forge either way —
+# but it is told, rather than finding out at merge time.
+commit=$(g commit-tree -S "$new_tree" -p "$parent" -F "$msg_file" 2>/dev/null) || commit=""
+if [ -z "$commit" ]; then
+  commit=$(g commit-tree "$new_tree" -p "$parent" -F "$msg_file" 2>/dev/null) || commit=""
+  [ -n "$commit" ] \
+    && printf '%s\n' "observation-carry: could not sign the carry commit; carrying it unsigned" >&2
+fi
 rm -f -- "$msg_file" 2>/dev/null || true
 if [ -z "$commit" ]; then
   release_lock
