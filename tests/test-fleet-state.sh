@@ -936,4 +936,38 @@ else
   echo "ok: an unlock blocked by permissions reports the condition it can see, not a guessed shape"
 fi
 
+# A fleet home this script creates is owner-only from birth. `mkdir -p` alone
+# takes the caller's umask, so a umask-002 host got 0775 — and everything
+# private underneath (the tower-comms surface, the registry) is only as private
+# as the directory holding it. A home that already exists is left alone: its
+# permissions are its owner's call, not ours to tighten underneath them.
+if [ "${PLANWRIGHT_TEST_SKIP_PERM:-}" != 1 ]; then
+  home_new="$tmp/fresh-home/nested"
+  old_umask=$(umask)
+  umask 002
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+    PLANWRIGHT_FLEET_STATE_DIR="$home_new" /bin/sh "$FS" registry >/dev/null ||
+    fail "fresh home: registry should succeed"
+  umask "$old_umask"
+  mode=$(ls -ld "$home_new" | cut -c1-10)
+  case $mode in
+    drwx------) ;;
+    *) fail "fresh home: a home this script creates must be owner-only, got $mode" ;;
+  esac
+  echo "ok: a fleet home this script creates is owner-only whatever the caller's umask"
+
+  home_pre="$tmp/preexisting-home"
+  mkdir -p "$home_pre"
+  chmod 755 "$home_pre"
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+    PLANWRIGHT_FLEET_STATE_DIR="$home_pre" /bin/sh "$FS" registry >/dev/null ||
+    fail "pre-existing home: registry should succeed"
+  mode=$(ls -ld "$home_pre" | cut -c1-10)
+  case $mode in
+    drwxr-xr-x) ;;
+    *) fail "pre-existing home: a home we did not create must be left alone, got $mode" ;;
+  esac
+  echo "ok: a fleet home that already existed keeps the permissions its owner gave it"
+fi
+
 echo "ALL PASS: fleet-state.sh"
