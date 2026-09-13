@@ -105,7 +105,8 @@ A single agent walking all lenses still self-prunes within its context
 window. For diffs beyond a few hunks, spawn parallel read-only sub-agents
 instead, one per lens, each with a narrow brief: find issues in this diff for
 one lens only; be exhaustive within the lens; severity-pruning is forbidden;
-return `none` with a one-line reason if there are none. Pass the shared tooling output to every sub-agent. The coordinator
+return `none` with a one-line reason if there are none. Pass the shared
+tooling output to every sub-agent. The coordinator
 merges, dedupes (a finding hitting two lenses gets one row with both lens
 labels), then runs the self-critique pass. Skills that perform discovery
 specify when to fan out versus run inline.
