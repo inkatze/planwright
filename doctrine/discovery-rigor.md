@@ -116,12 +116,8 @@ feels under-represented, and add what turns up. This pass is mandatory. Its
 cost is small; its payoff is that nobody has to re-run the skill to drain
 second-pass findings.
 
-## Proportionality
-
-Rigor scales with stake and reversibility (see
-[proportionality.md](proportionality.md)). A skill that scopes any part of
-this doctrine (for example, running inline instead of fanning out on a
-trivial diff) declares the scoping explicitly; silent scoping is
-non-conforming.
+Scoping any part of this doctrine (running inline instead of fanning out on a
+trivial diff, say) is declared, never silent
+([proportionality.md](proportionality.md)).
 
 Skills cite this document the same way they cite Validation Rigor.

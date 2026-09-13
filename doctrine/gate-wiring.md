@@ -212,9 +212,9 @@ fork blocking further progress on the unit hard-pauses instead of queuing.
 
 ## Pause protocol
 
-Exactly two triggers interrupt mid-loop (REQ-C1.4): the zone screen fires,
-or an irreducible fork blocks progress. Everything else flows to loop end.
-What a pause does depends on who is watching:
+The categorization doctrine's two triggers interrupt mid-loop (REQ-C1.4);
+everything else flows to loop end. What a pause does depends on who is
+watching:
 
 - **Attended session.** Stop the loop. Present the finding, the triggering
   zone or fork, and the recommended fix or concrete alternatives. Wait for

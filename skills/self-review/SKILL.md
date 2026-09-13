@@ -13,50 +13,31 @@ argument-hint: "[--nested]"
 # /self-review
 
 One complete review pass of the feature branch against its base, wired into
-planwright's act-then-review autonomy gate (REQ-E2.1, D-12): Discovery Rigor
-produces the finding list, Validation Rigor confirms it, the finding
-categorization routes each confirmed finding to a disposition, and the gate
-wiring's audit record is the handoff. `/polish` iterates it to convergence;
-this skill is the single pass.
+planwright's act-then-review autonomy gate (REQ-E2.1, D-12). `/polish`
+iterates it to convergence; this skill is the single pass.
 
 ## Doctrine
 
-This skill is procedure, not doctrine. Resolve these rule docs via
-the rule-doc resolution convention
+This skill is procedure, not doctrine. Resolve the rule docs in the manifest
+below via the rule-doc resolution convention
 (`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright root,
 or the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); their
-definitions govern wherever this skill names a concept:
-
-- `discovery-rigor` — lens checklist, lens-coverage table, tool-grounded
-  discovery, fan-out, self-critique pass
-- `validation-rigor` — the three identification passes plus the adversarial
-  bi-directional re-validation; solution validation, including the altitude
-  check, with surface-relative whole-system end-to-end reproduction preferred
-- `finding-categorization` — the four buckets, their predicates, hard
-  pauses and the hard-disqualifier zones, declined-with-rationale, the
-  resolution ladder
-- `gate-wiring` — routing order, commit discipline, checklist and audit
-  formats, ladder procedure, pause protocol, loop-end handoff, PR-body
-  assembly
-- `research-rigor` (point-of-use), `refactor-instinct` (review mode),
-  `security-posture` (artifact data-hygiene), `proportionality` (declared
-  scoping)
+definitions govern wherever this skill names a concept.
 
 If a rule doc does not resolve, halt with a clear message naming the missing
 doc and the resolution chain consulted.
 
-Doctrine manifest (the reading model above in machine-parseable form, per
-`doctrine/instruction-hygiene.md`; `run-start` docs load before work begins,
-`point-of-use` at the named step):
+Doctrine manifest (per `doctrine/instruction-hygiene.md`; `run-start` docs
+load before work begins, `point-of-use` at the named step):
 
 Doctrine: run-start discovery-rigor
 Doctrine: run-start validation-rigor
 Doctrine: run-start finding-categorization
 Doctrine: run-start gate-wiring
 Doctrine: point-of-use research-rigor (the Validation step, where research triggers fire)
-Doctrine: run-start refactor-instinct
-Doctrine: run-start security-posture
-Doctrine: run-start proportionality
+Doctrine: run-start refactor-instinct (review mode)
+Doctrine: run-start security-posture (artifact data-hygiene)
+Doctrine: run-start proportionality (declared scoping)
 
 ## Invocation modes
 
@@ -94,10 +75,9 @@ pass summary.
    skill recorded at its own pre-flight; the parent owns remote interaction.
    Not a git repository, or no commits to diff: surface a clear message and
    stop; there is nothing to review.
-3. **Require a clean working tree.** The gate's commit discipline (one commit
-   per Needs-sign-off finding, batched action commits) needs unambiguous
-   boundaries. If `git status --porcelain` is non-empty, surface the dirty
-   state and ask before proceeding (dispatched or unattended: record the
+3. **Require a clean working tree.** The gate's commit discipline needs
+   unambiguous boundaries. If `git status --porcelain` is non-empty, surface
+   the dirty state and ask before proceeding (dispatched or unattended: record the
    unit to `tasks.md` Awaiting input and end the step, the pause protocol's
    dispatched arm); never stash or discard.
 4. **Run the project's tooling once.** Whatever the project ships: linters,
@@ -175,13 +155,9 @@ this skill executes:
 
 - Auto-applicable and Agent-resolvable items are applied or resolved with
   their audit and evidence rows, and committed per the wiring doc's commit
-  discipline (batched into the pass's action commit); their fixes get
-  solution validation per `validation-rigor` (targeted check, wider project
-  suite, altitude check).
-  Regression tests for Agent-resolvable items are written first and confirmed
-  to fail for the finding's exact reason before the fix.
-- Needs-sign-off items are applied on the branch, one commit per finding
-  with the `[pending-sign-off]` subject marker, and entered in the
+  discipline; their fixes get solution validation per `validation-rigor`.
+- Needs-sign-off items are applied on the branch, committed per that same
+  discipline with the `[pending-sign-off]` subject marker, and entered in the
   pending-sign-off checklist. Before committing, self-lint the subject by
   piping it in —
   `printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin`
@@ -226,20 +202,16 @@ extended with the lens-coverage table at the front and the pass summary at
 the end):
 
 1. The lens-coverage table.
-2. The four bucket tables in fixed order, an empty bucket as a single `none`
-   row, columns per the wiring doc's formats.
-3. The declined log.
-4. The pending-sign-off checklist, regenerated from the
-   `[pending-sign-off]` commits ahead of the base per the wiring doc (an
-   empty checklist emits with a single `none` row).
-5. Queued irreducible forks with their bespoke options; in an attended
+2. The wiring doc's loop-end handoff in its formats — the four bucket tables,
+   the declined log, and the pending-sign-off checklist regenerated from the
+   `[pending-sign-off]` commits ahead of the base.
+3. Queued irreducible forks with their bespoke options; in an attended
    standalone run these are the only questions presented to the human.
-6. The pass summary: resolved mode, base used, tooling and wider-suite
+4. The pass summary: resolved mode, base used, tooling and wider-suite
    results, and any reverts or surfaced failures.
 
 Table content lands in a committed PR body: apply `security-posture` artifact
-data-hygiene before emitting (no secrets, credentials, or sensitive detail
-in finding text or captured output).
+data-hygiene before emitting.
 
 ## Publishing the audit record (standalone only)
 
@@ -254,15 +226,11 @@ steps below run first, so their chore commits land before the push.
 2. **Draft PR:** if a PR already exists for the branch, update its body;
    otherwise `gh pr create --draft` with an explicit `--title` and `--body`
    (headless `gh` prompts or fails without them). Assemble the body per the
-   **PR-body assembly** section of the `gate-wiring` doctrine (summary first,
-   the audit record collapsed in `<details>`, prose never hard-wrapped, the
-   structure preserved on updates) — the single normative home for the layout
-   (D-2). The collapsed audit record is this pass's own (the sequence in **The
-   audit record** above). On update, regenerate the generated sections in
-   place rather than appending, and never overwrite body content outside them
-   (handwritten notes survive); re-runs never duplicate entries. The PR is
-   always a draft; never mark it ready and never merge (the draft→ready flip
-   is the human's call).
+   **PR-body assembly** section of the `gate-wiring` doctrine, the single
+   normative home for the layout (D-2); the collapsed audit record is this
+   pass's own (the sequence in **The audit record** above). The PR is always a
+   draft; never mark it ready and never merge (the draft→ready flip is the
+   human's call).
 
 ## Observations
 
