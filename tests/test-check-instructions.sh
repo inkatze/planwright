@@ -198,6 +198,331 @@ assert_exit "real repo passes the guard (no transitional allowances remain)" 0 $
 # type.
 assert_absent "closing gate: no floor-breach warning on the real corpus" "WARN: floor-breach:" "$out"
 assert_absent "closing gate: no unexcepted below-target warning on the real corpus" "WARN: below-target:" "$out"
+
+# A declared exception on a surface that has fallen PAST its floor must escalate,
+# not read as spent. below-target only fires while the floor is intact, so a
+# surface that degrades into a breach stops firing it — and the staleness sweep
+# reads a warning that did not fire as an entry nobody needs. That inverted the
+# signal at the worst moment: the operator was told to delete the note exactly
+# when the thing it deferred came due.
+esc_root="$(mktemp -d)" || exit 1
+mkdir -p "$esc_root/skills/demo" "$esc_root/doctrine" "$esc_root/config" "$esc_root/hooks"
+cp "$REPO_ROOT/config/defaults.yml" "$esc_root/config/defaults.yml"
+# The declared margin is deliberately far below anything this fixture can
+# produce, so the ratchet can never fire here: this case is about escalation on
+# a floor breach, and a widening error would mask what it is asserting.
+printf 'exempt|doctrine/none.md|placeholder\ndeclared-exception|closure:demo|margin=1|deferred restoration, recorded here\n' \
+  >"$esc_root/config/instruction-budget-exemptions.txt"
+# Sized so the CLOSURE floor is the only thing this fixture breaches. The docs
+# are point-of-use, so they land on the closure without touching start-load, and
+# each is kept far enough under the doctrine error threshold that none of them
+# floor-breaches on its own. That is what lets the exit code below mean
+# something: with no error and no rival breach in the fixture, any non-zero exit
+# or any second floor-breach is a regression rather than fixture noise.
+esc_docs='pou1 pou2 pou3 pou4 pou5 pou6'
+{
+  printf '# demo\n\n'
+  for d in $esc_docs; do printf 'Doctrine: point-of-use %s (case %s)\n' "$d" "$d"; done
+  printf '\nThe body names %s so the reverse use-site check stays quiet.\n\n' "$esc_docs"
+  awk 'BEGIN { for (i = 0; i < 150; i++) printf "word " }'
+} >"$esc_root/skills/demo/SKILL.md"
+for d in $esc_docs; do
+  {
+    printf '# %s\n\n' "$d"
+    awk 'BEGIN { for (i = 0; i < 3200; i++) printf "word " }'
+  } >"$esc_root/doctrine/$d.md"
+done
+esc_out="$(/bin/bash "$CHECKER" --root "$esc_root" 2>&1)"
+esc_code=$?
+# Guarded rather than bare: the mktemp above is checked, so this is never
+# `rm -rf ""` today — the test states the precondition it relies on instead
+# of leaving a recursive delete resting on a variable being non-empty.
+[ -n "$esc_root" ] && [ -d "$esc_root" ] && rm -rf "$esc_root"
+# Asserted, not discarded. The earlier form swallowed the status with `|| true`,
+# which is the one thing every other case in this file refuses to do: a breach is
+# a warning, so the run must still exit clean, and an unexpected ERROR would
+# otherwise pass unnoticed behind the content assertions.
+assert_exit "a floor breach is a warning, so the run still exits clean" 0 "$esc_code"
+# The fixture must actually breach, or the assertions below prove nothing.
+assert_contains "escalation fixture reaches a floor breach" "floor-breach: closure:demo" "$esc_out"
+assert_contains "a breached surface with a declared exception escalates" \
+  "declared-exception escalated: closure:demo" "$esc_out"
+# The cleanup line still fires, and should: a declared-exception never silences
+# a floor-breach (D-11), so an entry that now excuses nothing is correctly
+# reported stale. What was missing is WHY it went inert. Both lines together are
+# the contract — the escalation above says the deferral came due, the cleanup
+# below says the entry is now inert. Either alone misleads.
+assert_contains "the stale-entry line still fires, per the never-silence-a-breach rule" \
+  "cleanup: no live below-target or use-site warning names 'closure:demo'" "$esc_out"
+
+# The ratchet (D-11). A declared exception defers a restoration; it does not
+# license further spending. These cases pin the property that makes it worth
+# having: it fires in the band where NOTHING else does. The fixture below sits
+# 18,885 words clear of its error threshold, so no below-target and no
+# floor-breach warning exists to notice a slide -- which is precisely the
+# stretch over which the shipped corpus drifted to its floors unobserved.
+ratchet_fixture() {
+  # ratchet_fixture <root> <exemption-line>
+  mkdir -p "$1/skills/demo" "$1/doctrine" "$1/config" "$1/hooks"
+  cp "$REPO_ROOT/config/defaults.yml" "$1/config/defaults.yml"
+  printf '%s\n' "$2" >"$1/config/instruction-budget-exemptions.txt"
+  {
+    printf '# demo\n\nDoctrine: point-of-use pou (the only case)\n\n'
+    printf 'The body names pou once.\n\n'
+    awk 'BEGIN { for (i = 0; i < 100; i++) printf "word " }'
+  } >"$1/skills/demo/SKILL.md"
+  {
+    printf '# pou\n\n'
+    awk 'BEGIN { for (i = 0; i < 1000; i++) printf "word " }'
+  } >"$1/doctrine/pou.md"
+}
+
+rat_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat_root" 'declared-exception|closure:demo|margin=18900|granted when the surface had more room than it does now'
+rat_out="$(/bin/bash "$CHECKER" --root "$rat_root" 2>&1)"
+rat_code=$?
+[ -n "$rat_root" ] && [ -d "$rat_root" ] && rm -rf "$rat_root"
+# Non-vacuity for the whole group: if either band warning fired, the fixture is
+# not in the silent stretch and the point of these cases is lost.
+assert_absent "the ratchet fixture sits in the band where no warning fires (below-target)" \
+  "WARN: below-target:" "$rat_out"
+assert_absent "the ratchet fixture sits in the band where no warning fires (floor-breach)" \
+  "WARN: floor-breach:" "$rat_out"
+assert_contains "a surface below the margin its exception was granted at is a widening" \
+  "declared-exception widened: closure:demo" "$rat_out"
+assert_exit "a widening fails the check rather than warning" 1 "$rat_code"
+
+# The boundary is not a widening. Equal margins mean nothing was spent, and an
+# off-by-one here would redden the gate for every exception the moment it is
+# recorded, which would make the whole mechanism unusable.
+rat2_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat2_root" 'declared-exception|closure:demo|margin=18885|granted at exactly the margin the surface still has'
+rat2_out="$(/bin/bash "$CHECKER" --root "$rat2_root" 2>&1)"
+rat2_code=$?
+[ -n "$rat2_root" ] && [ -d "$rat2_root" ] && rm -rf "$rat2_root"
+assert_absent "a surface still at its granted margin has not widened" \
+  "declared-exception widened:" "$rat2_out"
+# The entry is holding this surface to its granted margin, so the staleness
+# sweep must not tell anyone to delete it. No below-target warning fires here
+# (the fixture is in the silent band), which is exactly the shape that would
+# otherwise read as unused.
+assert_absent "an entry doing live ratchet work is not reported stale" \
+  "cleanup: no live below-target or use-site warning names 'closure:demo'" "$rat2_out"
+assert_exit "an unwidened exception leaves the check clean" 0 "$rat2_code"
+
+# A margin nothing measures constrains nothing. The surface key is the only
+# link between the entry and the check, so a typo or a renamed surface produces
+# an exception that looks ratcheted and is not.
+rat3_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat3_root" 'declared-exception|closure:no-such-skill|margin=900|the key names a surface no run measures'
+rat3_out="$(/bin/bash "$CHECKER" --root "$rat3_root" 2>&1)"
+rat3_code=$?
+[ -n "$rat3_root" ] && [ -d "$rat3_root" ] && rm -rf "$rat3_root"
+assert_contains "a margin on a surface no check measures is reported inert" \
+  "declared-exception margin never evaluated" "$rat3_out"
+# A warning, not an error: a stale entry is a cleanup warning by the grammar's
+# own rule, and only a widening was made fail-closed. The staleness sweep
+# already names this entry; the line above supplies the reason.
+assert_contains "an inert margin is also reported stale, as any unused entry is" \
+  "cleanup: no live below-target or use-site warning names 'closure:no-such-skill'" "$rat3_out"
+assert_exit "an inert ratchet warns rather than failing the check" 0 "$rat3_code"
+
+# A margin-less entry is refused rather than accepted as unratcheted, which is
+# the obvious way to opt out of the mechanism entirely.
+rat4_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat4_root" 'declared-exception|closure:demo|no margin recorded, only a reason'
+rat4_out="$(/bin/bash "$CHECKER" --root "$rat4_root" 2>&1)"
+rat4_code=$?
+[ -n "$rat4_root" ] && [ -d "$rat4_root" ] && rm -rf "$rat4_root"
+assert_contains "an exception with no declared margin is refused" \
+  "has no declared margin" "$rat4_out"
+assert_exit "a margin-less exception fails the check" 1 "$rat4_code"
+
+# A use-site surface never reaches the headroom check, so no margin is read from
+# one: everything after the key is reason. That matters for a reason which
+# merely LOOKS like it opens with a margin -- digits, then a pipe -- because
+# reading one there would refuse a well-formed entry. The surface decides
+# whether a margin is looked for at all, so this parses as reason text and the
+# run stays clean.
+rat5_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat5_root" 'declared-exception|use-site:demo/pou|123|a reason opening with digits and a pipe'
+rat5_out="$(/bin/bash "$CHECKER" --root "$rat5_root" 2>&1)"
+rat5_code=$?
+[ -n "$rat5_root" ] && [ -d "$rat5_root" ] && rm -rf "$rat5_root"
+# The observable that separates the two parses: reading a margin here would
+# record one against a surface no headroom check ever measures, which the
+# vacuity sweep reports as inert. Its absence is what proves no margin was read
+# -- asserting on the error text alone passed either way, because the wrong
+# parse produces a warning rather than an error.
+assert_absent "a digits-then-pipe reason on a use-site entry is not read as a margin" \
+  "declared-exception margin never evaluated" "$rat5_out"
+# The reason must also survive whole, digits and pipe included, rather than
+# being silently split with its head eaten as a margin.
+assert_contains "the whole reason is kept, not split at the pipe" \
+  "123|a reason opening with digits and a pipe" "$rat5_out"
+assert_exit "a use-site entry whose reason looks like a margin still passes" 0 "$rat5_code"
+
+# A margin that is present but unusable must not be reported as absent. The two
+# mistakes are indistinguishable from the entry alone, so the refusal shows the
+# field it read rather than asserting which one was made -- telling an author
+# their entry has no margin when it plainly carries one sends them looking in
+# the wrong place.
+rat6_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat6_root" 'declared-exception|closure:demo|margin=-5|a margin that is not a whole number'
+rat6_out="$(/bin/bash "$CHECKER" --root "$rat6_root" 2>&1)"
+rat6_code=$?
+[ -n "$rat6_root" ] && [ -d "$rat6_root" ] && rm -rf "$rat6_root"
+assert_contains "an unusable margin is refused as unusable, not as missing" \
+  "has an unusable declared margin" "$rat6_out"
+assert_contains "the refusal shows the field it actually read" \
+  "margin= carries" "$rat6_out"
+assert_absent "an entry carrying a margin is never told it has none" \
+  "has no declared margin (expected" "$rat6_out"
+assert_exit "an unusable margin fails the check" 1 "$rat6_code"
+
+# The surface key reaches a case pattern and a parameter-expansion pattern, so
+# glob metacharacters in it must match themselves and nothing else. They do,
+# because the key is quoted inside both patterns -- pinned here so a later edit
+# that drops the quoting cannot silently turn a key into a wildcard that
+# borrows another surface's margin.
+rat7_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat7_root" 'declared-exception|closure:dem*|margin=18900|a key carrying a glob metacharacter'
+rat7_out="$(/bin/bash "$CHECKER" --root "$rat7_root" 2>&1)"
+rat7_code=$?
+[ -n "$rat7_root" ] && [ -d "$rat7_root" ] && rm -rf "$rat7_root"
+assert_absent "a glob in a surface key does not match closure:demo" \
+  "declared-exception widened: closure:dem*" "$rat7_out"
+assert_contains "a glob-bearing key matches nothing and is reported inert" \
+  "declared-exception margin never evaluated" "$rat7_out"
+assert_exit "a key that matches nothing warns rather than failing" 0 "$rat7_code"
+
+# A margin past the shell's integer range must be refused at the parse, not
+# carried to the comparison. Left to reach it, `[ -lt ]` prints "integer
+# expected" and returns non-zero without ever calling err, so the ratchet
+# silently does nothing and the run still exits clean -- the guard reporting
+# success precisely because it failed to run.
+rat8_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat8_root" 'declared-exception|closure:demo|margin=99999999999999999999999|a margin past the integer range'
+rat8_out="$(/bin/bash "$CHECKER" --root "$rat8_root" 2>&1)"
+rat8_code=$?
+[ -n "$rat8_root" ] && [ -d "$rat8_root" ] && rm -rf "$rat8_root"
+assert_absent "an oversized margin never reaches the integer comparison" \
+  "integer expected" "$rat8_out"
+assert_contains "an oversized margin is named as too large, not as non-numeric" \
+  "too large to compare" "$rat8_out"
+assert_absent "an out-of-range value is never called not-a-whole-number" \
+  "which is not one" "$rat8_out"
+assert_exit "an oversized margin fails the check rather than passing quietly" 1 "$rat8_code"
+
+# A margin recorded only after the entry is accepted. Appended beside the parse,
+# a line the reason check then rejects still reached lookup_margin and could
+# mark a surface ratcheted or raise a widening of its own.
+rat9_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat9_root" 'declared-exception|closure:demo|margin=1|'
+rat9_out="$(/bin/bash "$CHECKER" --root "$rat9_root" 2>&1)"
+rat9_code=$?
+[ -n "$rat9_root" ] && [ -d "$rat9_root" ] && rm -rf "$rat9_root"
+assert_contains "an entry with no reason is refused" \
+  "has no reason" "$rat9_out"
+assert_absent "and a refused entry records no margin" \
+  "margin never evaluated" "$rat9_out"
+assert_exit "a reason-less entry fails the check" 1 "$rat9_code"
+
+# A surface carrying the margin table's own separator corrupts every lookup
+# against it. This one still matches the real `closure:demo` and hands the
+# comparison a value the shell rejects as a non-integer, which the enclosing
+# `if` reads as false -- so the ratchet reports itself evaluated, compares
+# nothing, and the run exits clean. Refused at the parse instead.
+rat10_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat10_root" "$(printf 'declared-exception|closure:demo\tjunk|margin=18900|a surface carrying a tab')"
+rat10_out="$(/bin/bash "$CHECKER" --root "$rat10_root" 2>&1)"
+rat10_code=$?
+[ -n "$rat10_root" ] && [ -d "$rat10_root" ] && rm -rf "$rat10_root"
+assert_absent "a tabbed surface never reaches the integer comparison" \
+  "integer expected" "$rat10_out"
+assert_contains "a surface carrying a separator is refused" \
+  "contains a tab or newline" "$rat10_out"
+assert_exit "a tabbed surface fails the check rather than passing quietly" 1 "$rat10_code"
+
+# One margin per surface. lookup_margin returns the first matching row, so a
+# second entry would be silently ignored and the surface held to the earlier
+# figure while its own file appears to supersede it.
+rat11_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat11_root" 'declared-exception|closure:demo|margin=1|first
+declared-exception|closure:demo|margin=18885|second, silently ignored'
+rat11_out="$(/bin/bash "$CHECKER" --root "$rat11_root" 2>&1)"
+rat11_code=$?
+[ -n "$rat11_root" ] && [ -d "$rat11_root" ] && rm -rf "$rat11_root"
+assert_contains "a second margin for one surface is refused" \
+  "declares a second margin" "$rat11_out"
+assert_exit "a duplicate margin fails the check" 1 "$rat11_code"
+
+# An all-zero margin of any length is zero, and must normalise to it rather than
+# being judged by its written length. The zero-stripping is subtle enough to be
+# read the wrong way round -- on no match the suffix strip returns the string
+# unchanged, not empty -- so this pins the outcome instead of the reasoning.
+rat13_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat13_root" 'declared-exception|closure:demo|margin=000000000000000000000|an all-zero margin, written long'
+rat13_out="$(/bin/bash "$CHECKER" --root "$rat13_root" 2>&1)"
+rat13_code=$?
+[ -n "$rat13_root" ] && [ -d "$rat13_root" ] && rm -rf "$rat13_root"
+assert_absent "an all-zero margin is not judged too large by its written length" \
+  "too large to compare" "$rat13_out"
+assert_absent "and reaches the comparison rather than erroring in it" \
+  "integer expected" "$rat13_out"
+assert_exit "a margin of zero can never be widened past, so the run stays clean" 0 "$rat13_code"
+
+# The case the tag exists for. Untagged, this entry is indistinguishable from a
+# margin-bearing one whose margin is 123: the parser would accept it, ratchet
+# the surface against a figure nobody declared, and silently truncate the reason
+# to everything after the first pipe. Tagged, a reason opening with digits is
+# just a reason, and the missing margin is reported as missing.
+rat14_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat14_root" 'declared-exception|closure:demo|123|a reason opening with digits and a pipe'
+rat14_out="$(/bin/bash "$CHECKER" --root "$rat14_root" 2>&1)"
+rat14_code=$?
+[ -n "$rat14_root" ] && [ -d "$rat14_root" ] && rm -rf "$rat14_root"
+assert_contains "an untagged numeric field is not mistaken for a margin" \
+  "has no declared margin" "$rat14_out"
+assert_absent "and no margin is recorded from it" \
+  "declared-exception widened" "$rat14_out"
+assert_exit "a margin-less entry fails rather than borrowing one from its reason" 1 "$rat14_code"
+
+# A tagged margin with no separator after it carries no reason, and the strip
+# that follows is a no-op that leaves the margin field standing in as its own
+# rationale -- so the required-reason check passes on an entry that has none.
+rat15_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat15_root" 'declared-exception|closure:demo|margin=1'
+rat15_out="$(/bin/bash "$CHECKER" --root "$rat15_root" 2>&1)"
+rat15_code=$?
+[ -n "$rat15_root" ] && [ -d "$rat15_root" ] && rm -rf "$rat15_root"
+assert_contains "a margin with nothing after it is refused" \
+  "margin but no reason after it" "$rat15_out"
+assert_exit "a reason-less tagged entry fails the check" 1 "$rat15_code"
+
+# An empty margin is a different mistake from a missing one, and saying "no
+# declared margin" about an entry that plainly writes `margin=` sends the author
+# looking for a field that is already there.
+rat16_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat16_root" 'declared-exception|closure:demo|margin=|a reason'
+rat16_out="$(/bin/bash "$CHECKER" --root "$rat16_root" 2>&1)"
+rat16_code=$?
+[ -n "$rat16_root" ] && [ -d "$rat16_root" ] && rm -rf "$rat16_root"
+assert_contains "an empty margin is named as empty" "has an empty margin" "$rat16_out"
+assert_absent "and not reported as missing" "has no declared margin" "$rat16_out"
+assert_exit "an empty margin fails the check" 1 "$rat16_code"
+
+# The tag reserves its prefix. A reason cannot open with a `margin=` segment,
+# which is a real constraint on reason text rather than an accident, so it is
+# pinned here alongside the documentation that states it.
+rat17_root="$(mktemp -d)" || exit 1
+ratchet_fixture "$rat17_root" 'declared-exception|closure:demo|margin=follow-up|the reserved prefix'
+rat17_out="$(/bin/bash "$CHECKER" --root "$rat17_root" 2>&1)"
+rat17_code=$?
+[ -n "$rat17_root" ] && [ -d "$rat17_root" ] && rm -rf "$rat17_root"
+assert_contains "a reason opening with the reserved prefix is refused as a margin" \
+  "which is not a whole number" "$rat17_out"
+assert_exit "the reserved prefix fails the check rather than silently eating the reason" 1 "$rat17_code"
 assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
 # A single --audit capture serves both the unmeasured closing-gate check and the
 # transitional-allowance assertions. "unmeasured" is an --audit-only surface

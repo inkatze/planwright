@@ -227,7 +227,7 @@ read_until() {
   fi
   case $ru_v in
     "" | *[!0-9]*)
-      echo "fleet-throttle: throttle state file '$1' is corrupt ('$(sanitize_printable "$ru_v" "(unprintable)")')" >&2
+      printf '%s\n' "fleet-throttle: throttle state file '$1' is corrupt ('$(sanitize_printable "$ru_v" "(unprintable)")')" >&2
       return 2
       ;;
   esac

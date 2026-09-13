@@ -40,10 +40,11 @@
 # which stays a DEPRECATED FALLBACK — documented, never removed — so every
 # overlay written against the fleet family keeps working unchanged
 # (model-allocation REQ-A1.3). Each column's values are restricted to a stable
-# enum: model to the Claude Code model aliases (fable opus sonnet haiku) —
+# enum: model to the Claude Code model aliases minus the ladder top, which is
+# escalation-only and never a configurable STARTING tier (opus sonnet haiku) —
 # aliases, not dated model ids, so the enum survives model releases; effort to
 # (low medium high); command to the dispatch-entry set (execute-task
-# orchestrate drain).
+# orchestrate drain). allocation-select.sh owns both the enum and the reason.
 #
 # REVIEW-SEQUENCE DISJOINTNESS (REQ-E1.2). The selectable command set names
 # dispatch-entry skills only and must never overlap `review_sequence`'s
@@ -148,7 +149,7 @@ case "$cmd" in
       exit 2
     fi
     if ! known_type "$1"; then
-      echo "fleet-resource-select: unknown task type '$(sanitize_printable "$1" "(unprintable type)")' (execution | bookkeeping | drain)" >&2
+      printf '%s\n' "fleet-resource-select: unknown task type '$(sanitize_printable "$1" "(unprintable type)")' (execution | bookkeeping | drain)" >&2
       exit 2
     fi
     require_delegate

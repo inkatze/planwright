@@ -95,6 +95,12 @@ allocation_model_execute_step: inherit
 allocation_effort_execute_step: inherit
 allocation_model_offload: inherit
 allocation_effort_offload: inherit
+allocation_model_step_implementation: inherit
+allocation_effort_step_implementation: inherit
+allocation_model_step_polish: inherit
+allocation_effort_step_polish: inherit
+allocation_model_step_self_review: inherit
+allocation_effort_step_self_review: inherit
 allocation_adaptation: off
 allocation_adjustment_cap: 4
 allocation_feedback_threshold: 2
@@ -308,7 +314,18 @@ run_led append model-allocation:task-c s2 1 launch sonnet medium - - sonnet medi
   || fail "5: planting the canary row failed"
 out=$(evaluate model-allocation:task-c drain completed) || fail "5: evaluate failed"
 [ "$(printf '%s\n' "$out" | field fired)" = yes ] || fail "5a: the canary fixture did not fire"
-case $(cat "$(fragments)") in
+# Bind rather than read inside the `case` word, so `set -e` sees a failed read,
+# and require content: an absent, unreadable, or empty fragment otherwise
+# matches nothing and passes this leak check without reading a thing.
+# Count first, the way sections 9b and 12f do. `cat "$(fragments)"` on zero
+# fragments fails with an opaque cat error, and on more than one it joins the
+# paths with a newline and cats a filename — both report the wrong thing about
+# a leak check whose whole job is to say precisely what it searched.
+[ "$(frag_count)" = 1 ] \
+  || fail "5b (precondition): expected exactly one fragment to search, found $(frag_count)"
+frag_text=$(cat "$(fragments)")
+[ -n "$frag_text" ] || fail "5b (precondition): the fragment is empty, so nothing was searched"
+case $frag_text in
   *CANARYLEAK*) fail "5b: ledger inputs text reached the committed fragment" ;;
 esac
 echo "ok: text planted in the ledger's inputs column never reaches the fragment"

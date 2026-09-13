@@ -271,7 +271,7 @@ screen_file() {
   # plugin onto the host, and a lost bit would otherwise surface as 126 in the
   # arm below — blaming the artifact for a broken install.
   if [ ! -r "$script_dir/inception-secret-screen.sh" ]; then
-    echo "check-coordination-hygiene: the secret screen is missing from $script_dir; refusing to pass $sf_safe unscreened" >&2
+    printf '%s\n' "check-coordination-hygiene: the secret screen is missing from $script_dir; refusing to pass $sf_safe unscreened" >&2
     unreadable=1
     return
   fi

@@ -7,11 +7,25 @@
 # types are that config's set). Merge and Revert subjects are skipped — GitHub
 # builds those, and linting them would block the normal merge flow.
 #
-# Subject LENGTH is enforced only with --max-length N. The framework never
-# rewrites history (REQ-J1.4), so a per-commit length rule would make a single
-# overlong WIP subject permanently unfixable; CI instead applies --max-length
-# to the PR title (the squash-merge subject, which is editable) while the
-# per-commit / range path checks conventional format only.
+# WHAT IS ENFORCED WHERE follows one rule: a subject is enforced where it can
+# still be corrected, and reported where it cannot.
+#
+#   --stdin  the PR title, and the commit-msg hook's write-time screen. Both
+#            are editable at the moment they are checked, so a violation FAILS.
+#            The PR title is the squash-merge subject, and squash is this
+#            repo's only merge method, so it is the subject that reaches main.
+#   <range>  commits that already exist. The framework never rewrites history
+#            (REQ-J1.4), so a violation here has no remedy short of the one
+#            thing the framework forbids: it is REPORTED and does not fail.
+#
+# Subject LENGTH already worked this way. Conventional FORMAT did not, and the
+# asymmetry had no reasoning behind it — a single `wip:` subject reddened a
+# pull request permanently, with a history rewrite as the only exit. Both
+# rules now sit on the same side of the same line.
+#
+# Nothing is lost by reporting rather than failing on the range: the hook
+# screens the subject at write time, where it is one `--amend` away from
+# correct, and the PR title carries the only subject that lands on main.
 #
 # --marker <context> layers the branch-scoped `[pending-sign-off]` placement
 # guard (Task 4, REQ-C1.1/C1.3/C1.4) on top of the conventional check, keyed
@@ -111,6 +125,7 @@ marker='[pending-sign-off]'
 
 status=0
 checked=0
+warned=0
 
 while IFS= read -r subject; do
   [ -z "$subject" ] && continue
@@ -119,8 +134,14 @@ while IFS= read -r subject; do
   esac
   checked=$((checked + 1))
   if [[ ! "$subject" =~ $conventional ]]; then
-    echo "check-commit-msgs: not conventional: $subject" >&2
-    status=1
+    # Frozen history reports; an editable subject fails. See the header.
+    if [ "$source" = "--stdin" ]; then
+      echo "check-commit-msgs: not conventional: $subject" >&2
+      status=1
+    else
+      echo "check-commit-msgs: warning: not conventional (already committed, not rewritable): $subject" >&2
+      warned=$((warned + 1))
+    fi
   elif [ -n "$max_length" ] && [ "${#subject}" -gt "$max_length" ]; then
     echo "check-commit-msgs: subject exceeds $max_length chars: $subject" >&2
     status=1
@@ -164,6 +185,10 @@ $subjects
 EOF
 
 if [ "$status" -eq 0 ]; then
-  echo "check-commit-msgs: $checked subject(s) conform"
+  if [ "$warned" -gt 0 ]; then
+    echo "check-commit-msgs: $checked subject(s) checked, $warned non-conventional (reported, not enforced: already committed)"
+  else
+    echo "check-commit-msgs: $checked subject(s) conform"
+  fi
 fi
 exit "$status"

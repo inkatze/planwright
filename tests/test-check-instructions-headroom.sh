@@ -188,7 +188,7 @@ out="$(/bin/bash "$CHECKER" --root "$t15d" 2>&1)"
 assert_contains "below-target warning fires and names the surface" \
   "below-target: skills/bt/SKILL.md" "$out"
 cat >"$t15d/config/instruction-budget-exemptions.txt" <<'EOF'
-declared-exception|skills/bt/SKILL.md|accepted: this body is intentionally near its budget
+declared-exception|skills/bt/SKILL.md|margin=1|accepted: this body is intentionally near its budget
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t15d" 2>&1)"
 assert_exit "a matching declared-exception keeps the guard green" 0 $?
@@ -203,7 +203,7 @@ t15e="$tmproot/t15e"
 scaffold "$t15e"
 make_skill "$t15e" bt 4100
 cat >"$t15e/config/instruction-budget-exemptions.txt" <<'EOF'
-declared-exception|skills/bt/SKILL.md|attempting (and failing) to excuse a floor-breach
+declared-exception|skills/bt/SKILL.md|margin=1|attempting (and failing) to excuse a floor-breach
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t15e" 2>&1)"
 assert_contains "a declared-exception cannot silence a floor-breach" \
@@ -218,7 +218,7 @@ t15f="$tmproot/t15f"
 scaffold "$t15f"
 make_skill "$t15f" small 100
 cat >"$t15f/config/instruction-budget-exemptions.txt" <<'EOF'
-declared-exception|skills/nowhere/SKILL.md|nothing here warns
+declared-exception|skills/nowhere/SKILL.md|margin=1|nothing here warns
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t15f" 2>&1)"
 assert_exit "a stale declared-exception does not fail the guard" 0 $?

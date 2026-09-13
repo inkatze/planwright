@@ -432,7 +432,7 @@ write_page() {
 # --- argument handling ------------------------------------------------------
 
 bad_flag() {
-  echo "$me: $CMD: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
+  printf '%s\n' "$me: $CMD: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
   exit 2
 }
 
@@ -445,7 +445,7 @@ shift
 case $CMD in
   render | write | watch) ;;
   *)
-    echo "$me: unknown subcommand '$(sanitize_printable "$CMD" "(unprintable subcommand)")'" >&2
+    printf '%s\n' "$me: unknown subcommand '$(sanitize_printable "$CMD" "(unprintable subcommand)")'" >&2
     usage
     ;;
 esac

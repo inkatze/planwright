@@ -167,7 +167,7 @@ case "$sub" in
       tmux)
         valid_handle tmux "$handle" || reject_handle tmux
         valid_msgfile "$msg" || {
-          echo "$me: message file missing or path unsafe to relay: $(sanitize_printable "$msg" "(unprintable path)")" >&2
+          printf '%s\n' "$me: message file missing or path unsafe to relay: $(sanitize_printable "$msg" "(unprintable path)")" >&2
           exit 2
         }
         # tmux named buffers are server-global, so a fixed buffer name lets two
@@ -191,7 +191,7 @@ case "$sub" in
         exit 0
         ;;
       *)
-        echo "$me: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no relay mechanism)" >&2
+        printf '%s\n' "$me: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no relay mechanism)" >&2
         exit 2
         ;;
     esac
@@ -218,7 +218,7 @@ case "$sub" in
         exit 0
         ;;
       *)
-        echo "$me: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no observe mechanism)" >&2
+        printf '%s\n' "$me: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no observe mechanism)" >&2
         exit 2
         ;;
     esac

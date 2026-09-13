@@ -75,6 +75,33 @@ assert_launch_sets_var "worker"
 # REQ-D1.1 fixture 2: a tower under meta-tower observation.
 assert_launch_sets_var "meta-tower-observed tower"
 
+# The launched process must also see the planwright root, or a worker's
+# auto-approve hook — wired through $CLAUDE_PLUGIN_ROOT in the worker-settings
+# fragment — resolves against an empty value and never runs.
+root_session="$tmp/root-session.sh"
+cat >"$root_session" <<'EOF'
+#!/bin/sh
+printf 'plugin_root=%s\n' "${CLAUDE_PLUGIN_ROOT-<unset>}"
+printf 'planwright_root=%s\n' "${PLANWRIGHT_ROOT-<unset>}"
+exit 0
+EOF
+chmod +x "$root_session"
+
+root_out=$("$FDE" "$root_session") || fail "root-session launch through the wrapper failed (exit $?)"
+for rootvar in plugin_root planwright_root; do
+  line=$(printf '%s\n' "$root_out" | grep "^$rootvar=") \
+    || fail "the launched process must see $rootvar, got: $root_out"
+  [ -f "${line#*=}/scripts/fleet-dispatch-env.sh" ] \
+    || fail "$rootvar in the launched env does not point at a planwright root: '$line'"
+done
+
+# An operator-chosen root is not overridden: unlike the ghost-text pin, these
+# are documented overrides (tests, adopters pointing at a checkout).
+ovr_launch=$(PLANWRIGHT_ROOT=/tmp/chosen-root "$FDE" "$root_session") \
+  || fail "root-session launch with an override failed (exit $?)"
+printf '%s\n' "$ovr_launch" | grep -qx "planwright_root=/tmp/chosen-root" \
+  || fail "an operator-set PLANWRIGHT_ROOT must reach the launched process unchanged, got: $ovr_launch"
+
 # Prevention is not defeatable by an inherited value: a parent env that already
 # exports the var to `true` is overridden to `false` at launch.
 override_out=$(CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=true "$FDE" "$fake_session") \
@@ -82,10 +109,30 @@ override_out=$(CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=true "$FDE" "$fake_session")
 printf '%s\n' "$override_out" | grep -qx "seen=false" \
   || fail "the wrapper must override a pre-set '$VAR=true' down to false, got: $override_out"
 
-# --print emits exactly the assignment line (for a launcher that prepends it).
+# --print emits the assignment lines a launcher that cannot wrap the exec must
+# prepend: the ghost-text pin, plus the resolved planwright root under both
+# names the guard's resolution chain reads. A launcher using --print is exactly
+# the case that gets no exec-time export, so omitting the root here would leave
+# its workers without the auto-approve hook.
 print_out=$("$FDE" --print) || fail "--print exited nonzero"
-[ "$print_out" = "$VAR=false" ] \
-  || fail "--print expected '$VAR=false', got '$print_out'"
+printf '%s\n' "$print_out" | grep -qx "$VAR=false" \
+  || fail "--print must emit '$VAR=false', got '$print_out'"
+for rootvar in PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT; do
+  line=$(printf '%s\n' "$print_out" | grep "^$rootvar=") \
+    || fail "--print must emit a $rootvar assignment, got '$print_out'"
+  case ${line#*=} in
+    /*) ;;
+    *) fail "$rootvar must be absolute, got '$line'" ;;
+  esac
+  [ -f "${line#*=}/scripts/fleet-dispatch-env.sh" ] \
+    || fail "$rootvar does not point at a planwright root: '$line'"
+done
+
+# The root is self-located, never a captured version-bearing path: an operator
+# override wins, and the derived value survives a plugin update.
+ovr_out=$(PLANWRIGHT_ROOT=/tmp/chosen-root "$FDE" --print) || fail "--print with an override exited nonzero"
+printf '%s\n' "$ovr_out" | grep -qx "PLANWRIGHT_ROOT=/tmp/chosen-root" \
+  || fail "an operator-set PLANWRIGHT_ROOT must win, got '$ovr_out'"
 
 # --print takes no extra args: a trailing argument is a usage error, never a
 # silent print (guards the `[ "$#" -eq 1 ] || usage` branch).

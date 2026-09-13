@@ -49,10 +49,12 @@
 # THE PINS (REQ-A1.5, D-12; the one-shot permission posture, REQ-A1.2).
 #   - Passthrough args are a strict ESCALATION-PIN ALLOWLIST (REQ-A1.9), the
 #     same policy as the sibling fleet-dispatch-worktree.sh: only `--model` /
-#     `--fallback-model` / `--continue` / `--resume` are sanctioned; every
-#     other flag — a permission escalation, a sandbox-widening `--add-dir`, and
-#     the two posture-breakers below — is refused (exit 2), never forwarded to
-#     the detached worker.
+#     `--effort` / `--fallback-model` / `--continue` / `--resume` are
+#     sanctioned; every other flag — a permission escalation, a
+#     sandbox-widening `--add-dir`, and the two posture-breakers below — is
+#     refused (exit 2), never forwarded to the detached worker. The sanctioned
+#     set is exactly the flags that select capability and cost; nothing that
+#     touches permission or trust is ever on it.
 #   - The launch NEVER passes `--bare`: at the verified CLI there is no
 #     explicit inverse flag, so pinning non-`--bare` means never emitting the
 #     flag, enforced here (a passthrough `--bare` is refused, exit 2) and by
@@ -267,6 +269,32 @@ validate_launch_extra() {
         exit 2
         ;;
       --model=* | --fallback-model=*) shift ;;
+      --effort)
+        # The launch-tier effort dimension (model-allocation D-10, REQ-B1.2).
+        # Sanctioned for the same reason `--model` is: it selects capability and
+        # cost, never permission or trust, so it is outside what the
+        # escalation pin exists to stop. Its value is checked against
+        # planwright's own effort enum rather than merely shape-checked, because
+        # the resolver can emit nothing else and a wider value here could only
+        # come from a hand-built launch.
+        [ "$#" -ge 2 ] || {
+          warn "launch flag $1 needs a value"
+          exit 2
+        }
+        case $2 in
+          low | medium | high) ;;
+          *)
+            warn "launch flag --effort has an out-of-enum value: $2"
+            exit 2
+            ;;
+        esac
+        shift 2
+        ;;
+      --effort=low | --effort=medium | --effort=high) shift ;;
+      --effort=*)
+        warn "launch flag --effort has an empty or out-of-enum value: $1"
+        exit 2
+        ;;
       --continue | -c) shift ;;
       --resume | -r)
         shift

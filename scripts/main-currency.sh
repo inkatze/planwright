@@ -105,7 +105,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 . "$script_dir/echo-safety.sh"
 
 err() {
-  echo "main-currency: $1" >&2
+  printf 'main-currency: %s\n' "$1" >&2
 }
 
 # Fold git's multi-line stderr onto one line BEFORE it reaches

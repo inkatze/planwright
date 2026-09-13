@@ -26,10 +26,17 @@
 #      governed by assertion 2. Reachability follows local reusable-workflow
 #      `uses:` edges.
 #   4. Any `workflow_run` workflow holding write permissions or secrets keeps a
-#      base-branch filter and consumes no PR-produced artifact. A `workflow_run`
-#      fired by a fork PR's workflow runs with the base repo's secrets and write
-#      token, so an unfiltered one — or one that unpacks an artifact the PR
-#      produced — is the documented cache/artifact-poisoning path.
+#      base-branch filter, pins the ORIGINATING repository, and consumes no
+#      PR-produced artifact. A `workflow_run` fired by a fork PR's workflow runs
+#      with the base repo's secrets and write token, so an unfiltered one — or
+#      one that unpacks an artifact the PR produced — is the documented
+#      cache/artifact-poisoning path. The branch filter alone does not scope the
+#      trigger to this repository: `branches:` matches the TRIGGERING run's head
+#      branch, and a fork PR's head branch is the fork's ref, so a fork PR from a
+#      branch named like the base branch satisfies it. Only a
+#      `head_repository.full_name == github.repository` clause says who produced
+#      the run, which is what decides whether an outsider can choose when the
+#      privileged job fires and whose CI verdict it acts on.
 #
 # Cache and artifact posture beyond assertion 4 carries no standing check: an
 # accepted residual recorded in D-6, covered by the REQ-C1.1 audit only.
@@ -75,6 +82,46 @@
 # not do, so it is an accepted residual on the same footing as the cache
 # posture above — assertion 4 raises the cost of the artifact-poisoning path
 # rather than proving it shut.
+#
+# The originating-repository half is a text scan for the same reason: the
+# clause lives in a job `if:`, whose ordinary `>-` spelling is a block scalar
+# this parser reads as leaf content. What it looks for is the EQUALITY against
+# `github.repository`, in either operand order, and not merely the field —
+# `repository: ${{ …head_repository.full_name }}` on a checkout step is the
+# fork's code being cloned into the privileged job, so a bare substring test
+# would take the attack for the defense; requiring `==` also means an inverted
+# `!=` cannot satisfy it. Two consequences of matching the canonical spelling:
+# an equivalent gate written another way (`== 'owner/repo'`, or the comparison
+# split across two physical lines) does not satisfy the assertion, which fails
+# loud and is corrected by spelling it the canonical way.
+#
+# Its residual runs the other way from the artifact half's: a match proves the
+# clause is PRESENT in the file, not that it gates the privileged job, because
+# whether an expression is a gate is exactly the evaluation this parser does
+# not do. So the check catches the regression that happens (the clause is
+# deleted, or the workflow never had one) and not the one that has to be
+# written on purpose (a real equality parked in an `env:` value, or one job
+# carrying it while a second privileged job in the same file does not). What it
+# does refuse is the clause surviving only as narration: full-line comments
+# never reach the scan and everything from the first `#` on is stripped before
+# it, so a paragraph outliving the clause it explains fails.
+#
+# Two ways that strip costs a false failure, both loud and both fixed by
+# reformatting: a `#` that is literal content earlier on the line (inside a
+# quoted string, or in a block-scalar body) truncates the scanned text before
+# the clause, and a TRAILING comment whose last character is a backslash joins
+# the line after it into the same logical line and takes that line's clause
+# with it. A third shape needs no strip to bite: the `privileged` verdict this
+# assertion hangs off is set by the secret scan, which reads comments on
+# purpose, so a read-only `workflow_run` workflow carrying `secrets.NAME` in a
+# TRAILING comment is judged privileged and asked for the clause too. Both
+# shapes need the trailing position — a full-line comment is dropped before
+# either the join or any scan — which is also why a paragraph explaining a
+# deleted clause, the usual narration shape, is never mistaken for the clause.
+#
+# The negation disqualifier reads one physical line, so an `!(` opening on its
+# own line above the clause is not seen; that is the same written-on-purpose
+# class as the residuals above, not a shape anyone reaches by accident.
 #
 # Remote reusable workflows (`owner/repo/.github/workflows/x.yml@ref`) are not
 # fetched, and do not need to be: GitHub scopes a called workflow's
@@ -154,6 +201,7 @@ trap 'rm -rf "$work"' EXIT
 #   S <job> inherit                 a job-level `secrets: inherit`
 #   R <line> <name>                 a stored-secret reference (GITHUB_TOKEN excluded)
 #   A <line>                        an artifact-download reference
+#   H <line>                        a head_repository == github.repository clause
 read -r -d '' awk_parser <<'AWK_PARSER' || true
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function unquote(s) { sub(/^["']/, "", s); sub(/["']$/, "", s); return s }
@@ -239,6 +287,37 @@ function scan_refs(t, nr,   low, s, tok) {
     if (tok != "github_token") printf "R\t%d\t%s\n", nr, toupper(tok)
   }
   if (low ~ /download-artifact/ || low ~ /gh[ \t]+run[ \t]+download/) printf "A\t%d\n", nr
+  # Everything from the first `#` on is dropped before the match below, so the
+  # clause must be live content rather than narration — including a `;#` shell
+  # comment inside a `run:` body, which no whitespace-anchored strip would see.
+  # This is the opposite treatment from the secret scan above, and deliberately:
+  # reading a comment there over-blocks (loud), reading one here would let a
+  # paragraph outlive the clause it explains (silent). A `#` that is literal
+  # content rather than a comment truncates the line early and the assertion
+  # then fails, which is the direction to be wrong in.
+  #
+  # The trailing space lets one `[^a-z0-9_]` guard cover the end of the line as
+  # well as the middle of it.
+  sub(/#.*$/, "", low)
+  low = low " "
+  # The EQUALITY, in either operand order — not any use of the field. The
+  # difference is the whole assertion: `repository: ${{ …head_repository…}}` on
+  # a checkout step is the fork's code being cloned into the write-token job,
+  # and a bare substring test would read that as evidence of hardening. The
+  # right operand is guarded against `github.repository_owner` and
+  # `github.repository_id`, which merely start the same way and, compared with
+  # an `owner/repo` string, can never be true — a dead gate, not a live one.
+  # `!=` cannot match at all, and an `!(` opening directly onto the clause
+  # disqualifies it, so neither spelling of an inverted clause counts. The
+  # disqualifier names the clause on BOTH sides of that `!(` — including the
+  # reversed operand order in full — so it reads the clause's own polarity
+  # rather than the line's: a second, unrelated negated condition beside a live
+  # clause is ordinary expression-writing, and that stays true when the
+  # unrelated condition happens to negate an equality on `github.repository`.
+  if ((low ~ /github\.event\.workflow_run\.head_repository\.full_name[ \t]*==[ \t]*github\.repository[^a-z0-9_]/ ||
+       low ~ /github\.repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository\.full_name/) &&
+      low !~ /![ \t]*\([ \t]*github\.(event\.workflow_run\.head_repository|repository[ \t]*==[ \t]*github\.event\.workflow_run\.head_repository)/)
+    printf "H\t%d\n", nr
 }
 BEGIN {
   section = ""; on_child = -1; perm_child = -1; jobs_child = -1
@@ -579,6 +658,9 @@ if [ "$parse_failed" -eq 0 ]; then
       if [ "$privileged" -eq 1 ]; then
         if [ -z "$(fact "$i" W)" ]; then
           fail "$file: privileged \`workflow_run\` workflow ($reason) has no \`branches:\` base-branch filter, so a fork PR's workflow can trigger it with the base repo's token"
+        fi
+        if [ -z "$(fact "$i" H)" ]; then
+          fail "$file: privileged \`workflow_run\` workflow ($reason) has no \`github.event.workflow_run.head_repository.full_name == github.repository\` clause, so nothing scopes the trigger to runs this repository produced — a fork PR's run can fire it with the base repo's token"
         fi
         while IFS=$'\t' read -r _ ln; do
           [ -n "${ln:-}" ] || continue

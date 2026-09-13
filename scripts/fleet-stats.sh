@@ -375,7 +375,7 @@ case $cmd in
     ;;
 
   *)
-    echo "fleet-stats: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (render|line|audit)" >&2
+    printf '%s\n' "fleet-stats: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (render|line|audit)" >&2
     exit 2
     ;;
 esac

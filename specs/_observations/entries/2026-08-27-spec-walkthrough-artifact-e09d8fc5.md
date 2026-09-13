@@ -1,0 +1,1 @@
+- 2026-08-27 [planwright] operator feedback after the first real /spec-walkthrough read (fleet-messaging): the HTML artifact was not useful and should likely be removed; after finishing the read the next step was unclear, and the operator prefers doing spec comprehension interactively via /spec-kickoff instead of a rendered artifact
