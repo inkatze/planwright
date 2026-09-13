@@ -384,9 +384,11 @@ echo "ok: an alive tower resets backoff and re-arms the watchdog"
 record_marker unattended "$dead_pid"
 rm -f "$backoff_file"
 calls_before=$(launch_calls)
-mkdir "$spec_dir/.orchestrate.lock"
+# A live holder, in the shape the shared primitive gives one: a symlink whose
+# target is an owner token leading with a running pid.
+ln -s "$$-0-1" "$spec_dir/.orchestrate.lock"
 out=$(run "$spec_dir" 2>/dev/null) || fail "lock-busy tick exited non-zero"
-rmdir "$spec_dir/.orchestrate.lock"
+rm -f "$spec_dir/.orchestrate.lock"
 [ "$out" = lock-busy ] || fail "lock-busy outcome '$out'"
 [ "$(launch_calls)" = "$calls_before" ] || fail "a busy lock must suppress the relaunch"
 echo "ok: overlapping ticks serialize on the existing advisory lock (REQ-G1.3)"
