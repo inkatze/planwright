@@ -71,6 +71,13 @@
 #  46.-47. v2 error-path rows: an engine-present-but-failing derivation
 #      resolves atoms as unresolved with its own counted error row; one
 #      PENDING row can carry both `- unmet:` and the unresolved clause.
+#  48.-50. Gate and drain reconciliation (format-grammar Task 4): `ready`
+#      passes both stored-status whitelists; a condition matching no
+#      production is hinted to the free-text form with its echoed condition
+#      echo-safety-sanitized; live bundles' `[manual]` test-spec entries are
+#      inventoried per spec, terminal and Done bundles excluded, every other
+#      skip named, the empty lane never overclaiming, and the entry grammar
+#      holding fence illustration, CRLF, and whole-tag matching.
 #
 # Runs standalone: ./tests/test-drain-gates.sh
 set -eu
@@ -1334,5 +1341,217 @@ printf '%s\n' "$row47" | grep -F -- '- unmet: spec other done' >/dev/null \
 printf '%s\n' "$row47" | grep -F 'unresolved (completion evidence unavailable): task 1 completed' >/dev/null \
   || fail "the row must also name the unresolved task atom: $row47"
 echo "ok: unmet and unresolved clauses coexist in one row (REQ-B1.5)"
+
+# ---------------------------------------------------------------------------
+# 48-50. Gate and drain reconciliation (format-grammar Task 4; D-10, D-15;
+# REQ-E1.1, REQ-E1.2, REQ-E1.6).
+# ---------------------------------------------------------------------------
+
+# 48. REQ-E1.1 — `ready` is a stored status the sweep recognizes, in BOTH
+#     whitelists: the shell `case` list that builds the status map (its absence
+#     shows as an `unrecognized status` note and a bad-spec MALFORMED) and the
+#     awk VALID map that admits the status atom (its absence shows as an
+#     unrecognized-atom MALFORMED). Ready is the signed-off, executable status
+#     of the meta-spec's six-status table (doctrine/spec-format.md, D-10), so a
+#     sweep over a stored-Ready bundle must be silent about its status.
+mkdir -p "$tmp/specs48/readyspec" "$tmp/specs48/watcher"
+printf '%s\n' '# R' '' '**Status:** Ready' \
+  >"$tmp/specs48/readyspec/requirements.md"
+printf '%s\n' '# R — Tasks' '' '**Format-version:** 1' \
+  >"$tmp/specs48/readyspec/tasks.md"
+printf '%s\n' '# W' '' '**Status:** Draft' \
+  >"$tmp/specs48/watcher/requirements.md"
+printf '%s\n' '# W — Tasks' '' '**Format-version:** 1' '' '## Deferred' '' \
+  '- **Waits on a Ready spec.** The status atom must evaluate.' \
+  '  **Gate:** GATE(when: spec readyspec ready). Citations: REQ-X.' \
+  >"$tmp/specs48/watcher/tasks.md"
+out48=$("$drain" --today 2026-06-12 "$tmp/specs48") \
+  || fail "case 48: the stored-Ready fixture broke the sweep"
+printf '%s\n' "$out48" | grep -F 'spec readyspec: unrecognized status' >/dev/null \
+  && fail "case 48: a stored-Ready spec was reported as an unrecognized status"
+printf '%s\n' "$out48" | grep '^SATISFIED' | grep -F 'Waits on a Ready spec' >/dev/null \
+  || fail "case 48: a \`spec <name> ready\` atom did not evaluate: $out48"
+printf '%s\n' "$out48" | grep '^MALFORMED' | grep -F 'Waits on a Ready spec' >/dev/null \
+  && fail "case 48: the ready status atom was reported malformed"
+echo "ok: \`ready\` passes both stored-status whitelists (REQ-E1.1, D-10)"
+
+# 49. REQ-E1.2 — a `GATE(when: ...)` whose condition matches NO recognized atom
+#     is prose wearing the structured wrapper; the MALFORMED row hints at the
+#     free-text form (plain prose after `**Gate:**`, never a `GATE(` wrapper).
+#     The hint is scoped: a condition with at least one recognized atom form
+#     (`task 99 completed` — right form, unknown referent) is a fixable
+#     structured gate, not free text, so it must NOT carry the hint. The hint's
+#     echoed condition goes through the echo-safety discipline BEFORE it reaches
+#     the report, so an all-control-byte condition renders as the placeholder
+#     rather than collapsing to an empty string.
+mkdir -p "$tmp/specs49/hinted"
+printf '%s\n' '# H' '' '**Status:** Ready' \
+  >"$tmp/specs49/hinted/requirements.md"
+{
+  printf '%s\n' '# H — Tasks' '' '**Format-version:** 1' '' \
+    '## Forward plan' '' '### Task 1 — root' '' '- **Done when:** later.' '' \
+    '## Deferred' '' \
+    '- **All prose.** No atom is in the grammar.' \
+    '  **Gate:** GATE(when: the deprecation window has passed).' \
+    '  Citations: REQ-X.' \
+    '- **One recognized form.** An unknown task id is still a task atom.' \
+    '  **Gate:** GATE(when: task 99 completed). Citations: REQ-X.'
+  printf -- '- **Unprintable condition.** Every byte is a control byte.\n'
+  printf -- '  **Gate:** GATE(when: \033\007\233\177). Citations: REQ-X.\n'
+} >"$tmp/specs49/hinted/tasks.md"
+out49=$("$drain" --today 2026-06-12 "$tmp/specs49") \
+  || fail "case 49: the free-text-hint fixture broke the sweep"
+row49=$(printf '%s\n' "$out49" | grep '^MALFORMED' | grep -F 'All prose') \
+  || fail "case 49: an all-prose condition must be MALFORMED: $out49"
+printf '%s\n' "$row49" | grep -F 'free-text' >/dev/null \
+  || fail "case 49: the all-prose row carries no free-text-form hint: $row49"
+printf '%s\n' "$row49" | grep -F 'never a GATE( wrapper' >/dev/null \
+  || fail "case 49: the hint does not name the wrapper it replaces: $row49"
+row49b=$(printf '%s\n' "$out49" | grep '^MALFORMED' | grep -F 'One recognized form') \
+  || fail "case 49: the unknown-task gate must stay MALFORMED"
+printf '%s\n' "$row49b" | grep -F 'free-text' >/dev/null \
+  && fail "case 49: a gate with a recognized atom form must not be hinted to free text: $row49b"
+row49c=$(printf '%s\n' "$out49" | grep '^MALFORMED' | grep -F 'Unprintable condition') \
+  || fail "case 49: the control-byte gate must be MALFORMED"
+printf '%s\n' "$row49c" | grep -F '(unprintable condition)' >/dev/null \
+  || fail "case 49: the hint's echoed condition was not echo-safety-sanitized: $row49c"
+echo "ok: an unrecognized-atom condition is hinted to the free-text form (REQ-E1.2)"
+
+# 50. REQ-E1.6 / D-15 — the sweep surfaces a per-spec inventory of `[manual]`
+#     test-spec entries for LIVE specs, so un-exercised manual verification
+#     obligations are visible each pass without a new state store. `[test +
+#     manual]` counts (the tag is matched for inclusion, per the meta-spec's
+#     test-spec tag rule); a live spec with none is absent from the lane; a Done
+#     or Retired bundle is excluded whatever its test-spec says.
+mkdir -p "$tmp/specs50/livespec" "$tmp/specs50/nomanual" \
+  "$tmp/specs50/donespec" "$tmp/specs50/retiredspec"
+for s50 in livespec nomanual donespec retiredspec; do
+  printf '%s\n' "# $s50 — Tasks" '' '**Format-version:** 1' \
+    >"$tmp/specs50/$s50/tasks.md"
+done
+printf '%s\n' '# L' '' '**Status:** Ready' >"$tmp/specs50/livespec/requirements.md"
+printf '%s\n' '# N' '' '**Status:** Active' >"$tmp/specs50/nomanual/requirements.md"
+printf '%s\n' '# D' '' '**Status:** Done' >"$tmp/specs50/donespec/requirements.md"
+printf '%s\n' '# T' '' '**Status:** Retired' >"$tmp/specs50/retiredspec/requirements.md"
+printf '%s\n' '# L — Test spec' '' '## REQ-A — group' '' \
+  '### REQ-A1.1 — hand-run rehearsal [manual]' '' 'Exercised by a human.' '' \
+  '### REQ-A1.2 — mixed tag [test + manual]' '' 'Both halves.' '' \
+  '### REQ-A1.3 — automated only [test]' '' 'Runs in CI.' '' \
+  '### REQ-A1.4 — artifact [design-level]' '' 'Existence is the check.' \
+  >"$tmp/specs50/livespec/test-spec.md"
+printf '%s\n' '# N — Test spec' '' '## REQ-A — group' '' \
+  '### REQ-A1.1 — automated only [test]' '' 'Runs in CI.' \
+  >"$tmp/specs50/nomanual/test-spec.md"
+printf '%s\n' '# D — Test spec' '' '## REQ-A — group' '' \
+  '### REQ-A1.1 — frozen manual entry [manual]' '' 'A finished bundle.' \
+  >"$tmp/specs50/donespec/test-spec.md"
+printf '%s\n' '# T — Test spec' '' '## REQ-A — group' '' \
+  '### REQ-A1.1 — abandoned manual entry [manual]' '' 'A withdrawn bundle.' \
+  >"$tmp/specs50/retiredspec/test-spec.md"
+out50=$("$drain" --today 2026-06-12 "$tmp/specs50") \
+  || fail "case 50: the manual-inventory fixture broke the sweep"
+printf '%s\n' "$out50" | grep -F '== manual verification ==' >/dev/null \
+  || fail "case 50: the drain report has no manual-verification lane: $out50"
+man50=$(printf '%s\n' "$out50" | sed -n '/== manual verification ==/,/== observations ==/p')
+printf '%s\n' "$man50" | grep -F 'hand-run rehearsal' >/dev/null \
+  || fail "case 50: a [manual] entry is missing from the inventory: $man50"
+printf '%s\n' "$man50" | grep -F 'mixed tag' >/dev/null \
+  || fail "case 50: a [test + manual] entry is missing from the inventory: $man50"
+printf '%s\n' "$man50" | grep -F 'automated only' >/dev/null \
+  && fail "case 50: a non-manual entry leaked into the inventory: $man50"
+printf '%s\n' "$man50" | grep -F 'artifact' >/dev/null \
+  && fail "case 50: a [design-level] entry leaked into the inventory: $man50"
+printf '%s\n' "$man50" | grep -F 'nomanual' >/dev/null \
+  && fail "case 50: a live spec with no [manual] entries must be absent: $man50"
+printf '%s\n' "$man50" | grep -F 'frozen manual entry' >/dev/null \
+  && fail "case 50: a Done bundle is outside the live-spec scope: $man50"
+printf '%s\n' "$man50" | grep -F 'abandoned manual entry' >/dev/null \
+  && fail "case 50: a Retired bundle is outside the live-spec scope: $man50"
+echo "ok: live specs' [manual] test-spec entries are inventoried each sweep (REQ-E1.6)"
+
+# 50b. The inventory never under-reports silently: a NUL byte truncates awk's
+#      record and could drop an entry, so the file is flagged instead (the same
+#      screen the tasks.md sweep applies, check 20). Unreadable is the sibling
+#      case; both are counted errors, neither aborts the sweep.
+mkdir -p "$tmp/specs50b/nulspec"
+printf '%s\n' '# X' '' '**Status:** Active' >"$tmp/specs50b/nulspec/requirements.md"
+printf '%s\n' '# X — Tasks' '' '**Format-version:** 1' \
+  >"$tmp/specs50b/nulspec/tasks.md"
+printf '%s\n' '# X — Test spec' '' '## REQ-A — group' '' \
+  >"$tmp/specs50b/nulspec/test-spec.md"
+printf '### REQ-A1.1 \000 buried entry [manual]\n' \
+  >>"$tmp/specs50b/nulspec/test-spec.md"
+out50b=$("$drain" --today 2026-06-12 "$tmp/specs50b") \
+  || fail "case 50b: a NUL-laden test-spec.md must not abort the sweep"
+printf '%s\n' "$out50b" | grep -F 'test-spec.md contains NUL bytes' >/dev/null \
+  || fail "case 50b: a NUL-laden test-spec.md was not flagged: $out50b"
+printf '%s\n' "$out50b" | grep -F 'buried entry' >/dev/null \
+  && fail "case 50b: a truncated inventory was published anyway: $out50b"
+printf '%s\n' "$out50b" | grep -F 'errors: 1' >/dev/null \
+  || fail "case 50b: the flagged file was not counted as an error: $out50b"
+echo "ok: a NUL-laden test-spec.md is flagged, not silently under-inventoried"
+
+# 50c. The lane never withholds silently, and never claims more than it knows.
+#      A bundle whose stored status did not resolve is NOT guessed live — but
+#      dropping its entries without a word is the silence this sweep exists to
+#      avoid, so it is named. And when every candidate was skipped that way, the
+#      empty lane must not read as "nothing outstanding": that is a claim the
+#      sweep cannot support. A Done bundle is the discriminator — it is skipped
+#      deliberately, by documented scope, so it draws no note.
+mkdir -p "$tmp/specs50c/nostatus" "$tmp/specs50c/donespec"
+printf '%s\n' '# N — Requirements' '' 'This bundle declares no status.' \
+  >"$tmp/specs50c/nostatus/requirements.md"
+printf '%s\n' '# D' '' '**Status:** Done' >"$tmp/specs50c/donespec/requirements.md"
+for s50c in nostatus donespec; do
+  printf '%s\n' "# $s50c — Tasks" '' '**Format-version:** 1' \
+    >"$tmp/specs50c/$s50c/tasks.md"
+  printf '%s\n' "# $s50c — Test spec" '' '## REQ-A — group' '' \
+    '### REQ-A1.1 — an outstanding promise [manual]' \
+    >"$tmp/specs50c/$s50c/test-spec.md"
+done
+out50c=$("$drain" --today 2026-06-12 "$tmp/specs50c") \
+  || fail "case 50c: the unresolved-status fixture broke the sweep"
+man50c=$(printf '%s\n' "$out50c" | sed -n '/== manual verification ==/,/== observations ==/p')
+printf '%s\n' "$man50c" | grep -F 'nostatus' >/dev/null \
+  || fail "case 50c: a bundle skipped for an unresolved status was dropped silently: $man50c"
+printf '%s\n' "$man50c" | grep -F 'an outstanding promise' >/dev/null \
+  && fail "case 50c: an unresolved-status bundle was inventoried as live anyway: $man50c"
+printf '%s\n' "$man50c" | grep -F 'donespec' >/dev/null \
+  && fail "case 50c: a Done bundle is skipped by documented scope and needs no note: $man50c"
+printf '%s\n' "$man50c" | grep -F '(none pending)' >/dev/null \
+  && fail "case 50c: the lane claimed nothing is pending while a bundle went unread: $man50c"
+echo "ok: the manual lane names what it skipped and never overclaims an empty result"
+
+# 50d. The inventory reads test-spec.md under the same two grammar rules every
+#      sibling parser applies, so it cannot drift from them: column-0 fences are
+#      illustration (a fenced entry is an example, not a promise — mirror of
+#      checks 17 and 44), and CRLF files parse like LF ones (mirror of check
+#      18; without the CR strip the trailing `\r` puts the tag past end-of-line
+#      and the entry vanishes). The tag test is a WORD match, not a substring:
+#      `[manually-reviewed]` is not the `manual` tag.
+mkdir -p "$tmp/specs50d/grammar"
+printf '%s\n' '# G' '' '**Status:** Active' >"$tmp/specs50d/grammar/requirements.md"
+printf '%s\n' '# G — Tasks' '' '**Format-version:** 1' \
+  >"$tmp/specs50d/grammar/tasks.md"
+{
+  printf '# G - Test spec\r\n\r\n## REQ-A - group\r\n\r\n'
+  printf '```markdown\r\n'
+  printf '### REQ-Z9.9 - fenced illustration [manual]\r\n'
+  printf '```\r\n\r\n'
+  printf '### REQ-A1.1 - real crlf promise [manual]\r\n\r\n'
+  printf '### REQ-A1.2 - near miss tag [manually-reviewed]\r\n'
+} >"$tmp/specs50d/grammar/test-spec.md"
+out50d=$("$drain" --today 2026-06-12 "$tmp/specs50d") \
+  || fail "case 50d: the grammar fixture broke the sweep"
+man50d=$(printf '%s\n' "$out50d" | sed -n '/== manual verification ==/,/== observations ==/p')
+printf '%s\n' "$man50d" | grep -F 'real crlf promise' >/dev/null \
+  || fail "case 50d: a CRLF [manual] entry was not inventoried: $man50d"
+printf '%s\n' "$man50d" | grep -F 'fenced illustration' >/dev/null \
+  && fail "case 50d: a fenced example entry was inventoried as a real promise: $man50d"
+printf '%s\n' "$man50d" | grep -F 'near miss tag' >/dev/null \
+  && fail "case 50d: a tag merely containing 'manual' was matched as the tag: $man50d"
+printf '%s\n' "$man50d" | grep -F 'grammar: 1 [manual]' >/dev/null \
+  || fail "case 50d: the per-spec count does not match the inventoried rows: $man50d"
+echo "ok: the [manual] inventory honors fence illustration, CRLF, and whole-tag matching"
 
 echo "PASS: test-drain-gates.sh"

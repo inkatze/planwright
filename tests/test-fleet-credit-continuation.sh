@@ -269,7 +269,11 @@ out=$(printf '%s\n' "$prompt_esc" | run decide 2>"$tmp/err") \
 case $out in
   *"$esc"*) fail "sanitize: a raw escape byte reached stdout" ;;
 esac
-case $(cat "$tmp/err") in
+# Bound rather than read inside the `case` word, so `set -e` sees a failed
+# read. Discarding that status is what lets an unreadable or absent capture
+# match nothing, fall through, and report a sanitizer this test never looked at.
+err_text=$(cat "$tmp/err")
+case $err_text in
   *"$esc"*) fail "sanitize: a raw escape byte reached stderr" ;;
 esac
 rows=$(audit_query --mechanism credit-continuation)

@@ -108,5 +108,6 @@ for the real Task-6 surface, a model + credentials), and gate nondeterministical
 The harness is registered under the `eval:` mise namespace so
 `scripts/check-no-ci-evals.sh` — the standing CI-exclusion guard — covers it: the
 guard fails loud if `eval:behavioral` (or a direct `behavioral-eval.sh` call) is
-ever wired into a workflow file. Never add it to `mise run check` or
-`.github/workflows/`.
+ever wired into a workflow file, and equally if any task CI does invoke reaches
+it through the task graph declared in `mise.toml`. Never add it to
+`mise run check` or `.github/workflows/`.

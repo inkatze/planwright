@@ -40,6 +40,14 @@ mise.local.toml
 # Optional handover brief — transient per-worktree cache (design.md D-2/D-3).
 .claude/handover.md
 
+# Worker allocation petitions (model-allocation D-7) — the strict-grammar
+# artifact a worker writes to ask the allocation policy for a different tier,
+# plus the `.claim.`/`.tmp.` files its consumption and its temp-then-rename
+# write pass through. Per-worktree, consumed at the next launch boundary, and
+# never source: keeping them untracked is what lets a worker petition without
+# dirtying the tree it is about to commit from.
+.claude/allocation-petition*
+
 # Per-spec advisory lock (design.md D-10) — transient runtime state taken by
 # /orchestrate and the tasks-pr-sync hook around tasks.md writes, plus the
 # hook's atomic-write temp files (orphaned only by an unclean kill).
@@ -52,6 +60,11 @@ specs/*/.tasks-pr-sync.*
 # carry no dispatch commit, so a worker worktree cut from it inherits nothing
 # foreign (REQ-A1.2 contamination isolation by construction).
 specs/*/.orchestrate/
+
+# The per-file timing report scripts/run-tests.sh persists after every suite
+# run and check:test-time reads (guard-coverage D-8). Timings vary every run;
+# only the budget config (config/test-time-budget.yml) is tracked.
+tests/.timing-report.tsv
 
 # === Bootstrap staging ===
 

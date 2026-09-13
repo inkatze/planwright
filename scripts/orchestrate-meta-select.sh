@@ -58,8 +58,10 @@
 # or every ready spec is held on a transient evidence failure — the hold is
 # surfaced on stderr per spec, REQ-B1.5);
 # 2 a supervised spec dir is missing / taskless / not a git work tree, a spec
-# basename fails the identifier grammar, or a required helper is unavailable —
-# fail closed, so absent live truth never silently reports "nothing".
+# basename fails the identifier grammar, a required helper is unavailable, or
+# the per-spec selector could not answer — an exit outside its documented
+# 0/1/2/3 set, or exit 0 with output that is not a task id (REQ-E1.5) — fail
+# closed, so absent live truth never silently reports "nothing".
 #
 # Portable POSIX sh (bash 3.2 / BSD tooling): no bash arrays, no gawk-only awk.
 # Input is treated as data; the spec basename (which flows downstream into git
@@ -244,6 +246,36 @@ for spec_dir in "$@"; do
   # exit 1's "nothing ready" at the fleet tier.
   if [ "$sel_rc" = 3 ]; then
     printf '%s\n' "orchestrate-meta-select: transient evidence failure for $(sanitize_printable "$spec_dir" "(unprintable path)"); holding this spec this step (REQ-B1.5)" >&2
+  fi
+  # Anything outside the selector's documented exits (0 a unit, 1 nothing ready,
+  # 2 hard failure, 3 transient hold) means it could not answer — a crash, a
+  # signal death, a code a future version adds. Falling through would file that
+  # under "not a candidate", the one reading it definitely is not: an evaluation
+  # failure would then look exactly like an idle spec and the fleet would quietly
+  # advance without it. Fail the fleet closed instead (REQ-E1.5), matching the
+  # exit-2 arm above.
+  case "$sel_rc" in
+    0 | 1 | 3) ;;
+    *)
+      printf '%s\n' "orchestrate-meta-select: selector returned unexpected status $sel_rc for $(sanitize_printable "$spec_dir" "(unprintable path)") (fail closed)" >&2
+      exit 2
+      ;;
+  esac
+  # An exit-0 selector must print exactly one task id (its stdout contract).
+  # Empty or unparseable output is the same class of unanswered question: empty
+  # would drop the spec silently, and a non-id would travel downstream into a
+  # branch name and a commit trailer. Both fail closed (REQ-E1.5). The grammar
+  # is the meta-spec task-id one, `[0-9]+(\.[0-9]+)?`, spelled in case globs:
+  # digits and at most one interior dot.
+  if [ "$sel_rc" = 0 ]; then
+    sel_bad=0
+    case "$ready_id" in
+      '' | *[!0-9.]* | .* | *. | *.*.*) sel_bad=1 ;;
+    esac
+    if [ "$sel_bad" = 1 ]; then
+      printf '%s\n' "orchestrate-meta-select: selector produced unparseable output '$(sanitize_printable "$ready_id" "(unprintable output)")' for $(sanitize_printable "$spec_dir" "(unprintable path)") (fail closed)" >&2
+      exit 2
+    fi
   fi
 
   # A candidate iff the spec has a ready unit AND is below its per-spec cap.

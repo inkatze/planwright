@@ -49,10 +49,12 @@
 # THE PINS (REQ-A1.5, D-12; the one-shot permission posture, REQ-A1.2).
 #   - Passthrough args are a strict ESCALATION-PIN ALLOWLIST (REQ-A1.9), the
 #     same policy as the sibling fleet-dispatch-worktree.sh: only `--model` /
-#     `--fallback-model` / `--continue` / `--resume` are sanctioned; every
-#     other flag — a permission escalation, a sandbox-widening `--add-dir`, and
-#     the two posture-breakers below — is refused (exit 2), never forwarded to
-#     the detached worker.
+#     `--effort` / `--fallback-model` / `--continue` / `--resume` are
+#     sanctioned; every other flag — a permission escalation, a
+#     sandbox-widening `--add-dir`, and the two posture-breakers below — is
+#     refused (exit 2), never forwarded to the detached worker. The sanctioned
+#     set is exactly the flags that select capability and cost; nothing that
+#     touches permission or trust is ever on it.
 #   - The launch NEVER passes `--bare`: at the verified CLI there is no
 #     explicit inverse flag, so pinning non-`--bare` means never emitting the
 #     flag, enforced here (a passthrough `--bare` is refused, exit 2) and by
@@ -267,6 +269,32 @@ validate_launch_extra() {
         exit 2
         ;;
       --model=* | --fallback-model=*) shift ;;
+      --effort)
+        # The launch-tier effort dimension (model-allocation D-10, REQ-B1.2).
+        # Sanctioned for the same reason `--model` is: it selects capability and
+        # cost, never permission or trust, so it is outside what the
+        # escalation pin exists to stop. Its value is checked against
+        # planwright's own effort enum rather than merely shape-checked, because
+        # the resolver can emit nothing else and a wider value here could only
+        # come from a hand-built launch.
+        [ "$#" -ge 2 ] || {
+          warn "launch flag $1 needs a value"
+          exit 2
+        }
+        case $2 in
+          low | medium | high) ;;
+          *)
+            warn "launch flag --effort has an out-of-enum value: $2"
+            exit 2
+            ;;
+        esac
+        shift 2
+        ;;
+      --effort=low | --effort=medium | --effort=high) shift ;;
+      --effort=*)
+        warn "launch flag --effort has an empty or out-of-enum value: $1"
+        exit 2
+        ;;
       --continue | -c) shift ;;
       --resume | -r)
         shift
@@ -585,6 +613,33 @@ do_launch() {
     wait "$l_pid" 2>/dev/null || true
     rm -rf "$unit_dir"
     exit 2
+  fi
+
+  # Register the dispatch (fleet-lifecycle-closure Task 3; REQ-E1.1, REQ-E1.2)
+  # HERE, before the start handshake below, for two reasons. The runner is
+  # already detached under nohup and survives this process, so every second
+  # before the record lands is a second in which a tower death leaves a live
+  # worker that nothing in the fleet knows about. And the handshake can exit
+  # because the runner ALREADY FINISHED — a fast failure writes `exit` in
+  # milliseconds — at which point `$l_pid` names a reaped process, and recording
+  # it would hand a later reaper a pid the OS is free to reissue.
+  #
+  # The runner pid is the death handle, matching what this rung already treats
+  # as the unit's liveness subject: it owns the completion write and forwards
+  # its own death into a terminal record, so it, not the worker, is what a close
+  # verb acts on. Best-effort by contract (REQ-E1.4): the exit is discarded so a
+  # registry failure never fails a launch that has already produced a live
+  # runner, while the warning stays on stderr where the operator sees it.
+  # Readable, not executable: the call is `/bin/sh <path>`, so a dropped exec
+  # bit must not silently switch registration off — that would be the one
+  # degrade on this path with no diagnostic at all.
+  l_reg="$script_dir/fleet-register.sh"
+  if [ -r "$l_reg" ]; then
+    /bin/sh "$l_reg" --handle "$l_handle" --scope "$l_scope" \
+      --backend headless-oneshot --state-dir "$unit_dir" \
+      --death-handle "process $l_pid" >/dev/null </dev/null || true
+  else
+    warn "cannot register $l_handle: $l_reg is missing or unreadable; this worker will not appear in the fleet inventory"
   fi
 
   # Runner-start handshake (C9): confirm the runner actually got going before

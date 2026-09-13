@@ -1,0 +1,46 @@
+---
+name: Bug report
+description: Something planwright did wrong, or a rough edge worth recording
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What planwright did, and what you expected instead.
+      placeholder: >
+        e.g. /orchestrate dispatched a task whose dependency was still open.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: >
+        The command or skill you invoked, the spec state it ran against, and
+        the steps to get there. A minimal spec bundle is ideal but not
+        required.
+    validations:
+      required: true
+  - type: input
+    id: planwright-version
+    attributes:
+      label: planwright version
+      description: From the release tag, or `version` in .claude-plugin/plugin.json.
+      placeholder: v0.34.0
+    validations:
+      required: true
+  - type: input
+    id: claude-code-version
+    attributes:
+      label: Claude Code version
+      placeholder: claude --version
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: >
+        Transcript excerpts, error text, or the state files planwright left
+        behind. Redact anything private.
+      render: text

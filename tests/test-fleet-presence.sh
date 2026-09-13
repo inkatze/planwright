@@ -928,4 +928,163 @@ printf '%s\n' "$out" | grep -q "sole-tower=no" \
   || fail "gc-skip did not count toward the peer set (summary: $out)"
 echo "ok: start-epoch preserve/reset, cadence edges never lock out, gc-skip counts as a peer"
 
+# ---------------------------------------------------------------------------
+# 18. REQ-C1.3 — `attribute`: strand attribution WITH the owner's liveness.
+#     `owner` answers the dispatch question ("does a LIVE peer hold this?") and
+#     excludes the caller's own record. The fence sweep asks a different one:
+#     WHO holds this fence and are they alive — including the caller itself,
+#     whose own fences would otherwise read as orphans on every pass. Read-only:
+#     never GCs, never cadence-capped.
+# ---------------------------------------------------------------------------
+h18="$tmp/h18"
+printf 'alive\n' >"$tmp/evidence-verdict"
+run "$h18" publish --checkout "$co_a" --session-id "$uuid_b" \
+  --specs demo --fenced demo/4,demo/5 --pid 4242 \
+  >/dev/null || fail "attribute fixture publish failed"
+
+out=$(run "$h18" attribute --checkout "$co_a" --session-id "$uuid_a" demo/4) \
+  || fail "attribute (live peer) failed"
+[ "$out" = "owner	$uuid_b	live" ] || fail "attribute live peer: got '$out'"
+
+out=$(run "$h18" attribute --checkout "$co_a" --session-id "$uuid_a" demo/9) \
+  || fail "attribute (no holder) failed"
+[ "$out" = "unknown-owner" ] || fail "attribute unattributed fence: got '$out'"
+
+# The caller's OWN fences attribute to itself, live, with no death probe: a
+# tower must not read its own in-flight units as orphaned strands.
+: >"$tmp/evidence-calls"
+out=$(run "$h18" attribute --checkout "$co_a" --session-id "$uuid_b" demo/4) \
+  || fail "attribute (own record) failed"
+[ "$out" = "owner	$uuid_b	live" ] || fail "attribute own fence: got '$out'"
+[ ! -s "$tmp/evidence-calls" ] || fail "attribute probed liveness for its own record"
+
+# A positively-dead owner is REPORTED, not GC'd: the sweep needs the name to
+# put in the strand it surfaces, and `attribute` is read-only.
+printf 'dead\n' >"$tmp/evidence-verdict"
+before=$(record_count "$(run "$h18" surface --checkout "$co_a")")
+out=$(run "$h18" attribute --checkout "$co_a" --session-id "$uuid_a" demo/5) \
+  || fail "attribute (dead owner) failed"
+[ "$out" = "owner	$uuid_b	dead" ] || fail "attribute dead owner: got '$out'"
+after=$(record_count "$(run "$h18" surface --checkout "$co_a")")
+[ "$before" = "$after" ] || fail "attribute GC'd a record (it must be read-only)"
+
+printf 'unknown\n' >"$tmp/evidence-verdict"
+out=$(run "$h18" attribute --checkout "$co_a" --session-id "$uuid_a" demo/5) \
+  || fail "attribute (unknown liveness) failed"
+[ "$out" = "owner	$uuid_b	unknown" ] || fail "attribute unknown liveness: got '$out'"
+
+# A crafted unit ref never reaches a path or a scan.
+printf 'alive\n' >"$tmp/evidence-verdict"
+for bad in "../evil/4" "demo" "demo/4/5" "demo/x" ""; do
+  rc=0
+  run "$h18" attribute --checkout "$co_a" --session-id "$uuid_a" "$bad" \
+    >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "attribute accepted a malformed unit ref '$bad' (exit $rc)"
+done
+
+# Reused-pid ambiguity (REQ-C1.3): a record whose identity is the COMPOSITE
+# p<pid>.t<start-hash>.c<checkout-hash> pins the start time of the process it
+# was published from. A live pid whose start hash no longer matches is a
+# recycled pid, not the tower — unclassifiable, so it is surfaced as
+# `ambiguous` rather than silently honored as a live owner.
+h18b="$tmp/h18b"
+run "$h18b" publish --checkout "$co_a" --pid $$ \
+  --specs demo --fenced demo/7 >/dev/null || fail "composite-identity publish failed"
+comp=$(run "$h18b" identity --checkout "$co_a" --pid $$)
+sub18=$(run "$h18b" surface --checkout "$co_a")
+out=$(run "$h18b" attribute --checkout "$co_a" --session-id "$uuid_a" demo/7) \
+  || fail "attribute (composite, matching start hash) failed"
+[ "$out" = "owner	$comp	live" ] || fail "attribute composite live: got '$out'"
+
+# Rewrite the record under an identity whose start-time hash disagrees with
+# the live process at that pid — exactly what a recycled pid looks like.
+skew="p$$.t999999999.c${comp##*.c}"
+sed "s/	$comp	/	$skew	/" "$sub18/$comp" >"$sub18/$skew"
+rm -f "$sub18/$comp"
+out=$(run "$h18b" attribute --checkout "$co_a" --session-id "$uuid_a" demo/7) \
+  || fail "attribute (reused pid) failed"
+[ "$out" = "owner	$skew	ambiguous" ] || fail "attribute reused pid: got '$out'"
+echo "ok: attribute resolves a fence's owner with liveness, read-only, self included"
+
+# ---------------------------------------------------------------------------
+# 19. fleet-lifecycle-closure REQ-C1.6 — `liveness <tower-id>`: the read-only
+#     per-tower classification the stuck-detector's owner-attribution axis
+#     consumes. Self is reported without a death probe; a peer is classified
+#     through the evidence predicate; absent, malformed, and unknown verdicts
+#     each keep their own word so a consumer can never read them as live; and
+#     nothing is ever GC'd by reading it.
+# ---------------------------------------------------------------------------
+h19="$tmp/h19"
+run "$h19" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  --specs demo --fenced demo/1 >/dev/null || fail "liveness: publish A failed"
+run "$h19" publish --checkout "$co_b" --session-id "$uuid_b" --pid 4243 \
+  --specs demo --fenced demo/2 >/dev/null || fail "liveness: publish B failed"
+sub19=$(run "$h19" surface --checkout "$co_a")
+
+: >"$tmp/evidence-calls"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_a") \
+  || fail "liveness (self) failed"
+[ "$out" = "tower	$uuid_a	self" ] || fail "liveness self: got '$out'"
+[ ! -s "$tmp/evidence-calls" ] || fail "liveness probed the caller's own record"
+[ -z "$(find "$h19/presence.cadence" -name '.memo.*' 2>/dev/null)" ] || fail "liveness left a memo behind"
+
+: >"$tmp/evidence-calls"
+printf 'alive\n' >"$tmp/evidence-verdict"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b") \
+  || fail "liveness (live peer) failed"
+[ "$out" = "tower	$uuid_b	live" ] || fail "liveness live peer: got '$out'"
+grep -q '^process 4243$' "$tmp/evidence-calls" \
+  || fail "liveness did not consult the evidence predicate for the peer's own handle"
+[ "$(wc -l <"$tmp/evidence-calls" | tr -d ' ')" = 1 ] \
+  || fail "liveness probed more than the named tower (fan-out must be one handle)"
+
+printf 'unknown\n' >"$tmp/evidence-verdict"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b") \
+  || fail "liveness (unknown) failed"
+[ "$out" = "tower	$uuid_b	unknown" ] || fail "liveness unknown: got '$out'"
+
+printf 'dead\n' >"$tmp/evidence-verdict"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b") \
+  || fail "liveness (dead) failed"
+[ "$out" = "tower	$uuid_b	dead" ] || fail "liveness dead: got '$out'"
+[ -f "$sub19/$uuid_b" ] || fail "liveness GC'd a positively-dead record (must be read-only)"
+
+uuid_c="cccccccc-cccc-cccc-cccc-cccccccccccc"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_c") \
+  || fail "liveness (absent) failed"
+[ "$out" = "no-record	$uuid_c" ] || fail "liveness absent: got '$out'"
+
+printf 'garbage\n' >"$sub19/$uuid_c"
+out=$(run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_c" 2>/dev/null) \
+  || fail "liveness (malformed) failed"
+[ "$out" = "unreadable	$uuid_c	malformed" ] || fail "liveness malformed: got '$out'"
+rm -f "$sub19/$uuid_c"
+
+# The composite form is admissible as a query token, and a malformed token
+# never reaches the surface as a path component.
+printf 'alive\n' >"$tmp/evidence-verdict"
+for bad in "../evil" "not-a-tower" "" "p1.t.c"; do
+  rc=0
+  run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$bad" \
+    >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "liveness accepted a malformed tower id '$bad' (exit $rc)"
+done
+rc=0
+run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b" "$uuid_c" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "liveness accepted two tower ids (exit $rc)"
+rc=0
+run "$h19" liveness --checkout "$co_a" --session-id "$uuid_a" "" "$uuid_c" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "liveness let an empty positional be skipped (exit $rc)"
+# A vanished surface fails closed (exit 3), never `no-record`.
+h19v="$tmp/h19v"
+run "$h19v" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 >/dev/null || fail "liveness: vanish setup"
+rm -rf "$(run "$h19v" surface --checkout "$co_a")"
+rc=0
+out=$(run "$h19v" liveness --checkout "$co_a" --session-id "$uuid_a" "$uuid_b" 2>/dev/null) || rc=$?
+[ "$rc" = 3 ] || fail "liveness on a vanished surface exited $rc, expected 3"
+[ -z "$out" ] || fail "liveness on a vanished surface printed '$out'"
+echo "ok: liveness classifies one named tower read-only (self / live / unknown / dead / no-record / unreadable)"
+
 echo "PASS: all fleet-presence tests"

@@ -20,6 +20,9 @@
 #   - comment/whitespace tolerance;
 #   - the by-layer malformed-value policy (same shape review_sequence has);
 #   - the posint type (leading zero, zero, negative, oversize all malformed);
+#   - the nonnegint type (model-allocation REQ-A1.4's pinned numeric-knob
+#     grammar: zero is legal, leading zero / negative / non-integer / oversize
+#     are not);
 #   - usage validation (key charset, type set, missing/invalid fallback);
 #   - the output contract (single newline-terminated value);
 #   - the REQ-G1.5 bundle-knob sweep: every knob the fleet-autonomy bundle
@@ -319,6 +322,63 @@ run_posint >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "posint: malformed repo-tracked value: exit $rc, expected 4 (hard-fail)"
 reset_layers
 echo "ok: the posint type honors the by-layer policy through the overlay layers"
+
+# 10c. The nonnegint type — model-allocation REQ-A1.4's pinned numeric-knob
+#      grammar (D-5: non-negative integers, validated BEFORE any arithmetic
+#      use). It differs from posint in exactly one place: zero is legal, which
+#      is what lets an allocation knob express "no adjustment at all" instead
+#      of forcing a magic sentinel. Everything else stays refused, so a
+#      malformed value can never reach arithmetic.
+nonneg_core="$tmp/core-nonneg.yml"
+run_nonneg() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$nonneg_core" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --key allocation_adjustment_cap --type nonnegint --fallback 1
+}
+reset_layers
+for good in 0 1 7 999999999999999; do
+  printf 'allocation_adjustment_cap: %s\n' "$good" >"$nonneg_core"
+  got=$(run_nonneg) || fail "nonnegint: valid value '$good' did not resolve"
+  [ "$got" = "$good" ] || fail "nonnegint: '$good' resolved to '$got'"
+done
+for bad in 05 -3 3.5 abc "" 1234567890123456; do
+  printf 'allocation_adjustment_cap: %s\n' "$bad" >"$nonneg_core"
+  rc=0
+  run_nonneg >/dev/null 2>&1 || rc=$?
+  # A malformed value in CORE is a broken install (exit 5).
+  [ "$rc" = 5 ] || fail "nonnegint: '$bad' in core was not treated as malformed (exit $rc, expected 5)"
+done
+echo "ok: the nonnegint type validates (zero legal; leading zero, negative, non-integer, oversize malformed)"
+
+# 10d. nonnegint honors the by-layer policy too, and `0` survives it: a
+#      malformed adopter value degrades to a core `0` rather than to the
+#      caller's fallback, so an operator who deliberately configured zero is
+#      not silently re-armed.
+reset_layers
+printf 'allocation_adjustment_cap: 0\n' >"$nonneg_core"
+printf 'allocation_adjustment_cap: nope\n' >"$adopter_cfg"
+rc=0
+out=$(run_nonneg 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "nonnegint: malformed adopter value: exit $rc, expected 0 (degrade)"
+[ "$out" = 0 ] || fail "nonnegint: malformed adopter value did not degrade to the core 0 (got '$out')"
+reset_layers
+printf 'allocation_adjustment_cap: nope\n' >"$tracked_cfg"
+rc=0
+run_nonneg >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "nonnegint: malformed repo-tracked value: exit $rc, expected 4 (hard-fail)"
+reset_layers
+# A zero --fallback is a legal caller declaration for this type (it is not for
+# posint), so the caller-bug guard must not refuse it.
+rm -f "$nonneg_core"
+: >"$nonneg_core"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$nonneg_core" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key allocation_adjustment_cap --type nonnegint --fallback 0 2>/dev/null) \
+  || fail "nonnegint: a zero --fallback should be accepted"
+[ "$got" = 0 ] || fail "nonnegint: a zero --fallback should be emitted verbatim, got '$got'"
+echo "ok: the nonnegint type honors the by-layer policy and accepts a zero fallback"
 
 # 11. Usage validation: missing/invalid arguments are usage errors (exit 2).
 for args in \

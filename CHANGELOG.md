@@ -1,5 +1,116 @@
 # Changelog
 
+## [0.40.0](https://github.com/inkatze/planwright/compare/v0.39.0...v0.40.0) (2026-09-12)
+
+
+### Features
+
+* **guards:** hold a budget exception to the margin it was granted at ([#439](https://github.com/inkatze/planwright/issues/439)) ([e7501d7](https://github.com/inkatze/planwright/commit/e7501d7d129e21e5df15490777b04f6f9993ba43))
+* **guards:** say why a budget exception went inert, not just that it did ([#432](https://github.com/inkatze/planwright/issues/432)) ([7845727](https://github.com/inkatze/planwright/commit/784572778a1e8d15083458564fd3727ad098fdbc))
+* **spec:** tower-comms kickoff sign-off ([#437](https://github.com/inkatze/planwright/issues/437)) ([d10eb82](https://github.com/inkatze/planwright/commit/d10eb82232317d0fa92a086d01d68af5d5a23122))
+* **spec:** universal-binary kickoff sign-off ([#436](https://github.com/inkatze/planwright/issues/436)) ([bd0ab0c](https://github.com/inkatze/planwright/commit/bd0ab0c777a4258d30457cf62b1217cab4032098))
+
+
+### Bug Fixes
+
+* **dispatch:** let a dispatched worker actually do routine work ([#441](https://github.com/inkatze/planwright/issues/441)) ([17d919b](https://github.com/inkatze/planwright/commit/17d919be6557e3d2dd5d81ae69d61dd3f3e78168))
+* **fleet:** write the queue row under the lock that guards what it reflects ([#438](https://github.com/inkatze/planwright/issues/438)) ([85af215](https://github.com/inkatze/planwright/commit/85af215d1de000fa124ce424cf0282afff3a14da))
+
+## [0.39.0](https://github.com/inkatze/planwright/compare/v0.38.0...v0.39.0) (2026-09-08)
+
+
+### Features
+
+* **guards:** gate the test suite's wall-clock against committed budgets ([#403](https://github.com/inkatze/planwright/issues/403)) ([c75f006](https://github.com/inkatze/planwright/commit/c75f006de418a22b7509a8828277ac6ee22854a0))
+* **validator:** doctrine-grounded hardening rules (format-grammar task 3) ([#401](https://github.com/inkatze/planwright/issues/401)) ([d866e67](https://github.com/inkatze/planwright/commit/d866e6799c8ea898815923ca839fa00345273b40))
+
+
+### Bug Fixes
+
+* **fleet:** give the fleet lock a primitive that actually excludes ([#409](https://github.com/inkatze/planwright/issues/409)) ([2dc5363](https://github.com/inkatze/planwright/commit/2dc53636a536a244a212502180c8974cf0c264dd))
+
+## [0.38.0](https://github.com/inkatze/planwright/compare/v0.37.0...v0.38.0) (2026-09-08)
+
+
+### Features
+
+* **allocation:** state the model roster once and keep the top escalation-only ([#422](https://github.com/inkatze/planwright/issues/422)) ([d50aef0](https://github.com/inkatze/planwright/commit/d50aef0cecb3cab9d5fd0362b5a7a8835bfd565a))
+* **fleet:** give the stream-json rung a close verb and a single-initiator launch ([#399](https://github.com/inkatze/planwright/issues/399)) ([f6f3e2b](https://github.com/inkatze/planwright/commit/f6f3e2b6e12b1cc9ab2c8196f1c46b8997a1773e))
+* **guards:** fail the gate on a guard the gate never runs ([#424](https://github.com/inkatze/planwright/issues/424)) ([dec28f1](https://github.com/inkatze/planwright/commit/dec28f1b2ac79c9de344cc41f4b1b517a18d9b75))
+* **spec:** fleet-messaging kickoff sign-off ([#426](https://github.com/inkatze/planwright/issues/426)) ([ccdebb7](https://github.com/inkatze/planwright/commit/ccdebb78d31fa9f65b2670cbe2e6fd6399dde571))
+
+
+### Bug Fixes
+
+* **allocation:** run the escalation feedback loop at a unit's terminal states ([#413](https://github.com/inkatze/planwright/issues/413)) ([3877751](https://github.com/inkatze/planwright/commit/3877751a02f11b4b8052aab99db3dea7c0412894))
+* **ci:** lint the PR title on a trigger that can re-check a correction ([#420](https://github.com/inkatze/planwright/issues/420)) ([6f38a80](https://github.com/inkatze/planwright/commit/6f38a80a79abf133057ccb0a4f9306b0ad76e1e2))
+* **ci:** stop a frozen commit subject reddening a pull request forever ([#425](https://github.com/inkatze/planwright/issues/425)) ([a1b80d3](https://github.com/inkatze/planwright/commit/a1b80d32908f3398adde78fc80b1ac2fdc4094fa))
+* **fleet:** fail closed when the supervisor cannot record or probe its worker ([#427](https://github.com/inkatze/planwright/issues/427)) ([8fec7ea](https://github.com/inkatze/planwright/commit/8fec7ea7a358e65be6de50e5fe2ceb0327599598))
+* **test:** close the supervisor the registration fixture leaked every run ([#423](https://github.com/inkatze/planwright/issues/423)) ([a527b86](https://github.com/inkatze/planwright/commit/a527b86e24ea98fd20a9b57e9cbba38490da6df8))
+
+## [0.37.0](https://github.com/inkatze/planwright/compare/v0.36.0...v0.37.0) (2026-09-07)
+
+
+### Features
+
+* **allocation:** let a worker ask for a different model tier ([#407](https://github.com/inkatze/planwright/issues/407)) ([08953c9](https://github.com/inkatze/planwright/commit/08953c9429b2b38ec95da15bb42aa376e155a2f9))
+* **allocation:** per-step selection keys, applied one-directionally ([#411](https://github.com/inkatze/planwright/issues/411)) ([038b8e0](https://github.com/inkatze/planwright/commit/038b8e0d471f7d14819e858d86414298e48fe3b7))
+* **allocation:** record an observation when a unit needed more than it started with ([#389](https://github.com/inkatze/planwright/issues/389)) ([a1d2f31](https://github.com/inkatze/planwright/commit/a1d2f314e9e50dd18cfc4fe08e1f08dc0e59d293))
+* **allocation:** resolve a launch tier at every launch point, not just the fleet ([#412](https://github.com/inkatze/planwright/issues/412)) ([743ef80](https://github.com/inkatze/planwright/commit/743ef80232e1908cda3d08b281880adeab1871f3))
+* **fleet:** classify every worker into four positive states with its owner ([#400](https://github.com/inkatze/planwright/issues/400)) ([e69806c](https://github.com/inkatze/planwright/commit/e69806c1cfdef49fd9352dfad14853e3ef3d93b9))
+* **fleet:** register every dispatch and stamp it with its tower ([#387](https://github.com/inkatze/planwright/issues/387)) ([01c58e4](https://github.com/inkatze/planwright/commit/01c58e4e49a7a899ef0a8267fbc9f74cf7f2f97d))
+* **guard:** screen committed coordination artifacts for peer operational detail ([#396](https://github.com/inkatze/planwright/issues/396)) ([d34475f](https://github.com/inkatze/planwright/commit/d34475f13b2718b75940befee23116d95e2806ec))
+* **guards:** flag cd substitutions missing unset CDPATH, pin lint:md template scope ([#398](https://github.com/inkatze/planwright/issues/398)) ([abdf9d9](https://github.com/inkatze/planwright/commit/abdf9d9ae5fb83af3a90562efa0e399a1821d2a0))
+* **guards:** follow the mise task graph when keeping evals out of CI ([#397](https://github.com/inkatze/planwright/issues/397)) ([8383643](https://github.com/inkatze/planwright/commit/8383643370eaaf6a8c215b18397214bf6c921b4c))
+* **release:** skip the release proposal while a publish is pending ([#382](https://github.com/inkatze/planwright/issues/382)) ([c3a8465](https://github.com/inkatze/planwright/commit/c3a846558c57210d96d15a6a6417c7e396ba626e))
+* **skills:** cross-check enumerated claims at drafting and sign-off ([#392](https://github.com/inkatze/planwright/issues/392)) ([3acdc8e](https://github.com/inkatze/planwright/commit/3acdc8ea330fa4a144269a1cd49ab6f668acbba9))
+* **spec-kickoff:** re-anchor before the push when a fix lands after sign-off ([#395](https://github.com/inkatze/planwright/issues/395)) ([77b6ae1](https://github.com/inkatze/planwright/commit/77b6ae16cb989e3df55ae08922bc94ea28d32e81))
+* **spec:** prose-disposition kickoff sign-off ([#410](https://github.com/inkatze/planwright/issues/410)) ([dc0442a](https://github.com/inkatze/planwright/commit/dc0442a9e9aea6240073ed848d80055ec5bab9f8))
+
+
+### Bug Fixes
+
+* **allocation:** hold the ledger health check to the grammar append enforces ([#404](https://github.com/inkatze/planwright/issues/404)) ([76f1ff9](https://github.com/inkatze/planwright/commit/76f1ff9133dc9c4de14ff41e0692655585a7781b))
+* **fleet:** stop reading a killed worker's result frame as a completion ([#408](https://github.com/inkatze/planwright/issues/408)) ([d094274](https://github.com/inkatze/planwright/commit/d094274e7d04904027e664384b3f6f6b528a91df))
+
+## [0.36.0](https://github.com/inkatze/planwright/compare/v0.35.0...v0.36.0) (2026-09-02)
+
+
+### Features
+
+* **spec:** tower-front-door kickoff sign-off ([#377](https://github.com/inkatze/planwright/issues/377)) ([045861c](https://github.com/inkatze/planwright/commit/045861cca0d5b20aceffdb91a1c1e57fdeaf60e6))
+
+## [0.35.0](https://github.com/inkatze/planwright/compare/v0.34.0...v0.35.0) (2026-08-31)
+
+
+### Features
+
+* **allocation:** adapt a unit's tier from its own ledger at each launch ([#370](https://github.com/inkatze/planwright/issues/370)) ([0988084](https://github.com/inkatze/planwright/commit/098808442dc583aca891f30a4ef4d7ba95da5217))
+* **allocation:** resolve model and effort at every launch point ([#357](https://github.com/inkatze/planwright/issues/357)) ([7af710c](https://github.com/inkatze/planwright/commit/7af710c7f1d99ccec5ebe9f61b15570fa7a92ee6))
+* **doctrine:** arbitrate what reaches the operator versus what the record keeps ([#362](https://github.com/inkatze/planwright/issues/362)) ([14763bb](https://github.com/inkatze/planwright/commit/14763bbfdb6ccb982cdcc663967d855b5a353e98))
+* **doctrine:** give every worker resource an open, a close, and a stuck-detector ([#358](https://github.com/inkatze/planwright/issues/358)) ([f536eed](https://github.com/inkatze/planwright/commit/f536eed421dbd947232b706aafdb0f3c7214973f))
+* **drain:** reconcile the gate evaluator with the six-status lifecycle (task 4) ([#367](https://github.com/inkatze/planwright/issues/367)) ([ff1f67b](https://github.com/inkatze/planwright/commit/ff1f67b86cb363fa724de922c34473a83fbf3eb4))
+* **execute-task:** keep the converging branch current with main ([#359](https://github.com/inkatze/planwright/issues/359)) ([3d757f3](https://github.com/inkatze/planwright/commit/3d757f3661606d754c0f3295d0b099a0aa4399dd))
+* **fence:** claim a unit on origin so two towers cannot dispatch it ([#369](https://github.com/inkatze/planwright/issues/369)) ([3db8932](https://github.com/inkatze/planwright/commit/3db893273612327cf08da06e1e96c7810fb3e8c1))
+* **fleet:** per-tower checkouts with a fast-forward-only main sync ([#360](https://github.com/inkatze/planwright/issues/360)) ([885bccc](https://github.com/inkatze/planwright/commit/885bccc68a487d5bfefe7eac83f79c0b06cdd996))
+* **guard:** screen the tree and commits for purged identifiers (guard-coverage task 3) ([#373](https://github.com/inkatze/planwright/issues/373)) ([02b1ddf](https://github.com/inkatze/planwright/commit/02b1ddfa835e8907d5e6dd1b7840f33ef3af5d80))
+* **guard:** stand up the anchor-freshness guard and its pre-commit mirror (anchor-integrity task 4) ([#354](https://github.com/inkatze/planwright/issues/354)) ([73dd75f](https://github.com/inkatze/planwright/commit/73dd75fdfef407a73ef9a287ffecafacde840c7b))
+* **guard:** tether three doc restatements to the artifacts they restate (guard-coverage task 9) ([#366](https://github.com/inkatze/planwright/issues/366)) ([c33a34b](https://github.com/inkatze/planwright/commit/c33a34b70cc7c044652c5948340f9fbd1007fd6d))
+* **hooks:** pin every hook payload and stop registering the one that refuses ([#368](https://github.com/inkatze/planwright/issues/368)) ([c343385](https://github.com/inkatze/planwright/commit/c3433855d5f70768862afc3314ca80538f2beedd))
+* **inception:** bundle validator and venture hygiene scaffold (task 2) ([#364](https://github.com/inkatze/planwright/issues/364)) ([93c20d4](https://github.com/inkatze/planwright/commit/93c20d4bfbe1e80e8a9c9b508beeb423a10bf07f))
+* **release:** record the bootstrap-sha finding; halt task 10 on contract drift ([#361](https://github.com/inkatze/planwright/issues/361)) ([b98da2b](https://github.com/inkatze/planwright/commit/b98da2b325718037a506f04f24a7393703a04752))
+* **skills:** make act-on-findings skills re-anchor the specs they edit ([#365](https://github.com/inkatze/planwright/issues/365)) ([7bf8dce](https://github.com/inkatze/planwright/commit/7bf8dce51f32dbbf32ef3d3fc0bfbc2deebcab6c))
+* **spec-parse:** give the line-80 format grammar one home (task 8) ([#355](https://github.com/inkatze/planwright/issues/355)) ([7eaff04](https://github.com/inkatze/planwright/commit/7eaff042e627fc725727861af60badf5ed2de487))
+* **spec:** cover the release-please bootstrap race in release-hardening ([#353](https://github.com/inkatze/planwright/issues/353)) ([2e6ada8](https://github.com/inkatze/planwright/commit/2e6ada840583c5d06cb9e04de10c1bb7922e08de))
+* **spec:** model-allocation kickoff sign-off ([#356](https://github.com/inkatze/planwright/issues/356)) ([46481ae](https://github.com/inkatze/planwright/commit/46481aeaa3621348d33f4d3c4f30997cf418b820))
+* **spec:** operator-dialogue extension kickoff sign-off ([#351](https://github.com/inkatze/planwright/issues/351)) ([08841c0](https://github.com/inkatze/planwright/commit/08841c0f072d7bd406d9a0e04f7684bd796b1359))
+
+
+### Bug Fixes
+
+* **instructions:** diet the polish start-load back past its restoration target ([#375](https://github.com/inkatze/planwright/issues/375)) ([7407973](https://github.com/inkatze/planwright/commit/7407973e7860018d914e7714796b7ad6e3ff06a3))
+* **test:** pin the SIGTERM case by holding the engine in the locked append ([#376](https://github.com/inkatze/planwright/issues/376)) ([18efdf7](https://github.com/inkatze/planwright/commit/18efdf74eb4e700432e139b2ffc46b67b233256e))
+
 ## [0.34.0](https://github.com/inkatze/planwright/compare/v0.33.0...v0.34.0) (2026-08-25)
 
 

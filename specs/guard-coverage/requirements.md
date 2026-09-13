@@ -1,7 +1,7 @@
 # Guard Coverage — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-09-03
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -309,6 +309,22 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
   decoupled from the detection check; per-test seed files; parse-boundary
   and zero-enumeration fail-closed symmetry across guards; tracked-hooks
   ACE recorded as accepted risk-register row 9 (human-dispositioned).
+- 2026-08-26 — Expression-only correction during Task 9 execution: the
+  "six fleet knobs" count in the Task 9 block and the REQ-F1.3
+  test-spec entry replaced by the knobs table's own extent. The count
+  came from the 2026-07-04 fleet-knobs observation quoted under
+  *Sources* (left as written, it being a record of what was observed);
+  the table it describes named ten knobs across eight rows then and
+  now. No accepted decision changed: REQ-F1.3 always required the
+  tether to cover the table's knob defaults, and the shipped per-knob
+  fixture drives off the table's own knob list rather than a literal
+  count.
+
+- 2026-09-03 — Expression-only: the fork-PR isolation note under `##
+  Sources` names its requirement as `bootstrap REQ-J1.5` instead of a
+  bare `REQ-J1.5`. Surfaced by the format-grammar validator's
+  citation-range rule (format-grammar REQ-D1.3) on its all-bundle rollout
+  (format-grammar D-9); no requirement or decision changes meaning.
 
 ## Sources
 
@@ -336,7 +352,7 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
 - **Pinned-action note (2026-06-11, legacy observations).** CI action SHA
   pins have no freshness path; catalog-entry candidate.
 - **Fork-PR isolation note (2026-06-11, legacy observations).** The
-  REQ-J1.5 public-release re-audit of the `pull_request` execution path
+  bootstrap REQ-J1.5 public-release re-audit of the `pull_request` execution path
   was mandated and remains outstanding.
 - **CDPATH note (2026-06-17, legacy observations).** `unset CDPATH` is
   enforced only by convention; the test harness's own unset masks

@@ -138,7 +138,7 @@ esac
 mkdir -p "$tmp/decoy/scripts" "$tmp/work/docs"
 cp -R "$REPO_ROOT/scripts" "$tmp/work/"
 cp -R "$REPO_ROOT/config" "$tmp/work/"
-cp "$REPO_ROOT/docs/options-reference.md" "$tmp/work/docs/"
+cp "$REPO_ROOT/docs/options-reference.md" "$REPO_ROOT/docs/fleet.md" "$tmp/work/docs/"
 (cd "$tmp/work" && CDPATH="$tmp/decoy" /bin/bash scripts/check-options-reference.sh >/dev/null 2>&1)
 assert "CDPATH does not corrupt root derivation" 0 $?
 
@@ -147,6 +147,343 @@ assert "CDPATH does not corrupt root derivation" 0 $?
 assert "missing config file is an error" 2 $?
 /bin/bash "$CHECKER" "$tmp/config.yml" "$tmp/no-such-reference.md" >/dev/null 2>&1
 assert "missing reference file is an error" 2 $?
+
+# ===========================================================================
+# The fleet-knobs tether (guard-coverage Task 9; REQ-F1.3, REQ-H1.3, D-10).
+#
+# docs/fleet.md's knobs table restates each fleet knob's default value in
+# prose. The checker is widened to compare those restated defaults against
+# config/defaults.yml, so a default changed in the config without the doc edit
+# fails. The zero-argument (CI) form always engages the arm; a fixture
+# invocation engages it by passing the fleet doc as a third argument.
+# ===========================================================================
+
+assert_contains() {
+  case "$2" in
+    *"$3"*) echo "ok: $1" ;;
+    *)
+      echo "FAIL: $1 (output did not mention '$3'): $2" >&2
+      failures=$((failures + 1))
+      ;;
+  esac
+}
+
+FLEET_DOC="$REPO_ROOT/docs/fleet.md"
+CONFIG="$REPO_ROOT/config/defaults.yml"
+REFERENCE_DOC="$REPO_ROOT/docs/options-reference.md"
+
+# 6. The zero-argument form — the one `mise run check` runs — engages the
+#    fleet arm and passes on the current tree. Asserting the count is reported
+#    keeps the arm from silently disappearing into a no-op.
+out="$(/bin/bash "$CHECKER" 2>&1)"
+assert "the CI form passes on the current tree" 0 $?
+assert_contains "the CI form reports the fleet knobs it tethered" "$out" "fleet knob"
+
+# 6b. Independently of the checker's own parse, the shipped fleet knobs table
+#     must yield knobs at all — otherwise every per-knob case below would
+#     vacuously pass.
+fleet_knobs="$(awk '
+  {
+    line = $0; sub(/^[ \t]+/, "", line)
+    # First matching table only, the same contract the checker follows (and
+    # that case 8d asserts). These two have to agree about which knobs are in
+    # scope: if this harvested a later Knob-headed table the checker ignores,
+    # the per-knob loop below would drift a knob the checker never tethers and
+    # fail waiting for a name it will not print.
+    if (line !~ /^\|/) { if (intbl) exit; next }
+    n = split(line, c, "|")
+    if (!intbl) { if (c[2] ~ /^[ \t]*Knob[ \t]*$/) intbl = 1; next }
+    if (line ~ /^\|[ \t]*:?-+:?[ \t]*\|/) next
+    cell = c[2]
+    while (match(cell, /`[a-z0-9_]+`/)) {
+      print substr(cell, RSTART + 1, RLENGTH - 2)
+      cell = substr(cell, RSTART + RLENGTH)
+    }
+  }
+' "$FLEET_DOC")"
+knob_count="$(printf '%s\n' "$fleet_knobs" | grep -c .)"
+if [ "$knob_count" -gt 0 ]; then
+  echo "ok: the shipped fleet knobs table names $knob_count knobs"
+else
+  echo "FAIL: no knobs parsed from the shipped fleet knobs table" >&2
+  failures=$((failures + 1))
+fi
+
+# 6c. The harvest above and the checker must agree on how many knobs are in
+#     scope. They are separate parsers over the same table, so nothing but this
+#     stops them drifting apart — and a silent drift makes the per-knob loop
+#     below either miss knobs or chase ones the checker never tethers.
+checker_count="$(printf '%s\n' "$out" | sed -n 's/.*documented; \([0-9][0-9]*\) fleet knob default.*/\1/p')"
+if [ -z "$checker_count" ]; then
+  echo "FAIL: could not read the tethered-knob count out of the checker's summary: $out" >&2
+  failures=$((failures + 1))
+elif [ "$checker_count" = "$knob_count" ]; then
+  echo "ok: the test's knob harvest and the checker agree on $knob_count knobs"
+else
+  echo "FAIL: knob-scope drift — the test harvests $knob_count knobs, the checker tethers $checker_count" >&2
+  failures=$((failures + 1))
+fi
+
+# 7. Per-knob divergence: EVERY knob the fleet table documents is individually
+#    tethered. Each iteration drifts exactly one config default and asserts the
+#    check goes red naming that knob, so a tether covering only some of the
+#    table's knobs cannot pass this loop.
+for knob in $fleet_knobs; do
+  sed "s/^$knob: .*/$knob: pw-drifted-fixture-value/" "$CONFIG" >"$tmp/config-$knob.yml"
+  if cmp -s "$tmp/config-$knob.yml" "$CONFIG"; then
+    echo "FAIL: fleet knob '$knob' has no flat entry in $CONFIG to drift" >&2
+    failures=$((failures + 1))
+    continue
+  fi
+  out="$(/bin/bash "$CHECKER" "$tmp/config-$knob.yml" "$REFERENCE_DOC" "$FLEET_DOC" 2>&1)"
+  st=$?
+  if [ "$st" -eq 1 ]; then
+    case "$out" in
+      *"$knob"*) echo "ok: fleet knob '$knob' is individually tethered" ;;
+      *)
+        echo "FAIL: drifting '$knob' failed without naming it: $out" >&2
+        failures=$((failures + 1))
+        ;;
+    esac
+  else
+    echo "FAIL: drifting fleet knob '$knob' did not fail the check (exit $st)" >&2
+    failures=$((failures + 1))
+  fi
+done
+
+# 8. Fixture: an agreeing knobs table passes, and the row shape the real doc
+#    uses (a multi-knob row paired with a multi-value default cell, trailing
+#    prose after an em dash) is understood.
+cat >"$tmp/fleet-config.yml" <<'EOF'
+simple_knob: per-step
+first_knob: opus
+second_knob: sonnet
+EOF
+cat >"$tmp/fleet-reference.md" <<'EOF'
+| Option | Default | Effect | Consumed by |
+| --- | --- | --- | --- |
+| `simple_knob` | `per-step` | Does a thing. | `/example` |
+| `first_knob` | `opus` | Does a thing. | `/example` |
+| `second_knob` | `sonnet` | Does a thing. | `/example` |
+EOF
+cat >"$tmp/fleet-ok.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simple_knob` | A capability | A value | `per-step` — because it is the safe direction |
+| `first_knob` / `second_knob` | A capability | A value | `opus` / `sonnet` — judgment-heavy work on the strong tier |
+EOF
+/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-ok.md" >/dev/null 2>&1
+assert "an agreeing fleet knobs table passes" 0 $?
+
+# 8b. A drifted value in the second half of a multi-knob row is caught, so the
+#     positional pairing is not just checking the first column.
+cat >"$tmp/fleet-multi-drift.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simple_knob` | A capability | A value | `per-step` — because it is the safe direction |
+| `first_knob` / `second_knob` | A capability | A value | `opus` / `haiku` — judgment-heavy work on the strong tier |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-multi-drift.md" 2>&1)"
+assert "a drifted value inside a multi-knob row fails" 1 $?
+assert_contains "the multi-knob failure names the knob" "$out" "second_knob"
+
+# 8c. A knob documented in the fleet table but absent from the config is a
+#     failure, not a warning: the fleet table restates config defaults, so a
+#     name it carries that the config does not have is a broken restatement.
+cat >"$tmp/fleet-ghost.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simple_knob` | A capability | A value | `per-step` — because it is the safe direction |
+| `ghost_knob` | A capability | A value | `on` — because it is the safe direction |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-ghost.md" 2>&1)"
+assert "a fleet knob absent from the config fails" 1 $?
+assert_contains "the absent-knob failure names the knob" "$out" "ghost_knob"
+
+# 8d. The knobs table is the FIRST `Knob`-headed table only. A later table in
+#     the same doc carrying that header is a different table, and merging its
+#     rows would tether names the knobs table never claimed to restate.
+cat >"$tmp/fleet-second-table.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simple_knob` | A capability | A value | `per-step` — because it is the safe direction |
+
+## An illustrative table, not the knobs table
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `ghost_knob` | A capability | A value | `on` — because it is the safe direction |
+EOF
+/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-second-table.md" >/dev/null 2>&1
+assert "a later Knob-headed table is not merged into the knobs tether" 0 $?
+
+# 8e. Knob FAMILIES. A row may name an open family (`allocation_model_*`)
+#     rather than literal keys. A family is an open set of config keys with no
+#     single default to restate, so it is exempt by shape and contributes no
+#     tether, while the literal rows around it still tether normally.
+cat >"$tmp/fleet-family.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simple_knob` | A capability | A value | `per-step` — because it is the safe direction |
+| `allocation_model_*` / `allocation_effort_*` | The general selection resolver | Which model each key resolves to | `unset` at the fleet task types, `inherit` elsewhere |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-family.md" 2>&1)"
+assert "a family-only knobs row is exempt rather than malformed" 0 $?
+assert_contains "the literal rows around a family row still tether" "$out" "1 fleet knob default"
+
+# 8f. The exemption is narrow. A row mixing a literal knob with a family
+#     cannot be paired positionally against the default cell, so it fails
+#     closed rather than tethering the literal half against the wrong value.
+cat >"$tmp/fleet-mixed.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simple_knob` / `allocation_model_*` | A capability | A value | `per-step` — because it is the safe direction |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-mixed.md" 2>&1)"
+assert "a row mixing a literal knob and a family fails closed" 2 $?
+assert_contains "the mixed-row diagnostic names the knob" "$out" "simple_knob"
+
+# 8g. A trailing `*` alone does not buy the exemption: the family shape is
+#     `_*`, so a stray star is still a row that names no option.
+cat >"$tmp/fleet-stray-star.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simpleknob*` | A capability | A value | `per-step` — because it is the safe direction |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-stray-star.md" 2>&1)"
+assert "a stray trailing star is still a malformed row" 2 $?
+assert_contains "the stray-star diagnostic says the row names no option" "$out" "names no option"
+
+# 9. Fail-closed, symmetric with the config side: a knobs table that parses to
+#    zero rows is an error, not a vacuous pass (REQ-H1.3).
+cat >"$tmp/fleet-zero.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+
+Prose after an empty table.
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-zero.md" 2>&1)"
+assert "a zero-row knobs table fails closed" 2 $?
+assert_contains "the zero-row knobs diagnostic names the surface" "$out" "knobs table"
+
+cat >"$tmp/fleet-noheader.md" <<'EOF'
+# Fixture fleet doc
+
+No knobs table at all.
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-noheader.md" 2>&1)"
+assert "an unparseable knobs table fails closed" 2 $?
+
+# 9b. A row whose knob-name count and default-value count disagree cannot be
+#     paired, so it fails closed rather than pairing the first N silently.
+cat >"$tmp/fleet-unpaired.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `first_knob` / `second_knob` | A capability | A value | `opus` — one value for two knobs |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-unpaired.md" 2>&1)"
+assert "an unpairable knobs row fails closed" 2 $?
+assert_contains "the unpairable-row diagnostic names the knob" "$out" "first_knob"
+
+# 9c. A row with no backticked default at all is unparseable, not a free pass.
+cat >"$tmp/fleet-novalue.md" <<'EOF'
+# Fixture fleet doc
+
+| Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
+| --- | --- | --- | --- |
+| `simple_knob` | A capability | A value | it depends on the host |
+EOF
+/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-novalue.md" >/dev/null 2>&1
+assert "a knobs row with no backticked default fails closed" 2 $?
+
+# 9d. A quoted config value compares on the value, not on its YAML spelling —
+#     both quote styles, as the parser's own comment claims.
+cat >"$tmp/fleet-config-quoted.yml" <<'EOF'
+simple_knob: "per-step"
+first_knob: 'opus'
+second_knob: sonnet
+EOF
+/bin/bash "$CHECKER" "$tmp/fleet-config-quoted.yml" "$tmp/fleet-reference.md" "$tmp/fleet-ok.md" >/dev/null 2>&1
+assert "quoted config values compare on the value" 0 $?
+
+# 9e. Skipping the fleet arm is never silent: a two-argument invocation says
+#     so on stderr, so a caller cannot believe a tether ran that did not.
+err="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" 2>&1 >/dev/null)"
+assert "a two-argument invocation still succeeds" 0 $?
+assert_contains "the skipped fleet arm is announced" "$err" "fleet-knob tether skipped"
+
+# 9f. The checker must not depend on writing a scratch file into TMPDIR (a
+#     predictable name in a world-writable directory is a symlink-following
+#     write; the repo's convention is mktemp templates). Proven by behaviour:
+#     with TMPDIR unwritable, the malformed-table diagnostic still comes
+#     through intact.
+mkdir -p "$tmp/readonly-tmp"
+chmod 500 "$tmp/readonly-tmp"
+if [ -w "$tmp/readonly-tmp" ]; then
+  # Root writes through mode 500, so the fixture cannot be built and the
+  # failure mode is unobservable. Skip rather than fail, matching the
+  # convention the sibling suites already use for permission fixtures
+  # (test-config-get.sh, test-install-writer.sh, test-check-workflow-posture.sh).
+  echo "skip: unwritable-TMPDIR case (running as root)"
+else
+  out="$(TMPDIR="$tmp/readonly-tmp" /bin/bash "$CHECKER" \
+    "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-unpaired.md" 2>&1)"
+  assert "an unwritable TMPDIR does not degrade the diagnostic" 2 $?
+  assert_contains "the diagnostic survives an unwritable TMPDIR" "$out" "first_knob"
+fi
+chmod 700 "$tmp/readonly-tmp"
+
+# 10. A missing fleet doc is an error, matching the other two inputs.
+/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/no-such-fleet.md" >/dev/null 2>&1
+assert "missing fleet doc is an error" 2 $?
+
+# 11. Echo discipline on the paths this check takes from argv
+#     (doctrine/security-posture.md). The fleet arm already sanitizes every
+#     value it lifts out of the table; the two diagnostics that name a path
+#     must not be the hole in that, or a path carrying an escape sequence
+#     drives the terminal of whoever runs the gate.
+esc=$(printf 'x\033]0;INJECT\007y') # ESC + OSC + BEL embedded
+
+# 11a. The fleet-doc-not-found diagnostic.
+err="$(/bin/bash "$CHECKER" "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/no-such-$esc.md" 2>&1)"
+if [ -z "$err" ]; then
+  echo "FAIL: missing-fleet-doc case emitted no diagnostic at all" >&2
+  failures=$((failures + 1))
+elif [ "$(printf '%s' "$err" | tr -d '\000-\037\177')" = "$err" ]; then
+  echo "ok: the fleet-doc-not-found diagnostic is stripped of control/escape bytes"
+else
+  echo "FAIL: fleet-doc-not-found diagnostic leaked control/escape bytes (terminal injection)" >&2
+  failures=$((failures + 1))
+fi
+
+# 11b. The success summary, which names the config path. Reached only when the
+#      tether engaged, which is exactly when that path came from argv.
+cp "$tmp/fleet-config.yml" "$tmp/cfg$esc.yml"
+out="$(/bin/bash "$CHECKER" "$tmp/cfg$esc.yml" "$tmp/fleet-reference.md" "$tmp/fleet-ok.md" 2>&1)"
+if [ "$(printf '%s' "$out" | tr -d '\000-\037\177')" = "$out" ]; then
+  echo "ok: the tethered-success summary is stripped of control/escape bytes"
+else
+  echo "FAIL: tethered-success summary leaked control/escape bytes (terminal injection)" >&2
+  failures=$((failures + 1))
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

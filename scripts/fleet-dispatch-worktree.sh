@@ -13,8 +13,10 @@
 #      to THIS one dispatch primitive (D-7). `<base>` is the freshly-fetched
 #      `origin/main` (never stale local `main` or the tower's HEAD — the
 #      fetch-before-act discipline of D-9, via scripts/dispatch-fetch.sh);
-#      `<suffix>` is a DETERMINISTIC function of (spec, task-id): `task-<id>`,
-#      the branch's own final segment (docs/conventions.md worktree placement);
+#      `<suffix>` is a DETERMINISTIC function of (spec, task-id):
+#      `<spec>-task-<id>`. The spec segment is what keeps it unique —
+#      `.claude/worktrees/` is one flat namespace, so the bare `task-<id>` form
+#      collided between any two specs sharing a task number;
 #      and `<spec>` / `<id>` / `<suffix>` are VALIDATED against the D-36 grammar
 #      BEFORE interpolation and passed to git as ARGV (never spliced into a shell
 #      string), so no shell metacharacter or `..` path-traversal can reach the
@@ -153,6 +155,78 @@ EOF
   exit 2
 }
 
+REGISTER="$script_dir/fleet-register.sh"
+
+# register_dispatch <handle> <scope> <worktree> <death-handle> — write the
+# dispatch record through the one registration seam (fleet-lifecycle-closure
+# Task 3; REQ-E1.1, REQ-E1.2). Best-effort BY CONTRACT (REQ-E1.4): the exit is
+# discarded, because a worktree and a worker that exist are facts, and failing
+# a dispatch over its bookkeeping would trade the thing for the record of it.
+# stderr is deliberately left alone — a dispatch the fleet has no record of is
+# the leak this bundle exists to close, so it has to be visible.
+register_dispatch() {
+  # Readable, not executable: the call below is `/bin/sh <path>`, so the exec
+  # bit is not what it depends on. Gating on `-x` would let a checkout with
+  # core.fileMode=false, an unzip, or an `rsync` without `-p` switch
+  # registration off fleet-wide with nothing on stderr.
+  if [ ! -r "$REGISTER" ]; then
+    warn "cannot register $1: $REGISTER is missing or unreadable; this worker will not appear in the fleet inventory"
+    return 0
+  fi
+  rd_death=${5:-}
+  set -- --handle "$1" --scope "$2" --backend tmux --state-dir "$3" \
+    --checkout "$4"
+  [ -n "$rd_death" ] && set -- "$@" --death-handle "$rd_death"
+  /bin/sh "$REGISTER" "$@" >/dev/null </dev/null || true
+}
+
+# tmux_death_handle <worktree> <since-epoch> — the
+# `tmux-window <session> <window>` handle for the worker session this dispatch
+# just created, or nothing.
+#
+# `claude --worktree <suffix> --tmux=classic` names the session itself, so the
+# name is not derivable here and has to be discovered. Two gates, because a
+# WRONG death handle is a reaper aimed at someone else's window, which is worse
+# than none at all:
+#
+#   1. The session must have been created at or after this dispatch began. A
+#      pane's cwd is mutable by anyone at any time, so an operator with a shell
+#      open in the worktree — routine, that is where the work is — would
+#      otherwise be a perfect match, and so would a previous worker's session
+#      for the same worktree after a re-dispatch.
+#   2. Exactly one candidate. Anything else yields nothing rather than a guess.
+#
+# The path is read as the LAST field and compared as the whole remainder of the
+# line, never as a positional field: a directory name may contain a tab, and a
+# tab in field position 1 would shift the session and window fields to values a
+# caller could choose.
+tmux_death_handle() {
+  command -v tmux >/dev/null 2>&1 || return 1
+  tdh_hit=$(tmux list-panes -a -F '#{session_created}	#{session_name}	#{window_id}	#{pane_current_path}' 2>/dev/null \
+    | awk -F'\t' -v want="$1" -v since="$2" '
+        NF >= 4 && $1 ~ /^[0-9]+$/ && $1 + 0 >= since + 0 {
+          path = $0
+          sub(/^[^\t]*\t[^\t]*\t[^\t]*\t/, "", path)
+          if (path == want) print $2 "\t" $3
+        }' | sort -u) || return 1
+  [ -n "$tdh_hit" ] || return 1
+  # More than one candidate: refuse to guess. Counted rather than pattern-
+  # matched, because a `$(printf '\n')` in a case glob is the empty string —
+  # command substitution strips the trailing newline — and would match every
+  # value, turning this guard into an unconditional refusal.
+  [ "$(printf '%s\n' "$tdh_hit" | wc -l | tr -d ' ')" = 1 ] || return 1
+  tdh_sess=${tdh_hit%%	*}
+  tdh_win=${tdh_hit##*	}
+  # The death-evidence tmux token charset (no `:` or `/`): a name outside it is
+  # one fleet-death-evidence.sh would refuse anyway.
+  for tdh_t in "$tdh_sess" "$tdh_win"; do
+    case $tdh_t in
+      '' | -* | *[!A-Za-z0-9._@%-]*) return 1 ;;
+    esac
+  done
+  printf 'tmux-window %s %s\n' "$tdh_sess" "$tdh_win"
+}
+
 # --- Token grammars (D-36), validated BEFORE any interpolation ---------------
 # A `..` substring is rejected outright (path traversal) in every token, even
 # though the charsets below already exclude `/`.
@@ -184,14 +258,30 @@ valid_id() {
   return 0
 }
 
-# worktree suffix: the branch's final segment `task-<id>`.
+# worktree suffix: `<spec>-task-<id>`.
+#
+# The spec segment is load-bearing, not decoration. `.claude/worktrees/` is one
+# flat namespace shared by every spec, so a bare `task-<id>` collides whenever
+# two specs carry the same task number — which is the common case, not a corner
+# one. A collision makes the second dispatch fail on an existing directory, so
+# the unit cannot be dispatched at all while the first holds it.
+#
+# The BARE form is still accepted so `attach` keeps working against worktrees
+# placed before the spec segment existed; only construction changed.
 valid_suffix() {
   reject_dotdot "$1" || return 1
   case $1 in
-    '' | *[!a-z0-9.-]* | [!a-z]*) return 1 ;;
+    '' | *[!a-z0-9.-]* | [!a-z0-9]*) return 1 ;;
   esac
-  printf '%s' "$1" | grep -Eq '^task-[0-9]+(\.[0-9]+)?$' || return 1
-  [ "${#1}" -le 72 ] || return 1
+  # The spec half must admit the WHOLE spec grammar, which starts [a-z0-9] —
+  # requiring a letter here would reject a legal spec like `2fa` before git
+  # ever sees it.
+  printf '%s' "$1" | grep -Eq '^([a-z0-9][a-z0-9-]*-)?task-[0-9]+(\.[0-9]+)?$' || return 1
+  # The bound must clear what the grammars upstream of it can actually produce:
+  # a spec is up to 64 characters, `-task-` adds 6, and a dotted id adds several
+  # more, so the old 72 rejected a legal max-length spec outright — the suffix
+  # only started carrying the spec in this change, so 72 predates the overflow.
+  [ "${#1}" -le 128 ] || return 1
   return 0
 }
 
@@ -306,6 +396,32 @@ validate_launch_extra() {
         exit 2
         ;;
       --model=* | --fallback-model=*) shift ;;
+      --effort)
+        # The launch-tier effort dimension (model-allocation D-10, REQ-B1.2).
+        # Sanctioned for the same reason `--model` is: it selects capability and
+        # cost, never permission or trust, so it is outside what the
+        # escalation pin exists to stop. Its value is checked against
+        # planwright's own effort enum rather than merely shape-checked, because
+        # the resolver can emit nothing else and a wider value here could only
+        # come from a hand-built launch.
+        [ "$#" -ge 2 ] || {
+          warn "launch flag $1 needs a value"
+          exit 2
+        }
+        case $2 in
+          low | medium | high) ;;
+          *)
+            warn "launch flag --effort has an out-of-enum value: $2"
+            exit 2
+            ;;
+        esac
+        shift 2
+        ;;
+      --effort=low | --effort=medium | --effort=high) shift ;;
+      --effort=*)
+        warn "launch flag --effort has an empty or out-of-enum value: $1"
+        exit 2
+        ;;
       --continue | -c) shift ;;
       --resume | -r)
         shift
@@ -480,7 +596,7 @@ do_dispatch() {
     warn "invalid task id (D-36 grammar): $_id"
     exit 2
   }
-  _suffix="task-$_id"
+  _suffix="$_spec-task-$_id"
   valid_suffix "$_suffix" || {
     warn "invalid worktree suffix (D-36 grammar): $_suffix"
     exit 2
@@ -695,6 +811,35 @@ do_dispatch() {
     "$MARKER" write "$_spec_dir" "$_id" >/dev/null 2>&1 </dev/null || true
   fi
 
+  # Register the dispatch (fleet-lifecycle-closure Task 3; REQ-E1.1). BEFORE
+  # the attach, not after: the record is evidence a dispatch was attempted, and
+  # an attach that dies partway is exactly the case that must not go
+  # unrecorded. The death handle is filled in below, once the worker's tmux
+  # session exists to name — the registry is an append log whose last record
+  # for a worker wins, so the completed record supersedes this one with no
+  # second store and no update path.
+  #
+  # The handle is the D-36 task identity, not the window id the tmux rung uses
+  # elsewhere: this seam does not learn a window id until after the attach, and
+  # a handle has to be stable from the dispatch onward to be the thing a record
+  # and a heartbeat agree on. It is deliberately the shape of the headless
+  # rung's, so the two dispatch paths for one task read alike.
+  #
+  # Neither the create-only nor the dry-run arm registers. The first launches
+  # no worker — the rung that does launch into this worktree registers its own,
+  # which a record here would double. The second exists to PRINT what an attach
+  # would do; a mode whose whole point is to change nothing must not leave a
+  # permanent record of a worker that was never started, in an append-only
+  # store with no retraction.
+  _dispatch_started=$(date +%s 2>/dev/null) || _dispatch_started=0
+  case $_dispatch_started in
+    '' | *[!0-9]*) _dispatch_started=0 ;;
+  esac
+  if [ "$_no_attach" -eq 0 ] && [ "$_attach_dry" -eq 0 ]; then
+    register_dispatch "tmux-$_spec-task-$_id" "$_spec:$_id" "$_worktree" \
+      "$_repo_root" ""
+  fi
+
   # --- Attach (gated on create success) ------------------------------------
   # We only reach here with the worktree created on the exact D-36 branch, so
   # the attach never targets a missing or wrong worktree.
@@ -727,6 +872,20 @@ do_dispatch() {
   else
     do_attach "$_suffix"
   fi
+  _attach_rc=$?
+  # The worker's tmux session only exists once the attach has run, so this is
+  # the first moment its death handle is nameable. Supersede the dispatch
+  # record written above with the complete one; on a failed attach, or a
+  # session that cannot be positively matched, the earlier record stands and
+  # its blank column reads as the gap it is.
+  if [ "$_attach_rc" -eq 0 ]; then
+    _death=$(tmux_death_handle "$_worktree" "$_dispatch_started") || _death=''
+    if [ -n "$_death" ]; then
+      register_dispatch "tmux-$_spec-task-$_id" "$_spec:$_id" "$_worktree" \
+        "$_repo_root" "$_death"
+    fi
+  fi
+  return "$_attach_rc"
 }
 
 # --- Entry -------------------------------------------------------------------

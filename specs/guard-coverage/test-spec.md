@@ -163,10 +163,13 @@ parses to zero rows, and passes on the current agreeing triple.
 ### REQ-F1.3 — fleet knobs tether [test]
 
 The widened `check-options-reference` fails on a fixture divergence for
-each of the six `docs/fleet.md` knob defaults against
-`config/defaults.yml` (a per-knob divergence fixture proves all six are
-individually tethered), fails closed on a zero-row fleet-table parse,
-and passes on the current tree.
+each `docs/fleet.md` knob default against `config/defaults.yml` (a
+per-knob divergence fixture, driven off the table's own knob list,
+proves each is individually tethered), fails closed on a zero-row
+fleet-table parse, and passes on the current tree.
+*(Amended at Task 9 execution 2026-08-26: knob count replaced by the
+table's own extent — the knobs table names ten knobs across eight rows,
+never six.)*
 
 ## REQ-G — Lint scope and house patterns
 

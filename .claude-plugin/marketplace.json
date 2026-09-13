@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "planwright",
-      "description": "Autopilot for spec-driven development. The human signs off and merges; planwright flies the spec.",
+      "description": "Autopilot for spec-driven development. The human signs off and merges; planwright flies the spec. Scales to a multi-spec fleet: an agentic software factory on Claude Code primitives.",
       "source": "./",
       "category": "development"
     }

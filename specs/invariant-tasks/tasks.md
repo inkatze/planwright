@@ -232,12 +232,12 @@ the guard that protects their output exists.
   **Gate:** planwright's own repo carries no non-terminal v1 bundle, and a
   released deprecation window for adopter v1 bundles has passed. (Free-text,
   not `GATE(when:)`: the first clause needs negation over a repo-wide
-  quantifier, which the condition grammar has no form for. Its three atoms are
-  `task <id> completed`, `spec <name> <status>`, and `after <YYYY-MM-DD>`,
-  joined by ` and ` only; the status literals it whitelists are draft, active,
-  done, retired, and superseded, notably not ready. Should a deprecation
-  window be released with a fixed end date, that second clause alone becomes
-  expressible as `after <date>`.)
+  quantifier, which the condition grammar has no form for. Its atoms are a
+  task-completion, a spec-status, and a date form joined by ` and ` only; the
+  productions and the status literals they admit are normative in
+  `doctrine/accumulator-taxonomy.md`. Should a deprecation window be released
+  with a fixed end date, that second clause alone becomes expressible as
+  `after <date>`.)
   Citations: D-7.
 
 ## Out of scope

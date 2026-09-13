@@ -18,9 +18,8 @@ ready unit (a single task or a cohesion bundle) from a Ready or Active spec with
 a signed-off kickoff brief and carry it from a failing test to a draft PR.
 `/orchestrate` dispatches it into a prepared worktree; a human may also run it
 inside one. It works from the kickoff
-brief, the durable contract (D-3), not by re-reading the spec, and **never**
-creates worktrees (D-37, D-44), **never** merges, and **never** marks a PR
-ready — sign-off and merge are the human's two reserved controls.
+brief, the durable contract (D-3), not by re-reading the spec; sign-off and
+merge are the human's two reserved controls (see Invariants).
 
 ## Doctrine
 
@@ -112,7 +111,10 @@ wait instead.
    - **Compare** the recorded anchor against the one `dispatch-fetch.sh`
      recomputed. **Match** → proceed. **Mismatch** → halt (remedy: a
      `/spec-kickoff` delta re-walkthrough). **No / unparseable / non-sanctioned /
-     wrong-writer entry** → halt (repair the record per REQ-F1.10). Halts go to
+     wrong-writer entry** → halt (repair the record per REQ-F1.10). A
+     **pre-change entry** (predating the header-`**Status:**` exclusion, or
+     whole-file form) mismatches over unedited content; remedy: the one-time
+     classify-then-self-re-anchor. Halts go to
      Awaiting input; no bypass flag.
 8. **Read the brief slice and task block(s).** From the brief: the signed-off
    goal restatement, the task graph, and the unit's risk entries. From
@@ -160,21 +162,27 @@ wait instead.
 
 The mode resolved in pre-flight step 10 governs how this unit's **steps** — the
 implementation phase (test-first loop, research, security pass, CI), then each
-`review_sequence` skill — are **hosted**. It changes only the hosting, not the
-work or order.
+`review_sequence` skill — are **hosted**. It changes hosting, not work or order.
 
 - **`per-unit`** (strictly preserved): the whole unit runs in **one session** —
   implement, run CI, invoke each `review_sequence` skill inline with `--nested`,
   then push and open the PR. Context carries across steps.
 - **`per-step`** (the assigned-decision default): each step runs in its **own
-  fresh `/resume`-seeded session**, so context stays bounded and each review's
-  perspective is uncontaminated by prior steps. The order is unchanged; each step
-  is seeded from durable state alone (brief, `tasks.md` snapshot, git log, open
-  PR) and commits its work with the `Planwright-Task:` trailer. Realization is
+  fresh session**, seeded by `/resume` from durable state alone (brief,
+  `tasks.md` snapshot, git log, open PR), so context stays bounded and each
+  review's perspective is uncontaminated by prior steps. Each step commits its
+  work with the `Planwright-Task:` trailer. Realization is
   the backend's job (D-2): a session-grade backend spawns a session per step; the
   terminal rung (D-3) approximates it with a context clear + `/resume` reseed; a
-  backend that can do neither degrades to `per-unit` (degrade capability, never
+  backend doing neither degrades to `per-unit` (degrade capability, never
   safety).
+
+**Launch tier.** A per-step session is a launch: resolve
+`scripts/allocation-apply.sh plan --key execute_step --backend <backend> --unit
+<spec>:task-<id> --step <step>` and apply per `backend-capability-contract`'s
+*Applying a resolved tier*. Exit 3 is withheld: do not launch; only exit 6
+degrades. The terminal rung advertises none, inheriting the operator's
+session.
 
 **State-safety holds in both modes (REQ-C1.4):** every `tasks.md` placement move
 goes **only** through the sibling reconcile under the per-spec lock, no per-step
@@ -307,6 +315,12 @@ names. By exit code:
 - **5** — broken install (the core default is unresolvable): a **stop
   condition** — halt and hand off.
 
+**Sync `main` first** (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4): once per
+pass, before the first skill runs, run `scripts/converge-sync-main.sh` (under
+the resolved planwright root); a non-zero exit halts the unit to Awaiting input
+with the reason it printed. The sync changes the head a later ready-flip lands
+on, never who flips.
+
 **Run each named skill in order, with `--nested`.** Every review skill runs
 `--nested` — it drains every action disposition per act-then-review and returns
 its audit record without pushing or creating a PR (this skill's job, which is
@@ -321,21 +335,36 @@ After each returns:
   next skill; once the sequence has run, proceed to PR creation, folding each
   skill's audit record — the four bucket tables (per `finding-categorization`),
   the declined log, the pending-sign-off checklist, and any queued
-  Needs-human-judgment forks — into the PR body.
+  Needs-human-judgment forks — into the PR body. One queued fork stops PR
+  creation: a meaning-class spec finding is contract drift, and the
+  meaning-class refusal below governs it.
 - **Safety stop** (wider-suite failure, loop detection, iteration cap): the
   branch may be known-broken. Surface the stop reason and halt; do not run later
   review-sequence skills or open a PR over a broken branch.
 - **Hard-disqualifier finding** a review-sequence skill surfaced but could not
   resolve autonomously: a stop condition — hand off for human direction.
 
+**A convergence finding whose fix edits this spec's anchored content** is an in-flight
+amendment, never a direct edit: it takes the ritual below — the stale-anchor
+pre-flight first, then the expression-only lane or the meaning-class refusal.
+
 ## In-flight amendments (D-19, REQ-A3.3, REQ-F1.10)
 
-If implementation reveals the spec itself needs an edit, classify it on the
-amendment axis (the `spec-format` amendment ritual):
+If implementation or convergence reveals the spec itself needs an edit, the
+meta-spec's writer prose (`spec-format`, *Sign-off records and content
+anchors*) governs what this skill owes. **Pre-flight first:** before the first
+edit, recompute the anchor with the brief's most recent recorded command; a
+mismatch, an absent or unparseable entry, and a failed recompute each block the
+edit alike — surface the condition instead of editing on top of it. A blocked
+edit takes its disposition from its route: a convergence finding queues as an
+irreducible fork routed to the anchor repair, folded into the PR body; an edit
+this task's own implementation work revealed is a **stop condition** — record
+the unit to `tasks.md` Awaiting input and halt. With the pre-flight clean,
+classify the edit on the amendment axis:
 
 - **Expression-only** (a typo, ambiguity, or gap-fill consistent with the
-  accepted decisions): fix it in place with a dated `## Changelog` entry riding
-  this task's PR, and write a **marked self-re-anchor entry** to the brief's
+  accepted decisions): fix it in place in **one commit** with a dated
+  `## Changelog` entry, and a **marked self-re-anchor entry** to the brief's
   amendment log — `Class: expression-only`, citing the changelog line, anchor by
   `scripts/spec-anchor.sh specs/<spec>` written last. This is the one anchor
   entry an execution skill may write.
@@ -396,8 +425,7 @@ described in full at its point of use:
   suggest `/spec-kickoff` for Draft).
 - **Missing or erroring validator:** pre-flight step 5.
 - **No or partial kickoff brief:** pre-flight step 6.
-- **Freshness-gate halt:** pre-flight step 7 (anchor mismatch, or an
-  absent/unparseable/non-sanctioned/wrong-writer entry).
+- **Freshness-gate halt:** pre-flight step 7, which enumerates the cases.
 - **Dependency not completed:** pre-flight step 8.
 - **Malformed `dispatch_isolation`:** pre-flight step 10 (exit 4/5).
 - **Test cannot fail for the right reason:** test-first step 2.

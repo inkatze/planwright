@@ -344,6 +344,14 @@ assert_defer "claude --worktree with unknown positional DEFER (fail closed)" "cl
 # The dispatch primitive's own safe launch shapes still ALLOW (no flood).
 assert_allow "claude --worktree --resume recovery launch" "claude --worktree fh-task-7 --resume"
 assert_allow "claude --worktree --fallback-model launch" "claude --worktree fh-task-7 --model opus --fallback-model sonnet"
+# A governed launch carries the resolved tier; both flags are on the allowlist
+# for the same reason (capability and cost, never permission or trust), so a
+# tier-applying dispatch must not fall to the prompt path.
+assert_allow "claude --worktree --effort launch" "claude --worktree fh-task-7 --model opus --effort high"
+assert_allow "claude --worktree attached --effort launch" "claude --worktree fh-task-7 --effort=low"
+# The pin still fails closed on everything off the list, including alongside a
+# sanctioned flag.
+assert_defer "claude --effort with an escalation flag" "claude --worktree fh-task-7 --effort high --add-dir /"
 
 echo "### REQ-C1.2/C1.3 — markdownlint config/rules module load is arbitrary code exec: DEFERS (F1)"
 # markdownlint-cli2 --config / -c loads the config path as an executable module

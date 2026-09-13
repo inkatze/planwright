@@ -42,7 +42,10 @@
 #     class's floor knob is a named floor-breach warning on every run, and a
 #     margin below twice the floor (the restoration target) a named below-target
 #     warning; both are warnings, never errors — a permanently exempt doc carries
-#     no floor;
+#     no floor. A surface whose `declared-exception` records the margin it was
+#     granted at is additionally held to it: a margin BELOW that one is a
+#     widening and a fail-closed error, so this class of finding is not
+#     warning-only once an exception is in play;
 #   - enforces the raise-rationale rule (instruction-headroom D-12, REQ-A1.4): an
 #     effective instruction_budget_*_warn / *_error value above its shipped core
 #     default is a fail-closed error unless a matching `raise|` entry records it;
@@ -333,12 +336,27 @@ fi
 #   pending-diet|<budget>|<target>|Task <N>|<reason>
 #       transitional allowance; <budget> = file | start-load | closure;
 #       <target> = a file path (file) or a skill name (start-load/closure).
-#   declared-exception|<surface>|<reason>
+#   declared-exception|<surface>|margin=<N>|<reason>  (margin-bearing surfaces)
+#   declared-exception|<surface>|<reason>            (use-site: surfaces only)
 #       standing exception (instruction-headroom D-11, REQ-D1.6) excusing exactly
 #       the warning it names — a below-target warning (whose <surface> is the key
 #       the warning prints) or a use-site warning (<surface> = use-site:<skill>/
 #       <doc>); never a floor-breach. A stale entry is a cleanup warning, not
 #       an error.
+#       RESERVED PREFIX: on a margin-bearing surface the first pipe-delimited
+#       segment after the key is the margin field, so a reason cannot begin with
+#       a segment reading `margin=...`. Such a reason is read as a malformed
+#       margin and refused. Everything else is reason text, pipes included; put
+#       any leading `margin=` wording later in the sentence, or after a pipe.
+#       margin=<N> is the surface's headroom margin when the exception was granted,
+#       and it is what makes the entry a ratchet: the deferral may stand, but the
+#       surface may not spend past where it stood when it was granted. A margin
+#       BELOW the declared one is a widening and a fail-closed error, remedied by
+#       a compensating trim or by governed relief (`raise|`), never by editing
+#       the number upward. A `use-site:` surface never reaches the headroom
+#       check, so it carries no margin and keeps the three-field form above;
+#       every other surface must carry one, and a margin-less entry is an
+#       error rather than an unratcheted exception.
 #   raise|<knob>|<value>|<reason>
 #       the recorded rationale for a budget raise (instruction-headroom D-12,
 #       REQ-A1.4): required when an effective instruction_budget_*_warn / *_error
@@ -348,16 +366,22 @@ fi
 # A reason-less entry of any form is an error; an unparseable line is an error
 # (REQ-B1.3, REQ-B1.8). Content is data, never evaluated (REQ-B1.9).
 ########################################################################
-exempt_paths=""                # permanent per-file exemptions (newline-separated paths)
-exempt_reasons=""              # "path\treason" records for echoing
-pd_file_paths=""               # transitional per-file allowances (paths)
-pd_startload=""                # transitional start-load allowances (skill names)
-pd_closure=""                  # transitional closure allowances (skill names)
-pd_tasks=""                    # "<budget>\t<target>\t<task>" — the allowance's Task field (REQ-D1.2)
-declared_exception_surfaces="" # standing below-target/use-site exceptions (keys)
-declared_exception_reasons=""  # "surface\treason" records for echoing
-declared_exception_used=""     # surface keys whose named warning fired this run
-raise_entries=""               # "knob\tvalue\treason" raise rationales
+exempt_paths=""                   # permanent per-file exemptions (newline-separated paths)
+exempt_reasons=""                 # "path\treason" records for echoing
+pd_file_paths=""                  # transitional per-file allowances (paths)
+pd_startload=""                   # transitional start-load allowances (skill names)
+pd_closure=""                     # transitional closure allowances (skill names)
+pd_tasks=""                       # "<budget>\t<target>\t<task>" — the allowance's Task field (REQ-D1.2)
+declared_exception_surfaces=""    # standing below-target/use-site exceptions (keys)
+declared_exception_reasons=""     # "surface\treason" records for echoing
+declared_exception_used=""        # surface keys whose named warning fired this run
+declared_exception_margins=""     # "surface\t<margin>" — the margin the exception was granted at
+declared_exception_margin_keys="" # surfaces already carrying a margin (one each)
+de_tab="$(printf '\t')"           # the margin table's separators, for the surface guard
+de_nl="
+"
+declared_exception_ratcheted="" # surface keys the ratchet actually evaluated this run
+raise_entries=""                # "knob\tvalue\treason" raise rationales
 
 in_list() {
   # in_list <needle> <newline-list> -> 0 if present
@@ -456,12 +480,130 @@ $budget	$target	$task"
         surface="${rest%%|*}"
         reason="${rest#*|}"
         if [ "$surface" = "$rest" ] || [ -z "$surface" ]; then
-          err "malformed declared-exception entry (expected declared-exception|<surface>|<reason>): $(sanitize_printable "$raw" "?")"
+          err "malformed declared-exception entry (expected declared-exception|<surface>|margin=<N>|<reason>, or declared-exception|<surface>|<reason> for a use-site surface): $(sanitize_printable "$raw" "?")"
           continue
         fi
         if [ -z "$reason" ] || [ "$reason" = "$rest" ]; then
           err "declared-exception for '$(sanitize_printable "$surface" "?")' has no reason (a recorded reason is required)"
           continue
+        fi
+        # The margin table is tab-delimited and newline-separated, so a surface
+        # carrying either splits a row and every lookup against it reads the
+        # wrong field. Not cosmetic: a key like `closure:demo<TAB>junk` still
+        # matches the real `closure:demo` and hands the comparison a value the
+        # shell rejects as a non-integer, which the enclosing `if` reads as
+        # false -- so the ratchet reports itself evaluated, compares nothing,
+        # and the run exits clean. Refused here, while the key is still data
+        # rather than a table row.
+        case $surface in
+          *"$de_tab"* | *"$de_nl"*)
+            err "declared-exception surface '$(sanitize_printable "$surface" "?")' contains a tab or newline, the margin table's own separators; a key carrying one cannot be looked up"
+            continue
+            ;;
+        esac
+        # The SURFACE decides whether a margin is even looked for. A use-site
+        # surface never reaches the headroom check, so it carries no margin and
+        # everything after the key is reason -- and reading a margin there would
+        # misjudge a legitimate reason that happens to open with digits and
+        # contain a pipe ("123|foo"), refusing an entry that is well formed.
+        # Deciding by surface first removes the ambiguity instead of documenting
+        # it; the cost is that a stray margin on a use-site entry is absorbed
+        # into its reason rather than refused, which is the cheaper way to be
+        # wrong than rejecting valid entries.
+        # Reset per entry, before the branch: only one arm below assigns these,
+        # and a value surviving from the previous line would be recorded against
+        # this surface. `set -u` catches the first entry; a later one would
+        # simply inherit a wrong margin, which is worse for being silent.
+        de_margin=""
+        de_candidate=""
+        case "$surface" in
+          use-site:*) ;;
+          *)
+            # The margin field is TAGGED, not positional. A bare number could
+            # not be told apart from a reason that happens to open with digits
+            # and a pipe, so an author who forgot the margin had the first
+            # segment of their reason silently accepted as one -- a ratchet
+            # enforcing a figure nobody declared, with the reason quietly
+            # truncated. `margin=` cannot be produced by accident.
+            de_head="${reason%%|*}"
+            de_tagged=0
+            case "$de_head" in
+              margin=*)
+                de_tagged=1
+                # A separator has to follow the margin field. Without one there
+                # is no reason at all, and the strip below is a no-op that
+                # leaves `margin=1` standing in as its own rationale -- so the
+                # required-reason check passes on an entry that carries none,
+                # which is the fail-closed grammar bypassed by a missing pipe.
+                if [ "$de_head" = "$reason" ]; then
+                  err "declared-exception for '$(sanitize_printable "$surface" "?")' has a margin but no reason after it (expected declared-exception|<surface>|margin=<N>|<reason>)"
+                  continue
+                fi
+                de_candidate="${de_head#margin=}"
+                reason="${reason#*|}"
+                case "$de_candidate" in
+                  "" | *[!0-9]*) ;;
+                  *)
+                    # Bounded, not merely numeric. The comparison downstream is
+                    # the shell's integer test, and a value past its range makes
+                    # that test print "integer expected" and return non-zero
+                    # WITHOUT reaching err -- the ratchet then silently does
+                    # nothing and the run still exits clean. A guard that
+                    # reports success while failing to run is worse than one
+                    # that refuses the input.
+                    de_zeros="${de_candidate%%[!0]*}"
+                    de_norm="${de_candidate#"$de_zeros"}"
+                    [ -n "$de_norm" ] || de_norm=0
+                    if [ "${#de_norm}" -le 18 ]; then
+                      de_margin="$de_norm"
+                    fi
+                    ;;
+                esac
+                ;;
+            esac
+            if [ -z "$de_margin" ]; then
+              # Three distinct mistakes, and naming the wrong one sends the
+              # author to the wrong repair: no tag at all, a tag with nothing
+              # after it, and a tagged value that cannot be compared.
+              if [ "$de_tagged" = 0 ]; then
+                err "declared-exception for '$(sanitize_printable "$surface" "?")' has no declared margin (expected declared-exception|<surface>|margin=<N>|<reason>); an exception without one cannot be held to the margin it was granted at"
+              elif [ -z "$de_candidate" ]; then
+                err "declared-exception for '$(sanitize_printable "$surface" "?")' has an empty margin: margin= carries no value, and an exception cannot be held to a figure that was never written"
+              else
+                case "$de_candidate" in
+                  *[!0-9]*)
+                    err "declared-exception for '$(sanitize_printable "$surface" "?")' has an unusable declared margin: margin= carries '$(sanitize_printable "$de_candidate" "?")', which is not a whole number"
+                    ;;
+                  *)
+                    err "declared-exception for '$(sanitize_printable "$surface" "?")' has a declared margin too large to compare (margin= carries '$(sanitize_printable "$de_candidate" "?")'); a margin is a word count and must fit the shell's integer range, so reduce the value rather than reformat it"
+                    ;;
+                esac
+              fi
+              continue
+            fi
+            ;;
+        esac
+        if [ -z "$reason" ]; then
+          err "declared-exception for '$(sanitize_printable "$surface" "?")' has no reason (a recorded reason is required)"
+          continue
+        fi
+        # Recorded only now, with the entry fully accepted. Appending it beside
+        # the parse let a line that the reason check then rejected still reach
+        # lookup_margin, so a refused entry could mark a surface ratcheted or
+        # raise a widening of its own.
+        if [ -n "$de_margin" ]; then
+          # One margin per surface. lookup_margin returns the first matching
+          # row, so a second entry for the same key is silently ignored -- the
+          # surface stays held to the earlier margin while its own file appears
+          # to supersede it, and nothing reports the discarded one.
+          if in_list "$surface" "$declared_exception_margin_keys"; then
+            err "declared-exception for '$(sanitize_printable "$surface" "?")' declares a second margin; one surface carries one margin, and a later entry would be silently ignored rather than replacing the first"
+            continue
+          fi
+          declared_exception_margin_keys="$declared_exception_margin_keys
+$surface"
+          declared_exception_margins="$declared_exception_margins
+$surface	$de_margin"
         fi
         declared_exception_surfaces="$declared_exception_surfaces
 $surface"
@@ -714,10 +856,68 @@ classify() {
 # exempt doc carries no headroom floor (REQ-D1.1) — nor an unmeasured skill. Both
 # warnings are warnings only: they never touch the exit code. The surface key is
 # sanitized before it reaches the terminal (echo discipline).
+# lookup_margin <surface> -> set LOOKUP_MARGIN to the declared margin, or empty
+# when the surface carries no margin-bearing declared-exception.
+#
+# Through a global rather than stdout, because the caller runs once per file and
+# once per aggregate: a `$(...)` here would fork per surface, and forks that
+# scale with the corpus are what the guard-performance invariant forbids
+# (instruction-headroom design, the kickoff lens pass). The neighbouring helpers
+# return this way for the same reason.
+lookup_margin() {
+  LOOKUP_MARGIN=""
+  case "
+$declared_exception_margins
+" in
+    *"
+$1	"*)
+      _lm="${declared_exception_margins#*"
+$1	"}"
+      LOOKUP_MARGIN="${_lm%%
+*}"
+      ;;
+  esac
+}
+
 headroom_check() {
   _hcm=$(($2 - $1))
+  # The ratchet (D-11): an exception defers a restoration, it does not license
+  # further spending. Checked before the band logic and independent of it,
+  # because a surface can widen while still sitting comfortably above target —
+  # which is exactly the slide that goes unseen, since no warning fires there.
+  lookup_margin "$4"
+  _hcd="$LOOKUP_MARGIN"
+  if [ -n "$_hcd" ]; then
+    declared_exception_ratcheted="$declared_exception_ratcheted
+$4"
+    # Marked used only while the floor is intact, so the staleness sweep does
+    # not report an entry that is actively holding a surface to its granted
+    # margin. Without this the sweep says "remove the stale entry" about the one
+    # thing keeping the surface from drifting -- the same signal inversion the
+    # floor-breach escalation fixed, arriving by a different route. Past the
+    # floor the entry really is inert (D-11: it never silences a breach), so it
+    # stays unmarked there and the escalation below says why.
+    if [ "$_hcm" -ge "$3" ]; then
+      declared_exception_used="$declared_exception_used
+$4"
+    fi
+    if [ "$_hcm" -lt "$_hcd" ]; then
+      err "declared-exception widened: $(sanitize_printable "$4" "?") margin=$_hcm is below the $_hcd it was granted at — the entry defers a restoration, it does not license further spending. Fund it with a compensating trim in this change or take governed relief (raise|); editing the declared margin upward is not a remedy"
+    fi
+  fi
   if [ "$_hcm" -lt "$3" ]; then
     warn "floor-breach: $(sanitize_printable "$4" "?") margin=$_hcm below headroom floor $3 (error threshold $2, words $1)"
+    if in_list "$4" "$declared_exception_surfaces"; then
+      # The entry is NOT marked used: a declared-exception never silences a
+      # floor-breach (D-11), and an entry that excuses nothing is correctly
+      # reported stale by the sweep below. But "remove the stale entry" is the
+      # whole story only if the reader knows WHY it went inert, and it went
+      # inert because the surface fell past its floor — the deferral it records
+      # came due rather than lapsed. Named rather than pointed at: the cleanup
+      # line is emitted by a later sweep, so "below" would be true of a full
+      # run and false for anyone reading one grepped line.
+      warn "declared-exception escalated: $(sanitize_printable "$4" "?") has fallen past its headroom floor — its declared-exception entry is now inert because the restoration it defers came due, not because it lapsed; the cleanup line naming it is that consequence, not tidying"
+    fi
   elif [ "$_hcm" -lt $(($3 * 2)) ]; then
     if in_list "$4" "$declared_exception_surfaces"; then
       declared_exception_used="$declared_exception_used
@@ -1297,6 +1497,26 @@ $de_surface	"}"
   warn "declared-exception cleanup: no live below-target or use-site warning names '$(sanitize_printable "$de_surface" "?")' (reason: $(sanitize_printable "$de_reason" "?")) — remove the stale entry"
 done <<EOF
 $declared_exception_surfaces
+EOF
+
+########################################################################
+# Ratchet vacuity notice. A declared margin constrains something only if its
+# surface reaches headroom_check; a key that never does (a typo, a renamed file,
+# a skill that stopped being measured) ratchets nothing while looking enforced.
+# Such an entry is already reported by the staleness sweep above -- an
+# unevaluated surface can have excused no warning either -- so this adds the
+# reason rather than a second verdict, and stays a warning because a stale entry
+# is a cleanup warning and not an error (the grammar above says so, and only a
+# widening was made fail-closed).
+########################################################################
+while IFS="$(printf '\t')" read -r rt_surface rt_margin; do
+  [ -n "$rt_surface" ] || continue
+  if in_list "$rt_surface" "$declared_exception_ratcheted"; then
+    continue
+  fi
+  warn "declared-exception margin never evaluated: '$(sanitize_printable "$rt_surface" "?")' declares a margin of $rt_margin, but no headroom check this run measured that surface — the ratchet on it is inert, so the key names nothing budgeted"
+done <<EOF
+$declared_exception_margins
 EOF
 
 ########################################################################

@@ -444,3 +444,40 @@ the change this entry re-anchors against.
 Class: expression-only
 Anchor: `2fb577fe3f9a422e64c23cec511396f1c0c53777` — computed as
 `scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
+
+### Re-anchor — foreign citations qualified (2026-09-03)
+
+Marked self-re-anchor for the expression-only edit the format-grammar
+validator's citation-range rule (format-grammar REQ-D1.3, D-13) surfaced on
+its all-bundle rollout run (format-grammar D-9, REQ-D1.10): D-10's rejected
+alternative now cites the fold-vs-new test as `bootstrap D-21`. Each
+qualified id now carries its owning spec's name within the reader's reach
+(the same line, bullet, or block, the scope the rule reads); no requirement
+or decision changes meaning. `Last reviewed:` moves on the edited files.
+
+**Cites the changelog line:** the 2026-09-03 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `7131f973bea4276a0530d799f9f81fa4d2a1a94a` — computed as
+`scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
+
+## 10. Execution research log
+
+<!-- Research-rigor recordings appended during execution (findings, tradeoffs,
+sources). Not part of the signed contract and not anchor entries; each row
+continues the section 7 risk register's numbering. -->
+
+### Task 7 — the permission-prompt signature (2026-09-03)
+
+Research Rigor trigger: a version-sensitive platform surface (risk row 2).
+The detector's `waiting-on-a-human` pane signal rests on positively matching
+the harness permission dialog, so the signature set was grounded against
+the installed CLI rather than model memory. Depth: a targeted `strings`
+pass over the installed binary, scoped to the dialog question and option
+labels; no web source consulted, since the bundle is the rendering's own
+source of truth.
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 8 (register continuation) | The dialog question and option labels changed between CLI generations: at 2.1.260 every tool dialog asks `Do you want to proceed?` and the labels are `Yes, and don't ask again for …`, `Yes, and always allow …`, `No, and tell Claude what to do differently`; the older per-tool phrasings (`make this edit`, `create <file>`) are gone from the bundle. A signature set carried from memory would have matched nothing on the current CLI. | The shipped set (`scripts/fleet-pane-vocabulary.sh`) lists only strings present in the 2.1.260 bundle, and the file header records the version and method so the next CLI bump re-runs the same check. `FLEET_PANE_PROMPT_SIGNATURES` overrides per machine. Early signal: the REQ-C1.2 manual half or the REQ-A1.6 rehearsal classifying a wedged worker `working`. |

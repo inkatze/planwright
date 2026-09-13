@@ -1,7 +1,10 @@
 # Fleet operation: the approachable path
 
 planwright can run a **fleet**: several specs advancing at once, each unit
-executed by its own isolated worker, supervised by a meta-tower. This guide is
+executed by its own isolated worker, supervised by a meta-tower. This is
+planwright as an **agentic software factory**: standardized inputs (signed
+specs), an automated assembly path, automated quality control, and a human
+review gate at the end of the line. This guide is
 the approachable path into that mode — one command, one surface to watch, no
 multiplexer knowledge required. The approachable path is the *default*
 presentation of fleet operation, not a simplified fallback: full execution
@@ -99,7 +102,58 @@ through the surface that already owns it, never re-read a second way:
 | Attention store | the store `fleet-attention.sh` maintains | scope, pushed state, age |
 | Stream-json capture | `fleet-streamjson.sh status` + the per-worker runtime dir | supervisor liveness, pending-request count, the session-id join key |
 | `claude agents --json` | `fleet-liveness.sh oracle --list` (the hardened scanner) | busy / waiting / idle per session |
-| Dispatch records | `fleet-state.sh registry` | the dispatched scope (the fallback when the attention store has none, and the only scope a registry-only worker has); workers on backends with **no runtime presence** (`print`), rendered with a visible `n/a` state — never silently omitted |
+| Dispatch records | `fleet-state.sh registry` | the dispatched scope (the fallback when the attention store has none, and the only scope a registry-only worker has); the owning tower; every worker a seam registered, including backends with **no runtime presence** (`print`, `subagent`) — never silently omitted. A worker no runtime source knows shows a visible `n/a` state, which means "nothing is heartbeating for it", not "it was never launched": a rung whose dispatch-time identity wiring has not landed yet reads the same way |
+
+### The dispatch record
+
+Every dispatch seam registers its worker at launch, through one helper
+(`scripts/fleet-register.sh`) into the one store — the tmux worktree rung, the
+headless rung, the stream-json supervisor, and `/offload`'s tmux, print, and
+subagent rungs. A record carries what closing a worker needs when the tower that
+launched it is gone: the handle, the **owner token** (which tower dispatched
+it), the backend, the state directory where the rung keeps one, and the death
+handle (`process <pid>`, `tmux-window <session> <window>`, or `none` for a rung
+that spawns no process).
+
+A column with nothing to put in it is written `-` and reads as the gap it is. An
+unowned record renders `unknown-owner` rather than being attributed to anyone,
+and a record whose state directory or death handle could not be determined
+carries a blank there rather than a guess — a wrong death handle is a reaper
+aimed at the wrong window, which is worse than none.
+
+The registry is an append log and the **last record for a worker wins**, so a
+seam that only learns a column after the launch supersedes its own earlier
+record instead of updating one in place. The tmux worktree rung does exactly
+that: it registers before the attach, because an attach that dies partway is the
+case that must not go unrecorded, then writes a second, complete record once the
+worker's tmux session exists to name. That session is matched by worktree path
+*and* by having been created during this dispatch, so an operator's own shell
+sitting in the worktree can never be adopted as the worker's.
+
+**Read the death handle as a hint, not an instruction.** The store authenticates
+no caller — anything running as the operator can append — a bare pid carries no
+start-time anchor and so cannot be told from a recycled one, and `none` is not
+an evidence class `fleet-death-evidence.sh` accepts. A destructive verb owes its
+own positive death evidence, self-target guard, and containment check on top of
+whatever it reads here.
+
+Registration is best-effort by design: a registry that cannot be written
+**warns and never fails the dispatch**, since a running worker is a fact and its
+bookkeeping is only a record of one. A single malformed optional column is
+dropped rather than costing the whole record. Note that a failed write is not
+yet self-healing: this registry has one writer, and the periodic reconcile that
+would notice a missing record arrives with the scheduled sweep, so until then
+the warning is the only trace.
+
+The owner token comes from the presence surface's tower identity. A tower that
+already knows its own identity exports it as `PLANWRIGHT_TOWER_ID`; a seam can
+also be given `--session-id` / `--pid` with `--checkout`, or find the same
+inputs in `PLANWRIGHT_TOWER_SESSION_ID` / `PLANWRIGHT_TOWER_PID` /
+`PLANWRIGHT_TOWER_CHECKOUT`. The checkout matters: it is hashed into the
+composite identity, so it has to be the checkout the tower published under, not
+the worker's worktree, or the record names a tower that exists nowhere. With no
+identity resolvable the dispatch is recorded as unknown-owner and says so on
+stderr.
 
 Every render starts with a per-source availability line
 (`ok` / `absent` / `unavailable`): a source that is missing is **marked**, and
@@ -285,9 +339,10 @@ backend self-describes against the
 `can_steer_inflight` (deliver an attributed message into a busy worker),
 `provides_attention_surface`, `supports_parallel`, plus whether its workers are
 **session-grade** — launched as full top-level sessions that survive the
-tower's death — and two cost/plumbing properties: `overhead` (the fixed
-per-dispatch cost class) and `hook_registration` (whether the worker's process
-fires planwright's hooks, which selects its liveness mechanism). Backend
+tower's death — and three cost/plumbing properties: `tier_control` (which
+launch-tier dimensions it can set), `overhead` (the fixed per-dispatch cost
+class) and `hook_registration` (whether the worker's process fires planwright's
+hooks, which selects its liveness mechanism). Backend
 selection and the degradation ladder below key on this advertised set, not on
 the backend's name; the per-backend dispatch wiring itself is still name-keyed
 today, pending later wiring (see the
@@ -352,6 +407,49 @@ auto-answers and never kills a worker. `answer` delivers the operator's
 recorded answer as the control_response; `recover` resumes a crashed
 worker's session via `--resume`; `status` surfaces completion and liveness
 from the supervisor and the captured event stream.
+
+`stop <worker> [--grace <secs>]` is the close: it terminates the supervisor
+and its children (SIGTERM, then SIGKILL after the grace, since children do not
+reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
+attention record the worker held. `--grace` takes a whole number of seconds
+within the bounds the script declares; run `stop` with an out-of-range value to
+have it name them. The event capture, the persisted session, and the receipt
+journal survive a stop: they are the durable record, not runtime. The journal
+survives as a file but not untouched — the close marks its still-`pending`
+receipts `undeliverable`, because a close makes them undeliverable by
+definition and a receipt left pending is what `alarm-scan` re-queues a decision
+item from. A stop never touches the worktree, the branch, or the unit's fence:
+the release set is exactly the reproducible resources, and worktree reclamation
+stays with `fleet-cleanup.sh worktree` and its positive-evidence checks.
+
+Processes are matched on the worker's state directory and on the pids that
+directory records, never on a process name or command pattern — the guarantee
+is that a stop cannot reach an operator's own `claude` session by resembling
+it. The pid half is only as good as the pid files: a pid recorded before a
+crash and reused by the host in the meantime is signalled, which is why a stop
+clears those files once it has confirmed the tree is gone.
+
+Exit codes are the machine-readable half: `0` for `stopped` and for
+`already-closed`, `6` for a `partial` close naming the classes still held, `3`
+for a close refused because it was asked for from inside the worker's own
+process tree, and `2` for an unknown handle or a process table the close could
+not read. The `3` and the second `2` are both refusals to attempt the close, so
+a caller retries them at its peril: a self-hosted close is refused
+deterministically and will never succeed from that process.
+A repeat stop takes exactly what is still held, so
+`already-closed` means every class is free and nothing was signalled; a repeat
+after a partial close retries only the remainder. A stop does not remove the
+worker's dispatch registry record, and nothing reconciles that record yet, so
+`fleet-status.sh` keeps listing a stopped worker until the periodic reconcile
+this bundle plans lands.
+
+Two adjacent refusals ship with the verb. `recover` breaks a `recover.lock`
+whose holder is gone, so one hard kill mid-recovery no longer disables recovery
+for that worker; and `launch` elects a single initiator, so a second launch for
+a worker that already has one in flight is refused with exit 3 rather than
+orphaning the first supervisor. The same refusal covers a worker whose state
+still records a live process, which includes a live worker under a dead
+supervisor — that case wants `recover`, not a second `launch`.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
@@ -446,8 +544,8 @@ nothing installed beyond Claude Code still operates the whole pipeline.
 
 A new terminal or multiplexer plugs in by advertising the contract — no edit
 to planwright's skills. You ship an executable `planwright-backend-<name>` on
-`PATH` that answers `advertise` with one capability line (eight fields; a
-legacy six-field line still parses with fail-safe defaults);
+`PATH` that answers `advertise` with one capability line (nine fields; legacy
+six- and eight-field lines still parse with fail-safe defaults);
 `/orchestrate` autodetects it, reads the set, places it on the ladder, and offers
 it like any shipped backend. A backend whose advertisement is missing or
 malformed is never selected (unknown capabilities fail safe). The exact adapter
@@ -565,8 +663,11 @@ user-private (`0700`) surface (a persistence sentinel distinguishes it from a
 obstructed surface exits 3 (**unknown peer status** — awareness degrades for
 the step while dispatch proceeds on the fence floor; never read as solitude);
 a surface that is over-broad, ACL-bearing, owned by another user, or
-symlink-tampered (surface or persistence sentinel, in any state) is refused
-outright (exit 4, verify-or-refuse — investigate, then repair it yourself);
+symlink-tampered (the surface, its persistence sentinel, or the sentinel and
+cadence infrastructure directories, in any state — including a dangling link,
+where the write would create the redirect's target rather than merely reach it)
+is refused outright (exit 4, verify-or-refuse — investigate, then repair it
+yourself);
 refused input and misconfiguration (including a
 `--checkout` that is not a git repository) exit 2; no `origin` remote exits 5
 (the genuine solo posture).
@@ -576,6 +677,103 @@ records only (`unknown-owner` when no live record lists it — including a
 fence held by an unknown-liveness peer, which surfaces through the strand
 path instead). The querying tower's own record is excluded, so asking about
 a fence you yourself hold returns `unknown-owner`.
+
+`fleet-presence.sh attribute` takes the same arguments and answers the fence
+sweep's different question — *who* holds this fence and are they alive:
+`owner <tower-id> <live|unknown|dead|ambiguous>`, or `unknown-owner`. It
+includes your own record (reported live, no death probe) so your in-flight
+units do not read as orphans, reports a dead owner rather than filtering it
+out, and never GCs. `ambiguous` is a recycled pid: a composite identity
+`p<pid>.t<start-hash>.c<checkout-hash>` pins the start time of the process
+that published it, so a live pid whose start hash no longer matches is a
+different process — unclassifiable, and surfaced rather than honored.
+
+`fleet-presence.sh liveness --checkout <repo-root> (--session-id <uuid> |
+--pid <pid>) <tower-id>` asks the third question, the one the stuck-detector's
+owner-attribution axis needs: is the tower that a dispatch record names as
+its owner alive? It reads that one record and probes that one handle:
+`tower <tower-id> <self|live|unknown|dead|ambiguous>`, `no-record <tower-id>`
+when the surface holds nothing for it, or `unreadable <tower-id> <kind>` for a
+record it cannot parse or that names another repository. Every word other
+than `self` and `live` is a distinct not-live answer, never folded into live;
+like `attribute`, it never GCs, and it stamps no cadence and writes no memo.
+
+## The per-unit fence: one tower per unit
+
+Presence is awareness. The thing that stops two towers dispatching one unit is
+a **ref on `origin`** (concurrent-orchestrator-coordination D-5, D-8, D-11):
+before a worker forks, a tower creates `refs/planwright-fence/<spec>/<unit-id>`
+with an expect-absent compare-and-swap.
+
+**`/orchestrate` takes no fence yet.** It does run `gc` — the reconcile calls it
+on each unit that resolves as merged, which is also how that unit's completion
+reaches the escalation feedback loop below. But `check` and `fence`, the two that
+would actually stop a second tower dispatching a unit, need more room in the
+dispatch step than that skill's instruction budget has left, so they are queued
+as a follow-up. Until then those two are yours to run, concurrent towers still
+coordinate only through presence, and `sweep` — the backstop — finds nothing to
+reclaim until something takes a fence for it to find.
+
+`origin` is the one substrate every clone shares and git serializes ref updates
+on it, so exactly one tower wins a unit; it is also death-surviving, because the
+ref lives on the server rather than in the tower's process. The ref points at
+the current `origin/main` tip — an existing commit — so fencing adds no history
+to `main`.
+
+```sh
+scripts/fleet-fence.sh check --checkout <repo-root> --spec <spec> <unit-id>
+scripts/fleet-fence.sh fence --checkout <repo-root> --spec <spec> <unit-id>...
+scripts/fleet-fence.sh gc    --checkout <repo-root> --spec <spec> <unit-id>...
+                             [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
+scripts/fleet-fence.sh list  --checkout <repo-root> [--spec <spec>]
+scripts/fleet-fence.sh sweep --checkout <repo-root> --spec <spec> \
+  (--session-id <uuid> | --pid <pid>) [--grace <sec>] [--min-interval <sec>]
+  [--alloc-key <selection-key> --obs-scope <scope> [--obs-dir <dir>]]
+```
+
+`check` is the selection guard: exit 0 the unit is fenced (skip it), exit 1 it
+is free. `fence` takes the unit: exit 0 you hold it, **exit 3 a peer already
+does — back off and select another**, exit 4 a transient `origin` failure
+(dispatch nothing this pass, retry), exit 5 no `origin` at all, which is the
+genuine single-host solo posture where there is no peer to collide with and
+dispatch proceeds unfenced. Several unit ids fence a cohesion bundle in one
+`git push --atomic`, all-or-none: a peer holding **any** member — lead or not
+— backs the whole bundle off, and nothing is left fenced behind.
+
+**Read the per-ref status, never the exit code.** git resolves a same-value
+ref update to `[up to date]` *before* it evaluates the lease, and every racing
+tower pushes the same `origin/main` tip, so the losing tower's push exits 0.
+The winner is the ref whose `--porcelain` status is `*` (new reference); `=`
+means a peer got there first. The scripts already do this; it matters if you
+are reading the push transcript, or writing anything that fences by hand.
+
+A fence lives until its unit is **terminal** — the PR merged, or the ledger
+marks it done. An open, unmerged PR is *not* terminal, so the fence persists
+across the whole open-PR window. `gc` deletes a terminal unit's fence and is
+idempotent, so two towers cleaning up the same fence never collide.
+
+`sweep` is the backstop for a tower that exited before its unit finished. It
+classifies **terminal first, then liveness**: a terminal unit's fence is
+deleted whoever owns it; a live owner's fence is left alone; and everything
+else — a dead owner, an owner it cannot classify, a fence no presence record
+admits to — is **surfaced to the decision queue, never reclaimed**. Taking
+over a dead tower's half-finished unit is your call, so the sweep raises an
+item offering `reclaim` / `investigate` / `dismiss` and stops there. A fence
+nobody admits to is held quietly for one heartbeat interval first, because
+that is also what a tower looks like between fencing a unit and its next
+heartbeat; the wait is stamped in the queue entry itself, so it holds across
+towers and survives a tower that dies mid-wait. An already-raised strand is
+skipped while its queue entry is younger than `--min-interval`, measured from
+when it was first raised; after that it is re-examined each pass. Either way a
+queue of unresolved strands never turns into a storm of `origin` reads: however
+many strands are queued, the sweep reads the fence namespace and derives state
+once per pass. Deleting a terminal fence does cost a further `origin` read and
+a push per fence, but only for the fences that actually went terminal.
+
+If `gh` is installed but cannot answer, the sweep still deletes fences whose
+units are provably done from git alone (a merged branch or the completion
+trailer) and holds everything else, printing `hold`: it will not raise a
+strand against a unit whose merged PR it simply could not see.
 
 ## Scaling out: the meta-tower
 
@@ -778,7 +976,158 @@ masked. `crash-check` consults the operator kill-switch
 (`fleet_daemon_pause`) before authorizing any relaunch; bookkeeping and
 escalation are deliberately not gated (pausing the record of what happened
 would hide problems). Backoff and disable actions log through the audit
-trail; a human clears the streak with `crash-reset`.
+trail; a human clears the streak with `crash-reset`. A disable is also a unit's
+terminal state, so `crash-record` reports it to the escalation feedback loop
+when given the identity to report — `--alloc-unit`, `--alloc-key`,
+`--obs-scope` and `--obs-dir`, all-or-none. `/orchestrate`'s reconcile is what
+gives it: it runs this on the dead worker it proved before parking the orphan.
+The report goes **after** the orphan is parked, not before. `crash-record` is
+not idempotent — its own contract forbids re-invoking it for the same crash —
+and the reconcile is stateless, so the parked entry is the only thing that stops
+the next pass observing that same death and counting it again. Ordering it after
+the park trades a crash that goes uncounted when a pass dies mid-step for a
+spurious disable, and an uncounted crash is much the cheaper loss.
+
+Note what that does **not** buy on its own. The streak is per worker handle and
+the reconcile never re-dispatches, so one reconcile pass records one crash; the
+disable — and with it the `disabled` report — is reached only when the same
+handle dies `fleet_crash_disable_threshold` times, which today takes a human
+re-dispatching it under that same handle. The `completed` half needs no such help. Described with its
+twin where the ledger's feedback loop is covered below.
+
+### What planwright registers, and the event it deliberately does not
+
+The liveness hooks above are observers: they watch a session and write to the
+attention store, and a session behaves identically whether they fire or not.
+That is true of every event planwright registers — `PreToolUse`, `PostToolUse`,
+`SessionStart`, `SessionEnd`, `Stop`, `StopFailure`, `Notification`,
+`PermissionRequest`, `WorktreeRemove`. Some of them *can* block, but only if a
+handler explicitly says so; a quiet handler changes nothing.
+
+`WorktreeCreate` is the exception, and planwright does not register it.
+Registering a hook there **replaces** native git worktree creation: the hook
+becomes the creator, and a handler that stays quiet has refused the operation.
+planwright once registered a passive tracker on it, reading a `worktree_path`
+that event never sends (it sends a bare `name`), so the tracker echoed nothing
+and worktree creation broke on every installed machine — with the reason on
+stderr, which the harness discards. So worktree tracking rides two paths that
+cannot refuse anything instead: `record-create` at the dispatch seam, and the
+`fleet-worktree-track.sh scan` reconcile for trees created any other way.
+
+Two things keep that from regressing. Every registered event has a payload
+fixture under `tests/fixtures/hook-payloads/` holding its real stdin key set,
+read out of the CLI rather than the docs (which omit `WorktreeCreate`'s input
+schema and have drifted on others). And `mise run check` runs
+`scripts/check-hook-contracts.sh`, which fails if anything is registered on an
+event whose silence refuses the operation, if a registered event has no
+fixture, or if a decision hook emits JSON naming the wrong event. If you add a
+hook, add its fixture; if the guard reports an event it does not model, read
+that event's dispatch site and record what its silence means before registering
+anything on it.
+
+**If you are writing a handler that can refuse**, say why on a channel the
+operator sees — `systemMessage`, or the event's own decision field. Stderr is
+discarded on most events, so a reason left there is indistinguishable from an
+unexplained platform failure.
+
+## The four-state stuck-detector: positive signals, owner attribution, stage
+
+Every stuck state looks like silence. A monitor that sampled a frozen
+worker's last pane line reported eleven identical healthy heartbeats,
+because the line was stable *precisely because* the worker was stuck
+(fleet-lifecycle-closure D-4, obs:50eac4ac). So the detector does not watch
+for change. `scripts/fleet-stuck-detector.sh` enumerates four states, each
+established by its **own** positive signal, and a surface carrying none of
+them classifies none of them. The store's five push states from the
+[liveness section above](#push-based-worker-liveness-events-the-five-states-crash-backoff)
+are *inputs* to this classification, not its output vocabulary: a pushed
+`working` row is one signal among several, and the detector's four words are
+a different axis.
+
+```sh
+scripts/fleet-stuck-detector.sh classify <worker> [--pane <capture>] \
+    [--worktree <dir>] [--tower-id <token>] ...
+scripts/fleet-stuck-detector.sh scan        # every worker the registry or the store knows
+```
+
+| State | Established by | Never by |
+| --- | --- | --- |
+| `dead` | `fleet-death-evidence.sh`'s positive verdict on the dispatch record's death handle (REQ-C1.5) | alive, unknown, an errored or refused call, a `none` handle, no handle |
+| `waiting-on-a-human` | a hook push (the attention store's `awaiting-input` row), a pending request in the stream-json journal, or a positively matched permission-prompt signature in a captured pane (REQ-C1.2) | elapsed time, a quiet pane |
+| `finished-but-unreaped` | a successful session-ended record — the `ended` push, the supervisor's `result success` not flagged `is_error`, a zero headless `exit` — while the worker is not positively dead (REQ-C1.3) | a completion whose work is unlanded, a frame flagging `is_error`, or a session that ended without completing (below) |
+| `working` | a pushed `working` row, a running-turn marker in the pane footer, or both stream-json runtime pidfiles present with positive alive evidence on the death handle and no result yet | absence of a stop signal |
+
+Precedence runs top to bottom: death evidence outranks a stale push, a queued
+human decision outranks a captured result, a captured result outranks a stale
+working row. Anything else is `unclassified` with a reason (`no-signal`,
+`turn-ended`, `fork-answered`, `stop-failure`, `completion-failed`,
+`completion-unlanded`) — a fifth word, never a default state, that a consumer
+leaves alone and surfaces. A session that ended without completing (a
+non-zero exit, a non-success result subtype, or a success subtype whose frame
+flagged `is_error` — the turn completed the protocol while the run died) is
+`completion-failed`, never finished: for a non-zero exit and for a flagged
+frame the supervisor's own status renders it `ended`, and the detector agrees.
+
+**A self-reported completion is not sufficient** (REQ-C1.4, obs:cc13d432). A
+worker whose `result=success` sits beside an uncommitted tree or beside
+commits absent from the remote-tracking ref is `unclassified
+completion-unlanded`, not finished. The evidence is local git state only
+(the content-free plumbing `ls-files` and `diff-index --cached`, and the
+commit count against the remote-tracking ref: the upstream when set,
+otherwise every remote-tracking ref) — no fetch, no `gh`, no per-worker forge
+query — so the check is cheap and works offline. The worktree comes from
+`--worktree`, else the registry state dir when that is itself a git toplevel
+(the tmux rung records the worktree there); a path the worker authored, such
+as the event stream's `cwd`, is never used, because a worker could point the
+check at any clean repository and launder its own stranded work. When none
+resolves, `tree unverifiable` is reported, which is not "demonstrably
+unlanded".
+
+**Owner attribution rides every state** (REQ-C1.6): `this-tower` when the
+dispatch record's owner token equals this tower's identity (`--tower-id`,
+else `PLANWRIGHT_TOWER_ID`, else `fleet-presence.sh identity`),
+`live-peer` when `fleet-presence.sh liveness` reports the token live, and
+`dead-or-unknown` for everything else — an absent token, a dead or unknown
+or ambiguous tower, a record the surface does not hold, a surface that cannot
+be read, or no identity to ask with. Degradation always lands on
+dead-or-unknown, never on this-tower: the same signal means opposite things
+depending on who owns the worker, and a reaper must never mistake a peer's
+worker for its own.
+
+**Stage** (REQ-C1.7) is a separate axis from liveness, derived cheaply from
+the stream-json event stream's most recent stage-bearing event: `launched`
+(init only), `implementing` (a tool use), `converging` (a review-skill
+invocation), `handing-off` (a push in a Bash tool use), `completed` (a result
+event). With no stream it is `-` and `stage-source absent` says so; the
+unit branch's commit count is reported alongside where a worktree resolves.
+
+**The output is one pinned grammar** (REQ-C1.8), tab-separated:
+
+```text
+worker    <handle> <state> <owner> <stage> <reason>
+evidence  <handle> <signal> <value>
+anomaly   <handle> <what>
+```
+
+The evidence signals and anomaly words are enumerated in the script header,
+in emission order; a worker's anomalies follow its evidence rows. A malformed
+store or registry line becomes an `anomaly` row and the worker still
+classifies from what remains; every value is a validated token or passes the
+echo-discipline sanitizer. No model reads any of it. A periodic sweep uses
+`scan`, which reads each store once and asks the presence surface once per
+distinct owner token; the per-worker `classify` form pays the identity
+resolution on every call unless `--tower-id` or `PLANWRIGHT_TOWER_ID` is
+given.
+
+**The pane signatures are a platform surface.** The permission-dialog text
+and the busy footer markers live in one sourced file,
+`scripts/fleet-pane-vocabulary.sh`, shared with `fleet-pane-detect.sh`;
+`FLEET_PANE_PROMPT_SIGNATURES` overrides the dialog set for a bespoke TUI
+the way `FLEET_PANE_PROMPT_ANCHORS` overrides the idle anchors. The strings
+are verified against the installed CLI's own bundle at each change and
+re-checked by REQ-C1.2's manual half and the REQ-A1.6 deliberate-wedge
+rehearsal, because a silent divergence would degrade the detector to exactly
+the blind spot it exists to close (kickoff risk row 2).
 
 ## Resource governance: models, throttling, and the auto-mode line
 
@@ -803,6 +1152,21 @@ construction — the `fleet_command_*` enum is exactly the non-nestable
 dispatch-entry set, so an out-of-enum command is refused at every overlay layer
 (REQ-E1.2), and the dispatch table and the convergence knob can never both claim
 the same skill.
+
+The table itself now lives in `scripts/allocation-select.sh`, generalized so
+any launch point can resolve through one resolver rather than fleet dispatch
+alone (model-allocation D-5); `fleet-resource-select.sh` is the fleet-scoped
+front door onto it and its CLI is unchanged. Each column reads the general
+`allocation_<column>_<task-type>` knob first, and the `fleet_*` knobs named
+above are its **deprecated fallback**: core ships all nine of those general
+knobs (three columns across the three task types) as `unset`, which is exactly
+what keeps the legacy family in charge, so an existing overlay keeps working
+untouched and needs no migration.
+The legacy family is documented, not removed. The same family also carries
+rows for the three non-fleet surfaces, which ship `inherit` instead.
+Per-knob detail is in the [options reference](options-reference.md); the
+operator's guide to the whole policy — the ladder, the ledger, the petition,
+and how to turn any of it on — is [Model allocation](allocation.md).
 
 **Throttling is reactive, off Claude Code's own signal.** There is no
 supported way to query account-level usage, so the fleet reacts to the one
@@ -929,6 +1293,146 @@ un-degraded `normal` policy — the operator has assumed manual control, so the
 ladder stops degrading rather than blocking dispatch. The whole path is
 deterministic script logic with no LLM call.
 
+**Adaptation: `scripts/allocation-adapt.sh`.** Everything above prices a unit by
+its *type*. Nothing in it notices that a particular unit turned out harder than
+the table assumed. `allocation-adapt.sh resolve <unit> --key <task-type>` is the
+layer that does (model-allocation D-2, D-6, D-8): it derives the unit's current
+tier from that unit's own append-only **allocation ledger**, moves it at most one
+ladder step per triggering incident, then applies the clamps above and emits the
+same `admit / model / effort / command / concurrency / rung / reserved` shape, so
+fleet dispatch reads it as a drop-in. It **ships inert**:
+`allocation_adaptation` defaults to `off`, and with it off the answer is
+byte-identical to `fleet-allocate.sh`'s — pinned field by field in the tests
+across every rung and with the signal both present and absent.
+
+Turn it on and a tier moves only on **work-shaped** events, passed as `--event`:
+a step failure or retry, a flailing classification, review-sequence
+non-convergence, or a worker petition. The list is a closed allowlist —
+infrastructure trouble (an audit write error, a config hard-fail, a backend
+launch error) is *refused* rather than counted, because no model tier fixes it
+and counting it would burn the unit's adjustment budget. Escalation raises effort
+a level until `high`, then raises the model one alias **keeping effort `high`**.
+Each event carries an idempotency identity (unit, step, attempt, incident), so a
+failure and the retry it caused collapse to one step while independent incidents
+stack one step each, and a crash replay re-derives instead of double-counting.
+`allocation_adjustment_cap` bounds how far one unit may travel from its starting
+tier — a net step count in *each* direction, refunded by reversals.
+
+Three properties are worth knowing when reading a ledger. A **clamp is not a
+de-escalation**: a proposal the rung or a cap cut down is recorded as *clamped*
+and the unit's own ladder position is untouched, so the next boundary proposes
+from where the ladder actually is. While the usage signal is **unavailable**,
+escalation above the starting tier is denied but an already-escalated unit
+**holds** — no claw-back. And a unit that *cannot* escalate (a denial, an
+exhausted cap, the ladder top) gets no new stuck state: the existing crash-loop
+backoff and disable threshold govern, and the ledger is what explains why
+escalation was unavailable when that escalation reaches a human.
+
+The ledger lives at `<fleet-home>/allocation/<unit>.tsv`, one file per unit, and
+`scripts/allocation-ledger.sh` is its store: `rows` prints a unit's history,
+`derive` recomputes its tier from records plus config, and `stats` reports size
+and derivation cost (also folded into `fleet-stats.sh render`, which is where a
+scan-cost problem shows up first). An unreadable or corrupt ledger does not block
+a launch: the unit launches at its **last recorded tier** with adjustments
+suspended and the degradation surfaced, never silently. Governance events —
+an escalation, a denial, a binding clamp, an inheritance, a degraded read —
+additionally mirror one row each into the shared audit trail under mechanism
+`allocation`, so the fleet-wide view keeps a single surface; routine resolutions
+stay in the per-unit ledger.
+
+**Petitioning for a different tier: `scripts/allocation-petition.sh`.** Every
+trigger above is a symptom of a unit going *badly*. Nothing tells the policy the
+opposite — that the remaining steps are mechanical and the tier the table handed
+out is more than the work needs — and nothing lets a worker say "this is harder
+than it looked" before it has failed twice to prove it. The petition is that
+channel (model-allocation D-7), and it is the only signal in the allocation path
+a worker authors.
+
+A worker writes one at a step boundary:
+
+```sh
+scripts/allocation-petition.sh write --worktree "$PWD" \
+  --direction de-escalate --unit <spec>:task-<n> --step <step> --attempt <n> \
+  --reason 'the remaining steps are mechanical'
+```
+
+**When to write one.** Petition to *escalate* when the work in front of you is
+categorically harder than the unit's shape suggested — a subtle concurrency
+contract, a domain the brief under-described, an interface whose semantics have
+to be re-derived rather than read. Petition to *de-escalate* when the remaining
+steps are mechanical: the design is settled and what is left is transcription,
+formatting, or a rote sweep. Do not petition because a step failed — that is
+already a trigger event, and spending a petition on it burns adjustment budget
+the failure would have spent anyway. One petition is one ladder step; if the
+next boundary still needs a different tier, write another.
+
+**What it cannot do.** A petition is a *hint the policy weighs*, never an
+authority. It takes the same single ladder step as any other trigger, spends the
+same `allocation_adjustment_cap` budget, and meets the same clamps, so it can
+never buy a tier the restriction rung or a per-tier cap would refuse. Weighing
+**consumes** it: the artifact is gone afterwards, so signaling again costs a
+fresh write, and a petition can never move a unit twice.
+
+The artifact is untrusted input and is screened as such: a pinned five-line
+grammar under `LC_ALL=C`, a 1 KiB cap, taken only as a contained regular file
+(no symlink followed, no FIFO opened), and claimed by atomic rename before it is
+validated, so two boundaries racing the same unit cannot both weigh it. Anything
+out of grammar, hostile, stale, or filtered out by `allocation_petition` is
+still consumed and lands an `ignored` ledger row — which is where an operator
+sees what a worker said and why it did not count.
+
+**Rungs with no worktree have no petition channel.** The channel is a file in
+the worker's own worktree, so in-session work — the terminal rung, a
+`/execute-task` step running in the operator's session — has nowhere to write
+one. That is a documented degradation, not an error: those units still adapt on
+the work-shaped events, they simply cannot volunteer the signal. It is also why
+`allocation_petition` is subordinate to `allocation_adaptation`: with the master
+knob off there is no ladder position to move, so the artifact is not read at all.
+
+**The ledger feeds back into future drafting.** When a unit reaches a terminal
+state, completion or crash-loop disable alike, the terminal-state owner runs
+`scripts/allocation-feedback.sh evaluate <unit> --key <selection-key> --terminal
+<completed|disabled> --scope <scope>`. Two commands own those transitions and
+report them **when asked to**: each takes the identity as opt-in flags and runs
+no evaluation without them. `/orchestrate`'s reconcile is what supplies them —
+it is the one pass that observes both terminal states, a merged unit as it moves
+to Completed and a dead worker before it parks the orphan — so that is where the
+loop is driven from, and the invocations it runs are written out there. Each
+reports the state it owns. `scripts/fleet-fence.sh` reports `completed` as it
+retires a fence — from `gc`, the normal transition a tower runs on the unit it
+just finished, and from `sweep`'s terminal branch, the backstop for a tower
+that exited first; a unit that travels both routes still records once, because
+the ledger mark is what bounds emission rather than the route.
+`scripts/fleet-liveness.sh crash-record` reports `disabled` from the disable
+branch. Both take the unit's identity from their caller, as all-or-none flags,
+because none of it can be derived from what a terminal-state owner knows: the
+ledger unit key (which the fence assembles from the spec and unit id it already
+holds), the selection key, the observation scope, and — for `crash-record`,
+which has no repo root to resolve one against — the observations store.
+
+Neither call can cost the transition it hangs off: a recording failure is
+surfaced and the disable still stands, the fence is still retired. That cuts
+both ways, and the diagnostics say so. The fence is retired whatever the
+evaluation returned, so a failed evaluation there loses that unit's
+observation rather than deferring it; and because the two sit on opposite
+sides of their transitions — the fence reports before retiring, the disable
+after committing its audit and escalation — an audit or queue failure exits
+before the disable ever reports.
+
+`allocation-feedback.sh` replays that unit's ledger and, when the history says
+the starting tier was wrong, records one observation fragment through the
+shared helper, which is how chronic under-estimation reaches the next round of
+`/spec-draft` seed mining. Two conditions fire it: the unit's
+derived final **ladder position** ended above its configured starting tier, or
+its count of applied escalations reached `allocation_feedback_threshold`
+(default `2`). The second is the churn case the first cannot see, since a unit
+that climbed and was talked back down ends where it started with its adjustment
+cap refunded. Emission is once per unit, marked by a `feedback`/`recorded` row
+in the unit's own ledger, so a re-evaluation never re-records; the mark is
+inert to derivation and excluded from `last-tier`, because a ladder position is
+not a tier a launch ran at. With `allocation_adaptation` off nothing escalates,
+so the shipped posture records nothing.
+
 **Credit-continuation defaults to decline-and-wait, never auto-spend.** The
 rate-limit wall sometimes offers a *credit-continuation* prompt — "spend
 credits / extra usage to continue past the limit".
@@ -1038,7 +1542,8 @@ are in the [options reference](options-reference.md).
 | `max_parallel_units` | Per-spec concurrency cap | Your per-spec load | `3` — bounded parallelism out of the box |
 | `fleet_max_parallel_units` | Fleet-wide bound across all specs | Your total fleet load | `3` — enabling the meta-tower never multiplies load until you raise it |
 | `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you (`none` / `tmux-popup` / `os-notify` / `editor-toast` / `statusline`) | `none` — pull-only, dependency-free, nothing fires until you opt in |
-| `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
+| `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
+| `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, and every launch point planwright ships now reads it (fleet dispatch by task type; single-spec dispatch, per-step sessions, and offload by surface), applying each dimension only as far as the launching backend's advertised `tier_control` allows and recording any inheritance | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the three non-fleet surfaces — configure nothing, observe no change |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
 
 Style values never gate capability: every knob's default keeps the full

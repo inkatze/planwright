@@ -264,6 +264,34 @@ doctrine amendments, enforcement as mechanism.
   its own header" reading). Kickoff fork decisions are recorded in the
   design log and the kickoff brief; this changelog cites rather than
   enumerates them (D-8).
+- 2026-08-26 — Task 5 expression-only edits. Task 5's deliverable line
+  records the placement it left to execution: the general act-on-findings
+  doctrine statement went to the meta-spec's writer prose rather than
+  `gate-wiring.md`, with the reason. The REQ-C1.1, REQ-C1.2, and REQ-C1.3
+  verification entries are restated in the canonical
+  Given/When/Then state/trigger/outcome form the format uses elsewhere;
+  what each scenario asserts is unchanged, except that REQ-C1.3 now spells
+  out the no-anchor-entry outcome REQ-C1.3's own writership sentence
+  already implies.
+- 2026-08-26 — Amendment annotations added for the Task 5 edits above. The
+  two records whose substance the edits changed — Task 5's deliverable line
+  and the REQ-C1.3 verification entry — carry the format's trailing
+  `*(Amended at …)*` annotation, so each is findable from the record itself
+  rather than only from this changelog. The REQ-C1.1 and REQ-C1.2 entries
+  are left unannotated: their restatement changed form, not substance.
+- 2026-09-03 — Task 6 expression-only edit. The REQ-C1.4 verification entry
+  names the structural guard the task ships as its `[test]` half, so the
+  recorded verification path matches what is actually wired, and restates
+  the scenario in the canonical Given/When/Then form its REQ-C siblings
+  took at the 2026-08-26 edit above. What the scenario asserts is
+  unchanged; no REQ, D-ID, or `Done when:` condition changes meaning.
+- 2026-09-03 — Task 6 expression-only edit, second. Merging `main` left the
+  skill on its instruction-budget floor, so the ritual's mechanics were
+  relocated into the meta-spec and the skill kept a pointer. The REQ-C1.4
+  verification entry now names both prose surfaces the structural guard
+  spans, since the recorded path otherwise sends a reader to the skill
+  alone. What the scenario asserts is unchanged; no REQ, D-ID, or
+  `Done when:` condition changes meaning.
 
 ## Sources
 

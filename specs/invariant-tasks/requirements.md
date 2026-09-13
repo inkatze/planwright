@@ -172,7 +172,9 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   its fixed vocabulary), and reference-bullet integrity (every bullet
   names an existing task id; at most one bullet per task across all
   human-payload sections — a task is parked in one section at a time) — as
-  errors on non-Draft v2 bundles, keeping v1 rules for v1 bundles.
+  errors on the signed-off live statuses (Ready, Active, Done), warnings on
+  Draft, and warnings on the Retired and Superseded terminal records, per the
+  carried bootstrap D-25 severity model; v1 rules stay for v1 bundles.
   *(Cites: D-7, D-5, D-3.)*
 - **REQ-C1.6** No orchestration or execution act on a v2 bundle SHALL
   change its content anchor: state changes touch no committed spec file, so
@@ -256,6 +258,35 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   *(Cites: orchestration-concurrency Deferred gate (Sources).)*
 
 ## Changelog
+
+- 2026-08-26 — Expression-only amendment riding format-grammar Task 4
+  (format-grammar REQ-A1.9, REQ-E1.3). Two edits, neither changing an
+  accepted decision:
+
+  REQ-C1.5's severity phrasing said the v2 invariants are enforced "as errors
+  on non-Draft v2 bundles". Read literally that covers Retired and Superseded,
+  which the shipped validator warns on and this bundle's own test-spec entry
+  for REQ-C1.5 pins as warnings. The phrasing now names the severities
+  directly — errors on the signed-off live statuses, warnings on Draft and on
+  the terminal records — per the carried bootstrap D-25 severity model. No
+  behavior, test, or fixture changes; the sentence now says what was already
+  decided and already shipped.
+
+  The Deferred entry's free-text gate carried a parenthetical enumerating the
+  condition grammar's status literals, ending "notably not ready". That
+  enumeration was a copy of a fact the taxonomy doctrine owns, and
+  format-grammar Task 4 added `ready` to the evaluator's stored-status
+  whitelists, making the copy false. The parenthetical now points at the
+  doctrine doc instead of restating it. The gate CONDITION is untouched, so
+  the entry surfaces for a human each sweep exactly as before.
+
+  This entry also closes the ritual owed for the gate's earlier conversion
+  from `GATE(when:)` to free-text form (2026-07-26, PR #321), which landed the
+  rewrite without a changelog line or a re-anchor entry. That conversion was
+  expression-only on the same grounds: the two clauses are preserved verbatim
+  and the gate was never machine-evaluated in either form (the structured form
+  reported MALFORMED because no atom parsed; the free-text form surfaces
+  unevaluated by definition), so no verdict moved.
 
 - 2026-07-15 — Migrated to format-version 2 (D-10, REQ-D1.3;
   one-shot `scripts/migrate-format-version.sh` run): placement sections

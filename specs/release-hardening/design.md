@@ -8,7 +8,8 @@
 Origin-tag legend: `N` — a new decision made for this bundle; `C, <ns> <id>` —
 carried from a foreign bundle's decision, namespace-qualified.
 
-**Altitude note (autopilot-reflex D-11 / REQ-H1.1).** No altitude trigger
+**Altitude note (`autopilot-reflex` D-11 / `autopilot-reflex` REQ-H1.1 — the
+foreign altitude requirement, not this bundle's REQ-H).** No altitude trigger
 fired. The parent `autopilot-reflex` was the doctrine-altitude deliverable
 (it minted the release-tagging doctrine and the autopilot-reflex thought
 process); this bundle is mechanism hardening of that already-doctrine'd
@@ -340,6 +341,83 @@ exact interaction between REQ-B (resume) and REQ-G1.1 (relabel) that this bundle
 owns, with a bounded idempotent-relabel change on the already-published resume
 path.
 
+### D-13: Gate release-please on the existing window check  (N)
+
+**Decision:** The `release-please` workflow gains a guard step that runs
+`scripts/release-window-check.sh --ref origin/main` before the proposal step and
+SKIPS the job when an untagged window is open. The window keeps exactly one
+definition, owned by that script (REQ-H1.1). The guard reads the script's
+tri-state exit, not merely its non-zero-ness: 1 skips, 2 fails the job. It
+needs a checkout, which `release-please.yml` does not have today, so the
+deliverable also carries the checkout that `release-window.yml` already proves
+out — full history plus an explicit `git fetch --force --tags origin
++refs/heads/main:refs/remotes/origin/main`, since `rl_latest_release_tag` reads
+local tags and a tagless checkout would read "no releases yet, window open" and
+skip forever. That checkout is of the repository's own default branch and never
+of `github.event.workflow_run.head_sha`: this job carries `contents: write`
+and `pull-requests: write`, and obs:131af768 records that its
+`head_branch == 'main'` filter is satisfiable by a fork PR whose head branch is
+named `main`.
+
+**Alternatives considered:**
+- Publish the signed tag earlier, before `ci` completes on the release commit.
+  Rejected because: it would tag a commit whose CI is unverified, weakening the
+  very gate the pipeline exists to enforce, and autopilot-reflex REQ-C1.3
+  deliberately keeps tagging out of CI.
+- Add a retry or sleep so release-please waits for the tag. Rejected because:
+  it patches a race with timing, and fails again whenever a human publishes
+  late — which is the normal case, since publication is human-gated and may sit
+  overnight.
+- Give release-please its own notion of "release pending". Rejected because:
+  `release-window-check.sh` already owns that state, and two definitions of one
+  condition drift apart.
+
+**Chosen because:** the script already exits 1 exactly when the version of
+truth is ahead of the latest tag, and already tells the reader "no further
+merge should land until the signed tag is published." Reusing it as a job guard
+introduces no new concept, keeps a single definition of the window, makes the
+skip legible in the workflow file, and self-clears: once the tag is published
+the check passes and release-please resumes on the next `ci` completion on
+main. Nothing is dropped in the meantime, because the `release-window` lock
+holds merges shut for the whole span the guard skips over.
+
+Keeping exit 2 out of the skip is the same call REQ-A/D-2 make one layer down.
+The script mints a distinct fail-closed status precisely so a consumer can
+tell "no window" from "could not tell"; a guard that skipped on both would
+launder an unreadable state into a green, silent no-op — the fail-open shape
+this bundle exists to remove.
+
+### D-14: Judge the proposal, not only the trigger  (N)
+
+**Decision:** Add a cause-agnostic check that fails when a release proposal's
+`CHANGELOG.md` diff adds entries at or below the latest release tag by SemVer
+precedence — the same `rl_latest_release_tag` / `rl_version_gt` definition the
+rest of the pipeline reads, never the entries' dates, which a regenerated
+changelog restamps (REQ-H1.2) — and separately establish and record what
+release-please 17.6.0 does
+when `bootstrap-sha` is absent (REQ-H1.3), without removing the key as part of
+this work.
+
+**Alternatives considered:**
+- Rely on D-13 alone. Rejected because: it closes the one known trigger while
+  leaving the dangerous state reachable. When release-please cannot see the
+  latest release it regenerates from `bootstrapSha` rather than failing loudly,
+  so an API blip, a rate limit, a permissions change, or a deleted tag all still
+  produce a merge-ready proposal.
+- Remove `bootstrap-sha` outright in this change. Rejected as a deliverable
+  because: release-please 17.6.0's behaviour with the key absent is unverified,
+  and swapping a known-bad fallback for an unknown one is not an improvement.
+  The obligation is therefore to establish the fact first.
+- Rely on human review of each release PR. Rejected because: the failure mode is
+  precisely that a bootstrapped diff looks plausible — #339 was 124 entries of
+  real, correctly-formatted, already-released history.
+
+**Chosen because:** a check on the artifact holds regardless of cause. A
+proposal that adds changelog entries at or below the latest tag is wrong however
+it was produced. This mirrors the fixture-count floors in
+`tests/test-permission-matcher.sh`: an assertion on the shape of the output
+catches regressions that the generating logic can otherwise hide.
+
 ## Cross-cutting concerns
 
 - **Shared-file coordination.** REQ-C (rl_ci_state → publish + arm), REQ-B
@@ -356,9 +434,13 @@ path.
   (distinct regions, merge `main` between tasks): `release-pending.sh` is
   touched by the fail-closed comparator status capture (REQ-A / Task 2) and the
   `version_file` canonicalization guard (REQ-D / Task 5); and `mise.toml` is
-  touched by the `release-arm` task entry (REQ-F / Task 7) and the `lint:md`
-  glob addition that wires the template-lint verification (REQ-G / Task 8). No
-  edge is needed between either pair.
+  touched by the `release-arm` task entry (REQ-F / Task 7), the `lint:md`
+  glob addition that wires the template-lint verification (REQ-G / Task 8), and
+  the proposal sanity check's `check:` entry (REQ-H1.2 / Task 10). No edge is
+  needed between either pair or within the `mise.toml` trio — each writes its
+  own table.
+  *(Amended at the 2026-08-25 bootstrap-race amendment: Task 10 added to the
+  `mise.toml` overlap.)*
 - **Fail-closed invariant.** Every new refusal path (comparator error, SHA
   mismatch, containment failure, CI query failure) exits non-zero with a
   diagnostic and no side effects, consistent with the pipeline's existing

@@ -72,7 +72,7 @@ remote and leave `origin/main` stale. This writes remote-tracking refs only:
 no local branch or working-tree change. It closes a staleness gap: a merged
 PR's `Planwright-Task` trailer reaches the remote first, and without the
 fetch a genuinely-merged task can derive not-done and be re-dispatched (the
-paycalc-services grammar-backed-explain case). The derivation already scans
+acme-billing grammar-backed-explain case). The derivation already scans
 the **union** of the base and its remote-tracking ref, so the fetch is
 consumed read-only — no local `main` merge, and a worktree's branch state is
 never touched. Failure is non-fatal and offline is first-class: no remote, no

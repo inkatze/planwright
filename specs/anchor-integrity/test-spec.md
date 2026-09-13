@@ -71,39 +71,57 @@ consumers (`/orchestrate`, `/execute-task`) cite it. Verified by review.
 
 ### REQ-C1.1 — Stale-anchor pre-flight [Gherkin + manual]
 
-Scenario: given a signed bundle whose brief anchor no longer recomputes
-equal — or whose entry is absent or unparseable, or whose recompute
-errors — when a planwright-shipped skill is about to edit the bundle,
-then it surfaces the condition and applies no bundle edit. True-negative:
-given a fresh anchor, the pre-flight proceeds without noise. Exercised
-manually in the next live act-on-findings run over a signed spec.
+Given a signed bundle whose brief anchor no longer recomputes equal, When
+a planwright-shipped skill is about to edit that bundle, Then it surfaces
+the condition And applies no bundle edit. Given instead a brief whose
+most recent entry is absent or unparseable, or whose recompute errors,
+Then the same block fires — the failure modes are not distinguished.
+True-negative: Given a fresh anchor, Then the pre-flight proceeds without
+noise. Exercised manually in the next live act-on-findings run over a
+signed spec.
 
 ### REQ-C1.2 — Expression-only self-ritual [Gherkin + manual]
 
-Scenario: given a validated expression-only finding on a signed bundle,
-when the skill applies it, then the same change contains the dated
-Changelog entry and the marked `Class: expression-only` self-re-anchor
-entry citing it, all in one commit, and the REQ-D1.1 guard is green
+Given a validated expression-only finding on a signed bundle, When the
+skill applies it, Then the edit, the dated Changelog entry, and the
+marked `Class: expression-only` self-re-anchor entry citing it all land
+in one commit And the REQ-D1.1 guard is green
 afterwards. Exercised manually at the next live act-on-findings run over
 a signed spec (the REQ-C1.1 occasion); the guard provides the mechanical
 backstop.
 
 ### REQ-C1.3 — Meaning-class refusal and routing [Gherkin + manual]
 
-Scenario: given a validated meaning-class finding on a signed bundle, when
-the skill routes findings, then the bundle is untouched and the handoff
-names `/spec-kickoff` as the route. Exercised manually in live runs.
+Given a validated meaning-class finding on a signed bundle, When the skill
+routes findings, Then the bundle is untouched And the handoff names
+`/spec-kickoff` as the route And no anchor entry is written. Exercised
+manually in live runs.
+*(Amended at Task 5 execution 2026-08-26: the no-anchor-entry outcome, already
+implied by REQ-C1.3's writership sentence, made explicit.)*
 
-### REQ-C1.4 — Kickoff terminal recompute [Gherkin + manual]
+### REQ-C1.4 — Kickoff terminal recompute [Gherkin + test + manual]
 
-Scenario: given expression-only anchored content edited after the
-sign-off record was written, when `/spec-kickoff` reaches its final
-pre-push step, then the anchor is recomputed and re-recorded before the
-push, and the spec PR's squash carries the fresh anchor; given a
-meaning-class post-sign-off edit, the flow re-enters the sign-off walk
-first; given a failing recompute, the push halts. Exercised manually at
-the next `/spec-kickoff` run whose spec PR receives post-sign-off fixes.
-The REQ-D1.1 guard on the PR is the mechanical backstop.
+Given expression-only anchored content edited after the sign-off record
+was written, When `/spec-kickoff` reaches its final pre-push step, Then
+the anchor is recomputed and re-recorded before the push And the spec
+PR's squash carries the fresh anchor. Given instead a meaning-class
+post-sign-off edit, Then the flow re-enters the sign-off walk first.
+Given a failing recompute, Then the push halts. The `[test]` half is a
+structural guard (`tests/test-spec-kickoff-terminal-reanchor.sh`) over
+both prose surfaces the ritual spans, the shape the sibling skill-prose
+gates use: in the skill, the step exists, cites the requirement, names
+its trigger, points at the meta-spec, and sits before the push command;
+in the meta-spec, the re-record is committed and final pre-push, the
+lane is expression-only, a meaning-class edit routes back into the
+sign-off flow, and a failing recompute halts. Exercised manually at the
+next `/spec-kickoff` run whose spec PR receives post-sign-off fixes; the
+REQ-D1.1 guard on the PR is the mechanical backstop.
+*(Amended at Task 6 execution 2026-09-03: the structural guard shipped
+with the task named as the `[test]` half, and the scenario restated in
+the canonical Given/When/Then form its REQ-C siblings use. Amended again
+in the same execution once the ritual's mechanics were relocated to the
+meta-spec: the guard now spans two prose surfaces, so the recorded
+verification path names both.)*
 
 ## REQ-D — Mechanical guards
 

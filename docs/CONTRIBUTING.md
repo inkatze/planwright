@@ -46,7 +46,7 @@ the comprehension pass usually pays for itself.
 | Skills | `skills/<name>/SKILL.md` | The pipeline skills. Procedure, not doctrine — skills cite doctrine, they do not restate it. |
 | Scripts | [`scripts/`](../scripts/) | Portable bash entry points (validator, resolver, hooks, checks). Bash 3.2 + BSD tooling, **no fish/mise/tmux/Ansible** (REQ-K1.5). |
 | Config | [`config/defaults.yml`](../config/defaults.yml) | Tracked defaults. Every option must have an [options-reference](options-reference.md) entry or CI fails. |
-| Tests | `tests/*.sh` | One shell test suite per script, run under `/bin/bash`. |
+| Tests | `tests/*.sh` | Shell test suites, run under `/bin/bash`; a script may have more than one. Sourced fixture libraries live under `tests/lib/` and are linted, never run as suites. |
 | Specs | `specs/<feature>/` | The four-file bundles, including planwright's own. |
 
 **Do not encode project- or team-specific style into core `doctrine/`.** That
@@ -63,15 +63,36 @@ mise install        # once, to pin the toolchain
 mise run check      # the full local equivalent of the CI gate
 ```
 
-`mise run check` runs the shell test suites (bash 3.2 floor), shellcheck, shfmt,
-markdownlint, yamllint, the plugin-manifest validation, the doctrine
-link-check, conventional-commit lint, the options-reference drift check, the
-ledger structural-corruption + duplicate-Status guard over `tasks.md`
-snapshots, the spec validator over `specs/`, the hook-backstop wiring check,
-and a secret scan. GitHub Actions
-runs the same
-gate on every pull request. This is dev tooling only — planwright's **runtime**
-scripts stay plain portable bash with no mise dependency.
+`mise run check` runs, in one pass:
+
+- the shell test suites (bash 3.2 floor), then the test-time budget gate over
+  the timing report that run leaves behind (see below);
+- shellcheck, shfmt, markdownlint, yamllint, and the plugin-manifest validation;
+- conventional-commit lint and a secret scan;
+- the doctrine link-check and the doctrine-index bijection check;
+- the options-reference drift check, which also tethers `docs/fleet.md`'s knob
+  defaults to `config/defaults.yml`;
+- the ledger structural-corruption + duplicate-Status guard over `tasks.md`
+  snapshots;
+- the spec validator over `specs/`, the anchor-freshness guard over every
+  signed bundle, the hook-backstop wiring check, the purged-identifier
+  guard (see below), and the coordination-artifact hygiene guard, a clean
+  no-op on a tree that commits no presence record or fence-ref line.
+
+GitHub Actions runs the same gate on every pull request. This is dev tooling
+only — planwright's **runtime** scripts stay plain portable bash with no mise
+dependency.
+
+### Purged identifiers
+
+A handful of identifiers were removed from this history deliberately, and
+`check:purged-identifiers` keeps them out — of the tracked tree, of commit
+messages at write time via `githooks/commit-msg`, and of a PR's whole commit
+range via a CI step for the clones that hook never runs in. It compares
+SHA-256 over normalized text, so nothing readable is committed and a match
+reports its location without echoing what it matched. The normalization rules,
+the shapes it does and does not catch, and the stdin-only provisioning path
+are in [purged-identifier-guard.md](purged-identifier-guard.md).
 
 ### Test timing, measured out of gate
 
@@ -98,6 +119,21 @@ labelling re-triggers it: pushing further commits to an already-labelled PR does
 not re-measure, so remove and re-add the label when you want a number for the
 new head.
 
+### Test-time budgets
+
+`mise run test` also persists a per-file timing report (`tests/.timing-report.tsv`,
+gitignored) and `check:test-time` reads it against the committed budgets in
+[`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
+ceiling for every test file, and one for the suite's wall-clock. A measured time
+at or over its budget trips. On GitHub Actions, the reference runner the budgets
+are measured on, that fails `mise run check`; on a dev box it only warns, loudly,
+because local timings measure your machine's contention rather than the file.
+
+A budget is raised only as a conscious, reviewed edit in the PR that needs it,
+with the new measured baseline recorded in the file's comment. Split or slim
+the offending file first, and measure on the reference runner (the gate's own
+CI log prints the full ranked table), never on a shared dev box.
+
 ### The git hook backstop
 
 The hard history invariants (never push `main`, never amend, squash, fixup,
@@ -123,6 +159,38 @@ temporarily unsetting `core.hooksPath`), and `git rebase --no-verify`
 bypasses `pre-rebase`. One caution inherited from tracked hooks: on an
 untrusted fork checkout, unset `core.hooksPath` before running covered git
 commands, since the checkout's own hook files would execute locally.
+
+### The anchor-freshness mirror at commit time
+
+`scripts/check-anchor-freshness.sh` is the standing guard over spec content
+anchors: for every signed (non-Draft, non-terminal) bundle it re-computes the
+anchor its kickoff brief records, and it flags an edit to anchored content that
+carries no dated `## Changelog` entry. `mise run check` runs it whole-corpus,
+and that CI run is the normative gate.
+
+The same script also runs as a `pre-commit` mirror, so you hear about drift
+while committing rather than one push later. It is wired through the tracked
+hooks above rather than through `lefthook install`, which would overwrite them:
+[`githooks/pre-commit`](../githooks/pre-commit) dispatches to `lefthook run
+pre-commit`, and [`lefthook.yml`](../lefthook.yml) scopes the job to commits
+that stage `specs/**` — a commit touching no spec pays no guard latency. So
+there is **no separate install step**: `scripts/wire-githooks.sh` plus
+`mise install` (which pins lefthook) is the whole setup, and the mirror is
+best-effort — without lefthook on `PATH` the hook is a clean no-op and your
+commit proceeds.
+
+The mirror reads your **working tree**, not the staged index. So it can pass at
+commit time and still fail in CI if you stage an anchored edit but leave its
+`## Changelog` entry unstaged — CI judges the committed tree. Commit spec
+bundles whole and the two agree; `mise run check` is the answer either way.
+
+If the guard reports an anchor mismatch on a bundle you edited, the remedy
+depends on the edit: an expression-only one takes the dated `## Changelog`
+entry plus a marked `Class: expression-only` self-re-anchor entry in the same
+commit; a meaning-class one goes back through `/spec-kickoff`. An entry
+recorded before the 2026-07-26 header-`**Status:**` exclusion (or with the
+interim whole-file form) mismatches over content nobody edited and takes the
+one-time self-re-anchor described in `doctrine/spec-format.md`.
 
 ### Commit and PR conventions
 

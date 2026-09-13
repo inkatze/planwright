@@ -3,27 +3,48 @@
 #
 # PUSH-FIRST, RECONCILE-BACKED (the D-1 pattern applied to worktrees). A live
 # registry of tracked working trees is PUSHED the instant a worktree is created
-# or removed, via the `WorktreeCreate`/`WorktreeRemove` hook events, so tracking
-# never waits on a poll. Where a backend cannot register the hook pair, the same
-# registry can be reconciled from ground truth by a `git worktree list` DISK SCAN
-# (`scan`) — the graceful-degradation fallback D-7 requires. NOTE: in this task
+# or removed: removal via the `WorktreeRemove` hook, creation via a
+# `record-create` call at the dispatch seam (fleet-dispatch-worktree.sh). Neither
+# waits on a poll. Creation is NOT hook-driven — see the corrected
+# `WorktreeCreate` contract below — so a worktree created outside a dispatch
+# seam is picked up by the `git worktree list` DISK SCAN (`scan`) instead, the
+# same graceful-degradation fallback D-7 requires for a backend that cannot
+# register hooks at all. NOTE: in this task
 # `scan` ships as a MANUAL CLI; it is not yet wired to run periodically (the
 # housekeeping sweep reads the registry via `list`, not `scan`), so the
 # self-healing floor is only as current as the last `scan` invocation until that
 # wiring lands (a tracked follow-up).
 #
-# THE VERIFIED `WorktreeCreate` CONTRACT (code.claude.com/docs/en/hooks.md).
-# `WorktreeCreate` is a DECISION hook: "any non-zero exit code causes worktree
-# creation to fail", and the command hook is expected to print the worktree path
-# on stdout ("hook failure or missing path fails creation"). So `hook-create` is
-# a STRICT PASS-THROUGH: it echoes the stdin `worktree_path` (after the same
-# grammar check every stored path gets — a control-byte path is refused rather
-# than echoed raw) and ALWAYS exits 0. The registry write is a synchronous
-# best-effort side effect with a SHORT bounded lock wait (LOCK_MAX_TRIES=100 ×
-# the 0.02s retry sleep => ~2s worst case), so a contended lock can never stall
-# creation beyond that bound and never fail it; a skipped write self-heals on the
-# next `scan`. `WorktreeRemove` is fire-and-forget (failures logged in debug
-# only).
+# THE CORRECTED `WorktreeCreate` CONTRACT, AND WHY NOTHING HERE REGISTERS IT.
+# The contract this script once carried was wrong, and the error was expensive:
+# `WorktreeCreate` does NOT hand a hook a `worktree_path` to pass through. It
+# carries a bare worktree `name`, and registering a hook on it REPLACES native
+# git worktree creation — the hook becomes the creator, expected to produce the
+# worktree and print where it put it. Only `WorktreeRemove` carries
+# `worktree_path`, because there the worktree already exists. The two payloads
+# are not variants of one shape; the pass-through reading was back-filled from
+# remove onto create.
+#
+# The consequence: the old `hook-create` read `worktree_path` from a payload
+# that has none, echoed nothing, and exited 0 — and on this event silence is
+# refusal, so worktree creation broke on every installed machine, explained only
+# on stderr the harness discards. Verified identical on CLI 2.1.226 / 2.1.237 /
+# 2.1.239 / 2.1.241, so it was never a platform regression. Superseding
+# observation: obs:46886617.
+#
+# planwright therefore registers NO `WorktreeCreate` hook and ships no
+# `hook-create` handler. It only ever wanted passive tracking, and this event
+# grants no passive mode. Creation is tracked by the two paths that cannot
+# refuse anything: `record-create`, called at the dispatch seam
+# (fleet-dispatch-worktree.sh), and the `scan` reconcile for worktrees created
+# any other way — the graceful-degradation fallback D-7 already required.
+# `scripts/check-hook-contracts.sh` keeps the event unregistered.
+#
+# `WorktreeRemove` is genuinely observational — it cannot prevent a removal and
+# its failures are logged in debug only — so `hook-remove` stays registered. Its
+# registry write is a synchronous best-effort side effect with a SHORT bounded
+# lock wait (LOCK_MAX_TRIES=100 × the 0.02s retry sleep => ~2s worst case); a
+# skipped write self-heals on the next `scan`.
 #
 # NOT A DAEMON ACTION. Tracking is bookkeeping, not a destructive daemon action:
 # it is NOT gated by the `fleet_daemon_pause` kill-switch (which pauses
@@ -45,7 +66,6 @@
 #   fleet-worktree-track.sh record-remove <path>   push a removal (idempotent)
 #   fleet-worktree-track.sh list                   print tracked paths, one/line
 #   fleet-worktree-track.sh scan [<repo-root>]     disk-scan reconcile (fallback)
-#   fleet-worktree-track.sh hook-create            WorktreeCreate handler (stdin)
 #   fleet-worktree-track.sh hook-remove            WorktreeRemove handler (stdin)
 #
 # Exit codes: 0 success; 2 usage / refused malformed path; 2 also a lock/
@@ -70,6 +90,49 @@ FS="$script_dir/fleet-state.sh"
 
 warn() { printf 'fleet-worktree-track: %s\n' "$*" >&2; }
 
+# hook_system_message <text> <constant-json> — say something the operator will
+# actually read. Hook stderr is discarded on the events this script handles, so a
+# `warn` from inside a handler reaches nobody; `systemMessage` is the channel the
+# harness surfaces (REQ-H1.3, REQ-K1.1). Emitted as JSON on stdout, control bytes
+# stripped through the canonical sanitizer (REQ-K1.3) and `"`/`\` escaped by jq,
+# so a malformed payload can never break the framing of the message reporting it.
+#
+# WHY A PRE-ESCAPED CONSTANT IS THE SECOND ARGUMENT. jq is what builds the JSON,
+# so a jq that is absent — or on PATH but broken (non-zero exit, or exit 0 with
+# empty output) — would otherwise take the message with it, and the operator is
+# back to the discarded channel REQ-H1.3 exists to keep refusals off. The rest of
+# this handler already degrades without jq (extract_worktree_path's sed path), so
+# the message has to as well. <constant-json> is the same text hand-rolled at
+# authoring time, which is safe precisely because it is a compile-time constant
+# carrying no untrusted content — the ready-guard.sh `emit_deny_nojq` discipline.
+# Hand-rolling the ESCAPING of arbitrary <text> would not be safe: sanitizing
+# strips C1 bytes, which can leave a multibyte character truncated into invalid
+# UTF-8 that no amount of `"`/`\` quoting repairs. Tests assert the two forms
+# stay byte-identical, so the duplication cannot rot unnoticed.
+hook_system_message() {
+  hsm_t=$(sanitize_printable "$1" "(unprintable)")
+  hsm_out=$(jq -cn --arg m "$hsm_t" '{systemMessage: $m}' 2>/dev/null) || hsm_out=""
+  [ -n "$hsm_out" ] || hsm_out=$2
+  printf '%s\n' "$hsm_out"
+}
+
+# The two messages hook-remove emits, each in the two forms hook_system_message
+# needs: the raw text jq interpolates, and the pre-escaped constant for the
+# jq-absent / jq-broken path. Keep each pair in sync — the tests compare the
+# emitted bytes.
+#
+# They are two messages, not one reused, because the operator's next move
+# differs. An ABSENT worktree_path is a payload shape we could not read at all;
+# a MALFORMED one means the harness handed us a path that failed the grammar
+# every stored path must pass, which is a hostile-input signal worth naming as
+# such. Neither message echoes the offending path: the jq-less form is a
+# constant and cannot interpolate one, and hand-escaping an interpolation is
+# exactly what hook_system_message's contract rules out.
+UNREADABLE_PAYLOAD_MSG="planwright: a WorktreeRemove payload carried no readable worktree_path, so the worktree registry still lists a tree that is gone. Nothing was blocked; the stale entry clears on the next 'fleet-worktree-track.sh scan'."
+UNREADABLE_PAYLOAD_JSON='{"systemMessage":"planwright: a WorktreeRemove payload carried no readable worktree_path, so the worktree registry still lists a tree that is gone. Nothing was blocked; the stale entry clears on the next '"'"'fleet-worktree-track.sh scan'"'"'."}'
+MALFORMED_PATH_MSG="planwright: a WorktreeRemove payload carried a worktree_path that failed the path grammar (absolute, no control bytes, at most 4096 characters), so nothing was recorded and the worktree registry still lists a tree that is gone. The path is withheld deliberately. Nothing was blocked; the stale entry clears on the next 'fleet-worktree-track.sh scan'."
+MALFORMED_PATH_JSON='{"systemMessage":"planwright: a WorktreeRemove payload carried a worktree_path that failed the path grammar (absolute, no control bytes, at most 4096 characters), so nothing was recorded and the worktree registry still lists a tree that is gone. The path is withheld deliberately. Nothing was blocked; the stale entry clears on the next '"'"'fleet-worktree-track.sh scan'"'"'."}'
+
 valid_path() {
   vp=$1
   case $vp in
@@ -86,8 +149,8 @@ resolve_home() {
 }
 
 # The lock-acquire retry budget. The direct CLI uses the full budget (a
-# registry write must not be dropped); the hook handlers lower it (LOCK_MAX_TRIES
-# below) so a contended lock can never stall a WorktreeCreate/Remove operation —
+# registry write must not be dropped); the hook handler lowers it (LOCK_MAX_TRIES
+# below) so a contended lock can never stall a `WorktreeRemove` operation —
 # a skipped hook record self-heals on the next sweep's `scan`.
 LOCK_MAX_TRIES=1000
 
@@ -222,11 +285,11 @@ extract_worktree_path() {
   # JSON-unescape, so a worktree_path VALUE carrying a backslash-escape mis-parses
   # — an embedded `"` arrives as `\"` and truncates the capture; an embedded `\`
   # arrives as `\\` and doubles — yielding a WRONG path that still passes
-  # valid_path and would be echoed on the WorktreeCreate decision channel. A
-  # backslash in the sed result is exactly that untrustworthy signal (a real
-  # fleet worktree path carries none), so refuse it: emit nothing, and the caller
-  # fails CLOSED (hook-create echoes nothing => creation refused, never under a
-  # mis-parsed name). jq, the primary path, unescapes correctly and is unaffected.
+  # valid_path. A backslash in the sed result is exactly that untrustworthy
+  # signal (a real fleet worktree path carries none), so refuse it: emit nothing,
+  # and the caller records nothing rather than recording a mis-parsed path that
+  # a later reclaim would act on. jq, the primary path, unescapes correctly and
+  # is unaffected.
   ewp_sed=$(printf '%s' "$ewp_in" \
     | sed -n 's/.*"worktree_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
     | head -1)
@@ -374,47 +437,42 @@ case "$cmd" in
     rm -f "$sc_uniq"
     exit 0
     ;;
-  hook-create)
-    # DECISION-CONTROL SAFE (the verified WorktreeCreate contract). The stdin
-    # worktree_path is the decision-control response the harness reads, so it is
-    # emitted FIRST — but only after passing the same grammar check every stored
-    # path gets: a payload path carrying a control byte is refused (nothing
-    # echoed, no raw bytes on the decision channel; a malformed path is a
-    # pathological input, safer left uncreated than created under a forged name).
-    # A well-formed path always passes. The record then runs synchronously with a
-    # SHORT bounded lock wait (LOCK_MAX_TRIES=100 × the 0.02s retry sleep => ~2s
-    # worst case), so a contended lock can never stall creation beyond that bound
-    # and never fail it; a skipped record self-heals on the next sweep's `scan`. The
-    # record's isolated subshell can neither change stdout nor the exit — this
-    # hook ALWAYS exits 0, so it never fails creation via a non-zero exit or a
-    # stalled record. A well-formed payload echoes its path and creation proceeds;
-    # the ONLY creation-failing path is the deliberate fail-closed one above — a
-    # malformed/absent payload echoes nothing, and the contract treats a missing
-    # stdout path as a refusal (safer than tracking a worktree under a forged name).
-    LOCK_MAX_TRIES=100
-    hc_in=$(cat 2>/dev/null) || hc_in=""
-    hc_path=$(extract_worktree_path "$hc_in")
-    if [ -n "$hc_path" ] && valid_path "$hc_path"; then
-      printf '%s\n' "$hc_path"
-      (do_record add "$hc_path" >/dev/null 2>&1) || true
-    elif [ -n "$hc_path" ]; then
-      warn "WorktreeCreate worktree_path failed the path grammar (not absolute, a leading dash, a control byte, or over 4096 chars) — echoing nothing"
-    else
-      warn "WorktreeCreate payload carried no worktree_path — echoing nothing"
-    fi
-    exit 0
-    ;;
   hook-remove)
+    # OBSERVATIONAL. `WorktreeRemove` cannot be prevented by a hook and its
+    # failures are logged in debug only, so this handler never blocks anything
+    # and ALWAYS exits 0. There is deliberately no `hook-create` counterpart —
+    # see the corrected contract in the header.
+    #
+    # When the payload cannot be read, the reason goes out as `systemMessage`,
+    # the channel this event actually surfaces to the operator (REQ-H1.3,
+    # REQ-K1.1). Stderr is discarded here, and a tracking gap explained only on
+    # a discarded channel is what made the create-side outage take a binary
+    # inspection to diagnose. The registry self-heals on the next `scan`; the
+    # message says so, so the operator knows this is drift, not data loss.
+    #
+    # BOTH ways of not recording get a message, because both are the same gap
+    # from the operator's chair. `valid_path` is re-checked here rather than
+    # left to `do_record` because do_record's own refusal warns on stderr from
+    # inside a subshell with stderr closed — doubly invisible on an event whose
+    # stderr the harness discards — so the branch that knows WHY nothing was
+    # recorded is the one that has to say it. A do_record failure for any other
+    # reason (unresolvable home, contended lock) stays silent by design: those
+    # are transient and the header's self-healing `scan` is the answer, whereas
+    # a malformed path will never record no matter how often it is retried.
     LOCK_MAX_TRIES=100
     hr_in=$(cat 2>/dev/null) || hr_in=""
     hr_path=$(extract_worktree_path "$hr_in")
-    if [ -n "$hr_path" ]; then
+    if [ -n "$hr_path" ] && valid_path "$hr_path"; then
       (do_record remove "$hr_path" >/dev/null 2>&1) || true
+    elif [ -n "$hr_path" ]; then
+      hook_system_message "$MALFORMED_PATH_MSG" "$MALFORMED_PATH_JSON"
+    else
+      hook_system_message "$UNREADABLE_PAYLOAD_MSG" "$UNREADABLE_PAYLOAD_JSON"
     fi
     exit 0
     ;;
   "")
-    warn "usage: record-create|record-remove <path> | list | scan [root] | hook-create | hook-remove"
+    warn "usage: record-create|record-remove <path> | list | scan [root] | hook-remove"
     exit 2
     ;;
   *)

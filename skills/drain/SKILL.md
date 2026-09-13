@@ -3,8 +3,9 @@ name: drain
 description: >-
   Run the on-demand drain pass over every spec bundle's Gate deferral
   entries: evaluate structured GATE(when:) conditions, surface date and
-  free-text gates, report malformed ones, and surface the observations log's
-  unmined state. Read-only; nothing is auto-resolved or auto-dropped.
+  free-text gates, report malformed ones, inventory each live bundle's
+  [manual] test-spec entries, and surface the observations log's unmined
+  state. Read-only; nothing is auto-resolved or auto-dropped.
 ---
 
 # /drain — on-demand gate drain pass
@@ -60,7 +61,9 @@ this order:
 1. **MALFORMED** — drain-report-level errors. For each, show the file:line,
    the reason, and the offending gate text, and propose the corrected entry
    (restate the condition in the closed grammar, or reword it as a free-text
-   gate if it cannot be said in the grammar). Never evaluate or guess around
+   gate if it cannot be said in the grammar). A row whose reason is that no
+   atom is in the closed grammar already carries that second remedy as a
+   hint; relay it rather than re-deriving one. Never evaluate or guess around
    a malformed gate.
 2. **SATISFIED** — condition gates whose atoms all hold: these items have
    re-surfaced and are actionable now.
@@ -70,7 +73,13 @@ this order:
    human can judge each condition.
 5. **PENDING / DORMANT** — not yet actionable; summarize counts, with
    detail on request.
-6. **Observations** — the unmined count and oldest-entry age, derived from
+6. **Manual verification** — the `== manual verification ==` section: each
+   live bundle (Draft, Ready, Active) with its `[manual]` test-spec entries,
+   `[test + manual]` included. This is inventory, not state (D-15): nothing
+   records whether an entry was ever exercised, so relay it as a standing
+   reminder of what still needs a human to run it, not as a to-do list the
+   sweep is tracking. Done and terminal bundles are out of scope by design.
+7. **Observations** — the unmined count and oldest-entry age, derived from
    the fragment store (`entries/`) and the frozen legacy file's unconsumed
    lines and naming both surfaces, plus any stuck consumes (fragments
    annotated `Consumed-by:` but not yet moved to `archive/`) and skipped

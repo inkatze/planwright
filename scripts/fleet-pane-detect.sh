@@ -10,8 +10,9 @@
 # D-1's push-first / reconcile-backstop pattern, carried by D-3). Where a fresh
 # push is present in the attention store the detector DEFERS.
 #
-# It codifies, once, the pane discipline every tower otherwise re-derives — and
-# each ad-hoc re-derivation regressed:
+# It applies the pane discipline codified once in fleet-pane-vocabulary.sh,
+# the discipline every tower otherwise re-derives — and each ad-hoc
+# re-derivation regressed:
 #   - the 2026-07-19 scrollback false-match (a whole-pane busy matcher matching
 #     `esc to interrupt` quoted in the scrollback of an idle session), and
 #   - the 2026-07-18 background-agent false-idle (an absence-of-`esc to
@@ -155,105 +156,17 @@ valid_oracle_cwd() {
   [ "${#voc_v}" -le 512 ]
 }
 
-# ---------------------------------------------------------------------------
-# The codified marker vocabulary. This is the SINGLE point a tower updates if
-# the Claude Code TUI footer text changes — the whole value of codifying the
-# detector once (D-3) instead of every tower re-deriving a fragile heuristic.
-#
-# Busy markers (case-insensitive substring, matched in the footer region only):
-#   - `esc to interrupt`  — the running-turn spinner line of the MAIN agent;
-#     it always co-occurs with the animated spinner gerund, so matching it
-#     subsumes the spinner-word case for the main agent;
-#   - `background agent` / `to manage` — the background-agent busy footer
-#     (`Waiting for N background agents… (ctrl+b to manage)`), which carries NO
-#     `esc to interrupt`, so it must be matched independently (the 2026-07-18
-#     false-idle);
-#   - the spinner gerunds below — belt-and-suspenders for a spinner line whose
-#     `esc to interrupt` clause has scrolled or wrapped off the captured frame.
-# Positive at-prompt anchors (case-insensitive substring, footer region only):
-#   the stable idle-footer tokens of a worker launched in auto / bypass mode.
-#   Override the anchor set for a bespoke TUI via FLEET_PANE_PROMPT_ANCHORS
-#   (a newline-separated list); unset falls back to the codified default.
-# ---------------------------------------------------------------------------
-busy_markers() {
-  cat <<'EOF'
-esc to interrupt
-background agent
-to manage
-EOF
-}
-spinner_words() {
-  cat <<'EOF'
-thinking…
-cogitating…
-simmering…
-pondering…
-puzzling…
-herding…
-noodling…
-working…
-churning…
-computing…
-EOF
-}
-default_prompt_anchors() {
-  cat <<'EOF'
-? for shortcuts
-auto mode on
-auto-accept edits
-bypass permissions
-bypassing permissions
-plan mode on
-EOF
-}
-# prompt_anchors — emit the anchor needles, always lowercased. raw_classify
-# lowercases the haystack, so the needles must be lowercase too; folding here (a
-# harmless passthrough for the already-lowercase default) means a mixed-case
-# FLEET_PANE_PROMPT_ANCHORS override matches instead of silently never matching.
-prompt_anchors() {
-  if [ -n "${FLEET_PANE_PROMPT_ANCHORS:-}" ]; then
-    printf '%s\n' "$FLEET_PANE_PROMPT_ANCHORS" | tr '[:upper:]' '[:lower:]'
-  else
-    default_prompt_anchors
-  fi
-}
-
-# contains_any <haystack-lowercased> <needle-list-on-stdin> — 0 iff any
-# non-empty needle is a substring of the haystack. Case folding is the caller's
-# job (needles are already lowercase); the sh `case` glob does the substring
-# test, so no regex metacharacter in a needle is ever interpreted.
-contains_any() {
-  ca_hay="$1"
-  while IFS= read -r ca_needle; do
-    [ -n "$ca_needle" ] || continue
-    case "$ca_hay" in
-      *"$ca_needle"*) return 0 ;;
-    esac
-  done
-  return 1
-}
-
-# raw_classify <footer-region-text> — echo idle | busy | indeterminate from the
-# footer region ALONE. Busy takes precedence: a busy marker present is busy
-# regardless of any anchor. Idle requires a positive anchor AND no busy marker.
-# Anything else (no busy marker, no anchor — a blank / loading / mid-render
-# pane) is indeterminate, never idle.
-raw_classify() {
-  rc_footer_lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-  if printf '%s\n' "$(busy_markers)" | { contains_any "$rc_footer_lc"; }; then
-    echo busy
-    return 0
-  fi
-  if printf '%s\n' "$(spinner_words)" | { contains_any "$rc_footer_lc"; }; then
-    echo busy
-    return 0
-  fi
-  if printf '%s\n' "$(prompt_anchors)" | { contains_any "$rc_footer_lc"; }; then
-    echo idle
-    return 0
-  fi
-  echo indeterminate
-}
+# The marker vocabulary and the footer classifier over it are the sourced
+# sibling fleet-pane-vocabulary.sh (busy_markers, spinner_words,
+# prompt_anchors, contains_any, raw_classify): one owner for the TUI strings,
+# shared with the stuck-detector so the two can never disagree about what a
+# busy or an at-prompt footer looks like.
+if [ ! -r "$here/fleet-pane-vocabulary.sh" ]; then
+  echo "fleet-pane-detect: required helper $here/fleet-pane-vocabulary.sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/fleet-pane-vocabulary.sh
+. "$here/fleet-pane-vocabulary.sh"
 
 # fresh_push_exists <root> <worker> <now> <ttl> — 0 iff the attention store
 # holds a row for <worker> whose heartbeat (the commit-time push timestamp) is
@@ -389,11 +302,11 @@ esac
 # they key a store lookup or a state filename (a tab / newline / control char
 # would silently break both). Same discipline as fleet-liveness.sh.
 valid_field "$worker" || {
-  echo "fleet-pane-detect: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+  printf '%s\n' "fleet-pane-detect: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
   exit 2
 }
 valid_field "$scope" || {
-  echo "fleet-pane-detect: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+  printf '%s\n' "fleet-pane-detect: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
   exit 2
 }
 # The oracle join key, validated whenever the flag was SEEN. A rejected value
@@ -406,12 +319,12 @@ valid_field "$scope" || {
 # classification loss for that worker. (The liveness helper's own arms stay
 # strict exit-2 refusals; this relaxation is the detector's alone.)
 if [ "$oracle_cwd_given" = 1 ] && ! valid_oracle_cwd "$oracle_cwd"; then
-  echo "fleet-pane-detect: --cwd '$(sanitize_printable "$oracle_cwd" "(unprintable cwd)")' is not a usable oracle join key (absolute, printable, backslash-free, <=512 chars); skipping the oracle, pane heuristics only" >&2
+  printf '%s\n' "fleet-pane-detect: --cwd '$(sanitize_printable "$oracle_cwd" "(unprintable cwd)")' is not a usable oracle join key (absolute, printable, backslash-free, <=512 chars); skipping the oracle, pane heuristics only" >&2
   oracle_cwd=""
 fi
 
 [ -f "$pane" ] && [ -r "$pane" ] || {
-  echo "fleet-pane-detect: pane file not readable: $(sanitize_printable "$pane" "(unprintable path)")" >&2
+  printf '%s\n' "fleet-pane-detect: pane file not readable: $(sanitize_printable "$pane" "(unprintable path)")" >&2
   exit 2
 }
 
@@ -437,7 +350,7 @@ else
     tmux | stream-json-persistent | headless-oneshot) push_capable=0 ;;
     subagent | print | in-session) push_capable=1 ;;
     *)
-      echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no liveness helper to resolve it)" >&2
+      printf '%s\n' "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no liveness helper to resolve it)" >&2
       exit 2
       ;;
   esac
@@ -446,7 +359,7 @@ case $push_capable in
   0) ;; # push-capable — apply the freshness gate below
   1) ;; # hook-less — the detector is the primary path; skip the gate
   *)
-    echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via fleet-liveness push-capable)" >&2
+    printf '%s\n' "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via fleet-liveness push-capable)" >&2
     exit 2
     ;;
 esac
@@ -537,7 +450,7 @@ if [ "$state_shared_tmp" = 1 ]; then
   # must re-prove it is still ours and not a redirect planted since.
   [ -d "$state_dir" ] || mkdir -m 0700 "$state_dir" 2>/dev/null || true
   if ! state_dir_trusted "$state_dir"; then
-    echo "fleet-pane-detect: refusing the shared fallback state dir $(sanitize_printable "$state_dir" "(unprintable path)") — not a private per-user directory (foreign owner or symlink redirect); pane heuristics unavailable, the defer gates still answer" >&2
+    printf '%s\n' "fleet-pane-detect: refusing the shared fallback state dir $(sanitize_printable "$state_dir" "(unprintable path)") — not a private per-user directory (foreign owner or symlink redirect); pane heuristics unavailable, the defer gates still answer" >&2
     state_ok=0
   fi
 elif ! mkdir -p "$state_dir" 2>/dev/null; then
@@ -563,7 +476,7 @@ state_file="$state_dir/$key"
 reset_debounce_state() {
   [ "$state_ok" = 1 ] || return 0
   if [ -e "$state_file" ] && ! rm -f "$state_file" 2>/dev/null; then
-    echo "fleet-pane-detect: could not reset the debounce state $(sanitize_printable "$state_file" "(unprintable path)") — a stale frame pair may confirm early" >&2
+    printf '%s\n' "fleet-pane-detect: could not reset the debounce state $(sanitize_printable "$state_file" "(unprintable path)") — a stale frame pair may confirm early" >&2
   fi
 }
 
@@ -610,7 +523,7 @@ if [ -n "$oracle_cwd" ] && [ -x "$FL" ]; then
           exit 0
           ;;
         *)
-          echo "fleet-pane-detect: the liveness helper answered with an unrecognized verdict '$(sanitize_printable "$o_v" "(unprintable verdict)")'; falling back to the pane heuristics" >&2
+          printf '%s\n' "fleet-pane-detect: the liveness helper answered with an unrecognized verdict '$(sanitize_printable "$o_v" "(unprintable verdict)")'; falling back to the pane heuristics" >&2
           ;;
       esac
       ;;
@@ -629,7 +542,7 @@ fi
 # now does its absence fail closed (the defer gates above answered without
 # it whenever they could).
 if [ "$state_ok" != 1 ]; then
-  echo "fleet-pane-detect: cannot use the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
+  printf '%s\n' "fleet-pane-detect: cannot use the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
   exit 2
 fi
 
@@ -674,7 +587,7 @@ fi
 
 # Persist the new state atomically (same-dir temp + rename).
 state_tmp=$(mktemp "$state_dir/.tmp.XXXXXX" 2>/dev/null) || {
-  echo "fleet-pane-detect: cannot create a temp file under $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
+  printf '%s\n' "fleet-pane-detect: cannot create a temp file under $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
   exit 2
 }
 if ! printf '%s\n%s\n' "$raw" "$confirmed" >"$state_tmp"; then

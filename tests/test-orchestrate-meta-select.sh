@@ -25,6 +25,10 @@
 #     surfaced on stderr per spec, REQ-B1.5) → exit 1, empty stdout.
 #   - A missing/taskless/non-git spec dir, or a hostile spec basename → exit 2
 #     (fail closed), like the single-spec selector.
+#   - A per-spec selector that could not ANSWER → exit 2 as well: an exit
+#     outside its documented 0/1/2/3 set, or exit 0 with output that is not a
+#     task id, is an evaluation failure, never a silent not-a-candidate
+#     (format-grammar REQ-E1.5).
 #
 # Fixtures are real git repos with crafted evidence — the same live-truth model
 # the single-spec selector test uses: a task is COMPLETED via a reachable
@@ -644,5 +648,83 @@ got=$(PATH="$lstub:$PATH" "$MSEL" "$oheld" "$oready" 2>"$tmp/o18.err") || rc=$?
 grep -Fq 'transient evidence failure' "$tmp/o18.err" \
   || fail "case 18: the held spec's hold must still surface on stderr (got: $(cat "$tmp/o18.err"))"
 echo "ok: a transient-held v2 spec is skipped, not fleet-fatal (REQ-B1.5)"
+
+# ---------------------------------------------------------------------------
+# 19. Fail closed on an UNEXPECTED selector result (format-grammar REQ-E1.5).
+#     The selector's documented exits are 0 (a unit), 1 (nothing ready), 2 (hard
+#     failure), 3 (transient hold). Anything else — a crash, a signal death, a
+#     future exit code — means the selector could not answer, which is not the
+#     same as "this spec has nothing ready". Same for an exit-0 selector whose
+#     stdout is not a task id: the meta-selector would otherwise hand a garbage
+#     unit to the dispatcher or, on empty output, drop the spec silently.
+#
+#     The fixture shims the sibling primitives: a directory of symlinks to the
+#     real scripts (each resolves its own siblings through that directory, so
+#     the fleet still derives real state) with orchestrate-select.sh replaced by
+#     a stub. Without the fail-closed handling both cases exit 1 "nothing
+#     dispatchable" — indistinguishable from a genuinely idle fleet.
+# ---------------------------------------------------------------------------
+shimdir="$tmp/shim"
+mkdir -p "$shimdir"
+for shimmed in "$here"/../scripts/*.sh; do
+  ln -s "$(cd "$(dirname "$shimmed")" && pwd)/$(basename "$shimmed")" \
+    "$shimdir/$(basename "$shimmed")"
+done
+SHIMSEL="$shimdir/orchestrate-meta-select.sh"
+
+repoP=$(new_fleet "$tmp/P")
+palpha=$(add_spec "$repoP" speca)
+two_task_body >"$palpha/tasks.md"
+seal_base "$repoP"
+done_trailer "$repoP" speca 1
+set_bounds "$repoP" 5 3
+
+# Sanity: through the shim with the REAL selector the fleet dispatches task 2,
+# so a flipped assertion below is the stub's doing, not the shim's.
+rc=0
+got=$("$SHIMSEL" "$palpha" 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] && [ "$got" = "$(printf '%s\t2' "$palpha")" ] \
+  || fail "case 19: the shim itself broke selection (rc $rc, got '$got')"
+
+stub_selector() {
+  rm -f "$shimdir/orchestrate-select.sh"
+  printf '%s\n' '#!/bin/sh' "$1" >"$shimdir/orchestrate-select.sh"
+  chmod +x "$shimdir/orchestrate-select.sh"
+}
+
+# 19a. An unexpected non-zero exit (a crashing selector) must fail closed.
+stub_selector 'exit 42'
+rc=0
+got=$("$SHIMSEL" "$palpha" 2>"$tmp/p19a.err") || rc=$?
+[ "$rc" = 2 ] \
+  || fail "case 19a: an unexpected selector exit must fail closed (rc $rc, got '$got')"
+grep -Fq '42' "$tmp/p19a.err" \
+  || fail "case 19a: the refusal must name the unexpected status (got: $(cat "$tmp/p19a.err"))"
+
+# 19b. Exit 0 with output that is not a task id must fail closed, not dispatch.
+stub_selector 'echo "not-a-task-id"; exit 0'
+rc=0
+got=$("$SHIMSEL" "$palpha" 2>"$tmp/p19b.err") || rc=$?
+[ "$rc" = 2 ] \
+  || fail "case 19b: unparseable selector output must fail closed (rc $rc, got '$got')"
+[ -z "$got" ] || fail "case 19b: a garbage unit reached stdout: '$got'"
+
+# 19c. Exit 0 with EMPTY output is the same failure, not a quiet skip.
+stub_selector 'exit 0'
+rc=0
+got=$("$SHIMSEL" "$palpha" 2>"$tmp/p19c.err") || rc=$?
+[ "$rc" = 2 ] \
+  || fail "case 19c: an empty exit-0 selector result must fail closed (rc $rc)"
+
+# 19d. The refusal echoes untrusted selector output through the echo discipline:
+#      raw escape bytes must never reach the operator's terminal.
+stub_selector 'printf "\033]0;pwned\007\n"; exit 0'
+rc=0
+"$SHIMSEL" "$palpha" >/dev/null 2>"$tmp/p19d.err" || rc=$?
+[ "$rc" = 2 ] || fail "case 19d: escape-laden selector output must fail closed (rc $rc)"
+p19dstripped=$(tr -d '\000-\037\177' <"$tmp/p19d.err")
+[ "$p19dstripped" = "$(cat "$tmp/p19d.err")" ] \
+  || fail "case 19d: raw control/escape bytes leaked to stderr from the unparseable-output refusal (terminal injection)"
+echo "ok: an unexpected selector exit or unparseable output fails closed (REQ-E1.5)"
 
 echo "PASS: orchestrate-meta-select"

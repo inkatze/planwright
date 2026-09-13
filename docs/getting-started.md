@@ -390,6 +390,10 @@ you.
   execution-backend seam (autodetect, the degradation ladder, plugging in your
   own backend), the decision queue you watch, and what an unattended fleet
   decides without you — no multiplexer knowledge required.
+- [`docs/per-tower-checkouts.md`](per-tower-checkouts.md) — one clone per tower:
+  the topology that removes the shared-`main` race, the reachable-`origin`
+  precondition, the fast-forward-only currency sync, and the migration path
+  (repo-root machine-local env file, stable `auth_sock` indirection).
 - [`docs/CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute changes.
 - [`docs/release-checklist.md`](release-checklist.md) — the public-release
   readiness gate (for maintainers).

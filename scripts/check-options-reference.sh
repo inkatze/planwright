@@ -6,16 +6,49 @@
 # row with no matching config option is a warning on stderr (stale docs
 # surface without blocking). Task 2 wires this into planwright's CI.
 #
-# Usage: check-options-reference.sh [<config> [<reference>]]
+# ## The fleet-knobs tether (guard-coverage Task 9; REQ-F1.3, REQ-H1.3, D-10)
+#
+# docs/fleet.md's knobs table does something the options reference does not: it
+# restates each fleet knob's **default value** in prose. A restated value
+# drifts silently, so this check also compares those defaults against the
+# config. Every knob the table names must exist in the config with the value
+# the table claims; a divergence, or a name the config does not carry, is an
+# error (exit 1).
+#
+# Usage: check-options-reference.sh [<config> [<reference> [<fleet>]]]
 #   Defaults: config/defaults.yml and docs/options-reference.md relative to
-#   the repo root (the script's parent directory).
+#   the repo root (the script's parent directory). The fleet doc defaults to
+#   docs/fleet.md in the **zero-argument (CI) form only** — a caller
+#   substituting fixture files for the config supplies the matching fleet doc
+#   too, since tethering a fixture config to the shipped prose would compare
+#   two unrelated things. That skip is announced on stderr, never silent.
 #
 # Format constraints this parser relies on: the config must be flat
 # "key: value" lines (nested YAML keys are invisible to it and fail the
-# zero-key guard), and each reference row's first table cell must contain
-# only the backticked option name.
+# zero-key guard); each reference row's first table cell must contain only the
+# backticked option name; and each knobs row names its knobs as backticked
+# identifiers in the first cell, with the matching defaults as the LEADING
+# backticked values of the `Default…` column, `/`-separated and positionally
+# paired (`a` / `b` for `knob_a` / `knob_b`). Trailing prose after those
+# values is ignored.
 #
-# Exit codes: 0 fully documented, 1 undocumented option found, 2 usage error.
+# Knob families. A row may name an open family (`allocation_model_*`) rather
+# than literal keys. A family stands for a set of config keys that is open by
+# construction, so it restates no single default and is exempt: the row parses
+# and contributes no pair. The exemption is by shape (a backticked name ending
+# `_*`), not by an enumerated list, so a new family costs no edit here; and it
+# is narrow, so a stray `foo*` is still a malformed row. A row MIXING literal
+# knobs with families fails closed, because the two lists pair positionally
+# and a family supplies a name with no value to pair against.
+#
+# Fail-closed posture (REQ-H1.3), symmetric on both sides: a config parsing to
+# zero option keys is an error, and so is a knobs table with no recognizable
+# header, no rows, a row naming no knob, a row with no backticked default, a
+# row whose knob count and default count disagree, and a row mixing literal
+# knobs with families. A vacuous parse must never read as agreement.
+#
+# Exit codes: 0 fully documented and tethered, 1 an undocumented option or a
+# fleet-knob divergence, 2 usage error or a fail-closed parse degeneracy.
 #
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
 set -u
@@ -30,8 +63,34 @@ export LC_ALL
 unset CDPATH
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
+
+# Display sanitizer for parsed content (echo discipline,
+# doctrine/security-posture.md). The fleet tether below echoes knob names,
+# values, and malformed-row text lifted straight out of a markdown table, so
+# an escape sequence embedded in the doc would otherwise drive the terminal of
+# whoever runs the gate. A byte-identical inline fallback is defined first so a
+# diagnostic is never unable to strip control bytes; the canonical shared
+# helper overrides it when the sibling resolves. Mirrors the two sibling
+# tethers this check ships alongside.
+sanitize_printable() {
+  _sp=$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237' 2>/dev/null) || _sp=''
+  if [ -z "$_sp" ] && [ $# -ge 2 ]; then
+    _sp=$2
+  fi
+  printf '%s' "$_sp"
+}
+if [ -r "$repo_root/scripts/echo-safety.sh" ]; then
+  # shellcheck source=scripts/echo-safety.sh
+  . "$repo_root/scripts/echo-safety.sh"
+fi
+
 config="${1:-$repo_root/config/defaults.yml}"
 reference="${2:-$repo_root/docs/options-reference.md}"
+# The fleet tether engages on the CI form, or whenever a caller names the doc.
+fleet="${3:-}"
+if [ "$#" -eq 0 ]; then
+  fleet="$repo_root/docs/fleet.md"
+fi
 
 if [ ! -f "$config" ]; then
   echo "check-options-reference: config file not found: $config" >&2
@@ -39,6 +98,10 @@ if [ ! -f "$config" ]; then
 fi
 if [ ! -f "$reference" ]; then
   echo "check-options-reference: reference file not found: $reference" >&2
+  exit 2
+fi
+if [ -n "$fleet" ] && [ ! -f "$fleet" ]; then
+  echo "check-options-reference: fleet doc not found: $(sanitize_printable "$fleet" "(unprintable path)")" >&2
   exit 2
 fi
 
@@ -86,7 +149,171 @@ for doc in $documented_keys; do
   fi
 done
 
+# ---------------------------------------------------------------------------
+# The fleet-knobs tether: docs/fleet.md's knobs table restates config defaults.
+# ---------------------------------------------------------------------------
+fleet_knob_count=0
+if [ -n "$fleet" ]; then
+  safe_fleet="$(sanitize_printable "$fleet" "(unprintable path)")"
+  safe_config="$(sanitize_printable "$config" "(unprintable path)")"
+  # Config values, keyed by option name. Trailing comments and surrounding
+  # quotes are stripped so the comparison is on the value, not its spelling.
+  config_values="$(awk '
+    /^[a-z0-9_]+:/ {
+      k = $0; sub(/:.*/, "", k)
+      v = $0; sub(/^[a-z0-9_]+:[ \t]*/, "", v)
+      sub(/[ \t]+#.*$/, "", v)
+      sub(/[ \t]+$/, "", v)
+      gsub(/^"|"$|^'"'"'|'"'"'$/, "", v)
+      printf "%s\t%s\n", k, v
+    }
+  ' "$config")"
+
+  # Knobs table: located by a header row whose first cell is `Knob` and which
+  # carries a `Default…` column. Emits one "<knob>\t<documented default>" line
+  # per knob, positionally paired within a multi-knob row.
+  fleet_pairs="$(awk '
+    function strip(s) {
+      gsub(/^[ \t]+/, "", s); gsub(/[ \t]+$/, "", s)
+      return s
+    }
+    # Diagnostics ride the pair stream on a sentinel line rather than stderr,
+    # so the parse needs no scratch file: a predictable name under TMPDIR
+    # would be a symlink-following write, and an unwritable TMPDIR would
+    # silently cost the diagnostic.
+    function err(m) { printf "#ERR\t%s\n", m; bad = 1 }
+    {
+      line = $0; sub(/^[ \t]+/, "", line)
+      # The first non-row line ends the table, and ends the walk: a later
+      # `Knob`-headed table is a neighbouring table, not more knobs rows, and
+      # merging it would tether names this table never claimed to restate.
+      # `exit` still runs the END block, so its exit codes are unaffected.
+      if (line !~ /^\|/) { if (intbl) exit; next }
+      n = split(line, c, "|")
+      if (!intbl) {
+        if (strip(c[2]) != "Knob") next
+        defcol = 0
+        for (i = 3; i < n; i++) if (strip(c[i]) ~ /^Default/) defcol = i
+        if (!defcol) next
+        intbl = 1; found = 1; next
+      }
+      if (line ~ /^\|[ \t]*:?-+:?[ \t]*\|/) next
+      rows++
+
+      nk = 0
+      cell = c[2]
+      while (match(cell, /`[a-z0-9_]+`/)) {
+        names[++nk] = substr(cell, RSTART + 1, RLENGTH - 2)
+        cell = substr(cell, RSTART + RLENGTH)
+      }
+
+      # Knob FAMILIES. A row may name an open family (`allocation_model_*`)
+      # instead of literal keys. A family stands for a set of config keys that
+      # is open by construction, so it has no single default to restate and
+      # nothing for this tether to compare — it is exempt, and the row
+      # contributes no pair.
+      #
+      # Exempt by SHAPE, not by an enumerated list: the config grows families,
+      # and a name list here would mean editing this guard every time it does.
+      # The shape is deliberately narrow — the `_` before the `*` is required —
+      # so a stray `foo*` stays the malformed row it is rather than buying a
+      # silent skip.
+      nfam = 0
+      cell = c[2]
+      while (match(cell, /`[a-z0-9_]+_\*`/)) {
+        nfam++
+        cell = substr(cell, RSTART + RLENGTH)
+      }
+
+      if (nk > 0 && nfam > 0) {
+        # Names and defaults pair POSITIONALLY, and a family contributes a name
+        # with no default. Pairing what is left would silently tether the
+        # literal knobs against whichever values happened to line up, so this
+        # fails closed instead.
+        err("knobs row for " names[1] " mixes literal knobs and families; the positional pairing cannot be trusted")
+        next
+      }
+      if (nfam > 0) next
+      if (nk == 0) {
+        err("knobs row names no option: " strip(c[2]))
+        next
+      }
+
+      nv = 0
+      cell = strip(c[defcol])
+      while (match(cell, /^`[^`]*`/)) {
+        vals[++nv] = substr(cell, RSTART + 1, RLENGTH - 2)
+        cell = substr(cell, RSTART + RLENGTH)
+        sub(/^[ \t]*/, "", cell)
+        if (substr(cell, 1, 1) != "/") break
+        sub(/^\/[ \t]*/, "", cell)
+      }
+      if (nv == 0) {
+        err("knobs row for " names[1] " carries no backticked default value")
+        next
+      }
+      if (nv != nk) {
+        err("knobs row for " names[1] " names " nk " knobs but " nv " default values; they cannot be paired")
+        next
+      }
+      for (i = 1; i <= nk; i++) printf "%s\t%s\n", names[i], vals[i]
+    }
+    END {
+      if (bad) exit 5
+      if (!found) exit 3
+      if (!rows) exit 4
+    }
+  ' "$fleet")"
+  fleet_status=$?
+  fleet_err="$(sanitize_printable "$(printf '%s\n' "$fleet_pairs" | sed -n 's/^#ERR[[:space:]]*//p' | tr '\n' ';')" "(unprintable diagnostic)")"
+  fleet_pairs="$(printf '%s\n' "$fleet_pairs" | grep -v '^#ERR' || true)"
+  case "$fleet_status" in
+    3)
+      echo "check-options-reference: could not parse the knobs table in $safe_fleet (no header row whose first cell is 'Knob' with a 'Default…' column)" >&2
+      exit 2
+      ;;
+    4)
+      echo "check-options-reference: the knobs table in $safe_fleet parsed to zero rows" >&2
+      exit 2
+      ;;
+    5)
+      echo "check-options-reference: malformed knobs table in $safe_fleet: $fleet_err" >&2
+      exit 2
+      ;;
+    0) ;;
+    *)
+      echo "check-options-reference: failed to parse the knobs table in $safe_fleet" >&2
+      exit 2
+      ;;
+  esac
+
+  while IFS="$(printf '\t')" read -r knob documented; do
+    [ -n "$knob" ] || continue
+    fleet_knob_count=$((fleet_knob_count + 1))
+    safe_knob="$(sanitize_printable "$knob" "(unprintable knob)")"
+    actual="$(printf '%s\n' "$config_values" | awk -F'\t' -v k="$knob" '$1 == k { print $2; found = 1 } END { if (!found) exit 1 }')" || {
+      echo "check-options-reference: '$safe_knob' is documented in $safe_fleet but absent from $safe_config" >&2
+      status=1
+      continue
+    }
+    if [ "$documented" != "$actual" ]; then
+      echo "check-options-reference: '$safe_knob' default drift: $safe_fleet says '$(sanitize_printable "$documented" "(unprintable value)")', $safe_config says '$(sanitize_printable "$actual" "(unprintable value)")'" >&2
+      status=1
+    fi
+  done <<EOF
+$fleet_pairs
+EOF
+else
+  # Never a silent skip: a caller that substituted fixture files without a
+  # fleet doc must not read the clean exit as "the tether ran".
+  echo "check-options-reference: fleet-knob tether skipped (no fleet doc given; pass one as the third argument)" >&2
+fi
+
 if [ "$status" -eq 0 ]; then
-  echo "check-options-reference: all options documented"
+  if [ "$fleet_knob_count" -gt 0 ]; then
+    echo "check-options-reference: all options documented; $fleet_knob_count fleet knob defaults tethered to $(sanitize_printable "$config" "(unprintable path)")"
+  else
+    echo "check-options-reference: all options documented"
+  fi
 fi
 exit "$status"

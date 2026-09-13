@@ -31,6 +31,7 @@
 # Usage:
 #   resolve-config-knob.sh --key <key> --type enum --values '<v1> <v2> ...' --fallback <value>
 #   resolve-config-knob.sh --key <key> --type posint --fallback <value>
+#   resolve-config-knob.sh --key <key> --type nonnegint --fallback <value>
 #
 #   <key>      matches ^[a-z][a-z0-9_]*$ (config-get's queryable charset),
 #              validated before it is ever interpolated (REQ-D1.6).
@@ -39,6 +40,13 @@
 #   posint     the value must be a positive integer, no leading zero, at most
 #              15 digits (the overflow guard resolve-context-budget-threshold
 #              uses; a real knob value is orders of magnitude smaller).
+#   nonnegint  posint widened to admit zero: ^(0|[1-9][0-9]{0,14})$. The pinned
+#              numeric-knob grammar for the model-allocation family
+#              (model-allocation D-5, REQ-A1.4), where zero is a meaningful
+#              policy value — an adjustment cap of 0 says "never move the tier"
+#              — so refusing it would force a magic sentinel in its place. The
+#              grammar is validated HERE, before the value reaches any caller's
+#              arithmetic, which is the property REQ-A1.4 asks for.
 #   --fallback is required and must itself validate against the type: it is
 #              the safe value emitted when the key cannot be resolved from any
 #              layer, so an invalid fallback is a caller bug (exit 2).
@@ -77,7 +85,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 . "$script_dir/echo-safety.sh"
 
 usage() {
-  echo "usage: resolve-config-knob.sh --key <key> --type <enum|posint> [--values '<v1> <v2> ...'] --fallback <value>" >&2
+  echo "usage: resolve-config-knob.sh --key <key> --type <enum|posint|nonnegint> [--values '<v1> <v2> ...'] --fallback <value>" >&2
 }
 
 key=""
@@ -136,13 +144,13 @@ case "$key" in
     ;;
   [a-z]*) ;;
   *)
-    echo "resolve-config-knob: invalid key '$(sanitize_printable "$key" "(unprintable key)")' (must match ^[a-z][a-z0-9_]*\$)" >&2
+    printf '%s\n' "resolve-config-knob: invalid key '$(sanitize_printable "$key" "(unprintable key)")' (must match ^[a-z][a-z0-9_]*\$)" >&2
     exit 2
     ;;
 esac
 case "$key" in
   *[!a-z0-9_]*)
-    echo "resolve-config-knob: invalid key '$(sanitize_printable "$key" "(unprintable key)")' (must match ^[a-z][a-z0-9_]*\$)" >&2
+    printf '%s\n' "resolve-config-knob: invalid key '$(sanitize_printable "$key" "(unprintable key)")' (must match ^[a-z][a-z0-9_]*\$)" >&2
     exit 2
     ;;
 esac
@@ -158,17 +166,17 @@ case "$ktype" in
     for _m in $kvalues; do
       case "$_m" in
         *[!A-Za-z0-9._-]*)
-          echo "resolve-config-knob: enum member '$(sanitize_printable "$_m" "(unprintable member)")' has characters outside [A-Za-z0-9._-]" >&2
+          printf '%s\n' "resolve-config-knob: enum member '$(sanitize_printable "$_m" "(unprintable member)")' has characters outside [A-Za-z0-9._-]" >&2
           exit 2
           ;;
       esac
       [ "${#_m}" -le 64 ] || {
-        echo "resolve-config-knob: enum member '$(sanitize_printable "$_m" "(unprintable member)")' is longer than 64 characters" >&2
+        printf '%s\n' "resolve-config-knob: enum member '$(sanitize_printable "$_m" "(unprintable member)")' is longer than 64 characters" >&2
         exit 2
       }
     done
     ;;
-  posint)
+  posint | nonnegint)
     if [ -n "$kvalues" ]; then
       echo "resolve-config-knob: --values only applies to --type enum" >&2
       exit 2
@@ -179,7 +187,7 @@ case "$ktype" in
     exit 2
     ;;
   *)
-    echo "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint)" >&2
+    printf '%s\n' "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint | nonnegint)" >&2
     exit 2
     ;;
 esac
@@ -208,6 +216,17 @@ valid_value() {
       esac
       [ "${#_vv}" -le 15 ]
       ;;
+    nonnegint)
+      # ^(0|[1-9][0-9]{0,14})$. The bare `0` arm must precede the leading-zero
+      # rejection: in a POSIX case the first matching pattern wins, and `0`
+      # matches `0*` too.
+      case "$_vv" in
+        "" | *[!0-9]*) return 1 ;;
+        0) return 0 ;;
+        0*) return 1 ;;
+      esac
+      [ "${#_vv}" -le 15 ]
+      ;;
   esac
 }
 
@@ -219,7 +238,7 @@ emit_trimmed() {
 }
 
 if ! valid_value "$fallback"; then
-  echo "resolve-config-knob: the --fallback value '$(sanitize_printable "$fallback" "(unprintable fallback)")' is not a legal $ktype value (caller bug)" >&2
+  printf '%s\n' "resolve-config-knob: the --fallback value '$(sanitize_printable "$fallback" "(unprintable fallback)")' is not a legal $ktype value (caller bug)" >&2
   exit 2
 fi
 
@@ -243,7 +262,7 @@ fi
 if [ "$rc" -eq 3 ]; then
   # The key is absent in every layer. Emit the caller's declared safe value so
   # the calling mechanism still runs (REQ-K1.6), warning loudly.
-  echo "resolve-config-knob: warning: '$key' is unset in every layer (broken/partial install, or a knob core does not ship); falling back to '$(sanitize_printable "$fallback" "(unprintable fallback)")'" >&2
+  printf '%s\n' "resolve-config-knob: warning: '$key' is unset in every layer (broken/partial install, or a knob core does not ship); falling back to '$(sanitize_printable "$fallback" "(unprintable fallback)")'" >&2
   emit_trimmed "$fallback"
   exit 0
 fi
@@ -277,11 +296,11 @@ fi
 # The winning value is malformed. Apply the REQ-E1.4 by-layer policy.
 case "$layer" in
   repo-tracked)
-    echo "resolve-config-knob: repo-tracked overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); refusing to silently degrade a shared team value" >&2
+    printf '%s\n' "resolve-config-knob: repo-tracked overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); refusing to silently degrade a shared team value" >&2
     exit 4
     ;;
   adopter | machine-local)
-    echo "resolve-config-knob: warning: the $layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); degrading to the core default" >&2
+    printf '%s\n' "resolve-config-knob: warning: the $layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. mktemp gives an empty repo root (no .claude/planwright.yml
     # -> repo-tracked and derived machine-local both absent); a
@@ -302,7 +321,7 @@ case "$layer" in
     if [ "$crc" -eq 3 ]; then
       # The core layer itself omits the key (only the malformed overlay set
       # it). Fall back to the caller's safe value so the mechanism still runs.
-      echo "resolve-config-knob: warning: the core default for '$key' is also unset; falling back to '$(sanitize_printable "$fallback" "(unprintable fallback)")'" >&2
+      printf '%s\n' "resolve-config-knob: warning: the core default for '$key' is also unset; falling back to '$(sanitize_printable "$fallback" "(unprintable fallback)")'" >&2
       emit_trimmed "$fallback"
       exit 0
     fi
@@ -314,15 +333,15 @@ case "$layer" in
       emit_trimmed "$core_value"
       exit 0
     fi
-    echo "resolve-config-knob: the core default for '$key' ('$(sanitize_printable "$core_value" "(unprintable value)")') is itself malformed — broken install" >&2
+    printf '%s\n' "resolve-config-knob: the core default for '$key' ('$(sanitize_printable "$core_value" "(unprintable value)")') is itself malformed — broken install" >&2
     exit 5
     ;;
   core)
-    echo "resolve-config-knob: the core default for '$key' ('$(sanitize_printable "$value" "(unprintable value)")') is malformed — broken install" >&2
+    printf '%s\n' "resolve-config-knob: the core default for '$key' ('$(sanitize_printable "$value" "(unprintable value)")') is malformed — broken install" >&2
     exit 5
     ;;
   *)
-    echo "resolve-config-knob: config-get named an unrecognized layer '$(sanitize_printable "$layer" "(unprintable layer)")'" >&2
+    printf '%s\n' "resolve-config-knob: config-get named an unrecognized layer '$(sanitize_printable "$layer" "(unprintable layer)")'" >&2
     exit 5
     ;;
 esac
