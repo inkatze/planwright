@@ -32,6 +32,7 @@
 #   resolve-config-knob.sh --key <key> --type enum --values '<v1> <v2> ...' --fallback <value>
 #   resolve-config-knob.sh --key <key> --type posint --fallback <value>
 #   resolve-config-knob.sh --key <key> --type nonnegint --fallback <value>
+#   resolve-config-knob.sh --key <key> --type duration --fallback <value>
 #
 #   <key>      matches ^[a-z][a-z0-9_]*$ (config-get's queryable charset),
 #              validated before it is ever interpolated (REQ-D1.6).
@@ -47,6 +48,13 @@
 #              — so refusing it would force a magic sentinel in its place. The
 #              grammar is validated HERE, before the value reaches any caller's
 #              arithmetic, which is the property REQ-A1.4 asks for.
+#   duration   a positive time span: ^[0-9]+(\.[0-9]+)?(ms|s|m|h|d)?$ with a
+#              bare number read as seconds, at most 15 digits before the
+#              point, and an all-zero span refused (a zero wait or window is
+#              a knob switched off by accident, the posture fleet_stale_min
+#              takes). Sub-second values (`500ms`, `0.5s`) are legal: the
+#              tower-comms intervals accept them by requirement (REQ-A1.4).
+#              The caller converts to seconds; this helper only validates.
 #   --fallback is required and must itself validate against the type: it is
 #              the safe value emitted when the key cannot be resolved from any
 #              layer, so an invalid fallback is a caller bug (exit 2).
@@ -176,7 +184,7 @@ case "$ktype" in
       }
     done
     ;;
-  posint | nonnegint)
+  posint | nonnegint | duration)
     if [ -n "$kvalues" ]; then
       echo "resolve-config-knob: --values only applies to --type enum" >&2
       exit 2
@@ -187,7 +195,7 @@ case "$ktype" in
     exit 2
     ;;
   *)
-    printf '%s\n' "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint | nonnegint)" >&2
+    printf '%s\n' "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint | nonnegint | duration)" >&2
     exit 2
     ;;
 esac
@@ -226,6 +234,24 @@ valid_value() {
         0*) return 1 ;;
       esac
       [ "${#_vv}" -le 15 ]
+      ;;
+    duration)
+      _dv=$_vv
+      case "$_dv" in
+        *ms) _dv=${_dv%ms} ;;
+        *[smhd]) _dv=${_dv%?} ;;
+      esac
+      case "$_dv" in
+        "" | *[!0-9.]* | .* | *. | *.*.*) return 1 ;;
+      esac
+      _di=${_dv%%.*}
+      [ "${#_di}" -le 15 ] || return 1
+      # An all-zero span (0, 0.0, 00ms) is refused; a zero-length wait or
+      # window is a knob switched off by accident, not a legal setting.
+      case "$_dv" in
+        *[1-9]*) return 0 ;;
+        *) return 1 ;;
+      esac
       ;;
   esac
 }

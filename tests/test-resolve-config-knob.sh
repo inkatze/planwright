@@ -300,6 +300,35 @@ for bad in 0 05 -3 3.5 abc 1234567890123456; do
 done
 echo "ok: the posint type validates (zero, leading zero, negative, non-integer, oversize all malformed)"
 
+# 10a. The duration type: a bare number is seconds; ms/s/m/h/d suffixes and
+#      sub-second values pass; zero in any spelling, a negative, a bare
+#      point, a double point, an unknown suffix, and an oversize integer
+#      part are malformed.
+duration_core="$tmp/core-duration.yml"
+run_duration() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$duration_core" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --key tower_hook_lock_wait --type duration --fallback 2s
+}
+reset_layers
+for good in 2 2s 500ms 0.5s 1.5m 3h 30d 0.25; do
+  printf 'tower_hook_lock_wait: %s\n' "$good" >"$duration_core"
+  got=$(run_duration) || fail "duration: '$good' did not resolve"
+  [ "$got" = "$good" ] || fail "duration: '$good' resolved to '$got'"
+done
+for bad in 0 0s 0.0 00ms -1s .5s 5. 1.2.3s 5x ms 1234567890123456s; do
+  printf 'tower_hook_lock_wait: %s\n' "$bad" >"$duration_core"
+  rc=0
+  run_duration >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 5 ] || fail "duration: '$bad' in core was not treated as malformed (exit $rc, expected 5)"
+done
+rc=0
+/bin/bash "$RCK" --key tower_hook_lock_wait --type duration --fallback 0s >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "duration: a zero --fallback is a caller bug (exit $rc, expected 2)"
+echo "ok: the duration type validates (suffixes and sub-second values pass; zero, negative, malformed all refused)"
+
 # 10b. The posint type through the OVERLAY layers: a valid machine-local
 #      value wins; a malformed adopter value degrades to the core default; a
 #      malformed repo-tracked value hard-fails — the by-layer policy is not

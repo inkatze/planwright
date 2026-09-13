@@ -1,0 +1,39 @@
+# Words the tower should not say to the operator (tower-comms REQ-D1.1,
+# REQ-D1.4): planwright's internal and doctrine vocabulary. `report` counts
+# every case-folded occurrence of each entry in delivered text, on word
+# boundaries; a multi-word entry is matched as a phrase. Spec identifiers
+# and file or config names are counted by shape, not listed here. Tower,
+# worker, spec, task, PR, branch and worktree are words a developer who
+# knows planwright's basics needs no gloss for, so they are deliberately
+# absent.
+accumulator
+anchor
+attention store
+awaiting input
+backend
+bundle
+catch-up window
+convergence
+decision domain
+deferral
+derivation
+disposition
+doctrine
+drain
+fence
+fleet home
+freshness gate
+hard-disqualifier
+kickoff brief
+ledger
+lens pass
+observation
+orchestrate
+overlay
+presence
+reconcile
+rigor
+sign-off
+sweep
+trailer
+walkthrough
