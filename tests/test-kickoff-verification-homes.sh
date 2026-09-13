@@ -71,11 +71,13 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-kickoff-verification-homes.XXXXXX") || exi
 trap 'rm -rf "$tmp"' EXIT
 
 # Every overlay-affecting variable stripped, so a catalog on the host cannot
-# leak into an arm that claims one is absent.
+# leak into an arm that claims one is absent; the startup files bash and sh
+# read when non-interactive too, since anything they print fails the arm
+# that expects a silent stderr.
 base() {
   env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
     -u PLANWRIGHT_ADOPTER_OVERLAY -u CLAUDE_PLUGIN_DATA \
-    -u PLANWRIGHT_REPO_ROOT -u HOME "$@"
+    -u PLANWRIGHT_REPO_ROOT -u HOME -u BASH_ENV -u ENV "$@"
 }
 
 git -C "$repo" cat-file -e "$LANDING^{commit}" 2>/dev/null \
