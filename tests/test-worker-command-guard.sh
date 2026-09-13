@@ -92,7 +92,12 @@ run_hook() {
   local payload
   payload="$(jq -n --arg c "$cmd" --arg t "$tool" --arg w "$cwd" \
     '{tool_name:$t, tool_input:{command:$c}, cwd:$w}')"
-  OUT="$(printf '%s' "$payload" | env ${HOOK_ENV[@]+"${HOOK_ENV[@]}"} /bin/bash "$HOOK" 2>/dev/null)"
+  # HOME and CLAUDE_DIR pinned away from the developer's machine: the hook's
+  # <claude-dir> arms would otherwise read the real plugin record and cache,
+  # and a verdict would depend on what is installed on the host running the
+  # suite. A fixture that needs them sets them through HOOK_ENV, which wins.
+  OUT="$(printf '%s' "$payload" | env -u CLAUDE_DIR HOME="$SANDBOX/no-home" \
+    ${HOOK_ENV[@]+"${HOOK_ENV[@]}"} /bin/bash "$HOOK" 2>/dev/null)"
   CODE=$?
 }
 
@@ -640,6 +645,24 @@ assert_defer "untracked: substituted verb still needs a trusted script" "P=$PLUG
 assert_defer "untracked: substituted path with .. escaping" "P=$PLUGIN_ROOT && \$P/scripts/../../outside/evil.sh" Bash "$PLUGIN_CWD"
 assert_defer "untracked: substitution never widens the verb set" "P=$PLUGIN_ROOT && rm -rf \$P" Bash "$PLUGIN_CWD"
 assert_defer "untracked: a closer with no opener" "P=$PLUGIN_ROOT; fi; \$P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+# The boundaries the tracker turns on, each one a verdict a one-token mutant
+# flips: a literal `\$` inside double quotes, quoting that starts exactly on
+# the `=`, the two expand_word shapes that leave the `$` in place, the newline
+# separator, nesting, and the environment-name probe against the names the
+# dispatch wrapper actually exports.
+assert_defer "untracked: double-quoted \"\\\$P\" is literal" "P=$PLUGIN_ROOT && \"\\\$P\"/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_defer "untracked: quoting that starts on the = makes a command word" "P\"=\"$PLUGIN_ROOT && \$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_defer "untracked: unterminated \${P" "P=$PLUGIN_ROOT && \${P/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "untracked: \$Pfoo is another name" "P=$PLUGIN_ROOT && \$Pfoo/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_allow "tracked: newline-separated" "P=$PLUGIN_ROOT
+\$P/scripts/plug.sh x" Bash "$PLUGIN_CWD"
+assert_allow "tracked: used inside an if nested in a for" "P=$PLUGIN_ROOT; for d in a; do if true; then \$P/scripts/plug.sh x; fi; done" Bash "$PLUGIN_CWD"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "LD_PRELOAD=/already-exported")
+assert_defer "untracked: an exported LD_PRELOAD is refused as a name" "LD_PRELOAD=$PLUGIN_ROOT && \$LD_PRELOAD/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+assert_defer "untracked: PLANWRIGHT_ROOT, exported by the dispatch wrapper" "PLANWRIGHT_ROOT=$PLUGIN_ROOT && \$PLANWRIGHT_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=("CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT")
+assert_defer "untracked: CLAUDE_PLUGIN_ROOT, exported by the dispatch wrapper" "CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT && \$CLAUDE_PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
 HOOK_ENV=()
 
 echo "### REQ-A1.9 — grammar-conservative deferral"
