@@ -70,16 +70,17 @@
 # ladder rules themselves live in the sourced scripts/allocation-ladder.sh, so
 # this script and allocation-adapt.sh share one implementation of them.
 #
-# THE PER-UNIT LOCK (D-6). `append` derives the next sequence number and writes
-# the row under ONE hold of the unit's own advisory lock (an atomic symlink
-# create carrying an owner token, with a stale break, at per-unit scope; see the
-# lock section below for why this is NOT the mkdir shape fleet-state.sh's
-# cross-spec lock uses). A caller that needs derive-then-append to be one critical
-# section — the engine, deciding a tier from the same rows it is about to extend
-# — takes the lock itself and sets PLANWRIGHT_ALLOC_LOCK_HELD to the unit, which
-# suppresses the nested acquire this non-reentrant primitive would deadlock on.
-# The suppression is scoped to that exact unit: a stale or inherited value for
-# some OTHER unit never disables locking here.
+# THE PER-UNIT LOCK (D-6, D-11). `append` derives the next sequence number and
+# writes the row under ONE hold of the unit's own advisory lock. That lock is
+# NOT implemented here: it is taken through scripts/lock-lib.sh, the one
+# advisory-lock primitive in this tree. A caller that needs derive-then-append
+# to be one critical section — the engine, deciding a tier from the same rows it
+# is about to extend — takes the lock itself through the `lock` verb and passes
+# the unit down in PLANWRIGHT_ALLOC_LOCK_HELD together with the hold's OWNER
+# TOKEN in PLANWRIGHT_ALLOC_LOCK_TOKEN. `append` checks that token against the
+# lock's current owner before skipping its own acquire, so an announcement that
+# is stale, or that names some other unit's hold, is ignored rather than
+# trusted, and the append takes a real lock instead.
 #
 # The row itself is a single bounded `>>` write (every field grammar-capped, the
 # whole row well under PIPE_BUF), so even the lockless read path can never
@@ -102,8 +103,16 @@
 #   allocation-ledger.sh lock <unit>              acquire the per-unit lock and
 #                                                 print its OWNER TOKEN
 #   allocation-ledger.sh unlock <unit> [<token>]  release it (idempotent). With
-#                                                 the token, the release happens
-#                                                 only if the lock is still ours
+#                                                 the token, only while the lock
+#                                                 is still that token's; without
+#                                                 one, unconditionally — the one
+#                                                 way to clear a detached hold
+#                                                 whose owner died
+#   allocation-ledger.sh owner <unit>             print the token currently
+#                                                 holding the per-unit lock, or
+#                                                 nothing. A cross-process
+#                                                 holder re-verifies its own
+#                                                 hold through this
 
 #   allocation-ledger.sh append <unit> <step> <attempt> <event> \
 #       <prop-model> <prop-effort> <clamp-model> <clamp-effort> \
@@ -133,7 +142,7 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
-for dep in echo-safety.sh allocation-ladder.sh; do
+for dep in echo-safety.sh allocation-ladder.sh lock-lib.sh; do
   if [ ! -r "$script_dir/$dep" ]; then
     echo "allocation-ledger: sibling helper '$script_dir/$dep' is missing or not readable — broken install" >&2
     exit 5
@@ -143,6 +152,8 @@ done
 . "$script_dir/echo-safety.sh"
 # shellcheck source=scripts/allocation-ladder.sh
 . "$script_dir/allocation-ladder.sh"
+# shellcheck source=scripts/lock-lib.sh
+. "$script_dir/lock-lib.sh"
 
 FS="$script_dir/fleet-state.sh"
 
@@ -261,149 +272,28 @@ ensure_store() {
 # The per-unit advisory lock
 # ---------------------------------------------------------------------------
 #
-# An ATOMIC SYMLINK CREATE carrying an OWNER TOKEN, rather than the `mkdir`
-# lock the fleet's cross-spec lock uses. The difference is not stylistic: the
-# mkdir shape was measured losing mutual exclusion on this support bar. Twelve
-# same-unit writers doing acquire / read-modify-write / release produced 13
-# interleaved critical sections over ten rounds under `mkdir` + `rmdir`, and 0
-# over the same ten rounds under `ln -s` + `rm`; it reproduced from three
-# concurrent writers upward, under both dash and bash. Losing exclusion here is
-# not cosmetic — two launches would derive a tier from the same ledger state and
-# both apply the same escalation — so this lock uses the primitive that held.
-# (An observation records the measurement for the lock family's owner; this file
-# does not change the sibling's lock, which is another spec's contract.)
+# THIS FILE IMPLEMENTS NO LOCK. Every hold is taken through scripts/lock-lib.sh,
+# the one advisory-lock primitive in this tree, which owns the protocol — an
+# atomic symlink whose target is the owner token, an ownership-verified release,
+# a break that cannot double-grant, and reentrancy by token. Read that file for
+# why the `mkdir` shape is retired and why STALE means the owner process is
+# absent rather than the link being old. Nothing about any of that is this
+# script's to restate or to vary.
 #
-# THE OWNER TOKEN is the symlink's TARGET, and it is what makes release safe.
-# `lock_release` reads the token back and removes the link ONLY when it is still
-# ours, so the classic advisory-lock clobber — a holder returning after its lock
-# was broken and deleting the CURRENT holder's lock — cannot happen. The stale
-# break claims the link by an atomic rename first, so two breakers cannot both
-# win. Together these close the window the repo's mkdir lock family documents as
-# a known limitation.
+# WHAT IS THIS LEDGER'S OWN is only the lock's shape and who holds it:
 #
-# The token is `<pid>-<epoch>`: two live processes cannot share a pid, so it is
-# unique among concurrent holders, which is all it has to be.
-#
-# THE SPIN BUDGET MUST STAY WELL UNDER THE STALE THRESHOLD, and that ordering is
-# the whole correctness argument for breaking at all. A short threshold looks
-# appealing — a hold is one derive-and-append, milliseconds of WORK — but the
-# wall clock a waiter burns is not the work: on a loaded machine, same-unit
-# launches queue behind each other and the last waits tens of seconds. If the
-# threshold sat below that wait, every waiter past it would declare a LIVE holder
-# stale. So the threshold is the sibling's shared `stale_lock_threshold` knob
-# (15 minutes by default) and the spin budget is ~100 seconds: a waiter exhausts
-# its budget and fails closed long before it could break a merely-busy lock.
-
-# alloc_stale_min: the stale threshold in minutes, read from the same
-# `stale_lock_threshold` knob fleet-state.sh's lock uses, with PLANWRIGHT_REPO_ROOT
-# pinned to the fleet home for the same reason the sibling pins it: this lock is
-# reached from many repos, and resolving the cwd-derived layers would let two
-# callers on the SAME lock disagree about staleness. An absent or unreadable
-# value falls back to 15 minutes.
-alloc_stale_min() {
-  asm_v=15
-  asm_root=$(store_dir) || asm_root=""
-  if [ -n "$asm_root" ]; then
-    asm_read=$(PLANWRIGHT_REPO_ROOT="$asm_root" "$script_dir/config-get.sh" stale_lock_threshold 2>/dev/null) || asm_read=""
-    asm_read=${asm_read%m}
-    case $asm_read in
-      "" | *[!0-9]*) ;;
-      *) asm_v=$asm_read ;;
-    esac
-  fi
-  [ "$asm_v" -ge 1 ] || asm_v=15
-  printf '%s' "$asm_v"
-}
-
-# How many spins between staleness probes. Probing every iteration would fork
-# `find` fifty times a second per waiter for a condition that cannot become true
-# for minutes.
-ALLOC_LOCK_PROBE_EVERY=50
-# ~100s of sleep plus syscalls: long enough for a deep same-unit queue on a
-# loaded machine, and far short of the stale threshold, so an exhausted waiter
-# fails CLOSED instead of breaking a lock that is merely busy.
-ALLOC_LOCK_MAX_TRIES=5000
-
-# lock_owner <lockpath>: print the owner token of a held lock, empty if absent.
-lock_owner() {
-  readlink "$1" 2>/dev/null || printf ''
-}
-
-# lock_acquire <lockpath>: acquire and set LOCK_TOKEN to the owner token the
-# caller must present to release. Exit 0 held, 2 on a real error or an exhausted
-# budget (fail closed).
-LOCK_TOKEN=""
-lock_acquire() {
-  la_lock=$1
-  la_ts=$(date +%s 2>/dev/null) || la_ts=0
-  la_token="$$-$la_ts"
-  la_tries=0
-  la_stale_min=""
-  while [ "$la_tries" -lt "$ALLOC_LOCK_MAX_TRIES" ]; do
-    if ln -s "$la_token" "$la_lock" 2>/dev/null; then
-      LOCK_TOKEN=$la_token
-      return 0
-    fi
-    # `ln -s` failed. Only ONE of the reasons it can fail is contention, and the
-    # spin budget is patience for that one alone; spent on any other it is a
-    # stall that ends in a refusal naming contention that was never there. So
-    # separate them here, by what is actually at the lock path.
-    #
-    # `-L` and not `-e` is what asks the question, because `-e` follows the link
-    # and is false for a dangling one: the lock is the LINK, whatever it points
-    # at. A link, live or dangling, is a holder, and waiting it out is exactly
-    # what the budget is for.
-    if [ ! -L "$la_lock" ]; then
-      if [ -e "$la_lock" ]; then
-        # Something that is not a lock squats the path. The stale break claims
-        # a SYMLINK and nothing else, so no amount of waiting clears this.
-        echo "allocation-ledger: $la_lock exists and is not a lock symlink — refusing to wait on it" >&2
-        return 2
-      fi
-      # Nothing is there, so nothing was holding it: the create failed on the
-      # STORE, not on a peer. One retry separates the two remaining cases — a
-      # holder that released in the gap since the attempt (benign, and the
-      # retry takes the lock), and a store that cannot be written at all.
-      if ln -s "$la_token" "$la_lock" 2>/dev/null; then
-        LOCK_TOKEN=$la_token
-        return 0
-      fi
-      if [ ! -L "$la_lock" ]; then
-        echo "allocation-ledger: cannot create $la_lock (store unwritable)" >&2
-        return 2
-      fi
-    fi
-    la_tries=$((la_tries + 1))
-    if [ -L "$la_lock" ] && [ $((la_tries % ALLOC_LOCK_PROBE_EVERY)) -eq 0 ]; then
-      [ -n "$la_stale_min" ] || la_stale_min=$(alloc_stale_min)
-      if [ -n "$(find "$la_lock" -maxdepth 0 -mmin +"$la_stale_min" 2>/dev/null)" ]; then
-        # Claim the stale lock by renaming it aside: two breakers cannot both
-        # rename the same path, so only the winner re-creates it. The loser's
-        # rename fails because the source is already gone.
-        la_aside="$la_lock.stale.$la_token"
-        if mv "$la_lock" "$la_aside" 2>/dev/null; then
-          rm -f "$la_aside"
-        fi
-      fi
-    fi
-    # A fractional sleep: a BSD/GNU extension, deliberate and in scope on the
-    # macOS + Linux support bar (the same call fleet-state.sh's spin makes).
-    sleep 0.02
-  done
-  echo "allocation-ledger: gave up acquiring $la_lock after contention" >&2
-  return 2
-}
-
-# lock_release <lockpath> [<token>]: release, but only if the lock is still
-# OURS. With no token the release is unconditional, which is what the operator-
-# facing `unlock` verb falls back to when it is handed no token to check.
-lock_release() {
-  if [ -n "${2:-}" ] && [ "$(lock_owner "$1")" != "$2" ]; then
-    return 0
-  fi
-  rm -f "$1" 2>/dev/null
-  return 0
-}
+#   * PER UNIT, at <store>/.lock.<unit>, so cross-unit work never contends and
+#     retention stays a per-unit question (D-6).
+#   * `append` takes an ORDINARY hold: one process acquires, writes, releases.
+#     Its owner is a live pid, so a crash leaves a lock the next waiter can
+#     prove dead and collect immediately.
+#   * `lock`/`unlock` are a DETACHED hold, because that hold spans processes —
+#     the engine acquires in one invocation, `append` writes under it in
+#     another, the engine releases in a third — and no pid survives across
+#     them to be probed. The deliberate consequence: nothing auto-breaks a
+#     detached hold, so a holder killed with SIGKILL wedges its unit until a
+#     token-less `unlock` clears it. That is the trade the liveness rule makes,
+#     and the escape hatch is the reason `unlock` accepts no token at all.
 
 # ---------------------------------------------------------------------------
 # Health
@@ -509,7 +399,7 @@ now_ms() {
 # ---------------------------------------------------------------------------
 
 usage() {
-  echo "usage: allocation-ledger.sh home | path <unit> | lock <unit> | unlock <unit> | append <unit> <step> <attempt> <event> <pm> <pe> <cm> <ce> <rm> <re> <scope> <outcome> <inputs> | rows <unit> | health <unit> | last-tier <unit> | derive <unit> <start-model> <start-effort> | stats [<unit>]" >&2
+  echo "usage: allocation-ledger.sh home | path <unit> | lock <unit> | unlock <unit> [<token>] | owner <unit> | append <unit> <step> <attempt> <event> <pm> <pe> <cm> <ce> <rm> <re> <scope> <outcome> <inputs> | rows <unit> | health <unit> | last-tier <unit> | derive <unit> <start-model> <start-effort> | stats [<unit>]" >&2
 }
 
 require_unit() {
@@ -553,9 +443,12 @@ case "$cmd" in
     }
     require_unit "$1"
     ensure_store >/dev/null
-    lock_acquire "$(lock_path "$1")" || exit 2
+    # Detached, not pid-owned: this process exits the moment the token is
+    # printed, so there would be no owner left for a liveness probe to ask
+    # about.
+    pw_lock_acquire_detached "$(lock_path "$1")" || exit 2
     # The token goes back to the caller so its `unlock` can prove ownership.
-    printf '%s\n' "$LOCK_TOKEN"
+    printf '%s\n' "$PW_LOCK_TOKEN"
     ;;
 
   unlock)
@@ -564,7 +457,43 @@ case "$cmd" in
       exit 2
     fi
     require_unit "$1"
-    lock_release "$(lock_path "$1")" "${2:-}"
+    u_lock=$(lock_path "$1")
+    if [ -n "${2:-}" ]; then
+      # Ownership-verified. A token that no longer owns the lock releases
+      # nothing, and that is a success, not an error: the verb is idempotent,
+      # and "someone else holds it now" is precisely the case the token exists
+      # to make harmless.
+      pw_lock_release_token "$u_lock" "$2"
+      u_rc=$?
+      if [ "$u_rc" -eq 2 ]; then
+        echo "allocation-ledger: could not release $u_lock" >&2
+        exit 2
+      fi
+    else
+      # No token, so no ownership to prove: the operator's escape hatch, and
+      # the only way out of a detached hold whose owner died. It also clears a
+      # lock DIRECTORY left by the retired `mkdir` shape, which is what makes an
+      # in-place upgrade from that shape possible at all.
+      pw_lock_break_force "$u_lock" || {
+        echo "allocation-ledger: $u_lock is not a lock this can safely clear" >&2
+        exit 2
+      }
+    fi
+    ;;
+
+  owner)
+    [ "$#" -eq 1 ] || {
+      usage
+      exit 2
+    }
+    require_unit "$1"
+    # The re-verification seam for a hold that SPANS PROCESSES. Its holder has a
+    # token and no way to ask whether that token still owns the lock — the lock
+    # path is this script's business, not its caller's — so the question gets a
+    # verb instead of a second implementation of the path convention. An unheld
+    # lock prints nothing and still succeeds: absence is an answer.
+    pw_lock_owner "$(lock_path "$1")"
+    printf '\n'
     ;;
 
   append)
@@ -647,14 +576,35 @@ case "$cmd" in
     ensure_store >/dev/null
     a_file=$(ledger_path "$a_unit")
     a_lock=$(lock_path "$a_unit")
+    # AN INHERITED HOLD IS BELIEVED ONLY ON EVIDENCE. A caller whose critical
+    # section spans processes — the engine takes the detached lock, then invokes
+    # this script to write under it — announces the unit in
+    # PLANWRIGHT_ALLOC_LOCK_HELD and the hold's owner token in
+    # PLANWRIGHT_ALLOC_LOCK_TOKEN. The name is intent; the token is proof, so it
+    # is checked against the lock's CURRENT owner here. An announcement left
+    # behind by a dead ancestor, or one naming another unit's hold, fails that
+    # check and this append takes a real lock of its own — where the bare name
+    # alone used to suppress the acquire and write unlocked.
+    #
+    # None of this covers nesting WITHIN one shell; lock-lib's own reentrancy
+    # does that, and there is no shell here that acquires this lock twice.
     a_held=0
-    if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "$a_unit" ]; then
-      a_held=1
-    fi
     a_token=""
+    if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "$a_unit" ] \
+      && [ -n "${PLANWRIGHT_ALLOC_LOCK_TOKEN:-}" ] \
+      && [ "$(pw_lock_owner "$a_lock")" = "${PLANWRIGHT_ALLOC_LOCK_TOKEN:-}" ]; then
+      a_held=1
+      a_token=$PLANWRIGHT_ALLOC_LOCK_TOKEN
+    fi
     if [ "$a_held" -eq 0 ]; then
-      lock_acquire "$a_lock" || exit 2
-      a_token=$LOCK_TOKEN
+      # The library's trap is armed HERE rather than at startup because the
+      # `lock` verb's detached hold must survive this process, and an EXIT-time
+      # release-all would undo it. This script has no trap of its own, so
+      # installing the library's is the documented way to get a signal-safe
+      # release for the hold this arm is about to take.
+      pw_lock_trap_install
+      pw_lock_acquire "$a_lock" || exit 2
+      a_token=$PW_LOCK_TOKEN
     fi
     # The sequence is derived from the file under the lock, so two racing
     # appends can neither collide on a number nor lose a row.
@@ -674,12 +624,13 @@ case "$cmd" in
     case $a_ts in
       '' | *[!0-9]*) a_ts=0 ;;
     esac
-    # Re-verify ownership between deriving the sequence number and writing it:
-    # the only way to lose the lock mid-section is a stale break, which cannot
-    # fire for minutes, so this is a cheap assertion rather than a retry loop —
-    # but a lost lock means the sequence we derived is already stale, and
-    # writing it anyway is the one outcome the ledger must not produce.
-    if [ -n "$a_token" ] && [ "$(lock_owner "$a_lock")" != "$a_token" ]; then
+    # Re-verify ownership between deriving the sequence number and writing it: a
+    # lost lock means the sequence just derived is already stale, and writing it
+    # anyway is the one outcome the ledger must not produce. An INHERITED hold
+    # gets the same check as an acquired one, which is where it matters most —
+    # nothing in this process took that lock, so this is the only place its
+    # continued existence is ever established.
+    if [ "$(pw_lock_owner "$a_lock")" != "$a_token" ]; then
       echo "allocation-ledger: lost the per-unit lock for '$(sanitize_printable "$a_unit" "(unprintable unit)")' mid-append — refusing to write a stale sequence number" >&2
       exit 2
     fi
@@ -687,11 +638,11 @@ case "$cmd" in
       "$a_seq" "$a_ts" "$a_unit" "$a_step" "$a_attempt" "$a_event" \
       "$a_pm" "$a_pe" "$a_cm" "$a_ce" "$a_rm" "$a_re" \
       "$a_scope" "$a_outcome" "$a_inputs" >>"$a_file"; then
-      [ "$a_held" -eq 0 ] && lock_release "$a_lock" "$a_token"
+      [ "$a_held" -eq 0 ] && pw_lock_release "$a_lock"
       echo "allocation-ledger: failed to append to $a_file" >&2
       exit 2
     fi
-    [ "$a_held" -eq 0 ] && lock_release "$a_lock" "$a_token"
+    [ "$a_held" -eq 0 ] && pw_lock_release "$a_lock"
     printf '%s\n' "$a_seq"
     ;;
 

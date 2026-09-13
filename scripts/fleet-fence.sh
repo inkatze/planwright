@@ -679,18 +679,19 @@ report_terminal_feedback() {
   # recording that published nothing, from a published fragment whose ledger
   # mark failed. Those two call for opposite operator responses.
   rtf_out=$(
-    if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "$spec:task-$1" ]; then
-      # A hold for exactly this unit is real and inherited: honoring it is what
-      # keeps the non-reentrant lock from deadlocking against its own owner.
-      "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
-        --scope "$obs_scope" --obs-dir "$rtf_dir"
-    else
-      # Any other value belongs to some other unit and would suppress a real
-      # acquire here — this command retires many units in one pass.
-      unset PLANWRIGHT_ALLOC_LOCK_HELD
-      "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
-        --scope "$obs_scope" --obs-dir "$rtf_dir"
+    # An inherited allocation hold travels in the environment as a unit name
+    # plus the token that proves it. This command retires MANY units in one
+    # pass, so an announcement naming some other unit must not travel into this
+    # evaluation; it is dropped here, token and all. An announcement for exactly
+    # this unit is passed through untouched and allocation-feedback.sh decides
+    # what it is worth, by checking the token against the lock's live owner —
+    # this command never holds the lock itself and has nothing to add to that
+    # question.
+    if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" != "$spec:task-$1" ]; then
+      unset PLANWRIGHT_ALLOC_LOCK_HELD PLANWRIGHT_ALLOC_LOCK_TOKEN
     fi
+    "$AFB" evaluate "$spec:task-$1" --key "$alloc_key" --terminal completed \
+      --scope "$obs_scope" --obs-dir "$rtf_dir"
   ) || rtf_rc=$?
   [ "$rtf_rc" -eq 0 ] && return 0
   rtf_reason=$(printf '%s\n' "$rtf_out" | awk -F'\t' '$1 == "reason" { print $2; exit }')
