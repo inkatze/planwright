@@ -2308,4 +2308,50 @@ wait "$launch34" || fail "c34: the run did not end cleanly after the answer"
   || fail "c34: the queue should clear once the escalated request settles"
 echo "ok: c34 the supervisor escalates an overdue receipt within a tick; escalation only (REQ-E1.1)"
 
+# ---------------------------------------------------------------------------
+# c35: the status verdict's shapes, from fabricated state. A live worker with
+#    no pending row is `running`; with a pending row whose epoch is unreadable
+#    it is still `awaiting-input` (age unknown), never back to `running`; a
+#    dead supervisor with pending rows is neither.
+# ---------------------------------------------------------------------------
+home="$tmp/h35"
+w35="$home/streamjson/sjw35"
+mkdir -p "$w35"
+printf '%s\n' "$$" >"$w35/supervisor.pid"
+printf '%s\n' "$$" >"$w35/worker.pid"
+out=$(senv "$home" "$tmp/r35" -- status sjw35) || fail "c35: status exited non-zero"
+case $out in
+  "status sjw35 running supervisor=$$ worker=$$") : ;;
+  *) fail "c35: a live worker with no journal must read running, got: $out" ;;
+esac
+printf 'req-a\tpermission\t100\tanswered\t200\n' >"$w35/journal"
+out=$(senv "$home" "$tmp/r35" -- status sjw35) || fail "c35: status exited non-zero"
+case $out in
+  "status sjw35 running "*) : ;;
+  *) fail "c35: a live worker with only settled rows must read running, got: $out" ;;
+esac
+printf 'req-b\tpermission\tnot-an-epoch\tpending\t\n' >>"$w35/journal"
+out=$(senv "$home" "$tmp/r35" -- status sjw35) || fail "c35: status exited non-zero"
+case $out in
+  "status sjw35 awaiting-input pending=1 oldest=unknown supervisor=$$ worker=$$") : ;;
+  *) fail "c35: a pending row with an unreadable epoch must still read awaiting-input, got: $out" ;;
+esac
+printf 'req-c\tpermission\t100\tpending\t\n' >>"$w35/journal"
+out=$(senv "$home" "$tmp/r35" -- status sjw35) || fail "c35: status exited non-zero"
+case $out in
+  "status sjw35 awaiting-input pending=2 oldest="[0-9]*"s supervisor=$$ worker=$$") : ;;
+  *) fail "c35: the count covers every pending row and the age the readable ones, got: $out" ;;
+esac
+sh -c ':' &
+dead35=$!
+wait "$dead35"
+printf '%s\n' "$dead35" >"$w35/supervisor.pid"
+out=$(senv "$home" "$tmp/r35" -- status sjw35) || :
+case $out in
+  "status sjw35 awaiting-input"* | "status sjw35 running"*) fail "c35: a dead supervisor must never read live, got: $out" ;;
+  "status sjw35 "*) : ;;
+  *) fail "c35: unexpected status shape: $out" ;;
+esac
+echo "ok: c35 status reads running only with no pending row, awaiting-input on any pending row, and never live for a dead supervisor"
+
 echo "all fleet-streamjson tests passed"

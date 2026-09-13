@@ -187,8 +187,10 @@
 #       Print `status <worker> <running|awaiting-input|completed|ended|dead|
 #       unknown> <detail>` from the recorded pids, the receipt journal and the
 #       captured event stream. `awaiting-input` is a live worker with a pending
-#       control_request: the detail carries `pending=<n> oldest=<age>s`, so a
-#       worker that cannot proceed never reads as a healthy `running`.
+#       control_request: the detail carries `pending=<n> oldest=<age>s
+#       supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending row
+#       has a readable epoch), so a worker that cannot proceed never reads as
+#       a healthy `running`.
 #
 # Exit codes: 0 success; 2 usage error, refused hostile input, or a
 #   filesystem/lock error (fail closed); 3 a semantic refusal (recovery
@@ -2479,21 +2481,28 @@ cmd_status() {
     && valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid"; then
     # A live worker with a pending receipt is not making progress: it is
     # waiting on an answer nobody may be about to give. Say so, with the
-    # count and the oldest age, rather than the `running` that read as
-    # healthy for the twenty minutes a stalled worker sat on its first call.
+    # count and the oldest age, rather than a `running` that reads as healthy.
+    # One read of the journal for both figures, so the count and the age come
+    # from the same generation of a file that is replaced by rename; a pending
+    # row whose epoch is unreadable still counts, with the age reported as
+    # unknown rather than the row dropped back to `running`.
     st_pend=0
     st_oldest=''
     if [ -f "$dir/journal" ]; then
-      st_pend=$(awk -F'\t' '$4 == "pending" { n++ } END { print n + 0 }' \
-        "$dir/journal" 2>/dev/null) || st_pend=0
-      st_oldest=$(awk -F'\t' '$4 == "pending" && $3 ~ /^[0-9]+$/ { if (o == "" || $3 < o) o = $3 } END { print o }' \
-        "$dir/journal" 2>/dev/null) || st_oldest=''
+      st_row=$(awk -F'\t' '$4 == "pending" { n++; if ($3 ~ /^[0-9]+$/ && (o == "" || $3 + 0 < o + 0)) o = $3 } END { print n + 0 "\t" o }' \
+        "$dir/journal" 2>/dev/null) || st_row=''
+      st_pend=${st_row%%"$TAB"*}
+      st_oldest=${st_row#*"$TAB"}
+      [ "$st_oldest" != "$st_row" ] || st_oldest=''
     fi
-    if valid_posnum "${st_pend:-}" && valid_posnum "${st_oldest:-}"; then
-      st_now=$(now_epoch) || st_now=$st_oldest
-      st_age=$((st_now - st_oldest))
-      [ "$st_age" -ge 0 ] || st_age=0
-      printf 'status %s awaiting-input pending=%s oldest=%ss supervisor=%s worker=%s\n' \
+    if valid_posnum "${st_pend:-}"; then
+      st_age=unknown
+      if valid_posnum "${st_oldest:-}" && st_now=$(now_epoch); then
+        st_age=$((st_now - st_oldest))
+        [ "$st_age" -ge 0 ] || st_age=0
+        st_age="${st_age}s"
+      fi
+      printf 'status %s awaiting-input pending=%s oldest=%s supervisor=%s worker=%s\n' \
         "$worker" "$st_pend" "$st_age" "$sup_pid" "$wrk_pid"
       return 0
     fi

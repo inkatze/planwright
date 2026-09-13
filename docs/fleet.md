@@ -413,7 +413,8 @@ operator's recorded answer as the control_response; `recover` resumes a
 crashed worker's session via `--resume`; `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
-oldest=<age>s`, never a healthy-looking `running`.
+oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
+row carries a readable epoch), never a healthy-looking `running`.
 
 Before spawning anything, `launch` proves the worker's auto-approve hook
 (`scripts/worker-command-guard.sh`, run through the same dispatch-env wrapper
