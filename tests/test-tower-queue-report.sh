@@ -82,7 +82,34 @@ run report --log "$fixtures/baseline.log" --now 908000 --window soon >/dev/null 
 rc=0
 run report --sideways >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "unknown flag: exit $rc, expected 2"
+rc=0
+run report --log "$fixtures/baseline.log" --now '' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "empty --now: exit $rc, expected 2 (refused, not silently ignored)"
 echo "ok: usage errors and an absent log are refused"
+
+# A clock that will not answer must stop the verb: a window ending at the
+# epoch with zero fleet hours reads exactly like a genuinely idle fleet.
+stub_bin="$tmp/stub-bin"
+mkdir -p "$stub_bin"
+printf '#!/bin/sh\nexit 1\n' >"$stub_bin/date"
+chmod 0755 "$stub_bin/date"
+rc=0
+PATH="$stub_bin:$PATH" \
+  PLANWRIGHT_FLEET_STATE_DIR="$home" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+  PLANWRIGHT_REPO_ROOT="$tmp" \
+  PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+  /bin/sh "$TQ" report --log "$fixtures/baseline.log" >"$tmp/noclock.out" 2>/dev/null || rc=$?
+[ "$rc" = 6 ] || fail "no clock: exit $rc, expected 6"
+grep -q 'window_end	0' "$tmp/noclock.out" && fail "no clock: a fabricated scorecard was printed"
+echo "ok: an unreadable clock stops report instead of printing an empty window"
+
+# A span the validator accepted must not reach the report as zero: it checks
+# the literal, and the conversion rounds to milliseconds.
+got=$(run report --log "$fixtures/baseline.log" --now 908000 --window 0.0004s) || fail "sub-millisecond window: exit"
+[ "$(value_of window_start "$got")" != 908000 ] \
+  || fail "a sub-millisecond window rounded to zero: window_start $(value_of window_start "$got")"
+echo "ok: a positive span never arrives at the consumer as zero"
 
 # --- the committed fixtures reproduce their hand-computed numbers ----------------
 

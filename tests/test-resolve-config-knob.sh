@@ -318,7 +318,7 @@ for good in 2 2s 500ms 0.5s 1.5m 3h 30d 0.25; do
   got=$(run_duration) || fail "duration: '$good' did not resolve"
   [ "$got" = "$good" ] || fail "duration: '$good' resolved to '$got'"
 done
-for bad in 0 0s 0.0 00ms -1s .5s 5. 1.2.3s 5x ms 1234567890123456s; do
+for bad in 0 0s 0.0 00ms -1s .5s 5. 1.2.3s 5x ms 1234567890123456s 007s 07 0.0000001s 1.9999999999s; do
   printf 'tower_hook_lock_wait: %s\n' "$bad" >"$duration_core"
   rc=0
   run_duration >/dev/null 2>&1 || rc=$?
@@ -327,7 +327,16 @@ done
 rc=0
 /bin/bash "$RCK" --key tower_hook_lock_wait --type duration --fallback 0s >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "duration: a zero --fallback is a caller bug (exit $rc, expected 2)"
-echo "ok: the duration type validates (suffixes and sub-second values pass; zero, negative, malformed all refused)"
+echo "ok: the duration type validates (suffixes and sub-second values pass; zero, leading zeros, an over-precise fraction, negative and malformed all refused)"
+
+# The usage line names every type this resolver accepts: a type it validates
+# but never advertises is one no caller finds.
+usage_line=$(/bin/bash "$RCK" 2>&1 >/dev/null || true)
+case "$usage_line" in
+  *duration*) ;;
+  *) fail "usage() does not name the duration type: $usage_line" ;;
+esac
+echo "ok: usage names the duration type"
 
 # 10b. The posint type through the OVERLAY layers: a valid machine-local
 #      value wins; a malformed adopter value degrades to the core default; a

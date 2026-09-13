@@ -178,6 +178,10 @@ is_count() {
   [ "${#1}" -le 15 ]
 }
 
+# The span grammar resolve-config-knob.sh's `duration` type defines, applied
+# to the CLI flags and re-applied to whatever that resolver hands back. Kept
+# in step with it: a value one accepts and the other refuses is a knob that
+# behaves differently depending on whether it came from a flag or a layer.
 is_duration() {
   _dv=$1
   case "$_dv" in
@@ -188,6 +192,16 @@ is_duration() {
     "" | *[!0-9.]* | .* | *. | *.*.*) return 1 ;;
   esac
   [ "${#_dv}" -le 16 ] || return 1
+  _di=${_dv%%.*}
+  _df=""
+  case "$_dv" in
+    *.*) _df=${_dv#*.} ;;
+  esac
+  case "$_di" in
+    0) [ -n "$_df" ] || return 1 ;;
+    0*) return 1 ;;
+  esac
+  [ "${#_df}" -le 6 ] || return 1
   case "$_dv" in
     *[1-9]*) return 0 ;;
   esac
@@ -223,7 +237,14 @@ duration_seconds() {
       _dm=1
       ;;
   esac
-  awk -v n="$_dn" -v m="$_dm" 'BEGIN { printf "%.3f\n", n * m }'
+  awk -v n="$_dn" -v m="$_dm" 'BEGIN {
+    v = n * m
+    # A span the validator accepted must not arrive here as zero: the
+    # validator checks the literal and this rounds to milliseconds, so
+    # without the floor a sub-millisecond span switches its knob off — a zero
+    # lock wait drops every line, a zero window reports an empty scorecard.
+    if (v > 0 && v < 0.001) v = 0.001
+    printf "%.3f\n", v }'
 }
 
 # knob <key> <fallback> — resolve one duration knob through the shared
@@ -236,7 +257,20 @@ knob() {
     err "cannot resolve the '$1' knob (resolve-config-knob exit $_krc)"
     exit "$_krc"
   fi
+  check_duration "$1" "$_kv"
   duration_seconds "$_kv"
+}
+
+# check_duration <key> <value> — the resolver's output is re-checked before it
+# is converted, the way the CLI spans are. duration_seconds reads anything
+# non-numeric as 0.000, and a zero lock wait drops every line while a zero
+# rotation span deletes the log, so an unexpected value must stop the verb
+# rather than quietly become one of those.
+check_duration() {
+  is_duration "$2" || {
+    err "the '$1' knob resolved to '$(sanitize_printable "$2" "(unprintable value)")', which is not a positive span"
+    exit 4
+  }
 }
 
 # resolve_log_knobs — the four knobs `log` reads, resolved side by side into
@@ -278,6 +312,7 @@ resolve_log_knobs() {
         exit "$_krc"
         ;;
     esac
+    check_duration "$_kn" "$_kv"
     _ksec=$(duration_seconds "$_kv")
     case "$_kn" in
       tower_hook_lock_wait) lock_wait=$_ksec ;;
@@ -719,6 +754,7 @@ cmd_log() {
   fi
   tower=""
   now=""
+  now_set=0
   payload=""
   keys=""
   live=""
@@ -733,6 +769,7 @@ cmd_log() {
       --now)
         [ "$#" -ge 2 ] || usage
         now=$2
+        now_set=1
         shift 2
         ;;
       --*)
@@ -804,16 +841,18 @@ cmd_log() {
         ;;
     esac
   fi
-  if [ -n "$now" ]; then
+  # `[ -n "$now" ]` here would make `--now ""` a silent no-op, which reads as
+  # the caller's own timestamp being honoured when it was in fact discarded.
+  if [ "$now_set" = 1 ]; then
     if ! is_epoch "$now"; then
       err "refusing --now '$(sanitize_printable "$now" "(unprintable epoch)")': an epoch is a canonical positive integer"
       exit 2
     fi
   else
-    now=$(date +%s)
+    now=$(date +%s 2>/dev/null) || now=""
     is_epoch "$now" || {
       err "cannot read the clock (date +%s failed)"
-      exit 2
+      exit 6
     }
   fi
 
@@ -989,6 +1028,7 @@ cmd_log() {
 cmd_report() {
   log_path=""
   now=""
+  now_set=0
   window_arg=""
   gap_arg=""
   while [ "$#" -gt 0 ]; do
@@ -1001,6 +1041,7 @@ cmd_report() {
       --now)
         [ "$#" -ge 2 ] || usage
         now=$2
+        now_set=1
         shift 2
         ;;
       --window)
@@ -1016,13 +1057,20 @@ cmd_report() {
       *) usage ;;
     esac
   done
-  if [ -n "$now" ]; then
+  if [ "$now_set" = 1 ]; then
     is_epoch "$now" || {
       err "refusing --now '$(sanitize_printable "$now" "(unprintable epoch)")': an epoch is a canonical positive integer"
       exit 2
     }
   else
-    now=$(date +%s)
+    # Checked exactly as `log` checks it: an unread clock here prints a
+    # window ending at the epoch and a fleet_hours of zero, which is
+    # indistinguishable from a genuinely idle fleet.
+    now=$(date +%s 2>/dev/null) || now=""
+    is_epoch "$now" || {
+      err "cannot read the clock (date +%s failed)"
+      exit 6
+    }
   fi
   if [ -n "$window_arg" ]; then
     is_duration "$window_arg" || {

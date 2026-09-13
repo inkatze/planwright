@@ -150,6 +150,9 @@ run log born --tower '../x' item=q1 >/dev/null 2>&1 || rc=$?
 rc=0
 run log born --now 0123 item=q1 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "leading-zero --now: exit $rc, expected 2"
+rc=0
+run log born --now '' item=q1 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "empty --now: exit $rc, expected 2 (refused, not silently ignored)"
 [ ! -e "$log_file" ] || fail "a refused write still created the log"
 echo "ok: per-kind required fields and hostile flags refused before any write"
 
