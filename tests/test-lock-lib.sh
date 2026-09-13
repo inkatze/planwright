@@ -532,6 +532,34 @@ else
   sourcing but not listed:  $(comm -13 <(printf '%s\n' "$listed") <(printf '%s\n' "$sourcing") | tr '\n' ' ')"
 fi
 
+# ---------------------------------------------------------------------------
+# 16. Breaking a lock whose target happens to be a directory
+# ---------------------------------------------------------------------------
+#
+# The lock is a link and the break must act on the LINK, never on whatever it
+# points at. A target that happens to be an existing directory is the shape
+# that catches a break built on `mv`: the rename follows the link and files the
+# replacement INSIDE that directory, so the lock is never broken, the acquirer
+# spins its whole budget, and every spin litters a stray link into somebody
+# else's directory.
+
+sh -c 'exit 0' &
+dead_pid=$!
+wait "$dead_pid" 2>/dev/null
+mkdir -p "$tmp/target-dir"
+ln -s "$tmp/target-dir" "$tmp/dirtarget.lock"
+run_sh x 'pw_lock_acquire "$1/dirtarget.lock" 20' >/dev/null 2>&1
+assert_exit "a lock pointing at a directory is broken like any other" 0 $?
+strays="$(find "$tmp/target-dir" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "the break leaves nothing inside the directory it pointed at" "0" "$strays"
+if [ -d "$tmp/target-dir" ]; then
+  pass "the break leaves the directory it pointed at alone"
+else
+  fail "the break leaves the directory it pointed at alone"
+fi
+rm -f "$tmp"/dirtarget.lock*
+rm -rf "$tmp/target-dir"
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

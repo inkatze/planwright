@@ -250,12 +250,15 @@ _pw_lock_break() {
         if [ "$(readlink "$_pwb_aside" 2>/dev/null)" = "$_pwb_holder" ]; then
           rm -f "$_pwb_aside" 2>/dev/null || :
         else
-          # A live successor's claim, not the dead one probed. Put it back; if
-          # the path has since been taken again the restore fails and dropping
-          # the aside is the only correct move. Either way this caller does not
-          # hold the claim and says so.
-          mv -f "$_pwb_aside" "$_pwb_claim" 2>/dev/null \
-            || rm -f "$_pwb_aside" 2>/dev/null || :
+          # A live successor's claim, not the dead one probed. Put it back by
+          # re-creating it — a claim's identity IS its target, and a create
+          # cannot follow a link the way a rename onto an occupied path can.
+          # If the path has since been taken again the create fails, and
+          # dropping the aside is then the only correct move. Either way this
+          # caller does not hold the claim and says so.
+          _pwb_back=$(readlink "$_pwb_aside" 2>/dev/null) || _pwb_back=''
+          [ -z "$_pwb_back" ] || ln -s "$_pwb_back" "$_pwb_claim" 2>/dev/null || :
+          rm -f "$_pwb_aside" 2>/dev/null || :
         fi
       fi
     fi
@@ -271,18 +274,24 @@ _pw_lock_break() {
     return 1
   fi
 
-  # Replace, rather than unlink and re-create: a rename over the path is one
-  # step, so there is no instant where the lock is absent and a peer arriving
-  # on the free-path route could create into it.
-  _pwb_new="$_pwb_lock.new.$_pwb_token"
-  rm -f "$_pwb_new" 2>/dev/null || :
-  if ln -s "$_pwb_token" "$_pwb_new" 2>/dev/null \
-    && mv -f "$_pwb_new" "$_pwb_lock" 2>/dev/null \
+  # Unlink the dead owner's link, then create ours, and believe the create only
+  # after reading it back. EVERY STEP HERE ACTS ON THE LINK, NEVER ON WHAT IT
+  # POINTS AT, which is why this is not the one-step rename it looks like it
+  # should be: `mv` FOLLOWS a link whose target is an existing directory and
+  # files the replacement inside it, so the lock would never be broken and each
+  # spin would litter a stray link into an unrelated directory. `rm -f` and
+  # `ln -s` both take the link itself.
+  #
+  # The gap between the unlink and the create is harmless: the owner is gone,
+  # so nobody legitimately holds this path, and a peer that wins the free path
+  # in between takes a lock it is entitled to — this caller's own create then
+  # fails and it reports busy rather than claiming a hold it does not have.
+  rm -f "$_pwb_lock" 2>/dev/null || :
+  if ln -s "$_pwb_token" "$_pwb_lock" 2>/dev/null \
     && [ "$(readlink "$_pwb_lock" 2>/dev/null)" = "$_pwb_token" ]; then
     rm -f "$_pwb_claim" 2>/dev/null || :
     return 0
   fi
-  rm -f "$_pwb_new" 2>/dev/null || :
   rm -f "$_pwb_claim" 2>/dev/null || :
   return 1
 }
