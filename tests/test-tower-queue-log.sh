@@ -13,7 +13,7 @@
 #   Exit codes: 0 written (or a tick coalesced); 2 usage / refused input;
 #       3 the bounded lock wait expired (the line is dropped and the
 #       dropped-line counter bumped); 4 the surface is not verifiably
-#       owner-only.
+#       owner-only; 6 an infrastructure failure, so nothing was recorded.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu

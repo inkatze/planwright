@@ -16,7 +16,7 @@
 #   Exit codes: 0 written (or a tick coalesced); 2 usage / refused input;
 #       3 the bounded lock wait expired (the line is dropped and the
 #       dropped-line counter bumped); 4 the surface is not verifiably
-#       owner-only.
+#       owner-only; 6 an infrastructure failure, so nothing was recorded.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -199,6 +199,33 @@ run log born --now 9002 item=redirect >/dev/null 2>&1 || rc=$?
 [ ! -e "$tmp/events.log" ] || fail "symlinked sub-surface: the write followed the link"
 rm -f "$log_dir"
 echo "ok: a loosened mode or a redirected surface refuses the write"
+
+# --- an infrastructure failure is not a usage error ---------------------------
+
+rm -rf "$log_dir"
+run log born --now 9100 item=seed >/dev/null || fail "seed write before the read-only surface: exit"
+rm -f "$log_file"
+chmod 0500 "$log_dir"
+rc=0
+run log born --now 9101 item=nowhere >"$tmp/out" 2>"$tmp/err" || rc=$?
+chmod 0700 "$log_dir"
+[ "$rc" = 6 ] || fail "a surface that cannot be written: exit $rc, expected 6 (infrastructure, not usage)"
+while IFS= read -r l; do
+  case "$l" in
+    'tower-queue: '*) ;;
+    *) fail "a raw shell or mktemp diagnostic reached stderr: $l" ;;
+  esac
+done <"$tmp/err"
+echo "ok: a surface that will not take a write exits 6 and says so in this script's own voice"
+
+# A missing sourced dependency is the documented broken install, not the
+# shell's own status for a failed `.`.
+mkdir -p "$tmp/broken"
+cp "$TQ" "$tmp/broken/tower-queue.sh"
+rc=0
+/bin/sh "$tmp/broken/tower-queue.sh" log born --now 9102 item=x >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "missing echo-safety.sh: exit $rc, expected 5 (broken install)"
+echo "ok: a missing sourced dependency exits 5"
 
 # --- no repo file changes -----------------------------------------------------
 

@@ -72,7 +72,12 @@
 # Exit: 0 done (a coalesced tick included); 1 `report` found no log to read;
 #   2 usage or refused input; 3 the bounded lock wait expired (line dropped);
 #   4 the sub-surface, the log, or a counter is not verifiably owner-only, or
-#   a repo-tracked knob is malformed (the by-layer policy); 5 broken install.
+#   a repo-tracked knob is malformed (the by-layer policy); 5 broken install;
+#   6 an infrastructure failure — a directory, temp file, rename, append,
+#   clock or helper fork that would not answer, so the event was NOT
+#   recorded. A caller reading 3 as "expected drop, carry on" and 2 as "I
+#   called it wrong" needs 6 to stay distinct from both: it is the code that
+#   says the host, not the call, is what stopped the log.
 #
 # Plain portable shell, no model invocation anywhere (REQ-H1.4); bash 3.2 /
 # BSD tooling floor. Pathname expansion is off (set -f): the mode checks
@@ -84,8 +89,15 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 6
 
+# Guarded like the jargon list `report` checks for: an unguarded `.` exits
+# with the shell's own status for a missing file, which says nothing about
+# which dependency went missing.
+if [ ! -r "$script_dir/echo-safety.sh" ]; then
+  printf '%s\n' "tower-queue: scripts/echo-safety.sh is missing — broken install" >&2
+  exit 5
+fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
@@ -232,10 +244,11 @@ knob() {
 # order so a degrade warning is never lost, and the first non-zero exit is
 # this script's exit, the same contract as `knob`.
 resolve_log_knobs() {
-  _kd=$(mktemp -d) || {
+  _kd=$(mktemp -d 2>/dev/null) || {
     err "cannot create a scratch dir for the knob reads"
-    exit 2
+    exit 6
   }
+  KNOB_DIR=$_kd
   for _ks in "tower_hook_lock_wait 2s" "tower_tick_gap_max 10m" "tower_log_rotate_age 30d" "tower_report_window 7d"; do
     (
       _kn=${_ks%% *}
@@ -253,12 +266,10 @@ resolve_log_knobs() {
     case "$_krc" in
       0) ;;
       "" | *[!0-9]*)
-        rm -rf "$_kd"
         err "cannot resolve the '$_kn' knob (no result from resolve-config-knob)"
-        exit 2
+        exit 6
         ;;
       *)
-        rm -rf "$_kd"
         err "cannot resolve the '$_kn' knob (resolve-config-knob exit $_krc)"
         exit "$_krc"
         ;;
@@ -272,6 +283,7 @@ resolve_log_knobs() {
     esac
   done
   rm -rf "$_kd"
+  KNOB_DIR=""
 }
 
 # redact <value> — the one secret-shaped redaction helper (REQ-G1.8). The
@@ -405,13 +417,13 @@ check_private_file() {
 }
 
 resolve_surface() {
-  home=$("$FS" root) || {
+  home=$("$FS" root 2>/dev/null) || {
     err "cannot resolve the fleet home (fleet-state.sh root failed)"
-    exit 2
+    exit 6
   }
-  my_uid=$(id -u) || {
+  my_uid=$(id -u 2>/dev/null) || {
     err "cannot resolve the current uid"
-    exit 2
+    exit 6
   }
   surface="$home/tower-comms"
   log_file="$surface/events.log"
@@ -433,7 +445,7 @@ ensure_surface() {
   fi
   if [ ! -d "$surface" ]; then
     err "cannot create the sub-surface $(sanitize_printable "$surface" "(unprintable path)")"
-    exit 2
+    exit 6
   fi
   check_private_dir "$surface"
   check_private_file "$log_file"
@@ -447,13 +459,25 @@ ensure_surface() {
 
 HOLD_LOCK=0
 PENDING_TMP=""
+WORK_TMP=""
+KNOB_DIR=""
 release_lock() {
   if [ "$HOLD_LOCK" = 1 ]; then
     "$FS" unlock >/dev/null 2>&1 || true
     HOLD_LOCK=0
   fi
 }
-trap 'release_lock; [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP"' EXIT
+# Every scratch path this script mints is tracked, because each one is
+# created inside the 0700 sub-surface: a signal between `mktemp` and the
+# rename that consumes it would otherwise leave a full copy of the event log
+# behind, one per interruption.
+cleanup() {
+  release_lock
+  [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP" 2>/dev/null || true
+  [ -z "$WORK_TMP" ] || rm -f "$WORK_TMP" 2>/dev/null || true
+  [ -z "$KNOB_DIR" ] || rm -rf "$KNOB_DIR" 2>/dev/null || true
+}
+trap 'cleanup' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -511,9 +535,9 @@ read_counter() {
 # rewrite_log — replace the log's contents with the file at $1 via a
 # same-dir temp and rename, so a lock-free reader never sees a torn file.
 rewrite_log() {
-  PENDING_TMP=$(mktemp "$surface/.events.XXXXXX") || return 1
-  cat "$1" >"$PENDING_TMP" || return 1
-  mv -f "$PENDING_TMP" "$log_file" || return 1
+  PENDING_TMP=$(mktemp "$surface/.events.XXXXXX" 2>/dev/null) || return 1
+  cat "$1" >"$PENDING_TMP" 2>/dev/null || return 1
+  mv -f "$PENDING_TMP" "$log_file" 2>/dev/null || return 1
   PENDING_TMP=""
   return 0
 }
@@ -649,10 +673,11 @@ cmd_log() {
     0) ;;
     1)
       err "the fleet lock stayed busy for the whole tower_hook_lock_wait; dropping this '$kind' line rather than writing unlocked (counted in events.dropped)"
-      printf '%s\t%s\n' "$now" "$kind" >>"$dropped_file" 2>/dev/null || true
+      (printf '%s\t%s\n' "$now" "$kind" >>"$dropped_file") 2>/dev/null \
+        || err "the dropped line could not be counted either: events.dropped would not take it"
       exit 3
       ;;
-    *) exit 2 ;;
+    *) exit 6 ;;
   esac
 
   # Rotation, judged on the first line only: the log is append-ordered, so
@@ -665,25 +690,25 @@ cmd_log() {
         if (F["kind"] == "tick" && ("until" in F)) t = F["until"] + 0
         print (t < cutoff) ? "yes" : "no"; exit }') || needs=no
     if [ "$needs" = yes ]; then
-      rot_tmp=$(mktemp "$surface/.rotate.XXXXXX") || {
+      rot_tmp=$(mktemp "$surface/.rotate.XXXXXX" 2>/dev/null) || {
         err "cannot create a scratch file for rotation"
-        exit 2
+        exit 6
       }
+      WORK_TMP=$rot_tmp
       awk -v cutoff="$cutoff" "$AWK_PARSE"'
         { if (!parse($0, F, T) || !header_ok(F, T)) next
           t = F["ts"] + 0
           if (F["kind"] == "tick" && ("until" in F)) t = F["until"] + 0
-          if (t >= cutoff) print }' "$log_file" >"$rot_tmp" || {
-        rm -f "$rot_tmp"
+          if (t >= cutoff) print }' "$log_file" >"$rot_tmp" 2>/dev/null || {
         err "rotation failed while filtering the log"
-        exit 2
+        exit 6
       }
       rewrite_log "$rot_tmp" || {
-        rm -f "$rot_tmp"
         err "rotation failed while replacing the log"
-        exit 2
+        exit 6
       }
       rm -f "$rot_tmp"
+      WORK_TMP=""
     fi
   fi
 
@@ -700,38 +725,38 @@ cmd_log() {
         sub(/}$/, "", $0)
         print $0 ",\"until\":" now "}" }')
     if [ -n "$merged" ]; then
-      total=$(wc -l <"$log_file" | tr -d ' ')
-      co_tmp=$(mktemp "$surface/.coalesce.XXXXXX") || {
+      co_tmp=$(mktemp "$surface/.coalesce.XXXXXX" 2>/dev/null) || {
         err "cannot create a scratch file for the tick"
-        exit 2
+        exit 6
       }
+      WORK_TMP=$co_tmp
+      total=$(wc -l <"$log_file" | tr -d ' ')
       {
         awk -v n="$total" 'NR < n' "$log_file"
         printf '%s\n' "$merged"
-      } >"$co_tmp" || {
-        rm -f "$co_tmp"
+      } >"$co_tmp" 2>/dev/null || {
         err "coalescing failed while rewriting the log"
-        exit 2
+        exit 6
       }
       rewrite_log "$co_tmp" || {
-        rm -f "$co_tmp"
         err "coalescing failed while replacing the log"
-        exit 2
+        exit 6
       }
       rm -f "$co_tmp"
+      WORK_TMP=""
       exit 0
     fi
   fi
 
   seq=$(read_counter "$seq_file")
   seq=$((seq + 1))
-  PENDING_TMP=$(mktemp "$surface/.seq.XXXXXX") || {
+  PENDING_TMP=$(mktemp "$surface/.seq.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch file for the sequence counter"
-    exit 2
+    exit 6
   }
-  if ! printf '%s\n' "$seq" >"$PENDING_TMP" || ! mv -f "$PENDING_TMP" "$seq_file"; then
+  if ! printf '%s\n' "$seq" >"$PENDING_TMP" 2>/dev/null || ! mv -f "$PENDING_TMP" "$seq_file" 2>/dev/null; then
     err "cannot write the sequence counter"
-    exit 2
+    exit 6
   fi
   PENDING_TMP=""
 
@@ -740,9 +765,12 @@ cmd_log() {
   line="$line$payload"
   [ "$kind" != tick ] || line="$line,\"until\":$now"
   line="$line}"
-  printf '%s\n' "$line" >>"$log_file" || {
+  # The subshell keeps a failed redirect's raw shell diagnostic (which names
+  # a line number and a bare path) off stderr: what reaches the operator is
+  # this script's own sanitized line and nothing else.
+  (printf '%s\n' "$line" >>"$log_file") 2>/dev/null || {
     err "cannot append to the event log"
-    exit 2
+    exit 6
   }
   exit 0
 }
