@@ -750,3 +750,23 @@ entry. No REQ, D-ID, or `Done when:` condition changes meaning.
 Class: expression-only
 Anchor: `6fca6cf8ebc13883ce351a5f2e84f7a6df49bcf5` — computed as
 `scripts/spec-anchor.sh specs/tower-comms`
+
+### Re-anchor — Task 7 expression-only edit, second (2026-09-12)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Sign-off records and content anchors*),
+recorded by the review pass for Task 7.
+
+**Why the anchor moved:** one expression-only edit inside the bundle. Task
+7's `Citations:` line now names D-16, the scope decision the rule doc and
+its doctrine index row already cite; the task line was the one surface
+that did not. `requirements.md` carries the paired changelog entry. No
+REQ, D-ID, or `Done when:` condition changes meaning.
+
+**Cites the changelog line:** the 2026-09-12 `## Changelog` entry in
+`specs/tower-comms/requirements.md` ("Task 7 expression-only edit,
+second").
+
+Class: expression-only
+Anchor: `4572a73c96edf7e6925127c8dbcfd32775f7cd3d` — computed as
+`scripts/spec-anchor.sh specs/tower-comms`

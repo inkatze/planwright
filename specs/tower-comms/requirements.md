@@ -651,6 +651,11 @@ measured evidence (D-15, D-16).
   no-subject judgment sentence and the scope statement to the rule doc the
   task delivers; the citations were the only place the pairing was missing.
   No REQ, D-ID, or `Done when:` condition changes meaning.
+- 2026-09-12 — Task 7 expression-only edit, second. Task 7's `Citations:`
+  line now names D-16, the scope decision the rule doc's own scope
+  statement and its doctrine index row already cite; the task line was the
+  one surface that did not. No REQ, D-ID, or `Done when:` condition changes
+  meaning.
 
 ## Sources
 
