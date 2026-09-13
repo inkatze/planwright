@@ -8,10 +8,12 @@
 #      landing commit wrote it into the real bundle's kickoff brief. A
 #      hand-edited fixture fails here before any parsing claim is made.
 #   2. Execution-validity marks (REQ-F1.2; spec-format's execution-validity
-#      rule for expression-only entries): the entry is explicitly marked
-#      `Class: expression-only`, cites a dated `## Changelog` entry that exists
-#      in the bundle's requirements at that commit, and ends on its anchor
-#      record: the `Anchor:` line and its command (anchor-written-last).
+#      rule for expression-only entries), checked textually since no shipped
+#      script reads them: the entry is explicitly marked
+#      `Class: expression-only` and cites a dated `## Changelog` entry that
+#      exists in the bundle's requirements at that commit. Also the writing
+#      rule that the anchor record comes last: the entry ends on the
+#      `Anchor:` line and its command.
 #   3. The freshness-gate parser accepts it (REQ-F1.2): over the bundle as it
 #      stood at the landing commit, scripts/check-anchor-freshness.sh reads the
 #      captured entry as the most recent one, accepts its command form, and
@@ -226,8 +228,9 @@ echo "ok: a rewritten hash and a non-sanctioned form are both refused"
 ########################################################################
 # 5. Catalog-absent degradation, script half
 ########################################################################
-# Each layer root pointed at an empty directory: no decision-domains catalog
-# is resolvable anywhere.
+# The core and adopter roots pointed at empty directories and the repo root
+# at a directory holding no .claude: no decision-domains catalog is
+# resolvable anywhere.
 absent="$tmp/absent"
 mkdir -p "$absent/core" "$absent/adopter" "$absent/repo"
 resolver_rc=0

@@ -298,8 +298,10 @@ Arm A, Ready bundle with a pre-merge change routes to the delta
 re-walkthrough:
 
 1. Pick a bundle whose status render (`mise run status specs/<spec>`)
-   ends in a derived bundle status of Ready: signed, spec PR still open,
-   no unit dispatched.
+   ends in a derived bundle status of Ready: signed, with no task yet
+   deriving In-progress (a dispatched but unstarted unit still renders
+   Ready). The spec PR being still open is the pre-merge premise this arm
+   exercises, not something the render reports; check it on the PR.
 2. Edit anchored content in the working tree (a requirement's wording)
    without committing. The freshness comparison reads the working tree,
    so the brief's most recent anchor now recomputes to a different hash;
@@ -315,11 +317,12 @@ re-walkthrough:
 Arm B, Active bundle takes a human-declared amendment:
 
 1. Pick a bundle whose status render ends in a derived bundle status of
-   Active: work in flight, at least one unit still open. A bundle whose
-   units are all completed renders Done and cannot take an amendment
-   (it reopens through `/spec-draft --extend`), so it does not qualify.
-   On a format-version 2 bundle the stored header still reads Ready,
-   which is expected; the derived line is the criterion.
+   Active: a task derives In-progress, or Completed with work remaining.
+   A bundle whose whole Done universe derives Completed with no live
+   Awaiting-input bullet renders Done and cannot take an amendment (it
+   reopens through `/spec-draft --extend`), so it does not qualify. On a
+   format-version 2 bundle the stored header still reads Ready, which is
+   expected; the derived line is the criterion.
 2. With the anchor fresh (no content edit), invoke
    `/spec-kickoff specs/<spec>`. Expected: the comparison matches, the
    skill asks what the human brings, and declaring an amendment enters the
@@ -330,24 +333,33 @@ Negative check, both arms: a Ready bundle is never offered the amendment
 ritual, and an Active bundle's declared amendment is never routed through a
 whole-bundle re-walkthrough.
 
+*(Amended at Task 7 execution 2026-09-12: exercise steps for both arms
+added; corrected at Task 7 convergence and review the same day.)*
+
 ### REQ-F1.2 — Expression-only anchor-entry production [test]
 
 Fixture: a captured real skill-produced expression-only entry (the one
 Task 4 wrote into invariant-tasks — marked class, changelog citation,
-anchor line last) parses as execution-valid by the freshness-gate parser;
-the fixture is the captured output, not a hand-authored golden. Home:
+anchor line last) is execution-valid: its marks are present and its anchor
+record parses and recomputes clean under the freshness-gate parser; the
+fixture is the captured output, not a hand-authored golden. Home:
 `tests/test-kickoff-verification-homes.sh` over
 `tests/fixtures/kickoff-entries/invariant-tasks-amendment-6.md`. The test
 re-derives the fixture from the commit that landed the entry and fails on
-any divergence (captured, never edited); checks the execution-validity
-marks (the `Class: expression-only` line, a citation of a dated
-`## Changelog` bullet that exists in that bundle's requirements at that
-commit, the anchor line written last); runs
+any divergence (captured, never edited); checks textually, since no
+shipped script reads them, the execution-validity marks (the
+`Class: expression-only` line, a citation of a dated `## Changelog` bullet
+that exists in that bundle's requirements at that commit) and the writing
+rule that the anchor line comes last; runs
 `scripts/check-anchor-freshness.sh` over the bundle as that commit left it
 and expects the entry's hash reported as a clean recompute; and proves the
 acceptance is the parser's, not vacuous, by refusing the same entry with
 its hash rewritten (the recompute error naming both hashes) and with a
 non-sanctioned command form.
+
+*(Amended at Task 7 execution 2026-09-12: home named and what it asserts
+stated; reworded at Task 7 review the same day to say which checks are the
+parser's.)*
 
 ### REQ-F1.3 — Catalog-absent degradation [test + manual]
 
@@ -355,8 +367,9 @@ The script half is the fixture: `resolve-catalog.sh` with no resolvable
 decision-domains catalog returns a clean empty result rather than an error
 `[test]`. Home: `tests/test-kickoff-verification-homes.sh`: the gap check's
 own read, `scripts/resolve-catalog.sh decision-domains`, with every overlay
-variable stripped and each layer root pointed at an empty directory exits 0
-with empty stdout and no stderr noise (the absent result the skill reads);
+variable stripped, the core and adopter roots pointed at empty directories
+and the repo root at a directory holding no `.claude`, exits 0 with empty
+stdout and no stderr noise (the absent result the skill reads);
 the contrast arm with the shipped seed present resolves non-empty, so the
 empty result is the absent verdict rather than a resolver that prints
 nothing. The skill's degrade-to-one-line-notice-and-proceed decision is
@@ -367,6 +380,9 @@ with the layer roots redirected to empty directories, as the fixture does:
 run `/spec-kickoff` under that condition and confirm the run notes the
 skip in one line, skips the gap check, records the skip in the brief's
 risk register, and proceeds to sign-off.
+
+*(Amended at Task 7 execution 2026-09-12: home named; corrected at Task 7
+convergence and review the same day.)*
 
 ## REQ-G — Sequencing constraint
 

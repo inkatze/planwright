@@ -382,6 +382,17 @@ doctrine stops being homeless prose asserted only in scattered tests.
   returns a clean empty result (it does not fail) and names a reachable
   form of the manual condition. No requirement or decision changes
   meaning.
+- 2026-09-12 — Expression-only (Task 7 review): the three REQ-F test-spec
+  entries, amended in place at execution and convergence, carry the
+  format's trailing `*(Amended at …)*` annotation. REQ-F1.1's arm
+  preconditions state the derivation the render applies: Ready is no task
+  yet deriving In-progress (dispatch alone does not move it), Active is a
+  task In-progress or Completed with work remaining, and Done needs no live
+  Awaiting-input bullet; the open spec PR is named as the arm's premise
+  rather than something the render reports. REQ-F1.2 says which checks are
+  the parser's (the anchor record) and which the test makes textually (the
+  marks and anchor-last). REQ-F1.3 describes the layer roots as the fixture
+  sets them. No requirement or decision changes meaning.
 
 ## Sources
 

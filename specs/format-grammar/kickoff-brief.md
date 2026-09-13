@@ -387,3 +387,23 @@ in `requirements.md`.
 Class: expression-only
 Anchor: `6ccccf4299b8124865c1d7508bb3c62ad9b414fb` — computed as
 `scripts/spec-anchor.sh specs/format-grammar`
+
+### Re-anchor — REQ-F entries annotated and their glosses corrected (2026-09-12)
+
+Marked self-re-anchor for the expression-only corrections the `/self-review`
+pass over the Task 7 branch made to this bundle's test-spec (REQ-F1.1,
+REQ-F1.2, REQ-F1.3). The three entries amended in place at execution and
+convergence now carry the format's trailing `*(Amended at …)*` annotation,
+which the amendment ritual requires so a record names the event that changed
+it. REQ-F1.1's arm preconditions now state the status derivation the render
+applies instead of glosses that over- or under-stated it; REQ-F1.2 says
+which of its checks the freshness-gate parser makes and which the test makes
+textually; REQ-F1.3 describes the layer roots as the fixture sets them. No
+requirement or decision changes meaning.
+
+**Cites the changelog line:** the third 2026-09-12 `## Changelog` entry in
+`requirements.md` ("Expression-only (Task 7 review)").
+
+Class: expression-only
+Anchor: `faa96f6e18984237582fc7581ecf889e137505f7` — computed as
+`scripts/spec-anchor.sh specs/format-grammar`
