@@ -2255,6 +2255,16 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" "CLAUDE_PLUGIN_ROOT=$preset" SHIM_EVENTS=
 grep -q "$preset/scripts/worker-command-guard.sh" "$tmp/pf33p.err" \
   || fail "c33: the refusal must name the guard under the worker's plugin root, got: $(cat "$tmp/pf33p.err")"
 [ ! -s "$rec/argv" ] || fail "c33: a missing worker-side guard must never spawn the worker"
+# The proof's own failure is a refusal with a cause, never a pass: a record it
+# cannot create exits 2 and says why.
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" "TMPDIR=$cdir/no-such-tmp" SHIM_EVENTS="$ev" -- \
+  launch sjw33t execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33t.err"
+[ $? -eq 2 ] || fail "c33: an unwritable proof record must refuse (exit 2), stderr: $(cat "$tmp/pf33t.err")"
+grep -q "cannot create a temp file for the proof record" "$tmp/pf33t.err" \
+  || fail "c33: the temp-file failure must be named, got: $(cat "$tmp/pf33t.err")"
+[ ! -s "$rec/argv" ] || fail "c33: a proof that could not run must never spawn the worker"
 echo "ok: c33 launch preflight proves the hook approves the opening plugin-script call per root, refuses (9) or warns otherwise (fleet-autonomy D-19)"
 
 # ---------------------------------------------------------------------------

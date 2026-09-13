@@ -1053,32 +1053,54 @@ guard_preflight() {
   [ -n "$gp_hook_root" ] || gp_hook_root=$gp_launcher
   gp_hook_root=$(cd -- "$gp_hook_root" 2>/dev/null && pwd -P) || gp_hook_root=$gp_launcher
   gp_guard="$gp_hook_root/scripts/worker-command-guard.sh"
-  if [ ! -r "$gp_guard" ]; then
-    echo "$me: launch preflight: the auto-approve hook $gp_guard is missing or unreadable; the worker would prompt on every routine command" >&2
+  # Executable, not merely readable: the wrapper execs it, and a guard that
+  # cannot run would otherwise read as "does not approve" every root below.
+  if [ ! -x "$gp_guard" ]; then
+    echo "$me: launch preflight: the auto-approve hook $gp_guard is missing or not executable; the worker would prompt on every routine command" >&2
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
-  gp_tmp=$(mktemp) || return 2
+  gp_tmp=$(mktemp) || {
+    echo "$me: launch preflight: cannot create a temp file for the proof record (TMPDIR=${TMPDIR:-/tmp})" >&2
+    [ "$gp_mode" = warn ] && return 0
+    return 2
+  }
+  gp_nl=$(printf '\nx')
+  gp_nl=${gp_nl%x}
   gp_seen=''
+  # One line per root proved (`ok` or `failed <root>`), so the record tells
+  # "nothing was proved" apart from "everything passed": a proof that could
+  # not run must never read as a pass.
   {
     printf '%s\n' "$gp_launcher" "$gp_hook_root"
     /bin/sh "$gp_hook_root/scripts/resolve-installed-roots.sh" 2>/dev/null || :
   } | while IFS= read -r gp_root; do
     [ -n "$gp_root" ] || continue
     gp_root=$(cd -- "$gp_root" 2>/dev/null && pwd -P) || continue
-    case "$gp_seen" in *"|$gp_root|"*) continue ;; esac
-    gp_seen="$gp_seen|$gp_root|"
+    case "$gp_nl$gp_seen" in *"$gp_nl$gp_root$gp_nl"*) continue ;; esac
+    gp_seen="$gp_seen$gp_root$gp_nl"
     gp_cmd="$gp_root/scripts/resolve-rule-doc.sh spec-format"
     gp_payload=$(printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s"},"cwd":"%s"}' \
       "$(printf '%s' "$gp_cmd" | json_escape)" "$(printf '%s' "$gp_cwd" | json_escape)")
     gp_out=$(printf '%s\n' "$gp_payload" | "$gp_env" "$gp_guard" 2>/dev/null) || gp_out=''
     case $gp_out in
-      *'"permissionDecision":"allow"'*) ;;
-      *) printf '%s\n' "$gp_root" ;;
+      *'"permissionDecision":"allow"'*) printf 'ok\n' ;;
+      *) printf 'failed %s\n' "$gp_root" ;;
     esac
-  done >"$gp_tmp"
-  gp_failed=$(cat "$gp_tmp" 2>/dev/null)
+  done >"$gp_tmp" || {
+    rm -f "$gp_tmp"
+    echo "$me: launch preflight: could not record the proof (writing $gp_tmp failed)" >&2
+    [ "$gp_mode" = warn ] && return 0
+    return 2
+  }
+  gp_tested=$(awk 'END { print NR }' "$gp_tmp" 2>/dev/null) || gp_tested=0
+  gp_failed=$(sed -n 's/^failed //p' "$gp_tmp" 2>/dev/null) || gp_failed=''
   rm -f "$gp_tmp"
+  if [ "${gp_tested:-0}" -eq 0 ]; then
+    echo "$me: launch preflight: proved nothing - no candidate root resolved (launcher $gp_launcher, hook root $gp_hook_root)" >&2
+    [ "$gp_mode" = warn ] && return 0
+    return 9
+  fi
   [ -n "$gp_failed" ] || return 0
   printf '%s\n' "$gp_failed" | while IFS= read -r gp_root; do
     echo "$me: launch preflight: the auto-approve hook does not approve '$gp_root/scripts/resolve-rule-doc.sh spec-format' - a worker whose skill resolves to that root stalls on its first doctrine call (check jq is installed, and that the hook resolves the root: PLANWRIGHT_ROOT / CLAUDE_PLUGIN_ROOT / scripts/resolve-installed-roots.sh)" >&2
