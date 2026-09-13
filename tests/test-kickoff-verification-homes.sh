@@ -139,8 +139,10 @@ grep -q '^Class: expression-only$' "$FIXTURE" \
   || fail "entry is not marked 'Class: expression-only'"
 echo "ok: entry carries the expression-only mark"
 
+# The first date on the citation line is the cited one; a later date on the
+# same line (a PR's, say) is not.
 cited=$(grep 'Cites the changelog line' "$FIXTURE" \
-  | sed -n 's/.*\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\).*/\1/p' | head -n 1)
+  | sed -n 's/^[^0-9]*\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\).*/\1/p' | head -n 1)
 [ -n "$cited" ] || fail "entry cites no dated changelog line"
 # Scoped to the `## Changelog` section, as the guard's pairing check scopes
 # its own scan: a dated bullet elsewhere in the file is not a citation
@@ -186,7 +188,7 @@ cp "$landed"/*.md "$f3/$BUNDLE/"
 run_guard "$f3"
 assert_rc "captured entry recomputes clean over its landed content" 0
 assert_has "the ok record names the entry's hash" "ok     $BUNDLE — anchor $hash"
-assert_has "the summary counts exactly one ok and no errors" "1 ok, 0 notice(s), 0 error(s)"
+assert_has "the summary counts exactly one ok and no errors" "check-anchor-freshness: 1 ok, 0 notice(s), 0 error(s)"
 echo "ok: the freshness guard recomputes the captured entry clean"
 
 ########################################################################
@@ -196,7 +198,7 @@ stale=0000000000000000000000000000000000000000
 f4="$tmp/f4/specs"
 mkdir -p "$f4/$BUNDLE"
 cp "$f3/$BUNDLE"/*.md "$f4/$BUNDLE/"
-sed "s/$hash/$stale/" "$f3/$BUNDLE/kickoff-brief.md" >"$f4/$BUNDLE/kickoff-brief.md"
+sed "/^Anchor:/s/$hash/$stale/" "$f3/$BUNDLE/kickoff-brief.md" >"$f4/$BUNDLE/kickoff-brief.md"
 grep -q "$stale" "$f4/$BUNDLE/kickoff-brief.md" || fail "the hash rewrite did not apply"
 run_guard "$f4"
 assert_rc "a rewritten hash in the captured entry is a stale-anchor error" 1
