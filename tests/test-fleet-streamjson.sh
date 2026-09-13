@@ -2354,4 +2354,23 @@ case $out in
 esac
 echo "ok: c35 status reads running only with no pending row, awaiting-input on any pending row, and never live for a dead supervisor"
 
+# ---------------------------------------------------------------------------
+# c36: the escalation tick's own ingress. Internal, but reachable, so a bad
+#    argv is a refusal with a cause, and the directory must be the worker's own.
+# ---------------------------------------------------------------------------
+home="$tmp/h36"
+w36="$home/streamjson/sjw36"
+mkdir -p "$w36" "$tmp/elsewhere36"
+senv "$home" "$tmp/r36" -- _tick sjw36 "$w36" >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c36: a short argv must be a usage error (exit 2)"
+senv "$home" "$tmp/r36" -- _tick sjw36 "$tmp/elsewhere36" "$$" "$$" >/dev/null 2>"$tmp/tk36.err"
+[ $? -eq 2 ] || fail "c36: a directory that is not the worker's own must be refused (exit 2)"
+grep -q "is not the state directory of worker sjw36" "$tmp/tk36.err" \
+  || fail "c36: the refusal must say which directory was rejected, got: $(cat "$tmp/tk36.err")"
+senv "$home" "$tmp/r36" -- _tick sjw36 "$w36" nope "$$" >/dev/null 2>"$tmp/tk36b.err"
+[ $? -eq 2 ] || fail "c36: a non-numeric pid must be refused (exit 2)"
+grep -q "pids must be positive integers" "$tmp/tk36b.err" \
+  || fail "c36: the pid refusal must be named, got: $(cat "$tmp/tk36b.err")"
+echo "ok: c36 the tick refuses a malformed argv or a foreign directory, and says so"
+
 echo "all fleet-streamjson tests passed"

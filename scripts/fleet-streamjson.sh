@@ -2259,14 +2259,33 @@ cmd__tick() {
   tk_dir=$2
   tk_sup=$3
   tk_wrk=$4
-  valid_field "$tk_worker" || exit 2
-  valid_posnum "$tk_sup" || exit 2
-  valid_posnum "$tk_wrk" || exit 2
-  [ -d "$tk_dir" ] || exit 2
+  # Its stderr is the supervisor's log, the one place a ticker that never
+  # started can be seen, so every refusal says what it refused.
+  valid_field "$tk_worker" || {
+    echo "$me: tick: invalid worker handle" >&2
+    exit 2
+  }
+  if ! valid_posnum "$tk_sup" || ! valid_posnum "$tk_wrk"; then
+    echo "$me: tick: supervisor and worker pids must be positive integers" >&2
+    exit 2
+  fi
+  # The directory must be this worker's own state directory, resolved the way
+  # every other verb resolves it, not a caller-chosen path to scan.
+  tk_expect=$(worker_dir "$tk_worker") || exit 2
+  if [ "$tk_dir" != "$tk_expect" ] || [ ! -d "$tk_dir" ]; then
+    echo "$me: tick: $tk_dir is not the state directory of worker $tk_worker" >&2
+    exit 2
+  fi
   tk_tick=${PLANWRIGHT_STREAMJSON_ALARM_TICK:-60}
-  valid_posnum "$tk_tick" || tk_tick=60
+  valid_posnum "$tk_tick" || {
+    echo "$me: tick: invalid PLANWRIGHT_STREAMJSON_ALARM_TICK '$tk_tick'; using 60" >&2
+    tk_tick=60
+  }
   tk_thr=${PLANWRIGHT_STREAMJSON_PENDING_AGE:-900}
-  valid_posnum "$tk_thr" || tk_thr=900
+  valid_posnum "$tk_thr" || {
+    echo "$me: tick: invalid PLANWRIGHT_STREAMJSON_PENDING_AGE '$tk_thr'; using 900" >&2
+    tk_thr=900
+  }
   tk_i=0
   while :; do
     sleep 1
