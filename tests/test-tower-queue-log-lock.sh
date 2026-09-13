@@ -197,6 +197,58 @@ grep -q '"item":"recent"' "$log_file" && fail "rotation: a line past both the ag
 : >"$local_cfg"
 echo "ok: rotation never cuts below tower_report_window"
 
+# --- rotation deletes only what it can positively judge as old ----------------
+
+# A clock that steps forward (a BIOS reset, an NTP jump, a resumed VM) or a
+# caller's own --now must not be able to erase the history behind it.
+rm -f "$log_file" "$seq_file"
+{
+  printf '{"v":1,"seq":1,"ts":%s,"kind":"born","item":"keep1"}\n' "$recent"
+  printf '{"v":1,"seq":2,"ts":%s,"kind":"born","item":"keep2"}\n' "$now"
+} >"$log_file"
+printf '2\n' >"$seq_file"
+chmod 0600 "$log_file" "$seq_file"
+run log born --now $((now + 400 * 86400)) item=future >/dev/null 2>"$tmp/err" \
+  || fail "future-stamped write: exit"
+grep -q '"item":"keep1"' "$log_file" || fail "a future-stamped write erased the log behind it"
+grep -q '"item":"keep2"' "$log_file" || fail "a future-stamped write erased the log behind it"
+grep -q 'rotation' "$tmp/err" || fail "the refused rotation was not reported on stderr"
+echo "ok: a future-stamped write never empties the log"
+
+# A torn line is the only evidence that a write tore, and a line carrying a
+# schema version this script cannot read is another writer's, not garbage:
+# rotation keeps both and looks past them for something it can judge.
+rm -f "$log_file" "$seq_file"
+{
+  printf '{"v":1,"seq":1,"ts":%s,"kind":"born","item":"old"}\n' "$old"
+  printf '{"v":1,"seq":2,"ts":%s,"kind":"born","item":"tor\n' "$old"
+  printf '{"v":2,"seq":3,"ts":%s,"kind":"born","item":"fromv2"}\n' "$old"
+  printf '{"v":1,"seq":4,"ts":%s,"kind":"born","item":"recent"}\n' "$recent"
+} >"$log_file"
+printf '4\n' >"$seq_file"
+chmod 0600 "$log_file" "$seq_file"
+run log born item=new >/dev/null 2>&1 || fail "mixed-log rotation write: exit"
+grep -q '"item":"old"' "$log_file" && fail "rotation kept a line it can judge as old"
+grep -q '"item":"tor' "$log_file" || fail "rotation deleted a torn line, the only evidence of the tear"
+grep -q '"item":"fromv2"' "$log_file" || fail "rotation deleted a line whose schema version it cannot read"
+grep -q '"item":"recent"' "$log_file" || fail "rotation dropped a line inside the age"
+echo "ok: rotation removes only lines it can positively judge as old"
+
+# A log whose first line is torn still rotates: the trigger reads on to the
+# first line it can judge instead of treating the tear as "rotate everything".
+rm -f "$log_file" "$seq_file"
+{
+  printf '{"v":1,"seq":1,"ts":%s,"kind":"born","item":"tor\n' "$old"
+  printf '{"v":1,"seq":2,"ts":%s,"kind":"born","item":"old2"}\n' "$old"
+  printf '{"v":1,"seq":3,"ts":%s,"kind":"born","item":"recent"}\n' "$recent"
+} >"$log_file"
+printf '3\n' >"$seq_file"
+chmod 0600 "$log_file" "$seq_file"
+run log born item=new2 >/dev/null 2>&1 || fail "torn-first-line rotation write: exit"
+grep -q '"item":"old2"' "$log_file" && fail "a torn first line stopped rotation from running"
+grep -q '"item":"tor' "$log_file" || fail "the torn first line was deleted"
+echo "ok: a torn first line does not stop rotation, nor trigger a purge"
+
 # --- owner-only surface -------------------------------------------------------
 
 # shellcheck disable=SC2012

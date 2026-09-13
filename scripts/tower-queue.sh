@@ -43,7 +43,11 @@
 # drop is still counted. Rotation by age runs inside the same critical
 # section: lines older than the larger of `tower_log_rotate_age` and
 # `tower_report_window` are removed, the second being the floor that keeps
-# the experiment's own sessions readable whatever the age is set to.
+# the experiment's own sessions readable whatever the age is set to. It
+# removes only what it can positively judge as old — a line it parses, whose
+# header it reads, stamped behind the cutoff — so a torn line, a line from a
+# writer on a schema version it does not know, and every line at all when the
+# cutoff sits past the whole log (a stepped clock) survive it.
 #
 # THE SCORECARD.
 #
@@ -736,15 +740,23 @@ cmd_log() {
     *) exit 6 ;;
   esac
 
-  # Rotation, judged on the first line only: the log is append-ordered, so
-  # when its oldest line is inside the cutoff nothing older can follow.
+  # Rotation removes only what it can positively judge as old: a line this
+  # script parses, whose header it reads, carrying a timestamp behind the
+  # cutoff. Everything else stays. A line it cannot parse is the only evidence
+  # that a write tore, and report's `malformed` count is what carries that
+  # evidence to the operator; a line carrying a schema version this script does
+  # not know belongs to another writer, and deleting it is how two writers
+  # sharing a fleet home would destroy each other's history.
+  #
+  # Judged on the first JUDGEABLE line: the log is append-ordered, so when the
+  # oldest line it can read is inside the cutoff nothing older can follow.
   if [ -s "$log_file" ]; then
     cutoff=$(awk -v now="$now" -v a="$rotate_age" -v w="$window" 'BEGIN { f = (a > w) ? a : w; printf "%.3f\n", now - f }')
-    needs=$(head -n 1 "$log_file" | awk -v cutoff="$cutoff" "$AWK_PARSE"'
-      { if (!parse($0, F, T) || !header_ok(F, T)) { print "yes"; exit }
+    needs=$(awk -v cutoff="$cutoff" "$AWK_PARSE"'
+      { if (!parse($0, F, T) || !header_ok(F, T)) next
         t = F["ts"] + 0
         if (F["kind"] == "tick" && ("until" in F)) t = F["until"] + 0
-        print (t < cutoff) ? "yes" : "no"; exit }') || needs=no
+        print (t < cutoff) ? "yes" : "no"; exit }' "$log_file") || needs=no
     if [ "$needs" = yes ]; then
       rot_tmp=$(mktemp "$surface/.rotate.XXXXXX" 2>/dev/null) || {
         err "cannot create a scratch file for rotation"
@@ -752,17 +764,27 @@ cmd_log() {
       }
       WORK_TMP=$rot_tmp
       awk -v cutoff="$cutoff" "$AWK_PARSE"'
-        { if (!parse($0, F, T) || !header_ok(F, T)) next
+        { if (!parse($0, F, T) || !header_ok(F, T)) { print; next }
           t = F["ts"] + 0
           if (F["kind"] == "tick" && ("until" in F)) t = F["until"] + 0
           if (t >= cutoff) print }' "$log_file" >"$rot_tmp" 2>/dev/null || {
         err "rotation failed while filtering the log"
         exit 6
       }
-      rewrite_log "$rot_tmp" || {
-        err "rotation failed while replacing the log"
-        exit 6
-      }
+      # A filter that keeps nothing is the signature of a clock that stepped
+      # forward, not of a log that is entirely stale: one future-stamped write
+      # puts the cutoff past every real line at once. Refuse it. The genuinely
+      # idle case costs one write of delay — this write's own line lands, and
+      # the next rotation then keeps it and removes the rest — while a clock
+      # step costs nothing at all.
+      if [ ! -s "$rot_tmp" ]; then
+        err "refusing a rotation that would empty the event log; the cutoff is past every line, which is a stepped clock more often than a wholly stale log"
+      else
+        rewrite_log "$rot_tmp" || {
+          err "rotation failed while replacing the log"
+          exit 6
+        }
+      fi
       rm -f "$rot_tmp"
       WORK_TMP=""
     fi
