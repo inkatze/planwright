@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.42.0](https://github.com/inkatze/planwright/compare/v0.41.1...v0.42.0) (2026-09-14)
+
+
+### Features
+
+* **locks:** one atomic-create advisory lock for the script layer ([#458](https://github.com/inkatze/planwright/issues/458)) ([69c8371](https://github.com/inkatze/planwright/commit/69c8371abb3e92dd0b03c85b46b53b326e1991b3))
+
+
+### Bug Fixes
+
+* **locks:** stop clearing a working path that a sibling has already moved onto ([#462](https://github.com/inkatze/planwright/issues/462)) ([1e873e5](https://github.com/inkatze/planwright/commit/1e873e592137e9d91922dc85bafbcf7c25dd0a8f))
+
 ## [0.41.1](https://github.com/inkatze/planwright/compare/v0.41.0...v0.41.1) (2026-09-13)
 
 
