@@ -193,6 +193,17 @@ _pw_lock_path_ok() {
       printf '%s\n' "lock-lib: $1 refuses a lock path containing '#', the character this library derives its working paths with" >&2
       return 1
       ;;
+    */)
+      # A PATH WITH NO LAST COMPONENT. Every working path is this one plus a
+      # suffix, so a trailing slash makes each of them land INSIDE the lock
+      # rather than beside it, and the confirmation that a rename landed ON its
+      # destination has nothing to compare: the last component is the empty
+      # string. Refusing the one root path keeps both true of every name
+      # derived from it, which is where `-` and `#` are handled for the same
+      # reason. A caller that means the directory can name it without the slash.
+      printf '%s\n' "lock-lib: $1 refuses a lock path ending in '/', which leaves it with no last component to derive a working path from (name it ${2%/} instead)" >&2
+      return 1
+      ;;
     -*)
       # EVERY PATH THIS LIBRARY HANDS A TOOL STARTS HERE. The lock path goes to
       # `ln`, `mv`, `rm` and `readlink`, and each derived path is this one plus
@@ -589,9 +600,25 @@ _pw_lock_displace() {
     # it went: putting it back means renaming onto a path somebody now holds,
     # which is the clobber this family exists to prevent.
     _pwds_base=${1##*/}
-    if [ -n "$_pwds_base" ] && [ -d "$_pw_lock_displaced" ] \
+    if [ -d "$_pw_lock_displaced" ] \
       && { [ -e "$_pw_lock_displaced/$_pwds_base" ] || [ -L "$_pw_lock_displaced/$_pwds_base" ]; }; then
-      printf '%s\n' "lock-lib: $1 was filed inside $_pw_lock_displaced rather than moved onto it; it is left there rather than removed" >&2
+      # TAKE IT BACK OUT RATHER THAN LEAVE IT THERE. That directory is some
+      # other caller's scratch, and a scratch directory is removed, with
+      # everything in it, by the caller that made it, so leaving this here is
+      # handing it to somebody else's `rm`. Moving it to a fresh name of this
+      # caller's own is safe for the same reason the first move was: the
+      # derivation hands out a free path. It is NOT moved back where it came
+      # from, because that path may be held by now, which is the clobber this
+      # whole family exists to prevent.
+      _pwds_stuck=$_pw_lock_displaced/$_pwds_base
+      if _pw_lock_work_path "$1" "$2" "$3" \
+        && mv -f "$_pwds_stuck" "$_pw_lock_work_path_out" 2>/dev/null \
+        && ! { [ -d "$_pw_lock_work_path_out" ] \
+          && { [ -e "$_pw_lock_work_path_out/$_pwds_base" ] || [ -L "$_pw_lock_work_path_out/$_pwds_base" ]; }; }; then
+        _pw_lock_displaced=$_pw_lock_work_path_out
+        return 0
+      fi
+      printf '%s\n' "lock-lib: $1 was filed inside $_pwds_stuck and could not be taken back out; it is left there rather than removed" >&2
       _pw_lock_displaced=''
       return 2
     fi

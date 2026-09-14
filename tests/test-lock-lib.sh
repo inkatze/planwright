@@ -1507,6 +1507,27 @@ for verb in pw_lock_try pw_lock_acquire pw_lock_try_detached \
   fi
 done
 rm -rf "$dashdir"
+# A path ending in `/` has no last component, so every name derived from it
+# lands INSIDE it rather than beside it, and the confirmation that a rename
+# landed on its destination has nothing to compare against. Refuse it where `-`
+# and `#` are refused: one rule, and every derived path inherits it.
+sldir="$tmp/slash"
+mkdir -p "$sldir/s.lock"
+for verb in pw_lock_try pw_lock_acquire pw_lock_try_detached \
+  pw_lock_acquire_detached pw_lock_release pw_lock_break_force pw_lock_clear_legacy; do
+  (cd "$sldir" && $SH -c ". \"\$1\"; $verb \"s.lock/\"" sh "$LIB" >/dev/null 2>&1)
+  if [ $? -eq 2 ]; then
+    pass "$verb refuses a path with a trailing slash"
+  else
+    fail "$verb accepted a path with a trailing slash"
+  fi
+done
+if [ -d "$sldir/s.lock" ]; then
+  pass "and the refusal touched nothing at that path"
+else
+  fail "a refused trailing-slash path was acted on anyway"
+fi
+rm -rf "$sldir"
 # A target beginning with a dash survives the create and comes back whole.
 ln -s -- "-not-an-option" "$tmp/target.lock" 2>/dev/null
 got=$(run_sh x 'pw_lock_owner "$1/target.lock"')
@@ -1773,11 +1794,16 @@ assert_eq "only one function reads an elapsed time" "2" "$etimesites"
 # now belongs to a peer — which is how two siblings destroyed each other's
 # displaced link and neither released. The way that stays true is that moving
 # aside has one owner, so a site cannot be written that does not obey it.
-derivers=$(grep -cE '^[^#]*_pw_lock_work_path ' "$LIB" || :)
-assert_eq "only one place derives a working path and moves onto it" "1" "$derivers"
 # Read code, not prose: these functions all explain themselves in comments that
 # name the very commands being counted.
 code_of() { sed -n "/^$1() {/,/^}/p" "$LIB" | grep -vE '^[[:space:]]*#'; }
+# Count where the derivations ARE, not how many there are: the recovery path
+# derives a second name, and pinning the count would have to change every time
+# that function grows a step, which is how a pin stops meaning anything.
+all_derivations=$(grep -cE '^[^#]*_pw_lock_work_path ' "$LIB" || :)
+own_derivations=$(code_of _pw_lock_displace | grep -cE '_pw_lock_work_path ' || :)
+assert_eq "every derivation of a working path happens where the move does" \
+  "$all_derivations" "$own_derivations"
 cleared=$(code_of _pw_lock_displace | grep -cE '(^|[^[:alnum:]_])rm ' || :)
 assert_eq "and it removes nothing on the way" "0" "$cleared"
 for v in pw_lock_release pw_lock_release_token pw_lock_break_force pw_lock_clear_legacy; do
@@ -2104,20 +2130,34 @@ mkdir -p "$tmp/swallow"
 cat >"$tmp/swallow/mv" <<'SHIM'
 #!/bin/sh
 # Stand in for a peer that creates a directory on the derived path in the
-# window between it being handed out and being renamed onto.
+# window between it being handed out and being renamed onto. Only the first
+# rename is swallowed unless SWALLOW_ALWAYS is set, so the way back out stays
+# open, which is the case the recovery has to handle.
 for a in "$@"; do d=$a; done
-mkdir -p "$d"
+if [ -n "${SWALLOW_ALWAYS:-}" ] || [ ! -f "${SWALLOW_ONCE:-/nonexistent}" ]; then
+  mkdir -p "$d"
+  [ -n "${SWALLOW_ONCE:-}" ] && : >"$SWALLOW_ONCE"
+fi
 exec /bin/mv "$@"
 SHIM
 chmod +x "$tmp/swallow/mv"
 mkdir -p "$tmp/sw.lock"
-out=$(PATH="$tmp/swallow:$PATH" run_sh x 'cd "$1" || exit 9
+# Leaving it inside is not enough: the caller whose scratch directory it is
+# removes that directory, and everything in it, when it finishes. Take it back
+# out to a name of this caller's own, which is safe for the same reason the
+# first move was, the destination being free by construction.
+out=$(PATH="$tmp/swallow:$PATH" SWALLOW_ONCE="$tmp/swallow/once.flag" \
+  run_sh x 'cd "$1" || exit 9
   _pw_lock_displace ./sw.lock legacy "$$" 2>/dev/null
-  printf "%s\n" "$?"')
-assert_eq "a rename that landed inside the destination is a real error" "2" "$out"
-# And the end to end that matters: the legacy clear must not reach its remove.
+  printf "%s %s\n" "$?" "$([ -d "$_pw_lock_displaced" ] && echo recovered || echo lost)"')
+assert_eq "a rename that landed inside its destination is taken back out" "0 recovered" "$out"
+inside=$(find "$tmp" -maxdepth 2 -type d -name 'sw.lock#*' -exec test -e '{}/sw.lock' ';' -print 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "and nothing of ours is left inside somebody else's scratch" "0" "$inside"
+rm -rf "$tmp"/sw.lock*
+# When the way out is blocked too, it stops rather than guessing, and the
+# legacy clear must not reach its remove.
 mkdir -p "$tmp/sw2.lock"
-PATH="$tmp/swallow:$PATH" run_sh x 'cd "$1" || exit 9
+PATH="$tmp/swallow:$PATH" SWALLOW_ALWAYS=1 run_sh x 'cd "$1" || exit 9
   pw_lock_clear_legacy ./sw2.lock' >/dev/null 2>&1
 assert_exit "the legacy clear refuses rather than removing what it cannot name" 2 $?
 kept=$(find "$tmp" -maxdepth 3 -name 'sw2.lock' 2>/dev/null | wc -l | tr -d ' ')
