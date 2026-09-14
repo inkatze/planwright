@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.42.0](https://github.com/inkatze/planwright/compare/v0.41.1...v0.42.0) (2026-09-14)
+
+
+### Features
+
+* **locks:** one atomic-create advisory lock for the script layer ([#458](https://github.com/inkatze/planwright/issues/458)) ([69c8371](https://github.com/inkatze/planwright/commit/69c8371abb3e92dd0b03c85b46b53b326e1991b3))
+
 ## [0.41.1](https://github.com/inkatze/planwright/compare/v0.41.0...v0.41.1) (2026-09-13)
 
 
