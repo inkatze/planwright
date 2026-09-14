@@ -65,9 +65,9 @@
 #
 # A LOCK PATH IS A REGISTRY KEY as well as a filename. The registry of held
 # locks is one newline-terminated record per lock, so a path carrying a newline
-# is refused; and this file derives working paths beside the lock with a `#`
-# in them, so a caller that builds lock paths out of user input must keep `#`
-# out of them or one caller's lock can be another's break claim.
+# is refused; and this file derives its working paths beside the lock with a
+# `#`, so a path carrying one of those is refused too — otherwise one caller's
+# lock could be another's break claim.
 #
 # THE HOLD BELONGS TO THE PROCESS THAT TAKES IT. `$$` is the parent's pid in a
 # subshell, a pipeline stage and a command substitution, so a lock taken in one
@@ -179,6 +179,15 @@ _pw_lock_path_ok() {
   case $2 in
     *"$PW_LOCK_NL"*)
       printf '%s\n' "lock-lib: $1 refuses a lock path containing a newline" >&2
+      return 1
+      ;;
+    *'#'*)
+      # The break claim, its aside and the legacy aside all hang off the lock
+      # path with a `#`. A caller that could name a lock containing one could
+      # name another lock's working path, which is exactly the collision the
+      # separator was chosen to prevent — so this is enforced here rather than
+      # asked of every caller that builds a path out of anything.
+      printf '%s\n' "lock-lib: $1 refuses a lock path containing '#', the character this library derives its working paths with" >&2
       return 1
       ;;
   esac
@@ -620,11 +629,22 @@ pw_lock_acquire_for() {
       return 2
       ;;
   esac
+  # A shell that already holds this path cannot hand it to anybody: the hold it
+  # would be giving away is the one it is standing in. Taking the reentrancy
+  # branch here would report success, leave the lock owned by this shell after
+  # all, and then drop the bookkeeping below — so the outer holder could no
+  # longer release, and the lock would be wedged for good. Refuse instead, and
+  # say which of the two mistakes it was.
+  if _pw_lock_lookup "$1"; then
+    printf '%s\n' "lock-lib: pw_lock_acquire_for cannot hand $1 to pid $2 — this shell already holds it, and a hold cannot be reassigned from inside its own critical section" >&2
+    return 2
+  fi
   _pw_lock_acquire_core "$1" "${3:-$PW_LOCK_MAX_TRIES}" "$2" || return $?
   # The hold belongs to the nominated process, not to this one, so it must not
   # sit in this shell's release registry: a trap here would drop a lock the
-  # caller is still inside. The registry entry did its job — it covered the
-  # instant between the create and the confirm — and is dropped now.
+  # caller is still inside. The entry did its job — it covered the instant
+  # between the create and the confirm — and the check above is what makes
+  # dropping it safe, because it proves the entry is the one just made.
   _pw_lock_store "$1" '' 0
   return 0
 }
@@ -739,12 +759,25 @@ pw_lock_clear_legacy() {
   _pwc_aside="$1#legacy#$$-$PW_LOCK_SEQ"
   rm -rf "$_pwc_aside" 2>/dev/null || :
   mv -f "$1" "$_pwc_aside" 2>/dev/null || return 1
-  if [ -L "$_pwc_aside" ] || [ ! -d "$_pwc_aside" ]; then
-    # A peer's live lock, not the legacy directory probed. Put it back; if the
-    # path has since been taken again the restore fails and dropping the aside
-    # is the only correct move, and it is a link rather than a tree.
-    mv -f "$_pwc_aside" "$1" 2>/dev/null || rm -f "$_pwc_aside" 2>/dev/null || :
+  if [ -L "$_pwc_aside" ]; then
+    # A peer's live lock, not the legacy directory probed. Put it back by
+    # RE-CREATING the link, never by renaming it back: a rename lands whatever
+    # is in its way, so the restore that exists to undo a mistake would destroy
+    # a second peer that took the freed path in the meantime — the successor
+    # clobber this whole family is built to prevent. `mv -n` is no answer
+    # either: it reports success whether or not it moved. A create fails when
+    # the path is taken, which is the answer this needs.
+    _pwc_back=$(readlink "$_pwc_aside" 2>/dev/null) || _pwc_back=''
+    [ -z "$_pwc_back" ] || ln -s "$_pwc_back" "$1" 2>/dev/null || :
+    rm -f "$_pwc_aside" 2>/dev/null || :
     return 1
+  fi
+  if [ ! -d "$_pwc_aside" ]; then
+    # Neither the legacy directory nor a lock: not this verb's to remove, and
+    # not something to move back over whatever holds the path now. Leave it
+    # where it is and name where it went.
+    printf '%s\n' "lock-lib: $1 changed shape during the legacy clear; what was there is now at $_pwc_aside" >&2
+    return 2
   fi
   rm -rf "$_pwc_aside" 2>/dev/null || return 2
   return 0

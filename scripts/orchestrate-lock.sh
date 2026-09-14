@@ -225,9 +225,19 @@ case "$cmd" in
       exit 3
     fi
     ev_rc=0
-    # shellcheck disable=SC2086 # the handle is a class plus its arguments, and
-    # splitting it into those words is what the predicate takes
+    # The split is deliberate — a handle is a class plus its arguments — but it
+    # must be a split and nothing more. A tmux window can legally be named `*`,
+    # and tmux windows are the class recorded here, so an unguarded split would
+    # expand it against the working directory and hand the predicate a list of
+    # filenames to judge instead.
+    case $- in
+      *f*) ev_restore='set -f' ;;
+      *) ev_restore='set +f' ;;
+    esac
+    set -f
+    # shellcheck disable=SC2086 # word-split on purpose, with globbing off
     "$evidence_cmd" $handle >/dev/null 2>&1 || ev_rc=$?
+    $ev_restore
     case $ev_rc in
       0) ;;
       1)
@@ -305,8 +315,12 @@ fi
 if [ -z "$owner_pid" ] && [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] \
   && command -v tmux >/dev/null 2>&1; then
   tw=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name} #{window_index}' 2>/dev/null) || tw=""
+  # One space, no tab, and no shell pattern character: a handle is recorded to
+  # be split and handed to the predicate later, and one carrying a glob is one
+  # this cannot act on safely. Refusing to record it leaves the hold
+  # unattributed, which the sweep already treats as a reason to refuse.
   case $tw in
-    '' | *"$(printf '\t')"* | *' '*' '*) ;;
+    '' | *"$(printf '\t')"* | *' '*' '* | *'*'* | *'?'* | *'['*) ;;
     *' '*) sweep_handle="tmux-window $tw" ;;
   esac
 fi

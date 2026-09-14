@@ -887,6 +887,97 @@ kill "$live_pid" 2>/dev/null
 wait "$live_pid" 2>/dev/null
 rm -f "$tmp/bud.lock"
 
+# ---------------------------------------------------------------------------
+# 29. A hold cannot be handed to somebody else from inside it
+# ---------------------------------------------------------------------------
+#
+# A shell that already holds the path cannot delegate it: the hold it would be
+# giving away is the one it is standing in. Reporting success and quietly
+# deepening its own hold instead is the worst of the three answers, because the
+# bookkeeping is then dropped and the shell can no longer release at all.
+
+out="$(run_sh x '
+  pw_lock_acquire "$1/give.lock" 3 || exit 9
+  mine=$PW_LOCK_TOKEN
+  pw_lock_acquire_for "$1/give.lock" 999999 1
+  printf "for-rc=%s\n" "$?"
+  printf "target-changed=%s\n" "$([ "$(readlink "$1/give.lock")" = "$mine" ] && printf no || printf yes)"
+  pw_lock_release "$1/give.lock"
+  printf "release-rc=%s\n" "$?"
+  printf "still-there=%s\n" "$([ -L "$1/give.lock" ] && printf yes || printf no)"
+')"
+assert_eq "handing a held lock to another process is refused, and leaves the hold releasable" \
+  "for-rc=2
+target-changed=no
+release-rc=0
+still-there=no" "$out"
+rm -f "$tmp"/give.lock*
+
+# On a free path it still works, which is the case the verb exists for.
+sleep 120 &
+live_pid=$!
+run_sh x "pw_lock_acquire_for \"\$1/free.lock\" $live_pid 3" >/dev/null 2>&1
+assert_exit "acquiring for another process on a free path still succeeds" 0 $?
+case "$(readlink "$tmp/free.lock")" in
+  "$live_pid"-*) pass "and the hold is the nominated process's" ;;
+  *) fail "and the hold is the nominated process's (got '$(readlink "$tmp/free.lock")')" ;;
+esac
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
+rm -f "$tmp"/free.lock*
+
+# ---------------------------------------------------------------------------
+# 30. The legacy clear never overwrites a lock that arrived while it worked
+# ---------------------------------------------------------------------------
+#
+# The clear renames the directory aside so the two steps cannot be raced. What
+# it must not do is rename it BACK over whatever holds the path by then: a
+# rename lands regardless of what is in the way, so the restore that exists to
+# undo a mistake would destroy a live successor's lock instead.
+
+out="$(run_sh x '
+  lockp="$1/race.lock"
+  mkdir "$lockp"
+  real_mv=$(command -v mv)
+  moved=0
+  mv() {
+    if [ "$moved" = 0 ]; then
+      moved=1
+      # A peer wins the path between the shape test and the rename: it clears
+      # the legacy directory and takes a real lock, so what gets renamed aside
+      # is that peer.
+      rm -rf "$lockp"
+      ln -s "peer-one" "$lockp"
+      "$real_mv" "$@"
+      # ...and a second peer takes the freed path before the restore runs.
+      ln -s "peer-two" "$lockp"
+      return 0
+    fi
+    "$real_mv" "$@"
+  }
+  pw_lock_clear_legacy "$lockp" >/dev/null 2>&1
+  printf "%s\n" "$(readlink "$lockp")"
+')"
+assert_eq "the legacy clear leaves a lock taken while it worked exactly as it found it" \
+  "peer-two" "$out"
+rm -rf "$tmp"/race.lock*
+
+# ---------------------------------------------------------------------------
+# 31. A lock path may not carry the character the library derives paths with
+# ---------------------------------------------------------------------------
+#
+# The break claim, its aside and the legacy aside all hang off the lock path
+# with a `#`. A caller that could name a lock containing one could name another
+# lock's working path, which is the collision the separator was chosen to
+# prevent — so the rule is enforced here rather than asked of callers.
+
+run_sh x 'pw_lock_try "$1/has#hash.lock"' >/dev/null 2>&1
+assert_exit "a lock path containing the derivation separator is refused" 2 $?
+run_sh x 'pw_lock_release "$1/has#hash.lock"' >/dev/null 2>&1
+assert_exit "so is releasing one" 2 $?
+run_sh x 'pw_lock_clear_legacy "$1/has#hash.lock"' >/dev/null 2>&1
+assert_exit "and so is clearing one" 2 $?
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

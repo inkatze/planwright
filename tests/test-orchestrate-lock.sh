@@ -317,6 +317,35 @@ fi
 [ ! -e "$sweepspec/.orchestrate.lock#owner#" ] || fail "sweep left the attribution record behind"
 /bin/bash "$LOCK" acquire "$sweepspec" || fail "the spec is still undispatchable after the sweep"
 /bin/bash "$LOCK" release "$sweepspec"
+# A handle is split into the words the predicate takes, and a tmux window can
+# legally be named `*`. Splitting with globbing live would expand it against
+# the working directory and hand the predicate a list of filenames instead.
+printf 'dead\n' >"$verdict_file"
+argv_probe="$tmp/argv.sh"
+cat >"$argv_probe" <<'ARGV'
+#!/bin/sh
+printf '%s\n' "$#" >"$ARGV_OUT"
+for a in "$@"; do printf '%s\n' "$a" >>"$ARGV_OUT"; done
+exit 0
+ARGV
+chmod +x "$argv_probe"
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$sweepspec" || fail "glob fixture: detached acquire failed"
+glob_token=$(readlink "$sweepspec/.orchestrate.lock")
+printf '%s\ttmux-window * 3\n' "$glob_token" >"$sweepspec/.orchestrate.lock#owner#"
+# Files in the working directory the split would pick up if it expanded.
+mkdir -p "$tmp/globdir" && : >"$tmp/globdir/decoy-one" && : >"$tmp/globdir/decoy-two"
+(cd "$tmp/globdir" && ARGV_OUT="$tmp/argv.out" EVIDENCE_VERDICT_FILE="$verdict_file" \
+  PLANWRIGHT_TOWER_EVIDENCE_CMD="$argv_probe" \
+  /bin/bash "$LOCK" sweep "$sweepspec" >/dev/null 2>&1) || true
+[ -f "$tmp/argv.out" ] || fail "glob case: the evidence command was never reached"
+argv_n=$(sed -n 1p "$tmp/argv.out")
+[ "$argv_n" = 3 ] || fail "glob case: the predicate got $argv_n arguments, expected 3 (the handle expanded)"
+[ "$(sed -n 3p "$tmp/argv.out")" = '*' ] \
+  || fail "glob case: the window name reached the predicate as '$(sed -n 3p "$tmp/argv.out")', expected the literal *"
+/bin/bash "$LOCK" release "$sweepspec"
+echo "ok: a handle is split into words without expanding against the filesystem"
+
 echo "ok: the sweep clears a detached hold whose holder is gone, and only then"
 
 # 15. An attributed tower hold needs no sweep at all: naming a live process as
