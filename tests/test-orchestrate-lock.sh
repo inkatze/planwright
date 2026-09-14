@@ -344,6 +344,24 @@ argv_n=$(sed -n 1p "$tmp/argv.out")
 [ "$(sed -n 3p "$tmp/argv.out")" = '*' ] \
   || fail "glob case: the window name reached the predicate as '$(sed -n 3p "$tmp/argv.out")', expected the literal *"
 /bin/bash "$LOCK" release "$sweepspec"
+# The window field recorded here must be one the death predicate actually
+# matches on. It lists `#{window_id}` and `#{window_name}` and compares the
+# handle's second argument against those two; a `#{window_index}` matches
+# neither, so a live window would be reported DEAD and the sweep would clear a
+# lock whose holder is still running. Pinned across the two files, because the
+# bug is the disagreement and neither file is wrong on its own.
+evid_fields=$(grep -o "#{window_[a-z]*}" "$here/../scripts/fleet-death-evidence.sh" | sort -u)
+asked=$(grep -o "#{window_[a-z]*}" "$LOCK" | sort -u)
+[ -n "$evid_fields" ] || fail "window-field pin: found no window fields in fleet-death-evidence.sh"
+[ -n "$asked" ] || fail "window-field pin: orchestrate-lock.sh asks tmux for no window field"
+for f in $asked; do
+  case "$evid_fields" in
+    *"$f"*) ;;
+    *) fail "window-field pin: the handle records $f, which fleet-death-evidence.sh never matches on (it matches: $(printf '%s' "$evid_fields" | tr '\n' ' '))" ;;
+  esac
+done
+echo "ok: the recorded window field is one the death predicate matches on"
+
 echo "ok: a handle is split into words without expanding against the filesystem"
 
 echo "ok: the sweep clears a detached hold whose holder is gone, and only then"

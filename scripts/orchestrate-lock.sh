@@ -314,7 +314,11 @@ if [ -z "$owner_pid" ]; then
 fi
 if [ -z "$owner_pid" ] && [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] \
   && command -v tmux >/dev/null 2>&1; then
-  tw=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name} #{window_index}' 2>/dev/null) || tw=""
+  # `#{window_id}`, not the index: the death predicate lists a session's
+  # windows as id and name and compares the handle's second argument against
+  # those two, so an index matches neither and a live window would be read as
+  # dead — which is the sweep clearing a lock whose holder is still running.
+  tw=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name} #{window_id}' 2>/dev/null) || tw=""
   # One space, no tab, and no shell pattern character: a handle is recorded to
   # be split and handed to the predicate later, and one carrying a glob is one
   # this cannot act on safely. Refusing to record it leaves the hold
