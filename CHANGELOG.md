@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.41.1](https://github.com/inkatze/planwright/compare/v0.41.0...v0.41.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **observations:** sign the carry commit, and stop tracking relay scratch ([#455](https://github.com/inkatze/planwright/issues/455)) ([a0d312b](https://github.com/inkatze/planwright/commit/a0d312b7fa114c51541e1ea29a077eb27b044008))
+
 ## [0.41.0](https://github.com/inkatze/planwright/compare/v0.40.0...v0.41.0) (2026-09-13)
 
 
