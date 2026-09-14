@@ -744,7 +744,12 @@ plant_live_lock() {
   # job exits, which would hand the caller a pid that is already dead.
   sleep 120 >/dev/null 2>&1 &
   _pl_pid=$!
-  ln -s "$_pl_pid-1700000000-1" "$(lock_path_for "$_pl_state")"
+  # The mint time is NOW, because that is what a live owner's token carries: a
+  # process cannot have minted a token before it started, and the probe uses
+  # exactly that to tell a real owner from an unrelated process wearing a
+  # recycled pid. Back-dating belongs on the FILE, which is what the age
+  # assertions are about.
+  ln -s "$_pl_pid-$(date +%s)-1" "$(lock_path_for "$_pl_state")"
   printf '%s\n' "$_pl_pid"
 }
 

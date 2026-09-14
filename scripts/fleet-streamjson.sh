@@ -1831,7 +1831,17 @@ cmd_launch() {
   # with no holder. It covers the journal lock a `--foreground` launch goes on
   # to take in this same process, too.
   pw_lock_trap_install
-  if ! lock_take "$dir/launch.lock"; then
+  lock_take "$dir/launch.lock"
+  lt_rc=$?
+  if [ "$lt_rc" -eq 2 ]; then
+    # A real error, not contention: something that is not a lock at the path,
+    # or a parent this cannot write. The library has already said which.
+    # Calling it "already in flight" would send an operator to look for a
+    # launch that does not exist.
+    echo "$me: cannot take the launch election for $worker (lock error)" >&2
+    exit 2
+  fi
+  if [ "$lt_rc" -ne 0 ]; then
     echo "$me: a launch is already in flight for $worker (refused: single initiator)" >&2
     exit 3
   fi
@@ -2240,7 +2250,13 @@ cmd_recover() {
   # armed before the take for the same reason: a signal landing in the gap
   # would leave the lock standing with no holder.
   pw_lock_trap_install
-  if ! lock_take "$dir/recover.lock"; then
+  lock_take "$dir/recover.lock"
+  lt_rc=$?
+  if [ "$lt_rc" -eq 2 ]; then
+    echo "$me: cannot take the recovery election for $worker (lock error)" >&2
+    exit 2
+  fi
+  if [ "$lt_rc" -ne 0 ]; then
     echo "$me: recovery already in progress for $worker (refused: single initiator)" >&2
     exit 3
   fi

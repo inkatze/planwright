@@ -1032,6 +1032,153 @@ left="$(find "$tmp" -maxdepth 1 -name 'plain.lock?*' 2>/dev/null | wc -l | tr -d
 assert_eq "and leaves nothing of the claim it took behind" "0" "$left"
 rm -f "$tmp"/plain.lock*
 
+# ---------------------------------------------------------------------------
+# 33. The depth a shell still owes survives contention, not just the break
+# ---------------------------------------------------------------------------
+#
+# Case 18 covers a re-take that succeeds immediately. When the re-take has to
+# WAIT — a successor holds the path for a moment — the owed depth used to be
+# computed, dropped with the registry record, and then forgotten, so the next
+# spin reacquired at depth one and the first release unlinked while the outer
+# sections were still inside.
+
+run_sh x '
+  lockp="$1/owed.lock"
+  pw_lock_acquire "$lockp" || exit 9
+  pw_lock_acquire "$lockp" || exit 8          # this shell owes two
+  # The hold is cleared underneath it and a live successor takes the path, so
+  # the first re-take attempt has to wait rather than winning at once.
+  sleep 45 &
+  succ=$!
+  rm -f "$lockp"
+  ln -s "$succ-0-0-1" "$lockp"
+  ( sleep 0.4; rm -f "$lockp"; kill "$succ" 2>/dev/null ) &
+  pw_lock_acquire "$lockp" 400 || exit 7      # owes three now
+  pw_lock_release "$lockp" || exit 6
+  [ -L "$lockp" ] || exit 5
+  pw_lock_release "$lockp" || exit 4
+  [ -L "$lockp" ] || exit 3
+  pw_lock_release "$lockp" || exit 2
+  [ ! -L "$lockp" ] || exit 1
+' >/dev/null 2>&1
+assert_exit "an owed depth survives a re-take that had to wait for the path" 0 $?
+rm -f "$tmp"/owed.lock*
+
+# ---------------------------------------------------------------------------
+# 34. The claim sweep takes the links this library made, and nothing else
+# ---------------------------------------------------------------------------
+#
+# The escape hatch collects the break residue by glob. Only links are ever put
+# there by this library, so a directory matching the glob belongs to somebody
+# else — and recursively deleting somebody else's directory is not a thing a
+# lock primitive should do on an operator's behalf.
+
+ln -s "detached-1-1-1" "$tmp/keep.lock"
+ln -s "1-1-1-1" "$tmp/keep.lock#break#1_1_1"
+mkdir -p "$tmp/keep.lock#break#planted/inner"
+: >"$tmp/keep.lock#break#planted/inner/data"
+run_sh x 'pw_lock_break_force "$1/keep.lock"' >/dev/null 2>&1
+assert_exit "break_force clears the lock" 0 $?
+if [ -f "$tmp/keep.lock#break#planted/inner/data" ]; then
+  pass "and leaves a directory it did not create alone"
+else
+  fail "and leaves a directory it did not create alone"
+fi
+if [ -L "$tmp/keep.lock#break#1_1_1" ]; then
+  fail "but still collects the claim links it did create"
+else
+  pass "but still collects the claim links it did create"
+fi
+rm -rf "$tmp"/keep.lock*
+
+# ---------------------------------------------------------------------------
+# 35. Release takes the link it owns, rather than checking and then removing
+# ---------------------------------------------------------------------------
+#
+# The ownership check and the unlink were two operations. Between them an
+# operator break or a sweep can clear the link and a successor can publish, and
+# the unlink then took the successor's lock — the clobber the token exists to
+# prevent, arriving through the verb that exists to prevent it.
+
+# The check and the removal are one act now — the link is taken by renaming it
+# to a path of this caller's own, and what moved is inspected before anything
+# is deleted — so a release whose lock changed hands finds a stranger in its
+# hand and puts it back, rather than deleting it and reporting success.
+run_sh x '
+  pw_lock_acquire "$1/rel2.lock" || exit 9
+  rm -f "$1/rel2.lock"
+  ln -s "successor-token" "$1/rel2.lock"
+  pw_lock_release "$1/rel2.lock" && exit 8
+  [ "$(command readlink "$1/rel2.lock")" = successor-token ] || exit 7
+' >/dev/null 2>&1
+assert_exit "a release whose lock changed hands puts the successor back" 0 $?
+left="$(find "$tmp" -maxdepth 1 -name 'rel2.lock#*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "and keeps none of the link it borrowed to look at it" "0" "$left"
+rm -f "$tmp"/rel2.lock*
+
+# The ordinary release still works, and leaves nothing of its own behind.
+run_sh x '
+  pw_lock_acquire "$1/rel3.lock" || exit 9
+  pw_lock_release "$1/rel3.lock" || exit 8
+  [ ! -L "$1/rel3.lock" ] || exit 7
+' >/dev/null 2>&1
+assert_exit "an ordinary release still clears the lock" 0 $?
+left="$(find "$tmp" -maxdepth 1 -name 'rel3.lock?*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "and leaves no residue of its own" "0" "$left"
+rm -f "$tmp"/rel3.lock*
+
+# The cross-process release is the same act, so it answers the same way.
+out="$(run_sh x '
+  pw_lock_acquire "$1/rel4.lock" || exit 9
+  printf "%s\n" "$PW_LOCK_TOKEN"
+')"
+rel4_token="$(printf '%s\n' "$out" | sed -n 1p)"
+rm -f "$tmp/rel4.lock"
+ln -s "successor-token" "$tmp/rel4.lock"
+$SH -c '. "$1"; pw_lock_release_token "$2/rel4.lock" "$3"' sh "$LIB" "$tmp" "$rel4_token" >/dev/null 2>&1
+assert_exit "a token release over a successor's lock is refused" 1 $?
+assert_eq "and the successor's lock is untouched" \
+  "successor-token" "$(readlink "$tmp/rel4.lock")"
+rm -f "$tmp"/rel4.lock*
+
+# ---------------------------------------------------------------------------
+# 36. A recycled pid is not the owner that minted the token
+# ---------------------------------------------------------------------------
+#
+# The probe reads the pid out of the token and asks whether it is running. On a
+# long-lived host the OS recycles pids, so a lock whose owner died can name a
+# live unrelated process and read as held forever. The token already carries
+# the moment it was minted, and a process that started AFTER that moment cannot
+# be the one that minted it — which is the whole of the check, and it can only
+# ever turn a live-looking owner into an absent one, never the reverse.
+
+now=$(date +%s)
+run_sh x "pw_lock_owner_alive \"\$\$-$now-1-1\"" >/dev/null 2>&1
+assert_exit "a token minted now by a running process reads alive" 0 $?
+long_ago=$((now - 86400))
+run_sh x "pw_lock_owner_alive \"\$\$-$long_ago-1-1\"" >/dev/null 2>&1
+assert_exit "a process that started long after the token was minted is not its owner" 1 $?
+
+# The check degrades rather than guessing: a token whose epoch is unusable says
+# nothing about start times, so the pid alone decides, as it always did.
+run_sh x 'pw_lock_owner_alive "$$-0-1-1"' >/dev/null 2>&1
+assert_exit "a token with no usable mint time falls back to the pid" 0 $?
+run_sh x 'pw_lock_owner_alive "$$-notanepoch-1-1"' >/dev/null 2>&1
+assert_exit "and so does one whose mint time will not parse" 0 $?
+
+# It must not resurrect anything: an absent pid stays absent whatever the epoch.
+sh -c 'exit 0' &
+gone=$!
+wait "$gone" 2>/dev/null
+run_sh x "pw_lock_owner_alive \"$gone-$now-1-1\"" >/dev/null 2>&1
+assert_exit "an absent owner stays absent" 1 $?
+
+# And a lock whose owner pid was recycled is breakable, which is the point.
+ln -s "$$-$long_ago-1-1" "$tmp/reuse.lock"
+run_sh x 'pw_lock_acquire "$1/reuse.lock" 20' >/dev/null 2>&1
+assert_exit "a lock naming a recycled pid can be taken" 0 $?
+rm -f "$tmp"/reuse.lock*
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

@@ -292,15 +292,21 @@ case "$cmd" in
         exit 3
         ;;
     esac
-    # Positive evidence, and only now. Re-read the token first: between the
-    # verdict and this line the holder may have released and a successor taken
-    # the path, and clearing THAT is the double-grant the evidence bar exists
-    # to prevent.
-    if [ "$(readlink "$lock" 2>/dev/null)" != "$sweep_token" ]; then
+    # Positive evidence, and only now — and the clear is verified against the
+    # token the verdict was about, as one act. The unconditional escape hatch
+    # would delete whatever is at the path, and between the verdict and here
+    # the holder may have released and a successor taken it; clearing THAT is
+    # the double-grant the evidence bar exists to prevent.
+    pw_lock_release_token "$lock" "$sweep_token"
+    sweep_rc=$?
+    if [ "$sweep_rc" -eq 1 ]; then
+      # Not that token's any more: somebody released and somebody else took it
+      # while the question was being asked. Nothing to clear, and nothing to
+      # report as cleared.
       printf '%s\n' alive
       exit 1
     fi
-    if ! pw_lock_break_force "$lock"; then
+    if [ "$sweep_rc" -ne 0 ]; then
       printf '%s\n' unknown
       echo "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
       exit 3
@@ -417,6 +423,13 @@ if [ -z "$owner_pid" ]; then
   sweep_handle=$derived
 fi
 
+# Armed BEFORE the take, and only disowned once the hold is fully handed over.
+# A detached hold is never reclaimed by liveness, so one published by a process
+# that was then signalled — before it could record what makes the hold
+# attributable — is a lock nothing will ever clear on its own. Between the
+# publish and the disown below, this trap is what releases it.
+pw_lock_trap_install
+
 rc=0
 if [ -n "$owner_pid" ]; then
   pw_lock_acquire_for "$lock" "$owner_pid" 1 || rc=$?
@@ -430,6 +443,10 @@ if [ "$rc" -eq 0 ]; then
   if [ -n "$sweep_handle" ]; then
     printf '%s\t%s\n' "$PW_LOCK_TOKEN" "$sweep_handle" >"$handle_file" 2>/dev/null || :
   fi
+  # The hold belongs to the window this call opened, not to this process, so
+  # the EXIT trap must not take it now that the handover is complete.
+  # shellcheck disable=SC2034 # lock-lib.sh's release path reads it, not this file
+  PW_LOCK_HELD=''
 fi
 case $rc in
   0) exit 0 ;;

@@ -559,14 +559,18 @@ echo "ok: clearing a lock symlink removes the link and never its target"
 # ---------------------------------------------------------------------------
 home_old="$tmp/old-live-home"
 mkdir -p "$home_old"
-ln -s "$$-1-1" "$home_old/.fleet.lock" # owned by this still-running shell
+# The mint time is NOW: a process cannot have minted a token before it started,
+# and the probe uses exactly that to tell a real owner from an unrelated one
+# wearing a recycled pid. The AGE under test is the file's, back-dated below.
+old_live_token="$$-$(date +%s)-1" # owned by this still-running shell
+ln -s "$old_live_token" "$home_old/.fleet.lock"
 touch -h -t 200001010000 "$home_old/.fleet.lock"
 rc=0
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home_old" \
   /bin/sh "$FS" lock >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "a 26-year-old lock with a LIVE owner was not reported busy (exit $rc): an age rule is deciding staleness again"
-[ "$(readlink "$home_old/.fleet.lock")" = "$$-1-1" ] \
+[ "$(readlink "$home_old/.fleet.lock")" = "$old_live_token" ] \
   || fail "a live owner's lock was broken because of its age"
 # The companion, so the case cannot pass by never breaking anything at all:
 # the SAME back-dated link with a DEAD owner is broken on the first attempt.

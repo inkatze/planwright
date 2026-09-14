@@ -82,6 +82,10 @@
 # dead ones standing for the whole threshold. `pw_lock_owner_alive` probes the
 # pid instead, and an EPERM from `kill -0` reads as ALIVE (a process owned by
 # another user is still a process), so the probe errs toward refusing to break.
+# A running pid is then checked against the token's own mint time, because pids
+# are recycled and an unrelated process wearing a dead owner's pid would hold
+# the lock forever; that check only ever turns alive into absent, and falls
+# back to the pid alone wherever it cannot be made.
 #
 # THE BREAK CANNOT DOUBLE-GRANT, and the mechanism is a claim link rather than
 # a bare unlink. A breaker first takes `<lock>#break#<dead-token>` by the same
@@ -281,7 +285,10 @@ pw_lock_owner_alive() {
   # stderr instead of answering, which would then be read as a verdict.
   [ "${#_pwa_pid}" -le 10 ] || return 1
   [ "$_pwa_pid" -gt 0 ] || return 1
-  kill -0 "$_pwa_pid" 2>/dev/null && return 0
+  if kill -0 "$_pwa_pid" 2>/dev/null; then
+    _pw_lock_owner_is_minter "$1" "$_pwa_pid"
+    return $?
+  fi
   # `kill -0` fails for two very different reasons and only one of them means
   # absent. A process owned by another user answers EPERM, and breaking ITS
   # lock is the double-grant this whole file exists to prevent, so an EPERM
@@ -297,6 +304,38 @@ pw_lock_owner_alive() {
     return 0
   fi
   return 1
+}
+
+# _pw_lock_owner_is_minter <token> <pid> — 0 the running process could be the
+# one that minted this token, 1 it demonstrably is not.
+#
+# Pids are recycled, and a lock naming a dead owner whose pid has since been
+# reused reads as held forever. The token carries the moment it was minted, and
+# a process that started AFTER that moment cannot be the one that minted it.
+# That is the whole check, and it is deliberately one-directional: it can only
+# turn a live-looking owner into an absent one, never the reverse, so a wrong
+# answer costs a refused break rather than a broken live lock.
+#
+# It degrades rather than guessing. A token with no usable mint time, or a host
+# whose `ps` reports no elapsed time, leaves the pid alone to decide, exactly as
+# before. The slack absorbs the second-granularity of both clocks.
+_pw_lock_owner_is_minter() {
+  _pwn_epoch=${1#*-}
+  _pwn_epoch=${_pwn_epoch%%-*}
+  case $_pwn_epoch in
+    '' | 0 | *[!0-9]*) return 0 ;;
+  esac
+  _pwn_elapsed=$(ps -o etimes= -p "$2" 2>/dev/null | tr -d ' ') || _pwn_elapsed=''
+  case $_pwn_elapsed in
+    '' | *[!0-9]*) return 0 ;;
+  esac
+  _pwn_now=$(date +%s 2>/dev/null) || return 0
+  case $_pwn_now in
+    '' | *[!0-9]*) return 0 ;;
+  esac
+  _pwn_started=$((_pwn_now - _pwn_elapsed))
+  [ "$_pwn_started" -le "$((_pwn_epoch + 2))" ] || return 1
+  return 0
 }
 
 # pw_lock_owner <path> — print the holder's token (nothing, and no newline, for
@@ -474,11 +513,23 @@ _pw_lock_try_core() {
   _pwt_lock=$1
   _pwt_owner_field=$2
   _pwt_probe=$3
+  # What this shell still owes on this path, carried in from the previous spin.
+  # The registry record is gone by then — it had to be, or the reentrancy
+  # branch below would keep matching a token no link carries — so the count has
+  # to travel out of band or it is simply lost, and the first release then
+  # unlinks while the outer sections are still inside.
+  _pwt_owed=${4:-0}
   _pw_lock_probe_again=0
+  _pw_lock_owed_depth=0
   _pw_lock_require_readlink || return 2
 
-  _pwt_depth=1
-  if _pw_lock_lookup "$_pwt_lock"; then
+  if [ "$_pwt_owed" -gt 0 ]; then
+    # Already counted on an earlier spin; counting again would inflate it.
+    _pwt_depth=$_pwt_owed
+  else
+    _pwt_depth=1
+  fi
+  if [ "$_pwt_owed" -eq 0 ] && _pw_lock_lookup "$_pwt_lock"; then
     if [ "$(readlink "$_pwt_lock" 2>/dev/null)" = "$_pw_lock_token" ]; then
       _pw_lock_store "$_pwt_lock" "$_pw_lock_token" "$((_pw_lock_depth + 1))"
       PW_LOCK_TOKEN=$_pw_lock_token
@@ -514,14 +565,19 @@ _pw_lock_try_core() {
     # between one spin and the next. A spin that is not on a probe stride says
     # busy without asking, the way the code this replaces strided its own
     # staleness probe.
-    [ "$_pwt_probe" = 1 ] || return 1
+    if [ "$_pwt_probe" != 1 ]; then
+      _pw_lock_owed_depth=$_pwt_depth
+      return 1
+    fi
     _pwt_owner=$(readlink "$_pwt_lock" 2>/dev/null) || _pwt_owner=''
     if [ -z "$_pwt_owner" ]; then
       # It vanished between the test and the read. Nothing is proven; the
       # caller's next attempt sees a settled path.
+      _pw_lock_owed_depth=$_pwt_depth
       return 1
     fi
     if pw_lock_owner_alive "$_pwt_owner"; then
+      _pw_lock_owed_depth=$_pwt_depth
       return 1
     fi
     _pw_lock_break "$_pwt_lock" "$_pwt_owner" "$_pwt_token" "$_pwt_depth"
@@ -529,7 +585,10 @@ _pw_lock_try_core() {
     # A break that did not win found something in motion — a peer breaking the
     # same owner, or a claim it has just reclaimed — so the next spin looks
     # again rather than waiting out a stride for a situation that is changing.
-    [ "$_pwt_rc" -eq 0 ] || _pw_lock_probe_again=1
+    if [ "$_pwt_rc" -ne 0 ]; then
+      _pw_lock_probe_again=1
+      _pw_lock_owed_depth=$_pwt_depth
+    fi
     return "$_pwt_rc"
   fi
 
@@ -556,11 +615,13 @@ _pw_lock_try_core() {
     [ "$_pwt_parent" != "$_pwt_lock" ] || _pwt_parent=.
     [ -n "$_pwt_parent" ] || _pwt_parent=/
     if [ -d "$_pwt_parent" ] && [ -w "$_pwt_parent" ]; then
+      _pw_lock_owed_depth=$_pwt_depth
       return 1
     fi
     printf '%s\n' "lock-lib: cannot create $_pwt_lock (parent unwritable or filesystem error)" >&2
     return 2
   fi
+  _pw_lock_owed_depth=$_pwt_depth
   return 1
 }
 
@@ -574,6 +635,7 @@ _pw_lock_acquire_core() {
     '' | *[!0-9]* | 0) _pwq_max=$PW_LOCK_MAX_TRIES ;;
   esac
   _pwq_tries=0
+  _pwq_owed=0
   while :; do
     # The first attempt always looks at the holder; after that only every
     # PW_LOCK_PROBE_EVERY-th one does. A holder's liveness cannot change faster
@@ -586,8 +648,9 @@ _pw_lock_acquire_core() {
     else
       _pwq_probe=0
     fi
-    _pw_lock_try_core "$_pwq_lock" "$_pwq_owner_field" "$_pwq_probe"
+    _pw_lock_try_core "$_pwq_lock" "$_pwq_owner_field" "$_pwq_probe" "${_pwq_owed:-0}"
     _pwq_rc=$?
+    _pwq_owed=${_pw_lock_owed_depth:-0}
     [ "$_pwq_rc" -eq 0 ] && return 0
     [ "$_pwq_rc" -eq 2 ] && return 2
     _pwq_tries=$((_pwq_tries + 1))
@@ -690,16 +753,47 @@ pw_lock_release() {
   #
   # A holder whose lock was broken finds a stranger's token here and leaves it
   # alone, which is the whole reason the token exists.
-  if [ "$(readlink "$_pwr_lock" 2>/dev/null)" != "$_pwr_token" ]; then
-    _pw_lock_store "$_pwr_lock" '' 0
-    return 1
-  fi
-  if ! rm -f "$_pwr_lock" 2>/dev/null; then
+  _pw_lock_take_link "$_pwr_lock" "$_pwr_token"
+  _pwr_rc=$?
+  if [ "$_pwr_rc" -eq 2 ]; then
     # Still ours and still on disk. Leave the hold recorded so the handler
     # tries again at exit rather than leaving a lock nothing will release.
     return 2
   fi
   _pw_lock_store "$_pwr_lock" '' 0
+  return "$_pwr_rc"
+}
+
+# _pw_lock_take_link <lock> <token> — remove the lock, but only if it is still
+# this token's, as ONE act rather than a check followed by a removal. 0 removed,
+# 1 it is not this token's (including: already gone), 2 a real error.
+#
+# The rename is what makes it one act. A check-then-remove leaves a window in
+# which an operator break or a sweep clears the link and a successor publishes,
+# and the removal then takes the successor's lock — the clobber the token
+# exists to prevent, arriving through the verb that exists to prevent it. A
+# rename to a path of this caller's own moves whatever is at the lock in a
+# single step, and what moved is then inspected before anything is deleted.
+_pw_lock_take_link() {
+  _pwm_lock=$1
+  _pwm_token=$2
+  _pwm_taken="$_pwm_lock#taken#$_pwm_token"
+  rm -f "$_pwm_taken" 2>/dev/null || :
+  if ! mv "$_pwm_lock" "$_pwm_taken" 2>/dev/null; then
+    if [ -L "$_pwm_lock" ] || [ -e "$_pwm_lock" ]; then
+      return 2
+    fi
+    return 1
+  fi
+  if [ "$(readlink "$_pwm_taken" 2>/dev/null)" != "$_pwm_token" ]; then
+    # Not ours. Put it back by RE-CREATING the link, never by renaming it back:
+    # a rename lands on whatever holds the path by then.
+    _pwm_back=$(readlink "$_pwm_taken" 2>/dev/null) || _pwm_back=''
+    [ -z "$_pwm_back" ] || ln -s "$_pwm_back" "$_pwm_lock" 2>/dev/null || :
+    rm -f "$_pwm_taken" 2>/dev/null || :
+    return 1
+  fi
+  rm -f "$_pwm_taken" 2>/dev/null || return 2
   return 0
 }
 
@@ -713,9 +807,7 @@ pw_lock_release_token() {
     _pw_lock_usage pw_lock_release_token
     return 2
   fi
-  [ "$(readlink "$1" 2>/dev/null)" = "$2" ] || return 1
-  rm -f "$1" 2>/dev/null || return 2
-  return 0
+  _pw_lock_take_link "$1" "$2"
 }
 
 # _pw_lock_sweep_claims <lock> — remove the break claims and asides belonging to
@@ -730,8 +822,12 @@ _pw_lock_sweep_claims() {
   esac
   set +f
   for _pwk_p in "$1"'#break#'* "$1"'#taken#'*; do
-    [ -L "$_pwk_p" ] || [ -e "$_pwk_p" ] || continue
-    rm -rf "$_pwk_p" 2>/dev/null || :
+    # LINKS ONLY. Everything this library puts at these paths is a symlink, so
+    # anything else there belongs to somebody else — and recursively deleting
+    # somebody else's directory is not a thing a lock primitive does on an
+    # operator's behalf, however well the name matches.
+    [ -L "$_pwk_p" ] || continue
+    rm -f "$_pwk_p" 2>/dev/null || :
   done
   $_pwk_restore
 }
@@ -817,9 +913,7 @@ pw_lock_release_all() {
     # Unlink before forgetting, for the reason pw_lock_release gives: a second
     # signal landing inside this loop re-enters it, and a record dropped ahead
     # of its unlink is a lock the re-entry can no longer see.
-    if [ "$(readlink "$_pwx_path" 2>/dev/null)" = "$_pwx_token" ]; then
-      rm -f "$_pwx_path" 2>/dev/null || :
-    fi
+    _pw_lock_take_link "$_pwx_path" "$_pwx_token" || :
     _pw_lock_store "$_pwx_path" '' 0
   done
   PW_LOCK_TOKEN=''

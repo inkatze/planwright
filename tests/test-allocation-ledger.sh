@@ -382,7 +382,10 @@ fi
 # reading it waiting for a process the test already gave up on.
 sleep 30 >/dev/null 2>&1 &
 anc_pid=$!
-anc_token="$anc_pid-946684800-1"
+# The mint time is NOW. What is ancient here is the FILE, back-dated below;
+# a token minted before its own owner started would name an owner that cannot
+# be the minter, which is a different case (case 36 in test-lock-lib.sh).
+anc_token="$anc_pid-$(date +%s)-1"
 anc_lock="$lock_home/.lock.ancient:unit"
 ln -s "$anc_token" "$anc_lock" || fail "8j: could not stage the ancient lock"
 touch -h -t 200001010000 "$anc_lock" 2>/dev/null || true

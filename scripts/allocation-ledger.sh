@@ -447,6 +447,13 @@ case "$cmd" in
     # printed, so there would be no owner left for a liveness probe to ask
     # about.
     l_lock=$(lock_path "$1")
+    # Armed BEFORE the take, and disowned only once the token is in the
+    # caller's hands. A detached hold is never reclaimed by liveness, so one
+    # published by a process that is then signalled — or whose token never
+    # reaches the caller because the pipe closed — is a lock nothing will clear
+    # on its own and no token anywhere can name. Between the publish and the
+    # disown, this trap is what releases it.
+    pw_lock_trap_install
     pw_lock_acquire_detached "$l_lock"
     l_rc=$?
     if [ "$l_rc" -eq 1 ]; then
@@ -455,7 +462,13 @@ case "$cmd" in
     fi
     [ "$l_rc" -eq 0 ] || exit 2
     # The token goes back to the caller so its `unlock` can prove ownership.
-    printf '%s\n' "$PW_LOCK_TOKEN"
+    if ! printf '%s\n' "$PW_LOCK_TOKEN"; then
+      echo "allocation-ledger: could not hand back the lock token for $1; releasing rather than leaving a hold nobody can name" >&2
+      pw_lock_release "$l_lock" >/dev/null 2>&1 || :
+      exit 2
+    fi
+    # shellcheck disable=SC2034 # lock-lib.sh's release path reads it, not this file
+    PW_LOCK_HELD=''
     ;;
 
   unlock)
