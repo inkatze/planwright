@@ -55,6 +55,10 @@ CORPUS="$REPO_ROOT/tests/fixtures/worker-guard-corpus.tsv"
 SETTINGS="$REPO_ROOT/config/worker-settings.json"
 ROOT=""
 LIVE=0
+TAB=$(printf '\t')
+# The corpus is the evidence; a parse that yields fewer rows than this means
+# the file was mangled, not that the guard got better.
+MIN_ROWS=30
 
 usage() {
   cat >&2 <<'USAGE'
@@ -187,9 +191,54 @@ decide() {
   esac
 }
 
-while IFS=$'\t' read -r expect command; do
-  case ${expect%%[![:space:]]*}${expect} in '' | '#'*) continue ;; esac
-  [ -n "${command:-}" ] || continue
+# Positive control. A corpus row deferring and a hook that never ran look
+# identical from here (defer IS silence), so before trusting a single `defer`
+# verdict, prove the hook is reachable and decides: one canary that must
+# allow, one that must defer. Without this, `--root` pointing anywhere at all
+# reports every defer-expected row as passing.
+canary_allow=$(decide 'true')
+canary_defer=$(decide 'rm -rf /')
+if [ "$canary_allow" != allow ] || [ "$canary_defer" != defer ]; then
+  echo "smoke: POSITIVE CONTROL FAILED - the hook is not deciding" >&2
+  echo "smoke:   expected allow for 'true', got $canary_allow" >&2
+  echo "smoke:   expected defer for 'rm -rf /', got $canary_defer" >&2
+  echo "smoke:   (a hook that cannot run defers everything, which would" >&2
+  echo "smoke:    otherwise read as every defer-expected row passing)" >&2
+  exit 2
+fi
+echo "smoke: positive control ok (hook reachable and deciding)"
+echo
+
+rows=0
+lineno=0
+while IFS= read -r line; do
+  lineno=$((lineno + 1))
+  line=${line%$'\r'}                       # tolerate a CRLF corpus
+  trimmed=${line#"${line%%[![:space:]]*}"} # strip leading whitespace
+  case $trimmed in '' | '#'*) continue ;; esac
+
+  expect=${trimmed%%"$TAB"*}
+  command=${trimmed#*"$TAB"}
+  # A row whose tab was eaten (editor, copy-paste, patch mangling) would
+  # otherwise be skipped silently and the suite would still report PASS.
+  if [ "$expect" = "$trimmed" ] || [ -z "$command" ]; then
+    echo "smoke: $CORPUS:$lineno: row has no tab separator" >&2
+    exit 2
+  fi
+  case $expect in
+    allow | defer) ;;
+    *)
+      echo "smoke: $CORPUS:$lineno: expectation must be allow|defer, got '$expect'" >&2
+      exit 2
+      ;;
+  esac
+
+  # The corpus is machine-independent by construction; the harness binds the
+  # placeholder to whichever root is under test.
+  command=${command//@@PLUGIN_ROOT@@/$ROOT}
+  command=${command//@@REPO_ROOT@@/$REPO_ROOT}
+
+  rows=$((rows + 1))
   got=$(decide "$command")
   if [ "$got" = "$expect" ]; then
     passes=$((passes + 1))
@@ -205,6 +254,13 @@ while IFS=$'\t' read -r expect command; do
     fi
   fi
 done <"$CORPUS"
+
+# A corpus that parsed to nothing is not a pass. Every other guard in this
+# repo fails closed on an empty scan; this one used to report PASS.
+if [ "$rows" -lt "$MIN_ROWS" ]; then
+  echo "smoke: corpus yielded $rows row(s), below the floor of $MIN_ROWS" >&2
+  exit 2
+fi
 
 echo
 printf 'smoke: corpus %d passed, %d failed (%d false-allow)\n' \

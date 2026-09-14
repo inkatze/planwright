@@ -6,13 +6,19 @@
 # should have been approved, add the verbatim command here as an `allow` row
 # BEFORE fixing the guard, so the corpus proves the fix and pins it.
 #
+# @@PLUGIN_ROOT@@ and @@REPO_ROOT@@ are substituted by the harness with the
+# plugin root and checkout under
+# test. Never write a literal path here: the guard only trusts an
+# `R=<root>` assignment when that exact directory exists, so a literal one
+# ties the row to one machine and one plugin version, and fails CI.
+#
 # Provenance of the 2026-09-14 rows: two tower-comms workers (tasks 2 and 3)
 # stalled on their first tool call under plugin 0.41.1, which made unattended
 # fleet dispatch impossible. Both commands are reproduced verbatim below.
 #
 # --- the 2026-09-14 stalls, verbatim -----------------------------------
 allow	grep -n '^## \|^### ' specs/tower-comms/test-spec.md | head -40; for r in A1.1 A1.2 A1.3; do echo "=== $r"; awk -v r="REQ-$r" 'index($0,"**"r"**")||index($0,"### "r)||index($0,"- "r" ")||index($0,"**"r)==1{p=1;print;next} p&&/^- \*\*REQ-|^### REQ-|^## /{p=0} p{print}' specs/tower-comms/test-spec.md; done
-allow	env | grep -i 'planwright\|PLUGIN' ; echo ---; R=/home/inkatze/.claude/plugins/cache/planwright/planwright/0.41.1; diff -rq $R/scripts scripts | head; echo "--- dispatch-fetch"; $R/scripts/dispatch-fetch.sh --spec specs/tower-comms /home/inkatze/dev/planwright; echo "exit $?"
+allow	env | grep -i 'planwright\|PLUGIN' ; echo ---; R=@@PLUGIN_ROOT@@; diff -rq $R/scripts scripts | head; echo "--- dispatch-fetch"; $R/scripts/dispatch-fetch.sh --spec specs/tower-comms @@REPO_ROOT@@; echo "exit $?"
 #
 # --- awk: read-only programs the blanket `|` / `>` screens over-defer ---
 allow	awk 'x||y{print}' f
