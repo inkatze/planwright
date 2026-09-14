@@ -273,7 +273,16 @@ assert_defer "awk -p profile writes a file" "awk -p prof.out '{print}' file"
 assert_defer "awk with no inline program" "awk -F:"
 assert_defer "awk dangling -v" "awk -v"
 assert_defer "awk unplaceable -v assignment" "awk -v '1x=2' '{print}' file"
-assert_defer "awk relational > over-defers (fail-closed by design)" "awk '\$1 > 5' file"
+# The shared awk screen now lexes the program instead of rejecting every `>`
+# and `|`, so the relational and logical forms allow while their redirecting /
+# piping twins still defer. The worker suite carries the full pair table; these
+# pin that the same engine reached this guard (see the parity block below).
+assert_allow "awk relational > outside a print statement" "awk '\$1 > 5' file"
+assert_allow "awk logical OR" "awk 'x||y{print}' file"
+assert_allow "awk regex alternation" "awk '/a|b/{print}' file"
+assert_defer "awk relational > inside a print statement (residual over-defer)" "awk '{print (\$1 > 5)}' file"
+assert_defer "awk print pipe with no spaces" "awk '{print|\"sh\"}' file"
+assert_defer "awk pipe smuggled behind a bracket/delimiter desync" "awk '/[/{print|\"sh\"}x[1]/{print}' file"
 assert_defer "awk shell redirect to a file" "awk '{print}' file > out.txt"
 assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
 
@@ -467,7 +476,12 @@ parity "parity: awk -v allows" "awk -v n=3 'NR<=n' file"
 parity "parity: awk system() defers" "awk 'BEGIN{system(\"id\")}'"
 parity "parity: awk output redirection defers" "awk '{print > \"f\"}' file"
 parity "parity: awk -f progfile defers" "awk -f p.awk file"
-parity "parity: awk relational > defers" "awk '\$1 > 5' file"
+parity "parity: awk relational > allows" "awk '\$1 > 5' file"
+parity "parity: awk logical OR allows" "awk 'x||y{print}' file"
+parity "parity: awk regex alternation allows" "awk '/a|b/{print}' file"
+parity "parity: awk relational > inside print defers" "awk '{print (\$1 > 5)}' file"
+parity "parity: awk print pipe defers" "awk '{print|\"sh\"}' file"
+parity "parity: awk bracket/delimiter desync defers" "awk '/[/{print|\"sh\"}x[1]/{print}' file"
 
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:

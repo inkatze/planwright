@@ -857,18 +857,145 @@ guard_sed() {
 # `print`/`printf` redirected with `>` / `>>` to a file (or to gawk's
 # `/dev/stdout`-style special files).
 #
-# Telling a REDIRECTING `>` from a RELATIONAL `>` requires a real awk parser: the
-# character is identical and only its grammar position separates `print > "f"`
-# from `$1 > 5`. This screen does not attempt that. ANY `>` defers, as does any
-# `|`, `@`, `system`, or `close`. That over-defers the read-only comparison forms
-# — which is the fail-closed direction, and no worse for them than today, where
-# every awk invocation defers. It also defers `ENVIRON` (a program that decants
-# the session environment into the transcript is not the read-only filter shape
-# this widening is for).
+# Both `|` and `>` are spelled the same as harmless operators — `||` is logical
+# OR, `|` inside a regex literal is alternation, and `$1 > 5` is a comparison —
+# so an earlier revision rejected every `|` and every `>` outright. That is the
+# fail-closed direction, but it also refused the ordinary read-only filter forms
+# workers write constantly, and a defer stalls an unattended worker outright.
+# This screen separates the two meanings with a small inert LEXER rather than a
+# full awk parser, and every branch it cannot place confidently returns 1:
+#
+#   * String literals, comments and regex literals are skipped as inert, so an
+#     operator inside one is never read as code.
+#   * A `/` opens a REGEX only where awk itself expects an operand (start of
+#     program, or right after one of the operator characters enumerated below);
+#     anywhere else it is scanned on as an ordinary division character. The
+#     asymmetry is deliberate and is what makes the lexer safe: reading a real
+#     regex as division scans its contents as code and can only ADD defers,
+#     while reading real code as a regex would SKIP it. The permitted set holds
+#     only positions where awk cannot mean division (notably `+`/`-` are absent,
+#     since `a++ / 2` is division after an operator character).
+#   * `||` is OR; a lone `|` — awk's command pipe, in either direction, and
+#     gawk's `|&` — defers. awk's lexer is longest-match too, so the split is
+#     identical to awk's own.
+#   * `>=` is relational anywhere. `>>` is only ever an append redirection, so
+#     it defers. A lone `>` is a redirection ONLY inside a print statement, so
+#     it defers while `inprint` is set and reads as relational otherwise.
+#     `inprint` is set by the `print`/`printf` keyword and cleared by `;`, `}`
+#     and an unescaped newline — exactly the terminators that end a print
+#     statement in awk's grammar, so a `>` awk would take as a redirection can
+#     never be reached with the flag clear. The residual over-defer is a
+#     relational `>` written INSIDE a print statement (`print ($1 > 5)`).
+#
+# `system`, `close`, `ENVIRON` and `@` keep their blanket substring rejects:
+# each has no read-only form worth recovering, and matching them in the raw text
+# (a mention inside a string defers too) costs the filter shapes nothing.
 awk_program_safe() {
-  case $1 in
-    *'>'* | *'|'* | *'@'* | *system* | *close* | *ENVIRON*) return 1 ;;
+  local s=$1
+  local n=${#s} i=0 c nc bs word='' prev='' inprint=0
+  case $s in
+    *'@'* | *system* | *close* | *ENVIRON*) return 1 ;;
   esac
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}
+    # An identifier run is accumulated whole so `sprintf` is never mistaken for
+    # `printf`, and so `print>"f"` (no space) finalizes the keyword BEFORE the
+    # `>` is classified.
+    case $c in
+      [A-Za-z0-9_])
+        word="$word$c"
+        prev=$c
+        i=$((i + 1))
+        continue
+        ;;
+    esac
+    case $word in
+      print | printf) inprint=1 ;;
+    esac
+    word=''
+    case $c in
+      '#') # comment: inert to end of line
+        while [ "$i" -lt "$n" ] && [ "${s:i:1}" != "$NL" ]; do
+          i=$((i + 1))
+        done
+        continue
+        ;;
+      '"') # string literal: inert
+        i=$((i + 1))
+        while [ "$i" -lt "$n" ]; do
+          case ${s:i:1} in
+            \\) i=$((i + 2)) ;;
+            '"') break ;;
+            *) i=$((i + 1)) ;;
+          esac
+        done
+        [ "$i" -lt "$n" ] || return 1 # unterminated string
+        i=$((i + 1))
+        prev='"'
+        continue
+        ;;
+      '/')
+        case $prev in
+          '' | '(' | '{' | '}' | ';' | ',' | '&' | '|' | '!' | '~' | '=' | '<' | '>' | '?' | ':' | '[' | "$NL")
+            # Regex literal: inert. A bracket expression can hide the closing
+            # delimiter, so it goes through the shared POSIX bracket scanner
+            # (which defers on every dialect-divergent form) and then a `/`
+            # inside the bracket defers on top of that: busybox awk ends the
+            # regex at that `/` while mawk and gawk do not, and a scanner that
+            # picked either reading would let the other dialect's parse hide
+            # code behind the desync (measured against all three, 2026-09-14).
+            i=$((i + 1))
+            while [ "$i" -lt "$n" ]; do
+              case ${s:i:1} in
+                \\) i=$((i + 2)) ;;
+                '[')
+                  bs=$i
+                  sed_bracket_end || return 1
+                  case ${s:bs:i-bs} in
+                    */*) return 1 ;;
+                  esac
+                  ;;
+                "$NL") return 1 ;; # a regex literal cannot span a line
+                '/') break ;;
+                *) i=$((i + 1)) ;;
+              esac
+            done
+            [ "$i" -lt "$n" ] || return 1 # unterminated regex literal
+            i=$((i + 1))
+            prev=')'
+            continue
+            ;;
+        esac
+        ;; # otherwise a division operator: fall through as an ordinary char
+      '|')
+        [ "${s:i+1:1}" = '|' ] || return 1 # a lone `|` / `|&` is a command pipe
+        i=$((i + 2))
+        prev='|'
+        continue
+        ;;
+      '>')
+        nc=${s:i+1:1}
+        if [ "$nc" = '=' ]; then
+          i=$((i + 2))
+          prev='='
+          continue
+        fi
+        [ "$nc" = '>' ] && return 1    # `>>` is only ever an append redirection
+        [ "$inprint" = 1 ] && return 1 # a `>` in a print statement redirects
+        ;;
+      \\)
+        # A line continuation does NOT end the statement, so `inprint` stands.
+        i=$((i + 2))
+        continue
+        ;;
+      ';' | '}' | "$NL") inprint=0 ;;
+    esac
+    case $c in
+      ' ' | "$TAB") ;; # blanks never change the regex-vs-division context
+      *) prev=$c ;;
+    esac
+    i=$((i + 1))
+  done
   return 0
 }
 
@@ -927,6 +1054,135 @@ guard_awk() {
   done
   [ "$expect" = none ] || return 1  # a dangling value-flag with no value: defer
   [ "$prog_taken" = 1 ] || return 1 # no inline program (the -f form): defer
+  return 0
+}
+
+# guard_env: bare `env` only. With NO operand, env prints the environment and
+# runs nothing; with one, it is an EXEC vector (`env VAR=x cmd`, `env -i cmd`,
+# `env -S '…'`), and since `-u`/`-C`/`-S` take values, "is this operand a
+# command" cannot be decided from the token shape alone. Requiring the bare form
+# sidesteps that entirely.
+#
+# Printing the environment exposes whatever secrets the worker's environment
+# carries, but it opens no new class: `echo` is already unguarded on this list,
+# so `echo $GH_TOKEN` is already approved. The awk screen's separate `ENVIRON`
+# reject is NOT the same call — there the environment read sits inside program
+# text whose use of the value the guard cannot see at all.
+guard_env() {
+  [ "$cwn" -eq 1 ]
+}
+
+# guard_read: `read [-r] [NAME…]`. read runs nothing and writes no file, but it
+# ASSIGNS shell variables, and a name like PATH or IFS would re-point every
+# later command in the same shell — the exact hazard assign_name_ok exists for,
+# so each name goes through it. Only `-r` is allowed: every other read flag
+# takes a value (`-d`, `-n`, `-a`, `-u`, `-p`, `-t`, `-i`), and a value operand
+# would otherwise be name-checked as if it were a variable.
+guard_read() {
+  local i a
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      -r | --) ;;
+      -*) return 1 ;;
+      *) assign_name_ok "$a" || return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_yq: yq EDITS IN PLACE. Both the Go (mikefarah) and the jq-wrapping
+# Python spelling write the input file back with `-i`/`--inplace`/`--in-place`,
+# and the Go one also writes one file per match with `-s`/`--split-exp`. Reject
+# both in every spelling, bundled short forms included; `-I` (indent) is a
+# different, read-only flag and the case-sensitive patterns leave it alone.
+guard_yq() {
+  local i a
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --inplace | --inplace=* | --in-place | --in-place=* | --split-exp | --split-exp=*) return 1 ;;
+      --*) ;;
+      -*[is]*) return 1 ;; # any short-flag token carrying -i / -s
+    esac
+  done
+  return 0
+}
+
+# guard_shfmt: shfmt's only write vector is `-w`/`--write` (format in place);
+# `-d`/`-l`/`--to-json` report to stdout.
+guard_shfmt() {
+  local i a
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --write) return 1 ;;
+      --*) ;;
+      -*w*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_rg: ripgrep writes no file, but `--pre <cmd>` runs an arbitrary program
+# over every searched file and `--hostname-bin <cmd>` runs one to resolve the
+# hostname. `-z`/`--search-zip` also spawns decompressors picked off PATH, so it
+# goes too — the search shapes a worker writes never need it.
+guard_rg() {
+  local i a
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --pre | --pre=* | --pre-glob | --pre-glob=* | --hostname-bin | --hostname-bin=* | --search-zip) return 1 ;;
+      --*) ;;
+      -*z*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_fd: fd writes no file, but `-x`/`--exec` and `-X`/`--exec-batch` run an
+# arbitrary command per result (or per batch).
+guard_fd() {
+  local i a
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --exec | --exec=* | --exec-batch | --exec-batch=*) return 1 ;;
+      --*) ;;
+      -*[xX]*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_lefthook: `lefthook run <job>` only — the same trust boundary `mise run`
+# sits on, and for the same reason: what it runs is the repo's own tracked
+# lefthook.yml, which the kickoff trust boundary already covers. That makes it a
+# TRUSTED-REPO-CODE allowance, not a read-only one (a pre-commit job may well
+# format files). `-c`/`--config` is what breaks the boundary — it points
+# lefthook at an arbitrary config, i.e. arbitrary commands — so it defers in
+# every position, as does any pre-subcommand flag and any other subcommand.
+guard_lefthook() {
+  local i a sub=''
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      -*) return 1 ;; # a pre-subcommand flag
+      *)
+        sub=$a
+        break
+        ;;
+    esac
+  done
+  [ "$sub" = run ] || return 1
+  for ((i = i + 1; i < cwn; i++)); do
+    case ${cw[i]} in
+      --config | --config=*) return 1 ;;
+      --*) ;;
+      -*c*) return 1 ;;
+    esac
+  done
   return 0
 }
 
@@ -1109,13 +1365,35 @@ guard_gh() {
   case ${cw[1]-} in
     -*) return 1 ;;
   esac
-  local g=${cw[1]-} s=${cw[2]-}
+  local i g=${cw[1]-} s=${cw[2]-}
   case $g in
-    pr)
+    pr | issue)
       case $s in
         view | list | status | diff | checks) return 0 ;;
         *) return 1 ;;
       esac
+      ;;
+    run)
+      case $s in
+        view | list) return 0 ;;
+        *) return 1 ;; # download / rerun / cancel / delete / watch
+      esac
+      ;;
+    api)
+      # `gh api <endpoint>` is a GET, and a GET through gh is read-only. The
+      # flags that change that are the ones to reject: an explicit
+      # `-X`/`--method`, `--input` (a request body), and any field flag — gh
+      # switches the request to POST as soon as one `-f`/`-F`/`--field`/
+      # `--raw-field` is present, so a field flag is a write in disguise even
+      # with no `-X`.
+      for ((i = 2; i < cwn; i++)); do
+        case ${cw[i]} in
+          -X | -X* | --method | --method=*) return 1 ;;
+          -f | -f* | -F | -F* | --field | --field=* | --raw-field | --raw-field=*) return 1 ;;
+          --input | --input=*) return 1 ;;
+        esac
+      done
+      return 0
       ;;
     auth)
       [ "$s" = status ] && return 0 || return 1
@@ -1244,6 +1522,15 @@ guard_git() {
       # destroy recovery data.
       case ${cw[subidx + 1]-} in
         '' | show | exists) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
+    worktree)
+      # Only `git worktree list`. Bare `git worktree` is a usage error, and
+      # every other leaf (add/remove/move/prune/repair/lock/unlock) mutates the
+      # worktree set — including the one this worker is running in.
+      case ${cw[subidx + 1]-} in
+        list) return 0 ;;
         *) return 1 ;;
       esac
       ;;
@@ -1420,6 +1707,18 @@ classify_verb() {
     cat | head | tail | wc | cut | comm | cmp | basename | dirname | realpath | pwd | echo | printf | seq | true | false | od | tr | stat | grep | ls | diff | test | '[')
       return 0
       ;;
+    # Same class, added 2026-09-14 from the shapes real dispatched workers
+    # stalled on. Each was checked for a write/exec vector across its whole
+    # flag surface and has none: `readlink`/`nl`/`paste`/`column` and the
+    # checksum family report to stdout with no output-file or filter flag, and
+    # `printenv` exposes no more than the already-approved `echo $VAR`. `jq`
+    # earns its place on the same test one level down: its program language has
+    # no exec and no file-write primitive at all — `-f`, `--rawfile`,
+    # `--slurpfile` and `-L` only ever READ — so no flag or program can turn it
+    # into a writer.
+    printenv | readlink | nl | paste | column | jq | md5sum | sha1sum | sha256sum | sha512sum | cksum)
+      return 0
+      ;;
     # Read-only analyzers (results to stdout only).
     shellcheck | yamllint) return 0 ;;
     # Read-only tools with a specific write/set/output vector: guarded.
@@ -1431,10 +1730,17 @@ classify_verb() {
     sed) guard_sed ;;
     awk) guard_awk ;;
     markdownlint | markdownlint-cli2) guard_mdlint ;;
+    env) guard_env ;;
+    read) guard_read ;;
+    yq) guard_yq ;;
+    shfmt) guard_shfmt ;;
+    rg) guard_rg ;;
+    fd) guard_fd ;;
     # Enumerated read-only subcommand tools.
     git) guard_git ;;
     gh) guard_gh ;;
     mise) guard_mise ;;
+    lefthook) guard_lefthook ;;
     # Trusted repo-code runners (path-contained) and the fish recursor.
     bash | sh) guard_bashsh ;;
     fish) guard_fish ;;
