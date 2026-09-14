@@ -123,6 +123,10 @@ write_script "$tmp/forms/tests/then.sh" \
   '  mkdir "$lock"; then' \
   '  exit 0' \
   'fi'
+write_script "$tmp/forms/scripts/bslash.sh" '\mkdir "$lock" && exit 0'
+write_script "$tmp/forms/scripts/dq.sh" '"mkdir" "$lock" && exit 0'
+write_script "$tmp/forms/scripts/sq.sh" "'mkdir' \"\$lock\" && exit 0"
+write_script "$tmp/forms/scripts/split.sh" 'mk"dir" "$lock" && exit 0'
 out="$(/bin/bash "$CHECKER" "$tmp/forms" 2>&1)"
 assert "every status-consuming mkdir form fails" 1 $?
 assert_contains "the if form is named" "$out" "scripts/if.sh:3:"
@@ -133,6 +137,24 @@ assert_contains "the until form is named" "$out" "scripts/until.sh:3:"
 assert_contains "the && form is named" "$out" "scripts/and.sh:3:"
 assert_contains "the || form is named" "$out" "scripts/or.sh:3:"
 assert_contains "a best-effort '|| true' counts as consuming the status" "$out" "scripts/besteffort.sh:3:"
+# A quoting spelling is still the command. `\mkdir` is the documented way to
+# bypass a function or alias of the same name, and it runs the same binary, so
+# a guard that reads it as a different word is one escaped character away from
+# being bypassed on purpose.
+assert_contains "a backslash-escaped mkdir is still mkdir" "$out" "scripts/bslash.sh:3:"
+assert_contains "a double-quoted mkdir is still mkdir" "$out" "scripts/dq.sh:3:"
+assert_contains "a single-quoted mkdir is still mkdir" "$out" "scripts/sq.sh:3:"
+assert_contains "a mkdir split across a quote is still mkdir" "$out" "scripts/split.sh:3:"
+# The same reading applied to the options, where it cuts the other way: a
+# quoted `-p` is still `-p`, so flagging it would be a false report against a
+# site that is not a lock at all.
+make_root "$tmp/quotedopt"
+write_script "$tmp/quotedopt/scripts/esc.sh" 'mkdir \-p "$d" || exit 1'
+write_script "$tmp/quotedopt/scripts/dqopt.sh" 'mkdir "-p" "$d" || exit 1'
+out2="$(/bin/bash "$CHECKER" "$tmp/quotedopt" 2>&1)"
+assert "a quoted -p is read as -p, so the tree is clean" 0 $?
+assert_not_contains "an escaped -p is not reported" "$out2" "esc.sh"
+assert_not_contains "a double-quoted -p is not reported" "$out2" "dqopt.sh"
 assert_contains "the '; then' form is named" "$out" "tests/then.sh:4:"
 assert_contains "the '; then' offense says which form it is" "$out" "tested by a following 'then'"
 assert_contains "the remedy names the lock library" "$out" "scripts/lock-lib.sh"

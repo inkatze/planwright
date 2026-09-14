@@ -1431,6 +1431,184 @@ else
 fi
 rm -f "$tmp"/s.lock*
 
+# ---------------------------------------------------------------------------
+# 43. The spin loop does not fork for the host's uptime
+# ---------------------------------------------------------------------------
+#
+# The waiter strides its holder probe precisely so contention does not cost a
+# process per spin. Minting a token reads the host's uptime, and a host boots
+# once, so reading it on every spin puts back the fork the stride removed.
+# Count the `ps` invocations a bounded spin makes against a live holder.
+
+mkdir -p "$tmp/shim"
+cat >"$tmp/shim/ps" <<'SHIM'
+#!/bin/sh
+echo x >>"$PS_COUNT"
+exec /bin/ps "$@"
+SHIM
+chmod +x "$tmp/shim/ps"
+sh -c 'sleep 30 & echo $!' >"$tmp/holder.pid"
+holder=$(cat "$tmp/holder.pid")
+# A token the minter check accepts, or the first probe reads the holder as a
+# recycled pid, breaks the lock, and the wait never spins at all.
+up=$(ps -o etimes= -p 1 | tr -d ' ')
+ln -s "$holder-$(date +%s)-$up-$holder-1" "$tmp/spin.lock"
+: >"$tmp/pscount"
+PS_COUNT="$tmp/pscount" PATH="$tmp/shim:$PATH" \
+  run_sh x 'pw_lock_acquire "$1/spin.lock" 120' >/dev/null 2>&1
+spins=$(grep -c '' "$tmp/pscount" 2>/dev/null || echo 0)
+# The stride allows a probe every PW_LOCK_PROBE_EVERY spins, each of which may
+# read `ps` twice for the liveness verdict. A per-spin mint blows past that by
+# an order of magnitude.
+if [ "$spins" -le 20 ]; then
+  pass "a 120-spin wait forks ps $spins time(s), not once per spin"
+else
+  fail "a 120-spin wait forked ps $spins times — the uptime read is inside the loop"
+fi
+kill "$holder" 2>/dev/null || :
+rm -f "$tmp"/spin.lock* "$tmp/pscount"
+
+# ---------------------------------------------------------------------------
+# 44. Nothing this library hands a tool can be read as options
+# ---------------------------------------------------------------------------
+#
+# Two halves of one rule. A lock path that begins with a dash is refused at the
+# gate, which covers every derived path too, since each is that path plus a
+# suffix — without it the tools read the dash as options and the lock silently
+# never works, with the diagnostics blaming contention. A link TARGET is
+# whatever a writer put there and no gate can constrain it, so the create takes
+# `--` and a dash-leading target is stored and read back intact.
+
+dashdir="$tmp/dash"
+mkdir -p "$dashdir"
+out=$(cd "$dashdir" && $SH -c '. "$1"; pw_lock_acquire "-dash.lock" 5' sh "$LIB" 2>&1)
+rc=$?
+assert_exit "a lock path beginning with a dash is refused" 2 $rc
+case $out in
+  *"beginning with '-'"*) pass "and the refusal says why" ;;
+  *) fail "and the refusal says why (got '$out')" ;;
+esac
+if [ -e "$dashdir/-dash.lock" ] || [ -L "$dashdir/-dash.lock" ]; then
+  fail "the refused path was written to anyway"
+else
+  pass "and nothing was written at the refused path"
+fi
+# Every verb, not just the one: a gate one entry point skips is not a gate.
+for verb in pw_lock_try pw_lock_acquire pw_lock_try_detached \
+  pw_lock_acquire_detached pw_lock_release pw_lock_break_force pw_lock_clear_legacy; do
+  (cd "$dashdir" && $SH -c ". \"\$1\"; $verb \"-dash.lock\"" sh "$LIB" >/dev/null 2>&1)
+  if [ $? -eq 2 ]; then
+    pass "$verb refuses it too"
+  else
+    fail "$verb accepted a dash-leading lock path"
+  fi
+done
+rm -rf "$dashdir"
+# A target beginning with a dash survives the create and comes back whole.
+ln -s -- "-not-an-option" "$tmp/target.lock" 2>/dev/null
+got=$(run_sh x 'pw_lock_owner "$1/target.lock"')
+assert_eq "a dash-leading link target is read back intact" "-not-an-option" "$got"
+rm -f "$tmp"/target.lock*
+
+# ---------------------------------------------------------------------------
+# 45. A detached hold outlives the shell that took it
+# ---------------------------------------------------------------------------
+#
+# A detached hold exists precisely to span invocations: a CLI acquires in one
+# and releases in a later one. If it sits in this shell's release registry, the
+# armed EXIT trap unlinks it the moment that CLI exits, which is the one thing
+# the hold is for.
+
+run_sh x 'pw_lock_trap_install; pw_lock_acquire_detached "$1/spanning.lock" 5' >/dev/null 2>&1
+rc=$?
+assert_exit "a detached acquire under an armed trap succeeds" 0 $rc
+if [ -L "$tmp/spanning.lock" ]; then
+  pass "and the hold survives the shell that took it"
+else
+  fail "the exit trap released a detached hold, which is what detached means not to do"
+fi
+rm -f "$tmp"/spanning.lock*
+run_sh x 'pw_lock_trap_install; pw_lock_try_detached "$1/spanning2.lock"' >/dev/null 2>&1
+if [ -L "$tmp/spanning2.lock" ]; then
+  pass "the same for the non-spinning form"
+else
+  fail "the exit trap released a detached hold taken by pw_lock_try_detached"
+fi
+rm -f "$tmp"/spanning2.lock*
+
+# ---------------------------------------------------------------------------
+# 46. The mint-time witness survives a `ps` that has no `etimes`
+# ---------------------------------------------------------------------------
+#
+# `etimes` is a procps extension. The BSD `ps` macOS ships answers `etime`
+# instead, in `[[dd-]hh:]mm:ss`, and a library that asks only for `etimes`
+# there gets nothing back — no mint-time witness in any token, and the
+# recycled-pid check silently degraded to pid-only on a platform in the support
+# bar. Shim a `ps` that behaves the BSD way and check the witness is still
+# there and still a number.
+
+mkdir -p "$tmp/bsd"
+cat >"$tmp/bsd/ps" <<'SHIM'
+#!/bin/sh
+for a in "$@"; do
+  case $a in
+    etimes=) exit 1 ;;
+  esac
+done
+exec /bin/ps "$@"
+SHIM
+chmod +x "$tmp/bsd/ps"
+tok=$(PATH="$tmp/bsd:$PATH" run_sh x 'pw_lock_acquire "$1/bsd.lock" 5 >/dev/null && pw_lock_owner "$1/bsd.lock"')
+# Field 3 is the uptime at mint.
+f3=${tok#*-}
+f3=${f3#*-}
+f3=${f3%%-*}
+case $f3 in
+  '' | *[!0-9]*) fail "with a BSD-shaped ps the token carries no mint-time witness (token '$tok')" ;;
+  *) pass "a BSD-shaped ps still yields a numeric mint-time witness" ;;
+esac
+# And it is the same quantity, not a differently-scaled one: both spellings
+# describe pid 1, so they must agree within the slack the check already allows.
+real=$(ps -o etimes= -p 1 | tr -d ' ')
+if [ "$((f3 - real))" -le 5 ] && [ "$((real - f3))" -le 5 ]; then
+  pass "and it agrees with the seconds the other spelling reports"
+else
+  fail "the etime fallback disagrees with etimes ($f3 vs $real)"
+fi
+rm -f "$tmp"/bsd.lock*
+rm -rf "$tmp/bsd"
+
+# ---------------------------------------------------------------------------
+# 47. Two sibling subshells releasing one hold cannot destroy each other's work
+# ---------------------------------------------------------------------------
+#
+# A subshell inherits `$$`, the sequence counter and the hold registry, so two
+# of them derive the SAME working path for the same lock. What keeps that from
+# mattering is the ordering: the working path is derived only AFTER the caller
+# has confirmed the link is still its own, and only one caller can pass that
+# check and then move the link. Pin the ordering here, because it is the only
+# reason the shared name is harmless.
+
+run_sh x 'pw_lock_acquire "$1/sib.lock" 50 >/dev/null || exit 1
+  ( pw_lock_release "$1/sib.lock"; echo "a $?" ) &
+  ( pw_lock_release "$1/sib.lock"; echo "b $?" ) &
+  wait' >"$tmp/sib.out" 2>"$tmp/sib.err"
+zero=$(grep -c ' 0$' "$tmp/sib.out" 2>/dev/null || echo 0)
+assert_eq "exactly one of two sibling subshells releases the hold" "1" "$zero"
+if [ -L "$tmp/sib.lock" ] || [ -e "$tmp/sib.lock" ]; then
+  fail "the lock outlived a release by a subshell"
+else
+  pass "and the lock is gone afterwards"
+fi
+strays=$(find "$tmp" -maxdepth 1 -name 'sib.lock#*' 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "no working path is left behind by either" "0" "$strays"
+if [ -s "$tmp/sib.err" ]; then
+  fail "the losing subshell printed a diagnostic: $(cat "$tmp/sib.err")"
+else
+  pass "and the loser says nothing, because nothing went wrong"
+fi
+rm -f "$tmp"/sib.lock* "$tmp/sib.out" "$tmp/sib.err"
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

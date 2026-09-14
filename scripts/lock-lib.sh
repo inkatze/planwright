@@ -147,6 +147,8 @@ PW_LOCK_TOKEN=''
 PW_LOCK_SEQ=0
 PW_LOCK_EPOCH=''
 PW_LOCK_TRAP_ARMED=''
+PW_LOCK_UPTIME=''
+PW_LOCK_UPTIME_READ=''
 PW_LOCK_READLINK_CHECKED=''
 PW_LOCK_NL='
 '
@@ -189,6 +191,17 @@ _pw_lock_path_ok() {
       # separator was chosen to prevent — so this is enforced here rather than
       # asked of every caller that builds a path out of anything.
       printf '%s\n' "lock-lib: $1 refuses a lock path containing '#', the character this library derives its working paths with" >&2
+      return 1
+      ;;
+    -*)
+      # EVERY PATH THIS LIBRARY HANDS A TOOL STARTS HERE. The lock path goes to
+      # `ln`, `mv`, `rm` and `readlink`, and each derived path is this one plus
+      # a suffix, so a leading dash anywhere in that family is read as options
+      # by whichever tool sees it first. Refusing the one root path is what
+      # keeps that true of all of them, without asking every call site to
+      # remember a `--` that one tool or another may not accept. A lock under
+      # a directory is unaffected: only the argument's first character decides.
+      printf '%s\n' "lock-lib: $1 refuses a lock path beginning with '-', which the tools taking it would read as options (name it ./$2 if that is really where it lives)" >&2
       return 1
       ;;
   esac
@@ -247,15 +260,81 @@ _pw_lock_store() {
   PW_LOCK_HELD=$_pws_out
 }
 
+# _pw_lock_etimes <pid> — set _pw_lock_etimes_out to how many seconds that pid
+# has been running, or to the empty string when the host will not say.
+#
+# THE ONE PLACE AN ELAPSED TIME IS READ, and it reads two spellings because the
+# two `ps` families do not share one. `etimes` is a procps extension and gives
+# seconds outright; the BSD `ps` that macOS ships does not have it and answers
+# `etime`, which is `[[dd-]hh:]mm:ss`. Asking only for `etimes` is not a
+# failure that announces itself — it returns nothing, every mint-time witness
+# goes empty, and the recycled-pid check silently degrades to pid-only on every
+# Mac in the support bar while the header still claims it.
+_pw_lock_etimes() {
+  _pw_lock_etimes_out=$(ps -o etimes= -p "$1" 2>/dev/null | tr -d ' ') || _pw_lock_etimes_out=''
+  case $_pw_lock_etimes_out in
+    '' | *[!0-9]*) _pw_lock_etimes_out='' ;;
+    *) return 0 ;;
+  esac
+  _pwe_raw=$(ps -o etime= -p "$1" 2>/dev/null | tr -d ' ') || _pwe_raw=''
+  [ -n "$_pwe_raw" ] || return 0
+  case $_pwe_raw in
+    *-*)
+      _pwe_days=${_pwe_raw%%-*}
+      _pwe_raw=${_pwe_raw#*-}
+      ;;
+    *) _pwe_days=0 ;;
+  esac
+  case $_pwe_raw in
+    *:*:*)
+      _pwe_h=${_pwe_raw%%:*}
+      _pwe_raw=${_pwe_raw#*:}
+      ;;
+    *) _pwe_h=0 ;;
+  esac
+  _pwe_m=${_pwe_raw%%:*}
+  _pwe_s=${_pwe_raw#*:}
+  # A leading zero would be read as octal by the arithmetic below.
+  _pwe_h=${_pwe_h#0}
+  _pwe_m=${_pwe_m#0}
+  _pwe_s=${_pwe_s#0}
+  for _pwe_f in "${_pwe_days:-0}" "${_pwe_h:-0}" "${_pwe_m:-0}" "${_pwe_s:-0}"; do
+    case $_pwe_f in
+      '' | *[!0-9]*) return 0 ;;
+    esac
+  done
+  _pw_lock_etimes_out=$(((((${_pwe_days:-0} * 24) + ${_pwe_h:-0}) * 60 + ${_pwe_m:-0}) * 60 + ${_pwe_s:-0}))
+}
+
 # _pw_lock_uptime — set _pw_lock_uptime_out to the host's uptime in seconds, or
 # to the empty string where it cannot be read. pid 1 has been running for
 # exactly as long as the host has, and its elapsed time is reported by the same
 # `ps` field every other liveness question here uses.
 _pw_lock_uptime() {
-  _pw_lock_uptime_out=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ') || _pw_lock_uptime_out=''
-  case $_pw_lock_uptime_out in
-    '' | *[!0-9]*) _pw_lock_uptime_out='' ;;
-  esac
+  _pw_lock_etimes 1
+  _pw_lock_uptime_out=$_pw_lock_etimes_out
+}
+
+# _pw_lock_uptime_window <refresh-now> — keep PW_LOCK_UPTIME, the uptime every
+# minted token records, current enough to be worth recording.
+#
+# THE ONLY PLACE A MINT-TIME WITNESS IS REFRESHED. The waiter examines its
+# holder on a stride precisely so contention does not cost a process per spin,
+# and the witness rides that same stride: a host boots once, the check that
+# reads the witness tolerates a couple of seconds of slack by design, and a
+# stride is well inside it. Reading it per mint instead puts the fork back in
+# the loop the stride emptied.
+#
+# Staleness here can only ever OVERSTATE how long ago a token was minted, which
+# makes the recycled-pid check stricter, never laxer: the owner a caller names
+# is already running when its first mint happens, so it cannot have started
+# after the witness this process recorded.
+_pw_lock_uptime_window() {
+  if [ "$1" = 1 ] || [ -z "$PW_LOCK_UPTIME_READ" ]; then
+    _pw_lock_uptime
+    PW_LOCK_UPTIME=$_pw_lock_uptime_out
+    PW_LOCK_UPTIME_READ=1
+  fi
 }
 
 # _pw_lock_mint — set _pw_lock_new_token. The epoch is read once per process:
@@ -273,13 +352,19 @@ _pw_lock_mint() {
   # It is what lets the mint-time check below compare two ages rather than two
   # wall-clock readings, which is the difference between a rule that is never
   # an age and one that breaks a live lock the next time NTP steps.
-  _pw_lock_uptime
+  #
+  # IT IS NOT RE-READ HERE. A mint happens on every spin of a contended wait,
+  # and reading it per mint would put back the process per spin that the
+  # holder-probe stride exists to remove. Ask for it without forcing a refresh:
+  # the stride refreshes it, and this guarantees a mint reached by some other
+  # path than the spin still records one rather than silently recording none.
+  _pw_lock_uptime_window 0
   PW_LOCK_SEQ=$((PW_LOCK_SEQ + 1))
   # The minting process's own pid is in there even when the OWNER is somebody
   # else: without it, two short-lived CLIs acquiring for the same owner in the
   # same second mint the same token, and a replayed release of the first hold
   # would unlink the second one's live lock.
-  _pw_lock_new_token="$1-$PW_LOCK_EPOCH-$_pw_lock_uptime_out-$$-$PW_LOCK_SEQ"
+  _pw_lock_new_token="$1-$PW_LOCK_EPOCH-$PW_LOCK_UPTIME-$$-$PW_LOCK_SEQ"
 }
 
 # pw_lock_owner_alive <token> — 0 the token names a running process, 1 it does
@@ -356,10 +441,12 @@ _pw_lock_owner_is_minter() {
     *-*) ;;
     *) return 0 ;; # too few fields to be one of ours
   esac
-  _pwn_elapsed=$(ps -o etimes= -p "$2" 2>/dev/null | tr -d ' ') || _pwn_elapsed=''
-  case $_pwn_elapsed in
-    '' | *[!0-9]*) return 0 ;;
-  esac
+  _pw_lock_etimes "$2"
+  _pwn_elapsed=$_pw_lock_etimes_out
+  [ -n "$_pwn_elapsed" ] || return 0
+  # READ FRESH, NOT FROM THE WINDOW. This subtracts one from the other, so the
+  # two readings have to describe the same instant; a cached uptime against a
+  # current elapsed time is not a start time at all.
   _pw_lock_uptime
   [ -n "$_pw_lock_uptime_out" ] || return 0
   # BOTH SIDES ARE AGES, NOT TIMES. The owner started this many seconds after
@@ -417,7 +504,7 @@ _pw_lock_restore_or_keep() {
   _pwk2_aside=$1
   _pwk2_path=$2
   _pwk2_back=$(readlink "$_pwk2_aside" 2>/dev/null) || _pwk2_back=''
-  if [ -n "$_pwk2_back" ] && ln -s "$_pwk2_back" "$_pwk2_path" 2>/dev/null; then
+  if [ -n "$_pwk2_back" ] && ln -s -- "$_pwk2_back" "$_pwk2_path" 2>/dev/null; then
     rm -f "$_pwk2_aside" 2>/dev/null || :
     return 0
   fi
@@ -461,7 +548,7 @@ _pw_lock_publish() {
   _pwp_token=$2
   _pwp_depth=${3:-1}
   _pw_lock_store "$_pwp_lock" "$_pwp_token" "$_pwp_depth"
-  if ln -s "$_pwp_token" "$_pwp_lock" 2>/dev/null \
+  if ln -s -- "$_pwp_token" "$_pwp_lock" 2>/dev/null \
     && [ "$(readlink "$_pwp_lock" 2>/dev/null)" = "$_pwp_token" ]; then
     PW_LOCK_TOKEN=$_pwp_token
     return 0
@@ -495,7 +582,7 @@ _pw_lock_break() {
   _pw_lock_mint "$$"
   _pwb_claim_token=$_pw_lock_new_token
 
-  if ! ln -s "$_pwb_claim_token" "$_pwb_claim" 2>/dev/null \
+  if ! ln -s -- "$_pwb_claim_token" "$_pwb_claim" 2>/dev/null \
     || [ "$(readlink "$_pwb_claim" 2>/dev/null)" != "$_pwb_claim_token" ]; then
     # Either a peer is breaking this same owner — in which case waiting is
     # correct and there is nothing to do — or a breaker died holding the claim,
@@ -621,6 +708,7 @@ _pw_lock_try_core() {
     _pw_lock_store "$_pwt_lock" '' 0
   fi
 
+  _pw_lock_uptime_window "$_pwt_probe"
   _pw_lock_mint "$_pwt_owner_field"
   _pwt_token=$_pw_lock_new_token
 
@@ -752,6 +840,46 @@ pw_lock_acquire() {
   _pw_lock_acquire_core "$1" "${2:-$PW_LOCK_MAX_TRIES}" "$$"
 }
 
+# _pw_lock_take_disowned <verb> <path> <owner-field> <max-tries|''> — acquire a
+# hold THIS SHELL WILL NOT RELEASE, spinning when a budget is given.
+#
+# THE ONE PLACE A HOLD LEAVES THIS SHELL'S KEEPING, and every verb whose owner
+# field names somebody other than this process goes through it, because the two
+# halves below are only correct together and a verb that remembers one of them
+# is worse than a verb that remembers neither.
+#
+# It must not stay in the release registry. The armed EXIT handler releases
+# what the registry names, so a hold left there is unlinked the moment this
+# shell exits — which for a detached hold is precisely the invocation boundary
+# it exists to span, and for a hold taken on another process's behalf is a lock
+# that caller is still standing inside. The entry still gets made and then
+# dropped rather than never made: it covers the instant between the create and
+# the confirm, which is the leak the ordering rule exists to close.
+#
+# It must refuse a path this shell already holds. Without the check, the
+# reentrancy branch reports success, leaves the lock owned by this shell after
+# all, and then the drop below removes the outer holder's own record — so
+# nothing can release it and the path is wedged for good. The check is also
+# what makes the drop safe, because it proves the record being dropped is the
+# one just made.
+_pw_lock_take_disowned() {
+  _pwd_verb=$1
+  _pwd_lock=$2
+  if _pw_lock_lookup "$_pwd_lock"; then
+    printf '%s\n' "lock-lib: $_pwd_verb cannot hand $_pwd_lock to another owner — this shell already holds it, and a hold cannot be reassigned from inside its own critical section" >&2
+    return 2
+  fi
+  if [ -z "$4" ]; then
+    _pw_lock_try_core "$_pwd_lock" "$3" 1
+  else
+    _pw_lock_acquire_core "$_pwd_lock" "$4" "$3"
+  fi
+  _pwd_rc=$?
+  [ "$_pwd_rc" -eq 0 ] || return "$_pwd_rc"
+  _pw_lock_store "$_pwd_lock" '' 0
+  return 0
+}
+
 # A DETACHED HOLD is one whose owner is not a process: a CLI that acquires in
 # one invocation and releases in a later one holds nothing in between, so there
 # is no pid whose absence could prove the lock dead. The token records the word
@@ -766,13 +894,13 @@ pw_lock_acquire() {
 # exchange it cannot guess about a hold with no owner to ask about.
 pw_lock_try_detached() {
   _pw_lock_path_ok pw_lock_try_detached "${1:-}" || return 2
-  _pw_lock_try_core "$1" "detached-$$" 1
+  _pw_lock_take_disowned pw_lock_try_detached "$1" "detached-$$" ''
 }
 
 # pw_lock_acquire_detached <path> [<max-tries>] — the spinning form.
 pw_lock_acquire_detached() {
   _pw_lock_path_ok pw_lock_acquire_detached "${1:-}" || return 2
-  _pw_lock_acquire_core "$1" "${2:-$PW_LOCK_MAX_TRIES}" "detached-$$"
+  _pw_lock_take_disowned pw_lock_acquire_detached "$1" "detached-$$" "${2:-$PW_LOCK_MAX_TRIES}"
 }
 
 # pw_lock_acquire_for <path> <owner-pid> [<max-tries>] — take the lock ON
@@ -790,24 +918,7 @@ pw_lock_acquire_for() {
       return 2
       ;;
   esac
-  # A shell that already holds this path cannot hand it to anybody: the hold it
-  # would be giving away is the one it is standing in. Taking the reentrancy
-  # branch here would report success, leave the lock owned by this shell after
-  # all, and then drop the bookkeeping below — so the outer holder could no
-  # longer release, and the lock would be wedged for good. Refuse instead, and
-  # say which of the two mistakes it was.
-  if _pw_lock_lookup "$1"; then
-    printf '%s\n' "lock-lib: pw_lock_acquire_for cannot hand $1 to pid $2 — this shell already holds it, and a hold cannot be reassigned from inside its own critical section" >&2
-    return 2
-  fi
-  _pw_lock_acquire_core "$1" "${3:-$PW_LOCK_MAX_TRIES}" "$2" || return $?
-  # The hold belongs to the nominated process, not to this one, so it must not
-  # sit in this shell's release registry: a trap here would drop a lock the
-  # caller is still inside. The entry did its job — it covered the instant
-  # between the create and the confirm — and the check above is what makes
-  # dropping it safe, because it proves the entry is the one just made.
-  _pw_lock_store "$1" '' 0
-  return 0
+  _pw_lock_take_disowned pw_lock_acquire_for "$1" "$2" "${3:-$PW_LOCK_MAX_TRIES}"
 }
 
 # pw_lock_release <path> — give up one depth of this shell's hold, unlinking

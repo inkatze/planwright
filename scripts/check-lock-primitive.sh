@@ -265,7 +265,7 @@ done <"$work/all"
 # name containing `=` or a leading `-` is read as a path, never as an awk
 # variable assignment or option. SQ carries the single-quote character in,
 # which is what keeps this program free of one.
-awk -v listfile="$work/list" -v SQ="'" '
+awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
   function addtok(t, k) { ntok++; tok[ntok] = t; tokt[ntok] = k }
 
   # A command substitution opens a fresh QUOTING context; the outer state is
@@ -285,6 +285,42 @@ awk -v listfile="$work/list" -v SQ="'" '
     if (depth <= 0) return
     dq = sdq[depth]; sq = ssq[depth]
     depth--
+  }
+
+  # unquote(w) — the VALUE of a word, with shell quote removal applied.
+  #
+  # THE TOKENIZER KEEPS QUOTES ON PURPOSE (the quoting state is what tells a
+  # comment from a `#` inside a string), so every place that compares a word to
+  # a literal has to ask for the value instead of the spelling. A backslash
+  # before a command name is the documented way to bypass a function or alias
+  # of that name, and it runs the same binary; a quoted spelling is the same
+  # command too. A guard matching the spelling is one escaped character away
+  # from being walked past, and it reads a quoted `-p` as something other than
+  # `-p`, which reports a site that is not a lock at all.
+  # NO APOSTROPHES BELOW: this awk program is a single-quoted shell string.
+  function unquote(w,   i, n, c, nc, out, insq, indq) {
+    n = length(w); out = ""; insq = 0; indq = 0
+    for (i = 1; i <= n; i++) {
+      c = substr(w, i, 1)
+      if (insq) {
+        if (c == SQ) insq = 0; else out = out c
+        continue
+      }
+      if (indq) {
+        # Inside double quotes a backslash escapes only these; before anything
+        # else it is an ordinary character and stays one.
+        nc = substr(w, i + 1, 1)
+        if (c == "\\" && (nc == "$" || nc == "\"" || nc == "\\" || nc == BT)) { out = out nc; i++; continue }
+        if (c == "\"") { indq = 0; continue }
+        out = out c
+        continue
+      }
+      if (c == SQ) { insq = 1; continue }
+      if (c == "\"") { indq = 1; continue }
+      if (c == "\\") { out = out substr(w, i + 1, 1); i++; continue }
+      out = out c
+    }
+    return out
   }
 
   # tokenize(line) — split one line into words and control operators, setting
@@ -402,7 +438,7 @@ awk -v listfile="$work/list" -v SQ="'" '
 
   # walk(path, lno) — find the mkdir invocations on the tokenized line and
   # decide, per invocation, whether its exit status is being read.
-  function walk(path, lno, exempt,   i, j, t, base, hasp, inopts, term, nxt, kind) {
+  function walk(path, lno, exempt,   i, j, t, base, opt, hasp, inopts, term, nxt, kind) {
     i = 1
     while (i <= ntok) {
       if (tokt[i] == "op") {
@@ -424,16 +460,17 @@ awk -v listfile="$work/list" -v SQ="'" '
       # command name, so `command mkdir` and `FOO=1 mkdir` are still mkdir.
       if (t == "!" || t == "time" || t == "command" || t == "builtin" || t == "exec" || t == "nohup") { i++; continue }
       if (t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { i++; continue }
-      base = t
-      if (index(base, "\"") == 0 && index(base, SQ) == 0) sub(/^.*\//, "", base)
+      base = unquote(t)
+      sub(/^.*\//, "", base)
       if (base != "mkdir") { atcmd = 0; i++; continue }
 
       hasp = 0; inopts = 1
       j = i + 1
       while (j <= ntok && tokt[j] == "w") {
         if (inopts) {
-          if (tok[j] == "--") inopts = 0
-          else if (tok[j] == "--parents" || (tok[j] ~ /^-[A-Za-z]+$/ && tok[j] ~ /p/)) hasp = 1
+          opt = unquote(tok[j])
+          if (opt == "--") inopts = 0
+          else if (opt == "--parents" || (opt ~ /^-[A-Za-z]+$/ && opt ~ /p/)) hasp = 1
         }
         j++
       }
