@@ -35,26 +35,7 @@ under the resolved planwright root, or the documented
 `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); the doctrine manifest below
 marks which load at run start and which load at point of use (the escalation,
 adoption, and interactive branches). Their definitions govern wherever this
-skill names a concept:
-
-- `guard-catalog` — the normative core catalog: guard categories, the entry
-  format, breadth dimensions, the extension model, and the dogfood contract.
-  Its machine view is `config/guard-catalog.yaml`, read by
-  `scripts/builder-guards.sh`.
-- `engineering-decisions` — the decision ladder (idiom → tooling →
-  mature-project research) and the no-flattening rule the escalation step
-  applies.
-- `decision-domains` — the catalogued stake-bearing domains and their
-  triggers; what the builder escalates rather than auto-applies.
-- `finding-categorization` and `gate-wiring` — the buckets, the
-  hard-disqualifier zones, and the `GATE(when: …)` deferral mechanism an
-  escalated decision routes into.
-- `research-rigor` — the mature-project comparison and new-dependency triggers
-  that fire when a guard or tool is being adopted.
-- `proportionality` — guard rigor scales with stake and reversibility; any
-  scoping or departure is declared, never silent.
-- `interaction-style` — governs the recommend/confirm exchanges when run
-  interactively.
+skill names a concept.
 
 If a doc does not resolve, degrade per REQ-K1.7: the builder runs on both
 authoring (graceful) and execution paths, so name the missing doc in one line
@@ -62,15 +43,14 @@ and proceed where the remaining docs allow it, rather than failing opaquely.
 A missing `guard-catalog` / `config/guard-catalog.yaml` is the one hard stop:
 without the catalog there is nothing to detect against — say so and halt.
 
-Doctrine manifest (the reading model above in machine-parseable form, per
-`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
-`point-of-use` loads at the named step or branch):
+Doctrine manifest (per `doctrine/instruction-hygiene.md`; `run-start` loads
+before work begins, `point-of-use` loads at the named step or branch):
 
-Doctrine: run-start guard-catalog
-Doctrine: run-start engineering-decisions
-Doctrine: run-start proportionality
-Doctrine: run-start decision-domains
-Doctrine: run-start finding-categorization
+Doctrine: run-start guard-catalog (the catalog, its entry format, the dogfood contract)
+Doctrine: run-start engineering-decisions (the decision ladder and the no-flattening rule)
+Doctrine: run-start proportionality (declared scoping)
+Doctrine: run-start decision-domains (what the builder escalates rather than auto-applies)
+Doctrine: run-start finding-categorization (the buckets and the hard-disqualifier zones)
 Doctrine: point-of-use gate-wiring (the GATE deferral an escalation routes into)
 Doctrine: point-of-use research-rigor (when a guard or tool is being adopted)
 Doctrine: point-of-use interaction-style (the interactive recommend/confirm mode)

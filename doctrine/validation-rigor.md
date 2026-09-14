@@ -74,14 +74,6 @@ finding resurrected into the keep set is not re-refuted. The pass terminates
 deterministically rather than being iterated to a fixpoint, so it cannot
 oscillate.
 
-Its depth scales with stake and reversibility (see
-[proportionality.md](proportionality.md)); a skill that scopes the pass (for
-example, refuting only the findings it will act on autonomously and
-resurrecting only the most load-bearing declines) must declare the scoping.
-The default for any skill that does not declare otherwise is the full
-bi-directional pass over both sets, the same discipline the three-pass
-requirement follows.
-
 ## Solution validation
 
 For any fix, validate with independent angles: angles 1 and 2 are the
@@ -92,11 +84,9 @@ applies to every fix:
    bug's exact reason. Confirm it fails for the right reason before applying
    the fix. Apply the fix. Confirm the same test, unchanged, now passes.
    Prefer confirming the fix the same way Pass 1 prefers to reproduce the
-   bug: through the surface's own mechanism (a CLI command run for real, a
-   web UI driven by browser automation, a desktop app driven by UI
-   automation), additive to the unit test. Where no whole-system surface or
-   automation mechanism exists, fall back to the closest confirmation
-   available and record why.
+   bug: through the surface's own mechanism, additive to the unit test. Where
+   no whole-system surface or automation mechanism exists, fall back to the
+   closest confirmation available and record why.
 2. **Wider check.** Run the full project test suite, linters, and
    type-checkers. Watch for regressions, including in unrelated areas the
    change could now affect.
@@ -132,5 +122,7 @@ Rigor scales with stake and reversibility (see
 [proportionality.md](proportionality.md)). A skill may scope the three-pass
 requirement, for example applying the full three passes to findings it will
 act on autonomously and a spot-check to findings a human will review anyway,
-but the scoping must be declared in the skill. The default for any skill
-that does not declare otherwise is the full three passes on every finding.
+and may scope the adversarial pass the same way, but the scoping must be
+declared in the skill. The default for any skill that does not declare
+otherwise is the full three passes on every finding and the full
+bi-directional pass over both sets.

@@ -16,7 +16,8 @@ lenses are walked, never the no-silent-pruning discipline — every lens in the
 selected set gets a row in the coverage table, and an empty one still shows
 `none` or `n/a` with a reason.
 
-Citations: inception REQ-I1.3 · inception D-17.
+Citations: inception REQ-I1.3 · inception D-17 ·
+prose-disposition REQ-A1.2 · prose-disposition D-2.
 
 ## Selecting the class
 
@@ -33,6 +34,14 @@ a finding that lands under a lens in each.
 | **human-facing** | Generated output whose whole purpose is being read: PR bodies, reports, rendered views, walkthroughs, status surfaces |
 
 ## The lens sets
+
+**Merely improvable prose is not a finding, in any set.** A phrasing, an
+emphasis, or a precision preference — one with no code that falsifies it, no
+sibling statement it contradicts, and no reader who would act differently on
+it — is a preference, not a defect, and no lens in any set reports it. Every
+documentation finding names the defect class it belongs to
+([Discovery Rigor](discovery-rigor.md)'s Documentation lens in the code set;
+ambiguity, citation integrity, or glossary drift in the spec set).
 
 **code.** The canonical nine in [Discovery Rigor](discovery-rigor.md),
 unchanged. This is the default when no class is named.

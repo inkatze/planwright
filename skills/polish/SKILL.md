@@ -24,21 +24,15 @@ creation (`/execute-task` per REQ-E1.5, or a standalone `/self-review`).
 
 ## Doctrine
 
-Resolve and read the same rule docs as `/self-review` via the
-rule-doc resolution convention (`scripts/resolve-rule-doc.sh <doc-name>` or
-the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain):
-`discovery-rigor`, `validation-rigor`, `finding-categorization`,
-`gate-wiring`, `research-rigor`, `refactor-instinct`, `security-posture`,
-`proportionality`. All load at run start except `research-rigor`, read
-point-of-use inside the nested `/self-review` pass's finding-validation
-(the iteration loop below).
-Their definitions govern wherever this skill names a concept. If a rule doc
-does not resolve, halt with a clear message naming the missing doc and the
-chain consulted.
+Resolve and read the same rule docs as `/self-review`, listed in the manifest
+below, via the rule-doc resolution convention
+(`scripts/resolve-rule-doc.sh <doc-name>` or the documented
+`PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain). Their definitions govern
+wherever this skill names a concept. If a rule doc does not resolve, halt with
+a clear message naming the missing doc and the chain consulted.
 
-Doctrine manifest (the reading model above in machine-parseable form, per
-`doctrine/instruction-hygiene.md`; `run-start` docs load before work begins,
-`point-of-use` at the named step):
+Doctrine manifest (per `doctrine/instruction-hygiene.md`; `run-start` docs
+load before work begins, `point-of-use` at the named step):
 
 Doctrine: run-start discovery-rigor
 Doctrine: run-start validation-rigor
@@ -75,12 +69,8 @@ Record the resolved mode in every iteration summary.
    step, the pause protocol's dispatched arm); never stash or discard
    yourself.
 3. **Identify the base and the active kickoff brief** exactly as
-   `/self-review` pre-flight does (remote-tracking base first; brief from the
-   `planwright/<spec>/task-<ids>` branch convention, with the parsed `<spec>`
-   segment validated against the REQ-A1.8 identifier discipline before any
-   path is formed; else resolved via the status render, accepting Ready or
-   Active). Record both; with no active brief the Agent-resolvable bucket is
-   unavailable for the whole run.
+   `/self-review` pre-flight does. Record both; with no active brief the
+   Agent-resolvable bucket is unavailable for the whole run.
 4. **Initialize the loop ledger**: an iteration counter at zero, plus the
    record of every finding the loop has already dispositioned (applied,
    resolved, applied pending sign-off, declined, queued).
@@ -119,16 +109,9 @@ Each iteration:
    iteration counter, and loop.
 
 Finding fixes commit inside the pass per the `gate-wiring` commit
-discipline (loop-level writes, such as observation fragment writes, take their
-own chore commit at the iteration boundary):
-Needs-sign-off items one commit per finding with the `[pending-sign-off]`
-subject marker, action items batched per iteration, regression tests landing with the
-fix they prove. Before committing a marked finding, self-lint the subject by
-piping it in —
-`printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin`
-(under the resolved planwright root) — so the marker sits at the canonical end-of-subject position
-(`gate-wiring`); a mis-placed marker
-caught here is reworded before it reaches history, never after. Polish never
+discipline, including the marked-subject self-lint the pass performs
+(loop-level writes, such as observation fragment writes, take their own chore
+commit at the iteration boundary). Polish never
 amends, squashes, rebases, or force-pushes; each iteration's commits stand as
 the per-iteration audit trail.
 
@@ -148,12 +131,9 @@ later iteration.
 
 ## Safety conditions (mandatory handoff)
 
-Exactly two things interrupt mid-iteration, per the doctrine's pause
-protocol: a hard-disqualifier zone finding, or an irreducible
-Needs-human-judgment fork that blocks further progress. Both follow the `gate-wiring` pause protocol
-(attended: stop and present; dispatched or unattended: record the unit to
-`tasks.md` Awaiting input with the finding and recommended fix, end the
-step). Everything else below stops the loop at an iteration boundary (the
+The doctrine's two pause triggers interrupt mid-iteration and follow the
+`gate-wiring` pause protocol. Everything else below stops the loop at an
+iteration boundary (the
 dirty-tree check runs at pre-flight, before iteration one; its handoff
 emits empty `none` tables):
 
@@ -165,8 +145,9 @@ emits empty `none` tables):
 | Dirty tree | Pre-flight found uncommitted changes (stops before iteration one). |
 
 On any safety stop: emit the latest audit record, name the condition, and
-hand off. Work already committed stays committed (each item one revert from
-undone); a stop never resets, stashes, or rewrites prior dispositions.
+hand off. Work already committed stays committed, each item undone by the
+revert its checklist entry names; a stop never resets, stashes, or rewrites
+prior dispositions.
 
 ## Handoff
 
@@ -174,21 +155,17 @@ On exit (converged or safety-stopped), emit the loop-end handoff in the
 `gate-wiring` order, accumulated across all iterations:
 
 1. The lens-coverage table from the final pass.
-2. The four bucket tables in fixed order, an empty bucket as a single `none`
-   row. These are audit, not a decision queue.
-3. The declined log.
-4. The pending-sign-off checklist, regenerated from the `[pending-sign-off]`
-   commits ahead of the base (a single `none` row when empty).
-5. The queued irreducible forks with their bespoke options: the only items
-   that ask the human a question. Bespoke options are the actual decision
-   branches, never timing labels, per the categorization doctrine.
-6. The final iteration's pass summary (the per-iteration summaries cover
+2. In the wiring doc's formats: the four bucket tables, the declined log, and
+   the pending-sign-off checklist regenerated from the `[pending-sign-off]`
+   commits ahead of the base.
+3. The queued irreducible forks with their bespoke options: the only items
+   that ask the human a question.
+4. The final iteration's pass summary (the per-iteration summaries cover
    the rest).
 
 Standalone, present all of it to the human and put the queued forks to them
-directly. Nested, hand the record to the parent skill, which folds the
-tables, declined log, and checklist into the draft PR body it owns and
-surfaces the forks. Apply `security-posture` artifact data-hygiene to
+directly. Nested, hand the record to the parent skill, which folds it into the draft PR
+body it owns and surfaces the forks. Apply `security-posture` artifact data-hygiene to
 everything emitted; the record is bound for a committed PR body.
 
 ## Local-only invariants

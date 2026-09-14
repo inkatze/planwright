@@ -41,8 +41,7 @@ added over making subjective calls.
   muddled, naming made worse. Pre-existing mess unrelated to the diff is out
   of scope.
 - Anchor flags in tool output where possible. A named rule from a tool the
-  project runs is grounded; "this could be cleaner" is not, and should be
-  dropped.
+  project runs is grounded; "this could be cleaner" is not, and is dropped.
 - Prefer follow-up suggestions over blocking findings. "Consider as a
   follow-up" is usually the right framing.
 - Do not propose alternative architectures, rewrites, or stylistic
@@ -51,10 +50,6 @@ added over making subjective calls.
 - Do not invent abstractions for hypothetical future requirements. Three
   similar lines is fine; demanding a helper for them is noise.
 
-## Proportionality
-
-The two bars are themselves an application of the proportionality principle
-(see [proportionality.md](proportionality.md)): implementation-mode cleanups
-are cheap and reversible inside the change being made, so the bar is low;
-review-mode flags impose work on others and reshape code outside the diff's
-purpose, so the bar is high.
+The two bars are [proportionality.md](proportionality.md) applied: an
+implementation-mode cleanup is cheap and reversible inside the change being
+made; a review-mode flag imposes work on others.

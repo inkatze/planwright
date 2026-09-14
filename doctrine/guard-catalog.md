@@ -99,19 +99,17 @@ mechanical dogfood set.
 A versioned artifact with no release automation is a recurring ceremony gap
 (the [autopilot-reflex](autopilot-reflex.md) reflex): the version bump and the
 signed tag fire only when a human remembers them. The `release-tagging` breadth
-entry lets the builder recommend closing that gap. It is **advisory-only** —
-surfaced through the builder's existing consent flow, never auto-applied, and
-absent from the `--core` mechanical set (REQ-G1.1, D-13). It has two facets:
+entry lets the builder recommend closing that gap. Like every breadth entry
+it is advisory-only and carries `detect: manual`, so it never auto-fires from
+a file glob and stays out of the `--core` mechanical set (REQ-G1.1, D-13). It
+has two facets:
 
 - **Detection facet.** The signal that the guard is worth recommending: the
   repo ships a **versioned artifact** (a `plugin.json`, `package.json`,
   `Cargo.toml`, `pyproject.toml`, or similar with a version field) **and has no
   release automation** (no release-PR workflow, no tag-publishing step). When
   the builder sees a versioned artifact whose releases are still cut by hand, it
-  recommends the release-tagging machinery — it does not apply it. (The machine
-  view carries `detect: manual`: like every breadth entry the guard never
-  auto-fires from a file glob; the detection heuristic here is the builder's
-  judgment prompt, not a mechanical trigger.)
+  recommends the release-tagging machinery — it does not apply it.
 - **Scaffold facet.** What the recommendation offers once accepted, all
   **opt-in** and resolved by the builder — never landed in an adopter repo
   without consent (REQ-G1.3, the [customization-boundary](customization-boundary.md)
@@ -127,9 +125,10 @@ absent from the `--core` mechanical set (REQ-G1.1, D-13). It has two facets:
     signer-agnostic step that cuts the signed annotated tag on the observed
     release-merge commit.
 
-The policy the scaffold realizes — detection and proposal automated, approval
-is the human merge, publish is human-gated and signed, the window is locked, and
-merge and publish are never autonomous — is [release-tagging.md](release-tagging.md);
+The policy the scaffold realizes — detection and proposal automated,
+approval is the human merge, publish human-gated and signed, the window
+locked, merge and publish never autonomous — is
+[release-tagging.md](release-tagging.md);
 this entry is the builder-facing consent surface that doc's mechanism row
 (capability in core, mechanism as opt-in template, value as config) points at.
 
@@ -139,11 +138,9 @@ A repo that authors an LLM instruction layer — agent skills, doctrine docs,
 prompts — has a runtime artifact that degrades as it grows, yet no mechanical
 guard watches its size. The `instruction-hygiene` breadth entry lets the builder
 recommend closing that gap to an adopter whose repo ships such a layer. Like
-every breadth dimension it is **advisory-only**: surfaced through the builder's
-consent flow, never auto-applied, `detect: manual` (it never fires from a file
-glob — the trigger is the builder's judgment that a repo authors instructions,
-not a mechanical signal), and absent from the `--core` mechanical set. What it
-recommends has two parts, both defined in
+every breadth entry it is advisory-only, its `detect: manual` trigger being the
+builder's judgment that a repo authors instructions rather than a file glob.
+What it recommends has two parts, both defined in
 [instruction-hygiene.md](instruction-hygiene.md):
 
 - **The size guard** — `scripts/check-instructions.sh`, the per-file /
@@ -158,10 +155,8 @@ recommends has two parts, both defined in
   pass^k, catching the case where a file passes the budget yet still degrades
   behavior.
 
-This is a project-bespoke guard the way planwright's own spec validator and
-link-check are (see [Dogfooding](#dogfooding)): catalogued so the builder can
-carry it to an adopter that authors instructions, advisory so it is never
-stamped onto a repo that does not.
+A project-bespoke guard the way planwright's own spec validator and link-check
+are (see [Dogfooding](#dogfooding)).
 
 ## Extension
 
@@ -223,15 +218,8 @@ bypasses the merge: the catalog the operator names is used verbatim.
 
 ## Stake escalation: the builder does not flatten
 
-The catalog is for decisions a tool can own. The builder's harder job is
-recognizing the decisions that *look* mechanical but are not, and refusing
-to auto-default them. "Add auth", "pick the datastore", "set the cache TTL"
-arrive next to "add a linter" and read like the same kind of checkbox, but
-the choices underneath are architecture-defining and often business
-differentiators.
-
-This is the no-flattening rule of
-[engineering-decisions.md](engineering-decisions.md), and the
+The catalog is for decisions a tool can own. The no-flattening rule of
+[engineering-decisions.md](engineering-decisions.md) governs the rest, and the
 [decision-domains catalog](decision-domains.md) supplies the triggers. When
 the builder is about to cross a catalogued decision domain the spec or
 kickoff brief has not decided, it does not stamp a default: it escalates the
@@ -239,13 +227,11 @@ decision as design / Needs human judgment and routes it into the deferral
 mechanism as a `GATE(when: …)` entry (see
 [finding-categorization.md](finding-categorization.md) for the bucket
 boundaries and [gate-wiring.md](gate-wiring.md) for the gate mechanics).
-Mechanical guards apply; load-bearing decisions escalate. Getting that line
-right is what separates a builder from an "add a linter" scaffolder.
-
-This advises and weighs rather than rigidly enforcing
-([proportionality.md](proportionality.md)): rigor scales with stake and
-reversibility, and any departure from a recommended guard is recorded with
-its reasoning where the next reader will find it, never taken silently.
+Mechanical guards apply; load-bearing decisions escalate. This advises and
+weighs rather than rigidly enforcing — rigor scales with stake and
+reversibility ([proportionality.md](proportionality.md)) — and any departure
+from a recommended guard is recorded with its reasoning where the next reader
+will find it, never taken silently.
 
 ## Dogfooding
 

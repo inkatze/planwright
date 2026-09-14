@@ -21,35 +21,33 @@ can be measured by it.
   scoped to its four defect classes, with the defect class carried in the
   coverage row's Notes cell so the canonical table keeps its columns;
   the cross-set improvable-is-not-a-finding sentence in
-  `doctrine/artifact-lenses.md`; the prose classification, grounding,
-  external-contract definition, and PR-introduced-surface rule in
+  `doctrine/artifact-lenses.md`; the prose classification and the
+  Needs-sign-off route meaning-class prose keeps, in
   `doctrine/finding-categorization.md`; the batching rule, manifest form,
   batched checklist rendering, and per-finding audit rows in
-  `doctrine/gate-wiring.md`, with the term loop iteration defined there,
-  its example updated, and a diet applied to keep the doc under its warn
-  threshold; the surface-pattern sweep over `doctrine/` and `docs/` for the
-  superseded wording, with every straggler fixed in the same change.
-- **Done when:** each rule REQ-A, REQ-B, and REQ-C states appears in the
-  named doc; the routing scenarios in `test-spec.md` under REQ-B1.2,
-  REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-C1.1, and REQ-C1.3 walk against the
-  amended text and reach the stated disposition, each walk recorded in the
-  PR body; the REQ-D1.2 grep over `doctrine/` and `docs/` returns no hit;
-  `check:links`, `check:doctrine-index`, and `check:instructions` pass, the
-  suppression list gains no `raise` entry, and the guard's output carries no
-  floor-breach warning and no doctrine-warn line for
-  `doctrine/gate-wiring.md`.
+  `doctrine/gate-wiring.md`, with the term loop iteration defined there and
+  its example updated; the surface-pattern sweep over `doctrine/` and `docs/`
+  for the superseded wording, with every straggler fixed in the same change.
+- **Done when:** each rule REQ-A, REQ-B1.1, REQ-B1.5 and REQ-C states appears
+  in the named doc; the routing scenarios in `test-spec.md` under REQ-B1.5,
+  REQ-C1.1, and REQ-C1.3 walk against the amended text and reach the stated
+  disposition, each walk recorded in the PR body; the REQ-D1.2 grep over
+  `doctrine/` and `docs/` returns no hit; `check:links`,
+  `check:doctrine-index`, and `check:instructions` pass, the suppression list
+  gains no `raise` entry, and the guard's output carries no floor-breach
+  warning.
 - **Dependencies:** none
-- **Citations:** D-1, D-2, D-3, D-4, D-5, D-6 · REQ-A1.1, REQ-A1.2, REQ-A1.3,
-  REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-C1.1, REQ-C1.2,
-  REQ-C1.3, REQ-C1.4, REQ-D1.2, REQ-D1.3
+- **Citations:** D-1, D-2, D-3, D-5, D-6 · REQ-A1.1, REQ-A1.2, REQ-A1.3,
+  REQ-B1.1, REQ-B1.5, REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-D1.2,
+  REQ-D1.3
 - **Estimated effort:** 1 day
 
 ### Task 2 — Skill instantiation and straggler sweep
 
 - **Deliverables:** `skills/self-review/SKILL.md`, `skills/polish/SKILL.md`,
   and the convergence prose of `skills/execute-task/SKILL.md` citing the
-  amended sections for lens scoping, prose classification, the
-  PR-introduced-surface rule, and the batched commit discipline; the
+  amended sections for lens scoping, prose classification, and the batched
+  commit discipline; the
   surface-pattern sweep over `skills/` for the superseded wording, with
   every straggler fixed in the same change and the patterns searched listed
   in the PR body.
@@ -210,6 +208,36 @@ can be measured by it.
   not a cleanup PR and carries no `comments` scope.
 - **Dependencies:** 6, 7, 8
 - **Citations:** D-11, D-12, D-13 · REQ-G1.7, REQ-F1.7
+- **Estimated effort:** half day
+
+### Task 10 — The Auto-applicable lane for expression-only prose
+
+- **Deliverables:** in `doctrine/finding-categorization.md`, the rule that
+  expression-only prose is Auto-applicable together with its two groundings
+  (a rule a prose guard the project ships reports, or a recorded
+  normative-preservation check performed as `doctrine/validation-rigor.md`'s
+  non-testable substitute) and the audit row that carries which was used; the
+  external-contract definition for prose and its disposal of both the
+  Auto-applicable disqualifier and the Needs-sign-off external-interface
+  route; the PR-introduced-surface rule; the matching `doctrine/README.md`
+  index row and `Citations:` entries; and the instantiation of these three
+  rules in `skills/self-review/SKILL.md`, `skills/polish/SKILL.md` and the
+  convergence prose of `skills/execute-task/SKILL.md`, which Task 2 leaves to
+  this task because it cannot cite a section that does not yet exist. This
+  task funds its own instruction budget within what REQ-D1.3 permits: Task 1
+  measured the run-start dedupe diet and spent it, and its convergence pass
+  found the diet had cut fifteen rules that had to be restored, so the room
+  this task needs is not there. If no funding REQ-D1.3 permits exists, that is
+  an escalation, not a licence to widen the budget.
+- **Done when:** each rule REQ-B1.2, REQ-B1.3 and REQ-B1.4 states appears in
+  `doctrine/finding-categorization.md`; the routing scenarios in
+  `test-spec.md` under REQ-B1.2, REQ-B1.3 and REQ-B1.4 walk against the
+  amended text and reach the stated disposition, each walk recorded in the PR
+  body; each of the three skills names the governing section and restates at
+  most a one-line gist (REQ-D1.1); `check:instructions` passes and the
+  suppression list gains no `raise` entry; and `mise run check` is green.
+- **Dependencies:** 1, 2
+- **Citations:** D-3, D-6 · REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-D1.1, REQ-D1.3
 - **Estimated effort:** half day
 
 ## Awaiting input
