@@ -62,7 +62,10 @@ if [ ! -f "$LIB" ]; then
 fi
 
 tmp="$(mktemp -d)" || exit 1
-trap 'rm -rf "$tmp"' EXIT
+# Restore write permission first: a case below makes a directory unwritable to
+# prove a displacement fails there, and an interrupted run would otherwise
+# leave a sandbox nothing can remove.
+trap 'chmod -R u+rwX "$tmp" 2>/dev/null || :; rm -rf "$tmp"' EXIT
 
 # The portable-floor shell the library must run under. `sh` is dash on the
 # Linux runners and a bash build on macOS; both are in the support bar, and
@@ -1504,6 +1507,27 @@ for verb in pw_lock_try pw_lock_acquire pw_lock_try_detached \
   fi
 done
 rm -rf "$dashdir"
+# A path ending in `/` has no last component, so every name derived from it
+# lands INSIDE it rather than beside it, and the confirmation that a rename
+# landed on its destination has nothing to compare against. Refuse it where `-`
+# and `#` are refused: one rule, and every derived path inherits it.
+sldir="$tmp/slash"
+mkdir -p "$sldir/s.lock"
+for verb in pw_lock_try pw_lock_acquire pw_lock_try_detached \
+  pw_lock_acquire_detached pw_lock_release pw_lock_break_force pw_lock_clear_legacy; do
+  (cd "$sldir" && $SH -c ". \"\$1\"; $verb \"s.lock/\"" sh "$LIB" >/dev/null 2>&1)
+  if [ $? -eq 2 ]; then
+    pass "$verb refuses a path with a trailing slash"
+  else
+    fail "$verb accepted a path with a trailing slash"
+  fi
+done
+if [ -d "$sldir/s.lock" ]; then
+  pass "and the refusal touched nothing at that path"
+else
+  fail "a refused trailing-slash path was acted on anyway"
+fi
+rm -rf "$sldir"
 # A target beginning with a dash survives the create and comes back whole.
 ln -s -- "-not-an-option" "$tmp/target.lock" 2>/dev/null
 got=$(run_sh x 'pw_lock_owner "$1/target.lock"')
@@ -1589,25 +1613,86 @@ rm -rf "$tmp/bsd"
 # check and then move the link. Pin the ordering here, because it is the only
 # reason the shared name is harmless.
 
-run_sh x 'pw_lock_acquire "$1/sib.lock" 50 >/dev/null || exit 1
-  ( pw_lock_release "$1/sib.lock"; echo "a $?" ) &
-  ( pw_lock_release "$1/sib.lock"; echo "b $?" ) &
-  wait' >"$tmp/sib.out" 2>"$tmp/sib.err"
-zero=$(grep -c ' 0$' "$tmp/sib.out" 2>/dev/null || echo 0)
-assert_eq "exactly one of two sibling subshells releases the hold" "1" "$zero"
-if [ -L "$tmp/sib.lock" ] || [ -e "$tmp/sib.lock" ]; then
-  fail "the lock outlived a release by a subshell"
-else
-  pass "and the lock is gone afterwards"
-fi
-strays=$(find "$tmp" -maxdepth 1 -name 'sib.lock#*' 2>/dev/null | wc -l | tr -d ' ')
-assert_eq "no working path is left behind by either" "0" "$strays"
-if [ -s "$tmp/sib.err" ]; then
-  fail "the losing subshell printed a diagnostic: $(cat "$tmp/sib.err")"
+# Run it repeatedly. A single pass of this race succeeds on an idle host
+# essentially always; the window only opens under load, which is where the
+# suite actually runs.
+sib_bad=0
+sib_err=''
+sib_stray=0
+sib_i=0
+while [ "$sib_i" -lt 40 ]; do
+  sib_i=$((sib_i + 1))
+  run_sh x 'pw_lock_acquire "$1/sib.lock" 200 >/dev/null || exit 1
+    ( pw_lock_release "$1/sib.lock"; echo "a $?" ) &
+    ( pw_lock_release "$1/sib.lock"; echo "b $?" ) &
+    wait' >"$tmp/sib.out" 2>"$tmp/sib.err"
+  zero=$(grep -c ' 0$' "$tmp/sib.out" 2>/dev/null || echo 0)
+  [ "$zero" = "1" ] || sib_bad=$((sib_bad + 1))
+  [ -s "$tmp/sib.err" ] && sib_err=$(cat "$tmp/sib.err")
+  sib_stray=$((sib_stray + $(find "$tmp" -maxdepth 1 -name 'sib.lock#*' 2>/dev/null | wc -l | tr -d ' ')))
+  [ ! -L "$tmp/sib.lock" ] && [ ! -e "$tmp/sib.lock" ] || sib_bad=$((sib_bad + 100))
+  rm -f "$tmp"/sib.lock*
+done
+assert_eq "one of two sibling subshells releases the hold, every time" "0" "$sib_bad"
+assert_eq "and no working path is left behind by either" "0" "$sib_stray"
+if [ -n "$sib_err" ]; then
+  fail "a losing subshell printed a diagnostic: $sib_err"
 else
   pass "and the loser says nothing, because nothing went wrong"
 fi
-rm -f "$tmp"/sib.lock* "$tmp/sib.out" "$tmp/sib.err"
+rm -f "$tmp/sib.out" "$tmp/sib.err"
+
+# ---------------------------------------------------------------------------
+# 47b. The same interleaving, staged rather than raced
+# ---------------------------------------------------------------------------
+#
+# The loop above only catches this when the host is busy, and a regression test
+# that needs a loaded machine is a regression test that passes quietly. Stage
+# the exact ordering instead, by slowing the two steps it turns on: the winner
+# is held inside its rename, and both callers are held inside the removal that
+# runs before it. The second caller then clears a path the first one has
+# already moved its lock to.
+
+mkdir -p "$tmp/slow"
+cat >"$tmp/slow/mv" <<'SHIM'
+#!/bin/sh
+/bin/mv "$@"
+rc=$?
+[ -n "${PW_MV_HOLD:-}" ] && sleep "$PW_MV_HOLD"
+exit $rc
+SHIM
+cat >"$tmp/slow/rm" <<'SHIM'
+#!/bin/sh
+[ -n "${PW_RM_DELAY:-}" ] && sleep "$PW_RM_DELAY"
+exec /bin/rm "$@"
+SHIM
+chmod +x "$tmp/slow/mv" "$tmp/slow/rm"
+out=$(PATH="$tmp/slow:$PATH" $SH -c '. "$1"
+  pw_lock_acquire "$2/staged.lock" 200 >/dev/null || exit 9
+  ( PW_MV_HOLD=0.8 PW_RM_DELAY=0.6
+    export PW_MV_HOLD PW_RM_DELAY
+    pw_lock_release "$2/staged.lock"; echo "a $?" ) &
+  sleep 0.5
+  ( PW_RM_DELAY=0.6
+    export PW_RM_DELAY
+    pw_lock_release "$2/staged.lock"; echo "b $?" ) &
+  wait' sh "$LIB" "$tmp" 2>"$tmp/staged.err")
+zero=$(printf '%s\n' "$out" | grep -c ' 0$')
+assert_eq "the caller that moved the link is the one that releases" "1" "$zero"
+if [ -s "$tmp/staged.err" ]; then
+  fail "the staged interleaving still reports a displaced lock: $(cat "$tmp/staged.err")"
+else
+  pass "and no displaced lock is reported, because none was taken away"
+fi
+if [ -L "$tmp/staged.lock" ] || [ -e "$tmp/staged.lock" ]; then
+  fail "the staged interleaving left the lock held"
+else
+  pass "and the lock is released"
+fi
+strays=$(find "$tmp" -maxdepth 1 -name 'staged.lock#*' 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "and nothing is left beside it" "0" "$strays"
+rm -rf "$tmp/slow" "$tmp/staged.err"
+rm -f "$tmp"/staged.lock*
 
 # ---------------------------------------------------------------------------
 # 48. Every create in this library is confirmed before it is believed
@@ -1704,6 +1789,27 @@ etimesites=$(grep -cE '^[^#]*(^|[^[:alnum:]_])ps -o etime' "$LIB" || :)
 assert_eq "only one function reads an elapsed time" "2" "$etimesites"
 # The disown rule has one owner too, and the way that stays true is that every
 # verb whose owner is not this shell reaches the lock through it.
+# And the rule those derived paths carry: a caller never clears one before
+# moving onto it. The path was free when it was handed out, so anything there
+# now belongs to a peer — which is how two siblings destroyed each other's
+# displaced link and neither released. The way that stays true is that moving
+# aside has one owner, so a site cannot be written that does not obey it.
+# Read code, not prose: these functions all explain themselves in comments that
+# name the very commands being counted.
+code_of() { sed -n "/^$1() {/,/^}/p" "$LIB" | grep -vE '^[[:space:]]*#'; }
+# Count where the derivations ARE, not how many there are: the recovery path
+# derives a second name, and pinning the count would have to change every time
+# that function grows a step, which is how a pin stops meaning anything.
+all_derivations=$(grep -cE '^[^#]*_pw_lock_work_path ' "$LIB" || :)
+own_derivations=$(code_of _pw_lock_displace | grep -cE '_pw_lock_work_path ' || :)
+assert_eq "every derivation of a working path happens where the move does" \
+  "$all_derivations" "$own_derivations"
+cleared=$(code_of _pw_lock_displace | grep -cE '(^|[^[:alnum:]_])rm ' || :)
+assert_eq "and it removes nothing on the way" "0" "$cleared"
+for v in pw_lock_release pw_lock_release_token pw_lock_break_force pw_lock_clear_legacy; do
+  moves=$(code_of "$v" | grep -cE '(^|[^[:alnum:]_])mv ' || :)
+  assert_eq "$v moves nothing aside by hand" "0" "$moves"
+done
 for v in pw_lock_try_detached pw_lock_acquire_detached pw_lock_acquire_for; do
   body=$(sed -n "/^$v() {/,/^}/p" "$LIB")
   case $body in
@@ -1800,6 +1906,337 @@ inside=$(find "$trap_path" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
 assert_eq "and nothing was filed inside the occupying directory" "0" "$inside"
 rm -rf "$trap_path"
 rm -f "$tmp"/wp2.lock*
+
+# ---------------------------------------------------------------------------
+# 53. A derivation that cannot find a free path fails rather than lying
+# ---------------------------------------------------------------------------
+#
+# Every displacement rests on the derived path being free, which is why nothing
+# clears one before renaming onto it. A derivation that gives up and hands back
+# the last candidate anyway turns that rule into a false claim at exactly the
+# moment it matters: the rename then files the live lock INSIDE whatever
+# occupies the path, and the lock is off its path with no link to find.
+
+out=$(run_sh x 'cd "$1" || exit 9
+  pw_lock_try ./ex.lock >/dev/null || exit 9
+  _pw_lock_slug "$PW_LOCK_TOKEN"
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./ex.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  PW_LOCK_SEQ=0
+  if _pw_lock_work_path ./ex.lock taken "$PW_LOCK_TOKEN"; then
+    printf "derived %s\n" "$([ -e "$_pw_lock_work_path_out" ] && echo occupied || echo free)"
+  else
+    printf "derived refused\n"
+  fi
+  PW_LOCK_SEQ=0
+  pw_lock_release ./ex.lock >/dev/null 2>&1
+  printf "release %s\n" "$?"
+  printf "lock %s\n" "$([ -L ./ex.lock ] && echo present || echo gone)"
+  printf "filed %s\n" "$(find . -mindepth 2 -name "ex.lock" 2>/dev/null | wc -l | tr -d " ")"')
+assert_eq "a derivation with no free candidate refuses" "derived refused" \
+  "$(printf '%s\n' "$out" | sed -n 1p)"
+assert_eq "and the release fails closed rather than displacing blindly" "release 2" \
+  "$(printf '%s\n' "$out" | sed -n 2p)"
+assert_eq "and the lock stays at its path" "lock present" \
+  "$(printf '%s\n' "$out" | sed -n 3p)"
+assert_eq "and nothing is filed inside an occupying directory" "filed 0" \
+  "$(printf '%s\n' "$out" | sed -n 4p)"
+rm -rf "$tmp"/ex.lock*
+
+# ---------------------------------------------------------------------------
+# 54. The legacy clear displaces under the same rule as everything else
+# ---------------------------------------------------------------------------
+#
+# It moves a directory rather than a link, which is the only thing about it
+# that differs — and being the one site outside the rule is how the same defect
+# came back here after it was fixed at the other two. Stage the same ordering:
+# two sibling clears derive one aside, and the second must not remove what the
+# first has moved there.
+
+mkdir -p "$tmp/slow2"
+cat >"$tmp/slow2/mv" <<'SHIM'
+#!/bin/sh
+/bin/mv "$@"
+rc=$?
+[ -n "${PW_MV_HOLD:-}" ] && sleep "$PW_MV_HOLD"
+exit $rc
+SHIM
+cat >"$tmp/slow2/rm" <<'SHIM'
+#!/bin/sh
+[ -n "${PW_RM_DELAY:-}" ] && sleep "$PW_RM_DELAY"
+exec /bin/rm "$@"
+SHIM
+chmod +x "$tmp/slow2/mv" "$tmp/slow2/rm"
+mkdir -p "$tmp/leg.lock"
+out=$(PATH="$tmp/slow2:$PATH" $SH -c '. "$1"
+  ( PW_MV_HOLD=0.8 PW_RM_DELAY=0.6
+    export PW_MV_HOLD PW_RM_DELAY
+    pw_lock_clear_legacy "$2/leg.lock"; echo "a $?" ) &
+  sleep 0.5
+  ( PW_RM_DELAY=0.6
+    export PW_RM_DELAY
+    pw_lock_clear_legacy "$2/leg.lock"; echo "b $?" ) &
+  wait' sh "$LIB" "$tmp" 2>"$tmp/leg.err")
+zero=$(printf '%s\n' "$out" | grep -c ' 0$')
+assert_eq "exactly one of two sibling legacy clears succeeds" "1" "$zero"
+two=$(printf '%s\n' "$out" | grep -c ' 2$')
+assert_eq "and neither reports a real error for work that succeeded" "0" "$two"
+if [ -s "$tmp/leg.err" ]; then
+  fail "a sibling legacy clear reported a shape change: $(cat "$tmp/leg.err")"
+else
+  pass "and neither claims the directory changed shape under it"
+fi
+if [ -d "$tmp/leg.lock" ]; then
+  fail "the legacy directory survived the clear"
+else
+  pass "and the legacy directory is gone"
+fi
+strays=$(find "$tmp" -maxdepth 1 -name 'leg.lock#*' 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "and nothing is left beside it" "0" "$strays"
+rm -rf "$tmp/slow2" "$tmp/leg.err"
+rm -rf "$tmp"/leg.lock*
+
+# ---------------------------------------------------------------------------
+# 55. Moving aside answers the same way to every caller
+# ---------------------------------------------------------------------------
+#
+# Three sites consume this result, and the whole reason it exists is that they
+# were each deciding for themselves what a failure meant. The distinction that
+# matters is the one a caller cannot recover from — no free name, or a source
+# that is still sitting there unmovable — against the one it can, a peer having
+# got there first. Pin the contract at the verb, so a site that simply passes
+# the status along is correct by construction.
+
+out=$(run_sh x 'cd "$1" || exit 9
+  ln -s tok ./m.lock
+  _pw_lock_slug tok
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./m.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  PW_LOCK_SEQ=0
+  _pw_lock_displace ./m.lock taken tok 2>/dev/null
+  printf "exhausted %s\n" "$?"')
+assert_eq "no free name is a real error, not contention" "exhausted 2" "$out"
+err=$(run_sh x 'cd "$1" || exit 9
+  _pw_lock_slug tok
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./m.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  PW_LOCK_SEQ=0
+  _pw_lock_displace ./m.lock taken tok' 2>&1 >/dev/null)
+case $err in
+  *'no free working path'*) pass "and it says so itself, so no caller can lose the diagnostic" ;;
+  *) fail "the refusal was silent at the verb (got '$err')" ;;
+esac
+rm -rf "$tmp"/m.lock*
+# A source that is not there is contention: somebody else moved it first.
+out=$(run_sh x 'cd "$1" || exit 9
+  _pw_lock_displace ./gone.lock taken tok 2>/dev/null
+  printf "%s\n" "$?"')
+assert_eq "a source that has already been moved is contention" "1" "$out"
+# A source that IS there and will not move is a real error, not contention: no
+# amount of waiting clears an unwritable directory.
+mkdir -p "$tmp/ro"
+ln -s tok "$tmp/ro/stuck.lock"
+chmod 500 "$tmp/ro"
+out=$(run_sh x 'cd "$1/ro" 2>/dev/null || exit 9
+  _pw_lock_displace ./stuck.lock taken tok 2>/dev/null
+  printf "%s\n" "$?"')
+chmod 700 "$tmp/ro"
+assert_eq "a source that stays put is a real error, not contention" "2" "$out"
+rm -rf "$tmp/ro"
+# And every site consumes it as a status, never as a plain condition: an
+# `if displace; then` discards the difference between the two, which is how one
+# of the two break sites came to report a hard error as contention.
+bare=$(grep -cE '^[[:space:]]*(if|while|until|elif)[[:space:]]+_pw_lock_displace' "$LIB" || :)
+assert_eq "no site consumes the displacement as a bare condition" "0" "$bare"
+
+# ---------------------------------------------------------------------------
+# 56. Moving aside never waits for a human
+# ---------------------------------------------------------------------------
+#
+# `mv` prompts before replacing a destination it cannot write, and the prompt
+# reads stdin: measured on this support bar, an unwritable regular file at the
+# destination stops `mv` dead until somebody answers, with the prompt itself
+# swallowed by the error redirect. A lock library that inherited a terminal
+# would hang inside its critical step. `-f` is the documented way to say the
+# question is not wanted; it cannot be reproduced in this suite because the
+# prompt needs a terminal and there is none here, so read the call instead.
+
+dline=$(sed -n '/^_pw_lock_displace() {/,/^}/p' "$LIB" | grep -E '(^|[^[:alnum:]_])mv ')
+case $dline in
+  *' -f '*) pass "the displacement never leaves the question open" ;;
+  *) fail "the displacement can stop on a prompt (got '$dline')" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 57. A peer arriving after the rename failed is contention, not a broken store
+# ---------------------------------------------------------------------------
+#
+# The classifier asks whether the source is still there, and that question can
+# be answered by something other than the source: a peer that won the race and
+# then published its own lock at the same path puts something there between the
+# failed rename and the look. Reading "present" as "unmovable" reports routine
+# contention as a filesystem error and aborts a caller that should have
+# retried. Ask instead what the message already claims — whether the directory
+# can be written at all — because a writable directory with the source still in
+# it would have let the rename through.
+
+mkdir -p "$tmp/fake"
+cat >"$tmp/fake/mv" <<'SHIM'
+#!/bin/sh
+exit 1
+SHIM
+chmod +x "$tmp/fake/mv"
+ln -s tok "$tmp/peer.lock"
+out=$(PATH="$tmp/fake:$PATH" run_sh x 'cd "$1" || exit 9
+  _pw_lock_displace ./peer.lock taken tok 2>/dev/null
+  printf "%s\n" "$?"')
+assert_eq "a rename that failed beside a writable directory is contention" "1" "$out"
+rm -f "$tmp/peer.lock"
+# The control keeps its meaning: a directory that genuinely cannot be written
+# is still a real error, and still says so.
+mkdir -p "$tmp/ro2"
+ln -s tok "$tmp/ro2/stuck.lock"
+chmod 500 "$tmp/ro2"
+err=$(run_sh x 'cd "$1/ro2" 2>/dev/null || exit 9
+  _pw_lock_displace ./stuck.lock taken tok' 2>&1 >/dev/null)
+chmod 700 "$tmp/ro2"
+case $err in
+  *'cannot move'*) pass "and an unwritable directory still reports a real error" ;;
+  *) fail "the unwritable case lost its diagnostic (got '$err')" ;;
+esac
+rm -rf "$tmp/ro2" "$tmp/fake"
+
+# ---------------------------------------------------------------------------
+# 58. A rename that lands INSIDE the destination has not displaced anything
+# ---------------------------------------------------------------------------
+#
+# `mv src dir` files the source inside the directory and exits 0, the same
+# semantics the create already guards against. The derivation hands out a free
+# path, so a directory can only be there if somebody made one in the window —
+# and then the caller believes it holds the thing it moved, while what it
+# actually holds is a directory containing it. For the legacy clear that ends
+# in `rm -rf`, which is how a peer's live lock would be destroyed.
+
+mkdir -p "$tmp/swallow"
+cat >"$tmp/swallow/mv" <<'SHIM'
+#!/bin/sh
+# Stand in for a peer that creates a directory on the derived path in the
+# window between it being handed out and being renamed onto. Only the first
+# rename is swallowed unless SWALLOW_ALWAYS is set, so the way back out stays
+# open, which is the case the recovery has to handle.
+for a in "$@"; do d=$a; done
+if [ -n "${SWALLOW_ALWAYS:-}" ] || [ ! -f "${SWALLOW_ONCE:-/nonexistent}" ]; then
+  mkdir -p "$d"
+  [ -n "${SWALLOW_ONCE:-}" ] && : >"$SWALLOW_ONCE"
+fi
+exec /bin/mv "$@"
+SHIM
+chmod +x "$tmp/swallow/mv"
+mkdir -p "$tmp/sw.lock"
+# Leaving it inside is not enough: the caller whose scratch directory it is
+# removes that directory, and everything in it, when it finishes. Take it back
+# out to a name of this caller's own, which is safe for the same reason the
+# first move was, the destination being free by construction.
+out=$(PATH="$tmp/swallow:$PATH" SWALLOW_ONCE="$tmp/swallow/once.flag" \
+  run_sh x 'cd "$1" || exit 9
+  _pw_lock_displace ./sw.lock legacy "$$" 2>/dev/null
+  printf "%s %s\n" "$?" "$([ -d "$_pw_lock_displaced" ] && echo recovered || echo lost)"')
+assert_eq "a rename that landed inside its destination is taken back out" "0 recovered" "$out"
+inside=$(find "$tmp" -maxdepth 2 -type d -name 'sw.lock#*' -exec test -e '{}/sw.lock' ';' -print 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "and nothing of ours is left inside somebody else's scratch" "0" "$inside"
+rm -rf "$tmp"/sw.lock*
+# When the way out is blocked too, it stops rather than guessing, and the
+# legacy clear must not reach its remove.
+mkdir -p "$tmp/sw2.lock"
+PATH="$tmp/swallow:$PATH" SWALLOW_ALWAYS=1 run_sh x 'cd "$1" || exit 9
+  pw_lock_clear_legacy ./sw2.lock' >/dev/null 2>&1
+assert_exit "the legacy clear refuses rather than removing what it cannot name" 2 $?
+kept=$(find "$tmp" -maxdepth 3 -name 'sw2.lock' 2>/dev/null | wc -l | tr -d ' ')
+if [ "$kept" -ge 1 ]; then
+  pass "and what it moved is still on disk, not removed"
+else
+  fail "the legacy clear removed a directory it could not confirm"
+fi
+rm -rf "$tmp/swallow" "$tmp"/sw.lock* "$tmp"/sw2.lock*
+
+# ---------------------------------------------------------------------------
+# 59. The way out never forgets a hold it did not release
+# ---------------------------------------------------------------------------
+#
+# The exit handler runs for every holder that armed it, and it used to unlink
+# best-effort and then drop the record unconditionally. A release that could
+# not happen was therefore indistinguishable from one that did: the lock stayed
+# on disk, the registry forgot it, and the process left. Forgetting belongs
+# with the unlink, not with the caller, because a caller that can forget
+# separately is a caller that can forget wrongly.
+
+out=$(run_sh x 'cd "$1" || exit 9
+  pw_lock_try ./ra.lock >/dev/null || exit 9
+  _pw_lock_slug "$PW_LOCK_TOKEN"
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./ra.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  PW_LOCK_SEQ=0
+  pw_lock_release_all 2>/dev/null
+  printf "lock %s\n" "$([ -L ./ra.lock ] && echo present || echo gone)"
+  if _pw_lock_lookup ./ra.lock; then
+    printf "record kept\n"
+  else
+    printf "record forgotten\n"
+  fi')
+assert_eq "a hold that could not be released is still on disk" "lock present" \
+  "$(printf '%s\n' "$out" | sed -n 1p)"
+assert_eq "and it is still in the registry, not forgotten" "record kept" \
+  "$(printf '%s\n' "$out" | sed -n 2p)"
+err=$(run_sh x 'cd "$1" || exit 9
+  pw_lock_try ./ra2.lock >/dev/null || exit 9
+  _pw_lock_slug "$PW_LOCK_TOKEN"
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./ra2.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  PW_LOCK_SEQ=0
+  pw_lock_release_all' 2>&1 >/dev/null)
+case $err in
+  *'could not release'*) pass "and the way out says so rather than leaving quietly" ;;
+  *) fail "a lock leaked on the way out without a word (got '$err')" ;;
+esac
+rm -rf "$tmp"/ra.lock* "$tmp"/ra2.lock*
+# It still terminates, and it still releases what it can: an entry it cannot
+# release must not be retried forever by a loop reading the registry it edits.
+out=$(run_sh x 'cd "$1" || exit 9
+  pw_lock_try ./rb1.lock >/dev/null || exit 9
+  pw_lock_try ./rb2.lock >/dev/null || exit 9
+  _pw_lock_slug "$PW_LOCK_TOKEN"
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./rb2.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  pw_lock_release_all 2>/dev/null
+  printf "%s %s\n" "$([ -L ./rb1.lock ] && echo held || echo released)" \
+    "$([ -L ./rb2.lock ] && echo held || echo released)"')
+assert_eq "the releasable hold still goes, and the stuck one does not loop" \
+  "released held" "$out"
+rm -rf "$tmp"/rb1.lock* "$tmp"/rb2.lock*
+# And the structural half: no verb forgets a hold on its own account. The
+# unlink is the only thing that knows whether there is anything to forget.
+for v in pw_lock_release pw_lock_release_all pw_lock_release_token; do
+  forgets=$(code_of "$v" | grep -cE "_pw_lock_store [^ ]+ '' 0" || :)
+  assert_eq "$v does not forget a hold by hand" "0" "$forgets"
+done
 
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
