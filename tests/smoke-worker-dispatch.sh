@@ -22,9 +22,18 @@
 #      is reinstalled, so a repo-only test can be green while every worker on
 #      the machine still stalls.
 #
-# So this smoke defaults its root to the INSTALLED CACHE, and drives the hook
-# through the settings-file spelling. `--root .` checks a branch before merge;
-# the default checks what is actually deployed.
+# So this smoke drives the hook through the settings-file spelling, and can
+# point at either copy.
+#
+# ROOT
+#   (default)     this checkout — the code CI is actually validating, so the
+#                 suite stays deterministic and machine-independent.
+#   --installed   the newest installed plugin cache: what a dispatched worker
+#                 really loads. Not the default precisely because it is a
+#                 machine-local condition; a stale cache is an operational
+#                 fact, not a defect in the diff under review. This is the
+#                 release-time check, run after updating the plugin.
+#   --root <dir>  an explicit tree (e.g. a branch export, before merge).
 #
 # MODES
 #   (default)  offline. Replay the corpus through the hook as wired. Fast,
@@ -49,42 +58,80 @@ LIVE=0
 
 usage() {
   cat >&2 <<'USAGE'
-usage: tests/smoke-worker-dispatch.sh [--root <plugin-root>] [--corpus <file>] [--live]
-  --root    plugin root the hook is loaded from (default: newest installed
-            plugin cache, i.e. what a dispatched worker actually runs)
-  --corpus  expectation table (default: tests/fixtures/worker-guard-corpus.tsv)
-  --live    also launch one real worker and assert zero permission requests
+usage: tests/smoke-worker-dispatch.sh [--root <dir> | --installed] [--corpus <file>] [--live]
+  --root       tree the hook is loaded from (default: this checkout)
+  --installed  use the newest installed plugin cache — what a dispatched
+               worker actually loads (release-time check, not a CI gate)
+  --corpus     expectation table (default: tests/fixtures/worker-guard-corpus.tsv)
+  --live       also launch one real worker and assert zero permission requests
 USAGE
   exit 2
 }
 
 while [ $# -gt 0 ]; do
   case $1 in
-    --root) [ $# -ge 2 ] || usage; ROOT=$2; shift 2 ;;
-    --corpus) [ $# -ge 2 ] || usage; CORPUS=$2; shift 2 ;;
-    --live) LIVE=1; shift ;;
+    --root)
+      [ $# -ge 2 ] || usage
+      ROOT=$2
+      shift 2
+      ;;
+    --installed)
+      ROOT=installed
+      shift
+      ;;
+    --corpus)
+      [ $# -ge 2 ] || usage
+      CORPUS=$2
+      shift 2
+      ;;
+    --live)
+      LIVE=1
+      shift
+      ;;
     -h | --help) usage ;;
-    *) echo "smoke: unknown argument: $1" >&2; usage ;;
+    *)
+      echo "smoke: unknown argument: $1" >&2
+      usage
+      ;;
   esac
 done
 
-command -v jq >/dev/null 2>&1 || { echo "smoke: jq is required" >&2; exit 2; }
+command -v jq >/dev/null 2>&1 || {
+  echo "smoke: jq is required" >&2
+  exit 2
+}
 
-# The default root is deliberately the installed cache, not the checkout: a
-# worker never loads this repo's scripts/. Newest version wins (sort -V).
-if [ -z "$ROOT" ]; then
+# --installed resolves the newest version directory under the plugin cache:
+# what a dispatched worker really loads. It is opt-in, not the default,
+# because a stale cache is a machine-local operational fact and would make a
+# CI-gating suite fail for a reason that has nothing to do with the diff.
+if [ "$ROOT" = installed ]; then
   cache_base="${HOME}/.claude/plugins/cache/planwright/planwright"
+  ROOT=""
   if [ -d "$cache_base" ]; then
-    ROOT=$(find "$cache_base" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null |
-      sed 's#.*/##' | sort -V | tail -1)
+    ROOT=$(find "$cache_base" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null \
+      | sed 's#.*/##' | sort -V | tail -1)
     [ -n "$ROOT" ] && ROOT="$cache_base/$ROOT"
   fi
-  [ -n "$ROOT" ] || ROOT="$REPO_ROOT"
+  if [ -z "$ROOT" ]; then
+    echo "smoke: --installed given but no plugin cache under $cache_base" >&2
+    exit 2
+  fi
 fi
+[ -n "$ROOT" ] || ROOT="$REPO_ROOT"
 
-[ -d "$ROOT" ] || { echo "smoke: plugin root not a directory: $ROOT" >&2; exit 2; }
-[ -r "$CORPUS" ] || { echo "smoke: corpus not readable: $CORPUS" >&2; exit 2; }
-[ -r "$SETTINGS" ] || { echo "smoke: worker-settings not readable: $SETTINGS" >&2; exit 2; }
+[ -d "$ROOT" ] || {
+  echo "smoke: plugin root not a directory: $ROOT" >&2
+  exit 2
+}
+[ -r "$CORPUS" ] || {
+  echo "smoke: corpus not readable: $CORPUS" >&2
+  exit 2
+}
+[ -r "$SETTINGS" ] || {
+  echo "smoke: worker-settings not readable: $SETTINGS" >&2
+  exit 2
+}
 
 # The hook command EXACTLY as the settings fragment spells it. Driving this
 # string (rather than a path we compose here) is what makes the quoting and
@@ -131,11 +178,11 @@ decide() {
     '{hook_event_name:"PreToolUse", tool_name:"Bash",
       tool_input:{command:.}, cwd:$cwd}')
   # Evaluated, not called by path: the settings spelling is under test.
-  out=$(printf '%s' "$payload" |
-    CLAUDE_PLUGIN_ROOT="$ROOT" PLANWRIGHT_ROOT="$ROOT" \
+  out=$(printf '%s' "$payload" \
+    | CLAUDE_PLUGIN_ROOT="$ROOT" PLANWRIGHT_ROOT="$ROOT" \
       eval "$HOOK_CMD" 2>/dev/null)
   case $out in
-    *'"permissionDecision"'*'"allow"'* | *'"permissionDecision": "allow"'*) echo allow ;;
+    *'"permissionDecision"'*'"allow"'*) echo allow ;;
     *) echo defer ;;
   esac
 }
@@ -157,7 +204,7 @@ while IFS=$'\t' read -r expect command; do
       printf 'STALL (expected allow, got defer): %s\n' "$command" >&2
     fi
   fi
-done < "$CORPUS"
+done <"$CORPUS"
 
 echo
 printf 'smoke: corpus %d passed, %d failed (%d false-allow)\n' \
@@ -168,6 +215,7 @@ if [ "$LIVE" = 1 ]; then
   echo "smoke: --live probe"
   probe_prompt=$(mktemp) || exit 2
   probe_dir=""
+  # shellcheck disable=SC2329  # invoked by the EXIT trap below
   cleanup() {
     rm -f "$probe_prompt"
     [ -n "$probe_dir" ] && "$ROOT/scripts/fleet-streamjson.sh" stop smoke-probe >/dev/null 2>&1
@@ -182,7 +230,7 @@ if [ "$LIVE" = 1 ]; then
     echo "Do not modify them. Do not explain. Report only the count you ran."
     echo
     awk -F'\t' '$1 == "allow" { print "  " $2 }' "$CORPUS" | head -12
-  } > "$probe_prompt"
+  } >"$probe_prompt"
 
   if "$ROOT/scripts/fleet-streamjson.sh" launch smoke-probe smoke:probe \
     --prompt-file "$probe_prompt" --cwd "$REPO_ROOT" >/dev/null 2>&1; then
@@ -208,7 +256,7 @@ if [ "$LIVE" = 1 ]; then
         [ "$kind" = permission ] || continue
         jq -r '"  " + (.request.input.command // "?")' \
           "$probe_dir/req-$id.json" 2>/dev/null
-      done < "$probe_dir/journal" >&2
+      done <"$probe_dir/journal" >&2
     elif [ "$waited" -ge 300 ]; then
       failures=$((failures + 1))
       echo "smoke: LIVE FAIL — probe worker did not finish within 300s" >&2
