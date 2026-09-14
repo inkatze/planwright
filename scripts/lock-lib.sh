@@ -381,6 +381,28 @@ pw_lock_owner() {
   printf '%s' "$_pwo_target"
 }
 
+# _pw_lock_work_path <lock> <kind> <token> — set _pw_lock_work_path_out to a
+# private scratch path beside <lock>, for one caller's own use.
+#
+# THE ONLY PLACE A WORKING PATH IS BUILT, and it exists because two mistakes
+# are easy to make once and impossible to make here.
+#
+# The token is SLUGGED. A lock's target is whatever some writer put there, and
+# the release verbs are handed a token a caller read back off one — so a token
+# carrying `../` is concatenated straight into a path that is then given to
+# `mv` and `rm -f`. The break already slugged its claim path; nothing else did.
+#
+# The path is PER CALLER. The break's claim path is shared on purpose — one
+# claim per dead owner IS the serialization point, and it is built elsewhere
+# for exactly that reason. Every path built here is private scratch, so two
+# callers doing the same work on the same lock must not land on the same name
+# and delete each other's displaced link mid-release.
+_pw_lock_work_path() {
+  _pw_lock_slug "$3"
+  PW_LOCK_SEQ=$((PW_LOCK_SEQ + 1))
+  _pw_lock_work_path_out="$1#$2#$_pw_lock_slug_out.$$-$PW_LOCK_SEQ"
+}
+
 # _pw_lock_restore_or_keep <aside> <path> — put a displaced link back at <path>,
 # or keep it where it is. 0 restored, 1 kept.
 #
@@ -486,7 +508,8 @@ _pw_lock_break() {
     # clears the claim and the other comes back on the next spin.
     _pwb_holder=$(readlink "$_pwb_claim" 2>/dev/null) || _pwb_holder=''
     if [ -n "$_pwb_holder" ] && ! pw_lock_owner_alive "$_pwb_holder"; then
-      _pwb_aside="$_pwb_claim#dead#$_pwb_claim_token"
+      _pw_lock_work_path "$_pwb_claim" dead "$_pwb_claim_token"
+      _pwb_aside=$_pw_lock_work_path_out
       if mv -f "$_pwb_claim" "$_pwb_aside" 2>/dev/null; then
         if [ "$(readlink "$_pwb_aside" 2>/dev/null)" = "$_pwb_holder" ]; then
           rm -f "$_pwb_aside" 2>/dev/null || :
@@ -526,7 +549,8 @@ _pw_lock_break() {
   # the destination is a fresh path of this caller's own: a rename ONTO an
   # existing path whose link target is a directory files the source inside that
   # directory instead, which is how the lock once became unbreakable.
-  _pwb_taken="$_pwb_lock#taken#$_pwb_claim_token"
+  _pw_lock_work_path "$_pwb_lock" taken "$_pwb_claim_token"
+  _pwb_taken=$_pw_lock_work_path_out
   rm -f "$_pwb_taken" 2>/dev/null || :
   if ! mv "$_pwb_lock" "$_pwb_taken" 2>/dev/null; then
     if [ -L "$_pwb_lock" ] || [ -e "$_pwb_lock" ]; then
@@ -847,7 +871,8 @@ _pw_lock_take_link() {
   _pwm_lock=$1
   _pwm_token=$2
   [ "$(readlink "$_pwm_lock" 2>/dev/null)" = "$_pwm_token" ] || return 1
-  _pwm_taken="$_pwm_lock#taken#$_pwm_token"
+  _pw_lock_work_path "$_pwm_lock" taken "$_pwm_token"
+  _pwm_taken=$_pw_lock_work_path_out
   rm -f "$_pwm_taken" 2>/dev/null || :
   if ! mv "$_pwm_lock" "$_pwm_taken" 2>/dev/null; then
     if [ -L "$_pwm_lock" ] || [ -e "$_pwm_lock" ]; then
@@ -887,7 +912,7 @@ _pw_lock_sweep_claims() {
     *) _pwk_restore='set +f' ;;
   esac
   set +f
-  for _pwk_p in "$1"'#break#'* "$1"'#taken#'*; do
+  for _pwk_p in "$1"'#break#'* "$1"'#taken#'* "$1"'#legacy#'*; do
     # LINKS ONLY. Everything this library puts at these paths is a symlink, so
     # anything else there belongs to somebody else — and recursively deleting
     # somebody else's directory is not a thing a lock primitive does on an
@@ -938,8 +963,8 @@ pw_lock_clear_legacy() {
   _pw_lock_path_ok pw_lock_clear_legacy "${1:-}" || return 2
   [ ! -L "$1" ] || return 1
   [ -d "$1" ] || return 1
-  PW_LOCK_SEQ=$((PW_LOCK_SEQ + 1))
-  _pwc_aside="$1#legacy#$$-$PW_LOCK_SEQ"
+  _pw_lock_work_path "$1" legacy "$$"
+  _pwc_aside=$_pw_lock_work_path_out
   rm -rf "$_pwc_aside" 2>/dev/null || :
   mv -f "$1" "$_pwc_aside" 2>/dev/null || return 1
   if [ -L "$_pwc_aside" ]; then

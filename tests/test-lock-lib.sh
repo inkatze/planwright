@@ -1348,6 +1348,82 @@ c=$(probe_alive "$live_tok" "$(($(date +%s) - 3600))")
 assert_eq "a stepped clock does not change a live owner's verdict" "$a$a" "$b$c"
 assert_eq "and that verdict is alive" "0" "$a"
 
+# ---------------------------------------------------------------------------
+# 41. A token never becomes part of a path unslugged
+# ---------------------------------------------------------------------------
+#
+# A lock's target is whatever a writer put there, and the release verbs take a
+# token from a caller that read one — `orchestrate-lock` hands over what it got
+# from `readlink`. Those tokens are built into the working paths this library
+# renames and removes, so a target carrying `../` reaches `mv` and `rm -f`
+# pointed somewhere else entirely. The break already slugs its claim path; the
+# rest must too, and the rule is asserted against the one builder they share.
+
+# The chain as a caller actually walks it: a planted lock, its target read back
+# with `readlink`, and that same target handed to the release as the token —
+# which is exactly what the sweep does. The token then matches, every ownership
+# check passes, and the traversal is inside the working path.
+mkdir -p "$tmp/victimdir"
+: >"$tmp/victimdir/precious"
+ln -s "../victimdir/precious" "$tmp/trav.lock"
+run_sh x 'pw_lock_release_token "$1/trav.lock" "$(command readlink "$1/trav.lock")"' >/dev/null 2>&1
+if [ -f "$tmp/victimdir/precious" ]; then
+  pass "a token full of traversal never reaches a path outside the lock's directory"
+else
+  fail "a token full of traversal never reaches a path outside the lock's directory"
+fi
+
+out="$(run_sh x '
+  _pw_lock_work_path "$1/w.lock" taken "../../etc/passwd"
+  printf "%s\n" "$_pw_lock_work_path_out"
+')"
+# The property is that the token contributes a NAME, never a path: whatever it
+# carried, the result sits in the same directory as the lock.
+if [ "$(dirname "$out")" = "$tmp" ] && [ -n "$out" ]; then
+  pass "a derived working path stays beside the lock it belongs to"
+else
+  fail "a derived working path left the lock's directory ($out)"
+fi
+# A traversal needs a SEPARATOR; `..` among other characters is just a name.
+# What must not survive is any `/`, and the name must not itself be a directory
+# reference — which the caller-unique suffix also guarantees.
+wp_name=$(basename "$out")
+case $wp_name in
+  */* | . | ..) fail "a derived working path's name can still traverse ($wp_name)" ;;
+  *) pass "and its name is a name, not a path" ;;
+esac
+rm -rf "$tmp"/trav.lock* "$tmp/victimdir" "$tmp"/w.lock*
+
+# ---------------------------------------------------------------------------
+# 42. Two callers doing the same work do not share the workspace
+# ---------------------------------------------------------------------------
+#
+# The break's claim path is shared ON PURPOSE — it IS the serialization point,
+# one claim per dead owner. Every other derived path is one caller's private
+# scratch, and two releasers of the same lock holding the same token would
+# otherwise race on the same aside and delete each other's displaced link
+# mid-release, each then reporting a failure that did not happen.
+
+a=$(run_sh x '_pw_lock_work_path "$1/s.lock" taken "sametoken"; printf "%s\n" "$_pw_lock_work_path_out"')
+b=$(run_sh x '_pw_lock_work_path "$1/s.lock" taken "sametoken"; printf "%s\n" "$_pw_lock_work_path_out"')
+if [ -n "$a" ] && [ "$a" != "$b" ]; then
+  pass "two callers deriving the same kind of working path get different ones"
+else
+  fail "two callers deriving the same kind of working path collide (both '$a')"
+fi
+# Twice within one caller, too: a release that displaces a link and a break that
+# follows it in the same shell must not reuse one scratch name.
+c1=$(run_sh x '_pw_lock_work_path "$1/s.lock" taken "t"; printf "%s\n" "$_pw_lock_work_path_out"
+  _pw_lock_work_path "$1/s.lock" taken "t"; printf "%s\n" "$_pw_lock_work_path_out"' | sed -n 1p)
+c2=$(run_sh x '_pw_lock_work_path "$1/s.lock" taken "t"; printf "%s\n" "$_pw_lock_work_path_out"
+  _pw_lock_work_path "$1/s.lock" taken "t"; printf "%s\n" "$_pw_lock_work_path_out"' | sed -n 2p)
+if [ -n "$c1" ] && [ "$c1" != "$c2" ]; then
+  pass "and so do two derivations within one caller"
+else
+  fail "and so do two derivations within one caller (both '$c1')"
+fi
+rm -f "$tmp"/s.lock*
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else
