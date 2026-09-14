@@ -978,6 +978,60 @@ assert_exit "so is releasing one" 2 $?
 run_sh x 'pw_lock_clear_legacy "$1/has#hash.lock"' >/dev/null 2>&1
 assert_exit "and so is clearing one" 2 $?
 
+# ---------------------------------------------------------------------------
+# 32. The break's destructive step is exclusive on its own
+# ---------------------------------------------------------------------------
+#
+# The claim serializes breakers of one dead owner, and until now it was the
+# ONLY thing that did: two callers past it both removed the lock and both
+# published, so the second took the first's freshly minted link and both
+# believed they held it. A gate is a bad place for a single point of failure
+# when what it guards is a double grant, so the step guards itself too — it
+# claims the dead link by renaming it, which the loser cannot do because the
+# source is gone by then.
+#
+# Staged deterministically: the gate sees the dead owner, and the lock changes
+# hands before the destructive step runs.
+
+out="$(run_sh x '
+  lockp="$1/excl.lock"
+  ln -s "9999999-0-0-1" "$lockp"
+  # The flag is a file, not a variable: the calls being shimmed happen inside
+  # command substitutions, so a variable set here dies with the subshell and
+  # the shim would fire on every call instead of once.
+  flag="$1/excl.fired"
+  readlink() {
+    # The gate reads the dead owner once; by the time the step acts, a
+    # successor holds the path.
+    if [ ! -f "$flag" ] && [ "$1" = "$lockp" ]; then
+      : >"$flag"
+      rm -f "$lockp"
+      ln -s "successor-token" "$lockp"
+      printf "%s\n" "9999999-0-0-1"
+      return 0
+    fi
+    command readlink "$@"
+  }
+  _pw_lock_break "$lockp" "9999999-0-0-1" "mine-token" 1 >/dev/null 2>&1
+  printf "rc=%s\n" "$?"
+  printf "link=%s\n" "$(command readlink "$lockp" 2>/dev/null || printf NONE)"
+')"
+assert_eq "a breaker that lost the path before its destructive step leaves the successor alone" \
+  "rc=1
+link=successor-token" "$out"
+rm -f "$tmp"/excl.lock*
+
+# And the ordinary break still works, leaving no residue of the claim it took.
+sh -c 'exit 0' &
+dead_pid=$!
+wait "$dead_pid" 2>/dev/null
+ln -s "$dead_pid-0-0-1" "$tmp/plain.lock"
+run_sh x 'pw_lock_acquire "$1/plain.lock" 20' >/dev/null 2>&1
+assert_exit "an uncontested break still takes the lock" 0 $?
+left="$(find "$tmp" -maxdepth 1 -name 'plain.lock?*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "and leaves nothing of the claim it took behind" "0" "$left"
+rm -f "$tmp"/plain.lock*
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

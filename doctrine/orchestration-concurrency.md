@@ -38,8 +38,10 @@ The lock path and protocol are shared with `tasks-pr-sync.sh` so the
 two exclude each other: one primitive, `scripts/lock-lib.sh`, broken only
 on owner absence. A hold spanning tool calls has no owner to
 probe; `orchestrate-lock.sh sweep` clears one on the positive-evidence bar
-below, never on less. An `acquire` exit 1 (another live holder) is a
-**clean no-op**: skip the step — another tower or the hook holds it, and
+below, never on less. `release` ends the caller's own window and refuses a hold
+it can show belongs to another; `break` is the unconditional clear. An
+`acquire` exit 1 (another live holder) is a **clean no-op**: skip the step —
+another tower or the hook holds it, and
 `--bookkeeping` reconciles anything dropped. The lock is released the moment
 the write window closes, before dispatch, and is never held across execution:
 it must never serialize the workers.

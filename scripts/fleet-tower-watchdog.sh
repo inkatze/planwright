@@ -364,7 +364,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 release_lock() {
   if [ "$HOLD_LOCK" = 1 ]; then
-    "$LOCK" release "$spec_dir" >/dev/null 2>&1 || true
+    "$LOCK" release "$spec_dir" --owner-pid "$$" >/dev/null 2>&1 || true
     HOLD_LOCK=0
   fi
 }

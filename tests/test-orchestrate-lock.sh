@@ -101,7 +101,7 @@ case "$(readlink "$lock")" in
   "$$"-*) ;;
   *) fail "dead-owner acquire: the break did not hand the lock over (target: $(readlink "$lock"))" ;;
 esac
-/bin/bash "$LOCK" release "$spec"
+/bin/bash "$LOCK" release "$spec" --owner-pid "$$"
 echo "ok: a lock whose owner process is gone is broken at once, with no threshold"
 
 # 7. Release clears a lock DIRECTORY left by the retired mkdir shape. Without
@@ -263,7 +263,7 @@ sweep
 [ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep over an owned hold cleared it"
 kill "$live_pid" 2>/dev/null || true
 wait "$live_pid" 2>/dev/null || true
-/bin/bash "$LOCK" release "$sweepspec"
+/bin/bash "$LOCK" break "$sweepspec"
 
 # A detached hold the acquire could not attribute to anything: no evidence is
 # establishable, so the sweep refuses and says which.
@@ -384,7 +384,77 @@ kill "$tower_pid" 2>/dev/null || true
 wait "$tower_pid" 2>/dev/null || true
 /bin/bash "$LOCK" acquire "$sweepspec" --owner-pid "$$" \
   || fail "attributed hold: not broken once the tower is gone"
-/bin/bash "$LOCK" release "$sweepspec"
+/bin/bash "$LOCK" release "$sweepspec" --owner-pid "$$"
 echo "ok: a hold attributed to a live tower is an ordinary hold and self-heals"
+
+# 16. `release` verifies what it can; `break` is the unconditional clear.
+#
+#    `release` used to be unconditional, which was sound while nothing cleared
+#    a live-looking hold. The sweep changed that: it clears A, B acquires, and
+#    A's delayed release then deletes B's lock while B still believes it holds
+#    it. Both properties are wanted — a hold whose owner is gone must still be
+#    clearable, or the wedge returns — so they are two verbs now, and `release`
+#    refuses whenever it can show the lock is not the one its caller took.
+relspec="$repo/specs/demo"
+/bin/bash "$LOCK" release "$relspec" >/dev/null 2>&1
+
+# Its own hold: cleared.
+/bin/bash "$LOCK" acquire "$relspec" --owner-pid "$$" || fail "release fixture: acquire failed"
+/bin/bash "$LOCK" release "$relspec" --owner-pid "$$" || fail "release of its own hold was refused"
+[ ! -L "$relspec/.orchestrate.lock" ] || fail "release of its own hold left the lock"
+
+# Somebody else's live hold: refused, and left exactly as found.
+sleep 120 &
+other_pid=$!
+/bin/bash "$LOCK" acquire "$relspec" --owner-pid "$other_pid" || fail "release fixture: foreign acquire failed"
+foreign_token=$(readlink "$relspec/.orchestrate.lock")
+rc=0
+/bin/bash "$LOCK" release "$relspec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "release over a live foreign hold: exit $rc, expected 1"
+[ "$(readlink "$relspec/.orchestrate.lock")" = "$foreign_token" ] \
+  || fail "release deleted a live foreign hold"
+rc=0
+/bin/bash "$LOCK" release "$relspec" --owner-pid "$$" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "release claiming the wrong owner: exit $rc, expected 1"
+[ "$(readlink "$relspec/.orchestrate.lock")" = "$foreign_token" ] \
+  || fail "release claiming the wrong owner still deleted the lock"
+
+# `break` is the recovery verb and is unconditional by design.
+/bin/bash "$LOCK" break "$relspec" || fail "break over a live foreign hold was refused"
+[ ! -L "$relspec/.orchestrate.lock" ] || fail "break left the lock"
+kill "$other_pid" 2>/dev/null || true
+wait "$other_pid" 2>/dev/null || true
+
+# A hold whose owner is gone is still cleared by release: the recovery path
+# that the wedge depends on does not regress.
+sh -c 'exit 0' &
+gone_pid=$!
+wait "$gone_pid" 2>/dev/null || true
+ln -s "$gone_pid-0-0-1" "$relspec/.orchestrate.lock"
+/bin/bash "$LOCK" release "$relspec" || fail "release over an absent owner was refused"
+[ ! -L "$relspec/.orchestrate.lock" ] || fail "release over an absent owner left the lock"
+
+# A detached hold whose recorded handle is demonstrably ALIVE is refused: that
+# is a holder this call can show is not itself.
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$relspec" || fail "release fixture: detached acquire failed"
+det_token=$(readlink "$relspec/.orchestrate.lock")
+printf '%s\ttmux-window planwright %%9\n' "$det_token" >"$relspec/.orchestrate.lock#owner#"
+printf 'alive\n' >"$verdict_file"
+rc=0
+EVIDENCE_VERDICT_FILE="$verdict_file" PLANWRIGHT_TOWER_EVIDENCE_CMD="$evid" \
+  /bin/bash "$LOCK" release "$relspec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "release over a detached hold with a live handle: exit $rc, expected 1"
+[ "$(readlink "$relspec/.orchestrate.lock")" = "$det_token" ] \
+  || fail "release deleted a detached hold whose handle is alive"
+/bin/bash "$LOCK" break "$relspec"
+
+# A detached hold with nothing recorded is the one case nothing distinguishes,
+# and the frozen caller depends on being able to release it.
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$relspec" || fail "release fixture: second detached acquire failed"
+/bin/bash "$LOCK" release "$relspec" || fail "release of an unattributed detached hold was refused"
+[ ! -L "$relspec/.orchestrate.lock" ] || fail "release of an unattributed detached hold left the lock"
+echo "ok: release refuses a hold it can show is not its own; break stays unconditional"
 
 echo "PASS: orchestrate-lock"

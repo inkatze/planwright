@@ -876,7 +876,7 @@ rr_lockspec=""
 # shellcheck disable=SC2329 # invoked indirectly via the EXIT trap in run_reconcile
 rm_lock_and_tmp() {
   if [ -n "$rr_lockspec" ]; then
-    "$lock_sh" release "$rr_lockspec" >/dev/null 2>&1 || true
+    "$lock_sh" release "$rr_lockspec" --owner-pid "$$" >/dev/null 2>&1 || true
   fi
   [ -n "$tmpf" ] && rm -f "$tmpf"
   [ -n "$wsh_tmp" ] && rm -f "$wsh_tmp"
@@ -942,7 +942,7 @@ run_reconcile() {
     status) do_status_only "$rr_dir" || rr_op_rc=$? ;;
     *) do_placement "$rr_dir" || true ;;
   esac
-  "$lock_sh" release "$rr_dir" >/dev/null 2>&1 || true
+  "$lock_sh" release "$rr_dir" --owner-pid "$$" >/dev/null 2>&1 || true
   rr_lockspec=""
   trap - EXIT HUP INT TERM
   if [ -n "$tmpf" ]; then

@@ -64,15 +64,24 @@
 # site is what lets one primitive serve both without a second implementation.
 #
 # Usage: orchestrate-lock.sh acquire <spec-dir> [--owner-pid <pid>]
-#        orchestrate-lock.sh release <spec-dir>
+#        orchestrate-lock.sh release <spec-dir> [--owner-pid <pid>]
+#        orchestrate-lock.sh break <spec-dir>
 #   acquire  take the lock, breaking one whose owner process is gone. Exit 0
 #            on a held lock, 1 when a holder has it (a clean no-op: the caller
 #            skips this step and --bookkeeping reconciles a dropped move), 2 on
 #            a real error or a refused (malformed/hostile) spec dir.
-#   release  clear the lock unconditionally (idempotent: a missing lock is
-#            fine). Exit 0, or 2 when the path could not be cleared at all. It
-#            also clears a lock DIRECTORY left by the retired mkdir shape, so
-#            an in-place upgrade recovers itself.
+#   release  end this caller's own window. Clears the lock unless it can be
+#            SHOWN not to be the one this caller took: a hold owned by a live
+#            process that is not the declared owner, or a detached hold whose
+#            recorded handle is demonstrably alive, is refused with exit 1.
+#            An owner that is gone is still cleared, so recovery does not
+#            regress. Exit 0 cleared or already free, 1 refused, 2 a real
+#            error.
+#   break    clear the lock unconditionally, whoever holds it — the operator's
+#            recovery verb, and the only thing that clears a hold nothing can
+#            prove abandoned. Also clears a lock DIRECTORY left by the retired
+#            mkdir shape, so an in-place upgrade recovers itself. Exit 0, or 2
+#            when the path could not be cleared at all.
 #   sweep    clear a DETACHED hold, but only on positive evidence that its
 #            holder is gone. Prints one word and exits in the evidence
 #            vocabulary: `cleared` 0, `no-lock` 0, `owned` 0 (the primitive
@@ -176,6 +185,38 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # match what is at the path now is read as absent, which is the safe answer.
 handle_file="$lock#owner#"
 
+# derive_handle — set `derived` to the evidence handle describing THIS caller's
+# session, or to the empty string when it has none. The same derivation acquire
+# records and release compares against, so the two cannot drift.
+derive_handle() {
+  derived=""
+  [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || return 0
+  command -v tmux >/dev/null 2>&1 || return 0
+  # NOT from a terminal. `$TMUX_PANE` says which pane this process runs in, and
+  # for a dispatched session that pane is the session, so its window dying is
+  # real evidence. For a person typing the command in their own pane it is not:
+  # the window outlives the command by hours, so the hold would be attributed
+  # to a window that stays alive long after the work behind it is gone, and a
+  # sweep would report a holder that is not there as alive. A hold with no
+  # handle at all is the honest answer there, and the sweep already refuses on
+  # it rather than guessing.
+  [ ! -t 0 ] && [ ! -t 1 ] || return 0
+  # `#{window_id}`, not the index: the death predicate lists a session's
+  # windows as id and name and compares a handle's second argument against
+  # those two, so an index matches neither and a live window would be read as
+  # dead.
+  dh_tw=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name} #{window_id}' 2>/dev/null) || dh_tw=""
+  # One space, no tab, and no shell pattern character: a handle is recorded to
+  # be split and handed to a predicate later, and one carrying a glob is one
+  # this cannot act on safely. Declining to derive it leaves the hold
+  # unattributed, which the sweep already treats as a reason to refuse.
+  case $dh_tw in
+    '' | *"$(printf '\t')"* | *' '*' '* | *'*'* | *'?'* | *'['*) ;;
+    *' '*) derived="tmux-window $dh_tw" ;;
+  esac
+  return 0
+}
+
 # read_handle — set `handle` to the evidence handle recorded for the token
 # currently at the lock path, or to the empty string.
 read_handle() {
@@ -268,10 +309,69 @@ case "$cmd" in
     printf '%s\n' cleared
     exit 0
     ;;
+  break)
+    # The unconditional clear, and the reason `release` no longer is one. It is
+    # the operator's recovery verb: the only thing that takes a hold nothing
+    # can prove abandoned, and the only thing that clears a lock DIRECTORY left
+    # by the retired mkdir shape.
+    rm -f "$handle_file" 2>/dev/null || :
+    pw_lock_break_force "$lock" || {
+      echo "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
+      exit 2
+    }
+    exit 0
+    ;;
   release)
-    # Unconditional and idempotent, which is what makes it the recovery path
-    # for a detached hold whose owner never came back. It also clears a lock
-    # DIRECTORY left by the retired mkdir shape.
+    # WHY THIS IS NOT AN UNCONDITIONAL CLEAR ANY MORE. It was, and that was
+    # sound while nothing cleared a hold whose owner still looked live. `sweep`
+    # changed it: sweep clears A, B acquires, and A's delayed release then
+    # deletes B's lock while B is still inside it. So this refuses whenever it
+    # can SHOW the lock is not the one its caller took, and clears otherwise —
+    # including when the owner is demonstrably gone, because losing that would
+    # bring back the wedge sweep exists to cure.
+    #
+    # What cannot be shown is a detached hold with nothing recorded against it:
+    # the caller holds no token, the lock names no process, and one window's
+    # release is indistinguishable from the next's. That case still clears,
+    # because the caller that depends on it has no other way to end its own
+    # window; closing it needs the token handed back at acquire and presented
+    # here, which is a change to the callers rather than to this script.
+    rel_token=$(readlink "$lock" 2>/dev/null) || rel_token=""
+    if [ -n "$rel_token" ]; then
+      rel_owner=${rel_token%%-*}
+      case $rel_owner in
+        detached)
+          # The handle recorded against this hold describes the session that
+          # took it. Whether that session is ALIVE says nothing: a tower
+          # releasing its own window is alive by definition. What discriminates
+          # is WHOSE it is — so this caller re-derives its own and compares. A
+          # delayed release from the session that held the lock BEFORE a sweep
+          # finds the record naming its successor, and stops.
+          read_handle
+          if [ -n "$handle" ]; then
+            derive_handle
+            if [ "$derived" != "$handle" ]; then
+              echo "orchestrate-lock: $lock was taken by a different session than this one; refusing to release it (use 'break' to clear it anyway)" >&2
+              exit 1
+            fi
+          fi
+          ;;
+        '' | *[!0-9]*) ;;
+        *)
+          # A hold owned by a process. Releasing it is this caller's business
+          # only when it is the owner it declared, or when that owner is gone.
+          if [ -n "$owner_pid" ]; then
+            if [ "$rel_owner" != "$owner_pid" ]; then
+              echo "orchestrate-lock: $lock is held by pid $rel_owner, not the pid $owner_pid this release names; refusing (use 'break' to clear it anyway)" >&2
+              exit 1
+            fi
+          elif kill -0 "$rel_owner" 2>/dev/null; then
+            echo "orchestrate-lock: $lock is held by pid $rel_owner, which is still running; refusing to release somebody else's hold (use 'break' to clear it anyway)" >&2
+            exit 1
+          fi
+          ;;
+      esac
+    fi
     rm -f "$handle_file" 2>/dev/null || :
     pw_lock_break_force "$lock" || {
       # What is known is only that the path is still occupied. WHY is not: the
@@ -285,7 +385,7 @@ case "$cmd" in
     ;;
   acquire) ;;
   *)
-    echo "orchestrate-lock: unknown command '$cmd' (acquire|release|sweep)" >&2
+    echo "orchestrate-lock: unknown command '$cmd' (acquire|release|break|sweep)" >&2
     exit 2
     ;;
 esac
@@ -312,21 +412,9 @@ if [ -z "$owner_pid" ]; then
       ;;
   esac
 fi
-if [ -z "$owner_pid" ] && [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] \
-  && command -v tmux >/dev/null 2>&1; then
-  # `#{window_id}`, not the index: the death predicate lists a session's
-  # windows as id and name and compares the handle's second argument against
-  # those two, so an index matches neither and a live window would be read as
-  # dead — which is the sweep clearing a lock whose holder is still running.
-  tw=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name} #{window_id}' 2>/dev/null) || tw=""
-  # One space, no tab, and no shell pattern character: a handle is recorded to
-  # be split and handed to the predicate later, and one carrying a glob is one
-  # this cannot act on safely. Refusing to record it leaves the hold
-  # unattributed, which the sweep already treats as a reason to refuse.
-  case $tw in
-    '' | *"$(printf '\t')"* | *' '*' '* | *'*'* | *'?'* | *'['*) ;;
-    *' '*) sweep_handle="tmux-window $tw" ;;
-  esac
+if [ -z "$owner_pid" ]; then
+  derive_handle
+  sweep_handle=$derived
 fi
 
 rc=0

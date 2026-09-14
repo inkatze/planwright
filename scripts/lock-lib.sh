@@ -416,26 +416,47 @@ _pw_lock_break() {
     return 1
   fi
 
-  # Unlink the dead owner's link, then create ours, and believe the create only
-  # after reading it back. EVERY STEP HERE ACTS ON THE LINK, NEVER ON WHAT IT
-  # POINTS AT, which is why this is not the one-step rename it looks like it
-  # should be: `mv` FOLLOWS a link whose target is an existing directory and
-  # files the replacement inside it, so the lock would never be broken and each
-  # spin would litter a stray link into an unrelated directory. `rm -f` and
-  # `ln -s` both take the link itself.
+  # TAKE THE DEAD LINK BY RENAMING IT, and only then publish. The claim above
+  # serializes breakers of one dead owner, and until this it was the ONLY thing
+  # that did: two callers past it both removed the lock and both published, and
+  # the second took the first's freshly minted link while both believed they
+  # held it. Measured three times in three. A gate is a bad place for a single
+  # point of failure when what it guards is a double grant, so this step is
+  # exclusive on its own terms — a rename moves the link, and a second caller's
+  # rename finds no source left to move.
   #
-  # The gap between the unlink and the create is harmless: the owner is gone,
-  # so nobody legitimately holds this path, and a peer that wins the free path
-  # in between takes a lock it is entitled to — this caller's own create then
-  # fails and it reports busy rather than claiming a hold it does not have.
-  if ! rm -f "$_pwb_lock" 2>/dev/null; then
-    # The owner is gone and the lock cannot be removed, which is the parent
-    # directory or the filesystem, never a peer. Saying "busy" here would send
-    # the caller to wait out a condition that does not clear.
-    printf '%s\n' "lock-lib: cannot clear $_pwb_lock after its owner was found absent (parent unwritable or filesystem error)" >&2
+  # EVERY STEP HERE ACTS ON THE LINK, NEVER ON WHAT IT POINTS AT. That is why
+  # the destination is a fresh path of this caller's own: a rename ONTO an
+  # existing path whose link target is a directory files the source inside that
+  # directory instead, which is how the lock once became unbreakable.
+  _pwb_taken="$_pwb_lock#taken#$_pwb_claim_token"
+  rm -f "$_pwb_taken" 2>/dev/null || :
+  if ! mv "$_pwb_lock" "$_pwb_taken" 2>/dev/null; then
+    if [ -L "$_pwb_lock" ] || [ -e "$_pwb_lock" ]; then
+      # Still there and unmovable: the parent directory or the filesystem,
+      # never a peer. Saying "busy" here would send the caller to wait out a
+      # condition that does not clear.
+      printf '%s\n' "lock-lib: cannot clear $_pwb_lock after its owner was found absent (parent unwritable or filesystem error)" >&2
+      rm -f "$_pwb_claim" 2>/dev/null || :
+      return 2
+    fi
+    # Gone instead: another breaker took the dead link first, and this caller
+    # simply is not the one that took it.
     rm -f "$_pwb_claim" 2>/dev/null || :
-    return 2
+    return 1
   fi
+  if [ "$(readlink "$_pwb_taken" 2>/dev/null)" != "$_pwb_dead" ]; then
+    # What moved was not the dead owner's link: the path changed hands between
+    # the check and here. Put it back by RE-CREATING it, never by renaming it
+    # back, for the reason the legacy clear gives — a rename lands on whatever
+    # holds the path by then.
+    _pwb_back=$(readlink "$_pwb_taken" 2>/dev/null) || _pwb_back=''
+    [ -z "$_pwb_back" ] || ln -s "$_pwb_back" "$_pwb_lock" 2>/dev/null || :
+    rm -f "$_pwb_taken" 2>/dev/null || :
+    rm -f "$_pwb_claim" 2>/dev/null || :
+    return 1
+  fi
+  rm -f "$_pwb_taken" 2>/dev/null || :
   if _pw_lock_publish "$_pwb_lock" "$_pwb_token" "${_pwb_depth:-1}"; then
     rm -f "$_pwb_claim" 2>/dev/null || :
     return 0
@@ -708,7 +729,7 @@ _pw_lock_sweep_claims() {
     *) _pwk_restore='set +f' ;;
   esac
   set +f
-  for _pwk_p in "$1"'#break#'*; do
+  for _pwk_p in "$1"'#break#'* "$1"'#taken#'*; do
     [ -L "$_pwk_p" ] || [ -e "$_pwk_p" ] || continue
     rm -rf "$_pwk_p" 2>/dev/null || :
   done

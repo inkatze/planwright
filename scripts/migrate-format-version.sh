@@ -157,7 +157,7 @@ gtmp=$(mktemp -d) || {
 cur_lockdir=""
 cleanup() {
   if [ -n "$cur_lockdir" ]; then
-    "$lock_sh" release "$cur_lockdir" >/dev/null 2>&1 || true
+    "$lock_sh" release "$cur_lockdir" --owner-pid "$$" >/dev/null 2>&1 || true
   fi
   rm -rf "$gtmp"
 }
@@ -488,7 +488,7 @@ process_bundle() {
   fi
   cur_lockdir=$bdir
   process_bundle_locked "$bdir" "$bname"
-  "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
+  "$lock_sh" release "$bdir" --owner-pid "$$" >/dev/null 2>&1 || true
   cur_lockdir=""
   return 0
 }
