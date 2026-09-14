@@ -72,7 +72,28 @@ command -v jq >/dev/null 2>&1 || fail "jq is required: the launch preflight runs
 [ -x "$FA" ] || fail "scripts/fleet-attention.sh missing or not executable"
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+
+# Reap what this suite spawned before removing its sandbox. A supervisor does
+# not notice that its state directory is gone: it keeps ticking against a path
+# that no longer exists, forever, and a run of this file leaves dozens of them
+# behind. Keyed on the sandbox root rather than on a list of pids the cases
+# collected, so a case that dies partway still cleans up after itself.
+reap_sandbox() {
+  [ -n "${tmp:-}" ] || return 0
+  for rs_sig in TERM KILL; do
+    rs_pids=$(ps -eo pid=,args= 2>/dev/null \
+      | awk -v root="$tmp" -v self="$$" 'index($0, root) && $1 != self { print $1 }')
+    [ -n "$rs_pids" ] || return 0
+    for rs_p in $rs_pids; do
+      kill -"$rs_sig" "$rs_p" 2>/dev/null || :
+    done
+    if [ "$rs_sig" = TERM ]; then
+      sleep 0.3
+    fi
+  done
+  return 0
+}
+trap 'reap_sandbox; rm -rf "$tmp"' EXIT
 tab=$(printf '\t')
 
 # --- fixtures ---------------------------------------------------------------
