@@ -90,9 +90,35 @@
   `scripts/check-lock-primitive.sh` wired into the `check` aggregate and
   its `scripts/guard-wiring-allow.txt` entry removed in the same change;
   the `stale_lock_threshold` option retired from `config/defaults.yml` and
-  the docs once no adopter reads an age.
+  the docs once no adopter reads an age; and the guard's known evasions and
+  misreports closed before it is wired, since a guard that misses a form is
+  indistinguishable from a tree that does not use it. They were found by
+  review against the guard as Task 1 leaves it, and group by cause.
+  *State that does not survive a newline:* the scanner forgets at every line
+  end that it is inside something, so an `if` whose condition sits on its own
+  line is no longer a condition by the time the `mkdir` is read, a parameter
+  expansion left open at a line end makes the following line parse as the
+  inside of a string, and a command continued onto the next line loses the
+  `&&` or `||` that follows it, reading its status as consumed by nobody.
+  *What counts as reading the status:* only one spelling is recognised, an
+  assignment on the line below, so the scanner misses a capture made on the
+  same line after a semicolon, a capture followed by a trailing comment, a
+  test of the status that does not assign it, and an assignment carrying
+  `export` or `readonly`.
+  *What counts as the command word:* a `mkdir` written in the shell's
+  dollar-quote form reads as a variable name, and a `mkdir` run through `env`
+  or `sudo` reads as those commands' operand rather than as the command
+  itself.
+  *And two reports that are wrong the other way:* an array assignment whose
+  value list opens with a word is read as a command position, so a `mkdir`
+  named in one is reported as a lock, and a heredoc whose delimiter carries
+  an escape is not recognised as a delimiter, so the prose in its body is
+  scanned as code.
 - **Done when:** `scripts/check-lock-primitive.sh` reports no finding over
-  the adopted scripts and runs under `mise run check`; the lock-holder list
+  the adopted scripts and runs under `mise run check`; each evasion and
+  misreport named above has a case in `tests/test-check-lock-primitive.sh`
+  that fails against the guard as Task 1 leaves it and passes after; the
+  lock-holder list
   in the library's header names all five and matches what the tree sources,
   in both directions; the registry race test passes twenty of twenty
   registrations in ten consecutive runs with no other test process on the

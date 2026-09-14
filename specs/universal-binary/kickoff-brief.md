@@ -621,3 +621,29 @@ Changelog: requirements.md `## Changelog` entry dated 2026-09-14
 guard").
 Anchor: `ad2526814093ef85fd55ad647231e0b2dfc68577` — computed as
 `scripts/spec-anchor.sh specs/universal-binary`
+
+### Amendment — the lint guard's known evasions recorded on Task 1.3 (expression-only, 2026-09-14)
+
+**Mode:** in-flight amendment on the Task 1 PR (expression-only, per REQ-A3.3).
+
+Review of `scripts/check-lock-primitive.sh` at the end of Task 1 found forms
+the guard does not read: several where it misses a lock it should flag, and two
+where it reports something that is not one. Task 1 leaves the guard allowlisted
+rather than wired, because it has no adopters to run over until Task 1.3, so
+nothing it currently misses can pass a gate. That is also what makes leaving
+them open safe, and what makes writing them down necessary: the task that wires
+the guard is the one whose Done-when they have to satisfy, and a finding that
+lives only in a review thread is a finding the split has dropped.
+
+**No lens pass** (expression-only, per REQ-A3.3): no accepted decision changes
+and no REQ or D-ID is added. D-11 already requires the lint guard; recording
+which forms it must read before it is wired is a gap-fill inside that
+deliverable rather than a change to it, and the guard's contract is unchanged.
+Validator after the edit: 0 errors, 0 warnings.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-09-14
+("Task 1.3's deliverables record the evasions and misreports a review pass
+found in the lint guard").
+Anchor: `de44389515d0af7c59ec6c67a96a9a799df6b7d7` — computed as
+`scripts/spec-anchor.sh specs/universal-binary`

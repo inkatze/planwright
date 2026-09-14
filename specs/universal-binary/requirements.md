@@ -413,6 +413,14 @@ discipline.
 
 ## Changelog
 
+- 2026-09-14 — Expression-only: Task 1.3's deliverables record the evasions
+  and misreports a review pass found in the lint guard, with a Done-when
+  clause requiring a failing case for each. The guard is allowlisted rather
+  than wired while Task 1 has no adopters for it to run over, so nothing it
+  misses can pass a gate today; writing them into the task that wires it is
+  what keeps the split from turning a deferral into a loss. Gap-fill within
+  D-11's lint-guard deliverable, not a change to it: no REQ or D-ID added, no
+  accepted decision changed, and the guard's contract is what it already was.
 - 2026-09-14 — Expression-only: Task 1.3 added, and Task 1 narrowed to the
   lock primitive and its lint guard. Operator decision taken while Task 1 was
   in flight: the primitive is the reviewable unit, so the five holder
