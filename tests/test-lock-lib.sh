@@ -1153,28 +1153,31 @@ rm -f "$tmp"/rel4.lock*
 # ever turn a live-looking owner into an absent one, never the reverse.
 
 now=$(date +%s)
-run_sh x "pw_lock_owner_alive \"\$\$-$now-1-1\"" >/dev/null 2>&1
+host_up=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+run_sh x "pw_lock_owner_alive \"\$\$-$now-$host_up-1-1\"" >/dev/null 2>&1
 assert_exit "a token minted now by a running process reads alive" 0 $?
-long_ago=$((now - 86400))
-run_sh x "pw_lock_owner_alive \"\$\$-$long_ago-1-1\"" >/dev/null 2>&1
+# Minted when the host booted, by a shell that started minutes ago: whatever
+# else that token is, it is not this process's.
+run_sh x "pw_lock_owner_alive \"\$\$-$now-0-1-1\"" >/dev/null 2>&1
 assert_exit "a process that started long after the token was minted is not its owner" 1 $?
 
-# The check degrades rather than guessing: a token whose epoch is unusable says
-# nothing about start times, so the pid alone decides, as it always did.
-run_sh x 'pw_lock_owner_alive "$$-0-1-1"' >/dev/null 2>&1
-assert_exit "a token with no usable mint time falls back to the pid" 0 $?
-run_sh x 'pw_lock_owner_alive "$$-notanepoch-1-1"' >/dev/null 2>&1
-assert_exit "and so does one whose mint time will not parse" 0 $?
+# The check degrades rather than guessing: a token that carries no mint-time
+# witness says nothing about start times, so the pid alone decides, as it
+# always did. That covers every token this library did not mint.
+run_sh x 'pw_lock_owner_alive "$$-0-1"' >/dev/null 2>&1
+assert_exit "a token with no mint-time witness falls back to the pid" 0 $?
+run_sh x 'pw_lock_owner_alive "$$-1-notanumber-1-1"' >/dev/null 2>&1
+assert_exit "and so does one whose witness will not parse" 0 $?
 
 # It must not resurrect anything: an absent pid stays absent whatever the epoch.
 sh -c 'exit 0' &
 gone=$!
 wait "$gone" 2>/dev/null
-run_sh x "pw_lock_owner_alive \"$gone-$now-1-1\"" >/dev/null 2>&1
+run_sh x "pw_lock_owner_alive \"$gone-$now-$host_up-1-1\"" >/dev/null 2>&1
 assert_exit "an absent owner stays absent" 1 $?
 
 # And a lock whose owner pid was recycled is breakable, which is the point.
-ln -s "$$-$long_ago-1-1" "$tmp/reuse.lock"
+ln -s "$$-$now-0-1-1" "$tmp/reuse.lock"
 run_sh x 'pw_lock_acquire "$1/reuse.lock" 20' >/dev/null 2>&1
 assert_exit "a lock naming a recycled pid can be taken" 0 $?
 rm -f "$tmp"/reuse.lock*
@@ -1254,6 +1257,96 @@ case $out in
   *) pass "a release that cannot put a successor back keeps it rather than deleting it" ;;
 esac
 rm -f "$tmp"/keepcopy.lock*
+
+# ---------------------------------------------------------------------------
+# 38. No restore anywhere deletes the copy it was holding
+# ---------------------------------------------------------------------------
+#
+# Every place this library moves a link aside owes the same thing: if the path
+# is taken again before the link can go back, the link in hand is the ONLY copy
+# of a hold somebody may still be inside. Case 37 pinned that for release. The
+# break has two more of these, and a rule that holds at one site and not the
+# others has not landed — so the rule is asserted here against the one helper
+# they all go through.
+
+out="$(run_sh x '
+  # A displaced link with the path already taken: nothing may delete it.
+  ln -s "displaced-token" "$1/r.aside"
+  ln -s "squatter" "$1/r.path"
+  _pw_lock_restore_or_keep "$1/r.aside" "$1/r.path" >/dev/null 2>&1
+  printf "rc=%s\n" "$?"
+  printf "path=%s\n" "$(command readlink "$1/r.path" 2>/dev/null || printf NONE)"
+  printf "kept=%s\n" "$(command readlink "$1/r.aside" 2>/dev/null || printf GONE)"
+')"
+assert_eq "a restore that cannot land keeps the displaced link instead of deleting it" \
+  "rc=1
+path=squatter
+kept=displaced-token" "$out"
+rm -f "$tmp"/r.aside "$tmp"/r.path
+
+out="$(run_sh x '
+  # A free path: the link goes back and the aside is cleaned up.
+  ln -s "displaced-token" "$1/r2.aside"
+  _pw_lock_restore_or_keep "$1/r2.aside" "$1/r2.path" >/dev/null 2>&1
+  printf "rc=%s\n" "$?"
+  printf "path=%s\n" "$(command readlink "$1/r2.path" 2>/dev/null || printf NONE)"
+  printf "kept=%s\n" "$(command readlink "$1/r2.aside" 2>/dev/null || printf GONE)"
+')"
+assert_eq "a restore that can land puts it back and leaves nothing behind" \
+  "rc=0
+path=displaced-token
+kept=GONE" "$out"
+rm -f "$tmp"/r2.aside "$tmp"/r2.path
+
+# The invariant is that every site goes through the helper, so the shape cannot
+# reappear at one of them. Asserted structurally, because a race at each site
+# is what this exists to make unnecessary to stage.
+strays=$(grep -c 'ln -s "$_pw[a-z]*_back"' "$LIB" || true)
+assert_eq "no site restores a displaced link by hand" "0" "$strays"
+
+# ---------------------------------------------------------------------------
+# 39. A process this shell may not signal exists, and is still checked
+# ---------------------------------------------------------------------------
+#
+# EPERM means the process IS there and is not ours. Reading it as absent breaks
+# a live stranger's lock; reading it as alive and stopping there lets a pid
+# recycled by another user wedge the lock forever. Both come from asking "can I
+# signal it" instead of "is it there, and is it the one that minted this".
+
+now=$(date +%s)
+up=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+run_sh x "pw_lock_owner_alive \"1-$now-$up-1-1\"" >/dev/null 2>&1
+assert_exit "a process this shell cannot signal is not absent" 0 $?
+# pid 1 started with the host, so no mint time can be earlier than its start
+# and it can never fail the second question — which is why the delegation
+# itself is asserted here rather than a verdict. Both ways of establishing
+# that a process exists must ask it; a branch that answers "alive" on its own
+# is the bug this pins.
+existence_branches=$(grep -c '_pw_lock_owner_is_minter "\$1" "\$_pwa_pid"' "$LIB" || true)
+assert_eq "every path that finds the process existing asks whether it is the minter" \
+  "3" "$existence_branches"
+
+# ---------------------------------------------------------------------------
+# 40. The mint-time check reads no wall clock
+# ---------------------------------------------------------------------------
+#
+# Its whole purpose is a rule that is never an age, so a clock that steps must
+# not change its answer. Pinned by lying about the time: the verdict is taken
+# with the clock as it is, then again with `date` an hour ahead and an hour
+# behind, and all three must agree.
+
+probe_alive() {
+  run_sh x "date() { printf '%s\n' $2; }
+    pw_lock_owner_alive \"$1\"" >/dev/null 2>&1
+  printf '%s' "$?"
+}
+up=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ')
+live_tok="$$-$(date +%s)-$up-1-1"
+a=$(probe_alive "$live_tok" "$(date +%s)")
+b=$(probe_alive "$live_tok" "$(($(date +%s) + 3600))")
+c=$(probe_alive "$live_tok" "$(($(date +%s) - 3600))")
+assert_eq "a stepped clock does not change a live owner's verdict" "$a$a" "$b$c"
+assert_eq "and that verdict is alive" "0" "$a"
 
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."

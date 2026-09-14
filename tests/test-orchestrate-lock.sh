@@ -480,6 +480,28 @@ env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
   /bin/bash "$LOCK" acquire "$relspec" || fail "release fixture: second detached acquire failed"
 /bin/bash "$LOCK" release "$relspec" || fail "release of an unattributed detached hold was refused"
 [ ! -L "$relspec/.orchestrate.lock" ] || fail "release of an unattributed detached hold left the lock"
+# A caller that acquired implicitly — the tower naming itself through the
+# environment rather than on the command line — must be able to end its own
+# window the same way. Acquire and release resolve the owner identically, or
+# the ordinary attributed path refuses its own release.
+/bin/bash "$LOCK" break "$relspec" >/dev/null 2>&1
+sleep 120 &
+env_pid=$!
+PLANWRIGHT_TOWER_PID="$env_pid" /bin/bash "$LOCK" acquire "$relspec" \
+  || fail "implicit acquire failed"
+case "$(readlink "$relspec/.orchestrate.lock")" in
+  "$env_pid"-*) ;;
+  *) fail "implicit acquire did not attribute the hold to the environment's pid" ;;
+esac
+PLANWRIGHT_TOWER_PID="$env_pid" /bin/bash "$LOCK" release "$relspec" \
+  || fail "a caller that acquired implicitly cannot release its own hold"
+if [ -L "$relspec/.orchestrate.lock" ]; then
+  fail "the implicit release left the lock"
+fi
+kill "$env_pid" 2>/dev/null || true
+wait "$env_pid" 2>/dev/null || true
+echo "ok: acquire and release resolve the owner the same way"
+
 echo "ok: release refuses a hold it can show is not its own; break stays unconditional"
 
 echo "PASS: orchestrate-lock"

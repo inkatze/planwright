@@ -185,6 +185,24 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # match what is at the path now is read as absent, which is the safe answer.
 handle_file="$lock#owner#"
 
+# resolve_owner_pid — set `owner_pid` to the process this call speaks for, if
+# any. ACQUIRE AND RELEASE MUST ASK THIS THE SAME WAY: an acquire that
+# attributes a hold to the environment's tower pid and a release that only
+# honours an explicit flag do not describe the same hold, and the ordinary
+# attributed path then refuses to end its own window.
+resolve_owner_pid() {
+  [ -z "$owner_pid" ] || return 0
+  case ${PLANWRIGHT_TOWER_PID:-} in
+    '' | 0 | *[!0-9]*) return 0 ;;
+  esac
+  # Only a pid that is actually running: naming a dead one would mint a hold
+  # the next caller breaks immediately, which is worse than not attributing it.
+  if kill -0 "$PLANWRIGHT_TOWER_PID" 2>/dev/null; then
+    owner_pid=$PLANWRIGHT_TOWER_PID
+  fi
+  return 0
+}
+
 # derive_handle — set `derived` to the evidence handle describing THIS caller's
 # session, or to the empty string when it has none. The same derivation acquire
 # records and release compares against, so the two cannot drift.
@@ -376,14 +394,19 @@ case "$cmd" in
         '' | *[!0-9]*) ;;
         *)
           # A hold owned by a process. Releasing it is this caller's business
-          # only when it is the owner it declared, or when that owner is gone.
+          # only when it is the owner it speaks for, or when that owner is gone.
+          resolve_owner_pid
           if [ -n "$owner_pid" ]; then
             if [ "$rel_owner" != "$owner_pid" ]; then
-              echo "orchestrate-lock: $lock is held by pid $rel_owner, not the pid $owner_pid this release names; refusing (use 'break' to clear it anyway)" >&2
+              echo "orchestrate-lock: $lock is held by pid $rel_owner, not the pid $owner_pid this release speaks for; refusing (use 'break' to clear it anyway)" >&2
               exit 1
             fi
-          elif kill -0 "$rel_owner" 2>/dev/null; then
-            echo "orchestrate-lock: $lock is held by pid $rel_owner, which is still running; refusing to release somebody else's hold (use 'break' to clear it anyway)" >&2
+          elif pw_lock_owner_alive "$rel_token"; then
+            # The library's question, not a bare `kill -0`: a process owned by
+            # another user answers EPERM, which says it EXISTS and is not ours.
+            # Reading that as absence is how a release force-breaks a live
+            # stranger's lock.
+            echo "orchestrate-lock: $lock is held by pid $rel_owner, which still exists; refusing to release somebody else's hold (use 'break' to clear it anyway)" >&2
             exit 1
           fi
           ;;
@@ -416,19 +439,7 @@ esac
 # at all; a holder it can only name by tmux window is recorded beside the lock
 # instead, because that is a death-evidence class and not a pid.
 sweep_handle=""
-if [ -z "$owner_pid" ]; then
-  case ${PLANWRIGHT_TOWER_PID:-} in
-    '' | 0 | *[!0-9]*) ;;
-    *)
-      # Only a pid that is actually running: naming a dead one would mint a
-      # hold the next caller breaks immediately, which is worse than not
-      # attributing it at all.
-      if kill -0 "$PLANWRIGHT_TOWER_PID" 2>/dev/null; then
-        owner_pid=$PLANWRIGHT_TOWER_PID
-      fi
-      ;;
-  esac
-fi
+resolve_owner_pid
 if [ -z "$owner_pid" ]; then
   derive_handle
   sweep_handle=$derived

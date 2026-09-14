@@ -250,6 +250,17 @@ _pw_lock_store() {
   PW_LOCK_HELD=$_pws_out
 }
 
+# _pw_lock_uptime — set _pw_lock_uptime_out to the host's uptime in seconds, or
+# to the empty string where it cannot be read. pid 1 has been running for
+# exactly as long as the host has, and its elapsed time is reported by the same
+# `ps` field every other liveness question here uses.
+_pw_lock_uptime() {
+  _pw_lock_uptime_out=$(ps -o etimes= -p 1 2>/dev/null | tr -d ' ') || _pw_lock_uptime_out=''
+  case $_pw_lock_uptime_out in
+    '' | *[!0-9]*) _pw_lock_uptime_out='' ;;
+  esac
+}
+
 # _pw_lock_mint — set _pw_lock_new_token. The epoch is read once per process:
 # it separates this process's tokens from those of a dead process that once
 # held the same pid, and re-reading it per acquire would buy nothing for a fork.
@@ -260,12 +271,18 @@ _pw_lock_mint() {
       '' | *[!0-9]*) PW_LOCK_EPOCH=0 ;;
     esac
   fi
+  # The host's uptime at mint, from pid 1's elapsed time: the one quantity both
+  # this process and a future checker can read that no clock adjustment moves.
+  # It is what lets the mint-time check below compare two ages rather than two
+  # wall-clock readings, which is the difference between a rule that is never
+  # an age and one that breaks a live lock the next time NTP steps.
+  _pw_lock_uptime
   PW_LOCK_SEQ=$((PW_LOCK_SEQ + 1))
   # The minting process's own pid is in there even when the OWNER is somebody
   # else: without it, two short-lived CLIs acquiring for the same owner in the
   # same second mint the same token, and a replayed release of the first hold
   # would unlink the second one's live lock.
-  _pw_lock_new_token="$1-$PW_LOCK_EPOCH-$$-$PW_LOCK_SEQ"
+  _pw_lock_new_token="$1-$PW_LOCK_EPOCH-$_pw_lock_uptime_out-$$-$PW_LOCK_SEQ"
 }
 
 # pw_lock_owner_alive <token> — 0 the token names a running process, 1 it does
@@ -298,10 +315,18 @@ pw_lock_owner_alive() {
   # absent and break a live process's lock.
   _pwa_err=$(LC_ALL=C kill -0 "$_pwa_pid" 2>&1) || :
   case $_pwa_err in
-    *[Pp]ermission* | *[Pp]ermitted*) return 0 ;;
+    *[Pp]ermission* | *[Pp]ermitted*)
+      # EPERM says the process EXISTS and is not ours. That is an answer to
+      # "is it there", not to "is it the one that minted this", so it goes
+      # through the same second question every other existing process does —
+      # otherwise a pid recycled by another user bypasses the check entirely.
+      _pw_lock_owner_is_minter "$1" "$_pwa_pid"
+      return $?
+      ;;
   esac
   if command -v ps >/dev/null 2>&1 && ps -p "$_pwa_pid" >/dev/null 2>&1; then
-    return 0
+    _pw_lock_owner_is_minter "$1" "$_pwa_pid"
+    return $?
   fi
   return 1
 }
@@ -320,21 +345,31 @@ pw_lock_owner_alive() {
 # whose `ps` reports no elapsed time, leaves the pid alone to decide, exactly as
 # before. The slack absorbs the second-granularity of both clocks.
 _pw_lock_owner_is_minter() {
-  _pwn_epoch=${1#*-}
-  _pwn_epoch=${_pwn_epoch%%-*}
-  case $_pwn_epoch in
-    '' | 0 | *[!0-9]*) return 0 ;;
+  # Field 3 is the host's uptime at mint. A token that does not carry one —
+  # anything this library did not mint, and anything minted where `ps` could
+  # not answer — says nothing about start times, and the pid alone decides,
+  # exactly as it did before.
+  _pwn_rest=${1#*-}
+  _pwn_rest=${_pwn_rest#*-}
+  _pwn_mint_up=${_pwn_rest%%-*}
+  case $_pwn_mint_up in
+    '' | *[!0-9]*) return 0 ;;
+  esac
+  case ${_pwn_rest#*-} in
+    *-*) ;;
+    *) return 0 ;; # too few fields to be one of ours
   esac
   _pwn_elapsed=$(ps -o etimes= -p "$2" 2>/dev/null | tr -d ' ') || _pwn_elapsed=''
   case $_pwn_elapsed in
     '' | *[!0-9]*) return 0 ;;
   esac
-  _pwn_now=$(date +%s 2>/dev/null) || return 0
-  case $_pwn_now in
-    '' | *[!0-9]*) return 0 ;;
-  esac
-  _pwn_started=$((_pwn_now - _pwn_elapsed))
-  [ "$_pwn_started" -le "$((_pwn_epoch + 2))" ] || return 1
+  _pw_lock_uptime
+  [ -n "$_pw_lock_uptime_out" ] || return 0
+  # BOTH SIDES ARE AGES, NOT TIMES. The owner started this many seconds after
+  # boot; the token was minted that many seconds after boot. No wall clock is
+  # read on either side, so a clock that steps cannot move the answer.
+  _pwn_started_up=$((_pw_lock_uptime_out - _pwn_elapsed))
+  [ "$_pwn_started_up" -le "$((_pwn_mint_up + 2))" ] || return 1
   return 0
 }
 
@@ -344,6 +379,31 @@ pw_lock_owner() {
   [ "$#" -ge 1 ] && [ -n "${1:-}" ] || return 1
   _pwo_target=$(readlink "$1" 2>/dev/null) || _pwo_target=''
   printf '%s' "$_pwo_target"
+}
+
+# _pw_lock_restore_or_keep <aside> <path> — put a displaced link back at <path>,
+# or keep it where it is. 0 restored, 1 kept.
+#
+# THE RULE EVERY DISPLACEMENT IN THIS FILE OWES, AND THE ONLY PLACE IT IS
+# WRITTEN. Moving a link aside to inspect it is how this library makes a
+# removal exclusive, and every such move can find the path taken again before
+# the link can go back. The link in hand is then the ONLY copy of a hold
+# somebody may still be inside, so it is never deleted: it stays on disk under
+# the aside name, the caller is told where, and the claim sweep collects it
+# later. Litter is recoverable; a deleted lock is not.
+#
+# Every site that displaces a link calls this. Doing it by hand is how the same
+# defect appeared at four sites and was fixed at one.
+_pw_lock_restore_or_keep() {
+  _pwk2_aside=$1
+  _pwk2_path=$2
+  _pwk2_back=$(readlink "$_pwk2_aside" 2>/dev/null) || _pwk2_back=''
+  if [ -n "$_pwk2_back" ] && ln -s "$_pwk2_back" "$_pwk2_path" 2>/dev/null; then
+    rm -f "$_pwk2_aside" 2>/dev/null || :
+    return 0
+  fi
+  printf '%s\n' "lock-lib: $_pwk2_path was taken again before a displaced lock could be put back; the displaced lock is kept at $_pwk2_aside rather than deleted" >&2
+  return 1
 }
 
 # _pw_lock_slug <token> — set _pw_lock_slug_out to a filename-safe rendering of
@@ -437,9 +497,7 @@ _pw_lock_break() {
           # If the path has since been taken again the create fails, and
           # dropping the aside is then the only correct move. Either way this
           # caller does not hold the claim and says so.
-          _pwb_back=$(readlink "$_pwb_aside" 2>/dev/null) || _pwb_back=''
-          [ -z "$_pwb_back" ] || ln -s "$_pwb_back" "$_pwb_claim" 2>/dev/null || :
-          rm -f "$_pwb_aside" 2>/dev/null || :
+          _pw_lock_restore_or_keep "$_pwb_aside" "$_pwb_claim" || :
         fi
       fi
     fi
@@ -489,9 +547,7 @@ _pw_lock_break() {
     # the check and here. Put it back by RE-CREATING it, never by renaming it
     # back, for the reason the legacy clear gives — a rename lands on whatever
     # holds the path by then.
-    _pwb_back=$(readlink "$_pwb_taken" 2>/dev/null) || _pwb_back=''
-    [ -z "$_pwb_back" ] || ln -s "$_pwb_back" "$_pwb_lock" 2>/dev/null || :
-    rm -f "$_pwb_taken" 2>/dev/null || :
+    _pw_lock_restore_or_keep "$_pwb_taken" "$_pwb_lock" || :
     rm -f "$_pwb_claim" 2>/dev/null || :
     return 1
   fi
@@ -800,12 +856,7 @@ _pw_lock_take_link() {
     return 1
   fi
   if [ "$(readlink "$_pwm_taken" 2>/dev/null)" != "$_pwm_token" ]; then
-    _pwm_back=$(readlink "$_pwm_taken" 2>/dev/null) || _pwm_back=''
-    if [ -n "$_pwm_back" ] && ln -s "$_pwm_back" "$_pwm_lock" 2>/dev/null; then
-      rm -f "$_pwm_taken" 2>/dev/null || :
-    else
-      printf '%s\n' "lock-lib: $_pwm_lock changed hands during a release and the path is taken again; the displaced lock is kept at $_pwm_taken rather than deleted" >&2
-    fi
+    _pw_lock_restore_or_keep "$_pwm_taken" "$_pwm_lock" || :
     return 1
   fi
   rm -f "$_pwm_taken" 2>/dev/null || return 2
@@ -899,9 +950,7 @@ pw_lock_clear_legacy() {
     # clobber this whole family is built to prevent. `mv -n` is no answer
     # either: it reports success whether or not it moved. A create fails when
     # the path is taken, which is the answer this needs.
-    _pwc_back=$(readlink "$_pwc_aside" 2>/dev/null) || _pwc_back=''
-    [ -z "$_pwc_back" ] || ln -s "$_pwc_back" "$1" 2>/dev/null || :
-    rm -f "$_pwc_aside" 2>/dev/null || :
+    _pw_lock_restore_or_keep "$_pwc_aside" "$1" || :
     return 1
   fi
   if [ ! -d "$_pwc_aside" ]; then
