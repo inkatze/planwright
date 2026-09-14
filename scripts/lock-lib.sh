@@ -5,6 +5,17 @@
 # THE VERBS. Exit codes are uniform: 0 success, 1 the lock stayed with a holder
 # (for a release: it is not ours), 2 a real error.
 #
+# WHAT A 2 MEANS TO A CALLER, because every verb here can now return one and
+# they are not interchangeable with a 1. A 1 clears on its own: somebody else
+# has the lock, or had it, and retrying is the right response. A 2 does not
+# clear by waiting — an unwritable directory, a filesystem that will not
+# rename, or no free name left to move the lock aside onto — so a caller that
+# spins on it spends its whole budget on a condition that is not going to
+# change. Fail the operation and say so. A 2 from a RELEASE additionally means
+# the lock is still on disk and still this shell's: the hold stays recorded so
+# the exit handler tries again, and if that fails too it says which path was
+# left held.
+#
 #   pw_lock_trap_install                 arm the signal-safe release
 #   pw_lock_release_all                  release everything this shell holds
 #   pw_lock_try <path>                   one attempt
@@ -1094,8 +1105,10 @@ pw_lock_acquire_for() {
 
 # pw_lock_release <path> — give up one depth of this shell's hold, unlinking
 # at the outermost. 0 released or deepened-down, 1 this shell does not hold it
-# (including the case where the hold was broken underneath it), 2 the unlink
-# failed.
+# (including the case where the hold was broken underneath it), 2 the lock
+# could not be given up and IS STILL HELD: the unlink failed, or no free name
+# was left to move it aside onto. The hold stays recorded on a 2, so the exit
+# handler retries it; a caller that treats a 2 as released leaks the lock.
 pw_lock_release() {
   _pw_lock_path_ok pw_lock_release "${1:-}" || return 2
   _pwr_lock=$1
@@ -1114,13 +1127,34 @@ pw_lock_release() {
   # alone, which is the whole reason the token exists.
   _pw_lock_take_link "$_pwr_lock" "$_pwr_token"
   _pwr_rc=$?
-  if [ "$_pwr_rc" -eq 2 ]; then
-    # Still ours and still on disk. Leave the hold recorded so the handler
-    # tries again at exit rather than leaving a lock nothing will release.
-    return 2
-  fi
-  _pw_lock_store "$_pwr_lock" '' 0
+  # Nothing is forgotten here: the unlink does that, and only when there is
+  # something to forget. A 2 means the lock is still ours and still on disk,
+  # and its record stays so the handler tries again at exit.
   return "$_pwr_rc"
+}
+
+# _pw_lock_forget <lock> <token> — drop this shell's record of a hold, but
+# only the record for THAT token, and only ever from beside the unlink.
+#
+# THE ONLY PLACE A HOLD IS FORGOTTEN, and it sits here rather than in the
+# callers because a caller that can forget separately is a caller that can
+# forget WRONGLY: the way out used to unlink best-effort and then drop the
+# record whatever happened, so a release that could not happen was
+# indistinguishable from one that did — the lock stayed on disk, the registry
+# forgot it, and the process left. Only the unlink knows whether there is
+# anything to forget.
+#
+# The token check is what makes it safe to call from a release issued on
+# somebody else's behalf: a record under a DIFFERENT token is this shell's own
+# live hold, and dropping that would leak the very lock it is standing in.
+#
+# ORDERING IS THE OTHER HALF. Every call below is after the link has stopped
+# being ours on disk, never before, so a second signal landing in the window
+# still finds the record and can still act on it.
+_pw_lock_forget() {
+  if _pw_lock_lookup "$1" && [ "$_pw_lock_token" = "$2" ]; then
+    _pw_lock_store "$1" '' 0
+  fi
 }
 
 # _pw_lock_take_link <lock> <token> — remove the lock, but only if it is this
@@ -1149,21 +1183,28 @@ pw_lock_release() {
 _pw_lock_take_link() {
   _pwm_lock=$1
   _pwm_token=$2
-  [ "$(readlink "$_pwm_lock" 2>/dev/null)" = "$_pwm_token" ] || return 1
+  if [ "$(readlink "$_pwm_lock" 2>/dev/null)" != "$_pwm_token" ]; then
+    _pw_lock_forget "$_pwm_lock" "$_pwm_token"
+    return 1
+  fi
   _pw_lock_displace "$_pwm_lock" taken "$_pwm_token" || return $?
   _pwm_taken=$_pw_lock_displaced
   if [ "$(readlink "$_pwm_taken" 2>/dev/null)" != "$_pwm_token" ]; then
     _pw_lock_restore_or_keep "$_pwm_taken" "$_pwm_lock" || :
+    _pw_lock_forget "$_pwm_lock" "$_pwm_token"
     return 1
   fi
   rm -f "$_pwm_taken" 2>/dev/null || return 2
+  _pw_lock_forget "$_pwm_lock" "$_pwm_token"
   return 0
 }
 
 # pw_lock_release_token <path> <token> — the cross-process release. A CLI that
 # hands its caller a token on acquire takes it back here, and the unlink still
 # happens only while the link is that token's. 0 released, 1 the lock is not
-# that token's (including: already gone), 2 the unlink failed.
+# that token's (including: already gone), 2 it is that token's and could not be
+# released — the unlink failed, or no free name was left to move it aside onto,
+# and the lock is still on disk either way.
 pw_lock_release_token() {
   _pw_lock_path_ok pw_lock_release_token "${1:-}" || return 2
   if [ -z "${2:-}" ]; then
@@ -1210,7 +1251,9 @@ _pw_lock_sweep_claims() {
 # ownership must use pw_lock_release or pw_lock_release_token instead. It also
 # clears a DIRECTORY left at the path by the retired `mkdir` shape, which is
 # what makes an in-place upgrade from that shape possible at all. 0 the path is
-# clear, 2 something is there that this cannot safely remove.
+# clear, 2 something is there that could not be removed. It never returns 1:
+# there is no ownership to be wrong about, so a path that was already clear is
+# a success, not a miss.
 pw_lock_break_force() {
   _pw_lock_path_ok pw_lock_break_force "${1:-}" || return 2
   _pw_lock_sweep_claims "$1"
@@ -1233,7 +1276,13 @@ pw_lock_break_force() {
 
 # pw_lock_clear_legacy <path> — clear a lock DIRECTORY left by the retired
 # `mkdir` shape, and nothing else. 0 cleared, 1 there was no legacy directory
-# to clear (including: a live lock is there), 2 the removal failed.
+# to clear (including: a live lock is there, and: a peer cleared it first), 2
+# it could not be cleared safely — the removal failed, no free name was left to
+# move the directory aside onto, the move landed INSIDE something a peer put
+# there, or what moved turned out not to be the directory that was probed.
+# NOTHING IS REMOVED on a 2, and the diagnostic names where what was at the
+# path has gone, because a caller that reads a 2 as "cleared" would go on to
+# take a path that is still occupied.
 #
 # A caller cannot do this with a test and pw_lock_break_force: the test and the
 # removal are two steps, and a peer taking the path in between would have its
@@ -1272,17 +1321,25 @@ pw_lock_clear_legacy() {
 # to call from a signal handler and safe to call twice; always 0, because a
 # handler that can fail is a handler that can leave a lock standing.
 pw_lock_release_all() {
-  while [ -n "$PW_LOCK_HELD" ]; do
-    _pwx_line=${PW_LOCK_HELD%%"$PW_LOCK_NL"*}
-    [ -n "$_pwx_line" ] || break
+  # WALK A SNAPSHOT. The registry is what a release edits, so a loop that
+  # re-reads its head turns an entry that cannot be released into an endless
+  # one at exit — which is what forgetting unconditionally used to hide.
+  _pwx_rest=$PW_LOCK_HELD
+  while [ -n "$_pwx_rest" ]; do
+    _pwx_line=${_pwx_rest%%"$PW_LOCK_NL"*}
+    _pwx_rest=${_pwx_rest#*"$PW_LOCK_NL"}
+    [ -n "$_pwx_line" ] || continue
     _pwx_tail=${_pwx_line#* }
     _pwx_token=${_pwx_tail%% *}
     _pwx_path=${_pwx_tail#* }
-    # Unlink before forgetting, for the reason pw_lock_release gives: a second
-    # signal landing inside this loop re-enters it, and a record dropped ahead
-    # of its unlink is a lock the re-entry can no longer see.
-    _pw_lock_take_link "$_pwx_path" "$_pwx_token" || :
-    _pw_lock_store "$_pwx_path" '' 0
+    # The unlink forgets what it managed to release, in that order and only
+    # then: a second signal landing inside this loop re-enters it, and a record
+    # dropped ahead of its unlink is a lock the re-entry can no longer see.
+    _pw_lock_take_link "$_pwx_path" "$_pwx_token"
+    if [ "$?" -eq 2 ]; then
+      # Leaving without a word is what makes a leaked lock undiagnosable.
+      printf '%s\n' "lock-lib: could not release $_pwx_path on the way out; it is still held and will need pw_lock_break_force" >&2
+    fi
   done
   PW_LOCK_TOKEN=''
   return 0

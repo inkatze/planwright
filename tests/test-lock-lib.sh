@@ -2168,6 +2168,76 @@ else
 fi
 rm -rf "$tmp/swallow" "$tmp"/sw.lock* "$tmp"/sw2.lock*
 
+# ---------------------------------------------------------------------------
+# 59. The way out never forgets a hold it did not release
+# ---------------------------------------------------------------------------
+#
+# The exit handler runs for every holder that armed it, and it used to unlink
+# best-effort and then drop the record unconditionally. A release that could
+# not happen was therefore indistinguishable from one that did: the lock stayed
+# on disk, the registry forgot it, and the process left. Forgetting belongs
+# with the unlink, not with the caller, because a caller that can forget
+# separately is a caller that can forget wrongly.
+
+out=$(run_sh x 'cd "$1" || exit 9
+  pw_lock_try ./ra.lock >/dev/null || exit 9
+  _pw_lock_slug "$PW_LOCK_TOKEN"
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./ra.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  PW_LOCK_SEQ=0
+  pw_lock_release_all 2>/dev/null
+  printf "lock %s\n" "$([ -L ./ra.lock ] && echo present || echo gone)"
+  if _pw_lock_lookup ./ra.lock; then
+    printf "record kept\n"
+  else
+    printf "record forgotten\n"
+  fi')
+assert_eq "a hold that could not be released is still on disk" "lock present" \
+  "$(printf '%s\n' "$out" | sed -n 1p)"
+assert_eq "and it is still in the registry, not forgotten" "record kept" \
+  "$(printf '%s\n' "$out" | sed -n 2p)"
+err=$(run_sh x 'cd "$1" || exit 9
+  pw_lock_try ./ra2.lock >/dev/null || exit 9
+  _pw_lock_slug "$PW_LOCK_TOKEN"
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./ra2.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  PW_LOCK_SEQ=0
+  pw_lock_release_all' 2>&1 >/dev/null)
+case $err in
+  *'could not release'*) pass "and the way out says so rather than leaving quietly" ;;
+  *) fail "a lock leaked on the way out without a word (got '$err')" ;;
+esac
+rm -rf "$tmp"/ra.lock* "$tmp"/ra2.lock*
+# It still terminates, and it still releases what it can: an entry it cannot
+# release must not be retried forever by a loop reading the registry it edits.
+out=$(run_sh x 'cd "$1" || exit 9
+  pw_lock_try ./rb1.lock >/dev/null || exit 9
+  pw_lock_try ./rb2.lock >/dev/null || exit 9
+  _pw_lock_slug "$PW_LOCK_TOKEN"
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./rb2.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  pw_lock_release_all 2>/dev/null
+  printf "%s %s\n" "$([ -L ./rb1.lock ] && echo held || echo released)" \
+    "$([ -L ./rb2.lock ] && echo held || echo released)"')
+assert_eq "the releasable hold still goes, and the stuck one does not loop" \
+  "released held" "$out"
+rm -rf "$tmp"/rb1.lock* "$tmp"/rb2.lock*
+# And the structural half: no verb forgets a hold on its own account. The
+# unlink is the only thing that knows whether there is anything to forget.
+for v in pw_lock_release pw_lock_release_all pw_lock_release_token; do
+  forgets=$(code_of "$v" | grep -cE "_pw_lock_store [^ ]+ '' 0" || :)
+  assert_eq "$v does not forget a hold by hand" "0" "$forgets"
+done
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else
