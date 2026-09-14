@@ -413,6 +413,12 @@ discipline.
 
 ## Changelog
 
+- 2026-09-13 — Expression-only: Task 1.2 added, carrying the owner-token
+  release to the fleet-lock consumers Task 1 left on the token-less pair.
+  Gap-fill under D-11 rather than a new decision: the owner token crossing
+  the process boundary is what D-11 already accepts, and Task 1 shipped it
+  for one consumer as the worked example. No REQ or D-ID added, no accepted
+  decision changed.
 - 2026-09-09 — Amended at kickoff (first-activation walkthrough and
   sign-off lens pass, recorded in `kickoff-brief.md`): tests-only tier
   dissolved by the REQ-A1.3 flag and liveness made transitive; Sources and

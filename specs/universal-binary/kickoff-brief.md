@@ -567,4 +567,27 @@ Anchor: `cc916e12057c4fa437c4fdc825cf0fd6e7c4be71` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Amendment — Task 1.2 added for the lock consumers Task 1 did not reach (expression-only, 2026-09-13)
+
+**Mode:** in-flight amendment on the Task 1 PR (expression-only, per REQ-A3.3).
+
+Task 1 gave `scripts/fleet-state.sh lock` an owner token and an
+ownership-verified `unlock`, and converted `scripts/tower-queue.sh` onto them.
+The lock's other consumers still release unconditionally, so a release issued
+after a caller's own hold was cleared removes whoever holds the lock now,
+which is the clobber the token exists to prevent. Carrying that to all of them
+was outside Task 1's deliverable list, so the operator took it as its own task
+rather than widening one already in flight.
+
+**No lens pass** (expression-only, per REQ-A3.3): no accepted decision changes
+and no REQ or D-ID is added. D-11 already accepts the owner token as this
+family's release discipline; the new task records extending it to the callers
+Task 1 left behind, which is a gap-fill within that decision rather than a
+change to it. Validator after the edit: 0 errors, 0 warnings.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-09-13
+("Task 1.2 added, carrying the owner-token release to the fleet-lock consumers
+Task 1 left on the token-less pair").
+Anchor: `3c061ddfc2b2332d5ce84e0a2df9096d0ca4174b` — computed as
+`scripts/spec-anchor.sh specs/universal-binary`

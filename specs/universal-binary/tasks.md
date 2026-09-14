@@ -58,6 +58,26 @@
 - **Citations:** D-12 · REQ-E1.5
 - **Estimated effort:** 1 day
 
+### Task 1.2 — Owner-token release for the fleet lock's remaining consumers
+
+- **Deliverables:** `scripts/fleet-attention.sh`, `scripts/fleet-throttle.sh`,
+  `scripts/fleet-audit.sh`, `scripts/fleet-usage-gate.sh`,
+  `scripts/fleet-tower-marker.sh`, `scripts/fleet-liveness.sh` and
+  `scripts/fleet-worktree-track.sh` each capture the owner token
+  `scripts/fleet-state.sh lock` prints and release with `unlock <token>`
+  rather than the token-less form, so a release issued after the caller's own
+  hold was cleared leaves the current holder's lock standing;
+  `scripts/tower-queue.sh` is the worked example, converted under Task 1 and
+  not revisited here.
+- **Done when:** each adopted consumer has a test in which a release issued by
+  a caller whose hold was already cleared leaves a successor's lock intact,
+  where the token-less form removed it; the token-less `unlock` is still
+  reachable as the operator escape hatch; `scripts/check-lock-primitive.sh`
+  reports no finding over the adopted scripts; the fleet suites stay green.
+- **Dependencies:** 1
+- **Citations:** D-11 · REQ-E1.5
+- **Estimated effort:** 1 day
+
 ### Task 2 — Partition script and coupling profile
 
 - **Deliverables:** `scripts/substrate-partition.sh` and a
