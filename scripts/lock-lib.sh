@@ -537,8 +537,42 @@ _pw_lock_work_path() {
       return 0
     fi
     _pwwp_tries=$((_pwwp_tries + 1))
-    [ "$_pwwp_tries" -lt 64 ] || return 0
+    # REFUSE RATHER THAN HAND BACK THE LAST CANDIDATE. Everything downstream
+    # renames onto this path without clearing it first, which is only safe
+    # because it was free; returning an occupied one turns that rule into a
+    # false claim at the one moment it decides whether a live lock survives.
+    # The output is emptied as well as refused, so a caller that reads it
+    # without checking gets a visibly wrong path rather than an occupied one.
+    if [ "$_pwwp_tries" -ge 64 ]; then
+      _pw_lock_work_path_out=''
+      return 1
+    fi
   done
+}
+
+# _pw_lock_displace <path> <kind> <token> — move <path> out of the way onto a
+# scratch name of this caller's own, and set _pw_lock_displaced to where it
+# went. 0 moved, 1 it was not there to move, 2 no free name could be derived.
+#
+# THE ONLY PLACE ANYTHING IS MOVED ASIDE, and the rule it holds is: NEVER
+# REMOVE WHAT YOU ARE ABOUT TO MOVE ONTO. The rename is the exclusion, and a
+# removal before it deletes whatever a peer has already moved there — which is
+# what two siblings sharing a pid and a sequence counter do to each other. The
+# derivation above will not hand back an occupied name, so there is nothing
+# here to clear: a stale name from an earlier run is skipped at derivation and
+# collected by the claim sweep, and a live one belongs to a peer.
+#
+# The path being moved IS the path the name is derived from, so a caller cannot
+# displace one thing onto another thing's scratch name.
+#
+# The legacy clear moves a directory rather than a link. That is the only way
+# it differs, and it goes through here for the reason the rest do: being the
+# one site outside a rule is how the rule gets broken again.
+_pw_lock_displace() {
+  _pw_lock_work_path "$1" "$2" "$3" || return 2
+  _pw_lock_displaced=$_pw_lock_work_path_out
+  mv "$1" "$_pw_lock_displaced" 2>/dev/null || return 1
+  return 0
 }
 
 # _pw_lock_link <target> <path> — create the symlink and PROVE it landed.
@@ -661,9 +695,8 @@ _pw_lock_break() {
     # clears the claim and the other comes back on the next spin.
     _pwb_holder=$(readlink "$_pwb_claim" 2>/dev/null) || _pwb_holder=''
     if [ -n "$_pwb_holder" ] && ! pw_lock_owner_alive "$_pwb_holder"; then
-      _pw_lock_work_path "$_pwb_claim" dead "$_pwb_claim_token"
-      _pwb_aside=$_pw_lock_work_path_out
-      if mv -f "$_pwb_claim" "$_pwb_aside" 2>/dev/null; then
+      if _pw_lock_displace "$_pwb_claim" dead "$_pwb_claim_token"; then
+        _pwb_aside=$_pw_lock_displaced
         if [ "$(readlink "$_pwb_aside" 2>/dev/null)" = "$_pwb_holder" ]; then
           rm -f "$_pwb_aside" 2>/dev/null || :
         else
@@ -702,9 +735,14 @@ _pw_lock_break() {
   # the destination is a fresh path of this caller's own: a rename ONTO an
   # existing path whose link target is a directory files the source inside that
   # directory instead, which is how the lock once became unbreakable.
-  _pw_lock_work_path "$_pwb_lock" taken "$_pwb_claim_token"
-  _pwb_taken=$_pw_lock_work_path_out
-  if ! mv "$_pwb_lock" "$_pwb_taken" 2>/dev/null; then
+  _pw_lock_displace "$_pwb_lock" taken "$_pwb_claim_token"
+  _pwb_rc=$?
+  if [ "$_pwb_rc" -eq 2 ]; then
+    printf '%s\n' "lock-lib: no free working path beside $_pwb_lock — refusing to break onto an occupied one" >&2
+    rm -f "$_pwb_claim" 2>/dev/null || :
+    return 2
+  fi
+  if [ "$_pwb_rc" -ne 0 ]; then
     if [ -L "$_pwb_lock" ] || [ -e "$_pwb_lock" ]; then
       # Still there and unmovable: the parent directory or the filesystem,
       # never a peer. Saying "busy" here would send the caller to wait out a
@@ -718,6 +756,7 @@ _pw_lock_break() {
     rm -f "$_pwb_claim" 2>/dev/null || :
     return 1
   fi
+  _pwb_taken=$_pw_lock_displaced
   if [ "$(readlink "$_pwb_taken" 2>/dev/null)" != "$_pwb_dead" ]; then
     # What moved was not the dead owner's link: the path changed hands between
     # the check and here. Put it back by RE-CREATING it, never by renaming it
@@ -1047,14 +1086,19 @@ _pw_lock_take_link() {
   _pwm_lock=$1
   _pwm_token=$2
   [ "$(readlink "$_pwm_lock" 2>/dev/null)" = "$_pwm_token" ] || return 1
-  _pw_lock_work_path "$_pwm_lock" taken "$_pwm_token"
-  _pwm_taken=$_pw_lock_work_path_out
-  if ! mv "$_pwm_lock" "$_pwm_taken" 2>/dev/null; then
+  _pw_lock_displace "$_pwm_lock" taken "$_pwm_token"
+  _pwm_rc=$?
+  if [ "$_pwm_rc" -eq 2 ]; then
+    printf '%s\n' "lock-lib: no free working path beside $_pwm_lock — refusing to release onto an occupied one" >&2
+    return 2
+  fi
+  if [ "$_pwm_rc" -ne 0 ]; then
     if [ -L "$_pwm_lock" ] || [ -e "$_pwm_lock" ]; then
       return 2
     fi
     return 1
   fi
+  _pwm_taken=$_pw_lock_displaced
   if [ "$(readlink "$_pwm_taken" 2>/dev/null)" != "$_pwm_token" ]; then
     _pw_lock_restore_or_keep "$_pwm_taken" "$_pwm_lock" || :
     return 1
@@ -1147,10 +1191,8 @@ pw_lock_clear_legacy() {
   _pw_lock_path_ok pw_lock_clear_legacy "${1:-}" || return 2
   [ ! -L "$1" ] || return 1
   [ -d "$1" ] || return 1
-  _pw_lock_work_path "$1" legacy "$$"
-  _pwc_aside=$_pw_lock_work_path_out
-  rm -rf "$_pwc_aside" 2>/dev/null || :
-  mv -f "$1" "$_pwc_aside" 2>/dev/null || return 1
+  _pw_lock_displace "$1" legacy "$$" || return $?
+  _pwc_aside=$_pw_lock_displaced
   if [ -L "$_pwc_aside" ]; then
     # A peer's live lock, not the legacy directory probed. Put it back by
     # RE-CREATING the link, never by renaming it back: a rename lands whatever

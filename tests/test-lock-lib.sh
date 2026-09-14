@@ -1766,13 +1766,20 @@ assert_eq "only one function reads an elapsed time" "2" "$etimesites"
 # The disown rule has one owner too, and the way that stays true is that every
 # verb whose owner is not this shell reaches the lock through it.
 # And the rule those derived paths carry: a caller never clears one before
-# using it. The path was free when it was handed out, so anything there now
-# belongs to a peer — which is how two siblings destroyed each other's
-# displaced link and neither released.
-for fn in _pw_lock_take_link _pw_lock_break; do
-  body=$(sed -n "/^$fn() {/,/^}/p" "$LIB")
-  cleared=$(printf '%s\n' "$body" | grep -A3 '_pw_lock_work_path ' | grep -c 'rm ' || :)
-  assert_eq "$fn does not clear a working path before it moves onto it" "0" "$cleared"
+# moving onto it. The path was free when it was handed out, so anything there
+# now belongs to a peer — which is how two siblings destroyed each other's
+# displaced link and neither released. The way that stays true is that moving
+# aside has one owner, so a site cannot be written that does not obey it.
+derivers=$(grep -cE '^[^#]*_pw_lock_work_path ' "$LIB" || :)
+assert_eq "only one place derives a working path and moves onto it" "1" "$derivers"
+# Read code, not prose: these functions all explain themselves in comments that
+# name the very commands being counted.
+code_of() { sed -n "/^$1() {/,/^}/p" "$LIB" | grep -vE '^[[:space:]]*#'; }
+cleared=$(code_of _pw_lock_displace | grep -cE '(^|[^[:alnum:]_])rm ' || :)
+assert_eq "and it removes nothing on the way" "0" "$cleared"
+for v in pw_lock_release pw_lock_release_token pw_lock_break_force pw_lock_clear_legacy; do
+  moves=$(code_of "$v" | grep -cE '(^|[^[:alnum:]_])mv ' || :)
+  assert_eq "$v moves nothing aside by hand" "0" "$moves"
 done
 for v in pw_lock_try_detached pw_lock_acquire_detached pw_lock_acquire_for; do
   body=$(sed -n "/^$v() {/,/^}/p" "$LIB")
@@ -1870,6 +1877,98 @@ inside=$(find "$trap_path" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
 assert_eq "and nothing was filed inside the occupying directory" "0" "$inside"
 rm -rf "$trap_path"
 rm -f "$tmp"/wp2.lock*
+
+# ---------------------------------------------------------------------------
+# 53. A derivation that cannot find a free path fails rather than lying
+# ---------------------------------------------------------------------------
+#
+# Every displacement rests on the derived path being free, which is why nothing
+# clears one before renaming onto it. A derivation that gives up and hands back
+# the last candidate anyway turns that rule into a false claim at exactly the
+# moment it matters: the rename then files the live lock INSIDE whatever
+# occupies the path, and the lock is off its path with no link to find.
+
+out=$(run_sh x 'cd "$1" || exit 9
+  pw_lock_try ./ex.lock >/dev/null || exit 9
+  _pw_lock_slug "$PW_LOCK_TOKEN"
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./ex.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  PW_LOCK_SEQ=0
+  if _pw_lock_work_path ./ex.lock taken "$PW_LOCK_TOKEN"; then
+    printf "derived %s\n" "$([ -e "$_pw_lock_work_path_out" ] && echo occupied || echo free)"
+  else
+    printf "derived refused\n"
+  fi
+  PW_LOCK_SEQ=0
+  pw_lock_release ./ex.lock >/dev/null 2>&1
+  printf "release %s\n" "$?"
+  printf "lock %s\n" "$([ -L ./ex.lock ] && echo present || echo gone)"
+  printf "filed %s\n" "$(find . -mindepth 2 -name "ex.lock" 2>/dev/null | wc -l | tr -d " ")"')
+assert_eq "a derivation with no free candidate refuses" "derived refused" \
+  "$(printf '%s\n' "$out" | sed -n 1p)"
+assert_eq "and the release fails closed rather than displacing blindly" "release 2" \
+  "$(printf '%s\n' "$out" | sed -n 2p)"
+assert_eq "and the lock stays at its path" "lock present" \
+  "$(printf '%s\n' "$out" | sed -n 3p)"
+assert_eq "and nothing is filed inside an occupying directory" "filed 0" \
+  "$(printf '%s\n' "$out" | sed -n 4p)"
+rm -rf "$tmp"/ex.lock*
+
+# ---------------------------------------------------------------------------
+# 54. The legacy clear displaces under the same rule as everything else
+# ---------------------------------------------------------------------------
+#
+# It moves a directory rather than a link, which is the only thing about it
+# that differs — and being the one site outside the rule is how the same defect
+# came back here after it was fixed at the other two. Stage the same ordering:
+# two sibling clears derive one aside, and the second must not remove what the
+# first has moved there.
+
+mkdir -p "$tmp/slow2"
+cat >"$tmp/slow2/mv" <<'SHIM'
+#!/bin/sh
+/bin/mv "$@"
+rc=$?
+[ -n "${PW_MV_HOLD:-}" ] && sleep "$PW_MV_HOLD"
+exit $rc
+SHIM
+cat >"$tmp/slow2/rm" <<'SHIM'
+#!/bin/sh
+[ -n "${PW_RM_DELAY:-}" ] && sleep "$PW_RM_DELAY"
+exec /bin/rm "$@"
+SHIM
+chmod +x "$tmp/slow2/mv" "$tmp/slow2/rm"
+mkdir -p "$tmp/leg.lock"
+out=$(PATH="$tmp/slow2:$PATH" $SH -c '. "$1"
+  ( PW_MV_HOLD=0.8 PW_RM_DELAY=0.6
+    export PW_MV_HOLD PW_RM_DELAY
+    pw_lock_clear_legacy "$2/leg.lock"; echo "a $?" ) &
+  sleep 0.5
+  ( PW_RM_DELAY=0.6
+    export PW_RM_DELAY
+    pw_lock_clear_legacy "$2/leg.lock"; echo "b $?" ) &
+  wait' sh "$LIB" "$tmp" 2>"$tmp/leg.err")
+zero=$(printf '%s\n' "$out" | grep -c ' 0$')
+assert_eq "exactly one of two sibling legacy clears succeeds" "1" "$zero"
+two=$(printf '%s\n' "$out" | grep -c ' 2$')
+assert_eq "and neither reports a real error for work that succeeded" "0" "$two"
+if [ -s "$tmp/leg.err" ]; then
+  fail "a sibling legacy clear reported a shape change: $(cat "$tmp/leg.err")"
+else
+  pass "and neither claims the directory changed shape under it"
+fi
+if [ -d "$tmp/leg.lock" ]; then
+  fail "the legacy directory survived the clear"
+else
+  pass "and the legacy directory is gone"
+fi
+strays=$(find "$tmp" -maxdepth 1 -name 'leg.lock#*' 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "and nothing is left beside it" "0" "$strays"
+rm -rf "$tmp/slow2" "$tmp/leg.err"
+rm -rf "$tmp"/leg.lock*
 
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
