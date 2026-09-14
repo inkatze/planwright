@@ -1609,6 +1609,109 @@ else
 fi
 rm -f "$tmp"/sib.lock* "$tmp/sib.out" "$tmp/sib.err"
 
+# ---------------------------------------------------------------------------
+# 48. Every create in this library is confirmed before it is believed
+# ---------------------------------------------------------------------------
+#
+# `ln -s target dir` files the link INSIDE a directory squatting the path and
+# still exits 0. The publish guards that; the restore did not, so a directory
+# on the lock path made the restore report success, file the link inside it,
+# and then delete the aside — destroying the only copy, in the function whose
+# whole job is to never do that.
+
+mkdir -p "$tmp/sq.lock"
+ln -s "displaced-token" "$tmp/sq.aside"
+run_sh x '_pw_lock_restore_or_keep "$1/sq.aside" "$1/sq.lock"' >/dev/null 2>"$tmp/sq.err"
+rc=$?
+assert_exit "a restore onto a squatting directory reports failure" 1 $rc
+if [ -L "$tmp/sq.aside" ]; then
+  pass "and the displaced link is kept, not deleted"
+else
+  fail "the restore deleted the only copy of the displaced link"
+fi
+inside=$(find "$tmp/sq.lock" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "and nothing is filed inside the directory" "0" "$inside"
+rm -rf "$tmp/sq.lock" "$tmp/sq.aside" "$tmp/sq.err"
+# The same hazard at the publish, which is where it was first handled: a
+# directory on the path is not a hold.
+mkdir -p "$tmp/sq2.lock"
+run_sh x 'pw_lock_try "$1/sq2.lock"' >/dev/null 2>&1
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  pass "a directory on the lock path is never reported as a hold"
+else
+  fail "a directory on the lock path was reported as a hold"
+fi
+inside=$(find "$tmp/sq2.lock" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "and the publish leaves nothing inside it" "0" "$inside"
+rm -rf "$tmp/sq2.lock"
+
+# ---------------------------------------------------------------------------
+# 49. The claim sweep does not depend on the caller's IFS
+# ---------------------------------------------------------------------------
+#
+# This library is SOURCED, so it runs with whatever field separator its caller
+# set. A restore-the-globbing-state step written as an unquoted variable is
+# split by that IFS: under a caller that changed it the command is not found,
+# and the shell is left with globbing disabled for good.
+
+# Globbing OFF is the state that shows it: the sweep turns globbing on to
+# expand its own patterns, and a restore step the caller's IFS mangles never
+# turns it back.
+ln -s "dead-token" "$tmp/ifs.lock#break#x"
+out=$(run_sh x 'set -f
+  IFS=:
+  pw_lock_break_force "$1/ifs.lock" >/dev/null 2>&1
+  case $- in *f*) printf "globbing-off\n" ;; *) printf "globbing-on\n" ;; esac' 2>/dev/null)
+assert_eq "a caller with a non-standard IFS gets its globbing state back" "globbing-off" "$out"
+if [ -e "$tmp/ifs.lock#break#x" ] || [ -L "$tmp/ifs.lock#break#x" ]; then
+  fail "the sweep did not run under a non-standard IFS"
+else
+  pass "and the sweep still cleared the claim"
+fi
+rm -f "$tmp"/ifs.lock*
+# Nothing is printed on the way, either: a command the caller never wrote
+# failing is a diagnostic the caller cannot act on.
+err=$(run_sh x 'set -f
+  IFS=:
+  pw_lock_break_force "$1/ifs2.lock" >/dev/null' 2>&1)
+case $err in
+  *'set -f'* | *'set +f'* | *'not found'*)
+    fail "the restore step ran as a command under the caller's IFS: $err"
+    ;;
+  *) pass "and nothing complains about a command the caller never wrote" ;;
+esac
+rm -f "$tmp"/ifs2.lock*
+# The ordinary caller is unchanged: globbing on stays on.
+out=$(run_sh x 'pw_lock_break_force "$1/ifs3.lock" >/dev/null 2>&1
+  case $- in *f*) printf "globbing-off\n" ;; *) printf "globbing-on\n" ;; esac' 2>/dev/null)
+assert_eq "a caller that had globbing on keeps it on" "globbing-on" "$out"
+rm -f "$tmp"/ifs3.lock*
+
+# ---------------------------------------------------------------------------
+# 50. The single-site rules the library states about itself are true of it
+# ---------------------------------------------------------------------------
+#
+# Four times now a hazard has been handled in one function and omitted in a
+# sibling that had the same hazard. The answer each time was to give the rule
+# one owner, which only helps for as long as nothing grows a second call site —
+# and a comment claiming to be the only place is exactly the claim that rots
+# quietly. Read the source and count.
+
+lnsites=$(grep -cE '^[^#]*(^|[^[:alnum:]_])ln ' "$LIB" || :)
+assert_eq "only one place in the library runs ln" "1" "$lnsites"
+etimesites=$(grep -cE '^[^#]*(^|[^[:alnum:]_])ps -o etime' "$LIB" || :)
+assert_eq "only one function reads an elapsed time" "2" "$etimesites"
+# The disown rule has one owner too, and the way that stays true is that every
+# verb whose owner is not this shell reaches the lock through it.
+for v in pw_lock_try_detached pw_lock_acquire_detached pw_lock_acquire_for; do
+  body=$(sed -n "/^$v() {/,/^}/p" "$LIB")
+  case $body in
+    *_pw_lock_take_disowned*) pass "$v takes its hold through the disown verb" ;;
+    *) fail "$v reaches the lock without going through _pw_lock_take_disowned" ;;
+  esac
+done
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

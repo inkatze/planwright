@@ -155,6 +155,36 @@ out2="$(/bin/bash "$CHECKER" "$tmp/quotedopt" 2>&1)"
 assert "a quoted -p is read as -p, so the tree is clean" 0 $?
 assert_not_contains "an escaped -p is not reported" "$out2" "esc.sh"
 assert_not_contains "a double-quoted -p is not reported" "$out2" "dqopt.sh"
+
+# ---------------------------------------------------------------------------
+# 1b. A command substitution inside an operand does not end the command.
+#     Lock paths are normally BUILT, so if a `$(...)` in the operands hides the
+#     chain operator behind it, the guard misses the most ordinary spelling
+#     there is while looking healthy on the contrived ones.
+# ---------------------------------------------------------------------------
+make_root "$tmp/cmdsub"
+write_script "$tmp/cmdsub/scripts/chain.sh" 'mkdir "$d/$(id -u).lock" && exit 0'
+write_script "$tmp/cmdsub/scripts/orform.sh" 'mkdir "$(dirname "$x")/l" || return 1'
+write_script "$tmp/cmdsub/scripts/thenform.sh" \
+  'if' \
+  '  mkdir "$d/$(id -u).lock"; then' \
+  '  exit 0' \
+  'fi'
+# And the mirror: an option-looking word INSIDE the substitution is not an
+# option to mkdir, so it must not exempt the site.
+write_script "$tmp/cmdsub/scripts/fakeopt.sh" 'mkdir "$(opts -p)/l" && exit 0'
+out3="$(/bin/bash "$CHECKER" "$tmp/cmdsub" 2>&1)"
+assert "a built lock path does not hide the chain operator" 1 $?
+assert_contains "the && form survives a command substitution" "$out3" "scripts/chain.sh:3:"
+assert_contains "the || form survives one" "$out3" "scripts/orform.sh:3:"
+assert_contains "the '; then' form survives one" "$out3" "scripts/thenform.sh:4:"
+assert_contains "a -p inside the substitution does not exempt the mkdir" "$out3" "scripts/fakeopt.sh:3:"
+# The control: with -p actually given, the same shape is clean.
+make_root "$tmp/cmdsubok"
+write_script "$tmp/cmdsubok/scripts/ok.sh" 'mkdir -p "$d/$(id -u).lock" || exit 1'
+out4="$(/bin/bash "$CHECKER" "$tmp/cmdsubok" 2>&1)"
+assert "the same shape with -p is clean" 0 $?
+assert_not_contains "a real -p still exempts across a substitution" "$out4" "ok.sh"
 assert_contains "the '; then' form is named" "$out" "tests/then.sh:4:"
 assert_contains "the '; then' offense says which form it is" "$out" "tested by a following 'then'"
 assert_contains "the remedy names the lock library" "$out" "scripts/lock-lib.sh"

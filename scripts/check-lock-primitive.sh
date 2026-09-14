@@ -266,7 +266,12 @@ done <"$work/all"
 # variable assignment or option. SQ carries the single-quote character in,
 # which is what keeps this program free of one.
 awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
-  function addtok(t, k) { ntok++; tok[ntok] = t; tokt[ntok] = k }
+  # tokl carries the SUBSTITUTION NESTING of each token, because a word and its
+  # operands are only the same command while they sit at the same level. A
+  # lock path is normally built — `mkdir "$d/$(id -u).lock" && ...` — and the
+  # `$(` breaks the operand run, so a scan that walks contiguous words alone
+  # stops at the substitution and reads it as the end of the command.
+  function addtok(t, k) { ntok++; tok[ntok] = t; tokt[ntok] = k; tokl[ntok] = depth }
 
   # A command substitution opens a fresh QUOTING context; the outer state is
   # restored when it closes, which is what lets a `$(...)` inside a double-
@@ -438,7 +443,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
 
   # walk(path, lno) — find the mkdir invocations on the tokenized line and
   # decide, per invocation, whether its exit status is being read.
-  function walk(path, lno, exempt,   i, j, t, base, opt, hasp, inopts, term, nxt, kind) {
+  function walk(path, lno, exempt,   i, j, t, base, opt, lvl, hasp, inopts, term, nxt, kind) {
     i = 1
     while (i <= ntok) {
       if (tokt[i] == "op") {
@@ -465,8 +470,17 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
       if (base != "mkdir") { atcmd = 0; i++; continue }
 
       hasp = 0; inopts = 1
+      lvl = tokl[i]
       j = i + 1
-      while (j <= ntok && tokt[j] == "w") {
+      # An operand of THIS command is a word at THIS level. Everything deeper
+      # belongs to a substitution inside one of its words — including any
+      # option-looking word there, which is an option to that command and not
+      # to this one — and the opener sits at this level as part of the word it
+      # interrupts, so it is stepped over rather than read as a terminator.
+      while (j <= ntok) {
+        if (tokl[j] > lvl) { j++; continue }
+        if (tokt[j] == "op" && (tok[j] == "$(" || tok[j] == BT)) { j++; continue }
+        if (tokt[j] != "w") break
         if (inopts) {
           opt = unquote(tok[j])
           if (opt == "--") inopts = 0

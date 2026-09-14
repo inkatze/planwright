@@ -487,6 +487,30 @@ _pw_lock_work_path() {
   _pw_lock_work_path_out="$1#$2#$_pw_lock_slug_out.$$-$PW_LOCK_SEQ"
 }
 
+# _pw_lock_link <target> <path> — create the symlink and PROVE it landed.
+#
+# THE ONLY PLACE THIS LIBRARY CREATES A SYMLINK, because a create here is not
+# done when `ln` exits 0. `ln -s target dir` files the link INSIDE a directory
+# squatting the path and still succeeds, so an unconfirmed create hands its
+# caller a path it does not have — a hold it never took, or a displaced link it
+# is about to delete the only copy of. Every caller may read a 0 from this as
+# "the link is at that path"; nothing else in the file may call `ln`.
+_pw_lock_link() {
+  if ln -s -- "$1" "$2" 2>/dev/null \
+    && [ "$(readlink "$2" 2>/dev/null)" = "$1" ]; then
+    return 0
+  fi
+  # A stray exists only when a directory took the create, and `ln` names it by
+  # the target's last component. Ask before spawning `rm`: on a contended lock
+  # this runs once per spin, and a process per spin for a condition that is
+  # almost never true is the whole cost.
+  if [ -d "$2" ]; then
+    _pwl_stray=${1##*/}
+    [ -z "$_pwl_stray" ] || rm -f "$2/$_pwl_stray" 2>/dev/null || :
+  fi
+  return 1
+}
+
 # _pw_lock_restore_or_keep <aside> <path> — put a displaced link back at <path>,
 # or keep it where it is. 0 restored, 1 kept.
 #
@@ -504,7 +528,7 @@ _pw_lock_restore_or_keep() {
   _pwk2_aside=$1
   _pwk2_path=$2
   _pwk2_back=$(readlink "$_pwk2_aside" 2>/dev/null) || _pwk2_back=''
-  if [ -n "$_pwk2_back" ] && ln -s -- "$_pwk2_back" "$_pwk2_path" 2>/dev/null; then
+  if [ -n "$_pwk2_back" ] && _pw_lock_link "$_pwk2_back" "$_pwk2_path"; then
     rm -f "$_pwk2_aside" 2>/dev/null || :
     return 0
   fi
@@ -548,18 +572,10 @@ _pw_lock_publish() {
   _pwp_token=$2
   _pwp_depth=${3:-1}
   _pw_lock_store "$_pwp_lock" "$_pwp_token" "$_pwp_depth"
-  if ln -s -- "$_pwp_token" "$_pwp_lock" 2>/dev/null \
-    && [ "$(readlink "$_pwp_lock" 2>/dev/null)" = "$_pwp_token" ]; then
+  if _pw_lock_link "$_pwp_token" "$_pwp_lock"; then
     PW_LOCK_TOKEN=$_pwp_token
     return 0
   fi
-  # `ln -s target dir` files the link INSIDE a directory squatting the path and
-  # still exits 0, so an unconfirmed create is not a hold. Drop the stray and
-  # the bookkeeping together.
-  # The stray only exists when a directory took the create, so ask before
-  # spawning `rm`: on a contended lock this runs once per spin, and a process
-  # per spin for a condition that is almost never true is the whole cost.
-  [ ! -d "$_pwp_lock" ] || rm -f "$_pwp_lock/$_pwp_token" 2>/dev/null || :
   _pw_lock_store "$_pwp_lock" '' 0
   return 1
 }
@@ -582,8 +598,7 @@ _pw_lock_break() {
   _pw_lock_mint "$$"
   _pwb_claim_token=$_pw_lock_new_token
 
-  if ! ln -s -- "$_pwb_claim_token" "$_pwb_claim" 2>/dev/null \
-    || [ "$(readlink "$_pwb_claim" 2>/dev/null)" != "$_pwb_claim_token" ]; then
+  if ! _pw_lock_link "$_pwb_claim_token" "$_pwb_claim"; then
     # Either a peer is breaking this same owner — in which case waiting is
     # correct and there is nothing to do — or a breaker died holding the claim,
     # which would wedge the path forever. Reclaim only the second case, and
@@ -1015,9 +1030,14 @@ pw_lock_release_token() {
 # owner-liveness) right up until the breaker's pid is recycled, after which it
 # reads alive forever and the stale break for that lock stops working.
 _pw_lock_sweep_claims() {
+  # THE STATE IS RESTORED BY A BRANCH, NOT BY EXPANDING A VARIABLE INTO A
+  # COMMAND. This file is sourced, so it runs under whatever field separator
+  # its caller set; `$cmd` holding `set -f` is split by that IFS, and under a
+  # caller that changed it the expansion is one word, the command is not found,
+  # and the caller is left with its globbing permanently flipped.
+  _pwk_glob_was_off=0
   case $- in
-    *f*) _pwk_restore='set -f' ;;
-    *) _pwk_restore='set +f' ;;
+    *f*) _pwk_glob_was_off=1 ;;
   esac
   set +f
   for _pwk_p in "$1"'#break#'* "$1"'#taken#'* "$1"'#legacy#'*; do
@@ -1028,7 +1048,11 @@ _pw_lock_sweep_claims() {
     [ -L "$_pwk_p" ] || continue
     rm -f "$_pwk_p" 2>/dev/null || :
   done
-  $_pwk_restore
+  if [ "$_pwk_glob_was_off" -eq 1 ]; then
+    set -f
+  else
+    set +f
+  fi
 }
 
 # pw_lock_break_force <path> — clear a lock WITHOUT proving ownership. This is
