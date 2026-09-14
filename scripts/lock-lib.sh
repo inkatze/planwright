@@ -569,10 +569,29 @@ _pw_lock_work_path() {
 # it differs, and it goes through here for the reason the rest do: being the
 # one site outside a rule is how the rule gets broken again.
 _pw_lock_displace() {
-  _pw_lock_work_path "$1" "$2" "$3" || return 2
+  if ! _pw_lock_work_path "$1" "$2" "$3"; then
+    printf '%s\n' "lock-lib: no free working path beside $1 — refusing to move it onto an occupied one" >&2
+    return 2
+  fi
   _pw_lock_displaced=$_pw_lock_work_path_out
-  mv "$1" "$_pw_lock_displaced" 2>/dev/null || return 1
-  return 0
+  # `-f` because `mv` PROMPTS before replacing a destination it cannot write,
+  # and the prompt reads stdin: a caller that inherited a terminal would stop
+  # here, inside the step this whole family serializes on, with the question
+  # itself swallowed by the redirect above it.
+  if mv -f "$1" "$_pw_lock_displaced" 2>/dev/null; then
+    return 0
+  fi
+  _pw_lock_displaced=''
+  # WHY IT DID NOT MOVE IS DECIDED HERE, not by each caller. A source that is
+  # gone was moved by a peer, which is contention and clears on its own; a
+  # source still sitting there could not be renamed at all, which is the
+  # parent directory or the filesystem and never clears, so waiting on it
+  # spends a whole budget on a condition that is not going to change.
+  if [ -L "$1" ] || [ -e "$1" ]; then
+    printf '%s\n' "lock-lib: cannot move $1 out of the way (parent unwritable or filesystem error)" >&2
+    return 2
+  fi
+  return 1
 }
 
 # _pw_lock_link <target> <path> — create the symlink and PROVE it landed.
@@ -695,7 +714,12 @@ _pw_lock_break() {
     # clears the claim and the other comes back on the next spin.
     _pwb_holder=$(readlink "$_pwb_claim" 2>/dev/null) || _pwb_holder=''
     if [ -n "$_pwb_holder" ] && ! pw_lock_owner_alive "$_pwb_holder"; then
-      if _pw_lock_displace "$_pwb_claim" dead "$_pwb_claim_token"; then
+      _pw_lock_displace "$_pwb_claim" dead "$_pwb_claim_token"
+      _pwb_rec=$?
+      # A refusal here is not contention either, and the enclosing `return 1`
+      # would have sent the caller to spin a whole budget on it.
+      [ "$_pwb_rec" -ne 2 ] || return 2
+      if [ "$_pwb_rec" -eq 0 ]; then
         _pwb_aside=$_pw_lock_displaced
         if [ "$(readlink "$_pwb_aside" 2>/dev/null)" = "$_pwb_holder" ]; then
           rm -f "$_pwb_aside" 2>/dev/null || :
@@ -737,24 +761,11 @@ _pw_lock_break() {
   # directory instead, which is how the lock once became unbreakable.
   _pw_lock_displace "$_pwb_lock" taken "$_pwb_claim_token"
   _pwb_rc=$?
-  if [ "$_pwb_rc" -eq 2 ]; then
-    printf '%s\n' "lock-lib: no free working path beside $_pwb_lock — refusing to break onto an occupied one" >&2
-    rm -f "$_pwb_claim" 2>/dev/null || :
-    return 2
-  fi
   if [ "$_pwb_rc" -ne 0 ]; then
-    if [ -L "$_pwb_lock" ] || [ -e "$_pwb_lock" ]; then
-      # Still there and unmovable: the parent directory or the filesystem,
-      # never a peer. Saying "busy" here would send the caller to wait out a
-      # condition that does not clear.
-      printf '%s\n' "lock-lib: cannot clear $_pwb_lock after its owner was found absent (parent unwritable or filesystem error)" >&2
-      rm -f "$_pwb_claim" 2>/dev/null || :
-      return 2
-    fi
-    # Gone instead: another breaker took the dead link first, and this caller
-    # simply is not the one that took it.
+    # The claim goes back either way: this caller is not the one that cleared
+    # the dead link, and a claim it keeps holding is one nobody else can use.
     rm -f "$_pwb_claim" 2>/dev/null || :
-    return 1
+    return "$_pwb_rc"
   fi
   _pwb_taken=$_pw_lock_displaced
   if [ "$(readlink "$_pwb_taken" 2>/dev/null)" != "$_pwb_dead" ]; then
@@ -1086,18 +1097,7 @@ _pw_lock_take_link() {
   _pwm_lock=$1
   _pwm_token=$2
   [ "$(readlink "$_pwm_lock" 2>/dev/null)" = "$_pwm_token" ] || return 1
-  _pw_lock_displace "$_pwm_lock" taken "$_pwm_token"
-  _pwm_rc=$?
-  if [ "$_pwm_rc" -eq 2 ]; then
-    printf '%s\n' "lock-lib: no free working path beside $_pwm_lock — refusing to release onto an occupied one" >&2
-    return 2
-  fi
-  if [ "$_pwm_rc" -ne 0 ]; then
-    if [ -L "$_pwm_lock" ] || [ -e "$_pwm_lock" ]; then
-      return 2
-    fi
-    return 1
-  fi
+  _pw_lock_displace "$_pwm_lock" taken "$_pwm_token" || return $?
   _pwm_taken=$_pw_lock_displaced
   if [ "$(readlink "$_pwm_taken" 2>/dev/null)" != "$_pwm_token" ]; then
     _pw_lock_restore_or_keep "$_pwm_taken" "$_pwm_lock" || :

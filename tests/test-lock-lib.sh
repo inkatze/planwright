@@ -62,7 +62,10 @@ if [ ! -f "$LIB" ]; then
 fi
 
 tmp="$(mktemp -d)" || exit 1
-trap 'rm -rf "$tmp"' EXIT
+# Restore write permission first: a case below makes a directory unwritable to
+# prove a displacement fails there, and an interrupted run would otherwise
+# leave a sandbox nothing can remove.
+trap 'chmod -R u+rwX "$tmp" 2>/dev/null || :; rm -rf "$tmp"' EXIT
 
 # The portable-floor shell the library must run under. `sh` is dash on the
 # Linux runners and a bash build on macOS; both are in the support bar, and
@@ -1969,6 +1972,83 @@ strays=$(find "$tmp" -maxdepth 1 -name 'leg.lock#*' 2>/dev/null | wc -l | tr -d 
 assert_eq "and nothing is left beside it" "0" "$strays"
 rm -rf "$tmp/slow2" "$tmp/leg.err"
 rm -rf "$tmp"/leg.lock*
+
+# ---------------------------------------------------------------------------
+# 55. Moving aside answers the same way to every caller
+# ---------------------------------------------------------------------------
+#
+# Three sites consume this result, and the whole reason it exists is that they
+# were each deciding for themselves what a failure meant. The distinction that
+# matters is the one a caller cannot recover from — no free name, or a source
+# that is still sitting there unmovable — against the one it can, a peer having
+# got there first. Pin the contract at the verb, so a site that simply passes
+# the status along is correct by construction.
+
+out=$(run_sh x 'cd "$1" || exit 9
+  ln -s tok ./m.lock
+  _pw_lock_slug tok
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./m.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  PW_LOCK_SEQ=0
+  _pw_lock_displace ./m.lock taken tok 2>/dev/null
+  printf "exhausted %s\n" "$?"')
+assert_eq "no free name is a real error, not contention" "exhausted 2" "$out"
+err=$(run_sh x 'cd "$1" || exit 9
+  _pw_lock_slug tok
+  i=1
+  while [ "$i" -le 80 ]; do
+    mkdir -p "./m.lock#taken#$_pw_lock_slug_out.$$-$i"
+    i=$((i + 1))
+  done
+  PW_LOCK_SEQ=0
+  _pw_lock_displace ./m.lock taken tok' 2>&1 >/dev/null)
+case $err in
+  *'no free working path'*) pass "and it says so itself, so no caller can lose the diagnostic" ;;
+  *) fail "the refusal was silent at the verb (got '$err')" ;;
+esac
+rm -rf "$tmp"/m.lock*
+# A source that is not there is contention: somebody else moved it first.
+out=$(run_sh x 'cd "$1" || exit 9
+  _pw_lock_displace ./gone.lock taken tok 2>/dev/null
+  printf "%s\n" "$?"')
+assert_eq "a source that has already been moved is contention" "1" "$out"
+# A source that IS there and will not move is a real error, not contention: no
+# amount of waiting clears an unwritable directory.
+mkdir -p "$tmp/ro"
+ln -s tok "$tmp/ro/stuck.lock"
+chmod 500 "$tmp/ro"
+out=$(run_sh x 'cd "$1/ro" 2>/dev/null || exit 9
+  _pw_lock_displace ./stuck.lock taken tok 2>/dev/null
+  printf "%s\n" "$?"')
+chmod 700 "$tmp/ro"
+assert_eq "a source that stays put is a real error, not contention" "2" "$out"
+rm -rf "$tmp/ro"
+# And every site consumes it as a status, never as a plain condition: an
+# `if displace; then` discards the difference between the two, which is how one
+# of the two break sites came to report a hard error as contention.
+bare=$(grep -cE '^[[:space:]]*(if|while|until|elif)[[:space:]]+_pw_lock_displace' "$LIB" || :)
+assert_eq "no site consumes the displacement as a bare condition" "0" "$bare"
+
+# ---------------------------------------------------------------------------
+# 56. Moving aside never waits for a human
+# ---------------------------------------------------------------------------
+#
+# `mv` prompts before replacing a destination it cannot write, and the prompt
+# reads stdin: measured on this support bar, an unwritable regular file at the
+# destination stops `mv` dead until somebody answers, with the prompt itself
+# swallowed by the error redirect. A lock library that inherited a terminal
+# would hang inside its critical step. `-f` is the documented way to say the
+# question is not wanted; it cannot be reproduced in this suite because the
+# prompt needs a terminal and there is none here, so read the call instead.
+
+dline=$(sed -n '/^_pw_lock_displace() {/,/^}/p' "$LIB" | grep -E '(^|[^[:alnum:]_])mv ')
+case $dline in
+  *' -f '*) pass "the displacement never leaves the question open" ;;
+  *) fail "the displacement can stop on a prompt (got '$dline')" ;;
+esac
 
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
