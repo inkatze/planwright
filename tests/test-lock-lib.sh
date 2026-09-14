@@ -2050,6 +2050,84 @@ case $dline in
   *) fail "the displacement can stop on a prompt (got '$dline')" ;;
 esac
 
+# ---------------------------------------------------------------------------
+# 57. A peer arriving after the rename failed is contention, not a broken store
+# ---------------------------------------------------------------------------
+#
+# The classifier asks whether the source is still there, and that question can
+# be answered by something other than the source: a peer that won the race and
+# then published its own lock at the same path puts something there between the
+# failed rename and the look. Reading "present" as "unmovable" reports routine
+# contention as a filesystem error and aborts a caller that should have
+# retried. Ask instead what the message already claims — whether the directory
+# can be written at all — because a writable directory with the source still in
+# it would have let the rename through.
+
+mkdir -p "$tmp/fake"
+cat >"$tmp/fake/mv" <<'SHIM'
+#!/bin/sh
+exit 1
+SHIM
+chmod +x "$tmp/fake/mv"
+ln -s tok "$tmp/peer.lock"
+out=$(PATH="$tmp/fake:$PATH" run_sh x 'cd "$1" || exit 9
+  _pw_lock_displace ./peer.lock taken tok 2>/dev/null
+  printf "%s\n" "$?"')
+assert_eq "a rename that failed beside a writable directory is contention" "1" "$out"
+rm -f "$tmp/peer.lock"
+# The control keeps its meaning: a directory that genuinely cannot be written
+# is still a real error, and still says so.
+mkdir -p "$tmp/ro2"
+ln -s tok "$tmp/ro2/stuck.lock"
+chmod 500 "$tmp/ro2"
+err=$(run_sh x 'cd "$1/ro2" 2>/dev/null || exit 9
+  _pw_lock_displace ./stuck.lock taken tok' 2>&1 >/dev/null)
+chmod 700 "$tmp/ro2"
+case $err in
+  *'cannot move'*) pass "and an unwritable directory still reports a real error" ;;
+  *) fail "the unwritable case lost its diagnostic (got '$err')" ;;
+esac
+rm -rf "$tmp/ro2" "$tmp/fake"
+
+# ---------------------------------------------------------------------------
+# 58. A rename that lands INSIDE the destination has not displaced anything
+# ---------------------------------------------------------------------------
+#
+# `mv src dir` files the source inside the directory and exits 0, the same
+# semantics the create already guards against. The derivation hands out a free
+# path, so a directory can only be there if somebody made one in the window —
+# and then the caller believes it holds the thing it moved, while what it
+# actually holds is a directory containing it. For the legacy clear that ends
+# in `rm -rf`, which is how a peer's live lock would be destroyed.
+
+mkdir -p "$tmp/swallow"
+cat >"$tmp/swallow/mv" <<'SHIM'
+#!/bin/sh
+# Stand in for a peer that creates a directory on the derived path in the
+# window between it being handed out and being renamed onto.
+for a in "$@"; do d=$a; done
+mkdir -p "$d"
+exec /bin/mv "$@"
+SHIM
+chmod +x "$tmp/swallow/mv"
+mkdir -p "$tmp/sw.lock"
+out=$(PATH="$tmp/swallow:$PATH" run_sh x 'cd "$1" || exit 9
+  _pw_lock_displace ./sw.lock legacy "$$" 2>/dev/null
+  printf "%s\n" "$?"')
+assert_eq "a rename that landed inside the destination is a real error" "2" "$out"
+# And the end to end that matters: the legacy clear must not reach its remove.
+mkdir -p "$tmp/sw2.lock"
+PATH="$tmp/swallow:$PATH" run_sh x 'cd "$1" || exit 9
+  pw_lock_clear_legacy ./sw2.lock' >/dev/null 2>&1
+assert_exit "the legacy clear refuses rather than removing what it cannot name" 2 $?
+kept=$(find "$tmp" -maxdepth 3 -name 'sw2.lock' 2>/dev/null | wc -l | tr -d ' ')
+if [ "$kept" -ge 1 ]; then
+  pass "and what it moved is still on disk, not removed"
+else
+  fail "the legacy clear removed a directory it could not confirm"
+fi
+rm -rf "$tmp/swallow" "$tmp"/sw.lock* "$tmp"/sw2.lock*
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

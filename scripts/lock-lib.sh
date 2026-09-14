@@ -579,15 +579,41 @@ _pw_lock_displace() {
   # here, inside the step this whole family serializes on, with the question
   # itself swallowed by the redirect above it.
   if mv -f "$1" "$_pw_lock_displaced" 2>/dev/null; then
+    # A RENAME THAT SUCCEEDED HAS NOT NECESSARILY DISPLACED ANYTHING. `mv src
+    # dir` files the source INSIDE the directory and exits 0, the same
+    # semantics the create is already guarded against. The derivation hands out
+    # a free path, so a directory can only be there if somebody made one in the
+    # window — and the caller would then believe it holds what it moved while
+    # what it holds is a directory containing it, which for a clear ends in
+    # removing a peer's live lock. Leave everything where it is and say where
+    # it went: putting it back means renaming onto a path somebody now holds,
+    # which is the clobber this family exists to prevent.
+    _pwds_base=${1##*/}
+    if [ -n "$_pwds_base" ] && [ -d "$_pw_lock_displaced" ] \
+      && { [ -e "$_pw_lock_displaced/$_pwds_base" ] || [ -L "$_pw_lock_displaced/$_pwds_base" ]; }; then
+      printf '%s\n' "lock-lib: $1 was filed inside $_pw_lock_displaced rather than moved onto it; it is left there rather than removed" >&2
+      _pw_lock_displaced=''
+      return 2
+    fi
     return 0
   fi
   _pw_lock_displaced=''
   # WHY IT DID NOT MOVE IS DECIDED HERE, not by each caller. A source that is
-  # gone was moved by a peer, which is contention and clears on its own; a
-  # source still sitting there could not be renamed at all, which is the
-  # parent directory or the filesystem and never clears, so waiting on it
-  # spends a whole budget on a condition that is not going to change.
+  # gone was moved by a peer, which is contention and clears on its own.
+  #
+  # ASK THE DIRECTORY, NOT THE PATH. Something being at the path does not make
+  # it the thing that would not move: a peer that won the race and published
+  # its own lock puts something there between the failed rename and this look,
+  # and reading that as unmovable aborts a caller that should have retried. A
+  # writable directory with the source still in it would have let the rename
+  # through, so the honest question is the one the message makes a claim about.
   if [ -L "$1" ] || [ -e "$1" ]; then
+    _pwds_dir=${1%/*}
+    [ "$_pwds_dir" != "$1" ] || _pwds_dir=.
+    [ -n "$_pwds_dir" ] || _pwds_dir=/
+    if [ -d "$_pwds_dir" ] && [ -w "$_pwds_dir" ]; then
+      return 1
+    fi
     printf '%s\n' "lock-lib: cannot move $1 out of the way (parent unwritable or filesystem error)" >&2
     return 2
   fi
