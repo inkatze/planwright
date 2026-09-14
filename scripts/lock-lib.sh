@@ -506,6 +506,18 @@ pw_lock_owner() {
 # callers doing the same work on the same lock must not land on the same name
 # and delete each other's displaced link mid-release.
 #
+# NOTHING CLEARS A DERIVED PATH BEFORE USING IT. This is the rule the two
+# guarantees below exist to make possible, and it is the one that matters most:
+# the path was free when it was handed out, so a caller that clears it first is
+# not tidying up after itself, it is deleting whatever appeared there since —
+# and the only thing that can appear there is a peer that derived the same name
+# and has already moved its own lock onto it. Two siblings of one shell share a
+# pid and a sequence counter, so they derive the same name whenever neither has
+# published yet; measured at 60 of 1200 releases under load, with the second
+# caller destroying the first one's displaced link and neither of them
+# releasing. A stale name from an earlier run is not this caller's to clear
+# either: the derivation skips it, and the claim sweep collects it.
+#
 # The path is FREE when it is handed out. Every use of one is a `mv` onto it,
 # and `mv src dir` files the source INSIDE the directory and exits 0 — so a
 # directory sitting on a derived name turns the displacement step into a silent
@@ -692,7 +704,6 @@ _pw_lock_break() {
   # directory instead, which is how the lock once became unbreakable.
   _pw_lock_work_path "$_pwb_lock" taken "$_pwb_claim_token"
   _pwb_taken=$_pw_lock_work_path_out
-  rm -f "$_pwb_taken" 2>/dev/null || :
   if ! mv "$_pwb_lock" "$_pwb_taken" 2>/dev/null; then
     if [ -L "$_pwb_lock" ] || [ -e "$_pwb_lock" ]; then
       # Still there and unmovable: the parent directory or the filesystem,
@@ -1038,7 +1049,6 @@ _pw_lock_take_link() {
   [ "$(readlink "$_pwm_lock" 2>/dev/null)" = "$_pwm_token" ] || return 1
   _pw_lock_work_path "$_pwm_lock" taken "$_pwm_token"
   _pwm_taken=$_pw_lock_work_path_out
-  rm -f "$_pwm_taken" 2>/dev/null || :
   if ! mv "$_pwm_lock" "$_pwm_taken" 2>/dev/null; then
     if [ -L "$_pwm_lock" ] || [ -e "$_pwm_lock" ]; then
       return 2

@@ -1589,25 +1589,86 @@ rm -rf "$tmp/bsd"
 # check and then move the link. Pin the ordering here, because it is the only
 # reason the shared name is harmless.
 
-run_sh x 'pw_lock_acquire "$1/sib.lock" 50 >/dev/null || exit 1
-  ( pw_lock_release "$1/sib.lock"; echo "a $?" ) &
-  ( pw_lock_release "$1/sib.lock"; echo "b $?" ) &
-  wait' >"$tmp/sib.out" 2>"$tmp/sib.err"
-zero=$(grep -c ' 0$' "$tmp/sib.out" 2>/dev/null || echo 0)
-assert_eq "exactly one of two sibling subshells releases the hold" "1" "$zero"
-if [ -L "$tmp/sib.lock" ] || [ -e "$tmp/sib.lock" ]; then
-  fail "the lock outlived a release by a subshell"
-else
-  pass "and the lock is gone afterwards"
-fi
-strays=$(find "$tmp" -maxdepth 1 -name 'sib.lock#*' 2>/dev/null | wc -l | tr -d ' ')
-assert_eq "no working path is left behind by either" "0" "$strays"
-if [ -s "$tmp/sib.err" ]; then
-  fail "the losing subshell printed a diagnostic: $(cat "$tmp/sib.err")"
+# Run it repeatedly. A single pass of this race succeeds on an idle host
+# essentially always; the window only opens under load, which is where the
+# suite actually runs.
+sib_bad=0
+sib_err=''
+sib_stray=0
+sib_i=0
+while [ "$sib_i" -lt 40 ]; do
+  sib_i=$((sib_i + 1))
+  run_sh x 'pw_lock_acquire "$1/sib.lock" 200 >/dev/null || exit 1
+    ( pw_lock_release "$1/sib.lock"; echo "a $?" ) &
+    ( pw_lock_release "$1/sib.lock"; echo "b $?" ) &
+    wait' >"$tmp/sib.out" 2>"$tmp/sib.err"
+  zero=$(grep -c ' 0$' "$tmp/sib.out" 2>/dev/null || echo 0)
+  [ "$zero" = "1" ] || sib_bad=$((sib_bad + 1))
+  [ -s "$tmp/sib.err" ] && sib_err=$(cat "$tmp/sib.err")
+  sib_stray=$((sib_stray + $(find "$tmp" -maxdepth 1 -name 'sib.lock#*' 2>/dev/null | wc -l | tr -d ' ')))
+  [ ! -L "$tmp/sib.lock" ] && [ ! -e "$tmp/sib.lock" ] || sib_bad=$((sib_bad + 100))
+  rm -f "$tmp"/sib.lock*
+done
+assert_eq "one of two sibling subshells releases the hold, every time" "0" "$sib_bad"
+assert_eq "and no working path is left behind by either" "0" "$sib_stray"
+if [ -n "$sib_err" ]; then
+  fail "a losing subshell printed a diagnostic: $sib_err"
 else
   pass "and the loser says nothing, because nothing went wrong"
 fi
-rm -f "$tmp"/sib.lock* "$tmp/sib.out" "$tmp/sib.err"
+rm -f "$tmp/sib.out" "$tmp/sib.err"
+
+# ---------------------------------------------------------------------------
+# 47b. The same interleaving, staged rather than raced
+# ---------------------------------------------------------------------------
+#
+# The loop above only catches this when the host is busy, and a regression test
+# that needs a loaded machine is a regression test that passes quietly. Stage
+# the exact ordering instead, by slowing the two steps it turns on: the winner
+# is held inside its rename, and both callers are held inside the removal that
+# runs before it. The second caller then clears a path the first one has
+# already moved its lock to.
+
+mkdir -p "$tmp/slow"
+cat >"$tmp/slow/mv" <<'SHIM'
+#!/bin/sh
+/bin/mv "$@"
+rc=$?
+[ -n "${PW_MV_HOLD:-}" ] && sleep "$PW_MV_HOLD"
+exit $rc
+SHIM
+cat >"$tmp/slow/rm" <<'SHIM'
+#!/bin/sh
+[ -n "${PW_RM_DELAY:-}" ] && sleep "$PW_RM_DELAY"
+exec /bin/rm "$@"
+SHIM
+chmod +x "$tmp/slow/mv" "$tmp/slow/rm"
+out=$(PATH="$tmp/slow:$PATH" $SH -c '. "$1"
+  pw_lock_acquire "$2/staged.lock" 200 >/dev/null || exit 9
+  ( PW_MV_HOLD=0.8 PW_RM_DELAY=0.6
+    export PW_MV_HOLD PW_RM_DELAY
+    pw_lock_release "$2/staged.lock"; echo "a $?" ) &
+  sleep 0.5
+  ( PW_RM_DELAY=0.6
+    export PW_RM_DELAY
+    pw_lock_release "$2/staged.lock"; echo "b $?" ) &
+  wait' sh "$LIB" "$tmp" 2>"$tmp/staged.err")
+zero=$(printf '%s\n' "$out" | grep -c ' 0$')
+assert_eq "the caller that moved the link is the one that releases" "1" "$zero"
+if [ -s "$tmp/staged.err" ]; then
+  fail "the staged interleaving still reports a displaced lock: $(cat "$tmp/staged.err")"
+else
+  pass "and no displaced lock is reported, because none was taken away"
+fi
+if [ -L "$tmp/staged.lock" ] || [ -e "$tmp/staged.lock" ]; then
+  fail "the staged interleaving left the lock held"
+else
+  pass "and the lock is released"
+fi
+strays=$(find "$tmp" -maxdepth 1 -name 'staged.lock#*' 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "and nothing is left beside it" "0" "$strays"
+rm -rf "$tmp/slow" "$tmp/staged.err"
+rm -f "$tmp"/staged.lock*
 
 # ---------------------------------------------------------------------------
 # 48. Every create in this library is confirmed before it is believed
@@ -1704,6 +1765,15 @@ etimesites=$(grep -cE '^[^#]*(^|[^[:alnum:]_])ps -o etime' "$LIB" || :)
 assert_eq "only one function reads an elapsed time" "2" "$etimesites"
 # The disown rule has one owner too, and the way that stays true is that every
 # verb whose owner is not this shell reaches the lock through it.
+# And the rule those derived paths carry: a caller never clears one before
+# using it. The path was free when it was handed out, so anything there now
+# belongs to a peer — which is how two siblings destroyed each other's
+# displaced link and neither released.
+for fn in _pw_lock_take_link _pw_lock_break; do
+  body=$(sed -n "/^$fn() {/,/^}/p" "$LIB")
+  cleared=$(printf '%s\n' "$body" | grep -A3 '_pw_lock_work_path ' | grep -c 'rm ' || :)
+  assert_eq "$fn does not clear a working path before it moves onto it" "0" "$cleared"
+done
 for v in pw_lock_try_detached pw_lock_acquire_detached pw_lock_acquire_for; do
   body=$(sed -n "/^$v() {/,/^}/p" "$LIB")
   case $body in
