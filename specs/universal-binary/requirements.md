@@ -413,6 +413,29 @@ discipline.
 
 ## Changelog
 
+- 2026-09-14 — Expression-only: Task 1.3's deliverables record the evasions
+  and misreports a review pass found in the lint guard, with a Done-when
+  clause requiring a failing case for each. The guard is allowlisted rather
+  than wired while Task 1 has no adopters for it to run over, so nothing it
+  misses can pass a gate today; writing them into the task that wires it is
+  what keeps the split from turning a deferral into a loss. Gap-fill within
+  D-11's lint-guard deliverable, not a change to it: no REQ or D-ID added, no
+  accepted decision changed, and the guard's contract is what it already was.
+- 2026-09-14 — Expression-only: Task 1.3 added, and Task 1 narrowed to the
+  lock primitive and its lint guard. Operator decision taken while Task 1 was
+  in flight: the primitive is the reviewable unit, so the five holder
+  migrations it shipped alongside move to their own task rather than riding
+  a branch that already carries the library. Redistribution across tasks
+  only: the union of the two deliverable lists is what Task 1 carried
+  before, D-11 and REQ-E1.5 are untouched, and no REQ or D-ID is added.
+  Task 1.2 now depends on Task 1.3, which is where the token-printing
+  `lock` verb its consumers read actually lands.
+- 2026-09-13 — Expression-only: Task 1.2 added, carrying the owner-token
+  release to the fleet-lock consumers Task 1 left on the token-less pair.
+  Gap-fill under D-11 rather than a new decision: the owner token crossing
+  the process boundary is what D-11 already accepts, and Task 1 shipped it
+  for one consumer as the worked example. No REQ or D-ID added, no accepted
+  decision changed.
 - 2026-09-09 — Amended at kickoff (first-activation walkthrough and
   sign-off lens pass, recorded in `kickoff-brief.md`): tests-only tier
   dissolved by the REQ-A1.3 flag and liveness made transitive; Sources and

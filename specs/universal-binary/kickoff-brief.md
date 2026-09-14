@@ -567,4 +567,83 @@ Anchor: `cc916e12057c4fa437c4fdc825cf0fd6e7c4be71` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Amendment — Task 1.2 added for the lock consumers Task 1 did not reach (expression-only, 2026-09-13)
+
+**Mode:** in-flight amendment on the Task 1 PR (expression-only, per REQ-A3.3).
+
+Task 1 gave `scripts/fleet-state.sh lock` an owner token and an
+ownership-verified `unlock`, and converted `scripts/tower-queue.sh` onto them.
+The lock's other consumers still release unconditionally, so a release issued
+after a caller's own hold was cleared removes whoever holds the lock now,
+which is the clobber the token exists to prevent. Carrying that to all of them
+was outside Task 1's deliverable list, so the operator took it as its own task
+rather than widening one already in flight.
+
+**No lens pass** (expression-only, per REQ-A3.3): no accepted decision changes
+and no REQ or D-ID is added. D-11 already accepts the owner token as this
+family's release discipline; the new task records extending it to the callers
+Task 1 left behind, which is a gap-fill within that decision rather than a
+change to it. Validator after the edit: 0 errors, 0 warnings.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-09-13
+("Task 1.2 added, carrying the owner-token release to the fleet-lock consumers
+Task 1 left on the token-less pair").
+Anchor: `3c061ddfc2b2332d5ce84e0a2df9096d0ca4174b` — computed as
+`scripts/spec-anchor.sh specs/universal-binary`
+
+### Amendment — Task 1 narrowed to the primitive, Task 1.3 added for the holders (expression-only, 2026-09-14)
+
+**Mode:** in-flight amendment on the Task 1 PR (expression-only, per REQ-A3.3).
+
+Task 1 shipped the lock library, its lint guard, and the migration of the five
+scripts that hold advisory locks, in one branch. The operator judged that too
+large to review as one unit and split it: the library and the guard stay, the
+five holder migrations become Task 1.3. Task 1's deliverables and Done-when
+narrow to match, and the wiring of the guard into `check` moves with the
+holders, since a guard with nothing to run over cannot be clean and wired at
+the same time. Task 1.2 was recorded as depending on Task 1; the
+token-printing `lock` verb its consumers read now lands in Task 1.3, so the
+dependency moves there. It is not subsumed: Task 1.3 converts the scripts that
+HOLD locks, Task 1.2 the scripts that CALL `fleet-state.sh lock` and release
+with the token-less form, which is a disjoint set.
+
+**No lens pass** (expression-only, per REQ-A3.3): no accepted decision changes
+and no REQ or D-ID is added. This is redistribution across tasks, and the
+union of Task 1 and Task 1.3's deliverables is what Task 1 carried before.
+D-11 still requires one atomic-create primitive with owner-token release and
+every holder on it; REQ-E1.5 is untouched. Validator after the edit: 0 errors,
+0 warnings.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-09-14
+("Task 1.3 added, and Task 1 narrowed to the lock primitive and its lint
+guard").
+Anchor: `ad2526814093ef85fd55ad647231e0b2dfc68577` — computed as
+`scripts/spec-anchor.sh specs/universal-binary`
+
+### Amendment — the lint guard's known evasions recorded on Task 1.3 (expression-only, 2026-09-14)
+
+**Mode:** in-flight amendment on the Task 1 PR (expression-only, per REQ-A3.3).
+
+Review of `scripts/check-lock-primitive.sh` at the end of Task 1 found forms
+the guard does not read: several where it misses a lock it should flag, and two
+where it reports something that is not one. Task 1 leaves the guard allowlisted
+rather than wired, because it has no adopters to run over until Task 1.3, so
+nothing it currently misses can pass a gate. That is also what makes leaving
+them open safe, and what makes writing them down necessary: the task that wires
+the guard is the one whose Done-when they have to satisfy, and a finding that
+lives only in a review thread is a finding the split has dropped.
+
+**No lens pass** (expression-only, per REQ-A3.3): no accepted decision changes
+and no REQ or D-ID is added. D-11 already requires the lint guard; recording
+which forms it must read before it is wired is a gap-fill inside that
+deliverable rather than a change to it, and the guard's contract is unchanged.
+Validator after the edit: 0 errors, 0 warnings.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-09-14
+("Task 1.3's deliverables record the evasions and misreports a review pass
+found in the lint guard").
+Anchor: `de44389515d0af7c59ec6c67a96a9a799df6b7d7` — computed as
+`scripts/spec-anchor.sh specs/universal-binary`
