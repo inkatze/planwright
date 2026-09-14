@@ -1712,6 +1712,95 @@ for v in pw_lock_try_detached pw_lock_acquire_detached pw_lock_acquire_for; do
   esac
 done
 
+# ---------------------------------------------------------------------------
+# 51. Every zero-padded field of a BSD elapsed time is read as decimal
+# ---------------------------------------------------------------------------
+#
+# `ps -o etime=` pads hours, minutes and seconds to two digits and leaves days
+# unpadded, so `08:09:05` is the ordinary shape for ten hours of every day.
+# Dash reads a leading zero as octal and REFUSES `08` outright, which would
+# take the mint-time witness out of every token minted in that window. The
+# days branch alone does not exercise this — its field is the one that is never
+# padded.
+
+mkdir -p "$tmp/etshim"
+cat >"$tmp/etshim/ps" <<'SHIM'
+#!/bin/sh
+for a in "$@"; do
+  case $a in
+    etimes=) exit 1 ;;
+  esac
+done
+printf '%s\n' "$FAKE_ETIME"
+SHIM
+chmod +x "$tmp/etshim/ps"
+# shape                expected seconds
+set -- \
+  '08:09:05' 29345 \
+  '00:00:07' 7 \
+  '09:05' 545 \
+  '2-08:09:05' 202145 \
+  '08-08:08:08' 720488 \
+  '10-00:00:00' 864000
+while [ "$#" -ge 2 ]; do
+  got=$(PATH="$tmp/etshim:$PATH" FAKE_ETIME="$1" \
+    $SH -c '. "$1"; _pw_lock_etimes 1; printf "%s" "$_pw_lock_etimes_out"' sh "$LIB" 2>&1)
+  assert_eq "an elapsed time of $1 reads as $2 seconds" "$2" "$got"
+  shift 2
+done
+rm -rf "$tmp/etshim"
+
+# ---------------------------------------------------------------------------
+# 52. A derived working path is handed out only when nothing occupies it
+# ---------------------------------------------------------------------------
+#
+# `mv src dir` files the source INSIDE the directory and exits 0, so a
+# directory sitting on a `#taken#` path turns the displacement step into a
+# silent vacate: the live lock ends up inside it, the restore cannot find a
+# link to put back, and the path is left unlocked. Nothing here needs an
+# attacker — a leftover from a killed run is the same shape.
+
+# Both derivations have to happen in ONE shell: the path carries the deriving
+# shell's pid, so two invocations differ for a reason that has nothing to do
+# with what is being tested.
+out=$(run_sh x 'PW_LOCK_SEQ=0
+  _pw_lock_work_path "$1/wp.lock" taken tok
+  first=$_pw_lock_work_path_out
+  mkdir -p "$first"
+  PW_LOCK_SEQ=0
+  _pw_lock_work_path "$1/wp.lock" taken tok
+  printf "%s\n%s\n" "$first" "$_pw_lock_work_path_out"')
+first=$(printf '%s\n' "$out" | sed -n 1p)
+again=$(printf '%s\n' "$out" | sed -n 2p)
+if [ -n "$again" ] && [ "$again" != "$first" ]; then
+  pass "a derived path that is occupied is skipped for a free one"
+else
+  fail "the derivation handed back an occupied path ('$again')"
+fi
+rm -rf "$first"
+# End to end, in one shell for the same reason: with a directory sitting on the
+# path the release would have used, the release still releases and the lock is
+# not filed inside it.
+trap_path=$(run_sh x 'PW_LOCK_SEQ=0
+  pw_lock_try "$1/wp2.lock" >/dev/null || exit 1
+  PW_LOCK_SEQ=0
+  _pw_lock_work_path "$1/wp2.lock" taken "$PW_LOCK_TOKEN"
+  mkdir -p "$_pw_lock_work_path_out"
+  printf "%s\n" "$_pw_lock_work_path_out"
+  PW_LOCK_SEQ=0
+  pw_lock_release "$1/wp2.lock" || exit 3' 2>/dev/null)
+rc=$?
+assert_exit "a release past an occupied working path still releases" 0 $rc
+if [ -L "$tmp/wp2.lock" ] || [ -e "$tmp/wp2.lock" ]; then
+  fail "the lock survived the release"
+else
+  pass "and the lock is gone, not filed inside the directory"
+fi
+inside=$(find "$trap_path" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "and nothing was filed inside the occupying directory" "0" "$inside"
+rm -rf "$trap_path"
+rm -f "$tmp"/wp2.lock*
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

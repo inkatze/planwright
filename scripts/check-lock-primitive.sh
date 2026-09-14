@@ -68,7 +68,8 @@
 #   * status consumed through a variable two hops later (`mkdir "$d"; sleep 1;
 #     rc=$?`) is not followed: only the next effective line is examined.
 #   * `eval "mkdir $d && ..."` is a string, not a command, and is not parsed.
-#   * an option-looking OPERAND after `--` (`mkdir -- -p`) reads as an option.
+#   * options carried in a variable (`mkdir $opts "$d"`) are not resolved, so
+#     a `-p` that only exists at runtime is not seen.
 #
 # Usage:
 #   check-lock-primitive.sh [<root>]   scan the scope directories under <root>
@@ -400,9 +401,11 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
           qc = substr(rest, 1, 1); rest = substr(rest, 2); used++
         }
         # `<<2` is an arithmetic shift far more often than a heredoc named 2,
-        # and reading it as a heredoc would swallow the file from there on.
-        if (match(rest, /^[A-Za-z0-9_.+-]+/) && (qc != "" || rest !~ /^[0-9]/)) {
-          delim = substr(rest, 1, RLENGTH)
+        # and reading it as a heredoc would swallow the file from there on. But
+        # a shift operand is a NUMBER: `2EOF` is not one, and refusing it reads
+        # the heredoc BODY as shell, which reports prose as code.
+        delim = match(rest, /^[A-Za-z0-9_.+-]+/) ? substr(rest, 1, RLENGTH) : ""
+        if (delim != "" && (qc != "" || delim !~ /^[0-9]+$/)) {
           used += RLENGTH
           if (qc != "" && substr(rest, RLENGTH + 1, 1) == qc) used++
           if (heredoc == "") { heredoc = delim; hdash = hd_dash }
@@ -443,7 +446,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
 
   # walk(path, lno) — find the mkdir invocations on the tokenized line and
   # decide, per invocation, whether its exit status is being read.
-  function walk(path, lno, exempt,   i, j, t, base, opt, lvl, hasp, inopts, term, nxt, kind) {
+  function walk(path, lno, exempt,   i, j, k, t, base, opt, lvl, hasp, inopts, term, nxt, kind) {
     i = 1
     while (i <= ntok) {
       if (tokt[i] == "op") {
@@ -488,8 +491,21 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
         }
         j++
       }
-      term = (j <= ntok) ? tok[j] : "EOL"
-      nxt = (j + 1 <= ntok) ? tok[j + 1] : ""
+      # A GROUP DOES NOT SWALLOW THE STATUS. The last command in a subshell or
+      # a brace group is the group, so `(mkdir d) && ...` reads the mkdir exit
+      # status exactly as `mkdir d && ...` does. Look past the closers — and
+      # past the `;` a brace group needs before its `}` — for the operator that
+      # actually consumes it.
+      k = j
+      while (k <= ntok) {
+        if (tokt[k] == "op" && tok[k] == ")") { k++; continue }
+        if (tok[k] == "}") { k++; continue }
+        if (tokt[k] == "op" && tok[k] == ";" \
+          && k + 1 <= ntok && tok[k + 1] == "}") { k++; continue }
+        break
+      }
+      term = (k <= ntok) ? tok[k] : "EOL"
+      nxt = (k + 1 <= ntok) ? tok[k + 1] : ""
       kind = ""
       if (cond) kind = "cond"
       else if (term == "&&" || term == "||") kind = "chain"
@@ -497,7 +513,7 @@ awk -v listfile="$work/list" -v SQ="'" -v BT='`' '
 
       if (!hasp && kind != "") {
         if (!exempt) print path "\t" lno "\t" kind
-      } else if (!hasp && (term == "EOL" || (term == ";" && j == ntok))) {
+      } else if (!hasp && (term == "EOL" || (term == ";" && k == ntok))) {
         # Nothing on this line reads the status. The next effective line still
         # can, and `rc=$?` is the spelling that does.
         pend = 1; pend_line = lno; pend_exempt = exempt

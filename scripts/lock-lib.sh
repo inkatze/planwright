@@ -270,6 +270,21 @@ _pw_lock_store() {
 # failure that announces itself — it returns nothing, every mint-time witness
 # goes empty, and the recycled-pid check silently degrades to pid-only on every
 # Mac in the support bar while the header still claims it.
+# _pw_lock_dec <digits> — set _pw_lock_dec_out to the same value with leading
+# zeros removed, so the shell reads it as decimal rather than octal. Trimming a
+# single zero is not enough: it only works while every field happens to be two
+# digits wide, which is an assumption about somebody else's output format.
+_pw_lock_dec() {
+  _pwez=$1
+  while :; do
+    case $_pwez in
+      0[0-9]*) _pwez=${_pwez#0} ;;
+      *) break ;;
+    esac
+  done
+  _pw_lock_dec_out=$_pwez
+}
+
 _pw_lock_etimes() {
   _pw_lock_etimes_out=$(ps -o etimes= -p "$1" 2>/dev/null | tr -d ' ') || _pw_lock_etimes_out=''
   case $_pw_lock_etimes_out in
@@ -294,10 +309,19 @@ _pw_lock_etimes() {
   esac
   _pwe_m=${_pwe_raw%%:*}
   _pwe_s=${_pwe_raw#*:}
-  # A leading zero would be read as octal by the arithmetic below.
-  _pwe_h=${_pwe_h#0}
-  _pwe_m=${_pwe_m#0}
-  _pwe_s=${_pwe_s#0}
+  # EVERY FIELD, not the padded ones. The shell reads a leading zero as octal,
+  # so `08` is not 8 — dash refuses it outright and takes the whole witness out
+  # of every token minted that hour. `ps` pads hours, minutes and seconds and
+  # leaves days bare, but which fields a given `ps` pads is its business, not
+  # something to encode here.
+  _pw_lock_dec "${_pwe_days:-0}"
+  _pwe_days=$_pw_lock_dec_out
+  _pw_lock_dec "${_pwe_h:-0}"
+  _pwe_h=$_pw_lock_dec_out
+  _pw_lock_dec "${_pwe_m:-0}"
+  _pwe_m=$_pw_lock_dec_out
+  _pw_lock_dec "${_pwe_s:-0}"
+  _pwe_s=$_pw_lock_dec_out
   for _pwe_f in "${_pwe_days:-0}" "${_pwe_h:-0}" "${_pwe_m:-0}" "${_pwe_s:-0}"; do
     case $_pwe_f in
       '' | *[!0-9]*) return 0 ;;
@@ -481,10 +505,28 @@ pw_lock_owner() {
 # for exactly that reason. Every path built here is private scratch, so two
 # callers doing the same work on the same lock must not land on the same name
 # and delete each other's displaced link mid-release.
+#
+# The path is FREE when it is handed out. Every use of one is a `mv` onto it,
+# and `mv src dir` files the source INSIDE the directory and exits 0 — so a
+# directory sitting on a derived name turns the displacement step into a silent
+# vacate: the live lock ends up inside it, the restore finds no link to put
+# back, and the path is left unlocked. A leftover from a killed run is that
+# shape; so is anything an operator dropped there. Skipping an occupied name is
+# not a security boundary and is not meant as one — writing into the lock's own
+# directory already means being able to remove the lock outright — it is what
+# keeps an ordinary stray from costing a live lock.
 _pw_lock_work_path() {
   _pw_lock_slug "$3"
-  PW_LOCK_SEQ=$((PW_LOCK_SEQ + 1))
-  _pw_lock_work_path_out="$1#$2#$_pw_lock_slug_out.$$-$PW_LOCK_SEQ"
+  _pwwp_tries=0
+  while :; do
+    PW_LOCK_SEQ=$((PW_LOCK_SEQ + 1))
+    _pw_lock_work_path_out="$1#$2#$_pw_lock_slug_out.$$-$PW_LOCK_SEQ"
+    if [ ! -e "$_pw_lock_work_path_out" ] && [ ! -L "$_pw_lock_work_path_out" ]; then
+      return 0
+    fi
+    _pwwp_tries=$((_pwwp_tries + 1))
+    [ "$_pwwp_tries" -lt 64 ] || return 0
+  done
 }
 
 # _pw_lock_link <target> <path> — create the symlink and PROVE it landed.

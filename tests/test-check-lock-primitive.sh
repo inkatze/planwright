@@ -185,6 +185,83 @@ write_script "$tmp/cmdsubok/scripts/ok.sh" 'mkdir -p "$d/$(id -u).lock" || exit 
 out4="$(/bin/bash "$CHECKER" "$tmp/cmdsubok" 2>&1)"
 assert "the same shape with -p is clean" 0 $?
 assert_not_contains "a real -p still exempts across a substitution" "$out4" "ok.sh"
+
+# ---------------------------------------------------------------------------
+# 1c. A group does not swallow the status. The last command in a subshell or a
+#     brace group IS the group, so `(mkdir d) && ...` reads the mkdir status
+#     exactly as `mkdir d && ...` does — and both forms are what the docs above
+#     say this guard covers.
+# ---------------------------------------------------------------------------
+make_root "$tmp/groups"
+write_script "$tmp/groups/scripts/subsh.sh" '(mkdir "$d") && exit 0'
+write_script "$tmp/groups/scripts/brace.sh" '{ mkdir "$d"; } && exit 0'
+write_script "$tmp/groups/scripts/subshor.sh" '(mkdir "$d") || return 1'
+write_script "$tmp/groups/scripts/nested.sh" '( { mkdir "$d"; } ) && exit 0'
+out5="$(/bin/bash "$CHECKER" "$tmp/groups" 2>&1)"
+assert "a mkdir at the end of a group is still read" 1 $?
+assert_contains "a subshell does not hide it" "$out5" "scripts/subsh.sh:3:"
+assert_contains "a brace group does not hide it" "$out5" "scripts/brace.sh:3:"
+assert_contains "nor does the || form" "$out5" "scripts/subshor.sh:3:"
+assert_contains "nor a group inside a group" "$out5" "scripts/nested.sh:3:"
+# Control: the same groups with -p stay clean, so the look-through did not turn
+# every grouped mkdir into a finding.
+make_root "$tmp/groupsok"
+write_script "$tmp/groupsok/scripts/ok.sh" '(mkdir -p "$d") && exit 0'
+write_script "$tmp/groupsok/scripts/ok2.sh" '{ mkdir -p "$d"; } || exit 1'
+out6="$(/bin/bash "$CHECKER" "$tmp/groupsok" 2>&1)"
+assert "a grouped mkdir -p is still clean" 0 $?
+assert_not_contains "no grouped mkdir -p is reported" "$out6" "ok.sh"
+
+# ---------------------------------------------------------------------------
+# 1d. A heredoc whose delimiter starts with a digit is still a heredoc. The
+#     reason digits are refused is that `<<2` is an arithmetic shift, and a
+#     shift operand is a NUMBER — `2EOF` is not one, so reading its body as
+#     shell reports prose as code.
+# ---------------------------------------------------------------------------
+make_root "$tmp/hd"
+write_file "$tmp/hd/scripts/digit.sh" '#!/bin/sh' 'set -u' 'cat <<2EOF' \
+  'mkdir "$d" && exit 0' '2EOF'
+out7="$(/bin/bash "$CHECKER" "$tmp/hd" 2>&1)"
+assert "a digit-led heredoc delimiter does not leak its body" 0 $?
+assert_not_contains "the heredoc body is not read as code" "$out7" "digit.sh"
+# Control: the shift it was protecting stays a shift, and the guard still sees
+# the line after it as code.
+make_root "$tmp/shift"
+write_script "$tmp/shift/scripts/sh.sh" 'n=$((1 << 2))' 'mkdir "$d" && exit 0'
+out8="$(/bin/bash "$CHECKER" "$tmp/shift" 2>&1)"
+assert "a shift is not read as a heredoc" 1 $?
+assert_contains "and the code after it is still scanned" "$out8" "scripts/sh.sh:4:"
+
+# ---------------------------------------------------------------------------
+# 1e. A case pattern closes nothing it did not open. Its bare `)` reaches the
+#     same pop as a substitution boundary, and the nesting level is what tells
+#     an operand of this command from an operand of one inside it — so a
+#     pattern driving that level below zero would misattribute every operand
+#     after it.
+# ---------------------------------------------------------------------------
+make_root "$tmp/casepat"
+write_script "$tmp/casepat/scripts/after.sh" \
+  'case $x in' '  a) echo one ;;' 'esac' 'mkdir "$d/$(id -u).l" && exit 0'
+write_script "$tmp/casepat/scripts/insub.sh" \
+  'v=$(case $x in a) echo 1 ;; esac)' 'mkdir "$d/$(id -u).l" && exit 0'
+write_script "$tmp/casepat/scripts/within.sh" \
+  'case $x in' '  a) mkdir "$d/$(id -u).l" && exit 0 ;;' 'esac'
+write_script "$tmp/casepat/scripts/alt.sh" \
+  'case $x in' '  a|b) mkdir "$d" -p ;;' 'esac' 'mkdir "$d" && exit 0'
+out9="$(/bin/bash "$CHECKER" "$tmp/casepat" 2>&1)"
+assert "a case pattern does not derail the scan" 1 $?
+assert_contains "code after a case statement is still scanned" "$out9" "scripts/after.sh:6:"
+assert_contains "code after a case inside a substitution is too" "$out9" "scripts/insub.sh:4:"
+assert_contains "a mkdir inside a case arm is seen" "$out9" "scripts/within.sh:4:"
+assert_contains "an alternation pattern does not hide the next command" "$out9" "scripts/alt.sh:6:"
+# `--` ends the options, so what follows is a directory named `-p`, not the
+# flag. The contract block above claimed this read as an option; it does not,
+# and a limit the guard does not have is as misleading as one it does.
+make_root "$tmp/ddash"
+write_script "$tmp/ddash/scripts/dd.sh" 'mkdir -- -p && exit 0'
+out10="$(/bin/bash "$CHECKER" "$tmp/ddash" 2>&1)"
+assert "a directory named -p after -- is not a -p option" 1 $?
+assert_contains "and the site is named" "$out10" "scripts/dd.sh:3:"
 assert_contains "the '; then' form is named" "$out" "tests/then.sh:4:"
 assert_contains "the '; then' offense says which form it is" "$out" "tested by a following 'then'"
 assert_contains "the remedy names the lock library" "$out" "scripts/lock-lib.sh"
