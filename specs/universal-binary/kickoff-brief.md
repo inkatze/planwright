@@ -591,3 +591,33 @@ Changelog: requirements.md `## Changelog` entry dated 2026-09-13
 Task 1 left on the token-less pair").
 Anchor: `3c061ddfc2b2332d5ce84e0a2df9096d0ca4174b` — computed as
 `scripts/spec-anchor.sh specs/universal-binary`
+
+### Amendment — Task 1 narrowed to the primitive, Task 1.3 added for the holders (expression-only, 2026-09-14)
+
+**Mode:** in-flight amendment on the Task 1 PR (expression-only, per REQ-A3.3).
+
+Task 1 shipped the lock library, its lint guard, and the migration of the five
+scripts that hold advisory locks, in one branch. The operator judged that too
+large to review as one unit and split it: the library and the guard stay, the
+five holder migrations become Task 1.3. Task 1's deliverables and Done-when
+narrow to match, and the wiring of the guard into `check` moves with the
+holders, since a guard with nothing to run over cannot be clean and wired at
+the same time. Task 1.2 was recorded as depending on Task 1; the
+token-printing `lock` verb its consumers read now lands in Task 1.3, so the
+dependency moves there. It is not subsumed: Task 1.3 converts the scripts that
+HOLD locks, Task 1.2 the scripts that CALL `fleet-state.sh lock` and release
+with the token-less form, which is a disjoint set.
+
+**No lens pass** (expression-only, per REQ-A3.3): no accepted decision changes
+and no REQ or D-ID is added. This is redistribution across tasks, and the
+union of Task 1 and Task 1.3's deliverables is what Task 1 carried before.
+D-11 still requires one atomic-create primitive with owner-token release and
+every holder on it; REQ-E1.5 is untouched. Validator after the edit: 0 errors,
+0 warnings.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-09-14
+("Task 1.3 added, and Task 1 narrowed to the lock primitive and its lint
+guard").
+Anchor: `ad2526814093ef85fd55ad647231e0b2dfc68577` — computed as
+`scripts/spec-anchor.sh specs/universal-binary`

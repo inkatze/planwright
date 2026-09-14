@@ -15,23 +15,20 @@
   token's process is absent, never an age), signal-safe release installed
   before the critical section, and token reentrancy (a nested acquire
   under the same token succeeds and the lock is held until the outermost
-  release); every lock holder in the script layer adopted onto it — at
-  drafting: the orchestration lock, the fleet state registry, the
-  allocation locks, the stream-json supervisor's locks, the audit and
-  observation appenders, plus any other the tree carries at task time;
-  `mkdir` retired as an acquisition primitive with a lint guard
-  (`scripts/check-lock-primitive.sh`, wired as `check:lock-primitive`)
-  rejecting any `mkdir` whose exit status is used as a lock-acquisition
-  signal; the registry race, lost-append, and allocation bound-counter
-  tests green; a reentrancy test.
-- **Done when:** the registry race test passes twenty of twenty
-  registrations in ten consecutive runs with no other test process on the
-  host and in ten consecutive runs under `mise run test` with
-  `mode=parallel` in the timing report; the allocation lock's
-  bound-counter test records no grant past its bound in the same runs;
-  the reentrancy test passes; every script in the lock-holder list the
-  library's header enumerates sources it and the lint guard reports no
-  un-adopted lock site; the lint guard runs under `mise run check`.
+  release); `mkdir` retired as an acquisition primitive with a lint guard
+  (`scripts/check-lock-primitive.sh`) rejecting any `mkdir` whose exit
+  status is used as a lock-acquisition signal; the library's own test
+  suite, covering the concurrent-writer occupancy race, concurrent breaks,
+  reentrancy, and signal-path release; the guard's own test suite. The
+  holders adopt in Task 1.3, which is what wires the guard into `check`.
+- **Done when:** the library's occupancy race test records no interleaved
+  critical section over twelve concurrent same-resource writers in ten
+  consecutive runs with no other test process on the host and in ten
+  consecutive runs under `mise run test` with `mode=parallel` in the
+  timing report; the reentrancy and signal-path tests pass; the guard
+  rejects a `mkdir` acquisition and accepts an annotated non-lock
+  `mkdir`; the lock-holder list the library's header enumerates matches
+  what the tree actually sources, in both directions.
 - **Dependencies:** none
 - **Citations:** D-11 · REQ-E1.5
 - **Estimated effort:** 2 days
@@ -67,16 +64,46 @@
   `scripts/fleet-state.sh lock` prints and release with `unlock <token>`
   rather than the token-less form, so a release issued after the caller's own
   hold was cleared leaves the current holder's lock standing;
-  `scripts/tower-queue.sh` is the worked example, converted under Task 1 and
+  `scripts/tower-queue.sh` is the worked example, converted under Task 1.3 and
   not revisited here.
 - **Done when:** each adopted consumer has a test in which a release issued by
   a caller whose hold was already cleared leaves a successor's lock intact,
   where the token-less form removed it; the token-less `unlock` is still
   reachable as the operator escape hatch; `scripts/check-lock-primitive.sh`
   reports no finding over the adopted scripts; the fleet suites stay green.
-- **Dependencies:** 1
+- **Dependencies:** 1.3
 - **Citations:** D-11 · REQ-E1.5
 - **Estimated effort:** 1 day
+
+### Task 1.3 — Adopt the lock holders onto the primitive
+
+- **Deliverables:** `scripts/fleet-state.sh`, `scripts/allocation-ledger.sh`,
+  `scripts/fleet-streamjson.sh`, `scripts/observation-carry.sh` and
+  `scripts/orchestrate-lock.sh` take every advisory lock through the Task 1
+  library instead of their own acquisition code, with their concurrency
+  tests carried over; the consumers converted alongside them, including
+  `scripts/tower-queue.sh` as the worked example Task 1.2 builds on;
+  `scripts/orchestrate-lock.sh`'s `release` verb releases through the
+  ownership-verified token release with the token it read, closing the
+  window in which it reads a holder's token, the holder releases, a
+  successor acquires, and the clear lands on the successor's lock;
+  `scripts/check-lock-primitive.sh` wired into the `check` aggregate and
+  its `scripts/guard-wiring-allow.txt` entry removed in the same change;
+  the `stale_lock_threshold` option retired from `config/defaults.yml` and
+  the docs once no adopter reads an age.
+- **Done when:** `scripts/check-lock-primitive.sh` reports no finding over
+  the adopted scripts and runs under `mise run check`; the lock-holder list
+  in the library's header names all five and matches what the tree sources,
+  in both directions; the registry race test passes twenty of twenty
+  registrations in ten consecutive runs with no other test process on the
+  host and in ten consecutive runs under `mise run test` with
+  `mode=parallel` in the timing report; the allocation lock's bound-counter
+  test records no grant past its bound in the same runs; the lost-append
+  test stays green; a test covers the `release` window above, failing
+  against the read-then-clear form.
+- **Dependencies:** 1
+- **Citations:** D-11 · REQ-E1.5
+- **Estimated effort:** 2 days
 
 ### Task 2 — Partition script and coupling profile
 
