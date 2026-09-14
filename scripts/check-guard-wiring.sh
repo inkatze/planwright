@@ -200,6 +200,15 @@ if [ -r "$allowfile" ]; then
   allowed=$(awk '{ sub(/#.*/, ""); sub(/^[[:space:]]+/, ""); sub(/[[:space:]].*$/, ""); if ($0 != "") print }' "$allowfile")
 fi
 
+# The one membership test over that list. It is newline-separated and a
+# basename may contain a space, so neither a space-delimited `case` pattern
+# (which would match only the final entry) nor word-splitting is safe here;
+# every reader of $allowed goes through this.
+is_allowed() {
+  [ -n "$allowed" ] || return 1
+  printf '%s\n' "$allowed" | grep -qxF -- "$1"
+}
+
 rc=0
 unwired=''
 # Read the guard list a line at a time: a path containing a space would be
@@ -209,29 +218,28 @@ while IFS= read -r g; do
   [ -n "$g" ] || continue
   b=${g##*/}
   if printf '%s\n' "$haystack" | grep -qF -- "$b"; then
-    case " $allowed " in
-      *" $b "*)
-        echo "$me: $b is in the allowlist but IS wired — remove the stale entry" >&2
-        rc=1
-        ;;
-    esac
+    if is_allowed "$b"; then
+      echo "$me: $b is in the allowlist but IS wired — remove the stale entry" >&2
+      rc=1
+    fi
     continue
   fi
-  case " $allowed " in
-    *" $b "*) continue ;;
-  esac
+  is_allowed "$b" && continue
   unwired="$unwired $b"
   rc=1
 done <<EOF
 $guards
 EOF
 
-for a in $allowed; do
+while IFS= read -r a; do
+  [ -n "$a" ] || continue
   [ -f "$repo_root/scripts/$a" ] || {
     echo "$me: the allowlist names '$a', which does not exist — remove the stale entry" >&2
     rc=1
   }
-done
+done <<EOF
+$allowed
+EOF
 
 if [ -n "$unwired" ]; then
   for b in $unwired; do

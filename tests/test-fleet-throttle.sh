@@ -597,9 +597,6 @@ mkdir -p "$audtree"
 cp "$FT" "$audtree/fleet-throttle.sh"
 cp "$here/../scripts/echo-safety.sh" "$audtree/echo-safety.sh"
 cp "$here/../scripts/fleet-state.sh" "$audtree/fleet-state.sh"
-# fleet-state.sh takes its lock through the shared primitive, so a faithful
-# fixture install carries it too.
-cp "$here/../scripts/lock-lib.sh" "$audtree/lock-lib.sh"
 printf '#!/bin/sh\nexit 0\n' >"$audtree/fleet-daemon-gate.sh"
 printf '#!/bin/sh\nexit 1\n' >"$audtree/fleet-audit.sh"
 chmod +x "$audtree/fleet-daemon-gate.sh" "$audtree/fleet-audit.sh"

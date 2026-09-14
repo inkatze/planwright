@@ -148,16 +148,15 @@ gtmp=$(mktemp -d) || {
   echo "migrate-format-version: mktemp failed (cannot allocate a work dir)" >&2
   exit 2
 }
-# The spec dir whose lock is held, for the EXIT trap (empty when free). The
+# The held lock dir for the EXIT trap (empty when nothing is held) — the
 # same idiom as tasks-pr-sync.sh's rm_lock_and_tmp: a caught signal or an
 # unexpected abort releases the per-spec lock instead of leaving other
-# writers behind it. A SIGKILL skips this, and the hold being owned by THIS
-# pid is what makes that recoverable: the next caller finds the owner absent
-# and breaks the lock at once.
+# writers to wait out orchestrate-lock.sh's stale-break. A SIGKILL still
+# falls through to the stale-break by design.
 cur_lockdir=""
 cleanup() {
   if [ -n "$cur_lockdir" ]; then
-    "$lock_sh" release "$cur_lockdir" --owner-pid "$$" >/dev/null 2>&1 || true
+    "$lock_sh" release "$cur_lockdir" >/dev/null 2>&1 || true
   fi
   rm -rf "$gtmp"
 }
@@ -477,7 +476,7 @@ process_bundle() {
   # telling the operator to "re-run when quiet" would mask a permanent
   # refusal as transient contention, the exact trap orchestrate-lock's
   # fail-closed distinction exists to prevent.
-  if lock_err=$("$lock_sh" acquire "$bdir" --owner-pid "$$" 2>&1 >/dev/null); then
+  if lock_err=$("$lock_sh" acquire "$bdir" 2>&1 >/dev/null); then
     :
   elif [ $? -eq 1 ]; then
     refuse "$bname" "per-spec lock busy; nothing written (re-run when quiet)"
@@ -488,7 +487,7 @@ process_bundle() {
   fi
   cur_lockdir=$bdir
   process_bundle_locked "$bdir" "$bname"
-  "$lock_sh" release "$bdir" --owner-pid "$$" >/dev/null 2>&1 || true
+  "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
   cur_lockdir=""
   return 0
 }

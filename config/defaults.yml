@@ -127,6 +127,9 @@ dispatch_isolation: per-step
 # on roomier hosts can raise it; constrained hosts lower it.
 context_budget_threshold: 50
 
+# Per-spec advisory lock staleness threshold for /orchestrate (D-10).
+stale_lock_threshold: 15m
+
 # Runtime dispatch-marker staleness threshold (orchestration-concurrency D-3).
 # A timestamped marker older than this whose branch carries no commits is
 # treated as stale: the task-state derivation reverts the task to Ready, so a

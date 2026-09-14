@@ -23,14 +23,11 @@
 # THE LOCK-HOLDER LIST. Every script that implements an ADVISORY LOCK sources
 # this file and takes its locks through it:
 #
-#   scripts/orchestrate-lock.sh   the per-spec orchestration lock
-#   scripts/fleet-state.sh        the fleet state registry and its counters
-#   scripts/allocation-ledger.sh  the per-unit allocation ledgers
-#   scripts/fleet-streamjson.sh   the supervisor's journal/launch/recover locks
-#   scripts/observation-carry.sh  the observation carry's push+PR section
+#   (none yet: the adopter migrations are their own task)
 #
-# Everything else that takes an advisory lock does so by calling one of those,
-# so adopting them adopts the tree. The list is pinned against the tree by
+# Everything else that takes an advisory lock does so by calling a script on
+# that list, so adopting a listed script adopts the tree under it. The list is
+# pinned against the tree, in both directions, by
 # tests/test-lock-lib.sh, which is what stops it outliving its accuracy;
 # scripts/check-lock-primitive.sh keeps the underlying rule, that `mkdir` is
 # retired as an acquisition primitive. Two exclusion mechanisms are outside

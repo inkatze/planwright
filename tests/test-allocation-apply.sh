@@ -398,7 +398,7 @@ echo "ok: a withheld admission is refused rather than applied as a tier"
 # a stale accessor.
 skew="$tmp/skew-install"
 mkdir -p "$skew"
-cp "$AP" "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/lock-lib.sh" "$REPO_ROOT/scripts/allocation-adapt.sh" \
+cp "$AP" "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/allocation-adapt.sh" \
   "$REPO_ROOT/scripts/allocation-ledger.sh" "$REPO_ROOT/scripts/allocation-ladder.sh" \
   "$REPO_ROOT/scripts/allocation-select.sh" "$REPO_ROOT/scripts/fleet-resource-select.sh" \
   "$REPO_ROOT/scripts/resolve-config-knob.sh" "$REPO_ROOT/scripts/config-get.sh" \
@@ -434,7 +434,7 @@ echo "ok: a version-skewed capability accessor is a broken install, not a silent
 # --------------------------------------------------------------------------
 noadmit="$tmp/noadmit-install"
 mkdir -p "$noadmit"
-cp "$AP" "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/lock-lib.sh" "$REPO_ROOT/scripts/allocation-ledger.sh" \
+cp "$AP" "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/allocation-ledger.sh" \
   "$REPO_ROOT/scripts/orchestrate-backends.sh" "$REPO_ROOT/scripts/allocation-ladder.sh" \
   "$REPO_ROOT/scripts/allocation-select.sh" "$REPO_ROOT/scripts/fleet-resource-select.sh" \
   "$REPO_ROOT/scripts/resolve-config-knob.sh" "$REPO_ROOT/scripts/config-get.sh" \

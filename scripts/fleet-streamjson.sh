@@ -53,12 +53,11 @@
 #                    the field existed (read as false). Newline-terminated:
 #                    the terminator is what says the writer finished, so a row
 #                    without one is a write in flight, never a completion.
-#   supervisor.pid / worker.pid / recover.lock / journal.lock / launch.lock
+#   supervisor.pid / worker.pid / recover.lock/ / journal.lock/ / launch.lock/
 #   scope            the dispatch scope, when the launch supplied one
 #   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .journal.* / .session.* / .pid.*  mktemp-beside-target staging
-#   *.lock#break#*   a break claim, or its aside, a crashed breaker left behind
-#   *.broken.*       residue of the retired `mkdir` lock's own stale break
+#   *.broken.*       a lock directory a stale-break renamed out of the way
 # Which of these a close releases is not a property of their order here: the
 # release set is `release_classes` and the globs each class names, and the
 # entries above are listed by what they hold, not by who removes them.
@@ -76,8 +75,7 @@
 # Duplicate delivery of a request id (same run, or re-issued across the
 # resume boundary) deduplicates on request identity: a journaled id is never
 # journaled or queued twice. Recovery (`recover`) has a single initiator —
-# an election on the shared lock primitive (scripts/lock-lib.sh), one atomic
-# symlink create — and checks the orphaned worker's liveness
+# an atomic mkdir election — and checks the orphaned worker's liveness
 # before `--resume`; a failed resume surfaces as a halt of this unit
 # (attention item + distinct exit code), never a silent loss. A
 # `can_use_tool` arriving in the supervisor-down window is covered after
@@ -297,18 +295,6 @@ fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
 
-# The one advisory-lock primitive (universal-binary D-11), required readable
-# and fail-closed when absent for the same reason the sanitizer is: every
-# election and every journal mutation below runs under it, so a missing
-# library is no mutual exclusion at all rather than a degraded kind.
-lock_lib="$script_dir/lock-lib.sh"
-if [ ! -r "$lock_lib" ]; then
-  echo "$me: required helper $lock_lib missing or not readable" >&2
-  exit 2
-fi
-# shellcheck source=scripts/lock-lib.sh
-. "$lock_lib"
-
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 FDE="$script_dir/fleet-death-evidence.sh"
@@ -391,35 +377,86 @@ worker_dir() {
   printf '%s/streamjson/%s' "$wd_root" "$1"
 }
 
-# --- single-initiator locks -------------------------------------------------
-
-# Every lock this script takes goes through the shared primitive
-# (scripts/lock-lib.sh, universal-binary D-11): the lock IS an atomic symlink
-# whose target names its holder, and STALE MEANS THE HOLDER'S PROCESS IS ABSENT.
-#
-# The per-class ages this used to carry (300s for a recovery, 60s for a launch
-# and for the journal) went with the `mkdir` shape that needed them. An age
-# cannot tell a crash from a `--foreground` launch legitimately holding its lock
-# for the whole run, and it was wrong in both directions: it broke live locks
-# under load and left dead ones standing for the whole threshold. The holder's
-# process is the evidence instead, for every class alike.
-
-# lock_take <lock-path> — take a single-initiator election. 0 taken, non-zero
-# refused with the lock untouched.
-#
-# ONE attempt, never a spin. Both callers are elections whose entire answer to a
-# live holder is "someone else is already doing this" (exit 3), so waiting here
-# would turn an immediate refusal into a two-minute stall. The journal lock,
-# whose callers do want to wait, spins in `journal_lock` instead.
-lock_take() {
-  pw_lock_try "$1"
+# stat_mtime <path> — mtime in epoch seconds, portable across GNU/busybox and
+# BSD stat. BOTH flavors are tried and each result is validated to be a plain
+# integer, because exit status alone does not discriminate between them: on
+# GNU/busybox stat `-f` means --file-system, so the BSD form's format string is
+# consumed as a FILE operand and the call prints a whole filesystem dump on
+# stdout while exiting non-zero. A bare `stat -f … || stat -c …` chain
+# therefore CONCATENATES that dump with the fallback's epoch, and the
+# `$((now - mtime))` below it is then a FATAL error that kills the shell
+# mid-decision (`Illegal number` on Debian/dash, `arithmetic syntax error` on
+# Alpine/busybox, `unbound variable` under macOS sh) — a silent Linux-red
+# failure the BSD-green floor platform never showed. Shape-validating each
+# candidate rather than trusting its exit status makes the probe
+# order-independent and immune to that class. Mirrors fleet-pane-detect.sh's
+# stat_uid (execution-backends task 3), which fixed the same defect on the
+# same reasoning.
+# Returns non-zero when neither flavor yields an integer, so callers fail safe
+# rather than computing an age from garbage.
+stat_mtime() {
+  sm_v=$(stat -c '%Y' "$1" 2>/dev/null) || sm_v=''
+  case $sm_v in
+    '' | *[!0-9]*) sm_v=$(stat -f '%m' "$1" 2>/dev/null) || sm_v='' ;;
+  esac
+  case $sm_v in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$sm_v"
 }
 
-# lock_drop <lock-path> — release a lock this process holds. The primitive
-# verifies ownership, so a holder that outlived a break of its own lock finds a
-# stranger's token at the path and leaves the successor's lock alone.
+# --- single-initiator locks -------------------------------------------------
+
+# The ages past which a lock whose holder never recorded itself is a crashed
+# holder rather than a live one, each sized against the operation it covers: a
+# recovery spans a relaunch and its startup wait; a launch's unrecorded window
+# closes as soon as it writes its holder pid.
+recover_lock_stale=300
+launch_lock_stale=60
+journal_lock_stale=60
+
+# lock_take <lock-dir> <max-age> — take an atomic mkdir election, breaking a
+# lock whose holder is gone. Non-zero, lock untouched, when a holder is
+# genuinely live.
+#
+# The holder's pid is recorded inside the lock, so a crashed holder is detected
+# by evidence rather than by an age that cannot tell a crash from a legitimate
+# long hold — a `--foreground` launch holds its lock for the whole run. The age
+# is the fallback for a lock whose holder died before recording itself, and an
+# unreadable mtime reads as fresh, so an unprobeable lock is refused rather
+# than broken.
+#
+# The break renames before it removes: `rmdir` then `mkdir` is not a
+# compare-and-swap, and two callers racing to break one stale lock would both
+# win it. Only one rename can find the directory.
+lock_take() {
+  if mkdir "$1" 2>/dev/null; then
+    printf '%s\n' "$$" >"$1/holder" 2>/dev/null || :
+    return 0
+  fi
+  lt_holder=$(cat "$1/holder" 2>/dev/null) || lt_holder=''
+  if valid_posnum "${lt_holder:-}"; then
+    # Not `kill -0`: an EPERM holder is alive, and breaking its lock would let
+    # two callers into the critical section at once.
+    pid_live "$lt_holder" && return 1
+  else
+    lt_now=$(now_epoch) || return 1
+    lt_mt=$(stat_mtime "$1") || lt_mt=$lt_now
+    [ $((lt_now - lt_mt)) -gt "$2" ] || return 1
+  fi
+  lt_broken="$1.broken.$$"
+  mv "$1" "$lt_broken" 2>/dev/null || return 1
+  rm -rf "$lt_broken" 2>/dev/null || :
+  mkdir "$1" 2>/dev/null || return 1
+  printf '%s\n' "$$" >"$1/holder" 2>/dev/null || :
+}
+
+# lock_drop <lock-dir> — release a lock this process still holds. A lock some
+# other caller has since taken is left alone: without the ownership check, a
+# holder that outlived a break of its own lock would remove its successor's.
 lock_drop() {
-  pw_lock_release "$1"
+  [ "$(cat "$1/holder" 2>/dev/null)" = "$$" ] || return 0
+  rm -rf "$1" 2>/dev/null || :
 }
 
 # write_pidfile <path> <pid> — publish a pid file the way this script publishes
@@ -465,35 +502,34 @@ worker_alive() {
 
 # --- journal (the REQ-E1.5 durable receipt state) ---------------------------
 # One tab-separated row per request id: id kind received-epoch state [epoch].
-# Mutations run under the file's own lock. The hold is not short: this path
-# publishes the queue projection inside the critical section, so it spans a
-# shell-out, and no age over it could separate a long legitimate hold from a
-# crash. The primitive probes the holder's process instead, which is what makes
-# both halves right at once — a crashed writer's lock is reclaimed on the next
-# attempt, and a live writer's is never taken out from under it. The cost of
-# refusing is on the other side and is real: a wedged holder is not reclaimed at
-# all, only waited out.
+# Mutations run under the file's own election lock. That premise used to be
+# "journal writes are sub-second, so an older lock is a crashed holder", and it
+# stopped holding when this path began publishing the queue projection inside
+# the critical section: a hold now spans a shell-out and an old lock is no
+# longer evidence of a crash. So age is the fallback, not the test. The
+# election reads the holder pid first and refuses to break a live one, which is
+# what makes a long legitimate hold safe; the age branch applies only to a lock
+# with no usable holder stamp. The cost of refusing is on the other side and is
+# real: a wedged holder is not reclaimed at all, only waited out.
 
-# ~5s of waiting, the bound this lock has always had, expressed in the
-# primitive's own 0.02s tick.
-journal_lock_tries=250
-
-# journal_lock <dir> — take the journal lock, waiting out a busy one. Non-zero
-# (2) when it stays busy for the whole budget, which is the caller's cue to
-# leave the journal alone rather than write a row it cannot vouch for.
 journal_lock() {
-  # Armed before the acquire, and idempotent: the verbs that reach here have no
-  # handler of their own, and the two that do (`launch`, `recover`) armed this
-  # same one ahead of their own election.
-  pw_lock_trap_install
+  # Delegated to the file's own election primitive rather than hand-rolled here.
+  # It already answers every hazard this lock met: the break renames before it
+  # removes, so two waiters cannot both win one stale lock; the holder's pid is
+  # recorded inside, so a live holder is never broken on age alone; and the drop
+  # is ownership-checked, so a holder that outlived a break of its own lock
+  # leaves its successor's alone. The spin is what this lock adds -- callers
+  # here wait for a busy journal rather than failing on the first refusal.
   jl_dir="$1/journal.lock"
-  pw_lock_acquire "$jl_dir" "$journal_lock_tries"
-  jl_rc=$?
-  [ "$jl_rc" -eq 0 ] && return 0
-  # A budget exhausted against a live holder is the only outcome this layer has
-  # anything to add to; the primitive has already said its piece about the rest.
-  [ "$jl_rc" -eq 1 ] && echo "$me: journal lock busy at $jl_dir" >&2
-  return 2
+  jl_i=0
+  until lock_take "$jl_dir" "$journal_lock_stale"; do
+    jl_i=$((jl_i + 1))
+    if [ "$jl_i" -ge 50 ]; then
+      echo "$me: journal lock busy at $jl_dir" >&2
+      return 2
+    fi
+    sleep 0.1
+  done
 }
 
 journal_unlock() {
@@ -777,10 +813,10 @@ handle_line() {
       # when an earlier one is still open. Held across the shell-out
       # deliberately: nothing reachable from here re-takes this lock or takes
       # the attention store's lock ahead of it, so it cannot deadlock. The
-      # cost is real and is NOT bounded by a stale break, which is what an
-      # earlier revision of this comment claimed: the primitive refuses to break
-      # a lock whose holder's process is alive, on purpose, so a wedged
-      # fleet-attention.sh is not reclaimed while it runs. Other journal writers
+      # cost is real and is NOT bounded by the stale break, which is what an
+      # earlier revision of this comment claimed: the election refuses to break
+      # a lock whose holder is live, on purpose, so a wedged fleet-attention.sh
+      # is not reclaimed at journal_lock_stale at all. Other journal writers
       # spin their retry budget, report busy, and stay out until this call
       # returns. An attention-store hang therefore becomes a journal stall for
       # this worker. Bounding that needs a kill-safe shell-out or a recovery
@@ -1192,17 +1228,13 @@ scratch_walk() {
   set +f
   sw_found=1
   for sw_p in "$1/in.fifo" "$1/out.fifo" \
-    "$1"/.init.* "$1"/.journal.* "$1"/.session.* "$1"/.pid.* \
-    "$1"/*.lock#break#* "$1"/*.broken.*; do
-    # `-L` as well as `-e`: the lock residue this sweeps includes links whose
-    # target is a token rather than a file, and `-e` follows a link and reads
-    # those as absent — the one shape the glob was widened to catch.
-    [ -L "$sw_p" ] || [ -e "$sw_p" ] || continue
+    "$1"/.init.* "$1"/.journal.* "$1"/.session.* "$1"/.pid.* "$1"/*.broken.*; do
+    [ -e "$sw_p" ] || continue
     sw_found=0
     [ "$2" = release ] || break
-    # `rm -rf`, not `rm -f`: residue of the retired `mkdir` lock's own stale
-    # break is a directory, and `rm -f` cannot remove one. The class would then
-    # read held on every later close, with no re-invocation able to progress.
+    # `rm -rf`, not `rm -f`: a lock a stale-break renamed out of the way is a
+    # directory, and `rm -f` cannot remove one. The class would then read held
+    # on every later close, with no re-invocation able to make progress.
     rm -rf "$sw_p" 2>/dev/null || :
   done
   $sw_restore
@@ -1215,8 +1247,7 @@ scratch_walk() {
 # state-directory path the match keys on, from being truncated to terminal
 # width by BSD ps; a ps that rejects the flag degrades to the narrow form
 # rather than to nothing. Each candidate is shape-checked rather than trusted
-# by exit status, the discipline fleet-pane-detect.sh's stat_uid applies to
-# its own two flavors.
+# by exit status, the discipline stat_mtime applies to its own two flavors.
 ps_rows() {
   pr_out=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || pr_out=''
   if ! ps_rows_shaped "$pr_out"; then
@@ -1529,10 +1560,10 @@ release_processes() {
 
 # clear_pidfiles <dir> — drop pid files that now record nothing live.
 #
-# `rm -rf`, not `rm -f`: the held-probe gates on mere existence, so anything at
-# those paths that `rm -f` cannot remove — a directory the worker created there
-# — would hold the class forever with no re-invocation able to make progress.
-# `${1:?}` guards the recursive removal against an empty
+# `rm -rf`, for the reason `release_locks` uses it: the held-probe gates on mere
+# existence, so anything at those paths that `rm -f` cannot remove — a directory
+# the worker created there — would hold the class forever with no re-invocation
+# able to make progress. `${1:?}` guards the recursive removal against an empty
 # directory argument, and does so by ending the shell rather than the function,
 # which is why the trailing `|| :` on that line does not make it non-fatal.
 clear_pidfiles() {
@@ -1550,64 +1581,25 @@ held_process() {
   [ -e "$1/supervisor.pid" ] || [ -e "$1/worker.pid" ]
 }
 
-# `-L` BEFORE `-e`, and both: a held lock is a symlink whose target is a token
-# rather than a file, so `-e` follows it and reads FALSE on exactly the shape
-# this probe exists to see. `-e` still earns its place for everything else that
-# can occupy the path — a regular file, or a directory left by the retired
-# `mkdir` shape — because each of those blocks an acquire just as effectively,
-# and a probe that missed them would leave the verb they block wedged with
-# nothing able to clear it.
+# `-e` rather than `-d`: a lock path that exists as a regular file blocks the
+# `mkdir` election just as effectively as a directory does, and gating on `-d`
+# would leave the verb it blocks wedged with nothing able to clear it.
 held_locks() {
   for hl_l in $lock_classes; do
-    if [ -L "$1/$hl_l" ] || [ -e "$1/$hl_l" ]; then
-      return 0
-    fi
+    [ -e "$1/$hl_l" ] && return 0
   done
   return 1
 }
 
-# clear_legacy_lock_dirs <dir> — clear a lock left as a DIRECTORY by the
-# retired `mkdir` shape.
-#
-# The current primitive never creates one, so a directory at a lock path can
-# only be residue of a fleet home that predates the migration. Nothing acquires
-# over it: an acquire refuses a path occupied by something that is not a lock
-# symlink rather than guessing, so one such directory wedges every verb for
-# this worker until something removes it. That is what makes this the in-place
-# upgrade path. The library's clear is what makes it safe: it takes a directory
-# and only a directory, in one step, so a peer that wins the path in between
-# keeps its live lock rather than having it deleted by a recovery.
-#
-# A failure to clear is surfaced rather than swallowed: the caller is `recover`,
-# and a recovery that cannot clear the thing blocking it must not go on to
-# report contention for a condition that will not clear.
-clear_legacy_lock_dirs() {
-  cl_rc=0
-  for cl_l in $lock_classes; do
-    pw_lock_clear_legacy "$1/$cl_l" 2>/dev/null
-    if [ "$?" -eq 2 ]; then
-      printf '%s\n' "$me: cannot clear the legacy lock directory $1/$cl_l (parent unwritable or filesystem error)" >&2
-      cl_rc=2
-    fi
-  done
-  return "$cl_rc"
-}
-
-# `pw_lock_break_force` rather than a bare `rm`: it is the primitive's own
-# unconditional clear, and it takes a lock left as a DIRECTORY by the retired
-# `mkdir` shape as readily as a symlink — so the close is the second place a
-# fleet home that predates the migration gets unwedged. The names are literals
-# from `lock_classes` under a directory the caller has already validated.
+# `rm -rf` rather than `rmdir`: an election lock carries its holder's pid
+# inside it, so it is not an empty directory. The names are literals from
+# `lock_classes` under a directory the caller has already validated.
 release_locks() {
   rl_rc=0
   for rl_l in $lock_classes; do
-    if [ ! -L "$1/$rl_l" ] && [ ! -e "$1/$rl_l" ]; then
-      continue
-    fi
-    pw_lock_break_force "${1:?}/$rl_l" >/dev/null 2>&1 || :
-    if [ -L "$1/$rl_l" ] || [ -e "$1/$rl_l" ]; then
-      rl_rc=1
-    fi
+    [ -e "$1/$rl_l" ] || continue
+    rm -rf "${1:?}/$rl_l" 2>/dev/null || :
+    [ -e "$1/$rl_l" ] && rl_rc=1
   done
   return "$rl_rc"
 }
@@ -1821,30 +1813,16 @@ cmd_launch() {
   mkdir -p "$dir" || exit 2
   chmod 700 "$dir" 2>/dev/null || :
 
-  # Single launch initiator, on the same election `recover` uses. Two concurrent
-  # launches for one worker otherwise both reach `supervise`, and the second
-  # overwrites the first's pid files — orphaning a supervisor that nothing
-  # records and nothing can close.
+  # Single launch initiator, on the atomic-mkdir election `recover` already
+  # uses. Two concurrent launches for one worker otherwise both reach
+  # `supervise`, and the second overwrites the first's pid files — orphaning a
+  # supervisor that nothing records and nothing can close.
   #
-  # The release is armed BEFORE the election, not after it: a signal landing in
-  # the gap between a successful take and a later `trap` left the lock standing
-  # with no holder. It covers the journal lock a `--foreground` launch goes on
-  # to take in this same process, too.
-  pw_lock_trap_install
-  lock_take "$dir/launch.lock"
-  lt_rc=$?
-  if [ "$lt_rc" -eq 2 ]; then
-    # A real error, not contention: something that is not a lock at the path,
-    # or a parent this cannot write. The library has already said which.
-    # Calling it "already in flight" would send an operator to look for a
-    # launch that does not exist.
-    echo "$me: cannot take the launch election for $worker (lock error)" >&2
-    exit 2
-  fi
-  if [ "$lt_rc" -ne 0 ]; then
+  if ! lock_take "$dir/launch.lock" "$launch_lock_stale"; then
     echo "$me: a launch is already in flight for $worker (refused: single initiator)" >&2
     exit 3
   fi
+  trap 'lock_drop "$dir/launch.lock"' EXIT
 
   # The election ends when the first launch releases its lock, so a launch
   # arriving after that against a supervisor already up needs its own refusal:
@@ -2221,45 +2199,20 @@ cmd_recover() {
     esac
   done
   dir=$(worker_dir "$worker") || exit 2
-  # Before anything reaches inside it: `-d` FOLLOWS a link, so a state
-  # directory planted as a symlink would send every path below — including the
-  # legacy clear's removals — into whatever it points at. `launch` and `close`
-  # refuse one for the same reason; this verb removes things, so it refuses
-  # first.
-  [ ! -L "$dir" ] || {
-    echo "$me: refusing to recover $worker: its state directory is a symlink" >&2
-    exit 2
-  }
   [ -d "$dir" ] || {
     echo "$me: unknown worker $worker" >&2
     exit 2
   }
 
-  # `recover` is the verb an operator reaches for when a worker is stuck, so it
-  # is where a fleet home predating the symlink primitive gets its in-place
-  # upgrade: one lock left as a directory by the retired shape refuses every
-  # acquire for this worker, including the election below. A clear that fails
-  # is fatal here rather than swallowed: the election would otherwise report
-  # contention for a condition that will not clear.
-  clear_legacy_lock_dirs "$dir" || exit 2
-
   # Single recovery initiator (REQ-E1.5): the election refuses a concurrent
-  # second attempt rather than racing it, and breaks a lock whose holder's
-  # process is gone — without that break, one SIGKILL between the election and
-  # the release wedges `recover` for this worker permanently. The release is
-  # armed before the take for the same reason: a signal landing in the gap
-  # would leave the lock standing with no holder.
-  pw_lock_trap_install
-  lock_take "$dir/recover.lock"
-  lt_rc=$?
-  if [ "$lt_rc" -eq 2 ]; then
-    echo "$me: cannot take the recovery election for $worker (lock error)" >&2
-    exit 2
-  fi
-  if [ "$lt_rc" -ne 0 ]; then
+  # second attempt rather than racing it, and breaks a lock whose holder is
+  # gone — without that break, one SIGKILL between the election and the trap
+  # that releases it wedges `recover` for this worker permanently.
+  if ! lock_take "$dir/recover.lock" "$recover_lock_stale"; then
     echo "$me: recovery already in progress for $worker (refused: single initiator)" >&2
     exit 3
   fi
+  trap 'lock_drop "$dir/recover.lock"' EXIT
 
   # Orphan liveness BEFORE --resume (REQ-E1.5): a still-alive worker or
   # supervisor is not orphaned; resuming over it would fork the session.

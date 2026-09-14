@@ -48,7 +48,7 @@ cat >"$defaults" <<'EOF'
 commit_on_state_move: true
 dispatch_backend: subagent
 max_parallel_units: 3
-stale_marker_threshold: 15m
+stale_lock_threshold: 15m
 EOF
 
 local_cfg="$tmp/planwright.local.yml"

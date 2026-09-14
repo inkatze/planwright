@@ -910,11 +910,9 @@ seeded_bundle "$tmp/refuse-no-brief/specs/poisoned" Ready
 refusal_case no-brief "a signed bundle without a kickoff brief"
 
 mkrefusal lock-busy
-# A live holder, named the way the shared primitive names one: a symlink whose
-# target is an owner token leading with a running pid (this test process).
-ln -s "$$-0-1" "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
+mkdir "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
 refusal_case lock-busy "a live per-spec lock (single-writer serialization)"
-rm -f "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
+rmdir "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
 
 # Lock-before-read ordering (the TOCTOU guard): with the lock busy, the
 # refusal must be the lock refusal, not a compute-phase diagnostic — the
@@ -923,11 +921,11 @@ rm -f "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
 # is silently clobbered.
 mkrefusal lock-order
 printf '%s\n' '' '## Backlog' '' '(nothing)' >>"$tmp/refuse-lock-order/specs/poisoned/tasks.md"
-ln -s "$$-0-1" "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
+mkdir "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
 refusal_case lock-order "a busy per-spec lock (checked before any compute-phase read)"
 grep -q 'lock busy' "$tmp/refuse-lock-order.err" \
   || fail "lock ordering: busy-lock refusal reported '$(cat "$tmp/refuse-lock-order.err")' — the compute phase ran before the lock was checked (TOCTOU)"
-rm -f "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
+rmdir "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
 
 # A lock ERROR is not lock contention: orchestrate-lock exits 2 (with a
 # diagnostic) for environment/containment faults — e.g. a bundle dir not

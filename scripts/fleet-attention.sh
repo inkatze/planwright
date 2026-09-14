@@ -203,12 +203,12 @@ now_epoch() {
 #     an attention write is never dropped under contention, matching fleet-state
 #     spin_acquire's bounded 20ms backoff. On a fatal signal the trap releases
 #     AND exits (below) rather than resuming the critical section unlocked.
-#     HOLD_LOCK gates WHETHER we release, and that is all it does. Two things
-#     it is not: the token-less `unlock` we call is unconditional, so running it
-#     for a hold we no longer own unlinks whoever holds it now; and the flag is
-#     set after `lock` returns, so a signal in that gap leaves a lock we do hold
-#     unreleased, and nothing auto-breaks a detached hold. `lock` now prints the
-#     owner token and `unlock <token>` verifies it; capturing it closes both.
+#     HOLD_LOCK gates WHETHER we release, and that is all it does — two things
+#     it is not: `unlock` is unconditional and takes no token, so a release
+#     after our own lock was broken as stale unlinks whoever holds it now; and
+#     the flag is set after `lock` returns, so a signal in that gap leaves a
+#     lock we do hold unreleased until the stale break. Both need the owner
+#     token to cross the process boundary, which the primitive does not yet do.
 HOLD_LOCK=0
 
 release_lock() {
@@ -223,9 +223,8 @@ release_lock() {
 # unfinished copy-filter-append-rename, unlocked — letting a concurrent writer
 # acquire and clobber `state`, the exact lost update the lock prevents). The
 # explicit `exit` re-enters the EXIT trap so release still runs, mirroring the
-# sibling lock-holder scripts/tasks-pr-sync.sh. SIGKILL stays unrecoverable:
-# this hold records no owner to probe, so an explicit token-less
-# `fleet-state.sh unlock` is the only thing that clears it.
+# sibling lock-holder scripts/tasks-pr-sync.sh. SIGKILL stays unrecoverable and
+# falls to the stale-lock break.
 trap 'release_lock' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM

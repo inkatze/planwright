@@ -427,14 +427,7 @@ flush_mirror() {
 # record <event> <prop-model> <prop-effort> <clamp-model> <clamp-effort>
 #        <res-model> <res-effort> <scope> <outcome> <inputs>
 record() {
-  # The hold this row is written under was taken by a DIFFERENT process (the
-  # `lock` verb invocation in take_unit_lock), so the announcement carries the
-  # OWNER TOKEN as well as the unit: the ledger checks the token against the
-  # lock's live owner and only then skips an acquire of its own. The unit name
-  # alone is intent, not evidence, and on its own it would let a hold this
-  # process no longer has suppress the append's locking.
-  PLANWRIGHT_ALLOC_LOCK_HELD="$UNIT" PLANWRIGHT_ALLOC_LOCK_TOKEN="$ALLOC_LOCK_TOKEN" \
-    "$LEDGER" append "$UNIT" "$STEP" "$ATTEMPT" \
+  PLANWRIGHT_ALLOC_LOCK_HELD="$UNIT" "$LEDGER" append "$UNIT" "$STEP" "$ATTEMPT" \
     "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" >/dev/null || {
     # A failed append is an unhealthy ledger by definition: adjustments are
     # already suspended by the time this can matter, and the failure is
@@ -472,40 +465,31 @@ incident_seen() {
 
 # The unit lock is released through a trap as well as on the happy path: a
 # fail-closed `exit` from a malformed knob or an invalid tier would otherwise
-# leave the lock held, blocking the unit's next launch on what is really a
-# config error. Releasing is idempotent, so the trap and the explicit call
-# cannot conflict.
+# leave the lock held until the stale break, blocking the unit's next launch for
+# a minute on what is really a config error. Releasing is idempotent (the
+# ledger's `unlock` is an rm), so the trap and the explicit call cannot conflict.
 ALLOC_LOCK_TAKEN=no
 ALLOC_LOCK_TOKEN=""
 take_unit_lock() {
-  # THE TRAPS ARE ARMED BEFORE THE ACQUIRE, and that ordering is now
-  # load-bearing. The ledger's hold is DETACHED — it has no owning process, so
-  # nothing reclaims it on its own — and a signal landing between an acquire and
-  # a later `trap` would wedge the unit until an operator ran a token-less
-  # `unlock`. Arming first leaves one window that cannot be closed from here:
-  # a signal during the command substitution itself, where the child holds the
-  # lock and the token has not made it back to a variable to release with.
-  # Releasing before the lock is taken is already a no-op, so arming early costs
-  # nothing.
-  #
-  # The EXIT trap is the cleanup; the fatal-signal traps re-`exit` so the
-  # interrupted critical section does NOT resume with the lock released. A bare
-  # `trap release_unit_lock ... TERM` would run the handler and then RETURN into
-  # the unfinished derive-then-append, unlocked — and `record` still announces
-  # the hold to the ledger, so the append would trust an announcement whose lock
-  # is gone. (It would now catch that: the token no longer owns the lock, so the
-  # append takes its own. The re-`exit` is still what stops a half-finished
-  # critical section from continuing at all.) Same shape as the sibling
-  # lock-holders scripts/fleet-attention.sh and scripts/tasks-pr-sync.sh.
-  trap release_unit_lock EXIT
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
   # `lock` prints the OWNER TOKEN, and the release presents it back: this hold
   # spans several processes (the engine acquires, `append` writes, the engine
   # releases), so ownership cannot be inferred from a pid — it has to be carried.
   ALLOC_LOCK_TOKEN=$("$LEDGER" lock "$UNIT") || exit 2
   ALLOC_LOCK_TAKEN=yes
+  # The EXIT trap is the cleanup; the fatal-signal traps re-`exit` so the
+  # interrupted critical section does NOT resume with the lock released. A bare
+  # `trap release_unit_lock ... TERM` would run the handler and then RETURN into
+  # the unfinished derive-then-append, unlocked — and `record` still exports
+  # PLANWRIGHT_ALLOC_LOCK_HELD, so the append would skip its own acquire too,
+  # letting a concurrent same-unit launch derive the same sequence number. The
+  # explicit exit re-enters the EXIT trap, so the release still runs. Same shape
+  # as the sibling lock-holders scripts/fleet-attention.sh and
+  # scripts/tasks-pr-sync.sh; SIGKILL stays unrecoverable and falls to the stale
+  # break.
+  trap release_unit_lock EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 }
 
 release_unit_lock() {

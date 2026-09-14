@@ -105,7 +105,7 @@ echo "ok: 30 lines from two writers, sequence monotonic and untorn"
 # --- the bounded lock wait ----------------------------------------------------
 
 printf 'tower_hook_lock_wait: 200ms\n' >"$local_cfg"
-PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" lock >/dev/null || fail "could not take the fleet lock for the saturation case"
+PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" lock || fail "could not take the fleet lock for the saturation case"
 before=$(line_count "$log_file")
 start=$(date +%s)
 rc=0
@@ -129,7 +129,7 @@ mkdir -p "$stub_bin"
 printf '#!/bin/sh\nexit 1\n' >"$stub_bin/date"
 chmod 0755 "$stub_bin/date"
 printf 'tower_hook_lock_wait: 200ms\n' >"$local_cfg"
-PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" lock >/dev/null || fail "could not take the fleet lock for the clockless case"
+PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" lock || fail "could not take the fleet lock for the clockless case"
 rc=0
 PATH="$stub_bin:$PATH" \
   PLANWRIGHT_FLEET_STATE_DIR="$home" \
@@ -142,17 +142,14 @@ PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" unlock
 [ "$rc" = 3 ] || fail "no clock: exit $rc, expected 3 (the wait expired, the line dropped)"
 echo "ok: the lock wait is bounded even with no readable clock"
 
-# The lock is fleet-state's, disowned to this caller, and the release is by
-# TOKEN: a hold this process never took carries a token it never learned, so it
-# is left alone however its own wait ended. The planted token is detached — the
-# shape `fleet-state.sh lock` hands out — which is also the shape nothing
-# auto-breaks, so what the wait expires against is a hold, not a leftover.
-ln -s "detached-424242-1" "$home/.fleet.lock" || fail "could not plant a foreign lock"
+# The lock is fleet-state's, disowned to this caller: a lock this process did
+# not take is never released by it, whatever this process's own wait did.
+ln -s "999999-1" "$home/.fleet.lock" || fail "could not plant a foreign lock"
 rc=0
 run log born --now 8110 item=foreign >/dev/null 2>&1 || rc=$?
 [ "$rc" = 3 ] || fail "foreign lock: exit $rc, expected 3"
 [ -L "$home/.fleet.lock" ] || fail "a lock this process never took was released by it"
-[ "$(readlink "$home/.fleet.lock")" = "detached-424242-1" ] || fail "the foreign lock's target changed"
+[ "$(readlink "$home/.fleet.lock")" = "999999-1" ] || fail "the foreign lock's target changed"
 rm -f "$home/.fleet.lock"
 : >"$local_cfg"
 run log born --now 8111 item=clean >/dev/null || fail "write after the foreign lock: exit"

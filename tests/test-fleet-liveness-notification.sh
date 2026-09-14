@@ -75,7 +75,7 @@ fleet_flailing_threshold: 3
 fleet_hung_heartbeat_seconds: 900
 fleet_crash_backoff_base_seconds: 30
 fleet_crash_disable_threshold: 3
-stale_marker_threshold: 15m
+stale_lock_threshold: 15m
 EOF
 
 # fire_note <home> <handle> <scope> <payload-json> — invoke the Notification

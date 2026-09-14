@@ -510,10 +510,7 @@ echo "ok: worker-key comparison is string-based (numeric-looking handles never c
 # ---------------------------------------------------------------------------
 home16="$tmp/ts-home"
 mkdir -p "$home16"
-# Hold the fleet lock so the heartbeat must block. The token names THIS test
-# process: a lock is broken when its owner is absent, so a placeholder target
-# would read as dead and be taken at once instead of blocking.
-ln -s "$$-0-1" "$home16/.fleet.lock"
+ln -s "held-by-test" "$home16/.fleet.lock" # hold the Task 9 lock so the heartbeat must block
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home16" \
   /bin/sh "$FA" heartbeat "worker=late" "spec-t:1" working &

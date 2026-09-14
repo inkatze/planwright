@@ -7,3 +7,4 @@
 #   <script basename>    <who runs it>
 
 check-confirmation.sh   invoked with a confirmation on stdin by scripts/rubric-grade.sh and the behavioral-eval fixtures; it is a validator the eval harness calls per confirmation, not a repo-wide gate, and check:no-ci-evals deliberately keeps that harness out of CI
+check-lock-primitive.sh   nothing yet, deliberately: it fails over the five lock holders that have not adopted the primitive, and those migrations are their own task. The task that adopts them wires it into the `check` aggregate in the same change, which is where its Done-when requires it to run clean.

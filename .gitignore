@@ -55,11 +55,6 @@ mise.local.toml
 # /orchestrate and the tasks-pr-sync hook around tasks.md writes, plus the
 # hook's atomic-write temp files (orphaned only by an unclean kill).
 specs/*/.orchestrate.lock
-# ...and everything the lock primitive derives beside it: the break claim and
-# its aside, and the attribution record `sweep` reads. All transient, none of
-# it ever committed — an attribution record names a tmux window, which the
-# coordination-hygiene guard refuses to see in a tracked file.
-specs/*/.orchestrate.lock#*
 specs/*/.tasks-pr-sync.*
 
 # Runtime dispatch markers (orchestration-concurrency D-1/D-3) — the timestamped

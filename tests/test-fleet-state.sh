@@ -20,16 +20,12 @@
 # Hermetic: every case sets the resolution env explicitly (no ambient HOME /
 # CLAUDE_DIR / CLAUDE_PLUGIN_* leak), so the suite is reproducible on a
 # developer box and on CI alike. Runs standalone under /bin/bash (bash 3.2).
-#
-# THE LOCK FIXTURES, and what each token means. The lock is a symlink whose
-# target is the owner token, and staleness is the OWNER PROCESS's absence, never
-# an age — so a fixture chooses which case it wants by choosing a token, and no
-# case back-dates anything:
-#   - `detached-<n>-<n>`  a hold with no owning process, the shape the exposed
-#                         `lock` verb takes. Always reads alive, so it is never
-#                         auto-broken: this is how a case holds the lock.
-#   - `$$-<n>-<n>`        owned by this still-running test shell: also live.
-#   - `crashed-holder`    no probeable pid, so the owner is absent: breakable.
+# The stale-break case (12) reads stale_lock_threshold through the real
+# config-get.sh, so it pins that value via an explicit PLANWRIGHT_LOCAL_CONFIG
+# (the top-of-ladder machine-local layer) instead of trusting the ambient
+# config — the break stays deterministic even against a pathological repo-local
+# override (e.g. stale_lock_threshold: 99999999m), mirroring how the sibling
+# orchestrate-lock.sh consumes the knob.
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -212,7 +208,7 @@ echo "ok: concurrent registry writes are serialized (no torn records, none lost)
 # ---------------------------------------------------------------------------
 home_ts="$tmp/ts-home"
 mkdir -p "$home_ts"
-ln -s "detached-1-1" "$home_ts/.fleet.lock" # a detached hold: never auto-broken, so register must block
+ln -s "held-by-test" "$home_ts/.fleet.lock" # hold the lock so register must block
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home_ts" \
   /bin/sh "$FS" register "worker=late" "scope-late" &
@@ -386,44 +382,15 @@ lenv() {
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
     PLANWRIGHT_FLEET_STATE_DIR="$home_lock" /bin/sh "$FS" "$@"
 }
-lock_token=$(lenv lock) || fail "lock: fresh acquire non-zero"
+lenv lock || fail "lock: fresh acquire non-zero"
 [ -L "$home_lock/.fleet.lock" ] || fail "lock: lock symlink not created"
-# The token is the verb's output, and it is the link's target: that identity is
-# what makes a cross-process release provable rather than a guess.
-[ -n "$lock_token" ] || fail "lock: printed no token, so a caller cannot release by token"
-[ "$(readlink "$home_lock/.fleet.lock")" = "$lock_token" ] \
-  || fail "lock: the printed token is not the lock's target"
-# DETACHED: the hold outlives the process that took it, so nothing may decide
-# it is dead on its own. A second acquire has to read busy, not break it.
-case $lock_token in
-  detached-*) ;;
-  *) fail "lock: the exposed hold is not detached ('$lock_token'); a later acquire could break it as owner-less" ;;
-esac
 rc=0
 lenv lock >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "lock: busy acquire exit $rc, expected 1"
-
-# A token that is not the holder's releases NOTHING: that is the clobber the
-# token crossing exists to prevent.
-rc=0
-lenv unlock "detached-999-999" >/dev/null 2>&1 || rc=$?
-[ "$rc" = 1 ] || fail "unlock <foreign token>: exit $rc, expected 1"
-[ "$(readlink "$home_lock/.fleet.lock")" = "$lock_token" ] \
-  || fail "unlock with a foreign token deleted the current holder's lock"
-
-lenv unlock "$lock_token" || fail "unlock <token>: non-zero exit"
-# `! -e` as well as `! -L`: a lock leaked in any OTHER shape (a directory left
-# by the retired mkdir code, a regular file) is still a wedged home, and `-L`
-# alone reports it clean.
-[ ! -e "$home_lock/.fleet.lock" ] && [ ! -L "$home_lock/.fleet.lock" ] \
-  || fail "unlock <token>: lock not removed"
-# Idempotent: a second release of a token whose lock is already gone is this
-# verb's success condition, not an error.
-lenv unlock "$lock_token" || fail "unlock <token>: not idempotent"
-echo "ok: the lock verb hands out a detached hold and its token, and only that token releases it"
-
-lenv lock >/dev/null || fail "unlock: the lock could not be re-acquired"
 lenv unlock || fail "unlock: non-zero exit"
+# `! -e` as well as `! -L`: a lock leaked in any OTHER shape (a directory left
+# by the pre-symlink code, a regular file) is still a wedged home, and `-L`
+# alone reports it clean.
 [ ! -e "$home_lock/.fleet.lock" ] && [ ! -L "$home_lock/.fleet.lock" ] \
   || fail "unlock: lock not removed"
 lenv unlock || fail "unlock: not idempotent"
@@ -431,106 +398,104 @@ lenv unlock || fail "unlock: not idempotent"
 # clear and a fresh acquire still succeeds.
 [ ! -e "$home_lock/.fleet.lock" ] && [ ! -L "$home_lock/.fleet.lock" ] \
   || fail "unlock: a second unlock left something at the lock path"
-lenv lock >/dev/null || fail "unlock: the lock could not be re-acquired after two unlocks"
+lenv lock || fail "unlock: the lock could not be re-acquired after two unlocks"
 lenv unlock || fail "unlock: non-zero exit on the trailing release"
-echo "ok: a tokenless unlock is the unconditional escape hatch, and it is idempotent"
+echo "ok: the advisory-lock primitive is exclusive, busy-safe, and idempotent"
 
 # ---------------------------------------------------------------------------
-# A lock left as a DIRECTORY by the retired `mkdir` shape. `ln -s target dir`
-# puts the link inside dir and exits 0, so an unchecked create reports the lock
+# A lock left as a DIRECTORY by the pre-symlink shape. `ln -s target dir` puts
+# the link inside dir and exits 0, so an unchecked create reports the lock
 # acquired while holding nothing — the worst possible reading, since the caller
-# then enters its critical section. Nothing about a directory answers "is its
-# owner still running", so an acquire refuses it outright (exit 2) rather than
-# guessing or waiting out a budget on a wait that cannot end. A tokenless
-# `unlock` is the in-place upgrade: it clears the directory, and the next
-# acquire takes an ordinary lock at the same path.
+# then enters its critical section. A live one must read busy; a stale one must
+# be broken, because nothing else reclaims it and it would otherwise wedge every
+# fleet writer permanently.
 # ---------------------------------------------------------------------------
 home_legacy="$tmp/legacy-home"
 mkdir -p "$home_legacy"
+# Pin the threshold for the same reason case 12 pins it: without it an ambient
+# machine-local stale_lock_threshold (a pathological 99999999m, say) makes the
+# back-dated directory below read FRESH and the stale-break half fails.
+legacy_pin="$tmp/legacy-pin.yml"
+printf 'stale_lock_threshold: 5m\n' >"$legacy_pin"
 legacy_env() {
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-    PLANWRIGHT_FLEET_STATE_DIR="$home_legacy" /bin/sh "$FS" "$@"
+    PLANWRIGHT_FLEET_STATE_DIR="$home_legacy" PLANWRIGHT_LOCAL_CONFIG="$legacy_pin" \
+    /bin/sh "$FS" "$@"
 }
-mkdir "$home_legacy/.fleet.lock"
+mkdir "$home_legacy/.fleet.lock" # a fresh legacy holder
 rc=0
-legacy_err=$(legacy_env lock 2>&1 >/dev/null) || rc=$?
-[ "$rc" = 2 ] || fail "a legacy directory lock reported exit $rc, expected 2 (it is not a lock and cannot be waited out)"
-case $legacy_err in
-  *"not a lock symlink"*) ;;
-  *) fail "the legacy-directory refusal did not say what it found: $legacy_err" ;;
-esac
-# The stray a create-into-directory would leave is named for the TOKEN, never
-# for this shell's $$, so assert the directory is EMPTY rather than probing one
-# name that can never match.
+legacy_env lock >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "a live legacy directory lock reported exit $rc, expected 1 (busy)"
+# The stray a create-into-directory would leave is named for the TOKEN
+# (<fleet-state pid>-<epoch>), never for this shell's $$, so assert the
+# directory is EMPTY rather than probing one name that can never match.
 [ -z "$(find "$home_legacy/.fleet.lock" -mindepth 1 2>/dev/null)" ] \
   || fail "the create landed INSIDE the legacy lock directory"
-[ -d "$home_legacy/.fleet.lock" ] || fail "an acquire removed a legacy lock it refused"
-echo "ok: a retired-shape directory lock is refused, never acquired through, never written into"
+[ -d "$home_legacy/.fleet.lock" ] || fail "a live legacy lock was removed"
+echo "ok: a live pre-symlink directory lock reads busy, and is never acquired through"
 
-legacy_env unlock || fail "unlock over a legacy directory lock exited non-zero"
-[ ! -e "$home_legacy/.fleet.lock" ] \
-  || fail "unlock reported success but left the legacy directory lock standing"
-legacy_env lock >/dev/null || fail "the upgraded path could not take an ordinary lock"
-[ -L "$home_legacy/.fleet.lock" ] || fail "the upgraded path did not take a symlink lock"
-legacy_env unlock || fail "unlock after the upgrade exited non-zero"
-echo "ok: a tokenless unlock upgrades a retired-shape directory lock in place"
+touch -t 202001010000 "$home_legacy/.fleet.lock" # same holder, now long dead
+legacy_env lock || fail "a stale legacy directory lock was not broken"
+[ -L "$home_legacy/.fleet.lock" ] || fail "the broken legacy lock was not replaced by a symlink"
+legacy_env unlock || fail "unlock after a legacy break exited non-zero"
+# Its zero status is not on its own proof of a release — the observation at
+# the path below is. (`unlock` does report a failure it can see: the case
+# further down covers the branch where the path survives both removals.)
+[ ! -e "$home_legacy/.fleet.lock" ] && [ ! -L "$home_legacy/.fleet.lock" ] \
+  || fail "unlock did not release the lock taken by the legacy break"
+echo "ok: a stale pre-symlink directory lock is broken rather than wedging the home"
 
-# A NON-EMPTY legacy directory is the shape that matters most, because the
-# retired create-into-a-directory race is exactly what leaves a stray inside
-# one. The old rmdir could not clear it and reported the home wedged; the clear
-# takes it, which is what makes the upgrade path work on a real casualty.
+# ---------------------------------------------------------------------------
+# `unlock` must clear a lock left as a DIRECTORY by the pre-symlink shape.
+# `rm -f` refuses a directory, so an unlock that only unlinks reports success
+# while the home stays wedged behind a lock the operator was told was released.
+# ---------------------------------------------------------------------------
 home_uld="$tmp/unlock-legacy-home"
 mkdir -p "$home_uld"
 mkdir "$home_uld/.fleet.lock"
-: >"$home_uld/.fleet.lock/stray"
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home_uld" /bin/sh "$FS" unlock \
-  || fail "unlock over a non-empty legacy directory lock exited non-zero"
+  || fail "unlock against a legacy directory lock exited non-zero"
 [ ! -e "$home_uld/.fleet.lock" ] \
-  || fail "unlock left a non-empty legacy directory lock standing"
-echo "ok: unlock clears a retired-shape directory lock even with a stray inside it"
-
-# A REGULAR FILE at the lock path is nobody's lock, and no acquire will take
-# the path over it — so the escape hatch has to clear it. If it refused, the
-# fleet home would be wedged with nothing in the tree able to unwedge it.
-: >"$home_uld/.fleet.lock"
+  || fail "unlock reported success but left the legacy directory lock standing"
+# A directory it CANNOT clear must not be reported as released. rmdir takes an
+# empty directory only, so this is the half an empty-directory case never sees.
+mkdir "$home_uld/.fleet.lock"
+: >"$home_uld/.fleet.lock/stray"
 rc=0
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   PLANWRIGHT_FLEET_STATE_DIR="$home_uld" /bin/sh "$FS" unlock >/dev/null 2>&1 || rc=$?
-[ "$rc" = 0 ] || fail "unlock over a regular file at the lock path exited $rc, expected 0"
-[ ! -e "$home_uld/.fleet.lock" ] || fail "unlock left a regular file squatting the lock path"
-env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-  PLANWRIGHT_FLEET_STATE_DIR="$home_uld" /bin/sh "$FS" lock >/dev/null 2>&1 \
-  || fail "the lock path is still unusable after the squatting file was cleared"
-env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-  PLANWRIGHT_FLEET_STATE_DIR="$home_uld" /bin/sh "$FS" unlock >/dev/null 2>&1 || :
-echo "ok: unlock clears a regular file squatting the lock path, so the path is usable again"
+[ "$rc" = 2 ] || fail "unlock over a non-empty directory lock exited $rc, expected 2 (it did not release it)"
+rm -rf "$home_uld/.fleet.lock"
+echo "ok: unlock clears a pre-symlink directory lock, and refuses to claim one it cannot clear"
 
 # ---------------------------------------------------------------------------
-# The one-shot `lock` verb against a lock whose OWNER IS GONE must report 0
-# (held), not 1: the verb tries exactly once, so a break that does not
-# re-acquire hands the caller "busy" for a lock the same call just freed.
+# The one-shot `lock` verb against a STALE lock must report 0 (held), not 1.
+# The verb calls try_acquire exactly once, so a break that does not re-acquire
+# hands the caller "busy" for a lock the same call just freed — and the two
+# stale shapes (symlink, legacy directory) must not disagree about it.
 # ---------------------------------------------------------------------------
 home_sl="$tmp/stale-lockverb-home"
 mkdir -p "$home_sl"
+sl_pin="$tmp/stale-lockverb-pin.yml"
+printf 'stale_lock_threshold: 5m\n' >"$sl_pin"
 ln -s "crashed-holder" "$home_sl/.fleet.lock"
+touch -h -t 202001010000 "$home_sl/.fleet.lock"
 rc=0
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-  PLANWRIGHT_FLEET_STATE_DIR="$home_sl" \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_sl" PLANWRIGHT_LOCAL_CONFIG="$sl_pin" \
   /bin/sh "$FS" lock >/dev/null 2>&1 || rc=$?
-[ "$rc" = 0 ] || fail "one-shot lock against an owner-less lock exited $rc, expected 0 (it broke the lock, so it holds it)"
+[ "$rc" = 0 ] || fail "one-shot lock against a stale symlink exited $rc, expected 0 (it broke the lock, so it holds it)"
 [ -L "$home_sl/.fleet.lock" ] || fail "one-shot lock reported held but left no lock symlink"
-echo "ok: the one-shot lock verb acquires the lock it just broke"
+echo "ok: the one-shot lock verb acquires the lock it just broke, on both stale shapes"
 
 # ---------------------------------------------------------------------------
-# A lock symlink whose target is a REAL directory, cleared by the tokenless
-# `unlock`. That clear is the one place in this path that runs `rm -rf`: it
-# takes a lock left as a directory by the retired shape, and it is safe here
-# only because the symlink arm is tested FIRST, so the `rm -f` that removes a
-# link is reached before the `rm -rf` that removes a directory. Nothing at the
-# call site shows that ordering matters, so a canary pins it before a future
-# edit (a reordered test, a `find -delete`, a trailing slash that makes the
-# link read as its target) silently starts deleting whatever a lock points at.
+# A lock symlink whose target is a REAL directory. Breaking it must remove the
+# LINK and never touch what it points at. `mv` and `rm -f` operate on the link,
+# and `[ ! -L ]` keeps the legacy `rm -rf` arm unreachable for links — but the
+# containment comes from those semantics rather than from anything obvious at
+# the call site, so a canary pins it before a future edit (an `rm -rf` here, a
+# `find -delete` there) silently starts deleting the target's contents.
 # ---------------------------------------------------------------------------
 home_canary="$tmp/canary-home"
 mkdir -p "$home_canary"
@@ -538,72 +503,107 @@ canary_dir="$tmp/canary-target"
 mkdir -p "$canary_dir"
 : >"$canary_dir/canary"
 ln -s "$canary_dir" "$home_canary/.fleet.lock"
+touch -h -t 202001010000 "$home_canary/.fleet.lock" # stale, so the break fires
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-  PLANWRIGHT_FLEET_STATE_DIR="$home_canary" \
-  /bin/sh "$FS" unlock \
-  || fail "unlock over a lock symlink pointing at a real directory exited non-zero"
-[ ! -L "$home_canary/.fleet.lock" ] && [ ! -e "$home_canary/.fleet.lock" ] \
-  || fail "unlock left the lock symlink standing"
-[ -d "$canary_dir" ] || fail "clearing the lock DELETED the directory its symlink pointed at"
-[ -e "$canary_dir/canary" ] || fail "clearing the lock deleted the contents of the symlink's target"
-echo "ok: clearing a lock symlink removes the link and never its target"
+  PLANWRIGHT_FLEET_STATE_DIR="$home_canary" PLANWRIGHT_LOCAL_CONFIG="$sl_pin" \
+  /bin/sh "$FS" lock >/dev/null 2>&1 \
+  || fail "a stale lock symlink pointing at a real directory was not broken"
+[ -d "$canary_dir" ] || fail "breaking the lock DELETED the directory its symlink pointed at"
+[ -e "$canary_dir/canary" ] || fail "breaking the lock deleted the contents of the symlink's target"
+echo "ok: breaking a lock symlink removes the link and never its target"
 
 # ---------------------------------------------------------------------------
-# A LOCK WHOSE OWNER IS STILL RUNNING IS NEVER BROKEN, HOWEVER OLD IT IS. This
-# is the defect the retired age rule caused: a threshold answers a question
-# nobody asked, and a holder that stayed inside its critical section longer
-# than the threshold had its lock taken out from under it — mutual exclusion
-# lost to a clock. The fixture back-dates the link to the year 2000 and pins a
-# live owner (this test shell), so any age rule that came back would break it
-# and any liveness rule refuses to.
+# stale_lock_threshold refuses a zero and falls back to the default. A 0 makes
+# `find -mmin +0` match a lock that is merely seconds old (on BSD find, one
+# second old), so a LIVE holder mid-critical-section reads stale and its lock
+# is broken underneath it — mutual exclusion lost by configuration alone.
 # ---------------------------------------------------------------------------
-home_old="$tmp/old-live-home"
-mkdir -p "$home_old"
-# The mint time is NOW: a process cannot have minted a token before it started,
-# and the probe uses exactly that to tell a real owner from an unrelated one
-# wearing a recycled pid. The AGE under test is the file's, back-dated below.
-old_live_token="$$-$(date +%s)-1" # owned by this still-running shell
-ln -s "$old_live_token" "$home_old/.fleet.lock"
-touch -h -t 200001010000 "$home_old/.fleet.lock"
+home_floor="$tmp/floor-home"
+mkdir -p "$home_floor"
+floor_pin="$tmp/floor-pin.yml"
+printf 'stale_lock_threshold: 0m\n' >"$floor_pin"
+ln -s "live-holder" "$home_floor/.fleet.lock"
+# GNU first, then BSD. A last-resort constant would be WORSE than no fixture:
+# any fixed old date reads stale against the floored threshold, so the case
+# would fail claiming the floor did not hold when really the clock was wrong.
+touch -h -d "@$(($(date +%s) - 90))" "$home_floor/.fleet.lock" 2>/dev/null \
+  || touch -h -t "$(date -v-90S +%Y%m%d%H%M.%S)" "$home_floor/.fleet.lock" 2>/dev/null \
+  || fail "could not back-date the lock 90s (neither GNU touch -d nor BSD date -v worked)"
 rc=0
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-  PLANWRIGHT_FLEET_STATE_DIR="$home_old" \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_floor" PLANWRIGHT_LOCAL_CONFIG="$floor_pin" \
   /bin/sh "$FS" lock >/dev/null 2>&1 || rc=$?
-[ "$rc" = 1 ] || fail "a 26-year-old lock with a LIVE owner was not reported busy (exit $rc): an age rule is deciding staleness again"
-[ "$(readlink "$home_old/.fleet.lock")" = "$old_live_token" ] \
-  || fail "a live owner's lock was broken because of its age"
-# The companion, so the case cannot pass by never breaking anything at all:
-# the SAME back-dated link with a DEAD owner is broken on the first attempt.
-ln -sf "crashed-holder" "$home_old/.fleet.lock"
-touch -h -t 200001010000 "$home_old/.fleet.lock"
+[ "$rc" = 1 ] || fail "a 0m threshold broke a 90s-old LIVE lock (exit $rc); a zero threshold must floor to the default"
+# Companion: the SAME fixture with a 1m threshold must break. Without it the
+# case above passes just as well when the pinned config is never read at all,
+# because the 15m default would also decline to break a 90s-old lock.
+floor_live="$tmp/floor-live-pin.yml"
+printf 'stale_lock_threshold: 1m\n' >"$floor_live"
+rc=0
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-  PLANWRIGHT_FLEET_STATE_DIR="$home_old" \
-  /bin/sh "$FS" lock >/dev/null 2>&1 \
-  || fail "the same back-dated lock with an ABSENT owner was not broken: the case proves nothing"
-echo "ok: a live owner's lock is never broken by age, and an absent owner's is broken without one"
+  PLANWRIGHT_FLEET_STATE_DIR="$home_floor" PLANWRIGHT_LOCAL_CONFIG="$floor_live" \
+  /bin/sh "$FS" lock >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "a 1m threshold did not break the same 90s-old lock (exit $rc): the pinned config is not being read"
+echo "ok: a 0m stale_lock_threshold floors to the default, and a real 1m threshold still breaks"
 
 # ---------------------------------------------------------------------------
-# A signal delivered the instant the lock is taken must still release it. The
-# release is armed before the first acquire and the library records the hold
-# before its acquire returns, so there is no window where the link exists and
-# the handler does not know about it — but "no window" is a property of how the
-# two are ordered, and nothing at the call site shows it. This pins it: a
-# holder killed just after the acquire must leave nothing standing, because
-# nothing breaks an abandoned lock on its own once the age rule is gone.
+# The stale threshold is resolved ONCE per process. It is read on every
+# contended spin, so resolving it per iteration forks config-get.sh ~50 times
+# a second per waiter. A memo written inside a command substitution never
+# reaches the caller, so this asserts the observable count, not the variable.
+# ---------------------------------------------------------------------------
+shim="$tmp/shim-scripts"
+mkdir -p "$shim"
+cp "$here/../scripts/fleet-state.sh" "$shim/fleet-state.sh"
+cp "$here/../scripts/echo-safety.sh" "$shim/echo-safety.sh"
+cg_count="$tmp/config-get-calls"
+: >"$cg_count"
+cat >"$shim/config-get.sh" <<'SHIM'
+#!/bin/sh
+echo call >>"$PLANWRIGHT_CG_COUNT"
+[ "$1" = stale_lock_threshold ] && { echo "15m"; exit 0; }
+exit 1
+SHIM
+chmod +x "$shim/config-get.sh"
+home_cg="$tmp/cachecount-home"
+mkdir -p "$home_cg"
+ln -s "held-by-test" "$home_cg/.fleet.lock" # a live holder, so register must spin
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_CG_COUNT="$cg_count" PLANWRIGHT_FLEET_STATE_DIR="$home_cg" \
+  /bin/sh "$shim/fleet-state.sh" register "w-cache" "scope-cache" >/dev/null 2>&1 &
+cg_pid=$!
+sleep 2 # ~100 spins at the 20ms backoff
+rm -f "$home_cg/.fleet.lock"
+wait "$cg_pid" || fail "the contended register did not complete after the lock was released"
+cg_calls=$(wc -l <"$cg_count" | tr -d ' ')
+# The lower bound matters as much as the upper: a 0 would mean the acquire was
+# never contended and the case proved nothing.
+[ "$cg_calls" -ge 1 ] \
+  || fail "the contended acquire never resolved stale_lock_threshold at all ($cg_calls): the case did not exercise the spin"
+[ "$cg_calls" -le 2 ] \
+  || fail "stale_lock_threshold was resolved $cg_calls times in one acquire (expected 1): the per-process memo is not reaching the caller"
+echo "ok: the stale threshold is resolved once per process, not once per contended spin"
+
+# ---------------------------------------------------------------------------
+# A signal delivered AFTER the lock is taken but BEFORE the caller records
+# ownership must still release it. try_acquire creates the link and returns;
+# its caller does its bookkeeping afterwards, so anything that gates release on
+# that bookkeeping declines to release a lock the process genuinely holds and
+# wedges every later fleet writer until the stale break — the outcome the trap
+# discipline exists to prevent.
 #
 # The real window is sub-millisecond, so this widens it by fault injection: a
-# copy of the script with a sleep immediately after the acquire returns. The
-# injection is asserted, because an anchor that silently stops matching would
-# turn the whole case green without testing anything.
+# copy of the script with a sleep between the acquire and the caller's
+# bookkeeping. The injection is asserted, because an anchor that silently stops
+# matching would turn the whole case green without testing anything.
 # ---------------------------------------------------------------------------
 shim2="$tmp/shim-term"
 mkdir -p "$shim2"
-cp "$here/../scripts/echo-safety.sh" "$here/../scripts/config-get.sh" \
-  "$here/../scripts/lock-lib.sh" "$shim2/"
-sed 's/^  sa_rc=\$?$/  sa_rc=$?\
-  sleep 3/' "$here/../scripts/fleet-state.sh" >"$shim2/fleet-state.sh"
+cp "$here/../scripts/echo-safety.sh" "$here/../scripts/config-get.sh" "$shim2/"
+sed 's/^    sa_rc=\$?$/    sa_rc=$?\
+    sleep 3/' "$here/../scripts/fleet-state.sh" >"$shim2/fleet-state.sh"
 chmod +x "$shim2/fleet-state.sh"
-[ "$(grep -c '^  sleep 3$' "$shim2/fleet-state.sh")" = 1 ] \
+[ "$(grep -c '^    sleep 3$' "$shim2/fleet-state.sh")" = 1 ] \
   || fail "the acquire-window fault injection did not apply; its anchor in spin_acquire moved"
 home_term="$tmp/term-window-home"
 mkdir -p "$home_term"
@@ -628,15 +628,15 @@ echo "ok: a signal in the acquire window releases the lock instead of leaking it
 # ---------------------------------------------------------------------------
 # A toolchain WITHOUT `readlink`. Every lock create is confirmed by reading the
 # link back, so a confirm that cannot run reads as a create somebody else won:
-# the acquire makes its own link, judges it foreign, and reports busy while that
-# link stands with nobody able to prove it is theirs. Measured before the guard
-# existed: `lock` exited 1 with its own token still at the lock path, and
-# `register` / `bound-incr` spun the entire budget before failing with a
-# diagnostic blaming contention that was never there.
+# try_acquire makes its own link, judges it foreign, and reports busy while that
+# link stands until the stale break. Measured before the guard existed: `lock`
+# exited 1 with its own token still at the lock path, and `register` /
+# `bound-incr` spun the entire budget (~27s) before failing with a diagnostic
+# blaming contention that was never there.
 #
-# The guard sits AT THE FIRST ACQUIRE, not at the top of the script, which is
-# what the root/registry/unlock half below pins: those verbs never confirm a
-# link, and failing them on a tool they do not use would be its own regression.
+# The guard sits AT THE LOCK, not at the top of the script, which is what the
+# root/registry/unlock half below pins: those verbs never confirm a link, and
+# failing them on a tool they do not use would be its own regression.
 # ---------------------------------------------------------------------------
 norl_bin="$tmp/no-readlink-bin"
 mkdir -p "$norl_bin"
@@ -685,21 +685,32 @@ for norl_verb in lock register bound-incr bound-decr; do
 done
 echo "ok: without readlink the lock is refused, not taken, misreported busy, and leaked"
 
-# The diagnostic says WHY the refusal happened, not just that one did: the
-# reason an acquire cannot proceed without readlink is that it cannot tell its
-# own link from a peer's, and an operator who is not told that goes looking for
-# contention. The message comes from the lock primitive, which is what refuses,
-# so it is pinned by its content rather than by a list of this script's verbs.
+# The diagnostic must describe the partition this case actually proves. It was
+# wrong once — it listed `register` among the verbs that keep working, while
+# the loop above proves `register` is refused — so the two are pinned to each
+# other here rather than left to agree by inspection.
 norl_msg=$(cat "$tmp/no-readlink-lock.err")
-case "$norl_msg" in
-  *"readlink"*) ;;
-  *) fail "the refusal diagnostic does not name the missing tool: $norl_msg" ;;
+for norl_taking in lock register bound-incr bound-decr; do
+  case "$norl_msg" in
+    *"$norl_taking"*) ;;
+    *) fail "the readlink diagnostic does not name '$norl_taking' among the verbs it refuses: $norl_msg" ;;
+  esac
+done
+for norl_working in root registry unlock; do
+  case "$norl_msg" in
+    *"$norl_working"*) ;;
+    *) fail "the readlink diagnostic does not name '$norl_working' among the verbs that keep working: $norl_msg" ;;
+  esac
+done
+#   And the halves must not be swapped: the refused verbs have to appear before
+#   the working ones, which is what makes the sentence say what it means.
+norl_head=${norl_msg%%refused*}
+case "$norl_head" in
+  *registry* | *unlock*)
+    fail "the readlink diagnostic lists a still-working verb among the refused ones: $norl_msg"
+    ;;
 esac
-case "$norl_msg" in
-  *"this process's own"*) ;;
-  *) fail "the refusal diagnostic does not say why a lock cannot be confirmed without it: $norl_msg" ;;
-esac
-echo "ok: the refusal names the missing tool and why an acquire depends on it"
+echo "ok: the readlink diagnostic names the same partition this case proves"
 
 # The verbs that never read a link target must be untouched by the guard. This
 # is the half a top-of-script fast-fail turns red, and the reason the guard is
@@ -725,7 +736,7 @@ echo "ok: without readlink, root/registry/unlock — the verbs that confirm no l
 # being a blanket refusal that passes the case above for the wrong reason.
 ln -s "$(command -v readlink)" "$norl_bin/readlink"
 norl_ctl="$tmp/readlink-restored"
-norl_env "$norl_ctl" lock >/dev/null \
+norl_env "$norl_ctl" lock \
   || fail "negative control: lock failed with readlink present on the stub PATH"
 [ -L "$norl_ctl/.fleet.lock" ] \
   || fail "negative control: lock reported success but took no lock"
@@ -788,34 +799,50 @@ benv bound-incr "" >/dev/null 2>&1 || rc=$?
 echo "ok: bound-incr rejects a malformed bound (non-numeric and empty)"
 
 # ---------------------------------------------------------------------------
-# 12. Crash recovery: a lock left behind by a holder whose process is GONE must
-#     not deadlock the fleet forever — a new acquirer breaks it and proceeds.
-#     (This is the recoverable, single-acquirer property. The concurrent
-#     multi-breaker corner belongs to the lock primitive's own suite, which is
-#     where the claim-link mechanism that closes it lives.)
+# 12. Stale-break liveness: a lock left behind by a CRASHED holder (a stale
+#     lock older than the threshold) must not deadlock the fleet forever — a new
+#     acquirer breaks it and proceeds. (This is the recoverable, single-acquirer
+#     property. The concurrent-multi-breaker corner is narrowed but not closed
+#     by the symlink shape's rename-aside claim — a breaker descheduled between
+#     its staleness probe and its rename can still displace a successor's live
+#     lock, and the legacy-directory break has no atomic claim at all — so it
+#     remains unasserted here.)
 # ---------------------------------------------------------------------------
 home_stale="$tmp/stale-home"
 mkdir -p "$home_stale"
 ln -s "crashed-holder" "$home_stale/.fleet.lock"
+touch -h -t 202001010000 "$home_stale/.fleet.lock" # crashed holder, back-dated to 2020
+# Pin stale_lock_threshold via an explicit machine-local config so the break is
+# deterministic regardless of the ambient config-get resolution. An explicit
+# PLANWRIGHT_LOCAL_CONFIG replaces the resolver-derived machine-local layer (the
+# top of the four-layer ladder, last-wins), so no repo-local or adopter override
+# can widen the threshold past the back-dated lock's age. Mirrors how the sibling
+# orchestrate-lock.sh consumes the knob. 5m is far below the 2020 lock's age, so
+# the lock is reliably stale.
+stale_pin="$tmp/stale-pin.yml"
+printf 'stale_lock_threshold: 5m\n' >"$stale_pin"
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-  PLANWRIGHT_FLEET_STATE_DIR="$home_stale" \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_stale" PLANWRIGHT_LOCAL_CONFIG="$stale_pin" \
   /bin/sh "$FS" bound-incr 3 >/dev/null \
-  || fail "an owner-less lock deadlocked a new acquirer (no break/recovery)"
-[ "$(cat "$home_stale/concurrency")" = "1" ] || fail "break recovery did not complete the increment"
-echo "ok: a crashed holder's lock is broken, not a permanent deadlock"
+  || fail "stale lock deadlocked a new acquirer (no break/recovery)"
+[ "$(cat "$home_stale/concurrency")" = "1" ] || fail "stale-break recovery did not complete the increment"
+echo "ok: a crashed holder's stale lock is broken, not a permanent deadlock"
 
 # ---------------------------------------------------------------------------
-# 12b. No configuration can disable crash recovery, because no configuration
-#      takes part in it. `stale_lock_threshold` used to gate the break, and it
-#      resolved through the caller's cwd — so a repo with a ~190-year threshold
-#      in its committed config silently turned recovery off for any tower run
-#      from inside it. Liveness answers the question now and reads no config at
-#      all, which this pins by planting that same hostile threshold in the cwd
-#      and requiring the break anyway.
+# 12b. CWD-independence: the cross-spec fleet stale threshold must NOT vary by
+#      the repo a tower happens to run from. fleet_stale_min pins
+#      PLANWRIGHT_REPO_ROOT to the fleet home (which has no .claude overlay), so
+#      config-get cannot pick up the cwd repo's stale_lock_threshold. Here the
+#      cwd is a git repo whose committed config sets a ~190-year threshold: if it
+#      leaked in, the back-dated 2020 lock would count as FRESH and the stale
+#      break would NOT fire (crash recovery silently disabled). Note NO explicit
+#      PLANWRIGHT_LOCAL_CONFIG here — the determinism must come from the
+#      REPO_ROOT pin alone, not an override. Regression for the cwd-dependence bug.
 # ---------------------------------------------------------------------------
 home_cwd="$tmp/cwd-indep-home"
 mkdir -p "$home_cwd"
 ln -s "crashed-holder" "$home_cwd/.fleet.lock"
+touch -h -t 202001010000 "$home_cwd/.fleet.lock" # crashed holder, back-dated to 2020
 hostile_repo="$tmp/hostile-cwd-repo"
 mkdir -p "$hostile_repo/.claude"
 (cd "$hostile_repo" && git init -q) || fail "cwd-indep: could not init the hostile cwd repo"
@@ -824,9 +851,9 @@ printf 'stale_lock_threshold: 99999999m\n' >"$hostile_repo/.claude/planwright.ym
   cd "$hostile_repo" \
     && env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME -u PLANWRIGHT_LOCAL_CONFIG \
       PLANWRIGHT_FLEET_STATE_DIR="$home_cwd" /bin/sh "$FS" bound-incr 3 >/dev/null
-) || fail "cwd-indep: the break did not fire — a stale-age knob is gating crash recovery again"
-[ "$(cat "$home_cwd/concurrency")" = "1" ] || fail "cwd-indep: break recovery did not complete the increment"
-echo "ok: no configured threshold takes part in crash recovery (a hostile repo-local knob cannot disable it)"
+) || fail "cwd-indep: stale break did not fire — the cwd repo's threshold leaked into the fleet lock"
+[ "$(cat "$home_cwd/concurrency")" = "1" ] || fail "cwd-indep: stale-break recovery did not complete the increment"
+echo "ok: the fleet stale threshold is cwd-independent (a hostile repo-local override cannot disable recovery)"
 
 # ---------------------------------------------------------------------------
 # 13. Fail-closed usage error: an UNKNOWN command exits 2 and creates NO
@@ -886,7 +913,7 @@ else
     env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
       PLANWRIGHT_FLEET_STATE_DIR="$home_perm" /bin/sh "$FS" "$@"
   }
-  penv lock >/dev/null || fail "perm: could not take the lock to begin with"
+  penv lock || fail "perm: could not take the lock to begin with"
   [ -L "$home_perm/.fleet.lock" ] || fail "perm: the lock is not a symlink, so this case tests nothing"
   chmod 500 "$home_perm" || fail "perm: could not make the home unwritable"
   # `|| rc=$?` on the assignment itself: under `set -e` a failing command

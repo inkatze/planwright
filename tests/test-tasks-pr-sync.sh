@@ -564,36 +564,22 @@ grep -Eq 'find[[:space:]].*-maxdepth 0 -mmin' "$SYNC" \
   && fail "REQ-D1.1: script still carries inline stale-break logic (duplication)"
 echo "ok: a lock held via the shared primitive excludes the hook (REQ-D1.2); no inline lock"
 
-# 9b. A lock whose owner process is running is a clean no-op; one whose owner
-#     is gone is broken and the reconcile proceeds. Staleness is owner absence,
-#     not age: the fixtures below name a live pid and a reaped one rather than
-#     back-dating a lock file.
+# 9b. A busy (fresh) lock is a clean no-op; a stale lock is broken and the
+#     reconcile proceeds.
 repo=$tmp/r9
 make_repo "$repo"
 tasks=$repo/specs/demo/tasks.md
 pristine9=$tmp/pristine9.md
 cp "$tasks" "$pristine9"
 git -C "$repo" checkout -q planwright/demo/task-2
-ln -s "$$-0-1" "$repo/specs/demo/.orchestrate.lock"
+mkdir "$repo/specs/demo/.orchestrate.lock"
 run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" || fail "busy lock: non-zero exit"
 cmp -s "$tasks" "$pristine9" || fail "busy lock: hook reconciled instead of skipping"
-# The same lock, back-dated far past any plausible threshold, is STILL busy:
-# its owner is this test process and it is running.
-touch -h -t 202001010000 "$repo/specs/demo/.orchestrate.lock" 2>/dev/null || true
-run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" || fail "aged live lock: non-zero exit"
-cmp -s "$tasks" "$pristine9" || fail "aged live lock: hook broke a lock whose owner is running"
-# An owner that is gone: a reaped child's pid names no process.
-sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null || true
-rm -f "$repo/specs/demo/.orchestrate.lock"
-ln -s "$dead_pid-0-1" "$repo/specs/demo/.orchestrate.lock"
-run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" || fail "absent-owner lock: non-zero exit"
-[ "$(section_of "$tasks" 1)" = "Completed" ] || fail "absent-owner lock: not broken"
-if [ -L "$repo/specs/demo/.orchestrate.lock" ] || [ -e "$repo/specs/demo/.orchestrate.lock" ]; then
-  fail "absent-owner lock: lock not released"
-fi
-echo "ok: a live-owner lock no-ops at any age, an absent-owner lock breaks"
+touch -t 202001010000 "$repo/specs/demo/.orchestrate.lock"
+run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" || fail "stale lock: non-zero exit"
+[ "$(section_of "$tasks" 1)" = "Completed" ] || fail "stale lock: not broken at the default threshold"
+[ ! -d "$repo/specs/demo/.orchestrate.lock" ] || fail "stale lock: lock not released"
+echo "ok: busy lock no-ops, stale lock breaks"
 
 # 9c. Missing lock primitive beside the hook → clean fail-soft no-op (REQ-D1.1).
 repo=$tmp/r10
@@ -831,9 +817,7 @@ cmp -s "$tasks" "$ref15" \
   }
 ls "$repo/specs/demo"/.tasks-pr-sync.* >/dev/null 2>&1 \
   && fail "concurrent: a temp file was left behind"
-if [ -L "$repo/specs/demo/.orchestrate.lock" ] || [ -e "$repo/specs/demo/.orchestrate.lock" ]; then
-  fail "concurrent: the advisory lock was not released"
-fi
+[ ! -d "$repo/specs/demo/.orchestrate.lock" ] || fail "concurrent: the advisory lock was not released"
 echo "ok: concurrent reconciles settle on the canonical placement, no torn write, no temp/lock left"
 
 # ===========================================================================

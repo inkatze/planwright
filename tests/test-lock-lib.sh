@@ -545,11 +545,16 @@ assert_exit "a non-numeric owner pid is a usage error" 2 $?
 # ---------------------------------------------------------------------------
 #
 # The header names the scripts that take their locks through this library, and
-# a list like that rots the moment someone adopts a sixth script or drops one.
+# a list like that rots the moment someone adopts another script or drops one.
 # Compare it against what the tree actually sources, so the claim cannot
 # outlive its accuracy.
 
 listed="$(sed -n 's|^#   \(scripts/[a-z0-9-]*\.sh\).*|\1|p' "$LIB" | sort -u)"
+# An empty list is a legitimate state, but only when the header SAYS so. Read
+# it from an explicit marker rather than inferring it from a parse that found
+# nothing, or a header someone reformatted would pass as "no holders".
+declares_none=no
+grep -q '^#   (none yet: ' "$LIB" && declares_none=yes
 # Two signals, because the tree sources it two ways: a literal `. <path>`, and
 # where the path goes through a variable, the shellcheck source= directive the
 # house style requires at the site. The guard is excluded because its usage
@@ -558,8 +563,10 @@ sourcing="$(grep -lE '^[[:space:]]*(\. .*lock-lib\.sh|# shellcheck source=script
   "$REPO_ROOT"/scripts/*.sh 2>/dev/null \
   | sed "s|^$REPO_ROOT/||" \
   | grep -vE '^scripts/(lock-lib|check-lock-primitive)\.sh$' | sort -u)"
-if [ -z "$listed" ]; then
+if [ -z "$listed" ] && [ "$declares_none" = no ]; then
   fail "the header's lock-holder list could not be read"
+elif [ -n "$listed" ] && [ "$declares_none" = yes ]; then
+  fail "the header both names lock holders and declares it has none"
 elif [ "$listed" = "$sourcing" ]; then
   pass "every script the header lists sources the library, and no other does"
 else

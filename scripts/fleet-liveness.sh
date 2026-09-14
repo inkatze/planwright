@@ -489,12 +489,11 @@ report_terminal_feedback() {
   # depth here (the unit reaching this line already passed a charset with no
   # backslash in it) and load-bearing where a value is refused, which by
   # definition prints one that did not.
-  # The inherited-hold variables are passed through only on unit-name equality:
-  # any other value belongs to some other unit and would put this evaluation
-  # inside a hold that is not for it, so that is the case the else arm clears.
-  # A matching pair is still only a claim — the callee re-checks the token
-  # against the lock's live owner before it skips an acquire — so passing it
-  # through cannot suppress a real acquire, it can only save a redundant one.
+  # The inherited-hold variable is honored only on unit-name equality. A hold
+  # for exactly this unit is real and inherited, and honoring it is what keeps
+  # the non-reentrant lock from deadlocking against its own owner; any other
+  # value belongs to some other unit and would suppress a real acquire, so that
+  # is the case the else arm clears.
   rtf_rc=0
   # stdout is CAPTURED rather than discarded: it never reaches this
   # subcommand's own record line, which is what the discard protected, and it
@@ -502,11 +501,14 @@ report_terminal_feedback() {
   # recording that published nothing, from a published fragment whose ledger
   # mark failed. Those call for opposite operator responses.
   rtf_out=$(
-    if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" != "$ALLOC_UNIT" ]; then
-      unset PLANWRIGHT_ALLOC_LOCK_HELD PLANWRIGHT_ALLOC_LOCK_TOKEN
+    if [ "${PLANWRIGHT_ALLOC_LOCK_HELD:-}" = "$ALLOC_UNIT" ]; then
+      "$AFB" evaluate "$ALLOC_UNIT" --key "$ALLOC_KEY" --terminal disabled \
+        --scope "$OBS_SCOPE" --obs-dir "$OBS_DIR"
+    else
+      unset PLANWRIGHT_ALLOC_LOCK_HELD
+      "$AFB" evaluate "$ALLOC_UNIT" --key "$ALLOC_KEY" --terminal disabled \
+        --scope "$OBS_SCOPE" --obs-dir "$OBS_DIR"
     fi
-    "$AFB" evaluate "$ALLOC_UNIT" --key "$ALLOC_KEY" --terminal disabled \
-      --scope "$OBS_SCOPE" --obs-dir "$OBS_DIR"
   ) || rtf_rc=$?
   [ "$rtf_rc" -eq 0 ] && return 0
   rtf_reason=$(printf '%s\n' "$rtf_out" | awk -F'\t' '$1 == "reason" { print $2; exit }')

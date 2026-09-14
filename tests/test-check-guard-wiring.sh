@@ -205,6 +205,14 @@ run_cg "$r" >/dev/null || fail "g6: an allowlisted guard should pass: $(cat "$tm
 #     before trimming the leading run would blank the line and drop it.
 printf '   check-planted.sh  run by the frobnicator\n' >"$r/scripts/guard-wiring-allow.txt"
 run_cg "$r" >/dev/null || fail "g6: an indented allowlist entry was silently dropped"
+#     Every entry exempts, not just the last one. The list is read as one
+#     newline-separated string, so a membership test written in terms of
+#     space-delimited words matches only the final line.
+printf '#!/bin/sh\nexit 0\n' >"$r/scripts/check-second.sh"
+printf 'check-planted.sh  x\ncheck-second.sh  y\n' >"$r/scripts/guard-wiring-allow.txt"
+run_cg "$r" >/dev/null \
+  || fail "g6: a non-final allowlist entry was dropped: $(cat "$tmp/err")"
+rm -f "$r/scripts/check-second.sh"
 #     rot mode 1: the entry names a script that no longer exists.
 printf 'check-planted.sh  x\ncheck-vanished.sh  run by nobody\n' >"$r/scripts/guard-wiring-allow.txt"
 run_cg "$r" >/dev/null && fail "g6: a stale allowlist entry was accepted"

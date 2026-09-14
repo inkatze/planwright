@@ -489,6 +489,9 @@ resolve_surface() {
     err "cannot resolve the current uid"
     exit 6
   }
+  # fleet-state.sh owns this name; it is read here only to check the link's
+  # target against the token this process holds, never to create the lock.
+  LOCK_PATH="$home/.fleet.lock"
   surface="$home/tower-comms"
   log_file="$surface/events.log"
   seq_file="$surface/events.seq"
@@ -546,9 +549,7 @@ ensure_surface() {
     exit 4
   fi
   if [ ! -d "$surface" ]; then
-    # A peer creating the same sub-surface concurrently is a success here, so
-    # the status is discarded and the -d test below is what decides.
-    mkdir "$surface" 2>/dev/null || true # not-a-lock: best-effort creation
+    mkdir "$surface" 2>/dev/null || true
   fi
   if [ ! -d "$surface" ]; then
     err "cannot create the sub-surface $(sanitize_printable "$surface" "(unprintable path)")"
@@ -575,21 +576,32 @@ verify_surface() {
 # The fleet lock, bounded
 # ---------------------------------------------------------------------------
 
+HOLD_LOCK=0
+LOCK_PATH=""
 LOCK_TOKEN=""
+LOCK_CHILD=""
 PENDING_TMP=""
 WORK_TMP=""
 KNOB_DIR=""
-# fleet-state's `lock` verb disowns its hold to this caller and PRINTS the
-# token that proves it. Holding that token is the whole release discipline:
-# `unlock <token>` unlinks only while the link is still that token's, so a hold
-# cleared from under this process and retaken by a peer is left standing rather
-# than deleted. Nothing auto-breaks a detached hold, so leaking one here would
-# wedge every fleet writer until an operator noticed.
+# fleet-state disowns the lock its `lock` verb takes to this caller, and its
+# `unlock` is an unconditional `rm -f` its own header calls out as able to
+# delete a successor's lock. What closes both is the discipline try_acquire
+# documents: claim ownership BEFORE anything can publish the link, and unlink
+# only while the link is still ours. The claim here is the pid of the forked
+# child, which is the `<pid>-<epoch>` owner token fleet-state writes, recorded
+# before that child can be waited on; the check is the link's target read back.
+# So a signal inside the acquire window still releases a lock this process
+# took, and a lock broken as stale and retaken by a peer reads back a foreign
+# target and is left standing.
 release_lock() {
-  [ -n "$LOCK_TOKEN" ] || return 0
-  _tok=$LOCK_TOKEN
-  LOCK_TOKEN=""
-  "$FS" unlock "$_tok" >/dev/null 2>&1 || true
+  [ "$HOLD_LOCK" = 1 ] || return 0
+  HOLD_LOCK=0
+  [ -n "$LOCK_PATH" ] || return 0
+  _lt=$(readlink "$LOCK_PATH" 2>/dev/null) || _lt=""
+  [ -n "$_lt" ] || return 0
+  if [ "$_lt" = "$LOCK_TOKEN" ] || { [ -n "$LOCK_CHILD" ] && [ "${_lt%%-*}" = "$LOCK_CHILD" ]; }; then
+    rm -f "$LOCK_PATH" 2>/dev/null || true
+  fi
 }
 # Every scratch path this script mints is tracked, because each one is
 # created inside the 0700 sub-surface: a signal between `mktemp` and the
@@ -645,17 +657,22 @@ acquire_lock() {
     _tries=$(wait_tries "$1")
   fi
   while :; do
-    # The token lands in LOCK_TOKEN as part of the assignment itself, and a
-    # trap runs between commands rather than inside one, so there is no instant
-    # where this process holds the lock and its cleanup does not know the token
-    # that releases it. A refused acquire prints nothing, which leaves
-    # LOCK_TOKEN empty and makes the cleanup a no-op.
-    _rc=0
-    LOCK_TOKEN=$("$FS" lock 2>/dev/null) || _rc=$?
+    # Forked rather than run in the foreground so the pid inside the owner
+    # token is this process's knowledge BEFORE the child can publish the link.
+    LOCK_TOKEN=""
+    "$FS" lock >/dev/null 2>&1 &
+    LOCK_CHILD=$!
+    HOLD_LOCK=1
+    wait "$LOCK_CHILD"
+    _rc=$?
     case $_rc in
-      0) return 0 ;;
-      1) ;;
+      0)
+        LOCK_TOKEN=$(readlink "$LOCK_PATH" 2>/dev/null) || LOCK_TOKEN=""
+        return 0
+        ;;
+      1) HOLD_LOCK=0 ;;
       *)
+        HOLD_LOCK=0
         err "cannot acquire the fleet lock (fleet-state exit $_rc)"
         return 2
         ;;
