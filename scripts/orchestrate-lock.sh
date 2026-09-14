@@ -32,6 +32,22 @@
 # lose exclusion: a caller that forgets the flag gets a lock that is too sticky
 # rather than one that evaporates the moment it is taken.
 #
+# TOO STICKY IS NOT FREE EITHER, which is what `sweep` is for. A detached hold
+# outlives the session that took it, and a dispatch that finds one reads it as
+# contention — which is a clean no-op, so a spec whose orchestrator died mid
+# window stops being dispatched and says nothing about it. The answer is not a
+# threshold: it is evidence. An acquire that CAN name its holder does so, and
+# then the hold is an ordinary one the primitive breaks by itself; an acquire
+# that cannot leaves a record of why, and `sweep` refuses rather than guessing.
+#
+# ATTRIBUTION, in order: an explicit `--owner-pid`; else `PLANWRIGHT_TOWER_PID`
+# from the environment contract the fleet doc defines for a session that knows
+# its own identity, when it names a process that is actually running; else the
+# tmux window this session occupies, which is a death-evidence class of its own
+# but not a pid, so it is recorded beside the lock for `sweep` rather than used
+# as the owner. With none of those, the hold is unattributed and stays until
+# someone releases it.
+#
 # REQ-F1.1 (parsed input is data, never an executed path): the spec id is read
 # from the canonicalized spec-dir basename and validated against the spec-id
 # grammar `^[a-z0-9][a-z0-9-]*$` (max 64), and the spec dir must resolve under
@@ -57,6 +73,11 @@
 #            fine). Exit 0, or 2 when the path could not be cleared at all. It
 #            also clears a lock DIRECTORY left by the retired mkdir shape, so
 #            an in-place upgrade recovers itself.
+#   sweep    clear a DETACHED hold, but only on positive evidence that its
+#            holder is gone. Prints one word and exits in the evidence
+#            vocabulary: `cleared` 0, `no-lock` 0, `owned` 0 (the primitive
+#            breaks that one itself), `alive` 1, `unattributed` 3, `unknown` 3.
+#            Never acts on silence and never on elapsed time.
 #
 # Portable POSIX sh. `flock` is not an option: it is absent on macOS, inside
 # the support bar, and it is process-bound, which neither caller here is.
@@ -149,11 +170,99 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
   exit 2
 }
 
+# The attribution record: one line, `<token>\t<evidence-class> <args>`, beside
+# the lock. It is bound to the token because a record that outlived its lock
+# would have `sweep` judging the wrong holder; a record whose token does not
+# match what is at the path now is read as absent, which is the safe answer.
+handle_file="$lock#owner#"
+
+# read_handle — set `handle` to the evidence handle recorded for the token
+# currently at the lock path, or to the empty string.
+read_handle() {
+  handle=""
+  rh_token=$(readlink "$lock" 2>/dev/null) || return 0
+  [ -n "$rh_token" ] || return 0
+  [ -f "$handle_file" ] || return 0
+  rh_line=$(head -n 1 "$handle_file" 2>/dev/null) || return 0
+  case $rh_line in
+    "$rh_token	"*) handle=${rh_line#*	} ;;
+  esac
+}
+
 case "$cmd" in
+  sweep)
+    # The evidence command is a seam so a test can pin a verdict; unset, it is
+    # the fleet's own predicate, which is the only thing that decides here.
+    evidence_cmd=${PLANWRIGHT_TOWER_EVIDENCE_CMD:-$script_dir/fleet-death-evidence.sh}
+    if [ ! -L "$lock" ]; then
+      if [ -e "$lock" ]; then
+        # Something that is not a lock. `release` is the verb for that; this
+        # one only ever judges holders.
+        printf '%s\n' unattributed
+        exit 3
+      fi
+      printf '%s\n' no-lock
+      exit 0
+    fi
+    sweep_token=$(readlink "$lock" 2>/dev/null) || sweep_token=""
+    case $sweep_token in
+      detached-*) ;;
+      *)
+        # An ordinary hold names a process, and the primitive breaks it the
+        # moment that process is gone. Nothing here to decide.
+        printf '%s\n' owned
+        exit 0
+        ;;
+    esac
+    read_handle
+    if [ -z "$handle" ]; then
+      printf '%s\n' unattributed
+      exit 3
+    fi
+    if [ ! -x "$evidence_cmd" ]; then
+      printf '%s\n' unknown
+      echo "orchestrate-lock: $evidence_cmd is missing or not executable; refusing to judge $lock" >&2
+      exit 3
+    fi
+    ev_rc=0
+    # shellcheck disable=SC2086 # the handle is a class plus its arguments, and
+    # splitting it into those words is what the predicate takes
+    "$evidence_cmd" $handle >/dev/null 2>&1 || ev_rc=$?
+    case $ev_rc in
+      0) ;;
+      1)
+        printf '%s\n' alive
+        exit 1
+        ;;
+      *)
+        # Lost observability, a refused input, or the predicate itself failing.
+        # None of them is death, and the lock is left exactly as it was.
+        printf '%s\n' unknown
+        exit 3
+        ;;
+    esac
+    # Positive evidence, and only now. Re-read the token first: between the
+    # verdict and this line the holder may have released and a successor taken
+    # the path, and clearing THAT is the double-grant the evidence bar exists
+    # to prevent.
+    if [ "$(readlink "$lock" 2>/dev/null)" != "$sweep_token" ]; then
+      printf '%s\n' alive
+      exit 1
+    fi
+    if ! pw_lock_break_force "$lock"; then
+      printf '%s\n' unknown
+      echo "orchestrate-lock: cannot clear $lock (it is still present after the removal; check its type and the spec directory's permissions)" >&2
+      exit 3
+    fi
+    rm -f "$handle_file" 2>/dev/null || :
+    printf '%s\n' cleared
+    exit 0
+    ;;
   release)
     # Unconditional and idempotent, which is what makes it the recovery path
     # for a detached hold whose owner never came back. It also clears a lock
     # DIRECTORY left by the retired mkdir shape.
+    rm -f "$handle_file" 2>/dev/null || :
     pw_lock_break_force "$lock" || {
       # What is known is only that the path is still occupied. WHY is not: the
       # removal can fail on an unwritable spec dir as readily as on something
@@ -166,7 +275,7 @@ case "$cmd" in
     ;;
   acquire) ;;
   *)
-    echo "orchestrate-lock: unknown command '$cmd' (acquire|release)" >&2
+    echo "orchestrate-lock: unknown command '$cmd' (acquire|release|sweep)" >&2
     exit 2
     ;;
 esac
@@ -175,11 +284,46 @@ esac
 # (REQ-D1.2), and a busy lock is a clean skip for both callers rather than
 # something to wait out. The stale break inside the attempt is what turns a
 # dead owner's lock into a held one, in the same call.
+# Attribution, before the take. A holder this call can name is a holder the
+# primitive can probe, which makes the hold an ordinary one that needs no sweep
+# at all; a holder it can only name by tmux window is recorded beside the lock
+# instead, because that is a death-evidence class and not a pid.
+sweep_handle=""
+if [ -z "$owner_pid" ]; then
+  case ${PLANWRIGHT_TOWER_PID:-} in
+    '' | 0 | *[!0-9]*) ;;
+    *)
+      # Only a pid that is actually running: naming a dead one would mint a
+      # hold the next caller breaks immediately, which is worse than not
+      # attributing it at all.
+      if kill -0 "$PLANWRIGHT_TOWER_PID" 2>/dev/null; then
+        owner_pid=$PLANWRIGHT_TOWER_PID
+      fi
+      ;;
+  esac
+fi
+if [ -z "$owner_pid" ] && [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] \
+  && command -v tmux >/dev/null 2>&1; then
+  tw=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name} #{window_index}' 2>/dev/null) || tw=""
+  case $tw in
+    '' | *"$(printf '\t')"* | *' '*' '*) ;;
+    *' '*) sweep_handle="tmux-window $tw" ;;
+  esac
+fi
+
 rc=0
 if [ -n "$owner_pid" ]; then
   pw_lock_acquire_for "$lock" "$owner_pid" 1 || rc=$?
 else
   pw_lock_try_detached "$lock" || rc=$?
+fi
+if [ "$rc" -eq 0 ]; then
+  # Bound to the token, so a record that outlives its lock is read as absent
+  # rather than as evidence about a holder it never described.
+  rm -f "$handle_file" 2>/dev/null || :
+  if [ -n "$sweep_handle" ]; then
+    printf '%s\t%s\n' "$PW_LOCK_TOKEN" "$sweep_handle" >"$handle_file" 2>/dev/null || :
+  fi
 fi
 case $rc in
   0) exit 0 ;;

@@ -61,6 +61,7 @@ AUDIT="$script_dir/fleet-audit.sh"
 ATTN="$script_dir/fleet-attention.sh"
 WT="$script_dir/fleet-worktree-track.sh"
 SYNC="$script_dir/tasks-pr-sync.sh"
+LOCK="$script_dir/orchestrate-lock.sh"
 CONFIG_GET="$script_dir/config-get.sh"
 FS="$script_dir/fleet-state.sh"
 
@@ -381,6 +382,19 @@ if [ -x "$SYNC" ] && [ -d "$repo/specs" ]; then
     tasks="${d}tasks.md" # $d already ends in '/'
     [ -f "$tasks" ] || continue
     rel="specs/$(basename "$d")"
+    # Before the reconcile: a per-spec lock whose holder is provably gone stops
+    # this spec being dispatched at all, and silently — a dispatch reads the
+    # lock as contention, and contention is a clean skip. The sweep verb clears
+    # one only on positive evidence of the holder's death and refuses on
+    # anything less, so its own refusals are not reportable events; only an
+    # actual clear is.
+    if [ -x "$LOCK" ]; then
+      lk_rc=0
+      lk_out=$(cd "$repo" && "$LOCK" sweep "$rel" 2>/dev/null) || lk_rc=$?
+      if [ "$lk_rc" = 0 ] && [ "$lk_out" = cleared ]; then
+        audit reconcile lock-sweep "$rel per-spec lock cleared on positive evidence its holder was gone"
+      fi
+    fi
     before_sum=$(cksum <"$tasks" 2>/dev/null) || before_sum=""
     rec_rc=0
     (cd "$repo" && "$SYNC" reconcile "$rel") >/dev/null 2>&1 || rec_rc=$?

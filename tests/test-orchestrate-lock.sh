@@ -212,4 +212,132 @@ case $err in
 esac
 echo "ok: a spec id exceeding 64 chars is refused (REQ-F1.1)"
 
+# 14. The sweep: a detached hold is cleared ONLY on positive evidence that its
+#     holder is gone, and left alone otherwise.
+#
+#     This is the half of the liveness rule a detached hold cannot answer for
+#     itself. /orchestrate holds across tool calls, so no process of its own is
+#     running to probe; if the session then dies, the lock stands and every
+#     later dispatch reads it as contention and skips the spec — silently,
+#     because contention is a clean no-op. The sweep is where the proof lives,
+#     and it is held to the same bar every other destructive mechanism here
+#     meets: the recorded holder is demonstrably gone, never merely unobserved,
+#     and never a length of time.
+sweepspec="$repo/specs/demo"
+evid="$tmp/evidence.sh"
+cat >"$evid" <<'EVID'
+#!/bin/sh
+# Stand-in for fleet-death-evidence.sh: the verdict is whatever the fixture
+# wrote, so each leg pins one verdict rather than the host's process table.
+printf '%s
+' "$(cat "$EVIDENCE_VERDICT_FILE")"
+case $(cat "$EVIDENCE_VERDICT_FILE") in
+  dead) exit 0 ;;
+  alive) exit 1 ;;
+  *) exit 3 ;;
+esac
+EVID
+chmod +x "$evid"
+verdict_file="$tmp/verdict"
+
+sweep() {
+  rc=0
+  out=$(EVIDENCE_VERDICT_FILE="$verdict_file" \
+    PLANWRIGHT_TOWER_EVIDENCE_CMD="$evid" \
+    /bin/bash "$LOCK" sweep "$sweepspec" 2>/dev/null) || rc=$?
+}
+
+# A free path has nothing to sweep.
+/bin/bash "$LOCK" release "$sweepspec"
+sweep
+[ "$rc" = 0 ] || fail "sweep on a free path: exit $rc, expected 0"
+[ "$out" = no-lock ] || fail "sweep on a free path said '$out', expected no-lock"
+
+# A PROCESS-OWNED hold is not the sweep's business: the primitive breaks it
+# itself the moment its owner is gone.
+sleep 120 &
+live_pid=$!
+/bin/bash "$LOCK" acquire "$sweepspec" --owner-pid "$live_pid" || fail "sweep fixture: owned acquire failed"
+sweep
+[ "$out" = owned ] || fail "sweep over an owned hold said '$out', expected owned"
+[ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep over an owned hold cleared it"
+kill "$live_pid" 2>/dev/null || true
+wait "$live_pid" 2>/dev/null || true
+/bin/bash "$LOCK" release "$sweepspec"
+
+# A detached hold the acquire could not attribute to anything: no evidence is
+# establishable, so the sweep refuses and says which.
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$sweepspec" || fail "sweep fixture: detached acquire failed"
+sweep
+[ "$rc" = 3 ] || fail "sweep over an unattributed hold: exit $rc, expected 3"
+[ "$out" = unattributed ] || fail "sweep over an unattributed hold said '$out'"
+[ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep cleared a hold it could not judge"
+/bin/bash "$LOCK" release "$sweepspec"
+
+# THE REAL SCENARIO, both directions. A tower holds the spec lock across its
+# dispatch window; it could name itself only by the tmux window it occupies,
+# which is a death-evidence class but not a pid, so the hold stays detached and
+# the handle is recorded beside it for the sweep to resolve.
+env -u PLANWRIGHT_TOWER_PID -u TMUX -u TMUX_PANE \
+  /bin/bash "$LOCK" acquire "$sweepspec" || fail "sweep fixture: detached acquire failed"
+held_token=$(readlink "$sweepspec/.orchestrate.lock")
+printf '%s\ttmux-window planwright 3\n' "$held_token" >"$sweepspec/.orchestrate.lock#owner#"
+
+# Holder still running: untouched, whatever else is true.
+printf 'alive\n' >"$verdict_file"
+sweep
+[ "$rc" = 1 ] || fail "sweep over a live holder: exit $rc, expected 1"
+[ "$out" = alive ] || fail "sweep over a live holder said '$out', expected alive"
+[ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep cleared a live holder's lock"
+
+# The query mechanism cannot answer: lost observability is not observed death.
+printf 'unknown\n' >"$verdict_file"
+sweep
+[ "$rc" = 3 ] || fail "sweep with no answer: exit $rc, expected 3"
+[ "$out" = unknown ] || fail "sweep with no answer said '$out', expected unknown"
+[ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep cleared a lock it could not judge"
+
+# A record that does not describe the holder now at the path is not evidence
+# about it: a stale one is read as absent rather than acted on.
+printf 'dead\n' >"$verdict_file"
+printf 'some-other-token\ttmux-window planwright 3\n' >"$sweepspec/.orchestrate.lock#owner#"
+sweep
+[ "$out" = unattributed ] || fail "sweep honoured a record for a different token ('$out')"
+[ -L "$sweepspec/.orchestrate.lock" ] || fail "sweep cleared a lock on a stale record"
+printf '%s\ttmux-window planwright 3\n' "$held_token" >"$sweepspec/.orchestrate.lock#owner#"
+
+# Holder demonstrably gone: cleared, and the path is usable again.
+sweep
+[ "$rc" = 0 ] || fail "sweep over a dead holder: exit $rc, expected 0"
+[ "$out" = cleared ] || fail "sweep over a dead holder said '$out', expected cleared"
+if [ -L "$sweepspec/.orchestrate.lock" ] || [ -e "$sweepspec/.orchestrate.lock" ]; then
+  fail "sweep reported cleared but the lock is still there"
+fi
+[ ! -e "$sweepspec/.orchestrate.lock#owner#" ] || fail "sweep left the attribution record behind"
+/bin/bash "$LOCK" acquire "$sweepspec" || fail "the spec is still undispatchable after the sweep"
+/bin/bash "$LOCK" release "$sweepspec"
+echo "ok: the sweep clears a detached hold whose holder is gone, and only then"
+
+# 15. An attributed tower hold needs no sweep at all: naming a live process as
+#     the owner makes it an ordinary hold, which the primitive breaks by itself
+#     once that process is gone.
+sleep 120 &
+tower_pid=$!
+PLANWRIGHT_TOWER_PID="$tower_pid" /bin/bash "$LOCK" acquire "$sweepspec" \
+  || fail "attributed acquire failed"
+case "$(readlink "$sweepspec/.orchestrate.lock")" in
+  "$tower_pid"-*) ;;
+  *) fail "an attributed hold is not owned by the tower (target: $(readlink "$sweepspec/.orchestrate.lock"))" ;;
+esac
+rc=0
+/bin/bash "$LOCK" acquire "$sweepspec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "attributed hold: a peer got exit $rc, expected 1 while the tower runs"
+kill "$tower_pid" 2>/dev/null || true
+wait "$tower_pid" 2>/dev/null || true
+/bin/bash "$LOCK" acquire "$sweepspec" --owner-pid "$$" \
+  || fail "attributed hold: not broken once the tower is gone"
+/bin/bash "$LOCK" release "$sweepspec"
+echo "ok: a hold attributed to a live tower is an ordinary hold and self-heals"
+
 echo "PASS: orchestrate-lock"
