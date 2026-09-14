@@ -72,11 +72,11 @@
 #            a real error or a refused (malformed/hostile) spec dir.
 #   release  end this caller's own window. Clears the lock unless it can be
 #            SHOWN not to be the one this caller took: a hold owned by a live
-#            process that is not the declared owner, or a detached hold whose
-#            recorded handle is demonstrably alive, is refused with exit 1.
-#            An owner that is gone is still cleared, so recovery does not
-#            regress. Exit 0 cleared or already free, 1 refused, 2 a real
-#            error.
+#            process that is not the declared owner, a detached hold recorded
+#            against a different session, or anything at the path that is not a
+#            readable lock at all, is refused with exit 1. An owner that is
+#            demonstrably gone is still cleared, so recovery does not regress.
+#            Exit 0 cleared or already free, 1 refused, 2 a real error.
 #   break    clear the lock unconditionally, whoever holds it — the operator's
 #            recovery verb, and the only thing that clears a hold nothing can
 #            prove abandoned. Also clears a lock DIRECTORY left by the retired
@@ -343,6 +343,17 @@ case "$cmd" in
     # window; closing it needs the token handed back at acquire and presented
     # here, which is a change to the callers rather than to this script.
     rel_token=$(readlink "$lock" 2>/dev/null) || rel_token=""
+    if [ -z "$rel_token" ] && { [ -L "$lock" ] || [ -e "$lock" ]; }; then
+      # Something is at the path and it is not a readable link: a directory
+      # left by the retired mkdir shape, a regular file, a dangling entry. An
+      # unreadable lock says nothing about whose it is, and "nothing" is not
+      # the same as "mine" — it is exactly as likely to be a live older
+      # process's as an abandoned one. The verb that promises to refuse what it
+      # cannot show is its own does not get an exception for the one shape it
+      # cannot read at all.
+      echo "orchestrate-lock: $lock is not a readable lock, so this cannot tell whose it is; refusing to release it (use 'break' to clear it anyway)" >&2
+      exit 1
+    fi
     if [ -n "$rel_token" ]; then
       rel_owner=${rel_token%%-*}
       case $rel_owner in

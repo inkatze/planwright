@@ -1179,6 +1179,82 @@ run_sh x 'pw_lock_acquire "$1/reuse.lock" 20' >/dev/null 2>&1
 assert_exit "a lock naming a recycled pid can be taken" 0 $?
 rm -f "$tmp"/reuse.lock*
 
+# ---------------------------------------------------------------------------
+# 37. A release that is not this caller's touches nothing at all
+# ---------------------------------------------------------------------------
+#
+# Taking the link by renaming it makes the removal exclusive, but a rename
+# VACATES the path, and a rename done before knowing whose the link was vacates
+# it in the ordinary case — a hold that was already broken. Anyone may take the
+# freed path in that instant, and the restore then has nowhere to put the link
+# back, so the one copy of a live holder's lock is destroyed by a release that
+# was never entitled to touch it.
+#
+# So the not-ours answer must cost no filesystem write whatsoever, and the
+# observable shape of that is: nothing moves, and nothing is left lying beside
+# the lock.
+
+out="$(run_sh x '
+  lockp="$1/notmine.lock"
+  pw_lock_acquire "$lockp" || exit 9
+  rm -f "$lockp"
+  ln -s "successor-token" "$lockp"
+  # A peer watching the path: if the release vacates it even for an instant,
+  # this create wins and the successor is the one that loses its link.
+  ( i=0; while [ "$i" -lt 400 ]; do
+      ln -s "interloper" "$lockp" 2>/dev/null && exit 0
+      i=$((i + 1))
+    done ) &
+  peer=$!
+  pw_lock_release "$lockp" >/dev/null 2>&1
+  printf "rc=%s\n" "$?"
+  kill "$peer" 2>/dev/null
+  wait "$peer" 2>/dev/null
+  printf "link=%s\n" "$(command readlink "$lockp" 2>/dev/null || printf NONE)"
+')"
+assert_eq "a release over a lock that is not this caller's leaves it exactly alone" \
+  "rc=1
+link=successor-token" "$out"
+leftovers="$(find "$tmp" -maxdepth 1 -name 'notmine.lock#*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "and puts nothing beside it on the way" "0" "$leftovers"
+rm -f "$tmp"/notmine.lock*
+
+# A restore that cannot land must not be followed by deleting the only copy.
+# Staged by holding the path with something the restore cannot displace.
+out="$(run_sh x '
+  lockp="$1/keepcopy.lock"
+  pw_lock_acquire "$lockp" || exit 9
+  mine=$PW_LOCK_TOKEN
+  flag="$1/keepcopy.fired"
+  readlink() {
+    # Ownership is confirmed, and the path changes hands before the take.
+    if [ ! -f "$flag" ] && [ "$1" = "$lockp" ]; then
+      : >"$flag"
+      rm -f "$lockp"
+      ln -s "successor-token" "$lockp"
+      printf "%s\n" "$mine"
+      return 0
+    fi
+    command readlink "$@"
+  }
+  pw_lock_release "$lockp" >/dev/null 2>&1
+  printf "rc=%s\n" "$?"
+  # The successor is either back at the lock path or still on disk beside it,
+  # but it is never simply gone.
+  if [ "$(command readlink "$lockp" 2>/dev/null)" = successor-token ]; then
+    printf "successor=restored\n"
+  elif command ls "$1" 2>/dev/null | grep -q "keepcopy.lock#"; then
+    printf "successor=kept-aside\n"
+  else
+    printf "successor=DESTROYED\n"
+  fi
+')"
+case $out in
+  *successor=DESTROYED*) fail "a release destroyed the only copy of a successor's lock ($out)" ;;
+  *) pass "a release that cannot put a successor back keeps it rather than deleting it" ;;
+esac
+rm -f "$tmp"/keepcopy.lock*
+
 if [ "$failures" -eq 0 ]; then
   echo "All lock-lib tests passed."
 else

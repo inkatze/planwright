@@ -764,19 +764,33 @@ pw_lock_release() {
   return "$_pwr_rc"
 }
 
-# _pw_lock_take_link <lock> <token> — remove the lock, but only if it is still
-# this token's, as ONE act rather than a check followed by a removal. 0 removed,
-# 1 it is not this token's (including: already gone), 2 a real error.
+# _pw_lock_take_link <lock> <token> — remove the lock, but only if it is this
+# token's. 0 removed, 1 it is not this token's (including: already gone), 2 a
+# real error.
 #
-# The rename is what makes it one act. A check-then-remove leaves a window in
-# which an operator break or a sweep clears the link and a successor publishes,
-# and the removal then takes the successor's lock — the clobber the token
-# exists to prevent, arriving through the verb that exists to prevent it. A
-# rename to a path of this caller's own moves whatever is at the lock in a
-# single step, and what moved is then inspected before anything is deleted.
+# TWO STEPS, AND THE ORDER IS THE WHOLE POINT.
+#
+# First, look WITHOUT touching. A link that is not ours is the ordinary answer
+# on a hold that was already broken, and it must cost no filesystem write at
+# all: the rename below VACATES the path, so renaming before knowing whose the
+# link was hands the path to anyone watching, in the common case, and the
+# restore then has nowhere to put it back. That destroys the one copy of a live
+# holder's lock through the verb that exists to protect it.
+#
+# Second, having seen our own token, take the link by renaming it to a path of
+# this caller's own. That is the exclusive act — a second caller's rename finds
+# no source — and it closes the window between the look and the removal: if the
+# path changed hands in between, what moved is not ours, and the verify catches
+# it.
+#
+# A restore that cannot land is NOT followed by deleting what it was holding.
+# Someone took the freed path, so the link in hand is the only copy of a hold
+# somebody may still be inside; it stays on disk beside the lock, named, and
+# the caller is told. Litter is recoverable and a deleted lock is not.
 _pw_lock_take_link() {
   _pwm_lock=$1
   _pwm_token=$2
+  [ "$(readlink "$_pwm_lock" 2>/dev/null)" = "$_pwm_token" ] || return 1
   _pwm_taken="$_pwm_lock#taken#$_pwm_token"
   rm -f "$_pwm_taken" 2>/dev/null || :
   if ! mv "$_pwm_lock" "$_pwm_taken" 2>/dev/null; then
@@ -786,11 +800,12 @@ _pw_lock_take_link() {
     return 1
   fi
   if [ "$(readlink "$_pwm_taken" 2>/dev/null)" != "$_pwm_token" ]; then
-    # Not ours. Put it back by RE-CREATING the link, never by renaming it back:
-    # a rename lands on whatever holds the path by then.
     _pwm_back=$(readlink "$_pwm_taken" 2>/dev/null) || _pwm_back=''
-    [ -z "$_pwm_back" ] || ln -s "$_pwm_back" "$_pwm_lock" 2>/dev/null || :
-    rm -f "$_pwm_taken" 2>/dev/null || :
+    if [ -n "$_pwm_back" ] && ln -s "$_pwm_back" "$_pwm_lock" 2>/dev/null; then
+      rm -f "$_pwm_taken" 2>/dev/null || :
+    else
+      printf '%s\n' "lock-lib: $_pwm_lock changed hands during a release and the path is taken again; the displaced lock is kept at $_pwm_taken rather than deleted" >&2
+    fi
     return 1
   fi
   rm -f "$_pwm_taken" 2>/dev/null || return 2

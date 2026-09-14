@@ -104,14 +104,39 @@ esac
 /bin/bash "$LOCK" release "$spec" --owner-pid "$$"
 echo "ok: a lock whose owner process is gone is broken at once, with no threshold"
 
-# 7. Release clears a lock DIRECTORY left by the retired mkdir shape. Without
-#    this an in-place upgrade would wedge every writer on that spec forever.
+# 7. A lock that is not a symlink tells this caller nothing about whose it is.
+#    `release` says so rather than clearing it: an unreadable lock is exactly
+#    as likely to be a live older process's as an abandoned one, and the verb
+#    that promises to refuse what it cannot show is its own must not make an
+#    exception for the one shape it cannot read at all. `break` is the verb for
+#    it, and is also the in-place upgrade path off the retired mkdir shape.
 mkdir "$lock"
-/bin/bash "$LOCK" release "$spec" || fail "legacy release: non-zero exit"
-[ ! -e "$lock" ] || fail "legacy release: the mkdir-shape lock directory survived"
+rc=0
+err=$(/bin/bash "$LOCK" release "$spec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 1 ] || fail "legacy release: exit $rc, expected 1 (it cannot show whose it is)"
+[ -d "$lock" ] || fail "legacy release: the directory was cleared anyway"
+case $err in
+  *break*) ;;
+  *) fail "legacy release: the refusal does not name the verb that clears it (got: $err)" ;;
+esac
+: >"$lock/stray"
+rc=0
+/bin/bash "$LOCK" release "$spec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "legacy release over a non-empty directory: exit $rc, expected 1"
+[ -f "$lock/stray" ] || fail "legacy release removed the directory's contents"
+/bin/bash "$LOCK" break "$spec" || fail "legacy break: non-zero exit"
+[ ! -e "$lock" ] || fail "legacy break: the mkdir-shape lock directory survived"
 /bin/bash "$LOCK" acquire "$spec" || fail "post-legacy acquire: non-zero exit"
 /bin/bash "$LOCK" release "$spec"
-echo "ok: release clears a lock directory left by the retired mkdir shape"
+
+# A regular file squatting the path is the same answer.
+: >"$lock"
+rc=0
+/bin/bash "$LOCK" release "$spec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "release over a regular file: exit $rc, expected 1"
+[ -f "$lock" ] || fail "release over a regular file cleared it anyway"
+/bin/bash "$LOCK" break "$spec" || fail "break over a regular file: non-zero exit"
+echo "ok: release refuses a lock it cannot read; break is the verb that clears one"
 
 # 8. A non-contention create failure (unwritable spec dir / filesystem error)
 #    must fail closed (exit 2 + diagnostic), NOT be masked as a clean "busy"
