@@ -273,16 +273,18 @@ assert_defer "awk -p profile writes a file" "awk -p prof.out '{print}' file"
 assert_defer "awk with no inline program" "awk -F:"
 assert_defer "awk dangling -v" "awk -v"
 assert_defer "awk unplaceable -v assignment" "awk -v '1x=2' '{print}' file"
-# The shared awk screen now lexes the program instead of rejecting every `>`
-# and `|`, so the relational and logical forms allow while their redirecting /
-# piping twins still defer. The worker suite carries the full pair table; these
-# pin that the same engine reached this guard (see the parity block below).
-assert_allow "awk relational > outside a print statement" "awk '\$1 > 5' file"
+# The shared awk screen rejects every `>` outright and recovers `|` only in the
+# two spellings it can positively identify — `||`, and a `|` inside a regex
+# literal opened where awk cannot mean division. The worker suite carries the
+# full pair table; these pin that the same engine reached this guard (see the
+# parity block below).
 assert_allow "awk logical OR" "awk 'x||y{print}' file"
 assert_allow "awk regex alternation" "awk '/a|b/{print}' file"
-assert_defer "awk relational > inside a print statement (residual over-defer)" "awk '{print (\$1 > 5)}' file"
+assert_defer "awk relational > outside a print statement (over-defer)" "awk '\$1 > 5' file"
+assert_defer "awk relational > inside a print statement (over-defer)" "awk '{print (\$1 > 5)}' file"
 assert_defer "awk print pipe with no spaces" "awk '{print|\"sh\"}' file"
 assert_defer "awk pipe smuggled behind a bracket/delimiter desync" "awk '/[/{print|\"sh\"}x[1]/{print}' file"
+assert_defer "awk regex misread as division opens a comment (bypass 1)" "awk '{print /#/; print \"id\" | \"sh\"}' file"
 assert_defer "awk shell redirect to a file" "awk '{print}' file > out.txt"
 assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
 
