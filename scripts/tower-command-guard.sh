@@ -704,23 +704,130 @@ guard_sed() {
 
 # awk_program_safe <program>: 0 only when an awk program text is provably
 # read-only. awk's dangerous surface is (a) EXEC — `system(…)`, either direction
-# of a command pipe (`print | "cmd"`, `"cmd" | getline`, gawk's `|&` coprocess),
-# and gawk's `@load` / `@include` / indirect `@fn` calls — and (b) OUTPUT — a
-# `print`/`printf` redirected with `>` / `>>` to a file (or to gawk's
-# `/dev/stdout`-style special files).
+# of a command pipe (`print | "cmd"`, `"cmd" | getline`), gawk's `|&` coprocess
+# and its `@load` / `@include` / indirect `@fn` calls — and (b) OUTPUT — a
+# `print`/`printf` redirected with `>` / `>>` to a file.
 #
-# Telling a REDIRECTING `>` from a RELATIONAL `>` requires a real awk parser: the
-# character is identical and only its grammar position separates `print > "f"`
-# from `$1 > 5`. This screen does not attempt that. ANY `>` defers, as does any
-# `|`, `@`, `system`, or `close`. That over-defers the read-only comparison forms
-# — which is the fail-closed direction, and no worse for them than today, where
-# every awk invocation defers. It also defers `ENVIRON` (a program that decants
-# the session environment into the transcript is not the read-only filter shape
-# this widening is for).
+# The screen is a blanket reject plus ONE narrow, positively-blessed exception,
+# in that order:
+#
+#   1. Any `>`, `@`, `|&`, `system`, `close`, `ENVIRON` or `getline` anywhere in
+#      the text rejects. `>` goes in whole — no file-write class survives at all
+#      — so a relational `$1 > 5` is rejected with it: telling a redirecting `>`
+#      from a relational one needs a real awk parser, and this screen has none.
+#   2. That leaves `|`, and only in the programs that contain one. Every `|`
+#      must be POSITIVELY blessed as `||` (logical OR) or as a character inside
+#      a positively-identified regex literal; anything else rejects. A program
+#      with no `|` left after step 1 has no reachable exec or write vector at
+#      all, whatever it parses to, so it is approved without a walk.
+#   3. A regex literal is positively identified only where awk CANNOT mean
+#      division: a `/` whose immediately preceding non-whitespace character is
+#      one of `{ ; ( , & ! ~ |`, or a newline that is not a line continuation,
+#      or the start of the program. It closes at the next `/` not preceded by a
+#      backslash, and may hold no `"`, no `[` and no newline. Rejecting `[`
+#      sidesteps the mawk/nawk/busybox disagreement over `/[/]/` entirely, at
+#      the cost of deferring `/[0-9]+|[a-z]+/`; that over-defer is accepted.
+#   4. A `/` ANYWHERE ELSE rejects. There is deliberately NO "not a regex, so
+#      scan on as division" fallback. The screen this replaced had one, and four
+#      working bypasses came through it in under an hour: a `/` misread as
+#      division scanned the span as CODE, and a `#` or an unbalanced `"` inside
+#      that span then swallowed the real `| "sh"` behind it. An unplaceable `/`
+#      is a defer. That absence is the entire point — do not add a branch here,
+#      and do not reach for a tokenizer to buy back the over-defers it costs.
+#
+# Two spans are walked, and only because the rule above is unsound without
+# them. A string literal, because a `{`, `;` or `&` INSIDE one would otherwise
+# bless the `/` that follows it (`{x = "&" /2; print s | c; y = 1/2}` reaches
+# the shell if it does). And `\`-newline, because it is a LINE CONTINUATION:
+# awk is still mid-expression across it, so that newline is not a statement
+# boundary and must not bless either (`{x = 1 \` + newline + `/ 2; print s | c;
+# y = 1/3}` reaches the shell if it does). Both were live exec bypasses of this
+# screen when it was first written; the fixtures for them are load-bearing.
+#
+# A `|` inside a string rejects like any other, so `{print "a|b"}` defers — the
+# accepted price of not modelling what awk does with the value. Comments are not
+# skipped for the same reason: everything a `#` would hide rejects rather than
+# being read as inert.
 awk_program_safe() {
-  case $1 in
-    *'>'* | *'|'* | *'@'* | *system* | *close* | *ENVIRON*) return 1 ;;
+  local s=$1
+  # A backslash-newline inside program text can split a dangerous token so the
+  # blanket substring checks below never see it: `syste\<newline>m("id")` holds
+  # no literal `system`. Under mawk that parses as an undefined function rather
+  # than executing, so the splice itself is unreproduced here, but no other awk
+  # was available to test and the construct has no place in a program this
+  # screen is willing to vouch for. Reject it outright (fail-closed) instead of
+  # betting on one dialect's tokenizer. Raised by the Copilot pass, 2026-09-15.
+  case $s in
+    *\\$'\n'*) return 1 ;;
   esac
+  local n=${#s} i=0 c prev=''
+  case $s in
+    *'>'* | *'@'* | *'|&'* | *system* | *close* | *ENVIRON* | *getline*) return 1 ;;
+  esac
+  case $s in
+    *'|'*) ;;
+    *) return 0 ;;
+  esac
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}
+    case $c in
+      '"')
+        i=$((i + 1))
+        while [ "$i" -lt "$n" ]; do
+          case ${s:i:1} in
+            \\) i=$((i + 2)) ;;
+            '|') return 1 ;; # a `|` a string hides is never blessed
+            '"') break ;;
+            *) i=$((i + 1)) ;;
+          esac
+        done
+        [ "$i" -lt "$n" ] || return 1 # unterminated string literal
+        i=$((i + 1))
+        prev='"'
+        continue
+        ;;
+      \\)
+        # Outside a string or a regex, a `\` is only ever a LINE CONTINUATION;
+        # awk errors on every other use of one. Consume `\`+newline as a single
+        # unit with `prev` UNTOUCHED — the continuation does not end the
+        # statement, so that newline must not bless a following `/` — and
+        # reject any other `\X`, so nothing can hide inside the skip.
+        [ "${s:i+1:1}" = "$NL" ] || return 1
+        i=$((i + 2))
+        continue
+        ;;
+      '/')
+        case $prev in
+          '' | '{' | ';' | '(' | ',' | '&' | '!' | '~' | '|' | "$NL") ;;
+          *) return 1 ;; # an unplaceable `/`: never scanned on (4 above)
+        esac
+        i=$((i + 1))
+        while [ "$i" -lt "$n" ]; do
+          case ${s:i:1} in
+            \\) i=$((i + 2)) ;;
+            '"' | '[' | "$NL") return 1 ;;
+            '/') break ;;
+            *) i=$((i + 1)) ;;
+          esac
+        done
+        [ "$i" -lt "$n" ] || return 1 # unterminated regex literal
+        i=$((i + 1))
+        prev='/'
+        continue
+        ;;
+      '|')
+        [ "${s:i+1:1}" = '|' ] || return 1 # a lone `|` is a command pipe
+        i=$((i + 2))
+        prev='|'
+        continue
+        ;;
+    esac
+    case $c in
+      ' ' | "$TAB") ;; # blanks never change what a following `/` may mean
+      *) prev=$c ;;
+    esac
+    i=$((i + 1))
+  done
   return 0
 }
 
@@ -793,14 +900,48 @@ guard_find() {
   return 0
 }
 
+# short_flag_hit <token> <danger> <valued>: 0 when <token> is a short-flag
+# cluster whose FLAG positions include one of the <danger> characters. The scan
+# mirrors how these tools' own parsers read a cluster: characters are flags left
+# to right until one that TAKES A VALUE, after which the REST of the token is
+# that value, and an `=` starts one the same way. `rg -tzsh` is `-t zsh`, not
+# `-t -z -s -h`, and `sort -to` is `-t o`, so the trailing characters are not
+# flag positions and must not be screened as if they were — each such misread
+# is a worker stall. A character in NEITHER set is an unknown boolean flag and
+# the scan continues past it: unknown-means-keep-looking is the fail-closed
+# direction, since reading a value as flags can only add defers, never drop a
+# reject. Callers pass only tokens that begin with a single `-`; long flags are
+# matched by name before this is reached.
+short_flag_hit() {
+  local rest=${1#-} danger=$2 valued=$3 c
+  while [ -n "$rest" ]; do
+    c=${rest:0:1}
+    [ "$c" = '=' ] && return 1
+    case $danger in
+      *"$c"*) return 0 ;;
+    esac
+    case $valued in
+      *"$c"*) return 1 ;;
+    esac
+    rest=${rest:1}
+  done
+  return 1
+}
+
+# guard_sort: sort's exec/write vectors are -o/--output, which writes a file,
+# and --compress-program=<prog>, which execs an arbitrary program on every
+# external-merge temp-file spill. Reject both; every other sort flag is
+# read-only. -k/-S/-t/-T take values, so the characters after them in a cluster
+# are data, not flags.
 guard_sort() {
   local i a
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
+      --) break ;; # end of flags: what follows are input files
       --output | --output=* | --compress-program | --compress-program=*) return 1 ;;
-      --*) ;;           # other long flags are read-only
-      -*o*) return 1 ;; # any short-flag token carrying -o (a write target)
+      --*) ;;
+      -?*) short_flag_hit "$a" 'o' 'kStT' && return 1 ;;
     esac
   done
   return 0

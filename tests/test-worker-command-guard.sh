@@ -491,10 +491,76 @@ assert_defer "awk unplaceable -v assignment" "awk -v '1x=2' '{print}' file"
 assert_defer "awk bundled -vF token is not an assignment" "awk -vF '{print}' file"
 assert_defer "awk unknown flag" "awk --frobnicate '{print}' file"
 assert_defer "awk shell redirect to a file" "awk '{print}' file > out.txt"
-# Deliberate over-defer, documented in awk_program_safe: telling a REDIRECTING
-# `>` from a RELATIONAL `>` needs a real awk parser, so any `>` defers. Pinning
-# it keeps the fail-closed direction from being "fixed" into a false-allow.
-assert_defer "awk relational > over-defers (fail-closed by design)" "awk '\$1 > 5' file"
+# The blanket `|` reject this screen used to carry stalled real workers on
+# their first command (2026-09-14), so `|` — and ONLY `|` — is recoverable, in
+# the two spellings that can be positively identified: `||`, and a `|` inside a
+# regex literal opened where awk cannot mean division. Everything else about
+# the blanket screen stands, `>` included. The pairs below are the evidence
+# that the separation holds in BOTH directions.
+assert_allow "awk logical OR" "awk 'x||y{print}' file"
+assert_allow "awk regex alternation" "awk '/a|b/{print}' file"
+assert_allow "awk escaped | in a regex is literal" "awk '/a\\|b/{print}' file"
+assert_allow "awk regex after ~ (spaced)" "awk '\$0 ~ /a|b/ {print \$2}' file"
+assert_allow "awk regex as a function argument" "awk '{n = split(\$0, a, /x|y/); print n}' file"
+assert_allow "awk regex opened after && " "awk 'p&&/a|b/{p=0} p{print}' file"
+assert_defer "awk line continuation is refused outright" "awk '\$0 ~ \\
+/a|b/ {print}' file"
+assert_allow "awk character class in a regex" "awk '/[0-9]+/{print}' file"
+assert_allow "awk POSIX class in a regex" "awk '\$0~/^[[:alpha:]]+\$/{print}' file"
+# The stall this widening exists for, verbatim from the worker that hit it: a
+# `||` chain, a regex holding both a `|` and the `#` of a markdown heading.
+assert_allow "awk REQ-section filter (the stall that motivated the widening)" \
+  "awk -v r=\"REQ-A\" 'index(\$0,\"**\"r\"**\")||index(\$0,\"### \"r)||index(\$0,\"- \"r\" \")||index(\$0,\"**\"r)==1{p=1;print;next} p&&/^- \\*\\*REQ-|^### REQ-|^## /{p=0} p{print}' file"
+# Hostile pairs: each blessing must still refuse its dangerous twin.
+assert_defer "awk print redirection with no space before >" "awk '{print>\"f\"}' file"
+assert_defer "awk print pipe with no spaces" "awk '{print|\"sh\"}' file"
+assert_defer "awk || in a string does not license a following pipe" "awk '{print \"a||b\" | \"sh\"}' file"
+assert_defer "awk pipe after a real division" "awk '{c = a / 2; print | \"sh\"}' file"
+assert_defer "awk pipe after a post-increment (dialects split on / here)" "awk '{a++ / 2; print | \"sh\"}' file"
+assert_defer "awk redirection hidden behind a line continuation" "awk '{print \$0 \\
+> \"f\"}' file"
+assert_defer "awk redirection to a data-derived filename" "awk '{print \$1 > \$2}' file"
+assert_defer "awk pipe to a variable command (no quotes needed)" "awk -v c=sh '{print \$1 | c}' file"
+assert_defer "awk pipe smuggled behind a bracket/delimiter desync" "awk '/[/{print|\"sh\"}x[1]/{print}' file"
+assert_defer "awk pipe inside a regex holding a quote" "awk '/a\"b|c/{print \$1}' file"
+# The working bypasses of the lexer this screen replaced (2026-09-14), and the
+# two this replacement's own first draft still allowed. Every one of them was
+# ALLOWED and every one really ran: they pipe `id` into sh, except bypass 4,
+# which writes /tmp/pwn. They are the regression seeds for the rule that a `/`
+# the screen cannot place is a defer, never a span scanned on as code.
+assert_defer "bypass 1 — regex misread as division opens a comment" "awk '{print /#/; print \"id\" | \"sh\"}' file"
+assert_defer "bypass 2 — same, behind an arithmetic operator" "awk '{x = 0 + /#/; print \"id\" | \"sh\"}' file"
+assert_defer "bypass 3 — regex holding a quote swallows the pipe" "awk '{ print /\"/ ; print \"id\" | \"sh\" ; print /\"/ }' file"
+assert_defer "bypass 4 — regex misread as division hides a redirection" "awk '{print /; 5/ > \"/tmp/pwn\"}' file"
+assert_defer "bypass 5 (this draft) — a ; or & inside a STRING must not bless the next /" \
+  "awk 'BEGIN{c=\"sh\";s=\"id\"} {x = \"&\" /2; print s | c; y=1/2}' file"
+assert_defer "bypass 6 (this draft) — a \\-newline is a continuation, not a statement end" \
+  "awk 'BEGIN{c=\"sh\";s=\"id\"}{x = 1 \\
+/ 2; print s | c; y = 1/3}' file"
+# Outside a string or a regex the only `\` awk accepts is a line continuation,
+# so every other `\X` defers rather than being consumed as an inert unit — a
+# skip that swallowed `\|` would hide a command pipe from the screen even
+# though no awk would run it.
+assert_defer "awk backslash-pipe is consumed by nothing" "awk '{print \"id\" \\| \"sh\"}' file"
+# Deliberate over-defers, all of them the fail-closed direction. A `>` is
+# rejected wherever it appears, because telling a redirecting `>` from a
+# relational one needs a real awk parser and this screen does not have one; a
+# `|` a string hides is rejected because placing it would mean modelling what
+# awk does with the value.
+assert_defer "awk relational > outside a print statement (over-defer)" "awk '\$1 > 5' file"
+assert_defer "awk relational > with no spaces (over-defer)" "awk 'NR>1{print}' file"
+assert_defer "awk relational >= inside a print statement (over-defer)" "awk '{print (\$1 >= 5)}' file"
+assert_defer "awk | inside a string literal (over-defer)" "awk '{print \"a|b\"}' file"
+assert_defer "awk alternation across bracket expressions (over-defer)" "awk '/[0-9]+|[a-z]+/{print}' file"
+assert_defer "awk getline in any form (over-defer)" "awk '{getline x; print x}' file"
+# A program with no `|` left after the blanket screen carries no exec or write
+# vector AT ALL — no `>`, `|`, `@`, `system`, `close`, `ENVIRON` or `getline` —
+# so it is approved without a walk, whatever it would parse to. These three are
+# unparseable, dialect-divergent, or both, and none of them can run or write
+# anything; deferring them would cost every `/[0-9]+/` filter with it.
+assert_allow "awk unterminated string literal, but no pipe to hide" "awk '{print \"unterminated}' file"
+assert_allow "awk unterminated regex literal, but no pipe to hide" "awk '/unterminated{print}' file"
+assert_allow "awk bracket expression containing the regex delimiter, no pipe" "awk '/[/]/{print}' file"
 # Only `awk` is on the allowlist; the gawk/mawk/nawk spellings stay deferred
 # (no measured need, and each carries its own extension surface).
 assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
@@ -811,6 +877,223 @@ if is_allow && printf '%s' "$OUT" | grep -Eq '"permissionDecisionReason"'; then
 else
   fail "allow decision missing permissionDecisionReason"
 fi
+
+echo "### Widened allowlist (2026-09-14) — the verbs measured worker stalls needed"
+# Two real dispatched workers stalled within ~30s on their FIRST command, both
+# pure read-only exploration, because these verbs were absent from the
+# allowlist. Each pair is the positive the worker needed plus the write/exec
+# vector that kept the verb off the list until now.
+# `env`: bare only. `env <assignment|flag> <command>` EXECUTES the command, and
+# `-u`/`-C`/`-S` take values, so an operand cannot be told apart from a command.
+assert_allow "env bare prints the environment" "env"
+assert_allow "env piped into grep" "env | grep -i planwright"
+assert_defer "env with an assignment prefix execs" "env FOO=bar rm -rf x"
+assert_defer "env -i execs" "env -i /bin/sh"
+assert_defer "env -u execs" "env -u PATH cat file"
+assert_defer "env with a bare command operand execs" "env rm -rf x"
+assert_allow "printenv one name" "printenv PATH"
+assert_allow "printenv bare" "printenv"
+# `read` assigns SHELL variables, so each name goes through assign_name_ok —
+# `read PATH` would re-point every later command in the same shell.
+assert_allow "while read loop over a file" "while read l; do echo \"\$l\"; done < file"
+assert_allow "while read -r loop" "while read -r line; do echo \"\$line\"; done"
+assert_allow "read bare sets REPLY" "read"
+assert_defer "read PATH poisons command resolution" "read PATH"
+assert_defer "read IFS changes later word splitting" "read IFS"
+assert_defer "read inside a loop is name-checked too" "while read PATH; do echo x; done"
+assert_defer "read -p takes a value operand" "read -p 'x' y"
+assert_defer "read -a array form" "read -a arr"
+# The guard's OWN shell state must never answer for the name under test. `i` is
+# the commonest loop variable there is, `a` is this file's token variable, and
+# `name` is assign_name_ok's own parameter: all three deferred while the
+# shadowing rule was an indirect expansion, which reads locals as readily as
+# the environment it meant to consult (2026-09-14).
+assert_allow "read i" "while read i; do echo \"\$i\"; done < file"
+assert_allow "read a" "read a"
+assert_allow "read name" "read name"
+assert_allow "read several names at once" "read i j k"
+# jq's language has no exec and no file-write primitive, but it CAN read the
+# environment, and the guard cannot see what a filter does with the value. So
+# `env` and `$ENV` defer for the same reason awk's `ENVIRON` does, and the
+# filter has to be identified before it can be screened: that is why every
+# value-taking flag is enumerated and why the `-f`/`-L` forms, whose program
+# text the guard never sees, defer.
+assert_allow "jq filter" "jq . file.json"
+assert_allow "jq raw output" "jq -r '.a[]' file.json"
+assert_allow "jq combined short flags" "jq -rc '.a' file.json"
+assert_allow "jq in a pipeline" "gh pr view 5 --json title | jq -r .title"
+assert_allow "jq .env is a field access, not the builtin" "jq '.env' file.json"
+assert_allow "jq nested .a.env field access" "jq '.a.env' file.json"
+assert_allow "jq .envelope is a longer name" "jq -r '.envelope' file.json"
+assert_allow "jq --indent takes a value, the filter follows it" "jq --indent 4 '.a' file.json"
+assert_allow "jq --arg takes two values" "jq --arg x 1 '.a' file.json"
+assert_allow "jq --args leaves the filter first" "jq --args '.a' one two"
+assert_allow "jq -- ends the flags" "jq -- '.a' file.json"
+assert_defer "jq env builtin decants the environment" "jq -n env"
+assert_defer "jq \$ENV decants the environment" "jq -n '\$ENV'"
+assert_defer "jq env.PATH single-key read" "jq -n 'env.PATH'"
+assert_defer "jq \$ENV in a string interpolation" "jq -n '\"\\(\$ENV)\"'"
+assert_defer "jq env after a pipe" "jq -n '.|env'"
+assert_defer "jq env inside a collection" "jq -n '[env]'"
+assert_defer "jq env behind --indent's value" "jq --indent 4 '\$ENV'"
+assert_defer "jq env behind --arg's two values" "jq --arg x 1 '\$ENV'"
+assert_defer "jq env after --" "jq -- '\$ENV'"
+assert_defer "jq -f program file is unscreenable" "jq -f prog.jq file.json"
+assert_defer "jq --from-file long form" "jq --from-file prog.jq file.json"
+assert_defer "jq -f bundled into a short cluster" "jq -nf prog.jq"
+assert_defer "jq -L loads module text the guard never sees" "jq -L /tmp/mods 'include \"m\"; .' file.json"
+assert_defer "jq --library-path long form" "jq --library-path /tmp/mods '.' file.json"
+assert_defer "jq unknown long flag" "jq --frobnicate '.a' file.json"
+assert_defer "jq unknown short flag" "jq -z '.a' file.json"
+assert_defer "jq dangling value-flag" "jq --indent"
+assert_defer "jq with no filter at all" "jq"
+# yq EDITS IN PLACE.
+assert_allow "yq read" "yq . file.yml"
+assert_allow "yq -I indent is not -i inplace" "yq -I4 . file.yml"
+assert_defer "yq -i writes the file back" "yq -i '.a=1' file.yml"
+assert_defer "yq --inplace long form" "yq --inplace '.a=1' file.yml"
+assert_defer "yq bundled -Pi" "yq -Pi '.a=1' file.yml"
+assert_defer "yq -s splits into files" "yq -s '.a' file.yml"
+assert_defer "yq --split-exp long form" "yq --split-exp '.a' file.yml"
+
+# yq's env()/strenv() is the same capability as awk's ENVIRON and jq's env:
+# program text whose use of the value the guard cannot see. It was the one
+# member of that family left unscreened (found by the panel pass, 2026-09-14).
+assert_defer "yq env() reads the environment" "yq 'env(GH_TOKEN)' f.yml"
+assert_defer "yq strenv() reads the environment" "yq 'strenv(GH_TOKEN)' f.yml"
+assert_defer "yq env() inside an assignment" "yq '.a = env(HOME)' f.yml"
+assert_defer "yq --from-file hides the expression" "yq --from-file e.yq f.yml"
+assert_allow "yq plain field access" "yq '.a' f.yml"
+assert_allow "yq a longer name containing env" "yq '.environment' f.yml"
+# shfmt: -w formats in place.
+assert_allow "shfmt diff mode" "shfmt -d ."
+assert_allow "shfmt list mode" "shfmt -l ."
+assert_defer "shfmt -w writes" "shfmt -w scripts/x.sh"
+assert_defer "shfmt --write long form" "shfmt --write scripts/x.sh"
+assert_defer "shfmt bundled -lw" "shfmt -lw ."
+# rg / fd: no write vector, but each can RUN a program.
+assert_allow "rg search" "rg -n foo src/"
+assert_defer "rg --pre runs a program per file" "rg --pre /tmp/evil.sh foo"
+assert_defer "rg --pre= attached form" "rg --pre=/tmp/evil.sh foo"
+assert_defer "rg --hostname-bin runs a program" "rg --hostname-bin /tmp/evil.sh foo"
+assert_defer "rg -z spawns decompressors off PATH" "rg -z foo"
+assert_allow "fd search" "fd -tf foo"
+assert_defer "fd -x execs per result" "fd -x rm {}"
+assert_defer "fd --exec long form" "fd --exec rm {}"
+assert_defer "fd -X exec-batch" "fd -X rm"
+# A short flag that takes a VALUE swallows the rest of its token, so the
+# characters after it are data and screening them as flags is a pure stall.
+# Every row here is a command a dispatched worker actually blocked on
+# (2026-09-14), or its adversarial twin.
+assert_allow "yq -o=json (the 's' in json is a value, not -s)" "yq -o=json . file.yml"
+assert_allow "rg -tzsh (the 'z' is the -t type name)" "rg -tzsh foo"
+assert_allow "rg -rz (the 'z' is the -r replacement)" "rg -rz foo"
+assert_allow "shfmt -filename=workflow.sh (the 'w' is in the value)" "shfmt -filename=workflow.sh -d"
+assert_allow "fd -e txt attached extension" "fd -etxt"
+assert_allow "sort -to (the 'o' is the -t separator)" "sort -to file"
+assert_defer "rg -nz still catches a bundled -z" "rg -nz foo"
+assert_defer "yq -Pi still catches a bundled -i" "yq -Pi '.a=1' file.yml"
+assert_defer "sort -uo still catches a bundled -o" "sort -uo out file"
+assert_defer "fd -Hx still catches a bundled -x" "fd -Hx rm"
+# `--` ends the flags: what follows is an operand, however it is spelled.
+assert_allow "rg -- -z searches for the literal -z" "rg -- -z"
+assert_allow "sort -- -o reads a file named -o" "sort -- -o"
+assert_allow "fd -- -x matches the literal -x" "fd -- -x"
+assert_defer "rg -z before -- is still a flag" "rg -z -- foo"
+# Read-only coreutils with no output-file or filter flag anywhere.
+assert_allow "md5sum" "md5sum file"
+assert_allow "sha256sum -c" "sha256sum -c sums.txt"
+assert_allow "readlink -f" "readlink -f file"
+assert_allow "column -t" "column -t file"
+assert_allow "paste" "paste a b"
+assert_allow "nl" "nl -ba file"
+# `lefthook run <job>` sits on the same trust boundary as `mise run <task>`:
+# what it runs is the repo's own tracked lefthook.yml. `-c/--config` points it
+# at an arbitrary one, which is arbitrary exec.
+assert_allow "lefthook run a repo-defined job" "lefthook run pre-commit"
+assert_defer "lefthook run -c arbitrary config" "lefthook run -c /tmp/evil.yml pre-commit"
+assert_defer "lefthook run --config arbitrary config" "lefthook run --config /tmp/evil.yml pre-commit"
+assert_defer "lefthook global -c before the subcommand" "lefthook -c /tmp/evil.yml run pre-commit"
+assert_defer "lefthook install writes hook files" "lefthook install"
+assert_defer "lefthook uninstall" "lefthook uninstall"
+# `gh api` is a GET until a flag makes it a write; gh switches to POST on the
+# mere presence of a field flag, with no -X needed.
+assert_allow "gh api GET" "gh api repos/o/r"
+assert_allow "gh api GET with --jq" "gh api repos/o/r --jq .name"
+assert_allow "gh api --paginate" "gh api --paginate repos/o/r/issues"
+assert_defer "gh api -X POST" "gh api -X POST repos/o/r/issues"
+assert_defer "gh api --method DELETE" "gh api --method DELETE repos/o/r"
+assert_defer "gh api -f field implies POST" "gh api repos/o/r -f title=x"
+assert_defer "gh api -F field implies POST" "gh api repos/o/r -F body=@x"
+
+# Short-flag bundling. gh uses pflag, which bundles, so a write flag can ride
+# behind a boolean one — `-iX POST` is `-i` plus `-X POST`. An anchored `-X*`
+# match never sees it, which is how this read as a GET (found by the panel
+# pass, 2026-09-14). The value-taking flags end a cluster, so a `F` sitting
+# inside `-q`'s jq expression is data and stays allowed.
+assert_defer "gh api -X bundled behind a boolean" "gh api -iX POST repos/o/r/issues"
+assert_defer "gh api -f bundled behind a boolean" "gh api -if repos/o/r"
+assert_defer "gh api -F bundled behind a boolean" "gh api -iF body=x repos/o/r"
+assert_allow "gh api -q consumes the rest of its cluster" "gh api -qFkey=val repos/o/r"
+assert_allow "gh api -i alone is read-only" "gh api -i repos/o/r"
+assert_defer "gh api --input body" "gh api --input body.json repos/o/r"
+assert_defer "gh api --raw-field implies POST" "gh api repos/o/r --raw-field title=x"
+assert_defer "gh api graphql with a query field" "gh api graphql -f query=xyz"
+assert_defer "gh api --input body" "gh api --input body.json repos/o/r"
+assert_allow "gh issue view" "gh issue view 5"
+assert_allow "gh issue list" "gh issue list"
+assert_defer "gh issue create writes" "gh issue create --title x"
+assert_allow "gh run list" "gh run list"
+assert_allow "gh run view" "gh run view 5 --log"
+assert_defer "gh run download writes files" "gh run download 5"
+assert_defer "gh run rerun mutates" "gh run rerun 5"
+assert_allow "git worktree list" "git worktree list"
+assert_allow "git worktree list --porcelain" "git worktree list --porcelain"
+assert_defer "git worktree add mutates" "git worktree add /tmp/x"
+assert_defer "git worktree remove mutates" "git worktree remove x"
+assert_defer "git worktree prune mutates" "git worktree prune"
+assert_defer "git worktree bare is a usage error" "git worktree"
+
+echo "### Real-world stalls (2026-09-14) — the acceptance commands"
+# Command 1, verbatim: the shape that stalled a worker on its first tool call.
+# Every path in it is relative, so it replays unchanged.
+assert_allow "stall 1 — grep|head then a for-loop over an awk filter" \
+  "grep -n '^## \\|^### ' specs/tower-comms/test-spec.md | head -40; for r in A1.1 A1.2; do echo \"=== \$r\"; awk -v r=\"REQ-\$r\" 'index(\$0,\"**\"r\"**\")||index(\$0,\"### \"r)||index(\$0,\"- \"r\" \")||index(\$0,\"**\"r)==1{p=1;print;next} p&&/^- \\*\\*REQ-|^### REQ-|^## /{p=0} p{print}' specs/tower-comms/test-spec.md; done"
+# Command 2: structurally verbatim, with the one absolute path (a real
+# machine's plugin cache root) pointed at this suite's sandbox plugin root so
+# the fixture is hermetic. Everything the command exercises — the bare `env`
+# pipe, a tracked `R=<trusted root>` assignment, `diff` through `$R`, and the
+# plugin script invoked through `$R` — is unchanged.
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+assert_allow "stall 2 — env pipe, tracked root assignment, plugin script call" \
+  "env | grep -i 'planwright\\|PLUGIN' ; echo ---; R=$PLUGIN_ROOT; diff -rq \$R/scripts scripts | head; echo \"--- dispatch-fetch\"; \$R/scripts/plug.sh --spec specs/x $PLUGIN_CWD; echo \"exit \$?\"" \
+  Bash "$PLUGIN_CWD"
+HOOK_ENV=()
+
+echo "### Regression baseline — shapes that were already allowed must stay allowed"
+assert_allow "regression — grep piped into head" "grep -n foo file | head"
+assert_allow "regression — for-loop over an awk filter" "for r in A B; do echo \"\$r\"; awk -v r=\"X\$r\" '{print}' file; done"
+assert_allow "regression — sed -n range print" "sed -n '1,5p' file"
+assert_allow "regression — git blame" "git blame file"
+assert_allow "regression — git cherry" "git cherry main topic"
+assert_allow "regression — git merge-base" "git merge-base a b"
+assert_allow "regression — gh pr diff" "gh pr diff"
+assert_allow "regression — mise run check" "mise run check"
+assert_allow "regression — bats on a repo test" "bats tests/ok.bats"
+assert_allow "regression — shellcheck" "shellcheck scripts/ok.sh"
+assert_allow "regression — yamllint" "yamllint ."
+assert_allow "regression — sort piped into uniq -c" "sort file | uniq -c"
+assert_allow "regression — comm" "comm a b"
+assert_allow "regression — cut" "cut -d, -f1 file"
+assert_allow "regression — tr" "tr a b"
+assert_allow "regression — stat" "stat file"
+assert_allow "regression — realpath" "realpath file"
+assert_allow "regression — test && echo" "test -f file && echo yes"
+assert_allow "regression — if/then/fi with a verified body" "if [ -f file ]; then cat file; fi"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+assert_allow "regression — tracked trusted-root assignment then a script call" \
+  "R=$PLUGIN_ROOT; \$R/scripts/plug.sh --flag" Bash "$PLUGIN_CWD"
+HOOK_ENV=()
 
 echo "### REQ-B1.7 — bounded runtime on pathological input"
 big="$(head -c 200000 /dev/zero | tr '\0' 'a')"

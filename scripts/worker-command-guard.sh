@@ -852,23 +852,130 @@ guard_sed() {
 
 # awk_program_safe <program>: 0 only when an awk program text is provably
 # read-only. awk's dangerous surface is (a) EXEC — `system(…)`, either direction
-# of a command pipe (`print | "cmd"`, `"cmd" | getline`, gawk's `|&` coprocess),
-# and gawk's `@load` / `@include` / indirect `@fn` calls — and (b) OUTPUT — a
-# `print`/`printf` redirected with `>` / `>>` to a file (or to gawk's
-# `/dev/stdout`-style special files).
+# of a command pipe (`print | "cmd"`, `"cmd" | getline`), gawk's `|&` coprocess
+# and its `@load` / `@include` / indirect `@fn` calls — and (b) OUTPUT — a
+# `print`/`printf` redirected with `>` / `>>` to a file.
 #
-# Telling a REDIRECTING `>` from a RELATIONAL `>` requires a real awk parser: the
-# character is identical and only its grammar position separates `print > "f"`
-# from `$1 > 5`. This screen does not attempt that. ANY `>` defers, as does any
-# `|`, `@`, `system`, or `close`. That over-defers the read-only comparison forms
-# — which is the fail-closed direction, and no worse for them than today, where
-# every awk invocation defers. It also defers `ENVIRON` (a program that decants
-# the session environment into the transcript is not the read-only filter shape
-# this widening is for).
+# The screen is a blanket reject plus ONE narrow, positively-blessed exception,
+# in that order:
+#
+#   1. Any `>`, `@`, `|&`, `system`, `close`, `ENVIRON` or `getline` anywhere in
+#      the text rejects. `>` goes in whole — no file-write class survives at all
+#      — so a relational `$1 > 5` is rejected with it: telling a redirecting `>`
+#      from a relational one needs a real awk parser, and this screen has none.
+#   2. That leaves `|`, and only in the programs that contain one. Every `|`
+#      must be POSITIVELY blessed as `||` (logical OR) or as a character inside
+#      a positively-identified regex literal; anything else rejects. A program
+#      with no `|` left after step 1 has no reachable exec or write vector at
+#      all, whatever it parses to, so it is approved without a walk.
+#   3. A regex literal is positively identified only where awk CANNOT mean
+#      division: a `/` whose immediately preceding non-whitespace character is
+#      one of `{ ; ( , & ! ~ |`, or a newline that is not a line continuation,
+#      or the start of the program. It closes at the next `/` not preceded by a
+#      backslash, and may hold no `"`, no `[` and no newline. Rejecting `[`
+#      sidesteps the mawk/nawk/busybox disagreement over `/[/]/` entirely, at
+#      the cost of deferring `/[0-9]+|[a-z]+/`; that over-defer is accepted.
+#   4. A `/` ANYWHERE ELSE rejects. There is deliberately NO "not a regex, so
+#      scan on as division" fallback. The screen this replaced had one, and four
+#      working bypasses came through it in under an hour: a `/` misread as
+#      division scanned the span as CODE, and a `#` or an unbalanced `"` inside
+#      that span then swallowed the real `| "sh"` behind it. An unplaceable `/`
+#      is a defer. That absence is the entire point — do not add a branch here,
+#      and do not reach for a tokenizer to buy back the over-defers it costs.
+#
+# Two spans are walked, and only because the rule above is unsound without
+# them. A string literal, because a `{`, `;` or `&` INSIDE one would otherwise
+# bless the `/` that follows it (`{x = "&" /2; print s | c; y = 1/2}` reaches
+# the shell if it does). And `\`-newline, because it is a LINE CONTINUATION:
+# awk is still mid-expression across it, so that newline is not a statement
+# boundary and must not bless either (`{x = 1 \` + newline + `/ 2; print s | c;
+# y = 1/3}` reaches the shell if it does). Both were live exec bypasses of this
+# screen when it was first written; the fixtures for them are load-bearing.
+#
+# A `|` inside a string rejects like any other, so `{print "a|b"}` defers — the
+# accepted price of not modelling what awk does with the value. Comments are not
+# skipped for the same reason: everything a `#` would hide rejects rather than
+# being read as inert.
 awk_program_safe() {
-  case $1 in
-    *'>'* | *'|'* | *'@'* | *system* | *close* | *ENVIRON*) return 1 ;;
+  local s=$1
+  # A backslash-newline inside program text can split a dangerous token so the
+  # blanket substring checks below never see it: `syste\<newline>m("id")` holds
+  # no literal `system`. Under mawk that parses as an undefined function rather
+  # than executing, so the splice itself is unreproduced here, but no other awk
+  # was available to test and the construct has no place in a program this
+  # screen is willing to vouch for. Reject it outright (fail-closed) instead of
+  # betting on one dialect's tokenizer. Raised by the Copilot pass, 2026-09-15.
+  case $s in
+    *\\$'\n'*) return 1 ;;
   esac
+  local n=${#s} i=0 c prev=''
+  case $s in
+    *'>'* | *'@'* | *'|&'* | *system* | *close* | *ENVIRON* | *getline*) return 1 ;;
+  esac
+  case $s in
+    *'|'*) ;;
+    *) return 0 ;;
+  esac
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}
+    case $c in
+      '"')
+        i=$((i + 1))
+        while [ "$i" -lt "$n" ]; do
+          case ${s:i:1} in
+            \\) i=$((i + 2)) ;;
+            '|') return 1 ;; # a `|` a string hides is never blessed
+            '"') break ;;
+            *) i=$((i + 1)) ;;
+          esac
+        done
+        [ "$i" -lt "$n" ] || return 1 # unterminated string literal
+        i=$((i + 1))
+        prev='"'
+        continue
+        ;;
+      \\)
+        # Outside a string or a regex, a `\` is only ever a LINE CONTINUATION;
+        # awk errors on every other use of one. Consume `\`+newline as a single
+        # unit with `prev` UNTOUCHED — the continuation does not end the
+        # statement, so that newline must not bless a following `/` — and
+        # reject any other `\X`, so nothing can hide inside the skip.
+        [ "${s:i+1:1}" = "$NL" ] || return 1
+        i=$((i + 2))
+        continue
+        ;;
+      '/')
+        case $prev in
+          '' | '{' | ';' | '(' | ',' | '&' | '!' | '~' | '|' | "$NL") ;;
+          *) return 1 ;; # an unplaceable `/`: never scanned on (4 above)
+        esac
+        i=$((i + 1))
+        while [ "$i" -lt "$n" ]; do
+          case ${s:i:1} in
+            \\) i=$((i + 2)) ;;
+            '"' | '[' | "$NL") return 1 ;;
+            '/') break ;;
+            *) i=$((i + 1)) ;;
+          esac
+        done
+        [ "$i" -lt "$n" ] || return 1 # unterminated regex literal
+        i=$((i + 1))
+        prev='/'
+        continue
+        ;;
+      '|')
+        [ "${s:i+1:1}" = '|' ] || return 1 # a lone `|` is a command pipe
+        i=$((i + 2))
+        prev='|'
+        continue
+        ;;
+    esac
+    case $c in
+      ' ' | "$TAB") ;; # blanks never change what a following `/` may mean
+      *) prev=$c ;;
+    esac
+    i=$((i + 1))
+  done
   return 0
 }
 
@@ -930,6 +1037,329 @@ guard_awk() {
   return 0
 }
 
+# jq_program_safe <program>: 0 only when a jq filter is provably free of an
+# ENVIRONMENT read. jq's language has no exec and no file-write primitive at
+# all, so nothing else in a filter needs screening; what it does have is `env`
+# and `$ENV`, either of which hands the whole environment to the filter (and
+# from there to the transcript). That is the same call guard_awk makes on
+# `ENVIRON`, and for the same reason: the guard can see the read but not what
+# the program does with the value.
+#
+# `$ENV` rejects wherever it appears. `env` rejects only as a WORD — a `.env`
+# or `.a.env` is a FIELD ACCESS on the input, not the builtin, and a `$env` is
+# someone's own variable, so a preceding `.` or `$` (or an identifier
+# character, as in `envelope`) leaves it alone. A mention the rule cannot place
+# that way, `"env"` inside a string included, defers; that costs the filter
+# shapes nothing.
+jq_program_safe() {
+  local s=$1
+  local n=${#s} i=0 p a
+  case $s in
+    *\$ENV*) return 1 ;;
+  esac
+  while [ "$i" -lt "$n" ]; do
+    if [ "${s:i:3}" = env ]; then
+      p=''
+      [ "$i" -gt 0 ] && p=${s:i-1:1}
+      a=${s:i+3:1}
+      case $p in
+        [A-Za-z0-9_.$]) ;; # a field access, a variable, or a longer name
+        *)
+          case $a in
+            [A-Za-z0-9_]) ;; # a longer name: `envelope`, `env_of`
+            *) return 1 ;;   # the builtin
+          esac
+          ;;
+      esac
+    fi
+    i=$((i + 1))
+  done
+  return 0
+}
+
+# guard_jq: strict flag allowlist plus the environment-read check on the
+# filter. Only the inline-filter form is verifiable, so `-f`/`--from-file` (a
+# filter in a file) and `-L`/`--library-path` (which is where `include` and
+# `import` read module text from) defer, as does any unrecognized flag.
+#
+# Every value-taking flag is enumerated because the filter is identified BY
+# POSITION — it is the first non-flag operand — and a value sitting in that
+# position would be screened in its place: without this, `jq --indent 4 '$ENV'`
+# would screen `4` and hand `$ENV` through as if it were a filename. Operands
+# after the filter are input files, or positional arguments under
+# `--args`/`--jsonargs`, and jq only ever READS those.
+guard_jq() {
+  local i a t c expect=0 prog_taken=0 endflags=0
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    if [ "$expect" -gt 0 ]; then # a flag's value, never the filter
+      expect=$((expect - 1))
+      continue
+    fi
+    if [ "$endflags" = 0 ]; then
+      case $a in
+        --)
+          endflags=1
+          continue
+          ;;
+        --indent)
+          expect=1
+          continue
+          ;;
+        --arg | --argjson | --slurpfile | --rawfile)
+          expect=2
+          continue
+          ;;
+        --null-input | --raw-input | --slurp | --compact-output | --raw-output | \
+          --raw-output0 | --join-output | --ascii-output | --sort-keys | \
+          --color-output | --monochrome-output | --tab | --unbuffered | --stream | \
+          --stream-errors | --seq | --args | --jsonargs | --exit-status | \
+          --version | --build-configuration | --help)
+          continue
+          ;;
+        --*) return 1 ;; # --from-file / --library-path / unknown
+        -?*)
+          # jq combines short flags (`-rn`), so every character in the token is
+          # its own flag. `f` and `L` carry unscreenable program text and any
+          # other unknown character is an arg model the guard does not have.
+          t=${a#-}
+          while [ -n "$t" ]; do
+            c=${t:0:1}
+            case $c in
+              [acCehjMnrsSRV]) ;;
+              *) return 1 ;;
+            esac
+            t=${t:1}
+          done
+          continue
+          ;;
+      esac
+    fi
+    if [ "$prog_taken" = 0 ]; then
+      jq_program_safe "$a" || return 1
+      prog_taken=1
+    fi
+  done
+  [ "$expect" = 0 ] || return 1     # a dangling value-flag with no value
+  [ "$prog_taken" = 1 ] || return 1 # no inline filter (the -f form, or none)
+  return 0
+}
+
+# guard_env: bare `env` only. With NO operand, env prints the environment and
+# runs nothing; with one, it is an EXEC vector (`env VAR=x cmd`, `env -i cmd`,
+# `env -S '…'`), and since `-u`/`-C`/`-S` take values, "is this operand a
+# command" cannot be decided from the token shape alone. Requiring the bare form
+# sidesteps that entirely.
+#
+# Printing the environment exposes whatever secrets the worker's environment
+# carries, but it opens no new class: `echo` is already unguarded on this list,
+# so `echo $GH_TOKEN` is already approved. The awk screen's separate `ENVIRON`
+# reject is NOT the same call — there the environment read sits inside program
+# text whose use of the value the guard cannot see at all.
+guard_env() {
+  [ "$cwn" -eq 1 ]
+}
+
+# guard_read: `read [-r] [NAME…]`. read runs nothing and writes no file, but it
+# ASSIGNS shell variables, and a name like PATH or IFS would re-point every
+# later command in the same shell — the exact hazard assign_name_ok exists for,
+# so each name goes through it. Only `-r` is allowed: every other read flag
+# takes a value (`-d`, `-n`, `-a`, `-u`, `-p`, `-t`, `-i`), and a value operand
+# would otherwise be name-checked as if it were a variable.
+guard_read() {
+  local i a
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      -r | --) ;;
+      -*) return 1 ;;
+      *) assign_name_ok "$a" || return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# flag_name_in <token> <name>…: 0 when <token>'s flag NAME — what follows its
+# leading dashes, up to an `=` — is one of <name>…. For the tools that do NOT
+# bundle short flags: shfmt's `-sr` is ONE flag named `sr`, not `-s -r`, and
+# `-filename=x` is one flag named `filename`, so matching the whole name is
+# exact and an attached value can never be read as a flag. Long and short
+# spellings collapse to the same test (`-w` and `--write`).
+flag_name_in() {
+  local tok=${1#-} name
+  shift
+  tok=${tok#-}
+  tok=${tok%%=*}
+  for name in "$@"; do
+    [ "$tok" = "$name" ] && return 0
+  done
+  return 1
+}
+
+# guard_yq: yq EDITS IN PLACE. Both the Go (mikefarah) and the jq-wrapping
+# Python spelling write the input file back with `-i`/`--inplace`/`--in-place`,
+# and the Go one also writes one file per match with `-s`/`--split-exp`. Reject
+# both in every spelling, bundled short forms included; `-I` (indent) is a
+# different, read-only flag and the case-sensitive patterns leave it alone.
+#
+# No short flag is declared value-taking here, so only the `-o=json` form of an
+# attached value is placed (every parser in play starts a value at `=`), and
+# `-ojson` still defers. That is deliberate: two unrelated programs answer to
+# `yq` with different short-flag tables, and a value-taking claim that is wrong
+# for the one actually installed would read a dangerous flag as inert.
+# yq_expression_safe <expr>: 0 unless the expression reads the environment.
+# yq's `env(NAME)` and `strenv(NAME)` are the same capability the awk `ENVIRON`
+# reject and jq_program_safe's `env` check exist for — program text whose use
+# of the value this guard cannot see — so the third member of that family is
+# screened the same way rather than left as the one open door.
+yq_expression_safe() {
+  local s=$1 n i p a
+  case $s in
+    *strenv*) return 1 ;;
+  esac
+  # `env` is a bare operator, not only a call: `env | .PATH` and `.a = env`
+  # both read the environment. Walk it as a token so a longer identifier
+  # (`.environment`, `envelope`) still passes, mirroring jq_program_safe.
+  # Raised by the Copilot pass, 2026-09-15.
+  n=${#s}
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    if [ "${s:i:3}" = env ]; then
+      p=''
+      [ "$i" -gt 0 ] && p=${s:i-1:1}
+      a=${s:i+3:1}
+      case $p in
+        [A-Za-z0-9_.\$]) ;; # a field access, a variable, or a longer name
+        *)
+          case $a in
+            [A-Za-z0-9_]) ;; # a longer name: `environment`, `envelope`
+            *) return 1 ;;   # the operator
+          esac
+          ;;
+      esac
+    fi
+    i=$((i + 1))
+  done
+  return 0
+}
+
+guard_yq() {
+  local i a expr_taken=0
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --) break ;; # end of flags: what follows is an expression or a file
+      --inplace | --inplace=* | --in-place | --in-place=* | --split-exp | --split-exp=*) return 1 ;;
+      --from-file | --from-file=*) return 1 ;; # an expression this screen cannot read
+      --*) ;;
+      -?*) short_flag_hit "$a" 'is' '' && return 1 ;;
+      *)
+        # The first non-flag operand is the expression; later ones are files.
+        if [ "$expr_taken" = 0 ]; then
+          yq_expression_safe "$a" || return 1
+          expr_taken=1
+        fi
+        ;;
+    esac
+  done
+  return 0
+}
+
+# guard_shfmt: shfmt's only write vector is `-w`/`--write` (format in place);
+# `-d`/`-l`/`--to-json` report to stdout. shfmt does not bundle short flags —
+# `-lw` is one undefined flag named `lw`, not `-l -w`, and shfmt exits 2 without
+# touching the file (measured against 3.13.1) — so the whole flag NAME decides,
+# and an attached value can never be read as a flag: `-filename=workflow.sh`
+# names `filename`, not a `w` write. The names are an ALLOWLIST of the
+# report-only flags rather than a reject list for `w`, so a flag this screen has
+# never heard of defers instead of passing on the strength of its spelling.
+guard_shfmt() {
+  local i a
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --) break ;;
+      -?*)
+        flag_name_in "$a" l list d diff f find s simplify p posix i indent ln \
+          language-dialect bn binary-next-line ci case-indent sr space-redirects \
+          kp keep-padding fn func-next-line mn minify filename apply-ignore \
+          to-json from-json version h help || return 1
+        ;;
+    esac
+  done
+  return 0
+}
+
+# guard_rg: ripgrep writes no file, but `--pre <cmd>` runs an arbitrary program
+# over every searched file and `--hostname-bin <cmd>` runs one to resolve the
+# hostname. `-z`/`--search-zip` also spawns decompressors picked off PATH, so it
+# goes too — the search shapes a worker writes never need it.
+guard_rg() {
+  local i a
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --) break ;; # end of flags: what follows is the pattern and paths
+      --pre | --pre=* | --pre-glob | --pre-glob=* | --hostname-bin | --hostname-bin=* | --search-zip) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "$a" 'z' 'ABCEMTdefgjmrt' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_fd: fd writes no file, but `-x`/`--exec` and `-X`/`--exec-batch` run an
+# arbitrary command per result (or per batch).
+guard_fd() {
+  local i a
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      --) break ;;
+      --exec | --exec=* | --exec-batch | --exec-batch=*) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "$a" 'xX' 'EScdejot' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# guard_lefthook: `lefthook run <job>` only — the same trust boundary `mise run`
+# sits on, and for the same reason: what it runs is the repo's own tracked
+# lefthook.yml, which the kickoff trust boundary already covers. That makes it a
+# TRUSTED-REPO-CODE allowance, not a read-only one (a pre-commit job may well
+# format files). `-c`/`--config` is what breaks the boundary — it points
+# lefthook at an arbitrary config, i.e. arbitrary commands — so it defers in
+# every position, as does any pre-subcommand flag and any other subcommand.
+# lefthook spells its long flags with one dash as readily as two and does not
+# bundle short ones, so the flag NAME is what is matched: `-command lint` keeps
+# its own name and is left alone.
+guard_lefthook() {
+  local i a sub=''
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $a in
+      -*) return 1 ;; # a pre-subcommand flag
+      *)
+        sub=$a
+        break
+        ;;
+    esac
+  done
+  [ "$sub" = run ] || return 1
+  for ((i = i + 1; i < cwn; i++)); do
+    case ${cw[i]} in
+      --) break ;;
+      # `-c` takes an attached value too: `-c/tmp/evil.yml` selects an
+      # arbitrary config, and a config is arbitrary commands. flag_name_in
+      # only placed the separated and long forms. Copilot pass, 2026-09-15.
+      -c* | --config | --config=*) return 1 ;;
+      -?*) flag_name_in "${cw[i]}" c config && return 1 ;;
+    esac
+  done
+  return 0
+}
+
 guard_find() {
   local i a
   for ((i = 1; i < cwn; i++)); do
@@ -941,18 +1371,48 @@ guard_find() {
   return 0
 }
 
+# short_flag_hit <token> <danger> <valued>: 0 when <token> is a short-flag
+# cluster whose FLAG positions include one of the <danger> characters. The scan
+# mirrors how these tools' own parsers read a cluster: characters are flags left
+# to right until one that TAKES A VALUE, after which the REST of the token is
+# that value, and an `=` starts one the same way. `rg -tzsh` is `-t zsh`, not
+# `-t -z -s -h`, and `sort -to` is `-t o`, so the trailing characters are not
+# flag positions and must not be screened as if they were — each such misread
+# is a worker stall. A character in NEITHER set is an unknown boolean flag and
+# the scan continues past it: unknown-means-keep-looking is the fail-closed
+# direction, since reading a value as flags can only add defers, never drop a
+# reject. Callers pass only tokens that begin with a single `-`; long flags are
+# matched by name before this is reached.
+short_flag_hit() {
+  local rest=${1#-} danger=$2 valued=$3 c
+  while [ -n "$rest" ]; do
+    c=${rest:0:1}
+    [ "$c" = '=' ] && return 1
+    case $danger in
+      *"$c"*) return 0 ;;
+    esac
+    case $valued in
+      *"$c"*) return 1 ;;
+    esac
+    rest=${rest:1}
+  done
+  return 1
+}
+
+# guard_sort: sort's exec/write vectors are -o/--output, which writes a file,
+# and --compress-program=<prog>, which execs an arbitrary program on every
+# external-merge temp-file spill. Reject both; every other sort flag is
+# read-only. -k/-S/-t/-T take values, so the characters after them in a cluster
+# are data, not flags.
 guard_sort() {
-  # sort's exec/write vectors: -o/--output writes a file, and
-  # --compress-program=<prog> execs an arbitrary program on every external-merge
-  # temp-file spill. Reject both (long and bundled-short -o forms); every other
-  # sort flag is read-only.
   local i a
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
+      --) break ;; # end of flags: what follows are input files
       --output | --output=* | --compress-program | --compress-program=*) return 1 ;;
-      --*) ;;           # other long flags are read-only
-      -*o*) return 1 ;; # any short-flag token carrying -o (a write target)
+      --*) ;;
+      -?*) short_flag_hit "$a" 'o' 'kStT' && return 1 ;;
     esac
   done
   return 0
@@ -1103,19 +1563,67 @@ guard_mise() {
   return 0
 }
 
+# gh_no_web: 0 unless a `--web`/`-w` flag is present. These read verbs print
+# to stdout, but `--web` instead launches $BROWSER — an inherited BROWSER is an
+# arbitrary program, and a headless opener stalls the worker. Raised by the
+# Copilot pass, 2026-09-15.
+gh_no_web() {
+  local i
+  for ((i = 2; i < cwn; i++)); do
+    case ${cw[i]} in
+      --) break ;;
+      --web) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "${cw[i]}" 'w' 'Hqpt' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
 guard_gh() {
   # REQ-A1.5: read-only gh only. A leading flag, or any non-enumerated group/sub
   # pair, defers.
   case ${cw[1]-} in
     -*) return 1 ;;
   esac
-  local g=${cw[1]-} s=${cw[2]-}
+  local i g=${cw[1]-} s=${cw[2]-}
   case $g in
-    pr)
+    pr | issue)
       case $s in
-        view | list | status | diff | checks) return 0 ;;
+        view | list | status | diff | checks) gh_no_web || return 1 ;;
         *) return 1 ;;
       esac
+      return 0
+      ;;
+    run)
+      case $s in
+        view | list) gh_no_web || return 1 ;;
+        *) return 1 ;; # download / rerun / cancel / delete / watch
+      esac
+      return 0
+      ;;
+    api)
+      # `gh api <endpoint>` is a GET, and a GET through gh is read-only. The
+      # flags that change that are the ones to reject: an explicit
+      # `-X`/`--method`, `--input` (a request body), and any field flag — gh
+      # switches the request to POST as soon as one `-f`/`-F`/`--field`/
+      # `--raw-field` is present, so a field flag is a write in disguise even
+      # with no `-X`.
+      for ((i = 2; i < cwn; i++)); do
+        case ${cw[i]} in
+          --) break ;; # end of flags: what follows is the endpoint
+          --method | --method=* | --field | --field=* | --raw-field | --raw-field=*) return 1 ;;
+          --input | --input=*) return 1 ;;
+          --*) ;;
+          # gh uses pflag, which bundles short flags, so a write flag can ride
+          # behind a boolean one: `-iX POST` is `-i` plus `-X POST`, and an
+          # anchored `-X*` match never sees it. The value-taking flags end the
+          # cluster because everything after them is their value, not flags —
+          # in `-qFkey=val` the `F` is part of the jq expression `-q` consumes.
+          -?*) short_flag_hit "${cw[i]}" 'XFf' 'Hqpt' && return 1 ;;
+        esac
+      done
+      return 0
       ;;
     auth)
       [ "$s" = status ] && return 0 || return 1
@@ -1247,6 +1755,15 @@ guard_git() {
         *) return 1 ;;
       esac
       ;;
+    worktree)
+      # Only `git worktree list`. Bare `git worktree` is a usage error, and
+      # every other leaf (add/remove/move/prune/repair/lock/unlock) mutates the
+      # worktree set — including the one this worker is running in.
+      case ${cw[subidx + 1]-} in
+        list) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
     *) return 1 ;;
   esac
 }
@@ -1308,9 +1825,15 @@ assign_name_ok() {
       OPTIND | OPTARG | OPTERR | LANG | LANGUAGE | _ | \
       BASH* | COMP_* | READLINE_* | HIST* | LC_* | MAIL* | PS[0-9]*) return 1 ;;
   esac
-  # Indirect expansion reads the hook's OWN environment (and its own shell
-  # variables, which over-defers harmlessly) — never the analyzed command.
-  [ -z "${!name+x}" ] || return 1
+  # Membership in the hook's own ENVIRONMENT, snapshotted at startup: an
+  # exported name the command re-points reaches every child it runs. The
+  # snapshot is what is tested, NOT `${!name+x}` — an indirect read also sees
+  # every shell variable in scope, so the guard's own locals answered for the
+  # name under test and `read i`, `read a` and `read name` (the helper's own
+  # parameter) all deferred, which is the exact shape guard_read exists for.
+  case $HOOK_ENV_NAMES in
+    *"$NL$name$NL"*) return 1 ;;
+  esac
   return 0
 }
 
@@ -1420,6 +1943,20 @@ classify_verb() {
     cat | head | tail | wc | cut | comm | cmp | basename | dirname | realpath | pwd | echo | printf | seq | true | false | od | tr | stat | grep | ls | diff | test | '[')
       return 0
       ;;
+    # Same class, added 2026-09-14 from the shapes real dispatched workers
+    # stalled on. Each was checked for a write/exec vector across its whole
+    # flag surface and has none: `readlink`/`nl`/`paste`/`column` and the
+    # checksum family report to stdout with no output-file or filter flag, and
+    # `printenv` exposes no more than the already-approved `echo $VAR`. `jq` is
+    # NOT here: it passes the same write/exec test — its language has no exec
+    # and no file-write primitive, and `-f`, `--rawfile`, `--slurpfile` and
+    # `-L` only ever READ — but it carries PROGRAM TEXT, and a jq program can
+    # read the environment (`env`, `$ENV`). Leaving it unscreened allowed
+    # `jq -n env` while `awk 'BEGIN{print ENVIRON["X"]}'` deferred, which is
+    # the same read through a different tool. It is guarded below.
+    printenv | readlink | nl | paste | column | md5sum | sha1sum | sha256sum | sha512sum | cksum)
+      return 0
+      ;;
     # Read-only analyzers (results to stdout only).
     shellcheck | yamllint) return 0 ;;
     # Read-only tools with a specific write/set/output vector: guarded.
@@ -1430,11 +1967,19 @@ classify_verb() {
     find) guard_find ;;
     sed) guard_sed ;;
     awk) guard_awk ;;
+    jq) guard_jq ;;
     markdownlint | markdownlint-cli2) guard_mdlint ;;
+    env) guard_env ;;
+    read) guard_read ;;
+    yq) guard_yq ;;
+    shfmt) guard_shfmt ;;
+    rg) guard_rg ;;
+    fd) guard_fd ;;
     # Enumerated read-only subcommand tools.
     git) guard_git ;;
     gh) guard_gh ;;
     mise) guard_mise ;;
+    lefthook) guard_lefthook ;;
     # Trusted repo-code runners (path-contained) and the fish recursor.
     bash | sh) guard_bashsh ;;
     fish) guard_fish ;;
@@ -1770,6 +2315,13 @@ main() {
 # themselves, which cannot carry a literal newline portably).
 NL=$'\n'
 TAB=$'\t'
+
+# The names the hook's OWN environment carries, captured once at load as
+# `\nNAME\n…` for assign_name_ok's shadowing rule (see there). Exported names
+# only: the hook's shell variables are its own implementation detail and say
+# nothing about what the analyzed command would shadow. Never derived from the
+# analyzed command.
+HOOK_ENV_NAMES=$NL$(compgen -e)$NL
 
 # The hook's own sibling root — the final, delivery-mode-agnostic arm of
 # is_planwright_script's root chain (see there). Resolved ONCE at load, before

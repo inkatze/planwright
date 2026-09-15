@@ -273,7 +273,18 @@ assert_defer "awk -p profile writes a file" "awk -p prof.out '{print}' file"
 assert_defer "awk with no inline program" "awk -F:"
 assert_defer "awk dangling -v" "awk -v"
 assert_defer "awk unplaceable -v assignment" "awk -v '1x=2' '{print}' file"
-assert_defer "awk relational > over-defers (fail-closed by design)" "awk '\$1 > 5' file"
+# The shared awk screen rejects every `>` outright and recovers `|` only in the
+# two spellings it can positively identify — `||`, and a `|` inside a regex
+# literal opened where awk cannot mean division. The worker suite carries the
+# full pair table; these pin that the same engine reached this guard (see the
+# parity block below).
+assert_allow "awk logical OR" "awk 'x||y{print}' file"
+assert_allow "awk regex alternation" "awk '/a|b/{print}' file"
+assert_defer "awk relational > outside a print statement (over-defer)" "awk '\$1 > 5' file"
+assert_defer "awk relational > inside a print statement (over-defer)" "awk '{print (\$1 > 5)}' file"
+assert_defer "awk print pipe with no spaces" "awk '{print|\"sh\"}' file"
+assert_defer "awk pipe smuggled behind a bracket/delimiter desync" "awk '/[/{print|\"sh\"}x[1]/{print}' file"
+assert_defer "awk regex misread as division opens a comment (bypass 1)" "awk '{print /#/; print \"id\" | \"sh\"}' file"
 assert_defer "awk shell redirect to a file" "awk '{print}' file > out.txt"
 assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
 
@@ -433,10 +444,70 @@ echo "### Shared-engine parity — the duplicated sed/awk screens must agree in 
 # sed_script_safe, its bracket scanners, and guard_awk) is DUPLICATED across
 # scripts/worker-command-guard.sh and scripts/tower-command-guard.sh, so an engine
 # fix must be applied twice. Nothing pinned that today: a fix landing in one file
-# only would pass both suites. These fixtures cross-run the SHARED surface (sed and
-# awk, which are deliberately identical in both safe sets — unlike bats / fish -c /
-# tmux / claude, which are deliberately distinct and are covered above) and fail
-# when the two guards disagree, so a one-sided engine edit is caught here.
+# only would pass both suites. Two assertions cover it, and they fail differently
+# on purpose.
+#
+# STRUCTURAL first: the shared functions are extracted from both files and
+# diffed. The behavioural fixtures below it reach a handful of branches and
+# would pass a one-sided edit to any of the rest — that is exactly how the awk
+# screen was rewritten in one file only and nothing said so. A text diff has no
+# such blind spot: every branch of every shared function is in it. Full-line
+# comments are stripped before comparing, because each file cites its own REQ
+# namespace in prose (B1.3 vs C1.3); everything else, trailing comments on code
+# lines included, must match byte for byte.
+echo "### Shared-engine parity — STRUCTURAL: the shared functions are byte-identical"
+SHARED_FNS="awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
+sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
+short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
+classify_redirect is_reserved repo_root_of emit_allow"
+
+# fn_body <file> <name>: the function's text, from its `name() {` line to the
+# first `}` at column 0, with full-line comments dropped.
+fn_body() {
+  sed -n "/^$2() {\$/,/^}\$/p" "$1" | grep -v '^[[:space:]]*#'
+}
+
+for fn in $SHARED_FNS; do
+  t_body="$(fn_body "$HOOK" "$fn")"
+  w_body="$(fn_body "$WORKER_HOOK" "$fn")"
+  # Anti-vacuous: a name that matches nothing (renamed, deleted, reformatted so
+  # the extractor misses it) must FAIL, never quietly compare empty to empty.
+  if [ -z "$t_body" ] || [ -z "$w_body" ]; then
+    fail "structural parity: $fn — not extractable from $([ -z "$t_body" ] && echo tower)$([ -z "$t_body" ] && [ -z "$w_body" ] && echo ' and ')$([ -z "$w_body" ] && echo worker) (renamed, deleted, or reformatted away from the \`name() {\` … \`}\` shape the extractor and this assertion both rely on)"
+    continue
+  fi
+  if [ "$t_body" = "$w_body" ]; then
+    pass "structural parity: $fn is byte-identical in both guards"
+  else
+    fail "structural parity: $fn — shared-engine DRIFT, the two copies differ:
+$(diff <(printf '%s\n' "$t_body") <(printf '%s\n' "$w_body") | head -20)"
+  fi
+done
+
+# Nothing above notices a function the two files SHARE A NAME for but that no
+# row covers, which is how the list rots: someone adds a helper to both guards,
+# the list keeps its old length, and the new function drifts unwatched. So every
+# same-named function must be declared exactly once — identical (above) or
+# deliberately different (below, where each guard reaches its own safe set).
+DISTINCT_FNS="analyze_command canon_under classify_verb guard_bashsh guard_gh \
+guard_git guard_mise is_planwright_script main tokenize tok_push verify_simple \
+verify_tokens"
+
+fn_names() { grep -oE '^[a-z_][a-z0-9_]*\(\)' "$1" | tr -d '()' | sort -u; }
+undeclared=''
+for fn in $(comm -12 <(fn_names "$HOOK") <(fn_names "$WORKER_HOOK")); do
+  case " $SHARED_FNS $DISTINCT_FNS " in
+    *" $fn "*) ;;
+    *) undeclared="$undeclared $fn" ;;
+  esac
+done
+if [ -z "$undeclared" ]; then
+  pass "structural parity: every same-named function is declared identical or distinct"
+else
+  fail "structural parity: undeclared same-named function(s) —$undeclared. Add each to SHARED_FNS (and keep the two copies byte-identical) or to DISTINCT_FNS (and say why the guards differ)."
+fi
+
+echo "### Shared-engine parity — BEHAVIOURAL: both guards reach the same verdict"
 parity() {
   local label="$1" cmd="$2" t w
   run_hook "$cmd"
@@ -467,7 +538,20 @@ parity "parity: awk -v allows" "awk -v n=3 'NR<=n' file"
 parity "parity: awk system() defers" "awk 'BEGIN{system(\"id\")}'"
 parity "parity: awk output redirection defers" "awk '{print > \"f\"}' file"
 parity "parity: awk -f progfile defers" "awk -f p.awk file"
-parity "parity: awk relational > defers" "awk '\$1 > 5' file"
+parity "parity: awk relational > defers (over-defer, both)" "awk '\$1 > 5' file"
+parity "parity: awk logical OR allows" "awk 'x||y{print}' file"
+parity "parity: awk regex alternation allows" "awk '/a|b/{print}' file"
+parity "parity: awk relational > inside print defers" "awk '{print (\$1 > 5)}' file"
+parity "parity: awk print pipe defers" "awk '{print|\"sh\"}' file"
+parity "parity: awk bracket/delimiter desync defers" "awk '/[/{print|\"sh\"}x[1]/{print}' file"
+parity "parity: awk lexer bypass 1 defers" "awk '{print /#/; print \"id\" | \"sh\"}' file"
+parity "parity: awk lexer bypass 3 defers" "awk '{ print /\"/ ; print \"id\" | \"sh\" ; print /\"/ }' file"
+parity "parity: awk string-blessed / defers" "awk 'BEGIN{c=\"sh\";s=\"id\"} {x = \"&\" /2; print s | c; y=1/2}' file"
+parity "parity: awk REQ-section filter allows" \
+  "awk 'p&&/^- \\*\\*REQ-|^### REQ-|^## /{p=0} p{print}' file"
+parity "parity: sort -to is a separator, not an output file" "sort -to file"
+parity "parity: sort -o output defers" "sort -o out file"
+parity "parity: sort -- ends the flags" "sort -- -o"
 
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:
