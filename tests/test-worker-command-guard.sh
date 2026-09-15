@@ -503,7 +503,7 @@ assert_allow "awk escaped | in a regex is literal" "awk '/a\\|b/{print}' file"
 assert_allow "awk regex after ~ (spaced)" "awk '\$0 ~ /a|b/ {print \$2}' file"
 assert_allow "awk regex as a function argument" "awk '{n = split(\$0, a, /x|y/); print n}' file"
 assert_allow "awk regex opened after && " "awk 'p&&/a|b/{p=0} p{print}' file"
-assert_allow "awk regex opened after a line continuation" "awk '\$0 ~ \\
+assert_defer "awk line continuation is refused outright" "awk '\$0 ~ \\
 /a|b/ {print}' file"
 assert_allow "awk character class in a regex" "awk '/[0-9]+/{print}' file"
 assert_allow "awk POSIX class in a regex" "awk '\$0~/^[[:alpha:]]+\$/{print}' file"

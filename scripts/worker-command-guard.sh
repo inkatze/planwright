@@ -898,6 +898,16 @@ guard_sed() {
 # being read as inert.
 awk_program_safe() {
   local s=$1
+  # A backslash-newline inside program text can split a dangerous token so the
+  # blanket substring checks below never see it: `syste\<newline>m("id")` holds
+  # no literal `system`. Under mawk that parses as an undefined function rather
+  # than executing, so the splice itself is unreproduced here, but no other awk
+  # was available to test and the construct has no place in a program this
+  # screen is willing to vouch for. Reject it outright (fail-closed) instead of
+  # betting on one dialect's tokenizer. Raised by the Copilot pass, 2026-09-15.
+  case $s in
+    *\\$'\n'*) return 1 ;;
+  esac
   local n=${#s} i=0 c prev=''
   case $s in
     *'>'* | *'@'* | *'|&'* | *system* | *close* | *ENVIRON* | *getline*) return 1 ;;
@@ -1203,12 +1213,33 @@ flag_name_in() {
 # of the value this guard cannot see — so the third member of that family is
 # screened the same way rather than left as the one open door.
 yq_expression_safe() {
-  case $1 in
-    *strenv* | *env\(*) return 1 ;;
+  local s=$1 n i p a
+  case $s in
+    *strenv*) return 1 ;;
   esac
-  case $1 in
-    env) return 1 ;;
-  esac
+  # `env` is a bare operator, not only a call: `env | .PATH` and `.a = env`
+  # both read the environment. Walk it as a token so a longer identifier
+  # (`.environment`, `envelope`) still passes, mirroring jq_program_safe.
+  # Raised by the Copilot pass, 2026-09-15.
+  n=${#s}
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    if [ "${s:i:3}" = env ]; then
+      p=''
+      [ "$i" -gt 0 ] && p=${s:i-1:1}
+      a=${s:i+3:1}
+      case $p in
+        [A-Za-z0-9_.\$]) ;; # a field access, a variable, or a longer name
+        *)
+          case $a in
+            [A-Za-z0-9_]) ;; # a longer name: `environment`, `envelope`
+            *) return 1 ;;   # the operator
+          esac
+          ;;
+      esac
+    fi
+    i=$((i + 1))
+  done
   return 0
 }
 
@@ -1319,6 +1350,10 @@ guard_lefthook() {
   for ((i = i + 1; i < cwn; i++)); do
     case ${cw[i]} in
       --) break ;;
+      # `-c` takes an attached value too: `-c/tmp/evil.yml` selects an
+      # arbitrary config, and a config is arbitrary commands. flag_name_in
+      # only placed the separated and long forms. Copilot pass, 2026-09-15.
+      -c* | --config | --config=*) return 1 ;;
       -?*) flag_name_in "${cw[i]}" c config && return 1 ;;
     esac
   done
@@ -1528,6 +1563,23 @@ guard_mise() {
   return 0
 }
 
+# gh_no_web: 0 unless a `--web`/`-w` flag is present. These read verbs print
+# to stdout, but `--web` instead launches $BROWSER — an inherited BROWSER is an
+# arbitrary program, and a headless opener stalls the worker. Raised by the
+# Copilot pass, 2026-09-15.
+gh_no_web() {
+  local i
+  for ((i = 2; i < cwn; i++)); do
+    case ${cw[i]} in
+      --) break ;;
+      --web) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "${cw[i]}" 'w' 'Hqpt' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
 guard_gh() {
   # REQ-A1.5: read-only gh only. A leading flag, or any non-enumerated group/sub
   # pair, defers.
@@ -1538,15 +1590,17 @@ guard_gh() {
   case $g in
     pr | issue)
       case $s in
-        view | list | status | diff | checks) return 0 ;;
+        view | list | status | diff | checks) gh_no_web || return 1 ;;
         *) return 1 ;;
       esac
+      return 0
       ;;
     run)
       case $s in
-        view | list) return 0 ;;
+        view | list) gh_no_web || return 1 ;;
         *) return 1 ;; # download / rerun / cancel / delete / watch
       esac
+      return 0
       ;;
     api)
       # `gh api <endpoint>` is a GET, and a GET through gh is read-only. The

@@ -750,6 +750,16 @@ guard_sed() {
 # being read as inert.
 awk_program_safe() {
   local s=$1
+  # A backslash-newline inside program text can split a dangerous token so the
+  # blanket substring checks below never see it: `syste\<newline>m("id")` holds
+  # no literal `system`. Under mawk that parses as an undefined function rather
+  # than executing, so the splice itself is unreproduced here, but no other awk
+  # was available to test and the construct has no place in a program this
+  # screen is willing to vouch for. Reject it outright (fail-closed) instead of
+  # betting on one dialect's tokenizer. Raised by the Copilot pass, 2026-09-15.
+  case $s in
+    *\\$'\n'*) return 1 ;;
+  esac
   local n=${#s} i=0 c prev=''
   case $s in
     *'>'* | *'@'* | *'|&'* | *system* | *close* | *ENVIRON* | *getline*) return 1 ;;

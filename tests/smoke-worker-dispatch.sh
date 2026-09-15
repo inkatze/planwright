@@ -115,8 +115,17 @@ if [ "$ROOT" = installed ]; then
   cache_base="${HOME}/.claude/plugins/cache/planwright/planwright"
   ROOT=""
   if [ -d "$cache_base" ]; then
-    ROOT=$(find "$cache_base" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null \
-      | sed 's#.*/##' | sort -V | tail -1)
+    # Portable: BSD find has no -mindepth/-maxdepth and BSD sort has no -V, so
+    # the GNU spelling silently selected nothing on macOS and reported the
+    # plugin as not installed. Glob the directories and pick the newest version
+    # with a numeric field sort, which both sorts implement.
+    ROOT=$(
+      for d in "$cache_base"/*/; do
+        [ -d "$d" ] || continue
+        d=${d%/}
+        printf '%s\n' "${d##*/}"
+      done | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
+    )
     [ -n "$ROOT" ] && ROOT="$cache_base/$ROOT"
   fi
   if [ -z "$ROOT" ]; then
@@ -203,8 +212,14 @@ decide() {
   out=$(printf '%s' "$payload" \
     | CLAUDE_PLUGIN_ROOT="$ROOT" PLANWRIGHT_ROOT="$ROOT" \
       eval "$HOOK_CMD" 2>/dev/null)
-  case $out in
-    *'"permissionDecision"'*'"allow"'*) echo allow ;;
+  # Parse the decision field rather than substring-matching the blob: a
+  # `deny` whose reason text happened to contain the word "allow" would
+  # otherwise read as an approval. Anything that is not exactly "allow" -
+  # including deny, ask, malformed JSON, or no output at all - is a defer.
+  case $(printf '%s' "$out" \
+    | jq -r '.hookSpecificOutput.permissionDecision // .permissionDecision // empty' \
+      2>/dev/null) in
+    allow) echo allow ;;
     *) echo defer ;;
   esac
 }
@@ -303,22 +318,48 @@ if [ "$LIVE" = 1 ]; then
     echo "Run each of these commands exactly as written, in order, one Bash call each."
     echo "Do not modify them. Do not explain. Report only the count you ran."
     echo
-    awk -F'\t' '$1 == "allow" { print "  " $2 }' "$CORPUS" | head -12
+    # Same placeholder binding the offline loop applies. Without it the probe
+    # hands a real worker literal @@PLUGIN_ROOT@@ paths, which stall or fail
+    # for a reason that has nothing to do with the guard under test.
+    awk -F'\t' -v pr="$ROOT" -v rr="$REPO_ROOT" \
+      '$1 == "allow" {
+         line = $2
+         gsub(/@@PLUGIN_ROOT@@/, pr, line)
+         gsub(/@@REPO_ROOT@@/, rr, line)
+         print "  " line
+       }' "$CORPUS" | head -12
   } >"$probe_prompt"
 
   if "$ROOT/scripts/fleet-streamjson.sh" launch smoke-probe smoke:probe \
     --prompt-file "$probe_prompt" --cwd "$REPO_ROOT" >/dev/null 2>&1; then
-    probe_dir="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/planwright-planwright}/fleet/streamjson/smoke-probe"
+    # fleet-streamjson.sh resolves its state root through fleet-state.sh
+    # (PLANWRIGHT_FLEET_STATE_DIR, CLAUDE_PLUGIN_DATA, writer-mode manifest
+    # fallback). Rebuilding that path by hand means a host resolving it any
+    # other way polls a directory the worker never writes, and reports a 300s
+    # timeout for a worker that finished fine. Ask the script.
+    fleet_root=$("$ROOT/scripts/fleet-state.sh" root 2>/dev/null) || fleet_root=""
+    if [ -z "$fleet_root" ]; then
+      fleet_root="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/plugins/data/planwright-planwright}"
+    fi
+    probe_dir="$fleet_root/fleet/streamjson/smoke-probe"
     # Poll to completion or to the first permission request, whichever lands
     # first: a stall is the thing under test, so it must not be waited out.
     waited=0
     perms=0
-    while [ "$waited" -lt 300 ]; do
+    settled=0
+    while :; do
       if [ -r "$probe_dir/journal" ]; then
         perms=$(awk -F'\t' '$2 == "permission"' "$probe_dir/journal" 2>/dev/null | wc -l)
         [ "$perms" -gt 0 ] && break
       fi
-      [ -r "$probe_dir/result" ] && break
+      if [ -r "$probe_dir/result" ]; then
+        settled=1
+        break
+      fi
+      # Check once more at the bound before calling it a timeout: sleeping past
+      # the deadline and then never re-reading reports a worker that finished
+      # in the last window as a failure.
+      [ "$waited" -ge 300 ] && break
       sleep 5
       waited=$((waited + 5))
     done
@@ -331,11 +372,27 @@ if [ "$LIVE" = 1 ]; then
         jq -r '"  " + (.request.input.command // "?")' \
           "$probe_dir/req-$id.json" 2>/dev/null
       done <"$probe_dir/journal" >&2
-    elif [ "$waited" -ge 300 ]; then
+    elif [ "$settled" -eq 0 ]; then
       failures=$((failures + 1))
       echo "smoke: LIVE FAIL — probe worker did not finish within 300s" >&2
     else
-      echo "smoke: LIVE PASS — probe completed with zero permission requests"
+      # A result file only says the run ENDED. The record carries the outcome,
+      # and a worker that errored out without ever reaching a permission gate
+      # would otherwise pass for having asked nothing.
+      result_row=$(cat "$probe_dir/result" 2>/dev/null)
+      case $result_row in
+        *"is_error"*true* | exit\ [1-9]* | exit\ [1-9][0-9]*)
+          failures=$((failures + 1))
+          echo "smoke: LIVE FAIL — probe finished unsuccessfully: $result_row" >&2
+          ;;
+        '')
+          failures=$((failures + 1))
+          echo "smoke: LIVE FAIL — probe wrote no result record" >&2
+          ;;
+        *)
+          echo "smoke: LIVE PASS — probe completed with zero permission requests"
+          ;;
+      esac
     fi
   else
     failures=$((failures + 1))
