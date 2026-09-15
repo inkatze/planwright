@@ -54,6 +54,45 @@ allow	mise run check
 allow	if [ -f f ]; then cat f; fi
 allow	tr -d x < f
 #
+# --- the four bypasses the 2026-09-14 lexer allowed (arbitrary exec / write)
+# Each was verified to really run under mawk before the rewrite: the first
+# three printed a uid, the fourth created the file. They defer now because an
+# unplaceable `/` is rejected outright rather than scanned as code.
+defer	awk '{print /#/; print "id" | "sh"}' f
+defer	awk '{x = 0 + /#/; print "id" | "sh"}' f
+defer	awk '{ print /"/ ; print "id" | "sh" ; print /"/ }' f
+defer	awk '{print /; 5/ > "/tmp/pwn"}' f
+#
+# --- two more the rewrite's own first draft allowed, caught before it shipped
+defer	awk 'BEGIN{c="sh";s="id"} {x = "&" /2; print s | c; y=1/2}' f
+defer	awk '$0 ~ /a/ {print "id" | "sh"}' f
+#
+# --- brackets are allowed only where the program carries no vector at all
+allow	awk '/[0-9]+/{print}' f
+allow	awk '/^[[:alpha:]]+$/{print}' f
+defer	awk '/[/{print|"sh"}x]/{print}' f
+defer	awk '/[a]/{print "id" | "sh"}' f
+#
+# --- guard_read used to collide with the hook's own locals, so the commonest
+# loop variable in shell stalled every worker that wrote one
+allow	while read i; do echo "$i"; done < f
+allow	read a
+allow	read name
+defer	read PATH
+#
+# --- flag screens used to match attached VALUES, not just flags
+allow	yq -o=json . f
+allow	rg -tzsh foo
+allow	shfmt -filename=workflow.sh -d
+allow	rg -- -z
+defer	shfmt -w .
+defer	yq -i '.a=1' f.yml
+#
+# --- jq reads the environment through program text, like awk's ENVIRON
+defer	jq -n $ENV
+defer	jq -n env
+allow	jq '.env' f.json
+#
 # --- must NEVER be allowed: the guard is allow-only and fail-closed ----
 defer	env FOO=bar rm -rf /
 defer	awk 'BEGIN{system("id")}' f
