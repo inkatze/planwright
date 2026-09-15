@@ -491,25 +491,27 @@ assert_defer "awk unplaceable -v assignment" "awk -v '1x=2' '{print}' file"
 assert_defer "awk bundled -vF token is not an assignment" "awk -vF '{print}' file"
 assert_defer "awk unknown flag" "awk --frobnicate '{print}' file"
 assert_defer "awk shell redirect to a file" "awk '{print}' file > out.txt"
-# The blanket `>`/`|` rejects this screen used to carry stalled real workers on
-# their first command (2026-09-14), so awk_program_safe now lexes the program
-# and separates each operator from its harmless twin. The pairs below are the
-# evidence that the separation holds in BOTH directions.
-assert_allow "awk relational > outside a print statement" "awk '\$1 > 5' file"
-assert_allow "awk relational > with an action" "awk '\$1 > 5 {print}' file"
-assert_allow "awk relational > with no spaces" "awk 'NR>1{print}' file"
-assert_allow "awk relational >= inside a print statement" "awk '{print (\$1 >= 5)}' file"
+# The blanket `|` reject this screen used to carry stalled real workers on
+# their first command (2026-09-14), so `|` — and ONLY `|` — is recoverable, in
+# the two spellings that can be positively identified: `||`, and a `|` inside a
+# regex literal opened where awk cannot mean division. Everything else about
+# the blanket screen stands, `>` included. The pairs below are the evidence
+# that the separation holds in BOTH directions.
 assert_allow "awk logical OR" "awk 'x||y{print}' file"
 assert_allow "awk regex alternation" "awk '/a|b/{print}' file"
 assert_allow "awk escaped | in a regex is literal" "awk '/a\\|b/{print}' file"
 assert_allow "awk regex after ~ (spaced)" "awk '\$0 ~ /a|b/ {print \$2}' file"
 assert_allow "awk regex as a function argument" "awk '{n = split(\$0, a, /x|y/); print n}' file"
+assert_allow "awk regex opened after && " "awk 'p&&/a|b/{p=0} p{print}' file"
+assert_allow "awk regex opened after a line continuation" "awk '\$0 ~ \\
+/a|b/ {print}' file"
 assert_allow "awk character class in a regex" "awk '/[0-9]+/{print}' file"
 assert_allow "awk POSIX class in a regex" "awk '\$0~/^[[:alpha:]]+\$/{print}' file"
-assert_allow "awk relational > after a print statement ended with ;" "awk '{print 1; x = \$1 > 2}' file"
-assert_allow "awk | inside a string literal is inert" "awk '{print \"a|b\"}' file"
-assert_allow "awk sprintf is not the print keyword" "awk '{sprintf(\"%s\",\$1); x = \$1 > 2}' file"
-# Hostile pairs: each widened branch must still refuse its dangerous twin.
+# The stall this widening exists for, verbatim from the worker that hit it: a
+# `||` chain, a regex holding both a `|` and the `#` of a markdown heading.
+assert_allow "awk REQ-section filter (the stall that motivated the widening)" \
+  "awk -v r=\"REQ-A\" 'index(\$0,\"**\"r\"**\")||index(\$0,\"### \"r)||index(\$0,\"- \"r\" \")||index(\$0,\"**\"r)==1{p=1;print;next} p&&/^- \\*\\*REQ-|^### REQ-|^## /{p=0} p{print}' file"
+# Hostile pairs: each blessing must still refuse its dangerous twin.
 assert_defer "awk print redirection with no space before >" "awk '{print>\"f\"}' file"
 assert_defer "awk print pipe with no spaces" "awk '{print|\"sh\"}' file"
 assert_defer "awk || in a string does not license a following pipe" "awk '{print \"a||b\" | \"sh\"}' file"
@@ -518,17 +520,47 @@ assert_defer "awk pipe after a post-increment (dialects split on / here)" "awk '
 assert_defer "awk redirection hidden behind a line continuation" "awk '{print \$0 \\
 > \"f\"}' file"
 assert_defer "awk redirection to a data-derived filename" "awk '{print \$1 > \$2}' file"
-assert_defer "awk unterminated string literal" "awk '{print \"unterminated}' file"
-assert_defer "awk unterminated regex literal" "awk '/unterminated{print}' file"
-# A `/` inside a bracket expression is where busybox awk and mawk/gawk disagree
-# about where the regex ENDS, and the disagreement is exploitable: under
-# busybox, `/[/{print|"sh"}…]/` puts a command pipe in an ACTION. Defer rather
-# than pick a dialect.
-assert_defer "awk bracket expression containing the regex delimiter" "awk '/[/]/{print}' file"
+assert_defer "awk pipe to a variable command (no quotes needed)" "awk -v c=sh '{print \$1 | c}' file"
 assert_defer "awk pipe smuggled behind a bracket/delimiter desync" "awk '/[/{print|\"sh\"}x[1]/{print}' file"
-# Residual over-defer, deliberate: a relational `>` written INSIDE a print
-# statement is indistinguishable from a redirection without a real awk parser.
-assert_defer "awk relational > inside a print statement (residual over-defer)" "awk '{print (\$1 > 5)}' file"
+assert_defer "awk pipe inside a regex holding a quote" "awk '/a\"b|c/{print \$1}' file"
+# The working bypasses of the lexer this screen replaced (2026-09-14), and the
+# two this replacement's own first draft still allowed. Every one of them was
+# ALLOWED and every one really ran: they pipe `id` into sh, except bypass 4,
+# which writes /tmp/pwn. They are the regression seeds for the rule that a `/`
+# the screen cannot place is a defer, never a span scanned on as code.
+assert_defer "bypass 1 — regex misread as division opens a comment" "awk '{print /#/; print \"id\" | \"sh\"}' file"
+assert_defer "bypass 2 — same, behind an arithmetic operator" "awk '{x = 0 + /#/; print \"id\" | \"sh\"}' file"
+assert_defer "bypass 3 — regex holding a quote swallows the pipe" "awk '{ print /\"/ ; print \"id\" | \"sh\" ; print /\"/ }' file"
+assert_defer "bypass 4 — regex misread as division hides a redirection" "awk '{print /; 5/ > \"/tmp/pwn\"}' file"
+assert_defer "bypass 5 (this draft) — a ; or & inside a STRING must not bless the next /" \
+  "awk 'BEGIN{c=\"sh\";s=\"id\"} {x = \"&\" /2; print s | c; y=1/2}' file"
+assert_defer "bypass 6 (this draft) — a \\-newline is a continuation, not a statement end" \
+  "awk 'BEGIN{c=\"sh\";s=\"id\"}{x = 1 \\
+/ 2; print s | c; y = 1/3}' file"
+# Outside a string or a regex the only `\` awk accepts is a line continuation,
+# so every other `\X` defers rather than being consumed as an inert unit — a
+# skip that swallowed `\|` would hide a command pipe from the screen even
+# though no awk would run it.
+assert_defer "awk backslash-pipe is consumed by nothing" "awk '{print \"id\" \\| \"sh\"}' file"
+# Deliberate over-defers, all of them the fail-closed direction. A `>` is
+# rejected wherever it appears, because telling a redirecting `>` from a
+# relational one needs a real awk parser and this screen does not have one; a
+# `|` a string hides is rejected because placing it would mean modelling what
+# awk does with the value.
+assert_defer "awk relational > outside a print statement (over-defer)" "awk '\$1 > 5' file"
+assert_defer "awk relational > with no spaces (over-defer)" "awk 'NR>1{print}' file"
+assert_defer "awk relational >= inside a print statement (over-defer)" "awk '{print (\$1 >= 5)}' file"
+assert_defer "awk | inside a string literal (over-defer)" "awk '{print \"a|b\"}' file"
+assert_defer "awk alternation across bracket expressions (over-defer)" "awk '/[0-9]+|[a-z]+/{print}' file"
+assert_defer "awk getline in any form (over-defer)" "awk '{getline x; print x}' file"
+# A program with no `|` left after the blanket screen carries no exec or write
+# vector AT ALL — no `>`, `|`, `@`, `system`, `close`, `ENVIRON` or `getline` —
+# so it is approved without a walk, whatever it would parse to. These three are
+# unparseable, dialect-divergent, or both, and none of them can run or write
+# anything; deferring them would cost every `/[0-9]+/` filter with it.
+assert_allow "awk unterminated string literal, but no pipe to hide" "awk '{print \"unterminated}' file"
+assert_allow "awk unterminated regex literal, but no pipe to hide" "awk '/unterminated{print}' file"
+assert_allow "awk bracket expression containing the regex delimiter, no pipe" "awk '/[/]/{print}' file"
 # Only `awk` is on the allowlist; the gawk/mawk/nawk spellings stay deferred
 # (no measured need, and each carries its own extension surface).
 assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
@@ -871,10 +903,50 @@ assert_defer "read IFS changes later word splitting" "read IFS"
 assert_defer "read inside a loop is name-checked too" "while read PATH; do echo x; done"
 assert_defer "read -p takes a value operand" "read -p 'x' y"
 assert_defer "read -a array form" "read -a arr"
-# jq: its program language has no exec and no file-write primitive.
+# The guard's OWN shell state must never answer for the name under test. `i` is
+# the commonest loop variable there is, `a` is this file's token variable, and
+# `name` is assign_name_ok's own parameter: all three deferred while the
+# shadowing rule was an indirect expansion, which reads locals as readily as
+# the environment it meant to consult (2026-09-14).
+assert_allow "read i" "while read i; do echo \"\$i\"; done < file"
+assert_allow "read a" "read a"
+assert_allow "read name" "read name"
+assert_allow "read several names at once" "read i j k"
+# jq's language has no exec and no file-write primitive, but it CAN read the
+# environment, and the guard cannot see what a filter does with the value. So
+# `env` and `$ENV` defer for the same reason awk's `ENVIRON` does, and the
+# filter has to be identified before it can be screened: that is why every
+# value-taking flag is enumerated and why the `-f`/`-L` forms, whose program
+# text the guard never sees, defer.
 assert_allow "jq filter" "jq . file.json"
-assert_allow "jq program file is still read-only" "jq -f prog.jq file.json"
+assert_allow "jq raw output" "jq -r '.a[]' file.json"
+assert_allow "jq combined short flags" "jq -rc '.a' file.json"
 assert_allow "jq in a pipeline" "gh pr view 5 --json title | jq -r .title"
+assert_allow "jq .env is a field access, not the builtin" "jq '.env' file.json"
+assert_allow "jq nested .a.env field access" "jq '.a.env' file.json"
+assert_allow "jq .envelope is a longer name" "jq -r '.envelope' file.json"
+assert_allow "jq --indent takes a value, the filter follows it" "jq --indent 4 '.a' file.json"
+assert_allow "jq --arg takes two values" "jq --arg x 1 '.a' file.json"
+assert_allow "jq --args leaves the filter first" "jq --args '.a' one two"
+assert_allow "jq -- ends the flags" "jq -- '.a' file.json"
+assert_defer "jq env builtin decants the environment" "jq -n env"
+assert_defer "jq \$ENV decants the environment" "jq -n '\$ENV'"
+assert_defer "jq env.PATH single-key read" "jq -n 'env.PATH'"
+assert_defer "jq \$ENV in a string interpolation" "jq -n '\"\\(\$ENV)\"'"
+assert_defer "jq env after a pipe" "jq -n '.|env'"
+assert_defer "jq env inside a collection" "jq -n '[env]'"
+assert_defer "jq env behind --indent's value" "jq --indent 4 '\$ENV'"
+assert_defer "jq env behind --arg's two values" "jq --arg x 1 '\$ENV'"
+assert_defer "jq env after --" "jq -- '\$ENV'"
+assert_defer "jq -f program file is unscreenable" "jq -f prog.jq file.json"
+assert_defer "jq --from-file long form" "jq --from-file prog.jq file.json"
+assert_defer "jq -f bundled into a short cluster" "jq -nf prog.jq"
+assert_defer "jq -L loads module text the guard never sees" "jq -L /tmp/mods 'include \"m\"; .' file.json"
+assert_defer "jq --library-path long form" "jq --library-path /tmp/mods '.' file.json"
+assert_defer "jq unknown long flag" "jq --frobnicate '.a' file.json"
+assert_defer "jq unknown short flag" "jq -z '.a' file.json"
+assert_defer "jq dangling value-flag" "jq --indent"
+assert_defer "jq with no filter at all" "jq"
 # yq EDITS IN PLACE.
 assert_allow "yq read" "yq . file.yml"
 assert_allow "yq -I indent is not -i inplace" "yq -I4 . file.yml"
@@ -899,6 +971,25 @@ assert_allow "fd search" "fd -tf foo"
 assert_defer "fd -x execs per result" "fd -x rm {}"
 assert_defer "fd --exec long form" "fd --exec rm {}"
 assert_defer "fd -X exec-batch" "fd -X rm"
+# A short flag that takes a VALUE swallows the rest of its token, so the
+# characters after it are data and screening them as flags is a pure stall.
+# Every row here is a command a dispatched worker actually blocked on
+# (2026-09-14), or its adversarial twin.
+assert_allow "yq -o=json (the 's' in json is a value, not -s)" "yq -o=json . file.yml"
+assert_allow "rg -tzsh (the 'z' is the -t type name)" "rg -tzsh foo"
+assert_allow "rg -rz (the 'z' is the -r replacement)" "rg -rz foo"
+assert_allow "shfmt -filename=workflow.sh (the 'w' is in the value)" "shfmt -filename=workflow.sh -d"
+assert_allow "fd -e txt attached extension" "fd -etxt"
+assert_allow "sort -to (the 'o' is the -t separator)" "sort -to file"
+assert_defer "rg -nz still catches a bundled -z" "rg -nz foo"
+assert_defer "yq -Pi still catches a bundled -i" "yq -Pi '.a=1' file.yml"
+assert_defer "sort -uo still catches a bundled -o" "sort -uo out file"
+assert_defer "fd -Hx still catches a bundled -x" "fd -Hx rm"
+# `--` ends the flags: what follows is an operand, however it is spelled.
+assert_allow "rg -- -z searches for the literal -z" "rg -- -z"
+assert_allow "sort -- -o reads a file named -o" "sort -- -o"
+assert_allow "fd -- -x matches the literal -x" "fd -- -x"
+assert_defer "rg -z before -- is still a flag" "rg -z -- foo"
 # Read-only coreutils with no output-file or filter flag anywhere.
 assert_allow "md5sum" "md5sum file"
 assert_allow "sha256sum -c" "sha256sum -c sums.txt"
