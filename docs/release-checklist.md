@@ -96,6 +96,23 @@ history and still **BLOCKS** — the gate has teeth beyond a tree check. **The
 checklist never performs the purge** (REQ-J1.4): a human runs the rewrite, the
 checklist confirms it.
 
+## After publishing a release
+
+Merging a guard fix changes nothing for workers. They load the command guard
+from `$CLAUDE_PLUGIN_ROOT` — the installed plugin cache — not from this
+checkout, so the fix reaches them only once a release carrying it is published
+**and** the plugin is updated. This step is what closes that gap; skipping it
+is how a fix can sit merged for weeks while every worker still stalls.
+
+- [ ] Update the installed plugin to the published release.
+- [ ] `mise run smoke:dispatch` — replays the stall corpus against the
+      installed plugin, through that tree's own settings fragment, so the
+      deployed guard and the deployed wiring are checked together. A failure
+      here means the fix did not reach workers, whatever `main` says.
+- [ ] Optionally `/bin/bash tests/smoke-worker-dispatch.sh --installed --live`
+      to launch one real worker and assert it reaches its work with zero
+      permission requests. Costs tokens and wall clock; not a CI gate.
+
 ## Final flip
 
 When the verifier reports `READY FOR PUBLIC RELEASE`:

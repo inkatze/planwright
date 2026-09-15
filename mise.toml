@@ -24,6 +24,10 @@ run = "scripts/release-publish.sh"
 description = "Arm the release watch-and-publish flow on this repo for a release PR (release-hardening REQ-F1.1, D-9). Repo-local ergonomics only: a thin wrapper over scripts/release-arm.sh forwarding the required <pr> argument, over a script that has no mise dependency and is invokable directly anywhere (autopilot-reflex REQ-D1.9)."
 run = "scripts/release-arm.sh"
 
+[tasks."smoke:dispatch"]
+description = "Prove a dispatched worker will not stall at the permission gate, against the INSTALLED plugin (what a worker actually loads) rather than this checkout. Run after updating the plugin: a guard fix merged to main reaches no worker until a release carrying it is installed, so this is the only check that answers 'did the fix actually land?'. Add --live to also launch one real worker and assert zero permission requests; that costs tokens and wall clock, so it is deliberately not wired into check or CI."
+run = "/bin/bash tests/smoke-worker-dispatch.sh --installed"
+
 [tasks.test]
 description = "Run the shell test suites under /bin/bash (the bash 3.2 floor), N files at a time via scripts/run-tests.sh (N = core count; PLANWRIGHT_TEST_JOBS overrides)"
 run = '/bin/bash scripts/run-tests.sh'

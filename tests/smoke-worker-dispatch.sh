@@ -29,7 +29,9 @@
 #   (default)     this checkout — the code CI is actually validating, so the
 #                 suite stays deterministic and machine-independent.
 #   --installed   the newest installed plugin cache: what a dispatched worker
-#                 really loads. Not the default precisely because it is a
+#                 really loads, driven through THAT tree's own settings
+#                 fragment, so the deployed guard and the deployed wiring are
+#                 checked together. Not the default precisely because it is a
 #                 machine-local condition; a stale cache is an operational
 #                 fact, not a defect in the diff under review. This is the
 #                 release-time check, run after updating the plugin.
@@ -128,6 +130,22 @@ fi
   echo "smoke: plugin root not a directory: $ROOT" >&2
   exit 2
 }
+
+# The settings fragment must come from the SAME tree as the guard. Binding it
+# to the checkout while --installed pointed the guard at the plugin cache
+# meant the deployed hook was driven through the checkout's spelling, so a
+# cache whose fragment had regressed to the braced ${CLAUDE_PLUGIN_ROOT} form
+# -- which substitutes empty outside plugin context, silently disabling the
+# hook -- would have passed clean. That is the exact failure class --installed
+# exists to catch, so the binding follows the root.
+if [ -r "$ROOT/config/worker-settings.json" ]; then
+  SETTINGS="$ROOT/config/worker-settings.json"
+elif [ "$ROOT" != "$REPO_ROOT" ]; then
+  echo "smoke: no config/worker-settings.json under $ROOT" >&2
+  echo "smoke:   (refusing to fall back to this checkout's fragment: that would" >&2
+  echo "smoke:    test the deployed guard through undeployed wiring)" >&2
+  exit 2
+fi
 [ -r "$CORPUS" ] || {
   echo "smoke: corpus not readable: $CORPUS" >&2
   exit 2
