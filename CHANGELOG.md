@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.42.1](https://github.com/inkatze/planwright/compare/v0.42.0...v0.42.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **guard:** stop deferring read-only commands that stall dispatched workers ([#463](https://github.com/inkatze/planwright/issues/463)) ([5770004](https://github.com/inkatze/planwright/commit/577000493b5ba0e46cc46ca4248341e63f2eb541))
+
 ## [0.42.0](https://github.com/inkatze/planwright/compare/v0.41.1...v0.42.0) (2026-09-14)
 
 
