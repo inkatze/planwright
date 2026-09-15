@@ -93,6 +93,18 @@ defer	jq -n $ENV
 defer	jq -n env
 allow	jq '.env' f.json
 #
+# --- found by the gemini panel pass, 2026-09-14, after the Claude lens passes
+# had cleared the diff. gh bundles short flags (pflag), so a write flag rode
+# behind a boolean one and read as a GET. yq's env()/strenv() was the one
+# member of the awk-ENVIRON / jq-env family still unscreened.
+defer	gh api -iX POST repos/o/r/issues
+defer	gh api -if repos/o/r
+allow	gh api -qFkey=val repos/o/r
+allow	gh api -i repos/o/r
+defer	yq 'env(GH_TOKEN)' f.yml
+defer	yq 'strenv(GH_TOKEN)' f.yml
+allow	yq '.environment' f.yml
+#
 # --- must NEVER be allowed: the guard is allow-only and fail-closed ----
 defer	env FOO=bar rm -rf /
 defer	awk 'BEGIN{system("id")}' f

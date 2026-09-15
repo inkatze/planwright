@@ -1197,15 +1197,38 @@ flag_name_in() {
 # `-ojson` still defers. That is deliberate: two unrelated programs answer to
 # `yq` with different short-flag tables, and a value-taking claim that is wrong
 # for the one actually installed would read a dangerous flag as inert.
+# yq_expression_safe <expr>: 0 unless the expression reads the environment.
+# yq's `env(NAME)` and `strenv(NAME)` are the same capability the awk `ENVIRON`
+# reject and jq_program_safe's `env` check exist for — program text whose use
+# of the value this guard cannot see — so the third member of that family is
+# screened the same way rather than left as the one open door.
+yq_expression_safe() {
+  case $1 in
+    *strenv* | *env\(*) return 1 ;;
+  esac
+  case $1 in
+    env) return 1 ;;
+  esac
+  return 0
+}
+
 guard_yq() {
-  local i a
+  local i a expr_taken=0
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
       --) break ;; # end of flags: what follows is an expression or a file
       --inplace | --inplace=* | --in-place | --in-place=* | --split-exp | --split-exp=*) return 1 ;;
+      --from-file | --from-file=*) return 1 ;; # an expression this screen cannot read
       --*) ;;
       -?*) short_flag_hit "$a" 'is' '' && return 1 ;;
+      *)
+        # The first non-flag operand is the expression; later ones are files.
+        if [ "$expr_taken" = 0 ]; then
+          yq_expression_safe "$a" || return 1
+          expr_taken=1
+        fi
+        ;;
     esac
   done
   return 0
@@ -1534,9 +1557,16 @@ guard_gh() {
       # with no `-X`.
       for ((i = 2; i < cwn; i++)); do
         case ${cw[i]} in
-          -X | -X* | --method | --method=*) return 1 ;;
-          -f | -f* | -F | -F* | --field | --field=* | --raw-field | --raw-field=*) return 1 ;;
+          --) break ;; # end of flags: what follows is the endpoint
+          --method | --method=* | --field | --field=* | --raw-field | --raw-field=*) return 1 ;;
           --input | --input=*) return 1 ;;
+          --*) ;;
+          # gh uses pflag, which bundles short flags, so a write flag can ride
+          # behind a boolean one: `-iX POST` is `-i` plus `-X POST`, and an
+          # anchored `-X*` match never sees it. The value-taking flags end the
+          # cluster because everything after them is their value, not flags —
+          # in `-qFkey=val` the `F` is part of the jq expression `-q` consumes.
+          -?*) short_flag_hit "${cw[i]}" 'XFf' 'Hqpt' && return 1 ;;
         esac
       done
       return 0

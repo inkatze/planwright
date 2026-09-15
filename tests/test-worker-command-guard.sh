@@ -955,6 +955,16 @@ assert_defer "yq --inplace long form" "yq --inplace '.a=1' file.yml"
 assert_defer "yq bundled -Pi" "yq -Pi '.a=1' file.yml"
 assert_defer "yq -s splits into files" "yq -s '.a' file.yml"
 assert_defer "yq --split-exp long form" "yq --split-exp '.a' file.yml"
+
+# yq's env()/strenv() is the same capability as awk's ENVIRON and jq's env:
+# program text whose use of the value the guard cannot see. It was the one
+# member of that family left unscreened (found by the panel pass, 2026-09-14).
+assert_defer "yq env() reads the environment" "yq 'env(GH_TOKEN)' f.yml"
+assert_defer "yq strenv() reads the environment" "yq 'strenv(GH_TOKEN)' f.yml"
+assert_defer "yq env() inside an assignment" "yq '.a = env(HOME)' f.yml"
+assert_defer "yq --from-file hides the expression" "yq --from-file e.yq f.yml"
+assert_allow "yq plain field access" "yq '.a' f.yml"
+assert_allow "yq a longer name containing env" "yq '.environment' f.yml"
 # shfmt: -w formats in place.
 assert_allow "shfmt diff mode" "shfmt -d ."
 assert_allow "shfmt list mode" "shfmt -l ."
@@ -1015,6 +1025,18 @@ assert_defer "gh api -X POST" "gh api -X POST repos/o/r/issues"
 assert_defer "gh api --method DELETE" "gh api --method DELETE repos/o/r"
 assert_defer "gh api -f field implies POST" "gh api repos/o/r -f title=x"
 assert_defer "gh api -F field implies POST" "gh api repos/o/r -F body=@x"
+
+# Short-flag bundling. gh uses pflag, which bundles, so a write flag can ride
+# behind a boolean one — `-iX POST` is `-i` plus `-X POST`. An anchored `-X*`
+# match never sees it, which is how this read as a GET (found by the panel
+# pass, 2026-09-14). The value-taking flags end a cluster, so a `F` sitting
+# inside `-q`'s jq expression is data and stays allowed.
+assert_defer "gh api -X bundled behind a boolean" "gh api -iX POST repos/o/r/issues"
+assert_defer "gh api -f bundled behind a boolean" "gh api -if repos/o/r"
+assert_defer "gh api -F bundled behind a boolean" "gh api -iF body=x repos/o/r"
+assert_allow "gh api -q consumes the rest of its cluster" "gh api -qFkey=val repos/o/r"
+assert_allow "gh api -i alone is read-only" "gh api -i repos/o/r"
+assert_defer "gh api --input body" "gh api --input body.json repos/o/r"
 assert_defer "gh api --raw-field implies POST" "gh api repos/o/r --raw-field title=x"
 assert_defer "gh api graphql with a query field" "gh api graphql -f query=xyz"
 assert_defer "gh api --input body" "gh api --input body.json repos/o/r"
