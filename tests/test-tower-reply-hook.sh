@@ -14,7 +14,8 @@
 #   owner-only, lock-free, atomically, never backwards; and it appends one
 #   `reply` line through `tower-queue.sh log`, inheriting that verb's lock,
 #   sequence, bounded wait and redaction, so a lock-wait expiry drops the
-#   line and bumps events.dropped while the marker has already advanced.
+#   line and bumps events.dropped while the marker has already advanced. A
+#   marker the hook could not write is named on the reply line.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -175,6 +176,9 @@ esac
 case "$last" in
   *'"text":"first reply"'*) ;;
   *) fail "tower session: the reply text is missing: $last" ;;
+esac
+case "$last" in
+  *'"marker"'*) fail "tower session: a written marker must not be named on the line: $last" ;;
 esac
 [ ! -e "$marker_dir/$other" ] || fail "tower session: the peer's marker moved on this session's reply"
 [ -z "$(git -C "$co" status --porcelain)" ] || fail "tower session: the hook touched the checkout"
@@ -341,7 +345,13 @@ esac
 case "$last" in
   *'"text":'*) fail "json-shaped prompt: the text reached the log: $last" ;;
 esac
-echo "ok: a JSON-shaped prompt is logged as a reply with its text omitted"
+run_hook "$(payload "$sid" "$co" '  \t ')"
+[ "$rc" = 0 ] || fail "empty prompt: exit $rc"
+case "$(tail -n 1 "$log_file")" in
+  *'"text_omitted":"empty"'*) ;;
+  *) fail "empty prompt: the reply was not marked empty: $(tail -n 1 "$log_file")" ;;
+esac
+echo "ok: a JSON-shaped or empty prompt is logged as a reply with its text omitted"
 
 # --- refused inputs: nothing written, always exit 0 ----------------------------
 
@@ -398,8 +408,12 @@ dmode=$(ls -ld "$marker_dir" | cut -c1-10)
 [ "$dmode" = "drwxr-xr-x" ] || fail "widened dir: the hook narrowed the directory itself ($dmode)"
 grep -q 'owner-only' "$tmp/err" || fail "widened dir: the refusal is not explained on stderr"
 grep -q "$marker_dir" "$tmp/err" || fail "widened dir: the refusal does not name the directory"
+case "$(tail -n 1 "$log_file")" in
+  *'"kind":"reply"'*'"marker":"refused"'*) ;;
+  *) fail "widened dir: the reply line does not name the refused marker: $(tail -n 1 "$log_file")" ;;
+esac
 chmod 0700 "$marker_dir"
-echo "ok: a widened marker directory is refused with a reason and left for the operator"
+echo "ok: a widened marker directory is refused with a reason, and the reply line says so"
 
 # A failed rename leaves no scratch file behind and is named on the line.
 stub="$tmp/stub-bin"
@@ -410,7 +424,11 @@ rc=0
 printf '%s' "$(payload "$sid" "$co" "write fails")" | PATH="$stub:$PATH" with_env /bin/sh "$HOOK" >"$tmp/out" 2>"$tmp/err" || rc=$?
 [ "$rc" = 0 ] || fail "failed write: exit $rc"
 [ -z "$(find "$marker_dir" -name ".$sid.*" 2>/dev/null)" ] || fail "failed write: a scratch file was left in the marker directory"
-echo "ok: a failed marker write leaves no scratch file"
+case "$(tail -n 1 "$log_file")" in
+  *'"marker":"failed"'*) ;;
+  *) fail "failed write: the reply line does not name the failed marker: $(tail -n 1 "$log_file")" ;;
+esac
+echo "ok: a failed marker write leaves no scratch file and is named on the reply line"
 
 # --- the scorecard reads every line the hook wrote --------------------------------
 

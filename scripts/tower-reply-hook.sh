@@ -22,7 +22,9 @@
 #      nothing itself (REQ-G1.8). A lock wait past `tower_hook_lock_wait`
 #      drops the line into events.dropped (the verb's exit 3) and the turn
 #      proceeds; the marker has already advanced. The line carries the
-#      payload's prompt id when it has one.
+#      payload's prompt id when it has one, and a `marker` field naming the
+#      outcome whenever the marker was not written, so the durable record
+#      says when the two halves disagree.
 #
 # THE GATE (kickoff risk row 5). The plugin registers this hook in every
 # session it is loaded in. It is a no-op unless the payload's session id names
@@ -50,8 +52,8 @@
 # prompt id — are validated against their grammars before anything is done
 # with them. A prompt is flattened to one line of printable bytes and bounded
 # to the log's value cap; one shaped like a JSON object or array (which the
-# log verb refuses as nesting) is logged without text and marked
-# `text_omitted`, so the reply still counts.
+# log verb refuses as nesting) or one that flattens to nothing is logged
+# without text and marked `text_omitted`, so the reply still counts.
 #
 # Plain portable shell, no model invocation (REQ-H1.4); bash 3.2 / BSD floor.
 # Pathname expansion is off (set -f) except at the one marked record glob:
@@ -318,11 +320,13 @@ umask 077
 surface="$home/tower-comms"
 marker_dir="$surface/attention"
 marker="$marker_dir/$sid"
+marker_state=written
 my_uid=$(id -u 2>/dev/null) || my_uid=""
 if [ -z "$my_uid" ]; then
   warn "cannot resolve the current uid; the attention marker was not advanced"
+  marker_state=refused
 elif ! check_private_dir "$surface" || ! check_private_dir "$marker_dir" || ! check_private_file "$marker"; then
-  :
+  marker_state=refused
 else
   now=$(date +%s 2>/dev/null) || now=""
   case "$now" in
@@ -330,6 +334,7 @@ else
   esac
   if [ -z "$now" ]; then
     warn "cannot read the clock; the attention marker was not advanced"
+    marker_state=failed
   else
     # Never backwards: the later of the value on disk and now.
     if [ -f "$marker" ]; then
@@ -342,6 +347,7 @@ else
       warn "cannot write the attention marker; the queue will not see this reply"
       [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP" 2>/dev/null || true
       PENDING_TMP=""
+      marker_state=failed
     fi
   fi
 fi
@@ -369,10 +375,11 @@ text=$(field prompt | tr '\000-\037\177' ' ' | head -c "$VALUE_CAP" | awk '
 set -- log reply --tower "$sid"
 [ -z "$prompt_id" ] || set -- "$@" "prompt_id=$prompt_id"
 case "$text" in
-  "") ;;
+  "") set -- "$@" text_omitted=empty ;;
   '{'*'}' | '['*']') set -- "$@" text_omitted=json-shaped ;;
   *) set -- "$@" "text=$text" ;;
 esac
+[ "$marker_state" = written ] || set -- "$@" "marker=$marker_state"
 # The verb's exit is not this hook's: 3 is a counted drop, 4 and 6 are said on
 # stderr, and none of them is a verdict on the prompt.
 "$TQ" "$@" >/dev/null || true
