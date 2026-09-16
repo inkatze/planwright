@@ -299,9 +299,10 @@ failure postures (exits 2–5) per `docs/fleet.md`.
 **Event log (tower-comms D-14, D-15).** Each iteration, run
 `scripts/tower-loop-log.sh tick` (the live-worker count); after every turn
 delivered to the operator, in `--watch` or a single step, pipe its text to
-`scripts/tower-loop-log.sh delivered [--asks <n>]`. Both take `--tower <id>`,
-else `PLANWRIGHT_TOWER_ID`; neither blocks the step on failure. The
-prompt-submit hook logs operator replies.
+`scripts/tower-loop-log.sh delivered [--asks <n>]`. Both take `--tower <id>`
+(the identity `publish` used), else `PLANWRIGHT_TOWER_ID`, else
+`PLANWRIGHT_TOWER_SESSION_ID`; neither blocks the step on failure. The
+prompt-submit hook logs replies; it needs a `--session-id` presence record.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
 REQ-C1.4).** A `--watch` tower can silently fill its context window. Each
