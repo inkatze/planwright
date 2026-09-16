@@ -10,8 +10,8 @@
 #   happens (exit 2 would block and erase the operator's prompt). It is a
 #   no-op unless the payload's session id names a published presence record
 #   on the payload cwd's repository surface. Then, in order: it writes the
-#   reply time to <home>/tower-comms/attention/<session-id>, owner-only,
-#   lock-free, atomically; and it appends one
+#   reply time in whole seconds to <home>/tower-comms/attention/<session-id>,
+#   owner-only, lock-free, atomically, never backwards; and it appends one
 #   `reply` line through `tower-queue.sh log`, inheriting that verb's lock,
 #   sequence, bounded wait and redaction, so a lock-wait expiry drops the
 #   line and bumps events.dropped while the marker has already advanced.
@@ -159,6 +159,9 @@ run_hook "$(payload "$sid" "$co" "first reply")"
 [ -f "$marker_dir/$sid" ] || fail "tower session: no marker at tower-comms/attention/<session-id>"
 m1=$(marker_value)
 later_than "$m1" 0 || fail "tower session: marker holds '$m1', expected a positive epoch"
+case "$m1" in
+  *[!0-9]*) fail "tower session: the marker is not whole seconds: '$m1'" ;;
+esac
 [ "$(line_count "$log_file")" = 1 ] || fail "tower session: $(line_count "$log_file") log lines, expected 1"
 last=$(tail -n 1 "$log_file")
 case "$last" in
@@ -175,7 +178,7 @@ case "$last" in
 esac
 [ ! -e "$marker_dir/$other" ] || fail "tower session: the peer's marker moved on this session's reply"
 [ -z "$(git -C "$co" status --porcelain)" ] || fail "tower session: the hook touched the checkout"
-echo "ok: a record gates the hook in; marker written, one reply line with the tower identity, the peer untouched"
+echo "ok: a record gates the hook in; whole-second marker, one reply line with the tower identity, the peer untouched"
 
 # Owner-only surface: the marker directory and file.
 # shellcheck disable=SC2012
@@ -200,6 +203,14 @@ case "$(tail -n 1 "$log_file")" in
   *) fail "second reply: the prompt id is missing: $(tail -n 1 "$log_file")" ;;
 esac
 echo "ok: each reply advances the marker and lands in sequence with its prompt id"
+
+# The marker never moves backwards: a value already later than now stays.
+future=$(($(date +%s) + 1000))
+printf '%s\n' "$future" >"$marker_dir/$sid"
+run_hook "$(payload "$sid" "$co" "after a clock step")"
+[ "$(marker_value)" = "$future" ] || fail "monotonic marker: a later value was overwritten with $(marker_value)"
+date +%s >"$marker_dir/$sid"
+echo "ok: the marker never moves backwards"
 
 # The same record with a dead pid still gates in: a session id is unique to
 # its session, so the record is this session's own, and the running hook is

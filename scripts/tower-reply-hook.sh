@@ -5,12 +5,17 @@
 #
 # WHAT IT WRITES, IN ORDER.
 #   1. The attention marker: <fleet-home>/tower-comms/attention/<tower-id>, one
-#      line holding the epoch of this reply (millisecond decimals when the
-#      clock has them), owner-only, replaced by rename, written under NO
-#      shared lock so it is never dropped. The queue's `next` verb, once it
-#      lands, hands over nothing until this marker shows a reply later than
-#      its own last knock and hand-over, so the marker is the only thing that
-#      confirms attention and the log line below is not (D-6).
+#      line holding the epoch of this reply in whole seconds, owner-only,
+#      replaced by rename, written under NO shared lock so it is never
+#      dropped. The queue's `next` verb, once it lands, hands over nothing
+#      until this marker shows a reply later than its own last knock and
+#      hand-over, so the marker is the only thing that confirms attention and
+#      the log line below is not (D-6). Whole seconds, not finer: the times
+#      it is compared against are whole seconds, so a finer reply time would
+#      read as later than a hand-over stamped in the same second even when it
+#      came first, and a tie must read as not yet confirmed. The marker never
+#      moves backwards: two invocations racing, or a clock stepped back,
+#      leave the later value in place.
 #   2. The `reply` event, appended through `tower-queue.sh log`, which owns
 #      the fleet lock, the sequence, the bounded lock wait and the
 #      secret-shaped redaction: this hook parses no secrets and redacts
@@ -161,19 +166,6 @@ check_private_file() {
     return 1
   }
   return 0
-}
-
-# The reply time as seconds with millisecond decimals when `date +%N` yields a
-# real nanosecond field, else whole seconds.
-clock_s() {
-  _t=$(date '+%s %N' 2>/dev/null)
-  case "$_t" in
-    [0-9]*' '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9])
-      _ns=${_t##* }
-      printf '%s.%.3s\n' "${_t%% *}" "$_ns"
-      ;;
-    *) date +%s ;;
-  esac
 }
 
 # field <key> — the value the payload walker printed for <key>, or nothing.
@@ -332,14 +324,17 @@ if [ -z "$my_uid" ]; then
 elif ! check_private_dir "$surface" || ! check_private_dir "$marker_dir" || ! check_private_file "$marker"; then
   :
 else
-  now=$(clock_s) || now=""
+  now=$(date +%s 2>/dev/null) || now=""
   case "$now" in
-    [1-9]*) ;;
-    *) now="" ;;
+    "" | *[!0-9]* | 0*) now="" ;;
   esac
   if [ -z "$now" ]; then
     warn "cannot read the clock; the attention marker was not advanced"
   else
+    # Never backwards: the later of the value on disk and now.
+    if [ -f "$marker" ]; then
+      now=$(awk -v now="$now" 'NR == 1 { v = $1 + 0; if (v > now) now = v } END { printf "%d\n", now }' "$marker" 2>/dev/null) || now=""
+    fi
     PENDING_TMP=$(mktemp "$marker_dir/.$sid.XXXXXX" 2>/dev/null) || PENDING_TMP=""
     if [ -n "$now" ] && [ -n "$PENDING_TMP" ] && printf '%s\n' "$now" >"$PENDING_TMP" 2>/dev/null && mv -f "$PENDING_TMP" "$marker" 2>/dev/null; then
       PENDING_TMP=""
