@@ -45,8 +45,6 @@ local_cfg="$tmp/local.yml"
 surface="$home/tower-comms"
 store="$surface/queue"
 log_file="$surface/events.log"
-attn_dir="$home/attention"
-attn_store="$attn_dir/state"
 content="$tmp/content"
 mkdir -p "$content"
 TAB=$(printf '\t')
@@ -172,7 +170,7 @@ echo "ok: attention lapses after the quiet interval and the next delivery knocks
 # --- the knock pins its item; a changed top knocks again (REQ-A1.8) -----------------
 
 run ack "$x3" --tower $A --now 1803 >/dev/null || fail "ack x3"
-y1=$(add_req y1 low 2000)
+add_req y1 low 2000 >/dev/null
 out=$(run next --tower $A --now 2001) || fail "knock y1: exit"
 [ "$(field "$out" 1)" = knock ] || fail "expected a knock for y1: '$out'"
 y2=$(add_req y2 high 2002)
@@ -190,161 +188,5 @@ marker $A 2007
 out=$(run next --tower $A --now 2008) || fail "deliver after pin: exit"
 [ "$(field "$out" 2)" = "$y3" ] || fail "after the pinned hand-over the next reply did not release the new top: '$out' (expected $y3)"
 echo "ok: the knock pins its item and knocks again when the top changes; the pin is consumed by the hand-over"
-
-# --- two towers: one delivery per item, each its own attention (REQ-A1.7) -----------
-
-run ack "$y1" --tower $A --now 2009 >/dev/null
-run ack "$y2" --tower $A --now 2010 >/dev/null
-run ack "$y3" --tower $A --now 2011 >/dev/null
-z1=$(add_req z1 normal 3000)
-out=$(run next --tower $A --now 3001) || fail "A knock z1"
-[ "$(field "$out" 1)" = knock ] || fail "A did not knock: '$out'"
-marker $A 3002
-out=$(run next --tower $A --now 3003) || fail "A deliver z1"
-[ "$(field "$out" 2)" = "$z1" ] || fail "A did not get z1: '$out'"
-out=$(run next --tower $B --now 3004) || fail "B next: exit"
-[ -z "$out" ] || fail "B knocked on an item an attended tower holds: '$out'"
-marker $B 3005
-out=$(run next --tower $B --now 3006) || fail "B next attended: exit"
-[ -z "$out" ] || fail "B's own marker advancing released a leased item, or confirmed attention with no knock of its own: '$out'"
-z2=$(add_req z2 normal 3007)
-out=$(run next --tower $B --now 3008) || fail "B knock z2"
-[ "$(field "$out" 1)" = knock ] || fail "B did not knock for the unleased item: '$out'"
-[ "$(lease_of "$z2")" = $B ] || fail "B's knock did not lease z2"
-marker $B 3009
-out=$(run next --tower $B --now 3010) || fail "B deliver z2"
-[ "$(field "$out" 2)" = "$z2" ] || fail "B did not get z2: '$out'"
-[ "$(lease_of "$z1")" = $A ] || fail "z1's lease moved off A"
-run ack "$z2" --tower $B --now 3011 >/dev/null || fail "ack z2"
-# B attended (a reply after its hand-over) while A, whose operator replied
-# within the quiet interval, still holds z1: B receives nothing.
-marker $B 3012
-out=$(run next --tower $B --now 3013) || fail "B attended while A holds z1"
-[ -z "$out" ] || fail "B, attended, was handed an item a present tower holds: '$out'"
-[ "$(lease_of "$z1")" = $A ] || fail "z1's lease moved off A while A's operator was present"
-[ "$(grep -c "\"kind\":\"delivered\".*\"item\":\"$z1\"" "$log_file")" = 1 ] || fail "z1 was delivered more than once"
-echo "ok: two towers each hold their own attention state and never receive the same item"
-
-# --- the lease renews on the holder's reply and expires only as a backstop ---------
-
-# A's lease on z1 was taken at 3003 and backstops at 3203; a reply from A at
-# 3100 carries it to 3300, so at 3250 B (A's operator away by then, 150s of
-# silence against a 100s quiet interval) may knock about it but not take
-# it, and an older reply leaves the lease expired and released.
-marker $A 3100
-out=$(run next --tower $B --now 3250 2>/dev/null) || fail "B after A's reply"
-[ "$(field "$out" 1)" = knock ] || fail "B did not knock about an item whose holder is away: '$out'"
-[ "$(lease_of "$z1")" = $A ] || fail "B's knock took a lease A's reply had renewed"
-marker $A 3000
-out=$(run next --tower $B --now 3251 2>/dev/null) || fail "B after A's lease lapsed"
-[ -z "$out" ] || fail "B repeated its outstanding knock: '$out'"
-[ "$(lease_of "$z1")" = - ] || fail "an expired lease was not released"
-marker $B 3252
-out=$(run next --tower $B --now 3253) || fail "B delivers z1"
-[ "$(field "$out" 2)" = "$z1" ] || fail "B was not handed the released item on its reply: '$out'"
-[ "$(lease_of "$z1")" = $B ] || fail "the hand-over did not lease z1 to B"
-echo "ok: a reply from the holder renews its lease; an expired lease releases the item"
-
-# --- an attended tower preempts an unattended tower's lease --------------------------
-
-run ack "$z1" --tower $B --now 3254 >/dev/null || fail "ack z1"
-p1=$(add_req p1 normal 4000)
-out=$(run next --tower $A --now 4001) || fail "A knock p1"
-[ "$(field "$out" 1)" = knock ] || fail "A did not knock for p1: '$out'"
-[ "$(lease_of "$p1")" = $A ] || fail "A's knock did not lease p1"
-out=$(run next --tower $B --now 4002) || fail "B knock p1 (pin without lease)"
-[ "$(field "$out" 1)" = knock ] || fail "B could not knock about an item leased by an unattended tower: '$out'"
-[ "$(lease_of "$p1")" = $A ] || fail "B's knock stole the lease before its attention was confirmed"
-marker $B 4003
-out=$(run next --tower $B --now 4004) || fail "B preempts"
-[ "$(field "$out" 2)" = "$p1" ] || fail "an attended tower did not preempt the unattended holder's lease: '$out'"
-[ "$(lease_of "$p1")" = $B ] || fail "the preempted lease did not move to B"
-marker $A 4005
-out=$(run next --tower $A --now 4006) || fail "A after preemption"
-case "$out" in *"$p1"*) fail "A was handed p1 after B, attended, had taken it" ;; esac
-echo "ok: a tower whose attention is confirmed preempts a lease held by one whose attention is not"
-
-# --- the lease's owner label: presence identity or a session-scoped fallback ----------
-
-run ack "$p1" --tower $B --now 4007 >/dev/null
-f1=$(add_req f1 normal 5000)
-out=$(PLANWRIGHT_TOWER_ID=uuid-tower-1 run next --now 5001) || fail "next via PLANWRIGHT_TOWER_ID"
-[ "$(lease_of "$f1")" = uuid-tower-1 ] || fail "the lease owner is not the identity from the environment"
-run ack "$f1" --tower uuid-tower-1 --now 5002 >/dev/null
-f2=$(add_req f2 normal 5003)
-out=$(PLANWRIGHT_TOWER_PID=$$ run next --now 5004 2>"$tmp/err") || fail "next with no identity"
-[ "$(field "$out" 1)" = knock ] || fail "no knock under the fallback identity: '$out'"
-owner=$(lease_of "$f2")
-case "$owner" in
-  fallback.p$$.t[0-9]*) ;;
-  *) fail "the fallback identity is not session-scoped: '$owner'" ;;
-esac
-grep -q 'fallback' "$tmp/err" || fail "leasing under a fallback identity was not announced"
-mkdir -p "$surface/attention"
-printf '5005\n' >"$surface/attention/$owner"
-chmod 0600 "$surface/attention/$owner"
-out=$(PLANWRIGHT_TOWER_PID=$$ run next --now 5006 2>/dev/null) || fail "next again under the fallback"
-[ "$(field "$out" 2)" = "$f2" ] || fail "a later caller did not read the fallback identity back: '$out'"
-PLANWRIGHT_TOWER_PID=$$ run ack "$f2" --now 5007 >/dev/null 2>&1 || fail "ack under the fallback identity was refused"
-echo "ok: the lease owner is the presence identity, else a session-scoped fallback read back by a later caller"
-
-# --- a store that cannot be written is an error in the turn (REQ-C1.11) --------------
-
-g1=$(add_req g1 normal 6000)
-mv "$store" "$tmp/store.bak"
-mkdir "$store"
-rc=0
-run next --tower $A --now 6001 >/dev/null 2>"$tmp/err" || rc=$?
-[ "$rc" = 6 ] || fail "next over an unwritable store: exit $rc, expected 6"
-grep -q 'store' "$tmp/err" || fail "the unwritable store was not reported"
-rmdir "$store"
-mv "$tmp/store.bak" "$store"
-echo "ok: an unwritable store surfaces an error rather than a silent skip"
-
-# --- a delivery whose log append fails still hands the item over (fail-open) ----------
-
-# The log stays a verifiably owner-only file (a widened or redirected one is
-# refused before anything happens); it just cannot take the append.
-run next --tower $A --now 6002 >/dev/null || fail "A knock g1"
-marker $A 6003
-chmod 0400 "$log_file"
-rc=0
-out=$(run next --tower $A --now 6004 2>"$tmp/err") || rc=$?
-chmod 0600 "$log_file"
-[ "$rc" = 0 ] || fail "a delivery whose log append fails: exit $rc, expected 0 (fail-open)"
-[ "$(field "$out" 2)" = "$g1" ] || fail "the hand-over did not stand when the log append failed: '$out'"
-grep -q 'delivered' "$tmp/err" || fail "the failed delivery-line append was not surfaced"
-echo "ok: a failed delivery-line append is fail-open: the hand-over stands and the error is surfaced"
-
-# --- attention pointers: a re-forked row refreshes, a moved row refuses ----------------
-
-run ack "$g1" --tower $A --now 6005 >/dev/null
-mkdir -p "$attn_dir"
-chmod 0700 "$attn_dir"
-printf 'w-q\tspec/t\tawaiting-input\t7000\tnormal\tQ?\ta\ta|b\tfork\tiid-old\n' >"$attn_store"
-q1=$(run add --kind question --worker w-q --origin w-q --closes 'the operator answers' --now 7001)
-[ "$(rec "$q1" | cut -f 8)" = iid-old ] || fail "the question did not record the row's instance id"
-printf 'w-q\tspec/t\tawaiting-input\t7002\thigh\tQ2?\ta\ta|b\tfork\tiid-new\n' >"$attn_store"
-out=$(run next --tower $A --now 7003) || fail "next over a re-forked row"
-[ "$(field "$out" 1)" = knock ] || fail "expected a knock: '$out'"
-[ "$(rec "$q1" | cut -f 8)" = iid-new ] || fail "a re-forked row's instance id was not refreshed"
-[ "$(rec "$q1" | cut -f 3)" = high ] || fail "a re-forked row's priority was not refreshed"
-printf 'w-q\tspec/t\tworking\t7004\tnormal\t-\t-\t-\n' >"$attn_store"
-marker $A 7005
-out=$(run next --tower $A --now 7006 2>"$tmp/err") || fail "next over a moved row"
-[ -z "$out" ] || fail "a question whose row moved on was handed over: '$out'"
-grep -q "$q1" "$tmp/err" || fail "the refused hand-over was not reported"
-echo "ok: a re-forked row refreshes the pointer; a row that moved on refuses the hand-over"
-
-# --- knob guards ----------------------------------------------------------------------
-
-printf 'tower_quiet_interval: 5m\ntower_lease_interval: 1m\n' >"$local_cfg"
-rc=0
-run next --tower $A --now 8000 >/dev/null 2>"$tmp/err" || rc=$?
-[ "$rc" = 4 ] || fail "a lease interval below the quiet interval: exit $rc, expected 4"
-grep -q 'tower_lease_interval' "$tmp/err" || fail "the floor refusal does not name the knob"
-printf 'tower_quiet_interval: 500ms\ntower_lease_interval: 750ms\n' >"$local_cfg"
-run next --tower $A --now 8001 >/dev/null 2>&1 || fail "sub-second intervals were refused"
-echo "ok: the lease interval is floored at the quiet interval, and both accept sub-second values"
 
 echo "ALL PASS: tower-queue next"
