@@ -134,8 +134,8 @@ Selector exits (full contract: `selection-contract`):
   cleanly.
 - Exit 2 → a fail-closed halt (missing/taskless `tasks.md`, or the derivation
   failed closed).
-- Exit 3 (format-version 2 transient evidence hold, REQ-B1.5) → **report the
-  hold and end the step cleanly**, the lock-contention shape; a later step
+- Exit 3 (format-version 2 transient evidence hold) → **report the hold and
+  end the step cleanly** (REQ-B1.5), the lock-contention shape; a later step
   re-selects (the `--watch` loop continues, unlike exit 1). v1 keeps its
   degraded-but-proceed behavior.
 
