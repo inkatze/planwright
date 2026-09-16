@@ -452,7 +452,15 @@ baseline exists, so the experiment has an honest before.
 
 ## Awaiting input
 
-(none yet)
+- **Task 2** — the mechanical half (the prompt-submit hook, the per-pass
+  tick, the loop's delivered-turn logging) is on
+  `planwright/tower-comms/task-2` as a draft PR; the baseline entry needs
+  real fleet sessions run on a tower carrying that hook, which a worker
+  cannot produce before the change reaches a tower. Operator: after a
+  handful of sessions on a tower running this change, run
+  `mise run tower:report` per session and in aggregate, append the baseline
+  to the kickoff brief's risk register (row 16 reserves it), then remove
+  this bullet. Task 8 waits for that entry (D-15).
 
 ## Deferred
 
