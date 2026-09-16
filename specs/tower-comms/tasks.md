@@ -454,13 +454,17 @@ baseline exists, so the experiment has an honest before.
 
 - **Task 2** — the mechanical half (the prompt-submit hook, the per-pass
   tick, the loop's delivered-turn logging) is on
-  `planwright/tower-comms/task-2` as a draft PR; the baseline entry needs
-  real fleet sessions run on a tower carrying that hook, which a worker
-  cannot produce before the change reaches a tower. Operator: after a
-  handful of sessions on a tower running this change, run
-  `mise run tower:report` per session and in aggregate, append the baseline
-  to the kickoff brief's risk register (row 16 reserves it), then remove
-  this bullet. Task 8 waits for that entry (D-15).
+  `planwright/tower-comms/task-2` and lands with that branch's draft PR; the
+  baseline entry needs real fleet sessions run on a tower carrying that
+  hook, which a worker cannot produce before the change reaches a tower.
+  Operator: after a handful of sessions on a tower running this change, run
+  `mise run tower:report` at the end of each session (the report has no
+  session filter; `--now` and `--window` can bound one after the fact) and
+  once over all of them, append the baseline to the kickoff brief's risk
+  register (row 16 reserves it), then remove this bullet. Task 8 waits for
+  that entry (D-15). Also parked there, per the review pause protocol: the
+  hook does not verify the fleet home itself before writing the marker
+  (risk row 28a names the fix); direct whether to apply it.
 
 ## Deferred
 
