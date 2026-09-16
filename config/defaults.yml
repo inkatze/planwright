@@ -728,9 +728,14 @@ tower_tick_gap_max: 10m
 #                        renewed by the holder's replies, so this only catches
 #                        a tower that died holding an item. Floored at
 #                        tower_quiet_interval: a value below it is refused.
-# tower_catchup_limit    how many settled items the store keeps (and the
-#                        catch-up renders) beyond the open ones; the settled
-#                        history past it is the event log's.
+# tower_catchup_limit    how many closed items (acknowledged or settled) the
+#                        store keeps beyond the open ones, and how many the
+#                        catch-up renders; the history past it is the event
+#                        log's. Capped at 500: the retention pass sorts what
+#                        it keeps inside the fleet lock.
+# tower_shelve_return    how long a shelved item stays parked before it
+#                        returns on its own, when `shelve` is given no --for.
 tower_quiet_interval: 10m
 tower_lease_interval: 15m
 tower_catchup_limit: 20
+tower_shelve_return: 1h

@@ -152,6 +152,12 @@ line=$(grep "^$n1$TAB" "$store")
 [ "$(field "$line" 8)" = 'pr-ready.1200' ] || fail "news record does not carry the row's state and stamp as its instance (got '$(field "$line" 8)')"
 echo "ok: news points at the attention row and pins its instance"
 
+printf -- '- **Task 1** — parked\n' >"$content/park-1"
+q1p=$(run add --kind question --worker w-alpha --origin w-alpha --closes 'the operator answers' --root "$content" --park park-1 --now 2002 2>/dev/null) \
+  || fail "add question with a park pointer: exit"
+[ "$q1p" = "$q1" ] || fail "a park pointer changed the question's identity ($q1p vs $q1): one awaiting-input row is one question"
+echo "ok: a park pointer never mints a second item for the same row"
+
 printf 'please rename the branch to something readable\n' >"$content/req-1"
 r1=$(run add --kind request --root "$content" --pointer req-1 --origin operator --closes 'the branch is renamed' --now 2003) \
   || fail "add request: exit"
@@ -168,6 +174,9 @@ a1=$(run add --kind approval --root "$content" --pointer appr-1 --origin tower -
 line=$(grep "^$a1$TAB" "$store")
 [ "$(field "$line" 3)" = high ] || fail "approval urgency not stored"
 
+printf 'second request\n' >"$content/req-2"
+r2=$(run add --kind request --root "$content" --pointer req-2 --origin operator --closes 'the second branch is renamed' --now 2006) \
+  || fail "add second request: exit"
 printf 'always allow git fetch\n' >"$content/std-1"
 s1=$(run add --kind standing --root "$content" --pointer std-1 --origin operator --now 2005) \
   || fail "add standing: exit"
@@ -181,7 +190,7 @@ run add --kind standing --root "$content" --pointer std-1 --origin operator --cl
 [ "$rc" = 2 ] || fail "standing with a non-revocation closing condition: exit $rc, expected 2"
 echo "ok: a standing decision closes on the operator's revocation"
 
-[ "$(record_count)" = 6 ] || fail "expected 6 records, found $(record_count)"
+[ "$(record_count)" = 7 ] || fail "expected 7 records, found $(record_count)"
 
 # Every line is a 20-field record.
 while IFS= read -r l; do
@@ -213,7 +222,7 @@ echo "ok: a worker question needs an awaiting-input row"
 
 [ -f "$log_file" ] || fail "no event log after adds"
 born=$(grep -c '"kind":"born"' "$log_file" || true)
-[ "$born" = 6 ] || fail "expected 6 born lines, found $born"
+[ "$born" = 7 ] || fail "expected 7 born lines, found $born"
 grep -q "\"item\":\"$q1\",\"item_kind\":\"question\"" "$log_file" || fail "the born line does not carry item and item_kind"
 grep -q "\"item\":\"$r1\"" "$log_file" || fail "the request's born line is missing"
 grep -q '"pointer":"req-1"' "$log_file" || fail "the born line does not carry the pointer"
@@ -224,7 +233,7 @@ echo "ok: every add logs one born line naming the item and its kind"
 again=$(run add --kind request --root "$content" --pointer req-1 --origin operator --closes 'the branch is renamed' --now 2010 2>"$tmp/err") \
   || fail "re-adding the same content: exit"
 [ "$again" = "$r1" ] || fail "re-adding the same content minted a new identifier ($again vs $r1)"
-[ "$(record_count)" = 6 ] || fail "re-adding the same content duplicated the record"
+[ "$(record_count)" = 7 ] || fail "re-adding the same content duplicated the record"
 grep -q 'already' "$tmp/err" || fail "re-adding the same content did not say so"
 echo "ok: an identifier is derived from the content home's key, so a re-add is a no-op"
 
@@ -248,7 +257,7 @@ run add --kind request --root "$content" --pointer req-1 --origin operator --clo
 rc=0
 run add --kind request --root "$content" --pointer req-1 --origin operator --closes 'closes on its own after the next sweep' >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "a closing condition promising a future automatic step: exit $rc, expected 2"
-[ "$(record_count)" = 6 ] || fail "a refused add wrote a record"
+[ "$(record_count)" = 7 ] || fail "a refused add wrote a record"
 echo "ok: unknown kinds, out-of-scale urgency, and promised automatic steps are refused"
 
 # --- the hostile-input table (REQ-A1.6, REQ-H1.3) -------------------------------
@@ -270,6 +279,8 @@ hostile 'control byte in closes' add --kind request --root "$content" --pointer 
 hostile 'embedded newline in closes' add --kind request --root "$content" --pointer req-1 --origin operator --closes "$(printf 'done\nrm -rf')"
 hostile 'embedded tab in closes' add --kind request --root "$content" --pointer req-1 --origin operator --closes "$(printf 'done\there')"
 hostile 'leading whitespace' add --kind request --root "$content" --pointer req-1 --origin operator --closes ' done'
+hostile 'JSON-shaped closes (the log refuses it)' add --kind request --root "$content" --pointer req-1 --origin operator --closes '{the operator answers}'
+hostile 'C1 control byte' add --kind request --root "$content" --pointer req-1 --origin operator --closes "$(printf 'done\233here')"
 long=$(awk 'BEGIN { while (length(s) < 600) s = s "x"; print s }')
 hostile 'over-long closes' add --kind request --root "$content" --pointer req-1 --origin operator --closes "$long"
 hostile 'traversal pointer' add --kind request --root "$content" --pointer '../req-1' --origin operator --closes 'done'
@@ -305,17 +316,19 @@ echo "ok: the hostile-input table is refused at settle and shelve"
 # --- list and counts (REQ-C1.9) --------------------------------------------------
 
 listed=$(run list) || fail "list: exit"
-[ "$(printf '%s\n' "$listed" | grep -c .)" = 6 ] || fail "list printed $(printf '%s\n' "$listed" | grep -c .) items, expected 6"
+[ "$(printf '%s\n' "$listed" | grep -c .)" = 7 ] || fail "list printed $(printf '%s\n' "$listed" | grep -c .) items, expected 7"
 printf '%s\n' "$listed" | grep -q "^$s1$TAB" || fail "list omits the standing decision (it is open)"
 echo "ok: list prints every open item"
 
 counts=$(run counts) || fail "counts: exit"
 [ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "question" { print $2 }')" = 2 ] || fail "counts: question count wrong: $counts"
 [ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "approval" { print $2 }')" = 1 ] || fail "counts: approval count wrong"
-[ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "request" { print $2 }')" = 1 ] || fail "counts: request count wrong"
+[ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "request" { print $2 }')" = 2 ] || fail "counts: request count wrong"
 [ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "news" { print $2 }')" = 1 ] || fail "counts: news count wrong"
 [ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "standing" { print $2 }')" = 1 ] || fail "counts: standing count wrong"
-[ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "total" { print $2 }')" = 5 ] || fail "counts: the total counts the ranked kinds only: $counts"
+[ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "total" { print $2 }')" = 6 ] || fail "counts: the total counts the ranked kinds only: $counts"
+[ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "store" { print $2 }')" = present ] || fail "counts: no store row"
+[ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "malformed" { print $2 }')" = 0 ] || fail "counts: malformed row wrong"
 [ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "top" { print $2 }')" = question ] || fail "counts: top kind is not question: $counts"
 echo "ok: counts prints the open count per kind and the top item's kind"
 
@@ -332,7 +345,7 @@ grep -q '^knock' "$tmp/out" || fail "first next did not knock: $(cat "$tmp/out")
 order=""
 t=3001
 i=0
-while [ "$i" -lt 6 ]; do
+while [ "$i" -lt 7 ]; do
   marker "$tower" "$t"
   t=$((t + 1))
   out=$(run next --tower "$tower" --now "$t") || fail "next #$i: exit"
@@ -346,7 +359,7 @@ while [ "$i" -lt 6 ]; do
   order="$order $(field "$out" 3):$(field "$out" 2)"
   i=$((i + 1))
 done
-[ "$order" = " question:$q1 question:$q2 approval:$a1 request:$r1 news:$n1" ] \
+[ "$order" = " question:$q1 question:$q2 approval:$a1 request:$r1 request:$r2 news:$n1" ] \
   || fail "ordering by consequence, urgency, then age is wrong:$order"
 echo "ok: next orders blocked workers, approvals, requests, then news, by urgency then age"
 
@@ -357,15 +370,29 @@ line=$(grep "^$r1$TAB" "$store")
 [ "$(field "$line" 12)" = closed ] || fail "settled record is not closed"
 [ "$(field "$line" 17)" = 4000 ] || fail "settled stamp missing"
 [ "$(field "$line" 18)" = 'branch renamed: commit on main' ] || fail "settled record does not name what settled it"
+[ "$(field "$line" 19)" = - ] || fail "settling did not release the lease"
 run list | grep -q "^$r1$TAB" && fail "list prints a settled item"
+run list --all | grep "^$r1$TAB" | grep -q "${TAB}closed${TAB}" || fail "list --all does not show the settled item as closed"
 grep -q "\"kind\":\"settled\".*\"item\":\"$r1\"" "$log_file" || fail "no settled event logged"
 rc=0
-run settle "$r1" --reason again >/dev/null 2>"$tmp/err" || rc=$?
+run settle "$r1" --reason again --now 4001 >/dev/null 2>"$tmp/err" || rc=$?
 [ "$rc" = 0 ] || fail "settling a closed item: exit $rc, expected 0 (a logged no-op)"
 rc=0
-run settle inope0000 --reason x >/dev/null 2>&1 || rc=$?
+run settle inope0000 --reason x --now 4002 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "settling an unknown item: exit $rc, expected 2"
 echo "ok: settle closes an item naming what settled it; list never prints a settled one"
+
+born_before=$(grep -c '"kind":"born"' "$log_file")
+again=$(run add --kind request --root "$content" --pointer req-1 --origin operator --closes 'the branch is renamed' --now 4003) \
+  || fail "re-adding settled content: exit"
+[ "$again" = "$r1" ] || fail "re-adding settled content minted a new id ($again vs $r1)"
+line=$(grep "^$r1$TAB" "$store")
+[ "$(field "$line" 12)" = open ] || fail "re-adding settled content did not re-open the item"
+[ "$(field "$line" 5)" = 4003 ] || fail "a re-opened item did not get a fresh birth stamp"
+[ "$(field "$line" 18)" = - ] || fail "a re-opened item kept its old settling reason"
+[ "$(grep -c '"kind":"born"' "$log_file")" = $((born_before + 1)) ] || fail "a re-opened item was not born again in the log"
+run settle "$r1" --reason 'renamed again' --now 4004 >/dev/null || fail "settle r1 again"
+echo "ok: content queued again after its item closed re-opens the same item"
 
 # --- shelve parks with a bounded return (REQ-C1.6) --------------------------------
 
@@ -373,6 +400,7 @@ run shelve "$a1" --tower "$tower" --for 30s --now 4100 >/dev/null || fail "shelv
 line=$(grep "^$a1$TAB" "$store")
 [ "$(field "$line" 16)" = 4130 ] || fail "shelve did not record the return time (got '$(field "$line" 16)')"
 [ "$(field "$line" 12)" = open ] || fail "a shelved item is not open"
+[ "$(field "$line" 19)" = - ] || fail "shelving did not release the lease"
 run list | grep -q "^$a1$TAB" || fail "list omits a shelved item (it is open, not dropped)"
 grep -q "\"kind\":\"shelved\".*\"item\":\"$a1\"" "$log_file" || fail "no shelved event logged"
 marker "$tower" 4110
@@ -388,11 +416,15 @@ case "$out" in
 esac
 echo "ok: a shelved item returns on its own and is never dropped"
 
+run shelve "$n1" --tower "$tower" --for 500ms --now 4160 >/dev/null || fail "sub-second shelve: exit"
+[ "$(grep "^$n1$TAB" "$store" | cut -f 16)" = 4161 ] || fail "a sub-second shelve did not park the item (return $(grep "^$n1$TAB" "$store" | cut -f 16))"
+counts=$(run counts --now 4160) || fail "counts with a shelved item"
+[ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "news" { print $2 }')" = 0 ] || fail "counts still counts a shelved item as waiting: $counts"
 rc=0
 run shelve "$a1" --for 0 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "shelve for a zero span: exit $rc, expected 2"
 rc=0
-run shelve "$r1" --for 1m >/dev/null 2>&1 || rc=$?
+run shelve "$r1" --for 1m --now 4150 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 0 ] || fail "shelving a closed item: exit $rc, expected 0 (a logged no-op)"
 
 # --- retention keeps the open items plus a bounded settled set (REQ-A1.3) --------
@@ -410,7 +442,13 @@ closed=$(awk -F '\t' '$12 == "closed"' "$store" | grep -c . || true)
 awk -F '\t' '$12 == "closed" { print $18 }' "$store" | grep -q 'evidence 3' || fail "retention dropped the newest settled record"
 awk -F '\t' '$12 == "closed" { print $18 }' "$store" | grep -q 'evidence 0' && fail "retention kept a settled record past the window"
 open=$(awk -F '\t' '$12 == "open"' "$store" | grep -c . || true)
-[ "$open" = 5 ] || fail "retention touched the open items ($open open, expected 5)"
+[ "$open" = 6 ] || fail "retention touched the open items ($open open, expected 6)"
+printf 'tower_catchup_limit: 501\n' >"$local_cfg"
+rc=0
+run counts --now 5200 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "counts should not resolve the retention knob"
+run settle i00000001 --reason x --now 5200 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 4 ] || fail "a catch-up limit above the cap: exit $rc, expected 4"
 : >"$local_cfg"
 echo "ok: retention keeps every open item and only the settled ones inside the catch-up window"
 
@@ -424,8 +462,11 @@ printf 'a\033[31mb' | has_control || fail "self-check: the detector misses ESC"
 printf 'a\001b' | has_control || fail "self-check: the detector misses a C0 byte"
 printf 'a\tb' | has_control && fail "self-check: the detector trips on the tab delimiter"
 
-printf 'ibad00001\tnews\tnormal\top\033[31m\t1\tpath\tx\t-\t%s\t-\tdone\topen\t0\t0\t0\t0\t0\t-\t-\t0\n' "$content" >>"$store"
-printf 'ibad00002\tnews\tnormal\top\t1\tpath\tx\t-\t%s\t-\tdone\001here\topen\t0\t0\t0\t0\t0\t-\t-\t0\n' "$content" >>"$store"
+{
+  printf 'ibad00001\tnews\tnormal\top\033[31m\t1\tpath\tx\t-\t%s\t-\tdone\topen\t0\t0\t0\t0\t0\t-\t-\t0\n' "$content"
+  printf 'ibad00002\tnews\tnormal\top\t1\tpath\tx\t-\t%s\t-\tdone\001here\topen\t0\t0\t0\t0\t0\t-\t-\t0\n' "$content"
+  printf 'ibad00003\tnews\tnormal\top\t1\tpath\tx\t-\t%s\t-\ttorn\topen\t0\t0\t0\t0\n' "$content"
+} >>"$store"
 out=$(run list 2>"$tmp/err") || fail "list over a corrupted line: exit"
 if printf '%s' "$out" | has_control; then
   fail "a control byte from a corrupted store line reached stdout"
@@ -434,17 +475,15 @@ printf '%s\n' "$out" | grep -q '^ibad00001' || fail "the corrupted line was drop
 printf '%s\n' "$out" | grep -q 'op.31m' || fail "the ESC byte was not stripped from the rendered origin"
 # One line per open record: an embedded newline surviving into the render
 # would show as an extra line.
-[ "$(printf '%s\n' "$out" | grep -c .)" = 7 ] || fail "list printed $(printf '%s\n' "$out" | grep -c .) lines over 7 open records"
+[ "$(printf '%s\n' "$out" | grep -c .)" = 8 ] || fail "list printed $(printf '%s\n' "$out" | grep -c .) lines over 8 open records (the torn line is skipped)"
+[ "$(run counts --now 5300 | awk -F '\t' '$1 == "malformed" { print $2 }')" = 1 ] || fail "counts did not report the unparseable line"
 out=$(run counts) || fail "counts over a corrupted line: exit"
 printf '%s' "$out" | has_control && fail "counts echoed a control byte"
 echo "ok: a hand-corrupted store line renders with no control byte"
 
 # --- no repo file changes, everything under the fleet home ------------------------
 
-[ -z "$(find "$tmp" -newer "$store" -path "$tmp/.git*" 2>/dev/null)" ] || fail "a repo file changed"
-case "$store" in
-  "$home"/*) ;;
-  *) fail "the store is not under the fleet home" ;;
-esac
+[ -z "$(find "$tmp" -newer "$store" -not -path "$home/*" -not -path "$home" -not -path "$content*" -not -path "$tmp" -not -path "$tmp/local.yml" -not -path "$tmp/err" -not -path "$tmp/out" 2>/dev/null)" ] \
+  || fail "a file outside the fleet home and the content root changed: $(find "$tmp" -newer "$store" -not -path "$home/*" -not -path "$content*" | head -n 3)"
 
 echo "ALL PASS: tower-queue store"

@@ -151,9 +151,12 @@ grep -q 'no lease' "$tmp/err" || fail "the no-lease refusal did not say why"
 grep -q "\"kind\":\"refused\",\"tower\":\"$B\".*\"item\":\"$x2\".*\"reason\":\"no-lease\"" "$log_file" || fail "the no-lease refusal was not logged"
 [ "$(rec "$x2" | cut -f 12)" = open ] || fail "a refused ack closed the item"
 rc=0
-run ack i00000000 --tower $A >/dev/null 2>&1 || rc=$?
+run ack i00000000 --tower $A --now 1610 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "ack of an unknown item: exit $rc, expected 2"
-echo "ok: ack is refused without a lease and a logged no-op on a closed item"
+out=$(run next --tower $A --now 1610) || fail "next after the refused acks: exit"
+[ -z "$out" ] || fail "a refused or no-op ack released a further item: '$out'"
+[ "$(rec "$x2" | cut -f 12)" = open ] || fail "the delivered, unacknowledged item did not stay open"
+echo "ok: ack is refused without a lease and a logged no-op on a closed item, and neither releases anything"
 
 # --- attention lapses after the quiet interval; the next delivery knocks again -----
 
@@ -188,5 +191,36 @@ marker $A 2007
 out=$(run next --tower $A --now 2008) || fail "deliver after pin: exit"
 [ "$(field "$out" 2)" = "$y3" ] || fail "after the pinned hand-over the next reply did not release the new top: '$out' (expected $y3)"
 echo "ok: the knock pins its item and knocks again when the top changes; the pin is consumed by the hand-over"
+
+# --- a lapsed lease makes the item deliverable again to the same tower ------------
+
+# y2 and y3 are in A's hands (delivered 2005 and 2008, no ack). The leases
+# backstop at 2205 and 2208 and A's last reply (2007) renews them to 2207 at
+# most; at 2300 both have lapsed, so the hand-overs are void and the older
+# of the two high items is A's to knock about and receive again.
+out=$(run next --tower $A --now 2300) || fail "next after the lease lapsed"
+[ "$(field "$out" 1)" = knock ] || fail "a lapsed hand-over was not knocked about again: '$out'"
+marker $A 2301
+out=$(run next --tower $A --now 2302) || fail "redeliver after lapse"
+[ "$(field "$out" 2)" = "$y2" ] || fail "the same tower was not handed its lapsed item again: '$out'"
+[ "$(grep -c "\"kind\":\"delivered\".*\"item\":\"$y2\"" "$log_file")" = 2 ] || fail "the lapsed item was not delivered exactly twice"
+run ack "$y2" --tower $A --now 2303 >/dev/null || fail "ack y2 after redelivery"
+marker $A 2304
+out=$(run next --tower $A --now 2305) || fail "redeliver y3"
+[ "$(field "$out" 2)" = "$y3" ] || fail "the second lapsed item did not follow: '$out'"
+run ack "$y3" --tower $A --now 2306 >/dev/null || fail "ack y3 after redelivery"
+echo "ok: a hand-over whose lease lapsed is deliverable again, to the same tower included"
+
+# --- a reply stamped in the knock's own second confirms attention -----------------
+
+# Past the quiet interval since the last hand-over, so the knock is fresh.
+w1=$(add_req w1 normal 2499)
+out=$(run next --tower $A --now 2500) || fail "knock w1"
+[ "$(field "$out" 1)" = knock ] || fail "expected a knock for w1: '$out'"
+marker $A 2500
+out=$(run next --tower $A --now 2501) || fail "deliver w1"
+[ "$(field "$out" 2)" = "$w1" ] || fail "a reply in the knock's own second did not confirm attention: '$out'"
+run ack "$w1" --tower $A --now 2502 >/dev/null
+echo "ok: a reply stamped in the same second as the knock releases the item"
 
 echo "ALL PASS: tower-queue next"

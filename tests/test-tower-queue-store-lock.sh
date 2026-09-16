@@ -115,12 +115,12 @@ echo "ok: sixteen records from two concurrent writers, none torn, every birth lo
 
 # Concurrent acks against concurrent adds: the store is read intact by every
 # later process and every record keeps its shape.
-ids=$(cut -f 1 "$store" | head -n 4)
 marker $A 300
 run next --tower $A --now 301 >/dev/null || fail "knock before the mixed round"
 marker $A 302
 first=$(run next --tower $A --now 303) || fail "deliver before the mixed round"
 fid=$(field "$first" 2)
+ids=$(cut -f 1 "$store" | grep -v "^$fid$" | head -n 4)
 (
   run ack "$fid" --tower $A --now 304 >/dev/null 2>&1
   for id in $ids; do
@@ -139,7 +139,7 @@ wait
 [ "$(record_count)" = 20 ] || fail "mixed round: $(record_count) records, expected 20"
 [ "$(rec "$fid" | cut -f 12)" = closed ] || fail "mixed round: the acknowledged item is not closed"
 closed=$(awk -F '\t' '$12 == "closed"' "$store" | grep -c . || true)
-[ "$closed" -ge 4 ] || fail "mixed round: $closed closed records, expected at least 4"
+[ "$closed" = 5 ] || fail "mixed round: $closed closed records, expected exactly 5 (the ack and four settles)"
 echo "ok: acks and settles interleaved with adds leave every record whole"
 
 # --- the bounded lock wait: expiry is an error, nothing written (REQ-A1.4) ---------
@@ -155,13 +155,20 @@ end=$(date +%s)
 [ "$rc" = 3 ] || fail "saturated lock (add): exit $rc, expected 3"
 [ "$(cat "$store")" = "$before" ] || fail "saturated lock: the store changed"
 grep -q 'lock' "$tmp/err" || fail "saturated lock: the expiry was not reported as an error"
-[ $((end - start)) -le 5 ] || fail "saturated lock: waited $((end - start))s on a 200ms bound"
+[ $((end - start)) -le 2 ] || fail "saturated lock: waited $((end - start))s on a 200ms bound"
 rc=0
 run next --tower $A --now 501 >/dev/null 2>"$tmp/err" || rc=$?
 [ "$rc" = 3 ] || fail "saturated lock (next): exit $rc, expected 3"
 rc=0
 run ack "$fid" --tower $A --now 502 >/dev/null 2>"$tmp/err" || rc=$?
 [ "$rc" = 3 ] || fail "saturated lock (ack): exit $rc, expected 3"
+rc=0
+run shelve "$fid" --tower $A --now 502 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 3 ] || fail "saturated lock (shelve): exit $rc, expected 3"
+rc=0
+run settle "$fid" --reason x --now 502 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 3 ] || fail "saturated lock (settle): exit $rc, expected 3"
+[ "$(cat "$store")" = "$before" ] || fail "saturated lock: a verb changed the store"
 PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FS" unlock
 : >"$local_cfg"
 run add --kind request --root "$content" --pointer late --origin operator --closes 'the operator decides' --now 503 >/dev/null || fail "add after unlock: exit"
@@ -209,6 +216,20 @@ run next --tower $A --now 603 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "a widened marker directory: exit $rc, expected 4"
 chmod 0700 "$surface/attention"
 run next --tower $A --now 604 >/dev/null 2>&1 || fail "next after the modes were restored: exit"
+mv "$store" "$tmp/store.real"
+ln -s "$tmp/store.real" "$store"
+rc=0
+run next --tower $A --now 605 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "a store that is a symlink: exit $rc, expected 4"
+rm -f "$store"
+mv "$tmp/store.real" "$store"
+mkdir -p "$tmp/.claude"
+printf 'tower_quiet_interval: soon\n' >"$tmp/.claude/planwright.yml"
+rc=0
+run next --tower $A --now 606 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 4 ] || fail "a malformed repo-tracked knob: exit $rc, expected 4"
+grep -q 'tower_quiet_interval' "$tmp/err" || fail "the malformed knob was not named"
+rm -f "$tmp/.claude/planwright.yml"
 echo "ok: the store, the delivery records and the markers are owner-only, and a loosened mode refuses the verb"
 
 # --- a store written by one process is read intact by the next -------------------------
@@ -259,6 +280,14 @@ run settle "$rt" --reason 'evidence: PR merged' --now 1029 >/dev/null || fail "f
 before_ids=$(cut -f 1 "$store" | sort)
 rebuilds_before=$(grep -c '"event":"rebuild"' "$log_file" || true)
 
+# Three more log lines before the loss: a forged birth whose pointer escapes
+# its root (a writer can append any key=value through `log`), one whose id
+# does not derive from its key, and a settle-then-re-add of one request, so
+# the rebuild must honour event order rather than "ever closed".
+run log born --now 1029 item=ic0ffee11 item_kind=request urgency=normal origin=operator home=path pointer=../secret root="$content" closes=done >/dev/null || fail "plant a forged born line"
+run settle "$ro" --reason 'closed once' --now 1029 >/dev/null || fail "settle ro"
+ro2=$(run add --kind request --root "$content" --pointer r-open --origin operator --closes 'the operator decides' --now 1030) || fail "re-add ro"
+[ "$ro2" = "$ro" ] || fail "re-adding r-open changed its id"
 rm -f "$store"
 printf 'w-gone\tspec/t2\tworking\t1030\tnormal\t-\t-\t-\n' >"$tmp/row"
 awk -F '\t' '$1 != "w-gone"' "$attn_store" >"$tmp/attn.new"
@@ -282,7 +311,11 @@ rec "$qk" >/dev/null || fail "rebuild lost the open question whose row still awa
 rec "$qg" >/dev/null && fail "rebuild resurrected an acknowledged item"
 rec "$nn" >/dev/null && fail "rebuild kept a news item whose row moved on"
 grep -q "\"kind\":\"dropped\".*\"item\":\"$nn\".*\"reason\":\"rebuild\"" "$log_file" || fail "the dropped news item was not logged"
-rec "$ro" >/dev/null || fail "rebuild lost an open request whose content is still at its home"
+rec "$ro" >/dev/null || fail "rebuild lost an open request whose content is still at its home (re-opened after a settle, so event order matters)"
+[ "$(rec "$ro" | cut -f 12)" = open ] || fail "the re-opened request was rebuilt closed"
+grep -q 'ic0ffee11' "$store" && fail "rebuild re-admitted a forged born line whose pointer escapes its root"
+grep -q '\.\./secret' "$store" && fail "a traversal pointer reached the store through the rebuild"
+[ "$(cut -f 3 "$surface/delivery/$A")" = 0 ] || fail "the rebuild kept a hand-over stamp that described the lost store"
 rec "$rd" >/dev/null || fail "rebuild lost the delivered-but-open request"
 [ "$(rec "$rd" | cut -f 14)" = 0 ] || fail "the delivered-but-open request was not reset for one redelivery"
 rec "$rs" >/dev/null || fail "rebuild lost the shelved request"
@@ -303,10 +336,10 @@ printf '%s\n' "$before_ids" | grep -q "^$qk$" || fail "fixture: $qk missing befo
 [ "$(record_count)" = 5 ] || fail "rebuilt store holds $(record_count) records, expected 5 (the open question, three requests, the new row)"
 echo "ok: a lost store rebuilds from the content homes with the same identifiers, redelivering at most once and dropping only what moved on"
 
-# The tower's own hand-over record outlives the store: at 1040 its last
-# hand-over (1026) is still unanswered inside the quiet interval, so nothing
-# is printed; the next reply then releases the rebuilt question once more.
-[ -z "$out" ] || fail "the first next after the rebuild handed over or knocked while a hand-over was outstanding: '$out'"
+# The rebuild cleared the tower's own delivery record with the store, so the
+# rebuilt queue starts with a knock; the reply then releases the rebuilt
+# question once more.
+[ "$(field "$out" 1)" = knock ] || fail "the first next after the rebuild did not knock: '$out'"
 marker $A 1041
 out=$(run next --tower $A --now 1042) || fail "next after rebuild"
 [ "$(field "$out" 2)" = "$qk" ] || fail "after the rebuild the open question was not delivered first: '$out'"

@@ -61,6 +61,12 @@ run() {
     /bin/sh "$TQ" "$@"
 }
 
+# run_outside <args> — the same, invoked from a directory that is no
+# repository, where the presence script can resolve no identity.
+run_outside() {
+  (cd "$tmp" && run "$@")
+}
+
 marker() {
   mkdir -p "$surface/attention"
   chmod 0700 "$surface/attention"
@@ -161,20 +167,45 @@ out=$(PLANWRIGHT_TOWER_ID=uuid-tower-1 run next --now 5001) || fail "next via PL
 [ "$(lease_of "$f1")" = uuid-tower-1 ] || fail "the lease owner is not the identity from the environment"
 run ack "$f1" --tower uuid-tower-1 --now 5002 >/dev/null
 f2=$(add_req f2 normal 5003)
-out=$(PLANWRIGHT_TOWER_PID=$$ run next --now 5004 2>"$tmp/err") || fail "next with no identity"
-[ "$(field "$out" 1)" = knock ] || fail "no knock under the fallback identity: '$out'"
+# A pid resolves through the presence script (the composite identity the
+# tower published under) when the checkout can answer; from a directory that
+# is no repository the presence script refuses, and the session-scoped
+# fallback is minted from the pid instead.
+out=$(PLANWRIGHT_TOWER_PID=$$ run next --now 5004 2>"$tmp/err") || fail "next with a pid identity"
+[ "$(field "$out" 1)" = knock ] || fail "no knock under the pid identity: '$out'"
 owner=$(lease_of "$f2")
+case "$owner" in
+  p$$.t*.c*) ;;
+  *) fail "a pid in a checkout did not resolve to the presence identity: '$owner'" ;;
+esac
+grep -q 'fallback' "$tmp/err" && fail "a resolved presence identity was announced as a fallback"
+run ack "$f2" --tower "$owner" --now 5005 >/dev/null || fail "ack under the presence identity"
+f3=$(add_req f3 normal 5006)
+out=$(PLANWRIGHT_TOWER_PID=$$ run_outside next --now 5007 2>"$tmp/err") || fail "next with no identity outside a checkout"
+[ "$(field "$out" 1)" = knock ] || fail "no knock under the fallback identity: '$out'"
+owner=$(lease_of "$f3")
 case "$owner" in
   fallback.p$$.t[0-9]*) ;;
   *) fail "the fallback identity is not session-scoped: '$owner'" ;;
 esac
 grep -q 'fallback' "$tmp/err" || fail "leasing under a fallback identity was not announced"
 mkdir -p "$surface/attention"
-printf '5005\n' >"$surface/attention/$owner"
+printf '5008\n' >"$surface/attention/$owner"
 chmod 0600 "$surface/attention/$owner"
-out=$(PLANWRIGHT_TOWER_PID=$$ run next --now 5006 2>/dev/null) || fail "next again under the fallback"
-[ "$(field "$out" 2)" = "$f2" ] || fail "a later caller did not read the fallback identity back: '$out'"
-PLANWRIGHT_TOWER_PID=$$ run ack "$f2" --now 5007 >/dev/null 2>&1 || fail "ack under the fallback identity was refused"
+out=$(PLANWRIGHT_TOWER_PID=$$ run_outside next --now 5009 2>/dev/null) || fail "next again under the fallback"
+[ "$(field "$out" 2)" = "$f3" ] || fail "a later caller did not read the fallback identity back: '$out'"
+PLANWRIGHT_TOWER_PID=$$ run_outside ack "$f3" --now 5010 >/dev/null 2>&1 || fail "ack under the fallback identity was refused"
+sleep 30 &
+other=$!
+f4=$(add_req f4 normal 5011)
+out=$(PLANWRIGHT_TOWER_PID=$other run_outside next --now 5012 2>/dev/null) || fail "next under another pid"
+kill "$other" 2>/dev/null || true
+[ "$(lease_of "$f4")" != "$owner" ] || fail "two different tower pids minted one fallback identity"
+case "$(lease_of "$f4")" in fallback.p$other.t*) ;; *) fail "the fallback does not name its own pid: '$(lease_of "$f4")'" ;; esac
+run ack "$f4" --tower "$(lease_of "$f4")" --now 5013 >/dev/null || fail "ack f4 under the other fallback identity"
+rc=0
+PLANWRIGHT_TOWER_SESSION_ID=not-a-uuid run next --now 5013 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "a session id that is no UUID: exit $rc, expected 2"
 echo "ok: the lease owner is the presence identity, else a session-scoped fallback read back by a later caller"
 
 # --- a store that cannot be written is an error in the turn (REQ-C1.11) --------------
@@ -182,10 +213,14 @@ echo "ok: the lease owner is the presence identity, else a session-scoped fallba
 g1=$(add_req g1 normal 6000)
 mv "$store" "$tmp/store.bak"
 mkdir "$store"
-rc=0
-run next --tower $A --now 6001 >/dev/null 2>"$tmp/err" || rc=$?
-[ "$rc" = 6 ] || fail "next over an unwritable store: exit $rc, expected 6"
-grep -q 'store' "$tmp/err" || fail "the unwritable store was not reported"
+printf 'g2\n' >"$content/g2"
+for verb in "next --tower $A" "add --kind request --root $content --pointer g2 --origin operator --closes done" "ack $g1 --tower $A" "shelve $g1 --tower $A" "settle $g1 --reason x"; do
+  rc=0
+  # shellcheck disable=SC2086
+  run $verb --now 6001 >/dev/null 2>"$tmp/err" || rc=$?
+  [ "$rc" = 6 ] || fail "$verb over an unwritable store: exit $rc, expected 6"
+  grep -q 'store' "$tmp/err" || fail "$verb: the unwritable store was not reported"
+done
 rmdir "$store"
 mv "$tmp/store.bak" "$store"
 echo "ok: an unwritable store surfaces an error rather than a silent skip"
@@ -233,7 +268,36 @@ run next --tower $A --now 8000 >/dev/null 2>"$tmp/err" || rc=$?
 [ "$rc" = 4 ] || fail "a lease interval below the quiet interval: exit $rc, expected 4"
 grep -q 'tower_lease_interval' "$tmp/err" || fail "the floor refusal does not name the knob"
 printf 'tower_quiet_interval: 500ms\ntower_lease_interval: 750ms\n' >"$local_cfg"
-run next --tower $A --now 8001 >/dev/null 2>&1 || fail "sub-second intervals were refused"
+h1=$(add_req h1 normal 8000)
+out=$(run next --tower $A --now 8001) || fail "sub-second intervals were refused"
+[ "$(field "$out" 1)" = knock ] || fail "expected a knock under sub-second intervals: '$out'"
+run list --now 8001 | grep -q "^$h1$TAB" || fail "a fractional lease made the record unparseable"
+case "$(rec "$h1" | cut -f 20)" in
+  "" | *[!0-9]*) fail "the lease expiry is not a whole epoch: '$(rec "$h1" | cut -f 20)'" ;;
+esac
+# A quiet interval under a second lapses across a one-second gap: the reply
+# at 8001 confirms attention at 8001 and not at 8003.
+marker $A 8001
+out=$(run next --tower $A --now 8003) || fail "next after a sub-second lapse"
+[ "$(field "$out" 1)" = knock ] || fail "a 500ms quiet interval did not lapse across two seconds: '$out'"
 echo "ok: the lease interval is floored at the quiet interval, and both accept sub-second values"
+
+# --- a holder with no marker yet is present for one quiet interval ---------------
+
+printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\n' >"$local_cfg"
+run settle "$h1" --reason 'fixture done' --now 8004 >/dev/null || fail "settle h1"
+C=tower-c
+k1=$(add_req k1 normal 9000)
+out=$(run next --tower $C --now 9001 2>/dev/null) || fail "C knocks k1"
+[ "$(field "$out" 1)" = knock ] || fail "C did not knock: '$out'"
+run next --tower $B --now 9002 >/dev/null || fail "B knock while C holds"
+marker $B 9003
+out=$(run next --tower $B --now 9004) || fail "B attended while C, markerless, just knocked"
+[ -z "$out" ] || fail "B preempted a lease whose holder knocked seconds ago and has no marker yet: '$out'"
+[ "$(lease_of "$k1")" = $C ] || fail "the markerless holder lost its lease inside the quiet interval"
+marker $B 9150
+out=$(run next --tower $B --now 9151) || fail "B after C's quiet interval ran out"
+[ "$(field "$out" 2)" = "$k1" ] || fail "B did not preempt once the markerless holder's quiet interval ran out: '$out'"
+echo "ok: a holder whose marker has not appeared counts as present until its quiet interval runs out"
 
 echo "ALL PASS: tower-queue lease"
