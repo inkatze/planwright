@@ -129,6 +129,17 @@ else
   ok "operative halt list reads 'not Ready or Active', not bare non-Active"
 fi
 
+# tower-comms REQ-G1.6: the loop's two event-log writers are named in the
+# body, so a later word-budget trim cannot silently drop the tick or the
+# delivered-turn log (the script alone cannot prove its caller exists).
+for call in 'tower-loop-log.sh tick' 'tower-loop-log.sh delivered'; do
+  if grep -qF "$call" "$skill"; then
+    ok "watch loop names \`$call\` (tower-comms REQ-G1.6)"
+  else
+    fail "watch loop no longer names \`$call\` (tower-comms REQ-G1.6: the log must not depend on the session remembering)"
+  fi
+done
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

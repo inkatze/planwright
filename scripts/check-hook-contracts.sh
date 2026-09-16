@@ -85,7 +85,11 @@ HOOKS_OVERRIDDEN=0
 
 # CONTRACT TABLE: <event>|<silence>|<control>|<required-output-noun>
 # The noun is used only for silence=refuses rows, to name what a declared
-# implementer failed to produce.
+# implementer failed to produce. UserPromptSubmit is modelled `decision`
+# although plain stdout is not dropped there: the harness adds it to the
+# model's context, so a handler that prints text is injecting context, not
+# deciding; the non-JSON finding below still names the right remedy (emit a
+# decision object, or nothing).
 CONTRACTS='
 PreToolUse|proceeds|decision|
 PostToolUse|proceeds|observation|

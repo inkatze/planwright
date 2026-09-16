@@ -259,8 +259,8 @@ REQ-B1.1–B1.5). Never silently pick one. Resolve in order:
 Concurrency is capped by `max_parallel_units` (via config-get): if that many
 units already derive **In progress** for this spec (the live derivation sees
 just-written markers), do not dispatch another; report the cap and exit.
-Division of labor is `inter-orchestrator-coordination`'s (D-7): read it when
-relaying to or cleaning up after a worker.
+Division of labor is defined in `inter-orchestrator-coordination` (D-7); read
+it when relaying to or cleaning up after a worker.
 
 - **stream-json-persistent** (the shipped default's usual rung: what
   `full-session` resolves to wherever `claude` is installed). A
@@ -296,12 +296,12 @@ with the reason surfaced).
 `scripts/fleet-presence.sh publish` then `discover`: never assume solitude;
 failure postures (exits 2–5) per `docs/fleet.md`.
 
-**Event log (tower-comms D-14, D-15).** Each iteration run
-`scripts/tower-loop-log.sh tick` (the live-worker count, coalesced by the
-log); after every turn delivered to the operator, in `--watch` or a single
-step, pipe its text to `scripts/tower-loop-log.sh delivered [--asks <n>]`.
-Both take `--tower <id>`, else `PLANWRIGHT_TOWER_ID`. Operator replies are
-logged by the plugin's prompt-submit hook; the loop is otherwise unchanged.
+**Event log (tower-comms D-14, D-15).** Each iteration, run
+`scripts/tower-loop-log.sh tick` (the live-worker count); after every turn
+delivered to the operator, in `--watch` or a single step, pipe its text to
+`scripts/tower-loop-log.sh delivered [--asks <n>]`. Both take `--tower <id>`,
+else `PLANWRIGHT_TOWER_ID`; neither blocks the step on failure. The
+prompt-submit hook logs operator replies.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
 REQ-C1.4).** A `--watch` tower can silently fill its context window. Each

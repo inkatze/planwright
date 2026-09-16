@@ -1,47 +1,56 @@
 #!/bin/sh
 # tower-reply-hook.sh — the UserPromptSubmit hook that turns an operator reply
-# into the two records the operator queue reads (tower-comms D-6, D-14;
-# REQ-C1.10, REQ-G1.6, REQ-G1.8, REQ-H1.4).
+# into the two records the operator queue and the scorecard read (tower-comms
+# D-6, D-14; REQ-C1.10, REQ-G1.6, REQ-G1.8, REQ-H1.4).
 #
 # WHAT IT WRITES, IN ORDER.
 #   1. The attention marker: <fleet-home>/tower-comms/attention/<tower-id>, one
 #      line holding the epoch of this reply (millisecond decimals when the
 #      clock has them), owner-only, replaced by rename, written under NO
-#      shared lock so it is never dropped. `tower-queue.sh next` hands over
-#      nothing until this marker shows a reply later than its own last
-#      delivery, so the marker is the only thing that confirms attention and
-#      the log line below is not (D-6).
+#      shared lock so it is never dropped. The queue's `next` verb, once it
+#      lands, hands over nothing until this marker shows a reply later than
+#      its own last knock and hand-over, so the marker is the only thing that
+#      confirms attention and the log line below is not (D-6).
 #   2. The `reply` event, appended through `tower-queue.sh log`, which owns
 #      the fleet lock, the sequence, the bounded lock wait and the
 #      secret-shaped redaction: this hook parses no secrets and redacts
 #      nothing itself (REQ-G1.8). A lock wait past `tower_hook_lock_wait`
 #      drops the line into events.dropped (the verb's exit 3) and the turn
-#      proceeds; the marker has already advanced.
+#      proceeds; the marker has already advanced. The line carries the
+#      payload's prompt id when it has one.
 #
 # THE GATE (kickoff risk row 5). The plugin registers this hook in every
 # session it is loaded in. It is a no-op unless the payload's session id names
-# a LIVE published presence record on the payload cwd's repository surface —
+# a published presence record on the payload cwd's repository surface —
 # `fleet-presence.sh liveness` answering `self` — never a prose or env test a
-# session could satisfy by accident. A worker session, an operator's ordinary
-# session, and a session in a checkout with no origin all read `no-record` or
-# a non-zero presence exit and write nothing. Before the presence query runs
-# at all, a fleet home with no presence surface exits: no tower has ever
-# published on this machine, so nothing here can be one.
+# session could satisfy by accident. A session id is unique to its session,
+# so a record by that name is this session's own, published by its own tower
+# loop; the process asking is running, which is what makes the record live. A
+# worker session, an operator's ordinary session, a session in a checkout
+# with no origin, and a tower that published its presence by `--pid` rather
+# than `--session-id` (the composite identity this hook cannot derive) all
+# write nothing. Two fork-free tests run before the presence query: the fleet
+# home must hold a presence surface, and that surface must hold a record
+# named by this session id under some repository; only then does the
+# authoritative, repo-scoped query run.
 #
 # HOOK DISCIPLINE. On this event the harness ADDS plain stdout to the model's
 # context and reads exit 2 as "block and erase the prompt" (the hooks
 # reference, consulted 2026-09-15), so this hook prints nothing on stdout,
-# exits 0 on every path, signals included, and says what it declined on stderr
-# only. The payload is read as a bounded prefix and walked by the hook's own
-# awk (no JSON tool, REQ-K1.5): every string is data, and the three values it uses —
-# session id, cwd, prompt — are validated against their grammars before
-# anything is done with them. A prompt is flattened to one line of printable
-# bytes and bounded to the log's value cap; one shaped like a JSON object or
-# array (which the log verb refuses as nesting) is logged without its text,
-# marked `text_omitted`, so the reply still counts.
+# exits 0 on every path it controls (the hangup, interrupt, quit, pipe and
+# termination signals included), and says what it declined on stderr only.
+# The payload is read as a bounded prefix, the rest drained so the writer is
+# never broken, and walked by the hook's own awk (no JSON tool, REQ-K1.5):
+# every string is data, and the values it uses — session id, cwd, prompt,
+# prompt id — are validated against their grammars before anything is done
+# with them. A prompt is flattened to one line of printable bytes and bounded
+# to the log's value cap; one shaped like a JSON object or array (which the
+# log verb refuses as nesting) is logged without text and marked
+# `text_omitted`, so the reply still counts.
 #
 # Plain portable shell, no model invocation (REQ-H1.4); bash 3.2 / BSD floor.
-# Pathname expansion is off (set -f): the mode checks word-split an `ls` line.
+# Pathname expansion is off (set -f) except at the one marked record glob:
+# the mode checks word-split an `ls` line.
 set -uf
 
 LC_ALL=C
@@ -50,7 +59,7 @@ unset CDPATH
 
 # Every exit is 0: a hook exit code is a verdict on the operator's prompt, and
 # this hook has none to give.
-trap 'exit 0' INT TERM
+trap 'exit 0' INT TERM HUP QUIT PIPE
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 0
 if [ ! -r "$script_dir/echo-safety.sh" ]; then
@@ -63,6 +72,10 @@ fi
 FS="$script_dir/fleet-state.sh"
 FP="$script_dir/fleet-presence.sh"
 TQ="$script_dir/tower-queue.sh"
+tab=$(printf '\t')
+# The log verb's value cap, restated here because the text is cut before the
+# verb sees it; the verb refuses an over-long value rather than truncating.
+VALUE_CAP=4096
 
 PENDING_TMP=""
 cleanup() {
@@ -70,53 +83,163 @@ cleanup() {
 }
 trap 'cleanup' EXIT
 
-decline() {
+warn() {
   printf '%s\n' "tower-reply-hook: $1" >&2
-  exit 0
 }
 
+# The session-id UUID shape (8-4-4-4-12 hex), as fleet-presence.sh reads it.
+# The glob's `?` also admits `-`, so the second pattern is what refuses a
+# dash-heavy non-UUID.
 is_uuid() {
   [ "${#1}" -eq 36 ] || return 1
   case "$1" in
     ????????-????-????-????-????????????) ;;
     *) return 1 ;;
   esac
-  _h=$(printf '%s' "$1" | tr -d -- '-')
-  [ "${#_h}" -eq 32 ] || return 1
-  case "$_h" in
-    *[!0-9a-fA-F]*) return 1 ;;
+  case "$1" in
+    *[!0-9a-fA-F-]*) return 1 ;;
   esac
   return 0
 }
 
+# The private-surface checks tower-queue.sh keeps (its check_private_dir and
+# check_private_file, kept in step: the mode globs are one invariant), with
+# `return 1` in place of its exit so a refused marker still lets the reply
+# reach the log. The execute column of the group and other triples also
+# spells setgid/sticky, which a setgid fleet home makes every fresh mkdir
+# inherit, so those two letters are not a widening. A refusal names the path
+# and is never repaired here (REQ-A1.4: verify-or-refuse, never narrowed).
+my_uid=""
+check_private_dir() {
+  _p=$1
+  if [ -L "$_p" ]; then
+    warn "security: $(sanitize_printable "$_p" "(unprintable path)") is a symlink — refusing to write through a redirect"
+    return 1
+  fi
+  [ -d "$_p" ] || mkdir "$_p" 2>/dev/null || [ -d "$_p" ] || {
+    warn "cannot create $(sanitize_printable "$_p" "(unprintable path)")"
+    return 1
+  }
+  # shellcheck disable=SC2012
+  _l=$(ls -ldn "$_p" 2>/dev/null) || _l=""
+  # shellcheck disable=SC2086
+  set -- $_l
+  case "${1:-}" in
+    d???--[-S]--[-T] | d???--[-S]--[-T][@.]*) ;;
+    *)
+      warn "security: $(sanitize_printable "$_p" "(unprintable path)") is not verifiably owner-only (mode ${1:-unreadable}); chmod 700 it yourself after finding out how it widened"
+      return 1
+      ;;
+  esac
+  [ "${3:-}" = "$my_uid" ] || {
+    warn "security: $(sanitize_printable "$_p" "(unprintable path)") is owned by uid ${3:-?}, not this user; refusing it"
+    return 1
+  }
+  return 0
+}
+
+check_private_file() {
+  _p=$1
+  [ -e "$_p" ] || [ -L "$_p" ] || return 0
+  if [ -L "$_p" ]; then
+    warn "security: $(sanitize_printable "$_p" "(unprintable path)") is a symlink — refusing to write through a redirect"
+    return 1
+  fi
+  # shellcheck disable=SC2012
+  _l=$(ls -ln "$_p" 2>/dev/null) || _l=""
+  # shellcheck disable=SC2086
+  set -- $_l
+  case "${1:-}" in
+    -???------ | -???------[@.]*) ;;
+    *)
+      warn "security: $(sanitize_printable "$_p" "(unprintable path)") is not owner-only (mode ${1:-unreadable}); chmod 600 it yourself after finding out how it widened"
+      return 1
+      ;;
+  esac
+  [ "${3:-}" = "$my_uid" ] || {
+    warn "security: $(sanitize_printable "$_p" "(unprintable path)") is owned by uid ${3:-?}, not this user; refusing it"
+    return 1
+  }
+  return 0
+}
+
+# The reply time as seconds with millisecond decimals when `date +%N` yields a
+# real nanosecond field, else whole seconds.
+clock_s() {
+  _t=$(date '+%s %N' 2>/dev/null)
+  case "$_t" in
+    [0-9]*' '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9])
+      _ns=${_t##* }
+      printf '%s.%.3s\n' "${_t%% *}" "$_ns"
+      ;;
+    *) date +%s ;;
+  esac
+}
+
+# field <key> — the value the payload walker printed for <key>, or nothing.
+field() {
+  printf '%s\n' "$fields" | awk -F'\t' -v k="$1" '$1 == k { sub(/^[^\t]*\t/, ""); print; exit }'
+}
+
 # --- the payload -----------------------------------------------------------
 
-payload=$(head -c 65536 2>/dev/null) || payload=""
+# A bounded prefix, the remainder drained: a prompt past the bound must not
+# break the harness's write with a closed pipe.
+payload=$({
+  head -c 65536
+  cat >/dev/null 2>&1
+} 2>/dev/null) || payload=""
 [ -n "$payload" ] || exit 0
 
+# The cheap gate first, before any fork the ordinary session would pay for:
+# the session id read by one regex (the envelope leads the payload, so the
+# first match is the harness's), then a fork-free test for a presence record
+# by that name. The full walk below re-reads the session id and the two must
+# agree.
+sid=$(printf '%s\n' "$payload" | awk '
+  match($0, /"session_id"[ \t\r\n]*:[ \t\r\n]*"[^"]*"/) {
+    seg = substr($0, RSTART, RLENGTH)
+    sub(/^"session_id"[ \t\r\n]*:[ \t\r\n]*"/, "", seg)
+    sub(/"$/, "", seg)
+    print seg
+    exit
+  }')
+is_uuid "$sid" || exit 0
+home=$("$FS" root 2>/dev/null) || exit 0
+[ -d "$home/presence" ] || exit 0
+# The one glob: the session id is validated above, so no pattern character
+# reaches it, and a miss leaves the literal pattern, which does not exist.
+set +f
+set -- "$home"/presence/*/"$sid"
+set -f
+[ -e "$1" ] || exit 0
+
 # One walk over the top-level object, printing `<key><TAB><value>` for the
-# three keys this hook reads, in payload order, first occurrence only. Strings
-# are read with their escapes resolved (an escaped control character becomes a
-# space; a `\u` escape becomes a space); nested values are skipped with
-# string-aware bracket counting; an unterminated string means the bounded read
-# cut the payload, and nothing after the cut is read. Tabs and newlines are
-# replaced inside every printed value so the tag split below cannot be forged.
+# keys this hook reads, in payload order, first occurrence only. Strings are
+# read with their escapes resolved (an escaped control character becomes a
+# space; a `\u` escape becomes a space), by segment between escapes rather
+# than byte by byte, so a long prompt costs one pass; nested values are
+# skipped with string-aware bracket counting; an unterminated string means
+# the bounded read cut the payload, and nothing after the cut is read. Tabs
+# and newlines are replaced inside every printed value so the tag split
+# below cannot be forged.
 fields=$(printf '%s\n' "$payload" | awk '
   function skipws() { while (i <= n && substr(s, i, 1) ~ /[ \t\r\n]/) i++ }
-  function readstr(    c, e) {
+  function readstr(    rest, j, c, e) {
     val = ""; i++
     while (i <= n) {
+      rest = substr(s, i)
+      j = match(rest, /["\\]/)
+      if (j == 0) { val = val rest; i = n + 1; return 0 }
+      val = val substr(rest, 1, j - 1)
+      i += j - 1
       c = substr(s, i, 1)
       if (c == "\"") { i++; return 1 }
-      if (c == "\\") {
-        e = substr(s, i + 1, 1)
-        if (e == "\"" || e == "\\" || e == "/") val = val e
-        else if (e == "u") { val = val " "; i += 4 }
-        else val = val " "
-        i += 2
-        continue
-      }
-      val = val c; i++
+      e = substr(s, i + 1, 1)
+      if (e == "\"" || e == "\\" || e == "/") val = val e
+      else if (e == "u") { val = val " "; i += 4 }
+      else val = val " "
+      i += 2
     }
     return 0
   }
@@ -138,6 +261,13 @@ fields=$(printf '%s\n' "$payload" | awk '
     }
     while (i <= n && substr(s, i, 1) !~ /[,}]/) i++
     return 1
+  }
+  function emit(key) {
+    if (!(key in seen) && (key == "session_id" || key == "cwd" || key == "prompt" || key == "prompt_id")) {
+      seen[key] = 1
+      gsub(/[\t\r\n]/, " ", val)
+      print key "\t" val
+    }
   }
   { s = s $0 "\n" }
   END {
@@ -163,140 +293,86 @@ fields=$(printf '%s\n' "$payload" | awk '
           # part (an over-long prompt is the ordinary way to reach the bound,
           # and the log keeps its first bytes anyway); a partial identity or
           # path is not one.
-          if (key == "prompt" && !("prompt" in seen)) {
-            gsub(/[\t\r\n]/, " ", val)
-            print key "\t" val
-          }
+          if (key == "prompt") emit(key)
           exit
         }
-        if ((key == "session_id" || key == "cwd" || key == "prompt") && !(key in seen)) {
-          seen[key] = 1
-          gsub(/[\t\r\n]/, " ", val)
-          print key "\t" val
-        }
+        emit(key)
       } else if (!skipvalue()) exit
     }
   }')
 
-field() {
-  printf '%s\n' "$fields" | awk -F'\t' -v k="$1" '$1 == k { sub(/^[^\t]*\t/, ""); print; exit }'
-}
-
-sid=$(field session_id | tr -d '\000-\037\177')
+walked_sid=$(field session_id | tr -d '\000-\037\177')
+[ "$walked_sid" = "$sid" ] || exit 0
 cwd=$(field cwd | tr -d '\000-\037\177')
-is_uuid "$sid" || exit 0
 case "$cwd" in
   /*) ;;
   *) exit 0 ;;
 esac
 [ -d "$cwd" ] || exit 0
+prompt_id=$(field prompt_id | tr -d '\000-\037\177')
+is_uuid "$prompt_id" || prompt_id=""
 
 # --- the gate ---------------------------------------------------------------
 
-home=$("$FS" root 2>/dev/null) || exit 0
-[ -d "$home/presence" ] || exit 0
 verdict=$("$FP" liveness --checkout "$cwd" --session-id "$sid" "$sid" 2>/dev/null) || exit 0
-[ "$verdict" = "$(printf 'tower\t%s\tself' "$sid")" ] || exit 0
+case "$verdict" in
+  "tower${tab}${sid}${tab}self") ;;
+  *) exit 0 ;;
+esac
 
 # --- the attention marker, lock-free, before anything that can wait ----------
 
 umask 077
-my_uid=$(id -u 2>/dev/null) || decline "cannot resolve the current uid; reply not recorded"
-
-# Verify-or-refuse (REQ-A1.4), the sub-surface discipline tower-queue.sh keeps:
-# a symlink, a widened mode, or a foreign owner is refused and left for the
-# operator, never narrowed here. The execute column of the group and other
-# triples also spells setgid/sticky, which a setgid fleet home makes every
-# fresh mkdir inherit, so those two letters are not a widening.
-private_dir() {
-  if [ -L "$1" ]; then
-    printf '%s\n' "tower-reply-hook: security: $(sanitize_printable "$1" "(unprintable path)") is a symlink — refusing to write through a redirect" >&2
-    return 1
-  fi
-  [ -d "$1" ] || mkdir "$1" 2>/dev/null || [ -d "$1" ] || {
-    printf '%s\n' "tower-reply-hook: cannot create $(sanitize_printable "$1" "(unprintable path)")" >&2
-    return 1
-  }
-  # shellcheck disable=SC2012
-  _l=$(ls -ldn "$1" 2>/dev/null) || _l=""
-  # shellcheck disable=SC2086
-  set -- $_l
-  case "${1:-}" in
-    d???--[-S]--[-T] | d???--[-S]--[-T][@.]*) ;;
-    *)
-      printf '%s\n' "tower-reply-hook: security: the marker directory is not verifiably owner-only (mode ${1:-unreadable}); chmod 700 it yourself after finding out how it widened" >&2
-      return 1
-      ;;
-  esac
-  [ "${3:-}" = "$my_uid" ] || {
-    printf '%s\n' "tower-reply-hook: security: the marker directory is owned by uid ${3:-?}, not this user; refusing it" >&2
-    return 1
-  }
-  return 0
-}
-
-private_file_or_absent() {
-  [ -e "$1" ] || [ -L "$1" ] || return 0
-  if [ -L "$1" ]; then
-    printf '%s\n' "tower-reply-hook: security: the marker is a symlink — refusing to write through a redirect" >&2
-    return 1
-  fi
-  # shellcheck disable=SC2012
-  _l=$(ls -ln "$1" 2>/dev/null) || _l=""
-  # shellcheck disable=SC2086
-  set -- $_l
-  case "${1:-}" in
-    -???------ | -???------[@.]*) ;;
-    *)
-      printf '%s\n' "tower-reply-hook: security: the marker is not owner-only (mode ${1:-unreadable}); chmod 600 it yourself after finding out how it widened" >&2
-      return 1
-      ;;
-  esac
-  [ "${3:-}" = "$my_uid" ] || {
-    printf '%s\n' "tower-reply-hook: security: the marker is owned by uid ${3:-?}, not this user; refusing it" >&2
-    return 1
-  }
-  return 0
-}
-
-# The reply time as seconds with millisecond decimals when `date +%N` yields a
-# real nanosecond field, else whole seconds: a reply and the delivery it
-# answers can share a second, and the queue compares the two.
-clock_s() {
-  _t=$(date '+%s %N' 2>/dev/null)
-  case "$_t" in
-    [0-9]*' '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9])
-      _ns=${_t##* }
-      printf '%s.%.3s\n' "${_t%% *}" "$_ns"
-      ;;
-    *) date +%s ;;
-  esac
-}
-
 surface="$home/tower-comms"
 marker_dir="$surface/attention"
 marker="$marker_dir/$sid"
-if private_dir "$surface" && private_dir "$marker_dir" && private_file_or_absent "$marker"; then
+my_uid=$(id -u 2>/dev/null) || my_uid=""
+if [ -z "$my_uid" ]; then
+  warn "cannot resolve the current uid; the attention marker was not advanced"
+elif ! check_private_dir "$surface" || ! check_private_dir "$marker_dir" || ! check_private_file "$marker"; then
+  :
+else
   now=$(clock_s) || now=""
   case "$now" in
     [1-9]*) ;;
     *) now="" ;;
   esac
   if [ -z "$now" ]; then
-    printf '%s\n' "tower-reply-hook: cannot read the clock; the attention marker was not advanced" >&2
+    warn "cannot read the clock; the attention marker was not advanced"
   else
     PENDING_TMP=$(mktemp "$marker_dir/.$sid.XXXXXX" 2>/dev/null) || PENDING_TMP=""
-    if [ -z "$PENDING_TMP" ] || ! printf '%s\n' "$now" >"$PENDING_TMP" 2>/dev/null || ! mv -f "$PENDING_TMP" "$marker" 2>/dev/null; then
-      printf '%s\n' "tower-reply-hook: cannot write the attention marker; the queue will not see this reply" >&2
+    if [ -n "$now" ] && [ -n "$PENDING_TMP" ] && printf '%s\n' "$now" >"$PENDING_TMP" 2>/dev/null && mv -f "$PENDING_TMP" "$marker" 2>/dev/null; then
+      PENDING_TMP=""
+    else
+      warn "cannot write the attention marker; the queue will not see this reply"
+      [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP" 2>/dev/null || true
+      PENDING_TMP=""
     fi
-    PENDING_TMP=""
   fi
 fi
 
 # --- the reply line, through the log verb -----------------------------------
 
-text=$(field prompt | tr '\000-\037\177' ' ' | head -c 4096 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+# Flatten, bound, trim: every control byte becomes a space, the text is cut
+# at the value cap with any multi-byte character the cut split dropped, and
+# the edges are trimmed.
+text=$(field prompt | tr '\000-\037\177' ' ' | head -c "$VALUE_CAP" | awk '
+  BEGIN { for (b = 0; b < 256; b++) ord[sprintf("%c", b)] = b }
+  {
+    t = $0
+    L = length(t)
+    k = L
+    while (k >= 1 && k > L - 4 && ord[substr(t, k, 1)] >= 128 && ord[substr(t, k, 1)] < 192) k--
+    if (k >= 1) {
+      lead = ord[substr(t, k, 1)]
+      need = (lead >= 240) ? 3 : (lead >= 224) ? 2 : (lead >= 192) ? 1 : 0
+      if (need > L - k) t = substr(t, 1, k - 1)
+    }
+    print t
+    exit
+  }' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 set -- log reply --tower "$sid"
+[ -z "$prompt_id" ] || set -- "$@" "prompt_id=$prompt_id"
 case "$text" in
   "") ;;
   '{'*'}' | '['*']') set -- "$@" text_omitted=json-shaped ;;

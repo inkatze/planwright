@@ -48,7 +48,10 @@ the fixture, and update the handler that reads the changed key.
 the shared envelope had grown `agent_type` on every event (plus `prompt_id`,
 `scratchpad_dir`, `agent_id` and `effort`, each present only when set); the
 fixture carries `agent_type` for that reason, and its reader,
-`scripts/tower-reply-hook.sh`, uses only `session_id`, `cwd` and `prompt`.
+`scripts/tower-reply-hook.sh`, uses only `session_id`, `cwd`, `prompt` and
+`prompt_id`. The other fixtures predate that growth and are not verified
+against those binaries; re-deriving them in one pass is recorded in the
+observations log.
 
 ## The asymmetry that caused the outage
 

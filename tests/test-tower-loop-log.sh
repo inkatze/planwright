@@ -102,8 +102,14 @@ run env PLANWRIGHT_TOWER_ID='../x' /bin/sh "$TL" tick --now 9000 >/dev/null 2>&1
 rc=0
 run env PLANWRIGHT_TOWER_SESSION_ID='not-a-uuid' /bin/sh "$TL" tick --now 9000 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "malformed PLANWRIGHT_TOWER_SESSION_ID: exit $rc, expected 2"
+rc=0
+run /bin/sh "$TL" tick --tower '' --now 9000 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "empty --tower: exit $rc, expected 2 (never a silent fallback)"
+rc=0
+run env PLANWRIGHT_TOWER_ID="$tower" /bin/sh "$TL" tick --now '' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "empty --now: exit $rc, expected 2 (never silently the wall clock)"
 [ ! -e "$log_file" ] || fail "malformed identities: a line was written"
-echo "ok: a missing or malformed tower identity is refused and nothing is written"
+echo "ok: a missing, malformed, or empty tower identity or time is refused and nothing is written"
 
 # --- one pass over an empty fleet: one tick at live=0 ---------------------------
 
@@ -126,6 +132,9 @@ attn decide w-blocked tc:task-5 'which way?' a 'a|b' || fail "fixture: decide"
 attn heartbeat w-ended tc:task-6 ended || fail "fixture: heartbeat ended"
 attn heartbeat w-merged tc:task-7 merged || fail "fixture: heartbeat merged"
 attn heartbeat w-done tc:task-8 'done' || fail "fixture: heartbeat done"
+# Rows no verb writes: a junk state, an empty handle, and a duplicate of a live
+# handle. None may change the count.
+printf 'w-junk\ttc:task-9\tbanana\t9000\n\ttc:task-10\tworking\t9000\nw-idle\ttc:task-2\tidle\t9001\n' >>"$home/attention/state"
 
 run env PLANWRIGHT_TOWER_ID="$tower" /bin/sh "$TL" tick --now 9100 >"$tmp/out" || fail "fixture tick: exit"
 [ "$(line_count "$log_file")" = 2 ] || fail "fixture tick: $(line_count "$log_file") lines, expected 2 (exactly one new tick)"
@@ -140,8 +149,8 @@ echo "ok: one pass emits one tick whose live count matches the fleet (ended, mer
 run env PLANWRIGHT_TOWER_ID="$tower" /bin/sh "$TL" tick --now 9160 >/dev/null || fail "coalesced tick: exit"
 [ "$(line_count "$log_file")" = 2 ] || fail "coalesced tick: $(line_count "$log_file") lines, expected 2 (coalesced, not appended)"
 case "$(last_line)" in
-  *'"live":5,"until":9160}') ;;
-  *) fail "coalesced tick: until did not advance: $(last_line)" ;;
+  *'"ts":9100,"kind":"tick"'*'"live":5,"until":9160}') ;;
+  *) fail "coalesced tick: until did not advance or ts moved: $(last_line)" ;;
 esac
 echo "ok: a second pass at the same count coalesces rather than appending"
 
@@ -157,7 +166,7 @@ echo "ok: a changed count appends, and the session-id identity form is accepted"
 
 # --- delivered: the turn's text flattened, bounded, redacted, counted as prose ---
 
-token="ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij0123"
+token="ghp_""ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij0123"
 printf 'Step report.\n\nDispatched task 3.\tToken %s.\nTwo asks?\n' "$token" \
   | run /bin/sh "$TL" delivered --tower "$tower" --asks 2 --now 9300 >"$tmp/out" || fail "delivered: exit"
 [ "$(line_count "$log_file")" = 4 ] || fail "delivered: $(line_count "$log_file") lines, expected 4"
@@ -181,28 +190,65 @@ printf '' | run /bin/sh "$TL" delivered --tower "$tower" --now 9302 >/dev/null 2
 [ "$(line_count "$log_file")" = 4 ] || fail "refused deliveries: a line was written"
 echo "ok: a non-numeric ask count and an empty turn are refused"
 
+# A turn shaped like a JSON object lands without its text, marked.
+printf '{"a": 1}\n' | run /bin/sh "$TL" delivered --tower "$tower" --now 9303 >/dev/null || fail "json-shaped delivered: exit"
+case "$(last_line)" in
+  *'"kind":"delivered"'*'"text_omitted":"json-shaped"'*) ;;
+  *) fail "json-shaped delivered: not marked text_omitted: $(last_line)" ;;
+esac
+case "$(last_line)" in
+  *'"text":'*) fail "json-shaped delivered: the text reached the log: $(last_line)" ;;
+esac
+echo "ok: a JSON-shaped turn is logged as a delivery with its text omitted"
+
 # Over-long text is bounded to the log's value cap and the line still parses.
 awk 'BEGIN { for (i = 0; i < 700; i++) printf "word%04d ", i; printf "\n" }' \
   | run /bin/sh "$TL" delivered --tower "$tower" --now 9400 >/dev/null || fail "long delivered: exit"
 last=$(last_line)
-text_len=$(printf '%s' "$last" | awk -F'"text":"' '{ x = $2; sub(/"}$/, "", x); split(x, a, "\","); print length(a[1]) }')
+text_len() { # text_len <line> — the byte length of the line's text value (no quotes inside)
+  printf '%s' "$1" | awk '{ x = $0; sub(/^.*"text":"/, "", x); sub(/".*$/, "", x); print length(x) }'
+}
+text_len=$(text_len "$last")
 [ "$text_len" -le 4096 ] || fail "long delivered: text is $text_len bytes, above the 4096 cap"
 [ "$text_len" -ge 4000 ] || fail "long delivered: text is $text_len bytes, truncated far below the cap"
 echo "ok: an over-long turn is bounded to the value cap"
 
+# A cut that lands inside a multi-byte character drops the split character:
+# 2000 three-byte em dashes are 6000 bytes; 4096 is one byte into a character,
+# so 4095 remain.
+awk 'BEGIN { for (i = 0; i < 2000; i++) printf "\342\200\224"; printf "\n" }' \
+  | run /bin/sh "$TL" delivered --tower "$tower" --now 9401 >/dev/null || fail "multibyte delivered: exit"
+text_len=$(text_len "$(last_line)")
+[ "$text_len" = 4095 ] || fail "multibyte delivered: text is $text_len bytes, expected 4095 (a whole number of characters)"
+echo "ok: the cap never leaves a split multi-byte character"
+
+# An unreadable or dangling store is refused rather than read as an idle fleet.
+chmod 0000 "$home/attention/state"
+rc=0
+run /bin/sh "$TL" tick --tower "$tower" --now 9450 >/dev/null 2>"$tmp/err" || rc=$?
+chmod 0600 "$home/attention/state"
+if [ "$(id -u)" != 0 ]; then
+  [ "$rc" = 6 ] || fail "unreadable store: exit $rc, expected 6"
+  grep -q 'cannot be read' "$tmp/err" || fail "unreadable store: the refusal is not explained"
+fi
+mv "$home/attention/state" "$tmp/state.bak"
+ln -s "$tmp/does-not-exist" "$home/attention/state"
+rc=0
+run /bin/sh "$TL" tick --tower "$tower" --now 9451 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "dangling store: exit $rc, expected 6"
+rm -f "$home/attention/state"
+mv "$tmp/state.bak" "$home/attention/state"
+echo "ok: an unreadable or dangling attention store writes no tick"
+
 # --- the scorecard reads what the loop wrote ------------------------------------
 
 report=$(run /bin/sh "$TQ" report --log "$log_file" --now 9500 --window 1h --tick-gap-max 10m) || fail "report failed"
-for want in "malformed	0" "prose_deliveries	2" "delivered_items	2" "tick_gaps	0" "jargon_identifiers	0"; do
+for want in "malformed	0" "prose_deliveries	4" "delivered_items	4" "tick_gaps	0" "jargon_identifiers	0" "fleet_hours	0.02"; do
   case "$report" in
     *"$want"*) ;;
     *) fail "report: expected '$want' in: $report" ;;
   esac
 done
-case "$report" in
-  *"fleet_hours	0.0"[0-9]*) ;;
-  *) fail "report: fleet hours should cover the tick spans (roughly 9100-9400): $report" ;;
-esac
 echo "ok: the scorecard reads the ticks as fleet hours and the turns as prose deliveries"
 
 echo "ALL PASS: tower loop log"

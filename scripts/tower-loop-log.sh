@@ -9,30 +9,39 @@
 #       carrying that count. A worker is live when its row in the fleet's
 #       attention store (`<fleet-home>/attention/state`, the surface every
 #       heartbeating backend writes) is in a live state — working, idle,
-#       hung, awaiting-input or pr-ready. ended, merged and done are not live,
-#       and a row whose state is none of those is corruption and counts
-#       nothing. The log verb coalesces the tick with the previous one when
-#       the count is unchanged, so a steady fleet costs one line per count
-#       change and the scorecard's fleet hours come from these spans. Prints
-#       `tick<TAB>live=<n>` on success.
+#       hung, awaiting-input or pr-ready. ended, merged and done are not live;
+#       a row whose state is none of those, or whose handle is empty, is
+#       corruption and counts nothing; a handle that appears twice counts
+#       once. The store is one per host, so the count is the fleet's, not
+#       this tower's (two towers sharing a host each tick the whole count,
+#       and the scorecard unions their spans); a backend that never
+#       heartbeats (print) is invisible to it. The log verb coalesces the
+#       tick with the previous one when the count is unchanged, so a steady
+#       fleet costs one line per count change and the scorecard's fleet hours
+#       come from these spans. Prints `tick<TAB>live=<n>` on success.
 #   delivered [--tower <id>] [--asks <n>] [--now <epoch>]   (text on stdin)
 #       A turn the tower delivered to the operator: the text is flattened to
 #       one line of printable bytes, bounded to the log's value cap, and
 #       appended as a `delivered` line with no item, which the scorecard
 #       counts as a prose delivery; `asks` is the number of asks the turn
-#       carried, for the multi-ask measure. Prints nothing on success.
+#       carried, for the multi-ask measure. A turn shaped like a JSON object
+#       or array (which the log verb refuses as nesting) lands without its
+#       text, marked `text_omitted`. Prints nothing on success.
 #
 # The tower identity is `--tower`, else PLANWRIGHT_TOWER_ID, else
 # PLANWRIGHT_TOWER_SESSION_ID (the presence surface's UUID form) — the order
-# the queue verbs and fleet-register.sh resolve it in — and none resolvable is
-# a refusal, because a tick or a delivery with no writing tower is a line the
-# scorecard cannot attribute (REQ-G1.6).
+# fleet-register.sh resolves it in, minus its pid fallback — and none
+# resolvable is a refusal, because a tick or a delivery with no writing tower
+# is a line the scorecard cannot attribute (REQ-G1.6). `--now` is the fixture
+# and test seam; the loop leaves it unset. A flag given with an empty value
+# is passed through and refused by the log verb, never silently dropped.
 #
 # Exit: 0 written (a coalesced tick included); 2 usage or refused input (no
-#   identity, a malformed one, a non-numeric ask count, an empty turn); 6 the
-#   attention store exists but cannot be read; otherwise the log verb's own
-#   exit (3 the bounded lock wait expired and the line was dropped, 4 the
-#   surface refused, 5 broken install, 6 infrastructure).
+#   identity, a malformed one, a non-numeric ask count, an empty turn, a turn
+#   with no stdin); 5 broken install; 6 the fleet home or the attention store
+#   cannot be read (no tick rather than a wrong count); otherwise the log
+#   verb's own exit (2 a refused flag value, 3 the bounded lock wait expired
+#   and the line was dropped, 4 the surface refused, 6 infrastructure).
 #
 # Plain portable shell, no model invocation (REQ-H1.4); bash 3.2 / BSD floor.
 set -uf
@@ -51,6 +60,9 @@ fi
 
 FS="$script_dir/fleet-state.sh"
 TQ="$script_dir/tower-queue.sh"
+# The log verb's value cap, restated here because the text is cut before the
+# verb sees it; the verb refuses an over-long value rather than truncating.
+VALUE_CAP=4096
 
 usage() {
   cat >&2 <<'EOF'
@@ -64,25 +76,13 @@ err() {
   printf '%s\n' "tower-loop-log: $1" >&2
 }
 
+# Kept in step with tower-queue.sh's is_tower and is_count: the verb checks
+# both again, and these copies exist only to refuse before a line is built.
 is_tower() {
   case "$1" in
     "" | *[!A-Za-z0-9._-]* | .* | -*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
-}
-
-is_uuid() {
-  [ "${#1}" -eq 36 ] || return 1
-  case "$1" in
-    ????????-????-????-????-????????????) ;;
-    *) return 1 ;;
-  esac
-  _h=$(printf '%s' "$1" | tr -d -- '-')
-  [ "${#_h}" -eq 32 ] || return 1
-  case "$_h" in
-    *[!0-9a-fA-F]*) return 1 ;;
-  esac
-  return 0
 }
 
 is_count() {
@@ -92,15 +92,30 @@ is_count() {
   [ "${#1}" -le 15 ]
 }
 
-# resolve_tower <flag-value> — the identity in the documented order, or a
-# refusal naming the source that failed.
+# The session-id UUID shape (8-4-4-4-12 hex), as fleet-presence.sh reads it.
+# The glob's `?` also admits `-`, so the second pattern is what refuses a
+# dash-heavy non-UUID.
+is_uuid() {
+  [ "${#1}" -eq 36 ] || return 1
+  case "$1" in
+    ????????-????-????-????-????????????) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    *[!0-9a-fA-F-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# resolve_tower <flag-given> <flag-value> — the identity in the documented
+# order, or a refusal naming the source that failed.
 resolve_tower() {
-  if [ -n "$1" ]; then
-    is_tower "$1" || {
-      err "refusing --tower '$(sanitize_printable "$1" "(unprintable identity)")': not a tower identity"
+  if [ "$1" = 1 ]; then
+    is_tower "$2" || {
+      err "refusing --tower '$(sanitize_printable "$2" "(unprintable identity)")': not a tower identity"
       exit 2
     }
-    printf '%s\n' "$1"
+    printf '%s\n' "$2"
     return 0
   fi
   if [ -n "${PLANWRIGHT_TOWER_ID:-}" ]; then
@@ -130,16 +145,17 @@ live_workers() {
     exit 6
   }
   _store="$_home/attention/state"
-  if [ ! -e "$_store" ]; then
+  if [ ! -e "$_store" ] && [ ! -L "$_store" ]; then
     printf '0\n'
     return 0
   fi
-  [ -r "$_store" ] || {
+  # A dangling or unreadable store is refused, never read as an idle fleet.
+  if [ ! -f "$_store" ] || [ ! -r "$_store" ]; then
     err "the attention store exists but cannot be read; no tick written rather than a wrong count"
     exit 6
-  }
+  fi
   awk -F'\t' '
-    $1 != "" && ($3 == "working" || $3 == "idle" || $3 == "hung" || $3 == "awaiting-input" || $3 == "pr-ready") { n++ }
+    $1 != "" && !seen[$1]++ && ($3 == "working" || $3 == "idle" || $3 == "hung" || $3 == "awaiting-input" || $3 == "pr-ready") { n++ }
     END { print n + 0 }' "$_store" 2>/dev/null || {
     err "cannot read the attention store"
     exit 6
@@ -158,7 +174,9 @@ case "$cmd" in
 esac
 
 tower_arg=""
+tower_set=0
 now=""
+now_set=0
 asks=""
 asks_set=0
 while [ "$#" -gt 0 ]; do
@@ -166,11 +184,13 @@ while [ "$#" -gt 0 ]; do
     --tower)
       [ "$#" -ge 2 ] || usage
       tower_arg=$2
+      tower_set=1
       shift 2
       ;;
     --now)
       [ "$#" -ge 2 ] || usage
       now=$2
+      now_set=1
       shift 2
       ;;
     --asks)
@@ -184,10 +204,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-tower=$(resolve_tower "$tower_arg") || exit $?
+tower=$(resolve_tower "$tower_set" "$tower_arg") || exit $?
 
 set -- log "$cmd" --tower "$tower"
-[ -z "$now" ] || set -- "$@" --now "$now"
+[ "$now_set" = 0 ] || set -- "$@" --now "$now"
 
 case "$cmd" in
   tick)
@@ -197,13 +217,32 @@ case "$cmd" in
     ;;
   delivered)
     if [ "$asks_set" = 1 ] && ! is_count "$asks"; then
-      err "refusing --asks '$(sanitize_printable "$asks" "(unprintable count)")': a non-negative integer"
+      err "refusing --asks '$(sanitize_printable "$asks" "(unprintable count)")': not a non-negative integer"
+      exit 2
+    fi
+    if [ -t 0 ]; then
+      err "the delivered turn's text is read on stdin; pipe it in"
       exit 2
     fi
     # Flatten, bound, trim: every control byte (newlines and tabs included)
-    # becomes a space, the text is cut at the log's value cap, and the edges
-    # are trimmed so a turn that ends in a newline does not end in a space.
-    text=$(head -c 65536 2>/dev/null | tr '\000-\037\177' ' ' | head -c 4096 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    # becomes a space, the text is cut at the value cap with any multi-byte
+    # character the cut split dropped, and the edges are trimmed so a turn
+    # that ends in a newline does not end in a space.
+    text=$(head -c "$VALUE_CAP" 2>/dev/null | tr '\000-\037\177' ' ' | awk '
+      BEGIN { for (b = 0; b < 256; b++) ord[sprintf("%c", b)] = b }
+      {
+        t = $0
+        L = length(t)
+        k = L
+        while (k >= 1 && k > L - 4 && ord[substr(t, k, 1)] >= 128 && ord[substr(t, k, 1)] < 192) k--
+        if (k >= 1) {
+          lead = ord[substr(t, k, 1)]
+          need = (lead >= 240) ? 3 : (lead >= 224) ? 2 : (lead >= 192) ? 1 : 0
+          if (need > L - k) t = substr(t, 1, k - 1)
+        }
+        print t
+        exit
+      }' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
     case "$text" in
       "")
         err "nothing to log: the delivered turn's text on stdin is empty"
