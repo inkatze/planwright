@@ -1040,8 +1040,9 @@ The liveness hooks above are observers: they watch a session and write to the
 attention store, and a session behaves identically whether they fire or not.
 That is true of every event planwright registers — `PreToolUse`, `PostToolUse`,
 `SessionStart`, `SessionEnd`, `Stop`, `StopFailure`, `Notification`,
-`PermissionRequest`, `WorktreeRemove`. Some of them *can* block, but only if a
-handler explicitly says so; a quiet handler changes nothing.
+`PermissionRequest`, `UserPromptSubmit`, `WorktreeRemove`. Some of them *can*
+block, but only if a handler explicitly says so; a quiet handler changes
+nothing.
 
 `WorktreeCreate` is the exception, and planwright does not register it.
 Registering a hook there **replaces** native git worktree creation: the hook

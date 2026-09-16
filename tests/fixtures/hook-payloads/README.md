@@ -44,6 +44,12 @@ LC_ALL=C grep -a -o 'hook_event_name:"<Event>"[^;]\{0,180\}' "$claude_bin"
 the CLI changes shape, that test fails: re-derive with the command above, update
 the fixture, and update the handler that reads the changed key.
 
+`UserPromptSubmit.json` was derived later, from 2.1.271 through 2.1.273, where
+the shared envelope had grown `agent_type` on every event (plus `prompt_id`,
+`scratchpad_dir`, `agent_id` and `effort`, each present only when set); the
+fixture carries `agent_type` for that reason, and its reader,
+`scripts/tower-reply-hook.sh`, uses only `session_id`, `cwd` and `prompt`.
+
 ## The asymmetry that caused the outage
 
 `WorktreeCreate` carries `name` — a bare worktree name, because the hook is the

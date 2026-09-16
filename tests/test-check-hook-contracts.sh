@@ -134,6 +134,11 @@ assert_eq "Notification own keys" \
   "message,notification_type,title" "$(own_keys Notification)"
 assert_eq "PermissionRequest own keys" \
   "permission_suggestions,tool_input,tool_name" "$(own_keys PermissionRequest)"
+# Read out of 2.1.271 / 2.1.272 / 2.1.273 (tower-comms Task 2): the shared
+# envelope now also carries agent_type on every event, so it is pinned here as
+# this event's own key the way SessionStart's already is.
+assert_eq "UserPromptSubmit own keys" \
+  "agent_type,prompt,session_title" "$(own_keys UserPromptSubmit)"
 
 # The asymmetry the outage was built on, asserted in both directions.
 assert_eq "WorktreeCreate own keys are exactly {name}" \

@@ -95,6 +95,7 @@ Stop|proceeds|decision|
 StopFailure|proceeds|observation|
 Notification|proceeds|observation|
 PermissionRequest|proceeds|decision|
+UserPromptSubmit|proceeds|decision|
 WorktreeCreate|refuses|decision|worktree path
 WorktreeRemove|proceeds|observation|
 '
