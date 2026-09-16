@@ -713,3 +713,24 @@ tower_hook_lock_wait: 2s
 tower_log_rotate_age: 30d
 tower_report_window: 7d
 tower_tick_gap_max: 10m
+
+# Tower-comms queue store: attention and the delivery lease (tower-comms D-6,
+# D-9, D-18; REQ-A1.8, REQ-C1.10, REQ-F1.1). The two intervals are time spans
+# in the grammar above, sub-second values included; the limit is a count.
+#
+# tower_quiet_interval   how long a knock or a hand-over may go unanswered in
+#                        one tower's conversation before its attention lapses
+#                        (the operator is away there) and the next delivery
+#                        knocks again.
+# tower_lease_interval   the backstop expiry of the lease `next` takes on the
+#                        item it hands to a tower; release is by event
+#                        (acknowledgement, shelve, settling) and the lease is
+#                        renewed by the holder's replies, so this only catches
+#                        a tower that died holding an item. Floored at
+#                        tower_quiet_interval: a value below it is refused.
+# tower_catchup_limit    how many settled items the store keeps (and the
+#                        catch-up renders) beyond the open ones; the settled
+#                        history past it is the event log's.
+tower_quiet_interval: 10m
+tower_lease_interval: 15m
+tower_catchup_limit: 20

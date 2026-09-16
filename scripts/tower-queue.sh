@@ -1,9 +1,131 @@
 #!/bin/sh
-# tower-queue.sh — the operator queue's script (tower-comms). This revision
-# ships the event log and the scorecard: the `log` verb every queue writer,
-# the tower loop, and the prompt-submit hook append through, and the `report`
-# verb that computes the operator's load from that log alone (D-14, D-15;
-# REQ-G1.1, REQ-G1.2, REQ-G1.5 to REQ-G1.8). The queue verbs land beside them.
+# tower-queue.sh — the operator queue's script (tower-comms). Three parts:
+# the event log (`log`), the scorecard computed from it alone (`report`), and
+# the queue store with its verbs (`add`, `list`, `next`, `ack`, `shelve`,
+# `settle`, `counts`) — D-2 to D-6, D-14, D-18; REQ-A1.1 to REQ-A1.9,
+# REQ-C1.1, REQ-C1.2, REQ-C1.5, REQ-C1.10, REQ-C1.11, REQ-G1.1 to REQ-G1.8.
+#
+# THE STORE. `<home>/tower-comms/queue`, one tab-separated record per item,
+# the index and delivery state only: the content lives where its kind already
+# does (a worker's question or a piece of news in the attention store row, a
+# request, an approval or a standing decision in a file under a declared
+# root) and is written there BEFORE the record that points at it — `add`
+# refuses a pointer at nothing. The twenty fields, every one validated
+# against its grammar before a write and sanitized on the way out:
+#
+#    1 id          i + 8 hex, derived from the content home's key (below)
+#    2 kind        question | approval | request | news | standing
+#    3 urgency     high | normal | low (a worker question inherits its row's)
+#    4 origin      the source worker's handle, or the operator's turn
+#    5 born        epoch
+#    6 home        attention | path
+#    7 pointer     the worker handle (attention) or a relative path (path)
+#    8 instance    the row's instance id (a question), its state.stamp
+#                  (news), or -
+#    9 root        the canonical absolute root a path pointer is under, or -
+#   10 park        a second relative path under that root (the Awaiting-input
+#                  bullet of a parked question), or -
+#   11 closes      the human action or the evidence that closes the item
+#   12 state       open | closed
+#   13 knocked     epoch of the last knock naming it, or 0
+#   14 delivered   epoch of the last hand-over, or 0
+#   15 acked       epoch of the acknowledgement, or 0
+#   16 shelved     epoch the shelve returns at, or 0
+#   17 settled     epoch it settled, or 0
+#   18 settled_by  what settled it, or -
+#   19 lease       the holding tower's identity, or -
+#   20 lease_until the lease's backstop expiry, or 0
+#
+# The identifier is derived from the key `<kind>|<home>|<pointer>|<instance>
+# |<root>` (a CRC over it), so an `add` of content already queued is a
+# no-op that prints the existing id, and a rebuild from the content homes
+# mints the same ids the lost store held. A closing condition that promises
+# an automatic step is refused: it names the human action (an answer, a
+# go-ahead) or the evidence that settles the item. A standing decision is
+# registered like any other item and is the one kind `next` never ranks or
+# hands over; its closing condition is the operator revoking the rule.
+#
+# Every write rides the fleet advisory lock, bounded by `tower_hook_lock_wait`
+# and reported as an error at expiry rather than written unlocked, and lands
+# by same-directory temp and atomic rename after the store is re-read and
+# compared with the copy taken on entry: the lock carries no holder token, so
+# a store that changed under it is the signature of a broken lock and the
+# write is refused. The lock is held for the read, the in-process rewrite and
+# the rename only; the event-log line each verb owes is appended AFTER the
+# lock is released, through the `log` verb's own critical section. Retention
+# runs inside every write: the open items are kept whole and the settled ones
+# only the most recent `tower_catchup_limit` of them, the catch-up's own
+# horizon (the settled history beyond it is the event log's, REQ-A1.5).
+#
+# ATTENTION AND THE LEASE (`next`). `next` hands over at most one item per
+# call, ordered by consequence: questions (blocked workers) before approvals
+# before the operator's requests before news, then urgency, then age. It is
+# knock-first, enforced here rather than by instruction: the only thing that
+# confirms attention is the per-tower marker file the prompt-submit hook
+# writes at `<home>/tower-comms/attention/<tower>` — one line holding the
+# epoch of the operator's last reply, owner-only, written lock-free by the
+# hook alone. Per tower, `<home>/tower-comms/delivery/<tower>` records the
+# last knock and the last hand-over. Attention is confirmed when the marker
+# shows a reply later than both of those and within `tower_quiet_interval`;
+# then `next` hands over the item the knock pinned (or the top item when the
+# top has not been pinned) and stamps the hand-over. With attention
+# unconfirmed it prints the knock line — kind and urgency of what is
+# waiting — when a knock is due: nothing is outstanding, the last outbound
+# has gone unanswered past the quiet interval, or the top item changed since
+# the knock. While a knock or a hand-over is outstanding it prints nothing
+# at all, and never repeats the knock on a schedule; the away re-knock on
+# worsening is the delivery task's. A marker that never appears is reported
+# on stderr after the first knock rather than knocked at forever.
+#
+# The item handed over is leased to the calling tower under the lock, at
+# the knock (which pins it) and at each hand-over. Another tower skips a
+# leased item. The lease is released by acknowledgement, shelve and
+# settling, and expires at `tower_lease_interval` only as a backstop; it is
+# renewed by the holder's replies (the holder's marker plus the interval
+# extends it, read at each pass, so the hook writes nothing here) and may be
+# preempted by a tower whose attention is confirmed while the holder's
+# operator is away (no reply there within the quiet interval): the other
+# tower knocks about the item without taking the lease, and takes it over
+# on the reply that confirms its attention. `tower_lease_interval` below `tower_quiet_interval` is refused: an
+# attended conversation must never lose the item it is holding. A delivered
+# item stays out of the caller's own candidates while its lease lives (it is
+# in hand); when the lease lapses the item is a candidate again, which is
+# the one redelivery the loss budget allows. The tower's identity is the
+# `--tower` flag, else PLANWRIGHT_TOWER_ID, else PLANWRIGHT_TOWER_SESSION_ID
+# (the presence surface's UUID form), else a tower-session-scoped fallback
+# minted from the tower's pid and start time and written into the lease
+# record so a later reader can tell whose lease it is.
+#
+# A record pointing at an attention row is checked against the row at every
+# pass: a question whose row re-forked has its instance id and urgency
+# refreshed; one whose row is no longer awaiting input, or whose row is gone,
+# is not handed over (the settling pass closes it with the reason). A store,
+# a marker or a delivery file that cannot be written is an error in the turn
+# (exit 6); the one fail-open case is the `delivered` log line, whose failure
+# is reported while the hand-over stands (REQ-C1.11).
+#
+# `ack <id>` closes an item and never releases the next; it is refused (exit
+# 1, a `refused` line logged) when the caller holds no lease on it and is a
+# logged no-op on a closed item. `shelve <id>` parks an item until
+# `tower_shelve_return` (or `--for`) and never drops it; `settle <id>
+# --reason` closes it on evidence, naming what settled it (the level-
+# triggered settling pass itself is the settling task's; every locked verb
+# already applies the derived part — shelve returns, lease expiry, pointer
+# refresh — before it acts). `list` prints every open item and never a
+# settled one; `counts` prints the open count per kind, the total over the
+# ranked kinds, and the top item's kind, which is what the status line's
+# `waiting` field reads. Both are lock-free reads.
+#
+# REBUILD. When the store is absent a locked verb rebuilds it inside the lock
+# (absence re-checked there, so two towers cannot both rebuild) from the
+# content homes: every awaiting-input attention row becomes a question item,
+# and every `born` line in the event log with no `acknowledged` or `settled`
+# after it is re-registered when its content home still holds the content —
+# with the same identifier, since it comes from the same key — or logged as
+# `dropped` with reason `rebuild` when the home has moved on. A rebuilt item
+# is undelivered, so a delivered-but-open item is delivered once more; shelve
+# deadlines and settling reasons are the store's alone and do not return; the
+# settled history is the event log's (REQ-A1.5).
 #
 # THE LOG. One flat JSON object per line under a 0700 sub-surface of the
 # cross-spec fleet home (`fleet-state.sh root`): `<home>/tower-comms/`, holding
@@ -79,15 +201,20 @@
 # fixtures and tests. On demand only: `mise run tower:report`, never CI
 # (REQ-G1.5).
 #
-# Exit: 0 done (a coalesced tick included); 1 `report` found no log to read;
-#   2 usage or refused input; 3 the bounded lock wait expired (line dropped);
-#   4 the sub-surface, the log, or a counter is not verifiably owner-only, or
-#   a repo-tracked knob is malformed (the by-layer policy); 5 broken install;
+# Exit: 0 done (a coalesced tick included); 1 `report` found no log to read,
+#   or a queue verb refused on state (an `ack` or `shelve` by a tower that
+#   holds no lease on the item); 2 usage or refused input; 3 the bounded lock
+#   wait expired (a log line dropped, a queue write not made);
+#   4 the sub-surface, the log, a counter, the store, a marker or a delivery
+#   file is not verifiably owner-only, or a repo-tracked knob is malformed
+#   (the by-layer policy), or `tower_lease_interval` is below
+#   `tower_quiet_interval`; 5 broken install;
 #   6 an infrastructure failure — a directory, temp file, rename, append,
-#   clock or helper fork that would not answer, so the event was NOT
-#   recorded. A caller reading 3 as "expected drop, carry on" and 2 as "I
-#   called it wrong" needs 6 to stay distinct from both: it is the code that
-#   says the host, not the call, is what stopped the log.
+#   clock or helper fork that would not answer, or a store that changed under
+#   the lock, so the event was NOT recorded. A caller reading 3 as "expected
+#   drop, carry on" and 2 as "I called it wrong" needs 6 to stay distinct
+#   from both: it is the code that says the host, not the call, is what
+#   stopped the log.
 #
 # Plain portable shell, no model invocation anywhere (REQ-H1.4); bash 3.2 /
 # BSD tooling floor. Pathname expansion is off (set -f): the mode checks
@@ -123,6 +250,14 @@ usage() {
   cat >&2 <<'EOF'
 usage: tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> ...]
        tower-queue.sh report [--log <path>] [--now <epoch>] [--window <duration>] [--tick-gap-max <duration>]
+       tower-queue.sh add --kind <kind> --origin <who> [--closes <text>] [--urgency high|normal|low]
+                      (--worker <handle> | --root <dir> --pointer <rel>) [--park <rel>] [--now <epoch>]
+       tower-queue.sh next [--tower <id>] [--now <epoch>]
+       tower-queue.sh ack <id> [--tower <id>] [--now <epoch>]
+       tower-queue.sh shelve <id> [--tower <id>] [--for <duration>] [--now <epoch>]
+       tower-queue.sh settle <id> --reason <text> [--now <epoch>]
+       tower-queue.sh list [--all]
+       tower-queue.sh counts
 EOF
   exit 2
 }
@@ -279,31 +414,37 @@ check_duration() {
   }
 }
 
-# resolve_log_knobs — the four knobs `log` reads, resolved side by side into
-# lock_wait, gap_max, rotate_age and window (seconds). Each resolution is a
-# chain of forks costing a third of a second on the support bar, and this
-# verb runs on every operator prompt from the hook and on every tower-loop
-# pass, so the four run concurrently and the wall clock pays for one. Each
-# resolver's exit and value land in its own file; stderr is replayed in
-# order so a degrade warning is never lost, and the first non-zero exit is
-# this script's exit, the same contract as `knob`.
-resolve_log_knobs() {
+# resolve_knobs <name:type:fallback> ... — the knobs a verb reads, resolved
+# side by side. Each resolution is a chain of forks costing a third of a
+# second on the support bar, and `log` runs on every operator prompt from
+# the hook and every queue verb on every tower-loop pass, so they run
+# concurrently and the wall clock pays for one. Each resolver's exit and
+# value land in its own file; stderr is replayed in order so a degrade
+# warning is never lost, and the first non-zero exit is this script's exit,
+# the same contract as `knob`. A duration lands in its variable as seconds,
+# a posint as itself; the name-to-variable mapping is the case below.
+resolve_knobs() {
   _kd=$(mktemp -d 2>/dev/null) || {
     err "cannot create a scratch dir for the knob reads"
     exit 6
   }
   KNOB_DIR=$_kd
-  for _ks in "tower_hook_lock_wait 2s" "tower_tick_gap_max 10m" "tower_log_rotate_age 30d" "tower_report_window 7d"; do
+  for _ks in "$@"; do
     (
-      _kn=${_ks%% *}
-      _kf=${_ks#* }
-      _kv=$("$RCK" --key "$_kn" --type duration --fallback "$_kf" 2>"$_kd/$_kn.err")
+      _kn=${_ks%%:*}
+      _kr=${_ks#*:}
+      _kt=${_kr%%:*}
+      _kf=${_kr#*:}
+      _kv=$("$RCK" --key "$_kn" --type "$_kt" --fallback "$_kf" 2>"$_kd/$_kn.err")
       _krc=$?
       printf '%s\n%s\n' "$_krc" "$_kv" >"$_kd/$_kn"
     ) &
   done
   wait
-  for _kn in tower_hook_lock_wait tower_tick_gap_max tower_log_rotate_age tower_report_window; do
+  for _ks in "$@"; do
+    _kn=${_ks%%:*}
+    _kr=${_ks#*:}
+    _kt=${_kr%%:*}
     [ ! -s "$_kd/$_kn.err" ] || cat "$_kd/$_kn.err" >&2
     _krc=$(sed -n 1p "$_kd/$_kn" 2>/dev/null)
     _kv=$(sed -n 2p "$_kd/$_kn" 2>/dev/null)
@@ -318,17 +459,45 @@ resolve_log_knobs() {
         exit "$_krc"
         ;;
     esac
-    check_duration "$_kn" "$_kv"
-    _ksec=$(duration_seconds "$_kv")
+    if [ "$_kt" = duration ]; then
+      check_duration "$_kn" "$_kv"
+      _kv=$(duration_seconds "$_kv")
+    else
+      is_count "$_kv" && [ "$_kv" -gt 0 ] || {
+        err "the '$_kn' knob resolved to '$(sanitize_printable "$_kv" "(unprintable value)")', which is not a positive integer"
+        exit 4
+      }
+    fi
     case "$_kn" in
-      tower_hook_lock_wait) lock_wait=$_ksec ;;
-      tower_tick_gap_max) gap_max=$_ksec ;;
-      tower_log_rotate_age) rotate_age=$_ksec ;;
-      tower_report_window) window=$_ksec ;;
+      tower_hook_lock_wait) lock_wait=$_kv ;;
+      tower_tick_gap_max) gap_max=$_kv ;;
+      tower_log_rotate_age) rotate_age=$_kv ;;
+      tower_report_window) window=$_kv ;;
+      tower_quiet_interval) quiet=$_kv ;;
+      tower_lease_interval) lease_iv=$_kv ;;
+      tower_catchup_limit) catchup_limit=$_kv ;;
+      tower_shelve_return) shelve_return=$_kv ;;
     esac
   done
   rm -rf "$_kd"
   KNOB_DIR=""
+}
+
+resolve_log_knobs() {
+  resolve_knobs tower_hook_lock_wait:duration:2s tower_tick_gap_max:duration:10m \
+    tower_log_rotate_age:duration:30d tower_report_window:duration:7d
+}
+
+# resolve_queue_knobs — the knobs every queue verb reads. The lease interval
+# is floored at the quiet interval and a value below it refused: an attended
+# conversation must never lose the item it is holding to the backstop.
+resolve_queue_knobs() {
+  resolve_knobs tower_hook_lock_wait:duration:2s tower_quiet_interval:duration:10m \
+    tower_lease_interval:duration:15m tower_catchup_limit:posint:20
+  if awk -v l="$lease_iv" -v q="$quiet" 'BEGIN { exit (l < q) ? 0 : 1 }'; then
+    err "tower_lease_interval (${lease_iv}s) is below tower_quiet_interval (${quiet}s); the lease is floored at the quiet interval, so raise the one or lower the other"
+    exit 4
+  fi
 }
 
 # redact <value> [<key>] — the one secret-shaped redaction helper (REQ-G1.8).
@@ -496,6 +665,10 @@ resolve_surface() {
   log_file="$surface/events.log"
   seq_file="$surface/events.seq"
   dropped_file="$surface/events.dropped"
+  store_file="$surface/queue"
+  delivery_dir="$surface/delivery"
+  marker_dir="$surface/attention"
+  attn_store="$home/attention/state"
 }
 
 # The fleet home is fleet-state's surface, not this script's: created here
@@ -607,11 +780,13 @@ release_lock() {
 # created inside the 0700 sub-surface: a signal between `mktemp` and the
 # rename that consumes it would otherwise leave a full copy of the event log
 # behind, one per interruption.
+SCRATCH=""
 cleanup() {
   release_lock
   [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP" 2>/dev/null || true
   [ -z "$WORK_TMP" ] || rm -f "$WORK_TMP" 2>/dev/null || true
   [ -z "$KNOB_DIR" ] || rm -rf "$KNOB_DIR" 2>/dev/null || true
+  [ -z "$SCRATCH" ] || rm -rf "$SCRATCH" 2>/dev/null || true
 }
 trap 'cleanup' EXIT
 trap 'exit 130' INT
@@ -1310,14 +1485,1129 @@ cmd_report() {
   }' <"$log_path"
 }
 
+# ---------------------------------------------------------------------------
+# The queue store: grammar and helpers
+# ---------------------------------------------------------------------------
+
+Q_KINDS="question approval request news standing"
+Q_URGENCIES="high normal low"
+STANDING_CLOSES="the operator revokes the rule"
+QUESTION_CLOSES="the operator answers"
+
+refuse() {
+  err "$1"
+  exit 2
+}
+
+is_item_id() {
+  case "$1" in
+    i[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
+  esac
+  return 1
+}
+
+# is_one_of <value> <space-separated list>
+is_one_of() {
+  # shellcheck disable=SC2086
+  for _ix in $2; do
+    [ "$1" != "$_ix" ] || return 0
+  done
+  return 1
+}
+
+# is_text <value> <max> — a free-text field: non-empty, at most <max> bytes,
+# no control byte (a tab or a newline included), no leading whitespace.
+is_text() {
+  [ -n "$1" ] || return 1
+  [ "${#1}" -le "$2" ] || return 1
+  [ "$(printf '%s' "$1" | tr -d '\000-\037\177')" = "$1" ] || return 1
+  case "$1" in
+    ' '*) return 1 ;;
+  esac
+  return 0
+}
+
+# promises_automation <closes> — 0 when the closing condition promises a
+# future automatic step rather than naming a human action or evidence.
+promises_automation() {
+  _pl=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$_pl" in
+    *automatic* | *auto-* | *'on its own'* | *'by itself'* | *'self-'* | *'will be closed'* | *'will close'*) return 0 ;;
+  esac
+  return 1
+}
+
+# resolve_tower <flag> — the calling tower's identity by the header's ladder;
+# sets tower and tower_fallback.
+resolve_tower() {
+  tower=$1
+  tower_fallback=0
+  [ -n "$tower" ] || tower=${PLANWRIGHT_TOWER_ID:-}
+  [ -n "$tower" ] || tower=${PLANWRIGHT_TOWER_SESSION_ID:-}
+  if [ -z "$tower" ]; then
+    _tp=${PLANWRIGHT_TOWER_PID:-$PPID}
+    is_count "$_tp" || _tp=$PPID
+    _tl=$(ps -p "$_tp" -o lstart= 2>/dev/null | tr -d ' ') || _tl=""
+    if [ -n "$_tl" ]; then
+      tower="fallback.p$_tp.t$(printf '%s' "$_tl" | cksum | cut -d' ' -f1)"
+    else
+      tower="fallback.p$_tp"
+    fi
+    tower_fallback=1
+  fi
+  is_tower "$tower" || refuse "refusing tower identity '$(sanitize_printable "$tower" "(unprintable identity)")'"
+}
+
+canon_dir() {
+  (cd -P -- "$1" 2>/dev/null && pwd -P)
+}
+
+# check_pointer <root> <rel> <what> — validate a content pointer against the
+# declared root and set PTR_ROOT (the canonical root) and PTR_REL (the
+# canonical relative path). The traversal refusal runs on the text before
+# anything is resolved, then the directory is resolved physically and
+# containment-checked, and the last component may not be a symlink: a
+# pointer that escapes through a link is refused the same as one that walks
+# out with `..`. The content must already be at its home.
+check_pointer() {
+  _pr=$1
+  _pp=$2
+  _pw=$3
+  is_text "$_pp" 1024 || refuse "refusing the $_pw pointer: a relative path of at most 1024 bytes with no control byte or leading whitespace"
+  case "$_pp" in
+    /*) refuse "refusing the $_pw pointer: it is absolute; a pointer is a relative path under the declared root" ;;
+    .. | ../* | */.. | */../*) refuse "refusing the $_pw pointer: it carries a traversal segment" ;;
+  esac
+  [ -n "$_pr" ] || refuse "the $_pw pointer needs --root <dir>, the declared root it sits under"
+  is_text "$_pr" 1024 || refuse "refusing --root: at most 1024 bytes with no control byte or leading whitespace"
+  case "$_pr" in
+    /*) ;;
+    *) refuse "refusing --root: the declared root must be an absolute directory" ;;
+  esac
+  [ -d "$_pr" ] || refuse "refusing --root: not a directory"
+  PTR_ROOT=$(canon_dir "$_pr") || refuse "refusing --root: cannot resolve it"
+  _pt="$PTR_ROOT/$_pp"
+  _pd=${_pt%/*}
+  _pb=${_pt##*/}
+  [ -n "$_pb" ] || refuse "refusing the $_pw pointer: it names no file"
+  _pc=$(canon_dir "$_pd") || refuse "refusing the $_pw pointer: its directory does not exist under the root"
+  case "$_pc" in
+    "$PTR_ROOT" | "$PTR_ROOT"/*) ;;
+    *) refuse "refusing the $_pw pointer: it canonicalises outside the declared root" ;;
+  esac
+  [ ! -L "$_pc/$_pb" ] || refuse "refusing the $_pw pointer: it is a symlink"
+  [ -f "$_pc/$_pb" ] || refuse "refusing the $_pw pointer: no content at its home yet (content is written before the index record)"
+  PTR_REL="${_pc#"$PTR_ROOT"}/$_pb"
+  PTR_REL=${PTR_REL#/}
+}
+
+# item_id <kind> <home> <pointer> <instance> <root> — the identifier derived
+# from the content home's key.
+item_id() {
+  _ck=$(printf '%s|%s|%s|%s|%s' "$1" "$2" "$3" "$4" "$5" | cksum | cut -d' ' -f1)
+  printf 'i%08x\n' "$_ck"
+}
+
+# attn_field <worker> <n> — field <n> of the worker's attention row, or
+# nothing when the row (or the store) is absent. Both operands are pinned to
+# string type, the way fleet-attention.sh reads its own store.
+attn_field() {
+  [ -f "$attn_store" ] || return 0
+  awk -F '\t' -v w="$1" -v n="$2" '($1 "") == (w "") { print $n; exit }' "$attn_store" 2>/dev/null
+}
+
+# log_event <log args> — the event-log line a verb owes, appended AFTER the
+# lock is released through the `log` verb's own critical section. 0 landed;
+# otherwise the verb's exit, reported by the caller.
+log_event() {
+  "$script_dir/tower-queue.sh" log "$@"
+}
+
+owe_log() { # owe_log <kind> <log args...> — a line that must land (exit 6 if not)
+  _ok=$1
+  shift
+  if ! log_event "$_ok" "$@"; then
+    err "the '$_ok' line did not reach the event log; the store write stands but the record is incomplete"
+    LOG_FAILED=1
+  fi
+}
+
+# --- the queue surface --------------------------------------------------------
+
+check_store_file() {
+  if [ -d "$1" ] && [ ! -L "$1" ]; then
+    err "$(sanitize_printable "$1" "(unprintable path)") is a directory where the store should be; refusing to write into it"
+    exit 6
+  fi
+  check_private_file "$1"
+}
+
+ensure_queue_surface() {
+  ensure_surface
+  if [ -L "$delivery_dir" ]; then
+    err "security: $(sanitize_printable "$delivery_dir" "(unprintable path)") is a symlink — refusing to write through a redirect"
+    exit 4
+  fi
+  [ -d "$delivery_dir" ] || mkdir "$delivery_dir" 2>/dev/null || true
+  [ -d "$delivery_dir" ] || {
+    err "cannot create the delivery sub-surface $(sanitize_printable "$delivery_dir" "(unprintable path)")"
+    exit 6
+  }
+  verify_queue_surface
+}
+
+verify_queue_surface() {
+  verify_surface
+  check_private_dir "$delivery_dir"
+  check_store_file "$store_file"
+  if [ -d "$marker_dir" ] || [ -L "$marker_dir" ]; then
+    check_private_dir "$marker_dir"
+  fi
+}
+
+# The read path's verify-or-refuse (REQ-A1.4): a redirected or foreign-owned
+# store would feed `list` and `counts` whatever it points at.
+verify_read_surface() {
+  if [ -d "$surface" ] || [ -L "$surface" ]; then
+    check_home
+    check_private_dir "$surface"
+    check_store_file "$store_file"
+  fi
+}
+
+# read_marker <tower> — the epoch of the operator's last reply in that
+# tower's conversation, from the marker the prompt-submit hook owns, or
+# nothing. A marker anyone else could write is a self-satisfiable gate, so
+# its mode is verified like every other file on the surface.
+read_marker() {
+  _mf="$marker_dir/$1"
+  [ -e "$_mf" ] || [ -L "$_mf" ] || return 0
+  check_private_file "$_mf"
+  awk 'NR == 1 { v = $1 + 0; if (v > 0) printf "%.3f\n", v; exit }' "$_mf" 2>/dev/null
+}
+
+# read_delivery <tower> — set d_kt d_kitem d_dt d_ditem from the tower's
+# delivery record; zeros when absent, and any malformed field reads as zero.
+read_delivery() {
+  d_kt=0
+  d_kitem=-
+  d_dt=0
+  d_ditem=-
+  _df="$delivery_dir/$1"
+  [ -e "$_df" ] || [ -L "$_df" ] || return 0
+  check_private_file "$_df"
+  _dl=$(head -n 1 "$_df" 2>/dev/null) || _dl=""
+  _d1=$(printf '%s\n' "$_dl" | cut -f 1)
+  _d2=$(printf '%s\n' "$_dl" | cut -f 2)
+  _d3=$(printf '%s\n' "$_dl" | cut -f 3)
+  _d4=$(printf '%s\n' "$_dl" | cut -f 4)
+  is_epoch "$_d1" && d_kt=$_d1
+  is_item_id "$_d2" && d_kitem=$_d2
+  is_epoch "$_d3" && d_dt=$_d3
+  is_item_id "$_d4" && d_ditem=$_d4
+  return 0
+}
+
+write_delivery() { # write_delivery <tower> <kt> <kitem> <dt> <ditem>
+  PENDING_TMP=$(mktemp "$delivery_dir/.$1.XXXXXX" 2>/dev/null) || {
+    err "cannot create a scratch file for the delivery record"
+    exit 6
+  }
+  printf '%s\t%s\t%s\t%s\n' "$2" "$3" "$4" "$5" >"$PENDING_TMP" 2>/dev/null || {
+    err "cannot write the delivery record"
+    exit 6
+  }
+  mv -f "$PENDING_TMP" "$delivery_dir/$1" 2>/dev/null || {
+    err "cannot replace the delivery record"
+    exit 6
+  }
+  PENDING_TMP=""
+}
+
+# build_towers_file — every tower with a marker or a delivery record (plus
+# the caller), one line each: tower, last reply, last knock, the item it
+# named, last hand-over, the item it handed. What the awk pass reads to
+# decide attention, renewal and preemption.
+build_towers_file() {
+  : >"$SCRATCH/names"
+  [ -z "${tower:-}" ] || printf '%s\n' "$tower" >>"$SCRATCH/names"
+  for _td in "$marker_dir" "$delivery_dir"; do
+    [ -d "$_td" ] || continue
+    # shellcheck disable=SC2012
+    ls -1 "$_td" 2>/dev/null | while IFS= read -r _tn; do
+      is_tower "$_tn" && printf '%s\n' "$_tn"
+    done >>"$SCRATCH/names"
+  done
+  : >"$SCRATCH/towers"
+  sort -u "$SCRATCH/names" | while IFS= read -r _tn; do
+    _tr=$(read_marker "$_tn") || exit $?
+    read_delivery "$_tn" || exit $?
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$_tn" "${_tr:-0}" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem" >>"$SCRATCH/towers"
+  done || exit $?
+}
+
+# take_snapshot — the store as it is on entry to the critical section, for
+# the re-read-and-compare before the rename.
+take_snapshot() {
+  if [ -f "$store_file" ]; then
+    cp "$store_file" "$SCRATCH/snap" 2>/dev/null || {
+      err "cannot read the queue store"
+      exit 6
+    }
+  else
+    : >"$SCRATCH/snap"
+  fi
+}
+
+# commit_store — replace the store with $SCRATCH/new, refusing when the
+# store no longer matches the snapshot: the lock carries no holder token,
+# and a store that moved under it means the lock was broken.
+commit_store() {
+  if [ -f "$store_file" ] && ! cmp -s "$store_file" "$SCRATCH/snap"; then
+    err "the queue store changed while this verb held the fleet lock (a broken lock?); nothing written"
+    exit 6
+  fi
+  PENDING_TMP=$(mktemp "$surface/.queue.XXXXXX" 2>/dev/null) || {
+    err "cannot create a scratch file for the queue store"
+    exit 6
+  }
+  cat "$SCRATCH/new" >"$PENDING_TMP" 2>/dev/null || {
+    err "cannot write the queue store"
+    exit 6
+  }
+  mv -f "$PENDING_TMP" "$store_file" 2>/dev/null || {
+    err "cannot replace the queue store"
+    exit 6
+  }
+  PENDING_TMP=""
+}
+
+# The awk prelude every store pass shares: the record grammar, the ranking,
+# the derived pass (shelve returns, lease expiry and renewal, attention
+# pointer refresh), attention per tower, and the emit with retention.
+# shellcheck disable=SC2016
+AWK_Q='
+function rec_ok(   i) {
+  if (NF != 20) return 0
+  if ($1 !~ /^i[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/) return 0
+  if ($2 !~ /^(question|approval|request|news|standing)$/) return 0
+  if ($3 !~ /^(high|normal|low)$/) return 0
+  if ($6 !~ /^(attention|path)$/) return 0
+  if ($12 !~ /^(open|closed)$/) return 0
+  if ($5 !~ /^(0|[1-9][0-9]*)$/) return 0
+  for (i = 13; i <= 17; i++) if ($i !~ /^(0|[1-9][0-9]*)$/) return 0
+  if ($20 !~ /^(0|[1-9][0-9]*)$/) return 0
+  return 1
+}
+function krank(k) { return (k == "question") ? 0 : (k == "approval") ? 1 : (k == "request") ? 2 : (k == "news") ? 3 : 9 }
+function urank(u) { return (u == "high") ? 0 : (u == "normal") ? 1 : 2 }
+function better(a, b,   x, y) {
+  x = krank(F[a, 2]); y = krank(F[b, 2]); if (x != y) return x < y
+  x = urank(F[a, 3]); y = urank(F[b, 3]); if (x != y) return x < y
+  if (F[a, 5] + 0 != F[b, 5] + 0) return F[a, 5] + 0 < F[b, 5] + 0
+  return F[a, 1] < F[b, 1]
+}
+function clean(s) { gsub(/[^[:print:]]/, "", s); return s }
+function load_towers(file,   l, f) {
+  while ((getline l < file) > 0) {
+    split(l, f, "\t")
+    tw_reply[f[1]] = f[2] + 0; tw_kt[f[1]] = f[3] + 0; tw_kitem[f[1]] = f[4]; tw_dt[f[1]] = f[5] + 0; tw_ditem[f[1]] = f[6]
+  }
+  close(file)
+}
+function load_attention(file,   l, f, n) {
+  while ((getline l < file) > 0) {
+    n = split(l, f, "\t")
+    if (n < 8) continue
+    at_state[f[1]] = f[3]; at_ts[f[1]] = f[4]; at_prio[f[1]] = f[5]; at_iid[f[1]] = (n >= 10) ? f[10] : ""
+  }
+  close(file)
+}
+# attended(t): a reply later than the tower last knocked and last handed over,
+# after a knock (an attention session is opened by one), within the quiet
+# interval.
+function attended(t,   r, last) {
+  if (!(t in tw_kt)) return 0
+  r = tw_reply[t]; if (r <= 0 || tw_kt[t] <= 0) return 0
+  last = (tw_kt[t] > tw_dt[t]) ? tw_kt[t] : tw_dt[t]
+  return (r > last && now - r <= quiet)
+}
+# present(t): the operator replied in that conversation within the quiet
+# interval, so they are not away there (REQ-F1.1). A lease held by a present
+# tower is left alone even between a hand-over and its reply.
+function present(t) {
+  if (!(t in tw_reply)) return 0
+  return (tw_reply[t] > 0 && now - tw_reply[t] <= quiet)
+}
+function derived_pass(   n, eff, o, w, ii) {
+  for (n = 1; n <= N; n++) {
+    refuse[n] = ""
+    if (!OK[n] || F[n, 12] != "open") continue
+    if (F[n, 16] + 0 > 0 && F[n, 16] + 0 <= now) { F[n, 16] = 0; changed = 1 }
+    if (F[n, 19] != "-") {
+      o = F[n, 19]; eff = F[n, 20] + 0
+      if ((o in tw_reply) && tw_reply[o] + lease_iv > eff) eff = tw_reply[o] + lease_iv
+      if (eff <= now) { F[n, 19] = "-"; F[n, 20] = 0; changed = 1 }
+    }
+    if (F[n, 6] == "attention") {
+      w = F[n, 7]
+      if (!(w in at_state)) refuse[n] = "its row is gone from the attention store"
+      else if (F[n, 2] == "question") {
+        if (at_state[w] != "awaiting-input") refuse[n] = "its row is no longer awaiting input (" at_state[w] ")"
+        else {
+          ii = (at_iid[w] == "") ? "-" : at_iid[w]
+          if (ii != F[n, 8]) { F[n, 8] = ii; changed = 1 }
+          if (at_prio[w] ~ /^(high|normal|low)$/ && at_prio[w] != F[n, 3]) { F[n, 3] = at_prio[w]; changed = 1 }
+        }
+      } else if (F[n, 2] == "news") {
+        if (at_state[w] "." at_ts[w] != F[n, 8]) refuse[n] = "its row has moved on (" at_state[w] ")"
+      }
+    }
+  }
+}
+function emit(out,   n, i, m, v, tv, j, line) {
+  m = 0
+  for (n = 1; n <= N; n++) if (OK[n] && F[n, 12] == "closed") {
+    m++; ci[m] = n; ct[m] = (F[n, 15] + 0 > F[n, 17] + 0) ? F[n, 15] + 0 : F[n, 17] + 0
+  }
+  for (i = 2; i <= m; i++) {
+    v = ci[i]; tv = ct[i]; j = i - 1
+    while (j >= 1 && ct[j] < tv) { ci[j + 1] = ci[j]; ct[j + 1] = ct[j]; j-- }
+    ci[j + 1] = v; ct[j + 1] = tv
+  }
+  for (i = limit + 1; i <= m; i++) { drop[ci[i]] = 1; changed = 1 }
+  for (n = 1; n <= N; n++) {
+    if (!OK[n]) { print L[n] > out; continue }
+    if (n in drop) continue
+    line = F[n, 1]
+    for (i = 2; i <= 20; i++) line = line "\t" F[n, i]
+    print line > out
+  }
+  close(out)
+}
+function render_item(n) {
+  return "item\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(F[n, 4]) "\t" (now - F[n, 5]) "\t" clean(F[n, 6] ":" ((F[n, 6] == "path") ? F[n, 9] "/" F[n, 7] : F[n, 7]) ((F[n, 8] == "-") ? "" : "@" F[n, 8])) "\t" clean(F[n, 10]) "\t" clean(F[n, 11])
+}
+{ N++; L[N] = $0; if (rec_ok()) { OK[N] = 1; for (i = 1; i <= 20; i++) F[N, i] = $i } else OK[N] = 0 }
+'
+
+# run_store_pass <mode> [<awk -v assignments>...] — the derived pass plus
+# one verb's action over the store, the new store landing in $SCRATCH/new and
+# the action's result lines on stdout. Free text (the record, a reason)
+# travels through files, never through -v, which escape-processes its value:
+# a backslash in a closing condition would otherwise tear the record.
+run_store_pass() {
+  _mode=$1
+  shift
+  awk -F '\t' -v OFS='\t' -v mode="$_mode" -v now="$now" -v quiet="${quiet:-0}" -v lease_iv="${lease_iv:-0}" \
+    -v limit="${catchup_limit:-20}" -v towers_file="$SCRATCH/towers" -v attn_file="$attn_store" \
+    -v out="$SCRATCH/new" -v tower="${tower:-}" -v record_file="$SCRATCH/record" -v reason_file="$SCRATCH/reason" "$@" "$AWK_Q"'
+  BEGIN {
+    load_towers(towers_file); load_attention(attn_file); changed = 0
+    record = ""; reason = ""
+    if ((getline record < record_file) <= 0) record = ""
+    close(record_file)
+    if ((getline reason < reason_file) <= 0) reason = ""
+    close(reason_file)
+  }
+  END {
+    derived_pass()
+    if (mode == "add") {
+      for (n = 1; n <= N; n++) if (OK[n] && F[n, 1] == item) { print "status\tpresent"; emit(out); exit }
+      N++; OK[N] = 1; L[N] = ""
+      split(record, rf, "\t"); for (i = 1; i <= 20; i++) F[N, i] = rf[i]
+      changed = 1; print "status\tadded"; emit(out); exit
+    }
+    if (mode == "ack" || mode == "settle" || mode == "shelve") {
+      t = 0
+      for (n = 1; n <= N; n++) if (OK[n] && F[n, 1] == item) t = n
+      if (!t) { print "status\tabsent"; emit(out); exit }
+      if (F[t, 12] == "closed") { print "status\tclosed"; emit(out); exit }
+      if (mode == "ack") {
+        if (F[t, 19] != tower) { print "status\tnolease\t" F[t, 19]; emit(out); exit }
+        F[t, 12] = "closed"; F[t, 15] = now; F[t, 19] = "-"; F[t, 20] = 0
+      } else if (mode == "settle") {
+        F[t, 12] = "closed"; F[t, 17] = now; F[t, 18] = reason; F[t, 19] = "-"; F[t, 20] = 0
+      } else {
+        if (F[t, 19] != "-" && F[t, 19] != tower) { print "status\tnolease\t" F[t, 19]; emit(out); exit }
+        F[t, 16] = until; F[t, 19] = "-"; F[t, 20] = 0
+      }
+      changed = 1; print "status\tok\t" clean(F[t, 2]); emit(out); exit
+    }
+    if (mode == "next") {
+      me = attended(tower)
+      top = 0; nopen = 0
+      for (n = 1; n <= N; n++) {
+        if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
+        nopen++
+        if (F[n, 16] + 0 > 0) continue
+        if (refuse[n] != "") { print "skip\t" clean(F[n, 1]) "\t" refuse[n]; continue }
+        o = F[n, 19]
+        if (o == tower) { if (F[n, 14] + 0 > 0) continue }
+        else if (o != "-") { if (present(o)) continue }
+        cand[n] = 1
+        if (!top || better(n, top)) top = n
+      }
+      kt = tw_kt[tower]; dt = tw_dt[tower]; r = tw_reply[tower]
+      nkt = kt; nkitem = tw_kitem[tower]; ndt = dt; nditem = tw_ditem[tower]
+      if (!top) print "decision\tnone"
+      else if (me) {
+        target = top
+        if (kt > dt && tw_kitem[tower] != "-") for (n in cand) if (F[n, 1] == tw_kitem[tower]) target = n
+        F[target, 19] = tower; F[target, 20] = now + lease_iv; F[target, 14] = now; changed = 1
+        ndt = now; nditem = F[target, 1]
+        print "decision\tdeliver\t" clean(F[target, 1]) "\t" clean(F[target, 2]) "\t" clean(F[target, 3])
+        print render_item(target)
+      } else {
+        pend_deliv = (dt > 0 && dt >= kt && r <= dt && now - dt <= quiet)
+        pend_knock = (kt > 0 && kt > dt && r <= kt)
+        if (pend_deliv) print "decision\twait\thand-over outstanding"
+        else if (pend_knock && tw_kitem[tower] == F[top, 1]) print "decision\twait\tknock outstanding"
+        else {
+          if (F[top, 19] == "-") { F[top, 19] = tower; F[top, 20] = now + lease_iv }
+          F[top, 13] = now; changed = 1
+          nkt = now; nkitem = F[top, 1]
+          print "decision\tknock\t" clean(F[top, 1]) "\t" clean(F[top, 2]) "\t" clean(F[top, 3])
+          print "knock\t" clean(F[top, 2]) "\t" clean(F[top, 3]) "\t" nopen
+        }
+      }
+      print "delivery\t" nkt "\t" nkitem "\t" ndt "\t" nditem
+      emit(out); print "changed\t" changed; exit
+    }
+    emit(out); print "changed\t" changed
+  }' "$SCRATCH/snap"
+}
+
+# rebuild_if_absent — inside the lock: when the store is absent, rebuild it
+# from the content homes and the event log (REBUILD in the header).
+REBUILT=0
+rebuild_if_absent() {
+  [ ! -f "$store_file" ] || return 0
+  : >"$SCRATCH/dropped"
+  _rl=""
+  [ ! -s "$log_file" ] || _rl=$log_file
+  _ra=""
+  [ ! -s "$attn_store" ] || _ra=$attn_store
+  if [ -z "$_rl" ] && [ -z "$_ra" ]; then
+    : >"$SCRATCH/new"
+    commit_store
+    return 0
+  fi
+  awk -F '\t' -v log_file="$_rl" -v attn_file="$_ra" -v dropped="$SCRATCH/dropped" -v q="'" "$AWK_PARSE"'
+  function shq(s) { gsub(q, q "\\" q q, s); return q s q }
+  function nz(s) { return (s == "") ? "-" : s }
+  BEGIN {
+    if (attn_file != "") {
+      while ((getline l < attn_file) > 0) {
+        n = split(l, f, "\t"); if (n < 8) continue
+        at_state[f[1]] = f[3]; at_ts[f[1]] = f[4]; at_prio[f[1]] = f[5]; at_iid[f[1]] = (n >= 10) ? f[10] : ""
+      }
+      close(attn_file)
+    }
+    nb = 0
+    if (log_file != "") {
+      while ((getline l < log_file) > 0) {
+        if (!parse(l, F, T) || !header_ok(F, T)) continue
+        k = F["kind"]; it = ("item" in F) ? F["item"] : ""
+        if (it == "") continue
+        if (k == "born") {
+          if (it in seen) continue
+          seen[it] = 1; nb++; bid[nb] = it
+          bkind[nb] = F["item_kind"]; burg[nb] = F["urgency"]; borig[nb] = F["origin"]; bts[nb] = F["ts"] + 0
+          bhome[nb] = F["home"]; bptr[nb] = F["pointer"]; binst[nb] = F["instance"]; broot[nb] = F["root"]; bpark[nb] = F["park"]; bcl[nb] = F["closes"]
+        } else if (k == "acknowledged" || k == "settled") closed[it] = 1
+        else if (k == "dropped" && ("reason" in F) && F["reason"] == "rebuild") closed[it] = 1
+      }
+      close(log_file)
+    }
+    for (i = 1; i <= nb; i++) {
+      it = bid[i]
+      if (it in closed) continue
+      if (bhome[i] == "attention") {
+        w = bptr[i]
+        if (bkind[i] == "question" && (w in at_state) && at_state[w] == "awaiting-input") {
+          covered[w] = 1
+          ii = (at_iid[w] == "") ? "-" : at_iid[w]
+          u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : burg[i]
+          print bkind[i] "\t" nz(u) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" ii "\t-\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it
+        } else if (bkind[i] == "news" && (w in at_state) && at_state[w] "." at_ts[w] == binst[i]) {
+          print bkind[i] "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" binst[i] "\t-\t-\t" nz(bcl[i]) "\t" it
+        } else print it > dropped
+      } else if (bhome[i] == "path" && bptr[i] != "" && broot[i] != "" && broot[i] ~ /^\//) {
+        if (system("test -f " shq(broot[i] "/" bptr[i]) " && test ! -L " shq(broot[i] "/" bptr[i])) == 0)
+          print bkind[i] "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tpath\t" bptr[i] "\t-\t" broot[i] "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it
+        else print it > dropped
+      } else print it > dropped
+    }
+    for (w in at_state) if (at_state[w] == "awaiting-input" && !(w in covered)) {
+      ii = (at_iid[w] == "") ? "-" : at_iid[w]
+      u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : "normal"
+      print "question\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-"
+    }
+  }' >"$SCRATCH/cands" 2>/dev/null || {
+    err "the rebuild pass failed"
+    exit 6
+  }
+  : >"$SCRATCH/new"
+  : >"$SCRATCH/fresh"
+  _seen=""
+  while IFS="$TAB" read -r _k _u _o _b _h _p _i _r _pk _c _was; do
+    [ -n "$_k" ] || continue
+    is_one_of "$_k" "$Q_KINDS" || continue
+    is_one_of "$_u" "$Q_URGENCIES" || _u=normal
+    is_tower "$_o" || continue
+    is_epoch "$_b" || _b=0
+    is_text "$_c" 512 || _c=$QUESTION_CLOSES
+    [ -n "$_i" ] || _i=-
+    [ -n "$_r" ] || _r=-
+    [ -n "$_pk" ] || _pk=-
+    if [ "$_was" != "-" ] && is_item_id "$_was"; then
+      _id=$_was
+    else
+      _id=$(item_id "$_k" "$_h" "$_p" "$_i" "$_r")
+    fi
+    case " $_seen " in *" $_id "*) continue ;; esac
+    _seen="$_seen $_id"
+    if [ "$_was" = "-" ]; then
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_id" "$_k" "$_u" "$_o" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" >>"$SCRATCH/fresh"
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\n' \
+      "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" >>"$SCRATCH/new"
+  done <"$SCRATCH/cands"
+  commit_store
+  REBUILT=1
+}
+
+# after_rebuild — the log lines a rebuild owes, after the lock is released.
+after_rebuild() {
+  [ "$REBUILT" = 1 ] || return 0
+  if [ -n "${tower:-}" ]; then
+    owe_log session --now "$now" --tower "$tower" event=rebuild
+  else
+    owe_log session --now "$now" event=rebuild
+  fi
+  # An item the rebuild found at its home with no birth on record is born
+  # now, so the log carries every item that exists.
+  while IFS="$TAB" read -r _fid _fk _fu _fo _fh _fp _fi _fr _fpk _fc; do
+    [ -n "$_fid" ] || continue
+    owe_log born --now "$now" item="$_fid" item_kind="$_fk" urgency="$_fu" origin="$_fo" \
+      home="$_fh" pointer="$_fp" instance="$_fi" root="$_fr" park="$_fpk" closes="$_fc"
+  done <"$SCRATCH/fresh"
+  _nd=0
+  while IFS= read -r _dr; do
+    [ -n "$_dr" ] || continue
+    is_item_id "$_dr" || continue
+    owe_log dropped --now "$now" item="$_dr" reason=rebuild
+    _nd=$((_nd + 1))
+  done <"$SCRATCH/dropped"
+  err "the queue store was absent and has been rebuilt from the content homes ($(grep -c . "$SCRATCH/fresh") registered from their homes, $_nd dropped)"
+}
+
+TAB=$(printf '\t')
+LOG_FAILED=0
+
+# parse_now — the shared --now handling: a caller's epoch, else the clock.
+parse_now() {
+  if [ "$now_set" = 1 ]; then
+    is_epoch "$now" || refuse "refusing --now '$(sanitize_printable "$now" "(unprintable epoch)")': an epoch is a canonical positive integer"
+  else
+    now=$(date +%s 2>/dev/null) || now=""
+    is_epoch "$now" || {
+      err "cannot read the clock (date +%s failed)"
+      exit 6
+    }
+  fi
+}
+
+# enter_store — the shared prologue of every locked verb: knobs, surface,
+# the bounded lock, the re-verification under it, the snapshot, the rebuild.
+enter_store() {
+  resolve_queue_knobs
+  resolve_surface
+  umask 077
+  ensure_queue_surface
+  SCRATCH=$(mktemp -d 2>/dev/null) || {
+    err "cannot create a scratch dir"
+    exit 6
+  }
+  acquire_lock "$lock_wait"
+  case $? in
+    0) ;;
+    1)
+      err "the fleet lock stayed busy for the whole tower_hook_lock_wait; nothing written"
+      exit 3
+      ;;
+    *) exit 6 ;;
+  esac
+  verify_queue_surface
+  rebuild_if_absent
+  take_snapshot
+  build_towers_file
+}
+
+finish_exit() {
+  [ "$LOG_FAILED" = 0 ] || exit 6
+  exit 0
+}
+
+# ---------------------------------------------------------------------------
+# add
+# ---------------------------------------------------------------------------
+
+cmd_add() {
+  kind=""
+  origin=""
+  closes=""
+  urgency=""
+  worker=""
+  root=""
+  pointer=""
+  park=""
+  now=""
+  now_set=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --kind | --origin | --closes | --urgency | --worker | --root | --pointer | --park | --now)
+        [ "$#" -ge 2 ] || usage
+        case "$1" in
+          --kind) kind=$2 ;;
+          --origin) origin=$2 ;;
+          --closes) closes=$2 ;;
+          --urgency) urgency=$2 ;;
+          --worker) worker=$2 ;;
+          --root) root=$2 ;;
+          --pointer) pointer=$2 ;;
+          --park) park=$2 ;;
+          --now)
+            now=$2
+            now_set=1
+            ;;
+        esac
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$kind" ] && [ -n "$origin" ] || usage
+  is_one_of "$kind" "$Q_KINDS" || refuse "refusing kind '$(sanitize_printable "$kind" "(unprintable kind)")': one of $Q_KINDS"
+  is_tower "$origin" || refuse "refusing origin '$(sanitize_printable "$origin" "(unprintable origin)")': a worker handle or the operator, a single path-safe token"
+  [ -z "$urgency" ] || is_one_of "$urgency" "$Q_URGENCIES" || refuse "refusing urgency '$(sanitize_printable "$urgency" "(unprintable urgency)")': high, normal or low"
+  parse_now
+  resolve_surface
+  if [ "$kind" = standing ]; then
+    [ -n "$closes" ] || closes=$STANDING_CLOSES
+    is_text "$closes" 512 || refuse "refusing the closing condition: at most 512 bytes with no control byte or leading whitespace"
+    case "$(printf '%s' "$closes" | tr '[:upper:]' '[:lower:]')" in
+      *revoke*) ;;
+      *) refuse "refusing the closing condition: a standing decision closes on the operator revoking the rule" ;;
+    esac
+  else
+    [ -n "$closes" ] || refuse "an item needs --closes <text>: the human action or the evidence that closes it"
+    is_text "$closes" 512 || refuse "refusing the closing condition: at most 512 bytes with no control byte or leading whitespace"
+  fi
+  if promises_automation "$closes"; then
+    refuse "refusing the closing condition: it promises a future automatic step; name the human action (an answer, a go-ahead) or the evidence that settles the item"
+  fi
+  instance=-
+  PTR_ROOT=-
+  PTR_REL=-
+  park_rel=-
+  case "$kind" in
+    question | news)
+      [ -n "$worker" ] || refuse "a $kind item points at a worker's attention row: --worker <handle>"
+      [ -z "$pointer" ] || refuse "a $kind item points at its worker's row, not at a path"
+      is_tower "$worker" || refuse "refusing worker handle '$(sanitize_printable "$worker" "(unprintable handle)")'"
+      row_state=$(attn_field "$worker" 3)
+      [ -n "$row_state" ] || refuse "no attention row for worker '$worker'; the content is written to its home before the index record"
+      row_prio=$(attn_field "$worker" 5)
+      if [ "$kind" = question ]; then
+        [ -z "$urgency" ] || refuse "a worker question inherits its row's priority; drop --urgency"
+        [ "$row_state" = awaiting-input ] || refuse "worker '$worker' is not awaiting input (its row says '$(sanitize_printable "$row_state" "?")'), so there is no question to queue"
+        is_one_of "$row_prio" "$Q_URGENCIES" && urgency=$row_prio || urgency=normal
+        instance=$(attn_field "$worker" 10)
+        [ -n "$instance" ] || instance=-
+      else
+        [ -n "$urgency" ] || { is_one_of "$row_prio" "$Q_URGENCIES" && urgency=$row_prio || urgency=normal; }
+        instance="$row_state.$(attn_field "$worker" 4)"
+      fi
+      is_text "$instance" 256 || refuse "the attention row's instance field is not a usable identifier"
+      ihome=attention
+      ptr=$worker
+      if [ -n "$park" ]; then
+        check_pointer "$root" "$park" park
+        park_rel=$PTR_REL
+      fi
+      ;;
+    *)
+      [ -z "$worker" ] || refuse "a $kind item points at a file under a declared root: --root <dir> --pointer <rel>"
+      [ -n "$pointer" ] || refuse "a $kind item needs --root <dir> --pointer <rel>, the content's home"
+      check_pointer "$root" "$pointer" content
+      ihome=path
+      ptr=$PTR_REL
+      if [ -n "$park" ]; then
+        _cr=$PTR_ROOT
+        check_pointer "$root" "$park" park
+        park_rel=$PTR_REL
+        PTR_ROOT=$_cr
+      fi
+      [ -n "$urgency" ] || urgency=normal
+      ;;
+  esac
+  id=$(item_id "$kind" "$ihome" "$ptr" "$instance" "$PTR_ROOT")
+  record=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0' \
+    "$id" "$kind" "$urgency" "$origin" "$now" "$ihome" "$ptr" "$instance" "$PTR_ROOT" "$park_rel" "$closes")
+
+  tower=""
+  enter_store
+  printf '%s\n' "$record" >"$SCRATCH/record"
+  status=$(run_store_pass add -v item="$id") || {
+    err "the store pass failed"
+    exit 6
+  }
+  case "$(printf '%s\n' "$status" | head -n 1 | cut -f 2)" in
+    present)
+      release_lock
+      after_rebuild
+      printf '%s\n' "$id"
+      err "already queued as $id (the same content home); nothing changed"
+      finish_exit
+      ;;
+    added) ;;
+    *)
+      err "the store pass returned nothing usable"
+      exit 6
+      ;;
+  esac
+  commit_store
+  release_lock
+  after_rebuild
+  printf '%s\n' "$id"
+  owe_log born --now "$now" item="$id" item_kind="$kind" urgency="$urgency" origin="$origin" \
+    home="$ihome" pointer="$ptr" instance="$instance" root="$PTR_ROOT" park="$park_rel" closes="$closes"
+  finish_exit
+}
+
+# ---------------------------------------------------------------------------
+# next
+# ---------------------------------------------------------------------------
+
+cmd_next() {
+  tower_flag=""
+  now=""
+  now_set=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --tower)
+        [ "$#" -ge 2 ] || usage
+        tower_flag=$2
+        shift 2
+        ;;
+      --now)
+        [ "$#" -ge 2 ] || usage
+        now=$2
+        now_set=1
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  parse_now
+  resolve_tower "$tower_flag"
+  enter_store
+  result=$(run_store_pass next) || {
+    err "the store pass failed"
+    exit 6
+  }
+  decision=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "decision" { print; exit }')
+  dline=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "delivery" { print; exit }')
+  changed=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "changed" { print $2; exit }')
+  printf '%s\n' "$result" | awk -F '\t' '$1 == "skip" { print }' | while IFS="$TAB" read -r _s _sid _why; do
+    err "not handing over $_sid: $_why"
+  done
+  d_what=$(printf '%s\n' "$decision" | cut -f 2)
+  d_item=$(printf '%s\n' "$decision" | cut -f 3)
+  d_kind=$(printf '%s\n' "$decision" | cut -f 4)
+  d_urg=$(printf '%s\n' "$decision" | cut -f 5)
+  case "$d_what" in
+    deliver | knock)
+      [ "$changed" != 1 ] || commit_store
+      write_delivery "$tower" "$(printf '%s\n' "$dline" | cut -f 2)" "$(printf '%s\n' "$dline" | cut -f 3)" \
+        "$(printf '%s\n' "$dline" | cut -f 4)" "$(printf '%s\n' "$dline" | cut -f 5)"
+      ;;
+    *)
+      [ "$changed" != 1 ] || commit_store
+      ;;
+  esac
+  release_lock
+  after_rebuild
+  [ "$tower_fallback" = 0 ] || err "no presence identity resolved; this tower leases as '$tower' (a tower-session-scoped fallback)"
+  case "$d_what" in
+    deliver)
+      printf '%s\n' "$result" | awk -F '\t' '$1 == "item" { print; exit }'
+      # The one fail-open line (REQ-C1.11): the hand-over stands, the failure
+      # is surfaced, and the redelivery it risks is inside the loss budget.
+      log_event delivered --now "$now" --tower "$tower" item="$d_item" item_kind="$d_kind" urgency="$d_urg" \
+        || err "the 'delivered' line did not reach the event log; the hand-over stands"
+      finish_exit
+      ;;
+    knock)
+      printf '%s\n' "$result" | awk -F '\t' '$1 == "knock" { print; exit }'
+      owe_log knocked --now "$now" --tower "$tower" item="$d_item" item_kind="$d_kind" urgency="$d_urg"
+      finish_exit
+      ;;
+    wait)
+      [ -n "$(read_marker "$tower")" ] \
+        || err "no attention marker for tower '$tower' (the prompt-submit hook has written nothing there since the knock); is the hook installed in this session?"
+      finish_exit
+      ;;
+    *) finish_exit ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# ack, shelve, settle
+# ---------------------------------------------------------------------------
+
+# parse_item_args <verb> <args...> — the shared flag parse of the per-item
+# verbs; sets item, tower_flag, span, reason, now.
+parse_item_args() {
+  _pv=$1
+  shift
+  item=""
+  tower_flag=""
+  span=""
+  reason=""
+  now=""
+  now_set=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --tower | --for | --reason | --now)
+        [ "$#" -ge 2 ] || usage
+        case "$1" in
+          --tower) tower_flag=$2 ;;
+          --for) span=$2 ;;
+          --reason) reason=$2 ;;
+          --now)
+            now=$2
+            now_set=1
+            ;;
+        esac
+        shift 2
+        ;;
+      -*) usage ;;
+      *)
+        [ -z "$item" ] || usage
+        item=$1
+        shift
+        ;;
+    esac
+  done
+  [ -n "$item" ] || usage
+  is_item_id "$item" || refuse "refusing item id '$(sanitize_printable "$item" "(unprintable id)")': an identifier is i followed by eight hex digits"
+  parse_now
+}
+
+cmd_ack() {
+  parse_item_args ack "$@"
+  resolve_tower "$tower_flag"
+  enter_store
+  status=$(run_store_pass ack -v item="$item") || {
+    err "the store pass failed"
+    exit 6
+  }
+  st=$(printf '%s\n' "$status" | cut -f 2)
+  [ "$st" != ok ] || commit_store
+  release_lock
+  after_rebuild
+  case "$st" in
+    ok)
+      owe_log acknowledged --now "$now" --tower "$tower" item="$item" item_kind="$(printf '%s\n' "$status" | cut -f 3)"
+      finish_exit
+      ;;
+    closed)
+      err "item $item is already closed; nothing to acknowledge (a logged no-op)"
+      owe_log refused --now "$now" --tower "$tower" item="$item" verb=ack reason=already-closed
+      finish_exit
+      ;;
+    nolease)
+      _holder=$(printf '%s\n' "$status" | cut -f 3)
+      err "refusing: tower '$tower' holds no lease on item $item (held by '$(sanitize_printable "$_holder" "?")'); an acknowledgement comes from the conversation the item was handed to (a logged duplicate no-op)"
+      owe_log refused --now "$now" --tower "$tower" item="$item" verb=ack reason=no-lease
+      [ "$LOG_FAILED" = 0 ] || exit 6
+      exit 1
+      ;;
+    absent) refuse "no item $item in the queue" ;;
+    *)
+      err "the store pass returned nothing usable"
+      exit 6
+      ;;
+  esac
+}
+
+cmd_shelve() {
+  parse_item_args shelve "$@"
+  resolve_tower "$tower_flag"
+  if [ -n "$span" ]; then
+    is_duration "$span" || refuse "refusing --for '$(sanitize_printable "$span" "(unprintable span)")': a positive span such as 30m or 2h"
+  fi
+  if [ -n "$span" ]; then
+    shelve_s=$(duration_seconds "$span")
+  else
+    # The delivery task ships this knob; until then the fallback stands and
+    # the resolver says so once per shelve that leaves --for unset.
+    resolve_knobs tower_shelve_return:duration:1h
+    shelve_s=$shelve_return
+  fi
+  enter_store
+  until=$(awk -v n="$now" -v s="$shelve_s" 'BEGIN { u = n + s; if (u <= n) u = n + 1; printf "%d\n", u }')
+  status=$(run_store_pass shelve -v item="$item" -v until="$until") || {
+    err "the store pass failed"
+    exit 6
+  }
+  st=$(printf '%s\n' "$status" | cut -f 2)
+  [ "$st" != ok ] || commit_store
+  release_lock
+  after_rebuild
+  case "$st" in
+    ok)
+      owe_log shelved --now "$now" --tower "$tower" item="$item" returns="$until"
+      finish_exit
+      ;;
+    closed)
+      err "item $item is already closed; nothing to shelve (a logged no-op)"
+      owe_log refused --now "$now" --tower "$tower" item="$item" verb=shelve reason=already-closed
+      finish_exit
+      ;;
+    nolease)
+      err "refusing: item $item is held by another tower's conversation ('$(sanitize_printable "$(printf '%s\n' "$status" | cut -f 3)" "?")')"
+      exit 1
+      ;;
+    absent) refuse "no item $item in the queue" ;;
+    *)
+      err "the store pass returned nothing usable"
+      exit 6
+      ;;
+  esac
+}
+
+cmd_settle() {
+  parse_item_args settle "$@"
+  [ -n "$reason" ] || refuse "settle needs --reason <text>: what settled the item (the evidence, never a guess)"
+  is_text "$reason" 512 || refuse "refusing the settle reason: at most 512 bytes with no control byte or leading whitespace"
+  tower=""
+  enter_store
+  printf '%s\n' "$reason" >"$SCRATCH/reason"
+  status=$(run_store_pass settle -v item="$item") || {
+    err "the store pass failed"
+    exit 6
+  }
+  st=$(printf '%s\n' "$status" | cut -f 2)
+  [ "$st" != ok ] || commit_store
+  release_lock
+  after_rebuild
+  case "$st" in
+    ok)
+      owe_log settled --now "$now" item="$item" item_kind="$(printf '%s\n' "$status" | cut -f 3)" reason="$reason"
+      finish_exit
+      ;;
+    closed)
+      err "item $item is already closed (a logged no-op)"
+      owe_log refused --now "$now" item="$item" verb=settle reason=already-closed
+      finish_exit
+      ;;
+    absent) refuse "no item $item in the queue" ;;
+    *)
+      err "the store pass returned nothing usable"
+      exit 6
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# list, counts — lock-free reads
+# ---------------------------------------------------------------------------
+
+cmd_list() {
+  all=0
+  now=""
+  now_set=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --all)
+        all=1
+        shift
+        ;;
+      --now)
+        [ "$#" -ge 2 ] || usage
+        now=$2
+        now_set=1
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  parse_now
+  resolve_surface
+  verify_read_surface
+  [ -f "$store_file" ] || exit 0
+  awk -F '\t' -v now="$now" -v all="$all" "$AWK_Q"'
+  END {
+    for (n = 1; n <= N; n++) {
+      if (!OK[n]) { bad++; continue }
+      if (F[n, 12] != "open" && !all) continue
+      if (F[n, 12] == "closed") st = "closed"
+      else if (F[n, 16] + 0 > now) st = "shelved"
+      else if (F[n, 14] + 0 > 0) st = "delivered"
+      else if (F[n, 19] != "-") st = "leased:" F[n, 19]
+      else st = "open"
+      print clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(F[n, 4]) "\t" F[n, 5] "\t" clean(st) "\t" clean(F[n, 6] ":" ((F[n, 6] == "path") ? F[n, 9] "/" F[n, 7] : F[n, 7]) ((F[n, 8] == "-") ? "" : "@" F[n, 8])) "\t" clean(F[n, 11])
+    }
+    if (bad > 0) print "tower-queue: " bad " store line(s) do not parse and were skipped" > "/dev/stderr"
+  }' "$store_file"
+}
+
+cmd_counts() {
+  [ "$#" -eq 0 ] || usage
+  resolve_surface
+  verify_read_surface
+  if [ ! -f "$store_file" ]; then
+    printf 'question\t0\napproval\t0\nrequest\t0\nnews\t0\nstanding\t0\ntotal\t0\ntop\t-\n'
+    exit 0
+  fi
+  awk -F '\t' "$AWK_Q"'
+  END {
+    top = 0
+    for (n = 1; n <= N; n++) {
+      if (!OK[n] || F[n, 12] != "open") continue
+      c[F[n, 2]]++
+      if (F[n, 2] == "standing") continue
+      if (!top || better(n, top)) top = n
+    }
+    print "question\t" c["question"] + 0
+    print "approval\t" c["approval"] + 0
+    print "request\t" c["request"] + 0
+    print "news\t" c["news"] + 0
+    print "standing\t" c["standing"] + 0
+    print "total\t" c["question"] + c["approval"] + c["request"] + c["news"]
+    print "top\t" (top ? clean(F[top, 2]) : "-")
+  }' "$store_file"
+}
+
 cmd=${1:-}
 [ -n "$cmd" ] || usage
 shift
 case "$cmd" in
   log) cmd_log "$@" ;;
   report) cmd_report "$@" ;;
+  add) cmd_add "$@" ;;
+  next) cmd_next "$@" ;;
+  ack) cmd_ack "$@" ;;
+  shelve) cmd_shelve "$@" ;;
+  settle) cmd_settle "$@" ;;
+  list) cmd_list "$@" ;;
+  counts) cmd_counts "$@" ;;
   *)
-    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | report)"
+    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | report | add | next | ack | shelve | settle | list | counts)"
     exit 2
     ;;
 esac
