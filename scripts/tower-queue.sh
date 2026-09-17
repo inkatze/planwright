@@ -2019,7 +2019,7 @@ take_snapshot() {
 # where the rebuild found none, included): the lock carries no holder token,
 # and a store that moved under it means the lock was broken.
 commit_store() {
-  if { [ "$SNAP_EXISTED" = 1 ] && { [ ! -f "$store_file" ] || ! cmp -s "$store_file" "$SCRATCH/snap"; }; } \
+  if { [ "$SNAP_EXISTED" = 1 ] && { [ -L "$store_file" ] || [ ! -f "$store_file" ] || ! cmp -s "$store_file" "$SCRATCH/snap"; }; } \
     || { [ "$SNAP_EXISTED" = 0 ] && { [ -e "$store_file" ] || [ -L "$store_file" ]; }; }; then
     err "the queue store changed while this verb held the fleet lock (a broken lock?); nothing written"
     return 1

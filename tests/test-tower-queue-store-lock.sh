@@ -460,4 +460,26 @@ run shelve i00000001 --for bogus --now 9040 >/dev/null 2>&1 || rc=$?
 [ ! -f "$store" ] || fail "a malformed --for took the lock and rebuilt the store before it was refused"
 echo "ok: shelve refuses a malformed span before it touches the store"
 
+# --- a store swapped for a link under the lock is refused even when it reads the same --
+
+run settle i000000ff --reason x --now 9060 >/dev/null 2>&1 || true
+[ -f "$store" ] || fail "fixture: no store to swap"
+shim3="$tmp/shim3"
+mkdir -p "$shim3"
+real_sort=$(command -v sort)
+cat >"$shim3/sort" <<EOF
+#!/bin/sh
+if [ -f "$store" ] && [ ! -L "$store" ]; then cp "$store" "$store.copy" && ln -sf "$store.copy" "$store"; fi
+exec "$real_sort" "\$@"
+EOF
+chmod +x "$shim3/sort"
+printf 'x\n' >"$content/r-link"
+rc=0
+PATH="$shim3:$PATH" run add --kind request --root "$content" --pointer r-link --origin operator --closes 'the operator decides' --now 9061 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 6 ] || fail "a store swapped for a link while the verb held the lock: exit $rc, expected 6"
+[ -L "$store" ] || fail "the commit replaced a link that appeared at the store's path"
+rm -f "$store"
+mv "$store.copy" "$store"
+echo "ok: a store swapped for a link under the lock is refused, however it reads"
+
 echo "ALL PASS: tower-queue store lock"
