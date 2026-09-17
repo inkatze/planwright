@@ -424,11 +424,11 @@ echo "ok: a shelved item returns on its own and is never dropped"
 
 run shelve "$n1" --tower "$tower" --for 500ms --now 4160 >/dev/null || fail "sub-second shelve: exit"
 [ "$(grep "^$n1$TAB" "$store" | cut -f 16)" = 4161 ] || fail "a sub-second shelve did not park the item (return $(grep "^$n1$TAB" "$store" | cut -f 16))"
+counts=$(run counts --now 4160) || fail "counts with a shelved item"
+[ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "news" { print $2 }')" = 0 ] || fail "counts still counts a shelved item as waiting: $counts"
 # No --for: the shipped tower_shelve_return (1h) decides the return.
 run shelve "$a1" --tower "$tower" --now 4162 >/dev/null || fail "shelve with no --for: exit"
 [ "$(grep "^$a1$TAB" "$store" | cut -f 16)" = 7762 ] || fail "a shelve with no --for did not park for tower_shelve_return (return $(grep "^$a1$TAB" "$store" | cut -f 16), expected 7762)"
-counts=$(run counts --now 4160) || fail "counts with a shelved item"
-[ "$(printf '%s\n' "$counts" | awk -F '\t' '$1 == "news" { print $2 }')" = 0 ] || fail "counts still counts a shelved item as waiting: $counts"
 rc=0
 run shelve "$a1" --for 0 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "shelve for a zero span: exit $rc, expected 2"
