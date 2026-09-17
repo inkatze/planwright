@@ -23,8 +23,17 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 TQ="$here/../scripts/tower-queue.sh"
 
+# The stderr of the last `run`. Kept rather than discarded: a suite that sends
+# the system under test to /dev/null reports its own generic message and hides
+# the refusal that explains it.
+errf=""
+
 fail() {
   echo "FAIL: $1" >&2
+  if [ -n "${errf:-}" ] && [ -s "$errf" ]; then
+    echo "--- stderr of the last tower-queue run ---" >&2
+    cat "$errf" >&2
+  fi
   exit 1
 }
 
@@ -32,6 +41,7 @@ fail() {
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+errf="$tmp/stderr"
 
 home="$tmp/fleet-home"
 mkdir -p "$home"
@@ -44,8 +54,6 @@ local_cfg="$tmp/local.yml"
 surface="$home/tower-comms"
 store="$surface/queue"
 log_file="$surface/events.log"
-attn_dir="$home/attention"
-attn_store="$attn_dir/state"
 content="$tmp/content"
 mkdir -p "$content"
 ev="$tmp/evidence"
@@ -53,11 +61,12 @@ ev="$tmp/evidence"
 TAB=$(printf '\t')
 
 run() {
+  : >"$errf"
   PLANWRIGHT_FLEET_STATE_DIR="$home" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
     PLANWRIGHT_REPO_ROOT="$tmp" \
     PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
-    /bin/sh "$TQ" "$@"
+    /bin/sh "$TQ" "$@" 2>"$errf"
 }
 
 # evidence <line>... — the already-derived table the pass consumes. Owner-only,
@@ -69,33 +78,12 @@ evidence() {
   for l in "$@"; do printf '%s\n' "$l" >>"$ev"; done
 }
 
-# attention_row <worker> <scope> <state> <ts> <prio> <q> <def> <opts> [<reason> [<iid> [<claim> [<command>]]]]
-attention_row() {
-  mkdir -p "$attn_dir"
-  chmod 0700 "$attn_dir"
-  printf '%s' "$1" >>"$attn_store"
-  shift
-  for f in "$@"; do printf '\t%s' "$f" >>"$attn_store"; done
-  printf '\n' >>"$attn_store"
-}
-
-drop_row() { # drop_row <worker>
-  awk -F "$TAB" -v w="$1" '($1 "") != (w "")' "$attn_store" >"$tmp/rows" && mv "$tmp/rows" "$attn_store"
-}
-
 rec() { grep "^$1$TAB" "$store" || true; }
-state_of() { rec "$1" | cut -f 12; }
-reason_of() { rec "$1" | cut -f 18; }
-away_of() { rec "$1" | cut -f 22; }
 
 add_req() { # add_req <name> <subject> <now> [<urgency>]
   printf 'request %s\n' "$1" >"$content/$1"
   run add --kind request --root "$content" --pointer "$1" --origin operator \
     --subject "$2" --urgency "${4:-normal}" --closes 'the operator decides' --now "$3"
-}
-
-settled_line() { # settled_line <output> <id>
-  printf '%s\n' "$1" | awk -F "$TAB" -v i="$2" '$1 == "settled" && $2 == i { print; exit }'
 }
 
 # --- a small settled history to render ------------------------------------------
@@ -107,7 +95,7 @@ r_br=$(add_req r-br branch:feature-x 1000) || fail "add r-br"
 r_open1=$(add_req r-open1 - 1000) || fail "add r-open1"
 add_req r-open2 pr:900 1000 >/dev/null || fail "add r-open2"
 evidence "stamp${TAB}1010" "pr${TAB}42${TAB}merged" "branch${TAB}feature-x${TAB}commits"
-run settle --evidence "$ev" --now 1100 >/dev/null 2>&1 || fail "the pass that settles the away pair"
+run settle --evidence "$ev" --now 1100 >/dev/null || fail "the pass that settles the away pair"
 
 mkdir -p "$surface/attention"
 chmod 0700 "$surface/attention"
@@ -115,32 +103,37 @@ printf '1200\n' >"$surface/attention/$A"
 chmod 0600 "$surface/attention/$A"
 r_here=$(add_req r-here pr:71 1200) || fail "add r-here"
 evidence "stamp${TAB}1201" "pr${TAB}71${TAB}merged"
-run settle --evidence "$ev" --now 1210 >/dev/null 2>&1 || fail "the pass that settles with the operator present"
+run settle --evidence "$ev" --now 1210 >/dev/null || fail "the pass that settles with the operator present"
 
 # One more, settled while a conversation was holding it: the catch-up is how
 # that conversation learns its item closed (REQ-B1.4).
 held=$(add_req r-held pr:80 1300 high) || fail "add r-held"
 printf '1301\n' >"$surface/attention/$A"
 chmod 0600 "$surface/attention/$A"
-run next --tower $A --evidence "$ev" --now 1302 >/dev/null 2>&1 || fail "the knock before the held hand-over"
+run next --tower $A --evidence "$ev" --now 1302 >/dev/null || fail "the knock before the held hand-over"
 printf '1303\n' >"$surface/attention/$A"
 chmod 0600 "$surface/attention/$A"
-handed=$(run next --tower $A --evidence "$ev" --now 1304 2>/dev/null | awk -F "$TAB" '$1 == "item" { print $2; exit }')
+out=$(run next --tower $A --evidence "$ev" --now 1304) || fail "the held hand-over exited non-zero"
+handed=$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "item" { print $2; exit }')
 [ "$handed" = "$held" ] || fail "the held item was not the one handed over: '$handed'"
 evidence "stamp${TAB}1310" "pr${TAB}80${TAB}merged"
-run settle --evidence "$ev" --now 1320 >/dev/null 2>&1 || fail "the pass that settles a held item"
+run settle --evidence "$ev" --now 1320 >/dev/null || fail "the pass that settles a held item"
 [ "$(rec "$held" | cut -f 24)" = "$A" ] || fail "the item does not record the tower that held it"
 
 # --- catchup: the settled history with reasons, bounded, then the open counts -----
 
-out=$(run catchup --now 3000 2>/dev/null) || fail "catchup exited non-zero"
+out=$(run catchup --now 3000) || fail "catchup exited non-zero"
 printf '%s\n' "$out" | grep -q "^settled${TAB}$r_pr${TAB}request${TAB}" || fail "catchup does not list a settled item"
 printf '%s\n' "$out" | awk -F "$TAB" -v i="$r_pr" '$1 == "settled" && $2 == i { print $8 }' | grep -q 'PR #42 is merged' \
   || fail "catchup does not carry the settle reason"
 printf '%s\n' "$out" | grep -q "^settled${TAB}$r_open1${TAB}" && fail "catchup listed an open item"
 printf '%s\n' "$out" | grep -q "^open${TAB}request${TAB}" || fail "catchup prints no open count per kind"
-[ "$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "open" && $2 == "request" { print $3 }')" -ge 2 ] \
-  || fail "catchup's open request count is wrong"
+# Bound to a number the render actually printed: `[ "" -ge 2 ]` is a syntax
+# error, not a clean failure, so a missing count would report as noise on
+# stderr rather than as the assertion it is.
+open_req=$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "open" && $2 == "request" { print $3 }')
+case "$open_req" in '' | *[!0-9]*) fail "catchup printed no usable open request count: '$open_req'" ;; esac
+[ "$open_req" -ge 2 ] || fail "catchup's open request count is wrong: $open_req"
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "remainder" { print $2 }')" = 0 ] \
   || fail "catchup reported a remainder with everything shown"
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" -v i="$r_br" '$1 == "settled" && $2 == i { print $7 }')" = 1 ] \
@@ -153,13 +146,13 @@ printf '%s\n' "$out" | grep -q "^open${TAB}request${TAB}" || fail "catchup print
 # after everything settled leaves nothing to catch up on.
 printf '2900\n' >"$surface/attention/$A"
 chmod 0600 "$surface/attention/$A"
-out=$(run catchup --tower $A --now 3000 2>/dev/null) || fail "catchup --tower exited non-zero"
+out=$(run catchup --tower $A --now 3000) || fail "catchup --tower exited non-zero"
 printf '%s\n' "$out" | grep -q "^settled${TAB}$r_here${TAB}" && fail "catchup showed an item settled before the operator's last reply"
 [ "$(printf '%s\n' "$out" | grep -c "^settled${TAB}" || true)" = 0 ] || fail "catchup's since-last-reply window is not applied"
 # And the other direction: a reply older than a settle puts it back in the window.
 printf '1205\n' >"$surface/attention/$A"
 chmod 0600 "$surface/attention/$A"
-out=$(run catchup --tower $A --now 3000 2>/dev/null) || fail "catchup --tower over an older reply exited non-zero"
+out=$(run catchup --tower $A --now 3000) || fail "catchup --tower over an older reply exited non-zero"
 printf '%s\n' "$out" | grep -q "^settled${TAB}$r_here${TAB}" || fail "catchup dropped an item settled after the operator's last reply"
 printf '%s\n' "$out" | grep -q "^settled${TAB}$r_pr${TAB}" && fail "catchup showed an item settled before the window opened"
 # The away flag reaches the render the tower actually reads, not just the store.
@@ -171,12 +164,25 @@ printf '2900\n' >"$surface/attention/$A"
 chmod 0600 "$surface/attention/$A"
 echo "ok: catchup lists what settled since the operator's last reply, with reasons, most recent first, beside the open counts"
 
+# --- --since names the window directly, with no conversation to read it from -----
+
+# The three settles are at 1100 (r_pr, r_br), 1210 (r_here) and 1320 (held), so
+# each bound below falls in a different gap between them.
+out=$(run catchup --since 1250 --now 3000) || fail "catchup --since exited non-zero"
+printf '%s\n' "$out" | grep -q "^settled${TAB}$held${TAB}" || fail "catchup --since dropped an item settled inside the window"
+printf '%s\n' "$out" | grep -q "^settled${TAB}$r_here${TAB}" && fail "catchup --since showed an item settled before the bound"
+printf '%s\n' "$out" | grep -q "^settled${TAB}$r_pr${TAB}" && fail "catchup --since showed an item settled well before the bound"
+out=$(run catchup --since 1150 --now 3000) || fail "catchup --since at an earlier bound exited non-zero"
+printf '%s\n' "$out" | grep -q "^settled${TAB}$r_here${TAB}" || fail "catchup --since did not widen with an earlier bound"
+printf '%s\n' "$out" | grep -q "^settled${TAB}$r_pr${TAB}" && fail "catchup --since at 1150 showed an item settled at 1100"
+echo "ok: --since bounds the window itself, without a conversation's last reply to read it from"
+
 # The list is bounded by the knob; the count of everything past it comes from
 # the event log, which holds the history the store's horizon has dropped.
 logged=$(grep -c '"kind":"settled"\|"kind":"merged"' "$log_file" || true)
 [ "$logged" -ge 3 ] || fail "too few settled events to bound: $logged"
 printf 'tower_catchup_limit: 2\n' >"$local_cfg"
-out=$(run catchup --now 3000 2>/dev/null) || fail "catchup at a lowered bound exited non-zero"
+out=$(run catchup --now 3000) || fail "catchup at a lowered bound exited non-zero"
 [ "$(printf '%s\n' "$out" | grep -c "^settled${TAB}" || true)" = 2 ] || fail "catchup did not bound the list to tower_catchup_limit"
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "remainder" { print $2 }')" = "$((logged - 2))" ] \
   || fail "catchup's remainder is not the event log's count past the list: '$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "remainder" { print $2 }')' against $((logged - 2))"
@@ -191,14 +197,14 @@ cp "$log_file" "$tmp/log.full"
 tail -n +3 "$tmp/log.full" >"$log_file"
 chmod 0600 "$log_file"
 printf 'tower_catchup_limit: 2\n' >"$local_cfg"
-out=$(run catchup --now 3000 2>/dev/null) || fail "catchup over a truncated log exited non-zero"
+out=$(run catchup --now 3000) || fail "catchup over a truncated log exited non-zero"
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "remainder" { print $3 }')" = floor ] \
   || fail "a truncated log did not render the remainder as a floor"
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "remainder" { print $4 }')" = log-rotated \
   ] || fail "the floor does not say the log was short: '$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "remainder" { print $4 }')'"
 
 mv "$log_file" "$tmp/log.short"
-out=$(run catchup --now 3000 2>/dev/null) || fail "catchup with no log exited non-zero"
+out=$(run catchup --now 3000) || fail "catchup with no log exited non-zero"
 [ "$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "remainder" { print $4 }')" = log-absent \
   ] || fail "a missing log did not say so"
 cp "$tmp/log.full" "$log_file"
