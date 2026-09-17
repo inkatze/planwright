@@ -326,4 +326,15 @@ out=$(run next --tower $D --now 9503 2>/dev/null) || fail "D knocks pin-2"
 [ "$(lease_of "$p1")" = - ] || fail "the lease from the superseded knock was kept: pin-1 is held by '$(lease_of "$p1")'"
 echo "ok: a knock about a new top item releases the lease the superseded knock pinned"
 
+# --- a holder's marker stamped in the future does not make it present ---------------
+
+# D's pin on pin-2 stands; a marker past now is no reply, so D is away once its
+# own knock ages out, and B, attended, takes the item D pinned rather than
+# the one it released.
+marker $D 99999
+marker $B 9610
+out=$(run next --tower $B --now 9611) || fail "B takes pin-2"
+[ "$(field "$out" 2)" = "$p2" ] || fail "a holder with a marker stamped in the future counted as present: '$out'"
+echo "ok: a marker stamped in the future does not make its tower present"
+
 echo "ALL PASS: tower-queue lease"

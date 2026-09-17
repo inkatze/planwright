@@ -2092,7 +2092,8 @@ function load_attention(file,   l, f, n, rc) {
 function attended(t,   r) {
   if (!(t in tw_kt)) return 0
   r = tw_reply[t]; if (r <= 0 || tw_kt[t] <= 0) return 0
-  return (r >= tw_kt[t] && r > tw_dt[t] && now - r <= quiet)
+  # A stamp past now (a skewed clock, a planted marker) has not happened yet.
+  return (r <= now && r >= tw_kt[t] && r > tw_dt[t] && now - r <= quiet)
 }
 # present(t): the operator is not away in that conversation: a reply within
 # the quiet interval, or, while the marker has not appeared at all, a knock
@@ -2100,10 +2101,10 @@ function attended(t,   r) {
 # proof of absence until the quiet interval has run). A lease held by a
 # present tower is left alone even between a hand-over and its reply.
 function present(t,   last) {
-  if ((t in tw_reply) && tw_reply[t] > 0) return (now - tw_reply[t] <= quiet)
+  if ((t in tw_reply) && tw_reply[t] > 0 && tw_reply[t] <= now) return (now - tw_reply[t] <= quiet)
   if (!(t in tw_kt)) return 0
   last = (tw_kt[t] > tw_dt[t]) ? tw_kt[t] : tw_dt[t]
-  return (last > 0 && now - last <= quiet)
+  return (last > 0 && last <= now && now - last <= quiet)
 }
 function derived_pass(   n, eff, o, w, ii) {
   for (n = 1; n <= N; n++) {
@@ -2235,6 +2236,7 @@ run_store_pass() {
         if (!top || better(n, top)) top = n
       }
       kt = tw_kt[tower]; dt = tw_dt[tower]; r = tw_reply[tower]
+      if (r > now) r = 0
       nkt = kt; nkitem = tw_kitem[tower]; ndt = dt; nditem = tw_ditem[tower]
       if (!top) print "decision\tnone"
       else if (me) {

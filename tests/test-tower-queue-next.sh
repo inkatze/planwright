@@ -251,4 +251,14 @@ out=$(run next --tower $A --now 2720 2>/dev/null) || fail "knock v3 after the qu
 [ "$(field "$out" 4)" = $((waiting - 2)) ] || fail "the knock's waiting count includes items already in this tower's hand: '$out' (was $waiting before two hand-overs)"
 echo "ok: one reply releases one item, the next hand-over needs a later reply, and the knock counts only what is waiting"
 
+# --- a marker stamped in the future confirms nothing ----------------------------------
+
+# A skewed clock or a planted marker can stamp a reply past now; until the
+# clock reaches it, it is no reply.
+run ack "$v2" --tower $A --now 2721 >/dev/null || fail "ack v2"
+marker $A 99999
+out=$(run next --tower $A --now 2722) || fail "next with a future marker"
+[ -z "$out" ] || fail "a marker stamped in the future confirmed attention: '$out'"
+echo "ok: a marker stamped in the future confirms nothing"
+
 echo "ALL PASS: tower-queue next"
