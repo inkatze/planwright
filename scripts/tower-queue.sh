@@ -2020,7 +2020,7 @@ take_snapshot() {
 # and a store that moved under it means the lock was broken.
 commit_store() {
   if { [ "$SNAP_EXISTED" = 1 ] && { [ ! -f "$store_file" ] || ! cmp -s "$store_file" "$SCRATCH/snap"; }; } \
-    || { [ "$SNAP_EXISTED" = 0 ] && [ -f "$store_file" ]; }; then
+    || { [ "$SNAP_EXISTED" = 0 ] && { [ -e "$store_file" ] || [ -L "$store_file" ]; }; }; then
     err "the queue store changed while this verb held the fleet lock (a broken lock?); nothing written"
     return 1
   fi

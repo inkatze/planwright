@@ -377,6 +377,16 @@ PATH="$shim:$PATH" run next --tower tower-x --now 7000 >/dev/null 2>"$tmp/err" |
 grep -q 'changed while this verb held the fleet lock' "$tmp/err" || fail "the rebuild did not name the broken lock"
 [ "$(cat "$store")" = intruder ] || fail "the rebuild overwrote a store that appeared under the lock"
 rm -f "$store"
+# The same with a directory at the store's path: a rename would land the
+# store inside it and leave the path non-regular.
+# shellcheck disable=SC2016
+printf '#!/bin/sh\ncase "$3" in */cands) mkdir -p "%s" ;; esac\nexec "%s" "$@"\n' "$store" "$real_head" >"$shim/head"
+rm -f "$surface/rebuild.debt"
+rc=0
+PATH="$shim:$PATH" run next --tower tower-x --now 7001 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 6 ] || fail "a directory appearing at the store path under a rebuild: exit $rc, expected 6"
+[ -d "$store" ] && [ -z "$(ls -A "$store")" ] || fail "the rebuild renamed the store into a directory that appeared at its path"
+rmdir "$store"
 echo "ok: a store that appears while a rebuild runs is left alone and the verb refuses"
 
 # --- the rebuild's log debt: durable before the store, paid once, never wedged ------
