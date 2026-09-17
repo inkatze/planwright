@@ -2,15 +2,16 @@
 # tower-queue.sh — the operator queue's script (tower-comms). Three parts:
 # the event log (`log`), the scorecard computed from it alone (`report`), and
 # the queue store with its verbs (`add`, `list`, `next`, `ack`, `shelve`,
-# `settle`, `counts`) — D-2 to D-6, D-14, D-18; REQ-A1.1 to REQ-A1.9,
-# REQ-C1.1, REQ-C1.2, REQ-C1.5, REQ-C1.10, REQ-C1.11, REQ-G1.1 to REQ-G1.8.
+# `settle`, `catchup`, `counts`) — D-2 to D-6, D-8, D-14, D-18; REQ-A1.1 to
+# REQ-A1.9, REQ-B1.1 to REQ-B1.5, REQ-C1.1, REQ-C1.2, REQ-C1.5, REQ-C1.10,
+# REQ-C1.11, REQ-F1.4, REQ-G1.1 to REQ-G1.8, REQ-H1.2.
 #
 # THE STORE. `<home>/tower-comms/queue`, one tab-separated record per item,
 # the index and delivery state only: the content lives where its kind already
 # does (a worker's question or a piece of news in the attention store row, a
 # request, an approval or a standing decision in a file under a declared
 # root) and is written there BEFORE the record that points at it — `add`
-# refuses a pointer at nothing. The twenty fields, every one validated
+# refuses a pointer at nothing. The twenty-three fields, every one validated
 # against its grammar before a write and sanitized on the way out:
 #
 #    1 id          i + 8 hex, derived from the content home's key (below)
@@ -37,6 +38,16 @@
 #   18 settled_by  what settled it, or -
 #   19 lease       the holding tower's identity, or -
 #   20 lease_until the lease's backstop expiry, or 0
+#   21 subject     the subject key the settling pass and the pairing rule
+#                  join on: worker:<handle>, pr:<n>, branch:<name>,
+#                  ledger:<key>, or -
+#   22 away        1 when the item settled while no tower conversation had
+#                  the operator present, else 0 (REQ-B1.4)
+#   23 sources     the origins merged into this item, comma-joined, or -
+#
+# A record written before the settling task shipped carries only the first
+# twenty fields; it is normalised on read (subject -, away 0, sources -) and
+# rewritten by the next locked verb, so an older store is never stranded.
 #
 # The identifier is derived from the content home's key (kind, home, pointer,
 # and for news the row's instance, for a path item its root), so an `add` of
@@ -132,10 +143,10 @@
 # logged no-op on a closed item. `shelve <id>` parks an item until
 # `tower_shelve_return` (or `--for`), releasing any lease, and never drops
 # it; it is refused the same way when another tower holds the lease. `settle
-# <id> --reason` closes it on evidence, naming what settled it (the level-
-# triggered settling pass itself is the settling task's, deferred there with
-# a risk-register row; every locked verb already applies the derived part —
-# shelve returns, lease expiry, pointer refresh — before it acts). `list`
+# <id> --reason` closes one item on evidence, naming what settled it; `settle`
+# with no id runs the level-triggered pass below. Every locked verb applies
+# the derived part — shelve returns, lease expiry, pointer refresh — before it
+# acts. `list`
 # prints every open item and never a settled one (`--all` adds the closed
 # ones the store still keeps): id, kind, urgency, origin, birth epoch, a
 # state of open / delivered / shelved / leased:<tower> / closed, the content
@@ -143,6 +154,78 @@
 # count per kind, the total over the ranked kinds, the top item's kind (what
 # the status line's `waiting` field reads), the number of store lines that
 # do not parse, and whether the store is present. Both are lock-free reads.
+#
+# THE SETTLING PASS (`settle` with no id) — D-5, REQ-B1.1 to REQ-B1.5,
+# REQ-F1.4, REQ-H1.2. Level-triggered: every pass re-evaluates every open
+# item's closing condition against the evidence available NOW, never a stream
+# of events since the last pass, so an item whose condition was met before the
+# previous pass still settles. One pass serves a whole tower-loop iteration:
+# it stamps `settle.stamp` with the evidence stamp it ran against, and the
+# `next` that follows reuses that pass instead of running its own (a `next`
+# against evidence the stamp has not seen settles first, so a lone `next` is
+# never stale).
+#
+# Evidence is gathered OUTSIDE the lock — it is read from a file the caller
+# has already derived, never polled here — and the lock is taken for the
+# writes alone and held below the bound `Q_SETTLE_HOLD_BOUND` states, which
+# the pass reports as its `held` line. Two sources:
+#
+#   * The worker attention store, read directly: a row that is GONE is a
+#     content home that vanished and settles its item with that reason; a row
+#     still present whose claim field (the 11th, `fleet-attention.sh claim`'s
+#     first-answer-wins label) is set settles it as answered by another route.
+#     A row that merely moved on — a heartbeat, a completion or success the
+#     worker reported of itself — is a CLAIM, not evidence, and settles
+#     nothing (REQ-B1.2).
+#   * `<surface>/evidence` (or `--evidence <file>`), the reconcile sweep's
+#     already-derived, TTL-stamped facts, one per line, joined to items by the
+#     subject key:
+#
+#       stamp<TAB><epoch>                    when the facts were derived
+#       pr<TAB><number><TAB>open|merged|closed
+#       branch<TAB><name><TAB>commits|none
+#       ledger<TAB><key><TAB>closed|open
+#       report<TAB><worker><TAB><text>       a worker's own claim; settles nothing
+#       unavailable<TAB><source>[<TAB><detail>]
+#
+#     An open or merged PR, commits on the branch, and a closed ledger item
+#     settle; `closed`, `none`, `open` and every `report` line do not. A
+#     source that cannot be reached is an `unavailable` line: distinct from
+#     one reporting nothing, logged as `unavailable`, settling nothing, and
+#     holding the away re-knock by writing `reknock.hold` (the delivery task
+#     reads it; the pass removes it once every source answers again).
+#
+# A path item whose content file has gone settles with that reason too. The
+# pass logs one `settled` line per item with its reason, and records the item
+# as settled-while-away when no tower conversation had the operator present.
+#
+# MERGING (REQ-B1.3). In the same pass, over every open, unleased,
+# undelivered, unshelved candidate, keyed once: two items of the same kind
+# whose normalised question text and option set are identical merge into one
+# that names every source. Normalised means case-folded and
+# whitespace-collapsed with the origin worker handle and the row's scope
+# removed by fixed-string replacement — except that an item carrying a worker
+# command (the permission record's command field) merges only on byte equality
+# after that removal, with no case-folding and no collapse. The survivor is
+# the best-ranked source; it takes the highest urgency and the oldest birth of
+# the group, and the others close with `merged into <id>`.
+#
+# PAIRING (REQ-B1.3) happens at the hand-over, not in the store: `next` pairs
+# at most two open, unleased, undelivered items of the same kind naming the
+# same subject key and hands them over as ONE unit — one `item` line whose
+# origin names both sources and whose urgency and age are the higher and the
+# older, plus one `pair` line carrying the partner's own pointer and closing
+# condition. A third item on that subject waits. Both are leased and stamped
+# delivered, so the bound of one hand-over per call holds (REQ-C1.1).
+#
+# CATCH-UP (`catchup`, D-8, REQ-B1.4, REQ-C1.8). A lock-free read of what
+# settled without the operator since their last reply in that tower's
+# conversation (`--since` overrides; with neither, the whole retained settled
+# history): one `settled` line per item with its reason and whether it settled
+# while they were away, most recent first, bounded to `tower_catchup_limit`
+# and followed by a `remainder` count, then the open counts by kind. It is
+# what the tower READS to compose the first turn after silence; the list
+# itself is shown only on request, and nothing here is ever pushed.
 #
 # REBUILD. When the store is absent a locked verb rebuilds it inside the lock
 # (absence re-checked there, so two towers cannot both rebuild) from the
@@ -297,11 +380,14 @@ usage: tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> .
        tower-queue.sh report [--log <path>] [--now <epoch>] [--window <duration>] [--tick-gap-max <duration>]
        tower-queue.sh add --kind <kind> --origin <who> --closes <text> [--urgency high|normal|low] [--now <epoch>]
                       (--worker <handle> [--root <dir> --park <rel>] | --root <dir> --pointer <rel> [--park <rel>])
+                      [--subject worker:<handle>|pr:<n>|branch:<name>|ledger:<key>]
                       --closes defaults for a standing decision; a question inherits its row's urgency and refuses --urgency
-       tower-queue.sh next [--tower <id>] [--now <epoch>]
+       tower-queue.sh next [--tower <id>] [--now <epoch>] [--evidence <file>]
        tower-queue.sh ack <id> [--tower <id>] [--now <epoch>]
        tower-queue.sh shelve <id> [--tower <id>] [--for <duration>] [--now <epoch>]
        tower-queue.sh settle <id> --reason <text> [--now <epoch>]
+       tower-queue.sh settle [--evidence <file>] [--now <epoch>]   the level-triggered pass
+       tower-queue.sh catchup [--tower <id>] [--since <epoch>] [--now <epoch>]
        tower-queue.sh list [--all] [--now <epoch>]
        tower-queue.sh counts [--now <epoch>]
 EOF
@@ -806,6 +892,7 @@ verify_surface() {
 
 HOLD_LOCK=0
 LOCK_PATH=""
+LOCK_AT=""
 LOCK_TOKEN=""
 LOCK_CHILD=""
 PENDING_TMP=""
@@ -902,6 +989,7 @@ acquire_lock() {
     case $_rc in
       0)
         LOCK_TOKEN=$(readlink "$LOCK_PATH" 2>/dev/null) || LOCK_TOKEN=""
+        LOCK_AT=$(clock_s)
         return 0
         ;;
       1) HOLD_LOCK=0 ;;
@@ -1557,6 +1645,11 @@ QUESTION_CLOSES="the operator answers"
 # keeps, so a runaway value would put that sort inside the fleet lock on
 # every write.
 Q_CATCHUP_CAP=500
+# The bound the settling pass holds the fleet lock for, stated here because
+# this is where it is enforced (REQ-B1.1): evidence is read before the lock is
+# taken, so the hold covers the rewrite alone. The pass reports the hold it
+# actually took as its `held` line and warns past this many seconds.
+Q_SETTLE_HOLD_BOUND=2
 TAB=$(printf '\t')
 # The C1 control range as a case pattern (the byte-range form dash and bash
 # both take under the C locale): [[:cntrl:]] stops at DEL, and a raw CSI at
@@ -1617,6 +1710,32 @@ is_handle() {
     "" | . | .. | *[!A-Za-z0-9._=@:-]*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
+}
+
+# is_subject <value> — the subject key the settling pass joins evidence on and
+# the pairing rule groups by: a worker handle, a PR number, a branch, or a
+# ledger key, each under its own prefix so two namespaces never collide.
+is_subject() {
+  case "$1" in
+    -) return 0 ;;
+    worker:*) is_handle "${1#worker:}" ;;
+    pr:*)
+      case "${1#pr:}" in
+        "" | *[!0-9]* | 0?*) return 1 ;;
+      esac
+      [ "${#1}" -le 32 ]
+      ;;
+    branch:* | ledger:*)
+      _sv=${1#*:}
+      [ -n "$_sv" ] || return 1
+      is_text "$_sv" 256 || return 1
+      case "$_sv" in
+        *[[:blank:]]*) return 1 ;;
+      esac
+      return 0
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 UUID_PAT='[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]'
@@ -1967,7 +2086,15 @@ write_delivery() { # write_delivery <tower> <kt> <kitem> <dt> <ditem>
 build_towers_file() {
   : >"$SCRATCH/names"
   [ -z "${tower:-}" ] || printf '%s\n' "$tower" >>"$SCRATCH/names"
-  [ ! -s "$SCRATCH/snap" ] || awk -F '\t' 'NF == 20 && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
+  [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
+  # Every conversation that has a delivery record or an attention marker, too:
+  # the settling pass runs under no tower of its own and still has to know
+  # whether the operator is present anywhere before it records an item as
+  # settled while they were away (REQ-B1.4).
+  # shellcheck disable=SC2012
+  ls -1 "$delivery_dir" 2>/dev/null >>"$SCRATCH/names" || true
+  # shellcheck disable=SC2012
+  ls -1 "$marker_dir" 2>/dev/null >>"$SCRATCH/names" || true
   : >"$SCRATCH/towers"
   sort -u "$SCRATCH/names" | while IFS= read -r _tn; do
     is_tower "$_tn" || continue
@@ -2046,7 +2173,7 @@ commit_store() {
 # shellcheck disable=SC2016
 AWK_Q='
 function rec_ok(   i) {
-  if (NF != 20) return 0
+  if (NF != 23) return 0
   if ($1 !~ /^i[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/) return 0
   if ($2 !~ /^(question|approval|request|news|standing)$/) return 0
   if ($3 !~ /^(high|normal|low)$/) return 0
@@ -2055,7 +2182,9 @@ function rec_ok(   i) {
   if ($5 !~ /^(0|[1-9][0-9]*)$/) return 0
   for (i = 13; i <= 17; i++) if ($i !~ /^(0|[1-9][0-9]*)$/) return 0
   if ($20 !~ /^(0|[1-9][0-9]*)$/) return 0
-  for (i = 1; i <= 20; i++) if ($i == "") return 0
+  if ($21 !~ /^(-|worker:[^ \t]+|pr:[1-9][0-9]*|branch:[^ \t]+|ledger:[^ \t]+)$/) return 0
+  if ($22 !~ /^[01]$/) return 0
+  for (i = 1; i <= 23; i++) if ($i == "") return 0
   return 1
 }
 function krank(k) { return (k == "question") ? 0 : (k == "approval") ? 1 : (k == "request") ? 2 : (k == "news") ? 3 : 9 }
@@ -2082,9 +2211,126 @@ function load_attention(file,   l, f, n, rc) {
     n = split(l, f, "\t")
     if (n < 8) continue
     at_state[f[1]] = f[3]; at_ts[f[1]] = f[4]; at_prio[f[1]] = f[5]; at_iid[f[1]] = (n >= 10) ? f[10] : ""
+    # The settling pass reads four more: the scope and the question with its
+    # option set are what the merge key is computed from, and the claim
+    # label (the first-answer-wins field fleet-attention.sh claim stamps) is the
+    # answered-by-another-route evidence. The 12th is the command text on
+    # a permission record, which merges only on byte equality.
+    at_scope[f[1]] = f[2]; at_q[f[1]] = f[6]; at_opts[f[1]] = f[8]
+    # A lone "-" reads as absent alongside the empty field the writers use:
+    # no option label is a bare dash, and taking one for an answer would
+    # settle an item the operator never saw.
+    at_claim[f[1]] = (n >= 11 && f[11] != "-") ? f[11] : ""
+    at_cmd[f[1]] = (n >= 12 && f[12] != "-") ? f[12] : ""
   }
   close(file)
   if (rc < 0) fail("cannot read the attention store")
+}
+# The evidence table the settling pass runs against, normalised by the shell
+# before the lock was taken: one `settles` line per fact, keyed by an item id
+# or a subject key, and one `unavailable` line per source that would not
+# answer (distinct from a source reporting nothing, REQ-B1.2).
+function load_evidence(file,   l, f, n, rc) {
+  if (file == "") return
+  while ((rc = (getline l < file)) > 0) {
+    n = split(l, f, "\t")
+    if (n >= 3 && f[1] == "settles") ev[f[2]] = f[3]
+    else if (n >= 2 && f[1] == "unavailable") unavail[f[2]] = 1
+  }
+  close(file)
+  if (rc < 0) fail("cannot read the evidence table")
+}
+# fsrep(s, pat): every occurrence of the LITERAL pat removed. Fixed-string,
+# never a regex: inbound text is data and is never used as a pattern.
+function fsrep(s, pat,   i, out) {
+  if (pat == "") return s
+  out = ""
+  while ((i = index(s, pat)) > 0) { out = out substr(s, 1, i - 1); s = substr(s, i + length(pat)) }
+  return out s
+}
+function norm(s) {
+  s = tolower(s); gsub(/[ \t]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s)
+  return s
+}
+# merge_key(n): what two items have to share to be the same question. Only an
+# attention item has one — its question text and option set live on the row;
+# a path item carries no option set and never merges.
+function merge_key(n,   w, s) {
+  if (F[n, 6] != "attention") return ""
+  w = F[n, 7]
+  if (!(w in at_state)) return ""
+  if (at_cmd[w] != "") {
+    s = fsrep(fsrep(at_cmd[w], F[n, 4]), at_scope[w])
+    return (s == "") ? "" : "c\002" s
+  }
+  if (at_q[w] == "") return ""
+  return "q\002" norm(fsrep(fsrep(at_q[w], F[n, 4]), at_scope[w])) "\003" norm(fsrep(fsrep(at_opts[w], F[n, 4]), at_scope[w]))
+}
+# settle_reason(n): the closing condition re-read against the evidence
+# available NOW, or "" for an item that stays open. Order matters only in
+# that a vanished home is reported as itself rather than as whatever a
+# subject-keyed fact would have said about it.
+function settle_reason(n,   w) {
+  if (("item:" F[n, 1]) in ev) return ev["item:" F[n, 1]]
+  if (F[n, 6] == "attention") {
+    w = F[n, 7]
+    if (!(w in at_state)) return "its attention row is gone (the content home has vanished)"
+    # A row that merely moved on carries the status the worker reported of
+    # itself, which is a claim and settles nothing (REQ-B1.2).
+    if (at_claim[w] != "") return "answered by another route (claim " clean(at_claim[w]) ")"
+  }
+  if (F[n, 21] != "-" && (F[n, 21] in ev)) return ev[F[n, 21]]
+  return ""
+}
+function add_source(have, who,   i, p) {
+  if (who == "" || who == "-") return have
+  if (index("," have ",", "," who ",") > 0) return have
+  if (length(have) + length(who) + 1 > 480) return have
+  return (have == "") ? who : have "," who
+}
+# settle_pass(): the level-triggered pass. Every open condition is
+# re-evaluated against the evidence available now, then the survivors are
+# keyed once and the duplicates merged (REQ-B1.1, REQ-B1.3).
+function settle_pass(   n, r, t, i, j, key, best, src, parts, np) {
+  away = 1
+  for (t in tw_reply) if (present(t)) away = 0
+  for (n = 1; n <= N; n++) {
+    if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
+    r = settle_reason(n)
+    if (r == "") continue
+    F[n, 12] = "closed"; F[n, 17] = now; F[n, 18] = r; F[n, 19] = "-"; F[n, 20] = 0; F[n, 22] = away
+    changed = 1
+    print "settled\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" away "\t" r
+  }
+  for (n = 1; n <= N; n++) {
+    if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
+    if (F[n, 19] != "-" || F[n, 14] + 0 > 0 || F[n, 16] + 0 > 0) continue
+    key = merge_key(n)
+    if (key == "") continue
+    key = F[n, 2] "\001" key
+    gn[key]++
+    gi[key, gn[key]] = n
+  }
+  for (key in gn) {
+    if (gn[key] < 2) continue
+    best = gi[key, 1]
+    for (i = 2; i <= gn[key]; i++) if (better(gi[key, i], best)) best = gi[key, i]
+    src = (F[best, 23] == "-") ? "" : F[best, 23]
+    for (i = 1; i <= gn[key]; i++) {
+      j = gi[key, i]
+      if (j == best) continue
+      if (urank(F[j, 3]) < urank(F[best, 3])) F[best, 3] = F[j, 3]
+      if (F[j, 5] + 0 < F[best, 5] + 0) F[best, 5] = F[j, 5]
+      if (F[j, 4] != F[best, 4]) src = add_source(src, F[j, 4])
+      if (F[j, 23] != "-") { np = split(F[j, 23], parts, ","); for (t = 1; t <= np; t++) if (parts[t] != F[best, 4]) src = add_source(src, parts[t]) }
+      F[j, 12] = "closed"; F[j, 17] = now; F[j, 18] = "merged into " F[best, 1]
+      F[j, 19] = "-"; F[j, 20] = 0; F[j, 22] = away
+      changed = 1
+      print "merged\t" clean(F[j, 1]) "\t" clean(F[best, 1]) "\t" clean(F[j, 2])
+    }
+    if (src != "" && F[best, 23] != src) { F[best, 23] = src; changed = 1 }
+  }
+  for (t in unavail) print "unavailable\t" clean(t)
 }
 # attended(t): a reply at or after the tower last knocked and last handed
 # over, after a knock (an attention session is opened by one), within the
@@ -2156,15 +2402,28 @@ function emit(out,   n, i, m, v, tv, j, line) {
     if (!OK[n]) { print L[n] > out; continue }
     if (n in drop) continue
     line = F[n, 1]
-    for (i = 2; i <= 20; i++) line = line "\t" F[n, i]
+    for (i = 2; i <= 23; i++) line = line "\t" F[n, i]
     print line > out
   }
   close(out)
 }
-function render_item(n) {
-  return "item\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(F[n, 4]) "\t" (now - F[n, 5]) "\t" clean(F[n, 6] ":" ((F[n, 6] == "path") ? F[n, 9] "/" F[n, 7] : F[n, 7]) ((F[n, 8] == "-") ? "" : "@" F[n, 8])) "\t" clean(F[n, 10]) "\t" clean(F[n, 11])
+# render_item(n, urg, age, orig): the hand-over line. The three overrides are
+# the pairing rule(REQ-B1.3): a pair is delivered as one unit carrying the
+# higher urgency, the older age, and both origins. Empty otherwise.
+function srcs(n) { return F[n, 4] ((F[n, 23] == "-") ? "" : "," F[n, 23]) }
+function render_item(n, urg, age, orig) {
+  if (urg == "") urg = F[n, 3]
+  if (age == "") age = now - F[n, 5]
+  if (orig == "") orig = srcs(n)
+  return "item\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(urg) "\t" clean(orig) "\t" age "\t" clean(F[n, 6] ":" ((F[n, 6] == "path") ? F[n, 9] "/" F[n, 7] : F[n, 7]) ((F[n, 8] == "-") ? "" : "@" F[n, 8])) "\t" clean(F[n, 10]) "\t" clean(F[n, 11])
 }
-{ N++; L[N] = $0; if (rec_ok()) { OK[N] = 1; for (i = 1; i <= 20; i++) F[N, i] = $i } else OK[N] = 0 }
+# A record written before the settling task shipped carries twenty fields; it
+# is completed here rather than refused, so an older store keeps its items.
+{
+  N++; L[N] = $0
+  if (NF == 20) { $21 = "-"; $22 = 0; $23 = "-"; changed = 1 }
+  if (rec_ok()) { OK[N] = 1; for (i = 1; i <= 23; i++) F[N, i] = $i } else OK[N] = 0
+}
 '
 
 # run_store_pass <mode> [<awk -v assignments>...] — the derived pass plus
@@ -2178,9 +2437,10 @@ run_store_pass() {
   shift
   awk -F '\t' -v OFS='\t' -v mode="$_mode" -v now="$now" -v quiet="${quiet:-0}" -v lease_iv="${lease_iv:-0}" \
     -v limit="${catchup_limit:-20}" -v towers_file="$SCRATCH/towers" -v attn_file="$attn_file_for_awk" \
+    -v evid_file="${EVID_FILE:-}" -v do_settle="${DO_SETTLE:-0}" \
     -v out="$SCRATCH/new" -v tower="${tower:-}" -v record_file="$SCRATCH/record" -v reason_file="$SCRATCH/reason" "$@" "$AWK_Q"'
   BEGIN {
-    load_towers(towers_file); load_attention(attn_file); changed = 0
+    load_towers(towers_file); load_attention(attn_file); load_evidence(evid_file); changed = 0
     record = ""; reason = ""
     if ((getline record < record_file) <= 0) record = ""
     close(record_file)
@@ -2189,6 +2449,10 @@ run_store_pass() {
   }
   END {
     derived_pass()
+    # The settling pass runs before any verb acts, so a `next` that follows it
+    # in the same iteration selects from what the pass left (REQ-B1.1).
+    if (mode == "pass" || do_settle == 1) settle_pass()
+    if (mode == "pass") { emit(out); print "changed\t" changed; exit }
     if (mode == "add") {
       t = 0
       for (n = 1; n <= N; n++) if (OK[n] && F[n, 1] == item) t = n
@@ -2198,11 +2462,11 @@ run_store_pass() {
       if (t) {
         # The same content home queued again after its item closed: the
         # record is re-opened in place, born now, so one home is one id.
-        for (i = 1; i <= 20; i++) F[t, i] = $i
+        for (i = 1; i <= 23; i++) F[t, i] = $i
         changed = 1; print "status\treopened"; emit(out); print "changed\t" changed; exit
       }
       N++; OK[N] = 1; L[N] = ""
-      for (i = 1; i <= 20; i++) F[N, i] = $i
+      for (i = 1; i <= 23; i++) F[N, i] = $i
       changed = 1; print "status\tadded"; emit(out); print "changed\t" changed; exit
     }
     if (mode == "ack" || mode == "settle" || mode == "shelve") {
@@ -2243,10 +2507,26 @@ run_store_pass() {
       else if (me) {
         target = top
         if (kt > dt && tw_kitem[tower] != "-") for (n in cand) if (F[n, 1] == tw_kitem[tower]) target = n
+        # Pairing (REQ-B1.3): at most two candidates of the same kind naming
+        # the same subject go over as ONE unit, so the hand-over stays one
+        # decision and a third on that subject waits for the next call.
+        mate = 0
+        if (F[target, 21] != "-")
+          for (n in cand)
+            if (n != target && F[n, 2] == F[target, 2] && F[n, 21] == F[target, 21])
+              if (!mate || better(n, mate)) mate = n
+        purg = F[target, 3]; page = now - F[target, 5]; porig = srcs(target)
+        if (mate) {
+          if (urank(F[mate, 3]) < urank(purg)) purg = F[mate, 3]
+          if (now - F[mate, 5] > page) page = now - F[mate, 5]
+          porig = porig "," srcs(mate)
+          F[mate, 19] = tower; F[mate, 20] = int(now + lease_iv); F[mate, 14] = now
+        }
         F[target, 19] = tower; F[target, 20] = int(now + lease_iv); F[target, 14] = now; changed = 1
         ndt = now; nditem = F[target, 1]
-        print "decision\tdeliver\t" clean(F[target, 1]) "\t" clean(F[target, 2]) "\t" clean(F[target, 3])
-        print render_item(target)
+        print "decision\tdeliver\t" clean(F[target, 1]) "\t" clean(F[target, 2]) "\t" clean(purg) "\t" (mate ? clean(F[mate, 1]) : "-")
+        print render_item(target, purg, page, porig)
+        if (mate) print "pair\t" clean(F[mate, 1]) "\t" clean(F[mate, 6] ":" ((F[mate, 6] == "path") ? F[mate, 9] "/" F[mate, 7] : F[mate, 7]) ((F[mate, 8] == "-") ? "" : "@" F[mate, 8])) "\t" clean(F[mate, 10]) "\t" clean(F[mate, 11])
       } else {
         # The same reading attended() takes: a reply stamped in the same second
         # as the knock answers the knock; a hand-over needs a later one.
@@ -2326,6 +2606,7 @@ rebuild_if_absent() {
           delete closed[it]
           bkind[i] = F["item_kind"]; burg[i] = F["urgency"]; borig[i] = F["origin"]; bts[i] = F["ts"] + 0
           bhome[i] = F["home"]; bptr[i] = F["pointer"]; binst[i] = F["instance"]; broot[i] = F["root"]; bpark[i] = F["park"]; bcl[i] = F["closes"]
+          bsub[i] = ("subject" in F) ? F["subject"] : ""
         } else if (k == "acknowledged" || k == "settled") closed[it] = 1
         else if (k == "dropped" && ("reason" in F) && F["reason"] == "rebuild") closed[it] = 1
       }
@@ -2341,18 +2622,18 @@ rebuild_if_absent() {
           covered[w] = 1
           ii = (at_iid[w] == "") ? "-" : at_iid[w]
           u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : burg[i]
-          print "cand\t" nz(bkind[i]) "\t" nz(u) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" ii "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it
+          print "cand\t" nz(bkind[i]) "\t" nz(u) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" ii "\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i])
         } else if (bkind[i] == "news" && (w in at_state) && at_state[w] "." at_ts[w] == binst[i]) {
-          print "cand\t" nz(bkind[i]) "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" nz(binst[i]) "\t-\t-\t" nz(bcl[i]) "\t" it
+          print "cand\t" nz(bkind[i]) "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tattention\t" w "\t" nz(binst[i]) "\t-\t-\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i])
         } else print "drop\t" it
       } else if (bhome[i] == "path") {
-        print "path\t" nz(bkind[i]) "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tpath\t" nz(bptr[i]) "\t-\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it
+        print "path\t" nz(bkind[i]) "\t" nz(burg[i]) "\t" nz(borig[i]) "\t" bts[i] "\tpath\t" nz(bptr[i]) "\t-\t" nz(broot[i]) "\t" nz(bpark[i]) "\t" nz(bcl[i]) "\t" it "\t" nz(bsub[i])
       } else print "drop\t" it
     }
     for (w in at_state) if (at_state[w] == "awaiting-input" && !(w in covered)) {
       ii = (at_iid[w] == "") ? "-" : at_iid[w]
       u = (at_prio[w] ~ /^(high|normal|low)$/) ? at_prio[w] : "normal"
-      print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-"
+      print "cand\tquestion\t" u "\t" w "\t" at_ts[w] + 0 "\tattention\t" w "\t" ii "\t-\t-\t'"$QUESTION_CLOSES"'\t-\tworker:" w
     }
   }' >"$SCRATCH/cands" 2>"$SCRATCH/cands.err" || {
     err "the rebuild pass failed: $(sanitize_printable "$(head -n 1 "$SCRATCH/cands.err" 2>/dev/null)" "(no diagnostic)")"
@@ -2364,7 +2645,7 @@ rebuild_if_absent() {
   fi
   : >"$SCRATCH/new"
   _seen=""
-  while IFS="$TAB" read -r _tag _k _u _o _b _h _p _i _r _pk _c _was; do
+  while IFS="$TAB" read -r _tag _k _u _o _b _h _p _i _r _pk _c _was _sub; do
     case "$_tag" in
       drop)
         printf '%s\n' "$_k" >>"$SCRATCH/dropped"
@@ -2396,11 +2677,16 @@ rebuild_if_absent() {
     fi
     case " $_seen " in *" $_id "*) continue ;; esac
     _seen="$_seen $_id"
+    # A born line from before the subject field shipped carries none; the
+    # worker the item came from is what the content home still attests.
+    is_subject "$_sub" || {
+      if [ "$_h" = attention ]; then _sub="worker:$_p"; elif [ "$_o" != operator ]; then _sub="worker:$_o"; else _sub=-; fi
+    }
     if [ "$_was" = "-" ]; then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" >>"$SCRATCH/fresh"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_sub" >>"$SCRATCH/fresh"
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\n' \
-      "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" >>"$SCRATCH/new" || exit 6
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\n' \
+      "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_sub" >>"$SCRATCH/new" || exit 6
   done <"$SCRATCH/cands"
   # The debt lands before the store: a store whose births could never be
   # logged is worse than no store, which the next verb rebuilds again. A
@@ -2456,7 +2742,7 @@ drain_debt() {
   _retry=0
   _dsaved=$LOG_FAILED
   while IFS= read -r _dl; do
-    IFS="$TAB" read -r _dk _f1 _f2 _f3 _f4 _f5 _f6 _f7 _f8 _f9 _f10 _f11 <<EOF
+    IFS="$TAB" read -r _dk _f1 _f2 _f3 _f4 _f5 _f6 _f7 _f8 _f9 _f10 _f11 _f12 <<EOF
 $_dl
 EOF
     LOG_FAILED=0
@@ -2471,8 +2757,9 @@ EOF
       born)
         is_item_id "$_f1" || continue
         is_epoch "$_f5" || _f5=$now
+        is_subject "$_f12" || _f12=-
         owe_log born --now "$_f5" item="$_f1" item_kind="$_f2" urgency="$_f3" origin="$_f4" \
-          home="$_f6" pointer="$_f7" instance="$_f8" root="$_f9" park="$_f10" closes="$_f11"
+          home="$_f6" pointer="$_f7" instance="$_f8" root="$_f9" park="$_f10" closes="$_f11" subject="$_f12"
         ;;
       dropped)
         is_item_id "$_f1" || continue
@@ -2512,6 +2799,130 @@ parse_now() {
       exit 6
     }
   fi
+}
+
+# --- evidence, gathered before the lock (REQ-B1.1) ----------------------------
+
+EVID_FILE=""
+DO_SETTLE=0
+ev_stamp=none
+
+# put_file <path> <text> — replace a file on the sub-surface through a
+# same-directory temp and rename, so a lock-free reader never sees it torn.
+put_file() {
+  PENDING_TMP=$(mktemp "$surface/.tqf.XXXXXX" 2>/dev/null) || {
+    err "cannot create a scratch file for $(sanitize_printable "$1" "(unprintable path)")"
+    exit 6
+  }
+  printf '%s\n' "$2" >"$PENDING_TMP" 2>/dev/null || {
+    err "cannot write $(sanitize_printable "$1" "(unprintable path)")"
+    exit 6
+  }
+  mv -f "$PENDING_TMP" "$1" 2>/dev/null || {
+    err "cannot replace $(sanitize_printable "$1" "(unprintable path)")"
+    exit 6
+  }
+  PENDING_TMP=""
+}
+
+# ev_prepare <path or ""> — normalise the caller's already-derived facts into
+# the two-tag table the settling pass reads, and add the content homes that
+# have gone. Every read here happens BEFORE the lock is taken and nothing in
+# it polls a remote: the pass consumes evidence, it never gathers it.
+ev_prepare() {
+  _ep=$1
+  ev_stamp=none
+  EVID_FILE=$(mktemp 2>/dev/null) || {
+    err "cannot create a scratch file for the evidence table"
+    exit 6
+  }
+  WORK_TMP=$EVID_FILE
+  _ef=$_ep
+  [ -n "$_ef" ] || _ef="$surface/evidence"
+  if [ -d "$_ef" ] && [ ! -L "$_ef" ]; then
+    err "the evidence table $(sanitize_printable "$_ef" "(unprintable path)") is a directory"
+    exit 6
+  fi
+  if [ -e "$_ef" ] || [ -L "$_ef" ]; then
+    # What settles an item settles it without the operator ever seeing it, so
+    # the table is held to the same owner-only bar as the store itself.
+    check_private_file "$_ef"
+    _es=$(awk -F '\t' '$1 == "stamp" && $2 ~ /^[1-9][0-9]*$/ && length($2) <= 12 { print $2; exit }' "$_ef" 2>/dev/null) || _es=""
+    [ -z "$_es" ] || ev_stamp=$_es
+    awk -F '\t' -v OFS='\t' '
+      function keyok(s) { return (s != "" && length(s) <= 256 && s ~ /^[A-Za-z0-9._\/@:=+-]+$/) }
+      $1 == "pr" && $3 ~ /^(open|merged)$/ && $2 ~ /^[1-9][0-9]*$/ && length($2) <= 12 { print "settles", "pr:" $2, "PR #" $2 " is " $3; next }
+      $1 == "branch" && $3 == "commits" && keyok($2) { print "settles", "branch:" $2, "the branch " $2 " carries commits"; next }
+      $1 == "ledger" && $3 == "closed" && keyok($2) { print "settles", "ledger:" $2, "the ledger item " $2 " is closed"; next }
+      $1 == "unavailable" && keyok($2) { print "unavailable", $2; next }
+    ' "$_ef" >>"$EVID_FILE" || {
+      err "cannot read the evidence table"
+      exit 6
+    }
+  elif [ -n "$_ep" ]; then
+    refuse "no evidence table at $(sanitize_printable "$_ep" "(unprintable path)")"
+  fi
+  # A content home that has gone settles its item with that reason (REQ-B1.2).
+  # The store is read lock-free here, the same way `list` and `counts` read it;
+  # what the pass then acts on is re-read under the lock.
+  if [ -f "$store_file" ]; then
+    awk -F '\t' '(NF == 20 || NF == 23) && $12 == "open" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "/" $7 }' "$store_file" 2>/dev/null \
+      | while IFS="$TAB" read -r _gi _gp; do
+        is_item_id "$_gi" || continue
+        [ -f "$_gp" ] || printf 'settles\titem:%s\tits content home has gone\n' "$_gi"
+      done >>"$EVID_FILE"
+  fi
+}
+
+# ev_reuse — whether the settling pass this verb would run has already been
+# run against the same evidence. The stamp the pass leaves is what makes one
+# pass serve a whole tower-loop iteration (REQ-B1.1); unstamped evidence is
+# never reused, because nothing then says the facts have not moved.
+ev_reuse() {
+  _pv=""
+  if [ -f "$surface/settle.stamp" ]; then
+    check_private_file "$surface/settle.stamp"
+    IFS="$TAB" read -r _ps _pv <"$surface/settle.stamp" 2>/dev/null || _pv=""
+  fi
+  [ "$ev_stamp" != none ] && [ "$ev_stamp" = "$_pv" ]
+}
+
+# pass_writes <result> — the two files the settling pass owns, written while
+# the lock is still held: the hold the away re-knock waits on (delivery task)
+# and the stamp the next verb reuses.
+pass_writes() {
+  _un=$(printf '%s\n' "$1" | awk -F '\t' '$1 == "unavailable" { print $2 }')
+  if [ -n "$_un" ]; then
+    put_file "$surface/reknock.hold" "$_un"
+  else
+    rm -f "$surface/reknock.hold" 2>/dev/null || true
+  fi
+  put_file "$surface/settle.stamp" "$now$TAB$ev_stamp"
+}
+
+# pass_logs <result> — one log line per thing the pass did, appended after the
+# lock is released through the `log` verb's own critical section.
+pass_logs() {
+  # Materialised first: owe_log records a failed line in LOG_FAILED, which a
+  # loop on the far side of a pipe would keep in its own subshell.
+  printf '%s\n' "$1" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable"' >"$SCRATCH/passlog"
+  while IFS="$TAB" read -r _tag _p1 _p2 _p3 _p4; do
+    case "$_tag" in
+      settled) owe_log settled --now "$now" item="$_p1" item_kind="$_p2" away="$_p3" reason="$_p4" ;;
+      merged) owe_log merged --now "$now" item="$_p1" into="$_p2" item_kind="$_p3" ;;
+      unavailable) owe_log unavailable --now "$now" source="$_p1" ;;
+    esac
+  done <"$SCRATCH/passlog"
+}
+
+# pass_held — the seconds the fleet lock was held, against the stated bound.
+pass_held() {
+  _t1=$(clock_s)
+  _held=$(awk -v a="${LOCK_AT:-0}" -v b="${_t1:-0}" 'BEGIN { d = b - a; if (d < 0 || a + 0 == 0) d = 0; printf "%.3f\n", d }')
+  if awk -v b="$Q_SETTLE_HOLD_BOUND" -v d="$_held" 'BEGIN { exit (d > b) ? 0 : 1 }'; then
+    err "the settling pass held the fleet lock for ${_held}s, past the stated bound of ${Q_SETTLE_HOLD_BOUND}s"
+  fi
+  printf '%s\n' "$_held"
 }
 
 # enter_store — the shared prologue of every locked verb: knobs, the surface
@@ -2564,11 +2975,12 @@ cmd_add() {
   root=""
   pointer=""
   park=""
+  subject=""
   now=""
   now_set=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --kind | --origin | --closes | --urgency | --worker | --root | --pointer | --park | --now)
+      --kind | --origin | --closes | --urgency | --worker | --root | --pointer | --park | --subject | --now)
         [ "$#" -ge 2 ] || usage
         case "$1" in
           --kind) kind=$2 ;;
@@ -2579,6 +2991,7 @@ cmd_add() {
           --root) root=$2 ;;
           --pointer) pointer=$2 ;;
           --park) park=$2 ;;
+          --subject) subject=$2 ;;
           --now)
             now=$2
             now_set=1
@@ -2592,6 +3005,7 @@ cmd_add() {
   [ -n "$kind" ] && [ -n "$origin" ] || usage
   is_one_of "$kind" "$Q_KINDS" || refuse "refusing kind '$(sanitize_printable "$kind" "(unprintable kind)")': one of $Q_KINDS"
   is_handle "$origin" || refuse "refusing origin '$(sanitize_printable "$origin" "(unprintable origin)")': a worker handle or the operator, a single token with no whitespace or path separator"
+  [ -z "$subject" ] || is_subject "$subject" || refuse "refusing subject '$(sanitize_printable "$subject" "(unprintable subject)")': worker:<handle>, pr:<n>, branch:<name> or ledger:<key>"
   [ -z "$urgency" ] || is_one_of "$urgency" "$Q_URGENCIES" || refuse "refusing urgency '$(sanitize_printable "$urgency" "(unprintable urgency)")': high, normal or low"
   parse_now
   resolve_surface
@@ -2663,9 +3077,22 @@ cmd_add() {
       [ -n "$urgency" ] || urgency=normal
       ;;
   esac
+  # The subject the settling pass joins evidence on. A caller that names one
+  # wins; otherwise it is the worker the item came from, which is the only
+  # subject derivable from the content home alone — a PR, a branch or a
+  # ledger key is named by whoever captured the item.
+  if [ -z "$subject" ]; then
+    if [ "$ihome" = attention ]; then
+      subject="worker:$ptr"
+    elif [ "$origin" != operator ]; then
+      subject="worker:$origin"
+    else
+      subject=-
+    fi
+  fi
   id=$(id_for "$kind" "$ihome" "$ptr" "$instance" "$PTR_ROOT")
-  record=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0' \
-    "$id" "$kind" "$urgency" "$origin" "$now" "$ihome" "$ptr" "$instance" "$PTR_ROOT" "$park_rel" "$closes")
+  record=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-' \
+    "$id" "$kind" "$urgency" "$origin" "$now" "$ihome" "$ptr" "$instance" "$PTR_ROOT" "$park_rel" "$closes" "$subject")
 
   tower=""
   enter_store
@@ -2690,7 +3117,8 @@ cmd_add() {
       ;;
     added | reopened)
       owe_log born --now "$now" item="$id" item_kind="$kind" urgency="$urgency" origin="$origin" \
-        home="$ihome" pointer="$ptr" instance="$instance" root="$PTR_ROOT" park="$park_rel" closes="$closes"
+        home="$ihome" pointer="$ptr" instance="$instance" root="$PTR_ROOT" park="$park_rel" closes="$closes" \
+        subject="$subject"
       finish_exit
       ;;
     *)
@@ -2706,6 +3134,7 @@ cmd_add() {
 
 cmd_next() {
   tower_flag=""
+  evidence=""
   now=""
   now_set=0
   while [ "$#" -gt 0 ]; do
@@ -2713,6 +3142,11 @@ cmd_next() {
       --tower)
         [ "$#" -ge 2 ] || usage
         tower_flag=$2
+        shift 2
+        ;;
+      --evidence)
+        [ "$#" -ge 2 ] || usage
+        evidence=$2
         shift 2
         ;;
       --now)
@@ -2726,6 +3160,11 @@ cmd_next() {
   done
   parse_now
   resolve_tower "$tower_flag"
+  resolve_surface
+  # The settling pass runs before the selection (REQ-B1.1), unless the pass
+  # that serves this loop iteration has already run against the same evidence.
+  ev_prepare "$evidence"
+  if ev_reuse; then DO_SETTLE=0; else DO_SETTLE=1; fi
   enter_store
   result=$(run_store_pass next) || {
     err "the store pass failed"
@@ -2736,8 +3175,10 @@ cmd_next() {
   dec_item=""
   dec_kind=""
   dec_urg=""
+  dec_pair=-
   changed=0
   out_line=""
+  pair_line=""
   n_kt=0
   n_kitem=-
   n_dt=0
@@ -2749,6 +3190,7 @@ cmd_next() {
         dec_item=$_b
         dec_kind=$_c
         dec_urg=$_d
+        [ -z "$_e" ] || dec_pair=$_e
         ;;
       delivery)
         n_kt=$_a
@@ -2759,6 +3201,7 @@ cmd_next() {
       changed) changed=$_a ;;
       skip) err "not handing over $(sanitize_printable "$_a" "?"): $(sanitize_printable "$_b" "?")" ;;
       item) out_line="item	$_a	$_b	$_c	$_d	$_e	$_f	$_g	$_h" ;;
+      pair) pair_line="pair	$_a	$_b	$_c	$_d" ;;
       knock) out_line="knock	$_a	$_b	$_c" ;;
     esac
   done <<EOF
@@ -2780,14 +3223,17 @@ EOF
       [ "$changed" != 1 ] || commit_store || exit 6
       ;;
   esac
+  [ "$DO_SETTLE" != 1 ] || pass_writes "$result"
   leave_store
+  [ "$DO_SETTLE" != 1 ] || pass_logs "$result"
   [ "$tower_fallback" = 0 ] || err "no presence identity resolved; this tower leases as '$tower' (a tower-session-scoped fallback)"
   case "$dec_what" in
     deliver)
       printf '%s\n' "$out_line"
+      [ -z "$pair_line" ] || printf '%s\n' "$pair_line"
       # The one fail-open line: the hand-over stands, the failure is
       # surfaced, and the redelivery it risks is inside the loss budget.
-      log_event delivered --now "$now" --tower "$tower" item="$dec_item" item_kind="$dec_kind" urgency="$dec_urg" \
+      log_event delivered --now "$now" --tower "$tower" item="$dec_item" item_kind="$dec_kind" urgency="$dec_urg" pair="$dec_pair" \
         || err "the 'delivered' line did not reach the event log; the hand-over stands"
       finish_exit
       ;;
@@ -2948,7 +3394,69 @@ cmd_shelve() {
   esac
 }
 
+# cmd_settle_pass — `settle` with no item id: the level-triggered pass over
+# every open item (REQ-B1.1). It takes no --tower: settling is evidence-driven
+# and asks no conversation, which is also why it releases a lease it finds.
+cmd_settle_pass() {
+  evidence=""
+  now=""
+  now_set=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --evidence | --now)
+        [ "$#" -ge 2 ] || usage
+        case "$1" in
+          --evidence) evidence=$2 ;;
+          --now)
+            now=$2
+            now_set=1
+            ;;
+        esac
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  parse_now
+  resolve_surface
+  ev_prepare "$evidence"
+  tower=""
+  enter_store
+  result=$(run_store_pass pass) || {
+    err "the store pass failed"
+    exit 6
+  }
+  pass_failed "$result" && exit 6
+  changed=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "changed" { print $2; exit }')
+  [ "$changed" != 1 ] || commit_store || exit 6
+  pass_writes "$result"
+  held=$(pass_held)
+  leave_store
+  printf '%s\n' "$result" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable"'
+  printf 'held\t%s\n' "$held"
+  pass_logs "$result"
+  finish_exit
+}
+
 cmd_settle() {
+  # One non-flag argument is an item id, and `settle <id> --reason` closes
+  # that item alone; with none, this is the pass above.
+  _sk=0
+  _sid=0
+  for _sa in "$@"; do
+    if [ "$_sk" = 1 ]; then
+      _sk=0
+      continue
+    fi
+    case "$_sa" in
+      --reason | --now | --evidence | --tower | --for) _sk=1 ;;
+      -*) ;;
+      *) _sid=1 ;;
+    esac
+  done
+  # The pass ends in finish_exit, so the per-item path below is reached only
+  # when an item id was given.
+  [ "$_sid" = 1 ] || cmd_settle_pass "$@"
   parse_item_args settle "$@"
   [ -n "$reason" ] || refuse "settle needs --reason <text>: what settled the item (the evidence, never a guess)"
   reason=$(redact "$reason")
@@ -3082,6 +3590,83 @@ cmd_counts() {
   }
 }
 
+# ---------------------------------------------------------------------------
+# catchup — what settled without the operator, lock-free
+# ---------------------------------------------------------------------------
+
+cmd_catchup() {
+  tower_flag=""
+  since=""
+  now=""
+  now_set=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --tower | --since | --now)
+        [ "$#" -ge 2 ] || usage
+        case "$1" in
+          --tower) tower_flag=$2 ;;
+          --since) since=$2 ;;
+          --now)
+            now=$2
+            now_set=1
+            ;;
+        esac
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  parse_now
+  [ -z "$since" ] || is_epoch "$since" || refuse "refusing --since '$(sanitize_printable "$since" "(unprintable epoch)")': an epoch is a canonical positive integer"
+  resolve_queue_knobs
+  resolve_surface
+  verify_read_surface
+  # The window is the operator's own last reply in this conversation; with no
+  # tower and no --since it is the whole settled history the store still keeps.
+  if [ -z "$since" ] && [ -n "$tower_flag" ]; then
+    is_tower "$tower_flag" || refuse "refusing tower identity '$(sanitize_printable "$tower_flag" "(unprintable identity)")'"
+    since=$(read_marker "$tower_flag")
+    [ "$since" != unreadable ] || {
+      err "cannot read the attention marker for tower '$tower_flag'"
+      exit 6
+    }
+  fi
+  [ -n "$since" ] || since=0
+  if [ ! -f "$store_file" ]; then
+    printf 'remainder\t0\nopen\tquestion\t0\nopen\tapproval\t0\nopen\trequest\t0\nopen\tnews\t0\nopen\tstanding\t0\n'
+    exit 0
+  fi
+  awk -F '\t' -v now="$now" -v since="$since" -v limit="$catchup_limit" "$AWK_Q"'
+  END {
+    m = 0
+    for (n = 1; n <= N; n++) {
+      if (!OK[n]) continue
+      if (F[n, 12] == "open") { c[F[n, 2]]++; continue }
+      if (F[n, 17] + 0 <= 0 || F[n, 17] + 0 <= since + 0) continue
+      m++; ci[m] = n; ct[m] = F[n, 17] + 0
+    }
+    for (i = 2; i <= m; i++) {
+      v = ci[i]; tv = ct[i]; j = i - 1
+      while (j >= 1 && ct[j] < tv) { ci[j + 1] = ci[j]; ct[j + 1] = ct[j]; j-- }
+      ci[j + 1] = v; ct[j + 1] = tv
+    }
+    shown = (m > limit) ? limit : m
+    for (i = 1; i <= shown; i++) {
+      n = ci[i]
+      print "settled\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(srcs(n)) "\t" F[n, 17] "\t" F[n, 22] "\t" clean(F[n, 18])
+    }
+    print "remainder\t" (m - shown)
+    print "open\tquestion\t" c["question"] + 0
+    print "open\tapproval\t" c["approval"] + 0
+    print "open\trequest\t" c["request"] + 0
+    print "open\tnews\t" c["news"] + 0
+    print "open\tstanding\t" c["standing"] + 0
+  }' "$store_file" 2>/dev/null || {
+    err "cannot read the queue store"
+    exit 6
+  }
+}
+
 cmd=${1:-}
 [ -n "$cmd" ] || usage
 shift
@@ -3093,10 +3678,11 @@ case "$cmd" in
   ack) cmd_ack "$@" ;;
   shelve) cmd_shelve "$@" ;;
   settle) cmd_settle "$@" ;;
+  catchup) cmd_catchup "$@" ;;
   list) cmd_list "$@" ;;
   counts) cmd_counts "$@" ;;
   *)
-    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | report | add | next | ack | shelve | settle | list | counts)"
+    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | report | add | next | ack | shelve | settle | catchup | list | counts)"
     exit 2
     ;;
 esac
