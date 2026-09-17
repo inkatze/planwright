@@ -464,7 +464,18 @@ baseline exists, so the experiment has an honest before.
   register (row 16 reserves it), then remove this bullet. Task 8 waits for
   that entry (D-15). Also parked there, per the review pause protocol: the
   hook does not verify the fleet home itself before writing the marker
-  (risk row 28a names the fix); direct whether to apply it.
+  (risk row 28a names the fix); direct whether to apply it. Two more from
+  the review gauntlet (risk row 29), each a choice rather than a fix: the
+  marker's read-then-rename cannot hold "never backwards" across two hook
+  invocations racing on one session (the later rename wins, not the later
+  value; at most one second, in an interleaving the harness does not
+  produce), so either narrow the header's claim to a stepped-back clock or
+  serialise the write with a per-marker lock and a bounded wait; and no
+  procedure gives a tower session its own UUID for `publish --session-id`
+  (nothing sets `PLANWRIGHT_TOWER_SESSION_ID`, and `/orchestrate`'s publish
+  line names no identity), so either the launcher passes
+  `claude --session-id <uuid>` and exports it, or the hook grows a
+  pid-composite gate; Task 8's identity wiring is where the first lands.
 
 ## Deferred
 
