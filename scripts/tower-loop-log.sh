@@ -147,7 +147,16 @@ live_workers() {
     err "cannot resolve the fleet home (fleet-state.sh root failed)"
     exit 6
   }
-  _store="$_home/attention/state"
+  _adir="$_home/attention"
+  _store="$_adir/state"
+  # A store directory that cannot be searched would read as no store at all,
+  # so it is refused before the absent-store case is believed.
+  if [ -e "$_adir" ] || [ -L "$_adir" ]; then
+    if [ ! -d "$_adir" ] || [ ! -r "$_adir" ] || [ ! -x "$_adir" ]; then
+      err "the attention store's directory exists but cannot be read; no tick written rather than a wrong count"
+      exit 6
+    fi
+  fi
   if [ ! -e "$_store" ] && [ ! -L "$_store" ]; then
     printf '0\n'
     return 0
