@@ -715,13 +715,16 @@ tower_report_window: 7d
 tower_tick_gap_max: 10m
 
 # Tower-comms queue store: attention and the delivery lease (tower-comms D-6,
-# D-9, D-18; REQ-A1.8, REQ-C1.10, REQ-F1.1). The two intervals are time spans
-# in the grammar above, sub-second values included; the limit is a count.
+# D-9, D-18; REQ-A1.8, REQ-C1.10, REQ-F1.1; tower_catchup_limit and
+# tower_shelve_return per D-3, REQ-A1.3, REQ-B1.4 and REQ-C1.6). The two
+# intervals and the shelve return are time spans in the grammar above,
+# sub-second values included; the limit is a count.
 #
-# tower_quiet_interval   how long a knock or a hand-over may go unanswered in
-#                        one tower's conversation before its attention lapses
-#                        (the operator is away there) and the next delivery
-#                        knocks again.
+# tower_quiet_interval   how long a hand-over may go unanswered in one tower's
+#                        conversation before its attention lapses (the
+#                        operator is away there) and the next delivery
+#                        knocks again; a knock is never repeated on a
+#                        schedule.
 # tower_lease_interval   the backstop expiry of the lease `next` takes on the
 #                        item it hands to a tower; release is by event
 #                        (acknowledgement, shelve, settling) and the lease is
