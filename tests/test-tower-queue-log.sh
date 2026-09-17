@@ -103,6 +103,16 @@ run log born item=q1 "text=$(printf 'a\tb')" >/dev/null 2>&1 || rc=$?
 rc=0
 run log born item=q1 "text=$(printf 'a\033[31mb')" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "control byte (ESC): exit $rc, expected 2"
+rc=0
+run log born item=q1 "text=$(printf 'a\177b')" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "control byte (DEL): exit $rc, expected 2"
+# A real C1 is the two-byte UTF-8 sequence, not a bare 0x80-0x9F byte.
+rc=0
+run log born item=q1 "text=$(printf 'a\302\205b')" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "control byte (C1 NEL, U+0085): exit $rc, expected 2"
+rc=0
+run log born item=q1 "text=$(printf 'a\302\233b')" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "control byte (C1 CSI, U+009B): exit $rc, expected 2"
 echo "ok: control bytes refused"
 
 rc=0
@@ -197,6 +207,18 @@ while IFS= read -r l; do
   esac
 done <"$log_file"
 echo "ok: no line in the log carries a nested value"
+
+# Multi-byte text whose encoding carries a 0x80-0x9F continuation byte is
+# ordinary text: an operator turn pasted from a document is full of it.
+for mb_pair in 'em dash:\342\200\224' 'smart quote:\342\200\231' \
+  'ellipsis:\342\200\246' 'CJK:\344\270\255' 'e-acute:\303\251'; do
+  mb_label=${mb_pair%%:*}
+  mb_text=$(printf 'before %b after' "${mb_pair#*:}")
+  run log born item=mb "text=$mb_text" >/dev/null 2>"$tmp/mberr" \
+    || fail "$mb_label refused: $(cat "$tmp/mberr")"
+  grep -qF "$mb_text" "$log_file" || fail "$mb_label did not round-trip into the log"
+done
+echo "ok: multi-byte text is accepted and round-trips"
 
 # --- the tower loop with no queue present -------------------------------------
 
