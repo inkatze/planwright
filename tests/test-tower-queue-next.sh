@@ -259,6 +259,10 @@ run ack "$v2" --tower $A --now 2721 >/dev/null || fail "ack v2"
 marker $A 99999
 out=$(run next --tower $A --now 2722) || fail "next with a future marker"
 [ -z "$out" ] || fail "a marker stamped in the future confirmed attention: '$out'"
-echo "ok: a marker stamped in the future confirms nothing"
+# A marker whose line is not one epoch is no reply either, whatever it starts with.
+printf '2800garbage\n' >"$surface/attention/$A"
+out=$(run next --tower $A --now 2801) || fail "next with a malformed marker"
+[ -z "$out" ] || fail "a marker with trailing garbage confirmed attention through its numeric prefix: '$out'"
+echo "ok: a marker stamped in the future or malformed confirms nothing"
 
 echo "ALL PASS: tower-queue next"

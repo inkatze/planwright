@@ -1906,10 +1906,11 @@ read_marker() {
     printf 'unreadable\n'
     return 0
   fi
-  _ml=${_ml%%[!0-9.]*}
+  # The whole line is the epoch (a fractional part allowed); anything else
+  # on it is no reply, never a prefix to salvage.
   case "$_ml" in
-    "" | . | .*) return 0 ;;
-    *[0-9]*) printf '%s\n' "$_ml" ;;
+    "" | *[!0-9.]* | .* | *. | *.*.*) return 0 ;;
+    *) printf '%s\n' "$_ml" ;;
   esac
 }
 
