@@ -22,6 +22,9 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# A tower session exports its own identity; the owner-label cases below set
+# each rung of the ladder themselves.
+unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID
 
 here=$(cd "$(dirname "$0")" && pwd)
 TQ="$here/../scripts/tower-queue.sh"
