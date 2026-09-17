@@ -197,7 +197,7 @@ echo "ok: a standing decision closes on the operator's revocation"
 # Every line is a 20-field record.
 while IFS= read -r l; do
   nf=$(printf '%s\n' "$l" | awk -F '\t' '{ print NF }')
-  [ "$nf" = 23 ] || fail "a store line has $nf fields, expected 23: $l"
+  [ "$nf" = 24 ] || fail "a store line has $nf fields, expected 24: $l"
 done <"$store"
 echo "ok: every record has the declared field count"
 

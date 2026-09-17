@@ -15,7 +15,8 @@
 #   next             pairs at most two open, unleased, undelivered items of one
 #                    kind naming the same subject key and hands them over as
 #                    one unit: the `item` line naming both sources at the
-#                    higher urgency and the older age, then a `pair` line.
+#                    higher urgency and the older age, then a `pair` line. The
+#                    partner is the oldest candidate on the subject.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -150,8 +151,8 @@ add_req() { # add_req <name> <origin> <subject> <urgency> <now> [<kind>]
   run add --kind "${6:-request}" --root "$content" --pointer "$1" --origin "$2" \
     --subject "$3" --urgency "$4" --closes 'the operator decides' --now "$5"
 }
-# The top item and the next best on its subject go over together; the third
-# waits. p2 leads on urgency, p3 is the next best and the older of the two.
+# The top item and the oldest on its subject go over together; the third
+# waits. p2 leads on urgency and p3 is the oldest of the three.
 p1=$(add_req p1 w-one pr:500 low 1020) || fail "add p1"
 p2=$(add_req p2 w-two pr:500 high 1010) || fail "add p2"
 p3=$(add_req p3 w-three pr:500 normal 1000) || fail "add p3"
@@ -199,6 +200,28 @@ marker tower-a 1502
 out=$(run next --tower tower-a --evidence "$ev" --now 1503 2>/dev/null) || fail "the hand-over after a leased candidate"
 [ -z "$(line_of "$out" pair)" ] || fail "an item paired with a leased or already-delivered candidate"
 echo "ok: different kinds on one subject, different subjects, and a leased candidate do not pair"
+
+# --- the partner is the oldest candidate, not the best-ranked one -----------------
+
+# t-young outranks t-old on urgency but is younger; the partner rule is age,
+# so t-old goes over with the top item and t-young waits.
+t_top=$(add_req t-top w-top pr:800 high 2000) || fail "add t-top"
+t_young=$(add_req t-young w-young pr:800 high 2100) || fail "add t-young"
+t_old=$(add_req t-old w-old pr:800 low 1900) || fail "add t-old"
+marker tower-a 2200
+out=$(run next --tower tower-a --evidence "$ev" --now 2201 2>/dev/null) || fail "the age tie-break hand-over"
+item=$(line_of "$out" item)
+pair=$(line_of "$out" pair)
+[ "$(field "$item" 2)" = "$t_top" ] || fail "the top item changed: '$item'"
+[ "$(field "$pair" 2)" = "$t_old" ] || fail "the partner is not the oldest candidate on the subject: '$pair'"
+[ "$(field "$item" 6)" = "$((2201 - 1900))" ] || fail "the pair does not carry the oldest age: '$(field "$item" 6)'"
+run ack "$t_top" --tower tower-a --now 2202 >/dev/null 2>&1 || fail "ack t-top"
+run ack "$t_old" --tower tower-a --now 2203 >/dev/null 2>&1 || fail "ack t-old"
+marker tower-a 2204
+out=$(run next --tower tower-a --evidence "$ev" --now 2205 2>/dev/null) || fail "the younger candidate's turn"
+[ "$(field "$(line_of "$out" item)" 2)" = "$t_young" ] || fail "the younger candidate did not follow: '$out'"
+run ack "$t_young" --tower tower-a --now 2206 >/dev/null 2>&1 || fail "ack t-young"
+echo "ok: the partner on a subject is the oldest candidate, so neither inherited field goes stale and nothing starves"
 
 # --- merging and pairing are one keyed pass over a large fixture ------------------
 

@@ -44,10 +44,15 @@
 #   22 away        1 when the item settled while no tower conversation had
 #                  the operator present, else 0 (REQ-B1.4)
 #   23 sources     the origins merged into this item, comma-joined, or -
+#   24 held_by     the tower holding the lease when the item settled, or -.
+#                  Settling is evidence-driven and never asks a conversation,
+#                  so an item can close under a tower that was holding it;
+#                  this is how the catch-up tells that tower so rather than
+#                  leaving it to find a closed record.
 #
-# A record written before the settling task shipped carries only the first
-# twenty fields; it is normalised on read (subject -, away 0, sources -) and
-# rewritten by the next locked verb, so an older store is never stranded.
+# A record written before any of the last four fields shipped is completed on
+# read (subject -, away 0, sources -, held_by -) and rewritten by the next
+# locked verb, so an older store is never stranded.
 #
 # The identifier is derived from the content home's key (kind, home, pointer,
 # and for news the row's instance, for a path item its root), so an `add` of
@@ -215,17 +220,30 @@
 # same subject key and hands them over as ONE unit — one `item` line whose
 # origin names both sources and whose urgency and age are the higher and the
 # older, plus one `pair` line carrying the partner's own pointer and closing
-# condition. A third item on that subject waits. Both are leased and stamped
-# delivered, so the bound of one hand-over per call holds (REQ-C1.1).
+# condition. The partner is the OLDEST candidate on that subject, so the two
+# inherited fields both stay meaningful and nothing starves; a third item on
+# the subject waits. Both are leased and stamped delivered, so the bound of
+# one hand-over per call holds (REQ-C1.1).
 #
 # CATCH-UP (`catchup`, D-8, REQ-B1.4, REQ-C1.8). A lock-free read of what
 # settled without the operator since their last reply in that tower's
 # conversation (`--since` overrides; with neither, the whole retained settled
-# history): one `settled` line per item with its reason and whether it settled
-# while they were away, most recent first, bounded to `tower_catchup_limit`
-# and followed by a `remainder` count, then the open counts by kind. It is
-# what the tower READS to compose the first turn after silence; the list
-# itself is shown only on request, and nothing here is ever pushed.
+# history): one `settled` line per item — its reason, whether it settled while
+# they were away, and the tower that was holding it if one was — most recent
+# first, bounded to `tower_catchup_limit`, then a `remainder` line and the
+# open counts by kind. It is what the tower READS to compose the first turn
+# after silence; the list itself is shown only on request, and nothing here is
+# ever pushed.
+#
+# The two halves come from different places, because the store keeps only the
+# most recent closed records and the history past that horizon is the event
+# log's (REQ-A1.5): the LIST is rendered from the store, and the REMAINDER is
+# counted from the log's `settled` and `merged` lines inside the same window.
+# The remainder line says which it is — `exact` only when the log still holds
+# its first line and has dropped nothing at a lock-wait expiry, otherwise
+# `floor` with the reason (`log-rotated`, `log-absent`, `lines-dropped`,
+# `no-store`). A floor is said as a floor rather than printed as a count
+# nobody can stand behind.
 #
 # REBUILD. When the store is absent a locked verb rebuilds it inside the lock
 # (absence re-checked there, so two towers cannot both rebuild) from the
@@ -2086,7 +2104,7 @@ write_delivery() { # write_delivery <tower> <kt> <kitem> <dt> <ditem>
 build_towers_file() {
   : >"$SCRATCH/names"
   [ -z "${tower:-}" ] || printf '%s\n' "$tower" >>"$SCRATCH/names"
-  [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
+  [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23 || NF == 24) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
   # Every conversation that has a delivery record or an attention marker, too:
   # the settling pass runs under no tower of its own and still has to know
   # whether the operator is present anywhere before it records an item as
@@ -2173,7 +2191,7 @@ commit_store() {
 # shellcheck disable=SC2016
 AWK_Q='
 function rec_ok(   i) {
-  if (NF != 23) return 0
+  if (NF != 24) return 0
   if ($1 !~ /^i[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/) return 0
   if ($2 !~ /^(question|approval|request|news|standing)$/) return 0
   if ($3 !~ /^(high|normal|low)$/) return 0
@@ -2184,7 +2202,7 @@ function rec_ok(   i) {
   if ($20 !~ /^(0|[1-9][0-9]*)$/) return 0
   if ($21 !~ /^(-|worker:[^ \t]+|pr:[1-9][0-9]*|branch:[^ \t]+|ledger:[^ \t]+)$/) return 0
   if ($22 !~ /^[01]$/) return 0
-  for (i = 1; i <= 23; i++) if ($i == "") return 0
+  for (i = 1; i <= 24; i++) if ($i == "") return 0
   return 1
 }
 function krank(k) { return (k == "question") ? 0 : (k == "approval") ? 1 : (k == "request") ? 2 : (k == "news") ? 3 : 9 }
@@ -2298,9 +2316,10 @@ function settle_pass(   n, r, t, i, j, key, best, src, parts, np) {
     if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
     r = settle_reason(n)
     if (r == "") continue
-    F[n, 12] = "closed"; F[n, 17] = now; F[n, 18] = r; F[n, 19] = "-"; F[n, 20] = 0; F[n, 22] = away
+    F[n, 12] = "closed"; F[n, 17] = now; F[n, 18] = r; F[n, 22] = away; F[n, 24] = F[n, 19]
+    F[n, 19] = "-"; F[n, 20] = 0
     changed = 1
-    print "settled\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" away "\t" r
+    print "settled\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" away "\t" r "\t" clean(F[n, 24])
   }
   for (n = 1; n <= N; n++) {
     if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
@@ -2324,7 +2343,8 @@ function settle_pass(   n, r, t, i, j, key, best, src, parts, np) {
       if (F[j, 4] != F[best, 4]) src = add_source(src, F[j, 4])
       if (F[j, 23] != "-") { np = split(F[j, 23], parts, ","); for (t = 1; t <= np; t++) if (parts[t] != F[best, 4]) src = add_source(src, parts[t]) }
       F[j, 12] = "closed"; F[j, 17] = now; F[j, 18] = "merged into " F[best, 1]
-      F[j, 19] = "-"; F[j, 20] = 0; F[j, 22] = away
+      F[j, 22] = away; F[j, 24] = F[j, 19]
+      F[j, 19] = "-"; F[j, 20] = 0
       changed = 1
       print "merged\t" clean(F[j, 1]) "\t" clean(F[best, 1]) "\t" clean(F[j, 2])
     }
@@ -2402,7 +2422,7 @@ function emit(out,   n, i, m, v, tv, j, line) {
     if (!OK[n]) { print L[n] > out; continue }
     if (n in drop) continue
     line = F[n, 1]
-    for (i = 2; i <= 23; i++) line = line "\t" F[n, i]
+    for (i = 2; i <= 24; i++) line = line "\t" F[n, i]
     print line > out
   }
   close(out)
@@ -2422,7 +2442,8 @@ function render_item(n, urg, age, orig) {
 {
   N++; L[N] = $0
   if (NF == 20) { $21 = "-"; $22 = 0; $23 = "-"; changed = 1 }
-  if (rec_ok()) { OK[N] = 1; for (i = 1; i <= 23; i++) F[N, i] = $i } else OK[N] = 0
+  if (NF == 23) { $24 = "-"; changed = 1 }
+  if (rec_ok()) { OK[N] = 1; for (i = 1; i <= 24; i++) F[N, i] = $i } else OK[N] = 0
 }
 '
 
@@ -2462,11 +2483,11 @@ run_store_pass() {
       if (t) {
         # The same content home queued again after its item closed: the
         # record is re-opened in place, born now, so one home is one id.
-        for (i = 1; i <= 23; i++) F[t, i] = $i
+        for (i = 1; i <= 24; i++) F[t, i] = $i
         changed = 1; print "status\treopened"; emit(out); print "changed\t" changed; exit
       }
       N++; OK[N] = 1; L[N] = ""
-      for (i = 1; i <= 23; i++) F[N, i] = $i
+      for (i = 1; i <= 24; i++) F[N, i] = $i
       changed = 1; print "status\tadded"; emit(out); print "changed\t" changed; exit
     }
     if (mode == "ack" || mode == "settle" || mode == "shelve") {
@@ -2478,8 +2499,9 @@ run_store_pass() {
         if (F[t, 19] != tower) print "status\tnolease\t" clean(F[t, 19])
         else { F[t, 12] = "closed"; F[t, 15] = now; F[t, 19] = "-"; F[t, 20] = 0; changed = 1; print "status\tok\t" clean(F[t, 2]) }
       } else if (mode == "settle") {
-        F[t, 12] = "closed"; F[t, 17] = now; F[t, 18] = reason; F[t, 19] = "-"; F[t, 20] = 0; changed = 1
-        print "status\tok\t" clean(F[t, 2])
+        F[t, 12] = "closed"; F[t, 17] = now; F[t, 18] = reason; F[t, 24] = F[t, 19]
+        F[t, 19] = "-"; F[t, 20] = 0; changed = 1
+        print "status\tok\t" clean(F[t, 2]) "\t" clean(F[t, 24])
       } else {
         if (F[t, 19] != "-" && F[t, 19] != tower) print "status\tnolease\t" clean(F[t, 19])
         else { F[t, 16] = until; F[t, 19] = "-"; F[t, 20] = 0; F[t, 14] = 0; changed = 1; print "status\tok\t" clean(F[t, 2]) }
@@ -2510,11 +2532,16 @@ run_store_pass() {
         # Pairing (REQ-B1.3): at most two candidates of the same kind naming
         # the same subject go over as ONE unit, so the hand-over stays one
         # decision and a third on that subject waits for the next call.
+        # The partner is the OLDEST candidate on the subject, not the
+        # best-ranked one: the delivered pair inherits the highest urgency and
+        # the oldest age of its sources, so taking the oldest keeps both
+        # inherited fields meaningful, and starvation is the failure that
+        # actually degrades a decision queue. The id breaks a tie.
         mate = 0
         if (F[target, 21] != "-")
           for (n in cand)
             if (n != target && F[n, 2] == F[target, 2] && F[n, 21] == F[target, 21])
-              if (!mate || better(n, mate)) mate = n
+              if (!mate || F[n, 5] + 0 < F[mate, 5] + 0 || (F[n, 5] + 0 == F[mate, 5] + 0 && F[n, 1] < F[mate, 1])) mate = n
         purg = F[target, 3]; page = now - F[target, 5]; porig = srcs(target)
         if (mate) {
           if (urank(F[mate, 3]) < urank(purg)) purg = F[mate, 3]
@@ -2685,7 +2712,7 @@ rebuild_if_absent() {
     if [ "$_was" = "-" ]; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_sub" >>"$SCRATCH/fresh"
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\t-\n' \
       "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_sub" >>"$SCRATCH/new" || exit 6
   done <"$SCRATCH/cands"
   # The debt lands before the store: a store whose births could never be
@@ -2866,7 +2893,7 @@ ev_prepare() {
   # The store is read lock-free here, the same way `list` and `counts` read it;
   # what the pass then acts on is re-read under the lock.
   if [ -f "$store_file" ]; then
-    awk -F '\t' '(NF == 20 || NF == 23) && $12 == "open" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "/" $7 }' "$store_file" 2>/dev/null \
+    awk -F '\t' '(NF == 20 || NF == 23 || NF == 24) && $12 == "open" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "/" $7 }' "$store_file" 2>/dev/null \
       | while IFS="$TAB" read -r _gi _gp; do
         is_item_id "$_gi" || continue
         [ -f "$_gp" ] || printf 'settles\titem:%s\tits content home has gone\n' "$_gi"
@@ -2906,9 +2933,9 @@ pass_logs() {
   # Materialised first: owe_log records a failed line in LOG_FAILED, which a
   # loop on the far side of a pipe would keep in its own subshell.
   printf '%s\n' "$1" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable"' >"$SCRATCH/passlog"
-  while IFS="$TAB" read -r _tag _p1 _p2 _p3 _p4; do
+  while IFS="$TAB" read -r _tag _p1 _p2 _p3 _p4 _p5; do
     case "$_tag" in
-      settled) owe_log settled --now "$now" item="$_p1" item_kind="$_p2" away="$_p3" reason="$_p4" ;;
+      settled) owe_log settled --now "$now" item="$_p1" item_kind="$_p2" away="$_p3" reason="$_p4" held_by="${_p5:--}" ;;
       merged) owe_log merged --now "$now" item="$_p1" into="$_p2" item_kind="$_p3" ;;
       unavailable) owe_log unavailable --now "$now" source="$_p1" ;;
     esac
@@ -3091,7 +3118,7 @@ cmd_add() {
     fi
   fi
   id=$(id_for "$kind" "$ihome" "$ptr" "$instance" "$PTR_ROOT")
-  record=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-' \
+  record=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\t-' \
     "$id" "$kind" "$urgency" "$origin" "$now" "$ihome" "$ptr" "$instance" "$PTR_ROOT" "$park_rel" "$closes" "$subject")
 
   tower=""
@@ -3315,6 +3342,7 @@ item_pass() {
   pass_failed "$result" && exit 6
   st=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" { print $2; exit }')
   st_extra=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" { print $3; exit }')
+  st_held=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" { print $4; exit }')
   changed=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "changed" { print $2; exit }')
   [ "$changed" != 1 ] || commit_store || exit 6
   leave_store
@@ -3470,7 +3498,7 @@ cmd_settle() {
   item_pass settle -v item="$item"
   case "$st" in
     ok)
-      owe_log settled --now "$now" item="$item" item_kind="$st_extra" reason="$reason"
+      owe_log settled --now "$now" item="$item" item_kind="$st_extra" reason="$reason" held_by="${st_held:--}"
       finish_exit
       ;;
     closed)
@@ -3633,9 +3661,16 @@ cmd_catchup() {
   fi
   [ -n "$since" ] || since=0
   if [ ! -f "$store_file" ]; then
-    printf 'remainder\t0\nopen\tquestion\t0\nopen\tapproval\t0\nopen\trequest\t0\nopen\tnews\t0\nopen\tstanding\t0\n'
+    printf 'remainder\t0\tfloor\tno-store\nopen\tquestion\t0\nopen\tapproval\t0\nopen\trequest\t0\nopen\tnews\t0\nopen\tstanding\t0\n'
     exit 0
   fi
+  SCRATCH=$(mktemp -d 2>/dev/null) || {
+    err "cannot create a scratch dir"
+    exit 6
+  }
+  # The list comes from the store, which keeps only the most recent closed
+  # records; the count of everything past it comes from the event log, which
+  # is where the history beyond the store's horizon lives (REQ-A1.5).
   awk -F '\t' -v now="$now" -v since="$since" -v limit="$catchup_limit" "$AWK_Q"'
   END {
     m = 0
@@ -3653,18 +3688,62 @@ cmd_catchup() {
     shown = (m > limit) ? limit : m
     for (i = 1; i <= shown; i++) {
       n = ci[i]
-      print "settled\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(srcs(n)) "\t" F[n, 17] "\t" F[n, 22] "\t" clean(F[n, 18])
+      print "settled\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(srcs(n)) "\t" F[n, 17] "\t" F[n, 22] "\t" clean(F[n, 18]) "\t" clean(F[n, 24])
     }
-    print "remainder\t" (m - shown)
+    print "storetotal\t" m "\t" shown
     print "open\tquestion\t" c["question"] + 0
     print "open\tapproval\t" c["approval"] + 0
     print "open\trequest\t" c["request"] + 0
     print "open\tnews\t" c["news"] + 0
     print "open\tstanding\t" c["standing"] + 0
-  }' "$store_file" 2>/dev/null || {
+  }' "$store_file" >"$SCRATCH/list" 2>/dev/null || {
     err "cannot read the queue store"
     exit 6
   }
+  stotal=$(awk -F '\t' '$1 == "storetotal" { print $2; exit }' "$SCRATCH/list")
+  shown=$(awk -F '\t' '$1 == "storetotal" { print $3; exit }' "$SCRATCH/list")
+  log_settled=0
+  log_first=0
+  if [ -s "$log_file" ]; then
+    check_private_file "$log_file"
+    _lc=$(awk -v since="$since" "$AWK_PARSE"'
+      { if (!parse($0, F, T) || !header_ok(F, T)) next
+        if (first == 0 || F["seq"] + 0 < first) first = F["seq"] + 0
+        if ((F["kind"] == "settled" || F["kind"] == "merged") && F["ts"] + 0 > since + 0) n++ }
+      END { printf "%d %d\n", n + 0, first + 0 }' "$log_file" 2>/dev/null) || _lc=""
+    case "$_lc" in
+      [0-9]*' '[0-9]*)
+        log_settled=${_lc%% *}
+        log_first=${_lc##* }
+        ;;
+    esac
+  fi
+  # The count is exact only when the log still holds its first line and no
+  # line was ever dropped at a lock-wait expiry. Rotated, truncated, absent or
+  # lossy, it can only bound the remainder from below — so it is said as a
+  # floor rather than as a number nobody can stand behind.
+  quality=floor
+  why=log-rotated
+  if [ ! -s "$log_file" ]; then
+    why=log-absent
+  elif [ "$log_first" != 1 ]; then
+    why=log-rotated
+  elif [ -s "$dropped_file" ]; then
+    why=lines-dropped
+  else
+    quality=exact
+    why=-
+  fi
+  remainder=$(awk -v l="$log_settled" -v s="$stotal" -v k="$shown" 'BEGIN {
+    m = (l > s) ? l : s
+    r = m - k
+    if (r < 0) r = 0
+    printf "%d\n", r }')
+  awk -F '\t' '$1 == "settled"' "$SCRATCH/list"
+  printf 'remainder\t%s\t%s\t%s\n' "$remainder" "$quality" "$why"
+  awk -F '\t' '$1 == "open"' "$SCRATCH/list"
+  [ "$quality" = exact ] \
+    || err "the remainder is a floor, not a count ($why): the event log no longer covers the whole window"
 }
 
 cmd=${1:-}
