@@ -11,7 +11,7 @@
 # does (a worker's question or a piece of news in the attention store row, a
 # request, an approval or a standing decision in a file under a declared
 # root) and is written there BEFORE the record that points at it — `add`
-# refuses a pointer at nothing. The twenty-three fields, every one validated
+# refuses a pointer at nothing. The record's fields, every one validated
 # against its grammar before a write and sanitized on the way out:
 #
 #    1 id          i + 8 hex, derived from the content home's key (below)
@@ -40,7 +40,9 @@
 #   20 lease_until the lease's backstop expiry, or 0
 #   21 subject     the subject key the settling pass and the pairing rule
 #                  join on: worker:<handle>, pr:<n>, branch:<name>,
-#                  ledger:<key>, or -
+#                  ledger:<key>, or -. `add --subject` sets it; with none it is
+#                  derived as the worker the item came from, so most items
+#                  carry one and can be paired or settled by a worker fact
 #   22 away        1 when the item settled while no tower conversation had
 #                  the operator present, else 0 (REQ-B1.4)
 #   23 sources     the origins merged into this item, comma-joined, or -
@@ -97,7 +99,8 @@
 # nothing, and one reply releases one item);
 # then `next` hands over the item the knock pinned (or the top item when the
 # top has not been pinned) and stamps the hand-over, printing one line:
-# `item`, id, kind, urgency, origin, age in seconds, the content pointer
+# `item`, id, kind, urgency, the origins (the source, plus any merged into it,
+# comma-joined), age in seconds, the content pointer
 # (`attention:<worker>[@instance]` or `path:<root>/<rel>`), the park path
 # or -, and the closing condition, tab-separated. With attention unconfirmed
 # it prints the knock line — `knock`, kind and urgency of the top item, and
@@ -172,8 +175,9 @@
 #
 # Evidence is gathered OUTSIDE the lock — it is read from a file the caller
 # has already derived, never polled here — and the lock is taken for the
-# writes alone and held below the bound `Q_SETTLE_HOLD_BOUND` states, which
-# the pass reports as its `held` line. Two sources:
+# writes alone; `Q_SETTLE_HOLD_BOUND` states the bound the hold is measured
+# against, which the pass reports as its `held` line and warns past on stderr.
+# Nothing aborts a long hold — the bound is reported, not enforced. Two sources:
 #
 #   * The worker attention store, read directly: a row that is GONE is a
 #     content home that vanished and settles its item with that reason; a row
@@ -182,7 +186,9 @@
 #     A row that merely moved on — a heartbeat, a completion or success the
 #     worker reported of itself — is a CLAIM, not evidence, and settles
 #     nothing (REQ-B1.2).
-#   * `<surface>/evidence` (or `--evidence <file>`), the reconcile sweep's
+#   * `<surface>/evidence` (or `--evidence <file>`; a path given explicitly
+#     and not found is refused, while an absent default simply means no
+#     evidence), the reconcile sweep's
 #     already-derived, TTL-stamped facts, one per line, joined to items by the
 #     subject key:
 #
@@ -200,12 +206,25 @@
 #     holding the away re-knock by writing `reknock.hold` (the delivery task
 #     reads it; the pass removes it once every source answers again).
 #
-# A path item whose content file has gone settles with that reason too. The
-# pass logs one `settled` line per item with its reason, and records the item
-# as settled-while-away when no tower conversation had the operator present.
+# A path item whose content file has gone settles with that reason too. An
+# item is recorded as settled-while-away when no tower conversation had the
+# operator present.
+#
+# On stdout the pass prints, tab-separated: `settled`, id, kind, away, the
+# reason, and the tower that was holding it (or -); `merged`, the absorbed id,
+# the id it went into, kind; `unavailable` and the source; and finally `held`
+# and the seconds the fleet lock was held. Every one of those also lands in the
+# event log. The `settled` tag is the pass's own shape and is NOT the catch-up's
+# — that one carries more fields, below.
+#
+# A standing decision is not re-evaluated: it is the one kind no evidence
+# closes, since what closes it is the operator revoking the rule (REQ-A1.2).
 #
 # MERGING (REQ-B1.3). In the same pass, over every open, unleased,
-# undelivered, unshelved candidate, keyed once: two items of the same kind
+# undelivered, unshelved candidate that has a question and an option set to
+# compare — which today means an answerable fork on an attention row; a path
+# item and a park carry no option set and never merge — keyed once: two items
+# of the same kind
 # whose normalised question text and option set are identical merge into one
 # that names every source. Normalised means case-folded and
 # whitespace-collapsed with the origin worker handle and the row's scope
@@ -220,10 +239,13 @@
 # same subject key and hands them over as ONE unit — one `item` line whose
 # origin names both sources and whose urgency and age are the higher and the
 # older, plus one `pair` line carrying the partner's own pointer and closing
-# condition. The partner is the OLDEST candidate on that subject, so the two
-# inherited fields both stay meaningful and nothing starves; a third item on
-# the subject waits. Both are leased and stamped delivered, so the bound of
-# one hand-over per call holds (REQ-C1.1).
+# condition — `pair`, the partner's id, its content pointer, its park path and
+# its closing condition. The partner is the OLDEST candidate on that subject, so
+# the two inherited fields both stay meaningful and nothing starves; a third
+# item on the subject waits. Both are leased and stamped delivered, so the bound
+# of one hand-over per call holds (REQ-C1.1) — and both ids are acknowledged:
+# an unacknowledged partner is not lost, but it waits out the lease backstop
+# before it is offered again.
 #
 # CATCH-UP (`catchup`, D-8, REQ-B1.4, REQ-C1.8). A lock-free read of what
 # settled without the operator since their last reply in that tower's
@@ -233,7 +255,12 @@
 # first, bounded to `tower_catchup_limit`, then a `remainder` line and the
 # open counts by kind. It is what the tower READS to compose the first turn
 # after silence; the list itself is shown only on request, and nothing here is
-# ever pushed.
+# ever pushed. Each line is `settled`, id, kind, urgency, the origins, the
+# epoch it settled, the away flag, the reason, and the holder — nine fields,
+# where the settling pass's own `settled` line has six.
+#
+# `--now` is accepted for symmetry with the other verbs and does not move the
+# window, which is `--since` (or the marker) alone.
 #
 # The two halves come from different places, because the store keeps only the
 # most recent closed records and the history past that horizon is the event
@@ -241,9 +268,12 @@
 # counted from the log's `settled` and `merged` lines inside the same window.
 # The remainder line says which it is — `exact` only when the log still holds
 # its first line and has dropped nothing at a lock-wait expiry, otherwise
-# `floor` with the reason (`log-rotated`, `log-absent`, `lines-dropped`,
-# `no-store`). A floor is said as a floor rather than printed as a count
-# nobody can stand behind.
+# `floor` with the reason (`log-rotated`, `log-absent`, `lines-dropped`, or
+# `no-store` when there is no store to render a list from at all). A floor is
+# said as a floor rather than printed as a count nobody can stand behind, and
+# it is the better of the two counts available — the log's, or the store's own
+# in-window total — so a rotated log never under-reports what the store still
+# holds.
 #
 # REBUILD. When the store is absent a locked verb rebuilds it inside the lock
 # (absence re-checked there, so two towers cannot both rebuild) from the
@@ -343,15 +373,19 @@
 #   bounded lock wait expired (a log line dropped; a queue write not made,
 #   or made and its own log line then dropped at the log's wait, which the
 #   message says);
-#   4 the sub-surface, the log, a counter, the store, a marker or a delivery
-#   file is not verifiably owner-only, the attention store or its directory
+#   4 the sub-surface, the log, a counter, the store, a marker, a delivery
+#   file, the evidence table or the settle stamp is not verifiably owner-only,
+#   the attention store or its directory
 #   is a redirect or foreign-owned, or a repo-tracked knob is malformed
 #   (the by-layer policy), or `tower_lease_interval` is below
 #   `tower_quiet_interval`, or `tower_catchup_limit` is above its cap; 5
 #   broken install;
 #   6 an infrastructure failure — a directory, temp file, rename, append,
 #   clock or helper fork that would not answer, or a store that changed under
-#   the lock, so the event was NOT recorded. A caller reading 3 as "expected
+#   the lock, so the event was NOT recorded. The one exception is the settling
+#   pass, whose store write commits before it publishes `reknock.hold` and
+#   `settle.stamp`: a 6 from there means those two files, not the settlements,
+#   are what failed. A caller reading 3 as "expected
 #   drop, carry on" and 2 as "I called it wrong" needs 6 to stay distinct
 #   from both: it is the code that says the host, not the call, is what
 #   stopped the log.
@@ -1738,17 +1772,21 @@ is_subject() {
     -) return 0 ;;
     worker:*) is_handle "${1#worker:}" ;;
     pr:*)
+      # The same shape the record grammar admits, so a subject `add` accepts is
+      # never one the store then refuses to parse.
       case "${1#pr:}" in
-        "" | *[!0-9]* | 0?*) return 1 ;;
+        "" | 0* | *[!0-9]*) return 1 ;;
       esac
       [ "${#1}" -le 32 ]
       ;;
     branch:* | ledger:*)
+      # Held to the character set the evidence table's own keys are checked
+      # against, so a subject that parses can always be matched by a fact.
       _sv=${1#*:}
       [ -n "$_sv" ] || return 1
-      is_text "$_sv" 256 || return 1
+      [ "${#_sv}" -le 256 ] || return 1
       case "$_sv" in
-        *[[:blank:]]*) return 1 ;;
+        *[!A-Za-z0-9._/@:=+-]*) return 1 ;;
       esac
       return 0
       ;;
@@ -2105,14 +2143,19 @@ build_towers_file() {
   : >"$SCRATCH/names"
   [ -z "${tower:-}" ] || printf '%s\n' "$tower" >>"$SCRATCH/names"
   [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23 || NF == 24) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
-  # Every conversation that has a delivery record or an attention marker, too:
-  # the settling pass runs under no tower of its own and still has to know
+  # The settling pass runs under no tower of its own and still has to know
   # whether the operator is present anywhere before it records an item as
-  # settled while they were away (REQ-B1.4).
-  # shellcheck disable=SC2012
-  ls -1 "$delivery_dir" 2>/dev/null >>"$SCRATCH/names" || true
-  # shellcheck disable=SC2012
-  ls -1 "$marker_dir" 2>/dev/null >>"$SCRATCH/names" || true
+  # settled while they were away (REQ-B1.4), so it — and only it — sweeps every
+  # conversation that has a delivery record or a marker. A verb that knows its
+  # own tower keeps the old two-name table: this sweep costs a mode read per
+  # name and both directories grow for the life of the fleet home, which is not
+  # a cost `ack` should pay inside the lock.
+  if [ -z "${tower:-}" ]; then
+    # shellcheck disable=SC2012
+    ls -1 "$delivery_dir" 2>/dev/null >>"$SCRATCH/names" || true
+    # shellcheck disable=SC2012
+    ls -1 "$marker_dir" 2>/dev/null >>"$SCRATCH/names" || true
+  fi
   : >"$SCRATCH/towers"
   sort -u "$SCRATCH/names" | while IFS= read -r _tn; do
     is_tower "$_tn" || continue
@@ -2281,7 +2324,12 @@ function merge_key(n,   w, s) {
     s = fsrep(fsrep(at_cmd[w], F[n, 4]), at_scope[w])
     return (s == "") ? "" : "c\002" s
   }
-  if (at_q[w] == "") return ""
+  # Only an answerable fork merges on its text. A row with no option set is a
+  # park — today that is the permission-prompt shape, whose command text lands
+  # in the 12th field only once the capture task ships — and collapsing two of
+  # those on case-folded prose is exactly what the byte-equality rule exists to
+  # prevent.
+  if (at_q[w] == "" || at_opts[w] == "") return ""
   return "q\002" norm(fsrep(fsrep(at_q[w], F[n, 4]), at_scope[w])) "\003" norm(fsrep(fsrep(at_opts[w], F[n, 4]), at_scope[w]))
 }
 # settle_reason(n): the closing condition re-read against the evidence
@@ -2291,11 +2339,19 @@ function merge_key(n,   w, s) {
 function settle_reason(n,   w) {
   if (("item:" F[n, 1]) in ev) return ev["item:" F[n, 1]]
   if (F[n, 6] == "attention") {
+    # No attention store at all is a source that cannot be reached, not a
+    # store saying every row is gone: reading it the second way would close
+    # every attention-homed item unseen the moment the file went missing.
+    if (!attn_present) { attn_needed = 1; return "" }
     w = F[n, 7]
     if (!(w in at_state)) return "its attention row is gone (the content home has vanished)"
     # A row that merely moved on carries the status the worker reported of
     # itself, which is a claim and settles nothing (REQ-B1.2).
-    if (at_claim[w] != "") return "answered by another route (claim " clean(at_claim[w]) ")"
+    # The label itself is deliberately NOT quoted into the reason: this string
+    # is stored and rendered back into the conversation, and the one redaction
+    # helper lives in the shell (REQ-G1.8, REQ-H1.3), out of awk`s reach. The
+    # label stays on the row it came from and in the redacted log line.
+    if (at_claim[w] != "") return "answered by another route (its worker record was claimed)"
   }
   if (F[n, 21] != "-" && (F[n, 21] in ev)) return ev[F[n, 21]]
   return ""
@@ -2310,6 +2366,7 @@ function add_source(have, who,   i, p) {
 # re-evaluated against the evidence available now, then the survivors are
 # keyed once and the duplicates merged (REQ-B1.1, REQ-B1.3).
 function settle_pass(   n, r, t, i, j, key, best, src, parts, np) {
+  attn_needed = 0
   away = 1
   for (t in tw_reply) if (present(t)) away = 0
   for (n = 1; n <= N; n++) {
@@ -2350,6 +2407,9 @@ function settle_pass(   n, r, t, i, j, key, best, src, parts, np) {
     }
     if (src != "" && F[best, 23] != src) { F[best, 23] = src; changed = 1 }
   }
+  # Reported only when something actually depended on it: a fleet with no
+  # workers has no attention store and nothing to say about one.
+  if (!attn_present && attn_needed) unavail["attention-store"] = 1
   for (t in unavail) print "unavailable\t" clean(t)
 }
 # attended(t): a reply at or after the tower last knocked and last handed
@@ -2431,11 +2491,16 @@ function emit(out,   n, i, m, v, tv, j, line) {
 # the pairing rule(REQ-B1.3): a pair is delivered as one unit carrying the
 # higher urgency, the older age, and both origins. Empty otherwise.
 function srcs(n) { return F[n, 4] ((F[n, 23] == "-") ? "" : "," F[n, 23]) }
+# One home for the rendered content pointer: the `item` line and the `pair`
+# line of the same hand-over must never disagree about its shape.
+function ptr_of(n) {
+  return clean(F[n, 6] ":" ((F[n, 6] == "path") ? F[n, 9] "/" F[n, 7] : F[n, 7]) ((F[n, 8] == "-") ? "" : "@" F[n, 8]))
+}
 function render_item(n, urg, age, orig) {
   if (urg == "") urg = F[n, 3]
   if (age == "") age = now - F[n, 5]
   if (orig == "") orig = srcs(n)
-  return "item\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(urg) "\t" clean(orig) "\t" age "\t" clean(F[n, 6] ":" ((F[n, 6] == "path") ? F[n, 9] "/" F[n, 7] : F[n, 7]) ((F[n, 8] == "-") ? "" : "@" F[n, 8])) "\t" clean(F[n, 10]) "\t" clean(F[n, 11])
+  return "item\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(urg) "\t" clean(orig) "\t" age "\t" ptr_of(n) "\t" clean(F[n, 10]) "\t" clean(F[n, 11])
 }
 # A record written before the settling task shipped carries twenty fields; it
 # is completed here rather than refused, so an older store keeps its items.
@@ -2459,6 +2524,7 @@ run_store_pass() {
   awk -F '\t' -v OFS='\t' -v mode="$_mode" -v now="$now" -v quiet="${quiet:-0}" -v lease_iv="${lease_iv:-0}" \
     -v limit="${catchup_limit:-20}" -v towers_file="$SCRATCH/towers" -v attn_file="$attn_file_for_awk" \
     -v evid_file="${EVID_FILE:-}" -v do_settle="${DO_SETTLE:-0}" \
+    -v attn_present="$([ -n "$attn_file_for_awk" ] && echo 1 || echo 0)" \
     -v out="$SCRATCH/new" -v tower="${tower:-}" -v record_file="$SCRATCH/record" -v reason_file="$SCRATCH/reason" "$@" "$AWK_Q"'
   BEGIN {
     load_towers(towers_file); load_attention(attn_file); load_evidence(evid_file); changed = 0
@@ -2553,7 +2619,7 @@ run_store_pass() {
         ndt = now; nditem = F[target, 1]
         print "decision\tdeliver\t" clean(F[target, 1]) "\t" clean(F[target, 2]) "\t" clean(purg) "\t" (mate ? clean(F[mate, 1]) : "-")
         print render_item(target, purg, page, porig)
-        if (mate) print "pair\t" clean(F[mate, 1]) "\t" clean(F[mate, 6] ":" ((F[mate, 6] == "path") ? F[mate, 9] "/" F[mate, 7] : F[mate, 7]) ((F[mate, 8] == "-") ? "" : "@" F[mate, 8])) "\t" clean(F[mate, 10]) "\t" clean(F[mate, 11])
+        if (mate) print "pair\t" clean(F[mate, 1]) "\t" ptr_of(mate) "\t" clean(F[mate, 10]) "\t" clean(F[mate, 11])
       } else {
         # The same reading attended() takes: a reply stamped in the same second
         # as the knock answers the knock; a hand-over needs a later one.
@@ -2634,7 +2700,7 @@ rebuild_if_absent() {
           bkind[i] = F["item_kind"]; burg[i] = F["urgency"]; borig[i] = F["origin"]; bts[i] = F["ts"] + 0
           bhome[i] = F["home"]; bptr[i] = F["pointer"]; binst[i] = F["instance"]; broot[i] = F["root"]; bpark[i] = F["park"]; bcl[i] = F["closes"]
           bsub[i] = ("subject" in F) ? F["subject"] : ""
-        } else if (k == "acknowledged" || k == "settled") closed[it] = 1
+        } else if (k == "acknowledged" || k == "settled" || k == "merged") closed[it] = 1
         else if (k == "dropped" && ("reason" in F) && F["reason"] == "rebuild") closed[it] = 1
       }
       close(log_file)
@@ -2704,11 +2770,20 @@ rebuild_if_absent() {
     fi
     case " $_seen " in *" $_id "*) continue ;; esac
     _seen="$_seen $_id"
-    # A born line from before the subject field shipped carries none; the
-    # worker the item came from is what the content home still attests.
-    is_subject "$_sub" || {
-      if [ "$_h" = attention ]; then _sub="worker:$_p"; elif [ "$_o" != operator ]; then _sub="worker:$_o"; else _sub=-; fi
-    }
+    # A born line from before the subject field shipped carries none, and one
+    # that carries an unusable value is treated the same way: the worker the
+    # item came from is what its content home still attests. `-` is a legal
+    # subject but is also what an absent field reads as, so it takes the
+    # derivation too.
+    if [ "$_sub" = "-" ] || ! is_subject "$_sub"; then
+      if [ "$_h" = attention ]; then
+        _sub="worker:$_p"
+      elif [ "$_o" != operator ]; then
+        _sub="worker:$_o"
+      else
+        _sub=-
+      fi
+    fi
     if [ "$_was" = "-" ]; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_sub" >>"$SCRATCH/fresh"
     fi
@@ -2837,6 +2912,9 @@ ev_stamp=none
 # put_file <path> <text> — replace a file on the sub-surface through a
 # same-directory temp and rename, so a lock-free reader never sees it torn.
 put_file() {
+  # `mv` into a directory succeeds by moving the temp INSIDE it, so the write
+  # would be lost and the temp leaked; check_store_file exists for this shape.
+  check_store_file "$1"
   PENDING_TMP=$(mktemp "$surface/.tqf.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch file for $(sanitize_printable "$1" "(unprintable path)")"
     exit 6
@@ -2859,11 +2937,14 @@ put_file() {
 ev_prepare() {
   _ep=$1
   ev_stamp=none
-  EVID_FILE=$(mktemp 2>/dev/null) || {
+  # Inside the 0700 sub-surface like every other scratch path this script mints,
+  # and in its own cleanup slot: WORK_TMP is log rotation's, and rotation runs
+  # inside the lock this file is prepared before.
+  ensure_surface
+  EVID_FILE=$(mktemp "$surface/.evid.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch file for the evidence table"
     exit 6
   }
-  WORK_TMP=$EVID_FILE
   _ef=$_ep
   [ -n "$_ef" ] || _ef="$surface/evidence"
   if [ -d "$_ef" ] && [ ! -L "$_ef" ]; then
@@ -2877,6 +2958,8 @@ ev_prepare() {
     _es=$(awk -F '\t' '$1 == "stamp" && $2 ~ /^[1-9][0-9]*$/ && length($2) <= 12 { print $2; exit }' "$_ef" 2>/dev/null) || _es=""
     [ -z "$_es" ] || ev_stamp=$_es
     awk -F '\t' -v OFS='\t' '
+      # The same character set is_subject admits, so a fact can always reach
+      # the subject it names.
       function keyok(s) { return (s != "" && length(s) <= 256 && s ~ /^[A-Za-z0-9._\/@:=+-]+$/) }
       $1 == "pr" && $3 ~ /^(open|merged)$/ && $2 ~ /^[1-9][0-9]*$/ && length($2) <= 12 { print "settles", "pr:" $2, "PR #" $2 " is " $3; next }
       $1 == "branch" && $3 == "commits" && keyok($2) { print "settles", "branch:" $2, "the branch " $2 " carries commits"; next }
@@ -2921,8 +3004,11 @@ pass_writes() {
   _un=$(printf '%s\n' "$1" | awk -F '\t' '$1 == "unavailable" { print $2 }')
   if [ -n "$_un" ]; then
     put_file "$surface/reknock.hold" "$_un"
-  else
-    rm -f "$surface/reknock.hold" 2>/dev/null || true
+  elif [ -e "$surface/reknock.hold" ] || [ -L "$surface/reknock.hold" ]; then
+    rm -f "$surface/reknock.hold" || {
+      err "cannot clear the re-knock hold at $(sanitize_printable "$surface/reknock.hold" "(unprintable path)"); the away re-knock stays held"
+      exit 6
+    }
   fi
   put_file "$surface/settle.stamp" "$now$TAB$ev_stamp"
 }
@@ -3250,7 +3336,13 @@ EOF
       [ "$changed" != 1 ] || commit_store || exit 6
       ;;
   esac
-  [ "$DO_SETTLE" != 1 ] || pass_writes "$result"
+  if [ "$DO_SETTLE" = 1 ]; then
+    pass_writes "$result"
+    # The bound is reported on this path too: the tower loop reaches the
+    # settling pass through `next` far more often than through `settle`.
+    held=$(pass_held)
+    err "the settling pass ran inside this next and held the fleet lock ${held}s"
+  fi
   leave_store
   [ "$DO_SETTLE" != 1 ] || pass_logs "$result"
   [ "$tower_fallback" = 0 ] || err "no presence identity resolved; this tower leases as '$tower' (a tower-session-scoped fallback)"
@@ -3676,7 +3768,9 @@ cmd_catchup() {
     m = 0
     for (n = 1; n <= N; n++) {
       if (!OK[n]) continue
-      if (F[n, 12] == "open") { c[F[n, 2]]++; continue }
+      # The open counts read the same way `counts` reads them, shelved items
+      # excluded, so the two never disagree about what is waiting.
+      if (F[n, 12] == "open") { if (F[n, 16] + 0 <= now) c[F[n, 2]]++; continue }
       if (F[n, 17] + 0 <= 0 || F[n, 17] + 0 <= since + 0) continue
       m++; ci[m] = n; ct[m] = F[n, 17] + 0
     }

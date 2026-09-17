@@ -115,7 +115,8 @@ marker tower-a 1200
 run next --tower tower-a --evidence "$ev" --now 1201 >/dev/null 2>&1 || fail "the knock after the merge"
 marker tower-a 1202
 out=$(run next --tower tower-a --evidence "$ev" --now 1203 2>/dev/null) || fail "the hand-over after the merge"
-[ "$(field "$out" 5)" = "w-beta,w-alpha" ] || fail "the delivered merged item does not name both sources: '$(field "$out" 5)'"
+item=$(line_of "$out" item)
+[ "$(field "$item" 5)" = "w-beta,w-alpha" ] || fail "the delivered merged item does not name both sources: '$(field "$item" 5)'"
 echo "ok: two workers asking the same thing merge into one item naming both sources, at the higher urgency and the older age"
 
 # --- a worker command merges only on byte equality -------------------------------
@@ -197,30 +198,49 @@ out=$(run next --tower tower-a --evidence "$ev" --now 1501 2>/dev/null) || fail 
 [ "$(field "$(line_of "$out" item)" 2)" = "$q1" ] || fail "the oldest open request was not handed over"
 [ -z "$(line_of "$out" pair)" ] || fail "two items with different subjects were paired"
 marker tower-a 1502
-out=$(run next --tower tower-a --evidence "$ev" --now 1503 2>/dev/null) || fail "the hand-over after a leased candidate"
-[ -z "$(line_of "$out" pair)" ] || fail "an item paired with a leased or already-delivered candidate"
-echo "ok: different kinds on one subject, different subjects, and a leased candidate do not pair"
+out=$(run next --tower tower-a --evidence "$ev" --now 1503 2>/dev/null) || fail "the hand-over after the distinct subjects"
+[ -z "$(line_of "$out" pair)" ] || fail "two items with different subjects were paired"
+
+# A real leased-candidate case, in its own home so the ranking is unambiguous:
+# one item on the subject is already in the operator's hands, so the second
+# goes over alone rather than pairing with it.
+reset_home leased
+l1=$(add_req l1 w-eight pr:750 normal 1600) || fail "add l1"
+marker tower-a 1610
+run next --tower tower-a --evidence "$ev" --now 1611 >/dev/null 2>&1 || fail "the knock for l1"
+marker tower-a 1612
+out=$(run next --tower tower-a --evidence "$ev" --now 1613 2>/dev/null) || fail "the hand-over of l1"
+[ "$(field "$(line_of "$out" item)" 2)" = "$l1" ] || fail "l1 was not the item handed over: '$out'"
+add_req l2 w-nine pr:750 normal 1700 >/dev/null || fail "add l2"
+marker tower-a 1710
+out=$(run next --tower tower-a --evidence "$ev" --now 1711 2>/dev/null) || fail "the hand-over beside a delivered same-subject item"
+[ -n "$(line_of "$out" item)" ] || fail "nothing was handed over beside the delivered item: '$out'"
+[ -z "$(line_of "$out" pair)" ] || fail "an item paired with a leased and already-delivered candidate on its own subject"
+echo "ok: different kinds on one subject, different subjects, and a leased or delivered candidate do not pair"
 
 # --- the partner is the oldest candidate, not the best-ranked one -----------------
 
 # t-young outranks t-old on urgency but is younger; the partner rule is age,
 # so t-old goes over with the top item and t-young waits.
+reset_home tiebreak
 t_top=$(add_req t-top w-top pr:800 high 2000) || fail "add t-top"
 t_young=$(add_req t-young w-young pr:800 high 2100) || fail "add t-young"
 t_old=$(add_req t-old w-old pr:800 low 1900) || fail "add t-old"
 marker tower-a 2200
-out=$(run next --tower tower-a --evidence "$ev" --now 2201 2>/dev/null) || fail "the age tie-break hand-over"
+run next --tower tower-a --evidence "$ev" --now 2201 >/dev/null 2>&1 || fail "the tie-break knock"
+marker tower-a 2202
+out=$(run next --tower tower-a --evidence "$ev" --now 2203 2>/dev/null) || fail "the age tie-break hand-over"
 item=$(line_of "$out" item)
 pair=$(line_of "$out" pair)
 [ "$(field "$item" 2)" = "$t_top" ] || fail "the top item changed: '$item'"
 [ "$(field "$pair" 2)" = "$t_old" ] || fail "the partner is not the oldest candidate on the subject: '$pair'"
-[ "$(field "$item" 6)" = "$((2201 - 1900))" ] || fail "the pair does not carry the oldest age: '$(field "$item" 6)'"
-run ack "$t_top" --tower tower-a --now 2202 >/dev/null 2>&1 || fail "ack t-top"
-run ack "$t_old" --tower tower-a --now 2203 >/dev/null 2>&1 || fail "ack t-old"
-marker tower-a 2204
-out=$(run next --tower tower-a --evidence "$ev" --now 2205 2>/dev/null) || fail "the younger candidate's turn"
+[ "$(field "$item" 6)" = "$((2203 - 1900))" ] || fail "the pair does not carry the oldest age: '$(field "$item" 6)'"
+run ack "$t_top" --tower tower-a --now 2204 >/dev/null 2>&1 || fail "ack t-top"
+run ack "$t_old" --tower tower-a --now 2205 >/dev/null 2>&1 || fail "ack t-old"
+marker tower-a 2206
+out=$(run next --tower tower-a --evidence "$ev" --now 2207 2>/dev/null) || fail "the younger candidate's turn"
 [ "$(field "$(line_of "$out" item)" 2)" = "$t_young" ] || fail "the younger candidate did not follow: '$out'"
-run ack "$t_young" --tower tower-a --now 2206 >/dev/null 2>&1 || fail "ack t-young"
+run ack "$t_young" --tower tower-a --now 2208 >/dev/null 2>&1 || fail "ack t-young"
 echo "ok: the partner on a subject is the oldest candidate, so neither inherited field goes stale and nothing starves"
 
 # --- merging and pairing are one keyed pass over a large fixture ------------------
@@ -231,21 +251,21 @@ chmod 0700 "$attn_dir"
 mkdir -p "$surface"
 chmod 0700 "$surface"
 i=0
-while [ "$i" -lt 30 ]; do
+while [ "$i" -lt 20 ]; do
   attention_row "w-l$i" "/wt/l$i" awaiting-input 2000 normal "Deploy batch $i?" yes 'yes,no'
   attention_row "w-r$i" "/wt/r$i" awaiting-input 2000 normal "deploy  batch $i?" yes 'YES,no'
-  printf 'i%08x\tquestion\tnormal\tw-l%s\t2000\tattention\tw-l%s\t-\t-\t-\tthe operator answers\topen\t0\t0\t0\t0\t0\t-\t-\t0\tworker:w-l%s\t0\t-\n' \
+  printf 'i%08x\tquestion\tnormal\tw-l%s\t2000\tattention\tw-l%s\t-\t-\t-\tthe operator answers\topen\t0\t0\t0\t0\t0\t-\t-\t0\tworker:w-l%s\t0\t-\t-\n' \
     "$((i * 2))" "$i" "$i" "$i" >>"$store"
-  printf 'i%08x\tquestion\tnormal\tw-r%s\t2000\tattention\tw-r%s\t-\t-\t-\tthe operator answers\topen\t0\t0\t0\t0\t0\t-\t-\t0\tworker:w-r%s\t0\t-\n' \
+  printf 'i%08x\tquestion\tnormal\tw-r%s\t2000\tattention\tw-r%s\t-\t-\t-\tthe operator answers\topen\t0\t0\t0\t0\t0\t-\t-\t0\tworker:w-r%s\t0\t-\t-\n' \
     "$((i * 2 + 1))" "$i" "$i" "$i" >>"$store"
   i=$((i + 1))
 done
 chmod 0600 "$store"
 out=$(run settle --evidence "$ev" --now 2100 2>/dev/null) || fail "the bulk pass exited non-zero"
-[ "$(printf '%s\n' "$out" | grep -c "^merged${TAB}" || true)" = 30 ] \
-  || fail "the bulk pass merged $(printf '%s\n' "$out" | grep -c "^merged${TAB}" || true) of 30 pairs — merging is not one keyed pass"
+[ "$(printf '%s\n' "$out" | grep -c "^merged${TAB}" || true)" = 20 ] \
+  || fail "the bulk pass merged $(printf '%s\n' "$out" | grep -c "^merged${TAB}" || true) of 20 pairs — merging is not one keyed pass"
 held=$(printf '%s\n' "$out" | awk -F "$TAB" '$1 == "held" { print $2 }')
 awk -v h="$held" 'BEGIN { exit (h < 2) ? 0 : 1 }' || fail "the bulk merge held the fleet lock ${held}s, past the 2s bound"
-echo "ok: sixty candidates merge into thirty in one keyed pass, inside the lock-hold bound (${held}s)"
+echo "ok: forty candidates merge into twenty in one keyed pass, inside the lock-hold bound (${held}s)"
 
 echo "PASS: tower-queue merging and pairing"

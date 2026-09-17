@@ -114,6 +114,7 @@ r_br_none=$(add_req r-br-none branch:feature-y 1000) || fail "add r-br-none"
 r_led=$(add_req r-led ledger:AI-7 1000) || fail "add r-led"
 r_led_open=$(add_req r-led-open ledger:AI-8 1000) || fail "add r-led-open"
 r_quiet=$(add_req r-quiet pr:99 1000) || fail "add r-quiet"
+r_pr_closed=$(add_req r-pr-closed pr:44 1000) || fail "add r-pr-closed"
 
 evidence \
   "stamp${TAB}900" \
@@ -122,7 +123,8 @@ evidence \
   "branch${TAB}feature-x${TAB}commits" \
   "branch${TAB}feature-y${TAB}none" \
   "ledger${TAB}AI-7${TAB}closed" \
-  "ledger${TAB}AI-8${TAB}open"
+  "ledger${TAB}AI-8${TAB}open" \
+  "pr${TAB}44${TAB}closed"
 
 out=$(run settle --evidence "$ev" --now 1100 2>/dev/null) || fail "the settling pass exited non-zero"
 for id in $r_pr $r_pr_open $r_br $r_led; do
@@ -130,6 +132,7 @@ for id in $r_pr $r_pr_open $r_br $r_led; do
 done
 [ "$(state_of "$r_br_none")" = open ] || fail "a branch reporting no commits settled an item"
 [ "$(state_of "$r_led_open")" = open ] || fail "an open ledger item settled an item"
+[ "$(state_of "$r_pr_closed")" = open ] || fail "a PR reported closed rather than merged settled an item"
 [ "$(state_of "$r_quiet")" = open ] || fail "an item whose subject the evidence never names settled"
 case "$(reason_of "$r_pr")" in *'PR #42 is merged'*) ;; *) fail "the settle record does not name the merge: '$(reason_of "$r_pr")'" ;; esac
 case "$(reason_of "$r_pr_open")" in *'PR #43 is open'*) ;; *) fail "an open PR did not settle its item with that reason" ;; esac
@@ -160,6 +163,34 @@ run settle --evidence "$ev" --now 1310 >/dev/null 2>&1 || fail "the pass exited 
 [ "$(state_of "$q_done")" = closed ] || fail "a claim close on the worker's record did not settle its question"
 case "$(reason_of "$q_done")" in *'answered by another route'*) ;; *) fail "the claim settle does not name the route: '$(reason_of "$q_done")'" ;; esac
 echo "ok: a claim close on the worker's record settles the question as answered by another route"
+
+# The reason is stored and rendered back to the operator, and the one redaction
+# helper is out of awk's reach, so the label itself never travels in it.
+drop_row w-done
+attention_row w-secret scope-1 awaiting-input 1000 normal 'proceed?' yes 'yes,no'
+q_secret=$(run add --kind question --worker w-secret --origin w-secret --closes 'the operator answers' --now 1320) || fail "add the w-secret question"
+drop_row w-secret
+attention_row w-secret scope-1 'done' 1330 normal 'proceed?' yes 'yes,no' '' '' 'retry with ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+run settle --evidence "$ev" --now 1340 >/dev/null 2>&1 || fail "the pass over a claim carrying a secret"
+[ "$(state_of "$q_secret")" = closed ] || fail "the secret-bearing claim did not settle its question"
+case "$(reason_of "$q_secret")" in *ghp_*) fail "the claim label was copied into the stored settle reason: '$(reason_of "$q_secret")'" ;; esac
+grep -q 'ghp_AAAA' "$store" && fail "the store carries an unredacted secret from the attention row"
+run catchup --since 1335 --now 1400 2>/dev/null | grep -q 'ghp_AAAA' && fail "catchup rendered an unredacted secret back to the operator"
+echo "ok: a claim label never travels into the stored reason or the catch-up render"
+
+# --- an absent attention store is an unreachable source, not "every row gone" ------
+
+attention_row w-mass scope-9 awaiting-input 1350 normal 'mass?' yes 'yes,no'
+q_mass=$(run add --kind question --worker w-mass --origin w-mass --closes 'the operator answers' --now 1360) || fail "add the w-mass question"
+mv "$attn_store" "$tmp/attn.bak"
+out=$(run settle --evidence "$ev" --now 1370 2>/dev/null) || fail "the pass with no attention store exited non-zero"
+[ "$(state_of "$q_mass")" = open ] || fail "a missing attention store closed an attention-homed item unseen"
+printf '%s\n' "$out" | grep -q "^unavailable${TAB}attention-store$" || fail "a missing attention store was not reported as unreachable: '$out'"
+[ -f "$surface/reknock.hold" ] || fail "a missing attention store did not hold the re-knock"
+mv "$tmp/attn.bak" "$attn_store"
+run settle --evidence "$ev" --now 1380 >/dev/null 2>&1 || fail "the pass after the attention store returned"
+[ ! -f "$surface/reknock.hold" ] || fail "the hold outlived the missing attention store"
+echo "ok: a missing attention store is reported as unreachable and settles nothing"
 
 # --- a content home that has gone settles with that reason -----------------------
 
@@ -240,9 +271,9 @@ echo "ok: an item settled while the operator was away is recorded as such, and o
 # --- nothing is dropped or auto-answered for lack of attention (REQ-F1.4) ---------
 
 rm -f "$surface/attention/$A"
-before=$(grep -c . "$store")
 r_open1=$(add_req r-open1 - 2100) || fail "add r-open1"
 r_open2=$(add_req r-open2 pr:900 2100) || fail "add r-open2"
+before=$(cut -f 1 "$store" | sort)
 evidence "stamp${TAB}2101"
 i=0
 while [ "$i" -lt 6 ]; do
@@ -251,7 +282,7 @@ while [ "$i" -lt 6 ]; do
 done
 [ "$(state_of "$r_open1")" = open ] || fail "an item with no evidence was closed over a long away timeline"
 [ "$(state_of "$r_open2")" = open ] || fail "an item whose evidence never arrived was closed over a long away timeline"
-[ "$(grep -c . "$store")" -ge "$before" ] || fail "records were dropped over a long away timeline"
+[ "$(cut -f 1 "$store" | sort)" = "$before" ] || fail "the away timeline dropped or added records"
 echo "ok: over a long timeline with no operator reply every item stays open or evidence-settled, none answered or dropped"
 
 # --- a delivered item is not a decided one (REQ-B1.5) ----------------------------
@@ -310,6 +341,17 @@ chmod 0600 "$surface/attention/$A"
 out=$(run catchup --tower $A --now 3000 2>/dev/null) || fail "catchup --tower exited non-zero"
 printf '%s\n' "$out" | grep -q "^settled${TAB}$r_here${TAB}" && fail "catchup showed an item settled before the operator's last reply"
 [ "$(printf '%s\n' "$out" | grep -c "^settled${TAB}" || true)" = 0 ] || fail "catchup's since-last-reply window is not applied"
+# And the other direction: a reply older than a settle puts it back in the window.
+printf '2005\n' >"$surface/attention/$A"
+chmod 0600 "$surface/attention/$A"
+out=$(run catchup --tower $A --now 3000 2>/dev/null) || fail "catchup --tower over an older reply exited non-zero"
+printf '%s\n' "$out" | grep -q "^settled${TAB}$r_here${TAB}" || fail "catchup dropped an item settled after the operator's last reply"
+printf '%s\n' "$out" | grep -q "^settled${TAB}$r_away${TAB}" && fail "catchup showed an item settled before the window opened"
+# The away flag reaches the render the tower actually reads, not just the store.
+[ "$(printf '%s\n' "$out" | awk -F "$TAB" -v i="$held" '$1 == "settled" && $2 == i { print $7 }')" = 0 ] \
+  || fail "catchup's away column does not match the record"
+printf '2900\n' >"$surface/attention/$A"
+chmod 0600 "$surface/attention/$A"
 echo "ok: catchup lists what settled since the operator's last reply, with reasons, most recent first, beside the open counts"
 
 # The list is bounded by the knob; the count of everything past it comes from
@@ -347,13 +389,55 @@ chmod 0600 "$log_file"
 : >"$local_cfg"
 echo "ok: a rotated or absent event log makes the remainder a floor, named as one"
 
+# --- the default evidence path, which is what the tower loop actually uses ---------
+
+r_def=$(add_req r-def pr:88 3100) || fail "add r-def"
+run settle --now 3110 >/dev/null 2>&1 || fail "the pass with no --evidence and no table exited non-zero"
+[ "$(state_of "$r_def")" = open ] || fail "the pass settled an item with no evidence at all"
+printf 'stamp\t3111\npr\t88\tmerged\n' >"$surface/evidence"
+chmod 0600 "$surface/evidence"
+run settle --now 3120 >/dev/null 2>&1 || fail "the pass over the default evidence table exited non-zero"
+[ "$(state_of "$r_def")" = closed ] || fail "the pass did not read <surface>/evidence when given no --evidence"
+rm -f "$surface/evidence"
+rc=0
+run settle --evidence "$tmp/no-such-table" --now 3130 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "a named evidence table that does not exist: exit $rc, expected 2"
+echo "ok: the pass reads <surface>/evidence by default and refuses a named table that is not there"
+
+# --- a rebuild never leaves the operator two copies of one question ---------------
+
+attention_row w-m1 /wt/m1 awaiting-input 3200 normal 'ship it?' yes 'yes,no'
+attention_row w-m2 /wt/m2 awaiting-input 3200 normal 'ship  it?' yes 'YES,no'
+m1=$(run add --kind question --worker w-m1 --origin w-m1 --closes 'the operator answers' --now 3200) || fail "add m1"
+m2=$(run add --kind question --worker w-m2 --origin w-m2 --closes 'the operator answers' --now 3200) || fail "add m2"
+run settle --now 3210 >/dev/null 2>&1 || fail "the merging pass before the rebuild"
+gone=$m1
+[ "$(state_of "$m1")" = closed ] || gone=$m2
+[ "$(state_of "$gone")" = closed ] || fail "the duplicates did not merge before the rebuild"
+# Both workers are still awaiting input, so both rows re-attest an open
+# question and the rebuild is right to register them again — the settling
+# reason is the store's alone and does not survive it. What must hold is that
+# the operator is still never handed two copies: the next pass re-merges.
+rm -f "$store"
+printf 'rebuild probe\n' >"$content/r-probe"
+run add --kind request --root "$content" --pointer r-probe --origin operator \
+  --closes 'the operator decides' --now 3220 >/dev/null 2>&1 || fail "the add that rebuilds the store"
+[ -n "$(rec "$m1")" ] && [ -n "$(rec "$m2")" ] || fail "the rebuild lost a still-blocked worker's question"
+run settle --now 3230 >/dev/null 2>&1 || fail "the pass after the rebuild"
+open_dupes=0
+for id in $m1 $m2; do
+  [ "$(state_of "$id")" != open ] || open_dupes=$((open_dupes + 1))
+done
+[ "$open_dupes" = 1 ] || fail "after a rebuild the duplicates left $open_dupes open copies, expected 1"
+echo "ok: a rebuild re-registers both still-blocked workers and the next pass merges them back to one"
+
 # --- the fleet lock's hold over a large fixture stays inside the stated bound ------
 
 : >"$store"
 chmod 0600 "$store"
 i=0
 while [ "$i" -lt 400 ]; do
-  printf 'i%08x\trequest\tnormal\toperator\t4000\tpath\tbig\t-\t%s\t-\tthe operator decides\topen\t0\t0\t0\t0\t0\t-\t-\t0\tpr:%d\t0\t-\n' \
+  printf 'i%08x\trequest\tnormal\toperator\t4000\tpath\tbig\t-\t%s\t-\tthe operator decides\topen\t0\t0\t0\t0\t0\t-\t-\t0\tpr:%d\t0\t-\t-\n' \
     "$i" "$content" "$i" >>"$store"
   i=$((i + 1))
 done
