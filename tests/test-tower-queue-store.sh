@@ -8,11 +8,13 @@
 #
 # Contract under test:
 #   add --kind <kind> --origin <who> --closes <text>
-#       (--worker <handle> | --root <dir> --pointer <rel> [--park <rel>])
+#       (--worker <handle> [--root <dir> --park <rel>] | --root <dir> --pointer <rel> [--park <rel>])
 #       [--urgency high|normal|low] [--now <epoch>]
 #       Register one item: content already at its home, the index record
-#       written after it, the identifier derived from the content home's key.
-#   list [--all]     every open item (never a settled one), lock-free.
+#       written after it, the identifier derived from the content home's key;
+#       a question inherits its row's urgency and refuses --urgency.
+#   list [--all]     every open item, lock-free; --all adds the retained
+#                    closed ones.
 #   counts           open count per kind, the total, and the top item's kind.
 #   settle <id> --reason <text>   close an item on evidence, naming it.
 #   shelve <id> [--for <span>]    park an item; it returns on its own.
@@ -300,6 +302,10 @@ hostile 'origin with a control byte' add --kind request --root "$content" --poin
 hostile 'over-long origin' add --kind request --root "$content" --pointer req-1 --origin "$long" --closes 'done'
 hostile 'malformed --now' add --kind request --root "$content" --pointer req-1 --origin operator --closes 'done' --now 0012
 hostile 'traversal park pointer' add --kind question --worker w-alpha --origin w-alpha --closes answered --park '../x'
+hostile 'backslash in a worker handle (awk -v would re-read it)' add --kind question --worker 'w-alph\141' --origin w-alpha --closes answered
+hostile 'shell metacharacter in an origin' add --kind request --root "$content" --pointer req-1 --origin 'op;id' --closes 'done'
+hostile '--root with no --park on a question' add --kind question --worker w-alpha --origin w-alpha --closes answered --root "$content"
+hostile 'the absent-owner sentinel as a tower' next --tower unknown-owner
 echo "ok: the hostile-input table is refused at add, each with a message and no record"
 
 rc=0
@@ -456,7 +462,8 @@ echo "ok: retention keeps every open item and only the settled ones inside the c
 
 # A value that is only a secret redacts to a bracketed marker, the one shape
 # the log refuses: it must be refused up front, never stored without a birth.
-secret=AKIAABCDEFGHIJKLMNOP
+# The literal is split so the source never carries the key shape itself.
+secret=AKIA""ABCDEFGHIJKLMNOP
 before=$(record_count)
 rc=0
 run add --kind request --root "$content" --pointer req-1 --origin operator --closes "$secret" --now 5210 >/dev/null 2>"$tmp/err" || rc=$?
@@ -494,6 +501,7 @@ printf 'a\tb' | has_control && fail "self-check: the detector trips on the tab d
   printf 'ibad00003\tnews\tnormal\top\t1\tpath\tx\t-\t%s\t-\ttorn\topen\t0\t0\t0\t0\n' "$content"
 } >>"$store"
 out=$(run list 2>"$tmp/err") || fail "list over a corrupted line: exit"
+grep -q 'do not parse' "$tmp/err" || fail "list skipped a store line without saying so"
 if printf '%s' "$out" | has_control; then
   fail "a control byte from a corrupted store line reached stdout"
 fi

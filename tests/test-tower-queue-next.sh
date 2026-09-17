@@ -9,8 +9,9 @@
 #   next [--tower <id>] [--now <epoch>]
 #       At most one line: `knock<TAB>...` when a knock is due, `item<TAB>...`
 #       when the calling tower's attention is confirmed by its marker
-#       (a reply later than its last knock and last hand-over, within
-#       tower_quiet_interval), else nothing. Leases the item it names.
+#       (a reply at or after its last knock and later than its last
+#       hand-over, within tower_quiet_interval), else nothing. Leases the
+#       item it names.
 #   ack <id> [--tower <id>] [--now <epoch>]
 #       Closes the item; refused (exit 1, logged) without a lease; a logged
 #       no-op on a closed item; never releases the next.
@@ -222,5 +223,32 @@ out=$(run next --tower $A --now 2501) || fail "deliver w1"
 [ "$(field "$out" 2)" = "$w1" ] || fail "a reply in the knock's own second did not confirm attention: '$out'"
 run ack "$w1" --tower $A --now 2502 >/dev/null
 echo "ok: a reply stamped in the same second as the knock releases the item"
+
+# --- one reply releases one item; the next needs a later reply (REQ-C1.10) ----------
+
+# Past the quiet interval since the last hand-over. The reply in the knock's
+# second confirms attention and releases v1; a hand-over stamped in that
+# same second is then the tower's last outbound, and the same reply must
+# not release v2 behind it.
+v1=$(add_req v1 normal 2600)
+v2=$(add_req v2 normal 2601)
+add_req v3 normal 2602 >/dev/null
+out=$(run next --tower $A --now 2610) || fail "knock v1"
+[ "$(field "$out" 1)" = knock ] || fail "expected a knock for v1: '$out'"
+waiting=$(field "$out" 4)
+marker $A 2610
+out=$(run next --tower $A --now 2610) || fail "deliver v1"
+[ "$(field "$out" 2)" = "$v1" ] || fail "a reply in the knock's second did not release v1: '$out'"
+out=$(run next --tower $A --now 2611) || fail "next after v1 with no new reply"
+[ -z "$out" ] || fail "the reply that released v1 released a second item: '$out'"
+marker $A 2611
+out=$(run next --tower $A --now 2612) || fail "deliver v2"
+[ "$(field "$out" 2)" = "$v2" ] || fail "a later reply did not release v2: '$out'"
+# Attention lapses with v1 and v2 unacknowledged and in hand: the knock about
+# v3 counts what is waiting for this tower, not what it already holds.
+out=$(run next --tower $A --now 2720 2>/dev/null) || fail "knock v3 after the quiet interval"
+[ "$(field "$out" 1)" = knock ] || fail "expected a knock for v3: '$out'"
+[ "$(field "$out" 4)" = $((waiting - 2)) ] || fail "the knock's waiting count includes items already in this tower's hand: '$out' (was $waiting before two hand-overs)"
+echo "ok: one reply releases one item, the next hand-over needs a later reply, and the knock counts only what is waiting"
 
 echo "ALL PASS: tower-queue next"

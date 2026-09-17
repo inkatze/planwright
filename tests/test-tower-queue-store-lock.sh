@@ -285,6 +285,7 @@ rebuilds_before=$(grep -c '"event":"rebuild"' "$log_file" || true)
 # does not derive from its key, and a settle-then-re-add of one request, so
 # the rebuild must honour event order rather than "ever closed".
 run log born --now 1029 item=ic0ffee11 item_kind=request urgency=normal origin=operator home=path pointer=../secret root="$content" closes=done >/dev/null || fail "plant a forged born line"
+run log born --now 1029 item=i0badbad0 item_kind=request urgency=normal origin=operator home=path pointer=r-open root="$content" closes=done >/dev/null || fail "plant a born line whose id does not derive from its key"
 run settle "$ro" --reason 'closed once' --now 1029 >/dev/null || fail "settle ro"
 ro2=$(run add --kind request --root "$content" --pointer r-open --origin operator --closes 'the operator decides' --now 1030) || fail "re-add ro"
 [ "$ro2" = "$ro" ] || fail "re-adding r-open changed its id"
@@ -328,6 +329,9 @@ new_row=$(awk -F '\t' '$2 == "question" && $7 == "w-new"' "$store")
 [ "$(field "$new_row" 3)" = low ] || fail "the row-derived question did not inherit the row's priority"
 nid=$(field "$new_row" 1)
 grep -q "\"kind\":\"born\".*\"item\":\"$nid\"" "$log_file" || fail "the row-derived question's birth was not logged"
+grep "\"kind\":\"born\".*\"item\":\"$nid\"" "$log_file" | grep -q '"ts":1032,' || fail "the row-derived question's born line does not carry the row's own stamp as its birth"
+grep -q 'i0badbad0' "$store" && fail "rebuild re-admitted a born line whose id does not derive from its key"
+grep -q '"kind":"dropped".*"item":"i0badbad0".*"reason":"rebuild"' "$log_file" || fail "a born line whose id does not derive from its key was skipped without a dropped line"
 after_ids=$(cut -f 1 "$store" | sort)
 for id in $qk $ro $rd $rs; do
   printf '%s\n' "$after_ids" | grep -q "^$id$" || fail "identifier $id was not derived identically at rebuild"
@@ -374,5 +378,76 @@ grep -q 'changed while this verb held the fleet lock' "$tmp/err" || fail "the re
 [ "$(cat "$store")" = intruder ] || fail "the rebuild overwrote a store that appeared under the lock"
 rm -f "$store"
 echo "ok: a store that appears while a rebuild runs is left alone and the verb refuses"
+
+# --- the rebuild's log debt: durable before the store, paid once, never wedged ------
+
+# The refused rebuild above left its debt behind (the debt lands first, so
+# the safe failure is a debt with no store, never the reverse); clear it.
+rm -f "$surface/rebuild.debt"
+# A directory where the debt file goes: the rebuild must refuse before it
+# commits a store whose births could then never be logged.
+mkdir "$surface/rebuild.debt"
+rc=0
+run next --tower $A --now 9000 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 6 ] || fail "a rebuild that cannot write its log debt: exit $rc, expected 6"
+[ ! -f "$store" ] || fail "a rebuild committed the store before its log debt was durable"
+rmdir "$surface/rebuild.debt"
+
+# A predecessor's debt with one line the log can never take: the payable
+# lines land exactly once, the unpayable one is reported and dropped, the
+# file goes, and the verb's own exit code is untouched.
+printf 'session\nborn\ti0000000a\trequest\tnormal\toperator\t1000\tpath\tr-a\t-\t/r\t-\tdone\nborn\ti0000000b\trequest\tnormal\toperator\t1000\tpath\t{x}\t-\t/r\t-\tdone\n' >"$surface/rebuild.debt"
+chmod 0600 "$surface/rebuild.debt"
+rc=0
+run settle i000000ff --reason x --now 9010 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 2 ] || fail "settling an absent item while paying a debt: exit $rc, expected the verb's own 2"
+[ "$(grep -c '"kind":"born".*"item":"i0000000a"' "$log_file")" = 1 ] || fail "a payable debt line did not land exactly once"
+grep '"kind":"born".*"item":"i0000000a"' "$log_file" | grep -q '"ts":1000,' || fail "a paid born line does not carry the item's own birth stamp"
+grep -q '"item":"i0000000b"' "$log_file" && fail "an unpayable debt line reached the log"
+grep -q 'i0000000b' "$tmp/err" || fail "the unpayable debt line was dropped silently"
+[ ! -f "$surface/rebuild.debt" ] || fail "the debt file survived a drain that paid every payable line"
+run settle i000000ff --reason x --now 9011 >/dev/null 2>&1 || true
+[ "$(grep -c '"kind":"born".*"item":"i0000000a"' "$log_file")" = 1 ] || fail "a paid debt line was paid again"
+
+# Nothing to rebuild from (no log, no rows): the rebuild still clears the
+# delivery records that described the lost store and logs its session.
+rm -f "$store" "$log_file"
+: >"$attn_store"
+mkdir -p "$surface/delivery"
+printf '1000\ti00000001\t1001\ti00000001\n' >"$surface/delivery/$A"
+chmod 0600 "$surface/delivery/$A"
+run settle i000000ff --reason x --now 9020 >/dev/null 2>&1 || true
+[ -f "$store" ] || fail "an empty rebuild wrote no store"
+[ ! -f "$surface/delivery/$A" ] || fail "an empty rebuild kept a delivery record that described the lost store"
+grep -q '"kind":"session".*"event":"rebuild"' "$log_file" || fail "an empty rebuild logged no session line"
+echo "ok: the rebuild's log debt is durable before the store, paid exactly once, and an unpayable line never wedges the queue"
+
+# --- a foreign-owned attention store is refused by name -------------------------------
+
+shim2="$tmp/shim2"
+mkdir -p "$shim2"
+real_ls=$(command -v ls)
+cat >"$shim2/ls" <<EOF
+#!/bin/sh
+case "\$*" in
+  *"$attn_store") echo "-rw------- 1 99999 99999 0 Jan  1 00:00 $attn_store" ;;
+  *) exec "$real_ls" "\$@" ;;
+esac
+EOF
+chmod +x "$shim2/ls"
+rc=0
+PATH="$shim2:$PATH" run next --tower $A --now 9030 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 4 ] || fail "a foreign-owned attention store: exit $rc, expected 4"
+grep -q "$attn_store" "$tmp/err" || fail "the refusal does not name the foreign-owned path: $(cat "$tmp/err")"
+echo "ok: a foreign-owned attention store is refused by name"
+
+# --- shelve validates its span before it takes the lock ------------------------------
+
+rm -f "$store"
+rc=0
+run shelve i00000001 --for bogus --now 9040 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "a malformed --for: exit $rc, expected 2"
+[ ! -f "$store" ] || fail "a malformed --for took the lock and rebuilt the store before it was refused"
+echo "ok: shelve refuses a malformed span before it touches the store"
 
 echo "ALL PASS: tower-queue store lock"

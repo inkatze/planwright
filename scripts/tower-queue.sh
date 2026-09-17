@@ -75,21 +75,24 @@
 # torn value. Per tower, `<home>/tower-comms/delivery/<tower>` records the
 # last knock and the last hand-over as one tab-separated line: knock epoch,
 # the item it named, hand-over epoch, the item it handed. Attention is
-# confirmed when the marker shows a reply at or after both of those and
-# within `tower_quiet_interval`;
+# confirmed when the marker shows a reply at or after the last knock, later
+# than the last hand-over, and within `tower_quiet_interval` (a knock of the
+# tower's own opens the session: a marker with no knock on record confirms
+# nothing, and one reply releases one item);
 # then `next` hands over the item the knock pinned (or the top item when the
 # top has not been pinned) and stamps the hand-over, printing one line:
 # `item`, id, kind, urgency, origin, age in seconds, the content pointer
 # (`attention:<worker>[@instance]` or `path:<root>/<rel>`), the park path
 # or -, and the closing condition, tab-separated. With attention unconfirmed
 # it prints the knock line — `knock`, kind and urgency of the top item, and
-# how many items are waiting, tab-separated — when a knock is due: nothing
-# is outstanding, the last outbound has gone unanswered past the quiet
-# interval, or the top item changed since the knock. While a knock or a
-# hand-over is outstanding it prints nothing at all, and never repeats the
-# knock on a schedule; the away re-knock on worsening is the delivery
-# task's. A marker that never appears is reported on stderr after the first
-# knock rather than knocked at forever.
+# how many items are waiting for this tower, tab-separated — when a knock
+# is due: nothing is outstanding, the last hand-over has gone unanswered
+# past the quiet interval, or the top item changed since the knock (the
+# lease that knock pinned goes with it). While a knock or a hand-over is
+# outstanding it prints nothing at all, and never repeats the knock on a
+# schedule; the away re-knock on worsening is the delivery task's. A
+# marker that never appears is reported on stderr after the first knock
+# rather than knocked at forever.
 #
 # The item handed over is leased to the calling tower under the lock, at
 # the knock (which pins it) and at each hand-over. Another tower skips a
@@ -109,11 +112,12 @@
 # item is a candidate again for every tower, which is the one redelivery the
 # loss budget allows. The tower's identity is the `--tower` flag, else
 # PLANWRIGHT_TOWER_ID, else PLANWRIGHT_TOWER_SESSION_ID (a UUID, the presence
-# surface's own identity form), else PLANWRIGHT_TOWER_PID resolved through
-# the presence script into the composite identity the tower published under,
-# else a session-scoped fallback minted from that pid (or, last, the invoking
-# shell's parent) and its start time, written into the lease record so a
-# later reader can tell whose lease it is.
+# surface's own identity form; a value that is no UUID is refused, not
+# skipped), else PLANWRIGHT_TOWER_PID (a positive integer, likewise refused
+# when malformed) resolved through the presence script into the composite
+# identity the tower published under, else a session-scoped fallback minted
+# from that pid (or, last, the invoking shell) and its start time, written
+# into the lease record so a later reader can tell whose lease it is.
 #
 # A record pointing at an attention row is checked against the row at every
 # pass: a question whose row re-forked has its instance id and urgency
@@ -143,15 +147,18 @@
 # REBUILD. When the store is absent a locked verb rebuilds it inside the lock
 # (absence re-checked there, so two towers cannot both rebuild) from the
 # content homes: every awaiting-input attention row becomes a question item,
-# and every `born` line in the event log with no `acknowledged` or `settled`
-# after it is re-registered when its content home still holds the content —
-# with the same identifier, since it comes from the same key — or logged as
-# `dropped` with reason `rebuild` when the home has moved on (a path home is
-# re-checked for containment exactly as `add` checks it). A rebuilt item is
-# undelivered and the per-tower delivery records go with the lost store, so
-# a delivered-but-open item is delivered once more; shelve deadlines and
+# and every `born` line in the event log with no `acknowledged`, `settled`
+# or rebuild `dropped` after it is re-registered when its content home still
+# holds the content — with the same identifier, since it comes from the same
+# key — or logged as `dropped` with reason `rebuild` when the home has moved
+# on (a path home is re-checked for containment exactly as `add` checks it)
+# or the line's identifier does not derive from its own key. A rebuilt item
+# is undelivered and the per-tower delivery records go with the lost store,
+# so a delivered-but-open item is delivered once more; shelve deadlines and
 # settling reasons are the store's alone and do not return; the settled
-# history is the event log's (REQ-A1.5).
+# history is the event log's (REQ-A1.5). The log lines a rebuild owes are
+# written to `rebuild.debt` under the sub-surface before the store lands and
+# paid once the lock is released, by that verb or the next one.
 #
 # THE LOG. One flat JSON object per line under a 0700 sub-surface of the
 # cross-spec fleet home (`fleet-state.sh root`): `<home>/tower-comms/`, holding
@@ -176,8 +183,9 @@
 #
 # Field grammar: keys match ^[a-z][a-z0-9_]{0,31}$ and are not one of the
 # reserved names (v seq ts kind tower until); a value is at most 4096 bytes,
-# carries no C0 control byte or DEL (a multi-line text is the caller's to
-# flatten), and is refused when it is shaped like a JSON object or array. A
+# carries no C0 or C1 control byte and no DEL (a multi-line text is the
+# caller's to flatten), and is refused when it is shaped like a JSON object
+# or array. A
 # value matching the JSON number grammar is written as a number, anything
 # else as a string with `"` and `\` escaped. Every string value passes the
 # secret-shaped redaction below before it is written, whatever the kind, so
@@ -228,12 +236,15 @@
 # (REQ-G1.5).
 #
 # Exit: 0 done (a coalesced tick included); 1 `report` found no log to read,
-#   or a queue verb refused on state (an `ack` or `shelve` by a tower that
-#   holds no lease on the item); 2 usage or refused input; 3 the bounded lock
-#   wait expired (a log line dropped; a queue write not made, or made and its
-#   own log line then dropped at the log's wait, which the message says);
+#   or a queue verb refused on state (an `ack` by a tower that holds no lease
+#   on the item, or a `shelve` of an item another tower holds); 2 usage or
+#   refused input, an item id the store does not hold included; 3 the
+#   bounded lock wait expired (a log line dropped; a queue write not made,
+#   or made and its own log line then dropped at the log's wait, which the
+#   message says);
 #   4 the sub-surface, the log, a counter, the store, a marker or a delivery
-#   file is not verifiably owner-only, or a repo-tracked knob is malformed
+#   file is not verifiably owner-only, the attention store or its directory
+#   is a redirect or foreign-owned, or a repo-tracked knob is malformed
 #   (the by-layer policy), or `tower_lease_interval` is below
 #   `tower_quiet_interval`, or `tower_catchup_limit` is above its cap; 5
 #   broken install;
@@ -268,6 +279,12 @@ fi
 
 FS="$script_dir/fleet-state.sh"
 RCK="$script_dir/resolve-config-knob.sh"
+for _dep in "$FS" "$RCK"; do
+  if [ ! -x "$_dep" ]; then
+    printf '%s\n' "tower-queue: scripts/${_dep##*/} is missing or not executable — broken install" >&2
+    exit 5
+  fi
+done
 JARGON="$script_dir/tower-jargon.txt"
 SCHEMA=1
 KINDS="born settled merged knocked delivered acknowledged shelved pushed session tick reply dropped unavailable refused"
@@ -278,9 +295,9 @@ usage() {
   cat >&2 <<'EOF'
 usage: tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> ...]
        tower-queue.sh report [--log <path>] [--now <epoch>] [--window <duration>] [--tick-gap-max <duration>]
-       tower-queue.sh add --kind <kind> --origin <who> --closes <text> [--now <epoch>]
-                      (--worker <handle> [--root <dir> --park <rel>] | --root <dir> --pointer <rel> [--park <rel>] [--urgency high|normal|low])
-                      (--closes defaults for a standing decision; a question inherits its row's urgency)
+       tower-queue.sh add --kind <kind> --origin <who> --closes <text> [--urgency high|normal|low] [--now <epoch>]
+                      (--worker <handle> [--root <dir> --park <rel>] | --root <dir> --pointer <rel> [--park <rel>])
+                      --closes defaults for a standing decision; a question inherits its row's urgency and refuses --urgency
        tower-queue.sh next [--tower <id>] [--now <epoch>]
        tower-queue.sh ack <id> [--tower <id>] [--now <epoch>]
        tower-queue.sh shelve <id> [--tower <id>] [--for <duration>] [--now <epoch>]
@@ -303,10 +320,11 @@ is_epoch() {
 }
 
 # A tower identity: the presence surface's UUID or composite form, or the
-# session-scoped fallback the queue verbs mint; a single path-safe token.
+# session-scoped fallback the queue verbs mint; a single path-safe token,
+# never the fleet's absent-owner sentinel.
 is_tower() {
   case "$1" in
-    "" | *[!A-Za-z0-9._-]* | .* | -*) return 1 ;;
+    "" | unknown-owner | *[!A-Za-z0-9._-]* | .* | -*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
 }
@@ -532,7 +550,7 @@ resolve_queue_knobs() {
     exit 4
   fi
   if [ "$catchup_limit" -gt "$Q_CATCHUP_CAP" ]; then
-    err "tower_catchup_limit ($catchup_limit) is above the cap of $Q_CATCHUP_CAP settled records the store keeps; the settled history beyond it is the event log's"
+    err "tower_catchup_limit ($catchup_limit) is above the cap of $Q_CATCHUP_CAP closed records the store keeps; the history beyond it is the event log's"
     exit 4
   fi
 }
@@ -1534,9 +1552,10 @@ Q_KINDS="question approval request news standing"
 Q_URGENCIES="high normal low"
 STANDING_CLOSES="the operator revokes the rule"
 QUESTION_CLOSES="the operator answers"
-# The most settled records a write keeps: the catch-up knob is a small
-# window, and the retention pass sorts what it keeps, so a runaway value
-# would put that sort inside the fleet lock on every write.
+# The most closed (acknowledged or settled) records a write keeps: the
+# catch-up knob is a small window, and the retention pass sorts what it
+# keeps, so a runaway value would put that sort inside the fleet lock on
+# every write.
 Q_CATCHUP_CAP=500
 TAB=$(printf '\t')
 # The C1 control range as a case pattern (the byte-range form dash and bash
@@ -1594,13 +1613,10 @@ is_text() {
 # attention store admits them: one token, no path separator, no
 # whitespace, no control byte.
 is_handle() {
-  [ -n "$1" ] || return 1
-  [ "${#1}" -le 128 ] || return 1
-  has_control "$1" && return 1
   case "$1" in
-    *[[:space:]]* | */* | . | ..) return 1 ;;
+    "" | . | .. | *[!A-Za-z0-9._=@:-]*) return 1 ;;
   esac
-  return 0
+  [ "${#1}" -le 128 ]
 }
 
 UUID_PAT='[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]-[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]'
@@ -1820,17 +1836,18 @@ check_store_file() {
 # this reader refuses is a redirect or a foreign owner, since the rows
 # decide which questions exist and what urgency they carry.
 check_owned() {
-  [ -e "$1" ] || [ -L "$1" ] || return 0
-  if [ -L "$1" ]; then
-    err "security: $(sanitize_printable "$1" "(unprintable path)") is a symlink — refusing to read through a redirect"
+  _co=$1
+  [ -e "$_co" ] || [ -L "$_co" ] || return 0
+  if [ -L "$_co" ]; then
+    err "security: $(sanitize_printable "$_co" "(unprintable path)") is a symlink — refusing to read through a redirect"
     exit 4
   fi
   # shellcheck disable=SC2012
-  _ol=$(ls -ldn "$1" 2>/dev/null) || _ol=""
+  _ol=$(ls -ldn "$_co" 2>/dev/null) || _ol=""
   # shellcheck disable=SC2086
   set -- $_ol
   if [ "${3:-}" != "$my_uid" ]; then
-    err "security: $(sanitize_printable "$1" "(unprintable path)") is owned by uid ${3:-?}, not this user; refusing it"
+    err "security: $(sanitize_printable "$_co" "(unprintable path)") is owned by uid ${3:-?}, not this user; refusing it"
     exit 4
   fi
 }
@@ -2005,19 +2022,19 @@ commit_store() {
   if { [ "$SNAP_EXISTED" = 1 ] && { [ ! -f "$store_file" ] || ! cmp -s "$store_file" "$SCRATCH/snap"; }; } \
     || { [ "$SNAP_EXISTED" = 0 ] && [ -f "$store_file" ]; }; then
     err "the queue store changed while this verb held the fleet lock (a broken lock?); nothing written"
-    exit 6
+    return 1
   fi
   PENDING_TMP=$(mktemp "$surface/.queue.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch file for the queue store"
-    exit 6
+    return 1
   }
   cat "$SCRATCH/new" >"$PENDING_TMP" 2>/dev/null || {
     err "cannot write the queue store"
-    exit 6
+    return 1
   }
   mv -f "$PENDING_TMP" "$store_file" 2>/dev/null || {
     err "cannot replace the queue store"
-    exit 6
+    return 1
   }
   PENDING_TMP=""
 }
@@ -2072,11 +2089,10 @@ function load_attention(file,   l, f, n, rc) {
 # over, after a knock (an attention session is opened by one), within the
 # quiet interval. At-or-after: the stamps are whole seconds and the reply
 # can only follow the tower turn that produced the knock.
-function attended(t,   r, last) {
+function attended(t,   r) {
   if (!(t in tw_kt)) return 0
   r = tw_reply[t]; if (r <= 0 || tw_kt[t] <= 0) return 0
-  last = (tw_kt[t] > tw_dt[t]) ? tw_kt[t] : tw_dt[t]
-  return (r >= last && now - r <= quiet)
+  return (r >= tw_kt[t] && r > tw_dt[t] && now - r <= quiet)
 }
 # present(t): the operator is not away in that conversation: a reply within
 # the quiet interval, or, while the marker has not appeared at all, a knock
@@ -2211,10 +2227,10 @@ run_store_pass() {
         if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
         if (F[n, 16] + 0 > 0) continue
         if (skip_reason[n] != "") { print "skip\t" clean(F[n, 1]) "\t" skip_reason[n]; continue }
-        nwait++
         o = F[n, 19]
         if (o == tower) { if (F[n, 14] + 0 > 0) continue }
         else if (o != "-") { if (present(o)) continue }
+        nwait++
         cand[n] = 1
         if (!top || better(n, top)) top = n
       }
@@ -2229,13 +2245,18 @@ run_store_pass() {
         print "decision\tdeliver\t" clean(F[target, 1]) "\t" clean(F[target, 2]) "\t" clean(F[target, 3])
         print render_item(target)
       } else {
-        # A reply stamped in the same second as the outbound answers it (the same
-        # reading attended() takes), so only an older reply leaves it pending.
-        pend_deliv = (dt > 0 && dt >= kt && r < dt && now - dt <= quiet)
+        # The same reading attended() takes: a reply stamped in the same second
+        # as the knock answers the knock; a hand-over needs a later one.
+        pend_deliv = (dt > 0 && dt >= kt && r <= dt && now - dt <= quiet)
         pend_knock = (kt > 0 && kt > dt && r < kt)
         if (pend_deliv) print "decision\twait\thand-over outstanding"
         else if (pend_knock && tw_kitem[tower] == F[top, 1]) print "decision\twait\tknock outstanding"
         else {
+          # A knock about a new top supersedes the earlier pin: the lease that
+          # knock took goes with it, since that item was never handed over.
+          if (tw_kitem[tower] != "-" && tw_kitem[tower] != F[top, 1])
+            for (n = 1; n <= N; n++)
+              if (OK[n] && F[n, 1] == tw_kitem[tower] && F[n, 19] == tower && F[n, 14] + 0 == 0) { F[n, 19] = "-"; F[n, 20] = 0 }
           if (F[top, 19] == "-") { F[top, 19] = tower; F[top, 20] = int(now + lease_iv) }
           F[top, 13] = now; changed = 1
           nkt = now; nkitem = F[top, 1]
@@ -2278,11 +2299,6 @@ rebuild_if_absent() {
   [ ! -s "$log_file" ] || _rl=$log_file
   _ra=""
   [ ! -s "$attn_store" ] || _ra=$attn_store
-  if [ -z "$_rl" ] && [ -z "$_ra" ]; then
-    : >"$SCRATCH/new"
-    commit_store
-    return 0
-  fi
   awk -F '\t' -v log_file="$_rl" -v attn_file="$_ra" "$AWK_PARSE"'
   function nz(s) { return (s == "") ? "-" : s }
   BEGIN {
@@ -2371,25 +2387,28 @@ rebuild_if_absent() {
     fi
     _id=$(id_for "$_k" "$_h" "$_p" "$_i" "$_r")
     if [ "$_was" != "-" ] && [ "$_was" != "$_id" ]; then
-      err "rebuild: ignoring a born line whose identifier does not derive from its own key ($(sanitize_printable "$_was" "?"))"
+      err "rebuild: dropping a born line whose identifier does not derive from its own key ($(sanitize_printable "$_was" "?"))"
+      printf '%s\n' "$_was" >>"$SCRATCH/dropped"
       continue
     fi
     case " $_seen " in *" $_id "*) continue ;; esac
     _seen="$_seen $_id"
     if [ "$_was" = "-" ]; then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_id" "$_k" "$_u" "$_o" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" >>"$SCRATCH/fresh"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" >>"$SCRATCH/fresh"
     fi
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\n' \
       "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" >>"$SCRATCH/new" || exit 6
   done <"$SCRATCH/cands"
-  commit_store
-  # The per-tower delivery records describe hand-overs of the lost store;
-  # a rebuilt item is undelivered, so the records go with the store.
-  # shellcheck disable=SC2012
-  ls -1 "$delivery_dir" 2>/dev/null | while IFS= read -r _dn; do
-    is_tower "$_dn" && rm -f "$delivery_dir/$_dn"
-  done
+  # The debt lands before the store: a store whose births could never be
+  # logged is worse than no store, which the next verb rebuilds again. A
+  # predecessor's unpaid debt is carried, not replaced.
+  _debt="$surface/rebuild.debt"
+  if [ -d "$_debt" ] || [ -L "$_debt" ]; then
+    err "cannot write the rebuild's log debt: $(sanitize_printable "$_debt" "(unprintable path)") is not a plain file"
+    exit 6
+  fi
   {
+    [ ! -f "$_debt" ] || grep -v '^session$' "$_debt"
     printf 'session\n'
     sed 's/^/born\t/' "$SCRATCH/fresh"
     sed 's/^/dropped\t/' "$SCRATCH/dropped"
@@ -2401,24 +2420,43 @@ rebuild_if_absent() {
     err "cannot create a scratch file for the rebuild's log debt"
     exit 6
   }
-  if ! cat "$SCRATCH/debt" >"$PENDING_TMP" || ! mv -f "$PENDING_TMP" "$surface/rebuild.debt"; then
+  if ! cat "$SCRATCH/debt" >"$PENDING_TMP" || ! mv -f "$PENDING_TMP" "$_debt"; then
     err "cannot write the rebuild's log debt"
     exit 6
   fi
   PENDING_TMP=""
+  commit_store || exit 6
+  # The per-tower delivery records describe hand-overs of the lost store;
+  # a rebuilt item is undelivered, so the records go with the store.
+  # shellcheck disable=SC2012
+  ls -1 "$delivery_dir" 2>/dev/null | while IFS= read -r _dn; do
+    is_tower "$_dn" && rm -f "$delivery_dir/$_dn"
+  done
   err "the queue store was absent and has been rebuilt from the content homes ($(grep -c . "$SCRATCH/fresh") registered from their homes, $(grep -c . "$SCRATCH/dropped") dropped)"
 }
 
 # drain_debt — the log lines a rebuild owes, paid after the lock is released
-# (this verb's rebuild or a predecessor's that died before paying). The file
-# is removed only once every line landed; a line paid twice is harmless,
-# a line never paid is a lost birth.
+# (this verb's rebuild or a predecessor's that died before paying). A line
+# that lands leaves the file; one dropped at the log's own lock wait stays
+# for the next verb; one the log refuses outright is reported and dropped,
+# since keeping it would wedge every later verb on the same line. The
+# debt's fate never sets this verb's exit: that is its own owed line's.
 drain_debt() {
   _debt="$surface/rebuild.debt"
   [ -f "$_debt" ] || return 0
   check_private_file "$_debt"
-  _dfail=0
-  while IFS="$TAB" read -r _dk _f1 _f2 _f3 _f4 _f5 _f6 _f7 _f8 _f9 _f10; do
+  _keep=$(mktemp "$surface/.debt.XXXXXX" 2>/dev/null) || {
+    err "cannot create a scratch file for the log debt"
+    exit 6
+  }
+  PENDING_TMP=$_keep
+  _retry=0
+  _dsaved=$LOG_FAILED
+  while IFS= read -r _dl; do
+    IFS="$TAB" read -r _dk _f1 _f2 _f3 _f4 _f5 _f6 _f7 _f8 _f9 _f10 _f11 <<EOF
+$_dl
+EOF
+    LOG_FAILED=0
     case "$_dk" in
       session)
         if [ -n "${tower:-}" ]; then
@@ -2429,17 +2467,35 @@ drain_debt() {
         ;;
       born)
         is_item_id "$_f1" || continue
-        owe_log born --now "$now" item="$_f1" item_kind="$_f2" urgency="$_f3" origin="$_f4" \
-          home="$_f5" pointer="$_f6" instance="$_f7" root="$_f8" park="$_f9" closes="$_f10"
+        is_epoch "$_f5" || _f5=$now
+        owe_log born --now "$_f5" item="$_f1" item_kind="$_f2" urgency="$_f3" origin="$_f4" \
+          home="$_f6" pointer="$_f7" instance="$_f8" root="$_f9" park="$_f10" closes="$_f11"
         ;;
       dropped)
         is_item_id "$_f1" || continue
         owe_log dropped --now "$now" item="$_f1" reason=rebuild
         ;;
+      *) continue ;;
     esac
-    [ "$LOG_FAILED" = 0 ] || _dfail=1
+    case "$LOG_FAILED" in
+      0) ;;
+      3)
+        printf '%s\n' "$_dl" >>"$_keep"
+        _retry=1
+        ;;
+      *) err "dropping a rebuild debt line the event log refuses ($(sanitize_printable "$_dk $_f1" "?")); it will not be paid" ;;
+    esac
   done <"$_debt"
-  [ "$_dfail" != 0 ] || rm -f "$_debt"
+  LOG_FAILED=$_dsaved
+  if [ "$_retry" = 1 ]; then
+    mv -f "$_keep" "$_debt" 2>/dev/null || {
+      err "cannot rewrite the rebuild's log debt"
+      exit 6
+    }
+  else
+    rm -f "$_keep" "$_debt"
+  fi
+  PENDING_TMP=""
 }
 
 # parse_now — the shared --now handling: a caller's epoch, else the clock.
@@ -2465,7 +2521,7 @@ enter_store() {
   resolve_surface
   umask 077
   ensure_queue_surface
-  SCRATCH=$(mktemp -d 2>/dev/null) || {
+  SCRATCH=$(mktemp -d "$surface/.scratch.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch dir"
     exit 6
   }
@@ -2585,6 +2641,8 @@ cmd_add() {
       if [ -n "$park" ]; then
         check_pointer "$root" "$park" park
         park_rel=$PTR_REL
+      else
+        [ -z "$root" ] || refuse "a $kind item takes --root only with --park <rel>, the parked bullet under that root"
       fi
       ;;
     *)
@@ -2619,7 +2677,7 @@ cmd_add() {
   pass_failed "$result" && exit 6
   st=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" { print $2; exit }')
   changed=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "changed" { print $2; exit }')
-  [ "$changed" != 1 ] || commit_store
+  [ "$changed" != 1 ] || commit_store || exit 6
   leave_store
   printf '%s\n' "$id"
   case "$st" in
@@ -2710,13 +2768,13 @@ EOF
       # item from its own holder until the backstop.
       read_delivery "$tower"
       write_delivery "$tower" "$n_kt" "$n_kitem" "$n_dt" "$n_ditem"
-      if [ "$changed" = 1 ] && ! (commit_store); then
+      if [ "$changed" = 1 ] && ! commit_store; then
         write_delivery "$tower" "$d_kt" "$d_kitem" "$d_dt" "$d_ditem"
         exit 6
       fi
       ;;
     *)
-      [ "$changed" != 1 ] || commit_store
+      [ "$changed" != 1 ] || commit_store || exit 6
       ;;
   esac
   leave_store
@@ -2809,7 +2867,7 @@ item_pass() {
   st=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" { print $2; exit }')
   st_extra=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "status" { print $3; exit }')
   changed=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "changed" { print $2; exit }')
-  [ "$changed" != 1 ] || commit_store
+  [ "$changed" != 1 ] || commit_store || exit 6
   leave_store
 }
 
@@ -2829,7 +2887,11 @@ cmd_ack() {
       finish_exit
       ;;
     nolease)
-      err "refusing: tower '$tower' holds no lease on item $item (held by '$(sanitize_printable "$st_extra" "?")'); an acknowledgement comes from the conversation the item was handed to (a logged duplicate no-op)"
+      if [ "$st_extra" = - ]; then
+        err "refusing: tower '$tower' holds no lease on item $item (its lease lapsed at the backstop, so the item is deliverable again); an acknowledgement comes from the conversation the item was handed to (a logged duplicate no-op)"
+      else
+        err "refusing: tower '$tower' holds no lease on item $item (held by '$(sanitize_printable "$st_extra" "?")'); an acknowledgement comes from the conversation the item was handed to (a logged duplicate no-op)"
+      fi
       owe_log refused --now "$now" --tower "$tower" item="$item" verb=ack reason=no-lease
       finish_exit 1
       ;;
@@ -2847,9 +2909,9 @@ cmd_ack() {
 cmd_shelve() {
   parse_item_args shelve "$@"
   resolve_tower "$tower_flag"
+  [ -z "$span" ] || is_duration "$span" || refuse "refusing --for '$(sanitize_printable "$span" "(unprintable span)")': a positive span such as 30m or 2h"
   enter_store
   if [ -n "$span" ]; then
-    is_duration "$span" || refuse "refusing --for '$(sanitize_printable "$span" "(unprintable span)")': a positive span such as 30m or 2h"
     shelve_s=$(duration_seconds "$span")
   else
     shelve_s=$shelve_return
@@ -2946,6 +3008,10 @@ cmd_list() {
     [ ! -d "$surface" ] || err "no queue store yet (absent; the next locked verb rebuilds it)"
     exit 0
   }
+  SCRATCH=$(mktemp -d 2>/dev/null) || {
+    err "cannot create a scratch dir"
+    exit 6
+  }
   awk -F '\t' -v now="$now" -v all="$all" "$AWK_Q"'
   END {
     for (n = 1; n <= N; n++) {
@@ -2958,11 +3024,12 @@ cmd_list() {
       else st = "open"
       print clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" clean(F[n, 4]) "\t" F[n, 5] "\t" clean(st) "\t" clean(F[n, 6] ":" ((F[n, 6] == "path") ? F[n, 9] "/" F[n, 7] : F[n, 7]) ((F[n, 8] == "-") ? "" : "@" F[n, 8])) "\t" clean(F[n, 11])
     }
-    if (bad > 0) print "tower-queue: " bad " store line(s) do not parse and were skipped" > "/dev/stderr"
-  }' "$store_file" 2>/dev/null || {
+    if (bad > 0) print bad " store line(s) do not parse and were skipped" > "/dev/stderr"
+  }' "$store_file" 2>"$SCRATCH/warn" || {
     err "cannot read the queue store"
     exit 6
   }
+  [ ! -s "$SCRATCH/warn" ] || err "$(sanitize_printable "$(head -n 1 "$SCRATCH/warn")" "(unprintable diagnostic)")"
 }
 
 cmd_counts() {

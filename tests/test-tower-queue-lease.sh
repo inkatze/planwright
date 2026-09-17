@@ -11,8 +11,9 @@
 #   next [--tower <id>] [--now <epoch>]
 #       At most one line: `knock<TAB>...` when a knock is due, `item<TAB>...`
 #       when the calling tower's attention is confirmed by its marker
-#       (a reply later than its last knock and last hand-over, within
-#       tower_quiet_interval), else nothing. Leases the item it names.
+#       (a reply at or after its last knock and later than its last
+#       hand-over, within tower_quiet_interval), else nothing. Leases the
+#       item it names.
 #   ack <id> [--tower <id>] [--now <epoch>]
 #       Closes the item; refused (exit 1, logged) without a lease; a logged
 #       no-op on a closed item; never releases the next.
@@ -137,6 +138,10 @@ marker $A 3000
 out=$(run next --tower $B --now 3251 2>/dev/null) || fail "B after A's lease lapsed"
 [ -z "$out" ] || fail "B repeated its outstanding knock: '$out'"
 [ "$(lease_of "$z1")" = - ] || fail "an expired lease was not released"
+rc=0
+run ack "$z1" --tower $A --now 3251 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 1 ] || fail "an ack after the backstop released the lease: exit $rc, expected 1"
+grep -q 'lapsed' "$tmp/err" || fail "an ack after the backstop did not say the lease lapsed: $(cat "$tmp/err")"
 marker $B 3252
 out=$(run next --tower $B --now 3253) || fail "B delivers z1"
 [ "$(field "$out" 2)" = "$z1" ] || fail "B was not handed the released item on its reply: '$out'"
@@ -302,5 +307,23 @@ marker $B 9150
 out=$(run next --tower $B --now 9151) || fail "B after C's quiet interval ran out"
 [ "$(field "$out" 2)" = "$k1" ] || fail "B did not preempt once the markerless holder's quiet interval ran out: '$out'"
 echo "ok: a holder whose marker has not appeared counts as present until its quiet interval runs out"
+
+# --- a re-knock about a higher item releases the lease its earlier knock pinned ------
+
+# The knock pins the item it named (REQ-A1.8); when the top changes and the
+# tower knocks again, the earlier pin serves nothing: its lease goes, so the
+# item is not held by a conversation that was never handed it.
+run ack "$k1" --tower $B --now 9152 >/dev/null || fail "ack k1"
+D=tower-d
+p1=$(add_req pin-1 low 9500)
+out=$(run next --tower $D --now 9501 2>/dev/null) || fail "D knocks pin-1"
+[ "$(field "$out" 1)" = knock ] || fail "D did not knock for pin-1: '$out'"
+[ "$(lease_of "$p1")" = $D ] || fail "D's knock did not pin pin-1"
+p2=$(add_req pin-2 high 9502)
+out=$(run next --tower $D --now 9503 2>/dev/null) || fail "D knocks pin-2"
+[ "$(field "$out" 1)" = knock ] || fail "D did not knock again for the higher item: '$out'"
+[ "$(lease_of "$p2")" = $D ] || fail "D's second knock did not pin pin-2"
+[ "$(lease_of "$p1")" = - ] || fail "the lease from the superseded knock was kept: pin-1 is held by '$(lease_of "$p1")'"
+echo "ok: a knock about a new top item releases the lease the superseded knock pinned"
 
 echo "ALL PASS: tower-queue lease"
