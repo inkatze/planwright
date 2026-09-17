@@ -713,3 +713,32 @@ tower_hook_lock_wait: 2s
 tower_log_rotate_age: 30d
 tower_report_window: 7d
 tower_tick_gap_max: 10m
+
+# Tower-comms queue store: attention and the delivery lease (tower-comms D-6,
+# D-9, D-18; REQ-A1.8, REQ-C1.10, REQ-F1.1; tower_catchup_limit and
+# tower_shelve_return per D-3, REQ-A1.3, REQ-B1.4 and REQ-C1.6). The two
+# intervals and the shelve return are time spans in the grammar above,
+# sub-second values included; the limit is a count.
+#
+# tower_quiet_interval   how long a hand-over may go unanswered in one tower's
+#                        conversation before its attention lapses (the
+#                        operator is away there) and the next delivery
+#                        knocks again; a knock is never repeated on a
+#                        schedule.
+# tower_lease_interval   the backstop expiry of the lease `next` takes on the
+#                        item it hands to a tower; release is by event
+#                        (acknowledgement, shelve, settling) and the lease is
+#                        renewed by the holder's replies, so this only catches
+#                        a tower that died holding an item. Floored at
+#                        tower_quiet_interval: a value below it is refused.
+# tower_catchup_limit    how many closed items (acknowledged or settled) the
+#                        store keeps beyond the open ones, and how many the
+#                        catch-up renders; the history past it is the event
+#                        log's. Capped at 500: the retention pass sorts what
+#                        it keeps inside the fleet lock.
+# tower_shelve_return    how long a shelved item stays parked before it
+#                        returns on its own, when `shelve` is given no --for.
+tower_quiet_interval: 10m
+tower_lease_interval: 15m
+tower_catchup_limit: 20
+tower_shelve_return: 1h

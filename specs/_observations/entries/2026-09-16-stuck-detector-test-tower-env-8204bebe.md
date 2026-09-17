@@ -1,0 +1,1 @@
+- 2026-09-16 [planwright] tests/test-fleet-stuck-detector.sh fails when run from a tower session (PLANWRIGHT_TOWER_ID exported): its env-identity case expects the identity to resolve through the presence surface, but the ambient variable wins the ladder; passes with the variable unset; pre-existing on main, surfaced by the tower-comms Task 3 gauntlet's local check run.

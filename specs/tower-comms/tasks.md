@@ -452,7 +452,24 @@ baseline exists, so the experiment has an honest before.
 
 ## Awaiting input
 
-(none yet)
+- **Task 3** — four spec-level forks the 2026-09-16 review gauntlet over PR
+  #467 could not settle from the bundle; none blocks reviewing the PR itself,
+  and removing this bullet un-parks the task. (1) The block's Deliverables
+  (anchored) still list `next` running the settling pass, lease release on
+  merge absorption, death evidence and a not-live owner, and only two of the
+  four knobs the branch ships; the deviations live only in kickoff risk rows
+  25 to 27. Ratify the rows as the record, or run a `/spec-kickoff` delta
+  re-walkthrough that amends the block. (2) `tower_catchup_limit` bounds
+  closed records (acknowledged or settled) in the store and the options row,
+  while REQ-B1.4 words the catch-up over settled items: amend REQ-B1.4 to
+  "closed", or bound settled records only. (3) REQ-C1.9 asks `counts` to
+  degrade to a distinct unreadable marker; today an unreadable store exits 6
+  with nothing on stdout. Print the table with `store unreadable` and exit 0,
+  or keep exit 6 and let the Task 5 status line render its own marker. (4)
+  `settle` takes no tower and clears a live lease, so a settling pass can
+  close an item another conversation is holding with no signal there: keep
+  (settling is evidence-driven, Task 4 owns it) or have `settle` refuse a
+  leased item held by a present tower.
 
 ## Deferred
 
