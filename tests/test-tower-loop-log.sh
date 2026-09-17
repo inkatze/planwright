@@ -184,6 +184,29 @@ env -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID \
 grep -q '^tick	live=2$' "$tmp/out" || fail "last-row tick: reported '$(cat "$tmp/out")', expected live=2 (a handle's last row is its state)"
 echo "ok: a handle's last row is its state, as the store's upsert writes it"
 
+# The identity sources in pairs: the flag wins over the tower env, and the
+# tower env wins over the session env, read off the line's tower field.
+run2() {
+  env -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID \
+    PLANWRIGHT_FLEET_STATE_DIR="$home2" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+    "$@"
+}
+log2="$home2/tower-comms/events.log"
+run2 env PLANWRIGHT_TOWER_ID="$tower" /bin/sh "$TL" tick --tower "$uuid" --now 9240 >/dev/null || fail "flag over env: exit"
+case "$(tail -n 1 "$log2")" in
+  *"\"tower\":\"$uuid\""*) ;;
+  *) fail "flag over env: expected the --tower identity: $(tail -n 1 "$log2")" ;;
+esac
+run2 env PLANWRIGHT_TOWER_ID="$tower" PLANWRIGHT_TOWER_SESSION_ID="$uuid" /bin/sh "$TL" tick --now 9250 >/dev/null || fail "tower env over session env: exit"
+case "$(tail -n 1 "$log2")" in
+  *"\"tower\":\"$tower\""*) ;;
+  *) fail "tower env over session env: expected PLANWRIGHT_TOWER_ID: $(tail -n 1 "$log2")" ;;
+esac
+echo "ok: --tower wins over PLANWRIGHT_TOWER_ID, which wins over PLANWRIGHT_TOWER_SESSION_ID"
+
 # --- delivered: the turn's text flattened, bounded, redacted, counted as prose ---
 
 token="ghp_""ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij0123"
