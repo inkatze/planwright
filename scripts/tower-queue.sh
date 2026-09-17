@@ -949,6 +949,11 @@ LOCK_TOKEN=""
 LOCK_CHILD=""
 PENDING_TMP=""
 WORK_TMP=""
+# Declared with the other tracked scratch paths rather than beside ev_prepare:
+# cleanup() runs on every exit, including one taken long before the evidence
+# section is reached, and an unset name there is a `set -u` failure inside the
+# trap.
+EVID_FILE=""
 KNOB_DIR=""
 # fleet-state disowns the lock its `lock` verb takes to this caller, and its
 # `unlock` is an unconditional `rm -f` its own header calls out as able to
@@ -982,6 +987,7 @@ cleanup() {
   release_lock
   [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP" 2>/dev/null || true
   [ -z "$WORK_TMP" ] || rm -f "$WORK_TMP" 2>/dev/null || true
+  [ -z "$EVID_FILE" ] || rm -f "$EVID_FILE" 2>/dev/null || true
   [ -z "$KNOB_DIR" ] || rm -rf "$KNOB_DIR" 2>/dev/null || true
   [ -z "$SCRATCH" ] || rm -rf "$SCRATCH" 2>/dev/null || true
 }
@@ -2277,10 +2283,16 @@ function load_attention(file,   l, f, n, rc) {
     # label (the first-answer-wins field fleet-attention.sh claim stamps) is the
     # answered-by-another-route evidence. The 12th is the command text on
     # a permission record, which merges only on byte equality.
-    at_scope[f[1]] = f[2]; at_q[f[1]] = f[6]; at_opts[f[1]] = f[8]
+    at_q[f[1]] = f[6]; at_opts[f[1]] = f[8]
     # A lone "-" reads as absent alongside the empty field the writers use:
     # no option label is a bare dash, and taking one for an answer would
-    # settle an item the operator never saw.
+    # settle an item the operator never saw. The scope takes the same guard
+    # for a different reason: the valid_field grammar fleet-attention writes
+    # through admits a bare "-" as a handle, and the merge key removes the
+    # scope from the question text as a literal, so an unguarded dash would
+    # strip every hyphen out of the text two different items are keyed on and
+    # collide questions that differ only in one.
+    at_scope[f[1]] = (f[2] != "-") ? f[2] : ""
     at_claim[f[1]] = (n >= 11 && f[11] != "-") ? f[11] : ""
     at_cmd[f[1]] = (n >= 12 && f[12] != "-") ? f[12] : ""
   }
@@ -2905,7 +2917,6 @@ parse_now() {
 
 # --- evidence, gathered before the lock (REQ-B1.1) ----------------------------
 
-EVID_FILE=""
 DO_SETTLE=0
 ev_stamp=none
 
@@ -2938,8 +2949,8 @@ ev_prepare() {
   _ep=$1
   ev_stamp=none
   # Inside the 0700 sub-surface like every other scratch path this script mints,
-  # and in its own cleanup slot: WORK_TMP is log rotation's, and rotation runs
-  # inside the lock this file is prepared before.
+  # and in its own cleanup slot rather than WORK_TMP's: that one is log
+  # rotation's, and rotation runs inside the lock this file is prepared before.
   ensure_surface
   EVID_FILE=$(mktemp "$surface/.evid.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch file for the evidence table"
@@ -3338,10 +3349,11 @@ EOF
   esac
   if [ "$DO_SETTLE" = 1 ]; then
     pass_writes "$result"
-    # The bound is reported on this path too: the tower loop reaches the
-    # settling pass through `next` far more often than through `settle`.
-    held=$(pass_held)
-    err "the settling pass ran inside this next and held the fleet lock ${held}s"
+    # Measured on this path too, because the tower loop reaches the settling
+    # pass through `next` far more often than through `settle`. pass_held is
+    # what warns past the bound; `next` has no stdout slot for the number, and
+    # announcing every in-bound hold on stderr would bury the one that matters.
+    pass_held >/dev/null
   fi
   leave_store
   [ "$DO_SETTLE" != 1 ] || pass_logs "$result"
