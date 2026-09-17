@@ -108,6 +108,12 @@ run /bin/sh "$TL" tick --tower '' --now 9000 >/dev/null 2>&1 || rc=$?
 rc=0
 run env PLANWRIGHT_TOWER_ID="$tower" /bin/sh "$TL" tick --now '' >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "empty --now: exit $rc, expected 2 (never silently the wall clock)"
+# Thirty-six bytes in the UUID's shape are not a UUID unless 32 hex characters
+# remain once the separators are removed, the grammar fleet-presence.sh reads.
+dashy="0$(printf '%035d' 0 | tr 0 -)"
+rc=0
+run env PLANWRIGHT_TOWER_SESSION_ID="$dashy" /bin/sh "$TL" tick --now 9000 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "dash-heavy PLANWRIGHT_TOWER_SESSION_ID: exit $rc, expected 2"
 [ ! -e "$log_file" ] || fail "malformed identities: a line was written"
 echo "ok: a missing, malformed, or empty tower identity or time is refused and nothing is written"
 
@@ -163,6 +169,20 @@ case "$(last_line)" in
   *) fail "changed tick: expected live=4 under the session identity: $(last_line)" ;;
 esac
 echo "ok: a changed count appends, and the session-id identity form is accepted"
+
+# A handle that appears twice is read the way the store writes it (one row
+# per worker, last wins): a live row after a terminal one counts.
+home2="$tmp/fleet-home-2"
+mkdir -p "$home2/attention"
+printf 'w-solo\ttc:task-20\tworking\t9000\nw-late\ttc:task-21\tended\t9000\nw-late\ttc:task-21\tworking\t9001\n' >"$home2/attention/state"
+env -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID \
+  PLANWRIGHT_FLEET_STATE_DIR="$home2" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+  PLANWRIGHT_REPO_ROOT="$tmp" \
+  PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+  /bin/sh "$TL" tick --tower "$tower" --now 9230 >"$tmp/out" || fail "last-row tick: exit"
+grep -q '^tick	live=2$' "$tmp/out" || fail "last-row tick: reported '$(cat "$tmp/out")', expected live=2 (a handle's last row is its state)"
+echo "ok: a handle's last row is its state, as the store's upsert writes it"
 
 # --- delivered: the turn's text flattened, bounded, redacted, counted as prose ---
 
@@ -222,6 +242,19 @@ text_len=$(text_len "$(last_line)")
 [ "$text_len" = 4095 ] || fail "multibyte delivered: text is $text_len bytes, expected 4095 (a whole number of characters)"
 echo "ok: the cap never leaves a split multi-byte character"
 
+# A turn far past the cap is drained, so the producer's write never breaks on
+# a closed pipe: the producer is the loop's own shell, and a broken pipe there
+# fails the step that just logged successfully. PIPESTATUS is rewritten by the
+# next command, so it is captured before any test.
+set +e
+awk 'BEGIN { for (i = 0; i < 40000; i++) printf "word "; printf "\n" }' \
+  | run /bin/sh "$TL" delivered --tower "$tower" --now 9402 >/dev/null 2>"$tmp/err"
+ws=("${PIPESTATUS[@]}")
+set -e
+[ "${ws[1]}" = 0 ] || fail "oversize delivered: exit ${ws[1]}: $(cat "$tmp/err")"
+[ "${ws[0]}" = 0 ] || fail "oversize delivered: the producer was broken (exit ${ws[0]})"
+echo "ok: an oversize turn is drained rather than left to break the producer"
+
 # An unreadable or dangling store is refused rather than read as an idle fleet.
 chmod 0000 "$home/attention/state"
 rc=0
@@ -243,7 +276,7 @@ echo "ok: an unreadable or dangling attention store writes no tick"
 # --- the scorecard reads what the loop wrote ------------------------------------
 
 report=$(run /bin/sh "$TQ" report --log "$log_file" --now 9500 --window 1h --tick-gap-max 10m) || fail "report failed"
-for want in "malformed	0" "prose_deliveries	4" "delivered_items	4" "tick_gaps	0" "jargon_identifiers	0" "fleet_hours	0.02"; do
+for want in "malformed	0" "prose_deliveries	5" "delivered_items	5" "tick_gaps	0" "jargon_identifiers	0" "fleet_hours	0.02"; do
   case "$report" in
     *"$want"*) ;;
     *) fail "report: expected '$want' in: $report" ;;

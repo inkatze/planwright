@@ -95,16 +95,18 @@ warn() {
 }
 
 # The session-id UUID shape (8-4-4-4-12 hex), as fleet-presence.sh reads it.
-# The glob's `?` also admits `-`, so the second pattern is what refuses a
-# dash-heavy non-UUID.
+# The glob's `?` also admits `-`, so the residue check is what refuses a
+# dash-heavy non-UUID: 32 hex characters once the separators are removed.
 is_uuid() {
   [ "${#1}" -eq 36 ] || return 1
   case "$1" in
     ????????-????-????-????-????????????) ;;
     *) return 1 ;;
   esac
-  case "$1" in
-    *[!0-9a-fA-F-]*) return 1 ;;
+  _hex=$(printf '%s' "$1" | tr -d -- '-')
+  [ "${#_hex}" -eq 32 ] || return 1
+  case "$_hex" in
+    *[!0-9a-fA-F]*) return 1 ;;
   esac
   return 0
 }

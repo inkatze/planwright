@@ -12,13 +12,14 @@
 #       hung, awaiting-input or pr-ready. ended, merged and done are not live;
 #       a row whose state is none of those, or whose handle is empty, is
 #       corruption and counts nothing; a handle that appears twice counts
-#       once. The store is one per host, so the count is the fleet's, not
-#       this tower's (two towers sharing a host each tick the whole count,
-#       and the scorecard unions their spans); a backend that never
-#       heartbeats (print) is invisible to it. The log verb coalesces the
-#       tick with the previous one when the count is unchanged, so a steady
-#       fleet costs one line per count change and the scorecard's fleet hours
-#       come from these spans. Prints `tick<TAB>live=<n>` on success.
+#       once, by its last row. The store is one per host, so the count is
+#       the fleet's, not this tower's (two towers sharing a host each tick
+#       the whole count, and the scorecard unions their spans); a backend
+#       that never heartbeats (print) is invisible to it. The log verb
+#       coalesces the tick with the previous one when the count is unchanged,
+#       so a steady fleet costs one line per count change and the scorecard's
+#       fleet hours come from these spans. Prints `tick<TAB>live=<n>` on
+#       success.
 #   delivered [--tower <id>] [--asks <n>] [--now <epoch>]   (text on stdin)
 #       A turn the tower delivered to the operator: the text is flattened to
 #       one line of printable bytes, bounded to the log's value cap, and
@@ -93,16 +94,18 @@ is_count() {
 }
 
 # The session-id UUID shape (8-4-4-4-12 hex), as fleet-presence.sh reads it.
-# The glob's `?` also admits `-`, so the second pattern is what refuses a
-# dash-heavy non-UUID.
+# The glob's `?` also admits `-`, so the residue check is what refuses a
+# dash-heavy non-UUID: 32 hex characters once the separators are removed.
 is_uuid() {
   [ "${#1}" -eq 36 ] || return 1
   case "$1" in
     ????????-????-????-????-????????????) ;;
     *) return 1 ;;
   esac
-  case "$1" in
-    *[!0-9a-fA-F-]*) return 1 ;;
+  _hex=$(printf '%s' "$1" | tr -d -- '-')
+  [ "${#_hex}" -eq 32 ] || return 1
+  case "$_hex" in
+    *[!0-9a-fA-F]*) return 1 ;;
   esac
   return 0
 }
@@ -154,9 +157,17 @@ live_workers() {
     err "the attention store exists but cannot be read; no tick written rather than a wrong count"
     exit 6
   fi
+  # The store's upsert writes one row per worker, last wins, so a handle's
+  # last row is its state and a duplicate (corruption) is read the same way.
   awk -F'\t' '
-    $1 != "" && !seen[$1]++ && ($3 == "working" || $3 == "idle" || $3 == "hung" || $3 == "awaiting-input" || $3 == "pr-ready") { n++ }
-    END { print n + 0 }' "$_store" 2>/dev/null || {
+    $1 != "" { state[$1] = $3 }
+    END {
+      for (h in state) {
+        s = state[h]
+        if (s == "working" || s == "idle" || s == "hung" || s == "awaiting-input" || s == "pr-ready") n++
+      }
+      print n + 0
+    }' "$_store" 2>/dev/null || {
     err "cannot read the attention store"
     exit 6
   }
@@ -227,8 +238,12 @@ case "$cmd" in
     # Flatten, bound, trim: every control byte (newlines and tabs included)
     # becomes a space, the text is cut at the value cap with any multi-byte
     # character the cut split dropped, and the edges are trimmed so a turn
-    # that ends in a newline does not end in a space.
-    text=$(head -c "$VALUE_CAP" 2>/dev/null | tr '\000-\037\177' ' ' | awk '
+    # that ends in a newline does not end in a space. The remainder past the
+    # cap is drained so the producer's write never breaks on a closed pipe.
+    text=$({
+      head -c "$VALUE_CAP"
+      cat >/dev/null 2>&1
+    } 2>/dev/null | tr '\000-\037\177' ' ' | awk '
       BEGIN { for (b = 0; b < 256; b++) ord[sprintf("%c", b)] = b }
       {
         t = $0

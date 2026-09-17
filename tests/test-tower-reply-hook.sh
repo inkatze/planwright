@@ -208,6 +208,19 @@ case "$(tail -n 1 "$log_file")" in
 esac
 echo "ok: each reply advances the marker and lands in sequence with its prompt id"
 
+# Thirty-six bytes in the UUID's shape are not a UUID unless 32 hex characters
+# remain once the separators are removed, the grammar fleet-presence.sh reads.
+dashy="0$(printf '%035d' 0 | tr 0 -)"
+sleep 1
+run_hook "$(payload "$sid" "$co" "third reply" "$dashy")"
+[ "$rc" = 0 ] || fail "dash-heavy prompt id: exit $rc"
+case "$(tail -n 1 "$log_file")" in
+  *'"prompt_id"'*) fail "dash-heavy prompt id: a non-UUID prompt id reached the log: $(tail -n 1 "$log_file")" ;;
+  *'"text":"third reply"'*) ;;
+  *) fail "dash-heavy prompt id: the reply itself was not logged: $(tail -n 1 "$log_file")" ;;
+esac
+echo "ok: a dash-heavy non-UUID prompt id is dropped and the reply still counts"
+
 # The marker never moves backwards: a value already later than now stays.
 future=$(($(date +%s) + 1000))
 printf '%s\n' "$future" >"$marker_dir/$sid"
@@ -388,10 +401,13 @@ echo "ok: a payload cut inside the prompt still counts as a reply with the text 
 # A payload far past the bound is drained, so the harness's write never
 # breaks on a closed pipe.
 big=$(payload "$sid" "$co" "$(awk 'BEGIN { for (i = 0; i < 40000; i++) printf "word "; }')")
-rc=0
-printf '%s' "$big" | with_env /bin/sh "$HOOK" >"$tmp/out" 2>"$tmp/err" || rc=$?
-[ "$rc" = 0 ] || fail "oversize payload: exit $rc"
-[ "${PIPESTATUS[0]:-0}" = 0 ] || fail "oversize payload: the writer was broken (exit ${PIPESTATUS[0]})"
+# PIPESTATUS is rewritten by the next command, so it is captured before any test.
+set +e
+printf '%s' "$big" | with_env /bin/sh "$HOOK" >"$tmp/out" 2>"$tmp/err"
+ws=("${PIPESTATUS[@]}")
+set -e
+[ "${ws[1]}" = 0 ] || fail "oversize payload: exit ${ws[1]}"
+[ "${ws[0]}" = 0 ] || fail "oversize payload: the writer was broken (exit ${ws[0]})"
 echo "ok: an oversize payload is drained rather than left to break the writer"
 
 # --- a marker that cannot be written is named on the reply line ---------------

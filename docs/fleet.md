@@ -1042,7 +1042,11 @@ That is true of every event planwright registers — `PreToolUse`, `PostToolUse`
 `SessionStart`, `SessionEnd`, `Stop`, `StopFailure`, `Notification`,
 `PermissionRequest`, `UserPromptSubmit`, `WorktreeRemove`. Some of them *can*
 block, but only if a handler explicitly says so; a quiet handler changes
-nothing.
+nothing. The `UserPromptSubmit` handler is the one whose effects a tower can
+see: in a tower session it stamps the attention marker, appends a `reply` line,
+and waits up to `tower_hook_lock_wait` for the fleet lock before dropping that
+line, so the bound is also the most it adds to a prompt. It still exits 0 on
+every path, so the prompt goes through whatever it did.
 
 `WorktreeCreate` is the exception, and planwright does not register it.
 Registering a hook there **replaces** native git worktree creation: the hook
