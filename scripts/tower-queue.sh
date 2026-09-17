@@ -1998,11 +1998,12 @@ take_snapshot() {
 }
 
 # commit_store — replace the store with $SCRATCH/new, refusing when the
-# store no longer matches the snapshot (removed under the lock included):
-# the lock carries no holder token, and a store that moved under it means
-# the lock was broken.
+# store no longer matches the snapshot (removed under the lock, or appeared
+# where the rebuild found none, included): the lock carries no holder token,
+# and a store that moved under it means the lock was broken.
 commit_store() {
-  if [ "$SNAP_EXISTED" = 1 ] && { [ ! -f "$store_file" ] || ! cmp -s "$store_file" "$SCRATCH/snap"; }; then
+  if { [ "$SNAP_EXISTED" = 1 ] && { [ ! -f "$store_file" ] || ! cmp -s "$store_file" "$SCRATCH/snap"; }; } \
+    || { [ "$SNAP_EXISTED" = 0 ] && [ -f "$store_file" ]; }; then
     err "the queue store changed while this verb held the fleet lock (a broken lock?); nothing written"
     exit 6
   fi
@@ -2537,21 +2538,24 @@ cmd_add() {
   resolve_surface
   if [ "$kind" = standing ]; then
     [ -n "$closes" ] || closes=$STANDING_CLOSES
-    is_text "$closes" 512 || refuse "refusing the closing condition: at most 512 bytes with no control byte or leading whitespace, not shaped like a JSON value"
+  else
+    [ -n "$closes" ] || refuse "an item needs --closes <text>: the human action or the evidence that closes it"
+  fi
+  # The store is rendered back into the conversation, so it carries the
+  # same redaction the log does. Redaction comes before the shape check: a
+  # value that is only a secret redacts to a bracketed marker, the one shape
+  # the log refuses, and the store must never take what the log will not.
+  closes=$(redact "$closes")
+  is_text "$closes" 512 || refuse "refusing the closing condition: at most 512 bytes with secrets redacted, no control byte or leading whitespace, not shaped like a JSON value"
+  if [ "$kind" = standing ]; then
     case "$(printf '%s' "$closes" | tr '[:upper:]' '[:lower:]')" in
       *revoke*) ;;
       *) refuse "refusing the closing condition: a standing decision closes on the operator revoking the rule" ;;
     esac
-  else
-    [ -n "$closes" ] || refuse "an item needs --closes <text>: the human action or the evidence that closes it"
-    is_text "$closes" 512 || refuse "refusing the closing condition: at most 512 bytes with no control byte or leading whitespace, not shaped like a JSON value"
   fi
   if promises_automation "$closes"; then
     refuse "refusing the closing condition: it promises a future automatic step; name the human action (an answer, a go-ahead) or the evidence that settles the item"
   fi
-  # The store is rendered back into the conversation, so it carries the
-  # same redaction the log does.
-  closes=$(redact "$closes")
   instance=-
   PTR_ROOT=-
   PTR_REL=-
@@ -2882,8 +2886,8 @@ cmd_shelve() {
 cmd_settle() {
   parse_item_args settle "$@"
   [ -n "$reason" ] || refuse "settle needs --reason <text>: what settled the item (the evidence, never a guess)"
-  is_text "$reason" 512 || refuse "refusing the settle reason: at most 512 bytes with no control byte or leading whitespace, not shaped like a JSON value"
   reason=$(redact "$reason")
+  is_text "$reason" 512 || refuse "refusing the settle reason: at most 512 bytes with secrets redacted, no control byte or leading whitespace, not shaped like a JSON value"
   tower=""
   enter_store
   printf '%s\n' "$reason" >"$SCRATCH/reason" || {

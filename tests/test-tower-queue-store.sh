@@ -452,6 +452,32 @@ run settle i00000001 --reason x --now 5200 >/dev/null 2>"$tmp/err" || rc=$?
 : >"$local_cfg"
 echo "ok: retention keeps every open item and only the settled ones inside the catch-up window"
 
+# --- secrets are redacted before the shape check (REQ-G1.8) --------------------------
+
+# A value that is only a secret redacts to a bracketed marker, the one shape
+# the log refuses: it must be refused up front, never stored without a birth.
+secret=AKIAABCDEFGHIJKLMNOP
+before=$(record_count)
+rc=0
+run add --kind request --root "$content" --pointer req-1 --origin operator --closes "$secret" --now 5210 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 2 ] || fail "a closing condition that is only a secret: exit $rc, expected 2"
+[ "$(record_count)" = "$before" ] || fail "a secret-only closing condition wrote a record"
+grep -q 'did not reach the event log' "$tmp/err" && fail "a secret-only closing condition reached the store before the log refused it"
+printf 'request sec\n' >"$content/req-sec"
+sid=$(run add --kind request --root "$content" --pointer req-sec --origin operator --closes "rotate $secret then confirm" --now 5211 2>/dev/null) \
+  || fail "a closing condition with an embedded secret: refused"
+[ "$(field "$(grep "^$sid$TAB" "$store")" 11)" = 'rotate [redacted:aws-access-key-id] then confirm' ] || fail "the store carries the secret or lost the text around it"
+grep -q "\"kind\":\"born\".*\"item\":\"$sid\"" "$log_file" || fail "the born line for a redacted closing condition never landed"
+rc=0
+run settle "$sid" --reason "$secret" --now 5212 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 2 ] || fail "a settle reason that is only a secret: exit $rc, expected 2"
+[ "$(field "$(grep "^$sid$TAB" "$store")" 12)" = open ] || fail "a secret-only settle reason closed the item"
+run settle "$sid" --reason "rotated, $secret revoked" --now 5213 >/dev/null || fail "a settle reason with an embedded secret: refused"
+[ "$(field "$(grep "^$sid$TAB" "$store")" 18)" = 'rotated, [redacted:aws-access-key-id] revoked' ] || fail "the settled record carries the secret"
+grep -q "\"kind\":\"settled\".*\"item\":\"$sid\"" "$log_file" || fail "the settled line for a redacted reason never landed"
+grep -q "$secret" "$store" "$log_file" && fail "the secret reached the store or the log"
+echo "ok: a closing condition or settle reason that is only a secret is refused; an embedded one is redacted before the store and the log"
+
 # --- echo safety on a hand-corrupted store line (REQ-A1.6) ------------------------
 
 # The detector: the output is tab-separated, so the tab is the one control

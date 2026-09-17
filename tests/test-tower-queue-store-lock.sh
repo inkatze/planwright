@@ -353,4 +353,26 @@ grep -q 'rebuilt' "$tmp/err" && fail "a present store was rebuilt"
 [ "$(grep -c '"event":"rebuild"' "$log_file")" = $((rebuilds_before + 1)) ] || fail "the loss was rebuilt more than once"
 echo "ok: a present store is authoritative and is never rescanned"
 
+# --- a store that appears while a rebuild runs is never overwritten ----------------
+
+# The snapshot guard covers a store that changed or vanished under the lock;
+# one that appears while the rebuild runs (the lock broken) is the other half.
+# A head on PATH that plants a store the moment the rebuild reads its
+# candidate list (after its absent check, before its commit) stands in for
+# the intruding writer.
+shim="$tmp/shim"
+mkdir -p "$shim"
+real_head=$(command -v head)
+# shellcheck disable=SC2016
+printf '#!/bin/sh\ncase "$3" in */cands) echo intruder >"%s" ;; esac\nexec "%s" "$@"\n' "$store" "$real_head" >"$shim/head"
+chmod +x "$shim/head"
+rm -f "$store"
+rc=0
+PATH="$shim:$PATH" run next --tower tower-x --now 7000 >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 6 ] || fail "a store appearing under a rebuild: exit $rc, expected 6"
+grep -q 'changed while this verb held the fleet lock' "$tmp/err" || fail "the rebuild did not name the broken lock"
+[ "$(cat "$store")" = intruder ] || fail "the rebuild overwrote a store that appeared under the lock"
+rm -f "$store"
+echo "ok: a store that appears while a rebuild runs is left alone and the verb refuses"
+
 echo "ALL PASS: tower-queue store lock"
