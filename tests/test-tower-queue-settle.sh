@@ -299,6 +299,26 @@ run next --tower $A --evidence "$ev" --now 1950 >/dev/null || fail "next after t
   || fail "next reused a pass taken while the fork was unanswerable and left the operator two copies"
 echo "ok: a worker returning to its fork is a pass the reuse key has not seen, so the duplicate still merges"
 
+# An attention store that comes back empty reads nothing like one that is gone:
+# gone holds the away re-knock, back-and-empty says every row has answered. Both
+# contribute no rows, so the key has to say which of the two it saw.
+attention_row w-gone /wt/gone awaiting-input 1960 normal 'still there?' yes 'yes,no'
+q_gone=$(run add --kind question --worker w-gone --origin w-gone --closes 'the operator answers' --now 1960) \
+  || fail "add the w-gone question"
+rm -f "$attn_store"
+evidence "stamp${TAB}1960"
+run settle --evidence "$ev" --now 1970 >/dev/null || fail "the pass with the attention store gone"
+[ "$(state_of "$q_gone")" = open ] || fail "a gone attention store closed its question instead of holding"
+[ -f "$surface/reknock.hold" ] || fail "a gone attention store did not hold the re-knock"
+mkdir -p "$attn_dir"
+chmod 0700 "$attn_dir"
+: >"$attn_store"
+chmod 0600 "$attn_store"
+run next --tower $A --evidence "$ev" --now 1980 >/dev/null || fail "next after the attention store came back empty"
+[ "$(state_of "$q_gone")" = closed ] || fail "next reused a pass taken while the store was gone and never saw the row vanish"
+[ ! -f "$surface/reknock.hold" ] || fail "the re-knock hold outlived the store coming back"
+echo "ok: a gone attention store and one that returns empty are different passes to the reuse key"
+
 # --- settled while the operator was away is recorded as such (REQ-B1.4) ----------
 
 printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\n' >"$local_cfg"

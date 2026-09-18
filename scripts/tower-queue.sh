@@ -3011,16 +3011,21 @@ ev_prepare() {
         [ -f "$_gp" ] || printf 'settles\titem:%s\tits content home has gone\n' "$_gi"
       done >>"$EVID_FILE"
   fi
-  if [ "$ev_stamp" != none ]; then
-    _fp=$(ev_fingerprint)
-    if [ -n "$_fp" ]; then
-      ev_key="$ev_stamp.$_fp"
-    else
-      # Nothing to compare against is not a match: leave the key `none` so the
-      # pass runs rather than reusing a marker it cannot stand behind.
-      ev_key=none
-    fi
-  fi
+}
+
+# ev_lock_key — the reuse key, computed AFTER the fleet lock is taken. Every
+# attention-store writer holds that same lock, so a key read before it can
+# already be stale by the time the pass reads the rows, and the verb would
+# reuse a pass that never saw the change. The evidence table is still gathered
+# before the lock (REQ-B1.1); only this comparison sits inside it.
+ev_lock_key() {
+  ev_key=none
+  [ "$ev_stamp" != none ] || return 0
+  _fp=$(ev_fingerprint)
+  # Nothing to compare against is not a match: the key stays `none` so the pass
+  # runs rather than reusing a marker it cannot stand behind.
+  [ -n "$_fp" ] || return 0
+  ev_key="$ev_stamp.$_fp"
 }
 
 # ev_fingerprint — the settling pass's OTHER inputs, in one comparable value:
@@ -3037,8 +3042,16 @@ ev_prepare() {
 ev_fingerprint() {
   {
     cat "$EVID_FILE" 2>/dev/null
-    [ ! -f "$attn_store" ] \
-      || awk -F '\t' '{ print $1 "\t" $2 "\t" $3 "\t" $6 "\t" $8 "\t" $11 "\t" $12 }' "$attn_store" 2>/dev/null
+    # Marked present or absent explicitly: a store that is there and empty and
+    # one that is gone both contribute no rows, and the pass reads them
+    # differently — gone is a source it could not reach, which holds the away
+    # re-knock, and empty is every row having answered.
+    if [ -f "$attn_store" ]; then
+      printf 'attention\tpresent\n'
+      awk -F '\t' '{ print $1 "\t" $2 "\t" $3 "\t" $6 "\t" $8 "\t" $11 "\t" $12 }' "$attn_store" 2>/dev/null
+    else
+      printf 'attention\tabsent\n'
+    fi
   } | cksum 2>/dev/null | awk 'NF >= 2 { print $1 "." $2; exit }'
 }
 
@@ -3337,8 +3350,9 @@ cmd_next() {
   # The settling pass runs before the selection (REQ-B1.1), unless the pass
   # that serves this loop iteration has already run against the same evidence.
   ev_prepare "$evidence"
-  if ev_reuse; then DO_SETTLE=0; else DO_SETTLE=1; fi
   enter_store
+  ev_lock_key
+  if ev_reuse; then DO_SETTLE=0; else DO_SETTLE=1; fi
   result=$(run_store_pass next) || {
     err "the store pass failed"
     exit 6
@@ -3607,6 +3621,7 @@ cmd_settle_pass() {
   ev_prepare "$evidence"
   tower=""
   enter_store
+  ev_lock_key
   result=$(run_store_pass pass) || {
     err "the store pass failed"
     exit 6
