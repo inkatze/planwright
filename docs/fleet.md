@@ -298,13 +298,17 @@ queue on demand. Set `notification_channel` (an overlay value; see the
 `editor-toast`, `statusline`, or `push` to match your persona. The channel is
 style; the queue is the capability.
 
-`push` is the one that reaches your phone. The seam writes a pending-push
-marker under the fleet home and the tower session relays it on its next step
-by calling Claude Code's push-notification tool, which reaches your desktop
-and, with Remote Control connected, your phone, and which declines to
-interrupt you while you are actively working. Nothing in planwright's scripts
-can call that tool, only a session can, which is why this channel is relayed
-rather than pushed.
+`push` is the one that will reach your phone. The seam writes a pending-push
+marker under the fleet home, and a tower session relays it by calling Claude
+Code's push-notification tool, which reaches your desktop and, with Remote
+Control connected, your phone, and which declines to interrupt you while you
+are actively working. Nothing in planwright's scripts can call that tool, only
+a session can, which is why this channel is relayed rather than pushed.
+
+**The relay is not built yet.** Choosing this channel today leaves the markers
+accumulating under the fleet home unread; the tower-side relay lands with the
+tower loop. Until then, `push` is a channel you can configure and not one that
+reaches you.
 
 ### The statusline channel
 
@@ -320,15 +324,26 @@ The `queue` field shows the count of items awaiting a decision, `deferred` when 
 backend owns the attention surface itself (so planwright suppresses its own
 queue), or `?` if the queue genuinely cannot be read.
 
-A `waiting` field joins it when a tower is running: the operator queue's top
-item kind and how many items it holds (`waiting question 3`), or `waiting none`
-when nothing is waiting. It is deliberately a separate field from `queue` —
-that one counts worker decisions, this one counts what the tower has for you,
-and one number for both would be a number meaning neither. A `waiting ?` means
-the read did not come back clean (an unreadable store, a torn line, a kind the
-grammar does not know); it never rounds that down to a zero, because a zero
-reads as "nothing waiting" and that is the one thing a broken read cannot say.
-With no tower running the field is absent entirely.
+A `waiting` field joins it when a tower has published its presence: the
+operator queue's top item kind and how many deliverable items it holds
+(`waiting question 3`), or `waiting none` when nothing is waiting. Standing
+decisions are never delivered, so they are never counted. It is deliberately a
+separate field from `queue`: that one counts worker decisions, this one counts
+what the tower has for you, and one number for both would be a number meaning
+neither.
+
+`waiting ?` means the read did not come back clean: no store, a store that
+would not read, a torn line in it, or a kind the grammar does not know. It
+never rounds any of those down to a zero, because a zero reads as "nothing
+waiting" and that is the one thing a broken read cannot say. On a fresh fleet
+home the store does not exist until the first item is queued, so a tower that
+has just come up reads `waiting ?` until then.
+
+The gate is a published presence record, not a liveness probe: a probe on a
+surface Claude Code re-renders every few hundred milliseconds is the cost this
+field exists to avoid. Records are reaped when another tower next scans the
+surface, so after the whole fleet stops the last record can outlive it and the
+field keeps rendering until something sweeps.
 
 Unlike the other channels, `statusline` is *pull-shaped*: Claude Code invokes a
 command on its own schedule rather than the fleet pushing at you. So wiring it up

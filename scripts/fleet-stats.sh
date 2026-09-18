@@ -40,11 +40,15 @@
 #                     engage/clear EVENTS, but the current state is the throttle
 #                     store, so a cleared throttle reads idle immediately.
 #
-# COMPOSES WITH fleet-attention.sh (D-14). `line` folds the decision-queue
-# length (fleet-attention.sh queue --count) into a single compact line for the
-# statusLine surface, so the operator sees stats and the actionable-queue depth
-# together. The statusLine wiring itself is scripts/fleet-statusline.sh, gated on
-# the `statusline` notification_channel value.
+# COMPOSES WITH fleet-attention.sh (D-14) AND tower-queue.sh (tower-comms
+# D-17). `line` folds the worker decision-queue length (fleet-attention.sh
+# queue --count) and the operator queue's `waiting` field (tower-queue.sh
+# counts) into a single compact line for the statusLine surface, so the
+# operator sees the stats, the actionable-queue depth, and what the tower is
+# holding for them together. Both siblings resolve the fleet home themselves,
+# so this script still resolves none. The statusLine wiring itself is
+# scripts/fleet-statusline.sh, gated on the `statusline` notification_channel
+# value.
 #
 # THE AUDIT RENDER (REQ-F1.4). `audit` is the human-facing view of Task 1's
 # audit trail: it wraps scripts/fleet-audit.sh query (passing --mechanism /
@@ -64,8 +68,9 @@
 #       The multi-line human-facing stats block (last cleanup, watchdog trips,
 #       throttle state).
 #   fleet-stats.sh line
-#       The compact single-line render for a statusLine, folding in the
-#       decision-queue length.
+#       The compact single-line render for a statusLine, folding in the worker
+#       decision-queue length and, while a tower is live, the operator queue's
+#       `waiting` field.
 #   fleet-stats.sh audit [--mechanism <m>] [--since <epoch>] [--until <epoch>]
 #       The human-facing audit-trail render, queryable by mechanism and time
 #       range (the filters pass straight through to fleet-audit.sh query).
@@ -291,8 +296,10 @@ queue_count() {
 #
 # Fed by `tower-queue.sh counts`, which is a lock-free best-effort read and
 # resolves the fleet home itself, so this script still resolves none (the
-# no-new-file floor above). PLANWRIGHT_TOWER_QUEUE overrides the sibling for a
-# fixture.
+# no-new-file floor above). The sibling is located beside this script and
+# nowhere else: Claude Code invokes this render unattended on its own
+# schedule, and an environment variable naming an executable on that path
+# would be a subprocess the operator never chose and never sees.
 #
 # WHAT IT PRINTS, and why a zero is not among the answers on a bad read:
 #   ""            — no live tower presence, or the sibling is not installed.
@@ -308,10 +315,9 @@ queue_count() {
 #                   claim.
 #   `waiting <kind> <n>` — the top item's kind and the ranked-kind total.
 waiting_field() {
-  wf_tq=${PLANWRIGHT_TOWER_QUEUE:-$TOWER_QUEUE}
-  [ -x "$wf_tq" ] || return 0
+  [ -x "$TOWER_QUEUE" ] || return 0
   wf_rc=0
-  wf_raw=$("$wf_tq" counts 2>/dev/null) || wf_rc=$?
+  wf_raw=$("$TOWER_QUEUE" counts 2>/dev/null) || wf_rc=$?
 
   # Every value is read out before any of them is compared, and each is then
   # asserted present: a missing row must not coerce to an empty string that
@@ -324,10 +330,14 @@ waiting_field() {
   wf_bad=$(printf '%s\n' "$wf_raw" | awk -F "$TAB" '$1 == "malformed" { print $2; exit }')
 
   # The presence gate is read first and on its own: with nothing live there is
-  # no field at all, not even the marker, and the sibling emits that row before
-  # it touches the store precisely so a failed read still carries it. No row at
-  # all (an old sibling, or one too broken to answer) is silence too — a field
-  # gated on a signal nobody sent is a field making something up.
+  # no field at all, not even the marker. The sibling emits that row before it
+  # reads the store, so a store that will not read still carries it and still
+  # reaches the operator as the marker. It cannot carry it when the FLEET HOME
+  # itself is unresolvable — the sibling needs the home to answer the presence
+  # question at all — and that case is silence, which is the honest answer: no
+  # fleet home is no fleet. No row for any other reason (an older sibling) is
+  # silence too; a field gated on a signal nobody sent is a field making
+  # something up.
   [ "$wf_presence" = live ] || return 0
 
   # Past the gate, anything that is not a clean reading is the marker: a

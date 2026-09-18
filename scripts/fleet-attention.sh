@@ -22,11 +22,15 @@
 #       (ISA-18.2 alarm rationalization: every surfaced item actionable,
 #       prioritized by consequence).
 #   (d) a NOTIFICATION SEAM (`notify`) — the channel (none / tmux-popup /
-#       os-notify / editor-toast / statusline) is the overlay VALUE (resolve-
-#       notification-channel.sh); this script is the seam that dispatches
-#       through it. statusline is pull-shaped (fleet-autonomy Task 8, D-14):
-#       Claude Code renders scripts/fleet-statusline.sh on its own schedule, so
-#       `notify` is a no-op for that channel — there is nothing to push.
+#       os-notify / editor-toast / statusline / push) is the overlay VALUE
+#       (resolve-notification-channel.sh); this script is the seam that
+#       dispatches through it. statusline is pull-shaped (fleet-autonomy Task 8,
+#       D-14): Claude Code renders scripts/fleet-statusline.sh on its own
+#       schedule, so `notify` is a no-op for that channel — there is nothing to
+#       push. push is session-relayed (tower-comms D-19): the seam writes a
+#       pending-push marker under the fleet home, deduped per key under the
+#       lock, and a session relays it — the tool that reaches a phone can only
+#       be called from inside one, so no adapter here could reach it.
 #
 # BUILT ON TASK 9 (D-11, REQ-D1.1: consume, do not re-implement). The cross-spec
 # home and the advisory-lock primitive are scripts/fleet-state.sh's: `root`
@@ -107,8 +111,11 @@
 #       Decision queue: ordered actionable items as structured choices.
 #       --count prints only the item count (the length that tracks the
 #       `## Awaiting input` count).
-#   fleet-attention.sh notify <summary>
-#       Push <summary> through the resolved notification channel.
+#   fleet-attention.sh notify <summary> [--key <token>]
+#       Push <summary> through the resolved notification channel. --key names
+#       what is being notified about; on the `push` channel it is the pending
+#       marker's filename, so it is also the dedupe. Absent, it is derived from
+#       the summary, so the same sentence twice is still one marker.
 #
 # Exit codes: 0 success; 2 usage error, unresolvable home, refused hostile
 #   input, or a filesystem/lock error (fail closed); 3 a SEMANTIC refusal on the
@@ -225,7 +232,12 @@ release_lock() {
 # explicit `exit` re-enters the EXIT trap so release still runs, mirroring the
 # sibling lock-holder scripts/tasks-pr-sync.sh. SIGKILL stays unrecoverable and
 # falls to the stale-lock break.
-trap 'release_lock' EXIT
+# np_tmp is collected here too. The pending-push directory is an ENUMERATED
+# set — the dedupe check, and the tower session that relays the markers, both
+# walk it — so a temp orphaned between mktemp and rename would be counted as a
+# push forever, unlike the sibling scratch files whose readers open one name.
+np_tmp=""
+trap 'release_lock; [ -z "$np_tmp" ] || rm -f "$np_tmp"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -1025,8 +1037,7 @@ case $cmd in
     ;;
 
   notify)
-    summary="${1:-}"
-    shift || true
+    summary=""
     notify_key=""
     while [ "$#" -gt 0 ]; do
       case $1 in
@@ -1038,9 +1049,20 @@ case $cmd in
           notify_key=$2
           shift 2
           ;;
-        *)
-          echo "fleet-attention: notify: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
+        --*)
+          echo "fleet-attention: notify: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
           exit 2
+          ;;
+        *)
+          # The summary is taken wherever it appears, so `--key K "text"` is
+          # accepted as readily as `"text" --key K`; binding it to $1 before
+          # the flag loop makes the first form blame the wrong token.
+          [ -z "$summary" ] || {
+            echo "fleet-attention: notify: takes one summary; got a second ('$(sanitize_printable "$1" "(unprintable argument)")')" >&2
+            exit 2
+          }
+          summary=$1
+          shift
           ;;
       esac
     done
@@ -1107,13 +1129,45 @@ case $cmd in
         # same sentence twice is still one marker.
         root=$(resolve_home) || exit 2
         if [ -z "$notify_key" ]; then
+          # Derived, so a keyless caller still dedupes on what it is saying.
+          # Checked rather than assumed: an empty substitution would collapse
+          # every distinct keyless notification onto one marker named `k`, so
+          # exactly one would ever reach the operator.
           notify_key=k$(printf '%s' "$summary" | cksum | awk '{ printf "%s.%s\n", $1, $2 }')
+          case $notify_key in
+            k[0-9]*.[0-9]*) ;;
+            *)
+              echo "fleet-attention: notify: cannot derive a dedupe key for a keyless push (is cksum present?)" >&2
+              exit 2
+              ;;
+          esac
         fi
-        push_dir="$root/attention/push"
+        attn_dir="$root/attention"
+        push_dir="$attn_dir/push"
         acquire_lock || exit 2
         np_rc=0
+        # Refused, never followed or narrowed in place: a redirect at either
+        # level would send the operator's pending lock-screen text somewhere
+        # this script did not choose, and the `chmod 0700` below would land on
+        # the link's target rather than on the surface.
+        for np_p in "$attn_dir" "$push_dir"; do
+          if [ -L "$np_p" ]; then
+            release_lock
+            echo "fleet-attention: notify: $(sanitize_printable "$np_p" "(unprintable path)") is a symlink — refusing to write the pending-push marker through a redirect" >&2
+            exit 2
+          fi
+        done
         if ! mkdir -p "$push_dir" 2>/dev/null || ! chmod 0700 "$push_dir" 2>/dev/null; then
           np_rc=2
+        fi
+        # The dedupe is the filename, so what is at that name has to be a
+        # marker this seam could have written. A directory or a symlink planted
+        # there would otherwise hold the key forever and every later push for
+        # that item would report success while reaching nobody.
+        if [ "$np_rc" = 0 ] && { [ -L "$push_dir/$notify_key" ] || { [ -e "$push_dir/$notify_key" ] && [ ! -f "$push_dir/$notify_key" ]; }; }; then
+          release_lock
+          echo "fleet-attention: notify: $(sanitize_printable "$push_dir/$notify_key" "(unprintable path)") is not a plain pending-push marker; refusing it rather than deduping against it" >&2
+          exit 2
         fi
         if [ "$np_rc" = 0 ] && [ ! -e "$push_dir/$notify_key" ]; then
           np_tmp=$(mktemp "$push_dir/.push.XXXXXX" 2>/dev/null) || np_rc=2
@@ -1121,9 +1175,10 @@ case $cmd in
             if printf '%s\n' "$summary" >"$np_tmp" 2>/dev/null \
               && chmod 0600 "$np_tmp" 2>/dev/null \
               && mv -f "$np_tmp" "$push_dir/$notify_key" 2>/dev/null; then
-              :
+              np_tmp=""
             else
               rm -f "$np_tmp" 2>/dev/null || true
+              np_tmp=""
               np_rc=2
             fi
           fi

@@ -52,15 +52,20 @@
 #                  so an item can close under a tower that was holding it;
 #                  this is how the catch-up tells that tower so rather than
 #                  leaving it to find a closed record.
-#   25 pushed      epoch of the last away push naming this item, or 0. The
-#                  dedupe REQ-F1.2 puts under the fleet lock, and the whole
-#                  of the away push's per-item state: one stamp answers both
-#                  "has this been pushed at all" and "was the
-#                  tower_reknock_age crossing pushed", so nothing repeats.
+#   25 pushed      epoch of the last away push naming this item in the
+#                  current away episode, or 0
+#   26 pushes      how many away pushes this item has had in that episode: 0,
+#                  1 or 2. Together these are the dedupe REQ-F1.2 puts under
+#                  the fleet lock. The COUNT is what bounds the episode, not a
+#                  comparison against a threshold recomputed from the knob:
+#                  that would re-arm every time tower_reknock_age was raised
+#                  and go permanently false every time it was lowered. Both
+#                  reset when the operator is present again, because a second
+#                  departure is a second transition into away.
 #
-# A record written before any of the last five fields shipped is completed on
-# read (subject -, away 0, sources -, held_by -, pushed 0) and rewritten by
-# the next locked verb, so an older store is never stranded.
+# A record written before any of the last six fields shipped is completed on
+# read (subject -, away 0, sources -, held_by -, pushed 0, pushes 0) and
+# rewritten by the next locked verb, so an older store is never stranded.
 #
 # The identifier is derived from the content home's key (kind, home, pointer,
 # and for news the row's instance, for a path item its root), so an `add` of
@@ -115,9 +120,9 @@
 # past the quiet interval, or the top item changed since the knock (the
 # lease that knock pinned goes with it). While a knock or a hand-over is
 # outstanding it prints nothing at all, and never repeats the knock on a
-# schedule; the away re-knock on worsening is the delivery task's. A
-# marker that never appears is reported on stderr after the first knock
-# rather than knocked at forever.
+# schedule; the escalation that follows an unanswered one is the away push
+# below. A marker that never appears is reported on stderr after the first
+# knock rather than knocked at forever.
 #
 # The item handed over is leased to the calling tower under the lock, at
 # the knock (which pins it) and at each hand-over. Another tower skips a
@@ -147,10 +152,13 @@
 # A record pointing at an attention row is checked against the row at every
 # pass: a question whose row re-forked has its instance id and urgency
 # refreshed; one whose row is no longer awaiting input, or whose row is gone,
-# is not handed over (the settling pass closes it with the reason). A store,
+# is not handed over (the settling pass closes it with the reason); `knock`
+# and `counts` apply that same rule, so no surface names an item the queue
+# will not hand over. A store,
 # a marker or a delivery file that cannot be written is an error in the turn
-# (exit 6); the one fail-open case is the `delivered` log line, whose failure
-# is reported while the hand-over stands (REQ-C1.11).
+# (exit 6); the fail-open cases are the `delivered` log line, whose failure is
+# reported while the hand-over stands (REQ-C1.11), and a refused away push,
+# which is reported while the item stays queued.
 #
 # `ack <id>` closes an item and never releases the next; it is refused (exit
 # 1, a `refused` line logged) when the caller holds no lease on it and is a
@@ -179,10 +187,13 @@
 # holds a tower record; it is not a liveness probe, and a probe per
 # status-line render is the cost the field exists to avoid.
 #
-# `knock [--now]` renders the one-line knock from the store, lock-free: the
-# same text `next` returns, so the line the operator reads has one home (D-6).
-# It keeps none of what `next` keeps — no attention state, no lease, no
-# stamp — and prints nothing with nothing waiting.
+# `knock [--now]` renders the one-line knock, lock-free, through the same
+# renderer `next` uses, so the line the operator reads has one home (D-6). It
+# keeps none of what `next` keeps: no attention state, no lease, no stamp, and
+# no `--tower`. What that costs is the part of the selection that needs one —
+# the lease, and the caller's own outstanding hand-over — so its count is what
+# is waiting for the QUEUE, not for one conversation. It prints nothing with
+# nothing waiting.
 #
 # AWAY AND THE PUSH (`next`) — D-7, D-9, D-19; REQ-C1.7, REQ-F1.1 to
 # REQ-F1.3, REQ-F1.6. The operator is AWAY in a tower conversation when a
@@ -261,8 +272,8 @@
 #     settle; `closed`, `none`, `open` and every `report` line do not. A
 #     source that cannot be reached is an `unavailable` line: distinct from
 #     one reporting nothing, logged as `unavailable`, settling nothing, and
-#     holding the away re-knock by writing `reknock.hold` (the delivery task
-#     reads it; the pass removes it once every source answers again).
+#     holding the away push's worsening stage by writing `reknock.hold`
+#     (`next` reads it; the pass removes it once every source answers again).
 #
 # A path item whose content file has gone settles with that reason too. An
 # item is recorded as settled-while-away when no tower conversation had the
@@ -357,8 +368,12 @@
 # it back with no JSON tool on the host (REQ-G1.7). Every line carries the schema version, a
 # monotonic sequence read and bumped from the counter file inside the same
 # critical section, the timestamp, and the event kind; `reply`, `acknowledged`,
-# `delivered`, `knocked` and `tick` lines carry the writing tower's identity,
-# without which two towers' lines are indistinguishable (REQ-G1.6).
+# `delivered`, `knocked`, `pushed` and `tick` lines carry the writing tower's
+# identity, without which two towers' lines are indistinguishable (REQ-G1.6).
+# A `pushed` line carries the item, its kind and urgency, the `stage` the away
+# push fired at (`first` or `aged`), the channel, and the `outcome`:
+# `push-less` on a channel with no transport, `queued` on the session-relayed
+# one, `sent` on the rest, `failed` when the seam refused it.
 #
 #   log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> ...]
 #
@@ -2215,7 +2230,7 @@ write_delivery() { # write_delivery <tower> <kt> <kitem> <dt> <ditem>
 build_towers_file() {
   : >"$SCRATCH/names"
   [ -z "${tower:-}" ] || printf '%s\n' "$tower" >>"$SCRATCH/names"
-  [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
+  [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
   # The settling pass runs under no tower of its own and still has to know
   # whether the operator is present anywhere before it records an item as
   # settled while they were away (REQ-B1.4), so it — and only it — sweeps every
@@ -2307,7 +2322,7 @@ commit_store() {
 # shellcheck disable=SC2016
 AWK_Q='
 function rec_ok(   i) {
-  if (NF != 25) return 0
+  if (NF != 26) return 0
   if ($1 !~ /^i[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/) return 0
   if ($2 !~ /^(question|approval|request|news|standing)$/) return 0
   if ($3 !~ /^(high|normal|low)$/) return 0
@@ -2319,7 +2334,8 @@ function rec_ok(   i) {
   if ($21 !~ /^(-|worker:[^ \t]+|pr:[1-9][0-9]*|branch:[^ \t]+|ledger:[^ \t]+)$/) return 0
   if ($22 !~ /^[01]$/) return 0
   if ($25 !~ /^(0|[1-9][0-9]*)$/) return 0
-  for (i = 1; i <= 25; i++) if ($i == "") return 0
+  if ($26 !~ /^[012]$/) return 0
+  for (i = 1; i <= 26; i++) if ($i == "") return 0
   return 1
 }
 function krank(k) { return (k == "question") ? 0 : (k == "approval") ? 1 : (k == "request") ? 2 : (k == "news") ? 3 : 9 }
@@ -2593,7 +2609,7 @@ function emit(out,   n, i, m, v, tv, j, line) {
     if (!OK[n]) { print L[n] > out; continue }
     if (n in drop) continue
     line = F[n, 1]
-    for (i = 2; i <= 25; i++) line = line "\t" F[n, i]
+    for (i = 2; i <= 26; i++) line = line "\t" F[n, i]
     print line > out
   }
   close(out)
@@ -2620,7 +2636,8 @@ function render_item(n, urg, age, orig) {
   if (NF == 20) { $21 = "-"; $22 = 0; $23 = "-"; changed = 1 }
   if (NF == 23) { $24 = "-"; changed = 1 }
   if (NF == 24) { $25 = 0; changed = 1 }
-  if (rec_ok()) { OK[N] = 1; for (i = 1; i <= 25; i++) F[N, i] = $i } else OK[N] = 0
+  if (NF == 25) { $26 = 0; changed = 1 }
+  if (rec_ok()) { OK[N] = 1; for (i = 1; i <= 26; i++) F[N, i] = $i } else OK[N] = 0
 }
 '
 
@@ -2662,11 +2679,11 @@ run_store_pass() {
       if (t) {
         # The same content home queued again after its item closed: the
         # record is re-opened in place, born now, so one home is one id.
-        for (i = 1; i <= 25; i++) F[t, i] = $i
+        for (i = 1; i <= 26; i++) F[t, i] = $i
         changed = 1; print "status\treopened"; emit(out); print "changed\t" changed; exit
       }
       N++; OK[N] = 1; L[N] = ""
-      for (i = 1; i <= 25; i++) F[N, i] = $i
+      for (i = 1; i <= 26; i++) F[N, i] = $i
       changed = 1; print "status\tadded"; emit(out); print "changed\t" changed; exit
     }
     if (mode == "ack" || mode == "settle" || mode == "shelve") {
@@ -2715,7 +2732,19 @@ run_store_pass() {
       # reading that depends on the item still being genuinely open, which is
       # what an unavailable evidence source puts in doubt, so `hold` suppresses
       # that one and not the first.
-      if (is_away(tower)) {
+      if (present(tower)) {
+        # The episode is over: the operator answered here. Clearing the budget
+        # is what makes REQ-F1.2 read the way it is written — the push fires on
+        # THE TRANSITION into away, and going away a second time is a second
+        # transition. A budget spent once per item for the life of the item
+        # would mean the operator who steps out on Tuesday is told, and the one
+        # who steps out on Wednesday with the same worker still blocked is not.
+        for (n = 1; n <= N; n++) {
+          if (!OK[n] || F[n, 12] != "open") continue
+          if (F[n, 25] + 0 == 0 && F[n, 26] + 0 == 0) continue
+          F[n, 25] = 0; F[n, 26] = 0; changed = 1
+        }
+      } else if (is_away(tower)) {
         nblock = 0
         for (n = 1; n <= N; n++) {
           if (!OK[n] || F[n, 12] != "open" || F[n, 2] != "question") continue
@@ -2726,10 +2755,18 @@ run_store_pass() {
           if (!OK[n] || F[n, 12] != "open" || F[n, 2] != "question") continue
           if (F[n, 16] + 0 > 0 || skip_reason[n] != "") continue
           stage = ""
-          if (F[n, 25] + 0 == 0) stage = "first"
-          else if (!hold && reknock > 0 && now - F[n, 5] >= reknock && F[n, 25] + 0 < F[n, 5] + reknock) stage = "aged"
+          # The count, not the stamp, is what bounds the episode at two. A test
+          # against a threshold recomputed from the knob re-arms every time the
+          # knob is raised and goes permanently false every time it is lowered,
+          # so the one motion that means "tell me more often" would turn the
+          # second push off. The stamp only answers whether the crossing is
+          # still ahead of the first push, which is what makes it a worsening
+          # rather than a delayed repeat of the same news.
+          if (F[n, 26] + 0 == 0) stage = "first"
+          else if (F[n, 26] + 0 == 1 && !hold && reknock > 0 \
+            && now - F[n, 5] >= reknock && F[n, 25] + 0 < F[n, 5] + reknock) stage = "aged"
           if (stage == "") continue
-          F[n, 25] = now; changed = 1
+          F[n, 25] = now; F[n, 26] = F[n, 26] + 1; changed = 1
           print "push\t" clean(F[n, 1]) "\t" clean(F[n, 2]) "\t" clean(F[n, 3]) "\t" stage "\t" (now - F[n, 5]) "\t" nblock
         }
       }
@@ -2936,7 +2973,7 @@ rebuild_if_absent() {
     if [ "$_was" = "-" ]; then
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_sub" >>"$SCRATCH/fresh"
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\t-\t0\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\t-\t0\t0\n' \
       "$_id" "$_k" "$_u" "$_o" "$_b" "$_h" "$_p" "$_i" "$_r" "$_pk" "$_c" "$_sub" >>"$SCRATCH/new" || exit 6
   done <"$SCRATCH/cands"
   # The debt lands before the store: a store whose births could never be
@@ -3149,7 +3186,7 @@ ev_prepare() {
   # The store is read lock-free here, the same way `list` and `counts` read it;
   # what the pass then acts on is re-read under the lock.
   if [ -f "$store_file" ]; then
-    awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25) && $12 == "open" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "/" $7 }' "$store_file" 2>/dev/null \
+    awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && $12 == "open" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "/" $7 }' "$store_file" 2>/dev/null \
       | while IFS="$TAB" read -r _gi _gp; do
         is_item_id "$_gi" || continue
         [ -f "$_gp" ] || printf 'settles\titem:%s\tits content home has gone\n' "$_gi"
@@ -3213,7 +3250,7 @@ ev_reuse() {
 }
 
 # pass_writes <result> — the two files the settling pass owns, written while
-# the lock is still held: the hold the away re-knock waits on (delivery task)
+# the lock is still held: the hold the away push's worsening stage waits on
 # and the key the next verb reuses. Returns 1 rather than exiting, so a caller
 # whose store write has already committed can still publish what it settled
 # before it reports the failure.
@@ -3433,7 +3470,7 @@ cmd_add() {
     fi
   fi
   id=$(id_for "$kind" "$ihome" "$ptr" "$instance" "$PTR_ROOT")
-  record=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\t-\t0' \
+  record=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\topen\t0\t0\t0\t0\t0\t-\t-\t0\t%s\t0\t-\t-\t0\t0' \
     "$id" "$kind" "$urgency" "$origin" "$now" "$ihome" "$ptr" "$instance" "$PTR_ROOT" "$park_rel" "$closes" "$subject")
 
   tower=""
@@ -3530,14 +3567,28 @@ send_push() {
       stage="$6" channel=- outcome=failed
     return
   fi
+  # `none` and `statusline` have no transport at all — the seam's adapter for
+  # each is a bare `exit 0`. Forking it once per blocked worker to reach that
+  # would be the whole cost of the pass on the shipped default channel, for
+  # nothing observable. The attempt is still logged, which is what REQ-F1.2
+  # asks for.
+  case "$_pchan" in
+    none | statusline)
+      owe_log pushed --now "$now" --tower "$tower" item="$_pitem" item_kind="$_pkind" urgency="$_purg" \
+        stage="$6" channel="$_pchan" outcome=push-less
+      return
+      ;;
+  esac
   _prc=0
-  "$script_dir/fleet-attention.sh" notify "$_psum" --key "$_pitem" >/dev/null 2>&1 || _prc=$?
+  _perr=$("$script_dir/fleet-attention.sh" notify "$_psum" --key "$_pitem" 2>&1 >/dev/null) || _prc=$?
   if [ "$_prc" != 0 ]; then
     _pout=failed
-    err "the away push for $_pitem was refused by the notification seam (exit $_prc); the item stays queued"
+    # The seam's own diagnosis is carried through: its exit 2 covers a usage
+    # error, a missing resolver, a lock that stayed busy and a write that
+    # failed, and the number alone cannot tell an operator which.
+    err "the away push for $_pitem was refused by the notification seam (exit $_prc): $(sanitize_printable "${_perr:-no diagnosis}" "(unprintable)"); the item stays queued"
   else
     case "$_pchan" in
-      none | statusline) _pout=push-less ;;
       push) _pout=queued ;;
       *) _pout=sent ;;
     esac
@@ -3568,12 +3619,29 @@ cmd_knock() {
   resolve_surface
   verify_read_surface
   [ -f "$store_file" ] || exit 0
-  _kl=$(awk -F '\t' -v now="$now" "$AWK_Q"'
+  _ka=""
+  [ ! -f "$attn_store" ] || _ka=$attn_store
+  # The attention store is loaded so this verb can apply the same
+  # not-deliverable rule `next` applies: an item whose row is gone or has moved
+  # on is one `next` will never hand over, and knocking about it would be the
+  # one thing a shared render cannot fix. What this verb cannot apply is the
+  # part that needs a tower — the lease, and the caller's own outstanding
+  # hand-over — so its count is what is waiting for the queue, not what is
+  # waiting for one conversation.
+  _kl=$(awk -F '\t' -v now="$now" -v attn_file="$_ka" \
+    -v attn_present="$([ -n "$_ka" ] && echo 1 || echo 0)" "$AWK_Q"'
+  BEGIN { load_attention(attn_file) }
   END {
+    derived_pass()
     top = 0; nwait = 0
     for (n = 1; n <= N; n++) {
       if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
       if (F[n, 16] + 0 > now) continue
+      # Only with the store in hand. With none, derived_pass marks every
+      # attention-homed row gone, and reading that as "nothing is waiting"
+      # would silence the knock the moment the file went missing — the same
+      # reasoning settle_reason applies to the same absence.
+      if (attn_present && skip_reason[n] != "") continue
       nwait++
       if (!top || better(n, top)) top = n
     }
@@ -3628,7 +3696,10 @@ cmd_next() {
   if ev_reuse; then DO_SETTLE=0; else DO_SETTLE=1; fi
   # Presence is asserted, never inferred from an empty read: the hold exists
   # or it does not, and a test that cannot tell the two apart is the guard
-  # that passes because its measurement went missing.
+  # that passes because its measurement went missing. It is read through the
+  # same verification its writer uses, so a hold planted as a symlink cannot
+  # suppress an escalation the writer would never have suppressed.
+  check_private_file "$surface/reknock.hold"
   if [ -f "$surface/reknock.hold" ]; then REKNOCK_HOLD=1; else REKNOCK_HOLD=0; fi
   result=$(run_store_pass next) || {
     err "the store pass failed"
@@ -4068,13 +4139,23 @@ cmd_counts() {
     printf 'question\t0\napproval\t0\nrequest\t0\nnews\t0\nstanding\t0\ntotal\t0\ntop\t-\nmalformed\t0\nstore\tabsent\n'
     exit 0
   fi
-  awk -F '\t' -v now="$now" "$AWK_Q"'
+  _ca=""
+  [ ! -f "$attn_store" ] || _ca=$attn_store
+  awk -F '\t' -v now="$now" -v attn_file="$_ca" \
+    -v attn_present="$([ -n "$_ca" ] && echo 1 || echo 0)" "$AWK_Q"'
+  BEGIN { load_attention(attn_file) }
   END {
+    derived_pass()
     top = 0; bad = 0
     for (n = 1; n <= N; n++) {
       if (!OK[n]) { bad++; continue }
       if (F[n, 12] != "open") continue
       if (F[n, 16] + 0 > now) continue
+      # The same not-deliverable rule `knock` and `next` apply, and for the
+      # same reason: the status-line field this feeds must not count items the
+      # queue will never hand over. Applied only with the attention store in
+      # hand — see the note in cmd_knock.
+      if (attn_present && skip_reason[n] != "") continue
       c[F[n, 2]]++
       if (F[n, 2] == "standing") continue
       if (!top || better(n, top)) top = n
@@ -4106,22 +4187,33 @@ cmd_counts() {
 # host's, not one checkout's.
 tower_presence() {
   _pd="$home/presence"
-  [ -d "$_pd" ] || {
+  # A redirect here would let anything that can plant a symlink decide whether
+  # the operator's status line speaks at all, so it is refused rather than
+  # followed — the same posture every other surface this script reads takes.
+  # Refused reads as `none`: this is a lock-free best-effort read on a surface
+  # that must never fail a render, so it declines to answer rather than exit.
+  if [ -L "$_pd" ] || [ ! -d "$_pd" ]; then
     printf 'none\n'
     return 0
-  }
+  fi
   # The marks are collected and then TESTED for presence, rather than piped
   # into a `grep -q`: the pipeline's left side can fail (an unreadable
   # partition), and a guard whose measurement went missing must read as `none`
-  # by construction, not by a exit status that says the same thing for two
+  # by construction, not by an exit status that says the same thing for two
   # different reasons.
   _pmarks=$(
     # shellcheck disable=SC2012
     ls -1 "$_pd" 2>/dev/null | while IFS= read -r _pp; do
-      [ -d "$_pd/$_pp" ] || continue
+      [ -d "$_pd/$_pp" ] && [ ! -L "$_pd/$_pp" ] || continue
       # shellcheck disable=SC2012
       ls -1 "$_pd/$_pp" 2>/dev/null | while IFS= read -r _pf; do
-        [ -f "$_pd/$_pp/$_pf" ] || continue
+        # A record is a published tower identity. The dot-prefixed names are
+        # fleet-presence.sh's own publish temporaries, and one orphaned by a
+        # killed publish would otherwise hold this gate open for a fleet with
+        # nothing running.
+        case "$_pf" in .*) continue ;; esac
+        is_tower "$_pf" || continue
+        [ -f "$_pd/$_pp/$_pf" ] && [ ! -L "$_pd/$_pp/$_pf" ] || continue
         printf 'x'
       done
     done

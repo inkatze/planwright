@@ -511,10 +511,53 @@ rc=0
 notify_push "escape" --key ../../escaped >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "notify (push): a traversing --key was not refused (exit $rc)"
 [ ! -e "$tmp/escaped" ] && [ ! -e "$home13d/escaped" ] || fail "notify (push): a traversing --key wrote outside the surface"
+for bad_key in "-leading" "with/slash" "with space" "$(printf 'x%0.s' $(seq 1 129))"; do
+  rc=0
+  notify_push "escape" --key "$bad_key" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "notify (push): --key '$bad_key' was not refused (exit $rc)"
+done
 rc=0
 notify_push "unknown flag" --nope >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "notify: an unknown argument was not refused (exit $rc)"
-echo "ok: the push channel writes one owner-only pending-push marker per key and refuses a malformed key"
+[ "$rc" = 2 ] || fail "notify: an unknown flag was not refused (exit $rc)"
+rc=0
+notify_push "one" "two" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify: a second summary was not refused (exit $rc)"
+
+# The summary is taken wherever it appears, so the flag may lead. Binding it to
+# $1 before the flag loop makes this form blame the wrong token.
+notify_push --key i0000feed "flag first" || fail "notify (push): --key before the summary was refused"
+[ "$(cat "$push_dir/i0000feed")" = "flag first" ] || fail "notify (push): --key before the summary bound the wrong value"
+
+# A keyless caller still dedupes, on what it is saying.
+notify_push "a keyless line" || fail "notify (push): a keyless call was refused"
+notify_push "a keyless line" || fail "notify (push): a repeated keyless call was refused"
+keyless=0
+for push_f in "$push_dir"/k*; do
+  [ -e "$push_f" ] || continue
+  keyless=$((keyless + 1))
+done
+[ "$keyless" = 1 ] || fail "notify (push): a repeated keyless summary wrote $keyless markers"
+
+# A directory planted at the key holds it forever if the dedupe test is a bare
+# existence check, and every later push for that item reports success while
+# reaching nobody. It is refused instead.
+mkdir -p "$push_dir/i0000dead"
+rc=0
+notify_push "blocked" --key i0000dead >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify (push): a directory planted at the key was deduped against rather than refused (exit $rc)"
+rmdir "$push_dir/i0000dead"
+
+# Same for a redirect at the surface: the marker is the operator's pending
+# lock-screen text, and it goes where this script chose or nowhere.
+mv "$push_dir" "$tmp/push-aside"
+ln -s "$tmp/elsewhere" "$push_dir"
+rc=0
+notify_push "blocked" --key i0000beef >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify (push): a symlinked marker directory was written through (exit $rc)"
+[ ! -e "$tmp/elsewhere" ] || fail "notify (push): a symlinked marker directory was created through the redirect"
+rm -f "$push_dir"
+mv "$tmp/push-aside" "$push_dir"
+echo "ok: the push channel writes one owner-only pending-push marker per key and refuses a malformed key, a planted key, and a redirected surface"
 
 # ---------------------------------------------------------------------------
 # 14. Empty-state reads are clean: render on an untouched home exits 0 with no

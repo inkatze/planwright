@@ -114,6 +114,8 @@ case $line in *queue*) ;; *) fail "the field displaced the fleet stats' own queu
 echo "ok: with a live tower the field renders the top item's kind and one total"
 
 # --- 3. Only under the statusline channel ------------------------------------
+# The gate is fleet-statusline.sh's, which renders nothing at all off this
+# channel, so what is asserted here is the whole line rather than the field.
 
 for ch in none tmux-popup os-notify editor-toast push; do
   line=$(statusline "$ch") || fail "statusline on the $ch channel: exit"
@@ -144,16 +146,25 @@ echo "ok: a torn store line degrades to the unreadable marker and leaves the res
 
 # --- 6. A store that cannot be read degrades the same way --------------------
 
-chmod 0000 "$store"
-line=$(statusline statusline) || fail "statusline over an unreadable store: exit"
-[ "$(waiting_field "$line")" = "waiting ?" ] \
-  || fail "an unreadable store did not degrade to the marker: '$(waiting_field "$line")'"
-chmod 0600 "$store"
+# chmod 0000 does not make a file unreadable to root, so under a root CI
+# container this case would exercise nothing and fail green. Skipped there,
+# loudly, rather than asserted on a measurement that was not taken.
+if [ "$(id -u)" = 0 ]; then
+  echo "skip: the unreadable-store case needs a non-root uid (chmod 0000 does not bind root)"
+else
+  chmod 0000 "$store"
+  line=$(statusline statusline) || fail "statusline over an unreadable store: exit"
+  [ "$(waiting_field "$line")" = "waiting ?" ] \
+    || fail "an unreadable store did not degrade to the marker: '$(waiting_field "$line")'"
+  case $line in *planwright*queue*) ;; *) fail "an unreadable store broke the rest of the line: '$line'" ;; esac
+  chmod 0600 "$store"
+fi
 
 rm -f "$store"
 line=$(statusline statusline) || fail "statusline over an absent store: exit"
 [ "$(waiting_field "$line")" = "waiting ?" ] \
   || fail "an absent store did not degrade to the marker: '$(waiting_field "$line")'"
+case $line in *planwright*queue*) ;; *) fail "an absent store broke the rest of the line: '$line'" ;; esac
 cp "$tmp/store.bak" "$store"
 chmod 0600 "$store"
 echo "ok: an unreadable and an absent store both degrade to the unreadable marker"
@@ -162,18 +173,27 @@ echo "ok: an unreadable and an absent store both degrade to the unreadable marke
 # The top kind is what the field names, so a store whose top record carries a
 # kind the grammar does not know must not reach the operator as that word.
 
-cat >"$tmp/fake-counts" <<'EOF'
+# The renderer locates its sibling beside itself and takes no environment
+# override for it — that path runs unattended on Claude Code's own schedule,
+# and a variable naming an executable there would be a subprocess the operator
+# never chose. So the stand-in is a copy of the renderer with a stub sibling,
+# which is the same seam the real install uses.
+stub="$tmp/stub"
+mkdir -p "$stub"
+cp "$here/../scripts/fleet-stats.sh" "$here/../scripts/echo-safety.sh" "$stub/"
+cat >"$stub/tower-queue.sh" <<'EOF'
 #!/bin/sh
-printf 'question\t1\napproval\t0\nrequest\t0\nnews\t0\nstanding\t0\ntotal\t1\ntop\tgremlin\nmalformed\t0\nstore\tpresent\npresence\tlive\n'
+# The presence row first, as the real verb prints it: it is emitted before the
+# store is read so a failed read still carries it.
+printf 'presence\tlive\nquestion\t1\napproval\t0\nrequest\t0\nnews\t0\nstanding\t0\ntotal\t1\ntop\tgremlin\nmalformed\t0\nstore\tpresent\n'
 EOF
-chmod +x "$tmp/fake-counts"
-out=$(PLANWRIGHT_TOWER_QUEUE="$tmp/fake-counts" \
-  PLANWRIGHT_FLEET_STATE_DIR="$home" \
+chmod +x "$stub/tower-queue.sh"
+out=$(PLANWRIGHT_FLEET_STATE_DIR="$home" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
   PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" \
   PLANWRIGHT_REPO_ROOT="$repo" \
   PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
-  /bin/sh "$here/../scripts/fleet-stats.sh" line) || fail "fleet-stats line with an unknown kind: exit"
+  /bin/sh "$stub/fleet-stats.sh" line) || fail "fleet-stats line with an unknown kind: exit"
 [ "$(waiting_field "$out")" = "waiting ?" ] \
   || fail "a kind outside the closed set reached the operator: '$(waiting_field "$out")'"
 case $out in *gremlin*) fail "the unknown kind was rendered: '$out'" ;; esac

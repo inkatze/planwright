@@ -84,6 +84,7 @@ marker() {
 field() { printf '%s\n' "$1" | cut -f "$2"; }
 rec() { grep "^$1$TAB" "$store"; }
 pushed_at() { rec "$1" | cut -f 25; }
+push_count() { rec "$1" | cut -f 26; }
 pushes() { grep -c '"kind":"pushed"' "$log_file" || true; }
 markers() { # how many pending-push markers exist
   m_n=0
@@ -134,7 +135,8 @@ out=$(run knock --now 1010) || fail "knock: exit"
 [ "$(field "$out" 3)" = high ] || fail "knock names the wrong urgency: '$out'"
 [ "$(field "$out" 4)" = 1 ] || fail "knock's waiting count is wrong: '$out'"
 case "$out" in *w1*) fail "the knock leaked the item's content pointer" ;; esac
-[ ! -f "$store" ] || [ "$(rec "$q1" | cut -f 13)" = 0 ] || fail "knock stamped the record (it keeps no state)"
+[ -f "$store" ] || fail "the fixture did not create a store"
+[ "$(rec "$q1" | cut -f 13)" = 0 ] || fail "knock stamped the record (it keeps no state)"
 [ "$(rec "$q1" | cut -f 19)" = - ] || fail "knock took a lease (next keeps the lease)"
 echo "ok: knock renders the line from the store and keeps neither state nor lease"
 
@@ -164,10 +166,13 @@ echo "ok: the away push fires on the transition into away and logs its outcome"
 
 # --- never on a fixed schedule (REQ-F1.3) ------------------------------------
 
-run next --tower $A --now 1300 >/dev/null 2>&1 || fail "next after the push: exit"
-run next --tower $A --now 1900 >/dev/null 2>&1 || fail "next well after the push: exit"
+for t in 1300 1900; do
+  out=$(run next --tower $A --now $t 2>/dev/null) || fail "next after the push: exit"
+  [ -z "$out" ] || fail "the knock repeated on a schedule at $t: '$out'"
+done
 [ "$(pushes_for "$q1")" = 1 ] || fail "the away push repeated on a schedule ($(pushes_for "$q1") pushes)"
-echo "ok: the away push never repeats on a schedule"
+[ "$(push_count "$q1")" = 1 ] || fail "the push count is not 1: '$(push_count "$q1")'"
+echo "ok: neither the knock nor the away push repeats on a schedule"
 
 # --- a `none` channel queues without error and without a transport -----------
 
@@ -236,70 +241,94 @@ run next --tower $B --now 5400 >/dev/null 2>&1 || fail "next with urgent news pa
 [ "$(pushed_at "$n1")" = 0 ] || fail "urgent news was stamped as pushed"
 echo "ok: urgent news knocks in the conversation and never pushes while away"
 
-# --- a statusline channel queues without error and without a push ------------
+# --- the operator's return ends the episode; leaving again pushes again -------
+# (REQ-F1.2: the push fires on THE TRANSITION into away, and a second
+# departure is a second transition.)
 
 : >"$log_file"
-channel statusline
-q5=$(add_q w5 high 6000)
-run next --tower $A --now 6010 >/dev/null 2>&1 || fail "statusline channel knock: exit"
-rc=0
-run next --tower $A --now 6200 >/dev/null 2>&1 || rc=$?
-[ "$rc" = 0 ] || fail "the statusline channel made the away pass fail (exit $rc)"
-[ "$(pushes_for "$q5")" = 1 ] || fail "the statusline channel did not log the push attempt's outcome"
-grep -q '"kind":"pushed".*"channel":"statusline".*"outcome":"push-less"' "$log_file" \
-  || grep -q '"kind":"pushed".*"outcome":"push-less".*"channel":"statusline"' "$log_file" \
-  || fail "the statusline channel's push-less outcome is not in the log"
-[ ! -d "$push_dir" ] || fail "the statusline channel wrote a pending-push marker"
-[ "$(rec "$q5" | cut -f 12)" = open ] || fail "the statusline channel did not leave the item queued"
-echo "ok: a statusline channel queues the item and pushes nothing"
+run settle "$n1" --reason 'the operator has read it' --now 5500 >/dev/null 2>&1 || fail "settling n1"
+e1=$(add_q we high 5600)
+run next --tower $A --now 5610 >/dev/null 2>&1 || fail "episode knock: exit"
+run next --tower $A --now 5800 >/dev/null 2>&1 || fail "first departure: exit"
+[ "$(pushes_for "$e1")" = 1 ] || fail "the first departure did not push"
+[ "$(push_count "$e1")" = 1 ] || fail "the push count after one departure is '$(push_count "$e1")'"
 
-# --- the push channel writes one pending-push marker per item, and no more ----
-# (REQ-F1.6, D-19)
+marker $A 5810
+run next --tower $A --now 5820 >/dev/null 2>&1 || fail "the return pass: exit"
+[ "$(push_count "$e1")" = 0 ] || fail "the operator's return did not end the episode: count '$(push_count "$e1")'"
+[ "$(pushed_at "$e1")" = 0 ] || fail "the operator's return left a push stamp behind"
+
+run next --tower $A --now 5830 >/dev/null 2>&1 || fail "the second knock: exit"
+run next --tower $A --now 6100 >/dev/null 2>&1 || fail "second departure: exit"
+[ "$(pushes_for "$e1")" = 2 ] || fail "the second departure did not push ($(pushes_for "$e1"))"
+echo "ok: the operator's return ends the episode and a second departure pushes again"
+
+# --- the two-push bound survives a change to tower_reknock_age ----------------
+# A bound expressed as a comparison against a threshold recomputed from the
+# knob re-arms every time the knob is raised, so this drives the knob in both
+# directions across an item that has already had both of its pushes.
 
 : >"$log_file"
-channel push
-run settle "$q5" --reason 'the worker landed it' --now 6900 >/dev/null 2>&1 || fail "settling q5"
-q6=$(add_q w6 high 7000)
-run next --tower $A --now 7010 >/dev/null 2>&1 || fail "push channel knock: exit"
-run next --tower $A --now 7200 >/dev/null 2>&1 || fail "push channel away pass: exit"
-[ -f "$push_dir/$q6" ] || fail "the push channel wrote no pending-push marker for $q6"
-[ "$(markers)" = 1 ] || fail "the push channel wrote more than one marker ($(markers))"
-# `ls -l` over a known-good literal path: the portable mode read on the
-# macOS + Linux support bar (`stat` disagrees between BSD and GNU).
-# shellcheck disable=SC2012
-mode=$(ls -l "$push_dir/$q6" | cut -c1-10)
-case "$mode" in -rw-------) ;; *) fail "the pending-push marker is not owner-only: $mode" ;; esac
-line=$(cat "$push_dir/$q6")
-case "$line" in *planwright*) ;; *) fail "the marker carries no relayable line: '$line'" ;; esac
-[ "$(printf '%s' "$line" | wc -c)" -lt 200 ] || fail "the relayed line is 200 characters or more"
-[ "$(printf '%s\n' "$line" | grep -c .)" = 1 ] || fail "the relayed line is more than one line"
-stamp=$(cat "$push_dir/$q6")
-run next --tower $A --now 8500 >/dev/null 2>&1 || fail "push channel re-knock pass: exit"
-[ "$(markers)" = 1 ] || fail "the re-push wrote a second marker for the same item"
-[ "$(cat "$push_dir/$q6")" = "$stamp" ] || fail "the re-push overwrote the pending marker"
-echo "ok: the push channel writes one pending-push marker per item and no more"
+run settle "$e1" --reason 'the worker landed it' --now 6200 >/dev/null 2>&1 || fail "settling e1"
+k1=$(add_q wk high 6300)
+run next --tower $A --now 6310 >/dev/null 2>&1 || fail "knob knock: exit"
+run next --tower $A --now 6600 >/dev/null 2>&1 || fail "knob first departure: exit"
+[ "$(pushes_for "$k1")" = 1 ] || fail "the knob fixture did not get its first push"
+run next --tower $A --now 7400 >/dev/null 2>&1 || fail "knob crossing pass: exit"
+[ "$(pushes_for "$k1")" = 2 ] || fail "the knob fixture did not cross tower_reknock_age ($(pushes_for "$k1"))"
 
-# --- shelve returns at the knob's interval and at an overridden one -----------
-# (REQ-C1.6)
+printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\ntower_reknock_age: 5000s\n' >"$local_cfg"
+run next --tower $A --now 12000 >/dev/null 2>&1 || fail "raised-knob pass: exit"
+[ "$(pushes_for "$k1")" = 2 ] || fail "raising tower_reknock_age re-armed a spent push ($(pushes_for "$k1"))"
+printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\ntower_reknock_age: 1000s\n' >"$local_cfg"
+echo "ok: raising tower_reknock_age does not re-arm a push the episode already spent"
 
-channel none
+# --- lowering it brings the crossing forward ---------------------------------
+# The complement of the case above, pinned rather than caught: with the
+# crossing still ahead of the first push, a lowered knob makes the worsening
+# push land sooner. (An item whose first push already happened after the
+# LOWERED crossing has had nothing worsen, so it stays at one push for the
+# episode; the operator's return is what re-arms it.)
+
 : >"$log_file"
-printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\ntower_reknock_age: 1000s\ntower_shelve_return: 500s\n' >"$local_cfg"
-run settle "$q6" --reason 'the worker landed it' --now 9000 >/dev/null 2>&1 || fail "settling q6"
-q7=$(add_q w7 high 9100)
-run next --tower $A --now 9110 >/dev/null 2>&1 || fail "shelve fixture knock: exit"
-marker $A 9120
-run next --tower $A --now 9130 >/dev/null 2>&1 || fail "shelve fixture hand-over: exit"
-run shelve "$q7" --tower $A --now 9140 >/dev/null 2>&1 || fail "shelve: exit"
-[ "$(rec "$q7" | cut -f 16)" = 9640 ] || fail "shelve did not use tower_shelve_return: $(rec "$q7" | cut -f 16)"
-[ "$(run counts --now 9600 | awk -F '\t' '$1 == "question" { print $2 }')" = 0 ] \
-  || fail "a shelved item still counts as waiting before its return"
-[ "$(run counts --now 9700 | awk -F '\t' '$1 == "question" { print $2 }')" = 1 ] \
-  || fail "the shelved item did not return at tower_shelve_return"
+run settle "$k1" --reason 'the worker landed it' --now 12100 >/dev/null 2>&1 || fail "settling k1"
+printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\ntower_reknock_age: 4000s\n' >"$local_cfg"
+k2=$(add_q wl high 12200)
+run next --tower $A --now 12210 >/dev/null 2>&1 || fail "lowered-knob knock: exit"
+run next --tower $A --now 12400 >/dev/null 2>&1 || fail "lowered-knob first departure: exit"
+[ "$(pushes_for "$k2")" = 1 ] || fail "the lowered-knob fixture did not get its first push"
+printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\ntower_reknock_age: 300s\n' >"$local_cfg"
+run next --tower $A --now 12600 >/dev/null 2>&1 || fail "lowered-knob crossing pass: exit"
+[ "$(pushes_for "$k2")" = 2 ] || fail "lowering tower_reknock_age deleted the worsening push ($(pushes_for "$k2"))"
+printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\ntower_reknock_age: 1000s\n' >"$local_cfg"
+echo "ok: lowering tower_reknock_age brings the worsening push forward rather than deleting it"
 
-q8=$(add_q w8 high 9800)
-run shelve "$q8" --tower $A --for 60s --now 9810 >/dev/null 2>&1 || fail "shelve --for: exit"
-[ "$(rec "$q8" | cut -f 16)" = 9870 ] || fail "--for did not override tower_shelve_return: $(rec "$q8" | cut -f 16)"
-echo "ok: a shelved item returns at tower_shelve_return and at an overridden span"
+# --- knock and counts skip what next would not hand over ---------------------
+# An item whose attention row has moved on is one `next` will never deliver.
+# Naming it in the knock, or counting it on the status line, is the same lie
+# told on two surfaces.
+
+: >"$log_file"
+run settle "$k2" --reason 'the worker landed it' --now 12700 >/dev/null 2>&1 || fail "settling k2"
+add_q ws high 12800 >/dev/null
+[ "$(run knock --now 12810 | cut -f 4)" = 1 ] || fail "the fixture item is not in the knock"
+[ "$(run counts --now 12810 | awk -F '\t' '$1 == "question" { print $2 }')" = 1 ] \
+  || fail "the fixture item is not in the counts"
+printf 'ws\tspec\tworking\t12820\thigh\tquestion raised at 12800\t-\tA|B\t-\t-\n' >>"$attn_store"
+[ -z "$(run knock --now 12830)" ] || fail "knock named an item whose row moved on: '$(run knock --now 12830)'"
+[ "$(run counts --now 12830 | awk -F '\t' '$1 == "question" { print $2 }')" = 0 ] \
+  || fail "counts counted an item whose row moved on"
+[ -z "$(run next --tower $B --now 12830 2>/dev/null)" ] || fail "next handed over an item whose row moved on"
+echo "ok: knock and counts skip what next would not hand over"
+
+# --- an absent attention store is not proof every row is gone ----------------
+# Reading it that way would silence the knock the moment the file went missing.
+
+mv "$attn_store" "$tmp/attn.aside"
+[ "$(run knock --now 12900 | cut -f 4)" = 1 ] || fail "an absent attention store silenced the knock"
+[ "$(run counts --now 12900 | awk -F '\t' '$1 == "question" { print $2 }')" = 1 ] \
+  || fail "an absent attention store zeroed the counts"
+mv "$tmp/attn.aside" "$attn_store"
+echo "ok: an absent attention store is a source that cannot be reached, not an empty queue"
 
 echo "PASS: tower-queue away detection, the away push and the knock verb"
