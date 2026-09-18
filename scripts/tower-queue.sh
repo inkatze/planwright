@@ -3025,16 +3025,20 @@ ev_prepare() {
 
 # ev_fingerprint — the settling pass's OTHER inputs, in one comparable value:
 # the normalised table (the evidence facts plus the content homes that have
-# gone) and the attention-store fields the pass actually reads. The stamp alone
-# would let a claim, a vanished row or a vanished home arrive between the pass
-# and the `next` that reuses it and go unsettled until the facts were next
-# re-derived. Only the read fields are keyed, so the heartbeat timestamp every
-# worker rewrites seconds apart does not defeat the reuse this exists to keep.
+# gone) and the attention-store fields the pass acts on. The stamp alone would
+# let a claim, a vanished row, a vanished home or a worker returning to its
+# fork arrive between the pass and the `next` that reuses it, and go unsettled
+# until the facts were next re-derived. Keyed: the handle and scope, the
+# question and its option set, the state (which decides what may merge), the
+# claim and the command. Not the heartbeat timestamp, which every worker
+# rewrites seconds apart and which would defeat the reuse this exists to keep;
+# the cost is that a `news` item whose row merely ticked can be merged by a
+# reused pass, where the state and the text are what a question turns on.
 ev_fingerprint() {
   {
     cat "$EVID_FILE" 2>/dev/null
     [ ! -f "$attn_store" ] \
-      || awk -F '\t' '{ print $1 "\t" $2 "\t" $6 "\t" $8 "\t" $11 "\t" $12 }' "$attn_store" 2>/dev/null
+      || awk -F '\t' '{ print $1 "\t" $2 "\t" $3 "\t" $6 "\t" $8 "\t" $11 "\t" $12 }' "$attn_store" 2>/dev/null
   } | cksum 2>/dev/null | awk 'NF >= 2 { print $1 "." $2; exit }'
 }
 

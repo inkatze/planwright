@@ -277,6 +277,28 @@ run next --tower $A --evidence "$ev" --now 1920 >/dev/null || fail "next after t
 [ "$(state_of "$q_reuse")" = closed ] || fail "next reused a pass taken before the claim and left the answered question open"
 echo "ok: a claim arriving after the iteration's pass is settled by the next verb, not carried to the operator"
 
+# A worker returning to its fork is the same staleness through the merge half:
+# the pass left the pair unmerged because one of them was not answerable then,
+# and reusing it would hand the operator both copies of one question.
+attention_row w-back /wt/back awaiting-input 1930 normal 'deploy it?' yes 'yes,no'
+attention_row w-mate /wt/mate awaiting-input 1930 normal 'deploy it?' yes 'yes,no'
+q_back=$(run add --kind question --worker w-back --origin w-back --closes 'the operator answers' --now 1930) \
+  || fail "add the w-back question"
+q_mate=$(run add --kind question --worker w-mate --origin w-mate --closes 'the operator answers' --now 1931) \
+  || fail "add the w-mate question"
+drop_row w-back
+attention_row w-back /wt/back working 1930 normal 'deploy it?' yes 'yes,no'
+evidence "stamp${TAB}1930"
+run settle --evidence "$ev" --now 1940 >/dev/null || fail "the pass while one of the pair was away from its fork"
+[ "$(state_of "$q_back")" = open ] && [ "$(state_of "$q_mate")" = open ] \
+  || fail "the pair merged while one of them was not answerable"
+drop_row w-back
+attention_row w-back /wt/back awaiting-input 1930 normal 'deploy it?' yes 'yes,no'
+run next --tower $A --evidence "$ev" --now 1950 >/dev/null || fail "next after the worker came back"
+[ "$(state_of "$q_back")" = closed ] || [ "$(state_of "$q_mate")" = closed ] \
+  || fail "next reused a pass taken while the fork was unanswerable and left the operator two copies"
+echo "ok: a worker returning to its fork is a pass the reuse key has not seen, so the duplicate still merges"
+
 # --- settled while the operator was away is recorded as such (REQ-B1.4) ----------
 
 printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\n' >"$local_cfg"
