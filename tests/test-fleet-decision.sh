@@ -276,16 +276,21 @@ ok "double-answer: first-answer-wins; the second answer is a no-op (REQ-A1.4)"
 
 # ---------------------------------------------------------------------------
 # 7. The channel mechanically refuses to emit an answer for a permission-park,
-#    keeping that gate the human's (REQ-A1.5). TWO shapes are covered:
-#    (a) the PRODUCTION shape — a permission record is a `decide` row with an
-#        EMPTY field 9 (the permission state lives in a separate liveness marker,
-#        per fleet-liveness.sh), refused by the generic not-a-fork branch;
-#    (b) DEFENSE-IN-DEPTH — a record whose field 9 explicitly marks `permission:`
-#        (a shape no shipped writer emits today) is refused by the permission
-#        branch with its own diagnostic. Neither is an answerable fork.
+#    keeping that gate the human's (REQ-A1.5). THREE shapes are covered:
+#    (a) a `decide` row with an EMPTY field 9 — the shape a flailing escalation
+#        leaves, and the shape the permission hook itself wrote before the
+#        positive marker shipped — refused by the generic not-a-fork branch;
+#    (b) DEFENSE-IN-DEPTH — a record whose field 9 marks `permission:` with a
+#        suffix (a shape no shipped writer emits) refused by the permission
+#        branch with its own diagnostic;
+#    (c) the PRODUCTION shape — the `permission` marker in field 9 and the
+#        captured command in field 12 (tower-comms D-12), refused by that same
+#        branch unless the answer NAMES the operator's standing decision, which
+#        is `--standing`'s own boundary and is covered in
+#        tests/test-tower-queue-standing.sh.
+#    None of the three is an answerable fork.
 # ---------------------------------------------------------------------------
-# (a) production shape: a decide-written permission record — empty field 9, no
-#     instance id — must be refused (never answered as a fork).
+# (a) a decide-written row: empty field 9, no instance id — refused.
 h7="$tmp/h7"
 aenv "$h7" decide w1 spec-a "Worker is awaiting a permission decision in its session" \
   "answer in the worker session" "approve in the worker session|deny in the worker session" normal \
@@ -304,7 +309,16 @@ rc=0
 aenv "$h7b" claim w1 "iid-perm" "approve" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 3 ] || fail "(want semantic-refusal exit 3, got $rc)claim answered an explicit permission-reason record (the human's gate was bypassed)"
 [ -z "$(row_field "$h7b" w1 11)" ] || fail "claim closed an explicit permission-reason record"
-ok "claim refuses a permission-park — production (empty field 9) and explicit (permission: reason) shapes (REQ-A1.5)"
+# (c) the production permission record: the `permission` marker and a captured
+#     command, answered with no rule named — still refused, gate intact.
+h7c="$tmp/h7c"
+aenv "$h7c" permission w1 spec-a "git status --short" \
+  || fail "permission-record setup exited non-zero"
+rc=0
+aenv "$h7c" claim w1 - "approve in the worker session" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "(want semantic-refusal exit 3, got $rc)claim answered a marked permission record with no rule named"
+[ "$(row_field "$h7c" w1 11)" = - ] || fail "claim closed a marked permission record"
+ok "claim refuses a permission-park — the decide shape, the explicit permission: reason, and the marked production record (REQ-A1.5)"
 
 # ---------------------------------------------------------------------------
 # 8. ANSWER + DELIVERY (REQ-A1.5): fleet-decision.sh answer claims by label and

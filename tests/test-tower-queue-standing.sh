@@ -282,4 +282,65 @@ cmd_line=$(line "$out" command)
 [ "$(f "$cmd_line" 3)" = 'gh pr diff 471' ] || fail "the command line carries the wrong text: $cmd_line"
 echo "ok: the command being approved is shown with the item"
 
+# Command text the operator could misread is shown as escapes, with a warning.
+fresh
+fa permission w7 spec.task-1 "$(printf 'gh pr diff \303\251')" || fail "the permission push failed"
+item=$(run add --kind question --origin w7 --worker w7 --closes 'the operator answers' --now 4100) \
+  || fail "queueing the prompt failed"
+run log knocked --tower t1 --now 4101 item="$item" item_kind=question urgency=normal >/dev/null \
+  || fail "seeding the knock failed"
+run next --tower t1 --now 4102 >/dev/null || fail "the knocking next failed"
+mkdir -p "$surface/attention"
+chmod 0700 "$surface/attention"
+printf '%s\n' 4103 >"$surface/attention/t1"
+chmod 0600 "$surface/attention/t1"
+out=$(run next --tower t1 --now 4104) || fail "the delivering next failed"
+cmd_line=$(line "$out" command)
+[ "$(f "$cmd_line" 3)" = 'gh pr diff \xc3\xa9' ] || fail "non-ASCII command text was not escaped: $cmd_line"
+grep -q 'outside printable ASCII' "$errf" || fail "the escaped command came with no warning"
+echo "ok: non-ASCII command text is shown escaped beside a warning"
+
+# --- the answer channel's own check on a named rule -------------------------
+
+fresh
+rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 5000)" 2) || fail "capture of the rule failed"
+fa permission w8 spec.task-1 'git push --tags' || fail "the permission push failed"
+rc=0
+fa claim w8 - "$APPROVE" --standing "$rule" || rc=$?
+[ "$rc" = 3 ] || fail "the channel accepted an answer whose rule does not cover the command (exit $rc)"
+[ "$(awk -F "$TAB" '$1 == "w8" { print $11 }' "$attn_store")" = - ] \
+  || fail "the refused answer stamped a claim anyway"
+echo "ok: an answer whose named rule does not cover the parked command is refused"
+
+# And the channel's own re-match is what decides, not the caller: a request is
+# not a standing decision, however it is named.
+req=$(f "$(run capture --kind request --text 'do a thing' --now 5001)" 2) || fail "capture failed"
+rc=0
+fa claim w8 - "$APPROVE" --standing "$req" || rc=$?
+[ "$rc" = 3 ] || fail "the channel accepted an answer naming a non-standing item (exit $rc)"
+echo "ok: an answer naming an item that is not a standing decision is refused"
+
+# --- a non-zero exit from the answer channel --------------------------------
+
+fresh
+rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 6000)" 2) || fail "capture of the rule failed"
+fa permission w9 spec.task-1 'git status --short' || fail "the permission push failed"
+item=$(run add --kind question --origin w9 --worker w9 --closes 'the operator answers' --now 6001) \
+  || fail "queueing the prompt failed"
+# The channel cannot write its close: the store is there and matches, but the
+# directory it must rename through is read-only, so the claim fails AFTER the
+# match. Nothing may settle on that.
+chmod 0500 "$home/attention"
+out=$(run settle --now 6002) || fail "the settling pass failed"
+chmod 0700 "$home/attention"
+[ "$(rec "$item" 12)" = open ] || fail "an item settled on a failed answer: $out"
+[ -z "$(line "$out" answered)" ] || fail "the pass spoke a rule for an answer that failed: $out"
+grep -q '"verb":"settle-by-rule"' "$surface/events.log" \
+  || fail "the failed attempt was not logged"
+grep -q "\"decision\":\"$rule\"" "$surface/events.log" \
+  || fail "the logged attempt does not name the decision"
+echo "ok: a non-zero exit from the answer channel leaves the item open with the attempt logged"
+
 echo "PASS: $(basename "$0")"
