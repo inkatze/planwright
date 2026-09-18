@@ -197,7 +197,7 @@ echo "ok: a standing decision closes on the operator's revocation"
 # Every line is a 20-field record.
 while IFS= read -r l; do
   nf=$(printf '%s\n' "$l" | awk -F '\t' '{ print NF }')
-  [ "$nf" = 20 ] || fail "a store line has $nf fields, expected 20: $l"
+  [ "$nf" = 24 ] || fail "a store line has $nf fields, expected 24: $l"
 done <"$store"
 echo "ok: every record has the declared field count"
 
@@ -282,7 +282,9 @@ hostile 'embedded newline in closes' add --kind request --root "$content" --poin
 hostile 'embedded tab in closes' add --kind request --root "$content" --pointer req-1 --origin operator --closes "$(printf 'done\there')"
 hostile 'leading whitespace' add --kind request --root "$content" --pointer req-1 --origin operator --closes ' done'
 hostile 'JSON-shaped closes (the log refuses it)' add --kind request --root "$content" --pointer req-1 --origin operator --closes '{the operator answers}'
-hostile 'C1 control byte' add --kind request --root "$content" --pointer req-1 --origin operator --closes "$(printf 'done\233here')"
+hostile 'C1 control byte (U+009B CSI)' add --kind request --root "$content" --pointer req-1 --origin operator --closes "$(printf 'done\302\233here')"
+hostile 'C1 control byte (U+0085 NEL)' add --kind request --root "$content" --pointer req-1 --origin operator --closes "$(printf 'done\302\205here')"
+hostile 'DEL' add --kind request --root "$content" --pointer req-1 --origin operator --closes "$(printf 'done\177here')"
 long=$(awk 'BEGIN { while (length(s) < 600) s = s "x"; print s }')
 hostile 'over-long closes' add --kind request --root "$content" --pointer req-1 --origin operator --closes "$long"
 hostile 'traversal pointer' add --kind request --root "$content" --pointer '../req-1' --origin operator --closes 'done'
@@ -517,6 +519,20 @@ printf '%s\n' "$out" | grep -q 'op.31m' || fail "the ESC byte was not stripped f
 out=$(run counts) || fail "counts over a corrupted line: exit"
 printf '%s' "$out" | has_control && fail "counts echoed a control byte"
 echo "ok: a hand-corrupted store line renders with no control byte"
+
+# --- multi-byte text in a free-text field -----------------------------------
+# An em dash, a smart quote and an ellipsis encode with a 0x80-0x9F
+# continuation byte; that byte is not a control character and the field
+# grammar must take it.
+mb_closes=$(printf 'the branch is renamed \342\200\224 %s\342\200\246' "$(printf '\342\200\230done\342\200\231')")
+printf 'x\n' >"$content/req-mb"
+mb_id=$(run add --kind request --root "$content" --pointer req-mb --origin operator \
+  --closes "$mb_closes" --now 5400 2>"$tmp/err") \
+  || fail "multi-byte closing condition refused: $(cat "$tmp/err")"
+grep -qF "$mb_closes" "$store" || fail "the multi-byte closing condition did not round-trip into the store"
+run settle "$mb_id" --reason "$(printf 'landed \342\200\224 verified')" --now 5401 >/dev/null 2>"$tmp/err" \
+  || fail "multi-byte settle reason refused: $(cat "$tmp/err")"
+echo "ok: multi-byte free text is accepted and round-trips"
 
 # --- no repo file changes, everything under the fleet home ------------------------
 

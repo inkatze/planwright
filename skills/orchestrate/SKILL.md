@@ -134,11 +134,9 @@ Selector exits (full contract: `selection-contract`):
   cleanly.
 - Exit 2 → a fail-closed halt (missing/taskless `tasks.md`, or the derivation
   failed closed).
-- Exit 3 (format-version 2 transient evidence hold) → a configured remote's
-  evidence fetch failed, so the derivation is partial (REQ-B1.5). **Report the
-  hold and end the step cleanly** — the lock-contention shape, not a halt; the
-  hold is transient (evidence settling), so a later step re-selects once it lands
-  (the `--watch` loop continues to that later step, unlike exit 1). v1 keeps its
+- Exit 3 (format-version 2 transient evidence hold) → **report the hold and
+  end the step cleanly** (REQ-B1.5), the lock-contention shape; a later step
+  re-selects (the `--watch` loop continues, unlike exit 1). v1 keeps its
   degraded-but-proceed behavior.
 
 **Selection-policy note (guard-infrastructure-first).** Critical-path-first is
@@ -261,12 +259,8 @@ REQ-B1.1–B1.5). Never silently pick one. Resolve in order:
 Concurrency is capped by `max_parallel_units` (via config-get): if that many
 units already derive **In progress** for this spec (the live derivation sees
 just-written markers), do not dispatch another; report the cap and exit.
-Division of labor (D-7, `inter-orchestrator-coordination`, read when relaying
-to or cleaning up after a worker): **the tower owns** the dispatch
-record, dispatch, and merged-window cleanup; **the worker owns** its branch's
-commits and conflict resolution. No tower edits another tower's or a worker's
-branch state; coordination goes through sanctioned indirect channels (a `tasks.md`
-reconcile, or an attributed relay).
+Division of labor is defined in `inter-orchestrator-coordination` (D-7); read
+it when relaying to or cleaning up after a worker.
 
 - **stream-json-persistent** (the shipped default's usual rung: what
   `full-session` resolves to wherever `claude` is installed). A
@@ -301,6 +295,14 @@ with the reason surfaced).
 **Presence (coordination D-2).** At loop start and each iteration
 `scripts/fleet-presence.sh publish` then `discover`: never assume solitude;
 failure postures (exits 2–5) per `docs/fleet.md`.
+
+**Event log (tower-comms D-14, D-15).** Each iteration, run
+`scripts/tower-loop-log.sh tick` (the live-worker count); after every turn
+delivered to the operator, in `--watch` or a single step, pipe its text to
+`scripts/tower-loop-log.sh delivered [--asks <n>]`. Both take `--tower <id>`
+(the identity `publish` used), else `PLANWRIGHT_TOWER_ID`, else
+`PLANWRIGHT_TOWER_SESSION_ID`; neither blocks the step on failure. The
+prompt-submit hook logs replies; it needs a `--session-id` presence record.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
 REQ-C1.4).** A `--watch` tower can silently fill its context window. Each

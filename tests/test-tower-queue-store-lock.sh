@@ -103,7 +103,7 @@ wait
 [ "$(record_count)" = 16 ] || fail "two writers: $(record_count) records, expected 16"
 while IFS= read -r l; do
   nf=$(printf '%s\n' "$l" | awk -F '\t' '{ print NF }')
-  [ "$nf" = 20 ] || fail "torn record under two writers ($nf fields): $l"
+  [ "$nf" = 24 ] || fail "torn record under two writers ($nf fields): $l"
   case "$l" in
     i[0-9a-f]*"$TAB"open"$TAB"*) ;;
     *) fail "malformed record under two writers: $l" ;;
@@ -119,7 +119,10 @@ marker $A 300
 run next --tower $A --now 301 >/dev/null || fail "knock before the mixed round"
 marker $A 302
 first=$(run next --tower $A --now 303) || fail "deliver before the mixed round"
-fid=$(field "$first" 2)
+# The eight approvals share a subject, so the hand-over is a pair (REQ-B1.3):
+# the `item` line first, then its `pair` line. This round is about the store
+# under concurrency, so it acts on the item line alone.
+fid=$(field "$first" 2 | head -n 1)
 ids=$(cut -f 1 "$store" | grep -v "^$fid$" | head -n 4)
 (
   run ack "$fid" --tower $A --now 304 >/dev/null 2>&1

@@ -58,6 +58,16 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/tower-reply-hook.sh"
+          }
+        ]
+      }
+    ],
     "WorktreeRemove": [
       {
         "hooks": [
