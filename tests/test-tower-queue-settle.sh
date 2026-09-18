@@ -188,6 +188,18 @@ out=$(run catchup --since 1335 --now 1400) || fail "catchup over the secret-bear
 printf '%s\n' "$out" | grep -q 'ghp_AAAA' && fail "catchup rendered an unredacted secret back to the operator"
 echo "ok: a claim label never travels into the stored reason or the catch-up render"
 
+# The same bar for the reason the pass writes itself: the subject grammar admits
+# a token-shaped branch name, and the generated reason quotes it.
+r_sub=$(add_req r-sub branch:ghp_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB 1342) || fail "add r-sub"
+evidence "stamp${TAB}1343" "branch${TAB}ghp_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB${TAB}commits"
+run settle --evidence "$ev" --now 1345 >/dev/null || fail "the pass over a token-shaped subject key"
+[ "$(state_of "$r_sub")" = closed ] || fail "the branch fact did not settle its item, so the reason was never written"
+case "$(reason_of "$r_sub")" in *ghp_BBBB*) fail "a token-shaped subject key reached the stored settle reason: '$(reason_of "$r_sub")'" ;; esac
+case "$(reason_of "$r_sub")" in *redacted*) ;; *) fail "the generated reason names no redaction: '$(reason_of "$r_sub")'" ;; esac
+out=$(run catchup --since 1344 --now 1400) || fail "catchup over the token-shaped subject key exited non-zero"
+printf '%s\n' "$out" | grep -q 'ghp_BBBB' && fail "catchup rendered an unredacted subject key back to the operator"
+echo "ok: a reason the pass generates itself is redacted before it is stored or rendered"
+
 # --- an absent attention store is an unreachable source, not "every row gone" ------
 
 attention_row w-mass scope-9 awaiting-input 1350 normal 'mass?' yes 'yes,no'

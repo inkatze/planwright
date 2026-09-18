@@ -956,6 +956,7 @@ WORK_TMP=""
 # section is reached, and an unset name there is a `set -u` failure inside the
 # trap.
 EVID_FILE=""
+EVID_RAW=""
 KNOB_DIR=""
 # fleet-state disowns the lock its `lock` verb takes to this caller, and its
 # `unlock` is an unconditional `rm -f` its own header calls out as able to
@@ -990,6 +991,7 @@ cleanup() {
   [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP" 2>/dev/null || true
   [ -z "$WORK_TMP" ] || rm -f "$WORK_TMP" 2>/dev/null || true
   [ -z "$EVID_FILE" ] || rm -f "$EVID_FILE" 2>/dev/null || true
+  [ -z "$EVID_RAW" ] || rm -f "$EVID_RAW" 2>/dev/null || true
   [ -z "$KNOB_DIR" ] || rm -rf "$KNOB_DIR" 2>/dev/null || true
   [ -z "$SCRATCH" ] || rm -rf "$SCRATCH" 2>/dev/null || true
 }
@@ -2974,6 +2976,10 @@ ev_prepare() {
     err "cannot create a scratch file for the evidence table"
     exit 6
   }
+  EVID_RAW=$(mktemp "$surface/.evidr.XXXXXX" 2>/dev/null) || {
+    err "cannot create a scratch file for the evidence table"
+    exit 6
+  }
   _ef=$_ep
   [ -n "$_ef" ] || _ef="$surface/evidence"
   if [ -d "$_ef" ] && [ ! -L "$_ef" ]; then
@@ -2994,8 +3000,22 @@ ev_prepare() {
       $1 == "branch" && $3 == "commits" && keyok($2) { print "settles", "branch:" $2, "the branch " $2 " carries commits"; next }
       $1 == "ledger" && $3 == "closed" && keyok($2) { print "settles", "ledger:" $2, "the ledger item " $2 " is closed"; next }
       $1 == "unavailable" && keyok($2) { print "unavailable", $2; next }
-    ' "$_ef" >>"$EVID_FILE" || {
+    ' "$_ef" >"$EVID_RAW" || {
       err "cannot read the evidence table"
+      exit 6
+    }
+    # The generated reason quotes a key whose text the table's writer chose, and
+    # it is stored on the record and rendered back into the conversation, so it
+    # goes through the one redaction helper first (REQ-G1.8, REQ-H1.3), the same
+    # bar `settle <id> --reason` is held to. The KEY is left verbatim: it is what
+    # the fact joins to its item on, and redacting it would settle nothing.
+    while IFS="$TAB" read -r _r1 _r2 _r3; do
+      case "$_r1" in
+        settles) printf '%s\t%s\t%s\n' "$_r1" "$_r2" "$(redact "$_r3")" ;;
+        unavailable) printf '%s\t%s\n' "$_r1" "$_r2" ;;
+      esac
+    done <"$EVID_RAW" >>"$EVID_FILE" || {
+      err "cannot normalise the evidence table"
       exit 6
     }
   elif [ -n "$_ep" ]; then
