@@ -137,8 +137,29 @@ fa fork w1 spec.task-1 'pick one' a 'a|b' iid-1 || fail "fork push failed"
 rc=0
 fa claim w1 iid-1 a --standing i00000000 || rc=$?
 [ "$rc" = 3 ] || fail "--standing on a fork was not refused (exit $rc)"
+grep -q 'not a permission-park' "$errf" || fail "the refusal came from the wrong branch"
 [ "$(field w1 11)" = "" ] || fail "--standing on a fork answered it anyway"
 echo "ok: --standing on an answerable fork is refused"
+
+# An empty id names nothing; saying so beats telling the caller to pass the
+# flag they just passed.
+rc=0
+fa claim w1 iid-1 a --standing '' || rc=$?
+[ "$rc" = 2 ] || fail "an empty --standing was not a usage error (exit $rc)"
+echo "ok: an empty --standing is a usage error"
+
+# Only the bare marker. A `permission:<suffix>` shape is one this re-match has
+# not been reasoned about, so it refuses rather than guessing.
+reset
+mkdir -p "$home/attention"
+chmod 0700 "$home/attention"
+printf 'w1\tspec.task-1\tawaiting-input\t1700000000\tnormal\tQ?\tanswer\tapprove|deny\tpermission:tool-x\t-\t-\tgit status\n' >"$store"
+chmod 0600 "$store"
+rc=0
+fa claim w1 - approve --standing i00000000 || rc=$?
+[ "$rc" = 3 ] || fail "a permission:<suffix> record was not refused (exit $rc)"
+grep -q 'harness permission gate' "$errf" || fail "the suffixed marker was not refused by the permission branch"
+echo "ok: only the bare permission marker is re-matchable"
 
 # An ordinary fork answer is unchanged by all of the above.
 reset
@@ -146,6 +167,21 @@ fa fork w1 spec.task-1 'pick one' a 'a|b' iid-1 || fail "fork push failed"
 fa claim w1 iid-1 b || fail "an ordinary fork answer was refused"
 [ "$(field w1 11)" = b ] || fail "the fork answer did not stamp field 11"
 echo "ok: an ordinary fork answer still works"
+
+# --- the permission verb's own refusals ------------------------------------
+
+reset
+rc=0
+fa permission w1 || rc=$?
+[ "$rc" = 2 ] || fail "a permission push with no scope was not a usage error (exit $rc)"
+rc=0
+fa permission 'bad handle' spec.task-1 || rc=$?
+[ "$rc" = 2 ] || fail "a malformed worker handle was not refused (exit $rc)"
+rc=0
+fa permission w1 'bad scope' || rc=$?
+[ "$rc" = 2 ] || fail "a malformed scope was not refused (exit $rc)"
+[ ! -f "$store" ] || fail "a refused permission push wrote a row"
+echo "ok: the permission verb refuses a malformed push without writing"
 
 # --- the hook ---------------------------------------------------------------
 
@@ -185,5 +221,26 @@ fl_hook <"$tmp/payload" || fail "the hook exited non-zero on a commandless paylo
 [ "$(field w9 3)" = awaiting-input ] || fail "the hook did not record the block"
 [ "$(field w9 12)" = - ] || fail "the hook invented a command"
 echo "ok: a commandless prompt still records the block"
+
+# An escape this cannot decode exactly yields NO command, so the prompt reaches
+# the operator rather than being matched against a mis-decoded string.
+for payload in \
+  '{"tool_input":{"command":"printf \u0041"}}' \
+  '{"tool_input":{"command":"printf \n"}}' \
+  '{"tool_input":{"command":"printf \t"}}'; do
+  reset
+  printf '%s\n' "$payload" >"$tmp/payload"
+  fl_hook <"$tmp/payload" || fail "the hook exited non-zero on an undecodable payload"
+  [ "$(field w9 9)" = permission ] || fail "the hook did not record the block"
+  [ "$(field w9 12)" = - ] || fail "the hook decoded an escape it does not handle (got '$(field w9 12)')"
+done
+echo "ok: an escape the decoder does not handle yields no command"
+
+# A `command` key NESTED inside tool_input is not the prompt's own either.
+reset
+printf '%s\n' '{"tool_name":"X","tool_input":{"target":"prod","opts":{"command":"git status"}}}' >"$tmp/payload"
+fl_hook <"$tmp/payload" || fail "the hook exited non-zero on a nested-command payload"
+[ "$(field w9 12)" = - ] || fail "the hook read a command nested below tool_input (got '$(field w9 12)')"
+echo "ok: a command key nested below tool_input is not captured"
 
 echo "PASS: $(basename "$0")"

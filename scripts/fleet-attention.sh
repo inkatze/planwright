@@ -278,8 +278,10 @@ resolve_home() {
 # the Task 9 lock. Copy-filter-append-rename so a concurrent reader sees only a
 # complete store and the worker never appears twice (a state store, not a log).
 # The record is assembled HERE, with the heartbeat timestamp stamped UNDER the
-# lock (below), so this is the single authority for the record layout (the 8
-# shipped fields plus the optional additive park reason at field 9).
+# lock (below), so this is the single authority for the record layout: the 8
+# shipped fields plus the additive ladder above them — the park reason or a
+# marker at 9, a fork instance id at 10, a claimed label at 11, and a permission
+# prompt's own command at 12.
 # The optional <guard> `unless-awaiting` makes the upsert a clean no-op when
 # the worker's CURRENT row is awaiting-input, with the check made inside this
 # same critical section — the atomic escalation-preserve primitive the
@@ -474,7 +476,7 @@ suppressed() {
 # ---------------------------------------------------------------------------
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
-  echo "usage: fleet-attention.sh heartbeat|decide|fork|claim|park|clear|render|queue|notify [args]" >&2
+  echo "usage: fleet-attention.sh heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify [args]" >&2
   exit 2
 fi
 shift || true
@@ -622,8 +624,10 @@ case $cmd in
     # rather than matched from the prose on the row.
     #
     # The question / default / option set are the fixed strings the hook's
-    # `decide` call used to write, so the decision queue renders this row exactly
-    # as it did before. Unlike `park` this is NOT --unless-awaiting: a permission
+    # `decide` call used to write, and the `queue` renderer has its own branch
+    # for this marker so the row still surfaces all three (plus the command)
+    # rather than collapsing to a bare reason. Unlike `park` this is NOT
+    # --unless-awaiting: a permission
     # prompt is the worker's authoritative current block, written the way
     # `decide` writes.
     worker="${1:-}"
@@ -805,6 +809,10 @@ case $cmd in
               echo "usage: fleet-attention.sh claim <worker> <instance-id> <label> [--standing <decision-id>]" >&2
               exit 2
             }
+            [ -n "$2" ] || {
+              echo "fleet-attention: --standing takes a standing decision's id; an empty one names nothing" >&2
+              exit 2
+            }
             standing=$2
             shift 2
             ;;
@@ -965,9 +973,21 @@ case $cmd in
         echo "fleet-attention: cannot resolve a standing decision (scripts/tower-queue.sh is absent); refusing the answer" >&2
         exit 3
       fi
-      if ! "$TQ" match --decision "$standing" --command "$cl_cmd" >/dev/null; then
+      # The command goes on STDIN, not in argv: /proc/<pid>/cmdline is readable
+      # by every local user, and a permission prompt's command line is exactly
+      # where a credential turns up.
+      _mrc=0
+      printf '%s\n' "$cl_cmd" | "$TQ" match --decision "$standing" --command - >/dev/null || _mrc=$?
+      if [ "$_mrc" != 0 ]; then
         release_lock
-        echo "fleet-attention: the named standing decision does not admit the parked command; refusing the answer" >&2
+        # An operational failure from the queue is not a policy refusal, and
+        # telling the operator their rule does not cover the command when the
+        # store would not read sends them to rewrite a rule that is fine.
+        if [ "$_mrc" = 1 ]; then
+          echo "fleet-attention: the named standing decision does not admit the parked command; refusing the answer" >&2
+        else
+          echo "fleet-attention: could not resolve the named standing decision (tower-queue match exit $_mrc); refusing the answer" >&2
+        fi
         exit 3
       fi
     fi
@@ -1129,11 +1149,13 @@ case $cmd in
     now=$(now_epoch)
     # Sorted lines carry the two sort-key fields ahead of the stored fields. The
     # trailing vars read the additive fields: `reason` the 9th (fleet-hardening
-    # Task 2 park / Task 4 fork marker), `iid` the 10th and `claimed` the 11th
-    # (Task 4 fork). They are empty for a shipped decide row (8 fields → the vars
-    # read nothing, so the decide branch below is byte-identical to before),
-    # carry the reason for a park row (9 fields), and carry the instance id and
-    # (once answered) the claimed label for a fork row (10/11 fields).
+    # Task 2 park / Task 4 fork marker / tower-comms permission marker), `iid`
+    # the 10th, `claimed` the 11th (Task 4 fork) and `command_text` the 12th
+    # (tower-comms D-12, the permission prompt's own command). They are empty for
+    # a shipped decide row (8 fields → the vars read nothing, so the decide
+    # branch below is byte-identical to before), carry the reason for a park row
+    # (9 fields), the instance id and (once answered) the claimed label for a
+    # fork row (10/11 fields), and all four for a permission record (12).
     # US-delimit the read. TAB is IFS-whitespace, so `read` collapses a run of
     # consecutive empty fields (a park row carries empty prio/q/def/opts with
     # only field 9 set) and would slide the reason into the priority slot,
@@ -1141,7 +1163,7 @@ case $cmd in
     # TAB delimiters to the US control byte (never a valid field byte) makes each
     # empty field survive the split — the fleet-attention-watch.sh do_pass idiom.
     us=$(printf '\037')
-    printf '%s\n' "$sortable" | tr "$TAB" "$us" | while IFS="$us" read -r _w _tskey worker scope _state ts prio q def opts reason iid claimed; do
+    printf '%s\n' "$sortable" | tr "$TAB" "$us" | while IFS="$us" read -r _w _tskey worker scope _state ts prio q def opts reason iid claimed command_text; do
       [ -n "$worker" ] || continue
       age="?"
       case $ts in
@@ -1175,6 +1197,26 @@ case $cmd in
         if [ -n "$claimed" ]; then
           s_claimed=$(sanitize_printable "$claimed" "?")
           printf '    answered: %s\n' "$s_claimed"
+        fi
+      elif [ "$reason" = permission ]; then
+        # A permission record (tower-comms D-12): it carries the same question,
+        # default and option set a `decide` row does, PLUS the command the
+        # prompt asked about. Rendering it through the park branch below would
+        # drop all four and leave the operator's decision queue saying only
+        # `reason: permission`, which is less than the row carried before the
+        # marker shipped.
+        s_q=$(sanitize_printable "$q" "?")
+        s_def=$(sanitize_printable "$def" "?")
+        s_opts=$(sanitize_printable "$opts" "?")
+        printf '    Q: %s\n' "$s_q"
+        printf '    default: %s\n' "$s_def"
+        printf '    options: %s\n' "$s_opts"
+        if [ -n "$command_text" ] && [ "$command_text" != "-" ]; then
+          # Rendered here as the store holds it. The ASCII-only rendering the
+          # operator APPROVES against is tower-queue.sh's `next`, which owns the
+          # redaction helper; this line is the status surface, not that gate.
+          s_cmd=$(sanitize_printable "$command_text" "?")
+          printf '    command: %s\n' "$s_cmd"
         fi
       elif [ -n "$reason" ]; then
         # A fork-park (Task 2): it carries the notification reason, not a labeled
@@ -1287,7 +1329,7 @@ case $cmd in
     ;;
 
   *)
-    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|clear|render|queue|notify)" >&2
+    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify)" >&2
     exit 2
     ;;
 esac

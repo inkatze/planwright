@@ -120,7 +120,10 @@ for bad in 'git status; rm -rf /' 'git status | sh' 'git status && ls' 'git stat
   'git status $(id)' 'git status \$x' 'git status >out'; do
   rc=0
   run match --decision "$rule" --command "$bad" >"$tmp/o" || rc=$?
-  [ "$rc" = 1 ] || fail "a shell-operator suffix ('$bad') matched anyway (exit $rc)"
+  # The TAG matters, not just the exit: `reserved` also exits 1, so a command
+  # refused by the wrong branch would pass an exit-only assertion.
+  [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = no-match ] \
+    || fail "a shell-operator suffix ('$bad') was not refused by the allowlist (exit $rc, '$(cat "$tmp/o")')"
 done
 echo "ok: a remainder outside the allowlist refuses the match"
 
@@ -142,6 +145,30 @@ rc=0
 run match --decision "$rule" --command 'git log --merge' >"$tmp/o" || rc=$?
 [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] || fail "a reserved-control command matched under a covering rule (exit $rc, '$(cat "$tmp/o")')"
 echo "ok: a reserved-control command is refused at match time whatever the rule covers"
+
+# The push shapes. The earlier guard spelled the default branch out as ` main`
+# and `:main`, so `git push origin +main` — a force-push to main, two reserved
+# actions in one command — and `git push origin refs/heads/main` both walked
+# through it. These are pinned by shape, not by the wording of the guard.
+push_rule=$(f "$(run capture --kind standing --text 'always let the workers push their own branch' \
+  --covers-command 'git push ' --now 1010)" 2) || fail "capture of the push rule failed"
+for res in 'git push origin +main' 'git push origin refs/heads/main' \
+  'git push origin +refs/heads/main' 'git push origin HEAD:refs/heads/main' \
+  'git push --force origin main' 'git push origin +master' \
+  'git push origin main' 'git push origin HEAD:main' 'git push origin main:main' \
+  'git push -qf origin feature' 'git push origin "main"'; do
+  rc=0
+  run match --decision "$push_rule" --command "$res" >"$tmp/o" || rc=$?
+  [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+    || fail "'$res' was not refused as a reserved control (exit $rc, '$(cat "$tmp/o")')"
+done
+echo "ok: every spelling of a force-push or a push to the default branch is refused"
+
+# The rule the operator actually wanted still works.
+run match --decision "$push_rule" --command 'git push origin feature/thing' >"$tmp/o" \
+  || fail "an ordinary branch push did not match"
+[ "$(cat "$tmp/o")" = match ] || fail "an ordinary branch push printed '$(cat "$tmp/o")'"
+echo "ok: an ordinary branch push still matches"
 
 # A decision the queue does not hold, or that is not a standing decision.
 rc=0
@@ -189,12 +216,30 @@ echo "ok: a prompt inside a rule is answered and settled naming the rule"
 # The answer went through the sanctioned channel, not into the row by hand.
 [ "$(awk -F "$TAB" '$1 == "w1" { print $11 }' "$attn_store")" = "$APPROVE" ] \
   || fail "the answer channel did not stamp the claim"
-echo "ok: the answer went through the answer channel"
+# The answered row must keep the command it was answered about, or the answer
+# cannot be audited against anything afterwards.
+[ "$(awk -F "$TAB" '$1 == "w1" { print (NF >= 12 ? $12 : "") }' "$attn_store")" = 'git status --short' ] \
+  || fail "the close pass truncated the command off the answered row"
+echo "ok: the answer went through the answer channel and kept the command it answered"
 
 # The log line carries the identifier too.
 grep -q "\"reason\":\"answered from the standing decision $rule\"" "$surface/events.log" \
   || fail "the event log's settled line does not carry the decision's identifier"
 echo "ok: the log line carries the decision's identifier"
+
+# The settling pass has its own guard (rule_covers), reached before the answer
+# channel; `match` alone would not prove the path that actually settles items.
+fresh
+run capture --kind standing --text 'always let the workers push their own branch' \
+  --covers-command 'git push ' --now 2100 >/dev/null || fail "capture of the push rule failed"
+fa permission wr spec.task-1 'git push origin +main' || fail "the permission push failed"
+item=$(run add --kind question --origin wr --worker wr --closes 'the operator answers' --now 2101) \
+  || fail "queueing the prompt failed"
+out=$(run settle --now 2102) || fail "the settling pass failed"
+[ "$(rec "$item" 12)" = open ] || fail "the settling pass answered a reserved-control command: $out"
+[ "$(awk -F "$TAB" '$1 == "wr" { print $11 }' "$attn_store")" = - ] \
+  || fail "the settling pass claimed a reserved-control prompt"
+echo "ok: the settling pass refuses a reserved-control command under a covering rule"
 
 # --- a prompt one token outside the rule -----------------------------------
 

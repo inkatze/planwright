@@ -26,7 +26,8 @@
 #     detectable — a store row aging toward `hung` is the watcher-down tell.
 #
 # The callback receives `<worker> <scope> <reason>` per row (the reason is the
-# fork-park notification reason, empty for a permission / flailing decide) so the
+# fork-park notification reason, `permission` for a permission record, empty
+# for a flailing decide) so the
 # tower can distinguish a fork-park from the other awaiting-human causes. The
 # callback is an operator-supplied command invoked with positional args (never
 # eval'd); store fields were grammar-validated on write and are re-sanitized for

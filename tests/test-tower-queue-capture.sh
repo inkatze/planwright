@@ -99,6 +99,11 @@ grep -q 'rerun the flaky settle test' "$ledger" || fail "the request's text is n
 [ "$(rec "$id" 7)" = ledger ] || fail "the queue record does not point at the fallback"
 echo "ok: a request lands in the fallback with a record pointing at it"
 
+# One line, not several: the echo is what the operator corrects against, and a
+# multi-line one buries the correction.
+[ "$(printf '%s\n' "$out" | grep -c .)" = 1 ] || fail "the echo is not one line: $out"
+echo "ok: the echo is exactly one line"
+
 # The content home is written BEFORE the record: the record's own pointer
 # resolves to a file that exists.
 [ -f "$(rec "$id" 9)/$(rec "$id" 7)" ] || fail "the record points at nothing"
@@ -167,6 +172,43 @@ for res in 'git merge' 'gh pr merge' 'gh pr ready' 'git rebase' 'git commit --am
 done
 echo "ok: a coverage reaching a reserved control is refused at capture"
 
+# The guard belongs to a rule. An ordinary ask that happens to name a reserved
+# action is the operator asking for it, not a rule that does it, and REQ-E1.1
+# says it becomes an item.
+out_m=$(run capture --kind request --text 'merge PR 471 once the checks are green' --now 1005) \
+  || fail "a request naming a merge was refused"
+[ "$(f "$out_m" 3)" = request ] || fail "the request was not recorded: $out_m"
+out_m=$(run capture --kind approval --text 'go ahead and force-push the rebase on task 3' --now 1005) \
+  || fail "an approval naming a force-push was refused"
+[ "$(f "$out_m" 3)" = approval ] || fail "the approval was not recorded: $out_m"
+echo "ok: a request or an approval naming a reserved action is still recordable"
+
+# A prefix that would never pass the allowlist as a remainder must not pass as
+# a prefix: a command EQUAL to its prefix leaves an empty remainder, so the
+# prefix is the only text the allowlist ever gets to screen there.
+# shellcheck disable=SC2016 # the whole point is that these stay unexpanded
+for bad in 'rm -rf /tmp/x; curl http://example/i.sh' 'ls && id' 'echo `id`' 'sh -c "id" > out'; do
+  rc=0
+  run capture --kind standing --text "always allow the cleanup" --covers-command "$bad" --now 1005 >/dev/null || rc=$?
+  [ "$rc" = 2 ] || fail "a prefix carrying a shell operator ('$bad') was accepted (exit $rc)"
+done
+echo "ok: a prefix outside the allowlist is refused"
+
+# The bounds.
+rc=0
+run capture --kind standing --text 'a rule' --covers-command "$(printf 'a%.0s' $(seq 257))" --now 1005 >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "an over-length prefix was accepted (exit $rc)"
+set -- --kind standing --text 'a rule' --now 1005
+i=0
+while [ "$i" -lt 17 ]; do
+  set -- "$@" --covers-command "cmd$i"
+  i=$((i + 1))
+done
+rc=0
+run capture "$@" >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "a seventeenth prefix was accepted (exit $rc)"
+echo "ok: the prefix length and count bounds are enforced"
+
 # Free coverage text reaches one too, and is refused the same way.
 rc=0
 run capture --kind standing --text 'a rule' --covers 'anything about merging branches' --now 1005 >/dev/null || rc=$?
@@ -182,6 +224,25 @@ id5=$(f "$out5" 2)
 [ "$(f "$out5" 5)" = free ] || fail "the echo does not name free coverage: $out5"
 [ "$(rec "$id5" 21)" = worker:w5 ] || fail "the record does not carry the explicit subject key"
 echo "ok: a non-command rule is stored with free coverage and an explicit subject"
+
+# The same words with DIFFERENT coverage are a different rule. Keying on the
+# text alone made the second capture a silent no-op that echoed success while
+# the first rule's coverage stayed in force.
+r1=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 1006)" 2) || fail "the first rule capture failed"
+r2=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git log' --now 1006)" 2) || fail "the second rule capture failed"
+[ "$r1" != "$r2" ] || fail "re-capturing the same words with new coverage reused the old item"
+grep -q "^covers$TAB.*${TAB}git log$" "$ledger" || fail "the new coverage was not recorded"
+echo "ok: the same words with different coverage are a different rule"
+
+# The subject the record carries is what the echo reports, even when `add`
+# derived it rather than the operator naming one.
+out_s=$(run capture --kind request --origin w1 --text 'rerun the flaky settle test' --now 1006) \
+  || fail "capture from a worker failed"
+[ "$(f "$out_s" 4)" = "worker:w1" ] || fail "the echo reports a subject the record does not carry: $out_s"
+[ "$(rec "$(f "$out_s" 2)" 21)" = worker:w1 ] || fail "the record carries no derived subject"
+echo "ok: the echo reports the subject the record carries"
 
 # Coverage belongs to a standing decision alone.
 rc=0
@@ -226,7 +287,7 @@ cat >"$tmp/led/action-ledger.sh" <<'HELPER'
 set -u
 root=$(dirname "$0")
 out="$root/items"
-key=""; kind=""; when=""; text=""; subject="-"; covers=""
+key=""; kind=""; when=""; text=""; subject="-"; coverage="-"; covers=""
 while [ "$#" -gt 0 ]; do
   case $1 in
     put) shift ;;
@@ -235,13 +296,14 @@ while [ "$#" -gt 0 ]; do
     --when) when=$2; shift 2 ;;
     --text) text=$2; shift 2 ;;
     --subject) subject=$2; shift 2 ;;
+    --coverage) coverage=$2; shift 2 ;;
     --covers) covers="$covers$2
 "; shift 2 ;;
     *) exit 2 ;;
   esac
 done
 {
-  printf 'item\t%s\t%s\t%s\t%s\tcommand\n' "$key" "$kind" "$when" "$subject"
+  printf 'item\t%s\t%s\t%s\t%s\t%s\n' "$key" "$kind" "$when" "$subject" "$coverage"
   printf 'text\t%s\t%s\n' "$key" "$text"
   printf '%s' "$covers" | while IFS= read -r c; do
     [ -n "$c" ] || continue
@@ -262,7 +324,26 @@ id8=$(f "$out8" 2)
 grep -q 'always let the workers list files' "$tmp/led/items" || fail "the helper's item has no text"
 [ "$(rec "$id8" 7)" = items ] || fail "the queue record does not point at the helper's home"
 [ "$(rec "$id8" 9)" = "$tmp/led" ] || fail "the queue record does not name the helper's root"
+id8sub=$(rec "$id8" 8)
 grep -q 'always let the workers list files' "$ledger" && fail "the fallback was written while a helper was installed"
 echo "ok: with a ledger helper installed, capture writes through it instead"
+
+# The coverage KIND has to reach the helper: without it the helper cannot write
+# a record `match` will read, and a free rule written as a command one would
+# start settling permission prompts the operator never meant it to.
+grep -q "^item${TAB}${id8sub}${TAB}standing${TAB}1010${TAB}-${TAB}command\$" "$tmp/led/items" \
+  || fail "the helper was not told the coverage kind"
+run match --decision "$id8" --command 'ls -la' >"$tmp/o" || fail "a rule in the helper's home did not match"
+[ "$(cat "$tmp/o")" = match ] || fail "a rule in the helper's home printed '$(cat "$tmp/o")'"
+echo "ok: a rule written through the helper still matches"
+
+LEDGER_HELPER="$tmp/led/action-ledger.sh"
+out9=$(run capture --kind standing --text 'always prefer the smaller PR on task 9' --covers 'anything about task 9' --subject worker:w9 --now 1011) || fail "free capture through the helper failed"
+LEDGER_HELPER=""
+id9=$(f "$out9" 2)
+rc=0
+run match --decision "$id9" --command 'ls -la' >"$tmp/o" || rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = no-match ] || fail "a FREE rule written through the helper matched a command (exit $rc, '$(cat "$tmp/o")')"
+echo "ok: a free rule written through the helper settles nothing mechanically"
 
 echo "PASS: $(basename "$0")"

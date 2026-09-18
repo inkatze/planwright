@@ -780,7 +780,13 @@ read_attention() {
   fi
   ra_nf=${ra_fields%%"$NL"*}
   ra_ts=""
-  if [ "$ra_nf" -ge 8 ] && [ "$ra_nf" -le 11 ]; then
+  # 8 to 12: the shipped layout plus the additive ladder (a park reason or a
+  # marker at 9, a fork instance id at 10, a claimed label at 11, and a
+  # permission prompt's own command at 12). A row beyond the ladder's top is
+  # still malformed; one AT it must not be, or every worker parked on a
+  # permission prompt reads as store corruption and loses its awaiting-input
+  # evidence.
+  if [ "$ra_nf" -ge 8 ] && [ "$ra_nf" -le 12 ]; then
     {
       IFS= read -r _
       IFS= read -r _
@@ -1170,7 +1176,11 @@ classify_one() {
   if [ "$death" = dead ]; then
     state=dead
     reason='death-evidence'
-  elif [ "$attn_state" = awaiting-input ] && [ -z "$attn_claimed" ]; then
+  # `-` is the placeholder a permission record reserves the claimed slot with
+  # (fleet-attention.sh permission), so it reads as unclaimed here exactly as it
+  # does at the answer channel; treating it as a label would hide every parked
+  # permission prompt from the waiting-on-a-human classification.
+  elif [ "$attn_state" = awaiting-input ] && { [ -z "$attn_claimed" ] || [ "$attn_claimed" = - ]; }; then
     state='waiting-on-a-human'
     reason='hook-push'
   elif [ "$journal_pending" -gt 0 ] && [ "$completion" = absent ]; then

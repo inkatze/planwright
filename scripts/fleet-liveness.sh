@@ -187,9 +187,10 @@
 #       payload is drained on the worker path, never parsed — except the
 #       notification arm, which reads + strictly validates notification_type,
 #       and the permission-request arm, which reads tool_input.command into the
-#       record's command field; no jq). Exits 0 for every valid invocation, including runtime failures
-#       and signals; exit 2 only on a malformed invocation (wrong arg count or
-#       an unknown event token — a hooks.json wiring bug).
+#       record's command field; no jq). Exits 0 for every valid invocation,
+#       including runtime failures and signals; exit 2 only on a malformed
+#       invocation (wrong arg count or an unknown event token — a hooks.json
+#       wiring bug).
 #   fleet-liveness.sh push-capable <backend>
 #       Which liveness mechanism the backend gets, read from the capability
 #       contract's hook_registration field (execution-backends D-7 — never
@@ -647,35 +648,62 @@ extract_notification_type() {
 # the command text is not derivable from the env contract, and scraping it from
 # prose is exactly what D-12 refuses. No jq (REQ-K1.5).
 #
-# Scoped to the `tool_input` object so a `command` key elsewhere in the payload
-# (a `permission_suggestions` entry, a future sibling field) is never read as the
-# prompt's own. The value is JSON-decoded for the two escapes a command text
-# realistically carries (`\"` and `\\`); any OTHER escape ends the extraction
-# with nothing, so a payload this cannot decode exactly yields a record with no
-# command field — which reaches the operator — rather than a mis-decoded string
-# a rule might match. The caller validates the result against the store's field
-# grammar; nothing here is ever executed.
+# Scoped to `tool_input`'s OWN TOP LEVEL. Not merely "after the tool_input key":
+# the payload is worker-influenced, so a `command` key in a sibling object
+# (`permission_suggestions`) or nested one level down inside tool_input would
+# otherwise be captured as the prompt's own command, and a rule written for that
+# benign text would auto-approve an entirely different prompt. The scan walks
+# tool_input's braces and strings, tracks depth, and accepts a `command` key only
+# at depth 1 of that object; it stops at the object's closing brace.
+#
+# The value is JSON-decoded for the two escapes a command text realistically
+# carries (`\"` and `\\`); any OTHER escape ends the extraction with nothing, so
+# a payload this cannot decode exactly yields a record with no command field —
+# which reaches the operator — rather than a mis-decoded string a rule might
+# match. The caller validates the result against the store's field grammar;
+# nothing here is ever executed.
 extract_tool_command() {
   awk '
+    # jstr(i): the JSON string starting at the opening quote s[i]. Sets JEND to
+    # the index just past the closing quote and JVAL to the decoded value, or
+    # JEND = 0 when it carries an escape this does not decode.
+    function jstr(i,   n, c, d, v) {
+      n = length(s); v = ""; i++
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (c == "\"") { JVAL = v; JEND = i + 1; return }
+        if (c == "\\") {
+          d = substr(s, i + 1, 1)
+          if (d != "\"" && d != "\\") { JEND = 0; return }
+          v = v d; i += 2; continue
+        }
+        v = v c; i++
+      }
+      JEND = 0
+    }
     { s = s $0 "\n" }
     END {
       ti = index(s, "\"tool_input\"")
       if (ti == 0) exit
-      s = substr(s, ti)
-      if (!match(s, /"command"[ \t\r\n]*:[ \t\r\n]*"/)) exit
-      i = RSTART + RLENGTH
+      i = ti + length("\"tool_input\"")
       n = length(s)
-      out = ""
+      while (i <= n && substr(s, i, 1) ~ /[ \t\r\n:]/) i++
+      if (substr(s, i, 1) != "{") exit
+      depth = 0; key = ""
       while (i <= n) {
         c = substr(s, i, 1)
-        if (c == "\"") { print out; exit }
-        if (c == "\\") {
-          d = substr(s, i + 1, 1)
-          if (d != "\"" && d != "\\") exit
-          out = out d; i += 2; continue
+        if (c == "{" || c == "[") { depth++; i++; key = ""; continue }
+        if (c == "}" || c == "]") { depth--; if (depth <= 0) exit; i++; key = ""; continue }
+        if (c == "\"") {
+          jstr(i)
+          if (JEND == 0) exit
+          if (depth == 1 && key == "" ) { key = JVAL; i = JEND; continue }
+          if (depth == 1 && key == "command") { print JVAL; exit }
+          i = JEND; key = ""
+          continue
         }
-        if (c == "\n") exit
-        out = out c; i++
+        if (c == ",") key = ""
+        i++
       }
     }'
 }
@@ -1232,7 +1260,8 @@ case "$cmd" in
             fi
             # Stamp the exit-edge marker ONLY for a fork-park row we actually own
             # (state awaiting-input AND field 9 == our reason). If park no-op'd
-            # over a pre-existing permission / flailing decision (no field 9), we
+            # over a pre-existing permission (field 9 = `permission`) or a
+            # flailing decision (no field 9), we
             # never claim its exit edge — that decision keeps its own lifecycle
             # (the reconcile / permission flow), so a resume or terminal exit
             # can never mistake it for a fork-park and auto-resolve it.
@@ -1288,7 +1317,7 @@ case "$cmd" in
         # replaces the link itself (the atomic_write_file discipline).
         if ! mkdir -p "$root/liveness/pending" 2>/dev/null \
           || ! atomic_write_file "$marker" "$perm_ts" 2>/dev/null; then
-          echo "fleet-liveness: pending-permission marker write failed; the awaiting-input row now reads as a queued decision and clears on the REQ-A1.8 reconcile sweep, not on the next stop (which takes the --unless-awaiting no-op path with no marker present)" >&2
+          echo "fleet-liveness: pending-permission marker write failed; the awaiting-input row now reads as an unmarked queued decision and clears on the REQ-A1.8 reconcile sweep, not on the next stop (which takes the --unless-awaiting no-op path with no marker present)" >&2
         fi
         exit 0
         ;;
