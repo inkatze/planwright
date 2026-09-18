@@ -260,6 +260,23 @@ run next --tower $A --evidence "$ev" --now 1810 >/dev/null || fail "next against
 [ "$(state_of "$r_reuse")" = closed ] || fail "next did not settle against evidence no pass had seen"
 echo "ok: one settling pass serves the iteration, and the next that follows reuses it"
 
+# --- what the reuse key covers: the attention store, not just the stamp -----------
+
+# The claim lands after the iteration's pass, with the evidence table untouched.
+# Reusing on the table's stamp alone would put an answered question in front of
+# the operator and leave it there until the facts were next re-derived.
+attention_row w-reuse /wt/reuse awaiting-input 1900 normal 'go ahead?' yes 'yes,no'
+q_reuse=$(run add --kind question --worker w-reuse --origin w-reuse --closes 'the operator answers' --now 1900) \
+  || fail "add the w-reuse question"
+evidence "stamp${TAB}1900"
+run settle --evidence "$ev" --now 1910 >/dev/null || fail "the pass before the claim"
+[ "$(state_of "$q_reuse")" = open ] || fail "the question settled before anything answered it"
+drop_row w-reuse
+attention_row w-reuse /wt/reuse awaiting-input 1900 normal 'go ahead?' yes 'yes,no' '' '' yes
+run next --tower $A --evidence "$ev" --now 1920 >/dev/null || fail "next after the claim"
+[ "$(state_of "$q_reuse")" = closed ] || fail "next reused a pass taken before the claim and left the answered question open"
+echo "ok: a claim arriving after the iteration's pass is settled by the next verb, not carried to the operator"
+
 # --- settled while the operator was away is recorded as such (REQ-B1.4) ----------
 
 printf 'tower_quiet_interval: 100s\ntower_lease_interval: 200s\n' >"$local_cfg"
@@ -403,5 +420,27 @@ awk -v h="$held" 'BEGIN { exit (h < 2) ? 0 : 1 }' || fail "the settling pass hel
 [ "$(printf '%s\n' "$out" | grep -c "^settled${TAB}" || true)" = 3 ] || fail "the large fixture settled the wrong number of items"
 : >"$local_cfg"
 echo "ok: the fleet lock's hold over a 400-record fixture stays inside the stated bound (${held}s)"
+
+# --- a stamp the pass cannot write does not swallow what it settled ---------------
+
+# The store commits before `reknock.hold` and `settle.stamp` are published, so a
+# failure there is reported as a 6 over settlements that already stand. They have
+# to reach stdout and the event log anyway: catch-up counts its remainder from
+# the log, and a settlement missing there is one the operator is never told about.
+: >"$store"
+chmod 0600 "$store"
+r_pub=$(add_req r-pub pr:88 5000) || fail "add r-pub"
+evidence "stamp${TAB}5001" "pr${TAB}88${TAB}merged"
+rm -f "$surface/settle.stamp"
+mkdir -p "$surface/settle.stamp"
+rc=0
+out=$(run settle --evidence "$ev" --now 5100) || rc=$?
+rmdir "$surface/settle.stamp" || fail "the test could not undo the unwritable stamp"
+[ "$rc" = 6 ] || fail "an unwritable settle stamp did not report 6: exit $rc"
+[ "$(state_of "$r_pub")" = closed ] || fail "the settlement did not commit before the stamp write"
+printf '%s\n' "$out" | grep -q "^settled${TAB}$r_pub${TAB}" || fail "the settlement never reached stdout: '$out'"
+grep -q "\"kind\":\"settled\"" "$log_file" || fail "the settlement never reached the event log"
+grep -q "\"item\":\"$r_pub\"" "$log_file" || fail "the event log does not name the settled item"
+echo "ok: a settlement the pass committed is printed and logged even when the stamp write then fails"
 
 echo "PASS: tower-queue settling pass"

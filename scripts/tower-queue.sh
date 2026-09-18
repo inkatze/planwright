@@ -168,10 +168,11 @@
 # item's closing condition against the evidence available NOW, never a stream
 # of events since the last pass, so an item whose condition was met before the
 # previous pass still settles. One pass serves a whole tower-loop iteration:
-# it stamps `settle.stamp` with the evidence stamp it ran against, and the
-# `next` that follows reuses that pass instead of running its own (a `next`
-# against evidence the stamp has not seen settles first, so a lone `next` is
-# never stale).
+# it stamps `settle.stamp` with a key over everything it read — the evidence
+# stamp, the normalised table and the attention-store fields it settles and
+# merges on — and the `next` that follows reuses that pass instead of running
+# its own. Any of those moving is a pass `next` has not run, so it settles
+# first and a lone `next` is never stale.
 #
 # Evidence is gathered OUTSIDE the lock — it is read from a file the caller
 # has already derived, never polled here — and the lock is taken for the
@@ -385,7 +386,8 @@
 #   the lock, so the event was NOT recorded. The one exception is the settling
 #   pass, whose store write commits before it publishes `reknock.hold` and
 #   `settle.stamp`: a 6 from there means those two files, not the settlements,
-#   are what failed. A caller reading 3 as "expected
+#   are what failed — the settlements are printed and logged first, so the
+#   record stays complete across it. A caller reading 3 as "expected
 #   drop, carry on" and 2 as "I called it wrong" needs 6 to stay distinct
 #   from both: it is the code that says the host, not the call, is what
 #   stopped the log.
@@ -2393,6 +2395,11 @@ function settle_pass(   n, r, t, i, j, key, best, src, parts, np) {
   for (n = 1; n <= N; n++) {
     if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
     if (F[n, 19] != "-" || F[n, 14] + 0 > 0 || F[n, 16] + 0 > 0) continue
+    # An item the derived pass just marked non-deliverable is not a question
+    # the operator will be asked. Keying one anyway lets it win the group and
+    # close a duplicate that WAS still deliverable, which loses that question
+    # for good: the survivor is skipped at every hand-over from then on.
+    if (skip_reason[n] != "") continue
     key = merge_key(n)
     if (key == "") continue
     key = F[n, 2] "\001" key
@@ -2615,10 +2622,14 @@ run_store_pass() {
         # the oldest age of its sources, so taking the oldest keeps both
         # inherited fields meaningful, and starvation is the failure that
         # actually degrades a decision queue. The id breaks a tie.
+        # `cand` admits an item an away tower still holds, because the target
+        # may take that lease over. A partner may not: REQ-B1.3 pairs only
+        # items that are neither leased nor delivered, so a pair is one
+        # hand-over of two waiting items, never a second tower reclaim.
         mate = 0
         if (F[target, 21] != "-")
           for (n in cand)
-            if (n != target && F[n, 2] == F[target, 2] && F[n, 21] == F[target, 21])
+            if (n != target && F[n, 19] == "-" && F[n, 14] + 0 == 0 && F[n, 2] == F[target, 2] && F[n, 21] == F[target, 21])
               if (!mate || F[n, 5] + 0 < F[mate, 5] + 0 || (F[n, 5] + 0 == F[mate, 5] + 0 && F[n, 1] < F[mate, 1])) mate = n
         purg = F[target, 3]; page = now - F[target, 5]; porig = srcs(target)
         if (mate) {
@@ -2919,24 +2930,31 @@ parse_now() {
 
 DO_SETTLE=0
 ev_stamp=none
+ev_key=none
 
 # put_file <path> <text> — replace a file on the sub-surface through a
 # same-directory temp and rename, so a lock-free reader never sees it torn.
+# Returns 1 rather than exiting: its callers run AFTER the store has committed,
+# and have settlements to publish before they report the failure.
 put_file() {
   # `mv` into a directory succeeds by moving the temp INSIDE it, so the write
-  # would be lost and the temp leaked; check_store_file exists for this shape.
-  check_store_file "$1"
+  # would be lost and the temp leaked.
+  if [ -d "$1" ] && [ ! -L "$1" ]; then
+    err "$(sanitize_printable "$1" "(unprintable path)") is a directory where a file should be; refusing to write into it"
+    return 1
+  fi
+  check_private_file "$1"
   PENDING_TMP=$(mktemp "$surface/.tqf.XXXXXX" 2>/dev/null) || {
     err "cannot create a scratch file for $(sanitize_printable "$1" "(unprintable path)")"
-    exit 6
+    return 1
   }
   printf '%s\n' "$2" >"$PENDING_TMP" 2>/dev/null || {
     err "cannot write $(sanitize_printable "$1" "(unprintable path)")"
-    exit 6
+    return 1
   }
   mv -f "$PENDING_TMP" "$1" 2>/dev/null || {
     err "cannot replace $(sanitize_printable "$1" "(unprintable path)")"
-    exit 6
+    return 1
   }
   PENDING_TMP=""
 }
@@ -2993,10 +3011,35 @@ ev_prepare() {
         [ -f "$_gp" ] || printf 'settles\titem:%s\tits content home has gone\n' "$_gi"
       done >>"$EVID_FILE"
   fi
+  if [ "$ev_stamp" != none ]; then
+    _fp=$(ev_fingerprint)
+    if [ -n "$_fp" ]; then
+      ev_key="$ev_stamp.$_fp"
+    else
+      # Nothing to compare against is not a match: leave the key `none` so the
+      # pass runs rather than reusing a marker it cannot stand behind.
+      ev_key=none
+    fi
+  fi
+}
+
+# ev_fingerprint — the settling pass's OTHER inputs, in one comparable value:
+# the normalised table (the evidence facts plus the content homes that have
+# gone) and the attention-store fields the pass actually reads. The stamp alone
+# would let a claim, a vanished row or a vanished home arrive between the pass
+# and the `next` that reuses it and go unsettled until the facts were next
+# re-derived. Only the read fields are keyed, so the heartbeat timestamp every
+# worker rewrites seconds apart does not defeat the reuse this exists to keep.
+ev_fingerprint() {
+  {
+    cat "$EVID_FILE" 2>/dev/null
+    [ ! -f "$attn_store" ] \
+      || awk -F '\t' '{ print $1 "\t" $2 "\t" $6 "\t" $8 "\t" $11 "\t" $12 }' "$attn_store" 2>/dev/null
+  } | cksum 2>/dev/null | awk 'NF >= 2 { print $1 "." $2; exit }'
 }
 
 # ev_reuse — whether the settling pass this verb would run has already been
-# run against the same evidence. The stamp the pass leaves is what makes one
+# run against the same evidence. The key the pass leaves is what makes one
 # pass serve a whole tower-loop iteration (REQ-B1.1); unstamped evidence is
 # never reused, because nothing then says the facts have not moved.
 ev_reuse() {
@@ -3005,23 +3048,25 @@ ev_reuse() {
     check_private_file "$surface/settle.stamp"
     IFS="$TAB" read -r _ps _pv <"$surface/settle.stamp" 2>/dev/null || _pv=""
   fi
-  [ "$ev_stamp" != none ] && [ "$ev_stamp" = "$_pv" ]
+  [ "$ev_stamp" != none ] && [ "$ev_key" != none ] && [ "$ev_key" = "$_pv" ]
 }
 
 # pass_writes <result> — the two files the settling pass owns, written while
 # the lock is still held: the hold the away re-knock waits on (delivery task)
-# and the stamp the next verb reuses.
+# and the key the next verb reuses. Returns 1 rather than exiting, so a caller
+# whose store write has already committed can still publish what it settled
+# before it reports the failure.
 pass_writes() {
   _un=$(printf '%s\n' "$1" | awk -F '\t' '$1 == "unavailable" { print $2 }')
   if [ -n "$_un" ]; then
-    put_file "$surface/reknock.hold" "$_un"
+    put_file "$surface/reknock.hold" "$_un" || return 1
   elif [ -e "$surface/reknock.hold" ] || [ -L "$surface/reknock.hold" ]; then
     rm -f "$surface/reknock.hold" || {
       err "cannot clear the re-knock hold at $(sanitize_printable "$surface/reknock.hold" "(unprintable path)"); the away re-knock stays held"
-      exit 6
+      return 1
     }
   fi
-  put_file "$surface/settle.stamp" "$now$TAB$ev_stamp"
+  put_file "$surface/settle.stamp" "$now$TAB$ev_key" || return 1
 }
 
 # pass_logs <result> — one log line per thing the pass did, appended after the
@@ -3347,8 +3392,9 @@ EOF
       [ "$changed" != 1 ] || commit_store || exit 6
       ;;
   esac
+  pw=0
   if [ "$DO_SETTLE" = 1 ]; then
-    pass_writes "$result"
+    pass_writes "$result" || pw=6
     # Measured on this path too, because the tower loop reaches the settling
     # pass through `next` far more often than through `settle`. pass_held is
     # what warns past the bound; `next` has no stdout slot for the number, and
@@ -3357,6 +3403,9 @@ EOF
   fi
   leave_store
   [ "$DO_SETTLE" != 1 ] || pass_logs "$result"
+  # Same order as the pass verb: whatever this `next` settled is published
+  # before a failed stamp/hold write becomes its exit.
+  [ "$pw" = 0 ] || exit 6
   [ "$tower_fallback" = 0 ] || err "no presence identity resolved; this tower leases as '$tower' (a tower-session-scoped fallback)"
   case "$dec_what" in
     deliver)
@@ -3561,12 +3610,17 @@ cmd_settle_pass() {
   pass_failed "$result" && exit 6
   changed=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "changed" { print $2; exit }')
   [ "$changed" != 1 ] || commit_store || exit 6
-  pass_writes "$result"
+  # The store has committed, so what it settled is fact. A failure to publish
+  # `reknock.hold` / `settle.stamp` is reported as this verb's 6 AFTER those
+  # settlements have reached stdout and the event log, never instead of them.
+  pw=0
+  pass_writes "$result" || pw=6
   held=$(pass_held)
   leave_store
   printf '%s\n' "$result" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable"'
   printf 'held\t%s\n' "$held"
   pass_logs "$result"
+  [ "$pw" = 0 ] || exit 6
   finish_exit
 }
 

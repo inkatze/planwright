@@ -290,6 +290,50 @@ out=$(run next --tower tower-a --evidence "$ev" --now 2207) || fail "the younger
 run ack "$t_young" --tower tower-a --now 2208 >/dev/null || fail "ack t-young"
 echo "ok: the partner on a subject is the oldest candidate, so neither inherited field goes stale and nothing starves"
 
+# --- a partner another tower holds is left where it is ----------------------------
+
+# tower-b is handed x-old and then goes away. Its lease outlives its presence,
+# so x-old is a candidate tower-a may take over — but pairing takes only items
+# that are neither leased nor delivered (REQ-B1.3), so x-new goes over alone.
+reset_home away-mate
+x_old=$(add_req x-old w-x pr:900 low 1600) || fail "add x-old"
+marker tower-b 1610
+run next --tower tower-b --evidence "$ev" --now 1611 >/dev/null || fail "the knock for x-old"
+marker tower-b 1612
+out=$(run next --tower tower-b --evidence "$ev" --now 1613) || fail "the hand-over of x-old"
+[ "$(field "$(line_of "$out" item)" 2)" = "$x_old" ] || fail "tower-b was not handed x-old: '$out'"
+add_req x-new w-y pr:900 high 1700 >/dev/null || fail "add x-new"
+# Past tower-b's quiet interval but inside its lease.
+marker tower-a 1750
+run next --tower tower-a --evidence "$ev" --now 1751 >/dev/null || fail "the knock for x-new"
+marker tower-a 1752
+out=$(run next --tower tower-a --evidence "$ev" --now 1753) || fail "the hand-over beside the away tower's item"
+[ -z "$(line_of "$out" pair)" ] || fail "an item another tower holds was paired away from it: '$out'"
+[ "$(rec "$x_old" | cut -f 19)" = tower-b ] || fail "pairing took the away tower's lease: '$(rec "$x_old" | cut -f 19)'"
+echo "ok: an item an away tower still holds is not paired out from under it"
+
+# --- a question the hand-over can no longer reach does not merge -------------------
+
+# w-hi's row moves on with no claim: nobody answered, the worker just went back
+# to work, so its item is non-deliverable. It outranks w-lo's on urgency, so
+# merging it would make it the survivor and close a question still being waited
+# on — one the hand-over would then skip for good.
+reset_home moot
+attention_row w-hi /wt/hi awaiting-input 1000 high 'ship it?' yes 'yes,no'
+attention_row w-lo /wt/lo awaiting-input 1000 normal 'ship it?' yes 'yes,no'
+q_hi=$(run add --kind question --worker w-hi --origin w-hi --closes 'the operator answers' --now 1000) || fail "add the w-hi question"
+q_lo=$(run add --kind question --worker w-lo --origin w-lo --closes 'the operator answers' --now 1000) || fail "add the w-lo question"
+awk -F "$TAB" '($1 "") != "w-hi"' "$attn_store" >"$tmp/rows" && mv "$tmp/rows" "$attn_store"
+attention_row w-hi /wt/hi working 1100 high 'ship it?' yes 'yes,no'
+out=$(run settle --evidence "$ev" --now 1200) || fail "the pass over a non-deliverable duplicate"
+[ -z "$(printf '%s\n' "$out" | grep "^merged${TAB}" || true)" ] || fail "a non-deliverable question was merged: '$out'"
+[ "$(state_of "$q_lo")" = open ] || fail "the live question was closed into a duplicate the hand-over cannot reach"
+marker tower-a 1210
+out=$(run next --tower tower-a --evidence "$ev" --now 1211) || fail "the knock after the pass"
+printf '%s\n' "$out" | grep -q "^knock${TAB}" || fail "the live question was not knocked about: '$out'"
+[ "$(state_of "$q_hi")" = open ] || fail "the non-deliverable question was closed rather than left alone"
+echo "ok: a question the hand-over can no longer reach neither merges nor takes a live duplicate with it"
+
 # --- merging and pairing are one keyed pass over a large fixture ------------------
 
 reset_home bulk
