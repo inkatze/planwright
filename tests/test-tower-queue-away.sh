@@ -331,4 +331,37 @@ mv "$attn_store" "$tmp/attn.aside"
 mv "$tmp/attn.aside" "$attn_store"
 echo "ok: an absent attention store is a source that cannot be reached, not an empty queue"
 
+# --- a present conversation is not an away operator (REQ-F1.1, REQ-F1.2) -----
+# The budget lives on the item and the states on the conversations. With the
+# operator answering in A while B's knock sits unanswered, A's pass ends the
+# episode and B's pass would start it again, on every alternation: a phone
+# push per poll for as long as the operator keeps working in A. The push is
+# for an operator who is gone, and an operator replying anywhere is not.
+
+: >"$log_file"
+ws_id=$(awk -F '\t' '$12 == "open" { print $1 }' "$store")
+run settle "$ws_id" --reason 'the worker landed it' --now 13000 >/dev/null 2>&1 || fail "settling ws"
+marker $A 13090 # the operator is at the keyboard in A before the item appears
+p1=$(add_q wp high 13100)
+run next --tower $A --now 13110 >/dev/null 2>&1 || fail "storm fixture: A knocks"
+run next --tower $B --now 13120 >/dev/null 2>&1 || fail "storm fixture: B knocks"
+t=13300
+n=0
+while [ "$n" -lt 5 ]; do
+  marker $A "$t"
+  run next --tower $A --now $((t + 1)) >/dev/null 2>&1 || fail "storm fixture: A's pass at $t"
+  run next --tower $B --now $((t + 2)) >/dev/null 2>&1 || fail "storm fixture: B's pass at $t"
+  t=$((t + 10))
+  n=$((n + 1))
+done
+[ "$(pushes_for "$p1")" = 0 ] \
+  || fail "an operator replying in one conversation was pushed $(pushes_for "$p1") times by another"
+# The operator leaves A as well: no conversation is present, and B's pass is
+# the transition into away. A's own pass after it is the cross-tower dedupe.
+run next --tower $B --now $((t + 200)) >/dev/null 2>&1 || fail "storm fixture: B's away pass"
+[ "$(pushes_for "$p1")" = 1 ] || fail "leaving the last present conversation did not push ($(pushes_for "$p1"))"
+run next --tower $A --now $((t + 210)) >/dev/null 2>&1 || fail "storm fixture: A's away pass"
+[ "$(pushes_for "$p1")" = 1 ] || fail "the second away conversation re-pushed ($(pushes_for "$p1"))"
+echo "ok: a conversation the operator is answering in holds every other conversation's push"
+
 echo "PASS: tower-queue away detection, the away push and the knock verb"

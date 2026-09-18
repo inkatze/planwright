@@ -2233,12 +2233,14 @@ build_towers_file() {
   [ ! -s "$SCRATCH/snap" ] || awk -F '\t' '(NF == 20 || NF == 23 || NF == 24 || NF == 25 || NF == 26) && $19 != "-" { print $19 }' "$SCRATCH/snap" >>"$SCRATCH/names"
   # The settling pass runs under no tower of its own and still has to know
   # whether the operator is present anywhere before it records an item as
-  # settled while they were away (REQ-B1.4), so it — and only it — sweeps every
-  # conversation that has a delivery record or a marker. A verb that knows its
-  # own tower keeps the old two-name table: this sweep costs a mode read per
-  # name and both directories grow for the life of the fleet home, which is not
-  # a cost `ack` should pay inside the lock.
-  if [ -z "${tower:-}" ]; then
+  # settled while they were away (REQ-B1.4), so it sweeps every conversation
+  # that has a delivery record or a marker. `next` asks the same question
+  # before it pushes (an operator replying in some conversation is not away,
+  # whatever this one's silence says), so it sweeps too. Every other verb that
+  # knows its own tower keeps the two-name table: the sweep costs a mode read
+  # per name and both directories grow for the life of the fleet home, which
+  # is not a cost `ack` should pay inside the lock.
+  if [ -z "${tower:-}" ] || [ "${SWEEP_TOWERS:-0}" = 1 ]; then
     # shellcheck disable=SC2012
     ls -1 "$delivery_dir" 2>/dev/null >>"$SCRATCH/names" || true
     # shellcheck disable=SC2012
@@ -2467,8 +2469,7 @@ function add_source(have, who,   i, p) {
 # keyed once and the duplicates merged (REQ-B1.1, REQ-B1.3).
 function settle_pass(   n, r, t, i, j, key, best, src, nsrc, parts, np) {
   attn_needed = 0
-  away = 1
-  for (t in tw_reply) if (present(t)) away = 0
+  away = !anyone_present()
   for (n = 1; n <= N; n++) {
     if (!OK[n] || F[n, 12] != "open" || F[n, 2] == "standing") continue
     r = settle_reason(n)
@@ -2559,6 +2560,16 @@ function is_away(t,   last) {
   if (last <= 0 || last > now) return 0
   if ((t in tw_reply) && tw_reply[t] > 0 && tw_reply[t] <= now && tw_reply[t] >= last) return 0
   return (now - last > quiet)
+}
+# anyone_present(): the operator is present in SOME conversation on the table.
+# Away is per conversation (REQ-F1.1), but the operator is one person, and
+# what a push to their phone needs to know is whether they are at a keyboard
+# anywhere. Only as wide as the table the caller built: the settling pass and
+# `next` sweep every conversation, the other verbs see the caller and the
+# lease owners.
+function anyone_present(   t) {
+  for (t in tw_reply) if (present(t)) return 1
+  return 0
 }
 function derived_pass(   n, eff, o, w, ii) {
   for (n = 1; n <= N; n++) {
@@ -2732,6 +2743,14 @@ run_store_pass() {
       # reading that depends on the item still being genuinely open, which is
       # what an unavailable evidence source puts in doubt, so `hold` suppresses
       # that one and not the first.
+      #
+      # The budget belongs to the item and the states to the conversations,
+      # so the two arms must not be allowed to disagree about the operator: a
+      # conversation they are answering in would end the episode on every
+      # pass while a silent one started it again on every pass, a push per
+      # poll. The push therefore waits for the operator to be present
+      # NOWHERE, which is the transition a phone push is for; the silent
+      # silent conversation is still the one whose away state arms it.
       if (present(tower)) {
         # The episode is over: the operator answered here. Clearing the budget
         # is what makes REQ-F1.2 read the way it is written — the push fires on
@@ -2744,7 +2763,7 @@ run_store_pass() {
           if (F[n, 25] + 0 == 0 && F[n, 26] + 0 == 0) continue
           F[n, 25] = 0; F[n, 26] = 0; changed = 1
         }
-      } else if (is_away(tower)) {
+      } else if (is_away(tower) && !anyone_present()) {
         nblock = 0
         for (n = 1; n <= N; n++) {
           if (!OK[n] || F[n, 12] != "open" || F[n, 2] != "question") continue
@@ -3651,8 +3670,8 @@ cmd_knock() {
     exit 6
   }
   [ -n "$_kl" ] || exit 0
-  render_knock "$(printf '%s' "$_kl" | cut -f 1)" "$(printf '%s' "$_kl" | cut -f 2)" \
-    "$(printf '%s' "$_kl" | cut -f 3)"
+  render_knock "$(printf '%s\n' "$_kl" | cut -f 1)" "$(printf '%s\n' "$_kl" | cut -f 2)" \
+    "$(printf '%s\n' "$_kl" | cut -f 3)"
 }
 
 # ---------------------------------------------------------------------------
@@ -3664,6 +3683,7 @@ cmd_next() {
   evidence=""
   now=""
   now_set=0
+  SWEEP_TOWERS=1
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --tower)
