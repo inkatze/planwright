@@ -333,6 +333,45 @@ out=$(run settle --now 2102) || fail "the settling pass failed"
   || fail "the settling pass claimed a reserved-control prompt"
 echo "ok: the settling pass refuses a reserved-control command under a covering rule"
 
+# --- the debt file: an attempt is not an answer ------------------------------
+
+# The debt line is written before the channel is asked, so a pass that died in
+# between leaves a line for a prompt nobody answered. The row's claim is what
+# proves the answer was given; without one the line is dropped, and the item
+# stays open for the operator.
+fresh
+rule=$(captured --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git log' --now 7000) || fail "capture of the rule failed"
+fa permission w9 spec.task-1 'git status --short' || fail "the permission push failed"
+item=$(run add --kind question --origin w9 --worker w9 --closes 'the operator answers' --now 7001) \
+  || fail "queueing the prompt failed"
+debt="$surface/rule.debt"
+(umask 077 && printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$item" "$rule" "$(rec "$rule" 9)" "$(rec "$rule" 7)" "$(rec "$rule" 8)" 0 >"$debt") \
+  || fail "writing the debt line failed"
+out=$(run settle --now 7002) || fail "the settling pass failed"
+[ "$(rec "$item" 12)" = open ] || fail "a debt line with no claim behind it settled the item: $out"
+[ ! -f "$debt" ] || fail "the unanswered debt line was not dropped"
+echo "ok: a debt line with no claim behind it settles nothing and is dropped"
+
+# The same line with the claim on the row: the answer was given, the record
+# was lost, and the replay is what puts it back.
+awk -F "$TAB" -v OFS="$TAB" -v l="$APPROVE" '$1 == "w9" { $11 = l } { print }' "$attn_store" >"$attn_store.new" \
+  || fail "stamping the claim failed"
+mv "$attn_store.new" "$attn_store" || fail "stamping the claim failed"
+(umask 077 && printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$item" "$rule" "$(rec "$rule" 9)" "$(rec "$rule" 7)" "$(rec "$rule" 8)" 0 >"$debt") \
+  || fail "writing the debt line failed"
+out=$(run settle --now 7003) || fail "the settling pass failed"
+[ "$(rec "$item" 12)" = closed ] || fail "a debt line behind a claimed row did not settle the item: $out"
+settled=$(line "$out" settled)
+case $(f "$settled" 5) in
+  *"$rule"*) ;;
+  *) fail "the replayed settling record does not carry the decision's identifier: $settled" ;;
+esac
+[ -n "$(line "$out" answered)" ] || fail "the replay spoke no rule for the answer it recorded: $out"
+run settle --now 7004 >/dev/null || fail "the settling pass failed"
+[ ! -f "$debt" ] || fail "the debt line survived the item closing"
+echo "ok: a debt line behind a claimed row is replayed into the record and then cleared"
+
 # --- a prompt one token outside the rule -----------------------------------
 
 fresh

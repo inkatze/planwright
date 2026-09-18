@@ -3499,41 +3499,63 @@ EOF
 }
 
 # The rule route's debt file: one line per answer the channel was asked for
-# but whose settling record has not landed yet — the item, the decision, and
-# the decision's content home. Under the 0700 sub-surface, owner-only, and
-# durable, unlike the per-run scratch files beside it.
+# but whose settling record has not landed yet — the item, the decision, the
+# decision's content home, and the pass that wrote the line. Under the 0700
+# sub-surface, owner-only, and durable, unlike the per-run scratch files
+# beside it. Every write rides the fleet lock: the file is shared by every
+# settle pass on the surface and nothing else excludes two of them, so an
+# unlocked append could be lost under another pass's rewrite.
+RULE_PASS=$$
 rule_debt_add() {
   _rda="$surface/rule.debt"
+  acquire_lock "$lock_wait" || {
+    err "cannot take the fleet lock to record the rule route's debt; refusing to answer a prompt this run could not account for"
+    return 1
+  }
   check_private_file "$_rda"
-  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" >>"$_rda" || {
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$RULE_PASS" >>"$_rda" || {
+    release_lock
     err "cannot record the rule route's debt; refusing to answer a prompt this run could not account for"
     return 1
   }
+  release_lock
 }
 
-# rule_debt_drop <item> — every line for that item removed. Called when the
-# answer did not happen, and when the item has closed, so the file holds only
-# answers still owed a record.
+# rule_debt_drop <item> [<pass>] — the item's lines removed: only the named
+# pass's own when one is given (an attempt that did not answer must not take
+# another pass's record with it), every one when the item has closed.
 rule_debt_drop() {
   _rdd="$surface/rule.debt"
   [ -f "$_rdd" ] || return 0
+  acquire_lock "$lock_wait" || {
+    err "cannot take the fleet lock to clear the rule route's debt"
+    return 1
+  }
   check_private_file "$_rdd"
-  _rdn=$(awk -F '\t' -v i="$1" '($1 "") != (i "")' "$_rdd") || {
+  _rdn=$(awk -F '\t' -v i="$1" -v p="${2:-}" '!(($1 "") == (i "") && (p == "" || ($6 "") == (p "")))' "$_rdd") || {
+    release_lock
     err "cannot read the rule route's debt"
     return 1
   }
   if [ -z "$_rdn" ]; then
     rm -f "$_rdd" 2>/dev/null || err "cannot clear the rule route's debt"
+    release_lock
     return 0
   fi
-  put_file "$_rdd" "$_rdn"
+  _rdrc=0
+  put_file "$_rdd" "$_rdn" || _rdrc=1
+  release_lock
+  return "$_rdrc"
 }
 
 # rule_debt_replay — re-inject the evidence and the spoken line for an answer
 # that was given but never recorded. An item the store no longer holds open is
-# settled already, so its debt is simply dropped; one still open is settled on
-# this pass with the decision that answered it, which is what keeps the audit
-# record complete across an interruption.
+# settled already, so its debt is simply dropped. One still open is settled on
+# this pass with the decision that answered it ONLY when its attention row
+# carries a claim: the debt is written before the answer, so a line alone
+# proves an attempt, and the claim is what proves the answer was given. A line
+# with no claim behind it is a crash that came first, and there is nothing to
+# record; replaying it would close a prompt nobody answered.
 rule_debt_replay() {
   _rdr="$surface/rule.debt"
   [ -f "$_rdr" ] || return 0
@@ -3542,11 +3564,13 @@ rule_debt_replay() {
     err "cannot read the rule route's debt; a settled-by-rule record may be missing its decision"
     return 0
   }
-  while IFS="$TAB" read -r _qi _qd _qr _qp _qk; do
+  while IFS="$TAB" read -r _qi _qd _qr _qp _qk _qn; do
     is_item_id "$_qi" || continue
     is_item_id "$_qd" || continue
-    if [ -f "$store_file" ] \
-      && [ -n "$(awk -F '\t' -v i="$_qi" '($1 "") == (i "") && $12 == "open" { print 1; exit }' "$store_file" 2>/dev/null)" ]; then
+    _qw=""
+    [ ! -f "$store_file" ] \
+      || _qw=$(awk -F '\t' -v i="$_qi" '($1 "") == (i "") && $12 == "open" && $6 == "attention" { print $7; exit }' "$store_file" 2>/dev/null)
+    if [ -n "$_qw" ] && is_handle "$_qw" && attn_perm "$_qw" && [ -n "$p_claim" ]; then
       printf 'settles\titem:%s\tanswered from the standing decision %s\n' "$_qi" "$_qd" >>"$EVID_FILE"
       printf '%s\t%s\t%s\t%s\t%s\n' "$_qi" "$_qd" "$_qr" "$_qp" "$_qk" >>"$RULE_FILE"
     else
@@ -3584,6 +3608,9 @@ rule_prepare() {
   # no settling record and no decision id anywhere, and the row is claimed from
   # then on, so the route skips it forever. The debt file carries the pair
   # across that gap; it is replayed here and cleared once the item is closed.
+  # The debt file's writes take the fleet lock, and the wait they honour is a
+  # knob the pass has not resolved yet at this point.
+  resolve_queue_knobs
   rule_debt_replay
   [ -f "$store_file" ] || return 0
   [ -f "$attn_store" ] || return 0
@@ -3615,9 +3642,9 @@ rule_prepare() {
       # accepts (REQ-E1.10). An exit this cannot read as success settles
       # nothing.
       # The debt is written BEFORE the answer, not after: a crash between the
-      # write and the answer costs a replayed settle of an item nothing
-      # answered, which the evidence check then declines; a crash the other way
-      # round would cost the audit record of an answer that did happen.
+      # write and the answer leaves a line the replay drops once it finds no
+      # claim on the row; a crash the other way round would cost the audit
+      # record of an answer that did happen.
       rule_debt_add "$_pi" "$_di" "$_dr" "$_dp" "$_dk" || break
       # The answer channel decides, not this loop: it resolves the decision
       # itself and re-runs the match against the parked command before it
@@ -3640,7 +3667,7 @@ rule_prepare() {
         printf '%s\t%s\t%s\t%s\t%s\n' "$_pi" "$_di" "$_dr" "$_dp" "$_dk" >>"$RULE_FILE"
         break
       fi
-      rule_debt_drop "$_pi"
+      rule_debt_drop "$_pi" "$RULE_PASS"
       # Exit 3 from the channel is a SEMANTIC refusal, which on this route is
       # the ordinary lost race: another pass, or the worker itself, answered
       # the prompt first. It is not a failure and is not logged as a refused
