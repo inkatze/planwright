@@ -367,4 +367,43 @@ esac
 awk -v h="$held" 'BEGIN { exit (h < 2) ? 0 : 1 }' || fail "the bulk merge held the fleet lock ${held}s, past the 2s bound"
 echo "ok: forty candidates merge into twenty in one keyed pass, inside the lock-hold bound (${held}s)"
 
+# --- a source the survivor cannot name is not merged away -------------------------
+
+# Handles run to 128 bytes, so a handful of long ones outgrows the sources
+# field. The survivor has to name every source, which leaves one choice when it
+# cannot: the tail stays open and answerable. Closing it would drop an origin
+# nobody can recover from the store afterwards.
+reset_home wide
+mkdir -p "$attn_dir"
+chmod 0700 "$attn_dir"
+i=0
+wide_ids=""
+while [ "$i" -lt 6 ]; do
+  w="w$i$(printf 'x%.0s' $(seq 1 110))"
+  attention_row "$w" "/wt/$i" awaiting-input 3000 normal 'roll it out?' yes 'yes,no'
+  id=$(run add --kind question --worker "$w" --origin "$w" --closes 'the operator answers' --now 3000) \
+    || fail "add the wide question $i"
+  wide_ids="$wide_ids $id"
+  i=$((i + 1))
+done
+out=$(run settle --evidence "$ev" --now 3100) || fail "the pass over an over-wide merge group"
+survivor=""
+for id in $wide_ids; do
+  [ "$(state_of "$id")" != open ] || survivor=$id
+done
+[ -n "$survivor" ] || fail "the over-wide group closed every one of its items"
+named=$(rec "$survivor" | cut -f 23)
+for id in $wide_ids; do
+  [ "$id" != "$survivor" ] || continue
+  [ "$(state_of "$id")" = closed ] || continue
+  origin=$(rec "$id" | cut -f 4)
+  case ",$named," in
+    *",$origin,"*) ;;
+    *) fail "item $id was merged away but the survivor does not name its origin" ;;
+  esac
+done
+[ "$(printf '%s\n' "$out" | grep -c "^merged${TAB}" || true)" -lt 5 ] \
+  || fail "the whole over-wide group merged, so the sources field must have truncated"
+echo "ok: a duplicate whose origin will not fit the survivor stays open rather than closing unnamed"
+
 echo "PASS: tower-queue merging and pairing"

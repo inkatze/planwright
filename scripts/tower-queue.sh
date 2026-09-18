@@ -2372,16 +2372,20 @@ function settle_reason(n,   w) {
   if (F[n, 21] != "-" && (F[n, 21] in ev)) return ev[F[n, 21]]
   return ""
 }
+# add_source(have, who): the origin added, or `have` unchanged when it is
+# already there or will not fit. Overflow raises src_full, which the caller
+# reads: a source that will not fit is one the survivor cannot name, and
+# closing its item anyway is the only way this pass loses a question.
 function add_source(have, who,   i, p) {
   if (who == "" || who == "-") return have
   if (index("," have ",", "," who ",") > 0) return have
-  if (length(have) + length(who) + 1 > 480) return have
+  if (length(have) + length(who) + 1 > 480) { src_full = 1; return have }
   return (have == "") ? who : have "," who
 }
 # settle_pass(): the level-triggered pass. Every open condition is
 # re-evaluated against the evidence available now, then the survivors are
 # keyed once and the duplicates merged (REQ-B1.1, REQ-B1.3).
-function settle_pass(   n, r, t, i, j, key, best, src, parts, np) {
+function settle_pass(   n, r, t, i, j, key, best, src, nsrc, parts, np) {
   attn_needed = 0
   away = 1
   for (t in tw_reply) if (present(t)) away = 0
@@ -2416,10 +2420,18 @@ function settle_pass(   n, r, t, i, j, key, best, src, parts, np) {
     for (i = 1; i <= gn[key]; i++) {
       j = gi[key, i]
       if (j == best) continue
+      # The survivor names every source or the duplicate is not absorbed at all
+      # (REQ-B1.3). Built aside first, so a group whose origins outgrow the
+      # field leaves its tail open and answerable rather than closing items
+      # whose origin nobody could recover from the store afterwards.
+      src_full = 0
+      nsrc = src
+      if (F[j, 4] != F[best, 4]) nsrc = add_source(nsrc, F[j, 4])
+      if (F[j, 23] != "-") { np = split(F[j, 23], parts, ","); for (t = 1; t <= np; t++) if (parts[t] != F[best, 4]) nsrc = add_source(nsrc, parts[t]) }
+      if (src_full) continue
+      src = nsrc
       if (urank(F[j, 3]) < urank(F[best, 3])) F[best, 3] = F[j, 3]
       if (F[j, 5] + 0 < F[best, 5] + 0) F[best, 5] = F[j, 5]
-      if (F[j, 4] != F[best, 4]) src = add_source(src, F[j, 4])
-      if (F[j, 23] != "-") { np = split(F[j, 23], parts, ","); for (t = 1; t <= np; t++) if (parts[t] != F[best, 4]) src = add_source(src, parts[t]) }
       F[j, 12] = "closed"; F[j, 17] = now; F[j, 18] = "merged into " F[best, 1]
       F[j, 22] = away; F[j, 24] = F[j, 19]
       F[j, 19] = "-"; F[j, 20] = 0
