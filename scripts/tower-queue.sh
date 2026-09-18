@@ -1944,13 +1944,17 @@ Q_PROTECTED_BRANCHES="main master"
 #
 # A subshell, so `set -f` cannot leak: the command is split into words
 # unquoted, and without it a glob in one would be expanded against the cwd.
+#
+# This is the NEGATIVE screen, and it is what `capture` runs over a rule's
+# coverage and its text: a prefix such as `git push ` is an incomplete command,
+# not a reserved one, and the positive parse a command has to pass at match
+# time is push_parses_safe below.
 push_reaches_protected() {
   (
     set -f
     for _pw in $1; do
-      case "$_pw" in
-        *[\"\']*) _pw=$(printf '%s' "$_pw" | tr -d '\042\047') ;;
-      esac
+      unquote "$_pw"
+      _pw=$UQ
       case "$_pw" in
         +*) exit 0 ;;
         --force | --force-* | --force=*) exit 0 ;;
@@ -1971,6 +1975,113 @@ push_reaches_protected() {
   )
 }
 
+# unquote <word> — UQ set to the word with every quote removed; forks only
+# when there is one to remove.
+unquote() {
+  UQ=$1
+  case "$UQ" in
+    *[\"\']*) UQ=$(printf '%s' "$UQ" | tr -d '\042\047') ;;
+  esac
+}
+
+# push_word_present <lowercased command> — 0 when a word of the command IS a
+# push, as opposed to merely containing the letters (`pushd`, `--json
+# pushedDate`): `push` itself, or the git-push executable by any path.
+push_word_present() {
+  (
+    set -f
+    for _pw in $1; do
+      unquote "$_pw"
+      case "$UQ" in
+        push | git-push | */git-push) exit 0 ;;
+      esac
+    done
+    exit 1
+  )
+}
+
+# The options a push may carry and still be answered by a rule. Everything
+# else that starts with a dash reaches the operator: not only the force family
+# and `--all` / `--mirror` / `--delete`, which change what is pushed, but
+# `--no-verify`, which skips the pre-push hook, `--repo`, which changes where,
+# and any option this list has not been reasoned about.
+Q_PUSH_SAFE_OPTIONS="-u --set-upstream -v --verbose -q --quiet -n --dry-run --porcelain --progress --no-progress"
+
+# push_parses_safe <lowercased command> — 0 only when the command is a push
+# whose every destination this can positively name and none of them is
+# protected. The policy is inverted from the screen above: a rule may answer a
+# push only when the destination is parsed and safe, and a push that spells no
+# destination reaches the operator. That is what closes the class the negative
+# screen cannot enumerate — a bare `git push` or `git push origin` (the current
+# branch, whatever it is), `git push origin :` and `--all` / `--mirror` (every
+# matching branch), `HEAD` from a main checkout, and `git -c push.default=…`
+# or `-c remote.origin.push=…`, which move the destination into configuration
+# where no command-line parse can see it.
+#
+# The shape admitted is exactly `git push [safe option]... <remote> <refspec>...`:
+# the first word is `git` and the second `push` (so no `-c`, no `-C`, no
+# wrapper), the remote is a plain name (never a URL: the protected names mean
+# nothing in another repository), every refspec carries a non-empty
+# destination that is a branch name (`src:dst` with both halves, or a bare
+# name that is not `HEAD` or `@`, with `refs/heads/` stripped and any other
+# `refs/` kind refused), and no destination is protected. Quotes are removed
+# first, as in push_reaches_protected, and for the same reason.
+push_parses_safe() {
+  (
+    set -f
+    _pp=0
+    _pr=""
+    _pn=0
+    for _pw in $1; do
+      unquote "$_pw"
+      _pw=$UQ
+      _pp=$((_pp + 1))
+      case $_pp in
+        1)
+          [ "$_pw" = git ] || exit 1
+          continue
+          ;;
+        2)
+          [ "$_pw" = push ] || exit 1
+          continue
+          ;;
+      esac
+      case "$_pw" in
+        -*)
+          is_one_of "$_pw" "$Q_PUSH_SAFE_OPTIONS" || exit 1
+          continue
+          ;;
+      esac
+      if [ -z "$_pr" ]; then
+        case "$_pw" in
+          "" | *[!a-z0-9._-]*) exit 1 ;;
+        esac
+        _pr=$_pw
+        continue
+      fi
+      _pn=$((_pn + 1))
+      _pd=$_pw
+      case "$_pd" in
+        +*) exit 1 ;;
+        *:*)
+          _ps=${_pd%%:*}
+          _pd=${_pd#*:}
+          [ -n "$_ps" ] || exit 1
+          case "$_pd" in
+            *:*) exit 1 ;;
+          esac
+          ;;
+      esac
+      _pd=${_pd#refs/heads/}
+      case "$_pd" in
+        "" | head | @ | refs/* | -* | *[!a-z0-9._/@-]*) exit 1 ;;
+      esac
+      is_one_of "$_pd" "$Q_PROTECTED_BRANCHES" && exit 1
+    done
+    [ -n "$_pr" ] && [ "$_pn" -gt 0 ]
+  )
+}
+
 # reserved_control <command or coverage> — 0 when the text reaches one of the
 # reserved human controls (REQ-E1.9, REQ-H1.1). This is a security boundary,
 # not a validation nicety: it runs at `capture` against a rule's coverage AND
@@ -1981,7 +2092,8 @@ push_reaches_protected() {
 # in. The force and protected-branch shapes are keyed to a push, which is the
 # only context in which they are the reserved control rather than an ordinary
 # flag, and are parsed by destination rather than by punctuation so the next
-# spelling of the same push is not a new hole.
+# spelling of the same push is not a new hole. A COMMAND is held to more than
+# this: see reserved_command.
 reserved_control() {
   _rl=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   case "$_rl" in
@@ -1992,6 +2104,18 @@ reserved_control() {
     *push*) push_reaches_protected "$_rl" && return 0 ;;
   esac
   return 1
+}
+
+# reserved_command <command> — 0 when a rule may not answer the command: it
+# reaches a reserved control, or it is a push that does not positively parse
+# as safe. This is what the match runs; `capture` runs reserved_control, since
+# a rule's coverage is a prefix and a prefix is not a command.
+reserved_command() {
+  reserved_control "$1" && return 0
+  _rq=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  push_word_present "$_rq" || return 1
+  push_parses_safe "$_rq" && return 1
+  return 0
 }
 
 # cmd_allowlisted <text> — 0 when every byte of the command's remainder is
@@ -3362,7 +3486,7 @@ EOF
 # same three checks `match` runs; that verb is the answer channel's own second
 # opinion, this one is the pass's first.
 rule_covers() {
-  reserved_control "$4" && return 1
+  reserved_command "$4" && return 1
   while IFS= read -r _rc; do
     [ -n "$_rc" ] || continue
     prefix_match "$4" "$_rc" && return 0
@@ -4749,9 +4873,9 @@ EOF
   [ -n "$_mck" ] || refuse "the standing decision $decision has no record at its content home"
   # The reserved-control refusal runs FIRST and on the command itself, so it
   # cannot be reached around by any coverage a rule claims (REQ-E1.9, REQ-H1.1).
-  if reserved_control "$command_text"; then
+  if reserved_command "$command_text"; then
     printf 'reserved\n'
-    err "refusing to match a command that reaches a reserved human control, whatever the rule covers"
+    err "refusing to match a command that reaches a reserved human control, or a push whose destination cannot be positively named, whatever the rule covers"
     exit 1
   fi
   if [ "$_mck" != command ]; then

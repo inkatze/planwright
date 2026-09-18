@@ -104,7 +104,7 @@ echo "ok: the bare prefix matches"
 
 # One token outside it.
 rc=0
-run match --decision "$rule" --command 'git push --tags' >"$tmp/o" || rc=$?
+run match --decision "$rule" --command 'git fetch --tags' >"$tmp/o" || rc=$?
 [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = no-match ] || fail "a command outside the rule was not refused (exit $rc, '$(cat "$tmp/o")')"
 echo "ok: a command outside every prefix does not match"
 
@@ -180,21 +180,53 @@ for res in 'git push origin "refs/heads/main"' "git push origin 'refs/heads/main
 done
 echo "ok: a quoted spelling of a force-push or a push to the default branch is refused"
 
-# The rule the operator actually wanted still works.
-run match --decision "$push_rule" --command 'git push origin feature/thing' >"$tmp/o" \
-  || fail "an ordinary branch push did not match"
-[ "$(cat "$tmp/o")" = match ] || fail "an ordinary branch push printed '$(cat "$tmp/o")'"
-run match --decision "$push_rule" --command 'git push origin "feature/thing"' >"$tmp/o" \
-  || fail "a quoted ordinary branch push did not match"
-[ "$(cat "$tmp/o")" = match ] || fail "a quoted ordinary branch push printed '$(cat "$tmp/o")'"
+# The policy is positive, not a list of bad spellings: a rule may answer a push
+# only when its every destination is parsed and safe. A push that spells no
+# destination — the current branch, every matching branch, or one moved into
+# configuration — reaches the operator, as does any option or word the parse
+# has not been reasoned about.
+for res in 'git push' 'git push origin' 'git push origin :' 'git push origin :feature' \
+  'git push --all origin' 'git push --mirror origin' 'git push origin HEAD' 'git push origin @' \
+  'git push origin feature main' 'git push origin feature:' \
+  'git -c push.default=matching push origin' 'git -c remote.origin.push=refs/heads/main push origin' \
+  'git -C /tmp/x push origin feature' 'git push --tags origin' 'git push --no-verify origin feature' \
+  'git push --repo=x origin feature' 'git push -o ci.skip origin feature' \
+  'git push git@github.com:x/y.git feature' 'git push https://example/x.git feature' \
+  'git push origin feature:refs/tags/v1' 'git push origin feature:refs/for/main' \
+  'sudo git push origin feature' 'command git push origin feature' \
+  'git push origin feature --' 'git push origin ""'; do
+  rc=0
+  run match --decision "$push_rule" --command "$res" >"$tmp/o" || rc=$?
+  [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+    || fail "'$res', a push with no positively parsed safe destination, was not refused (exit $rc, '$(cat "$tmp/o")')"
+  grep -q 'positively named' "$errf" || fail "the refusal of '$res' did not say why"
+done
+echo "ok: a push whose destination cannot be positively named reaches the operator"
+
+# The rule the operator actually wanted still works, in every admitted shape.
+for okp in 'git push origin feature/thing' 'git push origin "feature/thing"' 'git push -u origin feature' \
+  'git push origin feature -v' 'git push origin main:feature' 'git push origin refs/heads/feature' \
+  'git push origin head:feature' 'git push origin feature:refs/heads/feature' 'git push upstream fix-1'; do
+  run match --decision "$push_rule" --command "$okp" >"$tmp/o" \
+    || fail "an ordinary branch push ('$okp') did not match (exit $?, '$(cat "$tmp/o")')"
+  [ "$(cat "$tmp/o")" = match ] || fail "an ordinary branch push ('$okp') printed '$(cat "$tmp/o")'"
+done
 echo "ok: an ordinary branch push still matches"
 
+# The negative screen is what a rule's COVERAGE is held to: a prefix is not a
+# command, so `git push ` is a rule the operator may write, and the positive
+# parse is applied to each command it is asked to answer.
+[ -n "$push_rule" ] || fail "the push prefix rule was not captured"
+echo "ok: a push prefix is capturable and each command under it is parsed on its own"
+
 # A glob in the command is compared as the bytes it is, never expanded against
-# whatever the pass's working directory holds: it fails the allowlist, not the
-# reserved-control test, and does so wherever the pass runs.
+# whatever the pass's working directory holds. Expanded against a file named
+# `feature`, the word would parse as a safe destination and the command would
+# then fall to the allowlist as `no-match`; unexpanded it is a word the parse
+# refuses, wherever the pass runs.
 rc=0
-(cd "$tmp" && touch main && run match --decision "$push_rule" --command 'git push origin *' >"$tmp/o") || rc=$?
-[ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = no-match ] \
+(cd "$tmp" && touch feature && run match --decision "$push_rule" --command 'git push origin feat*' >"$tmp/o") || rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
   || fail "a glob in a push was expanded against the working directory (exit $rc, '$(cat "$tmp/o")')"
 echo "ok: a glob in a push is never expanded against the working directory"
 
@@ -274,7 +306,7 @@ echo "ok: the settling pass refuses a reserved-control command under a covering 
 fresh
 rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
   --covers-command 'git status' --now 3000)" 2) || fail "capture of the rule failed"
-fa permission w2 spec.task-1 'git push --tags' || fail "the permission push failed"
+fa permission w2 spec.task-1 'git fetch --tags' || fail "the permission push failed"
 item=$(run add --kind question --origin w2 --worker w2 --closes 'the operator answers' --now 3001) || fail "queueing the prompt failed"
 out=$(run settle --now 3002) || fail "the settling pass failed"
 [ -z "$(line "$out" settled)" ] || fail "a prompt outside every rule was settled: $out"
