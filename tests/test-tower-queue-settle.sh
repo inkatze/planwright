@@ -497,4 +497,30 @@ grep -q "\"kind\":\"settled\"" "$log_file" || fail "the settlement never reached
 grep -q "\"item\":\"$r_pub\"" "$log_file" || fail "the event log does not name the settled item"
 echo "ok: a settlement the pass committed is printed and logged even when the stamp write then fails"
 
+# --- a hand-over is never swallowed by the stamp write that follows it ------------
+
+# `next` commits the lease and the delivery record before it publishes the
+# settling pass's two files. A failure there is still this verb's 6, but the
+# item line has to go out first: the tower now holds the item, and a 6 with no
+# hand-over hides it from its own holder until the lease backstop, which is the
+# outcome the record-first order exists to prevent.
+: >"$store"
+chmod 0600 "$store"
+r_hand=$(add_req r-hand pr:90 5400) || fail "add r-hand"
+evidence "stamp${TAB}5401"
+printf '5410\n' >"$surface/attention/$A"
+chmod 0600 "$surface/attention/$A"
+run next --tower $A --evidence "$ev" --now 5411 >/dev/null || fail "the knock for r-hand"
+printf '5412\n' >"$surface/attention/$A"
+rm -f "$surface/settle.stamp"
+mkdir -p "$surface/settle.stamp"
+rc=0
+out=$(run next --tower $A --evidence "$ev" --now 5413) || rc=$?
+rmdir "$surface/settle.stamp" || fail "the test could not undo the unwritable stamp"
+[ "$rc" = 6 ] || fail "an unwritable settle stamp did not report 6 from next: exit $rc"
+printf '%s\n' "$out" | grep -q "^item${TAB}$r_hand${TAB}" || fail "the hand-over was swallowed by the stamp failure: '$out'"
+[ "$(rec "$r_hand" | cut -f 19)" = "$A" ] || fail "the item was not actually leased, so the assertion above proves nothing"
+grep -q "\"kind\":\"delivered\"" "$log_file" || fail "the hand-over was never logged"
+echo "ok: a hand-over that committed is printed and logged before a failed stamp write becomes the exit"
+
 echo "PASS: tower-queue settling pass"

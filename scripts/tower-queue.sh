@@ -3122,15 +3122,27 @@ pass_writes() {
 # lock is released through the `log` verb's own critical section.
 pass_logs() {
   # Materialised first: owe_log records a failed line in LOG_FAILED, which a
-  # loop on the far side of a pipe would keep in its own subshell.
-  printf '%s\n' "$1" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable"' >"$SCRATCH/passlog"
+  # loop on the far side of a pipe would keep in its own subshell. Both halves
+  # are checked, because this script does not run under `set -e`: a staging
+  # write that failed leaves an empty file the loop reads as "nothing to
+  # publish", and the verb would then report success over settlements that
+  # never reached the log at all.
+  printf '%s\n' "$1" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable"' >"$SCRATCH/passlog" || {
+    err "cannot stage the pass's log lines; the settlements stand but none of them reached the event log"
+    LOG_FAILED=6
+    return 1
+  }
   while IFS="$TAB" read -r _tag _p1 _p2 _p3 _p4 _p5; do
     case "$_tag" in
       settled) owe_log settled --now "$now" item="$_p1" item_kind="$_p2" away="$_p3" reason="$_p4" held_by="${_p5:--}" ;;
       merged) owe_log merged --now "$now" item="$_p1" into="$_p2" item_kind="$_p3" ;;
       unavailable) owe_log unavailable --now "$now" source="$_p1" ;;
     esac
-  done <"$SCRATCH/passlog"
+  done <"$SCRATCH/passlog" || {
+    err "cannot read back the pass's log lines; the settlements stand but the event log is incomplete"
+    LOG_FAILED=6
+    return 1
+  }
 }
 
 # pass_held — the seconds the fleet lock was held, against the stated bound.
@@ -3453,9 +3465,11 @@ EOF
   fi
   leave_store
   [ "$DO_SETTLE" != 1 ] || pass_logs "$result"
-  # Same order as the pass verb: whatever this `next` settled is published
-  # before a failed stamp/hold write becomes its exit.
-  [ "$pw" = 0 ] || exit 6
+  # A failed stamp/hold write is this verb's exit, but never instead of the
+  # hand-over: the lease and the delivery record committed above, so swallowing
+  # the `item` line would hide the item from the tower that now holds it until
+  # the lease backstop, which is the outcome the record-first order exists to
+  # prevent. Published and logged first; the 6 is raised at the end.
   [ "$tower_fallback" = 0 ] || err "no presence identity resolved; this tower leases as '$tower' (a tower-session-scoped fallback)"
   case "$dec_what" in
     deliver)
@@ -3465,20 +3479,18 @@ EOF
       # surfaced, and the redelivery it risks is inside the loss budget.
       log_event delivered --now "$now" --tower "$tower" item="$dec_item" item_kind="$dec_kind" urgency="$dec_urg" pair="$dec_pair" \
         || err "the 'delivered' line did not reach the event log; the hand-over stands"
-      finish_exit
       ;;
     knock)
       printf '%s\n' "$out_line"
       owe_log knocked --now "$now" --tower "$tower" item="$dec_item" item_kind="$dec_kind" urgency="$dec_urg"
-      finish_exit
       ;;
     wait)
       [ -n "$(read_marker "$tower")" ] \
         || err "no attention marker for tower '$tower' (the prompt-submit hook has written nothing there since the knock); is the hook installed in this session?"
-      finish_exit
       ;;
-    *) finish_exit ;;
   esac
+  [ "$pw" = 0 ] || exit 6
+  finish_exit
 }
 
 # ---------------------------------------------------------------------------
