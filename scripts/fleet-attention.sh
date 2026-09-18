@@ -77,13 +77,14 @@
 #       normal | low (default normal). Exits 3 (a semantic refusal) rather than
 #       clobber a queued human decision (a pending permission / flailing decide);
 #       it still replaces a park (upgrade) or a prior fork (re-fork).
-#   fleet-attention.sh permission <worker> <scope> [<command>]
+#   fleet-attention.sh permission <worker> <scope> [<command>|-]
 #       The permission-park push (tower-comms Task 6, D-12): record the worker
 #       as awaiting-input on a harness permission prompt, with the positive
 #       marker `permission` in field 9 and the prompt's own command text in
 #       field 12 — the only text a standing decision is ever matched against.
 #       A record carrying the marker without a command reaches the operator
-#       instead of a rule. Written by the PermissionRequest hook.
+#       instead of a rule. Written by the PermissionRequest hook, which passes
+#       the command on stdin (`-`) so it never appears in argv.
 #   fleet-attention.sh claim <worker> <instance-id> <label> [--standing <id>]
 #       Answer an answerable fork BY LABEL, atomically, under the store lock —
 #       the read-and-answer primitive (fleet-hardening Task 4, D-4). First-answer
@@ -634,8 +635,15 @@ case $cmd in
     scope="${2:-}"
     command_text="${3:-}"
     if [ -z "$worker" ] || [ -z "$scope" ]; then
-      echo "usage: fleet-attention.sh permission <worker> <scope> [<command>]" >&2
+      echo "usage: fleet-attention.sh permission <worker> <scope> [<command>|-]" >&2
       exit 2
+    fi
+    # `-` reads the command from stdin, the form the hook uses: argv is
+    # world-readable through /proc, and a permission prompt's command line is
+    # exactly where a credential turns up. A last line with no newline still
+    # arrives; read reports only the missing newline.
+    if [ "$command_text" = - ]; then
+      IFS= read -r command_text || :
     fi
     if ! valid_field "$worker"; then
       echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2

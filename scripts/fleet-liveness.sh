@@ -1317,7 +1317,9 @@ case "$cmd" in
         # marker and no command reaches the operator rather than a rule, so this
         # never gates the push.
         perm_cmd=$(printf '%s' "$note_payload" | extract_tool_command) || perm_cmd=""
-        "$FA" permission "$handle" "$scope" "$perm_cmd" >/dev/null 2>&1 || {
+        # On stdin, never in argv: /proc/<pid>/cmdline is readable by every
+        # local user, and the command is exactly where a credential turns up.
+        printf '%s\n' "$perm_cmd" | "$FA" permission "$handle" "$scope" - >/dev/null 2>&1 || {
           echo "fleet-liveness: state push (awaiting-input) failed; reconcile self-heals (D-1)" >&2
           exit 0
         }

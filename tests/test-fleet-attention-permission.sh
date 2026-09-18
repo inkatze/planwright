@@ -68,6 +68,12 @@ reset() { rm -rf "$home/attention"; }
 
 reset
 fa permission w1 spec.task-1 'git status --short' || fail "permission push failed"
+# The stdin form the hook uses, so the command never rides argv.
+printf '%s\n' 'git status --short' | fa permission w1 spec.task-1 - || fail "permission push on stdin failed"
+[ "$(field w1 12)" = 'git status --short' ] || fail "the stdin form did not record the command (got '$(field w1 12)')"
+printf '' | fa permission w1 spec.task-1 - || fail "permission push with empty stdin failed"
+[ "$(field w1 12)" = - ] || fail "empty stdin did not record the placeholder (got '$(field w1 12)')"
+fa permission w1 spec.task-1 'git status --short' || fail "permission push failed"
 [ "$(field w1 3)" = awaiting-input ] || fail "permission: state is not awaiting-input"
 [ "$(field w1 9)" = permission ] || fail "permission: field 9 is not the marker (got '$(field w1 9)')"
 [ "$(field w1 10)" = - ] || fail "permission: field 10 is not the reserved placeholder"
