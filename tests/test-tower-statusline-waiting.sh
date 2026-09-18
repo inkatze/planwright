@@ -206,9 +206,9 @@ echo "ok: a kind outside the closed set degrades to the unreadable marker"
 i=0
 while [ "$i" -lt 500 ]; do
   i=$((i + 1))
-  printf 'i%08x\tquestion\tnormal\tw%s\t1000\tpath\tf%s\t-\t%s\t-\tthe operator answers\topen\t0\t0\t0\t0\t0\t-\t-\t0\t-\t0\t-\t-\t0\n' \
-    "$i" "$i" "$i" "$content" >>"$store"
-done
+  printf 'i%08x\tquestion\tnormal\tw%s\t1000\tpath\tf%s\t-\t%s\t-\tthe operator answers\topen\t0\t0\t0\t0\t0\t-\t-\t0\t-\t0\t-\t-\t0\t0\n' \
+    "$i" "$i" "$i" "$content"
+done >>"$store"
 t0=$(date +%s)
 line=$(statusline statusline) || fail "statusline over a full store: exit"
 t1=$(date +%s)

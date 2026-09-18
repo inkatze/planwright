@@ -516,6 +516,14 @@ for bad_key in "-leading" "with/slash" "with space" "$(printf 'x%0.s' $(seq 1 12
   notify_push "escape" --key "$bad_key" >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "notify (push): --key '$bad_key' was not refused (exit $rc)"
 done
+# An explicit empty key is a usage error, not the keyless derivation.
+rc=0
+notify_push "empty key" --key "" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify (push): --key '' was not refused (exit $rc)"
+for push_f in "$push_dir"/k*; do
+  [ -e "$push_f" ] || continue
+  fail "notify (push): --key '' fell through to a derived key ($push_f)"
+done
 rc=0
 notify_push "unknown flag" --nope >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "notify: an unknown flag was not refused (exit $rc)"

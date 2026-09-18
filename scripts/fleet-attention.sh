@@ -1039,6 +1039,7 @@ case $cmd in
   notify)
     summary=""
     notify_key=""
+    notify_key_given=0
     while [ "$#" -gt 0 ]; do
       case $1 in
         --key)
@@ -1047,6 +1048,7 @@ case $cmd in
             exit 2
           }
           notify_key=$2
+          notify_key_given=1
           shift 2
           ;;
         --*)
@@ -1072,8 +1074,10 @@ case $cmd in
     fi
     # The key names the thing being notified about, and on the `push` channel
     # it is also the marker's filename — so it is validated against a path-safe
-    # grammar before it can name a file, never sanitized into one.
-    if [ -n "$notify_key" ]; then
+    # grammar before it can name a file, never sanitized into one. Gated on
+    # the flag having been given, not on the value: an explicit empty key is a
+    # usage error, not a request for the keyless derivation.
+    if [ "$notify_key_given" = 1 ]; then
       case $notify_key in
         *[!A-Za-z0-9._-]* | .* | -* | "")
           echo "fleet-attention: notify: refusing a malformed --key (one token of [A-Za-z0-9._-], not leading . or -)" >&2

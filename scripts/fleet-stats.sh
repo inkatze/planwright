@@ -367,7 +367,7 @@ waiting_field() {
       # The closed set's own "nothing ranked": legitimate only with an empty
       # queue. A total above zero with no top item is a reading that
       # contradicts itself, so it degrades rather than rounding to none.
-      if [ "$wf_total" = 0 ]; then
+      if [ "$wf_total" -eq 0 ]; then
         printf 'waiting none'
       else
         printf 'waiting ?'
@@ -379,7 +379,7 @@ waiting_field() {
       return 0
       ;;
   esac
-  [ "$wf_total" != 0 ] || {
+  [ "$wf_total" -ne 0 ] || {
     printf 'waiting ?'
     return 0
   }
