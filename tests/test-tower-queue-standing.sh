@@ -164,11 +164,39 @@ for res in 'git push origin +main' 'git push origin refs/heads/main' \
 done
 echo "ok: every spelling of a force-push or a push to the default branch is refused"
 
+# The quoted spellings. The allowlist admits a quoted interior anywhere in a
+# word, and the shell reads each of these as the bare spelling above; the
+# guard once stripped one matched pair of quotes, after the prefix test, so
+# every one of these walked through it.
+for res in 'git push origin "refs/heads/main"' "git push origin 'refs/heads/main'" \
+  'git push origin "+main"' "git push origin '+refs/heads/main'" \
+  'git push origin "HEAD:refs/heads/main"' 'git push origin HEAD:"refs/heads/main"' \
+  "git push origin ''main" 'git push origin ma""in' "git push origin m'ai'n" \
+  'git push origin "-f" feature' 'git push "--force" origin feature'; do
+  rc=0
+  run match --decision "$push_rule" --command "$res" >"$tmp/o" || rc=$?
+  [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+    || fail "'$res' was not refused as a reserved control (exit $rc, '$(cat "$tmp/o")')"
+done
+echo "ok: a quoted spelling of a force-push or a push to the default branch is refused"
+
 # The rule the operator actually wanted still works.
 run match --decision "$push_rule" --command 'git push origin feature/thing' >"$tmp/o" \
   || fail "an ordinary branch push did not match"
 [ "$(cat "$tmp/o")" = match ] || fail "an ordinary branch push printed '$(cat "$tmp/o")'"
+run match --decision "$push_rule" --command 'git push origin "feature/thing"' >"$tmp/o" \
+  || fail "a quoted ordinary branch push did not match"
+[ "$(cat "$tmp/o")" = match ] || fail "a quoted ordinary branch push printed '$(cat "$tmp/o")'"
 echo "ok: an ordinary branch push still matches"
+
+# A glob in the command is compared as the bytes it is, never expanded against
+# whatever the pass's working directory holds: it fails the allowlist, not the
+# reserved-control test, and does so wherever the pass runs.
+rc=0
+(cd "$tmp" && touch main && run match --decision "$push_rule" --command 'git push origin *' >"$tmp/o") || rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = no-match ] \
+  || fail "a glob in a push was expanded against the working directory (exit $rc, '$(cat "$tmp/o")')"
+echo "ok: a glob in a push is never expanded against the working directory"
 
 # A decision the queue does not hold, or that is not a standing decision.
 rc=0

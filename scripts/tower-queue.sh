@@ -1932,35 +1932,43 @@ Q_PROTECTED_BRANCHES="main master"
 # this replaced: that version matched ` main` and `:main` and so waved through
 # `git push origin +main` (a force-push to the default branch, two reserved
 # actions in one command) and `git push origin refs/heads/main`. Each word is
-# reduced the way git reads a refspec — drop a leading `+` (which IS the force),
-# take the text after the LAST `:` (the destination half), drop a leading
-# `refs/heads/` — and the result compared to the protected names. Quotes around
-# the name are stripped too, since the allowlist admits a quoted interior.
+# reduced the way git reads a refspec — every quote removed, then a leading `+`
+# (which IS the force), then the text after the LAST `:` (the destination
+# half), then a leading `refs/heads/` — and the result compared to the
+# protected names. The quotes go FIRST and ALL of them go: the allowlist admits
+# a quoted interior anywhere in a word, and the shell reads `"refs/heads/main"`,
+# `"+main"`, `''main` and `ma""in` as the bare spellings, so a strip that ran
+# after the prefix test, or took only one matched pair, left each of those a
+# way past it. Removing a quote the shell would have kept (`"ma'in"`) can only
+# over-refuse, which is the safe direction here.
+#
+# A subshell, so `set -f` cannot leak: the command is split into words
+# unquoted, and without it a glob in one would be expanded against the cwd.
 push_reaches_protected() {
-  for _pw in $1; do
-    case "$_pw" in
-      +*)
-        return 0
-        ;;
-      --force | --force-* | --force=*) return 0 ;;
-      -[!-]*)
-        # A bundled short-option run: git takes `-qf` as `-q -f`, so the force
-        # flag hides inside a cluster a whole-word test would miss.
-        case "$_pw" in
-          *f*) return 0 ;;
-        esac
-        continue
-        ;;
-    esac
-    _pd=${_pw##*:}
-    _pd=${_pd#refs/heads/}
-    _pd=${_pd%\"}
-    _pd=${_pd#\"}
-    _pd=${_pd%\'}
-    _pd=${_pd#\'}
-    is_one_of "$_pd" "$Q_PROTECTED_BRANCHES" && return 0
-  done
-  return 1
+  (
+    set -f
+    for _pw in $1; do
+      case "$_pw" in
+        *[\"\']*) _pw=$(printf '%s' "$_pw" | tr -d '\042\047') ;;
+      esac
+      case "$_pw" in
+        +*) exit 0 ;;
+        --force | --force-* | --force=*) exit 0 ;;
+        -[!-]*)
+          # A bundled short-option run: git takes `-qf` as `-q -f`, so the
+          # force flag hides inside a cluster a whole-word test would miss.
+          case "$_pw" in
+            *f*) exit 0 ;;
+          esac
+          continue
+          ;;
+      esac
+      _pd=${_pw##*:}
+      _pd=${_pd#refs/heads/}
+      is_one_of "$_pd" "$Q_PROTECTED_BRANCHES" && exit 0
+    done
+    exit 1
+  )
 }
 
 # reserved_control <command or coverage> — 0 when the text reaches one of the
