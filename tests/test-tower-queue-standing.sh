@@ -13,6 +13,9 @@
 #       A permission prompt strictly inside a rule is answered and settled with
 #       a reason naming the decision's identifier, plus an `answered` line
 #       carrying the rule in the operator's own words and no identifier.
+#   settle <id> --reason <text>
+#       Closes that one item; a standing decision so closed is revoked and
+#       answers nothing more.
 #   next
 #       Prints the command being approved and any free-coverage rule on the
 #       item's subject, and settles nothing by doing so.
@@ -42,7 +45,9 @@ fail() {
 [ -x "$FA" ] || fail "scripts/fleet-attention.sh missing or not executable"
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+# A case below makes the attention directory read-only; a failure inside it
+# would otherwise leave the tree undeletable.
+trap 'chmod -R u+rwx "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 errf="$tmp/stderr"
 
 home="$tmp/fleet-home"
@@ -76,6 +81,13 @@ fa() {
 
 f() { printf '%s' "$1" | cut -d"$TAB" -f"$2"; }
 
+# captured <capture args>... — the id a capture minted, failing when the
+# capture did: `f "$(run …)"` would report only the field cut's exit.
+captured() {
+  _co=$(run capture "$@") || return 1
+  f "$_co" 2
+}
+
 # line <output> <tag> — the first line of the output carrying that tag.
 line() {
   printf '%s\n' "$1" | awk -F "$TAB" -v t="$2" '$1 == t { print; exit }'
@@ -90,8 +102,8 @@ fresh() {
 # --- the match, in isolation ------------------------------------------------
 
 fresh
-rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
-  --covers-command 'git status' --covers-command 'git log' --now 1000)" 2) \
+rule=$(captured --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --covers-command 'git log' --now 1000) \
   || fail "capture of the rule failed"
 
 run match --decision "$rule" --command 'git status --short' >"$tmp/o" || fail "a covered command did not match"
@@ -170,8 +182,8 @@ echo "ok: a reserved-control command is refused at match time whatever the rule 
 # and `:main`, so `git push origin +main` — a force-push to main, two reserved
 # actions in one command — and `git push origin refs/heads/main` both walked
 # through it. These are pinned by shape, not by the wording of the guard.
-push_rule=$(f "$(run capture --kind standing --text 'always let the workers push their own branch' \
-  --covers-command 'git push ' --now 1010)" 2) || fail "capture of the push rule failed"
+push_rule=$(captured --kind standing --text 'always let the workers push their own branch' \
+  --covers-command 'git push ' --now 1010) || fail "capture of the push rule failed"
 for res in 'git push origin +main' 'git push origin refs/heads/main' \
   'git push origin +refs/heads/main' 'git push origin HEAD:refs/heads/main' \
   'git push --force origin main' 'git push origin +master' \
@@ -254,7 +266,7 @@ echo "ok: a glob in a push is never expanded against the working directory"
 rc=0
 run match --decision i00000000 --command 'git status' >/dev/null || rc=$?
 [ "$rc" = 2 ] || fail "an unknown decision was not refused (exit $rc)"
-req=$(f "$(run capture --kind request --text 'do a thing' --now 1001)" 2)
+req=$(captured --kind request --text 'do a thing' --now 1001)
 rc=0
 run match --decision "$req" --command 'git status' >/dev/null || rc=$?
 [ "$rc" = 2 ] || fail "a non-standing item was accepted as a decision (exit $rc)"
@@ -270,8 +282,8 @@ echo "ok: a revoked rule matches nothing"
 # --- the settle-by-rule route ----------------------------------------------
 
 fresh
-rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
-  --covers-command 'git status' --now 2000)" 2) || fail "capture of the rule failed"
+rule=$(captured --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 2000) || fail "capture of the rule failed"
 fa permission w1 spec.task-1 'git status --short' || fail "the permission push failed"
 item=$(run add --kind question --origin w1 --worker w1 --closes 'the operator answers' --now 2001) || fail "queueing the prompt failed"
 
@@ -324,8 +336,8 @@ echo "ok: the settling pass refuses a reserved-control command under a covering 
 # --- a prompt one token outside the rule -----------------------------------
 
 fresh
-rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
-  --covers-command 'git status' --now 3000)" 2) || fail "capture of the rule failed"
+rule=$(captured --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 3000) || fail "capture of the rule failed"
 fa permission w2 spec.task-1 'git fetch --tags' || fail "the permission push failed"
 item=$(run add --kind question --origin w2 --worker w2 --closes 'the operator answers' --now 3001) || fail "queueing the prompt failed"
 out=$(run settle --now 3002) || fail "the settling pass failed"
@@ -372,8 +384,8 @@ echo "ok: a record with the marker but no command is never matched"
 # --- a non-command rule beside an item -------------------------------------
 
 fresh
-free=$(f "$(run capture --kind standing --text 'always prefer the smaller PR on task 5' \
-  --covers 'anything about task 5' --subject worker:w6 --now 4000)" 2) \
+free=$(captured --kind standing --text 'always prefer the smaller PR on task 5' \
+  --covers 'anything about task 5' --subject worker:w6 --now 4000) \
   || fail "capture of the non-command rule failed"
 fa permission w6 spec.task-1 'gh pr diff 471' || fail "the permission push failed"
 item=$(run add --kind question --origin w6 --worker w6 --closes 'the operator answers' --now 4001) || fail "queueing the prompt failed"
@@ -428,8 +440,8 @@ echo "ok: non-ASCII command text is shown escaped beside a warning"
 # --- the answer channel's own check on a named rule -------------------------
 
 fresh
-rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
-  --covers-command 'git status' --now 5000)" 2) || fail "capture of the rule failed"
+rule=$(captured --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 5000) || fail "capture of the rule failed"
 fa permission w8 spec.task-1 'git push --tags' || fail "the permission push failed"
 rc=0
 fa claim w8 - "$APPROVE" --standing "$rule" || rc=$?
@@ -440,7 +452,7 @@ echo "ok: an answer whose named rule does not cover the parked command is refuse
 
 # And the channel's own re-match is what decides, not the caller: a request is
 # not a standing decision, however it is named.
-req=$(f "$(run capture --kind request --text 'do a thing' --now 5001)" 2) || fail "capture failed"
+req=$(captured --kind request --text 'do a thing' --now 5001) || fail "capture failed"
 rc=0
 fa claim w8 - "$APPROVE" --standing "$req" || rc=$?
 [ "$rc" = 3 ] || fail "the channel accepted an answer naming a non-standing item (exit $rc)"
@@ -449,8 +461,8 @@ echo "ok: an answer naming an item that is not a standing decision is refused"
 # --- a non-zero exit from the answer channel --------------------------------
 
 fresh
-rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
-  --covers-command 'git status' --now 6000)" 2) || fail "capture of the rule failed"
+rule=$(captured --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 6000) || fail "capture of the rule failed"
 fa permission w9 spec.task-1 'git status --short' || fail "the permission push failed"
 item=$(run add --kind question --origin w9 --worker w9 --closes 'the operator answers' --now 6001) \
   || fail "queueing the prompt failed"

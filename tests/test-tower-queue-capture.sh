@@ -69,6 +69,13 @@ f() {
   printf '%s' "$1" | cut -d"$TAB" -f"$2"
 }
 
+# captured <capture args>... — the id a capture minted, failing when the
+# capture did: `f "$(run …)"` would report only the field cut's exit.
+captured() {
+  _co=$(run capture "$@") || return 1
+  f "$_co" 2
+}
+
 # rec <id> <n> — the nth field of the queue record with that id.
 rec() {
   awk -F "$TAB" -v i="$1" -v n="$2" '($1 "") == (i "") { print $n; exit }' "$store"
@@ -264,10 +271,10 @@ echo "ok: a non-command rule is stored with free coverage and an explicit subjec
 # The same words with DIFFERENT coverage are a different rule. Keying on the
 # text alone made the second capture a silent no-op that echoed success while
 # the first rule's coverage stayed in force.
-r1=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
-  --covers-command 'git status' --now 1006)" 2) || fail "the first rule capture failed"
-r2=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
-  --covers-command 'git log' --now 1006)" 2) || fail "the second rule capture failed"
+r1=$(captured --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 1006) || fail "the first rule capture failed"
+r2=$(captured --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git log' --now 1006) || fail "the second rule capture failed"
 [ "$r1" != "$r2" ] || fail "re-capturing the same words with new coverage reused the old item"
 grep -q "^covers$TAB.*${TAB}git log$" "$ledger" || fail "the new coverage was not recorded"
 echo "ok: the same words with different coverage are a different rule"
