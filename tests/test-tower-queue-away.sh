@@ -407,6 +407,17 @@ rc=0
 run counts --now 15300 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "counts read the attention store through a symlink (exit $rc)"
 rm -f "$attn_store"
+# An owned path that is not a regular file is corruption, not absence: the
+# absent-store reading counts everything as waiting on purpose, and a
+# directory at that name must not inherit it.
+mkdir "$attn_store"
+rc=0
+run knock --now 15300 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "knock read a directory at the attention store's name as an absent store (exit $rc)"
+rc=0
+run counts --now 15300 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "counts read a directory at the attention store's name as an absent store (exit $rc)"
+rmdir "$attn_store"
 mv "$tmp/attn.aside" "$attn_store"
 if [ "$(id -u)" != 0 ]; then
   chmod 0000 "$attn_store"
@@ -420,5 +431,25 @@ if [ "$(id -u)" != 0 ]; then
 fi
 [ "$(run knock --now 15500 | cut -f 4)" = 1 ] || fail "knock is wrong once the attention store is back: '$(run knock --now 15500)'"
 echo "ok: knock and counts refuse a redirected attention store and fail an unreadable one"
+
+# --- only an answer ends the episode, not a fresh knock (REQ-F1.2) -----------
+# present() is the lease predicate and reads a recent knock with no reply as
+# presence, which is right for a lease and wrong for the episode: a tower the
+# operator has never typed in, knocking while they are away, would end the
+# episode on its next pass and push "first" again in the same departure.
+
+: >"$log_file"
+run settle "$h1" --reason 'the worker landed it' --now 15900 >/dev/null 2>&1 || fail "settling h1"
+C=tower-c
+n1=$(add_q wn high 16000)
+run next --tower $A --now 16010 >/dev/null 2>&1 || fail "episode fixture: A knocks"
+run next --tower $A --now 16200 >/dev/null 2>&1 || fail "episode fixture: A goes away"
+[ "$(pushes_for "$n1")" = 1 ] || fail "the episode fixture did not get its first push ($(pushes_for "$n1"))"
+run next --tower $C --now 16210 >/dev/null 2>&1 || fail "episode fixture: C knocks"
+run next --tower $C --now 16220 >/dev/null 2>&1 || fail "episode fixture: C's pass inside its own quiet interval"
+[ "$(push_count "$n1")" = 1 ] || fail "a fresh knock with no reply behind it ended the episode: count '$(push_count "$n1")'"
+run next --tower $C --now 16400 >/dev/null 2>&1 || fail "episode fixture: C goes away"
+[ "$(pushes_for "$n1")" = 1 ] || fail "a second conversation re-pushed the same departure ($(pushes_for "$n1"))"
+echo "ok: a knock the operator has not answered does not end the episode"
 
 echo "PASS: tower-queue away detection, the away push and the knock verb"

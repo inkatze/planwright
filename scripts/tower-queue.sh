@@ -2156,6 +2156,13 @@ verify_read_surface() {
   fi
   check_owned "${attn_store%/*}"
   check_owned "$attn_store"
+  # Owned but not a file is corruption, not absence. Absence is read
+  # fail-open on this path (an unreachable source is not an empty queue), and
+  # a directory or a FIFO at the store's name must not inherit that reading.
+  if [ -e "$attn_store" ] && [ ! -f "$attn_store" ]; then
+    err "$(sanitize_printable "$attn_store" "(unprintable path)") is not a regular file; refusing to read the attention store"
+    exit 4
+  fi
 }
 
 # read_marker <tower> — the epoch of the operator's last reply in that
@@ -2576,6 +2583,17 @@ function anyone_present(   t) {
   for (t in tw_reply) if (present(t)) return 1
   return 0
 }
+# replied(t): the operator ANSWERED in that conversation within the quiet
+# interval. What ends a push episode is an answer; present() also reads a
+# fresh knock or hand-over as presence, which is right for a lease and would
+# let a tower the operator has never typed in end the episode by knocking.
+function replied(t) {
+  return ((t in tw_reply) && tw_reply[t] > 0 && tw_reply[t] <= now && now - tw_reply[t] <= quiet)
+}
+function anyone_replied(   t) {
+  for (t in tw_reply) if (replied(t)) return 1
+  return 0
+}
 function derived_pass(   n, eff, o, w, ii) {
   for (n = 1; n <= N; n++) {
     skip_reason[n] = ""
@@ -2760,9 +2778,11 @@ run_store_pass() {
       # poll. The push therefore waits for the operator to be present
       # NOWHERE, which is the transition a phone push is for; the silent
       # silent conversation is still the one whose away state arms it.
-      if (present(tower)) {
-        # The episode is over: the operator answered here. Clearing the budget
-        # is what makes REQ-F1.2 read the way it is written — the push fires on
+      if (anyone_replied()) {
+        # The episode is over: the operator answered, in this conversation or
+        # another on the table. An answer, not presence: a knock nobody has
+        # answered yet is the start of an episode, never its end. Clearing
+        # the budget is what makes REQ-F1.2 read the way it is written — the push fires on
         # THE TRANSITION into away, and going away a second time is a second
         # transition. A budget spent once per item for the life of the item
         # would mean the operator who steps out on Tuesday is told, and the one
