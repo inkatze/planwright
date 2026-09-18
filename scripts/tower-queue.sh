@@ -4561,6 +4561,22 @@ ledger_covers() {
   [ -f "$1/$2" ] || return 0
   awk -F '\t' -v k="$3" '($1 "") == "covers" && ($2 "") == (k "") { print $3 }' "$1/$2" 2>/dev/null
 }
+# ledger_same_content <root> <rel> <key> <kind> <when> <subject>
+#   <coverage-kind> <text> [<coverage>...] — 0 when the record at that key
+# carries exactly this content, the date aside.
+ledger_same_content() {
+  _lsr=$1
+  _lsl=$2
+  _lsk=$3
+  _lskind=$4
+  _lssub=$6
+  _lscov=$7
+  _lstext=$8
+  shift 8
+  [ "$(ledger_field "$_lsr" "$_lsl" "$_lsk" text)" = "$_lstext" ] || return 1
+  [ "$(awk -F '\t' -v k="$_lsk" '($1 "") == "item" && ($2 "") == (k "") { print $3 "\t" $5 "\t" $6; exit }' "$_lsr/$_lsl" 2>/dev/null)" = "$_lskind$TAB$_lssub$TAB$_lscov" ] || return 1
+  [ "$(ledger_covers "$_lsr" "$_lsl" "$_lsk")" = "$(printf '%s\n' "$@")" ]
+}
 
 # ledger_put <key> <kind> <when> <subject> <coverage-kind> <text>
 #   [<coverage>...] — write the item to its durable home and set LED_ROOT and
@@ -4628,11 +4644,13 @@ ledger_put() {
   check_private_file "$_lpf"
   if [ -n "$(ledger_field "$surface" ledger "$1" item)" ]; then
     # The key is a 32-bit checksum, so a key already present is evidence of
-    # the same content only once the stored text agrees with this one. A
+    # the same content only once everything the key was derived from agrees:
+    # the kind, the subject, the coverage kind, the text and the coverage list
+    # (the date is the one field a re-capture legitimately differs in). A
     # collision is refused rather than silently folded: folding would leave the
     # echo asserting this capture is in force while another rule's coverage is
     # what the match actually applies.
-    if [ "$(ledger_field "$surface" ledger "$1" text)" != "$6" ]; then
+    if ! ledger_same_content "$surface" ledger "$@"; then
       release_lock
       refuse "the ledger key for this capture collides with a different record already at that home; reword the capture slightly so it takes a key of its own"
     fi
@@ -4781,13 +4799,24 @@ cmd_capture() {
   resolve_surface
   umask 077
   ensure_surface
-  # The content key. Derived from the kind, the text AND the coverage, so the
-  # same words re-captured with different coverage are a different item rather
-  # than a silent no-op that echoes success while the old coverage stays in
-  # force. cksum is 32 bits, so the key alone cannot carry the claim that two
-  # records are the same content; ledger_put re-checks the stored text and
+  # The content key. Derived from the kind, the text, the coverage AND the
+  # subject the record will carry, so the same words re-captured with
+  # different coverage, or scoped to a different worker, are a different item
+  # rather than a silent no-op that echoes success while the old record stays
+  # in force. The subject is the one `add` derives when none was given (the
+  # worker the item came from, or none), so the key names what the record
+  # names. cksum is 32 bits, so the key alone cannot carry the claim that two
+  # records are the same content; ledger_put re-checks the stored content and
   # refuses a collision rather than binding this capture to another rule.
-  key=$(printf '%s\t%s\t%s' "$kind" "$text" "$covers" | cksum | cut -d' ' -f1)
+  key_subject=$subject
+  if [ -z "$key_subject" ]; then
+    if [ "$origin" != operator ]; then
+      key_subject="worker:$origin"
+    else
+      key_subject=-
+    fi
+  fi
+  key=$(printf '%s\t%s\t%s\t%s' "$kind" "$text" "$covers" "$key_subject" | cksum | cut -d' ' -f1)
   is_count "$key" || {
     err "cannot derive a ledger key (cksum did not answer)"
     exit 6
@@ -4804,7 +4833,7 @@ cmd_capture() {
     _cs=${_cs#*"$TAB"}
     set -- "$@" "$_cp"
   done
-  ledger_put "$key" "$kind" "$now" "${subject:--}" "$cov_kind" "$text" "$@"
+  ledger_put "$key" "$kind" "$now" "$key_subject" "$cov_kind" "$text" "$@"
   # `add` is the second half of this verb and shares its globals, so what the
   # echo below says is taken now, before that call rewrites any of them. The
   # subject is the exception: `add` DERIVES one when none was given, and the

@@ -287,6 +287,20 @@ out_s=$(run capture --kind request --origin w1 --text 'rerun the flaky settle te
 [ "$(rec "$(f "$out_s" 2)" 21)" = worker:w1 ] || fail "the record carries no derived subject"
 echo "ok: the echo reports the subject the record carries"
 
+# The same words scoped to a different worker are a different rule, whether
+# the subject was named or derived from the origin: a re-capture that reused
+# the first item would leave the echo naming a scope the record does not carry.
+sa=$(captured --kind standing --text 'always prefer the smaller PR' --covers 'anything about task 9' \
+  --subject worker:sa --now 1006) || fail "capture of the first scoped rule failed"
+sb=$(captured --kind standing --text 'always prefer the smaller PR' --covers 'anything about task 9' \
+  --subject worker:sb --now 1006) || fail "capture of the second scoped rule failed"
+[ "$sa" != "$sb" ] || fail "the same words scoped to a second worker reused the first rule"
+[ "$(rec "$sb" 21)" = worker:sb ] || fail "the second scoped rule does not carry its own subject"
+oa=$(captured --kind request --origin oa --text 'rerun the flaky settle test' --now 1006) || fail "capture from the first worker failed"
+ob=$(captured --kind request --origin ob --text 'rerun the flaky settle test' --now 1006) || fail "capture from the second worker failed"
+[ "$oa" != "$ob" ] || fail "the same words from a second worker reused the first item"
+echo "ok: the same words under a different subject are a different item"
+
 # Coverage belongs to a standing decision alone.
 rc=0
 run capture --kind request --text 'do a thing' --covers-command 'git status' --now 1007 >/dev/null || rc=$?
