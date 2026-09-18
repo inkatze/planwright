@@ -315,9 +315,10 @@
 #
 # Field grammar: keys match ^[a-z][a-z0-9_]{0,31}$ and are not one of the
 # reserved names (v seq ts kind tower until); a value is at most 4096 bytes,
-# carries no C0 or C1 control byte and no DEL (a multi-line text is the
-# caller's to flatten), and is refused when it is shaped like a JSON object
-# or array. A
+# carries no C0 byte, no DEL and no C1 control character (a multi-line text
+# is the caller's to flatten), and is refused when it is shaped like a JSON
+# object or array. A C1 is screened as its two-byte UTF-8 encoding, so
+# ordinary multi-byte text (an em dash, a smart quote) passes. A
 # value matching the JSON number grammar is written as a number, anything
 # else as a string with `"` and `\` escaped. Every string value passes the
 # secret-shaped redaction below before it is written, whatever the kind, so
@@ -1183,7 +1184,7 @@ cmd_log() {
           err "refusing field '$key': value longer than 4096 bytes"
           exit 2
         fi
-        if [ "$(printf '%s' "$val" | tr -d '\000-\037\177\200-\237')" != "$val" ]; then
+        if has_control "$val"; then
           err "refusing field '$key': the value carries a control byte (flatten the text first)"
           exit 2
         fi
@@ -1714,9 +1715,11 @@ Q_CATCHUP_CAP=500
 Q_SETTLE_HOLD_BOUND=2
 TAB=$(printf '\t')
 # The C1 control range as a case pattern (the byte-range form dash and bash
-# both take under the C locale): [[:cntrl:]] stops at DEL, and a raw CSI at
-# 0x9B drives a terminal the same as ESC does.
-C1_BYTES=$(printf '[\200-\237]')
+# both take under the C locale): [[:cntrl:]] stops at DEL, and a CSI at U+009B
+# drives a terminal the same as ESC does. It matches the two-byte UTF-8
+# encoding, not the bare 0x80-0x9F bytes: those are continuation bytes, so
+# screening them raw refuses every em dash, smart quote and ellipsis.
+C1_BYTES=$(printf '\302[\200-\237]')
 LOG_FAILED=0
 
 refuse() {
@@ -1741,7 +1744,7 @@ is_one_of() {
 }
 
 # has_control <value> — 0 when the value carries a C0 byte, DEL, or a C1
-# byte. Fork-free: this runs on every field of every verb.
+# control character. Fork-free: this runs on every field of every verb.
 has_control() {
   case "$1" in
     *[[:cntrl:]]* | *$C1_BYTES*) return 0 ;;
