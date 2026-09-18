@@ -1,7 +1,7 @@
 # Tower comms — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-12
+**Last reviewed:** 2026-09-17
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -117,11 +117,11 @@ measured evidence (D-15, D-16).
   SHALL be written to its home before the index record that points at it,
   and a record pointing at an attention-store row SHALL carry that row's
   instance identifier, on whose mismatch `next` SHALL refresh the pointer or
-  refuse the hand-over. The store SHALL hold the open items plus the settled
-  ones inside the catch-up window, dropping a settled record once it falls
-  past that horizon.
+  refuse the hand-over. The store SHALL hold the open items plus the closed
+  ones (acknowledged or settled) inside the catch-up window, dropping a
+  closed record once it falls past that horizon.
   *(Cites: D-3, D-11; storage-classes doctrine (Sources); kickoff sign-off
-  lens (2026-09-09).)*
+  lens (2026-09-09); delta re-walkthrough (2026-09-17).)*
 - **REQ-A1.4** The queue store SHALL live under the cross-spec fleet home,
   SHALL be written only under the fleet advisory lock, and SHALL survive the
   death of the tower session that wrote it, so that a successor tower
@@ -656,6 +656,20 @@ measured evidence (D-15, D-16).
   statement and its doctrine index row already cite; the task line was the
   one surface that did not. No REQ, D-ID, or `Done when:` condition changes
   meaning.
+- 2026-09-17 — Delta re-walkthrough via `/spec-kickoff`, settling the two
+  spec-level forks parked against Task 3 and pinning the pairing tie-break.
+  Task 4's `Deliverables` and `Done when:` now say which of three or more
+  candidates on one subject key becomes the partner (the oldest of those the
+  top item leaves, the lower identifier breaking a tie) and why, a rule the
+  cardinality sentence left
+  to whoever implemented it. Store retention is reworded from the settled
+  records to the closed ones (acknowledged or settled) in REQ-A1.3, D-3,
+  Task 3's `Deliverables`, and REQ-A1.3's test-spec entry, matching what
+  `tower_catchup_limit` has always bounded; REQ-B1.4 is untouched, because
+  the catch-up list does render the settled records alone. Task 3's three
+  recorded deviations stay recorded in the kickoff risk register rather
+  than being folded into its block. No task is added, removed, or
+  re-scoped.
 
 ## Sources
 

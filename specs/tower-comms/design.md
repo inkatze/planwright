@@ -1,7 +1,7 @@
 # Tower comms — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-09
+**Last reviewed:** 2026-09-17
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -71,12 +71,17 @@ sense: losable, rebuilt from the content homes, costing at most one
 redelivery per delivered-but-open item, plus the shelve deadlines and
 settling reasons that live nowhere else and any undelivered
 attention-sourced item whose source row moved on. It keeps only the open
-items and the settled ones still inside the catch-up window, so its size
-tracks what is live rather than everything that ever happened.
+items and the closed ones (acknowledged or settled) still inside the
+catch-up window, so its size tracks what is live rather than everything that
+ever happened.
 *(Amended at kickoff 2026-09-09: worker-question home and the
 dropped-news exception.)*
 *(Amended at kickoff sign-off lens 2026-09-09: the fallback home, the honest
 loss budget, and retention to the catch-up horizon.)*
+*(Amended at the delta re-walkthrough 2026-09-17: retention spans the closed
+records, acknowledged as well as settled, which is what the store keeps and
+what `tower_catchup_limit` bounds; the catch-up list still renders the
+settled ones alone.)*
 
 **Alternatives considered:**
 - One store under the fleet home holding content too. Rejected because: a

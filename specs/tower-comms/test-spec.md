@@ -1,7 +1,7 @@
 # Tower comms — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-09
+**Last reviewed:** 2026-09-17
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -45,9 +45,9 @@ in the pre-ship fallback file with the ledger helpers absent; a parked
 worker question's record points at both the attention-store row and the
 Awaiting-input bullet, and an unparked one at the row alone, carrying that
 row's instance identifier, on whose mismatch `next` refreshes or refuses; a
-grep of the store finds no content text; a settled record older than the
-catch-up window is absent from the store while the open items remain. Unit
-tests in Tasks 3 and 6.
+grep of the store finds no content text; a closed record (acknowledged or
+settled) older than the catch-up window is absent from the store while the
+open items remain. Unit tests in Tasks 3 and 6.
 
 ### REQ-A1.4 — Under the fleet home and lock, surviving the tower [test]
 
