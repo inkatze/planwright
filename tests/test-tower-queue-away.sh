@@ -204,14 +204,16 @@ echo "ok: a blocked item passing tower_reknock_age re-pushes exactly once"
 # (REQ-F1.3, REQ-B1.2)
 
 q3=$(add_q w3 normal 2400)
-printf 'attention-store\n' >"$surface/reknock.hold"
-chmod 0600 "$surface/reknock.hold"
-run next --tower $A --now 3500 >/dev/null 2>&1 || fail "next under a re-knock hold: exit"
+ev_hold="$tmp/evidence-hold"
+printf 'unavailable\tgithub\n' >"$ev_hold"
+chmod 0600 "$ev_hold"
+run next --tower $A --evidence "$ev_hold" --now 3500 >/dev/null 2>&1 || fail "next with an unavailable source: exit"
 [ "$(pushes_for "$q3")" = 1 ] || fail "the hold suppressed a first push, which it must not"
 [ "$(pushes_for "$q2")" = 1 ] || fail "the worsening re-push was not held while a source was unavailable"
-rm -f "$surface/reknock.hold"
-run next --tower $A --now 3600 >/dev/null 2>&1 || fail "next after the hold cleared: exit"
+[ -f "$surface/reknock.hold" ] || fail "the pass that found a source unavailable did not publish the hold"
+run next --tower $A --now 3600 >/dev/null 2>&1 || fail "next after the source answers: exit"
 [ "$(pushes_for "$q2")" = 2 ] || fail "the worsening re-push did not resume once the source answered"
+[ ! -e "$surface/reknock.hold" ] || fail "the pass that found every source answering left the hold on disk"
 echo "ok: a worsening re-push is held while an evidence source is unavailable, and resumes after"
 
 # --- one item open in two towers pushes once (REQ-F1.2) ----------------------
@@ -363,5 +365,60 @@ run next --tower $B --now $((t + 200)) >/dev/null 2>&1 || fail "storm fixture: B
 run next --tower $A --now $((t + 210)) >/dev/null 2>&1 || fail "storm fixture: A's away pass"
 [ "$(pushes_for "$p1")" = 1 ] || fail "the second away conversation re-pushed ($(pushes_for "$p1"))"
 echo "ok: a conversation the operator is answering in holds every other conversation's push"
+
+# --- the hold reads this pass's evidence, not the previous pass's file -------
+# (REQ-F1.3, REQ-B1.2) `reknock.hold` is what the settling pass WRITES after
+# it runs, so a `next` that runs that pass itself has fresher knowledge than
+# the file: the pass that first finds a source unavailable must hold on that
+# finding, and the pass that finds it answering again must not stay held on
+# a file written before it answered.
+
+: >"$log_file"
+run settle "$p1" --reason 'the worker landed it' --now 13900 >/dev/null 2>&1 || fail "settling p1"
+rm -f "$surface/reknock.hold"
+h1=$(add_q wh high 14000)
+run next --tower $A --now 14010 >/dev/null 2>&1 || fail "hold fixture: A knocks"
+run next --tower $A --now 14200 >/dev/null 2>&1 || fail "hold fixture: A goes away"
+[ "$(pushes_for "$h1")" = 1 ] || fail "the hold fixture did not get its first push ($(pushes_for "$h1"))"
+[ ! -e "$surface/reknock.hold" ] || fail "the hold fixture starts with a hold on disk"
+ev="$tmp/evidence"
+printf 'unavailable\tgithub\n' >"$ev"
+chmod 0600 "$ev"
+run next --tower $A --evidence "$ev" --now 15100 >/dev/null 2>&1 || fail "hold fixture: the pass that finds the source unavailable"
+[ "$(pushes_for "$h1")" = 1 ] || fail "the pass that first found a source unavailable pushed on the stale reading ($(pushes_for "$h1"))"
+[ -f "$surface/reknock.hold" ] || fail "the pass that found a source unavailable did not write the hold"
+: >"$ev"
+run next --tower $A --evidence "$ev" --now 15200 >/dev/null 2>&1 || fail "hold fixture: the pass that finds the source answering"
+[ "$(pushes_for "$h1")" = 2 ] || fail "the pass that found the source answering again stayed held on the previous pass's file ($(pushes_for "$h1"))"
+echo "ok: the worsening hold follows the evidence of the pass that decides, not the file of the pass before"
+
+# --- the lock-free reads verify the attention store like the locked ones -----
+# knock and counts filter on the attention rows; a redirected or foreign store
+# would decide what is deliverable for them, so it is refused the way `next`
+# refuses it, and an owned file that will not read is a failed read, never a
+# knock line or a count.
+
+mv "$attn_store" "$tmp/attn.aside"
+ln -s "$tmp/attn.aside" "$attn_store"
+rc=0
+run knock --now 15300 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "knock read the attention store through a symlink (exit $rc)"
+rc=0
+run counts --now 15300 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "counts read the attention store through a symlink (exit $rc)"
+rm -f "$attn_store"
+mv "$tmp/attn.aside" "$attn_store"
+if [ "$(id -u)" != 0 ]; then
+  chmod 0000 "$attn_store"
+  rc=0
+  out=$(run knock --now 15400 2>/dev/null) || rc=$?
+  [ "$rc" = 6 ] || fail "knock over an unreadable attention store did not fail the read (exit $rc, output '$out')"
+  rc=0
+  out=$(run counts --now 15400 2>/dev/null) || rc=$?
+  [ "$rc" = 6 ] || fail "counts over an unreadable attention store did not fail the read (exit $rc, output '$out')"
+  chmod 0600 "$attn_store"
+fi
+[ "$(run knock --now 15500 | cut -f 4)" = 1 ] || fail "knock is wrong once the attention store is back: '$(run knock --now 15500)'"
+echo "ok: knock and counts refuse a redirected attention store and fail an unreadable one"
 
 echo "PASS: tower-queue away detection, the away push and the knock verb"

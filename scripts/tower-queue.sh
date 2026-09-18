@@ -2145,13 +2145,17 @@ verify_queue_surface() {
 }
 
 # The read path's verify-or-refuse: a redirected or foreign-owned store would
-# feed `list` and `counts` whatever it points at.
+# feed `list` and `counts` whatever it points at. The attention store is held
+# to the same bar the locked verbs hold it to: `knock` and `counts` filter on
+# its rows, so a redirect there decides what is deliverable for them.
 verify_read_surface() {
   if [ -d "$surface" ] || [ -L "$surface" ]; then
     check_home
     check_private_dir "$surface"
     check_store_file "$store_file"
   fi
+  check_owned "${attn_store%/*}"
+  check_owned "$attn_store"
 }
 
 # read_marker <tower> — the epoch of the operator's last reply in that
@@ -2524,7 +2528,8 @@ function settle_pass(   n, r, t, i, j, key, best, src, nsrc, parts, np) {
   # Reported only when something actually depended on it: a fleet with no
   # workers has no attention store and nothing to say about one.
   if (!attn_present && attn_needed) unavail["attention-store"] = 1
-  for (t in unavail) print "unavailable\t" clean(t)
+  held_now = 0
+  for (t in unavail) { held_now = 1; print "unavailable\t" clean(t) }
 }
 # attended(t): a reply at or after the tower last knocked and last handed
 # over, after a knock (an attention session is opened by one), within the
@@ -2741,8 +2746,12 @@ run_store_pass() {
       # when it crosses tower_reknock_age. The crossing is read once, against
       # the stamp, so nothing here repeats on a schedule. The crossing is the
       # reading that depends on the item still being genuinely open, which is
-      # what an unavailable evidence source puts in doubt, so `hold` suppresses
-      # that one and not the first.
+      # what an unavailable evidence source puts in doubt, so the hold
+      # suppresses that one and not the first. The hold is read from the
+      # freshest source this call has: a call that ran the settling pass
+      # itself knows what it found, and `reknock.hold` on disk is what the
+      # PREVIOUS pass found; a call reusing the evidence of that pass has
+      # nothing fresher than the file.
       #
       # The budget belongs to the item and the states to the conversations,
       # so the two arms must not be allowed to disagree about the operator: a
@@ -2764,6 +2773,7 @@ run_store_pass() {
           F[n, 25] = 0; F[n, 26] = 0; changed = 1
         }
       } else if (is_away(tower) && !anyone_present()) {
+        hold_eff = (do_settle == 1) ? held_now : hold
         nblock = 0
         for (n = 1; n <= N; n++) {
           if (!OK[n] || F[n, 12] != "open" || F[n, 2] != "question") continue
@@ -2782,7 +2792,7 @@ run_store_pass() {
           # still ahead of the first push, which is what makes it a worsening
           # rather than a delayed repeat of the same news.
           if (F[n, 26] + 0 == 0) stage = "first"
-          else if (F[n, 26] + 0 == 1 && !hold && reknock > 0 \
+          else if (F[n, 26] + 0 == 1 && !hold_eff && reknock > 0 \
             && now - F[n, 5] >= reknock && F[n, 25] + 0 < F[n, 5] + reknock) stage = "aged"
           if (stage == "") continue
           F[n, 25] = now; F[n, 26] = F[n, 26] + 1; changed = 1
@@ -3669,6 +3679,9 @@ cmd_knock() {
     err "cannot read the queue store"
     exit 6
   }
+  # A `fail` line is the pass reporting a source it could not read, and awk
+  # exits 0 on it; unchecked, it would render as a knock about nothing.
+  pass_failed "$_kl" && exit 6
   [ -n "$_kl" ] || exit 0
   render_knock "$(printf '%s\n' "$_kl" | cut -f 1)" "$(printf '%s\n' "$_kl" | cut -f 2)" \
     "$(printf '%s\n' "$_kl" | cut -f 3)"
@@ -4161,7 +4174,7 @@ cmd_counts() {
   fi
   _ca=""
   [ ! -f "$attn_store" ] || _ca=$attn_store
-  awk -F '\t' -v now="$now" -v attn_file="$_ca" \
+  _co=$(awk -F '\t' -v now="$now" -v attn_file="$_ca" \
     -v attn_present="$([ -n "$_ca" ] && echo 1 || echo 0)" "$AWK_Q"'
   BEGIN { load_attention(attn_file) }
   END {
@@ -4189,10 +4202,15 @@ cmd_counts() {
     print "top\t" (top ? clean(F[top, 2]) : "-")
     print "malformed\t" bad
     print "store\tpresent"
-  }' "$store_file" 2>/dev/null || {
+  }' "$store_file" 2>/dev/null) || {
     err "cannot read the queue store"
     exit 6
   }
+  # Checked before a line of it is printed: a `fail` from the load leaves awk
+  # exiting 0 with END still run, so the counts after it would read as a
+  # clean zero — the one thing a broken read must never say (REQ-C1.9).
+  pass_failed "$_co" && exit 6
+  printf '%s\n' "$_co"
 }
 
 # tower_presence — `live` while the fleet's presence surface holds a tower
