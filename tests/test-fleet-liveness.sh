@@ -240,6 +240,23 @@ qc=$(attn "$home3" queue --count) || fail "queue --count failed"
 echo "ok: permission-request -> awaiting-input(+queue), next post-tool-use -> working"
 
 # ---------------------------------------------------------------------------
+# 4b. A `permission:<suffix>` reason is the permission family to this oracle,
+#     as it is to fleet-attention.sh's guards (which read field 9 by prefix and
+#     refuse to answer it): the pending marker still resumes it, and it is
+#     never mistaken for a fork-park. No shipped writer emits the shape; the
+#     two files must agree on it before one does.
+# ---------------------------------------------------------------------------
+run_hook "$home3" "$w" "$s" permission-request >/dev/null 2>&1 || fail "variant: permission-request failed"
+awk -F "$tab" -v OFS="$tab" -v want="$w" '($1 "") == (want "") { $9 = "permission:tool-x" } { print }' \
+  "$home3/attention/state" >"$home3/attention/state.variant" || fail "variant: rewrite failed"
+mv "$home3/attention/state.variant" "$home3/attention/state" || fail "variant: replace failed"
+run_hook "$home3" "$w" "$s" post-tool-use >/dev/null 2>&1 || fail "variant: post-tool-use failed"
+[ "$(store_state "$home3" "$w")" = working ] \
+  || fail "variant: a permission:<suffix> row was not resumed by post-tool-use (state '$(store_state "$home3" "$w")')"
+[ ! -e "$home3/liveness/pending/$w" ] || fail "variant: pending marker not cleared"
+echo "ok: a permission:<suffix> reason is the permission family to the liveness oracle"
+
+# ---------------------------------------------------------------------------
 # 5. REQ-A1.1 — post-tool-use with NO pending permission is a fast no-op: no
 #    state change (push fires only on the enumerated transitions, not on every
 #    tool call).

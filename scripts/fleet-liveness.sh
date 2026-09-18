@@ -575,7 +575,10 @@ marker_live() {
 # (fleet-autonomy D-1), under liveness/pending/. Guarded by field 9 being either
 # the positive `permission` marker the PermissionRequest hook stamps
 # (tower-comms D-12) or EMPTY, the shape a flailing `decide` leaves and the one
-# the hook itself wrote before that marker shipped. Either way it is the
+# the hook itself wrote before that marker shipped. Any `permission*` variant
+# counts as the marker here, the same family fleet-attention.sh's guards read by
+# prefix, so a variant one side refuses to answer is never a fork-park to the
+# other. Either way it is the
 # COMPLEMENT of marker_live_awaiting's guard: a permission row never carries a
 # park reason, so a LEAKED pending-permission marker whose token collides (same
 # wall-clock second) with a live fork-park's heartbeat cannot match the
@@ -586,7 +589,7 @@ marker_live() {
 marker_live_permission() {
   marker_live "$1/liveness/pending/$2" "$1" "$2" || return 1
   case "$(store_row_field "$1" "$2" "$FIELD_REASON")" in
-    "" | permission) return 0 ;;
+    "" | permission*) return 0 ;;
   esac
   return 1
 }
@@ -600,7 +603,7 @@ marker_live_permission() {
 # it PRESERVES the fork-park, see the stop/session-end/stop-failure handler).
 #
 # Beyond the shared heartbeat-token identity, a fork-park is discriminated by a
-# reason (field 9) that is neither empty nor the `permission` marker: those two
+# reason (field 9) that is neither empty nor a `permission*` marker: those two
 # are what a permission / flailing `decide` that replaced the row carries, so
 # such a row — even within the same wall-clock second (the heartbeat token is
 # second-granular, so a same-second escalation could otherwise carry a colliding
@@ -613,7 +616,7 @@ marker_live_permission() {
 marker_live_awaiting() {
   marker_live "$1/liveness/awaiting/$2" "$1" "$2" || return 1
   case "$(store_row_field "$1" "$2" "$FIELD_REASON")" in
-    "" | permission) return 1 ;;
+    "" | permission*) return 1 ;;
   esac
   return 0
 }
