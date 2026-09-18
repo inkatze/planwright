@@ -1,7 +1,7 @@
 # Tower comms — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-12
+**Last reviewed:** 2026-09-17
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -117,8 +117,9 @@ baseline exists, so the experiment has an honest before.
   pointers as relative paths under a declared root, canonicalised and
   containment-checked, and a pointer at an attention-store row carrying that
   row's instance identifier; echo-safety on every rendered value; retention
-  that keeps the open items plus the settled ones inside the catch-up
-  window; `next` running the settling pass (REQ-B1.1) before it selects;
+  that keeps the open items plus the closed ones (acknowledged or settled)
+  inside the catch-up window; `next` running the settling pass (REQ-B1.1)
+  before it selects;
   attention read only from the per-tower marker the prompt-submit hook
   writes, with `next` returning a knock line only when a knock is due and
   otherwise nothing, and handing over nothing until that marker shows a
@@ -194,7 +195,15 @@ baseline exists, so the experiment has an honest before.
   removal; at most two items of the same kind naming the same subject key
   (worker handle, PR number, or branch) paired into one delivered item
   naming both sources, the result carrying the highest urgency and the
-  oldest age of its sources; a refusal to settle on a worker's completion
+  oldest age of its sources; where three or more candidates share a subject
+  key, the partner handed over alongside the top item being the oldest of
+  those the top item leaves, the lower identifier breaking a tie, because
+  the delivered pair already
+  inherits the highest urgency and the oldest age of its sources, so taking
+  the oldest keeps both inherited fields meaningful, and starvation is the
+  failure mode that degrades a decision queue, whereas triage by urgency is
+  already served by the top item's own selection; a refusal to settle on a
+  worker's completion
   report, result frame, or status line; an item settled while the operator
   was away recorded as such; the `catchup` verb rendering
   settled-since-last-reply with reasons plus open counts by kind, bounded to
@@ -210,7 +219,9 @@ baseline exists, so the experiment has an honest before.
   differing only in case or spacing do not; a shared-subject pair is handed
   over as one item naming both sources, and neither two items with different
   subjects, nor two of different kinds on one subject, nor a leased or
-  already-delivered candidate pairs at all; a merged item carries the
+  already-delivered candidate pairs at all; with three candidates on one
+  subject key the partner is the oldest of those the top item leaves, and
+  the third waits for the next call; a merged item carries the
   highest urgency and the oldest age of its sources; `catchup` over a
   fixture lists every settled item with its reason up to
   `tower_catchup_limit` and then a remainder count; the fleet lock's hold
@@ -476,24 +487,6 @@ baseline exists, so the experiment has an honest before.
   line names no identity), so either the launcher passes
   `claude --session-id <uuid>` and exports it, or the hook grows a
   pid-composite gate; Task 8's identity wiring is where the first lands.
-- **Task 3** — four spec-level forks the 2026-09-16 review gauntlet over PR
-  #467 could not settle from the bundle; none blocks reviewing the PR itself,
-  and removing this bullet un-parks the task. (1) The block's Deliverables
-  (anchored) still list `next` running the settling pass, lease release on
-  merge absorption, death evidence and a not-live owner, and only two of the
-  four knobs the branch ships; the deviations live only in kickoff risk rows
-  31 to 33. Ratify the rows as the record, or run a `/spec-kickoff` delta
-  re-walkthrough that amends the block. (2) `tower_catchup_limit` bounds
-  closed records (acknowledged or settled) in the store and the options row,
-  while REQ-B1.4 words the catch-up over settled items: amend REQ-B1.4 to
-  "closed", or bound settled records only. (3) REQ-C1.9 asks `counts` to
-  degrade to a distinct unreadable marker; today an unreadable store exits 6
-  with nothing on stdout. Print the table with `store unreadable` and exit 0,
-  or keep exit 6 and let the Task 5 status line render its own marker. (4)
-  `settle` takes no tower and clears a live lease, so a settling pass can
-  close an item another conversation is holding with no signal there: keep
-  (settling is evidence-driven, Task 4 owns it) or have `settle` refuse a
-  leased item held by a present tower.
 
 ## Deferred
 

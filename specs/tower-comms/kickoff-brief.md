@@ -780,3 +780,141 @@ second").
 Class: expression-only
 Anchor: `4572a73c96edf7e6925127c8dbcfd32775f7cd3d` — computed as
 `scripts/spec-anchor.sh specs/tower-comms`
+
+### Delta re-walkthrough — the pairing tie-break and Task 3's parked forks (2026-09-17)
+
+Requested by the operator, not by a freshness mismatch: the anchor recorded
+above recomputed clean at pre-flight, so nothing in the bundle had drifted.
+The delta is three decisions taken during the Task 4 execution run that had
+not reached the spec, plus the two forks still parked against Task 3. The
+stored header rests at Ready; the status render derives **Active**, so the
+amendment ritual was available and the operator declined it in favour of
+this path.
+
+**Scope walked:** section 3 (REQ-A1.3), section 4 (D-3), section 6 (Tasks 3
+and 4), and the `## Awaiting input` state. Sections 1, 2, 5 and 7 were not
+re-walked; nothing in the delta touches the goal, the glossary, the
+verification mix, or the risk register's rows.
+
+#### What landed
+
+- **The pairing tie-break, minted into Task 4.** `REQ-B1.3` pins the
+  cardinality ("at most two open items of the same kind naming the same
+  subject key") and stops there, so which of three or more candidates
+  becomes the partner fell to whoever implemented it. Task 4's
+  `Deliverables` now say it: the partner is the oldest of those the top item
+  leaves, the lower identifier breaking a tie. The reasoning is recorded
+  beside the rule rather than left to the code comment that carried it: the
+  delivered pair already inherits the highest urgency and the oldest age of
+  its sources, so taking the oldest keeps both inherited fields meaningful;
+  starvation is the failure mode that degrades a decision queue, whereas
+  triage by urgency is already served by the top item's own selection. Task
+  4's `Done when:` gains the matching condition.
+
+  **The rule is pinned at task level, deliberately.** `REQ-B1.3` stays
+  silent on which two items pair. A future re-implementation reading the
+  requirement alone could still choose differently; raising the rule to
+  `REQ-B1.3` is available as a later delta and was not taken here.
+
+- **Store retention reworded from settled to closed.** Four surfaces said
+  the store keeps "the open items plus the settled ones inside the catch-up
+  window": `REQ-A1.3`, D-3, Task 3's `Deliverables`, and `REQ-A1.3`'s
+  test-spec entry. The store keeps the **closed** records, acknowledged or
+  settled, which is what `tower_catchup_limit` has bounded from the start
+  and what `docs/options-reference.md` already told a reader. All four now
+  say closed.
+
+  `REQ-B1.4` is untouched. Its "settled" wording is correct for what it
+  governs: the catch-up list renders the settled records alone, bounded to
+  `tower_catchup_limit`, with the remainder counted from the event log. The
+  fork as parked named `REQ-B1.4`; the surface that actually contradicted
+  the store was `REQ-A1.3`, and the knob's own description needed no change.
+
+- **Task 3's three recorded deviations ratified, not folded in.** The rows
+  recording what Task 3 shipped against what its block describes stand as
+  that record (rows 31 to 33 after the Task 2 pass renumbered them from 25
+  to 27); the block is unchanged on that count. All three are
+  delivery-**order** deviations rather than ownership errors: Tasks 4 and 5
+  already claim `tower_catchup_limit` and `tower_shelve_return` in their own
+  `Deliverables`, so naming them in Task 3 as well would double-claim across
+  blocks; and the settling-pass row's gap is closed by PR #471, where
+  `run_store_pass` runs the settling pass before any verb acts, so amending
+  Task 3 to say `next` does not settle would encode a state that is no
+  longer true.
+
+- **The Task 3 bullet removed from `## Awaiting input`.** All four parked
+  forks are settled: the two above, plus the two the Task 4 branch settled
+  by shipping. Fork 3 took the second option on record (`counts` keeps exit
+  6, and the unreadable marker is the status line's) and Task 5's
+  `Deliverables` and `Done when:` already carry it. Fork 4 kept the
+  evidence-driven settling, with the store's `held_by` field as the signal
+  of which tower held an item when it closed. The section keeps its Task 2
+  bullet, which the Task 2 execution and review passes added and which this
+  delta does not touch; Task 8's wait on the baseline is named there.
+
+#### Deliberately not in this delta
+
+Two decisions from the same execution run are means of satisfying `REQ-B1.4`
+and `REQ-B1.5` as already written, so they are described in PR #471's body
+and nowhere else: the catch-up remainder counted from the event log rather
+than the store, and the field recording which tower held an item when it
+settled. A UTF-8 control-byte defect in `scripts/tower-queue.sh`'s field
+guard, which stripped `0x80`-`0x9F` as C1 controls and so refused em dashes
+and smart quotes, was a bug against the script's own field-grammar comment
+rather than a spec change; no requirement mentions control bytes, and it
+landed on its own fix branch (PR #472) while this delta was open.
+
+#### Lens-coverage table
+
+Delta-scoped Discovery-Rigor pass, walked **inline** rather than fanned out:
+the delta is one added rule sentence, one `Done when:` clause, a four-surface
+reword, and a bullet removal.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 2 | Both on the agent's own edit, both applied before the anchor: "the oldest of them" did not say whether the top item counts (it does not, the scan is `n != target`), and the tie-break is the **lower** identifier, not an unspecified one. |
+| Security | n/a | The delta adds no input path, no privilege decision, and no data surface. |
+| Error handling and failure modes | n/a | No failure path is added or reworded. |
+| Performance | none | The pairing scan is unchanged in shape; the retention reword describes the population an unchanged numeric bound already covered. |
+| Concurrency / state | none | One pre-existing gap noted, not introduced here: the spec does not say the partner is leased and stamped delivered alongside the top item, which the implementation does. Recorded as an observation. |
+| Naming, readability, structure | none | The reworded phrase is identical across all four surfaces. |
+| Documentation | none | The `tower_catchup_limit` options row read "how many the catch-up renders", which understated the split this reword pins; PR #471 corrected it to name the settled population before this delta merged, so nothing is left to do here. |
+| Tests / verification | 1 | Declined with rationale, below. |
+| Cross-file consistency | none | One residual, recorded above: `REQ-B1.3` stays silent on which two items pair. |
+
+**Kickoff-specific altitude check.** Applicable and intact, re-read rather
+than re-litigated: D-1 is the altitude record, it is cited from the goal,
+and the decomposition still matches the claimed altitudes (doctrine in Task
+7, mechanism in Tasks 1 and 3 to 6). The delta touches no altitude surface.
+
+**The declined finding.** `tests/test-tower-queue-store.sh` builds its
+retention fixture from settled records only, and its closing line reads "only
+the settled ones inside the catch-up window", which the reword leaves
+misdescribing what the test proves. Declined rather than applied, and
+declined rather than deferred, because it is not a dead verification path:
+retention keys on the state field alone (`F[n, 12] == "closed"`), which both
+`ack` and `settle` set, so the existing fixture already exercises the exact
+code path an acknowledged fixture would reach. What remains is a stale
+sentence in a test's own echo on merged code, not missing coverage.
+
+#### Pre-flip verification, delta re-walkthrough
+
+- **Post-lens stale-reference sweep.** Not triggered: the pass minted and
+  re-scoped no REQ. A fixed-string sweep for the pre-edit phrasing across the
+  four files returns nothing outside this brief's own prose and D-3's dated
+  amendment note, both of which describe the change rather than restate the
+  old rule.
+- **Lint.** `mise run lint:md` over the brief and the four spec files.
+- **Recorded claims re-derived.** The four reworded surfaces were located by
+  a fixed-string search and re-counted after the edit; the validator was
+  re-run at Active.
+
+**No status flip.** The bundle is already signed and derives Active, so
+`Last reviewed:` moves to 2026-09-17 on all four files and `**Status:**`
+does not move.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this section (inline
+walk, nine lenses, coverage table and dispositions above)
+Anchor: `ab632a4fa801c46c18e7250bbfd59960f309aef2` — computed as
+`scripts/spec-anchor.sh specs/tower-comms`
