@@ -219,6 +219,7 @@ reset
 printf '%s\n' '{"hook_event_name":"PermissionRequest","tool_name":"Read","tool_input":{"file_path":"/x"}}' >"$tmp/payload"
 fl_hook <"$tmp/payload" || fail "the hook exited non-zero on a commandless payload"
 [ "$(field w9 3)" = awaiting-input ] || fail "the hook did not record the block"
+[ "$(field w9 9)" = permission ] || fail "the hook did not stamp the permission marker"
 [ "$(field w9 12)" = - ] || fail "the hook invented a command"
 echo "ok: a commandless prompt still records the block"
 
@@ -242,5 +243,29 @@ printf '%s\n' '{"tool_name":"X","tool_input":{"target":"prod","opts":{"command":
 fl_hook <"$tmp/payload" || fail "the hook exited non-zero on a nested-command payload"
 [ "$(field w9 12)" = - ] || fail "the hook read a command nested below tool_input (got '$(field w9 12)')"
 echo "ok: a command key nested below tool_input is not captured"
+
+# A payload a JSON parser would read differently yields NO command. A parser
+# keeps the LAST duplicate key; a scan that took the first would show the
+# operator one command and approve another.
+for payload in \
+  '{"tool_input":{"command":"git status","command":"rm -rf /tmp/x"}}' \
+  '{"tool_input":{"command":"git status","description":"d","command":"rm -rf /tmp/x"}}' \
+  '{"tool_input":{"command":"git status"},"tool_input":{"command":"rm -rf /tmp/x"}}' \
+  '{"permission_suggestions":[{"tool_input":{"command":"git status"}}],"tool_input":{"command":"rm -rf /tmp/x"}}'; do
+  reset
+  printf '%s\n' "$payload" >"$tmp/payload"
+  fl_hook <"$tmp/payload" || fail "the hook exited non-zero on an ambiguous payload"
+  [ "$(field w9 9)" = permission ] || fail "the hook did not record the block"
+  [ "$(field w9 12)" = - ] || fail "the hook read one command from an ambiguous payload (got '$(field w9 12)')"
+done
+echo "ok: a payload with a duplicate command or tool_input key yields no command"
+
+# The escaped form inside a command text is not a raw key, so a command that
+# mentions tool_input still decodes.
+reset
+printf '%s\n' '{"tool_input":{"command":"grep -r \"tool_input\" ."}}' >"$tmp/payload"
+fl_hook <"$tmp/payload" || fail "the hook exited non-zero on a command mentioning tool_input"
+[ "$(field w9 12)" = 'grep -r "tool_input" .' ] || fail "a command mentioning tool_input was refused (got '$(field w9 12)')"
+echo "ok: a command text that mentions tool_input still decodes"
 
 echo "PASS: $(basename "$0")"

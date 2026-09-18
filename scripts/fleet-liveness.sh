@@ -656,6 +656,14 @@ extract_notification_type() {
 # tool_input's braces and strings, tracks depth, and accepts a `command` key only
 # at depth 1 of that object; it stops at the object's closing brace.
 #
+# It also refuses a payload whose shape it cannot read the one way a JSON parser
+# would: a second `"tool_input"` key anywhere (a duplicate, or a sibling object
+# carrying one before the real one), or a second `command` key at that top
+# level. A parser keeps the LAST duplicate; a scan that stopped at the first
+# would show the operator one command and approve another. Ambiguity yields no
+# command, so the prompt reaches the operator. The escaped form a command text
+# carries (`\"tool_input\"`) is not a raw key and does not count.
+#
 # The value is JSON-decoded for the two escapes a command text realistically
 # carries (`\"` and `\\`); any OTHER escape ends the extraction with nothing, so
 # a payload this cannot decode exactly yields a record with no command field —
@@ -685,20 +693,25 @@ extract_tool_command() {
     END {
       ti = index(s, "\"tool_input\"")
       if (ti == 0) exit
+      if (index(substr(s, ti + 1), "\"tool_input\"") != 0) exit
       i = ti + length("\"tool_input\"")
       n = length(s)
       while (i <= n && substr(s, i, 1) ~ /[ \t\r\n:]/) i++
       if (substr(s, i, 1) != "{") exit
-      depth = 0; key = ""
+      depth = 0; key = ""; seen = 0; have = 0
       while (i <= n) {
         c = substr(s, i, 1)
         if (c == "{" || c == "[") { depth++; i++; key = ""; continue }
-        if (c == "}" || c == "]") { depth--; if (depth <= 0) exit; i++; key = ""; continue }
+        if (c == "}" || c == "]") {
+          depth--
+          if (depth <= 0) { if (seen == 1 && have) print cmd; exit }
+          i++; key = ""; continue
+        }
         if (c == "\"") {
           jstr(i)
           if (JEND == 0) exit
-          if (depth == 1 && key == "" ) { key = JVAL; i = JEND; continue }
-          if (depth == 1 && key == "command") { print JVAL; exit }
+          if (depth == 1 && key == "" ) { key = JVAL; if (key == "command") seen++; i = JEND; continue }
+          if (depth == 1 && key == "command") { cmd = JVAL; have = 1 }
           i = JEND; key = ""
           continue
         }
