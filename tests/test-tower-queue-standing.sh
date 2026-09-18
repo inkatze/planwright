@@ -1,0 +1,285 @@
+#!/bin/bash
+# Tests for the standing-decision match and the settle-by-rule route —
+# scripts/tower-queue.sh's `match` verb, the settling pass answering a worker
+# permission prompt from a written rule through the sanctioned answer channel,
+# and what `next` surfaces beside an item without settling it (REQ-B1.2,
+# REQ-E1.4, REQ-E1.5, REQ-E1.7, REQ-E1.8, REQ-E1.9, REQ-E1.10, REQ-H1.1,
+# REQ-H1.2; D-12).
+#
+# Contract under test:
+#   match --decision <id> --command <text>
+#       Prints `match`, `no-match` or `reserved`; exit 0 only on a match.
+#   settle (the pass)
+#       A permission prompt strictly inside a rule is answered and settled with
+#       a reason naming the decision's identifier, plus an `answered` line
+#       carrying the rule in the operator's own words and no identifier.
+#   next
+#       Prints the command being approved and any free-coverage rule on the
+#       item's subject, and settles nothing by doing so.
+#
+# Runs standalone under /bin/bash (the bash 3.2 floor).
+set -eu
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+here=$(cd "$(dirname "$0")" && pwd)
+TQ="$here/../scripts/tower-queue.sh"
+FA="$here/../scripts/fleet-attention.sh"
+
+errf=""
+
+fail() {
+  echo "FAIL: $1" >&2
+  if [ -n "${errf:-}" ] && [ -s "$errf" ]; then
+    echo "--- stderr of the last run ---" >&2
+    cat "$errf" >&2
+  fi
+  exit 1
+}
+
+[ -x "$TQ" ] || fail "scripts/tower-queue.sh missing or not executable"
+[ -x "$FA" ] || fail "scripts/fleet-attention.sh missing or not executable"
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+errf="$tmp/stderr"
+
+home="$tmp/fleet-home"
+mkdir -p "$home"
+chmod 0700 "$home"
+adopter="$tmp/adopter"
+mkdir -p "$adopter"
+local_cfg="$tmp/local.yml"
+: >"$local_cfg"
+
+surface="$home/tower-comms"
+store="$surface/queue"
+attn_store="$home/attention/state"
+
+TAB=$(printf '\t')
+APPROVE='approve in the worker session'
+
+run() {
+  : >"$errf"
+  PLANWRIGHT_FLEET_STATE_DIR="$home" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+    /bin/sh "$TQ" "$@" 2>"$errf"
+}
+
+fa() {
+  : >"$errf"
+  PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$FA" "$@" 2>"$errf"
+}
+
+f() { printf '%s' "$1" | cut -d"$TAB" -f"$2"; }
+
+# line <output> <tag> — the first line of the output carrying that tag.
+line() {
+  printf '%s\n' "$1" | awk -F "$TAB" -v t="$2" '$1 == t { print; exit }'
+}
+
+rec() { awk -F "$TAB" -v i="$1" -v n="$2" '($1 "") == (i "") { print $n; exit }' "$store"; }
+
+fresh() {
+  rm -rf "$surface" "$home/attention"
+}
+
+# --- the match, in isolation ------------------------------------------------
+
+fresh
+rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --covers-command 'git log' --now 1000)" 2) \
+  || fail "capture of the rule failed"
+
+run match --decision "$rule" --command 'git status --short' >"$tmp/o" || fail "a covered command did not match"
+[ "$(cat "$tmp/o")" = match ] || fail "a covered command printed '$(cat "$tmp/o")'"
+echo "ok: a command inside the rule matches"
+
+# The command IS the prefix.
+run match --decision "$rule" --command 'git status' >/dev/null || fail "the bare prefix did not match"
+echo "ok: the bare prefix matches"
+
+# One token outside it.
+rc=0
+run match --decision "$rule" --command 'git push --tags' >"$tmp/o" || rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = no-match ] || fail "a command outside the rule was not refused (exit $rc, '$(cat "$tmp/o")')"
+echo "ok: a command outside every prefix does not match"
+
+# Sharing only part of a token with a prefix (`git statuses`) is not a match.
+rc=0
+run match --decision "$rule" --command 'git statuses' >"$tmp/o" || rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = no-match ] || fail "a prefix continued inside its own token matched (exit $rc)"
+echo "ok: a covered prefix followed by more of the same token does not match"
+
+# The allowlist: anything outside it after the prefix refuses the match.
+# shellcheck disable=SC2016 # the whole point is that these stay unexpanded
+for bad in 'git status; rm -rf /' 'git status | sh' 'git status && ls' 'git status `id`' \
+  'git status $(id)' 'git status \$x' 'git status >out'; do
+  rc=0
+  run match --decision "$rule" --command "$bad" >"$tmp/o" || rc=$?
+  [ "$rc" = 1 ] || fail "a shell-operator suffix ('$bad') matched anyway (exit $rc)"
+done
+echo "ok: a remainder outside the allowlist refuses the match"
+
+# A quoted-string interior is admitted; the quote may not re-open into expansion.
+run match --decision "$rule" --command 'git log --grep="fix the thing"' >/dev/null \
+  || fail "a quoted-string interior was refused"
+rc=0
+# shellcheck disable=SC2016
+run match --decision "$rule" --command 'git log --grep="`id`"' >/dev/null || rc=$?
+[ "$rc" = 1 ] || fail "a backtick inside double quotes matched (exit $rc)"
+rc=0
+run match --decision "$rule" --command 'git log --grep="unterminated' >/dev/null || rc=$?
+[ "$rc" = 1 ] || fail "an unterminated quote matched (exit $rc)"
+echo "ok: a quoted interior is admitted but never re-opens into expansion"
+
+# The mechanical reserved-control refusal, whatever the rule covers. The rule
+# above covers `git log`, and this command starts with it.
+rc=0
+run match --decision "$rule" --command 'git log --merge' >"$tmp/o" || rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] || fail "a reserved-control command matched under a covering rule (exit $rc, '$(cat "$tmp/o")')"
+echo "ok: a reserved-control command is refused at match time whatever the rule covers"
+
+# A decision the queue does not hold, or that is not a standing decision.
+rc=0
+run match --decision i00000000 --command 'git status' >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "an unknown decision was not refused (exit $rc)"
+req=$(f "$(run capture --kind request --text 'do a thing' --now 1001)" 2)
+rc=0
+run match --decision "$req" --command 'git status' >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "a non-standing item was accepted as a decision (exit $rc)"
+echo "ok: an unknown or non-standing decision is refused"
+
+# A revoked rule answers nothing more.
+run settle "$rule" --reason 'the operator revoked it' --now 1002 >/dev/null || fail "revoking the rule failed"
+rc=0
+run match --decision "$rule" --command 'git status' >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "a revoked rule still matched (exit $rc)"
+echo "ok: a revoked rule matches nothing"
+
+# --- the settle-by-rule route ----------------------------------------------
+
+fresh
+rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 2000)" 2) || fail "capture of the rule failed"
+fa permission w1 spec.task-1 'git status --short' || fail "the permission push failed"
+item=$(run add --kind question --origin w1 --worker w1 --closes 'the operator answers' --now 2001) || fail "queueing the prompt failed"
+
+out=$(run settle --now 2002) || fail "the settling pass failed"
+settled=$(line "$out" settled)
+[ -n "$settled" ] || fail "the covered prompt did not settle: $out"
+[ "$(f "$settled" 2)" = "$item" ] || fail "the pass settled the wrong item: $settled"
+case $(f "$settled" 5) in
+  *"$rule"*) ;;
+  *) fail "the settling record does not carry the decision's identifier: $settled" ;;
+esac
+answered=$(line "$out" answered)
+[ -n "$answered" ] || fail "the pass spoke no rule for the answer it gave: $out"
+[ "$(f "$answered" 3)" = "$rule" ] || fail "the answered line names the wrong decision: $answered"
+[ "$(f "$answered" 4)" = 'always let the workers run read-only git' ] || fail "the answered line does not name the rule in the operator's words: $answered"
+case $(f "$answered" 4) in
+  *"$rule"*) fail "the spoken text carries the decision's identifier: $answered" ;;
+esac
+[ "$(rec "$item" 12)" = closed ] || fail "the item did not close"
+echo "ok: a prompt inside a rule is answered and settled naming the rule"
+
+# The answer went through the sanctioned channel, not into the row by hand.
+[ "$(awk -F "$TAB" '$1 == "w1" { print $11 }' "$attn_store")" = "$APPROVE" ] \
+  || fail "the answer channel did not stamp the claim"
+echo "ok: the answer went through the answer channel"
+
+# The log line carries the identifier too.
+grep -q "\"reason\":\"answered from the standing decision $rule\"" "$surface/events.log" \
+  || fail "the event log's settled line does not carry the decision's identifier"
+echo "ok: the log line carries the decision's identifier"
+
+# --- a prompt one token outside the rule -----------------------------------
+
+fresh
+rule=$(f "$(run capture --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 3000)" 2) || fail "capture of the rule failed"
+fa permission w2 spec.task-1 'git push --tags' || fail "the permission push failed"
+item=$(run add --kind question --origin w2 --worker w2 --closes 'the operator answers' --now 3001) || fail "queueing the prompt failed"
+out=$(run settle --now 3002) || fail "the settling pass failed"
+[ -z "$(line "$out" settled)" ] || fail "a prompt outside every rule was settled: $out"
+[ "$(rec "$item" 12)" = open ] || fail "a prompt outside every rule did not stay open"
+# `-` is the placeholder the permission writer reserves field 11 with; a real
+# label there would mean the prompt was answered.
+[ "$(awk -F "$TAB" '$1 == "w2" { print $11 }' "$attn_store")" = - ] \
+  || fail "a prompt outside every rule was answered anyway"
+echo "ok: a prompt outside every rule reaches the operator, unanswered"
+
+# A remainder that leaves the allowlist after a covered prefix is never answered.
+fresh
+run capture --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 3100 >/dev/null || fail "capture of the rule failed"
+fa permission w3 spec.task-1 'git status; rm -rf /tmp/x' || fail "the permission push failed"
+item=$(run add --kind question --origin w3 --worker w3 --closes 'the operator answers' --now 3101) || fail "queueing the prompt failed"
+out=$(run settle --now 3102) || fail "the settling pass failed"
+[ "$(rec "$item" 12)" = open ] || fail "a command leaving the allowlist was settled: $out"
+echo "ok: a command whose remainder leaves the allowlist is never answered"
+
+# --- a record with no marker, or no command --------------------------------
+
+fresh
+run capture --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 3200 >/dev/null || fail "capture of the rule failed"
+# A plain `decide` row: awaiting-input, no marker, and prose that mentions the
+# command. Nothing here may be matched from that prose (REQ-E1.8).
+fa decide w4 spec.task-1 'may I run git status --short' 'yes' 'yes|no' || fail "the decide push failed"
+item=$(run add --kind question --origin w4 --worker w4 --closes 'the operator answers' --now 3201) || fail "queueing the decision failed"
+out=$(run settle --now 3202) || fail "the settling pass failed"
+[ "$(rec "$item" 12)" = open ] || fail "a record with no permission marker was matched: $out"
+echo "ok: a record with no permission marker is never matched"
+
+fresh
+run capture --kind standing --text 'always let the workers run read-only git' \
+  --covers-command 'git status' --now 3300 >/dev/null || fail "capture of the rule failed"
+fa permission w5 spec.task-1 || fail "the permission push failed"
+item=$(run add --kind question --origin w5 --worker w5 --closes 'the operator answers' --now 3301) || fail "queueing the prompt failed"
+out=$(run settle --now 3302) || fail "the settling pass failed"
+[ "$(rec "$item" 12)" = open ] || fail "a record with no command field was matched: $out"
+echo "ok: a record with the marker but no command is never matched"
+
+# --- a non-command rule beside an item -------------------------------------
+
+fresh
+free=$(f "$(run capture --kind standing --text 'always prefer the smaller PR on task 5' \
+  --covers 'anything about task 5' --subject worker:w6 --now 4000)" 2) \
+  || fail "capture of the non-command rule failed"
+fa permission w6 spec.task-1 'gh pr diff 471' || fail "the permission push failed"
+item=$(run add --kind question --origin w6 --worker w6 --closes 'the operator answers' --now 4001) || fail "queueing the prompt failed"
+
+# The rule settles nothing mechanically.
+out=$(run settle --now 4002) || fail "the settling pass failed"
+[ "$(rec "$item" 12)" = open ] || fail "a non-command rule settled an item: $out"
+echo "ok: a non-command rule settles nothing mechanically"
+
+# It is surfaced beside the item at the hand-over instead.
+run log knocked --tower t1 --now 4003 item="$item" item_kind=question urgency=normal >/dev/null \
+  || fail "seeding the knock failed"
+out=$(run next --tower t1 --now 4004) || fail "the knocking next failed"
+[ -n "$(line "$out" knock)" ] || fail "next did not knock: $out"
+mkdir -p "$surface/attention"
+chmod 0700 "$surface/attention"
+printf '%s\n' 4005 >"$surface/attention/t1"
+chmod 0600 "$surface/attention/t1"
+out=$(run next --tower t1 --now 4006) || fail "the delivering next failed"
+[ -n "$(line "$out" item)" ] || fail "next handed nothing over: $out"
+rule_line=$(line "$out" rule)
+[ -n "$rule_line" ] || fail "the non-command rule was not surfaced beside the item: $out"
+[ "$(f "$rule_line" 2)" = "$free" ] || fail "the rule line names the wrong decision: $rule_line"
+[ "$(f "$rule_line" 3)" = 'always prefer the smaller PR on task 5' ] || fail "the rule line does not carry the rule's words: $rule_line"
+[ "$(rec "$item" 12)" = open ] || fail "surfacing the rule closed the item"
+echo "ok: a non-command rule is surfaced beside the item and settles nothing"
+
+# The command the operator is being asked to approve goes over with it.
+cmd_line=$(line "$out" command)
+[ -n "$cmd_line" ] || fail "the command being approved was not shown: $out"
+[ "$(f "$cmd_line" 3)" = 'gh pr diff 471' ] || fail "the command line carries the wrong text: $cmd_line"
+echo "ok: the command being approved is shown with the item"
+
+echo "PASS: $(basename "$0")"

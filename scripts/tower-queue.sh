@@ -292,6 +292,76 @@
 # written to `rebuild.debt` under the sub-surface before the store lands and
 # paid once the lock is released, by that verb or the next one.
 #
+# INBOUND CAPTURE (`capture`, D-11, REQ-E1.1 to REQ-E1.4, REQ-E1.7). Anything
+# the operator asks for becomes an item in the same turn, with no confirmation
+# asked for: the content is written to the action-item ledger when its helper
+# is installed, and until then to the PRE-SHIP FALLBACK — one machine-local,
+# untracked, owner-only file at `<home>/tower-comms/ledger`, never in the
+# tracked tree — and the queue record is registered pointing at whichever home
+# was written. Both homes hold the same ledger-shaped record, one flat
+# tab-separated line per field (`item` with the kind, the date and the coverage
+# kind; `text`; one `covers` line per coverage value), so a coverage list needs
+# no nested delimiter. Because one file holds many items, the record's
+# `instance` field carries the content key (`add --key`), and that key is part
+# of the item's identity: two captures into one ledger are two items, and the
+# same words captured twice are one.
+#
+# `capture` prints ONE line — `captured`, the id, the kind, the subject, the
+# coverage kind, and the text as the operator is shown it, redacted and
+# rendered ASCII-only. That is the echo; the operator corrects it only if it is
+# wrong.
+#
+# A STANDING DECISION (`--kind standing`) carries the rule in the operator's
+# words, when it was said, and what it covers. Coverage is either a list of
+# literal command prefixes (`--covers-command`, repeatable, each non-empty, at
+# most 256 bytes, no control byte, no leading whitespace, and never a glob or a
+# regex — a pattern is refused rather than silently compared byte-for-byte) or
+# free text (`--covers`). A coverage — or a rule text — that reaches a reserved
+# human control is REFUSED here, and refused again at match time whatever a
+# rule claims: a merge, a ready-flip, a force-push, an amend, a squash, a
+# rebase, and a push to the default branch stay the operator's (REQ-H1.1).
+#
+# THE MATCH (`match`, D-12, REQ-E1.5, REQ-E1.8 to REQ-E1.10). A worker's
+# harness permission prompt may be answered from a written rule, and only from
+# one. The command it is matched against is the `command` field the
+# PermissionRequest hook captured into the attention row beside the positive
+# `permission` marker (field 9); a record carrying neither is refused rather
+# than matched from any other text on the row. Strictly inside means: the
+# reserved-control refusal does not fire; the command starts with one of the
+# rule's literal prefixes under fixed-string comparison, with a token boundary
+# after it (a prefix the operator wrote with its own trailing space is how they
+# say "any continuation of this token"); and the remainder falls inside a
+# conservative allowlist — the characters in `[A-Za-z0-9._/@:=+-]`, spaces, and
+# quoted-string interiors, which is what an enumerated denylist of shell
+# operators could never be: complete. Inside a quoted string the interior is
+# admitted except the bytes that keep their meaning there, and an unterminated
+# quote refuses. `match` is a lock-free read that prints one tag — `match`,
+# `no-match` or `reserved` — and exits 0 only on a match, so the answer channel
+# can call it while holding the fleet lock.
+#
+# THE SETTLE-BY-RULE ROUTE, in the settling pass and confined to permission
+# prompts (REQ-E1.7). Every other kind of rule settles nothing mechanically.
+# For an open item whose attention row is an unclaimed permission record, the
+# open command-coverage decisions are tried in store order and the first that
+# covers the command is delivered as the OPERATOR's answer through the
+# sanctioned answer channel (`fleet-attention.sh claim ... --standing <id>`),
+# which resolves the named decision itself and re-runs the match against the
+# parked command before accepting. The item settles only once that channel is
+# confirmed to have exited zero; a non-zero exit leaves it open with the
+# attempt logged as `refused`. The settling record and its log line carry the
+# decision's identifier and no text from the command line at all; what the
+# tower SPEAKS is the pass's `answered` line — the item, the identifier, and
+# the rule in the operator's own words, which is the field the tower reads out
+# and the only one with no identifier in it (REQ-E1.4).
+#
+# A rule whose coverage is free text is SURFACED instead: `next` prints a
+# `rule` line beside any item whose subject the rule names, and the item stays
+# open for the tower's reply to apply it and name it. `next` also prints a
+# `command` line for a permission item, the command the operator is being asked
+# to approve — redacted and ASCII-only, any other byte shown as an escape
+# beside a warning, so no approval is given to text that renders as something
+# else (REQ-E1.9).
+#
 # THE LOG. One flat JSON object per line under a 0700 sub-surface of the
 # cross-spec fleet home (`fleet-state.sh root`): `<home>/tower-comms/`, holding
 # `events.log`, the sequence counter `events.seq`, and `events.dropped`, one
@@ -435,8 +505,12 @@ usage: tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> .
        tower-queue.sh report [--log <path>] [--now <epoch>] [--window <duration>] [--tick-gap-max <duration>]
        tower-queue.sh add --kind <kind> --origin <who> --closes <text> [--urgency high|normal|low] [--now <epoch>]
                       (--worker <handle> [--root <dir> --park <rel>] | --root <dir> --pointer <rel> [--park <rel>])
-                      [--subject worker:<handle>|pr:<n>|branch:<name>|ledger:<key>]
+                      [--subject worker:<handle>|pr:<n>|branch:<name>|ledger:<key>] [--key <content-key>]
                       --closes defaults for a standing decision; a question inherits its row's urgency and refuses --urgency
+       tower-queue.sh capture --kind request|approval|standing --text <text>
+                      [--covers <free text> | --covers-command <prefix> ...] (a standing decision)
+                      [--subject <key>] [--origin <who>] [--urgency high|normal|low] [--closes <text>] [--now <epoch>]
+       tower-queue.sh match --decision <id> --command <text>
        tower-queue.sh next [--tower <id>] [--now <epoch>] [--evidence <file>]
        tower-queue.sh ack <id> [--tower <id>] [--now <epoch>]
        tower-queue.sh shelve <id> [--tower <id>] [--for <duration>] [--now <epoch>]
@@ -958,6 +1032,7 @@ WORK_TMP=""
 # trap.
 EVID_FILE=""
 EVID_RAW=""
+RULE_FILE=""
 KNOB_DIR=""
 # fleet-state disowns the lock its `lock` verb takes to this caller, and its
 # `unlock` is an unconditional `rm -f` its own header calls out as able to
@@ -993,6 +1068,7 @@ cleanup() {
   [ -z "$WORK_TMP" ] || rm -f "$WORK_TMP" 2>/dev/null || true
   [ -z "$EVID_FILE" ] || rm -f "$EVID_FILE" 2>/dev/null || true
   [ -z "$EVID_RAW" ] || rm -f "$EVID_RAW" 2>/dev/null || true
+  [ -z "$RULE_FILE" ] || rm -f "$RULE_FILE" 2>/dev/null || true
   [ -z "$KNOB_DIR" ] || rm -rf "$KNOB_DIR" 2>/dev/null || true
   [ -z "$SCRATCH" ] || rm -rf "$SCRATCH" 2>/dev/null || true
 }
@@ -1814,6 +1890,136 @@ is_uuid() {
     $UUID_PAT) return 0 ;;
   esac
   return 1
+}
+
+# --- standing decisions: coverage, the match, and what is never covered ------
+
+# The literal-prefix coverage grammar (REQ-E1.3): non-empty, bounded, no
+# control byte, no leading whitespace, and never a pattern. A glob or a regex
+# metacharacter is refused outright rather than quietly compared byte-for-byte:
+# an operator who writes `git *` means a pattern, and a rule that silently
+# matched only the literal three bytes would be a rule they never wrote.
+is_prefix() {
+  [ -n "$1" ] || return 1
+  [ "${#1}" -le 256 ] || return 1
+  has_control "$1" && return 1
+  case "$1" in
+    ' '* | *'*'* | *'?'* | *'['* | *']'* | *\\* | *'^'* | *'$'* | *'|'*) return 1 ;;
+  esac
+  return 0
+}
+
+# reserved_control <command or coverage> — 0 when the text reaches one of the
+# reserved human controls (REQ-E1.9, REQ-H1.1). This is a security boundary,
+# not a validation nicety: it runs at `capture` against a rule's coverage AND
+# at match time against the command, so a rule that somehow claims one is
+# refused anyway. Deliberately OVER-refusing — a substring test, so a path
+# named `merged/` or a branch called `squash-fix` costs its command the
+# mechanical answer and reaches the operator instead. That is the direction to
+# be wrong in. The force/main shapes are keyed to a push, which is the only
+# context in which they are the reserved control rather than an ordinary flag.
+reserved_control() {
+  _rl=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$_rl" in
+    *merge* | *merging* | *rebas* | *amend* | *squash* | *force-push* | *force-with-lease*) return 0 ;;
+    *' ready'* | *'--ready'* | ready | ready' '*) return 0 ;;
+  esac
+  case "$_rl" in
+    *push*)
+      case "$_rl" in
+        *'--force'* | *' -f '* | *' -f' | *' main'* | *' master'* | *:main | *:main' '* | *:master | *:master' '*) return 0 ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+# cmd_allowlisted <text> — 0 when every byte of the command's remainder is
+# inside the conservative allowlist (REQ-E1.9, D-12): the characters in
+# `[A-Za-z0-9._/@:=+-]`, spaces, and the interiors of quoted strings. An
+# allowlist rather than a denylist of shell operators, because only the
+# allowlist can be complete. Inside a quoted string the interior is admitted
+# wholesale EXCEPT the three bytes that keep their meaning there — a backslash
+# in either quoting style, and `$` or a backtick inside double quotes — so an
+# interior can never re-open into expansion. An unterminated quote is refused.
+cmd_allowlisted() {
+  _as=$1
+  _aq=""
+  while [ -n "$_as" ]; do
+    _ac=${_as%"${_as#?}"}
+    _as=${_as#?}
+    if [ -n "$_aq" ]; then
+      if [ "$_ac" = "$_aq" ]; then
+        _aq=""
+        continue
+      fi
+      case "$_ac" in
+        \\) return 1 ;;
+      esac
+      if [ "$_aq" = '"' ]; then
+        case "$_ac" in
+          '$' | '`') return 1 ;;
+        esac
+      fi
+      has_control "$_ac" && return 1
+      continue
+    fi
+    case "$_ac" in
+      "'" | '"') _aq=$_ac ;;
+      ' ') ;;
+      [A-Za-z0-9._/@:=+-]) ;;
+      *) return 1 ;;
+    esac
+  done
+  [ -z "$_aq" ]
+}
+
+# prefix_match <command> <prefix> — 0 when the command falls strictly inside
+# the rule (REQ-E1.5, REQ-E1.9). Fixed-string, never a pattern: the prefix is
+# quoted inside the expansion so nothing in it is ever read as one. A token
+# boundary is required after the prefix, so a rule covering `git s` does not
+# reach `git status` — unless the operator wrote the prefix with its own
+# trailing space, which is how they say "any continuation of this token".
+prefix_match() {
+  _mc=$1
+  _mp=$2
+  is_prefix "$_mp" || return 1
+  _mr=${_mc#"$_mp"}
+  [ "$_mr" != "$_mc" ] || return 1
+  case "$_mp" in
+    *' ') ;;
+    *)
+      if [ -n "$_mr" ]; then
+        case "$_mr" in
+          ' '*) ;;
+          *) return 1 ;;
+        esac
+      fi
+      ;;
+  esac
+  cmd_allowlisted "$_mr"
+}
+
+# ascii_render <text> — the text as the operator may be shown it (REQ-E1.9):
+# every byte outside printable ASCII rendered as `\xNN`, so no approval is
+# ever given to text that renders as something else. Prints `<0|1><TAB><text>`,
+# the flag first, because every caller reads this through a command
+# substitution and a variable set inside one does not survive the subshell.
+ascii_render() {
+  printf '%s' "$1" | awk '
+    function hex(c,   i) {
+      if (!init) { for (i = 1; i < 256; i++) m[sprintf("%c", i)] = sprintf("%02x", i); init = 1 }
+      return (c in m) ? m[c] : "3f"
+    }
+    { s = s $0 }
+    END {
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c ~ /^[ -~]$/) out = out c
+        else { esc = 1; out = out "\\x" hex(c) }
+      }
+      print (esc ? "1" : "0") "\t" out
+    }'
 }
 
 # promises_automation <closes> — 0 when the closing condition promises a
@@ -3048,6 +3254,191 @@ ev_prepare() {
   fi
 }
 
+# attn_perm <worker> — the permission-record fields of the worker's attention
+# row: the marker (field 9), the option set (8), the claim label (11) and the
+# captured command (12). All empty when there is no such row. A `-` in the
+# claim or the command slot is the placeholder the permission writer reserves
+# it with and reads as absent, exactly as the settling pass reads them.
+attn_perm() {
+  p_f9=""
+  p_opts=""
+  p_iid="-"
+  p_claim=""
+  p_cmd=""
+  [ -f "$attn_store" ] || return 0
+  _ap=$(awk -F '\t' -v w="$1" '($1 "") == (w "") {
+      print (($9 "") == "" ? "-" : $9) "\t" (($8 "") == "" ? "-" : $8) "\t" ((NF >= 10 && $10 != "") ? $10 : "-") "\t" ((NF >= 11 && $11 != "") ? $11 : "-") "\t" ((NF >= 12 && $12 != "") ? $12 : "-")
+      exit
+    }' "$attn_store" 2>/dev/null) || {
+    err "cannot read the attention store"
+    exit 6
+  }
+  [ -n "$_ap" ] || return 0
+  # Every slot carries `-` when it is absent: TAB is IFS whitespace, so a
+  # genuinely empty field would COLLAPSE here and shift every later field one
+  # place left — the command would be read as the claim, and the record would
+  # look answered and commandless at once.
+  IFS="$TAB" read -r p_f9 p_opts p_iid p_claim p_cmd <<EOF
+$_ap
+EOF
+  [ "$p_f9" != "-" ] || p_f9=""
+  [ "$p_opts" != "-" ] || p_opts=""
+  [ "$p_claim" != "-" ] || p_claim=""
+  [ "$p_cmd" != "-" ] || p_cmd=""
+  return 0
+}
+
+# rule_covers <root> <rel> <key> <command> — 0 when one of the rule's literal
+# prefixes covers the command, with the reserved-control refusal first. The
+# same three checks `match` runs; that verb is the answer channel's own second
+# opinion, this one is the pass's first.
+rule_covers() {
+  reserved_control "$4" && return 1
+  while IFS= read -r _rc; do
+    [ -n "$_rc" ] || continue
+    prefix_match "$4" "$_rc" && return 0
+  done <<EOF
+$(ledger_covers "$1" "$2" "$3")
+EOF
+  return 1
+}
+
+# rule_prepare — the settle-by-rule route (REQ-E1.5, REQ-E1.7, REQ-E1.10,
+# D-12). Confined to worker permission prompts: for every open item whose
+# attention row is a permission record carrying a command, the open standing
+# decisions with command coverage are tried in store order, and the first that
+# covers the command is delivered as the operator's answer through the
+# sanctioned answer channel — never written into the row here. The item is
+# settled only by the evidence line this writes, and that line is written only
+# once the channel has been confirmed to have exited zero; a non-zero exit
+# leaves the item open with the attempt logged.
+#
+# It runs where the rest of the evidence is gathered: before the lock, and
+# through a channel that takes the fleet lock itself, so the two never nest. A
+# row that is already claimed is skipped — the answer has been given, and the
+# claim field is the evidence that settles it.
+rule_prepare() {
+  RULE_FILE=$(mktemp "$surface/.rule.XXXXXX" 2>/dev/null) || {
+    err "cannot create a scratch file for the rule route"
+    exit 6
+  }
+  [ -f "$store_file" ] || return 0
+  [ -f "$attn_store" ] || return 0
+  _rules=$(awk -F '\t' '(NF == 20 || NF == 23 || NF == 24) && $12 == "open" && $2 == "standing" && $6 == "path" && $9 != "-" { print $1 "\t" $9 "\t" $7 "\t" $8 }' "$store_file" 2>/dev/null) || {
+    err "cannot read the queue store for its standing decisions"
+    exit 6
+  }
+  [ -n "$_rules" ] || return 0
+  _cands=$(awk -F '\t' '(NF == 20 || NF == 23 || NF == 24) && $12 == "open" && $2 != "standing" && $6 == "attention" { print $1 "\t" $7 }' "$store_file" 2>/dev/null) || {
+    err "cannot read the queue store for its open items"
+    exit 6
+  }
+  while IFS="$TAB" read -r _pi _pw; do
+    is_item_id "$_pi" || continue
+    is_handle "$_pw" || continue
+    attn_perm "$_pw"
+    [ "$p_f9" = permission ] || continue
+    [ -n "$p_cmd" ] || continue
+    [ -z "$p_claim" ] || continue
+    _label=${p_opts%%"|"*}
+    [ -n "$_label" ] || continue
+    while IFS="$TAB" read -r _di _dr _dp _dk; do
+      is_item_id "$_di" || continue
+      [ "$(ledger_coverkind "$_dr" "$_dp" "$_dk")" = command ] || continue
+      rule_covers "$_dr" "$_dp" "$_dk" "$p_cmd" || continue
+      # The answer channel decides, not this loop: it resolves the decision
+      # itself and re-runs the match against the parked command before it
+      # accepts (REQ-E1.10). An exit this cannot read as success settles
+      # nothing.
+      _arc=0
+      "$script_dir/fleet-attention.sh" claim "$_pw" "$p_iid" "$_label" --standing "$_di" \
+        >/dev/null 2>&1 </dev/null || _arc=$?
+      if [ "$_arc" = 0 ]; then
+        # The stored reason carries the decision's identifier and NOTHING taken
+        # from the command line (REQ-E1.4, REQ-H1.3): this string is written by
+        # awk in the pass, which the one redaction helper cannot reach, so no
+        # untrusted text is interpolated into it at all. What the tower SPEAKS
+        # is the rule in the operator's own words, on the `answered` line below,
+        # and that one carries no identifier.
+        printf 'settles\titem:%s\tanswered from the standing decision %s\n' "$_pi" "$_di" >>"$EVID_FILE"
+        printf '%s\t%s\t%s\t%s\t%s\n' "$_pi" "$_di" "$_dr" "$_dp" "$_dk" >>"$RULE_FILE"
+      else
+        err "the answer channel refused or failed on $_pi under the standing decision $_di (exit $_arc); the item stays open"
+        owe_log refused --now "$now" item="$_pi" verb=settle-by-rule decision="$_di" reason="answer-channel-exit-$_arc"
+      fi
+      break
+    done <<EOF2
+$_rules
+EOF2
+  done <<EOF
+$_cands
+EOF
+}
+
+# rule_spoken <result> — one `answered` line per item the pass actually
+# settled through a rule: the item, the decision's identifier, and the rule in
+# the operator's own words, redacted and rendered ASCII-only. The tower speaks
+# the LAST field and nothing else (REQ-E1.4).
+rule_spoken() {
+  [ -n "$RULE_FILE" ] && [ -s "$RULE_FILE" ] || return 0
+  while IFS="$TAB" read -r _si _sd _sr _sp _sk; do
+    is_item_id "$_si" || continue
+    case "$1" in
+      *"settled$TAB$_si$TAB"*) ;;
+      *) continue ;;
+    esac
+    _st=$(ledger_field "$_sr" "$_sp" "$_sk" text) || _st=""
+    [ -n "$_st" ] || _st="(the rule's text is no longer at its home)"
+    _sv=$(ascii_render "$(redact "$_st")")
+    [ "${_sv%%"$TAB"*}" = 0 ] \
+      || err "the rule's text carried bytes outside printable ASCII; they are shown escaped"
+    printf 'answered\t%s\t%s\t%s\n' "$_si" "$_sd" "${_sv#*"$TAB"}"
+  done <"$RULE_FILE"
+}
+
+# surface_rules <item-id> — what `next` shows BESIDE the item it just handed
+# over, neither of which changes the item's state. Two lines, both rendered
+# ASCII-only through the one redaction helper before they reach the screen
+# (REQ-E1.9, REQ-G1.8, REQ-H1.3):
+#
+#   command  the command the operator is being asked to approve, when the item
+#            is a permission prompt — so the decision is made against the text
+#            the match reads, not against a paraphrase.
+#   rule     a standing decision whose coverage is free text and whose subject
+#            is this item's (REQ-E1.7). It settles nothing: a non-command rule
+#            is surfaced for the tower's reply to apply and name, never applied
+#            mechanically. The reply that applies it names the rule; the
+#            identifier on this line is for the settling record that follows.
+surface_rules() {
+  [ -f "$store_file" ] || return 0
+  _si=$(awk -F '\t' -v i="$1" '(NF == 20 || NF == 23 || NF == 24) && ($1 "") == (i "") { print $21 "\t" $6 "\t" $7; exit }' "$store_file" 2>/dev/null) || return 0
+  [ -n "$_si" ] || return 0
+  IFS="$TAB" read -r _ssub _shome _sptr <<EOF
+$_si
+EOF
+  if [ "$_shome" = attention ]; then
+    attn_perm "$_sptr"
+    if [ "$p_f9" = permission ] && [ -n "$p_cmd" ]; then
+      _cr=$(ascii_render "$(redact "$p_cmd")")
+      [ "${_cr%%"$TAB"*}" = 0 ] \
+        || err "the command carries bytes outside printable ASCII; they are shown escaped, so read it as escaped text before approving anything"
+      printf 'command\t%s\t%s\n' "$1" "${_cr#*"$TAB"}"
+    fi
+  fi
+  [ "$_ssub" != "-" ] || return 0
+  _sr=$(awk -F '\t' -v s="$_ssub" '(NF == 20 || NF == 23 || NF == 24) && $12 == "open" && $2 == "standing" && $6 == "path" && $9 != "-" && ($21 "") == (s "") { print $1 "\t" $9 "\t" $7 "\t" $8 }' "$store_file" 2>/dev/null) || return 0
+  while IFS="$TAB" read -r _ri _rr _rp _rk; do
+    is_item_id "$_ri" || continue
+    [ "$(ledger_coverkind "$_rr" "$_rp" "$_rk")" = free ] || continue
+    _rt=$(ledger_field "$_rr" "$_rp" "$_rk" text)
+    [ -n "$_rt" ] || continue
+    _rv=$(ascii_render "$(redact "$_rt")")
+    printf 'rule\t%s\t%s\n' "$_ri" "${_rv#*"$TAB"}"
+  done <<EOF
+$_sr
+EOF
+}
+
 # ev_lock_key — the reuse key, computed AFTER the fleet lock is taken. Every
 # attention-store writer holds that same lock, so a key read before it can
 # already be stale by the time the pass reads the rows, and the verb would
@@ -3199,6 +3590,12 @@ leave_store() {
 # add
 # ---------------------------------------------------------------------------
 
+# ADD_QUIET — 1 when `add` is running as the second half of another verb
+# (`capture`): the id is left in ADD_ID and the verb returns instead of
+# printing and exiting, so the caller owns what the operator sees.
+ADD_QUIET=0
+ADD_ID=""
+
 cmd_add() {
   kind=""
   origin=""
@@ -3209,11 +3606,12 @@ cmd_add() {
   pointer=""
   park=""
   subject=""
+  key=""
   now=""
   now_set=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --kind | --origin | --closes | --urgency | --worker | --root | --pointer | --park | --subject | --now)
+      --kind | --origin | --closes | --urgency | --worker | --root | --pointer | --park | --subject | --key | --now)
         [ "$#" -ge 2 ] || usage
         case "$1" in
           --kind) kind=$2 ;;
@@ -3225,6 +3623,7 @@ cmd_add() {
           --pointer) pointer=$2 ;;
           --park) park=$2 ;;
           --subject) subject=$2 ;;
+          --key) key=$2 ;;
           --now)
             now=$2
             now_set=1
@@ -3270,6 +3669,7 @@ cmd_add() {
     question | news)
       [ -n "$worker" ] || refuse "a $kind item points at a worker's attention row: --worker <handle>"
       [ -z "$pointer" ] || refuse "a $kind item points at its worker's row, not at a path"
+      [ -z "$key" ] || refuse "a $kind item is keyed by its worker's row, not by a content key"
       is_handle "$worker" || refuse "refusing worker handle '$(sanitize_printable "$worker" "(unprintable handle)")'"
       check_owned "${attn_store%/*}"
       check_owned "$attn_store"
@@ -3301,6 +3701,18 @@ cmd_add() {
       check_pointer "$root" "$pointer" content
       ihome=path
       ptr=$PTR_REL
+      # A content home that holds MANY items — a ledger — names which one this
+      # record points at, and that key is part of the item's identity, so two
+      # captures into one file are two items rather than one (REQ-E1.2). With
+      # no key the pointer alone is the key, which is the one-file-per-item
+      # shape every other path item has.
+      if [ -n "$key" ]; then
+        is_text "$key" 256 || refuse "refusing --key: at most 256 bytes with no control byte or leading whitespace"
+        case "$key" in
+          *[!A-Za-z0-9._@:=+-]*) refuse "refusing --key: a content key is one token of [A-Za-z0-9._@:=+-]" ;;
+        esac
+        instance=$key
+      fi
       if [ -n "$park" ]; then
         _cr=$PTR_ROOT
         check_pointer "$root" "$park" park
@@ -3342,16 +3754,19 @@ cmd_add() {
   changed=$(printf '%s\n' "$result" | awk -F '\t' '$1 == "changed" { print $2; exit }')
   [ "$changed" != 1 ] || commit_store || exit 6
   leave_store
-  printf '%s\n' "$id"
+  ADD_ID=$id
+  [ "$ADD_QUIET" = 1 ] || printf '%s\n' "$id"
   case "$st" in
     present)
       err "already queued as $id (the same content home); nothing changed"
+      [ "$ADD_QUIET" = 1 ] && return 0
       finish_exit
       ;;
     added | reopened)
       owe_log born --now "$now" item="$id" item_kind="$kind" urgency="$urgency" origin="$origin" \
         home="$ihome" pointer="$ptr" instance="$instance" root="$PTR_ROOT" park="$park_rel" closes="$closes" \
         subject="$subject"
+      [ "$ADD_QUIET" = 1 ] && return 0
       finish_exit
       ;;
     *)
@@ -3397,6 +3812,7 @@ cmd_next() {
   # The settling pass runs before the selection (REQ-B1.1), unless the pass
   # that serves this loop iteration has already run against the same evidence.
   ev_prepare "$evidence"
+  rule_prepare
   enter_store
   ev_lock_key
   if ev_reuse; then DO_SETTLE=0; else DO_SETTLE=1; fi
@@ -3467,6 +3883,7 @@ EOF
     pass_held >/dev/null
   fi
   leave_store
+  [ "$DO_SETTLE" != 1 ] || rule_spoken "$result"
   [ "$DO_SETTLE" != 1 ] || pass_logs "$result"
   # A failed stamp/hold write is this verb's exit, but never instead of the
   # hand-over: the lease and the delivery record committed above, so swallowing
@@ -3478,6 +3895,8 @@ EOF
     deliver)
       printf '%s\n' "$out_line"
       [ -z "$pair_line" ] || printf '%s\n' "$pair_line"
+      surface_rules "$dec_item"
+      [ "$dec_pair" = - ] || surface_rules "$dec_pair"
       # The one fail-open line: the hand-over stands, the failure is
       # surfaced, and the redelivery it risks is inside the loss budget.
       log_event delivered --now "$now" --tower "$tower" item="$dec_item" item_kind="$dec_kind" urgency="$dec_urg" pair="$dec_pair" \
@@ -3666,6 +4085,7 @@ cmd_settle_pass() {
   parse_now
   resolve_surface
   ev_prepare "$evidence"
+  rule_prepare
   tower=""
   enter_store
   ev_lock_key
@@ -3684,6 +4104,7 @@ cmd_settle_pass() {
   held=$(pass_held)
   leave_store
   printf '%s\n' "$result" | awk -F '\t' '$1 == "settled" || $1 == "merged" || $1 == "unavailable"'
+  rule_spoken "$result"
   printf 'held\t%s\n' "$held"
   pass_logs "$result"
   [ "$pw" = 0 ] || exit 6
@@ -3739,6 +4160,337 @@ cmd_settle() {
       exit 6
       ;;
   esac
+}
+
+# ---------------------------------------------------------------------------
+# capture, match — inbound capture and the standing-decision match
+# ---------------------------------------------------------------------------
+
+# The action-item ledger's helper, the durable home a captured request,
+# approval or standing decision belongs in (REQ-E1.2). It is the companion
+# bundle's to ship; the env override is the test seam and a bespoke install's.
+# Its contract, which the fallback below implements identically:
+#
+#   <helper> put --key <k> --kind <kind> --when <epoch> --text <text>
+#            [--subject <s>] [--covers <c>]...
+#       writes the item and prints one line, `<absolute root><TAB><relative
+#       path>`: the content home the queue record is to point at.
+LEDGER_HELPER="${PLANWRIGHT_ACTION_LEDGER:-}"
+
+# ledger_record <key> <kind> <when> <subject> <coverage-kind> <text>
+#   [<coverage>...] — the ledger-shaped record, one flat tab-separated line
+# per field so a coverage list needs no nested delimiter and every line stays
+# readable by the same awk the rest of this script uses. Both homes write it.
+ledger_record() {
+  _lk=$1
+  shift
+  printf 'item\t%s\t%s\t%s\t%s\t%s\n' "$_lk" "$1" "$2" "$3" "$4"
+  printf 'text\t%s\t%s\n' "$_lk" "$5"
+  shift 5
+  for _lc in "$@"; do printf 'covers\t%s\t%s\n' "$_lk" "$_lc"; done
+}
+
+# ledger_field <root> <rel> <key> <tag> — the first value of <tag> for <key>,
+# or nothing. ledger_covers prints every `covers` value, one per line.
+ledger_field() {
+  [ -f "$1/$2" ] || return 0
+  awk -F '\t' -v k="$3" -v t="$4" '($1 "") == (t "") && ($2 "") == (k "") { print $3; exit }' "$1/$2" 2>/dev/null
+}
+# ledger_coverkind <root> <rel> <key> — `command`, `free`, `-`, or nothing at
+# all when the key has no record at that home.
+ledger_coverkind() {
+  [ -f "$1/$2" ] || return 0
+  awk -F '\t' -v k="$3" '($1 "") == "item" && ($2 "") == (k "") { print $6; exit }' "$1/$2" 2>/dev/null
+}
+ledger_covers() {
+  [ -f "$1/$2" ] || return 0
+  awk -F '\t' -v k="$3" '($1 "") == "covers" && ($2 "") == (k "") { print $3 }' "$1/$2" 2>/dev/null
+}
+
+# ledger_put <key> <kind> <when> <subject> <coverage-kind> <text>
+#   [<coverage>...] — write the item to its durable home and set LED_ROOT and
+# LED_REL to the home the queue record points at. The helper wins when one is
+# installed; otherwise the pre-ship fallback: one machine-local, untracked,
+# owner-only file under the fleet home, never in the tracked tree (REQ-A1.3).
+# The write rides the fleet lock like every other write on this surface, and a
+# key already in the file is left exactly as it is, so a re-capture of the same
+# content is the same no-op the queue record is.
+ledger_put() {
+  if [ -n "$LEDGER_HELPER" ]; then
+    [ -x "$LEDGER_HELPER" ] || {
+      err "the action-item ledger helper $(sanitize_printable "$LEDGER_HELPER" "(unprintable path)") is not executable"
+      exit 5
+    }
+    _lpk=$1
+    _lpkind=$2
+    _lpwhen=$3
+    _lpsub=$4
+    _lptext=$6
+    shift 6
+    # The coverage values become one `--covers` flag each, rebuilt in place so
+    # a value carrying a space stays one argument.
+    _lpn=$#
+    while [ "$_lpn" -gt 0 ]; do
+      set -- "$@" --covers "$1"
+      shift
+      _lpn=$((_lpn - 1))
+    done
+    _lpout=$("$LEDGER_HELPER" put --key "$_lpk" --kind "$_lpkind" --when "$_lpwhen" \
+      --text "$_lptext" --subject "$_lpsub" "$@") || {
+      err "the action-item ledger refused the capture; nothing was recorded"
+      exit 6
+    }
+    LED_ROOT=${_lpout%%"$TAB"*}
+    LED_REL=${_lpout#*"$TAB"}
+    [ -n "$LED_ROOT" ] && [ "$LED_REL" != "$_lpout" ] || {
+      err "the action-item ledger did not name the home it wrote"
+      exit 6
+    }
+    return 0
+  fi
+  LED_ROOT=$surface
+  LED_REL=ledger
+  _lpf="$surface/ledger"
+  acquire_lock "$lock_wait"
+  case $? in
+    0) ;;
+    1)
+      err "the fleet lock stayed busy for the whole tower_hook_lock_wait; nothing recorded"
+      exit 3
+      ;;
+    *) exit 6 ;;
+  esac
+  check_private_file "$_lpf"
+  if [ -n "$(ledger_field "$surface" ledger "$1" item)" ]; then
+    release_lock
+    return 0
+  fi
+  _lpnew=$({ [ ! -f "$_lpf" ] || cat "$_lpf"; } && ledger_record "$@") || {
+    release_lock
+    err "cannot assemble the ledger record"
+    exit 6
+  }
+  put_file "$_lpf" "$_lpnew" || {
+    release_lock
+    exit 6
+  }
+  release_lock
+}
+
+# The kinds `capture` takes. A question and a piece of news are a worker's,
+# raised on its own attention row; these three are the operator's own words.
+Q_CAPTURE_KINDS="request approval standing"
+
+cmd_capture() {
+  kind=""
+  text=""
+  covers=""
+  subject=""
+  origin=operator
+  urgency=""
+  closes=""
+  now=""
+  now_set=0
+  cov_kind=-
+  ncov=0
+  set -- "$@"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --kind | --text | --covers | --covers-command | --subject | --origin | --urgency | --closes | --now)
+        [ "$#" -ge 2 ] || usage
+        case "$1" in
+          --kind) kind=$2 ;;
+          --text) text=$2 ;;
+          --subject) subject=$2 ;;
+          --origin) origin=$2 ;;
+          --urgency) urgency=$2 ;;
+          --closes) closes=$2 ;;
+          --now)
+            now=$2
+            now_set=1
+            ;;
+          --covers)
+            [ "$cov_kind" != command ] || refuse "a rule's coverage is either a list of literal command prefixes or free text, never both"
+            [ "$ncov" = 0 ] || refuse "free coverage text is one value; repeat --covers-command instead for a list of prefixes"
+            cov_kind=free
+            covers=$2
+            ncov=1
+            ;;
+          --covers-command)
+            [ "$cov_kind" != free ] || refuse "a rule's coverage is either a list of literal command prefixes or free text, never both"
+            cov_kind="command"
+            ncov=$((ncov + 1))
+            [ "$ncov" -le 16 ] || refuse "a standing decision covers at most 16 command prefixes"
+            # Validated HERE, before the value joins the tab-terminated list
+            # below: a prefix carrying a tab would otherwise be split by that
+            # accumulator into two prefixes that each pass on their own, which
+            # is the control byte surviving the check meant to refuse it.
+            is_prefix "$2" || refuse "refusing the command coverage '$(sanitize_printable "$2" "(unprintable coverage)")': a literal prefix — non-empty, at most 256 bytes, no control byte, no leading whitespace, and never a glob or a regex"
+            # The reserved-control refusal, at the point a rule is written
+            # (REQ-E1.9, REQ-H1.1). It fires again at match time, so a rule
+            # recorded before this check existed is still refused where it
+            # would act.
+            if reserved_control "$2"; then
+              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
+            fi
+            covers="$covers$2$TAB"
+            ;;
+        esac
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$kind" ] && [ -n "$text" ] || usage
+  is_one_of "$kind" "$Q_CAPTURE_KINDS" || refuse "refusing kind '$(sanitize_printable "$kind" "(unprintable kind)")': one of $Q_CAPTURE_KINDS"
+  [ "$kind" = standing ] || [ "$cov_kind" = - ] || refuse "coverage belongs to a standing decision; a request or an approval carries none"
+  is_handle "$origin" || refuse "refusing origin '$(sanitize_printable "$origin" "(unprintable origin)")': a worker handle or the operator, a single token with no whitespace or path separator"
+  [ -z "$subject" ] || is_subject "$subject" || refuse "refusing subject '$(sanitize_printable "$subject" "(unprintable subject)")': worker:<handle>, pr:<n>, branch:<name> or ledger:<key>"
+  # The operator's own words go to the operator's own screen and into the event
+  # log, so they pass the one redaction helper before anything else sees them
+  # (REQ-G1.8, REQ-H1.3).
+  text=$(redact "$text")
+  is_text "$text" 512 || refuse "refusing the captured text: at most 512 bytes with secrets redacted, no control byte or leading whitespace, not shaped like a JSON value"
+  parse_now
+  if [ "$cov_kind" = free ]; then
+    covers=$(redact "$covers")
+    is_text "$covers" 512 || refuse "refusing the coverage text: at most 512 bytes with secrets redacted, no control byte or leading whitespace, not shaped like a JSON value"
+    if reserved_control "$covers"; then
+      refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
+    fi
+    covers="$covers$TAB"
+  fi
+  if reserved_control "$text"; then
+    refuse "refusing a standing decision whose rule reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
+  fi
+  # What closes a captured item, when the operator did not say. A request
+  # closes on the evidence that the work landed and an approval on the answer
+  # it is waiting for; a standing decision closes on the operator revoking it,
+  # which `add` already defaults.
+  if [ -z "$closes" ]; then
+    case "$kind" in
+      request) closes="the work lands (a PR, a branch or a ledger item closing)" ;;
+      approval) closes="the operator answers" ;;
+    esac
+  fi
+  resolve_queue_knobs
+  resolve_surface
+  umask 077
+  ensure_surface
+  # The content key, derived from the kind and the text so the same words
+  # captured twice are the same item rather than a second one.
+  key=$(printf '%s\t%s' "$kind" "$text" | cksum | cut -d' ' -f1)
+  is_count "$key" || {
+    err "cannot derive a ledger key (cksum did not answer)"
+    exit 6
+  }
+  key=$(printf 'k%08x' "$key")
+  # The content is written to its home BEFORE the record that points at it
+  # (REQ-A1.3, REQ-E1.2); `add` refuses a pointer at nothing. The coverage
+  # list, accumulated tab-terminated above, becomes the positional arguments so
+  # a value carrying a space stays one value.
+  _cs=$covers
+  set --
+  while [ -n "$_cs" ]; do
+    _cp=${_cs%%"$TAB"*}
+    _cs=${_cs#*"$TAB"}
+    set -- "$@" "$_cp"
+  done
+  ledger_put "$key" "$kind" "$now" "${subject:--}" "$cov_kind" "$text" "$@"
+  # `add` is the second half of this verb and shares its globals, so what the
+  # echo below says is taken now, before that call rewrites any of them.
+  cap_kind=$kind
+  cap_cov=$cov_kind
+  cap_subject=${subject:--}
+  # The one-line echo (REQ-E1.1): what was recorded, in the operator's own
+  # words, rendered ASCII-only so nothing on their screen reads as something
+  # other than what it is. No confirmation is asked for; a mis-hearing is
+  # corrected by the operator against this line.
+  cap_render=$(ascii_render "$text")
+  cap_escaped=${cap_render%%"$TAB"*}
+  cap_echo=${cap_render#*"$TAB"}
+  ADD_QUIET=1
+  ADD_ID=""
+  # shellcheck disable=SC2086
+  cmd_add --kind "$cap_kind" --origin "$origin" --root "$LED_ROOT" --pointer "$LED_REL" \
+    --key "$key" --now "$now" ${subject:+--subject "$subject"} \
+    ${urgency:+--urgency "$urgency"} ${closes:+--closes "$closes"}
+  ADD_QUIET=0
+  [ "$cap_escaped" = 0 ] \
+    || err "the captured text carried bytes outside printable ASCII; they are shown escaped"
+  printf 'captured\t%s\t%s\t%s\t%s\t%s\n' "$ADD_ID" "$cap_kind" "$cap_subject" "$cap_cov" "$cap_echo"
+  finish_exit
+}
+
+# match --decision <id> --command <text> — resolve the named standing decision
+# and re-run the match against the command (REQ-E1.5, REQ-E1.8, REQ-E1.10). A
+# lock-free read, so the answer channel can call it while holding the fleet
+# lock without the two ever nesting. Prints one tag on stdout: `match`,
+# `no-match`, or `reserved`. Exit 0 only on `match`; 1 on either refusal; 2 on
+# a decision this queue does not hold, does not hold OPEN, or that is not of
+# the standing kind.
+cmd_match() {
+  decision=""
+  command_text=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --decision | --command)
+        [ "$#" -ge 2 ] || usage
+        case "$1" in
+          --decision) decision=$2 ;;
+          --command) command_text=$2 ;;
+        esac
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$decision" ] && [ -n "$command_text" ] || usage
+  is_item_id "$decision" || refuse "refusing the decision id '$(sanitize_printable "$decision" "(unprintable id)")'"
+  is_text "$command_text" 512 || refuse "refusing the command: at most 512 bytes, no control byte or leading whitespace, not shaped like a JSON value"
+  resolve_surface
+  [ -f "$store_file" ] || refuse "no queue store, so no standing decision to resolve"
+  _md=$(awk -F '\t' -v d="$decision" '(NF == 20 || NF == 23 || NF == 24) && ($1 "") == (d "") { print $2 "\t" $12 "\t" $6 "\t" $9 "\t" $7 "\t" $8; exit }' "$store_file" 2>/dev/null) || {
+    err "cannot read the queue store"
+    exit 6
+  }
+  [ -n "$_md" ] || refuse "no item $decision in the queue"
+  IFS="$TAB" read -r md_kind md_state md_home md_root md_ptr md_key <<EOF
+$_md
+EOF
+  [ "$md_kind" = standing ] || refuse "item $decision is a $md_kind, not a standing decision"
+  [ "$md_state" = open ] || refuse "the standing decision $decision has been revoked"
+  [ "$md_home" = path ] && [ "$md_root" != "-" ] || refuse "the standing decision $decision does not live in a ledger home"
+  _mck=$(ledger_coverkind "$md_root" "$md_ptr" "$md_key") || _mck=""
+  [ -n "$_mck" ] || refuse "the standing decision $decision has no record at its content home"
+  # The reserved-control refusal runs FIRST and on the command itself, so it
+  # cannot be reached around by any coverage a rule claims (REQ-E1.9, REQ-H1.1).
+  if reserved_control "$command_text"; then
+    printf 'reserved\n'
+    err "refusing to match a command that reaches a reserved human control, whatever the rule covers"
+    exit 1
+  fi
+  if [ "$_mck" != command ]; then
+    printf 'no-match\n'
+    err "the standing decision $decision does not cover worker commands, so it settles nothing mechanically"
+    exit 1
+  fi
+  _mhit=0
+  while IFS= read -r _mp; do
+    [ -n "$_mp" ] || continue
+    if prefix_match "$command_text" "$_mp"; then
+      _mhit=1
+      break
+    fi
+  done <<EOF
+$(ledger_covers "$md_root" "$md_ptr" "$md_key")
+EOF
+  if [ "$_mhit" = 1 ]; then
+    printf 'match\n'
+    exit 0
+  fi
+  printf 'no-match\n'
+  exit 1
 }
 
 # ---------------------------------------------------------------------------
@@ -3979,6 +4731,8 @@ case "$cmd" in
   log) cmd_log "$@" ;;
   report) cmd_report "$@" ;;
   add) cmd_add "$@" ;;
+  capture) cmd_capture "$@" ;;
+  match) cmd_match "$@" ;;
   next) cmd_next "$@" ;;
   ack) cmd_ack "$@" ;;
   shelve) cmd_shelve "$@" ;;
@@ -3987,7 +4741,7 @@ case "$cmd" in
   list) cmd_list "$@" ;;
   counts) cmd_counts "$@" ;;
   *)
-    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | report | add | next | ack | shelve | settle | catchup | list | counts)"
+    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | report | add | capture | match | next | ack | shelve | settle | catchup | list | counts)"
     exit 2
     ;;
 esac
