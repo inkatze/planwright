@@ -159,7 +159,21 @@ run capture --kind standing --text 'always allow this' --covers-command '' --now
 rc=0
 run capture --kind standing --text 'always allow this' --covers-command "$(printf 'git\tstatus')" --now 1004 >/dev/null || rc=$?
 [ "$rc" = 2 ] || fail "a coverage carrying a control byte was not refused (exit $rc)"
+rc=0
+run capture --kind standing --text 'always allow this' --covers "$(printf 'any\tthing')" --now 1004 >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "free coverage carrying a control byte was not refused (exit $rc)"
 echo "ok: an empty or control-carrying coverage is refused"
+
+# `-` is the placeholder every store row uses for an absent field; a coverage
+# spelled that way would read back as no coverage at all, so it is refused
+# for a prefix and for free text alike.
+for flag in --covers-command --covers; do
+  rc=0
+  run capture --kind standing --text 'always allow this' "$flag" '-' --now 1004 >/dev/null || rc=$?
+  [ "$rc" = 2 ] || fail "a coverage of '-' via $flag was not refused (exit $rc)"
+  grep -q 'placeholder\|literal prefix' "$errf" || fail "the refusal of '-' via $flag did not say why"
+done
+echo "ok: a coverage of '-' is refused"
 
 # --- the reserved controls --------------------------------------------------
 

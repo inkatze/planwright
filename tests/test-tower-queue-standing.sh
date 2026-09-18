@@ -132,12 +132,32 @@ run match --decision "$rule" --command 'git log --grep="fix the thing"' >/dev/nu
   || fail "a quoted-string interior was refused"
 rc=0
 # shellcheck disable=SC2016
-run match --decision "$rule" --command 'git log --grep="`id`"' >/dev/null || rc=$?
-[ "$rc" = 1 ] || fail "a backtick inside double quotes matched (exit $rc)"
+run match --decision "$rule" --command 'git log --grep="`id`"' >"$tmp/o" || rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = no-match ] \
+  || fail "a backtick inside double quotes was not refused by the allowlist (exit $rc, '$(cat "$tmp/o")')"
 rc=0
-run match --decision "$rule" --command 'git log --grep="unterminated' >/dev/null || rc=$?
-[ "$rc" = 1 ] || fail "an unterminated quote matched (exit $rc)"
+run match --decision "$rule" --command 'git log --grep="unterminated' >"$tmp/o" || rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = no-match ] \
+  || fail "an unterminated quote was not refused by the allowlist (exit $rc, '$(cat "$tmp/o")')"
 echo "ok: a quoted interior is admitted but never re-opens into expansion"
+
+# The verb's own screen on the command: a control byte is refused outright
+# rather than matched or compared, and so is an empty one.
+rc=0
+run match --decision "$rule" --command "$(printf 'git\tstatus')" >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "a command carrying a control byte was not refused (exit $rc)"
+echo "ok: a command carrying a control byte is refused by match"
+
+# `--command -` reads the command from stdin, with or without a trailing
+# newline: the answer channel writes one, but a caller that does not must not
+# have its command read as empty.
+printf 'git status --short' | run match --decision "$rule" --command - >"$tmp/o" \
+  || fail "a command on stdin with no trailing newline did not match (exit $?, '$(cat "$tmp/o")')"
+[ "$(cat "$tmp/o")" = match ] || fail "a command on stdin with no trailing newline printed '$(cat "$tmp/o")'"
+rc=0
+printf '' | run match --decision "$rule" --command - >/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "an empty stdin was not refused as an empty command (exit $rc)"
+echo "ok: a command on stdin is read whole, newline or not"
 
 # The mechanical reserved-control refusal, whatever the rule covers. The rule
 # above covers `git log`, and this command starts with it.

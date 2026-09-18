@@ -1915,8 +1915,10 @@ is_prefix() {
   [ -n "$1" ] || return 1
   [ "${#1}" -le 256 ] || return 1
   has_control "$1" && return 1
+  # `-` alone is the placeholder every store row uses for an absent field, so
+  # a coverage spelled that way would read back as no coverage at all.
   case "$1" in
-    ' '* | *'*'* | *'?'* | *'['* | *']'* | *\\* | *'^'* | *'$'* | *'|'*) return 1 ;;
+    - | ' '* | *'*'* | *'?'* | *'['* | *']'* | *\\* | *'^'* | *'$'* | *'|'*) return 1 ;;
   esac
   cmd_allowlisted "$1"
 }
@@ -4705,6 +4707,7 @@ cmd_capture() {
   if [ "$cov_kind" = free ]; then
     covers=$(redact "$covers")
     is_text "$covers" 512 || refuse "refusing the coverage text: at most 512 bytes with secrets redacted, no control byte or leading whitespace, not shaped like a JSON value"
+    [ "$covers" != - ] || refuse "refusing the coverage '-': that is the placeholder for no coverage, and a rule must not read as covering nothing"
     if reserved_control "$covers"; then
       refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
     fi
@@ -4832,7 +4835,9 @@ cmd_match() {
   # channel uses, because argv is world-readable through /proc and a permission
   # prompt's command line is where a credential turns up.
   if [ "$command_text" = - ]; then
-    IFS= read -r command_text || command_text=""
+    # A last line with no newline still arrives: read reports only the
+    # missing newline, and the empty-command refusal below covers no input.
+    IFS= read -r command_text || :
   fi
   # The attention store's own field grammar, not this script's free-text one:
   # the command comes off a record fleet-attention.sh wrote and validated, and
