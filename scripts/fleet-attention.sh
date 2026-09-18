@@ -1026,9 +1026,42 @@ case $cmd in
 
   notify)
     summary="${1:-}"
+    shift || true
+    notify_key=""
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --key)
+          [ "$#" -ge 2 ] || {
+            echo "usage: fleet-attention.sh notify <summary> [--key <token>]" >&2
+            exit 2
+          }
+          notify_key=$2
+          shift 2
+          ;;
+        *)
+          echo "fleet-attention: notify: unknown argument '$(sanitize_printable "$1" "(unprintable argument)")'" >&2
+          exit 2
+          ;;
+      esac
+    done
     if [ -z "$summary" ]; then
-      echo "usage: fleet-attention.sh notify <summary>" >&2
+      echo "usage: fleet-attention.sh notify <summary> [--key <token>]" >&2
       exit 2
+    fi
+    # The key names the thing being notified about, and on the `push` channel
+    # it is also the marker's filename — so it is validated against a path-safe
+    # grammar before it can name a file, never sanitized into one.
+    if [ -n "$notify_key" ]; then
+      case $notify_key in
+        *[!A-Za-z0-9._-]* | .* | -* | "")
+          echo "fleet-attention: notify: refusing a malformed --key (one token of [A-Za-z0-9._-], not leading . or -)" >&2
+          exit 2
+          ;;
+      esac
+      [ "${#notify_key}" -le 128 ] || {
+        echo "fleet-attention: notify: refusing a --key longer than 128 characters" >&2
+        exit 2
+      }
     fi
     [ -x "$RNC" ] || {
       echo "fleet-attention: notify: channel resolver '$RNC' is missing or not executable" >&2
@@ -1060,6 +1093,44 @@ case $cmd in
         # unreachable `*)` fail-closed below, because this IS a recognized
         # channel.)
         exit 0
+        ;;
+      push)
+        # Session-relayed (tower-comms D-19, REQ-F1.6). This script owns no
+        # transport for it: the only thing that can call Claude Code's
+        # push-notification tool is a session, so the seam writes a pending-push
+        # marker and the tower session relays it on its next step.
+        #
+        # One marker per key, written only when none is there: the dedupe is
+        # structural (the filename IS the key) and it happens under the fleet
+        # lock, so two towers notifying about the same item wake the operator
+        # once. A keyless caller dedupes on the summary itself, hashed, so the
+        # same sentence twice is still one marker.
+        root=$(resolve_home) || exit 2
+        if [ -z "$notify_key" ]; then
+          notify_key=k$(printf '%s' "$summary" | cksum | awk '{ printf "%s.%s\n", $1, $2 }')
+        fi
+        push_dir="$root/attention/push"
+        acquire_lock || exit 2
+        np_rc=0
+        if ! mkdir -p "$push_dir" 2>/dev/null || ! chmod 0700 "$push_dir" 2>/dev/null; then
+          np_rc=2
+        fi
+        if [ "$np_rc" = 0 ] && [ ! -e "$push_dir/$notify_key" ]; then
+          np_tmp=$(mktemp "$push_dir/.push.XXXXXX" 2>/dev/null) || np_rc=2
+          if [ "$np_rc" = 0 ]; then
+            if printf '%s\n' "$summary" >"$np_tmp" 2>/dev/null \
+              && chmod 0600 "$np_tmp" 2>/dev/null \
+              && mv -f "$np_tmp" "$push_dir/$notify_key" 2>/dev/null; then
+              :
+            else
+              rm -f "$np_tmp" 2>/dev/null || true
+              np_rc=2
+            fi
+          fi
+        fi
+        release_lock
+        [ "$np_rc" = 0 ] || echo "fleet-attention: notify: failed to write the pending-push marker" >&2
+        exit "$np_rc"
         ;;
       editor-toast)
         # Drop a timestamped line to a file the editor tails. Serialize the

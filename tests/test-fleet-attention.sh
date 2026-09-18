@@ -467,6 +467,55 @@ nout=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
 [ ! -e "$home13c/attention/toasts" ] || fail "notify (statusline): created a toast artifact (should push nothing)"
 echo "ok: the notification seam is a clean no-op on the pull-shaped statusline channel"
 
+# 13d. push (tower-comms D-19, REQ-F1.6) is SESSION-RELAYED: the seam writes a
+#      pending-push marker under the fleet home for the tower session to relay,
+#      one per key and no more, and owns no transport of its own.
+home13d="$tmp/notify-push-home"
+pin_push_cfg="$tmp/notify-push-pin.yml"
+printf 'notification_channel: push\n' >"$pin_push_cfg"
+notify_push() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+    -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
+    PLANWRIGHT_FLEET_STATE_DIR="$home13d" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_REPO_ROOT="$scratch_repo" \
+    PLANWRIGHT_LOCAL_CONFIG="$pin_push_cfg" \
+    /bin/sh "$FA" notify "$@"
+}
+push_dir="$home13d/attention/push"
+notify_push "a worker is blocked" --key i0000beef || fail "notify (push): non-zero exit"
+[ -f "$push_dir/i0000beef" ] || fail "notify (push): no pending-push marker written"
+[ "$(cat "$push_dir/i0000beef")" = "a worker is blocked" ] || fail "notify (push): the marker does not carry the line"
+# `ls -l` over a known-good literal path: the portable mode read on the
+# macOS + Linux support bar (`stat` disagrees between BSD and GNU).
+# shellcheck disable=SC2012
+push_mode=$(ls -l "$push_dir/i0000beef" | cut -c1-10)
+[ "$push_mode" = "-rw-------" ] || fail "notify (push): the marker is not owner-only, got '$push_mode'"
+
+# The dedupe is the filename: the same key again is a no-op, and it does NOT
+# overwrite what is already pending — the session has not relayed it yet, and
+# replacing the line under it would change what the operator is about to read.
+notify_push "a worker is STILL blocked" --key i0000beef || fail "notify (push): second call non-zero"
+[ "$(cat "$push_dir/i0000beef")" = "a worker is blocked" ] || fail "notify (push): the second call overwrote the pending marker"
+notify_push "another worker is blocked" --key i0000cafe || fail "notify (push): third call non-zero"
+push_n=0
+for push_f in "$push_dir"/*; do
+  [ -e "$push_f" ] || continue
+  push_n=$((push_n + 1))
+done
+[ "$push_n" = 2 ] || fail "notify (push): expected one marker per key, found $push_n"
+
+# The key names a file, so it is validated against a path-safe grammar rather
+# than sanitized into one. A traversal attempt is refused, not rewritten.
+rc=0
+notify_push "escape" --key ../../escaped >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify (push): a traversing --key was not refused (exit $rc)"
+[ ! -e "$tmp/escaped" ] && [ ! -e "$home13d/escaped" ] || fail "notify (push): a traversing --key wrote outside the surface"
+rc=0
+notify_push "unknown flag" --nope >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify: an unknown argument was not refused (exit $rc)"
+echo "ok: the push channel writes one owner-only pending-push marker per key and refuses a malformed key"
+
 # ---------------------------------------------------------------------------
 # 14. Empty-state reads are clean: render on an untouched home exits 0 with no
 #     rows; queue --count is 0.

@@ -739,7 +739,13 @@ tower_tick_gap_max: 10m
 #                        what it keeps inside the fleet lock.
 # tower_shelve_return    how long a shelved item stays parked before it
 #                        returns on its own, when `shelve` is given no --for.
+# tower_reknock_age      how long a blocked item may stay open before the away
+#                        push names it a second time. The crossing is read
+#                        once per item, not on a repeat: the away push fires
+#                        when the item first meets an away conversation and
+#                        then only on worsening, never on a schedule.
 tower_quiet_interval: 10m
 tower_lease_interval: 15m
 tower_catchup_limit: 20
 tower_shelve_return: 1h
+tower_reknock_age: 30m
