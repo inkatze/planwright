@@ -24,8 +24,11 @@
 #      stop                Stop              -> idle   (working -> idle; a LIVE
 #                          fork-park is PRESERVED, not cleared — a turn-end is not
 #                          a dead worker, fleet-hardening Task 2 NS-4)
-#      permission-request  PermissionRequest -> awaiting-input (decide) +
-#                          a pending-permission marker
+#      permission-request  PermissionRequest -> awaiting-input (permission) +
+#                          a pending-permission marker. The row carries the
+#                          `permission` marker in field 9 and the prompt's own
+#                          command text in field 12, read from the payload
+#                          (tower-comms REQ-E1.8, D-12)
 #      post-tool-use       PostToolUse       -> working, when a pending-
 #                          permission OR a fork-park marker is live (the
 #                          documented awaiting-human -> working INFERENCE /
@@ -65,12 +68,16 @@
 #    on the reconcile backstop (D-1); only a malformed invocation (unknown
 #    event: a wiring bug in hooks.json, not a runtime state) exits 2. The
 #    hook payload on stdin is drained, never parsed FOR EVERY EVENT EXCEPT
-#    notification: identity comes from the env contract, so no payload field
-#    is interpolated anywhere (kickoff risk row 25). The one exception is the
-#    notification arm (fleet-hardening Task 2), which reads a bounded payload
-#    prefix, extracts notification_type WITHOUT jq (REQ-K1.5), and STRICTLY
-#    validates it against a fixed allow-list before mapping it to a FIXED
-#    reason string — no raw payload text ever reaches a command or the store.
+#    notification and permission-request: identity comes from the env contract,
+#    so no payload field is interpolated anywhere (kickoff risk row 25). Both
+#    exceptions read a bounded payload prefix and neither ever executes what it
+#    read. The notification arm (fleet-hardening Task 2) extracts
+#    notification_type WITHOUT jq (REQ-K1.5) and STRICTLY validates it against a
+#    fixed allow-list before mapping it to a FIXED reason string. The
+#    permission-request arm (tower-comms Task 6, D-12) extracts
+#    tool_input.command — the one payload text that does reach the store, as
+#    DATA in the record's command field, because a standing decision must be
+#    matched against the prompt's own command and never against prose.
 #
 # 2. FIVE-STATE CLASSIFIER (`classify`, D-2/REQ-A1.2). Resolves exactly one
 #    of working | idle | hung | awaiting-human | flailing from the store row
@@ -179,9 +186,11 @@
 #       The registered hook handler (identity from the env contract; the
 #       payload is drained on the worker path, never parsed — except the
 #       notification arm, which reads + strictly validates notification_type,
-#       no jq). Exits 0 for every valid invocation, including runtime failures
-#       and signals; exit 2 only on a malformed invocation (wrong arg count or
-#       an unknown event token — a hooks.json wiring bug).
+#       and the permission-request arm, which reads tool_input.command into the
+#       record's command field; no jq). Exits 0 for every valid invocation,
+#       including runtime failures and signals; exit 2 only on a malformed
+#       invocation (wrong arg count or an unknown event token — a hooks.json
+#       wiring bug).
 #   fleet-liveness.sh push-capable <backend>
 #       Which liveness mechanism the backend gets, read from the capability
 #       contract's hook_registration field (execution-backends D-7 — never
@@ -563,17 +572,26 @@ marker_live() {
 }
 
 # marker_live_permission <root> <handle> — the pending-permission marker
-# (fleet-autonomy D-1), under liveness/pending/. Guarded by an EMPTY field 9 (the
-# COMPLEMENT of marker_live_awaiting's non-empty check): a permission row never
-# carries a park reason, so requiring field 9 empty prevents a LEAKED
-# pending-permission marker whose token collides (same wall-clock second) with a
-# live fork-park's heartbeat from matching the fork-park. Without this guard the
-# permission branch (checked before the fork-park branch) would claim the
-# fork-park's exit edge and a plain stop would clobber it to idle, defeating the
-# fork-park-survives-stop guarantee (fleet-hardening Task 2 NS-4).
+# (fleet-autonomy D-1), under liveness/pending/. Guarded by field 9 being either
+# the positive `permission` marker the PermissionRequest hook stamps
+# (tower-comms D-12) or EMPTY, the shape a flailing `decide` leaves and the one
+# the hook itself wrote before that marker shipped. Any `permission*` variant
+# counts as the marker here, the same family fleet-attention.sh's guards read by
+# prefix, so a variant one side refuses to answer is never a fork-park to the
+# other. Either way it is the
+# COMPLEMENT of marker_live_awaiting's guard: a permission row never carries a
+# park reason, so a LEAKED pending-permission marker whose token collides (same
+# wall-clock second) with a live fork-park's heartbeat cannot match the
+# fork-park. Without this guard the permission branch (checked before the
+# fork-park branch) would claim the fork-park's exit edge and a plain stop would
+# clobber it to idle, defeating the fork-park-survives-stop guarantee
+# (fleet-hardening Task 2 NS-4).
 marker_live_permission() {
   marker_live "$1/liveness/pending/$2" "$1" "$2" || return 1
-  [ -z "$(store_row_field "$1" "$2" "$FIELD_REASON")" ]
+  case "$(store_row_field "$1" "$2" "$FIELD_REASON")" in
+    "" | permission*) return 0 ;;
+  esac
+  return 1
 }
 
 # marker_live_awaiting <root> <handle> — the fork-park exit-edge marker
@@ -585,22 +603,22 @@ marker_live_permission() {
 # it PRESERVES the fork-park, see the stop/session-end/stop-failure handler).
 #
 # Beyond the shared heartbeat-token identity, a fork-park is discriminated by a
-# NON-EMPTY reason (field 9): `park` is the only writer that sets it, so a
-# permission / flailing `decide` that replaced the row — even within the same
-# wall-clock second (the heartbeat token is second-granular, so a same-second
-# escalation could otherwise carry a colliding token), or between the
-# notification arm's ownership check and its heartbeat read (a TOCTOU) — has an
-# EMPTY field 9 and is never mistaken for our fork-park. This keeps the exit
+# reason (field 9) that is neither empty nor a `permission*` marker: those two
+# are what a permission / flailing `decide` that replaced the row carries, so
+# such a row — even within the same wall-clock second (the heartbeat token is
+# second-granular, so a same-second escalation could otherwise carry a colliding
+# token), or between the notification arm's ownership check and its heartbeat
+# read (a TOCTOU) — is never mistaken for our fork-park. This keeps the exit
 # edge from auto-resolving a queued human decision (REQ-A1.3). The permission
-# marker uses the COMPLEMENT of this discriminator (field 9 EMPTY, see
+# marker uses the COMPLEMENT of this discriminator (see
 # marker_live_permission), so a leaked permission marker can never match a
-# fork-park and steal its exit edge. Field 9 still cannot separate a permission
-# from a flailing decide (both carry an empty field 9) — a narrow, pre-existing
-# same-second residual on the permission path, tracked separately and healed by
-# the reconcile sweep, distinct from this fork-park guarantee.
+# fork-park and steal its exit edge.
 marker_live_awaiting() {
   marker_live "$1/liveness/awaiting/$2" "$1" "$2" || return 1
-  [ -n "$(store_row_field "$1" "$2" "$FIELD_REASON")" ]
+  case "$(store_row_field "$1" "$2" "$FIELD_REASON")" in
+    "" | permission*) return 1 ;;
+  esac
+  return 0
 }
 
 # extract_notification_type — print the JSON string value of the FIRST
@@ -623,6 +641,85 @@ extract_notification_type() {
         sub(/^"notification_type"[ \t\r\n]*:[ \t\r\n]*"/, "", seg)
         sub(/"$/, "", seg)
         print seg
+      }
+    }'
+}
+
+# extract_tool_command — print the harness payload's `tool_input.command`
+# string from stdin, or nothing (tower-comms REQ-E1.8, D-12). The second hook
+# arm that reads its payload, and for the same reason the notification arm does:
+# the command text is not derivable from the env contract, and scraping it from
+# prose is exactly what D-12 refuses. No jq (REQ-K1.5).
+#
+# Scoped to `tool_input`'s OWN TOP LEVEL. Not merely "after the tool_input key":
+# the payload is worker-influenced, so a `command` key in a sibling object
+# (`permission_suggestions`) or nested one level down inside tool_input would
+# otherwise be captured as the prompt's own command, and a rule written for that
+# benign text would auto-approve an entirely different prompt. The scan walks
+# tool_input's braces and strings, tracks depth, and accepts a `command` key only
+# at depth 1 of that object; it stops at the object's closing brace.
+#
+# It also refuses a payload whose shape it cannot read the one way a JSON parser
+# would: a second `"tool_input"` key anywhere (a duplicate, or a sibling object
+# carrying one before the real one), or a second `command` key at that top
+# level. A parser keeps the LAST duplicate; a scan that stopped at the first
+# would show the operator one command and approve another. Ambiguity yields no
+# command, so the prompt reaches the operator. The escaped form a command text
+# carries (`\"tool_input\"`) is not a raw key and does not count.
+#
+# The value is JSON-decoded for the two escapes a command text realistically
+# carries (`\"` and `\\`); any OTHER escape ends the extraction with nothing, so
+# a payload this cannot decode exactly yields a record with no command field —
+# which reaches the operator — rather than a mis-decoded string a rule might
+# match. The caller validates the result against the store's field grammar;
+# nothing here is ever executed.
+extract_tool_command() {
+  awk '
+    # jstr(i): the JSON string starting at the opening quote s[i]. Sets JEND to
+    # the index just past the closing quote and JVAL to the decoded value, or
+    # JEND = 0 when it carries an escape this does not decode.
+    function jstr(i,   n, c, d, v) {
+      n = length(s); v = ""; i++
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (c == "\"") { JVAL = v; JEND = i + 1; return }
+        if (c == "\\") {
+          d = substr(s, i + 1, 1)
+          if (d != "\"" && d != "\\") { JEND = 0; return }
+          v = v d; i += 2; continue
+        }
+        v = v c; i++
+      }
+      JEND = 0
+    }
+    { s = s $0 "\n" }
+    END {
+      ti = index(s, "\"tool_input\"")
+      if (ti == 0) exit
+      if (index(substr(s, ti + 1), "\"tool_input\"") != 0) exit
+      i = ti + length("\"tool_input\"")
+      n = length(s)
+      while (i <= n && substr(s, i, 1) ~ /[ \t\r\n:]/) i++
+      if (substr(s, i, 1) != "{") exit
+      depth = 0; key = ""; seen = 0; have = 0
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (c == "{" || c == "[") { depth++; i++; key = ""; continue }
+        if (c == "}" || c == "]") {
+          depth--
+          if (depth <= 0) { if (seen == 1 && have) print cmd; exit }
+          i++; key = ""; continue
+        }
+        if (c == "\"") {
+          jstr(i)
+          if (JEND == 0) exit
+          if (depth == 1 && key == "" ) { key = JVAL; if (key == "command") seen++; i = JEND; continue }
+          if (depth == 1 && key == "command") { cmd = JVAL; have = 1 }
+          i = JEND; key = ""
+          continue
+        }
+        if (c == ",") key = ""
+        i++
       }
     }'
 }
@@ -1145,7 +1242,7 @@ case "$cmd" in
     # on the notification reason, so it captures a BOUNDED prefix (head -c caps
     # a pathological payload) and extracts + strictly validates the type below —
     # no raw payload text ever reaches a command or the store.
-    if [ "$event" = notification ]; then
+    if [ "$event" = notification ] || [ "$event" = permission-request ]; then
       note_payload=$(head -c 65536 2>/dev/null) || note_payload=""
     else
       cat >/dev/null 2>&1 || true
@@ -1179,7 +1276,8 @@ case "$cmd" in
             fi
             # Stamp the exit-edge marker ONLY for a fork-park row we actually own
             # (state awaiting-input AND field 9 == our reason). If park no-op'd
-            # over a pre-existing permission / flailing decision (no field 9), we
+            # over a pre-existing permission (field 9 = `permission`) or a
+            # flailing decision (no field 9), we
             # never claim its exit edge — that decision keeps its own lifecycle
             # (the reconcile / permission flow), so a resume or terminal exit
             # can never mistake it for a fork-park and auto-resolve it.
@@ -1212,11 +1310,16 @@ case "$cmd" in
         # awaiting-input row as a phantom escalation. Decide-first narrows
         # the phantom window to a marker-WRITE failure (rare, warned below,
         # healed by the reconcile), instead of an any-concurrent-tool race.
-        "$FA" decide "$handle" "$scope" \
-          "Worker is awaiting a permission decision in its session" \
-          "answer in the worker session" \
-          "approve in the worker session|deny in the worker session" \
-          normal >/dev/null 2>&1 || {
+        # The prompt's own command text, captured from the payload into the
+        # record's `command` field beside the `permission` marker (tower-comms
+        # REQ-E1.8, D-12) — the only text a standing decision is ever matched
+        # against. An unreadable payload yields no command, and a record with the
+        # marker and no command reaches the operator rather than a rule, so this
+        # never gates the push.
+        perm_cmd=$(printf '%s' "$note_payload" | extract_tool_command) || perm_cmd=""
+        # On stdin, never in argv: /proc/<pid>/cmdline is readable by every
+        # local user, and the command is exactly where a credential turns up.
+        printf '%s\n' "$perm_cmd" | "$FA" permission "$handle" "$scope" - >/dev/null 2>&1 || {
           echo "fleet-liveness: state push (awaiting-input) failed; reconcile self-heals (D-1)" >&2
           exit 0
         }
@@ -1232,7 +1335,7 @@ case "$cmd" in
         # replaces the link itself (the atomic_write_file discipline).
         if ! mkdir -p "$root/liveness/pending" 2>/dev/null \
           || ! atomic_write_file "$marker" "$perm_ts" 2>/dev/null; then
-          echo "fleet-liveness: pending-permission marker write failed; the awaiting-input row now reads as a queued decision and clears on the REQ-A1.8 reconcile sweep, not on the next stop (which takes the --unless-awaiting no-op path with no marker present)" >&2
+          echo "fleet-liveness: pending-permission marker write failed; the awaiting-input row now reads as an unmarked queued decision and clears on the REQ-A1.8 reconcile sweep, not on the next stop (which takes the --unless-awaiting no-op path with no marker present)" >&2
         fi
         exit 0
         ;;

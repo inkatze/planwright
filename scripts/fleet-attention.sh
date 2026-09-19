@@ -81,7 +81,15 @@
 #       normal | low (default normal). Exits 3 (a semantic refusal) rather than
 #       clobber a queued human decision (a pending permission / flailing decide);
 #       it still replaces a park (upgrade) or a prior fork (re-fork).
-#   fleet-attention.sh claim <worker> <instance-id> <label>
+#   fleet-attention.sh permission <worker> <scope> [<command>|-]
+#       The permission-park push (tower-comms Task 6, D-12): record the worker
+#       as awaiting-input on a harness permission prompt, with the positive
+#       marker `permission` in field 9 and the prompt's own command text in
+#       field 12 — the only text a standing decision is ever matched against.
+#       A record carrying the marker without a command reaches the operator
+#       instead of a rule. Written by the PermissionRequest hook, which passes
+#       the command on stdin (`-`) so it never appears in argv.
+#   fleet-attention.sh claim <worker> <instance-id> <label> [--standing <id>]
 #       Answer an answerable fork BY LABEL, atomically, under the store lock —
 #       the read-and-answer primitive (fleet-hardening Task 4, D-4). First-answer
 #       -wins claim/close: the winning <label> is stamped into the additive 11th
@@ -89,7 +97,14 @@
 #       a stale <instance-id> (the answer is for a resolved fork), a <label>
 #       outside the option set, an already-claimed record, and — keeping the
 #       harness permission gate the human's — any record whose reason is a
-#       permission-park (never an answerable `fork`). Prints the matched label on
+#       permission-park, UNLESS `--standing <id>` names the operator's written
+#       standing decision (tower-comms REQ-E1.10, D-12). At that boundary the
+#       channel resolves the named decision ITSELF through the queue, confirms
+#       it is of the standing kind, and re-runs the match against the parked
+#       command on the record — never against anything the caller passed. A
+#       permission-park with no `--standing`, a `--standing` naming a
+#       non-standing item, a record with no command field, and a command the
+#       rule does not cover are all refused. Prints the matched label on
 #       success. Exit codes mirror the rest of this script so a caller can tell
 #       the two failure kinds apart: 0 success; 2 a usage/malformed input OR an
 #       operational error (lock / store read / mktemp / write / mv — nothing
@@ -271,13 +286,15 @@ resolve_home() {
 }
 
 # upsert_row <worker> <scope> <state> <priority> <question> <default> <options>
-# [<guard>] [<reason>] [<instance-id>]
+# [<guard>] [<reason>] [<instance-id>] [<claim>] [<command>]
 # — replace <worker>'s row in the state store (or insert it), atomically, under
 # the Task 9 lock. Copy-filter-append-rename so a concurrent reader sees only a
 # complete store and the worker never appears twice (a state store, not a log).
 # The record is assembled HERE, with the heartbeat timestamp stamped UNDER the
-# lock (below), so this is the single authority for the record layout (the 8
-# shipped fields plus the optional additive park reason at field 9).
+# lock (below), so this is the single authority for the record layout: the 8
+# shipped fields plus the additive ladder above them — the park reason or a
+# marker at 9, a fork instance id at 10, a claimed label at 11, and a permission
+# prompt's own command at 12.
 # The optional <guard> `unless-awaiting` makes the upsert a clean no-op when
 # the worker's CURRENT row is awaiting-input, with the check made inside this
 # same critical section — the atomic escalation-preserve primitive the
@@ -307,16 +324,28 @@ upsert_row() {
   # a park reason, +10 for a fork instance id. An older 8/9-field reader ignores
   # the trailing field (REQ-E1.2, additive-with-older-reader-ignores).
   ur_iid=${10:-}
+  # ur_claim (field 11) is `claim`'s first-answer-wins label. It is a parameter
+  # here only so the permission record below can reserve the slot with a `-`;
+  # `claim` itself still stamps the winning label by rewriting the field.
+  ur_claim=${11:-}
+  # ur_cmd (field 12) is the tower-comms Task 6 additive extension (D-12): the
+  # command text the PermissionRequest hook captured from the harness payload,
+  # the ONLY text a standing decision is matched against (REQ-E1.8). It rides
+  # the same ladder — a row carrying it also carries fields 9 to 11, which the
+  # permission writer fills with the marker and two `-` placeholders.
+  ur_cmd=${12:-}
   # Enforce the additive ladder as an invariant, not just a caller convention:
-  # field 10 (the instance id) may only be written when field 9 (the reason) is
-  # also set, so a malformed field-10-without-field-9 row can never be committed
-  # (such a row would carry an empty field 9 and be misread as a decide/permission
-  # row by the unless-decide guard). The only iid writer, `fork`, always stamps
-  # field 9 = `fork`, so this never fires for real callers; it fails closed on a
-  # future misuse of the primitive rather than tearing the ladder. No lock needed
-  # (a pure argument check).
-  if [ -n "$ur_iid" ] && [ -z "$ur_reason" ]; then
-    echo "fleet-attention: internal error — an instance id (field 10) requires a reason (field 9); refusing to write a ladder-skipping row" >&2
+  # a field may only be written when every field below it is set, so a
+  # ladder-skipping row can never be committed (a field-10-without-9 row would
+  # carry an empty field 9 and be misread as a decide/permission row by the
+  # unless-decide guard, and a field-12-without-9 row would read as a queued
+  # decision carrying a matchable command — the refusal REQ-E1.8 requires). The
+  # real callers always fill the ladder; this fails closed on a future misuse of
+  # the primitive rather than tearing it. No lock needed (a pure argument check).
+  if { [ -n "$ur_cmd" ] && [ -z "$ur_claim" ]; } \
+    || { [ -n "$ur_claim" ] && [ -z "$ur_iid" ]; } \
+    || { [ -n "$ur_iid" ] && [ -z "$ur_reason" ]; }; then
+    echo "fleet-attention: internal error — an additive field requires every field below it; refusing to write a ladder-skipping row" >&2
     return 2
   fi
   acquire_lock || return 2
@@ -351,10 +380,11 @@ upsert_row() {
   if [ "$ur_guard" = unless-decide ] && [ -f "$store" ]; then
     # The fork-write guard (fleet-hardening Task 4): a `fork` must never clobber a
     # QUEUED HUMAN DECISION — a `decide`-family row (awaiting-input with an EMPTY
-    # field 9: a pending permission or a flailing escalation). It CAN replace a
-    # park (field 9 = `notification:*`, the coarse fork-park signal a structured
-    # fork legitimately upgrades) and a prior fork (field 9 = `fork`, a re-fork),
-    # both of which carry a NON-EMPTY field 9. Same multi-row-safe, fail-closed
+    # field 9: a flailing escalation) or a PERMISSION record (field 9 =
+    # `permission`, the positive marker the PermissionRequest hook stamps,
+    # tower-comms D-12). It CAN replace a park (field 9 = `notification:*`, the
+    # coarse fork-park signal a structured fork legitimately upgrades) and a prior
+    # fork (field 9 = `fork`, a re-fork). Same multi-row-safe, fail-closed
     # read as the unless-awaiting guard; unlike park's downgrade no-op this REFUSES
     # (a fork over a queued decision is anomalous — the two states are mutually
     # exclusive by construction — so surface it rather than silently drop the
@@ -363,7 +393,7 @@ upsert_row() {
     # error) so the caller can name it.
     ur_dec_rc=0
     ur_decide=$(awk -F "$TAB" -v w="$ur_worker" \
-      '($1 "") == (w "") && $3 == "awaiting-input" && ($9 "") == "" { f = 1 } END { print (f ? "y" : "") }' "$store") \
+      '($1 "") == (w "") && $3 == "awaiting-input" && (($9 "") == "" || ($9 "") ~ /^permission/) { f = 1 } END { print (f ? "y" : "") }' "$store") \
       || ur_dec_rc=$?
     if [ "$ur_dec_rc" != 0 ]; then
       release_lock
@@ -409,7 +439,13 @@ upsert_row() {
     awk -F "$TAB" -v w="$ur_worker" '($1 "") != (w "")' "$store" >"$ur_tmp" || ur_rc=2
   fi
   if [ "$ur_rc" = 0 ]; then
-    if [ -n "$ur_iid" ]; then
+    if [ -n "$ur_cmd" ]; then
+      # A permission record: the marker at field 9, the two reserved slots at
+      # 10 and 11, and the captured command at field 12 (tower-comms D-12).
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$ur_worker" "$ur_scope" "$ur_state" "$ur_ts" "$ur_prio" "$ur_q" "$ur_def" "$ur_opts" "$ur_reason" "$ur_iid" "$ur_claim" "$ur_cmd" \
+        >>"$ur_tmp" || ur_rc=2
+    elif [ -n "$ur_iid" ]; then
       # A fork row carries the additive 10th field (the instance id), on top of
       # the 9th (reason = `fork`). fork is the only writer that sets field 10, and
       # it always sets field 9, so the ladder never skips a field.
@@ -453,7 +489,7 @@ suppressed() {
 # ---------------------------------------------------------------------------
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
-  echo "usage: fleet-attention.sh heartbeat|decide|fork|claim|park|clear|render|queue|notify [args]" >&2
+  echo "usage: fleet-attention.sh heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify [args]" >&2
   exit 2
 fi
 shift || true
@@ -589,6 +625,67 @@ case $cmd in
     exit 0
     ;;
 
+  permission)
+    # The permission-park push (tower-comms Task 6, D-12/REQ-E1.8): the
+    # PermissionRequest hook records a worker blocked on a harness permission
+    # prompt as awaiting-input with the POSITIVE marker `permission` at field 9
+    # and the prompt's own command text at field 12. Both matter, and for
+    # different reasons: the marker is what lets every reader tell a permission
+    # from a flailing `decide` (both of which used to carry an empty field 9),
+    # and the command field is the only text a standing decision is ever matched
+    # against — a record carrying one without the other is refused downstream
+    # rather than matched from the prose on the row.
+    #
+    # The question / default / option set are the fixed strings the hook's
+    # `decide` call used to write, and the `queue` renderer has its own branch
+    # for this marker so the row still surfaces all three (plus the command)
+    # rather than collapsing to a bare reason. Unlike `park` this is NOT
+    # --unless-awaiting: a permission
+    # prompt is the worker's authoritative current block, written the way
+    # `decide` writes.
+    worker="${1:-}"
+    scope="${2:-}"
+    command_text="${3:-}"
+    if [ -z "$worker" ] || [ -z "$scope" ]; then
+      echo "usage: fleet-attention.sh permission <worker> <scope> [<command>|-]" >&2
+      exit 2
+    fi
+    # `-` reads the command from stdin, the form the hook uses: argv is
+    # world-readable through /proc, and a permission prompt's command line is
+    # exactly where a credential turns up. A last line with no newline still
+    # arrives; read reports only the missing newline.
+    if [ "$command_text" = - ]; then
+      IFS= read -r command_text || :
+    fi
+    if ! valid_field "$worker"; then
+      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      exit 2
+    fi
+    if ! valid_field "$scope"; then
+      echo "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      exit 2
+    fi
+    # A command that will not pass the field grammar is dropped rather than
+    # refused: the marker still has to land, and a row with the marker and no
+    # command reaches the operator instead of being matched (REQ-E1.8). Writing
+    # it would tear the record; refusing the whole push would lose the block.
+    if [ -n "$command_text" ] && ! valid_text "$command_text"; then
+      echo "fleet-attention: the permission prompt's command text carries a control byte or is over-length; recording the prompt without it, so it reaches the operator rather than a rule" >&2
+      command_text=""
+    fi
+    [ -n "$command_text" ] || command_text="-"
+    root=$(resolve_home) || exit 2
+    attn_dir="$root/attention"
+    store="$attn_dir/state"
+    upsert_row "$worker" "$scope" "awaiting-input" normal \
+      "Worker is awaiting a permission decision in its session" \
+      "answer in the worker session" \
+      "approve in the worker session|deny in the worker session" \
+      "" permission - - "$command_text" \
+      || exit 2
+    exit 0
+    ;;
+
   fork)
     # The answerable decision channel (fleet-hardening Task 4, D-4/REQ-A1.4): a
     # worker parked at a MULTI-OPTION fork records the pending decision, its full
@@ -717,12 +814,41 @@ case $cmd in
     # (already-claimed) is a refused no-op. The refusals are mechanical (pure
     # awk, no model call): a stale instance id, a label outside the option set,
     # an already-claimed record, and — keeping the harness permission gate the
-    # human's — any record whose reason is a permission-park (never a `fork`).
+    # human's — any record whose reason is a permission-park, unless the answer
+    # names the standing decision it comes from (`--standing`, below).
     worker="${1:-}"
     instance="${2:-}"
     label="${3:-}"
+    standing=""
+    if [ "$#" -ge 4 ]; then
+      shift 3
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --standing)
+            [ "$#" -ge 2 ] || {
+              echo "usage: fleet-attention.sh claim <worker> <instance-id> <label> [--standing <decision-id>]" >&2
+              exit 2
+            }
+            [ -n "$2" ] || {
+              echo "fleet-attention: --standing takes a standing decision's id; an empty one names nothing" >&2
+              exit 2
+            }
+            standing=$2
+            shift 2
+            ;;
+          *)
+            echo "usage: fleet-attention.sh claim <worker> <instance-id> <label> [--standing <decision-id>]" >&2
+            exit 2
+            ;;
+        esac
+      done
+    fi
     if [ -z "$worker" ] || [ -z "$instance" ] || [ -z "$label" ]; then
-      echo "usage: fleet-attention.sh claim <worker> <instance-id> <label>" >&2
+      echo "usage: fleet-attention.sh claim <worker> <instance-id> <label> [--standing <decision-id>]" >&2
+      exit 2
+    fi
+    if [ -n "$standing" ] && ! valid_field "$standing"; then
+      echo "fleet-attention: refusing malformed standing-decision id '$(sanitize_printable "$standing" "(unprintable id)")'" >&2
       exit 2
     fi
     if ! valid_field "$worker"; then
@@ -755,25 +881,49 @@ case $cmd in
     # w and iid ride `-v` (their valid_field grammar excludes backslash, so no
     # escape processing can alter them); the free-text label rides ENVIRON so a
     # backslash in a label neither misjudges membership nor is escape-mangled.
-    cl_verdict=$(FA_LBL="$label" awk -F "$TAB" -v w="$worker" -v iid="$instance" '
+    cl_verdict=$(FA_LBL="$label" awk -F "$TAB" -v w="$worker" -v iid="$instance" -v perm="${standing:+1}" '
       ($1 "") == (w "") {
         found = 1; st = $3; f9 = ($9 ""); f10 = ($10 ""); opts = $8
         cl = (NF >= 11 ? ($11 "") : "")
+        cmd = (NF >= 12 ? ($12 "") : "")
       }
       END {
         lbl = ENVIRON["FA_LBL"]
-        if (!found || st != "awaiting-input") { print "REFUSE\tno-fork\t"; exit }
-        if (f9 ~ /^permission/) { print "REFUSE\tpermission\t"; exit }
-        if (f9 != "fork") { print "REFUSE\tno-fork\t"; exit }
-        if (f10 != (iid "")) { print "REFUSE\tstale\t"; exit }
-        if (cl != "") { print "REFUSE\tclaimed\t"; exit }
+        if (!found || st != "awaiting-input") { print "REFUSE\tno-fork\t\t"; exit }
+        if (f9 ~ /^permission/) {
+          # An answer that names no standing decision is refused exactly as it
+          # always was: the harness permission gate stays the human`s, and the
+          # named rule is the operator`s own written answer, never the tower`s
+          # judgment (tower-comms REQ-E1.10, D-12).
+          if (perm != "1") { print "REFUSE\tpermission\t\t"; exit }
+          # Only the bare marker. A future `permission:<something>` variant is
+          # not a shape this re-match has been reasoned about, so it refuses.
+          if (f9 != "permission") { print "REFUSE\tpermission\t\t"; exit }
+          # The record must carry the command field the hook captured; a record
+          # with the marker and no command reaches the operator rather than
+          # being matched from any other text on the row (REQ-E1.8).
+          if (cmd == "" || cmd == "-") { print "REFUSE\tno-command\t\t"; exit }
+          if (f10 != (iid "")) { print "REFUSE\tstale\t\t"; exit }
+          # `-` is the placeholder the permission writer reserves field 11 with,
+          # so it reads as unclaimed here and only here; on a fork the field is
+          # written by this verb alone and any value means answered.
+          if (cl != "" && cl != "-") { print "REFUSE\tclaimed\t\t"; exit }
+        } else {
+          # `--standing` names a permission answer and nothing else: applying a
+          # written rule to an answerable fork would be the tower deciding.
+          if (perm == "1") { print "REFUSE\tnot-permission\t\t"; exit }
+          if (f9 != "fork") { print "REFUSE\tno-fork\t\t"; exit }
+          if (f10 != (iid "")) { print "REFUSE\tstale\t\t"; exit }
+          if (cl != "") { print "REFUSE\tclaimed\t\t"; exit }
+          cmd = ""
+        }
         n = split(opts, a, "|"); matched = ""
         # String-force (see fork opt_check): a bare `a[i] == lbl` compares numeric
         # -looking labels numerically, so `01` would match option `1` (a label
         # outside the set answered as if inside it, or the wrong option resolved).
         for (i = 1; i <= n; i++) if ((a[i] "") == (lbl "")) matched = a[i]
-        if (matched == "") { print "REFUSE\tbad-label\t"; exit }
-        print "OK\t\t" matched
+        if (matched == "") { print "REFUSE\tbad-label\t\t"; exit }
+        print "OK\t\t" matched "\t" cmd
       }' "$store") || {
       # An OPERATIONAL failure (the store exists but could not be read), not a
       # semantic refusal: exit 2, matching upsert_row/clear's fs/lock/read/write
@@ -794,12 +944,20 @@ case $cmd in
     cl_status=${cl_verdict%%"$TAB"*}
     cl_rest=${cl_verdict#*"$TAB"}
     cl_code=${cl_rest%%"$TAB"*}
-    cl_matched=${cl_rest#*"$TAB"}
+    cl_rest=${cl_rest#*"$TAB"}
+    cl_matched=${cl_rest%%"$TAB"*}
+    cl_cmd=${cl_rest#*"$TAB"}
     if [ "$cl_status" != OK ]; then
       release_lock
       case $cl_code in
         permission)
-          echo "fleet-attention: refusing to answer a permission-park record — the harness permission gate stays the human's" >&2
+          echo "fleet-attention: refusing to answer a permission-park record — the harness permission gate stays the human's, and an answer from a rule must name the standing decision it comes from (--standing)" >&2
+          ;;
+        not-permission)
+          echo "fleet-attention: refusing --standing on a record that is not a permission-park; a written rule answers permission prompts and nothing else" >&2
+          ;;
+        no-command)
+          echo "fleet-attention: refusing to match a permission record that carries no command field; it reaches the operator instead" >&2
           ;;
         stale)
           echo "fleet-attention: refusing a stale answer (instance id does not match the current fork)" >&2
@@ -816,6 +974,43 @@ case $cmd in
       esac
       exit 3
     fi
+    # The channel's OWN re-match (tower-comms REQ-E1.10, D-12). The caller
+    # having matched is not what admits the answer: this boundary resolves the
+    # named decision itself, confirms it is of the standing kind, and re-runs
+    # the match against the PARKED command — the record's own field 12, never
+    # anything the caller passed. It runs inside the held lock so a decision
+    # revoked between the check and the close cannot slip through; the queue's
+    # `match` is a lock-free read, so the two locks never nest.
+    #
+    # The rule store belongs to the tower-comms queue, which is a feature above
+    # this core capability: an install without it degrades to the behaviour
+    # this channel shipped with — every permission-park refused — rather than
+    # falling open.
+    if [ -n "$standing" ]; then
+      TQ="$script_dir/tower-queue.sh"
+      if [ ! -x "$TQ" ]; then
+        release_lock
+        echo "fleet-attention: cannot resolve a standing decision (scripts/tower-queue.sh is absent); refusing the answer" >&2
+        exit 3
+      fi
+      # The command goes on STDIN, not in argv: /proc/<pid>/cmdline is readable
+      # by every local user, and a permission prompt's command line is exactly
+      # where a credential turns up.
+      _mrc=0
+      printf '%s\n' "$cl_cmd" | "$TQ" match --decision "$standing" --command - >/dev/null || _mrc=$?
+      if [ "$_mrc" != 0 ]; then
+        release_lock
+        # An operational failure from the queue is not a policy refusal, and
+        # telling the operator their rule does not cover the command when the
+        # store would not read sends them to rewrite a rule that is fine.
+        if [ "$_mrc" = 1 ]; then
+          echo "fleet-attention: the named standing decision does not admit the parked command; refusing the answer" >&2
+        else
+          echo "fleet-attention: could not resolve the named standing decision (tower-queue match exit $_mrc); refusing the answer" >&2
+        fi
+        exit 3
+      fi
+    fi
     # Close pass: stamp the winning label into field 11 for the worker's row
     # only, every other row byte-identical. Copy-filter-rename so a reader never
     # sees a torn store (the clear/upsert discipline). These are all OPERATIONAL
@@ -830,7 +1025,10 @@ case $cmd in
     # field 11, so escape processing must not alter it (an unescaped `-v` value
     # could inject a tab and tear the record).
     FA_LBL="$cl_matched" awk -F "$TAB" -v OFS="$TAB" -v w="$worker" '
-      ($1 "") == (w "") { $11 = ENVIRON["FA_LBL"]; NF = 11; print; next }
+      # NF is pinned to 11, except on a permission record (12 fields: the
+      # captured command rides field 12 and truncating it would strand the
+      # answered row with no command the answer can be audited against).
+      ($1 "") == (w "") { $11 = ENVIRON["FA_LBL"]; NF = (NF > 11 ? 12 : 11); print; next }
       { print }
     ' "$store" >"$cl_tmp" || cl_rc=2
     if [ "$cl_rc" = 0 ]; then
@@ -971,11 +1169,13 @@ case $cmd in
     now=$(now_epoch)
     # Sorted lines carry the two sort-key fields ahead of the stored fields. The
     # trailing vars read the additive fields: `reason` the 9th (fleet-hardening
-    # Task 2 park / Task 4 fork marker), `iid` the 10th and `claimed` the 11th
-    # (Task 4 fork). They are empty for a shipped decide row (8 fields → the vars
-    # read nothing, so the decide branch below is byte-identical to before),
-    # carry the reason for a park row (9 fields), and carry the instance id and
-    # (once answered) the claimed label for a fork row (10/11 fields).
+    # Task 2 park / Task 4 fork marker / tower-comms permission marker), `iid`
+    # the 10th, `claimed` the 11th (Task 4 fork) and `command_text` the 12th
+    # (tower-comms D-12, the permission prompt's own command). They are empty for
+    # a shipped decide row (8 fields → the vars read nothing, so the decide
+    # branch below is byte-identical to before), carry the reason for a park row
+    # (9 fields), the instance id and (once answered) the claimed label for a
+    # fork row (10/11 fields), and all four for a permission record (12).
     # US-delimit the read. TAB is IFS-whitespace, so `read` collapses a run of
     # consecutive empty fields (a park row carries empty prio/q/def/opts with
     # only field 9 set) and would slide the reason into the priority slot,
@@ -983,7 +1183,7 @@ case $cmd in
     # TAB delimiters to the US control byte (never a valid field byte) makes each
     # empty field survive the split — the fleet-attention-watch.sh do_pass idiom.
     us=$(printf '\037')
-    printf '%s\n' "$sortable" | tr "$TAB" "$us" | while IFS="$us" read -r _w _tskey worker scope _state ts prio q def opts reason iid claimed; do
+    printf '%s\n' "$sortable" | tr "$TAB" "$us" | while IFS="$us" read -r _w _tskey worker scope _state ts prio q def opts reason iid claimed command_text; do
       [ -n "$worker" ] || continue
       age="?"
       case $ts in
@@ -1017,6 +1217,26 @@ case $cmd in
         if [ -n "$claimed" ]; then
           s_claimed=$(sanitize_printable "$claimed" "?")
           printf '    answered: %s\n' "$s_claimed"
+        fi
+      elif [ "$reason" = permission ]; then
+        # A permission record (tower-comms D-12): it carries the same question,
+        # default and option set a `decide` row does, PLUS the command the
+        # prompt asked about. Rendering it through the park branch below would
+        # drop all four and leave the operator's decision queue saying only
+        # `reason: permission`, which is less than the row carried before the
+        # marker shipped.
+        s_q=$(sanitize_printable "$q" "?")
+        s_def=$(sanitize_printable "$def" "?")
+        s_opts=$(sanitize_printable "$opts" "?")
+        printf '    Q: %s\n' "$s_q"
+        printf '    default: %s\n' "$s_def"
+        printf '    options: %s\n' "$s_opts"
+        if [ -n "$command_text" ] && [ "$command_text" != "-" ]; then
+          # Rendered here as the store holds it. The ASCII-only rendering the
+          # operator APPROVES against is tower-queue.sh's `next`, which owns the
+          # redaction helper; this line is the status surface, not that gate.
+          s_cmd=$(sanitize_printable "$command_text" "?")
+          printf '    command: %s\n' "$s_cmd"
         fi
       elif [ -n "$reason" ]; then
         # A fork-park (Task 2): it carries the notification reason, not a labeled
@@ -1247,7 +1467,7 @@ case $cmd in
     ;;
 
   *)
-    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|clear|render|queue|notify)" >&2
+    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify)" >&2
     exit 2
     ;;
 esac

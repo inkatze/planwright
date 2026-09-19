@@ -215,6 +215,19 @@ attn "$h3" park "$w" "$s" "notification:planwright-fence tentative: the fence fo
 out=$(run "$h3" classify "$w") || fail "free-text park classify exited non-zero"
 [ "$(state_of "$out")" = waiting-on-a-human ] || fail "free-text park: '$(state_of "$out")'"
 printf '%s\n' "$out" | grep -q '^anomaly' && fail "a free-text park reason was reported as an anomaly"
+# A permission record (tower-comms D-12): 12 fields, the `permission` marker at
+# 9, `-` reserving 10 and 11, and the prompt's own command at 12. The row is a
+# queued human decision like any other, and the `-` in the claimed slot must not
+# read as an answer; before the ladder reached 12 this row was rejected outright
+# as a malformed store line, which both lost the evidence and reported the store
+# as corrupt.
+attn "$h3" clear "$w" >/dev/null
+attn "$h3" permission "$w" "$s" 'git status --short' >/dev/null || fail "setup: permission"
+out=$(run "$h3" classify "$w") || fail "permission classify exited non-zero"
+[ "$(state_of "$out")" = waiting-on-a-human ] || fail "permission push: '$(state_of "$out")'"
+[ "$(reason_of "$out")" = hook-push ] || fail "permission push: reason '$(reason_of "$out")'"
+printf '%s\n' "$out" | grep -q '^anomaly' && fail "a permission record was reported as store corruption"
+
 # An answered fork (field 11 stamped) is no longer a queued decision.
 attn "$h3" clear "$w" >/dev/null
 attn "$h3" fork "$w" "$s" "Which way?" a "a|b" iid-1 >/dev/null || fail "setup: fork"
