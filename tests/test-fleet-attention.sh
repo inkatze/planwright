@@ -467,6 +467,106 @@ nout=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
 [ ! -e "$home13c/attention/toasts" ] || fail "notify (statusline): created a toast artifact (should push nothing)"
 echo "ok: the notification seam is a clean no-op on the pull-shaped statusline channel"
 
+# 13d. push (tower-comms D-19, REQ-F1.6) is SESSION-RELAYED: the seam writes a
+#      pending-push marker under the fleet home for the tower session to relay,
+#      one per key and no more, and owns no transport of its own.
+home13d="$tmp/notify-push-home"
+pin_push_cfg="$tmp/notify-push-pin.yml"
+printf 'notification_channel: push\n' >"$pin_push_cfg"
+notify_push() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+    -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
+    PLANWRIGHT_FLEET_STATE_DIR="$home13d" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_REPO_ROOT="$scratch_repo" \
+    PLANWRIGHT_LOCAL_CONFIG="$pin_push_cfg" \
+    /bin/sh "$FA" notify "$@"
+}
+push_dir="$home13d/attention/push"
+notify_push "a worker is blocked" --key i0000beef || fail "notify (push): non-zero exit"
+[ -f "$push_dir/i0000beef" ] || fail "notify (push): no pending-push marker written"
+[ "$(cat "$push_dir/i0000beef")" = "a worker is blocked" ] || fail "notify (push): the marker does not carry the line"
+# `ls -l` over a known-good literal path: the portable mode read on the
+# macOS + Linux support bar (`stat` disagrees between BSD and GNU).
+# shellcheck disable=SC2012
+push_mode=$(ls -l "$push_dir/i0000beef" | cut -c1-10)
+[ "$push_mode" = "-rw-------" ] || fail "notify (push): the marker is not owner-only, got '$push_mode'"
+
+# The dedupe is the filename: the same key again is a no-op, and it does NOT
+# overwrite what is already pending — the session has not relayed it yet, and
+# replacing the line under it would change what the operator is about to read.
+notify_push "a worker is STILL blocked" --key i0000beef || fail "notify (push): second call non-zero"
+[ "$(cat "$push_dir/i0000beef")" = "a worker is blocked" ] || fail "notify (push): the second call overwrote the pending marker"
+notify_push "another worker is blocked" --key i0000cafe || fail "notify (push): third call non-zero"
+push_n=0
+for push_f in "$push_dir"/*; do
+  [ -e "$push_f" ] || continue
+  push_n=$((push_n + 1))
+done
+[ "$push_n" = 2 ] || fail "notify (push): expected one marker per key, found $push_n"
+
+# The key names a file, so it is validated against a path-safe grammar rather
+# than sanitized into one. A traversal attempt is refused, not rewritten.
+rc=0
+notify_push "escape" --key ../../escaped >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify (push): a traversing --key was not refused (exit $rc)"
+[ ! -e "$tmp/escaped" ] && [ ! -e "$home13d/escaped" ] || fail "notify (push): a traversing --key wrote outside the surface"
+for bad_key in "-leading" "with/slash" "with space" "$(printf 'x%0.s' $(seq 1 129))"; do
+  rc=0
+  notify_push "escape" --key "$bad_key" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "notify (push): --key '$bad_key' was not refused (exit $rc)"
+done
+# An explicit empty key is a usage error, not the keyless derivation.
+rc=0
+notify_push "empty key" --key "" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify (push): --key '' was not refused (exit $rc)"
+for push_f in "$push_dir"/k*; do
+  [ -e "$push_f" ] || continue
+  fail "notify (push): --key '' fell through to a derived key ($push_f)"
+done
+rc=0
+notify_push "unknown flag" --nope >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify: an unknown flag was not refused (exit $rc)"
+rc=0
+notify_push "one" "two" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify: a second summary was not refused (exit $rc)"
+
+# The summary is taken wherever it appears, so the flag may lead. Binding it to
+# $1 before the flag loop makes this form blame the wrong token.
+notify_push --key i0000feed "flag first" || fail "notify (push): --key before the summary was refused"
+[ "$(cat "$push_dir/i0000feed")" = "flag first" ] || fail "notify (push): --key before the summary bound the wrong value"
+
+# A keyless caller still dedupes, on what it is saying.
+notify_push "a keyless line" || fail "notify (push): a keyless call was refused"
+notify_push "a keyless line" || fail "notify (push): a repeated keyless call was refused"
+keyless=0
+for push_f in "$push_dir"/k*; do
+  [ -e "$push_f" ] || continue
+  keyless=$((keyless + 1))
+done
+[ "$keyless" = 1 ] || fail "notify (push): a repeated keyless summary wrote $keyless markers"
+
+# A directory planted at the key holds it forever if the dedupe test is a bare
+# existence check, and every later push for that item reports success while
+# reaching nobody. It is refused instead.
+mkdir -p "$push_dir/i0000dead"
+rc=0
+notify_push "blocked" --key i0000dead >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify (push): a directory planted at the key was deduped against rather than refused (exit $rc)"
+rmdir "$push_dir/i0000dead"
+
+# Same for a redirect at the surface: the marker is the operator's pending
+# lock-screen text, and it goes where this script chose or nowhere.
+mv "$push_dir" "$tmp/push-aside"
+ln -s "$tmp/elsewhere" "$push_dir"
+rc=0
+notify_push "blocked" --key i0000beef >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "notify (push): a symlinked marker directory was written through (exit $rc)"
+[ ! -e "$tmp/elsewhere" ] || fail "notify (push): a symlinked marker directory was created through the redirect"
+rm -f "$push_dir"
+mv "$tmp/push-aside" "$push_dir"
+echo "ok: the push channel writes one owner-only pending-push marker per key and refuses a malformed key, a planted key, and a redirected surface"
+
 # ---------------------------------------------------------------------------
 # 14. Empty-state reads are clean: render on an untouched home exits 0 with no
 #     rows; queue --count is 0.
