@@ -103,7 +103,7 @@ wait
 [ "$(record_count)" = 16 ] || fail "two writers: $(record_count) records, expected 16"
 while IFS= read -r l; do
   nf=$(printf '%s\n' "$l" | awk -F '\t' '{ print NF }')
-  [ "$nf" = 24 ] || fail "torn record under two writers ($nf fields): $l"
+  [ "$nf" = 26 ] || fail "torn record under two writers ($nf fields): $l"
   case "$l" in
     i[0-9a-f]*"$TAB"open"$TAB"*) ;;
     *) fail "malformed record under two writers: $l" ;;

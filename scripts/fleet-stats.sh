@@ -40,11 +40,15 @@
 #                     engage/clear EVENTS, but the current state is the throttle
 #                     store, so a cleared throttle reads idle immediately.
 #
-# COMPOSES WITH fleet-attention.sh (D-14). `line` folds the decision-queue
-# length (fleet-attention.sh queue --count) into a single compact line for the
-# statusLine surface, so the operator sees stats and the actionable-queue depth
-# together. The statusLine wiring itself is scripts/fleet-statusline.sh, gated on
-# the `statusline` notification_channel value.
+# COMPOSES WITH fleet-attention.sh (D-14) AND tower-queue.sh (tower-comms
+# D-17). `line` folds the worker decision-queue length (fleet-attention.sh
+# queue --count) and the operator queue's `waiting` field (tower-queue.sh
+# counts) into a single compact line for the statusLine surface, so the
+# operator sees the stats, the actionable-queue depth, and what the tower is
+# holding for them together. Both siblings resolve the fleet home themselves,
+# so this script still resolves none. The statusLine wiring itself is
+# scripts/fleet-statusline.sh, gated on the `statusline` notification_channel
+# value.
 #
 # THE AUDIT RENDER (REQ-F1.4). `audit` is the human-facing view of Task 1's
 # audit trail: it wraps scripts/fleet-audit.sh query (passing --mechanism /
@@ -64,8 +68,9 @@
 #       The multi-line human-facing stats block (last cleanup, watchdog trips,
 #       throttle state).
 #   fleet-stats.sh line
-#       The compact single-line render for a statusLine, folding in the
-#       decision-queue length.
+#       The compact single-line render for a statusLine, folding in the worker
+#       decision-queue length and, while a tower is live, the operator queue's
+#       `waiting` field.
 #   fleet-stats.sh audit [--mechanism <m>] [--since <epoch>] [--until <epoch>]
 #       The human-facing audit-trail render, queryable by mechanism and time
 #       range (the filters pass straight through to fleet-audit.sh query).
@@ -94,6 +99,7 @@ AUDIT="$script_dir/fleet-audit.sh"
 THROTTLE="$script_dir/fleet-throttle.sh"
 ATTN="$script_dir/fleet-attention.sh"
 LEDGER="$script_dir/allocation-ledger.sh"
+TOWER_QUEUE="$script_dir/tower-queue.sh"
 TAB=$(printf '\t')
 
 # utc_iso <epoch>: best-effort UTC rendering, byte-identical to
@@ -285,6 +291,101 @@ queue_count() {
   esac
 }
 
+# waiting_field — the operator queue's native indicator (tower-comms D-17,
+# REQ-C1.9): the top item's kind plus one total, or nothing at all.
+#
+# Fed by `tower-queue.sh counts`, which is a lock-free best-effort read and
+# resolves the fleet home itself, so this script still resolves none (the
+# no-new-file floor above). The sibling is located beside this script and
+# nowhere else: Claude Code invokes this render unattended on its own
+# schedule, and an environment variable naming an executable on that path
+# would be a subprocess the operator never chose and never sees.
+#
+# WHAT IT PRINTS, and why a zero is not among the answers on a bad read:
+#   ""            — no live tower presence, or the sibling is not installed.
+#                   Nothing is reading the queue, so there is nothing to say
+#                   about it, and a field saying so would be noise.
+#   `waiting none` — a genuine empty queue. A real zero, said as a word.
+#   `waiting ?`   — the one unreadable marker, for all three degradations
+#                   REQ-C1.9 names: a store that will not read (absent,
+#                   unreadable, or a sibling that failed), a torn or malformed
+#                   line in it, or a top kind outside the closed set. Never a
+#                   blank and never a zero, because a zero reads as "nothing
+#                   waiting" and that is the one thing a broken read cannot
+#                   claim.
+#   `waiting <kind> <n>` — the top item's kind and the ranked-kind total.
+waiting_field() {
+  [ -x "$TOWER_QUEUE" ] || return 0
+  wf_rc=0
+  wf_raw=$("$TOWER_QUEUE" counts 2>/dev/null) || wf_rc=$?
+
+  # Every value is read out before any of them is compared, and each is then
+  # asserted present: a missing row must not coerce to an empty string that
+  # then compares equal to something, which is how a guard ends up passing
+  # because its measurement went missing rather than because it held.
+  wf_presence=$(printf '%s\n' "$wf_raw" | awk -F "$TAB" '$1 == "presence" { print $2; exit }')
+  wf_store=$(printf '%s\n' "$wf_raw" | awk -F "$TAB" '$1 == "store" { print $2; exit }')
+  wf_top=$(printf '%s\n' "$wf_raw" | awk -F "$TAB" '$1 == "top" { print $2; exit }')
+  wf_total=$(printf '%s\n' "$wf_raw" | awk -F "$TAB" '$1 == "total" { print $2; exit }')
+  wf_bad=$(printf '%s\n' "$wf_raw" | awk -F "$TAB" '$1 == "malformed" { print $2; exit }')
+
+  # The presence gate is read first and on its own: with nothing live there is
+  # no field at all, not even the marker. The sibling emits that row before it
+  # reads the store, so a store that will not read still carries it and still
+  # reaches the operator as the marker. It cannot carry it when the FLEET HOME
+  # itself is unresolvable — the sibling needs the home to answer the presence
+  # question at all — and that case is silence, which is the honest answer: no
+  # fleet home is no fleet. No row for any other reason (an older sibling) is
+  # silence too; a field gated on a signal nobody sent is a field making
+  # something up.
+  [ "$wf_presence" = live ] || return 0
+
+  # Past the gate, anything that is not a clean reading is the marker: a
+  # non-zero exit from the sibling, a row it did not manage to print, a count
+  # that is not a number, a torn line it counted, or a store it could not find.
+  if [ "$wf_rc" != 0 ]; then
+    printf 'waiting ?'
+    return 0
+  fi
+  if [ -z "$wf_store" ] || [ -z "$wf_top" ] || [ -z "$wf_total" ] || [ -z "$wf_bad" ]; then
+    printf 'waiting ?'
+    return 0
+  fi
+  case "$wf_total$wf_bad" in
+    *[!0-9]*)
+      printf 'waiting ?'
+      return 0
+      ;;
+  esac
+  if [ "$wf_store" != present ] || [ "$wf_bad" -gt 0 ]; then
+    printf 'waiting ?'
+    return 0
+  fi
+  case $wf_top in
+    question | approval | request | news) ;;
+    -)
+      # The closed set's own "nothing ranked": legitimate only with an empty
+      # queue. A total above zero with no top item is a reading that
+      # contradicts itself, so it degrades rather than rounding to none.
+      if [ "$wf_total" -eq 0 ]; then
+        printf 'waiting none'
+      else
+        printf 'waiting ?'
+      fi
+      return 0
+      ;;
+    *)
+      printf 'waiting ?'
+      return 0
+      ;;
+  esac
+  [ "$wf_total" -ne 0 ] || {
+    printf 'waiting ?'
+    return 0
+  }
+  printf 'waiting %s %s' "$(sanitize_printable "$wf_top" "?")" "$(sanitize_printable "$wf_total" "?")"
+}
+
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
   echo "usage: fleet-stats.sh render | line | audit [--mechanism <m>] [--since <epoch>] [--until <epoch>]" >&2
@@ -347,8 +448,13 @@ case $cmd in
       *) al="${ALLOC_STAT##*derive }" ;;
     esac
     s_al=$(sanitize_printable "$al" "?")
-    printf 'planwright | cleanup %s | trips %s | throttle %s | queue %s | alloc %s\n' \
-      "$s_c" "$s_trips" "$s_th" "$s_q" "$s_al"
+    # The operator queue's own field, appended rather than folded into `queue`:
+    # that one is the worker decision queue, and REQ-C1.9 names `waiting`
+    # precisely so the two never read as one number. Absent when no tower is
+    # live, which is why it is a trailing segment and not a column.
+    w=$(waiting_field)
+    printf 'planwright | cleanup %s | trips %s | throttle %s | queue %s | alloc %s%s\n' \
+      "$s_c" "$s_trips" "$s_th" "$s_q" "$s_al" "${w:+ | $w}"
     exit 0
     ;;
 

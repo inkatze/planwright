@@ -159,7 +159,13 @@ dispatch_fetch_ttl: 2m
 # `editor-toast` an editor toast the editor tails (the editor-feedback persona);
 # `statusline` renders the derived fleet stats natively in the operator's own
 # Claude Code terminal via the statusLine feature (fleet-autonomy D-14; wire
-# scripts/fleet-statusline.sh into settings.json — see docs/fleet.md).
+# scripts/fleet-statusline.sh into settings.json — see docs/fleet.md), and
+# carries the operator queue's `waiting` field beside them (tower-comms D-17);
+# `push` is session-relayed (tower-comms D-19) — the seam writes a pending-push
+# marker under the fleet home and the tower session relays it to the operator's
+# desktop and phone, since only a session can call the tool that reaches one;
+# the relay is not built yet, so until the tower loop lands the markers
+# accumulate unread and `push` reaches nobody (docs/fleet.md says the same).
 # Resolved through scripts/resolve-notification-channel.sh, which validates the
 # enum and applies the REQ-E1.4 by-layer malformed policy (degrade+warn for
 # adopter/machine-local, hard-fail for repo-tracked); the channel adapters live
@@ -739,7 +745,13 @@ tower_tick_gap_max: 10m
 #                        what it keeps inside the fleet lock.
 # tower_shelve_return    how long a shelved item stays parked before it
 #                        returns on its own, when `shelve` is given no --for.
+# tower_reknock_age      how long a blocked item may stay open before the away
+#                        push names it a second time. The crossing is read
+#                        once per item, not on a repeat: the away push fires
+#                        when the item first meets an away conversation and
+#                        then only on worsening, never on a schedule.
 tower_quiet_interval: 10m
 tower_lease_interval: 15m
 tower_catchup_limit: 20
 tower_shelve_return: 1h
+tower_reknock_age: 30m

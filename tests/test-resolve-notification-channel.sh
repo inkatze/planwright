@@ -115,14 +115,15 @@ got=$(run)
 echo "ok: machine-local wins over repo-tracked (topmost precedence edge)"
 
 # 3. Every legal channel value validates (statusline is fleet-autonomy Task 8's
-#    addition: D-14, the native Claude Code statusLine render).
-for ch in none tmux-popup os-notify editor-toast statusline; do
+#    addition: D-14, the native Claude Code statusLine render; push is
+#    tower-comms D-19's session-relayed channel).
+for ch in none tmux-popup os-notify editor-toast statusline push; do
   reset_layers
   printf 'notification_channel: %s\n' "$ch" >"$tracked_cfg"
   got=$(run)
   [ "$got" = "$ch" ] || fail "legal channel '$ch' did not validate (got: '$got')"
 done
-echo "ok: every legal channel value (none, tmux-popup, os-notify, editor-toast, statusline) validates"
+echo "ok: every legal channel value (none, tmux-popup, os-notify, editor-toast, statusline, push) validates"
 
 # 4. A trailing comment and surrounding whitespace are tolerated.
 reset_layers
@@ -254,7 +255,7 @@ echo "ok: malformed-value diagnostics are stripped of control/escape bytes (no t
 shipped=$(sed -n 's/^notification_channel:[[:space:]]*\([a-z-]*\).*/\1/p' "$here/../config/defaults.yml")
 [ -n "$shipped" ] || fail "could not read notification_channel from config/defaults.yml"
 case $shipped in
-  none | tmux-popup | os-notify | editor-toast | statusline) ;;
+  none | tmux-popup | os-notify | editor-toast | statusline | push) ;;
   *) fail "config/defaults.yml notification_channel '$shipped' is not a legal resolver enum value" ;;
 esac
 [ "$shipped" = "$SAFE_DEFAULT" ] \
