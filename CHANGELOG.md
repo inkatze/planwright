@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.43.0](https://github.com/inkatze/planwright/compare/v0.42.1...v0.43.0) (2026-09-19)
+
+
+### Features
+
+* **tower-comms:** capture the operator's asks and answer prompts from their written rules ([#475](https://github.com/inkatze/planwright/issues/475)) ([5b78e33](https://github.com/inkatze/planwright/commit/5b78e333a40678606cffd022f84ace2274675a88))
+* **tower-comms:** log replies, ticks and delivered turns from the tower (task 2) ([#468](https://github.com/inkatze/planwright/issues/468)) ([687163d](https://github.com/inkatze/planwright/commit/687163db78aa48d15b01f9e0c0ab5bc6b2223c0e))
+* **tower-queue:** add the queue store and its verbs ([#467](https://github.com/inkatze/planwright/issues/467)) ([a8011b2](https://github.com/inkatze/planwright/commit/a8011b253ce3d32e0a30cf2370a2da75b6dc5cc5))
+* **tower-queue:** deliver the knock, detect away, and push once per departure ([#474](https://github.com/inkatze/planwright/issues/474)) ([e362c0c](https://github.com/inkatze/planwright/commit/e362c0cf512adfdc991d6c3d413ccbca49c06aeb))
+* **tower-queue:** settle items on evidence, merge duplicates, catch up ([#471](https://github.com/inkatze/planwright/issues/471)) ([cdcc802](https://github.com/inkatze/planwright/commit/cdcc802b23e613bd800b4afc1b275ca32dc19702))
+
+
+### Bug Fixes
+
+* **tower-queue:** stop the field guard refusing multi-byte text ([#472](https://github.com/inkatze/planwright/issues/472)) ([f9af67c](https://github.com/inkatze/planwright/commit/f9af67c308a64e4e92f4bb17c97457f246a15344))
+
 ## [0.42.1](https://github.com/inkatze/planwright/compare/v0.42.0...v0.42.1) (2026-09-15)
 
 
