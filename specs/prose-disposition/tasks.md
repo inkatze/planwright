@@ -215,22 +215,29 @@ can be measured by it.
   external-contract definition for prose and its disposal of both the
   Auto-applicable disqualifier and the Needs-sign-off external-interface
   route; the PR-introduced-surface rule; the matching `doctrine/README.md`
-  index row and `Citations:` entries; and the instantiation of these three
-  rules in `skills/self-review/SKILL.md`, `skills/polish/SKILL.md` and the
-  convergence prose of `skills/execute-task/SKILL.md`, which Tasks 11 and 12
-  leave to this task because they cannot cite a section that does not yet
-  exist. This
+  index row and `Citations:` entries; and the instantiation of the
+  PR-introduced-surface rule alone in `skills/self-review/SKILL.md`,
+  `skills/polish/SKILL.md` and the convergence prose of
+  `skills/execute-task/SKILL.md`, which Tasks 11 and 12 leave to this task
+  because they cannot cite a section that does not yet exist. One gist per
+  skill, not three: REQ-D1.1 names four rules to instantiate, of which this
+  task owns only the PR-introduced-surface one, and REQ-B1.2 and REQ-B1.3
+  govern what `doctrine/finding-categorization.md` states and how a fix
+  routes, neither asking for a per-skill restatement. This
   task funds its own instruction budget within what REQ-D1.3 permits: Task 1
   measured the run-start dedupe diet and spent it, and its convergence pass
   found the diet had cut fifteen rules that had to be restored, so the room
-  this task needs is not there. If no funding REQ-D1.3 permits exists, that is
+  this task needs is not there. That shortfall was measured against three
+  gists per skill and is re-measured against one before it is treated as a
+  shortfall. If no funding REQ-D1.3 permits exists, that is
   an escalation, not a licence to widen the budget.
 - **Done when:** each rule REQ-B1.2, REQ-B1.3 and REQ-B1.4 states appears in
   `doctrine/finding-categorization.md`; the routing scenarios in
   `test-spec.md` under REQ-B1.2, REQ-B1.3 and REQ-B1.4 walk against the
   amended text and reach the stated disposition, each walk recorded in the PR
-  body; each of the three skills names the governing section and restates at
-  most a one-line gist (REQ-D1.1); `check:instructions` passes and the
+  body; each of the three skills names the governing section for the
+  PR-introduced-surface rule and restates at most a one-line gist
+  (REQ-D1.1); `check:instructions` passes and the
   suppression list gains no `raise` entry; and `mise run check` is green.
 - **Dependencies:** 1, 2
 - **Citations:** D-3, D-6 · REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-D1.1, REQ-D1.3

@@ -458,7 +458,17 @@ work, is recorded in D-1 and cited here from the goal.
   `test-spec.md` were widened to the tasks that actually land what they
   check: REQ-D1.1's four-rule reading now names Task 10 for the
   PR-introduced-surface citation, and REQ-D1.3's guard clause now names Tasks
-  10, 11 and 12 alongside Tasks 1 and 2.
+  10, 11 and 12 alongside Tasks 1 and 2. Task 10's Deliverables kept
+  pre-split wording claiming it instantiates "these three rules" in the three
+  skill files, which overlapped the partition the split wrote into Tasks 11
+  and 12, test-spec REQ-D1.1 and the 2026-09-20 entry below. Narrowed to the
+  one rule REQ-D1.1 gives it, the PR-introduced-surface rule: REQ-B1.2 and
+  REQ-B1.3 govern what the doctrine doc states and how a fix routes, and
+  neither asks for a per-skill restatement. No REQ changed; the task stopped
+  claiming more than REQ-D1.1 asks of it, and its own Done-when already said
+  "the governing section" in the singular. The instruction-budget shortfall
+  the task records was measured against three gists per skill and is
+  re-measured against one before being treated as a shortfall.
 
 - 2026-09-20 — Task 2 execution: REQ-D1.1's instantiation of the amended rules
   in `/self-review`, `/polish` and `/execute-task`'s convergence prose moves

@@ -627,10 +627,37 @@ figure landing at about eleven days rather than ten and a half. Copilot
 caught the contradiction on the review of `1e94d6d`; it was the bundle's own
 new rule disagreeing with a figure derived before the rule existed.
 
+**The overlap the split left in Task 10, narrowed.** Task 10's Deliverables
+still claimed "the instantiation of these three rules" in the three skill
+files, wording from 2026-09-13 when Task 10's three doctrine rules were all
+it had to place there. The split then wrote the narrow partition into Tasks
+11 and 12 ("the fourth rule REQ-D1.1 names, the PR-introduced-surface rule,
+is Task 10's"), into test-spec REQ-D1.1, and into the 2026-09-20 changelog
+entry, and left Task 10's own clause behind. Two tasks therefore claimed the
+same skill edits, which a selector can schedule twice.
+
+The requirements settle which reading is right, and it is the narrow one.
+REQ-D1.1 is the only requirement that mandates a skill instantiation at all,
+and its four named rules are lens scoping, prose classification, the
+PR-introduced-surface rule and the commit discipline. Of Task 10's three
+doctrine rules only REQ-B1.4 is among them; REQ-B1.2 governs how an
+expression-only prose fix satisfies the Auto-applicable tool-grounding
+condition and REQ-B1.3 defines the external-contract clause, and neither asks
+for a per-skill restatement of anything. Task 10's own `Done when:` already
+said "the governing section", singular, so the block disagreed with itself.
+The Deliverables now say one gist per skill rather than three, and the
+`Done when:` names which rule.
+
+This has a consequence outside the spec worth stating plainly: the
+instruction-budget shortfall Task 10 records was measured against three gists
+per skill, so the task now says it is re-measured against one before being
+treated as a shortfall. Copilot found this on the review of `5cc5dd9`, inside
+a collapsed block, with its own finding counter reading none.
+
 Cites the changelog line: the `## Changelog` entry in `requirements.md` dated
 2026-09-21 ("the shared write surface Tasks 10, 11 and 12 have … is
 coordinated by a new kickoff-brief risk row 12").
 
 Class: expression-only
-Anchor: `c49a53f93fab54dc26f9c28f355dccb561dca009` — computed as
+Anchor: `2560498019f6715fb4e5b78fd071f9575165c367` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`
