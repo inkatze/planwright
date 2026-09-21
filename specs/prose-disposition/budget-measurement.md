@@ -489,7 +489,7 @@ it tracks branch HEAD rather than the revision a given section was drafted at.
 | Surface | Pin | Before | After |
 | --- | --- | --- | --- |
 | `skills/execute-task/SKILL.md` (per-file) | `margin=251` | 251 (3999 words) | **261** (3989 words) |
-| `start-load:self-review` | `margin=566` | 591 (9409 words) | **870** (9130 words) |
+| `start-load:self-review` | `margin=566` | 591 (9409 words) | **860** (9140 words) |
 | `start-load:builder` | `margin=515` | 703 | 703 |
 | `skills/orchestrate/SKILL.md` | `margin=251` | 255 | 255 |
 | `skills/spec-kickoff/SKILL.md` | `margin=262` | 276 | 276 |

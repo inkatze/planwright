@@ -158,9 +158,10 @@ discipline, antipattern check.
 Route every validated finding through the `gate-wiring` doc's routing order:
 zone screen first, then bucket assignment per the `finding-categorization`
 predicates, then disposition by bucket. The wiring doc governs the mechanics
-this skill executes. Everything the pass writes from here on — commit bodies,
-audit rows, the PR body, observation fragments — passes `security-posture`'s
-artifact data-hygiene first.
+this skill executes. Every artifact the pass emits passes `security-posture`'s
+artifact data-hygiene first: commit bodies, audit rows, the PR body,
+observation fragments, and the lens-coverage table Discovery has already
+produced, whose Notes cells quote tooling output.
 
 - A finding whose fix edits **only prose** is classed on
   `finding-categorization`'s *Prose findings* axis before it is routed:
