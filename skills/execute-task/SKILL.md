@@ -198,7 +198,7 @@ task-id grammar*, stamped through the shared helper:
 
 ```sh
 printf '%s\n' "$message" \
-  | scripts/planwright-commit-trailers.sh <spec>/<id> \
+  | scripts/planwright-commit-trailers.sh <spec>/<id> [<spec>/<id> ...] \
   | git commit -F -
 ```
 
