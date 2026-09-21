@@ -320,7 +320,7 @@ why `--nested` is mandatory). The `dispatch_isolation` mode sets only where each
 `--nested` call is **hosted** — `per-unit` in-session composition (REQ-E2.2,
 D-13) or a fresh `/resume`-seeded `per-step` session — never the `--nested`
 contract. Each review skill holds its Documentation lens to `discovery-rigor`'s
-four defect classes, so a pass reporting no prose finding is coverage, not a gap.
+four defect classes, so a `none` row naming the reason is coverage, not a gap.
 
 After each returns:
 
