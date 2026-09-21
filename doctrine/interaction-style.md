@@ -13,8 +13,10 @@ internal model.
 Citations: REQ-B3.1 · operator-dialogue REQ-A1.1, REQ-A1.2, REQ-B1.3,
 REQ-C1.1, REQ-C1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5,
 REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-I1.1, REQ-I1.2, REQ-I1.3,
-REQ-I1.4, REQ-I1.5, REQ-J1.3 · operator-dialogue D-1, D-3, D-4, D-5,
-D-6, D-7, D-12, D-14, D-15, D-19, D-20, D-21 · the bootstrap seed (Sources).
+REQ-I1.4, REQ-I1.5, REQ-J1.3, REQ-L1.1, REQ-L1.2, REQ-L1.3, REQ-L1.4,
+REQ-L1.5 · operator-dialogue D-1, D-3, D-4, D-5,
+D-6, D-7, D-12, D-14, D-15, D-18, D-19, D-20, D-21 · the bootstrap seed
+(Sources).
 
 ## The three disciplines
 
@@ -209,6 +211,38 @@ cluster per turn, plain language leading, and identifiers (REQ and D-IDs,
 anchors, lane names) only where traceability needs them. The bound stays
 qualitative on purpose — concrete numbers live in the turn-shape eval
 fixtures, tunable on evidence without amending doctrine.
+
+### Capture at birth
+
+An action item born in the dialogue — an out-of-band fix, a deferral, a
+follow-up named mid-answer, a decision owed by the operator — is recorded in
+tracked state in the turn it is born. The order is confirm, then write: the
+skill proposes the tracked form to the operator in that same turn, and only a
+confirmed item is written. A declined proposal is not tracked; it survives in
+the session decision log alone. Prose is never a confirmed item's only record,
+and the operator's memory is never the tracking mechanism. Capture is not a
+bypass: a decision the walk's own structure requires still halts the walk
+rather than being parked as an item. Proposing the form is the skill's
+clerical weight — the operator supplies judgment, never transcription.
+
+**Tracked state** is a surface with a named reader and a drain ritual (an
+accumulator, in `accumulator-taxonomy`'s sense), its class and durable home
+named at capture. Until the action-item ledger ships, the target set is
+exactly: an Awaiting-input entry, a gated Deferred reference bullet, or an
+observation fragment — human-owned payload writes landing on the session's own
+branch, never execution state. A task block is reachable only through the
+amendment ritual, and a capture with no owning spec targets the observations
+log. The ledger's own bundle re-points these targets when it ships; capture
+never waits on it.
+
+**A fix or follow-up named to ship out of band carries a ship-gate record** — a
+tracked-state entry whose drain blocks or re-surfaces until the fix verifiably
+lands. Prose in a design decision or a rejected-alternatives paragraph is not a
+ship mechanism.
+
+The **open-captures list** is shown to the operator at every phase boundary and
+on request, in the delta-plus-open form *Running summary* requires, so what is
+still owed is answerable without the operator asking.
 
 ## Application notes
 
