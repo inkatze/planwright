@@ -111,6 +111,11 @@ residue itself projected, each escalated decision domain and each
 recommendation the human still owns as one line of decision and options, and
 where the full record landed or how to ask for it.
 
+Mirror that projection into the structured decision/transcript log as one
+`turn` record, sanitized like the log's other records (`interaction-style`,
+D-19). Where the harness provides no such log, say the mirror was skipped;
+never improvise one into the repository.
+
 ## Stake escalation (REQ-G1.3, D-16)
 
 Before applying anything, walk the `decision-domains` catalog against what the
