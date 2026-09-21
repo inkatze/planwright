@@ -1595,9 +1595,10 @@ nothing added:
   failing-then-passing regression test plus green CI), Needs-sign-off
   applications (the fix lands on the branch per the gate's commit discipline,
   its own commit for a behaviour fix and the iteration's batched prose commit
-  for a prose-only one; your approval happens at PR review by leaving or
-  reverting it), and pre-approved operational hygiene (reclaiming merged
-  workers, answering a worker's routine *question to the tower*).
+  for a prose-only one; your approval happens at PR review by leaving the
+  commit or taking the rejection its pending-sign-off checklist entry names),
+  and pre-approved operational hygiene (reclaiming merged workers, answering a
+  worker's routine *question to the tower*).
 - **Must escalate:** anything in a hard-disqualifier zone (security-sensitive
   code, migrations/destructive ops, CI config, lockfiles, secrets), and any
   fork still irreducible after citation, research, and convention — design
