@@ -1594,9 +1594,9 @@ nothing added:
   no observable change), Agent-resolvable findings (backed by a
   failing-then-passing regression test plus green CI), Needs-sign-off
   applications (the fix lands on the branch per the gate's commit discipline,
-  its own commit for a behavior fix and the loop iteration's batched prose
-  commit for a prose-only one; your approval happens at PR review by leaving
-  the commit or taking the rejection its pending-sign-off checklist entry
+  its own commit for a behavior fix or the loop iteration's batched prose
+  commit for a prose-only one; your approval happens at PR review, where you
+  leave the commit or reject with what its pending-sign-off checklist entry
   names), and pre-approved operational hygiene (reclaiming merged workers,
   answering a worker's routine *question to the tower*).
 - **Must escalate:** anything in a hard-disqualifier zone (security-sensitive
