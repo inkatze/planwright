@@ -681,9 +681,9 @@ the four. `requirements.md`, `tasks.md` and `test-spec.md` now read
 is the same miss one round earlier.
 
 Cites the changelog line: the `## Changelog` entry in `requirements.md` dated
-2026-09-21 ("the shared write surface Tasks 10, 11 and 12 have … is
-coordinated by a new kickoff-brief risk row 12").
+2026-09-21 ("Tasks 10, 11 and 12 write the same three skill files … and that
+shared write surface is coordinated by a new kickoff-brief risk row 12").
 
 Class: expression-only
-Anchor: `6ad414f9145d78165c4867a8c8fb7e32a18da355` — computed as
+Anchor: `920c444ede944bfde33b7dbbdde7e04233edaa9d` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`

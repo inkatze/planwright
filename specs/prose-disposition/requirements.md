@@ -439,11 +439,11 @@ work, is recorded in D-1 and cited here from the goal.
 
 ## Changelog
 
-- 2026-09-21 — Task 2 execution, review round: the shared write surface Tasks
-  10, 11 and 12 have on `skills/polish/SKILL.md`,
-  `skills/self-review/SKILL.md` and `/execute-task`'s convergence prose is
-  coordinated by a new kickoff-brief risk row 12 rather than by dependency
-  edges. The operator made that call, choosing between an edge, a register
+- 2026-09-21 — Task 2 execution, review round: Tasks 10, 11 and 12 write the
+  same three skill files (`skills/polish/SKILL.md`,
+  `skills/self-review/SKILL.md` and `/execute-task`'s convergence prose), and
+  that shared write surface is coordinated by a new kickoff-brief risk row 12
+  rather than by dependency edges. The operator made that call, choosing between an edge, a register
   rule, and recording the hazard without coordinating it; row 3 already uses
   the register shape for the Phase B families. This amendment changes no
   `Dependencies:` line of its own and no REQ: the Task 3 edges the 2026-09-20
