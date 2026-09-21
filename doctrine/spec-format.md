@@ -874,10 +874,12 @@ anchor).
 - **Commit trailer (orchestration-concurrency D-2, orchestration-concurrency
   REQ-C1.4):** every commit a skill
   authors for a unit carries a `Planwright-Task: <spec>/<id>` footer trailer,
-  one per task for a bundle, stamped by piping the message through
-  `scripts/planwright-commit-trailers.sh <spec>/<id>` into `git commit -F -`
-  rather than written by hand, so the grammar is validated once and identical
-  everywhere. It is the durable completion anchor the orchestration-state
+  stamped by piping the message through
+  `scripts/planwright-commit-trailers.sh <spec>/<id> [<spec>/<id> ...]` into
+  `git commit -F -` rather than written by hand, so the grammar is validated
+  once and identical everywhere. A bundle passes one ref per task and the
+  helper emits one trailer each; a single ref on a bundled commit silently
+  anchors only that task, and no guard catches it. It is the durable completion anchor the orchestration-state
   derivation reads by scanning the whole commit message, so it survives a
   squash or rebase merge, branch deletion, and direct-to-`main` commits.
   Footer-only and additive: no subject-line change, and no co-author or

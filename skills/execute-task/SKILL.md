@@ -38,7 +38,7 @@ naming the missing doc and the chain consulted (REQ-K1.7). `decision-domains`
 degrades gracefully instead: absent, note it in one line, skip the drift check,
 and use engineering judgment.
 
-Doctrine: run-start spec-format (status lifecycle, anchors, freshness gate)
+Doctrine: run-start spec-format (lifecycle, anchors, freshness, commit trailer)
 Doctrine: run-start proportionality
 Doctrine: point-of-use research-rigor
 Doctrine: point-of-use security-posture

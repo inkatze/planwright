@@ -122,7 +122,9 @@ Apply the `discovery-rigor` doc against the diff:
 - **Merge and dedupe.** A finding hitting two lenses gets one row with both
   labels.
 - **Filter refactor flags in review mode** per `refactor-instinct`: anchored
-  in tool output or made worse by this branch, otherwise dropped.
+  in tool output or made worse by this branch, otherwise dropped. This bullet
+  is the doc's only read site, which is what its `point-of-use` classification
+  rests on; a second, earlier read site needs the manifest revisited.
 - **Hold the Documentation lens to `discovery-rigor`'s four defect classes**:
   prose the diff falsifies, documentation missing for behaviour the diff
   introduces, a documentation guard's violation, and an interpretation fork.
