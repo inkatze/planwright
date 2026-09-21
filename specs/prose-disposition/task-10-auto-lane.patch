@@ -1,0 +1,98 @@
+diff --git a/doctrine/README.md b/doctrine/README.md
+index 2c19739..fa0af1c 100644
+--- a/doctrine/README.md
++++ b/doctrine/README.md
+@@ -7,7 +7,7 @@ resolution path defined below (REQ-I1.1, D-24).
+ 
+ | Doc | Covers | Primary citations |
+ | --- | --- | --- |
+-| [finding-categorization.md](finding-categorization.md) | The four finding buckets, their predicates, the act-then-review autonomy gate, and the prose classification that rides the meta-spec's amendment axis (the normative-statement test with its word list, and the Needs-sign-off route meaning-class prose keeps) | REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.5 · prose-disposition D-3 |
++| [finding-categorization.md](finding-categorization.md) | The four finding buckets, their predicates, the act-then-review autonomy gate, and the prose classification that rides the meta-spec's amendment axis (the normative-statement test with its word list, and the Needs-sign-off route meaning-class prose keeps) | REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5 · prose-disposition D-3 |
+ | [gate-wiring.md](gate-wiring.md) | The gate's operational wiring: routing order, commit discipline (the loop iteration, one commit per behaviour fix, the batched prose commit and its manifest), checklist and audit formats, ladder procedure, pause protocol | REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 · prose-disposition REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 · prose-disposition D-5 |
+ | [kickoff-verification.md](kickoff-verification.md) | The `/spec-kickoff` lens and verification mechanics lifted out of the skill body: the mid-walk delta-scoped lens, the post-lens stale-reference sweep, the sign-off lens-review scope/fan-out (its lens-coverage table artifact-side, counts plus actionable rows at the turn) and altitude check, and the terminal ready-flip CI gate (head-SHA rollup query, positive-green condition, bounded wait, head re-pin, refusal arm) | skill-rigor REQ-B1.1, skill-rigor REQ-B1.4, skill-rigor REQ-B1.5, skill-rigor REQ-A3.3, skill-rigor REQ-H1.3 · skill-rigor D-3, skill-rigor D-5, skill-rigor D-6, skill-rigor D-45 · operator-dialogue REQ-I1.4 · operator-dialogue D-15 |
+ | [autonomous-safe-decision.md](autonomous-safe-decision.md) | The unattended orchestration tower's autonomy policy as a mapping onto the finding-categorization buckets and hard-pause zones (no parallel taxonomy); the never-auto-merge floor and escalation to the decision queue | orchestration-fleet REQ-A1.3, orchestration-fleet REQ-D1.4 · orchestration-fleet D-8, orchestration-fleet D-13 |
+diff --git a/doctrine/finding-categorization.md b/doctrine/finding-categorization.md
+index 2c2c95f..bfd3222 100644
+--- a/doctrine/finding-categorization.md
++++ b/doctrine/finding-categorization.md
+@@ -10,8 +10,8 @@ backs it, so the human can review the whole record at the draft PR.
+ 
+ Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
+ REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 ·
+-operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.5 ·
+-prose-disposition D-3.
++operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.2,
++REQ-B1.3, REQ-B1.4, REQ-B1.5 · prose-disposition D-3.
+ 
+ The operational wiring is specified in [Gate Wiring](gate-wiring.md), which
+ implements the buckets and principles defined here.
+@@ -149,6 +149,25 @@ words is still a normative statement. The list grows on
+ evidence by the ordinary doctrine-edit route: a changelog line,
+ expression-only unless a rule changes.
+ 
++**Expression-only prose is Auto-applicable**, tool-grounded either by a rule a
++prose guard the project ships reports (doctrine-index, link,
++instruction-budget, markdown-lint, gloss, pin, comment-block) or by a recorded
++**preservation check** — the passage's normative statements listed before and
++after, shown identical — as Validation Rigor's non-testable substitute. The
++audit row names the grounding used.
++
++**External contract**, for prose, is a normative rule a reader outside the PR
++relies on. Wording changing no such rule is not an external-contract change: it
++neither trips the Auto-applicable disqualifier nor routes to Needs sign-off on
++the external-interface clause alone.
++
++**A file the PR itself introduces** — a documentation, doctrine, or skill file
++absent from the PR's base under git rename detection, and a new code file's
++comments — carries no external contract until merge: review-loop edits to that
++prose are internal, applied and batched into the iteration's action commit,
++reviewed as new content in the diff. A moved or renamed file is pre-existing;
++new code keeps its ordinary routes.
++
+ **Meaning-class prose on a surface that predates the PR keeps the
+ Needs-sign-off route**, and on a signed spec bundle is refused to a
+ `/spec-kickoff` delta re-walkthrough per the meta-spec's writer obligations.
+diff --git a/skills/execute-task/SKILL.md b/skills/execute-task/SKILL.md
+index 55b764b..1c174cc 100644
+--- a/skills/execute-task/SKILL.md
++++ b/skills/execute-task/SKILL.md
+@@ -329,6 +329,10 @@ why `--nested` is mandatory). The `dispatch_isolation` mode sets only where each
+ D-13) or a fresh `/resume`-seeded `per-step` session — never the `--nested`
+ contract.
+ 
++Prose in a file this PR introduces carries no external contract until merge
++(`finding-categorization`, *Prose findings*): review-loop edits to it are
++internal and batch with the iteration's action commit.
++
+ After each returns:
+ 
+ - **Normal exit** (converged, or handed off with queued forks): continue to the
+diff --git a/skills/polish/SKILL.md b/skills/polish/SKILL.md
+index 5d6764e..f9a3b81 100644
+--- a/skills/polish/SKILL.md
++++ b/skills/polish/SKILL.md
+@@ -77,6 +77,10 @@ Record the resolved mode in every iteration summary.
+ 
+ ## Iteration loop
+ 
++Prose in a file this PR introduces carries no external contract until merge
++(`finding-categorization`, *Prose findings*): review-loop edits to it are
++internal and batch with the iteration's action commit.
++
+ Each iteration:
+ 
+ 1. **Run a `/self-review` pass, nested.** Invoke `/self-review --nested`
+diff --git a/skills/self-review/SKILL.md b/skills/self-review/SKILL.md
+index 08543a7..28969b4 100644
+--- a/skills/self-review/SKILL.md
++++ b/skills/self-review/SKILL.md
+@@ -167,6 +167,9 @@ this skill executes:
+ - Needs-human-judgment candidates climb the resolution ladder; every
+   consulted rung is recorded. Only irreducible forks queue, with bespoke
+   options.
++- Prose in a file this PR introduces carries no external contract until merge
++  (`finding-categorization`, *Prose findings*): review-loop edits to it are
++  internal and batch with the action commit.
+ - Declined-with-rationale is available at any step after validation;
+   rationale rows are mandatory.
+ - A hard-disqualifier zone or a blocking irreducible fork triggers the pause
