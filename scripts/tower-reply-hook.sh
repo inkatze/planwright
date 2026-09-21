@@ -26,9 +26,15 @@
 #      the whole path (REQ-A1.4): the fleet home, the `tower-comms`
 #      sub-surface, the `attention` directory and the marker file itself are
 #      each held to the bar `tower-queue.sh` holds them to, and none of them
-#      is ever repaired here. Any refusal skips the marker, says why on
-#      stderr, and names itself on the reply line below; the turn is never
-#      refused over it (see HOOK DISCIPLINE).
+#      is ever repaired here. Any refusal skips the marker and says why on
+#      stderr; the turn is never refused over it (see HOOK DISCIPLINE). A
+#      refusal at the sub-surface or below also names itself on the reply
+#      line, because the home those records live under is still sound. A
+#      refused home cannot: the log is under that same home, and
+#      `tower-queue.sh log` refuses it for the reason this did, so stderr is
+#      the only record a bad home leaves. That is the fail-closed answer
+#      rather than a gap to close, since the one store the refusal could be
+#      written to is the store just declared untrustworthy.
 #   2. The `reply` event, appended through `tower-queue.sh log`, which owns
 #      the fleet lock, the sequence, the bounded lock wait and the
 #      secret-shaped redaction: this hook parses no secrets and redacts
@@ -37,7 +43,8 @@
 #      proceeds; the marker has already advanced. The line carries the
 #      payload's prompt id when it has one, and a `marker` field naming the
 #      outcome whenever the marker was not written, so the durable record
-#      says when the two halves disagree.
+#      says when the two halves disagree. A refused home is the one refusal
+#      that reaches no durable record at all, per the note above.
 #
 # THE GATE (kickoff risk row 5). The plugin registers this hook in every
 # session it is loaded in. It is a no-op unless the payload's session id names
