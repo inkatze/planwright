@@ -153,10 +153,11 @@ notes into the summary. It is an optional best-effort cache (D-3), not a
 contract: its absence is normal and never an error.
 
 `<worktree>/.claude/polish-audit.md` is the same kind of cache, left by a
-standalone `/polish` run, and this skill is its named reader. Present it the
-way `/polish` would have: the counts and the residue, each pending sign-off
-and each queued fork as one line, with the file as the pointer. Never replay
-the tables into the turn.
+standalone `/polish` run, and this skill is its named reader. If it exists,
+present it the way `/polish` would have: the counts and the residue, each
+pending sign-off and each queued fork as one line, with the file as the
+pointer. Never replay the tables into the turn. Its absence is normal and
+never an error, exactly as for the brief above.
 
 ### 8. Surface the working tree and ask before proceeding
 
