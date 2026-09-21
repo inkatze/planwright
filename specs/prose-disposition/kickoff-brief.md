@@ -458,3 +458,41 @@ Task 1 into a new Task 10").
 Class: expression-only
 Anchor: `6ab09f85968fbcd59ec93037a3695c5ea0c86d3d` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`
+
+### 2026-09-20 — Task 2 execution: the skill instantiation split per surface
+
+Task 2's instantiation of REQ-D1.1 in the three skills did not fit the
+instruction budget, and Task 2 landed the REQ-D1.2 sweep with that clause
+undone rather than trimming to make room. The operator was shown the funding
+fork and chose today to split per surface and polish first. Two measurements
+decided it, both in PR #478's body and cited rather than recopied. The
+three-skill gist needs 180 words; the restoration ladder's diet rung yields
+27 safe ones, because three of the five candidates found were the last copy
+of a rule in a doc the affected skill actually loads, and a trim that drops
+the last copy buys budget by deleting law. Rung 2 is inapplicable, nothing in
+the shortfall being deferrable bulk, and rung 3 is the raise Task 2's
+`Done when:` forbids. The surfaces are also asymmetric: `/polish`'s overrun is
+a below-target warning the doctrine answers with a recorded declared
+exception, while `/self-review`'s and `/execute-task`'s are hard errors that
+stop `mise run check`. So `/polish` moves to a new Task 11 that lands alone
+behind its declared exception, and `/self-review` and `/execute-task` move to
+a new Task 12 whose Deliverables name the funding as part of its work, since
+assuming the funding is precisely what Task 2 could not do. No REQ or D-ID
+changes meaning: `design.md` is untouched, `requirements.md` gains only its
+changelog entry, and REQ-D1.1 keeps its delivery under different tasks, so
+this is expression-only on the meta-spec's axis and no lens pass is required.
+Two consequences the changelog records rather than hides: Task 3's dependency
+edge on Task 2 no longer transitively covers the skill instantiation REQ-G1.1
+names, the same shape the 2026-09-13 split left behind for Task 10, so that
+ordering now rests on dispatch order rather than on an edge; and
+`test-spec.md`'s REQ-D1.1 entry, which named Task 2's review as its
+verification occasion, was repointed at Tasks 11 and 12 in the same change
+under the contract-reword straggler rule. Section 6's rendered graph is
+derived from the `Dependencies:` lines, which stay authoritative, and is left
+as drafted. Cites the changelog line: the `## Changelog` entry in
+`requirements.md` dated 2026-09-20 ("Task 2 execution: REQ-D1.1's
+instantiation … moves out of Task 2 into a new Task 11 … and a new Task 12").
+
+Class: expression-only
+Anchor: `c987fd22a620b779837d6b030199d18d2006ffee` — computed as
+`scripts/spec-anchor.sh specs/prose-disposition`

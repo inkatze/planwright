@@ -439,6 +439,33 @@ work, is recorded in D-1 and cited here from the goal.
 
 ## Changelog
 
+- 2026-09-20 — Task 2 execution: REQ-D1.1's instantiation of the amended rules
+  in `/self-review`, `/polish` and `/execute-task`'s convergence prose moves
+  out of Task 2 into a new Task 11 (`/polish`) and a new Task 12
+  (`/self-review` and `/execute-task`); Task 2 keeps only its REQ-D1.2 sweep,
+  and its Deliverables, Done-when and Citations no longer claim the
+  instantiation. Every REQ keeps its meaning; REQ-D1.1 keeps its delivery
+  under different tasks. The operator's disposition, given today on the fork
+  Task 2 escalated, was to split per surface and land `/polish` first. The
+  grounds are two measurements recorded in PR #478's body rather than copied
+  here. First, the addition does not fit and cannot be made to fit at rung 1
+  of the restoration ladder: the three-skill gist needs 180 words and the
+  ladder's diet rung yields 27 safe ones, three of the five candidates found
+  being the last copy of a rule in a doc the affected skill actually loads;
+  rung 2 is inapplicable, nothing in the shortfall being deferrable bulk, and
+  rung 3 is the raise Task 2's `Done when:` forbids. Second, the three
+  surfaces are not alike: `/polish`'s overrun is a below-target warning the
+  doctrine answers with a recorded declared exception, while `/self-review`'s
+  and `/execute-task`'s are hard errors that stop `mise run check`, so the
+  two error surfaces are the ones that need funding and Task 12 owns finding
+  it rather than assuming it. One consequence recorded rather than hidden:
+  Task 3's dependency edge on Task 2 no longer transitively covers the skill
+  instantiation REQ-G1.1 names, the same shape the 2026-09-13 split already
+  left behind for Task 10, so the ordering REQ-G1.1 states now rests on the
+  dispatch order rather than on an edge. A stale pointer the split created
+  was repaired in the same change: `test-spec.md`'s REQ-D1.1 entry named
+  Task 2's review as its verification occasion and now names Tasks 11 and 12.
+
 - 2026-09-13 — Task 1 execution: the Auto-applicable lane for expression-only
   prose (REQ-B1.2, REQ-B1.3, REQ-B1.4) moves out of Task 1 into a new Task 10,
   which owns funding its own instruction budget; Task 1's Deliverables,

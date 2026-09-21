@@ -134,8 +134,9 @@ one REQ-C1.1's manual entry names) audit table has one row per finding.
 
 Each of the three skills names the governing section for lens scoping,
 prose classification, the PR-introduced-surface rule, and the commit
-discipline, restating at most a one-line gist; verified by reading the
-three files at Task 2 review.
+discipline, restating at most a one-line gist; verified by reading each file
+at the review of the task that lands it (`/polish` at Task 11,
+`/self-review` and `/execute-task` at Task 12).
 
 ### REQ-D1.2 — Straggler sweep [manual]
 

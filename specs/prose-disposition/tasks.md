@@ -42,22 +42,17 @@ can be measured by it.
   REQ-D1.3
 - **Estimated effort:** 1 day
 
-### Task 2 — Skill instantiation and straggler sweep
+### Task 2 — Straggler sweep over `skills/`
 
-- **Deliverables:** `skills/self-review/SKILL.md`, `skills/polish/SKILL.md`,
-  and the convergence prose of `skills/execute-task/SKILL.md` citing the
-  amended sections for lens scoping, prose classification, and the batched
-  commit discipline; the
-  surface-pattern sweep over `skills/` for the superseded wording, with
-  every straggler fixed in the same change and the patterns searched listed
-  in the PR body.
+- **Deliverables:** the surface-pattern sweep over `skills/` for the
+  superseded wording, with every straggler fixed in the same change and the
+  patterns searched listed in the PR body.
 - **Done when:** the REQ-D1.2 grep over the repository returns hits only
   under `specs/` and `specs/_observations/`, command and output in the PR
-  body; each of the three skills names the governing section and restates
-  at most a one-line gist (REQ-D1.1); `check:instructions` passes and the
-  suppression list gains no `raise` entry.
+  body; `check:instructions` passes and the suppression list gains no
+  `raise` entry.
 - **Dependencies:** 1
-- **Citations:** D-6 · REQ-D1.1, REQ-D1.2, REQ-D1.3
+- **Citations:** D-6 · REQ-D1.2, REQ-D1.3
 - **Estimated effort:** half day
 
 ### Task 3 — The comment-hygiene rule doc
@@ -222,8 +217,9 @@ can be measured by it.
   route; the PR-introduced-surface rule; the matching `doctrine/README.md`
   index row and `Citations:` entries; and the instantiation of these three
   rules in `skills/self-review/SKILL.md`, `skills/polish/SKILL.md` and the
-  convergence prose of `skills/execute-task/SKILL.md`, which Task 2 leaves to
-  this task because it cannot cite a section that does not yet exist. This
+  convergence prose of `skills/execute-task/SKILL.md`, which Tasks 11 and 12
+  leave to this task because they cannot cite a section that does not yet
+  exist. This
   task funds its own instruction budget within what REQ-D1.3 permits: Task 1
   measured the run-start dedupe diet and spent it, and its convergence pass
   found the diet had cut fifteen rules that had to be restored, so the room
@@ -239,6 +235,64 @@ can be measured by it.
 - **Dependencies:** 1, 2
 - **Citations:** D-3, D-6 · REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-D1.1, REQ-D1.3
 - **Estimated effort:** half day
+
+### Task 11 — REQ-D1.1 instantiation in `/polish`
+
+- **Deliverables:** `skills/polish/SKILL.md` citing the amended sections for
+  lens scoping, prose classification, the PR-introduced-surface rule, and the
+  batched commit discipline, restating at most the one-line gist each step
+  needs; and the `declared-exception` entry in
+  `config/instruction-budget-exemptions.txt` that the addition's below-target
+  warning requires, carrying the surface key the warning prints, the headroom
+  margin at grant, and its reason. This surface separates from the other two
+  because its overrun is warn-level only: the drafted gist puts
+  `start-load:polish` under its restoration target without reddening the
+  gate, which `doctrine/instruction-hygiene.md` answers with a recorded
+  declared exception rather than a trim, so `/polish` lands without waiting
+  on the funding Task 12 owns. Measurements: PR #478's body, cited rather
+  than recopied.
+- **Done when:** `skills/polish/SKILL.md` names the governing section and
+  restates at most a one-line gist for each of the four rules (REQ-D1.1); the
+  suppression list gains a `declared-exception` entry for the below-target
+  surface and no `raise` entry (REQ-D1.3); `check:instructions` passes; and
+  `mise run check` is green.
+- **Dependencies:** 1, 2
+- **Citations:** D-6 · REQ-D1.1, REQ-D1.3
+- **Estimated effort:** half day
+
+### Task 12 — REQ-D1.1 instantiation in `/self-review` and `/execute-task`, and its funding
+
+- **Deliverables:** `skills/self-review/SKILL.md` and the convergence prose of
+  `skills/execute-task/SKILL.md` citing the amended sections for lens scoping,
+  prose classification, the PR-introduced-surface rule, and the batched commit
+  discipline, restating at most the one-line gist each step needs; and the
+  funding that makes room for them, which is this task's work rather than a
+  precondition it assumes, because assuming it is exactly what Task 2 could
+  not do. Both surfaces are hard errors rather than warnings: the addition
+  widens a `declared-exception` ratchet on each, which stops
+  `mise run check`, and the ratchet's only sanctioned answers are a
+  compensating trim in the same change or governed relief. Rung 1 of the
+  restoration ladder is measured exhausted, not estimated: it yields 27 safe
+  words against a 180-word shortfall across the three surfaces, of which 116
+  sits on the two this task owns and both safe candidates fall there, because
+  three of the five candidates found were the last copy of a rule in a doc the
+  affected skill actually loads. Rung 2 does not apply, nothing in the
+  shortfall being deferrable bulk, and rung 3 is the raise REQ-D1.3 forbids.
+  So this task either finds structural relief REQ-D1.3 permits (a manifest
+  change, a point-of-use move, a doctrine section the skills cite instead of
+  restating) or returns the fork to the operator with its ladder record. A
+  widened budget is not a permitted outcome. Measurements: PR #478's body,
+  cited rather than recopied.
+- **Done when:** each of the two skills names the governing section and
+  restates at most a one-line gist for each of the four rules (REQ-D1.1);
+  `check:instructions` passes with no `declared-exception` on either surface
+  widened below the margin it was granted at and no `raise` entry added
+  (REQ-D1.3); the PR body records which ladder rung the funding came from and
+  the manifest check run on every candidate trimmed; and `mise run check` is
+  green.
+- **Dependencies:** 1, 2
+- **Citations:** D-6 · REQ-D1.1, REQ-D1.3
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 
