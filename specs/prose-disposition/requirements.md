@@ -1,7 +1,7 @@
 # Prose disposition — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-04
+**Last reviewed:** 2026-09-21
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -438,6 +438,87 @@ work, is recorded in D-1 and cited here from the goal.
   *(Cites: D-12, D-13.)*
 
 ## Changelog
+
+- 2026-09-21 — Task 2 execution, review round: Tasks 10, 11 and 12 write the
+  same three skill files (`skills/polish/SKILL.md`,
+  `skills/self-review/SKILL.md` and `/execute-task`'s convergence prose), and
+  that shared write surface is coordinated by a new kickoff-brief risk row 12
+  rather than by dependency edges. The operator made that call, choosing between an edge, a register
+  rule, and recording the hazard without coordinating it; row 3 already uses
+  the register shape for the Phase B families. This amendment changes no
+  `Dependencies:` line of its own and no REQ: the Task 3 edges the 2026-09-20
+  entry below records are the ones this bundle gained, and they are
+  unaffected here, while REQ-G1.1 still requires exactly the edges it
+  required. Same round, the derived renderings in the brief's section 6 (the
+  task graph, the parallelism note and the critical path) were regenerated
+  from the `Dependencies:` and `Estimated effort:` lines they follow, with
+  row 12's ordering rule taken into account: Task 10 cannot share a slot with
+  Tasks 11 or 12, so the instantiation block costs a day and a half and the
+  three-worker figure is about eleven days. Two verification occasions in
+  `test-spec.md` were widened to the tasks that actually land what they
+  check: REQ-D1.1's four-rule reading now names Task 10 for the
+  PR-introduced-surface citation, and REQ-D1.3's guard clause now names Tasks
+  10, 11 and 12 alongside Tasks 1 and 2. Task 10's Deliverables kept
+  pre-split wording claiming it instantiates "these three rules" in the three
+  skill files, which overlapped the partition the split wrote into Tasks 11
+  and 12, test-spec REQ-D1.1 and the 2026-09-20 entry below. Narrowed to the
+  one rule REQ-D1.1 gives it, the PR-introduced-surface rule: REQ-B1.2 and
+  REQ-B1.3 govern what the doctrine doc states and how a fix routes, and
+  neither asks for a per-skill restatement. No REQ changed; the task stopped
+  claiming more than REQ-D1.1 asks of it, and its own Done-when already said
+  "the governing section" in the singular. The instruction-budget shortfall
+  the task records was measured against three gists per skill and is
+  re-measured against one before being treated as a shortfall. Task 10 was
+  also missing REQ-D1.2's same-change sweep, which reaches it on both limbs
+  since it lands doctrine text and edits all three skill files; its
+  `Done when:` now carries the sweep over `doctrine/`, `docs/` and `skills/`
+  and its `Citations:` name REQ-D1.2, matching what the split gave Tasks 11
+  and 12. Two verification occasions in the brief carried the same defect as
+  the test-spec pins and are repointed with them: section 5's ownership
+  paragraph, which exercised the Gherkin scenarios on the first review pass
+  after Task 2, and risk row 2's signal, which watched the first batched
+  checklists after Task 2. Both now name the skills that carry the rules.
+
+- 2026-09-20 — Task 2 execution: REQ-D1.1's instantiation of the amended rules
+  in `/self-review`, `/polish` and `/execute-task`'s convergence prose moves
+  out of Task 2 into a new Task 11 (`/polish`) and a new Task 12
+  (`/self-review` and `/execute-task`); Task 2 keeps only its REQ-D1.2 sweep,
+  and its Deliverables, Done-when and Citations no longer claim the
+  instantiation. Every REQ keeps its meaning; REQ-D1.1 keeps its delivery
+  under different tasks. Two parties decided, and the record keeps them apart:
+  the tower chose park-and-report on the fork Task 2 escalated, in the
+  operator's absence and following the operator's recorded 2026-09-13
+  disposition on the identical Task 1 fork, so nothing about that park was
+  operator-approved; the operator, shown the fork afterwards, then chose today
+  to split per surface and land `/polish` first. The grounds for the split are
+  two measurements recorded in PR #478's body rather than copied
+  here. First, the addition does not fit and cannot be made to fit at rung 1
+  of the restoration ladder: the three-skill gist runs to 224 words, of which
+  180 must be freed, and the
+  ladder's diet rung yields 27 safe ones, three of the five candidates found
+  being the last copy of a rule in a doc the affected skill actually loads;
+  rung 2 is inapplicable, nothing in the shortfall being deferrable bulk, and
+  rung 3 is the raise Task 2's `Done when:` forbids. Second, the three
+  surfaces are not alike: `/polish`'s overrun is a below-target warning the
+  doctrine answers with a recorded declared exception, while `/self-review`'s
+  and `/execute-task`'s are hard errors that stop `mise run check`, so the
+  two error surfaces are the ones that need funding and Task 12 owns finding
+  it rather than assuming it. One consequence recorded rather than hidden:
+  Task 3's dependency edge on Task 2 stopped covering the skill instantiation
+  REQ-G1.1 names, the same shape the 2026-09-13 split already left behind for
+  Task 10, so Task 3 now carries `Dependencies: 2, 10, 11, 12` and Tasks 4 and
+  5 through 8 inherit those edges through it; the ordering REQ-G1.1 states is
+  enforced by an edge again rather than by dispatch order. Stale pointers the
+  split created were repaired in the same change: `test-spec.md`'s REQ-D1.1
+  entry named Task 2's review as its verification occasion and now names
+  Tasks 11 and 12; test-spec REQ-G1.1 and the kickoff brief's two ordering
+  rationales (sections 4 and 6) named Task 2 as what Task 3 waits for and now
+  name the instantiation tasks. REQ-D1.2's same-change binding follows the
+  instantiation rather than staying with Task 2's one-off sweep, so Tasks 11
+  and 12 each re-run the `skills/` sweep against their own addition, and they
+  instantiate the three rules Task 2 owned; the fourth REQ-D1.1 names, the
+  PR-introduced-surface rule, stays Task 10's in the same files, since its
+  doctrine section does not exist until Task 10 writes it.
 
 - 2026-09-13 — Task 1 execution: the Auto-applicable lane for expression-only
   prose (REQ-B1.2, REQ-B1.3, REQ-B1.4) moves out of Task 1 into a new Task 10,

@@ -1,7 +1,7 @@
 # Prose disposition — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-04
+**Last reviewed:** 2026-09-21
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -43,9 +43,10 @@ that fork.
 ### REQ-A1.3 — Coverage row carries the class [design-level + manual]
 
 The lens-coverage table's Documentation row format in
-`doctrine/discovery-rigor.md` shows the class per finding. Manual: the
-emitting skills' audit records on the first review pass after Task 2 render
-it, inspected by the operator.
+`doctrine/discovery-rigor.md` shows the class per finding. Manual: the audit
+record of the first review pass run by a skill that carries the lens-scoping
+citation (`/polish` at Task 11, `/self-review` and `/execute-task` at
+Task 12) renders it, inspected by the operator.
 
 ## REQ-B — Prose finding classification
 
@@ -102,10 +103,12 @@ Scenario: given an iteration producing three meaning-class prose findings
 on pre-existing docs, one of them adding a passage, when the iteration
 commits, then one commit carries all three, its body lists three manifest
 lines (file, rule before, rule after) with the added passage's before-value
-reading `absent`, and the marker appears once. Manual: the first review
-pass after Task 2 that produces two or more meaning-class prose findings on
-pre-existing docs is inspected for this shape; until such a pass occurs the
-entry stays open in the drain's `[manual]` inventory.
+reading `absent`, and the marker appears once. Manual: the first review pass
+that produces two or more meaning-class prose findings on pre-existing docs,
+run by a skill that carries the batched commit discipline (`/polish` at
+Task 11, `/self-review` and `/execute-task` at Task 12), is inspected for
+this shape; until such a pass occurs the entry stays open in the drain's
+`[manual]` inventory.
 
 ### REQ-C1.2 — Batched checklist entry [design-level + manual]
 
@@ -134,8 +137,13 @@ one REQ-C1.1's manual entry names) audit table has one row per finding.
 
 Each of the three skills names the governing section for lens scoping,
 prose classification, the PR-introduced-surface rule, and the commit
-discipline, restating at most a one-line gist; verified by reading the
-three files at Task 2 review.
+discipline, restating at most a one-line gist; verified by reading each file
+at the review of each task that lands one of its citations. Lens scoping,
+prose classification and the commit discipline land at Task 11 for `/polish`
+and at Task 12 for `/self-review` and `/execute-task`; the
+PR-introduced-surface rule lands at Task 10 in all three files. The
+four-rule reading is therefore complete only at the review of whichever of
+the two tasks touching a given file lands second.
 
 ### REQ-D1.2 — Straggler sweep [manual]
 
@@ -146,11 +154,15 @@ recorded in the PR body, and repeatable by anyone.
 
 ### REQ-D1.3 — Instruction budget holds [test + manual]
 
-Test: `check:instructions` passes after Tasks 1 and 2 in `mise run check`.
+Test: `check:instructions` passes in `mise run check` after every task that
+amends an instruction surface (Tasks 1, 2, 10, 11 and 12).
 Manual: the reviewer diffs `config/instruction-budget-exemptions.txt` for
 a new `raise` entry and reads the guard's output for a floor-breach warning
 or a doctrine-warn line for `doctrine/gate-wiring.md`; the check exits zero
-on warnings, so neither clause is a failure mode the aggregate reports.
+on warnings, so neither clause is a failure mode the aggregate reports. At
+Task 11 the reviewer also reads the `declared-exception` entry the
+below-target warning requires, confirming it carries the surface key, the
+headroom margin at grant, and its reason, and that it is not a `raise`.
 
 ## REQ-E — Comment hygiene doctrine
 
@@ -271,10 +283,12 @@ threshold catches at landing, and `mise run check` is green with it.
 
 ### REQ-G1.1 — Ordering [design-level]
 
-Tasks 3 and 4 carry a dependency edge on Task 2, Task 4 also on Task 3,
-and Tasks 5 through 8 carry edges on Tasks 2 and 4 in `tasks.md`, Task 5
-directly and Tasks 6 through 8 through Task 5; the selector cannot
-dispatch any of them earlier.
+Task 3 carries dependency edges on Task 2 and on every task that
+instantiates the amended rules in a skill (Tasks 10, 11 and 12), Task 4 on
+Tasks 2 and 3, and Tasks 5 through 8 on Tasks 2 and 4 in `tasks.md`, Task 5
+directly and Tasks 6 through 8 through Task 5; Tasks 4 through 8 reach the
+instantiation tasks through Task 3. The selector cannot dispatch any of
+them earlier.
 
 ### REQ-G1.2 — Phase A disposition and figures [test + manual]
 

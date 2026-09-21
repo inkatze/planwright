@@ -216,11 +216,15 @@ follow the doctrine and skill tasks; the drafted graph let Tasks 3 and 4
 run in parallel with Tasks 1 and 2. The operator asked whether there was
 one correct answer, and there is: a live guard reports warn-level blocks
 as tool-grounded findings, which the old disposition rules route to
-sign-off on every PR touching a script, so the guard cannot be live before
-Task 2, and the rule doc has no consumer until the guard cites it. The
-graph was corrected: Task 3 depends on Task 2, Task 4 on Tasks 2 and 3;
-the `tasks.md` intro and test-spec REQ-G1.1 say so. D-13 itself is
-unchanged. Inconsistency halt: none.
+sign-off on every PR touching a script, so the guard cannot be live until
+the skills instantiate the amended rules, and the rule doc has no consumer
+until the guard cites it. The graph was corrected: Task 3 depends on the
+instantiation tasks, Task 4 on Tasks 2 and 3; the `tasks.md` intro and
+test-spec REQ-G1.1 say so. D-13 itself is unchanged. Inconsistency halt:
+none. *(At sign-off the instantiation was Task 2 alone; the 2026-09-13 and
+2026-09-20 amendments moved it to Tasks 10, 11 and 12, and Task 3's
+`Dependencies:` line names them. The `Dependencies:` lines stay
+authoritative.)*
 
 Signed off: 2026-09-04
 
@@ -239,8 +243,8 @@ doc is the verification.
 CI workflow on every PR; the workflow checks out full history, so the
 `v0.36.0` tag is available and the audit-reproduction test is runnable.
 `[Gherkin]` scenarios are walked against the amended text at Task 1 review
-and exercised on the first review pass after Task 2, inspected by the
-operator. `[manual]` entries are swept by the operator at PR review from
+and exercised on the first review pass after the skills instantiate them,
+inspected by the operator. `[manual]` entries are swept by the operator at PR review from
 the PR body. `[design-level]` entries are verified by reading the named
 doc at the owning task's review.
 
@@ -271,32 +275,50 @@ Signed off: 2026-09-04
 which stay authoritative; this rendering is derived):
 
 ```text
-1 doctrine → 2 skills → 3 rule doc → 4 guard → 5 Phase A ─┬→ 6 fleet ─────────┐
-                                                          ├→ 7 orch/alloc/spec ├→ 9 closeout
-                                                          └→ 8 guards/rest ────┘
+                       ┌→ 10 auto lane ──┐
+1 doctrine → 2 sweep ──┼→ 11 /polish ────┼→ 3 rule doc → 4 guard → 5 Phase A
+                       └→ 12 self-review ┘
+
+5 Phase A ─┬→ 6 fleet ──────────┐
+           ├→ 7 orch/alloc/spec ├→ 9 closeout
+           └→ 8 guards/rest ────┘
 ```
 
-**Parallelism.** None on the front chain; three-way among the Phase B
-families (Tasks 6, 7, 8), which is where three workers pay off.
+**Parallelism.** Two-way among the instantiation tasks: Tasks 11 and 12 share
+no file and may run together once Task 2 lands, while Task 10 runs alone
+against either of them, which is row 12's ordering rule. Three-way among the
+Phase B families (Tasks 6, 7, 8), which is where three workers pay off. The
+rest serializes.
 
 **Critical path** (effort-weighted from the `Estimated effort:` lines; cite,
 do not copy): the front chain plus the longest Phase B family plus closeout,
-about nine and a half working days with three workers on the families;
-the families serialize to about fourteen and a half with one.
+about eleven working days with three workers on the families. The
+instantiation tasks contribute a day and a half rather than Task 12's day
+alone, because row 12 keeps Task 10 out of the slot Tasks 11 and 12 share.
+With a single worker throughout, those tasks and the families serialize too,
+to about sixteen and a half.
 
 **Deliberate non-edges.**
 
 - Tasks 6, 7, and 8 carry no edges among themselves: their script families
   are disjoint. Do not add one.
-- Task 3 depends on Task 2, not on Task 1 directly: it waits for the skills
-  applying the amended rules, not for the rules alone (D-13, section 4).
+- Task 3 carries no edge on Task 1 directly: it waits for the skills
+  applying the amended rules, not for the rules alone (D-13, section 4), and
+  it reaches Task 1 through them. Those skills are Tasks 10, 11 and 12 since
+  the 2026-09-13 and 2026-09-20 amendments; Task 2's edge stays because the
+  `skills/` straggler sweep is the other half of what the instantiation had
+  to land before the guard goes live.
 - Task 9 waits for all three families, not for a subset, because closeout
   refuses any transitional entry left.
 
-**Shared write surfaces among the parallel families** (carried to the risk
-register): `config/comment-budget-exemptions.txt` (each family removes its
-own lines) and any owning bundle two families both amend for the
-deliverables gap (two expression-only re-anchors of one bundle in flight).
+**Shared write surfaces among the parallel tasks.** The Phase B ones are
+carried to the risk register: `config/comment-budget-exemptions.txt` (each
+family removes its own lines) and any owning bundle two families both amend
+for the deliverables gap (two expression-only re-anchors of one bundle in
+flight). The instantiation tasks add a third: Task 10 edits all three skill
+files and Tasks 11 and 12 edit two of them, with no edge ordering the three.
+The operator decided on 2026-09-21 to coordinate that one the same way, with
+a register rule rather than a dependency edge, which is row 12.
 
 Signed off: 2026-09-04
 
@@ -312,11 +334,15 @@ vocabulary the surviving comments and verification records are written
 in; decided with the operator at drafting, D-8). No other domain moved.
 The design's cross-cutting note was updated to match. Cold-review
 questions: none on file (the optional cold read was not run).
+*(Amended at the 2026-09-21 amendment: the concurrency domain gained a
+second instance, the skill files Tasks 10, 11 and 12 share, decided by
+row 12 below. The domain was already touched and decided, so it does not
+move again.)*
 
 | # | Risk | Mitigation / early signal |
 | --- | --- | --- |
 | 1 | The expression-only preservation check (REQ-B1.2) is self-attested; a missed normative statement lets a rule change Auto-apply. | The word list in the categorization doc is the search aid; the audit row carries the check for later audit. Signal: a reader or a later pass finds a missed statement, which is the Deferred normative-diff guard's gate. |
-| 2 | Over-classification: agents treat every sentence as normative, and the reclassification buys nothing. | REQ-B1.1 says the list is a search aid, never the definition. Signal: the first batched checklists after Task 2 are dominated by glosses and citations; record an observation if so. |
+| 2 | Over-classification: agents treat every sentence as normative, and the reclassification buys nothing. | REQ-B1.1 says the list is a search aid, never the definition. Signal: the first batched checklists produced by a skill carrying the batched commit discipline (Tasks 11 and 12) are dominated by glosses and citations; record an observation if so. |
 | 3 | Parallel Phase B PRs (Tasks 6, 7, 8) write `config/comment-budget-exemptions.txt` and may each re-anchor the same owning bundle (decision domain: concurrency). | Each family removes only its own lines. Ordering rule: the second PR to merge re-runs its recompute and its expression-only re-anchor after the first lands, new commits only, never a rebase. Signal: a merge conflict on the exemptions file or a `check:anchor-freshness` failure on an owning bundle. |
 | 4 | Tasks 1 and 2 are themselves reviewed under the old disposition rules, so their PRs can show the thirty-item sign-off shape one last time. | Accepted, bounded to two PRs; the operator reviews each checklist in one sitting. Signal: the checklist length on those two PRs. |
 | 5 | The Task 4 audit over `v0.36.0` may not reproduce even the pattern-independent figures if its comment-line definition differs from the session's. | REQ-F1.5 narrowed the target; the Task 4 run is the baseline of record regardless, and its PR body explains any gap by the definition. Signal: a mismatch at Task 4 review. |
@@ -326,6 +352,7 @@ questions: none on file (the optional cold read was not run).
 | 9 | The cleanup deletes a genuine why or a caller-relied contract. | The three-legged verification (D-12): invariance proves code untouched, the independent reader confirms recoverability. Signal: reader disagreements in a Phase B PR's record. |
 | 10 | Independent reader availability and cost per Phase B PR (fresh session or non-Anthropic backend). | The panel-review backends already configured on this machine serve as the non-Anthropic pass. Signal: a Phase B PR opened without its verification record. |
 | 11 | A cleanup PR reverted after closeout leaves the guard red, since closeout admits no transitional entry (raised by the sign-off lens pass under the deploy-migration domain; the domain stays not applicable because nothing is irreversible). | Rollback story: the revert lands together with a re-added `pending-cleanup` entry naming a follow-up task, and closeout is re-run once the re-clean lands. Signal: `check:comment-budget` red on a revert PR. |
+| 12 | The instantiation tasks (10, 11, 12) write the same skill files with no edge ordering them: Task 10 edits `skills/polish/SKILL.md`, `skills/self-review/SKILL.md` and `/execute-task`'s convergence prose, Task 11 edits the first and Task 12 the other two, so a selector may dispatch Task 10 beside either and two worktrees write one file at once (decision domain: concurrency). | Each task writes only its own rules' citations, and they do not overlap: Tasks 11 and 12 land lens scoping, prose classification and the batched commit discipline, Task 10 lands the PR-introduced-surface rule. Ordering rule: a dispatcher runs at most one of the three against any one file at a time, so Task 10 never runs beside Task 11 nor beside Task 12; Tasks 11 and 12 share no file and may run together. The second of a pair to be dispatched re-reads the file after the first has merged and adds its citation as new commits, never a rebase. Signal: a merge conflict in a skill file between two instantiation PRs, or a `check:instructions` measurement on one that does not match what its PR body recorded. *(Added at the 2026-09-21 amendment: the operator chose this coordination over a dependency edge on Tasks 11 and 12, the shape row 3 already uses for the Phase B families.)* |
 
 Signed off: 2026-09-04
 
@@ -457,4 +484,206 @@ Task 1 into a new Task 10").
 
 Class: expression-only
 Anchor: `6ab09f85968fbcd59ec93037a3695c5ea0c86d3d` — computed as
+`scripts/spec-anchor.sh specs/prose-disposition`
+
+### 2026-09-20 — Task 2 execution: the skill instantiation split per surface
+
+Task 2's instantiation of REQ-D1.1 in the three skills did not fit the
+instruction budget. Two decisions followed, by two different parties, and
+this record keeps them apart. First, the tower chose park-and-report in the
+operator's absence: it landed Task 2's REQ-D1.2 sweep with the instantiation
+clause undone rather than trimming to make room, following the operator's
+recorded 2026-09-13 disposition on the identical Task 1 fork. The operator
+had not seen the question, and nothing about that park was operator-approved,
+which is why PR #478's body says so in bold and why it is repeated here.
+Second, the operator, shown the funding fork afterwards, chose today to split
+per surface and land `/polish` first. Two measurements decided the second,
+both in PR #478's body and cited rather than recopied. The three-skill gist
+runs to 224 words (87 in `/self-review`, 83 in `/polish`, 54 in
+`/execute-task`), of which 180 must be freed from the surfaces it lands on;
+the restoration ladder's diet rung yields
+27 safe ones, because three of the five candidates found were the last copy
+of a rule in a doc the affected skill actually loads, and a trim that drops
+the last copy buys budget by deleting law. Rung 2 is inapplicable, nothing in
+the shortfall being deferrable bulk, and rung 3 is the raise Task 2's
+`Done when:` forbids. The surfaces are also asymmetric: `/polish`'s overrun is
+a below-target warning the doctrine answers with a recorded declared
+exception, while `/self-review`'s and `/execute-task`'s are hard errors that
+stop `mise run check`. So `/polish` moves to a new Task 11 that lands alone
+behind its declared exception, and `/self-review` and `/execute-task` move to
+a new Task 12 whose Deliverables name the funding as part of its work, since
+assuming the funding is precisely what Task 2 could not do. Expression-only on
+both of the meta-spec's prongs. No REQ's meaning changes: `design.md` is
+untouched, `requirements.md` gains only its changelog entry, and REQ-D1.1
+keeps its delivery under different tasks. No accepted decision is
+contradicted either: D-13 says the cleanup tasks carry explicit dependency
+edges on the doctrine tasks and REQ-G1.1 says the same, and Task 3's
+`Dependencies:` line now names every task that does the instantiation, so the
+ordering is enforced by an edge rather than left to dispatch order. No lens
+pass is required.
+
+What the split had to carry with it, recorded rather than hidden. Task 3's
+edge on Task 2 stopped covering the skill instantiation REQ-G1.1 names, which
+is the shape the 2026-09-13 split had already left behind for Task 10, so
+Task 3 now carries `Dependencies: 2, 10, 11, 12` and the edges REQ-G1.1
+demands exist again; Tasks 4 and 5 through 8 inherit them through Task 3, and
+test-spec REQ-G1.1 was restated to name them. Tasks 11 and 12 instantiate the
+three rules Task 2 owned, not four: the PR-introduced-surface rule stays
+Task 10's to land in the same files, since its doctrine section does not exist
+until Task 10 writes it. REQ-D1.2's same-change binding follows the
+instantiation rather than staying behind with Task 2's one-off sweep, so both
+new tasks re-run the `skills/` sweep against their own addition. Seven stale
+verification pointers were repaired under the contract-reword straggler rule,
+the whole class swept rather than the instances first noticed: `test-spec.md`'s
+REQ-D1.1, REQ-A1.3 and REQ-C1.1 entries each named a Task 2 review as their
+verification occasion, and now name the task that lands the thing they check
+(`/polish` at Task 11, `/self-review` and `/execute-task` at Task 12);
+REQ-C1.2's and REQ-C1.4's occasions follow REQ-C1.1's by reference and needed
+no edit of their own; REQ-D1.1's entry additionally named only those two
+tasks for a four-rule reading whose fourth citation lands at Task 10, so it
+now names Task 10 for that rule and says the reading completes at whichever
+of the two tasks touching a file lands second; REQ-D1.3's test clause named
+Tasks 1 and 2 alone for a guard that every instruction-amending task has to
+pass, and now names Tasks 10, 11 and 12 too, with Task 11's declared
+exception read at its own review; and the two ordering rationales that named
+Task 2 as what Task 3 waits for (sections 4 and 6) now name the
+instantiation tasks. Section 6's derived renderings follow the
+`Dependencies:` and `Estimated effort:` lines rather than staying as drafted:
+the graph shows the instantiation tasks between Tasks 2 and 3, the
+parallelism note stops saying the front chain has none, and the critical path
+is recomputed, the instantiation tasks adding Task 12's day so the
+three-worker figure is about ten and a half days rather than nine and a half
+and the single-worker figure about sixteen and a half rather than fourteen
+and a half. (The 2026-09-21 entry below moves the three-worker figure again,
+to about eleven, once row 12's ordering rule is taken into account.) The one
+thing the renderings did not decide is the write surface
+Tasks 10, 11 and 12 share, which section 6 named and left to the operator;
+the 2026-09-21 entry below records what they decided. Cites the
+changelog line: the `## Changelog` entry in
+`requirements.md` dated 2026-09-20 ("Task 2 execution: REQ-D1.1's
+instantiation … moves out of Task 2 into a new Task 11 … and a new Task 12").
+
+Class: expression-only
+Anchor: `9890a441277b6971a24511dd2a548e7568adb1d2` — computed as
+`scripts/spec-anchor.sh specs/prose-disposition`
+
+### 2026-09-21 — Coordinating the instantiation tasks' shared skill files
+
+The per-surface split left Tasks 10, 11 and 12 writing the same three skill
+files with nothing ordering them. Task 10 edits `skills/polish/SKILL.md`,
+`skills/self-review/SKILL.md` and `/execute-task`'s convergence prose to land
+the PR-introduced-surface rule; Task 11 edits the first and Task 12 the other
+two to land the three rules they own. All three depend on Tasks 1 and 2 and on
+nothing else, so a selector can dispatch Task 10 beside either and two
+worktrees can write one file at once. A Copilot review of PR #479 raised it as
+two threads asking for a dependency edge on Task 10.
+
+**The operator decided today, and this entry is theirs, not the tower's.**
+They were shown three options: a dependency edge from Tasks 11 and 12 onto
+Task 10, a risk-register row with an ordering rule, or leaving the hazard
+recorded but uncoordinated. They chose the register row, which is the shape
+row 3 already uses for the Phase B families' shared write surface. Keep this
+distinct from the park recorded in the 2026-09-20 entry above: that one was
+the tower's call in the operator's absence, this one is the operator's own.
+Row 12 is the result, and section 6's shared-write-surfaces note now points
+at it instead of leaving the question open.
+
+The edge was refused on the merits before the operator saw the options, and
+the refusal stands. Copilot's stated premise, that Tasks 11 and 12 rely on
+Task 10 having written its doctrine section, does not hold: their three
+citations all point at sections Task 1 writes, and they never cite Task 10's,
+so each reads correctly in either order. What does hold is the concurrency
+hazard, and an edge would answer it by adding an ordering no requirement
+states. That is what separates this from the 2026-09-20 entry's edge change on
+Task 3, where REQ-G1.1 demanded the edges outright and restoring them was
+expression-only.
+
+**Class, re-tested on both prongs rather than inherited.** No REQ's meaning
+changes: `requirements.md` gains only its changelog entry, `design.md`,
+`tasks.md` and `test-spec.md` are untouched by this entry, and REQ-G1.1 still
+requires exactly the edges it required. No accepted decision is contradicted:
+the row adds a coordination rule where none existed and overturns nothing. The
+close call is the third clause of the axis, which makes additions
+meaning-class for new REQs and new D-IDs. A risk-register row is neither, and
+this bundle already treats the register as where a concurrency-domain decision
+is carried rather than as design: section 7's gap check says the domain is
+"decided by row 3 below", and row 3 holds an ordering rule of exactly this
+shape with no D-ID behind it. Adding a second instance under a domain already
+touched and decided is the gap-fill the expression-only arm names. So:
+expression-only. The argument against, recorded so the next walkthrough can
+overturn it rather than rediscover it, is that the row states a duty binding
+future dispatch that nothing stated before, and the operator weighed
+alternatives to reach it, which is the shape of a design decision even though
+the register is where this bundle keeps it.
+
+**What the row costs the schedule.** Row 12 is an ordering rule, so section
+6's derived figures had to follow it rather than the `Dependencies:` lines
+alone, and the first draft of this entry did not. The parallelism note said
+the instantiation tasks run three-way, which row 12 forbids: Tasks 11 and 12
+share no file and may run together, but Task 10 runs alone against either.
+The note now says so, and the critical path follows, the instantiation block
+costing a day and a half rather than Task 12's day alone and the three-worker
+figure landing at about eleven days rather than ten and a half. Copilot
+caught the contradiction on the review of `1e94d6d`; it was the bundle's own
+new rule disagreeing with a figure derived before the rule existed.
+
+**The overlap the split left in Task 10, narrowed.** Task 10's Deliverables
+still claimed "the instantiation of these three rules" in the three skill
+files, wording from 2026-09-13 when Task 10's three doctrine rules were all
+it had to place there. The split then wrote the narrow partition into Tasks
+11 and 12 ("the fourth rule REQ-D1.1 names, the PR-introduced-surface rule,
+is Task 10's"), into test-spec REQ-D1.1, and into the 2026-09-20 changelog
+entry, and left Task 10's own clause behind. Two tasks therefore claimed the
+same skill edits, which a selector can schedule twice.
+
+The requirements settle which reading is right, and it is the narrow one.
+REQ-D1.1 is the only requirement that mandates a skill instantiation at all,
+and its four named rules are lens scoping, prose classification, the
+PR-introduced-surface rule and the commit discipline. Of Task 10's three
+doctrine rules only REQ-B1.4 is among them; REQ-B1.2 governs how an
+expression-only prose fix satisfies the Auto-applicable tool-grounding
+condition and REQ-B1.3 defines the external-contract clause, and neither asks
+for a per-skill restatement of anything. Task 10's own `Done when:` already
+said "the governing section", singular, so the block disagreed with itself.
+The Deliverables now say one gist per skill rather than three, and the
+`Done when:` names which rule.
+
+This has a consequence outside the spec worth stating plainly: the
+instruction-budget shortfall Task 10 records was measured against three gists
+per skill, so the task now says it is re-measured against one before being
+treated as a shortfall. Copilot found this on the review of `5cc5dd9`, inside
+a collapsed block, with its own finding counter reading none.
+
+The same task was missing the other half of what REQ-D1.2 binds it to. Task 10
+lands doctrine text and edits all three skill files, so both limbs of REQ-D1.2
+reach it, the `doctrine/` and `docs/` sweep for the amendment and the
+`skills/` sweep for the instantiation. Task 1 carries the first, and the
+2026-09-20 split gave Tasks 11 and 12 the second on the reasoning that the
+same-change binding follows the instantiation; Task 10 instantiates too and
+was passed over. Its `Done when:` now carries the sweep for all three
+surfaces and its `Citations:` name REQ-D1.2.
+
+**The class reached this brief too.** The verification-occasion sweep was run
+over `test-spec.md`, where the pins live, and the brief carries two of the
+same shape that it missed. Section 5's ownership paragraph said the Gherkin
+scenarios are exercised on the first review pass after Task 2, and now says
+after the skills instantiate them, which is the wording `test-spec.md` already
+used. Risk row 2's signal watched "the first batched checklists after Task 2",
+and now watches the first produced by a skill carrying the batched commit
+discipline. Both were occasions Task 2's review can no longer host, the same
+defect the test-spec pins had.
+
+**Header dates.** `doctrine/spec-format.md` bumps `Last reviewed:` whenever a
+file is materially reviewed or edited, and this run materially edited three of
+the four. `requirements.md`, `tasks.md` and `test-spec.md` now read
+2026-09-21; `design.md` is untouched by this amendment and correctly keeps
+2026-09-04. The 2026-09-13 amendment left all four at the sign-off date, which
+is the same miss one round earlier.
+
+Cites the changelog line: the `## Changelog` entry in `requirements.md` dated
+2026-09-21 ("Tasks 10, 11 and 12 write the same three skill files … and that
+shared write surface is coordinated by a new kickoff-brief risk row 12").
+
+Class: expression-only
+Anchor: `920c444ede944bfde33b7dbbdde7e04233edaa9d` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`
