@@ -213,11 +213,16 @@ first_id=$(tag "$out" item | awk -F "$TAB" '{ print $2 }')
 # and that it was not cut.
 content_rec=$(tag "$out" content)
 [ -n "$content_rec" ] || fail "the hand-over carried no content record"
-set -- $(printf '%s\n' "$content_rec" | tr "$TAB" ' ')
-[ "$2" = "$first_id" ] || fail "the content record names another item: $content_rec"
-[ "$3" = file ] || fail "the content record does not name the path home: $content_rec"
-[ "$4" = read ] || fail "the content home did not read: $content_rec"
-[ "$5" = no ] || fail "a 50-byte file was reported as truncated: $content_rec"
+field() { # field <record> <n>
+  printf '%s\n' "$1" | awk -F "$TAB" -v n="$2" '{ print $n }'
+}
+[ "$(field "$content_rec" 2)" = "$first_id" ] \
+  || fail "the content record names another item: $content_rec"
+[ "$(field "$content_rec" 3)" = file ] \
+  || fail "the content record does not name the path home: $content_rec"
+[ "$(field "$content_rec" 4)" = read ] || fail "the content home did not read: $content_rec"
+[ "$(field "$content_rec" 5)" = no ] \
+  || fail "a short file was reported as truncated: $content_rec"
 printf '%s\n' "$out" | grep -q '^```' || fail "the delivered content was not fenced"
 
 # Ordinary item content stays inside the fence too, not only the hostile one.
@@ -424,9 +429,9 @@ out=$(step row-handover --tower "$A" --evidence "$ev" --now 5040) \
 # (REQ-C1.1). Reading the row one field to the right would deliver the
 # recommendation as the question and never show the ask at all.
 row_rec=$(tag "$out" content)
-set -- $(printf '%s\n' "$row_rec" | tr "$TAB" ' ')
-[ "$3" = row ] || fail "the content record does not name the attention home: $row_rec"
-[ "$4" = read ] || fail "the attention row did not read: $row_rec"
+[ "$(field "$row_rec" 3)" = row ] \
+  || fail "the content record does not name the attention home: $row_rec"
+[ "$(field "$row_rec" 4)" = read ] || fail "the attention row did not read: $row_rec"
 printf '%s\n' "$out" | grep -q 'question: May I force-push the worker branch?' \
   || fail "the row's question did not reach the turn"
 printf '%s\n' "$out" | grep -q 'recommend: hold it' \
