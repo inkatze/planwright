@@ -13,9 +13,28 @@
 #      the log line below is not (D-6). Whole seconds, not finer: the times
 #      it is compared against are whole seconds, so a finer reply time would
 #      read as later than a hand-over stamped in the same second even when it
-#      came first, and a tie must read as not yet confirmed. The marker never
-#      moves backwards: two invocations racing, or a clock stepped back,
-#      leave the later value in place.
+#      came first, and a tie must read as not yet confirmed. Each write keeps
+#      the later of the value on disk and now, so a clock stepped back leaves
+#      the later value in place. That is the whole of the guarantee: the read
+#      and the rename are not one step, so two invocations racing on one
+#      session both read before either renames and the later RENAME wins
+#      rather than the later value, which can step the stamp back by about a
+#      second. The harness submits one prompt at a time per session, so it
+#      does not produce that interleaving; and a stamp a second early reads
+#      as a reply that did not answer the last hand-over, which knocks again
+#      rather than losing the reply. Verify-or-refuse before the write, down
+#      the whole path (REQ-A1.4): the fleet home, the `tower-comms`
+#      sub-surface, the `attention` directory and the marker file itself are
+#      each held to the bar `tower-queue.sh` holds them to, and none of them
+#      is ever repaired here. Any refusal skips the marker and says why on
+#      stderr; the turn is never refused over it (see HOOK DISCIPLINE). A
+#      refusal at the sub-surface or below also names itself on the reply
+#      line, because the home those records live under is still sound. A
+#      refused home cannot: the log is under that same home, and
+#      `tower-queue.sh log` refuses it for the reason this did, so stderr is
+#      the only record a bad home leaves. That is the fail-closed answer
+#      rather than a gap to close, since the one store the refusal could be
+#      written to is the store just declared untrustworthy.
 #   2. The `reply` event, appended through `tower-queue.sh log`, which owns
 #      the fleet lock, the sequence, the bounded lock wait and the
 #      secret-shaped redaction: this hook parses no secrets and redacts
@@ -24,7 +43,8 @@
 #      proceeds; the marker has already advanced. The line carries the
 #      payload's prompt id when it has one, and a `marker` field naming the
 #      outcome whenever the marker was not written, so the durable record
-#      says when the two halves disagree.
+#      says when the two halves disagree. A refused home is the one refusal
+#      that reaches no durable record at all, per the note above.
 #
 # THE GATE (kickoff risk row 5). The plugin registers this hook in every
 # session it is loaded in. It is a no-op unless the payload's session id names
@@ -142,6 +162,53 @@ check_private_dir() {
   esac
   [ "${3:-}" = "$my_uid" ] || {
     warn "security: $(sanitize_printable "$_p" "(unprintable path)") is owned by uid ${3:-?}, not this user; refusing it"
+    return 1
+  }
+  return 0
+}
+
+# check_home — the verification tower-queue.sh's check_home makes, for the
+# same reason: the 0700 sub-surface below is only as private as the home that
+# holds it, so a home anyone else can write to, or one redirected by a
+# symlink, is one where the marker directory can be moved aside and replaced
+# between the checks below and the write they guard. It refuses on exactly
+# the inputs the sibling refuses on; the one branch the sibling does not have
+# is the `d*` test, which only replaces a misleading message (a non-directory
+# has no `d` to match the write-column glob either, so the sibling refuses it
+# as widened).
+check_home() {
+  if [ -L "$home" ]; then
+    warn "security: the fleet home $(sanitize_printable "$home" "(unprintable path)") is a symlink — refusing to write through a redirect"
+    return 1
+  fi
+  # shellcheck disable=SC2012
+  _hl=$(ls -ldn "$home" 2>/dev/null) || _hl=""
+  if [ -z "$_hl" ]; then
+    warn "the fleet home $(sanitize_printable "$home" "(unprintable path)") vanished while being verified"
+    return 1
+  fi
+  # shellcheck disable=SC2086
+  set -- $_hl
+  case "${1:-}" in
+    d*) ;;
+    *)
+      warn "security: the fleet home $(sanitize_printable "$home" "(unprintable path)") is not a directory (mode ${1:-unreadable}); refusing it"
+      return 1
+      ;;
+  esac
+  # Only the two WRITE columns, as tower-queue.sh has it: a home readable or
+  # traversable by others is the ordinary shape (fleet-state creates it under
+  # the caller's umask), and narrowing someone else's surface is not this
+  # hook's call.
+  case "${1:-}" in
+    d????-??-? | d????-??-?[@.]*) ;;
+    *)
+      warn "security: the fleet home $(sanitize_printable "$home" "(unprintable path)") is writable beyond its owner (mode ${1:-unreadable}); chmod go-w it yourself after finding out how it widened"
+      return 1
+      ;;
+  esac
+  [ "${3:-}" = "$my_uid" ] || {
+    warn "security: the fleet home $(sanitize_printable "$home" "(unprintable path)") is owned by uid ${3:-?}, not this user; refusing it"
     return 1
   }
   return 0
@@ -327,7 +394,7 @@ my_uid=$(id -u 2>/dev/null) || my_uid=""
 if [ -z "$my_uid" ]; then
   warn "cannot resolve the current uid; the attention marker was not advanced"
   marker_state=refused
-elif ! check_private_dir "$surface" || ! check_private_dir "$marker_dir" || ! check_private_file "$marker"; then
+elif ! check_home || ! check_private_dir "$surface" || ! check_private_dir "$marker_dir" || ! check_private_file "$marker"; then
   marker_state=refused
 else
   now=$(date +%s 2>/dev/null) || now=""
@@ -338,7 +405,9 @@ else
     warn "cannot read the clock; the attention marker was not advanced"
     marker_state=failed
   else
-    # Never backwards: the later of the value on disk and now.
+    # The later of the value on disk and now, so a stepped-back clock leaves
+    # the later value. Read then rename, not a lock: two invocations racing
+    # on one session can still leave the earlier read (see the header).
     if [ -f "$marker" ]; then
       now=$(awk -v now="$now" 'NR == 1 { v = $1 + 0; if (v > now) now = v } END { printf "%d\n", now }' "$marker" 2>/dev/null) || now=""
     fi

@@ -11,11 +11,15 @@
 #   no-op unless the payload's session id names a published presence record
 #   on the payload cwd's repository surface. Then, in order: it writes the
 #   reply time in whole seconds to <home>/tower-comms/attention/<session-id>,
-#   owner-only, lock-free, atomically, never backwards; and it appends one
-#   `reply` line through `tower-queue.sh log`, inheriting that verb's lock,
-#   sequence, bounded wait and redaction, so a lock-wait expiry drops the
-#   line and bumps events.dropped while the marker has already advanced. A
-#   marker the hook could not write is named on the reply line.
+#   owner-only, lock-free, atomically, keeping the later of the value on disk
+#   and now, and only after verifying the whole write path from the fleet home
+#   down to the marker file; and it appends one `reply` line through
+#   `tower-queue.sh log`, inheriting that verb's lock, sequence, bounded wait
+#   and redaction, so a lock-wait expiry drops the line and bumps
+#   events.dropped while the marker has already advanced. A marker the hook
+#   could not write is named on the reply line, except when what it refused
+#   was the fleet home: the log lives under that home too, so the reply line
+#   is refused with it and stderr is the whole record.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -221,13 +225,16 @@ case "$(tail -n 1 "$log_file")" in
 esac
 echo "ok: a dash-heavy non-UUID prompt id is dropped and the reply still counts"
 
-# The marker never moves backwards: a value already later than now stays.
+# A clock stepped back does not move the marker: a value already later than
+# now stays. That is the whole claim; two invocations racing on one session
+# can still leave the earlier read, which read-then-rename cannot prevent and
+# the harness does not produce.
 future=$(($(date +%s) + 1000))
 printf '%s\n' "$future" >"$marker_dir/$sid"
 run_hook "$(payload "$sid" "$co" "after a clock step")"
-[ "$(marker_value)" = "$future" ] || fail "monotonic marker: a later value was overwritten with $(marker_value)"
+[ "$(marker_value)" = "$future" ] || fail "stepped-back clock: a later value was overwritten with $(marker_value)"
 date +%s >"$marker_dir/$sid"
-echo "ok: the marker never moves backwards"
+echo "ok: a value already later than now survives a stepped-back clock"
 
 # The same record with a dead pid still gates in: a session id is unique to
 # its session, so the record is this session's own, and the running hook is
@@ -430,6 +437,117 @@ case "$(tail -n 1 "$log_file")" in
 esac
 chmod 0700 "$marker_dir"
 echo "ok: a widened marker directory is refused with a reason, and the reply line says so"
+
+# --- the fleet home itself is verified before the marker is written ------------
+
+# The 0700 checks above are only as strong as the home that holds them, so the
+# home is held to the same bar. A redirected home is refused whatever it points
+# at, even when it points at the sound one: the redirect is the finding.
+home_link="$tmp/home-link"
+ln -s "$home" "$home_link"
+m_before=$(marker_value)
+l_before=$(line_count "$log_file")
+sleep 1
+rc=0
+printf '%s' "$(payload "$sid" "$co" "through a redirected home")" \
+  | PLANWRIGHT_FLEET_STATE_DIR="$home_link" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
+    /bin/sh "$HOOK" >"$tmp/out" 2>"$tmp/err" || rc=$?
+[ "$rc" = 0 ] || fail "symlinked home: exit $rc, expected 0"
+[ ! -s "$tmp/out" ] || fail "symlinked home: the hook printed to stdout"
+[ "$(marker_value)" = "$m_before" ] || fail "symlinked home: the marker was written through a redirected home"
+grep -q 'tower-reply-hook: security: the fleet home .* is a symlink' "$tmp/err" \
+  || fail "symlinked home: the hook did not say it refused a redirected home: $(cat "$tmp/err")"
+# And no reply line, unlike every refusal below the home: the log lives under
+# the home too, so `tower-queue.sh log` refuses it for the same reason and
+# stderr is the whole record. Pinned because the header claims exactly this.
+[ "$(line_count "$log_file")" = "$l_before" ] \
+  || fail "symlinked home: a reply line was written into a home the hook refused: $(tail -n 1 "$log_file")"
+rm -f "$home_link"
+echo "ok: a symlinked home is refused, and leaves no marker and no reply line"
+
+# A foreign-owned home, and a home that is not a directory at all, through an
+# `ls` shim that answers for the home path only: both are states no unprivileged
+# test can create, and both are what a home swapped under the hook looks like.
+real_ls=$(command -v ls)
+home_shim="$tmp/home-shim"
+mkdir -p "$home_shim"
+shim_home_mode() { # shim_home_mode <ls-line-prefix>
+  cat >"$home_shim/ls" <<EOF
+#!/bin/sh
+case "\$*" in
+  *"$home") echo "$1 1 0 Jan  1 00:00 $home" ;;
+  *) exec "$real_ls" "\$@" ;;
+esac
+EOF
+  chmod +x "$home_shim/ls"
+}
+
+for case_name in foreign-owner not-a-directory; do
+  case "$case_name" in
+    foreign-owner) shim_home_mode "drwx------ 1 99999 99999" ;;
+    not-a-directory) shim_home_mode "-rw------- 1 $(id -u) $(id -u)" ;;
+  esac
+  m_before=$(marker_value)
+  l_before=$(line_count "$log_file")
+  sleep 1
+  rc=0
+  printf '%s' "$(payload "$sid" "$co" "home is $case_name")" \
+    | PATH="$home_shim:$PATH" with_env /bin/sh "$HOOK" >"$tmp/out" 2>"$tmp/err" || rc=$?
+  [ "$rc" = 0 ] || fail "$case_name home: exit $rc, expected 0"
+  [ ! -s "$tmp/out" ] || fail "$case_name home: the hook printed to stdout"
+  [ "$(marker_value)" = "$m_before" ] || fail "$case_name home: the marker was written under a $case_name home"
+  grep -q 'tower-reply-hook: security: the fleet home' "$tmp/err" \
+    || fail "$case_name home: the hook did not say it refused the home: $(cat "$tmp/err")"
+  [ "$(line_count "$log_file")" = "$l_before" ] \
+    || fail "$case_name home: a reply line was written into a home the hook refused: $(tail -n 1 "$log_file")"
+done
+rm -f "$home_shim/ls"
+echo "ok: a foreign-owned home and a non-directory home leave no marker and no reply line"
+
+# The two write columns, the pair tests/test-tower-queue-log-lock.sh holds its
+# own check_home to: a home anyone but its owner can write to is one where the
+# 0700 surface below it can be swapped between the checks above and the write
+# they guard, and a home others may merely read or traverse is the ordinary
+# shape a default umask produces. A glob narrowed by one column would refuse
+# every such home, so the 0755 half is the half that catches over-narrowing.
+home_mode=$(stat -c '%a' "$home" 2>/dev/null || stat -f '%Lp' "$home")
+chmod 0770 "$home"
+m_before=$(marker_value)
+l_before=$(line_count "$log_file")
+sleep 1
+run_hook "$(payload "$sid" "$co" "the home went group-writable")"
+[ "$rc" = 0 ] || fail "group-writable home: exit $rc, expected 0"
+[ ! -s "$tmp/out" ] || fail "group-writable home: the hook printed to stdout"
+[ "$(marker_value)" = "$m_before" ] || fail "group-writable home: the marker was written under a group-writable home"
+grep -q 'tower-reply-hook: security: the fleet home .* is writable beyond its owner' "$tmp/err" \
+  || fail "group-writable home: the hook did not say it refused the home: $(cat "$tmp/err")"
+[ "$(line_count "$log_file")" = "$l_before" ] \
+  || fail "group-writable home: a reply line was written into a home the hook refused: $(tail -n 1 "$log_file")"
+chmod 0755 "$home"
+before=$(line_count "$log_file")
+sleep 1
+run_hook "$(payload "$sid" "$co" "the home is readable by others")"
+[ "$rc" = 0 ] || fail "0755 home: exit $rc, expected 0"
+later_than "$(marker_value)" "$m_before" || fail "0755 home: a home others may only read was refused ($(cat "$tmp/err"))"
+[ "$(line_count "$log_file")" = $((before + 1)) ] || fail "0755 home: the reply was not logged"
+chmod "$home_mode" "$home"
+echo "ok: a group-writable home is refused and a world-readable one is not"
+
+# And the sound home still writes: the check refuses a bad home, not every home.
+m_before=$(marker_value)
+before=$(line_count "$log_file")
+sleep 1
+run_hook "$(payload "$sid" "$co" "the home is sound again")"
+[ "$rc" = 0 ] || fail "sound home: exit $rc, expected 0"
+later_than "$(marker_value)" "$m_before" || fail "sound home: the marker did not advance ($m_before -> $(marker_value))"
+[ "$(line_count "$log_file")" = $((before + 1)) ] || fail "sound home: the reply was not logged"
+case "$(tail -n 1 "$log_file")" in
+  *'"marker"'*) fail "sound home: a written marker must not be named on the line: $(tail -n 1 "$log_file")" ;;
+esac
+echo "ok: a sound fleet home still gets the marker"
 
 # A failed rename leaves no scratch file behind and is named on the line.
 stub="$tmp/stub-bin"
