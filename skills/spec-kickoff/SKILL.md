@@ -64,8 +64,8 @@ gracefully instead:
   and the walk/sign-off spine below, and note which is missing.
 - `kickoff-verification` — the kickoff lens/verification mechanics: the
   mid-walk lens, the stale-reference sweep and sign-off lens-review scope,
-  fan-out, and altitude check, and the terminal ready-flip CI gate. Each pass's
-  load-bearing spine stays inline.
+  fan-out, altitude and ship-gate checks, and the terminal ready-flip CI gate.
+  Each pass's load-bearing spine stays inline.
   Absent: run each from
   that spine and its halt-if-absent base (`discovery-rigor`, `autopilot-reflex`),
   and skip the ready-flip, leaving the PR draft (fail closed).
@@ -278,8 +278,8 @@ most recent anchor entry never describes spec content that was not walked.
    `Class:` line, but needed now to scope this pass). Then run the
    Discovery-Rigor lens review of the bundle per `kickoff-verification` (scope,
    fan-out, and the canonical lens-coverage table there; D-45, REQ-A3.3). The
-   **kickoff-specific altitude check (REQ-H1.3)** — a check item, not a new lens
-   — runs within this pass per `kickoff-verification`.
+   **kickoff-specific altitude (REQ-H1.3)** and **ship-gate (REQ-L1.4)** check
+   items — not new lenses — run within this pass per `kickoff-verification`.
    Validate findings per `validation-rigor`, then disposition every one with the
    human (applied as a spec edit, declined with rationale, or deferred to a
    named backlog in the brief) — an undispositioned finding blocks the anchor.
