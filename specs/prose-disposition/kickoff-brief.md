@@ -284,15 +284,19 @@ which stay authoritative; this rendering is derived):
            └→ 8 guards/rest ────┘
 ```
 
-**Parallelism.** Three-way among the instantiation tasks (10, 11, 12) once
-Task 2 lands, and three-way among the Phase B families (Tasks 6, 7, 8),
-which is where three workers pay off. The rest serializes.
+**Parallelism.** Two-way among the instantiation tasks: Tasks 11 and 12 share
+no file and may run together once Task 2 lands, while Task 10 runs alone
+against either of them, which is row 12's ordering rule. Three-way among the
+Phase B families (Tasks 6, 7, 8), which is where three workers pay off. The
+rest serializes.
 
 **Critical path** (effort-weighted from the `Estimated effort:` lines; cite,
 do not copy): the front chain plus the longest Phase B family plus closeout,
-about ten and a half working days with three workers on the families, the
-instantiation tasks running in parallel; with a single worker throughout,
-those tasks and the families serialize too, to about sixteen and a half.
+about eleven working days with three workers on the families. The
+instantiation tasks contribute a day and a half rather than Task 12's day
+alone, because row 12 keeps Task 10 out of the slot Tasks 11 and 12 share.
+With a single worker throughout, those tasks and the families serialize too,
+to about sixteen and a half.
 
 **Deliberate non-edges.**
 
@@ -550,7 +554,9 @@ parallelism note stops saying the front chain has none, and the critical path
 is recomputed, the instantiation tasks adding Task 12's day so the
 three-worker figure is about ten and a half days rather than nine and a half
 and the single-worker figure about sixteen and a half rather than fourteen
-and a half. The one thing the renderings did not decide is the write surface
+and a half. (The 2026-09-21 entry below moves the three-worker figure again,
+to about eleven, once row 12's ordering rule is taken into account.) The one
+thing the renderings did not decide is the write surface
 Tasks 10, 11 and 12 share, which section 6 named and left to the operator;
 the 2026-09-21 entry below records what they decided. Cites the
 changelog line: the `## Changelog` entry in
@@ -610,10 +616,21 @@ future dispatch that nothing stated before, and the operator weighed
 alternatives to reach it, which is the shape of a design decision even though
 the register is where this bundle keeps it.
 
+**What the row costs the schedule.** Row 12 is an ordering rule, so section
+6's derived figures had to follow it rather than the `Dependencies:` lines
+alone, and the first draft of this entry did not. The parallelism note said
+the instantiation tasks run three-way, which row 12 forbids: Tasks 11 and 12
+share no file and may run together, but Task 10 runs alone against either.
+The note now says so, and the critical path follows, the instantiation block
+costing a day and a half rather than Task 12's day alone and the three-worker
+figure landing at about eleven days rather than ten and a half. Copilot
+caught the contradiction on the review of `1e94d6d`; it was the bundle's own
+new rule disagreeing with a figure derived before the rule existed.
+
 Cites the changelog line: the `## Changelog` entry in `requirements.md` dated
 2026-09-21 ("the shared write surface Tasks 10, 11 and 12 have … is
 coordinated by a new kickoff-brief risk row 12").
 
 Class: expression-only
-Anchor: `53beb5453fb9f1f9997813de7cc9f482e572d3cd` — computed as
+Anchor: `c49a53f93fab54dc26f9c28f355dccb561dca009` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`

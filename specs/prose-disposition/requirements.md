@@ -445,11 +445,16 @@ work, is recorded in D-1 and cited here from the goal.
   coordinated by a new kickoff-brief risk row 12 rather than by dependency
   edges. The operator made that call, choosing between an edge, a register
   rule, and recording the hazard without coordinating it; row 3 already uses
-  the register shape for the Phase B families. No `Dependencies:` line
-  changed and no REQ changed: REQ-G1.1 still requires exactly the edges it
+  the register shape for the Phase B families. This amendment changes no
+  `Dependencies:` line of its own and no REQ: the Task 3 edges the 2026-09-20
+  entry below records are the ones this bundle gained, and they are
+  unaffected here, while REQ-G1.1 still requires exactly the edges it
   required. Same round, the derived renderings in the brief's section 6 (the
-  task graph and the parallelism note) were regenerated from the
-  `Dependencies:` lines they follow, and two verification occasions in
+  task graph, the parallelism note and the critical path) were regenerated
+  from the `Dependencies:` and `Estimated effort:` lines they follow, with
+  row 12's ordering rule taken into account: Task 10 cannot share a slot with
+  Tasks 11 or 12, so the instantiation block costs a day and a half and the
+  three-worker figure is about eleven days. Two verification occasions in
   `test-spec.md` were widened to the tasks that actually land what they
   check: REQ-D1.1's four-rule reading now names Task 10 for the
   PR-introduced-surface citation, and REQ-D1.3's guard clause now names Tasks
