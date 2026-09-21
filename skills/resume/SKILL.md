@@ -146,11 +146,18 @@ available and proceed with a partial load: everything except the PR state is
 still available (REQ-K1.6, REQ-K1.7). A branch with no PR is a normal pre-PR
 state, not an error.
 
-### 7. Load the optional handover brief
+### 7. Load the optional handover brief and polish audit
 
 If `<worktree>/.claude/handover.md` exists, read it and fold its in-flight
 notes into the summary. It is an optional best-effort cache (D-3), not a
 contract: its absence is normal and never an error.
+
+`<worktree>/.claude/polish-audit.md` is the same kind of cache, left by a
+standalone `/polish` run, and this skill is its named reader. If it exists,
+present it the way `/polish` would have: the counts and the residue, each
+pending sign-off and each queued fork as one line, with the file as the
+pointer. Never replay the tables into the turn. Its absence is normal and
+never an error, exactly as for the brief above.
 
 ### 8. Surface the working tree and ask before proceeding
 

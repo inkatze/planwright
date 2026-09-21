@@ -39,6 +39,10 @@ mise.local.toml
 
 # Optional handover brief — transient per-worktree cache (design.md D-2/D-3).
 .claude/handover.md
+# /polish's accumulated audit record (operator-dialogue D-16) — the artifact
+# side of its loop-end handoff. Same class as the handover brief: per-worktree,
+# overwritten per run, read by the parent skill or /resume, never source.
+.claude/polish-audit.md
 # Worker scratch staged for relay: consumed by the orchestrator, never tracked.
 # An uncommitted leftover here fails the release publisher's clean-tree gate.
 .claude/relay/

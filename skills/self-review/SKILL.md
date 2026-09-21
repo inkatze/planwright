@@ -213,18 +213,20 @@ routing order.
 
 ## The audit record
 
-The pass produces, in this order (the wiring doc's loop-end handoff,
-extended with the lens-coverage table at the front and the pass summary at
-the end):
+The pass produces, **artifact-side**, in this order (the wiring doc's loop-end
+handoff, extended with the lens-coverage table at the front and the pass
+summary at the end):
 
 1. The lens-coverage table.
 2. In the wiring doc's formats: the four bucket tables, the declined log, and
    the pending-sign-off checklist regenerated from the `[pending-sign-off]`
    commits ahead of the base.
-3. Queued irreducible forks with their bespoke options; in an attended
-   standalone run these are the only questions presented to the human.
+3. Queued irreducible forks with their bespoke options.
 4. The pass summary: resolved mode, base used, tooling and wider-suite
    results, and any reverts or surfaced failures.
+
+The **turn** gets the wiring's projection: counts, each pending sign-off and
+each fork; standalone, only forks are questions.
 
 ## Publishing the audit record (standalone only)
 
