@@ -209,8 +209,8 @@ summary at the end):
 4. The pass summary: resolved mode, base used, tooling and wider-suite
    results, and any reverts or surfaced failures.
 
-The **turn** gets the wiring's projection instead: counts, then the forks,
-which standalone are the human's only questions. Table content lands in a
+The **turn** gets the wiring's projection: counts, each pending sign-off and
+each fork; standalone, only forks are questions. Table content lands in a
 committed PR body: apply `security-posture` artifact data-hygiene before
 emitting.
 
