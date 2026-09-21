@@ -113,6 +113,9 @@ copies, not source).
 
 ## Commit trailer (D-2, REQ-C1.4)
 
+The rule's normative home is `doctrine/spec-format.md`, under *Branch,
+worktree, and task-id grammar*; this section is the worked explanation.
+
 Every planwright-related commit carries a `Planwright-Task: <spec>/<id>`
 trailer in the message footer:
 

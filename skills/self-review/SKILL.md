@@ -35,8 +35,8 @@ Doctrine: run-start validation-rigor
 Doctrine: run-start finding-categorization
 Doctrine: run-start gate-wiring
 Doctrine: point-of-use research-rigor (the Validation step, where research triggers fire)
-Doctrine: run-start refactor-instinct (review mode)
-Doctrine: point-of-use security-posture (artifact data-hygiene, at Routing, the first step that writes anything durable)
+Doctrine: point-of-use refactor-instinct (review mode, at the Discovery step's refactor filter, the only site that reads it)
+Doctrine: run-start security-posture (artifact data-hygiene)
 Doctrine: run-start proportionality (declared scoping)
 
 ## Invocation modes

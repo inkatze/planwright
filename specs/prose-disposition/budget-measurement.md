@@ -393,7 +393,7 @@ task's `Deliverables:` permit.
 
 ## `/self-review`: a manifest change (rung 2)
 
-`doctrine/security-posture.md` (467 words) moved from `run-start` to
+`doctrine/refactor-instinct.md` (422 words) moved from `run-start` to
 `point-of-use` in `/self-review`'s manifest. This is Option 2 of the four the
 Task 10 section put to the operator, which that section called the strongest on
 the menu and declined only because a manifest rewrite was outside Task 10's
@@ -401,6 +401,32 @@ the menu and declined only because a manifest rewrite was outside Task 10's
 
 No prose was deleted or moved, so no rule can have been lost; the only question
 is read-order, answered under *The safety floor* below.
+
+**Why `refactor-instinct` and not `security-posture`.** Option 2 named both. The
+first draft of this task took `security-posture` (467 words, the larger of the
+two) and the convergence pass reversed it, for two independent reasons that
+agreed.
+
+- **The floor's own wording is stricter than the read-order test.**
+  `doctrine/instruction-hygiene.md` says a rule that gates whether an action is
+  permitted "belongs in the always-loaded core, **in the body or a run-start
+  doc**". Artifact data-hygiene gates whether a secret may reach a committed
+  artifact, so it is permission-gating law by that sentence's plain reading,
+  even though a citation at the Routing step satisfies the read-order test.
+  `refactor-instinct` is not: it scopes which refactor findings are *reported*,
+  and a model that never opens it over-reports. Noise, never a forbidden
+  action. That is `instruction-hygiene`'s "deferred bulk" category verbatim,
+  "reference detail consulted at one step".
+- **A prior pass decided this exact doc the other way.**
+  `specs/prompt-hygiene/diet-plans.md` reclassified `discovery-rigor`,
+  `autopilot-reflex` and `validation-rigor` out of `/spec-kickoff`'s run-start
+  manifest and recorded that `spec-format`, `security-posture` and
+  `interaction-style` **stay run-start**. Deferring `security-posture` here
+  would reverse that judgment on the strength of a budget need, which is the
+  erosion the floor exists to stop.
+
+The smaller doc still clears the pin with room to spare, so the safer of the two
+options was also sufficient: nothing was traded for the 45-word difference.
 
 ## `/execute-task`: a doctrine relocation
 
@@ -429,7 +455,7 @@ elsewhere" but "does it appear in a doc the affected skill loads".
 | --- | --- | --- | --- | --- |
 | The `Planwright-Task` trailer convention | `skills/execute-task/SKILL.md` § Commit convention | `doctrine/spec-format.md` § Branch, worktree, and task-id grammar | `grep -n 'Doctrine:' skills/execute-task/SKILL.md` → `Doctrine: run-start spec-format`. `/execute-task` was the only skill that carried the rule at all, and it still reads it, now at run start rather than mid-file. | **Safe.** Reachability strictly increased. |
 
-`doctrine/security-posture.md`'s reclassification moved no text, so it has no
+`doctrine/refactor-instinct.md`'s reclassification moved no text, so it has no
 row: nothing could be dropped. Its read-order is checked below instead.
 
 ## The safety floor
@@ -440,14 +466,15 @@ could it then take an action the rule forbids?*
 | Rule | Skill | Acting step | Evidence it is read at or before that step |
 | --- | --- | --- | --- |
 | `Planwright-Task` trailer | `/execute-task` | every commit the skill authors; the earliest is pre-flight step 11's `Last activity` commit on a v1 bundle | `spec-format` is a **`run-start`** manifest entry, resolved at pre-flight step 3, before any step runs. Previously the rule sat in the body at the Implementation phase, *after* that pre-flight commit. The move closes a gap rather than opening one. |
-| Artifact data-hygiene | `/self-review` | the first durable write of the pass: the commits the Routing step lands, and after it the audit record, the PR body, and observation fragments | The citation sits in the **Routing and dispositions** intro, ahead of every disposition bullet. Previously it sat only in *The audit record*, later in both file and execution order, so commit bodies and observation fragments were uncovered. The move widens coverage. |
+| Refactor-flag scoping | `/self-review` | emitting a refactor finding, at the Discovery step's "Filter refactor flags in review mode" bullet | That bullet names the doc and is the only site that reads it; no earlier step of the pass emits a finding. It is also not permission-gating law: unread, it over-reports rather than permitting something forbidden, so the floor's "in the body or a run-start doc" clause does not reach it. |
 
-`doctrine/security-posture.md` has three sections and `/self-review` consumes
-one. *Write-time security triggers* does not gate an earlier step: a fix
-touching security-sensitive code is stopped by `finding-categorization`'s
-hard-disqualifier zones, which stays `run-start`, and any such fix would be
-applied at Routing, where the doc is now read anyway. *Framework-script
-security* is not a step this skill has.
+One change in this diff is a widening rather than a deferral, and belongs here
+for the same reason. `/self-review` previously cited artifact data-hygiene only
+in *The audit record*, so the commits the Routing step lands and the observation
+fragments it writes were uncovered. The citation now sits in the **Routing and
+dispositions** intro, ahead of every disposition bullet, and names commit bodies,
+audit rows, the PR body and observation fragments. `security-posture` stays
+`run-start`.
 
 Precedent for the test and the rung: `specs/prompt-hygiene/diet-plans.md`
 records the same reclassification applied to `/spec-kickoff`'s and
@@ -459,8 +486,8 @@ Both readings from `./scripts/check-instructions.sh --audit`, `EXIT=0` on each.
 
 | Surface | Pin | Before | After |
 | --- | --- | --- | --- |
-| `skills/execute-task/SKILL.md` (per-file) | `margin=251` | 251 (3999 words) | **263** (3987 words) |
-| `start-load:self-review` | `margin=566` | 591 (9409 words) | **936** (9064 words) |
+| `skills/execute-task/SKILL.md` (per-file) | `margin=251` | 251 (3999 words) | **261** (3989 words) |
+| `start-load:self-review` | `margin=566` | 591 (9409 words) | **888** (9112 words) |
 | `start-load:builder` | `margin=515` | 703 | 703 |
 | `skills/orchestrate/SKILL.md` | `margin=251` | 255 | 255 |
 | `skills/spec-kickoff/SKILL.md` | `margin=262` | 276 | 276 |
