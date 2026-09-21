@@ -1,7 +1,7 @@
 # Prose disposition — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-04
+**Last reviewed:** 2026-09-21
 **Format-version:** 2
 **Execution:** derived — see the status render
 

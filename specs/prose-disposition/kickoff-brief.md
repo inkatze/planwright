@@ -663,10 +663,17 @@ same-change binding follows the instantiation; Task 10 instantiates too and
 was passed over. Its `Done when:` now carries the sweep for all three
 surfaces and its `Citations:` name REQ-D1.2.
 
+**Header dates.** `doctrine/spec-format.md` bumps `Last reviewed:` whenever a
+file is materially reviewed or edited, and this run materially edited three of
+the four. `requirements.md`, `tasks.md` and `test-spec.md` now read
+2026-09-21; `design.md` is untouched by this amendment and correctly keeps
+2026-09-04. The 2026-09-13 amendment left all four at the sign-off date, which
+is the same miss one round earlier.
+
 Cites the changelog line: the `## Changelog` entry in `requirements.md` dated
 2026-09-21 ("the shared write surface Tasks 10, 11 and 12 have … is
 coordinated by a new kickoff-brief risk row 12").
 
 Class: expression-only
-Anchor: `d8908e9b5edb30719ace8d87d7a3a1776544efba` — computed as
+Anchor: `16bff0f3445d10b363b4ce98fc471a2487ca9b37` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`
