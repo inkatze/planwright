@@ -496,6 +496,32 @@ done
 rm -f "$home_shim/ls"
 echo "ok: a foreign-owned home and a home that is not a directory are both refused"
 
+# The two write columns, the pair tests/test-tower-queue-log-lock.sh holds its
+# own check_home to: a home anyone but its owner can write to is one where the
+# 0700 surface below it can be swapped between the checks above and the write
+# they guard, and a home others may merely read or traverse is the ordinary
+# shape a default umask produces. A glob narrowed by one column would refuse
+# every such home, so the 0755 half is the half that catches over-narrowing.
+home_mode=$(stat -c '%a' "$home" 2>/dev/null || stat -f '%Lp' "$home")
+chmod 0770 "$home"
+m_before=$(marker_value)
+sleep 1
+run_hook "$(payload "$sid" "$co" "the home went group-writable")"
+[ "$rc" = 0 ] || fail "group-writable home: exit $rc, expected 0"
+[ ! -s "$tmp/out" ] || fail "group-writable home: the hook printed to stdout"
+[ "$(marker_value)" = "$m_before" ] || fail "group-writable home: the marker was written under a group-writable home"
+grep -q 'tower-reply-hook: security: the fleet home .* is writable beyond its owner' "$tmp/err" \
+  || fail "group-writable home: the hook did not say it refused the home: $(cat "$tmp/err")"
+chmod 0755 "$home"
+before=$(line_count "$log_file")
+sleep 1
+run_hook "$(payload "$sid" "$co" "the home is readable by others")"
+[ "$rc" = 0 ] || fail "0755 home: exit $rc, expected 0"
+later_than "$(marker_value)" "$m_before" || fail "0755 home: a home others may only read was refused ($(cat "$tmp/err"))"
+[ "$(line_count "$log_file")" = $((before + 1)) ] || fail "0755 home: the reply was not logged"
+chmod "$home_mode" "$home"
+echo "ok: a group-writable home is refused and a world-readable one is not"
+
 # And the sound home still writes: the check refuses a bad home, not every home.
 m_before=$(marker_value)
 before=$(line_count "$log_file")
