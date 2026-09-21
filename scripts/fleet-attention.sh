@@ -126,11 +126,34 @@
 #       Decision queue: ordered actionable items as structured choices.
 #       --count prints only the item count (the length that tracks the
 #       `## Awaiting input` count).
+#       A row the operator queue has already handed to a tower conversation is
+#       NOT rendered again (tower-comms REQ-A1.1, REQ-C1.1): scripts/
+#       tower-queue.sh is the one place an item reaches the operator from, and
+#       re-listing what it just delivered is the same question asked twice.
+#       The suppression is keyed on the queue's own delivery state, so it
+#       applies only where that store exists — a tree running no operator queue
+#       renders exactly what it rendered before — and the count of what was
+#       held back is said on stderr, so the surface never shrinks silently.
+#       --count is deliberately NOT suppressed: it is the projection of the
+#       `## Awaiting input` entries, which a hand-over does not close.
 #   fleet-attention.sh notify <summary> [--key <token>]
 #       Push <summary> through the resolved notification channel. --key names
 #       what is being notified about; on the `push` channel it is the pending
 #       marker's filename, so it is also the dedupe. Absent, it is derived from
 #       the summary, so the same sentence twice is still one marker.
+#   fleet-attention.sh relay
+#       The other half of the `push` channel (tower-comms D-19, REQ-F1.6). The
+#       seam above writes a marker because the tool that reaches the operator's
+#       phone can only be called from inside a session; this takes the pending
+#       markers so that session can relay them. Under the fleet lock, each
+#       marker is removed and its line printed as `push<TAB><key><TAB><text>`,
+#       so two towers stepping at once never relay the same line twice. Taking
+#       and printing is ONE step on purpose: a list-then-clear pair leaves a
+#       window in which a second tower relays what the first is about to, and
+#       waking the operator twice is the load this bundle exists to cut. The
+#       cost is the inverse window — a session that dies between this call and
+#       the tool call drops that line — which the item survives: it stays open
+#       in the queue, and its second away-push stage can name it again.
 #
 # Exit codes: 0 success; 2 usage error, unresolvable home, refused hostile
 #   input, or a filesystem/lock error (fail closed); 3 a SEMANTIC refusal on the
@@ -489,7 +512,7 @@ suppressed() {
 # ---------------------------------------------------------------------------
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
-  echo "usage: fleet-attention.sh heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify [args]" >&2
+  echo "usage: fleet-attention.sh heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify|relay [args]" >&2
   exit 2
 fi
 shift || true
@@ -1165,6 +1188,45 @@ case $cmd in
       printf '%s\n' "$n"
       exit 0
     fi
+    # Drop what the operator queue already handed over (tower-comms REQ-A1.1).
+    # The queue's `list --all` names each item's content home; the ones homed on
+    # an attention row carry `attention:<worker>[@instance]`, which is the same
+    # handle this store keys on. A state of `open` or `shelved` is still waiting
+    # its turn there and stays on this surface; anything past it (delivered,
+    # leased, closed) has reached a conversation and does not get asked twice.
+    # `list` is a lock-free read, so this costs one fork and no contention.
+    #
+    # Below `--count` on purpose: the count is the projection of the
+    # `## Awaiting input` entries (the durable record), which a hand-over does
+    # not change, and scripts/fleet-stats.sh reads it as exactly that. What a
+    # delivery closes is the RENDER's question, not the entry.
+    if [ -n "$sortable" ] && [ -x "$script_dir/tower-queue.sh" ]; then
+      delivered=$("$script_dir/tower-queue.sh" list --all 2>/dev/null | awk -F "$TAB" '
+        $6 == "open" || $6 == "shelved" { next }
+        $7 ~ /^attention:/ {
+          h = substr($7, 11)
+          i = index(h, "@")
+          if (i > 0) h = substr(h, 1, i - 1)
+          if (h != "") print h
+        }
+      ' | sort -u) || delivered=""
+      if [ -n "$delivered" ]; then
+        before=$(printf '%s\n' "$sortable" | grep -c .)
+        sortable=$(printf '%s\n' "$sortable" | awk -F "$TAB" -v d="$delivered" '
+          BEGIN { n = split(d, a, "\n"); for (k = 1; k <= n; k++) if (a[k] != "") seen[a[k]] = 1 }
+          !($3 in seen)
+        ')
+        if [ -z "$sortable" ]; then
+          after=0
+        else
+          after=$(printf '%s\n' "$sortable" | grep -c .)
+        fi
+        if [ "$after" -lt "$before" ]; then
+          echo "fleet-attention: queue: $((before - after)) row(s) held back — the operator queue has already delivered them (scripts/tower-queue.sh list)" >&2
+        fi
+        n=$after
+      fi
+    fi
     [ "$n" = 0 ] && exit 0
     now=$(now_epoch)
     # Sorted lines carry the two sort-key fields ahead of the stored fields. The
@@ -1254,6 +1316,55 @@ case $cmd in
       fi
     done
     exit 0
+    ;;
+
+  relay)
+    [ "$#" = 0 ] || {
+      echo "usage: fleet-attention.sh relay" >&2
+      exit 2
+    }
+    root=$(resolve_home) || exit 2
+    push_dir="$root/attention/push"
+    # Nothing pending is the ordinary case, and it costs no lock: the loop calls
+    # this every iteration on a channel most trees never select.
+    [ -d "$push_dir" ] || exit 0
+    acquire_lock || exit 2
+    relay_rc=0
+    # This script runs noglob, and enumerating the pending set is the one place
+    # that needs expansion. Re-armed immediately after, so nothing else in the
+    # verb runs with globbing on, and every name is screened below before it is
+    # used for anything but the `rm` of the file it named.
+    set +f
+    for rp in "$push_dir"/*; do
+      set -f
+      # An unmatched glob comes back as the literal pattern; a dotfile is the
+      # seam's own `.push.XXXXXX` scratch, which is not a marker yet.
+      [ -f "$rp" ] || continue
+      [ -L "$rp" ] && continue
+      rk=${rp##*/}
+      # The key grammar the seam writes: an item id, or the `k<sum>.<sum>` a
+      # keyless push derives. Anything else was not written here, so it is left
+      # alone rather than read out to the operator.
+      case $rk in
+        "" | .* | *[!A-Za-z0-9._-]*) continue ;;
+      esac
+      # Removed BEFORE the line is printed. The reverse order would let a
+      # crash between the two print a line whose marker is still pending, and
+      # the operator would be woken about it twice by the next tower to step.
+      rtext=$(head -n 1 "$rp" 2>/dev/null) || rtext=""
+      if ! rm -f "$rp" 2>/dev/null; then
+        echo "fleet-attention: relay: cannot clear $(sanitize_printable "$rk" "(unprintable key)") — not relaying it rather than relaying it on every step" >&2
+        relay_rc=2
+        continue
+      fi
+      [ -n "$rtext" ] || continue
+      printf 'push\t%s\t%s\n' \
+        "$(sanitize_printable "$rk" "(unprintable key)")" \
+        "$(sanitize_printable "$rtext" "(unprintable summary)")"
+    done
+    set -f
+    release_lock
+    exit "$relay_rc"
     ;;
 
   notify)
@@ -1467,7 +1578,7 @@ case $cmd in
     ;;
 
   *)
-    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify)" >&2
+    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify|relay)" >&2
     exit 2
     ;;
 esac

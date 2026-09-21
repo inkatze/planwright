@@ -94,6 +94,13 @@ exactly one spec/unit in its own worktree with isolated context, and the
 attention render names each worker's scope and state — the same clear-scopes
 model a tmux power user gets from named windows, with no attaching.
 
+`queue` leaves out anything the operator queue has already handed to a tower
+conversation, and says on stderr how many it held back. A question you have
+been asked once should not be sitting on the list as though nobody had asked
+it. The count `--count` prints is deliberately not filtered: that one tracks
+the `## Awaiting input` entries, which a hand-over does not close. In a tree
+running no tower queue, nothing is filtered at all.
+
 ## The backend-agnostic status view
 
 `fleet-attention.sh render` shows what workers have *pushed*. The wider view —
@@ -305,10 +312,14 @@ Control connected, your phone, and which declines to interrupt you while you
 are actively working. Nothing in planwright's scripts can call that tool, only
 a session can, which is why this channel is relayed rather than pushed.
 
-**The relay is not built yet.** Choosing this channel today leaves the markers
-accumulating under the fleet home unread; the tower-side relay lands with the
-tower loop. Until then, `push` is a channel you can configure and not one that
-reaches you.
+The relay runs inside the tower loop's own comms step
+(`scripts/tower-loop-comms.sh step`), which takes each pending marker under the
+fleet lock and prints it as a `push` line for the session to hand to the tool.
+Taking and printing is one step, so two towers stepping at once cannot wake you
+twice about the same thing; the cost is that a session dying between the two
+drops that line, and what recovers it is the item itself, which stays open and
+can name itself again at its second escalation. Run outside a tower loop,
+nothing relays and the markers wait.
 
 ### The statusline channel
 
