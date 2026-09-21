@@ -285,8 +285,9 @@ families (Tasks 6, 7, 8), which is where three workers pay off.
 
 **Critical path** (effort-weighted from the `Estimated effort:` lines; cite,
 do not copy): the front chain plus the longest Phase B family plus closeout,
-about nine and a half working days with three workers on the families;
-the families serialize to about fourteen and a half with one.
+about ten and a half working days with three workers on the families, the
+instantiation tasks running in parallel; with a single worker throughout,
+those tasks and the families serialize too, to about sixteen and a half.
 
 **Deliberate non-edges.**
 
@@ -513,18 +514,27 @@ three rules Task 2 owned, not four: the PR-introduced-surface rule stays
 Task 10's to land in the same files, since its doctrine section does not exist
 until Task 10 writes it. REQ-D1.2's same-change binding follows the
 instantiation rather than staying behind with Task 2's one-off sweep, so both
-new tasks re-run the `skills/` sweep against their own addition. Three stale
-pointers were repaired under the contract-reword straggler rule:
-`test-spec.md`'s REQ-D1.1 entry, which named Task 2's review as its
-verification occasion, now names Tasks 11 and 12; and the two ordering
-rationales that named Task 2 as what Task 3 waits for (sections 4 and 6) now
-name the instantiation tasks. Section 6's rendered graph and
-critical path are derived from the `Dependencies:` and `Estimated effort:`
-lines, which stay authoritative, and are left as drafted. Cites the changelog
+new tasks re-run the `skills/` sweep against their own addition. Five stale
+pointers were repaired under the contract-reword straggler rule, the whole
+class swept rather than the instances first noticed: `test-spec.md`'s
+REQ-D1.1, REQ-A1.3 and REQ-C1.1 entries each named a Task 2 review as their
+verification occasion, and now name the task that lands the thing they check
+(`/polish` at Task 11, `/self-review` and `/execute-task` at Task 12);
+REQ-C1.2's and REQ-C1.4's occasions follow REQ-C1.1's by reference and needed
+no edit of their own; and the two ordering rationales that named Task 2 as
+what Task 3 waits for (sections 4 and 6) now name the instantiation tasks.
+Section 6's critical path is recomputed: the instantiation tasks add Task 12's
+day to the front chain, so the three-worker figure is about ten and a half
+days rather than nine and a half, and a single worker serializing the
+instantiation tasks as well as the families reaches about sixteen and a half
+rather than fourteen and a half. Section 6's rendered graph is derived from
+the `Dependencies:` lines, which stay authoritative, and is left as drafted;
+it renders the front chain as `1 → 2 → 3` and so does not show the edges
+Task 3's line now carries. Cites the changelog
 line: the `## Changelog` entry in
 `requirements.md` dated 2026-09-20 ("Task 2 execution: REQ-D1.1's
 instantiation … moves out of Task 2 into a new Task 11 … and a new Task 12").
 
 Class: expression-only
-Anchor: `b28c2ee06d65b7d59877557765ed8f991e32f45b` — computed as
+Anchor: `36bd3b52ca71f067336ea85491dd999f4f1ffaba` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`

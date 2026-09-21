@@ -43,9 +43,10 @@ that fork.
 ### REQ-A1.3 — Coverage row carries the class [design-level + manual]
 
 The lens-coverage table's Documentation row format in
-`doctrine/discovery-rigor.md` shows the class per finding. Manual: the
-emitting skills' audit records on the first review pass after Task 2 render
-it, inspected by the operator.
+`doctrine/discovery-rigor.md` shows the class per finding. Manual: the audit
+record of the first review pass run by a skill that carries the lens-scoping
+citation (`/polish` at Task 11, `/self-review` and `/execute-task` at
+Task 12) renders it, inspected by the operator.
 
 ## REQ-B — Prose finding classification
 
@@ -102,10 +103,12 @@ Scenario: given an iteration producing three meaning-class prose findings
 on pre-existing docs, one of them adding a passage, when the iteration
 commits, then one commit carries all three, its body lists three manifest
 lines (file, rule before, rule after) with the added passage's before-value
-reading `absent`, and the marker appears once. Manual: the first review
-pass after Task 2 that produces two or more meaning-class prose findings on
-pre-existing docs is inspected for this shape; until such a pass occurs the
-entry stays open in the drain's `[manual]` inventory.
+reading `absent`, and the marker appears once. Manual: the first review pass
+that produces two or more meaning-class prose findings on pre-existing docs,
+run by a skill that carries the batched commit discipline (`/polish` at
+Task 11, `/self-review` and `/execute-task` at Task 12), is inspected for
+this shape; until such a pass occurs the entry stays open in the drain's
+`[manual]` inventory.
 
 ### REQ-C1.2 — Batched checklist entry [design-level + manual]
 
