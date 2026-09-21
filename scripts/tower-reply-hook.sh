@@ -13,9 +13,16 @@
 #      the log line below is not (D-6). Whole seconds, not finer: the times
 #      it is compared against are whole seconds, so a finer reply time would
 #      read as later than a hand-over stamped in the same second even when it
-#      came first, and a tie must read as not yet confirmed. The marker never
-#      moves backwards: two invocations racing, or a clock stepped back,
-#      leave the later value in place.
+#      came first, and a tie must read as not yet confirmed. Each write keeps
+#      the later of the value on disk and now, so a clock stepped back leaves
+#      the later value in place. That is the whole of the guarantee: the read
+#      and the rename are not one step, so two invocations racing on one
+#      session both read before either renames and the later RENAME wins
+#      rather than the later value, which can step the stamp back by about a
+#      second. The harness submits one prompt at a time per session, so it
+#      does not produce that interleaving; and a stamp a second early reads
+#      as a reply that did not answer the last hand-over, which knocks again
+#      rather than losing the reply.
 #   2. The `reply` event, appended through `tower-queue.sh log`, which owns
 #      the fleet lock, the sequence, the bounded lock wait and the
 #      secret-shaped redaction: this hook parses no secrets and redacts
@@ -338,7 +345,9 @@ else
     warn "cannot read the clock; the attention marker was not advanced"
     marker_state=failed
   else
-    # Never backwards: the later of the value on disk and now.
+    # The later of the value on disk and now, so a stepped-back clock leaves
+    # the later value. Read then rename, not a lock: two invocations racing
+    # on one session can still leave the earlier read (see the header).
     if [ -f "$marker" ]; then
       now=$(awk -v now="$now" 'NR == 1 { v = $1 + 0; if (v > now) now = v } END { printf "%d\n", now }' "$marker" 2>/dev/null) || now=""
     fi

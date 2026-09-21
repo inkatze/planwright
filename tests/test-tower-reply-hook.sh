@@ -11,7 +11,8 @@
 #   no-op unless the payload's session id names a published presence record
 #   on the payload cwd's repository surface. Then, in order: it writes the
 #   reply time in whole seconds to <home>/tower-comms/attention/<session-id>,
-#   owner-only, lock-free, atomically, never backwards; and it appends one
+#   owner-only, lock-free, atomically, keeping the later of the value on disk
+#   and now; and it appends one
 #   `reply` line through `tower-queue.sh log`, inheriting that verb's lock,
 #   sequence, bounded wait and redaction, so a lock-wait expiry drops the
 #   line and bumps events.dropped while the marker has already advanced. A
@@ -221,13 +222,16 @@ case "$(tail -n 1 "$log_file")" in
 esac
 echo "ok: a dash-heavy non-UUID prompt id is dropped and the reply still counts"
 
-# The marker never moves backwards: a value already later than now stays.
+# A clock stepped back does not move the marker: a value already later than
+# now stays. That is the whole claim; two invocations racing on one session
+# can still leave the earlier read, which read-then-rename cannot prevent and
+# the harness does not produce.
 future=$(($(date +%s) + 1000))
 printf '%s\n' "$future" >"$marker_dir/$sid"
 run_hook "$(payload "$sid" "$co" "after a clock step")"
-[ "$(marker_value)" = "$future" ] || fail "monotonic marker: a later value was overwritten with $(marker_value)"
+[ "$(marker_value)" = "$future" ] || fail "stepped-back clock: a later value was overwritten with $(marker_value)"
 date +%s >"$marker_dir/$sid"
-echo "ok: the marker never moves backwards"
+echo "ok: a value already later than now survives a stepped-back clock"
 
 # The same record with a dead pid still gates in: a session id is unique to
 # its session, so the record is this session's own, and the running hook is
