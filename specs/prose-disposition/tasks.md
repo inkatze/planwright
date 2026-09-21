@@ -237,10 +237,14 @@ can be measured by it.
   amended text and reach the stated disposition, each walk recorded in the PR
   body; each of the three skills names the governing section for the
   PR-introduced-surface rule and restates at most a one-line gist
-  (REQ-D1.1); `check:instructions` passes and the
+  (REQ-D1.1); the REQ-D1.2 sweep is re-run against this change over
+  `doctrine/` and `docs/` for the doctrine text it lands and over `skills/`
+  for the instantiation, with every straggler the change introduces fixed in
+  the same change; `check:instructions` passes and the
   suppression list gains no `raise` entry; and `mise run check` is green.
 - **Dependencies:** 1, 2
-- **Citations:** D-3, D-6 · REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-D1.1, REQ-D1.3
+- **Citations:** D-3, D-6 · REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-D1.1, REQ-D1.2,
+  REQ-D1.3
 - **Estimated effort:** half day
 
 ### Task 11 — REQ-D1.1 instantiation in `/polish`

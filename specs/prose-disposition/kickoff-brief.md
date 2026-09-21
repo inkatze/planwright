@@ -654,10 +654,19 @@ per skill, so the task now says it is re-measured against one before being
 treated as a shortfall. Copilot found this on the review of `5cc5dd9`, inside
 a collapsed block, with its own finding counter reading none.
 
+The same task was missing the other half of what REQ-D1.2 binds it to. Task 10
+lands doctrine text and edits all three skill files, so both limbs of REQ-D1.2
+reach it, the `doctrine/` and `docs/` sweep for the amendment and the
+`skills/` sweep for the instantiation. Task 1 carries the first, and the
+2026-09-20 split gave Tasks 11 and 12 the second on the reasoning that the
+same-change binding follows the instantiation; Task 10 instantiates too and
+was passed over. Its `Done when:` now carries the sweep for all three
+surfaces and its `Citations:` name REQ-D1.2.
+
 Cites the changelog line: the `## Changelog` entry in `requirements.md` dated
 2026-09-21 ("the shared write surface Tasks 10, 11 and 12 have … is
 coordinated by a new kickoff-brief risk row 12").
 
 Class: expression-only
-Anchor: `2560498019f6715fb4e5b78fd071f9575165c367` — computed as
+Anchor: `d8908e9b5edb30719ace8d87d7a3a1776544efba` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`

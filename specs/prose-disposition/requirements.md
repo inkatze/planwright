@@ -468,7 +468,12 @@ work, is recorded in D-1 and cited here from the goal.
   claiming more than REQ-D1.1 asks of it, and its own Done-when already said
   "the governing section" in the singular. The instruction-budget shortfall
   the task records was measured against three gists per skill and is
-  re-measured against one before being treated as a shortfall.
+  re-measured against one before being treated as a shortfall. Task 10 was
+  also missing REQ-D1.2's same-change sweep, which reaches it on both limbs
+  since it lands doctrine text and edits all three skill files; its
+  `Done when:` now carries the sweep over `doctrine/`, `docs/` and `skills/`
+  and its `Citations:` name REQ-D1.2, matching what the split gave Tasks 11
+  and 12.
 
 - 2026-09-20 — Task 2 execution: REQ-D1.1's instantiation of the amended rules
   in `/self-review`, `/polish` and `/execute-task`'s convergence prose moves
