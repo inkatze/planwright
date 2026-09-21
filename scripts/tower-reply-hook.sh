@@ -160,11 +160,15 @@ check_private_dir() {
   return 0
 }
 
-# check_home — the same verification tower-queue.sh's check_home makes, for
-# the same reason: the 0700 sub-surface below is only as private as the home
-# that holds it, so a home anyone else can write to, or one redirected by a
+# check_home — the verification tower-queue.sh's check_home makes, for the
+# same reason: the 0700 sub-surface below is only as private as the home that
+# holds it, so a home anyone else can write to, or one redirected by a
 # symlink, is one where the marker directory can be moved aside and replaced
-# between the checks below and the write they guard.
+# between the checks below and the write they guard. It refuses on exactly
+# the inputs the sibling refuses on; the one branch the sibling does not have
+# is the `d*` test, which only replaces a misleading message (a non-directory
+# has no `d` to match the write-column glob either, so the sibling refuses it
+# as widened).
 check_home() {
   if [ -L "$home" ]; then
     warn "security: the fleet home $(sanitize_printable "$home" "(unprintable path)") is a symlink — refusing to write through a redirect"
