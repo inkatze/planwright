@@ -879,7 +879,11 @@ anchor).
   `git commit -F -` rather than written by hand, so the grammar is validated
   once and identical everywhere. A bundle passes one ref per task and the
   helper emits one trailer each; a single ref on a bundled commit silently
-  anchors only that task, and no guard catches it. It is the durable completion anchor the orchestration-state
+  anchors only that task, and no guard catches it. The script path above is
+  written repository-relative for readability; a dispatching skill calls it by
+  the resolved literal absolute path per
+  [plugin-script-invocation.md](plugin-script-invocation.md), which owns the
+  invocation shape. It is the durable completion anchor the orchestration-state
   derivation reads by scanning the whole commit message, so it survives a
   squash or rebase merge, branch deletion, and direct-to-`main` commits.
   Footer-only and additive: no subject-line change, and no co-author or
