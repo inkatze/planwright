@@ -2,8 +2,18 @@
 
 The measurement behind Task 10's escalation, kept so the operator decision it
 asks for can be audited rather than taken on trust, and so whoever funds the
-task later does not re-derive it. Every figure here was produced by a command
-this file names; nothing is asserted from reading.
+task later does not re-derive it. Every figure this record measures itself was
+produced by a command this file names; nothing is asserted from reading.
+
+Two figures are **carried from earlier tasks** rather than measured here, and
+are marked as such where they appear in *Rung 1* below: Task 1's fifteen
+restored rules and Task 2's 27 safe words. Their evidence lives with the task
+that produced it. Task 1's is PR #457 and the 2026-09-13 amendment-log entry in
+`kickoff-brief.md`; Task 2's candidate table, with the manifest grep per
+candidate, is in PR #478's body. Task 2's 27 is also re-counted first-hand
+below, since its two phrases are still in the tree; Task 1's fifteen is not
+reproducible without replaying that task's dedupe diet, so it stands on its
+record.
 
 This file is **not part of the content anchor** (`scripts/spec-anchor.sh`
 covers `requirements.md`, `design.md`, `tasks.md` and `test-spec.md` only), so
@@ -140,8 +150,10 @@ must be found before the ratchet is satisfied.
 | **Reading B** (doc + 1 gist each) | 395 — **free 171**, error | 222 — **free 29**, error | 823 — warn | 536 — ok |
 | Reading A (doc + 3 gists each) | 370 — free 196, error | 199 — free 52, error | 794 — warn | 536 — ok |
 
-The headline is the middle row: **the three rule paragraphs alone, with zero
-per-skill gists, already put `start-load:self-review` 142 words below its pin.**
+The headline is the middle row: **the doctrine doc's 167-word delta alone, with
+zero per-skill gists, already puts `start-load:self-review` 142 words below its
+pin.** (164 of those 167 are the three rule paragraphs; see *The two word
+counts* below.)
 `doctrine/finding-categorization.md` is front-loaded by `/self-review`, so its
 words are charged whatever the skills do or do not say. Every scoping question
 moves the total by tens of words; none of them reaches the wall.
@@ -174,12 +186,18 @@ human ("Below its floor and blocked ⇒ escalate to the human"). The guard says
 the same in its own words on that run: `declared-exception escalated: … the
 restoration it defers came due`.
 
-Restore the tree after measuring:
+Restore the tree after measuring, by reversing the patch rather than by
+discarding the files:
 
 ```sh
-git checkout -- doctrine/README.md doctrine/finding-categorization.md \
-  skills/execute-task/SKILL.md skills/polish/SKILL.md skills/self-review/SKILL.md
+git apply -R specs/prose-disposition/task-10-auto-lane.patch
 ```
+
+Reversal undoes exactly what the apply step added and nothing else, and it
+refuses to run when the hunks no longer match, so a tree that has drifted stops
+the recipe instead of losing work. `git checkout --` over those five paths would
+restore them to `HEAD` wholesale, silently destroying any unrelated uncommitted
+edit anyone had in them. Do not simplify this back to a checkout.
 
 ### The two word counts, which are not the same number
 
@@ -202,8 +220,19 @@ first. Three independent surveys have now run it.
   had cut **fifteen rules, not restatement**, each the last place a rule lived
   for at least one loading skill. All fifteen restored. Its record: "the
   remaining gap was not reachable by further dedupe without cutting law."
+  *Carried, not measured here*: the evidence is PR #457 and the 2026-09-13
+  amendment-log entry in `kickoff-brief.md`. Reproducing it means replaying
+  that task's diet against that task's tree, which this record does not do.
 - **Task 2 (#478)** surveyed the three skill bodies: five candidates, three
   rejected as last copies, **27 safe words** against a 180-word need.
+  *Carried, not measured here*: the candidate table and the manifest grep per
+  candidate are in PR #478's body. The total was re-counted first-hand against
+  this tree, where both surviving candidates still sit
+  (`skills/execute-task/SKILL.md` "so it trips neither corruption guard (full
+  race rationale at PR step 3)" and `skills/self-review/SKILL.md` "one row per
+  lens, empty lenses as `none` or `n/a` with a one-line reason"), each piped
+  through `wc -w`, the guard's own arithmetic: 13 + 14 = 27. The 180-word need
+  is Task 2's own measurement and is not re-derived here.
 - **This task** surveyed the run-start doctrine docs, the surface Task 2 did
   not cover. Five candidates, below.
 
@@ -296,7 +325,9 @@ re-derive this measurement three times.
 
 A second worker re-ran every measurement in PR #483's body against the branch
 before the operator decides on it. **All six claims reproduced, and every figure
-stands unchanged.** Nothing in that pass asked for a number to move.
+this record measures stands unchanged.** Nothing in that pass asked for a number
+to move. Its scope was the measurements taken here; the two figures carried from
+Tasks 1 and 2 were outside it, as the opening says.
 
 Three defects were found in the *record*, all corrected.
 
