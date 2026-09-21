@@ -243,8 +243,8 @@ doc is the verification.
 CI workflow on every PR; the workflow checks out full history, so the
 `v0.36.0` tag is available and the audit-reproduction test is runnable.
 `[Gherkin]` scenarios are walked against the amended text at Task 1 review
-and exercised on the first review pass after Task 2, inspected by the
-operator. `[manual]` entries are swept by the operator at PR review from
+and exercised on the first review pass after the skills instantiate them,
+inspected by the operator. `[manual]` entries are swept by the operator at PR review from
 the PR body. `[design-level]` entries are verified by reading the named
 doc at the owning task's review.
 
@@ -342,7 +342,7 @@ move again.)*
 | # | Risk | Mitigation / early signal |
 | --- | --- | --- |
 | 1 | The expression-only preservation check (REQ-B1.2) is self-attested; a missed normative statement lets a rule change Auto-apply. | The word list in the categorization doc is the search aid; the audit row carries the check for later audit. Signal: a reader or a later pass finds a missed statement, which is the Deferred normative-diff guard's gate. |
-| 2 | Over-classification: agents treat every sentence as normative, and the reclassification buys nothing. | REQ-B1.1 says the list is a search aid, never the definition. Signal: the first batched checklists after Task 2 are dominated by glosses and citations; record an observation if so. |
+| 2 | Over-classification: agents treat every sentence as normative, and the reclassification buys nothing. | REQ-B1.1 says the list is a search aid, never the definition. Signal: the first batched checklists produced by a skill carrying the batched commit discipline (Tasks 11 and 12) are dominated by glosses and citations; record an observation if so. |
 | 3 | Parallel Phase B PRs (Tasks 6, 7, 8) write `config/comment-budget-exemptions.txt` and may each re-anchor the same owning bundle (decision domain: concurrency). | Each family removes only its own lines. Ordering rule: the second PR to merge re-runs its recompute and its expression-only re-anchor after the first lands, new commits only, never a rebase. Signal: a merge conflict on the exemptions file or a `check:anchor-freshness` failure on an owning bundle. |
 | 4 | Tasks 1 and 2 are themselves reviewed under the old disposition rules, so their PRs can show the thirty-item sign-off shape one last time. | Accepted, bounded to two PRs; the operator reviews each checklist in one sitting. Signal: the checklist length on those two PRs. |
 | 5 | The Task 4 audit over `v0.36.0` may not reproduce even the pattern-independent figures if its comment-line definition differs from the session's. | REQ-F1.5 narrowed the target; the Task 4 run is the baseline of record regardless, and its PR body explains any gap by the definition. Signal: a mismatch at Task 4 review. |
@@ -663,6 +663,16 @@ same-change binding follows the instantiation; Task 10 instantiates too and
 was passed over. Its `Done when:` now carries the sweep for all three
 surfaces and its `Citations:` name REQ-D1.2.
 
+**The class reached this brief too.** The verification-occasion sweep was run
+over `test-spec.md`, where the pins live, and the brief carries two of the
+same shape that it missed. Section 5's ownership paragraph said the Gherkin
+scenarios are exercised on the first review pass after Task 2, and now says
+after the skills instantiate them, which is the wording `test-spec.md` already
+used. Risk row 2's signal watched "the first batched checklists after Task 2",
+and now watches the first produced by a skill carrying the batched commit
+discipline. Both were occasions Task 2's review can no longer host, the same
+defect the test-spec pins had.
+
 **Header dates.** `doctrine/spec-format.md` bumps `Last reviewed:` whenever a
 file is materially reviewed or edited, and this run materially edited three of
 the four. `requirements.md`, `tasks.md` and `test-spec.md` now read
@@ -675,5 +685,5 @@ Cites the changelog line: the `## Changelog` entry in `requirements.md` dated
 coordinated by a new kickoff-brief risk row 12").
 
 Class: expression-only
-Anchor: `16bff0f3445d10b363b4ce98fc471a2487ca9b37` — computed as
+Anchor: `6ad414f9145d78165c4867a8c8fb7e32a18da355` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`

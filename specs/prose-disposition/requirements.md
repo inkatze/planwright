@@ -473,7 +473,11 @@ work, is recorded in D-1 and cited here from the goal.
   since it lands doctrine text and edits all three skill files; its
   `Done when:` now carries the sweep over `doctrine/`, `docs/` and `skills/`
   and its `Citations:` name REQ-D1.2, matching what the split gave Tasks 11
-  and 12.
+  and 12. Two verification occasions in the brief carried the same defect as
+  the test-spec pins and are repointed with them: section 5's ownership
+  paragraph, which exercised the Gherkin scenarios on the first review pass
+  after Task 2, and risk row 2's signal, which watched the first batched
+  checklists after Task 2. Both now name the skills that carry the rules.
 
 - 2026-09-20 — Task 2 execution: REQ-D1.1's instantiation of the amended rules
   in `/self-review`, `/polish` and `/execute-task`'s convergence prose moves
