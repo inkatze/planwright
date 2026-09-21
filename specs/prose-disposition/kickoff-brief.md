@@ -216,11 +216,15 @@ follow the doctrine and skill tasks; the drafted graph let Tasks 3 and 4
 run in parallel with Tasks 1 and 2. The operator asked whether there was
 one correct answer, and there is: a live guard reports warn-level blocks
 as tool-grounded findings, which the old disposition rules route to
-sign-off on every PR touching a script, so the guard cannot be live before
-Task 2, and the rule doc has no consumer until the guard cites it. The
-graph was corrected: Task 3 depends on Task 2, Task 4 on Tasks 2 and 3;
-the `tasks.md` intro and test-spec REQ-G1.1 say so. D-13 itself is
-unchanged. Inconsistency halt: none.
+sign-off on every PR touching a script, so the guard cannot be live until
+the skills instantiate the amended rules, and the rule doc has no consumer
+until the guard cites it. The graph was corrected: Task 3 depends on the
+instantiation tasks, Task 4 on Tasks 2 and 3; the `tasks.md` intro and
+test-spec REQ-G1.1 say so. D-13 itself is unchanged. Inconsistency halt:
+none. *(At sign-off the instantiation was Task 2 alone; the 2026-09-13 and
+2026-09-20 amendments moved it to Tasks 10, 11 and 12, and Task 3's
+`Dependencies:` line names them. The `Dependencies:` lines stay
+authoritative.)*
 
 Signed off: 2026-09-04
 
@@ -288,8 +292,12 @@ the families serialize to about fourteen and a half with one.
 
 - Tasks 6, 7, and 8 carry no edges among themselves: their script families
   are disjoint. Do not add one.
-- Task 3 depends on Task 2, not on Task 1 directly: it waits for the skills
-  applying the amended rules, not for the rules alone (D-13, section 4).
+- Task 3 carries no edge on Task 1 directly: it waits for the skills
+  applying the amended rules, not for the rules alone (D-13, section 4), and
+  it reaches Task 1 through them. Those skills are Tasks 10, 11 and 12 since
+  the 2026-09-13 and 2026-09-20 amendments; Task 2's edge stays because the
+  `skills/` straggler sweep is the other half of what the instantiation had
+  to land before the guard goes live.
 - Task 9 waits for all three families, not for a subset, because closeout
   refuses any transitional entry left.
 
@@ -462,11 +470,19 @@ Anchor: `6ab09f85968fbcd59ec93037a3695c5ea0c86d3d` — computed as
 ### 2026-09-20 — Task 2 execution: the skill instantiation split per surface
 
 Task 2's instantiation of REQ-D1.1 in the three skills did not fit the
-instruction budget, and Task 2 landed the REQ-D1.2 sweep with that clause
-undone rather than trimming to make room. The operator was shown the funding
-fork and chose today to split per surface and polish first. Two measurements
-decided it, both in PR #478's body and cited rather than recopied. The
-three-skill gist needs 180 words; the restoration ladder's diet rung yields
+instruction budget. Two decisions followed, by two different parties, and
+this record keeps them apart. First, the tower chose park-and-report in the
+operator's absence: it landed Task 2's REQ-D1.2 sweep with the instantiation
+clause undone rather than trimming to make room, following the operator's
+recorded 2026-09-13 disposition on the identical Task 1 fork. The operator
+had not seen the question, and nothing about that park was operator-approved,
+which is why PR #478's body says so in bold and why it is repeated here.
+Second, the operator, shown the funding fork afterwards, chose today to split
+per surface and land `/polish` first. Two measurements decided the second,
+both in PR #478's body and cited rather than recopied. The three-skill gist
+runs to 224 words (87 in `/self-review`, 83 in `/polish`, 54 in
+`/execute-task`), of which 180 must be freed from the surfaces it lands on;
+the restoration ladder's diet rung yields
 27 safe ones, because three of the five candidates found were the last copy
 of a rule in a doc the affected skill actually loads, and a trim that drops
 the last copy buys budget by deleting law. Rung 2 is inapplicable, nothing in
@@ -477,22 +493,38 @@ exception, while `/self-review`'s and `/execute-task`'s are hard errors that
 stop `mise run check`. So `/polish` moves to a new Task 11 that lands alone
 behind its declared exception, and `/self-review` and `/execute-task` move to
 a new Task 12 whose Deliverables name the funding as part of its work, since
-assuming the funding is precisely what Task 2 could not do. No REQ or D-ID
-changes meaning: `design.md` is untouched, `requirements.md` gains only its
-changelog entry, and REQ-D1.1 keeps its delivery under different tasks, so
-this is expression-only on the meta-spec's axis and no lens pass is required.
-Two consequences the changelog records rather than hides: Task 3's dependency
-edge on Task 2 no longer transitively covers the skill instantiation REQ-G1.1
-names, the same shape the 2026-09-13 split left behind for Task 10, so that
-ordering now rests on dispatch order rather than on an edge; and
+assuming the funding is precisely what Task 2 could not do. Expression-only on
+both of the meta-spec's prongs. No REQ's meaning changes: `design.md` is
+untouched, `requirements.md` gains only its changelog entry, and REQ-D1.1
+keeps its delivery under different tasks. No accepted decision is
+contradicted either: D-13 says the cleanup tasks carry explicit dependency
+edges on the doctrine tasks and REQ-G1.1 says the same, and Task 3's
+`Dependencies:` line now names every task that does the instantiation, so the
+ordering is enforced by an edge rather than left to dispatch order. No lens
+pass is required.
+
+What the split had to carry with it, recorded rather than hidden. Task 3's
+edge on Task 2 stopped covering the skill instantiation REQ-G1.1 names, which
+is the shape the 2026-09-13 split had already left behind for Task 10, so
+Task 3 now carries `Dependencies: 2, 10, 11, 12` and the edges REQ-G1.1
+demands exist again; Tasks 4 and 5 through 8 inherit them through Task 3, and
+test-spec REQ-G1.1 was restated to name them. Tasks 11 and 12 instantiate the
+three rules Task 2 owned, not four: the PR-introduced-surface rule stays
+Task 10's to land in the same files, since its doctrine section does not exist
+until Task 10 writes it. REQ-D1.2's same-change binding follows the
+instantiation rather than staying behind with Task 2's one-off sweep, so both
+new tasks re-run the `skills/` sweep against their own addition. Three stale
+pointers were repaired under the contract-reword straggler rule:
 `test-spec.md`'s REQ-D1.1 entry, which named Task 2's review as its
-verification occasion, was repointed at Tasks 11 and 12 in the same change
-under the contract-reword straggler rule. Section 6's rendered graph is
-derived from the `Dependencies:` lines, which stay authoritative, and is left
-as drafted. Cites the changelog line: the `## Changelog` entry in
+verification occasion, now names Tasks 11 and 12; and the two ordering
+rationales that named Task 2 as what Task 3 waits for (sections 4 and 6) now
+name the instantiation tasks. Section 6's rendered graph and
+critical path are derived from the `Dependencies:` and `Estimated effort:`
+lines, which stay authoritative, and are left as drafted. Cites the changelog
+line: the `## Changelog` entry in
 `requirements.md` dated 2026-09-20 ("Task 2 execution: REQ-D1.1's
 instantiation … moves out of Task 2 into a new Task 11 … and a new Task 12").
 
 Class: expression-only
-Anchor: `c987fd22a620b779837d6b030199d18d2006ffee` — computed as
+Anchor: `b28c2ee06d65b7d59877557765ed8f991e32f45b` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`

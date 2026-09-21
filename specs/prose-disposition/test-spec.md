@@ -272,10 +272,12 @@ threshold catches at landing, and `mise run check` is green with it.
 
 ### REQ-G1.1 — Ordering [design-level]
 
-Tasks 3 and 4 carry a dependency edge on Task 2, Task 4 also on Task 3,
-and Tasks 5 through 8 carry edges on Tasks 2 and 4 in `tasks.md`, Task 5
-directly and Tasks 6 through 8 through Task 5; the selector cannot
-dispatch any of them earlier.
+Task 3 carries dependency edges on Task 2 and on every task that
+instantiates the amended rules in a skill (Tasks 10, 11 and 12), Task 4 on
+Tasks 2 and 3, and Tasks 5 through 8 on Tasks 2 and 4 in `tasks.md`, Task 5
+directly and Tasks 6 through 8 through Task 5; Tasks 4 through 8 reach the
+instantiation tasks through Task 3. The selector cannot dispatch any of
+them earlier.
 
 ### REQ-G1.2 — Phase A disposition and figures [test + manual]
 

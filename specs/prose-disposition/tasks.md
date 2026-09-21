@@ -66,7 +66,7 @@ can be measured by it.
   exists and `check:doctrine-index` passes; `check:links` and
   `check:instructions` pass; the doc is in no skill's manifest and states
   that it is the guard's normative home.
-- **Dependencies:** 2
+- **Dependencies:** 2, 10, 11, 12
 - **Citations:** D-7, D-8, D-9, D-14 · REQ-E1.1, REQ-E1.2, REQ-E1.3,
   REQ-E1.4, REQ-E1.5
 - **Estimated effort:** half day
@@ -239,9 +239,11 @@ can be measured by it.
 ### Task 11 — REQ-D1.1 instantiation in `/polish`
 
 - **Deliverables:** `skills/polish/SKILL.md` citing the amended sections for
-  lens scoping, prose classification, the PR-introduced-surface rule, and the
-  batched commit discipline, restating at most the one-line gist each step
-  needs; and the `declared-exception` entry in
+  lens scoping, prose classification, and the batched commit discipline,
+  restating at most the one-line gist each step needs (the fourth rule
+  REQ-D1.1 names, the PR-introduced-surface rule, is Task 10's to instantiate
+  in this same file, because its doctrine section does not exist until Task 10
+  writes it); and the `declared-exception` entry in
   `config/instruction-budget-exemptions.txt` that the addition's below-target
   warning requires, carrying the surface key the warning prints, the headroom
   margin at grant, and its reason. This surface separates from the other two
@@ -252,20 +254,24 @@ can be measured by it.
   on the funding Task 12 owns. Measurements: PR #478's body, cited rather
   than recopied.
 - **Done when:** `skills/polish/SKILL.md` names the governing section and
-  restates at most a one-line gist for each of the four rules (REQ-D1.1); the
+  restates at most a one-line gist for each of the three rules this task owns
+  (REQ-D1.1); the REQ-D1.2 sweep over `skills/` is re-run against this change
+  and every straggler the addition introduces is fixed in the same change; the
   suppression list gains a `declared-exception` entry for the below-target
   surface and no `raise` entry (REQ-D1.3); `check:instructions` passes; and
   `mise run check` is green.
 - **Dependencies:** 1, 2
-- **Citations:** D-6 · REQ-D1.1, REQ-D1.3
+- **Citations:** D-6 · REQ-D1.1, REQ-D1.2, REQ-D1.3
 - **Estimated effort:** half day
 
 ### Task 12 — REQ-D1.1 instantiation in `/self-review` and `/execute-task`, and its funding
 
 - **Deliverables:** `skills/self-review/SKILL.md` and the convergence prose of
   `skills/execute-task/SKILL.md` citing the amended sections for lens scoping,
-  prose classification, the PR-introduced-surface rule, and the batched commit
-  discipline, restating at most the one-line gist each step needs; and the
+  prose classification, and the batched commit discipline, restating at most
+  the one-line gist each step needs (the fourth rule REQ-D1.1 names, the
+  PR-introduced-surface rule, is Task 10's to instantiate in these same files,
+  because its doctrine section does not exist until Task 10 writes it); and the
   funding that makes room for them, which is this task's work rather than a
   precondition it assumes, because assuming it is exactly what Task 2 could
   not do. Both surfaces are hard errors rather than warnings: the addition
@@ -284,14 +290,16 @@ can be measured by it.
   widened budget is not a permitted outcome. Measurements: PR #478's body,
   cited rather than recopied.
 - **Done when:** each of the two skills names the governing section and
-  restates at most a one-line gist for each of the four rules (REQ-D1.1);
+  restates at most a one-line gist for each of the three rules this task owns
+  (REQ-D1.1); the REQ-D1.2 sweep over `skills/` is re-run against this change
+  and every straggler the addition introduces is fixed in the same change;
   `check:instructions` passes with no `declared-exception` on either surface
   widened below the margin it was granted at and no `raise` entry added
   (REQ-D1.3); the PR body records which ladder rung the funding came from and
   the manifest check run on every candidate trimmed; and `mise run check` is
   green.
 - **Dependencies:** 1, 2
-- **Citations:** D-6 · REQ-D1.1, REQ-D1.3
+- **Citations:** D-6 · REQ-D1.1, REQ-D1.2, REQ-D1.3
 - **Estimated effort:** 1 day
 
 ## Awaiting input

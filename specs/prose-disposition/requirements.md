@@ -445,11 +445,16 @@ work, is recorded in D-1 and cited here from the goal.
   (`/self-review` and `/execute-task`); Task 2 keeps only its REQ-D1.2 sweep,
   and its Deliverables, Done-when and Citations no longer claim the
   instantiation. Every REQ keeps its meaning; REQ-D1.1 keeps its delivery
-  under different tasks. The operator's disposition, given today on the fork
-  Task 2 escalated, was to split per surface and land `/polish` first. The
-  grounds are two measurements recorded in PR #478's body rather than copied
+  under different tasks. Two parties decided, and the record keeps them apart:
+  the tower chose park-and-report on the fork Task 2 escalated, in the
+  operator's absence and following the operator's recorded 2026-09-13
+  disposition on the identical Task 1 fork, so nothing about that park was
+  operator-approved; the operator, shown the fork afterwards, then chose today
+  to split per surface and land `/polish` first. The grounds for the split are
+  two measurements recorded in PR #478's body rather than copied
   here. First, the addition does not fit and cannot be made to fit at rung 1
-  of the restoration ladder: the three-skill gist needs 180 words and the
+  of the restoration ladder: the three-skill gist runs to 224 words, of which
+  180 must be freed, and the
   ladder's diet rung yields 27 safe ones, three of the five candidates found
   being the last copy of a rule in a doc the affected skill actually loads;
   rung 2 is inapplicable, nothing in the shortfall being deferrable bulk, and
@@ -459,12 +464,21 @@ work, is recorded in D-1 and cited here from the goal.
   and `/execute-task`'s are hard errors that stop `mise run check`, so the
   two error surfaces are the ones that need funding and Task 12 owns finding
   it rather than assuming it. One consequence recorded rather than hidden:
-  Task 3's dependency edge on Task 2 no longer transitively covers the skill
-  instantiation REQ-G1.1 names, the same shape the 2026-09-13 split already
-  left behind for Task 10, so the ordering REQ-G1.1 states now rests on the
-  dispatch order rather than on an edge. A stale pointer the split created
-  was repaired in the same change: `test-spec.md`'s REQ-D1.1 entry named
-  Task 2's review as its verification occasion and now names Tasks 11 and 12.
+  Task 3's dependency edge on Task 2 stopped covering the skill instantiation
+  REQ-G1.1 names, the same shape the 2026-09-13 split already left behind for
+  Task 10, so Task 3 now carries `Dependencies: 2, 10, 11, 12` and Tasks 4 and
+  5 through 8 inherit those edges through it; the ordering REQ-G1.1 states is
+  enforced by an edge again rather than by dispatch order. Stale pointers the
+  split created were repaired in the same change: `test-spec.md`'s REQ-D1.1
+  entry named Task 2's review as its verification occasion and now names
+  Tasks 11 and 12; test-spec REQ-G1.1 and the kickoff brief's two ordering
+  rationales (sections 4 and 6) named Task 2 as what Task 3 waits for and now
+  name the instantiation tasks. REQ-D1.2's same-change binding follows the
+  instantiation rather than staying with Task 2's one-off sweep, so Tasks 11
+  and 12 each re-run the `skills/` sweep against their own addition, and they
+  instantiate the three rules Task 2 owned; the fourth REQ-D1.1 names, the
+  PR-introduced-surface rule, stays Task 10's in the same files, since its
+  doctrine section does not exist until Task 10 writes it.
 
 - 2026-09-13 — Task 1 execution: the Auto-applicable lane for expression-only
   prose (REQ-B1.2, REQ-B1.3, REQ-B1.4) moves out of Task 1 into a new Task 10,
