@@ -22,7 +22,13 @@
 #      second. The harness submits one prompt at a time per session, so it
 #      does not produce that interleaving; and a stamp a second early reads
 #      as a reply that did not answer the last hand-over, which knocks again
-#      rather than losing the reply.
+#      rather than losing the reply. Verify-or-refuse before the write, down
+#      the whole path (REQ-A1.4): the fleet home, the `tower-comms`
+#      sub-surface, the `attention` directory and the marker file itself are
+#      each held to the bar `tower-queue.sh` holds them to, and none of them
+#      is ever repaired here. Any refusal skips the marker, says why on
+#      stderr, and names itself on the reply line below; the turn is never
+#      refused over it (see HOOK DISCIPLINE).
 #   2. The `reply` event, appended through `tower-queue.sh log`, which owns
 #      the fleet lock, the sequence, the bounded lock wait and the
 #      secret-shaped redaction: this hook parses no secrets and redacts
@@ -149,6 +155,49 @@ check_private_dir() {
   esac
   [ "${3:-}" = "$my_uid" ] || {
     warn "security: $(sanitize_printable "$_p" "(unprintable path)") is owned by uid ${3:-?}, not this user; refusing it"
+    return 1
+  }
+  return 0
+}
+
+# check_home — the same verification tower-queue.sh's check_home makes, for
+# the same reason: the 0700 sub-surface below is only as private as the home
+# that holds it, so a home anyone else can write to, or one redirected by a
+# symlink, is one where the marker directory can be moved aside and replaced
+# between the checks below and the write they guard.
+check_home() {
+  if [ -L "$home" ]; then
+    warn "security: the fleet home $(sanitize_printable "$home" "(unprintable path)") is a symlink — refusing to write through a redirect"
+    return 1
+  fi
+  # shellcheck disable=SC2012
+  _hl=$(ls -ldn "$home" 2>/dev/null) || _hl=""
+  if [ -z "$_hl" ]; then
+    warn "the fleet home $(sanitize_printable "$home" "(unprintable path)") vanished while being verified"
+    return 1
+  fi
+  # shellcheck disable=SC2086
+  set -- $_hl
+  case "${1:-}" in
+    d*) ;;
+    *)
+      warn "security: the fleet home $(sanitize_printable "$home" "(unprintable path)") is not a directory (mode ${1:-unreadable}); refusing it"
+      return 1
+      ;;
+  esac
+  # Only the two WRITE columns, as tower-queue.sh has it: a home readable or
+  # traversable by others is the ordinary shape (fleet-state creates it under
+  # the caller's umask), and narrowing someone else's surface is not this
+  # hook's call.
+  case "${1:-}" in
+    d????-??-? | d????-??-?[@.]*) ;;
+    *)
+      warn "security: the fleet home $(sanitize_printable "$home" "(unprintable path)") is writable beyond its owner (mode ${1:-unreadable}); chmod go-w it yourself after finding out how it widened"
+      return 1
+      ;;
+  esac
+  [ "${3:-}" = "$my_uid" ] || {
+    warn "security: the fleet home $(sanitize_printable "$home" "(unprintable path)") is owned by uid ${3:-?}, not this user; refusing it"
     return 1
   }
   return 0
@@ -334,7 +383,7 @@ my_uid=$(id -u 2>/dev/null) || my_uid=""
 if [ -z "$my_uid" ]; then
   warn "cannot resolve the current uid; the attention marker was not advanced"
   marker_state=refused
-elif ! check_private_dir "$surface" || ! check_private_dir "$marker_dir" || ! check_private_file "$marker"; then
+elif ! check_home || ! check_private_dir "$surface" || ! check_private_dir "$marker_dir" || ! check_private_file "$marker"; then
   marker_state=refused
 else
   now=$(date +%s 2>/dev/null) || now=""
