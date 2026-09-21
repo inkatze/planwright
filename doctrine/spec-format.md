@@ -871,6 +871,17 @@ anchor).
 - **Worktree placement (D-37):** `<repo>/.claude/worktrees/<branch-suffix>`,
   attachable via `claude --worktree` regardless of which backend launched the
   work.
+- **Commit trailer (orchestration-concurrency D-2, orchestration-concurrency
+  REQ-C1.4):** every commit a skill
+  authors for a unit carries a `Planwright-Task: <spec>/<id>` footer trailer,
+  one per task for a bundle, stamped by piping the message through
+  `scripts/planwright-commit-trailers.sh <spec>/<id>` into `git commit -F -`
+  rather than written by hand, so the grammar is validated once and identical
+  everywhere. It is the durable completion anchor the orchestration-state
+  derivation reads by scanning the whole commit message, so it survives a
+  squash or rebase merge, branch deletion, and direct-to-`main` commits.
+  Footer-only and additive: no subject-line change, and no co-author or
+  generated-by attribution.
 - Parsed branch segments are validated (`<spec>` against the identifier
   charset, `<id>` against the task-id grammar) before any path use; a branch
   failing validation is a clean no-op (REQ-K1.2).

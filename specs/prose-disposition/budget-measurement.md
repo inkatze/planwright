@@ -360,3 +360,122 @@ Two label slips, minor, neither changing an arithmetic result:
   counts* above.
 - "cheaper by 48" is the hard-funding delta between Reading A and Reading B, not
   a word count of text. The raw skill-body text difference is 77 words.
+
+# Task 12 — the funding that landed
+
+Task 10's section above escalated a fork; this section records how Task 12
+answered it on the two hard-error surfaces, `/self-review` and `/execute-task`.
+Measured at `0004276` (`origin/main` at dispatch), branch
+`planwright/prose-disposition/task-12`. Guard: `./scripts/check-instructions.sh
+--audit`, its own arithmetic throughout; no figure below is hand-counted.
+
+## The correction that decided the route
+
+The dispatch asked for a point-of-use split of `doctrine/finding-categorization.md`,
+on the reasoning that the doc is run-start for `/self-review`, `/polish` and
+`/builder` at once. That is true, and it funds `/self-review`. **It cannot fund
+`/execute-task`**, and the reason is structural rather than a question of how
+much gets split off:
+
+- `/execute-task`'s binding surface is `skills/execute-task/SKILL.md`'s
+  **per-file** count, pinned at `margin=251` with the per-file headroom floor at
+  250. Baseline margin-to-error was 251: zero slack, and one added word breaches
+  the floor as well as the ratchet.
+- `finding-categorization` is already `point-of-use` in that skill's manifest
+  (`skills/execute-task/SKILL.md`, the Doctrine block), so it is charged to
+  closure, not start-load. Splitting it moves words between two closure members
+  and leaves closure unchanged.
+- No manifest change and no doctrine split reaches a per-file count. Only words
+  physically leaving that file do.
+
+So the two surfaces took different rungs, both inside what REQ-D1.3 and the
+task's `Deliverables:` permit.
+
+## `/self-review`: a manifest change (rung 2)
+
+`doctrine/security-posture.md` (467 words) moved from `run-start` to
+`point-of-use` in `/self-review`'s manifest. This is Option 2 of the four the
+Task 10 section put to the operator, which that section called the strongest on
+the menu and declined only because a manifest rewrite was outside Task 10's
+`Deliverables:`. Task 12's `Deliverables:` name "a manifest change" explicitly.
+
+No prose was deleted or moved, so no rule can have been lost; the only question
+is read-order, answered under *The safety floor* below.
+
+## `/execute-task`: a doctrine relocation
+
+The `Planwright-Task` trailer convention moved out of the skill body into
+`doctrine/spec-format.md`'s *Branch, worktree, and task-id grammar* section,
+beside the branch-naming, worktree-placement and task-id grammars it belongs
+with. The skill keeps the imperative and the helper invocation and cites the
+section for the rest.
+
+`spec-format` is permanently per-file exempt and charged to every dependent
+aggregate at `min(actual, 4000)` under the capped-charge law, so the relocation
+costs no aggregate anywhere. Reproduced rather than assumed: `closure:spec-kickoff`
+reads 19432 before and after, and `start-load:builder` 9297 before and after.
+
+This is the same path `config/instruction-budget-exemptions.txt`'s
+`/spec-kickoff` entry records for anchor-integrity Task 6. It is **not** the
+re-anchor ritual, the `main`-sync instruction, or the convergence law, which the
+`/execute-task` entry names as off limits.
+
+## Manifest check on the one passage that moved
+
+The test is the one Task 1's convergence established: not "does this rule appear
+elsewhere" but "does it appear in a doc the affected skill loads".
+
+| Passage | From | To | Manifest check | Verdict |
+| --- | --- | --- | --- | --- |
+| The `Planwright-Task` trailer convention | `skills/execute-task/SKILL.md` § Commit convention | `doctrine/spec-format.md` § Branch, worktree, and task-id grammar | `grep -n 'Doctrine:' skills/execute-task/SKILL.md` → `Doctrine: run-start spec-format`. `/execute-task` was the only skill that carried the rule at all, and it still reads it, now at run start rather than mid-file. | **Safe.** Reachability strictly increased. |
+
+`doctrine/security-posture.md`'s reclassification moved no text, so it has no
+row: nothing could be dropped. Its read-order is checked below instead.
+
+## The safety floor
+
+*Could the model reach the acting step without having read this rule, and if so
+could it then take an action the rule forbids?*
+
+| Rule | Skill | Acting step | Evidence it is read at or before that step |
+| --- | --- | --- | --- |
+| `Planwright-Task` trailer | `/execute-task` | every commit the skill authors; the earliest is pre-flight step 11's `Last activity` commit on a v1 bundle | `spec-format` is a **`run-start`** manifest entry, resolved at pre-flight step 3, before any step runs. Previously the rule sat in the body at the Implementation phase, *after* that pre-flight commit. The move closes a gap rather than opening one. |
+| Artifact data-hygiene | `/self-review` | the first durable write of the pass: the commits the Routing step lands, and after it the audit record, the PR body, and observation fragments | The citation sits in the **Routing and dispositions** intro, ahead of every disposition bullet. Previously it sat only in *The audit record*, later in both file and execution order, so commit bodies and observation fragments were uncovered. The move widens coverage. |
+
+`doctrine/security-posture.md` has three sections and `/self-review` consumes
+one. *Write-time security triggers* does not gate an earlier step: a fix
+touching security-sensitive code is stopped by `finding-categorization`'s
+hard-disqualifier zones, which stays `run-start`, and any such fix would be
+applied at Routing, where the doc is now read anyway. *Framework-script
+security* is not a step this skill has.
+
+Precedent for the test and the rung: `specs/prompt-hygiene/diet-plans.md`
+records the same reclassification applied to `/spec-kickoff`'s and
+`/spec-draft`'s manifests, with the same safety-floor question asked per doc.
+
+## Before and after
+
+Both readings from `./scripts/check-instructions.sh --audit`, `EXIT=0` on each.
+
+| Surface | Pin | Before | After |
+| --- | --- | --- | --- |
+| `skills/execute-task/SKILL.md` (per-file) | `margin=251` | 251 (3999 words) | **263** (3987 words) |
+| `start-load:self-review` | `margin=566` | 591 (9409 words) | **936** (9064 words) |
+| `start-load:builder` | `margin=515` | 703 | 703 |
+| `skills/orchestrate/SKILL.md` | `margin=251` | 255 | 255 |
+| `skills/spec-kickoff/SKILL.md` | `margin=262` | 276 | 276 |
+| `closure:orchestrate` | `margin=1002` | 1418 | 1418 |
+| `closure:spec-kickoff` | `margin=1002` | 1035 | 1035 |
+
+No suppression-list entry was added, edited, or widened, and no `raise` entry
+exists. Both funded surfaces sit above their pins with room for Task 11's and
+Task 10's additions to follow.
+
+One warning was deliberately avoided rather than accepted. An earlier draft
+added `Doctrine: point-of-use discovery-rigor` to `/execute-task`'s manifest so
+the lens-scoping citation would resolve locally. That charges 1018 words to
+`closure:execute-task`, taking it to margin 1861 and tripping a new below-target
+warning. The entry was dropped: `/execute-task` never runs the lens, it reads
+the Documentation row a review skill produced, and that skill loads
+`discovery-rigor` at run start. The citation names the doc without the skill
+loading it, which the use-site check does not flag in that direction.
