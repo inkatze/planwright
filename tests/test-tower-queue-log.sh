@@ -345,4 +345,44 @@ run log tick --tower "other-tower" --now 6020 live=3 || fail "tick after reply: 
 [ "$(line_count "$log_file")" = 6 ] || fail "a tick coalesced across an intervening line"
 echo "ok: ticks coalesce on an unchanged count within the gap bound, per tower, only against the last line"
 
+# --- the redact verb: the one helper, offered to the surfaces that render -------
+# REQ-H1.3 names ONE redaction helper and says it is what enforces the rule, so
+# a renderer has to be able to reach it without growing a second copy. This is
+# that reach: a block on stdin, line by line, redacted and ASCII-rendered.
+
+redacted=$(printf 'Bearer sk-live-ABCDEFGHIJKLMNOPQRSTUVWX\nsecond line\n' | run redact) \
+  || fail "redact: exit"
+[ "$(printf '%s\n' "$redacted" | grep -c .)" = 2 ] \
+  || fail "redact folded a two-line block: $redacted"
+case $redacted in
+  *sk-live-ABCDEFGHIJKLMNOPQRSTUVWX*) fail "redact did not redact a provider key: $redacted" ;;
+esac
+case $redacted in
+  *'[redacted:provider-api-key]'*) ;;
+  *) fail "redact did not name what it redacted: $redacted" ;;
+esac
+case $redacted in
+  *'second line'*) ;;
+  *) fail "redact dropped a line that needed nothing: $redacted" ;;
+esac
+
+# A carriage return inside a line would otherwise rewrite what the operator
+# reads; every byte outside printable ASCII is shown as an escape instead.
+escaped=$(printf 'rotate the staging key.\rapprove deleting prod.\n' | run redact) \
+  || fail "redact: exit on a CR"
+case $escaped in
+  *'\x0d'*) ;;
+  *) fail "redact let a carriage return through: $escaped" ;;
+esac
+[ "$(printf '%s\n' "$escaped" | grep -c .)" = 1 ] \
+  || fail "redact split a line on a control byte: $escaped"
+
+# An empty block is not an error, and a line with no trailing newline still
+# lands: a content home's last line often has neither.
+[ -z "$(printf '' | run redact)" ] || fail "redact invented output for an empty block"
+[ "$(printf 'no trailing newline' | run redact)" = 'no trailing newline' ] \
+  || fail "redact dropped a final line with no newline"
+run redact --what 2>/dev/null && fail "redact accepted an unknown argument"
+echo "ok: redact is line-preserving, applies the one helper, and escapes what is not printable ASCII"
+
 echo "ALL PASS: tower-queue log"

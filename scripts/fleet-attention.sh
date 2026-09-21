@@ -158,6 +158,11 @@
 #       failure REQ-C1.11 forbids, and an empty pending set is the one quiet
 #       outcome. Exit 0 with no output means nothing was waiting; a directory
 #       that cannot be listed says so rather than passing for an idle one.
+#       A refused marker is refused on every later call too, so a tower loop
+#       reports it once an iteration until somebody removes the file — which is
+#       what each message asks for. The alternative is a pending push nobody is
+#       told about, and the alarm literature this bundle borrows from is about
+#       what to ANNUNCIATE, not about staying quiet on a stuck one.
 #
 # Exit codes: 0 success; 2 usage error, unresolvable home, refused hostile
 #   input, or a filesystem/lock error (fail closed); 3 a SEMANTIC refusal on the
@@ -1391,7 +1396,7 @@ case $cmd in
       # seam's own `.push.XXXXXX` scratch, which is not a marker yet.
       [ -f "$rp" ] || continue
       if [ -L "$rp" ]; then
-        echo "fleet-attention: relay: $(sanitize_printable "${rp##*/}" "(unprintable key)") is a symlink, not a marker this seam wrote; leaving it" >&2
+        echo "fleet-attention: relay: $(sanitize_printable "${rp##*/}" "(unprintable key)") is a symlink, not a marker this seam wrote; remove it to stop this report" >&2
         relay_rc=2
         continue
       fi
@@ -1408,13 +1413,13 @@ case $cmd in
       # is named and left rather than read out to the operator.
       case $rk in
         *[!A-Za-z0-9._-]* | -* | "")
-          echo "fleet-attention: relay: a file in the pending-push set does not carry a marker key; leaving it" >&2
+          echo "fleet-attention: relay: a file in the pending-push set does not carry a marker key; remove it to stop this report" >&2
           relay_rc=2
           continue
           ;;
       esac
       if [ "${#rk}" -gt 128 ]; then
-        echo "fleet-attention: relay: a pending-push name is longer than a marker key; leaving it" >&2
+        echo "fleet-attention: relay: a pending-push name is longer than a marker key; remove it to stop this report" >&2
         relay_rc=2
         continue
       fi
@@ -1433,13 +1438,13 @@ case $cmd in
       case $rmode in
         -???------ | -???------[@.]*) ;;
         *)
-          echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is not an owner-only file; leaving it" >&2
+          echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is not an owner-only file; remove it to stop this report" >&2
           relay_rc=2
           continue
           ;;
       esac
       if [ -z "$rown" ] || [ "$rown" != "$(id -u 2>/dev/null)" ]; then
-        echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is not owned by this user; leaving it" >&2
+        echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is not owned by this user; remove it to stop this report" >&2
         relay_rc=2
         continue
       fi
