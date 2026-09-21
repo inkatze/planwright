@@ -216,9 +216,7 @@ keeps the attention store current and renders it, through
   **per-worker scope** legibly (REQ-E1.5).
 - **On a halt → `## Awaiting input`**: mirror the entry as a structured
   decision — `scripts/fleet-attention.sh decide <worker> <scope> <question>
-  <default> <options> [priority]` — so the queue's length tracks the
-  `## Awaiting input` count, never the worker count. The `tasks.md` entry
-  remains the durable record; the queue row is its projection.
+  <default> <options> [priority]`.
 - **On reconcile observations**: heartbeat `pr-ready` when a draft PR is up,
   `merged` on an observed merge, and `clear <worker>` at teardown
   (merged-window cleanup). The mirror is **level-triggered like the sweep
@@ -233,8 +231,7 @@ keeps the attention store current and renders it, through
   `scripts/fleet-attention.sh render` (per-worker scope + state), then
   `scripts/fleet-attention.sh queue` (the ordered decision queue), passing
   `--except <worker>` for each worker the iteration's own operator-comms step
-  reported `delivered` — a question just handed over is not also listed as
-  though nobody had asked it. When the selected backend **advertises**
+  reported `delivered`. When the selected backend **advertises**
   `provides_attention_surface=true`, pass `--surface-provided`: the queue defers
   to the backend's own surface while `render` stays available — adapt to the
   advertised set, never the name.
