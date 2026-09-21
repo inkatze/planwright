@@ -1593,7 +1593,9 @@ nothing added:
 - **May decide unattended:** Auto-applicable findings (tool-cited, mechanical,
   no observable change), Agent-resolvable findings (backed by a
   failing-then-passing regression test plus green CI), Needs-sign-off
-  applications (the fix lands on the branch in its own commit; your approval
+  applications (the fix lands on the branch per the gate's commit discipline,
+  its own commit for a behaviour fix and the iteration's batched prose commit
+  for a prose-only one; your approval
   happens at PR review by leaving or reverting it), and pre-approved
   operational hygiene (reclaiming merged workers, answering a worker's routine
   *question to the tower*).
