@@ -64,8 +64,8 @@ gracefully instead:
   and the walk/sign-off spine below, and note which is missing.
 - `kickoff-verification` — the kickoff lens/verification mechanics: the
   mid-walk lens, the stale-reference sweep and sign-off lens-review scope,
-  fan-out, and altitude check, and the terminal ready-flip CI gate. Each pass's
-  load-bearing spine stays inline.
+  fan-out, altitude and ship-gate checks, and the terminal ready-flip CI gate.
+  Each pass's load-bearing spine stays inline.
   Absent: run each from
   that spine and its halt-if-absent base (`discovery-rigor`, `autopilot-reflex`),
   and skip the ready-flip, leaving the PR draft (fail closed).
