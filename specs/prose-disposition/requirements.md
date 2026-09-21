@@ -439,6 +439,22 @@ work, is recorded in D-1 and cited here from the goal.
 
 ## Changelog
 
+- 2026-09-21 — Task 2 execution, review round: the shared write surface Tasks
+  10, 11 and 12 have on `skills/polish/SKILL.md`,
+  `skills/self-review/SKILL.md` and `/execute-task`'s convergence prose is
+  coordinated by a new kickoff-brief risk row 12 rather than by dependency
+  edges. The operator made that call, choosing between an edge, a register
+  rule, and recording the hazard without coordinating it; row 3 already uses
+  the register shape for the Phase B families. No `Dependencies:` line
+  changed and no REQ changed: REQ-G1.1 still requires exactly the edges it
+  required. Same round, the derived renderings in the brief's section 6 (the
+  task graph and the parallelism note) were regenerated from the
+  `Dependencies:` lines they follow, and two verification occasions in
+  `test-spec.md` were widened to the tasks that actually land what they
+  check: REQ-D1.1's four-rule reading now names Task 10 for the
+  PR-introduced-surface citation, and REQ-D1.3's guard clause now names Tasks
+  10, 11 and 12 alongside Tasks 1 and 2.
+
 - 2026-09-20 — Task 2 execution: REQ-D1.1's instantiation of the amended rules
   in `/self-review`, `/polish` and `/execute-task`'s convergence prose moves
   out of Task 2 into a new Task 11 (`/polish`) and a new Task 12

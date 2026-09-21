@@ -311,11 +311,10 @@ those tasks and the families serialize too, to about sixteen and a half.
 carried to the risk register: `config/comment-budget-exemptions.txt` (each
 family removes its own lines) and any owning bundle two families both amend
 for the deliverables gap (two expression-only re-anchors of one bundle in
-flight). The instantiation tasks add a third that the register does not
-carry: Task 10 edits all three skill files and Tasks 11 and 12 edit two of
-them, with no edge ordering the three. Adding one would be a constraint no
-requirement states, so whether the register gains a row or the graph gains
-an edge is the operator's call, not this rendering's.
+flight). The instantiation tasks add a third: Task 10 edits all three skill
+files and Tasks 11 and 12 edit two of them, with no edge ordering the three.
+The operator decided on 2026-09-21 to coordinate that one the same way, with
+a register rule rather than a dependency edge, which is row 12.
 
 Signed off: 2026-09-04
 
@@ -331,6 +330,10 @@ vocabulary the surviving comments and verification records are written
 in; decided with the operator at drafting, D-8). No other domain moved.
 The design's cross-cutting note was updated to match. Cold-review
 questions: none on file (the optional cold read was not run).
+*(Amended at the 2026-09-21 amendment: the concurrency domain gained a
+second instance, the skill files Tasks 10, 11 and 12 share, decided by
+row 12 below. The domain was already touched and decided, so it does not
+move again.)*
 
 | # | Risk | Mitigation / early signal |
 | --- | --- | --- |
@@ -345,6 +348,7 @@ questions: none on file (the optional cold read was not run).
 | 9 | The cleanup deletes a genuine why or a caller-relied contract. | The three-legged verification (D-12): invariance proves code untouched, the independent reader confirms recoverability. Signal: reader disagreements in a Phase B PR's record. |
 | 10 | Independent reader availability and cost per Phase B PR (fresh session or non-Anthropic backend). | The panel-review backends already configured on this machine serve as the non-Anthropic pass. Signal: a Phase B PR opened without its verification record. |
 | 11 | A cleanup PR reverted after closeout leaves the guard red, since closeout admits no transitional entry (raised by the sign-off lens pass under the deploy-migration domain; the domain stays not applicable because nothing is irreversible). | Rollback story: the revert lands together with a re-added `pending-cleanup` entry naming a follow-up task, and closeout is re-run once the re-clean lands. Signal: `check:comment-budget` red on a revert PR. |
+| 12 | The instantiation tasks (10, 11, 12) write the same skill files with no edge ordering them: Task 10 edits `skills/polish/SKILL.md`, `skills/self-review/SKILL.md` and `/execute-task`'s convergence prose, Task 11 edits the first and Task 12 the other two, so a selector may dispatch Task 10 beside either and two worktrees write one file at once (decision domain: concurrency). | Each task writes only its own rules' citations, and they do not overlap: Tasks 11 and 12 land lens scoping, prose classification and the batched commit discipline, Task 10 lands the PR-introduced-surface rule. Ordering rule: a dispatcher runs at most one of the three against any one file at a time, so Task 10 never runs beside Task 11 nor beside Task 12; Tasks 11 and 12 share no file and may run together. The second of a pair to be dispatched re-reads the file after the first has merged and adds its citation as new commits, never a rebase. Signal: a merge conflict in a skill file between two instantiation PRs, or a `check:instructions` measurement on one that does not match what its PR body recorded. *(Added at the 2026-09-21 amendment: the operator chose this coordination over a dependency edge on Tasks 11 and 12, the shape row 3 already uses for the Phase B families.)* |
 
 Signed off: 2026-09-04
 
@@ -546,13 +550,70 @@ parallelism note stops saying the front chain has none, and the critical path
 is recomputed, the instantiation tasks adding Task 12's day so the
 three-worker figure is about ten and a half days rather than nine and a half
 and the single-worker figure about sixteen and a half rather than fourteen
-and a half. The one thing the renderings do not decide is the write surface
-Tasks 10, 11 and 12 share, which section 6 names and leaves to the operator,
-since ordering them would be a constraint no requirement states. Cites the
+and a half. The one thing the renderings did not decide is the write surface
+Tasks 10, 11 and 12 share, which section 6 named and left to the operator;
+the 2026-09-21 entry below records what they decided. Cites the
 changelog line: the `## Changelog` entry in
 `requirements.md` dated 2026-09-20 ("Task 2 execution: REQ-D1.1's
 instantiation … moves out of Task 2 into a new Task 11 … and a new Task 12").
 
 Class: expression-only
 Anchor: `9890a441277b6971a24511dd2a548e7568adb1d2` — computed as
+`scripts/spec-anchor.sh specs/prose-disposition`
+
+### 2026-09-21 — Coordinating the instantiation tasks' shared skill files
+
+The per-surface split left Tasks 10, 11 and 12 writing the same three skill
+files with nothing ordering them. Task 10 edits `skills/polish/SKILL.md`,
+`skills/self-review/SKILL.md` and `/execute-task`'s convergence prose to land
+the PR-introduced-surface rule; Task 11 edits the first and Task 12 the other
+two to land the three rules they own. All three depend on Tasks 1 and 2 and on
+nothing else, so a selector can dispatch Task 10 beside either and two
+worktrees can write one file at once. A Copilot review of PR #479 raised it as
+two threads asking for a dependency edge on Task 10.
+
+**The operator decided today, and this entry is theirs, not the tower's.**
+They were shown three options: a dependency edge from Tasks 11 and 12 onto
+Task 10, a risk-register row with an ordering rule, or leaving the hazard
+recorded but uncoordinated. They chose the register row, which is the shape
+row 3 already uses for the Phase B families' shared write surface. Keep this
+distinct from the park recorded in the 2026-09-20 entry above: that one was
+the tower's call in the operator's absence, this one is the operator's own.
+Row 12 is the result, and section 6's shared-write-surfaces note now points
+at it instead of leaving the question open.
+
+The edge was refused on the merits before the operator saw the options, and
+the refusal stands. Copilot's stated premise, that Tasks 11 and 12 rely on
+Task 10 having written its doctrine section, does not hold: their three
+citations all point at sections Task 1 writes, and they never cite Task 10's,
+so each reads correctly in either order. What does hold is the concurrency
+hazard, and an edge would answer it by adding an ordering no requirement
+states. That is what separates this from the 2026-09-20 entry's edge change on
+Task 3, where REQ-G1.1 demanded the edges outright and restoring them was
+expression-only.
+
+**Class, re-tested on both prongs rather than inherited.** No REQ's meaning
+changes: `requirements.md` gains only its changelog entry, `design.md`,
+`tasks.md` and `test-spec.md` are untouched by this entry, and REQ-G1.1 still
+requires exactly the edges it required. No accepted decision is contradicted:
+the row adds a coordination rule where none existed and overturns nothing. The
+close call is the third clause of the axis, which makes additions
+meaning-class for new REQs and new D-IDs. A risk-register row is neither, and
+this bundle already treats the register as where a concurrency-domain decision
+is carried rather than as design: section 7's gap check says the domain is
+"decided by row 3 below", and row 3 holds an ordering rule of exactly this
+shape with no D-ID behind it. Adding a second instance under a domain already
+touched and decided is the gap-fill the expression-only arm names. So:
+expression-only. The argument against, recorded so the next walkthrough can
+overturn it rather than rediscover it, is that the row states a duty binding
+future dispatch that nothing stated before, and the operator weighed
+alternatives to reach it, which is the shape of a design decision even though
+the register is where this bundle keeps it.
+
+Cites the changelog line: the `## Changelog` entry in `requirements.md` dated
+2026-09-21 ("the shared write surface Tasks 10, 11 and 12 have … is
+coordinated by a new kickoff-brief risk row 12").
+
+Class: expression-only
+Anchor: `53beb5453fb9f1f9997813de7cc9f482e572d3cd` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`
