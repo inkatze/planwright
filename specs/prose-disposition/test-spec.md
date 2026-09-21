@@ -138,8 +138,12 @@ one REQ-C1.1's manual entry names) audit table has one row per finding.
 Each of the three skills names the governing section for lens scoping,
 prose classification, the PR-introduced-surface rule, and the commit
 discipline, restating at most a one-line gist; verified by reading each file
-at the review of the task that lands it (`/polish` at Task 11,
-`/self-review` and `/execute-task` at Task 12).
+at the review of each task that lands one of its citations. Lens scoping,
+prose classification and the commit discipline land at Task 11 for `/polish`
+and at Task 12 for `/self-review` and `/execute-task`; the
+PR-introduced-surface rule lands at Task 10 in all three files. The
+four-rule reading is therefore complete only at the review of whichever of
+the two tasks touching a given file lands second.
 
 ### REQ-D1.2 — Straggler sweep [manual]
 
@@ -150,11 +154,15 @@ recorded in the PR body, and repeatable by anyone.
 
 ### REQ-D1.3 — Instruction budget holds [test + manual]
 
-Test: `check:instructions` passes after Tasks 1 and 2 in `mise run check`.
+Test: `check:instructions` passes in `mise run check` after every task that
+amends an instruction surface (Tasks 1, 2, 10, 11 and 12).
 Manual: the reviewer diffs `config/instruction-budget-exemptions.txt` for
 a new `raise` entry and reads the guard's output for a floor-breach warning
 or a doctrine-warn line for `doctrine/gate-wiring.md`; the check exits zero
-on warnings, so neither clause is a failure mode the aggregate reports.
+on warnings, so neither clause is a failure mode the aggregate reports. At
+Task 11 the reviewer also reads the `declared-exception` entry the
+below-target warning requires, confirming it carries the surface key, the
+headroom margin at grant, and its reason, and that it is not a `raise`.
 
 ## REQ-E — Comment hygiene doctrine
 

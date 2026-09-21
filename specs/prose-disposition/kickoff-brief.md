@@ -275,13 +275,18 @@ Signed off: 2026-09-04
 which stay authoritative; this rendering is derived):
 
 ```text
-1 doctrine → 2 skills → 3 rule doc → 4 guard → 5 Phase A ─┬→ 6 fleet ─────────┐
-                                                          ├→ 7 orch/alloc/spec ├→ 9 closeout
-                                                          └→ 8 guards/rest ────┘
+                       ┌→ 10 auto lane ──┐
+1 doctrine → 2 sweep ──┼→ 11 /polish ────┼→ 3 rule doc → 4 guard → 5 Phase A
+                       └→ 12 self-review ┘
+
+5 Phase A ─┬→ 6 fleet ──────────┐
+           ├→ 7 orch/alloc/spec ├→ 9 closeout
+           └→ 8 guards/rest ────┘
 ```
 
-**Parallelism.** None on the front chain; three-way among the Phase B
-families (Tasks 6, 7, 8), which is where three workers pay off.
+**Parallelism.** Three-way among the instantiation tasks (10, 11, 12) once
+Task 2 lands, and three-way among the Phase B families (Tasks 6, 7, 8),
+which is where three workers pay off. The rest serializes.
 
 **Critical path** (effort-weighted from the `Estimated effort:` lines; cite,
 do not copy): the front chain plus the longest Phase B family plus closeout,
@@ -302,10 +307,15 @@ those tasks and the families serialize too, to about sixteen and a half.
 - Task 9 waits for all three families, not for a subset, because closeout
   refuses any transitional entry left.
 
-**Shared write surfaces among the parallel families** (carried to the risk
-register): `config/comment-budget-exemptions.txt` (each family removes its
-own lines) and any owning bundle two families both amend for the
-deliverables gap (two expression-only re-anchors of one bundle in flight).
+**Shared write surfaces among the parallel tasks.** The Phase B ones are
+carried to the risk register: `config/comment-budget-exemptions.txt` (each
+family removes its own lines) and any owning bundle two families both amend
+for the deliverables gap (two expression-only re-anchors of one bundle in
+flight). The instantiation tasks add a third that the register does not
+carry: Task 10 edits all three skill files and Tasks 11 and 12 edit two of
+them, with no edge ordering the three. Adding one would be a constraint no
+requirement states, so whether the register gains a row or the graph gains
+an edge is the operator's call, not this rendering's.
 
 Signed off: 2026-09-04
 
@@ -514,27 +524,35 @@ three rules Task 2 owned, not four: the PR-introduced-surface rule stays
 Task 10's to land in the same files, since its doctrine section does not exist
 until Task 10 writes it. REQ-D1.2's same-change binding follows the
 instantiation rather than staying behind with Task 2's one-off sweep, so both
-new tasks re-run the `skills/` sweep against their own addition. Five stale
-pointers were repaired under the contract-reword straggler rule, the whole
-class swept rather than the instances first noticed: `test-spec.md`'s
+new tasks re-run the `skills/` sweep against their own addition. Seven stale
+verification pointers were repaired under the contract-reword straggler rule,
+the whole class swept rather than the instances first noticed: `test-spec.md`'s
 REQ-D1.1, REQ-A1.3 and REQ-C1.1 entries each named a Task 2 review as their
 verification occasion, and now name the task that lands the thing they check
 (`/polish` at Task 11, `/self-review` and `/execute-task` at Task 12);
 REQ-C1.2's and REQ-C1.4's occasions follow REQ-C1.1's by reference and needed
-no edit of their own; and the two ordering rationales that named Task 2 as
-what Task 3 waits for (sections 4 and 6) now name the instantiation tasks.
-Section 6's critical path is recomputed: the instantiation tasks add Task 12's
-day to the front chain, so the three-worker figure is about ten and a half
-days rather than nine and a half, and a single worker serializing the
-instantiation tasks as well as the families reaches about sixteen and a half
-rather than fourteen and a half. Section 6's rendered graph is derived from
-the `Dependencies:` lines, which stay authoritative, and is left as drafted;
-it renders the front chain as `1 → 2 → 3` and so does not show the edges
-Task 3's line now carries. Cites the changelog
-line: the `## Changelog` entry in
+no edit of their own; REQ-D1.1's entry additionally named only those two
+tasks for a four-rule reading whose fourth citation lands at Task 10, so it
+now names Task 10 for that rule and says the reading completes at whichever
+of the two tasks touching a file lands second; REQ-D1.3's test clause named
+Tasks 1 and 2 alone for a guard that every instruction-amending task has to
+pass, and now names Tasks 10, 11 and 12 too, with Task 11's declared
+exception read at its own review; and the two ordering rationales that named
+Task 2 as what Task 3 waits for (sections 4 and 6) now name the
+instantiation tasks. Section 6's derived renderings follow the
+`Dependencies:` and `Estimated effort:` lines rather than staying as drafted:
+the graph shows the instantiation tasks between Tasks 2 and 3, the
+parallelism note stops saying the front chain has none, and the critical path
+is recomputed, the instantiation tasks adding Task 12's day so the
+three-worker figure is about ten and a half days rather than nine and a half
+and the single-worker figure about sixteen and a half rather than fourteen
+and a half. The one thing the renderings do not decide is the write surface
+Tasks 10, 11 and 12 share, which section 6 names and leaves to the operator,
+since ordering them would be a constraint no requirement states. Cites the
+changelog line: the `## Changelog` entry in
 `requirements.md` dated 2026-09-20 ("Task 2 execution: REQ-D1.1's
 instantiation … moves out of Task 2 into a new Task 11 … and a new Task 12").
 
 Class: expression-only
-Anchor: `36bd3b52ca71f067336ea85491dd999f4f1ffaba` — computed as
+Anchor: `9890a441277b6971a24511dd2a548e7568adb1d2` — computed as
 `scripts/spec-anchor.sh specs/prose-disposition`
