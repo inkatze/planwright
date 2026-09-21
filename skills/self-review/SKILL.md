@@ -210,9 +210,9 @@ summary at the end):
    results, and any reverts or surfaced failures.
 
 The **turn** gets the wiring's projection instead: counts, then the forks,
-standalone the only questions for the human. Table content
-lands in a committed PR body: apply `security-posture` artifact data-hygiene
-before emitting.
+which standalone are the human's only questions. Table content lands in a
+committed PR body: apply `security-posture` artifact data-hygiene before
+emitting.
 
 ## Publishing the audit record (standalone only)
 
