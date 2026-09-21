@@ -361,7 +361,7 @@ Two label slips, minor, neither changing an arithmetic result:
 - "cheaper by 48" is the hard-funding delta between Reading A and Reading B, not
   a word count of text. The raw skill-body text difference is 77 words.
 
-# Task 12 — the funding that landed
+## Task 12 — the funding that landed
 
 Task 10's section above escalated a fork; this section records how Task 12
 answered it on the two hard-error surfaces, `/self-review` and `/execute-task`.
@@ -369,7 +369,7 @@ Measured at `0004276` (`origin/main` at dispatch), branch
 `planwright/prose-disposition/task-12`. Guard: `./scripts/check-instructions.sh
 --audit`, its own arithmetic throughout; no figure below is hand-counted.
 
-## The correction that decided the route
+### The correction that decided the route
 
 The dispatch asked for a point-of-use split of `doctrine/finding-categorization.md`,
 on the reasoning that the doc is run-start for `/self-review`, `/polish` and
@@ -391,7 +391,7 @@ much gets split off:
 So the two surfaces took different rungs, both inside what REQ-D1.3 and the
 task's `Deliverables:` permit.
 
-## `/self-review`: a manifest change (rung 2)
+### `/self-review`: a manifest change (rung 2)
 
 `doctrine/refactor-instinct.md` (422 words) moved from `run-start` to
 `point-of-use` in `/self-review`'s manifest. This is Option 2 of the four the
@@ -428,7 +428,7 @@ agreed.
 The smaller doc still clears the pin with room to spare, so the safer of the two
 options was also sufficient: nothing was traded for the 45-word difference.
 
-## `/execute-task`: a doctrine relocation
+### `/execute-task`: a doctrine relocation
 
 The `Planwright-Task` trailer convention moved out of the skill body into
 `doctrine/spec-format.md`'s *Branch, worktree, and task-id grammar* section,
@@ -446,7 +446,7 @@ This is the same path `config/instruction-budget-exemptions.txt`'s
 re-anchor ritual, the `main`-sync instruction, or the convergence law, which the
 `/execute-task` entry names as off limits.
 
-## Manifest check on the one passage that moved
+### Manifest check on the one passage that moved
 
 The test is the one Task 1's convergence established: not "does this rule appear
 elsewhere" but "does it appear in a doc the affected skill loads".
@@ -458,7 +458,7 @@ elsewhere" but "does it appear in a doc the affected skill loads".
 `doctrine/refactor-instinct.md`'s reclassification moved no text, so it has no
 row: nothing could be dropped. Its read-order is checked below instead.
 
-## The safety floor
+### The safety floor
 
 *Could the model reach the acting step without having read this rule, and if so
 could it then take an action the rule forbids?*
@@ -480,7 +480,7 @@ Precedent for the test and the rung: `specs/prompt-hygiene/diet-plans.md`
 records the same reclassification applied to `/spec-kickoff`'s and
 `/spec-draft`'s manifests, with the same safety-floor question asked per doc.
 
-## Before and after
+### Before and after
 
 Both readings from `./scripts/check-instructions.sh --audit`, `EXIT=0` on each.
 
