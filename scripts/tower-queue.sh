@@ -580,6 +580,7 @@ RESERVED="v seq ts kind tower until"
 usage() {
   cat >&2 <<'EOF'
 usage: tower-queue.sh log <kind> [--tower <id>] [--now <epoch>] [<key>=<value> ...]
+       tower-queue.sh redact [-]   (a block on stdin; redacted and ASCII-rendered, line by line)
        tower-queue.sh report [--log <path>] [--now <epoch>] [--window <duration>] [--tick-gap-max <duration>]
        tower-queue.sh add --kind <kind> --origin <who> --closes <text> [--urgency high|normal|low] [--now <epoch>]
                       (--worker <handle> [--root <dir> --park <rel>] | --root <dir> --pointer <rel> [--park <rel>])
@@ -5634,11 +5635,49 @@ cmd_catchup() {
     || err "the remainder is a floor, not a count ($why): the event log no longer covers the whole window"
 }
 
+# ---------------------------------------------------------------------------
+# redact — the one helper, offered to the other surfaces that render an item
+# ---------------------------------------------------------------------------
+
+# REQ-H1.3 names ONE redaction helper and says it is what enforces the rule, so
+# a surface that renders item content has to be able to reach it. The hook and
+# `capture` reach it by calling `log`; a renderer has nothing to log, so it
+# calls this. Line-oriented on purpose: `ascii_render` folds its input into one
+# value (it renders a field), and an item's content is a block whose line
+# breaks are part of what the operator reads.
+#
+# Per line: the secret-shaped redaction, then the same ASCII rendering the
+# `command` line gets — every byte outside printable ASCII shown as `\xNN`, so
+# nothing approves text that renders as something else (REQ-E1.9). A line that
+# needed escaping is counted, and the count goes to stderr as the warning that
+# accompanies it there; stdout stays exactly the rendered block.
+cmd_redact() {
+  case "${1:-}" in
+    "" | -) ;;
+    *) usage ;;
+  esac
+  [ "$#" -le 1 ] || usage
+  _rd_escaped=0
+  _rd_lines=0
+  while IFS= read -r _rd_line || [ -n "$_rd_line" ]; do
+    _rd_lines=$((_rd_lines + 1))
+    _rd_out=$(ascii_render "$(redact "$_rd_line")")
+    case "$_rd_out" in
+      1*) _rd_escaped=$((_rd_escaped + 1)) ;;
+    esac
+    printf '%s\n' "${_rd_out#*	}"
+  done
+  [ "$_rd_escaped" = 0 ] \
+    || err "$_rd_escaped of $_rd_lines rendered line(s) carried bytes outside printable ASCII; they are shown as \\xNN escapes"
+  return 0
+}
+
 cmd=${1:-}
 [ -n "$cmd" ] || usage
 shift
 case "$cmd" in
   log) cmd_log "$@" ;;
+  redact) cmd_redact "$@" ;;
   report) cmd_report "$@" ;;
   add) cmd_add "$@" ;;
   capture) cmd_capture "$@" ;;
@@ -5652,7 +5691,7 @@ case "$cmd" in
   list) cmd_list "$@" ;;
   counts) cmd_counts "$@" ;;
   *)
-    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | report | add | capture | match | knock | next | ack | shelve | settle | catchup | list | counts)"
+    err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (log | redact | report | add | capture | match | knock | next | ack | shelve | settle | catchup | list | counts)"
     exit 2
     ;;
 esac

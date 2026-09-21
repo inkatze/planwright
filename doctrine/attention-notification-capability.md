@@ -17,7 +17,8 @@ supervisory control) that agent tooling generally ignores.
 
 ## The four parts
 
-The capability is four cooperating pieces, all implemented by
+The capability is four cooperating pieces (the seam counting as one with its
+session-side relay), all implemented by
 [`scripts/fleet-attention.sh`](../scripts/fleet-attention.sh):
 
 - **Heartbeat / awareness state.** A per-worker current-state store, keyed by
@@ -33,10 +34,20 @@ The capability is four cooperating pieces, all implemented by
   rendered as a structured choice (scope, question, recommended default, options).
   Non-actionable signal (working / idle / hung / ended / pr-ready / merged /
   done) is suppressed. Its
-  length tracks the `## Awaiting input` count, not the worker count.
-- **The notification seam** (`notify`). Pushes a one-line summary through the
-  resolved channel. The seam is core; the specific channel is the overlay value
-  (below).
+  length tracks the `## Awaiting input` count, not the worker count. One
+  narrowing, caller-named and never stored: `--except <worker>` leaves a row out
+  of that render for one call, so a turn that has just handed the operator a
+  question does not also list it (tower-comms REQ-A1.1). The count the queue
+  reports is not narrowed — a hand-over does not close an entry — and nothing
+  derived from a store may narrow the render either, because a stored
+  suppression outlives the conversation that earned it.
+- **The notification seam** (`notify`), and its session-side other half
+  (`relay`). The seam pushes a one-line summary through the resolved channel.
+  Where the channel has no transport a script can call — the `push` channel,
+  whose tool only a session can reach — the seam writes a marker and `relay`
+  hands the pending set to a session under the fleet lock, taking each marker as
+  it prints it so two sessions cannot raise the same alarm twice. The seam is
+  core; the specific channel is the overlay value (below).
 
 ### The worker states
 

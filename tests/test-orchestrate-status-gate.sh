@@ -140,6 +140,27 @@ for call in 'tower-loop-log.sh tick' 'tower-loop-log.sh delivered'; do
   fi
 done
 
+# tower-comms Task 8, same reasoning one level up: the operator-comms step and
+# the identity it carries are the wiring itself. The scripts exist either way;
+# what a trim can delete is the only instruction that ever calls them, and then
+# nothing reaches the operator through the queue at all.
+for call in 'tower-loop-comms.sh identity' 'tower-loop-comms.sh step' \
+  'tower-queue.sh capture' 'queue --except'; do
+  if grep -qF "$call" "$skill"; then
+    ok "operator comms names \`$call\` (tower-comms REQ-A1.1, REQ-E1.1)"
+  else
+    fail "operator comms no longer names \`$call\` (tower-comms Task 8: the wiring must not depend on the session remembering)"
+  fi
+done
+
+# The doc that owns the words the loop says, cited at point of use rather than
+# only in prose (tower-comms REQ-I1.4, D-13).
+if grep -qE '^Doctrine: point-of-use tower-comms' "$skill"; then
+  ok "the conversation rule doc is on the doctrine manifest"
+else
+  fail "skills/orchestrate/SKILL.md no longer cites tower-comms at point of use (tower-comms D-13)"
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

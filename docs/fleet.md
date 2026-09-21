@@ -94,12 +94,14 @@ exactly one spec/unit in its own worktree with isolated context, and the
 attention render names each worker's scope and state — the same clear-scopes
 model a tmux power user gets from named windows, with no attaching.
 
-`queue` leaves out anything the operator queue has already handed to a tower
-conversation, and says on stderr how many it held back. A question you have
-been asked once should not be sitting on the list as though nobody had asked
-it. The count `--count` prints is deliberately not filtered: that one tracks
-the `## Awaiting input` entries, which a hand-over does not close. In a tree
-running no tower queue, nothing is filtered at all.
+`queue --except <worker>` leaves that worker's row out of the render, and says
+on stderr how many it left out. The tower loop passes the worker whose question
+it has just handed you, so the same question is not also sitting on the list as
+though nobody had asked it. It names only what the caller itself just said: the
+filter is per call, so nothing can go on hiding a row after the conversation
+holding it died, and a plain `queue` renders everything. The count `--count`
+prints is never filtered — that one tracks the `## Awaiting input` entries,
+which a hand-over does not close.
 
 ## The backend-agnostic status view
 
@@ -316,10 +318,16 @@ The relay runs inside the tower loop's own comms step
 (`scripts/tower-loop-comms.sh step`), which takes each pending marker under the
 fleet lock and prints it as a `push` line for the session to hand to the tool.
 Taking and printing is one step, so two towers stepping at once cannot wake you
-twice about the same thing; the cost is that a session dying between the two
-drops that line, and what recovers it is the item itself, which stays open and
-can name itself again at its second escalation. Run outside a tower loop,
-nothing relays and the markers wait.
+twice about the same thing. The cost is the inverse: a session that dies
+between the take and the tool call drops that line for good. Nothing re-derives
+it — the away push is budgeted at two per departure, and a marker written by
+something other than the operator queue has no item behind it at all — so treat
+a dropped line as a lost notification, not a delayed one. The blocked worker
+itself is still in the queue and still waiting; what was lost is the tap on the
+shoulder. Anything the relay declines to take (a name that is not a marker key,
+a marker somebody else can write, an empty one) is named on stderr and makes
+the step non-zero rather than disappearing. Run outside a tower loop, nothing
+relays and the markers wait.
 
 ### The statusline channel
 
