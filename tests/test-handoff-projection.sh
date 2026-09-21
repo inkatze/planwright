@@ -31,7 +31,10 @@
 #     The surfaces mark the declared side
 #     as `**turn**` / `**artifact-side**`, and the assertions below hold them
 #     to that markup: it is what makes a side visible to a reader skimming the
-#     instructions, and an unmarked mention is what the repair replaced.
+#     instructions, and an unmarked mention is what the repair replaced;
+#   - each surface that projects a residue names both classes REQ-J1.2 lists,
+#     the pending sign-offs as well as the open forks. Projecting only the
+#     forks loses decisions the operator still owns, and loses them silently.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-handoff-projection.sh
@@ -83,11 +86,11 @@ if [ -z "$section" ]; then
   fail "gate-wiring: the Loop-end handoff section is absent or empty"
 else
   case "$section" in
-    *artifact-side*) pass "gate-wiring: the full record is declared artifact-side" ;;
+    *'**artifact-side**'*) pass "gate-wiring: the full record is declared artifact-side" ;;
     *) fail "gate-wiring: the loop-end handoff does not declare the artifact side" ;;
   esac
   case "$section" in
-    *turn*projection*) pass "gate-wiring: the turn gets a declared projection" ;;
+    *'**turn**'*projection*) pass "gate-wiring: the turn gets a declared projection" ;;
     *) fail "gate-wiring: the loop-end handoff does not declare the turn side" ;;
   esac
   case "$section" in
@@ -124,6 +127,25 @@ doc_matches "polish: states its own turn-side projection" \
   "$root/skills/polish/SKILL.md" '\*\*turn\*\*.*projection|projection.*\*\*turn\*\*'
 doc_matches "builder: states its own turn-side projection" \
   "$root/skills/builder/SKILL.md" '\*\*turn\*\*.*projection|projection.*\*\*turn\*\*'
+
+# The artifact half of the same declaration. Asserted separately from the turn
+# half because a surface can state one and drop the other, which is how
+# `/polish` reached review with the term unhyphenated and therefore untethered.
+for s in self-review polish builder; do
+  doc_matches "$s: declares its artifact side in the same markup" \
+    "$root/skills/$s/SKILL.md" '\*\*artifact-side\*\*'
+done
+
+# The residue the wiring mandates is both classes (REQ-J1.2). A surface that
+# projects only the forks drops the pending sign-offs the operator must still
+# decide, which is a silent loss no counts assertion would catch.
+# `each pending sign-off`, not the bare term: both files already said "applied
+# pending sign-off" about the ledger before this rule existed, so the bare term
+# passes against text that projects nothing. Enumeration is the claim.
+for s in self-review polish; do
+  doc_matches "$s: projects pending sign-offs, not only forks" \
+    "$root/skills/$s/SKILL.md" 'each pending sign-off'
+done
 
 if [ "$fails" -eq 0 ]; then
   printf '\nPASS: handoff projection tethers hold\n'
