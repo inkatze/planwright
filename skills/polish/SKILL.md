@@ -154,11 +154,10 @@ prior dispositions.
 
 ## Handoff
 
-On exit (converged or safety-stopped), write the loop-end handoff in the
-`gate-wiring` order, accumulated across all iterations, to
-`<worktree>/.claude/polish-audit.md`. That file is this skill's **artifact
-side** — the named artifact the wiring's loop-end rule allows a skill that
-owns no PR body — and it holds the record in full:
+Each iteration appends to `<worktree>/.claude/polish-audit.md` the loop-end
+handoff in `gate-wiring` order. That file is this skill's **artifact-side**
+record — the named artifact the wiring's loop-end rule allows a skill that
+owns no PR body — and across the run it holds:
 
 1. The lens-coverage table from the final pass.
 2. In the wiring doc's formats: the four bucket tables, the declined log, and
