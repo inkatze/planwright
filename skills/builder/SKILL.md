@@ -102,6 +102,15 @@ unambiguous core guards and reports the rest. Either way, the four-table audit
 record (`finding-categorization`) is the honest output: what was applied, what
 needs sign-off, what needs human judgment.
 
+That record is **artifact-side**, in the artifact the calling context owns —
+`/spec-draft`'s design section, `/execute-task`'s PR body — and standalone it
+stays one request away rather than filling the turn. The **turn** gets this
+skill's projection of it (`interaction-style`'s arbitration, the wiring's
+loop-end rule): counts of guards applied and guards recommended, then the
+residue itself projected, each escalated decision domain and each
+recommendation the human still owns as one line of decision and options, and
+where the full record landed or how to ask for it.
+
 ## Stake escalation (REQ-G1.3, D-16)
 
 Before applying anything, walk the `decision-domains` catalog against what the

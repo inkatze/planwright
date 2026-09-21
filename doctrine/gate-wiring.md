@@ -240,10 +240,11 @@ sign-off).
 
 At loop end the full record — the four tables, the declined log, the
 pending-sign-off checklist, then the queued forks and their bespoke options,
-in that order — is **artifact-side**, folded into the draft PR body per
-PR-body assembly below (REQ-E1.5). The **turn** gets its projection:
-per-bucket counts, the actionable residue, and where the full record landed
-([Interaction Style](interaction-style.md), the arbitration).
+in that order — is **artifact-side** in full: the draft PR body per PR-body
+assembly below (REQ-E1.5), or its skill's named artifact. The **turn** gets its
+projection: per-bucket counts, the residue itself projected (each pending
+sign-off and each open fork as one line, not its audit row), and where the full
+record landed ([Interaction Style](interaction-style.md), the arbitration).
 
 ## PR-body assembly
 

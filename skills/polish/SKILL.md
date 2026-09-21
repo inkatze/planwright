@@ -4,9 +4,10 @@ description: >
   Autonomous act-then-review convergence loop: iterate /self-review passes,
   draining every action disposition (Auto-applicable and Agent-resolvable
   applied, Needs-sign-off applied on the branch) until only irreducible
-  Needs-human-judgment forks remain, then hand off the full audit record. Local-only: never pushes, never
-  creates a PR. Pass --nested when invoked from a parent skill (such as
-  /execute-task) that owns the handoff.
+  Needs-human-judgment forks remain, then hand off a projection of the audit
+  record plus the worktree-local file holding it in full. Local-only: never
+  pushes, never creates a PR. Pass --nested when invoked from a parent skill
+  (such as /execute-task) that owns the handoff.
 argument-hint: "[--nested]"
 ---
 
@@ -14,8 +15,9 @@ argument-hint: "[--nested]"
 
 The autonomous act-then-review loop (REQ-E2.1, D-12): repeat the `/self-review`
 pass against the feature branch until it drains every action disposition and
-only irreducible Needs-human-judgment forks (if any) remain, then hand off the
-audit record. Polish is **local-only** per the invariants below; after the
+only irreducible Needs-human-judgment forks (if any) remain, then hand off a
+projection of the audit record and the file holding it in full. Polish is
+**local-only** per the invariants below; after the
 read-only fetch that pins the base at pre-flight, iterations never touch the
 remote (nested `/self-review` passes reuse the pinned base without
 fetching). The pending-sign-off
@@ -144,15 +146,19 @@ emits empty `none` tables):
 | Iteration cap | Ten iterations completed without convergence. |
 | Dirty tree | Pre-flight found uncommitted changes (stops before iteration one). |
 
-On any safety stop: emit the latest audit record, name the condition, and
-hand off. Work already committed stays committed, each item undone by the
+On any safety stop: write the latest audit record to the handoff file below,
+name the condition, and hand off its projection. Work already committed stays
+committed, each item undone by the
 revert its checklist entry names; a stop never resets, stashes, or rewrites
 prior dispositions.
 
 ## Handoff
 
-On exit (converged or safety-stopped), emit the loop-end handoff in the
-`gate-wiring` order, accumulated across all iterations:
+On exit (converged or safety-stopped), write the loop-end handoff in the
+`gate-wiring` order, accumulated across all iterations, to
+`<worktree>/.claude/polish-audit.md`. That file is this skill's **artifact
+side** — the named artifact the wiring's loop-end rule allows a skill that
+owns no PR body — and it holds the record in full:
 
 1. The lens-coverage table from the final pass.
 2. In the wiring doc's formats: the four bucket tables, the declined log, and
@@ -163,10 +169,28 @@ On exit (converged or safety-stopped), emit the loop-end handoff in the
 4. The final iteration's pass summary (the per-iteration summaries cover
    the rest).
 
-Standalone, present all of it to the human and put the queued forks to them
-directly. Nested, hand the record to the parent skill, which folds it into the draft PR
-body it owns and surfaces the forks. Apply `security-posture` artifact data-hygiene to
-everything emitted; the record is bound for a committed PR body.
+The file is uncommitted and gitignored, a self-draining cache in
+`accumulator-taxonomy`'s sense: overwritten at the start of each run,
+appended to per iteration, never a source of truth. Writing it is not a
+breach of the local-only invariants below — it is worktree state, beside the
+handover brief, not a remote or a commit. Apply `security-posture` artifact
+data-hygiene to everything written; the record reaches a committed PR body
+through the parent.
+
+The **turn** gets the projection, never the record. This skill's
+instantiation of the wiring's loop-end rule: iterations run and the reason
+the loop ended (converged, or the safety condition that fired), per-bucket
+counts across the run, then the residue itself projected — each pending
+sign-off and each queued fork as one line of decision and options — and the
+path to the file. A safety stop projects that same shape; the record it
+points at is already written, so a stop never trades the projection for a
+dump.
+
+Standalone, put the queued forks to the human directly; `/resume` reads the
+file at the next session start, the same ritual as the handover brief.
+Nested, return that projection plus the file path: the parent skill reads the
+file and folds the full record into the draft PR body it owns, where the
+wiring's collapsed-is-not-abridged rule governs it, and surfaces the forks.
 
 ## Local-only invariants
 
