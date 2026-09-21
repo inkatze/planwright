@@ -236,9 +236,9 @@ log. The ledger's own bundle re-points these targets when it ships; capture
 never waits on it.
 
 **A fix or follow-up named to ship out of band carries a ship-gate record** — a
-tracked-state entry whose drain blocks or re-surfaces until the fix verifiably
-lands. Prose in a design decision or a rejected-alternatives paragraph is not a
-ship mechanism.
+task, a gated deferral, or an Awaiting-input entry, whose drain blocks or
+re-surfaces until the fix verifiably lands. Prose in a design decision or a
+rejected-alternatives paragraph is not a ship mechanism.
 
 The **open-captures list** is shown to the operator at every phase boundary and
 on request, in the delta-plus-open form *Running summary* requires, so what is

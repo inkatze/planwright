@@ -78,9 +78,9 @@ drafting fired an altitude trigger, from the pinned seed claims in
 ### Ship-gate check (REQ-L1.4)
 
 A second check item within the same pass. Every out-of-band fix the walked
-bundle names carries a ship-gate record — a task, a gated deferral, or an
-Awaiting-input entry (`interaction-style`, *Capture at birth*). One named only
-in prose is a finding, dispositioned like any other.
+bundle names carries a ship-gate record in one of the forms
+`interaction-style` lists under *Capture at birth*. One named only in prose is
+a finding, dispositioned like any other.
 
 ## Terminal ready-flip CI gate (REQ-B1.1, D-3)
 
