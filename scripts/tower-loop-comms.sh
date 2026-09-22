@@ -439,7 +439,7 @@ open_screened() {
   fi
 }
 
-# read_path_content <path> — the content of a `path:` home. The write
+# read_path_content <path> [<key>] — the content of a `path:` home. The write
 # paths checked this pointer when the item was added; that says nothing about
 # the file being read now, so the screen is re-derived here (the rule
 # scripts/tower-queue.sh states for its own ledger read). A symlink at the leaf,
@@ -448,7 +448,8 @@ open_screened() {
 # passed: an item's content is rendered to the operator, so a redirect planted
 # after `add`, or between the screen and the read, would be reading an
 # arbitrary file out loud. A hardlink to another file of this same owner is the
-# residual neither this nor the ledger read can see.
+# residual neither this nor the ledger read can see. With a key the home is a
+# ledger holding many items, and only that key's `text` line is the content.
 read_path_content() {
   _rpok=0
   read_path_screened "$@" || _rpok=1
@@ -458,6 +459,7 @@ read_path_content() {
 
 read_path_screened() {
   _rp=$1
+  _rpkey=${2:-}
   if [ -L "$_rp" ] || [ ! -f "$_rp" ]; then
     content_why=gone
     return 1
@@ -469,10 +471,29 @@ read_path_screened() {
     return 1
   fi
   _rpfull="$TMPDIR_STEP/content.full"
-  head -c "$((Q_CONTENT_CAP + 1))" <&7 >"$_rpfull" 2>/dev/null || {
-    content_why=unreadable
-    return 1
-  }
+  if [ -n "$_rpkey" ]; then
+    # The record grammar is scripts/tower-queue.sh's ledger_record: a tag, the
+    # key, then the field, tab-separated. String compare for the reason
+    # read_row_content gives.
+    awk -F "$TAB" -v k="$_rpkey" '
+      $1 == "text" && ($2 "") == (k "") {
+        line = $0
+        sub(/^[^\t]*\t[^\t]*\t/, "", line)
+        print line
+        found = 1
+        exit
+      }
+      END { if (!found) exit 1 }
+    ' <&7 >"$_rpfull" 2>/dev/null || {
+      content_why=gone
+      return 1
+    }
+  else
+    head -c "$((Q_CONTENT_CAP + 1))" <&7 >"$_rpfull" 2>/dev/null || {
+      content_why=unreadable
+      return 1
+    }
+  fi
   head -c "$Q_CONTENT_CAP" "$_rpfull" >"$RAW" 2>/dev/null || {
     content_why=unreadable
     return 1
@@ -560,6 +581,28 @@ read_row_screened() {
   }
 }
 
+# split_path_pointer <pointer> — set _sp_path and _sp_key from a `path:` home's
+# pointer, `<path>` or `<path>@<key>`. `@` is legal in both halves, so the key
+# is peeled one `@` at a time from the right until what is left names an entry,
+# and a pointer that names one whole carries no key.
+split_path_pointer() {
+  _sp_path=$1
+  _sp_key=""
+  while [ ! -e "$_sp_path" ] && [ ! -L "$_sp_path" ]; do
+    case $_sp_path in
+      *@*)
+        _sp_key="${_sp_path##*@}${_sp_key:+@$_sp_key}"
+        _sp_path=${_sp_path%@*}
+        ;;
+      *)
+        _sp_path=$1
+        _sp_key=""
+        return 0
+        ;;
+    esac
+  done
+}
+
 # emit_content <item-id> <pointer> — resolve one delivered item's content home
 # and put it in front of the tower, fenced.
 emit_content() {
@@ -571,7 +614,8 @@ emit_content() {
   case $_ec_ptr in
     path:*)
       _ec_home="file"
-      read_path_content "${_ec_ptr#path:}" || :
+      split_path_pointer "${_ec_ptr#path:}"
+      read_path_content "$_sp_path" "$_sp_key" || :
       ;;
     attention:*)
       _ec_home="row"

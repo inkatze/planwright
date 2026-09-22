@@ -455,6 +455,21 @@ fi
 rm -f "$content/ask-9"
 q settle "$i9" --reason 'fixture done' --now 5400 >/dev/null || fail "settle ask-9"
 
+# A captured ask lives in one ledger beside every other captured ask, under its
+# own key. Its content is its own text: not nothing, and not the whole ledger.
+cap_text='rotate the fixture keys'
+cap_line=$(q capture --kind request --text "$cap_text" --origin operator --now 5410) \
+  || fail "capture refused the second ask"
+cap_id=$(printf '%s\n' "$cap_line" | awk -F "$TAB" '$1 == "captured" { print $2 }')
+[ -n "$cap_id" ] || fail "the second capture named no item: $cap_line"
+reach_handover captured-ask "$cap_id" 5420
+[ "$(printf '%s\n' "$_bc_rec" | awk -F "$TAB" '{ print $4 }')" = read ] \
+  || fail "a captured ask's ledger content did not read: $_bc_rec"
+printf '%s\n' "$out" | grep -qF "$cap_text" || fail "the captured ask's own text did not reach the turn"
+if printf '%s\n' "$out" | grep -qF "$ask_text"; then
+  fail "another captured ask's text was handed over with this one"
+fi
+
 # --- the per-step measurement the PR body reports -------------------------------
 
 [ "$(grep -c . "$sizes")" -ge 8 ] || fail "the per-step sizes were not recorded"
