@@ -1,1 +1,2 @@
 - 2026-07-15 [planwright] review_sequence is worker-read (execute-task convergence) but the machine-local layer resolves against a worktree's own git-toplevel, so a personal machine-local review_sequence never reaches workers-in-worktrees; only repo-tracked .claude/planwright.yml (present in worktrees) does, but that layer is declared policy-of-record not personal. Gap: no personal layer for worker-read config. Repro: config-get dispatch_backend returns tmux from repo root, subagent from a worktree cwd.
+Consumed-by: specs/custom-spec-location (2026-09-22)
