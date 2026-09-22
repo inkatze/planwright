@@ -107,7 +107,7 @@ scan() {
       sub(/^ +/, "", l)
       if (l ~ /^(never|do not|don.t) /) return
       verbs = "(present|emit|print|render|show|display|paste|surface|output|report)"
-      dets = "(the|a|an|it|them|this|that|these|those|each|every|any|all|one|both|its|their|what|which|whether|only|no|[0-9])"
+      dets = "(the|a|an|it|them|this|that|these|those|each|every|any|all|one|both|its|their|what|which|whether|only|no|[0-9]+)"
       lead = "^((then|and|also|always|finally|first|next|instead|otherwise),? )?" verbs "( " dets " |:)"
       if (l !~ lead && l !~ ("(must|shall|should|always) ((also|then|first|instead|only) )?" verbs "( |$)")) return
       if (l ~ /(turn-side|turn side|in the turn|into the turn|to the operator|at the operator|for the operator|the operator.s turn|to the user|in-band|in band|terminal|stdout|stderr|in chat|in the reply|in the selector|option preview)/) return
@@ -154,16 +154,16 @@ scanned=0
 report=""
 while IFS= read -r f; do
   [ -n "$f" ] || continue
-  scanned=$((scanned + 1))
   if [ "$explicit" -eq 1 ]; then
     path="$f"
   else
     path="$root/$f"
   fi
-  if [ ! -r "$path" ]; then
-    printf '%s\n' "$prog: cannot read '$(sanitize_printable "$f")'; skipped" >&2
+  if [ ! -f "$path" ] || [ ! -r "$path" ]; then
+    printf '%s\n' "$prog: cannot read '$(sanitize_printable "$f")' as a file; skipped" >&2
     continue
   fi
+  scanned=$((scanned + 1))
   out="$(scan "$f" "$path")"
   [ -n "$out" ] || continue
   report="$report$out

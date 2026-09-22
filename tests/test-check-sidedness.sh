@@ -98,6 +98,18 @@ rc=$?
 assert_exit "a clean corpus exits zero" 0 "$rc"
 assert_contains "a clean corpus reports zero findings" "0 emit mandate(s)" "$out"
 
+echo "== a multi-digit count still reads as a determiner =="
+printf '# Counts\n\nPresent 42 tables.\n' >"$TMP/counts.md"
+out="$(/bin/sh "$CHECK" "$TMP/counts.md" 2>&1)"
+assert_contains "a mandate over a multi-digit count is reported" "counts.md:3:" "$out"
+
+echo "== an explicit directory is skipped, not scanned =="
+out="$(/bin/sh "$CHECK" "$TMP/clean" 2>&1)"
+rc=$?
+assert_exit "a directory argument still exits zero" 0 "$rc"
+assert_contains "a directory argument is named as skipped" "skipped" "$out"
+assert_contains "a skipped directory is not counted as scanned" "in 0 file(s)" "$out"
+
 echo "== usage errors are distinct from findings =="
 /bin/sh "$CHECK" --root >/dev/null 2>&1
 assert_exit "--root without a value is a usage error" 2 "$?"
