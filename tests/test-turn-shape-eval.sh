@@ -91,11 +91,12 @@ for fx in $fixtures; do
   for persona in novice expert; do
     art="$TMP/l1/$fx.$persona"
     replay "$fx" "$persona" "$art" || continue
-    # The harness drives turns= prompts; lane 3 covers only some fixtures, so
-    # the count is pinned here for all of them.
+    # turns= is the harness's turn budget, and these fixtures state it
+    # exactly; lane 3 no longer drives every fixture, so the budget is kept in
+    # step with the dialogue here.
     turns="$(sed -n 's/^turns=//p' "$SUITE/$fx/fixture.conf")"
     answered="$(jq -r '.answers' "$art/sign-off.json")"
-    [ "$answered" = "$turns" ] || bad "$fx/$persona answered $answered prompts, but its conf declares turns=$turns"
+    [ "$answered" = "$turns" ] || bad "$fx/$persona answered $answered prompts, but its conf budgets turns=$turns"
     out="$(/bin/sh "$GRADE" --conf "$SUITE/$fx/fixture.conf" "$art" 2>&1)"
     rc=$?
     assert_exit "$fx/$persona grades as expected" 0 "$rc"
