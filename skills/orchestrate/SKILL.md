@@ -293,9 +293,9 @@ with the reason surfaced).
 failure postures (exits 2–5) per `docs/fleet.md`.
 
 **Operator comms (tower-comms D-6, D-19).** Nothing reaches the operator as
-loose prose. Resolve this loop's identity once, with the flag `publish` used —
-`scripts/tower-loop-comms.sh identity --checkout <primary>` — and pass it as
-`--tower` throughout. Each iteration,
+loose prose. Resolve identity once with `publish`'s flag,
+`scripts/tower-loop-comms.sh identity --checkout <primary> --pid <pid>`, for
+`--tower`; on exit 3 (solo) pass that flag instead. Each iteration,
 `scripts/tower-loop-comms.sh step --checkout <primary> --tower <id> --evidence
 <file> [--catchup]` settles once, prints the pushes, the catch-up list and at
 most one hand-over. In the turn: relay each `push` line through Claude Code's

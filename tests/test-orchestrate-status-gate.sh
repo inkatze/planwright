@@ -153,6 +153,19 @@ for call in 'tower-loop-comms.sh identity' 'tower-loop-comms.sh step' \
   fi
 done
 
+# `identity` refuses a call with no identity flag, so the documented call has to
+# carry one, and the solo posture's exit 3 has to say what the loop does instead.
+if tr '\n' ' ' <"$skill" | grep -qE 'tower-loop-comms\.sh identity --checkout <primary> --(pid|session-id) '; then
+  ok "the documented identity call carries an identity flag"
+else
+  fail "the documented \`tower-loop-comms.sh identity\` call has no --pid/--session-id; as written it exits 2 and the loop never gets an identity"
+fi
+if tr '\n' ' ' <"$skill" | grep -qE 'exit 3 \(solo\)'; then
+  ok "the solo posture's exit 3 is documented"
+else
+  fail "the identity call's exit 3 (solo posture) is not documented"
+fi
+
 # The doc that owns the words the loop says, cited at point of use rather than
 # only in prose (tower-comms REQ-I1.4, D-13).
 if grep -qE '^Doctrine: point-of-use tower-comms' "$skill"; then
