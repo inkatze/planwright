@@ -268,6 +268,20 @@ PLANWRIGHT_FLEET_STATE_DIR="$filed" PLANWRIGHT_REPO_ROOT="$tmp" \
 [ "$filed_rc" != 0 ] || fail "a regular file at the push path read as an idle channel"
 grep -q 'not a directory' "$errf" || fail "the file at the push path was not named"
 
+# Or an entry in the set that is not a marker: it holds its key against every
+# later `notify`, so a set holding only that is a stuck channel, not an idle one.
+rm -f "$filed/attention/push"
+mkdir -p "$filed/attention/push/i00000005"
+chmod 0700 "$filed/attention/push" "$filed/attention/push/i00000005"
+filed_rc=0
+: >"$errf"
+PLANWRIGHT_FLEET_STATE_DIR="$filed" PLANWRIGHT_REPO_ROOT="$tmp" \
+  PLANWRIGHT_LOCAL_CONFIG="$local_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+  /bin/sh "$FA" relay >/dev/null 2>"$errf" || filed_rc=$?
+[ "$filed_rc" != 0 ] || fail "a pending set holding only a directory read as an idle channel"
+grep -q 'not a plain pending-push marker' "$errf" || fail "the directory in the pending set was not named"
+[ -d "$filed/attention/push/i00000005" ] || fail "the relay removed an entry it refused"
+
 # --- a question homed on an attention row, and the render that follows it -------
 
 state="$home/attention/state"

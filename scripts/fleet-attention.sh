@@ -1383,9 +1383,12 @@ case $cmd in
     # Nothing pending costs no lock: the loop calls this every iteration on a
     # channel most trees never select, and an unconditional lock here would
     # serialize every other writer against an empty directory forever.
+    # Anything at all in the set counts, not only regular files: an entry that
+    # is not a marker holds a key `notify` refuses to dedupe against, so it has
+    # to reach the report below rather than read as an idle channel.
     relay_pending=0
     for rp in "$@"; do
-      [ -f "$rp" ] || continue
+      [ -e "$rp" ] || [ -L "$rp" ] || continue
       relay_pending=1
       break
     done
@@ -1404,7 +1407,13 @@ case $cmd in
     for rp in "$@"; do
       # An unmatched glob comes back as the literal pattern; a dotfile is the
       # seam's own `.push.XXXXXX` scratch, which is not a marker yet.
-      [ -f "$rp" ] || continue
+      if [ ! -f "$rp" ]; then
+        if [ -e "$rp" ] || [ -L "$rp" ]; then
+          echo "fleet-attention: relay: $(sanitize_printable "${rp##*/}" "(unprintable key)") is not a plain pending-push marker; remove it to stop this report" >&2
+          relay_rc=2
+        fi
+        continue
+      fi
       if [ -L "$rp" ]; then
         echo "fleet-attention: relay: $(sanitize_printable "${rp##*/}" "(unprintable key)") is a symlink, not a marker this seam wrote; remove it to stop this report" >&2
         relay_rc=2
