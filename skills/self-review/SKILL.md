@@ -35,7 +35,7 @@ Doctrine: run-start validation-rigor
 Doctrine: run-start finding-categorization
 Doctrine: run-start gate-wiring
 Doctrine: point-of-use research-rigor (the Validation step, where research triggers fire)
-Doctrine: run-start refactor-instinct (review mode)
+Doctrine: point-of-use refactor-instinct (review mode, at the Discovery refactor filter)
 Doctrine: run-start security-posture (artifact data-hygiene)
 Doctrine: run-start proportionality (declared scoping)
 
@@ -122,7 +122,14 @@ Apply the `discovery-rigor` doc against the diff:
 - **Merge and dedupe.** A finding hitting two lenses gets one row with both
   labels.
 - **Filter refactor flags in review mode** per `refactor-instinct`: anchored
-  in tool output or made worse by this branch, otherwise dropped.
+  in tool output or made worse by this branch, otherwise dropped. This bullet
+  is the doc's only read site, which is what its `point-of-use` classification
+  rests on; a second, earlier read site needs the manifest revisited.
+- **Hold the Documentation lens to `discovery-rigor`'s four defect classes**:
+  prose the diff falsifies, documentation missing for behaviour the diff
+  introduces, a documentation guard's violation, and an interpretation fork.
+  Merely improvable prose is not a finding, and a `none` row that says so is
+  coverage rather than a gap.
 - **Emit the canonical lens-coverage table** before any per-finding output:
   one row per lens, empty lenses as `none` or `n/a` with a one-line reason.
 - **Run the mandatory self-critique pass**: assume the list is incomplete,
@@ -151,15 +158,24 @@ discipline, antipattern check.
 Route every validated finding through the `gate-wiring` doc's routing order:
 zone screen first, then bucket assignment per the `finding-categorization`
 predicates, then disposition by bucket. The wiring doc governs the mechanics
-this skill executes:
+this skill executes. Every artifact the pass emits passes `security-posture`'s
+artifact data-hygiene first: commit bodies, audit rows, the PR body,
+observation fragments, and the lens-coverage table Discovery has already
+produced, whose Notes cells quote tooling output.
 
+- A finding whose fix edits **only prose** is classed on
+  `finding-categorization`'s *Prose findings* axis before it is routed:
+  expression-only when no normative statement changes meaning, meaning-class
+  otherwise.
 - Auto-applicable and Agent-resolvable items are applied or resolved with
   their audit and evidence rows, and committed per the wiring doc's commit
   discipline; their fixes get solution validation per `validation-rigor`.
 - Needs-sign-off items are applied on the branch, committed per that same
   discipline with the `[pending-sign-off]` subject marker, and entered in the
-  pending-sign-off checklist. Before committing, self-lint the subject by
-  piping it in —
+  pending-sign-off checklist. A behaviour-changing fix commits alone;
+  prose-only ones batch into one commit per loop iteration carrying the wiring
+  doc's manifest, so one commit can carry several checklist entries. Before
+  committing, self-lint the subject by piping it in —
   `printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin`
   (under the resolved planwright root) — so the marker sits at the canonical
   end-of-subject position (`gate-wiring`) and a mis-placed one is reworded
@@ -210,9 +226,7 @@ summary at the end):
    results, and any reverts or surfaced failures.
 
 The **turn** gets the wiring's projection: counts, each pending sign-off and
-each fork; standalone, only forks are questions. Table content lands in a
-committed PR body: apply `security-posture` artifact data-hygiene before
-emitting.
+each fork; standalone, only forks are questions.
 
 ## Publishing the audit record (standalone only)
 

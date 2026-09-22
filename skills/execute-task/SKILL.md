@@ -38,7 +38,7 @@ naming the missing doc and the chain consulted (REQ-K1.7). `decision-domains`
 degrades gracefully instead: absent, note it in one line, skip the drift check,
 and use engineering judgment.
 
-Doctrine: run-start spec-format (status lifecycle, anchors, freshness gate)
+Doctrine: run-start spec-format (lifecycle, anchors, freshness, commit trailer)
 Doctrine: run-start proportionality
 Doctrine: point-of-use research-rigor
 Doctrine: point-of-use security-posture
@@ -191,24 +191,16 @@ remain this skill's single terminal step (see Invariants).
 
 ### Commit convention (REQ-C1.4, D-2)
 
-Every commit this skill authors for the unit (test-first action commits, the
-observation chore commit, any expression-only amendment commit) carries a
-`Planwright-Task: <spec>/<id>` footer trailer: the durable completion anchor the
-orchestration-state derivation reads by scanning the whole commit message, so it
-survives a squash/rebase merge, branch deletion, and direct-to-`main` commits.
-Stamp it through the shared helper, not by hand, so it is grammar-validated and
-identical everywhere:
+Every commit this skill authors for the unit — test-first action commits, the
+observation chore commit, any expression-only amendment commit — carries the
+`Planwright-Task` trailer `spec-format` defines under *Branch, worktree, and
+task-id grammar*, stamped through the shared helper:
 
 ```sh
 printf '%s\n' "$message" \
-  | scripts/planwright-commit-trailers.sh <spec>/<id> \
+  | scripts/planwright-commit-trailers.sh <spec>/<id> [<spec>/<id> ...] \
   | git commit -F -
 ```
-
-For a **bundle**, pass one ref per task (`… <spec>/<id1> <spec>/<id2> …`); the
-helper emits one trailer per task. The trailer is footer-only and additive — no
-subject-line change, no Claude/co-author attribution — so the no-attribution
-rule is unaffected.
 
 ### Test-first development (REQ-E1.1, `validation-rigor`)
 
@@ -327,15 +319,19 @@ its audit record without pushing or creating a PR (this skill's job, which is
 why `--nested` is mandatory). The `dispatch_isolation` mode sets only where each
 `--nested` call is **hosted** — `per-unit` in-session composition (REQ-E2.2,
 D-13) or a fresh `/resume`-seeded `per-step` session — never the `--nested`
-contract.
+contract. Each review skill holds its Documentation lens to `discovery-rigor`'s
+four defect classes, so a `none` row naming the reason is coverage, not a gap.
 
 After each returns:
 
 - **Normal exit** (converged, or handed off with queued forks): continue to the
   next skill; once the sequence has run, proceed to PR creation, folding each
-  skill's audit record — the four bucket tables (per `finding-categorization`),
-  the declined log, the pending-sign-off checklist, and any queued
-  Needs-human-judgment forks — into the PR body. One queued fork stops PR
+  skill's audit record — the four bucket tables (per `finding-categorization`,
+  whose *Prose findings* axis classes a prose-only fix expression-only or
+  meaning-class), the declined log, the pending-sign-off checklist (prose-only
+  sign-off fixes batch into one commit per loop iteration under `gate-wiring`'s
+  commit discipline, so one commit can carry several checklist entries), and any
+  queued Needs-human-judgment forks — into the PR body. One queued fork stops PR
   creation: a meaning-class spec finding is contract drift, and the
   meaning-class refusal below governs it.
 - **Safety stop** (wider-suite failure, loop detection, iteration cap): the
