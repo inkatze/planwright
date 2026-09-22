@@ -348,11 +348,11 @@ q list --now 5200 | awk -F "$TAB" '{ print $1 }' | while read -r open_id; do
 done
 
 C=tower-c
-# bad_case <label> <item-id> <expected-reason> <now> — reply and step until the
-# item reaches a hand-over (the first round knocks when the conversation has
-# lapsed and delivers when it has not), then assert its content record.
-bad_case() {
-  _bc_t=$4
+# reach_handover <label> <item-id> <now> — reply and step until the item reaches
+# a hand-over (the first round knocks when the conversation has lapsed and
+# delivers when it has not); its content record is left in $_bc_rec.
+reach_handover() {
+  _bc_t=$3
   _bc_rec=""
   _bc_round=0
   while [ "$_bc_round" -lt 3 ]; do
@@ -365,6 +365,12 @@ bad_case() {
     _bc_round=$((_bc_round + 1))
   done
   [ -n "$_bc_rec" ] || fail "$1: the item never reached a hand-over"
+}
+
+# bad_case <label> <item-id> <expected-reason> <now> — hand the item over and
+# assert its content record says it did not read, and why.
+bad_case() {
+  reach_handover "$1" "$2" "$4"
   got_state=$(printf '%s\n' "$_bc_rec" | awk -F "$TAB" '{ print $4 }')
   got_why=$(printf '%s\n' "$_bc_rec" | awk -F "$TAB" '{ print $5 }')
   [ "$got_state" = unread ] || fail "$1: a home that did not read reported '$got_state'"
@@ -403,6 +409,51 @@ if printf '%s\n' "$out" | grep -q PRIVATE; then
   fail "a symlinked content home was read out to the operator"
 fi
 rm -f "$content/ask-8"
+
+# A content file swapped for a symlink BETWEEN the screen and the read is
+# refused too: what is rendered comes from the file the screen opened, and the
+# name no longer holding that file is itself the refusal. An `ls` on PATH that
+# makes the swap when the loop script first looks the file up is how this
+# reaches that window.
+printf 'decoy\n' >"$content/ask-9"
+i9=$(q add --kind request --root "$content" --pointer ask-9 --origin operator \
+  --closes 'the operator decides' --now 5350) || fail "add ask-9"
+[ -n "$i9" ] || fail "the swap fixture item did not register"
+printf 'PRIVATE\n' >"$tmp/elsewhere-9"
+shim="$tmp/shim"
+mkdir -p "$shim"
+swap9="$tmp/swap9-armed"
+real_ls=$(command -v ls)
+cat >"$shim/ls" <<EOF
+#!/bin/sh
+if [ -f "$swap9" ]; then
+  case \$(ps -o args= -p "\$PPID" 2>/dev/null) in
+    *tower-loop-comms.sh*)
+      for a in "\$@"; do
+        case \$a in
+          */ask-9)
+            rm -f "$swap9" "$content/ask-9"
+            ln -s "$tmp/elsewhere-9" "$content/ask-9"
+            ;;
+        esac
+      done
+      ;;
+  esac
+fi
+exec "$real_ls" "\$@"
+EOF
+chmod 0755 "$shim/ls"
+: >"$swap9"
+PATH_REAL=$PATH
+PATH="$shim:$PATH"
+bad_case swapped-mid-read "$i9" redirected 5360
+PATH=$PATH_REAL
+[ ! -e "$swap9" ] || fail "the mid-read swap fixture never made its swap"
+if printf '%s\n' "$out" | grep -q PRIVATE; then
+  fail "a content home swapped mid-read was read out to the operator"
+fi
+rm -f "$content/ask-9"
+q settle "$i9" --reason 'fixture done' --now 5400 >/dev/null || fail "settle ask-9"
 
 # --- the per-step measurement the PR body reports -------------------------------
 

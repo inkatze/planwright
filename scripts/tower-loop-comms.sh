@@ -404,38 +404,76 @@ RAW="$TMPDIR_STEP/content"
 content_why=""
 content_truncated=no
 
+# owned_by_me <path> — the file the path finally names is this user's. Called
+# on /dev/fd/7 as well as on names, which is why it follows.
 owned_by_me() {
   # shellcheck disable=SC2012
-  _obown=$(ls -ldn "$1" 2>/dev/null | awk 'NR == 1 { print $3 }')
+  _obown=$(ls -dnL "$1" 2>/dev/null | awk 'NR == 1 { print $3 }')
   _obme=$(id -u 2>/dev/null)
   [ -n "$_obown" ] && [ -n "$_obme" ] && [ "$_obown" = "$_obme" ]
 }
 
-# read_path_content <path> — the content of a `path:` home. The write paths
-# checked this pointer when the item was added; that says nothing about the file
-# being read now, so the screen is re-derived here (the rule
+# open_screened <path> — open the path on fd 7 and prove the open file is the
+# one the name holds now: a regular file of this user's, reached through no
+# symlink at the leaf. Opening first and screening after is what closes the
+# window between a check and a re-open: a swap before the open leaves the name
+# and the descriptor on different files, and a swap after it cannot change what
+# fd 7 reads. The caller screens the directory after this returns, for the same
+# reason, and closes fd 7 whatever the outcome.
+open_screened() {
+  { command exec 7<"$1"; } 2>/dev/null || {
+    content_why=unreadable
+    return 1
+  }
+  # shellcheck disable=SC2012
+  _osfd=$(ls -iLd /dev/fd/7 2>/dev/null | awk 'NR == 1 { print $1 }')
+  # shellcheck disable=SC2012
+  _osname=$(ls -id "$1" 2>/dev/null | awk 'NR == 1 { print $1 }')
+  if [ -L "$1" ] || [ ! -f /dev/fd/7 ] || [ -z "$_osfd" ] || [ "$_osfd" != "$_osname" ]; then
+    content_why=redirected
+    return 1
+  fi
+  if ! owned_by_me /dev/fd/7; then
+    content_why=foreign-owner
+    return 1
+  fi
+}
+
+# read_path_content <path> — the content of a `path:` home. The write
+# paths checked this pointer when the item was added; that says nothing about
+# the file being read now, so the screen is re-derived here (the rule
 # scripts/tower-queue.sh states for its own ledger read). A symlink at the leaf,
 # a symlink anywhere above it, and a file owned by somebody else are each
-# refused rather than read: an item's content is rendered to the operator, so a
-# redirect planted after `add` would be reading an arbitrary file out loud. A
-# hardlink to another file of this same owner is the residual neither this nor
-# the ledger read can see.
+# refused, and the bytes rendered are read from the same open file the screen
+# passed: an item's content is rendered to the operator, so a redirect planted
+# after `add`, or between the screen and the read, would be reading an
+# arbitrary file out loud. A hardlink to another file of this same owner is the
+# residual neither this nor the ledger read can see.
 read_path_content() {
+  _rpok=0
+  read_path_screened "$@" || _rpok=1
+  exec 7<&-
+  return "$_rpok"
+}
+
+read_path_screened() {
   _rp=$1
   if [ -L "$_rp" ] || [ ! -f "$_rp" ]; then
     content_why=gone
     return 1
   fi
+  open_screened "$_rp" || return 1
   _rpdir=$(cd "$(dirname "$_rp")" 2>/dev/null && pwd -P) || _rpdir=""
   if [ -z "$_rpdir" ] || [ "$_rpdir/$(basename "$_rp")" != "$_rp" ]; then
     content_why=redirected
     return 1
   fi
-  if ! owned_by_me "$_rp"; then
-    content_why=foreign-owner
+  _rpfull="$TMPDIR_STEP/content.full"
+  head -c "$((Q_CONTENT_CAP + 1))" <&7 >"$_rpfull" 2>/dev/null || {
+    content_why=unreadable
     return 1
-  fi
-  head -c "$Q_CONTENT_CAP" "$_rp" >"$RAW" 2>/dev/null || {
+  }
+  head -c "$Q_CONTENT_CAP" "$_rpfull" >"$RAW" 2>/dev/null || {
     content_why=unreadable
     return 1
   }
@@ -444,7 +482,7 @@ read_path_content() {
   # on a shell variable: a variable has already lost its trailing newlines to
   # the substitution that made it, which is what a length taken there gets
   # wrong in both directions.
-  _rpbytes=$(head -c "$((Q_CONTENT_CAP + 1))" "$_rp" 2>/dev/null | wc -c | tr -d ' ')
+  _rpbytes=$(wc -c <"$_rpfull" | tr -d ' ')
   case $_rpbytes in
     "" | *[!0-9]*) ;;
     *) [ "$_rpbytes" -le "$Q_CONTENT_CAP" ] || content_truncated=yes ;;
@@ -461,6 +499,13 @@ read_path_content() {
 # (REQ-C1.1). Field order is scripts/fleet-attention.sh's upsert_row: 6
 # question, 7 default, 8 options, 12 command.
 read_row_content() {
+  _rrok=0
+  read_row_screened "$@" || _rrok=1
+  exec 7<&-
+  return "$_rrok"
+}
+
+read_row_screened() {
   _rrh=$1
   _rrroot=$("$script_dir/fleet-state.sh" root 2>/dev/null) || _rrroot=""
   if [ -z "$_rrroot" ]; then
@@ -478,11 +523,12 @@ read_row_content() {
     content_why=gone
     return 1
   fi
+  open_screened "$_rrstore" || return 1
   if [ -L "${_rrstore%/*}" ]; then
     content_why=redirected
     return 1
   fi
-  if ! owned_by_me "${_rrstore%/*}" || ! owned_by_me "$_rrstore"; then
+  if ! owned_by_me "${_rrstore%/*}"; then
     content_why=foreign-owner
     return 1
   fi
@@ -497,9 +543,10 @@ read_row_content() {
       if ($8 != "") print "options: " $8
       if ($12 != "") print "command: " $12
       found = 1
+      exit
     }
     END { if (!found) exit 1 }
-  ' "$_rrstore" >"$RAW" 2>/dev/null || {
+  ' <&7 >"$RAW" 2>/dev/null || {
     content_why=gone
     return 1
   }
