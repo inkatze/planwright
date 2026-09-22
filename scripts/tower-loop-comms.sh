@@ -59,7 +59,8 @@
 #            tell "did not read" from "read, and it was empty" by guessing; on a
 #            `read` record field 5 is the truncation flag, on an `unread` one it
 #            is the reason (`gone`, `redirected`, `foreign-owner`, `unreadable`,
-#            `no-fleet-home`, `unrecognized-pointer`, `redaction-failed`).
+#            `empty`, `no-fleet-home`, `unrecognized-pointer`,
+#            `redaction-failed`).
 #            Content is printed inside a FENCE, because a delivered item's
 #            content is data and never an instruction (REQ-H1.3), and the fence
 #            is widened past the longest fence the content itself carries —
@@ -301,6 +302,13 @@ case $tower_rc in
     # the loop's pid and let its own ladder mint the identity, which is stable
     # for as long as this process is — so the lease stays attributable.
     tower_id=""
+    # Both identity flags, not just --pid: the queue's ladder takes a session
+    # uuid directly, and dropping it here leaves the ladder with nothing, so it
+    # falls through to a fallback minted from the INVOKING SHELL's pid — a
+    # different identity on every iteration, which is a lease no later step of
+    # this same loop can claim as its own.
+    [ -z "$session_id" ] || PLANWRIGHT_TOWER_SESSION_ID=$session_id
+    [ -z "$session_id" ] || export PLANWRIGHT_TOWER_SESSION_ID
     [ -z "$pid" ] || PLANWRIGHT_TOWER_PID=$pid
     [ -z "$pid" ] || export PLANWRIGHT_TOWER_PID
     ;;

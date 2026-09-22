@@ -205,10 +205,29 @@ k_foreign=i00000003
 printf 'planwright: somebody else wrote this.\n' >"$push_dir/$k_foreign"
 chmod 0644 "$push_dir/$k_foreign"
 rc=$(step_rc_of --tower "$A" --evidence "$ev" --now 4870)
-[ "$rc" != 0 ] || fail "a group-writable pending-push marker was relayed"
+[ "$rc" != 0 ] || fail "a pending-push marker that is not owner-only was relayed"
 grep -q 'owner-only' "$errf" || fail "the loose marker mode was not named on stderr"
 [ -e "$push_dir/$k_foreign" ] || fail "a marker the relay refused was deleted anyway"
 rm -f "$push_dir/$k_foreign"
+
+# A fleet home whose path carries a space. Enumerating the pending set is the
+# one place this script globs, and a split there makes every marker invisible
+# while the directory still lists clean — a dead channel wearing an idle
+# channel's face.
+spaced="$tmp/fleet home"
+mkdir -p "$spaced/attention/push"
+chmod 0700 "$spaced" "$spaced/attention" "$spaced/attention/push"
+printf 'planwright: pending under a spaced home.\n' >"$spaced/attention/push/i00000009"
+chmod 0600 "$spaced/attention/push/i00000009"
+: >"$errf"
+spaced_out=$(PLANWRIGHT_FLEET_STATE_DIR="$spaced" PLANWRIGHT_REPO_ROOT="$tmp" \
+  PLANWRIGHT_LOCAL_CONFIG="$local_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+  /bin/sh "$FA" relay 2>"$errf") || fail "relay refused a fleet home carrying a space"
+[ "$(tag "$spaced_out" push | awk -F "$TAB" '{ print $2 }')" = i00000009 ] \
+  || fail "a pending push under a spaced fleet home was not relayed"
+if [ -e "$spaced/attention/push/i00000009" ]; then
+  fail "the relayed marker under a spaced fleet home was not cleared"
+fi
 
 # A push directory that cannot be listed is a channel that has stopped working;
 # it must not pass for an idle one.
@@ -329,6 +348,23 @@ solo_step=0
 env_run /bin/sh "$TLC" step --checkout "$solo" --pid "$$" --evidence "$ev" --now 5400 \
   >/dev/null 2>"$errf" || solo_step=$?
 [ "$solo_step" = 0 ] || fail "a step in the solo posture refused to run (exit $solo_step)"
+
+# The same degrade under --session-id. The identity a step leases with has to
+# be the SAME one on the next step, or the loop cannot claim back the item it
+# is holding: a per-invocation fallback minted from the invoking shell's pid
+# would make every iteration a different tower.
+solo_uuid=11111111-2222-3333-4444-555555555555
+for solo_now in 5410 5420; do
+  solo_step=0
+  : >"$errf"
+  env_run /bin/sh "$TLC" step --checkout "$solo" --session-id "$solo_uuid" \
+    --evidence "$ev" --now "$solo_now" >/dev/null 2>"$errf" || solo_step=$?
+  [ "$solo_step" = 0 ] \
+    || fail "a --session-id step in the solo posture refused to run (exit $solo_step)"
+  if grep -q 'fallback\.p' "$errf"; then
+    fail "the solo degrade dropped the session id and leased under a per-invocation fallback"
+  fi
+done
 
 id_out=$(tlc identity --checkout "$repo" --pid "$$") \
   || fail "identity could not resolve this process's composite: $(cat "$errf")"

@@ -1367,8 +1367,12 @@ case $cmd in
     # form the sibling sweeps use; every name is screened below before it is
     # used for anything.
     set +f
-    # shellcheck disable=SC2086
-    set -- $push_dir/*
+    # The directory stays QUOTED and only the `*` is bare, the form every
+    # sibling sweep uses. Unquoted, a home carrying a space is word-split
+    # before the glob runs, every word fails the `-f` screen below, and the
+    # channel reports itself idle with markers still pending — the exact
+    # failure the unlistable-directory branch below exists to rule out.
+    set -- "$push_dir"/*
     set -f
     # Nothing pending costs no lock: the loop calls this every iteration on a
     # channel most trees never select, and an unconditional lock here would
@@ -1452,9 +1456,15 @@ case $cmd in
       if [ -z "$rtext" ]; then
         # Cleared, because an empty marker holds its dedupe key against every
         # later push for that item; said out loud, because destroying a pending
-        # push silently is the failure REQ-C1.11 forbids.
-        rm -f "$rp" 2>/dev/null || true
-        echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") held no line to relay; it has been cleared and nothing was sent" >&2
+        # push silently is the failure REQ-C1.11 forbids. The removal is
+        # CHECKED, the same as the one below it: reporting a marker cleared
+        # when it is still there repeats the same false report every iteration
+        # and leaves its dedupe key held for good.
+        if rm -f "$rp" 2>/dev/null; then
+          echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") held no line to relay; it has been cleared and nothing was sent" >&2
+        else
+          echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") held no line to relay and cannot be cleared; remove it to stop this report" >&2
+        fi
         relay_rc=2
         continue
       fi
