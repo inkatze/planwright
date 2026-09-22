@@ -241,6 +241,20 @@ chmod 0700 "$push_dir"
 grep -q 'cannot be listed' "$errf" || fail "the unlistable push directory was not named"
 rm -f "$push_dir/$k_pending"
 
+# Nor may a regular file where the push directory should be: `notify` cannot
+# queue anything under it, and it lists as readably as an empty directory.
+filed="$tmp/filed-home"
+mkdir -p "$filed/attention"
+chmod 0700 "$filed" "$filed/attention"
+: >"$filed/attention/push"
+filed_rc=0
+: >"$errf"
+PLANWRIGHT_FLEET_STATE_DIR="$filed" PLANWRIGHT_REPO_ROOT="$tmp" \
+  PLANWRIGHT_LOCAL_CONFIG="$local_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+  /bin/sh "$FA" relay >/dev/null 2>"$errf" || filed_rc=$?
+[ "$filed_rc" != 0 ] || fail "a regular file at the push path read as an idle channel"
+grep -q 'not a directory' "$errf" || fail "the file at the push path was not named"
+
 # --- a question homed on an attention row, and the render that follows it -------
 
 state="$home/attention/state"

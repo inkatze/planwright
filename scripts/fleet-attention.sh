@@ -1361,6 +1361,12 @@ case $cmd in
         exit 2
       fi
     done
+    # Something other than a directory at the push path is not an empty queue:
+    # `notify` cannot write a marker under it, so every push is being lost.
+    if [ -e "$push_dir" ] && [ ! -d "$push_dir" ]; then
+      echo "fleet-attention: relay: $(sanitize_printable "$push_dir" "(unprintable path)") is not a directory; pending pushes are not reaching the operator — remove it to stop this report" >&2
+      exit 2
+    fi
     [ -d "$push_dir" ] || exit 0
     # This script runs noglob, and enumerating the pending set is the one place
     # that needs expansion. Expanded into "$@" and re-armed immediately, the
