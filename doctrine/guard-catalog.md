@@ -158,6 +158,15 @@ What it recommends has two parts, both defined in
 A project-bespoke guard the way planwright's own spec validator and link-check
 are (see [Dogfooding](#dogfooding)).
 
+### Emit sidedness
+
+The `emit-sidedness` entry recommends a prose scanner reporting each emit
+mandate that names no destination side, turn or artifact, per
+[interaction-style.md](interaction-style.md) (planwright's is
+`scripts/check-sidedness.sh`). It runs in `check` reporting-only, never
+gating: its heuristic has false positives, and a gate firing on them teaches
+dodging.
+
 ## Extension
 
 Two growth paths, both without editing the consuming script (the

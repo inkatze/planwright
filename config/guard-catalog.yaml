@@ -191,3 +191,13 @@ breadth:
     category: breadth
     tool: instruction-budget-guard
     detect: "manual"
+  # Emit sidedness (operator-dialogue REQ-M1.3, D-19). Advisory breadth
+  # dimension for repos with an instruction layer: a prose scanner
+  # (scripts/check-sidedness.sh in planwright) that reports emit mandates
+  # naming no destination side, turn or artifact. Reporting-only by design,
+  # never a gate: prose heuristics have false positives. detect: manual, like
+  # every breadth entry.
+  - id: emit-sidedness
+    category: breadth
+    tool: sidedness-check
+    detect: "manual"

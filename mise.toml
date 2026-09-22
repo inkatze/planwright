@@ -162,6 +162,10 @@ run = "/bin/bash scripts/check-doctrine-index.sh"
 description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
 run = "/bin/bash scripts/check-doctrine-manifest.sh"
 
+[tasks."check:sidedness"]
+description = "advisory sidedness check: report emit mandates in skill and doctrine prose that declare no destination side (turn or artifact). Reporting-only, always exits zero: prose heuristics have false positives, and a wrong gate teaches gate-dodging (operator-dialogue REQ-M1.3, D-19)"
+run = "/bin/sh scripts/check-sidedness.sh"
+
 [tasks."check:guard-wiring"]
 description = "guard-reachability check: every scripts/check-*.sh must be named in the run body of a mise task reachable from the `check` aggregate, in a workflow, or in scripts/guard-wiring-allow.txt with who runs it instead. A guard nothing invokes cannot fail, which is indistinguishable from one that always passes. Fails closed on anything that would narrow the scan to nothing"
 run = "/bin/sh scripts/check-guard-wiring.sh"
@@ -189,6 +193,10 @@ run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
 [tasks."eval:behavioral"]
 description = "on-demand behavioral eval harness (never in CI or `check`): drives a skill through a real interactive tmux TTY session, answered by simulated-operator personas, grading the durable artifacts a run writes; needs tmux + jq (operator-dialogue Task 5, REQ-G, D-8)"
 run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/fixtures"
+
+[tasks."eval:turn-shape"]
+description = "on-demand turn-shape eval (never in CI or `check`): the behavioral harness over the turn-shape fixtures, grading each run's turn records against the invariants its fixture names (no multi-table dump, projection present, decisions first, no monotonic summary, bounded selector identifiers, capture at birth, step-report slots, the open-captures list); needs tmux + jq (operator-dialogue REQ-M1.1, REQ-M1.4, D-19)"
+run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/turn-shape"
 
 [tasks."obs:log"]
 description = "render the observations chronological view on demand (derived, never committed; --archived to include consumed history; REQ-C1.4, D-4)"
@@ -229,6 +237,7 @@ depends = [
   "check:cdpath",
   "check:echo-safety",
   "check:guard-wiring",
+  "check:sidedness",
   "check:backend-capability-drift",
   "check:specs",
   "scan:secrets",
