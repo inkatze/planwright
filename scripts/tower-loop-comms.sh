@@ -36,7 +36,8 @@
 #            passed through as the pass prints them — `settled`, `merged`,
 #            `answered`, `unavailable`, `held`.
 #         2. The pending pushes (`fleet-attention.sh relay`), as
-#            `push<TAB><key><TAB><text>`. The session relays each by calling
+#            `push<TAB><key><TAB><text>`, the text through `tower-queue.sh
+#            redact` on the way out. The session relays each by calling
 #            Claude Code's push-notification tool with that text verbatim; the
 #            marker is already cleared, so a line printed here is relayed once
 #            (D-19, REQ-F1.6).
@@ -384,7 +385,26 @@ note_rc "$?" "settling"
 
 relay_lines=$("$FA" relay)
 note_rc "$?" "pending-push relay"
-[ -z "${relay_lines:-}" ] || printf '%s\n' "$relay_lines"
+# The text goes to the operator's lock screen, so it passes the same redaction
+# helper as delivered content. Here, on the way out, and not where the marker
+# is written: the marker keeps what its writer wrote, and anything that reads
+# markers some other way gets them unredacted. Only the text field: the helper
+# escapes the tabs that delimit the line.
+if [ -n "${relay_lines:-}" ]; then
+  printf '%s\n' "$relay_lines" >"$TMPDIR_STEP/pushes"
+  while IFS="$TAB" read -r p_tag p_key p_text; do
+    if [ "$p_tag" != push ]; then
+      printf '%s\t%s\t%s\n' "$p_tag" "$p_key" "$p_text"
+      continue
+    fi
+    p_safe=$(printf '%s\n' "$p_text" | "$TQ" redact) || {
+      err "the push for $p_key could not be redacted; it is NOT relayed, and its marker is already cleared"
+      note_rc 6 "push redaction"
+      continue
+    }
+    printf 'push\t%s\t%s\n' "$p_key" "$p_safe"
+  done <"$TMPDIR_STEP/pushes"
+fi
 
 # --- 3. the catch-up list, only when the tower asked to read it ----------------
 

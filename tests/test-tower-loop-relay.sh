@@ -180,6 +180,19 @@ out=$(step relay-again --tower "$A" --evidence "$ev" --now 4840) \
   || fail "the second relay step exited non-zero: $out"
 [ "$(count_tag "$out" push)" = 0 ] || fail "the marker was relayed a second time"
 
+# The relayed text is redacted on the way out: it lands on a lock screen, and
+# nothing guarantees the marker's writer scrubbed it.
+leak=ghp_abcdefghijklmnopqrstuvwxyz0123456789
+printf 'planwright: the worker pasted %s into its log.\n' "$leak" >"$push_dir/$i2"
+chmod 0600 "$push_dir/$i2"
+out=$(step relay-redact --tower "$A" --evidence "$ev" --now 4845) \
+  || fail "the redacting relay step exited non-zero: $out"
+[ "$(count_tag "$out" push)" = 1 ] || fail "the secret-bearing push was not relayed"
+case $out in
+  *"$leak"*) fail "a pending push was relayed with a secret-shaped token in it" ;;
+esac
+tag "$out" push | grep -q 'redacted:github-token' || fail "the relayed push does not show the redaction"
+
 # A marker the relay declines to take is NAMED, never dropped in silence, and
 # it makes the step non-zero so the turn says so (REQ-C1.11). Three shapes:
 # a name outside the key grammar, an empty marker, and one somebody else can
