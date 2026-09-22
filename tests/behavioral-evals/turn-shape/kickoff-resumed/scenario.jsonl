@@ -1,0 +1,2 @@
+{"op": "turn", "phase": "resume", "surface": "spec-kickoff", "projection": "resume-confirmation", "text": "Pick up at Design, section 3 of 5?\n\nRequirements: signed 2026-09-20.\n\nDesign sections 1 and 2: signed 2026-09-21.", "sections": [{"role": "question", "text": "Pick up at Design, section 3 of 5?"}, {"role": "state", "text": "Requirements: signed 2026-09-20."}, {"role": "state", "text": "Design sections 1 and 2: signed 2026-09-21."}]}
+{"op": "ask", "phase": "resume", "text": "Resume at Design section 3, or re-open an earlier section?"}

@@ -1,0 +1,7 @@
+# novice.persona — answers for the kickoff-wall fixture, one per prompt.
+expertise=novice
+answer.1=retry the failed step
+answer.2=the README still links the old walkthrough, we should fix that later
+answer.3=confirm
+answer.4=fail after a fixed limit
+answer.5=approve as walked
