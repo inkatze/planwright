@@ -404,6 +404,13 @@ RAW="$TMPDIR_STEP/content"
 content_why=""
 content_truncated=no
 
+owned_by_me() {
+  # shellcheck disable=SC2012
+  _obown=$(ls -ldn "$1" 2>/dev/null | awk 'NR == 1 { print $3 }')
+  _obme=$(id -u 2>/dev/null)
+  [ -n "$_obown" ] && [ -n "$_obme" ] && [ "$_obown" = "$_obme" ]
+}
+
 # read_path_content <path> — the content of a `path:` home. The write paths
 # checked this pointer when the item was added; that says nothing about the file
 # being read now, so the screen is re-derived here (the rule
@@ -424,10 +431,7 @@ read_path_content() {
     content_why=redirected
     return 1
   fi
-  # shellcheck disable=SC2012
-  _rpown=$(ls -ln "$_rp" 2>/dev/null | awk 'NR == 1 { print $3 }')
-  _rpme=$(id -u 2>/dev/null)
-  if [ -z "$_rpown" ] || [ -z "$_rpme" ] || [ "$_rpown" != "$_rpme" ]; then
+  if ! owned_by_me "$_rp"; then
     content_why=foreign-owner
     return 1
   fi
@@ -464,8 +468,22 @@ read_row_content() {
     return 1
   fi
   _rrstore="$_rrroot/attention/state"
-  if [ ! -f "$_rrstore" ]; then
+  # The row is rendered to the operator as the question, so it gets the screen
+  # the path home above gets and tower-queue.sh's check_owned gives this same
+  # store. `next` screened it a moment ago; that says nothing about the file
+  # read now. Only the store and its directory, not every component above: the
+  # fleet home is not canonicalized, and a home under a symlinked prefix is not
+  # a redirect.
+  if [ -L "$_rrstore" ] || [ ! -f "$_rrstore" ]; then
     content_why=gone
+    return 1
+  fi
+  if [ -L "${_rrstore%/*}" ]; then
+    content_why=redirected
+    return 1
+  fi
+  if ! owned_by_me "${_rrstore%/*}" || ! owned_by_me "$_rrstore"; then
+    content_why=foreign-owner
     return 1
   fi
   # `($1 "") == (h "")` forces a string compare: awk would otherwise treat a

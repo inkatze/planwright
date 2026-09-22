@@ -312,6 +312,66 @@ grep -q 'left out' "$errf" || fail "the render shrank without saying so"
 [ "$(fa queue --count)" = 2 ] || fail "--except filtered the count"
 [ "$(fa queue --except w-delivered --count)" = 2 ] || fail "--except filtered the count"
 
+# The store swapped for a symlink AFTER `next` screened it is refused rather
+# than read out: the row is rendered as the question. `next` refuses a
+# redirected store itself, so the swap has to land between the two reads; a
+# tree whose fleet-state.sh plants it when the loop script asks for the root is
+# how this reaches that window.
+tree="$tmp/tree"
+mkdir -p "$tree"
+cp -R "$here/../scripts" "$tree/scripts"
+mv "$tree/scripts/fleet-state.sh" "$tree/scripts/fleet-state.real.sh"
+swap_flag="$tmp/swap-armed"
+decoy="$tmp/decoy-state"
+sed 's/And this?/PRIVATE decoy question/' "$state" >"$decoy"
+chmod 0600 "$decoy"
+cat >"$tree/scripts/fleet-state.sh" <<EOF
+#!/bin/sh
+if [ "\${1:-}" = root ] && [ -f "$swap_flag" ]; then
+  case \$(ps -o args= -p "\$PPID" 2>/dev/null) in
+    *tower-loop-comms.sh*)
+      rm -f "$swap_flag"
+      mv "$state" "$state.held" && ln -s "$decoy" "$state"
+      ;;
+  esac
+fi
+exec /bin/sh "$tree/scripts/fleet-state.real.sh" "\$@"
+EOF
+chmod 0755 "$tree/scripts/fleet-state.sh"
+
+qs=$(q add --kind question --worker w-open --origin w-open \
+  --closes 'the operator answers' --now 5050) || fail "add the swapped-store question"
+[ -n "$qs" ] || fail "the swapped-store question did not register"
+TLC_REAL=$TLC
+TLC="$tree/scripts/tower-loop-comms.sh"
+: >"$swap_flag"
+S=tower-s
+s_t=5060
+s_rec=""
+s_round=0
+while [ "$s_round" -lt 3 ]; do
+  reply_at "$S" "$s_t"
+  out=$(step swapped-store-$s_round --tower "$S" --evidence "$ev" --now "$((s_t + 1))") \
+    || fail "the swapped-store step exited non-zero: $out"
+  s_rec=$(printf '%s\n' "$out" | awk -F "$TAB" -v i="$qs" '$1 == "content" && $2 == i { print; exit }')
+  [ -z "$s_rec" ] || break
+  s_t=$((s_t + 2))
+  s_round=$((s_round + 1))
+done
+TLC=$TLC_REAL
+if [ -L "$state" ]; then
+  rm -f "$state"
+  mv "$state.held" "$state"
+fi
+[ ! -e "$swap_flag" ] || fail "the swapped-store fixture never planted its symlink"
+[ -n "$s_rec" ] || fail "the swapped-store question never reached a hand-over"
+[ "$(field "$s_rec" 4)" = unread ] || fail "a symlinked attention store was read: $s_rec"
+[ "$(field "$s_rec" 5)" = gone ] || fail "the symlinked store gave the wrong reason: $s_rec"
+if printf '%s\n' "$out" | grep -q PRIVATE; then
+  fail "a symlinked attention store was read out to the operator"
+fi
+q settle "$qs" --reason 'fixture done' --now 5070 >/dev/null || fail "settle the swapped-store question"
+
 # --- a second tower on the host carries its own identity ------------------------
 # A's confirmed attention is not B's, and the question A is holding is leased to
 # A (D-18, REQ-A1.7, REQ-C1.10). If `--tower` were dropped anywhere in the step,
