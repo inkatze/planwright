@@ -91,6 +91,11 @@ for fx in $fixtures; do
   for persona in novice expert; do
     art="$TMP/l1/$fx.$persona"
     replay "$fx" "$persona" "$art" || continue
+    # The harness drives turns= prompts; lane 3 covers only some fixtures, so
+    # the count is pinned here for all of them.
+    turns="$(sed -n 's/^turns=//p' "$SUITE/$fx/fixture.conf")"
+    answered="$(jq -r '.answers' "$art/sign-off.json")"
+    [ "$answered" = "$turns" ] || bad "$fx/$persona answered $answered prompts, but its conf declares turns=$turns"
     out="$(/bin/sh "$GRADE" --conf "$SUITE/$fx/fixture.conf" "$art" 2>&1)"
     rc=$?
     assert_exit "$fx/$persona grades as expected" 0 "$rc"
@@ -197,6 +202,22 @@ mutate "$TMP/l1/orchestrate-halts.novice" "$TMP/m/repeated-text" \
 out="$(grade_one decisions-first orchestrate-halts "$TMP/m/repeated-text")"
 assert_exit "a section text repeated later in the turn still reads in order" 0 "$?"
 
+# GFM renders a delimiter row of single hyphens as a table, so it counts as one.
+mutate "$TMP/l1/projection.novice" "$TMP/m/short-delimiters" \
+  'if .kind == "turn" then .text += "\n\n| a | b |\n|-|:-:|\n| 1 | 2 |\n\n| c |\n|-|\n| 3 |" else . end'
+out="$(grade_one no-table-dump projection "$TMP/m/short-delimiters")"
+assert_exit "tables with one-hyphen delimiter rows count toward no-table-dump" 1 "$?"
+
+# A section's trailing newline is not a line of its own.
+mutate "$TMP/l1/orchestrate-halts.novice" "$TMP/m/trailing-newline" \
+  'if .projection == "step-report" then .sections |= map(if .role == "reasoning" then .text += "\nAnd it is urgent.\n" else . end) else . end'
+out="$(grade_one step-report-slots orchestrate-halts "$TMP/m/trailing-newline")"
+assert_exit "two reasoning lines with a trailing newline stay within step-report-slots" 0 "$?"
+mutate "$TMP/l1/kickoff-resumed.novice" "$TMP/m/resume-trailing-newline" \
+  'if .projection == "resume-confirmation" then .sections[1].text += "\n" else . end'
+out="$(grade_one no-monotonic-growth kickoff-resumed "$TMP/m/resume-trailing-newline")"
+assert_exit "a one-line settled section with a trailing newline stays one line" 0 "$?"
+
 # A phase that comes back is graded at each of its boundaries.
 mutate "$TMP/l1/kickoff-multiphase.novice" "$TMP/m/phase-returns" \
   'if .kind == "turn" and .projection == "running-summary" and .phase == "design" then .phase = "requirements" else . end'
@@ -243,10 +264,11 @@ out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$H/state" \
 rc=$?
 assert_exit "conforming fixtures and walls pass end to end" 0 "$rc"
 [ "$rc" -eq 0 ] || printf '%s\n' "$out" >&2
-assert_contains "the harness reports a wall's planted failure" "[wall/novice] turn-shape: FAIL no-table-dump (expected)" "$out"
+assert_contains "the harness reports a wall's planted failure" "[wall/novice.r2] turn-shape: FAIL no-table-dump (expected)" "$out"
 expected_runs=0
 for fx in $lane3; do
   runs="$(sed -n 's/^runs=//p' "$SUITE/$fx/fixture.conf")"
+  [ -n "$runs" ] || runs=1
   n="$(sed -n 's/^personas=//p' "$SUITE/$fx/fixture.conf" | wc -w | tr -d ' ')"
   expected_runs=$((expected_runs + runs * n))
 done

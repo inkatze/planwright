@@ -4,7 +4,8 @@
 #
 # Input: the decision log as one array. Args: $cfg (the fixture's thresholds
 # and invariant list), $artifacts (name, bytes, and table count of every file
-# the run wrote besides the log and the run record).
+# the run wrote besides the log and the run record), $delimiter_re (the table
+# delimiter-row pattern, shared with the artifact table count).
 #
 # Only schema-v2 records are graded; the kickoff fixture's unversioned
 # records (an integer `turn` field) are ignored rather than misread.
@@ -19,7 +20,7 @@ def record_classes: ["handoff", "ci-failure", "drain-report", "resume-lead", "st
 def capture_targets: ["awaiting-input", "deferred", "observation"];
 
 # A markdown table has exactly one delimiter row, so delimiter rows count tables.
-def is_delimiter: test("\\|") and test("^ *\\|? *:?-{3,}:? *(\\| *:?-{3,}:? *)*\\|? *$");
+def is_delimiter: test("\\|") and test($delimiter_re);
 def tables: [split("\n")[] | select(is_delimiter)] | length;
 
 def id_count: [scan("\\bREQ-[A-Z][A-Z0-9]*\\.[0-9]+[a-z]?\\b|\\bD-[0-9]+\\b|\\bobs:[0-9a-f]{8}\\b")] | length;
@@ -46,6 +47,9 @@ def turn_ok:
   and ((.captures == null) or ((.captures | type) == "array"));
 
 def states: [.sections[] | select(.role == "state") | .text];
+
+# A trailing newline ends the last line rather than starting another.
+def line_count: rtrimstr("\n") | split("\n") | length;
 
 def no_table_dump($turns; $cfg):
   if ($turns | length) == 0 then vacuous("no turn records to grade")
@@ -97,7 +101,7 @@ def no_monotonic_growth($turns; $cfg):
         | select(($prev | length) > 0 and all($prev[]; . as $x | $cur.text | contains($x)))
         | "\($cur.projection) seq \($cur.seq) replays every state line of the one before it"]
       + [$resumes[] | . as $t | $t.sections[] | select(.role == "state")
-         | select((.text | contains("\n")) or ((.text | length) > $cfg.max_confirm_line_chars))
+         | select((.text | line_count) > 1 or ((.text | rtrimstr("\n") | length) > $cfg.max_confirm_line_chars))
          | "resume confirmation seq \($t.seq) spends more than one line on a settled section"])
       | verdict
     end;
@@ -143,7 +147,7 @@ def step_report_slots($v2; $turns):
               "step report seq \($t.seq) carries a section outside the state, reasoning, and requests slots"
             elif any($roles[]; . == "state") | not then "step report seq \($t.seq) has no state slot"
             elif ($why | length) > 1 then "step report seq \($t.seq) has more than one reasoning slot"
-            elif any($why[]; (.text | split("\n") | length) > 2) then "step report seq \($t.seq) runs its reasoning past two lines"
+            elif any($why[]; (.text | line_count) > 2) then "step report seq \($t.seq) runs its reasoning past two lines"
             elif any($t.sections[]; .role == "request" and ((.capture // "") as $c | any($ids[]; . == $c) | not)) then
               "step report seq \($t.seq) leaves a request in prose instead of a captured item"
             else empty end] | verdict

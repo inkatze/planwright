@@ -54,6 +54,10 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROGRAM="$SELF_DIR/turn-shape-grade.jq"
 prog="turn-shape-grade"
 
+# A GFM table's delimiter row; one hyphen per cell is enough for GFM to render
+# a table, so a stricter pattern lets a wall of tables pass uncounted.
+DELIMITER_RE='^ *\|? *:?-+:? *(\| *:?-+:? *)*\|? *$'
+
 KNOWN="no-table-dump projection-present decisions-first no-monotonic-growth identifier-density capture-at-birth step-report-slots open-captures-list"
 
 usage() {
@@ -197,8 +201,8 @@ while IFS= read -r name; do
   case "$name" in
     *[!A-Za-z0-9._/-]*) continue ;;
   esac
-  entry="$(jq -Rs --arg n "$name" \
-    '{name: $n, bytes: length, tables: ([split("\n")[] | select(test("\\|") and test("^ *\\|? *:?-{3,}:? *(\\| *:?-{3,}:? *)*\\|? *$"))] | length)}' \
+  entry="$(jq -Rs --arg n "$name" --arg delimiter_re "$DELIMITER_RE" \
+    '{name: $n, bytes: length, tables: ([split("\n")[] | select(test("\\|") and test($delimiter_re))] | length)}' \
     "$art/$name" 2>/dev/null)" || {
     printf '%s\n' "$prog: cannot read artifact '$(sanitize_printable "$name")'" >&2
     exit 3
@@ -208,7 +212,7 @@ done <<EOF
 $listing
 EOF
 
-graded="$(printf '%s' "$log_json" | jq -c --argjson cfg "$cfg" --argjson artifacts "$artifacts" -f "$PROGRAM" 2>&1)" || {
+graded="$(printf '%s' "$log_json" | jq -c --argjson cfg "$cfg" --argjson artifacts "$artifacts" --arg delimiter_re "$DELIMITER_RE" -f "$PROGRAM" 2>&1)" || {
   printf '%s\n' "$prog: the invariant program failed: $(sanitize_printable "$graded")" >&2
   exit 3
 }
