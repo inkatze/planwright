@@ -24,12 +24,15 @@
 #       what the lease needs.
 #
 #   step --checkout <dir> (--tower <id> | --session-id <uuid> | --pid <pid>)
-#        [--evidence <file>] [--catchup] [--now <epoch>]
+#        --evidence <file> [--catchup] [--now <epoch>]
 #       One iteration's operator comms, in this order:
 #
 #         1. The settling pass (`tower-queue.sh settle`), run ONCE. It serves
 #            both the loop and the delivery below: the `next` that follows
-#            reuses this pass rather than running its own (D-5). Its lines are
+#            reuses this pass rather than running its own (D-5), which it can
+#            only do against a stamped evidence table. That is why --evidence
+#            is required; a table with no `stamp` line still costs a second
+#            pass. Its lines are
 #            passed through as the pass prints them — `settled`, `merged`,
 #            `answered`, `unavailable`, `held`.
 #         2. The pending pushes (`fleet-attention.sh relay`), as
@@ -111,7 +114,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: tower-loop-comms.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
        tower-loop-comms.sh step --checkout <dir> (--tower <id> | --session-id <uuid> | --pid <pid>)
-                                [--evidence <file>] [--catchup] [--now <epoch>]
+                                --evidence <file> [--catchup] [--now <epoch>]
 EOF
   exit 2
 }
@@ -283,7 +286,12 @@ case $cmd in
     printf '%s\n' "$id_out"
     exit 0
     ;;
-  step) ;;
+  step)
+    [ "$evidence_set" = 1 ] || {
+      err "step needs --evidence <file>: without a stamped table the delivery runs a second settling pass"
+      usage
+    }
+    ;;
   *)
     err "unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (identity | step)"
     usage

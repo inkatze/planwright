@@ -504,6 +504,13 @@ if env_run /bin/sh "$TLC" step --checkout "$tmp" --tower '' >/dev/null 2>"$errf"
   fail "an empty --tower was accepted"
 fi
 grep -q 'empty value' "$errf" || fail "an empty flag value was not named"
+# Without an evidence table the delivery cannot reuse the step's settling pass
+# and runs a second one, so the flag is required rather than defaulted.
+noev_rc=0
+: >"$errf"
+env_run /bin/sh "$TLC" step --checkout "$tmp" --tower "$A" --now 5500 >/dev/null 2>"$errf" || noev_rc=$?
+[ "$noev_rc" = 2 ] || fail "a step with no --evidence ran (exit $noev_rc) rather than being refused"
+grep -q -- '--evidence' "$errf" || fail "the missing --evidence was not named"
 
 # --- the per-step measurement the PR body reports -------------------------------
 
