@@ -460,13 +460,13 @@ grade_run() {
     _gr_turns="$(/bin/sh "$TURN_GRADE" --conf "$fx_dir/fixture.conf" "$_gr_art" 2>&1)"
     _gr_trc=$?
     printf '%s\n' "$_gr_turns" | while IFS= read -r _gr_line; do
-      [ -n "$_gr_line" ] && warn "[$_gr_persona] turn-shape: $_gr_line"
+      [ -n "$_gr_line" ] && warn "[$fx_id/$_gr_persona] turn-shape: $_gr_line"
     done
     case "$_gr_trc" in
       0) : ;;
       1) _gr_struct="false" ;;
       *)
-        warn "[$_gr_persona] grade: turn-shape grading error (exit $_gr_trc)"
+        warn "[$fx_id/$_gr_persona] grade: turn-shape grading error (exit $_gr_trc)"
         return 4
         ;;
     esac
