@@ -1,6 +1,6 @@
 # Human gates — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-09-22
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -27,9 +27,9 @@ mis-sequenced.
   because: the sign-off coupling the issue itself names makes the knob unsafe
   until the approval act moves, and the same era artifact recurs in the merge
   and rewrite rules; fixing one spelling of it leaves the list inconsistent.
-- Rewrite the skills' invariant sections directly. Rejected because: nine
-  surfaces already diverge; without one doctrine source the tenth copy
-  diverges too.
+- Rewrite the skills' invariant sections directly. Rejected because: every
+  surface that restates the list already diverges from the others; without
+  one doctrine source the next copy diverges too.
 
 **Chosen because:** the seed claim and every source describe a policy
 re-decision, not a missing feature; the autopilot reflex's altitude ladder
@@ -45,10 +45,11 @@ release publish (release-hardening keeps it); **policies** are the draft→ready
 flip, a base merge into an owned branch, and reshaping never-pushed commits;
 **composition contracts** are the never-push rules the review skills carry
 (ownership between skills, never trust). Unchanged rules carry forward:
-never act on a non-Ready spec, never auto-chain `/orchestrate` into
-`/spec-kickoff`, never rewrite main, a protected branch, or a spec branch.
-bootstrap D-26 gains a `Superseded-by: human-gates D-2` pointer; its body is
-untouched.
+never act on a spec that is neither Ready nor Active, never auto-chain
+`/orchestrate` into `/spec-kickoff`. A new floor is stated beside them: main,
+a protected branch, and a spec branch are never rewritten by any tier
+(REQ-F1.5). bootstrap D-26 gains a second scoped `Superseded-by: human-gates
+D-2` pointer; its body is untouched.
 
 **Alternatives considered:**
 - Keep the list as bootstrap wrote it and only add knobs beside it. Rejected
@@ -72,7 +73,15 @@ never by the flip. The commit carries `Planwright-Sign-Off: PS-<n>` as a git
 trailer stamped through the trailer helper, with `PS-<n>` written once and
 never recomputed; the checklist regenerates from
 `git log --format='%(trailers:key=Planwright-Sign-Off,valueonly)'` over
-`base..head`, which excludes a revert by construction. `--marker subject` is
+`base..head`, so a revert commit, which carries no trailer, is never counted
+as a new item, and the reverted original is dropped by pairing git's own
+`This reverts commit <sha>` body line to the trailered commit, as the
+regeneration already does today; a `Planwright-Sign-Off-Rejected: PS-<n>`
+trailer on a later commit removes an item the same way, which is how one
+finding of a shared commit or a `resolve` resolution is rejected without a
+whole revert. A range that cannot be resolved fails the regeneration loudly
+rather than rendering an empty checklist, and id allocation refuses over it.
+`--marker subject` is
 retired; `--marker title` is kept one release, broadened, and its removal is
 a gated deferral. Handoffs print trailered SHAs and the trailer-aware log
 command. Migration is one doctrine line.
@@ -92,24 +101,30 @@ command. Migration is one doctrine line.
 precedent (`Planwright-Task`), a parser instead of a grep, and immutable
 ids.
 
-### D-4: `ready_flip_policy` — two values, `agent` by default, worker-only  (N, `customization-boundary`)
+### D-4: `ready_flip_policy` — two values, `unit-owner` by default, worker-only  (N, `customization-boundary`)
 
 **Decision:** `ready_flip_policy` resolves through `config-get.sh` and the
-shared knob resolver with values `human` and `agent`; the shipped default is
-`agent`. Under `agent` the skill that owns the unit's branch (the
-`/execute-task` convergence run, or the review skill it delegates the
-terminal step to) flips its own PR once D-5 holds; the orchestrator and tower
-profiles keep their flip deny. `mark_spec_pr_ready_on_kickoff` stays a
-separate knob for the spec PR and keeps its default. **Declared departure:**
-customization-boundary asks a core knob to preserve today's behaviour by
-default; this knob does not, because the prior default was an era artifact
-the repo had already ruled a preference (merge-currency-guard D-9) and the
-operator asked for the change (issue planwright#379). The departure is
-recorded here, named in the release notes as a behaviour change, and is the
-first fork the kickoff must reconfirm.
+shared knob resolver with values `human` and `unit-owner`; the shipped
+default is `unit-owner`. Under `unit-owner` the skill that owns the unit's
+branch (`/execute-task`'s convergence run, or the review skill it delegates
+the terminal step to; a standalone review-skill run never flips) flips its
+own PR once D-5 holds; the tower profile, which the orchestrator tier runs
+under, keeps its flip deny. An attended session with no tier profile is
+outside the policy guard's jurisdiction for the flip: the ready-guard stays
+its floor, and that is where `/spec-kickoff`'s spec-PR flip runs.
+`mark_spec_pr_ready_on_kickoff` stays a separate knob for the spec PR and
+keeps its default. The value is named for the actor that can act
+(`unit-owner`, not `agent`), since two of three tiers can never flip.
+**Declared departure:** customization-boundary asks a core knob to preserve
+today's behaviour by default; this knob does not, because the prior default
+was an era artifact the repo had already ruled a preference
+(merge-currency-guard D-9) and the operator asked for the change (issue
+planwright#379). The departure is recorded here, carried as a
+`BREAKING CHANGE:` footer on the commit that lands the knob so the release
+tooling renders it, and was the first fork the kickoff reconfirmed.
 
 **Alternatives considered:**
-- Default `human`, opt in to `agent`. Rejected because: the operator's
+- Default `human`, opt in to `unit-owner`. Rejected because: the operator's
   stated intent and the #379 verdict; every adopter running a fleet hits the
   same bottleneck, and one line in an overlay restores the old posture.
 - A `when-no-pending-sign-off` middle value. Rejected because: once the
@@ -124,19 +139,40 @@ arms.
 
 ### D-5: Flip preconditions compose existing gates and leave a PR record  (N, `decision-domains` existing-seam reuse)
 
-**Decision:** An agent flip fires only when, on the current head: the
-ready-guard defers (currency and mergeability, the fail-closed floor as
-shipped); the head SHA's check rollup is a positive green within a bounded
-wait, reusing the `kickoff_ready_ci_wait` mechanics under a sibling knob
-`ready_flip_ci_wait` with the same default; the review loop's handoff record
-names that head (the record gains a head-SHA line if it lacks one); and the
-spec's `## Awaiting input` holds
-no bullet for the unit. One helper (`scripts/ready-flip.sh`) evaluates the
-predicates deterministically, writes a PR comment naming the policy value,
-the head SHA, and each predicate's evidence, and only then issues the flip
-through the surface the ready-guard intercepts. Any failure leaves the PR
-draft and parks the pending flip under `## Awaiting input` naming the failed
-predicate, the same re-entry `/spec-kickoff` uses.
+**Decision:** A `unit-owner` flip fires only after the unit's draft PR exists
+(the helper is called from `/execute-task` after its PR-creation step, never
+as the convergence terminal step, which precedes the PR) and only when, on
+the head that results once the helper has reconciled and pushed the unit's
+Awaiting-input section: the ready-guard defers (currency and mergeability,
+the fail-closed floor as shipped); the head SHA's check rollup is a positive
+green within a bounded wait, reusing the `kickoff_ready_ci_wait` mechanics
+under a sibling knob `ready_flip_ci_wait` with the same default; the review
+loop's handoff record names that head (the record gains a head-SHA line if
+it lacks one), where a commit touching only the spec's `tasks.md`
+Awaiting-input section does not count as moving the reviewed head; and no
+live Awaiting-input segment for the unit exists other than the helper's own
+parking lead, read from both the unit checkout and the fetched base ref so
+a human park on main is seen without waiting for a base sync. One helper
+(`scripts/ready-flip.sh`) evaluates the predicates deterministically, writes
+a PR comment naming the policy value, the head SHA, and each predicate's
+evidence, and only then issues the flip through the surface the ready-guard
+intercepts. The record is a claim of intent: a flip call that fails after it
+is written parks and appends a follow-up comment naming the failure. Any
+precondition failure leaves the PR draft and parks the pending flip under
+`## Awaiting input` naming the failed predicate, the same re-entry
+`/spec-kickoff` uses. The park is a segment opening with the fixed lead
+`pending ready-flip:`, which every Awaiting-input predicate (here and in
+D-6's class) ignores segment-wise, so a bullet carrying any other live
+segment (a `halt` park, a human question) still blocks; it is one
+read-modify-write committed in one commit on the unit branch and pushed,
+idempotent per lead, composing with any bullet the base already carries for
+the unit (the format allows one reference bullet per task); a park that
+cannot be written leaves the tree clean and is named in the handoff. The
+next passing run removes only its own segment, reconciling and pushing
+before it pins the head it evaluates, so the flip never lands on a head the
+predicates did not see. With no PR or no host CLI the helper skips cleanly
+and says so in the handoff; a transient host failure is retried within the
+bounded wait before it counts as a failed precondition.
 
 **Alternatives considered:**
 - Let the skill judge readiness from its own transcript. Rejected because:
@@ -146,26 +182,55 @@ predicate, the same re-entry `/spec-kickoff` uses.
   see why the PR is in front of them.
 - A new currency check. Rejected because: the ready-guard already is one and
   is flipper-agnostic by design.
+- Park in the PR comment only, keeping `## Awaiting input` for human
+  questions. Rejected because: the orchestrator's reconcile reads the
+  section, not PR comments, and the `/spec-kickoff` re-entry parallel is
+  what makes the park legible.
 
 **Chosen because:** every predicate already exists as a shipped, tested
 mechanism; the helper only sequences them.
 
-### D-6: `merge_policy` — a tiered knob whose default keeps today's posture  (N, research)
+### D-6: `merge_policy` — a tiered knob whose default keeps today's posture; the merge strategy  (N, research)
 
 **Decision:** `merge_policy` takes `human`, `on-approval`, and `policy-class`,
-default `human`, malformed or unresolvable → `human`. Under `human` a person
-authorizes and executes. Under `on-approval` the person's act is enabling
-GitHub auto-merge (or, with a detected identity split per D-14, an approving
-review with auto-merge enabled); GitHub executes when required checks pass;
-planwright builds no execution path and agent sessions stay denied every
-merge spelling. Under `policy-class` a deterministic evaluator
+default `human`; a malformed repo-tracked value fails the resolver and every
+reader denies, a malformed adopter or machine-local value or an unresolvable
+one degrades to `human`. Under `human` a person authorizes and executes the
+PR merge. Under `on-approval` the person's act is enabling GitHub auto-merge
+(or, with a detected identity split per D-14, an approving review with
+auto-merge enabled); GitHub executes when required checks pass; planwright
+builds no execution path and agent sessions stay denied every PR-merge
+spelling. Under `policy-class` a deterministic evaluator
 (`scripts/merge-class.sh`) admits a PR only when every predicate holds: no
-`Planwright-Sign-Off` trailer in `base..head`, no changed path in a
-hard-disqualifier zone, no live Awaiting-input bullet, the D-5 preconditions
-on the head, and the adopter's bounds (`merge_class_max_lines`,
-`merge_class_exclude_paths`); an admitted PR gets a PR comment naming each
-predicate's evidence and is merged through one helper with the repository's
-sanctioned strategy; anything else falls to `on-approval`.
+`Planwright-Sign-Off` trailer in `base..head`, no changed path in the
+hard-disqualifier zone (a core path-glob list no layer can shrink,
+planwright's own enforcement surface, plus `merge_class_exclude_paths`), no
+live Awaiting-input segment other than a parking lead, read from the fetched
+base ref, the D-5 preconditions on the head (evaluated once and handed with
+their SHA to the flip helper, so the bounded CI wait runs once), and the
+adopter's bounds (`merge_class_max_lines`, `merge_class_exclude_paths`); an
+admitted PR gets a PR comment naming each predicate's evidence and is merged
+through one helper, `scripts/merge-admitted.sh`; anything else falls to
+`on-approval`, writing its reason as a PR comment. The helper runs in the
+worker tier, called by the skill owning the unit's branch as the terminal
+step after its own ready-flip (D-4's worker-only rule holds; the tower
+profile stays denied), and re-resolves the policy itself, failing closed, as
+its own last line. It flips an admitted draft PR ready itself through the
+ready-flip helper, whatever `ready_flip_policy` says, because the class
+predicates already include every flip precondition and the flip approves
+nothing (D-3). The strategy resolves from `merge_class_strategy`: the default
+`sole-allowed` means the single merge method the host allows (the host
+exposes no repository-level default method, so no value claims one); an
+explicit `squash`, `merge`, or `rebase` is required where the host allows
+several. Several allowed under `sole-allowed`, a named method the host
+disallows, or a failed host query each fall to `on-approval` naming the
+reason rather than guessing. Immediately before the merge call the helper
+re-confirms the head SHA and the base ref OID and re-reads the
+Awaiting-input predicate, the same mid-wait head-movement rule the kickoff
+CI gate applies, so a commit, a base move, or a human park landing between
+predicate evaluation and the merge refuses rather than merging under a
+record that names another state. The record is a claim of intent: a merge
+call that fails after it is written appends a follow-up comment and parks.
 
 **Alternatives considered:**
 - Merge stays permanent with no knob. Rejected because: the operator asked
@@ -178,6 +243,10 @@ sanctioned strategy; anything else falls to `on-approval`.
 - Let the agent classify risk with a model. Rejected because: the one
   production report found (Ona) bars engineers from self-classifying and
   uses mechanical criteria; a model in the path is the same self-classification.
+- Read the hard-disqualifier zone from the prose categories in
+  `doctrine/finding-categorization.md`. Rejected because: the categories
+  name no paths, and a deterministic evaluator needs globs; the core list is
+  the mechanical form of those categories for this repository's surface.
 
 **Chosen because:** the default changes nothing; each value maps to a shape
 mature systems converged on; the class can never contain a sign-off item, so
@@ -186,15 +255,28 @@ the approval gate survives every value.
 ### D-7: A worker merges its base into its own branch; conflicts are a knob  (N)
 
 **Decision:** The allowance is the act "merge the PR base into the branch
-this session owns", enforced across `git merge`, `git pull`, and the helper.
-`converge-sync-main.sh` remains the sanctioned path and gains a `resolve`
-mode; the worker profile drops its blanket `git merge` deny in favour of a
-deny-emitting check that refuses any merge whose current branch is not the
-session's unit branch or whose source is not the PR base. `worker_merge_conflicts`
-defaults to `halt` (abort, clean tree, park under `## Awaiting input` with
-the paths); `resolve` lets the worker commit the resolution and flag the
-commit in the PR body. Orchestrator and tower profiles keep their deny; the
-local-main fast-forward stays the only sanctioned local-main mutation.
+this session owns" (the base being the PR's base branch, or the branch the
+worktree was created from before a PR exists), governed by
+`worker_base_merge` (`allow` by default, `deny`) and enforced across
+`git merge`, `git pull`, and the helper. `converge-sync-main.sh` remains the
+sanctioned path and gains a `resolve` mode; the worker profile drops its
+blanket `git merge` deny in favour of a deny-emitting check that refuses any
+merge whose current branch is not the session's unit branch or whose source
+is not the PR base. `worker_merge_conflict_policy` defaults to `halt`
+(abort, clean tree, park under `## Awaiting input` with the paths);
+`resolve` lets the worker commit the resolution and flag the commit in the
+PR body, stamping it with the sign-off trailer (D-3) because a resolution is
+agent judgement awaiting the approval act: the checklist then lists it and
+the merge class never admits it; its rejection recipe is a re-run of the
+sync under `halt` whose hand resolution carries the item's rejected trailer,
+because reverting a merge resolution restores the conflict. The sync's other
+failure exits each get an arm: a dirty tree, a failed fetch, or a failed
+merge parks the unit naming the failure class with the tree as the sync
+left it; an abort that itself fails writes no park (the tree is not clean,
+and a park commit over it would wedge the unit) and names hand repair in
+the handoff. The tower profile, which the orchestrator tier runs under,
+keeps its deny; the local-main fast-forward stays the only sanctioned
+local-main mutation.
 
 **Alternatives considered:**
 - Keep the deny and route every sync through the tower. Rejected because:
@@ -203,25 +285,32 @@ local-main fast-forward stays the only sanctioned local-main mutation.
 - Allow any `git merge` to workers. Rejected because: the act is scoped to
   the owned branch; a merge into main or a sibling branch is exactly what
   the floor exists to stop.
+- An always-on allowance with no knob. Rejected because: REQ-A1.2 makes it
+  a policy with a core default an adopter may change, and a fleet that wants
+  every sync routed through a human has no other switch.
 
 **Chosen because:** plain merge creates commits and rewrites nothing, so it
 never met the gate test; the scoping keeps the floor.
 
 ### D-8: Rewrite allowances — never-pushed local commits; force-push only on request  (N)
 
-**Decision:** Amend, squash, fixup, and rebase are allowed to a worker by
-default for commits no remote-tracking ref contains, on its own unit branch;
-the guard evaluates `git branch -r --contains <sha>` before allowing and
-refuses otherwise (a local-state read, unlike the ready-guard's server-only
-predicate: whether a commit was pushed is a fact about this clone, and a
-stale remote-tracking ref errs toward refusing). A force-push is performed only by the tower, only on an
-explicit operator request in the same turn, after a confirmation that names
-the remote commits the push drops (conforming to `check-confirmation.sh`),
-never to main, a protected branch, or a spec branch, and never from a
-standing decision. The commit-range lint failure is the named reason for
-that path, and the skill whose gate reports it names the path in its
-handoff. The secret purge stays human-run; the tower may prepare the command
-and rotation checklist.
+**Decision:** Amend, squash, fixup, and rebase are allowed to a worker under
+`unpushed_rewrite` (`allow` by default, `deny`) for commits no
+remote-tracking ref contains, on its own unit branch (a spec branch is no
+session's unit branch, so its unpushed commits stay append-only). Before
+allowing, the guard refreshes the branch's upstream tracking ref and
+evaluates `git branch -r --contains <sha>`, refusing when the refresh fails,
+when no upstream is configured, or when any remote-tracking ref contains
+the commit: a stale tracking ref would otherwise read a pushed commit as
+never-pushed and allow, which is why the refresh precedes the read rather
+than the read being trusted as local state. A force-push is performed only
+by the tower, only on an explicit operator request in the same turn, after
+a confirmation that names the remote commits the push drops (conforming to
+`check-confirmation.sh`), never to main, a protected branch, or a spec
+branch, and never from a standing decision. The commit-range lint failure is
+the named reason for that path, and the skill whose gate reports it names
+the path in its handoff. The secret purge stays human-run; the tower may
+prepare the command and rotation checklist.
 
 **Alternatives considered:**
 - Keep the full prohibition. Rejected because: a never-pushed commit is
@@ -230,24 +319,51 @@ and rotation checklist.
 - Let workers force-push their own branch. Rejected because: a pushed commit
   may already be reviewed, cited, or checked out elsewhere; the operator's
   stance is tower-on-request only.
+- Trust the local remote-tracking ref without a refresh. Rejected because:
+  under per-tower checkouts a branch pushed from another clone leaves this
+  clone's ref behind, and the error then runs toward allowing.
 
 **Chosen because:** the gate test draws the line at "irreversible for other
 people", which is the push, not the commit.
 
-### D-9: Enforcement derives from the resolved policy; one spelling list  (N)
+### D-9: Enforcement derives from the resolved policy; one spelling list; the protected set  (N)
 
 **Decision:** Acts no value can permit stay in the deny profiles as the
-floor (merge or rewrite of main, a protected or spec branch; an agent merge
-outside `policy-class`; a rewrite of a pushed commit outside D-8's tower
-path). Acts a policy can permit leave the profile deny lists for the tiers
-the policy can grant them to, and a deny-emitting **policy guard**
-(`scripts/policy-guard.sh`, the ready-guard's sibling in modality) enforces
-the resolved value at PreToolUse: it reads the knob through the shared
-resolver, deterministically and within a wall-clock bound, and denies on any
-read failure. One fixture file (`tests/fixtures/reserved-control-spellings`)
-lists every refused spelling, and one test drives it through the tower
-queue's reserved-control check, the ready-guard, both command guards, both
-profiles, and the policy guard.
+floor where a profile can express them (merge or rewrite of main, `master`,
+a protected or spec branch on every spelling; the direct PR-merge spellings;
+force-push; the MCP names), the shipped profiles gaining the `master` and
+`planwright/*/spec` globs they lack today. The floor entries a profile
+cannot express (an agent PR merge outside `policy-class`; a rewrite of a
+pushed commit outside D-8's tower path) are guard-only, and the sanctioned
+helpers behind them re-resolve the policy and fail closed internally. Acts a
+policy can permit leave the profile deny lists for the tiers the policy can
+grant them to, and a deny-emitting **policy guard** (`scripts/policy-guard.sh`,
+the ready-guard's sibling in modality) enforces the resolved value at
+PreToolUse: it classifies the intercepted command before reading any knob,
+defers with no read outside its jurisdiction, reads only the knob the
+matched act needs through the shared resolver, deterministically and within
+a wall-clock bound, and denies on any read failure. The guard learns the
+session's tier from the settings profile the session runs under; an
+attended session with no tier profile is outside its jurisdiction, and the
+ready-guard remains that session's floor. The protected set the floor names
+is a core floor (`main`, `master`, the `planwright/*/spec` pattern) that no
+overlay layer can shrink, plus the additions a `protected_branches` knob
+carries as a space-separated single-line value (the config model is flat
+`key: value`; a YAML list is malformed there), glob-matched against the
+branch name with `refs/heads/` stripped, as the tower queue normalizes
+today, `*` never spanning `/`; a malformed value at any layer is a read
+failure and the guard denies the act. A host-ruleset query per call would
+put a network round-trip inside the guard's bound, so the host's own rules
+stay a second, server-side layer rather than the guard's source. One fixture
+file (`tests/fixtures/reserved-control-spellings`) lists every
+reserved-control spelling with its act, tier, policy value, and expected
+verdict per copy (deny, defer, or outside that copy's jurisdiction; floor
+lines deny from every copy in jurisdiction and from both profiles; policy
+lines deny or defer as the resolved value dictates), and one test drives it
+through the tower queue's reserved-control check, the ready-guard, both
+command guards, both profiles, and the policy guard. Every script this
+bundle adds sources `scripts/echo-safety.sh` and validates identifiers
+before use.
 
 **Alternatives considered:**
 - Generate the profiles from the policy at dispatch. Rejected because: a
@@ -256,6 +372,9 @@ profiles, and the policy guard.
 - Merge the guard implementations into one script. Rejected because: they
   differ in modality (allow-only versus deny-emitting) and each has its own
   adversarial suite; one fixture list is what the observation asked for.
+- Read every knob on every guarded call. Rejected because: the resolver
+  costs tens of milliseconds per knob and the guard sits on every Bash call;
+  the ready-guard's jurisdiction-first rule already answers this.
 
 **Chosen because:** deny precedence means a profile can never be the
 policy-following layer, and worker-permission-ergonomics D-1 already makes
@@ -267,14 +386,23 @@ the profile the floor and the hook the refinement.
 each rule's kind (human gate / policy with knob and default / composition
 contract with owner). Every skill invariant section is rewritten to cite it,
 split by kind, word-neutral or net-negative under `check-instructions.sh`.
-Every doc surface restates by citation. The retired phrasings of the old
-rule enter the purged-identifier list so the CI screen refuses their return.
+Every doc surface restates by citation, and every doctrine doc, doc, or
+script header that states the flip as the review gate, an unconditional
+never, or a citation of the superseded bootstrap rules is rewritten (the
+Done-when grep is the enumeration, never a list in this decision). Retired
+phrasings are screened two ways: short phrases enter the purged-identifier
+seed (hashes only, no readable enumeration; a frozen record carrying the
+phrase verbatim is checked before seeding, since the scan is tree-wide),
+and sentence-length phrasings are refused by a dedicated grep screen over
+`doctrine/`, `skills/`, and `docs/` that excludes the historical surfaces.
 
 **Alternatives considered:**
 - Keep per-skill lists and sync them by review. Rejected because: that is
-  the state that produced nine divergent copies.
+  the state in which every surface restating the list diverges from the
+  others.
 - A new checker that diffs prose against doctrine. Rejected because: the
-  purged-identifier screen already refuses retired phrasings and the
+  purged-identifier screen already refuses short retired phrases, a
+  scoped grep screen covers the sentence-length ones, and the
   doctrine-index check already pins the doc's presence.
 
 **Chosen because:** one source plus a mechanical screen against regression
@@ -306,8 +434,10 @@ smallest allowance that closes the silent bypass.
 **Decision:** Where Needs-sign-off findings are not file-isolable or share a
 regression test, one commit carrying every affected finding's trailer is
 conforming; the checklist discloses the shared commit and gives a per-item
-revert recipe. Where findings are isolable, one commit each remains the
-rule.
+rejection recipe: a partial revert commit carrying that item's
+`Planwright-Sign-Off-Rejected` trailer (D-3), since a plain revert of a
+shared commit cannot name one finding. Where findings are isolable, one
+commit each remains the rule.
 
 **Alternatives considered:**
 - Split anyway and accept red intermediate commits. Rejected because: it
@@ -372,5 +502,12 @@ better posture and the shared identity is the common one.
   `check-instructions.sh`; a change that grows a saturated surface is
   reworked as a citation, never landed over budget.
 - **Release note.** The `ready_flip_policy` default is a behaviour change
-  for adopters and is called out as such; the other knobs preserve today's
-  behaviour.
+  for adopters, carried as a `BREAKING CHANGE:` footer on the commit that
+  lands the knob (the changelog is generated by the release tooling from
+  conventional commits, so a hand-edited note would not survive); the other
+  knobs preserve today's behaviour.
+- **Test-suite runtime.** The cross-copy fixture is a product of spellings,
+  tiers, values, and copies, and is the suite's likely new slowest file
+  under `check:test-time`'s per-file budget; the tasks that add suites name
+  that check in their Done-when, and the fixture is split by copy or tier
+  before any budget is raised.
