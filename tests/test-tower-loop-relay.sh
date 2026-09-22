@@ -312,26 +312,23 @@ grep -q 'left out' "$errf" || fail "the render shrank without saying so"
 [ "$(fa queue --count)" = 2 ] || fail "--except filtered the count"
 [ "$(fa queue --except w-delivered --count)" = 2 ] || fail "--except filtered the count"
 
-# The store swapped for a symlink AFTER `next` screened it is refused rather
-# than read out: the row is rendered as the question. `next` refuses a
-# redirected store itself, so the swap has to land between the two reads; a
-# tree whose fleet-state.sh plants it when the loop script asks for the root is
-# how this reaches that window.
+# The attention store changed AFTER `next` read it and before the row is. `next`
+# screens and matches the row itself, so the change has to land between the
+# two reads: a tree whose fleet-state.sh runs an armed hook when the loop
+# script asks for the root, which it does just before reading the row, is how
+# these reach that window.
 tree="$tmp/tree"
 mkdir -p "$tree"
 cp -R "$here/../scripts" "$tree/scripts"
 mv "$tree/scripts/fleet-state.sh" "$tree/scripts/fleet-state.real.sh"
-swap_flag="$tmp/swap-armed"
-decoy="$tmp/decoy-state"
-sed 's/And this?/PRIVATE decoy question/' "$state" >"$decoy"
-chmod 0600 "$decoy"
+hook="$tmp/root-hook"
 cat >"$tree/scripts/fleet-state.sh" <<EOF
 #!/bin/sh
-if [ "\${1:-}" = root ] && [ -f "$swap_flag" ]; then
+if [ "\${1:-}" = root ] && [ -f "$hook" ]; then
   case \$(ps -o args= -p "\$PPID" 2>/dev/null) in
     *tower-loop-comms.sh*)
-      rm -f "$swap_flag"
-      mv "$state" "$state.held" && ln -s "$decoy" "$state"
+      mv "$hook" "$hook.ran"
+      /bin/sh "$hook.ran"
       ;;
   esac
 fi
@@ -339,38 +336,86 @@ exec /bin/sh "$tree/scripts/fleet-state.real.sh" "\$@"
 EOF
 chmod 0755 "$tree/scripts/fleet-state.sh"
 
+# hooked_handover <label> <item-id> <tower> <now> — step the hooked tree until
+# the item is handed over; its content record is left in $h_rec.
+hooked_handover() {
+  _hh_t=$4
+  _hh_round=0
+  h_rec=""
+  rm -f "$hook.ran"
+  TLC_REAL=$TLC
+  TLC="$tree/scripts/tower-loop-comms.sh"
+  while [ "$_hh_round" -lt 3 ]; do
+    reply_at "$3" "$_hh_t"
+    out=$(step "$1-$_hh_round" --tower "$3" --evidence "$ev" --now "$((_hh_t + 1))") || {
+      TLC=$TLC_REAL
+      fail "the $1 step exited non-zero: $out"
+    }
+    h_rec=$(printf '%s\n' "$out" | awk -F "$TAB" -v i="$2" '$1 == "content" && $2 == i { print; exit }')
+    [ -z "$h_rec" ] || break
+    _hh_t=$((_hh_t + 2))
+    _hh_round=$((_hh_round + 1))
+  done
+  TLC=$TLC_REAL
+  [ -e "$hook.ran" ] || fail "$1: the fixture hook never ran"
+  [ -n "$h_rec" ] || fail "$1: the item never reached a hand-over"
+}
+
+# A symlink planted at the store is refused rather than read out: the row is
+# rendered as the question.
+decoy="$tmp/decoy-state"
+sed 's/And this?/PRIVATE decoy question/' "$state" >"$decoy"
+chmod 0600 "$decoy"
+printf 'mv "%s" "%s.held" && ln -s "%s" "%s"\n' "$state" "$state" "$decoy" "$state" >"$hook"
 qs=$(q add --kind question --worker w-open --origin w-open \
   --closes 'the operator answers' --now 5050) || fail "add the swapped-store question"
 [ -n "$qs" ] || fail "the swapped-store question did not register"
-TLC_REAL=$TLC
-TLC="$tree/scripts/tower-loop-comms.sh"
-: >"$swap_flag"
-S=tower-s
-s_t=5060
-s_rec=""
-s_round=0
-while [ "$s_round" -lt 3 ]; do
-  reply_at "$S" "$s_t"
-  out=$(step swapped-store-$s_round --tower "$S" --evidence "$ev" --now "$((s_t + 1))") \
-    || fail "the swapped-store step exited non-zero: $out"
-  s_rec=$(printf '%s\n' "$out" | awk -F "$TAB" -v i="$qs" '$1 == "content" && $2 == i { print; exit }')
-  [ -z "$s_rec" ] || break
-  s_t=$((s_t + 2))
-  s_round=$((s_round + 1))
-done
-TLC=$TLC_REAL
+hooked_handover swapped-store "$qs" tower-s 5060
 if [ -L "$state" ]; then
   rm -f "$state"
   mv "$state.held" "$state"
 fi
-[ ! -e "$swap_flag" ] || fail "the swapped-store fixture never planted its symlink"
-[ -n "$s_rec" ] || fail "the swapped-store question never reached a hand-over"
-[ "$(field "$s_rec" 4)" = unread ] || fail "a symlinked attention store was read: $s_rec"
-[ "$(field "$s_rec" 5)" = gone ] || fail "the symlinked store gave the wrong reason: $s_rec"
+[ "$(field "$h_rec" 4)" = unread ] || fail "a symlinked attention store was read: $h_rec"
+[ "$(field "$h_rec" 5)" = gone ] || fail "the symlinked store gave the wrong reason: $h_rec"
 if printf '%s\n' "$out" | grep -q PRIVATE; then
   fail "a symlinked attention store was read out to the operator"
 fi
 q settle "$qs" --reason 'fixture done' --now 5070 >/dev/null || fail "settle the swapped-store question"
+
+# A question is matched on the instance it was queued for. While the worker is
+# still on that fork, the row reads.
+for w in w-same w-fork; do
+  printf '%s%sspec:task-3%sawaiting-input%s1000%snormal%sFirst fork?%sa%sa,b%s%si-one\n' \
+    "$w" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" >>"$state"
+done
+qm=$(q add --kind question --worker w-same --origin w-same \
+  --closes 'the operator answers' --now 5072) || fail "add the same-fork question"
+[ -n "$qm" ] || fail "the same-fork question did not register"
+: >"$hook"
+hooked_handover same-fork "$qm" tower-m 5073
+[ "$(field "$h_rec" 4)" = read ] || fail "a question's own fork did not read: $h_rec"
+printf '%s\n' "$out" | grep -q 'question: First fork?' \
+  || fail "the question's own fork did not reach the turn"
+q settle "$qm" --reason 'fixture done' --now 5079 >/dev/null || fail "settle the same-fork question"
+
+# A worker that re-forks in the same window holds a different question under
+# the same handle. The item was queued for the first one; handing over the
+# second would have the operator answer something the item never asked.
+qf=$(q add --kind question --worker w-fork --origin w-fork \
+  --closes 'the operator answers' --now 5080) || fail "add the re-forked question"
+[ -n "$qf" ] || fail "the re-forked question did not register"
+cat >"$hook" <<EOF
+t=\$(mktemp "$tmp/refork.XXXXXX")
+awk -F '$TAB' -v OFS='$TAB' '\$1 == "w-fork" { \$6 = "SECOND fork?"; \$10 = "i-two" } { print }' "$state" >"\$t"
+cat "\$t" >"$state"
+EOF
+hooked_handover reforked "$qf" tower-f 5081
+[ "$(field "$h_rec" 4)" = unread ] || fail "a re-forked worker's new question was handed over: $h_rec"
+[ "$(field "$h_rec" 5)" = gone ] || fail "the re-forked row gave the wrong reason: $h_rec"
+if printf '%s\n' "$out" | grep -q 'SECOND fork'; then
+  fail "the re-forked question reached the operator under the first fork's item"
+fi
+q settle "$qf" --reason 'fixture done' --now 5090 >/dev/null || fail "settle the re-forked question"
 
 # --- a second tower on the host carries its own identity ------------------------
 # A's confirmed attention is not B's, and the question A is holding is leased to

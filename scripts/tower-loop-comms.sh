@@ -493,11 +493,11 @@ read_path_screened() {
   }
 }
 
-# read_row_content <handle> — the attention row's question, recommendation,
+# read_row_content <pointer> — the attention row's question, recommendation,
 # option set and (for a permission record) the command the operator is being
 # asked to approve: what makes the item answerable from the one message
-# (REQ-C1.1). Field order is scripts/fleet-attention.sh's upsert_row: 6
-# question, 7 default, 8 options, 12 command.
+# (REQ-C1.1). Field order is scripts/fleet-attention.sh's upsert_row: 1 handle,
+# 6 question, 7 default, 8 options, 10 instance, 12 command.
 read_row_content() {
   _rrok=0
   read_row_screened "$@" || _rrok=1
@@ -532,12 +532,16 @@ read_row_screened() {
     content_why=foreign-owner
     return 1
   fi
-  # `($1 "") == (h "")` forces a string compare: awk would otherwise treat a
-  # numeric-looking handle as a number, so `0100` and `1e2` would both match a
-  # row keyed `100` and the operator would be handed another worker's question.
-  # The same guard is in scripts/fleet-attention.sh for the same reason.
+  # The pointer is `<handle>` or `<handle>@<instance>`, and `@` is legal in
+  # both, so it is matched whole rather than split. A question's pointer
+  # carries the instance it was queued for: a worker that has re-forked since
+  # holds a different question, and handing that over would have the operator
+  # answer something the item never asked. `($1 "") == (h "")` forces a string
+  # compare: awk would otherwise treat a numeric-looking handle as a number, so
+  # `0100` and `1e2` would both match a row keyed `100`. The same guard is in
+  # scripts/fleet-attention.sh for the same reason.
   awk -F "$TAB" -v h="$_rrh" '
-    ($1 "") == (h "") {
+    ($1 "") == (h "") || ($1 "@" $10) == (h "") {
       if ($6 != "") print "question: " $6
       if ($7 != "") print "recommend: " $7
       if ($8 != "") print "options: " $8
@@ -571,9 +575,7 @@ emit_content() {
       ;;
     attention:*)
       _ec_home="row"
-      _ec_handle=${_ec_ptr#attention:}
-      _ec_handle=${_ec_handle%%@*}
-      read_row_content "$_ec_handle" || :
+      read_row_content "${_ec_ptr#attention:}" || :
       ;;
     *)
       _ec_home="unknown"
