@@ -10,8 +10,8 @@
 #      thresholds held equal. Plus the sub-rules no wall covers, each made to
 #      fail once by a one-field mutation of a conforming run.
 #   3. End to end through scripts/behavioral-eval.sh under the stub tmux: the
-#      suite runs every persona on every run, and a wall stripped of its
-#      expected failures turns the harness red.
+#      harness runs every persona on every run and grades the turn records,
+#      and a wall stripped of its expected failures turns the harness red.
 #
 # The eval itself stays on demand (the `eval:turn-shape` task, which
 # check-no-ci-evals keeps out of CI); this file drives it hermetically through
@@ -189,22 +189,31 @@ assert_exit "a listed invariant without its fixture threshold is a config error"
 /bin/sh "$GRADE" --conf "$SUITE/projection/fixture.conf" --invariants bogus "$TMP/l2/projection" >/dev/null 2>&1
 assert_exit "an unknown invariant is a usage error" 2 "$?"
 
-echo "== lane 3: the harness grades the suite, personas x runs =="
+echo "== lane 3: the harness grades fixtures, personas x runs =="
+# Trimmed to fit the per-file test-time budget: the whole suite through the
+# harness ran past it under load. Lane 1 still grades every fixture with the
+# same grader and conf; only these four also run the harness path (stub TTY,
+# runs, recording), which `mise run eval:turn-shape` covers for all of them.
+lane3="projection wall kickoff-multiphase orchestrate-wall"
 H="$TMP/h"
 mkdir -p "$H/wb" "$H/rec" "$H/state"
+set --
+for fx in $lane3; do set -- "$@" "$SUITE/$fx"; done
 out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$H/state" \
   BEHAVIORAL_EVAL_WORKBASE="$H/wb" BEHAVIORAL_EVAL_POLL_SLEEP=0 \
-  /bin/sh "$RUNNER" --record "$H/rec" --suite "$SUITE" 2>&1)"
+  /bin/sh "$RUNNER" --record "$H/rec" "$@" 2>&1)"
 rc=$?
-assert_exit "the turn-shape suite passes end to end" 0 "$rc"
+assert_exit "conforming fixtures and walls pass end to end" 0 "$rc"
 [ "$rc" -eq 0 ] || printf '%s\n' "$out" >&2
+assert_contains "the harness reports a wall's planted failure" "[wall/novice] turn-shape: FAIL no-table-dump (expected)" "$out"
 expected_runs=0
-for fx in $fixtures; do
+for fx in $lane3; do
   runs="$(sed -n 's/^runs=//p' "$SUITE/$fx/fixture.conf")"
   n="$(sed -n 's/^personas=//p' "$SUITE/$fx/fixture.conf" | wc -w | tr -d ' ')"
   expected_runs=$((expected_runs + runs * n))
 done
 recorded="$(find "$H/rec" -name '*.json' | wc -l | tr -d ' ')"
+if [ "$expected_runs" -gt 0 ]; then ok "the lane expects runs"; else bad "the lane expects no runs, so the count proves nothing"; fi
 assert_exit "one recorded result per persona per run" "$expected_runs" "$recorded"
 assert_exit "every recorded run passed its structural grade" 0 \
   "$(jq -s 'map(select(.structural_pass != true)) | length' "$H"/rec/*.json)"
