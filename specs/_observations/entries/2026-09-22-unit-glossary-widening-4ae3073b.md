@@ -1,0 +1,1 @@
+- 2026-09-22 [planwright] spec-format glossary (custom-steps D-13, 2026-09-22): "Unit" is defined as a task or cohesion bundle; custom-steps gives every step a unit kind of task, spec, or flight, widening the term to the spec bundle and the flight. The glossary entry should absorb the widening when the meta-spec is next amended.
