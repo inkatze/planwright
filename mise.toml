@@ -195,7 +195,7 @@ description = "on-demand behavioral eval harness (never in CI or `check`): drive
 run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/fixtures"
 
 [tasks."eval:turn-shape"]
-description = "on-demand turn-shape eval (never in CI or `check`): the behavioral harness over the turn-shape fixtures, grading each run's turn records against the invariants its fixture names (no multi-table dump, projection present, decisions first, no monotonic summary, bounded selector identifiers, capture at birth, step-report slots, the open-captures list); needs tmux + jq (operator-dialogue REQ-M1.1, REQ-M1.4, D-19)"
+description = "on-demand turn-shape eval (never in CI or `check`): the behavioral harness over the turn-shape fixtures, grading each run's turn records against the invariants its fixture names (tests/behavioral-evals/README.md lists them); needs tmux + jq (operator-dialogue REQ-M1.1, REQ-M1.4, D-19)"
 run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/turn-shape"
 
 [tasks."obs:log"]

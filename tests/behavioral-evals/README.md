@@ -75,8 +75,9 @@ is the grader and `tests/test-turn-shape-eval.sh` drives it hermetically.
 
 The log's records follow the form `doctrine/kickoff-dialogue.md` documents: a
 schema version `v`, a monotonic `seq`, the `phase`, and a `kind` of `present`,
-`ask`, `answer`, `decision`, or `turn`. Version **2** is the version that adds
-turn records, and the first value the schema records. A turn record carries:
+`ask`, `answer`, `decision`, or `turn`. No record was ever written as `v: 1`;
+`v: 2`, the version that adds turn records, is the first value recorded. A
+turn record carries:
 
 | Field | Meaning |
 | --- | --- |
@@ -111,9 +112,11 @@ moving the kickoff fixture onto the documented form is a separate change.
 | `step-report-slots` | a step report strays outside the state / reasoning / requests slots, runs its reasoning past two lines, or leaves a request uncaptured |
 | `open-captures-list` | a phase ends without showing the open-captures list |
 
-Every number lives in the fixture's `turn_*` keys, never in doctrine or the
-grader: doctrine keeps the density bound qualitative, and a listed invariant
-whose threshold the fixture omits is a config error. `runs=` sets the pass
+Every tunable threshold lives in the fixture's `turn_*` keys, never in
+doctrine or the grader: doctrine keeps the density bound qualitative, and a
+listed invariant whose threshold the fixture omits is a config error. The
+shapes doctrine fixes itself (one line per settled section, one or two lines
+of reasoning) are part of the invariant. `runs=` sets the pass
 threshold: every persona passes on every run, so a flake is a failure.
 
 A **wall** fixture plants turns that break named invariants and lists them in
@@ -122,8 +125,8 @@ reason with something to grade. A run that emitted nothing can never satisfy
 an expected failure. Each wall pairs with a conforming fixture, and the unit
 test grades every invariant alone against both sides of its pair.
 
-The fixtures are deterministic stand-ins: the live surfaces mirror their own
-turns into this log as their repairs land, and the mirror is self-reported,
+The fixtures are deterministic stand-ins; a live surface mirrors its own
+turns into this log, and the mirror is self-reported,
 so a divergence between the pane and the log is the residual these
 invariants cannot see.
 
@@ -178,7 +181,7 @@ for the real Task-6 surface, a model + credentials), and gate nondeterministical
 The harness is registered under the `eval:` mise namespace (`eval:behavioral`
 and `eval:turn-shape`) so
 `scripts/check-no-ci-evals.sh` — the standing CI-exclusion guard — covers it: the
-guard fails loud if `eval:behavioral` (or a direct `behavioral-eval.sh` call) is
+guard fails loud if any `eval:` task (or a direct `behavioral-eval.sh` call) is
 ever wired into a workflow file, and equally if any task CI does invoke reaches
-it through the task graph declared in `mise.toml`. Never add it to
+one through the task graph declared in `mise.toml`. Never add them to
 `mise run check` or `.github/workflows/`.

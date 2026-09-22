@@ -62,6 +62,8 @@
 #   --grader-id <id>        the grader backend identifier; MUST differ from the
 #                           driver id (else the run is self-grading — refused)
 #   --record <dir>          write a scrubbed <id>.<persona>.json result per run
+#                           (<id>.<persona>.r<n>.json when the fixture sets
+#                           runs=, which repeats every persona n times)
 #   --suite <root>          run every immediate subdir of <root> as a fixture
 #   -h, --help              this help
 #
@@ -743,7 +745,7 @@ run_persona() {
 
   # Surface a one-line, echo-safe summary of the graded subject.
   _rp_subject="$(sanitize_printable "$(jq -r '.sign_off.subject // ""' "$_rp_merged" 2>/dev/null)" "(none)")"
-  printf '%s\n' "behavioral-eval: [$fx_id/$_rp_persona] outcome=$_rp_outcome subject=$_rp_subject"
+  printf '%s\n' "behavioral-eval: [$fx_id/$_rp_persona$run_suffix] outcome=$_rp_outcome subject=$_rp_subject"
 
   if [ -n "$record_dir" ]; then
     record_result "$fx_id" "$_rp_persona" "$_rp_outcome" "$_rp_struct" "0.000000" || {
@@ -828,8 +830,13 @@ run_fixture() {
   # The fixture's pass threshold is personas x runs: every persona runs this
   # many times and any failing run fails the fixture, so a flake is a failure.
   _rf_runs="$(read_conf "$fx_dir" runs)"
+  [ -n "$_rf_runs" ] || _rf_runs=1
   case "$_rf_runs" in
-    '' | *[!0-9]* | 0) _rf_runs=1 ;;
+    [1-9] | [1-9][0-9]) ;;
+    *)
+      warn "[$fx_id] runs must be a whole number from 1 to 99, got '$_rf_runs'"
+      return 2
+      ;;
   esac
 
   for _rf_p in $_rf_personas; do

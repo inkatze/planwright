@@ -9,10 +9,12 @@
 # files beside it. The invariants and their reasons live in
 # scripts/turn-shape-grade.jq; the schema is in tests/behavioral-evals/README.md.
 #
-# Every number an invariant needs comes from the fixture, never from here or
-# from doctrine: doctrine states the density bound qualitatively, and the
-# fixtures tune it on evidence. A listed invariant whose threshold the fixture
-# omits is a config error, not a silent default.
+# Every tunable threshold comes from the fixture, never from here or from
+# doctrine: doctrine states the density bound qualitatively, and the fixtures
+# tune it on evidence. A listed invariant whose threshold the fixture omits is
+# a config error, not a silent default. The structural shapes doctrine itself
+# fixes (one line per settled section, reasoning of one or two lines, a
+# selector offering a real choice) are part of the invariant, not tunables.
 #
 #   turn_invariants              the invariants to grade (space-separated)
 #   turn_expect_fail             invariants this fixture plants a wall for; the
@@ -229,18 +231,18 @@ while IFS="$(printf '\t')" read -r inv passed vacuous reason; do
   esac
   if [ "$passed" = "true" ]; then
     if [ "$expected" -eq 1 ]; then
-      printf '%s\n' "UNEXPECTED-PASS $inv"
+      printf '%s\n' "UNEXPECTED-PASS $(sanitize_printable "$inv")"
       rc=1
     else
-      printf '%s\n' "PASS $inv"
+      printf '%s\n' "PASS $(sanitize_printable "$inv")"
     fi
   elif [ "$expected" -eq 1 ] && [ "$vacuous" = "true" ]; then
-    printf '%s\n' "FAIL $inv (expected, but nothing to grade): $(sanitize_printable "$reason")"
+    printf '%s\n' "FAIL $(sanitize_printable "$inv") (expected, but nothing to grade): $(sanitize_printable "$reason")"
     rc=1
   elif [ "$expected" -eq 1 ]; then
-    printf '%s\n' "FAIL $inv (expected): $(sanitize_printable "$reason")"
+    printf '%s\n' "FAIL $(sanitize_printable "$inv") (expected): $(sanitize_printable "$reason")"
   else
-    printf '%s\n' "FAIL $inv: $(sanitize_printable "$reason")"
+    printf '%s\n' "FAIL $(sanitize_printable "$inv"): $(sanitize_printable "$reason")"
     rc=1
   fi
 done <<EOF

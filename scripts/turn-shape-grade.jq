@@ -6,7 +6,7 @@
 # and invariant list), $artifacts (name, bytes, and table count of every file
 # the run wrote besides the log and the run record).
 #
-# Only schema-v2 records are graded; the Task-6 kickoff fixture's unversioned
+# Only schema-v2 records are graded; the kickoff fixture's unversioned
 # records (an integer `turn` field) are ignored rather than misread.
 #
 # Output: {schema_errors: [..], results: [{inv, ok, vacuous?, reason}, ..]}.
@@ -77,11 +77,13 @@ def decisions_first($turns):
   if ($turns | length) == 0 then vacuous("no turn records to grade")
   else [$turns[] | . as $t
         | [$t.sections[] | .role as $r | rank[$r]] as $rk
-        | [$t.sections[] | .text as $s | $t.text | index($s)] as $pos
-        | if any($pos[]; . == null) then "turn seq \($t.seq): a section's text is not in the emitted turn"
+        | (reduce $t.sections[] as $s ({at: 0, pos: []};
+            (($t.text[.at:] | index($s.text)) as $i
+             | if $i == null then .pos += [null]
+               else .pos += [.at + $i] | .at += $i + ($s.text | length) end))) .pos as $pos
+        | if any($pos[]; . == null) then "turn seq \($t.seq): a section's text is not in the emitted turn, in order"
           elif any(range(1; $rk | length); $rk[.] < $rk[. - 1]) then
             "turn seq \($t.seq) orders \([$t.sections[].role] | join(" > ")), so a decision trails supporting state or bookkeeping"
-          elif any(range(1; $pos | length); $pos[.] <= $pos[. - 1]) then "turn seq \($t.seq): its sections appear out of order in the emitted turn"
           else empty end] | verdict
   end;
 
@@ -147,12 +149,16 @@ def step_report_slots($v2; $turns):
             else empty end] | verdict
     end;
 
+# Segments are runs of consecutive turns in one phase, so a phase that comes
+# back is graded at each of its boundaries.
 def open_captures_list($turns):
-  ([$turns[].phase] | reduce .[] as $p ([]; if any(.[]; . == $p) then . else . + [$p] end)) as $phases
-  | if ($phases | length) < 2 then vacuous("fewer than two phases, so no phase boundary to grade")
-    else [$phases[:-1][] as $p
-          | select(any($turns[]; .phase == $p and .projection == "open-captures") | not)
-          | "phase \($p) ended without showing the open-captures list"] | verdict
+  ($turns | sort_by(.seq)
+   | reduce .[] as $t ([]; if length > 0 and .[-1].phase == $t.phase then .[-1].turns += [$t]
+                           else . + [{phase: $t.phase, turns: [$t]}] end)) as $segments
+  | if ($segments | length) < 2 then vacuous("fewer than two phases, so no phase boundary to grade")
+    else [$segments[:-1][]
+          | select(any(.turns[]; .projection == "open-captures") | not)
+          | "phase \(.phase) ended without showing the open-captures list"] | verdict
     end;
 
 . as $log
@@ -174,5 +180,6 @@ def open_captures_list($turns):
       elif $inv == "capture-at-birth" then capture_at_birth($v2; $turns; $cfg; $art)
       elif $inv == "step-report-slots" then step_report_slots($v2; $turns)
       elif $inv == "open-captures-list" then open_captures_list($turns)
-      else bad("unknown invariant") end)]
+      else bad("unknown invariant") end)
+      | .reason |= gsub("[\t\n\r]"; " ")]
   }

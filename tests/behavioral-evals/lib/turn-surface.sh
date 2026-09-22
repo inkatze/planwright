@@ -4,11 +4,11 @@
 # own scenario; the harness then drives it through the TTY like any fixture
 # skill, and the turn-shape grader reads the decision log it writes.
 #
-# The live surfaces mirror their turn-side emissions into the same log as part
-# of their own repairs. Until then, and for every wall a fixture must plant on
-# purpose, a scenario replays exactly what a surface would emit, in the schema
-# the grader reads (the turn records, schema v2, described in
-# tests/behavioral-evals/README.md).
+# A live surface mirrors its own turn-side emissions into the same log; a
+# stand-in replays what a surface would emit, including walls planted on
+# purpose, in the schema the grader reads (the turn records, schema v2,
+# described in tests/behavioral-evals/README.md). Scenarios are
+# fixture-authored and trusted like any fixture skill.
 #
 # A scenario is JSON Lines, one operation per line (blank and `#` lines skip):
 #   {"op":"write","name":N,"text":T}      write artifact N (relative, no ..)
@@ -66,6 +66,7 @@ field() {
 safe_name() {
   case "$1" in
     '' | /* | *..* | *[!A-Za-z0-9._/-]*) return 1 ;;
+    decision-log.jsonl | sign-off.json | sign-off.json.tmp) return 1 ;;
   esac
   return 0
 }
@@ -100,6 +101,9 @@ while IFS= read -r line <&3 || [ -n "$line" ]; do
       t=$((t + 1))
       phase="$(field "$line" phase)"
       cap="$(field "$line" capture)"
+      case "$(field "$line" text)" in
+        *turn=*) die "a prompt must not carry the driver anchor" ;;
+      esac
       printf '%s\n' "$(field "$line" text)"
       printf 'EVAL-READY turn=%s\n' "$t"
       IFS= read -r answer || exit 0

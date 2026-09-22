@@ -87,8 +87,8 @@ if [ "$explicit" -eq 0 ]; then
     exit 0
   fi
   files="$(cd "$root" && {
-    find skills -type f -name '*.md' 2>/dev/null
-    find doctrine -maxdepth 1 -type f -name '*.md' 2>/dev/null
+    find -L skills -type f -name '*.md' 2>/dev/null
+    find -L doctrine -maxdepth 1 -type f -name '*.md' 2>/dev/null
   } | sort)"
 fi
 
@@ -150,9 +150,11 @@ scan() {
 }
 
 findings=0
+scanned=0
 report=""
 while IFS= read -r f; do
   [ -n "$f" ] || continue
+  scanned=$((scanned + 1))
   if [ "$explicit" -eq 1 ]; then
     path="$f"
   else
@@ -180,5 +182,5 @@ $report
 EOF
 fi
 
-printf '%s\n' "$prog: $findings emit mandate(s) with no declared destination side (advisory, never gates)"
+printf '%s\n' "$prog: $findings emit mandate(s) with no declared destination side in $scanned file(s) (advisory, never gates)"
 exit 0

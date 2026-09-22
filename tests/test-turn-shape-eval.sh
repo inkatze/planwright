@@ -102,10 +102,12 @@ echo "== lane 2: each invariant alone, both sides of its fixture pair =="
 # pair <invariant> <conforming> <wall> — the wall is graded with the
 # conforming fixture's conf, so only the emitted turns differ.
 pair() {
-  _pass_art="$TMP/l2/$2"
-  _wall_art="$TMP/l2/$3"
-  [ -d "$_pass_art" ] || replay "$2" novice "$_pass_art" || return
-  [ -d "$_wall_art" ] || replay "$3" novice "$_wall_art" || return
+  _pass_art="$TMP/l1/$2.novice"
+  _wall_art="$TMP/l1/$3.novice"
+  [ -s "$_pass_art/sign-off.json" ] && [ -s "$_wall_art/sign-off.json" ] || {
+    bad "$1: lane 1 left no run for $2 or $3 to grade"
+    return
+  }
   out="$(/bin/sh "$GRADE" --conf "$SUITE/$2/fixture.conf" --invariants "$1" --expect-fail "" "$_pass_art" 2>&1)"
   assert_exit "$1 passes on $2" 0 "$?"
   out="$(/bin/sh "$GRADE" --conf "$SUITE/$2/fixture.conf" --invariants "$1" --expect-fail "" "$_wall_art" 2>&1)"
@@ -136,34 +138,70 @@ grade_one() {
   /bin/sh "$GRADE" --conf "$SUITE/$2/fixture.conf" --invariants "$1" --expect-fail "" "$3" 2>&1
 }
 
-replay kickoff-resumed novice "$TMP/l2/kickoff-resumed"
-mutate "$TMP/l2/kickoff-resumed" "$TMP/m/resume-replay" \
+mutate "$TMP/l1/kickoff-resumed.novice" "$TMP/m/resume-replay" \
   'if .projection == "resume-confirmation" then .sections[1].text = "Requirements: signed 2026-09-20.\nGroups A to D walked, two decisions recorded." | .text = ([.sections[].text] | join("\n\n")) else . end'
 out="$(grade_one no-monotonic-growth kickoff-resumed "$TMP/m/resume-replay")"
 assert_exit "a resume confirmation replaying a section fails no-monotonic-growth" 1 "$?"
 assert_contains "the resume failure says why" "more than one line" "$out"
 
-mutate "$TMP/l2/kickoff-multiphase" "$TMP/m/declined" \
+mutate "$TMP/l1/kickoff-multiphase.novice" "$TMP/m/declined" \
   'if .confirms == "readme-link" then del(.confirms) | .declines = "readme-link" else . end'
 out="$(grade_one capture-at-birth kickoff-multiphase "$TMP/m/declined")"
 assert_exit "a declined item that was still tracked fails capture-at-birth" 1 "$?"
 assert_contains "the declined failure says why" "declined yet tracked" "$out"
 
-mutate "$TMP/l2/kickoff-multiphase" "$TMP/m/unproposed" 'del(.captures)'
+mutate "$TMP/l1/kickoff-multiphase.novice" "$TMP/m/unproposed" 'del(.captures)'
 out="$(grade_one capture-at-birth kickoff-multiphase "$TMP/m/unproposed")"
 assert_exit "a capture the skill never proposed fails capture-at-birth" 1 "$?"
 assert_contains "the proposal failure says why" "without the skill first proposing" "$out"
 
-mutate "$TMP/l2/projection" "$TMP/m/no-pointer" \
+mutate "$TMP/l1/projection.novice" "$TMP/m/no-pointer" \
   'if .kind == "turn" then .sections |= map(select(.role != "bookkeeping")) | .text = ([.sections[].text] | join("\n\n")) else . end'
 out="$(grade_one projection-present projection "$TMP/m/no-pointer")"
 assert_exit "a projection that hides its pointer fails projection-present" 1 "$?"
 assert_contains "the pointer failure says why" "never shows the operator its pointer" "$out"
 
-mutate "$TMP/l2/projection" "$TMP/m/thin-record" '.'
+mutate "$TMP/l1/projection.novice" "$TMP/m/thin-record" '.'
 printf 'Two findings applied.\n' >"$TMP/m/thin-record/audit-record.md"
 out="$(grade_one projection-present projection "$TMP/m/thin-record")"
 assert_exit "a full record thinner than the turn fails projection-present" 1 "$?"
+assert_contains "the thin-record failure says why" "is no larger than the turn" "$out"
+
+mutate "$TMP/l1/projection.novice" "$TMP/m/no-record" 'del(.full_record)'
+out="$(grade_one projection-present projection "$TMP/m/no-record")"
+assert_exit "a handoff naming no full record fails projection-present" 1 "$?"
+assert_contains "the missing-record failure says why" "names no artifact holding the full record" "$out"
+
+mutate "$TMP/l1/orchestrate-halts.novice" "$TMP/m/prose-request" \
+  'if .projection == "step-report" then .sections |= map(if .role == "request" then del(.capture) else . end) else . end'
+out="$(grade_one step-report-slots orchestrate-halts "$TMP/m/prose-request")"
+assert_exit "a step-report request left in prose fails step-report-slots" 1 "$?"
+assert_contains "the prose-request failure says why" "leaves a request in prose" "$out"
+
+mutate "$TMP/l1/kickoff-multiphase.novice" "$TMP/m/bare-option" \
+  'if .selector != null then .selector.options[1].description = "" else . end'
+out="$(grade_one identifier-density kickoff-multiphase "$TMP/m/bare-option")"
+assert_exit "a selector option without its consequence fails identifier-density" 1 "$?"
+assert_contains "the bare-option failure says why" "missing its action or consequence" "$out"
+
+mutate "$TMP/l1/kickoff-multiphase.novice" "$TMP/m/untracked-target" \
+  'if .capture != null then .capture.target = "prose" else . end'
+out="$(grade_one capture-at-birth kickoff-multiphase "$TMP/m/untracked-target")"
+assert_exit "a capture written outside tracked state fails capture-at-birth" 1 "$?"
+assert_contains "the untracked-target failure says why" "not a tracked-state target" "$out"
+
+# A later section whose text also occurs earlier in the turn is found after
+# the section before it, never at its first occurrence.
+mutate "$TMP/l1/orchestrate-halts.novice" "$TMP/m/repeated-text" \
+  'if .projection == "step-report" then .sections[2].text = "Task 3" | .text = ([.sections[].text] | join("\n\n")) else . end'
+out="$(grade_one decisions-first orchestrate-halts "$TMP/m/repeated-text")"
+assert_exit "a section text repeated later in the turn still reads in order" 0 "$?"
+
+# A phase that comes back is graded at each of its boundaries.
+mutate "$TMP/l1/kickoff-multiphase.novice" "$TMP/m/phase-returns" \
+  'if .kind == "turn" and .projection == "running-summary" and .phase == "design" then .phase = "requirements" else . end'
+out="$(grade_one open-captures-list kickoff-multiphase "$TMP/m/phase-returns")"
+assert_exit "a phase segment ending without the list fails open-captures-list" 1 "$?"
 
 echo "== the grader fails closed and never passes on nothing =="
 mkdir -p "$TMP/empty"
@@ -175,18 +213,18 @@ assert_exit "an empty run never satisfies a wall's expected failures" 1 "$?"
 assert_contains "the vacuous expected failure is named" "expected, but nothing to grade" "$out"
 
 out="$(/bin/sh "$GRADE" --conf "$SUITE/projection/fixture.conf" --invariants no-table-dump \
-  --expect-fail no-table-dump "$TMP/l2/projection" 2>&1)"
+  --expect-fail no-table-dump "$TMP/l1/projection.novice" 2>&1)"
 assert_exit "an expected failure that passes is an error" 1 "$?"
 assert_contains "the unexpected pass is named" "UNEXPECTED-PASS no-table-dump" "$out"
 
-mutate "$TMP/l2/projection" "$TMP/m/v1-turn" 'if .kind == "turn" then .v = 1 else . end'
+mutate "$TMP/l1/projection.novice" "$TMP/m/v1-turn" 'if .kind == "turn" then .v = 1 else . end'
 /bin/sh "$GRADE" --conf "$SUITE/projection/fixture.conf" "$TMP/m/v1-turn" >/dev/null 2>&1
 assert_exit "a turn record off schema v2 is a schema error" 3 "$?"
 
 printf 'id=bare\nturn_invariants=no-table-dump\n' >"$TMP/bare.conf"
-/bin/sh "$GRADE" --conf "$TMP/bare.conf" "$TMP/l2/projection" >/dev/null 2>&1
+/bin/sh "$GRADE" --conf "$TMP/bare.conf" "$TMP/l1/projection.novice" >/dev/null 2>&1
 assert_exit "a listed invariant without its fixture threshold is a config error" 2 "$?"
-/bin/sh "$GRADE" --conf "$SUITE/projection/fixture.conf" --invariants bogus "$TMP/l2/projection" >/dev/null 2>&1
+/bin/sh "$GRADE" --conf "$SUITE/projection/fixture.conf" --invariants bogus "$TMP/l1/projection.novice" >/dev/null 2>&1
 assert_exit "an unknown invariant is a usage error" 2 "$?"
 
 echo "== lane 3: the harness grades fixtures, personas x runs =="
@@ -231,6 +269,15 @@ out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$H/state2" \
   /bin/sh "$RUNNER" --persona novice "$TMP/red/suite/wall" 2>&1)"
 assert_exit "an unexpected wall is a graded failure through the harness" 1 "$?"
 assert_contains "the harness surfaces the failing invariant" "FAIL no-table-dump" "$out"
+
+# A runs= value the harness cannot honor is refused, never read as zero runs.
+sed -i.bak 's/^runs=.*/runs=00/' "$TMP/red/suite/wall/fixture.conf"
+rm -f "$TMP/red/suite/wall/fixture.conf.bak"
+out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$H/state2" \
+  BEHAVIORAL_EVAL_WORKBASE="$H/wb2" BEHAVIORAL_EVAL_POLL_SLEEP=0 \
+  /bin/sh "$RUNNER" --persona novice "$TMP/red/suite/wall" 2>&1)"
+assert_exit "a runs= value of zero is a config error, not a silent pass" 2 "$?"
+assert_contains "the runs refusal names the value" "runs must be a whole number" "$out"
 
 echo "== registration: on demand under eval:, never in check =="
 MISE="$REPO_ROOT/mise.toml"
