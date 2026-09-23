@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.44.0](https://github.com/inkatze/planwright/compare/v0.43.0...v0.44.0) (2026-09-23)
+
+
+### Features
+
+* **spec:** custom-spec-location kickoff sign-off ([#487](https://github.com/inkatze/planwright/issues/487)) ([3242426](https://github.com/inkatze/planwright/commit/32424263307c518ebb03e878c4027b29348f09f1))
+* **spec:** custom-steps kickoff sign-off ([#488](https://github.com/inkatze/planwright/issues/488)) ([8c2c90a](https://github.com/inkatze/planwright/commit/8c2c90a33c42fa4a3e8c4e0b1a0597861292cdf5))
+* **spec:** human-gates kickoff sign-off ([#490](https://github.com/inkatze/planwright/issues/490)) ([d1fba9f](https://github.com/inkatze/planwright/commit/d1fba9f4cdc6b7f8e3b616f7d3938ed4bb3f56a3))
+* **tower-comms:** route the tower loop's turns through the operator queue ([#486](https://github.com/inkatze/planwright/issues/486)) ([ada82fd](https://github.com/inkatze/planwright/commit/ada82fd20dee2bb7e6a5717643bd92b4a1b2352a))
+
+
+### Bug Fixes
+
+* **tower-reply-hook:** verify the fleet home, and claim only what the marker stamp guarantees ([#477](https://github.com/inkatze/planwright/issues/477)) ([f41dc06](https://github.com/inkatze/planwright/commit/f41dc0625f2e941cdd93841b851802b1ac7a0002))
+
 ## [0.43.0](https://github.com/inkatze/planwright/compare/v0.42.1...v0.43.0) (2026-09-19)
 
 
