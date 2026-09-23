@@ -110,6 +110,16 @@ assert_contains "a mandate over a terminal state is reported" "terminal.md:3:" "
 assert_not_contains "a mandate naming the terminal is not reported" "terminal.md:5:" "$out"
 assert_not_contains "a mandate at the terminal is not reported" "terminal.md:7:" "$out"
 
+echo "== the terminal phrase needs whole words and no state noun =="
+printf '# Terminal\n\nReport that the terminal state was reached.\n\nShow what the terminal status is.\n\nPresent each task at the terminal state.\n\nPresent each task in the terminal state.\n\nShow the updates to the terminally idle.\n\nPrint the digest at the terminal, then stop.\n' >"$TMP/terminal-words.md"
+out="$(/bin/sh "$CHECK" "$TMP/terminal-words.md" 2>&1)"
+assert_contains "\"that the terminal\" does not read as \"at the terminal\"" "terminal-words.md:3:" "$out"
+assert_contains "\"what the terminal\" does not read as \"at the terminal\"" "terminal-words.md:5:" "$out"
+assert_contains "a mandate at a terminal state is reported" "terminal-words.md:7:" "$out"
+assert_contains "a mandate in a terminal state is reported" "terminal-words.md:9:" "$out"
+assert_contains "\"terminally\" does not read as the terminal" "terminal-words.md:11:" "$out"
+assert_not_contains "the terminal before punctuation still names the turn" "terminal-words.md:13:" "$out"
+
 echo "== an explicit directory is skipped, not scanned =="
 out="$(/bin/sh "$CHECK" "$TMP/clean" 2>&1)"
 rc=$?

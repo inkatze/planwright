@@ -101,7 +101,7 @@ fi
 # side-less mandate.
 scan() {
   awk -v name="$1" '
-    function flush(   s, l, lead) {
+    function flush(   s, l, lead, t) {
       if (cur == "") return
       s = cur
       cur = ""
@@ -115,7 +115,10 @@ scan() {
       dets = "(the|a|an|it|them|this|that|these|those|each|every|any|all|one|both|its|their|what|which|whether|only|no|[0-9]+)"
       lead = "^((then|and|also|always|finally|first|next|instead|otherwise),? )?" verbs "( " dets " |:)"
       if (l !~ lead && l !~ ("(must|shall|should|always) ((also|then|first|instead|only) )?" verbs "( |$)")) return
-      if (l ~ /(turn-side|turn side|in the turn|into the turn|to the operator|at the operator|for the operator|the operator.s turn|to the user|in-band|in band|(to|in|on|at) the terminal|stdout|stderr|in chat|in the reply|in the selector|option preview)/) return
+      if (l ~ /(turn-side|turn side|in the turn|into the turn|to the operator|at the operator|for the operator|the operator.s turn|to the user|in-band|in band|stdout|stderr|in chat|in the reply|in the selector|option preview)/) return
+      t = l
+      gsub(/terminal (states?|status(es)?)/, "terminal-state", t)
+      if (t ~ /(^|[^a-z])(to|in|on|at) the terminal([^a-z-]|$)/) return
       if (l ~ /(artifact-side|artifact side|in the artifact|to the artifact|into the artifact|pr body|pr-body|pull request body|pr description|in the brief|to the brief|into the brief|tasks\.md|awaiting.input|in the log|to the log|into the log|decision log|in a file|to a file|in the file|to the file|into the file|recorded in|recorded to|record it in|written to|write it to|appended to|commit message|as a comment|in a comment|observation fragment|\.md|changelog|ledger|risk register|in the spec|to the spec)/) return
       gsub(/[^ -~]+/, "-", s)
       if (length(s) > 100) s = substr(s, 1, 97) "..."
