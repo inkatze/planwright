@@ -70,8 +70,9 @@ A worker's scope pairs with exactly one **store state**:
   state.
 - **`awaiting-input`** — blocked on a human decision. This is the one state that
   carries a decision, so it is set only by `decide`, `fork`, `park`, or
-  `permission`, never by a bare `heartbeat`. Each `awaiting-input` record is one decision-queue item and mirrors
-  one `## Awaiting input` entry in the owning spec's `tasks.md`.
+  `permission`, never by a bare `heartbeat`. Each `awaiting-input` record is one
+  decision-queue item and mirrors one `## Awaiting input` entry in the owning
+  spec's `tasks.md`.
 - **`pr-ready`** — a draft PR is up; the human's reserved review/merge is pending,
   but planwright surfaces it as status, not as a queue decision (merge is never a
   planwright action).
