@@ -18,11 +18,15 @@
 # What counts as an emit mandate: a sentence that opens with an emit verb in
 # the imperative ("Present the counts", "Show the record") or carries one
 # after a modal ("the skill must emit ..."). The verbs are present, emit,
-# print, render, show, display, paste, surface, output, and report. A sentence
-# opening with "never" or "do not" is a prohibition, not a mandate.
+# print, render, show, display, paste, surface, output, and report. The
+# imperative is recognized by a determiner or count after the verb ("the",
+# "each", "42"), so a bare-plural object ("Surface implicit terms") goes
+# unreported: the price of not reading "Output is" or "Report format" as
+# mandates. A sentence opening with "never" or "do not" is a prohibition, not
+# a mandate.
 #
 # What counts as a declared side: a phrase naming the turn ("to the operator",
-# "turn-side", "in the turn", "stdout") or naming an artifact ("artifact-side",
+# "turn-side", "in the turn", "in the terminal", "stdout") or naming an artifact ("artifact-side",
 # "the PR body", "the brief", "recorded in", "tasks.md", a `.md` file name).
 # Headings, table rows, frontmatter, and code-fence bodies are not prose and
 # are skipped.
@@ -110,7 +114,7 @@ scan() {
       dets = "(the|a|an|it|them|this|that|these|those|each|every|any|all|one|both|its|their|what|which|whether|only|no|[0-9]+)"
       lead = "^((then|and|also|always|finally|first|next|instead|otherwise),? )?" verbs "( " dets " |:)"
       if (l !~ lead && l !~ ("(must|shall|should|always) ((also|then|first|instead|only) )?" verbs "( |$)")) return
-      if (l ~ /(turn-side|turn side|in the turn|into the turn|to the operator|at the operator|for the operator|the operator.s turn|to the user|in-band|in band|terminal|stdout|stderr|in chat|in the reply|in the selector|option preview)/) return
+      if (l ~ /(turn-side|turn side|in the turn|into the turn|to the operator|at the operator|for the operator|the operator.s turn|to the user|in-band|in band|to the terminal|in the terminal|on the terminal|stdout|stderr|in chat|in the reply|in the selector|option preview)/) return
       if (l ~ /(artifact-side|artifact side|in the artifact|to the artifact|into the artifact|pr body|pr-body|pull request body|pr description|in the brief|to the brief|into the brief|tasks\.md|awaiting.input|in the log|to the log|into the log|decision log|in a file|to a file|in the file|to the file|into the file|recorded in|recorded to|record it in|written to|write it to|appended to|commit message|as a comment|in a comment|observation fragment|\.md|changelog|ledger|risk register|in the spec|to the spec)/) return
       gsub(/[^ -~]+/, "-", s)
       if (length(s) > 100) s = substr(s, 1, 97) "..."

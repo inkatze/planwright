@@ -66,7 +66,7 @@ assert_not_contains "a mandate naming the operator is not reported" "side-less-m
 assert_not_contains "a mandate naming the artifact is not reported" "side-less-mandate.md:14:" "$out"
 assert_not_contains "a mandate inside a code fence is not reported" "side-less-mandate.md:20:" "$out"
 assert_not_contains "a prohibition is not an emit mandate" "side-less-mandate.md:23:" "$out"
-assert_contains "the summary counts the three planted findings" "3 emit mandate(s)" "$out"
+assert_contains "the summary counts the three planted findings" "check-sidedness: 3 emit mandate(s)" "$out"
 assert_contains "the summary says the check is advisory" "advisory" "$out"
 
 echo "== the default corpus pass never scans the planted fixture =="
@@ -96,12 +96,18 @@ printf '# Clean\n\nPresent the counts turn-side.\n' >"$TMP/clean/doctrine/clean.
 out="$(/bin/sh "$CHECK" --root "$TMP/clean" 2>&1)"
 rc=$?
 assert_exit "a clean corpus exits zero" 0 "$rc"
-assert_contains "a clean corpus reports zero findings" "0 emit mandate(s)" "$out"
+assert_contains "a clean corpus reports zero findings" "check-sidedness: 0 emit mandate(s)" "$out"
 
 echo "== a multi-digit count still reads as a determiner =="
 printf '# Counts\n\nPresent 42 tables.\n' >"$TMP/counts.md"
 out="$(/bin/sh "$CHECK" "$TMP/counts.md" 2>&1)"
 assert_contains "a mandate over a multi-digit count is reported" "counts.md:3:" "$out"
+
+echo "== a terminal state is not the terminal =="
+printf '# Terminal\n\nPresent the terminal status of each task.\n\nShow the summary in the terminal.\n' >"$TMP/terminal.md"
+out="$(/bin/sh "$CHECK" "$TMP/terminal.md" 2>&1)"
+assert_contains "a mandate over a terminal state is reported" "terminal.md:3:" "$out"
+assert_not_contains "a mandate naming the terminal is not reported" "terminal.md:5:" "$out"
 
 echo "== an explicit directory is skipped, not scanned =="
 out="$(/bin/sh "$CHECK" "$TMP/clean" 2>&1)"
