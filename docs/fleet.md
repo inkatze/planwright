@@ -219,20 +219,13 @@ reported as gaps. It runs on demand, never in CI.
 
 ### The knobs
 
-| Knob | What it controls |
-| --- | --- |
-| `tower_quiet_interval` | How long a hand-over may go unanswered before you count as away in that tower's conversation, and the next delivery knocks again |
-| `tower_lease_interval` | How long a tower holds an item you have not answered before it goes back to the queue; floored at the quiet interval |
-| `tower_reknock_age` | How long a blocked item may stay open before the away push names it a second time |
-| `tower_shelve_return` | How long "later" parks an item |
-| `tower_catchup_limit` | How many closed items the queue keeps, and how many settled ones the catch-up shows before the rest become a count |
-| `tower_tick_gap_max` | The longest gap between a tower's ticks that still counts as fleet time |
-| `tower_log_rotate_age` | How old a log line gets before it rotates out (never below the report window) |
-| `tower_report_window` | How far back the scorecard reads |
-| `tower_hook_lock_wait` | How long the reply hook and every queue command wait for the fleet lock; past it the hook drops the log line rather than delay your prompt |
-
-Every interval accepts the `ms`/`s`/`m`/`h`/`d` suffixes. Defaults and full
-rules are in the [options reference](options-reference.md).
+These settings tune the queue: `tower_quiet_interval`, `tower_lease_interval`,
+`tower_reknock_age`, `tower_shelve_return`, `tower_catchup_limit`,
+`tower_tick_gap_max`, `tower_log_rotate_age`, `tower_report_window`, and
+`tower_hook_lock_wait`. Each has its row, with what it controls and its
+default, in [the knobs table](#the-knobs-capability-in-core-value-in-overlay)
+at the end of this guide. Every interval accepts the `ms`/`s`/`m`/`h`/`d`
+suffixes; full rules are in the [options reference](options-reference.md).
 
 ## The backend-agnostic status view
 
@@ -1820,6 +1813,15 @@ are in the [options reference](options-reference.md).
 | `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
 | `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, and every launch point planwright ships now reads it (fleet dispatch by task type; single-spec dispatch, per-step sessions, and offload by surface), applying each dimension only as far as the launching backend's advertised `tier_control` allows and recording any inheritance | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the three non-fleet surfaces — configure nothing, observe no change |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
+| `tower_quiet_interval` | Away detection per tower conversation: a hand-over unanswered this long marks you away there, and the next delivery knocks again | How long you may leave a hand-over before a tower treats you as away | `10m` — a knock is never repeated on a schedule, so this only decides when the next one may come |
+| `tower_lease_interval` | The delivery lease's backstop expiry; release is otherwise by event (your answer, "later", settling) | How long a tower that died holding an item keeps it from the others | `15m` — above the quiet interval, which it may never go below, so an attended conversation never loses the item it holds |
+| `tower_reknock_age` | The away push's second and last reminder for a blocked item | How long a blocked worker waits before you are reminded once more | `30m` — one reminder per departure, never a schedule |
+| `tower_shelve_return` | How long "later" parks an item | Your snooze length | `1h` — a shelved item always comes back; shelving never drops one |
+| `tower_catchup_limit` | Retention: the closed items the queue keeps, and the settled ones the catch-up shows before a remainder count | How much history the catch-up carries | `20` — bounded (capped at 500); older history stays in the event log |
+| `tower_tick_gap_max` | The scorecard's fleet-hours denominator: a gap between a tower's ticks longer than this is left out and reported | What counts as a tower being down rather than idle | `10m` — a stopped tower's silence is reported as a gap, never counted as fleet time |
+| `tower_log_rotate_age` | Event-log rotation, floored at the report window | How long the log keeps its lines | `30d` — well past the report window, so the scorecard never reads a rotated-out stretch |
+| `tower_report_window` | The window the scorecard reads | How far back the scorecard looks | `7d` — a week of sessions |
+| `tower_hook_lock_wait` | The fleet-lock wait for every queue command and the reply hook; at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the reply itself |
 
 Style values never gate capability: every knob's default keeps the full
 pipeline functional, and raising richness (a richer backend, a push channel,
