@@ -9,7 +9,7 @@ enforces the relay's mechanics.
 Citations: orchestration-fleet REQ-D1.2 (division of labor), orchestration-fleet
 REQ-D1.3 (attributed, non-impersonating relay), orchestration-fleet REQ-B1.7
 (relay/spawn security bounds), orchestration-fleet REQ-A1.6 (fleet-artifact data
-hygiene) · orchestration-fleet D-7.
+hygiene) · orchestration-fleet D-7, tower-comms D-12.
 
 ## Division of labor
 
@@ -92,16 +92,16 @@ equivalent) — a read of the worker's surface, never a write to it.
 `orchestrate-relay.sh observe-command tmux <handle>` emits the `capture-pane -p`
 read. The captured text is then classified by the tower as **data** (see below).
 
-### Never answer a worker's permission prompt
+### Never answer a worker's permission prompt on the tower's judgment
 
 The tower **never** answers a worker's **harness permission prompt** — the
-tool-permission gate — on its behalf. That gate is the human's. This is distinct
-from a routine *question a worker addresses to the tower* (a hygiene call, a
-scoped-cleanup confirmation), which the
-[Autonomous-Safe-Decision Policy](autonomous-safe-decision.md) may answer
+tool-permission gate — on its own judgment. That gate is the human's: a prompt
+falling strictly inside the operator's written standing decision is recorded as
+the operator's answer, naming the rule; every other prompt reaches the operator.
+This is distinct from a routine *question a worker addresses to the tower*, which
+the [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md) may answer
 unattended. The sanctioned way to remove *routine* prompts is the shipped
-worker-settings profile (`config/worker-settings.json`), which a human installs —
-not a tower typing an answer into a prompt.
+worker-settings profile (`config/worker-settings.json`), which a human installs.
 
 ## Security bounds
 
@@ -138,7 +138,7 @@ observe-in-flight and steer-in-flight capabilities this relay consumes; a
 backend that does not advertise them cannot host an in-flight relay, and the
 tower falls back to the completion-notification surface. The
 [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md) draws the line
-this doctrine depends on — a worker's *permission prompt* (never answered) versus
-a routine *question to the tower* (may be answered unattended). The
+this doctrine depends on — a worker's *permission prompt* versus a routine
+*question to the tower*. The
 [Security Posture](security-posture.md) is the parent of the security bounds
 above.

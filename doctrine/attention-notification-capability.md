@@ -24,8 +24,14 @@ session-side relay), all implemented by
 - **Heartbeat / awareness state.** A per-worker current-state store, keyed by
   worker handle: the worker's scope (spec + unit), its state, a commit-time
   heartbeat timestamp, and — when it is blocked — the structured decision it waits
-  on. It is a *state store*, not a log: one row per worker, last write wins
-  (`heartbeat`, `decide`, `clear`).
+  on. It is a *state store*, not a log: one row per worker, last write wins.
+  Its writers: `heartbeat` (a plain state), `decide` (a structured decision),
+  `fork` (an answerable decision with a labeled option set and an instance
+  id), `park` (a fork-park carrying only its reason), `permission` (a harness
+  permission prompt, marked in field 9 with its command in field 12, written
+  by the `PermissionRequest` hook), `claim` (stamps the answer that closes a
+  fork, first answer wins, or with `--standing` a permission record), and
+  `clear` (removes the row at teardown).
 - **The portable status renderer** (`render`). Lists each worker's scope and
   state. It is substrate-agnostic: it reads the store, so it renders identically
   from a plain terminal, a detached-multiplexer popup, or an editor panel.
@@ -64,9 +70,10 @@ A worker's scope pairs with exactly one **store state**:
   verdict that lands here as an `awaiting-input` escalation, never a stored
   state.
 - **`awaiting-input`** — blocked on a human decision. This is the one state that
-  carries a structured decision, so it is set only by `decide`, never by a bare
-  `heartbeat`. Each `awaiting-input` record is one decision-queue item and mirrors
-  one `## Awaiting input` entry in the owning spec's `tasks.md`.
+  carries a decision, so it is set only by `decide`, `fork`, `park`, or
+  `permission`, never by a bare `heartbeat`. Each `awaiting-input` record is one
+  decision-queue item and mirrors one `## Awaiting input` entry in the owning
+  spec's `tasks.md`.
 - **`pr-ready`** — a draft PR is up; the human's reserved review/merge is pending,
   but planwright surfaces it as status, not as a queue decision (merge is never a
   planwright action).
@@ -74,6 +81,23 @@ A worker's scope pairs with exactly one **store state**:
 
 Only `awaiting-input` is actionable, which is what makes the queue length track
 the `## Awaiting input` count rather than the worker count.
+
+### Readers
+
+Besides this script's own `render` and `queue`, the store's readers include the
+fleet-autonomy classifier (above), the backend-agnostic status view
+(`scripts/fleet-status.sh`), the awaiting-input watcher
+(`scripts/fleet-attention-watch.sh`), the tower loop's comms step, which
+renders a handed-over question from its row, and the **sibling operator queue**
+([`scripts/tower-queue.sh`](../scripts/tower-queue.sh), tower-comms D-2), which
+sits above this store and consumes it as one of its inputs. A worker's question
+and a piece of news keep their content here; the operator queue holds only an
+index record pointing at the row, checks that row at every pass (re-forked,
+answered, or gone), and matches a written standing decision against a
+permission record's field-12 command only. It writes no row itself: a permission
+prompt it settles by rule is recorded through `claim --standing`, the one
+sanctioned answer channel. The store keeps its one-row-per-worker shape and its
+writers above; the operator-facing layer is separate.
 
 ## Alarm rationalization
 
@@ -120,7 +144,14 @@ the specific *channel* is overlay-owned, resolved through the four config layers
 - **`statusline`** — the derived fleet stats rendered natively in the operator's
   own Claude Code terminal via its `statusLine` feature (fleet-autonomy D-14).
   Pull-shaped: Claude Code invokes the renderer on its own schedule, so the
-  `notify` push seam is a no-op for it.
+  `notify` push seam is a no-op for it. The same line carries the operator
+  queue's `waiting` field while a tower has published its presence
+  (tower-comms D-17).
+- **`push`** — session-relayed (tower-comms D-19): `notify` writes a
+  pending-push marker under the fleet home, deduped per key under the lock, and
+  the tower loop's `relay` hands it to the session, which calls Claude Code's
+  push-notification tool (desktop, and phone under Remote Control). Outside a
+  tower loop nothing relays and the markers wait.
 
 Each persona resolves as a combination of the two seams — an execution backend
 times an attention surface, never a separate system; the full persona mapping

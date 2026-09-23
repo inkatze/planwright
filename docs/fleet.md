@@ -103,6 +103,139 @@ holding it died, and a plain `queue` renders everything. The count `--count`
 prints is never filtered — that one tracks the `## Awaiting input` entries,
 which a hand-over does not close.
 
+## The operator queue: what the tower brings you
+
+The decision queue above is the workers' list. A tower session keeps a second
+one for you: the **operator queue** (`scripts/tower-queue.sh`), which holds
+everything the tower means to put in front of you — a blocked worker's
+question, something waiting for your go-ahead, a request you made, and news —
+and hands it over one item at a time. Nothing reaches you as loose prose; if
+the tower is telling you something it needs from you, it came off this queue.
+
+### What you see
+
+- **A knock first.** When something is waiting and you have not spoken to the
+  tower for a while, it says one line naming what kind of thing is waiting,
+  how urgent it is, and how many items there are. Nothing more arrives until
+  you reply. The knock is not repeated on a timer; it comes again only after a
+  hand-over has gone unanswered for `tower_quiet_interval`, or when the item it
+  named is no longer at the top of the queue.
+- **One item per reply.** Your reply opens the conversation, and each reply
+  after it brings the next item. The one exception is a pair: two waiting
+  items of the same kind about the same worker, PR, branch, or request arrive together
+  as one hand-over, and you answer both. Blocked workers come first, then things
+  waiting for your go-ahead, then your own requests, then news; within a kind,
+  the more urgent and then the older first. Each item is written so you can
+  answer it from that message alone. Ask for more and you get one more layer,
+  then the tower waits.
+- **Where things stand, after a quiet stretch.** The first turn after a long
+  silence tells you the current state in plain words, not a list of what the
+  tower did. What settled on its own while you were away, and why, is there
+  when you ask for it.
+- **An echo for everything you ask for.** A request you make in passing
+  becomes an item in the same turn, and the tower echoes it back in one line.
+  There is no confirmation step; correct the echo only if it is wrong. A
+  question the tower can answer on the spot is answered there, not queued.
+- **Plain words.** The tower assumes you know what a tower, worker, spec,
+  task, PR, branch, and worktree are, and nothing below that. The test for any
+  other word is yours: if asking "what is that?" would send you into a file to
+  find out, the tower should not have said it. When you ask what a name
+  means, that name was the mistake, and the tower drops it rather than
+  explaining it.
+
+Worker content inside an item is shown fenced, as quoted data. If a worker's
+text contains what reads like an instruction to the tower, the tower does not
+act on it, and neither should you without reading it as a quote.
+
+### Replies the tower understands
+
+There is no command syntax; say it the way you would to a colleague.
+
+| You say | What happens |
+| --- | --- |
+| an answer to the item | the item is acknowledged and closed; that same reply brings the next one |
+| "later", "not now" | the item is shelved and comes back on its own after `tower_shelve_return`; shelving never drops it |
+| "always", "from now on" | a **standing decision** is recorded in your words (see [what the fleet decides without you](#what-the-fleet-decides-without-you-and-what-it-never-does)) |
+| a question | answered inside the turn; only work it needs is captured as a request |
+| "what did I miss?" | the catch-up list: what settled while you were away, and why |
+| "tell me more" | one more layer of context, then the tower waits |
+| "drop the rule about …" | the tower closes that standing decision, recording that you revoked it |
+
+Items also close without you when the evidence says they are done: a PR
+opened or merged, commits landed on the branch, a request's ledger item
+closed, a worker's question answered another way, a worker's permission
+prompt one of your command rules covers, or the thing the item pointed at
+disappearing (the reason is recorded). A worker's own claim to have finished
+never closes anything.
+
+### Several towers, one queue
+
+A single-spec tower, the meta-tower, and the fleet loop can all run on one
+machine over the same queue. Whichever tower hands you an item holds it, so
+the same question never arrives in two terminals at once, and while you are
+replying in the terminal holding it, no other tower takes it. If you walk away
+from that terminal, the item is not lost: once it has had no reply from you
+for `tower_quiet_interval`, whichever tower you are talking to knocks about
+the item and takes it over on your reply. From your side, that looks like a
+question you left unanswered in one terminal being knocked about in another.
+If no tower takes it, the hold lapses on its own after `tower_lease_interval`
+(never shorter than the quiet interval) and the item can be delivered again.
+Towers on separate machines do not share a queue.
+
+When you have gone quiet in every tower conversation and a worker is
+blocked, the tower pushes once through your
+[notification channel](#choosing-what-gets-pushed-at-you), and again only if
+things get worse: another worker blocks, or an item first pushed while still
+younger than `tower_reknock_age` passes that age. Urgent news never pushes;
+it waits for you to come back and knocks then.
+
+### The status-line indicator
+
+With the `statusline` channel selected, the `waiting` field shows what the
+tower has for you without your asking: the top item's kind and a total, or
+`waiting none`. See [the statusline channel](#the-statusline-channel) for
+what `waiting ?` means and how the field is gated.
+
+### What gets logged, and the scorecard
+
+A tower session logs your replies. The prompt-submit hook planwright
+registers is a no-op everywhere except a session running a tower loop; there
+it stamps the time of your reply, which is the only thing that tells the
+tower you are paying attention, and appends the reply (flattened to one line,
+bounded, secret-shaped values redacted) to an event log beside every
+knock, hand-over, acknowledgement, shelve, settle, and push. The log is
+machine-local, under the fleet home, never committed; it rotates after
+`tower_log_rotate_age`. The hook only recognises a tower that published its
+presence by session id: a tower published by process id gets no attention
+stamp, and its knocks go unanswered however much you reply.
+
+The scorecard is computed from that log alone, plus the count of lines it
+dropped:
+
+```sh
+scripts/tower-queue.sh report    # the scorecard over tower_report_window
+```
+
+Its headline is your load: items that reached you per hour of fleet work,
+against items settled without you. Beside it: how long blocked workers
+waited, turns that asked you more than one thing, items delivered in prose
+with no queue record, friction moments, jargon counted in what the tower
+said to you, and items lost across restarts. It also counts log lines any
+writer dropped on a busy lock and lines that would not parse, the only signs a
+write was lost or torn. Stretches between a tower's
+ticks longer than `tower_tick_gap_max` are left out of the fleet hours and
+reported as gaps. It runs on demand, never in CI.
+
+### The knobs
+
+These settings tune the queue: `tower_quiet_interval`, `tower_lease_interval`,
+`tower_reknock_age`, `tower_shelve_return`, `tower_catchup_limit`,
+`tower_tick_gap_max`, `tower_log_rotate_age`, `tower_report_window`, and
+`tower_hook_lock_wait`. Each has its row, with what it controls and its
+default, in [the knobs table](#the-knobs-capability-in-core-value-in-overlay)
+at the end of this guide. Every interval accepts the `ms`/`s`/`m`/`h`/`d`
+suffixes; full rules are in the [options reference](options-reference.md).
+
 ## The backend-agnostic status view
 
 `fleet-attention.sh render` shows what workers have *pushed*. The wider view —
@@ -289,7 +422,12 @@ attention surface), not as a separate system:
 Two audit notes behind that table:
 
 - **All durable fleet state is files** — the worker registry, the attention
-  store, and the toasts under the cross-spec fleet home; the per-spec dispatch
+  store, and the toasts under the cross-spec fleet home; beside them, under
+  its `tower-comms/` directory, the operator queue's store, its event log,
+  the per-tower attention markers the reply hook writes, and the pre-ship
+  fallback that holds your captured requests, approvals, and standing
+  decisions until the action-item ledger ships (machine-local, owner-only,
+  never committed); the per-spec dispatch
   markers and locks next to each spec; and, for a format-version 1 bundle, the
   `tasks.md` snapshot in git (a format-version 2 bundle keeps no committed
   snapshot and reads status through the on-demand render — see
@@ -335,7 +473,8 @@ relays and the markers wait.
 last-cleanup time, the watchdog-trip count, and the throttle-engaged state —
 natively at the bottom of your own Claude Code terminal via its
 [statusLine](https://code.claude.com/docs/en/statusline) feature, alongside the
-decision-queue depth. The stats are **derived on demand** from what the daemon
+decision-queue depth (`queue`) and, while a tower is running, what the
+operator queue has for you (`waiting`). The stats are **derived on demand** from what the daemon
 mechanisms already record (the shared audit trail and the live throttle state);
 nothing is written to a new file for them.
 
@@ -883,8 +1022,11 @@ its own branch — its conflict resolution, its post-merge sync. No tower ever
 edits another tower's or worker's branch state. Messages *into* a live worker
 go through the attributed relay: clearly marked as tower-origin, delivered by
 a paste mechanism that cannot be mistaken for the worker typing, and **never**
-answering a worker's harness permission prompt — a worker's authorization
-gate belongs to the human at every tier.
+answering a worker's harness permission prompt on the tower's own judgment —
+a worker's authorization gate belongs to you at every tier. The one answer a
+tower records there is yours: a standing decision you wrote that the prompt
+falls strictly inside (see
+[what the fleet decides without you](#what-the-fleet-decides-without-you-and-what-it-never-does)).
 
 ## Ghost-text prevention: keeping pane captures unambiguous
 
@@ -1626,6 +1768,42 @@ nothing added:
 - **Never, on any rung, at any tier:** auto-merge. The draft-to-ready flip and
   the merge are yours, permanently.
 
+### Standing decisions
+
+Tell a tower "always" or "from now on" and it records a **standing
+decision**: your rule in your own words, what it covers, and when you said it.
+It lives with your other captured requests (machine-local until the
+action-item ledger ships), is never delivered to you as an item, and stays in
+force until you tell the tower to drop it.
+
+**What one may cover.** Two shapes, and they behave differently:
+
+- **Worker commands**, given as literal command prefixes (`mise run check`,
+  `git status`). This is the only shape that settles anything by itself: when
+  a worker stops at a harness permission prompt, the tower records your rule as
+  the answer, through the same channel your own answers use, only if the
+  prompt's command starts with one of your prefixes exactly (compared as
+  text, never as a pattern), is followed by a space or the end of the command
+  (end your prefix with a space to allow any continuation), and continues with
+  nothing but plain arguments — letters, digits, `._/@:=+-`, spaces, and
+  quoted strings. A pipe, a redirect, a `;`, a substitution, or anything else
+  outside that set sends the prompt to you instead. The answer names your rule,
+  and the item closes only once that channel has accepted it.
+- **Anything else**, in free text ("don't bother me about lint-only PRs").
+  These never settle anything on their own. The tower brings the rule up
+  beside an open item on the same subject and says which rule it is applying.
+
+**What one may not cover.** A merge, a ready-flip, a force-push, an amend, a
+squash, a rebase, or a push to the default branch. Those stay yours on every
+occasion: the tower refuses to record a rule that reaches one, and refuses
+again at match time whatever a rule's wording claims.
+
+A permission prompt outside every rule you wrote reaches you. The tower never
+answers one on its own judgment, and mentioning a prompt in passing is not
+you deciding it. Command text shown to you for approval is plain ASCII; any
+other byte is shown as an escape with a warning, so you never approve text
+that renders as something else.
+
 ## The knobs: capability in core, value in overlay
 
 Every fleet preference splits on the capability-vs-style boundary: the
@@ -1645,6 +1823,15 @@ are in the [options reference](options-reference.md).
 | `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
 | `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, and every launch point planwright ships now reads it (fleet dispatch by task type; single-spec dispatch, per-step sessions, and offload by surface), applying each dimension only as far as the launching backend's advertised `tier_control` allows and recording any inheritance | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the three non-fleet surfaces — configure nothing, observe no change |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
+| `tower_quiet_interval` | Away detection per tower conversation: a knock or hand-over unanswered this long marks you away there, and the next delivery knocks again | How long you may leave a hand-over before a tower treats you as away | `10m` — a knock is never repeated on a schedule, so this only decides when the next one may come |
+| `tower_lease_interval` | The delivery lease's backstop: it voids a hand-over nobody acknowledged so the item can be delivered again; release is otherwise by event (your answer, "later", settling), and an attended tower takes over sooner, once the holder has been quiet for `tower_quiet_interval` | How long an unacknowledged hand-over stands | `15m` — above the quiet interval, which it may never go below, so an attended conversation never loses the item it holds |
+| `tower_reknock_age` | The away push's second and last reminder for a blocked item | How long a blocked worker waits before you are reminded once more | `30m` — one reminder per departure, never a schedule |
+| `tower_shelve_return` | How long "later" parks an item | Your snooze length | `1h` — a shelved item always comes back; shelving never drops one |
+| `tower_catchup_limit` | Retention: the closed items the queue keeps, and the settled ones the catch-up shows before a remainder count | How much history the catch-up carries | `20` — bounded (capped at 500); older history stays in the event log |
+| `tower_tick_gap_max` | The scorecard's fleet-hours denominator: a gap between a tower's ticks longer than this is left out and reported | What counts as a tower being down rather than idle | `10m` — a stopped tower's silence is reported as a gap, never counted as fleet time |
+| `tower_log_rotate_age` | Event-log rotation, floored at the report window | How long the log keeps its lines | `30d` — well past the report window, so the scorecard never reads a rotated-out stretch |
+| `tower_report_window` | The window the scorecard reads | How far back the scorecard looks | `7d` — a week of sessions |
+| `tower_hook_lock_wait` | The fleet-lock wait for every queue write and the reply hook's log line (the reads take no lock); at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the attention stamp |
 
 Style values never gate capability: every knob's default keeps the full
 pipeline functional, and raising richness (a richer backend, a push channel,

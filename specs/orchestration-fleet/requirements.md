@@ -1,7 +1,7 @@
 # Orchestration Fleet — Requirements
 
 **Status:** Done
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-09-23
 **Format-version:** 1
 
 ## Goal
@@ -259,6 +259,8 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   parsed for targeting SHALL be validated before any use.
   *(Cites: D-2, D-7; bootstrap D-38; the operational-protocol seed;
   security-posture (Sources).)*
+  *(Overridden in part by tower-comms D-12: this NEVER reads as never from
+  the tower's own judgment.)*
 
 ## REQ-C — Orchestrator self-management
 
@@ -313,6 +315,8 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   read by capture-pane / equivalent observe-in-flight; the protocol SHALL NEVER
   use `send-keys`-style impersonation and SHALL NEVER answer a worker's
   permission prompt.
+  *(This NEVER is REQ-B1.7's rule, read per the tower-comms D-12 override
+  noted there.)*
   *(Cites: D-7; the operational-protocol seed; the backend-direction addendum §A
   (Sources).)*
 - **REQ-D1.4** planwright SHALL define an **autonomous-safe-decision policy**
@@ -509,6 +513,17 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   Surfaced by the format-grammar validator's citation-range rule (format-grammar
   REQ-D1.3) on its all-bundle rollout (format-grammar D-9); no requirement or
   decision changes meaning.
+- 2026-09-23: Expression-only: a one-line pointer beside REQ-B1.7 names the
+  override tower-comms recorded at its kickoff (tower-comms D-12, REQ-E1.5):
+  the never-answer rule for a worker's harness permission prompt, here and in
+  REQ-D1.3, is read as never from the tower's own judgment, and a prompt
+  strictly inside the operator's written standing decision is answered as the
+  operator's answer. The decision and its override are tower-comms'; this
+  bundle's text is unchanged beyond the pointer.
+- 2026-09-23: Expression-only: the REQ-B1.7 pointer now attributes to
+  tower-comms D-12 only what D-12 overrides (REQ-B1.7), and REQ-D1.3, which
+  restates that rule, gains its own pointer back to REQ-B1.7's, so a reader
+  landing on either sees the reading.
 
 ## Sources
 
