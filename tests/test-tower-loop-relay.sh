@@ -201,9 +201,17 @@ printf 'reachable\n' >"$push_dir/not a key"
 chmod 0600 "$push_dir/not a key"
 rc=$(step_rc_of --tower "$A" --evidence "$ev" --now 4850)
 [ "$rc" != 0 ] || fail "a pending-push file outside the key grammar was relayed or ignored silently"
-grep -q 'marker key' "$errf" || fail "the refused pending-push name was not named on stderr"
+grep -q "not a key.*marker key" "$errf" || fail "the refused pending-push name was not named on stderr"
 [ -e "$push_dir/not a key" ] || fail "a file the relay refused was deleted anyway"
 rm -f "$push_dir/not a key"
+
+long_key=$(printf '%0129d' 0)
+printf 'reachable\n' >"$push_dir/$long_key"
+chmod 0600 "$push_dir/$long_key"
+rc=$(step_rc_of --tower "$A" --evidence "$ev" --now 4855)
+[ "$rc" != 0 ] || fail "a pending-push name past the key cap was relayed or ignored silently"
+grep -q "$long_key" "$errf" || fail "the overlong pending-push name was not named on stderr"
+rm -f "$push_dir/$long_key"
 
 : >"$push_dir/$i2"
 chmod 0600 "$push_dir/$i2"

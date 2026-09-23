@@ -1432,13 +1432,13 @@ case $cmd in
       # is named and left rather than read out to the operator.
       case $rk in
         *[!A-Za-z0-9._-]* | -* | "")
-          echo "fleet-attention: relay: a file in the pending-push set does not carry a marker key; remove it to stop this report" >&2
+          echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") in the pending-push set does not carry a marker key; remove it to stop this report" >&2
           relay_rc=2
           continue
           ;;
       esac
       if [ "${#rk}" -gt 128 ]; then
-        echo "fleet-attention: relay: a pending-push name is longer than a marker key; remove it to stop this report" >&2
+        echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is longer than a marker key; remove it to stop this report" >&2
         relay_rc=2
         continue
       fi
