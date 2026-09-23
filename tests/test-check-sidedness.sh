@@ -104,10 +104,11 @@ out="$(/bin/sh "$CHECK" "$TMP/counts.md" 2>&1)"
 assert_contains "a mandate over a multi-digit count is reported" "counts.md:3:" "$out"
 
 echo "== a terminal state is not the terminal =="
-printf '# Terminal\n\nPresent the terminal status of each task.\n\nShow the summary in the terminal.\n' >"$TMP/terminal.md"
+printf '# Terminal\n\nPresent the terminal status of each task.\n\nShow the summary in the terminal.\n\nPrint the digest at the terminal.\n' >"$TMP/terminal.md"
 out="$(/bin/sh "$CHECK" "$TMP/terminal.md" 2>&1)"
 assert_contains "a mandate over a terminal state is reported" "terminal.md:3:" "$out"
 assert_not_contains "a mandate naming the terminal is not reported" "terminal.md:5:" "$out"
+assert_not_contains "a mandate at the terminal is not reported" "terminal.md:7:" "$out"
 
 echo "== an explicit directory is skipped, not scanned =="
 out="$(/bin/sh "$CHECK" "$TMP/clean" 2>&1)"
