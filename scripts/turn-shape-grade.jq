@@ -8,7 +8,8 @@
 # delimiter-row pattern, shared with the artifact table count).
 #
 # Only schema-v2 records are graded; the kickoff fixture's unversioned
-# records (an integer `turn` field) are ignored rather than misread.
+# records (an integer `turn` field) are ignored rather than misread. A record
+# carrying any other `v` is a schema error: no other version was ever written.
 #
 # Output: {schema_errors: [..], results: [{inv, ok, vacuous?, reason}, ..]}.
 
@@ -172,6 +173,7 @@ def open_captures_list($turns):
 | {
     schema_errors: (
       [$log[] | select(.kind == "turn" and .v != 2) | "a turn record not on schema v2 (seq \(.seq // "?"))"]
+      + [$log[] | select(.kind != "turn" and has("v") and .v != 2) | "a \(.kind // "kindless") record not on schema v2 (seq \(.seq // "?"))"]
       + [$turns[] | select(turn_ok | not) | "turn record seq \(.seq // "?") violates the v2 turn schema"]
       + (if ([$v2[].seq] | . == (unique)) then [] else ["v2 records do not carry strictly increasing seq values"] end)
     ),

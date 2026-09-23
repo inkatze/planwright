@@ -242,6 +242,14 @@ assert_contains "the unexpected pass is named" "UNEXPECTED-PASS no-table-dump" "
 mutate "$TMP/l1/projection.novice" "$TMP/m/v1-turn" 'if .kind == "turn" then .v = 1 else . end'
 /bin/sh "$GRADE" --conf "$SUITE/projection/fixture.conf" "$TMP/m/v1-turn" >/dev/null 2>&1
 assert_exit "a turn record off schema v2 is a schema error" 3 "$?"
+# No record was ever written as v: 1, so any versioned record off v2 is broken,
+# not legacy; left ungraded, a declined item's capture would go unseen.
+mutate "$TMP/l1/kickoff-multiphase.novice" "$TMP/m/v1-decision" 'if .kind == "decision" then .v = 1 else . end'
+/bin/sh "$GRADE" --conf "$SUITE/kickoff-multiphase/fixture.conf" "$TMP/m/v1-decision" >/dev/null 2>&1
+assert_exit "a non-turn record off schema v2 is a schema error" 3 "$?"
+mutate "$TMP/l1/projection.novice" "$TMP/m/seq-reversed" '.seq = (1000 - .seq)'
+/bin/sh "$GRADE" --conf "$SUITE/projection/fixture.conf" "$TMP/m/seq-reversed" >/dev/null 2>&1
+assert_exit "records whose seq runs backwards are a schema error" 3 "$?"
 
 printf 'id=bare\nturn_invariants=no-table-dump\n' >"$TMP/bare.conf"
 /bin/sh "$GRADE" --conf "$TMP/bare.conf" "$TMP/l1/projection.novice" >/dev/null 2>&1
