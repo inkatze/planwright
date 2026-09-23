@@ -31,8 +31,8 @@ failure.
 
 ## Doctrine
 
-This skill is procedure, not doctrine. One rule doc informs it; resolve it
-at run start via the rule-doc resolution convention
+This skill is procedure, not doctrine. Two rule docs inform it; resolve
+each via the rule-doc resolution convention
 (`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright
 root, or the documented `PLANWRIGHT_ROOT` / `CLAUDE_PLUGIN_ROOT` chain):
 
@@ -40,15 +40,18 @@ root, or the documented `PLANWRIGHT_ROOT` / `CLAUDE_PLUGIN_ROOT` chain):
   = optional in-worktree cache), the kickoff-brief structure, and the
   `planwright/<spec>/task-<id-or-ids>` branch convention this skill parses
   to locate the spec.
+- `interaction-style` — the three disciplines and the turn/artifact
+  arbitration, which govern the one attended turn this skill has: Step 8's.
 
 Because `/resume` is a read-only loader, a doc that does not resolve is a
 one-line degradation note, not a halt: fall back to reading the brief and
 `tasks.md` directly and proceed (REQ-K1.7).
 
 Doctrine manifest (machine-parseable, per `doctrine/instruction-hygiene.md`;
-`run-start` loads before work begins):
+`run-start` loads before work begins, `point-of-use` at the named step):
 
 Doctrine: run-start spec-format
+Doctrine: point-of-use interaction-style (Step 8's turn)
 
 ## Procedure
 
@@ -166,15 +169,38 @@ unstaged, and untracked changes. Do not stash, commit, clean, or otherwise
 touch the working tree — the decision about uncommitted state belongs to
 the human (D-30).
 
-Then present the consolidated context (unit, brief slice, task state, git
-log, PR state, handover notes, working-tree status) and **ask the human how
-they want to proceed** before doing any further work. When a `<spec>` was
-resolved, also recommend — as an **optional independent step** — that the
-human may run `/spec-walkthrough specs/<spec>` themselves for an unaided,
-plain-language re-read of the bundle to re-orient (REQ-F1.1, REQ-F1.2, D-11).
-It is a suggestion only, never a step this skill performs, and as a read-only
-loader `/resume` neither runs it nor depends on it. `/resume` ends here;
-continuing the work is a separate, human-initiated step.
+Then, before doing any further work, **ask the human how they want to
+proceed**. The turn is a projection of the load (`interaction-style`, the
+arbitration), not the load itself:
+
+- **The question leads**, with the decisions the load surfaced as its
+  options — uncommitted changes to settle, a pending sign-off or open fork
+  from the polish audit, a halt recorded against the unit — each option
+  stating its own action and consequence, per the balance rules, with an
+  explicit leave-it-for-now option.
+- **One compact status line** follows: the unit, its derived phase, the PR
+  number and draft state (or none), and the working tree as clean or a count
+  of changed paths.
+- **The seven context elements** — unit, brief slice, task state, git log,
+  PR state, handover notes, working-tree status — are offered on request,
+  one layer at a time, never emitted by default. A decision the operator
+  must weigh is never hidden in that layer: it belongs in the question.
+
+A follow-up the operator names in the answer gets its tracked form proposed
+per `interaction-style`'s *Capture at birth*, but `/resume` stays read-only:
+the confirmed write is the first act of the work that continues after it, never
+a write this skill makes. Mirror the turn into
+the structured decision/transcript log as one `turn` record, sanitized like
+the log's other records (D-19); where the harness provides no such log, say
+the mirror was skipped, never improvising one into the repository.
+
+When a `<spec>` was resolved, also recommend — as an **optional independent
+step**, one line — that the human may run `/spec-walkthrough specs/<spec>`
+themselves for an unaided, plain-language re-read of the bundle to re-orient
+(REQ-F1.1, REQ-F1.2, D-11). It is a suggestion only, never a step this skill
+performs, and as a read-only loader `/resume` neither runs it nor depends on
+it. `/resume` ends here; continuing the work is a separate, human-initiated
+step.
 
 ## Invariants
 
@@ -183,7 +209,8 @@ self-healing drift-log note (Maintenance section): recording one observation
 fragment through `scripts/obs-record.sh` and committing it as its own chore
 commit. That chore never touches the resumed work; every invariant below
 describes the read-only guarantee over that work, and the drift-log note is
-the sole carved-out exception.
+the sole carved-out exception. Step 8's `turn` record goes to a log the
+harness provides, outside the repository, so it touches neither.
 
 - **Never** modify the working tree of the resumed work: no stash, clean,
   checkout, reset, or commit of in-flight changes. `/resume` only reads it
