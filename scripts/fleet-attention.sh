@@ -122,15 +122,47 @@
 #       Remove the worker's row (idempotent) — cleanup on merged/done teardown.
 #   fleet-attention.sh render [--surface-provided]
 #       Status renderer: each worker's scope + state.
-#   fleet-attention.sh queue [--count] [--surface-provided]
+#   fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]...
 #       Decision queue: ordered actionable items as structured choices.
 #       --count prints only the item count (the length that tracks the
 #       `## Awaiting input` count).
+#       --except leaves a worker's row out of the RENDER. The tower loop's
+#       comms step passes the worker whose question it just handed the operator
+#       (tower-comms REQ-A1.1): the render that ends the same iteration would
+#       otherwise list that question again as though nobody had asked it. It
+#       names only what the caller itself just said — it is not derived from the
+#       queue's store, whose delivery stamp never clears and would go on hiding
+#       a row after the conversation holding it died. The count left out is said
+#       on stderr, so the surface never shrinks silently, and --count is not
+#       filtered at all: that one is the projection of the `## Awaiting input`
+#       entries, which a hand-over does not close.
 #   fleet-attention.sh notify <summary> [--key <token>]
 #       Push <summary> through the resolved notification channel. --key names
 #       what is being notified about; on the `push` channel it is the pending
 #       marker's filename, so it is also the dedupe. Absent, it is derived from
 #       the summary, so the same sentence twice is still one marker.
+#   fleet-attention.sh relay
+#       The other half of the `push` channel (tower-comms D-19, REQ-F1.6). The
+#       seam above writes a marker because the tool that reaches the operator's
+#       phone can only be called from inside a session; this takes the pending
+#       markers so that session can relay them. Under the fleet lock, each
+#       marker is removed and its line printed as `push<TAB><key><TAB><text>`,
+#       so two towers stepping at once never relay the same line twice. Taking
+#       and printing is ONE step on purpose: a list-then-clear pair leaves a
+#       window in which a second tower relays what the first is about to, and
+#       waking the operator twice is the load this bundle exists to cut. The
+#       cost is the inverse window — a session that dies between this call and
+#       the tool call drops that line, permanently, since nothing re-derives it.
+#       Every marker this verb declines to relay is named on stderr and makes
+#       the exit non-zero (2): a push destroyed or stranded in silence is the
+#       failure REQ-C1.11 forbids, and an empty pending set is the one quiet
+#       outcome. Exit 0 with no output means nothing was waiting; a directory
+#       that cannot be listed says so rather than passing for an idle one.
+#       A refused marker is refused on every later call too, so a tower loop
+#       reports it once an iteration until somebody removes the file — which is
+#       what each message asks for. The alternative is a pending push nobody is
+#       told about, and the alarm literature this bundle borrows from is about
+#       what to ANNUNCIATE, not about staying quiet on a stuck one.
 #
 # Exit codes: 0 success; 2 usage error, unresolvable home, refused hostile
 #   input, or a filesystem/lock error (fail closed); 3 a SEMANTIC refusal on the
@@ -144,7 +176,9 @@
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): uses the
 # same widely-portable extensions fleet-state.sh does — `date +%s`, a fractional
 # `sleep` — plus awk/sort/mktemp. No eval, no jq/fish/mise (REQ-K1.5). All input
-# is data. Pathname expansion is disabled (set -f).
+# is data. Pathname expansion is disabled (set -f), except around the one
+# marked pending-push enumeration in `relay`, which expands into "$@" and
+# re-arms on the next line.
 set -uf
 
 LC_ALL=C
@@ -489,7 +523,7 @@ suppressed() {
 # ---------------------------------------------------------------------------
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
-  echo "usage: fleet-attention.sh heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify [args]" >&2
+  echo "usage: fleet-attention.sh heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify|relay [args]" >&2
   exit 2
 fi
 shift || true
@@ -1123,12 +1157,32 @@ case $cmd in
   queue)
     surface_flag=0
     count_only=0
-    for _a in "$@"; do
-      case $_a in
-        --surface-provided) surface_flag=1 ;;
-        --count) count_only=1 ;;
+    except=""
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --surface-provided)
+          surface_flag=1
+          shift
+          ;;
+        --count)
+          count_only=1
+          shift
+          ;;
+        --except)
+          [ "$#" -ge 2 ] || {
+            echo "usage: fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]..." >&2
+            exit 2
+          }
+          valid_field "$2" || {
+            echo "fleet-attention: queue: --except takes a worker handle" >&2
+            exit 2
+          }
+          except="$except$2
+"
+          shift 2
+          ;;
         *)
-          echo "fleet-attention: queue: unknown flag '$(sanitize_printable "$_a" "(unprintable flag)")'" >&2
+          printf '%s\n' "fleet-attention: queue: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
           exit 2
           ;;
       esac
@@ -1164,6 +1218,39 @@ case $cmd in
     if [ "$count_only" = 1 ]; then
       printf '%s\n' "$n"
       exit 0
+    fi
+    # Leave out what THIS TURN has already put in front of the operator
+    # (tower-comms REQ-A1.1). The caller names them: the tower loop's comms step
+    # hands an item over and prints the worker it was homed on, and the render
+    # that ends the same iteration would otherwise list that same question again
+    # as though nobody had asked it.
+    #
+    # Caller-named rather than derived from the queue's store on purpose. The
+    # store's delivery stamp never clears, so a row suppressed from it would
+    # stay suppressed after the conversation holding it died — a pending human
+    # decision invisible on the surface the default channel makes the operator
+    # read. A flag naming what the caller itself just said cannot outlive the
+    # turn that said it.
+    #
+    # Below `--count` on purpose: the count is the projection of the
+    # `## Awaiting input` entries (the durable record), which a hand-over does
+    # not change, and scripts/fleet-stats.sh reads it as exactly that. What a
+    # delivery closes is one render's repetition, not the entry.
+    if [ -n "$sortable" ] && [ -n "$except" ]; then
+      before=$(printf '%s\n' "$sortable" | grep -c .)
+      sortable=$(printf '%s\n' "$sortable" | awk -F "$TAB" -v d="$except" '
+        BEGIN { n = split(d, a, "\n"); for (k = 1; k <= n; k++) if (a[k] != "") seen[a[k] ""] = 1 }
+        !(($3 "") in seen)
+      ')
+      if [ -z "$sortable" ]; then
+        after=0
+      else
+        after=$(printf '%s\n' "$sortable" | grep -c .)
+      fi
+      if [ "$after" -lt "$before" ]; then
+        echo "fleet-attention: queue: $((before - after)) row(s) left out — this turn has already handed them to the operator (--except)" >&2
+      fi
+      n=$after
     fi
     [ "$n" = 0 ] && exit 0
     now=$(now_epoch)
@@ -1254,6 +1341,162 @@ case $cmd in
       fi
     done
     exit 0
+    ;;
+
+  relay)
+    [ "$#" = 0 ] || {
+      echo "usage: fleet-attention.sh relay" >&2
+      exit 2
+    }
+    root=$(resolve_home) || exit 2
+    attn_dir="$root/attention"
+    push_dir="$attn_dir/push"
+    # Refused, never followed: the same screen `notify` applies before it writes
+    # a marker. A redirect here would make this verb read out, and delete, files
+    # this script never chose — and the loop calls it every iteration whatever
+    # the configured channel is, so the redirect need not wait for a push.
+    for rp in "$attn_dir" "$push_dir"; do
+      if [ -L "$rp" ]; then
+        printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rp" "(unprintable path)") is a symlink — refusing to read the pending set through a redirect" >&2
+        exit 2
+      fi
+    done
+    # Something other than a directory at the push path is not an empty queue:
+    # `notify` cannot write a marker under it, so every push is being lost.
+    if [ -e "$push_dir" ] && [ ! -d "$push_dir" ]; then
+      printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$push_dir" "(unprintable path)") is not a directory; pending pushes are not reaching the operator — remove it to stop this report" >&2
+      exit 2
+    fi
+    [ -d "$push_dir" ] || exit 0
+    # This script runs noglob, and enumerating the pending set is the one place
+    # that needs expansion. Expanded into "$@" and re-armed immediately, the
+    # form the sibling sweeps use; every name is screened below before it is
+    # used for anything.
+    set +f
+    # The directory stays QUOTED and only the `*` is bare, the form every
+    # sibling sweep uses. Unquoted, a home carrying a space is word-split
+    # before the glob runs, every word fails the `-f` screen below, and the
+    # channel reports itself idle with markers still pending — the exact
+    # failure the unlistable-directory branch below exists to rule out.
+    set -- "$push_dir"/*
+    set -f
+    # Nothing pending costs no lock: the loop calls this every iteration on a
+    # channel most trees never select, and an unconditional lock here would
+    # serialize every other writer against an empty directory forever.
+    # Anything at all in the set counts, not only regular files: an entry that
+    # is not a marker holds a key `notify` refuses to dedupe against, so it has
+    # to reach the report below rather than read as an idle channel.
+    relay_pending=0
+    for rp in "$@"; do
+      [ -e "$rp" ] || [ -L "$rp" ] || continue
+      relay_pending=1
+      break
+    done
+    if [ "$relay_pending" = 0 ]; then
+      # An existing-but-unreadable directory expands to nothing exactly as an
+      # empty one does, so the two are told apart before the quiet exit: a
+      # channel that has stopped working must not look like an idle one.
+      if [ ! -r "$push_dir" ] || [ ! -x "$push_dir" ]; then
+        printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$push_dir" "(unprintable path)") cannot be listed; pending pushes are not reaching the operator" >&2
+        exit 2
+      fi
+      exit 0
+    fi
+    acquire_lock || exit 2
+    relay_rc=0
+    for rp in "$@"; do
+      # An unmatched glob comes back as the literal pattern; a dotfile is the
+      # seam's own `.push.XXXXXX` scratch, which is not a marker yet.
+      if [ ! -f "$rp" ]; then
+        if [ -e "$rp" ] || [ -L "$rp" ]; then
+          printf '%s\n' "fleet-attention: relay: $(sanitize_printable "${rp##*/}" "(unprintable key)") is not a plain pending-push marker; remove it to stop this report" >&2
+          relay_rc=2
+        fi
+        continue
+      fi
+      if [ -L "$rp" ]; then
+        printf '%s\n' "fleet-attention: relay: $(sanitize_printable "${rp##*/}" "(unprintable key)") is a symlink, not a marker this seam wrote; remove it to stop this report" >&2
+        relay_rc=2
+        continue
+      fi
+      rk=${rp##*/}
+      # A dotfile is the seam's own `.push.XXXXXX` scratch, mid-write under this
+      # same lock's protection or orphaned by the trap; it is not a marker yet
+      # and is nobody's business here.
+      case $rk in
+        .*) continue ;;
+      esac
+      # Otherwise the key grammar `notify` enforces on the same name, byte for
+      # byte rather than loosely: one token of [A-Za-z0-9._-], no leading . or
+      # -, at most 128 characters. A name outside it was not written here, so it
+      # is named and left rather than read out to the operator.
+      case $rk in
+        *[!A-Za-z0-9._-]* | -* | "")
+          printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") in the pending-push set does not carry a marker key; remove it to stop this report" >&2
+          relay_rc=2
+          continue
+          ;;
+      esac
+      if [ "${#rk}" -gt 128 ]; then
+        printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is longer than a marker key; remove it to stop this report" >&2
+        relay_rc=2
+        continue
+      fi
+      # Verify-or-refuse before the read, the bar every other surface under this
+      # home is held to: a marker somebody else can write is a line somebody
+      # else chose to put on the operator's lock screen.
+      # The mode/owner screen scripts/tower-queue.sh's check_private_file uses,
+      # in the same form: the `-???------` pattern with its `@`/`.` tail admits
+      # the ACL and xattr markers some platforms append, and refuses any group
+      # or other bit. A marker somebody else can write is a line somebody else
+      # chose to put on the operator's lock screen.
+      # shellcheck disable=SC2012
+      rmode=$(ls -ln "$rp" 2>/dev/null | awk 'NR == 1 { print $1 }')
+      # shellcheck disable=SC2012
+      rown=$(ls -ln "$rp" 2>/dev/null | awk 'NR == 1 { print $3 }')
+      case $rmode in
+        -???------ | -???------[@.]*) ;;
+        *)
+          printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is not an owner-only file; remove it to stop this report" >&2
+          relay_rc=2
+          continue
+          ;;
+      esac
+      if [ -z "$rown" ] || [ "$rown" != "$(id -u 2>/dev/null)" ]; then
+        printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is not owned by this user; remove it to stop this report" >&2
+        relay_rc=2
+        continue
+      fi
+      rtext=$(head -n 1 "$rp" 2>/dev/null) || rtext=""
+      if [ -z "$rtext" ]; then
+        # Cleared, because an empty marker holds its dedupe key against every
+        # later push for that item; said out loud, because destroying a pending
+        # push silently is the failure REQ-C1.11 forbids. The removal is
+        # CHECKED, the same as the one below it: reporting a marker cleared
+        # when it is still there repeats the same false report every iteration
+        # and leaves its dedupe key held for good.
+        if rm -f "$rp" 2>/dev/null; then
+          printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") held no line to relay; it has been cleared and nothing was sent" >&2
+        else
+          printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") held no line to relay and cannot be cleared; remove it to stop this report" >&2
+        fi
+        relay_rc=2
+        continue
+      fi
+      # Removed BEFORE the line is printed. The reverse order would let a
+      # crash between the two print a line whose marker is still pending, and
+      # the operator would be woken about it twice by the next tower to step.
+      if ! rm -f "$rp" 2>/dev/null; then
+        printf '%s\n' "fleet-attention: relay: cannot clear $(sanitize_printable "$rk" "(unprintable key)") — not relaying it rather than relaying it on every step" >&2
+        relay_rc=2
+        continue
+      fi
+      printf 'push\t%s\t%s\n' \
+        "$(sanitize_printable "$rk" "(unprintable key)")" \
+        "$(sanitize_printable "$rtext" "(unprintable summary)")"
+    done
+    release_lock
+    exit "$relay_rc"
     ;;
 
   notify)
@@ -1467,7 +1710,7 @@ case $cmd in
     ;;
 
   *)
-    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify)" >&2
+    printf '%s\n' "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify|relay)" >&2
     exit 2
     ;;
 esac

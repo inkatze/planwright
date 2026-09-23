@@ -216,9 +216,7 @@ keeps the attention store current and renders it, through
   **per-worker scope** legibly (REQ-E1.5).
 - **On a halt → `## Awaiting input`**: mirror the entry as a structured
   decision — `scripts/fleet-attention.sh decide <worker> <scope> <question>
-  <default> <options> [priority]` — so the queue's length tracks the
-  `## Awaiting input` count, never the worker count. The `tasks.md` entry
-  remains the durable record; the queue row is its projection.
+  <default> <options> [priority]`.
 - **On reconcile observations**: heartbeat `pr-ready` when a draft PR is up,
   `merged` on an observed merge, and `clear <worker>` at teardown
   (merged-window cleanup). The mirror is **level-triggered like the sweep
@@ -231,22 +229,22 @@ keeps the attention store current and renders it, through
   one iteration and stale workers do not linger on the surface.
 - **Each watch iteration ends by rendering the surface**:
   `scripts/fleet-attention.sh render` (per-worker scope + state), then
-  `scripts/fleet-attention.sh queue` (the ordered decision queue). When the
-  selected backend **advertises** `provides_attention_surface=true`, pass
-  `--surface-provided`: the queue defers to the backend's own surface while
-  `render` stays available — adapt to the advertised set, never the name.
+  `scripts/fleet-attention.sh queue` (the ordered decision queue), passing
+  `--except <worker>` for each worker the iteration's own operator-comms step
+  reported `delivered`. When the selected backend **advertises**
+  `provides_attention_surface=true`, pass `--surface-provided`: the queue defers
+  to the backend's own surface while `render` stays available — adapt to the
+  advertised set, never the name.
 
 Attention calls are **best-effort surface maintenance**: a failed
 `heartbeat`/`decide`/`clear` is reported and never halts the step — the
 `tasks.md` entry stays the durable record, and the level-triggered mirror
 repairs the surface on the next iteration.
 
-The queue and renderer read plain files under the durable fleet home, so the
-same surface is readable from a plain terminal, a popup over a detached
-server, or an editor panel — a new surface is a renderer, not a new execution
-model.
+The queue and renderer read plain files under the durable fleet home, which is
+what makes a new surface a renderer rather than a new execution model
+([attention/notification capability](attention-notification-capability.md)).
 
 **Nothing else changes.** `--fleet` adds presentation, not autonomy: every
-meta-tower rule (fleet lock, live-count bound, subordinate independence), the
-autonomous-safe-decision policy, and the reserved controls hold exactly as
-written above.
+meta-tower rule, the autonomous-safe-decision policy, and the reserved controls
+hold exactly as written above.

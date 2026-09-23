@@ -114,6 +114,11 @@ dashy="0$(printf '%035d' 0 | tr 0 -)"
 rc=0
 run env PLANWRIGHT_TOWER_SESSION_ID="$dashy" /bin/sh "$TL" tick --now 9000 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "dash-heavy PLANWRIGHT_TOWER_SESSION_ID: exit $rc, expected 2"
+# An empty --item would key every such turn to one blank item in the scorecard,
+# and count none of them as the prose they may have been.
+rc=0
+printf 'hello\n' | run /bin/sh "$TL" delivered --tower "$tower" --item '' --now 9000 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "empty --item: exit $rc, expected 2"
 [ ! -e "$log_file" ] || fail "malformed identities: a line was written"
 echo "ok: a missing, malformed, or empty tower identity or time is refused and nothing is written"
 
