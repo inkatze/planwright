@@ -45,7 +45,8 @@
 # resolvable is a refusal, because a tick or a delivery with no writing tower
 # is a line the scorecard cannot attribute (REQ-G1.6). `--now` is the fixture
 # and test seam; the loop leaves it unset. A flag given with an empty value
-# is passed through and refused by the log verb, never silently dropped.
+# is refused, never silently dropped: by the log verb, or here for --item,
+# whose empty value the verb would store.
 #
 # Exit: 0 written (a coalesced tick included); 2 usage or refused input (no
 #   identity, a malformed one, a non-numeric ask count, an empty turn, a turn
@@ -257,6 +258,12 @@ case "$cmd" in
   delivered)
     if [ "$asks_set" = 1 ] && ! is_count "$asks"; then
       err "refusing --asks '$(sanitize_printable "$asks" "(unprintable count)")': not a non-negative integer"
+      exit 2
+    fi
+    # The log verb takes an empty value as a string, so this one is refused
+    # here: an empty item keys every such turn to one blank item.
+    if [ "$item_set" = 1 ] && [ -z "$item" ]; then
+      err "--item was given an empty value"
       exit 2
     fi
     if [ -t 0 ]; then
