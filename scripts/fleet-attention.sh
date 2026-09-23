@@ -120,10 +120,17 @@
 #       decision. The classifier resolves the row to awaiting-human directly.
 #   fleet-attention.sh clear <worker>
 #       Remove the worker's row (idempotent) — cleanup on merged/done teardown.
-#   fleet-attention.sh render [--surface-provided]
+#   fleet-attention.sh render [--surface-provided] [--on-change <key> [--liveness <seconds>]]
 #       Status renderer: each worker's scope + state.
-#   fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]...
+#       --on-change renders on a transition only (the watch loop's form, one
+#       <key> per tower): when no worker's scope, state, or decision changed
+#       since <key>'s last full render, it prints nothing, or one liveness line
+#       once <seconds> (default 600) have passed since <key> last printed. A
+#       heartbeat re-stamp is not a transition.
+#   fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]... [--on-change <key>]
 #       Decision queue: ordered actionable items as structured choices.
+#       --on-change: silent when what it would show is unchanged since <key>'s
+#       last full render (the status render carries the liveness line).
 #       --count prints only the item count (the length that tracks the
 #       `## Awaiting input` count).
 #       --except leaves a worker's row out of the RENDER. The tower loop's
@@ -516,6 +523,73 @@ suppressed() {
     1 | true | yes) return 0 ;;
   esac
   return 1
+}
+
+# The render-on-transition mode (`render`/`queue --on-change <key>`). Each key
+# (one per tower) keeps a seen file under the attention dir holding the digest
+# of the derived state it last rendered in full, when it did, and when it last
+# printed anything. The digest leaves the heartbeat timestamp out, so a
+# re-stamp is not a transition. One writer per key, so no lock: the tower loop
+# never runs two iterations of itself at once.
+LIVENESS_DEFAULT=600
+
+# on_change_opts <verb> <flag> <value> — validate one on-change flag's value
+# into oc_key / oc_live, exiting 2 on a refusal.
+on_change_opts() {
+  case $2 in
+    --on-change)
+      valid_field "$3" || {
+        echo "fleet-attention: $1: --on-change takes a key in the handle grammar" >&2
+        exit 2
+      }
+      oc_key=$3
+      ;;
+    --liveness)
+      case $3 in
+        "" | *[!0-9]* | 0?*)
+          echo "fleet-attention: $1: --liveness takes a whole number of seconds" >&2
+          exit 2
+          ;;
+      esac
+      oc_live=$3
+      ;;
+  esac
+}
+
+# seen_skip <seen-file> <digest> <liveness> <rows> — 0 when nothing changed
+# since this key's last full render, so the caller skips it; prints the one
+# liveness line itself when <liveness> is set and that many seconds have passed
+# since the key last printed. 1 means render in full, which is also the answer
+# to an unreadable seen file or clock: a surface shown twice beats one missed.
+seen_skip() {
+  ss_prev=""
+  ss_full=""
+  ss_emit=""
+  [ -f "$1" ] && IFS="$TAB" read -r ss_prev ss_full ss_emit <"$1"
+  [ -n "$ss_prev" ] && [ "$ss_prev" = "$2" ] || return 1
+  ss_now=$(now_epoch)
+  case "$ss_now:$ss_full:$ss_emit" in
+    *::* | :* | *: | *[!0-9:]*) return 1 ;;
+  esac
+  if [ -n "$3" ] && [ $((ss_now - ss_emit)) -ge "$3" ]; then
+    printf 'no change since the full render %ss ago (%s row(s))\n' "$((ss_now - ss_full))" "$4"
+    seen_write "$1" "$2" "$ss_full" "$ss_now"
+  fi
+  return 0
+}
+
+# seen_write <seen-file> <digest> <full-epoch> <emit-epoch> — best effort, by
+# atomic rename: a failed write is said on stderr and costs one extra render.
+seen_write() {
+  sw_tmp=$(mktemp "${1%/*}/.seen.XXXXXX" 2>/dev/null) || {
+    echo "fleet-attention: could not record the rendered state; the next render is a full one" >&2
+    return 0
+  }
+  if printf '%s\t%s\t%s\n' "$2" "$3" "$4" >"$sw_tmp" && mv -f "$sw_tmp" "$1"; then
+    return 0
+  fi
+  rm -f "$sw_tmp"
+  echo "fleet-attention: could not record the rendered state; the next render is a full one" >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -1119,11 +1193,21 @@ case $cmd in
     # deferral to the DECISION QUEUE only (the actionable surface), never the
     # status view — planwright's per-worker status is always available. Only
     # `queue` honors the signal.
-    for _a in "$@"; do
-      case $_a in
-        --surface-provided) ;;
+    oc_key=""
+    oc_live=$LIVENESS_DEFAULT
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        --surface-provided) shift ;;
+        --on-change | --liveness)
+          [ "$#" -ge 2 ] || {
+            echo "usage: fleet-attention.sh render [--surface-provided] [--on-change <key> [--liveness <seconds>]]" >&2
+            exit 2
+          }
+          on_change_opts render "$1" "$2"
+          shift 2
+          ;;
         *)
-          echo "fleet-attention: render: unknown flag '$(sanitize_printable "$_a" "(unprintable flag)")'" >&2
+          echo "fleet-attention: render: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
           exit 2
           ;;
       esac
@@ -1131,6 +1215,14 @@ case $cmd in
     root=$(resolve_home) || exit 2
     store="$root/attention/state"
     [ -f "$store" ] || exit 0
+    if [ -n "$oc_key" ]; then
+      seen="$root/attention/render-seen.$oc_key"
+      digest=$(awk -F "$TAB" 'BEGIN { OFS = FS } { $4 = ""; print }' "$store" | sort | cksum)
+      rows=$(grep -c . "$store")
+      seen_skip "$seen" "$digest" "$oc_live" "$rows" && exit 0
+      stamp=$(now_epoch)
+      [ -z "$stamp" ] || seen_write "$seen" "$digest" "$stamp" "$stamp"
+    fi
     now=$(now_epoch)
     # A trailing record without a newline is still emitted (|| [ -n "$w" ]).
     while IFS="$TAB" read -r w scope state ts _prio _q _def _opts || [ -n "$w" ]; do
@@ -1158,11 +1250,20 @@ case $cmd in
     surface_flag=0
     count_only=0
     except=""
+    oc_key=""
     while [ "$#" -gt 0 ]; do
       case $1 in
         --surface-provided)
           surface_flag=1
           shift
+          ;;
+        --on-change)
+          [ "$#" -ge 2 ] || {
+            echo "usage: fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]... [--on-change <key>]" >&2
+            exit 2
+          }
+          on_change_opts queue "$1" "$2"
+          shift 2
           ;;
         --count)
           count_only=1
@@ -1251,6 +1352,15 @@ case $cmd in
         echo "fleet-attention: queue: $((before - after)) row(s) left out — this turn has already handed them to the operator (--except)" >&2
       fi
       n=$after
+    fi
+    if [ -n "$oc_key" ]; then
+      # Digest what this render would show, less the heartbeat stamp and its
+      # sort-key copy. No liveness line here: the status render carries it.
+      seen="$root/attention/queue-seen.$oc_key"
+      digest=$(printf '%s\n' "$sortable" | awk -F "$TAB" 'BEGIN { OFS = FS } { $2 = ""; $6 = ""; print }' | sort | cksum)
+      seen_skip "$seen" "$digest" "" "$n" && exit 0
+      stamp=$(now_epoch)
+      [ -z "$stamp" ] || seen_write "$seen" "$digest" "$stamp" "$stamp"
     fi
     [ "$n" = 0 ] && exit 0
     now=$(now_epoch)
