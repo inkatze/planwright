@@ -74,8 +74,8 @@ worker-settings profile has pre-approved:
 tower* (may answer) is not a worker's *harness tool-permission prompt* (the
 authorization gate), which a tower **never** answers on its own judgment at
 any tier (orchestration-fleet REQ-B1.7, orchestration-fleet D-7, read with
-tower-comms D-12). The one answer a tower delivers there is the operator's own:
-a written standing decision the prompt falls strictly inside, delivered through
+tower-comms D-12). The one answer a tower records there is the operator's own:
+a written standing decision the prompt falls strictly inside, recorded through
 the answer channel naming the rule. A prompt outside every standing decision
 reaches the operator, and mentioning a prompt in a turn is not the operator
 deciding it. The autonomy this

@@ -1021,7 +1021,7 @@ go through the attributed relay: clearly marked as tower-origin, delivered by
 a paste mechanism that cannot be mistaken for the worker typing, and **never**
 answering a worker's harness permission prompt on the tower's own judgment —
 a worker's authorization gate belongs to you at every tier. The one answer a
-tower delivers there is yours: a standing decision you wrote that the prompt
+tower records there is yours: a standing decision you wrote that the prompt
 falls strictly inside (see
 [what the fleet decides without you](#what-the-fleet-decides-without-you-and-what-it-never-does)).
 

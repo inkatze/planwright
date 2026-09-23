@@ -96,7 +96,7 @@ read. The captured text is then classified by the tower as **data** (see below).
 
 The tower **never** answers a worker's **harness permission prompt** — the
 tool-permission gate — on its own judgment. That gate is the human's: a prompt
-falling strictly inside the operator's written standing decision is answered as
+falling strictly inside the operator's written standing decision is recorded as
 the operator's answer, naming the rule; every other prompt reaches the operator.
 This is distinct from a routine *question a worker addresses to the tower*, which
 the [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md) may answer
