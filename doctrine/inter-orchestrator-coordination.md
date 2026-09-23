@@ -9,7 +9,7 @@ enforces the relay's mechanics.
 Citations: orchestration-fleet REQ-D1.2 (division of labor), orchestration-fleet
 REQ-D1.3 (attributed, non-impersonating relay), orchestration-fleet REQ-B1.7
 (relay/spawn security bounds), orchestration-fleet REQ-A1.6 (fleet-artifact data
-hygiene) · orchestration-fleet D-7.
+hygiene) · orchestration-fleet D-7, tower-comms D-12.
 
 ## Division of labor
 

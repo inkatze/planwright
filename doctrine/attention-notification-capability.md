@@ -30,7 +30,8 @@ session-side relay), all implemented by
   id), `park` (a fork-park carrying only its reason), `permission` (a harness
   permission prompt, marked in field 9 with its command in field 12, written
   by the `PermissionRequest` hook), `claim` (stamps the answer that closes a
-  fork, first answer wins), and `clear` (removes the row at teardown).
+  fork, first answer wins, or with `--standing` a permission record), and
+  `clear` (removes the row at teardown).
 - **The portable status renderer** (`render`). Lists each worker's scope and
   state. It is substrate-agnostic: it reads the store, so it renders identically
   from a plain terminal, a detached-multiplexer popup, or an editor panel.

@@ -118,8 +118,8 @@ the tower is telling you something it needs from you, it came off this queue.
   tower for a while, it says one line naming what kind of thing is waiting,
   how urgent it is, and how many items there are. Nothing more arrives until
   you reply. The knock is not repeated on a timer; it comes again only after a
-  hand-over has gone unanswered for `tower_quiet_interval`, or when something
-  more pressing has taken the top of the queue.
+  hand-over has gone unanswered for `tower_quiet_interval`, or when the item it
+  named is no longer at the top of the queue.
 - **One item per reply.** Your reply opens the conversation, and each reply
   after it brings the next item. Blocked workers come first, then things
   waiting for your go-ahead, then your own requests, then news; within a kind,
@@ -151,37 +151,41 @@ There is no command syntax; say it the way you would to a colleague.
 
 | You say | What happens |
 | --- | --- |
-| an answer to the item | the item is acknowledged and closed; your next reply brings the next one |
+| an answer to the item | the item is acknowledged and closed; that same reply brings the next one |
 | "later", "not now" | the item is shelved and comes back on its own after `tower_shelve_return`; shelving never drops it |
 | "always", "from now on" | a **standing decision** is recorded in your words (see [what the fleet decides without you](#what-the-fleet-decides-without-you-and-what-it-never-does)) |
 | a question | answered inside the turn; only work it needs is captured as a request |
 | "what did I miss?" | the catch-up list: what settled while you were away, and why |
 | "tell me more" | one more layer of context, then the tower waits |
+| "drop the rule about …" | the tower closes that standing decision, recording that you revoked it |
 
 Items also close without you when the evidence says they are done: a PR
-opened or merged, commits landed on the branch, a worker's question answered
-another way, or a standing decision that covers it. A worker's own claim to
-have finished never closes anything.
+opened or merged, commits landed on the branch, a request's ledger item
+closed, a worker's question answered another way, a worker's permission
+prompt one of your command rules covers, or the thing the item pointed at
+disappearing (the reason is recorded). A worker's own claim to have finished
+never closes anything.
 
 ### Several towers, one queue
 
 A single-spec tower, the meta-tower, and the fleet loop can all run on one
 machine over the same queue. Whichever tower hands you an item holds it, so
-the same question never arrives in two terminals at once. If you walk away
-from the terminal holding it, the item is not lost: the hold lapses after
-`tower_lease_interval` (never sooner than the quiet interval, so an
-attended conversation keeps what it is holding), and the item comes back to
-the queue for whichever tower you are talking to next. From your side, a
-lapsed hold looks like a question you left unanswered in one terminal being
-knocked about in another. If you answer a different tower while the first is
-still holding the item, that tower knocks about it and takes it over on your
-reply. Towers on separate machines do not share a queue.
+the same question never arrives in two terminals at once, and while you are
+replying in the terminal holding it, no other tower takes it. If you walk away
+from that terminal, the item is not lost: once it has had no reply from you
+for `tower_quiet_interval`, whichever tower you are talking to knocks about
+the item and takes it over on your reply. From your side, that looks like a
+question you left unanswered in one terminal being knocked about in another.
+If no tower takes it, the hold lapses on its own after `tower_lease_interval`
+(never shorter than the quiet interval) and the item can be delivered again.
+Towers on separate machines do not share a queue.
 
-When you are away and a worker is blocked, the tower pushes once through
-your [notification channel](#choosing-what-gets-pushed-at-you), and again
-only if things get worse: another worker blocks, or the item has been open
-longer than `tower_reknock_age`. Urgent news never pushes; it waits for you
-to come back and knocks then.
+When you have gone quiet in every tower conversation and a worker is
+blocked, the tower pushes once through your
+[notification channel](#choosing-what-gets-pushed-at-you), and again only if
+things get worse: another worker blocks, or an item first pushed while still
+younger than `tower_reknock_age` passes that age. Urgent news never pushes;
+it waits for you to come back and knocks then.
 
 ### The status-line indicator
 
@@ -213,7 +217,9 @@ Its headline is your load: items that reached you per hour of fleet work,
 against items settled without you. Beside it: how long blocked workers
 waited, turns that asked you more than one thing, items delivered in prose
 with no queue record, friction moments, jargon counted in what the tower
-said to you, and items lost across restarts. Stretches between a tower's
+said to you, and items lost across restarts. It also counts log lines the
+hook dropped on a busy lock and lines that would not parse, the only signs a
+write was lost or torn. Stretches between a tower's
 ticks longer than `tower_tick_gap_max` are left out of the fleet hours and
 reported as gaps. It runs on demand, never in CI.
 
@@ -1765,20 +1771,21 @@ Tell a tower "always" or "from now on" and it records a **standing
 decision**: your rule in your own words, what it covers, and when you said it.
 It lives with your other captured requests (machine-local until the
 action-item ledger ships), is never delivered to you as an item, and stays in
-force until you revoke it.
+force until you tell the tower to drop it.
 
 **What one may cover.** Two shapes, and they behave differently:
 
 - **Worker commands**, given as literal command prefixes (`mise run check`,
   `git status`). This is the only shape that settles anything by itself: when
-  a worker stops at a harness permission prompt, the tower answers it on your
-  behalf only if the prompt's command starts with one of your prefixes
-  exactly (compared as text, never as a pattern), is followed by a word
-  boundary, and continues with nothing but plain arguments — letters, digits,
-  `._/@:=+-`, spaces, and quoted strings. A pipe, a redirect, a `;`, a
-  substitution, or anything else outside that set sends the prompt to you
-  instead. The answer names your rule, and the item closes only once the
-  answer is confirmed to have gone through.
+  a worker stops at a harness permission prompt, the tower records your rule as
+  the answer, through the same channel your own answers use, only if the
+  prompt's command starts with one of your prefixes exactly (compared as
+  text, never as a pattern), is followed by a space or the end of the command
+  (end your prefix with a space to allow any continuation), and continues with
+  nothing but plain arguments — letters, digits, `._/@:=+-`, spaces, and
+  quoted strings. A pipe, a redirect, a `;`, a substitution, or anything else
+  outside that set sends the prompt to you instead. The answer names your rule,
+  and the item closes only once that channel has accepted it.
 - **Anything else**, in free text ("don't bother me about lint-only PRs").
   These never settle anything on their own. The tower brings the rule up
   beside an open item on the same subject and says which rule it is applying.
@@ -1813,15 +1820,15 @@ are in the [options reference](options-reference.md).
 | `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
 | `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, and every launch point planwright ships now reads it (fleet dispatch by task type; single-spec dispatch, per-step sessions, and offload by surface), applying each dimension only as far as the launching backend's advertised `tier_control` allows and recording any inheritance | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the three non-fleet surfaces — configure nothing, observe no change |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
-| `tower_quiet_interval` | Away detection per tower conversation: a hand-over unanswered this long marks you away there, and the next delivery knocks again | How long you may leave a hand-over before a tower treats you as away | `10m` — a knock is never repeated on a schedule, so this only decides when the next one may come |
-| `tower_lease_interval` | The delivery lease's backstop expiry; release is otherwise by event (your answer, "later", settling) | How long a tower that died holding an item keeps it from the others | `15m` — above the quiet interval, which it may never go below, so an attended conversation never loses the item it holds |
+| `tower_quiet_interval` | Away detection per tower conversation: a knock or hand-over unanswered this long marks you away there, and the next delivery knocks again | How long you may leave a hand-over before a tower treats you as away | `10m` — a knock is never repeated on a schedule, so this only decides when the next one may come |
+| `tower_lease_interval` | The delivery lease's backstop: it voids a hand-over nobody acknowledged so the item can be delivered again; release is otherwise by event (your answer, "later", settling), and an attended tower takes over sooner, once the holder has been quiet for `tower_quiet_interval` | How long an unacknowledged hand-over stands | `15m` — above the quiet interval, which it may never go below, so an attended conversation never loses the item it holds |
 | `tower_reknock_age` | The away push's second and last reminder for a blocked item | How long a blocked worker waits before you are reminded once more | `30m` — one reminder per departure, never a schedule |
 | `tower_shelve_return` | How long "later" parks an item | Your snooze length | `1h` — a shelved item always comes back; shelving never drops one |
 | `tower_catchup_limit` | Retention: the closed items the queue keeps, and the settled ones the catch-up shows before a remainder count | How much history the catch-up carries | `20` — bounded (capped at 500); older history stays in the event log |
 | `tower_tick_gap_max` | The scorecard's fleet-hours denominator: a gap between a tower's ticks longer than this is left out and reported | What counts as a tower being down rather than idle | `10m` — a stopped tower's silence is reported as a gap, never counted as fleet time |
 | `tower_log_rotate_age` | Event-log rotation, floored at the report window | How long the log keeps its lines | `30d` — well past the report window, so the scorecard never reads a rotated-out stretch |
 | `tower_report_window` | The window the scorecard reads | How far back the scorecard looks | `7d` — a week of sessions |
-| `tower_hook_lock_wait` | The fleet-lock wait for every queue command and the reply hook; at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the reply itself |
+| `tower_hook_lock_wait` | The fleet-lock wait for every queue command and the reply hook; at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the attention stamp |
 
 Style values never gate capability: every knob's default keeps the full
 pipeline functional, and raising richness (a richer backend, a push channel,
