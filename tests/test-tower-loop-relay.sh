@@ -512,6 +512,39 @@ for solo_now in 5410 5420; do
   fi
 done
 
+# The flag the step was given outranks whatever identity the shell exported:
+# the queue's ladder reads PLANWRIGHT_TOWER_ID before the session id and the
+# session id before the pid, so a degrade that only adds the flag's own
+# variable leases under the ambient one instead.
+solo_ambient() { # solo_ambient <VAR=value> <identity flags and step args...>
+  _sa_env=$1
+  shift
+  : >"$errf"
+  env_run env "$_sa_env" /bin/sh "$TLC" step --checkout "$solo" --evidence "$ev" "$@" 2>"$errf"
+}
+printf 'A solo ask.\n' >"$content/ask-solo"
+q add --kind request --root "$content" --pointer ask-solo --origin operator \
+  --subject pr:16 --closes 'the operator decides' --now 5430 >/dev/null || fail "add ask-solo"
+solo_ambient PLANWRIGHT_TOWER_ID=tower-ambient --session-id "$solo_uuid" --now 5440 >/dev/null \
+  || fail "the ambient-identity knock step exited non-zero"
+reply_at "$solo_uuid" 5450
+out=$(solo_ambient PLANWRIGHT_TOWER_ID=tower-ambient --session-id "$solo_uuid" --now 5460) \
+  || fail "the ambient-identity hand-over step exited non-zero: $out"
+[ "$(count_tag "$out" item)" = 1 ] \
+  || fail "a solo --session-id step leased under an ambient PLANWRIGHT_TOWER_ID"
+
+ambient_uuid=66666666-7777-8888-9999-000000000000
+printf 'Another solo ask.\n' >"$content/ask-solo-2"
+q add --kind request --root "$content" --pointer ask-solo-2 --origin operator \
+  --subject pr:17 --closes 'the operator decides' --now 5470 >/dev/null || fail "add ask-solo-2"
+solo_ambient PLANWRIGHT_TOWER_SESSION_ID="$ambient_uuid" --pid "$$" --now 5480 >/dev/null \
+  || fail "the ambient-session knock step exited non-zero"
+reply_at "$ambient_uuid" 5490
+out=$(solo_ambient PLANWRIGHT_TOWER_SESSION_ID="$ambient_uuid" --pid "$$" --now 5495) \
+  || fail "the ambient-session hand-over step exited non-zero: $out"
+[ "$(count_tag "$out" item)" = 0 ] \
+  || fail "a solo --pid step leased under an ambient PLANWRIGHT_TOWER_SESSION_ID"
+
 id_out=$(tlc identity --checkout "$repo" --pid "$$") \
   || fail "identity could not resolve this process's composite: $(cat "$errf")"
 [ -n "$id_out" ] || fail "identity printed nothing"

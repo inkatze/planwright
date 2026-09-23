@@ -316,6 +316,10 @@ case $tower_rc in
     # falls through to a fallback minted from the INVOKING SHELL's pid — a
     # different identity on every iteration, which is a lease no later step of
     # this same loop can claim as its own.
+    # The ladder also reads an ambient PLANWRIGHT_TOWER_ID first and a session
+    # id before a pid, so whatever the shell exported is cleared: the flag this
+    # step was given is the identity, as it is on the presence path.
+    unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID
     [ -z "$session_id" ] || PLANWRIGHT_TOWER_SESSION_ID=$session_id
     [ -z "$session_id" ] || export PLANWRIGHT_TOWER_SESSION_ID
     [ -z "$pid" ] || PLANWRIGHT_TOWER_PID=$pid

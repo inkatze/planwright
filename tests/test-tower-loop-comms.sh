@@ -12,7 +12,7 @@
 # here costing a full settle + next pass.
 #
 # Contract under test:
-#   step --checkout <dir> --tower <id> [--evidence <file>] [--catchup] [--now <epoch>]
+#   step --checkout <dir> --tower <id> --evidence <file> [--catchup] [--now <epoch>]
 #       One settling pass, then (on --catchup) the catch-up list the state
 #       picture is composed from, then at most one hand-over: a knock line, or
 #       an item with its content fenced as data.
