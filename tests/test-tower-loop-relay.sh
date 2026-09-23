@@ -213,6 +213,22 @@ rc=$(step_rc_of --tower "$A" --evidence "$ev" --now 4855)
 grep -q "$long_key" "$errf" || fail "the overlong pending-push name was not named on stderr"
 rm -f "$push_dir/$long_key"
 
+# A refused name is printable text the sanitizer keeps, so it must not reach an
+# `echo` that expands it: dash turns a literal `\033` back into a live ESC.
+esc=$(printf '\033')
+printf 'reachable\n' >"$push_dir/\\033[31mkey"
+chmod 0600 "$push_dir/\\033[31mkey"
+mkdir "$push_dir/\\033[32mdir"
+rc=$(step_rc_of --tower "$A" --evidence "$ev" --now 4857)
+[ "$rc" != 0 ] || fail "a pending-push name carrying an escape was relayed or ignored silently"
+if grep -q "$esc" "$errf"; then
+  fail "a refused pending-push name reached the terminal as a live escape"
+fi
+grep -q '33\[31mkey' "$errf" || fail "the escape-bearing pending-push name was not named on stderr"
+grep -q '33\[32mdir' "$errf" || fail "the escape-bearing non-marker entry was not named on stderr"
+rm -f "$push_dir/\\033[31mkey"
+rmdir "$push_dir/\\033[32mdir"
+
 : >"$push_dir/$i2"
 chmod 0600 "$push_dir/$i2"
 rc=$(step_rc_of --tower "$A" --evidence "$ev" --now 4860)

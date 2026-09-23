@@ -1182,7 +1182,7 @@ case $cmd in
           shift 2
           ;;
         *)
-          echo "fleet-attention: queue: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
+          printf '%s\n' "fleet-attention: queue: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
           exit 2
           ;;
       esac
@@ -1357,14 +1357,14 @@ case $cmd in
     # the configured channel is, so the redirect need not wait for a push.
     for rp in "$attn_dir" "$push_dir"; do
       if [ -L "$rp" ]; then
-        echo "fleet-attention: relay: $(sanitize_printable "$rp" "(unprintable path)") is a symlink — refusing to read the pending set through a redirect" >&2
+        printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rp" "(unprintable path)") is a symlink — refusing to read the pending set through a redirect" >&2
         exit 2
       fi
     done
     # Something other than a directory at the push path is not an empty queue:
     # `notify` cannot write a marker under it, so every push is being lost.
     if [ -e "$push_dir" ] && [ ! -d "$push_dir" ]; then
-      echo "fleet-attention: relay: $(sanitize_printable "$push_dir" "(unprintable path)") is not a directory; pending pushes are not reaching the operator — remove it to stop this report" >&2
+      printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$push_dir" "(unprintable path)") is not a directory; pending pushes are not reaching the operator — remove it to stop this report" >&2
       exit 2
     fi
     [ -d "$push_dir" ] || exit 0
@@ -1397,7 +1397,7 @@ case $cmd in
       # empty one does, so the two are told apart before the quiet exit: a
       # channel that has stopped working must not look like an idle one.
       if [ ! -r "$push_dir" ] || [ ! -x "$push_dir" ]; then
-        echo "fleet-attention: relay: $(sanitize_printable "$push_dir" "(unprintable path)") cannot be listed; pending pushes are not reaching the operator" >&2
+        printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$push_dir" "(unprintable path)") cannot be listed; pending pushes are not reaching the operator" >&2
         exit 2
       fi
       exit 0
@@ -1409,13 +1409,13 @@ case $cmd in
       # seam's own `.push.XXXXXX` scratch, which is not a marker yet.
       if [ ! -f "$rp" ]; then
         if [ -e "$rp" ] || [ -L "$rp" ]; then
-          echo "fleet-attention: relay: $(sanitize_printable "${rp##*/}" "(unprintable key)") is not a plain pending-push marker; remove it to stop this report" >&2
+          printf '%s\n' "fleet-attention: relay: $(sanitize_printable "${rp##*/}" "(unprintable key)") is not a plain pending-push marker; remove it to stop this report" >&2
           relay_rc=2
         fi
         continue
       fi
       if [ -L "$rp" ]; then
-        echo "fleet-attention: relay: $(sanitize_printable "${rp##*/}" "(unprintable key)") is a symlink, not a marker this seam wrote; remove it to stop this report" >&2
+        printf '%s\n' "fleet-attention: relay: $(sanitize_printable "${rp##*/}" "(unprintable key)") is a symlink, not a marker this seam wrote; remove it to stop this report" >&2
         relay_rc=2
         continue
       fi
@@ -1432,13 +1432,13 @@ case $cmd in
       # is named and left rather than read out to the operator.
       case $rk in
         *[!A-Za-z0-9._-]* | -* | "")
-          echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") in the pending-push set does not carry a marker key; remove it to stop this report" >&2
+          printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") in the pending-push set does not carry a marker key; remove it to stop this report" >&2
           relay_rc=2
           continue
           ;;
       esac
       if [ "${#rk}" -gt 128 ]; then
-        echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is longer than a marker key; remove it to stop this report" >&2
+        printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is longer than a marker key; remove it to stop this report" >&2
         relay_rc=2
         continue
       fi
@@ -1457,13 +1457,13 @@ case $cmd in
       case $rmode in
         -???------ | -???------[@.]*) ;;
         *)
-          echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is not an owner-only file; remove it to stop this report" >&2
+          printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is not an owner-only file; remove it to stop this report" >&2
           relay_rc=2
           continue
           ;;
       esac
       if [ -z "$rown" ] || [ "$rown" != "$(id -u 2>/dev/null)" ]; then
-        echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is not owned by this user; remove it to stop this report" >&2
+        printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") is not owned by this user; remove it to stop this report" >&2
         relay_rc=2
         continue
       fi
@@ -1476,9 +1476,9 @@ case $cmd in
         # when it is still there repeats the same false report every iteration
         # and leaves its dedupe key held for good.
         if rm -f "$rp" 2>/dev/null; then
-          echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") held no line to relay; it has been cleared and nothing was sent" >&2
+          printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") held no line to relay; it has been cleared and nothing was sent" >&2
         else
-          echo "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") held no line to relay and cannot be cleared; remove it to stop this report" >&2
+          printf '%s\n' "fleet-attention: relay: $(sanitize_printable "$rk" "(unprintable key)") held no line to relay and cannot be cleared; remove it to stop this report" >&2
         fi
         relay_rc=2
         continue
@@ -1487,7 +1487,7 @@ case $cmd in
       # crash between the two print a line whose marker is still pending, and
       # the operator would be woken about it twice by the next tower to step.
       if ! rm -f "$rp" 2>/dev/null; then
-        echo "fleet-attention: relay: cannot clear $(sanitize_printable "$rk" "(unprintable key)") — not relaying it rather than relaying it on every step" >&2
+        printf '%s\n' "fleet-attention: relay: cannot clear $(sanitize_printable "$rk" "(unprintable key)") — not relaying it rather than relaying it on every step" >&2
         relay_rc=2
         continue
       fi
@@ -1710,7 +1710,7 @@ case $cmd in
     ;;
 
   *)
-    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify|relay)" >&2
+    printf '%s\n' "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|permission|clear|render|queue|notify|relay)" >&2
     exit 2
     ;;
 esac
