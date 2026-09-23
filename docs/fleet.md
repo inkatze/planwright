@@ -121,7 +121,9 @@ the tower is telling you something it needs from you, it came off this queue.
   hand-over has gone unanswered for `tower_quiet_interval`, or when the item it
   named is no longer at the top of the queue.
 - **One item per reply.** Your reply opens the conversation, and each reply
-  after it brings the next item. Blocked workers come first, then things
+  after it brings the next item. The one exception is a pair: two waiting
+  items of the same kind about the same worker, PR, branch, or request arrive together
+  as one hand-over, and you answer both. Blocked workers come first, then things
   waiting for your go-ahead, then your own requests, then news; within a kind,
   the more urgent and then the older first. Each item is written so you can
   answer it from that message alone. Ask for more and you get one more layer,
@@ -207,7 +209,8 @@ machine-local, under the fleet home, never committed; it rotates after
 presence by session id: a tower published by process id gets no attention
 stamp, and its knocks go unanswered however much you reply.
 
-The scorecard is computed from that log alone:
+The scorecard is computed from that log alone, plus the count of lines it
+dropped:
 
 ```sh
 scripts/tower-queue.sh report    # the scorecard over tower_report_window
@@ -217,8 +220,8 @@ Its headline is your load: items that reached you per hour of fleet work,
 against items settled without you. Beside it: how long blocked workers
 waited, turns that asked you more than one thing, items delivered in prose
 with no queue record, friction moments, jargon counted in what the tower
-said to you, and items lost across restarts. It also counts log lines the
-hook dropped on a busy lock and lines that would not parse, the only signs a
+said to you, and items lost across restarts. It also counts log lines any
+writer dropped on a busy lock and lines that would not parse, the only signs a
 write was lost or torn. Stretches between a tower's
 ticks longer than `tower_tick_gap_max` are left out of the fleet hours and
 reported as gaps. It runs on demand, never in CI.
@@ -1828,7 +1831,7 @@ are in the [options reference](options-reference.md).
 | `tower_tick_gap_max` | The scorecard's fleet-hours denominator: a gap between a tower's ticks longer than this is left out and reported | What counts as a tower being down rather than idle | `10m` — a stopped tower's silence is reported as a gap, never counted as fleet time |
 | `tower_log_rotate_age` | Event-log rotation, floored at the report window | How long the log keeps its lines | `30d` — well past the report window, so the scorecard never reads a rotated-out stretch |
 | `tower_report_window` | The window the scorecard reads | How far back the scorecard looks | `7d` — a week of sessions |
-| `tower_hook_lock_wait` | The fleet-lock wait for every queue command and the reply hook; at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the attention stamp |
+| `tower_hook_lock_wait` | The fleet-lock wait for every queue write and the reply hook's log line (the reads take no lock); at expiry the hook drops its log line rather than delay your prompt | How much a busy lock may cost your prompt | `2s` — bounded; the attention stamp is written without the lock, so a dropped log line never loses the attention stamp |
 
 Style values never gate capability: every knob's default keeps the full
 pipeline functional, and raising richness (a richer backend, a push channel,
