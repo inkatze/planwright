@@ -800,3 +800,17 @@ decision here changes wording beyond that. `Last reviewed:` moves on
 Class: expression-only
 Anchor: `1935a204b4e33fbedd3c7f49d129f7b9be92525a` — computed as
 `scripts/spec-anchor.sh specs/orchestration-fleet`
+
+### Re-anchor — REQ-D1.3 pointer (2026-09-23)
+
+Marked self-re-anchor for a second expression-only edit in the same task:
+the REQ-B1.7 pointer is narrowed to what tower-comms D-12 names, and
+REQ-D1.3, which restates REQ-B1.7's never-answer rule, gains a pointer back
+to it. No requirement or decision changes wording beyond the pointers.
+
+**Cites the changelog line:** the second 2026-09-23 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `aec90957297b735fe59202d6fb775d8466d80ca6` — computed as
+`scripts/spec-anchor.sh specs/orchestration-fleet`
