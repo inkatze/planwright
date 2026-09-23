@@ -84,16 +84,18 @@ the `## Awaiting input` count rather than the worker count.
 
 ### Readers
 
-Besides this script's own `render` and `queue`, the store is read by the
+Besides this script's own `render` and `queue`, the store's readers include the
 fleet-autonomy classifier (above), the backend-agnostic status view
-(`scripts/fleet-status.sh`), and the **sibling operator queue**
+(`scripts/fleet-status.sh`), the awaiting-input watcher
+(`scripts/fleet-attention-watch.sh`), the tower loop's comms step, which
+renders a handed-over question from its row, and the **sibling operator queue**
 ([`scripts/tower-queue.sh`](../scripts/tower-queue.sh), tower-comms D-2), which
 sits above this store and consumes it as one of its inputs. A worker's question
 and a piece of news keep their content here; the operator queue holds only an
 index record pointing at the row, checks that row at every pass (re-forked,
 answered, or gone), and matches a written standing decision against a
 permission record's field-12 command only. It writes no row itself: a permission
-prompt it settles by rule is answered through `claim --standing`, the one
+prompt it settles by rule is recorded through `claim --standing`, the one
 sanctioned answer channel. The store keeps its one-row-per-worker shape and its
 writers above; the operator-facing layer is separate.
 
