@@ -164,8 +164,8 @@ dispatch_fetch_ttl: 2m
 # `push` is session-relayed (tower-comms D-19) — the seam writes a pending-push
 # marker under the fleet home and the tower session relays it to the operator's
 # desktop and phone, since only a session can call the tool that reaches one;
-# the relay is not built yet, so until the tower loop lands the markers
-# accumulate unread and `push` reaches nobody (docs/fleet.md says the same).
+# the relay is the tower loop's comms step, so outside a tower loop the markers
+# wait unread (docs/fleet.md says the same).
 # Resolved through scripts/resolve-notification-channel.sh, which validates the
 # enum and applies the REQ-E1.4 by-layer malformed policy (degrade+warn for
 # adopter/machine-local, hard-fail for repo-tracked); the channel adapters live

@@ -452,7 +452,8 @@ These hold at every step:
   a fast-forward, never `main`, never a task branch, never a merge or ready-flip.
 - **Never** create a worktree by shelling out to `git worktree`; use the native
   mechanism and the `.claude/worktrees/` placement (D-37).
-- **Never** answer a worker's permission prompt or type into its input line;
+- **Never** answer a worker's permission prompt on your own judgment (only a
+  written standing decision it falls strictly inside may) or type into its input line;
   detection is capture-pane only, relay is buffer-paste only (D-38, D-7;
   `inter-orchestrator-coordination`).
 - **Never** auto-resolve or auto-drop a gate in `--bookkeeping` (REQ-H1.4) —

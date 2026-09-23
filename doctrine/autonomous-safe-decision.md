@@ -13,8 +13,8 @@ the gate loosens (orchestration-fleet REQ-A1.3).
 Citations: orchestration-fleet REQ-A1.3, orchestration-fleet REQ-D1.4,
 orchestration-fleet REQ-A1.2 (never-auto-merge floor), orchestration-fleet
 REQ-B1.7 (harness permission gate), orchestration-fleet REQ-E1.3 (decision
-queue) · orchestration-fleet D-8 (extends bootstrap D-5), orchestration-fleet
-D-13.
+queue), tower-comms REQ-E1.5 (standing-decision answers) · orchestration-fleet
+D-8 (extends bootstrap D-5), orchestration-fleet D-13, tower-comms D-12.
 
 ## The floor: never auto-merge
 
@@ -72,8 +72,13 @@ worker-settings profile has pre-approved:
 
 **The two senses of "prompt" do not overlap.** A routine worker *question to the
 tower* (may answer) is not a worker's *harness tool-permission prompt* (the
-authorization gate), which a tower **never** answers at any tier
-(orchestration-fleet REQ-B1.7, orchestration-fleet D-7). The autonomy this
+authorization gate), which a tower **never** answers on its own judgment at
+any tier (orchestration-fleet REQ-B1.7, orchestration-fleet D-7, read with
+tower-comms D-12). The one answer a tower delivers there is the operator's own:
+a written standing decision the prompt falls strictly inside, delivered through
+the answer channel naming the rule. A prompt outside every standing decision
+reaches the operator, and mentioning a prompt in a turn is not the operator
+deciding it. The autonomy this
 section grants is over the tower's own
 operational surface; it never reaches into a worker's harness authorization
 gate.

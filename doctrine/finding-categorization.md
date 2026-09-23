@@ -33,10 +33,11 @@ on-branch application is one revert from undone. The author's draft→ready flip
 is the universal review gate. There is no repository classification and no
 per-finding permission prompt (D-5, D-6).
 
-The intervention contract, in full: the human signs off the spec before
-execution; during execution only hard pauses interrupt (see below); after
-execution the human reviews the draft PR (diff plus pending-sign-off
-checklist) and merges. Merge cadence is the autopilot's throttle.
+The intervention contract, in full, has two routes: a sign-off request (the
+spec before execution; the draft PR and its pending-sign-off checklist after
+it, which the human reviews and merges) and a hard pause during execution,
+which reaches the operator as a knock. Merge cadence is the autopilot's
+throttle.
 
 ## The four buckets
 
