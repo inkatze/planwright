@@ -68,27 +68,17 @@ consuming script. Each entry is one mapping with scalar fields:
 - **`core`** — `true` for the universal core catalog; absent or `false` for
   advisory breadth dimensions.
 
-### Supported format (the reader is constrained, not a full YAML parser)
+### Supported format
 
-`scripts/builder-guards.sh` reads the catalog with a deliberately minimal awk
-reader — it never sources or evaluates the file (the data-not-code discipline,
-REQ-H1.3). It recognizes the exact shape planwright's own catalog uses, and
-only that shape:
-
-- **Indentation is fixed:** list items at two-space indentation (the `- id:`
-  line), their fields at four spaces (`category:`, `tool:`, and so on).
-  Reflowed indentation is not parsed.
-- **Scalars are unquoted or double-quoted.** Single-quoted scalars (`'*.sh'`)
-  and inline `# ...` comments after a value are not stripped, so they would be
-  kept verbatim in the value and detection would not match.
-
-An entry written outside this shape is silently skipped. To keep that from
-becoming an invisible failure for adopter extensions (REQ-G1.5), the reader
-warns on stderr when a `guards:` or `breadth:` section is present but no
-entries parsed — the signal that the format, not the content, is the problem.
-A section-less catalog legitimately yields zero guards and is not flagged.
-Broader YAML tolerance is an intentional non-goal: extend the catalog by
-following the shape above.
+`scripts/builder-guards.sh` reads the catalog with a constrained awk reader —
+it never sources or evaluates the file (REQ-H1.3) — recognizing only the
+shape planwright's own catalog uses: list items at two-space indentation (the
+`- id:` line), fields at four; scalars unquoted or double-quoted (a
+single-quoted scalar or an inline `# ...` comment is kept verbatim in the
+value). An entry outside this shape is silently skipped, so the reader warns
+on stderr when a `guards:` or `breadth:` section is present but no entries
+parsed (REQ-G1.5); a section-less catalog legitimately yields zero guards.
+Broader YAML tolerance is an intentional non-goal.
 
 ## Breadth dimensions
 
@@ -220,59 +210,36 @@ extensibility contract, REQ-G1.5):
 
 ### Overlay merge contract (supersede-by-id)
 
-The guard catalog is one of the two growable catalogs the
-customization-overlay mechanism resolves through
-[`scripts/resolve-catalog.sh`](../scripts/resolve-catalog.sh) (REQ-B1.3, D-5);
-this is the merge contract bootstrap Task 16 consumes rather than re-deciding.
-When the builder reads the default catalog (no explicit
-`PLANWRIGHT_GUARD_CATALOG` / `--catalog` override),
-[`scripts/builder-guards.sh`](../scripts/builder-guards.sh) reads it through
-that resolver, which unions the shipped seed
-([`config/guard-catalog.yaml`](../config/guard-catalog.yaml)) with the adopter,
-repo-tracked, and machine-local overlay catalogs — `catalogs/guard-catalog.yaml`
-under the adopter and repo-tracked roots, `catalogs.local/guard-catalog.yaml`
-for the machine-local layer — lowest precedence to highest (D-4). The contract:
-
-- **Append/union.** An overlay entry whose `id` is new is added to the seed.
-- **Supersede-by-id.** To replace a seed (or lower-layer) entry, an overlay
-  entry carries the target `id` plus the marker `supersede: true`; it replaces
-  that entry in place, and the marker is stripped from the merged output. This
-  is the only way to override an existing entry — the merge is additive
-  otherwise.
-- **Supersede of a non-existent target** is an error handled under the
-  malformed-by-layer policy (D-7, REQ-E1.4): a repo-tracked (team-shared)
-  overlay **hard-fails** (nonzero exit), so a broken shared catalog never
-  silently mis-merges; an adopter or machine-local overlay warns and skips the
-  offending entry (degrade). A malformed overlay (unreadable, or present but
-  parsing to zero entries) follows the same split; an absent layer degrades
-  silently (REQ-A1.4).
-- **Path confinement.** Each present overlay file is canonicalized and
-  containment-checked under its layer root before any read (D-8, REQ-E1.5): an
-  overlay file that escapes its root — e.g. a repo-tracked catalog symlinked
-  outside `.claude/` — is malformed for its layer (the same by-layer split) and
-  is never read.
-- **Provenance.** `resolve-catalog.sh guard-catalog --explain` names the layer
-  that supplied each merged entry (D-9, REQ-B1.6).
-
-An explicit `PLANWRIGHT_GUARD_CATALOG` / `--catalog` override still wins and
-bypasses the merge: the catalog the operator names is used verbatim.
+With no explicit `PLANWRIGHT_GUARD_CATALOG` / `--catalog` override,
+[`scripts/builder-guards.sh`](../scripts/builder-guards.sh) reads the default
+catalog through [`scripts/resolve-catalog.sh`](../scripts/resolve-catalog.sh)
+(REQ-B1.3, D-5), which unions the shipped seed
+([`config/guard-catalog.yaml`](../config/guard-catalog.yaml)) with the
+adopter, repo-tracked, and machine-local overlay catalogs, lowest precedence
+to highest (D-4). An overlay entry whose `id` is new is appended; one carrying
+the target `id` plus `supersede: true` replaces that entry in place, the
+marker stripped — the only way to override an existing entry. A supersede of
+a non-existent target, an overlay parsing to no entries, and an overlay file
+escaping its layer root (D-8, REQ-E1.5) are malformed for their layer (D-7,
+REQ-E1.4): repo-tracked hard-fails, adopter or machine-local warns and
+degrades, and an absent layer degrades silently (REQ-A1.4).
+`resolve-catalog.sh guard-catalog --explain` names each entry's supplying
+layer (D-9, REQ-B1.6); `docs/overlays.md` holds the layer model in full. An
+explicit override bypasses the merge: the named catalog is used verbatim.
 
 ## Stake escalation: the builder does not flatten
 
-The catalog is for decisions a tool can own. The no-flattening rule of
-[engineering-decisions.md](engineering-decisions.md) governs the rest, and the
-[decision-domains catalog](decision-domains.md) supplies the triggers. When
-the builder is about to cross a catalogued decision domain the spec or
-kickoff brief has not decided, it does not stamp a default: it escalates the
-decision as design / Needs human judgment and routes it into the deferral
-mechanism as a `GATE(when: …)` entry (see
-[finding-categorization.md](finding-categorization.md) for the bucket
-boundaries and [gate-wiring.md](gate-wiring.md) for the gate mechanics).
-Mechanical guards apply; load-bearing decisions escalate. This advises and
-weighs rather than rigidly enforcing — rigor scales with stake and
-reversibility ([proportionality.md](proportionality.md)) — and any departure
-from a recommended guard is recorded with its reasoning where the next reader
-will find it, never taken silently.
+The catalog is for decisions a tool can own; the no-flattening rule of
+[engineering-decisions.md](engineering-decisions.md) governs the rest, with
+the [decision-domains catalog](decision-domains.md) supplying the triggers. A
+catalogued domain the spec or kickoff brief has not decided is never stamped
+with a default: the builder escalates it as design / Needs human judgment
+into a `GATE(when: …)` deferral entry (see
+[finding-categorization.md](finding-categorization.md) and
+[gate-wiring.md](gate-wiring.md)). Mechanical guards apply; load-bearing
+decisions escalate — advising and weighing per
+[proportionality.md](proportionality.md), any departure from a recommended
+guard recorded with its reasoning, never taken silently.
 
 ## Dogfooding
 
