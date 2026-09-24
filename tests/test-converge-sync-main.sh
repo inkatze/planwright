@@ -718,8 +718,8 @@ STUB
   [ "${#yes_at}" -lt "${#no_at}" ] \
     || fail "c18: BatchMode=yes was appended AFTER the caller's BatchMode=no, so ssh reads theirs first: $argv"
   case "$err" in
-    *BatchMode*) ;;
-    *) fail "c18: the overridden BatchMode setting was discarded without a word on stderr: $err" ;;
+    *GIT_SSH_COMMAND*BatchMode*) ;;
+    *) fail "c18: the overridden BatchMode setting was not reported against GIT_SSH_COMMAND on stderr: $err" ;;
   esac
 
   # (b) the ordinary case — no BatchMode in the caller's command, no warning.
@@ -815,9 +815,17 @@ STUB
   GIT_SSH_COMMAND='' PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the empty-variable run, got $rc"
   argv=$(head -1 "$SSH_ARGV_LOG")
+  # The full marker, not just IdentitiesOnly: this host's own global config
+  # may carry an IdentitiesOnly of its own, and only the fixture's `-i
+  # /dev/null` proves the value came from the target repo.
   case "$argv" in
-    *"IdentitiesOnly=yes"*) ;;
+    via-path*) fail "c19: an empty GIT_SSH_COMMAND fell back to bare ssh: $argv" ;;
+    *"-i /dev/null -o IdentitiesOnly=yes"*) ;;
     *) fail "c19: an empty GIT_SSH_COMMAND did not fall through to core.sshCommand: $argv" ;;
+  esac
+  case "$argv" in
+    *"BatchMode=yes"*) ;;
+    *) fail "c19: BatchMode=yes was not added on the empty-variable run: $argv" ;;
   esac
 
   # (c) GIT_SSH_COMMAND set: it still outranks the config.
@@ -849,13 +857,25 @@ STUB
     "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
   [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the config-BatchMode run, got $rc"
   argv=$(head -1 "$SSH_ARGV_LOG")
+  # Both values must be present before their order means anything: with the
+  # config's own option dropped, the prefix strip below returns the whole
+  # line and the length comparison passes vacuously.
+  case "$argv" in
+    *"BatchMode=no"*) ;;
+    *) fail "c19: the configured command's own BatchMode=no never reached ssh: $argv" ;;
+  esac
+  case "$argv" in
+    *"BatchMode=yes"*) ;;
+    *) fail "c19: BatchMode=yes never reached ssh on the config-BatchMode run: $argv" ;;
+  esac
   yes_at=${argv%%BatchMode=yes*}
   no_at=${argv%%BatchMode=no*}
   [ "${#yes_at}" -lt "${#no_at}" ] \
     || fail "c19: BatchMode=yes does not precede the config's BatchMode=no: $argv"
+  # The note has to blame the source that actually carried the option.
   case "$err" in
-    *BatchMode*) ;;
-    *) fail "c19: the overridden config BatchMode was discarded without a word on stderr: $err" ;;
+    *core.sshCommand*BatchMode*) ;;
+    *) fail "c19: the overridden config BatchMode was not reported against core.sshCommand on stderr: $err" ;;
   esac
   unset SSH_ARGV_LOG
   echo "ok c19: with GIT_SSH_COMMAND unset the fetch keeps core.sshCommand plus BatchMode; a set variable still wins"
