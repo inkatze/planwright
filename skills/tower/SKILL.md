@@ -29,7 +29,7 @@ This skill is procedure, not doctrine; the rule docs below govern wherever it
 names a concept. Resolve each via `scripts/resolve-rule-doc.sh <doc-name>`
 under the resolved planwright root. A run-start doc that does not resolve halts the
 session naming the doc and the chain consulted; a point-of-use doc that does
-not resolve halts that step alone (no dispatch, relay, or render).
+not resolve halts that step alone.
 
 Doctrine manifest (machine-parseable, per `doctrine/instruction-hygiene.md`;
 `run-start` loads before work begins, `point-of-use` at the named step):
@@ -47,17 +47,19 @@ Doctrine: point-of-use security-posture (data hygiene at every hand-off)
 
 ## Session bring-up
 
-Once per session, before the first ask. Every step is heartbeat-class (a
-bounded, small-result read); bring-up ingests no diff, sweep, or log.
+Once per session, before the first ask; every step is heartbeat-class,
+ingesting no diff, sweep, or log.
 
 1. **Posture check (REQ-A1.3, D-14).** The tower runs under the tower permission
    posture, `config/tower-settings.json` or an extension of it, whose **deny
-   block is the floor**; the command guard hook only pre-approves. Confirm, by
-   a one-line read of the settings files Claude Code loads for this checkout,
-   that the deny entries are present and `scripts/tower-command-guard.sh` is
-   wired as a PreToolUse hook. Hook absent: say so once to the operator,
-   naming the file to merge, and continue. Deny floor absent, unreadable, or
-   narrower than shipped: say so once, and take **no repo-mutating route and
+   block is the floor**; the command guard hook only pre-approves. Project
+   `.permissions.deny` (a `jq` projection, never the whole file) from each
+   settings layer Claude Code loads here (user, project, local, managed),
+   union them, and compare against the shipped file's list; check that
+   `scripts/tower-command-guard.sh` is wired as a PreToolUse hook the same
+   way. Hook absent: say so once to the operator,
+   naming the file to merge, and continue. Any shipped deny entry missing
+   from the union, or an unreadable layer: say so once, and take **no repo-mutating route and
    no relay** until the operator wires it or acknowledges running without it;
    questions and read-only offloads continue. The posture does not block the
    tower's own file edits (Edit and Write are allowed), so the non-authoring
@@ -68,10 +70,12 @@ bounded, small-result read); bring-up ingests no diff, sweep, or log.
    shared flight sweep's render when present and newer than this session's
    start (a SessionStart hook is the deterministic arm, this step the fallback
    that runs it; a sweep exiting non-zero is reported and the reads below
-   used), otherwise flight branches (`git branch --list 'planwright/flight/*'`),
-   their open PRs (`gh pr list` over those branches, when `gh` and a remote
-   exist), and the decision queue (`scripts/fleet-attention.sh queue`). These
-   reads check no worker liveness; say so. A read that fails or is skipped is
+   used), otherwise flight branches (`git branch --list 'planwright/flight/*'`,
+   bounded to the unmerged ones), their PRs in every state (`gh pr list
+   --state all` filtered to the flight prefix, when `gh` and a remote exist;
+   merged or closed means landed), and the decision queue
+   (`scripts/fleet-attention.sh queue`). These reads check no worker
+   liveness; say so. A read that fails or is skipped is
    named as unknown, never shown as empty. Never a poll loop: read once here,
    again only on request.
 3. **The first turn.** Say where things stand in plain words, in the register
@@ -106,8 +110,8 @@ turn/artifact arbitration govern each one; the tower instantiates them so:
   marked only when its basis is the spec, the doctrine, or mechanical
   consistency, nothing pre-selected.
 - **Summaries.** At a natural pause, restate the decisions since the last
-  summary and what is still open (delta plus open, never the whole history);
-  the open-captures list is shown on request.
+  summary and what is still open, never the whole history; the open-captures
+  list is shown on request.
 - **Capture at birth.** A follow-up born in the conversation gets its tracked
   form proposed in the same turn: work the operator wants now is routed now;
   anything else goes to one of `interaction-style`'s tracked targets (an
@@ -134,8 +138,9 @@ it.
    (`work-placement`'s operational heartbeat), is answered in the turn. No
    route, no flight.
 2. **Read-only?** Any other ask that mutates nothing (beyond the inline bound,
-   REQ-A1.2) is offloaded through `/offload` with the ask as its petition. It
-   carries **no flight identity**: no branch, worktree, draft PR, or record
+   REQ-A1.2) is offloaded through `/offload`, the petition framed read-only
+   ("change nothing; return a needed change as a proposal"). It carries **no
+   flight identity**: no branch, worktree, draft PR, or record
    (REQ-C1.6). The result returns to the conversation; a mutation need the
    worker surfaces comes back as a new routed request — a read-only worker
    never converts in place.
@@ -145,9 +150,8 @@ it.
    fix lands, not where the symptom shows.
 4. **Declared judgment.** When the tower cannot state a Done-when the operator
    would agree with, it files, and says the lane is judgment.
-5. **Otherwise, visual flight.** Size (diff, file count, effort) informs the
-   statement and never decides it: a large but safe and reversible ask flies
-   visual.
+5. **Otherwise, visual flight.** Size informs the statement and never decides
+   it: a large but safe, reversible ask flies visual.
 
 **Decomposition (REQ-C1.6).** An ask that fans into several coherent units may
 become several flights, each routed on its own with its own grounds. One
@@ -155,9 +159,8 @@ coherent unit stays one flight; units that depend on each other fly in order, th
 on the operator's go.
 
 **Bounded evidence.** The route is decided from what the tower can see in
-bounded context. When that is not enough, the tower asks the operator, or offloads the look as a
-read-only petition and routes on its return. It never fills its own window to
-find out.
+bounded context; when that is not enough, the tower asks the operator, or
+offloads the look as a read-only petition and routes on its return.
 
 ### Grounds are stated, always (REQ-B1.3)
 
@@ -166,8 +169,7 @@ the same turn, the route and its grounds in one line: **the trigger that fired
 and the one-line evidence for it** — *"visual flight: a one-file wording change,
 one revert from undone"*; *"instrument flight: the change lands in the auth
 middleware, zone work"*. A route stated without grounds is a defect. The
-statement is what the flight record quotes (REQ-E1.1), so it is written to be
-quoted.
+statement is what the flight record quotes (REQ-E1.1).
 
 ### The override (REQ-B1.4, D-5)
 
@@ -185,9 +187,10 @@ route, overridden or not.
 The gate-wiring hard pauses stay in force inside every worker whatever the
 route; a flight whose scope outgrows its route parks behind its hard pause and
 returns for re-routing. The operator hears that through the decision queue once
-flight lifecycle pushes exist; until then, paused flights are reported from
-branch and record evidence at bring-up and on request, never left to a silent
-stall.
+flight lifecycle pushes exist; until then a pause leaves no branch or record
+evidence, so every flight without a landing reference is reported as "no
+landing yet: in the air, paused, or dead — not checked", with its observe or
+attach hint, never as simply in the air.
 
 ## Visual flight
 
@@ -205,7 +208,7 @@ declined to the operator with the re-ask path stated, never queued durably
 configured `review_sequence`, authors the record — the quoted ask sanitized and
 markup-neutralized there, per `security-posture` — and lands it. The tower
 relays the landing reference when it arrives (REQ-F1.1); a flight without one
-shows as in the air with its worker handle. The draft-to-ready flip is the
+is reported in the no-landing-yet form above. The draft-to-ready flip is the
 human's; the tower never performs it (REQ-C1.4).
 
 The tower hands over exactly the ask, the route and its grounds as stated, and
@@ -225,8 +228,6 @@ flight identity is claimed; the in-session rung is never accepted for a
 mutation or for a read beyond the inline bound.
 
 ## Instrument flight
-
-Three attended moves into the spec pipeline.
 
 1. **The one-page case (REQ-D1.2).** Before anything is drafted, the tower
    presents to the operator, in one page, why this ask files a flight plan:
@@ -257,8 +258,7 @@ Three attended moves into the spec pipeline.
 **After sign-off (REQ-D1.4, D-15).** The tower may dispatch orchestration of
 the signed spec only on an explicit, per-request go from the operator. It
 never self-starts on sign-off
-completion and never on the spec PR's merge: the merge is the human's key, not
-an implicit go. The go is relayed as an `/offload` petition whose text is
+completion and never on the spec PR's merge. The go is relayed as an `/offload` petition whose text is
 exactly `/orchestrate specs/<spec> --watch`, `<spec>` matched against the
 existing `specs/` directories first; the tower answers `/offload`'s rung
 question with survive-the-tower, human-attachable, and run-beyond-the-session
@@ -277,7 +277,7 @@ included, answering from durable evidence through the existing surfaces:
   render; its states are `spec-format`'s), said as titles and PR numbers, never
   task numbers.
 - **A flight:** the flight sweep's render when present and current, else the
-  bounded reads bring-up used (branch, PR, record file).
+  bounded reads bring-up used.
 - **Decisions waiting on the operator:** `scripts/fleet-attention.sh queue`,
   actionable items first.
 - **Reserved-control relays:** the post-sign-off go above, on explicit request.
@@ -291,12 +291,12 @@ tower's fallback is a read on an operator turn, never a timer.
 ## Refusals
 
 Declined conversationally, the reserved-control statement given and the thing
-handed back — never silently, never with a workaround.
+handed back — never silently.
 
 - **"Merge it."** Merge is a reserved human action, permanently, on both
   flight rules (REQ-G1.1). The tower hands the PR link back and says so.
-- **"Mark it ready."** The draft-to-ready flip is the universal human review
-  gate (REQ-G1.4); the tower never performs it.
+- **"Mark it ready."** The draft-to-ready flip is the human's (REQ-G1.4); the
+  tower never performs it.
 - **"Sign it off."** Sign-off lives in `/spec-kickoff` and is the human's; the
   specless path has no shadow sign-off, and no bypass flag exists for the
   non-signed-spec refusal (REQ-G1.2). The worker hard pauses and the record's
