@@ -538,8 +538,9 @@ suppressed() {
 # so what a seen file withholds dies with the conversation that saw it; a key
 # is never shared, which is also why the write takes no lock.
 LIVENESS_DEFAULT=600
-# Seen files of loops long gone are pruned after this many days. A live loop
-# rewrites its own at least every liveness interval, so it is never pruned.
+# Seen files of loops long gone are pruned after this many days. A queue seen
+# file, or a render one on a longer liveness interval, is rewritten only on a
+# change, so a live loop can lose its own; that costs one full render.
 SEEN_KEEP_DAYS=7
 
 # on_change_opts <verb> <flag> <value> — validate one on-change flag's value
