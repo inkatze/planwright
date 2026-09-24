@@ -155,6 +155,15 @@ inside=$(git -C "$repo" rev-parse --is-inside-work-tree 2>/dev/null || true)
 # first, and the override is reported rather than silently discarded. The
 # ordinary case (no BatchMode in the incoming command) still just appends,
 # which keeps the common path clear of any parsing of the command string.
+#
+# The match is case-insensitive because ssh reads option names that way: a
+# `batchmode=no` keeps the prompt live exactly as the canonical spelling
+# does, so it has to be outranked, not left in place. And the binary is the
+# first word AFTER any leading blanks and `VAR=value` assignments (git hands
+# the string to a shell, where those are an environment prefix, not the
+# command): splicing before the binary would make the shell run `-o` and the
+# fetch would fail without ever reaching ssh. Values quoted with embedded
+# blanks are still not parsed; they were never handled and stay out of scope.
 _ssh_src=GIT_SSH_COMMAND
 _ssh_cmd=${GIT_SSH_COMMAND:-}
 if [ -z "$_ssh_cmd" ]; then
@@ -162,10 +171,26 @@ if [ -z "$_ssh_cmd" ]; then
   _ssh_cmd=$(git -C "$repo" config --get core.sshCommand 2>/dev/null || true)
 fi
 [ -n "$_ssh_cmd" ] || _ssh_cmd=ssh
-case "$_ssh_cmd" in
-  *BatchMode*)
-    _ssh_bin=${_ssh_cmd%%[[:space:]]*}
-    GIT_SSH_COMMAND="$_ssh_bin -o BatchMode=yes${_ssh_cmd#"$_ssh_bin"}"
+case "$(printf '%s' "$_ssh_cmd" | tr '[:upper:]' '[:lower:]')" in
+  *batchmode*)
+    _ssh_pre=
+    _ssh_rest=$_ssh_cmd
+    while :; do
+      _ssh_ws=${_ssh_rest%%[![:space:]]*}
+      _ssh_pre=$_ssh_pre$_ssh_ws
+      _ssh_rest=${_ssh_rest#"$_ssh_ws"}
+      _ssh_bin=${_ssh_rest%%[[:space:]]*}
+      case "$_ssh_bin" in
+        *=*) ;;
+        *) break ;;
+      esac
+      case "${_ssh_bin%%=*}" in
+        '' | [0-9]* | *[!A-Za-z0-9_]*) break ;;
+      esac
+      _ssh_pre=$_ssh_pre$_ssh_bin
+      _ssh_rest=${_ssh_rest#"$_ssh_bin"}
+    done
+    GIT_SSH_COMMAND="$_ssh_pre$_ssh_bin -o BatchMode=yes${_ssh_rest#"$_ssh_bin"}"
     printf 'converge-sync-main: note: %s already sets BatchMode; forcing BatchMode=yes so the fetch cannot block on a prompt\n' "$_ssh_src" >&2
     ;;
   *)
@@ -173,7 +198,7 @@ case "$_ssh_cmd" in
     ;;
 esac
 export GIT_SSH_COMMAND
-unset _ssh_cmd _ssh_bin _ssh_src
+unset _ssh_cmd _ssh_bin _ssh_src _ssh_pre _ssh_rest _ssh_ws
 
 # --- pre-flight: the tree must be clean BEFORE the network -------------------
 #
