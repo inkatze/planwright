@@ -260,19 +260,7 @@ deferred until every flipper posts.
 
 ## Awaiting input
 
-- **Task 1** — the full gate fails on `tests/test-check-instructions.sh`
-  ("closing gate: no unexcepted below-target warning on the real corpus"):
-  `doctrine/custom-steps.md`, complete against every rule the spec assigns
-  it, measures under the 500-word restoration target (margin 252 to the
-  4000-word error line after the final trim). Clearing it needs either a cut
-  to 3500 words or a declared exception naming the surface; the tower froze
-  further trims and the Done-when forbids a new declared exception. The
-  branch `planwright/custom-steps/task-1` is pushed with the work committed;
-  the draft PR is held until the operator picks a route (a closure raise
-  sized to the doc, the tower-comms precedent; a declared exception granted
-  at the measured margin; or a trim that moves delegable detail into the
-  script usage headers). Recorded as obs:d6406add and the brief's risk row
-  17.
+(none yet)
 
 ## Deferred
 
