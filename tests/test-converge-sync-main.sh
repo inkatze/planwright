@@ -743,6 +743,119 @@ STUB
 }
 
 # ---------------------------------------------------------------------------
+# Case 19 — with no GIT_SSH_COMMAND in the environment, the fetch keeps the
+# repo's own `core.sshCommand`. git ranks the variable above the config, so a
+# script that exports `ssh -o BatchMode=yes` unconditionally silently discards
+# the on-disk key and IdentitiesOnly a host may depend on for remote access,
+# and every worker on such a host needs a hand workaround. The recorded argv is
+# the assertion: the configured command, plus BatchMode. A caller's
+# GIT_SSH_COMMAND must still win over the config, as it does for git itself.
+# ---------------------------------------------------------------------------
+c19() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c19.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+  gitc "$tmp/worker" remote set-url origin "ssh://git@127.0.0.1/repo.git"
+
+  # The configured command is a stub at its own path; a second stub shadows
+  # `ssh` on PATH so a sync that falls back to bare `ssh` records that fact
+  # instead of touching the network.
+  cat >"$tmp/ssh-stub" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SSH_ARGV_LOG"
+exit 255
+STUB
+  chmod +x "$tmp/ssh-stub"
+  mkdir -p "$tmp/bin"
+  cat >"$tmp/bin/ssh" <<'STUB'
+#!/bin/sh
+printf 'via-path %s\n' "$*" >>"$SSH_ARGV_LOG"
+exit 255
+STUB
+  chmod +x "$tmp/bin/ssh"
+  SSH_ARGV_LOG="$tmp/ssh-argv.log"
+  export SSH_ARGV_LOG
+  git -C "$tmp/worker" config core.sshCommand "$tmp/ssh-stub -i /dev/null -o IdentitiesOnly=yes"
+
+  # (a) GIT_SSH_COMMAND unset: the config is the base command.
+  : >"$SSH_ARGV_LOG"
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND PATH="$tmp/bin:$PATH" \
+    "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) from the ssh stub, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  [ -n "$argv" ] || fail "c19: no ssh was invoked at all"
+  case "$argv" in
+    via-path*) fail "c19: the fetch fell back to bare ssh, discarding core.sshCommand: $argv" ;;
+    *) ;;
+  esac
+  case "$argv" in
+    *"-i /dev/null -o IdentitiesOnly=yes"*) ;;
+    *) fail "c19: core.sshCommand's own options were dropped: $argv" ;;
+  esac
+  case "$argv" in
+    *"BatchMode=yes"*) ;;
+    *) fail "c19: BatchMode=yes was not added to the configured command: $argv" ;;
+  esac
+  case "$err" in
+    *BatchMode*) fail "c19: warned about an override when the config set no BatchMode: $err" ;;
+    *) ;;
+  esac
+
+  # (b) GIT_SSH_COMMAND empty counts as unset, as it does for git itself.
+  : >"$SSH_ARGV_LOG"
+  rc=0
+  GIT_SSH_COMMAND='' PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the empty-variable run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  case "$argv" in
+    *"IdentitiesOnly=yes"*) ;;
+    *) fail "c19: an empty GIT_SSH_COMMAND did not fall through to core.sshCommand: $argv" ;;
+  esac
+
+  # (c) GIT_SSH_COMMAND set: it still outranks the config.
+  : >"$SSH_ARGV_LOG"
+  rc=0
+  GIT_SSH_COMMAND="$tmp/ssh-stub -o ServerAliveInterval=7" PATH="$tmp/bin:$PATH" \
+    "$SYNC" "$tmp/worker" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the env-wins run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  case "$argv" in
+    *"ServerAliveInterval=7"*) ;;
+    *) fail "c19: a set GIT_SSH_COMMAND lost to core.sshCommand: $argv" ;;
+  esac
+  case "$argv" in
+    *"IdentitiesOnly=yes"*) fail "c19: core.sshCommand leaked into a run where GIT_SSH_COMMAND was set: $argv" ;;
+    *) ;;
+  esac
+  case "$argv" in
+    *"BatchMode=yes"*) ;;
+    *) fail "c19: BatchMode=yes was not added on the env-wins run: $argv" ;;
+  esac
+
+  # (d) a configured command that pins BatchMode gets the same override, and
+  # the same report, as an environment one.
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config core.sshCommand "$tmp/ssh-stub -o BatchMode=no"
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND PATH="$tmp/bin:$PATH" \
+    "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the config-BatchMode run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  yes_at=${argv%%BatchMode=yes*}
+  no_at=${argv%%BatchMode=no*}
+  [ "${#yes_at}" -lt "${#no_at}" ] \
+    || fail "c19: BatchMode=yes does not precede the config's BatchMode=no: $argv"
+  case "$err" in
+    *BatchMode*) ;;
+    *) fail "c19: the overridden config BatchMode was discarded without a word on stderr: $err" ;;
+  esac
+  unset SSH_ARGV_LOG
+  echo "ok c19: with GIT_SSH_COMMAND unset the fetch keeps core.sshCommand plus BatchMode; a set variable still wins"
+}
+
+# ---------------------------------------------------------------------------
 # Wiring 1 — `/execute-task` invokes the sync ONCE, at the top of the
 # convergence sequence: before the line that runs the review skills, so the
 # head the review sequence verifies is the post-sync one (REQ-B1.1). NOT the
@@ -803,6 +916,7 @@ c15
 c16
 c17
 c18
+c19
 w1
 w2
 
