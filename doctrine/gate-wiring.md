@@ -216,12 +216,12 @@ Exactly two triggers interrupt mid-loop (REQ-C1.4): the zone screen fires,
 or an irreducible fork blocks progress. Everything else flows to loop end. A
 custom step ending its in-run point under `on-failure: halt`
 ([custom-steps](custom-steps.md)) takes the destinations below, with the
-entry contents and attendance flag custom-steps' matrix pins, never a loop
-trigger. A pause depends on the watcher:
+entry contents its posture rule pins and the attendance flag its matrix
+defines, never a loop trigger. By watcher:
 
-- **Attended session.** Stop the loop. Present the finding, the triggering
-  zone or fork, and the recommended fix or alternatives. Wait for
-  direction; apply nothing in the zone until the human directs it.
+- **Attended session.** Stop the loop and present the finding, the zone or
+  fork, and the recommended fix or alternatives. Wait for direction; apply
+  nothing in the zone until directed.
 - **Dispatched or unattended worker.** Record the unit to `tasks.md` Awaiting
   input (the halt destination REQ-F1.5 defines), with the finding, the
   trigger, and the recommended fix or alternatives, then end the step. Work
