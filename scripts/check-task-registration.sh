@@ -11,9 +11,11 @@
 # is visible only here.
 #
 # WHAT COUNTS AS REGISTERED. The task's name is reached from the aggregate by
-# walking `depends`, `depends_post` and `wait_for` edges, wildcards expanded
-# against the tasks this file defines. Text is not wiring: a name that appears
-# in a description, a comment, or another task's run body registers nothing.
+# walking `depends` and `depends_post` edges, wildcards expanded against the
+# tasks this file defines. `wait_for` is not an edge: it waits for a task
+# already scheduled and never schedules one, so a task named only there still
+# runs for nobody. Text is not wiring: a name that appears in a description, a
+# comment, or another task's run body registers nothing.
 #
 # PARSE BOUNDARY. The repo's own mise.toml, read as text — the same boundary
 # scripts/check-no-ci-evals.sh documents. Tasks mise layers from
@@ -95,7 +97,7 @@ misefile="$repo_root/mise.toml"
   exit 5
 }
 
-# One awk pass: collect task headers and the three edge kinds, skipping
+# One awk pass: collect task headers and the two edge kinds, skipping
 # comments and the inside of triple-quoted strings; then walk the closure from
 # the aggregate and print a verdict block:
 #   PARSE <why>       the scan would be vacuous (fail closed)
@@ -134,16 +136,34 @@ report=$(awk -v agg="$aggregate" '
     }
     return re "$"
   }
+  # Drop a trailing comment. A `#` starts one only outside quotes: inside a
+  # quoted name it is part of the name, and cutting there would swallow the
+  # rest of the array and the next header with it.
+  function strip_comment(s,   i, c, q, out) {
+    q = ""; out = ""
+    for (i = 1; i <= length(s); i++) {
+      c = substr(s, i, 1)
+      if (q == "\"" && c == "\\") { out = out c substr(s, i + 1, 1); i++; continue }
+      if (q != "") { if (c == q) q = "" }
+      else if (c == "\"" || c == "\x27") q = c
+      else if (c == "#") break
+      out = out c
+    }
+    return out
+  }
   {
     line = $0
     # Triple-quoted strings: an odd number of delimiters on a line toggles
-    # the in-string state; lines inside are data, never headers or edges.
+    # the in-string state; lines inside are data, never headers or edges. A
+    # comment outside a string is dropped before counting, so a stray
+    # delimiter in prose cannot flip the state.
+    if (!instr && line ~ /^[ \t]*#/) next
     n = gsub(/\x27\x27\x27|"""/, "&", line)
     if (instr) { if (n % 2 == 1) instr = 0; next }
     if (n % 2 == 1) instr = 1
-    if (line ~ /^[ \t]*#/) next
+    line = strip_comment(line)
     if (inarr) {
-      frag = line; sub(/[ \t]#.*$/, "", frag)
+      frag = line
       if (frag ~ /\]/) { sub(/\].*$/, "", frag); inarr = 0 }
       harvest(frag)
       next
@@ -156,8 +176,8 @@ report=$(awk -v agg="$aggregate" '
     }
     if (line ~ /^[ \t]*\[/) { cur = ""; next }
     if (cur == "") next
-    if (line ~ /^[ \t]*(depends|depends_post|wait_for)[ \t]*=/) {
-      rhs = line; sub(/^[^=]*=[ \t]*/, "", rhs); sub(/[ \t]#.*$/, "", rhs)
+    if (line ~ /^[ \t]*(depends|depends_post)[ \t]*=/) {
+      rhs = line; sub(/^[^=]*=[ \t]*/, "", rhs)
       if (rhs ~ /^\[/) {
         sub(/^\[/, "", rhs)
         if (rhs ~ /\]/) { sub(/\].*$/, "", rhs) } else { inarr = 1 }
@@ -168,6 +188,7 @@ report=$(awk -v agg="$aggregate" '
     }
   }
   END {
+    if (instr) { print "PARSE\t" FILENAME " ends inside an unterminated triple-quoted string, which would hide every task after it"; exit }
     if (ntasks == 0) { print "PARSE\t" FILENAME " parsed to zero tasks"; exit }
     if (!(agg in tasks)) { print "PARSE\tno `" agg "` task in " FILENAME ", so there is no gate to walk"; exit }
     nscoped = 0
@@ -223,16 +244,21 @@ case ${count:-0} in
     ;;
 esac
 
-printf '%s\n' "$report" | awk -F'\t' -v me="$me" '
-  $1 == "DANGLING" { print me ": note: dependency on `" $2 "` names no task in this repo mise.toml — outside the parse boundary" > "/dev/stderr" }
-'
+# Task names are PR-controlled text that reaches the terminal: emit them
+# through printf with control bytes stripped, never echo, which under dash
+# expands backslash-escape text into live escape sequences.
+say() { printf '%s\n' "$*" | tr -d '\000-\011\013-\037\177' >&2; }
+
+printf '%s\n' "$report" | awk -F'\t' '$1 == "DANGLING" { print $2 }' | while IFS= read -r d; do
+  say "$me: note: dependency on \`$d\` names no task in this repo's mise.toml — outside the parse boundary"
+done
 
 unregistered=$(printf '%s\n' "$report" | awk -F'\t' '$1 == "UNREGISTERED" { print $2 }')
 if [ -n "$unregistered" ]; then
   printf '%s\n' "$unregistered" | while IFS= read -r t; do
-    echo "$me: task \`$t\` is not reached from the \`$aggregate\` aggregate" >&2
+    say "$me: task \`$t\` is not reached from the \`$aggregate\` aggregate"
   done
-  echo "$me: a guard task the gate never reaches runs for nobody. Add it to \`$aggregate\`'s depends (directly or through a task the aggregate already reaches)." >&2
+  say "$me: a guard task the gate never reaches runs for nobody. Add it to \`$aggregate\`'s depends (directly or through a task the aggregate already reaches)."
   exit 1
 fi
 

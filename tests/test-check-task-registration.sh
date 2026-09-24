@@ -118,8 +118,10 @@ run_cg "$r" >/dev/null || fail "t3: a registered task should pass: $(cat "$tmp/e
 echo "ok: t3 the same task passes once the aggregate depends on it"
 
 # ---------------------------------------------------------------------------
-# t3b: registration is transitive over every edge kind mise resolves —
-#      depends, depends_post, wait_for — and over a wildcard dependency.
+# t3b: registration is transitive over the edge kinds that SCHEDULE a task —
+#      depends and depends_post — and over a wildcard dependency. `wait_for`
+#      only waits for a task already scheduled (mise's task-configuration
+#      reference), so a task named only there is not run by the gate.
 # ---------------------------------------------------------------------------
 for kind in depends depends_post wait_for; do
   r="$tmp/r3b-$kind"
@@ -133,8 +135,17 @@ for kind in depends depends_post wait_for; do
   mv "$r/mise.toml.new" "$r/mise.toml"
   grep -q '^depends = \["check:alpha", "lint:alpha", "scan:alpha", "check:group"\]' "$r/mise.toml" \
     || fail "t3b: the $kind fixture lost its aggregate edge"
-  run_cg "$r" >/dev/null \
-    || fail "t3b: a task reached through $kind should pass: $(cat "$tmp/err")"
+  run_cg "$r" >/dev/null
+  rc=$?
+  case $kind in
+    wait_for)
+      [ "$rc" = 1 ] || fail "t3b: a task named only in wait_for is not scheduled, so it should be exit 1, got $rc: $(cat "$tmp/err")"
+      grep -q 'check:planted' "$tmp/err" || fail "t3b: the wait_for-only task was not named as unregistered"
+      ;;
+    *)
+      [ "$rc" = 0 ] || fail "t3b: a task reached through $kind should pass: $(cat "$tmp/err")"
+      ;;
+  esac
 done
 r="$tmp/r3b-wild"
 mkrepo "$r"
@@ -146,7 +157,35 @@ mkrepo "$r"
 mv "$r/mise.toml.new" "$r/mise.toml"
 run_cg "$r" >/dev/null \
   || fail "t3b: a task matched by a wildcard dependency should pass: $(cat "$tmp/err")"
-echo "ok: t3b depends, depends_post, wait_for and a wildcard all register"
+echo "ok: t3b depends, depends_post and a wildcard register; wait_for does not"
+
+# ---------------------------------------------------------------------------
+# t3c: TOML the parser must not misread. A task header followed by a trailing
+#      comment is still a header (dropping it would let the task go unchecked),
+#      and a `#` inside a quoted dependency (mise accepts "task --args"
+#      entries) is part of the value, not a comment: treating it as one
+#      swallows the rest of the array and the next task header with it.
+# ---------------------------------------------------------------------------
+r="$tmp/r3c-header-comment"
+mkrepo "$r"
+printf '\n[tasks."check:planted"] # not yet wired\nrun = "true"\n' >>"$r/mise.toml"
+run_cg "$r" >/dev/null
+rc=$?
+[ "$rc" = 1 ] || fail "t3c: a header with a trailing comment declares a task; unregistered, it should be exit 1, got $rc: $(cat "$tmp/err")"
+grep -q 'check:planted' "$tmp/err" || fail "t3c: the task declared with a trailing comment was not named"
+
+r="$tmp/r3c-hash-in-value"
+mkrepo "$r"
+{
+  printf '[tasks.check]\ndepends = ["check:alpha", \x27check:x --grep # nightly\x27, "lint:alpha", "scan:alpha"]\n\n'
+  printf '[tasks."check:x"]\nrun = "true"\n\n'
+  sed -n '/^\[tasks.test\]/,$p' "$r/mise.toml"
+} >"$r/mise.toml.new"
+mv "$r/mise.toml.new" "$r/mise.toml"
+grep -q "'check:x --grep # nightly'" "$r/mise.toml" || fail "t3c: the fixture lost its quoted '#'"
+run_cg "$r" >/dev/null || fail "t3c: a '#' inside a quoted dependency is part of the value; the fixture should pass: $(cat "$tmp/err")"
+grep -q 'names no task' "$tmp/err" && fail "t3c: a '#' inside a quoted dependency truncated the array: $(cat "$tmp/err")"
+echo "ok: t3c a trailing header comment and a '#' inside a quoted name parse as TOML does"
 
 # ---------------------------------------------------------------------------
 # t4: TEXT IS NOT WIRING. A task named in the aggregate's description, in a
@@ -207,6 +246,21 @@ run_cg "$r" >/dev/null
 printf '[tasks.check]\ndepends = ["test"]\n\n[tasks.test]\nrun = "true"\n' >"$r/mise.toml"
 run_cg "$r" >/dev/null
 [ "$?" = 5 ] || fail "t6: a mise.toml with no namespaced task at all should be exit 5, not a clean pass"
+
+# A string the file never closes would otherwise hide every later task behind
+# a clean pass; so would a comment holding an odd number of triple quotes.
+mkrepo "$r"
+printf '\n[tasks.build]\nrun = """\necho building\n\n[tasks."check:planted"]\nrun = "true"\n' >>"$r/mise.toml"
+run_cg "$r" >/dev/null
+[ "$?" = 5 ] || fail "t6: an unterminated triple-quoted string should be exit 5, not a clean pass over the tasks it hides"
+grep -q 'unterminated' "$tmp/err" || fail "t6: the unterminated-string verdict was not stated: $(cat "$tmp/err")"
+
+mkrepo "$r"
+printf "\n# don'''t read this comment as a string\n[tasks.\"check:planted\"]\nrun = \"true\"\n" >>"$r/mise.toml"
+run_cg "$r" >/dev/null
+rc=$?
+[ "$rc" = 1 ] || fail "t6: a comment with an odd number of triple quotes is still a comment; the planted task should be exit 1, got $rc: $(cat "$tmp/err")"
+grep -q 'check:planted' "$tmp/err" || fail "t6: the task after the odd-quoted comment was not named"
 echo "ok: t6 every scan-narrowing input fails closed instead of passing vacuously"
 
 # ---------------------------------------------------------------------------
@@ -219,5 +273,23 @@ echo "ok: t6 every scan-narrowing input fails closed instead of passing vacuousl
 /bin/sh "$CG" --repo-root "$tmp/r6" --aggregate 'bad name' >/dev/null 2>&1
 [ "$?" = 2 ] || fail "t7: an aggregate name outside the task-name grammar should be exit 2"
 echo "ok: t7 usage faults exit 2"
+
+# ---------------------------------------------------------------------------
+# t8: task names are PR-controlled text that reaches stderr. A literal-string
+#     key holding backslash-escape text must not come out as a live escape
+#     sequence (dash's echo would expand it), nor may control bytes pass.
+# ---------------------------------------------------------------------------
+r="$tmp/r8"
+mkrepo "$r"
+printf "\n[tasks.'check:x\\\\033[31mred\\\\033[0m']\nrun = 'true'\n" >>"$r/mise.toml"
+grep -q 'check:x\\033' "$r/mise.toml" || fail "t8: the fixture lost its backslash-escape text"
+run_cg "$r" >/dev/null
+rc=$?
+[ "$rc" = 1 ] || fail "t8: the escape-named task is unregistered and should be exit 1, got $rc: $(cat "$tmp/err")"
+if od -An -c "$tmp/err" | grep -q '033'; then
+  fail "t8: a task name's backslash-escape text reached stderr as a live ESC byte"
+fi
+grep -q 'check:x' "$tmp/err" || fail "t8: the escape-named task was not named at all: $(cat "$tmp/err")"
+echo "ok: t8 task-name text reaches stderr inert, never as a live escape"
 
 echo "ALL PASS: check-task-registration"

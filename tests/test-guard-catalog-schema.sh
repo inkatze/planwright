@@ -18,8 +18,10 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$here/.." && pwd)
-CATALOG="$REPO_ROOT/config/guard-catalog.yaml"
-DOCTRINE="$REPO_ROOT/doctrine/guard-catalog.md"
+# The overrides exist for the self-check at the end of this file, which
+# re-runs it over planted fixtures to prove each fail-closed path fails.
+CATALOG="${GUARD_CATALOG_SCHEMA_YAML:-$REPO_ROOT/config/guard-catalog.yaml}"
+DOCTRINE="${GUARD_CATALOG_SCHEMA_DOC:-$REPO_ROOT/doctrine/guard-catalog.md}"
 
 failures=0
 pass() { echo "ok: $1"; }
@@ -90,6 +92,15 @@ records=$(awk '
   echo "FAIL: config/guard-catalog.yaml parsed to zero entries" >&2
   exit 1
 }
+# Fail closed per section, not only on the whole: a guards: block whose items
+# drift out of the reader's shape would otherwise vanish behind the breadth
+# entries and the core catalog would go unchecked.
+for section in guards breadth; do
+  printf '%s\n' "$records" | awk -F'|' -v s="$section" '$6 == s { found = 1 } END { exit !found }' || {
+    echo "FAIL: config/guard-catalog.yaml $section: section parsed to zero entries" >&2
+    exit 1
+  }
+done
 
 n=0
 while IFS='|' read -r id cat tool detect core section; do
@@ -152,9 +163,80 @@ for c in budget house-pattern; do
   fi
 done
 
-if [ "$failures" -eq 0 ]; then
-  echo "ALL PASS: guard-catalog-schema"
-  exit 0
+[ "$failures" -eq 0 ] || {
+  echo "$failures guard-catalog-schema check(s) failed" >&2
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Self-check: every fail-closed path above must actually fail. A guard whose
+# failure branches are never exercised is a green signal that measures
+# nothing, so this file re-runs itself over planted fixtures (skipped when it
+# is already the fixture run).
+# ---------------------------------------------------------------------------
+if [ -z "${GUARD_CATALOG_SCHEMA_YAML:-}${GUARD_CATALOG_SCHEMA_DOC:-}" ]; then
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-guard-catalog-schema.XXXXXX") || {
+    echo "FAIL: mktemp -d failed" >&2
+    exit 1
+  }
+  trap 'rm -rf "$tmp"' EXIT
+
+  # mkcatalog <file> <category>
+  #   A minimal catalog in the reader's shape: one guards: entry carrying the
+  #   given category (an empty argument omits the field) plus the breadth
+  #   entries the assertions above look for.
+  mkcatalog() {
+    {
+      printf 'guards:\n  - id: format-shell\n'
+      [ -n "$2" ] && printf '    category: %s\n' "$2"
+      printf '    tool: shfmt\n    detect: "*.sh"\n    core: true\n\nbreadth:\n'
+      printf '%s\n' "pinned-action-freshness security" "test-time-budget budget" "cdpath-house-pattern house-pattern" \
+        | while read -r bid bcat; do
+          printf '  - id: %s\n    category: %s\n    tool: advisory\n    detect: manual\n    core: false\n' "$bid" "$bcat"
+        done
+    } >"$1"
+  }
+
+  # expect_fail <label> <message-fragment> <yaml-override> <doc-override>
+  expect_fail() {
+    out=$(GUARD_CATALOG_SCHEMA_YAML="$3" GUARD_CATALOG_SCHEMA_DOC="$4" /bin/bash "$0" 2>&1)
+    rc=$?
+    if [ "$rc" -ne 1 ]; then
+      echo "FAIL: self-check $1: expected exit 1, got $rc: $out" >&2
+      exit 1
+    fi
+    printf '%s\n' "$out" | grep -qF -- "$2" || {
+      echo "FAIL: self-check $1: exit 1 for the wrong reason (no '$2'): $out" >&2
+      exit 1
+    }
+    pass "self-check $1 fails closed"
+  }
+
+  mkcatalog "$tmp/good.yaml" formatter
+  out=$(GUARD_CATALOG_SCHEMA_YAML="$tmp/good.yaml" GUARD_CATALOG_SCHEMA_DOC="$DOCTRINE" /bin/bash "$0" 2>&1) || {
+    echo "FAIL: self-check positive control: the minimal well-formed catalog should pass: $out" >&2
+    exit 1
+  }
+  pass "self-check positive control: a minimal well-formed catalog passes"
+
+  printf '## Guard categories\n\nProse without an id bullet.\n\n## Entry format\n' >"$tmp/no-enum.md"
+  expect_fail "doctrine enum parses to zero rows" "enum parsed to zero rows" "$tmp/good.yaml" "$tmp/no-enum.md"
+
+  printf 'guards:\n' >"$tmp/empty.yaml"
+  expect_fail "catalog parses to zero entries" "parsed to zero entries" "$tmp/empty.yaml" "$DOCTRINE"
+
+  {
+    printf 'guards:\n    - id: format-shell\n      category: formatter\n      tool: shfmt\n      detect: "*.sh"\n      core: true\n\n'
+    sed -n '/^breadth:/,$p' "$tmp/good.yaml"
+  } >"$tmp/reflowed.yaml"
+  expect_fail "guards: section parses to zero entries" "guards: section parsed to zero entries" "$tmp/reflowed.yaml" "$DOCTRINE"
+
+  mkcatalog "$tmp/bogus.yaml" bogus
+  expect_fail "unknown category" "is not in the doctrine's Guard categories enum" "$tmp/bogus.yaml" "$DOCTRINE"
+
+  mkcatalog "$tmp/no-category.yaml" ""
+  expect_fail "missing category field" "no category" "$tmp/no-category.yaml" "$DOCTRINE"
 fi
-echo "$failures guard-catalog-schema check(s) failed" >&2
-exit 1
+
+echo "ALL PASS: guard-catalog-schema"
+exit 0
