@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] customization-overlay REQ-C1.3 names the review_sequence knob as the runnable instance of the capability-vs-style rule; after custom-steps Task 1 the boundary doc names the convergence point list instead, so the signed sibling reads stale once Task 3 removes the knob and its next amendment should retarget the sentence.

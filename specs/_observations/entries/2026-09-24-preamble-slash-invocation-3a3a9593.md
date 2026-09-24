@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] custom-steps REQ-A1.4 prepends the preamble to a skill step launch prompt; a launch prompt that does not start with the slash invocation may not parse as a skill call on the headless backend, so Task 5 must pin the launch layout (invocation first or a data block the harness accepts) and the rule doc may need its prepend wording adjusted.

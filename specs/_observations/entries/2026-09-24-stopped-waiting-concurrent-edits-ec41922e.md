@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] custom-steps REQ-D1.7 stopped-waiting arm with on-failure continue lets an abandoned step session keep editing the same worktree while later steps and the unit run there; risk row 15 covers only a late push, not concurrent working-tree edits; declined in the Task 1 review as a spec-level posture, recorded for the next amendment.

@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] custom-steps: an isolated command step runs as a runner subprocess that no PreToolUse hook sees, so the reserved controls (merge, ready, force-push, rewrite, push at the no-push points) bind it by declaration alone; a resolver-side refusal of command lines naming those controls (Task 2) would close the gap the worker denies leave.
