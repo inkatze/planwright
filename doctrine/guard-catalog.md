@@ -22,27 +22,35 @@ Citations: REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32.
 
 The core catalog is universal and mechanical: each category is a class of
 guard that transfers across stacks, with the concrete tool resolved per
-detected stack.
+detected stack. Each bullet carries the machine id an entry's `category`
+field takes; `tests/test-guard-catalog-schema.sh` holds the yaml to this list.
 
-- **Formatter.** Deterministic code style, enforced not debated (`shfmt`,
-  `ruff format`, `prettier`, `gofmt`, `rustfmt`).
-- **Linter.** Static correctness and style checks, including the
+- **Formatter** (`formatter`). Deterministic code style, enforced not
+  debated (`shfmt`, `ruff format`, `prettier`, `gofmt`, `rustfmt`).
+- **Linter** (`linter`). Static correctness and style checks, including the
   prose and data-format linters that widen tool-grounding beyond code
   (`shellcheck`, `ruff`, `eslint`, `markdownlint`, `yamllint`, JSON
   validation).
-- **Type-checker.** Where the language has one (`mypy`, `tsc`); correctly
-  absent on dynamically- or weakly-typed stacks, which is itself a signal
-  that detection is real rather than a fixed checklist.
-- **Test runner.** The stack's test entry point (a shell test loop, `pytest`,
-  the `package.json` test script).
-- **Security / secret scan.** Secret detection over the history before it
-  leaks (`gitleaks`); the entry point for dependency and vulnerability
-  scanning as the catalog grows.
-- **Commit hook.** Commit-message discipline and pre-commit gating
-  (conventional-commit linting).
-- **CI gate.** The aggregate check that runs every guard on every change, so
-  the guards are enforced rather than merely available (a GitHub Actions
-  workflow for v1's GitHub target).
+- **Type-checker** (`type-checker`). Where the language has one (`mypy`,
+  `tsc`); correctly absent on dynamically- or weakly-typed stacks, which is
+  itself a signal that detection is real rather than a fixed checklist.
+- **Test runner** (`test-runner`). The stack's test entry point (a shell
+  test loop, `pytest`, the `package.json` test script).
+- **Security / secret scan** (`security`). Secret detection over the
+  history before it leaks (`gitleaks`); the entry point for dependency,
+  vulnerability, and supply-chain scanning as the catalog grows.
+- **Commit hook** (`commit-hook`). Commit-message discipline and pre-commit
+  gating (conventional-commit linting).
+- **CI gate** (`ci`). The aggregate check that runs every guard on every
+  change, so the guards are enforced rather than merely available (a GitHub
+  Actions workflow for v1's GitHub target).
+- **Budget** (`budget`). A measured quantity gated against a committed
+  ceiling that only a reviewed edit raises (test-suite wall-clock, an
+  instruction layer's word count); the ceiling is repo config, never a
+  catalog value.
+- **House pattern** (`house-pattern`). A repo convention no general linter
+  carries, held by a dedicated check instead of review memory (`unset
+  CDPATH` before a `cd` in command substitution).
 
 ## Entry format
 
@@ -167,6 +175,30 @@ mandates that name no destination side, turn or artifact, per
 gating: its heuristic has false positives, and a gate firing on them teaches
 dodging.
 
+### Pinned-action freshness
+
+`pinned-action-freshness` (category `security`, breadth) recommends a check
+that surfaces CI action SHA pins fallen behind their upstream tag. Signal
+only: it reports, a human moves the pin, since a silent bump is itself a
+supply-chain event. Degraded network is a loud unknown: an upstream it
+cannot reach yields "could not decide", never "fresh".
+
+### Test-time budget
+
+`test-time-budget` (category `budget`, breadth) recommends per-file and
+suite-total wall-clock ceilings over the test runner's timing report,
+hard-failing on the reference runner and warning elsewhere, failing closed
+on a missing report or an unlisted test file. planwright's instance is
+`check:test-time` over `config/test-time-budget.yml`.
+
+### CDPATH house pattern
+
+`cdpath-house-pattern` (category `house-pattern`, breadth) recommends a
+check that flags a `$(cd ...)` in any shell file with no top-level `unset
+CDPATH`, enumerating by shebang or suffix and failing closed on zero files:
+the convention holds only while a check holds it, since a harness that
+unsets `CDPATH` masks the regression. planwright's is `check:cdpath`.
+
 ## Extension
 
 Two growth paths, both without editing the consuming script (the
@@ -255,9 +287,14 @@ reproduction on every CI run, grounded in planwright's actual wiring rather
 than a hard-coded list, so removing a guard from the repo breaks the dogfood.
 
 The dogfood reproduces the *universal core*. planwright also runs
-project-bespoke guards — the spec validator, the doctrine link-check, the
-options-reference drift check — which are project extensions of the catalog,
-not universal categories the builder carries to every adopter. Scoping the
-dogfood to the core (declared here per the proportionality rule) keeps the
-guarantee honest: the builder reproduces what is universal, and the project's
-own extensions stay the project's.
+project-bespoke guards — the spec validator, the doctrine link, index,
+options-reference and backend-capability tethers, the permission-matcher
+fixture, the git-hook backstop and its wiring check, the purged-identifier,
+workflow-posture and CI-eval-exclusion guards, the test-time budget, the
+CDPATH and echo-safety house patterns, and the task-registration check that
+keeps every `check:`/`lint:`/`scan:` task inside `check` — which are project
+extensions of the catalog, not universal categories the builder carries to
+every adopter (pinned-action freshness is catalogued but not yet run here).
+Scoping the dogfood to the core (declared here per the proportionality rule)
+keeps the guarantee honest: the builder reproduces what is universal, and the
+project's own extensions stay the project's.
