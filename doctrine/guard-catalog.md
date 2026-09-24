@@ -219,10 +219,11 @@ adopter, repo-tracked, and machine-local overlay catalogs, lowest precedence
 to highest (D-4). An overlay entry whose `id` is new is appended; one carrying
 the target `id` plus `supersede: true` replaces that entry in place, the
 marker stripped — the only way to override an existing entry. A supersede of
-a non-existent target, an overlay parsing to no entries, and an overlay file
-escaping its layer root (never read; D-8, REQ-E1.5) are malformed for their layer (D-7,
-REQ-E1.4): repo-tracked hard-fails, adopter or machine-local warns and
-degrades, and an absent layer degrades silently (REQ-A1.4).
+a non-existent target, an unreadable or entry-less overlay, and an overlay
+file escaping its layer root (never read; D-8, REQ-E1.5) are malformed for
+their layer (D-7, REQ-E1.4): repo-tracked hard-fails, adopter or
+machine-local warns and degrades, and an absent layer degrades silently
+(REQ-A1.4).
 `resolve-catalog.sh guard-catalog --explain` names each entry's supplying
 layer (D-9, REQ-B1.6); `docs/overlays.md` holds the layer model. An explicit
 override bypasses the merge: the named catalog is used verbatim.
@@ -260,8 +261,8 @@ fixture, the git-hook backstop and its wiring check, the purged-identifier,
 workflow-posture and CI-eval-exclusion guards, the test-time budget, the
 CDPATH and echo-safety house patterns, and the task-registration check that
 keeps every `check:`/`lint:`/`scan:` task inside `check` — which are project
-extensions of the catalog, not universal categories the builder carries to
-every adopter (pinned-action freshness is catalogued but not yet run here).
+instances, not the universal core the builder reproduces for every adopter
+(pinned-action freshness is catalogued but not yet run here).
 Scoping the dogfood to the core (declared here per the proportionality rule)
 keeps the guarantee honest: the builder reproduces what is universal, and the
 project's own extensions stay the project's.
