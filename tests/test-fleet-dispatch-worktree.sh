@@ -1000,6 +1000,19 @@ c26() {
   [ "$RC" -eq 2 ] || fail "c26: a uid-less flight suffix must be refused (exit 2), got $RC"
   run_prim attach flight-Demo-0123abcd --dry-run
   [ "$RC" -eq 2 ] || fail "c26: an off-charset flight suffix must be refused (exit 2), got $RC"
+
+  # The task form under the reserved spec is refused, as dispatch refuses it.
+  run_prim attach flight-task-1 --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: the task suffix of the reserved spec must be refused (exit 2), got $RC"
+
+  # The flight id is bounded at 64 characters here as flight-id.sh bounds it.
+  slug55=$(printf 'a%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
+    21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 \
+    46 47 48 49 50 51 52 53 54 55)
+  run_prim attach "flight-$slug55-0123abcd" --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: a max-length flight id must be attachable, got exit $RC"
+  run_prim attach "flight-${slug55}a-0123abcd" --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: an over-long flight id must be refused (exit 2), got $RC"
 }
 
 for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26; do
