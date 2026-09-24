@@ -286,7 +286,7 @@ for bad in 9lives Polish implementation; do
   printf 'steps_pre_ci: [polish]\n' >"$tracked_cfg"
   capture pre-ci --unattended
   [ "$RC" = 4 ]
-verdict "REQ-B1.2: the id '$bad' is malformed for its layer (exit 4)" "REQ-B1.2: id '$bad': rc=$RC (want 4) err='$ERR'"
+  verdict "REQ-B1.2: the id '$bad' is malformed for its layer (exit 4)" "REQ-B1.2: id '$bad': rc=$RC (want 4) err='$ERR'"
 done
 reset_layers
 cat_entry "$tracked_cat" "$(printf '%0.sa' $(seq 1 65))" "kind: prompt" "target: p"
