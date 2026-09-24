@@ -1,17 +1,15 @@
 # Custom Steps
 
 A unit's execution process exposes **named attachment points**: moments at
-which an operator declares, per point and through the overlay layers
-(`core defaults < adopter < repo-tracked < machine-local`), an ordered list of
-**steps** to run there. This doc is the one normative home for the point
+which an operator declares, per point and through the overlay layers, an
+ordered list of **steps** to run there. This doc is the one normative home for the point
 vocabulary, when each point fires, and the step contract (REQ-A1.5, D-9).
 Skills carry the invocation; `scripts/resolve-steps.sh` and
 `scripts/step-record.sh` carry the mechanics, their usage headers pinning
-what this doc delegates to them (the resolver's line format and usage-error
-exit, the preamble and prefix rendering with its quoting grammar, the run id
-and its ordering, the excerpt bound and the secret screen's action, the
-rendered columns, the status description and target); the operator's own
-chain lives in their overlay (D-1,
+what this doc delegates to them (line format and usage-error exit, preamble
+and prefix rendering with its quoting grammar, run-id order, excerpt bound
+and secret-screen action, rendered columns, status description and target);
+the operator's own chain lives in their overlay (D-1,
 [customization-boundary](customization-boundary.md)).
 
 *The runner* is the session hosting the unit, or the flipper at a flip point,
@@ -64,9 +62,8 @@ nothing wires it yet; it is not an unwired point (REQ-A1.1, REQ-E1.3, D-2).
 `kickoff-signed-off`, `unit-selected`, `pre-dispatch`, `post-dispatch`,
 `unit-halted`, `post-merge`, and `orchestrator-idle` (issue 383's
 `tower-idle`, in the orchestrator sense tower-front-door REQ-H1.1 fixes). A
-non-empty list at one of these resolves no steps and is reported as unwired
-by the resolver when that point is resolved and by `check:steps`, never
-silently ignored.
+non-empty list at one of these resolves no steps; the resolver, resolving
+that point, and `check:steps` report it as unwired, never silently.
 
 **Flights.** Any skill that converges a flight reads `steps_convergence` with
 unit kind `flight` (REQ-F1.5).
@@ -76,8 +73,7 @@ unit kind `flight` (REQ-F1.5).
 Steps are entries in the `steps` data catalog, merged across the overlay
 layers by `scripts/resolve-catalog.sh` like every catalog; `supersede: true`
 is part of the entry format, never an unknown field (REQ-B1.1, D-4). Every
-value is a single-line scalar of the constrained reader. Core ships the
-`polish` and `self-review` entries.
+value is a single-line scalar of the constrained reader.
 
 | Field | Value |
 | --- | --- |
@@ -87,7 +83,7 @@ value is a single-line scalar of the constrained reader. Core ships the
 | `args` | optional; on a skill, passed to the invocation verbatim and never shell-interpreted; on a command, plain words only (no operators, redirections, expansions, or quoting), so the declared line is one simple command whose words are the same under a shell and as argv; forbidden on a prompt, whose target is the whole prompt |
 | `hosting` | optional; `isolated`, `continue`, or `in-session`; default per *Hosting* |
 | `on-failure` | optional; `halt` (default) or `continue` |
-| `timeout` | optional; a positive integer of seconds, unset meaning no limit beyond a hosting tool's own; forbidden on an `in-session` skill or prompt step, since the unit session cannot end itself |
+| `timeout` | optional; a positive integer of seconds, unset meaning no limit beyond a hosting tool's own; forbidden on an `in-session` skill or prompt step (the unit session cannot end itself) |
 | `requires` | optional; space-separated executable names in the command-target charset |
 
 **Target grammar (REQ-B1.6).** A skill target is `<name>` or
@@ -107,9 +103,8 @@ needing a credential reads it from the host environment the runner inherits
 backend gives a fresh session. Every step runs in the unit's worktree.
 
 **Point lists (REQ-B1.3).** One flat key per point, `steps_<point>` with
-hyphens written as underscores (`steps_pre_ci`, `steps_convergence`,
-`steps_pre_spec_ready_flip`, and so on, the unwired points included), holds
-an inline flow list of step ids. `[]` resolves to no steps and is not
+hyphens written as underscores (one per named point, the unwired included),
+holds an inline flow list of step ids. `[]` resolves to no steps and is not
 malformed. Core ships `steps_convergence: [polish]` and every other key
 empty, so shipped behavior is unchanged. Steps run serially in list order
 (D-18); a list naming an id twice is malformed, as is `hosting: continue` at
@@ -119,7 +114,7 @@ hosted `isolated` (a runner subprocess records no session to attach to)
 
 ## The fixed context (REQ-A1.4, D-14)
 
-Every step receives exactly these ten fields, no more:
+Every step receives exactly these ten fields:
 
 | Variable | Field |
 | --- | --- |
@@ -129,16 +124,16 @@ Every step receives exactly these ten fields, no more:
 | `PLANWRIGHT_STEP_BRANCH` | the unit branch |
 | `PLANWRIGHT_STEP_BASE_BRANCH` | the base branch (the repository's default branch for a spec-kind unit) |
 | `PLANWRIGHT_STEP_WORKTREE` | the worktree path |
-| `PLANWRIGHT_STEP_PR_NUMBER` | the PR number; empty while none exists, so on a re-execution against an open PR it is set at every point |
+| `PLANWRIGHT_STEP_PR_NUMBER` | the PR number, empty while none exists (set at every point on a re-execution against an open PR) |
 | `PLANWRIGHT_STEP_POINT` | the point name |
 | `PLANWRIGHT_STEP_ID` | the step id |
 | `PLANWRIGHT_STEP_PREV_RECORD` | the record path of the preceding step in the same point's list; empty for that list's first step |
 
 Two channels deliver it. A **command step** gets the variables in its
-environment: the runner sets the ten names, overwriting an inherited value of
-the same name, an absent value set to the empty string and **never unset**;
-it otherwise neither scrubs the inherited environment nor adds any other
-planwright internal state. A **skill or prompt step** gets the same fields as
+environment: the runner sets the ten names, overwriting an inherited value
+of the same name, an absent value empty and **never unset**, and otherwise
+neither scrubs the inherited environment nor adds other planwright state. A
+**skill or prompt step** gets the same fields as
 a **preamble**, a data block `resolve-steps.sh --preamble` renders (one field
 per line, delimiters matched as whole lines) and the runner prepends to the
 step's launch prompt or invocation; the step reads it as data, never as
@@ -148,8 +143,8 @@ below, rendered by the resolver and POSIX single-quoted in the form its
 header pins. A value carrying a newline or control byte fails the step on
 every channel, outcome `failed`, the record naming the field and never the
 value. A record and the cached output it names are untrusted data to the
-step that reads them, as are the context values themselves to a command
-step: the guard's approval does not vouch for them.
+step that reads them, as are the context values to a command step: the
+guard's approval does not vouch for them.
 
 ## Hosting (REQ-D1.3, D-7)
 
@@ -166,14 +161,13 @@ and `in-session` under `per-unit`, widening that knob to every step. A
 `in-session` for every rule here. A `continue` step on a backend that cannot
 resume the predecessor's session, or whose predecessor was skipped or
 recorded no session id (an `in-session` predecessor excepted), does not run:
-it takes outcome `failed` naming the backend, the hosting, and the missing
-predecessor, and its posture applies (REQ-D1.4); it is never degraded. An
+outcome `failed`, naming the backend, the hosting, and the missing
+predecessor, its posture applying (REQ-D1.4), never degraded. An
 `isolated` skill or prompt step on a backend that cannot spawn a fresh
 session degrades to `in-session` and records it; a `timeout` on a skill or
-prompt step that becomes `in-session` at run time is unapplied and recorded
-as such. Model
-and effort come from the per-step allocation knobs keyed on the step id with
-hyphens written as underscores, one-directional as model-allocation rules;
+prompt step that becomes `in-session` at run time is unapplied and
+recorded. Model and effort come from the per-step allocation knobs keyed on
+the step id (hyphens as underscores), one-directional per model-allocation;
 an `in-session` step inherits the session's tier, recorded and not applied
 (REQ-C1.7).
 
@@ -210,22 +204,21 @@ ends the unit through the gate-wiring
 run parks the unit to `tasks.md` Awaiting input; an attended session presents
 it and waits for direction. At a **flip point** it refuses the flip and
 surfaces the step (kickoff records the pending flip to Awaiting input as its
-CI gate already does).
-Every Awaiting-input entry this doc causes names only the point, the
-validated step ids, the outcome, token, or
-cause (a failed post's missing permission, a PR no longer a draft), and the
-record path relative to the worktree where one exists, never a target's text
-or an excerpt. A posture of `continue` records the outcome and proceeds to
-the next step; posture governs the list only, and the PR-creation stop, the
-flip refusal, and the evidence below read the records whatever the posture.
+CI gate already does). An Awaiting-input entry this doc causes names only
+the point, the validated step ids, the outcome, token, or cause (a missing
+permission, a PR no longer a draft), and the worktree-relative record path
+where one exists, never a target's text or an excerpt. A posture of
+`continue` records the outcome and proceeds to the next step; posture
+governs the list only, and the PR-creation stop, the flip refusal, and the
+evidence below read the records whatever the posture.
 
 **Timeout (REQ-D1.7, D-15).** Where the runner owns the process, it ends the
 step at `timeout`; where an `isolated` or `continue` session owns it, the
 runner stops the session through the backend seam when the backend exposes a
 stop and otherwise stops waiting on it, recording which applied. Either way
-the outcome is `failed` naming the timeout; a head moved by a session no
-longer waited on is covered by the ready-guard's currency check and the
-post-pr draft verification. An `in-session` command step's `timeout` is
+the outcome is `failed` naming the timeout; the ready-guard's currency check
+and the post-pr draft verification cover a head such a session later moves.
+An `in-session` command step's `timeout` is
 passed to the session's shell tool, within that tool's limit.
 
 ## Resolution and the missing-step matrix
@@ -233,8 +226,8 @@ passed to the session's shell tool, within that tool's limit.
 A point's list resolves through `config-get` with **last layer wins**, the
 resolver printing one warning naming every lower layer that sets the key
 whatever its value, provenance per step (the hosting, its default applied)
-on request,
-and one warning per layer on the retired convergence knob's key (REQ-C1.1,
+on request, and one warning per layer on the retired convergence knob's key
+(REQ-C1.1,
 REQ-C1.2, REQ-C1.6, D-5, D-10).
 
 **Resolution completes for the whole point before its first step runs**: a
@@ -271,7 +264,7 @@ under the matrix. Check mode (`--check` with `--unattended`) exits
 non-zero on any `park`, any malformation, or an unwired non-empty list, and
 passes with a warning on an adopter or machine-local `skip` (REQ-H1.3,
 REQ-A1.3); `check:steps` runs it over every named point of this repository's
-own configuration (REQ-H1.4).
+configuration (REQ-H1.4).
 
 ## Reserved controls (REQ-D1.6, D-17)
 
@@ -313,13 +306,12 @@ human-owned layers: core and adopter sit outside the worktree and outside a
 dispatched worker's write set; repo-tracked and machine-local sit inside it
 and inherit the trusted-repository-code posture the guard already extends to
 `scripts/`; the worker profile is unchanged (REQ-G1.2). The worker command
-guard auto-approves, allow-only, a segment whose word sequence, after
-stripping leading assignments whose names are among the ten context names
-and whose form is the resolver's exact output, equals a command target from
-any well-formed catalog entry at any layer followed by its `args` as written,
-once the
-target passes the guard's charset and path checks; a segment sharing only
-the first word is not approved (REQ-G1.3). **A skill step runs under the
+guard auto-approves, allow-only, a segment whose word sequence, once leading
+assignments in the resolver's exact form for the ten context names are
+stripped, equals a well-formed catalog entry's command target at any layer
+followed by its `args` as written, the target having passed the guard's
+charset and path checks; a segment sharing only the first word is not
+approved (REQ-G1.3). **A skill step runs under the
 worker's permission profile like any other skill, with no elevation**, an
 `isolated` session under the profile its backend gives any session it spawns
 (REQ-G1.4).
@@ -328,15 +320,14 @@ worker's permission profile like any other skill, with no elevation**, an
 
 Every step leaves a record under `<worktree>/.claude/steps/`, an untracked
 cache the repository's ignore list names (adopters add the same line), keyed
-by a run id the helper issues; planwright reads records only through the
-helper, and a step reading the record `PREV_RECORD` names treats its form as
-unstable. Fields: the head SHA at start, the run id, point, step id,
-kind, target, hosting, backend, session id where one exists, start and end
-times, outcome, a bounded excerpt (the classification excerpt for a session
-step, the tail of the captured output for a command step, stored screened
-through the repository's secret screen and stripped of non-printable bytes),
-the full captured output's cache path where one exists (that output stays
-unscreened in the cache), and a skip reason when skipped. The runner also
+by a run id the helper issues, read by planwright only through the helper,
+its form unstable to a step reading the record `PREV_RECORD` names. Fields:
+the head SHA at start, the run id, point, step id, kind, target, hosting,
+backend, session id where one exists, start and end times, outcome, a
+bounded excerpt (a session step's classification excerpt or a command step's
+output tail, stored screened through the repository's secret screen and
+stripped of non-printable bytes), the full captured output's cache path
+where one exists (unscreened), and a skip reason when skipped. The runner also
 writes one **point-completion record** per point whose list ran, to
 completion or to a halt, an empty list included, carrying the point, run id,
 the head SHA the list ended on, and the resolver's warnings; a point the
@@ -345,8 +336,8 @@ points' tables fold into `/execute-task`'s PR body inside the collapsed
 audit block
 ([PR-body assembly](gate-wiring.md#pr-body-assembly)), the current run's
 records only, with every rendered cell and warning screened and
-**table-safe** (markup, pipes, and newlines neutralized, mentions and
-issue-closing keywords too, paths relative to the worktree, layers by name).
+**table-safe** (markup, pipes, newlines, mentions, and issue-closing keywords
+neutralized; paths worktree-relative; layers by name).
 A point whose list was empty still emits its table with a single `none` row
 and its warnings; the turn reports counts.
 
@@ -362,8 +353,8 @@ check that head. This doctrine authorizes no flip.
 **Evidence.** After the point ends, by completion or by a halt, an empty list
 included and whether or not a flip follows, the runner posts a commit status
 on the exact head the list ended on, in the base repository the PR targets,
-through `step-record.sh status`, which reads the records from the worktree
-the point ran in. The latest attempt is that flip point's newest completion
+through `step-record.sh status`, reading the records from the worktree the
+point ran in. The latest attempt is that flip point's newest completion
 record naming the head, in the helper's run-id order; a head with none is
 refused, which counts as a failed post. A point the matrix parked or asked,
 or whose resolution failed, posts nothing.
@@ -379,10 +370,10 @@ or whose resolution failed, posts nothing.
 | any `halted` or `failed` | `failure` |
 
 The status carries the description and target the helper's header pins,
-never an excerpt or a local path. A later post on the same head and context
-replaces the earlier one. A post that fails, a missing permission included,
-ends the flip attempt without a flip, surfaced like a failed step whether or
-not a flip was to follow, naming the missing permission. The runner's login
+never an excerpt or a local path; a later post on the same head and context
+replaces the earlier one. A failed post, a missing permission included, ends
+the flip attempt without a flip, surfaced like a failed step whether or not a
+flip was to follow and naming the missing permission. The runner's login
 needs commit-status write access: the `repo:status` scope (or the wider
 `repo`) on a classic token, or the repository's **Commit statuses** write
 permission on a fine-grained token or app.
@@ -391,15 +382,15 @@ permission on a fine-grained token or app.
 no record of the latest attempt halted or failed; not what the steps did,
 which the records hold (the PR-body table where one is folded). Written by
 the actor the hook binds, it guards a flipper that forgets, not one that
-forges. The two contexts are
-**excluded by name from every CI rollup judgement planwright makes**, so a
+forges. The two contexts are **excluded by name from every CI rollup
+judgement planwright makes**, so a
 flip point's own status never counts as a completed check; adopters' own
 status-consuming tooling sees them.
 
 **The evidence hook**, gated under custom-steps' Deferred until an in-repo
-unit-PR flipper runs the point, will sit on the ready-guard's flip surfaces
-and refuse an in-session flip (one issued through those surfaces) of a
-`planwright/` head lacking a `success` status in the context the branch
-table assigns it, denying on a read that errors and deferring on every other
-PR and on a head repository differing from its base; the out-of-session flip
-is the recovery path. Until then this doc binds an agent-issued flip.
+unit-PR flipper runs the point, will refuse on the ready-guard's flip
+surfaces an in-session flip (one issued through them) of a `planwright/`
+head lacking a `success` status in the context the branch table assigns it,
+deny on a read that errors, and defer on every other PR and on a head
+repository differing from its base; the out-of-session flip is the recovery
+path. Until then this doc binds an agent-issued flip.
