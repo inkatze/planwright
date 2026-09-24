@@ -209,8 +209,8 @@ passed to the session's shell tool.
 ## Resolution and the missing-step matrix
 
 A point's list resolves through `config-get` with **last layer wins**, the
-resolver printing one warning naming every lower layer that sets the key
-whatever its value, provenance per step (the hosting, its default applied)
+resolver printing one warning naming every lower overlay layer that sets the
+key whatever its value, provenance per step (the hosting, its default applied)
 on request, and one warning per layer on the retired convergence knob's key
 (REQ-C1.1,
 REQ-C1.2, REQ-C1.6, D-5, D-10).

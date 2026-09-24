@@ -186,12 +186,12 @@ review_sequence: [polish]
 # REQ-B1.3), each an inline flow list of step ids in run order. A step id
 # names an entry in the `steps` catalog (config/steps.yaml merged with the
 # overlay catalogs); the list is resolved by scripts/resolve-steps.sh with
-# last-layer-wins per key and a warning naming every shadowed lower layer.
-# `[]` runs nothing and is not malformed. doctrine/custom-steps.md fixes when
-# each point fires and what a step may do. Core ships behavior-identical:
-# convergence runs the single nested polish pass, every other list is empty.
+# last-layer-wins per key and a warning naming every shadowed lower overlay
+# layer. `[]` runs nothing and is not malformed. doctrine/custom-steps.md
+# fixes when each point fires and what a step may do. Core ships
+# behavior-identical: the lists below run what the review-sequence knob ran.
 #
-# Wired in /execute-task, in firing order:
+# The in-run points of /execute-task, in firing order:
 steps_pre_implementation: []
 steps_pre_ci: []
 steps_convergence: [polish]
