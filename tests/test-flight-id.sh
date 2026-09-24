@@ -160,6 +160,42 @@ case $OUT in
   *) fail "taken (record on main): evidence not named, got [$OUT]" ;;
 esac
 
+# 3d'. A record merged only on the remote's default branch (local main behind)
+#      is evidence, and the local copy is not misreported.
+clone2=$tmp/clone2
+git clone -q "$origin" "$clone2" 2>/dev/null
+mkdir -p "$clone2/specs/_flights"
+: >"$clone2/specs/_flights/demo-0badf00d.md"
+gitc "$clone2" add -A
+gitc "$clone2" commit -q -m "remote record"
+gitc "$clone2" push -q origin main
+gitc "$repo" fetch -q origin
+run 0 taken demo-0badf00d --repo-root "$repo"
+printf '%s' "$OUT" | grep -q "^evidence	record	origin/main:specs/_flights/demo-0badf00d.md$" \
+  || fail "taken (record on origin/main only): evidence not named, got [$OUT]"
+printf '%s' "$OUT" | grep -q "^evidence	record	main:" \
+  && fail "taken (record on origin/main only): local main misreported, got [$OUT]"
+
+# 3d''. A default branch that is not called main is still consulted, through
+#       the remote's HEAD.
+gitc "$clone2" branch -m main trunk
+gitc "$clone2" push -q origin trunk
+git -C "$origin" symbolic-ref HEAD refs/heads/trunk
+gitc "$repo" fetch -q origin
+gitc "$repo" remote set-head origin -a >/dev/null 2>&1
+gitc "$repo" push -q origin :main
+gitc "$repo" fetch -q --prune origin
+gitc "$repo" branch -m main not-main
+run 0 taken demo-0badf00d --repo-root "$repo"
+printf '%s' "$OUT" | grep -q "^evidence	record	origin/trunk:specs/_flights/demo-0badf00d.md$" \
+  || fail "taken (record on origin/trunk via origin/HEAD): evidence not named, got [$OUT]"
+gitc "$repo" branch -m not-main main
+gitc "$repo" push -q origin main
+git -C "$origin" symbolic-ref HEAD refs/heads/main
+gitc "$repo" remote set-head origin -a >/dev/null 2>&1
+gitc "$repo" push -q origin :trunk
+gitc "$repo" fetch -q --prune origin
+
 # 3e. A placed worktree takes its id even with no branch and no record.
 mkdir -p "$repo/.claude/worktrees/flight-demo-fedcba98"
 run 0 taken demo-fedcba98 --repo-root "$repo"

@@ -22,8 +22,9 @@
 #         candidate is skipped while durable evidence of that id exists
 #         (never-reuse): a local branch `refs/heads/planwright/flight/<id>`, a
 #         remote-tracking branch `refs/remotes/*/planwright/flight/<id>`, a
-#         record file `specs/_flights/<id>.md` in the working tree or in the
-#         `main` / `origin/main` tree, or a placed worktree
+#         record file `specs/_flights/<id>.md` in the working tree or on the
+#         default branch (origin/HEAD, main or master, local or
+#         remote-tracking), or a placed worktree
 #         `.claude/worktrees/flight-<id>` under the primary checkout. The
 #         slug is grammar-checked before anything is minted (REQ-F1.1).
 # check   exits 0 when the argument is a grammar-valid flight id, 1 otherwise.
@@ -132,6 +133,23 @@ probe_failed() {
   exit 5
 }
 
+# default_bases — the refs a merged record can live on: the remote's default
+# branch (origin/HEAD) plus the conventional names, local and remote-tracking,
+# keeping only those that resolve to a commit. A retired flight's record must
+# be visible from a checkout whose local default branch is behind.
+default_bases() {
+  _bases=""
+  _head=$(git -C "$repo_root" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || _head=""
+  for _c in $_head main master origin/main origin/master; do
+    case " $_bases " in
+      *" $_c "*) continue ;;
+    esac
+    git -C "$repo_root" rev-parse --verify --quiet "$_c^{commit}" >/dev/null 2>&1 || continue
+    _bases="$_bases $_c"
+  done
+  printf '%s' "$_bases"
+}
+
 # evidence_for <id> — collect the durable evidence lines for a checked id
 # into `found` (one `evidence<TAB><class><TAB><what>` per line). It runs in
 # the calling shell, never a command substitution, so a probe failure exits
@@ -164,8 +182,7 @@ evidence_for() {
   if [ -e "$repo_root/$_rec" ] || [ -L "$repo_root/$_rec" ]; then
     add_evidence record "$_rec"
   fi
-  for _base in main origin/main; do
-    git -C "$repo_root" rev-parse --verify --quiet "$_base^{commit}" >/dev/null 2>&1 || continue
+  for _base in $(default_bases); do
     _hit=$(git -C "$repo_root" ls-tree --name-only "$_base" -- "$_rec" 2>/dev/null) \
       || probe_failed "ls-tree $_base"
     if [ -n "$_hit" ]; then
