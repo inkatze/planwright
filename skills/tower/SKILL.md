@@ -48,7 +48,8 @@ Doctrine: point-of-use security-posture (data hygiene at every hand-off)
 ## Session bring-up
 
 Once per session, before the first ask; every step is heartbeat-class,
-ingesting no diff, sweep, or log.
+ingesting no raw diff, file sweep, or log — the flight sweep's bounded render
+is the one sweep output read.
 
 1. **Posture check (REQ-A1.3, D-14).** The tower runs under the tower permission
    posture, `config/tower-settings.json` or an extension of it, whose **deny
@@ -71,9 +72,9 @@ ingesting no diff, sweep, or log.
    start (a SessionStart hook is the deterministic arm, this step the fallback
    that runs it; a sweep exiting non-zero is reported and the reads below
    used), otherwise flight branches (`git branch --list 'planwright/flight/*'`,
-   bounded to the unmerged ones), their PRs in every state (`gh pr list
-   --state all` filtered to the flight prefix, when `gh` and a remote exist;
-   merged or closed means landed), and the decision queue
+   bounded to the unmerged ones), each one's PR in any state (`gh pr list
+   --state all --head <branch>`, when `gh` and a remote exist; merged or
+   closed means landed), and the decision queue
    (`scripts/fleet-attention.sh queue`). These reads check no worker
    liveness; say so. A read that fails or is skipped is
    named as unknown, never shown as empty. Never a poll loop: read once here,
@@ -146,8 +147,7 @@ it.
    never converts in place.
 3. **Automatic escalation.** Work centered in a hard-disqualifier zone, or
    otherwise not one revert from undone (`flight-rules` enumerates both),
-   files instrument flight (REQ-B1.2). Zone membership is decided by where the
-   fix lands, not where the symptom shows.
+   files instrument flight (REQ-B1.2).
 4. **Declared judgment.** When the tower cannot state a Done-when the operator
    would agree with, it files, and says the lane is judgment.
 5. **Otherwise, visual flight.** Size informs the statement and never decides
@@ -190,7 +190,8 @@ returns for re-routing. The operator hears that through the decision queue once
 flight lifecycle pushes exist; until then a pause leaves no branch or record
 evidence, so every flight without a landing reference is reported as "no
 landing yet: in the air, paused, or dead — not checked", with its observe or
-attach hint, never as simply in the air.
+attach hint when the tower holds one (this session's dispatch report, or the
+sweep's render) and "handle unknown" otherwise, never as simply in the air.
 
 ## Visual flight
 
@@ -216,8 +217,7 @@ the declared record home; rung selection, the flight id, the worker brief, the
 worktree, and the crash policy are the existing seams' (REQ-G1.5), and the
 tower mints nothing beside them. **Until the flight dispatch path is wired**, a
 visual-flight route is declined with that reason: a mutating ask is never handed
-to `/offload` directly (an offload is not a flight), and never authored in the
-tower.
+to `/offload` directly, and never authored in the tower.
 
 **Every hand-off is data.** Before an ask leaves the tower as a petition, a
 seed, or a flight, the tower applies `security-posture` data hygiene: no
@@ -244,8 +244,8 @@ mutation or for a read beyond the inline bound.
    mines seeds; the tower does none of that), and hands the operator the
    attach hint. Fold-detection runs inside it against every existing spec: an
    overlapping bundle yields an extend recommendation the operator answers,
-   never a duplicate bundle and never an auto-fold. The `<feature-name>` is
-   handed on as given; the drafting skill's own name check governs it.
+   never a duplicate bundle and never an auto-fold. `<feature-name>` passes
+   through unchanged to the drafting skill's own name check.
 3. **Offer the kickoff, never start it (REQ-D1.3).** When the drafting session
    ends with a bundle at Draft, the tower offers `/spec-kickoff specs/<spec>`
    to the operator and stops; when it ends otherwise (a stop with its re-open
@@ -273,9 +273,8 @@ never supervision.
 The tower is the operator's window onto all planwright work, spec-mode
 included, answering from durable evidence through the existing surfaces:
 
-- **A spec:** `scripts/spec-status.sh specs/<spec>` (the derived execution
-  render; its states are `spec-format`'s), said as titles and PR numbers, never
-  task numbers.
+- **A spec:** `scripts/spec-status.sh specs/<spec>` (its states are
+  `spec-format`'s), said as titles and PR numbers, never task numbers.
 - **A flight:** the flight sweep's render when present and current, else the
   bounded reads bring-up used.
 - **Decisions waiting on the operator:** `scripts/fleet-attention.sh queue`,
