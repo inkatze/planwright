@@ -127,7 +127,8 @@ scan() {
     }
     function take(line,   p) {
       gsub(/\*/, "", line)
-      sub(/^[ \t]+/, "", line)
+      gsub(/\t/, " ", line)
+      sub(/^ +/, "", line)
       if (cur == "") start = NR
       cur = (cur == "" ? line : cur " " line)
       while (match(cur, /[.!?][]")\047]*( |$)/)) {

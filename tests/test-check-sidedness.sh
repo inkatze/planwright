@@ -131,6 +131,10 @@ out="$(/bin/sh "$CHECK" "$TMP/close.md" 2>&1)"
 assert_contains "a mandate closed by a quote is not hidden by the next sentence" "close.md:3: Present the four tables.\"" "$out"
 assert_contains "a mandate closed by a parenthesis is not hidden by the next sentence" "close.md:5: Show the digest" "$out"
 
+printf '# Tab\n\nPresent the four tables.\tRecord it in tasks.md.\n' >"$TMP/tab.md"
+out="$(/bin/sh "$CHECK" "$TMP/tab.md" 2>&1)"
+assert_contains "a sentence ended by a tab is not hidden by the next one" "tab.md:3: Present the four tables." "$out"
+
 echo "== a file name that looks like an awk assignment is scanned as a file =="
 mkdir -p "$TMP/eq"
 printf '# Eq\n\nPresent the counts.\n' >"$TMP/eq/a=b.md"
