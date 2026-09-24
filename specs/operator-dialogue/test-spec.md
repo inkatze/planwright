@@ -330,8 +330,9 @@ fixture under `tests/behavioral-evals/turn-shape/` lists, run on demand by
 `mise run eval:turn-shape` (every fixture × its novice and expert personas ×
 its `runs=` count) and hermetically by `tests/test-turn-shape-eval.sh`. Each
 wall fixture passes only when exactly its planted invariants fail. The
-fixtures are deterministic stand-ins replaying what each surface emits; the
-acceptance join's sample and its findings are recorded in the kickoff brief.
+fixtures are deterministic stand-ins scripted to model what each surface is
+meant to emit, not recordings of the shipped surfaces; the acceptance join's
+sample, their drift, and its findings are recorded in the kickoff brief.
 
 ### REQ-I1.1 — Arbitration stated [design-level]
 
@@ -345,9 +346,10 @@ statements are the verification.
 The `no-table-dump` and `projection-present` invariants confirm turn-side
 emissions carry a projection (counts and actionable items, no full audit
 tables) and that the full record exists in the governing artifact: the
-`projection` fixture passes them and its pair, `wall`, fails them.
-(On-demand behavioral lane.) A manual read confirms the projection was
-sufficient to act on.
+`projection` fixture passes them and its pair, `wall`, fails them; the
+pointer and full-record half is exercised by the one-field mutation cases in
+`tests/test-turn-shape-eval.sh`. (On-demand behavioral lane.) A manual read
+confirms the projection was sufficient to act on.
 
 ### REQ-I1.3 — Actionability ordering [test]
 
@@ -360,8 +362,8 @@ turn-side output; the `wall` and `orchestrate-wall` fixtures fail it.
 
 The advisory sidedness check (REQ-M1.3, `mise run check:sidedness`) reports
 emit mandates lacking a declared destination side; the touched docs and
-skills report clean at landing. Advisory: the check informs, and this entry's `[test]` claim is the
-check running and reporting, not a CI gate.
+skills report clean at landing. Advisory: the check informs, and this
+entry's `[test]` claim is the check running and reporting, not a CI gate.
 
 ### REQ-I1.5 — Self-containment as floor, bounded density [test + manual]
 
@@ -406,9 +408,8 @@ behavioral lane.)
 
 The `decisions-first` and `projection-present` invariants over the `resume`
 and `drain` fixtures confirm the question or actionable lanes lead and
-detail arrives only on request; a manual read
-confirms the lead was sufficient to decide next steps. (On-demand behavioral
-lane.)
+detail arrives only on request; a manual read confirms the lead was
+sufficient to decide next steps. (On-demand behavioral lane.)
 
 ### REQ-J1.5 — Unbounded payloads excerpted [test]
 
@@ -430,7 +431,9 @@ include them) and fails if one omits it.
 slots (design-level); the `step-report-slots` invariant confirms the emitted
 report carries the slot structure and that decision-shaped content appears
 as captured items, not prose: `orchestrate-halts` passes it and
-`orchestrate-wall` fails it. (On-demand behavioral lane.)
+`orchestrate-wall` fails it; the prose-request half is exercised by the
+one-field mutation cases in `tests/test-turn-shape-eval.sh`. (On-demand
+behavioral lane.)
 
 ### REQ-K1.3 — Orchestrate instances conform [test]
 
@@ -506,9 +509,9 @@ is the verification that the split holds.
 
 The check runs over skill and doctrine prose, reports mandates lacking a
 declared side, and exits zero; its unit test, `tests/test-check-sidedness.sh`,
-plants a deliberately side-less mandate in a fixture under `tests/` — outside the scanned corpus,
-so the live run stays clean — and asserts the check reports it, and the
-advisory wiring is confirmed by `mise run check` remaining green while the
+plants a deliberately side-less mandate in a fixture under `tests/` —
+outside the scanned corpus, so the live run stays clean — and asserts the
+check reports it, and the advisory wiring is confirmed by `mise run check` remaining green while the
 check reports. (CI-run structural lane for the check's own behavior; its
 findings never gate.)
 

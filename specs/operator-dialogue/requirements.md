@@ -629,13 +629,17 @@ object is content delivered to the operator or to an artifact.
   delta re-walkthrough entry.
 - 2026-09-23: Acceptance join (Task 13). The extension's `test-spec.md`
   entries (the REQ-I intro and REQ-I1.2 through REQ-M1.4) flipped from
-  planned voice to their now-runnable paths: each names the invariant, the
-  fixture pair that passes and fails it, and the command that runs it
-  (`mise run eval:turn-shape`, `tests/test-turn-shape-eval.sh`,
-  `tests/test-fleet-attention-render-change.sh`,
-  `tests/test-check-sidedness.sh`, `mise run check:no-ci-evals`). No
-  requirement, decision, or verification tag changed. Expression-only;
-  anchor re-recorded in the brief's amendment log.
+  planned voice to their now-runnable paths: each names the invariant or
+  check that verifies it and, where a planted wall exists, the fixture that
+  fails it (`mise run eval:turn-shape`, `tests/test-turn-shape-eval.sh`,
+  `tests/test-fleet-attention-render-change.sh`, `mise run check:sidedness`,
+  `tests/test-check-sidedness.sh`, `mise run check:no-ci-evals`). REQ-K1.1
+  stays unflipped: its check covers two of the four execution-side surfaces
+  until reopened Task 11 lands. The intro names the fixtures as scripted
+  models of the surfaces, not recordings. No requirement, decision, or
+  verification tag changed. Expression-only; anchor re-recorded in the
+  brief's amendment log (reworded once on the same branch after review, with
+  a second re-anchor entry).
 
 ## Sources
 

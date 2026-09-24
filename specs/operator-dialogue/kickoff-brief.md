@@ -659,13 +659,33 @@ Class: expression-only
 Anchor: `20896fd756758e546118f1a6a94e209542ca0bb0` — computed as
 `scripts/spec-anchor.sh specs/operator-dialogue`
 
+### Re-anchor — review corrections to the flip (2026-09-23)
+
+Machine-written entry per the meta-spec's expression-only lane, by
+`/execute-task` for Task 13 after its nested review. The entry above
+overstated the flip: not every reworded entry names a failing fixture or a
+command, and REQ-K1.1 stays unflipped. The `test-spec.md` intro now names
+the fixtures as scripted models of the surfaces rather than recordings; the
+REQ-I1.2 and REQ-K1.2 entries point at the mutation cases that exercise the
+half their wall does not; three paragraphs were reflowed. No requirement,
+decision, task, or verification tag changed. The stale-anchor pre-flight
+recomputed the entry above's anchor (`20896fd…`) unchanged before the edit.
+
+**Cites the changelog line:** the 2026-09-23 `## Changelog` entry in
+`requirements.md` ("Acceptance join (Task 13)"), as reworded.
+
+Class: expression-only
+Anchor: `d7230cca84679e5c1e25478d10bed9630f906b09` — computed as
+`scripts/spec-anchor.sh specs/operator-dialogue`
+
 ## 10. Acceptance join record (Task 13, 2026-09-23)
 
 The turn-shape invariants pointed at the repaired surfaces for the first
 time. **Headline:** every sampled run passes, but only as the deterministic
 stand-ins replay the surfaces; a live surface following its shipped prose
 cannot yet produce a record the grader accepts, so the join's substance is
-the findings below, three of which reopen their owning tasks.
+the findings below, four of which (1–4) reopen their three owning tasks
+(9, 11, 12).
 
 ### Sample
 
@@ -741,10 +761,11 @@ the fixture or grader misrepresents the shipped surface or doctrine.
   order: exactly that invariant fails). Now listed requests first and stated
   as an order, word-neutral. Chosen as this task's one repair because it is
   the only surface defect whose invariant failure is certain on every
-  `/orchestrate` step and whose fix is local; the others are structural or
+  `/orchestrate` step that carries a request and whose fix is local; the others are structural or
   belong to Task 12's grader and fixture set, better fixed in one pass.
 
-**Small — recorded, not fixed (routed to the reopened owner):**
+**Small — recorded, not fixed (routed to each owner; 7–9 ride reopened
+Task 12):**
 
 - **Finding 7: Fixture drift from the shipped surfaces** (eval; Task 12). `resume`
   lists seven context elements where the skill names eight, omits the PR
