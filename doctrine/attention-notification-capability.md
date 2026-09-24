@@ -35,10 +35,10 @@ session-side relay), all implemented by
 - **The portable status renderer** (`render`). Lists each worker's scope and
   state. It is substrate-agnostic: it reads the store, so it renders identically
   from a plain terminal, a detached-multiplexer popup, or an editor panel.
-  `--on-change <key>` is the watch loop's form: it renders in full only when a
-  worker's scope, state, or decision changed since that key's last full
-  render (a heartbeat re-stamp is not a change), and otherwise prints nothing
-  or a periodic liveness line.
+  `--on-change <key>` is the watch loop's form: it shows ages as coarse buckets
+  and renders in full only when the text it would print differs from what that
+  key last printed in full, so a stalled worker resurfaces as its age crosses a
+  bucket; otherwise it prints nothing or a periodic liveness line.
 - **The decision queue** (`queue`). One ordered queue of the **actionable** items
   across all active specs — the workers in the `awaiting-input` state — each
   rendered as a structured choice (scope, question, recommended default, options).
@@ -52,9 +52,9 @@ session-side relay), all implemented by
   derived from a store may narrow the render either, because a stored
   suppression outlives the conversation that earned it. The one stored record
   allowed is `--on-change`'s, and only because its key is the calling loop's
-  own identity, minted per process: it withholds an unchanged queue from the
-  loop that already showed it, and a new conversation, holding a new key,
-  sees the queue in full.
+  presence identity, which pins the process start time: it never withholds a
+  pending decision, since one re-raised in the same words renders identically,
+  and withholds only an empty queue from the loop that already saw it empty.
 - **The notification seam** (`notify`), and its session-side other half
   (`relay`). The seam pushes a one-line summary through the resolved channel.
   Where the channel has no transport a script can call — the `push` channel,

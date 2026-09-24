@@ -229,7 +229,8 @@ keeps the attention store current and renders it, through
   one iteration and stale workers do not linger on the surface.
 - **Each watch iteration ends by rendering the surface on a transition**:
   `scripts/fleet-attention.sh render --on-change <tower>`, then
-  `queue --on-change <tower>` (`<tower>` the loop's identity, else `p<pid>`),
+  `queue --on-change <tower>` (`<tower>`: `scripts/fleet-presence.sh identity`,
+  else omit `--on-change`),
   passing `--except <worker>` for each worker the iteration's own
   operator-comms step reported `delivered`. An iteration changing no worker's
   state or decision re-renders nothing but a periodic liveness line. When the
