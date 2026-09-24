@@ -8,8 +8,8 @@
 # surface omits it.
 #
 # The surface list widens per pass rather than demanding a citation ahead of the
-# behavior; the checker's DEFAULT_SURFACES comment says which surfaces are in it
-# and why the rest are not yet. These tests
+# behavior; the checker's header says which surfaces are in it and why the rest
+# are not yet. These tests
 # pin: (a) the real repo's instantiated surfaces pass; (b) a manifest that omits
 # the citation fails; (c) a prose-only mention (not on a `Doctrine:` manifest
 # line) does NOT satisfy it — the manifest is the machine-parseable contract,

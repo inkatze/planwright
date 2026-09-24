@@ -152,14 +152,14 @@ state, not an error.
 ### 7. Load the optional handover brief and polish audit
 
 If `<worktree>/.claude/handover.md` exists, read it and fold its in-flight
-notes into the summary. It is an optional best-effort cache (D-3), not a
+notes into the context Step 8 offers. It is an optional best-effort cache (D-3), not a
 contract: its absence is normal and never an error.
 
 `<worktree>/.claude/polish-audit.md` is the same kind of cache, left by a
 standalone `/polish` run, and this skill is its named reader. If it exists,
-present it the way `/polish` would have: the counts and the residue, each
-pending sign-off and each queued fork as one line, with the file as the
-pointer. Never replay the tables into the turn. Its absence is normal and
+carry it into Step 8 the way `/polish` would have: each pending sign-off and
+each queued fork as one line among the question's options, the counts in the
+detail, the file as the pointer. Never replay the tables into the turn. Its absence is normal and
 never an error, exactly as for the brief above.
 
 ### 8. Surface the working tree and ask before proceeding
@@ -170,7 +170,8 @@ touch the working tree — the decision about uncommitted state belongs to
 the human (D-30).
 
 Then, before doing any further work, **ask the human how they want to
-proceed**. The turn is a projection of the load (`interaction-style`, the
+proceed**. Steps 3–7 gather; nothing they gather reaches the operator before
+this turn, which is a projection of the load (`interaction-style`, the
 arbitration), not the load itself:
 
 - **The question leads**, with the decisions the load surfaced as its
@@ -179,8 +180,9 @@ arbitration), not the load itself:
   stating its own action and consequence, per the balance rules, with an
   explicit leave-it-for-now option.
 - **One compact status line** follows: the unit, its derived phase, the PR
-  number and draft state (or none), and the working tree as clean or a count
-  of changed paths.
+  number and draft state (or none, or unknown when Step 6 could not ask), the
+  working tree as clean or a count of changed paths, and "partial load" when
+  any step degraded.
 - **The seven context elements** — unit, brief slice, task state, git log,
   PR state, handover notes, working-tree status — are offered on request,
   one layer at a time, never emitted by default. A decision the operator
@@ -188,8 +190,9 @@ arbitration), not the load itself:
 
 A follow-up the operator names in the answer gets its tracked form proposed
 per `interaction-style`'s *Capture at birth*, but `/resume` stays read-only:
-the confirmed write is the first act of the work that continues after it, never
-a write this skill makes. Mirror the turn into
+the session continues with that write as its first act, once the operator
+confirms, and this skill never makes it. A proposal the operator declines is
+not tracked. Mirror the turn into
 the structured decision/transcript log as one `turn` record, sanitized like
 the log's other records (D-19); where the harness provides no such log, say
 the mirror was skipped, never improvising one into the repository.

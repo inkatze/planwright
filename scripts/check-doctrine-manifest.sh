@@ -11,12 +11,13 @@
 # merely in incidental prose. This check is the CI backstop for that rule.
 #
 # The instantiated-surface list grows per pass and never runs ahead of the
-# behavior: the kickoff pass instantiated `/spec-kickoff` and `/spec-draft`; the
-# execution-side pass instantiated `/resume` and `/drain`. `/orchestrate` and
-# `/execute-task` are execution-side surfaces too, but their citation cannot
-# land inside the instruction budget (the doctrine's size against each skill's
-# closure headroom), so they join the list with the relief that lets them cite
-# it. To widen the list, add the surface name to DEFAULT_SURFACES below.
+# behavior: `/spec-draft` cited the doctrine first, the kickoff pass added
+# `/spec-kickoff`, and the execution-side pass added `/resume` and `/drain`.
+# `/orchestrate` and `/execute-task` are execution-side surfaces too, but the
+# doctrine's size does not fit either skill's reachable-closure headroom
+# (check:instructions), so their citation waits on a budget decision and they
+# join this list in the change that adds it. To widen the list, add the surface
+# name to DEFAULT_SURFACES below.
 #
 # The "manifest" is the block of `Doctrine: <run-start|point-of-use> <doc>`
 # lines an instruction-hygiene manifest emits (doctrine/instruction-hygiene.md).

@@ -399,14 +399,14 @@ path); it never merges and never advances local `main`.
 
 Each step ends with one report at the operator, in three slots never mixed:
 **state** (the derived picture now, not an event stream), **reasoning** (a
-line or two, or absent), and **requests** (each decision-shaped, with its
-options). A request settled in the turn is done; one left open is captured,
-proposed in its tracked form and written once confirmed, never left in prose.
-Several halts (D-45) batch into requests: the count, then one line each, those
-the operator can unblock first and self-clearing ones (lock contention, a
-transient hold) last, detail on request. Under `--watch`, a step that changed
+line or two, or absent), and **requests** (each decision-shaped). A request
+settled in the turn is done; a halt's is already recorded; any other left open
+is proposed in its tracked form and written once confirmed, never left in
+prose. Several halts batch into requests: the count, then one line each, those
+the operator can unblock first, detail on request; lock contention and a
+transient hold are state, not requests. Under `--watch`, a step that changed
 nothing reports nothing new. Mirror each report as one `turn` record in the
-structured decision log, sanitized (D-19); without that log, say the mirror
+decision/transcript log, sanitized (D-19); without that log, say the mirror
 was skipped.
 
 ## Halt → Awaiting input (REQ-F1.5)
