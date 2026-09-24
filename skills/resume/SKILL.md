@@ -67,9 +67,9 @@ or of the `gh` CLI; those only narrow the PR-state step below.
 Read the current branch name and parse it against the convention
 `planwright/<spec>/task-<id-or-ids>`. Before interpolating the parsed
 `<spec>` into any path, validate it against the REQ-A1.8 spec-identifier
-charset (`^[a-z0-9][a-z0-9-]*$`, max 64 chars); no skill interpolates a
-failing identifier into a path or command (REQ-A1.8), so a segment that
-fails is treated as no match. The `<spec>` segment names the spec bundle
+charset (`^[a-z0-9][a-z0-9-]*$`, max 64 chars; the reserved `flight` segment
+fails it); no skill interpolates a failing identifier into a path or command
+(REQ-A1.8), so a segment that fails is treated as no match. The `<spec>` segment names the spec bundle
 (`specs/<spec>/`); the `<id-or-ids>` segment names the task or bundle being
 executed. If the branch does not match the convention or `<spec>` fails
 validation (e.g. a spec branch `planwright/<spec>/spec`, a hostile branch

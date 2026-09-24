@@ -32,6 +32,28 @@ carries spec authoring (`/spec-draft` creates it; `/spec-kickoff` pushes it
 and opens the spec's draft PR). It is not a task branch: the `tasks-pr-sync`
 hook no-ops on it by name.
 
+### Flight branches (tower-front-door D-11)
+
+```text
+planwright/flight/<flight-id>
+```
+
+carries a visual flight: a specless unit the tower dispatches straight from
+the conversation. `flight` is a **reserved segment**: no spec may be named
+`flight` (the validator refuses the bundle, and every script that checks a
+spec identifier refuses the word), so a `planwright/` branch whose second
+segment is `flight` is always a flight, never a spec. The `tasks-pr-sync`
+hook recognizes it as one and no-ops (there is no `tasks.md` to reconcile).
+
+`<flight-id>` is `<slug>-<uid>`: a kebab slug in the spec-identifier charset
+plus an eight-character lowercase-hex uid, 64 characters at most. Mint it with
+`scripts/flight-id.sh new <slug>`; the helper never reuses an id while a
+branch (local or remote-tracking), a record file
+`specs/_flights/<flight-id>.md`, or a placed worktree still carries it, so
+concurrent flights with the same slug cannot collide and a retired flight's id
+is never re-minted against its evidence. Examples:
+`planwright/flight/fix-typo-3f9a1c2e`, `planwright/flight/add-lint-0b7e44d1`.
+
 ### The `tasks-pr-sync` hook contract (REQ-K1.2, REQ-B1.1)
 
 On `gh pr create` / `gh pr merge` for a convention-named branch, the hook
@@ -96,7 +118,9 @@ Worktrees always land at:
 ```
 
 where `<branch-suffix>` is `<spec>-task-<id>` for a task worktree
-(`tower-comms-task-6`), and the branch's final segment otherwise (`spec`).
+(`tower-comms-task-6`), `flight-<flight-id>` for a flight worktree
+(`flight-fix-typo-3f9a1c2e`, the branch's two segments flattened into one),
+and the branch's final segment otherwise (`spec`).
 A task worktree carries the spec because `.claude/worktrees/` is one flat
 namespace: two specs numbering a task the same way would otherwise resolve to
 one directory, and the second dispatch would fail on the first one's.

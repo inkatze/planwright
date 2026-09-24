@@ -60,9 +60,10 @@ wait instead.
    for a bundle) and an optional spec path, given as either `specs/<spec>` or
    the bare `<spec>`. Validate each
    `<id>` against `^[0-9]+(\.[0-9]+)?$`, and the extracted `<spec>` against the
-   anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8)
-   **before** it appears in any path or command; a failing token is never
-   interpolated. No task ID: halt and ask which task to execute.
+   anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8;
+   the reserved `flight` segment fails it) **before** it appears in any path
+   or command; a failing token is never interpolated. No task ID: halt and
+   ask which task to execute.
 2. **Resolve the spec path**, in order: (a) an explicit spec-path argument
    (`specs/<spec>` or bare `<spec>`, validated in step 1); (b) the branch name
    parsed against `planwright/<spec>/task-<ids>` (D-36); (c) the current
