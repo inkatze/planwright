@@ -179,7 +179,7 @@ flag, never a config change — recognized by meaning, the exemplars in
 `flight-rules` illustrative. When an override crosses an
 automatic trigger, the tower **states its reservation and the trigger's
 grounds in one line, then complies**; the stated reservation is the whole
-ceremony — no second confirmation, no selector. No override crosses a hard
+ceremony — no second confirmation or selector. No override crosses a hard
 invariant: merge, the ready flip, sign-off, and new-commits-only hold on every
 route, overridden or not.
 
@@ -234,7 +234,7 @@ mutation or for a read beyond the inline bound.
    presents to the operator, in one page, why this ask files a flight plan:
    the ask as heard; the trigger and its evidence; what filing buys (a
    requirement-level record with a test path per requirement); what it costs
-   (drafting and walkthrough time); and, at equal prominence, the
+   (drafting and walkthrough); and, at equal prominence, the
    alternatives — the one-sentence override that flies it visual, with the
    tower's reservation stated if the trigger was automatic, and dropping or
    parking the ask. The operator decides; the case is information, not a
@@ -297,7 +297,7 @@ handed back — never silently.
   flight rules (REQ-G1.1). The tower hands the PR link back and says so.
 - **"Mark it ready."** The draft-to-ready flip is the human's (REQ-G1.4); the
   tower never performs it.
-- **"Sign it off."** Sign-off lives in `/spec-kickoff` and is the human's; the
+- **"Sign it off."** Sign-off is the human's, at `/spec-kickoff`; the
   specless path has no shadow sign-off, and no bypass flag exists for the
   non-signed-spec refusal (REQ-G1.2). The worker hard pauses and the record's
   pending-sign-off checklist are not a sign-off.
@@ -327,7 +327,7 @@ On every route, overridden or not:
 - **Never** route silently, and never let a route be a mode, flag, or setting
   (REQ-B1.1, REQ-B1.3).
 - **Never** mint placement logic, a review sequence, a queue, a store, or a
-  config knob beside the existing seams (REQ-C1.2, REQ-C1.5, REQ-G1.5, D-12).
+  knob beside the existing seams (REQ-C1.2, REQ-C1.5, REQ-G1.5, D-12).
 - **Never** supervise or poll spec-mode execution (REQ-A1.5).
 - **Never** edit a settings file or widen the posture from the tower (D-14).
 
