@@ -716,6 +716,8 @@ out=$(run resolve hypheq:unit --key execution --step-type panel-review) \
   || fail "15f2: resolve with an equal hyphenated step tier failed"
 [ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] \
   || fail "15f2: an equal tier on a hyphenated id must be ignored, not applied"
+[ "$(step_rows hypheq:unit | awk -F "$TAB" '{ print $14 }')" = ignored ] \
+  || fail "15f2: the equal step tier must leave its ledger row"
 echo "ok: a hyphenated step id's equal or costlier tier is ignored with a ledger row"
 
 # --- 15g. no step type at all is the unchanged path ------------------------

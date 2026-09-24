@@ -22,7 +22,7 @@
 #     fleet task-type keys whose downstream contract has no ambient value;
 #   - enum validation across all three columns and the by-layer malformed
 #     policy (REQ-A1.4), including the command enum's closed set carrying
-#     review-sequence disjointness by construction;
+#     step-target disjointness by construction;
 #   - determinism, zero outbound client invocations, all-or-nothing `list`,
 #     broken-install exit 5, sanitized refusals, and repo-drift against the
 #     shipped config/defaults.yml.

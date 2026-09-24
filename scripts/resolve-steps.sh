@@ -196,7 +196,7 @@ while [ $# -gt 0 ]; do
       exit 0
       ;;
     -*)
-      echo "resolve-steps: unknown option '$1'" >&2
+      echo "resolve-steps: unknown option" >&2
       usage
       ;;
     *)
@@ -323,15 +323,20 @@ done
 
 key="steps_${point//-/_}"
 
-# One scratch file holds each sibling's stderr until it is replayed.
+# One scratch file holds each sibling's stderr until it is replayed. A signal
+# ends the run with its conventional status; the EXIT trap cleans up.
 scratch=$(mktemp) || die 5 "could not create a scratch file"
-trap 'rm -f "$scratch"' EXIT INT TERM
+trap 'rm -f "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Resolve the repository root once and hand it to every sibling, so they
 # skip their own git lookups and every read agrees on the same repository.
 if [ -z "${PLANWRIGHT_REPO_ROOT:-}" ]; then
-  repo_claude=$("$overlay_root_sh" repo-tracked 2>"$scratch") || die 5 "overlay-root resolution failed for the repo-tracked layer (broken install)"
+  rc=0
+  repo_claude=$("$overlay_root_sh" repo-tracked 2>"$scratch") || rc=$?
   replay "$scratch"
+  [ "$rc" -eq 0 ] || die 5 "overlay-root resolution failed for the repo-tracked layer (broken install)"
   if [ -n "$repo_claude" ]; then
     PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
     export PLANWRIGHT_REPO_ROOT
@@ -441,8 +446,9 @@ EOF
 
 # parse_list <raw>: sets IDS to one id per line for a flow list `[a, b]`,
 # empty for `[]`. A value that is not a flow list, or carries an empty
-# field, sets LIST_ERR instead (the bare scalar the review-sequence knob
-# tolerated is not a list of step ids).
+# field between commas, sets LIST_ERR instead (the bare scalar the
+# review-sequence knob tolerated is not a list of step ids); a trailing
+# comma is tolerated as YAML tolerates it.
 LIST_ERR=""
 IDS=""
 parse_list() {
@@ -585,7 +591,18 @@ if [ "$rc" -ne 0 ]; then
   fi
   die 5 "the steps catalog is unusable (resolve-catalog exit $rc) (broken install)"
 fi
-[ ! -s "$scratch" ] || DEGRADED=1
+# A warning the catalog reader emitted on a successful read is an entry it
+# skipped (an empty id, an unmarked duplicate): the by-layer policy applies
+# to it here, since the reader itself only warns.
+if [ -s "$scratch" ]; then
+  if grep -q '^resolve-catalog: steps: core ' "$scratch"; then
+    die 5 "the core steps catalog carries an entry the catalog reader skipped (broken install)"
+  fi
+  if grep -q '^resolve-catalog: steps: repo-tracked ' "$scratch"; then
+    die 4 "the repo-tracked steps catalog carries an entry the catalog reader skipped; refusing to degrade a shared team catalog"
+  fi
+  DEGRADED=1
+fi
 rc=0
 layers_view=$("$catalog_sh" steps --explain 2>/dev/null) || rc=$?
 [ "$rc" -eq 0 ] || die 5 "resolve-catalog's two views disagree (exit $rc) (broken install)"
@@ -687,12 +704,12 @@ n_layers=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   n_layers=$((n_layers + 1))
-  vid=${line%"$TAB"*}
-  vlayer=${line##*"$TAB"}
+  view_id=${line%"$TAB"*}
+  view_layer=${line##*"$TAB"}
   i=1
   while [ "$i" -le "$n_entries" ]; do
-    if [ "${E_ID[i]}" = "$vid" ] && [ -z "${E_LAYER[i]}" ]; then
-      E_LAYER[i]="$vlayer"
+    if [ "${E_ID[i]}" = "$view_id" ] && [ -z "${E_LAYER[i]}" ]; then
+      E_LAYER[i]="$view_layer"
       break
     fi
     i=$((i + 1))
@@ -798,6 +815,16 @@ validate_entry() {
     return
   }
   vargs=${E_ARGS[vn]}
+  # The constrained reader takes single-line scalars only, so a YAML block
+  # indicator is a declaration whose body was dropped, never a value.
+  for bv in "$vtarget" "$vargs"; do
+    case "$bv" in
+      '|' | '>' | '|-' | '>-' | '|+' | '>+')
+        ERR="a block scalar (the catalog reader takes single-line scalars only)"
+        return
+        ;;
+    esac
+  done
   vhost=${E_HOST[vn]}
   case "$vhost" in
     isolated | continue | in-session) ;;
@@ -826,24 +853,31 @@ validate_entry() {
       return
       ;;
   esac
+  # A declared-but-empty optional field is refused too: the constrained
+  # reader sees a block value (a nested list under `requires:`) as an empty
+  # scalar, so accepting one would silently drop the declaration.
   vtimeout=${E_TIMEOUT[vn]}
+  bad_timeout=0
   case "$vtimeout" in
-    "")
-      if is_set "$vn" timeout; then
-        ERR="timeout is not a positive integer of seconds"
-        return
-      fi
-      ;;
-    *[!0-9]* | 0*)
-      ERR="timeout is not a positive integer of seconds"
-      return
-      ;;
+    "") is_set "$vn" timeout && bad_timeout=1 ;;
+    *[!0-9]* | 0*) bad_timeout=1 ;;
   esac
-  [ "${#vtimeout}" -le 15 ] || {
+  # Fifteen digits keeps the value inside the shell arithmetic the runner
+  # and its hosting tool apply to it.
+  [ "${#vtimeout}" -le 15 ] || bad_timeout=1
+  [ "$bad_timeout" -eq 0 ] || {
     ERR="timeout is not a positive integer of seconds"
     return
   }
   vreq=${E_REQ[vn]}
+  if [ -z "$vreq" ] && is_set "$vn" requires; then
+    ERR="empty requires"
+    return
+  fi
+  if [ -z "$vargs" ] && is_set "$vn" args; then
+    ERR="empty args"
+    return
+  fi
   for r in $vreq; do
     command_target_ok "$r" || {
       ERR="requires names something outside the command-target charset"
@@ -894,14 +928,17 @@ while [ "$i" -le "$n_entries" ]; do
 done
 
 # entry_of <id>: sets ENTRY to the ordinal of the live entry carrying <id>
-# (empty when none) and ENTRY_DROPPED when a dropped one carries it.
+# (empty when none) and ENTRY_DROPPED when a dropped one carries it. A drop
+# the list's own order caused (E_LDROP) is reset when the list gives way to
+# the core default, so it never outlives the list that caused it.
+E_LDROP=()
 entry_of() {
   ENTRY=""
   ENTRY_DROPPED=0
   j=1
   while [ "$j" -le "$n_entries" ]; do
     if [ "${E_ID[j]}" = "$1" ]; then
-      if [ "${E_DROP[j]}" -eq 0 ]; then
+      if [ "${E_DROP[j]}" -eq 0 ] && [ "${E_LDROP[j]:-0}" -eq 0 ]; then
         ENTRY="$j"
         return 0
       fi
@@ -1051,12 +1088,19 @@ resolve_target() {
   rreq=${E_REQ[rn]}
   for r in $rreq; do
     case "$r" in
-      */*) [ -f "$r" ] && [ -x "$r" ] ;;
-      *) type -P "$r" >/dev/null 2>&1 ;;
-    esac || {
-      REASON="requires '$r' not found on the path"
-      return 1
-    }
+      */*)
+        { [ -f "$r" ] && [ -x "$r" ]; } || {
+          REASON="requires '$r' not found or not executable at that path"
+          return 1
+        }
+        ;;
+      *)
+        type -P "$r" >/dev/null 2>&1 || {
+          REASON="requires '$r' not found on the path"
+          return 1
+        }
+        ;;
+    esac
   done
   return 0
 }
@@ -1112,6 +1156,8 @@ build_steps() {
       t=${E_TIMEOUT[en]}
       if [ -n "$t" ] && [ "$h" = in-session ] && [ "${S_KIND[n_steps]}" != command ]; then
         entry_malformed "$en" "timeout on a ${S_KIND[n_steps]} step that is effectively in-session (the unit session cannot end itself)"
+        E_DROP[en]=0
+        E_LDROP[en]=1
         S_N[n_steps]=""
         S_KIND[n_steps]="-"
         S_HOST[n_steps]="-"
@@ -1136,6 +1182,7 @@ build_steps "$ids"
 if [ -n "$LIST_ERR" ]; then
   degrade_list "$LIST_ERR"
   ids="$IDS"
+  E_LDROP=()
   build_steps "$ids"
   [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
 fi
@@ -1160,7 +1207,7 @@ case "$list_layer/$attendance" in
   repo-tracked/attended | adopter/attended | machine-local/attended) missing_token=ask ;;
   repo-tracked/unattended) missing_token=park ;;
   adopter/unattended | machine-local/unattended) missing_token=skip ;;
-  *) die 5 "config-get named an unrecognized layer '$list_layer'" ;;
+  *) die 5 "config-get named an unrecognized layer '$list_layer' (broken install)" ;;
 esac
 
 any_missing=0

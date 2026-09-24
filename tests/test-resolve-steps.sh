@@ -110,21 +110,10 @@ cat_entry() {
   for kv in "$@"; do printf '    %s\n' "$kv" >>"$f"; done
 }
 
-# run_raw <args...>: the resolver under the fixture environment, the caller's
-# PLANWRIGHT_STEP_* exports kept (the context cases set them on purpose).
-# run: the same with them cleared, so every other case is hermetic even when
-# the suite itself runs inside a planwright step.
+# run <args...>: the resolver under the fixture environment, the host's own
+# PLANWRIGHT_STEP_* exports cleared so the suite is hermetic even when it
+# runs inside a planwright step (the context cases set them through ctx_run).
 STEP_UNSETS="-u PLANWRIGHT_STEP_SPEC -u PLANWRIGHT_STEP_TASK_IDS -u PLANWRIGHT_STEP_UNIT_KIND -u PLANWRIGHT_STEP_BRANCH -u PLANWRIGHT_STEP_BASE_BRANCH -u PLANWRIGHT_STEP_WORKTREE -u PLANWRIGHT_STEP_PR_NUMBER -u PLANWRIGHT_STEP_POINT -u PLANWRIGHT_STEP_ID -u PLANWRIGHT_STEP_PREV_RECORD"
-run_raw() {
-  env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
-    PLANWRIGHT_ROOT="$core" \
-    PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
-    PLANWRIGHT_LOCAL_CONFIG="" \
-    CLAUDE_DIR="$claude" HOME="$tmp/home" PATH="$bin:$PATH" \
-    /bin/bash "$RS" "$@"
-}
 run() {
   # shellcheck disable=SC2086 # the unset flags are meant to word-split
   env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
@@ -174,14 +163,27 @@ ship_out=$(run_shipped convergence --unattended 2>/dev/null)
 ship_rc=$?
 [ "$ship_rc" = 0 ] && [ "$ship_out" = "run${TAB}polish" ]
 verdict "the shipped config/defaults.yml and config/steps.yaml resolve convergence to polish" "shipped files: convergence rc=$ship_rc out='$ship_out'"
+# The fixture sweep above already exercises every point; against the shipped
+# files it suffices that every other key ships `[]` and one such point runs.
 for p in $WIRED $UNWIRED; do
   [ "$p" = convergence ] && continue
-  ship_out=$(run_shipped "$p" --unattended 2>/dev/null)
-  ship_rc=$?
-  [ "$ship_rc" = 0 ] && [ -z "$ship_out" ] \
-    || fail "shipped files: point '$p' rc=$ship_rc out='$ship_out'"
+  grep -qx "steps_${p//-/_}: \[\]" "$repo_root/config/defaults.yml" \
+    || fail "shipped defaults: steps_${p//-/_} is not an empty list"
 done
-ok "the shipped files resolve every other named point to nothing with exit 0"
+ship_out=$(run_shipped orchestrator-idle --unattended 2>/dev/null)
+ship_rc=$?
+[ "$ship_rc" = 0 ] && [ -z "$ship_out" ]
+verdict "the shipped files leave every other named point empty" "shipped files: orchestrator-idle rc=$ship_rc out='$ship_out'"
+# Every wired point resolves a non-empty list (so none is silently treated
+# as unwired), the flip points included.
+for p in $WIRED; do
+  reset_layers
+  printf 'steps_%s: [polish]\n' "${p//-/_}" >"$tracked_cfg"
+  capture "$p" --unattended
+  { [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && ! printf '%s' "$ERR" | grep -q 'not wired'; } \
+    || fail "REQ-A1.1/REQ-E1.3: wired point '$p' with a list: rc=$RC out='$OUT' err='$ERR'"
+done
+ok "REQ-A1.1/REQ-E1.3: every wired point, the flip points included, resolves a non-empty list"
 
 # An unknown point name is a usage error before any path or key use.
 capture no-such-point --unattended
@@ -487,6 +489,7 @@ write_registry() {
 {"version": 2, "plugins": {
   "other@market": [{"installPath": "$plug", "version": "1.0.0"}],
   "multi@market": [{"installPath": "$tmp/plugins/nowhere"}, {"installPath": "$plug2"}],
+  "first@market": [{"installPath": "$plug"}, {"installPath": "$plug2"}],
   "dup@one": [{"installPath": "$plug"}],
   "dup@two": [{"installPath": "$plug"}],
   "planwright@planwright": [{"installPath": "$core"}]
@@ -503,13 +506,14 @@ cat_entry "$tracked_cat" s-pw "kind: skill" "target: planwright:self-review" "ar
 cat_entry "$tracked_cat" s-plug-skill "kind: skill" "target: other:their-skill"
 cat_entry "$tracked_cat" s-plug-cmd "kind: skill" "target: other:their-cmd"
 cat_entry "$tracked_cat" s-multi "kind: skill" "target: multi:v2-skill"
+cat_entry "$tracked_cat" s-first "kind: skill" "target: first:their-skill"
 cat_entry "$tracked_cat" c-name "kind: command" "target: fixture-tool" "args: --nested x=1 a/b"
 cat_entry "$tracked_cat" c-path "kind: command" "target: $bin/fixture-tool"
 cat_entry "$tracked_cat" c-rel "kind: command" "target: ./rel-tool"
 cat_entry "$tracked_cat" p-text "kind: prompt" "target: Review the diff for typos."
 printf '#!/bin/sh\nexit 0\n' >"$tmp/rel-tool"
 chmod +x "$tmp/rel-tool"
-printf 'steps_post_pr: [s-bare, s-user-cmd, s-user-skill, s-proj-cmd, s-proj-skill, s-pw, s-plug-skill, s-plug-cmd, s-multi, c-name, c-path, c-rel, p-text]\n' >"$tracked_cfg"
+printf 'steps_post_pr: [s-bare, s-user-cmd, s-user-skill, s-proj-cmd, s-proj-skill, s-pw, s-plug-skill, s-plug-cmd, s-multi, s-first, c-name, c-path, c-rel, p-text]\n' >"$tracked_cfg"
 OUT=$(cd "$tmp" && run post-pr --unattended --explain 2>"$tmp/err")
 RC=$?
 ERR=$(cat "$tmp/err")
@@ -527,6 +531,7 @@ check_loc s-pw "$core/skills/self-review/SKILL.md"
 check_loc s-plug-skill "$plug/skills/their-skill/SKILL.md"
 check_loc s-plug-cmd "$plug/commands/their-cmd.md"
 check_loc s-multi "$plug2/skills/v2-skill/SKILL.md"
+check_loc s-first "$plug/skills/their-skill/SKILL.md"
 check_loc c-name "$bin/fixture-tool"
 check_loc c-path "$bin/fixture-tool"
 check_loc c-rel "./rel-tool"
@@ -614,6 +619,9 @@ grammar_case "a command target with a metacharacter" "kind: command" "target: to
 grammar_case "a command target with a traversal segment" "kind: command" "target: ../bin/tool"
 grammar_case "a command target with a dollar" "kind: command" "target: \$HOME/tool"
 grammar_case "an empty prompt" "kind: prompt" "target:"
+grammar_case "a block-scalar prompt" "kind: prompt" "target: |" "  first line" "  second line"
+grammar_case "a prompt with a continuation line" "kind: prompt" "target: first" "second line of prompt"
+grammar_case "a block-valued requires" "kind: command" "target: fixture-tool" "requires:" "  - nosuchtool"
 grammar_case "command args with a pipe" "kind: command" "target: fixture-tool" "args: a | b"
 grammar_case "command args with a redirection" "kind: command" "target: fixture-tool" "args: a >out"
 grammar_case "command args with an expansion" "kind: command" "target: fixture-tool" "args: \$HOME"
@@ -720,6 +728,7 @@ reset_layers
 printf 'steps_pre_pr: [polish, ghost]\n' >"$mlocal_cfg"
 capture pre-pr --check --unattended
 [ "$RC" = 0 ]
+[ "$RC" = 0 ] && printf '%s' "$ERR" | grep -q 'ghost'
 verdict "REQ-H1.3: check mode passes with a warning on a machine-local skip" "check mode machine-local skip: rc=$RC err='$ERR'"
 
 # =============================================================================
@@ -907,25 +916,31 @@ rm -rf "$adopter/doctrine" "$core/doctrine/custom-steps.md"
 # 13. The preamble and the assignment prefix (REQ-A1.4, REQ-H1.3).
 # =============================================================================
 reset_layers
-# ctx_run: the resolver with the ten context fields exported; a field the
-# caller already exported (even empty) keeps the caller's value.
+# ctx_run [VAR=value ...] -- <resolver args>: the resolver with the context
+# fields set to the fixture values, the host's own exports cleared first, and
+# any leading VAR=value overriding a fixture value.
 prev_fixture="it's here"
 ctx_run() {
-  (
-    export PLANWRIGHT_STEP_SPEC="${PLANWRIGHT_STEP_SPEC-custom-steps}"
-    export PLANWRIGHT_STEP_TASK_IDS="${PLANWRIGHT_STEP_TASK_IDS-2 3.5}"
-    export PLANWRIGHT_STEP_UNIT_KIND="${PLANWRIGHT_STEP_UNIT_KIND-task}"
-    export PLANWRIGHT_STEP_BRANCH="${PLANWRIGHT_STEP_BRANCH-planwright/custom-steps/task-2}"
-    export PLANWRIGHT_STEP_BASE_BRANCH="${PLANWRIGHT_STEP_BASE_BRANCH-main}"
-    export PLANWRIGHT_STEP_WORKTREE="${PLANWRIGHT_STEP_WORKTREE-$tmp/wt}"
-    export PLANWRIGHT_STEP_PR_NUMBER="${PLANWRIGHT_STEP_PR_NUMBER-}"
-    export PLANWRIGHT_STEP_POINT="${PLANWRIGHT_STEP_POINT-wrong}"
-    export PLANWRIGHT_STEP_ID="${PLANWRIGHT_STEP_ID-polish}"
-    export PLANWRIGHT_STEP_PREV_RECORD="${PLANWRIGHT_STEP_PREV_RECORD-$prev_fixture}"
-    run_raw "$@"
-  )
+  overrides=()
+  while [ $# -gt 0 ] && [ "$1" != -- ]; do
+    overrides+=("$1")
+    shift
+  done
+  [ "${1:-}" = -- ] && shift
+  # shellcheck disable=SC2086 # the unset flags are meant to word-split
+  env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+    PLANWRIGHT_STEP_SPEC=custom-steps PLANWRIGHT_STEP_TASK_IDS='2 3.5' \
+    PLANWRIGHT_STEP_UNIT_KIND=task PLANWRIGHT_STEP_BRANCH=planwright/custom-steps/task-2 \
+    PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE="$tmp/wt" \
+    PLANWRIGHT_STEP_PR_NUMBER= PLANWRIGHT_STEP_POINT=wrong PLANWRIGHT_STEP_ID=polish \
+    PLANWRIGHT_STEP_PREV_RECORD="$prev_fixture" \
+    "${overrides[@]}" \
+    PLANWRIGHT_ROOT="$core" PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" CLAUDE_DIR="$claude" HOME="$tmp/home" PATH="$bin:$PATH" \
+    /bin/bash "$RS" "$@"
 }
-OUT=$(ctx_run pre-pr --preamble 2>"$tmp/err")
+OUT=$(ctx_run -- pre-pr --preamble 2>"$tmp/err")
 RC=$?
 [ "$RC" = 0 ] || fail "REQ-A1.4: --preamble: rc=$RC err='$(cat "$tmp/err")'"
 expected=$(printf '%s\n' \
@@ -944,7 +959,7 @@ expected=$(printf '%s\n' \
 [ "$OUT" = "$expected" ]
 verdict "REQ-A1.4: --preamble renders exactly the ten fields, one per line, between whole-line delimiters, the point from the argument" "REQ-A1.4: preamble mismatch:
 $OUT"
-OUT=$(ctx_run pre-pr --prefix 2>"$tmp/err")
+OUT=$(ctx_run -- pre-pr --prefix 2>"$tmp/err")
 RC=$?
 expected="PLANWRIGHT_STEP_SPEC='custom-steps' PLANWRIGHT_STEP_TASK_IDS='2 3.5' PLANWRIGHT_STEP_UNIT_KIND='task' PLANWRIGHT_STEP_BRANCH='planwright/custom-steps/task-2' PLANWRIGHT_STEP_BASE_BRANCH='main' PLANWRIGHT_STEP_WORKTREE='$tmp/wt' PLANWRIGHT_STEP_PR_NUMBER='' PLANWRIGHT_STEP_POINT='pre-pr' PLANWRIGHT_STEP_ID='polish' PLANWRIGHT_STEP_PREV_RECORD='it'\\''s here'"
 [ "$RC" = 0 ] && [ "$OUT" = "$expected" ]
@@ -966,31 +981,31 @@ verdict "REQ-A1.4: an absent context value renders as the empty string" "absent 
 # the diagnostic naming the field and never the value.
 for mode in --preamble --prefix; do
   rc=0
-  err=$(PLANWRIGHT_STEP_BRANCH="$(printf 'a\nb')" ctx_run pre-pr "$mode" 2>&1 >/dev/null) || rc=$?
+  err=$(ctx_run PLANWRIGHT_STEP_BRANCH="$(printf 'a\nb')" -- pre-pr "$mode" 2>&1 >/dev/null) || rc=$?
   if ! { [ "$rc" = 6 ] && printf '%s' "$err" | grep -q 'PLANWRIGHT_STEP_BRANCH'; }; then
     fail "$mode: newline in a context value: rc=$rc err='$err' (want 6 naming the field)"
   fi
   rc=0
-  err=$(PLANWRIGHT_STEP_SPEC="$(printf 'secretish\033[31m')" ctx_run pre-pr "$mode" 2>&1 >/dev/null) || rc=$?
+  err=$(ctx_run PLANWRIGHT_STEP_SPEC="$(printf 'secretish\033[31m')" -- pre-pr "$mode" 2>&1 >/dev/null) || rc=$?
   if ! { [ "$rc" = 6 ] && printf '%s' "$err" | grep -q 'PLANWRIGHT_STEP_SPEC' && ! printf '%s' "$err" | grep -q 'secretish'; }; then
     fail "$mode: control byte in a context value: rc=$rc err='$err'"
   fi
 done
 ok "REQ-A1.4: a context value carrying a newline or control byte is refused (exit 6) naming the field, never the value"
 rc=0
-PLANWRIGHT_STEP_UNIT_KIND=widget ctx_run pre-pr --preamble >/dev/null 2>&1 || rc=$?
+ctx_run PLANWRIGHT_STEP_UNIT_KIND=widget -- pre-pr --preamble >/dev/null 2>&1 || rc=$?
 [ "$rc" = 6 ]
 verdict "a unit kind outside task/spec/flight is refused" "bad unit kind: rc=$rc"
 rc=0
-PLANWRIGHT_STEP_TASK_IDS='2 x' ctx_run pre-pr --preamble >/dev/null 2>&1 || rc=$?
+ctx_run PLANWRIGHT_STEP_TASK_IDS='2 x' -- pre-pr --preamble >/dev/null 2>&1 || rc=$?
 [ "$rc" = 6 ]
 verdict "a task id outside the task-id grammar is refused" "bad task id: rc=$rc"
 rc=0
-PLANWRIGHT_STEP_PR_NUMBER='12a' ctx_run pre-pr --prefix >/dev/null 2>&1 || rc=$?
+ctx_run PLANWRIGHT_STEP_PR_NUMBER='12a' -- pre-pr --prefix >/dev/null 2>&1 || rc=$?
 [ "$rc" = 6 ]
 verdict "a non-numeric PR number is refused on the prefix channel too" "bad PR number: rc=$rc"
 rc=0
-out=$(cd "$tmp/sub" && PLANWRIGHT_STEP_TASK_IDS='*' ctx_run pre-pr --preamble 2>/dev/null) || rc=$?
+out=$(cd "$tmp/sub" && ctx_run PLANWRIGHT_STEP_TASK_IDS='*' -- pre-pr --preamble 2>/dev/null) || rc=$?
 [ "$rc" = 6 ]
 verdict "a glob in the task ids is judged as written, never expanded" "glob task id: rc=$rc out='$out'"
 

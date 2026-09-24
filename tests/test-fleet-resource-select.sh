@@ -8,9 +8,10 @@
 # cascade and never an LLM call (D-11, the D-18 no-LLM-daemon-mechanics
 # floor). The model column is overlay-tunable per task type through the
 # shared knob resolver (D-22/REQ-G1.5); effort and command are fixed table
-# cells. The selectable command set must stay disjoint from
-# `resolve-review-sequence.sh`'s nestable-review-skill set, so the two
-# mechanisms can never both claim the same skill (REQ-E1.2).
+# cells. The selectable command set must stay disjoint from what a custom
+# step may target: every command is on the rule doc's pipeline-entry list,
+# which the step resolver refuses, so the two mechanisms can never both claim
+# the same skill (REQ-E1.2).
 #
 # What is covered:
 #   - `select <type>` resolves one model/effort/command row for every shipped
@@ -19,9 +20,9 @@
 #   - no outbound LLM/API call occurs during resolution: stub `claude`/`curl`/
 #     `wget`/`gh` clients on PATH assert zero invocations (REQ-E1.1's stubbed
 #     client);
-#   - the selectable command set and the nestable-review-skill set are
-#     disjoint, and the nestable predicate is proven non-vacuous against the
-#     shipped `polish` skill (REQ-E1.2's cross-check);
+#   - the selectable command set and the step-target set are disjoint: every
+#     command is a pipeline entry the step resolver refuses, and the refusal
+#     is exercised, not assumed (REQ-E1.2's cross-check);
 #   - the model column resolves through the overlay layers (machine-local
 #     override wins) with the customization-overlay REQ-E1.4 by-layer
 #     malformed policy (repo-tracked
