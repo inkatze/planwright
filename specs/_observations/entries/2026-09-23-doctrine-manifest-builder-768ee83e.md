@@ -1,0 +1,1 @@
+- 2026-09-23 [planwright] check:doctrine-manifest's DEFAULT_SURFACES omits /builder although operator-dialogue Task 9 instantiated interaction-style there and its manifest cites it; the guard would not catch the citation being dropped. Surfaced by the Task 11 review.
