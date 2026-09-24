@@ -184,7 +184,7 @@ check_spec_id() {
 # Reserved-directory name screen (REQ-A1.8): ^_[a-z0-9][a-z0-9-]*$, max 64.
 # Covers the accumulators (`_pending/`, `_observations/`) and the flight
 # record directory (`_flights/`, tower-front-door D-6) alike.
-check_accumulator_name() {
+check_reserved_dir_name() {
   anm=$1
   [ "${#anm}" -le 64 ] || return 1
   case $anm in
@@ -1508,14 +1508,14 @@ screen_and_validate() {
       # Reserved non-spec directory (an accumulator or the flight record
       # directory): never validated as a bundle, but the name is still
       # screened (REQ-A1.8).
-      check_accumulator_name "$snm" \
-        || emit_error "$snm" "accumulator directory name fails ^_[a-z0-9][a-z0-9-]*\$ (max 64)"
+      check_reserved_dir_name "$snm" \
+        || emit_error "$snm" "reserved directory (accumulator or record directory) name fails ^_[a-z0-9][a-z0-9-]*\$ (max 64)"
       ;;
     *)
       if check_spec_id "$snm"; then
         validate_bundle "$sdir" "$snm"
       elif reserved_spec_id "$snm"; then
-        emit_error "$snm" "reserved identifier: 'flight' is the flight branch segment (tower-front-door D-11); not validated as a bundle"
+        emit_error "$snm" "reserved spec identifier: 'flight' is the flight branch segment (tower-front-door D-11); not validated as a bundle"
       else
         emit_error "$snm" "spec identifier fails ^[a-z0-9][a-z0-9-]*\$ (max 64); not validated as a bundle"
       fi

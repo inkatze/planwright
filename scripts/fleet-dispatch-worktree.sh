@@ -638,7 +638,11 @@ do_dispatch() {
 
   # Validate every token BEFORE it appears in any path or command (D-36).
   valid_spec "$_spec" || {
-    warn "invalid spec id (D-36 grammar): $_spec"
+    if [ "$_spec" = flight ]; then
+      warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
+    else
+      warn "invalid spec id (D-36 grammar): $_spec"
+    fi
     exit 2
   }
   valid_id "$_id" || {

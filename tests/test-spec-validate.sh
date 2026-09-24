@@ -908,6 +908,13 @@ run_v 1 "$root2"
 has "ERROR flight: reserved"
 rm -rf "$root2/flight"
 
+# The reservation is on the spec identifier only: an underscore directory
+# whose stem is the reserved word is still screened by the charset alone.
+mkdir -p "$root2/_flight"
+run_v 0 "$root2"
+has "0 error(s), 0 warning(s)"
+rm -rf "$root2/_flight"
+
 mkdir -p "$root2/_foo;rm"
 run_v 1 "$root2"
 has "ERROR"
@@ -929,7 +936,7 @@ rm -rf "$root2/[g]" "$root2/g"
 # accumulator charset, not glob-expand into a sibling "_g".
 mkdir -p "$root2/_g" "$root2/_[g]"
 run_v 1 "$root2"
-has "ERROR _[g]: accumulator"
+has "ERROR _[g]: reserved directory"
 has "1 error(s)"
 rm -rf "$root2/_[g]" "$root2/_g"
 
