@@ -18,7 +18,8 @@ engineering-decisions decides *how* a behavior core already owns is built. The
 `/spec-draft` design phase consults this doc when a candidate feature looks like
 a packaged preference.
 
-Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3 · D-10.
+Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3 · D-10 · custom-steps REQ-B1.3 ·
+custom-steps D-4, D-10.
 
 ## The boundary
 
@@ -101,9 +102,10 @@ outside planwright). The boundary runs straight through this feature:
   able to set their own convergence chain. So it lands in core as the
   `steps` catalog and the `steps_convergence` config key
   ([custom-steps](custom-steps.md)), an ordered list of step ids resolved
-  through all four layers. Its default reproduces today's convergence
-  behavior, so out-of-the-box behavior is unchanged. The convergence point's
-  list is the **runnable instance** of this doc's rule.
+  through every layer. Its default reproduces today's convergence behavior,
+  so out-of-the-box behavior is unchanged. The convergence point's list is
+  the **runnable instance** of this doc's rule, superseding the
+  `review_sequence` knob REQ-C1.3 named (custom-steps D-10).
 - The **style** — the *specific chain* a given operator or team prefers, and
   the step entries it names — is not general; it is that operator's taste. It
   lives in an overlay: an adopter overlay for a personal chain, a repo-tracked

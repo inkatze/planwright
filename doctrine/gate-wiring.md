@@ -9,7 +9,7 @@ a bucket, predicate, or zone, the categorization doctrine's definition governs.
 Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 ·
 operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 ·
 prose-disposition REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 ·
-prose-disposition D-5.
+prose-disposition D-5 · custom-steps REQ-D1.2, REQ-D1.5.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -101,8 +101,8 @@ subject, after the conventional prefix and description:
 type(scope): description [pending-sign-off]
 ```
 
-End-of-subject is the one canonical position: a pre-prefix or mid-subject
-marker breaks the conventional format or slips the format check.
+A pre-prefix or mid-subject marker breaks the conventional format or slips the
+format check.
 
 **Emit-time guard (REQ-C1.3), not range-time.** A skill writing a marked
 commit self-lints the subject before committing, while it can still reword —
@@ -150,8 +150,7 @@ never from a side state file.
   across regenerations and never reused, with no side state persisted.
 - The operative semantics are the doctrine's; the checkbox is a reading aid
   for review progress, not the approval mechanism.
-- An empty checklist still emits, with a single `none` row (the same
-  anti-silent-pruning guard as the four tables).
+- An empty checklist still emits, with a single `none` row.
 
 A batched prose commit renders as **one entry with one sub-item per manifest
 line**:
@@ -215,8 +214,9 @@ fork blocking further progress on the unit hard-pauses instead of queuing.
 
 Exactly two triggers interrupt mid-loop (REQ-C1.4): the zone screen fires,
 or an irreducible fork blocks progress. Everything else flows to loop end. A
-halting custom step ([custom-steps](custom-steps.md)) reuses the two
-destinations below. What a pause does depends on who is watching:
+custom step halting at an in-run point ([custom-steps](custom-steps.md))
+takes the destinations below without being a loop trigger. What a pause does
+depends on the watcher:
 
 - **Attended session.** Stop the loop. Present the finding, the triggering
   zone or fork, and the recommended fix or concrete alternatives. Wait for
@@ -226,8 +226,8 @@ destinations below. What a pause does depends on who is watching:
   trigger, and the recommended fix or alternatives, then end the step. Work
   already applied stays on the branch as committed: a pause never resets,
   stashes, or rewrites prior dispositions. The pause content respects artifact
-  data-hygiene ([Security Posture](security-posture.md)): no secrets or
-  sensitive operational detail.
+  data-hygiene ([Security Posture](security-posture.md)): describe the
+  finding without reproducing secrets or sensitive operational detail.
 
 The human's direction is the finding's disposition: the finding does not
 re-enter the routing order and the zone screen does not fire again. The agent
@@ -262,17 +262,17 @@ template-expanded: each skill supplies its own summary inputs.
    without expanding anything. Each emitting skill names which inputs feed the
    summary (its task IDs, REQ citations, test additions).
 2. **The complete audit record, collapsed** (REQ-A1.2): the loop-end handoff,
-   `/self-review`'s lens-coverage table and pass summary, and the per-point
-   step tables ([custom-steps](custom-steps.md); a point that ran nothing
-   emits a `none` row), inside a `<details>` block, so it never buries the
-   summary. Collapsed is not abridged: every table and row the wiring emits
-   is present inside the block.
+   `/self-review`'s lens-coverage table and pass summary, and, for
+   `/execute-task`, the per-point step tables
+   ([custom-steps](custom-steps.md); a point that ran nothing emits a `none`
+   row), inside a `<details>` block, so it never buries the summary.
+   Collapsed is not abridged: every table and row the wiring emits is present
+   inside the block.
 
 **Prose is never hard-wrapped** (REQ-A1.3): GitHub reflows markdown, so a
 fixed-column wrap only inserts ragged mid-sentence breaks. Line breaks in the
 emitted body appear only where markdown is structural (list items, table rows,
-code fences, headings), never mid-paragraph. (This governs the emitted PR body,
-not this file's own source, which wraps per markdownlint.)
+code fences, headings), never mid-paragraph.
 
 **Updates keep the structure** (REQ-A1.4). Re-emitting the body on a later
 push regenerates the summary and the collapsed audit in place, preserving this
@@ -320,7 +320,7 @@ Closes the unowned-refresh gap REQ-E1 names: a merged task's block gets `Complet
 | 1 | the stamp's degraded case is documented as no stamp | reworded to the date-only form | meaning-class prose, pre-existing surface | `def5678` | PS-1 |
 | 2 | the no-remote arm states a duty its REQ permits | reworded to the permission | meaning-class prose, pre-existing surface | `def5678` | PS-1 |
 
-*(Elided for space: `Agent-resolvable`, `Needs human judgment`, the declined log, and the step tables each emit their `none` row.)*
+*(Elided for space, though a real record carries them in full: `Agent-resolvable`, `Needs human judgment`, the declined log, and the step tables, the convergence one carrying its `polish` row and the rest `none`.)*
 
 ## Pending sign-off
 
@@ -333,7 +333,7 @@ Closes the unowned-refresh gap REQ-E1 names: a merged task's block gets `Complet
 </details>
 ```
 
-## Consumers and conformance
+## Conformance
 
 The conformance scenarios live in the bootstrap test-spec's
 REQ-C1.3, REQ-C1.4, and REQ-C1.7 entries
