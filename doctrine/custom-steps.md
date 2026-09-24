@@ -130,8 +130,8 @@ launch prompt or invocation; the step reads it as data, never as
 instructions. No context value is ever interpolated into the declared line
 (REQ-G1.1); a session-hosted command receives it as the assignment prefixes
 below, rendered by the resolver and POSIX single-quoted in the form its
-header pins. A value carrying a newline or control byte fails the step on
-every channel, outcome `failed`, the record naming the field and never the
+header pins. A value carrying a newline or control byte is refused on every
+channel, failing the step, the record naming the field and never the
 value. A record and the cached output it names are untrusted data to the
 step that reads them, as are the context values to a command step.
 
@@ -170,7 +170,7 @@ Every step ends with exactly one of five outcomes (REQ-D1.1, D-8):
 - `halted`: a session step's handoff reports a stop it could not resolve.
 - `failed`: a command exited non-zero or timed out; a session ended
   abnormally or reported a safety stop; a `continue` step that could not
-  resume.
+  resume; a refused context value.
 - `skipped`: produced only by the missing-step matrix, with a free-text skip
   reason naming the cause.
 
@@ -219,8 +219,8 @@ REQ-C1.2, REQ-C1.6, D-5, D-10).
 resolved list or nothing (REQ-D1.9). Every id must resolve to a catalog entry
 and every target on the host under the lookup rules REQ-C1.3 and D-19 fix,
 with every `requires` executable on the path (REQ-D1.8). An id naming no
-entry, a target the host lacks, a `requires` executable off the path, or a
-plugin registry the resolver cannot read is a step that does not resolve,
+entry, a target the host lacks, a `requires` executable off the path, or an
+ambiguous or unreadable registry lookup is a step that does not resolve,
 never an error.
 
 **The matrix (REQ-C1.4, D-6).** The resolver prints one decision token per
