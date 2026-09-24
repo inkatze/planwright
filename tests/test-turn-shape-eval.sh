@@ -312,6 +312,15 @@ out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$H/state2" \
 assert_exit "an unexpected wall is a graded failure through the harness" 1 "$?"
 assert_contains "the harness surfaces the failing invariant" "FAIL no-table-dump" "$out"
 
+# A failing grade.jq does not stop the turn records from being graded.
+printf '.persona == "nobody"\n' >"$TMP/red/suite/wall/grade.jq"
+out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$H/state2" \
+  BEHAVIORAL_EVAL_WORKBASE="$H/wb2" BEHAVIORAL_EVAL_POLL_SLEEP=0 \
+  /bin/sh "$RUNNER" --persona novice "$TMP/red/suite/wall" 2>&1)"
+assert_exit "a false grade.jq is still a graded failure" 1 "$?"
+assert_contains "the turn shape is graded beside a false grade.jq" "turn-shape: FAIL no-table-dump" "$out"
+rm -f "$TMP/red/suite/wall/grade.jq"
+
 # A runs= value the harness cannot honor is refused, never read as zero runs.
 sed -i.bak 's/^runs=.*/runs=00/' "$TMP/red/suite/wall/fixture.conf"
 rm -f "$TMP/red/suite/wall/fixture.conf.bak"

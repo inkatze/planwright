@@ -457,8 +457,8 @@ grade_run() {
   # Turn-shape invariants, for a fixture that names them: graded from the turn
   # records the run mirrored into its decision log, never the pane. A failed
   # invariant is a structural fail like a false grade.jq; a broken grade is
-  # fail-closed.
-  if [ "$_gr_struct" = "true" ] && [ -n "$(read_conf "$fx_dir" turn_invariants)" ]; then
+  # fail-closed. Graded even after a false grade.jq, so its diagnostics survive.
+  if [ -n "$(read_conf "$fx_dir" turn_invariants)" ]; then
     _gr_turns="$(/bin/sh "$TURN_GRADE" --conf "$fx_dir/fixture.conf" "$_gr_art" 2>&1)"
     _gr_trc=$?
     printf '%s\n' "$_gr_turns" | while IFS= read -r _gr_line; do
