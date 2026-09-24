@@ -8,8 +8,8 @@
 # at most 64 characters in all. The derived names are the flight branch
 # `planwright/flight/<flight-id>` and the worktree suffix `flight-<flight-id>`
 # (the flattened single-segment form of the D-37 placement rule). This helper
-# is the one place that mints, checks, and derives them, so every caller
-# agrees on the grammar.
+# mints and derives them and is the reference check; a script that must stand
+# alone re-encodes the check, as each does for the spec-id charset.
 #
 # Usage:
 #   flight-id.sh new <slug> [--repo-root <dir>]
@@ -18,8 +18,11 @@
 #   flight-id.sh branch <flight-id>
 #   flight-id.sh suffix <flight-id>
 #
-# new     mints `<slug>-<uid>` and prints it. The uid is random, and a
-#         candidate is skipped while durable evidence of that id exists
+# new     mints `<slug>-<uid>` and prints it. The uid is random, which is what
+#         keeps two mints made at the same moment apart: the helper reserves
+#         nothing, so the caller's branch and worktree creation (which fails
+#         when the name exists) is the only atomic claim. A candidate is
+#         skipped while durable evidence of that id exists
 #         (never-reuse): a local branch `refs/heads/planwright/flight/<id>`, a
 #         remote-tracking branch `refs/remotes/*/planwright/flight/<id>`, a
 #         record file `specs/_flights/<id>.md` in the working tree or on the

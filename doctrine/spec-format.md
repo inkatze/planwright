@@ -895,15 +895,18 @@ anchor).
 - **Flight id:** `<slug>-<uid>` — a kebab slug in the spec-identifier charset
   (`^[a-z0-9][a-z0-9-]*$`) followed by an eight-character lowercase-hex uid,
   at most 64 characters in all (so the slug is at most 55). The uid is
-  random, and the id is **never reused**: while durable evidence of an id
-  exists — a local or remote-tracking flight branch, a record file
-  `specs/_flights/<flight-id>.md` in the working tree or on `main`, or a
-  placed worktree — a mint skips that uid and draws another, so two concurrent
-  flights with the same slug never collide and a retired flight's id is never
-  re-minted against its branch or record. `scripts/flight-id.sh` mints
-  (`new <slug>`), checks (`check`), reports the evidence (`taken`), and derives
-  the branch and suffix; parsers validate a flight id full-string before any
-  path use, as they do a task branch's segments.
+  random, which is what keeps two flights minted at the same moment apart:
+  the mint reserves nothing, so creating the branch and worktree, which
+  fails when the name exists, is the only atomic claim. The id is **never
+  reused**: while durable evidence of an id exists — a local or
+  remote-tracking flight branch, a record file
+  `specs/_flights/<flight-id>.md` in the working tree or on the default
+  branch (local or remote-tracking), or a placed worktree — a mint skips
+  that uid and draws another, so a retired flight's id is never re-minted
+  against its branch or record. `scripts/flight-id.sh` mints (`new <slug>`),
+  checks (`check`), reports the evidence (`taken`), and derives the branch
+  and suffix; parsers validate a flight id full-string before any path use,
+  as they do a task branch's segments.
 - **Commit trailer (orchestration-concurrency D-2, orchestration-concurrency
   REQ-C1.4):** every commit `/execute-task` authors for a unit carries a
   `Planwright-Task: <spec>/<id>` footer trailer, stamped by piping the message
@@ -936,8 +939,9 @@ the declared format-version:
 2. Header block: `Status:` declared (missing warns and defaults to Draft);
    one of the six statuses (unknown flagged); `Superseded` requires
    `Superseded-by:`; `Format-version:` declared.
-3. Spec-identifier charset and length; underscore-accumulator name
-   screening (accumulators are otherwise skipped, not validated as bundles).
+3. Spec-identifier charset and length, and the reserved word `flight`;
+   reserved underscore-directory name screening (accumulators and the flight
+   record directory are otherwise skipped, not validated as bundles).
 4. REQ-ID convention: stable IDs, citation per live requirement.
 5. D-ID structure: Decision / Alternatives considered / Chosen because all
    present.

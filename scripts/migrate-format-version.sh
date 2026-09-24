@@ -875,7 +875,8 @@ screen_and_process() {
   snm=$(basename "$sdir")
   case $snm in
     _*)
-      # Reserved non-spec accumulators are never bundles.
+      # Reserved underscore directories (the accumulators and the flight
+      # record directory) are never bundles.
       return 0
       ;;
   esac

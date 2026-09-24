@@ -76,8 +76,8 @@ validation (e.g. a spec branch `planwright/<spec>/spec`, a hostile branch
 name, or an unrelated branch), do not guess a task: say which branch you are
 on and try to resolve `<spec>` only when it is unambiguous — a single spec
 bundle under `specs/` (a direct child whose name passes the REQ-A1.8 charset;
-the reserved underscore-prefixed accumulators `_pending/` and `_observations/`
-are not bundles and are skipped), or a single bundle whose `requirements.md`
+the reserved underscore-prefixed directories `_pending/`, `_observations/` and
+`_flights/` are not bundles and are skipped), or a single bundle whose `requirements.md`
 carries the literal `**Status:** Active` marker and that has a kickoff brief
 (a format-version 2 bundle never stores `Active` — its header rests at
 `Ready` while work is in flight — so a stored `**Status:** Ready` with a

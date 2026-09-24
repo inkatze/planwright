@@ -47,11 +47,13 @@ hook recognizes it as one and no-ops (there is no `tasks.md` to reconcile).
 
 `<flight-id>` is `<slug>-<uid>`: a kebab slug in the spec-identifier charset
 plus an eight-character lowercase-hex uid, 64 characters at most. Mint it with
-`scripts/flight-id.sh new <slug>`; the helper never reuses an id while a
-branch (local or remote-tracking), a record file
-`specs/_flights/<flight-id>.md`, or a placed worktree still carries it, so
-concurrent flights with the same slug cannot collide and a retired flight's id
-is never re-minted against its evidence. Examples:
+`scripts/flight-id.sh new <slug>`. The uid is random, which is what keeps two
+flights minted at the same moment apart (the mint reserves nothing: creating
+the branch and worktree is the claim, and it fails when the name exists), and
+the helper never reuses an id while a branch (local or remote-tracking), a
+record file `specs/_flights/<flight-id>.md` in the working tree or on the
+default branch, or a placed worktree still carries it, so a retired flight's
+id is never re-minted against its evidence. Examples:
 `planwright/flight/fix-typo-3f9a1c2e`, `planwright/flight/add-lint-0b7e44d1`.
 
 ### The `tasks-pr-sync` hook contract (REQ-K1.2, REQ-B1.1)
