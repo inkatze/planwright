@@ -68,7 +68,7 @@ mise run check      # the full local equivalent of the CI gate
 - the shell test suites (bash 3.2 floor), then the test-time budget gate over
   the timing report that run leaves behind (see below);
 - shellcheck, shfmt, markdownlint (templates included), yamllint, and the
-  plugin-manifest validation;
+  plugin-manifest, hook-registration and settings-fragment validation;
 - conventional-commit lint and a secret scan;
 - the doctrine link-check, the doctrine-index bijection check, the
   doctrine-manifest citation check, and the backend-capability drift check
@@ -88,10 +88,11 @@ mise run check      # the full local equivalent of the CI gate
   glob-allow-rule discipline check;
 - the house-pattern checks: `unset CDPATH` before a `cd` in command
   substitution, and printf over echo for sanitized output;
-- the two registration guards that keep this list honest: every check script
-  must be run by a task the aggregate reaches (`check:guard-wiring`), and
-  every `check:`/`lint:`/`scan:` task must be reachable from the aggregate
-  (`check:task-registration`), so a guard can never exist only in CI logs;
+- the two registration guards that keep the gate complete: every check script
+  must be run by a task the aggregate reaches, a workflow, or an allowlisted
+  runner (`check:guard-wiring`), and every `check:`/`lint:`/`scan:` task must
+  be reachable from the aggregate (`check:task-registration`), so a guard task
+  can never exist only in CI logs;
 - the instruction-budget guard over skills and doctrine, and the advisory
   emit-sidedness report.
 

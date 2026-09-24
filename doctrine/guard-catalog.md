@@ -220,12 +220,12 @@ to highest (D-4). An overlay entry whose `id` is new is appended; one carrying
 the target `id` plus `supersede: true` replaces that entry in place, the
 marker stripped — the only way to override an existing entry. A supersede of
 a non-existent target, an overlay parsing to no entries, and an overlay file
-escaping its layer root (D-8, REQ-E1.5) are malformed for their layer (D-7,
+escaping its layer root (never read; D-8, REQ-E1.5) are malformed for their layer (D-7,
 REQ-E1.4): repo-tracked hard-fails, adopter or machine-local warns and
 degrades, and an absent layer degrades silently (REQ-A1.4).
 `resolve-catalog.sh guard-catalog --explain` names each entry's supplying
-layer (D-9, REQ-B1.6); `docs/overlays.md` holds the layer model in full. An
-explicit override bypasses the merge: the named catalog is used verbatim.
+layer (D-9, REQ-B1.6); `docs/overlays.md` holds the layer model. An explicit
+override bypasses the merge: the named catalog is used verbatim.
 
 ## Stake escalation: the builder does not flatten
 
@@ -237,9 +237,9 @@ with a default: the builder escalates it as design / Needs human judgment
 into a `GATE(when: …)` deferral entry (see
 [finding-categorization.md](finding-categorization.md) and
 [gate-wiring.md](gate-wiring.md)). Mechanical guards apply; load-bearing
-decisions escalate — advising and weighing per
-[proportionality.md](proportionality.md), any departure from a recommended
-guard recorded with its reasoning, never taken silently.
+decisions escalate. The builder advises and weighs
+([proportionality.md](proportionality.md)), recording any departure from a
+recommended guard with its reasoning, never silently.
 
 ## Dogfooding
 
@@ -254,7 +254,7 @@ reproduction on every CI run, grounded in planwright's actual wiring rather
 than a hard-coded list, so removing a guard from the repo breaks the dogfood.
 
 The dogfood reproduces the *universal core*. planwright also runs
-project-bespoke guards — the spec validator, the doctrine link, index,
+project-bespoke guards, including the spec validator, the doctrine link, index,
 options-reference and backend-capability tethers, the permission-matcher
 fixture, the git-hook backstop and its wiring check, the purged-identifier,
 workflow-posture and CI-eval-exclusion guards, the test-time budget, the

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Schema check over config/guard-catalog.yaml against doctrine/guard-catalog.md
-# (guard-coverage REQ-H1.1, D-13; bootstrap REQ-G1.5).
+# (REQ-H1.1, REQ-G1.5).
 #
 # Two tethers, both fail-closed on a zero-row parse:
 #   - every catalog entry carries the required fields (id, category, tool,
@@ -136,8 +136,8 @@ EOF
 [ "$failures" -eq 0 ] \
   && pass "every entry carries id, category, tool, detect and a placement, with a category the doctrine names ($n entries)"
 
-# The three guard classes guard-coverage registered (D-13). Each declares its
-# category and its placement explicitly, and the two new categories exist.
+# The categorized breadth entries each declare their category and placement
+# explicitly, and the amended categories exist (REQ-H1.1).
 # want_entry <id> <category> <section> <core>
 want_entry() {
   before=$failures

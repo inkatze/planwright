@@ -1,7 +1,7 @@
 #!/bin/bash
 # Tests for scripts/check-task-registration.sh — the standing registration
 # check: every `check:` / `lint:` / `scan:` task in mise.toml must be reachable
-# from the `check` aggregate (guard-coverage REQ-H1.2, REQ-H1.3, D-13).
+# from the `check` aggregate (REQ-H1.2, REQ-H1.3).
 #
 # Same obligation as tests/test-check-guard-wiring.sh: the guard under test
 # exists because a guard nothing runs cannot fail, so every passing case here

@@ -4,7 +4,7 @@
 #
 # A guard task the aggregate never reaches runs only for whoever remembers to
 # invoke it by name, which in practice is CI logs and nobody. This is the
-# standing form of the guard-coverage registration sweep (REQ-H1.2, D-13):
+# standing form of the registration sweep:
 # scripts/check-guard-wiring.sh asks whether every check-*.sh SCRIPT is run by
 # something; this asks the complementary question one level up, whether every
 # guard TASK is part of the gate. A task with an inline run body and no script
@@ -28,7 +28,7 @@
 # FAILS CLOSED on anything that would narrow the scan to nothing: a missing or
 # unreadable mise.toml, a file parsing to zero tasks, no aggregate task, or
 # zero namespaced tasks to check. Each of those would otherwise exit 0 having
-# proven nothing (REQ-H1.3).
+# proven nothing.
 #
 # Untrusted input: mise.toml is PR-controllable. It is read with awk as data;
 # nothing from it is executed, sourced, or interpolated into program text.

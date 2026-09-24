@@ -16,8 +16,8 @@
 #   category  formatter | linter | type-checker | test-runner |
 #             security | commit-hook | ci | budget | house-pattern | breadth
 #             (the enum lives in doctrine/guard-catalog.md "Guard
-#             categories"; tests/test-guard-catalog-schema.sh holds this file
-#             to it)
+#             categories", plus breadth per its "Entry format";
+#             tests/test-guard-catalog-schema.sh holds this file to it)
 #   tool      the concrete tool the guard recommends
 #   detect    space-separated detection signals: a glob (matched by file name,
 #             or by relative path when it contains "/"), or the literal "git"
@@ -204,8 +204,8 @@ breadth:
     category: breadth
     tool: sidedness-check
     detect: "manual"
-  # Guard classes guard-coverage registered (REQ-H1.1, D-13). Each declares
-  # its category from the doctrine enum and its placement explicitly
+  # Categorized breadth entries. Each declares its category from the doctrine
+  # enum and its placement explicitly
   # (core: false = breadth: advisory, never in the mechanical dogfood set).
   # Pinned-action freshness: surface CI action SHA pins that have fallen
   # behind their upstream tag. Signal only, never an automated bump; when the
