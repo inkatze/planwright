@@ -133,12 +133,14 @@ done <<EOF
 $records
 EOF
 [ "$n" -gt 0 ] || fail "zero entries walked"
-pass "every entry carries id, category, tool, detect and a placement, with a category the doctrine names ($n entries)"
+[ "$failures" -eq 0 ] \
+  && pass "every entry carries id, category, tool, detect and a placement, with a category the doctrine names ($n entries)"
 
 # The three guard classes guard-coverage registered (D-13). Each declares its
 # category and its placement explicitly, and the two new categories exist.
+# want_entry <id> <category> <section> <core>
 want_entry() {
-  # want_entry <id> <category> <section> <core>
+  before=$failures
   rec=$(printf '%s\n' "$records" | awk -F'|' -v id="$1" '$1 == id { print; exit }')
   [ -n "$rec" ] || {
     fail "catalog has no entry: $1"
@@ -150,7 +152,7 @@ want_entry() {
   [ "$got_cat" = "$2" ] || fail "$1: category is '$got_cat', expected '$2'"
   [ "$got_sec" = "$3" ] || fail "$1: placed under '$got_sec', expected '$3'"
   [ "$got_core" = "$4" ] || fail "$1: core is '$got_core', expected an explicit '$4'"
-  pass "$1 is catalogued as $2, $3 placement, core: $4"
+  [ "$failures" -eq "$before" ] && pass "$1 is catalogued as $2, $3 placement, core: $4"
 }
 want_entry pinned-action-freshness security breadth false
 want_entry test-time-budget budget breadth false

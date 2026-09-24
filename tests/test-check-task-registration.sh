@@ -18,14 +18,14 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$here/.." && pwd)
-CG="$REPO_ROOT/scripts/check-task-registration.sh"
+CHECKER="$REPO_ROOT/scripts/check-task-registration.sh"
 
 fail() {
   echo "FAIL: $1" >&2
   exit 1
 }
 
-[ -x "$CG" ] || fail "scripts/check-task-registration.sh missing or not executable"
+[ -x "$CHECKER" ] || fail "scripts/check-task-registration.sh missing or not executable"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/test-check-task-registration.XXXXXX") || fail "mktemp -d failed"
 [ -n "$tmp" ] && [ -d "$tmp" ] || fail "mktemp -d produced no directory"
@@ -33,17 +33,18 @@ trap 'rm -rf "$tmp"' EXIT
 
 # mkrepo <dir>
 #   A minimal mise.toml whose aggregate reaches one task per namespace, plus
-#   an un-namespaced task nothing depends on (which must never be flagged) and
-#   a multi-line run body holding text that looks like an edge (which must
-#   never be read as one). Cases append planted tasks with a heredoc.
+#   an un-namespaced task nothing depends on (which must never be flagged), a
+#   commented-out edge, and a multi-line run body holding a bare edge line and
+#   a header (which must never be read as either). Cases append planted tasks
+#   with a heredoc.
 mkrepo() {
   mr=$1
   rm -rf "$mr"
   mkdir -p "$mr"
   cat >"$mr/mise.toml" <<'TOML'
-# a comment naming check:commented must not register anything
 [tasks.check]
 description = "aggregate: prose naming check:described is not an edge"
+# depends = ["check:commented"]
 depends = [
   "test",
   "check:alpha",  # trailing comment
@@ -65,18 +66,18 @@ run = "true"
 
 [tasks."scan:alpha"]
 run = '''
-echo "depends = [\"check:in-run-body\"]"
+depends = ["check:in-run-body"]
 [tasks."check:in-run-body"]
 '''
 TOML
 }
 
-run_cg() { /bin/sh "$CG" --repo-root "$1" 2>"$tmp/err"; }
+run_checker() { /bin/sh "$CHECKER" --repo-root "$1" 2>"$tmp/err"; }
 
 # ---------------------------------------------------------------------------
 # t1: the real repository passes. If this ever fails, a guard has come loose.
 # ---------------------------------------------------------------------------
-/bin/sh "$CG" --repo-root "$REPO_ROOT" >/dev/null 2>"$tmp/err" \
+/bin/sh "$CHECKER" --repo-root "$REPO_ROOT" >/dev/null 2>"$tmp/err" \
   || fail "t1: the real repo should pass, got: $(cat "$tmp/err")"
 echo "ok: t1 every namespaced task in the repository's mise.toml is registered"
 
@@ -86,11 +87,11 @@ echo "ok: t1 every namespaced task in the repository's mise.toml is registered"
 # ---------------------------------------------------------------------------
 r="$tmp/r2"
 mkrepo "$r"
-run_cg "$r" >/dev/null || fail "t2: the baseline fixture should pass: $(cat "$tmp/err")"
+run_checker "$r" >/dev/null || fail "t2: the baseline fixture should pass: $(cat "$tmp/err")"
 for ns in check lint scan; do
   mkrepo "$r"
   printf '\n[tasks."%s:planted"]\nrun = "true"\n' "$ns" >>"$r/mise.toml"
-  run_cg "$r" >/dev/null
+  run_checker "$r" >/dev/null
   rc=$?
   [ "$rc" = 1 ] || fail "t2: an unregistered $ns: task should be exit 1, got $rc: $(cat "$tmp/err")"
   grep -q "$ns:planted" "$tmp/err" \
@@ -114,7 +115,7 @@ TOML
   sed -n '/^\[tasks.test\]/,$p' "$r/mise.toml"
 } >"$r/mise.toml.new"
 mv "$r/mise.toml.new" "$r/mise.toml"
-run_cg "$r" >/dev/null || fail "t3: a registered task should pass: $(cat "$tmp/err")"
+run_checker "$r" >/dev/null || fail "t3: a registered task should pass: $(cat "$tmp/err")"
 echo "ok: t3 the same task passes once the aggregate depends on it"
 
 # ---------------------------------------------------------------------------
@@ -135,7 +136,7 @@ for kind in depends depends_post wait_for; do
   mv "$r/mise.toml.new" "$r/mise.toml"
   grep -q '^depends = \["check:alpha", "lint:alpha", "scan:alpha", "check:group"\]' "$r/mise.toml" \
     || fail "t3b: the $kind fixture lost its aggregate edge"
-  run_cg "$r" >/dev/null
+  run_checker "$r" >/dev/null
   rc=$?
   case $kind in
     wait_for)
@@ -155,7 +156,7 @@ mkrepo "$r"
   sed -n '/^\[tasks.test\]/,$p' "$r/mise.toml"
 } >"$r/mise.toml.new"
 mv "$r/mise.toml.new" "$r/mise.toml"
-run_cg "$r" >/dev/null \
+run_checker "$r" >/dev/null \
   || fail "t3b: a task matched by a wildcard dependency should pass: $(cat "$tmp/err")"
 echo "ok: t3b depends, depends_post and a wildcard register; wait_for does not"
 
@@ -169,7 +170,7 @@ echo "ok: t3b depends, depends_post and a wildcard register; wait_for does not"
 r="$tmp/r3c-header-comment"
 mkrepo "$r"
 printf '\n[tasks."check:planted"] # not yet wired\nrun = "true"\n' >>"$r/mise.toml"
-run_cg "$r" >/dev/null
+run_checker "$r" >/dev/null
 rc=$?
 [ "$rc" = 1 ] || fail "t3c: a header with a trailing comment declares a task; unregistered, it should be exit 1, got $rc: $(cat "$tmp/err")"
 grep -q 'check:planted' "$tmp/err" || fail "t3c: the task declared with a trailing comment was not named"
@@ -183,7 +184,7 @@ mkrepo "$r"
 } >"$r/mise.toml.new"
 mv "$r/mise.toml.new" "$r/mise.toml"
 grep -q "'check:x --grep # nightly'" "$r/mise.toml" || fail "t3c: the fixture lost its quoted '#'"
-run_cg "$r" >/dev/null || fail "t3c: a '#' inside a quoted dependency is part of the value; the fixture should pass: $(cat "$tmp/err")"
+run_checker "$r" >/dev/null || fail "t3c: a '#' inside a quoted dependency is part of the value; the fixture should pass: $(cat "$tmp/err")"
 grep -q 'names no task' "$tmp/err" && fail "t3c: a '#' inside a quoted dependency truncated the array: $(cat "$tmp/err")"
 echo "ok: t3c a trailing header comment and a '#' inside a quoted name parse as TOML does"
 
@@ -198,8 +199,9 @@ for name in described commented in-run-body; do
   grep -q "check:$name" "$r/mise.toml" \
     || fail "t4: the fixture no longer mentions check:$name — this case would prove nothing"
   printf '\n[tasks."check:%s"]\nrun = "true"\n' "$name" >>"$r/mise.toml"
-  run_cg "$r" >/dev/null \
-    && fail "t4: check:$name is only mentioned in text, yet passed as registered"
+  run_checker "$r" >/dev/null
+  rc=$?
+  [ "$rc" = 1 ] || fail "t4: check:$name is only mentioned in text; unregistered, it should be exit 1, got $rc: $(cat "$tmp/err")"
   grep -q "check:$name" "$tmp/err" || fail "t4: check:$name was not named as unregistered"
 done
 echo "ok: t4 a description, a comment, and a run body are text, not edges"
@@ -212,13 +214,13 @@ r="$tmp/r5"
 mkrepo "$r"
 grep -q '^\[tasks.release\]' "$r/mise.toml" || fail "t5: the fixture lost its un-namespaced task"
 printf '\n[tasks.docs]\nrun = "true"\n' >>"$r/mise.toml"
-run_cg "$r" >/dev/null || fail "t5: an unregistered un-namespaced task should not fail: $(cat "$tmp/err")"
+run_checker "$r" >/dev/null || fail "t5: an unregistered un-namespaced task should not fail: $(cat "$tmp/err")"
 {
   printf '[tasks.check]\ndepends = ["check:alpha", "lint:alpha", "scan:alpha", "check:vanished"]\n\n'
   sed -n '/^\[tasks.test\]/,$p' "$r/mise.toml"
 } >"$r/mise.toml.new"
 mv "$r/mise.toml.new" "$r/mise.toml"
-run_cg "$r" >/dev/null || fail "t5: a dangling dependency should be a note, not a failure: $(cat "$tmp/err")"
+run_checker "$r" >/dev/null || fail "t5: a dangling dependency should be a note, not a failure: $(cat "$tmp/err")"
 grep -q 'check:vanished' "$tmp/err" || fail "t5: the dangling dependency was not noted"
 echo "ok: t5 the namespaces bound the scan, and a dangling edge is noted"
 
@@ -228,36 +230,36 @@ echo "ok: t5 the namespaces bound the scan, and a dangling edge is noted"
 # ---------------------------------------------------------------------------
 r="$tmp/r6"
 mkrepo "$r"
-run_cg "$r" >/dev/null || fail "t6: the baseline fixture should pass first: $(cat "$tmp/err")"
+run_checker "$r" >/dev/null || fail "t6: the baseline fixture should pass first: $(cat "$tmp/err")"
 
 rm -f "$r/mise.toml"
-run_cg "$r" >/dev/null
+run_checker "$r" >/dev/null
 [ "$?" = 5 ] || fail "t6: a missing mise.toml should be exit 5"
 
 printf '# no tasks here\n[tools]\nshellcheck = "0.11.0"\n' >"$r/mise.toml"
-run_cg "$r" >/dev/null
+run_checker "$r" >/dev/null
 [ "$?" = 5 ] || fail "t6: a mise.toml with zero tasks should be exit 5"
 grep -q 'zero tasks' "$tmp/err" || fail "t6: the zero-task verdict was not stated: $(cat "$tmp/err")"
 
 printf '[tasks."check:alpha"]\nrun = "true"\n' >"$r/mise.toml"
-run_cg "$r" >/dev/null
+run_checker "$r" >/dev/null
 [ "$?" = 5 ] || fail "t6: a mise.toml with no check aggregate should be exit 5"
 
 printf '[tasks.check]\ndepends = ["test"]\n\n[tasks.test]\nrun = "true"\n' >"$r/mise.toml"
-run_cg "$r" >/dev/null
+run_checker "$r" >/dev/null
 [ "$?" = 5 ] || fail "t6: a mise.toml with no namespaced task at all should be exit 5, not a clean pass"
 
 # A string the file never closes would otherwise hide every later task behind
 # a clean pass; so would a comment holding an odd number of triple quotes.
 mkrepo "$r"
 printf '\n[tasks.build]\nrun = """\necho building\n\n[tasks."check:planted"]\nrun = "true"\n' >>"$r/mise.toml"
-run_cg "$r" >/dev/null
+run_checker "$r" >/dev/null
 [ "$?" = 5 ] || fail "t6: an unterminated triple-quoted string should be exit 5, not a clean pass over the tasks it hides"
 grep -q 'unterminated' "$tmp/err" || fail "t6: the unterminated-string verdict was not stated: $(cat "$tmp/err")"
 
 mkrepo "$r"
 printf "\n# don'''t read this comment as a string\n[tasks.\"check:planted\"]\nrun = \"true\"\n" >>"$r/mise.toml"
-run_cg "$r" >/dev/null
+run_checker "$r" >/dev/null
 rc=$?
 [ "$rc" = 1 ] || fail "t6: a comment with an odd number of triple quotes is still a comment; the planted task should be exit 1, got $rc: $(cat "$tmp/err")"
 grep -q 'check:planted' "$tmp/err" || fail "t6: the task after the odd-quoted comment was not named"
@@ -266,11 +268,11 @@ echo "ok: t6 every scan-narrowing input fails closed instead of passing vacuousl
 # ---------------------------------------------------------------------------
 # t7: usage faults are exit 2, distinct from the fail-closed and failure codes.
 # ---------------------------------------------------------------------------
-/bin/sh "$CG" --bogus >/dev/null 2>&1
+/bin/sh "$CHECKER" --bogus >/dev/null 2>&1
 [ "$?" = 2 ] || fail "t7: an unknown argument should be exit 2"
-/bin/sh "$CG" --repo-root >/dev/null 2>&1
+/bin/sh "$CHECKER" --repo-root >/dev/null 2>&1
 [ "$?" = 2 ] || fail "t7: --repo-root without a directory should be exit 2"
-/bin/sh "$CG" --repo-root "$tmp/r6" --aggregate 'bad name' >/dev/null 2>&1
+/bin/sh "$CHECKER" --repo-root "$tmp/r6" --aggregate 'bad name' >/dev/null 2>&1
 [ "$?" = 2 ] || fail "t7: an aggregate name outside the task-name grammar should be exit 2"
 echo "ok: t7 usage faults exit 2"
 
@@ -283,7 +285,7 @@ r="$tmp/r8"
 mkrepo "$r"
 printf "\n[tasks.'check:x\\\\033[31mred\\\\033[0m']\nrun = 'true'\n" >>"$r/mise.toml"
 grep -q 'check:x\\033' "$r/mise.toml" || fail "t8: the fixture lost its backslash-escape text"
-run_cg "$r" >/dev/null
+run_checker "$r" >/dev/null
 rc=$?
 [ "$rc" = 1 ] || fail "t8: the escape-named task is unregistered and should be exit 1, got $rc: $(cat "$tmp/err")"
 if od -An -c "$tmp/err" | grep -q '033'; then
