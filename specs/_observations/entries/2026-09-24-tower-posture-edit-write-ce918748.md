@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] config/tower-settings.json allows Edit and Write outright, so the /tower non-authoring rule (every mutation is a flight) is enforced by skill prose alone; a front-door posture extension should deny or ask on Edit and Write for the tower session, which REQ-A1.3 permits as an added deny (tower-front-door Task 10 territory).

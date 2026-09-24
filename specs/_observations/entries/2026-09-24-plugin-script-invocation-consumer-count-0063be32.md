@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] doctrine/plugin-script-invocation.md still opens with "the three dispatching skills" while /offload and now /tower also carry the labeled literal-path pointer; the count is fragile filler and should become "the skills carrying the pointer", and tests/test-skill-literal-path.sh could take its list from the pointer itself.
