@@ -133,22 +133,26 @@ inside=$(git -C "$repo" rev-parse --is-inside-work-tree 2>/dev/null || true)
 # of asking, making that a setup step rather than something the sync completes.
 # An agent-held key is unaffected, which is the fleet's normal case.
 #
-# The base command is whatever git itself would run for this repo: the
-# caller's GIT_SSH_COMMAND when set, otherwise the repo's `core.sshCommand`,
-# otherwise plain `ssh`. Exporting GIT_SSH_COMMAND outranks the config in git's
-# own precedence, so building on bare `ssh` would silently discard a host's
-# configured key and IdentitiesOnly, and the fetch would fail on exactly the
-# hosts whose remote access depends on that config. This is why the block sits
-# after the work-tree check: the config belongs to the target repo, not to the
+# The base command follows git's own precedence as far as this script reads
+# it: the caller's GIT_SSH_COMMAND when set and non-empty, otherwise the
+# target repo's `core.sshCommand`, otherwise plain `ssh`. Two deliberate
+# departures from git: an empty GIT_SSH_COMMAND falls through here where git
+# would try to run the empty string, and the legacy GIT_SSH variable is not
+# consulted, so a host relying on it alone still loses it to the export
+# below. Exporting GIT_SSH_COMMAND outranks the config in git's precedence,
+# so building on bare `ssh` would silently discard a host's configured key
+# and IdentitiesOnly, and the fetch would fail on exactly the hosts whose
+# remote access depends on that config. This is why the block sits after the
+# work-tree check: the config belongs to the target repo, not to the
 # directory the script was launched from.
 #
 # The option has to WIN, not merely be present: ssh_config(5) specifies that
-# the FIRST obtained value of a parameter is the one used, so appending after a
-# caller's own `-o BatchMode=no` would leave the prompt live and hang the loop
+# the FIRST obtained value of a parameter is the one used, so appending after
+# an incoming `-o BatchMode=no` would leave the prompt live and hang the loop
 # exactly as if the guard were absent. When the incoming command names
 # BatchMode at all, ours goes in directly after the ssh binary so it is read
 # first, and the override is reported rather than silently discarded. The
-# ordinary case (no BatchMode in the caller's command) still just appends,
+# ordinary case (no BatchMode in the incoming command) still just appends,
 # which keeps the common path clear of any parsing of the command string.
 _ssh_src=GIT_SSH_COMMAND
 _ssh_cmd=${GIT_SSH_COMMAND:-}

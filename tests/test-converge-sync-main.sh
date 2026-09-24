@@ -23,6 +23,9 @@
 #     failure, unresolvable merge conflict, and a pre-existing dirty working
 #     tree — each with its own reason and exit code, never collapsed into a
 #     misreported "merge conflict" (REQ-B1.6, REQ-K1.1);
+#   - the fetch's ssh command is the caller's GIT_SSH_COMMAND when set, else
+#     the target repo's `core.sshCommand`, else `ssh`, and always carries a
+#     winning `BatchMode=yes` so a headless fetch fails instead of prompting;
 #   - `/execute-task` invokes the script once at the top of the convergence
 #     sequence and still opens only a draft PR (REQ-B1.1, REQ-B1.4, REQ-B1.5).
 #
@@ -803,7 +806,10 @@ STUB
     *) ;;
   esac
 
-  # (b) GIT_SSH_COMMAND empty counts as unset, as it does for git itself.
+  # (b) GIT_SSH_COMMAND empty counts as unset. This is the script's own rule,
+  # kept from its `${GIT_SSH_COMMAND:-ssh}` days: git itself would try to run
+  # the empty string, so falling through to the config is the more forgiving
+  # reading, not a mirror of git.
   : >"$SSH_ARGV_LOG"
   rc=0
   GIT_SSH_COMMAND='' PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" >/dev/null 2>&1 || rc=$?
