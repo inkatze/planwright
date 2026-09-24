@@ -379,6 +379,15 @@ this table; appended rows never overwrite existing ones.
 
 Signed off: 2026-09-22
 
+### Execution findings: Task 1 (2026-09-24)
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| R1 | Research (mise `[env]`, 2026.9.12 local, 2026.6.1 in CI): a plain `PLANWRIGHT_ROOT = "{{ config_root }}"` *overrides* a value already in the environment, contradicting D-10's premise that an operator's environment value is left alone. Verified empirically with `mise exec` on a fixture. | The pin is written `{{ get_env(name='PLANWRIGHT_ROOT', default=config_root) }}`: still a config-root expansion, and an environment value wins, which is what D-10 intends. The resolver test asserts all three cases (pin set, pin cleared, environment override). No spec edit: this is how the accepted decision is implemented, not a change to it. |
+| R2 | Research (mise shell activation): with a nested worktree carrying its own tracked `mise.toml`, `hook-env` recomputes from the pre-activation environment, so `get_env` does not pick up the parent checkout's pinned value; the worktree resolves itself. Verified by activating mise in fish and changing directory into a nested fixture. | Relied on by the pin; no action. |
+| R3 | The fleet dispatcher exports `PLANWRIGHT_ROOT` into a worker's environment (`scripts/fleet-dispatch-env.sh`), so under the `get_env` form a dispatched worker in a task worktree resolves the dispatcher's root, not its own worktree's. That is the environment-wins rule working as designed. | Out of Task 1's scope; whether the dispatcher should keep exporting it is a question for Task 3 (chain convergence) or Task 8 (dispatch). |
+| R4 | Security (path handling, untrusted environment input): `PLANWRIGHT_REPO_ROOT` and the chain variables are canonicalized with `cd` + `pwd -P` and only printed, never evaluated. A repo override is accepted only when its canonical path is exactly the `--show-toplevel` of the tree at that path, so a subdirectory, a bare repository, or a symlink to a non-toplevel is refused. The worktree-list parse reads only the first porcelain record. | No finding. A path containing a newline could confuse the porcelain parse; git refuses to create such worktrees through the normal commands, so this is accepted. |
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation, full bundle)

@@ -16,6 +16,13 @@ gitleaks = "8.30.0"
 # still commits, and CI still runs the normative check task.
 lefthook = "2.1.11"
 
+[env]
+# Self-hosting: this checkout, and each worktree of it through its own tracked
+# copy of this file, resolves itself rather than the installed plugin.
+# get_env keeps a PLANWRIGHT_ROOT already in the environment winning, which a
+# bare "{{ config_root }}" would silently override.
+PLANWRIGHT_ROOT = "{{ get_env(name='PLANWRIGHT_ROOT', default=config_root) }}"
+
 [tasks.release]
 description = "Sign and publish the pending release tag on this repo (autopilot-reflex REQ-F1.3, D-8). Repo-local ergonomics only: a thin wrapper over scripts/release-publish.sh, which has no mise dependency and is invokable directly anywhere (REQ-D1.9)."
 run = "scripts/release-publish.sh"
