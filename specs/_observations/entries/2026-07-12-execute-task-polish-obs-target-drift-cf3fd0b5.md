@@ -1,0 +1,1 @@
+- 2026-07-12 [planwright] skill-drift(execute-task,polish): Observations + Maintenance steps still instruct appending to specs/_observations/opportunities.md, but that file froze 2026-07-11 (observation-recording fragment-substrate cutover); recording now routes through scripts/obs-record.sh into entries/. The skills name a frozen target and a raw-append mechanism.
