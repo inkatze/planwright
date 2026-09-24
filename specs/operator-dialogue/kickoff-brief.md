@@ -641,3 +641,155 @@ that entry was written.
 Class: expression-only
 Anchor: `3fca16386e6edbd08a6d4c03d38959815a0f777d` — computed as
 `scripts/spec-anchor.sh specs/operator-dialogue`
+
+## 10. Acceptance join record (Task 13, 2026-09-23)
+
+The turn-shape invariants pointed at the repaired surfaces for the first
+time. **Headline:** every sampled run passes, but only as the deterministic
+stand-ins replay the surfaces; a live surface following its shipped prose
+cannot yet produce a record the grader accepts, so the join's substance is
+the findings below, three of which reopen their owning tasks.
+
+### Sample
+
+- **Kickoff:** turn-shape fixtures `kickoff-multiphase` and `kickoff-resumed`
+  (conforming) with `kickoff-wall` (planted pair); the base `fixtures/kickoff`
+  stand-in for the novice/expert pitch divergence and the rubric floor.
+- **Execution side:** `orchestrate-halts` (with `orchestrate-wall`),
+  `resume`, `drain`; also `review-loop`, `polish-standalone`, `ci-failure`,
+  and the `projection`/`wall` pair.
+- **Personas and runs:** novice and expert on every fixture, `runs=2` each.
+  `scripts/behavioral-eval.sh --suite tests/behavioral-evals/turn-shape`
+  exits 0 under jq 1.8.1 and under jq 1.7.1 (CI's) with identical grades:
+  each conforming fixture passes its listed invariants, each wall fails
+  exactly its planted set. `fixtures/kickoff` passes under every persona with
+  `scripts/rubric-grade.sh` as the grader.
+- **Personas reused, not extended.** The base personas' turn-indexed answers
+  (level, design choice, level restate, sign-off) fit none of the turn-shape
+  scenarios, which is why Task 12 authored per-fixture novice/expert answer
+  files; this task added none. The stand-in replays the same turns whatever
+  the persona, so for turn shape the persona axis is nominal: only the base
+  kickoff fixture exercises a pitch that differs by persona.
+- **No live-surface run.** Not skipped for cost: finding 1 below makes one
+  ungradeable.
+
+### Findings and dispositions
+
+Classification: a *surface* defect means shipped prose, followed literally,
+emits a nonconforming turn or omits a mandated mirror; an *eval* defect means
+the fixture or grader misrepresents the shipped surface or doctrine.
+
+**Structural — each reopens its owning task (Awaiting-input bullets in
+`tasks.md`):**
+
+- **Finding 1: No live record is gradeable** (surface + eval; reopens Task 12). The
+  turn-record fields the grader requires (`projection` from a fixed class
+  list, `sections` with roles, `full_record`, `captures`) are defined only
+  in `tests/behavioral-evals/README.md`; `kickoff-dialogue`'s log section
+  names only `v`, `seq`, `phase`, `kind`, and no skill names a projection
+  class. The harness hands a log location only to fixture skills (as an
+  argument), so a live surface has no emit path either. Task 12 owned the
+  schema growth D-19 specifies; its home belongs in doctrine the surfaces
+  load, within their budgets.
+- **Finding 2: The review-loop family never mirrors, and `/execute-task` was never
+  repaired** (surface; reopens Task 9). `/polish`, `/self-review`, and
+  `/execute-task` carry no turn-record mirror and no `interaction-style`
+  citation. `/execute-task`'s CI-failure surface still records "the full CI
+  output" with no excerpt-plus-pointer, and its hand-off report lists the
+  whole checklist; commit `95d823b` states it deferred these for budget.
+- **Finding 3: `/orchestrate` lacks its `interaction-style` citation** (surface;
+  reopens Task 11). `check-doctrine-manifest.sh` covers `/resume` and
+  `/drain` of the four execution-side surfaces; `/orchestrate`'s citation
+  was left out for budget (commit `59c8ee4`), so Task 11's Done-when is
+  unmet. `/execute-task`'s citation rides with finding 2.
+- **Finding 4: The grader rejects the regeneration form** (eval; reopens Task 12).
+  `interaction-style`'s *Turn projection* keeps the whole record one request
+  away by pointer *or* by regeneration; `projection-present` accepts only a
+  pointer to a file the run wrote. `/resume` writes nothing and `/drain`
+  regenerates by re-running its evaluator, so both fail as shipped. Their
+  fixtures pass by writing files no surface writes (`handover.md`,
+  `drain-detail.md`; likewise `halts.md`, `ci-output.log`, `pr-body.md`,
+  `audit-record.md`).
+- **Finding 5: Coverage gaps** (eval; with Task 12). No fixture covers the kickoff's
+  lens-pass projection, handoff, approval summary, or gate framing; the
+  `/orchestrate` quiet `--watch` step and state-only reports; the `/polish`
+  safety-stop projection; or `/builder`'s mirrored projection.
+
+**Small — fixed here:**
+
+- **Finding 6: `/orchestrate`'s step report listed state first** (surface). The skill
+  named its slots state, reasoning, requests and does not load the
+  decisions-first rule, so a literal run fails `decisions-first`
+  (reproduced by reordering the `orchestrate-halts` turn to the listed
+  order: exactly that invariant fails). Now listed requests first and stated
+  as an order, word-neutral. Chosen as this task's one repair because it is
+  the only surface defect whose invariant failure is certain on every
+  `/orchestrate` step and whose fix is local; the others are structural or
+  belong to Task 12's grader and fixture set, better fixed in one pass.
+
+**Small — recorded, not fixed (routed to the reopened owner):**
+
+- **Finding 7: Fixture drift from the shipped surfaces** (eval; Task 12). `resume`
+  lists seven context elements where the skill names eight, omits the PR
+  number and the leave-it option; `drain` uses lane names the skill does not
+  ("due", "waiting"); `kickoff-resumed` numbers Design "section 3 of 5"
+  against the brief's seven sections; the sign-off option says "execution
+  may start", but sign-off arms only the first key; `review-loop` asks for
+  sign-off approval turn-side, which standalone `/self-review` does not, and
+  its counts disagree with its record; `polish-standalone`'s projected fork
+  is absent from its record; `turn_artifact_min_tables=4` sits below the
+  five or six tables shipped records carry; `kickoff-multiphase` captures an
+  out-of-band fix as an observation, not a ship-gate form; the
+  `halt-batch` class is emitted by nothing.
+- **Finding 8: Grader crash on a partial record** (eval; Task 12). A turn record
+  without `sections` exits 3 with "Cannot iterate over null" instead of a
+  named schema error. Same under jq 1.7.1 and 1.8.1, so not the
+  byte-offset issue.
+- **Finding 9: Invariant reach** (eval; Task 12). `no-monotonic-growth` fires only on
+  verbatim restatement, so a paraphrased cumulative summary passes;
+  `identifier-density` reads only selectors; no invariant checks what a
+  handoff projection contains.
+- **Finding 10: `/spec-kickoff`'s Observations step writes without confirming**
+  (surface; Task 8's capture rule). It records a fragment for anything
+  out of scope, where capture-at-birth writes only a confirmed item. Needs
+  an operator call on whether operator-named follow-ups fall under that
+  step.
+- **Finding 11: Sidedness reports on repaired surfaces** (advisory; Tasks 7, 9, 10,
+  11). `mise run check:sidedness` reports 18 side-less emit mandates,
+  including lines in `/resume`, `/execute-task`, `/polish`, `/self-review`,
+  `/spec-draft`, `/spec-kickoff`, and `interaction-style`; the REQ-I1.4
+  entry expects touched surfaces clean. Heuristic hits, not classified
+  one by one here.
+
+### Done-when status
+
+Not met. The eval passes on the sampled stand-in runs under both personas;
+the live-surface reading waits on findings 1 through 4. The test-spec
+rewording and its changelog entry are on disk. The rubric pass below awaits
+its final rater.
+
+### Experiential rubric record (CDC CCI + IPDAS balance)
+
+Instrument: `tests/behavioral-evals/rubrics/experiential-rubrics.md`.
+Grader floor: `scripts/rubric-grade.sh` (grader id `ext-rubric-panel`,
+distinct from the driver) graded `pass` on `fixtures/kickoff` for novice and
+expert. It is a mechanical proxy in this repository, not a non-Anthropic
+model backend; no model-backed panel grader ran.
+
+Agent observations (diagnostic, not a score of record):
+
+- **CCI, summary present and names the downstream effect:** met on the base
+  kickoff stand-in; the turn-shape kickoff stand-in's approval option
+  misstates the effect (finding 7).
+- **CCI, natural frequencies:** vacuous; no sampled run surfaces a
+  likelihood.
+- **IPDAS, equal-weight reject and no default:** the turn-shape sign-off
+  selector offers "Hold for changes" beside approval with no default, but
+  `scripts/check-confirmation.sh` does not read it as a reject, because the
+  two consumers of one log disagree on the selector's fields (finding 7).
+- **IPDAS, no self-verdict:** met; no sampled turn grades the spec.
+- **Level fit:** the base stand-in pitches the novice in full and the expert
+  in brief; the turn-shape stand-ins do not vary by persona (see Sample).
+
+Final rater: *awaiting the operator* — rating, date, and notes to be
+recorded here by the human. This record is not signed by the agent.
