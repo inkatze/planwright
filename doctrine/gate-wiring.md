@@ -216,8 +216,8 @@ Exactly two triggers interrupt mid-loop (REQ-C1.4): the zone screen fires,
 or an irreducible fork blocks progress. Everything else flows to loop end. A
 custom step ending its in-run point under `on-failure: halt`
 ([custom-steps](custom-steps.md)) takes the destinations below, with the
-entry contents and attendance test custom-steps pins, not as a loop trigger.
-A pause depends on the watcher:
+entry contents and attendance flag custom-steps' matrix pins, never a loop
+trigger. A pause depends on the watcher:
 
 - **Attended session.** Stop the loop. Present the finding, the triggering
   zone or fork, and the recommended fix or alternatives. Wait for
