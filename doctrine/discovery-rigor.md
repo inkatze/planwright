@@ -10,7 +10,7 @@ pre-existing ones) applies this on its discovery pass.
 
 Citations: REQ-D1.1 · operator-dialogue REQ-I1.1, REQ-I1.4 ·
 operator-dialogue D-14 · prose-disposition REQ-A1.1, REQ-A1.3 ·
-prose-disposition D-2.
+prose-disposition D-2 · guard-coverage REQ-E1.3 · guard-coverage D-1.
 
 ## Lens checklist, no silent pruning
 
@@ -35,7 +35,11 @@ record the pass writes, never a mandate to render every row at the operator
 2. Security (injection, auth, data exposure, secret handling, untrusted
    input)
 3. Error handling and failure modes (what happens when this fails partway)
-4. Performance (allocation, IO, complexity, hot paths)
+4. Performance (allocation, IO, complexity, hot paths), and test/CI
+   ergonomics (suite wall-clock, CI latency) read whole-system rather than
+   diff-scoped, since that rot accrues across commits no single diff shows;
+   the mechanical catch is the test-time budget gate (guard-coverage
+   REQ-E1.1), the lens catches the next such class before a gate exists
 5. Concurrency / state (race conditions, idempotency, ordering, retries)
 6. Naming, readability, structure (only flag when the change under review
    worsens it; see [Refactor Instinct](refactor-instinct.md))
