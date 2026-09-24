@@ -18,6 +18,8 @@ def rank: {decision: 0, question: 0, request: 0, state: 1, reasoning: 1, bookkee
 # Projections that stand in for a larger record, so they must point at it.
 def record_classes: ["handoff", "ci-failure", "drain-report", "resume-lead", "step-report", "halt-batch", "lens-pass"];
 
+def projection_classes: record_classes + ["running-summary", "open-captures", "resume-confirmation", "selector", "capture-proposal"];
+
 def capture_targets: ["awaiting-input", "deferred", "observation"];
 
 # A markdown table has exactly one delimiter row, so delimiter rows count tables.
@@ -37,7 +39,7 @@ def turn_ok:
   (.seq | type) == "number"
   and (.phase | type) == "string"
   and (.surface | type) == "string"
-  and (.projection | type) == "string"
+  and (.projection as $p | any(projection_classes[]; . == $p))
   and (.text | type) == "string"
   and (.sections | type) == "array" and (.sections | length) > 0
   and all(.sections[];
@@ -82,10 +84,12 @@ def decisions_first($turns):
   if ($turns | length) == 0 then vacuous("no turn records to grade")
   else [$turns[] | . as $t
         | [$t.sections[] | .role as $r | rank[$r]] as $rk
+        # split, not index: jq before 1.8 reports index/1 in bytes, and the
+        # slice counts codepoints, so multibyte text would skew the offset.
         | (reduce $t.sections[] as $s ({at: 0, pos: []};
-            (($t.text[.at:] | index($s.text)) as $i
-             | if $i == null then .pos += [null]
-               else .pos += [.at + $i] | .at += $i + ($s.text | length) end))) .pos as $pos
+            ($t.text[.at:] | split($s.text)) as $parts
+            | if ($parts | length) < 2 then .pos += [null]
+              else ($parts[0] | length) as $i | .pos += [.at + $i] | .at += $i + ($s.text | length) end)) .pos as $pos
         | if any($pos[]; . == null) then "turn seq \($t.seq): a section's text is not in the emitted turn, in order"
           elif any(range(1; $rk | length); $rk[.] < $rk[. - 1]) then
             "turn seq \($t.seq) orders \([$t.sections[].role] | join(" > ")), so a decision trails supporting state or bookkeeping"

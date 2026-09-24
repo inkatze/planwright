@@ -203,6 +203,13 @@ mutate "$TMP/l1/orchestrate-halts.novice" "$TMP/m/repeated-text" \
 out="$(grade_one decisions-first orchestrate-halts "$TMP/m/repeated-text")"
 assert_exit "a section text repeated later in the turn still reads in order" 0 "$?"
 
+# jq before 1.8 reports index/1 in bytes while slicing counts codepoints, so
+# multibyte text ahead of a section must not push the search past the next one.
+mutate "$TMP/l1/orchestrate-halts.novice" "$TMP/m/multibyte-lead" \
+  'if .projection == "step-report" then .text = "→ → → → → → → →\n" + .text else . end'
+out="$(grade_one decisions-first orchestrate-halts "$TMP/m/multibyte-lead")"
+assert_exit "multibyte text ahead of the sections still reads in order" 0 "$?"
+
 # GFM renders a delimiter row of single hyphens as a table, so it counts as one.
 mutate "$TMP/l1/projection.novice" "$TMP/m/short-delimiters" \
   'if .kind == "turn" then .text += "\n\n| a | b |\n|-|:-:|\n| 1 | 2 |\n\n| c |\n|-|\n| 3 |" else . end'
@@ -247,6 +254,10 @@ assert_exit "a turn record off schema v2 is a schema error" 3 "$?"
 mutate "$TMP/l1/kickoff-multiphase.novice" "$TMP/m/v1-decision" 'if .kind == "decision" then .v = 1 else . end'
 /bin/sh "$GRADE" --conf "$SUITE/kickoff-multiphase/fixture.conf" "$TMP/m/v1-decision" >/dev/null 2>&1
 assert_exit "a non-turn record off schema v2 is a schema error" 3 "$?"
+# A misspelled class would otherwise skip the pointer checks its real class gets.
+mutate "$TMP/l1/projection.novice" "$TMP/m/unknown-projection" 'if .kind == "turn" then .projection = "hand-off" else . end'
+/bin/sh "$GRADE" --conf "$SUITE/projection/fixture.conf" "$TMP/m/unknown-projection" >/dev/null 2>&1
+assert_exit "a turn record naming no documented projection class is a schema error" 3 "$?"
 mutate "$TMP/l1/projection.novice" "$TMP/m/seq-reversed" '.seq = (1000 - .seq)'
 /bin/sh "$GRADE" --conf "$SUITE/projection/fixture.conf" "$TMP/m/seq-reversed" >/dev/null 2>&1
 assert_exit "records whose seq runs backwards are a schema error" 3 "$?"
