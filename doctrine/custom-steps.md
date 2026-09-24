@@ -238,8 +238,8 @@ when the unit was launched headless, per the backend seam's launch record;
 `run` is a resolved step; `ask` surfaces the missing step and waits, the
 human either repairing and re-resolving or ending the unit; `park` parks the
 unit to Awaiting input before any step at the point runs; `skip` warns and
-writes a skip record. The resolver exits per REQ-H1.3: 0 when every step is `run` (a
-`skip` under REQ-C1.4 included), 1 when the point runs nothing (`park` or
+writes a skip record. The resolver exits per REQ-H1.3, a `skip` counting as
+`run`: 0 when every step is `run`, 1 when the point runs nothing (`park` or
 `ask`). A malformed list value or entry takes
 the by-layer policy instead (REQ-C1.5): core is a broken install (exit 5);
 repo-tracked hard-fails (exit 4); an adopter or machine-local **list** warns
