@@ -38,12 +38,9 @@ core can wire, so an adopter needing a moment planwright does not name records
 an observation, never an overlay point (REQ-A1.3, D-2). A point name outside
 this vocabulary is a resolver usage error.
 
-**Wired in `/execute-task`** (the *in-run points*, a flight's `convergence`
-among them), each fired once when the run reaches it and never again in that
-run, a human-directed re-run of a halted or asked point resuming the same
-firing with its records replacing the halted attempt's (a re-execution
-against a unit with an open PR is a new run, REQ-A1.1, REQ-A1.4), in this
-order (D-3):
+**Wired in `/execute-task`** (the *in-run points*), each fired once when the
+run reaches it and never again in that run (a re-execution against a unit
+with an open PR is a new run, REQ-A1.1, REQ-A1.4), in this order (D-3):
 
 | Point | Fires |
 | --- | --- |
@@ -72,7 +69,8 @@ by the resolver when that point is resolved and by `check:steps`, never
 silently ignored.
 
 **Flights.** Any skill that converges a flight reads `steps_convergence` with
-unit kind `flight` (REQ-F1.5).
+unit kind `flight`, under the in-run rules and without the `main` sync or the
+neighbouring points, which are `/execute-task`'s (REQ-F1.5).
 
 ## The step entry
 
@@ -100,8 +98,9 @@ text. Validation precedes any path or command use; a failing target, args, or
 `requires` is malformed for its layer and never interpolated, as is an entry
 with an unknown field, an unknown enum value, a missing required field, or an
 un-honorable combination above (REQ-B1.2). Rules keyed on hosting read the
-**effective** hosting: the default below, and a run-time degradation once it
-has happened.
+**effective** hosting: at resolution the default below and a `continue`
+step's attachment to an `in-session` predecessor, at run time a degradation
+once it has happened.
 
 **No `env` and no `cwd` field** (D-15). Declarations carry no secrets: a step
 needing a credential reads it from the host environment the runner inherits
@@ -210,11 +209,11 @@ unresolved hard-disqualifier finding is `halted` (REQ-E1.1).
 ends the unit through the gate-wiring
 [pause protocol](gate-wiring.md#pause-protocol)'s destinations: an unattended
 run parks the unit to `tasks.md` Awaiting input; an attended session presents
-it and waits, the human's direction ending the unit or repairing and
-re-running the point from resolution. At a **flip point** it refuses the
-flip and surfaces the step (kickoff records the pending flip to Awaiting
-input as its CI gate already does). Every Awaiting-input entry this doc
-causes names only the point, the validated step ids, the outcome, token, or
+it and waits for direction. At a **flip point** it refuses the flip and
+surfaces the step, as do a `park` and an unanswered `ask` there (kickoff
+records the pending flip to Awaiting input as its CI gate already does).
+Every Awaiting-input entry this doc causes names only the point, the
+validated step ids, the outcome, token, or
 cause (a failed post's missing permission, a PR no longer a draft), and the
 record path relative to the worktree where one exists, never a target's text
 or an excerpt. A posture of `continue` records the outcome and proceeds to
@@ -228,8 +227,7 @@ stop and otherwise stops waiting on it, recording which applied. Either way
 the outcome is `failed` naming the timeout; a head moved by a session no
 longer waited on is covered by the ready-guard's currency check and the
 post-pr draft verification. An `in-session` command step's `timeout` is
-passed to the session's shell tool, clamped to that tool's limit and
-recorded when clamped.
+passed to the session's shell tool, within that tool's limit.
 
 ## Resolution and the missing-step matrix
 
@@ -252,7 +250,7 @@ error.
 step, keyed on the layer that supplied the **winning list** and on
 attendance, which the hosting skill passes explicitly (`--unattended` exactly
 when the unit was launched headless, per the backend seam's launch record;
-`--attended` otherwise; neither flag is a usage error):
+`--attended` otherwise; neither flag, or both, is a usage error):
 
 | Winning list from | Attended | Unattended |
 | --- | --- | --- |
@@ -262,16 +260,15 @@ when the unit was launched headless, per the backend seam's launch record;
 
 `run` is a resolved step; `ask` surfaces the missing step and waits, the
 human either repairing and re-resolving or ending the unit; `park` parks the
-unit to Awaiting input before any step at the point runs; under `park` or
-`ask` every step's line carries that token; `skip` warns and writes a skip
-record. The resolver exits per REQ-H1.3: 0 when every step is `run` (a
+unit to Awaiting input before any step at the point runs; `skip` warns and
+writes a skip record. The resolver exits per REQ-H1.3: 0 when every step is `run` (a
 `skip` under REQ-C1.4 included), 1 when the point runs nothing (`park` or
 `ask`). A malformed list value or entry takes
 the by-layer policy instead (REQ-C1.5): core is a broken install (exit 5);
 repo-tracked hard-fails (exit 4); an adopter or machine-local **list** warns
 and degrades to the core default; an adopter or machine-local **entry**
 warns and is dropped from the merged catalog, its id then non-resolving
-under the matrix. Check mode (`--check`, which implies `--unattended`) exits
+under the matrix. Check mode (`--check` with `--unattended`) exits
 non-zero on any `park`, any malformation, or an unwired non-empty list, and
 passes with a warning on an adopter or machine-local `skip` (REQ-H1.3,
 REQ-A1.3); `check:steps` runs it over every named point of this repository's
@@ -287,8 +284,8 @@ applying to every session-hosted step as to everything else, the ready-guard
 on its flip surfaces (the shell ready command and the GitHub MCP pull-request
 update tool); a runner subprocess sees no hook, so these controls bind it by
 declaration alone, and the no-push ordering is doctrine, enforced by no
-mechanism. After `post-pr` ends, by completion or by a halt, the runner
-re-emits the per-point
+mechanism. Once `post-pr`'s list stops, before any pause destination is
+taken, the runner re-emits the per-point
 tables through the PR-body assembly (post-pr's included) and verifies the PR
 is still a draft, parking the unit to Awaiting input naming the post-pr
 steps that ran when it is not; if the head moved it also regenerates the
@@ -343,9 +340,10 @@ the full captured output's cache path where one exists (that output stays
 unscreened in the cache), and a skip reason when skipped. The runner also
 writes one **point-completion record** per point whose list ran, to
 completion or to a halt, an empty list included, carrying the point, run id,
-the head SHA the list ended on, and the resolver's warnings; a point that
-parked, asked, or failed resolution writes none. The in-run points' tables fold into `/execute-task`'s
-PR body inside the collapsed audit block
+the head SHA the list ended on, and the resolver's warnings; a point the
+matrix parked or asked, or whose resolution failed, writes none. The in-run
+points' tables fold into `/execute-task`'s PR body inside the collapsed
+audit block
 ([PR-body assembly](gate-wiring.md#pr-body-assembly)), the current run's
 records only, with every rendered cell and warning screened and
 **table-safe** (markup, pipes, and newlines neutralized, mentions and
@@ -368,8 +366,8 @@ on the exact head the list ended on, in the base repository the PR targets,
 through `step-record.sh status`, which reads the records from the worktree
 the point ran in. The latest attempt is that flip point's newest completion
 record naming the head, in the helper's run-id order; a head with none is
-refused, which counts as a failed post. A point that parked, asked, or failed
-resolution posts nothing.
+refused, which counts as a failed post. A point the matrix parked or asked,
+or whose resolution failed, posts nothing.
 
 | Head branch | Context |
 | --- | --- |
