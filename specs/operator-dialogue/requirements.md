@@ -627,6 +627,15 @@ object is content delivered to the operator or to an artifact.
   requested-detail precedence over REQ-J1.5, capture-not-a-bypass,
   REQ-M1.2/M1.3 wording). Meaning-class; anchor re-recorded in the brief's
   delta re-walkthrough entry.
+- 2026-09-23: Acceptance join (Task 13). The extension's `test-spec.md`
+  entries (the REQ-I intro and REQ-I1.2 through REQ-M1.4) flipped from
+  planned voice to their now-runnable paths: each names the invariant, the
+  fixture pair that passes and fails it, and the command that runs it
+  (`mise run eval:turn-shape`, `tests/test-turn-shape-eval.sh`,
+  `tests/test-fleet-attention-render-change.sh`,
+  `tests/test-check-sidedness.sh`, `mise run check:no-ci-evals`). No
+  requirement, decision, or verification tag changed. Expression-only;
+  anchor re-recorded in the brief's amendment log.
 
 ## Sources
 

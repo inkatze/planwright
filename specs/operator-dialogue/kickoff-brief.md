@@ -642,6 +642,23 @@ Class: expression-only
 Anchor: `3fca16386e6edbd08a6d4c03d38959815a0f777d` — computed as
 `scripts/spec-anchor.sh specs/operator-dialogue`
 
+### Re-anchor — test-spec flip to runnable paths (2026-09-23)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), by `/execute-task` for Task 13. The
+extension's `test-spec.md` entries (the REQ-I intro and REQ-I1.2 through
+REQ-M1.4) were reworded from planned voice to name the invariant, fixture
+pair, and command that now runs each; no requirement, decision, task, or
+verification tag changed. The stale-anchor pre-flight recomputed the
+previous entry's anchor (`3fca163…`) unchanged before the edit.
+
+**Cites the changelog line:** the 2026-09-23 `## Changelog` entry in
+`requirements.md` ("Acceptance join (Task 13)").
+
+Class: expression-only
+Anchor: `20896fd756758e546118f1a6a94e209542ca0bb0` — computed as
+`scripts/spec-anchor.sh specs/operator-dialogue`
+
 ## 10. Acceptance join record (Task 13, 2026-09-23)
 
 The turn-shape invariants pointed at the repaired surfaces for the first
