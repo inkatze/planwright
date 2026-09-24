@@ -31,8 +31,8 @@ failure.
 
 ## Doctrine
 
-This skill is procedure, not doctrine. One rule doc informs it; resolve it
-at run start via the rule-doc resolution convention
+This skill is procedure, not doctrine. Two rule docs inform it; resolve
+each via the rule-doc resolution convention
 (`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright
 root, or the documented `PLANWRIGHT_ROOT` / `CLAUDE_PLUGIN_ROOT` chain):
 
@@ -40,15 +40,18 @@ root, or the documented `PLANWRIGHT_ROOT` / `CLAUDE_PLUGIN_ROOT` chain):
   = optional in-worktree cache), the kickoff-brief structure, and the
   `planwright/<spec>/task-<id-or-ids>` branch convention this skill parses
   to locate the spec.
+- `interaction-style` — the three disciplines and the turn/artifact
+  arbitration, which govern the one attended turn this skill has: Step 8's.
 
 Because `/resume` is a read-only loader, a doc that does not resolve is a
 one-line degradation note, not a halt: fall back to reading the brief and
 `tasks.md` directly and proceed (REQ-K1.7).
 
 Doctrine manifest (machine-parseable, per `doctrine/instruction-hygiene.md`;
-`run-start` loads before work begins):
+`run-start` loads before work begins, `point-of-use` at the named step):
 
 Doctrine: run-start spec-format
+Doctrine: point-of-use interaction-style (Step 8's turn)
 
 ## Procedure
 
@@ -149,14 +152,14 @@ state, not an error.
 ### 7. Load the optional handover brief and polish audit
 
 If `<worktree>/.claude/handover.md` exists, read it and fold its in-flight
-notes into the summary. It is an optional best-effort cache (D-3), not a
+notes into the context Step 8 offers. It is an optional best-effort cache (D-3), not a
 contract: its absence is normal and never an error.
 
 `<worktree>/.claude/polish-audit.md` is the same kind of cache, left by a
 standalone `/polish` run, and this skill is its named reader. If it exists,
-present it the way `/polish` would have: the counts and the residue, each
-pending sign-off and each queued fork as one line, with the file as the
-pointer. Never replay the tables into the turn. Its absence is normal and
+carry it into Step 8 the way `/polish` would have: each pending sign-off and
+each queued fork as one line among the question's options, the counts in the
+detail, the file as the pointer. Never replay the tables into the turn. Its absence is normal and
 never an error, exactly as for the brief above.
 
 ### 8. Surface the working tree and ask before proceeding
@@ -166,15 +169,42 @@ unstaged, and untracked changes. Do not stash, commit, clean, or otherwise
 touch the working tree — the decision about uncommitted state belongs to
 the human (D-30).
 
-Then present the consolidated context (unit, brief slice, task state, git
-log, PR state, handover notes, working-tree status) and **ask the human how
-they want to proceed** before doing any further work. When a `<spec>` was
-resolved, also recommend — as an **optional independent step** — that the
-human may run `/spec-walkthrough specs/<spec>` themselves for an unaided,
-plain-language re-read of the bundle to re-orient (REQ-F1.1, REQ-F1.2, D-11).
-It is a suggestion only, never a step this skill performs, and as a read-only
-loader `/resume` neither runs it nor depends on it. `/resume` ends here;
-continuing the work is a separate, human-initiated step.
+Then, before doing any further work, **ask the human how they want to
+proceed**. Steps 3–7 gather; nothing they gather reaches the operator before
+this turn, which is a projection of the load (`interaction-style`, the
+arbitration), not the load itself:
+
+- **The question leads**, with the decisions the load surfaced as its
+  options — uncommitted changes to settle, a pending sign-off or open fork
+  from the polish audit, a halt recorded against the unit — each option
+  stating its own action and consequence, per the balance rules, with an
+  explicit leave-it-for-now option.
+- **One compact status line** follows: the unit, its derived phase, the PR
+  number and draft state (or none, or unknown when Step 6 could not ask), the
+  working tree as clean or a count of changed paths, and "partial load" when
+  any step degraded.
+- **The context elements** — unit, brief slice, task state, git log,
+  PR state, handover notes, the polish audit's counts, working-tree status —
+  are offered on request,
+  one layer at a time, never emitted by default. A decision the operator
+  must weigh is never hidden in that layer: it belongs in the question.
+
+A follow-up the operator names in the answer gets its tracked form proposed
+per `interaction-style`'s *Capture at birth*, but `/resume` stays read-only:
+the session continues with that write as its first act, once the operator
+confirms, and this skill never makes it. A proposal the operator declines is
+not tracked. Mirror the turn into
+the structured decision/transcript log as one `turn` record, sanitized like
+the log's other records (D-19); where the harness provides no such log, say
+the mirror was skipped, never improvising one into the repository.
+
+When a `<spec>` was resolved, also recommend — as an **optional independent
+step**, one line — that the human may run `/spec-walkthrough specs/<spec>`
+themselves for an unaided, plain-language re-read of the bundle to re-orient
+(REQ-F1.1, REQ-F1.2, D-11). It is a suggestion only, never a step this skill
+performs, and as a read-only loader `/resume` neither runs it nor depends on
+it. `/resume` ends here; continuing the work is a separate, human-initiated
+step.
 
 ## Invariants
 
@@ -183,7 +213,8 @@ self-healing drift-log note (Maintenance section): recording one observation
 fragment through `scripts/obs-record.sh` and committing it as its own chore
 commit. That chore never touches the resumed work; every invariant below
 describes the read-only guarantee over that work, and the drift-log note is
-the sole carved-out exception.
+the sole carved-out exception. Step 8's `turn` record goes to a log the
+harness provides, outside the repository, so it touches neither.
 
 - **Never** modify the working tree of the resumed work: no stash, clean,
   checkout, reset, or commit of in-flight changes. `/resume` only reads it

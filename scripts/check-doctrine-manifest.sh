@@ -10,14 +10,14 @@
 # machine-parseable manifest line (`Doctrine: <load> interaction-style`), not
 # merely in incidental prose. This check is the CI backstop for that rule.
 #
-# The instantiated-surface list is deliberately partial and grows per pass: the
-# kickoff surface is instantiated this pass (`/spec-kickoff`), and `/spec-draft`
-# already cites the doctrine. The execution-side surfaces (/orchestrate,
-# /execute-task, /resume, /drain) add the citation when their behavior is
-# reworked on their deferred pass (see the operator-dialogue tasks.md Deferred
-# entry); until then they are intentionally NOT in the list, so the check never
-# demands a citation ahead of the behavior that honors it. To widen the list on
-# a future instantiation pass, add the surface name to DEFAULT_SURFACES below.
+# The instantiated-surface list grows per pass and never runs ahead of the
+# behavior: `/spec-draft` cited the doctrine first, the kickoff pass added
+# `/spec-kickoff`, and the execution-side pass added `/resume` and `/drain`.
+# `/orchestrate` and `/execute-task` are execution-side surfaces too, but the
+# doctrine's size does not fit either skill's reachable-closure headroom
+# (check:instructions), so their citation waits on a budget decision and they
+# join this list in the change that adds it. To widen the list, add the surface
+# name to DEFAULT_SURFACES below.
 #
 # The "manifest" is the block of `Doctrine: <run-start|point-of-use> <doc>`
 # lines an instruction-hygiene manifest emits (doctrine/instruction-hygiene.md).
@@ -61,10 +61,10 @@ prog="check-doctrine-manifest"
 # attended surfaces instantiate the interaction-style doctrine.
 DOCTRINE="interaction-style"
 
-# The instantiated attended surfaces (REQ-A1.3, kickoff-first this pass). Widen
-# this list as each further surface's behavior is reworked to instantiate the
-# doctrine — never ahead of it.
-DEFAULT_SURFACES="spec-kickoff spec-draft"
+# The instantiated attended surfaces (REQ-A1.3, REQ-K1.1). Widen this list as
+# each further surface's behavior is reworked to instantiate the doctrine —
+# never ahead of it.
+DEFAULT_SURFACES="spec-kickoff spec-draft resume drain"
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 skills_root="$repo_root/skills"
@@ -109,6 +109,7 @@ manifest_re="^Doctrine:[[:space:]]+(run-start|point-of-use)[[:space:]]+${DOCTRIN
 
 violations=0
 checked=0
+checked_list=""
 for surface in $surfaces; do
   skill_md="$skills_root/$surface/SKILL.md"
   if [ ! -f "$skill_md" ]; then
@@ -116,6 +117,7 @@ for surface in $surfaces; do
     exit 2
   fi
   checked=$((checked + 1))
+  checked_list="$checked_list $(sanitize_printable "$surface")"
   if grep -Eq "$manifest_re" "$skill_md"; then
     continue
   fi
@@ -128,5 +130,5 @@ if [ "$violations" -ne 0 ]; then
   exit 1
 fi
 
-echo "$prog: all $checked instantiated surface(s) cite '$DOCTRINE' in their manifest"
+echo "$prog: all $checked instantiated surface(s) cite '$DOCTRINE' in their manifest:$checked_list"
 exit 0

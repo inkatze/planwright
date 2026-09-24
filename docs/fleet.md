@@ -103,6 +103,28 @@ holding it died, and a plain `queue` renders everything. The count `--count`
 prints is never filtered — that one tracks the `## Awaiting input` entries,
 which a hand-over does not close.
 
+The watch loop renders both views with `scripts/fleet-attention.sh render
+--on-change <tower>` and `queue --on-change <tower>` (not to be confused with
+`fleet-attention-watch.sh`'s `--on-change <cmd>` callback). `render` shows each
+worker's age as a coarse bucket (`<10m`, `10m+`, `30m+`, `1h+`, and so on up to
+`1d+`) and reprints only when its text would differ from what it last printed:
+a worker's state or scope moving, a worker arriving or leaving, or a stalled
+worker's age crossing into the next bucket. On a quiet iteration it prints
+nothing, or, every ten minutes by default (`--liveness <seconds>`), one line
+saying nothing has changed, so a silent loop and a dead one still look
+different. `queue --on-change` never holds back a pending decision: while one
+waits it renders every iteration, because a decision raised again in the same
+words would look exactly like the one before it. Only an empty queue stays
+silent once the loop has seen it empty. Because silence means "unchanged" here,
+a change that empties a view (the last decision answered, the last worker
+cleared) prints one line saying so; a hand-over that narrows the queue to
+nothing is not that change. `<tower>` is the loop's presence identity
+(`scripts/fleet-presence.sh identity`), which pins the process start time, so a
+new tower session starts with a full render rather than inheriting what an
+earlier one showed, even on a reused pid. A bare `p<pid>` is refused; when no
+identity resolves, drop `--on-change` and render in full. The plain commands
+above always render in full.
+
 ## The operator queue: what the tower brings you
 
 The decision queue above is the workers' list. A tower session keeps a second

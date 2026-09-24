@@ -74,8 +74,8 @@ would-be prompt to Awaiting input), implied for non-interactive sessions.
 ## Pre-flight (per step)
 
 Run in order. Any halt records the unit (when one is selected) and ends the step,
-per **Halt → Awaiting input** below. When several pre-flight halts fire at once,
-report them together (D-45).
+per **Halt → Awaiting input** below; simultaneous ones batch into the step
+report (D-45).
 
 1. **Parse `$ARGUMENTS`.** Extract the mode flags above and an optional spec
    path (`specs/<spec>` or bare `<spec>`). Validate the `<spec>` segment against
@@ -89,17 +89,13 @@ report them together (D-45).
    accumulators are not bundles); (d) ask, listing the available bundles. Verify
    the directory holds `requirements.md`, `design.md`, `tasks.md`, and
    `test-spec.md`.
-3. **Resolve the doctrine docs** (above): fail closed on a core-doc failure on a
-   dispatch path, degrade on a non-dispatching one.
+3. **Resolve the doctrine docs** (above).
 4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap
    non-Active refusal — REQ-F1.4, REQ-J1.2, D-33). Read the `**Status:**` line in
    `requirements.md`. `Ready` (signed off, no work started) and `Active` (work in
    flight) are both dispatchable; refuse Draft, Done, Retired, and Superseded. For
    **Draft**, halt and prompt `/spec-kickoff`; for Done or terminal, say it has
-   nothing to orchestrate. There is no bypass flag; this skill **never**
-   invokes `/spec-kickoff` itself (REQ-J1.3) — the human runs it. A `Ready` spec is
-   dispatched on the same terms as Active: the freshness gate below still applies
-   (REQ-C1.3), composing with this one.
+   nothing to orchestrate.
 5. **Run the validator** (REQ-K1.7). `scripts/spec-validate.sh specs/<spec>`. On
    a dispatch step a missing or non-executable validator **fails closed** and
    halts (REQ-A2.1 outranks degradation); a Ready or Active bundle's findings are
@@ -124,7 +120,7 @@ a task is a candidate while its block sits in `## Forward plan`; on a
 derivational and parked-ness is a live reference bullet naming the task in
 `## Awaiting input`, `## Deferred`, or `## Out of scope` (invariant-tasks D-8).
 
-Selector exits (full contract: `selection-contract`):
+Selector exits:
 
 - Exit 0 → the unit (subject to bundling below).
 - Exit 1 → no ready unit; in `--watch` stop the loop, else report it and exit
@@ -196,8 +192,7 @@ law is `orchestration-concurrency` (read here). Ordered steps:
    until its branch carries a commit (branch evidence then supersedes it); no
    `tasks.md` write or commit.
 5. **Release the lock** before dispatching: `scripts/orchestrate-lock.sh release
-   specs/<spec>`. The lock is held only across this window, never across execution
-   (D-10).
+   specs/<spec>`.
 
 ### Worktree create / reuse (REQ-F1.8, D-37, D-44)
 
@@ -281,8 +276,7 @@ it when relaying to or cleaning up after a worker.
 ## --watch
 
 Loop the full step (pre-flight → reconcile → select → dispatch record →
-dispatch) until selection reports no ready unit or a halt fires (ending the loop
-with the reason surfaced).
+dispatch), surfacing the reason the loop ends.
 
 **Tower marker (fleet-autonomy D-4).** At watch-loop start record the marker
 (`scripts/fleet-tower-marker.sh record`: `unattended` under `--unattended`, else
@@ -400,9 +394,21 @@ The out-of-session drain pass. Dispatches nothing; it:
    non-zero; no LLM (REQ-E1.3). See the script header.
 
 On `--bookkeeping`, missing prerequisites degrade with a message (not a dispatch
-path); it never merges and never advances local `main`. Its one sanctioned push
-is the observation carry's chore branch (step 5); the draft→ready flip and every
-merge stay the human's.
+path); it never merges and never advances local `main`.
+
+## Step report
+
+Each step ends with one report at the operator, in three slots never mixed:
+**state** (the derived picture now, not an event stream), **reasoning** (a
+line or two, or absent), and **requests** (each decision-shaped). A request
+settled in the turn is done; a halt's is already recorded; any other left open
+is proposed in its tracked form and written once confirmed, never left in
+prose. Several halts batch into requests: the count, then one line each, those
+the operator can unblock first, detail on request; lock contention and a
+transient hold are state, not requests. Under `--watch`, a step that changed
+nothing reports nothing new. Mirror each report as one `turn` record in the
+decision/transcript log, sanitized (D-19); without that log, say the mirror
+was skipped.
 
 ## Halt → Awaiting input (REQ-F1.5)
 
@@ -443,9 +449,8 @@ These hold at every step:
   run it.
 - **Never** merge a PR, mark one ready, or create a non-draft PR (REQ-J1.1,
   REQ-F1.6) — `/execute-task` opens drafts; ready and merge are the human's.
-- **Never** write or commit `tasks.md` section placement at dispatch — the record
-  is the task branch + runtime marker (D-1, D-3, REQ-A1.1, REQ-A1.2); placement
-  is the level-triggered reconcile's, off the dispatch path.
+- **Never** write or commit `tasks.md` section placement at dispatch (D-1, D-3,
+  REQ-A1.1, REQ-A1.2).
 - **Never** force-push, amend, squash, or rebase; new commits only (REQ-J1.4).
   Every commit is local only except the **one** sanctioned push — the
   `--bookkeeping` observation carry's own chore branch (Task 9, D-9, REQ-D1.3):
@@ -456,14 +461,12 @@ These hold at every step:
   written standing decision it falls strictly inside may) or type into its input line;
   detection is capture-pane only, relay is buffer-paste only (D-38, D-7;
   `inter-orchestrator-coordination`).
-- **Never** auto-resolve or auto-drop a gate in `--bookkeeping` (REQ-H1.4) —
-  re-surface only.
-- **Never** orphan an In-progress unit without PR-state-first reconciliation, the
-  grace threshold, an observable backend, and positive evidence of death
+- **Never** auto-resolve or auto-drop a gate in `--bookkeeping` (REQ-H1.4).
+- **Never** orphan an In-progress unit outside the reconcile sweep's predicate
   (REQ-F1.1).
 - **Never** write an anchor entry: this skill is a freshness-gate reader, not a
-  sanctioned anchor writer (REQ-F1.10); its dispatch record writes no `tasks.md`,
-  and any reconcile placement write is anchor-excluded by construction.
+  sanctioned anchor writer (REQ-F1.10); any reconcile placement write is
+  anchor-excluded by construction.
 - **Never** hold the per-spec lock across execution; only across the
   freshness-gate-plus-marker window (D-10).
 - **Never** loosen any invariant at the meta tier (`--meta`, D-6): never-merge and

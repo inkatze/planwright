@@ -4,13 +4,12 @@
 # instantiates an attended human moment SHALL cite the governing doctrine in its
 # machine-parseable manifest (`Doctrine: <load> interaction-style`), so the
 # citation tracks the behavior it governs. The check greps the manifests of the
-# surfaces this spec has instantiated (`/spec-kickoff` this pass; `/spec-draft`
-# already cites it) and fails if an instantiated attended surface omits it.
+# surfaces this spec has instantiated and fails if an instantiated attended
+# surface omits it.
 #
-# The surface list is deliberately partial: the execution-side surfaces
-# (/orchestrate, /execute-task, /resume, /drain) add the citation on their
-# deferred instantiation pass (tasks.md Deferred), so the check's list widens
-# per pass rather than demanding a citation ahead of the behavior. These tests
+# The surface list widens per pass rather than demanding a citation ahead of the
+# behavior; the checker's header says which surfaces are in it and why the rest
+# are not yet. These tests
 # pin: (a) the real repo's instantiated surfaces pass; (b) a manifest that omits
 # the citation fails; (c) a prose-only mention (not on a `Doctrine:` manifest
 # line) does NOT satisfy it — the manifest is the machine-parseable contract,
@@ -61,6 +60,11 @@ echo "== real repo: instantiated attended surfaces cite the doctrine =="
 out="$(/bin/bash "$CHECKER" 2>&1)"
 assert_exit "default run over the real instantiated surfaces passes" 0 "$?"
 assert_contains "the run names the doctrine it checked for" "interaction-style" "$out"
+# The execution-side instantiation pass widened the list; each surface it
+# instantiated is checked by default, not only on request.
+for surface in spec-kickoff spec-draft resume drain; do
+  assert_contains "the default list checks /$surface" " $surface" "$out"
+done
 
 # ---- synthesize an isolated skills root for the negative cases ----
 mk_skill() { # mk_skill <root> <name> <manifest-body-file-contents...>

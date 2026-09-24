@@ -227,14 +227,16 @@ keeps the attention store current and renders it, through
   whose unit is no longer in flight or awaiting input — so a crash between an
   edge and its mirror, a lost write, or a late heartbeat self-heals within
   one iteration and stale workers do not linger on the surface.
-- **Each watch iteration ends by rendering the surface**:
-  `scripts/fleet-attention.sh render` (per-worker scope + state), then
-  `scripts/fleet-attention.sh queue` (the ordered decision queue), passing
-  `--except <worker>` for each worker the iteration's own operator-comms step
-  reported `delivered`. When the selected backend **advertises**
-  `provides_attention_surface=true`, pass `--surface-provided`: the queue defers
-  to the backend's own surface while `render` stays available — adapt to the
-  advertised set, never the name.
+- **Each watch iteration ends by rendering the surface on a transition**:
+  `scripts/fleet-attention.sh render --on-change <tower>`, then
+  `queue --on-change <tower>` (`<tower>`: `scripts/fleet-presence.sh identity`,
+  else omit `--on-change`),
+  passing `--except <worker>` for each worker the iteration's own
+  operator-comms step reported `delivered`. An iteration changing no worker's
+  state or decision re-renders nothing but a periodic liveness line. When the
+  selected backend **advertises** `provides_attention_surface=true`, pass
+  `--surface-provided`: the queue defers to the backend's own surface while
+  `render` stays available — adapt to the advertised set, never the name.
 
 Attention calls are **best-effort surface maintenance**: a failed
 `heartbeat`/`decide`/`clear` is reported and never halts the step — the
