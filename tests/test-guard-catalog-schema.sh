@@ -30,11 +30,11 @@ fail() {
   failures=$((failures + 1))
 }
 
-[ -r "$CATALOG" ] || {
+[ -f "$CATALOG" ] && [ -r "$CATALOG" ] || {
   echo "FAIL: catalog missing or unreadable at $CATALOG" >&2
   exit 1
 }
-[ -r "$DOCTRINE" ] || {
+[ -f "$DOCTRINE" ] && [ -r "$DOCTRINE" ] || {
   echo "FAIL: doctrine missing or unreadable at $DOCTRINE" >&2
   exit 1
 }
@@ -51,7 +51,7 @@ enum=$(awk '
   }
 ' "$DOCTRINE" | sort -u)
 [ -n "$enum" ] || {
-  echo "FAIL: doctrine/guard-catalog.md §Guard categories declares no category id bullet — the enum parsed to zero rows" >&2
+  echo "FAIL: $DOCTRINE §Guard categories declares no category id bullet — the enum parsed to zero rows" >&2
   exit 1
 }
 in_enum() { printf '%s\n' "$enum" | grep -qxF -- "$1"; }
@@ -89,7 +89,7 @@ records=$(awk '
   END { flush() }
 ' "$CATALOG")
 [ -n "$records" ] || {
-  echo "FAIL: config/guard-catalog.yaml parsed to zero entries" >&2
+  echo "FAIL: $CATALOG parsed to zero entries" >&2
   exit 1
 }
 # Fail closed per section, not only on the whole: a guards: block whose items
@@ -97,14 +97,17 @@ records=$(awk '
 # entries and the core catalog would go unchecked.
 for section in guards breadth; do
   printf '%s\n' "$records" | awk -F'|' -v s="$section" '$6 == s { found = 1 } END { exit !found }' || {
-    echo "FAIL: config/guard-catalog.yaml $section: section parsed to zero entries" >&2
+    echo "FAIL: $CATALOG $section: section parsed to zero entries" >&2
     exit 1
   }
 done
 
 n=0
 while IFS='|' read -r id cat tool detect core section; do
-  [ -n "$id" ] || continue
+  [ -n "$id" ] || {
+    fail "a $section: entry with an empty id"
+    continue
+  }
   n=$((n + 1))
   [ -n "$cat" ] || fail "$id: no category"
   [ -n "$tool" ] || fail "$id: no tool"
@@ -238,6 +241,20 @@ if [ -z "${GUARD_CATALOG_SCHEMA_YAML:-}${GUARD_CATALOG_SCHEMA_DOC:-}" ]; then
 
   mkcatalog "$tmp/no-category.yaml" ""
   expect_fail "missing category field" "no category" "$tmp/no-category.yaml" "$DOCTRINE"
+
+  # The per-field and per-entry assertions past the fail-closed exits: each
+  # is planted by editing the positive control in exactly one place.
+  sed '/^    tool: shfmt$/d' "$tmp/good.yaml" >"$tmp/no-tool.yaml"
+  expect_fail "missing tool field" "format-shell: no tool" "$tmp/no-tool.yaml" "$DOCTRINE"
+
+  sed 's/^  - id: format-shell$/  - id:/' "$tmp/good.yaml" >"$tmp/empty-id.yaml"
+  expect_fail "empty id" "entry with an empty id" "$tmp/empty-id.yaml" "$DOCTRINE"
+
+  sed 's/^    core: false$/    core: true/' "$tmp/good.yaml" >"$tmp/breadth-core.yaml"
+  expect_fail "breadth entry promoted to core" "cannot be core: true" "$tmp/breadth-core.yaml" "$DOCTRINE"
+
+  sed 's/^    category: budget$/    category: security/' "$tmp/good.yaml" >"$tmp/recategorized.yaml"
+  expect_fail "categorized breadth entry under the wrong category" "test-time-budget: category is 'security', expected 'budget'" "$tmp/recategorized.yaml" "$DOCTRINE"
 fi
 
 echo "ALL PASS: guard-catalog-schema"
