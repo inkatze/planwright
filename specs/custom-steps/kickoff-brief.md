@@ -433,6 +433,12 @@ such, on which an explicit `isolated` step degrades and records it; row 8
 holds in one direction only (a newer config breaks an older install, row
 16). Rows 12 to 16 came from the sign-off pass.
 
+*Appended at Task 1 execution (2026-09-24):*
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 17 | The rule doc, complete against every rule the spec assigns it and the gaps its review pass closed, measures past the execute-task closure headroom the cross-cutting note assumed (the doc's word count against the guard's reported closure margin, both read from `check:instructions --audit` on the Task 1 branch), so Task 5 cannot load it point-of-use at the current budget with its own additions funded only by the convergence trim. | Queued as a fork on the Task 1 PR: relief sized to the doc (the raise precedent), a deeper Task 5 body diet, or trimming the doc's delegable detail into the script usage headers. Early signal: `check:instructions` failing the execute-task closure on the Task 5 branch. Recorded as obs:d6406add. |
+
 The operator's cold review added no row. No open question remains.
 
 Signed off: 2026-09-22
