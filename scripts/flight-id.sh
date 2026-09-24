@@ -136,21 +136,33 @@ probe_failed() {
   exit 5
 }
 
-# default_bases — the refs a merged record can live on: the remote's default
-# branch (origin/HEAD) plus the conventional names, local and remote-tracking,
-# keeping only those that resolve to a commit. A retired flight's record must
-# be visible from a checkout whose local default branch is behind.
-default_bases() {
-  _bases=""
-  _head=$(git -C "$repo_root" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || _head=""
-  for _c in $_head main master origin/main origin/master; do
-    case " $_bases " in
+# resolve_bases — set `bases` to the refs a merged record can live on: the
+# remote's default branch (origin/HEAD) plus the conventional names, local
+# and remote-tracking, keeping those that exist. A retired flight's record
+# must be visible from a checkout whose local default branch is behind. Full
+# ref names throughout: a bare `main` would resolve a tag of that name first,
+# and tags arrive with any fetch. Runs in the calling shell so a probe
+# failure exits.
+bases=""
+resolve_bases() {
+  bases=""
+  _head=$(git -C "$repo_root" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || _head=""
+  for _c in $_head refs/heads/main refs/heads/master \
+    refs/remotes/origin/main refs/remotes/origin/master; do
+    case " $bases " in
       *" $_c "*) continue ;;
     esac
-    git -C "$repo_root" rev-parse --verify --quiet "$_c^{commit}" >/dev/null 2>&1 || continue
-    _bases="$_bases $_c"
+    _rc=0
+    git -C "$repo_root" show-ref --verify --quiet "$_c" 2>/dev/null || _rc=$?
+    case $_rc in
+      0) ;;
+      1) continue ;;
+      *) probe_failed "show-ref $_c" ;;
+    esac
+    git -C "$repo_root" rev-parse --verify --quiet "$_c^{commit}" >/dev/null 2>&1 \
+      || probe_failed "rev-parse $_c"
+    bases="$bases $_c"
   done
-  printf '%s' "$_bases"
 }
 
 # evidence_for <id> — collect the durable evidence lines for a checked id
@@ -185,11 +197,14 @@ evidence_for() {
   if [ -e "$repo_root/$_rec" ] || [ -L "$repo_root/$_rec" ]; then
     add_evidence record "$_rec"
   fi
-  for _base in $(default_bases); do
+  resolve_bases
+  for _base in $bases; do
     _hit=$(git -C "$repo_root" ls-tree --name-only "$_base" -- "$_rec" 2>/dev/null) \
       || probe_failed "ls-tree $_base"
     if [ -n "$_hit" ]; then
-      add_evidence record "$_base:$_rec"
+      _label=${_base#refs/heads/}
+      _label=${_label#refs/remotes/}
+      add_evidence record "$_label:$_rec"
     fi
   done
   _wt=.claude/worktrees/flight-$_id
