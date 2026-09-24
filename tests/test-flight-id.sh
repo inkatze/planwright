@@ -176,17 +176,25 @@ printf '%s' "$OUT" | grep -q "^evidence	record	origin/main:specs/_flights/demo-0
 printf '%s' "$OUT" | grep -q "^evidence	record	main:" \
   && fail "taken (record on origin/main only): local main misreported, got [$OUT]"
 
-# 3d'''. A tag named like a base cannot shadow the branch: the record on the
-#        remote-tracking branch is still seen when a tag `origin/main` points
-#        at a commit without it.
+# 3d''. A tag named like a base cannot shadow the branch: the record on the
+#       remote-tracking branch is still seen when a tag `origin/main` points
+#       at a commit without it.
 gitc "$repo" tag origin/main "$(gitc "$repo" rev-parse origin/main~1)"
 run 0 taken demo-0badf00d --repo-root "$repo"
 printf '%s' "$OUT" | grep -q "^evidence	record	origin/main:specs/_flights/demo-0badf00d.md$" \
   || fail "taken (tag shadowing origin/main): evidence not named, got [$OUT]"
 gitc "$repo" tag -d origin/main >/dev/null
 
-# 3d''. A default branch that is not called main is still consulted, through
-#       the remote's HEAD.
+# 3d'''. A base ref that exists but does not resolve to a commit is a probe
+#        failure (exit 5), never a silent skip of the records it might hold.
+blob=$(printf 'x' | gitc "$repo" hash-object -w --stdin)
+gitc "$repo" update-ref refs/remotes/origin/master "$blob"
+run 5 taken demo-0badf00d --repo-root "$repo"
+[ -z "$OUT" ] || fail "an unresolvable base still printed evidence: [$OUT]"
+gitc "$repo" update-ref -d refs/remotes/origin/master
+
+# 3d''''. A default branch that is not called main is still consulted, through
+#         the remote's HEAD.
 gitc "$clone2" branch -m main trunk
 gitc "$clone2" push -q origin trunk
 git -C "$origin" symbolic-ref HEAD refs/heads/trunk
