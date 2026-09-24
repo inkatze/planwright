@@ -40,7 +40,8 @@
 #
 # Exit: 0 success; 1 check failed / not taken; 2 usage error or a malformed
 # argument (nothing minted, nothing echoed); 3 every uid candidate was taken;
-# 4 no usable uid source.
+# 4 no usable uid source; 5 the evidence probe failed (a git error, never
+# read as "no evidence").
 #
 # Portable POSIX sh (the bash 3.2 / busybox floor).
 set -eu
@@ -118,30 +119,55 @@ resolve_repo() {
   esac
 }
 
-# evidence_for <id> — print the durable evidence lines for a checked id.
+# A git failure while probing is not "no evidence": refuse to judge the id
+# rather than mint it over a branch or record the probe could not read.
+probe_failed() {
+  echo "$prog: evidence probe failed ($1); refusing to judge the id" >&2
+  exit 5
+}
+
+# evidence_for <id> — collect the durable evidence lines for a checked id
+# into `found` (one `evidence<TAB><class><TAB><what>` per line). It runs in
+# the calling shell, never a command substitution, so a probe failure exits
+# the script instead of reading as an empty (free) result.
+found=""
+add_evidence() {
+  _line=$(printf 'evidence\t%s\t%s' "$1" "$2")
+  found="${found}${_line}${LF}"
+}
 evidence_for() {
   _id=$1
+  found=""
   _ref=refs/heads/planwright/flight/$_id
-  if git -C "$repo_root" show-ref --verify --quiet "$_ref"; then
-    printf 'evidence\tbranch\t%s\n' "$_ref"
-  fi
-  git -C "$repo_root" for-each-ref --format='%(refname)' \
-    "refs/remotes/*/planwright/flight/$_id" 2>/dev/null \
-    | while IFS= read -r _r; do
-      [ -n "$_r" ] && printf 'evidence\tbranch\t%s\n' "$_r"
-    done
+  _rc=0
+  git -C "$repo_root" show-ref --verify --quiet "$_ref" 2>/dev/null || _rc=$?
+  case $_rc in
+    0) add_evidence branch "$_ref" ;;
+    1) ;;
+    *) probe_failed "show-ref" ;;
+  esac
+  _remotes=$(git -C "$repo_root" for-each-ref --format='%(refname)' \
+    "refs/remotes/*/planwright/flight/$_id" 2>/dev/null) || probe_failed "for-each-ref"
+  # Ref names carry no whitespace, so splitting the list on it is exact.
+  # shellcheck disable=SC2086
+  for _r in $_remotes; do
+    add_evidence branch "$_r"
+  done
   _rec=specs/_flights/$_id.md
   if [ -e "$repo_root/$_rec" ]; then
-    printf 'evidence\trecord\t%s\n' "$_rec"
+    add_evidence record "$_rec"
   fi
   for _base in main origin/main; do
-    if git -C "$repo_root" cat-file -e "$_base:$_rec" 2>/dev/null; then
-      printf 'evidence\trecord\t%s:%s\n' "$_base" "$_rec"
+    git -C "$repo_root" rev-parse --verify --quiet "$_base^{commit}" >/dev/null 2>&1 || continue
+    _hit=$(git -C "$repo_root" ls-tree --name-only "$_base" -- "$_rec" 2>/dev/null) \
+      || probe_failed "ls-tree $_base"
+    if [ -n "$_hit" ]; then
+      add_evidence record "$_base:$_rec"
     fi
   done
   _wt=.claude/worktrees/flight-$_id
   if [ -e "$primary/$_wt" ]; then
-    printf 'evidence\tworktree\t%s\n' "$_wt"
+    add_evidence worktree "$_wt"
   fi
 }
 
@@ -226,9 +252,9 @@ case $cmd in
       exit 2
     }
     resolve_repo
-    found=$(evidence_for "$arg")
+    evidence_for "$arg"
     [ -n "$found" ] || exit 1
-    printf '%s\n' "$found"
+    printf '%s' "$found"
     ;;
   new)
     valid_slug "$arg" || {
@@ -238,7 +264,8 @@ case $cmd in
     resolve_repo
     while next_uid; do
       candidate=$arg-$uid
-      if [ -z "$(evidence_for "$candidate")" ]; then
+      evidence_for "$candidate"
+      if [ -z "$found" ]; then
         printf '%s\n' "$candidate"
         exit 0
       fi

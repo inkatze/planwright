@@ -173,6 +173,26 @@ run 3 new demo --repo-root "$repo"
 [ -z "$OUT" ] || fail "exhausted candidates still printed [$OUT]"
 echo "ok: never-reuse holds against branches, record files, and worktrees"
 
+# 3f'. A git failure during the probe is never "no evidence": the id is not
+#      judged (exit 5) and nothing is minted over a branch the probe could not
+#      read.
+gitc "$repo" branch planwright/flight/demo-0123abcd
+gitc "$repo" pack-refs --all
+chmod 000 "$repo/.git/packed-refs"
+if [ -r "$repo/.git/packed-refs" ]; then
+  echo "skip: packed-refs stays readable here (root?), the probe-failure case is not exercised" >&2
+else
+  run 5 taken demo-0123abcd --repo-root "$repo"
+  [ -z "$OUT" ] || fail "probe failure still printed evidence: [$OUT]"
+  printf '0123abcd\n' >"$tmp/uids"
+  run 5 new demo --repo-root "$repo"
+  [ -z "$OUT" ] || fail "probe failure still minted [$OUT]"
+fi
+chmod 644 "$repo/.git/packed-refs"
+gitc "$repo" branch -D -q planwright/flight/demo-0123abcd
+printf '0123abcd\n89abcdef\nfedcba98\n' >"$tmp/uids"
+echo "ok: a git error in the evidence probe fails closed"
+
 # 3g. A different slug with the same uid is a different id: not taken.
 run 0 new other --repo-root "$repo"
 [ "$OUT" = other-0123abcd ] || fail "slug isolation: expected other-0123abcd, got [$OUT]"
