@@ -153,8 +153,9 @@ evidence_for() {
   for _r in $_remotes; do
     add_evidence branch "$_r"
   done
+  # -L alongside -e: a dangling symlink is still an occupant of the name.
   _rec=specs/_flights/$_id.md
-  if [ -e "$repo_root/$_rec" ]; then
+  if [ -e "$repo_root/$_rec" ] || [ -L "$repo_root/$_rec" ]; then
     add_evidence record "$_rec"
   fi
   for _base in main origin/main; do
@@ -166,7 +167,7 @@ evidence_for() {
     fi
   done
   _wt=.claude/worktrees/flight-$_id
-  if [ -e "$primary/$_wt" ]; then
+  if [ -e "$primary/$_wt" ] || [ -L "$primary/$_wt" ]; then
     add_evidence worktree "$_wt"
   fi
 }

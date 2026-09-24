@@ -168,6 +168,22 @@ case $OUT in
   *) fail "taken (worktree dir): evidence not named, got [$OUT]" ;;
 esac
 
+# 3e'. A dangling symlink at a record or worktree path still occupies the id.
+ln -s /nonexistent-target "$repo/specs/_flights/demo-0123abcd.md"
+run 0 taken demo-0123abcd --repo-root "$repo"
+case $OUT in
+  *"record"*"specs/_flights/demo-0123abcd.md"*) ;;
+  *) fail "taken (dangling record symlink): evidence not named, got [$OUT]" ;;
+esac
+rm "$repo/specs/_flights/demo-0123abcd.md"
+ln -s /nonexistent-target "$repo/.claude/worktrees/flight-demo-0123abcd"
+run 0 taken demo-0123abcd --repo-root "$repo"
+case $OUT in
+  *"worktree"*"flight-demo-0123abcd"*) ;;
+  *) fail "taken (dangling worktree symlink): evidence not named, got [$OUT]" ;;
+esac
+rm "$repo/.claude/worktrees/flight-demo-0123abcd"
+
 # 3f. Every candidate taken: exit 3, nothing minted.
 run 3 new demo --repo-root "$repo"
 [ -z "$OUT" ] || fail "exhausted candidates still printed [$OUT]"
