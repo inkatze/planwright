@@ -92,7 +92,7 @@ def decisions_first($turns):
               else ($parts[0] | length) as $i | .pos += [.at + $i] | .at += $i + ($s.text | length) end)) .pos as $pos
         | if any($pos[]; . == null) then "turn seq \($t.seq): a section's text is not in the emitted turn, in order"
           elif any(range(1; $rk | length); $rk[.] < $rk[. - 1]) then
-            "turn seq \($t.seq) orders \([$t.sections[].role] | join(" > ")), so a decision trails supporting state or bookkeeping"
+            "turn seq \($t.seq) orders \([$t.sections[].role] | join(" > ")), so a decision trails supporting state, reasoning, or bookkeeping"
           else empty end] | verdict
   end;
 

@@ -104,10 +104,10 @@ moving the kickoff fixture onto the documented form is a separate change.
 | Invariant | Fails when |
 | --- | --- |
 | `no-table-dump` | a turn carries more tables than the fixture allows |
-| `projection-present` | a turn runs past its length bound, or a projection of a larger record does not point at an artifact that exists, is larger than the turn, and (where the fixture says) carries the full record's tables |
-| `decisions-first` | a decision, question, or request comes after supporting state or bookkeeping |
+| `projection-present` | a turn runs past its length or (where the fixture says) section bound, or a projection of a larger record does not point at an artifact that exists, is larger than the turn, and (where the fixture says) carries the full record's tables |
+| `decisions-first` | a decision, question, or request comes after supporting state, reasoning, or bookkeeping |
 | `no-monotonic-growth` | a repeated summary or open-captures list restates every state line of the one before, or a resume confirmation spends more than one line on a settled section |
-| `identifier-density` | a selector carries more REQ, D, or observation identifiers than the fixture allows, or an option lacks its action and consequence |
+| `identifier-density` | a selector carries more REQ, D, or observation identifiers than the fixture allows, or an option lacks its action (`label`) or consequence (`description`) |
 | `capture-at-birth` | the planted item is confirmed but not written to tracked state, was never proposed first, or a declined item was tracked anyway |
 | `step-report-slots` | a step report strays outside the state / reasoning / requests slots, runs its reasoning past two lines, or leaves a request uncaptured |
 | `open-captures-list` | a phase ends without showing the open-captures list |

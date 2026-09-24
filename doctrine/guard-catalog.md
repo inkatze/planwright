@@ -160,8 +160,8 @@ are (see [Dogfooding](#dogfooding)).
 
 ### Emit sidedness
 
-The `emit-sidedness` entry recommends a prose scanner reporting each emit
-mandate that names no destination side, turn or artifact, per
+The `emit-sidedness` entry recommends a prose heuristic flagging emit
+mandates that name no destination side, turn or artifact, per
 [interaction-style.md](interaction-style.md) (planwright's is
 `scripts/check-sidedness.sh`). It runs in `check` reporting-only, never
 gating: its heuristic has false positives, and a gate firing on them teaches
