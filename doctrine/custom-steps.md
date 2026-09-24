@@ -6,8 +6,8 @@ ordered list of **steps** to run there. This doc is the one normative home for t
 vocabulary, when each point fires, and the step contract (REQ-A1.5, D-9).
 Skills carry the invocation; `scripts/resolve-steps.sh` and
 `scripts/step-record.sh` carry the mechanics, their usage headers pinning
-what this doc delegates to them (line format, usage-error exit, preamble
-layout, excerpt bound, screen action); the operator's own chain lives in their
+what this doc delegates to them (among them line format, usage-error exit,
+preamble layout, excerpt bound, screen action); the operator's own chain lives in their
 overlay (D-1, [customization-boundary](customization-boundary.md)).
 
 *The runner* is the session hosting the unit, or the flipper at a flip point,
@@ -49,14 +49,14 @@ follow (REQ-A1.2, D-13).
 **Defined here, wired by the first in-repo unit-PR flipper:** `pre-ready-flip`,
 immediately before any agent-issued draft-to-ready flip of a unit PR, on the
 head to be flipped, once per flip attempt. Nothing wires it yet; it is not
-an unwired point (REQ-A1.1, REQ-E1.3, D-2).
+reported unwired (REQ-A1.1, REQ-E1.3, D-2).
 
 **Named, not wired** (gated under custom-steps' Deferred): `spec-drafted`,
 `kickoff-signed-off`, `unit-selected`, `pre-dispatch`, `post-dispatch`,
-`unit-halted`, `post-merge`, and `orchestrator-idle` (issue 383's
+`unit-halted`, `post-merge`, and `orchestrator-idle` (replacing issue 383's
 `tower-idle`, in tower-front-door REQ-H1.1's orchestrator sense). A
-non-empty list at one of these resolves no steps; the resolver, resolving
-that point, and `check:steps` report it as unwired, never silently.
+non-empty list at one of these resolves no steps; the resolver resolving
+that point and `check:steps` report it as unwired, never silently.
 
 **Flights.** Any skill that converges a flight reads `steps_convergence` with
 unit kind `flight` (REQ-F1.5).
@@ -146,7 +146,7 @@ step that reads them, as are the context values to a command step.
 A step with no `hosting` takes `isolated` under `dispatch_isolation: per-step`
 and `in-session` under `per-unit`. A `continue` step whose predecessor is
 effectively `in-session`, a degraded one included, attaches to the unit's
-session and is `in-session` throughout. A `continue` step on a
+session and is effectively `in-session`. A `continue` step on a
 backend that cannot resume the predecessor's session, or whose predecessor
 was skipped or recorded no session id (an `in-session` predecessor
 excepted), does not run: outcome `failed`, naming the backend, the hosting,
@@ -194,7 +194,7 @@ Awaiting-input entry this doc causes names only the point, the validated
 step ids, the outcome, token, or cause, and the worktree-relative record
 path where one exists, never a target's text or an excerpt. A posture of
 `continue` records the outcome and proceeds to the next step; posture
-governs the list only, and the PR-creation stop, the flip refusal, and the
+governs the list only, and the fork's PR-creation stop, the flip refusal, and the
 evidence below read the records whatever the posture.
 
 **Timeout (REQ-D1.7, D-15).** Where the runner owns the process, it ends the
@@ -260,8 +260,8 @@ rebases. A step at the **four no-push points**, `pre-implementation`,
 either flip point may. The worker permission denies and the ready-guard keep
 applying to every session-hosted step, the ready-guard on its flip surfaces
 (the shell ready command and the GitHub MCP pull-request update tool); a
-runner subprocess sees no hook, so these controls bind it by declaration
-alone; no mechanism enforces the no-push ordering. After `post-pr`'s list
+runner subprocess sees no hook, so it is bound by declaration alone; no
+mechanism enforces any step's no-push ordering. After `post-pr`'s list
 completes, the runner re-emits the per-point tables through the PR-body
 assembly (post-pr's included) and verifies the PR is still a draft, parking the unit
 to Awaiting input naming the post-pr steps that ran when it is not; if the
@@ -301,7 +301,7 @@ session under the profile its backend gives any session it spawns
 ## Records (REQ-D1.5, D-16)
 
 Every step leaves a record under `<worktree>/.claude/steps/`, an untracked
-cache the repository's ignore list names (adopters add it), keyed by a run id the helper
+cache the repository's ignore list names (adopters add the line), keyed by a run id the helper
 issues, read by planwright only through the helper, its form unstable to a
 step reading the record `PREV_RECORD` names. Fields: the head SHA at start,
 the run id, point, step id, kind, target, hosting, backend, session id where
@@ -320,7 +320,7 @@ records only, with every rendered cell and warning screened and
 **table-safe** (markup, pipes, newlines, mentions, and issue-closing keywords
 neutralized; paths worktree-relative; layers by name).
 A point whose list was empty still emits its table with a single `none` row
-and its warnings.
+and its warnings; the turn reports counts.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.5, D-20)
 
@@ -362,8 +362,7 @@ needs commit-status write access: `repo:status` on a classic token, or
 no record of the latest attempt halted or failed; not what the steps did,
 which the records hold. Written by the actor the hook binds, it guards a
 flipper that forgets, not one that forges. The two contexts are **excluded
-by name from every CI rollup judgement planwright makes**; adopters' own
-status-consuming tooling sees them.
+by name from every CI rollup judgement planwright makes**.
 
 **The evidence hook**, gated under custom-steps' Deferred until an in-repo
 unit-PR flipper runs the point, will refuse on the ready-guard's flip
