@@ -35,11 +35,10 @@ record the pass writes, never a mandate to render every row at the operator
 2. Security (injection, auth, data exposure, secret handling, untrusted
    input)
 3. Error handling and failure modes (what happens when this fails partway)
-4. Performance (allocation, IO, complexity, hot paths), and test/CI
-   ergonomics (suite wall-clock, CI latency) read whole-system rather than
-   diff-scoped, since that rot accrues across commits no single diff shows;
-   the mechanical catch is the test-time budget gate (guard-coverage
-   REQ-E1.1), the lens catches the next such class before a gate exists
+4. Performance (allocation, IO, complexity, hot paths), including test/CI
+   ergonomics (suite wall-clock, CI latency) read whole-system, not
+   diff-scoped; the mechanical catch is the test-time budget gate
+   (guard-coverage REQ-E1.1)
 5. Concurrency / state (race conditions, idempotency, ordering, retries)
 6. Naming, readability, structure (only flag when the change under review
    worsens it; see [Refactor Instinct](refactor-instinct.md))
@@ -112,16 +111,13 @@ one lens only; be exhaustive within the lens; severity-pruning is forbidden;
 return `none` with a one-line reason if there are none. Pass the shared
 tooling output to every sub-agent. The coordinator
 merges, dedupes (a finding hitting two lenses gets one row with both lens
-labels), then runs the self-critique pass. Skills that perform discovery
-specify when to fan out versus run inline.
+labels), then runs the self-critique pass.
 
 ## Self-critique pass before reporting
 
 After the lens walk (or fan-out merge) produces a finding list, do one more
 pass: assume the list is incomplete, re-scan the diff specifically for what
-feels under-represented, and add what turns up. This pass is mandatory. Its
-cost is small; its payoff is that nobody has to re-run the skill to drain
-second-pass findings.
+feels under-represented, and add what turns up. This pass is mandatory.
 
 Rigor scales with stake and reversibility (see
 [proportionality.md](proportionality.md)). A skill that scopes any part of
