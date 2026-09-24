@@ -107,6 +107,7 @@ scan() {
       cur = ""
       l = tolower(s)
       gsub(/[*_`]/, "", l)
+      gsub(/[ \t]+/, " ", l)
       sub(/^ +/, "", l)
       sub(/^([-+] |[0-9]+\. )/, "", l)
       sub(/^ +/, "", l)
@@ -129,8 +130,9 @@ scan() {
       sub(/^[ \t]+/, "", line)
       if (cur == "") start = NR
       cur = (cur == "" ? line : cur " " line)
-      while (match(cur, /[.!?]( |$)/)) {
-        p = RSTART
+      while (match(cur, /[.!?][]")\047]*( |$)/)) {
+        p = RSTART + RLENGTH - 1
+        if (substr(cur, p, 1) == " ") p--
         rest = substr(cur, p + 2)
         cur = substr(cur, 1, p)
         flush()
@@ -154,7 +156,7 @@ scan() {
     /^[ \t]*([-+*]|[0-9]+\.) / { flush() }
     { take($0) }
     END { flush() }
-  ' "$2"
+  ' <"$2"
 }
 
 findings=0

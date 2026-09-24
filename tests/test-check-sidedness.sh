@@ -120,6 +120,26 @@ assert_contains "a mandate in a terminal state is reported" "terminal-words.md:9
 assert_contains "\"terminally\" does not read as the terminal" "terminal-words.md:11:" "$out"
 assert_not_contains "the terminal before punctuation still names the turn" "terminal-words.md:13:" "$out"
 
+echo "== a hard-wrapped terminal state is still a state =="
+printf '# Wrap\n\nPresent each task at the terminal  \nstate.\n' >"$TMP/wrap.md"
+out="$(/bin/sh "$CHECK" "$TMP/wrap.md" 2>&1)"
+assert_contains "a terminal state split by a hard line break is reported" "wrap.md:3:" "$out"
+
+echo "== a sentence ending inside a quote or parenthesis ends there =="
+printf '# Close\n\nPresent the four tables." Record it in tasks.md.\n\nShow the digest (as above.) Write the rest to tasks.md.\n' >"$TMP/close.md"
+out="$(/bin/sh "$CHECK" "$TMP/close.md" 2>&1)"
+assert_contains "a mandate closed by a quote is not hidden by the next sentence" "close.md:3: Present the four tables.\"" "$out"
+assert_contains "a mandate closed by a parenthesis is not hidden by the next sentence" "close.md:5: Show the digest" "$out"
+
+echo "== a file name that looks like an awk assignment is scanned as a file =="
+mkdir -p "$TMP/eq"
+printf '# Eq\n\nPresent the counts.\n' >"$TMP/eq/a=b.md"
+printf '# Next\n\nRender the history.\n' >"$TMP/eq/next.md"
+out="$(cd "$TMP/eq" && /bin/sh "$CHECK" a=b.md next.md 2>&1)"
+assert_contains "the assignment-shaped file is scanned" "a=b.md:3:" "$out"
+assert_contains "the file after it is still scanned" "next.md:3:" "$out"
+assert_contains "both files are counted" "in 2 file(s)" "$out"
+
 echo "== an explicit directory is skipped, not scanned =="
 out="$(/bin/sh "$CHECK" "$TMP/clean" 2>&1)"
 rc=$?
