@@ -345,11 +345,13 @@ statements are the verification.
 
 The `no-table-dump` and `projection-present` invariants confirm turn-side
 emissions carry a projection (counts and actionable items, no full audit
-tables) and that the full record exists in the governing artifact: the
-`projection` fixture passes them and its pair, `wall`, fails them; the
-pointer and full-record half is exercised by the one-field mutation cases in
-`tests/test-turn-shape-eval.sh`. (On-demand behavioral lane.) A manual read
-confirms the projection was sufficient to act on.
+tables) and that the full record exists in the governing artifact or is
+produced on a follow-up request: the `projection` fixture passes them and its
+pair, `wall`, fails them; the pointer and full-record half is exercised by the
+one-field mutation cases in `tests/test-turn-shape-eval.sh`. No invariant yet
+grades the follow-up-request form; the kickoff brief's acceptance join record
+reopens Task 12 for it. (On-demand behavioral lane.) A manual read confirms
+the projection was sufficient to act on.
 
 ### REQ-I1.3 — Actionability ordering [test]
 

@@ -678,6 +678,26 @@ Class: expression-only
 Anchor: `d7230cca84679e5c1e25478d10bed9630f906b09` — computed as
 `scripts/spec-anchor.sh specs/operator-dialogue`
 
+### Re-anchor — restore REQ-I1.2's follow-up-request clause (2026-09-23)
+
+Machine-written entry per the meta-spec's expression-only lane, by the
+PR's review gauntlet. Both entries above rest on a false premise for one
+line: the flip dropped REQ-I1.2's "or is produced on a follow-up request",
+which narrowed its verification to the pointer form the grader accepts
+(finding 4 below), though the requirement lets a next-turn regeneration
+satisfy it too. The clause is restored and the entry says no invariant
+grades that form yet; with it, every flipped entry keeps its signed
+meaning. No requirement, decision, task, or verification tag changed. The
+stale-anchor pre-flight recomputed the entry above's anchor (`d7230cc…`)
+unchanged before the edit.
+
+**Cites the changelog line:** the 2026-09-23 `## Changelog` entry in
+`requirements.md` ("Acceptance join (Task 13), gauntlet correction").
+
+Class: expression-only
+Anchor: `e2f482be1e3b7c368153b16042d97f6ffa80d700` — computed as
+`scripts/spec-anchor.sh specs/operator-dialogue`
+
 ## 10. Acceptance join record (Task 13, 2026-09-23)
 
 The turn-shape invariants pointed at the repaired surfaces for the first

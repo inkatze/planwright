@@ -640,6 +640,13 @@ object is content delivered to the operator or to an artifact.
   verification tag changed. Expression-only; anchor re-recorded in the
   brief's amendment log (reworded once on the same branch after review, with
   a second re-anchor entry).
+- 2026-09-23: Acceptance join (Task 13), gauntlet correction. The flip above
+  dropped REQ-I1.2's "or is produced on a follow-up request" from its
+  verification entry, narrowing it to the pointer form the grader accepts;
+  the clause is restored and the entry now says no invariant grades that form
+  yet (reopened Task 12). This returns the entry to its signed meaning; no
+  requirement, decision, or verification tag changed. Expression-only; anchor
+  re-recorded in the brief's amendment log.
 
 ## Sources
 
