@@ -78,6 +78,11 @@ echo "ok: traversal spec id refused"
 rc=0
 run record 'UPPER' --mode unattended --pid 123 --checkout "$checkout" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "uppercase spec id: exit $rc, expected 2"
+
+rc=0
+run record flight --mode unattended --pid 123 --checkout "$checkout" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "reserved spec id flight: exit $rc, expected 2"
+echo "ok: the reserved spec id flight is refused"
 echo "ok: uppercase spec id refused"
 
 rc=0

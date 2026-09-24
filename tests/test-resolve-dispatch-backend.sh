@@ -456,6 +456,17 @@ env PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
   PLANWRIGHT_LOCAL_CONFIG="" \
   /bin/sh "$RDB" resolve "$bad" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "a hostile spec-dir basename must be refused (2), got $rc"
+# `flight` is the reserved flight branch segment (tower-front-door D-11): a
+# spec-dir basename so named is refused before it is matched against the map.
+reserved="$tmp/specs/flight"
+mkdir -p "$reserved"
+rc=0
+env PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" \
+  PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/sh "$RDB" resolve "$reserved" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "the reserved spec-dir basename flight must be refused (2), got $rc"
 rc=0
 att 'bad token; rm -rf' >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "a hostile session token must be refused (2), got $rc"

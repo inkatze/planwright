@@ -186,6 +186,10 @@ if [ -n "$spec_rel" ]; then
       printf '%s\n' "dispatch-fetch: invalid spec name in '$(sanitize_printable "$spec_rel")'" >&2
       exit 2
       ;;
+    flight)
+      printf '%s\n' "dispatch-fetch: reserved spec name 'flight' (the flight branch segment, tower-front-door D-11)" >&2
+      exit 2
+      ;;
   esac
 fi
 

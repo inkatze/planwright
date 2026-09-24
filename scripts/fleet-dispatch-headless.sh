@@ -172,6 +172,7 @@ valid_spec() {
   reject_dotdot "$1" || return 1
   case $1 in
     '' | *[!a-z0-9-]* | [!a-z0-9]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#1}" -le 64 ] || return 1
   return 0

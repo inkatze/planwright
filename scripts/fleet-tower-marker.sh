@@ -77,6 +77,7 @@ valid_spec() {
   vs_v=$1
   case $vs_v in
     "" | -* | *[!a-z0-9-]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#vs_v}" -le 64 ]
 }

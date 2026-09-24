@@ -273,6 +273,11 @@ for dir in "$root"/*/; do
 "
       continue
       ;;
+    flight)
+      notes="${notes}note: skipped directory with reserved spec identifier
+"
+      continue
+      ;;
   esac
   if [ ${#name} -gt 64 ]; then
     notes="${notes}note: skipped directory with over-length spec identifier
