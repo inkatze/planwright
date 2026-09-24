@@ -54,8 +54,11 @@ enum=$(awk '
 }
 in_enum() { printf '%s\n' "$enum" | grep -qxF -- "$1"; }
 for c in formatter linter type-checker test-runner security commit-hook ci; do
-  in_enum "$c" && pass "doctrine enum names the founding category: $c" \
-    || fail "doctrine enum lost the founding category: $c"
+  if in_enum "$c"; then
+    pass "doctrine enum names the founding category: $c"
+  else
+    fail "doctrine enum lost the founding category: $c"
+  fi
 done
 
 # Same constrained reader shape scripts/builder-guards.sh uses (two-space list
@@ -142,8 +145,11 @@ want_entry pinned-action-freshness security breadth false
 want_entry test-time-budget budget breadth false
 want_entry cdpath-house-pattern house-pattern breadth false
 for c in budget house-pattern; do
-  in_enum "$c" && pass "doctrine enum names the amended category: $c" \
-    || fail "doctrine enum lacks the amended category: $c"
+  if in_enum "$c"; then
+    pass "doctrine enum names the amended category: $c"
+  else
+    fail "doctrine enum lacks the amended category: $c"
+  fi
 done
 
 if [ "$failures" -eq 0 ]; then
