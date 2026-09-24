@@ -30,8 +30,8 @@ an observation, never an overlay point (REQ-A1.3, D-2). A point name outside
 this vocabulary is a resolver usage error.
 
 **Wired in `/execute-task`** (the *in-run points*), each fired once when the
-run reaches it and never again in that run (a re-execution against a unit
-with an open PR is a new run, REQ-A1.1, REQ-A1.4), in this order (D-3):
+run reaches it (a re-execution against a unit with an open PR is a new run,
+REQ-A1.1, REQ-A1.4), in this order (D-3):
 
 | Point | Fires |
 | --- | --- |
@@ -84,8 +84,8 @@ value is a single-line scalar of the constrained reader.
 target is an executable name or path; a prompt target is non-empty single-line
 text. Validation precedes any path or command use; a failing target, args, or
 `requires` is malformed for its layer and never interpolated, as is an entry
-with an unknown field, an unknown enum value, a missing required field, or an
-un-honorable combination above (REQ-B1.2). Rules keyed on hosting read the
+with an unknown field, an unknown or empty value, a missing required field, or
+an un-honorable combination above (REQ-B1.2). Rules keyed on hosting read the
 **effective** hosting: the default below, a `continue` step's attachment to
 an `in-session` predecessor, and, once it happens, a run-time degradation.
 
