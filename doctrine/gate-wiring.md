@@ -3,7 +3,7 @@
 [Finding Categorization](finding-categorization.md) defines the four buckets,
 their predicates, and the gate's principles. This document is the operational
 wiring a gate-wired skill (`/self-review`, `/polish`, and `/execute-task`'s
-convergence step) implements. The two share one contract; where this one names
+convergence phase) implements. The two share one contract; where this one names
 a bucket, predicate, or zone, the categorization doctrine's definition governs.
 
 Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 ·
@@ -49,7 +49,7 @@ bucket.
      blocks further progress on the unit.
 4. **Declined-with-rationale** is available at any step after validation,
    closing the finding without applying it and recording the reasoning in the
-   declined log: a disposition, not an exemption from recording.
+   declined log.
 
 Every routed finding ends in exactly one of five terminal dispositions:
 applied, resolved with evidence, applied pending sign-off, declined with
@@ -215,11 +215,12 @@ fork blocking further progress on the unit hard-pauses instead of queuing.
 Exactly two triggers interrupt mid-loop (REQ-C1.4): the zone screen fires,
 or an irreducible fork blocks progress. Everything else flows to loop end. A
 custom step ending its in-run point under `on-failure: halt`
-([custom-steps](custom-steps.md)) takes the destinations below without being
-a loop trigger. A pause depends on the watcher:
+([custom-steps](custom-steps.md)) takes the destinations below, with the
+entry contents custom-steps pins, without being a loop trigger. A pause
+depends on the watcher:
 
 - **Attended session.** Stop the loop. Present the finding, the triggering
-  zone or fork, and the recommended fix or concrete alternatives. Wait for
+  zone or fork, and the recommended fix or alternatives. Wait for
   direction; apply nothing in the zone until the human directs it.
 - **Dispatched or unattended worker.** Record the unit to `tasks.md` Awaiting
   input (the halt destination REQ-F1.5 defines), with the finding, the
@@ -231,8 +232,8 @@ a loop trigger. A pause depends on the watcher:
 
 The human's direction is the finding's disposition: the finding does not
 re-enter the routing order and the zone screen does not fire again. The agent
-carries it out with the directed disposition's mechanics and records it in the
-corresponding table row. A directed application in a zone still follows
+carries it out with the directed disposition's mechanics and records it in
+its table row. A directed application in a zone still follows
 the commit discipline above (its own commit when directed to apply pending
 sign-off).
 
@@ -264,8 +265,8 @@ template-expanded: each skill supplies its own summary inputs.
 2. **The complete audit record, collapsed** (REQ-A1.2): the loop-end handoff,
    `/self-review`'s lens-coverage table and pass summary, and, for
    `/execute-task`, the per-point step tables
-   ([custom-steps](custom-steps.md); a point that ran nothing emits a `none`
-   row), inside a `<details>` block, so it never buries the summary.
+   ([custom-steps](custom-steps.md); a point whose list was empty emits a
+   `none` row), inside a `<details>` block, so it never buries the summary.
    Collapsed is not abridged: every table and row the wiring emits is present
    inside the block.
 
@@ -277,8 +278,8 @@ code fences, headings), never mid-paragraph.
 **Updates keep the structure** (REQ-A1.4). Re-emitting the body on a later
 push regenerates the summary and the collapsed audit in place, preserving this
 layout: never a second summary, never a second audit block, never the audit
-flattened out of its `<details>`. Body content outside the generated sections
-(handwritten notes) survives the update.
+flattened out of its `<details>`. Handwritten body content outside the
+generated sections survives the update.
 
 **Pending-sign-off items appear in both places**: named in the summary, so a
 reviewer sees the open decisions without expanding the audit, and in full
@@ -288,7 +289,7 @@ inside the collapsed checklist, which is authoritative.
 
 An `/execute-task` body follows; a `/self-review` body has the same shape,
 adding the lens-coverage table and pass summary inside the collapsed record
-and dropping the kickoff-brief and task-graph inputs from the summary. Its
+and dropping the kickoff-brief and task-graph inputs and the step tables. Its
 completion stamp is **format-version 1**; a v2 bundle stamps none (derived),
 per [`spec-format.md`](spec-format.md).
 

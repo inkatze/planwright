@@ -120,7 +120,9 @@ worker authors and lands it, and it carries (REQ-E1.1):
   surface;
 - the **routing decision and its grounds**, as stated in the conversation;
 - the **convergence audit tables** the review skills produce: lens coverage, the
-  four buckets, the declined log, and the pending-sign-off checklist;
+  four buckets, the declined log, and the pending-sign-off checklist, plus the
+  convergence point's step table ([custom-steps](custom-steps.md)), a `none`
+  row when its list was empty;
 - **any rigor scoping actually applied** inside the convergence point's list
   (`steps_convergence`, run with unit kind `flight`;
   [custom-steps](custom-steps.md)). Visual flight runs the same convergence

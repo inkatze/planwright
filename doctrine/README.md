@@ -77,6 +77,9 @@ fallback still resolves the shipped core doctrine.
 `scripts/resolve-rule-doc.sh <doc-name>` implements the chain (validating the
 name against the `^[a-z0-9][a-z0-9-]*$` identifier discipline before any path
 is formed) and prints the resolved path; prefer it over hand-building paths.
+One read steps outside the chain by design: the step resolver takes its
+pipeline-entry list from the self-location copy of
+[custom-steps.md](custom-steps.md) alone, so no overlay can widen it.
 
 Doc names are kebab-case basenames without the `.md` suffix, e.g.
 `discovery-rigor`, `finding-categorization`.

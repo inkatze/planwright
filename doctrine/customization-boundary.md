@@ -105,7 +105,8 @@ outside planwright). The boundary runs straight through this feature:
   through every layer. Its default reproduces today's convergence behavior,
   so out-of-the-box behavior is unchanged. The convergence point's list is
   the **runnable instance** of this doc's rule, superseding the
-  `review_sequence` knob REQ-C1.3 named (custom-steps D-10).
+  `review_sequence` knob customization-overlay REQ-C1.3 named (custom-steps
+  D-10).
 - The **style** — the *specific chain* a given operator or team prefers, and
   the step entries it names — is not general; it is that operator's taste. It
   lives in an overlay: an adopter overlay for a personal chain, a repo-tracked
