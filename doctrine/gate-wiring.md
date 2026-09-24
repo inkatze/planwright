@@ -215,9 +215,9 @@ fork blocking further progress on the unit hard-pauses instead of queuing.
 Exactly two triggers interrupt mid-loop (REQ-C1.4): the zone screen fires,
 or an irreducible fork blocks progress. Everything else flows to loop end. A
 custom step ending its in-run point under `on-failure: halt`
-([custom-steps](custom-steps.md)) takes the destinations below, with the
-entry contents its posture rule pins and the attendance flag its matrix
-defines, never a loop trigger. By watcher:
+([custom-steps](custom-steps.md)) takes the destinations below with the
+entry contents its posture rule pins, a dispatched worker's launch-record
+attendance (interactive asks, headless parks), never a loop trigger.
 
 - **Attended session.** Stop the loop and present the finding, the zone or
   fork, and the recommended fix or alternatives. Wait for direction; apply
