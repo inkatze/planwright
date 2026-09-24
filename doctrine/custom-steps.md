@@ -6,11 +6,12 @@ ordered list of **steps** to run there. This doc is the one normative home for t
 vocabulary, when each point fires, and the step contract (REQ-A1.5, D-9).
 Skills carry the invocation; `scripts/resolve-steps.sh` and
 `scripts/step-record.sh` carry the mechanics, their usage headers pinning
-what this doc delegates to them; the operator's own chain lives in their
+what this doc delegates to them (line format, usage-error exit, preamble
+layout, excerpt bound, screen action); the operator's own chain lives in their
 overlay (D-1, [customization-boundary](customization-boundary.md)).
 
-*The runner* is the session hosting the unit, or the flipper at a flip point.
-*Attended* narrows [gate-wiring](gate-wiring.md)'s
+*The runner* is the session hosting the unit, or the flipper at a flip point,
+with the scripts it calls. *Attended* narrows [gate-wiring](gate-wiring.md)'s
 pause-protocol distinction to the backend seam's launch record: a headless
 launch is unattended, any other attended. *Unit* widens
 [spec-format](spec-format.md)'s task-or-bundle sense to the spec bundle and
@@ -47,15 +48,15 @@ follow (REQ-A1.2, D-13).
 
 **Defined here, wired by the first in-repo unit-PR flipper:** `pre-ready-flip`,
 immediately before any agent-issued draft-to-ready flip of a unit PR, on the
-head to be flipped, once per flip attempt. `/execute-task` never flips, so
-nothing wires it yet; it is not an unwired point (REQ-A1.1, REQ-E1.3, D-2).
+head to be flipped, once per flip attempt. Nothing wires it yet; it is not
+an unwired point (REQ-A1.1, REQ-E1.3, D-2).
 
 **Named, not wired** (gated under custom-steps' Deferred): `spec-drafted`,
 `kickoff-signed-off`, `unit-selected`, `pre-dispatch`, `post-dispatch`,
-`unit-halted`, `post-merge`, and `orchestrator-idle` (the renamed
+`unit-halted`, `post-merge`, and `orchestrator-idle` (issue 383's
 `tower-idle`, in tower-front-door REQ-H1.1's orchestrator sense). A
-non-empty list at one of these resolves no steps; the resolver and
-`check:steps` report it as unwired, never silently.
+non-empty list at one of these resolves no steps; the resolver, resolving
+that point, and `check:steps` report it as unwired, never silently.
 
 **Flights.** Any skill that converges a flight reads `steps_convergence` with
 unit kind `flight` (REQ-F1.5).
@@ -72,7 +73,7 @@ value is a single-line scalar of the constrained reader.
 | `id` | required; `^[a-z][a-z0-9-]*$`, at most 64 bytes, validated before any key or path use; `implementation` is reserved for the unit's implementation phase, never a step id |
 | `kind` | required; `skill`, `command`, or `prompt` |
 | `target` | required; per the kind's grammar below |
-| `args` | optional; on a skill, passed to the invocation verbatim and never shell-interpreted; on a command, plain words only (no operators, redirections, expansions, or quoting), so the declared line reads the same under a shell and as argv; forbidden on a prompt, whose target is the whole prompt |
+| `args` | optional; on a skill, passed to the invocation verbatim and never shell-interpreted; on a command, plain words only (no operators, redirections, expansions, or quoting), so the declared line is one simple command, the same under a shell and as argv; forbidden on a prompt, whose target is the whole prompt |
 | `hosting` | optional; `isolated`, `continue`, or `in-session`; default per *Hosting* |
 | `on-failure` | optional; `halt` (default) or `continue` |
 | `timeout` | optional; a positive integer of seconds, unset meaning no limit beyond a hosting tool's own; forbidden on an `in-session` skill or prompt step |
@@ -86,7 +87,7 @@ text. Validation precedes any path or command use; a failing target, args, or
 with an unknown field, an unknown enum value, a missing required field, or an
 un-honorable combination above (REQ-B1.2). Rules keyed on hosting read the
 **effective** hosting: the default below, a `continue` step's attachment to
-an `in-session` predecessor, and a run-time degradation.
+an `in-session` predecessor, and, once it happens, a run-time degradation.
 
 **No `env` and no `cwd` field** (D-15). Declarations carry no secrets: a step
 needing a credential reads it from the host environment the runner inherits
@@ -145,7 +146,7 @@ step that reads them, as are the context values to a command step.
 A step with no `hosting` takes `isolated` under `dispatch_isolation: per-step`
 and `in-session` under `per-unit`. A `continue` step whose predecessor is
 effectively `in-session`, a degraded one included, attaches to the unit's
-session and is `in-session` for every rule here. A `continue` step on a
+session and is `in-session` throughout. A `continue` step on a
 backend that cannot resume the predecessor's session, or whose predecessor
 was skipped or recorded no session id (an `in-session` predecessor
 excepted), does not run: outcome `failed`, naming the backend, the hosting,
@@ -164,9 +165,8 @@ Every step ends with exactly one of five outcomes (REQ-D1.1, D-8):
 
 - `passed`: a command exited zero, or a session step's handoff reports no
   change to the branch.
-- `applied`: a session step's handoff reports a change to the branch (a
-  commit, an applied finding); that report is the discriminator from
-  `passed`.
+- `applied`: a session step's handoff reports a change to the branch; that
+  report is the discriminator from `passed`.
 - `halted`: a session step's handoff reports a stop it could not resolve.
 - `failed`: a command exited non-zero or timed out; a session ended
   abnormally or reported a safety stop; a `continue` step that could not
@@ -180,11 +180,11 @@ rests on. A command step's outcome is its exit code alone, or a timeout. The
 runner writes every record, whatever the hosting. At `convergence` the
 review skills' dispositions map onto this set: a normal exit is `passed` or
 `applied`; a normal exit carrying a queued meaning-class spec fork is
-`halted`; a safety stop is `failed`; an unresolved hard-disqualifier finding
-is `halted` (REQ-E1.1).
+`halted`, stopping PR creation; a safety stop is `failed`; an unresolved
+hard-disqualifier finding is `halted` (REQ-E1.1).
 
 **Posture (REQ-D1.2).** A `halted` or `failed` step whose `on-failure` is
-`halt` ends the point; no later step at it runs. At an **in-run point** it
+`halt` ends the point. At an **in-run point** it
 ends the unit through the gate-wiring
 [pause protocol](gate-wiring.md#pause-protocol)'s destinations: an unattended
 run parks the unit to `tasks.md` Awaiting input; an attended session presents
@@ -215,12 +215,13 @@ on request, and one warning per layer on the retired convergence knob's key
 (REQ-C1.1,
 REQ-C1.2, REQ-C1.6, D-5, D-10).
 
-**Resolution completes for the whole point before its first step runs**
-(REQ-D1.9). Every id must resolve to a catalog entry and every target on the
-host under the lookup rules REQ-C1.3 and D-19 fix, with every `requires`
-executable on the path (REQ-D1.8). An id naming no entry, a target the host
-lacks, a `requires` executable off the path, or a plugin registry the
-resolver cannot read is a step that does not resolve, never an error.
+**Resolution completes for the whole point before its first step runs**: the
+resolved list or nothing (REQ-D1.9). Every id must resolve to a catalog entry
+and every target on the host under the lookup rules REQ-C1.3 and D-19 fix,
+with every `requires` executable on the path (REQ-D1.8). An id naming no
+entry, a target the host lacks, a `requires` executable off the path, or a
+plugin registry the resolver cannot read is a step that does not resolve,
+never an error.
 
 **The matrix (REQ-C1.4, D-6).** The resolver prints one decision token per
 step, keyed on the layer that supplied the **winning list** and on
@@ -230,7 +231,7 @@ when the unit was launched headless, per the backend seam's launch record;
 
 | Winning list from | Attended | Unattended |
 | --- | --- | --- |
-| core default | `park` (a broken install) | `park` |
+| core default | `park` | `park` |
 | repo-tracked | `ask` | `park` |
 | adopter or machine-local | `ask` | `skip` |
 
@@ -259,10 +260,10 @@ rebases. A step at the **four no-push points**, `pre-implementation`,
 either flip point may. The worker permission denies and the ready-guard keep
 applying to every session-hosted step, the ready-guard on its flip surfaces
 (the shell ready command and the GitHub MCP pull-request update tool); a
-runner subprocess sees no hook and no mechanism enforces the no-push
-ordering: both bind by declaration alone. After `post-pr`'s list completes,
-the runner re-emits the per-point tables through the PR-body assembly
-and verifies the PR is still a draft, parking the unit
+runner subprocess sees no hook, so these controls bind it by declaration
+alone; no mechanism enforces the no-push ordering. After `post-pr`'s list
+completes, the runner re-emits the per-point tables through the PR-body
+assembly (post-pr's included) and verifies the PR is still a draft, parking the unit
 to Awaiting input naming the post-pr steps that ran when it is not; if the
 head moved it also regenerates the pending-sign-off checklist from the final
 range and re-emits the review handoff; earlier points are never re-run
@@ -300,7 +301,7 @@ session under the profile its backend gives any session it spawns
 ## Records (REQ-D1.5, D-16)
 
 Every step leaves a record under `<worktree>/.claude/steps/`, an untracked
-cache the repository's ignore list names, keyed by a run id the helper
+cache the repository's ignore list names (adopters add it), keyed by a run id the helper
 issues, read by planwright only through the helper, its form unstable to a
 step reading the record `PREV_RECORD` names. Fields: the head SHA at start,
 the run id, point, step id, kind, target, hosting, backend, session id where
@@ -319,14 +320,14 @@ records only, with every rendered cell and warning screened and
 **table-safe** (markup, pipes, newlines, mentions, and issue-closing keywords
 neutralized; paths worktree-relative; layers by name).
 A point whose list was empty still emits its table with a single `none` row
-and its warnings; the turn reports counts.
+and its warnings.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.5, D-20)
 
 Any **agent-issued** draft-to-ready flip of a unit PR runs
 `steps_pre_ready_flip` on the head to be flipped first and refuses the flip on
-a `halted` or `failed` step. At either flip point a step that pushes moves the
-head; **the flip targets the head the list ends on**, and the flip's own checks
+a `halted` or `failed` step. **The flip targets the head the list ends on**,
+and the flip's own checks
 (the ready-guard's currency check for a unit PR, the CI gate for the spec PR)
 check that head. This doctrine authorizes no flip.
 
