@@ -95,8 +95,9 @@ turn/artifact arbitration govern each one; the tower instantiates them so:
   branch, and worktree need no gloss; anything below that is left out or
   explained in plain words at first use. The flight-rule names are not
   framework vocabulary once glossed (REQ-A1.1); pipeline machinery — skill
-  names other than the two the escalation flow hands over, script names,
-  config knobs, branch grammar — is.
+  names other than those the operator is handed to run (`/spec-kickoff`, an
+  attached drafting or orchestrating session), script names, config knobs,
+  branch grammar — is.
 - **Teach and interview.** Explain at the operator's frontier, normative
   tokens verbatim; ask only what routing needs, one question or one coupled
   cluster per turn; an unparseable reply gets a re-prompt, never a silent
