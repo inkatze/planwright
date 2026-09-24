@@ -159,22 +159,39 @@ printf '%s\n' "$listing" | grep -q "^drain${TAB}sonnet${TAB}low${TAB}drain$" \
   || fail "list: missing/incorrect drain row in: $listing"
 echo "ok: list enumerates the full table"
 
-# 5. REQ-E1.2 cross-check: the selectable command set is disjoint from
-#    resolve-review-sequence.sh's nestable-review-skill set (the predicate:
-#    skills/<name>/SKILL.md exists and its argument-hint declares --nested).
-skills_root="$here/../skills"
-[ -d "$skills_root" ] || fail "skills root not found at $skills_root"
-# The predicate must not be vacuous: the shipped `polish` skill IS nestable.
-grep -Eq '^argument-hint:.*--nested' "$skills_root/polish/SKILL.md" \
-  || fail "cross-check sanity: the shipped polish skill no longer declares --nested (predicate drifted?)"
+# 5. REQ-E1.2 cross-check: the selectable command set is disjoint from what a
+#    custom step may target. The step resolver (scripts/resolve-steps.sh)
+#    refuses every pipeline-entry skill as a step target (custom-steps
+#    REQ-C1.8), reading the literal list doctrine/custom-steps.md owns; every
+#    command this table can emit must be on that list, so a dispatch entry can
+#    never be declared as a step and a step can never re-enter the pipeline.
+pipeline=$(sed -n 's/^pipeline-entry: //p' "$here/../doctrine/custom-steps.md")
+[ -n "$pipeline" ] || fail "cross-check sanity: doctrine/custom-steps.md carries no pipeline-entry line"
 commands=$(printf '%s\n' "$listing" | cut -f4 | sort -u)
 for c in $commands; do
-  skill_md="$skills_root/$c/SKILL.md"
-  if [ -f "$skill_md" ] && grep -Eq '^argument-hint:.*--nested' "$skill_md"; then
-    fail "REQ-E1.2 violation: selectable command '$c' is a nestable review skill (review_sequence's scope)"
-  fi
+  case " $pipeline " in
+    *" $c "*) ;;
+    *) fail "REQ-E1.2 violation: selectable command '$c' is not on the rule doc's pipeline-entry list, so a step could target it" ;;
+  esac
 done
-echo "ok: the selectable command set is disjoint from the nestable-review-skill set"
+# ... and the resolver actually refuses one: a repo-tracked step targeting a
+# selectable command is malformed (exit 4) naming the rule.
+sb="$tmp/pipeline-entry"
+mkdir -p "$sb/core/config" "$sb/repo/.claude/catalogs" "$sb/adopter"
+cp "$here/../config/steps.yaml" "$sb/core/config/steps.yaml"
+printf 'dispatch_isolation: per-step\nsteps_pre_ci: [entry]\n' >"$sb/core/config/defaults.yml"
+first=$(printf '%s\n' "$commands" | head -1)
+printf 'steps:\n  - id: entry\n    kind: skill\n    target: %s\n' "$first" >"$sb/repo/.claude/catalogs/steps.yaml"
+rc=0
+err=$(PLANWRIGHT_ROOT="$sb/core" PLANWRIGHT_CONFIG_DEFAULTS="$sb/core/config/defaults.yml" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" PLANWRIGHT_REPO_ROOT="$sb/repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$here/../scripts/resolve-steps.sh" pre-ci --unattended 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 4 ] || fail "the step resolver should refuse '$first' as a step target (exit 4), got $rc: $err"
+case "$err" in
+  *pipeline-entry*) ;;
+  *) fail "the refusal should name the pipeline-entry rule: $err" ;;
+esac
+echo "ok: the selectable command set is disjoint from the step-target set (every command is a refused pipeline entry)"
 
 # 6. The model column is overlay-tunable per task type: a machine-local
 #    override wins (D-22/REQ-G1.5), and only the targeted type changes.

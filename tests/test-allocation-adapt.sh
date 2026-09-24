@@ -684,6 +684,40 @@ out=$(run resolve partup:unit --key bookkeeping --step-type polish) \
 [ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] || fail "15f: it should have been ignored"
 echo "ok: a partially configured step tier is one-directional too"
 
+# --- 15f2. a hyphenated step id resolves through its underscore-spelled knob
+#
+# A custom step's id is the knob key with hyphens written as underscores
+# (custom-steps REQ-C1.7): `panel-review` reads allocation_*_step_panel_review,
+# under the same one-directional rule, with no row shipped for it.
+
+reset_state
+step_knobs panel_review haiku low
+out=$(run resolve hyph:unit --key execution --step-type panel-review) \
+  || fail "15f2: resolve with a hyphenated step id failed"
+[ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = haiku/low ] \
+  || fail "15f2: a cheaper tier on a hyphenated id's underscore knob must apply"
+[ "$(printf '%s\n' "$out" | field step_scope)" = applied ] || fail "15f2: it should have applied"
+[ "$(step_rows hyph:unit | awk -F "$TAB" '{ print $14 }')" = applied ] \
+  || fail "15f2: the applied step tier must leave its ledger row"
+echo "ok: a hyphenated step id applies a cheaper tier through its underscore-spelled knob"
+
+reset_state
+step_knobs panel_review opus high
+out=$(run resolve hyphup:unit --key bookkeeping --step-type panel-review) \
+  || fail "15f2: resolve with a costlier hyphenated step tier failed"
+[ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = sonnet/medium ] \
+  || fail "15f2: a costlier tier on a hyphenated id must be ignored"
+[ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] || fail "15f2: it should have been ignored"
+[ "$(step_rows hyphup:unit | awk -F "$TAB" '{ print $14 }')" = ignored ] \
+  || fail "15f2: the ignored step tier must leave its ledger row"
+reset_state
+step_knobs panel_review opus high
+out=$(run resolve hypheq:unit --key execution --step-type panel-review) \
+  || fail "15f2: resolve with an equal hyphenated step tier failed"
+[ "$(printf '%s\n' "$out" | field step_scope)" = ignored ] \
+  || fail "15f2: an equal tier on a hyphenated id must be ignored, not applied"
+echo "ok: a hyphenated step id's equal or costlier tier is ignored with a ledger row"
+
 # --- 15g. no step type at all is the unchanged path ------------------------
 
 reset_state
