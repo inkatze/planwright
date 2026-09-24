@@ -184,6 +184,18 @@ case $OUT in
 esac
 rm "$repo/.claude/worktrees/flight-demo-0123abcd"
 
+# 3e''. --repo-root names a subdirectory: the working-tree record is still
+#       found from the work-tree top. A bare repository is refused.
+run 0 taken demo-89abcdef --repo-root "$repo/specs"
+case $OUT in
+  *"record"*"specs/_flights/demo-89abcdef.md"*) ;;
+  *) fail "taken (subdirectory --repo-root): record not found, got [$OUT]" ;;
+esac
+run 2 taken demo-89abcdef --repo-root "$origin"
+[ -z "$OUT" ] || fail "a bare --repo-root printed [$OUT]"
+run 2 new demo --repo-root "$origin"
+[ -z "$OUT" ] || fail "a bare --repo-root minted [$OUT]"
+
 # 3f. Every candidate taken: exit 3, nothing minted.
 run 3 new demo --repo-root "$repo"
 [ -z "$OUT" ] || fail "exhausted candidates still printed [$OUT]"

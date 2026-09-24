@@ -100,8 +100,14 @@ resolve_repo() {
       exit 2
     }
   fi
-  repo_root=$(cd "$repo_root" 2>/dev/null && pwd -P) || {
+  [ -d "$repo_root" ] || {
     echo "$prog: --repo-root is not a directory" >&2
+    exit 2
+  }
+  # The work-tree top, whatever subdirectory was named: the record lookup is
+  # relative to it, and a bare repository (no work tree) is refused here.
+  repo_root=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || {
+    echo "$prog: --repo-root is not inside a git work tree" >&2
     exit 2
   }
   common=$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null) || {
