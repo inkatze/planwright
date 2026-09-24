@@ -35,8 +35,8 @@ D-13, D-14, D-15, D-16, D-17, D-18, D-19, D-20 · tower-front-door REQ-H1.1.
 
 The vocabulary is **core-owned**: every point is a moment inside a skill only
 core can wire, so an adopter needing a moment planwright does not name records
-an observation, never an overlay point (REQ-A1.3, D-2). A point name outside this vocabulary is a resolver usage
-error.
+an observation, never an overlay point (REQ-A1.3, D-2). A point name outside
+this vocabulary is a resolver usage error.
 
 **Wired in `/execute-task`** (the *in-run points*, a flight's `convergence`
 among them), each fired once when the run reaches it and never again in that
