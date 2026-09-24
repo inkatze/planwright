@@ -1,7 +1,7 @@
 # Capability vs Style: the customization boundary
 
 planwright core ships *general* doctrine and skills. The author and adopters
-carry preferences that are not general — a review-sequence ordering, a
+carry preferences that are not general — a convergence-step chain, a
 dispatch-isolation default, project-specific decision-domain entries. The
 overlay mechanism gives those preferences a sanctioned home (`core defaults <
 adopter overlay < repo-tracked overlay < machine-local overlay`). This doc is
@@ -18,7 +18,8 @@ engineering-decisions decides *how* a behavior core already owns is built. The
 `/spec-draft` design phase consults this doc when a candidate feature looks like
 a packaged preference.
 
-Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3 · D-10.
+Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3 · D-10 · custom-steps REQ-B1.3 ·
+custom-steps D-4, D-10.
 
 ## The boundary
 
@@ -89,29 +90,31 @@ mechanism beneath it.
 
 ## Worked examples
 
-### Review-sequence ordering — capability in core, ordering in an overlay
+### Convergence steps — capability in core, the chain in an overlay
 
-An operator runs a specific sequence of *nestable* review skills at convergence
-(the default is today's single `/polish` pass; one operator might run
-`/self-review` then `/polish`, another a longer in-house ordering of the
-nestable review skills available). The boundary runs straight through this
-feature:
+An operator runs a specific chain of review steps at convergence (the default
+is today's single `/polish` pass; one operator might run `/self-review` then
+`/polish`, another a longer in-house chain that names review commands living
+outside planwright). The boundary runs straight through this feature:
 
-- The **capability** — expressing a review ordering and having
-  `/execute-task`'s convergence phase honor it — is general: any operator
-  benefits from being able to set their own convergence sequence. So it lands in
-  core as the `review_sequence` config knob
-  (REQ-D1.3), an ordered list of nestable review-skill names, resolved through
-  all four layers. Its default reproduces today's convergence behavior, so
-  out-of-the-box behavior is unchanged. `review_sequence` is the **runnable
-  instance** of this doc's rule.
-- The **style** — the *specific ordering* a given operator or team prefers — is
-  not general; it is that operator's taste. It lives in an overlay: an adopter
-  overlay for a personal review sequence, a repo-tracked overlay for a team-shared one.
+- The **capability** — declaring a step and having `/execute-task`'s
+  convergence point run it — is general: any operator benefits from being
+  able to set their own convergence chain. So it lands in core as the
+  `steps` catalog and the `steps_convergence` config key
+  ([custom-steps](custom-steps.md)), an ordered list of step ids resolved
+  through every layer. Its default reproduces today's convergence behavior,
+  so out-of-the-box behavior is unchanged. The convergence point's list is
+  the **runnable instance** of this doc's rule, superseding the
+  `review_sequence` knob customization-overlay REQ-C1.3 named (custom-steps
+  D-10).
+- The **style** — the *specific chain* a given operator or team prefers, and
+  the step entries it names — is not general; it is that operator's taste. It
+  lives in an overlay: an adopter overlay for a personal chain, a repo-tracked
+  overlay for a team-shared one.
 
-Core gains the mechanism; nobody's particular review sequence is baked into core. This
-is the canonical demonstration that capability and style are different layers of
-the *same* feature.
+Core gains the mechanism; nobody's particular review chain is baked into core.
+This is the canonical demonstration that capability and style are different
+layers of the *same* feature.
 
 ### Dispatch-isolation default — a candidate core capability
 
@@ -126,5 +129,5 @@ This example is **illustrative, not shipped** by the customization-overlay spec:
 that spec ships the seam (the overlay mechanism and the boundary rule), not this
 particular knob. It is named here to show the other shape — a preference whose
 *mechanism and intended default* are both general, so the whole thing tilts
-toward core-as-knob — in contrast to the review-sequence case, where only the
+toward core-as-knob — in contrast to the convergence-steps case, where only the
 mechanism is general and the value stays in an overlay.

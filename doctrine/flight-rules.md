@@ -20,7 +20,8 @@ route the whole request takes (D-1).
 Citations: tower-front-door REQ-A1.2, REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4,
 REQ-B1.5, REQ-B1.6, REQ-C1.6, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-F1.3,
 REQ-F1.5, REQ-F1.6, REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-H1.4 ·
-tower-front-door D-1, D-2, D-3, D-4, D-5, D-6, D-7, D-10.
+tower-front-door D-1, D-2, D-3, D-4, D-5, D-6, D-7, D-10 · custom-steps
+REQ-F1.5.
 
 ## The routing rule (D-4)
 
@@ -119,11 +120,14 @@ worker authors and lands it, and it carries (REQ-E1.1):
   surface;
 - the **routing decision and its grounds**, as stated in the conversation;
 - the **convergence audit tables** the review skills produce: lens coverage, the
-  four buckets, the declined log, and the pending-sign-off checklist;
-- **any rigor scoping actually applied** inside the configured `review_sequence`.
-  Visual flight runs the same sequence instrument flight runs; proportionality may
-  scope rigor inside a pass, but a scoping that is not declared did not happen
-  (D-7);
+  four buckets, the declined log, and the pending-sign-off checklist, plus the
+  convergence point's step table ([custom-steps](custom-steps.md)), a `none`
+  row when its list was empty;
+- **any rigor scoping actually applied** inside the convergence point's list
+  (`steps_convergence`, run with unit kind `flight`;
+  [custom-steps](custom-steps.md)). Visual flight runs the same convergence
+  list instrument flight runs; proportionality may scope rigor inside a pass,
+  but a scoping that is not declared did not happen (D-7);
 - the **worker handle**; and
 - the **revert path**.
 

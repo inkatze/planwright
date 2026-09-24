@@ -3,7 +3,7 @@
 After [Discovery Rigor](discovery-rigor.md) produces findings and
 [Validation Rigor](validation-rigor.md) confirms them, skills that act on
 findings locally (such as `/self-review`, `/polish`, and the
-convergence step inside `/execute-task`) categorize each finding into one of
+convergence phase inside `/execute-task`) categorize each finding into one of
 four buckets. The buckets are an **audit taxonomy, not a decision queue**
 (REQ-C1.5): they record what kind of action the agent took and what evidence
 backs it, so the human can review the whole record at the draft PR.

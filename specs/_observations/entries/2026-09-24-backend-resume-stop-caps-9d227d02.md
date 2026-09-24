@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] custom-steps REQ-D1.4 and REQ-D1.7 branch on whether a backend can resume a session and expose a stop, but caps_for in orchestrate-backends.sh and backend-capability-contract.md carry neither field; custom-steps Task 5 (the /execute-task wiring) or the capability contract needs resume and stop capabilities before the runner can evaluate the rules.
