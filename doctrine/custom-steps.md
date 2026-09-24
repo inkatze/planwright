@@ -241,9 +241,9 @@ REQ-C1.2, REQ-C1.6, D-5, D-10).
 point either runs its resolved list or runs nothing (REQ-D1.9). Every id must
 resolve to a catalog entry and every target on the host under the lookup rules
 REQ-C1.3 and D-19 fix, with every `requires` executable on the path
-(REQ-D1.8). An id naming no entry, a target the host lacks, or a plugin
-registry the resolver cannot read is a step that does not resolve, never an
-error.
+(REQ-D1.8). An id naming no entry, a target the host lacks, a `requires`
+executable off the path, or a plugin registry the resolver cannot read is a
+step that does not resolve, never an error.
 
 **The matrix (REQ-C1.4, D-6).** The resolver prints one decision token per
 step, keyed on the layer that supplied the **winning list** and on
@@ -267,8 +267,7 @@ the by-layer policy instead (REQ-C1.5): core is a broken install (exit 5);
 repo-tracked hard-fails (exit 4); an adopter or machine-local **list** warns
 and degrades to the core default; an adopter or machine-local **entry**
 warns and is dropped from the merged catalog, its id then non-resolving
-under the matrix. Check mode (`--check`, which requires `--unattended`;
-`--attended` beside it is a usage error, REQ-C1.4) exits
+under the matrix. Check mode (`--check` with `--unattended`) exits
 non-zero on any `park`, any malformation, or an unwired non-empty list, and
 passes with a warning on an adopter or machine-local `skip` (REQ-H1.3,
 REQ-A1.3); `check:steps` runs it over every named point of this repository's
@@ -390,8 +389,9 @@ permission on a fine-grained token or app.
 
 **What the status proves.** That its poster ran the point on that head and
 no record of the latest attempt halted or failed; not what the steps did,
-which the PR-body table records. Written by the actor the hook binds, it
-guards a flipper that forgets, not one that forges. The two contexts are
+which the records hold (the PR-body table where one is folded). Written by
+the actor the hook binds, it guards a flipper that forgets, not one that
+forges. The two contexts are
 **excluded by name from every CI rollup judgement planwright makes**, so a
 flip point's own status never counts as a completed check; adopters' own
 status-consuming tooling sees them.
