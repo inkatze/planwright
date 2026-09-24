@@ -262,7 +262,10 @@ run 0 new other --repo-root "$repo"
 [ "$OUT" = other-0123abcd ] || fail "slug isolation: expected other-0123abcd, got [$OUT]"
 echo "ok: evidence is keyed by the whole id, not the uid alone"
 
-# 4. The default source mints distinct, grammar-valid ids.
+# 4. The default source mints distinct, grammar-valid ids. Two mints made at
+#    the same moment are kept apart by the random uid alone: `new` reserves
+#    nothing, so the caller's create-or-fail branch and worktree creation is
+#    the only atomic claim, and this sequential check is all a test can show.
 unset PLANWRIGHT_FLIGHT_UID_SOURCE
 run 0 new demo --repo-root "$repo"
 first=$OUT

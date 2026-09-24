@@ -698,8 +698,11 @@ seeded_bundle "$repo4/specs/flight" Draft
 if (cd "$repo4" && "$MIGRATE" specs >/dev/null 2>"$tmp/flight.err"); then
   fail "reserved identifier: a bundle named flight was not refused"
 fi
-grep -q 'reserved' "$tmp/flight.err" \
-  || fail "reserved identifier: the refusal does not name the reservation: $(cat "$tmp/flight.err")"
+# The refusal must be the migrator's own screen, not the per-spec lock's
+# (which also refuses the name, but only after the migrator has decided to
+# process the bundle).
+grep -q 'reserved.*not migrated' "$tmp/flight.err" \
+  || fail "reserved identifier: the refusal is not the migrator's own: $(cat "$tmp/flight.err")"
 grep -q '^\*\*Format-version:\*\* 1$' "$repo4/specs/flight/requirements.md" \
   || fail "reserved identifier: the refused bundle was migrated anyway"
 echo "ok: a bundle named by the reserved identifier is refused untouched"

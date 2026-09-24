@@ -307,8 +307,12 @@ echo "ok: missing / mixed-bad / hostile-identifier spec dirs fail closed with ex
 mkdir -p "$repoB/specs/flight"
 two_task_body >"$repoB/specs/flight/tasks.md"
 rc=0
-"$MSEL" "$repoB/specs/flight" >/dev/null 2>&1 || rc=$?
+d7ferr=$("$MSEL" "$repoB/specs/flight" 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 2 ] || fail "case 7d': reserved spec basename must fail closed (exit $rc, expected 2)"
+case $d7ferr in
+  *reserved*) ;;
+  *) fail "case 7d': the refusal does not name the reservation (got: $d7ferr)" ;;
+esac
 rm -rf "$repoB/specs/flight"
 echo "ok: the reserved identifier flight fails closed with exit 2"
 # 7e. Echo discipline for the missing-tasks.md diagnostic: only the spec-dir
