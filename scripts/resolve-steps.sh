@@ -120,6 +120,8 @@
 #      absent from every layer, a missing or duplicated pipeline-entry line,
 #      an unusable sibling script
 #   6  a refused context value (--preamble / --prefix only)
+#   130 / 143  interrupted or terminated by a signal (the shell's own
+#      convention), the scratch file removed
 #
 # Environment: honors every override config-get.sh, resolve-catalog.sh, and
 # resolve-overlay-root.sh honor (PLANWRIGHT_ROOT, PLANWRIGHT_CONFIG_DEFAULTS,
@@ -593,25 +595,31 @@ if [ "$rc" -ne 0 ]; then
 fi
 # A warning the catalog reader emitted on a successful read is an entry it
 # skipped (an empty id, an unmarked duplicate): the by-layer policy applies
-# to it here, since the reader itself only warns.
-if [ -s "$scratch" ]; then
-  if grep -q '^resolve-catalog: steps: core ' "$scratch"; then
+# to it here, since the reader itself only warns. The --explain view always
+# runs the merge, so a core-only catalog (which the plain view passes
+# through verbatim) reports its skips there; both reads are judged.
+reader_skips() {
+  [ -s "$1" ] || return 0
+  if grep -q '^resolve-catalog: steps: core ' "$1"; then
     die 5 "the core steps catalog carries an entry the catalog reader skipped (broken install)"
   fi
-  if grep -q '^resolve-catalog: steps: repo-tracked ' "$scratch"; then
+  if grep -q '^resolve-catalog: steps: repo-tracked ' "$1"; then
     die 4 "the repo-tracked steps catalog carries an entry the catalog reader skipped; refusing to degrade a shared team catalog"
   fi
   DEGRADED=1
-fi
+}
+reader_skips "$scratch"
 rc=0
-layers_view=$("$catalog_sh" steps --explain 2>/dev/null) || rc=$?
+layers_view=$("$catalog_sh" steps --explain 2>"$scratch") || rc=$?
 [ "$rc" -eq 0 ] || die 5 "resolve-catalog's two views disagree (exit $rc) (broken install)"
+reader_skips "$scratch"
 
 # FIELDS: one `<n>\t<key>\t<value>` line per entry field, <n> the entry's
 # ordinal in merged order. Markers: `@cntrl` (a control byte in the key or
 # value; the value is never emitted), `@dup` (a repeated field, the item's
-# own id included), `@bad` (an indented line that is not a field). Empty and
-# duplicate ids are skipped exactly as resolve-catalog skips them.
+# own id included), `@bad` (an indented line that is not a field). Every
+# item is kept: an entry the catalog reader itself skipped has already
+# ended the run above through its warning.
 FIELDS=$(printf '%s\n' "$merged" | awk '
   /^[ \t]*#/ { next }
   /^[^ \t]/ { insec = ($0 ~ /^[A-Za-z][A-Za-z0-9_-]*:[ \t]*$/); have = 0; next }
@@ -619,8 +627,6 @@ FIELDS=$(printf '%s\n' "$merged" | awk '
   insec && /^  -[ \t]+id:/ {
     raw = $0; sub(/^  -[ \t]+id:[ \t]*/, "", raw); sub(/[ \t]*$/, "", raw)
     sub(/^"/, "", raw); sub(/"$/, "", raw)
-    if (raw == "" || (raw in seen)) { have = 0; next }
-    seen[raw] = 1
     n++; have = 1
     fseen[n, "id"] = 1
     print n "\tid\t" raw
@@ -644,10 +650,12 @@ FIELDS=$(printf '%s\n' "$merged" | awk '
 # One pass over the field stream into per-entry arrays. E_MARK holds the
 # first structural fault (a marker or an unknown field); E_SET records which
 # fields the entry declares (`|name|` tokens) so an unset field is told from
-# an empty one.
+# an empty one; E_DROP marks an entry dropped as malformed in itself and
+# E_LIST_DROP one dropped for where the current list places it.
 E_ID=()
 E_LAYER=()
 E_DROP=()
+E_LIST_DROP=()
 E_MARK=()
 E_SET=()
 E_KIND=()
@@ -665,6 +673,7 @@ while IFS="$TAB" read -r n k v; do
     E_ID[n]=""
     E_LAYER[n]=""
     E_DROP[n]=0
+    E_LIST_DROP[n]=0
     E_MARK[n]=""
     E_SET[n]="|"
     E_KIND[n]=""
@@ -698,22 +707,36 @@ done <<EOF
 $FIELDS
 EOF
 [ "$n_entries" -gt 0 ] || die 5 "the steps catalog holds no entry; the core seed always does (broken install)"
-# The --explain view supplies each entry's layer, matched by id (the layer is
-# the last field, so an id carrying a tab still matches).
+# The --explain view supplies each entry's layer and its id as the catalog
+# reader stored it (the merged view re-emits an id unquoted, so one the
+# reader kept with surrounding whitespace re-parses without it). Match by
+# id with the whitespace ignored, in order, falling back to the ordinal; the
+# stored id is what validation then judges. The layer is the last field, so
+# an id carrying a tab still splits.
 n_layers=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   n_layers=$((n_layers + 1))
   view_id=${line%"$TAB"*}
   view_layer=${line##*"$TAB"}
+  view_key=${view_id#"${view_id%%[![:space:]]*}"}
+  view_key=${view_key%"${view_key##*[![:space:]]}"}
+  matched=0
   i=1
   while [ "$i" -le "$n_entries" ]; do
-    if [ "${E_ID[i]}" = "$view_id" ] && [ -z "${E_LAYER[i]}" ]; then
-      E_LAYER[i]="$view_layer"
+    if [ -z "${E_LAYER[i]}" ] && [ "${E_ID[i]}" = "$view_key" ]; then
+      matched=$i
       break
     fi
     i=$((i + 1))
   done
+  if [ "$matched" -eq 0 ] && [ "$n_layers" -le "$n_entries" ] && [ -z "${E_LAYER[n_layers]}" ]; then
+    matched=$n_layers
+  fi
+  if [ "$matched" -gt 0 ]; then
+    E_LAYER[matched]="$view_layer"
+    E_ID[matched]="$view_id"
+  fi
 done <<EOF
 $layers_view
 EOF
@@ -732,17 +755,23 @@ is_set() {
   return 1
 }
 
-# entry_malformed <n> <reason>: the by-layer policy for an entry (REQ-C1.5).
-# Returns only for the degrade arm, the entry then dropped (its id
-# non-resolving under the matrix).
+# entry_malformed <n> <reason> [list]: the by-layer policy for an entry
+# (REQ-C1.5). Returns only for the degrade arm, the entry then dropped (its
+# id non-resolving under the matrix): from the merged catalog, or, with
+# `list`, only for the current list's order, which the core fallback resets.
 entry_malformed() {
   en="$1"
   case "${E_LAYER[en]}" in
     core) die 5 "core steps catalog entry ${E_ID[en]:-#$en} is malformed ($2) (broken install)" ;;
     repo-tracked) die 4 "repo-tracked steps catalog entry ${E_ID[en]:-#$en} is malformed ($2); refusing to degrade a shared team catalog" ;;
     *)
-      warn "warning: ${E_LAYER[en]} steps catalog entry ${E_ID[en]:-#$en} is malformed ($2); dropped from the merged catalog"
-      E_DROP[en]=1
+      if [ "${3:-}" = list ]; then
+        warn "warning: ${E_LAYER[en]} steps catalog entry ${E_ID[en]:-#$en} is malformed where this list places it ($2); dropped for this list"
+        E_LIST_DROP[en]=1
+      else
+        warn "warning: ${E_LAYER[en]} steps catalog entry ${E_ID[en]:-#$en} is malformed ($2); dropped from the merged catalog"
+        E_DROP[en]=1
+      fi
       DEGRADED=1
       ;;
   esac
@@ -816,10 +845,11 @@ validate_entry() {
   }
   vargs=${E_ARGS[vn]}
   # The constrained reader takes single-line scalars only, so a YAML block
-  # indicator is a declaration whose body was dropped, never a value.
-  for bv in "$vtarget" "$vargs"; do
-    case "$bv" in
-      '|' | '>' | '|-' | '>-' | '|+' | '>+')
+  # indicator (with its chomping or indentation suffix) is a declaration
+  # whose body was dropped, never a value.
+  for scalar in "$vtarget" "$vargs"; do
+    case "$scalar" in
+      [\|\>] | [\|\>][0-9+-] | [\|\>][0-9+-][0-9+-])
         ERR="a block scalar (the catalog reader takes single-line scalars only)"
         return
         ;;
@@ -928,17 +958,14 @@ while [ "$i" -le "$n_entries" ]; do
 done
 
 # entry_of <id>: sets ENTRY to the ordinal of the live entry carrying <id>
-# (empty when none) and ENTRY_DROPPED when a dropped one carries it. A drop
-# the list's own order caused (E_LDROP) is reset when the list gives way to
-# the core default, so it never outlives the list that caused it.
-E_LDROP=()
+# (empty when none) and ENTRY_DROPPED when a dropped one carries it.
 entry_of() {
   ENTRY=""
   ENTRY_DROPPED=0
   j=1
   while [ "$j" -le "$n_entries" ]; do
     if [ "${E_ID[j]}" = "$1" ]; then
-      if [ "${E_DROP[j]}" -eq 0 ] && [ "${E_LDROP[j]:-0}" -eq 0 ]; then
+      if [ "${E_DROP[j]}" -eq 0 ] && [ "${E_LIST_DROP[j]}" -eq 0 ]; then
         ENTRY="$j"
         return 0
       fi
@@ -1155,9 +1182,7 @@ build_steps() {
       S_HOST[n_steps]="$h"
       t=${E_TIMEOUT[en]}
       if [ -n "$t" ] && [ "$h" = in-session ] && [ "${S_KIND[n_steps]}" != command ]; then
-        entry_malformed "$en" "timeout on a ${S_KIND[n_steps]} step that is effectively in-session (the unit session cannot end itself)"
-        E_DROP[en]=0
-        E_LDROP[en]=1
+        entry_malformed "$en" "timeout on a ${S_KIND[n_steps]} step that is effectively in-session (the unit session cannot end itself)" list
         S_N[n_steps]=""
         S_KIND[n_steps]="-"
         S_HOST[n_steps]="-"
@@ -1182,7 +1207,11 @@ build_steps "$ids"
 if [ -n "$LIST_ERR" ]; then
   degrade_list "$LIST_ERR"
   ids="$IDS"
-  E_LDROP=()
+  i=1
+  while [ "$i" -le "$n_entries" ]; do
+    E_LIST_DROP[i]=0
+    i=$((i + 1))
+  done
   build_steps "$ids"
   [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
 fi

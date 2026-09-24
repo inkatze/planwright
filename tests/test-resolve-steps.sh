@@ -114,9 +114,22 @@ cat_entry() {
 # PLANWRIGHT_STEP_* exports cleared so the suite is hermetic even when it
 # runs inside a planwright step (the context cases set them through ctx_run).
 STEP_UNSETS="-u PLANWRIGHT_STEP_SPEC -u PLANWRIGHT_STEP_TASK_IDS -u PLANWRIGHT_STEP_UNIT_KIND -u PLANWRIGHT_STEP_BRANCH -u PLANWRIGHT_STEP_BASE_BRANCH -u PLANWRIGHT_STEP_WORKTREE -u PLANWRIGHT_STEP_PR_NUMBER -u PLANWRIGHT_STEP_POINT -u PLANWRIGHT_STEP_ID -u PLANWRIGHT_STEP_PREV_RECORD"
+# run [VAR=value ...] <args...>: a leading VAR=value sets a variable the
+# hermetic environment would otherwise clear (the jq override, for one).
 run() {
+  overrides=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      [A-Z_]*=*)
+        overrides+=("$1")
+        shift
+        ;;
+      *) break ;;
+    esac
+  done
   # shellcheck disable=SC2086 # the unset flags are meant to word-split
   env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+    -u PLANWRIGHT_JQ "${overrides[@]}" \
     PLANWRIGHT_ROOT="$core" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
@@ -330,6 +343,45 @@ malformed_case "a duplicated field" "kind: prompt" "target: p" "target: q"
 malformed_case "an indented id field" "kind: prompt" "target: p" "id: other"
 malformed_case "an empty hosting" "kind: prompt" "target: p" "hosting:"
 malformed_case "an empty on-failure" "kind: prompt" "target: p" "on-failure:"
+malformed_case "an empty timeout" "kind: command" "target: fixture-tool" "timeout:"
+malformed_case "an empty args" "kind: command" "target: fixture-tool" "args:"
+malformed_case "an empty requires" "kind: prompt" "target: p" "requires:"
+malformed_case "a block indicator as args" "kind: skill" "target: polish" "args: |"
+malformed_case "an indented block indicator as target" "kind: prompt" "target: |2-"
+# The quoted-whitespace id: the catalog reader keeps it, the merged view
+# re-emits it unquoted, and the resolver judges the stored id by its layer.
+reset_layers
+printf 'steps:\n  - id: " foo"\n    kind: prompt\n    target: p\n' >"$tracked_cat"
+printf 'steps_pre_ci: [polish]\n' >"$tracked_cfg"
+capture pre-ci --unattended
+[ "$RC" = 4 ] || fail "REQ-C1.5: a repo-tracked id with surrounding whitespace: rc=$RC (want 4) err='$ERR'"
+reset_layers
+printf 'steps:\n  - id: "polish "\n    kind: prompt\n    target: p\n  - id: " "\n    kind: prompt\n    target: q\n' >"$adopter_cat"
+printf 'steps_pre_ci: [polish]\n' >"$adopter_cfg"
+capture pre-ci --unattended
+{ [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && [ "$(printf '%s\n' "$ERR" | grep -c 'malformed')" = 2 ]; } \
+  || fail "REQ-C1.5: adopter ids with surrounding whitespace should each drop: rc=$RC out='$OUT' err='$ERR'"
+ok "REQ-C1.5: an id the reader kept with surrounding whitespace is malformed for its layer, never a broken install"
+# An entry the catalog reader itself skipped with a warning (an unmarked
+# duplicate of a core id, an empty id) takes the by-layer policy here.
+reset_layers
+cat_entry "$tracked_cat" polish "kind: skill" "target: self-review"
+printf 'steps_convergence: [polish]\n' >"$tracked_cfg"
+capture convergence --unattended
+[ "$RC" = 4 ] && printf '%s' "$ERR" | grep -q 'skipped'
+verdict "REQ-C1.5: a repo-tracked entry the reader skipped (an unmarked duplicate) exits 4" "reader-skipped repo-tracked entry: rc=$RC err='$ERR'"
+reset_layers
+cp "$core/config/steps.yaml" "$tmp/steps.bak"
+printf '  - id:\n    kind: prompt\n    target: p\n' >>"$core/config/steps.yaml"
+capture convergence --unattended
+[ "$RC" = 5 ] && printf '%s' "$ERR" | grep -q 'skipped'
+verdict "REQ-C1.5: a core entry the reader skipped (an empty id) is a broken install" "reader-skipped core entry: rc=$RC err='$ERR'"
+cp "$tmp/steps.bak" "$core/config/steps.yaml"
+reset_layers
+cat_entry "$adopter_cat" polish "kind: skill" "target: self-review"
+capture convergence --unattended
+{ [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && printf '%s' "$ERR" | grep -q 'adopter'; }
+verdict "REQ-C1.5: an adopter entry the reader skipped only warns and degrades" "reader-skipped adopter entry: rc=$RC out='$OUT' err='$ERR'"
 malformed_case "a tab inside a value" "kind: prompt" "target: a${TAB}b"
 malformed_case "a control byte inside a value" "kind: prompt" "target: a$(printf '\033')[31mb"
 # A control byte in the id itself: still attributed to its layer, and the
@@ -458,6 +510,25 @@ printf 'steps_pre_pr: [iso-skill, cont-timed]\n' >"$tracked_cfg"
 capture pre-pr --unattended
 [ "$RC" = 0 ]
 verdict "REQ-B1.2: the same timed continue step resolves after an isolated predecessor" "continue timeout after isolated: rc=$RC err='$ERR'"
+# A drop the list's order caused does not outlive the list: an adopter list
+# drops cont-timed for its position, then hits a list-level fault and gives
+# way to the core list, where the same id sits in a valid position.
+reset_layers
+cat_entry "$adopter_cat" cont "kind: prompt" "target: carry on" "hosting: continue"
+cat_entry "$adopter_cat" iso-cmd "kind: command" "target: fixture-tool" "hosting: isolated"
+cat_entry "$adopter_cat" in-cmd "kind: command" "target: fixture-tool" "hosting: in-session"
+cat_entry "$adopter_cat" iso-skill "kind: skill" "target: polish" "hosting: isolated"
+cat_entry "$adopter_cat" cont-timed "kind: prompt" "target: carry on" "hosting: continue" "timeout: 5"
+printf 'steps_pre_pr: [in-cmd, cont-timed, iso-cmd, cont]\n' >"$adopter_cfg"
+sed -i.bak 's/^steps_pre_pr: .*/steps_pre_pr: [iso-skill, cont-timed]/' "$core/config/defaults.yml"
+rm -f "$core/config/defaults.yml.bak"
+capture pre-pr --unattended
+{ [ "$RC" = 0 ] && [ "$OUT" = "$(printf 'run\tiso-skill\nrun\tcont-timed')" ] && printf '%s' "$ERR" | grep -q 'for this list'; } \
+  || fail "REQ-C1.5: a list-order drop should reset on the core fallback: rc=$RC out='$OUT' err='$ERR'"
+ok "REQ-C1.5: a drop the list's order caused is reset when the list gives way to the core default"
+reset_layers
+cat_entry "$tracked_cat" cont "kind: prompt" "target: carry on" "hosting: continue"
+cat_entry "$tracked_cat" iso-skill "kind: skill" "target: polish" "hosting: isolated"
 # A list-level fault in an adopter list degrades to the core default (empty
 # for pre-pr), with the warning, and fails check mode.
 rm -f "$tracked_cfg"
@@ -571,7 +642,7 @@ absent_case s-none "a namespace absent from the registry"
 printf 'not json' >"$registry"
 absent_case s-plug-skill "an unreadable registry"
 write_registry
-OUT=$(PLANWRIGHT_JQ="$tmp/no-jq" run post-pr --unattended 2>"$tmp/err")
+OUT=$(run PLANWRIGHT_JQ="$tmp/no-jq" post-pr --unattended 2>"$tmp/err")
 RC=$?
 [ "$RC" = 1 ] && [ "$OUT" = "park${TAB}s-plug-skill" ] \
   || fail "REQ-C1.3: a missing JSON reader should be non-resolving: rc=$RC out='$OUT'"
@@ -587,6 +658,17 @@ capture post-pr --unattended
 [ "$RC" = 1 ] && [ "$OUT" = "park${TAB}ghost" ] && printf '%s' "$ERR" | grep -q 'no catalog entry'
 verdict "REQ-C1.3: an id naming no catalog entry takes the matrix path" "no catalog entry: rc=$RC out='$OUT' err='$ERR'"
 # requires naming an absent executable does not resolve.
+cat_entry "$tracked_cat" needs-path "kind: prompt" "target: p" "requires: $bin/fixture-tool"
+printf 'steps_post_pr: [needs-path]\n' >"$tracked_cfg"
+capture post-pr --unattended
+[ "$RC" = 0 ] && [ "$OUT" = "run${TAB}needs-path" ]
+verdict "REQ-D1.8: a requires executable given as a path resolves" "requires path: rc=$RC out='$OUT' err='$ERR'"
+printf '#!/bin/sh\n' >"$bin/not-exec"
+cat_entry "$tracked_cat" needs-nx "kind: prompt" "target: p" "requires: $bin/not-exec"
+printf 'steps_post_pr: [needs-nx]\n' >"$tracked_cfg"
+capture post-pr --unattended
+[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}needs-nx" ] && printf '%s' "$ERR" | grep -q 'at that path'
+verdict "REQ-D1.8: a non-executable requires path does not resolve, the diagnostic naming the path form" "requires non-executable path: rc=$RC out='$OUT' err='$ERR'"
 cat_entry "$tracked_cat" needs "kind: prompt" "target: p" "requires: fixture-tool no-such-exe"
 printf 'steps_post_pr: [needs]\n' >"$tracked_cfg"
 capture post-pr --unattended
@@ -868,7 +950,8 @@ inst="$tmp/inst"
 mkdir -p "$inst/scripts" "$inst/doctrine"
 for s in "$repo_root"/scripts/*.sh; do ln -s "$s" "$inst/scripts/$(basename "$s")"; done
 run_inst() {
-  env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+  # shellcheck disable=SC2086 # the unset flags are meant to word-split
+  env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT -u PLANWRIGHT_JQ \
     PLANWRIGHT_ROOT="$core" PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" CLAUDE_DIR="$claude" HOME="$tmp/home" PATH="$bin:$PATH" \
@@ -929,6 +1012,7 @@ ctx_run() {
   [ "${1:-}" = -- ] && shift
   # shellcheck disable=SC2086 # the unset flags are meant to word-split
   env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+    -u PLANWRIGHT_JQ \
     PLANWRIGHT_STEP_SPEC=custom-steps PLANWRIGHT_STEP_TASK_IDS='2 3.5' \
     PLANWRIGHT_STEP_UNIT_KIND=task PLANWRIGHT_STEP_BRANCH=planwright/custom-steps/task-2 \
     PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE="$tmp/wt" \
