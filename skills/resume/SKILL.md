@@ -183,8 +183,9 @@ arbitration), not the load itself:
   number and draft state (or none, or unknown when Step 6 could not ask), the
   working tree as clean or a count of changed paths, and "partial load" when
   any step degraded.
-- **The seven context elements** — unit, brief slice, task state, git log,
-  PR state, handover notes, working-tree status — are offered on request,
+- **The context elements** — unit, brief slice, task state, git log,
+  PR state, handover notes, the polish audit's counts, working-tree status —
+  are offered on request,
   one layer at a time, never emitted by default. A decision the operator
   must weigh is never hidden in that layer: it belongs in the question.
 
