@@ -877,8 +877,42 @@ STUB
     *core.sshCommand*BatchMode*) ;;
     *) fail "c19: the overridden config BatchMode was not reported against core.sshCommand on stderr: $err" ;;
   esac
+
+  # (e) neither source set: plain `ssh` from PATH, plus BatchMode, no note.
+  # Only these last two runs can see a `core.sshCommand` the host's own global
+  # config may carry, so they read no config beyond the fixture's local file.
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config --unset core.sshCommand
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the neither-source run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  case "$argv" in
+    "via-path -o BatchMode=yes "*) ;;
+    *) fail "c19: with neither source set the fetch did not run plain ssh with BatchMode=yes first: $argv" ;;
+  esac
+  case "$err" in
+    *BatchMode*) fail "c19: warned about an override when neither source set BatchMode: $err" ;;
+    *) ;;
+  esac
+
+  # (f) an empty `core.sshCommand` falls through to plain `ssh` as well: the
+  # script's rule for an empty value is the same for both sources, where git
+  # itself would try to run the empty string.
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config core.sshCommand ""
+  rc=0
+  env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the empty-config run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  case "$argv" in
+    "via-path -o BatchMode=yes "*) ;;
+    *) fail "c19: an empty core.sshCommand did not fall through to plain ssh with BatchMode=yes: $argv" ;;
+  esac
   unset SSH_ARGV_LOG
-  echo "ok c19: with GIT_SSH_COMMAND unset the fetch keeps core.sshCommand plus BatchMode; a set variable still wins"
+  echo "ok c19: with GIT_SSH_COMMAND unset the fetch keeps core.sshCommand plus BatchMode; a set variable still wins; neither source means plain ssh"
 }
 
 # ---------------------------------------------------------------------------
