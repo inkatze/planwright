@@ -46,7 +46,7 @@
 #     broken-install diagnostic below; a readable-but-non-flat defaults file
 #     simply misses keys and exits 3, the same as the original two-layer reader.
 #
-# Usage: config-get.sh [--explain] <key>
+# Usage: config-get.sh [--explain | --layers] <key>
 #   <key> matches ^[a-z][a-z0-9_]*$ and is validated before it is ever
 #   interpolated into a pattern (framework-script security, REQ-D1.6).
 #   --explain (D-9, REQ-B1.6): instead of the bare value, print provenance —
@@ -55,6 +55,14 @@
 #   where <layer> is one of core | adopter | repo-tracked | machine-local. The
 #   exit codes are unchanged from the bare read. This line format is the pinned
 #   provenance contract skills/humans may parse (risk R6).
+#   --layers (custom-steps REQ-C1.1, D-5): the per-layer read. Print one
+#   `<layer>\t<value>` line for EVERY well-formed layer that sets the key, in
+#   precedence order lowest to highest (core, adopter, repo-tracked,
+#   machine-local), so the last line is the merged winner and the lines above
+#   it are the layers it shadows. A malformed adopter or machine-local layer is
+#   skipped with the same warning the merged read emits; a malformed
+#   repo-tracked layer hard-fails the same way. Exit codes as the bare read
+#   (3 when no layer sets the key).
 #
 # Environment overrides (tests, adopters, worktree callers that know the
 # primary checkout's paths):
@@ -78,16 +86,24 @@ export LC_ALL
 # substitution that derives the script dir (house pattern).
 unset CDPATH
 
-# --explain is an optional leading flag; the bare <key> form is unchanged.
+# --explain / --layers is an optional leading flag; the bare <key> form is
+# unchanged.
 explain=0
-if [ "${1:-}" = "--explain" ]; then
-  explain=1
-  shift
-fi
+layers=0
+case "${1:-}" in
+  --explain)
+    explain=1
+    shift
+    ;;
+  --layers)
+    layers=1
+    shift
+    ;;
+esac
 
 key="${1:-}"
 if [ -z "$key" ]; then
-  echo "usage: config-get.sh [--explain] <key>" >&2
+  echo "usage: config-get.sh [--explain | --layers] <key>" >&2
   exit 2
 fi
 case "$key" in
@@ -234,8 +250,16 @@ get_value() {
 }
 
 # emit <layer>: print the resolved value (bare) or its provenance (--explain),
-# then exit 0. Called once a layer has supplied the key.
+# then exit 0. Called once a layer has supplied the key. Under --layers the
+# line is collected instead (the layers are visited highest first, so the
+# collected lines are prepended to come out lowest first) and the walk goes on.
+layer_lines=""
 emit() {
+  if [ "$layers" -eq 1 ]; then
+    layer_lines="$1	$VALUE
+$layer_lines"
+    return 0
+  fi
   if [ "$explain" -eq 1 ]; then
     printf '%s\t%s\n' "$1" "$VALUE"
   else
@@ -276,6 +300,11 @@ if [ -n "$adopter_cfg" ] && [ -e "$adopter_cfg" ]; then
 fi
 if [ -n "$defaults" ] && get_value "$defaults" "$key"; then
   emit core
+fi
+
+if [ "$layers" -eq 1 ] && [ -n "$layer_lines" ]; then
+  printf '%s' "$layer_lines"
+  exit 0
 fi
 
 # Key not found in any layer. If the tracked defaults file itself could not be
