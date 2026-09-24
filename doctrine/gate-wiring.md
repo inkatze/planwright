@@ -214,20 +214,20 @@ fork blocking further progress on the unit hard-pauses instead of queuing.
 ## Pause protocol
 
 Exactly two triggers interrupt mid-loop (REQ-C1.4): the zone screen fires,
-or an irreducible fork blocks progress. Everything else flows to loop end.
-What a pause does depends on who is watching:
+or an irreducible fork blocks progress. Everything else flows to loop end. A
+halting custom step ([custom-steps](custom-steps.md)) reuses the two
+destinations below. What a pause does depends on who is watching:
 
 - **Attended session.** Stop the loop. Present the finding, the triggering
   zone or fork, and the recommended fix or concrete alternatives. Wait for
   direction; apply nothing in the zone until the human directs it.
-- **Dispatched or unattended worker.** No human is at the prompt: record the
-  unit to `tasks.md` Awaiting input (the halt destination REQ-F1.5 defines),
-  with the finding, the trigger, and the recommended fix or alternatives, then
-  end the step. Work already applied stays on the branch as committed: a pause
-  never resets, stashes, or rewrites prior dispositions. The pause content
-  respects artifact data-hygiene ([Security Posture](security-posture.md)):
-  describe the zone finding without reproducing secrets or sensitive
-  operational detail.
+- **Dispatched or unattended worker.** Record the unit to `tasks.md` Awaiting
+  input (the halt destination REQ-F1.5 defines), with the finding, the
+  trigger, and the recommended fix or alternatives, then end the step. Work
+  already applied stays on the branch as committed: a pause never resets,
+  stashes, or rewrites prior dispositions. The pause content respects artifact
+  data-hygiene ([Security Posture](security-posture.md)): no secrets or
+  sensitive operational detail.
 
 The human's direction is the finding's disposition: the finding does not
 re-enter the routing order and the zone screen does not fire again. The agent
@@ -262,10 +262,11 @@ template-expanded: each skill supplies its own summary inputs.
    without expanding anything. Each emitting skill names which inputs feed the
    summary (its task IDs, REQ citations, test additions).
 2. **The complete audit record, collapsed** (REQ-A1.2): the loop-end handoff,
-   plus `/self-review`'s lens-coverage table and pass summary, inside a
-   `<details>` block, so it never buries the summary.
-   Collapsed is not abridged: every table and row the wiring emits is present
-   inside the block.
+   `/self-review`'s lens-coverage table and pass summary, and the per-point
+   step tables ([custom-steps](custom-steps.md); a point that ran nothing
+   emits a `none` row), inside a `<details>` block, so it never buries the
+   summary. Collapsed is not abridged: every table and row the wiring emits
+   is present inside the block.
 
 **Prose is never hard-wrapped** (REQ-A1.3): GitHub reflows markdown, so a
 fixed-column wrap only inserts ragged mid-sentence breaks. Line breaks in the
@@ -319,7 +320,7 @@ Closes the unowned-refresh gap REQ-E1 names: a merged task's block gets `Complet
 | 1 | the stamp's degraded case is documented as no stamp | reworded to the date-only form | meaning-class prose, pre-existing surface | `def5678` | PS-1 |
 | 2 | the no-remote arm states a duty its REQ permits | reworded to the permission | meaning-class prose, pre-existing surface | `def5678` | PS-1 |
 
-*(Elided for space: `Agent-resolvable`, `Needs human judgment` and the declined log each emit their `none` row, which a real record always carries in full.)*
+*(Elided for space: `Agent-resolvable`, `Needs human judgment`, the declined log, and the step tables each emit their `none` row.)*
 
 ## Pending sign-off
 
@@ -334,8 +335,7 @@ Closes the unowned-refresh gap REQ-E1 names: a merged task's block gets `Complet
 
 ## Consumers and conformance
 
-`/self-review`, `/polish`, and `/execute-task`'s convergence step implement
-this wiring. The conformance scenarios live in the bootstrap test-spec's
+The conformance scenarios live in the bootstrap test-spec's
 REQ-C1.3, REQ-C1.4, and REQ-C1.7 entries
 (state/trigger/outcome), exercised by the manual-verification sweep the work
 fork's first run carries, with the REQ-C1.5 and REQ-C1.6 manual entries.

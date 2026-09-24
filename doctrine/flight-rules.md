@@ -120,10 +120,11 @@ worker authors and lands it, and it carries (REQ-E1.1):
 - the **routing decision and its grounds**, as stated in the conversation;
 - the **convergence audit tables** the review skills produce: lens coverage, the
   four buckets, the declined log, and the pending-sign-off checklist;
-- **any rigor scoping actually applied** inside the configured `review_sequence`.
-  Visual flight runs the same sequence instrument flight runs; proportionality may
-  scope rigor inside a pass, but a scoping that is not declared did not happen
-  (D-7);
+- **any rigor scoping actually applied** inside the convergence point's list
+  (`steps_convergence`, run with unit kind `flight`;
+  [custom-steps](custom-steps.md)). Visual flight runs the same steps instrument
+  flight runs; proportionality may scope rigor inside a pass, but a scoping that
+  is not declared did not happen (D-7);
 - the **worker handle**; and
 - the **revert path**.
 
