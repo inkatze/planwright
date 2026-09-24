@@ -390,6 +390,9 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     next
   }
 
+  # A blank line inside an entry is nothing.
+  /^[ \t]*$/ { next }
+
   # An entry field at four-space indent. `supersede:` is a merge directive, not
   # catalog data — captured as the marker, kept out of the emitted payload.
   have_entry && /^    [A-Za-z]/ {
@@ -411,6 +414,14 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     } else {
       cur_fields = cur_fields (cur_fields == "" ? "" : "\n") raw
     }
+    next
+  }
+
+  # Any other indented line inside an entry (a nested value, a misindented
+  # or quoted key) is outside the constrained shape: skipped with a warning
+  # so a consumer applying a by-layer policy can see the declaration it lost.
+  have_entry && /^[ \t]/ {
+    warn(cur_label " entry \"" cur_id "\" carries an indented line that is not a field; skipping the line")
     next
   }
 

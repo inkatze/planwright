@@ -129,7 +129,7 @@ run() {
   done
   # shellcheck disable=SC2086 # the unset flags are meant to word-split
   env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
-    -u PLANWRIGHT_JQ "${overrides[@]}" \
+    -u PLANWRIGHT_JQ ${overrides[@]+"${overrides[@]}"} \
     PLANWRIGHT_ROOT="$core" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
@@ -362,6 +362,37 @@ capture pre-ci --unattended
 { [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && [ "$(printf '%s\n' "$ERR" | grep -c 'malformed')" = 2 ]; } \
   || fail "REQ-C1.5: adopter ids with surrounding whitespace should each drop: rc=$RC out='$OUT' err='$ERR'"
 ok "REQ-C1.5: an id the reader kept with surrounding whitespace is malformed for its layer, never a broken install"
+# A catalog with more than one section aligns the two views by id: the
+# entry keeps its own fields and layer wherever the merged view groups it,
+# and a name that could match two entries fails closed.
+reset_layers
+printf 'steps:\n  - id: filler\n    kind: prompt\n    target: hello\nother:\n  - id: extra\n    kind: prompt\n    target: from the other section\n' >"$adopter_cat"
+cat_entry "$tracked_cat" deploy "kind: command" "target: fixture-tool" "args: team"
+printf 'steps_pre_pr: [deploy, extra]\n' >"$tracked_cfg"
+capture pre-pr --unattended --explain
+{ [ "$RC" = 0 ] \
+  && printf '%s\n' "$OUT" | grep -q "^run${TAB}deploy${TAB}pre-pr${TAB}repo-tracked${TAB}repo-tracked${TAB}fixture-tool${TAB}isolated${TAB}command${TAB}team${TAB}" \
+  && printf '%s\n' "$OUT" | grep -q "^run${TAB}extra${TAB}pre-pr${TAB}repo-tracked${TAB}adopter${TAB}from the other section${TAB}"; } \
+  || fail "multi-section catalog: entries must keep their own fields and layer: rc=$RC out='$OUT' err='$ERR'"
+printf 'steps:\n  - id: filler\n    kind: prompt\n    target: hello\nother:\n  - id: ""deploy""\n    kind: command\n    target: fixture-tool\n    args: attacker\n' >"$adopter_cat"
+capture pre-pr --unattended --explain
+{ [ "$RC" = 5 ] && ! printf '%s\n' "$OUT" | grep -q attacker; } \
+  || fail "multi-section catalog: an adopter id that re-parses to a repo-tracked id must fail closed, never rebind: rc=$RC out='$OUT'"
+ok "REQ-C1.5: a multi-section catalog aligns the views by id and fails closed on an ambiguous one"
+# An indented line the catalog reader drops (a misindented or quoted key)
+# takes the by-layer policy: the declaration is never lost silently.
+reset_layers
+printf 'steps:\n  - id: lint\n    kind: command\n    target: fixture-tool\n     timeout: 30\n' >"$tracked_cat"
+printf 'steps_pre_ci: [lint]\n' >"$tracked_cfg"
+capture pre-ci --unattended
+[ "$RC" = 4 ] && printf '%s' "$ERR" | grep -q 'not a field'
+verdict "REQ-C1.5: a misindented field in a repo-tracked entry hard-fails" "misindented repo-tracked field: rc=$RC err='$ERR'"
+reset_layers
+printf 'steps:\n  - id: lint\n    kind: command\n    target: fixture-tool\n    "hosting": in-session\n' >"$adopter_cat"
+printf 'steps_pre_ci: [lint]\n' >"$adopter_cfg"
+capture pre-ci --check --unattended
+[ "$RC" = 1 ] && printf '%s' "$ERR" | grep -q 'not a field'
+verdict "REQ-H1.3: a quoted key in an adopter entry is degraded with its warning and fails check mode" "quoted adopter key: rc=$RC err='$ERR'"
 # An entry the catalog reader itself skipped with a warning (an unmarked
 # duplicate of a core id, an empty id) takes the by-layer policy here.
 reset_layers
@@ -578,7 +609,7 @@ cat_entry "$tracked_cat" s-plug-skill "kind: skill" "target: other:their-skill"
 cat_entry "$tracked_cat" s-plug-cmd "kind: skill" "target: other:their-cmd"
 cat_entry "$tracked_cat" s-multi "kind: skill" "target: multi:v2-skill"
 cat_entry "$tracked_cat" s-first "kind: skill" "target: first:their-skill"
-cat_entry "$tracked_cat" c-name "kind: command" "target: fixture-tool" "args: --nested x=1 a/b"
+cat_entry "$tracked_cat" c-name "kind: command" "target: fixture-tool" "args: --nested x=1  a/b   c"
 cat_entry "$tracked_cat" c-path "kind: command" "target: $bin/fixture-tool"
 cat_entry "$tracked_cat" c-rel "kind: command" "target: ./rel-tool"
 cat_entry "$tracked_cat" p-text "kind: prompt" "target: Review the diff for typos."
@@ -609,7 +640,7 @@ check_loc c-rel "./rel-tool"
 check_loc p-text "-"
 ok "REQ-C1.3/D-19: skill, command, and prompt targets resolve on the host through every lookup rule"
 # The declared command line is emitted byte-for-byte, and skill args verbatim.
-printf '%s\n' "$OUT" | grep -q "^run${TAB}c-name${TAB}post-pr${TAB}repo-tracked${TAB}repo-tracked${TAB}fixture-tool${TAB}isolated${TAB}command${TAB}--nested x=1 a/b${TAB}"
+printf '%s\n' "$OUT" | grep -q "^run${TAB}c-name${TAB}post-pr${TAB}repo-tracked${TAB}repo-tracked${TAB}fixture-tool${TAB}isolated${TAB}command${TAB}--nested x=1  a/b   c${TAB}"
 verdict "REQ-G1.1: a declared command line is emitted byte-for-byte" "REQ-G1.1: command line not byte-identical: $(printf '%s\n' "$OUT" | grep "${TAB}c-name${TAB}")"
 printf '%s\n' "$OUT" | grep -q "^run${TAB}s-pw${TAB}.*${TAB}skill${TAB}--nested${TAB}"
 verdict "REQ-B1.6/REQ-C1.3: a skill's --nested argument is passed through unexamined" "skill args verbatim: $(printf '%s\n' "$OUT" | grep "${TAB}s-pw${TAB}")"
@@ -809,7 +840,6 @@ verdict "REQ-H1.3: check mode passes with a warning on an adopter skip" "check m
 reset_layers
 printf 'steps_pre_pr: [polish, ghost]\n' >"$mlocal_cfg"
 capture pre-pr --check --unattended
-[ "$RC" = 0 ]
 [ "$RC" = 0 ] && printf '%s' "$ERR" | grep -q 'ghost'
 verdict "REQ-H1.3: check mode passes with a warning on a machine-local skip" "check mode machine-local skip: rc=$RC err='$ERR'"
 
@@ -1018,7 +1048,7 @@ ctx_run() {
     PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE="$tmp/wt" \
     PLANWRIGHT_STEP_PR_NUMBER= PLANWRIGHT_STEP_POINT=wrong PLANWRIGHT_STEP_ID=polish \
     PLANWRIGHT_STEP_PREV_RECORD="$prev_fixture" \
-    "${overrides[@]}" \
+    ${overrides[@]+"${overrides[@]}"} \
     PLANWRIGHT_ROOT="$core" PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" CLAUDE_DIR="$claude" HOME="$tmp/home" PATH="$bin:$PATH" \

@@ -593,24 +593,30 @@ if [ "$rc" -ne 0 ]; then
   fi
   die 5 "the steps catalog is unusable (resolve-catalog exit $rc) (broken install)"
 fi
-# A warning the catalog reader emitted on a successful read is an entry it
-# skipped (an empty id, an unmarked duplicate): the by-layer policy applies
-# to it here, since the reader itself only warns. The --explain view always
-# runs the merge, so a core-only catalog (which the plain view passes
-# through verbatim) reports its skips there; both reads are judged.
+# reader_skips <stderr-file>: the by-layer policy for an entry or line the
+# catalog reader skipped with a warning (an empty id, an unmarked
+# duplicate, an indented line that is not a field): a core one is a broken
+# install, a repo-tracked one hard-fails, any other is degraded. The
+# --explain view always runs the merge, so a core-only catalog (which the
+# plain view passes through verbatim) reports its skips there; both reads
+# are judged, and the second read's diagnostics are replayed when the first
+# read printed none.
 reader_skips() {
   [ -s "$1" ] || return 0
   if grep -q '^resolve-catalog: steps: core ' "$1"; then
-    die 5 "the core steps catalog carries an entry the catalog reader skipped (broken install)"
+    die 5 "the core steps catalog is malformed (an entry or line the catalog reader skipped) (broken install)"
   fi
   if grep -q '^resolve-catalog: steps: repo-tracked ' "$1"; then
-    die 4 "the repo-tracked steps catalog carries an entry the catalog reader skipped; refusing to degrade a shared team catalog"
+    die 4 "the repo-tracked steps catalog is malformed (an entry or line the catalog reader skipped); refusing to degrade a shared team catalog"
   fi
   DEGRADED=1
 }
+plain_read_quiet=1
+[ ! -s "$scratch" ] || plain_read_quiet=0
 reader_skips "$scratch"
 rc=0
 layers_view=$("$catalog_sh" steps --explain 2>"$scratch") || rc=$?
+[ "$plain_read_quiet" -eq 0 ] || replay "$scratch"
 [ "$rc" -eq 0 ] || die 5 "resolve-catalog's two views disagree (exit $rc) (broken install)"
 reader_skips "$scratch"
 
@@ -618,8 +624,9 @@ reader_skips "$scratch"
 # ordinal in merged order. Markers: `@cntrl` (a control byte in the key or
 # value; the value is never emitted), `@dup` (a repeated field, the item's
 # own id included), `@bad` (an indented line that is not a field). Every
-# item is kept: an entry the catalog reader itself skipped has already
-# ended the run above through its warning.
+# item is kept: a core or repo-tracked entry the catalog reader skipped has
+# already ended the run through its warning, and an adopter or machine-local
+# one is degraded with its warning and absent from the merged view.
 FIELDS=$(printf '%s\n' "$merged" | awk '
   /^[ \t]*#/ { next }
   /^[^ \t]/ { insec = ($0 ~ /^[A-Za-z][A-Za-z0-9_-]*:[ \t]*$/); have = 0; next }
@@ -645,6 +652,14 @@ FIELDS=$(printf '%s\n' "$merged" | awk '
     next
   }
   have { print n "\t@bad\t"; next }
+')
+# The section count decides how the two views align below: the merged view
+# groups entries by section, the --explain view lists them in merged order,
+# so the orders agree only when the catalog holds one section.
+n_sections=$(printf '%s\n' "$merged" | awk '
+  /^[ \t]*#/ { next }
+  /^[A-Za-z][A-Za-z0-9_-]*:[ \t]*$/ { s = $0; sub(/:[ \t]*$/, "", s); secs[s] = 1 }
+  END { c = 0; for (k in secs) c++; print c }
 ')
 
 # One pass over the field stream into per-entry arrays. E_MARK holds the
@@ -709,34 +724,40 @@ EOF
 [ "$n_entries" -gt 0 ] || die 5 "the steps catalog holds no entry; the core seed always does (broken install)"
 # The --explain view supplies each entry's layer and its id as the catalog
 # reader stored it (the merged view re-emits an id unquoted, so one the
-# reader kept with surrounding whitespace re-parses without it). Match by
-# id with the whitespace ignored, in order, falling back to the ordinal; the
-# stored id is what validation then judges. The layer is the last field, so
-# an id carrying a tab still splits.
+# reader kept with surrounding whitespace or quotes re-parses without them);
+# the stored id is what validation then judges. With one section the two
+# views list entries in the same order, so they align by ordinal exactly.
+# With several, the merged view is grouped by section and the alignment is
+# by id, normalized the way the field parse normalizes it; a line matching
+# no entry, or more than one, is never guessed at: the run fails closed.
+# The layer is the last field, so an id carrying a tab still splits.
 n_layers=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   n_layers=$((n_layers + 1))
   view_id=${line%"$TAB"*}
   view_layer=${line##*"$TAB"}
-  view_key=${view_id#"${view_id%%[![:space:]]*}"}
-  view_key=${view_key%"${view_key##*[![:space:]]}"}
   matched=0
-  i=1
-  while [ "$i" -le "$n_entries" ]; do
-    if [ -z "${E_LAYER[i]}" ] && [ "${E_ID[i]}" = "$view_key" ]; then
-      matched=$i
-      break
-    fi
-    i=$((i + 1))
-  done
-  if [ "$matched" -eq 0 ] && [ "$n_layers" -le "$n_entries" ] && [ -z "${E_LAYER[n_layers]}" ]; then
+  if [ "$n_sections" -le 1 ]; then
+    [ "$n_layers" -le "$n_entries" ] || break
     matched=$n_layers
+  else
+    view_key=${view_id#"${view_id%%[![:space:]]*}"}
+    view_key=${view_key%"${view_key##*[![:space:]]}"}
+    view_key=${view_key#\"}
+    view_key=${view_key%\"}
+    i=1
+    while [ "$i" -le "$n_entries" ]; do
+      if [ -z "${E_LAYER[i]}" ] && [ "${E_ID[i]}" = "$view_key" ]; then
+        [ "$matched" -eq 0 ] || die 5 "resolve-catalog's two views cannot be aligned: an id is ambiguous (broken install)"
+        matched=$i
+      fi
+      i=$((i + 1))
+    done
+    [ "$matched" -gt 0 ] || die 5 "resolve-catalog's two views cannot be aligned: an entry matches no id (broken install)"
   fi
-  if [ "$matched" -gt 0 ]; then
-    E_LAYER[matched]="$view_layer"
-    E_ID[matched]="$view_id"
-  fi
+  E_LAYER[matched]="$view_layer"
+  E_ID[matched]="$view_id"
 done <<EOF
 $layers_view
 EOF
