@@ -135,16 +135,17 @@ inside=$(git -C "$repo" rev-parse --is-inside-work-tree 2>/dev/null || true)
 #
 # The base command follows git's own precedence as far as this script reads
 # it: the caller's GIT_SSH_COMMAND when set and non-empty, otherwise the
-# target repo's `core.sshCommand`, otherwise plain `ssh`. Two deliberate
-# departures from git: an empty GIT_SSH_COMMAND falls through here where git
-# would try to run the empty string, and the legacy GIT_SSH variable is not
-# consulted, so a host relying on it alone still loses it to the export
-# below. Exporting GIT_SSH_COMMAND outranks the config in git's precedence,
-# so building on bare `ssh` would silently discard a host's configured key
-# and IdentitiesOnly, and the fetch would fail on exactly the hosts whose
-# remote access depends on that config. This is why the block sits after the
-# work-tree check: the config belongs to the target repo, not to the
-# directory the script was launched from.
+# `core.sshCommand` in effect for the target repo, otherwise plain `ssh`.
+# Deliberate departures from git: an empty GIT_SSH_COMMAND falls through to
+# the config, and an empty `core.sshCommand` falls through to `ssh`, where
+# git would try to run the empty string in either case; and the legacy
+# GIT_SSH variable is not consulted, so a host relying on it alone still
+# loses it to the export below. Exporting GIT_SSH_COMMAND outranks the config
+# in git's precedence, so building on bare `ssh` would silently discard a
+# host's configured key and IdentitiesOnly, and the fetch would fail on
+# exactly the hosts whose remote access depends on that config. This is why
+# the block sits after the work-tree check: the config belongs to the target
+# repo, not to the directory the script was launched from.
 #
 # The option has to WIN, not merely be present: ssh_config(5) specifies that
 # the FIRST obtained value of a parameter is the one used, so appending after
