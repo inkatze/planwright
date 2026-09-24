@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.45.0](https://github.com/inkatze/planwright/compare/v0.44.0...v0.45.0) (2026-09-24)
+
+
+### Features
+
+* **operator-dialogue:** instantiate the disciplines at /orchestrate, /resume and /drain ([#492](https://github.com/inkatze/planwright/issues/492)) ([59c8ee4](https://github.com/inkatze/planwright/commit/59c8ee4422a4bbbbf8330f9f0640c86a34b58696))
+* **operator-dialogue:** turn-shape eval invariants and sidedness check ([#489](https://github.com/inkatze/planwright/issues/489)) ([297cdc4](https://github.com/inkatze/planwright/commit/297cdc4640cf77cca9c8b7521afa1990eb3dfd99))
+
 ## [0.44.0](https://github.com/inkatze/planwright/compare/v0.43.0...v0.44.0) (2026-09-23)
 
 
