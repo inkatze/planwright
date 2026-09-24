@@ -74,7 +74,8 @@ would-be prompt to Awaiting input), implied for non-interactive sessions.
 ## Pre-flight (per step)
 
 Run in order. Any halt records the unit (when one is selected) and ends the step,
-per **Halt → Awaiting input** below; several at once batch into the step report.
+per **Halt → Awaiting input** below; simultaneous ones batch into the step
+report (D-45).
 
 1. **Parse `$ARGUMENTS`.** Extract the mode flags above and an optional spec
    path (`specs/<spec>` or bare `<spec>`). Validate the `<spec>` segment against
