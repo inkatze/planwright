@@ -440,7 +440,7 @@ sign-off.
 
 | # | Risk | Mitigation / early signal |
 | --- | --- | --- |
-| 17 | The rule doc, complete against every rule the spec assigns it, measures past the execute-task closure headroom the cross-cutting note assumed (the doc's word count against the guard's reported closure margin, both read from `check:instructions --audit` on the Task 1 branch), so Task 5 cannot load it point-of-use at the current budget with its own additions funded only by the convergence trim. | Queued as a fork on the Task 1 PR: a closure raise sized to the doc (tower-comms D-13's precedent), a deeper Task 5 body diet, or trimming the doc's delegable detail into the script usage headers. Early signal: `check:instructions` failing the execute-task closure on the Task 5 branch. Recorded as obs:d6406add. |
+| 17 | The rule doc, complete against every rule the spec assigns it, measures past the execute-task closure headroom design.md's cross-cutting Instruction budget note assumed (the doc's word count against the guard's reported closure margin, both read from `check:instructions --audit` on the Task 1 branch), so Task 5 cannot load it point-of-use at the current budget with its own additions funded only by the convergence-section trim design.md names. | Queued as a fork on the Task 1 PR: a closure raise sized to the doc (tower-comms D-13's precedent), a deeper Task 5 body diet, or trimming the doc's delegable detail into the script usage headers. Early signal: `check:instructions` failing the execute-task closure on the Task 5 branch. Recorded as obs:d6406add. |
 
 Signed off: 2026-09-22
 
