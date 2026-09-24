@@ -29,6 +29,7 @@ fail() {
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+tab=$(printf '\t')
 
 aenv() {
   _home=$1
@@ -143,10 +144,97 @@ done
 rc=0
 aenv "$home" render --on-change >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "render --on-change with no key exited $rc, expected 2"
+for args in "--on-change tower-1 --liveness x" "--on-change tower-1 --liveness 01" \
+  "--on-change tower-1 --liveness 9999999999" "--liveness 30" "--on-change --liveness 30"; do
+  rc=0
+  # shellcheck disable=SC2086 # word-split on purpose: each entry is an argv
+  aenv "$home" render $args >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "render $args exited $rc, expected 2"
+done
 rc=0
-aenv "$home" render --on-change tower-1 --liveness x >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "render --liveness x exited $rc, expected 2"
-[ ! -e "$tmp/x" ] || fail "a hostile key wrote outside the fleet home"
+aenv "$home" queue --on-change "../x" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "queue --on-change '../x' exited $rc, expected 2"
+strays=$(find "$home/attention" -name '*-seen.*' ! -name '*-seen.tower-1' ! -name '*-seen.tower-2' -print)
+[ -z "$strays" ] || fail "a refused key still left a seen file: $strays"
 echo "ok: a hostile key or a malformed interval is refused"
+
+# ---------------------------------------------------------------------------
+# 9. The liveness line is periodic: right after one prints, the next quiet
+#    iteration inside the interval is silent again.
+# ---------------------------------------------------------------------------
+aenv "$home" render --on-change tower-1 >/dev/null || fail "liveness setup render"
+out=$(aenv "$home" render --on-change tower-1 --liveness 0) || fail "liveness render"
+case $out in *"no change"*) ;; *) fail "no liveness line at interval 0 (got: $out)" ;; esac
+out=$(aenv "$home" render --on-change tower-1 --liveness 5) || fail "post-liveness render"
+[ -z "$out" ] || fail "a second liveness line inside the interval (got: $out)"
+echo "ok: the liveness line waits out its interval"
+
+# ---------------------------------------------------------------------------
+# 10. The queue ignores a heartbeat re-stamp and a hand-over (--except): the
+#     first changes no decision, the second changes only what one call shows.
+# ---------------------------------------------------------------------------
+qhome="$tmp/qhome"
+aenv "$qhome" decide "worker=a" "spec-one:3" "Ship it?" "yes" "yes|no" || fail "q setup: decide a"
+aenv "$qhome" decide "worker=b" "spec-two:5" "Rebase?" "no" "yes|no" || fail "q setup: decide b"
+out=$(aenv "$qhome" queue --on-change t --except "worker=a" 2>/dev/null) || fail "q: first render"
+case $out in *"Ship it?"*) fail "q: --except did not narrow the first render (got: $out)" ;; esac
+printf '%s\n' "$out" | grep -q "Rebase?" || fail "q: first render lost the other decision (got: $out)"
+out=$(aenv "$qhome" queue --on-change t) || fail "q: render without --except"
+[ -z "$out" ] || fail "q: dropping --except alone re-rendered the queue (got: $out)"
+qstore="$qhome/attention/state"
+awk -F '\t' 'BEGIN { OFS = "\t" } { $4 = $4 - 60; print }' "$qstore" >"$tmp/qrestamped"
+cat "$tmp/qrestamped" >"$qstore"
+out=$(aenv "$qhome" queue --on-change t) || fail "q: render after re-stamp"
+[ -z "$out" ] || fail "q: a heartbeat re-stamp re-rendered the queue (got: $out)"
+echo "ok: the queue ignores a re-stamp and a hand-over"
+
+# ---------------------------------------------------------------------------
+# 11. With no store yet the queue is silent and records nothing.
+# ---------------------------------------------------------------------------
+ehome="$tmp/empty-home"
+err=$(aenv "$ehome" queue --on-change t 2>&1 >/dev/null) || fail "empty: queue exited non-zero"
+[ -z "$err" ] || fail "empty: queue --on-change warned with no store (got: $err)"
+[ ! -e "$ehome/attention/queue-seen.t" ] || fail "empty: a seen file was recorded with no store"
+echo "ok: no store means nothing to show and nothing recorded"
+
+# ---------------------------------------------------------------------------
+# 12. A seen file that cannot be trusted means a full render, never an abort
+#     or a skip: a leading-zero stamp (octal, fatal under dash), a stamp in the
+#     future, and a seen path that is a directory.
+# ---------------------------------------------------------------------------
+seen="$home/attention/render-seen.tower-1"
+digest=$(cut -f1 "$seen")
+for stamps in "08${tab}09" "9999999999${tab}9999999999"; do
+  printf '%s\t%s\n' "$digest" "$stamps" >"$seen"
+  out=$(aenv "$home" render --on-change tower-1 --liveness 0) \
+    || fail "a seen file stamped '$stamps' aborted the render"
+  printf '%s\n' "$out" | grep -q "worker=a" \
+    || fail "a seen file stamped '$stamps' did not fall back to a full render (got: $out)"
+done
+rm -f "$home/attention/render-seen.tower-3"
+mkdir "$home/attention/render-seen.tower-3"
+out=$(aenv "$home" render --on-change tower-3 2>/dev/null) || fail "dir seen path: non-zero exit"
+printf '%s\n' "$out" | grep -q "worker=a" || fail "dir seen path: no full render (got: $out)"
+[ -z "$(ls -A "$home/attention/render-seen.tower-3")" ] \
+  || fail "a seen path that is a directory was written into"
+echo "ok: an untrustworthy seen file falls back to a full render"
+
+# ---------------------------------------------------------------------------
+# 13. An unreadable store is an error on every call, not an exit-0 skip once
+#     its digest has been recorded.
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$store"
+  for _ in 1 2; do
+    rc=0
+    aenv "$home" render --on-change tower-1 >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 2 ] || {
+      chmod 600 "$store"
+      fail "an unreadable store exited $rc, expected 2"
+    }
+  done
+  chmod 600 "$store"
+  echo "ok: an unreadable store is an error every time"
+fi
 
 echo "all fleet-attention render-on-change tests passed"

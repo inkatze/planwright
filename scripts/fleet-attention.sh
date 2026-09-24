@@ -122,15 +122,18 @@
 #       Remove the worker's row (idempotent) — cleanup on merged/done teardown.
 #   fleet-attention.sh render [--surface-provided] [--on-change <key> [--liveness <seconds>]]
 #       Status renderer: each worker's scope + state.
-#       --on-change renders on a transition only (the watch loop's form, one
-#       <key> per tower): when no worker's scope, state, or decision changed
-#       since <key>'s last full render, it prints nothing, or one liveness line
-#       once <seconds> (default 600) have passed since <key> last printed. A
+#       --on-change renders on a transition only (the watch loop's form; <key>
+#       is the loop's own identity, so a new conversation starts full): when no
+#       worker's scope, state, or decision changed since <key>'s last full
+#       render, it prints nothing, or one liveness line once <seconds> (default
+#       600, at most nine digits) have passed since <key> last printed. A
 #       heartbeat re-stamp is not a transition.
 #   fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]... [--on-change <key>]
 #       Decision queue: ordered actionable items as structured choices.
-#       --on-change: silent when what it would show is unchanged since <key>'s
-#       last full render (the status render carries the liveness line).
+#       --on-change: silent when the queue is unchanged since <key>'s last full
+#       render (the status render carries the liveness line). The comparison
+#       is taken before --except narrows the render, so a hand-over is no
+#       transition.
 #       --count prints only the item count (the length that tracks the
 #       `## Awaiting input` count).
 #       --except leaves a worker's row out of the RENDER. The tower loop's
@@ -526,18 +529,28 @@ suppressed() {
 }
 
 # The render-on-transition mode (`render`/`queue --on-change <key>`). Each key
-# (one per tower) keeps a seen file under the attention dir holding the digest
-# of the derived state it last rendered in full, when it did, and when it last
-# printed anything. The digest leaves the heartbeat timestamp out, so a
-# re-stamp is not a transition. One writer per key, so no lock: the tower loop
-# never runs two iterations of itself at once.
+# keeps a seen file under the attention dir holding the digest of the derived
+# state it last rendered in full, when it did, and when it last printed
+# anything. The digest leaves the heartbeat timestamp out, so a re-stamp is not
+# a transition. The key is the calling loop's own identity, minted per process,
+# so what a seen file withholds dies with the conversation that saw it; a key
+# is never shared, which is also why the write takes no lock.
 LIVENESS_DEFAULT=600
+# Seen files of loops long gone are pruned after this many days. A live loop
+# rewrites its own at least every liveness interval, so it is never pruned.
+SEEN_KEEP_DAYS=7
 
 # on_change_opts <verb> <flag> <value> — validate one on-change flag's value
 # into oc_key / oc_live, exiting 2 on a refusal.
 on_change_opts() {
   case $2 in
     --on-change)
+      case $3 in
+        -*)
+          echo "fleet-attention: $1: --on-change takes a key, not a flag" >&2
+          exit 2
+          ;;
+      esac
       valid_field "$3" || {
         echo "fleet-attention: $1: --on-change takes a key in the handle grammar" >&2
         exit 2
@@ -545,13 +558,15 @@ on_change_opts() {
       oc_key=$3
       ;;
     --liveness)
+      # Bounded to nine digits so `test -ge` never meets a number it rejects.
       case $3 in
-        "" | *[!0-9]* | 0?*)
-          echo "fleet-attention: $1: --liveness takes a whole number of seconds" >&2
+        "" | *[!0-9]* | 0?* | ??????????*)
+          echo "fleet-attention: $1: --liveness takes a whole number of seconds (at most nine digits)" >&2
           exit 2
           ;;
       esac
       oc_live=$3
+      oc_live_given=1
       ;;
   esac
 }
@@ -560,7 +575,8 @@ on_change_opts() {
 # since this key's last full render, so the caller skips it; prints the one
 # liveness line itself when <liveness> is set and that many seconds have passed
 # since the key last printed. 1 means render in full, which is also the answer
-# to an unreadable seen file or clock: a surface shown twice beats one missed.
+# to an unreadable seen file, a malformed or future stamp, or a failed clock
+# read: a surface shown twice beats one missed.
 seen_skip() {
   ss_prev=""
   ss_full=""
@@ -568,9 +584,14 @@ seen_skip() {
   [ -f "$1" ] && IFS="$TAB" read -r ss_prev ss_full ss_emit <"$1"
   [ -n "$ss_prev" ] && [ "$ss_prev" = "$2" ] || return 1
   ss_now=$(now_epoch)
-  case "$ss_now:$ss_full:$ss_emit" in
-    *::* | :* | *: | *[!0-9:]*) return 1 ;;
-  esac
+  # 0?* refuses a leading zero: `$(( ))` would read it as octal, and `08`/`09`
+  # are fatal under dash.
+  for ss_v in "$ss_now" "$ss_full" "$ss_emit"; do
+    case $ss_v in
+      "" | *[!0-9]* | 0?*) return 1 ;;
+    esac
+  done
+  [ "$ss_full" -le "$ss_now" ] && [ "$ss_emit" -le "$ss_now" ] || return 1
   if [ -n "$3" ] && [ $((ss_now - ss_emit)) -ge "$3" ]; then
     printf 'no change since the full render %ss ago (%s row(s))\n' "$((ss_now - ss_full))" "$4"
     seen_write "$1" "$2" "$ss_full" "$ss_now"
@@ -578,17 +599,32 @@ seen_skip() {
   return 0
 }
 
+# seen_record <seen-file> <digest> — record a full render the caller has just
+# printed. Written after the print, never before, so a render that dies midway
+# is not counted as seen.
+seen_record() {
+  sr_now=$(now_epoch)
+  [ -n "$sr_now" ] || return 0
+  seen_write "$1" "$2" "$sr_now" "$sr_now"
+  find "${1%/*}" -maxdepth 1 -type f \( -name '*-seen.*' -o -name '.seen.*' \) \
+    -mtime +"$SEEN_KEEP_DAYS" -exec rm -f {} + 2>/dev/null || :
+}
+
 # seen_write <seen-file> <digest> <full-epoch> <emit-epoch> — best effort, by
 # atomic rename: a failed write is said on stderr and costs one extra render.
+# A seen path that is a symlink or a directory is refused, not written through.
 seen_write() {
-  sw_tmp=$(mktemp "${1%/*}/.seen.XXXXXX" 2>/dev/null) || {
-    echo "fleet-attention: could not record the rendered state; the next render is a full one" >&2
-    return 0
-  }
-  if printf '%s\t%s\t%s\n' "$2" "$3" "$4" >"$sw_tmp" && mv -f "$sw_tmp" "$1"; then
-    return 0
+  if [ -L "$1" ] || [ -d "$1" ]; then
+    sw_tmp=""
+  else
+    sw_tmp=$(mktemp "${1%/*}/.seen.XXXXXX" 2>/dev/null) || sw_tmp=""
   fi
-  rm -f "$sw_tmp"
+  if [ -n "$sw_tmp" ]; then
+    if printf '%s\t%s\t%s\n' "$2" "$3" "$4" >"$sw_tmp" && mv -f "$sw_tmp" "$1"; then
+      return 0
+    fi
+    rm -f "$sw_tmp"
+  fi
   echo "fleet-attention: could not record the rendered state; the next render is a full one" >&2
 }
 
@@ -1195,6 +1231,7 @@ case $cmd in
     # `queue` honors the signal.
     oc_key=""
     oc_live=$LIVENESS_DEFAULT
+    oc_live_given=0
     while [ "$#" -gt 0 ]; do
       case $1 in
         --surface-provided) shift ;;
@@ -1212,16 +1249,26 @@ case $cmd in
           ;;
       esac
     done
+    if [ "$oc_live_given" = 1 ] && [ -z "$oc_key" ]; then
+      echo "fleet-attention: render: --liveness applies only with --on-change" >&2
+      exit 2
+    fi
     root=$(resolve_home) || exit 2
     store="$root/attention/state"
     [ -f "$store" ] || exit 0
+    seen=""
     if [ -n "$oc_key" ]; then
+      # An unreadable store would digest as an empty one and then pass for
+      # unchanged on every later call; refuse it the way the plain render does.
+      [ -r "$store" ] || {
+        echo "fleet-attention: render: cannot read the attention store" >&2
+        exit 2
+      }
       seen="$root/attention/render-seen.$oc_key"
+      # Field 4 is the heartbeat stamp.
       digest=$(awk -F "$TAB" 'BEGIN { OFS = FS } { $4 = ""; print }' "$store" | sort | cksum)
       rows=$(grep -c . "$store")
       seen_skip "$seen" "$digest" "$oc_live" "$rows" && exit 0
-      stamp=$(now_epoch)
-      [ -z "$stamp" ] || seen_write "$seen" "$digest" "$stamp" "$stamp"
     fi
     now=$(now_epoch)
     # A trailing record without a newline is still emitted (|| [ -n "$w" ]).
@@ -1242,7 +1289,8 @@ case $cmd in
       s_scope=$(sanitize_printable "$scope" "?")
       s_worker=$(sanitize_printable "$w" "?")
       printf '[%s] %s  %s  (%ss)\n' "$s_state" "$s_scope" "$s_worker" "$age"
-    done <"$store"
+    done <"$store" || exit 2
+    [ -z "$seen" ] || seen_record "$seen" "$digest"
     exit 0
     ;;
 
@@ -1271,7 +1319,7 @@ case $cmd in
           ;;
         --except)
           [ "$#" -ge 2 ] || {
-            echo "usage: fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]..." >&2
+            echo "usage: fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]... [--on-change <key>]" >&2
             exit 2
           }
           valid_field "$2" || {
@@ -1320,6 +1368,21 @@ case $cmd in
       printf '%s\n' "$n"
       exit 0
     fi
+    # The on-change digest is taken before --except narrows the render: a
+    # hand-over changes what this one call shows, not the queue, so it is no
+    # transition. Its stamps are field 2 (the sort-key copy) and field 6. No
+    # liveness line here: the status render carries it. Without a store there
+    # is nothing to show and nothing to record.
+    seen=""
+    if [ -n "$oc_key" ] && [ -f "$store" ]; then
+      [ -r "$store" ] || {
+        echo "fleet-attention: queue: cannot read the attention store" >&2
+        exit 2
+      }
+      seen="$root/attention/queue-seen.$oc_key"
+      digest=$(printf '%s\n' "$sortable" | awk -F "$TAB" 'BEGIN { OFS = FS } { $2 = ""; $6 = ""; print }' | sort | cksum)
+      seen_skip "$seen" "$digest" "" "$n" && exit 0
+    fi
     # Leave out what THIS TURN has already put in front of the operator
     # (tower-comms REQ-A1.1). The caller names them: the tower loop's comms step
     # hands an item over and prints the worker it was homed on, and the render
@@ -1353,16 +1416,10 @@ case $cmd in
       fi
       n=$after
     fi
-    if [ -n "$oc_key" ]; then
-      # Digest what this render would show, less the heartbeat stamp and its
-      # sort-key copy. No liveness line here: the status render carries it.
-      seen="$root/attention/queue-seen.$oc_key"
-      digest=$(printf '%s\n' "$sortable" | awk -F "$TAB" 'BEGIN { OFS = FS } { $2 = ""; $6 = ""; print }' | sort | cksum)
-      seen_skip "$seen" "$digest" "" "$n" && exit 0
-      stamp=$(now_epoch)
-      [ -z "$stamp" ] || seen_write "$seen" "$digest" "$stamp" "$stamp"
+    if [ "$n" = 0 ]; then
+      [ -z "$seen" ] || seen_record "$seen" "$digest"
+      exit 0
     fi
-    [ "$n" = 0 ] && exit 0
     now=$(now_epoch)
     # Sorted lines carry the two sort-key fields ahead of the stored fields. The
     # trailing vars read the additive fields: `reason` the 9th (fleet-hardening
@@ -1450,6 +1507,7 @@ case $cmd in
         printf '    options: %s\n' "$s_opts"
       fi
     done
+    [ -z "$seen" ] || seen_record "$seen" "$digest"
     exit 0
     ;;
 
