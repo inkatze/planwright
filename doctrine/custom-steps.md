@@ -69,8 +69,7 @@ by the resolver when that point is resolved and by `check:steps`, never
 silently ignored.
 
 **Flights.** Any skill that converges a flight reads `steps_convergence` with
-unit kind `flight`, under the in-run rules and without the `main` sync or the
-neighbouring points, which are `/execute-task`'s (REQ-F1.5).
+unit kind `flight` (REQ-F1.5).
 
 ## The step entry
 
@@ -89,7 +88,7 @@ value is a single-line scalar of the constrained reader. Core ships the
 | `hosting` | optional; `isolated`, `continue`, or `in-session`; default per *Hosting* |
 | `on-failure` | optional; `halt` (default) or `continue` |
 | `timeout` | optional; a positive integer of seconds, unset meaning no limit beyond a hosting tool's own; forbidden on an `in-session` skill or prompt step, since the unit session cannot end itself |
-| `requires` | optional; space-separated executable names in the command-target charset, each found on the path |
+| `requires` | optional; space-separated executable names in the command-target charset |
 
 **Target grammar (REQ-B1.6).** A skill target is `<name>` or
 `<plugin>:<name>`, the slash-command name without its leading slash; a command
@@ -210,8 +209,8 @@ ends the unit through the gate-wiring
 [pause protocol](gate-wiring.md#pause-protocol)'s destinations: an unattended
 run parks the unit to `tasks.md` Awaiting input; an attended session presents
 it and waits for direction. At a **flip point** it refuses the flip and
-surfaces the step, as do a `park` and an unanswered `ask` there (kickoff
-records the pending flip to Awaiting input as its CI gate already does).
+surfaces the step (kickoff records the pending flip to Awaiting input as its
+CI gate already does).
 Every Awaiting-input entry this doc causes names only the point, the
 validated step ids, the outcome, token, or
 cause (a failed post's missing permission, a PR no longer a draft), and the
@@ -268,7 +267,8 @@ the by-layer policy instead (REQ-C1.5): core is a broken install (exit 5);
 repo-tracked hard-fails (exit 4); an adopter or machine-local **list** warns
 and degrades to the core default; an adopter or machine-local **entry**
 warns and is dropped from the merged catalog, its id then non-resolving
-under the matrix. Check mode (`--check` with `--unattended`) exits
+under the matrix. Check mode (`--check`, which requires `--unattended`;
+`--attended` beside it is a usage error, REQ-C1.4) exits
 non-zero on any `park`, any malformation, or an unwired non-empty list, and
 passes with a warning on an adopter or machine-local `skip` (REQ-H1.3,
 REQ-A1.3); `check:steps` runs it over every named point of this repository's
@@ -284,8 +284,8 @@ applying to every session-hosted step as to everything else, the ready-guard
 on its flip surfaces (the shell ready command and the GitHub MCP pull-request
 update tool); a runner subprocess sees no hook, so these controls bind it by
 declaration alone, and the no-push ordering is doctrine, enforced by no
-mechanism. Once `post-pr`'s list stops, before any pause destination is
-taken, the runner re-emits the per-point
+mechanism. After `post-pr`'s list completes, the runner re-emits the
+per-point
 tables through the PR-body assembly (post-pr's included) and verifies the PR
 is still a draft, parking the unit to Awaiting input naming the post-pr
 steps that ran when it is not; if the head moved it also regenerates the
