@@ -206,10 +206,19 @@ fi
 
 # --- the flight rules: gloss, per-request routing, stated grounds --------------
 
-if has_phrase 'fly by what you can see[^.]*file a plan'; then
-  ok "flight rules glossed with the analogy in one sentence (REQ-H1.4)"
+# first_use_paragraph <body>: the paragraph (blank-line delimited) holding the
+# first mention of either flight rule, folded to one line.
+first_use_paragraph() {
+  printf '%s\n' "$1" | awk '
+    BEGIN{RS=""; IGNORECASE=1}
+    tolower($0) ~ /(visual|instrument) flight/ {gsub(/\n/, " "); print; exit}'
+}
+gloss_re='fly by what you can see[^.]*file a plan'
+first_para=$(first_use_paragraph "$body")
+if printf '%s\n' "$first_para" | tr -s ' ' | grep -qiE -- "$gloss_re"; then
+  ok "flight rules glossed with the analogy in the paragraph of first use (REQ-H1.4)"
 else
-  fail "the flight rules lack the one-sentence analogy gloss (REQ-H1.4)"
+  fail "the flight rules' first use lacks the one-sentence analogy gloss in the same paragraph (REQ-H1.4)"
 fi
 
 if has_phrase 'flight rules are never a user-selected mode, flag, or persistent setting'; then
@@ -285,8 +294,8 @@ fi
 # shellcheck disable=SC2016
 kickoff_run_sentence() { # kickoff_run_sentence <text>: prints the offending clause, or nothing
   printf '%s\n' "$1" | tr ';' '.' | tr '.' '\n' \
-    | grep -iE '(invoke|run|start)(s|ed)? (the kickoff|`?/spec-kickoff)' \
-    | grep -viE '(never|not|no)\** [a-z* ]*(invoke|run|start)' | head -1
+    | grep -iE '(invoke|run|start|dispatch|relay|launch|hand)(e?s|ed)? (off )?(the kickoff|`?/spec-kickoff)' \
+    | grep -viE '(never|not|no)\** [a-z* ]*(invoke|run|start|dispatch|relay|launch|hand)' | head -1
 }
 kickoff_run=$(kickoff_run_sentence "$flat")
 if [ -n "$kickoff_run" ]; then
@@ -442,6 +451,12 @@ if [ -n "$(kickoff_run_sentence 'Offer the kickoff, never start it. Then run `/s
 else
   fail "probe: a sentence running the kickoff escapes the check"
 fi
+# shellcheck disable=SC2016
+if [ -n "$(kickoff_run_sentence 'On a yes, the tower dispatches `/spec-kickoff specs/<spec>` as an `/offload` petition')" ]; then
+  ok "probe: a sentence dispatching the kickoff is caught"
+else
+  fail "probe: a sentence dispatching the kickoff escapes the check"
+fi
 if [ -n "$(kickoff_run_sentence 'this step is the fallback that runs it; the tower never runs it on the operator behalf')" ]; then
   fail "probe: a prohibition or an unrelated 'runs it' is misread as running the kickoff"
 else
@@ -458,6 +473,13 @@ if printf '%s\n' '1. Take the ask' | grep -qE '^[[:space:]]*[0-9]+[.)][[:space:]
   ok "probe: a numbered step is caught"
 else
   fail "probe: a numbered step escapes the check"
+fi
+
+late_gloss=$(printf '%s\n\n%s\n' 'The tower routes onto visual flight or instrument flight.' 'Later: visual rules when you fly by what you can see, instrument rules when you file a plan.')
+if first_use_paragraph "$late_gloss" | grep -qiE -- "$gloss_re"; then
+  fail "probe: a gloss placed after the first use is accepted"
+else
+  ok "probe: a gloss placed after the first use is caught"
 fi
 
 if [ "$failures" -gt 0 ]; then
