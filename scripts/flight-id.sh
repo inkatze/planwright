@@ -178,11 +178,12 @@ evidence_for() {
 # set ends in a clear exit 3 rather than a spin.
 uid_n=0
 uid=""
+src_lines=0
 next_uid() {
   uid_n=$((uid_n + 1))
   if [ -n "${PLANWRIGHT_FLIGHT_UID_SOURCE:-}" ]; then
-    uid=$(sed -n "${uid_n}p" "$PLANWRIGHT_FLIGHT_UID_SOURCE" 2>/dev/null) || uid=""
-    [ -n "$uid" ] || return 1
+    [ "$uid_n" -le "$src_lines" ] || return 1
+    uid=$(sed -n "${uid_n}p" "$PLANWRIGHT_FLIGHT_UID_SOURCE")
     valid_uid "$uid" || {
       echo "$prog: malformed uid in PLANWRIGHT_FLIGHT_UID_SOURCE (line $uid_n)" >&2
       exit 2
@@ -263,6 +264,14 @@ case $cmd in
       exit 2
     }
     resolve_repo
+    if [ -n "${PLANWRIGHT_FLIGHT_UID_SOURCE:-}" ]; then
+      { [ -f "$PLANWRIGHT_FLIGHT_UID_SOURCE" ] && [ -r "$PLANWRIGHT_FLIGHT_UID_SOURCE" ] \
+        && [ -s "$PLANWRIGHT_FLIGHT_UID_SOURCE" ]; } || {
+        echo "$prog: no usable uid source (PLANWRIGHT_FLIGHT_UID_SOURCE is missing, unreadable, or empty)" >&2
+        exit 4
+      }
+      src_lines=$(awk 'END { print NR }' "$PLANWRIGHT_FLIGHT_UID_SOURCE")
+    fi
     while next_uid; do
       candidate=$arg-$uid
       evidence_for "$candidate"

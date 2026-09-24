@@ -235,10 +235,37 @@ run 1 suffix Demo-0123abcd
 [ -z "$OUT" ] || fail "suffix on a refused id printed [$OUT]"
 echo "ok: branch and suffix derive from a checked id only"
 
-# 6. Usage errors.
+# 6. The uid source's own failure modes carry their documented exit codes.
+run 2 taken 'demo-0123abcd/../x' --repo-root "$repo"
+[ -z "$OUT" ] || fail "taken on a malformed id printed [$OUT]"
+export PLANWRIGHT_FLIGHT_UID_SOURCE="$tmp/does-not-exist"
+run 4 new demo --repo-root "$repo"
+[ -z "$OUT" ] || fail "a missing uid source still minted [$OUT]"
+: >"$tmp/empty-uids"
+export PLANWRIGHT_FLIGHT_UID_SOURCE="$tmp/empty-uids"
+run 4 new demo --repo-root "$repo"
+[ -z "$OUT" ] || fail "an empty uid source still minted [$OUT]"
+printf 'zzzzzzzz\n' >"$tmp/bad-uids"
+export PLANWRIGHT_FLIGHT_UID_SOURCE="$tmp/bad-uids"
+run 2 new demo --repo-root "$repo"
+[ -z "$OUT" ] || fail "a malformed uid line still minted [$OUT]"
+# A blank line is a malformed line, not the end of the source: the candidate
+# after it is never silently skipped.
+printf '0123abcd\n\n89abcdef\n' >"$tmp/blank-uids"
+export PLANWRIGHT_FLIGHT_UID_SOURCE="$tmp/blank-uids"
+gitc "$repo" branch planwright/flight/demo-0123abcd
+run 2 new demo --repo-root "$repo"
+[ -z "$OUT" ] || fail "a blank uid line was skipped over: minted [$OUT]"
+gitc "$repo" branch -D -q planwright/flight/demo-0123abcd
+unset PLANWRIGHT_FLIGHT_UID_SOURCE
+echo "ok: the uid source's failure modes are told apart by exit code"
+
+# 7. Usage errors.
 run 2
 run 2 bogus demo-0123abcd
 run 2 new
 run 2 check
+run 2 check demo-0123abcd --repo-root "$repo"
+run 2 new demo --repo-root
 
 echo "PASS: test-flight-id"
