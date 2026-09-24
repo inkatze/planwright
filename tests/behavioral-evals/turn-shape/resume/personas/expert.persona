@@ -1,0 +1,3 @@
+# expert.persona — answers for the resume fixture, one per prompt.
+expertise=expert
+answer.1=review the PR first

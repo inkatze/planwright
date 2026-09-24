@@ -1,0 +1,3 @@
+# expert.persona — answers for the projection fixture, one per prompt.
+expertise=expert
+answer.1=fail fast
