@@ -340,7 +340,18 @@ preference, roots are all dispatchable immediately.
 
 ## Awaiting input
 
-(none yet)
+- **Task 8** — 2026-09-24: the Performance-lens amendment
+  (`doctrine/discovery-rigor.md`, committed on
+  `planwright/guard-coverage/task-8`) trips `check:instructions` as a
+  fail-closed widening of two declared exceptions: `start-load:polish`
+  (margin 724 against the granted 772) and `closure:spec-kickoff` (986
+  against the granted 1002, also past the 1000 closure floor). The
+  binding surface had one word of slack before the edit, so no wording
+  that names the target, the whole-system framing, and the gate can land
+  without either a compensating trim or governed relief (a `raise|`
+  entry). The tower's run instruction was to report and stop rather than
+  trim other rules. The changelog entry and brief self-re-anchor are
+  held until the funding decision; the doctrine text is on the branch.
 
 ## Deferred
 
