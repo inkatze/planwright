@@ -60,8 +60,9 @@ echo "== real repo: instantiated attended surfaces cite the doctrine =="
 out="$(/bin/bash "$CHECKER" 2>&1)"
 assert_exit "default run over the real instantiated surfaces passes" 0 "$?"
 assert_contains "the run names the doctrine it checked for" "interaction-style" "$out"
-# The execution-side instantiation pass widened the list; each surface it
-# instantiated is checked by default, not only on request.
+# The instantiation passes widened the list (execution-side: resume, drain;
+# the tower front door: tower); each surface is checked by default, not only
+# on request.
 for surface in spec-kickoff spec-draft resume drain tower; do
   assert_contains "the default list checks /$surface" " $surface" "$out"
 done
