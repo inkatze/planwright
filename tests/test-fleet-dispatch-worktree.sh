@@ -969,7 +969,40 @@ c25() {
   [ "$RC" -eq 3 ] || fail "c25: a live old-path checkout must read as in-flight (exit 3), got $RC"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25; do
+# c26 — the flight grammar (tower-front-door D-11): `flight` is a reserved
+# segment no dispatch may claim as a spec, and the `flight-<flight-id>`
+# worktree suffix is attachable by the same grammar path as a task suffix.
+c26() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c26.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  # A `specs/flight` directory exists so the spec-dir gate is not what refuses:
+  # the reservation is the only cause left.
+  mkdir -p "$tmp/primary/specs/flight"
+  printf 'v1\n' >"$tmp/primary/specs/flight/requirements.md"
+  run_prim dispatch flight 1 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c26: dispatch with the reserved spec 'flight' must exit 2, got $RC"
+  gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/flight/task-1 \
+    && fail "c26: a branch was created under the reserved segment"
+  [ ! -e "$tmp/primary/.claude/worktrees/flight-task-1" ] \
+    || fail "c26: a worktree was created for the reserved spec"
+
+  run_prim attach flight-demo-0123abcd --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: attach must accept a flight worktree suffix, got exit $RC"
+  got=$(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="suffix" {print $3; exit}')
+  [ "$got" = flight-demo-0123abcd ] \
+    || fail "c26: attach plan suffix '$got' != flight-demo-0123abcd"
+
+  # A flight suffix without its uid is not a flight id, and no task grammar
+  # rescues it.
+  run_prim attach flight-demo --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: a uid-less flight suffix must be refused (exit 2), got $RC"
+  run_prim attach flight-Demo-0123abcd --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: an off-charset flight suffix must be refused (exit 2), got $RC"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

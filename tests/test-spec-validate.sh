@@ -893,6 +893,21 @@ echo "- 2026-06-12 [fixture] an observation." >"$root2/_observations/opportuniti
 run_v 0 "$root2"
 has "0 error(s), 0 warning(s)"
 
+# The flight record directory `specs/_flights/` (tower-front-door D-6) is
+# screened by the same underscore rule and skipped as a bundle.
+mkdir -p "$root2/_flights"
+: >"$root2/_flights/demo-0123abcd.md"
+run_v 0 "$root2"
+has "0 error(s), 0 warning(s)"
+rm -rf "$root2/_flights"
+
+# `flight` is reserved at the grammar level (tower-front-door D-11): it is the
+# flight branch segment, so a bundle so named is refused, never validated.
+write_bundle "$root2/flight" Draft
+run_v 1 "$root2"
+has "ERROR flight: reserved"
+rm -rf "$root2/flight"
+
 mkdir -p "$root2/_foo;rm"
 run_v 1 "$root2"
 has "ERROR"
@@ -964,6 +979,12 @@ run_v 1 --check-id "-leading-hyphen"
 run_v 0 --check-id "$(printf 'a%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 \
   17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 \
   42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64)"
+# The reserved identifier is refused full-string; names that merely contain it
+# are ordinary identifiers.
+run_v 1 --check-id flight
+has "reserved"
+run_v 0 --check-id flights
+run_v 0 --check-id flight-plan
 
 # The default-baseline quiet skip stays quiet even when the ref exists but
 # fails the commit peel (a blob-pointing origin/main): git's --quiet covers

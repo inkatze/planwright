@@ -86,6 +86,10 @@ if [ "${#spec_id}" -gt 64 ]; then
   echo "orchestrate-lock: refusing spec id '$spec_id' (REQ-F1.1: exceeds 64 chars)" >&2
   exit 2
 fi
+if [ "$spec_id" = flight ]; then
+  echo "orchestrate-lock: refusing the reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)" >&2
+  exit 2
+fi
 case "$spec_parent" in
   */specs) ;;
   *)

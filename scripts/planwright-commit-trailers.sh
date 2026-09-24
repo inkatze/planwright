@@ -81,6 +81,9 @@ valid_ref() {
     */*) return 1 ;;
   esac
   printf '%s' "$_spec" | grep -qE '^[a-z0-9][a-z0-9-]{0,63}$' || return 1
+  # `flight` is the reserved flight branch segment (tower-front-door D-11),
+  # never a spec a task trailer can anchor to.
+  [ "$_spec" != flight ] || return 1
   printf '%s' "$_id" | grep -qE '^[0-9]+(\.[0-9]+)?$' || return 1
   return 0
 }

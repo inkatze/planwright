@@ -153,8 +153,8 @@ usage() {
   exit 2
 }
 
-# Full-string spec-identifier check (REQ-A1.8): ^[a-z0-9][a-z0-9-]*$, max 64.
-check_spec_id() {
+# Identifier charset (REQ-A1.8): ^[a-z0-9][a-z0-9-]*$, max 64, full-string.
+spec_id_charset() {
   cid=$1
   [ -n "$cid" ] || return 1
   [ "${#cid}" -le 64 ] || return 1
@@ -168,7 +168,22 @@ check_spec_id() {
   return 0
 }
 
-# Accumulator-name screen (REQ-A1.8): ^_[a-z0-9][a-z0-9-]*$, max 64.
+# `flight` is reserved at the grammar level (tower-front-door D-11): it is the
+# flight branch segment `planwright/flight/<flight-id>`, so no spec may claim
+# it. Every interpolation site screens it the way it screens the charset.
+reserved_spec_id() {
+  [ "$1" = flight ]
+}
+
+# Full-string spec-identifier check: the charset, and not a reserved word.
+check_spec_id() {
+  spec_id_charset "$1" || return 1
+  ! reserved_spec_id "$1"
+}
+
+# Reserved-directory name screen (REQ-A1.8): ^_[a-z0-9][a-z0-9-]*$, max 64.
+# Covers the accumulators (`_pending/`, `_observations/`) and the flight
+# record directory (`_flights/`, tower-front-door D-6) alike.
 check_accumulator_name() {
   anm=$1
   [ "${#anm}" -le 64 ] || return 1
@@ -176,7 +191,7 @@ check_accumulator_name() {
     _*) ;;
     *) return 1 ;;
   esac
-  check_spec_id "${anm#_}"
+  spec_id_charset "${anm#_}"
 }
 
 baseline=origin/main
@@ -188,6 +203,10 @@ while [ $# -gt 0 ]; do
       [ $# -eq 2 ] || usage
       if check_spec_id "$2"; then
         exit 0
+      fi
+      if reserved_spec_id "$2"; then
+        echo "spec-validate: reserved spec identifier: 'flight' is the flight branch segment (tower-front-door D-11)" >&2
+        exit 1
       fi
       # Never echo the candidate back: a hostile identifier must not reach
       # any output a caller might interpolate.
@@ -1486,14 +1505,17 @@ screen_and_validate() {
   snm=$(basename "$sdir")
   case $snm in
     _*)
-      # Reserved non-spec accumulator: never validated as a bundle, but the
-      # name is still screened (REQ-A1.8).
+      # Reserved non-spec directory (an accumulator or the flight record
+      # directory): never validated as a bundle, but the name is still
+      # screened (REQ-A1.8).
       check_accumulator_name "$snm" \
         || emit_error "$snm" "accumulator directory name fails ^_[a-z0-9][a-z0-9-]*\$ (max 64)"
       ;;
     *)
       if check_spec_id "$snm"; then
         validate_bundle "$sdir" "$snm"
+      elif reserved_spec_id "$snm"; then
+        emit_error "$snm" "reserved identifier: 'flight' is the flight branch segment (tower-front-door D-11); not validated as a bundle"
       else
         emit_error "$snm" "spec identifier fails ^[a-z0-9][a-z0-9-]*\$ (max 64); not validated as a bundle"
       fi

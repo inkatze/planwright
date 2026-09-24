@@ -477,6 +477,10 @@ for dir in "$specs_root"/*/; do
     say_error "$name" "spec identifier longer than 64 characters; the bundle cannot be checked"
     continue
   }
+  [ "$name" != flight ] || {
+    say_error "$name" "reserved spec identifier: 'flight' is the flight branch segment (tower-front-door D-11); the bundle cannot be checked"
+    continue
+  }
 
   # An unparseable status (unreadable file, duplicate declaration) is a fact
   # about the bundle, not a reason to abandon the walk.

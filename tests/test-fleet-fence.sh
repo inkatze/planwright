@@ -122,6 +122,9 @@ done
 for bad in "../evil" ".." "-demo" "de mo" "Demo" "demo/x" ""; do
   run 2 "refname/hostile-spec '$bad'" "$FF" refname --spec "$bad" 4 >/dev/null
 done
+# `flight` is the reserved flight branch segment (tower-front-door D-11), not
+# a spec: no fence ref is ever formed under it.
+run 2 "refname/reserved-spec flight" "$FF" refname --spec flight 4 >/dev/null
 
 # ==========================================================================
 # REQ-C1.6(a) — no `origin` configured is the genuine solo posture

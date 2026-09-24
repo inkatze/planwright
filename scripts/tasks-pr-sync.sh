@@ -1134,6 +1134,14 @@ rest=${branch#planwright/}
 spec=${rest%%/*}
 [ "$spec" != "$rest" ] || exit 0 # no second segment
 seg=${rest#*/}
+case $spec in
+  flight)
+    # A flight branch (tower-front-door D-11): `flight` is the reserved
+    # segment, never a spec, so there is no tasks.md to reconcile.
+    log "flight branch: no spec to reconcile"
+    exit 0
+    ;;
+esac
 case $seg in
   */*) exit 0 ;;  # extra path separators
   spec) exit 0 ;; # reserved spec-authoring namespace (D-44)

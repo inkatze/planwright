@@ -622,6 +622,7 @@ for b in \
   planwright/demo/task-.5 \
   "planwright/demo/task-2;x" \
   planwright/a/b/task-2 \
+  planwright/flight/task-2 \
   planwright/demo/spec; do
   git -C "$repo" checkout -q main
   git -C "$repo" branch -q "$b" 2>/dev/null || true
@@ -632,6 +633,21 @@ for b in \
 done
 git -C "$repo" checkout -q main
 echo "ok: hostile / reserved branch names are clean no-ops"
+
+# 10a. A flight branch (tower-front-door D-11) parses as a flight, not as a
+#      spec named `flight`: a clean no-op that says so, with no tasks.md write.
+git -C "$repo" checkout -q main
+git -C "$repo" branch -q planwright/flight/demo-0123abcd
+git -C "$repo" checkout -q planwright/flight/demo-0123abcd
+err=$(run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" 2>&1 >/dev/null) \
+  || fail "flight branch: non-zero exit"
+case $err in
+  *"flight branch"*) ;;
+  *) fail "flight branch: not recognized as a flight (stderr: $err)" ;;
+esac
+cmp -s "$tasks" "$pristine11" || fail "flight branch: tasks.md changed"
+git -C "$repo" checkout -q main
+echo "ok: a flight branch is recognized as a flight and is a clean no-op"
 
 # 10b. Containment: a charset-clean spec whose directory symlinks outside
 #      <primary>/specs/ is rejected by the direct CLI form.

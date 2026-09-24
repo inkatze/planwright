@@ -388,6 +388,10 @@ run_w 2 "$ws" specs/-leadingdash
 lacks "leadingdash"
 big=$(printf 'a%.0s' $(seq 1 65))
 run_w 2 "$ws" "$big"
+# `flight` is the reserved flight branch segment (tower-front-door D-11), not
+# a spec: refused before any read, in both argument forms.
+run_w 2 "$ws" flight
+run_w 2 "$ws" specs/flight
 
 # A symlinked bundle whose target escapes specs/ fails the containment check.
 if command -v ln >/dev/null 2>&1; then

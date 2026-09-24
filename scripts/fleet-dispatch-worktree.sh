@@ -255,6 +255,7 @@ valid_spec() {
   reject_dotdot "$1" || return 1
   case $1 in
     '' | *[!a-z0-9-]* | [!a-z0-9]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#1}" -le 64 ] || return 1
   return 0
@@ -287,8 +288,9 @@ valid_suffix() {
   esac
   # The spec half must admit the WHOLE spec grammar, which starts [a-z0-9] —
   # requiring a letter here would reject a legal spec like `2fa` before git
-  # ever sees it.
-  printf '%s' "$1" | grep -Eq '^([a-z0-9][a-z0-9-]*-)?task-[0-9]+(\.[0-9]+)?$' || return 1
+  # ever sees it. The second form is a flight worktree, `flight-<flight-id>`
+  # (tower-front-door D-11): a kebab slug plus an eight-character hex uid.
+  printf '%s' "$1" | grep -Eq '^(([a-z0-9][a-z0-9-]*-)?task-[0-9]+(\.[0-9]+)?|flight-[a-z0-9][a-z0-9-]*-[0-9a-f]{8})$' || return 1
   # The bound must clear what the grammars upstream of it can actually produce:
   # a spec is up to 64 characters, `-task-` adds 6, and a dotted id adds several
   # more, so the old 72 rejected a legal max-length spec outright — the suffix
