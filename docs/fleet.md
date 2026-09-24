@@ -103,15 +103,18 @@ holding it died, and a plain `queue` renders everything. The count `--count`
 prints is never filtered — that one tracks the `## Awaiting input` entries,
 which a hand-over does not close.
 
-The watch loop renders both views with `--on-change <tower>`, so you see them
+The watch loop renders both views with `scripts/fleet-attention.sh render
+--on-change <tower>` and `queue --on-change <tower>` (not to be confused with
+`fleet-attention-watch.sh`'s `--on-change <cmd>` callback), so you see them
 again only when something moved: a worker's state, scope, or pending decision.
-A heartbeat that only refreshes a timestamp does not count. On a quiet
-iteration `render` prints nothing, or, every ten minutes by default
-(`--liveness <seconds>`), one line saying nothing has changed, so a silent
-loop and a dead one still look different. `queue --on-change` stays silent
-while the queue is unchanged; the `render` line covers both. Each tower key
-remembers what it last showed you on its own, and the plain commands above
-always render in full.
+A heartbeat that only refreshes a timestamp does not count, and neither does a
+hand-over, which only narrows one render. On a quiet iteration `render` prints
+nothing, or, every ten minutes by default (`--liveness <seconds>`), one line
+saying nothing has changed, so a silent loop and a dead one still look
+different. `queue --on-change` stays silent while the queue is unchanged; the
+`render` line covers both. `<tower>` is the loop's own identity, so a new tower
+session starts with a full render rather than inheriting what an earlier one
+showed, and the plain commands above always render in full.
 
 ## The operator queue: what the tower brings you
 
