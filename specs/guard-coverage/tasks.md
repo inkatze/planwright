@@ -340,34 +340,7 @@ preference, roots are all dispatchable immediately.
 
 ## Awaiting input
 
-- **Task 11** — every deliverable is implemented and committed on
-  `planwright/guard-coverage/task-11` (the registration check and its
-  fixtures, the three catalog entries with the category-enum amendment
-  and schema test, the CONTRIBUTING and dogfooding updates), but the
-  branch cannot go green: `doctrine/guard-catalog.md` is on `/builder`'s
-  run-start manifest, and that surface's declared exception
-  (`config/instruction-budget-exemptions.txt`, `start-load:builder
-  margin=515`) forbids any net spend. The tightest honest entries add
-  ~290 words, and `scripts/check-instructions.sh --closeout` reports:
-  `ERROR: declared-exception widened: start-load:builder margin=234 is
-  below the 515 it was granted at — the entry defers a restoration, it
-  does not license further spending. Fund it with a compensating trim in
-  this change or take governed relief (raise|)`. The operator's run
-  instructions forbid trimming other docs' rules and adding raise
-  entries, so the fork is theirs. Options: (a) governed relief, a
-  `raise|` entry for the builder start-load recording the catalog's
-  growth as the reason; (b) fund it inside `doctrine/guard-catalog.md` by
-  deduplicating text that is owned elsewhere (the "Supported format"
-  subsection restates the yaml header's reader contract, ~170 words; the
-  "Overlay merge contract" subsection restates `docs/overlays.md`, ~300
-  words), which trims other specs' rules and needs their owners' say;
-  (c) move `guard-catalog` from run-start to point-of-use in
-  `skills/builder/SKILL.md`'s manifest, which changes when the builder
-  loads it; (d) house the breadth-entry prose in a sibling doctrine doc
-  the builder does not load at run start, which deviates from this
-  task's named deliverable file and takes a `/spec-kickoff` delta. No PR
-  is open; once funded, the run resumes at convergence (`/polish
-  --nested`) and the PR body carries the registration sweep.
+(none yet)
 
 ## Deferred
 
