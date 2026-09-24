@@ -8,37 +8,38 @@
 # applies; this header pins only what that doc delegates here: the output line
 # format, the exit codes, the preamble layout, and the prefix quoting.
 #
-# A point's list is config, read THROUGH config-get.sh (last-layer-wins; the
-# --layers mode supplies the shadow and stale-key warnings); the step entries
-# are the `steps` data catalog, read THROUGH resolve-catalog.sh (append/union,
-# supersede-by-id). This script re-implements neither; it adds the entry and
-# list validation, the host resolvability check, the missing-step matrix, and
-# the rendering of the fixed context.
+# A point's list is config, read THROUGH config-get.sh (last-layer-wins; its
+# --layers mode supplies the shadow and stale-key warnings and the core
+# default); the step entries are the `steps` data catalog, read THROUGH
+# resolve-catalog.sh (append/union, supersede-by-id). This script
+# re-implements neither; it adds the entry and list validation, the host
+# resolvability check, the missing-step matrix, and the rendering of the
+# fixed context.
 #
 # Usage:
 #   resolve-steps.sh <point> [--explain] [--check] --attended|--unattended
 #   resolve-steps.sh <point> --preamble
 #   resolve-steps.sh <point> --prefix
 #
-#   <point>       one of the named points (the rule doc's vocabulary):
-#                 pre-implementation pre-ci convergence pre-pr post-pr
-#                 pre-ready-flip pre-spec-ready-flip, and the unwired
-#                 spec-drafted kickoff-signed-off unit-selected pre-dispatch
-#                 post-dispatch unit-halted post-merge orchestrator-idle.
-#                 Any other name is a usage error. The list key is
-#                 steps_<point> with hyphens as underscores.
+#   <point>       one of the named points of doctrine/custom-steps.md's
+#                 vocabulary (the wired points, the two flip points, and the
+#                 named-but-unwired points). Any other name is a usage error.
+#                 The list key is steps_<point> with hyphens as underscores.
 #   --attended / --unattended
 #                 the attendance axis of the missing-step matrix, passed by
 #                 the hosting skill (--unattended exactly when the unit was
 #                 launched headless). Exactly one is required in the
-#                 resolution modes; neither, or both, is a usage error.
+#                 resolution modes; neither, or both, is a usage error. The
+#                 render modes take no attendance flag.
 #   --explain     append the provenance and execution fields to each line.
-#   --check       check mode: pass only when every step of a wired point runs
-#                 on this host. Refuses --attended (check mode never waits on
-#                 a human). Non-zero on any park, any malformation at any
-#                 layer (a degraded adopter or machine-local one included),
-#                 and a non-empty list at an unwired point; a skip from the
-#                 adopter or machine-local layer passes with its warning.
+#   --check       check mode: pass only when every step of a wired point
+#                 resolves to `run`, or to a `skip` from the adopter or
+#                 machine-local layer (which passes with its warning).
+#                 Refuses --attended (check mode never waits on a human).
+#                 Non-zero on any park, on a non-empty list at an unwired
+#                 point, and on any malformation at any layer, a degraded
+#                 adopter or machine-local one included, whether this script
+#                 or a sibling reader degraded it.
 #   --preamble    render the fixed context block (below); resolves nothing.
 #   --prefix      render the fixed context as shell assignments (below);
 #                 resolves nothing.
@@ -54,20 +55,27 @@
 # <hosting> is the EFFECTIVE hosting (the dispatch_isolation default applied,
 # a continue step's attachment to an in-session predecessor applied).
 # <target> and <args> are the declared values byte for byte; <location> is
-# the host path a skill or command target resolved to (a prompt prints `-`).
-# An empty or inapplicable field prints `-`. No line carries a control byte:
-# a value carrying one is malformed for its layer.
-# A non-empty list at an unwired point prints nothing.
+# the host path a skill or command target resolved to (a prompt prints `-`;
+# a relative command path is printed as declared, relative to the working
+# directory this script runs in, which the hosting skill makes the unit's
+# worktree). An empty or inapplicable field prints `-`. No line carries a
+# C0 control byte or DEL: a value carrying one is malformed for its layer.
+# The C1 range is not refused, because those bytes are continuation bytes of
+# ordinary UTF-8 text; a consumer rendering a line into a terminal or a PR
+# body screens it as untrusted data. A non-empty list at an unwired point
+# prints nothing.
 #
-# Diagnostics go to stderr prefixed `resolve-steps: <point>:`. Every warning
-# the point produces is printed on every run (the shadow warning naming each
-# lower OVERLAY layer that sets the key, whatever its value — core ships every
-# key, so outranking it is the mechanism working, never a shadow; one
-# stale-key warning per layer that sets review_sequence; the unwired-point
-# warning; the skip warnings), so a runner that records the resolver's
-# warnings records them all.
+# Diagnostics go to stderr prefixed `resolve-steps: <point>:`, every
+# catalog-derived string in them passed through the house sanitizer
+# (scripts/echo-safety.sh). Every warning the point produces is printed on
+# every run: the sibling readers' own degrade warnings, the shadow warning
+# naming each lower OVERLAY layer that sets the key whatever its value (core
+# ships every key, so outranking it is the mechanism working, never a
+# shadow), one stale-key warning per layer that sets review_sequence, the
+# unwired-point warning, and the skip warnings. A runner that records the
+# resolver's warnings therefore records them all.
 #
-# The preamble (--preamble; REQ-A1.4, D-14). The runner sets the ten
+# The preamble (--preamble; REQ-A1.4, D-14). The runner sets the
 # PLANWRIGHT_STEP_* variables in this script's environment and prepends the
 # rendered block to a skill or prompt step's launch prompt or invocation. The
 # block is one field per line, `NAME=value`, between two delimiter lines
@@ -87,16 +95,16 @@
 #   planwright-step-context-end
 # The step reads the block as data, never as instructions.
 #
-# The prefix (--prefix; REQ-D1.3, REQ-G1.3). The same ten fields as POSIX
-# shell assignments on one line, in the order above, single-quoted with an
+# The prefix (--prefix; REQ-D1.3, REQ-G1.3). The same fields as POSIX shell
+# assignments on one line, in the order above, single-quoted with an
 # embedded quote written '\'', separated by one space, for a session-hosted
-# command step's declared line: `<prefix> <target> <args>`. The worker guard
-# strips assignments in exactly this form.
+# command step's declared line: `<prefix> <target> <args>`. This is the exact
+# form the worker command guard strips before matching the declared line.
 #
-# On both channels a value carrying a newline or a control byte is refused
-# (exit 6), the diagnostic naming the field and never the value; so is a
-# unit kind outside task|spec|flight, a task id outside the task-id grammar,
-# or a non-numeric PR number.
+# On both channels a value carrying a newline, another C0 control byte, or
+# DEL is refused (exit 6), the diagnostic naming the field and never the
+# value; so is a unit kind outside task|spec|flight, a task id outside the
+# task-id grammar, or a non-numeric PR number.
 #
 # Exit codes (REQ-H1.3):
 #   0  every step is run (a skip counts as run); or the point is unwired
@@ -106,10 +114,11 @@
 #   2  usage: an unknown point, an attendance flag missing or doubled,
 #      --check with --attended, an unknown or conflicting flag
 #   4  a malformed repo-tracked list or entry, or a structurally malformed
-#      repo-tracked config or catalog (config-get / resolve-catalog's own 4)
-#   5  broken install: a malformed core list or entry, a point key absent
-#      from every layer, a missing or duplicated pipeline-entry line, an
-#      unusable sibling script
+#      repo-tracked config or catalog (config-get's own 4, resolve-catalog's
+#      hard-fail naming the repo-tracked layer)
+#   5  broken install: a malformed core list, entry, or catalog, a point key
+#      absent from every layer, a missing or duplicated pipeline-entry line,
+#      an unusable sibling script
 #   6  a refused context value (--preamble / --prefix only)
 #
 # Environment: honors every override config-get.sh, resolve-catalog.sh, and
@@ -124,19 +133,34 @@
 #                           $HOME/.claude)
 #   PLANWRIGHT_JQ           the JSON reader for the registry (else `jq` on
 #                           the path); a test override
-# The pipeline-entry list is read from <script-dir>/../doctrine/custom-steps.md
-# and from nowhere else: no environment arm, never resolve-rule-doc.sh.
+# The repository root is resolved once (an explicit PLANWRIGHT_REPO_ROOT, else
+# the working directory's git toplevel) and exported to every sibling call,
+# so the project command and skill directories, the repo-tracked and
+# machine-local layers, and a relative command path all follow the directory
+# this script runs in. The pipeline-entry list is read from
+# <script-dir>/../doctrine/custom-steps.md and from nowhere else: no
+# environment arm, never resolve-rule-doc.sh.
 #
 # Portable bash 3.2 / BSD tooling; jq only for the foreign-plugin registry
 # lookup, and its absence is a non-resolving target, never an error.
 set -u
+# Every word split below is a declared token, never a pattern: pathname
+# expansion stays off for the whole run so a `*` in a value is validated as
+# itself rather than as the working directory's file names.
+set -f
 
 LC_ALL=C
 export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh" || {
+  echo "resolve-steps: sanitizer '$script_dir/echo-safety.sh' is missing or unreadable (broken install)" >&2
+  exit 5
+}
 
+TAB=$(printf '\t')
 WIRED_POINTS="pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip"
 UNWIRED_POINTS="spec-drafted kickoff-signed-off unit-selected pre-dispatch post-dispatch unit-halted post-merge orchestrator-idle"
 CONTEXT_FIELDS="SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD"
@@ -153,7 +177,7 @@ explain=0
 check=0
 preamble=0
 prefix=0
-attended=""
+attendance=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --explain) explain=1 ;;
@@ -161,11 +185,11 @@ while [ $# -gt 0 ]; do
     --preamble) preamble=1 ;;
     --prefix) prefix=1 ;;
     --attended | --unattended)
-      if [ -n "$attended" ]; then
+      if [ -n "$attendance" ]; then
         echo "resolve-steps: --attended and --unattended are exclusive; pass exactly one" >&2
         usage
       fi
-      attended="${1#--}"
+      attendance="${1#--}"
       ;;
     -h | --help)
       awk 'NR>=2 { if ($0 ~ /^#/) { sub(/^# ?/, ""); print } else exit }' "$0"
@@ -188,7 +212,7 @@ done
 [ -n "$point" ] || usage
 
 # The point name is validated against the vocabulary before it reaches a key
-# or a message (REQ-A1.3: any other name is a usage error).
+# or a message: any other name is a usage error.
 wired=0
 unwired=0
 for p in $WIRED_POINTS; do [ "$p" = "$point" ] && wired=1; done
@@ -198,11 +222,20 @@ if [ "$wired" -eq 0 ] && [ "$unwired" -eq 0 ]; then
   exit 2
 fi
 
-warn() { printf 'resolve-steps: %s: %s\n' "$point" "$1" >&2; }
+# warn / die: every message passes the house sanitizer, since a catalog or
+# registry string can carry a terminal escape.
+warn() { printf 'resolve-steps: %s: %s\n' "$point" "$(sanitize_printable "$1")" >&2; }
 die() {
   # die <code> <message>
   warn "$2"
   exit "$1"
+}
+# replay <file>: forward a sibling's captured stderr, sanitized line by line.
+replay() {
+  [ -s "$1" ] || return 0
+  while IFS= read -r rl || [ -n "$rl" ]; do
+    printf '%s\n' "$(sanitize_printable "$rl")" >&2
+  done <"$1"
 }
 
 # ---------------------------------------------------------------------------
@@ -213,8 +246,8 @@ if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ]; then
     echo "resolve-steps: --preamble and --prefix are exclusive" >&2
     usage
   fi
-  if [ "$explain" -eq 1 ] || [ "$check" -eq 1 ]; then
-    echo "resolve-steps: --preamble / --prefix render the context and take no resolution flag" >&2
+  if [ "$explain" -eq 1 ] || [ "$check" -eq 1 ] || [ -n "$attendance" ]; then
+    echo "resolve-steps: --preamble / --prefix render the context and take no resolution or attendance flag" >&2
     usage
   fi
   refuse() { die 6 "refused context value in PLANWRIGHT_STEP_$1 ($2); the step fails"; }
@@ -269,28 +302,50 @@ if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Resolution modes: flags and sibling scripts
+# Resolution modes: flags, sibling scripts, scratch
 # ---------------------------------------------------------------------------
-[ -n "$attended" ] || {
+[ -n "$attendance" ] || {
   echo "resolve-steps: pass --attended or --unattended (the missing-step matrix has no default)" >&2
   usage
 }
-if [ "$check" -eq 1 ] && [ "$attended" = attended ]; then
+if [ "$check" -eq 1 ] && [ "$attendance" = attended ]; then
   echo "resolve-steps: --check refuses --attended: check mode never waits on a human; pass --unattended" >&2
   usage
 fi
 
-config_get="$script_dir/config-get.sh"
-catalog="$script_dir/resolve-catalog.sh"
-overlay_root="$script_dir/resolve-overlay-root.sh"
-isolation="$script_dir/resolve-dispatch-isolation.sh"
-for s in "$config_get" "$catalog" "$overlay_root" "$isolation"; do
+config_get_sh="$script_dir/config-get.sh"
+catalog_sh="$script_dir/resolve-catalog.sh"
+overlay_root_sh="$script_dir/resolve-overlay-root.sh"
+isolation_sh="$script_dir/resolve-dispatch-isolation.sh"
+for s in "$config_get_sh" "$catalog_sh" "$overlay_root_sh" "$isolation_sh"; do
   [ -x "$s" ] || die 5 "sibling script '$s' is missing or not executable (broken install)"
 done
 
 key="steps_${point//-/_}"
 
-# valid_id <token>: the step-id charset ^[a-z][a-z0-9-]*$, at most 64 bytes.
+# One scratch file holds each sibling's stderr until it is replayed.
+scratch=$(mktemp) || die 5 "could not create a scratch file"
+trap 'rm -f "$scratch"' EXIT INT TERM
+
+# Resolve the repository root once and hand it to every sibling, so they
+# skip their own git lookups and every read agrees on the same repository.
+if [ -z "${PLANWRIGHT_REPO_ROOT:-}" ]; then
+  repo_claude=$("$overlay_root_sh" repo-tracked 2>"$scratch") || die 5 "overlay-root resolution failed for the repo-tracked layer (broken install)"
+  replay "$scratch"
+  if [ -n "$repo_claude" ]; then
+    PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
+    export PLANWRIGHT_REPO_ROOT
+  fi
+else
+  repo_claude="${PLANWRIGHT_REPO_ROOT%/}/.claude"
+fi
+
+# DEGRADED: a malformation was degraded with a warning, by this script or by
+# a sibling reader; check mode fails on it.
+DEGRADED=0
+
+# valid_id <token>: the step-id (and skill-name) charset ^[a-z][a-z0-9-]*$,
+# at most 64 bytes.
 valid_id() {
   case "$1" in
     "" | [!a-z]* | *[!a-z0-9-]*) return 1 ;;
@@ -329,33 +384,43 @@ is_pipeline_entry() {
   return 1
 }
 
+# read_layers <key>: config-get --layers with its stderr replayed; a warning
+# on a successful read is a degraded layer. Sets LAYERS; propagates 4; exit 3
+# (absent everywhere) leaves LAYERS empty and returns 3.
+read_layers() {
+  LAYERS=""
+  rl_rc=0
+  LAYERS=$("$config_get_sh" --layers "$1" 2>"$scratch") || rl_rc=$?
+  replay "$scratch"
+  case "$rl_rc" in
+    0) [ ! -s "$scratch" ] || DEGRADED=1 ;;
+    3) ;;
+    4) exit 4 ;;
+    *) die 5 "config-get exited $rl_rc reading $1 (broken install)" ;;
+  esac
+  return "$rl_rc"
+}
+
 # ---------------------------------------------------------------------------
 # The stale key (REQ-C1.6, D-10): one warning per layer that sets it.
 # ---------------------------------------------------------------------------
-stale=""
-rc=0
-stale=$("$config_get" --layers review_sequence 2>/dev/null) || rc=$?
-[ "$rc" -eq 4 ] && exit 4
-if [ "$rc" -eq 0 ]; then
-  printf '%s\n' "$stale" | while IFS="$(printf '\t')" read -r layer _; do
+if read_layers review_sequence; then
+  while IFS="$TAB" read -r layer _; do
     [ -n "$layer" ] || continue
-    warn "warning: the $layer layer sets review_sequence, a removed key; its value is ignored, the convergence chain is steps_convergence"
-  done
+    warn "warning: the $layer layer sets review_sequence, the key steps_convergence supersedes; the step resolver ignores its value"
+  done <<EOF
+$LAYERS
+EOF
 fi
 
 # ---------------------------------------------------------------------------
 # The point's list: winner, shadow warning, parse (REQ-C1.1, REQ-B1.3).
 # ---------------------------------------------------------------------------
-rc=0
-layers_out=$("$config_get" --layers "$key") || rc=$?
-case "$rc" in
-  0) ;;
-  4) exit 4 ;;
-  3) die 5 "$key is set in no layer; the core defaults ship every point key (broken install)" ;;
-  *) die 5 "config-get exited $rc reading $key" ;;
-esac
+read_layers "$key" || die 5 "$key is set in no layer; the core defaults ship every point key (broken install)"
 list_layer=""
 list_value=""
+core_value=""
+core_set=0
 shadowed=""
 # The shadow set is the OVERLAY layers below the winner: core sets every key,
 # so an overlay list always outranks it, and that is the mechanism working,
@@ -363,29 +428,39 @@ shadowed=""
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   [ -n "$list_layer" ] && [ "$list_layer" != core ] && shadowed="${shadowed:+$shadowed, }$list_layer"
-  list_layer=${line%%	*}
-  list_value=${line#*	}
+  list_layer=${line%%"$TAB"*}
+  list_value=${line#*"$TAB"}
+  if [ "$list_layer" = core ]; then
+    core_value="$list_value"
+    core_set=1
+  fi
 done <<EOF
-$layers_out
+$LAYERS
 EOF
 [ -n "$shadowed" ] && warn "warning: $key from the $list_layer layer shadows the $shadowed layer's list"
 
-# parse_list <raw>: print one id per line; empty output for `[]`. LIST_ERR
-# names the first malformation (an id outside the charset, the reserved id,
-# an id named twice), or stays empty.
+# parse_list <raw>: sets IDS to one id per line for a flow list `[a, b]`,
+# empty for `[]`. A value that is not a flow list, or carries an empty
+# field, sets LIST_ERR instead (the bare scalar the review-sequence knob
+# tolerated is not a list of step ids).
 LIST_ERR=""
+IDS=""
 parse_list() {
   raw="$1"
+  LIST_ERR=""
+  IDS=""
   case "$raw" in
-    \[*\])
-      raw=${raw#\[}
-      raw=${raw%\]}
+    \[*\]) ;;
+    *)
+      LIST_ERR="not an inline flow list [id, ...]"
+      return
       ;;
   esac
-  # Split on commas only, with pathname expansion off so a stray glob in a
-  # config value never touches the filesystem; trim whitespace and one
-  # surrounding quote pair per field.
-  set -f
+  raw=${raw#\[}
+  raw=${raw%\]}
+  raw=${raw#"${raw%%[![:space:]]*}"}
+  raw=${raw%"${raw##*[![:space:]]}"}
+  [ -n "$raw" ] || return
   pl_ifs=$IFS
   IFS=,
   for field in $raw; do
@@ -401,13 +476,18 @@ parse_list() {
         field=${field%\'}
         ;;
     esac
-    [ -n "$field" ] && printf '%s\n' "$field"
+    if [ -z "$field" ]; then
+      LIST_ERR="an empty field between commas"
+      IDS=""
+      break
+    fi
+    IDS="$IDS$field
+"
   done
   IFS=$pl_ifs
-  set +f
 }
+# validate_list <ids>: LIST_ERR names the first fault, or stays empty.
 validate_list() {
-  # validate_list <ids-newline-separated>: sets LIST_ERR on the first fault.
   LIST_ERR=""
   seen=" "
   while IFS= read -r id; do
@@ -431,40 +511,33 @@ validate_list() {
 $1
 EOF
 }
+# parse_and_validate <raw>: sets IDS and LIST_ERR.
+parse_and_validate() {
+  parse_list "$1"
+  [ -n "$LIST_ERR" ] || validate_list "$IDS"
+}
 
-# list_malformed <layer> <reason>: the by-layer policy for a list (REQ-C1.5).
-# Returns only for the degrade arm (adopter / machine-local), after warning.
-list_malformed() {
-  case "$1" in
-    core) die 5 "the core default $key is malformed ($2) (broken install)" ;;
-    repo-tracked) die 4 "the repo-tracked layer sets $key to a malformed value ($2); refusing to degrade a shared team list" ;;
-    *) warn "warning: the $1 layer sets $key to a malformed value ($2); degrading to the core default list" ;;
+# degrade_list <reason>: the by-layer policy for a malformed list
+# (REQ-C1.5). Core is a broken install, repo-tracked hard-fails, an adopter
+# or machine-local list warns and gives way to the core default, which is
+# then the winning list (the matrix keys on core from here on).
+degrade_list() {
+  case "$list_layer" in
+    core) die 5 "the core default $key is malformed ($1) (broken install)" ;;
+    repo-tracked) die 4 "the repo-tracked layer sets $key to a malformed value ($1); refusing to degrade a shared team list" ;;
   esac
-}
-
-core_list_value() {
-  # The core default alone: config-get with the overlay layers neutralized.
-  scratch=$(mktemp -d) || die 5 "could not create a scratch dir to read the core default"
-  crc=0
-  cv=$(PLANWRIGHT_ADOPTER_OVERLAY="$scratch/no-adopter" PLANWRIGHT_REPO_ROOT="$scratch" \
-    PLANWRIGHT_LOCAL_CONFIG="" "$config_get" "$key") || crc=$?
-  rm -rf "$scratch"
-  [ "$crc" -eq 0 ] || die 5 "the core default $key is unresolvable (config-get exit $crc) (broken install)"
-  printf '%s\n' "$cv"
-}
-
-DEGRADED=0 # a degraded malformation happened (check mode fails on it)
-ids=$(parse_list "$list_value")
-validate_list "$ids"
-if [ -n "$LIST_ERR" ]; then
-  list_malformed "$list_layer" "$LIST_ERR"
+  warn "warning: the $list_layer layer sets $key to a malformed value ($1); degrading to the core default list"
   DEGRADED=1
+  [ "$core_set" -eq 1 ] || die 5 "$key has no core default to degrade to (broken install)"
   list_layer=core
-  list_value=$(core_list_value)
-  ids=$(parse_list "$list_value")
-  validate_list "$ids"
+  list_value="$core_value"
+  parse_and_validate "$list_value"
   [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
-fi
+}
+
+parse_and_validate "$list_value"
+[ -z "$LIST_ERR" ] || degrade_list "$LIST_ERR"
+ids="$IDS"
 
 # An unwired point resolves no steps; a non-empty list there is reported,
 # never silently ignored (REQ-A1.3).
@@ -473,6 +546,10 @@ if [ "$unwired" -eq 1 ]; then
     warn "warning: point '$point' is not wired; its non-empty $key list (from the $list_layer layer) resolves no steps"
     [ "$check" -eq 1 ] && exit 1
   fi
+  if [ "$check" -eq 1 ] && [ "$DEGRADED" -eq 1 ]; then
+    warn "check mode: a malformation was degraded above; failing the check"
+    exit 1
+  fi
   exit 0
 fi
 
@@ -480,9 +557,10 @@ fi
 # The hosting default (REQ-D1.3, D-7): from dispatch_isolation.
 # ---------------------------------------------------------------------------
 rc=0
-iso=$("$isolation") || rc=$?
+iso=$("$isolation_sh" 2>"$scratch") || rc=$?
+replay "$scratch"
 case "$rc" in
-  0) ;;
+  0) [ ! -s "$scratch" ] || DEGRADED=1 ;;
   4) exit 4 ;;
   *) die 5 "dispatch_isolation is unresolvable (exit $rc) (broken install)" ;;
 esac
@@ -493,29 +571,30 @@ case "$iso" in
 esac
 
 # ---------------------------------------------------------------------------
-# The catalog (REQ-B1.1, REQ-B1.2, REQ-B1.6, REQ-C1.8): merged view plus the
-# per-entry layer, parsed by ordinal so the two views line up.
+# The catalog (REQ-B1.1, REQ-B1.2, REQ-B1.6, REQ-C1.8): the merged view for
+# the fields, the --explain view for each entry's layer, matched by id.
 # ---------------------------------------------------------------------------
-cat_err="$(mktemp)" || die 5 "could not create a scratch file"
-trap 'rm -f "$cat_err"' EXIT
 rc=0
-merged=$("$catalog" steps 2>"$cat_err") || rc=$?
+merged=$("$catalog_sh" steps 2>"$scratch") || rc=$?
+replay "$scratch"
 if [ "$rc" -ne 0 ]; then
-  cat "$cat_err" >&2
-  if grep -q 'resolve-catalog: steps: core ' "$cat_err"; then
-    die 5 "the core steps catalog is malformed (broken install)"
+  # resolve-catalog hard-fails with exit 1 naming the layer; anything else
+  # from it is an unusable sibling.
+  if [ "$rc" -eq 1 ] && grep -q '^resolve-catalog: steps: repo-tracked ' "$scratch"; then
+    die 4 "the repo-tracked steps catalog is malformed; refusing to degrade a shared team catalog"
   fi
-  die 4 "the repo-tracked steps catalog is malformed; refusing to degrade a shared team catalog"
+  die 5 "the steps catalog is unusable (resolve-catalog exit $rc) (broken install)"
 fi
+[ ! -s "$scratch" ] || DEGRADED=1
 rc=0
-layers_view=$("$catalog" steps --explain 2>/dev/null) || rc=$?
+layers_view=$("$catalog_sh" steps --explain 2>/dev/null) || rc=$?
 [ "$rc" -eq 0 ] || die 5 "resolve-catalog's two views disagree (exit $rc) (broken install)"
 
 # FIELDS: one `<n>\t<key>\t<value>` line per entry field, <n> the entry's
 # ordinal in merged order. Markers: `@cntrl` (a control byte in the key or
-# value; the value is never emitted), `@dup` (a repeated field), `@bad` (an
-# indented line that is not a field). Empty and duplicate ids are skipped
-# exactly as resolve-catalog skips them, so ordinals match its --explain view.
+# value; the value is never emitted), `@dup` (a repeated field, the item's
+# own id included), `@bad` (an indented line that is not a field). Empty and
+# duplicate ids are skipped exactly as resolve-catalog skips them.
 FIELDS=$(printf '%s\n' "$merged" | awk '
   /^[ \t]*#/ { next }
   /^[^ \t]/ { insec = ($0 ~ /^[A-Za-z][A-Za-z0-9_-]*:[ \t]*$/); have = 0; next }
@@ -526,7 +605,9 @@ FIELDS=$(printf '%s\n' "$merged" | awk '
     if (raw == "" || (raw in seen)) { have = 0; next }
     seen[raw] = 1
     n++; have = 1
-    if (raw ~ /[[:cntrl:]]/) print n "\t@cntrl\tid"; else print n "\tid\t" raw
+    fseen[n, "id"] = 1
+    print n "\tid\t" raw
+    if (raw ~ /[[:cntrl:]]/) print n "\t@cntrl\t"
     next
   }
   have && /^    [A-Za-z]/ {
@@ -542,10 +623,11 @@ FIELDS=$(printf '%s\n' "$merged" | awk '
   }
   have { print n "\t@bad\t"; next }
 ')
+
 # One pass over the field stream into per-entry arrays. E_MARK holds the
 # first structural fault (a marker or an unknown field); E_SET records which
-# fields the entry carries (`|name|` tokens) so an unset field is told from an
-# empty one.
+# fields the entry declares (`|name|` tokens) so an unset field is told from
+# an empty one.
 E_ID=()
 E_LAYER=()
 E_DROP=()
@@ -559,7 +641,6 @@ E_FAIL=()
 E_TIMEOUT=()
 E_REQ=()
 n_entries=0
-TAB=$(printf '\t')
 while IFS="$TAB" read -r n k v; do
   [ -n "$n" ] || continue
   if [ "$n" -gt "$n_entries" ]; then
@@ -599,19 +680,32 @@ while IFS="$TAB" read -r n k v; do
 done <<EOF
 $FIELDS
 EOF
-i=0
+[ "$n_entries" -gt 0 ] || die 5 "the steps catalog holds no entry; the core seed always does (broken install)"
+# The --explain view supplies each entry's layer, matched by id (the layer is
+# the last field, so an id carrying a tab still matches).
+n_layers=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
-  i=$((i + 1))
-  [ "$i" -le "$n_entries" ] || break
-  E_LAYER[i]=${line#*	}
-  eid=${line%%	*}
-  case "$eid" in *[[:cntrl:]]*) continue ;; esac
-  [ "${E_ID[i]}" = "$eid" ] || die 5 "resolve-catalog's two views disagree at entry $i (broken install)"
+  n_layers=$((n_layers + 1))
+  vid=${line%"$TAB"*}
+  vlayer=${line##*"$TAB"}
+  i=1
+  while [ "$i" -le "$n_entries" ]; do
+    if [ "${E_ID[i]}" = "$vid" ] && [ -z "${E_LAYER[i]}" ]; then
+      E_LAYER[i]="$vlayer"
+      break
+    fi
+    i=$((i + 1))
+  done
 done <<EOF
 $layers_view
 EOF
-[ "$i" -eq "$n_entries" ] || die 5 "resolve-catalog's two views disagree ($n_entries entries, $i layers) (broken install)"
+[ "$n_layers" -eq "$n_entries" ] || die 5 "resolve-catalog's two views disagree ($n_entries entries, $n_layers layers) (broken install)"
+i=1
+while [ "$i" -le "$n_entries" ]; do
+  [ -n "${E_LAYER[i]}" ] || die 5 "resolve-catalog's two views disagree at entry $i (broken install)"
+  i=$((i + 1))
+done
 # is_set <n> <field>: 0 when the entry declares the field (even empty).
 is_set() {
   sn="$1"
@@ -638,15 +732,9 @@ entry_malformed() {
 }
 
 # Charsets. A command target is an executable name or path in
-# [A-Za-z0-9/._-], no leading dash, no `..` segment; a command-args word is
-# in [A-Za-z0-9._/:=@%,+-]; a requires name is a command name without `/`;
-# a skill token is [a-z0-9][a-z0-9_-]* of at most 64 bytes.
-skill_token_ok() {
-  case "$1" in
-    "" | [!a-z0-9]* | *[!a-z0-9_-]*) return 1 ;;
-  esac
-  [ "${#1}" -le 64 ]
-}
+# [A-Za-z0-9/._-], no leading dash, no `..` segment; a `requires` name takes
+# the same charset; a command-args word is in [A-Za-z0-9._/:=@%,+-]; a skill
+# name and namespace take the id charset.
 command_target_ok() {
   case "$1" in
     "" | -* | *[!A-Za-z0-9/._-]*) return 1 ;;
@@ -660,11 +748,21 @@ command_word_ok() {
   esac
   return 0
 }
-requires_name_ok() {
+# split_skill_target <target>: sets SNAME and SPLUGIN (empty when bare);
+# returns 1 when the target is outside the grammar <name> | <plugin>:<name>.
+split_skill_target() {
+  SNAME=""
+  SPLUGIN=""
   case "$1" in
-    "" | -* | *[!A-Za-z0-9._+-]*) return 1 ;;
+    *:*:*) return 1 ;;
+    *:*)
+      SPLUGIN=${1%%:*}
+      SNAME=${1#*:}
+      valid_id "$SPLUGIN" || return 1
+      ;;
+    *) SNAME="$1" ;;
   esac
-  return 0
+  valid_id "$SNAME"
 }
 
 # validate_entry <n>: the entry-level rules (REQ-B1.2, REQ-B1.6, REQ-C1.8).
@@ -702,7 +800,13 @@ validate_entry() {
   vargs=${E_ARGS[vn]}
   vhost=${E_HOST[vn]}
   case "$vhost" in
-    "" | isolated | continue | in-session) ;;
+    isolated | continue | in-session) ;;
+    "")
+      if is_set "$vn" hosting; then
+        ERR="empty hosting"
+        return
+      fi
+      ;;
     *)
       ERR="unknown hosting"
       return
@@ -710,7 +814,13 @@ validate_entry() {
   esac
   vfail=${E_FAIL[vn]}
   case "$vfail" in
-    "" | halt | continue) ;;
+    halt | continue) ;;
+    "")
+      if is_set "$vn" on-failure; then
+        ERR="empty on-failure"
+        return
+      fi
+      ;;
     *)
       ERR="unknown on-failure"
       return
@@ -718,7 +828,12 @@ validate_entry() {
   esac
   vtimeout=${E_TIMEOUT[vn]}
   case "$vtimeout" in
-    "") ;;
+    "")
+      if is_set "$vn" timeout; then
+        ERR="timeout is not a positive integer of seconds"
+        return
+      fi
+      ;;
     *[!0-9]* | 0*)
       ERR="timeout is not a positive integer of seconds"
       return
@@ -730,34 +845,19 @@ validate_entry() {
   }
   vreq=${E_REQ[vn]}
   for r in $vreq; do
-    requires_name_ok "$r" || {
-      ERR="requires names something outside the executable-name charset"
+    command_target_ok "$r" || {
+      ERR="requires names something outside the command-target charset"
       return
     }
   done
   case "$vkind" in
     skill)
-      case "$vtarget" in
-        *:*:*)
-          ERR="skill target carries more than one namespace"
-          return
-          ;;
-      esac
-      sname=${vtarget#*:}
-      splugin=""
-      case "$vtarget" in *:*) splugin=${vtarget%%:*} ;; esac
-      skill_token_ok "$sname" || {
+      split_skill_target "$vtarget" || {
         ERR="skill target outside the grammar <name> | <plugin>:<name>"
         return
       }
-      if [ -n "$splugin" ]; then
-        skill_token_ok "$splugin" || {
-          ERR="skill target namespace outside the grammar"
-          return
-        }
-      fi
-      if is_pipeline_entry "$sname"; then
-        ERR="pipeline-entry: '$sname' is a pipeline entry skill and never a step target"
+      if is_pipeline_entry "$SNAME"; then
+        ERR="pipeline-entry: '$SNAME' is a pipeline entry skill and never a step target"
         return
       fi
       ;;
@@ -793,13 +893,19 @@ while [ "$i" -le "$n_entries" ]; do
   i=$((i + 1))
 done
 
-# entry_of <id>: the ordinal of the live entry carrying <id>, or nothing.
+# entry_of <id>: sets ENTRY to the ordinal of the live entry carrying <id>
+# (empty when none) and ENTRY_DROPPED when a dropped one carries it.
 entry_of() {
+  ENTRY=""
+  ENTRY_DROPPED=0
   j=1
   while [ "$j" -le "$n_entries" ]; do
-    if [ "${E_ID[j]}" = "$1" ] && [ "${E_DROP[j]}" -eq 0 ]; then
-      printf '%s\n' "$j"
-      return 0
+    if [ "${E_ID[j]}" = "$1" ]; then
+      if [ "${E_DROP[j]}" -eq 0 ]; then
+        ENTRY="$j"
+        return 0
+      fi
+      ENTRY_DROPPED=1
     fi
     j=$((j + 1))
   done
@@ -827,7 +933,6 @@ if [ -n "${CLAUDE_DIR:-}" ]; then
 elif [ -n "${HOME:-}" ]; then
   claude_dir="$HOME/.claude"
 fi
-repo_claude=$("$overlay_root" repo-tracked 2>/dev/null) || repo_claude=""
 
 REASON=""
 LOC=""
@@ -842,13 +947,17 @@ registry_lookup() {
     REASON="no JSON reader (jq) on the path for the registry"
     return 1
   }
-  # shellcheck disable=SC2016 # $p and $k are jq variables bound with --arg, not shell expansions
+  # shellcheck disable=SC2016 # $p is a jq variable bound with --arg, not a shell expansion
   keys=$("$jq_bin" -r --arg p "$1@" '(.plugins // {}) | keys[] | select(startswith($p))' "$reg" 2>/dev/null) || {
     REASON="the installed-plugin registry is unreadable"
     return 1
   }
   nkeys=0
-  [ -n "$keys" ] && nkeys=$(printf '%s\n' "$keys" | wc -l | tr -d ' ')
+  while IFS= read -r rk; do
+    [ -n "$rk" ] && nkeys=$((nkeys + 1))
+  done <<EOF
+$keys
+EOF
   if [ "$nkeys" -eq 0 ]; then
     REASON="namespace '$1' matches no installed-plugin registry key"
     return 1
@@ -857,10 +966,14 @@ registry_lookup() {
     REASON="namespace '$1' matches $nkeys installed-plugin registry keys (ambiguous)"
     return 1
   fi
-  # shellcheck disable=SC2016
-  paths=$("$jq_bin" -r --arg k "$keys" '.plugins[$k] | (if type == "array" then .[] else . end) | (.installPath? // empty) | select(type == "string")' "$reg" 2>/dev/null) || paths=""
+  # shellcheck disable=SC2016 # $k is a jq variable bound with --arg, not a shell expansion
+  paths=$("$jq_bin" -r --arg k "$keys" '.plugins[$k] | (if type == "array" then .[] else . end) | (.installPath? // empty) | select(type == "string")' "$reg" 2>/dev/null) || {
+    REASON="the installed-plugin registry is unreadable"
+    return 1
+  }
   while IFS= read -r p; do
     [ -n "$p" ] || continue
+    case "$p" in *[[:cntrl:]]*) continue ;; esac
     if [ -f "$p/skills/$2/SKILL.md" ]; then
       LOC="$p/skills/$2/SKILL.md"
       return 0
@@ -906,15 +1019,13 @@ resolve_target() {
       esac
       ;;
     skill)
-      sname=${rtarget#*:}
-      splugin=""
-      case "$rtarget" in *:*) splugin=${rtarget%%:*} ;; esac
-      if [ -z "$splugin" ]; then
-        for cand in "${skills_root:+$skills_root/$sname/SKILL.md}" \
-          "${claude_dir:+$claude_dir/commands/$sname.md}" \
-          "${claude_dir:+$claude_dir/skills/$sname/SKILL.md}" \
-          "${repo_claude:+$repo_claude/commands/$sname.md}" \
-          "${repo_claude:+$repo_claude/skills/$sname/SKILL.md}"; do
+      split_skill_target "$rtarget"
+      if [ -z "$SPLUGIN" ]; then
+        for cand in "${skills_root:+$skills_root/$SNAME/SKILL.md}" \
+          "${claude_dir:+$claude_dir/commands/$SNAME.md}" \
+          "${claude_dir:+$claude_dir/skills/$SNAME/SKILL.md}" \
+          "${repo_claude:+$repo_claude/commands/$SNAME.md}" \
+          "${repo_claude:+$repo_claude/skills/$SNAME/SKILL.md}"; do
           [ -n "$cand" ] || continue
           if [ -f "$cand" ]; then
             LOC="$cand"
@@ -922,24 +1033,27 @@ resolve_target() {
           fi
         done
         [ -n "$LOC" ] || {
-          REASON="skill '$sname' not found under the plugin skills root or the user and project command and skill directories"
+          REASON="skill '$SNAME' not found under the plugin skills root or the user and project command and skill directories"
           return 1
         }
-      elif [ "$splugin" = "$OWN_NAMESPACE" ]; then
-        if [ -n "$skills_root" ] && [ -f "$skills_root/$sname/SKILL.md" ]; then
-          LOC="$skills_root/$sname/SKILL.md"
+      elif [ "$SPLUGIN" = "$OWN_NAMESPACE" ]; then
+        if [ -n "$skills_root" ] && [ -f "$skills_root/$SNAME/SKILL.md" ]; then
+          LOC="$skills_root/$SNAME/SKILL.md"
         else
-          REASON="skill '$OWN_NAMESPACE:$sname' not found under the plugin skills root"
+          REASON="skill '$OWN_NAMESPACE:$SNAME' not found under the plugin skills root"
           return 1
         fi
       else
-        registry_lookup "$splugin" "$sname" || return 1
+        registry_lookup "$SPLUGIN" "$SNAME" || return 1
       fi
       ;;
   esac
   rreq=${E_REQ[rn]}
   for r in $rreq; do
-    type -P "$r" >/dev/null 2>&1 || {
+    case "$r" in
+      */*) [ -f "$r" ] && [ -x "$r" ] ;;
+      *) type -P "$r" >/dev/null 2>&1 ;;
+    esac || {
       REASON="requires '$r' not found on the path"
       return 1
     }
@@ -976,7 +1090,8 @@ build_steps() {
     S_ID[n_steps]="$sid"
     S_LOC[n_steps]="-"
     S_REASON[n_steps]=""
-    if en=$(entry_of "$sid"); then
+    if entry_of "$sid"; then
+      en="$ENTRY"
       S_N[n_steps]="$en"
       S_KIND[n_steps]=${E_KIND[en]}
       h=${E_HOST[en]}
@@ -1006,15 +1121,11 @@ build_steps() {
       S_N[n_steps]=""
       S_KIND[n_steps]="-"
       S_HOST[n_steps]="-"
-      S_REASON[n_steps]="no catalog entry carries this id"
-      j=1
-      while [ "$j" -le "$n_entries" ]; do
-        if [ "${E_ID[j]}" = "$sid" ]; then
-          S_REASON[n_steps]="its catalog entry was dropped as malformed"
-          break
-        fi
-        j=$((j + 1))
-      done
+      if [ "$ENTRY_DROPPED" -eq 1 ]; then
+        S_REASON[n_steps]="its catalog entry was dropped as malformed"
+      else
+        S_REASON[n_steps]="no catalog entry carries this id"
+      fi
     fi
   done <<EOF
 $1
@@ -1023,13 +1134,8 @@ EOF
 
 build_steps "$ids"
 if [ -n "$LIST_ERR" ]; then
-  list_malformed "$list_layer" "$LIST_ERR"
-  DEGRADED=1
-  list_layer=core
-  list_value=$(core_list_value)
-  ids=$(parse_list "$list_value")
-  validate_list "$ids"
-  [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
+  degrade_list "$LIST_ERR"
+  ids="$IDS"
   build_steps "$ids"
   [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
 fi
@@ -1049,7 +1155,7 @@ done
 # ---------------------------------------------------------------------------
 # The missing-step matrix (REQ-C1.4, D-6) and the output (REQ-H1.3).
 # ---------------------------------------------------------------------------
-case "$list_layer/$attended" in
+case "$list_layer/$attendance" in
   core/*) missing_token=park ;;
   repo-tracked/attended | adopter/attended | machine-local/attended) missing_token=ask ;;
   repo-tracked/unattended) missing_token=park ;;
@@ -1080,7 +1186,7 @@ if [ "$any_missing" -eq 1 ]; then
   i=1
   while [ "$i" -le "$n_steps" ]; do
     if [ -n "${S_REASON[i]}" ]; then
-      warn "${missing_token}: step '${S_ID[i]}' does not resolve on this host: ${S_REASON[i]}; the point $verb (the $list_layer layer's list, $attended)"
+      warn "${missing_token}: step '${S_ID[i]}' does not resolve on this host: ${S_REASON[i]}; the point $verb (the $list_layer layer's list, $attendance)"
     fi
     i=$((i + 1))
   done
@@ -1095,7 +1201,7 @@ while [ "$i" -le "$n_steps" ]; do
   else
     dec="$missing_token"
   fi
-  line="$dec	${S_ID[i]}"
+  line="$dec$TAB${S_ID[i]}"
   if [ "$explain" -eq 1 ]; then
     en="${S_N[i]}"
     if [ -n "$en" ]; then
@@ -1114,7 +1220,7 @@ while [ "$i" -le "$n_steps" ]; do
       etimeout=""
       ereq=""
     fi
-    line="$line	$point	$list_layer	$elayer	$etarget	${S_HOST[i]}	${S_KIND[i]}	${eargs:--}	$efail	${etimeout:--}	${ereq:--}	${S_LOC[i]}"
+    line="$line$TAB$point$TAB$list_layer$TAB$elayer$TAB$etarget$TAB${S_HOST[i]}$TAB${S_KIND[i]}$TAB${eargs:--}$TAB$efail$TAB${etimeout:--}$TAB${ereq:--}$TAB${S_LOC[i]}"
   fi
   out="$out$line
 "

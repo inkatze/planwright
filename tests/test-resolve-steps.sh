@@ -72,7 +72,7 @@ write_core_defaults() {
   {
     printf 'dispatch_isolation: %s\n' "${1:-per-step}"
     for wp in $WIRED $UNWIRED; do
-      k="steps_$(printf '%s' "$wp" | tr '-' '_')"
+      k="steps_${wp//-/_}"
       if [ "$wp" = convergence ]; then
         printf '%s: [polish]\n' "$k"
       else
@@ -110,10 +110,24 @@ cat_entry() {
   for kv in "$@"; do printf '    %s\n' "$kv" >>"$f"; done
 }
 
-# run <args...>: the resolver under the fixture environment. Stdout and stderr
-# flow through; the caller captures what it asserts on.
-run() {
+# run_raw <args...>: the resolver under the fixture environment, the caller's
+# PLANWRIGHT_STEP_* exports kept (the context cases set them on purpose).
+# run: the same with them cleared, so every other case is hermetic even when
+# the suite itself runs inside a planwright step.
+STEP_UNSETS="-u PLANWRIGHT_STEP_SPEC -u PLANWRIGHT_STEP_TASK_IDS -u PLANWRIGHT_STEP_UNIT_KIND -u PLANWRIGHT_STEP_BRANCH -u PLANWRIGHT_STEP_BASE_BRANCH -u PLANWRIGHT_STEP_WORKTREE -u PLANWRIGHT_STEP_PR_NUMBER -u PLANWRIGHT_STEP_POINT -u PLANWRIGHT_STEP_ID -u PLANWRIGHT_STEP_PREV_RECORD"
+run_raw() {
   env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+    PLANWRIGHT_ROOT="$core" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    CLAUDE_DIR="$claude" HOME="$tmp/home" PATH="$bin:$PATH" \
+    /bin/bash "$RS" "$@"
+}
+run() {
+  # shellcheck disable=SC2086 # the unset flags are meant to word-split
+  env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     PLANWRIGHT_ROOT="$core" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
@@ -126,7 +140,7 @@ run() {
 capture() {
   OUT=$(run "$@" 2>"$tmp/err")
   RC=$?
-  ERR=$(cat "$tmp/err")
+  ERR=$(<"$tmp/err")
 }
 first_line() { printf '%s\n' "$1" | head -1; }
 
@@ -148,14 +162,26 @@ ok "REQ-B1.3/REQ-A1.1: every other named point resolves to nothing with exit 0"
 
 # The same against the SHIPPED config and catalog (the repository's own files,
 # no overlay layers), so the seed and the defaults are what this test pins.
-ship_out=$(env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
-  PLANWRIGHT_ROOT="$repo_root" PLANWRIGHT_CONFIG_DEFAULTS="$repo_root/config/defaults.yml" \
-  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" PLANWRIGHT_REPO_ROOT="$tmp/no-repo" \
-  PLANWRIGHT_LOCAL_CONFIG="" CLAUDE_DIR="$claude" HOME="$tmp/home" \
-  /bin/bash "$RS" convergence --unattended 2>/dev/null)
+run_shipped() {
+  # shellcheck disable=SC2086 # the unset flags are meant to word-split
+  env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+    PLANWRIGHT_ROOT="$repo_root" PLANWRIGHT_CONFIG_DEFAULTS="$repo_root/config/defaults.yml" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" PLANWRIGHT_REPO_ROOT="$tmp/no-repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" CLAUDE_DIR="$claude" HOME="$tmp/home" \
+    /bin/bash "$RS" "$@"
+}
+ship_out=$(run_shipped convergence --unattended 2>/dev/null)
 ship_rc=$?
 [ "$ship_rc" = 0 ] && [ "$ship_out" = "run${TAB}polish" ]
 verdict "the shipped config/defaults.yml and config/steps.yaml resolve convergence to polish" "shipped files: convergence rc=$ship_rc out='$ship_out'"
+for p in $WIRED $UNWIRED; do
+  [ "$p" = convergence ] && continue
+  ship_out=$(run_shipped "$p" --unattended 2>/dev/null)
+  ship_rc=$?
+  [ "$ship_rc" = 0 ] && [ -z "$ship_out" ] \
+    || fail "shipped files: point '$p' rc=$ship_rc out='$ship_out'"
+done
+ok "the shipped files resolve every other named point to nothing with exit 0"
 
 # An unknown point name is a usage error before any path or key use.
 capture no-such-point --unattended
@@ -166,11 +192,28 @@ capture 'pre-ci; rm' --unattended
 verdict "a point name outside the charset is refused (exit 2)" "hostile point name: rc=$RC (want 2)"
 
 # An explicit `[]` at any layer resolves to no steps without a malformed warning.
-reset_layers
-printf 'steps_convergence: []\n' >"$adopter_cfg"
-capture convergence --unattended
-[ "$RC" = 0 ] && [ -z "$OUT" ] && ! printf '%s' "$ERR" | grep -q malformed
-verdict "REQ-B1.3: an explicit [] resolves to no steps and is not malformed" "explicit []: rc=$RC out='$OUT' err='$ERR'"
+for cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'steps_convergence: []\n' >"$cfg"
+  capture convergence --unattended
+  { [ "$RC" = 0 ] && [ -z "$OUT" ] && ! printf '%s' "$ERR" | grep -q malformed; } \
+    || fail "explicit [] at $cfg: rc=$RC out='$OUT' err='$ERR'"
+done
+ok "REQ-B1.3: an explicit [] at any layer resolves to no steps and is not malformed"
+# Only a flow list is a list: a bare scalar, an empty value, and an empty
+# field between commas are malformed for their layer.
+for bad in 'polish' '' '[polish,,self-review]' '[,polish]'; do
+  reset_layers
+  printf 'steps_pre_pr: %s\n' "$bad" >"$tracked_cfg"
+  capture pre-pr --unattended
+  [ "$RC" = 4 ] || fail "REQ-B1.3: list value '$bad' in repo-tracked: rc=$RC (want 4) err='$ERR'"
+  reset_layers
+  printf 'steps_pre_pr: %s\n' "$bad" >"$adopter_cfg"
+  capture pre-pr --unattended
+  { [ "$RC" = 0 ] && [ -z "$OUT" ] && printf '%s' "$ERR" | grep -q 'malformed'; } \
+    || fail "REQ-B1.3: list value '$bad' in adopter: rc=$RC out='$OUT' err='$ERR'"
+done
+ok "REQ-B1.3: a value that is not an inline flow list is malformed for its layer"
 
 # =============================================================================
 # 2. Attendance and check-mode usage (REQ-C1.4, REQ-H1.3).
@@ -183,8 +226,11 @@ capture convergence --attended --unattended
 [ "$RC" = 2 ]
 verdict "both attendance flags together is a usage error (exit 2)" "both attendance flags: rc=$RC (want 2)"
 capture convergence --check --attended
-[ "$RC" = 2 ] && printf '%s' "$ERR" | grep -q -- '--attended'
+[ "$RC" = 2 ] && printf '%s' "$ERR" | grep -q 'never waits'
 verdict "--check refuses --attended as a usage error (check mode never waits on a human)" "--check --attended: rc=$RC err='$ERR' (want 2)"
+capture convergence --preamble --attended
+[ "$RC" = 2 ]
+verdict "the render modes refuse an attendance flag" "--preamble --attended: rc=$RC (want 2)"
 capture convergence --check --unattended
 [ "$RC" = 0 ]
 verdict "--check --unattended passes on the shipped defaults" "--check --unattended: rc=$RC err='$ERR'"
@@ -259,11 +305,13 @@ malformed_case() {
   cat_entry "$adopter_cat" bad-one "$@"
   printf 'steps_pre_ci: [bad-one]\n' >"$adopter_cfg"
   capture pre-ci --unattended
-  if [ "$RC" = 0 ] && [ "$OUT" = "skip${TAB}bad-one" ] && printf '%s' "$ERR" | grep -q 'adopter'; then
+  if [ "$RC" = 0 ] && [ "$OUT" = "skip${TAB}bad-one" ] && printf '%s' "$ERR" | grep 'malformed' | grep -q 'adopter'; then
     ok "REQ-B1.2/REQ-C1.5: $label in adopter warns, is skipped, and takes the matrix path"
   else
     fail "REQ-B1.2: $label in adopter: rc=$RC out='$OUT' err='$ERR'"
   fi
+  capture pre-ci --check --unattended
+  [ "$RC" = 1 ] || fail "REQ-H1.3: $label in adopter must fail check mode (rc=$RC)"
 }
 malformed_case "an unknown field" "kind: prompt" "target: p" "colour: red"
 malformed_case "an unknown kind" "kind: ritual" "target: p"
@@ -277,7 +325,26 @@ malformed_case "a timeout on an in-session skill step" "kind: skill" "target: po
 malformed_case "a timeout on an in-session prompt step" "kind: prompt" "target: p" "hosting: in-session" "timeout: 10"
 malformed_case "args on a prompt step" "kind: prompt" "target: p" "args: --x"
 malformed_case "a duplicated field" "kind: prompt" "target: p" "target: q"
+malformed_case "an indented id field" "kind: prompt" "target: p" "id: other"
+malformed_case "an empty hosting" "kind: prompt" "target: p" "hosting:"
+malformed_case "an empty on-failure" "kind: prompt" "target: p" "on-failure:"
 malformed_case "a tab inside a value" "kind: prompt" "target: a${TAB}b"
+malformed_case "a control byte inside a value" "kind: prompt" "target: a$(printf '\033')[31mb"
+# A control byte in the id itself: still attributed to its layer, and the
+# diagnostic carries no raw byte.
+reset_layers
+cat_entry "$tracked_cat" "bad$(printf '\033')[2J" "kind: prompt" "target: p"
+printf 'steps_pre_ci: [polish]\n' >"$tracked_cfg"
+capture pre-ci --unattended
+{ [ "$RC" = 4 ] && ! printf '%s' "$ERR" | grep -q "$(printf '\033')"; } \
+  || fail "REQ-B1.2: an escape byte in a repo-tracked id: rc=$RC err='$ERR'"
+reset_layers
+cat_entry "$adopter_cat" "bad${TAB}b" "kind: prompt" "target: p"
+printf 'steps_pre_ci: [polish]\n' >"$adopter_cfg"
+capture pre-ci --unattended
+{ [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && printf '%s' "$ERR" | grep -q 'malformed'; } \
+  || fail "REQ-C1.5: a tab in an adopter id should drop that entry only: rc=$RC out='$OUT' err='$ERR'"
+ok "REQ-B1.2: a control byte in an id is malformed for its layer and never reaches stderr raw"
 
 # Bad ids: a leading digit, an uppercase letter, and the reserved phase id.
 for bad in 9lives Polish implementation; do
@@ -389,6 +456,16 @@ printf 'steps_pre_pr: [iso-skill, cont-timed]\n' >"$tracked_cfg"
 capture pre-pr --unattended
 [ "$RC" = 0 ]
 verdict "REQ-B1.2: the same timed continue step resolves after an isolated predecessor" "continue timeout after isolated: rc=$RC err='$ERR'"
+# A list-level fault in an adopter list degrades to the core default (empty
+# for pre-pr), with the warning, and fails check mode.
+rm -f "$tracked_cfg"
+printf 'steps_pre_pr: [cont, polish]\n' >"$adopter_cfg"
+capture pre-pr --unattended
+{ [ "$RC" = 0 ] && [ -z "$OUT" ] && printf '%s' "$ERR" | grep 'malformed' | grep -q 'adopter'; } \
+  || fail "REQ-C1.5: a first-position continue in an adopter list: rc=$RC out='$OUT' err='$ERR'"
+capture pre-pr --check --unattended
+[ "$RC" = 1 ] || fail "REQ-H1.3: the degraded adopter list must fail check mode (rc=$RC)"
+ok "REQ-C1.5: a list-level fault in an adopter list degrades to the core default and fails check mode"
 
 # =============================================================================
 # 6. Target grammar per kind (REQ-B1.6, REQ-G1.1).
@@ -481,9 +558,10 @@ printf '#!/bin/sh\nexit 0\n' >"$bin/fixture-tool"
 chmod +x "$bin/fixture-tool"
 ok "REQ-C1.3: each absent target is non-resolving under the matrix"
 
-cat_entry "$tracked_cat" s-dup "kind: skill" "target: dup:anything"
-cat_entry "$tracked_cat" s-none "kind: skill" "target: nosuch:anything"
+cat_entry "$tracked_cat" s-dup "kind: skill" "target: dup:their-skill"
+cat_entry "$tracked_cat" s-none "kind: skill" "target: nosuch:their-skill"
 absent_case s-dup "a namespace matching two registry keys"
+printf '%s' "$ERR" | grep -q 'ambiguous' || fail "the ambiguous namespace should be named as such: $ERR"
 absent_case s-none "a namespace absent from the registry"
 printf 'not json' >"$registry"
 absent_case s-plug-skill "an unreadable registry"
@@ -528,6 +606,8 @@ grammar_case() {
   fi
 }
 grammar_case "a skill target with a leading slash" "kind: skill" "target: /polish"
+grammar_case "a skill target with an empty namespace" "kind: skill" "target: :polish"
+grammar_case "a skill target with an underscore" "kind: skill" "target: my_skill"
 grammar_case "a skill target with two namespaces" "kind: skill" "target: a:b:c"
 grammar_case "a skill target with a metacharacter" "kind: skill" "target: polish;rm"
 grammar_case "a command target with a metacharacter" "kind: command" "target: tool|sh"
@@ -540,7 +620,24 @@ grammar_case "command args with an expansion" "kind: command" "target: fixture-t
 grammar_case "command args with a glob" "kind: command" "target: fixture-tool" "args: *.sh"
 grammar_case "command args with a quote" "kind: command" "target: fixture-tool" "args: 'a b'"
 grammar_case "command args with a backtick" "kind: command" "target: fixture-tool" "args: \`id\`"
-grammar_case "requires with a path" "kind: prompt" "target: p" "requires: /bin/sh"
+grammar_case "requires with a metacharacter" "kind: prompt" "target: p" "requires: sh;rm"
+grammar_case "requires with a traversal segment" "kind: prompt" "target: p" "requires: ../sh"
+# Refused before any probe: a traversal target that WOULD resolve if probed
+# first is still malformed, and a glob in args is judged as written even in a
+# directory where it would match.
+mkdir -p "$tmp/sub"
+reset_layers
+cat_entry "$tracked_cat" g "kind: command" "target: ../bin/fixture-tool"
+printf 'steps_post_pr: [g]\n' >"$tracked_cfg"
+OUT=$(cd "$tmp/sub" && run post-pr --unattended 2>"$tmp/err")
+RC=$?
+[ "$RC" = 4 ] || fail "REQ-B1.6: a traversal target that exists on disk must still be malformed (rc=$RC)"
+rm -f "$tracked_cat"
+cat_entry "$tracked_cat" g "kind: command" "target: fixture-tool" "args: *"
+OUT=$(cd "$bin" && run post-pr --unattended 2>"$tmp/err")
+RC=$?
+[ "$RC" = 4 ] || fail "REQ-G1.1: a glob in args must be malformed even where it would match (rc=$RC)"
+ok "REQ-B1.6: refusal precedes the probe, and a glob is judged as written"
 
 # =============================================================================
 # 7. Last layer wins with a shadow warning (REQ-C1.1).
@@ -575,29 +672,23 @@ verdict "REQ-C1.1: a shadowed layer is named whatever its value" "REQ-C1.1 empty
 # =============================================================================
 # 8. The missing-step matrix (REQ-C1.4) and whole-point resolution (REQ-D1.9).
 # =============================================================================
-reset_layers
 missing_at() {
-  # missing_at <layer-cfg> <attendance> <want-token>
+  # missing_at <layer-cfg> <attendance> <want-output> <want-rc>: judged in
+  # the parent shell so a failure counts.
   reset_layers
   printf 'steps_pre_pr: [polish, ghost]\n' >"$1"
   capture pre-pr "$2"
   [ "$OUT" = "$3" ] || fail "matrix ($1 $2): out='$OUT' want='$3' err='$ERR'"
-  printf '%s' "$RC"
+  [ "$RC" = "$4" ] || fail "matrix ($1 $2): rc=$RC (want $4)"
 }
-rc=$(missing_at "$adopter_cfg" --attended "$(printf 'ask\tpolish\nask\tghost')")
-[ "$rc" = 1 ] || fail "matrix adopter attended: rc=$rc (want 1)"
-rc=$(missing_at "$tracked_cfg" --attended "$(printf 'ask\tpolish\nask\tghost')")
-[ "$rc" = 1 ] || fail "matrix repo-tracked attended: rc=$rc (want 1)"
-rc=$(missing_at "$mlocal_cfg" --attended "$(printf 'ask\tpolish\nask\tghost')")
-[ "$rc" = 1 ] || fail "matrix machine-local attended: rc=$rc (want 1)"
+missing_at "$adopter_cfg" --attended "$(printf 'ask\tpolish\nask\tghost')" 1
+missing_at "$tracked_cfg" --attended "$(printf 'ask\tpolish\nask\tghost')" 1
+missing_at "$mlocal_cfg" --attended "$(printf 'ask\tpolish\nask\tghost')" 1
 ok "REQ-C1.4: attended prints ask for a missing step from each overlay layer (point-wide, exit 1)"
-rc=$(missing_at "$tracked_cfg" --unattended "$(printf 'park\tpolish\npark\tghost')")
-[ "$rc" = 1 ] || fail "matrix repo-tracked unattended: rc=$rc (want 1)"
+missing_at "$tracked_cfg" --unattended "$(printf 'park\tpolish\npark\tghost')" 1
 ok "REQ-C1.4/REQ-D1.9: unattended repo-tracked prints park for the point and run for no step"
-rc=$(missing_at "$adopter_cfg" --unattended "$(printf 'run\tpolish\nskip\tghost')")
-[ "$rc" = 0 ] || fail "matrix adopter unattended: rc=$rc (want 0)"
-rc=$(missing_at "$mlocal_cfg" --unattended "$(printf 'run\tpolish\nskip\tghost')")
-[ "$rc" = 0 ] || fail "matrix machine-local unattended: rc=$rc (want 0)"
+missing_at "$adopter_cfg" --unattended "$(printf 'run\tpolish\nskip\tghost')" 0
+missing_at "$mlocal_cfg" --unattended "$(printf 'run\tpolish\nskip\tghost')" 0
 reset_layers
 printf 'steps_pre_pr: [polish, ghost]\n' >"$mlocal_cfg"
 capture pre-pr --unattended
@@ -669,8 +760,27 @@ verdict "a point key absent from every layer is a broken install (exit 5)" "abse
 reset_layers
 printf 'steps_convergence:\n  - polish\n' >"$tracked_cfg"
 capture convergence --unattended
-[ "$RC" = 4 ]
-verdict "a structurally malformed repo-tracked config file propagates exit 4" "structural repo malformation: rc=$RC"
+[ "$RC" = 4 ] && printf '%s' "$ERR" | grep -q 'repo-tracked'
+verdict "a structurally malformed repo-tracked config file propagates exit 4 with its diagnostic" "structural repo malformation: rc=$RC err='$ERR'"
+# A sibling reader's own degrade (a malformed adopter config file) is
+# replayed and fails check mode.
+reset_layers
+printf 'steps_convergence:\n  - polish\n' >"$adopter_cfg"
+capture convergence --unattended
+{ [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && printf '%s' "$ERR" | grep -q 'adopter'; } \
+  || fail "a malformed adopter config file should degrade with its warning replayed: rc=$RC out='$OUT' err='$ERR'"
+capture convergence --check --unattended
+[ "$RC" = 1 ] || fail "check mode must fail on a sibling reader's degrade (rc=$RC)"
+# The same for a catalog the catalog reader degrades (a zero-entry adopter
+# catalog).
+reset_layers
+printf 'steps:\n' >"$adopter_cat"
+capture convergence --unattended
+{ [ "$RC" = 0 ] && printf '%s' "$ERR" | grep -q 'adopter'; } \
+  || fail "a degraded adopter catalog should have its warning replayed: rc=$RC err='$ERR'"
+capture convergence --check --unattended
+[ "$RC" = 1 ] || fail "check mode must fail on a degraded adopter catalog (rc=$RC)"
+ok "REQ-H1.3: a sibling reader's degrade is replayed and fails check mode"
 
 # =============================================================================
 # 10. The stale key warns and is ignored (REQ-C1.6).
@@ -688,6 +798,11 @@ capture pre-ci --unattended
 [ "$(printf '%s\n' "$ERR" | grep -c 'review_sequence')" = 2 ] \
   && printf '%s' "$ERR" | grep 'review_sequence' | grep -q 'machine-local'
 verdict "REQ-C1.6: two layers produce two warnings, at every point" "REQ-C1.6 two layers: err='$ERR'"
+printf 'review_sequence: [polish]\n' >"$tracked_cfg"
+capture pre-ci --unattended
+[ "$(printf '%s\n' "$ERR" | grep -c 'review_sequence')" = 3 ] \
+  && printf '%s' "$ERR" | grep 'review_sequence' | grep -q 'repo-tracked'
+verdict "REQ-C1.6: the repo-tracked layer warns too" "REQ-C1.6 repo-tracked: err='$ERR'"
 
 # =============================================================================
 # 11. Unwired points (REQ-A1.3).
@@ -766,11 +881,16 @@ verdict "REQ-C1.8: the list is read from the script's sibling doctrine dir; over
 capture pre-ci --unattended
 [ "$RC" = 1 ] && [ "$OUT" = "park${TAB}fx" ] \
   || fail "sibling doctrine control: rc=$RC out='$OUT' (want park through the shipped list)"
-rm -f "$inst/doctrine/custom-steps.md"
+printf '# a rule doc with no pipeline-entry line\n' >"$inst/doctrine/custom-steps.md"
 rc=0
 run_inst convergence --unattended >/dev/null 2>"$tmp/err" || rc=$?
 [ "$rc" = 5 ]
 verdict "REQ-C1.8: a missing pipeline-entry line is a broken install (exit 5)" "missing pipeline-entry line: rc=$rc err='$(cat "$tmp/err")'"
+rm -f "$inst/doctrine/custom-steps.md"
+rc=0
+run_inst convergence --unattended >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 5 ]
+verdict "REQ-C1.8: a missing rule doc is a broken install (exit 5)" "missing rule doc: rc=$rc"
 printf 'pipeline-entry: execute-task\npipeline-entry: drain\n' >"$inst/doctrine/custom-steps.md"
 rc=0
 run_inst convergence --unattended >/dev/null 2>"$tmp/err" || rc=$?
@@ -802,7 +922,7 @@ ctx_run() {
     export PLANWRIGHT_STEP_POINT="${PLANWRIGHT_STEP_POINT-wrong}"
     export PLANWRIGHT_STEP_ID="${PLANWRIGHT_STEP_ID-polish}"
     export PLANWRIGHT_STEP_PREV_RECORD="${PLANWRIGHT_STEP_PREV_RECORD-$prev_fixture}"
-    run "$@"
+    run_raw "$@"
   )
 }
 OUT=$(ctx_run pre-pr --preamble 2>"$tmp/err")
@@ -831,7 +951,6 @@ expected="PLANWRIGHT_STEP_SPEC='custom-steps' PLANWRIGHT_STEP_TASK_IDS='2 3.5' P
 verdict "REQ-D1.3: --prefix renders the ten assignments POSIX single-quoted, a quote escaped as '\\''" "--prefix mismatch: rc=$RC
 $OUT"
 # The prefix round-trips through a shell: evaluating it reproduces the values.
-eval "$OUT true"
 got=$(eval "$OUT sh -c 'printf %s \"\$PLANWRIGHT_STEP_PREV_RECORD\"'")
 [ "$got" = "it's here" ]
 verdict "the rendered prefix round-trips through a POSIX shell" "prefix round-trip: got '$got'"
@@ -866,6 +985,14 @@ rc=0
 PLANWRIGHT_STEP_TASK_IDS='2 x' ctx_run pre-pr --preamble >/dev/null 2>&1 || rc=$?
 [ "$rc" = 6 ]
 verdict "a task id outside the task-id grammar is refused" "bad task id: rc=$rc"
+rc=0
+PLANWRIGHT_STEP_PR_NUMBER='12a' ctx_run pre-pr --prefix >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ]
+verdict "a non-numeric PR number is refused on the prefix channel too" "bad PR number: rc=$rc"
+rc=0
+out=$(cd "$tmp/sub" && PLANWRIGHT_STEP_TASK_IDS='*' ctx_run pre-pr --preamble 2>/dev/null) || rc=$?
+[ "$rc" = 6 ]
+verdict "a glob in the task ids is judged as written, never expanded" "glob task id: rc=$rc out='$out'"
 
 # =============================================================================
 # 14. Output contract: newline-terminated, deterministic, explain columns.
