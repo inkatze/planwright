@@ -298,10 +298,11 @@ valid_suffix() {
   # ever sees it.
   printf '%s' "$1" | grep -Eq '^([a-z0-9][a-z0-9-]*-)?task-[0-9]+(\.[0-9]+)?$' || return 1
   # The spec half is a spec, so the reserved segment is refused here as
-  # valid_spec refuses it.
-  case $1 in
-    flight-task-*) return 1 ;;
-  esac
+  # valid_spec refuses it: exactly the suffix a spec named `flight` would
+  # build, not every spec whose name starts with `flight-task-`.
+  if printf '%s' "$1" | grep -Eq '^flight-task-[0-9]+(\.[0-9]+)?$'; then
+    return 1
+  fi
   # The bound must clear what the grammars upstream of it can actually produce:
   # a spec is up to 64 characters, `-task-` adds 6, and a dotted id adds several
   # more, so the old 72 rejected a legal max-length spec outright — the suffix

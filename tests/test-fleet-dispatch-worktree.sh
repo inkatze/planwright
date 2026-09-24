@@ -1001,9 +1001,14 @@ c26() {
   run_prim attach flight-Demo-0123abcd --dry-run
   [ "$RC" -eq 2 ] || fail "c26: an off-charset flight suffix must be refused (exit 2), got $RC"
 
-  # The task form under the reserved spec is refused, as dispatch refuses it.
+  # The task form under the reserved spec is refused, as dispatch refuses it;
+  # a legal spec whose name merely starts with `flight-task-` is not.
   run_prim attach flight-task-1 --dry-run
   [ "$RC" -eq 2 ] || fail "c26: the task suffix of the reserved spec must be refused (exit 2), got $RC"
+  run_prim attach flight-task-3.1 --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: the dotted task suffix of the reserved spec must be refused (exit 2), got $RC"
+  run_prim attach flight-task-foo-task-3 --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: spec flight-task-foo's task suffix must be attachable, got exit $RC"
 
   # The flight id is bounded at 64 characters here as flight-id.sh bounds it.
   slug55=$(printf 'a%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
