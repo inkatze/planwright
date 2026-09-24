@@ -856,5 +856,12 @@ Agent observations (diagnostic, not a score of record):
 - **Level fit:** the base stand-in pitches the novice in full and the expert
   in brief; the turn-shape stand-ins do not vary by persona (see Sample).
 
-Final rater: *awaiting the operator* — rating, date, and notes to be
-recorded here by the human. This record is not signed by the agent.
+Final rater: the operator, 2026-09-24 (answers given in the tower
+session, transcribed there; not an agent score).
+
+- **CCI, summary before sign-off, names the downstream effect:** partly met.
+- **IPDAS, equal-weight reject and no pre-selected default:** partly met.
+- **IPDAS, no self-verdict; recommendations grounded, not taste:** met.
+- **Level fit:** partly met.
+- **CCI, natural frequencies:** not rated; no sampled run surfaced a
+  likelihood.
