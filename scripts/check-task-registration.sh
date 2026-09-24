@@ -22,13 +22,16 @@
 # mise.local.toml, file-based task directories, or an included config are
 # outside it: a machine-local task is not wiring any other checkout has. A
 # dependency naming no task in this file is reported as a dangling edge.
-# Task headers are read in the `[tasks.name]` / `[tasks."ns:name"]` form; the
-# dotted-key form under a bare `[tasks]` table is outside the parse.
+# Task headers are read in the `[tasks.name]` / `[tasks."ns:name"]` form, a
+# sub-table header (`[tasks.name.env]`) belonging to the task it names. A
+# dependency written as a multi-line string is not read as an edge.
 #
-# FAILS CLOSED on anything that would narrow the scan to nothing: a missing or
-# unreadable mise.toml, a file parsing to zero tasks, no aggregate task, or
-# zero namespaced tasks to check. Each of those would otherwise exit 0 having
-# proven nothing.
+# FAILS CLOSED on anything that would narrow the scan or hide a task: a
+# missing or unreadable mise.toml, a file parsing to zero tasks, no aggregate
+# task, zero namespaced tasks to check, or a tasks header outside the parsed
+# form (a bare `[tasks]` table with dotted-key tasks under it, an array of
+# tables, a header that never closes). Each of those would otherwise exit 0
+# having proven nothing.
 #
 # Untrusted input: mise.toml is PR-controllable. It is read with awk as data;
 # nothing from it is executed, sourced, or interpolated into program text.
@@ -131,56 +134,101 @@ report=$(awk -v agg="$aggregate" '
     for (i = 1; i <= length(g); i++) {
       c = substr(g, i, 1)
       if (c == "*") re = re ".*"
-      else if (c ~ /[.^$+?()\[\]{}|\\]/) re = re "\\" c
+      else if (index(".^$+?()[]{}|\\", c)) re = re "\\" c
       else re = re c
     }
     return re "$"
   }
-  # Drop a trailing comment. A `#` starts one only outside quotes: inside a
-  # quoted name it is part of the name, and cutting there would swallow the
-  # rest of the array and the next header with it.
-  function strip_comment(s,   i, c, q, out) {
-    q = ""; out = ""
-    for (i = 1; i <= length(s); i++) {
-      c = substr(s, i, 1)
-      if (q == "\"" && c == "\\") { out = out c substr(s, i + 1, 1); i++; continue }
-      if (q != "") { if (c == q) q = "" }
-      else if (c == "\"" || c == "\x27") q = c
+  # Reduce one physical line to its TOML structure: a comment is dropped (a
+  # `#` starts one only outside quotes; inside a quoted name it is part of
+  # the name), and the contents of a multi-line string are dropped, across
+  # lines (`ml` holds the open delimiter between calls), so nothing inside
+  # one can read as a header or an edge. Three quote characters open a
+  # multi-line string only outside a single-line string and outside a
+  # comment, as in TOML.
+  function scan(s,   i, n, c, t, q, out) {
+    out = ""; q = ""; n = length(s); i = 1
+    while (i <= n) {
+      c = substr(s, i, 1); t = substr(s, i, 3)
+      if (ml != "") {
+        if (t == ml) { ml = ""; i += 3 } else i++
+        continue
+      }
+      if (q != "") {
+        if (q == "\"" && c == "\\") { out = out c substr(s, i + 1, 1); i += 2; continue }
+        if (c == q) q = ""
+        out = out c; i++
+        continue
+      }
+      if (t == "\"\"\"" || t == "\x27\x27\x27") { ml = t; i += 3; continue }
+      if (c == "\"" || c == "\x27") q = c
       else if (c == "#") break
-      out = out c
+      out = out c; i++
     }
     return out
   }
+  # Position of the first `]` outside quotes, or 0: a `]` inside a quoted
+  # dependency ("task --only=[a]") does not close the array.
+  function close_at(s,   i, c, q) {
+    q = ""
+    for (i = 1; i <= length(s); i++) {
+      c = substr(s, i, 1)
+      if (q != "") {
+        if (q == "\"" && c == "\\") i++
+        else if (c == q) q = ""
+        continue
+      }
+      if (c == "\"" || c == "\x27") q = c
+      else if (c == "]") return i
+    }
+    return 0
+  }
+  function parse_error(why) { perr = why " at line " NR; exit }
   {
-    line = $0
-    # Triple-quoted strings: an odd number of delimiters on a line toggles
-    # the in-string state; lines inside are data, never headers or edges. A
-    # comment outside a string is dropped before counting, so a stray
-    # delimiter in prose cannot flip the state.
-    if (!instr && line ~ /^[ \t]*#/) next
-    n = gsub(/\x27\x27\x27|"""/, "&", line)
-    if (instr) { if (n % 2 == 1) instr = 0; next }
-    if (n % 2 == 1) instr = 1
-    line = strip_comment(line)
+    line = scan($0)
     if (inarr) {
-      frag = line
-      if (frag ~ /\]/) { sub(/\].*$/, "", frag); inarr = 0 }
+      p = close_at(line)
+      if (p) { frag = substr(line, 1, p - 1); inarr = 0 } else frag = line
       harvest(frag)
       next
     }
-    if (line ~ /^[ \t]*\[tasks\.[^]]+\][ \t]*$/) {
-      h = line; sub(/^[ \t]*\[tasks\./, "", h); sub(/\][ \t]*$/, "", h)
-      cur = unquote(h)
-      if (cur != "" && !(cur in tasks)) { tasks[cur] = 1; ntasks++; order[ntasks] = cur }
-      next
+    if (line ~ /^[ \t]*\[/) {
+      h = line; sub(/^[ \t]*\[/, "", h)
+      if (h ~ /^\[?[ \t]*tasks[ \t]*(\]|\.)/) {
+        # A tasks header. `[tasks.<name>]` declares a task and
+        # `[tasks.<name>.<sub>]` a sub-table of one, whose lines belong to
+        # it. A bare `[tasks]` (dotted-key tasks under it), an array of
+        # tables, or a header this parser cannot read may declare a task it
+        # would never see, so each fails closed.
+        if (h ~ /^\[/) parse_error("an array-of-tables header ([[tasks...]])")
+        sub(/^[ \t]*tasks[ \t]*/, "", h)
+        if (h ~ /^\]/) parse_error("a bare [tasks] table (dotted-key tasks are outside the parse)")
+        sub(/^\.[ \t]*/, "", h)
+        if (h ~ /^["\x27]/) {
+          q = substr(h, 1, 1); h = substr(h, 2)
+          p = index(h, q)
+          if (p == 0) parse_error("a task header this parser cannot read")
+          name = substr(h, 1, p - 1); h = substr(h, p + 1)
+        } else {
+          match(h, /^[^].\x27" \t]+/)
+          if (RLENGTH <= 0) parse_error("a task header this parser cannot read")
+          name = substr(h, 1, RLENGTH); h = substr(h, RLENGTH + 1)
+        }
+        sub(/^[ \t]*/, "", h)
+        if (!(h ~ /^\][ \t]*$/ || h ~ /^\./)) parse_error("a task header this parser cannot read")
+        cur = name
+        if (!(cur in tasks)) { tasks[cur] = 1; ntasks++; order[ntasks] = cur }
+        next
+      }
+      cur = ""; next
     }
-    if (line ~ /^[ \t]*\[/) { cur = ""; next }
     if (cur == "") next
     if (line ~ /^[ \t]*(depends|depends_post)[ \t]*=/) {
       rhs = line; sub(/^[^=]*=[ \t]*/, "", rhs)
       if (rhs ~ /^\[/) {
         sub(/^\[/, "", rhs)
-        if (rhs ~ /\]/) { sub(/\].*$/, "", rhs) } else { inarr = 1 }
+        p = close_at(rhs)
+        if (p) rhs = substr(rhs, 1, p - 1); else inarr = 1
         harvest(rhs)
       } else {
         add_edge(rhs)
@@ -188,7 +236,8 @@ report=$(awk -v agg="$aggregate" '
     }
   }
   END {
-    if (instr) { print "PARSE\t" FILENAME " ends inside an unterminated triple-quoted string, which would hide every task after it"; exit }
+    if (perr != "") { print "PARSE\t" FILENAME " has " perr ", which may declare a task this check would never see"; exit }
+    if (ml != "") { print "PARSE\t" FILENAME " ends inside an unterminated triple-quoted string, which would hide every task after it"; exit }
     if (ntasks == 0) { print "PARSE\t" FILENAME " parsed to zero tasks"; exit }
     if (!(agg in tasks)) { print "PARSE\tno `" agg "` task in " FILENAME ", so there is no gate to walk"; exit }
     nscoped = 0
@@ -196,8 +245,11 @@ report=$(awk -v agg="$aggregate" '
     if (nscoped == 0) { print "PARSE\t" FILENAME " defines no check:/lint:/scan: task"; exit }
     print "COUNT\t" ntasks
     # Expand wildcard edges against the parsed task set; the literal edge
-    # stays so a wildcard matching nothing is reported as dangling.
-    for (e = 1; e <= nedges; e++) {
+    # stays so a wildcard matching nothing is reported as dangling. The bound
+    # is taken first: a task whose own name holds a `*` would otherwise
+    # re-enter the expansion as fast as it is appended.
+    ne = nedges
+    for (e = 1; e <= ne; e++) {
       if (index(eto[e], "*") == 0) continue
       re = glob_to_re(eto[e])
       for (i = 1; i <= ntasks; i++) if (order[i] ~ re) { nedges++; efrom[nedges] = efrom[e]; eto[nedges] = order[i]; matched[e] = 1 }

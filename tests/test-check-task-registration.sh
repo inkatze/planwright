@@ -158,6 +158,29 @@ mkrepo "$r"
 mv "$r/mise.toml.new" "$r/mise.toml"
 run_checker "$r" >/dev/null \
   || fail "t3b: a task matched by a wildcard dependency should pass: $(cat "$tmp/err")"
+
+# A task whose own name holds a `*` matches the wildcard that names it; the
+# expansion must not feed on its own output.
+r="$tmp/r3b-wild-self"
+mkrepo "$r"
+{
+  printf '[tasks.check]\ndepends = ["check:*", "lint:alpha", "scan:alpha"]\n\n'
+  printf '[tasks."check:*"]\nrun = "true"\n\n'
+  sed -n '/^\[tasks.test\]/,$p' "$r/mise.toml"
+} >"$r/mise.toml.new"
+mv "$r/mise.toml.new" "$r/mise.toml"
+run_checker "$r" >/dev/null &
+pid=$!
+i=0
+while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 100 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+if kill -0 "$pid" 2>/dev/null; then
+  kill "$pid" 2>/dev/null
+  fail "t3b: a wildcard matching a task named with a '*' never terminated"
+fi
+wait "$pid" || fail "t3b: a wildcard matching a task named with a '*' should pass: $(cat "$tmp/err")"
 echo "ok: t3b depends, depends_post and a wildcard register; wait_for does not"
 
 # ---------------------------------------------------------------------------
@@ -187,6 +210,82 @@ grep -q "'check:x --grep # nightly'" "$r/mise.toml" || fail "t3c: the fixture lo
 run_checker "$r" >/dev/null || fail "t3c: a '#' inside a quoted dependency is part of the value; the fixture should pass: $(cat "$tmp/err")"
 grep -q 'names no task' "$tmp/err" && fail "t3c: a '#' inside a quoted dependency truncated the array: $(cat "$tmp/err")"
 echo "ok: t3c a trailing header comment and a '#' inside a quoted name parse as TOML does"
+
+# ---------------------------------------------------------------------------
+# t3d: more TOML the parser must read as TOML does. Three quote characters
+#      inside a single-line string or a trailing comment do not open a
+#      multi-line string; a `]` inside a quoted dependency does not close the
+#      array; a `]` inside a quoted task name is part of the name; a sub-table
+#      header (`[tasks."x".env]`) belongs to task x and declares no other
+#      task; and a multi-line string inside an array never swallows the header
+#      that follows it.
+# ---------------------------------------------------------------------------
+r="$tmp/r3d-quotes-in-string"
+mkrepo "$r"
+printf '\n[tasks.build]\nrun = "don%st"\n\n[tasks."check:planted"]\nrun = "true"\n' "'''" >>"$r/mise.toml"
+grep -q "don'''t" "$r/mise.toml" || fail "t3d: the fixture lost its in-string triple quote"
+run_checker "$r" >/dev/null
+rc=$?
+[ "$rc" = 1 ] || fail "t3d: three quotes inside a single-line string open no multi-line string; the planted task should be exit 1, got $rc: $(cat "$tmp/err")"
+grep -q 'check:planted' "$tmp/err" || fail "t3d: the task after the in-string triple quote was not named"
+
+r="$tmp/r3d-quotes-in-comment"
+mkrepo "$r"
+printf '\n[tasks.build]\nrun = "true" # """\n\n[tasks."check:planted"]\nrun = "true"\n' >>"$r/mise.toml"
+run_checker "$r" >/dev/null
+rc=$?
+[ "$rc" = 1 ] || fail "t3d: three quotes in a trailing comment open no multi-line string; the planted task should be exit 1, got $rc: $(cat "$tmp/err")"
+grep -q 'check:planted' "$tmp/err" || fail "t3d: the task after the in-comment triple quote was not named"
+
+r="$tmp/r3d-bracket-in-value"
+mkrepo "$r"
+{
+  printf '[tasks.check]\ndepends = ["check:alpha", "check:x --only=[a]", "lint:alpha", "scan:alpha"]\n\n'
+  printf '[tasks."check:x"]\nrun = "true"\n\n'
+  sed -n '/^\[tasks.test\]/,$p' "$r/mise.toml"
+} >"$r/mise.toml.new"
+mv "$r/mise.toml.new" "$r/mise.toml"
+grep -q 'only=\[a\]' "$r/mise.toml" || fail "t3d: the fixture lost its quoted ']'"
+run_checker "$r" >/dev/null || fail "t3d: a ']' inside a quoted dependency does not close the array; the fixture should pass: $(cat "$tmp/err")"
+
+r="$tmp/r3d-bracket-in-name"
+mkrepo "$r"
+printf '\n[tasks."check:pl]anted"]\nrun = "true"\n' >>"$r/mise.toml"
+run_checker "$r" >/dev/null
+rc=$?
+[ "$rc" = 1 ] || fail "t3d: a ']' inside a quoted task name is part of the name; unregistered, it should be exit 1, got $rc: $(cat "$tmp/err")"
+grep -q 'check:pl\]anted' "$tmp/err" || fail "t3d: the task named with a ']' was not named: $(cat "$tmp/err")"
+
+r="$tmp/r3d-subtable-only"
+mkrepo "$r"
+printf '\n[tasks."check:planted".env]\nFOO = "1"\n' >>"$r/mise.toml"
+run_checker "$r" >/dev/null
+rc=$?
+[ "$rc" = 1 ] || fail "t3d: a sub-table header declares its task; unregistered, it should be exit 1, got $rc: $(cat "$tmp/err")"
+grep -q 'check:planted' "$tmp/err" || fail "t3d: the task declared only by a sub-table was not named"
+
+r="$tmp/r3d-subtable"
+mkrepo "$r"
+run_checker "$r" >"$tmp/out" || fail "t3d: the baseline fixture should pass: $(cat "$tmp/err")"
+grep -q '(6 tasks parsed)' "$tmp/out" || fail "t3d: the baseline fixture should parse to 6 tasks: $(cat "$tmp/out")"
+printf '\n[tasks."check:alpha".env]\nFOO = "1"\n' >>"$r/mise.toml"
+run_checker "$r" >"$tmp/out" || fail "t3d: a sub-table of a registered task should pass: $(cat "$tmp/err")"
+grep -q '(6 tasks parsed)' "$tmp/out" || fail "t3d: a sub-table header declared a task of its own: $(cat "$tmp/out")"
+
+r="$tmp/r3d-multiline-in-array"
+mkrepo "$r"
+{
+  printf '[tasks.check]\ndepends = ["check:alpha", "lint:alpha", "scan:alpha", "check:group"]\n\n'
+  printf '[tasks."check:group"]\ndepends = [ """\ncheck:alpha\n""" ]\nrun = "true"\n\n'
+  printf '[tasks."check:planted"]\nrun = "true"\n\n'
+  sed -n '/^\[tasks.test\]/,$p' "$r/mise.toml"
+} >"$r/mise.toml.new"
+mv "$r/mise.toml.new" "$r/mise.toml"
+run_checker "$r" >/dev/null
+rc=$?
+[ "$rc" = 1 ] || fail "t3d: a multi-line string inside an array must not swallow the next header; the planted task should be exit 1, got $rc: $(cat "$tmp/err")"
+grep -q 'check:planted' "$tmp/err" || fail "t3d: the task after the multi-line array string was not named"
+echo "ok: t3d quotes in strings and comments, ']' in values and names, sub-tables and multi-line array strings parse as TOML does"
 
 # ---------------------------------------------------------------------------
 # t4: TEXT IS NOT WIRING. A task named in the aggregate's description, in a
@@ -263,6 +362,18 @@ run_checker "$r" >/dev/null
 rc=$?
 [ "$rc" = 1 ] || fail "t6: a comment with an odd number of triple quotes is still a comment; the planted task should be exit 1, got $rc: $(cat "$tmp/err")"
 grep -q 'check:planted' "$tmp/err" || fail "t6: the task after the odd-quoted comment was not named"
+
+# A header form the parser does not read may declare a task it would then
+# never see: a bare [tasks] table (dotted-key tasks under it), an
+# array-of-tables header, or a header that never closes.
+for form in '[tasks]\n"check:planted".run = "true"\n' '[[tasks."check:planted"]]\nrun = "true"\n' '[tasks."check:planted"\nrun = "true"\n'; do
+  mkrepo "$r"
+  printf '\n%b' "$form" >>"$r/mise.toml"
+  run_checker "$r" >/dev/null
+  rc=$?
+  [ "$rc" = 5 ] || fail "t6: a task header outside the parsed form should be exit 5, not a pass over the task it may hide, got $rc for: $(printf '%b' "$form" | head -1)"
+  grep -q 'never see' "$tmp/err" || fail "t6: the unparsed-header verdict was not stated: $(cat "$tmp/err")"
+done
 echo "ok: t6 every scan-narrowing input fails closed instead of passing vacuously"
 
 # ---------------------------------------------------------------------------
