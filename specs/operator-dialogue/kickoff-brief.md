@@ -762,13 +762,14 @@ the fixture or grader misrepresents the shipped surface or doctrine.
 - **Finding 4: The grader rejects the regeneration form** (eval; reopens Task 12).
   `interaction-style`'s *Turn projection* keeps the whole record one request
   away by pointer *or* by regeneration; `projection-present` accepts only a
-  pointer to a file the run wrote. `/resume` writes nothing and `/drain`
+  pointer to a file the run wrote. `/resume` writes no record file and `/drain`
   regenerates by re-running its evaluator, so both fail as shipped. Their
   fixtures pass by writing files no surface writes (`handover.md`,
   `drain-detail.md`; likewise `halts.md`, `ci-output.log`, `pr-body.md`,
   `audit-record.md`).
-- **Finding 5: Coverage gaps** (eval; with Task 12). No fixture covers the kickoff's
-  lens-pass projection, handoff, approval summary, or gate framing; the
+- **Finding 5: Coverage gaps** (eval; with Task 12). No turn-shape fixture covers the
+  kickoff's lens-pass projection, handoff, approval summary (only the base
+  `fixtures/kickoff` stand-in emits and grades one), or gate framing; the
   `/orchestrate` quiet `--watch` step and state-only reports; the `/polish`
   safety-stop projection; or `/builder`'s mirrored projection.
 
@@ -796,17 +797,22 @@ Task 12):**
   sign-off approval turn-side, which standalone `/self-review` does not, and
   its counts disagree with its record; `polish-standalone`'s projected fork
   is absent from its record; `turn_artifact_min_tables=4` sits below the
-  five or six tables shipped records carry; `kickoff-multiphase` captures an
-  out-of-band fix as an observation, not a ship-gate form; the
+  five or six tables shipped records carry, and the `review-loop`,
+  `polish-standalone`, and `projection` records omit the Agent-resolvable
+  table `gate-wiring` requires; `kickoff-multiphase` captures an
+  out-of-band fix as an observation, not a ship-gate form; the turn-record
+  selector has no `reject` field, which `scripts/check-confirmation.sh`
+  requires, so fed the sign-off selector it reports `NO_REJECT`; the
   `halt-batch` class is emitted by nothing.
 - **Finding 8: Grader crash on a partial record** (eval; Task 12). A turn record
   without `sections` exits 3 with "Cannot iterate over null" instead of a
   named schema error. Same under jq 1.7.1 and 1.8.1, so not the
   byte-offset issue.
-- **Finding 9: Invariant reach** (eval; Task 12). `no-monotonic-growth` fires only on
-  verbatim restatement, so a paraphrased cumulative summary passes;
-  `identifier-density` reads only selectors; no invariant checks what a
-  handoff projection contains.
+- **Finding 9: Invariant reach** (eval; Task 12). `no-monotonic-growth`'s summary arm
+  fires only when every prior state line reappears verbatim, so a
+  paraphrased or partial cumulative summary passes; `identifier-density`
+  reads only selectors; no invariant checks what a handoff projection
+  contains beyond its pointer.
 - **Finding 10: `/spec-kickoff`'s Observations step writes without confirming**
   (surface; Task 8's capture rule). It records a fragment for anything
   out of scope, where capture-at-birth writes only a confirmed item. Needs
@@ -843,8 +849,9 @@ Agent observations (diagnostic, not a score of record):
   likelihood.
 - **IPDAS, equal-weight reject and no default:** the turn-shape sign-off
   selector offers "Hold for changes" beside approval with no default, but
-  `scripts/check-confirmation.sh` does not read it as a reject, because the
-  two consumers of one log disagree on the selector's fields (finding 7).
+  the selector carries no `reject` field, so `scripts/check-confirmation.sh`
+  would not read it as a reject; no suite runs that check on turn records
+  (finding 7).
 - **IPDAS, no self-verdict:** met; no sampled turn grades the spec.
 - **Level fit:** the base stand-in pitches the novice in full and the expert
   in brief; the turn-shape stand-ins do not vary by persona (see Sample).
