@@ -14,7 +14,10 @@
 # Per-guard fields (all scalar, one mapping per sequence item):
 #   id        stable identifier for the guard (kebab-case)
 #   category  formatter | linter | type-checker | test-runner |
-#             security | commit-hook | ci | breadth
+#             security | commit-hook | ci | budget | house-pattern | breadth
+#             (the enum lives in doctrine/guard-catalog.md "Guard
+#             categories", plus breadth per its "Entry format";
+#             tests/test-guard-catalog-schema.sh holds this file to it)
 #   tool      the concrete tool the guard recommends
 #   detect    space-separated detection signals: a glob (matched by file name,
 #             or by relative path when it contains "/"), or the literal "git"
@@ -201,3 +204,30 @@ breadth:
     category: breadth
     tool: sidedness-check
     detect: "manual"
+  # Categorized breadth entries. Each declares its category from the doctrine
+  # enum and its placement explicitly
+  # (core: false = breadth: advisory, never in the mechanical dogfood set).
+  # Pinned-action freshness: surface CI action SHA pins that have fallen
+  # behind their upstream tag. Signal only, never an automated bump; when the
+  # upstream cannot be reached the verdict is a loud unknown, never "fresh".
+  - id: pinned-action-freshness
+    category: security
+    tool: pinned-action-freshness-check
+    detect: "manual"
+    core: false
+  # Test-time budget: per-file and suite-total wall-clock ceilings over the
+  # runner's timing report, hard-fail on the reference runner, warn elsewhere.
+  # The ceilings are repo-local config (planwright: config/test-time-budget.yml).
+  - id: test-time-budget
+    category: budget
+    tool: test-time-budget-gate
+    detect: "manual"
+    core: false
+  # CDPATH house pattern: a `cd` in command substitution with no top-level
+  # `unset CDPATH`, enumerated by shebang or suffix, failing closed on zero
+  # files (planwright: scripts/check-cdpath.sh).
+  - id: cdpath-house-pattern
+    category: house-pattern
+    tool: cdpath-check
+    detect: "manual"
+    core: false
