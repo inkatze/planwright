@@ -123,19 +123,19 @@
 #   fleet-attention.sh render [--surface-provided] [--on-change <key> [--liveness <seconds>]]
 #       Status renderer: each worker's scope + state.
 #       --on-change renders on a transition only (the watch loop's form; <key>
-#       is the loop's own identity, so a new conversation starts full): when no
-#       worker's scope, state, or decision changed since <key>'s last full
-#       render, it prints nothing, or one liveness line once <seconds> (default
-#       600, at most nine digits) have passed since <key> last printed. A
-#       heartbeat re-stamp is not a transition. A transition that empties the
-#       view prints one line saying so, since silence here means unchanged
-#       (queue --on-change likewise).
+#       is the loop's presence identity, so a new conversation starts full; a
+#       bare p<pid> is refused). Ages show as coarse buckets, not seconds, and
+#       when the text it would print matches what <key> last printed in full it
+#       prints nothing, or one liveness line once <seconds> (default 600, at
+#       most nine digits) have passed since <key> last printed. A transition
+#       that empties the view prints one line saying so, since silence here
+#       means unchanged.
 #   fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]... [--on-change <key>]
 #       Decision queue: ordered actionable items as structured choices.
-#       --on-change: silent when the queue is unchanged since <key>'s last full
-#       render (the status render carries the liveness line). The comparison
-#       is taken before --except narrows the render, so a hand-over is no
-#       transition.
+#       --on-change never withholds a pending decision; only an empty queue
+#       stays silent once <key> has seen it empty (the status render carries
+#       the liveness line). Emptiness is judged before --except narrows the
+#       render, so a hand-over never reads as the queue emptying.
 #       --count prints only the item count (the length that tracks the
 #       `## Awaiting input` count).
 #       --except leaves a worker's row out of the RENDER. The tower loop's
@@ -531,12 +531,13 @@ suppressed() {
 }
 
 # The render-on-transition mode (`render`/`queue --on-change <key>`). Each key
-# keeps a seen file under the attention dir holding the digest of the derived
-# state it last rendered in full, when it did, and when it last printed
-# anything. The digest leaves the heartbeat timestamp out, so a re-stamp is not
-# a transition. The key is the calling loop's own identity, minted per process,
-# so what a seen file withholds dies with the conversation that saw it; a key
-# is never shared, which is also why the write takes no lock.
+# keeps a seen file under the attention dir holding the digest of the text it
+# last printed in full, when it did, and when it last printed anything. The
+# digest is of the rendered text itself, so anything that changes what the
+# operator would see is a transition and nothing else is. The key is the
+# calling loop's presence identity, which pins the process start time, so what
+# a seen file withholds dies with the conversation that saw it; a key is never
+# shared, which is also why the write takes no lock.
 LIVENESS_DEFAULT=600
 # Seen files of loops long gone are pruned after this many days. A queue seen
 # file, or a render one on a longer liveness interval, is rewritten only on a
@@ -558,6 +559,17 @@ on_change_opts() {
         echo "fleet-attention: $1: --on-change takes a key in the handle grammar" >&2
         exit 2
       }
+      case $3 in
+        p[0-9]*)
+          case ${3#p} in
+            *[!0-9]*) ;;
+            *)
+              echo "fleet-attention: $1: --on-change takes the loop's presence identity (scripts/fleet-presence.sh identity), not a bare pid: a later process reusing the pid would inherit this loop's record" >&2
+              exit 2
+              ;;
+          esac
+          ;;
+      esac
       oc_key=$3
       ;;
     --liveness)
@@ -629,6 +641,65 @@ seen_write() {
     rm -f "$sw_tmp"
   fi
   echo "fleet-attention: could not record the rendered state; the next render is a full one" >&2
+}
+
+# age_bucket <seconds> — the coarse age the on-change render shows. Its change
+# signal is a hash of the printed text, so an age in seconds would differ on
+# every call; a bucket moves only when a worker has sat in one state long
+# enough to matter. Anything but a whole non-negative number is "?".
+age_bucket() {
+  case $1 in
+    "" | *[!0-9]*) echo "?" ;;
+    *)
+      if [ "$1" -ge 86400 ]; then
+        echo "1d+"
+      elif [ "$1" -ge 28800 ]; then
+        echo "8h+"
+      elif [ "$1" -ge 14400 ]; then
+        echo "4h+"
+      elif [ "$1" -ge 7200 ]; then
+        echo "2h+"
+      elif [ "$1" -ge 3600 ]; then
+        echo "1h+"
+      elif [ "$1" -ge 1800 ]; then
+        echo "30m+"
+      elif [ "$1" -ge 600 ]; then
+        echo "10m+"
+      else
+        echo "<10m"
+      fi
+      ;;
+  esac
+}
+
+# render_rows <store> <seconds|bucket> — one line per worker, the age as exact
+# seconds or as its age_bucket.
+render_rows() {
+  rr_now=$(now_epoch)
+  # A trailing record without a newline is still emitted (|| [ -n "$w" ]).
+  while IFS="$TAB" read -r w scope state ts _prio _q _def _opts || [ -n "$w" ]; do
+    [ -n "$w" ] || continue
+    age="?"
+    case $ts in
+      "" | *[!0-9]* | 0?*) ;; # 0?* excludes a leading-zero ts: `$(( ))` would
+      # read it as OCTAL — `010` miscounts (age = now-8) and `08`/`09` are an
+      # invalid-octal error, FATAL under dash. Mirrors fleet-state.sh
+      # read_counter / orchestrate-meta-select.sh read_bound; a corrupt ts
+      # degrades to the "?" age below, never a wrong number or an abort.
+      *) [ -n "$rr_now" ] && age=$((rr_now - ts)) ;;
+    esac
+    if [ "$2" = bucket ]; then
+      age=$(age_bucket "$age")
+    else
+      age="${age}s"
+    fi
+    # Sanitize every field before it reaches the terminal (echo discipline):
+    # a hand-corrupted store line cannot drive the terminal or corrupt a log.
+    s_state=$(sanitize_printable "$state" "?")
+    s_scope=$(sanitize_printable "$scope" "?")
+    s_worker=$(sanitize_printable "$w" "?")
+    printf '[%s] %s  %s  (%s)\n' "$s_state" "$s_scope" "$s_worker" "$age"
+  done <"$1" || return 2
 }
 
 # ---------------------------------------------------------------------------
@@ -1259,45 +1330,25 @@ case $cmd in
     root=$(resolve_home) || exit 2
     store="$root/attention/state"
     [ -f "$store" ] || exit 0
-    seen=""
-    if [ -n "$oc_key" ]; then
-      # An unreadable store would digest as an empty one and then pass for
-      # unchanged on every later call; refuse it the way the plain render does.
-      [ -r "$store" ] || {
-        echo "fleet-attention: render: cannot read the attention store" >&2
-        exit 2
-      }
-      seen="$root/attention/render-seen.$oc_key"
-      # Field 4 is the heartbeat stamp.
-      digest=$(awk -F "$TAB" 'BEGIN { OFS = FS } { $4 = ""; print }' "$store" | sort | cksum)
-      rows=$(grep -c . "$store")
-      seen_skip "$seen" "$digest" "$oc_live" "$rows" && exit 0
+    if [ -z "$oc_key" ]; then
+      render_rows "$store" seconds || exit 2
+      exit 0
     fi
-    now=$(now_epoch)
-    # A trailing record without a newline is still emitted (|| [ -n "$w" ]).
-    while IFS="$TAB" read -r w scope state ts _prio _q _def _opts || [ -n "$w" ]; do
-      [ -n "$w" ] || continue
-      age="?"
-      case $ts in
-        "" | *[!0-9]* | 0?*) ;; # 0?* excludes a leading-zero ts: `$(( ))` would
-        # read it as OCTAL — `010` miscounts (age = now-8) and `08`/`09` are an
-        # invalid-octal error, FATAL under dash. Mirrors fleet-state.sh
-        # read_counter / orchestrate-meta-select.sh read_bound; a corrupt ts
-        # degrades to the "?" age below, never a wrong number or an abort.
-        *) [ -n "$now" ] && age=$((now - ts)) ;;
-      esac
-      # Sanitize every field before it reaches the terminal (echo discipline):
-      # a hand-corrupted store line cannot drive the terminal or corrupt a log.
-      s_state=$(sanitize_printable "$state" "?")
-      s_scope=$(sanitize_printable "$scope" "?")
-      s_worker=$(sanitize_printable "$w" "?")
-      printf '[%s] %s  %s  (%ss)\n' "$s_state" "$s_scope" "$s_worker" "$age"
-    done <"$store" || exit 2
-    if [ -n "$seen" ]; then
-      # Silence means "unchanged" here, so a fleet that just emptied says so.
-      [ "$rows" != 0 ] || echo "no worker in the attention store"
-      seen_record "$seen" "$digest"
-    fi
+    # An unreadable store would render as an empty one and then pass for
+    # unchanged on every later call; refuse it the way the plain render does.
+    [ -r "$store" ] || {
+      echo "fleet-attention: render: cannot read the attention store" >&2
+      exit 2
+    }
+    view=$(render_rows "$store" bucket) || exit 2
+    # Silence means "unchanged" here, so a fleet that just emptied says so.
+    [ -n "$view" ] || view="no worker in the attention store"
+    digest=$(printf '%s\n' "$view" | cksum)
+    seen="$root/attention/render-seen.$oc_key"
+    rows=$(grep -c . "$store")
+    seen_skip "$seen" "$digest" "$oc_live" "$rows" && exit 0
+    printf '%s\n' "$view" || exit 2
+    seen_record "$seen" "$digest"
     exit 0
     ;;
 
@@ -1375,11 +1426,12 @@ case $cmd in
       printf '%s\n' "$n"
       exit 0
     fi
-    # The on-change digest is taken before --except narrows the render: a
-    # hand-over changes what this one call shows, not the queue, so it is no
-    # transition. Its stamps are field 2 (the sort-key copy) and field 6. No
-    # liveness line here: the status render carries it. Without a store there
-    # is nothing to show and nothing to record.
+    # A pending decision is never withheld under --on-change: one re-raised in
+    # the same words renders exactly like the one before it, so no change
+    # signal can tell them apart. Only the empty view is compared, and on the
+    # whole queue before --except narrows it, so a hand-over never reads as
+    # the queue emptying. No liveness line here: the status render carries
+    # it. Without a store there is nothing to show and nothing to record.
     seen=""
     if [ -n "$oc_key" ] && [ -f "$store" ]; then
       [ -r "$store" ] || {
@@ -1387,8 +1439,15 @@ case $cmd in
         exit 2
       }
       seen="$root/attention/queue-seen.$oc_key"
-      digest=$(printf '%s\n' "$sortable" | awk -F "$TAB" 'BEGIN { OFS = FS } { $2 = ""; $6 = ""; print }' | sort | cksum)
-      seen_skip "$seen" "$digest" "" "$n" && exit 0
+      if [ "$n" = 0 ]; then
+        # Silence means "unchanged" here, so a queue that just emptied says so.
+        view="no decision awaiting input"
+        digest=$(printf '%s\n' "$view" | cksum)
+        seen_skip "$seen" "$digest" "" 0 && exit 0
+        printf '%s\n' "$view" || exit 2
+        seen_record "$seen" "$digest"
+        exit 0
+      fi
     fi
     # Leave out what THIS TURN has already put in front of the operator
     # (tower-comms REQ-A1.1). The caller names them: the tower loop's comms step
@@ -1407,7 +1466,6 @@ case $cmd in
     # `## Awaiting input` entries (the durable record), which a hand-over does
     # not change, and scripts/fleet-stats.sh reads it as exactly that. What a
     # delivery closes is one render's repetition, not the entry.
-    n_all=$n
     if [ -n "$sortable" ] && [ -n "$except" ]; then
       before=$(printf '%s\n' "$sortable" | grep -c .)
       sortable=$(printf '%s\n' "$sortable" | awk -F "$TAB" -v d="$except" '
@@ -1424,13 +1482,12 @@ case $cmd in
       fi
       n=$after
     fi
+    # Past this point the queue holds decisions, so the on-change record need
+    # only differ from the empty view's digest, the one thing ever compared.
     if [ "$n" = 0 ]; then
-      if [ -n "$seen" ]; then
-        # Silence means "unchanged" here, so a queue that just emptied says so.
-        # One narrowed to nothing by --except already said so on stderr.
-        [ "$n_all" != 0 ] || echo "no decision awaiting input"
-        seen_record "$seen" "$digest"
-      fi
+      # An empty plain queue is silent; one narrowed to nothing by --except
+      # said so on stderr.
+      [ -z "$seen" ] || seen_record "$seen" pending
       exit 0
     fi
     now=$(now_epoch)
@@ -1520,7 +1577,7 @@ case $cmd in
         printf '    options: %s\n' "$s_opts"
       fi
     done
-    [ -z "$seen" ] || seen_record "$seen" "$digest"
+    [ -z "$seen" ] || seen_record "$seen" pending
     exit 0
     ;;
 

@@ -8,6 +8,8 @@
 # re-stamp excluded), and otherwise prints nothing, or one liveness line once
 # the liveness interval has passed so silence stays distinguishable from a dead
 # loop. A bounded line or a no-op both pass; an unchanged full re-render fails.
+# The signal is the text the render would print, with ages in coarse buckets,
+# so a stalled worker resurfaces; a queue holding a decision always renders.
 #
 # Hermetic: every case drives its own fleet home through the
 # PLANWRIGHT_FLEET_STATE_DIR override, with the ambient resolution knobs
@@ -66,7 +68,7 @@ echo "ok: an unchanged iteration skips the full re-render"
 
 # ---------------------------------------------------------------------------
 # 3. A heartbeat re-stamp is not a transition: moving every row's timestamp
-#    (the field a heartbeat refreshes) still skips.
+#    (the field a heartbeat refreshes) within one age bucket still skips.
 # ---------------------------------------------------------------------------
 store="$home/attention/state"
 [ -f "$store" ] || fail "no attention store at $store"
@@ -118,20 +120,21 @@ done
 echo "ok: on-change keys are independent and the plain render is unchanged"
 
 # ---------------------------------------------------------------------------
-# 7. The decision queue follows the same rule: a queued decision renders once,
-#    an unchanged queue is silent, a new decision renders the queue again.
+# 7. A pending decision is never withheld: the queue renders it on every call,
+#    including a repeat with nothing changed. A decision re-raised with the
+#    same text renders identically, so no change signal could tell it apart.
 # ---------------------------------------------------------------------------
 aenv "$home" decide "worker=a" "spec-one:3" "Ship it?" "yes" "yes|no" || fail "queue setup: decide a"
 out=$(aenv "$home" queue --on-change tower-1) || fail "first on-change queue: non-zero exit"
 printf '%s\n' "$out" | grep -q "Ship it?" || fail "first on-change queue did not render the decision (got: $out)"
-out=$(aenv "$home" queue --on-change tower-1) || fail "unchanged on-change queue: non-zero exit"
-[ -z "$out" ] || fail "an unchanged queue re-rendered (got: $out)"
+out=$(aenv "$home" queue --on-change tower-1) || fail "repeat on-change queue: non-zero exit"
+printf '%s\n' "$out" | grep -q "Ship it?" || fail "a repeat call withheld a pending decision (got: $out)"
 aenv "$home" decide "worker=b" "spec-two:5" "Rebase?" "no" "yes|no" || fail "queue setup: decide b"
 out=$(aenv "$home" queue --on-change tower-1) || fail "changed on-change queue: non-zero exit"
-printf '%s\n' "$out" | grep -q "Rebase?" || fail "a new decision did not re-render the queue (got: $out)"
-printf '%s\n' "$out" | grep -q "Ship it?" || fail "the queue re-render dropped the older decision (got: $out)"
+printf '%s\n' "$out" | grep -q "Rebase?" || fail "a new decision did not render (got: $out)"
+printf '%s\n' "$out" | grep -q "Ship it?" || fail "the queue dropped the older decision (got: $out)"
 [ "$(aenv "$home" queue --count)" = 2 ] || fail "--count is not the full awaiting count"
-echo "ok: the decision queue renders on change only"
+echo "ok: a non-empty decision queue renders on every call"
 
 # ---------------------------------------------------------------------------
 # 8. A key outside the field grammar is refused before it reaches a path.
@@ -170,8 +173,9 @@ out=$(aenv "$home" render --on-change tower-1 --liveness 5) || fail "post-livene
 echo "ok: the liveness line waits out its interval"
 
 # ---------------------------------------------------------------------------
-# 10. The queue ignores a heartbeat re-stamp and a hand-over (--except): the
-#     first changes no decision, the second changes only what one call shows.
+# 10. A hand-over (--except) narrows the render but not the queue: narrowed to
+#     nothing, the queue still holds decisions, so the "emptied" line that an
+#     answered-out queue prints must not appear.
 # ---------------------------------------------------------------------------
 qhome="$tmp/qhome"
 aenv "$qhome" decide "worker=a" "spec-one:3" "Ship it?" "yes" "yes|no" || fail "q setup: decide a"
@@ -179,14 +183,10 @@ aenv "$qhome" decide "worker=b" "spec-two:5" "Rebase?" "no" "yes|no" || fail "q 
 out=$(aenv "$qhome" queue --on-change t --except "worker=a" 2>/dev/null) || fail "q: first render"
 case $out in *"Ship it?"*) fail "q: --except did not narrow the first render (got: $out)" ;; esac
 printf '%s\n' "$out" | grep -q "Rebase?" || fail "q: first render lost the other decision (got: $out)"
-out=$(aenv "$qhome" queue --on-change t) || fail "q: render without --except"
-[ -z "$out" ] || fail "q: dropping --except alone re-rendered the queue (got: $out)"
-qstore="$qhome/attention/state"
-awk -F '\t' 'BEGIN { OFS = "\t" } { $4 = $4 - 60; print }' "$qstore" >"$tmp/qrestamped"
-cat "$tmp/qrestamped" >"$qstore"
-out=$(aenv "$qhome" queue --on-change t) || fail "q: render after re-stamp"
-[ -z "$out" ] || fail "q: a heartbeat re-stamp re-rendered the queue (got: $out)"
-echo "ok: the queue ignores a re-stamp and a hand-over"
+out=$(aenv "$qhome" queue --on-change t --except "worker=a" --except "worker=b" 2>/dev/null) \
+  || fail "q: render narrowed to nothing"
+[ -z "$out" ] || fail "q: a queue narrowed to nothing by --except printed on stdout (got: $out)"
+echo "ok: a hand-over narrows the render, not the queue"
 
 # ---------------------------------------------------------------------------
 # 11. With no store yet the queue is silent and records nothing.
@@ -272,5 +272,66 @@ if [ "$(id -u)" != 0 ]; then
   [ "$rc" = 2 ] || fail "queue: an unreadable store exited $rc, expected 2"
   echo "ok: the queue refuses an unreadable store"
 fi
+
+# ---------------------------------------------------------------------------
+# 16. A stalled worker becomes visible. Its state never changes, but the age
+#     the render shows does, so the change signal has to follow what is shown
+#     rather than a chosen subset of the stored fields. Once the stall is on
+#     screen, the next quiet iteration is silent again.
+# ---------------------------------------------------------------------------
+shome="$tmp/shome"
+aenv "$shome" heartbeat "worker=s" "spec-one:7" working || fail "s setup: heartbeat s"
+aenv "$shome" render --on-change t >/dev/null || fail "s: first render"
+sstore="$shome/attention/state"
+awk -F '\t' 'BEGIN { OFS = "\t" } { $4 = $4 - 3700; print }' "$sstore" >"$tmp/stalled"
+cat "$tmp/stalled" >"$sstore"
+out=$(aenv "$shome" render --on-change t) || fail "s: render after an hour's stall"
+printf '%s\n' "$out" | grep -q "worker=s" \
+  || fail "s: a worker stalled for an hour stayed invisible (got: $out)"
+out=$(aenv "$shome" render --on-change t) || fail "s: render, stall unchanged"
+[ -z "$out" ] || fail "s: an unchanged stall re-rendered (got: $out)"
+echo "ok: a stalled worker's growing age is a transition"
+
+# ---------------------------------------------------------------------------
+# 17. The key is the presence identity, which pins the process start time, so
+#     two loops that share a recycled pid hold different keys and the later
+#     one starts with a full render. A bare p<pid> key is refused rather than
+#     letting a recycled pid inherit an earlier loop's record.
+# ---------------------------------------------------------------------------
+FP="$here/../scripts/fleet-presence.sh"
+stubps="$tmp/stub-ps"
+mkdir -p "$stubps"
+printf '#!/bin/sh\ncat "%s"\n' "$tmp/lstart" >"$stubps/ps"
+chmod +x "$stubps/ps"
+co="$tmp/co"
+mkdir -p "$co"
+git -C "$co" init -q
+git -C "$co" remote add origin "ssh://git@example.invalid/acme/widgets.git"
+ident() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR \
+    PATH="$stubps:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$tmp/phome" \
+    /bin/sh "$FP" identity --checkout "$co" --pid 4242
+}
+echo "Mon Sep 21 10:00:00 2026" >"$tmp/lstart"
+id1=$(ident) || fail "i: first identity"
+echo "Tue Sep 22 11:30:00 2026" >"$tmp/lstart"
+id2=$(ident) || fail "i: second identity"
+case $id1 in p4242.*) ;; *) fail "i: unexpected identity shape '$id1'" ;; esac
+[ "$id1" != "$id2" ] || fail "i: two start times on one pid gave one identity ($id1)"
+ihome="$tmp/ihome"
+aenv "$ihome" heartbeat "worker=i" "spec-one:8" working || fail "i setup: heartbeat i"
+aenv "$ihome" render --on-change "$id1" >/dev/null || fail "i: first loop's render"
+out=$(aenv "$ihome" render --on-change "$id1") || fail "i: first loop's repeat"
+[ -z "$out" ] || fail "i: the first loop's repeat re-rendered (got: $out)"
+out=$(aenv "$ihome" render --on-change "$id2") || fail "i: later loop's render"
+printf '%s\n' "$out" | grep -q "worker=i" \
+  || fail "i: a later loop on the same pid inherited the earlier record (got: $out)"
+for verb in render queue; do
+  rc=0
+  aenv "$ihome" "$verb" --on-change p4242 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "i: $verb --on-change with a bare pid key exited $rc, expected 2"
+done
+[ ! -e "$ihome/attention/render-seen.p4242" ] || fail "i: a refused bare-pid key left a seen file"
+echo "ok: the key is the presence identity, and a bare pid is refused"
 
 echo "all fleet-attention render-on-change tests passed"
