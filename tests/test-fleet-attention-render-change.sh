@@ -237,4 +237,18 @@ if [ "$(id -u)" != 0 ]; then
   echo "ok: an unreadable store is an error every time"
 fi
 
+# ---------------------------------------------------------------------------
+# 15. The queue refuses an unreadable store under --on-change, as render does,
+#     rather than digesting it as empty.
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" != 0 ]; then
+  qstore="$qhome/attention/state"
+  chmod 000 "$qstore"
+  rc=0
+  aenv "$qhome" queue --on-change t >/dev/null 2>&1 || rc=$?
+  chmod 600 "$qstore"
+  [ "$rc" = 2 ] || fail "queue: an unreadable store exited $rc, expected 2"
+  echo "ok: the queue refuses an unreadable store"
+fi
+
 echo "all fleet-attention render-on-change tests passed"
