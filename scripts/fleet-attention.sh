@@ -127,7 +127,9 @@
 #       worker's scope, state, or decision changed since <key>'s last full
 #       render, it prints nothing, or one liveness line once <seconds> (default
 #       600, at most nine digits) have passed since <key> last printed. A
-#       heartbeat re-stamp is not a transition.
+#       heartbeat re-stamp is not a transition. A transition that empties the
+#       view prints one line saying so, since silence here means unchanged
+#       (queue --on-change likewise).
 #   fleet-attention.sh queue [--count] [--surface-provided] [--except <worker>]... [--on-change <key>]
 #       Decision queue: ordered actionable items as structured choices.
 #       --on-change: silent when the queue is unchanged since <key>'s last full
@@ -1290,7 +1292,11 @@ case $cmd in
       s_worker=$(sanitize_printable "$w" "?")
       printf '[%s] %s  %s  (%ss)\n' "$s_state" "$s_scope" "$s_worker" "$age"
     done <"$store" || exit 2
-    [ -z "$seen" ] || seen_record "$seen" "$digest"
+    if [ -n "$seen" ]; then
+      # Silence means "unchanged" here, so a fleet that just emptied says so.
+      [ "$rows" != 0 ] || echo "no worker in the attention store"
+      seen_record "$seen" "$digest"
+    fi
     exit 0
     ;;
 
@@ -1400,6 +1406,7 @@ case $cmd in
     # `## Awaiting input` entries (the durable record), which a hand-over does
     # not change, and scripts/fleet-stats.sh reads it as exactly that. What a
     # delivery closes is one render's repetition, not the entry.
+    n_all=$n
     if [ -n "$sortable" ] && [ -n "$except" ]; then
       before=$(printf '%s\n' "$sortable" | grep -c .)
       sortable=$(printf '%s\n' "$sortable" | awk -F "$TAB" -v d="$except" '
@@ -1417,7 +1424,12 @@ case $cmd in
       n=$after
     fi
     if [ "$n" = 0 ]; then
-      [ -z "$seen" ] || seen_record "$seen" "$digest"
+      if [ -n "$seen" ]; then
+        # Silence means "unchanged" here, so a queue that just emptied says so.
+        # One narrowed to nothing by --except already said so on stderr.
+        [ "$n_all" != 0 ] || echo "no decision awaiting input"
+        seen_record "$seen" "$digest"
+      fi
       exit 0
     fi
     now=$(now_epoch)

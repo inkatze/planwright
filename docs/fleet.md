@@ -112,7 +112,9 @@ hand-over, which only narrows one render. On a quiet iteration `render` prints
 nothing, or, every ten minutes by default (`--liveness <seconds>`), one line
 saying nothing has changed, so a silent loop and a dead one still look
 different. `queue --on-change` stays silent while the queue is unchanged; the
-`render` line covers both. `<tower>` is the loop's own identity, so a new tower
+`render` line covers both. Because silence means "unchanged" here, a change
+that empties a view (the last decision answered, the last worker cleared)
+prints one line saying so. `<tower>` is the loop's own identity, so a new tower
 session starts with a full render rather than inheriting what an earlier one
 showed, and the plain commands above always render in full.
 

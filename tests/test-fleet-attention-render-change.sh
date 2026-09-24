@@ -238,6 +238,28 @@ if [ "$(id -u)" != 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 14. A change that empties a view says so. Silence means "unchanged" in this
+#     mode, so a queue whose last decision cleared, or a fleet whose last worker
+#     did, would otherwise read as still showing what it showed last.
+# ---------------------------------------------------------------------------
+zhome="$tmp/zhome"
+aenv "$zhome" decide "worker=a" "spec-one:3" "Ship it?" "yes" "yes|no" || fail "z setup: decide a"
+aenv "$zhome" render --on-change t >/dev/null || fail "z: first render"
+aenv "$zhome" queue --on-change t >/dev/null || fail "z: first queue"
+aenv "$zhome" clear "worker=a" || fail "z: clear a"
+out=$(aenv "$zhome" queue --on-change t) || fail "z: queue after the last decision cleared"
+[ -n "$out" ] || fail "z: the queue emptying printed nothing, which reads as unchanged"
+out=$(aenv "$zhome" queue --on-change t) || fail "z: queue, still empty"
+[ -z "$out" ] || fail "z: an unchanged empty queue re-rendered (got: $out)"
+out=$(aenv "$zhome" render --on-change t) || fail "z: render after the last worker cleared"
+[ -n "$out" ] || fail "z: the fleet emptying printed nothing, which reads as unchanged"
+out=$(aenv "$zhome" render --on-change t) || fail "z: render, still empty"
+[ -z "$out" ] || fail "z: an unchanged empty render re-rendered (got: $out)"
+out=$(aenv "$zhome" queue) || fail "z: plain queue"
+[ -z "$out" ] || fail "z: the plain empty queue is no longer silent (got: $out)"
+echo "ok: a change that empties a view is rendered, not silent"
+
+# ---------------------------------------------------------------------------
 # 15. The queue refuses an unreadable store under --on-change, as render does,
 #     rather than digesting it as empty.
 # ---------------------------------------------------------------------------
