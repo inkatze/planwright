@@ -108,25 +108,38 @@ misefile="$repo_root/mise.toml"
 #   DANGLING <name>   an edge naming no task in this file
 #   UNREGISTERED <t>  a namespaced task the aggregate does not reach
 report=$(awk -v agg="$aggregate" '
-  function unquote(s) {
-    sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s)
-    if (s ~ /^"[^"]*"$/ || s ~ /^\x27[^\x27]*\x27$/) s = substr(s, 2, length(s) - 2)
-    return s
+  # Length of the quoted string opening at position i of s, closing quote
+  # included, or 0 when it never closes; leaves its contents in `tok`. A
+  # backslash inside a basic string escapes the next character (so an
+  # escaped quote is part of the name); a literal string has no escapes.
+  function quoted(s, i,   q, j, n, c) {
+    q = substr(s, i, 1); n = length(s); tok = ""
+    for (j = i + 1; j <= n; j++) {
+      c = substr(s, j, 1)
+      if (q == "\"" && c == "\\") { tok = tok substr(s, j + 1, 1); j++; continue }
+      if (c == q) return j - i + 1
+      tok = tok c
+    }
+    return 0
   }
-  # Record one dependency token: the first word of the quoted value (mise
-  # accepts "task --arg" forms), from the current task.
-  function add_edge(tok,   w) {
-    tok = unquote(tok)
-    split(tok, parts, /[ \t]+/); w = parts[1]
+  # Record one dependency: the first word of the value (mise accepts
+  # "task --arg" forms), from the current task.
+  function add_edge(v,   w) {
+    split(v, parts, /[ \t]+/); w = parts[1]
     if (w == "") return
     nedges++; efrom[nedges] = cur; eto[nedges] = w
   }
-  # Pull every quoted token out of an array fragment.
-  function harvest(s,   m) {
-    while (match(s, /"[^"]*"|\x27[^\x27]*\x27/)) {
-      m = substr(s, RSTART, RLENGTH)
-      add_edge(m)
-      s = substr(s, RSTART + RLENGTH)
+  # Record every quoted string in a fragment (the elements of an array, or
+  # the one string of `depends = "x"`) as an edge.
+  function harvest(s,   i, n, c, len) {
+    n = length(s); i = 1
+    while (i <= n) {
+      c = substr(s, i, 1)
+      if (c == "\"" || c == "\x27") {
+        len = quoted(s, i)
+        if (len == 0) return
+        add_edge(tok); i += len
+      } else i++
     }
   }
   function glob_to_re(g,   re, i, c) {
@@ -205,10 +218,9 @@ report=$(awk -v agg="$aggregate" '
         if (h ~ /^\]/) parse_error("a bare [tasks] table (dotted-key tasks are outside the parse)")
         sub(/^\.[ \t]*/, "", h)
         if (h ~ /^["\x27]/) {
-          q = substr(h, 1, 1); h = substr(h, 2)
-          p = index(h, q)
+          p = quoted(h, 1)
           if (p == 0) parse_error("a task header this parser cannot read")
-          name = substr(h, 1, p - 1); h = substr(h, p + 1)
+          name = tok; h = substr(h, p + 1)
         } else {
           match(h, /^[^].\x27" \t]+/)
           if (RLENGTH <= 0) parse_error("a task header this parser cannot read")
@@ -229,10 +241,8 @@ report=$(awk -v agg="$aggregate" '
         sub(/^\[/, "", rhs)
         p = close_at(rhs)
         if (p) rhs = substr(rhs, 1, p - 1); else inarr = 1
-        harvest(rhs)
-      } else {
-        add_edge(rhs)
       }
+      harvest(rhs)
     }
   }
   END {

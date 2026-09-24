@@ -288,6 +288,24 @@ grep -q 'check:planted' "$tmp/err" || fail "t3d: the task after the multi-line a
 echo "ok: t3d quotes in strings and comments, ']' in values and names, sub-tables and multi-line array strings parse as TOML does"
 
 # ---------------------------------------------------------------------------
+# t3e: an escaped quote inside a basic string is part of the name, in a task
+#      header and in a dependency alike, and the two spell the same task; the
+#      element after it is still read.
+# ---------------------------------------------------------------------------
+r="$tmp/r3e"
+mkrepo "$r"
+{
+  printf '[tasks.check]\ndepends = ["check:a\\"b", "check:alpha", "lint:alpha", "scan:alpha"]\n\n'
+  printf '[tasks."check:a\\"b"]\nrun = "true"\n\n'
+  sed -n '/^\[tasks.test\]/,$p' "$r/mise.toml"
+} >"$r/mise.toml.new"
+mv "$r/mise.toml.new" "$r/mise.toml"
+grep -q 'check:a\\"b' "$r/mise.toml" || fail "t3e: the fixture lost its escaped quote"
+run_checker "$r" >/dev/null || fail "t3e: an escaped quote inside a basic string is part of the name; the fixture should pass: $(cat "$tmp/err")"
+grep -q 'names no task' "$tmp/err" && fail "t3e: an escaped quote desynchronized the array: $(cat "$tmp/err")"
+echo "ok: t3e an escaped quote inside a basic string is part of the name"
+
+# ---------------------------------------------------------------------------
 # t4: TEXT IS NOT WIRING. A task named in the aggregate's description, in a
 #     comment, or inside another task's run body is not registered by that.
 #     (The lesson tests/test-check-guard-wiring.sh g4b records, one level up.)

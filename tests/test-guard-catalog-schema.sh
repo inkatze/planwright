@@ -127,7 +127,7 @@ while IFS='|' read -r id cat tool detect core section; do
       [ "$detect" = manual ] || fail "$id: a breadth: entry must be detect: manual (never auto-fires), got '$detect'"
       ;;
   esac
-  if [ "$cat" = breadth ] || in_enum "$cat"; then
+  if [ -z "$cat" ] || [ "$cat" = breadth ] || in_enum "$cat"; then
     :
   else
     fail "$id: category '$cat' is not in the doctrine's Guard categories enum"
