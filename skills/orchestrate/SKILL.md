@@ -398,9 +398,9 @@ path); it never merges and never advances local `main`.
 
 ## Step report
 
-Each step ends with one report at the operator, in three slots never mixed:
-**state** (the derived picture now, not an event stream), **reasoning** (a
-line or two, or absent), and **requests** (each decision-shaped). A request
+Each step ends with one report at the operator, three unmixed slots in order:
+**requests** (each decision-shaped), **state** (the derived picture now, not
+an event stream), and **reasoning** (a line or two, or absent). A request
 settled in the turn is done; a halt's is already recorded; any other left open
 is proposed in its tracked form and written once confirmed, never left in
 prose. Several halts batch into requests: the count, then one line each, those

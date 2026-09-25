@@ -87,6 +87,23 @@ if printf '%s\n' "$core_out" | ids_of | grep -qx "release-tagging"; then
 else
   pass "release-tagging omitted from --core (advisory, not a mechanical guard)"
 fi
+# The breadth entries that carry a concrete category (`core: false` under
+# breadth:) follow the same contract: surfaced by a full run under that
+# category, never promoted into --core.
+for spec in "pinned-action-freshness security" "test-time-budget budget" "cdpath-house-pattern house-pattern"; do
+  bid=${spec% *}
+  bcat=${spec#* }
+  if printf '%s\n' "$full_out" | awk -F'\t' -v id="$bid" '$1==id{print $2}' | grep -qx "$bcat"; then
+    pass "full run surfaces $bid as $bcat"
+  else
+    fail "full run missing $bid as $bcat (breadth entry with core: false)"
+  fi
+  if printf '%s\n' "$core_out" | ids_of | grep -qx "$bid"; then
+    fail "$bid (breadth, core: false) wrongly appeared in the --core set"
+  else
+    pass "$bid omitted from --core"
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # 2. Reproduction is grounded in Task 2's actual artifacts, not a constant:
