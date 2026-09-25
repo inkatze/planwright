@@ -43,7 +43,6 @@ cannot be named does not ship.
 | Branches protected beyond the core floor | Policy | `protected_branches`, default empty; it adds to `main`, `master`, and `planwright/*/spec`, never removes |
 | Pushing the unit branch and opening its draft PR | Composition contract | `/execute-task`, or a standalone `/self-review`; `/polish` and every `--nested` review skill never push |
 | Flipping under `unit-owner` | Composition contract | `/execute-task`'s convergence run, or the review skill it delegates its terminal step to; a standalone review run never flips |
-| Adding a commit per loop iteration rather than reshaping one | Composition contract | `/polish` and `/self-review`, so each iteration and each sign-off item stays separately revertible |
 
 ## The floor
 

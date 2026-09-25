@@ -61,9 +61,10 @@ There is no silent drop.
 ## Commit discipline
 
 Commit granularity is part of the contract, and the loop adds commits rather
-than reshaping them ([Human Gates](human-gates.md)). A **loop iteration** is
-one act-then-review cycle: the pass that discovers, validates, and
-dispositions a set of findings, closing when the next review pass opens.
+than reshaping them, since each commit is an audit row and a revert target. A
+**loop iteration** is one act-then-review cycle: the pass that discovers,
+validates, and dispositions a set of findings, closing when the next review
+pass opens.
 
 - **A Needs-sign-off fix that changes code behaviour commits on its own**, so
   `git revert <sha>` undoes exactly one finding. A fix that edits code and
