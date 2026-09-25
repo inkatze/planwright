@@ -237,7 +237,8 @@ printf '%s\n' "$b" | grep -q "^> Fix the typo in the README heading.\$" \
 printf '%s\n' "$b" | grep -q "^> visual flight: a one-line wording change, one revert from undone\$" \
   || fail "brief does not carry the stated grounds, quoted"
 printf '%s\n' "$b" | grep -q "planwright/flight/$fid" || fail "brief does not name the branch"
-printf '%s\n' "$b" | grep -q "print:flight-$fid" || fail "brief does not name the worker handle"
+printf '%s\n' "$b" | grep -q "\`print-flight-$fid\`" \
+  || fail "the brief must name the print worker by the handle its registry record carries"
 printf '%s\n' "$b" | grep -q "gh pr create --draft" || fail "brief must land a draft PR"
 if printf '%s\n' "$b" | grep -Eq 'gh pr ready|gh pr merge'; then
   fail "brief must never carry a ready flip or merge command"

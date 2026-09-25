@@ -572,7 +572,7 @@ cmd_dispatch() {
   if [ "$backend" = tmux ]; then
     brief_handle="tmux-flight-$flight_id"
   else
-    brief_handle="print:flight-$flight_id (the operator's own session)"
+    brief_handle="print-flight-$flight_id"
   fi
 
   resolve_tier
@@ -625,7 +625,7 @@ cmd_dispatch() {
   # a placed flight is a fact, and failing it over its bookkeeping would trade
   # the thing for the record of it.
   if [ "$backend" = print ]; then
-    /bin/sh "$REGISTER" --handle "print-flight-$flight_id" --scope "flight:$flight_id" \
+    /bin/sh "$REGISTER" --handle "$brief_handle" --scope "flight:$flight_id" \
       --backend print --state-dir "$worktree" --checkout "$repo_root" \
       --death-handle none >/dev/null </dev/null || :
   fi
