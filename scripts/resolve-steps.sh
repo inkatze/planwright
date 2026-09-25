@@ -1141,6 +1141,14 @@ resolve_target() {
             REASON="command '$rtarget' not found on the path"
             return 1
           }
+          case "$LOC" in
+            /*) ;;
+            *)
+              LOC=""
+              REASON="command '$rtarget' was found only through a relative path entry"
+              return 1
+              ;;
+          esac
           ;;
       esac
       ;;
@@ -1152,7 +1160,7 @@ resolve_target() {
           "${claude_dir:+$claude_dir/skills/$SNAME/SKILL.md}" \
           "${repo_claude:+$repo_claude/commands/$SNAME.md}" \
           "${repo_claude:+$repo_claude/skills/$SNAME/SKILL.md}"; do
-          case "$cand" in "" | *[[:cntrl:]]*) continue ;; esac
+          case "$cand" in "" | *[[:cntrl:]]* | [!/]*) continue ;; esac
           if [ -f "$cand" ]; then
             LOC="$cand"
             break
@@ -1163,7 +1171,7 @@ resolve_target() {
           return 1
         }
       elif [ "$SPLUGIN" = "$OWN_NAMESPACE" ]; then
-        if [ -n "$skills_root" ] && [ -f "$skills_root/$SNAME/SKILL.md" ]; then
+        if [ "${skills_root#/}" != "$skills_root" ] && [ -f "$skills_root/$SNAME/SKILL.md" ]; then
           LOC="$skills_root/$SNAME/SKILL.md"
         else
           REASON="skill '$OWN_NAMESPACE:$SNAME' not found under the plugin skills root"

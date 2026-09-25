@@ -1351,6 +1351,29 @@ capture spec-drafted --unattended
 [ "$RC" = 0 ] && [ -z "$OUT" ]
 verdict "an unwired point outside check mode still resolves nothing without reading the catalog" "unwired plain run: rc=$RC out='$OUT' err='$ERR'"
 
+# A location resolved through a relative PATH or skills-root entry is never
+# printed as resolved: it would name a file relative to wherever the runner
+# stands.
+reset_layers
+mkdir -p "$tmp/cwd/relbin" "$tmp/cwd/relskills/rel-skill"
+printf '#!/bin/sh\nexit 0\n' >"$tmp/cwd/relbin/rel-tool"
+chmod +x "$tmp/cwd/relbin/rel-tool"
+: >"$tmp/cwd/relskills/rel-skill/SKILL.md"
+cat_entry "$tracked_cat" rel-cmd "kind: command" "target: rel-tool"
+cat_entry "$tracked_cat" rel-sk "kind: skill" "target: rel-skill"
+printf 'steps_pre_pr: [rel-cmd]\n' >"$tracked_cfg"
+OUT=$(cd "$tmp/cwd" && PATH="relbin:$PATH" run pre-pr --attended 2>"$tmp/err")
+RC=$?
+ERR=$(<"$tmp/err")
+[ "$RC" = 1 ] && [ "$OUT" = "ask${TAB}rel-cmd" ]
+verdict "a command found only through a relative PATH entry does not resolve" "relative PATH: rc=$RC out='$OUT' err='$ERR'"
+printf 'steps_pre_pr: [rel-sk]\n' >"$tracked_cfg"
+OUT=$(cd "$tmp/cwd" && run PLANWRIGHT_SKILLS_ROOT=relskills pre-pr --attended 2>"$tmp/err")
+RC=$?
+ERR=$(<"$tmp/err")
+[ "$RC" = 1 ] && [ "$OUT" = "ask${TAB}rel-sk" ]
+verdict "a skill found only under a relative skills root does not resolve" "relative skills root: rc=$RC out='$OUT' err='$ERR'"
+
 # The --explain read failing on its own: its cause reaches stderr even after
 # the plain read warned, and a repo-tracked hard-fail keeps exit 4.
 stub="$tmp/stub"
