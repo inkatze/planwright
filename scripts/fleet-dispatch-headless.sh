@@ -111,6 +111,17 @@
 #       4  unknown          lost observability or a garbled record; the
 #                           caller must refuse to treat this as death
 #       5  absent           no dispatch record for this unit
+#   fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>]
+#     Close the worker named by its handle (`headless-<spec>-task-<id>`, the
+#     handle `launch` prints): terminate the runner and everything under it,
+#     SIGTERM then SIGKILL after the grace, and release its scratch temp and
+#     attention record. The same verb, output, and exit codes as
+#     `fleet-streamjson.sh stop`, through the close both rungs share
+#     (scripts/fleet-stop-lib.sh): `stop <worker> stopped released=<classes>`,
+#     `stop <worker> already-closed`, or
+#     `stop <worker> partial released=<classes> held=<classes>`. A closed unit
+#     reads `completed 143` in `status`, the record the runner writes when it is
+#     terminated gracefully; a runner that already recorded an exit keeps it.
 #   (run-worker is the internal detached-runner entry point, not an API.)
 #
 # Exit codes: launch 0 dispatched; 2 usage / refused input (hostile token, an
@@ -119,7 +130,11 @@
 # worktree) — nothing launched; 3 already-in-flight (a live runner, an unknown
 # liveness, or a recent torn-launch window — refuse to double-dispatch); 4 the
 # runner failed to start (it exited before signalling readiness) — the state
-# dir is cleaned. status: per the verdict table above.
+# dir is cleaned. status: per the verdict table above. stop: 0 stopped or
+# already-closed; 2 an invalid or unknown handle, a bad grace, a symlinked
+# state path, or a process table the close could not read; 3 a close asked for
+# from inside the worker's own process tree, refused rather than attempted; 6 a
+# partial close, some class still held.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, no jq
 # (REQ-K1.5); every input treated as data. Pathname expansion is disabled
@@ -130,12 +145,24 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+me=fleet-dispatch-headless
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 SELF="$script_dir/fleet-dispatch-headless.sh"
 # The launch wrapper is overridable for tests (the fault-injection seam that
 # exercises the launch-time executability pre-check); default is the sibling.
 ENVWRAP="${PLANWRIGHT_HEADLESS_ENVWRAP:-$script_dir/fleet-dispatch-env.sh}"
 EVIDENCE="$script_dir/fleet-death-evidence.sh"
+FS="$script_dir/fleet-state.sh"
+FA="$script_dir/fleet-attention.sh"
+
+# The close this rung shares with the stream-json one. Required rather than
+# degraded: without it `stop` has no process match at all.
+if [ ! -r "$script_dir/fleet-stop-lib.sh" ]; then
+  printf '%s\n' "$me: required helper $script_dir/fleet-stop-lib.sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/fleet-stop-lib.sh
+. "$script_dir/fleet-stop-lib.sh"
 
 if [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
@@ -154,6 +181,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: fleet-dispatch-headless.sh launch <spec> <id> --worktree <dir> [--repo-root <dir>] [-- <extra claude args>...]
        fleet-dispatch-headless.sh status <spec> <id> [--repo-root <dir>]
+       fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>]
 (prompt text on stdin for launch)
 EOF
   exit 2
@@ -847,6 +875,142 @@ do_status() {
   esac
 }
 
+# --- stop (the close) ----------------------------------------------------------
+# The release set is the runtime this rung acquires: the runner's process tree,
+# its scratch temp, and the worker's attention record. Two classes of the floor
+# are declared absent rather than left silently out: this rung opens no tmux
+# window, and it takes no lock of its own (the store locks its worker's scripts
+# take are the store's, closed by their holder or broken at their bound). The
+# prompt, the captured result, stderr.log, and the launch and readiness markers
+# are the durable record of the run and are kept, as are the worktree, the
+# branch, and the unit's fence.
+
+release_classes='process scratch attention'
+
+# The runner's pid is the one this rung records; the worker is its child.
+stop_pidfiles='pid'
+
+# The completion write's staging temp, and the close's own.
+scratch_patterns='exit.tmp .exit.*'
+
+# stop_match <unit-dir> — the argv the runner is re-exec'd with. The trailing
+# space is what keeps unit `5` from matching unit `5.1`, whose directory this
+# one prefixes; nothing but the runner carries the verb and the directory.
+stop_match() {
+  printf 'run-worker %s ' "$1"
+}
+
+# stop_process_closed <unit-dir> — once the tree is gone, record the close as a
+# completion and drop the pid file.
+#
+# The pid file has to go: it outlives the runner, and a later close would seed
+# its walk from whatever process the host reissued that pid to. But `status`
+# and the launch collision guard both read a unit with no `exit` and no `pid`
+# as a launch still in flight, so dropping it alone would make a closed unit
+# read `unknown` and refuse re-dispatch until the torn-launch window aged out.
+# Writing `exit` first keeps both honest, and 143 is what the runner itself
+# writes when it is terminated gracefully, so every closed unit reads the same
+# `completed 143` however far the escalation had to go. A record already there,
+# or a `finish-error` from a runner that finished but could not write one, is
+# the runner's own account and is left alone.
+stop_process_closed() {
+  if [ ! -e "$1/exit" ] && [ ! -e "$1/finish-error" ]; then
+    spc_tmp=$(mktemp "$1/.exit.XXXXXX") || return 1
+    if ! { printf '143 %s\n' "$(date +%s)" >"$spc_tmp" && mv -f "$spc_tmp" "$1/exit"; }; then
+      rm -f "$spc_tmp" 2>/dev/null
+      return 1
+    fi
+  fi
+  rm -rf "${1:?}/pid" 2>/dev/null || :
+}
+
+# stop_held / stop_release <class> <dir> <worker> <attention-store> <grace>.
+# The unknown-class arms are not defensive filler: a class added to
+# `release_classes` without both arms would otherwise report itself
+# permanently held, or silently released, with nothing on stderr.
+stop_held() {
+  case $1 in
+    process) held_process "$2" "$(stop_match "$2")" "$stop_pidfiles" ;;
+    scratch) stop_scratch_walk "$2" probe "$scratch_patterns" ;;
+    attention) held_attention "$4" "$3" ;;
+    *)
+      printf '%s\n' "$me: no held-probe for release class '$1'" >&2
+      return 0
+      ;;
+  esac
+}
+
+stop_release() {
+  case $1 in
+    process) release_processes "$2" "$(stop_match "$2")" "$stop_pidfiles" "$5" ;;
+    scratch)
+      stop_scratch_walk "$2" release "$scratch_patterns"
+      ! stop_scratch_walk "$2" probe "$scratch_patterns"
+      ;;
+    # No receipt journal to settle first: a one-shot has no pend path, so
+    # nothing on this rung re-queues a decision from a closed worker.
+    attention) /bin/sh "$FA" clear "$3" >/dev/null ;;
+    *)
+      printf '%s\n' "$me: no release for class '$1'" >&2
+      return 1
+      ;;
+  esac
+}
+
+do_stop() {
+  [ "$#" -ge 1 ] || usage
+  t_worker=$1
+  shift
+  t_repo_root=''
+  t_grace=$grace_default
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --repo-root)
+        [ "$#" -ge 2 ] || usage
+        t_repo_root=$2
+        shift 2
+        ;;
+      --grace)
+        [ "$#" -ge 2 ] || usage
+        t_grace=$2
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  stop_grace_ok "$t_grace" || {
+    stop_grace_refusal
+    exit 2
+  }
+  # The worker is the handle `launch` prints and the worker's hooks push under,
+  # `headless-<spec>-task-<id>`. The id grammar admits no hyphen, so the last
+  # `-task-` is the separator even when the spec name contains one; the
+  # round-trip comparison refuses anything the split would have reshaped.
+  t_rest=${t_worker#headless-}
+  t_spec=${t_rest%-task-*}
+  t_id=${t_rest##*-task-}
+  if ! valid_spec "$t_spec" || ! valid_id "$t_id" \
+    || [ "headless-$t_spec-task-$t_id" != "$t_worker" ]; then
+    warn "invalid worker handle (expected headless-<spec>-task-<id>)"
+    exit 2
+  fi
+  resolve_unit_dir "$t_spec" "$t_id" "$t_repo_root"
+  # A close never removes the state directory, so its absence means this handle
+  # names no worker — reported as such rather than as `already-closed`, which
+  # would read a typo as a successful close.
+  [ -d "$unit_dir" ] || {
+    warn "unknown worker $t_worker"
+    exit 2
+  }
+  # This verb deletes inside the directory it resolves, so it takes the same
+  # path-escape guard the launch's reclaim does.
+  guard_unit_containment "$unit_base" "$unit_dir" "$unit_root" "$unit_spec_dir"
+  stop_refuse_self_hosted "$unit_dir" "$(stop_match "$unit_dir")" \
+    "$stop_pidfiles" "$t_worker"
+  t_root=$(/bin/sh "$FS" root) || exit 2
+  stop_walk "$unit_dir" "$t_worker" "$t_root/attention/state" "$t_grace"
+}
+
 # --- Entry -------------------------------------------------------------------
 
 [ "$#" -ge 1 ] || usage
@@ -856,6 +1020,7 @@ case $sub in
   launch) do_launch "$@" ;;
   run-worker) do_run_worker "$@" ;;
   status) do_status "$@" ;;
+  stop) do_stop "$@" ;;
   *)
     warn "unknown subcommand: $sub"
     usage

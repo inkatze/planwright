@@ -613,7 +613,7 @@ non-`--bare`, never attaches a permission prompt tool (an unauthorized ask
 fails visibly in the captured result — there is no pend path), and leaves a
 consumable completion signal; `fleet-dispatch-headless.sh status <spec> <id>`
 answers `completed <rc>` / `running` / `died` (positive evidence only) /
-`unknown` / `absent`. `stream-json-persistent` is driven by the
+`unknown` / `absent`, and `stop <worker>` closes it (below). `stream-json-persistent` is driven by the
 `scripts/fleet-streamjson.sh` supervisor (below). (The presence env overrides
 remain a deliberate test/early-adopter escape hatch that bypasses these
 defaults.)
@@ -702,6 +702,34 @@ a worker that already has one in flight is refused with exit 3 rather than
 orphaning the first supervisor. The same refusal covers a worker whose state
 still records a live process, which includes a live worker under a dead
 supervisor — that case wants `recover`, not a second `launch`.
+
+The headless rung closes the same way: `fleet-dispatch-headless.sh stop
+<worker> [--repo-root <dir>] [--grace <secs>]` takes the handle `launch`
+printed (`headless-<spec>-task-<id>`) and gives the same results, the same exit
+codes, and the same refusals, because both verbs run one shared close
+(`scripts/fleet-stop-lib.sh`) and one fixture table pins it on both rungs
+(`tests/test-fleet-stop-rungs.sh`). What differs is only what each rung
+acquires. The headless runner takes no lock of its own, so its release set is
+the process tree, the completion write's staging temp, and the attention
+record; the prompt, the captured result, and `stderr.log` are the run's record
+and are kept. A closed headless unit reads `completed 143` in `status`, the
+record the runner writes when it is terminated gracefully, so a re-dispatch
+reclaims it like any finished unit.
+
+The two session-grade rungs, verb by verb:
+
+| Lifecycle operation | `stream-json-persistent` (`fleet-streamjson.sh`) | `headless-oneshot` (`fleet-dispatch-headless.sh`) |
+| --- | --- | --- |
+| Open | `launch <worker> <scope> --prompt-file <file>` | `launch <spec> <id> --worktree <dir>` |
+| Liveness and completion | `status <worker>` | `status <spec> <id>` |
+| Close | `stop <worker> [--grace <secs>]` | `stop <worker> [--repo-root <dir>] [--grace <secs>]` |
+| Resume a crashed worker | `recover <worker>` | none: a one-shot is re-dispatched, not resumed |
+| Answer a pending prompt | `answer <worker> <request-id>` | none: a one-shot has no pend path |
+| Steer in flight | `steer <worker>` | none: the rung advertises no steer |
+
+The first three rows are the lifecycle, and both rungs expose all three. The
+rest follow from what each rung advertises in the capability contract, not from
+a missing close.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,

@@ -274,8 +274,6 @@ TAB=$(printf '\t')
 NL=$(printf '\nx')
 NL=${NL%x}
 me=fleet-streamjson
-LF='
-'
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # Absolute path to this script, so the detached-supervisor re-exec survives a
@@ -294,6 +292,16 @@ if [ ! -r "$echo_safety" ]; then
 fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
+
+# The close this rung shares with the headless one; required for the same
+# reason, since without it `stop` would have no process match at all.
+stop_lib="$script_dir/fleet-stop-lib.sh"
+if [ ! -r "$stop_lib" ]; then
+  echo "$me: required helper $stop_lib missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/fleet-stop-lib.sh
+. "$stop_lib"
 
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
@@ -1207,358 +1215,26 @@ release_classes='process locks scratch attention'
 # The locks this rung's worker dir can hold.
 lock_classes='journal.lock recover.lock launch.lock'
 
-# scratch_walk <dir> <probe|release> — visit every scratch path present under
-# <dir>; zero when at least one was there. Scratch is the stdio fifos the
-# supervisor owns, the staging files this script's writers create beside their
-# targets, and the residue of a broken lock. Everything else in the state
-# directory is the durable record a close keeps: the capture, the journal, the
-# session, the stored envelopes, and the result.
-#
-# The probe and the release share one function because they must share one glob
-# list, and because the paths never become text. Handing a caller a
-# newline-delimited list would split a filename containing a newline into a
-# second, relative path, which the release would then delete from whatever
-# directory the operator happened to run the close in; the worker can create
-# such a name, and its state directory is a path it knows.
-scratch_walk() {
-  case $- in
-    *f*) sw_restore='set -f' ;;
-    *) sw_restore='set +f' ;;
-  esac
-  set +f
-  sw_found=1
-  for sw_p in "$1/in.fifo" "$1/out.fifo" \
-    "$1"/.init.* "$1"/.journal.* "$1"/.session.* "$1"/.pid.* "$1"/*.broken.*; do
-    [ -e "$sw_p" ] || continue
-    sw_found=0
-    [ "$2" = release ] || break
-    # `rm -rf`, not `rm -f`: a lock a stale-break renamed out of the way is a
-    # directory, and `rm -f` cannot remove one. The class would then read held
-    # on every later close, with no re-invocation able to make progress.
-    rm -rf "$sw_p" 2>/dev/null || :
-  done
-  $sw_restore
-  return "$sw_found"
+# The pid files a worker dir records, which seed the process match alongside
+# the supervisor's argv.
+stop_pidfiles='supervisor.pid worker.pid'
+
+# Scratch is the stdio fifos the supervisor owns, the staging files this
+# script's writers create beside their targets, and the residue of a broken
+# lock. Everything else in the state directory is the durable record a close
+# keeps: the capture, the journal, the session, the stored envelopes, and the
+# result.
+scratch_patterns='in.fifo out.fifo .init.* .journal.* .session.* .pid.* *.broken.*'
+
+# stop_match <worker> <dir> — the argv the supervisor re-execs itself with.
+# The handle and the directory together are what keep a sibling whose handle
+# this one prefixes (`api` against `api2`) out of the match: the directory alone
+# is a prefix of the sibling's, and the triple is not.
+stop_match() {
+  printf '_supervise %s %s' "$1" "$2"
 }
 
-# ps_rows — one `<pid> <ppid> <args>` row per process on the host.
-#
-# `-ww` is what keeps the supervisor's long argv, which carries the
-# state-directory path the match keys on, from being truncated to terminal
-# width by BSD ps; a ps that rejects the flag degrades to the narrow form
-# rather than to nothing. Each candidate is shape-checked rather than trusted
-# by exit status, the discipline stat_mtime applies to its own two flavors.
-ps_rows() {
-  pr_out=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || pr_out=''
-  if ! ps_rows_shaped "$pr_out"; then
-    pr_out=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || pr_out=''
-    ps_rows_shaped "$pr_out" || return 1
-  fi
-  printf '%s\n' "$pr_out"
-}
-
-ps_rows_shaped() {
-  [ -n "$1" ] || return 1
-  prs_first=${1%%"$LF"*}
-  while [ "${prs_first# }" != "$prs_first" ]; do
-    prs_first=${prs_first# }
-  done
-  case ${prs_first%% *} in
-    '' | *[!0-9]*) return 1 ;;
-  esac
-}
-
-# stop_candidates <dir> <worker> — every live pid belonging to the worker whose
-# runtime state lives at <dir>, one per line. Non-zero when the host's process
-# table cannot be read, so a caller reports the class held rather than assuming
-# it is free.
-#
-# Two seeds. The supervisor is matched on the exact `_supervise <worker> <dir>`
-# triple this script re-execs itself with. Searching argv for the bare
-# directory would over-match twice over: one handle prefixes another (`api`
-# against `api2`'s state directory), and any process that merely *names* the
-# directory — an operator tailing the event capture — would be swept in with
-# its whole subtree. The worker, and a supervisor whose argv cannot be read,
-# come from the pids the state directory records. Neither seed is a process
-# name or a command pattern.
-#
-# The worker's own children, and the supervisor's escalation tick, carry
-# neither the argv nor a pid file, so they are reached by walking the parent
-# map down from the seeds. pid 1 is never a root:
-# an expansion that reached it would enumerate every orphan on the host.
-#
-# The caller's own process and its ancestors are excluded: a close invoked from
-# inside the tree it is closing must not kill the closer mid-release. That
-# exclusion is also why such a close cannot be allowed to proceed at all: the
-# supervisor and the worker fall inside it while their other children do not, so
-# the walk would signal part of the tree and then report the whole release set
-# free. `stop_self_hosted` refuses that case before this runs.
-#
-# The match text goes through the environment rather than `awk -v`, which
-# rewrites backslash escapes in the value it assigns: the fleet home is taken
-# verbatim from the operator's configuration, and a `\t` in it would otherwise
-# make the comparison silently target a path nobody asked for. It is scoped to
-# the awk invocation rather than exported, so the worker's state-directory path
-# does not end up in the environment of every later child of the close.
-stop_candidates() {
-  sc_dir=$1
-  sc_snap=$(ps_rows) || return 1
-  sc_seed=''
-  for sc_f in supervisor.pid worker.pid; do
-    sc_p=$(cat "$sc_dir/$sc_f" 2>/dev/null) || sc_p=''
-    if valid_posnum "${sc_p:-}"; then
-      sc_seed="$sc_seed $sc_p"
-    fi
-  done
-  printf '%s\n' "$sc_snap" | SC_MATCH="_supervise $2 $sc_dir" awk -v seeds="$sc_seed" -v self_pid="$$" '
-    BEGIN {
-      sup = ENVIRON["SC_MATCH"]
-      # `index(s, "")` is 1, so an empty match string would mark every process
-      # on the host. It cannot be empty as written — the value has a literal
-      # prefix — but this verb sends signals, so the one input whose emptiness
-      # inverts "matches nothing" into "matches everything" is checked rather
-      # than reasoned about. Exiting non-zero reports the class held.
-      if (sup == "") exit 2
-    }
-    $1 ~ /^[0-9]+$/ {
-      ppid[$1] = $2
-      order[++n] = $1
-      if (index($0, sup)) want[$1] = 1
-    }
-    END {
-      m = split(seeds, s, " ")
-      for (i = 1; i <= m; i++) if (s[i] != "") want[s[i]] = 1
-      delete want["0"]
-      delete want["1"]
-      for (pass = 1; pass <= n; pass++) {
-        grew = 0
-        for (i = 1; i <= n; i++) {
-          p = order[i]
-          if (!(p in want) && (p in ppid) && (ppid[p] in want)) {
-            want[p] = 1
-            grew = 1
-          }
-        }
-        if (!grew) break
-      }
-      # The closer, everything it descends from, and everything under it. The
-      # descendants matter as much as the ancestors: this function runs in a
-      # forked subshell, so a close invoked from inside the tree it closes
-      # would otherwise enumerate its own scanner on every poll and never see
-      # the candidate set empty. pid 0 and pid 1 are filtered from the result
-      # rather than seeded here: seeding them would claim every orphan on the
-      # host, including the orphaned worker a close most needs to find.
-      #
-      # Only the closer itself roots the descendant walk. Rooting it at the
-      # ancestors as well would claim their other children — and since that
-      # chain ends at pid 1, whose descendants are every process on the host,
-      # the exclusion set would swallow the very tree the close is looking for
-      # and every stop would report the process class released over a live
-      # worker.
-      p = self_pid
-      for (i = 0; i <= n; i++) {
-        mine[p] = 1
-        if (!(p in ppid) || ppid[p] == "" || ppid[p] == "0") break
-        p = ppid[p]
-      }
-      kin[self_pid] = 1
-      for (pass = 1; pass <= n; pass++) {
-        grew = 0
-        for (i = 1; i <= n; i++) {
-          p = order[i]
-          if (!(p in kin) && (ppid[p] in kin)) {
-            kin[p] = 1
-            mine[p] = 1
-            grew = 1
-          }
-        }
-        if (!grew) break
-      }
-      # `p in ppid` is presence in the process table. The recorded pids are
-      # seeded without a liveness check of their own, so a worker closed while
-      # its pid files survive would otherwise report its process class held
-      # forever, on two pids that no longer exist.
-      for (p in want) {
-        if (!(p in ppid) || (p in mine)) continue
-        if (p == "0" || p == "1") continue
-        print p
-      }
-    }'
-}
-
-# stop_self_hosted <dir> <worker> — zero when this process is running inside the
-# very tree it has been asked to close.
-#
-# Such a close cannot work, and it fails in the worst direction. The candidate
-# walk excludes the closer and everything it descends from, so the supervisor
-# and the worker are invisible to it while their *other* children are not: it
-# would SIGTERM and then SIGKILL part of the tree, find nothing left that it can
-# see, clear the pid files as though the tree were gone, and report `stopped` —
-# leaving the worker alive, half its children dead, its stdio fifos deleted, and
-# nothing recorded for `launch` to refuse a second supervisor on.
-#
-# The ancestry is tested against the supervisor's argv first, and against the
-# recorded pids only when argv cannot be trusted. The two seeds fail in opposite
-# directions and neither is safe alone. A pid file outlives the process it
-# names, and a recycled pid is very often an ancestor of every shell on the
-# host: a leftover state directory whose `supervisor.pid` now names the session
-# manager would make every close for that handle look self-hosted and be
-# refused, forever — and this verb is the only one that clears those files, so
-# `launch` and `recover` would refuse the handle too. The argv match cannot be
-# forged that way, and the worker is spawned as a child of the process carrying
-# it, so everything genuinely inside the tree is reachable through it. But argv
-# is exactly what a narrow `ps` truncates, and there the missing match is not
-# evidence of absence; refusing to fall back would let a real self-close proceed
-# and kill part of its own tree.
-#
-# So the fallback is conditioned on which of those two worlds this host is in.
-# When argv is readable, a missing match means no live supervisor, and an
-# ancestor named by a pid file is a recycled pid to be ignored. When argv is
-# truncated, the recorded pids are all there is, and the close fails closed.
-stop_self_hosted() {
-  # The snapshot and the verdict about its argv fidelity come from one probe.
-  # Taken separately they can disagree — a transient fork failure degrades the
-  # snapshot to the narrow form while an independent retry of `-ww` succeeds —
-  # and the disagreement resolves toward proceeding, which is the direction that
-  # kills.
-  ssh_wide=1
-  ssh_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || ssh_snap=''
-  if ! ps_rows_shaped "$ssh_snap"; then
-    ssh_wide=0
-    ssh_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || ssh_snap=''
-    ps_rows_shaped "$ssh_snap" || return 2
-  fi
-  ssh_seed=''
-  if [ "$ssh_wide" = 0 ]; then
-    for ssh_f in supervisor.pid worker.pid; do
-      ssh_p=$(cat "$1/$ssh_f" 2>/dev/null) || ssh_p=''
-      if valid_posnum "${ssh_p:-}"; then
-        ssh_seed="$ssh_seed $ssh_p"
-      fi
-    done
-  fi
-  printf '%s\n' "$ssh_snap" | SC_MATCH="_supervise $2 $1" awk -v seeds="$ssh_seed" -v self_pid="$$" '
-    BEGIN {
-      sup = ENVIRON["SC_MATCH"]
-      # `index(s, "")` is 1, so an empty match string would mark every process
-      # on the host. It cannot be empty as written — the value has a literal
-      # prefix — but this verb sends signals, so the one input whose emptiness
-      # inverts "matches nothing" into "matches everything" is checked rather
-      # than reasoned about. Exit 2 is the cannot-determine answer, which the
-      # caller refuses on.
-      if (sup == "") exit 2
-    }
-    $1 ~ /^[0-9]+$/ {
-      ppid[$1] = $2
-      n++
-      if (index($0, sup)) owner[$1] = 1
-    }
-    END {
-      # The 0/1 filter applies to the seeds only. An argv match at pid 1 is a
-      # real supervisor running as container init, and discarding it here would
-      # let a self-close from inside that tree proceed.
-      m = split(seeds, s, " ")
-      for (i = 1; i <= m; i++) {
-        if (s[i] != "" && s[i] != "0" && s[i] != "1") owner[s[i]] = 1
-      }
-      p = self_pid
-      for (i = 0; i <= n; i++) {
-        if (p in owner) exit 0
-        if (!(p in ppid) || ppid[p] == "" || ppid[p] == "0" || p == "1") break
-        p = ppid[p]
-      }
-      exit 1
-    }'
-}
-
-# stop_live <space-separated pids> — the deduplicated subset still signallable,
-# space-separated on stdout.
-stop_live() {
-  sl_out=''
-  for sl_p in $1; do
-    valid_posnum "$sl_p" || continue
-    [ "$sl_p" = 1 ] && continue
-    case " $sl_out " in
-      *" $sl_p "*) continue ;;
-    esac
-    # pid_live, not `kill -0`: dropping a live-but-unsignallable pid here
-    # would empty the process class and report the tree stopped over a worker
-    # still running.
-    pid_live "$sl_p" || continue
-    sl_out="$sl_out $sl_p"
-  done
-  printf '%s' "${sl_out# }"
-}
-
-# The settling wait after SIGKILL, in seconds. Not operator-tunable: SIGKILL is
-# not refusable, so this bounds how long the kernel takes to reap, not how long
-# a process is given to cooperate.
-kill_settle=5
-
-# The largest grace a caller may ask for.
-grace_max=300
-
-# The SIGTERM-to-SIGKILL grace a caller gets without asking.
-grace_default=5
-
-# release_processes <dir> <worker> <grace> — SIGTERM the worker's process tree,
-# then SIGKILL whatever is still there after <grace> seconds. Children do not
-# reliably die with a parent SIGTERM, so the escalation is not optional.
-#
-# The target set accumulates in `stop_tracked` rather than being recomputed
-# from scratch each round. A child that ignores SIGTERM is reparented to pid 1
-# when its parent dies, which drops it out of the descendant walk entirely — a
-# set rebuilt from the walk alone would then find nothing and report the class
-# released while that child ran on, which is the exact leak this verb exists to
-# close. Candidates discovered during the wait are folded in, so a process the
-# worker forks mid-close is signalled too.
-#
-# The wait is bounded by wall clock rather than by a tick count: a poll costs a
-# full process-table scan, so on a busy host a tick is far longer than the
-# sleep and a counted grace would silently be several times the seconds the
-# operator asked for.
-release_processes() {
-  rp_dir=$1
-  rp_worker=$2
-  rp_grace=$3
-  rp_found=$(stop_candidates "$rp_dir" "$rp_worker") || {
-    echo "$me: cannot read the process table; the process class is left held" >&2
-    return 1
-  }
-  stop_tracked=$(stop_live "$stop_tracked $rp_found")
-  if [ -z "$stop_tracked" ]; then
-    clear_pidfiles "$rp_dir"
-    return 0
-  fi
-  for rp_sig in TERM KILL; do
-    for rp_p in $stop_tracked; do
-      kill "-$rp_sig" "$rp_p" 2>/dev/null || :
-    done
-    case $rp_sig in
-      TERM) rp_wait=$rp_grace ;;
-      *) rp_wait=$kill_settle ;;
-    esac
-    rp_now=$(now_epoch) || return 1
-    rp_until=$((rp_now + rp_wait))
-    while :; do
-      rp_found=$(stop_candidates "$rp_dir" "$rp_worker") || return 1
-      stop_tracked=$(stop_live "$stop_tracked $rp_found")
-      if [ -z "$stop_tracked" ]; then
-        clear_pidfiles "$rp_dir"
-        return 0
-      fi
-      rp_now=$(now_epoch) || return 1
-      # `-le`, so the deadline is a floor: `date +%s` truncates, so a TERM sent
-      # at x.999 would otherwise reach a `-lt` deadline a millisecond later and
-      # escalate having given the worker no grace at all.
-      [ "$rp_now" -le "$rp_until" ] || break
-      sleep 0.1
-    done
-  done
-  return 1
-}
-
-# clear_pidfiles <dir> — drop pid files that now record nothing live.
+# stop_process_closed <dir> — drop pid files that now record nothing live.
 #
 # `rm -rf`, for the reason `release_locks` uses it: the held-probe gates on mere
 # existence, so anything at those paths that `rm -f` cannot remove — a directory
@@ -1566,19 +1242,8 @@ release_processes() {
 # able to make progress. `${1:?}` guards the recursive removal against an empty
 # directory argument, and does so by ending the shell rather than the function,
 # which is why the trailing `|| :` on that line does not make it non-fatal.
-clear_pidfiles() {
+stop_process_closed() {
   rm -rf "${1:?}/supervisor.pid" "${1:?}/worker.pid" 2>/dev/null || :
-}
-
-held_process() {
-  hp_found=$(stop_candidates "$1" "$2") || return 0
-  [ -n "$(stop_live "$stop_tracked $hp_found")" ] && return 0
-  # A pid file recording nothing live is still this class's residue, and the
-  # close has to reach it: a supervisor killed before its own cleanup leaves the
-  # file behind, and once the host reuses that pid `launch` refuses the handle
-  # as already running with nothing able to clear it. A worker that ended
-  # cleanly removed its own files, so this does not disturb `already-closed`.
-  [ -e "$1/supervisor.pid" ] || [ -e "$1/worker.pid" ]
 }
 
 # `-e` rather than `-d`: a lock path that exists as a regular file blocks the
@@ -1605,38 +1270,12 @@ release_locks() {
 }
 
 held_scratch() {
-  scratch_walk "$1" probe
+  stop_scratch_walk "$1" probe "$scratch_patterns"
 }
 
 release_scratch() {
-  scratch_walk "$1" release
-  ! scratch_walk "$1" probe
-}
-
-# The attention store's layout is read directly, as the sibling fleet scripts
-# already read it: fleet-attention.sh exposes `clear` but no query, and the
-# row's presence is what "held" means here. The string coercion is that
-# script's own comparison discipline — a bare `$1 == w` equates all-numeric
-# handles (`1`, `01`, `1.0`) and would report the wrong worker's row.
-#
-# A store that exists but cannot be read counts as held: the same fail-closed
-# posture the process probe takes, so an unreadable store cannot make a class
-# that is still occupied report as released.
-held_attention() {
-  [ -f "$1" ] || return 1
-  [ -r "$1" ] || return 0
-  awk -F'\t' -v w="$2" '($1 "") == (w "") { found = 1 } END { exit found ? 0 : 1 }' "$1" 2>/dev/null
-  ha_rc=$?
-  # Three outcomes from two exit codes plus everything else. The caller reads
-  # any non-zero as "not held" and skips the class, so an awk that failed
-  # outright — a broken tool, an I/O error mid-read — would silently take the
-  # attention class out of the release set and let the close report success it
-  # never earned. Only a clean exit 1 means not held; anything the tool could
-  # not answer counts as held, and the close reports partial instead.
-  case $ha_rc in
-    1) return 1 ;;
-    *) return 0 ;;
-  esac
+  stop_scratch_walk "$1" release "$scratch_patterns"
+  ! stop_scratch_walk "$1" probe "$scratch_patterns"
 }
 
 # Clearing the row is half the release. The other half is the journal: a
@@ -1696,7 +1335,7 @@ journal_close() {
 # permanently held, or silently released, with nothing on stderr.
 stop_held() {
   case $1 in
-    process) held_process "$2" "$3" ;;
+    process) held_process "$2" "$(stop_match "$3" "$2")" "$stop_pidfiles" ;;
     locks) held_locks "$2" ;;
     scratch) held_scratch "$2" ;;
     attention) held_attention "$4" "$3" ;;
@@ -1709,7 +1348,7 @@ stop_held() {
 
 stop_release() {
   case $1 in
-    process) release_processes "$2" "$3" "$5" ;;
+    process) release_processes "$2" "$(stop_match "$3" "$2")" "$stop_pidfiles" "$5" ;;
     locks) release_locks "$2" ;;
     scratch) release_scratch "$2" ;;
     attention) release_attention "$3" "$2" ;;
@@ -2282,13 +1921,10 @@ cmd_stop() {
         ;;
     esac
   done
-  # The grace is bounded as well as shaped: `valid_posnum` admits fifteen
-  # digits, and a close that waits for a century is indistinguishable from one
-  # that has hung.
-  if ! valid_posnum "$grace" || [ "$grace" -gt "$grace_max" ]; then
-    echo "$me: --grace must be a whole number of seconds, 1 to $grace_max (default $grace_default)" >&2
+  stop_grace_ok "$grace" || {
+    stop_grace_refusal
     exit 2
-  fi
+  }
   dir=$(worker_dir "$worker") || exit 2
   # A close never removes the state directory, so its absence means this handle
   # names no worker — reported as such rather than as `already-closed`, which
@@ -2303,55 +1939,10 @@ cmd_stop() {
     echo "$me: refusing to close $worker: its state directory is a symlink" >&2
     exit 2
   }
-  # Three answers, not two. "Cannot determine" is refused rather than treated as
-  # "not inside": the whole file's posture on the process class is fail-closed,
-  # and proceeding on an unreadable table is the direction that signals.
-  stop_self_hosted "$dir" "$worker"
-  case $? in
-    0)
-      echo "$me: refusing to close $worker from inside its own process tree" >&2
-      exit 3
-      ;;
-    1) ;;
-    *)
-      echo "$me: cannot read the process table; refusing to close $worker" >&2
-      exit 2
-      ;;
-  esac
+  stop_refuse_self_hosted "$dir" "$(stop_match "$worker" "$dir")" \
+    "$stop_pidfiles" "$worker"
   st_root=$(/bin/sh "$FS" root) || exit 2
-  st_store="$st_root/attention/state"
-
-  stop_tracked=''
-  st_released=''
-  st_held=''
-  for st_class in $release_classes; do
-    stop_held "$st_class" "$dir" "$worker" "$st_store" || continue
-    stop_release "$st_class" "$dir" "$worker" "$st_store" "$grace" || :
-    if stop_held "$st_class" "$dir" "$worker" "$st_store"; then
-      st_held="$st_held,$st_class"
-      # A worker whose tree could not be closed is still running. Releasing the
-      # rest of its runtime from under it would take away the channel an
-      # operator answers it on and the lock that protects its journal, so the
-      # walk stops here and reports what is still held.
-      [ "$st_class" = process ] && break
-    else
-      st_released="$st_released,$st_class"
-    fi
-  done
-  st_released=${st_released#,}
-  st_held=${st_held#,}
-
-  if [ -n "$st_held" ]; then
-    printf 'stop %s partial released=%s held=%s\n' \
-      "$worker" "${st_released:--}" "$st_held"
-    return 6
-  fi
-  if [ -z "$st_released" ]; then
-    printf 'stop %s already-closed\n' "$worker"
-    return 0
-  fi
-  printf 'stop %s stopped released=%s\n' "$worker" "$st_released"
-  return 0
+  stop_walk "$dir" "$worker" "$st_root/attention/state" "$grace"
 }
 
 # cmd__tick <worker> <dir> <supervisor-pid> <worker-pid> — the escalation
