@@ -362,6 +362,19 @@ fi
 grep -Eo '"\$CONFIG" [A-Za-z_]+' "$ROOT/scripts/flight-dispatch.sh" | grep -q ' max_parallel_units$' \
   || fail "the config-key guard found no config read at all: the guard no longer sees the reader"
 
+# 0 with nothing in the air names the pause, not a landing to wait for.
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units: 0\n' >"$c/primary/.claude/planwright.local.yml"
+dispatch_print
+[ "$RC" -eq 3 ] || fail "max_parallel_units 0 must pause flights with none in the air (rc $RC)"
+printf '%s\n' "$OUT" | grep -q "^declined${TAB}0${TAB}0$" || fail "a paused bound must report 0 of 0 (out: $OUT)"
+case $(field "$OUT" reask) in
+  *"max_parallel_units"*0*) ;;
+  *) fail "a paused bound's re-ask must name the max_parallel_units 0 pause: $(field "$OUT" reask)" ;;
+esac
+[ "$(flight_branches)" -eq 0 ] || fail "a paused bound placed a flight"
+
 # --- 6. no collision --------------------------------------------------------
 new_case
 dispatch_print

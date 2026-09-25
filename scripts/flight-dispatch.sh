@@ -544,7 +544,11 @@ cmd_dispatch() {
   count_live
   if [ "$live" -ge "$bound" ]; then
     printf 'declined\t%s\t%s\n' "$live" "$bound"
-    printf 'reask\t%s\n' "$live of $bound flights are in the air for this checkout; ask again once one lands and its worktree is removed. Nothing was queued."
+    if [ "$bound" -eq 0 ]; then
+      printf 'reask\t%s\n' "Flights are paused for this checkout (max_parallel_units is 0); ask again once the bound is raised. Nothing was queued."
+    else
+      printf 'reask\t%s\n' "$live of $bound flights are in the air for this checkout; ask again once one lands and its worktree is removed. Nothing was queued."
+    fi
     exit 3
   fi
 
