@@ -568,17 +568,15 @@ parse_and_validate "$list_value"
 ids="$IDS"
 
 # An unwired point resolves no steps; a non-empty list there is reported,
-# never silently ignored (REQ-A1.3).
+# never silently ignored (REQ-A1.3). Check mode still judges the catalog
+# below, so a malformation fails it at every point.
 if [ "$unwired" -eq 1 ]; then
   if [ -n "$ids" ]; then
     warn "warning: point '$point' is not wired; its non-empty $key list (from the $list_layer layer) resolves no steps"
     [ "$check" -eq 1 ] && exit 1
   fi
-  if [ "$check" -eq 1 ] && [ "$DEGRADED" -eq 1 ]; then
-    warn "check mode: a malformation was degraded above; failing the check"
-    exit 1
-  fi
-  exit 0
+  [ "$check" -eq 1 ] || exit 0
+  ids=""
 fi
 
 # ---------------------------------------------------------------------------

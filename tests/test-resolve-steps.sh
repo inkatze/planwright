@@ -1341,6 +1341,16 @@ for order in "timed, iso, cont" "iso, cont, timed"; do
 done
 ok "REQ-C1.5: a personal list's degrade does not depend on the order of its steps"
 
+# Check mode judges the catalog at an unwired point too.
+reset_layers
+cat_entry "$tracked_cat" lint "kind: ritual" "target: p"
+capture spec-drafted --check --unattended
+[ "$RC" = 4 ]
+verdict "REQ-H1.3: check mode fails on a malformed catalog at an unwired point" "unwired check with a malformed catalog: rc=$RC err='$ERR'"
+capture spec-drafted --unattended
+[ "$RC" = 0 ] && [ -z "$OUT" ]
+verdict "an unwired point outside check mode still resolves nothing without reading the catalog" "unwired plain run: rc=$RC out='$OUT' err='$ERR'"
+
 # The --explain read failing on its own: its cause reaches stderr even after
 # the plain read warned, and a repo-tracked hard-fail keeps exit 4.
 stub="$tmp/stub"
