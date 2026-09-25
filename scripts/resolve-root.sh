@@ -30,12 +30,15 @@
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
 # CLAUDE_PLUGIN_ROOT, writer-mode, self-location) or the repo source
-# (PLANWRIGHT_REPO_ROOT, git-common-dir, show-toplevel). Printed paths are
+# (PLANWRIGHT_REPO_ROOT; git-common-dir when --primary derived the tree from
+# the common git directory; show-toplevel when git named it directly). Printed paths are
 # canonical (symlinks resolved).
 #
 # Exit: 0 printed · 1 no install root resolved · 2 usage · 3 no repository
-#   root (git missing, not inside a working tree, or a bare repository with
-#   no primary working tree) · 4 PLANWRIGHT_REPO_ROOT refused. Callers treat
+#   root (git missing, not inside a working tree, a bare repository, or a
+#   primary that cannot be named from here: a linked worktree of a separate
+#   git dir, or a core.worktree that is gone) · 4 PLANWRIGHT_REPO_ROOT
+#   refused. Callers treat
 #   3 as "no repository" and degrade; they never compose a path from an
 #   empty root.
 #
@@ -92,7 +95,7 @@ emit() {
 }
 
 canon() {
-  (cd -- "$1" 2>/dev/null && pwd -P)
+  (cd -P -- "$1" 2>/dev/null && pwd -P)
 }
 
 # try_arm <arm> <dir>: emit on a content-bearing directory, else warn and
@@ -135,7 +138,7 @@ resolve_install() {
 
 # toplevel_of <dir>: the canonical toplevel of the working tree at <dir>.
 toplevel_of() {
-  to_top=$(cd -- "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || return 1
+  to_top=$(cd -P -- "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || return 1
   [ -n "$to_top" ] || return 1
   canon "$to_top"
 }
@@ -175,40 +178,48 @@ resolve_primary() {
     emit PLANWRIGHT_REPO_ROOT "$rp_top"
   fi
 
-  rp_common=$(git rev-parse --git-common-dir 2>/dev/null) || no_repo
+  rp_common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || no_repo
   [ "$(git rev-parse --is-bare-repository 2>/dev/null)" != true ] || no_repo
   case $rp_common in
     /*) ;;
-    *) rp_common=$(pwd)/$rp_common ;;
+    *)
+      # git before 2.31 has no --path-format and prints a relative path.
+      rp_common=$(git rev-parse --git-common-dir 2>/dev/null) || no_repo
+      case $rp_common in
+        /*) ;;
+        *) rp_common=$(pwd -P)/$rp_common ;;
+      esac
+      ;;
   esac
-  [ -d "$rp_common" ] || no_primary "'$rp_common' is not reachable"
+  rp_common=$(canon "$rp_common") || no_primary "'$rp_common' is not reachable"
   [ "$(git --git-dir="$rp_common" config --bool core.bare 2>/dev/null)" != true ] || no_primary
 
-  # The primary is the configured core.worktree when there is one; else the
-  # directory holding a .git (tested before canonicalizing, so a symlinked
-  # .git keeps its owner). A git directory with neither (a separate git dir)
-  # records no primary path: only the primary itself can name it.
+  # The primary, in order: the configured core.worktree; the tree we are in,
+  # when our own git directory is the common one (the only way to name the
+  # tree of a separate git dir); the directory holding a .git. A linked
+  # worktree of a separate git dir has none of these to go on.
+  rp_src=git-common-dir
   rp_cand=$(git --git-dir="$rp_common" config core.worktree 2>/dev/null) || rp_cand=""
   case $rp_cand in
-    "") ;;
-    /*) ;;
+    "" | /*) ;;
     *) rp_cand=$rp_common/$rp_cand ;;
   esac
+  if [ -z "$rp_cand" ] && [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
+    rp_own=$(git rev-parse --absolute-git-dir 2>/dev/null) || rp_own=""
+    if [ -n "$rp_own" ] && [ "$(canon "$rp_own")" = "$rp_common" ]; then
+      rp_cand=$(git rev-parse --show-toplevel 2>/dev/null) || rp_cand=""
+      rp_src=show-toplevel
+    fi
+  fi
   if [ -z "$rp_cand" ]; then
     case $rp_common in
       */.git) rp_cand=${rp_common%/.git} ;;
-      *)
-        rp_own=$(git rev-parse --absolute-git-dir 2>/dev/null) || rp_own=""
-        if [ -n "$rp_own" ] && [ "$(canon "$rp_own")" = "$(canon "$rp_common")" ]; then
-          rp_cand=$(git rev-parse --show-toplevel 2>/dev/null) || rp_cand=""
-        fi
-        [ -n "$rp_cand" ] || no_primary "the git directory '$rp_common' is separate from its working tree and records no primary path"
-        ;;
+      *) no_primary "the git directory '$rp_common' is separate from its working tree and records no primary path" ;;
     esac
   fi
   rp_path=$(toplevel_of "$rp_cand") || no_primary "'$rp_cand' is not reachable"
   [ "$rp_path" = "$(canon "$rp_cand")" ] || no_primary "'$rp_cand' is not a working tree toplevel"
-  emit git-common-dir "$rp_path"
+  emit "$rp_src" "$rp_path"
 }
 
 resolve_checkout() {

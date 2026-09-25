@@ -417,6 +417,33 @@ assert_eq "hardening: a separate git dir's linked worktree exits 3" 3 "$rc"
 assert_contains "hardening: the separate-git-dir refusal names the case" \
   "no primary working tree" "$err"
 
+# A separate git dir named .git elsewhere is not mistaken for a sibling tree.
+mkdir -p "$tmp/store/proj"
+gitq init -q --separate-git-dir="$tmp/store/proj/.git" "$tmp/sepdot"
+gitq -C "$tmp/sepdot" -c user.name=t -c user.email=t@example.invalid \
+  commit -q --allow-empty -m init
+run in_dir "$tmp/sepdot" base "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: a separate .git-named dir answers with its own tree" "$tmp/sepdot" "$out"
+
+# From a subdirectory of a separate git dir's primary.
+mkdir -p "$tmp/sep/deeper"
+run in_dir "$tmp/sep/deeper" base "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: a separate git dir answers from a subdirectory" "$tmp/sep" "$out"
+
+# From inside the .git directory, --primary still names the tree it serves.
+run in_dir "$tmp/repo/.git" base "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: --primary from inside .git (exit)" 0 "$rc"
+assert_eq "hardening: --primary from inside .git" "$tmp/repo" "$out"
+
+# A working directory reached through a symlink resolves the real tree.
+ln -s "$tmp/repo/sub/dir" "$tmp/dir-link"
+run in_dir "$tmp/dir-link" base "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: a symlinked working directory resolves --primary" "$tmp/repo" "$out"
+mkdir -p "$tmp/phys/a" "$tmp/phys/doctrine"
+ln -s "$tmp/phys/a" "$tmp/logical-a"
+run base PLANWRIGHT_ROOT="$tmp/logical-a/.." "$SH" "$RESOLVER" install
+assert_eq "hardening: an arm through a symlink prints the directory it checked" "$tmp/phys" "$out"
+
 # An inherited GIT_DIR does not move --checkout off the working directory's
 # own toplevel.
 run in_dir "$tmp/repo/sub/dir" base GIT_DIR="$tmp/repo/.git" "$SH" "$RESOLVER" repo --checkout
