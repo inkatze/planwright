@@ -144,7 +144,8 @@ else
   fail "description does not state the boundary: never merges, never marks a PR ready, never starts a kickoff"
 fi
 
-if printf '%s\n' "$frontmatter" | grep -qE '^[[:space:]]*[0-9]+[.)][[:space:]]|^[[:space:]]*(Step|step) [0-9]'; then
+numbered_re='^[[:space:]]*[0-9]+[.)][[:space:]]|^[[:space:]]*(Step|step) [0-9]'
+if printf '%s\n' "$frontmatter" | grep -qE -- "$numbered_re"; then
   fail "description carries a numbered procedure; a selector states trigger and boundary only"
 else
   ok "description carries no numbered procedure"
@@ -475,15 +476,16 @@ else
 fi
 
 if printf '%s\n' 'the tower in v1. It never merges. cites REQ-A1.1. It routes' \
-  | grep -qE '^[[:space:]]*[0-9]+[.)][[:space:]]'; then
+  | grep -qE -- "$numbered_re"; then
   fail "probe: a version or id string is misread as a numbered procedure"
 else
   ok "probe: version and id strings are not numbered procedures"
 fi
-if printf '%s\n' '1. Take the ask' | grep -qE '^[[:space:]]*[0-9]+[.)][[:space:]]'; then
-  ok "probe: a numbered step is caught"
+if printf '%s\n' '1. Take the ask' | grep -qE -- "$numbered_re" \
+  && printf '%s\n' 'Step 2 routes it' | grep -qE -- "$numbered_re"; then
+  ok "probe: numbered and Step-N steps are caught"
 else
-  fail "probe: a numbered step escapes the check"
+  fail "probe: a numbered or Step-N step escapes the check"
 fi
 
 # shellcheck disable=SC2016
