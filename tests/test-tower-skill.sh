@@ -229,14 +229,16 @@ fi
 
 # No flight-rule flag anywhere in the file, and no backticked route-selecting
 # knob (a `word:` token naming a route or a flight rule).
-if grep -qiE -- '--(visual|instrument|vfr|ifr|specless|filed)\b' "$skill"; then
+flag_re='--(visual|instrument|vfr|ifr|specless|filed)\b'
+knob_tick_re='`[a-z_]*(route|flight|mode)[a-z_]*:'
+knob_bare_re='(flight_rules?|routing_mode|default_route|route_default)[[:space:]]*:'
+if grep -qiE -- "$flag_re" "$skill"; then
   fail "skill offers a flight-rule flag; flight rules are never a mode"
 else
   ok "no flight-rule flag is offered"
 fi
 
-if grep -qiE '`[a-z_]*(route|flight|mode)[a-z_]*:' "$skill" \
-  || grep -qiE '(flight_rules?|routing_mode|default_route|route_default)[[:space:]]*:' "$skill"; then
+if grep -qiE -- "$knob_tick_re" "$skill" || grep -qiE -- "$knob_bare_re" "$skill"; then
   fail "skill names a route-selecting config knob; v1 mints no knob (D-12)"
 else
   ok "no route-selecting config knob is named (D-12)"
@@ -482,6 +484,15 @@ if printf '%s\n' '1. Take the ask' | grep -qE '^[[:space:]]*[0-9]+[.)][[:space:]
   ok "probe: a numbered step is caught"
 else
   fail "probe: a numbered step escapes the check"
+fi
+
+# shellcheck disable=SC2016
+if printf '%s\n' 'pass --visual to skip the spec' | grep -qiE -- "$flag_re" \
+  && printf '%s\n' 'set `route_mode: visual`' | grep -qiE -- "$knob_tick_re" \
+  && printf '%s\n' 'default_route: instrument' | grep -qiE -- "$knob_bare_re"; then
+  ok "probe: a flight-rule flag and route-selecting knobs are caught"
+else
+  fail "probe: a flight-rule flag or route-selecting knob escapes the pattern"
 fi
 
 late_gloss=$(printf '%s\n\n%s\n' 'The tower routes onto visual flight or instrument flight.' 'Later: visual rules when you fly by what you can see, instrument rules when you file a plan.')
