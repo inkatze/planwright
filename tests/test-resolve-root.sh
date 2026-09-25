@@ -636,12 +636,16 @@ if command -v mise >/dev/null 2>&1; then
     PLANWRIGHT_ROOT="$tmp/override"
   assert_eq "pin set: an operator PLANWRIGHT_ROOT in the environment still wins" \
     "$tmp/override" "$out"
+
+  run mise_in "$tmp/pwrepo-wt" CLAUDE_PLUGIN_ROOT="$tmp/decoy" PLANWRIGHT_ROOT=
+  assert_eq "pin set: an empty PLANWRIGHT_ROOT is unset, so the worktree resolves itself" \
+    "$tmp/pwrepo-wt" "$out"
 elif [ -n "${CI:-}" ]; then
   echo "FAIL: mise is not on PATH in CI; the pin cannot be exercised" >&2
   failures=$((failures + 1))
 else
   echo "SKIP: mise not on PATH; the pin's mise-evaluated cases did not run" >&2
-  skips=$((skips + 3))
+  skips=$((skips + 5))
 fi
 
 if [ "$failures" -gt 0 ]; then
