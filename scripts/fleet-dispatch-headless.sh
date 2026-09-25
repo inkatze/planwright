@@ -757,13 +757,20 @@ do_run_worker() {
   # the same limit fleet-death-evidence.sh already accepts, and /orchestrate's
   # dispatch serialization plus the C1 torn-launch guard keep a retry from
   # double-dispatching into the live worktree.
+  #
+  # The trap goes in before the fork: installed after it, a TERM landing in
+  # between kills the runner by default action and orphans a worker that no
+  # longer carries anything a close can match it by.
+  r_worker=''
+  trap '[ -z "$r_worker" ] || { kill "$r_worker" 2>/dev/null; wait "$r_worker" 2>/dev/null; }; finish 143; exit 0' TERM INT
   "$ENVWRAP" "$@" <"$r_unit/prompt" >"$r_unit/result.json" 2>"$r_unit/stderr.log" &
   r_worker=$!
-  trap 'kill "$r_worker" 2>/dev/null; wait "$r_worker" 2>/dev/null; finish 143; exit 0' TERM INT
   r_rc=0
   wait "$r_worker" || r_rc=$?
-  # Clear the trap so a signal during the final write cannot double-invoke it.
-  trap - TERM INT
+  # Ignore, not reset, for the final write: the worker's own exit code is
+  # already in hand, and a TERM that interrupted the write (the default action)
+  # or re-entered the trap would record 143 over it, or nothing at all.
+  trap '' TERM INT
   finish "$r_rc"
   exit 0
 }
