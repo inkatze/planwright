@@ -274,7 +274,9 @@ router has not demonstrated (REQ-B1.6).
   floor does not yet cover a merge or ready flip through `gh api`, or the
   GitHub tools another MCP server exposes; the operator assigned closing
   them to Task 10 (tower posture extension) rather than the skill core,
-  so they are not named in bring-up. Confidence: high.
+  so they are not named in bring-up. Task 10's block does not name them
+  yet, so when the gate fires, check that its landed floor covers both.
+  Confidence: high.
   **Gate:** GATE(when: task 10 completed).
   Citations: D-14 · REQ-A1.3, REQ-G1.1, REQ-G1.4.
 
