@@ -622,6 +622,7 @@ for b in \
   planwright/demo/task-.5 \
   "planwright/demo/task-2;x" \
   planwright/a/b/task-2 \
+  planwright/flight/task-2 \
   planwright/demo/spec; do
   git -C "$repo" checkout -q main
   git -C "$repo" branch -q "$b" 2>/dev/null || true
@@ -632,6 +633,27 @@ for b in \
 done
 git -C "$repo" checkout -q main
 echo "ok: hostile / reserved branch names are clean no-ops"
+
+# 10a. A flight branch (tower-front-door D-11) parses as a flight, not as a
+#      spec named `flight`: a silent no-op, like every hook no-op, with no
+#      tasks.md write. A `specs/flight` bundle with a Task 1 is planted so a
+#      flight branch misread as spec `flight` task 1 would show as a write.
+write_spec "$repo/specs/flight"
+cp "$repo/specs/flight/tasks.md" "$tmp/pristine-flight.md"
+git -C "$repo" checkout -q main
+for fb in planwright/flight/demo-0123abcd planwright/flight/task-1; do
+  git -C "$repo" branch -q "$fb"
+  git -C "$repo" checkout -q "$fb"
+  err=$(run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" 2>&1 >/dev/null) \
+    || fail "flight branch $fb: non-zero exit"
+  [ -z "$err" ] || fail "flight branch $fb: the no-op was not silent (stderr: $err)"
+  cmp -s "$tasks" "$pristine11" || fail "flight branch $fb: tasks.md changed"
+  cmp -s "$repo/specs/flight/tasks.md" "$tmp/pristine-flight.md" \
+    || fail "flight branch $fb: read as spec 'flight' and wrote its tasks.md"
+  git -C "$repo" checkout -q main
+done
+rm -rf "$repo/specs/flight"
+echo "ok: a flight branch is recognized as a flight and is a clean no-op"
 
 # 10b. Containment: a charset-clean spec whose directory symlinks outside
 #      <primary>/specs/ is rejected by the direct CLI form.

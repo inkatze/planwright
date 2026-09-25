@@ -969,7 +969,75 @@ c25() {
   [ "$RC" -eq 3 ] || fail "c25: a live old-path checkout must read as in-flight (exit 3), got $RC"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25; do
+# c26 — the flight grammar (tower-front-door D-11): `flight` is a reserved
+# segment no dispatch may claim as a spec, and the `flight-<flight-id>`
+# worktree suffix is attachable by the same grammar path as a task suffix.
+c26() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c26.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  # A `specs/flight` directory exists so the spec-dir gate is not what refuses:
+  # the reservation is the only cause left.
+  mkdir -p "$tmp/primary/specs/flight"
+  printf 'v1\n' >"$tmp/primary/specs/flight/requirements.md"
+  # Stderr is checked too: the suffix screen would also refuse `flight-task-1`
+  # with the same exit, so only the message shows the spec screen fired.
+  _err=$("$PRIM" dispatch flight 1 --repo-root "$tmp/primary" --attach-dry-run \
+    </dev/null 2>&1 >/dev/null)
+  RC=$?
+  [ "$RC" -eq 2 ] || fail "c26: dispatch with the reserved spec 'flight' must exit 2, got $RC"
+  case $_err in
+    *"reserved spec id 'flight'"*) ;;
+    *) fail "c26: the spec screen did not name the reservation: $_err" ;;
+  esac
+  gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/flight/task-1 \
+    && fail "c26: a branch was created under the reserved segment"
+  [ ! -e "$tmp/primary/.claude/worktrees/flight-task-1" ] \
+    || fail "c26: a worktree was created for the reserved spec"
+
+  run_prim attach flight-demo-0123abcd --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: attach must accept a flight worktree suffix, got exit $RC"
+  got=$(printf '%s\n' "$OUT" | awk -F"$TAB" '$1=="attach-plan" && $2=="suffix" {print $3; exit}')
+  [ "$got" = flight-demo-0123abcd ] \
+    || fail "c26: attach plan suffix '$got' != flight-demo-0123abcd"
+
+  # A flight suffix without its uid is not a flight id, and no task grammar
+  # rescues it.
+  run_prim attach flight-demo --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: a uid-less flight suffix must be refused (exit 2), got $RC"
+  run_prim attach flight-Demo-0123abcd --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: an off-charset flight suffix must be refused (exit 2), got $RC"
+  # The ids flight-id.sh refuses are refused here too.
+  for _bad in -0123abcd -x-0123abcd demo-0123abcg demo-0123abcd9 demo-0123abc; do
+    run_prim attach "flight-$_bad" --dry-run
+    [ "$RC" -eq 2 ] || fail "c26: flight suffix for the refused id '$_bad' must exit 2, got $RC"
+  done
+
+  # The task form under the reserved spec is refused, as dispatch refuses it;
+  # a legal spec whose name merely starts with `flight-task-` is not.
+  run_prim attach flight-task-1 --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: the task suffix of the reserved spec must be refused (exit 2), got $RC"
+  run_prim attach flight-task-3.1 --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: the dotted task suffix of the reserved spec must be refused (exit 2), got $RC"
+  run_prim attach flight-task-foo-task-3 --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: spec flight-task-foo's task suffix must be attachable, got exit $RC"
+
+  # The flight id is bounded at 64 characters here as flight-id.sh bounds it.
+  slug55=$(printf 'a%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
+    21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 \
+    46 47 48 49 50 51 52 53 54 55)
+  run_prim attach "flight-$slug55-0123abcd" --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: a max-length flight id must be attachable, got exit $RC"
+  run_prim attach "flight-${slug55}a-0123abcd" --dry-run
+  [ "$RC" -eq 2 ] || fail "c26: an over-long flight id must be refused (exit 2), got $RC"
+  # Past the flight bound a suffix can still be a legal task suffix: spec
+  # `flight-<long>` with an eight-digit task id is not refused as a flight.
+  run_prim attach "flight-${slug55}-task-12345678" --dry-run
+  [ "$RC" -eq 0 ] || fail "c26: a long flight-prefixed spec's task suffix must be attachable, got exit $RC"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

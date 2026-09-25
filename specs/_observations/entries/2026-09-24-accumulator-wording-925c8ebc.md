@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] Several untouched comments and skill lines (anchor-sweep.sh, check-memory-links.sh, check-ledger.sh, migrate-status-lifecycle.sh, orchestrate and spec-kickoff skills, orchestration-modes doctrine) still say underscore-prefixed accumulators are not bundles; still true, but no longer the whole class now that specs/_flights/ is a reserved record directory.
