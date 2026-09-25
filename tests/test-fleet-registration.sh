@@ -370,6 +370,7 @@ ok b5 "a hostile handle is refused before the store"
 manifest="fleet-dispatch-worktree.sh
 fleet-dispatch-headless.sh
 fleet-streamjson.sh
+flight-dispatch.sh
 offload-dispatch.sh"
 
 for seam in $manifest; do
@@ -392,14 +393,15 @@ grep -qE 'register_dispatch .* print' "$REPO_ROOT/scripts/offload-dispatch.sh" \
 # the new seam the manifest exists to catch. So: a line that launches the
 # worker CLI in a non-interactive mode (`-p`/`--print` with an `--output-format`,
 # in either order and with flags in between), or opens a tmux window, or attaches
-# a classic tmux session. Same shape as the sibling guard in
+# a classic tmux session, or names a native `claude --worktree` launch (run or
+# printed for a human to run). Same shape as the sibling guard in
 # tests/test-dispatch-launch-pin.sh. Comment lines are stripped first: a guard
 # that quotes a launch shape in its prose is documenting one, not spawning one.
 discovered=$(for f in "$REPO_ROOT"/scripts/*.sh; do
   body=$(grep -v '^[[:space:]]*#' "$f")
   if printf '%s\n' "$body" | grep -qE -- '(^|[[:space:]])(-p|--print)([[:space:]].*)?[[:space:]]--output-format' \
     || printf '%s\n' "$body" | grep -qE -- '--output-format([[:space:]].*)?[[:space:]](-p|--print)([[:space:]]|$)' \
-    || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window'; then
+    || printf '%s\n' "$body" | grep -qE -- '--tmux=classic|tmux new-window|claude --worktree'; then
     basename "$f"
   fi
 done | sort -u)

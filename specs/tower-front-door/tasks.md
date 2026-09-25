@@ -286,6 +286,40 @@ router has not demonstrated (REQ-B1.6).
   `security-posture` (customer data, private-repository detail), and
   markup-neutralization cites `flight-rules`. Queued judgment forks are in
   the draft PR's audit record.
+- **Task 5** — review pass on the flight dispatch path paused on
+  security-zone findings (shell and argv construction, permission and
+  sandbox boundaries, egress, a destructive reconcile; recommended fixes
+  recorded, none applied). Decide each: (1) the worktree primitive's flight
+  arm treats a registered flight worktree with no tmux session as live and
+  aborts instead of force-removing it, since a print-rung worker has no
+  session; (2) `--brief` is confined to the flight's own brief under the
+  fleet home after canonicalization, with a conservative path charset, the
+  flight-id screen refuses an embedded newline, and `--continue` or
+  `--resume` is refused beside a brief; (3) `home` reports the origin host,
+  a `pr` home is declared only for an approved company host, and the tower
+  states the destination before any push; (4) the skills require the ask and
+  grounds files to be the tower's own temp files written with the file tool,
+  never through shell quoting, removed after dispatch, with the brief
+  directory cleaned when its flight retires; (5) report paths carrying
+  control bytes are refused up front; (6) invisible and bidi Unicode in the
+  ask is stripped or flagged before it reaches the brief; (7) the print-rung
+  launch runs through the dispatch environment pin; (8) the brief
+  directory's existing permissions, ownership, and symlinks are checked
+  before writing; (9) the primitive's header, its worktree-creation
+  exception note, and the tower posture's description name the flight arm,
+  and a standalone flight `attach` can hand the worker its brief. Queued
+  judgment forks are in the draft PR's audit record.
+  A second review pass added three more in the same zones (a destructive
+  cleanup and untrusted-input handling; recommended fixes recorded, none
+  applied): (10) a failed `git worktree list` reads as "no worktree", so a
+  failed placement removes the brief directory even when a worktree may
+  exist: detect the listing's failure, keep the brief, and report the
+  worktree state as unknown; (11) the grounds file is read with `cat` taking
+  the path as an argument, unlike the size and line checks, so a relative
+  name such as `-` or `-n` reads stdin or an option: read it through a
+  redirect; (12) the grounds line gets no screen for invisible or bidi
+  Unicode, the same gap as (6) on the second operator-text channel: apply
+  (6)'s decision to it.
 
 ## Deferred
 

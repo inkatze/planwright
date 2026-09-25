@@ -63,6 +63,13 @@ Evaluate the three escalation predicates against the petition: must the work
 None → the subagent rung is sufficient. Any → a rung advertising the missing
 property is required.
 
+**A flight petition** — the tower's visual-flight hand-off: an ask file, a
+kebab slug, a one-line grounds file, and the declared record home — must
+survive the tower (a flight outlives the session that dispatched it), so that
+predicate is settled. The flight path drives the tmux and print rungs only (the
+session-grade rungs survive the tower too, but are not wired for flights), so
+the choice narrows to those two; the other predicates are asked as usual.
+
 **Ask when under-determined (REQ-C1.4).** If the petition does not determine
 the predicates — and most short petitions do not — present the rung choice to
 the operator with the predicate each option buys, and do not dispatch until
@@ -129,6 +136,21 @@ By the selected rung:
 - **session-grade** (`stream-json-persistent` / `headless-oneshot`) — not
   dispatched here; hand the petition to `/orchestrate`, which owns their
   dispatch primitives.
+- **A flight petition** on the tmux or print rung — run
+  `scripts/flight-dispatch.sh dispatch <slug> --backend <rung> --ask-file
+  <file> --grounds-file <file> --home <home>` instead of `offload-dispatch.sh`: it
+  counts live flights, mints the id, writes the worker brief, places the
+  worktree, and emits the report, whose keys are its own (no `status` row;
+  the script header lists them). Exit 3 with a `declined` line is the
+  concurrency bound's decline: relay its re-ask line and dispatch nothing
+  else. Exit 3 without one is the allocation admission gate withholding the
+  flight, named on stderr. Exits 2 and 4 placed nothing. A `failed` report
+  naming a `worktree` left one holding a slot: relay it, and never re-dispatch
+  the ask, which would place a second flight. The inputs are bounded: a slug
+  matching `^[a-z0-9][a-z0-9-]*$` of at most 55 characters, grounds of one line
+  of at most 400 characters without control characters, and a non-empty ask of
+  at most 64 KiB. The flight path drives no other rung; say so and ask the
+  operator to choose tmux or print.
 
 ### 6. Report (REQ-C1.5)
 
@@ -140,7 +162,9 @@ report plus its already-sanitized stderr, surfaced verbatim — and is
 never silently dropped; a
 nonzero primitive exit with no report is itself reported as the failure.
 Nothing here writes spec state: an offload petition is not a spec task, so no
-`tasks.md` entry, PR, or dispatch marker is produced.
+`tasks.md` entry or dispatch marker is produced. A flight petition places a
+flight branch and worktree, and its worker lands a draft PR or a committed
+record; an ordinary petition produces no PR.
 
 ## Maintenance
 
