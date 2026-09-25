@@ -441,6 +441,13 @@ listed here are unaffected; "never act on a non-Active spec" is read as "never
 act on a spec that is neither Ready nor Active" under the six-status lifecycle
 (kickoff-lifecycle D-1).
 
+**Superseded-by: human-gates D-2** (2026-09-24) — the list is re-derived from a
+stated gate test and restated once in `doctrine/human-gates.md`. The merge floor
+becomes policy-bounded (human-gates REQ-D1.6); the rewrite prohibition becomes
+the never-pushed allowance and the tower force-push on request (human-gates
+REQ-F1.1, REQ-F1.2); the all-drafts rule becomes the flip policy (human-gates
+REQ-C1.1). The two spec-status rules carry forward unchanged.
+
 **Decision:** Never auto-merge; never act on a non-Active spec (no bypass flag); never
 auto-chain `/orchestrate` into `/spec-kickoff`; never force-push, amend, squash, or rebase
 (new commits only); all framework-created PRs are drafts.
