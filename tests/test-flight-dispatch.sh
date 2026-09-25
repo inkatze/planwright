@@ -243,7 +243,7 @@ printf '%s\n' "$b" | grep -q "gh pr create --draft" || fail "brief must land a d
 if printf '%s\n' "$b" | grep -Eq 'gh pr ready|gh pr merge'; then
   fail "brief must never carry a ready flip or merge command"
 fi
-for item in "quoted ask, sanitized per security-posture" "routing decision" "lens coverage" "rigor scoping" "the worker handle" "revert path" "markup-neutralized"; do
+for item in "quoted ask, sanitized per security-posture" "routing decision" "lens coverage" "a \`none\` row when its list was empty" "rigor scoping" "the worker handle" "revert path" "markup-neutralized"; do
   printf '%s\n' "$b" | grep -qi "$item" || fail "brief audit-record contract is missing '$item'"
 done
 printf '%s\n' "$b" | grep -q "an operator override included" || fail "brief does not keep the gate-wiring hard pauses"
