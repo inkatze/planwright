@@ -20,7 +20,10 @@
 #      on stdout. A probe that cannot judge (a git error, an unsearchable
 #      directory) is exit 5, never "no evidence".
 #   4. Two ids minted from the default (random) source differ.
-#   5. `branch` and `suffix` derive the names from a checked id only.
+#   5. `branch` and `suffix` derive the names from a checked id only; a
+#      malformed id is exit 2.
+#   6. The uid source's failure modes carry their documented exit codes.
+#   7. Usage errors are exit 2.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -355,15 +358,15 @@ run 0 branch demo-0123abcd
 [ "$OUT" = planwright/flight/demo-0123abcd ] || fail "branch: got [$OUT]"
 run 0 suffix demo-0123abcd
 [ "$OUT" = flight-demo-0123abcd ] || fail "suffix: got [$OUT]"
-run 1 branch 'demo-0123abcd/../x'
+run 2 branch 'demo-0123abcd/../x'
 [ -z "$OUT" ] || fail "branch on a refused id printed [$OUT]"
-run 1 suffix Demo-0123abcd
+run 2 suffix Demo-0123abcd
 [ -z "$OUT" ] || fail "suffix on a refused id printed [$OUT]"
+run 2 taken 'demo-0123abcd/../x' --repo-root "$repo"
+[ -z "$OUT" ] || fail "taken on a malformed id printed [$OUT]"
 echo "ok: branch and suffix derive from a checked id only"
 
 # 6. The uid source's own failure modes carry their documented exit codes.
-run 2 taken 'demo-0123abcd/../x' --repo-root "$repo"
-[ -z "$OUT" ] || fail "taken on a malformed id printed [$OUT]"
 export PLANWRIGHT_FLIGHT_UID_SOURCE="$tmp/does-not-exist"
 run 4 new demo --repo-root "$repo"
 [ -z "$OUT" ] || fail "a missing uid source still minted [$OUT]"

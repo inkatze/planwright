@@ -296,14 +296,14 @@ case $cmd in
   branch)
     valid_flight_id "$arg" || {
       echo "$prog: refusing to derive a branch from a malformed flight id" >&2
-      exit 1
+      exit 2
     }
     printf 'planwright/flight/%s\n' "$arg"
     ;;
   suffix)
     valid_flight_id "$arg" || {
       echo "$prog: refusing to derive a worktree suffix from a malformed flight id" >&2
-      exit 1
+      exit 2
     }
     printf 'flight-%s\n' "$arg"
     ;;
