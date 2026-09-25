@@ -386,6 +386,14 @@ gitc "$repo" branch planwright/flight/demo-0123abcd
 run 2 new demo --repo-root "$repo"
 [ -z "$OUT" ] || fail "a blank uid line was skipped over: minted [$OUT]"
 gitc "$repo" branch -D -q planwright/flight/demo-0123abcd
+# A source whose name reads as an operand (an awk assignment) is still read
+# as the file it names, never as a variable with stdin behind it.
+printf '0123abcd\n' >"$tmp/x=1"
+rc=0
+OUT=$(cd "$tmp" && PLANWRIGHT_FLIGHT_UID_SOURCE='x=1' "$SCRIPT" new other2 \
+  --repo-root "$repo" </dev/null 2>"$tmp/err") || rc=$?
+[ "$rc" -eq 0 ] && [ "$OUT" = other2-0123abcd ] \
+  || fail "a uid source named x=1: expected other2-0123abcd, got rc $rc [$OUT] — $(cat "$tmp/err")"
 unset PLANWRIGHT_FLIGHT_UID_SOURCE
 echo "ok: the uid source's failure modes are told apart by exit code"
 

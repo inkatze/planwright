@@ -42,7 +42,9 @@
 #         print the derived branch name / worktree suffix for a checked id.
 #
 # PLANWRIGHT_FLIGHT_UID_SOURCE=<file> replaces the random uid source with the
-# file's lines, tried in order (a deterministic source for tests and replays).
+# file's lines, tried in order (a deterministic source for tests and replays;
+# single-writer only, since concurrent mints read the same first free line).
+# A malformed or blank line is exit 2, never skipped.
 #
 # Exit: 0 success; 1 check failed / not taken; 2 usage error or a malformed
 # argument (nothing minted, nothing echoed); 3 every uid candidate was taken;
@@ -242,7 +244,12 @@ next_uid() {
   uid_n=$((uid_n + 1))
   if [ -n "${PLANWRIGHT_FLIGHT_UID_SOURCE:-}" ]; then
     [ "$uid_n" -le "$src_lines" ] || return 1
-    uid=$(sed -n "${uid_n}p" "$PLANWRIGHT_FLIGHT_UID_SOURCE")
+    # Read through a redirect, never as an operand: a name like `x=1` or
+    # `-n` would otherwise be an awk assignment or a sed option.
+    uid=$(sed -n "${uid_n}p" <"$PLANWRIGHT_FLIGHT_UID_SOURCE") || {
+      echo "$prog: no usable uid source (PLANWRIGHT_FLIGHT_UID_SOURCE unreadable)" >&2
+      exit 4
+    }
     valid_uid "$uid" || {
       echo "$prog: malformed uid in PLANWRIGHT_FLIGHT_UID_SOURCE (line $uid_n)" >&2
       exit 2
@@ -330,7 +337,7 @@ case $cmd in
         echo "$prog: no usable uid source (PLANWRIGHT_FLIGHT_UID_SOURCE is missing, unreadable, or empty)" >&2
         exit 4
       }
-      src_lines=$(awk 'END { print NR }' "$PLANWRIGHT_FLIGHT_UID_SOURCE")
+      src_lines=$(awk 'END { print NR }' <"$PLANWRIGHT_FLIGHT_UID_SOURCE")
     fi
     resolve_bases
     while next_uid; do
