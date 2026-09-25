@@ -11,7 +11,7 @@ backs it, so the human can review the whole record at the draft PR.
 Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
 REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 ·
 operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.5 ·
-prose-disposition D-3.
+prose-disposition D-3 · human-gates REQ-B1.1.
 
 The operational wiring is specified in [Gate Wiring](gate-wiring.md), which
 implements the buckets and principles defined here.
@@ -88,9 +88,9 @@ The agent has a single specific recommended fix and validation converged with
 high confidence, but the change warrants explicit human review. Under
 act-then-review the fix is **applied on the branch** and listed in a
 **pending-sign-off checklist** in the draft PR description (REQ-C1.3): the
-human approves by leaving it in place and rejects it at PR review with the
-revert the checklist entry names. No mid-loop prompt fires for findings outside the hard-disqualifier
-zones, which pause first.
+human approves it by the approval act [Human Gates](human-gates.md) names,
+rejecting it before that act by its checklist recipe. No mid-loop prompt
+fires for findings outside the hard-disqualifier zones, which pause first.
 
 Route here when any of these hold:
 

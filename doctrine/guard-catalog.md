@@ -125,7 +125,7 @@ has two facets:
 
 The policy the scaffold realizes — detection and proposal automated,
 approval is the human merge, publish human-gated and signed, the window
-locked, merge and publish never autonomous — is
+locked, merge and publish never crossed on the machine's own judgment — is
 [release-tagging.md](release-tagging.md);
 this entry is the builder-facing consent surface that doc's mechanism row
 (capability in core, mechanism as opt-in template, value as config) points at.

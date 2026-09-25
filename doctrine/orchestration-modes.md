@@ -4,12 +4,12 @@ The rare mode branches of `/orchestrate`, read at the branch that takes them:
 the **degradation ladder and runtime failover** (a chosen backend dying or
 proving unavailable), the **meta-tower** (`--meta`, supervising several specs
 at once), and the **fleet entry** (`--fleet`, the one obvious command).
-Every rule the tower tier holds under [Human Gates](human-gates.md) — no
-merge, no flip, no loosened invariant — holds unchanged in every mode here.
+Every tower-tier rule [Human Gates](human-gates.md) states holds in every mode
+here.
 
 Citations: orchestration-fleet REQ-B1.5, REQ-B1.6, REQ-D1.1, REQ-D1.2,
 REQ-D1.5, REQ-E1.1, REQ-E1.2, REQ-E1.5 · orchestration-fleet D-3, D-6, D-9,
-D-12, D-13.
+D-12, D-13 · human-gates REQ-D1.6.
 
 ## Degradation ladder & runtime failover (REQ-B1.5, REQ-B1.6, D-3)
 
@@ -137,13 +137,13 @@ at the fleet tier:
    it no in-memory state and **never** edits another tower's or a worker's
    branch state (REQ-D1.2 division of labor).
 
-**Autonomy and the reserved controls hold unchanged at the meta tier.**
+**Autonomy and the tower-tier rules hold unchanged at the meta tier.**
 Unattended, the meta-tower honors the autonomous-safe-decision policy exactly
 as a single tower does — no looser autonomy, no fleet-only decision category;
 every escalation routes to the owning spec's `## Awaiting input`, the one
 cross-spec decision queue a human drains. The merge floor holds at every
-tier (REQ-A1.2), and no tower flips or merges: the gates and policies are
-[Human Gates](human-gates.md)'s.
+tier (orchestration-fleet REQ-A1.2), and no tower flips or merges, as
+[Human Gates](human-gates.md) states.
 
 ## Fleet entry — the one obvious command (`--fleet`; D-9, D-12, REQ-E1.1, REQ-E1.2, REQ-E1.5)
 
@@ -247,5 +247,5 @@ what makes a new surface a renderer rather than a new execution model
 ([attention/notification capability](attention-notification-capability.md)).
 
 **Nothing else changes.** `--fleet` adds presentation, not autonomy: every
-meta-tower rule, the autonomous-safe-decision policy, and the reserved controls
+meta-tower rule, the autonomous-safe-decision policy, and the tower-tier rules
 hold exactly as written above.

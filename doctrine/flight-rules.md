@@ -74,8 +74,8 @@ reservation is the whole ceremony; there is no second confirmation.
 No override crosses a hard invariant (D-5): merge authorization stays the
 human's (REQ-G1.1), the specless path invents no shadow sign-off (REQ-G1.2), and
 pushed history, draft PRs, and the draft→ready flip follow
-[Human Gates](human-gates.md) (REQ-G1.3, REQ-G1.4). Those hold on both rules,
-overridden or not.
+[Human Gates](human-gates.md) (human-gates REQ-C1.1, REQ-F1.1, REQ-F1.2).
+Those hold on both rules, overridden or not.
 
 ### Decomposition (REQ-C1.6)
 

@@ -10,7 +10,7 @@ Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 ·
 operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 ·
 prose-disposition REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 ·
 prose-disposition D-5 · custom-steps REQ-D1.2, REQ-D1.5 · human-gates
-REQ-B1.1, REQ-B1.9 · human-gates D-3.
+REQ-B1.1, REQ-B1.9, D-3.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -99,18 +99,25 @@ A sign-off commit carries `Planwright-Sign-Off: PS-<n>` as a git trailer,
 stamped through `scripts/planwright-commit-trailers.sh`, under a plain
 conventional subject. `PS-<n>` is the branch's next free id, written once at
 commit time and never recomputed from commit order. A later commit carrying
-`Planwright-Sign-Off-Rejected: PS-<n>` rejects that one item, the recipe where
-a plain revert cannot name it (one finding of a shared commit).
+`Planwright-Sign-Off-Rejected: PS-<n>` rejects that one item where a plain
+revert cannot (one finding of a commit several findings share, or a merge
+resolution).
 
 **Branch-scoped consumption.** The trailer's sole consumer is the checklist
 regeneration below, which reads it through git's trailer parser over the PR's
-`base..head` range, never from mainline or subject text. Trailers arriving
+`base..head` range, never from mainline, and from subject text only through
+the legacy line below. Trailers arriving
 through a merge from the base were approved when their own PR merged and never
 re-enter the checklist. A trailer line never appears in a PR title; the
-PR-title lint rejects it there (`--marker title`).
+PR-title lint (`--marker title`, kept one release) rejects it there.
 
-A legacy `[pending-sign-off]` subject suffix reads as a `Planwright-Sign-Off` trailer;
-no history is rewritten and no branch is swept.
+**Merge-strategy matrix.** A squash merge folds the trailers into the squash
+body under the PR title, which must stay free of them since it becomes the
+mainline subject; a merge commit keeps them as ancestor history.
+
+A legacy `[pending-sign-off]` subject suffix counts as a `Planwright-Sign-Off` trailer
+taking the next free id; no history is rewritten and no branch is swept. Until
+the trailer helper ships, a skill writing the suffix conforms through that line.
 
 ## Pending-sign-off checklist
 
