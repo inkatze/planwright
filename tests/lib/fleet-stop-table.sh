@@ -689,10 +689,12 @@ c22() {
       ;;
     hl)
       echo "skip: [hl] c22c lock leg: the headless rung takes no lock of its own (its row of the floor's rung table)"
-      renv "$home" "$rec" -- stop "not-a-handle" >/dev/null 2>&1
-      [ $? -eq 2 ] || fail "c22c: a malformed handle must be refused (exit 2)"
       ;;
   esac
+  # A handle the rung could not have printed: a path separator is outside
+  # both grammars.
+  renv "$home" "$rec" -- stop "not/a-handle" >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "c22c: a malformed handle must be refused (exit 2)"
   renv "$home" "$rec" -- stop "$(w_name 999)" >/dev/null 2>&1
   [ $? -eq 2 ] || fail "c22c: an unknown handle must be refused (exit 2), never already-closed"
   renv "$home" "$rec" -- stop "$w" --grace 0 >/dev/null 2>&1
@@ -1112,11 +1114,54 @@ c41() {
   echo "ok: [$rung] c41 the default layout keys on the spec, refuses a symlinked state dir and a malformed handle (REQ-B1.3, REQ-B1.4)"
 }
 
-# run_table <rung> — every cell against one rung.
+# ---------------------------------------------------------------------------
+# c42: a missing close library costs `stop` and no other verb. On the headless
+#     rung `status` is a verdict channel whose exit codes callers act on, and an
+#     exit 2 there would read as a usage error rather than any verdict.
+c42() {
+  case_dirs 42
+  nolib="$tmp/$rung/scripts-nolib"
+  cp -R "$here/../scripts" "$nolib" || fail "c42: cannot copy the scripts"
+  rm -f "$nolib/fleet-stop-lib.sh"
+  case $rung in
+    sj)
+      out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" \
+        /bin/sh "$nolib/fleet-streamjson.sh" status sjw42 2>&1)
+      case $out in
+        *fleet-stop-lib*) fail "c42: status failed on the missing close library: $out" ;;
+      esac
+      out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" \
+        /bin/sh "$nolib/fleet-streamjson.sh" stop sjw42 2>&1)
+      rc=$?
+      ;;
+    hl)
+      out=$(env "${env_scrub[@]}" PLANWRIGHT_HEADLESS_STATE_DIR="$home/headless" \
+        /bin/sh "$nolib/fleet-dispatch-headless.sh" status "$SPEC" 42 2>&1)
+      [ "$out" = absent ] || fail "c42: status must still answer its verdict, got: $out"
+      out=$(env "${env_scrub[@]}" PLANWRIGHT_HEADLESS_STATE_DIR="$home/headless" \
+        PLANWRIGHT_FLEET_STATE_DIR="$home" \
+        /bin/sh "$nolib/fleet-dispatch-headless.sh" stop "$(w_name 42)" 2>&1)
+      rc=$?
+      ;;
+  esac
+  [ "$rc" = 2 ] || fail "c42: stop without its library must refuse (exit 2), got rc=$rc ($out)"
+  case $out in
+    *fleet-stop-lib*) : ;;
+    *) fail "c42: the refusal must name the missing library, got: $out" ;;
+  esac
+  echo "ok: [$rung] c42 a missing close library costs stop and no other verb"
+}
+
+# run_table <rung> — every cell against one rung. STOP_CELLS narrows the run to
+# the named cells for local debugging; a narrowed run says so, since it would
+# otherwise pass exactly as the full table does.
 run_table() {
   rung=$1
   mkdir -p "$tmp/$rung"
-  for cell in ${STOP_CELLS:-c19 c20 c21 c22 c22b c22d c22efg c23 c32 c40 c41}; do
+  if [ -n "${STOP_CELLS:-}" ]; then
+    echo "skip: [$rung] every cell but '$STOP_CELLS' (narrowed by STOP_CELLS)"
+  fi
+  for cell in ${STOP_CELLS:-c19 c20 c21 c22 c22b c22d c22efg c23 c32 c40 c41 c42}; do
     "$cell"
   done
 }
