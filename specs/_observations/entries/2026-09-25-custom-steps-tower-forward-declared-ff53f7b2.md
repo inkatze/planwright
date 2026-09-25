@@ -1,0 +1,1 @@
+- 2026-09-25 [planwright] doctrine/custom-steps.md still says `tower` is forward-declared for tower-front-door, but skills/tower/SKILL.md has since landed on main; the sentence predates the custom-steps Task 2 branch and is out of its scope.
