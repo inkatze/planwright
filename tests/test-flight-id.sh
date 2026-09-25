@@ -14,7 +14,8 @@
 #      off-grammar or over-long slug (exit 2) without minting.
 #   3. Never-reuse: `new` skips a uid whose id already has durable evidence —
 #      a local flight branch, a remote-tracking flight branch, a record file in
-#      the working tree or on main, or a placed worktree — and `taken` names
+#      the working tree or on the default branch (local or remote-tracking),
+#      or a placed worktree under the primary checkout — and `taken` names
 #      the evidence class. Exhausting every candidate is exit 3 with nothing
 #      on stdout.
 #   4. Two ids minted from the default (random) source differ.
@@ -39,7 +40,9 @@ fail() {
 [ -x "$SCRIPT" ] || fail "scripts/flight-id.sh missing or not executable"
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+# Restore permissions first: a failed assertion can exit with a fixture
+# directory still at mode 000.
+trap 'chmod -R u+rwx "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 
 gitc() {
   _r=$1
@@ -155,10 +158,8 @@ wt=$tmp/wt
 gitc "$repo" worktree add -q "$wt" -b other "$(gitc "$repo" rev-parse main~1)"
 [ ! -e "$wt/specs/_flights/demo-89abcdef.md" ] || fail "fixture: the worktree should lack the record"
 run 0 taken demo-89abcdef --repo-root "$wt"
-case $OUT in
-  *"record"*"main:specs/_flights/demo-89abcdef.md"*) ;;
-  *) fail "taken (record on main): evidence not named, got [$OUT]" ;;
-esac
+printf '%s' "$OUT" | grep -q "^evidence	record	main:specs/_flights/demo-89abcdef.md$" \
+  || fail "taken (record on main): local main not named, got [$OUT]"
 
 # 3d'. A record merged only on the remote's default branch (local main behind)
 #      is evidence, and the local copy is not misreported.
@@ -212,6 +213,14 @@ git -C "$origin" symbolic-ref HEAD refs/heads/main
 gitc "$repo" remote set-head origin -a >/dev/null 2>&1
 gitc "$repo" push -q origin :trunk
 gitc "$repo" fetch -q --prune origin
+
+# 3d5. origin/HEAD names a base the conventional list also names: it is read
+#      once, never reported twice.
+[ "$(gitc "$repo" symbolic-ref refs/remotes/origin/HEAD)" = refs/remotes/origin/main ] \
+  || fail "fixture: origin/HEAD should point at origin/main again"
+run 0 taken demo-89abcdef --repo-root "$repo"
+n=$(printf '%s' "$OUT" | grep -c "^evidence	record	origin/main:specs/_flights/demo-89abcdef.md$" || true)
+[ "$n" -eq 1 ] || fail "taken (origin/HEAD is origin/main): expected one origin/main record line, got [$OUT]"
 
 # 3e. A placed worktree takes its id even with no branch and no record.
 mkdir -p "$repo/.claude/worktrees/flight-demo-fedcba98"
@@ -271,6 +280,29 @@ else
 fi
 chmod 644 "$repo/.git/packed-refs"
 gitc "$repo" branch -D -q planwright/flight/demo-0123abcd
+# Each later probe fails closed on its own, not only the first: a git that
+# fails just one subcommand still stops the judgment.
+real_git=$(command -v git)
+mkdir -p "$tmp/fakebin"
+cat >"$tmp/fakebin/git" <<FAKE
+#!/bin/sh
+for a in "\$@"; do
+  [ "\$a" = "\$FLIGHT_TEST_FAIL_SUB" ] && exit 128
+done
+exec "$real_git" "\$@"
+FAKE
+chmod +x "$tmp/fakebin/git"
+for sub in for-each-ref ls-tree symbolic-ref; do
+  rc=0
+  OUT=$(PATH="$tmp/fakebin:$PATH" FLIGHT_TEST_FAIL_SUB=$sub "$SCRIPT" taken demo-11111111 \
+    --repo-root "$repo" 2>"$tmp/err") || rc=$?
+  case $sub in
+    # origin/HEAD is optional: an unreadable one leaves the conventional bases.
+    symbolic-ref) [ "$rc" -eq 1 ] || fail "a failed symbolic-ref: expected exit 1, got $rc" ;;
+    *) [ "$rc" -eq 5 ] || fail "a failed $sub: expected exit 5, got $rc — $(cat "$tmp/err")" ;;
+  esac
+  [ -z "$OUT" ] || fail "a failed $sub still printed evidence: [$OUT]"
+done
 printf '0123abcd\n89abcdef\nfedcba98\n' >"$tmp/uids"
 echo "ok: a git error in the evidence probe fails closed"
 
