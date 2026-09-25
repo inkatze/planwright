@@ -330,6 +330,31 @@ w_durable_ok() {
   esac
 }
 
+# w_terminated_ok <home> <rec> <handle> — a worker this close had to SIGKILL
+# still reads as terminated rather than dead. Only the headless runner has a
+# record to keep: its trap writes one when stopped gracefully, and the close
+# writes the same one when the escalation left the runner no chance to.
+w_terminated_ok() {
+  case $rung in
+    sj) : ;;
+    hl)
+      wt_out=$(renv "$1" "$2" -- status "$SPEC" "${3##*-task-}")
+      [ "$wt_out" = "completed 143" ] \
+        || fail "a unit the close had to kill must read completed 143, got: $wt_out"
+      ;;
+  esac
+}
+
+# w_partial_released — what c23's partial close releases before the attention
+# class refuses: the stream-json supervisor's leftover fifos, and nothing on the
+# headless rung, whose finished runner left no scratch and holds no process.
+w_partial_released() {
+  case $rung in
+    sj) printf 'scratch' ;;
+    hl) printf -- '-' ;;
+  esac
+}
+
 # The worker's command shape, run by nobody's state directory.
 w_decoy_args() {
   case $rung in
@@ -496,6 +521,7 @@ c20_stop() {
     || fail "c20: a worker ignoring SIGTERM must be SIGKILLed after the grace"
   wait_until 50 no_proc_under "$d" \
     || fail "c20: no process may still reference the state directory after the escalation"
+  w_terminated_ok "$home" "$rec" "$w"
 }
 
 c20() {
@@ -574,10 +600,11 @@ c21_audit() {
     awk '/^stop_self_hosted\(\)/, /^}/' "$LIB"
     awk '/^release_processes\(\)/, /^}/' "$LIB"
     awk '/^stop_match\(\)/, /^}/' "$SJ" "$FDH"
-    grep -h '^stop_pidfiles=' "$SJ" "$FDH"
+    awk '/^stop_seedfiles\(\)/, /^}/' "$FDH"
+    grep -h '^stop_pidfiles=' "$SJ"
   )
   [ -n "$audit" ] || fail "c21: the kill path was not found for the audit"
-  for want in SC_MATCH stop_seeds '_supervise' 'run-worker' 'supervisor.pid' "stop_pidfiles='pid'"; do
+  for want in SC_MATCH stop_seeds '_supervise' 'run-worker' 'supervisor.pid' "printf 'pid'"; do
     printf '%s\n' "$audit" | grep -qF -- "$want" \
       || fail "c21: the kill path must key on the state directory and its pid files (missing '$want')"
   done
@@ -608,6 +635,7 @@ c22() {
   [ "$out" = "stop $w already-closed" ] \
     || fail "c22: a repeat stop must return the distinct already-closed result, got: $out"
   [ "$before" = "$after" ] || fail "c22: a repeat stop must send no signal"
+  w_terminated_ok "$home" "$rec" "$w"
   echo "ok: [$rung] c22 a repeat close returns already-closed and signals nothing (REQ-B1.7)"
 
   # c22c, against the closed worker above: the lock class where the rung has
@@ -743,7 +771,13 @@ c22efg() {
   rc=$?
   [ "$rc" != 3 ] || fail "c22e: a recorded pid that is an ancestor must not read as a self-close: $out"
   [ "$rc" = 0 ] || fail "c22e: the close should have succeeded, got rc=$rc ($out)"
-  [ ! -e "$d/$pf" ] || fail "c22e: the close must clear the stale pid file, or the handle stays wedged"
+  # The stream-json close counts a pid file recording nothing live as residue
+  # and clears it, or the handle stays wedged; the headless close never counts
+  # it (the file is that rung's record), so nothing is left to wedge.
+  case $rung in
+    sj) [ ! -e "$d/$pf" ] || fail "c22e: the close must clear the stale pid file, or the handle stays wedged" ;;
+    hl) [ "$out" = "stop $w already-closed" ] || fail "c22e: a pid file alone holds nothing here, got: $out" ;;
+  esac
   echo "ok: [$rung] c22e a recorded pid in the closer's ancestry is not a self-close (REQ-B1.3)"
 
   # c22f: on a host whose `ps` truncates argv, a missing match is not evidence
@@ -817,10 +851,8 @@ c23() {
   rc=$?
   chmod 700 "$home/attention" || fail "c23: cannot restore the attention store"
   [ "$rc" = 6 ] || fail "c23: a partial close must report the partial exit code, got rc=$rc ($out)"
-  case $out in
-    "stop $w partial released="*" held=attention") : ;;
-    *) fail "c23: expected a partial result naming attention as held, got: $out" ;;
-  esac
+  [ "$out" = "stop $w partial released=$(w_partial_released) held=attention" ] \
+    || fail "c23: expected the released and held sets named exactly, got: $out"
   [ "$(attention_rows "$home" "$w")" != 0 ] || fail "c23: the withheld class must still be held"
   # The retry takes exactly the class still held — and is not already-closed.
   out=$(renv "$home" "$rec" -- stop "$w" --grace 2)
@@ -832,13 +864,77 @@ c23() {
   out=$(renv "$home" "$rec" -- stop "$w" --grace 2)
   [ "$out" = "stop $w already-closed" ] \
     || fail "c23: only a fully released worker reports already-closed, got: $out"
+  if [ "$rung" = hl ]; then
+    out=$(renv "$home" "$rec" -- status "$SPEC" 23)
+    [ "$out" = "completed 0" ] || fail "c23: the runner's own exit must survive the close, got: $out"
+  fi
   echo "ok: [$rung] c23 a partial close reports partial and the retry drains what is still held (REQ-A1.3, REQ-B1.7)"
+}
+
+# ---------------------------------------------------------------------------
+# c40 (REQ-B1.3, REQ-B1.7): a unit whose run already ended keeps its own record,
+#     and the pid its state still names is never a seed. The headless runner
+#     leaves its pid file behind on every normal completion, so the host is free
+#     to reissue that pid to anything, including an operator's own session.
+#     The stream-json supervisor removes its pid files when it ends, so the
+#     completed-unit leg has no counterpart there; a pid left by a crash is the
+#     pid binding the floor records as open work on both rungs.
+c40() {
+  case $rung in
+    sj)
+      echo "skip: [sj] c40 the supervisor removes its own pid files when a run ends; a crash-left pid is the floor's open pid-binding work"
+      return 0
+      ;;
+  esac
+  case_dirs 40
+  # (a) A completed unit whose recorded pid now names a live stranger.
+  w=$(w_name 40)
+  d=$(w_dir "$home" "$w")
+  printf 'done\n' >"$tmp/$rung/prompt40"
+  w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt40" "$wt" || fail "c40: launch exited non-zero"
+  wait_until 100 test -s "$d/exit" || fail "c40: the one-shot never completed"
+  sleep 120 &
+  stranger=$!
+  printf '%s\n' "$stranger" >"$d/pid"
+  out=$(renv "$home" "$rec" -- stop "$w" --grace 1)
+  rc=$?
+  kill -0 "$stranger" 2>/dev/null || fail "c40: a close signalled the stranger its stale pid file named"
+  kill "$stranger" 2>/dev/null
+  wait "$stranger" 2>/dev/null
+  [ "$rc" = 0 ] || fail "c40: stop on a finished unit should succeed, got rc=$rc ($out)"
+  [ "$out" = "stop $w already-closed" ] \
+    || fail "c40: a finished unit holds no process, got: $out"
+  out=$(renv "$home" "$rec" -- status "$SPEC" 40)
+  [ "$out" = "completed 0" ] || fail "c40: the runner's own record must survive a close, got: $out"
+  # (b) A runner that died with no record keeps its death verdict: a close that
+  #     signalled nothing has no termination to record.
+  w=$(w_name 41)
+  d=$(w_dir "$home" "$w")
+  printf 'die\n' >"$tmp/$rung/prompt41"
+  w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt41" "$wt" SHIM_SLEEP=120 \
+    || fail "c40: launch exited non-zero"
+  wait_until 100 w_up "$d" || fail "c40: the worker never came up"
+  runner=$(cat "$d/pid")
+  wrk=$(w_worker_pid "$d")
+  kid=$(first_child "$wrk")
+  kill -9 "$runner" "$wrk" ${kid:+"$kid"} 2>/dev/null
+  wait_until 100 all_gone "$runner" "$wrk" || fail "c40: the planted death did not take"
+  out=$(renv "$home" "$rec" -- status "$SPEC" 41)
+  case $out in
+    "died $runner") : ;;
+    *) fail "c40: expected the death verdict before the close, got: $out" ;;
+  esac
+  out=$(renv "$home" "$rec" -- stop "$w" --grace 1)
+  [ "$out" = "stop $w already-closed" ] || fail "c40: a dead runner holds no process, got: $out"
+  out=$(renv "$home" "$rec" -- status "$SPEC" 41)
+  [ "$out" = "died $runner" ] || fail "c40: a close must not rewrite a death as a completion, got: $out"
+  echo "ok: [$rung] c40 a finished or dead unit keeps its record and its stale pid is never signalled (REQ-B1.3, REQ-B1.7)"
 }
 
 # --- the table --------------------------------------------------------------
 for rung in sj hl; do
   mkdir -p "$tmp/$rung"
-  for cell in c19 c20 c21 c22 c22b c22d c22efg c23; do
+  for cell in ${STOP_CELLS:-c19 c20 c21 c22 c22b c22d c22efg c23 c40}; do
     "$cell"
   done
 done

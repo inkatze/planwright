@@ -119,9 +119,11 @@
 #     `fleet-streamjson.sh stop`, through the close both rungs share
 #     (scripts/fleet-stop-lib.sh): `stop <worker> stopped released=<classes>`,
 #     `stop <worker> already-closed`, or
-#     `stop <worker> partial released=<classes> held=<classes>`. A closed unit
-#     reads `completed 143` in `status`, the record the runner writes when it is
-#     terminated gracefully; a runner that already recorded an exit keeps it.
+#     `stop <worker> partial released=<classes> held=<classes>`. A unit this
+#     close terminated reads `completed 143` in `status`, the record the runner
+#     writes when it is terminated gracefully; a unit whose run had already
+#     ended keeps its own record, a `died` verdict included, and its pid file
+#     is never signalled.
 #   (run-worker is the internal detached-runner entry point, not an API.)
 #
 # Exit codes: launch 0 dispatched; 2 usage / refused input (hostile token, an
@@ -887,8 +889,18 @@ do_status() {
 
 release_classes='process scratch attention'
 
-# The runner's pid is the one this rung records; the worker is its child.
-stop_pidfiles='pid'
+# stop_seedfiles <unit-dir> — the pid files that seed the process match: the
+# runner's, and only while the unit has no completion record. The runner never
+# removes its pid file, so once a run has ended that pid names nothing of ours
+# and the host is free to reissue it to anything, an operator's own session
+# included. A live runner is found by its argv whether or not it is seeded; the
+# seed is what still finds one whose argv the host's `ps` truncates.
+stop_seedfiles() {
+  if [ -e "$1/exit" ] || [ -e "$1/finish-error" ]; then
+    return 0
+  fi
+  printf 'pid'
+}
 
 # The completion write's staging temp, and the close's own.
 scratch_patterns='exit.tmp .exit.*'
@@ -900,28 +912,36 @@ stop_match() {
   printf 'run-worker %s ' "$1"
 }
 
-# stop_process_closed <unit-dir> — once the tree is gone, record the close as a
-# completion and drop the pid file.
+# stop_process_closed <unit-dir> — once a tree this close terminated is gone,
+# record the termination the runner could not.
 #
-# The pid file has to go: it outlives the runner, and a later close would seed
-# its walk from whatever process the host reissued that pid to. But `status`
-# and the launch collision guard both read a unit with no `exit` and no `pid`
-# as a launch still in flight, so dropping it alone would make a closed unit
-# read `unknown` and refuse re-dispatch until the torn-launch window aged out.
-# Writing `exit` first keeps both honest, and 143 is what the runner itself
-# writes when it is terminated gracefully, so every closed unit reads the same
-# `completed 143` however far the escalation had to go. A record already there,
-# or a `finish-error` from a runner that finished but could not write one, is
-# the runner's own account and is left alone.
+# A runner stopped gracefully writes `exit 143` itself; one the escalation had
+# to SIGKILL writes nothing, and `status` would read that as `died`. Writing the
+# same 143 makes every unit this close terminated read `completed 143`, however
+# far the escalation went. Nothing else is written: a record already there, a
+# `finish-error` from a runner that finished but could not record it, and a
+# death that happened before this close are the run's own account, and a close
+# that signalled nothing has no termination of its own to record. The pid file
+# stays too: `status` and the launch collision guard read it, and once the unit
+# carries a record it no longer seeds a close (`stop_seedfiles`).
+#
+# A unit relaunched while this close ran is a different run, so its launch
+# marker is checked against the one the close started with.
 stop_process_closed() {
-  if [ ! -e "$1/exit" ] && [ ! -e "$1/finish-error" ]; then
-    spc_tmp=$(mktemp "$1/.exit.XXXXXX") || return 1
-    if ! { printf '143 %s\n' "$(date +%s)" >"$spc_tmp" && mv -f "$spc_tmp" "$1/exit"; }; then
-      rm -f "$spc_tmp" 2>/dev/null
-      return 1
-    fi
+  [ "$stop_signalled" = 1 ] || return 0
+  [ "$(cat "$1/launched" 2>/dev/null)" = "$t_launched" ] || return 0
+  [ ! -e "$1/exit" ] && [ ! -e "$1/finish-error" ] || return 0
+  if spc_tmp=$(mktemp "$1/.exit.XXXXXX") \
+    && printf '143 %s\n' "$(date +%s)" >"$spc_tmp" \
+    && mv -f "$spc_tmp" "$1/exit"; then
+    return 0
   fi
-  rm -rf "${1:?}/pid" 2>/dev/null || :
+  [ -z "${spc_tmp:-}" ] || rm -f "$spc_tmp" 2>/dev/null
+  # Held rather than released: the tree is gone, but a unit left with no record
+  # reads `died` and would be re-dispatched over as if it had crashed.
+  t_record_unwritten=1
+  printf '%s\n' "$me: cannot record the termination in $1/exit; the process class is left held" >&2
+  return 1
 }
 
 # stop_held / stop_release <class> <dir> <worker> <attention-store> <grace>.
@@ -930,7 +950,11 @@ stop_process_closed() {
 # permanently held, or silently released, with nothing on stderr.
 stop_held() {
   case $1 in
-    process) held_process "$2" "$(stop_match "$2")" "$stop_pidfiles" ;;
+    # No residue argument: the pid file is the run's record (see stop_seedfiles).
+    process)
+      held_process "$2" "$(stop_match "$2")" "$(stop_seedfiles "$2")" '' \
+        || [ "$t_record_unwritten" = 1 ]
+      ;;
     scratch) stop_scratch_walk "$2" probe "$scratch_patterns" ;;
     attention) held_attention "$4" "$3" ;;
     *)
@@ -942,7 +966,7 @@ stop_held() {
 
 stop_release() {
   case $1 in
-    process) release_processes "$2" "$(stop_match "$2")" "$stop_pidfiles" "$5" ;;
+    process) release_processes "$2" "$(stop_match "$2")" "$(stop_seedfiles "$2")" "$5" ;;
     scratch)
       stop_scratch_walk "$2" release "$scratch_patterns"
       ! stop_scratch_walk "$2" probe "$scratch_patterns"
@@ -1006,7 +1030,9 @@ do_stop() {
   # path-escape guard the launch's reclaim does.
   guard_unit_containment "$unit_base" "$unit_dir" "$unit_root" "$unit_spec_dir"
   stop_refuse_self_hosted "$unit_dir" "$(stop_match "$unit_dir")" \
-    "$stop_pidfiles" "$t_worker"
+    "$(stop_seedfiles "$unit_dir")" "$t_worker"
+  t_launched=$(cat "$unit_dir/launched" 2>/dev/null) || t_launched=''
+  t_record_unwritten=0
   t_root=$(/bin/sh "$FS" root) || exit 2
   stop_walk "$unit_dir" "$t_worker" "$t_root/attention/state" "$t_grace"
 }

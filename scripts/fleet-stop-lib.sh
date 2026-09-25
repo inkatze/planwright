@@ -21,10 +21,13 @@
 #                        released; the process arms call held_process and
 #                        release_processes below
 #   stop_process_closed <dir>
-#                        what the rung does once its tree is confirmed gone:
-#                        at least clear the pid files, since a recorded pid
-#                        outlives its process and a later close would seed
-#                        its walk from whatever the host reissued it to
+#                        what the rung does once its tree is confirmed gone,
+#                        with `stop_signalled` set to 1 when this close sent the
+#                        signals rather than finding the tree already gone. A
+#                        rung whose pid files seed the walk must stop them doing
+#                        so here: a recorded pid outlives its process, and a
+#                        later close would seed its walk from whatever the host
+#                        reissued it to
 #
 # THE MATCH. A process belongs to the worker when its argv carries the rung's
 # own re-exec marker for the worker's state directory (<match>), when a pid file
@@ -387,6 +390,9 @@ release_processes() {
     stop_process_closed "$1"
     return
   fi
+  # What `stop_process_closed` reads to tell a tree this close terminated from
+  # one that was already gone.
+  stop_signalled=1
   for rp_sig in TERM KILL; do
     for rp_p in $stop_tracked; do
       kill "-$rp_sig" "$rp_p" 2>/dev/null || :
@@ -415,7 +421,8 @@ release_processes() {
   return 1
 }
 
-# held_process <dir> <match> <pidfiles>.
+# held_process <dir> <match> <pidfiles> [<residue>] — <residue> names the pid
+# files whose mere presence holds the class, and defaults to <pidfiles>.
 held_process() {
   hp_found=$(stop_candidates "$1" "$2" "$3") || return 0
   [ -n "$(stop_live "$stop_tracked $hp_found")" ] && return 0
@@ -423,7 +430,7 @@ held_process() {
   # close has to reach it: a re-exec killed before its own cleanup leaves the
   # file behind, and once the host reuses that pid the rung refuses the handle
   # as already running with nothing able to clear it.
-  for hp_f in $3; do
+  for hp_f in ${4-$3}; do
     [ -e "$1/$hp_f" ] && return 0
   done
   return 1
@@ -485,6 +492,8 @@ stop_refuse_self_hosted() {
 # only what remains.
 stop_walk() {
   stop_tracked=''
+  # shellcheck disable=SC2034 # read by the rung's stop_process_closed
+  stop_signalled=0
   st_released=''
   st_held=''
   for st_class in $release_classes; do

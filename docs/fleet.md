@@ -712,9 +712,12 @@ codes, and the same refusals, because both verbs run one shared close
 acquires. The headless runner takes no lock of its own, so its release set is
 the process tree, the completion write's staging temp, and the attention
 record; the prompt, the captured result, and `stderr.log` are the run's record
-and are kept. A closed headless unit reads `completed 143` in `status`, the
-record the runner writes when it is terminated gracefully, so a re-dispatch
-reclaims it like any finished unit.
+and are kept. A unit the close terminated reads `completed 143` in `status`,
+the record the runner writes when it is terminated gracefully, so a
+re-dispatch reclaims it like any finished unit. A unit whose run had already
+ended keeps its own record, a `died` verdict included: the runner leaves its
+pid file behind when it finishes, so once a unit carries a record that pid is
+never signalled.
 
 The two session-grade rungs, verb by verb:
 
