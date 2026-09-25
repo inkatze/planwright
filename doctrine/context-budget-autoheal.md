@@ -143,8 +143,7 @@ the fresh tower:
 
 The handover changes which session is orchestrating; it changes nothing about what
 a tower may do. The fresh tower inherits every rule [Human Gates](human-gates.md)
-states for the tower tier — no merge, no flip, a force-push only on the operator's
-explicit request — and operates under the same
+states for the tower tier and operates under the same
 [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md) as any unattended
 tower (orchestration-fleet REQ-A1.2). Auto-heal is a resilience mechanism beneath
 the autonomy ceiling, never a loophole through it: no number of handovers promotes

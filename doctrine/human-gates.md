@@ -6,9 +6,10 @@ list: every skill, profile, guard, and doc restates it by citing this doc, and
 a copy that diverges from it is a defect.
 
 Citations: human-gates REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5,
-REQ-B1.1, REQ-C1.1, REQ-D1.1, REQ-D1.6, REQ-E1.1, REQ-F1.1, REQ-F1.2,
-REQ-F1.4, REQ-F1.5 · human-gates D-1, D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10 ·
-supersedes bootstrap D-26 (scoped), bootstrap REQ-J1.1, bootstrap REQ-J1.4.
+REQ-B1.1, REQ-C1.1, REQ-C1.5, REQ-C1.6, REQ-D1.1, REQ-D1.2, REQ-D1.4, REQ-D1.5,
+REQ-D1.6, REQ-D1.7, REQ-E1.1, REQ-E1.2, REQ-F1.1, REQ-F1.2, REQ-F1.4, REQ-F1.5 ·
+human-gates D-1, D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14 · supersedes
+bootstrap D-26 (scoped), bootstrap REQ-J1.1, bootstrap REQ-J1.4.
 
 ## The gate test
 
@@ -50,8 +51,8 @@ No agent merges outside a policy the human configured, and no value exists
 under which an agent merges a PR carrying a sign-off item. The tower profile,
 which the orchestrator tier runs under, keeps its flip, PR-merge, and
 base-merge denies under every value. Pushed history stays append-only outside
-the force-push and secret-purge rows of the list. A doc stating this floor cites this section; it
-does not restate an unconditional never.
+the force-push and secret-purge rows of the list. A doc stating this floor
+cites this section; it does not restate an unconditional never.
 
 ## The approval act
 
@@ -61,8 +62,8 @@ the merge itself under `merge_policy: human`; enabling auto-merge under
 author's, an approving review with auto-merge enabled). A PR carrying a
 sign-off item never enters a `policy-class`, so it always reaches one of
 those two acts. The draft→ready flip approves nothing: it moves a PR in front
-of reviewers and is one `gh pr ready --undo` from reversed. The checklist mechanics live
-in [Gate Wiring](gate-wiring.md).
+of reviewers and is one `gh pr ready --undo` from reversed. The checklist
+mechanics live in [Gate Wiring](gate-wiring.md).
 
 ## Carried forward and superseded
 

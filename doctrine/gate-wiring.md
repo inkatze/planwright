@@ -107,18 +107,19 @@ resolution).
 **Branch-scoped consumption.** The trailer's sole consumer is the checklist
 regeneration below, which reads it through git's trailer parser over the PR's
 `base..head` range, never from mainline, and from subject text only through
-the legacy line below. Trailers arriving
-through a merge from the base were approved when their own PR merged and never
-re-enter the checklist. A trailer line never appears in a PR title; the
-PR-title lint (`--marker title`, kept one release) rejects it there.
+the legacy line below. Trailers arriving through a merge from the base were
+approved when their own PR merged and never re-enter the checklist. A trailer
+line never appears in a PR title; the PR-title lint (`--marker title`, kept one
+release) rejects it there.
 
 **Merge-strategy matrix.** A squash merge folds the trailers into the squash
 body under the PR title, which must stay free of them since it becomes the
-mainline subject; a merge commit keeps them as ancestor history.
+mainline subject; a merge commit keeps them as ancestor history; a rebase
+merge lands them on mainline, unread.
 
-A legacy `[pending-sign-off]` subject suffix counts as a `Planwright-Sign-Off` trailer
-taking the next free id; no history is rewritten and no branch is swept. Until
-the trailer helper ships, a skill writing the suffix conforms through that line.
+A legacy `[pending-sign-off]` subject suffix counts as a `Planwright-Sign-Off` trailer;
+no history is rewritten and no branch is swept. Until the trailer helper ships,
+a skill writing the suffix conforms through that line.
 
 ## Pending-sign-off checklist
 

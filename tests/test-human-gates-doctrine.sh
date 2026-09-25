@@ -136,6 +136,11 @@ for f in "$DOC" "$REPO_ROOT/doctrine/finding-categorization.md"; do
     fail "$(basename "$f") does not state the flip approves nothing"
   fi
 done
+if tr '\n' ' ' <"$REPO_ROOT/doctrine/gate-wiring.md" | grep -q 'never by the  *draft→ready  *flip'; then
+  ok "gate-wiring states the checklist is never approved by the flip"
+else
+  fail "gate-wiring does not state the checklist is never approved by the flip"
+fi
 if grep -q 'Planwright-Sign-Off-Rejected: PS-<n>' "$REPO_ROOT/doctrine/gate-wiring.md"; then
   ok "gate-wiring states the rejected-trailer rule"
 else
@@ -174,6 +179,25 @@ if req_bullet REQ-J1.4 | grep -q '\*\*Superseded-by: REQ-F1.1, REQ-F1.2, REQ-C1.
 else
   fail "bootstrap REQ-J1.4 lacks its human-gates pointer"
 fi
+
+# The pointed records' bodies are unedited: their text up to the pointer (or,
+# for D-26, from the Decision line on) matches the checksum taken before the
+# pointers landed.
+body_sum() { cksum | awk '{ print $1 }'; }
+req_body() {
+  awk -v id="$1" '
+    index($0, "- **" id "**") == 1 { on = 1 }
+    on && /\*\*Superseded-by:|Cites/ { exit }
+    on { print }
+  ' "$BOOT/requirements.md"
+}
+check "bootstrap REQ-J1.1's body is unedited" "$(req_body REQ-J1.1 | body_sum)" 275188903 \
+  "bootstrap REQ-J1.1's body changed"
+check "bootstrap REQ-J1.4's body is unedited" "$(req_body REQ-J1.4 | body_sum)" 29303271 \
+  "bootstrap REQ-J1.4's body changed"
+d26body=$(printf '%s\n' "$d26" | awk '/^\*\*Decision:\*\*/ { d = 1 } d' | body_sum)
+check "bootstrap D-26's body is unedited" "$d26body" 3015923973 \
+  "bootstrap D-26's body changed"
 
 if grep -q '^### D-2:' "$HG/design.md"; then
   ok "pointer target human-gates D-2 resolves"
@@ -242,10 +266,13 @@ fi
 check "gate-wiring carries exactly one legacy-marker mapping line" "$mapcount" 1 \
   "gate-wiring carries $mapcount legacy-marker mapping lines, expected 1"
 
-# Every doctrine doc that states the merge floor cites the doc that owns it.
+# Every doctrine doc that states the merge floor or the merge policy cites the
+# doc that owns it.
+floor_docs=0
 for f in "$REPO_ROOT"/doctrine/*.md; do
   case "$f" in */README.md | */human-gates.md) continue ;; esac
-  if tr '\n' ' ' <"$f" | grep -q -i 'merge floor'; then
+  if tr '\n' ' ' <"$f" | grep -q -i -E 'merge floor|merge policy'; then
+    floor_docs=$((floor_docs + 1))
     if grep -q '(human-gates\.md)' "$f"; then
       ok "$(basename "$f") cites human-gates where it states the merge floor"
     else
@@ -253,6 +280,7 @@ for f in "$REPO_ROOT"/doctrine/*.md; do
     fi
   fi
 done
+[ "$floor_docs" -gt 0 ] || fail "no doctrine doc states the merge floor, so the citation check ran on nothing"
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
