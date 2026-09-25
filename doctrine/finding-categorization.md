@@ -27,11 +27,11 @@ finding lands in must match the kind of question it actually poses.
 ## The gate: act then review
 
 The gate is exception-based and identical in every repository (REQ-C1.3).
-Findings are applied on the branch with audit and evidence rows; nothing
-reaches a reviewer before the author flips the draft PR to ready, and every
-on-branch application is one revert from undone. The author's draft→ready flip
-is the universal review gate. There is no repository classification and no
-per-finding permission prompt (D-5, D-6).
+Findings are applied on the branch with audit and evidence rows, and every
+on-branch application is one revert from undone until the human's approval
+act on the PR, which [Human Gates](human-gates.md) names; the draft→ready flip
+approves nothing. There is no repository classification and no per-finding
+permission prompt (D-5, D-6).
 
 The intervention contract, in full, has two routes: a sign-off request (the
 spec before execution; the draft PR and its pending-sign-off checklist after

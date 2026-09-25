@@ -14,10 +14,10 @@ already relies on, triggered by a context-budget signal instead of by a human*.
 Citations: orchestration-fleet REQ-C1.1 (monitor the budget, surface the
 near-limit), orchestration-fleet REQ-C1.2 (auto-heal handover), orchestration-fleet
 REQ-C1.4 (the handover preserves the sibling state-safety contract),
-orchestration-fleet REQ-A1.2 (the never-auto-merge floor holds across the
-handover) · orchestration-fleet D-4 (extends bootstrap D-7 disposable towers; the
-handover launch relates to bootstrap D-38 dispatch). The unattended fresh tower
-operates under the
+orchestration-fleet REQ-A1.2 (the merge floor holds across the handover) ·
+orchestration-fleet D-4 (extends bootstrap D-7 disposable towers; the handover
+launch relates to bootstrap D-38 dispatch) · human-gates REQ-D1.6. The
+unattended fresh tower operates under the
 [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md).
 
 ## The budget signal: a completed-step-count proxy
@@ -139,11 +139,12 @@ the fresh tower:
   reconciling) is safe precisely because the lock and the derived projection make
   concurrent readers race-free.
 
-## The floor holds: never auto-merge
+## The floor holds across the handover
 
 The handover changes which session is orchestrating; it changes nothing about what
-a tower may do. The fresh tower inherits every invariant — never auto-merge, never
-force-push, never mark a PR ready — and operates under the same
+a tower may do. The fresh tower inherits every rule [Human Gates](human-gates.md)
+states for the tower tier — no merge, no flip, a force-push only on the operator's
+explicit request — and operates under the same
 [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md) as any unattended
 tower (orchestration-fleet REQ-A1.2). Auto-heal is a resilience mechanism beneath
 the autonomy ceiling, never a loophole through it: no number of handovers promotes

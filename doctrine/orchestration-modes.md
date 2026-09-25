@@ -4,9 +4,8 @@ The rare mode branches of `/orchestrate`, read at the branch that takes them:
 the **degradation ladder and runtime failover** (a chosen backend dying or
 proving unavailable), the **meta-tower** (`--meta`, supervising several specs
 at once), and the **fleet entry** (`--fleet`, the one obvious command).
-Every invariant in the skill's always-loaded core — never merge, never mark
-ready, never loosen an invariant at any tier — holds unchanged in every mode
-described here.
+Every rule the tower tier holds under [Human Gates](human-gates.md) — no
+merge, no flip, no loosened invariant — holds unchanged in every mode here.
 
 Citations: orchestration-fleet REQ-B1.5, REQ-B1.6, REQ-D1.1, REQ-D1.2,
 REQ-D1.5, REQ-E1.1, REQ-E1.2, REQ-E1.5 · orchestration-fleet D-3, D-6, D-9,
@@ -64,13 +63,13 @@ The governing rule is **degrade capability, never safety**: a descent
 guard-preserving target is non-interactive (never strand an unattended run)
 and not spawn-deferred (never the manual `print` rung) — the two advertised
 properties whose loss would take the worker off planwright's driven, guarded
-path and drop a named guard (worker-settings deny, never-auto-merge,
-never-force-push, the freshness gate). When no safe rung remains below — the
+path and drop a named guard (worker-settings deny, the merge floor, the
+force-push gate, the freshness gate). When no safe rung remains below — the
 terminal-rung fatal crash, or a descent whose only lower candidates would
 drop a guard — `failover` **escalates** (exit 3) with the reason rather than
 descending; a record-write failure likewise aborts (exit 3) rather than
-proceeding unrecorded. Surface the escalation and stop; never auto-merge and
-never drop a guard to keep a run alive.
+proceeding unrecorded. Surface the escalation and stop; never merge and never
+drop a guard to keep a run alive.
 
 ## Meta-tower — tower of towers (REQ-D1.1, REQ-D1.5, D-6)
 
@@ -142,9 +141,9 @@ at the fleet tier:
 Unattended, the meta-tower honors the autonomous-safe-decision policy exactly
 as a single tower does — no looser autonomy, no fleet-only decision category;
 every escalation routes to the owning spec's `## Awaiting input`, the one
-cross-spec decision queue a human drains. Never-auto-merge holds at every
-tier (REQ-A1.2): the meta-tower and every subordinate create draft PRs only;
-the draft→ready flip and the merge stay the human's two reserved controls.
+cross-spec decision queue a human drains. The merge floor holds at every
+tier (REQ-A1.2), and no tower flips or merges: the gates and policies are
+[Human Gates](human-gates.md)'s.
 
 ## Fleet entry — the one obvious command (`--fleet`; D-9, D-12, REQ-E1.1, REQ-E1.2, REQ-E1.5)
 

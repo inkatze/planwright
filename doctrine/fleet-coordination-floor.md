@@ -112,8 +112,8 @@ What the floor means in practice:
   deterministic script logic on structured signals, bound by the
   no-LLM-daemon-mechanics invariant above and by positive evidence of death
   (`scripts/fleet-death-evidence.sh`) — and nothing about assuming
-  multiplicity re-opens auto-merge, autonomous PR-ready marking, or the
-  tower non-authoring boundary.
+  multiplicity loosens a gate or policy [Human Gates](human-gates.md)
+  states, or the tower non-authoring boundary.
 
 ## The deterministic-attention floor
 

@@ -9,7 +9,8 @@ a bucket, predicate, or zone, the categorization doctrine's definition governs.
 Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 ·
 operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 ·
 prose-disposition REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 ·
-prose-disposition D-5 · custom-steps REQ-D1.2, REQ-D1.5.
+prose-disposition D-5 · custom-steps REQ-D1.2, REQ-D1.5 · human-gates
+REQ-B1.1, REQ-B1.9 · human-gates D-3.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -59,10 +60,10 @@ There is no silent drop.
 
 ## Commit discipline
 
-Commit granularity is part of the contract; history is never rewritten (new
-commits only). A **loop iteration** is one act-then-review cycle: the pass
-that discovers, validates, and dispositions a set of findings, closing when
-the next review pass opens.
+Commit granularity is part of the contract, and the loop adds commits rather
+than reshaping them ([Human Gates](human-gates.md)). A **loop iteration** is
+one act-then-review cycle: the pass that discovers, validates, and
+dispositions a set of findings, closing when the next review pass opens.
 
 - **A Needs-sign-off fix that changes code behaviour commits on its own**, so
   `git revert <sha>` undoes exactly one finding. A fix that edits code and
@@ -72,8 +73,8 @@ the next review pass opens.
   hand edit the manifest guides: the per-finding revert guarantee earns its
   cost for behaviour, where a partial revert can break things, and not for
   wording.
-- Both sign-off shapes end their subject with the `[pending-sign-off]`
-  marker, stamped once on a batch, so the branch itself identifies them.
+- Both sign-off shapes carry the sign-off trailer below, stamped once on a
+  batch, so the branch itself identifies them.
 - **Auto-applicable and Agent-resolvable items may batch** into one commit
   per loop iteration; their audit rows record the commit they landed in.
   Declared scoping (per [Proportionality](proportionality.md)): not pending a
@@ -92,48 +93,33 @@ rule as it reads after.
   API is a research trigger
 ```
 
-## The `[pending-sign-off]` marker
+## The `Planwright-Sign-Off` trailer
 
-**Canonical placement (REQ-C1.1).** The marker sits at the very end of the
-subject, after the conventional prefix and description:
+A sign-off commit carries `Planwright-Sign-Off: PS-<n>` as a git trailer,
+stamped through `scripts/planwright-commit-trailers.sh`, under a plain
+conventional subject. `PS-<n>` is the branch's next free id, written once at
+commit time and never recomputed from commit order. A later commit carrying
+`Planwright-Sign-Off-Rejected: PS-<n>` rejects that one item, the recipe where
+a plain revert cannot name it (one finding of a shared commit).
 
-```text
-type(scope): description [pending-sign-off]
-```
+**Branch-scoped consumption.** The trailer's sole consumer is the checklist
+regeneration below, which reads it through git's trailer parser over the PR's
+`base..head` range, never from mainline or subject text. Trailers arriving
+through a merge from the base were approved when their own PR merged and never
+re-enter the checklist. A trailer line never appears in a PR title; the
+PR-title lint rejects it there (`--marker title`).
 
-A pre-prefix or mid-subject marker breaks the conventional format or slips the
-format check.
-
-**Emit-time guard (REQ-C1.3), not range-time.** A skill writing a marked
-commit self-lints the subject before committing, while it can still reword —
-`printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin` —
-requiring the canonical placement (misplaced and duplicate markers fail) on
-top of the conventional check. It is deliberately *not* wired
-into the CI commit-range lint (history is never rewritten); that range lint
-stays marker-agnostic.
-
-**Branch-scoped consumption (REQ-C1.4).** The marker is meaningful only on the
-PR branch. Its sole consumer is the pending-sign-off checklist regeneration
-(below), which rebuilds from the `[pending-sign-off]`-marked commits in the
-PR's `base..head` range, never from mainline. Markers arriving through a merge
-from the base were approved when their own PR merged and never re-enter the
-checklist. The marker must never appear in the **PR title** (it becomes the
-squash-merge subject, landing on mainline); the PR-title lint rejects it there
-(`--marker title`).
-
-**Merge-strategy matrix.** Where marked subjects end up: a squash merge, the sanctioned one,
-concatenates them into the squash body as relic text under a clean PR title;
-a merge commit keeps them as ancestor history, an accurate record, under a
-clean merge subject; rebase-merge would land them on mainline and is
-forbidden framework-wide, excluded by invariant rather than handled.
+A legacy `[pending-sign-off]` subject suffix reads as a `Planwright-Sign-Off` trailer;
+no history is rewritten and no branch is swept.
 
 ## Pending-sign-off checklist
 
 The canonical format for the draft PR description (REQ-C1.3). Generated, not
 hand-edited; a loop exit regenerates the whole section in place, so re-runs
-never duplicate entries. It rebuilds from the branch per the marker's
-branch-scoped consumption, minus any commit a revert in the same range undid,
-never from a side state file.
+never duplicate entries. It rebuilds from the trailers, minus any commit a
+revert in the same range undid (paired by git's `This reverts commit <sha>`
+body line) and any item a rejected trailer names, never from a side state
+file. A range it cannot resolve fails by name, never as an empty checklist.
 
 ```markdown
 ## Pending sign-off
@@ -143,13 +129,12 @@ never from a side state file.
   - Reject with: `git revert <sha>`
 ```
 
-- IDs are `PS-<n>`, a pure function of the branch: every
-  `[pending-sign-off]` commit in the range is numbered in commit order,
-  *including* commits a later revert undid (a reverted item drops out of the
-  rendered checklist but keeps its number as a gap). IDs are thus stable
-  across regenerations and never reused, with no side state persisted.
-- The operative semantics are the doctrine's; the checkbox is a reading aid
-  for review progress, not the approval mechanism.
+- IDs are the trailer values, so they are stable across regenerations and
+  never reused: a reverted or rejected item drops out of the rendered
+  checklist and its number stays a gap.
+- The checkbox is a reading aid, not the approval: the human approves every
+  item by the approval act [Human Gates](human-gates.md) names, never by the
+  draft→ready flip, and rejects one before that act by its recipe.
 - An empty checklist still emits, with a single `none` row.
 
 A batched prose commit renders as **one entry with one sub-item per manifest
