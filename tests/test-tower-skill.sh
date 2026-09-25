@@ -289,13 +289,13 @@ else
 fi
 
 # No sentence may tell the agent to run or start the kickoff. A clause is the
-# text between sentence boundaries; one carrying "never" or "not" before the
-# verb is a prohibition and is allowed.
+# text between sentence boundaries; one whose "never", "not", or "no" governs
+# the verb (at most one word between) is a prohibition and is allowed.
 # shellcheck disable=SC2016
 kickoff_run_sentence() { # kickoff_run_sentence <text>: prints the offending clause, or nothing
   printf '%s\n' "$1" | tr ';' '.' | tr '.' '\n' \
-    | grep -iE '(invoke|run|start|dispatch|relay|launch|hand)(e?s|ed)? (off )?(the kickoff|`?/spec-kickoff)' \
-    | grep -viE '(never|not|no)\** [a-z* ]*(invoke|run|start|dispatch|relay|launch|hand)' | head -1
+    | grep -iE '(invoke|run|start|dispatch|relay|launch|hand)(e?s|ed|n?ing)? (off )?(the kickoff|`?/spec-kickoff)' \
+    | grep -viE '(^|[^a-z])(never|not|no)\** ([a-z]+ )?(invoke|run|start|dispatch|relay|launch|hand)' | head -1
 }
 kickoff_run=$(kickoff_run_sentence "$flat")
 if [ -n "$kickoff_run" ]; then
@@ -457,6 +457,15 @@ if [ -n "$(kickoff_run_sentence 'On a yes, the tower dispatches `/spec-kickoff s
 else
   fail "probe: a sentence dispatching the kickoff escapes the check"
 fi
+for kickoff_probe in 'the tower does not wait and runs the kickoff' \
+  'the tower is starting the kickoff' \
+  'with no objection the tower starts the kickoff'; do
+  if [ -n "$(kickoff_run_sentence "$kickoff_probe")" ]; then
+    ok "probe: a kickoff run past an unrelated negation or in -ing form is caught: '$kickoff_probe'"
+  else
+    fail "probe: a kickoff run escapes the check: '$kickoff_probe'"
+  fi
+done
 if [ -n "$(kickoff_run_sentence 'this step is the fallback that runs it; the tower never runs it on the operator behalf')" ]; then
   fail "probe: a prohibition or an unrelated 'runs it' is misread as running the kickoff"
 else
