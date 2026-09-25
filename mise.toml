@@ -188,6 +188,11 @@ run = "/bin/bash scripts/check-cdpath.sh"
 [tasks."check:echo-safety"]
 description = "printf-not-echo guard over sanitized output: fail on a shell file under scripts/, tests/, or githooks/ that passes `sanitize_printable` output through `echo`, directly or through a variable, into the printf FORMAT operand, or to a printf `%b` (dash re-expands the backslash escape TEXT the sanitizer legitimately preserves, handing the terminal to whoever authored the input); enumerates by shebang or .sh suffix, keys on the sanitizer family rather than one function name, exempts bash-shebang files only (zsh and ksh expand escapes too) and a shrinking allowlist of paths open in other PRs, and fails closed on anything that would narrow the scan or on a stale allowlist entry"
 run = "/bin/bash scripts/check-echo-safety.sh"
+
+[tasks."check:task-registration"]
+description = "task-registration check: every check:/lint:/scan: task in this mise.toml must be reachable from the `check` aggregate through depends/depends_post (wildcards expanded; wait_for only orders a task already scheduled, so it is not an edge), so no guard task is discoverable only by reading CI logs. The complement of check:guard-wiring one level up: that one asks whether each check-*.sh script is run by something, this one whether each guard task is part of the gate. Parse boundary: mise.toml only, read as text; a name in a description, comment, or run body is not an edge. Fails closed on a missing or unreadable file, a zero-task parse, no `check` task, zero namespaced tasks, or a tasks header outside the parsed form (a bare [tasks] table, an array of tables) (guard-coverage Task 11, REQ-H1.2, REQ-H1.3, D-13)"
+run = "/bin/sh scripts/check-task-registration.sh"
+
 [tasks."check:test-time"]
 description = "test wall-clock budget gate: reads the per-file timing report scripts/run-tests.sh persisted (never re-runs the suite; the depends edge orders it after `test`) and compares it against config/test-time-budget.yml; measured >= budget trips, hard-failing on GitHub Actions and warning loudly elsewhere; fails closed on a missing, empty, malformed, or stale report, or a discovered test file with no entry (guard-coverage Task 7, REQ-E1.1, REQ-H1.3, D-8)"
 depends = ["test"]
@@ -243,6 +248,7 @@ depends = [
   "check:doctrine-manifest",
   "check:cdpath",
   "check:echo-safety",
+  "check:task-registration",
   "check:guard-wiring",
   "check:sidedness",
   "check:backend-capability-drift",
