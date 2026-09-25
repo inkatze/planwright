@@ -22,7 +22,7 @@
 #     fleet task-type keys whose downstream contract has no ambient value;
 #   - enum validation across all three columns and the by-layer malformed
 #     policy (REQ-A1.4), including the command enum's closed set carrying
-#     review-sequence disjointness by construction;
+#     step-target disjointness by construction;
 #   - determinism, zero outbound client invocations, all-or-nothing `list`,
 #     broken-install exit 5, sanitized refusals, and repo-drift against the
 #     shipped config/defaults.yml.
@@ -411,25 +411,42 @@ for kv in "allocation_model_execution: gpt-5" \
 done
 echo "ok: every column's enum is validated under the by-layer policy"
 
-# 7b. The command enum's closed set carries review-sequence disjointness by
-#     CONSTRUCTION (REQ-A1.4): every command the generalized table can emit
-#     fails the nestable-review-skill predicate, and the predicate is proven
-#     non-vacuous against the shipped `polish` skill.
+# 7b. The command enum's closed set carries step-target disjointness by
+#     CONSTRUCTION (REQ-A1.4): every command the generalized table can emit is
+#     on the pipeline-entry list doctrine/custom-steps.md owns, which the step
+#     resolver (scripts/resolve-steps.sh) refuses as a step target
+#     (custom-steps REQ-C1.8), so no dispatch entry can be declared as a step.
 reset_layers
-skills_root="$here/../skills"
-[ -d "$skills_root" ] || fail "skills root not found at $skills_root"
-grep -Eq '^argument-hint:.*--nested' "$skills_root/polish/SKILL.md" \
-  || fail "cross-check sanity: the shipped polish skill no longer declares --nested (predicate drifted?)"
+pipeline=$(sed -n 's/^pipeline-entry: //p' "$here/../doctrine/custom-steps.md")
+[ -n "$pipeline" ] || fail "cross-check sanity: doctrine/custom-steps.md carries no pipeline-entry line"
 listing=$(run list) || fail "list exited nonzero"
 commands=$(printf '%s\n' "$listing" | cut -f4 | grep -v '^-$' | sort -u)
 [ -n "$commands" ] || fail "list emitted no command values to cross-check"
 for c in $commands; do
-  skill_md="$skills_root/$c/SKILL.md"
-  if [ -f "$skill_md" ] && grep -Eq '^argument-hint:.*--nested' "$skill_md"; then
-    fail "REQ-A1.4 violation: selectable command '$c' is a nestable review skill"
-  fi
+  case " $pipeline " in
+    *" $c "*) ;;
+    *) fail "REQ-A1.4 violation: selectable command '$c' is not a refused pipeline entry, so a step could target it" ;;
+  esac
 done
-echo "ok: the selectable command set stays disjoint from the nestable-review set"
+# The refusal is exercised, not assumed: a repo-tracked step targeting a
+# selectable command is malformed (exit 4) naming the rule.
+sb="$tmp/pipeline-entry"
+mkdir -p "$sb/core/config" "$sb/repo/.claude/catalogs" "$sb/adopter" "$sb/home" "$sb/claude"
+cp "$here/../config/steps.yaml" "$sb/core/config/steps.yaml"
+printf 'dispatch_isolation: per-step\nsteps_pre_ci: [entry]\n' >"$sb/core/config/defaults.yml"
+first=$(printf '%s\n' "$commands" | head -1)
+printf 'steps:\n  - id: entry\n    kind: skill\n    target: %s\n' "$first" >"$sb/repo/.claude/catalogs/steps.yaml"
+rc=0
+err=$(env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT -u PLANWRIGHT_JQ \
+  HOME="$sb/home" CLAUDE_DIR="$sb/claude" PLANWRIGHT_ROOT="$sb/core" PLANWRIGHT_CONFIG_DEFAULTS="$sb/core/config/defaults.yml" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" PLANWRIGHT_REPO_ROOT="$sb/repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$here/../scripts/resolve-steps.sh" pre-ci --unattended 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 4 ] || fail "the step resolver should refuse '$first' as a step target (exit 4), got $rc: $err"
+case "$err" in
+  *pipeline-entry*) ;;
+  *) fail "the refusal should name the pipeline-entry rule: $err" ;;
+esac
+echo "ok: the selectable command set stays disjoint from the step-target set"
 
 # 8. By-layer malformed policy (REQ-A1.4): an adopter-layer malformed value
 #    degrades to the core default with a warning. Core ships `unset`, so the

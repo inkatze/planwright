@@ -182,6 +182,37 @@ notification_channel: none
 # REQ-E1.4 malformed-by-layer policy to an unknown or non-nestable name.
 review_sequence: [polish]
 
+# Custom steps: one flat key per named attachment point (custom-steps D-4,
+# REQ-B1.3), each an inline flow list of step ids in run order. A step id
+# names an entry in the `steps` catalog (config/steps.yaml merged with the
+# overlay catalogs); the list is resolved by scripts/resolve-steps.sh with
+# last-layer-wins per key and a warning naming every shadowed lower overlay
+# layer. `[]` runs nothing and is not malformed. doctrine/custom-steps.md
+# fixes when each point fires and what a step may do. Core ships
+# behavior-identical: the lists below run what the review-sequence knob ran.
+#
+# The in-run points of /execute-task, in firing order:
+steps_pre_implementation: []
+steps_pre_ci: []
+steps_convergence: [polish]
+steps_pre_pr: []
+steps_post_pr: []
+# The flip points: pre-ready-flip is defined for the first in-repo unit-PR
+# flipper; pre-spec-ready-flip is run by /spec-kickoff.
+steps_pre_ready_flip: []
+steps_pre_spec_ready_flip: []
+# Named, not wired (gated under custom-steps' Deferred): a non-empty list here
+# resolves no steps and is reported as unwired by the resolver (and by
+# check:steps once that guard is wired).
+steps_spec_drafted: []
+steps_kickoff_signed_off: []
+steps_unit_selected: []
+steps_pre_dispatch: []
+steps_post_dispatch: []
+steps_unit_halted: []
+steps_post_merge: []
+steps_orchestrator_idle: []
+
 # The operator kill-switch for the autonomous daemon layer (fleet-autonomy
 # D-15, REQ-F1.3). `true` pauses every autonomous daemon action the fleet
 # introduces (cleanup, restart, throttle) without disabling fleet operation

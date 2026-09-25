@@ -30,8 +30,8 @@ an observation, never an overlay point (REQ-A1.3, D-2). A point name outside
 this vocabulary is a resolver usage error.
 
 **Wired in `/execute-task`** (the *in-run points*), each fired once when the
-run reaches it and never again in that run (a re-execution against a unit
-with an open PR is a new run, REQ-A1.1, REQ-A1.4), in this order (D-3):
+run reaches it (a re-execution against a unit with an open PR is a new run,
+REQ-A1.1, REQ-A1.4), in this order (D-3):
 
 | Point | Fires |
 | --- | --- |
@@ -84,8 +84,8 @@ value is a single-line scalar of the constrained reader.
 target is an executable name or path; a prompt target is non-empty single-line
 text. Validation precedes any path or command use; a failing target, args, or
 `requires` is malformed for its layer and never interpolated, as is an entry
-with an unknown field, an unknown enum value, a missing required field, or an
-un-honorable combination above (REQ-B1.2). Rules keyed on hosting read the
+with an unknown field, an unknown or empty value, a missing required field, or
+an un-honorable combination above (REQ-B1.2). Rules keyed on hosting read the
 **effective** hosting: the default below, a `continue` step's attachment to
 an `in-session` predecessor, and, once it happens, a run-time degradation.
 
@@ -209,8 +209,8 @@ passed to the session's shell tool.
 ## Resolution and the missing-step matrix
 
 A point's list resolves through `config-get` with **last layer wins**, the
-resolver printing one warning naming every lower layer that sets the key
-whatever its value, provenance per step (the hosting, its default applied)
+resolver printing one warning naming every lower overlay layer that sets the
+key whatever its value, provenance per step (the hosting, its default applied)
 on request, and one warning per layer on the retired convergence knob's key
 (REQ-C1.1,
 REQ-C1.2, REQ-C1.6, D-5, D-10).
@@ -235,22 +235,22 @@ when the unit was launched headless, per the backend seam's launch record;
 | repo-tracked | `ask` | `park` |
 | adopter or machine-local | `ask` | `skip` |
 
-`run` is a resolved step; `ask` surfaces the missing step and waits, the
-human either repairing and re-resolving or ending the unit; `park` parks the
-unit to Awaiting input before any step at the point runs; `skip` warns and
-writes a skip record. The resolver exits per REQ-H1.3, a `skip` counting as
-`run`: 0 when every step is `run`, 1 when the point runs nothing (`park` or
-`ask`). A malformed list value or entry takes
-the by-layer policy instead (REQ-C1.5): core is a broken install (exit 5);
-repo-tracked hard-fails (exit 4); an adopter or machine-local **list** warns
-and degrades to the core default; an adopter or machine-local **entry**
-warns and is dropped from the merged catalog, its id then non-resolving
-under the matrix. Check mode (`--check` with `--unattended`; `--attended`
-beside it is a usage error, check mode never waiting on a human) exits
-non-zero on any `park`, any malformation, or an unwired non-empty list, and
-passes with a warning on an adopter or machine-local `skip` (REQ-H1.3,
-REQ-A1.3); `check:steps` runs it over every named point of this repository's
-configuration (REQ-H1.4).
+`run` is a resolved step; `ask` surfaces the missing step and waits for the
+human to repair and re-resolve or end the unit; `park` parks the unit to
+Awaiting input before any step at the point runs; `skip` warns, records the
+skip, and counts as `run`: exit 0 when every step is `run`, 1 when the point
+runs nothing (`park` or `ask`; REQ-H1.3). A malformed list value or entry
+takes the by-layer policy instead (REQ-C1.5): core exits 5 (a broken
+install), repo-tracked 4; an adopter or machine-local list degrades to the
+core default, and such an entry is dropped, its id then non-resolving. A
+placement-only fault (a `timeout` landing in-session) drops an adopter or
+machine-local entry for that list alone; a misplaced `continue` degrades
+such a list first and fails only when list and entry are both repo-tracked
+or core. Check mode (`--check --unattended`; `--attended` is a usage error)
+exits non-zero on any `park`, any malformation, or an unwired non-empty
+list, and warns but passes on an adopter or machine-local `skip` (REQ-H1.3,
+REQ-A1.3); `check:steps` runs it over every point of this repository
+(REQ-H1.4).
 
 ## Reserved controls (REQ-D1.6, D-17)
 

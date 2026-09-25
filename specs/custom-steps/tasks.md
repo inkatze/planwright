@@ -260,7 +260,21 @@ deferred until every flipper posts.
 
 ## Awaiting input
 
-(none yet)
+- **Task 2** — paused on a security-zone review finding; the rest of the
+  task is converged and on draft PR #509. A bare command target that names a
+  shell builtin (`cd`, `hash`, `printf`, `kill`, `umask`, and others that
+  macOS also ships as wrapper files on the path) resolves to `run`, with its
+  location set to the wrapper file. An `isolated` step runs that file as
+  argv, but a session-hosted step's declared line goes through the session's
+  shell, which runs the builtin instead, so the two hostings diverge and the
+  builtin can change the session shell's own state (its working directory,
+  a variable, its command hash). The printed location is then not what runs,
+  which is also what the later worker command guard would match on. No new
+  privilege is involved: an overlay author can already run any executable.
+  Options: *refuse a command target that a clean shell reports as a builtin,
+  keyword, or alias (malformed for its layer)* · *run session-hosted command
+  lines through the resolved absolute location rather than the bare target,
+  and state that in the rule doc* · *accept the divergence and document it*.
 
 ## Deferred
 
