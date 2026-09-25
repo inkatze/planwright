@@ -622,8 +622,9 @@ capture pre-pr --unattended
 [ "$RC" = 0 ]
 verdict "REQ-B1.2: the same timed continue step resolves after an isolated predecessor" "continue timeout after isolated: rc=$RC err='$ERR'"
 # A drop the list's order caused does not outlive the list: an adopter list
-# drops cont-timed for its position, then hits a list-level fault and gives
-# way to the core list, where the same id sits in a valid position.
+# places cont-timed badly, then hits a list-level fault and gives way to the
+# core list, where the same id sits in a valid position; the discarded
+# list's placement fault is never reported.
 reset_layers
 cat_entry "$adopter_cat" cont "kind: prompt" "target: carry on" "hosting: continue"
 cat_entry "$adopter_cat" iso-cmd "kind: command" "target: fixture-tool" "hosting: isolated"
@@ -634,7 +635,7 @@ printf 'steps_pre_pr: [in-cmd, cont-timed, iso-cmd, cont]\n' >"$adopter_cfg"
 sed -i.bak 's/^steps_pre_pr: .*/steps_pre_pr: [iso-skill, cont-timed]/' "$core/config/defaults.yml"
 rm -f "$core/config/defaults.yml.bak"
 capture pre-pr --unattended
-{ [ "$RC" = 0 ] && [ "$OUT" = "$(printf 'run\tiso-skill\nrun\tcont-timed')" ] && printf '%s' "$ERR" | grep -q 'for this list'; } \
+{ [ "$RC" = 0 ] && [ "$OUT" = "$(printf 'run\tiso-skill\nrun\tcont-timed')" ] && ! printf '%s' "$ERR" | grep -q 'for this list'; } \
   || fail "REQ-C1.5: a list-order drop should reset on the core fallback: rc=$RC out='$OUT' err='$ERR'"
 ok "REQ-C1.5: a drop the list's order caused is reset when the list gives way to the core default"
 reset_layers
@@ -1323,6 +1324,22 @@ cat_entry "$adopter_cat" self-review "supersede: true" "kind: skill" "target: se
 capture convergence --unattended
 [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ]
 verdict "REQ-B1.1: superseding every seed entry is not a broken install" "every seed id superseded: rc=$RC out='$OUT' err='$ERR'"
+
+# A personal list whose continue is misplaced degrades before any entry fault
+# it would place is judged, so the order of the list never changes the exit.
+reset_layers
+write_core_defaults per-unit
+cat_entry "$tracked_cat" timed "kind: prompt" "target: p" "timeout: 30"
+cat_entry "$tracked_cat" iso "kind: command" "target: fixture-tool" "hosting: isolated"
+cat_entry "$tracked_cat" cont "kind: prompt" "target: carry on" "hosting: continue"
+for order in "timed, iso, cont" "iso, cont, timed"; do
+  printf 'steps_pre_ci: [%s]\n' "$order" >"$mlocal_cfg"
+  capture pre-ci --unattended
+  { [ "$RC" = 0 ] && [ -z "$OUT" ] && printf '%s' "$ERR" | grep -q 'degrading to the core default' \
+    && ! printf '%s' "$ERR" | grep -q 'entry timed'; } \
+    || fail "REQ-C1.5: a degraded personal list judged its entries first (order '$order'): rc=$RC out='$OUT' err='$ERR'"
+done
+ok "REQ-C1.5: a personal list's degrade does not depend on the order of its steps"
 
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2

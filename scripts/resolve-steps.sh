@@ -1224,10 +1224,15 @@ n_steps=0
 # adopter or machine-local list degrades; otherwise an adopter or
 # machine-local entry is dropped for this list; otherwise a repo-tracked
 # list or entry hard-fails and an all-core pairing is a broken install. A
-# timeout on a step that lands in-session is the declaring entry's.
+# timeout on a step that lands in-session is the declaring entry's, judged
+# only once the list is known not to degrade, so the order of a list never
+# decides between the two.
 build_steps() {
   LIST_ERR=""
   n_steps=0
+  n_placed=0
+  P_N=()
+  P_FAULT=()
   S_ID=()
   S_N=()
   S_HOST=()
@@ -1274,7 +1279,10 @@ build_steps() {
         fault="timeout on a ${S_KIND[n_steps]} step that is effectively in-session (the unit session cannot end itself)"
       fi
       if [ -n "$fault" ]; then
-        entry_malformed "$en" "$fault" list
+        n_placed=$((n_placed + 1))
+        P_N[n_placed]="$en"
+        P_FAULT[n_placed]="$fault"
+        E_LIST_DROP[en]=1
         S_N[n_steps]=""
         S_KIND[n_steps]="-"
         S_HOST[n_steps]="-"
@@ -1293,6 +1301,11 @@ build_steps() {
   done <<EOF
 $1
 EOF
+  pi=1
+  while [ "$pi" -le "$n_placed" ]; do
+    entry_malformed "${P_N[pi]}" "${P_FAULT[pi]}" list
+    pi=$((pi + 1))
+  done
 }
 
 build_steps "$ids"
