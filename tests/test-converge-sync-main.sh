@@ -986,13 +986,13 @@ STUB
     *) fail "c19: the overridden BatchMode was not reported against core.sshCommand on the leading-space run: $err" ;;
   esac
 
-  # (i) `VAR=value` prefixes before the binary, several of them and with
-  # quoted values that hold no blank. The splice has to step over every
-  # assignment so the option lands after the binary word, and the assignments
-  # have to survive into ssh's environment: the stub records one of them.
+  # (i) several unquoted `VAR=value` prefixes before the binary. The splice
+  # has to step over every assignment so the option lands after the binary
+  # word, and the assignments have to survive into ssh's environment: the stub
+  # records one of them. Quoted prefixes are refused instead; see c20.
   : >"$SSH_ARGV_LOG"
   git -C "$tmp/worker" config core.sshCommand \
-    "CSM_A='y' CSM_B=\"z\" CSM_TEST_VAR=x $tmp/ssh-stub -o BatchMode=no"
+    "CSM_A=y CSM_B=z CSM_TEST_VAR=x $tmp/ssh-stub -o BatchMode=no"
   rc=0
   err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
     PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
@@ -1047,6 +1047,61 @@ STUB
   done
   unset SSH_ARGV_LOG
   echo "ok c19: with GIT_SSH_COMMAND unset the fetch keeps core.sshCommand plus BatchMode; a set variable still wins; neither source means plain ssh; the override survives a lowercase, glued, or blank-separated spelling, leading whitespace, assignment prefixes, and a binary path containing '='"
+}
+
+# ---------------------------------------------------------------------------
+# Case 20 — the BatchMode splice does not parse shell quoting, so a quote or
+# backslash before or in the ssh binary makes it cut the command at the wrong
+# word: `VAR='a b c' ssh -o BatchMode=no`, for one, reached ssh with
+# BatchMode=no still leading. Each such command is refused with a named
+# fetch-failed error before any fetch: ssh is never invoked and the tree is
+# left as it was, so the run is retryable once the command is fixed.
+# ---------------------------------------------------------------------------
+c20() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c20.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+  gitc "$tmp/worker" remote set-url origin "ssh://git@127.0.0.1/repo.git"
+  mkdir -p "$tmp/bin" "$tmp/p a"
+  cat >"$tmp/bin/ssh" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SSH_ARGV_LOG"
+exit 255
+STUB
+  chmod +x "$tmp/bin/ssh"
+  cp "$tmp/bin/ssh" "$tmp/p a/ssh"
+  SSH_ARGV_LOG="$tmp/ssh-argv.log"
+  export SSH_ARGV_LOG
+  head_before=$(git -C "$tmp/worker" rev-parse HEAD)
+
+  # The second shape names no BatchMode option: `batchmode-key` in the key
+  # path is enough to route it through the splice.
+  for shape in \
+    "VAR='a b c' ssh -o BatchMode=no" \
+    "\"$tmp/p a/ssh\" -o ProxyCommand=none -i /tmp/batchmode-key" \
+    "CSM_V=a\\b ssh -o BatchMode=no"; do
+    : >"$SSH_ARGV_LOG"
+    git -C "$tmp/worker" config core.sshCommand "$shape"
+    rc=0
+    err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+      PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+    [ "$rc" -eq 4 ] || fail "c20: expected exit 4 (fetch-failed) for [$shape], got $rc: $err"
+    case "$err" in
+      *"converge-sync-main: fetch-failed: refusing to add BatchMode=yes to core.sshCommand"*) ;;
+      *) fail "c20: [$shape] was not refused with the named quoting error: $err" ;;
+    esac
+    [ ! -s "$SSH_ARGV_LOG" ] \
+      || fail "c20: ssh was invoked for [$shape] instead of the command being refused: $(cat "$SSH_ARGV_LOG")"
+    [ -z "$(git -C "$tmp/worker" status --porcelain)" ] \
+      || fail "c20: the tree is not clean after refusing [$shape]"
+    [ "$(git -C "$tmp/worker" rev-parse HEAD)" = "$head_before" ] \
+      || fail "c20: HEAD moved after refusing [$shape]"
+    ! git -C "$tmp/worker" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 \
+      || fail "c20: a MERGE_HEAD was left behind after refusing [$shape]"
+  done
+  unset SSH_ARGV_LOG
+  echo "ok c20: a quote or backslash before or in the ssh binary is refused with a named, retryable fetch-failed error and ssh is never run"
 }
 
 # ---------------------------------------------------------------------------
@@ -1111,6 +1166,7 @@ c16
 c17
 c18
 c19
+c20
 w1
 w2
 

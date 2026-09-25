@@ -53,7 +53,8 @@
 #   3  dirty-tree — tracked-file changes, or a merge/rebase/cherry-pick already
 #      in progress; no fetch is attempted
 #   4  fetch-failed — `git fetch origin main` failed (unreachable remote, no
-#      `origin`, no `main` on the remote, auth failure)
+#      `origin`, no `main` on the remote, auth failure), or an ssh command
+#      refused before the fetch for quoting or escaping up to its binary
 #   5  merge-conflict — an unresolvable merge, aborted; the tree is clean
 #   6  merge-failed — a merge refused for a non-conflict reason (an untracked
 #      file in the way, a config refusal); aborted if it had started
@@ -162,8 +163,10 @@ inside=$(git -C "$repo" rev-parse --is-inside-work-tree 2>/dev/null || true)
 # first word AFTER any leading blanks and `VAR=value` assignments (git hands
 # the string to a shell, where those are an environment prefix, not the
 # command): splicing before the binary would make the shell run `-o` and the
-# fetch would fail without ever reaching ssh. Values quoted with embedded
-# blanks are still not parsed; they were never handled and stay out of scope.
+# fetch would fail without ever reaching ssh. Quoting is not parsed: quoted
+# or escaped text before or in the ssh binary is refused rather than spliced,
+# since a cut at the wrong word can leave the prompt live or run the wrong
+# binary.
 _ssh_src=GIT_SSH_COMMAND
 _ssh_cmd=${GIT_SSH_COMMAND:-}
 if [ -z "$_ssh_cmd" ]; then
@@ -190,6 +193,11 @@ case "$(printf '%s' "$_ssh_cmd" | tr '[:upper:]' '[:lower:]')" in
       _ssh_pre=$_ssh_pre$_ssh_bin
       _ssh_rest=${_ssh_rest#"$_ssh_bin"}
     done
+    case "$_ssh_pre$_ssh_bin" in
+      *[\'\"\\]*)
+        die 4 fetch-failed "refusing to add BatchMode=yes to $_ssh_src: it has a quote or backslash before or in the ssh binary, which this sync does not parse; no fetch was attempted and the tree is unchanged — unquote that part of the command and retry"
+        ;;
+    esac
     GIT_SSH_COMMAND="$_ssh_pre$_ssh_bin -o BatchMode=yes${_ssh_rest#"$_ssh_bin"}"
     printf 'converge-sync-main: note: %s already sets BatchMode; forcing BatchMode=yes so the fetch cannot block on a prompt\n' "$_ssh_src" >&2
     ;;
