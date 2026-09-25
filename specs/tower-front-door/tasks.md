@@ -309,6 +309,17 @@ router has not demonstrated (REQ-B1.6).
   exception note, and the tower posture's description name the flight arm,
   and a standalone flight `attach` can hand the worker its brief. Queued
   judgment forks are in the draft PR's audit record.
+  A second review pass added three more in the same zones (a destructive
+  cleanup and untrusted-input handling; recommended fixes recorded, none
+  applied): (10) a failed `git worktree list` reads as "no worktree", so a
+  failed placement removes the brief directory even when a worktree may
+  exist: detect the listing's failure, keep the brief, and report the
+  worktree state as unknown; (11) the grounds file is read with `cat` taking
+  the path as an argument, unlike the size and line checks, so a relative
+  name such as `-` or `-n` reads stdin or an option: read it through a
+  redirect; (12) the grounds line gets no screen for invisible or bidi
+  Unicode, the same gap as (6) on the second operator-text channel: apply
+  (6)'s decision to it.
 
 ## Deferred
 
