@@ -157,15 +157,6 @@ EVIDENCE="$script_dir/fleet-death-evidence.sh"
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 
-# The close this rung shares with the stream-json one. Required rather than
-# degraded: without it `stop` has no process match at all.
-if [ ! -r "$script_dir/fleet-stop-lib.sh" ]; then
-  printf '%s\n' "$me: required helper $script_dir/fleet-stop-lib.sh missing or not readable" >&2
-  exit 2
-fi
-# shellcheck source=scripts/fleet-stop-lib.sh
-. "$script_dir/fleet-stop-lib.sh"
-
 if [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh"
@@ -990,6 +981,16 @@ stop_release() {
 
 do_stop() {
   [ "$#" -ge 1 ] || usage
+  # The close this rung shares with the stream-json one, loaded here rather than
+  # at the top so a missing library costs `stop` and never `launch` or `status`,
+  # whose exit codes are a verdict channel. Required rather than degraded:
+  # without it the close has no process match at all.
+  if [ ! -r "$script_dir/fleet-stop-lib.sh" ]; then
+    warn "required helper $script_dir/fleet-stop-lib.sh missing or not readable"
+    exit 2
+  fi
+  # shellcheck source=scripts/fleet-stop-lib.sh
+  . "$script_dir/fleet-stop-lib.sh"
   t_worker=$1
   shift
   t_repo_root=''
