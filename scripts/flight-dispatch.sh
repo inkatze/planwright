@@ -7,7 +7,8 @@
 #   - the flight id comes from scripts/flight-id.sh (the flight-id grammar and
 #     its never-reuse rule);
 #   - the worktree and branch come from scripts/fleet-dispatch-worktree.sh's
-#     `--flight` arm, the sanctioned creation path (its D-7 exception), which
+#     `--flight` arm, the sanctioned creation path (its fleet-hardening D-7
+#     exception), which
 #     registers the worktree and, on the tmux rung, starts the worker through
 #     Claude Code's native `claude --worktree` launch;
 #   - the rung is an INPUT. /offload's placement axioms choose it; this script
@@ -68,15 +69,17 @@
 # worker running different planwright versions is visible at dispatch. A
 # decline is `declined<TAB><live><TAB><bound>` plus a `reask` line. A failed
 # placement is `failed<TAB><reason>` plus the flight, branch, and the worktree
-# and brief left behind, if any.
+# and brief left behind, if any; a worktree left behind adds a `reask` line
+# saying it holds a slot.
 #
 # Exit codes: 0 placed / declared; 2 usage, a malformed or hostile input, a
 # refused rung, or a missing sibling helper (nothing placed); 3 declined at the
 # bound, or withheld by the allocation admission gate (nothing placed); 4 a
 # resolver, the fleet home, the worktree list, or the flight lock could not be
-# read or taken, or the base could not be fetched fresh (nothing placed); 5 the
-# id could not be minted or the placement failed (the `failed` report names
-# what was left behind).
+# read or taken, or the base could not be fetched fresh (nothing placed, unless
+# a `failed` report names a worktree left behind); 5 the id could not be
+# minted, the brief could not be written, or the placement failed (the `failed`
+# report names what was left behind).
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf

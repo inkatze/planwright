@@ -140,9 +140,17 @@ By the selected rung:
   `scripts/flight-dispatch.sh dispatch <slug> --backend <rung> --ask-file
   <file> --grounds-file <file> --home <home>` instead of `offload-dispatch.sh`: it
   counts live flights, mints the id, writes the worker brief, places the
-  worktree, and emits the report. Exit 3 is the concurrency bound's decline:
-  relay its re-ask line and dispatch nothing else. The flight path drives no
-  other rung; say so and ask the operator to choose tmux or print.
+  worktree, and emits the report, whose keys are its own (no `status` row;
+  the script header lists them). Exit 3 with a `declined` line is the
+  concurrency bound's decline: relay its re-ask line and dispatch nothing
+  else. Exit 3 without one is the allocation admission gate withholding the
+  flight, named on stderr. Exits 2 and 4 placed nothing. A `failed` report
+  naming a `worktree` left one holding a slot: relay it, and never re-dispatch
+  the ask, which would place a second flight. The inputs are bounded: a slug
+  matching `^[a-z0-9][a-z0-9-]*$` of at most 55 characters, grounds of one line
+  of at most 400 characters without control characters, and a non-empty ask of
+  at most 64 KiB. The flight path drives no other rung; say so and ask the
+  operator to choose tmux or print.
 
 ### 6. Report (REQ-C1.5)
 

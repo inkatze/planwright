@@ -17,8 +17,8 @@ argument-hint: "[<ask>]"
 (REQ-A1.1): the operator says what they want in their own words, and the tower
 decides per request how that work flies. **Visual flight** is specless work — an
 isolated worker on its own branch, converging through review, landing a draft
-PR whose audit record carries the trust. **Instrument flight** is the spec
-pipeline. The names are the aviation analogy: visual rules when conditions are
+PR or record whose audit record carries the trust. **Instrument flight** is the
+spec pipeline. The names are the aviation analogy: visual rules when conditions are
 clear enough to fly by what you can see, instrument rules when you file a plan
 and trust the gauges (D-3). The tower never edits the repository itself — every
 mutation is a flight (REQ-C1.6).
@@ -199,7 +199,7 @@ sweep's render) and "handle unknown" otherwise, never as simply in the air.
 
 With the route stated, the tower declares the record's home in the same line
 (REQ-E1.2), as `scripts/flight-dispatch.sh home` reports it: the draft PR body
-where a remote and `gh` are available; a committed record file at
+with `origin` and an authenticated `gh`; a committed record file at
 `specs/_flights/<flight-id>.md` on the flight's own branch otherwise. It then
 hands `/offload` a **flight petition**: the ask and the grounds line as stated,
 each in its own `mktemp` file, a kebab slug naming the flight, and the declared
