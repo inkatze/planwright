@@ -276,6 +276,12 @@ else
   fail "skill does not state reservation-then-comply for an override crossing a trigger (REQ-B1.4)"
 fi
 
+if has_phrase 'no override crosses a hard invariant: merge[^.]*overridden or not'; then
+  ok "no override crosses a hard invariant, merge included (REQ-B1.4)"
+else
+  fail "skill does not state that no override crosses a hard invariant such as merge (REQ-B1.4)"
+fi
+
 # --- escalation: /spec-draft, the one-page case, /spec-kickoff offered ---------
 
 if grep -q '/spec-draft' "$skill" && has_phrase 'fold-detection'; then
