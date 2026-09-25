@@ -718,8 +718,10 @@ re-dispatch reclaims it like any finished unit. A unit whose run had already
 ended keeps its own record, a `died` verdict included. Unlike the stream-json
 close, this one never clears the runner's pid file, which `status` and the
 launch guard still read; instead the file seeds a close only on a host whose
-`ps` truncates argv, and never once the unit carries a record, so a pid the
-host has since reissued is not signalled.
+`ps` truncates argv, and never once the unit carries a record. On a host whose
+`ps` shows full argv a pid the host has since reissued is therefore never
+signalled; on one that truncates it, the file is the only way to find a live
+runner, and a dead runner's reissued pid can still be reached.
 
 The two session-grade rungs, verb by verb:
 

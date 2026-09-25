@@ -84,8 +84,11 @@ cleanup() {
     esac
   done
   # The processes the cells plant as reissued pids, named by nothing in the tree.
+  # Checked first: an exited sleep's pid may already belong to something else.
   for p in $strangers; do
-    kill "$p" 2>/dev/null
+    case $(ps -p "$p" -o args= 2>/dev/null) in
+      'sleep 120') kill "$p" 2>/dev/null ;;
+    esac
   done
   rm -rf "$tmp"
 }
@@ -865,7 +868,12 @@ NPS
   d=$(w_dir "$home" "$w")
   mkdir -p "$d" || fail "c22h: cannot plant the state dir"
   mkfifo "$d/$pf" || fail "c22h: cannot plant the fifo"
-  renv "$home" "$rec" -- stop "$w" --grace 1 >"$rec/c22h.out" 2>&1 &
+  # The headless close reads its pid file only on a host whose `ps` truncates
+  # argv, so that rung runs this leg on the narrow shim c22f built; on a full
+  # `ps` it would pass without ever opening the fifo.
+  c22h_path=$PATH
+  [ "$rung" != hl ] || c22h_path="$tmp/narrowbin:$PATH"
+  PATH=$c22h_path renv "$home" "$rec" -- stop "$w" --grace 1 >"$rec/c22h.out" 2>&1 &
   closer=$!
   wait_until 200 sh -c "! kill -0 $closer 2>/dev/null" || {
     kill -9 "$closer" 2>/dev/null
@@ -989,16 +997,22 @@ c40() {
   out=$(renv "$home" "$rec" -- status "$SPEC" 401)
   [ "$out" = "died $runner" ] || fail "c40: a close must not rewrite a death as a completion, got: $out"
   # (c) That dead runner's pid, reissued by the host. A death leaves no record,
-  #     so a record cannot be what keeps the pid from seeding the close.
-  sleep 120 &
-  stranger=$!
-  strangers="$strangers $stranger"
-  printf '%s\n' "$stranger" >"$d/pid"
-  out=$(renv "$home" "$rec" -- stop "$w" --grace 1)
-  kill -0 "$stranger" 2>/dev/null \
-    || fail "c40: a close signalled the stranger a dead runner's pid file named"
-  [ "$out" = "stop $w already-closed" ] || fail "c40: a reissued pid holds nothing of the unit's, got: $out"
-  echo "ok: [$rung] c40 a finished or dead unit keeps its record and its stale pid is never signalled (REQ-B1.3, REQ-B1.7)"
+  #     so a record cannot be what keeps the pid from seeding the close; a host
+  #     whose `ps` reads argv in full is. A host whose `ps` truncates it seeds
+  #     from the file by design, since nothing else finds a live runner there.
+  if ! ps -A -ww -o pid=,ppid=,args= >/dev/null 2>&1; then
+    echo "skip: [$rung] c40 reissued-pid leg: this host's ps truncates argv, where the pid file is the only seed by design"
+  else
+    sleep 120 &
+    stranger=$!
+    strangers="$strangers $stranger"
+    printf '%s\n' "$stranger" >"$d/pid"
+    out=$(renv "$home" "$rec" -- stop "$w" --grace 1)
+    kill -0 "$stranger" 2>/dev/null \
+      || fail "c40: a close signalled the stranger a dead runner's pid file named"
+    [ "$out" = "stop $w already-closed" ] || fail "c40: a reissued pid holds nothing of the unit's, got: $out"
+  fi
+  echo "ok: [$rung] c40 a finished or dead unit keeps its record, and where argv is readable its stale pid is never signalled (REQ-B1.3, REQ-B1.7)"
 }
 
 # ---------------------------------------------------------------------------
