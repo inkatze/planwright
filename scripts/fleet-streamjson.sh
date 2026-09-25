@@ -294,16 +294,6 @@ fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
 
-# The close this rung shares with the headless one; required for the same
-# reason, since without it `stop` would have no process match at all.
-stop_lib="$script_dir/fleet-stop-lib.sh"
-if [ ! -r "$stop_lib" ]; then
-  echo "$me: required helper $stop_lib missing or not readable" >&2
-  exit 2
-fi
-# shellcheck source=scripts/fleet-stop-lib.sh
-. "$stop_lib"
-
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
 FDE="$script_dir/fleet-death-evidence.sh"
@@ -1904,6 +1894,15 @@ cmd_recover() {
 
 cmd_stop() {
   [ $# -ge 1 ] || usage
+  # The close this rung shares with the headless one, loaded here so a missing
+  # library costs `stop` and no other verb. Required rather than degraded:
+  # without it the close has no process match at all.
+  if [ ! -r "$script_dir/fleet-stop-lib.sh" ]; then
+    echo "$me: required helper $script_dir/fleet-stop-lib.sh missing or not readable" >&2
+    exit 2
+  fi
+  # shellcheck source=scripts/fleet-stop-lib.sh
+  . "$script_dir/fleet-stop-lib.sh"
   worker=$1
   shift
   valid_field "$worker" || {
