@@ -85,8 +85,8 @@ consumption before any interpolation.
 **`flight` is reserved** (tower-front-door D-11). It is the flight branch
 segment (`planwright/flight/<flight-id>`, *Branch, worktree, and task-id
 grammar*), so no spec identifier may be `flight`: the validator refuses a
-bundle so named and `--check-id` rejects it, and every interpolation site
-screens the word the way it screens a charset failure. Identifiers that merely
+bundle so named and `--check-id` rejects it, and every script that screens a
+spec identifier refuses the word the way it refuses a charset failure. Identifiers that merely
 contain it (`flight-plan`, `flights`) are ordinary.
 
 Direct children of `specs/` with a leading underscore are **reserved non-spec
@@ -896,14 +896,17 @@ anchor).
   (`^[a-z0-9][a-z0-9-]*$`) followed by an eight-character lowercase-hex uid,
   at most 64 characters in all (so the slug is at most 55). The uid is
   random, which is what keeps two flights minted at the same moment apart:
-  the mint reserves nothing, so creating the branch and worktree, which
-  fails when the name exists, is the only atomic claim. The id is **never
+  the mint reserves nothing, so creating the branch, which fails when the
+  ref exists (never a forced create), is the only atomic claim. The id is **never
   reused**: while durable evidence of an id exists — a local or
   remote-tracking flight branch, a record file
   `specs/_flights/<flight-id>.md` in the working tree or on the default
   branch (local or remote-tracking), or a placed worktree — a mint skips
   that uid and draws another, so a retired flight's id is never re-minted
-  against its branch or record. `scripts/flight-id.sh` mints (`new <slug>`),
+  against its branch or record. Remote evidence is as fresh as the last
+  fetch, and a flight whose record lives in its PR body leaves no record
+  file: once its branch and worktree are gone, only the random uid keeps its
+  id apart. `scripts/flight-id.sh` mints (`new <slug>`),
   checks (`check`), reports the evidence (`taken`), and derives the branch
   and suffix; parsers validate a flight id full-string before any path use,
   as they do a task branch's segments.

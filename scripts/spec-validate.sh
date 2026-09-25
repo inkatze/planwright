@@ -11,8 +11,9 @@
 #      one of the six statuses (Draft, Ready, Active, Done, Retired,
 #      Superseded); Superseded requires `Superseded-by:`; Format-version
 #      declared; Status mirrors kept in sync.
-#   3. Spec-identifier charset and length; underscore-accumulator name
-#      screening (accumulators are skipped, not validated as bundles).
+#   3. Spec-identifier charset and length, and the reserved word `flight`;
+#      reserved underscore-directory name screening (accumulators and the
+#      flight record directory are skipped, not validated as bundles).
 #   4. REQ-ID convention: ID-bearing bullets, citation per live REQ
 #      (superseded records exempt), no duplicate IDs.
 #   5. D-ID structure: Decision / Alternatives considered / Chosen because.
@@ -170,7 +171,8 @@ spec_id_charset() {
 
 # `flight` is reserved at the grammar level (tower-front-door D-11): it is the
 # flight branch segment `planwright/flight/<flight-id>`, so no spec may claim
-# it. Every interpolation site screens it the way it screens the charset.
+# it. Every script that screens a spec id refuses it as it refuses the
+# charset.
 reserved_spec_id() {
   [ "$1" = flight ]
 }

@@ -75,11 +75,12 @@ Doctrine: point-of-use decision-domains (the design-phase catalog walk)
    appears in paths, branch names, and commands. Validate the derived
    identifier (and any identifier a seed or `--extend` proposes) against the
    anchored, full-string pattern `^[a-z0-9][a-z0-9-]*$`, maximum length 64
-   (REQ-A1.8) **before** any such use. When the feature name is not already
-   a conforming identifier, propose a conforming kebab-case variant and ask;
-   nothing non-conforming is ever interpolated. No name given: elicit the
-   idea first (seed gathering below) and propose a name from it. When
-   `--extend <spec>` is present, additionally
+   (REQ-A1.8), and not the reserved word `flight`, **before** any such use.
+   When the feature name is not already a conforming identifier, propose a
+   conforming kebab-case variant and ask; nothing non-conforming is ever
+   interpolated. No name given: elicit the idea first (seed gathering
+   below) and propose a name from it. When `--extend <spec>` is present,
+   additionally
    verify the target: `specs/<spec>/requirements.md` must exist and its
    Status must be non-terminal. A nonexistent target gets a clear message
    listing the specs that do exist; a Retired or Superseded target is
