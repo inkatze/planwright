@@ -99,7 +99,9 @@ on stderr how many it left out. The tower loop passes the worker whose question
 it has just handed you, so the same question is not also sitting on the list as
 though nobody had asked it. It names only what the caller itself just said: the
 filter is per call, so nothing can go on hiding a row after the conversation
-holding it died, and a plain `queue` renders everything. The count `--count`
+holding it died, and a plain `queue` renders everything. A filter that fails
+keeps every row and says so, since a repeated question costs less than a hidden
+one. The count `--count`
 prints is never filtered — that one tracks the `## Awaiting input` entries,
 which a hand-over does not close.
 
