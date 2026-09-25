@@ -1006,8 +1006,25 @@ STUB
     *core.sshCommand*BatchMode*) ;;
     *) fail "c19: the overridden BatchMode was not reported against core.sshCommand on the assignment-prefix run: $err" ;;
   esac
+
+  # (j) a binary whose path contains `=`. The text before the `=` is not a
+  # shell name, so the shell runs the word as the command, and the splice has
+  # to treat it as the binary rather than step over it as an assignment.
+  mkdir -p "$tmp/eq=dir"
+  cp "$tmp/ssh-stub" "$tmp/eq=dir/ssh-stub"
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config core.sshCommand "$tmp/eq=dir/ssh-stub -o BatchMode=no"
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the '=' in the binary path run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  case "$argv" in
+    "-o BatchMode=yes -o BatchMode=no "*) ;;
+    *) fail "c19: a binary path containing '=' was stepped over as an assignment, or never reached: argv='$argv' err=$err" ;;
+  esac
   unset SSH_ARGV_LOG
-  echo "ok c19: with GIT_SSH_COMMAND unset the fetch keeps core.sshCommand plus BatchMode; a set variable still wins; neither source means plain ssh; the override survives a lowercase, leading-space, or assignment-prefixed command"
+  echo "ok c19: with GIT_SSH_COMMAND unset the fetch keeps core.sshCommand plus BatchMode; a set variable still wins; neither source means plain ssh; the override survives a lowercase, leading-space, or assignment-prefixed command, and a binary path containing '='"
 }
 
 # ---------------------------------------------------------------------------
