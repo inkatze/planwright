@@ -198,8 +198,13 @@ fi
 # one permitted mention.
 # shellcheck disable=SC2016
 var_shape='\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?/(scripts|tests)/'
+# var_rooted <text>: prints what matches the forbidden shape once the one
+# permitted mention is set aside.
 # shellcheck disable=SC2016
-if grep -E -- "$var_shape" "$skill" | grep -v -F '`$VAR/scripts/<name>.sh`' | grep -q .; then
+var_rooted() {
+  printf '%s\n' "$1" | sed 's/`\$VAR\/scripts\/<name>\.sh`//g' | grep -E -- "$var_shape"
+}
+if [ -n "$(var_rooted "$(cat "$skill")")" ]; then
   fail "skill carries a variable-rooted /scripts/ invocation shape (the flooding shape the convention forbids)"
 else
   ok "no variable-rooted /scripts/ invocation shape remains"
@@ -446,6 +451,19 @@ if printf '%s\n' '"${CLAUDE_PLUGIN_ROOT}"/scripts/x.sh' | grep -qE -- "$var_shap
   ok "probe: braced and bare variable-rooted shapes are caught"
 else
   fail "probe: a variable-rooted /scripts/ shape escapes the pattern"
+fi
+
+# shellcheck disable=SC2016
+if [ -n "$(var_rooted 'never `$VAR/scripts/<name>.sh`; run $PLANWRIGHT_ROOT/scripts/x.sh')" ]; then
+  ok "probe: a variable-rooted path beside the permitted mention is caught"
+else
+  fail "probe: a variable-rooted path hides behind the permitted mention on its line"
+fi
+# shellcheck disable=SC2016
+if [ -n "$(var_rooted 'never `$VAR/scripts/<name>.sh`')" ]; then
+  fail "probe: the permitted negative example is misread as an invocation"
+else
+  ok "probe: the permitted negative example alone is not flagged"
 fi
 
 # shellcheck disable=SC2016
