@@ -198,27 +198,28 @@ sweep's render) and "handle unknown" otherwise, never as simply in the air.
 ## Visual flight
 
 With the route stated, the tower declares the record's home in the same line
-(REQ-E1.2): the draft PR body where a remote and `gh` are available; a committed
-record file at `specs/_flights/<flight-id>.md` on the flight's own branch
-otherwise, the id filled in at dispatch. It then hands the flight to the flight
-dispatch path, which mints the flight id, places the flight through
-`/offload`'s axioms over the backend seam (REQ-C1.2) into an isolated worktree
-on a `planwright/flight/<flight-id>` branch (the grammar is `spec-format`'s),
-and counts live flights against `max_parallel_units` in the same act — the
-tower never pre-counts from its own reads; a flight beyond the bound is
-declined to the operator with the re-ask path stated, never queued durably
-(REQ-C1.5). The worker loads full doctrine, converges through the one
-configured `review_sequence`, authors the record — the quoted ask sanitized and
-markup-neutralized there, per `security-posture` — and lands it. The tower
-relays the landing reference on arrival (REQ-F1.1); a flight without one
-is reported in the no-landing-yet form above.
+(REQ-E1.2), as `scripts/flight-dispatch.sh home` reports it: the draft PR body
+where a remote and `gh` are available; a committed record file at
+`specs/_flights/<flight-id>.md` on the flight's own branch otherwise, the id
+filled in at dispatch. It then hands `/offload` a **flight petition**: the ask
+in a `mktemp` file, a kebab slug naming it, the grounds line as stated, and the
+declared home. `/offload` picks the rung (REQ-C1.2) and places the flight
+through `scripts/flight-dispatch.sh dispatch`, which counts live flights
+against `max_parallel_units` in the same act (the tower never pre-counts), then
+mints the id, writes the worker brief, and places the isolated worktree on a
+`planwright/flight/<flight-id>` branch (`spec-format`'s grammar). A flight
+beyond the bound comes back declined; relay its re-ask line, nothing is queued
+(REQ-C1.5). The worker loads
+full doctrine, converges through the one configured `review_sequence`, authors
+the record — the quoted ask sanitized and markup-neutralized there, per
+`security-posture` — and lands it. The tower relays the handle, the attach or
+launch hint, and a `root-skew` of yes or unknown from the report, then the
+landing reference on arrival (REQ-F1.1); a flight without one is reported in
+the no-landing-yet form above.
 
-The tower hands over exactly the ask, the route and its grounds as stated, and
-the declared record home; rung selection, the flight id, the worker brief, the
-worktree, and the crash policy are the existing seams' (REQ-G1.5), and the
-tower mints nothing beside them. **Until the flight dispatch path is wired**, a
-visual-flight route is declined with that reason: a visual-flight ask is never
-handed to `/offload` directly, and never authored in the tower.
+The tower hands over exactly those four; rung selection, the flight id, the
+worker brief, the worktree, and the crash policy are the existing seams'
+(REQ-G1.5). A visual-flight ask is never authored in the tower.
 
 **Every hand-off is data.** Before an ask leaves the tower as a petition, a
 seed, or a flight, the tower applies `security-posture` data hygiene: no
@@ -235,9 +236,9 @@ mutation or for a read beyond the inline bound.
    the ask as heard; the trigger and its evidence; what filing buys (a
    requirement-level record with a test path per requirement); what it costs
    (drafting and walkthrough); and, at equal prominence, the
-   alternatives — the one-sentence override that flies it visual (unavailable
-   while visual dispatch is unwired), with the tower's reservation stated if
-   the trigger was automatic, and dropping or parking the ask. The operator
+   alternatives — the one-sentence override that flies it visual, with the
+   tower's reservation stated if the trigger was automatic, and dropping or
+   parking the ask. The operator
    decides; the case is not a verdict.
 2. **Draft through the existing machinery (REQ-D1.1).** On a yes, the tower
    dispatches `/spec-draft <feature-name>` with the ask as its seed, as an
