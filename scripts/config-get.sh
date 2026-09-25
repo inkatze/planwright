@@ -86,8 +86,7 @@ export LC_ALL
 # substitution that derives the script dir (house pattern).
 unset CDPATH
 
-# --explain / --layers is an optional leading flag; the bare <key> form is
-# unchanged.
+# --explain and --layers are exclusive: only one leading flag is parsed.
 explain=0
 layers=0
 case "${1:-}" in

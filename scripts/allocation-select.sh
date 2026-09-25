@@ -74,7 +74,9 @@
 # for one). The command enum stays exactly the dispatch-entry set
 # {execute-task orchestrate drain}, which is the carrier of the
 # review-sequence-disjointness invariant (REQ-A1.4): none of its members is a
-# nestable review skill, and a configured command outside the set is refused
+# nestable review skill, each is on the custom-steps rule doc's
+# pipeline-entry list that resolve-steps.sh refuses as a step target, and a
+# configured command outside the set is refused
 # at every layer, so disjointness holds by CONSTRUCTION rather than only for
 # the shipped defaults.
 #

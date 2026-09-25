@@ -202,7 +202,8 @@ steps_post_pr: []
 steps_pre_ready_flip: []
 steps_pre_spec_ready_flip: []
 # Named, not wired (gated under custom-steps' Deferred): a non-empty list here
-# resolves no steps and is reported as unwired by the resolver and check:steps.
+# resolves no steps and is reported as unwired by the resolver (and by
+# check:steps once that guard is wired).
 steps_spec_drafted: []
 steps_kickoff_signed_off: []
 steps_unit_selected: []
