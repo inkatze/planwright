@@ -20,16 +20,18 @@
 #
 # new     mints `<slug>-<uid>` and prints it. The uid is random, which is what
 #         keeps two mints made at the same moment apart: the helper reserves
-#         nothing, so the caller's branch and worktree creation (which fails
-#         when the name exists) is the only atomic claim. A candidate is
-#         skipped while durable evidence of that id exists
-#         (never-reuse): a local branch `refs/heads/planwright/flight/<id>`, a
-#         remote-tracking branch `refs/remotes/*/planwright/flight/<id>`, a
-#         record file `specs/_flights/<id>.md` in the working tree or on the
-#         default branch (origin/HEAD, main or master, local or
-#         remote-tracking), or a placed worktree
-#         `.claude/worktrees/flight-<id>` under the primary checkout. The
-#         slug is grammar-checked before anything is minted (REQ-F1.1).
+#         nothing, so the caller's branch creation (`git worktree add -b` or
+#         `git branch`, which fails when the ref exists; never `-B`) is the
+#         only atomic claim. A candidate is skipped while durable evidence of
+#         that id exists (never-reuse): a local branch
+#         `refs/heads/planwright/flight/<id>`, a remote-tracking branch
+#         `refs/remotes/*/planwright/flight/<id>`, a record file
+#         `specs/_flights/<id>.md` in the working tree or on the default
+#         branch (origin/HEAD, main or master, local or remote-tracking), or a
+#         placed worktree `.claude/worktrees/flight-<id>` under the primary
+#         checkout. Remote evidence is as fresh as the last fetch: nothing is
+#         fetched here. The slug is grammar-checked before anything is minted
+#         (orchestration-concurrency REQ-F1.1).
 # check   exits 0 when the argument is a grammar-valid flight id, 1 otherwise.
 #         The candidate is never echoed back: a hostile value must not reach
 #         an output a caller might interpolate.
@@ -136,6 +138,7 @@ probe_failed() {
   exit 5
 }
 
+bases=""
 # resolve_bases — set `bases` to the refs a merged record can live on: the
 # remote's default branch (origin/HEAD) plus the conventional names, local
 # and remote-tracking, keeping those that exist. A retired flight's record
@@ -143,7 +146,6 @@ probe_failed() {
 # ref names throughout: a bare `main` would resolve a tag of that name first,
 # and tags arrive with any fetch. Runs in the calling shell so a probe
 # failure exits.
-bases=""
 resolve_bases() {
   bases=""
   _head=$(git -C "$repo_root" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || _head=""
@@ -197,7 +199,6 @@ evidence_for() {
   if [ -e "$repo_root/$_rec" ] || [ -L "$repo_root/$_rec" ]; then
     add_evidence record "$_rec"
   fi
-  resolve_bases
   for _base in $bases; do
     _hit=$(git -C "$repo_root" ls-tree --name-only "$_base" -- "$_rec" 2>/dev/null) \
       || probe_failed "ls-tree $_base"
@@ -295,6 +296,7 @@ case $cmd in
       exit 2
     }
     resolve_repo
+    resolve_bases
     evidence_for "$arg"
     [ -n "$found" ] || exit 1
     printf '%s' "$found"
@@ -313,6 +315,7 @@ case $cmd in
       }
       src_lines=$(awk 'END { print NR }' "$PLANWRIGHT_FLIGHT_UID_SOURCE")
     fi
+    resolve_bases
     while next_uid; do
       candidate=$arg-$uid
       evidence_for "$candidate"
