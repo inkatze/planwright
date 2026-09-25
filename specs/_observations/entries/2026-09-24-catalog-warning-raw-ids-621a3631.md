@@ -1,0 +1,1 @@
+- 2026-09-24 [planwright] resolve-catalog.sh prints catalog ids raw in its stderr warnings; resolve-steps.sh sanitizes on replay, but builder-guards.sh passes that stderr through unfiltered, so an overlay id carrying a terminal escape reaches the terminal as-is. Sanitize at the reader or at every consumer.
