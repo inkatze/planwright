@@ -217,7 +217,7 @@ count_live() {
 # that cannot be read fails closed.
 bound=''
 read_bound() {
-  _v=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$CONFIG" max_parallel_units 2>/dev/null </dev/null)
+  _v=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$CONFIG" max_parallel_units </dev/null)
   _rc=$?
   case $_rc in
     0) ;;
@@ -249,7 +249,7 @@ TIER_MODEL=inherit
 TIER_EFFORT=inherit
 resolve_tier() {
   _plan=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$ALLOC" plan --key offload --backend "$backend" \
-    --unit "flight:$flight_id" 2>/dev/null </dev/null)
+    --unit "flight:$flight_id" </dev/null)
   _rc=$?
   case $_rc in
     0) ;;
@@ -535,9 +535,9 @@ cmd_dispatch() {
   resolve_repo
   [ -n "$home" ] || home=$(declare_home)
 
-  sequence=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$SEQUENCE" 2>/dev/null </dev/null) || {
+  sequence=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$SEQUENCE" </dev/null) || {
     _rc=$?
-    die 4 "review_sequence did not resolve (exit $_rc); run scripts/resolve-review-sequence.sh for the reason"
+    die 4 "review_sequence did not resolve (exit $_rc)"
   }
   [ -n "$sequence" ] || die 4 "review_sequence resolved empty"
 

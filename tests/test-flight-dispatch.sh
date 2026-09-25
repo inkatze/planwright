@@ -317,6 +317,17 @@ case $(field "$OUT" launch) in
   *) fail "the print launch must carry the resolved tier: $(field "$OUT" launch)" ;;
 esac
 
+# --- 4f. a degraded overlay is surfaced, never silent -------------------------
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units:\n  nested: 1\n' >"$c/primary/.claude/planwright.local.yml"
+dispatch_print
+[ "$RC" -eq 0 ] || fail "a malformed machine-local overlay must degrade, not fail (rc $RC: $ERR)"
+case $ERR in
+  *"planwright.local.yml"*degraded*) ;;
+  *) fail "a degraded machine-local overlay must be warned about on stderr: $ERR" ;;
+esac
+
 # --- 5. concurrency ---------------------------------------------------------
 new_case
 mkdir -p "$c/primary/.claude"
