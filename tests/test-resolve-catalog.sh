@@ -501,6 +501,39 @@ assert "within-root symlink: exit 0" 0 $?
 assert_contains "within-root symlink: target read" "adopter-g" "$out"
 
 # ---------------------------------------------------------------------------
+# Lines outside the constrained shape are warned about and skipped, naming the
+# layer; a blank or whitespace-only line inside an entry stays silent; an id
+# that would not re-parse identically unquoted is re-emitted quoted.
+# ---------------------------------------------------------------------------
+sb="$tmp/shape"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+mkdir -p "$(dirname "$(adopter_cat "$sb" testcat)")"
+printf 'entries:\n  - id: gamma\n    note: "g"\n     misindented: x\n  - id: delta\n    note: "d"\n   \n\n    kind: k\n' >"$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>"$tmp/shape.err")"
+assert "shape: exit 0" 0 $?
+err="$(cat "$tmp/shape.err")"
+assert_contains "shape: an indented non-field line is warned, naming layer and entry" 'adopter entry "gamma" carries an indented line that is not a field' "$err"
+assert_absent "shape: the skipped line is not emitted" "misindented" "$out"
+assert_absent "shape: a whitespace-only line inside an entry stays silent" '"delta"' "$err"
+assert_contains "shape: the entry after the blank lines keeps its fields" "kind: k" "$out"
+printf 'entries:\n  - note: "first key is not id"\n    id: ghost\n  - id: real\n    note: "r"\n' >"$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>"$tmp/shape.err")"
+assert "pre-entry line: exit 0 (adopter degrades)" 0 $?
+assert_contains "pre-entry line: warned, naming layer and section" 'adopter section "entries" carries an indented line outside any entry' "$(cat "$tmp/shape.err")"
+assert_contains "pre-entry line: the following entry survives" "id: real" "$out"
+printf 'entries:\n  - id: " spaced"\n    note: "s"\n  - id: ""quoted""\n    note: "q"\n  - id: "plain"\n    note: "p"\n' >"$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>/dev/null)"
+assert_contains "round-trip: an id with edge whitespace is re-emitted quoted" '  - id: " spaced"' "$out"
+assert_contains "round-trip: an id with edge quotes is re-emitted quoted" '  - id: ""quoted""' "$out"
+assert_contains "round-trip: a plain id stays unquoted" '  - id: plain' "$out"
+explain="$(rc "$sb" testcat --explain 2>/dev/null)"
+assert_contains "round-trip: --explain carries the stored id" "$(printf ' spaced\tadopter')" "$explain"
+assert_contains "round-trip: a quote pair is stripped once" "$(printf '"quoted"\tadopter')" "$explain"
+printf 'entries:\n  - id: lopsided"\n    note: "l"\n' >"$(adopter_cat "$sb" testcat)"
+explain="$(rc "$sb" testcat --explain 2>/dev/null)"
+assert_contains "a one-sided quote is kept, never stripped alone" "$(printf 'lopsided"\tadopter')" "$explain"
+
+# ---------------------------------------------------------------------------
 echo
 if [ "$failures" -eq 0 ]; then
   echo "All resolve-catalog tests passed."

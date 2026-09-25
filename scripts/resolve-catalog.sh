@@ -61,6 +61,11 @@
 # four-space indent; values unquoted or double-quoted single-line scalars (no
 # single quotes, no inline `# ...` comments, no block scalars). The reader is
 # not full YAML — it stays dependency-free under the bash 3.2 floor (REQ-K1.5).
+# An id's surrounding double quotes are stripped only as a pair. Any other
+# indented line, inside an entry or before a section's first entry, is warned
+# about and skipped; the warning names the layer so a consumer can apply its
+# by-layer policy. These warnings come from the merge path only: a core-only
+# catalog in yaml mode is emitted verbatim, while --explain always merges.
 #
 # Path confinement (D-8, REQ-E1.5, risk R8): each present overlay file is routed
 # through resolve-overlay-root.sh --contain, which canonicalizes the joined path
@@ -380,8 +385,7 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     raw = $0
     sub(/^  -[ \t]+id:[ \t]*/, "", raw)
     sub(/[ \t]*$/, "", raw)
-    sub(/^"/, "", raw)
-    sub(/"$/, "", raw)
+    if (raw ~ /^".*"$/ && length(raw) >= 2) raw = substr(raw, 2, length(raw) - 2)
     cur_id = raw
     cur_supersede = 0
     cur_fields = ""
@@ -390,7 +394,8 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     next
   }
 
-  # A blank line inside an entry is nothing.
+  # Blank and whitespace-only lines are skipped before the indented-line
+  # warnings below can flag them.
   /^[ \t]*$/ { next }
 
   # An entry field at four-space indent. `supersede:` is a merge directive, not
@@ -425,6 +430,14 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     next
   }
 
+  # An indented line in a section before its first `- id:` item (an item
+  # opening with another key, say) belongs to no entry: the same warning, so
+  # the entry it would have opened is never lost silently.
+  section != "" && /^[ \t]/ {
+    warn(cur_label " section \"" section "\" carries an indented line outside any entry; skipping the line")
+    next
+  }
+
   END {
     if (!err) flush_entry()
     if (!err && fileidx > 0) finalize(fileidx)
@@ -442,7 +455,11 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
       for (i = 1; i <= n; i++) {
         id = order[i]
         if (section_of[id] != sec) continue
-        print "  - id: " id
+        # An id the reader would not re-parse identically unquoted (edge
+        # whitespace, an edge quote) is re-emitted quoted, so a consumer of
+        # this view reads the id the reader stored.
+        if (id ~ /^[ \t"]|[ \t"]$/) print "  - id: \"" id "\""
+        else print "  - id: " id
         m = split(fields_of[id], farr, "\n")
         for (j = 1; j <= m; j++) if (farr[j] != "") print "    " farr[j]
       }

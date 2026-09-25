@@ -45,6 +45,11 @@ verdict() {
   exit 1
 }
 
+command -v jq >/dev/null 2>&1 || {
+  echo "FAIL: jq is required (the installed-plugin registry lookups read JSON)" >&2
+  exit 1
+}
+
 tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
@@ -205,6 +210,9 @@ verdict "REQ-A1.1: an unknown point name is refused (exit 2)" "unknown point: rc
 capture 'pre-ci; rm' --unattended
 [ "$RC" = 2 ]
 verdict "a point name outside the charset is refused (exit 2)" "hostile point name: rc=$RC (want 2)"
+capture "" convergence --unattended
+[ "$RC" = 2 ]
+verdict "an empty positional before the point is an extra argument (exit 2)" "empty positional: rc=$RC (want 2)"
 
 # An explicit `[]` at any layer resolves to no steps without a malformed warning.
 for cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
@@ -349,7 +357,7 @@ malformed_case "an empty requires" "kind: prompt" "target: p" "requires:"
 malformed_case "a block indicator as args" "kind: skill" "target: polish" "args: |"
 malformed_case "an indented block indicator as target" "kind: prompt" "target: |2-"
 # The quoted-whitespace id: the catalog reader keeps it, the merged view
-# re-emits it unquoted, and the resolver judges the stored id by its layer.
+# re-emits it quoted, and the resolver judges the stored id by its layer.
 reset_layers
 printf 'steps:\n  - id: " foo"\n    kind: prompt\n    target: p\n' >"$tracked_cat"
 printf 'steps_pre_ci: [polish]\n' >"$tracked_cfg"
@@ -375,10 +383,19 @@ capture pre-pr --unattended --explain
   && printf '%s\n' "$OUT" | grep -q "^run${TAB}extra${TAB}pre-pr${TAB}repo-tracked${TAB}adopter${TAB}from the other section${TAB}"; } \
   || fail "multi-section catalog: entries must keep their own fields and layer: rc=$RC out='$OUT' err='$ERR'"
 printf 'steps:\n  - id: filler\n    kind: prompt\n    target: hello\nother:\n  - id: ""deploy""\n    kind: command\n    target: fixture-tool\n    args: attacker\n' >"$adopter_cat"
+printf 'steps_pre_pr: [deploy]\n' >"$tracked_cfg"
 capture pre-pr --unattended --explain
-{ [ "$RC" = 5 ] && ! printf '%s\n' "$OUT" | grep -q attacker; } \
-  || fail "multi-section catalog: an adopter id that re-parses to a repo-tracked id must fail closed, never rebind: rc=$RC out='$OUT'"
-ok "REQ-C1.5: a multi-section catalog aligns the views by id and fails closed on an ambiguous one"
+{ [ "$RC" = 0 ] \
+  && printf '%s\n' "$OUT" | grep -q "^run${TAB}deploy${TAB}pre-pr${TAB}repo-tracked${TAB}repo-tracked${TAB}fixture-tool${TAB}isolated${TAB}command${TAB}team${TAB}" \
+  && ! printf '%s\n' "$OUT" | grep -q attacker \
+  && printf '%s' "$ERR" | grep 'malformed' | grep -q 'adopter'; } \
+  || fail "multi-section catalog: a quoted adopter id must never rebind a repo-tracked one: rc=$RC out='$OUT' err='$ERR'"
+reset_layers
+printf 'steps:\n  - id: filler\n    kind: prompt\n    target: hello\nother:\n  - id: " polish"\n    kind: prompt\n    target: hi\n' >"$adopter_cat"
+capture convergence --unattended
+{ [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && printf '%s' "$ERR" | grep 'malformed' | grep -q 'adopter'; } \
+  || fail "multi-section catalog: an adopter id with edge whitespace degrades, never a broken install: rc=$RC out='$OUT' err='$ERR'"
+ok "REQ-C1.5: a multi-section catalog aligns the views by id, a quoted overlay id judged by its own layer"
 # An indented line the catalog reader drops (a misindented or quoted key)
 # takes the by-layer policy: the declaration is never lost silently.
 reset_layers
@@ -390,9 +407,20 @@ verdict "REQ-C1.5: a misindented field in a repo-tracked entry hard-fails" "misi
 reset_layers
 printf 'steps:\n  - id: lint\n    kind: command\n    target: fixture-tool\n    "hosting": in-session\n' >"$adopter_cat"
 printf 'steps_pre_ci: [lint]\n' >"$adopter_cfg"
+capture pre-ci --unattended
+{ [ "$RC" = 0 ] && [ "$OUT" = "skip${TAB}lint" ] && printf '%s' "$ERR" | grep -q 'not a field'; }
+verdict "REQ-C1.5: an adopter entry that lost a line is skipped, never run without it" "quoted adopter key: rc=$RC out='$OUT' err='$ERR'"
 capture pre-ci --check --unattended
 [ "$RC" = 1 ] && printf '%s' "$ERR" | grep -q 'not a field'
 verdict "REQ-H1.3: a quoted key in an adopter entry is degraded with its warning and fails check mode" "quoted adopter key: rc=$RC err='$ERR'"
+# An indented line before a section's first entry belongs to no entry: the
+# entry it would have opened is never lost silently.
+reset_layers
+printf 'steps:\n  - kind: prompt\n    id: ghost\n    target: hi\n  - id: real\n    kind: prompt\n    target: hi\n' >"$tracked_cat"
+printf 'steps_pre_ci: [real]\n' >"$tracked_cfg"
+capture pre-ci --unattended
+[ "$RC" = 4 ] && printf '%s' "$ERR" | grep -q 'outside any entry'
+verdict "REQ-C1.5: a repo-tracked item that does not open with id hard-fails" "stray pre-entry line: rc=$RC err='$ERR'"
 # An entry the catalog reader itself skipped with a warning (an unmarked
 # duplicate of a core id, an empty id) takes the by-layer policy here.
 reset_layers
@@ -405,15 +433,34 @@ reset_layers
 cp "$core/config/steps.yaml" "$tmp/steps.bak"
 printf '  - id:\n    kind: prompt\n    target: p\n' >>"$core/config/steps.yaml"
 capture convergence --unattended
-[ "$RC" = 5 ] && printf '%s' "$ERR" | grep -q 'skipped'
-verdict "REQ-C1.5: a core entry the reader skipped (an empty id) is a broken install" "reader-skipped core entry: rc=$RC err='$ERR'"
+[ "$RC" = 5 ] && printf '%s' "$ERR" | grep -q '^resolve-catalog: steps: core '
+verdict "REQ-C1.5: a core entry the reader skipped (an empty id) is a broken install, the reader's own warning replayed" "reader-skipped core entry: rc=$RC err='$ERR'"
 cp "$tmp/steps.bak" "$core/config/steps.yaml"
 reset_layers
 cat_entry "$adopter_cat" polish "kind: skill" "target: self-review"
 capture convergence --unattended
-{ [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && printf '%s' "$ERR" | grep -q 'adopter'; }
-verdict "REQ-C1.5: an adopter entry the reader skipped only warns and degrades" "reader-skipped adopter entry: rc=$RC out='$OUT' err='$ERR'"
+{ [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] \
+  && [ "$(printf '%s\n' "$ERR" | grep -c '^resolve-catalog: steps: adopter entry "polish" duplicates')" = 1 ]; }
+verdict "REQ-C1.5: an adopter entry the reader skipped only warns (once) and degrades" "reader-skipped adopter entry: rc=$RC out='$OUT' err='$ERR'"
+# The catalog as a whole: a core seed that contributes nothing, or a point
+# key with no core default, is a broken install whatever the overlays hold.
+reset_layers
+mv "$core/config/steps.yaml" "$tmp/steps.bak"
+cat_entry "$tracked_cat" lint "kind: prompt" "target: p"
+capture convergence --unattended
+[ "$RC" = 5 ] && printf '%s' "$ERR" | grep -q 'core steps seed'
+verdict "a missing core steps seed is a broken install even with an overlay catalog" "missing core seed: rc=$RC err='$ERR'"
+mv "$tmp/steps.bak" "$core/config/steps.yaml"
+reset_layers
+sed -i.bak '/^steps_pre_ci:/d' "$core/config/defaults.yml"
+rm -f "$core/config/defaults.yml.bak"
+printf 'steps_pre_ci: [polish]\n' >"$tracked_cfg"
+capture pre-ci --unattended
+[ "$RC" = 5 ] && printf '%s' "$ERR" | grep -q 'no core default'
+verdict "a point key with no core default is a broken install even when an overlay sets it" "missing core key: rc=$RC err='$ERR'"
 malformed_case "a tab inside a value" "kind: prompt" "target: a${TAB}b"
+malformed_case "a one-sided quote on a skill target" "kind: skill" 'target: "polish'
+malformed_case "a blank before a key's colon" "kind: prompt" "target: p" "supersede : true"
 malformed_case "a control byte inside a value" "kind: prompt" "target: a$(printf '\033')[31mb"
 # A control byte in the id itself: still attributed to its layer, and the
 # diagnostic carries no raw byte.
@@ -639,9 +686,10 @@ check_loc c-path "$bin/fixture-tool"
 check_loc c-rel "./rel-tool"
 check_loc p-text "-"
 ok "REQ-C1.3/D-19: skill, command, and prompt targets resolve on the host through every lookup rule"
-# The declared command line is emitted byte-for-byte, and skill args verbatim.
+# The declared command line is emitted as written (runs of spaces kept), and
+# skill args verbatim.
 printf '%s\n' "$OUT" | grep -q "^run${TAB}c-name${TAB}post-pr${TAB}repo-tracked${TAB}repo-tracked${TAB}fixture-tool${TAB}isolated${TAB}command${TAB}--nested x=1  a/b   c${TAB}"
-verdict "REQ-G1.1: a declared command line is emitted byte-for-byte" "REQ-G1.1: command line not byte-identical: $(printf '%s\n' "$OUT" | grep "${TAB}c-name${TAB}")"
+verdict "REQ-G1.1: a declared command line is emitted as written" "REQ-G1.1: command line not byte-identical: $(printf '%s\n' "$OUT" | grep "${TAB}c-name${TAB}")"
 printf '%s\n' "$OUT" | grep -q "^run${TAB}s-pw${TAB}.*${TAB}skill${TAB}--nested${TAB}"
 verdict "REQ-B1.6/REQ-C1.3: a skill's --nested argument is passed through unexamined" "skill args verbatim: $(printf '%s\n' "$OUT" | grep "${TAB}s-pw${TAB}")"
 
@@ -661,6 +709,35 @@ absent_case s-plug-cmd "plugin command removed"
 rm -f "$bin/fixture-tool"
 absent_case c-name "command off the path"
 absent_case c-path "command path removed"
+rm -rf "$claude/skills/user-skill"
+absent_case s-user-skill "user skill removed"
+rm -f "$repo/.claude/commands/proj-cmd.md"
+absent_case s-proj-cmd "project command removed"
+mv "$core/skills/self-review" "$tmp/self-review.bak"
+absent_case s-pw "planwright-namespaced skill removed (never found in the user dirs)"
+mkdir -p "$claude/skills/self-review"
+printf 'user copy\n' >"$claude/skills/self-review/SKILL.md"
+absent_case s-pw "planwright-namespaced skill present only in the user skills dir"
+rm -rf "$claude/skills/self-review"
+mv "$tmp/self-review.bak" "$core/skills/self-review"
+mv "$plug/skills/their-skill" "$tmp/their-skill.bak"
+absent_case s-plug-skill "plugin skill removed, registry intact"
+mv "$tmp/their-skill.bak" "$plug/skills/their-skill"
+mv "$plug2/skills/v2-skill" "$tmp/v2-skill.bak"
+absent_case s-multi "neither listed install path holds the skill"
+mv "$tmp/v2-skill.bak" "$plug2/skills/v2-skill"
+# A relative install path would resolve against the worktree, which the
+# worker can write: never probed.
+mkdir -p "$tmp/plugins/rel/skills/rel-skill"
+printf 'rel\n' >"$tmp/plugins/rel/skills/rel-skill/SKILL.md"
+printf '{"version": 2, "plugins": {"rel@market": [{"installPath": "plugins/rel"}]}}\n' >"$registry"
+cat_entry "$tracked_cat" s-rel "kind: skill" "target: rel:rel-skill"
+printf 'steps_post_pr: [s-rel]\n' >"$tracked_cfg"
+OUT=$(cd "$tmp" && run post-pr --unattended 2>"$tmp/err")
+RC=$?
+[ "$RC" = 1 ] && [ "$OUT" = "park${TAB}s-rel" ] \
+  || fail "REQ-C1.3: a relative registry install path must not resolve: rc=$RC out='$OUT' err='$(cat "$tmp/err")'"
+write_registry
 printf '#!/bin/sh\nexit 0\n' >"$bin/fixture-tool"
 chmod +x "$bin/fixture-tool"
 ok "REQ-C1.3: each absent target is non-resolving under the matrix"
@@ -769,7 +846,7 @@ printf 'steps_pre_pr: [a-step]\n' >"$adopter_cfg"
 printf 'steps_pre_pr: [polish]\n' >"$tracked_cfg"
 capture pre-pr --unattended
 [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] \
-  && printf '%s' "$ERR" | grep -q 'shadow' && printf '%s' "$ERR" | grep -q 'adopter'
+  && printf '%s' "$ERR" | grep 'shadow' | grep -q 'adopter'
 verdict "REQ-C1.1: two layers resolve to the higher one and the warning names the lower" "REQ-C1.1 two layers: rc=$RC out='$OUT' err='$ERR'"
 printf 'steps_pre_pr: [a-step]\n' >"$mlocal_cfg"
 capture pre-pr --unattended
@@ -783,11 +860,11 @@ printf 'steps_pre_pr: [polish]\n' >"$tracked_cfg"
 capture pre-pr --unattended
 [ "$RC" = 0 ] && ! printf '%s' "$ERR" | grep -q 'shadow'
 verdict "REQ-C1.1: a list at one overlay layer prints no shadow warning" "REQ-C1.1 one layer: rc=$RC err='$ERR'"
-# The shadow warning names every lower layer whatever its value: an empty
+# The shadow warning names every lower overlay layer whatever its value: an empty
 # lower list is still shadowed.
 printf 'steps_pre_pr: []\n' >"$adopter_cfg"
 capture pre-pr --unattended
-printf '%s' "$ERR" | grep 'shadow' | grep -q 'adopter'
+[ "$RC" = 0 ] && printf '%s' "$ERR" | grep 'shadow' | grep -q 'adopter'
 verdict "REQ-C1.1: a shadowed layer is named whatever its value" "REQ-C1.1 empty shadowed: err='$ERR'"
 
 # =============================================================================
@@ -823,7 +900,7 @@ capture convergence --attended
 capture convergence --unattended
 [ "$RC" = 1 ] && [ "$OUT" = "park${TAB}polish" ] || fail "core unresolvable unattended: rc=$RC out='$OUT'"
 capture convergence --check --unattended
-[ "$RC" != 0 ] || fail "check mode must fail on a core park"
+[ "$RC" = 1 ] || fail "check mode must fail (exit 1) on a core park: rc=$RC"
 mv "$tmp/polish.bak" "$core/skills/polish"
 ok "REQ-C1.4: a core-default step that does not resolve prints park at both attendances"
 # Check mode: non-zero on any park; passes with a warning on an adopter skip.
@@ -842,6 +919,28 @@ printf 'steps_pre_pr: [polish, ghost]\n' >"$mlocal_cfg"
 capture pre-pr --check --unattended
 [ "$RC" = 0 ] && printf '%s' "$ERR" | grep -q 'ghost'
 verdict "REQ-H1.3: check mode passes with a warning on a machine-local skip" "check mode machine-local skip: rc=$RC err='$ERR'"
+
+# A misplaced continue is the list's and the entry's together: a personal
+# entry is dropped for the list and never breaks a core or team list, and a
+# team entry misplaced by the core list hard-fails as the team's.
+reset_layers
+cat_entry "$adopter_cat" polish "supersede: true" "kind: skill" "target: polish" "hosting: continue"
+capture convergence --unattended
+{ [ "$RC" = 1 ] && [ "$OUT" = "park${TAB}polish" ] && printf '%s' "$ERR" | grep 'for this list' | grep -q 'adopter'; } \
+  || fail "REQ-C1.5: an adopter continue entry in the core list must drop, not break the install: rc=$RC out='$OUT' err='$ERR'"
+reset_layers
+cat_entry "$tracked_cat" iso-cmd "kind: command" "target: fixture-tool" "hosting: isolated"
+cat_entry "$adopter_cat" mine "kind: prompt" "target: carry on" "hosting: continue"
+printf 'steps_pre_pr: [iso-cmd, mine]\n' >"$tracked_cfg"
+capture pre-pr --unattended
+{ [ "$RC" = 1 ] && [ "$OUT" = "$(printf 'park\tiso-cmd\npark\tmine')" ] && printf '%s' "$ERR" | grep 'for this list' | grep -q 'adopter'; } \
+  || fail "REQ-C1.5: an adopter continue entry in a team list must drop, not hard-fail the team: rc=$RC out='$OUT' err='$ERR'"
+reset_layers
+cat_entry "$tracked_cat" polish "supersede: true" "kind: skill" "target: polish" "hosting: continue"
+capture convergence --unattended
+[ "$RC" = 4 ]
+verdict "REQ-C1.5: a team continue entry misplaced by the core list hard-fails as the team's" "repo continue in core list: rc=$RC err='$ERR'"
+ok "REQ-B1.4/REQ-C1.5: a misplaced continue is judged by the list's and the entry's layers together"
 
 # =============================================================================
 # 9. Malformation by layer for LISTS (REQ-C1.5), and the degraded winner.
@@ -865,7 +964,7 @@ capture convergence --unattended
 verdict "REQ-C1.5/D-6: after an adopter list degrades, the matrix keys on the core layer" "degraded winner matrix: rc=$RC out='$OUT'"
 mv "$tmp/polish.bak" "$core/skills/polish"
 capture convergence --check --unattended
-[ "$RC" != 0 ]
+[ "$RC" = 1 ]
 verdict "REQ-H1.3: check mode exits non-zero on a degraded adopter malformation" "check mode degraded malformation: rc=$RC"
 reset_layers
 printf 'steps_convergence: [polish, polish]\n' >"$core/config/defaults.yml"
@@ -916,14 +1015,21 @@ capture convergence --unattended
 verdict "REQ-C1.6: review_sequence at one layer warns once naming the layer and steps_convergence; the chain is unaffected" "REQ-C1.6 one layer: rc=$RC out='$OUT' err='$ERR'"
 printf 'review_sequence: [polish]\n' >"$mlocal_cfg"
 capture pre-ci --unattended
-[ "$(printf '%s\n' "$ERR" | grep -c 'review_sequence')" = 2 ] \
+[ "$RC" = 0 ] && [ -z "$OUT" ] && [ "$(printf '%s\n' "$ERR" | grep -c 'review_sequence')" = 2 ] \
   && printf '%s' "$ERR" | grep 'review_sequence' | grep -q 'machine-local'
 verdict "REQ-C1.6: two layers produce two warnings, at every point" "REQ-C1.6 two layers: err='$ERR'"
 printf 'review_sequence: [polish]\n' >"$tracked_cfg"
 capture pre-ci --unattended
-[ "$(printf '%s\n' "$ERR" | grep -c 'review_sequence')" = 3 ] \
+[ "$RC" = 0 ] && [ -z "$OUT" ] && [ "$(printf '%s\n' "$ERR" | grep -c 'review_sequence')" = 3 ] \
   && printf '%s' "$ERR" | grep 'review_sequence' | grep -q 'repo-tracked'
 verdict "REQ-C1.6: the repo-tracked layer warns too" "REQ-C1.6 repo-tracked: err='$ERR'"
+reset_layers
+printf 'review_sequence: [polish]\n' >>"$core/config/defaults.yml"
+capture convergence --unattended
+{ [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] \
+  && [ "$(printf '%s\n' "$ERR" | grep -c 'review_sequence')" = 1 ] \
+  && printf '%s' "$ERR" | grep 'review_sequence' | grep -q 'the core layer'; }
+verdict "REQ-C1.6: the core layer warns too" "REQ-C1.6 core: rc=$RC out='$OUT' err='$ERR'"
 
 # =============================================================================
 # 11. Unwired points (REQ-A1.3).
@@ -1114,6 +1220,12 @@ rc=0
 ctx_run PLANWRIGHT_STEP_TASK_IDS='2 x' -- pre-pr --preamble >/dev/null 2>&1 || rc=$?
 [ "$rc" = 6 ]
 verdict "a task id outside the task-id grammar is refused" "bad task id: rc=$rc"
+for ids in '   ' '2  3' ' 2' '2 '; do
+  rc=0
+  ctx_run PLANWRIGHT_STEP_TASK_IDS="$ids" -- pre-pr --preamble >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 6 ] || fail "task ids '$ids' not joined by single spaces should be refused: rc=$rc"
+done
+ok "task ids not joined by single spaces are refused"
 rc=0
 ctx_run PLANWRIGHT_STEP_PR_NUMBER='12a' -- pre-pr --prefix >/dev/null 2>&1 || rc=$?
 [ "$rc" = 6 ]

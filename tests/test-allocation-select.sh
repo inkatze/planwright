@@ -431,13 +431,14 @@ done
 # The refusal is exercised, not assumed: a repo-tracked step targeting a
 # selectable command is malformed (exit 4) naming the rule.
 sb="$tmp/pipeline-entry"
-mkdir -p "$sb/core/config" "$sb/repo/.claude/catalogs" "$sb/adopter"
+mkdir -p "$sb/core/config" "$sb/repo/.claude/catalogs" "$sb/adopter" "$sb/home" "$sb/claude"
 cp "$here/../config/steps.yaml" "$sb/core/config/steps.yaml"
 printf 'dispatch_isolation: per-step\nsteps_pre_ci: [entry]\n' >"$sb/core/config/defaults.yml"
 first=$(printf '%s\n' "$commands" | head -1)
 printf 'steps:\n  - id: entry\n    kind: skill\n    target: %s\n' "$first" >"$sb/repo/.claude/catalogs/steps.yaml"
 rc=0
-err=$(PLANWRIGHT_ROOT="$sb/core" PLANWRIGHT_CONFIG_DEFAULTS="$sb/core/config/defaults.yml" \
+err=$(env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT -u PLANWRIGHT_JQ \
+  HOME="$sb/home" CLAUDE_DIR="$sb/claude" PLANWRIGHT_ROOT="$sb/core" PLANWRIGHT_CONFIG_DEFAULTS="$sb/core/config/defaults.yml" \
   PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" PLANWRIGHT_REPO_ROOT="$sb/repo" PLANWRIGHT_LOCAL_CONFIG="" \
   /bin/bash "$here/../scripts/resolve-steps.sh" pre-ci --unattended 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 4 ] || fail "the step resolver should refuse '$first' as a step target (exit 4), got $rc: $err"

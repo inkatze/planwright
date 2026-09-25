@@ -5,8 +5,9 @@
 # Task 2; REQ-A1.3, REQ-A1.4, REQ-B1.1–B1.6, REQ-C1.1–C1.6, REQ-C1.8,
 # REQ-D1.8, REQ-D1.9, REQ-G1.1, REQ-H1.3; D-4, D-5, D-6, D-10, D-17, D-19).
 # doctrine/custom-steps.md is the normative home of every rule this script
-# applies; this header pins only what that doc delegates here: the output line
-# format, the exit codes, the preamble layout, and the prefix quoting.
+# applies; this header pins what that doc delegates here (the output line
+# format, the exit codes, the preamble layout, and the prefix quoting) and
+# summarizes the rest for a reader of this file, the doc winning on conflict.
 #
 # A point's list is config, read THROUGH config-get.sh (last-layer-wins; its
 # --layers mode supplies the shadow and stale-key warnings and the core
@@ -54,12 +55,17 @@
 # token, the stderr diagnostic naming the steps that did not resolve and why.
 # <hosting> is the EFFECTIVE hosting (the dispatch_isolation default applied,
 # a continue step's attachment to an in-session predecessor applied).
-# <target> and <args> are the declared values byte for byte; <location> is
+# <target> and <args> are the declared values as the constrained reader
+# parses them (a surrounding pair of double quotes and trailing blanks
+# removed); <on-failure> is the effective posture (`halt` when unset);
+# <location> is
 # the host path a skill or command target resolved to (a prompt prints `-`;
 # a relative command path is printed as declared, relative to the working
 # directory this script runs in, which the hosting skill makes the unit's
 # worktree). An empty or inapplicable field prints `-`. No line carries a
-# C0 control byte or DEL: a value carrying one is malformed for its layer.
+# C0 control byte or DEL: a catalog value carrying one is malformed for its
+# layer, and a location built from the environment that carries one does
+# not resolve.
 # The C1 range is not refused, because those bytes are continuation bytes of
 # ordinary UTF-8 text; a consumer rendering a line into a terminal or a PR
 # body screens it as untrusted data. A non-empty list at an unwired point
@@ -73,7 +79,8 @@
 # ships every key, so outranking it is the mechanism working, never a
 # shadow), one stale-key warning per layer that sets review_sequence, the
 # unwired-point warning, and the skip warnings. A runner that records the
-# resolver's warnings therefore records them all.
+# resolver's warnings therefore records them all; a sibling warning repeated
+# by several reads of the same layer is printed once.
 #
 # The preamble (--preamble; REQ-A1.4, D-14). The runner sets the
 # PLANWRIGHT_STEP_* variables in this script's environment and prepends the
@@ -99,7 +106,8 @@
 # assignments on one line, in the order above, single-quoted with an
 # embedded quote written '\'', separated by one space, for a session-hosted
 # command step's declared line: `<prefix> <target> <args>`. This is the exact
-# form the worker command guard strips before matching the declared line.
+# form the worker command guard is specified to strip before matching the
+# declared line.
 #
 # On both channels a value carrying a newline, another C0 control byte, or
 # DEL is refused (exit 6), the diagnostic naming the field and never the
@@ -175,6 +183,7 @@ usage() {
 }
 
 point=""
+point_set=0
 explain=0
 check=0
 preamble=0
@@ -202,11 +211,12 @@ while [ $# -gt 0 ]; do
       usage
       ;;
     *)
-      if [ -n "$point" ]; then
+      if [ "$point_set" -eq 1 ]; then
         echo "resolve-steps: unexpected extra argument" >&2
         usage
       fi
       point="$1"
+      point_set=1
       ;;
   esac
   shift
@@ -232,12 +242,13 @@ die() {
   warn "$2"
   exit "$1"
 }
-# replay <file>: forward a sibling's captured stderr, sanitized line by line.
+# replay <file>: forward a sibling's captured stderr, each line once per run
+# (several reads of one layer repeat its warning), in one pass through the
+# house sanitizer's byte set with the newline kept.
 replay() {
   [ -s "$1" ] || return 0
-  while IFS= read -r rl || [ -n "$rl" ]; do
-    printf '%s\n' "$(sanitize_printable "$rl")" >&2
-  done <"$1"
+  awk 'FILENAME == ARGV[1] { seen[$0] = 1; next } !($0 in seen) { seen[$0] = 1; print }' \
+    "$replayed" "$1" | tee -a "$replayed" | tr -d '\000-\011\013-\037\177\200-\237' >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -270,6 +281,9 @@ if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ]; then
         esac
         ;;
       TASK_IDS)
+        case "$v" in
+          " "* | *" " | *"  "*) refuse "$f" "task ids not joined by single spaces" ;;
+        esac
         for id in $v; do
           case "$id" in
             *[!0-9.]* | "" | . | *.*.* | .* | *.) refuse "$f" "a token outside the task-id grammar" ;;
@@ -325,10 +339,14 @@ done
 
 key="steps_${point//-/_}"
 
-# One scratch file holds each sibling's stderr until it is replayed. A signal
-# ends the run with its conventional status; the EXIT trap cleans up.
+# One scratch file holds each sibling's stderr until it is replayed, a second
+# the lines already replayed. A signal ends the run with its conventional
+# status; the EXIT trap, set first, cleans up.
+scratch=""
+replayed=""
+trap 'rm -f ${scratch:+"$scratch"} ${replayed:+"$replayed"}' EXIT
 scratch=$(mktemp) || die 5 "could not create a scratch file"
-trap 'rm -f "$scratch"' EXIT
+replayed=$(mktemp) || die 5 "could not create a scratch file"
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -369,7 +387,7 @@ rule_doc="$script_dir/../doctrine/custom-steps.md"
 [ -r "$rule_doc" ] || die 5 "rule doc '$rule_doc' is missing or unreadable (broken install)"
 pe_lines=0
 PIPELINE_ENTRY=""
-while IFS= read -r l; do
+while IFS= read -r l || [ -n "$l" ]; do
   case "$l" in
     "pipeline-entry:"*)
       pe_lines=$((pe_lines + 1))
@@ -423,7 +441,8 @@ fi
 # ---------------------------------------------------------------------------
 # The point's list: winner, shadow warning, parse (REQ-C1.1, REQ-B1.3).
 # ---------------------------------------------------------------------------
-read_layers "$key" || die 5 "$key is set in no layer; the core defaults ship every point key (broken install)"
+core_hint="the core defaults ship every point key; the core root follows PLANWRIGHT_ROOT or CLAUDE_PLUGIN_ROOT when set"
+read_layers "$key" || die 5 "$key is set in no layer; $core_hint (broken install)"
 list_layer=""
 list_value=""
 core_value=""
@@ -444,6 +463,7 @@ while IFS= read -r line; do
 done <<EOF
 $LAYERS
 EOF
+[ "$core_set" -eq 1 ] || die 5 "$key has no core default; $core_hint (broken install)"
 [ -n "$shadowed" ] && warn "warning: $key from the $list_layer layer shadows the $shadowed layer's list"
 
 # parse_list <raw>: sets IDS to one id per line for a flow list `[a, b]`,
@@ -617,13 +637,27 @@ reader_skips "$scratch"
 rc=0
 layers_view=$("$catalog_sh" steps --explain 2>"$scratch") || rc=$?
 [ "$plain_read_quiet" -eq 0 ] || replay "$scratch"
-[ "$rc" -eq 0 ] || die 5 "resolve-catalog's two views disagree (exit $rc) (broken install)"
+[ "$rc" -eq 0 ] || die 5 "the steps catalog is malformed (resolve-catalog --explain exit $rc) (broken install)"
 reader_skips "$scratch"
+# An adopter or machine-local entry that lost a line to the reader is
+# malformed in itself, not merely degraded: its layer and id, collected
+# here, drop it once the entries are known.
+LOST_LINE_IDS=$(awk '
+  !/" carries an indented line that is not a field; skipping the line$/ { next }
+  sub(/^resolve-catalog: steps: adopter entry "/, "") { l = "adopter" }
+  sub(/^resolve-catalog: steps: machine-local entry "/, "") { l = "machine-local" }
+  l != "" {
+    sub(/" carries an indented line that is not a field; skipping the line$/, "")
+    print l "\t" $0
+    l = ""
+  }
+' "$scratch")
 
 # FIELDS: one `<n>\t<key>\t<value>` line per entry field, <n> the entry's
 # ordinal in merged order. Markers: `@cntrl` (a control byte in the key or
 # value; the value is never emitted), `@dup` (a repeated field, the item's
-# own id included), `@bad` (an indented line that is not a field). Every
+# own id included), `@bad` (an indented line that is not a field, which the
+# catalog reader already warns about and drops, so a backstop). Every
 # item is kept: a core or repo-tracked entry the catalog reader skipped has
 # already ended the run through its warning, and an adopter or machine-local
 # one is degraded with its warning and absent from the merged view.
@@ -633,7 +667,7 @@ FIELDS=$(printf '%s\n' "$merged" | awk '
   /^[ \t]*$/ { next }
   insec && /^  -[ \t]+id:/ {
     raw = $0; sub(/^  -[ \t]+id:[ \t]*/, "", raw); sub(/[ \t]*$/, "", raw)
-    sub(/^"/, "", raw); sub(/"$/, "", raw)
+    if (raw ~ /^".*"$/ && length(raw) >= 2) raw = substr(raw, 2, length(raw) - 2)
     n++; have = 1
     fseen[n, "id"] = 1
     print n "\tid\t" raw
@@ -642,9 +676,10 @@ FIELDS=$(printf '%s\n' "$merged" | awk '
   }
   have && /^    [A-Za-z]/ {
     raw = $0; sub(/^    /, "", raw)
-    if (raw ~ /:/) { key = raw; sub(/[ \t]*:.*/, "", key); val = raw; sub(/^[^:]*:[ \t]*/, "", val) }
+    if (raw ~ /:/) { key = raw; sub(/:.*/, "", key); val = raw; sub(/^[^:]*:[ \t]*/, "", val) }
     else { key = raw; val = "" }
-    sub(/[ \t]*$/, "", val); sub(/^"/, "", val); sub(/"$/, "", val)
+    sub(/[ \t]*$/, "", val)
+    if (val ~ /^".*"$/ && length(val) >= 2) val = substr(val, 2, length(val) - 2)
     if (key ~ /[[:cntrl:]]/ || val ~ /[[:cntrl:]]/) { print n "\t@cntrl\t"; next }
     if ((n, key) in fseen) { print n "\t@dup\t" key; next }
     fseen[n, key] = 1
@@ -652,14 +687,6 @@ FIELDS=$(printf '%s\n' "$merged" | awk '
     next
   }
   have { print n "\t@bad\t"; next }
-')
-# The section count decides how the two views align below: the merged view
-# groups entries by section, the --explain view lists them in merged order,
-# so the orders agree only when the catalog holds one section.
-n_sections=$(printf '%s\n' "$merged" | awk '
-  /^[ \t]*#/ { next }
-  /^[A-Za-z][A-Za-z0-9_-]*:[ \t]*$/ { s = $0; sub(/:[ \t]*$/, "", s); secs[s] = 1 }
-  END { c = 0; for (k in secs) c++; print c }
 ')
 
 # One pass over the field stream into per-entry arrays. E_MARK holds the
@@ -722,15 +749,17 @@ done <<EOF
 $FIELDS
 EOF
 [ "$n_entries" -gt 0 ] || die 5 "the steps catalog holds no entry; the core seed always does (broken install)"
-# The --explain view supplies each entry's layer and its id as the catalog
-# reader stored it (the merged view re-emits an id unquoted, so one the
-# reader kept with surrounding whitespace or quotes re-parses without them);
-# the stored id is what validation then judges. With one section the two
-# views list entries in the same order, so they align by ordinal exactly.
-# With several, the merged view is grouped by section and the alignment is
-# by id, normalized the way the field parse normalizes it; a line matching
-# no entry, or more than one, is never guessed at: the run fails closed.
-# The layer is the last field, so an id carrying a tab still splits.
+have_core_entry=0
+# The --explain view supplies each entry's layer, matched by id: the
+# catalog reader quotes an id that would not re-parse identically, so the
+# merged view carries every id exactly as the reader stored it, and ids are
+# unique. With one section the two views list entries in the same order and
+# the ordinal must carry the same id; with several, the merged view is
+# grouped by section and each view line must match exactly one entry. A
+# mismatch (a catalog edited between the two reads, say) is never guessed
+# at: the run fails closed. The layer is the last field, so an id carrying a
+# tab still splits.
+n_sections=$(printf '%s\n' "$merged" | awk '/^[A-Za-z][A-Za-z0-9_-]*:[ \t]*$/ { c++ } END { print c + 0 }')
 n_layers=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -740,16 +769,13 @@ while IFS= read -r line; do
   matched=0
   if [ "$n_sections" -le 1 ]; then
     [ "$n_layers" -le "$n_entries" ] || break
+    [ "${E_ID[n_layers]}" = "$view_id" ] || die 5 "resolve-catalog's two views disagree at entry $n_layers (broken install)"
     matched=$n_layers
   else
-    view_key=${view_id#"${view_id%%[![:space:]]*}"}
-    view_key=${view_key%"${view_key##*[![:space:]]}"}
-    view_key=${view_key#\"}
-    view_key=${view_key%\"}
     i=1
     while [ "$i" -le "$n_entries" ]; do
-      if [ -z "${E_LAYER[i]}" ] && [ "${E_ID[i]}" = "$view_key" ]; then
-        [ "$matched" -eq 0 ] || die 5 "resolve-catalog's two views cannot be aligned: an id is ambiguous (broken install)"
+      if [ "${E_ID[i]}" = "$view_id" ]; then
+        { [ "$matched" -eq 0 ] && [ -z "${E_LAYER[i]}" ]; } || die 5 "resolve-catalog's two views cannot be aligned: an id is ambiguous (broken install)"
         matched=$i
       fi
       i=$((i + 1))
@@ -757,7 +783,6 @@ while IFS= read -r line; do
     [ "$matched" -gt 0 ] || die 5 "resolve-catalog's two views cannot be aligned: an entry matches no id (broken install)"
   fi
   E_LAYER[matched]="$view_layer"
-  E_ID[matched]="$view_id"
 done <<EOF
 $layers_view
 EOF
@@ -765,8 +790,10 @@ EOF
 i=1
 while [ "$i" -le "$n_entries" ]; do
   [ -n "${E_LAYER[i]}" ] || die 5 "resolve-catalog's two views disagree at entry $i (broken install)"
+  [ "${E_LAYER[i]}" != core ] || have_core_entry=1
   i=$((i + 1))
 done
+[ "$have_core_entry" -eq 1 ] || die 5 "the core steps seed contributed no entry (broken install)"
 # is_set <n> <field>: 0 when the entry declares the field (even empty).
 is_set() {
   sn="$1"
@@ -973,8 +1000,18 @@ validate_entry() {
 
 i=1
 while [ "$i" -le "$n_entries" ]; do
-  validate_entry "$i"
-  [ -z "$ERR" ] || entry_malformed "$i" "$ERR"
+  lost=0
+  while IFS="$TAB" read -r ll lid; do
+    [ "$ll" = "${E_LAYER[i]}" ] && [ "$lid" = "${E_ID[i]}" ] && lost=1
+  done <<EOF
+$LOST_LINE_IDS
+EOF
+  if [ "$lost" -eq 1 ]; then
+    entry_malformed "$i" "an indented line the catalog reader skipped"
+  else
+    validate_entry "$i"
+    [ -z "$ERR" ] || entry_malformed "$i" "$ERR"
+  fi
   i=$((i + 1))
 done
 
@@ -1058,6 +1095,7 @@ EOF
   }
   while IFS= read -r p; do
     [ -n "$p" ] || continue
+    case "$p" in /*) ;; *) continue ;; esac
     case "$p" in *[[:cntrl:]]*) continue ;; esac
     if [ -f "$p/skills/$2/SKILL.md" ]; then
       LOC="$p/skills/$2/SKILL.md"
@@ -1133,6 +1171,13 @@ resolve_target() {
       fi
       ;;
   esac
+  case "$LOC" in
+    *[[:cntrl:]]*)
+      LOC=""
+      REASON="the location the host resolved carries a control byte"
+      return 1
+      ;;
+  esac
   rreq=${E_REQ[rn]}
   for r in $rreq; do
     case "$r" in
@@ -1166,8 +1211,14 @@ S_LOC=()
 S_REASON=()
 n_steps=0
 
+# build_steps <ids>: fills S_*; sets LIST_ERR when the list must degrade.
+# A `continue` with no session to attach to is a fault of the list and the
+# entry together, so a personal layer's part never breaks a shared one: an
+# adopter or machine-local list degrades; otherwise an adopter or
+# machine-local entry is dropped for this list; otherwise a repo-tracked
+# list or entry hard-fails and an all-core pairing is a broken install. A
+# timeout on a step that lands in-session is the declaring entry's.
 build_steps() {
-  # build_steps <ids>: fills S_*; sets LIST_ERR on a list-level fault.
   LIST_ERR=""
   n_steps=0
   S_ID=()
@@ -1188,22 +1239,35 @@ build_steps() {
       S_KIND[n_steps]=${E_KIND[en]}
       h=${E_HOST[en]}
       [ -n "$h" ] || h="$default_hosting"
+      fault=""
       if [ "$h" = continue ]; then
-        if [ "$n_steps" -eq 1 ]; then
-          LIST_ERR="'$sid' declares hosting continue at the first position (no predecessor)"
-          return
-        fi
         prev=$((n_steps - 1))
-        if [ "${S_KIND[prev]}" = command ] && [ "${S_HOST[prev]}" = isolated ]; then
-          LIST_ERR="'$sid' declares hosting continue immediately after the isolated command step '${S_ID[prev]}' (a runner subprocess records no session to attach to)"
-          return
+        if [ "$n_steps" -eq 1 ]; then
+          fault="hosting continue at the first position (no predecessor)"
+        elif [ "${S_KIND[prev]}" = command ] && [ "${S_HOST[prev]}" = isolated ]; then
+          fault="hosting continue immediately after the isolated command step '${S_ID[prev]}' (a runner subprocess records no session to attach to)"
+        elif [ "${S_HOST[prev]}" = in-session ]; then
+          h=in-session
         fi
-        [ "${S_HOST[prev]}" = in-session ] && h=in-session
+      fi
+      if [ -n "$fault" ]; then
+        case "$list_layer/${E_LAYER[en]}" in
+          adopter/* | machine-local/*)
+            LIST_ERR="'$sid' declares $fault"
+            return
+            ;;
+          */adopter | */machine-local) ;;
+          repo-tracked/* | */repo-tracked) die 4 "the repo-tracked layer's list or entry places '$sid' malformed ($fault); refusing to degrade shared team config" ;;
+          *) die 5 "the core default $key places '$sid' malformed ($fault) (broken install)" ;;
+        esac
       fi
       S_HOST[n_steps]="$h"
       t=${E_TIMEOUT[en]}
-      if [ -n "$t" ] && [ "$h" = in-session ] && [ "${S_KIND[n_steps]}" != command ]; then
-        entry_malformed "$en" "timeout on a ${S_KIND[n_steps]} step that is effectively in-session (the unit session cannot end itself)" list
+      if [ -z "$fault" ] && [ -n "$t" ] && [ "$h" = in-session ] && [ "${S_KIND[n_steps]}" != command ]; then
+        fault="timeout on a ${S_KIND[n_steps]} step that is effectively in-session (the unit session cannot end itself)"
+      fi
+      if [ -n "$fault" ]; then
+        entry_malformed "$en" "$fault" list
         S_N[n_steps]=""
         S_KIND[n_steps]="-"
         S_HOST[n_steps]="-"
