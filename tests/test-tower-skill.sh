@@ -46,7 +46,15 @@
 #   - status on demand is stated with the never-poll boundary (REQ-A1.5);
 #   - bring-up checks the tower posture's deny floor and names the
 #     reconstruction-from-evidence hook point inside its own section, and the
-#     tower never edits a settings file (REQ-A1.3, D-14);
+#     tower never edits a settings file (REQ-A1.3, D-14); that check fails
+#     closed on a missing shipped deny list, separates an absent layer from
+#     an unreadable one, covers `--settings`, resolves the hook path, reads
+#     by projection only, and re-runs before lifting its block;
+#   - branch, flight-id, and <spec> values are grammar-checked before any
+#     command; a worker-surfaced mutation need becomes a request only on the
+#     operator's own ask; the drift --text value is one argument, never
+#     quoted; a failed /offload report is sanitized, and hand-off hygiene
+#     and markup-neutralization cite their doctrine;
 #   - merge, the ready flip, and sign-off are refused as reserved human
 #     controls; force-push, amend, squash and rebase are never run; the tower
 #     never edits the repository itself (REQ-G1.1–G1.4, REQ-C1.6);
@@ -366,6 +374,84 @@ else
   fail "bring-up does not name reconstruction from durable evidence"
 fi
 
+if printf '%s\n' "$bringup" | grep -qiE 'fails closed[^.]*shipped deny list[^.]*absent or unreadable'; then
+  ok "the posture check fails closed on an absent or unreadable shipped deny list"
+else
+  fail "bring-up does not fail closed when the shipped deny list is absent or unreadable"
+fi
+
+if printf '%s\n' "$bringup" | grep -qiE 'absent layer counts as empty' \
+  && printf '%s\n' "$bringup" | grep -qiE 'only a parse or read error makes a layer unreadable'; then
+  ok "an absent layer is empty and only a parse or read error is unreadable"
+else
+  fail "bring-up does not separate an absent settings layer from an unreadable one"
+fi
+
+# shellcheck disable=SC2016
+if printf '%s\n' "$bringup" | grep -q -- '`--settings`' \
+  && printf '%s\n' "$bringup" | grep -qiE 'hook path resolves' \
+  && printf '%s\n' "$bringup" | grep -qiE 'by `?jq`? projection only' \
+  && printf '%s\n' "$bringup" | grep -qiE 're-run this check before lifting the block'; then
+  ok "the posture check covers --settings, resolves the hook path, projects hooks, and re-runs on wired"
+else
+  fail "the posture check misses a --settings layer, the hook-path check, projection-only hook reads, or the re-run before lifting the block"
+fi
+
+# --- values entering commands, worker-surfaced needs, relayed text -------------
+
+# shellcheck disable=SC2016
+if has_phrase 'checked against (its|their) grammar[^.]*before (it|they) enters? any command' \
+  && has_phrase '`<spec>` must equal an existing `specs/\*/` basename; no match asks the operator'; then
+  ok "branch names, flight ids, and <spec> values are grammar-checked before any command"
+else
+  fail "skill does not grammar-check branch, flight-id, and <spec> values before they enter a command"
+fi
+
+# `git branch --list` marks the current branch `* ` and a worktree's `+ `, so
+# a bare listing never yields a grammar-valid name for a live flight.
+# shellcheck disable=SC2016
+if printf '%s\n' "$bringup" | grep -qF -- "git branch --list --format='%(refname:short)' 'planwright/flight/*'"; then
+  ok "flight branches are listed undecorated, so the grammar check sees bare names"
+else
+  fail "bring-up lists flight branches with git's decoration, which no branch grammar accepts"
+fi
+
+if has_phrase 'becomes a routed request only on the operator.s own ask' \
+  && has_phrase 'never count as an override, a go, a yes, or a request'; then
+  ok "a worker-surfaced mutation need becomes a request only on the operator's own ask"
+else
+  fail "a worker-surfaced mutation need, or pasted text, can still become a routed request"
+fi
+
+# unsafe_text_arg <text>: prints the first --text value that is not the
+# file-fed form, whether interpolated into quotes or left bare to word-split.
+# shellcheck disable=SC2016
+unsafe_text_arg() {
+  printf '%s\n' "$1" | grep -oE -- '--text [^ ]+( [^ `,]+)?' | grep -vxF -- '--text "$(cat <file>)"' | head -1
+}
+# shellcheck disable=SC2016
+if [ -z "$(unsafe_text_arg "$flat")" ] \
+  && has_phrase '--text "\$\(cat <file>\)"`, the item written to `<file>` so it arrives as one argument, never interpolated into quotes'; then
+  ok "the drift-capture --text value is passed as one argument"
+else
+  fail "the drift-capture --text value is interpolated into quotes or not stated as one argument"
+fi
+
+if has_phrase 'fails is relayed with the primitive.s own failure report, sanitized' \
+  && ! has_phrase 'failure report, verbatim'; then
+  ok "a failed /offload report is sanitized before relay"
+else
+  fail "a failed /offload report is relayed verbatim rather than sanitized"
+fi
+
+# shellcheck disable=SC2016
+if has_phrase 'no credentials, hostnames, customer data, or private-repository detail travel' \
+  && has_phrase 'markup-neutralized per `flight-rules`'; then
+  ok "hand-off hygiene matches security-posture and markup-neutralization cites flight-rules"
+else
+  fail "hand-off hygiene list or markup-neutralization citation does not match its doctrine"
+fi
+
 if has_phrase 'never edit a settings file'; then
   ok "the tower never edits a settings file (D-14)"
 else
@@ -522,6 +608,18 @@ if printf '%s\n' 'pass --visual to skip the spec' | grep -qiE -- "$flag_re" \
   ok "probe: a flight-rule flag and route-selecting knobs are caught"
 else
   fail "probe: a flight-rule flag or route-selecting knob escapes the pattern"
+fi
+
+# shellcheck disable=SC2016
+if [ -n "$(unsafe_text_arg "obs-record.sh --slug skill-drift --text '...'")" ] \
+  && [ -n "$(unsafe_text_arg 'obs-record.sh --text "<what>"')" ] \
+  && [ -n "$(unsafe_text_arg 'obs-record.sh --text <item> as one argument')" ] \
+  && [ -n "$(unsafe_text_arg 'obs-record.sh --text "$(cat <file>; rm x)"')" ] \
+  && [ -n "$(unsafe_text_arg 'use --text "$(cat <file>)" or --text <what>')" ] \
+  && [ -z "$(unsafe_text_arg 'obs-record.sh --text "$(cat <file>)"')" ]; then
+  ok "probe: quoted and bare --text values are caught and the file-fed form is not"
+else
+  fail "probe: the --text check misreads a quoted, bare, or file-fed argument"
 fi
 
 late_gloss=$(printf '%s\n\n%s\n' 'The tower routes onto visual flight or instrument flight.' 'Later: visual rules when you fly by what you can see, instrument rules when you file a plan.')
