@@ -871,6 +871,22 @@ NPS
     fail "c22h: a fifo at the pid file hung the close"
   }
   wait "$closer" || fail "c22h: the close failed: $(cat "$rec/c22h.out")"
+  # The headless close also reads the unit's launch marker, to tell its own run
+  # from a relaunch; the stream-json rung keeps no such marker.
+  if [ "$rung" = hl ]; then
+    w=$(w_name 229)
+    d=$(w_dir "$home" "$w")
+    mkdir -p "$d" || fail "c22h: cannot plant the state dir"
+    mkfifo "$d/launched" || fail "c22h: cannot plant the marker fifo"
+    renv "$home" "$rec" -- stop "$w" --grace 1 >"$rec/c22h2.out" 2>&1 &
+    closer=$!
+    wait_until 200 sh -c "! kill -0 $closer 2>/dev/null" || {
+      kill -9 "$closer" 2>/dev/null
+      : >"$d/launched" &
+      fail "c22h: a fifo at the launch marker hung the close"
+    }
+    wait "$closer" || fail "c22h: the close failed: $(cat "$rec/c22h2.out")"
+  fi
   echo "ok: [$rung] c22h a fifo planted at the pid file does not hang the close (REQ-B1.3)"
 }
 

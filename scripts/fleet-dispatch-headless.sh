@@ -919,6 +919,14 @@ stop_match() {
   printf 'run-worker %s ' "$1"
 }
 
+# stop_marker <unit-dir> — the launch marker, read only from a regular file:
+# the worker can replace it with a fifo, and a blocking read would stall the
+# close.
+stop_marker() {
+  [ -f "$1/launched" ] || return 0
+  cat "$1/launched" 2>/dev/null || :
+}
+
 # stop_process_closed <unit-dir> — once a tree this close terminated is gone,
 # record the termination the runner could not.
 #
@@ -938,7 +946,7 @@ stop_match() {
 # (`t_record_unwritten`) before the walk calls either hook.
 stop_process_closed() {
   [ "$stop_signalled" = 1 ] || return 0
-  [ "$(cat "$1/launched" 2>/dev/null)" = "$t_launched" ] || return 0
+  [ "$(stop_marker "$1")" = "$t_launched" ] || return 0
   [ ! -e "$1/exit" ] && [ ! -e "$1/finish-error" ] || return 0
   if spc_tmp=$(mktemp "$1/.exit.XXXXXX") \
     && printf '143 %s\n' "$(date +%s)" >"$spc_tmp" \
@@ -1047,7 +1055,7 @@ do_stop() {
   guard_unit_containment "$unit_base" "$unit_dir" "$unit_root" "$unit_spec_dir"
   stop_refuse_self_hosted "$unit_dir" "$(stop_match "$unit_dir")" \
     "$(stop_seedfiles "$unit_dir")" "$t_worker"
-  t_launched=$(cat "$unit_dir/launched" 2>/dev/null) || t_launched=''
+  t_launched=$(stop_marker "$unit_dir")
   t_record_unwritten=0
   t_root=$(/bin/sh "$FS" root) || exit 2
   stop_walk "$unit_dir" "$t_worker" "$t_root/attention/state" "$t_grace"
