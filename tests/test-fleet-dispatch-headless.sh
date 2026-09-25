@@ -393,6 +393,13 @@ h8() {
   code=0
   run_fdh status "bad spec" 7 >/dev/null 2>&1 || code=$?
   [ "$code" -eq 2 ] || fail "h8: a hostile status spec token should exit 2, got $code"
+  code=0
+  _err=$(run_fdh status flight 7 2>&1 >/dev/null) || code=$?
+  [ "$code" -eq 2 ] || fail "h8: the reserved status spec 'flight' should exit 2, got $code"
+  case $_err in
+    *"reserved spec id 'flight'"*) ;;
+    *) fail "h8: the status refusal should name the reservation, got: $_err" ;;
+  esac
   pass "h8: absent and garbled records answer absent/unknown — never guessed death"
 }
 
