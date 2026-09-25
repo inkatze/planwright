@@ -17,7 +17,8 @@
 #      the working tree or on the default branch (local or remote-tracking),
 #      or a placed worktree under the primary checkout — and `taken` names
 #      the evidence class. Exhausting every candidate is exit 3 with nothing
-#      on stdout.
+#      on stdout. A probe that cannot judge (a git error, an unsearchable
+#      directory) is exit 5, never "no evidence".
 #   4. Two ids minted from the default (random) source differ.
 #   5. `branch` and `suffix` derive the names from a checked id only.
 #
@@ -229,6 +230,31 @@ case $OUT in
   *"worktree"*"flight-demo-fedcba98"*) ;;
   *) fail "taken (worktree dir): evidence not named, got [$OUT]" ;;
 esac
+# From a linked worktree the placed worktree is still found: worktrees are
+# placed under the primary checkout, not under the linked one.
+run 0 taken demo-fedcba98 --repo-root "$wt"
+case $OUT in
+  *"worktree"*"flight-demo-fedcba98"*) ;;
+  *) fail "taken (worktree dir, from a linked worktree): evidence not named, got [$OUT]" ;;
+esac
+
+# 3e0. A directory the probe cannot search is never read as "no evidence".
+chmod 000 "$repo/.claude/worktrees"
+if [ -x "$repo/.claude/worktrees" ]; then
+  echo "skip: an unsearchable directory stays searchable here (root?)" >&2
+else
+  run 5 taken demo-fedcba98 --repo-root "$repo"
+  [ -z "$OUT" ] || fail "an unsearchable worktree directory still printed evidence: [$OUT]"
+fi
+chmod 755 "$repo/.claude/worktrees"
+chmod 000 "$repo/specs/_flights"
+if [ -x "$repo/specs/_flights" ]; then
+  echo "skip: an unsearchable directory stays searchable here (root?)" >&2
+else
+  run 5 taken demo-89abcdef --repo-root "$repo"
+  [ -z "$OUT" ] || fail "an unsearchable record directory still printed evidence: [$OUT]"
+fi
+chmod 755 "$repo/specs/_flights"
 
 # 3e'. A dangling symlink at a record or worktree path still occupies the id.
 ln -s /nonexistent-target "$repo/specs/_flights/demo-0123abcd.md"

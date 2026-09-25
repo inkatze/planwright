@@ -46,8 +46,8 @@
 #
 # Exit: 0 success; 1 check failed / not taken; 2 usage error or a malformed
 # argument (nothing minted, nothing echoed); 3 every uid candidate was taken;
-# 4 no usable uid source; 5 the evidence probe failed (a git error, never
-# read as "no evidence").
+# 4 no usable uid source; 5 the evidence probe failed (a git error or an
+# unsearchable directory, never read as "no evidence").
 #
 # Portable POSIX sh (the bash 3.2 / busybox floor).
 set -eu
@@ -167,15 +167,33 @@ resolve_bases() {
   done
 }
 
-# evidence_for <id> — collect the durable evidence lines for a checked id
-# into `found` (one `evidence<TAB><class><TAB><what>` per line). It runs in
-# the calling shell, never a command substitution, so a probe failure exits
-# the script instead of reading as an empty (free) result.
 found=""
 add_evidence() {
   _line=$(printf 'evidence\t%s\t%s' "$1" "$2")
   found="${found}${_line}${LF}"
 }
+
+# occupied <path> — 0 when something (a dangling symlink included) sits at
+# the path, 1 when nothing does. `test -e` is also false under a directory it
+# cannot search, so the nearest existing ancestor must be searchable before a
+# miss counts as absence.
+occupied() {
+  if [ -e "$1" ] || [ -L "$1" ]; then
+    return 0
+  fi
+  _d=${1%/*}
+  while [ ! -e "$_d" ] && [ "$_d" != "${_d%/*}" ]; do
+    _d=${_d%/*}
+  done
+  [ -x "$_d" ] || probe_failed "cannot search $_d"
+  return 1
+}
+
+# evidence_for <id> — collect the durable evidence lines for a checked id
+# into `found` (one `evidence<TAB><class><TAB><what>` per line). It runs in
+# the calling shell, never a command substitution, so a probe failure exits
+# the script instead of reading as an empty (free) result. `bases` must be
+# resolved first.
 evidence_for() {
   _id=$1
   found=""
@@ -194,9 +212,8 @@ evidence_for() {
   for _r in $_remotes; do
     add_evidence branch "$_r"
   done
-  # -L alongside -e: a dangling symlink is still an occupant of the name.
   _rec=specs/_flights/$_id.md
-  if [ -e "$repo_root/$_rec" ] || [ -L "$repo_root/$_rec" ]; then
+  if occupied "$repo_root/$_rec"; then
     add_evidence record "$_rec"
   fi
   for _base in $bases; do
@@ -209,7 +226,7 @@ evidence_for() {
     fi
   done
   _wt=.claude/worktrees/flight-$_id
-  if [ -e "$primary/$_wt" ] || [ -L "$primary/$_wt" ]; then
+  if occupied "$primary/$_wt"; then
     add_evidence worktree "$_wt"
   fi
 }
