@@ -601,10 +601,12 @@ assert_lacks "it does not misreport as a non-sanctioned form" "non-sanctioned co
 f7d="$tmp/f7d/specs"
 mkdir -p "$f7d"
 make_bundle "$f7d" 'flight' Ready 'A requirement body.'
-write_entry "$f7d" 'flight' "$("$ANCHOR" "$f7d/flight")" "scripts/spec-anchor.sh specs/flight"
+# A stale anchor, so a bundle that was checked anyway would add a mismatch.
+write_entry "$f7d" 'flight' 0000000000000000000000000000000000000000 "scripts/spec-anchor.sh specs/flight"
 run_guard "$f7d"
 assert_rc "a bundle named by the reserved identifier fails closed" 1
 assert_has "the error names the reservation" "reserved"
+assert_lacks "the reserved bundle is skipped, not checked" "anchor mismatch"
 
 ########################################################################
 # 11. Diagnostics are sanitized
