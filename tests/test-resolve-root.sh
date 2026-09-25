@@ -299,6 +299,9 @@ assert_contains "repo --primary: the bare-worktree message names the case" \
 run in_dir "$tmp/repo-wt" base "$SH" "$RESOLVER" repo --primary --explain
 assert_eq "repo --primary --explain: names the common git directory" \
   "git-common-dir${tab}$tmp/repo" "$out"
+run in_dir "$tmp/repo" base "$SH" "$RESOLVER" repo --primary --explain
+assert_eq "repo --primary --explain: from the primary, git names the toplevel" \
+  "show-toplevel${tab}$tmp/repo" "$out"
 run in_dir "$tmp/repo-wt" base PLANWRIGHT_REPO_ROOT="$tmp/other" \
   "$SH" "$RESOLVER" --explain repo --primary
 assert_eq "repo --primary --explain: names the override" \
@@ -443,6 +446,26 @@ mkdir -p "$tmp/phys/a" "$tmp/phys/doctrine"
 ln -s "$tmp/phys/a" "$tmp/logical-a"
 run base PLANWRIGHT_ROOT="$tmp/logical-a/.." "$SH" "$RESOLVER" install
 assert_eq "hardening: an arm through a symlink prints the directory it checked" "$tmp/phys" "$out"
+
+# git before 2.31 has no --path-format: a shim that echoes the option back,
+# as old git does, drives the relative-path fallback.
+realgit=$(command -v git)
+mkdir -p "$tmp/oldgit"
+cat >"$tmp/oldgit/git" <<SHIM
+#!/bin/sh
+if [ "\$1" = rev-parse ] && [ "\$2" = --path-format=absolute ]; then
+  shift 2
+  echo --path-format=absolute
+  exec "$realgit" rev-parse "\$@"
+fi
+exec "$realgit" "\$@"
+SHIM
+chmod +x "$tmp/oldgit/git"
+for d in "$tmp/repo/sub/dir" "$tmp/dir-link" "$tmp/repo/.git" "$tmp/repo-wt/deep"; do
+  run in_dir "$d" base PATH="$tmp/oldgit:$PATH" "$SH" "$RESOLVER" repo --primary
+  assert_eq "hardening: the pre-2.31 fallback resolves --primary from ${d#"$tmp"/}" \
+    "$tmp/repo" "$out"
+done
 
 # An inherited GIT_DIR does not move --checkout off the working directory's
 # own toplevel.

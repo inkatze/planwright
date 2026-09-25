@@ -31,16 +31,15 @@
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
 # CLAUDE_PLUGIN_ROOT, writer-mode, self-location) or the repo source
 # (PLANWRIGHT_REPO_ROOT; git-common-dir when --primary derived the tree from
-# the common git directory; show-toplevel when git named it directly). Printed paths are
-# canonical (symlinks resolved).
+# the common git directory; show-toplevel when git named it directly).
+# Printed paths are canonical (symlinks resolved).
 #
 # Exit: 0 printed · 1 no install root resolved · 2 usage · 3 no repository
 #   root (git missing, not inside a working tree, a bare repository, or a
 #   primary that cannot be named from here: a linked worktree of a separate
 #   git dir, or a core.worktree that is gone) · 4 PLANWRIGHT_REPO_ROOT
-#   refused. Callers treat
-#   3 as "no repository" and degrade; they never compose a path from an
-#   empty root.
+#   refused. Callers treat 3 as "no repository" and degrade; they never
+#   compose a path from an empty root.
 #
 # POSIX sh with no dependency beyond git and tr: guards and hooks exec it
 # through /bin/sh, which is dash on Linux.
@@ -197,7 +196,9 @@ resolve_primary() {
   # The primary, in order: the configured core.worktree; the tree we are in,
   # when our own git directory is the common one (the only way to name the
   # tree of a separate git dir); the directory holding a .git. A linked
-  # worktree of a separate git dir has none of these to go on.
+  # worktree of a separate git dir has none of these to go on. A separate
+  # git dir that is itself named .git is indistinguishable from an ordinary
+  # one when run from inside it, and answers with the directory holding it.
   rp_src=git-common-dir
   rp_cand=$(git --git-dir="$rp_common" config core.worktree 2>/dev/null) || rp_cand=""
   case $rp_cand in
