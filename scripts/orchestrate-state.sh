@@ -112,6 +112,10 @@ case "$spec_id" in
     echo "orchestrate-state: invalid spec id '$spec_id'" >&2
     exit 2
     ;;
+  flight)
+    echo "orchestrate-state: reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)" >&2
+    exit 2
+    ;;
 esac
 
 repo_root=$(cd "$spec_dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || repo_root=""
@@ -289,7 +293,7 @@ if git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
       *) well_formed=0 ;;
     esac
     case "$spec_part" in
-      '' | *[!a-z0-9-]* | [!a-z0-9]*) well_formed=0 ;;
+      '' | *[!a-z0-9-]* | [!a-z0-9]* | flight) well_formed=0 ;;
     esac
     case "$id_part" in
       '' | *[!0-9.]*) well_formed=0 ;;

@@ -114,9 +114,12 @@ graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --j
   exit 5
 }
 
-# One jq pass: filter to this repo's own mise.toml, union the three edge kinds
-# with the `mise run <task>` calls a run body makes, walk the closure from
-# `check`, and emit the reached run bodies plus the diagnostics. A dangling
+# One jq pass: filter to this repo's own mise.toml, union `depends` and
+# `depends_post` with the `mise run <task>` calls a run body makes, walk the
+# closure from `check`, and emit the reached run bodies plus the diagnostics.
+# `wait_for` is deliberately not an edge: it only orders a task that something
+# else already scheduled and never causes its target to run, so following it
+# would pass a guard nothing runs. A dangling
 # edge (naming no task in this file) is reported, never silently dropped: an
 # edge the walk cannot follow is exactly how a guard appears reachable without
 # being reachable.
@@ -124,7 +127,7 @@ report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
   [ .[] | select(.source == $src)
     | { name: .name,
         run: ((.run // []) | join("\n")),
-        deps: ((.depends // []) + (.depends_post // []) + (.wait_for // [])) } ]
+        deps: ((.depends // []) + (.depends_post // [])) } ]
   | map(. + { deps: (.deps + ([ .run
         | match("mise[[:space:]]+run[[:space:]]+((?:-[^[:space:]]+[[:space:]]+)*)([A-Za-z0-9:_.*-]+)"; "g")
         | .captures[1].string ]))

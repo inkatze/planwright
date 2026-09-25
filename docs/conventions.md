@@ -14,7 +14,8 @@ planwright/<spec>/task-<id-or-ids>
 ```
 
 - `<spec>` is the spec's directory name under `specs/`, matching the
-  REQ-A1.8 identifier charset: `^[a-z0-9][a-z0-9-]*$`, 64 characters max.
+  REQ-A1.8 identifier charset: `^[a-z0-9][a-z0-9-]*$`, 64 characters max,
+  and never the reserved `flight` (see Flight branches below).
 - `<id-or-ids>` matches the task-id grammar
   `^[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$`: a single task (`3`), a dotted
   task (`3.5`), or a cohesion bundle of two (`3-4`, `3.5-4`).
@@ -31,6 +32,31 @@ planwright/<spec>/spec
 carries spec authoring (`/spec-draft` creates it; `/spec-kickoff` pushes it
 and opens the spec's draft PR). It is not a task branch: the `tasks-pr-sync`
 hook no-ops on it by name.
+
+### Flight branches (tower-front-door D-11)
+
+```text
+planwright/flight/<flight-id>
+```
+
+carries a visual flight: a specless unit the tower dispatches straight from
+the conversation. `flight` is a **reserved segment**: no spec may be named
+`flight` (the validator refuses the bundle, and every script that checks a
+spec identifier refuses the word), so a `planwright/` branch whose second
+segment is `flight` is always a flight, never a spec. The `tasks-pr-sync`
+hook recognizes it as one and no-ops (there is no `tasks.md` to reconcile).
+
+`<flight-id>` is `<slug>-<uid>`: a kebab slug in the spec-identifier charset
+plus an eight-character lowercase-hex uid, 64 characters at most. Mint it with
+`scripts/flight-id.sh new <slug>`. The uid is random, which is what keeps two
+flights minted at the same moment apart (the mint reserves nothing: creating
+the branch is the claim, and it fails when the ref exists), and the helper
+never reuses an id while a branch (local or remote-tracking), a record file
+`specs/_flights/<flight-id>.md` in the working tree or on the default branch,
+or a placed worktree still carries it. That evidence is as fresh as the last
+fetch, and a flight recorded in its PR body leaves no record file, so once its
+branch and worktree are gone only the random uid keeps its id apart. Examples:
+`planwright/flight/fix-typo-3f9a1c2e`, `planwright/flight/add-lint-0b7e44d1`.
 
 ### The `tasks-pr-sync` hook contract (REQ-K1.2, REQ-B1.1)
 
@@ -82,7 +108,8 @@ sessions inside worktrees reconcile the canonical `tasks.md` in the primary
 checkout, under the spec's advisory lock (the one shared
 `scripts/orchestrate-lock.sh` primitive); a busy lock is a clean no-op that
 `/orchestrate --bookkeeping` reconciles. The parsed `<spec>` / `<id>` segments
-are validated against the grammars above and the resolved path is
+are validated against the grammars above (a `flight` second segment is a
+flight branch, a silent no-op) and the resolved path is
 containment-checked under `<repo>/specs/` before any write — a branch that fails
 validation (wrong charset, `..`, extra path separators, metacharacters) is a
 clean no-op and never reaches a filesystem path.
@@ -96,7 +123,10 @@ Worktrees always land at:
 ```
 
 where `<branch-suffix>` is `<spec>-task-<id>` for a task worktree
-(`tower-comms-task-6`), and the branch's final segment otherwise (`spec`).
+(`tower-comms-task-6`), `flight-<flight-id>` for a flight worktree
+(`flight-fix-typo-3f9a1c2e`, the branch's two segments flattened into one),
+and `<spec>-spec` for a spec worktree (the bare final segment `spec` would
+collide across specs).
 A task worktree carries the spec because `.claude/worktrees/` is one flat
 namespace: two specs numbering a task the same way would otherwise resolve to
 one directory, and the second dispatch would fail on the first one's.
@@ -129,7 +159,8 @@ Body paragraphs as usual.
 Planwright-Task: orchestration-concurrency/6
 ```
 
-- `<spec>` is the spec directory name (`^[a-z0-9][a-z0-9-]*$`, ≤64); `<id>`
+- `<spec>` is the spec directory name (`^[a-z0-9][a-z0-9-]*$`, ≤64, never
+  `flight`); `<id>`
   is the task id (`^[0-9]+(\.[0-9]+)?$`). A commit that lands a **bundle**
   carries one trailer line per task.
 - Stamp it in the message footer (never the subject line), the same position

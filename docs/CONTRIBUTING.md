@@ -67,19 +67,38 @@ mise run check      # the full local equivalent of the CI gate
 
 - the shell test suites (bash 3.2 floor), then the test-time budget gate over
   the timing report that run leaves behind (see below);
-- shellcheck, shfmt, markdownlint, yamllint, and the plugin-manifest validation;
+- shellcheck, shfmt, markdownlint (templates included), yamllint, and the
+  plugin-manifest, hook-registration and settings-fragment validation;
 - conventional-commit lint and a secret scan;
-- the doctrine link-check and the doctrine-index bijection check;
+- the doctrine link-check, the doctrine-index bijection check, the
+  doctrine-manifest citation check, and the backend-capability drift check
+  over the contract prose, `caps_for()`, and `docs/fleet.md`;
 - the options-reference drift check, which also tethers `docs/fleet.md`'s knob
   defaults to `config/defaults.yml`;
 - the ledger structural-corruption + duplicate-Status guard over `tasks.md`
-  snapshots;
+  snapshots, and the machine-local memory-link guard over spec files;
 - the spec validator over `specs/`, the anchor-freshness guard over every
-  signed bundle, the hook-backstop wiring check, the purged-identifier
-  guard (see below), and the coordination-artifact hygiene guard, a clean
-  no-op on a tree that commits no presence record or fence-ref line.
+  signed bundle, and the observation-store guard;
+- the hook-backstop wiring check (see below), the purged-identifier guard
+  (see below), the coordination-artifact hygiene guard (a clean no-op on a
+  tree that commits no presence record or fence-ref line), and the
+  hook-contracts guard over every hook registration surface;
+- the CI posture guards: the fork-PR workflow-posture check, the transitive
+  CI-eval exclusion over the workflows and the task graph, and the
+  glob-allow-rule discipline check;
+- the house-pattern checks: `unset CDPATH` before a `cd` in command
+  substitution, and printf over echo for sanitized output;
+- the two registration guards that keep the gate complete: every check script
+  must be run by a task the aggregate reaches, a workflow, or an allowlisted
+  runner (`check:guard-wiring`), and every `check:`/`lint:`/`scan:` task must
+  be reachable from the aggregate (`check:task-registration`), so a guard task
+  can never exist only in CI logs;
+- the instruction-budget guard over skills and doctrine, and the advisory
+  emit-sidedness report.
 
-GitHub Actions runs the same gate on every pull request. This is dev tooling
+The `check` task's `depends` list in `mise.toml` is the authoritative
+inventory; the two registration guards are what keep it complete. GitHub
+Actions runs the same gate on every pull request. This is dev tooling
 only — planwright's **runtime** scripts stay plain portable bash with no mise
 dependency.
 

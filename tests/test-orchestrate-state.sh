@@ -331,6 +331,37 @@ printf '%s\n' "$hout" | grep -q "^refused${TAB}Planwright-Task" \
   || fail "F1.1: the hostile trailer was not refused/flagged"
 echo "ok: REQ-F1.1 hostile trailer value refused and never used"
 
+# A trailer under the reserved segment `flight` (tower-front-door D-11) is
+# malformed by the same grammar the trailer helper enforces: refused, never
+# read as another spec's well-formed trailer.
+gitc "$hrepo" commit -q --allow-empty -m "reserved" -m "Planwright-Task: flight/1"
+fout=$("$STATE" "$hspec") || fail "reserved trailer: engine exited non-zero"
+printf '%s\n' "$fout" | grep -q "^refused${TAB}Planwright-Task.*flight/1" \
+  || fail "reserved trailer: flight/1 was not refused (got: $fout)"
+echo "ok: a Planwright-Task trailer under the reserved segment is refused"
+
+# A bundle directory named `flight` is refused like an off-grammar name.
+frepo="$tmp/reservedspec"
+fspec="$frepo/specs/flight"
+mkdir -p "$fspec"
+gitc_init "$frepo"
+cat >"$fspec/tasks.md" <<'EOF'
+# Flight — Tasks
+## Forward plan
+### Task 1 — never reached
+- **Dependencies:** none
+EOF
+gitc "$frepo" add -A
+gitc "$frepo" commit -q -m "base"
+rc=0
+ferr=$("$STATE" "$fspec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "reserved spec id: exit $rc, expected 2"
+case $ferr in
+  *reserved*) ;;
+  *) fail "reserved spec id: diagnostic does not name the reservation (got: $ferr)" ;;
+esac
+echo "ok: the reserved spec id flight is refused (fail closed)"
+
 # ---------------------------------------------------------------------------
 # 6b. REQ-A1.1 / D-3 — a zero-commit dispatch branch is NOT completion evidence.
 #     The branch is created as the first durable act of dispatch; until it

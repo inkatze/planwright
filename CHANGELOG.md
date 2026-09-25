@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.46.0](https://github.com/inkatze/planwright/compare/v0.45.0...v0.46.0) (2026-09-25)
+
+
+### Features
+
+* **guard-coverage:** guard-catalog entries and the registration sweep ([#499](https://github.com/inkatze/planwright/issues/499)) ([db08364](https://github.com/inkatze/planwright/commit/db083647d57eab965ac60fb9fa9c7c2486d2f93a))
+* **spec-format:** flight branch and worktree grammar ([#503](https://github.com/inkatze/planwright/issues/503)) ([840bb1c](https://github.com/inkatze/planwright/commit/840bb1ceb1a14a028472dfedf789662e1560595b))
+* **spec:** review-effectiveness kickoff sign-off ([#507](https://github.com/inkatze/planwright/issues/507)) ([9fa766f](https://github.com/inkatze/planwright/commit/9fa766fba2e20faa02872c815289e3cfa83af7f9))
+* **tower:** the /tower skill core ([#502](https://github.com/inkatze/planwright/issues/502)) ([4a93f21](https://github.com/inkatze/planwright/commit/4a93f21bf62e694ef7cf9464e95a0d1d5ea095af))
+
+
+### Bug Fixes
+
+* **execute-task:** keep the repo's core.sshCommand in the convergence sync fetch ([#498](https://github.com/inkatze/planwright/issues/498)) ([1016c13](https://github.com/inkatze/planwright/commit/1016c135cab23bc664ba624ae237a1f0ea514ce3))
+* **guard-wiring:** stop counting wait_for as a reachability edge ([#504](https://github.com/inkatze/planwright/issues/504)) ([7d031c0](https://github.com/inkatze/planwright/commit/7d031c0185d33a2822c3a97c0dfa8a92b81d26ca))
+
 ## [0.45.0](https://github.com/inkatze/planwright/compare/v0.44.0...v0.45.0) (2026-09-24)
 
 

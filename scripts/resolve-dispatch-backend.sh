@@ -100,6 +100,7 @@ valid_spec() {
     '') return 1 ;;
     [!a-z0-9]*) return 1 ;;
     *[!a-z0-9-]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#1}" -le 64 ]
 }

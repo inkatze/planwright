@@ -67,18 +67,21 @@ or of the `gh` CLI; those only narrow the PR-state step below.
 Read the current branch name and parse it against the convention
 `planwright/<spec>/task-<id-or-ids>`. Before interpolating the parsed
 `<spec>` into any path, validate it against the REQ-A1.8 spec-identifier
-charset (`^[a-z0-9][a-z0-9-]*$`, max 64 chars); no skill interpolates a
-failing identifier into a path or command (REQ-A1.8), so a segment that
-fails is treated as no match. The `<spec>` segment names the spec bundle
-(`specs/<spec>/`); the `<id-or-ids>` segment names the task or bundle being
-executed. If the branch does not match the convention or `<spec>` fails
-validation (e.g. a spec branch `planwright/<spec>/spec`, a hostile branch
-name, or an unrelated branch), do not guess a task: say which branch you are
-on and try to resolve `<spec>` only when it is unambiguous — a single spec
-bundle under `specs/` (a direct child whose name passes the REQ-A1.8 charset;
-the reserved underscore-prefixed accumulators `_pending/` and `_observations/`
-are not bundles and are skipped), or a single bundle whose `requirements.md`
-carries the literal `**Status:** Active` marker and that has a kickoff brief
+charset (`^[a-z0-9][a-z0-9-]*$`, max 64 chars) and refuse the reserved word
+`flight`; no skill interpolates a failing identifier into a path or command
+(REQ-A1.8), so a segment that fails is treated as no match. The `<spec>`
+segment names the spec bundle (`specs/<spec>/`); the `<id-or-ids>` segment
+names the task or bundle being executed. A flight branch
+`planwright/flight/<flight-id>` is specless: say so and resolve no spec. If
+the branch does not match the convention or `<spec>` fails validation (e.g.
+a spec branch `planwright/<spec>/spec`, a hostile branch name, or an
+unrelated branch), do not guess a task: say which branch you are on and try
+to resolve `<spec>` only when it is unambiguous — a single spec bundle
+under `specs/` (a direct child whose name passes the REQ-A1.8 charset; the
+reserved underscore-prefixed directories `_pending/`, `_observations/`
+and `_flights/` are not bundles and are skipped), or a single bundle whose
+`requirements.md` carries the literal `**Status:** Active` marker and that
+has a kickoff brief
 (a format-version 2 bundle never stores `Active` — its header rests at
 `Ready` while work is in flight — so a stored `**Status:** Ready` with a
 kickoff brief counts the same way there, but only when the render reports
