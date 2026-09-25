@@ -307,12 +307,8 @@ router has not demonstrated (REQ-B1.6).
   directory's existing permissions, ownership, and symlinks are checked
   before writing; (9) the primitive's header, its worktree-creation
   exception note, and the tower posture's description name the flight arm,
-  and a standalone flight `attach` can hand the worker its brief. The push
-  to origin also failed (the SSH agent refused to sign), so the branch is
-  committed only in its worktree and no draft PR is open; pending: push the
-  branch and open the draft PR with the body staged at
-  `.git/planwright-pr-body-tower-front-door-task-5.md` in the shared git
-  dir, which carries the full audit record.
+  and a standalone flight `attach` can hand the worker its brief. Queued
+  judgment forks are in the draft PR's audit record.
 
 ## Deferred
 
