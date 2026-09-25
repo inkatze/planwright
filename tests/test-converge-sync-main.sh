@@ -23,6 +23,10 @@
 #     failure, unresolvable merge conflict, and a pre-existing dirty working
 #     tree — each with its own reason and exit code, never collapsed into a
 #     misreported "merge conflict" (REQ-B1.6, REQ-K1.1);
+#   - the fetch's ssh command is the caller's GIT_SSH_COMMAND when set and
+#     non-empty, else the `core.sshCommand` in effect for the target repo,
+#     else `ssh`, and always carries a winning `BatchMode=yes` so a headless
+#     fetch fails instead of prompting;
 #   - `/execute-task` invokes the script once at the top of the convergence
 #     sequence and still opens only a draft PR (REQ-B1.1, REQ-B1.4, REQ-B1.5).
 #
@@ -715,8 +719,8 @@ STUB
   [ "${#yes_at}" -lt "${#no_at}" ] \
     || fail "c18: BatchMode=yes was appended AFTER the caller's BatchMode=no, so ssh reads theirs first: $argv"
   case "$err" in
-    *BatchMode*) ;;
-    *) fail "c18: the overridden BatchMode setting was discarded without a word on stderr: $err" ;;
+    *GIT_SSH_COMMAND*BatchMode*) ;;
+    *) fail "c18: the overridden BatchMode setting was not reported against GIT_SSH_COMMAND on stderr: $err" ;;
   esac
 
   # (b) the ordinary case — no BatchMode in the caller's command, no warning.
@@ -740,6 +744,364 @@ STUB
   esac
   unset SSH_ARGV_LOG
   echo "ok c18: BatchMode=yes outranks a caller's own setting, and the override is reported"
+}
+
+# ---------------------------------------------------------------------------
+# Case 19 — with no GIT_SSH_COMMAND in the environment, the fetch keeps the
+# repo's own `core.sshCommand`. git ranks the variable above the config, so a
+# script that exports `ssh -o BatchMode=yes` unconditionally silently discards
+# the on-disk key and IdentitiesOnly a host may depend on for remote access,
+# and every worker on such a host needs a hand workaround. The recorded argv is
+# the assertion: the configured command, plus BatchMode. A caller's
+# GIT_SSH_COMMAND must still win over the config, as it does for git itself.
+# The BatchMode override has to hold for the shapes a config value can take
+# that a first-word splice mishandles: ssh's case-insensitive option names, a
+# leading blank, and an assignment prefix before the binary.
+# ---------------------------------------------------------------------------
+c19() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c19.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+  gitc "$tmp/worker" remote set-url origin "ssh://git@127.0.0.1/repo.git"
+
+  # The configured command is a stub at its own path; a second stub shadows
+  # `ssh` on PATH so a sync that falls back to bare `ssh` records that fact
+  # instead of touching the network. The real ssh is kept for one read-only
+  # `-G` resolution below, which never connects; an ssh without `-G` skips it.
+  real_ssh=$(command -v ssh || true)
+  if [ -n "$real_ssh" ] && ! "$real_ssh" -G -F /dev/null localhost >/dev/null 2>&1; then
+    real_ssh=
+  fi
+  cat >"$tmp/ssh-stub" <<'STUB'
+#!/bin/sh
+printf '%s\n' "${CSM_TEST_VAR:+CSM_TEST_VAR=$CSM_TEST_VAR }$*" >>"$SSH_ARGV_LOG"
+exit 255
+STUB
+  chmod +x "$tmp/ssh-stub"
+  mkdir -p "$tmp/bin"
+  cat >"$tmp/bin/ssh" <<'STUB'
+#!/bin/sh
+printf 'via-path %s\n' "$*" >>"$SSH_ARGV_LOG"
+exit 255
+STUB
+  chmod +x "$tmp/bin/ssh"
+  SSH_ARGV_LOG="$tmp/ssh-argv.log"
+  export SSH_ARGV_LOG
+  git -C "$tmp/worker" config core.sshCommand "$tmp/ssh-stub -i /dev/null -o IdentitiesOnly=yes"
+
+  # (a) GIT_SSH_COMMAND unset: the config is the base command.
+  : >"$SSH_ARGV_LOG"
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND PATH="$tmp/bin:$PATH" \
+    "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) from the ssh stub, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  [ -n "$argv" ] || fail "c19: no ssh was invoked at all"
+  case "$argv" in
+    via-path*) fail "c19: the fetch fell back to bare ssh, discarding core.sshCommand: $argv" ;;
+    *) ;;
+  esac
+  case "$argv" in
+    *"-i /dev/null -o IdentitiesOnly=yes"*) ;;
+    *) fail "c19: core.sshCommand's own options were dropped: $argv" ;;
+  esac
+  case "$argv" in
+    *"BatchMode=yes"*) ;;
+    *) fail "c19: BatchMode=yes was not added to the configured command: $argv" ;;
+  esac
+  case "$err" in
+    *BatchMode*) fail "c19: warned about an override when the config set no BatchMode: $err" ;;
+    *) ;;
+  esac
+
+  # (b) GIT_SSH_COMMAND empty counts as unset. This is the script's own rule,
+  # kept from its `${GIT_SSH_COMMAND:-ssh}` days: git itself would try to run
+  # the empty string, so falling through to the config is the more forgiving
+  # reading, not a mirror of git.
+  : >"$SSH_ARGV_LOG"
+  rc=0
+  GIT_SSH_COMMAND='' PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the empty-variable run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  # The full marker, not just IdentitiesOnly: this host's own global config
+  # may carry an IdentitiesOnly of its own, and only the fixture's `-i
+  # /dev/null` proves the value came from the target repo.
+  case "$argv" in
+    via-path*) fail "c19: an empty GIT_SSH_COMMAND fell back to bare ssh: $argv" ;;
+    *"-i /dev/null -o IdentitiesOnly=yes"*) ;;
+    *) fail "c19: an empty GIT_SSH_COMMAND did not fall through to core.sshCommand: $argv" ;;
+  esac
+  case "$argv" in
+    *"BatchMode=yes"*) ;;
+    *) fail "c19: BatchMode=yes was not added on the empty-variable run: $argv" ;;
+  esac
+
+  # (c) GIT_SSH_COMMAND set: it still outranks the config.
+  : >"$SSH_ARGV_LOG"
+  rc=0
+  GIT_SSH_COMMAND="$tmp/ssh-stub -o ServerAliveInterval=7" PATH="$tmp/bin:$PATH" \
+    "$SYNC" "$tmp/worker" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the env-wins run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  case "$argv" in
+    *"ServerAliveInterval=7"*) ;;
+    *) fail "c19: a set GIT_SSH_COMMAND lost to core.sshCommand: $argv" ;;
+  esac
+  case "$argv" in
+    *"IdentitiesOnly=yes"*) fail "c19: core.sshCommand leaked into a run where GIT_SSH_COMMAND was set: $argv" ;;
+    *) ;;
+  esac
+  case "$argv" in
+    *"BatchMode=yes"*) ;;
+    *) fail "c19: BatchMode=yes was not added on the env-wins run: $argv" ;;
+  esac
+
+  # (d) a configured command that pins BatchMode gets the same override, and
+  # the same report, as an environment one.
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config core.sshCommand "$tmp/ssh-stub -o BatchMode=no"
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND PATH="$tmp/bin:$PATH" \
+    "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the config-BatchMode run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  # Both values must be present before their order means anything: with the
+  # config's own option dropped, the prefix strip below returns the whole
+  # line and the length comparison passes vacuously.
+  case "$argv" in
+    *"BatchMode=no"*) ;;
+    *) fail "c19: the configured command's own BatchMode=no never reached ssh: $argv" ;;
+  esac
+  case "$argv" in
+    *"BatchMode=yes"*) ;;
+    *) fail "c19: BatchMode=yes never reached ssh on the config-BatchMode run: $argv" ;;
+  esac
+  yes_at=${argv%%BatchMode=yes*}
+  no_at=${argv%%BatchMode=no*}
+  [ "${#yes_at}" -lt "${#no_at}" ] \
+    || fail "c19: BatchMode=yes does not precede the config's BatchMode=no: $argv"
+  # The note has to blame the source that actually carried the option.
+  case "$err" in
+    *core.sshCommand*BatchMode*) ;;
+    *) fail "c19: the overridden config BatchMode was not reported against core.sshCommand on stderr: $err" ;;
+  esac
+
+  # (e) neither source set: plain `ssh` from PATH, plus BatchMode, no note.
+  # Only these last two runs can see a `core.sshCommand` the host's own global
+  # config may carry, so they read no config beyond the fixture's local file.
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config --unset core.sshCommand
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the neither-source run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  case "$argv" in
+    "via-path -o BatchMode=yes "*) ;;
+    *) fail "c19: with neither source set the fetch did not run plain ssh with BatchMode=yes first: $argv" ;;
+  esac
+  case "$err" in
+    *BatchMode*) fail "c19: warned about an override when neither source set BatchMode: $err" ;;
+    *) ;;
+  esac
+
+  # (f) an empty `core.sshCommand` falls through to plain `ssh` as well: the
+  # script's rule for an empty value is the same for both sources, where git
+  # itself would try to run the empty string.
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config core.sshCommand ""
+  rc=0
+  env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the empty-config run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  case "$argv" in
+    "via-path -o BatchMode=yes "*) ;;
+    *) fail "c19: an empty core.sshCommand did not fall through to plain ssh with BatchMode=yes: $argv" ;;
+  esac
+
+  # (g) ssh reads option names case-insensitively, so a lowercase
+  # `batchmode=no` keeps the prompt live just as the canonical spelling does
+  # and has to be recognised and outranked the same way. The order check is
+  # done on a lowercased argv; the effective value is then read the way ssh
+  # itself resolves it, through a read-only `-G` that never connects.
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config core.sshCommand "$tmp/ssh-stub -o batchmode=no"
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the lowercase-batchmode run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  argv_lc=$(printf '%s' "$argv" | tr '[:upper:]' '[:lower:]')
+  case "$argv_lc" in
+    *"batchmode=no"*) ;;
+    *) fail "c19: the configured lowercase batchmode=no never reached ssh: $argv" ;;
+  esac
+  case "$argv_lc" in
+    *"batchmode=yes"*) ;;
+    *) fail "c19: BatchMode=yes never reached ssh on the lowercase-batchmode run: $argv" ;;
+  esac
+  yes_at=${argv_lc%%batchmode=yes*}
+  no_at=${argv_lc%%batchmode=no*}
+  [ "${#yes_at}" -lt "${#no_at}" ] \
+    || fail "c19: a lowercase batchmode=no was left in front of BatchMode=yes, so ssh reads no first: $argv"
+  if [ -n "$real_ssh" ]; then
+    # shellcheck disable=SC2086 # the recorded argv is re-split on purpose
+    eff=$("$real_ssh" -G -F /dev/null $argv 2>/dev/null | tr '[:upper:]' '[:lower:]' \
+      | awk '$1=="batchmode" {print $2; exit}')
+    [ "$eff" = yes ] \
+      || fail "c19: ssh -G resolves BatchMode to '$eff', not yes, for the argv the fetch ran: $argv"
+  fi
+  case "$err" in
+    *core.sshCommand*BatchMode*) ;;
+    *) fail "c19: the overridden lowercase batchmode was not reported against core.sshCommand on stderr: $err" ;;
+  esac
+
+  # (h) leading whitespace, a blank then a tab, in the configured command.
+  # git keeps it (the value is written quoted), and a splice that takes the
+  # text before the first blank as the binary gets an empty word, so the
+  # shell runs `-o` as the command and the fetch fails without ever reaching
+  # ssh.
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config core.sshCommand "$(printf ' \t')$tmp/ssh-stub -o BatchMode=no"
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the leading-space run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  [ -n "$argv" ] \
+    || fail "c19: with a leading space in core.sshCommand the fetch never reached ssh: $err"
+  case "$argv" in
+    via-path*) fail "c19: a leading space in core.sshCommand made the fetch fall back to bare ssh: $argv" ;;
+    *"BatchMode=no"*) ;;
+    *) fail "c19: the configured BatchMode=no never reached ssh on the leading-space run: $argv" ;;
+  esac
+  yes_at=${argv%%BatchMode=yes*}
+  no_at=${argv%%BatchMode=no*}
+  [ "${#yes_at}" -lt "${#no_at}" ] \
+    || fail "c19: BatchMode=yes does not precede the config's BatchMode=no on the leading-space run: $argv"
+  case "$err" in
+    *core.sshCommand*BatchMode*) ;;
+    *) fail "c19: the overridden BatchMode was not reported against core.sshCommand on the leading-space run: $err" ;;
+  esac
+
+  # (i) several unquoted `VAR=value` prefixes before the binary. The splice
+  # has to step over every assignment so the option lands after the binary
+  # word, and the assignments have to survive into ssh's environment: the stub
+  # records one of them. Quoted prefixes are refused instead; see c20.
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config core.sshCommand \
+    "CSM_A=y CSM_B=z CSM_TEST_VAR=x $tmp/ssh-stub -o BatchMode=no"
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the assignment-prefix run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  [ -n "$argv" ] \
+    || fail "c19: with an assignment prefix in core.sshCommand the fetch never reached ssh: $err"
+  case "$argv" in
+    "CSM_TEST_VAR=x -o BatchMode=yes "*) ;;
+    *) fail "c19: the assignment prefix was not stepped over before the splice, or was lost: $argv" ;;
+  esac
+  case "$argv" in
+    *"BatchMode=no"*) ;;
+    *) fail "c19: the configured BatchMode=no never reached ssh on the assignment-prefix run: $argv" ;;
+  esac
+  case "$err" in
+    *core.sshCommand*BatchMode*) ;;
+    *) fail "c19: the overridden BatchMode was not reported against core.sshCommand on the assignment-prefix run: $err" ;;
+  esac
+
+  # (j) a binary whose path contains `=`. The text before the `=` is not a
+  # shell name, so the shell runs the word as the command, and the splice has
+  # to treat it as the binary rather than step over it as an assignment.
+  mkdir -p "$tmp/eq=dir"
+  cp "$tmp/ssh-stub" "$tmp/eq=dir/ssh-stub"
+  : >"$SSH_ARGV_LOG"
+  git -C "$tmp/worker" config core.sshCommand "$tmp/eq=dir/ssh-stub -o BatchMode=no"
+  rc=0
+  err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) on the '=' in the binary path run, got $rc"
+  argv=$(head -1 "$SSH_ARGV_LOG")
+  case "$argv" in
+    "-o BatchMode=yes -o BatchMode=no "*) ;;
+    *) fail "c19: a binary path containing '=' was stepped over as an assignment, or never reached: argv='$argv' err=$err" ;;
+  esac
+
+  # (k) the other spellings ssh accepts for the option: glued to `-o`, and
+  # with a blank instead of `=`. Both have to be recognised and outranked.
+  for spelling in "-oBatchMode=no" "-o 'BatchMode no'"; do
+    : >"$SSH_ARGV_LOG"
+    git -C "$tmp/worker" config core.sshCommand "$tmp/ssh-stub $spelling"
+    rc=0
+    err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+      PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+    [ "$rc" -eq 4 ] || fail "c19: expected exit 4 (fetch-failed) for $spelling, got $rc"
+    argv=$(head -1 "$SSH_ARGV_LOG")
+    case "$argv" in
+      "-o BatchMode=yes -oBatchMode=no "* | "-o BatchMode=yes -o BatchMode no "*) ;;
+      *) fail "c19: BatchMode=yes does not lead the configured $spelling: argv='$argv' err=$err" ;;
+    esac
+  done
+  unset SSH_ARGV_LOG
+  echo "ok c19: with GIT_SSH_COMMAND unset the fetch keeps core.sshCommand plus BatchMode; a set variable still wins; neither source means plain ssh; the override survives a lowercase, glued, or blank-separated spelling, leading whitespace, assignment prefixes, and a binary path containing '='"
+}
+
+# ---------------------------------------------------------------------------
+# Case 20 — the BatchMode splice does not parse shell quoting, so a quote or
+# backslash before or in the ssh binary makes it cut the command at the wrong
+# word: `VAR='a b c' ssh -o BatchMode=no`, for one, reached ssh with
+# BatchMode=no still leading. Each such command is refused with a named
+# fetch-failed error before any fetch: ssh is never invoked and the tree is
+# left as it was, so the run is retryable once the command is fixed.
+# ---------------------------------------------------------------------------
+c20() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c20.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+  gitc "$tmp/worker" remote set-url origin "ssh://git@127.0.0.1/repo.git"
+  mkdir -p "$tmp/bin" "$tmp/p a"
+  cat >"$tmp/bin/ssh" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SSH_ARGV_LOG"
+exit 255
+STUB
+  chmod +x "$tmp/bin/ssh"
+  cp "$tmp/bin/ssh" "$tmp/p a/ssh"
+  SSH_ARGV_LOG="$tmp/ssh-argv.log"
+  export SSH_ARGV_LOG
+  head_before=$(git -C "$tmp/worker" rev-parse HEAD)
+
+  # The second shape names no BatchMode option: `batchmode-key` in the key
+  # path is enough to route it through the splice.
+  for shape in \
+    "VAR='a b c' ssh -o BatchMode=no" \
+    "\"$tmp/p a/ssh\" -o ProxyCommand=none -i /tmp/batchmode-key" \
+    "CSM_V=a\\b ssh -o BatchMode=no"; do
+    : >"$SSH_ARGV_LOG"
+    git -C "$tmp/worker" config core.sshCommand "$shape"
+    rc=0
+    err=$(env -u GIT_SSH_COMMAND GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+      PATH="$tmp/bin:$PATH" "$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+    [ "$rc" -eq 4 ] || fail "c20: expected exit 4 (fetch-failed) for [$shape], got $rc: $err"
+    case "$err" in
+      *"converge-sync-main: fetch-failed: refusing to add BatchMode=yes to core.sshCommand"*) ;;
+      *) fail "c20: [$shape] was not refused with the named quoting error: $err" ;;
+    esac
+    [ ! -s "$SSH_ARGV_LOG" ] \
+      || fail "c20: ssh was invoked for [$shape] instead of the command being refused: $(cat "$SSH_ARGV_LOG")"
+    [ -z "$(git -C "$tmp/worker" status --porcelain)" ] \
+      || fail "c20: the tree is not clean after refusing [$shape]"
+    [ "$(git -C "$tmp/worker" rev-parse HEAD)" = "$head_before" ] \
+      || fail "c20: HEAD moved after refusing [$shape]"
+    ! git -C "$tmp/worker" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 \
+      || fail "c20: a MERGE_HEAD was left behind after refusing [$shape]"
+  done
+  unset SSH_ARGV_LOG
+  echo "ok c20: a quote or backslash before or in the ssh binary is refused with a named, retryable fetch-failed error and ssh is never run"
 }
 
 # ---------------------------------------------------------------------------
@@ -803,6 +1165,8 @@ c15
 c16
 c17
 c18
+c19
+c20
 w1
 w2
 
