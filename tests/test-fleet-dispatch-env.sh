@@ -87,7 +87,7 @@ exit 0
 EOF
 chmod +x "$root_session"
 
-root_out=$("$FDE" "$root_session") || fail "root-session launch through the wrapper failed (exit $?)"
+root_out=$(env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT "$FDE" "$root_session") || fail "root-session launch through the wrapper failed (exit $?)"
 for rootvar in plugin_root planwright_root; do
   line=$(printf '%s\n' "$root_out" | grep "^$rootvar=") \
     || fail "the launched process must see $rootvar, got: $root_out"
@@ -114,7 +114,7 @@ printf '%s\n' "$override_out" | grep -qx "seen=false" \
 # names the guard's resolution chain reads. A launcher using --print is exactly
 # the case that gets no exec-time export, so omitting the root here would leave
 # its workers without the auto-approve hook.
-print_out=$("$FDE" --print) || fail "--print exited nonzero"
+print_out=$(env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT "$FDE" --print) || fail "--print exited nonzero"
 printf '%s\n' "$print_out" | grep -qx "$VAR=false" \
   || fail "--print must emit '$VAR=false', got '$print_out'"
 for rootvar in PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT; do
