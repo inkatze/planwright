@@ -32,11 +32,11 @@
 # The close verb and the single-initiator elections on `launch` and `recover`
 # come from a later bundle (fleet-lifecycle-closure). The close's behaviour
 # both session-grade rungs share is the rung-parameterised table in
-# tests/test-fleet-stop-rungs.sh; the cases here cover what only this rung has:
+# tests/lib/fleet-stop-table.sh; the cases here cover what only this rung has:
 #   - obs:81ba2dce / obs:917e384e: a `recover.lock` whose holder is gone is
 #     broken, and `launch` elects a single initiator under real contention.
-#   - REQ-E1.5 / REQ-A1.3: the close settles the receipt journal before it
-#     clears the attention row, and holds the class when either cannot answer.
+#   - REQ-E1.5: the close settles the receipt journal before it clears the
+#     attention row, and holds the class when the journal cannot be read.
 #
 # Hermetic: every case pins PLANWRIGHT_FLEET_STATE_DIR to a case-local home
 # and PLANWRIGHT_STREAMJSON_CLI to a single env-driven shim (one inode, so a
@@ -1509,10 +1509,9 @@ fi
 # c30 (REQ-E1.5): a live worker this user cannot SIGNAL is still a live
 #     worker. `kill -0` answers "may I signal it", not "does it exist": on a
 #     pid owned by another uid it fails with EPERM exactly as it does for a
-#     pid that is gone. Every liveness site here reads that as death, and the
-#     costs differ per site — the close reports a running tree stopped, and
-#     `recover` treats a running worker as orphaned and resumes over it,
-#     forking the session its own comment says must never fork.
+#     pid that is gone. Read as death here, `recover` treats a running worker
+#     as orphaned and resumes over it, forking the session its own comment
+#     says must never fork.
 #
 #     pid 1 is the portable EPERM subject: it always exists and a non-root
 #     user can never signal it.
@@ -1590,54 +1589,6 @@ else
   [ "$leaked" = 0 ] || fail "c31: $leaked supervisor(s) survived a failed pid publish"
   echo "ok: c31 a worker that cannot be recorded is closed, not left running (REQ-E1.5)"
 fi
-
-# ---------------------------------------------------------------------------
-# c32 (REQ-A1.3, REQ-B1.7): when the attention probe cannot ANSWER, the class
-#     counts as held. The caller reads any non-zero as "not held" and skips
-#     the class, so an awk that failed outright would drop attention from the
-#     release set and let the close report a success it never earned. Only a
-#     clean "no such row" means not held.
-# ---------------------------------------------------------------------------
-home="$tmp/h32"
-rec="$tmp/r32"
-mkdir -p "$rec"
-ev32="$tmp/ev32"
-printf '%s\n%s\n%s\n' "$line_init" "$line_perm" "$line_result" >"$ev32"
-printf 'held probe\n' >"$tmp/prompt32"
-senv "$home" "$rec" SHIM_EVENTS="$ev32" -- \
-  launch sjw32 execution-backends:4 --prompt-file "$tmp/prompt32" --foreground \
-  || fail "c32: foreground launch exited non-zero"
-#   An awk that cannot answer: exits 2 for everything, the way a broken tool or
-#   a mid-read I/O error would. Exit 2 is neither of the codes the probe reads.
-mkdir -p "$tmp/bin32"
-c32_awk=$(command -v awk) || fail "c32: no awk to delegate to"
-cat >"$tmp/bin32/awk" <<AWKFAIL
-#!/bin/sh
-# Fails ONLY on the attention store. A shim that failed for everything would
-# stop the close at its process-table read instead, which fails closed for a
-# different reason and would prove nothing about this one.
-for a in "\$@"; do
-  case \$a in *attention*) exit 2 ;; esac
-done
-exec $c32_awk "\$@"
-AWKFAIL
-chmod +x "$tmp/bin32/awk"
-PATH="$tmp/bin32:$PATH" awk 'BEGIN { exit 0 }' </dev/null 2>/dev/null \
-  || fail "c32: the shim broke ordinary awk — it must only fail on the attention store"
-PATH="$tmp/bin32:$PATH" awk '{ print }' "$home/attention" >/dev/null 2>&1
-[ "$?" = 2 ] || fail "c32: the shim does not fail on the attention store — this case would prove nothing"
-rc32=0
-out=$(PATH="$tmp/bin32:$PATH" senv "$home" "$rec" -- stop sjw32 --grace 2 2>&1) || rc32=$?
-case $out in
-  *"held="*attention*) ;;
-  *) fail "c32: an unanswerable attention probe should hold the class, got: $out" ;;
-esac
-#     And the exit code, not only the text: a partial close is a distinct
-#     status in this verb's contract, and asserting the wording alone would
-#     let a regression that reported success alongside a held class pass.
-[ "$rc32" = 6 ] \
-  || fail "c32: a partial close must exit 6, got $rc32: $out"
-echo "ok: c32 an attention probe that cannot answer counts as held (REQ-A1.3)"
 
 # ---------------------------------------------------------------------------
 # c33: the LAUNCH PREFLIGHT. A worker's first move is a plugin-script call

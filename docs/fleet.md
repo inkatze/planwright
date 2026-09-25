@@ -708,7 +708,7 @@ The headless rung closes the same way: `fleet-dispatch-headless.sh stop
 printed (`headless-<spec>-task-<id>`) and gives the same results, the same exit
 codes, and the same refusals, because both verbs run one shared close
 (`scripts/fleet-stop-lib.sh`) and one fixture table pins it on both rungs
-(`tests/test-fleet-stop-rungs.sh`). What differs is only what each rung
+(`tests/lib/fleet-stop-table.sh`). What differs is only what each rung
 acquires. The headless runner takes no lock of its own, so its release set is
 the process tree, the completion write's staging temp, and the attention
 record; the prompt, the captured result, and `stderr.log` are the run's record

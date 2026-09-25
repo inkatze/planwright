@@ -1,9 +1,13 @@
-#!/bin/bash
-# The close on both session-grade rungs: one behavioural table, parameterised by
-# rung, run against `scripts/fleet-streamjson.sh stop` and
-# `scripts/fleet-dispatch-headless.sh stop`. Every cell runs on both; a cell
+# shellcheck shell=bash
+# fleet-stop-table.sh — the close on both session-grade rungs as one behavioural
+# table, parameterised by rung (sourced, never executed). Each rung runs it from
+# its own file, tests/test-fleet-stop-sj.sh against `scripts/fleet-streamjson.sh
+# stop` and tests/test-fleet-stop-hl.sh against
+# `scripts/fleet-dispatch-headless.sh stop`, so the two halves share the runner's
+# parallelism rather than one file's budget. Every cell runs on both; a cell
 # passing on one rung and not the other is the asymmetry the table exists to
-# catch (REQ-B1.1).
+# catch (REQ-B1.1). A cell that does not apply to a rung says so with a visible
+# `skip:` line naming why.
 #
 # The cells:
 #   c19 (REQ-B1.2, REQ-B1.4, REQ-A1.3): `stop` terminates the re-exec, the
@@ -15,29 +19,35 @@
 #       audit over the shared kill path and each rung's match finds no name or
 #       command-pattern match.
 #   c22 (REQ-B1.7): a repeat stop returns already-closed and signals nothing;
-#       c22c adds the lock class where the rung has one, and the refusals of an
-#       unknown handle and an out-of-range grace.
+#       c22c adds the lock class where the rung has one, and the refusals of a
+#       malformed or unknown handle and an out-of-range grace.
 #   c22b (REQ-B1.2): a SIGTERM-surviving grandchild reparented away from the
 #       tree is still closed.
-#   c22d-g (REQ-B1.3): a close from inside the worker's own tree is refused; a
+#   c22d-h (REQ-B1.3): a close from inside the worker's own tree is refused; a
 #       recycled pid in the closer's ancestry is not mistaken for one; a
-#       truncated-argv host fails closed; an unreadable process table refuses.
+#       truncated-argv host fails closed; an unreadable process table refuses;
+#       a fifo planted at a pid file cannot hang the close.
 #   c23 (REQ-A1.3, REQ-B1.7): a partial close reports partial, and the retry
-#       drains exactly what is still held.
+#       drains exactly what is still held; c32 holds the attention class when
+#       its probe cannot answer.
+#   c40 (REQ-B1.3, REQ-B1.7): a unit whose run already ended keeps its record,
+#       and its stale pid is never signalled.
+#   c41 (REQ-B1.3, REQ-B1.4): the headless rung's default state layout, where
+#       the spec is part of the path, and its symlinked-state refusal.
 #
 # The stream-json rung's own suite keeps the cases that exercise what only it
 # has: the receipt journal, the launch and recover elections, the supervisor's
 # pid publication.
 #
 # Hermetic: every cell pins the fleet home, the headless state base, and both
-# rungs' CLI seam to case-local paths and one env-driven shim. Runs standalone
-# under /bin/bash (bash 3.2).
+# rungs' CLI seam to case-local paths and one env-driven shim. The sourcing file
+# sets `here` to the tests directory first. Runs under /bin/bash (bash 3.2).
 set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-here=$(cd "$(dirname "$0")" && pwd)
+: "${here:?the sourcing test sets here to the tests directory}"
 SJ="$here/../scripts/fleet-streamjson.sh"
 FDH="$here/../scripts/fleet-dispatch-headless.sh"
 LIB="$here/../scripts/fleet-stop-lib.sh"
@@ -61,12 +71,16 @@ command -v jq >/dev/null 2>&1 || fail "jq is required: the stream-json launch pr
 tmp=$(cd "$(mktemp -d)" && pwd -P)
 cleanup() {
   # A failed cell can leave a worker holding open; nothing may outlive the run.
+  # A headless unit keeps its pid file after its runner is gone, so a pid is
+  # killed only while its argv still names this run's scratch tree.
   for pf in "$tmp"/*/h*/streamjson/*/supervisor.pid "$tmp"/*/h*/streamjson/*/worker.pid \
     "$tmp"/*/h*/headless/*/pid; do
     [ -f "$pf" ] || continue
     p=$(cat "$pf" 2>/dev/null) || continue
     case $p in '' | *[!0-9]*) continue ;; esac
-    kill -9 "$p" 2>/dev/null
+    case $(ps -p "$p" -o args= 2>/dev/null) in
+      *"$tmp"*) kill -9 "$p" 2>/dev/null ;;
+    esac
   done
   rm -rf "$tmp"
 }
@@ -253,6 +267,23 @@ w_launch() {
   esac
 }
 
+# w_finished <handle> <dir> <prompt-file> — a worker whose run has ended, in
+# the cell's home and worktree. The stream-json one leaves a pending
+# permission's attention row behind; the headless one leaves none of its own.
+w_finished() {
+  case $rung in
+    sj)
+      renv "$home" "$rec" SHIM_EVENTS="$ev_done" -- \
+        launch "$1" "$SPEC:4" --prompt-file "$3" --cwd "$wt" --foreground \
+        || fail "foreground launch exited non-zero"
+      ;;
+    hl)
+      w_launch "$home" "$rec" "$1" "$3" "$wt" || fail "launch exited non-zero"
+      wait_until 100 test -s "$2/exit" || fail "the one-shot never completed"
+      ;;
+  esac
+}
+
 # w_worker_pid <dir> — the worker process itself (the shim). The stream-json
 # supervisor records it; the headless runner does not, and its one child is
 # the worker, exec'd through the dispatch-env wrapper.
@@ -323,6 +354,7 @@ w_durable_ok() {
       [ -s "$3/prompt" ] || fail "the prompt must survive a stop"
       [ -s "$3/launched" ] || fail "the launch marker must survive a stop"
       [ -e "$3/result.json" ] || fail "the captured result must survive a stop"
+      [ -e "$3/stderr.log" ] || fail "the captured stderr must survive a stop"
       wd_out=$(renv "$1" "$2" -- status "$SPEC" "${4##*-task-}")
       [ "$wd_out" = "completed 143" ] \
         || fail "a stopped unit must read as the runner's graceful completion, got: $wd_out"
@@ -526,19 +558,19 @@ c20_stop() {
 
 c20() {
   case_dirs 20
-  c20_stop 20 2
+  c20_stop 20 1
   grep -q term "$rec/signals" 2>/dev/null \
     || fail "c20: SIGTERM must be sent before the escalation"
-  [ "$elapsed" -ge 2 ] || fail "c20: the grace must elapse before SIGKILL, took ${elapsed}s"
+  [ "$elapsed" -ge 1 ] || fail "c20: the grace must elapse before SIGKILL, took ${elapsed}s"
   short=$elapsed
   # The close must wait out the grace it was *given*, not a fixed one: two
   # closes at different graces show it, immune to how fast the host is.
-  c20_stop 201 6
+  c20_stop 201 4
   [ $((elapsed - short)) -ge 2 ] \
-    || fail "c20: --grace must set the wait; 2s took ${short}s and 6s took ${elapsed}s"
+    || fail "c20: --grace must set the wait; 1s took ${short}s and 4s took ${elapsed}s"
   # The difference pins that --grace is read; this pins the unit. Set far above
   # any plausible scheduling delay, since the suite runs beside the whole gate.
-  [ "$elapsed" -lt 120 ] || fail "c20: a 6s grace should not take ${elapsed}s"
+  [ "$elapsed" -lt 120 ] || fail "c20: a 4s grace should not take ${elapsed}s"
   echo "ok: [$rung] c20 SIGTERM first, SIGKILL after the grace the caller set (REQ-B1.2)"
 }
 
@@ -624,7 +656,7 @@ c22() {
   w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt22" "$wt" \
     SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 || fail "c22: detached launch exited non-zero"
   wait_until 100 w_up "$d" || fail "c22: the worker never came up"
-  renv "$home" "$rec" -- stop "$w" --grace 2 >/dev/null || fail "c22: the first stop failed"
+  renv "$home" "$rec" -- stop "$w" --grace 1 >/dev/null || fail "c22: the first stop failed"
   # The shim records every SIGTERM it survives. A repeat stop that re-signalled
   # the stale recorded pids would add to that file.
   before=$(wc -l <"$rec/signals" 2>/dev/null || echo 0)
@@ -687,7 +719,7 @@ c22b() {
   case $stub_args in
     *"$d"*) fail "c22b: the grandchild must not carry the state dir in its argv" ;;
   esac
-  out=$(renv "$home" "$rec" -- stop "$w" --grace 2)
+  out=$(renv "$home" "$rec" -- stop "$w" --grace 1)
   rc=$?
   [ "$rc" = 0 ] || fail "c22b: stop should close the whole tree, got rc=$rc ($out)"
   case $out in
@@ -847,19 +879,7 @@ c23() {
   w=$(w_name 23)
   d=$(w_dir "$home" "$w")
   printf 'partial close\n' >"$tmp/$rung/prompt23"
-  # A worker that has finished and left its attention record behind.
-  case $rung in
-    sj)
-      renv "$home" "$rec" SHIM_EVENTS="$ev_done" -- \
-        launch "$w" "$SPEC:4" --prompt-file "$tmp/$rung/prompt23" --foreground \
-        || fail "c23: foreground launch exited non-zero"
-      ;;
-    hl)
-      w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt23" "$wt" \
-        || fail "c23: launch exited non-zero"
-      wait_until 100 test -s "$d/exit" || fail "c23: the one-shot never completed"
-      ;;
-  esac
+  w_finished "$w" "$d" "$tmp/$rung/prompt23"
   w_occupy_attention "$home" "$w" || fail "c23: no attention record to withhold"
   # An unwritable attention store: `clear` fails, the row stays held.
   chmod 500 "$home/attention" || fail "c23: cannot make the attention store unwritable"
@@ -947,13 +967,124 @@ c40() {
   echo "ok: [$rung] c40 a finished or dead unit keeps its record and its stale pid is never signalled (REQ-B1.3, REQ-B1.7)"
 }
 
-# --- the table --------------------------------------------------------------
-for rung in sj hl; do
+# ---------------------------------------------------------------------------
+# c32 (REQ-A1.3): when the attention probe cannot ANSWER, the class counts as
+#     held. The walk reads any non-zero as "not held" and skips the class, so
+#     an awk that failed outright would drop attention from the release set
+#     and let the close report a success it never earned.
+c32() {
+  case_dirs 32
+  w=$(w_name 32)
+  d=$(w_dir "$home" "$w")
+  printf 'held probe\n' >"$tmp/$rung/prompt32"
+  w_finished "$w" "$d" "$tmp/$rung/prompt32"
+  w_occupy_attention "$home" "$w" || fail "c32: no attention record to probe"
+  # Fails only on the attention store: a shim failing for everything would stop
+  # the close at its process-table read instead, which fails closed for a
+  # different reason and would prove nothing about this one.
+  mkdir -p "$tmp/$rung/bin32"
+  c32_awk=$(command -v awk) || fail "c32: no awk to delegate to"
+  cat >"$tmp/$rung/bin32/awk" <<AWKFAIL
+#!/bin/sh
+for a in "\$@"; do
+  case \$a in *attention*) exit 2 ;; esac
+done
+exec $c32_awk "\$@"
+AWKFAIL
+  chmod +x "$tmp/$rung/bin32/awk"
+  PATH="$tmp/$rung/bin32:$PATH" awk 'BEGIN { exit 0 }' </dev/null 2>/dev/null \
+    || fail "c32: the shim broke ordinary awk — it must only fail on the attention store"
+  PATH="$tmp/$rung/bin32:$PATH" awk '{ print }' "$home/attention" >/dev/null 2>&1
+  [ "$?" = 2 ] || fail "c32: the shim does not fail on the attention store — this case would prove nothing"
+  rc=0
+  out=$(PATH="$tmp/$rung/bin32:$PATH" renv "$home" "$rec" -- stop "$w" --grace 1 2>&1) || rc=$?
+  case $out in
+    *"held="*attention*) : ;;
+    *) fail "c32: an unanswerable attention probe should hold the class, got: $out" ;;
+  esac
+  # The exit code too: asserting the wording alone would let a regression that
+  # reported success alongside a held class pass.
+  [ "$rc" = 6 ] || fail "c32: a partial close must exit 6, got $rc: $out"
+  echo "ok: [$rung] c32 an attention probe that cannot answer counts as held (REQ-A1.3)"
+}
+
+# ---------------------------------------------------------------------------
+# c41 (REQ-B1.3, REQ-B1.4): the headless rung's default layout, where the unit's
+#     state lives under its own spec bundle. Every other cell pins the state base
+#     through the environment, which keys the directory on the task id alone.
+#     Here the spec half of the handle has to matter, the state path the close
+#     deletes inside is refused when it is a symlink, and a handle the rung could
+#     not have printed is refused before it resolves anything.
+c41() {
+  case $rung in
+    sj)
+      echo "skip: [sj] c41 the stream-json state lives under the fleet home by handle alone; it has no spec layout to resolve"
+      return 0
+      ;;
+  esac
+  case_dirs 41
+  repo="$tmp/$rung/repo41"
+  mkdir -p "$repo/specs/$SPEC" "$repo/specs/other"
+  # denv — the rung with the state base left to its default.
+  denv() {
+    env "${env_scrub[@]}" -u PLANWRIGHT_HEADLESS_STATE_DIR \
+      PLANWRIGHT_FLEET_STATE_DIR="$home" \
+      PLANWRIGHT_HEADLESS_CLAUDE="$tmp/bin/claude" \
+      SHIM_RECORD_DIR="$rec" SHIM_SLEEP=120 /bin/sh "$FDH" "$@"
+  }
+  w=$(w_name 41)
+  d="$repo/specs/$SPEC/.orchestrate/headless/41"
+  printf 'default layout\n' | denv launch "$SPEC" 41 --worktree "$wt" --repo-root "$repo" \
+    >/dev/null || fail "c41: launch in the default layout exited non-zero"
+  wait_until 100 w_up "$d" || fail "c41: the worker never came up"
+  runner=$(cat "$d/pid")
+  denv stop "headless-other-task-41" --repo-root "$repo" --grace 1 >/dev/null 2>&1
+  [ $? -eq 2 ] || fail "c41: another spec's handle for the same task id must be unknown (exit 2)"
+  kill -0 "$runner" 2>/dev/null || fail "c41: a close for another spec's handle reached this unit"
+  out=$(denv stop "$w" --repo-root "$repo" --grace 1)
+  case $out in
+    "stop $w stopped released=process"*) : ;;
+    *) fail "c41: expected the default-layout close to stop the runner, got: $out" ;;
+  esac
+  wait_until 100 all_gone "$runner" || fail "c41: the runner survived its close"
+  out=$(denv status "$SPEC" 41 --repo-root "$repo")
+  [ "$out" = "completed 143" ] || fail "c41: the closed unit must read completed 143, got: $out"
+
+  # A symlinked unit directory: refused, and the directory it points at keeps
+  # everything a close would have deleted or written there.
+  mkdir -p "$tmp/$rung/elsewhere42"
+  : >"$tmp/$rung/elsewhere42/exit.tmp"
+  ln -s "$tmp/$rung/elsewhere42" "$repo/specs/$SPEC/.orchestrate/headless/42" \
+    || fail "c41: cannot plant the symlink"
+  out=$(denv stop "$(w_name 42)" --repo-root "$repo" --grace 1 2>&1)
+  rc=$?
+  [ "$rc" = 2 ] || fail "c41: a symlinked state dir must be refused (exit 2), got rc=$rc ($out)"
+  case $out in
+    *"path-escape guard"*) : ;;
+    *) fail "c41: the refusal must be the path-escape one, got: $out" ;;
+  esac
+  [ -e "$tmp/$rung/elsewhere42/exit.tmp" ] || fail "c41: the refused close deleted through the symlink"
+  [ ! -e "$tmp/$rung/elsewhere42/exit" ] || fail "c41: the refused close wrote through the symlink"
+
+  # Handles the rung could not have printed.
+  for bad in "$SPEC-task-41" "headless-$SPEC-task-" "headless-$SPEC-task-4/1" \
+    "headless--task-41" "headless-$SPEC-task-41x"; do
+    out=$(denv stop "$bad" --repo-root "$repo" 2>&1)
+    rc=$?
+    [ "$rc" = 2 ] || fail "c41: handle '$bad' must be refused (exit 2), got rc=$rc ($out)"
+    case $out in
+      *"invalid worker handle"*) : ;;
+      *) fail "c41: handle '$bad' must be refused as malformed, got: $out" ;;
+    esac
+  done
+  echo "ok: [$rung] c41 the default layout keys on the spec, refuses a symlinked state dir and a malformed handle (REQ-B1.3, REQ-B1.4)"
+}
+
+# run_table <rung> — every cell against one rung.
+run_table() {
+  rung=$1
   mkdir -p "$tmp/$rung"
-  for cell in ${STOP_CELLS:-c19 c20 c21 c22 c22b c22d c22efg c23 c40}; do
+  for cell in ${STOP_CELLS:-c19 c20 c21 c22 c22b c22d c22efg c23 c32 c40 c41}; do
     "$cell"
   done
-done
-rung=''
-c21_audit
-echo "ok: the close fixture table passes on both rungs (REQ-B1.1)"
+}
