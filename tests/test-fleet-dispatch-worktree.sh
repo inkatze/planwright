@@ -1037,7 +1037,43 @@ c26() {
   [ "$RC" -eq 0 ] || fail "c26: a long flight-prefixed spec's task suffix must be attachable, got exit $RC"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26; do
+# ---------------------------------------------------------------------------
+# c27 — the flight arm refuses malformed input before any side effect.
+# ---------------------------------------------------------------------------
+c27() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c27.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  printf 'brief\n' >"$tmp/brief.md"
+
+  run_prim dispatch --flight Bad-0123abcd --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c27: an off-grammar flight id must be refused (exit 2), got $RC"
+  run_prim dispatch --flight demo-0123abcd demo 1 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c27: --flight with <spec> <id> must be refused (exit 2), got $RC"
+  run_prim dispatch demo 1 --brief "$tmp/brief.md" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c27: --brief on a task dispatch must be refused (exit 2), got $RC"
+  run_prim dispatch --flight demo-0123abcd --brief brief.md --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c27: a relative --brief must be refused (exit 2), got $RC"
+  run_prim dispatch --flight demo-0123abcd --brief "$tmp/nope.md" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c27: a missing --brief must be refused (exit 2), got $RC"
+  run_prim dispatch --flight demo-0123abcd --brief "$tmp/brief.md" --no-attach --repo-root "$tmp/primary"
+  [ "$RC" -eq 2 ] || fail "c27: --brief with --no-attach must be refused (exit 2), got $RC"
+  if gitc "$tmp/primary" for-each-ref --format='%(refname)' refs/heads/planwright/ | grep -q .; then
+    fail "c27: a refused flight dispatch created a branch"
+  fi
+
+  # The accepted form places the flight and writes no dispatch marker.
+  run_prim dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary"
+  [ "$RC" -eq 0 ] || fail "c27: a flight create-only dispatch exited $RC"
+  [ "$(dfield "$OUT" branch)" = planwright/flight/demo-0123abcd ] \
+    || fail "c27: flight branch '$(dfield "$OUT" branch)' != planwright/flight/demo-0123abcd"
+  [ -d "$tmp/primary/.claude/worktrees/flight-demo-0123abcd" ] \
+    || fail "c27: the flight worktree was not placed"
+  [ -z "$(ls -A "$tmp/markers" 2>/dev/null)" ] || fail "c27: a flight dispatch wrote a task marker"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true
