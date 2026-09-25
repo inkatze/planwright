@@ -328,17 +328,17 @@ On every route, overridden or not:
   (REQ-B1.1, REQ-B1.3).
 - **Never** mint placement logic, a review sequence, a queue, a store, or a
   knob beside the existing seams (REQ-C1.2, REQ-C1.5, REQ-G1.5, D-12).
-- **Never** supervise or poll spec-mode execution (REQ-A1.5).
 - **Never** edit a settings file or widen the posture from the tower (D-14).
 
 ## Maintenance
 
 After each session, compare these instructions against the doctrine they
 implement (the run-start manifest). If a concept this skill names has
-drifted, say so to the operator in one line and propose the drift observation as a captured item
-(the item `skill-drift(tower): <what>`, recorded through `scripts/obs-record.sh
---slug skill-drift --scope <repo> --text <item>` as one argument, never
-interpolated into quotes, by the flight that carries it). In repositories
-without `specs/`, surface the drift to the operator instead of recording it.
+drifted, propose the drift observation to the operator, in one line, as a
+captured item (the item `skill-drift(tower): <what>`, recorded by the flight
+that carries it through `scripts/obs-record.sh --slug skill-drift --scope
+<repo> --text "$(cat <file>)"`, the item written to `<file>` so it arrives as
+one argument, never interpolated into quotes). In repositories without
+`specs/`, surface the drift to the operator instead of recording it.
 Do not edit this skill or the doctrine docs to resolve the drift;
 `/spec-draft` owns folding drift into spec amendments.

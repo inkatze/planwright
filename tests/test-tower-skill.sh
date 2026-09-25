@@ -414,11 +414,15 @@ else
   fail "a worker-surfaced mutation need, or pasted text, can still become a routed request"
 fi
 
-# quoted_text_arg <text>: prints a --text value interpolated into quotes.
-quoted_text_arg() {
-  printf '%s\n' "$1" | grep -oE -- "--text ['\"][^'\"]*['\"]" | head -1
+# unsafe_text_arg <text>: prints the first --text value that is not the
+# file-fed form, whether interpolated into quotes or left bare to word-split.
+# shellcheck disable=SC2016
+unsafe_text_arg() {
+  printf '%s\n' "$1" | grep -oE -- '--text [^ ]+' | grep -vxF -- '--text "$(cat' | head -1
 }
-if [ -z "$(quoted_text_arg "$flat")" ] && has_phrase '--text <item>`? as one argument, never interpolated into quotes'; then
+# shellcheck disable=SC2016
+if [ -z "$(unsafe_text_arg "$flat")" ] \
+  && has_phrase '--text "\$\(cat <file>\)"`, the item written to `<file>` so it arrives as one argument, never interpolated into quotes'; then
   ok "the drift-capture --text value is passed as one argument"
 else
   fail "the drift-capture --text value is interpolated into quotes or not stated as one argument"
@@ -597,12 +601,14 @@ else
   fail "probe: a flight-rule flag or route-selecting knob escapes the pattern"
 fi
 
-if [ -n "$(quoted_text_arg "obs-record.sh --slug skill-drift --text '...'")" ] \
-  && [ -n "$(quoted_text_arg 'obs-record.sh --text "<what>"')" ] \
-  && [ -z "$(quoted_text_arg 'obs-record.sh --text <what>')" ]; then
-  ok "probe: a quoted --text value is caught and a bare argument is not"
+# shellcheck disable=SC2016
+if [ -n "$(unsafe_text_arg "obs-record.sh --slug skill-drift --text '...'")" ] \
+  && [ -n "$(unsafe_text_arg 'obs-record.sh --text "<what>"')" ] \
+  && [ -n "$(unsafe_text_arg 'obs-record.sh --text <item> as one argument')" ] \
+  && [ -z "$(unsafe_text_arg 'obs-record.sh --text "$(cat <file>)"')" ]; then
+  ok "probe: quoted and bare --text values are caught and the file-fed form is not"
 else
-  fail "probe: the --text quoting check misreads a quoted or bare argument"
+  fail "probe: the --text check misreads a quoted, bare, or file-fed argument"
 fi
 
 late_gloss=$(printf '%s\n\n%s\n' 'The tower routes onto visual flight or instrument flight.' 'Later: visual rules when you fly by what you can see, instrument rules when you file a plan.')
