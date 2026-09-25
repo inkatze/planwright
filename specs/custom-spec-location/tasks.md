@@ -285,7 +285,7 @@ supported configuration ships while the doctrine still calls it wrong.
 
 ## Awaiting input
 
-(none yet)
+- **Task 1** — push and draft PR pending: the branch `planwright/custom-spec-location/task-1` is implemented, converged (polish and panel review), and committed locally, but `git push` failed because the SSH agent refused to sign ("communication with agent failed"; a follow-up agent probe hung, likely on an unanswered approval prompt). Unlock or approve the agent, then push the branch and open the draft PR; the assembled PR body is in the handoff.
 
 ## Deferred
 
