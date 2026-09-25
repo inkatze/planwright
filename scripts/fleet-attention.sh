@@ -1468,8 +1468,8 @@ case $cmd in
     # delivery closes is one render's repetition, not the entry.
     if [ -n "$sortable" ] && [ -n "$except" ]; then
       before=$(printf '%s\n' "$sortable" | grep -c .)
-      sortable=$(printf '%s\n' "$sortable" | awk -F "$TAB" -v d="$except" '
-        BEGIN { n = split(d, a, "\n"); for (k = 1; k <= n; k++) if (a[k] != "") seen[a[k] ""] = 1 }
+      sortable=$(printf '%s\n' "$sortable" | FA_EXCEPT=$except awk -F "$TAB" '
+        BEGIN { n = split(ENVIRON["FA_EXCEPT"], a, "\n"); for (k = 1; k <= n; k++) if (a[k] != "") seen[a[k] ""] = 1 }
         !(($3 "") in seen)
       ')
       if [ -z "$sortable" ]; then
