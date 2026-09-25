@@ -129,6 +129,19 @@ mktree "$tmp/dashdir/-"
 run in_dir "$tmp/dashdir" base OLDPWD="$tmp/plain" PLANWRIGHT_ROOT=- "$SH" "$RESOLVER" install
 assert_eq "install: an arm named '-' is the directory of that name" "$tmp/dashdir/-" "$out"
 
+# A directory that cannot be entered is named as such, not as content-less.
+if [ "$(id -u)" -ne 0 ]; then
+  mktree "$tmp/sealed"
+  chmod 000 "$tmp/sealed"
+  run base PLANWRIGHT_ROOT="$tmp/sealed" "$SH" "$RESOLVER" install
+  chmod 755 "$tmp/sealed"
+  assert_eq "install: an unenterable arm falls through" "$REPO_ROOT" "$out"
+  assert_contains "install: an unenterable arm is named as such" "cannot be entered" "$err"
+else
+  echo "SKIP: running as root, which enters any directory" >&2
+  skips=$((skips + 2))
+fi
+
 # An empty variable is unset, not an arm.
 run base PLANWRIGHT_ROOT= CLAUDE_PLUGIN_ROOT="$tmp/plugin" \
   "$SH" "$RESOLVER" install

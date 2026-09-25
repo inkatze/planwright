@@ -112,12 +112,12 @@ try_arm() {
   if [ "$1" = writer-mode ] && [ ! -e "$2" ] && [ ! -L "$2" ]; then
     return 0
   fi
-  if [ ! -d "$2" ] || { [ ! -d "$2/doctrine" ] && [ ! -d "$2/scripts" ]; }; then
-    say "WARNING skipping the $1 root '$2': not a directory holding doctrine/ or scripts/"
+  if [ -d "$2" ] && ! ta_canon=$(canon "$2"); then
+    say "WARNING skipping the $1 root '$2': the directory cannot be entered"
     return 0
   fi
-  if ! ta_canon=$(canon "$2"); then
-    say "WARNING skipping the $1 root '$2': the directory cannot be entered"
+  if [ ! -d "$2" ] || { [ ! -d "$2/doctrine" ] && [ ! -d "$2/scripts" ]; }; then
+    say "WARNING skipping the $1 root '$2': not a directory holding doctrine/ or scripts/"
     return 0
   fi
   emit "$1" "$ta_canon"
