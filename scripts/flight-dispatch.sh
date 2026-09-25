@@ -419,11 +419,18 @@ placed_at() {
         $0 == want { print p; exit }'
 }
 
+# relay_err — the primitive's stderr, control bytes other than tab and newline
+# dropped: a launched worker's output lands here too.
+relay_err() {
+  [ -r "$brief_dir/dispatch.err" ] || return 0
+  tr -d '\000-\010\013-\037\177' <"$brief_dir/dispatch.err" >&2
+}
+
 # placement_failed <primitive-exit> — relay the primitive's diagnostic, report
 # what was left behind, and exit. A brief whose flight never got a worktree is
 # removed; one that did stays beside it, since a relaunch needs it.
 placement_failed() {
-  cat "$brief_dir/dispatch.err" >&2 2>/dev/null
+  relay_err
   _left=$(placed_at)
   printf 'failed\tplacing the flight failed (worktree primitive exit %s)\n' "$1"
   printf 'flight\t%s\n' "$flight_id"
@@ -628,8 +635,9 @@ cmd_dispatch() {
   _prc=$?
   [ "$_prc" -eq 0 ] || placement_failed "$_prc"
 
-  # A degraded base (no remote reachable) is the primitive's NOTE; relay it.
-  grep 'NOTE:' "$brief_dir/dispatch.err" >&2 2>/dev/null || :
+  # Relayed whole: a degraded base is a NOTE, and a registration the fleet has
+  # no record of is a warning the operator has to see.
+  relay_err
   out=$(cat "$_out" 2>/dev/null)
   rm -f "$brief_dir/dispatch.err" "$_out"
 

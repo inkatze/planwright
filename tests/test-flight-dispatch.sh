@@ -275,6 +275,7 @@ dispatch_print
 [ "$RC" -eq 0 ] || fail "file-home dispatch exited $RC: $ERR"
 fid=$(field "$OUT" flight)
 [ "$(field "$OUT" home)" = file ] || fail "no remote must declare the file home"
+case $ERR in *NOTE:*) ;; *) fail "the primitive's degraded-base NOTE must reach stderr: $ERR" ;; esac
 [ "$(field "$OUT" record)" = "specs/_flights/$fid.md" ] \
   || fail "file home must name specs/_flights/<id>.md, got $(field "$OUT" record)"
 [ "$(field "$OUT" base)" = "$(gitc "$c/primary" rev-parse main)" ] \
