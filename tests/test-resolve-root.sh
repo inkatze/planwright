@@ -364,6 +364,24 @@ run in_dir "$tmp/repo" base GIT_DIR="$tmp/repo/.git" GIT_WORK_TREE="$tmp/repo" \
 assert_eq "hardening: GIT_DIR and GIT_WORK_TREE do not refuse a valid override" \
   "$tmp/other" "$out"
 
+# Config from outside the repository (git -c, as a hook inherits it; the
+# GIT_CONFIG_COUNT channel; a global file) cannot name the primary: git itself
+# reads core.worktree and core.bare from the repository's own config only.
+run in_dir "$tmp/repo" base GIT_CONFIG_PARAMETERS="'core.worktree'='$tmp/other'" \
+  "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: git -c core.worktree does not move --primary" "$tmp/repo" "$out"
+run in_dir "$tmp/repo" base GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.worktree \
+  GIT_CONFIG_VALUE_0="$tmp/other" "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: GIT_CONFIG_COUNT core.worktree does not move --primary" \
+  "$tmp/repo" "$out"
+printf '[core]\n\tworktree = %s\n' "$tmp/other" >"$tmp/global-worktree.cfg"
+run in_dir "$tmp/repo" base GIT_CONFIG_GLOBAL="$tmp/global-worktree.cfg" \
+  "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: a global core.worktree does not move --primary" "$tmp/repo" "$out"
+run in_dir "$tmp/repo" base GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.bare \
+  GIT_CONFIG_VALUE_0=true "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: an inherited core.bare does not refuse --primary" "$tmp/repo" "$out"
+
 # Inside a git directory there is no working tree; the message says so.
 run in_dir "$tmp/repo/.git" base "$SH" "$RESOLVER" repo --checkout
 assert_eq "hardening: inside .git, --checkout exits 3" 3 "$rc"
@@ -388,6 +406,20 @@ gitq -C "$tmp/cw/work" -c user.name=t -c user.email=t@example.invalid \
 gitq -C "$tmp/cw/work" worktree add -q -b cw "$tmp/cw/linked"
 run in_dir "$tmp/cw/linked" base "$SH" "$RESOLVER" repo --primary
 assert_eq "hardening: core.worktree in a .git directory names the primary" "$tmp/cw/work" "$out"
+
+# With per-worktree config enabled, git reads core.worktree from the
+# primary's config.worktree, so the resolver must too.
+mkdir -p "$tmp/cwx/meta" "$tmp/cwx/work"
+gitq -C "$tmp/cwx/meta" init -q
+gitq -C "$tmp/cwx/meta" config extensions.worktreeConfig true
+gitq -C "$tmp/cwx/meta" config --worktree core.worktree "$tmp/cwx/work"
+printf 'gitdir: %s\n' "$tmp/cwx/meta/.git" >"$tmp/cwx/work/.git"
+gitq -C "$tmp/cwx/work" -c user.name=t -c user.email=t@example.invalid \
+  commit -q --allow-empty -m init
+gitq -C "$tmp/cwx/work" worktree add -q -b cwx "$tmp/cwx/linked"
+run in_dir "$tmp/cwx/linked" base "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: core.worktree in config.worktree names the primary" \
+  "$tmp/cwx/work" "$out"
 
 # A primary whose core.worktree is gone is reported, not printed.
 mv "$tmp/cw/work" "$tmp/cw/work-moved"

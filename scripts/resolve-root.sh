@@ -25,8 +25,10 @@
 #               only if it is an absolute path naming a git toplevel; any
 #               other value is refused, never ignored.
 #   --checkout  the current toplevel; PLANWRIGHT_REPO_ROOT never affects it.
-#   Both views discover from the working directory: an inherited GIT_DIR or
-#   GIT_WORK_TREE (a git hook exports them) is ignored.
+#   Both views discover from the working directory: an inherited GIT_DIR,
+#   GIT_WORK_TREE, or command-line config (a git hook exports them) is
+#   ignored, and --primary reads core.worktree and core.bare from the
+#   repository's own config only, as git does.
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
 # CLAUDE_PLUGIN_ROOT, writer-mode, self-location) or the repo source
@@ -153,6 +155,13 @@ no_repo() {
   exit 3
 }
 
+# repo_config <args...>: read the common git directory's own config. git takes
+# core.worktree and core.bare from the repository alone, so the global and
+# system files are shut out here, as the inherited -c channels are at entry.
+repo_config() {
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git --git-dir="$rp_common" config "$@"
+}
+
 no_primary() {
   say "no repository root: this repository has no primary working tree${1:+ ($1)}"
   exit 3
@@ -191,7 +200,7 @@ resolve_primary() {
       ;;
   esac
   rp_common=$(canon "$rp_common") || no_primary "'$rp_common' is not reachable"
-  [ "$(git --git-dir="$rp_common" config --bool core.bare 2>/dev/null)" != true ] || no_primary
+  [ "$(repo_config --bool core.bare 2>/dev/null)" != true ] || no_primary
 
   # The primary, in order: the configured core.worktree; the tree we are in,
   # when our own git directory is the common one (the only way to name the
@@ -200,7 +209,7 @@ resolve_primary() {
   # git dir that is itself named .git is indistinguishable from an ordinary
   # one when run from inside it, and answers with the directory holding it.
   rp_src=git-common-dir
-  rp_cand=$(git --git-dir="$rp_common" config core.worktree 2>/dev/null) || rp_cand=""
+  rp_cand=$(repo_config core.worktree 2>/dev/null) || rp_cand=""
   case $rp_cand in
     "" | /*) ;;
     *) rp_cand=$rp_common/$rp_cand ;;
@@ -236,7 +245,8 @@ case $kind in
     resolve_install
     ;;
   repo)
-    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
     command -v git >/dev/null 2>&1 || {
       say "no repository root: git is not installed (not on PATH)"
       exit 3
