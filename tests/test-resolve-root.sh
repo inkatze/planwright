@@ -375,13 +375,57 @@ run in_dir "$tmp/repo/mod" base "$SH" "$RESOLVER" repo --primary
 assert_eq "hardening: a submodule's --primary is its working tree (exit)" 0 "$rc"
 assert_eq "hardening: a submodule's --primary is its working tree" "$tmp/repo/mod" "$out"
 
-# A primary working tree that is gone is reported, not printed.
-gitq -C "$tmp/other" worktree add -q -b gone "$tmp/other-wt"
-mv "$tmp/other" "$tmp/other-moved"
-run in_dir "$tmp/other-wt" base "$SH" "$RESOLVER" repo --primary
+# core.worktree in an ordinary .git directory names the primary.
+mkdir -p "$tmp/cw/meta" "$tmp/cw/work"
+gitq -C "$tmp/cw/meta" init -q
+gitq -C "$tmp/cw/meta" config core.worktree "$tmp/cw/work"
+printf 'gitdir: %s\n' "$tmp/cw/meta/.git" >"$tmp/cw/work/.git"
+gitq -C "$tmp/cw/work" -c user.name=t -c user.email=t@example.invalid \
+  commit -q --allow-empty -m init
+gitq -C "$tmp/cw/work" worktree add -q -b cw "$tmp/cw/linked"
+run in_dir "$tmp/cw/linked" base "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: core.worktree in a .git directory names the primary" "$tmp/cw/work" "$out"
+
+# A primary whose core.worktree is gone is reported, not printed.
+mv "$tmp/cw/work" "$tmp/cw/work-moved"
+run in_dir "$tmp/cw/linked" base "$SH" "$RESOLVER" repo --primary
 assert_eq "hardening: an unreachable primary exits 3" 3 "$rc"
 assert_empty "hardening: an unreachable primary prints no path" "$out"
-mv "$tmp/other-moved" "$tmp/other"
+assert_contains "hardening: an unreachable primary is named" "no primary working tree" "$err"
+mv "$tmp/cw/work-moved" "$tmp/cw/work"
+
+# A .git that is a symlink to the real git directory keeps its primary.
+mkdir -p "$tmp/store" "$tmp/symgit"
+gitq init -q --bare "$tmp/store/x.git"
+gitq --git-dir="$tmp/store/x.git" config core.bare false
+ln -s "$tmp/store/x.git" "$tmp/symgit/.git"
+gitq -C "$tmp/symgit" -c user.name=t -c user.email=t@example.invalid \
+  commit -q --allow-empty -m init
+run in_dir "$tmp/symgit" base "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: a symlinked .git keeps its primary" "$tmp/symgit" "$out"
+
+# A separate git directory records no primary path: from the primary itself
+# it answers with the toplevel; from a linked worktree it refuses.
+gitq init -q --separate-git-dir="$tmp/sep.git" "$tmp/sep"
+gitq -C "$tmp/sep" -c user.name=t -c user.email=t@example.invalid \
+  commit -q --allow-empty -m init
+gitq -C "$tmp/sep" worktree add -q -b sepwt "$tmp/sep-wt"
+run in_dir "$tmp/sep" base "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: a separate git dir answers from its primary" "$tmp/sep" "$out"
+run in_dir "$tmp/sep-wt" base "$SH" "$RESOLVER" repo --primary
+assert_eq "hardening: a separate git dir's linked worktree exits 3" 3 "$rc"
+assert_contains "hardening: the separate-git-dir refusal names the case" \
+  "no primary working tree" "$err"
+
+# An inherited GIT_DIR does not move --checkout off the working directory's
+# own toplevel.
+run in_dir "$tmp/repo/sub/dir" base GIT_DIR="$tmp/repo/.git" "$SH" "$RESOLVER" repo --checkout
+assert_eq "hardening: GIT_DIR does not move --checkout" "$tmp/repo" "$out"
+
+# Diagnostics keep non-ASCII path bytes intact.
+run base PLANWRIGHT_ROOT="$tmp/nope-日ł" CLAUDE_PLUGIN_ROOT="$tmp/plugin" \
+  "$SH" "$RESOLVER" install
+assert_contains "hardening: a UTF-8 path survives in the warning" "nope-日ł" "$err"
 
 # Missing git is named as such, not reported as "not a repository".
 mkdir -p "$tmp/nogit"

@@ -25,6 +25,8 @@
 #               only if it is an absolute path naming a git toplevel; any
 #               other value is refused, never ignored.
 #   --checkout  the current toplevel; PLANWRIGHT_REPO_ROOT never affects it.
+#   Both views discover from the working directory: an inherited GIT_DIR or
+#   GIT_WORK_TREE (a git hook exports them) is ignored.
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
 # CLAUDE_PLUGIN_ROOT, writer-mode, self-location) or the repo source
@@ -49,9 +51,11 @@ unset CDPATH
 
 # say <message>: one diagnostic line on stderr. Values in it come from the
 # environment or from git, so control bytes are stripped and printf is used
-# rather than echo, which dash lets expand backslash escapes.
+# rather than echo, which dash lets expand backslash escapes. C0 and DEL
+# only: under the C locale a C1 byte range would also delete UTF-8
+# continuation bytes and mangle non-ASCII paths.
 say() {
-  printf 'planwright: %s\n' "$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')" >&2
+  printf 'planwright: %s\n' "$(printf '%s' "$1" | tr -d '\000-\037\177')" >&2
 }
 
 usage() {
@@ -129,14 +133,9 @@ resolve_install() {
   exit 1
 }
 
-# toplevel_of <dir>: the canonical toplevel of the working tree at <dir>,
-# discovered from <dir> itself: an inherited GIT_DIR or GIT_WORK_TREE (a git
-# hook exports them) would otherwise answer for a different tree.
+# toplevel_of <dir>: the canonical toplevel of the working tree at <dir>.
 toplevel_of() {
-  to_top=$(
-    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
-    cd -- "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null
-  ) || return 1
+  to_top=$(cd -- "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || return 1
   [ -n "$to_top" ] || return 1
   canon "$to_top"
 }
@@ -182,35 +181,31 @@ resolve_primary() {
     /*) ;;
     *) rp_common=$(pwd)/$rp_common ;;
   esac
-  rp_common=$(canon "$rp_common") || no_primary
-
+  [ -d "$rp_common" ] || no_primary "'$rp_common' is not reachable"
   [ "$(git --git-dir="$rp_common" config --bool core.bare 2>/dev/null)" != true ] || no_primary
 
-  # The common directory's owner: the directory holding it when it is a
-  # .git, the configured core.worktree when it lives elsewhere (a submodule,
-  # a separate git dir), else the first worktree-list record, which git marks
-  # "bare" when there is no primary working tree.
-  rp_cand=""
-  case $rp_common in
-    */.git) rp_cand=${rp_common%/.git} ;;
-    *)
-      rp_wt=$(git --git-dir="$rp_common" config core.worktree 2>/dev/null) || rp_wt=""
-      case $rp_wt in
-        "") ;;
-        /*) rp_cand=$rp_wt ;;
-        *) rp_cand=$rp_common/$rp_wt ;;
-      esac
-      if [ -z "$rp_cand" ]; then
-        rp_cand=$(git worktree list --porcelain 2>/dev/null | awk '
-          NR == 1 && /^worktree / { sub(/^worktree /, ""); path = $0; next }
-          /^$/ { exit }
-          /^bare$/ { bare = 1 }
-          END { if (path != "" && !bare) print path }
-        ')
-      fi
-      ;;
+  # The primary is the configured core.worktree when there is one; else the
+  # directory holding a .git (tested before canonicalizing, so a symlinked
+  # .git keeps its owner). A git directory with neither (a separate git dir)
+  # records no primary path: only the primary itself can name it.
+  rp_cand=$(git --git-dir="$rp_common" config core.worktree 2>/dev/null) || rp_cand=""
+  case $rp_cand in
+    "") ;;
+    /*) ;;
+    *) rp_cand=$rp_common/$rp_cand ;;
   esac
-  [ -n "$rp_cand" ] || no_primary
+  if [ -z "$rp_cand" ]; then
+    case $rp_common in
+      */.git) rp_cand=${rp_common%/.git} ;;
+      *)
+        rp_own=$(git rev-parse --absolute-git-dir 2>/dev/null) || rp_own=""
+        if [ -n "$rp_own" ] && [ "$(canon "$rp_own")" = "$(canon "$rp_common")" ]; then
+          rp_cand=$(git rev-parse --show-toplevel 2>/dev/null) || rp_cand=""
+        fi
+        [ -n "$rp_cand" ] || no_primary "the git directory '$rp_common' is separate from its working tree and records no primary path"
+        ;;
+    esac
+  fi
   rp_path=$(toplevel_of "$rp_cand") || no_primary "'$rp_cand' is not reachable"
   [ "$rp_path" = "$(canon "$rp_cand")" ] || no_primary "'$rp_cand' is not a working tree toplevel"
   emit git-common-dir "$rp_path"
@@ -229,6 +224,7 @@ case $kind in
     resolve_install
     ;;
   repo)
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
     command -v git >/dev/null 2>&1 || {
       say "no repository root: git is not installed (not on PATH)"
       exit 3
