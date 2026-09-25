@@ -301,6 +301,22 @@ run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file 
 [ "$RC" -eq 0 ] && [ "$(field "$OUT" home)" = file ] \
   || fail "--home file must hold with origin + gh (rc $RC, home $(field "$OUT" home))"
 
+# --- 4e. the launch tier resolves against --repo-root, not the cwd ----------
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'allocation_model_offload: sonnet\nallocation_effort_offload: high\n' >"$c/primary/.claude/planwright.local.yml"
+OUT=$(cd "$tmp" && env -u PLANWRIGHT_REPO_ROOT "$SCRIPT" dispatch readme-typo --backend print \
+  --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary" </dev/null 2>"$tmp/err")
+RC=$?
+ERR=$(cat "$tmp/err")
+[ "$RC" -eq 0 ] || fail "tier fixture dispatch exited $RC: $ERR"
+[ "$(field "$OUT" model)" = sonnet ] && [ "$(field "$OUT" effort)" = high ] \
+  || fail "the tier must come from --repo-root's config (model $(field "$OUT" model), effort $(field "$OUT" effort))"
+case $(field "$OUT" launch) in
+  *" --model sonnet --effort high -- "*) ;;
+  *) fail "the print launch must carry the resolved tier: $(field "$OUT" launch)" ;;
+esac
+
 # --- 5. concurrency ---------------------------------------------------------
 new_case
 mkdir -p "$c/primary/.claude"

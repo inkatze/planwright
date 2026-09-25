@@ -99,6 +99,7 @@ CONFIG="$script_dir/config-get.sh"
 SEQUENCE="$script_dir/resolve-review-sequence.sh"
 ROOTS="$script_dir/resolve-installed-roots.sh"
 ALLOC="$script_dir/allocation-apply.sh"
+LADDER="$script_dir/allocation-ladder.sh"
 FETCH="$script_dir/dispatch-fetch.sh"
 REGISTER="$script_dir/fleet-register.sh"
 MANIFEST_SKILL="$root_dir/skills/execute-task/SKILL.md"
@@ -128,9 +129,11 @@ EOF
 }
 
 for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$SEQUENCE" "$ROOTS" \
-  "$ALLOC" "$FETCH" "$REGISTER" "$MANIFEST_SKILL"; do
+  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$MANIFEST_SKILL"; do
   [ -r "$_h" ] || die 2 "required helper missing: $_h"
 done
+# shellcheck source=scripts/allocation-ladder.sh
+. "$LADDER"
 
 resolve_repo() {
   if [ -z "$repo_root" ]; then
@@ -245,7 +248,8 @@ read_bound() {
 TIER_MODEL=inherit
 TIER_EFFORT=inherit
 resolve_tier() {
-  _plan=$(/bin/sh "$ALLOC" plan --key offload --backend "$backend" --unit "flight:$flight_id" 2>/dev/null </dev/null)
+  _plan=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$ALLOC" plan --key offload --backend "$backend" \
+    --unit "flight:$flight_id" 2>/dev/null </dev/null)
   _rc=$?
   case $_rc in
     0) ;;
@@ -258,11 +262,23 @@ resolve_tier() {
   esac
   TIER_MODEL=$(printf '%s\n' "$_plan" | awk -F "$TAB" '$1 == "model" { print $2; exit }')
   TIER_EFFORT=$(printf '%s\n' "$_plan" | awk -F "$TAB" '$1 == "effort" { print $2; exit }')
-  for _t in "$TIER_MODEL" "$TIER_EFFORT"; do
-    case $_t in
-      '' | -* | *[!a-z0-9.-]*) die 4 "the launch-tier plan carried a missing or malformed row; nothing was placed" ;;
-    esac
+  [ -n "$TIER_MODEL" ] && [ -n "$TIER_EFFORT" ] \
+    || die 4 "the launch-tier plan is missing a model or effort row; nothing was placed"
+  # The values become argv words and, on the print rung, words of a command a
+  # human runs: only the closed roster the sibling offload rung emits passes.
+  if ! in_roster "$TIER_MODEL" "$ALLOC_MODELS" || ! in_roster "$TIER_EFFORT" "$ALLOC_EFFORTS"; then
+    die 4 "the launch-tier plan carried an out-of-roster model or effort; nothing was placed"
+  fi
+}
+
+# in_roster <value> <space-separated roster> — `inherit` is a legal plan row
+# meaning "apply nothing", not a tier.
+in_roster() {
+  [ "$1" = inherit ] && return 0
+  for _m in $2; do
+    [ "$1" = "$_m" ] && return 0
   done
+  return 1
 }
 
 plugin_version() {
