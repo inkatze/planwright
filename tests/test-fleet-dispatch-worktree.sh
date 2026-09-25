@@ -1047,8 +1047,11 @@ c27() {
   seed_repo "$tmp"
   printf 'brief\n' >"$tmp/brief.md"
 
-  run_prim dispatch --flight Bad-0123abcd --repo-root "$tmp/primary" --attach-dry-run
-  [ "$RC" -eq 2 ] || fail "c27: an off-grammar flight id must be refused (exit 2), got $RC"
+  # Each passes the suffix charset; only the flight grammar refuses them.
+  for _bad in Bad-0123abcd demo-task-1 demo-0123abc demo; do
+    run_prim dispatch --flight "$_bad" --repo-root "$tmp/primary" --attach-dry-run
+    [ "$RC" -eq 2 ] || fail "c27: off-grammar flight id '$_bad' must be refused (exit 2), got $RC"
+  done
   run_prim dispatch --flight demo-0123abcd demo 1 --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 2 ] || fail "c27: --flight with <spec> <id> must be refused (exit 2), got $RC"
   run_prim dispatch demo 1 --brief "$tmp/brief.md" --repo-root "$tmp/primary" --attach-dry-run

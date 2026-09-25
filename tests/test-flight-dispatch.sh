@@ -382,6 +382,9 @@ dispatch_print
 printf 'max_parallel_units: 99999999999999999999\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 [ "$RC" -eq 3 ] || fail "an out-of-range bound must fall back to the default 3 and decline the fourth (rc $RC)"
+printf '%s\n' "$OUT" | grep -q "^declined${TAB}3${TAB}3$" \
+  || fail "an out-of-range bound must decline against the shipped default 3 (out: $OUT)"
+case $ERR in *"out of range; using the shipped default 3"*) ;; *) fail "an out-of-range bound must warn: $ERR" ;; esac
 # shellcheck disable=SC2016 # a literal `"$CONFIG" <key>` call is the pattern
 if grep -v '^[[:space:]]*#' "$ROOT/scripts/flight-dispatch.sh" | grep -Eo '"\$CONFIG" [A-Za-z_]+' \
   | grep -v ' max_parallel_units$' | grep -q .; then
@@ -450,6 +453,9 @@ for slug in 'Bad' '-x' 'a/b' '../x' 'flight id' "$(printf 'a%.0s' $(seq 1 56))";
   run dispatch "$slug" --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
   [ "$RC" -eq 2 ] || fail "malformed slug '$slug' must be refused (rc $RC)"
 done
+run dispatch "$(printf 'a%.0s' $(seq 1 56))" --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
+case $ERR in *"over-long slug"*) ;; *) fail "a 56-character slug must be refused by the length guard: $ERR" ;; esac
 run dispatch readme-typo --backend print --ask-file "$c/nope.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "a missing ask file must be refused (rc $RC)"
 : >"$c/empty.txt"
