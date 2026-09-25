@@ -25,7 +25,9 @@ lefthook = "2.1.11"
 # get_env keeps a PLANWRIGHT_ROOT already in the environment winning, which a
 # bare "{{ config_root }}" would silently override; an empty one counts as
 # unset, as it does for the resolver, rather than handing the chain onward.
-PLANWRIGHT_ROOT = "{{ get_env(name='PLANWRIGHT_ROOT', default='') | default(value=config_root, boolean=true) }}"
+# Written as an if rather than `| default(..., boolean=true)`: CI's pinned
+# mise renders that filter form empty.
+PLANWRIGHT_ROOT = "{% set env_root = get_env(name='PLANWRIGHT_ROOT', default='') %}{% if env_root %}{{ env_root }}{% else %}{{ config_root }}{% endif %}"
 
 [tasks.release]
 description = "Sign and publish the pending release tag on this repo (autopilot-reflex REQ-F1.3, D-8). Repo-local ergonomics only: a thin wrapper over scripts/release-publish.sh, which has no mise dependency and is invokable directly anywhere (REQ-D1.9)."
