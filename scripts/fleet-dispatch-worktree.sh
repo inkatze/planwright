@@ -16,7 +16,8 @@
 #      `<suffix>` is a DETERMINISTIC function of (spec, task-id):
 #      `<spec>-task-<id>`. The spec segment is what keeps it unique —
 #      `.claude/worktrees/` is one flat namespace, so the bare `task-<id>` form
-#      collided between any two specs sharing a task number;
+#      collided between any two specs sharing a task number (`attach` also
+#      takes a flight's `flight-<flight-id>` suffix);
 #      and `<spec>` / `<id>` / `<suffix>` are VALIDATED against the D-36 grammar
 #      BEFORE interpolation and passed to git as ARGV (never spliced into a shell
 #      string), so no shell metacharacter or `..` path-traversal can reach the
@@ -271,7 +272,8 @@ valid_id() {
   return 0
 }
 
-# worktree suffix: `<spec>-task-<id>`.
+# worktree suffix: `<spec>-task-<id>`, the bare legacy `task-<id>`, or a
+# flight's `flight-<flight-id>`.
 #
 # The spec segment is load-bearing, not decoration. `.claude/worktrees/` is one
 # flat namespace shared by every spec, so a bare `task-<id>` collides whenever
@@ -288,9 +290,11 @@ valid_suffix() {
   esac
   # A flight worktree, `flight-<flight-id>` (tower-front-door D-11): a kebab
   # slug plus an eight-character hex uid, the id bounded at 64 characters as
-  # scripts/flight-id.sh bounds it, so the two screens agree.
-  if printf '%s' "$1" | grep -Eq '^flight-[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'; then
-    [ "${#1}" -le 71 ] || return 1
+  # scripts/flight-id.sh bounds it, so the two screens agree. Past the bound
+  # it falls through rather than failing: `flight-<long>-task-12345678` is
+  # still a legal task suffix for a spec named `flight-<long>`.
+  if printf '%s' "$1" | grep -Eq '^flight-[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$' \
+    && [ "${#1}" -le 71 ]; then
     return 0
   fi
   # The spec half must admit the WHOLE spec grammar, which starts [a-z0-9] —
@@ -298,8 +302,9 @@ valid_suffix() {
   # ever sees it.
   printf '%s' "$1" | grep -Eq '^([a-z0-9][a-z0-9-]*-)?task-[0-9]+(\.[0-9]+)?$' || return 1
   # The spec half is a spec, so the reserved segment is refused here as
-  # valid_spec refuses it: exactly the suffix a spec named `flight` would
-  # build, not every spec whose name starts with `flight-task-`.
+  # valid_spec refuses it: the suffix a spec named `flight` would build, not
+  # every spec whose name starts with `flight-task-`. An eight-digit id is the
+  # exception, already taken above as flight `task-<uid>`.
   if printf '%s' "$1" | grep -Eq '^flight-task-[0-9]+(\.[0-9]+)?$'; then
     return 1
   fi
