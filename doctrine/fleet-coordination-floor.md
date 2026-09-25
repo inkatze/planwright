@@ -12,7 +12,8 @@ Citations: fleet-autonomy REQ-G1.1, REQ-G1.2 · fleet-autonomy D-17, D-18 ·
 concurrent-orchestrator-coordination REQ-A1.1, REQ-D1.3, REQ-D1.6 ·
 concurrent-orchestrator-coordination D-1, D-6 · fleet-lifecycle-closure
 REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-B1.4, REQ-C1.1,
-REQ-C1.7, REQ-D1.3 · fleet-lifecycle-closure D-1, D-2, D-3.
+REQ-C1.7, REQ-D1.3 · fleet-lifecycle-closure D-1, D-2, D-3 · human-gates
+REQ-D1.6.
 
 ## The tower non-authoring boundary
 
@@ -112,8 +113,8 @@ What the floor means in practice:
   deterministic script logic on structured signals, bound by the
   no-LLM-daemon-mechanics invariant above and by positive evidence of death
   (`scripts/fleet-death-evidence.sh`) — and nothing about assuming
-  multiplicity re-opens auto-merge, autonomous PR-ready marking, or the
-  tower non-authoring boundary.
+  multiplicity loosens a gate or policy [Human Gates](human-gates.md)
+  states, or the tower non-authoring boundary.
 
 ## The deterministic-attention floor
 

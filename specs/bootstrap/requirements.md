@@ -534,6 +534,9 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 ## REQ-J — Invariants & release gating
 
 - **REQ-J1.1** planwright SHALL never auto-merge at any tier (permanent).
+  **Superseded-by: REQ-D1.6 (human-gates)** (2026-09-24) — no agent merges
+  outside a policy the human configured, and none merges a PR carrying a
+  sign-off item.
   *(Cites: D-26.)*
 - **REQ-J1.2** planwright SHALL never act on a non-Active spec (no bypass flag).
   *(Cites: D-26.)*
@@ -541,6 +544,10 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   *(Cites: D-26.)*
 - **REQ-J1.4** planwright SHALL never force-push, amend, squash, or rebase; it creates
   new commits only. All framework-created PRs are drafts.
+  **Superseded-by: REQ-F1.1, REQ-F1.2, REQ-C1.1 (human-gates)** (2026-09-24) —
+  the rewrite prohibition by the never-pushed allowance (REQ-F1.1) and the
+  tower force-push on request (REQ-F1.2); the all-drafts rule by the flip
+  policy (REQ-C1.1).
   *(Cites: D-26.)*
 - **REQ-J1.5** The repository SHALL start private; public release is gated on all three
   of: (a) the CLAUDE.md rules are inlined into planwright's own docs; (b) the four-file
@@ -772,6 +779,14 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   spec PR ready, the human's merge still activates); D-26 superseded-by
   kickoff-lifecycle D-6 (narrow exception for the spec PR to the all-drafts
   invariant). Pointer edits only — no REQ, task, or status change.
+- 2026-09-24 (post-activation amendment, supersede ritual; landed in
+  human-gates Task 1, bootstrap stays Done and is never reopened) — the
+  reserved-control list re-derived from a gate test: D-26 gains a second scoped
+  pointer, superseded-by human-gates D-2, beneath its kickoff-lifecycle D-6
+  line; REQ-J1.1 superseded-by human-gates REQ-D1.6 (the merge floor bounded by
+  a configured policy); REQ-J1.4 superseded-by human-gates REQ-F1.1 and REQ-F1.2
+  (its rewrite prohibition) and REQ-C1.1 (its all-drafts rule). Pointer edits
+  only — no REQ body, task, or status change.
 
 ## Sources
 

@@ -11,21 +11,24 @@ gate's hard-pause half. There is no fleet-only category, and no tier at which
 the gate loosens (orchestration-fleet REQ-A1.3).
 
 Citations: orchestration-fleet REQ-A1.3, orchestration-fleet REQ-D1.4,
-orchestration-fleet REQ-A1.2 (never-auto-merge floor), orchestration-fleet
+orchestration-fleet REQ-A1.2 (the merge floor), orchestration-fleet
 REQ-B1.7 (harness permission gate), orchestration-fleet REQ-E1.3 (decision
 queue), tower-comms REQ-E1.5 (standing-decision answers) · orchestration-fleet
-D-8 (extends bootstrap D-5), orchestration-fleet D-13, tower-comms D-12.
+D-8 (extends bootstrap D-5), orchestration-fleet D-13, tower-comms D-12 ·
+human-gates REQ-D1.6.
 
-## The floor: never auto-merge
+## The floor: the merge stays inside a configured policy
 
 Everything below describes what a tower **may** do without a human at the
-prompt. None of it includes merging. The merge is the human's reserved control
-at every tier — the single-tower run, the meta-tower, every rung of the
-degradation ladder — and no amount of clean autonomous convergence promotes a
-draft PR to merged (orchestration-fleet REQ-A1.2). An unattended fleet run's
-terminal state is draft-PR-ready, never merged. The autonomy this policy grants
-is a ceiling that sits well below merge; never-auto-merge is the floor beneath
-the whole mapping, not one clause within it.
+prompt. None of it includes merging or the draft→ready flip: the tower profile
+denies both under every policy value, at every tower tier — the single-tower
+run, the meta-tower, every rung of the degradation ladder. Authorizing a merge
+is the human's gate, and no agent merges outside a policy the human configured
+or merges a PR carrying a sign-off item (the floor [Human Gates](human-gates.md)
+states; orchestration-fleet REQ-A1.2). No amount of clean autonomous
+convergence promotes a PR to merged on the tower's own judgment. The autonomy
+this policy grants is a ceiling that sits well below merge; the merge floor is
+beneath the whole mapping, not one clause within it.
 
 ## May decide unattended
 
@@ -49,8 +52,9 @@ gate concept it maps to; nothing here is a new permission.
 - **Needs sign-off** — apply the single recommended fix **on the branch** per
   the wiring doc's commit discipline and add a pending-sign-off checklist
   entry. The tower's autonomous act is the *application*, deferred for the
-  human's *judgment* to PR review, where they approve by leaving the commit or
-  reject with the revert the checklist entry names. The tower
+  human's *judgment* to PR review, where they approve it by the approval act
+  [Human Gates](human-gates.md) names or reject it before that act by its
+  checklist recipe. The tower
   never blocks mid-loop waiting for this approval (the Needs-sign-off bucket and
   the pending-sign-off checklist in [Gate Wiring](gate-wiring.md)).
 
