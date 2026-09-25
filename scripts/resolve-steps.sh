@@ -602,25 +602,25 @@ esac
 # The catalog (REQ-B1.1, REQ-B1.2, REQ-B1.6, REQ-C1.8): the merged view for
 # the fields, the --explain view for each entry's layer, matched by id.
 # ---------------------------------------------------------------------------
+# catalog_failed <rc>: resolve-catalog hard-fails with exit 1 naming the
+# layer; anything else from it is an unusable sibling.
+catalog_failed() {
+  if [ "$1" -eq 1 ] && grep -q '^resolve-catalog: steps: repo-tracked ' "$scratch"; then
+    die 4 "the repo-tracked steps catalog is malformed; refusing to degrade a shared team catalog"
+  fi
+  die 5 "the steps catalog is unusable (resolve-catalog exit $1) (broken install)"
+}
 rc=0
 merged=$("$catalog_sh" steps 2>"$scratch") || rc=$?
 replay "$scratch"
-if [ "$rc" -ne 0 ]; then
-  # resolve-catalog hard-fails with exit 1 naming the layer; anything else
-  # from it is an unusable sibling.
-  if [ "$rc" -eq 1 ] && grep -q '^resolve-catalog: steps: repo-tracked ' "$scratch"; then
-    die 4 "the repo-tracked steps catalog is malformed; refusing to degrade a shared team catalog"
-  fi
-  die 5 "the steps catalog is unusable (resolve-catalog exit $rc) (broken install)"
-fi
+[ "$rc" -eq 0 ] || catalog_failed "$rc"
 # reader_skips <stderr-file>: the by-layer policy for an entry or line the
 # catalog reader skipped with a warning (an empty id, an unmarked
 # duplicate, an indented line that is not a field): a core one is a broken
 # install, a repo-tracked one hard-fails, any other is degraded. The
 # --explain view always runs the merge, so a core-only catalog (which the
 # plain view passes through verbatim) reports its skips there; both reads
-# are judged, and the second read's diagnostics are replayed when the first
-# read printed none.
+# are judged and replayed, a line the first read printed shown once.
 reader_skips() {
   [ -s "$1" ] || return 0
   if grep -q '^resolve-catalog: steps: core ' "$1"; then
@@ -631,13 +631,11 @@ reader_skips() {
   fi
   DEGRADED=1
 }
-plain_read_quiet=1
-[ ! -s "$scratch" ] || plain_read_quiet=0
 reader_skips "$scratch"
 rc=0
 layers_view=$("$catalog_sh" steps --explain 2>"$scratch") || rc=$?
-[ "$plain_read_quiet" -eq 0 ] || replay "$scratch"
-[ "$rc" -eq 0 ] || die 5 "the steps catalog is malformed (resolve-catalog --explain exit $rc) (broken install)"
+replay "$scratch"
+[ "$rc" -eq 0 ] || catalog_failed "$rc"
 reader_skips "$scratch"
 # An adopter or machine-local entry that lost a line to the reader is
 # malformed in itself, not merely degraded: its layer and id, collected

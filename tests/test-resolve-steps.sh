@@ -1341,6 +1341,32 @@ for order in "timed, iso, cont" "iso, cont, timed"; do
 done
 ok "REQ-C1.5: a personal list's degrade does not depend on the order of its steps"
 
+# The --explain read failing on its own: its cause reaches stderr even after
+# the plain read warned, and a repo-tracked hard-fail keeps exit 4.
+stub="$tmp/stub"
+mkdir -p "$stub/scripts"
+cp "$repo_root"/scripts/*.sh "$stub/scripts/"
+ln -s "$repo_root/doctrine" "$stub/doctrine"
+mv "$stub/scripts/resolve-catalog.sh" "$stub/scripts/resolve-catalog.real.sh"
+cat >"$stub/scripts/resolve-catalog.sh" <<'STUB'
+#!/bin/bash
+case " $* " in
+  *" --explain "*)
+    echo "resolve-catalog: steps: repo-tracked catalog is unreadable (stub)" >&2
+    exit 1
+    ;;
+esac
+echo "resolve-catalog: steps: adopter catalog is unreadable (stub); skipped" >&2
+exec "$(dirname "$0")/resolve-catalog.real.sh" "$@"
+STUB
+chmod +x "$stub/scripts/resolve-catalog.sh"
+reset_layers
+OUT=$(RS="$stub/scripts/resolve-steps.sh" run convergence --unattended 2>"$tmp/err")
+RC=$?
+ERR=$(<"$tmp/err")
+[ "$RC" = 4 ] && printf '%s' "$ERR" | grep -q 'repo-tracked catalog is unreadable (stub)'
+verdict "the second catalog read's failure is replayed and mapped like the first" "explain-read failure: rc=$RC err='$ERR'"
+
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2
   exit 1
