@@ -189,6 +189,30 @@ out=$(aenv "$qhome" queue --on-change t --except "worker=a" --except "worker=b" 
 echo "ok: a hand-over narrows the render, not the queue"
 
 # ---------------------------------------------------------------------------
+# 10b. A hand-over filter that fails shows every decision rather than none: an
+#      awk that dies before filtering must not hide the queue behind a claim
+#      that the rows were already handed to the operator.
+# ---------------------------------------------------------------------------
+real_awk=$(command -v awk)
+mkdir "$tmp/failing-awk"
+cat >"$tmp/failing-awk/awk" <<EOF
+#!/bin/sh
+[ -z "\${FA_EXCEPT+x}" ] || { echo "awk: simulated failure" >&2; exit 2; }
+exec "$real_awk" "\$@"
+EOF
+chmod +x "$tmp/failing-awk/awk"
+fhome="$tmp/fhome"
+aenv "$fhome" decide "worker=a" "spec-one:3" "Ship it?" "yes" "yes|no" || fail "fq setup: decide a"
+aenv "$fhome" decide "worker=b" "spec-two:5" "Rebase?" "no" "yes|no" || fail "fq setup: decide b"
+rc=0
+out=$(PATH="$tmp/failing-awk:$PATH" aenv "$fhome" queue --except "worker=a" 2>"$tmp/fq.err") || rc=$?
+[ "$rc" -eq 0 ] || fail "fq: a failed hand-over filter exited $rc: $(cat "$tmp/fq.err")"
+case $out in *"Ship it?"*"Rebase?"* | *"Rebase?"*"Ship it?"*) ;; *) fail "fq: a failed hand-over filter hid a decision (got: $out)" ;; esac
+grep -q "already handed" "$tmp/fq.err" && fail "fq: a failed filter claimed rows were handed over: $(cat "$tmp/fq.err")"
+grep -q -- "--except" "$tmp/fq.err" || fail "fq: a failed hand-over filter did not say so on stderr"
+echo "ok: a failed hand-over filter shows the whole queue and says so"
+
+# ---------------------------------------------------------------------------
 # 11. With no store yet the queue is silent and records nothing.
 # ---------------------------------------------------------------------------
 ehome="$tmp/empty-home"
