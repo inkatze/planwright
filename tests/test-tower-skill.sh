@@ -417,8 +417,9 @@ fi
 # a promise that nothing is ever left behind") is the doctrine's own wording.
 absolute_claim() {
   printf '%s\n' "$1" | tr ';' '.' | tr '.' '\n' \
+    | sed -E 's/(never )?silently lost//g; s/not a promise that nothing is ever (lost|left behind)//g' \
     | grep -iE '(never|not|cannot|can.t) (be )?(ever )?lost|nothing (is|will be|gets) (ever )?(lost|left behind)|no work is (ever )?lost|always surviv|guaranteed to surviv' \
-    | grep -viE 'silently lost|not a promise' | head -1
+    | head -1
 }
 absolute=$(absolute_claim "$flat")
 if [ -n "$absolute" ]; then
@@ -439,6 +440,8 @@ probe_absolute "work will never be lost"
 probe_absolute "no work is ever lost"
 probe_absolute "work always survives the tower"
 probe_absolute "nothing is ever left behind"
+probe_absolute "work is never silently lost and nothing is ever lost"
+probe_absolute "it is not a promise, yet nothing is ever lost"
 if [ -n "$(absolute_claim "it is not a promise that nothing is ever left behind")" ]; then
   fail "probe: the doctrine's negated promise is misread as an absolute claim"
 else
