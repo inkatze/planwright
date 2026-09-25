@@ -749,7 +749,16 @@ done <<EOF
 $FIELDS
 EOF
 [ "$n_entries" -gt 0 ] || die 5 "the steps catalog holds no entry; the core seed always does (broken install)"
-have_core_entry=0
+# The core seed is judged by its own file: an overlay may supersede every
+# seed entry, so the merged layers alone cannot tell a superseded seed from a
+# missing one.
+rc=0
+core_root=$("$overlay_root_sh" core 2>"$scratch") || rc=$?
+replay "$scratch"
+[ "$rc" -eq 0 ] || die 5 "overlay-root resolution failed for the core layer (broken install)"
+core_seed="${core_root:+$core_root/config/steps.yaml}"
+{ [ -n "$core_seed" ] && [ -r "$core_seed" ] && grep -q '^[[:space:]]*- id:' "$core_seed"; } \
+  || die 5 "the core steps seed contributed no entry (broken install)"
 # The --explain view supplies each entry's layer, matched by id: the
 # catalog reader skips an id that would not re-parse identically (an edge
 # blank or quote), so the merged view carries every id exactly as the reader
@@ -790,10 +799,8 @@ EOF
 i=1
 while [ "$i" -le "$n_entries" ]; do
   [ -n "${E_LAYER[i]}" ] || die 5 "resolve-catalog's two views disagree at entry $i (broken install)"
-  [ "${E_LAYER[i]}" != core ] || have_core_entry=1
   i=$((i + 1))
 done
-[ "$have_core_entry" -eq 1 ] || die 5 "the core steps seed contributed no entry (broken install)"
 # is_set <n> <field>: 0 when the entry declares the field (even empty).
 is_set() {
   sn="$1"

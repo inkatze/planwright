@@ -1313,6 +1313,17 @@ row=$(printf '%s\n' "$a" | head -1)
 printf '%s\n' "$row" | grep -q "^run${TAB}polish${TAB}pre-pr${TAB}repo-tracked${TAB}core${TAB}polish${TAB}isolated${TAB}skill${TAB}--nested${TAB}halt${TAB}-${TAB}-${TAB}$core/skills/polish/SKILL.md\$"
 verdict "REQ-C1.2: provenance carries point, id, list layer, entry layer, target, and hosting" "explain row: $row"
 
+# =============================================================================
+# 15. Resolver edges: a fully superseded seed, list order, check mode at an
+#     unwired point, relative locations, and the second catalog read.
+# =============================================================================
+reset_layers
+cat_entry "$adopter_cat" polish "supersede: true" "kind: skill" "target: polish" "on-failure: continue"
+cat_entry "$adopter_cat" self-review "supersede: true" "kind: skill" "target: self-review"
+capture convergence --unattended
+[ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ]
+verdict "REQ-B1.1: superseding every seed entry is not a broken install" "every seed id superseded: rc=$RC out='$OUT' err='$ERR'"
+
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2
   exit 1
