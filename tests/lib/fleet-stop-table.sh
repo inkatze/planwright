@@ -69,18 +69,23 @@ command -v jq >/dev/null 2>&1 || fail "jq is required: the stream-json launch pr
 # Physical temp path (macOS /var -> /private/var): the headless state base is
 # compared physically.
 tmp=$(cd "$(mktemp -d)" && pwd -P)
+strangers=''
 cleanup() {
   # A failed cell can leave a worker holding open; nothing may outlive the run.
   # A headless unit keeps its pid file after its runner is gone, so a pid is
   # killed only while its argv still names this run's scratch tree.
   for pf in "$tmp"/*/h*/streamjson/*/supervisor.pid "$tmp"/*/h*/streamjson/*/worker.pid \
-    "$tmp"/*/h*/headless/*/pid; do
+    "$tmp"/*/h*/headless/*/pid "$tmp"/*/repo*/specs/*/.orchestrate/headless/*/pid; do
     [ -f "$pf" ] || continue
     p=$(cat "$pf" 2>/dev/null) || continue
     case $p in '' | *[!0-9]*) continue ;; esac
     case $(ps -p "$p" -o args= 2>/dev/null) in
       *"$tmp"*) kill -9 "$p" 2>/dev/null ;;
     esac
+  done
+  # The processes the cells plant as reissued pids, named by nothing in the tree.
+  for p in $strangers; do
+    kill "$p" 2>/dev/null
   done
   rm -rf "$tmp"
 }
@@ -931,6 +936,7 @@ c40() {
   wait_until 100 test -s "$d/exit" || fail "c40: the one-shot never completed"
   sleep 120 &
   stranger=$!
+  strangers="$strangers $stranger"
   printf '%s\n' "$stranger" >"$d/pid"
   out=$(renv "$home" "$rec" -- stop "$w" --grace 1)
   rc=$?
@@ -944,10 +950,10 @@ c40() {
   [ "$out" = "completed 0" ] || fail "c40: the runner's own record must survive a close, got: $out"
   # (b) A runner that died with no record keeps its death verdict: a close that
   #     signalled nothing has no termination to record.
-  w=$(w_name 41)
+  w=$(w_name 401)
   d=$(w_dir "$home" "$w")
-  printf 'die\n' >"$tmp/$rung/prompt41"
-  w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt41" "$wt" SHIM_SLEEP=120 \
+  printf 'die\n' >"$tmp/$rung/prompt401"
+  w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt401" "$wt" SHIM_SLEEP=120 \
     || fail "c40: launch exited non-zero"
   wait_until 100 w_up "$d" || fail "c40: the worker never came up"
   runner=$(cat "$d/pid")
@@ -955,15 +961,25 @@ c40() {
   kid=$(first_child "$wrk")
   kill -9 "$runner" "$wrk" ${kid:+"$kid"} 2>/dev/null
   wait_until 100 all_gone "$runner" "$wrk" || fail "c40: the planted death did not take"
-  out=$(renv "$home" "$rec" -- status "$SPEC" 41)
+  out=$(renv "$home" "$rec" -- status "$SPEC" 401)
   case $out in
     "died $runner") : ;;
     *) fail "c40: expected the death verdict before the close, got: $out" ;;
   esac
   out=$(renv "$home" "$rec" -- stop "$w" --grace 1)
   [ "$out" = "stop $w already-closed" ] || fail "c40: a dead runner holds no process, got: $out"
-  out=$(renv "$home" "$rec" -- status "$SPEC" 41)
+  out=$(renv "$home" "$rec" -- status "$SPEC" 401)
   [ "$out" = "died $runner" ] || fail "c40: a close must not rewrite a death as a completion, got: $out"
+  # (c) That dead runner's pid, reissued by the host. A death leaves no record,
+  #     so a record cannot be what keeps the pid from seeding the close.
+  sleep 120 &
+  stranger=$!
+  strangers="$strangers $stranger"
+  printf '%s\n' "$stranger" >"$d/pid"
+  out=$(renv "$home" "$rec" -- stop "$w" --grace 1)
+  kill -0 "$stranger" 2>/dev/null \
+    || fail "c40: a close signalled the stranger a dead runner's pid file named"
+  [ "$out" = "stop $w already-closed" ] || fail "c40: a reissued pid holds nothing of the unit's, got: $out"
   echo "ok: [$rung] c40 a finished or dead unit keeps its record and its stale pid is never signalled (REQ-B1.3, REQ-B1.7)"
 }
 

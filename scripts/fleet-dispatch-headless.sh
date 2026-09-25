@@ -122,8 +122,9 @@
 #     `stop <worker> partial released=<classes> held=<classes>`. A unit this
 #     close terminated reads `completed 143` in `status`, the record the runner
 #     writes when it is terminated gracefully; a unit whose run had already
-#     ended keeps its own record, a `died` verdict included, and its pid file
-#     is never signalled.
+#     ended keeps its own record, a `died` verdict included. The runner's pid
+#     file seeds a close only on a host whose `ps` truncates argv, and never
+#     once the unit carries a record.
 #   (run-worker is the internal detached-runner entry point, not an API.)
 #
 # Exit codes: launch 0 dispatched; 2 usage / refused input (hostile token, an
@@ -888,15 +889,23 @@ do_status() {
 release_classes='process scratch attention'
 
 # stop_seedfiles <unit-dir> — the pid files that seed the process match: the
-# runner's, and only while the unit has no completion record. The runner never
-# removes its pid file, so once a run has ended that pid names nothing of ours
-# and the host is free to reissue it to anything, an operator's own session
-# included. A live runner is found by its argv whether or not it is seeded; the
-# seed is what still finds one whose argv the host's `ps` truncates.
+# runner's, and only where the host's `ps` truncates argv and the unit has no
+# completion record.
+#
+# The runner never removes its pid file, and nothing else on this rung does, so
+# once the runner is gone that pid names nothing of ours for as long as the unit
+# directory exists, and the host is free to reissue it to anything, an
+# operator's own session included. A completion record cannot be the whole test:
+# a runner that died leaves none. Where argv is readable the seed adds nothing,
+# since the runner carries `run-worker <unit-dir>` in its argv for as long as it
+# lives. Where it is truncated the seed is the only way to find the runner at
+# all, and the close accepts the reissued-pid exposure there rather than report
+# a live runner closed.
 stop_seedfiles() {
   if [ -e "$1/exit" ] || [ -e "$1/finish-error" ]; then
     return 0
   fi
+  stop_ps_rows_shaped "$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null)" && return 0
   printf 'pid'
 }
 
@@ -924,7 +933,9 @@ stop_match() {
 # carries a record it no longer seeds a close (`stop_seedfiles`).
 #
 # A unit relaunched while this close ran is a different run, so its launch
-# marker is checked against the one the close started with.
+# marker is checked against the one the close started with. `do_stop` sets
+# that marker (`t_launched`) and the failed-write flag `stop_held` reads
+# (`t_record_unwritten`) before the walk calls either hook.
 stop_process_closed() {
   [ "$stop_signalled" = 1 ] || return 0
   [ "$(cat "$1/launched" 2>/dev/null)" = "$t_launched" ] || return 0

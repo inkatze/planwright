@@ -297,7 +297,8 @@ stop_candidates() {
 # names, and a recycled pid is very often an ancestor of every shell on the
 # host: a leftover state directory whose pid file now names the session
 # manager would make every close for that handle look self-hosted and be
-# refused, forever — and this verb is the only one that clears those files. The
+# refused, forever — and nothing but a close clears those files, where a rung
+# clears them at all. The
 # argv match cannot be forged that way, and the worker is spawned as a child of
 # the process carrying it, so everything genuinely inside the tree is reachable
 # through it. But argv is exactly what a narrow `ps` truncates, and there the

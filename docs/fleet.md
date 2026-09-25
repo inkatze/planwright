@@ -715,9 +715,11 @@ record; the prompt, the captured result, and `stderr.log` are the run's record
 and are kept. A unit the close terminated reads `completed 143` in `status`,
 the record the runner writes when it is terminated gracefully, so a
 re-dispatch reclaims it like any finished unit. A unit whose run had already
-ended keeps its own record, a `died` verdict included: the runner leaves its
-pid file behind when it finishes, so once a unit carries a record that pid is
-never signalled.
+ended keeps its own record, a `died` verdict included. Unlike the stream-json
+close, this one never clears the runner's pid file, which `status` and the
+launch guard still read; instead the file seeds a close only on a host whose
+`ps` truncates argv, and never once the unit carries a record, so a pid the
+host has since reissued is not signalled.
 
 The two session-grade rungs, verb by verb:
 
