@@ -66,8 +66,9 @@ property is required.
 **A flight petition** — the tower's visual-flight hand-off: an ask file, a
 kebab slug, a one-line grounds file, and the declared record home — must
 survive the tower (a flight outlives the session that dispatched it), so that
-predicate is settled and the subagent and in-session rungs are out; the rest is asked as
-usual.
+predicate is settled. The flight path drives the tmux and print rungs only (the
+session-grade rungs survive the tower too, but are not wired for flights), so
+the choice narrows to those two; the other predicates are asked as usual.
 
 **Ask when under-determined (REQ-C1.4).** If the petition does not determine
 the predicates — and most short petitions do not — present the rung choice to
@@ -140,8 +141,8 @@ By the selected rung:
   <file> --grounds-file <file> --home <home>` instead of `offload-dispatch.sh`: it
   counts live flights, mints the id, writes the worker brief, places the
   worktree, and emits the report. Exit 3 is the concurrency bound's decline:
-  relay its re-ask line and dispatch nothing else. No other rung carries a
-  flight; say so and ask for one that does.
+  relay its re-ask line and dispatch nothing else. The flight path drives no
+  other rung; say so and ask the operator to choose tmux or print.
 
 ### 6. Report (REQ-C1.5)
 
@@ -153,7 +154,9 @@ report plus its already-sanitized stderr, surfaced verbatim — and is
 never silently dropped; a
 nonzero primitive exit with no report is itself reported as the failure.
 Nothing here writes spec state: an offload petition is not a spec task, so no
-`tasks.md` entry, PR, or dispatch marker is produced.
+`tasks.md` entry or dispatch marker is produced. A flight petition places a
+flight branch and worktree, and its worker lands a draft PR or a committed
+record; an ordinary petition produces no PR.
 
 ## Maintenance
 

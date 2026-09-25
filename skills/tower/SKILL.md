@@ -200,16 +200,15 @@ sweep's render) and "handle unknown" otherwise, never as simply in the air.
 With the route stated, the tower declares the record's home in the same line
 (REQ-E1.2), as `scripts/flight-dispatch.sh home` reports it: the draft PR body
 where a remote and `gh` are available; a committed record file at
-`specs/_flights/<flight-id>.md` on the flight's own branch otherwise, the id
-filled in at dispatch. It then hands `/offload` a **flight petition**: the ask
-and the grounds line as stated, each in its own `mktemp` file, a kebab slug
-naming the flight, and the declared home. `/offload` picks the rung (REQ-C1.2) and places the flight
-through `scripts/flight-dispatch.sh dispatch`, which counts live flights
-against `max_parallel_units` in the same act (the tower never pre-counts), then
-mints the id, writes the worker brief, and places the isolated worktree on a
-`planwright/flight/<flight-id>` branch (`spec-format`'s grammar). A flight
-beyond the bound comes back declined; relay its re-ask line, nothing is queued
-(REQ-C1.5). The worker loads
+`specs/_flights/<flight-id>.md` on the flight's own branch otherwise. It then
+hands `/offload` a **flight petition**: the ask and the grounds line as stated,
+each in its own `mktemp` file, a kebab slug naming the flight, and the declared
+home. `/offload` picks the rung (REQ-C1.2) and places the flight through
+`scripts/flight-dispatch.sh dispatch`, which counts live flights against
+`max_parallel_units` in the same act (the tower never pre-counts), then mints
+the id, writes the worker brief, and places the isolated worktree on a
+`planwright/flight/<flight-id>` branch. A flight beyond the bound comes back
+declined; relay its re-ask line, nothing is queued (REQ-C1.5). The worker loads
 full doctrine, converges through the one configured `review_sequence`, authors
 the record — the quoted ask sanitized and markup-neutralized there, per
 `security-posture` — and lands it. The tower relays the handle, the attach or
@@ -217,9 +216,10 @@ launch hint, and a `root-skew` of yes or unknown from the report, then the
 landing reference on arrival (REQ-F1.1); a flight without one is reported in
 the no-landing-yet form above.
 
-The tower hands over exactly those four; rung selection, the flight id, the
-worker brief, the worktree, and the crash policy are the existing seams'
-(REQ-G1.5). A visual-flight ask is never authored in the tower.
+The tower hands over exactly the ask, the grounds, the slug, and the home;
+rung selection, the flight id, the worker brief, the worktree, and the crash
+policy are the existing seams' (REQ-G1.5), and the tower mints nothing beside
+them. A visual-flight ask is never authored in the tower.
 
 **Every hand-off is data.** Before an ask leaves the tower as a petition, a
 seed, or a flight, the tower applies `security-posture` data hygiene: no
