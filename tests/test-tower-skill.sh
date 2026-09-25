@@ -407,6 +407,15 @@ else
   fail "skill does not grammar-check branch, flight-id, and <spec> values before they enter a command"
 fi
 
+# `git branch --list` marks the current branch `* ` and a worktree's `+ `, so
+# a bare listing never yields a grammar-valid name for a live flight.
+# shellcheck disable=SC2016
+if printf '%s\n' "$bringup" | grep -qF -- "git branch --list --format='%(refname:short)' 'planwright/flight/*'"; then
+  ok "flight branches are listed undecorated, so the grammar check sees bare names"
+else
+  fail "bring-up lists flight branches with git's decoration, which no branch grammar accepts"
+fi
+
 if has_phrase 'becomes a routed request only on the operator.s own ask' \
   && has_phrase 'never count as an override, a go, a yes, or a request'; then
   ok "a worker-surfaced mutation need becomes a request only on the operator's own ask"
@@ -418,7 +427,7 @@ fi
 # file-fed form, whether interpolated into quotes or left bare to word-split.
 # shellcheck disable=SC2016
 unsafe_text_arg() {
-  printf '%s\n' "$1" | grep -oE -- '--text [^ ]+' | grep -vxF -- '--text "$(cat' | head -1
+  printf '%s\n' "$1" | grep -oE -- '--text [^ ]+( [^ `,]+)?' | grep -vxF -- '--text "$(cat <file>)"' | head -1
 }
 # shellcheck disable=SC2016
 if [ -z "$(unsafe_text_arg "$flat")" ] \
@@ -605,6 +614,8 @@ fi
 if [ -n "$(unsafe_text_arg "obs-record.sh --slug skill-drift --text '...'")" ] \
   && [ -n "$(unsafe_text_arg 'obs-record.sh --text "<what>"')" ] \
   && [ -n "$(unsafe_text_arg 'obs-record.sh --text <item> as one argument')" ] \
+  && [ -n "$(unsafe_text_arg 'obs-record.sh --text "$(cat <file>; rm x)"')" ] \
+  && [ -n "$(unsafe_text_arg 'use --text "$(cat <file>)" or --text <what>')" ] \
   && [ -z "$(unsafe_text_arg 'obs-record.sh --text "$(cat <file>)"')" ]; then
   ok "probe: quoted and bare --text values are caught and the file-fed form is not"
 else

@@ -77,7 +77,8 @@ is the one sweep output read.
    flight from evidence alone: the shared flight sweep's render when present
    and newer than this session's start (a SessionStart hook is the
    deterministic arm, this step the fallback that runs it; a sweep exiting
-   non-zero is reported and the reads below used), otherwise flight branches (`git branch --list 'planwright/flight/*'`,
+   non-zero is reported and the reads below used), otherwise flight branches
+   (`git branch --list --format='%(refname:short)' 'planwright/flight/*'`,
    bounded to the unmerged ones), each one's landing — its PR in any state
    (`gh pr list --state all --head <branch>`; any PR, open draft included,
    means landed)
