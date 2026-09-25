@@ -10,7 +10,7 @@ Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 ·
 operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 ·
 prose-disposition REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 ·
 prose-disposition D-5 · custom-steps REQ-D1.2, REQ-D1.5 · human-gates
-REQ-B1.1, REQ-B1.9, D-3.
+REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.9, D-3.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -108,9 +108,9 @@ resolution).
 regeneration below, which reads it through git's trailer parser over the PR's
 `base..head` range, never from mainline, and from subject text only through
 the legacy line below. Trailers arriving through a merge from the base were
-approved when their own PR merged and never re-enter the checklist. A trailer
-line never appears in a PR title; the PR-title lint (`--marker title`, kept one
-release) rejects it there.
+approved when their own PR merged and never re-enter the checklist. Neither
+the legacy bracket nor a trailer line appears in a PR title; the PR-title lint
+(`--marker title`, kept one release) rejects both there.
 
 **Merge-strategy matrix.** A squash merge folds the trailers into the squash
 body under the PR title, which must stay free of them since it becomes the

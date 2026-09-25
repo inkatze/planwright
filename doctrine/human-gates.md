@@ -60,8 +60,8 @@ The human signs off every pending item on a PR by the act that lets it merge:
 the merge itself under `merge_policy: human`; enabling auto-merge under
 `on-approval` (or, where the agent's GitHub login differs from the PR
 author's, an approving review with auto-merge enabled). A PR carrying a
-sign-off item never enters a `policy-class`, so it always reaches one of
-those two acts. The draft→ready flip approves nothing: it moves a PR in front
+sign-off item is never admitted by a declared policy class, so it always
+reaches one of those two acts. The draft→ready flip approves nothing: it moves a PR in front
 of reviewers and is one `gh pr ready --undo` from reversed. The checklist
 mechanics live in [Gate Wiring](gate-wiring.md).
 

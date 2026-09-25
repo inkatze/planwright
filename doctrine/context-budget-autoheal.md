@@ -147,4 +147,4 @@ states for the tower tier and operates under the same
 [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md) as any unattended
 tower (orchestration-fleet REQ-A1.2). Auto-heal is a resilience mechanism beneath
 the autonomy ceiling, never a loophole through it: no number of handovers promotes
-a draft PR to merged.
+a PR to merged.

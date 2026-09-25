@@ -34,8 +34,8 @@ approves nothing. There is no repository classification and no per-finding
 permission prompt (D-5, D-6).
 
 The intervention contract, in full, has two routes: a sign-off request (the
-spec before execution; the draft PR and its pending-sign-off checklist after
-it, which the human reviews and merges) and a hard pause mid-execution,
+spec before execution; the PR and its pending-sign-off checklist after it,
+which the human approves) and a hard pause mid-execution,
 which reaches the operator as a tower's knock. Merge cadence is the autopilot's
 throttle.
 

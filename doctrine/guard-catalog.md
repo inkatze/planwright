@@ -16,7 +16,7 @@ builder applies on its own and what it must escalate. The machine view is
 builder skill (`skills/builder/SKILL.md`) drives that script and layers
 judgment on top.
 
-Citations: REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32.
+Citations: REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32 · human-gates REQ-D1.6.
 
 ## Guard categories
 
