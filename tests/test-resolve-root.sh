@@ -608,7 +608,7 @@ mktree "$tmp/pwrepo-wt"
 # The pin cleared: nothing pins the root, so the decoy wins.
 run in_dir "$tmp/pwrepo-wt" base CLAUDE_PLUGIN_ROOT="$tmp/decoy" \
   "$SH" "$RESOLVER" install
-assert_eq "pin cleared: the decoy CLAUDE_PLUGIN_ROOT is what resolves" "$tmp/decoy" "$out"
+assert_eq "without mise evaluating the pin, the decoy CLAUDE_PLUGIN_ROOT resolves" "$tmp/decoy" "$out"
 
 if command -v mise >/dev/null 2>&1; then
   # Trust the fixture for this call only (nothing lands in the operator's

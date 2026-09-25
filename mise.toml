@@ -1,8 +1,9 @@
 # planwright development toolchain. Dev-only: pins the quality tools,
-# provides the local check tasks, and pins PLANWRIGHT_ROOT to this checkout
-# ([env] below), so every mise-run task, the test suite included, resolves
-# this tree. planwright's runtime (scripts/, hooks, the
-# validator) stays plain portable bash with no mise dependency (REQ-K1.5);
+# provides the local check tasks, and defaults PLANWRIGHT_ROOT to this
+# checkout ([env] below), so a mise-run task, the test suite included,
+# resolves this tree unless the environment already names another.
+# planwright's runtime (scripts/, hooks, the validator) stays plain portable
+# shell with no mise dependency (REQ-K1.5);
 # this file exists so contributors and CI run identical tool versions
 # (Task 2 wires the same tasks into GitHub Actions).
 

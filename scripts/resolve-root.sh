@@ -12,7 +12,9 @@
 #             CLAUDE_PLUGIN_ROOT   plugin delivery
 #             writer-mode          $CLAUDE_DIR/planwright when CLAUDE_DIR is
 #                                  set, otherwise $HOME/.claude/planwright
-#             self-location        the tree this script ships in
+#             self-location        the parent of the directory the script
+#                                  was invoked from (a symlink is not
+#                                  followed)
 #           An arm is content-bearing when it holds doctrine/ or scripts/. A
 #           set arm that is not is skipped with a warning and never printed;
 #           an absent writer-mode directory is skipped silently, since plugin
@@ -21,7 +23,7 @@
 #   --primary   the primary working tree of the repository owning the common
 #               git directory, so every linked worktree answers with the
 #               primary checkout (a submodule answers with its own working
-#               tree). PLANWRIGHT_REPO_ROOT, when set, is used instead, but
+#               tree). PLANWRIGHT_REPO_ROOT, when non-empty, is used instead, but
 #               only if it is an absolute path naming a git toplevel; any
 #               other value is refused, never ignored.
 #   --checkout  the current toplevel; PLANWRIGHT_REPO_ROOT never affects it.
@@ -39,7 +41,9 @@
 # Exit: 0 printed · 1 no install root resolved · 2 usage · 3 no repository
 #   root (git missing, not inside a working tree, a bare repository, or a
 #   primary that cannot be named from here: a linked worktree of a separate
-#   git dir, or a core.worktree that is gone) · 4 PLANWRIGHT_REPO_ROOT
+#   git dir, or a core.worktree that is gone; --primary still answers from
+#   inside a repository's git directory, and a separate git dir named .git
+#   answers with the directory holding it) · 4 PLANWRIGHT_REPO_ROOT
 #   refused. Callers treat 3 as "no repository" and degrade; they never
 #   compose a path from an empty root.
 #
@@ -106,7 +110,8 @@ canon() {
 }
 
 # try_arm <arm> <dir>: emit on a content-bearing directory, else warn and
-# return so the next arm is tried.
+# return so the next arm is tried; an unset arm and an absent writer-mode
+# directory return silently.
 try_arm() {
   [ -n "$2" ] || return 0
   if [ "$1" = writer-mode ] && [ ! -e "$2" ] && [ ! -L "$2" ]; then
@@ -213,7 +218,8 @@ resolve_primary() {
   # tree of a separate git dir); the directory holding a .git. A linked
   # worktree of a separate git dir has none of these to go on. A separate
   # git dir that is itself named .git is indistinguishable from an ordinary
-  # one when run from inside it, and answers with the directory holding it.
+  # one, so from inside it or from one of its linked worktrees it answers
+  # with the directory holding it.
   rp_src=git-common-dir
   rp_cand=$(repo_config core.worktree 2>/dev/null) || rp_cand=""
   case $rp_cand in
