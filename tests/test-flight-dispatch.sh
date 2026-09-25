@@ -95,6 +95,13 @@ new_case() {
   export PLANWRIGHT_REPO_ROOT="$c/primary"
   export CLAUDE_DIR="$c/claude"
   printf 'Fix the typo in the README heading.\n' >"$c/ask.txt"
+  printf 'visual flight: a one-line wording change, one revert from undone\n' >"$c/grounds.txt"
+}
+
+# grounds <text> — write a one-off grounds file and print its path.
+grounds() {
+  printf '%s\n' "$1" >"$c/g.txt"
+  printf '%s' "$c/g.txt"
 }
 
 # run <args...> — sets OUT, ERR, RC.
@@ -110,8 +117,7 @@ field() {
 
 dispatch_print() {
   run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
-    --grounds "visual flight: a one-line wording change, one revert from undone" \
-    --repo-root "$c/primary"
+    --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
 }
 
 # --- 1. home ----------------------------------------------------------------
@@ -129,10 +135,10 @@ run home --repo-root "$c/primary"
 
 # --- 2. rung selection stays in /offload -------------------------------------
 new_case
-run dispatch readme-typo --ask-file "$c/ask.txt" --grounds "g" --repo-root "$c/primary"
+run dispatch readme-typo --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "dispatch without --backend must be a usage error (rc $RC)"
 for b in subagent in-session stream-json-persistent headless-oneshot bogus; do
-  run dispatch readme-typo --backend "$b" --ask-file "$c/ask.txt" --grounds "g" \
+  run dispatch readme-typo --backend "$b" --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
     --repo-root "$c/primary"
   [ "$RC" -eq 2 ] || fail "dispatch --backend $b must be refused (rc $RC)"
 done
@@ -207,7 +213,7 @@ fi
 # --- 4b. an overridden zone ask still hard-pauses (REQ-B1.5) ----------------
 new_case
 run dispatch auth-tweak --backend print --ask-file "$c/ask.txt" \
-  --grounds "visual flight on the operator's override (reservation stated: auth middleware, zone work)" \
+  --grounds-file "$(grounds "visual flight on the operator's override (reservation stated: auth middleware, zone work)")" \
   --repo-root "$c/primary"
 [ "$RC" -eq 0 ] || fail "override dispatch exited $RC: $ERR"
 grep -q "gate-wiring" "$(field "$OUT" brief)" \
@@ -265,7 +271,7 @@ b2=$(field "$OUT" flight)
 
 # --- 7. tmux rung: the brief rides the native attach -------------------------
 new_case
-run dispatch readme-typo --backend tmux --ask-file "$c/ask.txt" --grounds "g" \
+run dispatch readme-typo --backend tmux --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
   --repo-root "$c/primary" --attach-dry-run
 [ "$RC" -eq 0 ] || fail "tmux dry-run dispatch exited $RC: $ERR"
 fid=$(field "$OUT" flight)
@@ -291,18 +297,20 @@ done
 # --- 9. hostile input -------------------------------------------------------
 new_case
 for slug in 'Bad' '-x' 'a/b' '../x' 'flight id'; do
-  run dispatch "$slug" --backend print --ask-file "$c/ask.txt" --grounds g --repo-root "$c/primary"
+  run dispatch "$slug" --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
   [ "$RC" -eq 2 ] || fail "malformed slug '$slug' must be refused (rc $RC)"
 done
-run dispatch readme-typo --backend print --ask-file "$c/nope.txt" --grounds g --repo-root "$c/primary"
+run dispatch readme-typo --backend print --ask-file "$c/nope.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "a missing ask file must be refused (rc $RC)"
 : >"$c/empty.txt"
-run dispatch readme-typo --backend print --ask-file "$c/empty.txt" --grounds g --repo-root "$c/primary"
+run dispatch readme-typo --backend print --ask-file "$c/empty.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "an empty ask file must be refused (rc $RC)"
-run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds "$(printf 'two\nlines')" --repo-root "$c/primary"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$(grounds "$(printf 'two\nlines')")" --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "multi-line grounds must be refused (rc $RC)"
-run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds "" --repo-root "$c/primary"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$(grounds "")" --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "empty grounds must be refused: a route is never silent (rc $RC)"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "a dispatch without grounds must be refused (rc $RC)"
 if gitc "$c/primary" for-each-ref --format='%(refname)' 'refs/heads/planwright/flight/' | grep -q .; then
   fail "a refused dispatch placed a flight branch"
 fi

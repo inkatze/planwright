@@ -22,7 +22,7 @@
 #       Declare the record's home (REQ-E1.2): `pr` when an `origin` remote
 #       exists and `gh auth status` succeeds, `file` otherwise. The tower
 #       states it at routing time, before any dispatch.
-#   dispatch <slug> --backend <tmux|print> --ask-file <file> --grounds <line>
+#   dispatch <slug> --backend <tmux|print> --ask-file <file> --grounds-file <file>
 #       [--home pr|file] [--repo-root <dir>] [--attach-dry-run]
 #       Count the checkout's live flights against `max_parallel_units` under
 #       the checkout's flight lock, and in the same act mint the id, write the worker
@@ -48,7 +48,8 @@
 # removed, which the re-ask line says.
 #
 # The ask travels as a file, is never evaluated, and reaches the worker only
-# inside the brief, quoted as data; the grounds are one line. The brief lives
+# inside the brief, quoted as data. The grounds travel as a file too, holding
+# one line: operator text never sits inside a command's quoting. The brief lives
 # under the fleet home (never in the checkout, so the flight worktree starts
 # clean) and carries no secret the ask did not: the tower applies the
 # security-posture hygiene before handing the ask over.
@@ -95,7 +96,7 @@ die() {
 usage() {
   cat >&2 <<'EOF'
 usage: flight-dispatch.sh home [--repo-root <dir>]
-       flight-dispatch.sh dispatch <slug> --backend <tmux|print> --ask-file <file> --grounds <line>
+       flight-dispatch.sh dispatch <slug> --backend <tmux|print> --ask-file <file> --grounds-file <file>
            [--home pr|file] [--repo-root <dir>] [--attach-dry-run]
 EOF
   exit 2
@@ -200,7 +201,7 @@ worker_root() {
   for _r in $_cands; do
     if [ -d "$_r" ]; then
       IFS=$_old_ifs
-      (cd "$_r" && pwd -P)
+      (cd "$_r" && pwd -P) | tr -d '\000-\037\177'
       return
     fi
   done
@@ -329,21 +330,17 @@ cmd_dispatch() {
   shift
   backend=''
   ask_file=''
-  grounds=''
-  have_grounds=0
+  grounds_file=''
   home=''
   dry=0
   while [ $# -gt 0 ]; do
     case $1 in
-      --backend | --ask-file | --grounds | --home | --repo-root)
+      --backend | --ask-file | --grounds-file | --home | --repo-root)
         [ $# -ge 2 ] || usage
         case $1 in
           --backend) backend=$2 ;;
           --ask-file) ask_file=$2 ;;
-          --grounds)
-            grounds=$2
-            have_grounds=1
-            ;;
+          --grounds-file) grounds_file=$2 ;;
           --home) home=$2 ;;
           --repo-root) repo_root=$2 ;;
         esac
@@ -376,10 +373,15 @@ cmd_dispatch() {
   esac
   [ -n "$ask_file" ] && [ -f "$ask_file" ] && [ -r "$ask_file" ] && [ -s "$ask_file" ] \
     || die 2 "--ask-file must name a readable, non-empty regular file"
-  [ "$have_grounds" -eq 1 ] && [ -n "$grounds" ] || die 2 "--grounds is required: a route is never silent"
+  [ -n "$grounds_file" ] && [ -f "$grounds_file" ] && [ -r "$grounds_file" ] \
+    || die 2 "--grounds-file must name a readable regular file: a route is never silent"
+  [ "$(wc -l <"$grounds_file" | tr -d ' ')" -le 1 ] \
+    || die 2 "--grounds-file must hold one line"
+  grounds=$(cat "$grounds_file") || die 2 "cannot read --grounds-file"
+  [ -n "$grounds" ] || die 2 "--grounds-file is empty: a route is never silent"
   [ "$(printf '%s' "$grounds" | tr -d '\000-\037\177')" = "$grounds" ] \
-    || die 2 "--grounds must be one line without control characters"
-  [ "${#grounds}" -le 400 ] || die 2 "--grounds must be one line (400 characters at most)"
+    || die 2 "the grounds must be one line without control characters"
+  [ "${#grounds}" -le 400 ] || die 2 "the grounds must be one line of 400 characters at most"
   case $home in
     '' | pr | file) ;;
     *) die 2 "--home must be pr or file" ;;

@@ -202,8 +202,8 @@ With the route stated, the tower declares the record's home in the same line
 where a remote and `gh` are available; a committed record file at
 `specs/_flights/<flight-id>.md` on the flight's own branch otherwise, the id
 filled in at dispatch. It then hands `/offload` a **flight petition**: the ask
-in a `mktemp` file, a kebab slug naming it, the grounds line as stated, and the
-declared home. `/offload` picks the rung (REQ-C1.2) and places the flight
+and the grounds line as stated, each in its own `mktemp` file, a kebab slug
+naming the flight, and the declared home. `/offload` picks the rung (REQ-C1.2) and places the flight
 through `scripts/flight-dispatch.sh dispatch`, which counts live flights
 against `max_parallel_units` in the same act (the tower never pre-counts), then
 mints the id, writes the worker brief, and places the isolated worktree on a

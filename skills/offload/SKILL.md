@@ -64,7 +64,7 @@ None → the subagent rung is sufficient. Any → a rung advertising the missing
 property is required.
 
 **A flight petition** — the tower's visual-flight hand-off: an ask file, a
-kebab slug, the route's grounds line, and the declared record home — must
+kebab slug, a one-line grounds file, and the declared record home — must
 survive the tower (a flight outlives the session that dispatched it), so that
 predicate is settled and the subagent and in-session rungs are out; the rest is asked as
 usual.
@@ -137,7 +137,7 @@ By the selected rung:
   dispatch primitives.
 - **A flight petition** on the tmux or print rung — run
   `scripts/flight-dispatch.sh dispatch <slug> --backend <rung> --ask-file
-  <file> --grounds '<line>' --home <home>` instead of `offload-dispatch.sh`: it
+  <file> --grounds-file <file> --home <home>` instead of `offload-dispatch.sh`: it
   counts live flights, mints the id, writes the worker brief, places the
   worktree, and emits the report. Exit 3 is the concurrency bound's decline:
   relay its re-ask line and dispatch nothing else. No other rung carries a
