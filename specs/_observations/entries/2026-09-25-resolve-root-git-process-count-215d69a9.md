@@ -1,0 +1,1 @@
+- 2026-09-25 [planwright] scripts/resolve-root.sh repo --primary spawns seven or eight git processes per call (several rev-parse queries and two config reads that could each be one call). No caller uses it yet, but once hooks and guards migrate onto it the cost lands on every tool call; worth consolidating the rev-parse and config reads before the caller migration.
