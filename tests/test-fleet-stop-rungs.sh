@@ -819,6 +819,22 @@ NPS
     || fail "c22g: an unreadable process table must refuse the close (exit 2), got rc=$rc ($out)"
   [ -e "$d/$pf" ] || fail "c22g: a refused close must not have cleared the pid file"
   echo "ok: [$rung] c22g an unreadable process table refuses rather than proceeds (REQ-B1.3)"
+
+  # c22h: a pid file the worker replaced with a fifo cannot hang the close. A
+  # blocking read there would stall `stop` before it sent a single signal.
+  w=$(w_name 228)
+  d=$(w_dir "$home" "$w")
+  mkdir -p "$d" || fail "c22h: cannot plant the state dir"
+  mkfifo "$d/$pf" || fail "c22h: cannot plant the fifo"
+  renv "$home" "$rec" -- stop "$w" --grace 1 >"$rec/c22h.out" 2>&1 &
+  closer=$!
+  wait_until 200 sh -c "! kill -0 $closer 2>/dev/null" || {
+    kill -9 "$closer" 2>/dev/null
+    : >"$d/$pf" &
+    fail "c22h: a fifo at the pid file hung the close"
+  }
+  wait "$closer" || fail "c22h: the close failed: $(cat "$rec/c22h.out")"
+  echo "ok: [$rung] c22h a fifo planted at the pid file does not hang the close (REQ-B1.3)"
 }
 
 # ---------------------------------------------------------------------------

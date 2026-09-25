@@ -152,10 +152,12 @@ stop_ps_rows_shaped() {
 }
 
 # stop_seeds <dir> <pidfiles> — the valid pids the worker's pid files record,
-# space-separated.
+# space-separated. Only a regular file is read: the worker can replace one with
+# a fifo, and a blocking read would stall the close before it signalled anything.
 stop_seeds() {
   ss_out=''
   for ss_f in $2; do
+    [ -f "$1/$ss_f" ] || continue
     ss_p=$(cat "$1/$ss_f" 2>/dev/null) || ss_p=''
     if stop_posnum "${ss_p:-}"; then
       ss_out="$ss_out $ss_p"
