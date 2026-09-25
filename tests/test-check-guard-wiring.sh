@@ -161,7 +161,17 @@ grep -q '^depends = \["check:waited"\]' "$r/mise.toml" \
   || fail "g3c control: the fixture rewrite did not produce the depends edge"
 run_cg "$r" >/dev/null \
   || fail "g3c control: the same guard behind a depends edge should pass: $(cat "$tmp/err")"
-echo "ok: g3c a wait_for edge does not reach a task, but a depends edge does"
+#      And behind depends_post, which also schedules its target: the edge kind
+#      kept alongside depends must keep counting.
+sed 's/^depends = \["check:waited"\]/depends_post = ["check:waited"]/' "$r/mise.toml" >"$r/mise.toml.new"
+mv "$r/mise.toml.new" "$r/mise.toml"
+grep -q '^depends_post = \["check:waited"\]' "$r/mise.toml" \
+  || fail "g3c control: the fixture rewrite did not produce the depends_post edge"
+grep -q '^depends = \[$' "$r/mise.toml" \
+  || fail "g3c control: the rewrite touched the aggregate's own depends"
+run_cg "$r" >/dev/null \
+  || fail "g3c control: the same guard behind a depends_post edge should pass: $(cat "$tmp/err")"
+echo "ok: g3c a wait_for edge does not reach a task, but depends and depends_post edges do"
 
 # ---------------------------------------------------------------------------
 # g4: REACHABILITY, NOT PRESENCE. The guard is named in the run body of a task
