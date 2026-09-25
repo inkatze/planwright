@@ -235,6 +235,11 @@ for bad in 'polish' '' '[polish,,self-review]' '[,polish]'; do
   capture pre-pr --unattended
   { [ "$RC" = 0 ] && [ -z "$OUT" ] && printf '%s' "$ERR" | grep -q 'malformed'; } \
     || fail "REQ-B1.3: list value '$bad' in adopter: rc=$RC out='$OUT' err='$ERR'"
+  reset_layers
+  printf 'steps_pre_pr: %s\n' "$bad" >"$mlocal_cfg"
+  capture pre-pr --unattended
+  { [ "$RC" = 0 ] && [ -z "$OUT" ] && printf '%s' "$ERR" | grep -q 'malformed'; } \
+    || fail "REQ-B1.3: list value '$bad' in machine-local: rc=$RC out='$OUT' err='$ERR'"
 done
 ok "REQ-B1.3: a value that is not an inline flow list is malformed for its layer"
 
@@ -288,7 +293,7 @@ reset_layers
 cat_entry "$adopter_cat" polish "supersede: true" "kind: skill" "target: self-review" "args: --nested --fast"
 capture convergence --unattended --explain
 [ "$RC" = 0 ] || fail "REQ-B1.1: supersede: rc=$RC err='$ERR'"
-printf '%s\n' "$OUT" | grep -q "^run${TAB}polish${TAB}convergence${TAB}core${TAB}adopter${TAB}self-review${TAB}" \
+printf '%s\n' "$OUT" | grep -q "^run${TAB}polish${TAB}convergence${TAB}core${TAB}adopter${TAB}self-review${TAB}isolated${TAB}skill${TAB}--nested --fast${TAB}" \
   || fail "REQ-B1.1: a supersede: true overlay entry did not replace core's polish: $OUT"
 printf '%s' "$ERR" | grep -q 'unknown field' \
   && fail "REQ-B1.1: supersede reported as an unknown field: $ERR"
@@ -335,6 +340,17 @@ malformed_case() {
   fi
   capture pre-ci --check --unattended
   [ "$RC" = 1 ] || fail "REQ-H1.3: $label in adopter must fail check mode (rc=$RC)"
+  reset_layers
+  cat_entry "$mlocal_cat" bad-one "$@"
+  printf 'steps_pre_ci: [bad-one]\n' >"$mlocal_cfg"
+  capture pre-ci --unattended
+  if [ "$RC" = 0 ] && [ "$OUT" = "skip${TAB}bad-one" ] && printf '%s' "$ERR" | grep 'malformed' | grep -q 'machine-local'; then
+    ok "REQ-B1.2/REQ-C1.5: $label in machine-local warns, is skipped, and takes the matrix path"
+  else
+    fail "REQ-B1.2: $label in machine-local: rc=$RC out='$OUT' err='$ERR'"
+  fi
+  capture pre-ci --check --unattended
+  [ "$RC" = 1 ] || fail "REQ-H1.3: $label in machine-local must fail check mode (rc=$RC)"
 }
 malformed_case "an unknown field" "kind: prompt" "target: p" "colour: red"
 malformed_case "an unknown kind" "kind: ritual" "target: p"
@@ -705,10 +721,12 @@ check_loc p-text "-"
 ok "REQ-C1.3/D-19: skill, command, and prompt targets resolve on the host through every lookup rule"
 # The declared command line is emitted as written (runs of spaces kept), and
 # skill args verbatim.
+row=$(printf '%s\n' "$OUT" | grep "${TAB}c-name${TAB}")
 printf '%s\n' "$OUT" | grep -q "^run${TAB}c-name${TAB}post-pr${TAB}repo-tracked${TAB}repo-tracked${TAB}fixture-tool${TAB}isolated${TAB}command${TAB}--nested x=1  a/b   c${TAB}"
-verdict "REQ-G1.1: a declared command line is emitted as written" "REQ-G1.1: command line not byte-identical: $(printf '%s\n' "$OUT" | grep "${TAB}c-name${TAB}")"
+verdict "REQ-G1.1: a declared command line is emitted as written" "REQ-G1.1: command line not byte-identical: $row"
+row=$(printf '%s\n' "$OUT" | grep "${TAB}s-pw${TAB}")
 printf '%s\n' "$OUT" | grep -q "^run${TAB}s-pw${TAB}.*${TAB}skill${TAB}--nested${TAB}"
-verdict "REQ-B1.6/REQ-C1.3: a skill's --nested argument is passed through unexamined" "skill args verbatim: $(printf '%s\n' "$OUT" | grep "${TAB}s-pw${TAB}")"
+verdict "REQ-B1.6/REQ-C1.3: a skill's --nested argument is passed through unexamined" "skill args verbatim: $row"
 
 # Each one absent does not resolve (matrix path: unattended repo-tracked -> park).
 absent_case() {
@@ -1138,8 +1156,9 @@ printf 'pipeline-entry: execute-task\n' >"$adopter/doctrine/custom-steps.md"
 printf 'pipeline-entry: execute-task\n' >"$core/doctrine/custom-steps.md"
 rc=0
 out=$(run_inst pre-ci --unattended 2>"$tmp/err") || rc=$?
+err=$(<"$tmp/err")
 [ "$rc" = 4 ] && grep -q 'pipeline-entry' "$tmp/err"
-verdict "REQ-C1.8: the list is read from the script's sibling doctrine dir; overlay and env-arm copies are ignored" "sibling doctrine read: rc=$rc out='$out' err='$(cat "$tmp/err")'"
+verdict "REQ-C1.8: the list is read from the script's sibling doctrine dir; overlay and env-arm copies are ignored" "sibling doctrine read: rc=$rc out='$out' err='$err'"
 # Through the real script dir the same entry is merely unresolvable (park),
 # which is what proves the fixture line, not the shipped one, was read above.
 capture pre-ci --unattended
@@ -1148,8 +1167,9 @@ capture pre-ci --unattended
 printf '# a rule doc with no pipeline-entry line\n' >"$inst/doctrine/custom-steps.md"
 rc=0
 run_inst convergence --unattended >/dev/null 2>"$tmp/err" || rc=$?
+err=$(<"$tmp/err")
 [ "$rc" = 5 ]
-verdict "REQ-C1.8: a missing pipeline-entry line is a broken install (exit 5)" "missing pipeline-entry line: rc=$rc err='$(cat "$tmp/err")'"
+verdict "REQ-C1.8: a missing pipeline-entry line is a broken install (exit 5)" "missing pipeline-entry line: rc=$rc err='$err'"
 rm -f "$inst/doctrine/custom-steps.md"
 rc=0
 run_inst convergence --unattended >/dev/null 2>"$tmp/err" || rc=$?
@@ -1267,7 +1287,10 @@ ctx_run PLANWRIGHT_STEP_PR_NUMBER='12a' -- pre-pr --prefix >/dev/null 2>&1 || rc
 [ "$rc" = 6 ]
 verdict "a non-numeric PR number is refused on the prefix channel too" "bad PR number: rc=$rc"
 rc=0
-out=$(cd "$tmp/sub" && ctx_run PLANWRIGHT_STEP_TASK_IDS='*' -- pre-pr --preamble 2>/dev/null) || rc=$?
+# A file named like a valid task id makes an expanded glob pass the grammar.
+mkdir -p "$tmp/glob"
+: >"$tmp/glob/2"
+out=$(cd "$tmp/glob" && ctx_run PLANWRIGHT_STEP_TASK_IDS='*' -- pre-pr --preamble 2>/dev/null) || rc=$?
 [ "$rc" = 6 ]
 verdict "a glob in the task ids is judged as written, never expanded" "glob task id: rc=$rc out='$out'"
 
@@ -1286,8 +1309,9 @@ verdict "resolution is deterministic across runs" "non-deterministic output"
 cols=$(printf '%s\n' "$a" | head -1 | awk -F '\t' '{ print NF }')
 [ "$cols" = 13 ]
 verdict "REQ-C1.2: --explain lines carry the pinned thirteen tab-separated columns" "explain columns: got $cols"
-printf '%s\n' "$a" | head -1 | grep -q "^run${TAB}polish${TAB}pre-pr${TAB}repo-tracked${TAB}core${TAB}polish${TAB}isolated${TAB}skill${TAB}--nested${TAB}halt${TAB}-${TAB}-${TAB}$core/skills/polish/SKILL.md\$"
-verdict "REQ-C1.2: provenance carries point, id, list layer, entry layer, target, and hosting" "explain row: $(printf '%s\n' "$a" | head -1)"
+row=$(printf '%s\n' "$a" | head -1)
+printf '%s\n' "$row" | grep -q "^run${TAB}polish${TAB}pre-pr${TAB}repo-tracked${TAB}core${TAB}polish${TAB}isolated${TAB}skill${TAB}--nested${TAB}halt${TAB}-${TAB}-${TAB}$core/skills/polish/SKILL.md\$"
+verdict "REQ-C1.2: provenance carries point, id, list layer, entry layer, target, and hosting" "explain row: $row"
 
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2
