@@ -369,6 +369,15 @@ printf 'steps_pre_ci: [polish]\n' >"$adopter_cfg"
 capture pre-ci --unattended
 { [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && [ "$(printf '%s\n' "$ERR" | grep -c 'malformed')" = 2 ]; } \
   || fail "REQ-C1.5: adopter ids with surrounding whitespace should each drop: rc=$RC out='$OUT' err='$ERR'"
+reset_layers
+printf 'steps:\n  - id: "\tfoo"\n    kind: prompt\n    target: p\n' >"$adopter_cat"
+capture convergence --unattended
+{ [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && printf '%s' "$ERR" | grep -q 'malformed id'; } \
+  || fail "REQ-C1.5: an adopter id with an edge tab degrades, never a broken install: rc=$RC out='$OUT' err='$ERR'"
+printf 'steps:\n  - id: "\tfoo"\n    kind: prompt\n    target: p\n' >"$tracked_cat"
+rm -f "$adopter_cat"
+capture convergence --unattended
+[ "$RC" = 4 ] || fail "REQ-C1.5: a repo-tracked id with an edge tab hard-fails (4), never 5: rc=$RC err='$ERR'"
 ok "REQ-C1.5: an id the reader kept with surrounding whitespace is malformed for its layer, never a broken install"
 # A catalog with more than one section aligns the two views by id: the
 # entry keeps its own fields and layer wherever the merged view groups it,
@@ -733,6 +742,20 @@ absent_case s-plug-skill "plugin skill removed, registry intact"
 mv "$tmp/their-skill.bak" "$plug/skills/their-skill"
 mv "$plug2/skills/v2-skill" "$tmp/v2-skill.bak"
 absent_case s-multi "neither listed install path holds the skill"
+# A lookup root carrying a control byte is passed over, never the end of
+# the lookup: the project skill still resolves.
+printf 'steps_post_pr: [s-proj-skill]\n' >"$tracked_cfg"
+mkdir -p "$repo/.claude/skills/proj-skill"
+printf 'proj\n' >"$repo/.claude/skills/proj-skill/SKILL.md"
+claude_saved="$claude"
+claude="$tmp/cl$(printf '\033')aude"
+mkdir -p "$claude/skills/proj-skill"
+printf 'shadow\n' >"$claude/skills/proj-skill/SKILL.md"
+OUT=$(run post-pr --unattended 2>"$tmp/err")
+RC=$?
+claude="$claude_saved"
+[ "$RC" = 0 ] && [ "$OUT" = "run${TAB}s-proj-skill" ] \
+  || fail "a lookup root with a control byte should be skipped, not end the lookup: rc=$RC out='$OUT' err='$(cat "$tmp/err")'"
 mv "$tmp/v2-skill.bak" "$plug2/skills/v2-skill"
 # A relative install path would resolve against the worktree, which the
 # worker can write: never probed.
