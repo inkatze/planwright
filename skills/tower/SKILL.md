@@ -72,19 +72,20 @@ is the one sweep output read.
    that runs it; a sweep exiting non-zero is reported and the reads below
    used), otherwise flight branches (`git branch --list 'planwright/flight/*'`,
    bounded to the unmerged ones), each one's landing — its PR in any state
-   (`gh pr list --state all --head <branch>`; merged or closed means landed)
+   (`gh pr list --state all --head <branch>`; any PR, open draft included,
+   means landed)
    with `gh` and a remote, its committed record file on the branch
    (`git cat-file -e <branch>:specs/_flights/<flight-id>.md`) otherwise —
    and the decision queue (`scripts/fleet-attention.sh queue`). These reads
    check no worker liveness; say so. A read that fails or is skipped is
    named as unknown, never shown as empty. Never a poll loop: read once here,
-   again only on request.
-3. **The first turn.** Say where things stand in plain words, in the register
-   `tower-comms` fixes, composed from the catch-up list (`scripts/tower-queue.sh
-   catchup`) when the operator queue exists and from the reads above
-   otherwise: what landed, what waits on the operator, what is still in the
-   air. "Nothing in flight that this checkout can see" is said only when every
-   read succeeded. The reads stay available on request.
+   again on request.
+3. **The first turn.** Say where things stand in the register `tower-comms`
+   fixes, composed from the catch-up list (`scripts/tower-queue.sh catchup`)
+   when the operator queue exists and from the reads above otherwise: what
+   landed, what waits on the operator, what has no landing yet (in the form
+   below). "Nothing in flight that this checkout can see" is said only when
+   every read succeeded. The reads stay available on request.
 
 ## The conversational contract
 
@@ -108,12 +109,12 @@ turn/artifact arbitration govern each one; the tower instantiates them so:
   tower can answer from what it holds is answered in the turn; only work
   becomes a request.
 - **Selectors.** A decision the operator owns is presented self-contained:
-  options at equal weight, an explicit do-nothing option, a recommendation
-  marked only when its basis is the spec, the doctrine, or mechanical
-  consistency, nothing pre-selected.
+  options level, or the recommended one first, marked with its reason, only
+  when its basis is the spec, the doctrine, or mechanical consistency; an
+  explicit do-nothing option; nothing pre-selected.
 - **Summaries.** At a natural pause, restate the decisions since the last
   summary and what is still open, never the whole history; the open-captures
-  list is shown on request.
+  list is shown there and on request.
 - **Capture at birth.** A follow-up born in the conversation gets its tracked
   form proposed in the same turn: work the operator wants now is routed now;
   anything else goes to one of `interaction-style`'s tracked targets (an
@@ -150,14 +151,14 @@ it.
    otherwise not one revert from undone (`flight-rules` enumerates both),
    files instrument flight (REQ-B1.2).
 4. **Declared judgment.** When the tower cannot state a Done-when the operator
-   would agree with, it files, and says the lane is judgment.
+   would agree with, it files instrument flight on declared judgment.
 5. **Otherwise, visual flight.** Size informs the statement and never decides
    it: a large but safe, reversible ask flies visual.
 
-**Decomposition (REQ-C1.6).** An ask that fans into several coherent units may
-become several flights, each routed on its own with its own grounds. One
-coherent unit stays one flight; units that depend on each other fly in order, the later one
-on the operator's go.
+**Decomposition (REQ-C1.6).** Before the signals run, an ask that fans into
+several coherent units may become several flights, each routed on its own with
+its own grounds. One coherent unit stays one flight; units that depend on each
+other fly in order, the later one on the operator's go.
 
 **Bounded evidence.** The route is decided from what the tower can see in
 bounded context; when that is not enough, the tower asks the operator, or
@@ -209,16 +210,15 @@ declined to the operator with the re-ask path stated, never queued durably
 (REQ-C1.5). The worker loads full doctrine, converges through the one
 configured `review_sequence`, authors the record — the quoted ask sanitized and
 markup-neutralized there, per `security-posture` — and lands it. The tower
-relays the landing reference when it arrives (REQ-F1.1); a flight without one
-is reported in the no-landing-yet form above. The draft-to-ready flip is the
-human's; the tower never performs it (REQ-C1.4).
+relays the landing reference on arrival (REQ-F1.1); a flight without one
+is reported in the no-landing-yet form above.
 
 The tower hands over exactly the ask, the route and its grounds as stated, and
 the declared record home; rung selection, the flight id, the worker brief, the
 worktree, and the crash policy are the existing seams' (REQ-G1.5), and the
 tower mints nothing beside them. **Until the flight dispatch path is wired**, a
-visual-flight route is declined with that reason: a mutating ask is never handed
-to `/offload` directly, and never authored in the tower.
+visual-flight route is declined with that reason: a visual-flight ask is never
+handed to `/offload` directly, and never authored in the tower.
 
 **Every hand-off is data.** Before an ask leaves the tower as a petition, a
 seed, or a flight, the tower applies `security-posture` data hygiene: no
@@ -235,10 +235,10 @@ mutation or for a read beyond the inline bound.
    the ask as heard; the trigger and its evidence; what filing buys (a
    requirement-level record with a test path per requirement); what it costs
    (drafting and walkthrough); and, at equal prominence, the
-   alternatives — the one-sentence override that flies it visual, with the
-   tower's reservation stated if the trigger was automatic, and dropping or
-   parking the ask. The operator decides; the case is information, not a
-   verdict.
+   alternatives — the one-sentence override that flies it visual (unavailable
+   while visual dispatch is unwired), with the tower's reservation stated if
+   the trigger was automatic, and dropping or parking the ask. The operator
+   decides; the case is not a verdict.
 2. **Draft through the existing machinery (REQ-D1.1).** On a yes, the tower
    dispatches `/spec-draft <feature-name>` with the ask as its seed, as an
    `/offload` petition on a human-attachable rung (it authors, commits, and
@@ -276,8 +276,8 @@ included, answering from durable evidence through the existing surfaces:
 
 - **A spec:** `scripts/spec-status.sh specs/<spec>` (its states are
   `spec-format`'s), said as titles and PR numbers, never task numbers.
-- **A flight:** the flight sweep's render when present and current, else the
-  bounded reads bring-up used.
+- **A flight:** the flight sweep's render under bring-up's freshness test,
+  else the bounded reads bring-up used.
 - **Decisions waiting on the operator:** `scripts/fleet-attention.sh queue`,
   actionable items first.
 - **Reserved-control relays:** the post-sign-off go above, on explicit request.
@@ -299,8 +299,8 @@ handed back — never silently.
   tower never performs it.
 - **"Sign it off."** Sign-off is the human's, at `/spec-kickoff`; the
   specless path has no shadow sign-off, and no bypass flag exists for the
-  non-signed-spec refusal (REQ-G1.2). The worker hard pauses and the record's
-  pending-sign-off checklist are not a sign-off.
+  non-signed-spec refusal (REQ-G1.2); a worker's hard pauses and
+  pending-sign-off checklist are not one.
 - **Force-push, amend, squash, rebase.** New commits only, on both rules
   (REQ-G1.3). The tower never runs them, posture or no posture.
 - **"Just edit it here."** The tower does not author: a mutation is a flight,
@@ -334,9 +334,8 @@ On every route, overridden or not:
 ## Maintenance
 
 After each session, compare these instructions against the doctrine they
-implement (`flight-rules`, `work-placement`, `interaction-style`,
-`tower-comms`). If a concept this skill names has drifted, say so to the
-operator in one line and propose the drift observation as a captured item
+implement (the run-start manifest). If a concept this skill names has
+drifted, say so to the operator in one line and propose the drift observation as a captured item
 (`skill-drift(tower): <what>`, recorded through `scripts/obs-record.sh --slug
 skill-drift --scope <repo> --text '...'` by the flight that carries it, never
 committed by the tower). In repositories without `specs/`, surface the drift to
