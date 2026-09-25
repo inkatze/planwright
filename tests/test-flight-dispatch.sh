@@ -329,6 +329,49 @@ case $ERR in
   *) fail "a degraded machine-local overlay must be warned about on stderr: $ERR" ;;
 esac
 
+# --- 4g. the launch tier's non-happy branches, against a stubbed resolver ---
+# A copy of the plugin whose allocation-apply.sh answers per ALLOC_STUB.
+stubroot="$tmp/stubroot"
+mkdir -p "$stubroot"
+cp -R "$ROOT/scripts" "$ROOT/skills" "$ROOT/config" "$ROOT/doctrine" "$ROOT/.claude-plugin" "$stubroot/"
+cat >"$stubroot/scripts/allocation-apply.sh" <<'EOF'
+#!/bin/sh
+case ${ALLOC_STUB:-} in
+  withheld) exit 3 ;;
+  unreachable) exit 6 ;;
+  off-roster) printf 'model\topus9\neffort\thigh\n' ;;
+  no-row) printf 'model\tsonnet\n' ;;
+esac
+exit 0
+EOF
+for stub in withheld unreachable off-roster no-row; do
+  new_case
+  OUT=$(ALLOC_STUB=$stub "$stubroot/scripts/flight-dispatch.sh" dispatch readme-typo --backend print \
+    --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary" </dev/null 2>"$tmp/err")
+  RC=$?
+  ERR=$(cat "$tmp/err")
+  case $stub in
+    withheld)
+      [ "$RC" -eq 3 ] || fail "a flight withheld by the admission gate must exit 3 (rc $RC)"
+      case $ERR in *"admission gate"*) ;; *) fail "the withheld flight must name the admission gate: $ERR" ;; esac
+      [ -z "$(field "$OUT" declined)" ] || fail "an admission-gate withhold must not read as a bound decline"
+      ;;
+    unreachable)
+      [ "$RC" -eq 0 ] || fail "an unreachable allocation store must degrade, not fail (rc $RC: $ERR)"
+      case $ERR in *"degraded"*) ;; *) fail "the degraded tier must be warned about: $ERR" ;; esac
+      [ "$(field "$OUT" model)" = inherit ] && [ "$(field "$OUT" effort)" = inherit ] \
+        || fail "a degraded tier must launch at the ambient model and effort"
+      ;;
+    off-roster | no-row)
+      [ "$RC" -eq 4 ] || fail "a $stub launch-tier plan must fail closed with exit 4 (rc $RC)"
+      ;;
+  esac
+  if [ "$stub" != unreachable ]; then
+    [ "$(flight_branches)" -eq 0 ] || fail "a $stub launch tier placed a flight"
+    [ "$(briefs)" -eq 0 ] || fail "a $stub launch tier left a brief"
+  fi
+done
+
 # --- 5. concurrency ---------------------------------------------------------
 new_case
 mkdir -p "$c/primary/.claude"
