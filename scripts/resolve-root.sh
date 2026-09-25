@@ -10,18 +10,20 @@
 #           core root chain, in order
 #             PLANWRIGHT_ROOT      explicit override
 #             CLAUDE_PLUGIN_ROOT   plugin delivery
-#             writer-mode          $CLAUDE_DIR/planwright, else
-#                                  $HOME/.claude/planwright
+#             writer-mode          $CLAUDE_DIR/planwright when CLAUDE_DIR is
+#                                  set, otherwise $HOME/.claude/planwright
 #             self-location        the tree this script ships in
 #           An arm is content-bearing when it holds doctrine/ or scripts/. A
 #           set arm that is not is skipped with a warning and never printed;
 #           an absent writer-mode directory is skipped silently, since plugin
 #           delivery never creates it.
 # repo      which repository the session belongs to.
-#   --primary   the worktree owning the common git directory, so every linked
-#               worktree answers with the primary checkout. PLANWRIGHT_REPO_ROOT,
-#               when set, is used instead, but only if it names a git
-#               toplevel; any other value is refused, never ignored.
+#   --primary   the primary working tree of the repository owning the common
+#               git directory, so every linked worktree answers with the
+#               primary checkout (a submodule answers with its own working
+#               tree). PLANWRIGHT_REPO_ROOT, when set, is used instead, but
+#               only if it is an absolute path naming a git toplevel; any
+#               other value is refused, never ignored.
 #   --checkout  the current toplevel; PLANWRIGHT_REPO_ROOT never affects it.
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
@@ -30,17 +32,30 @@
 # canonical (symlinks resolved).
 #
 # Exit: 0 printed · 1 no install root resolved · 2 usage · 3 no repository
-#   root (not inside a git repository, or a bare repository with no primary
-#   working tree) · 4 PLANWRIGHT_REPO_ROOT does not name a git toplevel.
-#   Callers treat 3 as "no repository" and degrade; they never compose a path
-#   from an empty root.
+#   root (git missing, not inside a working tree, or a bare repository with
+#   no primary working tree) · 4 PLANWRIGHT_REPO_ROOT refused. Callers treat
+#   3 as "no repository" and degrade; they never compose a path from an
+#   empty root.
+#
+# POSIX sh with no dependency beyond git and tr: guards and hooks exec it
+# through /bin/sh, which is dash on Linux.
 set -u
+# Pin the C locale so tr's byte ranges below mean bytes.
 LC_ALL=C
 export LC_ALL
+# A CDPATH-resolved cd would echo the destination into the command
+# substitutions that capture directories.
 unset CDPATH
 
+# say <message>: one diagnostic line on stderr. Values in it come from the
+# environment or from git, so control bytes are stripped and printf is used
+# rather than echo, which dash lets expand backslash escapes.
+say() {
+  printf 'planwright: %s\n' "$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')" >&2
+}
+
 usage() {
-  echo "usage: resolve-root.sh [--explain] install | repo --primary|--checkout" >&2
+  say "usage: resolve-root.sh [--explain] install | repo --primary|--checkout"
   exit 2
 }
 
@@ -54,7 +69,7 @@ for arg in "$@"; do
       [ -z "$view" ] || usage
       view=${arg#--}
       ;;
-    -*) usage ;;
+    -* | "") usage ;;
     *)
       [ -z "$kind" ] || usage
       kind=$arg
@@ -62,8 +77,8 @@ for arg in "$@"; do
   esac
 done
 
+# emit <source> <path>: print the result and exit 0; never returns.
 emit() {
-  # emit <source> <path>
   if [ "$explain" -eq 1 ]; then
     printf '%s\t%s\n' "$1" "$2"
   else
@@ -73,11 +88,28 @@ emit() {
 }
 
 canon() {
-  (cd "$1" 2>/dev/null && pwd -P)
+  (cd -- "$1" 2>/dev/null && pwd -P)
+}
+
+# try_arm <arm> <dir>: emit on a content-bearing directory, else warn and
+# return so the next arm is tried.
+try_arm() {
+  [ -n "$2" ] || return 0
+  if [ "$1" = writer-mode ] && [ ! -e "$2" ] && [ ! -L "$2" ]; then
+    return 0
+  fi
+  if [ ! -d "$2" ] || { [ ! -d "$2/doctrine" ] && [ ! -d "$2/scripts" ]; }; then
+    say "WARNING skipping the $1 root '$2': not a directory holding doctrine/ or scripts/"
+    return 0
+  fi
+  if ! ta_canon=$(canon "$2"); then
+    say "WARNING skipping the $1 root '$2': the directory cannot be entered"
+    return 0
+  fi
+  emit "$1" "$ta_canon"
 }
 
 resolve_install() {
-  script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 1
   writer_root=""
   if [ -n "${CLAUDE_DIR:-}" ]; then
     writer_root="$CLAUDE_DIR/planwright"
@@ -85,78 +117,109 @@ resolve_install() {
     writer_root="$HOME/.claude/planwright"
   fi
 
-  # try_arm <arm> <dir>: emit on a content-bearing directory, else return.
-  try_arm() {
-    [ -n "$2" ] || return 0
-    if [ "$1" = writer-mode ] && [ ! -e "$2" ]; then
-      return 0
-    fi
-    if [ -d "$2" ] && { [ -d "$2/doctrine" ] || [ -d "$2/scripts" ]; }; then
-      ta_canon=$(canon "$2") && emit "$1" "$ta_canon"
-    fi
-    echo "planwright: WARNING skipping the $1 root '$2': not a directory holding doctrine/ or scripts/" >&2
-  }
-
   try_arm PLANWRIGHT_ROOT "${PLANWRIGHT_ROOT:-}"
   try_arm CLAUDE_PLUGIN_ROOT "${CLAUDE_PLUGIN_ROOT:-}"
   try_arm writer-mode "$writer_root"
+  case $0 in
+    */*) script_dir=${0%/*} ;;
+    *) script_dir=. ;;
+  esac
   try_arm self-location "$script_dir/.."
-  echo "planwright: no install root resolved (every arm of the core root chain was unset or skipped)" >&2
+  say "no install root resolved (every arm of the core root chain was unset or skipped)"
   exit 1
 }
 
-# toplevel_of <dir>: the canonical toplevel of the working tree at <dir>.
+# toplevel_of <dir>: the canonical toplevel of the working tree at <dir>,
+# discovered from <dir> itself: an inherited GIT_DIR or GIT_WORK_TREE (a git
+# hook exports them) would otherwise answer for a different tree.
 toplevel_of() {
-  to_top=$(cd "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || return 1
+  to_top=$(
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+    cd -- "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null
+  ) || return 1
   [ -n "$to_top" ] || return 1
   canon "$to_top"
 }
 
 no_repo() {
   if [ "$(git rev-parse --is-bare-repository 2>/dev/null)" = true ]; then
-    echo "planwright: no repository root: inside a bare repository, which has no working tree" >&2
+    say "no repository root: inside a bare repository, which has no working tree"
+  elif [ "$(git rev-parse --is-inside-git-dir 2>/dev/null)" = true ]; then
+    say "no repository root: inside a git directory, which has no working tree ($(pwd))"
   else
-    echo "planwright: no repository root: not inside a git repository ($(pwd))" >&2
+    say "no repository root: not inside a git repository ($(pwd))"
   fi
+  exit 3
+}
+
+no_primary() {
+  say "no repository root: this repository has no primary working tree${1:+ ($1)}"
   exit 3
 }
 
 resolve_primary() {
   if [ -n "${PLANWRIGHT_REPO_ROOT:-}" ]; then
+    case $PLANWRIGHT_REPO_ROOT in
+      /*) ;;
+      *)
+        say "refusing PLANWRIGHT_REPO_ROOT='$PLANWRIGHT_REPO_ROOT': it must be an absolute path"
+        exit 4
+        ;;
+    esac
     rp_want=$(canon "$PLANWRIGHT_REPO_ROOT") || rp_want=""
     rp_top=""
     [ -z "$rp_want" ] || rp_top=$(toplevel_of "$rp_want") || rp_top=""
     if [ -z "$rp_top" ] || [ "$rp_top" != "$rp_want" ]; then
-      echo "planwright: refusing PLANWRIGHT_REPO_ROOT='$PLANWRIGHT_REPO_ROOT': it does not name the toplevel of a git working tree" >&2
+      say "refusing PLANWRIGHT_REPO_ROOT='$PLANWRIGHT_REPO_ROOT': it does not name the toplevel of a git working tree"
       exit 4
     fi
     emit PLANWRIGHT_REPO_ROOT "$rp_top"
   fi
 
-  git rev-parse --git-dir >/dev/null 2>&1 || no_repo
+  rp_common=$(git rev-parse --git-common-dir 2>/dev/null) || no_repo
   [ "$(git rev-parse --is-bare-repository 2>/dev/null)" != true ] || no_repo
+  case $rp_common in
+    /*) ;;
+    *) rp_common=$(pwd)/$rp_common ;;
+  esac
+  rp_common=$(canon "$rp_common") || no_primary
 
-  # The first entry of the worktree list is the one owning the common git
-  # directory; git marks it "bare" when there is no primary working tree.
-  rp_first=$(git worktree list --porcelain 2>/dev/null | awk '
-    NR == 1 && /^worktree / { sub(/^worktree /, ""); path = $0; next }
-    /^$/ { exit }
-    /^bare$/ { bare = 1 }
-    END { if (path != "" && !bare) print path }
-  ')
-  if [ -z "$rp_first" ]; then
-    echo "planwright: no repository root: this worktree belongs to a bare repository, which has no primary working tree" >&2
-    exit 3
-  fi
-  rp_path=$(canon "$rp_first") || {
-    echo "planwright: no repository root: the primary working tree '$rp_first' is not reachable" >&2
-    exit 3
-  }
+  [ "$(git --git-dir="$rp_common" config --bool core.bare 2>/dev/null)" != true ] || no_primary
+
+  # The common directory's owner: the directory holding it when it is a
+  # .git, the configured core.worktree when it lives elsewhere (a submodule,
+  # a separate git dir), else the first worktree-list record, which git marks
+  # "bare" when there is no primary working tree.
+  rp_cand=""
+  case $rp_common in
+    */.git) rp_cand=${rp_common%/.git} ;;
+    *)
+      rp_wt=$(git --git-dir="$rp_common" config core.worktree 2>/dev/null) || rp_wt=""
+      case $rp_wt in
+        "") ;;
+        /*) rp_cand=$rp_wt ;;
+        *) rp_cand=$rp_common/$rp_wt ;;
+      esac
+      if [ -z "$rp_cand" ]; then
+        rp_cand=$(git worktree list --porcelain 2>/dev/null | awk '
+          NR == 1 && /^worktree / { sub(/^worktree /, ""); path = $0; next }
+          /^$/ { exit }
+          /^bare$/ { bare = 1 }
+          END { if (path != "" && !bare) print path }
+        ')
+      fi
+      ;;
+  esac
+  [ -n "$rp_cand" ] || no_primary
+  rp_path=$(toplevel_of "$rp_cand") || no_primary "'$rp_cand' is not reachable"
+  [ "$rp_path" = "$(canon "$rp_cand")" ] || no_primary "'$rp_cand' is not a working tree toplevel"
   emit git-common-dir "$rp_path"
 }
 
 resolve_checkout() {
-  rc_top=$(toplevel_of .) || no_repo
+  rc_top=$(git rev-parse --show-toplevel 2>/dev/null) || no_repo
+  [ -n "$rc_top" ] || no_repo
+  rc_top=$(canon "$rc_top") || no_repo
   emit show-toplevel "$rc_top"
 }
 
@@ -166,6 +229,10 @@ case $kind in
     resolve_install
     ;;
   repo)
+    command -v git >/dev/null 2>&1 || {
+      say "no repository root: git is not installed (not on PATH)"
+      exit 3
+    }
     case $view in
       primary) resolve_primary ;;
       checkout) resolve_checkout ;;
