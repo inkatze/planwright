@@ -900,12 +900,14 @@ release_classes='process scratch attention'
 # since the runner carries `run-worker <unit-dir>` in its argv for as long as it
 # lives. Where it is truncated the seed is the only way to find the runner at
 # all, and the close accepts the reissued-pid exposure there rather than report
-# a live runner closed.
+# a live runner closed. Which of the two the host is decides per snapshot, in
+# the library (`stop_seed_narrow_only`); this only answers the record half.
+# shellcheck disable=SC2034 # read by the library's stop_candidates
+stop_seed_narrow_only=1
 stop_seedfiles() {
   if [ -e "$1/exit" ] || [ -e "$1/finish-error" ]; then
     return 0
   fi
-  stop_ps_rows_shaped "$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null)" && return 0
   printf 'pid'
 }
 

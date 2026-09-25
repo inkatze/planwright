@@ -28,6 +28,11 @@
 #                        so here: a recorded pid outlives its process, and a
 #                        later close would seed its walk from whatever the host
 #                        reissued it to
+#   stop_seed_narrow_only
+#                        optional; 1 makes the pid files seed the walk only
+#                        from a snapshot whose argv the host's `ps` truncated,
+#                        for a rung whose re-exec's argv finds everything the
+#                        seed would (see stop_candidates)
 #
 # THE MATCH. A process belongs to the worker when its argv carries the rung's
 # own re-exec marker for the worker's state directory (<match>), when a pid file
@@ -132,21 +137,14 @@ stop_scratch_release() {
   ! stop_scratch_walk "$1" probe "$2"
 }
 
-# stop_ps_rows — one `<pid> <ppid> <args>` row per process on the host.
+# stop_ps_rows_shaped <snapshot> — zero when a `ps -o pid=,ppid=,args=`
+# snapshot looks like one `<pid> <ppid> <args>` row per process.
 #
-# `-ww` is what keeps a long argv, which carries the state-directory path the
-# match keys on, from being truncated to terminal width by BSD ps; a ps that
-# rejects the flag degrades to the narrow form rather than to nothing. Each
-# candidate is shape-checked rather than trusted by exit status.
-stop_ps_rows() {
-  pr_out=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || pr_out=''
-  if ! stop_ps_rows_shaped "$pr_out"; then
-    pr_out=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || pr_out=''
-    stop_ps_rows_shaped "$pr_out" || return 1
-  fi
-  printf '%s\n' "$pr_out"
-}
-
+# Every snapshot the close takes asks for `-ww` first, which is what keeps a
+# long argv, carrying the state-directory path the match keys on, from being
+# truncated to terminal width by BSD ps; a ps that rejects the flag degrades to
+# the narrow form rather than to nothing. Each candidate is shape-checked rather
+# than trusted by exit status.
 stop_ps_rows_shaped() {
   [ -n "$1" ] || return 1
   prs_first=${1%%"$stop_lf"*}
@@ -202,9 +200,23 @@ stop_seeds() {
 # otherwise make the comparison silently target a path nobody asked for. It is
 # scoped to the awk invocation rather than exported, so the path does not end
 # up in the environment of every later child of the close.
+#
+# A rung that sets `stop_seed_narrow_only=1` has its pid files seed the walk only
+# when this very snapshot came from the narrow `ps`. Deciding from a separate
+# probe would let the two disagree, and the disagreement resolves toward a walk
+# that misses the tree.
 stop_candidates() {
-  sc_snap=$(stop_ps_rows) || return 1
-  sc_seed=$(stop_seeds "$1" "$3")
+  sc_wide=1
+  sc_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || sc_snap=''
+  if ! stop_ps_rows_shaped "$sc_snap"; then
+    sc_wide=0
+    sc_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || sc_snap=''
+    stop_ps_rows_shaped "$sc_snap" || return 1
+  fi
+  sc_seed=''
+  if [ "$sc_wide" = 0 ] || [ "${stop_seed_narrow_only:-0}" != 1 ]; then
+    sc_seed=$(stop_seeds "$1" "$3")
+  fi
   printf '%s\n' "$sc_snap" | SC_MATCH="$2" awk -v seeds="$sc_seed" -v self_pid="$$" '
     BEGIN {
       sup = ENVIRON["SC_MATCH"]
