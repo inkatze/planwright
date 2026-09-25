@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# shellcheck disable=SC2154 # `me` and `release_classes` are the sourcing rung's
+# shellcheck disable=SC2154 # `me` and `release_classes` are set by the rung
 # fleet-stop-lib.sh — the close both session-grade rungs share (sourced, never
 # executed): `scripts/fleet-streamjson.sh stop` and
 # `scripts/fleet-dispatch-headless.sh stop`.
@@ -123,6 +123,13 @@ stop_scratch_walk() {
   done
   $sw_restore
   return "$sw_found"
+}
+
+# stop_scratch_release <dir> <patterns> — remove the scratch, succeeding only
+# when none is left behind.
+stop_scratch_release() {
+  stop_scratch_walk "$1" release "$2"
+  ! stop_scratch_walk "$1" probe "$2"
 }
 
 # stop_ps_rows — one `<pid> <ppid> <args>` row per process on the host.
@@ -307,16 +314,16 @@ stop_self_hosted() {
   # snapshot to the narrow form while an independent retry of `-ww` succeeds —
   # and the disagreement resolves toward proceeding, which is the direction that
   # kills.
-  ssh_wide=1
-  ssh_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || ssh_snap=''
-  if ! stop_ps_rows_shaped "$ssh_snap"; then
-    ssh_wide=0
-    ssh_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || ssh_snap=''
-    stop_ps_rows_shaped "$ssh_snap" || return 2
+  sfh_wide=1
+  sfh_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || sfh_snap=''
+  if ! stop_ps_rows_shaped "$sfh_snap"; then
+    sfh_wide=0
+    sfh_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || sfh_snap=''
+    stop_ps_rows_shaped "$sfh_snap" || return 2
   fi
-  ssh_seed=''
-  [ "$ssh_wide" = 1 ] || ssh_seed=$(stop_seeds "$1" "$3")
-  printf '%s\n' "$ssh_snap" | SC_MATCH="$2" awk -v seeds="$ssh_seed" -v self_pid="$$" '
+  sfh_seed=''
+  [ "$sfh_wide" = 1 ] || sfh_seed=$(stop_seeds "$1" "$3")
+  printf '%s\n' "$sfh_snap" | SC_MATCH="$2" awk -v seeds="$sfh_seed" -v self_pid="$$" '
     BEGIN {
       sup = ENVIRON["SC_MATCH"]
       # See stop_candidates: an empty match would mark every process. Exit 2 is

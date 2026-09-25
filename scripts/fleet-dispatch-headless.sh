@@ -965,10 +965,7 @@ stop_held() {
 stop_release() {
   case $1 in
     process) release_processes "$2" "$(stop_match "$2")" "$(stop_seedfiles "$2")" "$5" ;;
-    scratch)
-      stop_scratch_walk "$2" release "$scratch_patterns"
-      ! stop_scratch_walk "$2" probe "$scratch_patterns"
-      ;;
+    scratch) stop_scratch_release "$2" "$scratch_patterns" ;;
     # No receipt journal to settle first: a one-shot has no pend path, so
     # nothing on this rung re-queues a decision from a closed worker.
     attention) /bin/sh "$FA" clear "$3" >/dev/null ;;

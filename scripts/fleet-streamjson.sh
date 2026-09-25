@@ -1243,7 +1243,9 @@ stop_match() {
 # directory argument, and does so by ending the shell rather than the function,
 # which is why the trailing `|| :` on that line does not make it non-fatal.
 stop_process_closed() {
-  rm -rf "${1:?}/supervisor.pid" "${1:?}/worker.pid" 2>/dev/null || :
+  for spc_f in $stop_pidfiles; do
+    rm -rf "${1:?}/$spc_f" 2>/dev/null || :
+  done
 }
 
 # `-e` rather than `-d`: a lock path that exists as a regular file blocks the
@@ -1274,8 +1276,7 @@ held_scratch() {
 }
 
 release_scratch() {
-  stop_scratch_walk "$1" release "$scratch_patterns"
-  ! stop_scratch_walk "$1" probe "$scratch_patterns"
+  stop_scratch_release "$1" "$scratch_patterns"
 }
 
 # Clearing the row is half the release. The other half is the journal: a
