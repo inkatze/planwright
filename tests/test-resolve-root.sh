@@ -74,6 +74,11 @@ run() {
   err=$(cat "$tmp/.err")
 }
 
+in_dir() {
+  # in_dir <dir> <command...>
+  (cd "$1" && shift && "$@")
+}
+
 mktree() {
   # mktree <dir>: a content-bearing planwright tree.
   mkdir -p "$1/doctrine" "$1/scripts"
@@ -117,6 +122,12 @@ assert_eq "install: a HOME-less environment still resolves by self-location" \
 ln -s "$tmp/pw" "$tmp/pw-link"
 run base PLANWRIGHT_ROOT="$tmp/pw-link/" "$SH" "$RESOLVER" install
 assert_eq "install: the printed root is canonicalized" "$tmp/pw" "$out"
+
+# A relative arm named "-" is that directory, never cd's previous-directory
+# shorthand, which would print an unchecked OLDPWD.
+mktree "$tmp/dashdir/-"
+run in_dir "$tmp/dashdir" base OLDPWD="$tmp/plain" PLANWRIGHT_ROOT=- "$SH" "$RESOLVER" install
+assert_eq "install: an arm named '-' is the directory of that name" "$tmp/dashdir/-" "$out"
 
 # An empty variable is unset, not an arm.
 run base PLANWRIGHT_ROOT= CLAUDE_PLUGIN_ROOT="$tmp/plugin" \
@@ -194,11 +205,6 @@ mkdir -p "$tmp/plain/inner"
 gitq init -q --bare "$tmp/bare.git"
 gitq -C "$tmp/repo" push -q "$tmp/bare.git" HEAD:refs/heads/main
 gitq -C "$tmp/bare.git" worktree add -q "$tmp/bare-wt" main
-
-in_dir() {
-  # in_dir <dir> <command...>
-  (cd "$1" && shift && "$@")
-}
 
 # ---------------------------------------------------------------------------
 # repo kind: --primary and --checkout

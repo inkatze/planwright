@@ -95,8 +95,14 @@ emit() {
   exit 0
 }
 
+# canon <dir>: the physical path of <dir>. A relative operand gets a ./ so a
+# directory named "-" is never cd's previous-directory shorthand.
 canon() {
-  (cd -P -- "$1" 2>/dev/null && pwd -P)
+  case $1 in
+    /*) cn_dir=$1 ;;
+    *) cn_dir=./$1 ;;
+  esac
+  (cd -P -- "$cn_dir" 2>/dev/null && pwd -P)
 }
 
 # try_arm <arm> <dir>: emit on a content-bearing directory, else warn and
