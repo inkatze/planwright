@@ -193,7 +193,8 @@
 #       released field reads `-` when nothing was released (the other two
 #       forms cannot reach that case). <secs> is the SIGTERM-to-SIGKILL grace,
 #       a whole number of seconds bounded by `grace_max` and defaulting to
-#       `grace_default`; passing an out-of-range value prints both. There is no
+#       `grace_default` (scripts/fleet-stop-lib.sh, the close this rung shares
+#       with the headless one); passing an out-of-range value prints both. There is no
 #       zero-grace form, since SIGTERM always goes first, and a fixed settling
 #       wait follows the SIGKILL.
 #       An unknown handle is exit 2, not `already-closed`, so a typo never
