@@ -480,6 +480,16 @@ for want in same skewed; do
   fi
 done
 
+# A version string carrying escape TEXT must not become a live escape in the
+# report: /bin/sh's echo expands backslash sequences.
+new_case
+inst="$c/claude/plugins/cache/mk/planwright/9.9.9"
+mkdir -p "$inst/.claude-plugin"
+printf '{"name":"planwright","version":"9.9\\033[31m"}\n' >"$inst/.claude-plugin/plugin.json"
+dispatch_print
+[ "$RC" -eq 0 ] || fail "escape-text version fixture did not dispatch (rc $RC: $ERR)"
+case $OUT in *"$ESC"*) fail "escape text in a plugin version became a live escape in the report" ;; esac
+
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-dispatch: $fails failure(s)" >&2
   exit 1

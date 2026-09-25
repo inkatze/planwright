@@ -273,7 +273,7 @@ plugin_version() {
   }
   _ver=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_pj" | head -n 1)
   _ver=$(printf '%s' "$_ver" | tr -d '\000-\037\177')
-  echo "${_ver:--}"
+  printf '%s\n' "${_ver:--}"
 }
 
 # worker_root — the first installed root Claude Code records, which is what a
