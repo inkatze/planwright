@@ -462,8 +462,10 @@ printf '%s\n' "$out5" | grep -F 'over-length spec identifier' >/dev/null \
   || fail "over-length directory skip not noted"
 # `flight` is the reserved flight branch segment (tower-front-door D-11): the
 # walk notes and skips a directory so named rather than sweeping it as a spec.
-printf '%s\n' "$out5" | grep -F 'reserved spec identifier' >/dev/null \
+printf '%s\n' "$out5" | grep -F "reserved spec identifier 'flight'" >/dev/null \
   || fail "reserved directory skip not noted"
+printf '%s\n' "$out5" | grep -vF 'reserved spec identifier' | grep -q flight \
+  && fail "the reserved directory was swept as a spec: $out5"
 
 # 16. A hostile Status field cannot forge another spec's status: awk -v
 #     processes C escapes, so a literal backslash-t in requirements.md
