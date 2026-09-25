@@ -237,19 +237,20 @@ when the unit was launched headless, per the backend seam's launch record;
 
 `run` is a resolved step; `ask` surfaces the missing step and waits for the
 human to repair and re-resolve or end the unit; `park` parks the unit to
-Awaiting input before any step at the point runs; `skip` warns, writes a skip
-record, and counts as `run` for the exit: 0 when every step is `run`, 1 when
-the point runs nothing (REQ-H1.3). A malformed list value or entry takes the
-by-layer policy instead (REQ-C1.5): core exits 5 (a broken install),
-repo-tracked 4; an adopter or machine-local list degrades to the core
-default, and such an entry is dropped, its id then non-resolving. A fault
-only in where a list places an entry drops a personal entry for that list
-alone; a misplaced `continue` degrades a personal list first and fails only
-when list and entry are both shared. Check mode (`--check`, unattended
-only) exits non-zero on any `park`, any malformation, or an unwired
-non-empty list, and passes with a warning on an adopter or machine-local
-`skip` (REQ-H1.3, REQ-A1.3); `check:steps` runs it over every named point of
-this repository's configuration (REQ-H1.4).
+Awaiting input before any step at the point runs; `skip` warns, records the
+skip, and counts as `run`: exit 0 when every step is `run`, 1 when the point
+runs nothing (`park` or `ask`; REQ-H1.3). A malformed list value or entry
+takes the by-layer policy instead (REQ-C1.5): core exits 5 (a broken
+install), repo-tracked 4; an adopter or machine-local list degrades to the
+core default, and such an entry is dropped, its id then non-resolving. A
+placement-only fault (a `timeout` landing in-session) drops an adopter or
+machine-local entry for that list alone; a misplaced `continue` degrades
+such a list first and fails only when list and entry are both repo-tracked
+or core. Check mode (`--check --unattended`; `--attended` is a usage error)
+exits non-zero on any `park`, any malformation, or an unwired non-empty
+list, and warns but passes on an adopter or machine-local `skip` (REQ-H1.3,
+REQ-A1.3); `check:steps` runs it over every point of this repository
+(REQ-H1.4).
 
 ## Reserved controls (REQ-D1.6, D-17)
 
