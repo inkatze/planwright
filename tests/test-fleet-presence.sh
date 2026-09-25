@@ -598,6 +598,11 @@ grep -q "second live record" "$err14" || fail "duplicate live fence claim not su
 rc=0
 run "$h14" owner --checkout "$co_b" --pid $$ '../etc/passwd' >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "hostile unit ref not refused (exit $rc)"
+# `flight` is the reserved flight branch segment (tower-front-door D-11), so
+# a unit ref under it is refused like a hostile one.
+rc=0
+run "$h14" owner --checkout "$co_b" --pid $$ flight/3 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "reserved-spec unit ref not refused (exit $rc)"
 echo "ok: fence owner resolved from live records only; unlisted/unknown → unknown-owner; duplicates surfaced; hostile ref refused"
 
 # ---------------------------------------------------------------------------

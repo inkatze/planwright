@@ -453,6 +453,18 @@ assert_has "$out" "Format-version" "C1.8 missing version names the line"
 assert_not "$out" "stored status:" "C1.8 missing version renders nothing"
 assert_not "$out" "bundle status:" "C1.8 missing version derives nothing"
 
+# `flight` is the reserved flight branch segment (tower-front-door D-11): a
+# bundle dir so named is refused before the engine runs, naming the reason.
+spec8f="$repo8/specs/flight"
+write_v2_spec "$spec8f" Ready
+set +e
+fout=$("$RENDER" "$spec8f" 2>&1)
+rc=$?
+set -e
+[ "$rc" -eq 2 ] || fail "reserved spec id flight should exit 2, got $rc"
+assert_has "$fout" "reserved" "the reserved spec id refusal names the reservation"
+rm -rf "$spec8f"
+
 write_v2_spec "$spec8" Ready
 sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** banana/' "$spec8/tasks.md" \
   >"$spec8/tasks.md.new" && mv "$spec8/tasks.md.new" "$spec8/tasks.md"

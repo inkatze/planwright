@@ -82,11 +82,22 @@ skill or hook interpolates a failing identifier into a path or command;
 identifiers proposed by accumulator contents (seeds) are re-validated at
 consumption before any interpolation.
 
-Direct children of `specs/` with a leading underscore are **reserved
-non-spec accumulators** (`_pending/`, `_observations/`). They are never
-validated as bundles, but their names must match `^_[a-z0-9][a-z0-9-]*$`
-(≤64): exemption from bundle validation is not exemption from hostile-name
-screening.
+**`flight` is reserved** (tower-front-door D-11). It is the flight branch
+segment (`planwright/flight/<flight-id>`, *Branch, worktree, and task-id
+grammar*), so no spec identifier may be `flight`: the validator refuses a
+bundle so named and `--check-id` rejects it, and every script that screens a
+spec identifier refuses the word the way it refuses a charset failure. Identifiers that merely
+contain it (`flight-plan`, `flights`) are ordinary.
+
+Direct children of `specs/` with a leading underscore are **reserved non-spec
+directories**: the accumulators (`_pending/`, `_observations/`) and the
+**flight record directory** `_flights/` (tower-front-door D-6), which holds one
+audit record per visual flight at `specs/_flights/<flight-id>.md`, riding the
+flight's own branch. The record is an artifact in the kickoff-brief class, not
+an accumulator: it collects no deferred decisions, so it owes no named reader
+and no drain ritual. None of these is ever validated as a bundle, but their
+names must match `^_[a-z0-9][a-z0-9-]*$` (≤64): exemption from bundle
+validation is not exemption from hostile-name screening.
 
 ## Path-placeholder convention
 
@@ -871,6 +882,34 @@ anchor).
 - **Worktree placement (D-37):** `<repo>/.claude/worktrees/<branch-suffix>`,
   attachable via `claude --worktree` regardless of which backend launched the
   work.
+- **Flight branch (tower-front-door D-11):** a visual flight — a specless
+  unit — branches as `planwright/flight/<flight-id>`, with its worktree at
+  `<repo>/.claude/worktrees/flight-<flight-id>`: the flattened single-segment
+  form of the D-37 placement rule, the branch's two segments collapsing into
+  one suffix. `flight` is the reserved segment (*Spec identifiers*): a
+  `planwright/` branch whose second segment is `flight` is a flight branch,
+  never a spec, and a parser that meets it takes the flight case rather than a
+  spec lookup. The task-id grammar cannot express a specless unit and a bare
+  suffix collides across concurrent units, so the segment is minted rather
+  than overloaded.
+- **Flight id:** `<slug>-<uid>` — a kebab slug in the spec-identifier charset
+  (`^[a-z0-9][a-z0-9-]*$`) followed by an eight-character lowercase-hex uid,
+  at most 64 characters in all (so the slug is at most 55). The uid is
+  random, which is what keeps two flights minted at the same moment apart:
+  the mint reserves nothing, so creating the branch, which fails when the
+  ref exists (never a forced create), is the only atomic claim. The id is **never
+  reused**: while durable evidence of an id exists — a local or
+  remote-tracking flight branch, a record file
+  `specs/_flights/<flight-id>.md` in the working tree or on the default
+  branch (local or remote-tracking), or a placed worktree — a mint skips
+  that uid and draws another, so a retired flight's id is never re-minted
+  against its branch or record. Remote evidence is as fresh as the last
+  fetch, and a flight whose record lives in its PR body leaves no record
+  file: once its branch and worktree are gone, only the random uid keeps its
+  id apart. `scripts/flight-id.sh` mints (`new <slug>`),
+  checks (`check`), reports the evidence (`taken`), and derives the branch
+  and suffix; parsers validate a flight id full-string before any path use,
+  as they do a task branch's segments.
 - **Commit trailer (orchestration-concurrency D-2, orchestration-concurrency
   REQ-C1.4):** every commit `/execute-task` authors for a unit carries a
   `Planwright-Task: <spec>/<id>` footer trailer, stamped by piping the message
@@ -889,7 +928,8 @@ anchor).
   Footer-only and additive: no subject-line change, and no co-author or
   generated-by attribution.
 - Parsed branch segments are validated (`<spec>` against the identifier
-  charset, `<id>` against the task-id grammar) before any path use; a branch
+  charset and the reserved word, `<id>` against the task-id grammar,
+  `<flight-id>` against the flight-id grammar) before any path use; a branch
   failing validation is a clean no-op (REQ-K1.2).
 
 ## Validator-enforceable invariants
@@ -902,8 +942,9 @@ the declared format-version:
 2. Header block: `Status:` declared (missing warns and defaults to Draft);
    one of the six statuses (unknown flagged); `Superseded` requires
    `Superseded-by:`; `Format-version:` declared.
-3. Spec-identifier charset and length; underscore-accumulator name
-   screening (accumulators are otherwise skipped, not validated as bundles).
+3. Spec-identifier charset and length, and the reserved word `flight`;
+   reserved underscore-directory name screening (accumulators and the flight
+   record directory are otherwise skipped, not validated as bundles).
 4. REQ-ID convention: stable IDs, citation per live requirement.
 5. D-ID structure: Decision / Alternatives considered / Chosen because all
    present.
@@ -1179,3 +1220,18 @@ bundle would have to migrate to:
   gate. **No version bump:** no authoring rule changes — a glossary term
   changes referent and a second is minted.
   *(tower-front-door D-2 · REQ-H1.1, REQ-H1.2.)*
+- 2026-09-24 — Flight grammar. A visual flight branches as
+  `planwright/flight/<flight-id>` with its worktree at
+  `.claude/worktrees/flight-<flight-id>`, the flattened single-segment form
+  of the D-37 placement rule; `flight` becomes a reserved segment no spec
+  identifier may claim, refused by the validator and screened at every
+  interpolation site; the flight id is defined as `<slug>-<uid>` with the
+  never-reuse rule and its minting helper; and `specs/_flights/` is
+  classified as the flight record directory — underscore-screened, skipped by
+  bundle validation, an artifact class rather than an accumulator, so it owes
+  no drain ritual (*Spec identifiers*; *Branch, worktree, and task-id
+  grammar*). **No version bump:** the grammar sits around bundles, not inside
+  them, so a bundle at any version stays conformant; the only new refusal is
+  the identifier `flight`, which no shipped bundle uses (the validator was
+  re-run over every bundle with the reservation in place).
+  *(tower-front-door D-6, D-11 · REQ-C1.1.)*

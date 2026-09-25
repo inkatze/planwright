@@ -91,6 +91,7 @@ check_spec_id() {
   esac
   case $cid in
     *[!a-z0-9-]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   return 0
 }
@@ -161,7 +162,11 @@ case $spec in
   specs/*) spec=${spec#specs/} ;;
 esac
 if ! check_spec_id "$spec"; then
-  echo "spec-walkthrough: invalid spec identifier (must match ^[a-z0-9][a-z0-9-]*\$, max length 64); refused before any read" >&2
+  if [ "$spec" = flight ]; then
+    echo "spec-walkthrough: reserved spec identifier: 'flight' is the flight branch segment (tower-front-door D-11); refused before any read" >&2
+  else
+    echo "spec-walkthrough: invalid spec identifier (must match ^[a-z0-9][a-z0-9-]*\$, max length 64); refused before any read" >&2
+  fi
   exit 2
 fi
 

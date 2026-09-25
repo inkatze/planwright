@@ -53,7 +53,8 @@
 #   3  dirty-tree — tracked-file changes, or a merge/rebase/cherry-pick already
 #      in progress; no fetch is attempted
 #   4  fetch-failed — `git fetch origin main` failed (unreachable remote, no
-#      `origin`, no `main` on the remote, auth failure)
+#      `origin`, no `main` on the remote, auth failure), or an ssh command
+#      refused before the fetch for quoting or escaping up to its binary
 #   5  merge-conflict — an unresolvable merge, aborted; the tree is clean
 #   6  merge-failed — a merge refused for a non-conflict reason (an untracked
 #      file in the way, a config refusal); aborted if it had started
@@ -75,36 +76,6 @@ unset CDPATH
 # only interactive terminal prompting is disabled.
 GIT_TERMINAL_PROMPT=0
 export GIT_TERMINAL_PROMPT
-
-# ssh prompts on its own channel, which `GIT_TERMINAL_PROMPT` does not reach:
-# an unverified host key or a passphrase-protected key would block the fetch
-# just as hard as a credential prompt. `BatchMode=yes` turns both into a
-# fetch-failed exit the caller can act on. The cost is deliberate and worth
-# naming: first contact with a host absent from `known_hosts` now fails instead
-# of asking, making that a setup step rather than something the sync completes.
-# An agent-held key is unaffected, which is the fleet's normal case.
-#
-# The option has to WIN, not merely be present: ssh_config(5) specifies that
-# the FIRST obtained value of a parameter is the one used, so appending after a
-# caller's own `-o BatchMode=no` would leave the prompt live and hang the loop
-# exactly as if the guard were absent. When the incoming command names
-# BatchMode at all, ours goes in directly after the ssh binary so it is read
-# first, and the override is reported rather than silently discarded. The
-# ordinary case (no BatchMode in the caller's command) still just appends,
-# which keeps the common path clear of any parsing of the command string.
-_ssh_cmd=${GIT_SSH_COMMAND:-ssh}
-case "$_ssh_cmd" in
-  *BatchMode*)
-    _ssh_bin=${_ssh_cmd%%[[:space:]]*}
-    GIT_SSH_COMMAND="$_ssh_bin -o BatchMode=yes${_ssh_cmd#"$_ssh_bin"}"
-    printf 'converge-sync-main: note: GIT_SSH_COMMAND already sets BatchMode; forcing BatchMode=yes so the fetch cannot block on a prompt\n' >&2
-    ;;
-  *)
-    GIT_SSH_COMMAND="$_ssh_cmd -o BatchMode=yes"
-    ;;
-esac
-export GIT_SSH_COMMAND
-unset _ssh_cmd _ssh_bin
 
 # die <exit-code> <reason> <message> — the single failure surface. The reason
 # token is what the caller greps for and what keeps the causes distinct
@@ -154,6 +125,88 @@ repo_shown=$(printf '%s' "$repo" | tr '\n' ' ' | scrub)
 inside=$(git -C "$repo" rev-parse --is-inside-work-tree 2>/dev/null || true)
 [ "$inside" = true ] \
   || die 2 usage "not a git work tree: $repo_shown"
+
+# ssh prompts on its own channel, which `GIT_TERMINAL_PROMPT` does not reach:
+# an unverified host key or a passphrase-protected key would block the fetch
+# just as hard as a credential prompt. `BatchMode=yes` turns both into a
+# fetch-failed exit the caller can act on. The cost is deliberate and worth
+# naming: first contact with a host absent from `known_hosts` now fails instead
+# of asking, making that a setup step rather than something the sync completes.
+# An agent-held key is unaffected, which is the fleet's normal case.
+#
+# The base command follows git's own precedence as far as this script reads
+# it: the caller's GIT_SSH_COMMAND when set and non-empty, otherwise the
+# `core.sshCommand` in effect for the target repo, otherwise plain `ssh`.
+# Deliberate departures from git: an empty GIT_SSH_COMMAND falls through to
+# the config, and an empty `core.sshCommand` falls through to `ssh`, where
+# git would try to run the empty string in either case; and the legacy
+# GIT_SSH variable is not consulted, so a host relying on it alone still
+# loses it to the export below. Exporting GIT_SSH_COMMAND outranks the config
+# in git's precedence, so building on bare `ssh` would silently discard a
+# host's configured key and IdentitiesOnly, and the fetch would fail on
+# exactly the hosts whose remote access depends on that config. This is why
+# the block sits after the work-tree check: the config belongs to the target
+# repo, not to the directory the script was launched from.
+#
+# The option has to WIN, not merely be present: ssh_config(5) specifies that
+# the FIRST obtained value of a parameter is the one used, so appending after
+# an incoming `-o BatchMode=no` would leave the prompt live and hang the loop
+# exactly as if the guard were absent. When the incoming command names
+# BatchMode at all, ours goes in directly after the ssh binary so it is read
+# first, and the override is reported rather than silently discarded. The
+# ordinary case (no BatchMode in the incoming command) still just appends,
+# which keeps the common path clear of any parsing of the command string.
+#
+# The match is case-insensitive because ssh reads option names that way: a
+# `batchmode=no` keeps the prompt live exactly as the canonical spelling
+# does, so it has to be outranked, not left in place. And the binary is the
+# first word AFTER any leading blanks and `VAR=value` assignments (git hands
+# the string to a shell, where those are an environment prefix, not the
+# command): splicing before the binary would make the shell run `-o` and the
+# fetch would fail without ever reaching ssh. Quoting is not parsed: quoted
+# or escaped text before or in the ssh binary is refused rather than spliced,
+# since a cut at the wrong word can leave the prompt live or run the wrong
+# binary.
+_ssh_src=GIT_SSH_COMMAND
+_ssh_cmd=${GIT_SSH_COMMAND:-}
+if [ -z "$_ssh_cmd" ]; then
+  _ssh_src=core.sshCommand
+  _ssh_cmd=$(git -C "$repo" config --get core.sshCommand 2>/dev/null || true)
+fi
+[ -n "$_ssh_cmd" ] || _ssh_cmd=ssh
+case "$(printf '%s' "$_ssh_cmd" | tr '[:upper:]' '[:lower:]')" in
+  *batchmode*)
+    _ssh_pre=
+    _ssh_rest=$_ssh_cmd
+    while :; do
+      _ssh_ws=${_ssh_rest%%[![:space:]]*}
+      _ssh_pre=$_ssh_pre$_ssh_ws
+      _ssh_rest=${_ssh_rest#"$_ssh_ws"}
+      _ssh_bin=${_ssh_rest%%[[:space:]]*}
+      case "$_ssh_bin" in
+        *=*) ;;
+        *) break ;;
+      esac
+      case "${_ssh_bin%%=*}" in
+        '' | [0-9]* | *[!A-Za-z0-9_]*) break ;;
+      esac
+      _ssh_pre=$_ssh_pre$_ssh_bin
+      _ssh_rest=${_ssh_rest#"$_ssh_bin"}
+    done
+    case "$_ssh_pre$_ssh_bin" in
+      *[\'\"\\]*)
+        die 4 fetch-failed "refusing to add BatchMode=yes to $_ssh_src: it has a quote or backslash before or in the ssh binary, which this sync does not parse; no fetch was attempted and the tree is unchanged — unquote that part of the command and retry"
+        ;;
+    esac
+    GIT_SSH_COMMAND="$_ssh_pre$_ssh_bin -o BatchMode=yes${_ssh_rest#"$_ssh_bin"}"
+    printf 'converge-sync-main: note: %s already sets BatchMode; forcing BatchMode=yes so the fetch cannot block on a prompt\n' "$_ssh_src" >&2
+    ;;
+  *)
+    GIT_SSH_COMMAND="$_ssh_cmd -o BatchMode=yes"
+    ;;
+esac
+export GIT_SSH_COMMAND
+unset _ssh_cmd _ssh_bin _ssh_src _ssh_pre _ssh_rest _ssh_ws
 
 # --- pre-flight: the tree must be clean BEFORE the network -------------------
 #

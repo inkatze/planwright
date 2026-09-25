@@ -330,6 +330,9 @@ hostile_spec slash 'specs/my-spec'
 hostile_spec newline 'a
 b'
 hostile_spec leadhyphen '-spec'
+# `flight` is the reserved flight branch segment (tower-front-door D-11), so a
+# fragment can never be marked consumed by a spec of that name.
+hostile_spec reserved 'flight'
 after=$(find "$o" | sort)
 [ "$before" = "$after" ] || fail "9: a hostile refusal touched a path"
 echo "ok 9: hostile UID/spec arguments refuse cleanly with no path touched"

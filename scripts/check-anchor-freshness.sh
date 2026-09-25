@@ -453,8 +453,8 @@ report_recompute() {
 for dir in "$specs_root"/*/; do
   name=${dir%/}
   name=${name##*/}
-  # Underscore-prefixed directories are accumulators (_observations,
-  # _pending), not spec bundles.
+  # Underscore-prefixed directories are reserved (the accumulators and the
+  # flight record directory), not spec bundles.
   case $name in
     _*) continue ;;
   esac
@@ -475,6 +475,10 @@ for dir in "$specs_root"/*/; do
   esac
   [ "${#name}" -le 64 ] || {
     say_error "$name" "spec identifier longer than 64 characters; the bundle cannot be checked"
+    continue
+  }
+  [ "$name" != flight ] || {
+    say_error "$name" "reserved spec identifier: 'flight' is the flight branch segment (tower-front-door D-11); the bundle cannot be checked"
     continue
   }
 

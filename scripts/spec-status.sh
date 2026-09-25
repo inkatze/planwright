@@ -131,6 +131,10 @@ case "$spec_id" in
     printf '%s\n' "spec-status: invalid spec id '$(sanitize_printable "$spec_id")'" >&2
     exit 2
     ;;
+  flight)
+    printf '%s\n' "spec-status: reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)" >&2
+    exit 2
+    ;;
 esac
 
 # --- Format-version (REQ-C1.8): missing or unparseable fails closed. -------

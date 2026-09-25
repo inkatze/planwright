@@ -127,6 +127,10 @@ for spec_dir in "$@"; do
       printf '%s\n' "orchestrate-meta-select: invalid spec id '$(sanitize_printable "$spec_id" "(unprintable id)")' (must match ^[a-z0-9][a-z0-9-]*\$)" >&2
       exit 2
       ;;
+    flight)
+      printf '%s\n' "orchestrate-meta-select: refusing the reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)" >&2
+      exit 2
+      ;;
   esac
   if [ "${#spec_id}" -gt 64 ]; then
     printf '%s\n' "orchestrate-meta-select: spec id '$spec_id' exceeds 64 characters" >&2
