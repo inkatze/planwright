@@ -74,10 +74,10 @@ is the one sweep output read.
    own rule. Never edit a settings file from the tower: it cannot
    grant itself permissions.
 2. **Reconstruct from durable evidence (REQ-F1.4, D-9).** Read what is in
-   flight from evidence alone: the shared flight sweep's render when present and newer than this session's
-   start (a SessionStart hook is the deterministic arm, this step the fallback
-   that runs it; a sweep exiting non-zero is reported and the reads below
-   used), otherwise flight branches (`git branch --list 'planwright/flight/*'`,
+   flight from evidence alone: the shared flight sweep's render when present
+   and newer than this session's start (a SessionStart hook is the
+   deterministic arm, this step the fallback that runs it; a sweep exiting
+   non-zero is reported and the reads below used), otherwise flight branches (`git branch --list 'planwright/flight/*'`,
    bounded to the unmerged ones), each one's landing — its PR in any state
    (`gh pr list --state all --head <branch>`; any PR, open draft included,
    means landed)
@@ -213,9 +213,9 @@ tower never pre-counts from its own reads; a flight beyond the bound is
 declined to the operator with the re-ask path stated, never queued durably
 (REQ-C1.5). The worker loads full doctrine, converges through the one
 configured `review_sequence`, authors the record — the quoted ask sanitized
-per `security-posture` and markup-neutralized per `flight-rules` — and lands it. The tower
-relays the landing reference on arrival (REQ-F1.1); a flight without one
-is reported in the no-landing-yet form above.
+per `security-posture` and markup-neutralized per `flight-rules` — and lands
+it. The tower relays the landing reference on arrival (REQ-F1.1); a flight
+without one is reported in the no-landing-yet form above.
 
 The tower hands over exactly the ask, the route and its grounds as stated, and
 the declared record home; rung selection, the flight id, the worker brief, the
@@ -264,8 +264,8 @@ the signed spec only on an explicit, per-request go from the operator. It
 never self-starts on sign-off completion and never on the spec PR's merge.
 The go is relayed as an `/offload` petition whose text is exactly
 `/orchestrate specs/<spec> --watch`, `<spec>` checked as above; the tower
-answers `/offload`'s rung question with survive-the-tower, human-attachable, and run-beyond-the-session
-(a watch loop, per `work-placement`). If no present rung satisfies them, the
+answers `/offload`'s rung question with survive-the-tower, human-attachable,
+and run-beyond-the-session (a watch loop, per `work-placement`). If no present rung satisfies them, the
 tower declines the relay and hands the operator the command to run in an
 attached session; it never falls back to a subagent. It reports the worker's
 handle and observe hint; after that it only answers status, below.
@@ -336,8 +336,8 @@ On every route, overridden or not:
 After each session, compare these instructions against the doctrine they
 implement (the run-start manifest). If a concept this skill names has
 drifted, say so to the operator in one line and propose the drift observation as a captured item
-(`skill-drift(tower): <what>`, recorded through `scripts/obs-record.sh --slug
-skill-drift --scope <repo> --text <what>`, passed as one argument, never
+(the item `skill-drift(tower): <what>`, recorded through `scripts/obs-record.sh
+--slug skill-drift --scope <repo> --text <item>` as one argument, never
 interpolated into quotes, by the flight that carries it). In repositories
 without `specs/`, surface the drift to the operator instead of recording it.
 Do not edit this skill or the doctrine docs to resolve the drift;

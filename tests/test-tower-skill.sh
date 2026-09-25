@@ -418,7 +418,7 @@ fi
 quoted_text_arg() {
   printf '%s\n' "$1" | grep -oE -- "--text ['\"][^'\"]*['\"]" | head -1
 }
-if [ -z "$(quoted_text_arg "$flat")" ] && has_phrase '--text <what>`?,? passed as one argument, never interpolated into quotes'; then
+if [ -z "$(quoted_text_arg "$flat")" ] && has_phrase '--text <item>`? as one argument, never interpolated into quotes'; then
   ok "the drift-capture --text value is passed as one argument"
 else
   fail "the drift-capture --text value is interpolated into quotes or not stated as one argument"
