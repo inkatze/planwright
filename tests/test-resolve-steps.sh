@@ -356,8 +356,8 @@ malformed_case "an empty args" "kind: command" "target: fixture-tool" "args:"
 malformed_case "an empty requires" "kind: prompt" "target: p" "requires:"
 malformed_case "a block indicator as args" "kind: skill" "target: polish" "args: |"
 malformed_case "an indented block indicator as target" "kind: prompt" "target: |2-"
-# The quoted-whitespace id: the catalog reader keeps it, the merged view
-# re-emits it quoted, and the resolver judges the stored id by its layer.
+# An id left with an edge blank once its quote pair is stripped: the catalog
+# reader skips it as malformed, and the skip takes the by-layer policy.
 reset_layers
 printf 'steps:\n  - id: " foo"\n    kind: prompt\n    target: p\n' >"$tracked_cat"
 printf 'steps_pre_ci: [polish]\n' >"$tracked_cfg"
@@ -413,6 +413,14 @@ verdict "REQ-C1.5: an adopter entry that lost a line is skipped, never run witho
 capture pre-ci --check --unattended
 [ "$RC" = 1 ] && printf '%s' "$ERR" | grep -q 'not a field'
 verdict "REQ-H1.3: a quoted key in an adopter entry is degraded with its warning and fails check mode" "quoted adopter key: rc=$RC err='$ERR'"
+# A lost line on a duplicate the reader skips never damages the entry it
+# duplicates.
+reset_layers
+printf 'steps:\n  - id: mine\n    kind: prompt\n    target: hi\n  - id: mine\n    kind: prompt\n      nested: x\n' >"$adopter_cat"
+printf 'steps_pre_pr: [mine]\n' >"$adopter_cfg"
+capture pre-pr --unattended
+{ [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}mine" ] && ! printf '%s' "$ERR" | grep -q 'not a field'; } \
+  || fail "a lost line on a skipped duplicate must not drop the established entry: rc=$RC out='$OUT' err='$ERR'"
 # An indented line before a section's first entry belongs to no entry: the
 # entry it would have opened is never lost silently.
 reset_layers
@@ -989,6 +997,11 @@ printf 'steps_convergence:\n  - polish\n' >"$adopter_cfg"
 capture convergence --unattended
 { [ "$RC" = 0 ] && [ "$OUT" = "run${TAB}polish" ] && printf '%s' "$ERR" | grep -q 'adopter'; } \
   || fail "a malformed adopter config file should degrade with its warning replayed: rc=$RC out='$OUT' err='$ERR'"
+# Several reads of the same layer repeat config-get's warning; it is
+# replayed once.
+w=$(printf '%s\n' "$ERR" | grep '^config-get' | head -1)
+[ -n "$w" ] && [ "$(printf '%s\n' "$ERR" | grep -cxF "$w")" = 1 ] \
+  || fail "a sibling warning repeated across reads should be replayed once: err='$ERR'"
 capture convergence --check --unattended
 [ "$RC" = 1 ] || fail "check mode must fail on a sibling reader's degrade (rc=$RC)"
 # The same for a catalog the catalog reader degrades (a zero-entry adopter

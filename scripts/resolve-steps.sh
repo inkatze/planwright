@@ -751,9 +751,9 @@ EOF
 [ "$n_entries" -gt 0 ] || die 5 "the steps catalog holds no entry; the core seed always does (broken install)"
 have_core_entry=0
 # The --explain view supplies each entry's layer, matched by id: the
-# catalog reader quotes an id that would not re-parse identically, so the
-# merged view carries every id exactly as the reader stored it, and ids are
-# unique. With one section the two views list entries in the same order and
+# catalog reader skips an id that would not re-parse identically (an edge
+# blank or quote), so the merged view carries every id exactly as the reader
+# stored it, and ids are unique. With one section the two views list entries in the same order and
 # the ordinal must carry the same id; with several, the merged view is
 # grouped by section and each view line must match exactly one entry. A
 # mismatch (a catalog edited between the two reads, say) is never guessed
@@ -1149,7 +1149,7 @@ resolve_target() {
           "${claude_dir:+$claude_dir/skills/$SNAME/SKILL.md}" \
           "${repo_claude:+$repo_claude/commands/$SNAME.md}" \
           "${repo_claude:+$repo_claude/skills/$SNAME/SKILL.md}"; do
-          [ -n "$cand" ] || continue
+          case "$cand" in "" | *[[:cntrl:]]*) continue ;; esac
           if [ -f "$cand" ]; then
             LOC="$cand"
             break

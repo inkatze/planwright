@@ -61,9 +61,11 @@
 # four-space indent; values unquoted or double-quoted single-line scalars (no
 # single quotes, no inline `# ...` comments, no block scalars). The reader is
 # not full YAML — it stays dependency-free under the bash 3.2 floor (REQ-K1.5).
-# An id's surrounding double quotes are stripped only as a pair. Any other
-# indented line, inside an entry or before a section's first entry, is warned
-# about and skipped; the warning names the layer so a consumer can apply its
+# An id's surrounding double quotes are stripped only as a pair; an id left
+# with an edge blank or quote is malformed, warned about and skipped like an
+# empty one, so every emitted id re-reads identically. Any other indented
+# line, inside an entry or before a section's first entry, is warned about
+# and skipped; the warning names the layer so a consumer can apply its
 # by-layer policy. These warnings come from the merge path only: a core-only
 # catalog in yaml mode is emitted verbatim, while --explain always merges.
 #
@@ -313,6 +315,13 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     warn(lab[idx] " overlay parsed no entries (malformed): " fname[idx] "; degrading to the next lower layer")
   }
 
+  # An entry that lost lines is reported only once it is stored, so the
+  # warning names an entry a consumer can find (a skipped duplicate never
+  # makes its established namesake look damaged).
+  function warn_lost(id) {
+    if (cur_lost) warn(cur_label " entry \"" id "\" carries an indented line that is not a field; skipping the line")
+  }
+
   # Merge the pending entry per the append/union + supersede-by-id contract.
   function flush_entry(   id) {
     if (!have_entry) return
@@ -322,10 +331,15 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
       warn(cur_label " entry with an empty id; skipping")  # often an adopter
       return                             # typo). Warn so it does not vanish
     }                                    # silently, then skip it.
+    if (id ~ /^[ \t"]|[ \t"]$/) {       # edge blank or unpaired quote: an id no
+      warn(cur_label " entry \"" id "\" has a malformed id (edge whitespace or an unpaired quote); skipping entry")
+      return                             # consumer would re-read identically
+    }
     if (cur_supersede) {
       if (id in seen) {                  # replace the payload in place, keeping
         fields_of[id] = cur_fields       # the original section and position
         layer_of[id] = cur_label
+        warn_lost(id)
         return
       }
       # Supersede of a non-existent target: by-layer policy.
@@ -343,6 +357,7 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     }
     seen[id] = 1
     order[++n] = id
+    warn_lost(id)
     section_of[id] = cur_section
     fields_of[id] = cur_fields
     layer_of[id] = cur_label
@@ -388,6 +403,7 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     if (raw ~ /^".*"$/ && length(raw) >= 2) raw = substr(raw, 2, length(raw) - 2)
     cur_id = raw
     cur_supersede = 0
+    cur_lost = 0
     cur_fields = ""
     cur_section = section
     have_entry = 1
@@ -426,7 +442,7 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
   # or quoted key) is outside the constrained shape: skipped with a warning
   # so a consumer applying a by-layer policy can see the declaration it lost.
   have_entry && /^[ \t]/ {
-    warn(cur_label " entry \"" cur_id "\" carries an indented line that is not a field; skipping the line")
+    cur_lost = 1
     next
   }
 
@@ -455,11 +471,7 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
       for (i = 1; i <= n; i++) {
         id = order[i]
         if (section_of[id] != sec) continue
-        # An id the reader would not re-parse identically unquoted (edge
-        # whitespace, an edge quote) is re-emitted quoted, so a consumer of
-        # this view reads the id the reader stored.
-        if (id ~ /^[ \t"]|[ \t"]$/) print "  - id: \"" id "\""
-        else print "  - id: " id
+        print "  - id: " id
         m = split(fields_of[id], farr, "\n")
         for (j = 1; j <= m; j++) if (farr[j] != "") print "    " farr[j]
       }

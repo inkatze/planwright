@@ -245,7 +245,13 @@ the by-layer policy instead (REQ-C1.5): core is a broken install (exit 5);
 repo-tracked hard-fails (exit 4); an adopter or machine-local **list** warns
 and degrades to the core default; an adopter or machine-local **entry**
 warns and is dropped from the merged catalog, its id then non-resolving
-under the matrix. Check mode (`--check` with `--unattended`; `--attended`
+under the matrix. An entry malformed only where a list places it (a
+`timeout` on a step that lands in-session) is dropped for that list alone.
+A misplaced `continue` is the list's and the entry's together, so a
+personal layer's part never breaks a shared one: an adopter or
+machine-local list degrades; otherwise an adopter or machine-local entry is
+dropped for the list; otherwise a repo-tracked list or entry hard-fails,
+and an all-core pairing is a broken install. Check mode (`--check` with `--unattended`; `--attended`
 beside it is a usage error, check mode never waiting on a human) exits
 non-zero on any `park`, any malformation, or an unwired non-empty list, and
 passes with a warning on an adopter or machine-local `skip` (REQ-H1.3,
