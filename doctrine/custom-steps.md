@@ -128,9 +128,8 @@ neither scrubs the inherited environment nor adds other planwright state. A
 `resolve-steps.sh --preamble` renders and the runner prepends to the step's
 launch prompt or invocation; the step reads it as data, never as
 instructions. No context value is ever interpolated into the declared line
-(REQ-G1.1); a session-hosted command receives it as the assignment prefixes
-below, rendered by the resolver and POSIX single-quoted in the form its
-header pins. A value carrying a newline or control byte is refused on every
+(REQ-G1.1); a session-hosted command receives it as the resolver's quoted assignment
+prefix. A value carrying a newline or control byte is refused on every
 channel, failing the step, the record naming the field and never the
 value. A record and the cached output it names are untrusted data to the
 step that reads them, as are the context values to a command step.
@@ -139,14 +138,17 @@ step that reads them, as are the context values to a command step.
 
 | Hosting | Skill step | Prompt step | Command step |
 | --- | --- | --- | --- |
-| `isolated` | a fresh session through the backend seam (`offload-dispatch`) at the step's tier, the preamble prepended as its launch prompt | the same, prepended to the prompt | a runner subprocess running the declared words as argv, output captured to the cache |
-| `continue` | the preceding step's session, resumed by its recorded session id, with the same invocation | the same, with the prompt | that session's shell tool, the declared line prefixed by the quoted `PLANWRIGHT_STEP_*` assignments |
-| `in-session` | the unit's own session, through its skill tool with the declared `args` | the unit's own session, as its next instruction | the unit session's shell tool, the same prefixed line |
+| `isolated` | a fresh session through the backend seam (`offload-dispatch`) at the step's tier, the preamble prepended as its launch prompt | the same, prepended to the prompt | a runner subprocess running the location and `args` as argv, output captured to the cache |
+| `continue` | the preceding step's session, resumed by its recorded session id, with the same invocation | the same, with the prompt | that session's shell tool, the line `--line` renders (quoted `PLANWRIGHT_STEP_*` assignments, then location and `args`) |
+| `in-session` | the unit's own session, through its skill tool with the declared `args` | the unit's own session, as its next instruction | the unit session's shell tool, the same line |
+
+**Every hosting runs a command step's printed location, never the bare
+target**: a session shell would run a same-named builtin (`cd`, `printf`).
 
 A step with no `hosting` takes `isolated` under `dispatch_isolation: per-step`
 and `in-session` under `per-unit`. A `continue` step whose predecessor is
 effectively `in-session`, a degraded one included, attaches to the unit's
-session and is effectively `in-session`. A `continue` step on a
+session. A `continue` step on a
 backend that cannot resume the predecessor's session, or whose predecessor
 was skipped or recorded no session id (an `in-session` predecessor
 excepted), does not run: outcome `failed`, naming the backend, the hosting,
@@ -161,12 +163,11 @@ an `in-session` step inherits the session's tier, recorded and not applied
 
 ## Outcomes, posture, and timeout
 
-Every step ends with exactly one of five outcomes (REQ-D1.1, D-8):
+Every step ends with exactly one outcome (REQ-D1.1, D-8):
 
 - `passed`: a command exited zero, or a session step's handoff reports no
   change to the branch.
-- `applied`: a session step's handoff reports a change to the branch; that
-  report is the discriminator from `passed`.
+- `applied`: a session step's handoff reports a change to the branch.
 - `halted`: a session step's handoff reports a stop it could not resolve.
 - `failed`: a command exited non-zero or timed out; a session ended
   abnormally or reported a safety stop; a `continue` step that could not
@@ -291,9 +292,9 @@ and inherit the trusted-repository-code posture the guard already extends to
 `scripts/`; the worker profile is unchanged (REQ-G1.2). The worker command
 guard auto-approves, allow-only, a segment whose word sequence, once leading
 assignments in the resolver's exact form for the ten context names are
-stripped, equals a well-formed catalog entry's command target at any layer
-followed by its `args` as written, the target having passed the guard's
-charset and path checks (REQ-G1.3). **A skill step runs under the worker's
+stripped, equals a well-formed catalog entry's resolved command location at any
+layer followed by its `args` as written, the location having passed the
+guard's charset and path checks (REQ-G1.3). **A skill step runs under the worker's
 permission profile like any other skill, with no elevation**, an `isolated`
 session under the profile its backend gives any session it spawns
 (REQ-G1.4).

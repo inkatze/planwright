@@ -21,6 +21,7 @@
 #   resolve-steps.sh <point> [--explain] [--check] --attended|--unattended
 #   resolve-steps.sh <point> --preamble
 #   resolve-steps.sh <point> --prefix
+#   resolve-steps.sh <point> --line --attended|--unattended
 #
 #   <point>       one of the named points of doctrine/custom-steps.md's
 #                 vocabulary (the wired points, the two flip points, and the
@@ -44,6 +45,8 @@
 #   --preamble    render the fixed context block (below); resolves nothing.
 #   --prefix      render the fixed context as shell assignments (below);
 #                 resolves nothing.
+#   --line        resolve the point, then render the session-hosted line
+#                 for the command step PLANWRIGHT_STEP_ID names (below).
 #
 # Output (resolution modes): one line per step in list order, tab-separated,
 # newline-terminated, emitted only once the whole point has resolved:
@@ -105,9 +108,18 @@
 # The prefix (--prefix; REQ-D1.3, REQ-G1.3). The same fields as POSIX shell
 # assignments on one line, in the order above, single-quoted with an
 # embedded quote written '\'', separated by one space, for a session-hosted
-# command step's declared line: `<prefix> <target> <args>`. This is the exact
-# form the worker command guard is specified to strip before matching the
-# declared line.
+# command step's line. This is the exact form the worker command guard is
+# specified to strip before matching the line.
+#
+# The line (--line; REQ-D1.3). `<prefix> '<location>' <args>`: the prefix
+# above, the step's <location> single-quoted the same way, and its args as
+# declared. Every hosting runs the location, never the bare target: a bare
+# name that is also a shell builtin (`cd`, `printf`) would otherwise run the
+# builtin in a session's shell while an isolated step's argv runs the file,
+# so the printed location would not be what runs. The context is validated
+# as for --prefix (exit 6); the step must be a command step of the point's
+# list that resolves to run, else exit 1; a park or ask exits as resolution
+# does, printing no line.
 #
 # On both channels a value carrying a newline, another C0 control byte, or
 # DEL is refused (exit 6), the diagnostic naming the field and never the
@@ -127,7 +139,7 @@
 #   5  broken install: a malformed core list, entry, or catalog, a point key
 #      absent from every layer, a missing or duplicated pipeline-entry line,
 #      an unusable sibling script
-#   6  a refused context value (--preamble / --prefix only)
+#   6  a refused context value (--preamble / --prefix / --line only)
 #   130 / 143  interrupted or terminated by a signal (the shell's own
 #      convention), the scratch file removed
 #
@@ -179,6 +191,7 @@ OWN_NAMESPACE=planwright
 usage() {
   echo "usage: resolve-steps.sh <point> [--explain] [--check] --attended|--unattended" >&2
   echo "       resolve-steps.sh <point> --preamble | --prefix" >&2
+  echo "       resolve-steps.sh <point> --line --attended|--unattended" >&2
   exit 2
 }
 
@@ -188,6 +201,7 @@ explain=0
 check=0
 preamble=0
 prefix=0
+line_mode=0
 attendance=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -195,6 +209,7 @@ while [ $# -gt 0 ]; do
     --check) check=1 ;;
     --preamble) preamble=1 ;;
     --prefix) prefix=1 ;;
+    --line) line_mode=1 ;;
     --attended | --unattended)
       if [ -n "$attendance" ]; then
         echo "resolve-steps: --attended and --unattended are exclusive; pass exactly one" >&2
@@ -254,12 +269,18 @@ replay() {
 # ---------------------------------------------------------------------------
 # The context renderers (--preamble / --prefix)
 # ---------------------------------------------------------------------------
-if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ]; then
+if [ "$line_mode" -eq 1 ]; then
+  if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ] || [ "$explain" -eq 1 ] || [ "$check" -eq 1 ]; then
+    echo "resolve-steps: --line takes only an attendance flag" >&2
+    usage
+  fi
+fi
+if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ] || [ "$line_mode" -eq 1 ]; then
   if [ "$preamble" -eq 1 ] && [ "$prefix" -eq 1 ]; then
     echo "resolve-steps: --preamble and --prefix are exclusive" >&2
     usage
   fi
-  if [ "$explain" -eq 1 ] || [ "$check" -eq 1 ] || [ -n "$attendance" ]; then
+  if [ "$line_mode" -eq 0 ] && { [ "$explain" -eq 1 ] || [ "$check" -eq 1 ] || [ -n "$attendance" ]; }; then
     echo "resolve-steps: --preamble / --prefix render the context and take no resolution or attendance flag" >&2
     usage
   fi
@@ -297,6 +318,7 @@ if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ]; then
         ;;
     esac
     eval "ctx_$f=\$v"
+    [ "$f" != ID ] || ctx_step_id="$v"
   done
   if [ "$preamble" -eq 1 ]; then
     printf 'planwright-step-context-begin\n'
@@ -307,14 +329,16 @@ if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ]; then
     printf 'planwright-step-context-end\n'
     exit 0
   fi
-  line=""
+  ctx_prefix=""
   for f in $CONTEXT_FIELDS; do
     eval "v=\$ctx_$f"
     q=${v//\'/\'\\\'\'}
-    line="${line:+$line }PLANWRIGHT_STEP_$f='$q'"
+    ctx_prefix="${ctx_prefix:+$ctx_prefix }PLANWRIGHT_STEP_$f='$q'"
   done
-  printf '%s\n' "$line"
-  exit 0
+  if [ "$line_mode" -eq 0 ]; then
+    printf '%s\n' "$ctx_prefix"
+    exit 0
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -575,6 +599,7 @@ if [ "$unwired" -eq 1 ]; then
     warn "warning: point '$point' is not wired; its non-empty $key list (from the $list_layer layer) resolves no steps"
     [ "$check" -eq 1 ] && exit 1
   fi
+  [ "$line_mode" -eq 0 ] || die 1 "--line: point '$point' is not wired and runs no step"
   [ "$check" -eq 1 ] || exit 0
   ids=""
 fi
@@ -1411,6 +1436,20 @@ while [ "$i" -le "$n_steps" ]; do
 "
   i=$((i + 1))
 done
+if [ "$line_mode" -eq 1 ]; then
+  [ "$exit_code" -eq 0 ] || exit "$exit_code"
+  i=1
+  while [ "$i" -le "$n_steps" ]; do
+    if [ "${S_ID[i]}" = "$ctx_step_id" ] && [ -z "${S_REASON[i]}" ] && [ "${S_KIND[i]}" = command ]; then
+      en="${S_N[i]}"
+      q=${S_LOC[i]//\'/\'\\\'\'}
+      printf "%s '%s'%s\n" "$ctx_prefix" "$q" "${E_ARGS[en]:+ ${E_ARGS[en]}}"
+      exit 0
+    fi
+    i=$((i + 1))
+  done
+  die 1 "--line: step '$ctx_step_id' is not a command step of this point that resolves to run"
+fi
 [ -z "$out" ] || printf '%s' "$out"
 
 if [ "$check" -eq 1 ] && [ "$exit_code" -eq 0 ] && [ "$DEGRADED" -eq 1 ]; then
