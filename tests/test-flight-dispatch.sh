@@ -24,7 +24,8 @@
 #      with a re-ask line, no id minted and nothing placed; a freed slot (the
 #      worktree removed, or its directory gone and prunable) admits the
 #      re-ask; `0` pauses flights; a busy lock or an unreadable config fails
-#      closed; no config key but `max_parallel_units` is read.
+#      closed; no concurrency key but `max_parallel_units` is read (the
+#      home reads `flight_pr_hosts`).
 #   6. Two flights from one slug never collide (REQ-C1.1).
 #   7. The tmux rung hands the worker its brief through the native
 #      `claude --worktree` attach.
@@ -261,8 +262,10 @@ case $brief in
   "$c/fleet/"*) ;;
   *) fail "the brief must live under the fleet home, never in the checkout: $brief" ;;
 esac
-[ -z "$(find "$(dirname "$brief")" -mindepth 1 ! -name brief.md)" ] \
+[ -z "$(find "$(dirname "$brief")" -mindepth 1 ! -name brief.md ! -name checkout)" ] \
   || fail "a successful dispatch left scratch files beside the brief"
+[ "$(cat "$(dirname "$brief")/checkout")" = "$c/primary" ] \
+  || fail "the brief directory must record its checkout"
 [ -z "$(git -C "$wt" status --porcelain)" ] || fail "the flight worktree is dirty after dispatch"
 printf '%s\n' "$OUT" | grep -q "^root${TAB}tower${TAB}$ROOT${TAB}" \
   || fail "report must surface the tower's resolved plugin root (out: $OUT)"
@@ -479,8 +482,8 @@ printf '%s\n' "$OUT" | grep -q "^declined${TAB}3${TAB}3$" \
 case $ERR in *"out of range; using the shipped default 3"*) ;; *) fail "an out-of-range bound must warn: $ERR" ;; esac
 # shellcheck disable=SC2016 # a literal `"$CONFIG" <key>` call is the pattern
 if grep -v '^[[:space:]]*#' "$ROOT/scripts/flight-dispatch.sh" | grep -Eo '"\$CONFIG" [A-Za-z_]+' \
-  | grep -v ' max_parallel_units$' | grep -q .; then
-  fail "flight-dispatch.sh reads a config key other than max_parallel_units"
+  | grep -Ev ' (max_parallel_units|flight_pr_hosts)$' | grep -q .; then
+  fail "flight-dispatch.sh reads a config key other than max_parallel_units and flight_pr_hosts"
 fi
 # shellcheck disable=SC2016
 grep -Eo '"\$CONFIG" [A-Za-z_]+' "$ROOT/scripts/flight-dispatch.sh" | grep -q ' max_parallel_units$' \
