@@ -553,6 +553,33 @@ PLANWRIGHT_FLEET_STATE_DIR="$c/fl${TAB}eet" run dispatch readme-typo --backend p
 [ "$(flight_branches)" -eq 0 ] || fail "a control-byte path placed a flight branch"
 [ ! -e "$c/fl${TAB}eet/flights" ] || fail "a control-byte fleet home received a brief"
 
+# The brief directory is checked before the brief is written: a symlinked
+# flights directory, or one group or others can write, is refused, and so is
+# a fleet home others can write.
+new_case
+mkdir -p "$c/fleet" "$c/redirected"
+ln -s "$c/redirected" "$c/fleet/flights"
+dispatch_print
+[ "$RC" -eq 4 ] || fail "a symlinked flights directory must be refused (rc $RC: $ERR)"
+[ -z "$(ls -A "$c/redirected")" ] || fail "a brief was written through a symlinked flights directory"
+rm "$c/fleet/flights"
+mkdir -p "$c/fleet/flights"
+chmod 777 "$c/fleet/flights"
+dispatch_print
+[ "$RC" -eq 4 ] || fail "a world-writable flights directory must be refused (rc $RC: $ERR)"
+chmod 700 "$c/fleet/flights"
+chmod 777 "$c/fleet"
+dispatch_print
+[ "$RC" -eq 4 ] || fail "a world-writable fleet home must be refused (rc $RC: $ERR)"
+chmod 755 "$c/fleet"
+[ "$(flight_branches)" -eq 0 ] || fail "a refused brief directory placed a flight branch"
+[ "$(briefs)" -eq 0 ] || fail "a refused brief directory left a brief"
+dispatch_print
+[ "$RC" -eq 0 ] || fail "a private flights directory must be accepted (rc $RC: $ERR)"
+bdir=$(dirname "$(field "$OUT" brief)")
+[ -n "$(find "$bdir" -maxdepth 0 ! -perm -0001 ! -perm -0002 ! -perm -0004 ! -perm -0010 ! -perm -0020 ! -perm -0040 2>/dev/null)" ] \
+  || fail "the brief directory must be private to its owner"
+
 # Invisible and bidi-control code points are stripped from the ask and the
 # grounds before either reaches the brief, and the strip is flagged; ordinary
 # UTF-8 (an accent, an em dash sharing the bidi controls' lead bytes) stays.

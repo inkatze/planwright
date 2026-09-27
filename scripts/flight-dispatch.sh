@@ -343,6 +343,35 @@ sh_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
+# private_dir <dir> — a real directory the invoking user owns that neither
+# group nor others can write: the brief it holds is a worker's instructions.
+private_dir() {
+  [ ! -L "$1" ] && [ -d "$1" ] || return 1
+  _pd_uid=$(id -u) || return 1
+  [ -n "$(find "$1" -maxdepth 0 -user "$_pd_uid" ! -perm -0020 ! -perm -0002 2>/dev/null)" ]
+}
+
+# prepare_brief_dir — set `brief_dir` to a fresh, private directory for this
+# flight under the fleet home, checking what already exists before writing:
+# the fleet home and its flights directory must be private to the user, the
+# flights directory never a symlink, and the flight's own directory new.
+prepare_brief_dir() {
+  (umask 077 && mkdir -p "$fleet_home") || die 4 "cannot create the fleet home"
+  _fh_phys=$(cd "$fleet_home" && pwd -P) || die 4 "cannot resolve the fleet home"
+  private_dir "$_fh_phys" \
+    || die 4 "refusing to write a brief: the fleet home is not a directory owned by you that only you can write ($_fh_phys)"
+  _flights="$_fh_phys/flights"
+  [ ! -L "$_flights" ] || die 4 "refusing to write a brief: $_flights is a symlink"
+  (umask 077 && mkdir -p "$_flights") || die 4 "cannot create the flights directory under the fleet home"
+  private_dir "$_flights" \
+    || die 4 "refusing to write a brief: $_flights is not a directory owned by you that only you can write"
+  brief_dir="$_flights/$flight_id"
+  # A plain mkdir fails on anything already there, a symlink included.
+  (umask 077 && mkdir "$brief_dir") 2>/dev/null \
+    || die 4 "refusing to write a brief: $brief_dir already exists or cannot be created"
+  private_dir "$brief_dir" || die 4 "refusing to write a brief: $brief_dir is not private to you"
+}
+
 write_brief() {
   _doc_lines=''
   _docs=$(awk '/^Doctrine: (run-start|point-of-use) / {print $3}' "$MANIFEST_SKILL")
@@ -653,9 +682,7 @@ cmd_dispatch() {
 
   _wr=$(worker_root)
   brief_root=${_wr:-$root_dir}
-  brief_dir="$fleet_home/flights/$flight_id"
-  (umask 077 && mkdir -p "$brief_dir") || die 4 "cannot create the brief directory under the fleet home"
-  brief_dir=$(cd "$brief_dir" && pwd -P) || die 4 "cannot resolve the brief directory"
+  prepare_brief_dir
   brief="$brief_dir/brief.md"
   if ! (umask 077 && write_brief); then
     rm -rf "$brief_dir"
