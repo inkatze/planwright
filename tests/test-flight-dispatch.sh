@@ -538,6 +538,62 @@ dispatch_print
 [ -n "$(field "$OUT" flight)" ] || fail "a refused placement must name the flight id it minted"
 [ "$(briefs)" -eq 0 ] || fail "a placement that placed nothing left its brief behind"
 
+# --- 9b. report paths, the grounds read, an unreadable worktree list ---------
+# A path carrying a control byte would break the TAB-separated report: it is
+# refused before anything is placed.
+new_case
+git clone -q "$c/origin.git" "$c/pri${TAB}mary" 2>/dev/null
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/pri${TAB}mary"
+[ "$RC" -eq 2 ] || fail "a repo root carrying a control byte must be refused (rc $RC: $ERR)"
+case $ERR in *"control"*) ;; *) fail "the control-byte refusal must say why: $ERR" ;; esac
+PLANWRIGHT_FLEET_STATE_DIR="$c/fl${TAB}eet" run dispatch readme-typo --backend print \
+  --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "a fleet home carrying a control byte must be refused (rc $RC: $ERR)"
+[ "$(flight_branches)" -eq 0 ] || fail "a control-byte path placed a flight branch"
+[ ! -e "$c/fl${TAB}eet/flights" ] || fail "a control-byte fleet home received a brief"
+
+# A grounds file named like an option is read as a file, never as `cat`'s
+# option or stdin.
+new_case
+printf 'visual flight: grounds from a dash-named file\n' >"$c/-n"
+OUT=$(cd "$c" && "$SCRIPT" dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file -n --repo-root "$c/primary" </dev/null 2>"$tmp/err")
+RC=$?
+[ "$RC" -eq 0 ] || fail "a grounds file named -n must be read as a file (rc $RC: $(cat "$tmp/err"))"
+[ "$RC" -ne 0 ] || grep -q 'grounds from a dash-named file' "$(field "$OUT" brief)" \
+  || fail "the brief must carry the grounds read from the file named -n"
+
+# A worktree list that fails after a failed placement is not "no worktree":
+# the brief stays and the worktree state is reported unknown.
+real_git=$(command -v git)
+wlroot="$tmp/wlroot"
+mkdir -p "$wlroot" "$tmp/wlbin"
+cp -R "$ROOT/scripts" "$ROOT/skills" "$ROOT/config" "$ROOT/doctrine" "$ROOT/.claude-plugin" "$wlroot/"
+cat >"$wlroot/scripts/fleet-dispatch-worktree.sh" <<'EOF'
+#!/bin/sh
+: >"$WTLIST_FAIL_FLAG"
+echo "stub: placement failed" >&2
+exit 5
+EOF
+cat >"$tmp/wlbin/git" <<EOF
+#!/bin/sh
+if [ -e "\$WTLIST_FAIL_FLAG" ] && [ "\$3 \$4" = "worktree list" ]; then
+  exit 128
+fi
+exec '$real_git' "\$@"
+EOF
+chmod +x "$tmp/wlbin/git"
+new_case
+OUT=$(WTLIST_FAIL_FLAG="$c/wl.flag" PATH="$tmp/wlbin:$PATH" "$wlroot/scripts/flight-dispatch.sh" dispatch \
+  readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary" </dev/null 2>"$tmp/err")
+RC=$?
+[ "$RC" -eq 5 ] || fail "a failed placement with an unreadable worktree list must exit 5 (rc $RC: $(cat "$tmp/err"))"
+[ "$(field "$OUT" worktree)" = unknown ] || fail "an unreadable worktree list must report the worktree unknown (out: $OUT)"
+[ -n "$(field "$OUT" brief)" ] && [ -f "$(field "$OUT" brief)" ] \
+  || fail "an unreadable worktree list must keep and report the brief (out: $OUT)"
+
 # --- plugin-root pair with an installed plugin -------------------------------
 tower_v=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)
 for want in same skewed; do

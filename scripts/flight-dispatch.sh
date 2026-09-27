@@ -70,7 +70,9 @@
 # decline is `declined<TAB><live><TAB><bound>` plus a `reask` line. A failed
 # placement is `failed<TAB><reason>` plus the flight, branch, and the worktree
 # and brief left behind, if any; a worktree left behind adds a `reask` line
-# saying it holds a slot.
+# saying it holds a slot. When the worktree list cannot be read, the worktree
+# is reported `unknown` and the brief is kept. A repo root or fleet home whose
+# path carries a control byte is refused up front, so no report line splits.
 #
 # Exit codes: 0 placed / declared; 2 usage, a malformed or hostile input, a
 # refused rung, or a missing sibling helper (nothing placed); 3 declined at the
@@ -318,6 +320,12 @@ quote_block() {
   tr -d '\000-\010\013-\037\177' <"$1" | sed 's/^/> /'
 }
 
+# has_ctl <text> — true when the text carries a control byte, which would
+# break a TAB-separated report line or split it in two.
+has_ctl() {
+  [ "$(printf '%s' "$1" | tr -d '\000-\037\177')" != "$1" ]
+}
+
 sh_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
@@ -415,12 +423,13 @@ and open no PR. The committed record is the landing reference."
 }
 
 # placed_at — print the registered worktree path holding the flight branch,
-# empty when none does.
+# empty when none does; fails when the worktree list cannot be read, which is
+# not the same as no worktree.
 placed_at() {
-  git -C "$repo_root" worktree list --porcelain 2>/dev/null \
-    | awk -v want="branch refs/heads/$branch" '
-        index($0, "worktree ") == 1 { p = substr($0, 10) }
-        $0 == want { print p; exit }'
+  _pa_list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null) || return 1
+  printf '%s\n' "$_pa_list" | awk -v want="branch refs/heads/$branch" '
+    index($0, "worktree ") == 1 { p = substr($0, 10) }
+    $0 == want { print p; exit }'
 }
 
 # relay_err — the primitive's stderr, control bytes other than tab and newline
@@ -432,14 +441,17 @@ relay_err() {
 
 # placement_failed <primitive-exit> — relay the primitive's diagnostic, report
 # what was left behind, and exit. A brief whose flight never got a worktree is
-# removed; one that did stays beside it, since a relaunch needs it.
+# removed; one that did, or may have, stays beside it, since a relaunch needs it.
 placement_failed() {
   relay_err
-  _left=$(placed_at)
   printf 'failed\tplacing the flight failed (worktree primitive exit %s)\n' "$1"
   printf 'flight\t%s\n' "$flight_id"
   printf 'branch\t%s\n' "$branch"
-  if [ -n "$_left" ]; then
+  if ! _left=$(placed_at); then
+    printf 'worktree\tunknown\n'
+    printf 'brief\t%s\n' "$brief"
+    printf 'reask\t%s\n' "The worktree list could not be read, so whether a worktree was placed is unknown; the brief was kept. Check git worktree list before asking again: a placed worktree holds a slot until it is removed."
+  elif [ -n "$_left" ]; then
     printf 'worktree\t%s\n' "$_left"
     printf 'brief\t%s\n' "$brief"
     printf 'reask\t%s\n' "The worktree was placed but the worker did not start; it holds a slot until it is removed (git worktree remove) or relaunched."
@@ -533,7 +545,7 @@ cmd_dispatch() {
   [ "$_g_bytes" -le 402 ] || die 2 "the grounds must be one line of 400 characters at most"
   [ "$(wc -l <"$grounds_file" | tr -d ' ')" -le 1 ] \
     || die 2 "--grounds-file must hold one line"
-  grounds=$(cat "$grounds_file") || die 2 "cannot read --grounds-file"
+  grounds=$(cat <"$grounds_file") || die 2 "cannot read --grounds-file"
   [ -n "$grounds" ] || die 2 "--grounds-file is empty: a route is never silent"
   [ "$(printf '%s' "$grounds" | tr -d '\000-\037\177')" = "$grounds" ] \
     || die 2 "the grounds must be one line without control characters"
@@ -544,6 +556,7 @@ cmd_dispatch() {
   esac
 
   resolve_repo
+  ! has_ctl "$repo_root" || die 2 "refusing a repo root whose path carries a control character"
   [ -n "$home" ] || home=$(declare_home)
 
   sequence=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$SEQUENCE" </dev/null) || {
@@ -553,6 +566,7 @@ cmd_dispatch() {
   [ -n "$sequence" ] || die 4 "review_sequence resolved empty"
 
   fleet_home=$(/bin/sh "$STATE" root 2>/dev/null </dev/null) || die 4 "cannot resolve the fleet home"
+  ! has_ctl "$fleet_home" || die 2 "refusing a fleet home whose path carries a control character"
 
   # Fetch before the lock, so the placement's own fetch inside it is served
   # fresh from the fetch TTL and the lock is held for seconds, not a network
@@ -646,7 +660,7 @@ cmd_dispatch() {
   out=$(cat "$_out" 2>/dev/null)
   rm -f "$brief_dir/dispatch.err" "$_out"
 
-  worktree=$(placed_at)
+  worktree=$(placed_at) || worktree=''
   [ -n "$worktree" ] || worktree="$repo_root/.claude/worktrees/$suffix"
   # A print-rung flight spawns nothing until the operator runs the launch, so
   # its dispatch record is the only evidence it exists, as for a print-rung
