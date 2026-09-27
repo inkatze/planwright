@@ -1,8 +1,8 @@
 #!/bin/bash
 # Tests for scripts/resolve-steps.sh — the custom-steps point resolver
 # (custom-steps Task 2; REQ-A1.1, REQ-A1.3, REQ-A1.4, REQ-B1.1–B1.4,
-# REQ-B1.6, REQ-C1.1–C1.6, REQ-C1.8, REQ-D1.8, REQ-D1.9, REQ-G1.1, REQ-H1.3;
-# D-4, D-5, D-6, D-10, D-17, D-19).
+# REQ-B1.6, REQ-C1.1–C1.6, REQ-C1.8, REQ-D1.3, REQ-D1.8, REQ-D1.9, REQ-G1.1,
+# REQ-H1.3; D-4, D-5, D-6, D-10, D-17, D-19).
 #
 # Every fixture lives under a temporary home: a fixture core root (defaults,
 # the steps seed, a skills tree, a doctrine dir), the adopter root, a repo
@@ -717,7 +717,7 @@ check_loc s-multi "$plug2/skills/v2-skill/SKILL.md"
 check_loc s-first "$plug/skills/their-skill/SKILL.md"
 check_loc c-name "$bin/fixture-tool"
 check_loc c-path "$bin/fixture-tool"
-check_loc c-rel "./rel-tool"
+check_loc c-rel "$tmp/rel-tool"
 check_loc p-text "-"
 ok "REQ-C1.3/D-19: skill, command, and prompt targets resolve on the host through every lookup rule"
 # The declared command line is emitted as written (runs of spaces kept), and
@@ -1296,79 +1296,99 @@ out=$(cd "$tmp/glob" && ctx_run PLANWRIGHT_STEP_TASK_IDS='*' -- pre-pr --preambl
 verdict "a glob in the task ids is judged as written, never expanded" "glob task id: rc=$rc out='$out'"
 
 # =============================================================================
-# 13b. The session-hosted command line runs the resolved location (REQ-D1.3).
+# 13b. A command step's line runs the resolved location (REQ-D1.3).
 # =============================================================================
 # A bare target naming a shell builtin that the host also ships as a file on
 # the path: a session's shell given the bare name runs its builtin, so the
-# line --line renders must name the file the resolver printed instead.
+# line --line renders from the point's resolution must name the file the
+# resolver printed instead.
 reset_layers
 for b in printf cd; do
-  printf '#!/bin/sh\n: >"%s/ran-%s"\n' "$tmp" "$b" >"$bin/$b"
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >"%s/ran-%s"\n' "$tmp" "$b" >"$bin/$b"
   chmod +x "$bin/$b"
 done
-cat_entry "$tracked_cat" say "kind: command" "target: printf" "args: hello" "hosting: in-session"
+cat_entry "$tracked_cat" say "kind: command" "target: printf" "args: hello =x" "hosting: in-session"
 cat_entry "$tracked_cat" hop "kind: command" "target: cd" "args: nowhere" "hosting: continue"
-cat_entry "$tracked_cat" iso "kind: command" "target: printf" "args: hello" "hosting: isolated"
+cat_entry "$tracked_cat" iso "kind: command" "target: printf" "args: hello =x" "hosting: isolated"
 printf 'steps_pre_pr: [say, hop, iso]\n' >"$tracked_cfg"
-# The control: the bare declared line runs the builtin, never the file.
+# The control: the bare name runs the builtin, never the file.
 rm -f "$tmp/ran-printf"
-(cd "$tmp" && PATH="$bin:$PATH" sh -c "$(ctx_run PLANWRIGHT_STEP_ID=say -- pre-pr --prefix) printf hello") >/dev/null 2>&1
-[ ! -e "$tmp/ran-printf" ] || fail "13b control: the fixture shell ran the printf file for a bare name; the case below proves nothing"
+got=$(cd "$tmp" && PATH="$bin:$PATH" sh -c "$(ctx_run PLANWRIGHT_STEP_ID=say -- pre-pr --prefix) printf hello" 2>/dev/null)
+[ "$got" = hello ] && [ ! -e "$tmp/ran-printf" ] \
+  || fail "13b control: the bare name did not run the printf builtin (got '$got'); the case below proves nothing"
 EXPL=$(ctx_run -- pre-pr --explain --unattended 2>"$tmp/err")
 RC=$?
 [ "$RC" = 0 ] || fail "13b setup: --explain rc=$RC err='$(cat "$tmp/err")'"
 for sid in say hop iso; do
-  loc=$(printf '%s\n' "$EXPL" | awk -F'\t' -v s="$sid" '$2 == s { print $13 }')
-  case "$sid" in hop) b=cd want=nowhere ;; *) b=printf want=hello ;; esac
+  row=$(printf '%s\n' "$EXPL" | awk -F'\t' -v s="$sid" '$2 == s')
+  loc=$(printf '%s\n' "$row" | cut -f13)
+  args=$(printf '%s\n' "$row" | cut -f9)
+  case "$sid" in hop) b="cd" ;; *) b="printf" ;; esac
   [ "$loc" = "$bin/$b" ] || fail "13b: '$sid' location '$loc' (want $bin/$b)"
   rm -f "$tmp/ran-$b"
-  LINE=$(ctx_run PLANWRIGHT_STEP_ID="$sid" -- pre-pr --line --unattended 2>"$tmp/err")
+  # shellcheck disable=SC2086 # the runner splits the declared args into words
+  LINE=$(ctx_run PLANWRIGHT_STEP_ID="$sid" -- pre-pr --line "$loc" $args 2>"$tmp/err")
   RC=$?
   prefix=$(ctx_run PLANWRIGHT_STEP_ID="$sid" -- pre-pr --prefix 2>/dev/null)
-  if [ "$RC" != 0 ] || [ "$LINE" != "$prefix '$loc' $want" ]; then
-    fail "13b: --line for '$sid': rc=$RC line='$LINE' err='$(cat "$tmp/err")'"
+  want="$prefix '$loc'"
+  for w in $args; do want="$want '$w'"; done
+  if [ "$RC" != 0 ] || [ "$LINE" != "$want" ]; then
+    fail "13b: --line for '$sid': rc=$RC line='$LINE' want='$want' err='$(cat "$tmp/err")'"
     continue
   fi
   (cd "$tmp" && PATH="$bin:$PATH" sh -c "$LINE") >/dev/null 2>&1
-  [ -e "$tmp/ran-$b" ] || fail "13b: the session shell ran the '$b' builtin, not the file at $loc, for '$sid'"
+  [ "$(cat "$tmp/ran-$b" 2>/dev/null)" = "$args" ] \
+    || fail "13b: the session shell did not run the file at $loc with its args for '$sid'"
 done
-ok "REQ-D1.3: a session-hosted command line names the resolved location, so a builtin-named target runs the file the resolver printed, the same file an isolated step runs as argv"
+ok "REQ-D1.3: a command step's line names the resolved location and quotes each arg, so a builtin-named target runs the file the resolver printed, the same words an isolated step runs as argv"
+rm -f "$bin/printf" "$bin/cd"
 # A location whose directory carries a space and a quote survives the shell.
 odd="$tmp/it's a dir"
 mkdir -p "$odd"
 printf '#!/bin/sh\n: >"%s/ran-odd"\n' "$tmp" >"$odd/odd-tool"
 chmod +x "$odd/odd-tool"
-reset_layers
-cat_entry "$tracked_cat" odd "kind: command" "target: odd-tool" "hosting: in-session"
-printf 'steps_pre_pr: [odd]\n' >"$tracked_cfg"
-LINE=$(PATH="$odd:$PATH" ctx_run PLANWRIGHT_STEP_ID=odd -- pre-pr --line --unattended 2>"$tmp/err")
-RC=$?
 rm -f "$tmp/ran-odd"
-[ "$RC" = 0 ] && (cd "$tmp" && sh -c "$LINE") >/dev/null 2>&1 && [ -e "$tmp/ran-odd" ]
-verdict "the rendered location is single-quoted, so a path entry with a space or quote runs as one word" "odd location: rc=$RC line='$LINE' err='$(cat "$tmp/err")'"
-# --line renders only a resolved command step of the point.
-rc=0
-ctx_run PLANWRIGHT_STEP_ID=polish -- convergence --line --unattended >/dev/null 2>&1 || rc=$?
-[ "$rc" = 1 ]
-verdict "--line refuses a step that is not a command step (exit 1)" "--line on a skill step: rc=$rc"
-rc=0
-ctx_run PLANWRIGHT_STEP_ID=absent -- pre-pr --line --unattended >/dev/null 2>&1 || rc=$?
-[ "$rc" = 1 ]
-verdict "--line refuses a step id the point's list does not carry (exit 1)" "--line on an absent id: rc=$rc"
-for bad in "--explain" "--check" "--prefix" "--preamble"; do
+LINE=$(ctx_run PLANWRIGHT_STEP_ID=odd -- pre-pr --line "$odd/odd-tool" 2>/dev/null)
+RC=$?
+(cd "$tmp" && sh -c "$LINE") >/dev/null 2>&1
+[ "$RC" = 0 ] && [ -e "$tmp/ran-odd" ]
+verdict "the rendered location is single-quoted, so a path with a space or quote runs as one word" "odd location: rc=$RC line='$LINE'"
+# A relative command target resolves to an absolute location, so the line
+# never depends on the session shell's working directory.
+reset_layers
+mkdir -p "$repo/tools"
+printf '#!/bin/sh\n: >"%s/ran-rel"\n' "$tmp" >"$repo/tools/rel"
+chmod +x "$repo/tools/rel"
+cat_entry "$tracked_cat" rel "kind: command" "target: ./tools/rel" "hosting: in-session"
+printf 'steps_pre_pr: [rel]\n' >"$tracked_cfg"
+loc=$(cd "$repo" && ctx_run -- pre-pr --explain --unattended 2>/dev/null | cut -f13)
+[ "$loc" = "$repo/tools/rel" ]
+verdict "a relative command target's location is absolute" "relative target location: '$loc'"
+# --line refuses a location that is not absolute and an arg outside the args
+# charset, and is exclusive with every other mode.
+for bad in "tools/rel" "" "-x"; do
   rc=0
-  ctx_run PLANWRIGHT_STEP_ID=odd -- pre-pr --line "$bad" --unattended >/dev/null 2>&1 || rc=$?
-  [ "$rc" = 2 ] || fail "--line with $bad: rc=$rc (want 2)"
+  ctx_run -- pre-pr --line "$bad" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "--line with location '$bad': rc=$rc (want 2)"
 done
 rc=0
-ctx_run PLANWRIGHT_STEP_ID=odd -- pre-pr --line >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "--line with no attendance flag: rc=$rc (want 2)"
-ok "--line is exclusive with the other modes and takes an attendance flag"
+ctx_run -- pre-pr --line >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "--line with no location: rc=$rc (want 2)"
+for bad in 'a b' "\$HOME" "it's" '*'; do
+  rc=0
+  ctx_run -- pre-pr --line /bin/true "$bad" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "--line with arg '$bad': rc=$rc (want 2)"
+done
+for other in --explain --check --prefix --preamble --unattended; do
+  rc=0
+  ctx_run -- pre-pr "$other" --line /bin/true >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "$other with --line: rc=$rc (want 2)"
+done
+ok "--line refuses a relative or missing location and an arg outside the charset, and takes no other mode or attendance flag"
 rc=0
-PATH="$odd:$PATH" ctx_run PLANWRIGHT_STEP_ID=odd PLANWRIGHT_STEP_BRANCH="$(printf 'a\nb')" -- pre-pr --line --unattended >/dev/null 2>&1 || rc=$?
+ctx_run PLANWRIGHT_STEP_BRANCH="$(printf 'a\nb')" -- pre-pr --line /bin/true >/dev/null 2>&1 || rc=$?
 [ "$rc" = 6 ]
 verdict "--line refuses a context value carrying a newline (exit 6)" "--line bad context: rc=$rc"
-
 # =============================================================================
 # 14. Output contract: newline-terminated, deterministic, explain columns.
 # =============================================================================

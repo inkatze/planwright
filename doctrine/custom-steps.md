@@ -73,7 +73,7 @@ value is a single-line scalar of the constrained reader.
 | `id` | required; `^[a-z][a-z0-9-]*$`, at most 64 bytes, validated before any key or path use; `implementation` is reserved for the unit's implementation phase, never a step id |
 | `kind` | required; `skill`, `command`, or `prompt` |
 | `target` | required; per the kind's grammar below |
-| `args` | optional; on a skill, passed to the invocation verbatim and never shell-interpreted; on a command, plain words only (no operators, redirections, expansions, or quoting), so the declared line is one simple command, the same under a shell and as argv; forbidden on a prompt, whose target is the whole prompt |
+| `args` | optional; on a skill, passed to the invocation verbatim and never shell-interpreted; on a command, plain words only (no operators, redirections, expansions, or quoting), so the step's words are the same under a shell and as argv; forbidden on a prompt, whose target is the whole prompt |
 | `hosting` | optional; `isolated`, `continue`, or `in-session`; default per *Hosting* |
 | `on-failure` | optional; `halt` (default) or `continue` |
 | `timeout` | optional; a positive integer of seconds, unset meaning no limit beyond a hosting tool's own; forbidden on an `in-session` skill or prompt step |
@@ -139,7 +139,7 @@ step that reads them, as are the context values to a command step.
 | Hosting | Skill step | Prompt step | Command step |
 | --- | --- | --- | --- |
 | `isolated` | a fresh session through the backend seam (`offload-dispatch`) at the step's tier, the preamble prepended as its launch prompt | the same, prepended to the prompt | a runner subprocess running the location and `args` as argv, output captured to the cache |
-| `continue` | the preceding step's session, resumed by its recorded session id, with the same invocation | the same, with the prompt | that session's shell tool, the line `--line` renders (quoted `PLANWRIGHT_STEP_*` assignments, then location and `args`) |
+| `continue` | the preceding step's session, resumed by its recorded session id, with the same invocation | the same, with the prompt | that session's shell tool, the line `resolve-steps.sh --line` renders (quoted `PLANWRIGHT_STEP_*` assignments, location, and `args`) |
 | `in-session` | the unit's own session, through its skill tool with the declared `args` | the unit's own session, as its next instruction | the unit session's shell tool, the same line |
 
 **Every hosting runs a command step's printed location, never the bare
@@ -292,9 +292,9 @@ and inherit the trusted-repository-code posture the guard already extends to
 `scripts/`; the worker profile is unchanged (REQ-G1.2). The worker command
 guard auto-approves, allow-only, a segment whose word sequence, once leading
 assignments in the resolver's exact form for the ten context names are
-stripped, equals a well-formed catalog entry's resolved command location at any
-layer followed by its `args` as written, the location having passed the
-guard's charset and path checks (REQ-G1.3). **A skill step runs under the worker's
+stripped, equals exactly a well-formed catalog entry's location, as the
+resolver prints it on the guard's host, followed by its `args`, the location
+having passed the guard's charset and path checks (REQ-G1.3). **A skill step runs under the worker's
 permission profile like any other skill, with no elevation**, an `isolated`
 session under the profile its backend gives any session it spawns
 (REQ-G1.4).

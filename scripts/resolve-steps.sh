@@ -3,10 +3,12 @@
 # the runner executes there, with provenance, the missing-step decision, and
 # the by-layer malformed policy applied before anything runs (custom-steps
 # Task 2; REQ-A1.3, REQ-A1.4, REQ-B1.1–B1.6, REQ-C1.1–C1.6, REQ-C1.8,
-# REQ-D1.8, REQ-D1.9, REQ-G1.1, REQ-H1.3; D-4, D-5, D-6, D-10, D-17, D-19).
+# REQ-D1.3, REQ-D1.8, REQ-D1.9, REQ-G1.1, REQ-H1.3; D-4, D-5, D-6, D-10,
+# D-17, D-19).
 # doctrine/custom-steps.md is the normative home of every rule this script
 # applies; this header pins what that doc delegates here (the output line
-# format, the exit codes, the preamble layout, and the prefix quoting) and
+# format, the exit codes, the preamble layout, the prefix quoting, and the
+# command line) and
 # summarizes the rest for a reader of this file, the doc winning on conflict.
 #
 # A point's list is config, read THROUGH config-get.sh (last-layer-wins; its
@@ -21,7 +23,7 @@
 #   resolve-steps.sh <point> [--explain] [--check] --attended|--unattended
 #   resolve-steps.sh <point> --preamble
 #   resolve-steps.sh <point> --prefix
-#   resolve-steps.sh <point> --line --attended|--unattended
+#   resolve-steps.sh <point> --line <location> [<arg>...]
 #
 #   <point>       one of the named points of doctrine/custom-steps.md's
 #                 vocabulary (the wired points, the two flip points, and the
@@ -32,7 +34,8 @@
 #                 the hosting skill (--unattended exactly when the unit was
 #                 launched headless). Exactly one is required in the
 #                 resolution modes; neither, or both, is a usage error. The
-#                 render modes take no attendance flag.
+#                 render modes (--preamble, --prefix, --line) take no
+#                 attendance flag.
 #   --explain     append the provenance and execution fields to each line.
 #   --check       check mode: pass only when every step of a wired point
 #                 resolves to `run`, or to a `skip` from the adopter or
@@ -45,8 +48,9 @@
 #   --preamble    render the fixed context block (below); resolves nothing.
 #   --prefix      render the fixed context as shell assignments (below);
 #                 resolves nothing.
-#   --line        resolve the point, then render the session-hosted line
-#                 for the command step PLANWRIGHT_STEP_ID names (below).
+#   --line        render a command step's line from the <location> and
+#                 args the point's resolution printed (below); resolves
+#                 nothing. Every word after it is an operand.
 #
 # Output (resolution modes): one line per step in list order, tab-separated,
 # newline-terminated, emitted only once the whole point has resolved:
@@ -62,10 +66,9 @@
 # parses them (a surrounding pair of double quotes and trailing blanks
 # removed); <on-failure> is the effective posture (`halt` when unset);
 # <location> is
-# the host path a skill or command target resolved to (a prompt prints `-`;
-# a relative command path is printed as declared, relative to the working
-# directory this script runs in, which the hosting skill makes the unit's
-# worktree). An empty or inapplicable field prints `-`. No line carries a
+# the absolute host path a skill or command target resolved to (a prompt
+# prints `-`; a relative command path is joined to the working directory
+# this script runs in, which the hosting skill makes the unit's worktree). An empty or inapplicable field prints `-`. No line carries a
 # C0 control byte or DEL: a catalog value carrying one is malformed for its
 # layer, and a location built from the environment that carries one does
 # not resolve.
@@ -111,28 +114,29 @@
 # command step's line. This is the exact form the worker command guard is
 # specified to strip before matching the line.
 #
-# The line (--line; REQ-D1.3). `<prefix> '<location>' <args>`: the prefix
-# above, the step's <location> single-quoted the same way, and its args as
-# declared. Every hosting runs the location, never the bare target: a bare
-# name that is also a shell builtin (`cd`, `printf`) would otherwise run the
-# builtin in a session's shell while an isolated step's argv runs the file,
-# so the printed location would not be what runs. The context is validated
-# as for --prefix (exit 6); the step must be a command step of the point's
-# list that resolves to run, else exit 1; a park or ask exits as resolution
-# does, printing no line.
+# The line (--line; REQ-D1.3, REQ-G1.3). `<prefix> '<location>' '<arg>'...`:
+# the prefix above, then the step's <location> and each of its args words,
+# each single-quoted the same way, one space apart. The runner passes the
+# <location> and args of the step's --explain line from the point's one
+# resolution, so the line runs what that resolution printed; an isolated step
+# runs the same words as argv. Every hosting runs the location, never the
+# bare target: a session shell given a bare name that is also a builtin
+# (`cd`, `printf`) runs the builtin, not the file. A <location> that is not
+# absolute, and an arg outside the args charset, is a usage error.
 #
-# On both channels a value carrying a newline, another C0 control byte, or
+# On every channel a value carrying a newline, another C0 control byte, or
 # DEL is refused (exit 6), the diagnostic naming the field and never the
 # value; so is a unit kind outside task|spec|flight, a task id outside the
 # task-id grammar, or a non-numeric PR number.
 #
 # Exit codes (REQ-H1.3):
 #   0  every step is run (a skip counts as run); or the point is unwired
-#      (nothing to run); or a context block was rendered
+#      (nothing to run); or a context block or a line was rendered
 #   1  the point runs nothing: a park or an ask; or, in check mode, a
 #      failure the by-layer policy did not already map to 4 or 5
 #   2  usage: an unknown point, an attendance flag missing or doubled,
-#      --check with --attended, an unknown or conflicting flag
+#      --check with --attended, an unknown or conflicting flag; --line
+#      without an absolute location or with an arg outside the charset
 #   4  a malformed repo-tracked list or entry, or a structurally malformed
 #      repo-tracked config or catalog (config-get's own 4, resolve-catalog's
 #      hard-fail naming the repo-tracked layer)
@@ -191,7 +195,7 @@ OWN_NAMESPACE=planwright
 usage() {
   echo "usage: resolve-steps.sh <point> [--explain] [--check] --attended|--unattended" >&2
   echo "       resolve-steps.sh <point> --preamble | --prefix" >&2
-  echo "       resolve-steps.sh <point> --line --attended|--unattended" >&2
+  echo "       resolve-steps.sh <point> --line <location> [<arg>...]" >&2
   exit 2
 }
 
@@ -202,6 +206,7 @@ check=0
 preamble=0
 prefix=0
 line_mode=0
+line_words=()
 attendance=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -209,7 +214,12 @@ while [ $# -gt 0 ]; do
     --check) check=1 ;;
     --preamble) preamble=1 ;;
     --prefix) prefix=1 ;;
-    --line) line_mode=1 ;;
+    --line)
+      line_mode=1
+      shift
+      line_words=("$@")
+      break
+      ;;
     --attended | --unattended)
       if [ -n "$attendance" ]; then
         echo "resolve-steps: --attended and --unattended are exclusive; pass exactly one" >&2
@@ -266,23 +276,47 @@ replay() {
     "$replayed" "$1" | tee -a "$replayed" | tr -d '\000-\011\013-\037\177\200-\237' >&2
 }
 
+# command_word_ok <word>: one word of a command step's args (the args
+# charset), shared by entry validation and --line.
+command_word_ok() {
+  case "$1" in
+    "" | *[!A-Za-z0-9._/:=@%,+-]*) return 1 ;;
+  esac
+  return 0
+}
+
 # ---------------------------------------------------------------------------
-# The context renderers (--preamble / --prefix)
+# The context renderers (--preamble / --prefix / --line)
 # ---------------------------------------------------------------------------
-if [ "$line_mode" -eq 1 ]; then
-  if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ] || [ "$explain" -eq 1 ] || [ "$check" -eq 1 ]; then
-    echo "resolve-steps: --line takes only an attendance flag" >&2
+if [ $((preamble + prefix + line_mode)) -gt 0 ]; then
+  if [ $((preamble + prefix + line_mode)) -gt 1 ]; then
+    echo "resolve-steps: --preamble, --prefix, and --line are exclusive" >&2
     usage
   fi
-fi
-if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ] || [ "$line_mode" -eq 1 ]; then
-  if [ "$preamble" -eq 1 ] && [ "$prefix" -eq 1 ]; then
-    echo "resolve-steps: --preamble and --prefix are exclusive" >&2
+  if [ "$explain" -eq 1 ] || [ "$check" -eq 1 ] || [ -n "$attendance" ]; then
+    echo "resolve-steps: --preamble / --prefix / --line render the context and take no resolution or attendance flag" >&2
     usage
   fi
-  if [ "$line_mode" -eq 0 ] && { [ "$explain" -eq 1 ] || [ "$check" -eq 1 ] || [ -n "$attendance" ]; }; then
-    echo "resolve-steps: --preamble / --prefix render the context and take no resolution or attendance flag" >&2
-    usage
+  if [ "$line_mode" -eq 1 ]; then
+    case "${line_words[0]:-}" in
+      /*) ;;
+      *)
+        echo "resolve-steps: --line needs the step's absolute location as its first operand" >&2
+        usage
+        ;;
+    esac
+    case "${line_words[0]}" in
+      *[[:cntrl:]]*)
+        echo "resolve-steps: --line: the location carries a control byte" >&2
+        usage
+        ;;
+    esac
+    for w in "${line_words[@]:1}"; do
+      command_word_ok "$w" || {
+        echo "resolve-steps: --line: an arg outside the args charset" >&2
+        usage
+      }
+    done
   fi
   refuse() { die 6 "refused context value in PLANWRIGHT_STEP_$1 ($2); the step fails"; }
   for f in $CONTEXT_FIELDS; do
@@ -318,7 +352,6 @@ if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ] || [ "$line_mode" -eq 1 ]; then
         ;;
     esac
     eval "ctx_$f=\$v"
-    [ "$f" != ID ] || ctx_step_id="$v"
   done
   if [ "$preamble" -eq 1 ]; then
     printf 'planwright-step-context-begin\n'
@@ -335,10 +368,12 @@ if [ "$preamble" -eq 1 ] || [ "$prefix" -eq 1 ] || [ "$line_mode" -eq 1 ]; then
     q=${v//\'/\'\\\'\'}
     ctx_prefix="${ctx_prefix:+$ctx_prefix }PLANWRIGHT_STEP_$f='$q'"
   done
-  if [ "$line_mode" -eq 0 ]; then
-    printf '%s\n' "$ctx_prefix"
-    exit 0
-  fi
+  for w in ${line_words[@]+"${line_words[@]}"}; do
+    q=${w//\'/\'\\\'\'}
+    ctx_prefix="$ctx_prefix '$q'"
+  done
+  printf '%s\n' "$ctx_prefix"
+  exit 0
 fi
 
 # ---------------------------------------------------------------------------
@@ -599,7 +634,6 @@ if [ "$unwired" -eq 1 ]; then
     warn "warning: point '$point' is not wired; its non-empty $key list (from the $list_layer layer) resolves no steps"
     [ "$check" -eq 1 ] && exit 1
   fi
-  [ "$line_mode" -eq 0 ] || die 1 "--line: point '$point' is not wired and runs no step"
   [ "$check" -eq 1 ] || exit 0
   ids=""
 fi
@@ -861,12 +895,6 @@ command_target_ok() {
   case "$1" in
     "" | -* | *[!A-Za-z0-9/._-]*) return 1 ;;
     .. | ../* | */.. | */../*) return 1 ;;
-  esac
-  return 0
-}
-command_word_ok() {
-  case "$1" in
-    "" | *[!A-Za-z0-9._/:=@%,+-]*) return 1 ;;
   esac
   return 0
 }
@@ -1155,7 +1183,10 @@ resolve_target() {
       case "$rtarget" in
         */*)
           if [ -f "$rtarget" ] && [ -x "$rtarget" ]; then
-            LOC="$rtarget"
+            case "$rtarget" in
+              /*) LOC="$rtarget" ;;
+              *) LOC="$PWD/${rtarget#./}" ;;
+            esac
           else
             REASON="command '$rtarget' not found or not executable at that path"
             return 1
@@ -1436,20 +1467,6 @@ while [ "$i" -le "$n_steps" ]; do
 "
   i=$((i + 1))
 done
-if [ "$line_mode" -eq 1 ]; then
-  [ "$exit_code" -eq 0 ] || exit "$exit_code"
-  i=1
-  while [ "$i" -le "$n_steps" ]; do
-    if [ "${S_ID[i]}" = "$ctx_step_id" ] && [ -z "${S_REASON[i]}" ] && [ "${S_KIND[i]}" = command ]; then
-      en="${S_N[i]}"
-      q=${S_LOC[i]//\'/\'\\\'\'}
-      printf "%s '%s'%s\n" "$ctx_prefix" "$q" "${E_ARGS[en]:+ ${E_ARGS[en]}}"
-      exit 0
-    fi
-    i=$((i + 1))
-  done
-  die 1 "--line: step '$ctx_step_id' is not a command step of this point that resolves to run"
-fi
 [ -z "$out" ] || printf '%s' "$out"
 
 if [ "$check" -eq 1 ] && [ "$exit_code" -eq 0 ] && [ "$DEGRADED" -eq 1 ]; then
