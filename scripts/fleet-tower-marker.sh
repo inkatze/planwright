@@ -77,6 +77,7 @@ valid_spec() {
   vs_v=$1
   case $vs_v in
     "" | -* | *[!a-z0-9-]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#vs_v}" -le 64 ]
 }
@@ -177,6 +178,10 @@ cmd=$1
 spec=$2
 shift 2
 
+if [ "$spec" = flight ]; then
+  printf '%s\n' "fleet-tower-marker: refusing the reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)" >&2
+  exit 2
+fi
 if ! valid_spec "$spec"; then
   printf '%s\n' "fleet-tower-marker: refusing malformed spec id '$(sanitize_printable "$spec" "(unprintable spec)")'" >&2
   exit 2

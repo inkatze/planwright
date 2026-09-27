@@ -257,6 +257,7 @@ fi
 case "$spec" in
   [!a-z0-9]*) refuse 1 "spec identifier must begin with a lowercase alphanumeric" ;;
   *[!a-z0-9-]*) refuse 1 "spec identifier must be [a-z0-9-] (kebab-case)" ;;
+  flight) refuse 1 "spec identifier 'flight' is reserved (the flight branch segment, tower-front-door D-11)" ;;
 esac
 
 # Fragment UID: exactly 8 lowercase hex chars. The charset check rejects

@@ -126,6 +126,20 @@ case $err in
 esac
 echo "ok: a spec id failing the grammar is refused (REQ-F1.1)"
 
+# 8b. `flight` is reserved (tower-front-door D-11): a spec dir so named is
+#     refused like a grammar failure, so no lock path is ever built for it.
+flightspec="$tmp/reserved/specs/flight"
+mkdir -p "$flightspec"
+rc=0
+err=$(/bin/bash "$LOCK" acquire "$flightspec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "reserved spec id: exit $rc, expected 2 (clean refusal)"
+[ ! -d "$flightspec/.orchestrate.lock" ] || fail "reserved spec id: a lock was created"
+case $err in
+  *reserved*) ;;
+  *) fail "reserved spec id: missing refusal diagnostic (got: $err)" ;;
+esac
+echo "ok: the reserved identifier flight is refused"
+
 # 9. REQ-F1.1 containment: a spec dir not located under a specs/ parent is
 #    refused — the derived lock path must stay inside the spec tree.
 loosespec="$tmp/loose/notspecs/demo"

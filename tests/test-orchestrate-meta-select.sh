@@ -302,6 +302,19 @@ d7stripped=$(printf '%s' "$d7err" | tr -d '\000-\037\177')
 [ "$d7stripped" = "$d7err" ] \
   || fail "case 7d: raw control/escape bytes leaked to stderr (terminal injection)"
 echo "ok: missing / mixed-bad / hostile-identifier spec dirs fail closed with exit 2 (diagnostics sanitized)"
+# 7d'. `flight` is reserved (tower-front-door D-11): a spec dir so named is
+#      refused before any id use, even with a tasks.md present.
+mkdir -p "$repoB/specs/flight"
+two_task_body >"$repoB/specs/flight/tasks.md"
+rc=0
+d7ferr=$("$MSEL" "$repoB/specs/flight" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "case 7d': reserved spec basename must fail closed (exit $rc, expected 2)"
+case $d7ferr in
+  *reserved*) ;;
+  *) fail "case 7d': the refusal does not name the reservation (got: $d7ferr)" ;;
+esac
+rm -rf "$repoB/specs/flight"
+echo "ok: the reserved identifier flight fails closed with exit 2"
 # 7e. Echo discipline for the missing-tasks.md diagnostic: only the spec-dir
 #     BASENAME is grammar-checked, so the parent path can carry arbitrary bytes.
 #     A spec dir with a valid basename but ESC/OSC bytes in its PARENT and no

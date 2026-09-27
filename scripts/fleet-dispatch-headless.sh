@@ -172,6 +172,7 @@ valid_spec() {
   reject_dotdot "$1" || return 1
   case $1 in
     '' | *[!a-z0-9-]* | [!a-z0-9]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#1}" -le 64 ] || return 1
   return 0
@@ -431,7 +432,11 @@ do_launch() {
 
   [ -n "$l_spec" ] && [ -n "$l_id" ] && [ -n "$l_worktree" ] || usage
   valid_spec "$l_spec" || {
-    warn "invalid spec id (D-36 grammar)"
+    if [ "$l_spec" = flight ]; then
+      warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
+    else
+      warn "invalid spec id (D-36 grammar)"
+    fi
     exit 2
   }
   valid_id "$l_id" || {
@@ -770,7 +775,11 @@ do_status() {
   done
   [ -n "$s_spec" ] && [ -n "$s_id" ] || usage
   valid_spec "$s_spec" || {
-    warn "invalid spec id (D-36 grammar)"
+    if [ "$s_spec" = flight ]; then
+      warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
+    else
+      warn "invalid spec id (D-36 grammar)"
+    fi
     exit 2
   }
   valid_id "$s_id" || {

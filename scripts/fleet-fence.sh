@@ -180,6 +180,7 @@ err() {
 is_spec_id() {
   case "$1" in
     "" | -* | *[!a-z0-9-]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#1}" -le 64 ]
 }
@@ -402,7 +403,11 @@ done
 
 if [ "$cmd" != list ] || [ -n "$spec" ]; then
   if ! is_spec_id "$spec"; then
-    err "refusing malformed spec id (the ^[a-z0-9][a-z0-9-]*\$ identifier grammar, <=64)"
+    if [ "$spec" = flight ]; then
+      err "refusing the reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
+    else
+      err "refusing malformed spec id (the ^[a-z0-9][a-z0-9-]*\$ identifier grammar, <=64)"
+    fi
     exit 2
   fi
 fi

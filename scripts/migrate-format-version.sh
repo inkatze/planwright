@@ -875,10 +875,15 @@ screen_and_process() {
   snm=$(basename "$sdir")
   case $snm in
     _*)
-      # Reserved non-spec accumulators are never bundles.
+      # Reserved underscore directories (the accumulators and the flight
+      # record directory) are never bundles.
       return 0
       ;;
   esac
+  if [ "$snm" = flight ]; then
+    refuse "$snm" "reserved spec identifier: 'flight' is the flight branch segment (tower-front-door D-11); not migrated"
+    return 0
+  fi
   if ! check_spec_id "$snm"; then
     refuse "$snm" "spec identifier fails ^[a-z0-9][a-z0-9-]*\$ (max 64); not migrated"
     return 0

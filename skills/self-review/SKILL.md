@@ -96,7 +96,8 @@ pass summary.
    forming the path; a failing segment is treated as no match, never
    interpolated); a branch-named spec whose own `kickoff-brief.md` is absent
    means the brief is absent for this pass, never a fall-through to another
-   spec's brief. Otherwise resolve through the status render
+   spec's brief, and so does a flight branch `planwright/flight/<id>`, which
+   names no spec. Otherwise resolve through the status render
    (`scripts/spec-status.sh` / `mise run status`; invariant-tasks D-6),
    accepting a `specs/*/` bundle whose derived status is Ready or Active — so
    a format-version-2 bundle with work in flight (stored Ready, derived

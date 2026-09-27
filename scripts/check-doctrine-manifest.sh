@@ -12,7 +12,8 @@
 #
 # The instantiated-surface list grows per pass and never runs ahead of the
 # behavior: `/spec-draft` cited the doctrine first, the kickoff pass added
-# `/spec-kickoff`, and the execution-side pass added `/resume` and `/drain`.
+# `/spec-kickoff`, the execution-side pass added `/resume` and `/drain`, and
+# the tower front door added `/tower`, whose every turn is attended.
 # `/orchestrate` and `/execute-task` are execution-side surfaces too, but the
 # doctrine's size does not fit either skill's reachable-closure headroom
 # (check:instructions), so their citation waits on a budget decision and they
@@ -64,7 +65,7 @@ DOCTRINE="interaction-style"
 # The instantiated attended surfaces (REQ-A1.3, REQ-K1.1). Widen this list as
 # each further surface's behavior is reworked to instantiate the doctrine —
 # never ahead of it.
-DEFAULT_SURFACES="spec-kickoff spec-draft resume drain"
+DEFAULT_SURFACES="spec-kickoff spec-draft resume drain tower"
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 skills_root="$repo_root/skills"

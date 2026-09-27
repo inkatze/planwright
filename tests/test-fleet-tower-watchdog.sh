@@ -180,6 +180,19 @@ run "$tmp/not-under-specs" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "dir outside specs/: exit $rc, expected 2"
 echo "ok: a spec dir outside specs/ is refused"
 
+# `flight` is the reserved flight branch segment (tower-front-door D-11): a
+# spec dir so named is refused before it reaches a lock, marker, or session name.
+mkdir -p "$repo/specs/flight"
+rc=0
+err=$(run "$repo/specs/flight" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "reserved spec id flight: exit $rc, expected 2"
+case $err in
+  *reserved*) ;;
+  *) fail "reserved spec id flight: diagnostic does not name the reservation (got: $err)" ;;
+esac
+rm -rf "$repo/specs/flight"
+echo "ok: the reserved spec id flight is refused"
+
 # --- kill-switch gate (D-15 composition) --------------------------------------
 
 paused_defaults="$tmp/defaults-paused.yml"

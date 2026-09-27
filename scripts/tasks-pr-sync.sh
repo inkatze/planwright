@@ -111,7 +111,7 @@
 # path is containment-checked under <primary>/specs/ after symlink resolution,
 # and the shared lock primitive re-validates and containment-checks the lock
 # path (defense in depth). The reserved `planwright/<spec>/spec` namespace
-# no-ops (D-44). Any validation failure is a clean no-op (hook) or exit 2 (CLI).
+# no-ops (D-44), as does a flight branch `planwright/flight/<flight-id>`. Any validation failure is a clean no-op (hook) or exit 2 (CLI).
 #
 # Diagnostics go to stderr; hook no-op cases are silent so PostToolUse noise
 # never reaches the transcript on unrelated Bash calls.
@@ -1134,6 +1134,13 @@ rest=${branch#planwright/}
 spec=${rest%%/*}
 [ "$spec" != "$rest" ] || exit 0 # no second segment
 seg=${rest#*/}
+case $spec in
+  flight)
+    # A flight branch (tower-front-door D-11): `flight` is the reserved
+    # segment, never a spec, so there is no tasks.md to reconcile.
+    exit 0
+    ;;
+esac
 case $seg in
   */*) exit 0 ;;  # extra path separators
   spec) exit 0 ;; # reserved spec-authoring namespace (D-44)

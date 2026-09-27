@@ -129,7 +129,7 @@ for marker in "$towers_dir"/*; do
   # Re-validate stored fields on the way out (the store is shared; a
   # corrupt row is skipped as data, never surfaced).
   case "$m_spec" in
-    "" | -* | *[!a-z0-9-]*) continue ;;
+    "" | -* | *[!a-z0-9-]* | flight) continue ;;
   esac
   case "$m_pid" in
     "" | *[!0-9]* | 0*) continue ;;

@@ -257,8 +257,9 @@ if [ ! -d "$root" ] || [ ! -r "$root" ] || [ ! -x "$root" ]; then
 fi
 
 # Enumerate spec bundles: directories whose name passes the REQ-A1.8
-# identifier discipline. Underscore-prefixed accumulators are not bundles
-# and are never swept for gates; other non-conforming names are noted so
+# identifier discipline. Underscore-prefixed reserved directories
+# (accumulators and the flight record directory) are not bundles and are
+# never swept for gates; other non-conforming names are noted so
 # the skip is visible, never silent.
 specs=""
 notes=""
@@ -270,6 +271,11 @@ for dir in "$root"/*/; do
     _*) continue ;;
     *[!a-z0-9-]* | -* | "")
       notes="${notes}note: skipped directory with non-conforming spec identifier
+"
+      continue
+      ;;
+    flight)
+      notes="${notes}note: skipped directory with reserved spec identifier 'flight'
 "
       continue
       ;;

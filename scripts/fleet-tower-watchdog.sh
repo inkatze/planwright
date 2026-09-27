@@ -145,6 +145,10 @@ case "$spec" in
     printf '%s\n' "fleet-tower-watchdog: refusing malformed spec id '$(sanitize_printable "$spec" "(unprintable)")'" >&2
     exit 2
     ;;
+  flight)
+    printf '%s\n' "fleet-tower-watchdog: refusing the reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)" >&2
+    exit 2
+    ;;
 esac
 if [ "${#spec}" -gt 64 ]; then
   echo "fleet-tower-watchdog: refusing over-length spec id" >&2

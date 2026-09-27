@@ -81,6 +81,15 @@ run record 'UPPER' --mode unattended --pid 123 --checkout "$checkout" >/dev/null
 echo "ok: uppercase spec id refused"
 
 rc=0
+err=$(run record flight --mode unattended --pid 123 --checkout "$checkout" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "reserved spec id flight: exit $rc, expected 2"
+case $err in
+  *"reserved spec id 'flight'"*) ;;
+  *) fail "reserved spec id flight: the refusal should name the reservation, got: $err" ;;
+esac
+echo "ok: the reserved spec id flight is refused"
+
+rc=0
 run record my-spec --mode sideways --pid 123 --checkout "$checkout" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "unknown mode: exit $rc, expected 2"
 echo "ok: unknown mode refused"

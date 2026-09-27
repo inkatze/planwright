@@ -6,13 +6,15 @@
 # cannot fail here would be the same defect one level up. Every positive
 # assertion below is paired with a planted negative that the guard must catch.
 #
-# Two cases are load-bearing beyond ordinary coverage:
+# Some cases are load-bearing beyond ordinary coverage:
 #   g4  reachability, not presence — a guard wired into a task nothing depends
 #       on is the exact state the check exists to catch, and a search over the
 #       task file rather than its graph would pass it;
 #   g4b a guard NAMED in a task's description but run by nothing. An earlier
 #       revision of the script matched task text as a blob and accepted it,
-#       which made the guard vacuous in its own terms.
+#       which made the guard vacuous in its own terms;
+#   g3c a guard reachable only through a `wait_for`, which orders but never
+#       runs its target. An earlier revision followed that edge and passed it.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-check-guard-wiring.sh
@@ -130,6 +132,46 @@ grep -q 'depends.*check:inner' "$r/mise.toml" \
 run_cg "$r" >/dev/null \
   || fail "g3b: a guard reachable only through a run-body 'mise run' was not found: $(cat "$tmp/err")"
 echo "ok: g3b a run body's own 'mise run' extends the closure"
+
+# ---------------------------------------------------------------------------
+# g3c: `wait_for` IS NOT AN EDGE. It orders a task after another only when
+#      both are already scheduled; it never causes its target to run. A guard
+#      whose task is reachable solely through a wait_for is run by nothing,
+#      and counting that edge made the check fail open on exactly its case.
+# ---------------------------------------------------------------------------
+r="$tmp/r3c"
+mkrepo "$r" "check:orderer" "/bin/sh scripts/check-alpha.sh"
+cat >>"$r/mise.toml" <<'TOML'
+wait_for = ["check:waited"]
+
+[tasks."check:waited"]
+run = "/bin/sh scripts/check-planted.sh"
+TOML
+printf '#!/bin/sh\nexit 0\n' >"$r/scripts/check-planted.sh"
+grep -q 'depends.*check:waited' "$r/mise.toml" \
+  && fail "g3c: the fixture gained a depends edge — wait_for is no longer the only path"
+run_cg "$r" >/dev/null \
+  && fail "g3c: a guard reachable only through wait_for passed — wait_for never runs its target"
+grep -q 'check-planted.sh' "$tmp/err" || fail "g3c: the wait_for-only guard was not named"
+#      Control: the same fixture with the wait_for spelled as depends passes,
+#      so the failure above comes from the edge kind and not a broken fixture.
+sed 's/^wait_for = /depends = /' "$r/mise.toml" >"$r/mise.toml.new"
+mv "$r/mise.toml.new" "$r/mise.toml"
+grep -q '^depends = \["check:waited"\]' "$r/mise.toml" \
+  || fail "g3c control: the fixture rewrite did not produce the depends edge"
+run_cg "$r" >/dev/null \
+  || fail "g3c control: the same guard behind a depends edge should pass: $(cat "$tmp/err")"
+#      And behind depends_post, which also schedules its target: the edge kind
+#      kept alongside depends must keep counting.
+sed 's/^depends = \["check:waited"\]/depends_post = ["check:waited"]/' "$r/mise.toml" >"$r/mise.toml.new"
+mv "$r/mise.toml.new" "$r/mise.toml"
+grep -q '^depends_post = \["check:waited"\]' "$r/mise.toml" \
+  || fail "g3c control: the fixture rewrite did not produce the depends_post edge"
+grep -q '^depends = \[$' "$r/mise.toml" \
+  || fail "g3c control: the rewrite touched the aggregate's own depends"
+run_cg "$r" >/dev/null \
+  || fail "g3c control: the same guard behind a depends_post edge should pass: $(cat "$tmp/err")"
+echo "ok: g3c a wait_for edge does not reach a task, but depends and depends_post edges do"
 
 # ---------------------------------------------------------------------------
 # g4: REACHABILITY, NOT PRESENCE. The guard is named in the run body of a task

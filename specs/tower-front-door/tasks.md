@@ -266,7 +266,26 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
-(none yet)
+- **Task 4** — review pass on the skill core paused on permission and
+  shell-construction findings (hard-disqualifier zone; recommended fixes
+  recorded, none applied). Decide each: (1) a mutation need a read-only
+  worker surfaces becomes a routed request only on the operator's own ask,
+  and "a request" joins the list of things worker or pasted text never
+  counts as; (2) branch names, flight ids, and `<spec>` values are checked
+  against their grammar (a `<spec>` must equal an existing `specs/*/`
+  basename; no match asks the operator) before entering any command or
+  offered command; (3) the drift-capture `--text` value is passed as one
+  argument, never interpolated into quotes; (4) the posture check fails
+  closed when the shipped deny list is absent or unreadable, treats an absent
+  layer as empty and only a parse or read error as unreadable, covers a
+  `--settings` layer, checks the hook path resolves, reads hooks by
+  projection only, and re-runs before lifting the block on "wired"; (5) the
+  floor's `gh api` merge and ready-flip path and GitHub tools on other MCP
+  servers are left to Task 10 or named in bring-up; (6) a failed `/offload`
+  report is sanitized before relay, the hand-off hygiene list matches
+  `security-posture` (customer data, private-repository detail), and
+  markup-neutralization cites `flight-rules`. Queued judgment forks are in
+  the draft PR's audit record.
 
 ## Deferred
 

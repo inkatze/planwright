@@ -688,6 +688,25 @@ cur3=$("$ANCHOR" "$repo2/specs/partial")
 [ "$rec3" = "$cur3" ] || fail "completed re-anchor $rec3 != recomputed $cur3"
 echo "ok: a re-run completes a missing re-anchor instead of no-oping past a v2 file (REQ-D1.2)"
 
+# --- The reserved identifier (tower-front-door D-11). ---------------------
+
+# A bundle directory named `flight` is refused like a grammar failure and left
+# untouched: the name is the flight branch segment, never a spec.
+repo4=$tmp/corpus4
+mkdir -p "$repo4/specs"
+seeded_bundle "$repo4/specs/flight" Draft
+if (cd "$repo4" && "$MIGRATE" specs >/dev/null 2>"$tmp/flight.err"); then
+  fail "reserved identifier: a bundle named flight was not refused"
+fi
+# The refusal must be the migrator's own screen, not the per-spec lock's
+# (which also refuses the name, but only after the migrator has decided to
+# process the bundle).
+grep -q 'reserved.*not migrated' "$tmp/flight.err" \
+  || fail "reserved identifier: the refusal is not the migrator's own: $(cat "$tmp/flight.err")"
+grep -q '^\*\*Format-version:\*\* 1$' "$repo4/specs/flight/requirements.md" \
+  || fail "reserved identifier: the refused bundle was migrated anyway"
+echo "ok: a bundle named by the reserved identifier is refused untouched"
+
 # --- Fail-closed version keying (REQ-C1.8). -------------------------------
 
 repo3=$tmp/corpus3

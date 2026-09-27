@@ -596,6 +596,18 @@ assert_has "the off-grammar error names the identifier rule, not the brief" "not
 assert_has "the quoted rule is the real one, not a two-character pattern" '^[a-z0-9][a-z0-9-]*$'
 assert_lacks "it does not misreport as a non-sanctioned form" "non-sanctioned command form"
 
+# `flight` is reserved (tower-front-door D-11): a bundle directory so named
+# fails closed the same way, naming the reservation.
+f7d="$tmp/f7d/specs"
+mkdir -p "$f7d"
+make_bundle "$f7d" 'flight' Ready 'A requirement body.'
+# A stale anchor, so a bundle that was checked anyway would add a mismatch.
+write_entry "$f7d" 'flight' 0000000000000000000000000000000000000000 "scripts/spec-anchor.sh specs/flight"
+run_guard "$f7d"
+assert_rc "a bundle named by the reserved identifier fails closed" 1
+assert_has "the error names the reservation" "reserved"
+assert_lacks "the reserved bundle is skipped, not checked" "anchor mismatch"
+
 ########################################################################
 # 11. Diagnostics are sanitized
 ########################################################################

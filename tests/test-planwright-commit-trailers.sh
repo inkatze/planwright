@@ -99,6 +99,16 @@ assert_refused "non-numeric id" demo/x
 assert_refused "uppercase spec" Demo/2
 assert_refused "path-escape spec" ../etc/2
 assert_refused "command injection" 'demo/2; rm -rf x'
+# `flight` is the reserved flight branch segment (tower-front-door D-11), not
+# a spec: a task trailer can never anchor to it.
+assert_refused "reserved flight segment" flight/1
+# The refusal's grammar hint names the reservation, so it never contradicts
+# itself by describing a spec the refused ref matches.
+hint=$(printf 'feat: s\n' | /bin/bash "$SCRIPT" flight/1 2>&1 >/dev/null) || true
+case $hint in
+  *"not flight"*) ;;
+  *) fail "reserved flight segment: the grammar hint omits the reservation: $hint" ;;
+esac
 # Newline-bearing refs: a valid first line must NOT slip a second line
 # through. The per-component grep is `^…$`-anchored (line-by-line), so without
 # the up-front newline guard these would pass and inject an extra trailer.

@@ -252,6 +252,7 @@ is_pid() {
 is_spec_id() {
   case "$1" in
     "" | -* | *[!a-z0-9-]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#1}" -le 64 ]
 }

@@ -16,7 +16,8 @@
 #      `<suffix>` is a DETERMINISTIC function of (spec, task-id):
 #      `<spec>-task-<id>`. The spec segment is what keeps it unique —
 #      `.claude/worktrees/` is one flat namespace, so the bare `task-<id>` form
-#      collided between any two specs sharing a task number;
+#      collided between any two specs sharing a task number (`attach` also
+#      takes a flight's `flight-<flight-id>` suffix);
 #      and `<spec>` / `<id>` / `<suffix>` are VALIDATED against the D-36 grammar
 #      BEFORE interpolation and passed to git as ARGV (never spliced into a shell
 #      string), so no shell metacharacter or `..` path-traversal can reach the
@@ -255,6 +256,7 @@ valid_spec() {
   reject_dotdot "$1" || return 1
   case $1 in
     '' | *[!a-z0-9-]* | [!a-z0-9]*) return 1 ;;
+    flight) return 1 ;; # the reserved flight branch segment (tower-front-door D-11)
   esac
   [ "${#1}" -le 64 ] || return 1
   return 0
@@ -270,7 +272,8 @@ valid_id() {
   return 0
 }
 
-# worktree suffix: `<spec>-task-<id>`.
+# worktree suffix: `<spec>-task-<id>`, the bare legacy `task-<id>`, or a
+# flight's `flight-<flight-id>`.
 #
 # The spec segment is load-bearing, not decoration. `.claude/worktrees/` is one
 # flat namespace shared by every spec, so a bare `task-<id>` collides whenever
@@ -285,10 +288,26 @@ valid_suffix() {
   case $1 in
     '' | *[!a-z0-9.-]* | [!a-z0-9]*) return 1 ;;
   esac
+  # A flight worktree, `flight-<flight-id>` (tower-front-door D-11): a kebab
+  # slug plus an eight-character hex uid, the id bounded at 64 characters as
+  # scripts/flight-id.sh bounds it, so the two screens agree. Past the bound
+  # it falls through rather than failing: `flight-<long>-task-12345678` is
+  # still a legal task suffix for a spec named `flight-<long>`.
+  if printf '%s' "$1" | grep -Eq '^flight-[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$' \
+    && [ "${#1}" -le 71 ]; then
+    return 0
+  fi
   # The spec half must admit the WHOLE spec grammar, which starts [a-z0-9] —
   # requiring a letter here would reject a legal spec like `2fa` before git
   # ever sees it.
   printf '%s' "$1" | grep -Eq '^([a-z0-9][a-z0-9-]*-)?task-[0-9]+(\.[0-9]+)?$' || return 1
+  # The spec half is a spec, so the reserved segment is refused here as
+  # valid_spec refuses it: the suffix a spec named `flight` would build, not
+  # every spec whose name starts with `flight-task-`. An eight-digit id is the
+  # exception, already taken above as flight `task-<uid>`.
+  if printf '%s' "$1" | grep -Eq '^flight-task-[0-9]+(\.[0-9]+)?$'; then
+    return 1
+  fi
   # The bound must clear what the grammars upstream of it can actually produce:
   # a spec is up to 64 characters, `-task-` adds 6, and a dotted id adds several
   # more, so the old 72 rejected a legal max-length spec outright — the suffix
@@ -625,7 +644,11 @@ do_dispatch() {
 
   # Validate every token BEFORE it appears in any path or command (D-36).
   valid_spec "$_spec" || {
-    warn "invalid spec id (D-36 grammar): $_spec"
+    if [ "$_spec" = flight ]; then
+      warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
+    else
+      warn "invalid spec id (D-36 grammar): $_spec"
+    fi
     exit 2
   }
   valid_id "$_id" || {

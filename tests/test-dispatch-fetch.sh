@@ -553,6 +553,18 @@ c11() {
   if printf '%s' "$err" | LC_ALL=C grep -q '[[:cntrl:]]'; then
     fail "c11: a raw control byte reached stderr (escape-injection not sanitized)"
   fi
+  # `flight` is the reserved flight branch segment (tower-front-door D-11):
+  # refused as a spec name before any fetch, naming the reservation.
+  mkdir -p "$tmp/repo/specs/flight"
+  set +e
+  err=$("$FETCH" --spec specs/flight "$tmp/repo" 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -eq 2 ] || fail "c11: the reserved spec name flight should exit 2, got $rc"
+  case $err in
+    *reserved*) ;;
+    *) fail "c11: the reserved-spec refusal does not name the reservation (got: $err)" ;;
+  esac
 
   # (b) A LITERAL backslash-escape (the four bytes \ 0 3 3): sanitize_printable
   # only strips FORMED control bytes, so these survive it — and a
