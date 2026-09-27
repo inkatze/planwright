@@ -1,7 +1,9 @@
 #!/bin/sh
 # fleet-dispatch-worktree.sh — the tmux-backend dispatch primitive that produces
 # a worker worktree on the canonical D-36 branch `planwright/<spec>/task-<id>`
-# DETERMINISTICALLY at launch, with no manual post-launch `git branch -m` rename
+# (or, on its flight arm, a visual flight's `planwright/flight/<flight-id>`,
+# tower-front-door D-11) DETERMINISTICALLY at launch, with no manual post-launch
+# `git branch -m` rename
 # (fleet-hardening Task 10; D-7 amended 2026-07-20; REQ-B1.4, and REQ-C1.1 /
 # REQ-C1.2 / REQ-E1.3 for the tower-guard interaction).
 #
@@ -9,6 +11,8 @@
 #   1. CREATE the worktree with a SINGLE
 #        git worktree add -b planwright/<spec>/task-<id> \
 #          .claude/worktrees/<suffix> <base>
+#      (the flight arm: `-b planwright/flight/<flight-id>` into
+#      `.claude/worktrees/flight-<flight-id>`)
 #      call — the narrow, documented never-shell-`git worktree` exception scoped
 #      to THIS one dispatch primitive (D-7). `<base>` is the freshly-fetched
 #      `origin/main` (never stale local `main` or the tower's HEAD — the
@@ -67,9 +71,10 @@
 #     under the old path's name still reads as in-flight (exit 3).
 #
 # Exception scope (D-7). The `git worktree add` shell-out is confined to THIS
-# primitive: a guard over the bundle's dispatch/tower sources (tests/test-fleet-
-# dispatch-worktree.sh) asserts no other bundle worktree-creation path shells out
-# to `git worktree`. The tower runs this primitive as a planwright script by
+# primitive, its task and flight arms alike (scripts/flight-dispatch.sh places
+# a flight through the flight arm rather than shelling out itself): a guard over
+# the bundle's dispatch/tower sources (tests/test-fleet-dispatch-worktree.sh)
+# asserts no other bundle worktree-creation path shells out to `git worktree`. The tower runs this primitive as a planwright script by
 # resolved literal path (worker/tower-command-guard `is_repo_script` allowance),
 # so the inner `git worktree add` is never a separate PreToolUse Bash string
 # exposed to the stochastic auto-mode classifier; the tower deny floor
@@ -110,10 +115,12 @@
 #                        brief.md` is accepted, after canonicalization, on the
 #                        path charset `[A-Za-z0-9._/@+-]`; `--continue` and
 #                        `--resume` are refused beside it.
-#   fleet-dispatch-worktree.sh attach <suffix> [--dry-run] [-- <extra>...]
+#   fleet-dispatch-worktree.sh attach <suffix> [--brief <abs-file>] [--dry-run] [-- <extra>...]
 #       The attach step alone: capture the prior tmux client session, launch
 #       `claude --worktree <suffix> --tmux=classic` (pinned via fleet-dispatch-
 #       env.sh), restore the client. --dry-run prints the plan (no exec).
+#       --brief hands a flight's worker its brief, as the dispatch arm does and
+#       under the same confinement; the suffix must be `flight-<flight-id>`.
 #
 # Exit codes:
 #   0  success (created + attached / attach-plan printed).
@@ -180,7 +187,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--repo-root <dir>] [--attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] [--repo-root <dir>] [--attach-dry-run | --no-attach] [-- <extra launch args>...]
-       fleet-dispatch-worktree.sh attach <suffix> [--dry-run] [-- <extra launch args>...]
+       fleet-dispatch-worktree.sh attach <suffix> [--brief <abs-file>] [--dry-run] [-- <extra launch args>...]
 EOF
   exit 2
 }
@@ -578,23 +585,50 @@ validate_launch_extra() {
 # --- attach: capture-and-restore the tmux client around the pinned launch ----
 
 do_attach() {
-  # <suffix> [--dry-run] [-- <extra launch args>...]. Guard the positional so a
-  # bare `attach` fails with the clean usage/exit-2 path, not a set -u abort.
+  # <suffix> [--brief <abs-file>] [--dry-run] [-- <extra launch args>...].
+  # Guard the positional so a bare `attach` fails with the clean usage/exit-2
+  # path, not a set -u abort.
   [ "$#" -ge 1 ] || usage
   _suffix=$1
   shift
   _dry=0
-  if [ "${1:-}" = "--dry-run" ]; then
-    _dry=1
-    shift
-  fi
-  if [ "${1:-}" = "--" ]; then
-    shift
-  fi
+  _abrief=''
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --dry-run)
+        _dry=1
+        shift
+        ;;
+      --brief)
+        [ "$#" -ge 2 ] || usage
+        _abrief=$2
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *) break ;;
+    esac
+  done
   valid_suffix "$_suffix" || {
     warn "invalid worktree suffix: $_suffix"
     exit 2
   }
+  # A standalone attach of a flight can hand the worker its brief, under the
+  # dispatch arm's confinement.
+  if [ -n "$_abrief" ]; then
+    _aflight=${_suffix#flight-}
+    if [ "$_aflight" = "$_suffix" ] || ! valid_flight "$_aflight"; then
+      warn "--brief is a flight option: the suffix must be flight-<flight-id>"
+      exit 2
+    fi
+    valid_brief "$_abrief" "$_aflight" || {
+      warn "--brief must be the flight's own brief.md under the fleet home (flights/<flight-id>/), on the path charset [A-Za-z0-9._/@+-]"
+      exit 2
+    }
+    ATTACH_PROMPT="Read $BRIEF_PATH and follow it exactly."
+  fi
   # Refuse any unsanctioned extra launch flag before it reaches claude.
   validate_launch_extra "$@"
   [ -z "$ATTACH_PROMPT" ] || refuse_resume_beside_brief "$@"

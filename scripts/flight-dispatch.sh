@@ -49,7 +49,8 @@
 #         tmux   create and attach: the worker starts in its worktree with the
 #                one prompt `Read <brief> and follow it exactly.`
 #         print  create only, and report the exact launch for the human to
-#                run; no process exists until they do.
+#                run, through the dispatch environment pin; no process exists
+#                until they do.
 #       The session-bound rungs (subagent, in-session) cannot carry a flight,
 #       which must outlive the session that dispatched it (REQ-F1.3); the
 #       stream-json-persistent and headless-oneshot rungs are not wired for

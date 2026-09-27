@@ -1154,6 +1154,22 @@ c29() {
   run_prim dispatch --flight demo-4567abcd --brief "$tmp/fl eet/flights/demo-4567abcd/brief.md" \
     --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 2 ] || fail "c29: a brief path off the conservative charset must be refused (exit 2), got $RC"
+  export PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet"
+
+  # A standalone attach of a flight hands the worker its brief, under the
+  # same confinement; a task suffix takes no brief.
+  run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
+  [ "$RC" -eq 0 ] || fail "c29: a standalone flight attach must take its brief, got exit $RC"
+  case $OUT in
+    *"--tmux=classic${TAB}--${TAB}Read $_own/brief.md and follow it exactly."*) ;;
+    *) fail "c29: a standalone flight attach must hand the worker its brief, got: $OUT" ;;
+  esac
+  run_prim attach flight-demo-0123abcd --brief "$tmp/brief.md" --dry-run
+  [ "$RC" -eq 2 ] || fail "c29: a standalone attach must refuse another flight's or a stray brief, got $RC"
+  run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run -- --continue
+  [ "$RC" -eq 2 ] || fail "c29: a standalone attach must refuse --continue beside a brief, got $RC"
+  run_prim attach demo-task-1 --brief "$_own/brief.md" --dry-run
+  [ "$RC" -eq 2 ] || fail "c29: a task-suffix attach must refuse --brief, got $RC"
 }
 
 for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29; do
