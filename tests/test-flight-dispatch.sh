@@ -3,8 +3,11 @@
 # (tower-front-door Task 5; D-7, D-11 · REQ-B1.5, REQ-C1.1–C1.6, REQ-G1.5).
 #
 # Properties verified:
-#   1. `home` declares the record's home from the one predicate: `pr` with an
-#      `origin` remote and an authenticated `gh`, `file` otherwise.
+#   1. `home` declares the record's home from the one predicate: `pr` when
+#      `origin`'s push destination is on a host `flight_pr_hosts` approves and
+#      `gh` is authenticated, `file` otherwise; it reports that destination
+#      and, for `file`, why. A `pr` home the predicate refuses is refused at
+#      dispatch too.
 #   2. Rung selection stays in /offload (REQ-C1.2): `dispatch` takes the rung
 #      as an input, refuses to run without one, refuses the rungs a flight
 #      cannot fly on with the reason, and names no backend-set reader.
@@ -101,6 +104,8 @@ new_case() {
   gitc "$c/primary" commit -q -m init
   gitc "$c/primary" branch -M main
   gitc "$c/primary" push -q origin main
+  # Fetches stay local; the push destination is what the home is judged on.
+  gitc "$c/primary" remote set-url --push origin https://github.com/acme/widgets.git
   export PLANWRIGHT_FLEET_STATE_DIR="$c/fleet"
   export PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$c/fstate"
   export PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1
@@ -144,14 +149,56 @@ dispatch_print() {
 new_case
 run home --repo-root "$c/primary"
 [ "$RC" -eq 0 ] && [ "$(field "$OUT" home)" = pr ] \
-  || fail "home: origin + authenticated gh must declare pr (rc $RC, out: $OUT)"
+  || fail "home: an approved origin + authenticated gh must declare pr (rc $RC, out: $OUT)"
+[ "$(field "$OUT" origin)" = github.com/acme/widgets ] \
+  || fail "home: the report must name origin's push destination (out: $OUT)"
 GH_STUB_AUTH=1 run home --repo-root "$c/primary"
 [ "$(field "$OUT" home)" = file ] \
   || fail "home: an unauthenticated gh must declare file (out: $OUT)"
-gitc "$c/primary" remote remove origin
+for u in git@github.com:acme/widgets.git ssh://git@github.com:22/acme/widgets https://GitHub.com/acme/widgets.git/; do
+  gitc "$c/primary" remote set-url --push origin "$u"
+  run home --repo-root "$c/primary"
+  [ "$(field "$OUT" home)" = pr ] && [ "$(field "$OUT" origin)" = github.com/acme/widgets ] \
+    || fail "home: push URL $u must read as github.com/acme/widgets on pr (out: $OUT)"
+done
+# An unapproved host is a file home, and the report says where and why.
+gitc "$c/primary" remote set-url --push origin https://git.evil.example/acme/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] && [ "$(field "$OUT" origin)" = git.evil.example/acme/widgets ] \
+  || fail "home: an unapproved host must declare file and name the host (out: $OUT)"
+case $(field "$OUT" reason) in *flight_pr_hosts*) ;; *) fail "home: an unapproved host must name the knob (out: $OUT)" ;; esac
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --home pr --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "dispatch --home pr to an unapproved host must be refused (rc $RC)"
+[ "$(flight_branches)" -eq 0 ] || fail "a refused pr home placed a flight"
+# A rewrite rule cannot disguise the destination: the effective push URL counts.
+gitc "$c/primary" remote set-url --push origin https://github.com/acme/widgets.git
+gitc "$c/primary" config url.https://git.evil.example/.insteadOf https://github.com/
 run home --repo-root "$c/primary"
 [ "$(field "$OUT" home)" = file ] \
-  || fail "home: no origin remote must declare file (out: $OUT)"
+  || fail "home: an insteadOf rewrite to an unapproved host must declare file (out: $OUT)"
+gitc "$c/primary" config --unset url.https://git.evil.example/.insteadOf
+# The knob approves a host, or one owner on a host.
+mkdir -p "$c/primary/.claude"
+printf 'flight_pr_hosts: [git.example.com/acme]\n' >"$c/primary/.claude/planwright.local.yml"
+gitc "$c/primary" remote set-url --push origin git@git.example.com:acme/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = pr ] || fail "home: an approved host/owner entry must declare pr (out: $OUT)"
+gitc "$c/primary" remote set-url --push origin git@git.example.com:other/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: another owner on an owner-scoped host must declare file (out: $OUT)"
+gitc "$c/primary" remote set-url --push origin https://github.com/acme/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: a host the knob no longer lists must declare file (out: $OUT)"
+rm "$c/primary/.claude/planwright.local.yml"
+# A local-path destination has no host to approve.
+gitc "$c/primary" remote set-url --push origin "$c/origin.git"
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: a local-path push destination must declare file (out: $OUT)"
+gitc "$c/primary" remote remove origin
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] && [ "$(field "$OUT" origin)" = none ] \
+  || fail "home: no origin remote must declare file with origin none (out: $OUT)"
 
 # --- 2. rung selection stays in /offload -------------------------------------
 new_case
@@ -240,6 +287,8 @@ printf '%s\n' "$b" | grep -q "planwright/flight/$fid" || fail "brief does not na
 printf '%s\n' "$b" | grep -q "\`print-flight-$fid\`" \
   || fail "the brief must name the print worker by the handle its registry record carries"
 printf '%s\n' "$b" | grep -q "gh pr create --draft" || fail "brief must land a draft PR"
+printf '%s\n' "$b" | grep -q 'github.com/acme/widgets' || fail "a pr-home brief must name the push destination"
+[ "$(field "$OUT" origin)" = github.com/acme/widgets ] || fail "the dispatch report must name the push destination"
 if printf '%s\n' "$b" | grep -Eq 'gh pr ready|gh pr merge'; then
   fail "brief must never carry a ready flip or merge command"
 fi

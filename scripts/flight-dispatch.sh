@@ -24,9 +24,13 @@
 #
 # Subcommands:
 #   home [--repo-root <dir>]
-#       Declare the record's home (REQ-E1.2): `pr` when an `origin` remote
-#       exists and `gh auth status` succeeds, `file` otherwise. The tower
-#       states it at routing time, before any dispatch.
+#       Declare the record's home (REQ-E1.2): `pr` when origin's effective
+#       push destination is on a host `flight_pr_hosts` approves (an entry
+#       `<host>` or `<host>/<owner>`) and `gh auth status` succeeds for that
+#       host, `file` otherwise. Reports `home`, `origin` (the destination as
+#       `<host>/<owner>/<repo>`, `none`, or `unrecognized`), and for `file` a
+#       `reason`. The tower states the home and the destination at routing
+#       time, before any dispatch and so before any push.
 #   dispatch <slug> --backend <tmux|print> --ask-file <file>
 #       --grounds-file <file> [--home pr|file] [--repo-root <dir>]
 #       [--attach-dry-run]
@@ -45,7 +49,8 @@
 #       stream-json-persistent and headless-oneshot rungs are not wired for
 #       flights. Each is refused (exit 2), never substituted.
 #       --home defaults to what `home` declares; the tower passes the home it
-#       already stated so the record lands where it said.
+#       already stated so the record lands where it said. `--home pr` is
+#       refused (exit 2) when `home` would not declare it.
 #       --attach-dry-run (tmux) places the flight but prints the attach plan
 #       instead of launching; the placed worktree holds a slot like any other.
 #
@@ -64,7 +69,7 @@
 # security-posture hygiene before handing the ask over.
 #
 # Report: TAB-separated `key<TAB>value` lines — flight, branch, worktree,
-# base, home, record, review_sequence, model, effort, brief, `sanitized`
+# base, home, origin, record, review_sequence, model, effort, brief, `sanitized`
 # (ask or grounds, one line each, only when invisible or bidi-control
 # characters were stripped from that text), backend, handle,
 # observe, attach, launch (print), the primitive's `attach-plan` lines
@@ -194,14 +199,65 @@ release_lock() {
   lock_held=0
 }
 
+# origin_dest <url> — print `<host>/<owner>/<repo>` (lower-cased, `.git`
+# dropped) for a network remote URL in the URL or scp-like form; nothing for a
+# local path or anything else.
+origin_dest() {
+  printf '%s\n' "$1" | sed -n -E \
+    -e 's#^(https|http|ssh|git|git\+ssh|ssh\+git)://([^/@]+@)?([A-Za-z0-9][A-Za-z0-9.-]*)(:[0-9]+)?/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$#\3/\5/\6#p' \
+    -e 's#^([A-Za-z0-9._-]+@)?([A-Za-z0-9][A-Za-z0-9.-]*):([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$#\2/\3/\4#p' \
+    | head -n 1 | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]'
+}
+
+# dest_approved <dest> — true when a `flight_pr_hosts` entry, `<host>` or
+# `<host>/<owner>`, covers the destination. An unreadable knob or a malformed
+# entry approves nothing.
+dest_approved() {
+  _hosts=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$CONFIG" flight_pr_hosts </dev/null) || return 1
+  _hosts=$(printf '%s' "$_hosts" | tr -d '[]' | tr ',' ' ' | tr '[:upper:]' '[:lower:]')
+  for _e in $_hosts; do
+    if ! printf '%s\n' "$_e" | grep -Eqx '[a-z0-9][a-z0-9.-]*(/[a-z0-9._-]+)?'; then
+      echo "$prog: ignoring a malformed flight_pr_hosts entry" >&2
+      continue
+    fi
+    case $1 in
+      "$_e"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# declare_home — set HOME_DECL (pr|file), HOME_DEST (origin's push destination
+# as `<host>/<owner>/<repo>`, `none`, or `unrecognized`), and, for `file`,
+# HOME_REASON. The destination is the effective push URL, rewrite rules
+# applied, since that is where a worker's push goes.
+HOME_DECL='file'
+HOME_DEST=none
+HOME_REASON=''
 declare_home() {
-  if git -C "$repo_root" remote get-url origin >/dev/null 2>&1 \
-    && command -v gh >/dev/null 2>&1 \
-    && (cd "$repo_root" && gh auth status) >/dev/null 2>&1 </dev/null; then
-    echo pr
-  else
-    echo file
+  HOME_DECL='file'
+  HOME_DEST=none
+  HOME_REASON=''
+  if ! _url=$(git -C "$repo_root" remote get-url --push origin 2>/dev/null </dev/null); then
+    HOME_REASON="no origin remote"
+    return 0
   fi
+  HOME_DEST=$(origin_dest "$_url")
+  if [ -z "$HOME_DEST" ]; then
+    HOME_DEST=unrecognized
+    HOME_REASON="origin's push destination is not a recognized network remote"
+    return 0
+  fi
+  if ! dest_approved "$HOME_DEST"; then
+    HOME_REASON="origin's push host ${HOME_DEST%%/*} is not approved by flight_pr_hosts"
+    return 0
+  fi
+  if ! command -v gh >/dev/null 2>&1 \
+    || ! (cd "$repo_root" && gh auth status --hostname "${HOME_DEST%%/*}") >/dev/null 2>&1 </dev/null; then
+    HOME_REASON="gh is not authenticated to ${HOME_DEST%%/*}"
+    return 0
+  fi
+  HOME_DECL='pr'
 }
 
 # count_live — set `live` to the registered, non-prunable worktrees on a
@@ -391,7 +447,8 @@ write_brief() {
   IFS=$_old_ifs
 
   if [ "$home" = pr ]; then
-    _landing="Push the branch (\`git push -u origin $branch\`) and open the PR as a draft
+    _landing="Push the branch to \`origin\` ($HOME_DEST, the destination the tower stated:
+\`git push -u origin $branch\`) and open the PR as a draft
 (\`gh pr create --draft\`, with an explicit title and body); the record is the
 PR body. Never mark it ready and never merge: the draft-to-ready flip and the
 merge are the human's."
@@ -529,7 +586,10 @@ cmd_home() {
     esac
   done
   resolve_repo
-  printf 'home\t%s\n' "$(declare_home)"
+  declare_home
+  printf 'home\t%s\n' "$HOME_DECL"
+  printf 'origin\t%s\n' "$HOME_DEST"
+  [ -z "$HOME_REASON" ] || printf 'reason\t%s\n' "$HOME_REASON"
 }
 
 cmd_dispatch() {
@@ -618,7 +678,12 @@ cmd_dispatch() {
 
   resolve_repo
   ! has_ctl "$repo_root" || die 2 "refusing a repo root whose path carries a control character"
-  [ -n "$home" ] || home=$(declare_home)
+  declare_home
+  if [ -z "$home" ]; then
+    home=$HOME_DECL
+  elif [ "$home" = pr ] && [ "$HOME_DECL" != pr ]; then
+    die 2 "refusing --home pr: $HOME_REASON; nothing was placed"
+  fi
 
   sequence=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$SEQUENCE" </dev/null) || {
     _rc=$?
@@ -738,6 +803,7 @@ cmd_dispatch() {
   printf 'worktree\t%s\n' "$worktree"
   printf 'base\t%s\n' "$base"
   printf 'home\t%s\n' "$home"
+  printf 'origin\t%s\n' "$HOME_DEST"
   printf 'record\t%s\n' "$record"
   printf 'review_sequence\t%s\n' "$(printf '%s' "$sequence" | tr '\n' ' ' | sed 's/ $//')"
   printf 'model\t%s\n' "$TIER_MODEL"
