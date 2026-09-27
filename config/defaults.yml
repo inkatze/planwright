@@ -180,6 +180,9 @@ notification_channel: none
 # [self-review, polish]) once the named skills exist. Resolved through
 # scripts/resolve-review-sequence.sh, which validates each name and applies the
 # REQ-E1.4 malformed-by-layer policy to an unknown or non-nestable name.
+# steps_convergence below supersedes this key: scripts/resolve-steps.sh
+# ignores it and warns naming each layer that sets it, this one included,
+# until the key's removal lands.
 review_sequence: [polish]
 
 # Custom steps: one flat key per named attachment point (custom-steps D-4,
