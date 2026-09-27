@@ -204,8 +204,10 @@ authenticated there; a committed record file at `specs/_flights/<flight-id>.md`
 on the flight's own branch otherwise. It states the reported destination with
 the home, so the operator hears where a push goes before any push. It then
 hands `/offload` a **flight petition**: the ask and the grounds line as stated,
-each in its own `mktemp` file, a kebab slug naming the flight, and the declared
-home. `/offload` picks the rung (REQ-C1.2) and places the flight through
+each in a temp file of the tower's own written with the file tool (never
+through shell quoting) and removed once the dispatch returns, a kebab slug
+naming the flight, and the declared home. `/offload` picks the rung (REQ-C1.2)
+and places the flight through
 `scripts/flight-dispatch.sh dispatch`, which counts live flights against
 `max_parallel_units` in the same act (the tower never pre-counts), then mints
 the id, writes the worker brief, and places the isolated worktree on a
@@ -216,7 +218,8 @@ the record — the quoted ask sanitized and markup-neutralized there, per
 `security-posture` — and lands it. The tower relays the handle, the attach or
 launch hint, and a `root-skew` of yes or unknown from the report, then the
 landing reference on arrival (REQ-F1.1); a flight without one is reported in
-the no-landing-yet form above.
+the no-landing-yet form above. Once a landed flight's worktree is removed,
+`scripts/flight-dispatch.sh retire` (and every later dispatch) cleans its brief.
 
 The tower hands over exactly the ask, the grounds, the slug, and the home;
 rung selection, the flight id, the worker brief, the worktree, and the crash

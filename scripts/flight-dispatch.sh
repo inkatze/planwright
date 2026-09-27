@@ -31,6 +31,12 @@
 #       `<host>/<owner>/<repo>`, `none`, or `unrecognized`), and for `file` a
 #       `reason`. The tower states the home and the destination at routing
 #       time, before any dispatch and so before any push.
+#   retire [--repo-root <dir>]
+#       Remove the brief directory of each of this checkout's retired flights
+#       (its worktree removed, or gone and prunable), one `retired<TAB><id>`
+#       line each, under the checkout's flight lock. Every dispatch runs the
+#       same sweep. Other checkouts' briefs, and everything when the worktree
+#       list cannot be read (exit 4), stay.
 #   dispatch <slug> --backend <tmux|print> --ask-file <file>
 #       --grounds-file <file> [--home pr|file] [--repo-root <dir>]
 #       [--attach-dry-run]
@@ -68,7 +74,8 @@
 # clean) and carries no secret the ask did not: the tower applies the
 # security-posture hygiene before handing the ask over.
 #
-# Report: TAB-separated `key<TAB>value` lines — flight, branch, worktree,
+# Report: TAB-separated `key<TAB>value` lines, after any `retired` lines the
+# dispatch's sweep printed — flight, branch, worktree,
 # base, home, origin, record, review_sequence, model, effort, brief, `sanitized`
 # (ask or grounds, one line each, only when invisible or bidi-control
 # characters were stripped from that text), backend, handle,
@@ -137,6 +144,7 @@ die() {
 usage() {
   cat >&2 <<'EOF'
 usage: flight-dispatch.sh home [--repo-root <dir>]
+       flight-dispatch.sh retire [--repo-root <dir>]
        flight-dispatch.sh dispatch <slug> --backend <tmux|print> --ask-file <file>
            --grounds-file <file> [--home pr|file] [--repo-root <dir>] [--attach-dry-run]
 EOF
@@ -426,6 +434,34 @@ prepare_brief_dir() {
   (umask 077 && mkdir "$brief_dir") 2>/dev/null \
     || die 4 "refusing to write a brief: $brief_dir already exists or cannot be created"
   private_dir "$brief_dir" || die 4 "refusing to write a brief: $brief_dir is not private to you"
+  (umask 077 && printf '%s\n' "$repo_root" >"$brief_dir/checkout") \
+    || die 4 "cannot record the brief directory's checkout"
+}
+
+# sweep_briefs — remove the brief directory of every retired flight of this
+# checkout (no registered, non-prunable worktree holds its branch), printing
+# `retired<TAB><id>` for each. Each brief directory records its checkout, since
+# the fleet home is shared; one naming another checkout, or none, stays. An
+# unreadable worktree list removes nothing. Runs under the checkout's lock.
+sweep_briefs() {
+  _sb_flights="$fleet_home/flights"
+  [ -d "$_sb_flights" ] && [ ! -L "$_sb_flights" ] || return 0
+  _sb_list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null </dev/null) \
+    || die 4 "cannot list worktrees to find retired flights; nothing was removed"
+  _sb_live=$(printf '%s\n' "$_sb_list" | awk '
+    function close_block() { if (id != "" && !prunable) print id; id = ""; prunable = 0 }
+    /^worktree / { close_block() }
+    index($0, "branch refs/heads/planwright/flight/") == 1 { id = substr($0, 37) }
+    /^prunable/ { prunable = 1 }
+    END { close_block() }')
+  find "$_sb_flights" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while IFS= read -r _sb_dir; do
+    _sb_id=${_sb_dir##*/}
+    /bin/sh "$FLIGHT_ID" check "$_sb_id" 2>/dev/null </dev/null || continue
+    [ -f "$_sb_dir/checkout" ] && [ ! -L "$_sb_dir/checkout" ] || continue
+    [ "$(cat <"$_sb_dir/checkout")" = "$repo_root" ] || continue
+    ! printf '%s\n' "$_sb_live" | grep -Fqx -e "$_sb_id" || continue
+    rm -rf "$_sb_dir" && printf 'retired\t%s\n' "$_sb_id"
+  done
 }
 
 write_brief() {
@@ -592,6 +628,28 @@ cmd_home() {
   [ -z "$HOME_REASON" ] || printf 'reason\t%s\n' "$HOME_REASON"
 }
 
+cmd_retire() {
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --repo-root)
+        [ $# -ge 2 ] || usage
+        repo_root=$2
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  resolve_repo
+  ! has_ctl "$repo_root" || die 2 "refusing a repo root whose path carries a control character"
+  fleet_home=$(/bin/sh "$STATE" root 2>/dev/null </dev/null) || die 4 "cannot resolve the fleet home"
+  ! has_ctl "$fleet_home" || die 2 "refusing a fleet home whose path carries a control character"
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  take_lock
+  sweep_briefs
+}
+
 cmd_dispatch() {
   [ $# -ge 1 ] || usage
   slug=$1
@@ -710,6 +768,7 @@ cmd_dispatch() {
 
   read_bound
   count_live
+  sweep_briefs
   if [ "$live" -ge "$bound" ]; then
     printf 'declined\t%s\t%s\n' "$live" "$bound"
     if [ "$bound" -eq 0 ]; then
@@ -870,6 +929,10 @@ cleanup() {
 }
 case $cmd in
   home) cmd_home "$@" ;;
+  retire)
+    trap cleanup EXIT
+    cmd_retire "$@"
+    ;;
   dispatch)
     trap cleanup EXIT
     tmpdir_err=$(mktemp "${TMPDIR:-/tmp}/flight-dispatch.XXXXXX") || die 4 "cannot create a temporary file"

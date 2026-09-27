@@ -696,6 +696,37 @@ RC=$?
 [ -n "$(field "$OUT" brief)" ] && [ -f "$(field "$OUT" brief)" ] \
   || fail "an unreadable worktree list must keep and report the brief (out: $OUT)"
 
+# --- 9c. a retired flight's brief directory is cleaned -----------------------
+# A flight retires when its worktree is removed. `retire`, and every dispatch,
+# removes the brief directories of this checkout's retired flights, and only
+# those: a live flight's brief, another checkout's, and anything when the
+# worktree list cannot be read all stay.
+new_case
+dispatch_print
+fa=$(field "$OUT" flight)
+dispatch_print
+fb=$(field "$OUT" flight)
+mkdir -p "$c/fleet/flights/other-0123abcd"
+printf '%s\n' "$c/elsewhere" >"$c/fleet/flights/other-0123abcd/checkout"
+gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fa"
+WTLIST_FAIL_FLAG="$c/wl.flag"
+: >"$WTLIST_FAIL_FLAG"
+OUT=$(WTLIST_FAIL_FLAG="$WTLIST_FAIL_FLAG" PATH="$tmp/wlbin:$PATH" "$SCRIPT" retire --repo-root "$c/primary" </dev/null 2>"$tmp/err")
+RC=$?
+[ "$RC" -eq 4 ] || fail "retire with an unreadable worktree list must fail closed with exit 4 (rc $RC)"
+[ -d "$c/fleet/flights/$fa" ] || fail "retire removed a brief while the worktree list was unreadable"
+rm -f "$WTLIST_FAIL_FLAG"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "retire exited $RC: $ERR"
+[ ! -e "$c/fleet/flights/$fa" ] || fail "retire must remove a retired flight's brief directory"
+printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fa$" || fail "retire must report what it removed (out: $OUT)"
+[ -f "$c/fleet/flights/$fb/brief.md" ] || fail "retire must keep a live flight's brief"
+[ -d "$c/fleet/flights/other-0123abcd" ] || fail "retire must keep another checkout's brief directory"
+gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fb"
+dispatch_print
+[ "$RC" -eq 0 ] || fail "dispatch after a retirement exited $RC: $ERR"
+[ ! -e "$c/fleet/flights/$fb" ] || fail "a dispatch must clean a retired flight's brief directory"
+
 # --- plugin-root pair with an installed plugin -------------------------------
 tower_v=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)
 for want in same skewed; do

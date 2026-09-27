@@ -138,7 +138,8 @@ By the selected rung:
   dispatch primitives.
 - **A flight petition** on the tmux or print rung — run
   `scripts/flight-dispatch.sh dispatch <slug> --backend <rung> --ask-file
-  <file> --grounds-file <file> --home <home>` instead of `offload-dispatch.sh`: it
+  <file> --grounds-file <file> --home <home>` instead of `offload-dispatch.sh`,
+  the two files being the tower's own temp files, removed after it returns: it
   counts live flights, mints the id, writes the worker brief, places the
   worktree, and emits the report, whose keys are its own (no `status` row;
   the script header lists them). Exit 3 with a `declined` line is the
@@ -149,7 +150,10 @@ By the selected rung:
   the ask, which would place a second flight. The inputs are bounded: a slug
   matching `^[a-z0-9][a-z0-9-]*$` of at most 55 characters, grounds of one line
   of at most 400 characters without control characters, and a non-empty ask of
-  at most 64 KiB. The flight path drives no other rung; say so and ask the
+  at most 64 KiB; invisible or bidi Unicode in either is stripped, and a
+  `sanitized` line says so: relay it. `--home pr` is refused for a push
+  destination `flight_pr_hosts` does not cover. The flight path drives no
+  other rung; say so and ask the
   operator to choose tmux or print.
 
 ### 6. Report (REQ-C1.5)
