@@ -1094,8 +1094,13 @@ c28() {
   _wt="$tmp/primary/.claude/worktrees/flight-demo-0123abcd"
   printf 'uncommitted worker edit\n' >"$_wt/work.txt"
 
-  run_prim dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary"
+  _err=$("$PRIM" dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary" </dev/null 2>&1 >/dev/null)
+  RC=$?
   [ "$RC" -eq 3 ] || fail "c28: a registered flight worktree must abort as already-in-flight (exit 3), got $RC"
+  case $_err in
+    *"flight worktree"*"is registered"*) ;;
+    *) fail "c28: the abort must come from the registered-flight guard, got: $_err" ;;
+  esac
   [ -f "$_wt/work.txt" ] || fail "c28: the reconcile force-removed a registered flight worktree"
 }
 
@@ -1131,7 +1136,7 @@ c29() {
     run_prim dispatch --flight demo-0123abcd --brief "$_b" --repo-root "$tmp/primary" --attach-dry-run
     [ "$RC" -eq 2 ] || fail "c29: a brief other than the flight's own ($_b) must be refused (exit 2), got $RC"
   done
-  for _x in --continue -c --resume -r; do
+  for _x in --continue -c --resume -r --resume=abc -r=abc; do
     run_prim dispatch --flight demo-0123abcd --brief "$_own/brief.md" --repo-root "$tmp/primary" \
       --attach-dry-run -- "$_x"
     [ "$RC" -eq 2 ] || fail "c29: $_x beside a brief must be refused (exit 2), got $RC"
@@ -1140,7 +1145,27 @@ c29() {
     fail "c29: a refused flight dispatch created a branch"
   fi
 
+  # Stderr names the confinement, not some earlier refusal.
+  _err=$("$PRIM" dispatch --flight demo-0123abcd --brief "$tmp/brief.md" --repo-root "$tmp/primary" \
+    --attach-dry-run </dev/null 2>&1 >/dev/null)
+  case $_err in
+    *"the flight's own brief.md"*) ;;
+    *) fail "c29: a stray brief must be refused by the confinement, got: $_err" ;;
+  esac
+  # A symlink named brief.md in the flight's own directory is refused.
+  mv "$_own/brief.md" "$_own/real.md"
+  ln -s "$_own/real.md" "$_own/brief.md"
   run_prim dispatch --flight demo-0123abcd --brief "$_own/brief.md" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c29: a symlinked brief.md must be refused (exit 2), got $RC"
+  rm "$_own/brief.md"
+  mv "$_own/real.md" "$_own/brief.md"
+  # --continue without a brief is still a sanctioned launch arg.
+  run_prim dispatch --flight other-0123abcd --repo-root "$tmp/primary" --attach-dry-run -- --continue
+  [ "$RC" -eq 0 ] || fail "c29: --continue without a brief must still be accepted, got $RC"
+
+  # A brief reached through a symlinked directory is handed over canonical.
+  ln -s "$_own" "$tmp/alias"
+  run_prim dispatch --flight demo-0123abcd --brief "$tmp/alias/brief.md" --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 0 ] || fail "c29: the flight's own brief must be accepted, got exit $RC"
   case $OUT in
     *"--tmux=classic${TAB}--${TAB}Read $_own/brief.md and follow it exactly."*) ;;
@@ -1154,6 +1179,11 @@ c29() {
   run_prim dispatch --flight demo-4567abcd --brief "$tmp/fl eet/flights/demo-4567abcd/brief.md" \
     --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 2 ] || fail "c29: a brief path off the conservative charset must be refused (exit 2), got $RC"
+  # The canonical directory is screened too, not only the path as given.
+  ln -s "$tmp/fl eet" "$tmp/fleetalias"
+  run_prim dispatch --flight demo-4567abcd --brief "$tmp/fleetalias/flights/demo-4567abcd/brief.md" \
+    --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c29: a canonical brief directory off the charset must be refused (exit 2), got $RC"
   export PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet"
 
   # A standalone attach of a flight hands the worker its brief, under the
@@ -1168,8 +1198,13 @@ c29() {
   [ "$RC" -eq 2 ] || fail "c29: a standalone attach must refuse another flight's or a stray brief, got $RC"
   run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run -- --continue
   [ "$RC" -eq 2 ] || fail "c29: a standalone attach must refuse --continue beside a brief, got $RC"
-  run_prim attach demo-task-1 --brief "$_own/brief.md" --dry-run
+  _err=$("$PRIM" attach demo-task-1 --brief "$_own/brief.md" --dry-run </dev/null 2>&1 >/dev/null)
+  RC=$?
   [ "$RC" -eq 2 ] || fail "c29: a task-suffix attach must refuse --brief, got $RC"
+  case $_err in
+    *"--brief is a flight option"*) ;;
+    *) fail "c29: a task-suffix --brief must be refused as a flight option, got: $_err" ;;
+  esac
 }
 
 for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29; do

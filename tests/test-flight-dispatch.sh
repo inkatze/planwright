@@ -84,11 +84,33 @@ gitc() {
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/gh" <<'EOF'
 #!/bin/sh
+[ -z "${GH_STUB_LOG:-}" ] || printf '%s\n' "$*" >>"$GH_STUB_LOG"
 [ "$1 $2" = "auth status" ] && exit "${GH_STUB_AUTH:-0}"
 exit 0
 EOF
 chmod +x "$tmp/bin/gh"
 export PATH="$tmp/bin:$PATH"
+
+# A git on $tmp/wlbin whose `worktree list` fails while $WTLIST_FAIL_FLAG
+# exists, wherever the pair sits in its argv, logging each refusal to
+# $WTLIST_FAIL_FLAG.log so a test can prove the failing path ran.
+real_git=$(command -v git)
+mkdir -p "$tmp/wlbin"
+cat >"$tmp/wlbin/git" <<EOF
+#!/bin/sh
+if [ -e "\${WTLIST_FAIL_FLAG:-/nonexistent}" ]; then
+  prev=''
+  for a in "\$@"; do
+    if [ "\$prev \$a" = "worktree list" ]; then
+      echo refused >>"\$WTLIST_FAIL_FLAG.log"
+      exit 128
+    fi
+    prev=\$a
+  done
+fi
+exec '$real_git' "\$@"
+EOF
+chmod +x "$tmp/wlbin/git"
 
 # A fresh case directory: a bare origin, a primary clone with main pushed, and
 # isolated fleet/fetch state so no case touches the machine's fleet home or
@@ -153,9 +175,30 @@ run home --repo-root "$c/primary"
   || fail "home: an approved origin + authenticated gh must declare pr (rc $RC, out: $OUT)"
 [ "$(field "$OUT" origin)" = github.com/acme/widgets ] \
   || fail "home: the report must name origin's push destination (out: $OUT)"
+[ -z "$(field "$OUT" reason)" ] || fail "home: a pr home must carry no reason line (out: $OUT)"
+: >"$c/gh.log"
+GH_STUB_LOG="$c/gh.log" run home --repo-root "$c/primary"
+grep -qx 'auth status --hostname github.com' "$c/gh.log" \
+  || fail "home: gh auth must be checked for the destination's host (log: $(cat "$c/gh.log"))"
 GH_STUB_AUTH=1 run home --repo-root "$c/primary"
 [ "$(field "$OUT" home)" = file ] \
   || fail "home: an unauthenticated gh must declare file (out: $OUT)"
+[ "$(field "$OUT" reason)" = "gh is not authenticated to github.com" ] \
+  || fail "home: an unauthenticated gh must say so (out: $OUT)"
+GH_STUB_AUTH=1 run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --home pr --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "dispatch --home pr with an unauthenticated gh must be refused (rc $RC)"
+case $ERR in *"refusing --home pr: gh is not authenticated to github.com"*) ;; *) fail "the unauthenticated --home pr refusal must say why: $ERR" ;; esac
+gitc "$c/primary" remote set-url --push origin git+ssh://git@github.com/acme/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = pr ] || fail "home: a git+ssh push URL must declare pr (out: $OUT)"
+for u in "file://$c/origin.git" https://github.com/acme/sub/widgets.git; do
+  gitc "$c/primary" remote set-url --push origin "$u"
+  run home --repo-root "$c/primary"
+  [ "$(field "$OUT" home)" = file ] && [ "$(field "$OUT" origin)" = unrecognized ] \
+    || fail "home: push URL $u must read as unrecognized on file (out: $OUT)"
+done
+gitc "$c/primary" remote set-url --push origin https://github.com/acme/widgets.git
 for u in git@github.com:acme/widgets.git ssh://git@github.com:22/acme/widgets https://GitHub.com/acme/widgets.git/; do
   gitc "$c/primary" remote set-url --push origin "$u"
   run home --repo-root "$c/primary"
@@ -171,6 +214,7 @@ case $(field "$OUT" reason) in *flight_pr_hosts*) ;; *) fail "home: an unapprove
 run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
   --home pr --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "dispatch --home pr to an unapproved host must be refused (rc $RC)"
+case $ERR in *"refusing --home pr"*"flight_pr_hosts"*) ;; *) fail "the --home pr refusal must say why: $ERR" ;; esac
 [ "$(flight_branches)" -eq 0 ] || fail "a refused pr home placed a flight"
 # A rewrite rule cannot disguise the destination: the effective push URL counts.
 gitc "$c/primary" remote set-url --push origin https://github.com/acme/widgets.git
@@ -191,15 +235,31 @@ run home --repo-root "$c/primary"
 gitc "$c/primary" remote set-url --push origin https://github.com/acme/widgets.git
 run home --repo-root "$c/primary"
 [ "$(field "$OUT" home)" = file ] || fail "home: a host the knob no longer lists must declare file (out: $OUT)"
+# An entry matches whole segments and ignores case.
+for pair in "git.example|git@git.example.com:acme/w.git|file" \
+  "git.example.com/acme|git@git.example.com:acme-evil/w.git|file" \
+  "github.com|https://github.com.evil.example/acme/w.git|file" \
+  "Git.Example.com/ACME|git@git.example.com:acme/w.git|pr"; do
+  entry=${pair%%|*}
+  rest=${pair#*|}
+  printf 'flight_pr_hosts: [%s]\n' "$entry" >"$c/primary/.claude/planwright.local.yml"
+  gitc "$c/primary" remote set-url --push origin "${rest%|*}"
+  run home --repo-root "$c/primary"
+  [ "$(field "$OUT" home)" = "${rest##*|}" ] \
+    || fail "home: entry $entry against ${rest%|*} must declare ${rest##*|} (out: $OUT)"
+done
 rm "$c/primary/.claude/planwright.local.yml"
 # A local-path destination has no host to approve.
 gitc "$c/primary" remote set-url --push origin "$c/origin.git"
 run home --repo-root "$c/primary"
-[ "$(field "$OUT" home)" = file ] || fail "home: a local-path push destination must declare file (out: $OUT)"
+[ "$(field "$OUT" home)" = file ] && [ "$(field "$OUT" origin)" = unrecognized ] \
+  || fail "home: a local-path push destination must declare file, unrecognized (out: $OUT)"
+case $(field "$OUT" reason) in *"not a recognized network remote"*) ;; *) fail "home: a local path must say why (out: $OUT)" ;; esac
 gitc "$c/primary" remote remove origin
 run home --repo-root "$c/primary"
 [ "$(field "$OUT" home)" = file ] && [ "$(field "$OUT" origin)" = none ] \
   || fail "home: no origin remote must declare file with origin none (out: $OUT)"
+[ "$(field "$OUT" reason)" = "no origin remote" ] || fail "home: no origin must say so (out: $OUT)"
 
 # --- 2. rung selection stays in /offload -------------------------------------
 new_case
@@ -528,6 +588,23 @@ case $plan in
   *) fail "tmux attach must launch claude --worktree flight-<id> with the brief prompt, got: $plan" ;;
 esac
 
+# A fleet home reached through a symlink hands the primitive the canonical
+# brief, which is what its confinement accepts.
+new_case
+mkdir -p "$c/fleet-real"
+ln -s "$c/fleet-real" "$c/fleet-link"
+PLANWRIGHT_FLEET_STATE_DIR="$c/fleet-link" run dispatch readme-typo --backend tmux --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --repo-root "$c/primary" --attach-dry-run
+[ "$RC" -eq 0 ] || fail "a symlinked fleet home must still place a tmux flight (rc $RC: $ERR)"
+case $(field "$OUT" brief) in
+  "$c/fleet-real/flights/"*) ;;
+  *) fail "the brief must be reported at its canonical path: $(field "$OUT" brief)" ;;
+esac
+case $OUT in
+  *"Read $c/fleet-real/flights/"*"/brief.md and follow it exactly."*) ;;
+  *) fail "the attach plan must carry the canonical brief path (out: $OUT)" ;;
+esac
+
 # --- 8. a read-only offload mints no flight identity -------------------------
 new_case
 printf 'Summarize the README; change nothing.\n' >"$c/petition.txt"
@@ -602,6 +679,17 @@ case $ERR in *"control"*) ;; *) fail "the control-byte refusal must say why: $ER
 PLANWRIGHT_FLEET_STATE_DIR="$c/fl${TAB}eet" run dispatch readme-typo --backend print \
   --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "a fleet home carrying a control byte must be refused (rc $RC: $ERR)"
+case $ERR in *"fleet home"*"control"*) ;; *) fail "the fleet-home control-byte refusal must say why: $ERR" ;; esac
+git clone -q "$c/origin.git" "$c/pri
+mary" 2>/dev/null
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/pri
+mary"
+[ "$RC" -eq 2 ] || fail "a repo root carrying a newline must be refused (rc $RC: $ERR)"
+run retire --repo-root "$c/pri${TAB}mary"
+[ "$RC" -eq 2 ] || fail "retire must refuse a repo root carrying a control byte (rc $RC)"
+PLANWRIGHT_FLEET_STATE_DIR="$c/fl${TAB}eet" run retire --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "retire must refuse a fleet home carrying a control byte (rc $RC)"
 [ "$(flight_branches)" -eq 0 ] || fail "a control-byte path placed a flight branch"
 [ ! -e "$c/fl${TAB}eet/flights" ] || fail "a control-byte fleet home received a brief"
 
@@ -613,16 +701,24 @@ mkdir -p "$c/fleet" "$c/redirected"
 ln -s "$c/redirected" "$c/fleet/flights"
 dispatch_print
 [ "$RC" -eq 4 ] || fail "a symlinked flights directory must be refused (rc $RC: $ERR)"
+case $ERR in *"is a symlink"*) ;; *) fail "the symlinked flights refusal must say why: $ERR" ;; esac
 [ -z "$(ls -A "$c/redirected")" ] || fail "a brief was written through a symlinked flights directory"
 rm "$c/fleet/flights"
 mkdir -p "$c/fleet/flights"
 chmod 777 "$c/fleet/flights"
 dispatch_print
 [ "$RC" -eq 4 ] || fail "a world-writable flights directory must be refused (rc $RC: $ERR)"
+case $ERR in *"flights is not a directory owned by you"*) ;; *) fail "the writable flights refusal must say why: $ERR" ;; esac
+for m in 770 702; do
+  chmod "$m" "$c/fleet/flights"
+  dispatch_print
+  [ "$RC" -eq 4 ] || fail "a flights directory at mode $m must be refused (rc $RC: $ERR)"
+done
 chmod 700 "$c/fleet/flights"
 chmod 777 "$c/fleet"
 dispatch_print
 [ "$RC" -eq 4 ] || fail "a world-writable fleet home must be refused (rc $RC: $ERR)"
+case $ERR in *"the fleet home is not a directory owned by you"*) ;; *) fail "the writable fleet-home refusal must say why: $ERR" ;; esac
 chmod 755 "$c/fleet"
 [ "$(flight_branches)" -eq 0 ] || fail "a refused brief directory placed a flight branch"
 [ "$(briefs)" -eq 0 ] || fail "a refused brief directory left a brief"
@@ -636,27 +732,48 @@ bdir=$(dirname "$(field "$OUT" brief)")
 # grounds before either reaches the brief, and the strip is flagged; ordinary
 # UTF-8 (an accent, an em dash sharing the bidi controls' lead bytes) stays.
 new_case
-invis=$(printf '\342\200\256\342\200\213\357\273\277\363\240\201\201\342\201\240\342\201\246\330\234\302\255\342\200\250')
-printf 'Fix the caf\303\251 heading \342\200\224 %sreversed%s now.\n' "$invis" "$invis" >"$c/ask-u.txt"
+invis_codes='\302\255 \330\234 \341\240\216 \342\200\213 \342\200\217 \342\200\250 \342\200\251 \342\200\255 \342\200\256 \342\201\240 \342\201\244 \342\201\246 \342\201\251 \357\273\277 \363\240\200\201 \363\240\201\201 \363\240\201\277'
+invis=''
+for b in $invis_codes; do
+  # shellcheck disable=SC2059 # each octal escape is the format
+  invis="$invis$(printf "$b")"
+done
+# Each range's outside neighbour, which must survive.
+keep=$(printf '\342\200\220\342\200\247\342\200\257\342\201\245\342\201\252\341\240\215')
+printf 'Fix the caf\303\251 heading \342\200\224 %sreversed%s now. %s\n' "$invis" "$invis" "$keep" >"$c/ask-u.txt"
 run dispatch readme-typo --backend print --ask-file "$c/ask-u.txt" \
   --grounds-file "$(grounds "visual flight: one ${invis}wording change")" --repo-root "$c/primary"
 [ "$RC" -eq 0 ] || fail "an ask carrying invisible Unicode must be sanitized, not refused (rc $RC: $ERR)"
 ubrief=$(field "$OUT" brief)
-if [ -f "$ubrief" ]; then
-  for b in '\342\200\256' '\342\200\213' '\357\273\277' '\363\240\201\201' '\342\201\240' '\342\201\246' \
-    '\330\234' '\302\255' '\342\200\250'; do
-    # shellcheck disable=SC2059 # each octal escape is the format
-    ! grep -q "$(printf "$b")" "$ubrief" || fail "the brief kept an invisible or bidi code point ($b)"
-  done
-  grep -q "$(printf 'caf\303\251 heading \342\200\224 reversed now.')" "$ubrief" \
-    || fail "sanitizing the ask must keep ordinary UTF-8"
-  grep -q '^> visual flight: one wording change$' "$ubrief" || fail "the grounds must reach the brief sanitized"
-fi
+[ -f "$ubrief" ] || fail "the sanitized dispatch reported no brief (out: $OUT)"
+for b in $invis_codes; do
+  # shellcheck disable=SC2059 # each octal escape is the format
+  ! grep -q "$(printf "$b")" "$ubrief" 2>/dev/null || fail "the brief kept an invisible or bidi code point ($b)"
+done
+grep -q "$(printf 'caf\303\251 heading \342\200\224 reversed now. ')$keep" "$ubrief" 2>/dev/null \
+  || fail "sanitizing the ask must keep ordinary UTF-8, the ranges' neighbours included"
+grep -q '^> visual flight: one wording change$' "$ubrief" 2>/dev/null || fail "the grounds must reach the brief sanitized"
+grep -q 'were stripped from the ask at dispatch' "$ubrief" 2>/dev/null || fail "the brief must note the ask was sanitized"
 printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}ask$" || fail "a sanitized ask must be flagged in the report (out: $OUT)"
 printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}grounds$" || fail "sanitized grounds must be flagged in the report"
 case $ERR in *"invisible or bidi"*) ;; *) fail "the strip must be flagged on stderr: $ERR" ;; esac
 dispatch_print
 case $OUT in *"sanitized${TAB}"*) fail "a clean ask must not be flagged as sanitized" ;; esac
+! grep -q 'were stripped' "$(field "$OUT" brief)" || fail "a clean ask's brief must carry no strip note"
+run dispatch readme-typo --backend print --ask-file "$c/ask-u.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary"
+printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}ask$" || fail "a dirty ask must be flagged (out: $OUT)"
+! printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}grounds$" || fail "clean grounds must not be flagged (out: $OUT)"
+gitc "$c/primary" worktree remove --force "$(field "$OUT" worktree)"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$(grounds "visual flight: ${invis}grounds only")" --repo-root "$c/primary"
+printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}grounds$" || fail "dirty grounds must be flagged (out: $OUT)"
+! printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}ask$" || fail "a clean ask must not be flagged (out: $OUT)"
+gitc "$c/primary" worktree remove --force "$(field "$OUT" worktree)"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$(grounds "$(printf '\342\200\213\342\200\213')")" --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "grounds that are empty once stripped must be refused (rc $RC)"
+case $ERR in *"empty once invisible"*) ;; *) fail "the emptied grounds refusal must say why: $ERR" ;; esac
 
 # A grounds file named like an option is read as a file, never as `cat`'s
 # option or stdin.
@@ -671,9 +788,8 @@ RC=$?
 
 # A worktree list that fails after a failed placement is not "no worktree":
 # the brief stays and the worktree state is reported unknown.
-real_git=$(command -v git)
 wlroot="$tmp/wlroot"
-mkdir -p "$wlroot" "$tmp/wlbin"
+mkdir -p "$wlroot"
 cp -R "$ROOT/scripts" "$ROOT/skills" "$ROOT/config" "$ROOT/doctrine" "$ROOT/.claude-plugin" "$wlroot/"
 cat >"$wlroot/scripts/fleet-dispatch-worktree.sh" <<'EOF'
 #!/bin/sh
@@ -681,14 +797,6 @@ cat >"$wlroot/scripts/fleet-dispatch-worktree.sh" <<'EOF'
 echo "stub: placement failed" >&2
 exit 5
 EOF
-cat >"$tmp/wlbin/git" <<EOF
-#!/bin/sh
-if [ -e "\$WTLIST_FAIL_FLAG" ] && [ "\$3 \$4" = "worktree list" ]; then
-  exit 128
-fi
-exec '$real_git' "\$@"
-EOF
-chmod +x "$tmp/wlbin/git"
 new_case
 OUT=$(WTLIST_FAIL_FLAG="$c/wl.flag" PATH="$tmp/wlbin:$PATH" "$wlroot/scripts/flight-dispatch.sh" dispatch \
   readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" \
@@ -698,6 +806,8 @@ RC=$?
 [ "$(field "$OUT" worktree)" = unknown ] || fail "an unreadable worktree list must report the worktree unknown (out: $OUT)"
 [ -n "$(field "$OUT" brief)" ] && [ -f "$(field "$OUT" brief)" ] \
   || fail "an unreadable worktree list must keep and report the brief (out: $OUT)"
+case $(field "$OUT" reask) in *"could not be read"*) ;; *) fail "an unknown worktree state must say the list could not be read (out: $OUT)" ;; esac
+[ -s "$c/wl.flag.log" ] || fail "fixture: the unreadable-list path was never taken"
 
 # --- 9c. a retired flight's brief directory is cleaned -----------------------
 # A flight retires when its worktree is removed. `retire`, and every dispatch,
@@ -717,6 +827,7 @@ WTLIST_FAIL_FLAG="$c/wl.flag"
 OUT=$(WTLIST_FAIL_FLAG="$WTLIST_FAIL_FLAG" PATH="$tmp/wlbin:$PATH" "$SCRIPT" retire --repo-root "$c/primary" </dev/null 2>"$tmp/err")
 RC=$?
 [ "$RC" -eq 4 ] || fail "retire with an unreadable worktree list must fail closed with exit 4 (rc $RC)"
+case $(cat "$tmp/err") in *"cannot list worktrees"*) ;; *) fail "retire's unreadable-list refusal must say why: $(cat "$tmp/err")" ;; esac
 [ -d "$c/fleet/flights/$fa" ] || fail "retire removed a brief while the worktree list was unreadable"
 rm -f "$WTLIST_FAIL_FLAG"
 run retire --repo-root "$c/primary"
@@ -725,10 +836,35 @@ run retire --repo-root "$c/primary"
 printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fa$" || fail "retire must report what it removed (out: $OUT)"
 [ -f "$c/fleet/flights/$fb/brief.md" ] || fail "retire must keep a live flight's brief"
 [ -d "$c/fleet/flights/other-0123abcd" ] || fail "retire must keep another checkout's brief directory"
+# No checkout record, a symlinked one, or an off-grammar name: never swept.
+mkdir -p "$c/fleet/flights/nock-0123abcd" "$c/fleet/flights/lnk-0123abcd" "$c/fleet/flights/NotAnId"
+printf '%s\n' "$c/primary" >"$c/ck"
+ln -s "$c/ck" "$c/fleet/flights/lnk-0123abcd/checkout"
+printf '%s\n' "$c/primary" >"$c/fleet/flights/NotAnId/checkout"
+run retire --repo-root "$c/primary"
+for d in nock-0123abcd lnk-0123abcd NotAnId; do
+  [ -d "$c/fleet/flights/$d" ] || fail "retire must keep $d (no checkout record, a symlinked one, or an off-grammar name)"
+done
+# A worktree deleted by hand (prunable) is retired too.
+rm -rf "$c/primary/.claude/worktrees/flight-$fb"
+run retire --repo-root "$c/primary"
+printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "retire must retire a prunable flight (out: $OUT)"
+gitc "$c/primary" worktree prune
+dispatch_print
+fb=$(field "$OUT" flight)
+# A busy checkout lock fails closed and removes nothing.
+lockhome="$c/primary/.git/planwright-flight"
+PLANWRIGHT_FLEET_STATE_DIR=$lockhome "$STATE" lock || fail "fixture: could not take the flight lock"
 gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fb"
+PLANWRIGHT_FLIGHT_LOCK_WAIT=0 run retire --repo-root "$c/primary"
+[ "$RC" -eq 4 ] || fail "retire under a busy lock must fail closed with exit 4 (rc $RC)"
+case $ERR in *"holds this checkout's lock"*) ;; *) fail "retire's busy-lock refusal must say why: $ERR" ;; esac
+[ -d "$c/fleet/flights/$fb" ] || fail "retire under a busy lock removed a brief"
+PLANWRIGHT_FLEET_STATE_DIR=$lockhome "$STATE" unlock
 dispatch_print
 [ "$RC" -eq 0 ] || fail "dispatch after a retirement exited $RC: $ERR"
 [ ! -e "$c/fleet/flights/$fb" ] || fail "a dispatch must clean a retired flight's brief directory"
+printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "a dispatch must report the brief it swept (out: $OUT)"
 
 # --- plugin-root pair with an installed plugin -------------------------------
 tower_v=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)
