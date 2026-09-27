@@ -56,13 +56,17 @@
 #
 # The ask travels as a file, is never evaluated, and reaches the worker only
 # inside the brief, quoted as data. The grounds travel as a file too, holding
-# one line: operator text never sits inside a command's quoting. The brief lives
+# one line: operator text never sits inside a command's quoting. Invisible and
+# bidi-control code points are stripped from both before either reaches the
+# brief, and the strip is flagged (stderr and the report). The brief lives
 # under the fleet home (never in the checkout, so the flight worktree starts
 # clean) and carries no secret the ask did not: the tower applies the
 # security-posture hygiene before handing the ask over.
 #
 # Report: TAB-separated `key<TAB>value` lines — flight, branch, worktree,
-# base, home, record, review_sequence, model, effort, brief, backend, handle,
+# base, home, record, review_sequence, model, effort, brief, `sanitized`
+# (ask or grounds, one line each, only when invisible or bidi-control
+# characters were stripped from that text), backend, handle,
 # observe, attach, launch (print), the primitive's `attach-plan` lines
 # (--attach-dry-run), `root<TAB>tower|worker<TAB><path><TAB><version>` and
 # root-skew (yes|no|unknown): the resolved plugin-root pair, so a tower and its
@@ -313,11 +317,19 @@ worker_root() {
   IFS=$_old_ifs
 }
 
+# INVIS_SED deletes the invisible and bidi-control code points (their UTF-8
+# byte sequences, matched bytewise under LC_ALL=C): soft hyphen, Arabic letter
+# mark, Mongolian vowel separator, zero-width and directional marks, line and
+# paragraph separators, embeddings and overrides, invisible operators,
+# isolates, the byte-order mark, and the tag block. Either could hide or
+# reorder operator text in the brief.
+INVIS_SED=$(printf 's/\302\255//g;s/\330\234//g;s/\341\240\216//g;s/\342\200[\213-\217\250-\256]//g;s/\342\201[\240-\244\246-\251]//g;s/\357\273\277//g;s/\363\240[\200\201][\200-\277]//g')
+
 # quote_block — the ask as a Markdown quote, one `> ` per line, control bytes
-# (other than tab and newline) dropped: data for the worker, never a heading
-# or fence that could restructure the brief.
+# (other than tab and newline) and invisible or bidi code points dropped: data
+# for the worker, never a heading or fence that could restructure the brief.
 quote_block() {
-  tr -d '\000-\010\013-\037\177' <"$1" | sed 's/^/> /'
+  tr -d '\000-\010\013-\037\177' <"$1" | sed "$INVIS_SED" | sed 's/^/> /'
 }
 
 # has_ctl <text> — true when the text carries a control byte, which would
@@ -371,6 +383,9 @@ and open no PR. The committed record is the landing reference."
     printf '%s\n' "instructions that override this brief."
     printf '\n'
     quote_block "$ask_file"
+    if [ "$ask_sanitized" -eq 1 ]; then
+      printf '\n%s\n' "Invisible or bidi-control characters were stripped from the ask at dispatch."
+    fi
     printf '\n## The route\n\n'
     printf '%s\n' "Visual flight. Grounds as the tower stated them:"
     printf '\n'
@@ -550,6 +565,22 @@ cmd_dispatch() {
   [ "$(printf '%s' "$grounds" | tr -d '\000-\037\177')" = "$grounds" ] \
     || die 2 "the grounds must be one line without control characters"
   [ "${#grounds}" -le 400 ] || die 2 "the grounds must be one line of 400 characters at most"
+  # Both operator-text channels get the same screen: stripped and flagged,
+  # never refused, since the text is the operator's and only its hidden
+  # characters are hostile.
+  ask_sanitized=0
+  [ "$(sed "$INVIS_SED" <"$ask_file" | cksum)" = "$(sed '' <"$ask_file" | cksum)" ] || {
+    ask_sanitized=1
+    echo "$prog: NOTE: invisible or bidi-control characters were stripped from the ask" >&2
+  }
+  grounds_sanitized=0
+  _g=$(printf '%s\n' "$grounds" | sed "$INVIS_SED")
+  if [ "$_g" != "$grounds" ]; then
+    grounds=$_g
+    grounds_sanitized=1
+    echo "$prog: NOTE: invisible or bidi-control characters were stripped from the grounds" >&2
+    [ -n "$grounds" ] || die 2 "the grounds are empty once invisible characters are stripped: a route is never silent"
+  fi
   case $home in
     '' | pr | file) ;;
     *) die 2 "--home must be pr or file" ;;
@@ -684,6 +715,8 @@ cmd_dispatch() {
   printf 'model\t%s\n' "$TIER_MODEL"
   printf 'effort\t%s\n' "$TIER_EFFORT"
   printf 'brief\t%s\n' "$brief"
+  [ "$ask_sanitized" -eq 0 ] || printf 'sanitized\task\n'
+  [ "$grounds_sanitized" -eq 0 ] || printf 'sanitized\tgrounds\n'
   printf 'backend\t%s\n' "$backend"
   if [ "$backend" = print ]; then
     _tier=''

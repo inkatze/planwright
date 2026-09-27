@@ -553,6 +553,32 @@ PLANWRIGHT_FLEET_STATE_DIR="$c/fl${TAB}eet" run dispatch readme-typo --backend p
 [ "$(flight_branches)" -eq 0 ] || fail "a control-byte path placed a flight branch"
 [ ! -e "$c/fl${TAB}eet/flights" ] || fail "a control-byte fleet home received a brief"
 
+# Invisible and bidi-control code points are stripped from the ask and the
+# grounds before either reaches the brief, and the strip is flagged; ordinary
+# UTF-8 (an accent, an em dash sharing the bidi controls' lead bytes) stays.
+new_case
+invis=$(printf '\342\200\256\342\200\213\357\273\277\363\240\201\201\342\201\240\342\201\246\330\234\302\255\342\200\250')
+printf 'Fix the caf\303\251 heading \342\200\224 %sreversed%s now.\n' "$invis" "$invis" >"$c/ask-u.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask-u.txt" \
+  --grounds-file "$(grounds "visual flight: one ${invis}wording change")" --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "an ask carrying invisible Unicode must be sanitized, not refused (rc $RC: $ERR)"
+ubrief=$(field "$OUT" brief)
+if [ -f "$ubrief" ]; then
+  for b in '\342\200\256' '\342\200\213' '\357\273\277' '\363\240\201\201' '\342\201\240' '\342\201\246' \
+    '\330\234' '\302\255' '\342\200\250'; do
+    # shellcheck disable=SC2059 # each octal escape is the format
+    ! grep -q "$(printf "$b")" "$ubrief" || fail "the brief kept an invisible or bidi code point ($b)"
+  done
+  grep -q "$(printf 'caf\303\251 heading \342\200\224 reversed now.')" "$ubrief" \
+    || fail "sanitizing the ask must keep ordinary UTF-8"
+  grep -q '^> visual flight: one wording change$' "$ubrief" || fail "the grounds must reach the brief sanitized"
+fi
+printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}ask$" || fail "a sanitized ask must be flagged in the report (out: $OUT)"
+printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}grounds$" || fail "sanitized grounds must be flagged in the report"
+case $ERR in *"invisible or bidi"*) ;; *) fail "the strip must be flagged on stderr: $ERR" ;; esac
+dispatch_print
+case $OUT in *"sanitized${TAB}"*) fail "a clean ask must not be flagged as sanitized" ;; esac
+
 # A grounds file named like an option is read as a file, never as `cat`'s
 # option or stdin.
 new_case
