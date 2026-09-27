@@ -1518,6 +1518,26 @@ ERR=$(<"$tmp/err")
 [ "$RC" = 4 ] && printf '%s' "$ERR" | grep -q 'repo-tracked catalog is unreadable (stub)'
 verdict "the second catalog read's failure is replayed and mapped like the first" "explain-read failure: rc=$RC err='$ERR'"
 
+# With no PLANWRIGHT_REPO_ROOT the repository root is the working directory's
+# git toplevel, found once and handed to every sibling read: the repo-tracked
+# list and catalog there win, from a subdirectory too.
+reset_layers
+gitrepo="$tmp/gitrepo"
+mkdir -p "$gitrepo/.claude/catalogs" "$gitrepo/sub"
+git -C "$gitrepo" init -q
+printf 'steps_pre_pr: [lint]\n' >"$gitrepo/.claude/planwright.yml"
+printf 'steps:\n  - id: lint\n    kind: command\n    target: fixture-tool\n' >"$gitrepo/.claude/catalogs/steps.yaml"
+# shellcheck disable=SC2086 # the unset flags are meant to word-split
+OUT=$(cd "$gitrepo/sub" && env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA \
+  -u PLANWRIGHT_SKILLS_ROOT -u PLANWRIGHT_JQ -u PLANWRIGHT_REPO_ROOT \
+  PLANWRIGHT_ROOT="$core" PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="" \
+  CLAUDE_DIR="$claude" HOME="$tmp/home" PATH="$bin:$PATH" \
+  /bin/bash "$RS" pre-pr --explain --unattended 2>"$tmp/err")
+RC=$?
+[ "$RC" = 0 ] && [ "$(printf '%s\n' "$OUT" | cut -f1,2,4,5)" = "run${TAB}lint${TAB}repo-tracked${TAB}repo-tracked" ]
+verdict "with no repo-root override the git toplevel supplies the repo-tracked list and catalog" "default repo root: rc=$RC out='$OUT'"
+
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2
   exit 1
