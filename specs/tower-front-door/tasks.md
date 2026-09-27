@@ -266,28 +266,19 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
-- **Task 4** — review pass on the skill core paused on permission and
-  shell-construction findings (hard-disqualifier zone; recommended fixes
-  recorded, none applied). Decide each: (1) a mutation need a read-only
-  worker surfaces becomes a routed request only on the operator's own ask,
-  and "a request" joins the list of things worker or pasted text never
-  counts as; (2) branch names, flight ids, and `<spec>` values are checked
-  against their grammar (a `<spec>` must equal an existing `specs/*/`
-  basename; no match asks the operator) before entering any command or
-  offered command; (3) the drift-capture `--text` value is passed as one
-  argument, never interpolated into quotes; (4) the posture check fails
-  closed when the shipped deny list is absent or unreadable, treats an absent
-  layer as empty and only a parse or read error as unreadable, covers a
-  `--settings` layer, checks the hook path resolves, reads hooks by
-  projection only, and re-runs before lifting the block on "wired"; (5) the
-  floor's `gh api` merge and ready-flip path and GitHub tools on other MCP
-  servers are left to Task 10 or named in bring-up; (6) a failed `/offload`
-  report is sanitized before relay, the hand-off hygiene list matches
-  `security-posture` (customer data, private-repository detail), and
-  markup-neutralization cites `flight-rules`. Queued judgment forks are in
-  the draft PR's audit record.
+(none yet)
 
 ## Deferred
+
+- **Tower floor bypass paths from the skill core's review.** The deny
+  floor does not yet cover a merge or ready flip through `gh api`, or the
+  GitHub tools another MCP server exposes; the operator assigned closing
+  them to Task 10 (tower posture extension) rather than the skill core,
+  so they are not named in bring-up. Task 10's block does not name them
+  yet, so when the gate fires, check that its landed floor covers both.
+  Confidence: high.
+  **Gate:** GATE(when: task 10 completed).
+  Citations: D-14 · REQ-A1.3, REQ-G1.1, REQ-G1.4.
 
 - **User-history / trust-ramp routing.** Static signals suffice to prove
   the routing; history adds statefulness and a where-does-it-live
