@@ -318,7 +318,7 @@ router has not demonstrated (REQ-B1.6).
   listing as registered; (10) a standalone `attach --brief` checks the
   brief's path but not its directory's owner and permissions, and an empty
   `--brief ''` is silently dropped: apply the same privacy check and refuse
-  an empty value; (11) quoted `flight_pr_hosts` entries (`["github.com"]`)
+  an empty value or an empty brief file; (11) quoted `flight_pr_hosts` entries (`["github.com"]`)
   are all rejected, and an unreadable knob reads as "not approved": trim
   quotes per entry as the sibling list reader does, and name an unreadable
   knob as such; (12) an existing fleet home at mode 0775 refuses every
