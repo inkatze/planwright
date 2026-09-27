@@ -106,6 +106,10 @@
 #       --brief          the worker brief the attach hands the worker, as the
 #                        one prompt `Read <abs-file> and follow it exactly.`
 #                        after `--` (the path, never the content, rides argv).
+#                        Only the flight's own `<fleet-home>/flights/<flight-id>/
+#                        brief.md` is accepted, after canonicalization, on the
+#                        path charset `[A-Za-z0-9._/@+-]`; `--continue` and
+#                        `--resume` are refused beside it.
 #   fleet-dispatch-worktree.sh attach <suffix> [--dry-run] [-- <extra>...]
 #       The attach step alone: capture the prior tmux client session, launch
 #       `claude --worktree <suffix> --tmux=classic` (pinned via fleet-dispatch-
@@ -154,6 +158,7 @@ FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 MARKER="$script_dir/orchestrate-marker.sh"
 TRACK="$script_dir/fleet-worktree-track.sh"
+FLEET_STATE="$script_dir/fleet-state.sh"
 
 # How recent an orchestrate-marker must be to count as a LIVE dispatch when no
 # tmux session is present. A marker older than this (a crashed dispatch that
@@ -289,22 +294,57 @@ valid_id() {
 }
 
 # flight id: `<slug>-<uid>`, re-encoded from scripts/flight-id.sh (the
-# reference check) so this primitive stands alone.
+# reference check) so this primitive stands alone. `grep` matches per line, so
+# the charset screen runs first to keep a newline from smuggling a second one.
 valid_flight() {
   reject_dotdot "$1" || return 1
+  case $1 in
+    '' | *[!a-z0-9-]*) return 1 ;;
+  esac
   [ "${#1}" -le 64 ] || return 1
   printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
 }
 
-# The brief the attach hands a flight worker: an absolute path to a readable
-# regular file, free of control bytes, since the path rides the prompt argv.
+# BRIEF_PATH — the canonical path valid_brief accepted.
+BRIEF_PATH=''
+
+# valid_brief <path> <flight-id> — the brief the attach hands a flight worker
+# is that flight's own `brief.md` under the fleet home, after canonicalization,
+# on a conservative charset: its path rides the prompt argv, so no other file
+# can be handed to a worker as its instructions.
 valid_brief() {
   case $1 in
     /*) ;;
     *) return 1 ;;
   esac
-  [ "$(printf '%s' "$1" | tr -d '\000-\037\177')" = "$1" ] || return 1
-  [ -f "$1" ] && [ -r "$1" ]
+  reject_dotdot "$1" || return 1
+  case $1 in
+    *[!A-Za-z0-9._/@+-]*) return 1 ;;
+  esac
+  [ "$(basename "$1")" = brief.md ] || return 1
+  [ -f "$1" ] && [ -r "$1" ] && [ ! -L "$1" ] || return 1
+  _vb_dir=$(cd "$(dirname "$1")" 2>/dev/null && pwd -P) || return 1
+  _vb_home=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || return 1
+  [ -n "$_vb_home" ] || return 1
+  _vb_home=$(cd "$_vb_home" 2>/dev/null && pwd -P) || return 1
+  [ "$_vb_dir" = "$_vb_home/flights/$2" ] || return 1
+  case $_vb_dir in
+    *[!A-Za-z0-9._/@+-]*) return 1 ;;
+  esac
+  BRIEF_PATH="$_vb_dir/brief.md"
+}
+
+# refuse_resume_beside_brief <launch args...> — a resumed session would carry
+# its prior conversation beside the brief, so a brief launch starts fresh.
+refuse_resume_beside_brief() {
+  for _rb in "$@"; do
+    case $_rb in
+      --continue | -c | --resume | --resume=* | -r | -r=*)
+        warn "refusing $_rb beside a flight brief: a brief launch starts a fresh session"
+        exit 2
+        ;;
+    esac
+  done
 }
 
 # worktree suffix: `<spec>-task-<id>`, the bare legacy `task-<id>`, or a
@@ -557,6 +597,7 @@ do_attach() {
   }
   # Refuse any unsanctioned extra launch flag before it reaches claude.
   validate_launch_extra "$@"
+  [ -z "$ATTACH_PROMPT" ] || refuse_resume_beside_brief "$@"
 
   # The pinned launch argv: fleet-dispatch-env.sh applies the ghost-text pin
   # (CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false) structurally, then exec's the
@@ -717,11 +758,11 @@ do_dispatch() {
       exit 2
     }
     if [ -n "$_brief" ]; then
-      valid_brief "$_brief" || {
-        warn "--brief must be an absolute path to a readable regular file"
+      valid_brief "$_brief" "$_flight" || {
+        warn "--brief must be the flight's own brief.md under the fleet home (flights/<flight-id>/), on the path charset [A-Za-z0-9._/@+-]"
         exit 2
       }
-      ATTACH_PROMPT="Read $_brief and follow it exactly."
+      ATTACH_PROMPT="Read $BRIEF_PATH and follow it exactly."
     fi
     _suffix="flight-$_flight"
     _branch="planwright/flight/$_flight"
@@ -751,6 +792,7 @@ do_dispatch() {
   # marker, or registry entry. (do_attach re-validates as defense-in-depth for a
   # direct `attach` invocation.)
   validate_launch_extra "$@"
+  [ -z "$ATTACH_PROMPT" ] || refuse_resume_beside_brief "$@"
 
   # Resolve the repo root.
   if [ -z "$_repo_root" ]; then
