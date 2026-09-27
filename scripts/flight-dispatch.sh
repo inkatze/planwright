@@ -111,6 +111,7 @@ ALLOC="$script_dir/allocation-apply.sh"
 LADDER="$script_dir/allocation-ladder.sh"
 FETCH="$script_dir/dispatch-fetch.sh"
 REGISTER="$script_dir/fleet-register.sh"
+ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 MANIFEST_SKILL="$root_dir/skills/execute-task/SKILL.md"
 
 # How long a dispatch waits on another holding the checkout's flight lock
@@ -138,7 +139,7 @@ EOF
 }
 
 for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$SEQUENCE" "$ROOTS" \
-  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$MANIFEST_SKILL"; do
+  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL"; do
   [ -r "$_h" ] || die 2 "required helper missing: $_h"
 done
 # shellcheck source=scripts/allocation-ladder.sh
@@ -719,14 +720,17 @@ cmd_dispatch() {
   [ "$grounds_sanitized" -eq 0 ] || printf 'sanitized\tgrounds\n'
   printf 'backend\t%s\n' "$backend"
   if [ "$backend" = print ]; then
-    _tier=''
-    [ "$TIER_MODEL" = inherit ] || _tier="$_tier --model $TIER_MODEL"
-    [ "$TIER_EFFORT" = inherit ] || _tier="$_tier --effort $TIER_EFFORT"
+    # The printed launch runs through the dispatch environment pin, as every
+    # fleet launch does; the wrapper quotes each word.
+    set -- claude --worktree "$suffix"
+    [ "$TIER_MODEL" = inherit ] || set -- "$@" --model "$TIER_MODEL"
+    [ "$TIER_EFFORT" = inherit ] || set -- "$@" --effort "$TIER_EFFORT"
+    _launch=$(/bin/sh "$ENVWRAP" --emit-launch "$@" -- "Read $brief and follow it exactly." </dev/null) \
+      || die 5 "could not construct the pinned print launch; the flight was placed at $worktree"
     printf 'handle\t%s\n' "none: no process exists until the operator runs the launch command"
     printf 'observe\t%s\n' "none: spawn deferred to the operator; act on the landing reference"
     printf 'attach\t%s\n' "run the launch command in a terminal; the worker is that session"
-    printf 'launch\tcd %s && claude --worktree %s%s -- %s\n' "$(sh_quote "$repo_root")" "$suffix" \
-      "$_tier" "$(sh_quote "Read $brief and follow it exactly.")"
+    printf 'launch\tcd %s && %s\n' "$(sh_quote "$repo_root")" "$_launch"
   else
     printf 'handle\t%s\n' "$brief_handle"
     if [ "$dry" -eq 1 ]; then

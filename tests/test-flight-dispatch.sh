@@ -205,8 +205,8 @@ case $(field "$OUT" handle) in none:*) ;; *) fail "the print rung has no process
 case $(field "$OUT" observe) in none:*) ;; *) fail "the print rung has no observe surface, so observe must say none" ;; esac
 launch=$(field "$OUT" launch)
 case $launch in
-  *"claude --worktree flight-$fid -- "*) ;;
-  *) fail "print rung must report the native worktree launch, got: $launch" ;;
+  *"&& '$ROOT/scripts/fleet-dispatch-env.sh' 'claude' '--worktree' 'flight-$fid' '--' "*) ;;
+  *) fail "print rung must report the native worktree launch through the dispatch environment pin, got: $launch" ;;
 esac
 brief=$(field "$OUT" brief)
 [ -f "$brief" ] || fail "the worker brief was not written ($brief)"
@@ -314,7 +314,7 @@ ERR=$(cat "$tmp/err")
 [ "$(field "$OUT" model)" = sonnet ] && [ "$(field "$OUT" effort)" = high ] \
   || fail "the tier must come from --repo-root's config (model $(field "$OUT" model), effort $(field "$OUT" effort))"
 case $(field "$OUT" launch) in
-  *" --model sonnet --effort high -- "*) ;;
+  *" '--model' 'sonnet' '--effort' 'high' '--' "*) ;;
   *) fail "the print launch must carry the resolved tier: $(field "$OUT" launch)" ;;
 esac
 
