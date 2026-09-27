@@ -1254,8 +1254,9 @@ printf '%s\n' "$OUT" | grep -qx 'PLANWRIGHT_STEP_PR_NUMBER=' \
   && printf '%s\n' "$OUT" | grep -qx 'PLANWRIGHT_STEP_POINT=pre-spec-ready-flip' \
   && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" = 12 ]
 verdict "REQ-A1.4: an absent context value renders as the empty string" "absent context value: $OUT"
-# A value carrying a newline or a control byte is refused on both channels,
-# the diagnostic naming the field and never the value.
+# A value carrying a newline or a control byte is refused on the preamble and
+# prefix channels (the line channel in 13b), the diagnostic naming the field
+# and never the value.
 for mode in --preamble --prefix; do
   rc=0
   err=$(ctx_run PLANWRIGHT_STEP_BRANCH="$(printf 'a\nb')" -- pre-pr "$mode" 2>&1 >/dev/null) || rc=$?
@@ -1310,7 +1311,8 @@ done
 cat_entry "$tracked_cat" say "kind: command" "target: printf" "args: hello =x" "hosting: in-session"
 cat_entry "$tracked_cat" hop "kind: command" "target: cd" "args: nowhere" "hosting: continue"
 cat_entry "$tracked_cat" iso "kind: command" "target: printf" "args: hello =x" "hosting: isolated"
-printf 'steps_pre_pr: [say, hop, iso]\n' >"$tracked_cfg"
+cat_entry "$tracked_cat" bare "kind: command" "target: printf" "hosting: in-session"
+printf 'steps_pre_pr: [say, hop, iso, bare]\n' >"$tracked_cfg"
 # The control: the bare name runs the builtin, never the file.
 rm -f "$tmp/ran-printf"
 got=$(cd "$tmp" && PATH="$bin:$PATH" sh -c "$(ctx_run PLANWRIGHT_STEP_ID=say -- pre-pr --prefix) printf hello" 2>/dev/null)
@@ -1319,10 +1321,11 @@ got=$(cd "$tmp" && PATH="$bin:$PATH" sh -c "$(ctx_run PLANWRIGHT_STEP_ID=say -- 
 EXPL=$(ctx_run -- pre-pr --explain --unattended 2>"$tmp/err")
 RC=$?
 [ "$RC" = 0 ] || fail "13b setup: --explain rc=$RC err='$(cat "$tmp/err")'"
-for sid in say hop iso; do
+for sid in say hop iso bare; do
   row=$(printf '%s\n' "$EXPL" | awk -F'\t' -v s="$sid" '$2 == s')
   loc=$(printf '%s\n' "$row" | cut -f13)
   args=$(printf '%s\n' "$row" | cut -f9)
+  [ "$args" != - ] || args=""
   case "$sid" in hop) b="cd" ;; *) b="printf" ;; esac
   [ "$loc" = "$bin/$b" ] || fail "13b: '$sid' location '$loc' (want $bin/$b)"
   rm -f "$tmp/ran-$b"
@@ -1340,7 +1343,7 @@ for sid in say hop iso; do
   [ "$(cat "$tmp/ran-$b" 2>/dev/null)" = "$args" ] \
     || fail "13b: the session shell did not run the file at $loc with its args for '$sid'"
 done
-ok "REQ-D1.3: a command step's line names the resolved location and quotes each arg, so a builtin-named target runs the file the resolver printed, the same words an isolated step runs as argv"
+ok "REQ-D1.3: a command step's line names the resolved location and quotes each arg, so a builtin-named target runs the file the resolver printed"
 rm -f "$bin/printf" "$bin/cd"
 # A location whose directory carries a space and a quote survives the shell.
 odd="$tmp/it's a dir"
@@ -1348,7 +1351,12 @@ mkdir -p "$odd"
 printf '#!/bin/sh\n: >"%s/ran-odd"\n' "$tmp" >"$odd/odd-tool"
 chmod +x "$odd/odd-tool"
 rm -f "$tmp/ran-odd"
-LINE=$(ctx_run PLANWRIGHT_STEP_ID=odd -- pre-pr --line "$odd/odd-tool" 2>/dev/null)
+reset_layers
+cat_entry "$tracked_cat" odd "kind: command" "target: odd-tool" "hosting: in-session"
+printf 'steps_pre_pr: [odd]\n' >"$tracked_cfg"
+loc=$(PATH="$odd:$PATH" ctx_run -- pre-pr --explain --unattended 2>/dev/null | cut -f13)
+[ "$loc" = "$odd/odd-tool" ] || fail "odd location: the PATH lookup printed '$loc'"
+LINE=$(ctx_run PLANWRIGHT_STEP_ID=odd -- pre-pr --line "$loc" 2>/dev/null)
 RC=$?
 (cd "$tmp" && sh -c "$LINE") >/dev/null 2>&1
 [ "$RC" = 0 ] && [ -e "$tmp/ran-odd" ]
@@ -1360,10 +1368,22 @@ mkdir -p "$repo/tools"
 printf '#!/bin/sh\n: >"%s/ran-rel"\n' "$tmp" >"$repo/tools/rel"
 chmod +x "$repo/tools/rel"
 cat_entry "$tracked_cat" rel "kind: command" "target: ./tools/rel" "hosting: in-session"
-printf 'steps_pre_pr: [rel]\n' >"$tracked_cfg"
-loc=$(cd "$repo" && ctx_run -- pre-pr --explain --unattended 2>/dev/null | cut -f13)
-[ "$loc" = "$repo/tools/rel" ]
-verdict "a relative command target's location is absolute" "relative target location: '$loc'"
+cat_entry "$tracked_cat" rel2 "kind: command" "target: tools/rel" "hosting: in-session"
+printf 'steps_pre_pr: [rel, rel2]\n' >"$tracked_cfg"
+locs=$(cd "$repo" && ctx_run -- pre-pr --explain --unattended 2>/dev/null | cut -f13 | sort -u)
+[ "$locs" = "$repo/tools/rel" ] || fail "relative target locations: '$locs' (want $repo/tools/rel for both)"
+rm -f "$tmp/ran-rel"
+LINE=$(ctx_run -- pre-pr --line "$locs" 2>/dev/null)
+(cd "$tmp" && sh -c "$LINE") >/dev/null 2>&1
+[ -e "$tmp/ran-rel" ]
+verdict "a relative command target's location is absolute, so its line runs from any directory" "relative target line: '$LINE'"
+# A lone dash is the explain sentinel for empty args, so declaring it is malformed.
+cat_entry "$tracked_cat" dash "kind: command" "target: tools/rel" "args: -"
+printf 'steps_pre_pr: [dash]\n' >"$tracked_cfg"
+rc=0
+(cd "$repo" && ctx_run -- pre-pr --unattended) >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ]
+verdict "a command step declaring args of exactly '-' is malformed for its layer" "lone-dash args: rc=$rc"
 # --line refuses a location that is not absolute and an arg outside the args
 # charset, and is exclusive with every other mode.
 for bad in "tools/rel" "" "-x"; do
@@ -1386,9 +1406,13 @@ for other in --explain --check --prefix --preamble --unattended; do
 done
 ok "--line refuses a relative or missing location and an arg outside the charset, and takes no other mode or attendance flag"
 rc=0
-ctx_run PLANWRIGHT_STEP_BRANCH="$(printf 'a\nb')" -- pre-pr --line /bin/true >/dev/null 2>&1 || rc=$?
-[ "$rc" = 6 ]
-verdict "--line refuses a context value carrying a newline (exit 6)" "--line bad context: rc=$rc"
+ctx_run -- pre-pr --line "$(printf '/bin/tr\001ue')" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ]
+verdict "--line refuses a location carrying a control byte (exit 2)" "--line control-byte location: rc=$rc"
+rc=0
+err=$(ctx_run PLANWRIGHT_STEP_BRANCH="$(printf 'secretish\nb')" -- pre-pr --line /bin/true 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 6 ] && printf '%s' "$err" | grep -q PLANWRIGHT_STEP_BRANCH && ! printf '%s' "$err" | grep -q secretish
+verdict "--line refuses a context value carrying a newline (exit 6), naming the field and never the value" "--line bad context: rc=$rc err='$err'"
 # =============================================================================
 # 14. Output contract: newline-terminated, deterministic, explain columns.
 # =============================================================================

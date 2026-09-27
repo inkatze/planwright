@@ -8,8 +8,8 @@
 # doctrine/custom-steps.md is the normative home of every rule this script
 # applies; this header pins what that doc delegates here (the output line
 # format, the exit codes, the preamble layout, the prefix quoting, and the
-# command line) and
-# summarizes the rest for a reader of this file, the doc winning on conflict.
+# command line) and summarizes the rest for a reader of this file, the doc
+# winning on conflict.
 #
 # A point's list is config, read THROUGH config-get.sh (last-layer-wins; its
 # --layers mode supplies the shadow and stale-key warnings and the core
@@ -68,7 +68,8 @@
 # <location> is
 # the absolute host path a skill or command target resolved to (a prompt
 # prints `-`; a relative command path is joined to the working directory
-# this script runs in, which the hosting skill makes the unit's worktree). An empty or inapplicable field prints `-`. No line carries a
+# this script runs in, which the hosting skill makes the unit's worktree).
+# An empty or inapplicable field prints `-`. No line carries a
 # C0 control byte or DEL: a catalog value carrying one is malformed for its
 # layer, and a location built from the environment that carries one does
 # not resolve.
@@ -117,16 +118,17 @@
 # The line (--line; REQ-D1.3, REQ-G1.3). `<prefix> '<location>' '<arg>'...`:
 # the prefix above, then the step's <location> and each of its args words,
 # each single-quoted the same way, one space apart. The runner passes the
-# <location> and args of the step's --explain line from the point's one
-# resolution, so the line runs what that resolution printed; an isolated step
-# runs the same words as argv. Every hosting runs the location, never the
-# bare target: a session shell given a bare name that is also a builtin
-# (`cd`, `printf`) runs the builtin, not the file. A <location> that is not
-# absolute, and an arg outside the args charset, is a usage error.
+# <location> and the args words of the step's --explain line from the
+# point's one resolution (none when that field is `-`), so the line runs
+# what that resolution printed; an isolated step runs the same words as
+# argv. Every hosting runs the location, never the bare target: a session
+# shell given a bare name that is also a builtin (`cd`, `printf`) runs the
+# builtin, not the file. A <location> that is not absolute or carries a
+# control byte, and an arg outside the args charset, is a usage error.
 #
-# On every channel a value carrying a newline, another C0 control byte, or
-# DEL is refused (exit 6), the diagnostic naming the field and never the
-# value; so is a unit kind outside task|spec|flight, a task id outside the
+# On every channel a context value carrying a newline, another C0 control
+# byte, or DEL is refused (exit 6), the diagnostic naming the field and never
+# the value; so is a unit kind outside task|spec|flight, a task id outside the
 # task-id grammar, or a non-numeric PR number.
 #
 # Exit codes (REQ-H1.3):
@@ -136,7 +138,8 @@
 #      failure the by-layer policy did not already map to 4 or 5
 #   2  usage: an unknown point, an attendance flag missing or doubled,
 #      --check with --attended, an unknown or conflicting flag; --line
-#      without an absolute location or with an arg outside the charset
+#      without an absolute location, with a control byte in it, or with an
+#      arg outside the charset
 #   4  a malformed repo-tracked list or entry, or a structurally malformed
 #      repo-tracked config or catalog (config-get's own 4, resolve-catalog's
 #      hard-fail naming the repo-tracked layer)
@@ -1040,6 +1043,12 @@ validate_entry() {
           return
         }
       done
+      # A lone `-` is --explain's empty-field sentinel, so a runner could not
+      # tell it from no args.
+      [ "$vargs" != - ] || {
+        ERR="command args of exactly '-' (the empty-field sentinel)"
+        return
+      }
       ;;
     prompt)
       [ -z "$vargs" ] || {
