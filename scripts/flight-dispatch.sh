@@ -84,21 +84,26 @@
 # (--attach-dry-run), `root<TAB>tower|worker<TAB><path><TAB><version>` and
 # root-skew (yes|no|unknown): the resolved plugin-root pair, so a tower and its
 # worker running different planwright versions is visible at dispatch. A
-# decline is `declined<TAB><live><TAB><bound>` plus a `reask` line. A failed
+# decline is `declined<TAB><live><TAB><bound>` plus a `reask` line, after any
+# `retired` lines the sweep printed. A failed
 # placement is `failed<TAB><reason>` plus the flight, branch, and the worktree
 # and brief left behind, if any; a worktree left behind adds a `reask` line
 # saying it holds a slot. When the worktree list cannot be read, the worktree
 # is reported `unknown` and the brief is kept. A repo root or fleet home whose
 # path carries a control byte is refused up front, so no report line splits.
 #
-# Exit codes: 0 placed / declared; 2 usage, a malformed or hostile input, a
-# refused rung, or a missing sibling helper (nothing placed); 3 declined at the
-# bound, or withheld by the allocation admission gate (nothing placed); 4 a
-# resolver, the fleet home, the worktree list, or the flight lock could not be
-# read or taken, or the base could not be fetched fresh (nothing placed, unless
-# a `failed` report names a worktree left behind); 5 the id could not be
-# minted, the brief could not be written, or the placement failed (the `failed`
-# report names what was left behind).
+# Exit codes: 0 placed / declared / retired; 2 usage, a malformed or hostile
+# input, a refused rung or `--home pr`, or a missing sibling helper (nothing
+# placed); 3 declined at the bound, or withheld by the allocation admission
+# gate (nothing placed); 4 a resolver, the fleet home, the worktree list, or
+# the flight lock could not be read or taken, the brief directory was refused
+# (not private to the user, a symlinked flights directory, or already
+# present), or the base could not be fetched fresh (nothing placed, unless a
+# `failed` report names a worktree left behind); 5 the id could not be minted,
+# the brief could not be written, or the placement failed (the `failed` report
+# names what was left behind), or, on the print rung, the pinned launch could
+# not be built after the flight was placed (the report stops before `launch`,
+# and the stderr line names the placed worktree, which holds a slot).
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf

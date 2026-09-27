@@ -185,7 +185,8 @@ review_sequence: [polish]
 # The push destinations a visual flight may land a draft PR on
 # (scripts/flight-dispatch.sh `home`). An inline list of entries, each a host
 # (`github.com`) or one owner on a host (`github.com/acme`), matched against
-# origin's effective push URL with rewrite rules applied. A destination no
+# origin's push URL as `git remote get-url --push` reports it, rewrite rules
+# applied as git applies them on push. A destination no
 # entry covers gets the committed-record home instead, and the report names
 # the host and why; an empty list keeps every flight's record local. A
 # malformed entry is ignored with a warning, approving nothing.

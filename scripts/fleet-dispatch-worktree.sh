@@ -1,9 +1,8 @@
 #!/bin/sh
 # fleet-dispatch-worktree.sh — the tmux-backend dispatch primitive that produces
 # a worker worktree on the canonical D-36 branch `planwright/<spec>/task-<id>`
-# (or, on its flight arm, a visual flight's `planwright/flight/<flight-id>`,
-# tower-front-door D-11) DETERMINISTICALLY at launch, with no manual post-launch
-# `git branch -m` rename
+# (or, on its flight arm, a visual flight's `planwright/flight/<flight-id>`)
+# DETERMINISTICALLY at launch, with no manual post-launch `git branch -m` rename
 # (fleet-hardening Task 10; D-7 amended 2026-07-20; REQ-B1.4, and REQ-C1.1 /
 # REQ-C1.2 / REQ-E1.3 for the tower-guard interaction).
 #
@@ -50,7 +49,9 @@
 # blindly aborting, distinguishing in-flight from stale via this bundle's
 # liveness signals (the dispatch marker scripts/orchestrate-marker.sh writes, and
 # a live tmux session for the suffix — not a new source of truth):
-#   - LIVE dispatch in flight  -> abort as already-in-flight (exit 3).
+#   - LIVE dispatch in flight  -> abort as already-in-flight (exit 3). On the
+#     flight arm a registered flight worktree is in flight whatever its
+#     session says, so it aborts the same way and is never GC'd below.
 #   - STALE / orphaned branch or worktree with no live session (a prior create
 #     that died before attach, or a finished task whose branch outlived its
 #     worktree) -> GC-adopt: remove the leftover worktree checkout; adopt the
@@ -74,8 +75,9 @@
 # primitive, its task and flight arms alike (scripts/flight-dispatch.sh places
 # a flight through the flight arm rather than shelling out itself): a guard over
 # the bundle's dispatch/tower sources (tests/test-fleet-dispatch-worktree.sh)
-# asserts no other bundle worktree-creation path shells out to `git worktree`. The tower runs this primitive as a planwright script by
-# resolved literal path (worker/tower-command-guard `is_repo_script` allowance),
+# asserts no other bundle worktree-creation path shells out to `git worktree`.
+# The tower runs this primitive as a planwright script by resolved literal path
+# (worker/tower-command-guard `is_repo_script` allowance),
 # so the inner `git worktree add` is never a separate PreToolUse Bash string
 # exposed to the stochastic auto-mode classifier; the tower deny floor
 # (config/tower-settings.json) additionally names the dangerous `git worktree`
@@ -126,8 +128,8 @@
 #   0  success (created + attached / attach-plan printed).
 #   2  usage / invalid input (fail closed — a malformed or hostile token is
 #      never interpolated).
-#   3  already-in-flight: a LIVE concurrent/repeat dispatch (the intended
-#      collision guard).
+#   3  already-in-flight: a LIVE concurrent/repeat dispatch, or a registered
+#      flight worktree (the intended collision guard).
 #   4  cannot resolve a fresh `<base>`: the remote is present but the fetch
 #      failed after retries (stale ref) — the dispatch must not proceed on a
 #      stale base.

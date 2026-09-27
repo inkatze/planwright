@@ -74,8 +74,9 @@ is the one sweep output read.
    bounded to the unmerged ones), each one's landing — its PR in any state
    (`gh pr list --state all --head <branch>`; any PR, open draft included,
    means landed)
-   with `gh` and a remote, its committed record file on the branch
-   (`git cat-file -e <branch>:specs/_flights/<flight-id>.md`) otherwise —
+   and its committed record file on the branch
+   (`git cat-file -e <branch>:specs/_flights/<flight-id>.md`), either one
+   landed, since the home declared at dispatch picks which the worker lands —
    and the decision queue (`scripts/fleet-attention.sh queue`). These reads
    check no worker liveness; say so. A read that fails or is skipped is
    named as unknown, never shown as empty. Never a poll loop: read once here,
@@ -199,7 +200,7 @@ sweep's render) and "handle unknown" otherwise, never as simply in the air.
 
 With the route stated, the tower declares the record's home in the same line
 (REQ-E1.2), as `scripts/flight-dispatch.sh home` reports it: the draft PR body
-when `origin`'s push destination is on a `flight_pr_hosts` host and `gh` is
+when `origin`'s push destination is covered by a `flight_pr_hosts` entry and `gh` is
 authenticated there; a committed record file at `specs/_flights/<flight-id>.md`
 on the flight's own branch otherwise. It states the reported destination with
 the home, so the operator hears where a push goes before any push. It then
@@ -219,7 +220,8 @@ the record — the quoted ask sanitized and markup-neutralized there, per
 launch hint, and a `root-skew` of yes or unknown from the report, then the
 landing reference on arrival (REQ-F1.1); a flight without one is reported in
 the no-landing-yet form above. Once a landed flight's worktree is removed,
-`scripts/flight-dispatch.sh retire` (and every later dispatch) cleans its brief.
+`scripts/flight-dispatch.sh retire` (and every later dispatch from this
+checkout) cleans its brief; run it when relaying that removal.
 
 The tower hands over exactly the ask, the grounds, the slug, and the home;
 rung selection, the flight id, the worker brief, the worktree, and the crash
