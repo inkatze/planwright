@@ -1468,10 +1468,16 @@ case $cmd in
     # delivery closes is one render's repetition, not the entry.
     if [ -n "$sortable" ] && [ -n "$except" ]; then
       before=$(printf '%s\n' "$sortable" | grep -c .)
-      sortable=$(printf '%s\n' "$sortable" | awk -F "$TAB" -v d="$except" '
-        BEGIN { n = split(d, a, "\n"); for (k = 1; k <= n; k++) if (a[k] != "") seen[a[k] ""] = 1 }
+      # A filter that fails keeps every row: repeating a question the turn
+      # already asked is recoverable, hiding one the operator never saw is not.
+      if narrowed=$(printf '%s\n' "$sortable" | FA_EXCEPT=$except awk -F "$TAB" '
+        BEGIN { n = split(ENVIRON["FA_EXCEPT"], a, "\n"); for (k = 1; k <= n; k++) if (a[k] != "") seen[a[k] ""] = 1 }
         !(($3 "") in seen)
-      ')
+      '); then
+        sortable=$narrowed
+      else
+        echo "fleet-attention: queue: the --except filter failed; showing every row" >&2
+      fi
       if [ -z "$sortable" ]; then
         after=0
       else
