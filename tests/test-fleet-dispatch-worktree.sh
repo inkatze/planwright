@@ -1076,7 +1076,30 @@ c27() {
   [ -z "$(ls -A "$tmp/markers" 2>/dev/null)" ] || fail "c27: a flight dispatch wrote a task marker"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27; do
+# ---------------------------------------------------------------------------
+# c28 — a registered flight worktree with no tmux session is in flight, never
+# a reconcile target: a print-rung worker has no session to read as live.
+# ---------------------------------------------------------------------------
+c28() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c28.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  run_prim dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary"
+  [ "$RC" -eq 0 ] || {
+    fail "c28: the first flight dispatch exited $RC"
+    return
+  }
+  _wt="$tmp/primary/.claude/worktrees/flight-demo-0123abcd"
+  printf 'uncommitted worker edit\n' >"$_wt/work.txt"
+
+  run_prim dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary"
+  [ "$RC" -eq 3 ] || fail "c28: a registered flight worktree must abort as already-in-flight (exit 3), got $RC"
+  [ -f "$_wt/work.txt" ] || fail "c28: the reconcile force-removed a registered flight worktree"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

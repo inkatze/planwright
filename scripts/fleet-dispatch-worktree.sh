@@ -99,7 +99,10 @@
 #       [--repo-root <dir>] [--attach-dry-run | --no-attach] [-- <extra launch args>...]
 #       The same create-then-attach for a visual flight (tower-front-door D-11):
 #       branch `planwright/flight/<flight-id>`, worktree `flight-<flight-id>`,
-#       no spec bundle and no dispatch marker (liveness is the tmux session).
+#       no spec bundle and no dispatch marker. A collision on a registered
+#       flight worktree aborts as already-in-flight whatever its tmux session
+#       says (a print-rung worker has none); only an unregistered remnant is
+#       reconciled.
 #       --brief          the worker brief the attach hands the worker, as the
 #                        one prompt `Read <abs-file> and follow it exactly.`
 #                        after `--` (the path, never the content, rides argv).
@@ -387,7 +390,8 @@ is_live() {
     fi
   fi
 
-  # A flight has no spec dir and no marker: the tmux session is its signal.
+  # A flight has no spec dir and no marker; the reconcile treats its
+  # registered worktree as live on its own.
   [ -n "$_sd" ] || return 1
   _mdir="${PLANWRIGHT_ORCH_STATE_DIR:-$_sd/.orchestrate/markers}"
   _mfile="$_mdir/$_id"
@@ -879,6 +883,12 @@ do_dispatch() {
     [ -z "$_held_at" ] || _held_name=$(basename "$_held_at")
     if is_live "$_spec_dir" "$_id" "$_suffix" "$_held_name"; then
       warn "already-in-flight: a live dispatch holds $_branch (aborting)"
+      exit 3
+    fi
+    # A flight has no marker, and a print-rung worker has no tmux session, so a
+    # missing session proves nothing: its registered worktree is in flight.
+    if [ -n "$_flight" ] && is_registered_worktree "$_repo_root" "$_worktree"; then
+      warn "already-in-flight: flight worktree $_worktree is registered, and a flight worktree is never force-removed (remove it with git worktree remove, then dispatch again)"
       exit 3
     fi
 
