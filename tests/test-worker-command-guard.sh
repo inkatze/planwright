@@ -597,8 +597,12 @@ assert_allow "writer-mode <claude-dir>/planwright arm" "$PLUGIN_ROOT/scripts/plu
 HOOK_ENV=()
 # Self-location arm: with NO root env set at all, the hook still resolves its own
 # sibling root (dirname $0/..), which is what makes a marketplace install whose
-# path carries the plugin version work with zero setup.
+# path carries the plugin version work with zero setup. The env arms are
+# emptied explicitly: a mise-run suite inherits this checkout as PLANWRIGHT_ROOT,
+# which would otherwise grant the allow before self-location is consulted.
+HOOK_ENV=("PLANWRIGHT_ROOT=" "CLAUDE_PLUGIN_ROOT=")
 assert_allow "self-location arm — the hook's own sibling scripts/" "$REPO_ROOT/scripts/resolve-rule-doc.sh rigor" Bash "$PLUGIN_CWD"
+HOOK_ENV=()
 # NEGATIVES: every containment escape and near-miss.
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
 assert_defer "plugin path with .. escaping the root" "$PLUGIN_ROOT/scripts/../../outside/evil.sh" Bash "$PLUGIN_CWD"

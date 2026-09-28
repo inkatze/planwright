@@ -501,6 +501,40 @@ assert "within-root symlink: exit 0" 0 $?
 assert_contains "within-root symlink: target read" "adopter-g" "$out"
 
 # ---------------------------------------------------------------------------
+# Lines outside the constrained shape are warned about and skipped, naming the
+# layer; a blank or whitespace-only line inside an entry stays silent; an id
+# that would not re-parse identically unquoted is re-emitted quoted.
+# ---------------------------------------------------------------------------
+sb="$tmp/shape"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+mkdir -p "$(dirname "$(adopter_cat "$sb" testcat)")"
+printf 'entries:\n  - id: gamma\n    note: "g"\n     misindented: x\n  - id: delta\n    note: "d"\n   \n\n    kind: k\n' >"$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>"$tmp/shape.err")"
+assert "shape: exit 0" 0 $?
+err="$(cat "$tmp/shape.err")"
+assert_contains "shape: an indented non-field line is warned, naming layer and entry" 'adopter entry "gamma" carries an indented line that is not a field' "$err"
+assert_absent "shape: the skipped line is not emitted" "misindented" "$out"
+assert_absent "shape: a whitespace-only line inside an entry stays silent" '"delta"' "$err"
+assert_contains "shape: the entry after the blank lines keeps its fields" "kind: k" "$out"
+printf 'entries:\n  - note: "first key is not id"\n    id: ghost\n  - id: real\n    note: "r"\n' >"$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>"$tmp/shape.err")"
+assert "pre-entry line: exit 0 (adopter degrades)" 0 $?
+assert_contains "pre-entry line: warned, naming layer and section" 'adopter section "entries" carries an indented line outside any entry' "$(cat "$tmp/shape.err")"
+assert_contains "pre-entry line: the following entry survives" "id: real" "$out"
+printf 'entries:\n  - id: "\ttabbed"\n    note: "t"\n  - id: " spaced"\n    note: "s"\n  - id: ""quoted""\n    note: "q"\n  - id: lopsided"\n    note: "l"\n  - id: "plain"\n    note: "p"\n' >"$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>"$tmp/shape.err")"
+err="$(cat "$tmp/shape.err")"
+assert_contains "malformed id: an edge blank is skipped with a warning" 'adopter entry " spaced" has a malformed id' "$err"
+assert_contains "malformed id: an edge tab is skipped with a warning" "$(printf 'adopter entry "\ttabbed" has a malformed id')" "$err"
+assert_contains "malformed id: an edge quote left after the pair strip is skipped" 'adopter entry ""quoted"" has a malformed id' "$err"
+assert_contains "malformed id: a one-sided quote is skipped, never stripped alone" 'adopter entry "lopsided"" has a malformed id' "$err"
+assert_contains "a quoted plain id loses its quote pair" '  - id: plain' "$out"
+assert_absent "malformed ids are not emitted" "spaced" "$out"
+printf 'entries:\n  - id: gamma\n    note: "g"\n  - id: gamma\n      nested: x\n' >"$(adopter_cat "$sb" testcat)"
+rc "$sb" testcat >/dev/null 2>"$tmp/shape.err"
+assert_absent "a lost line on a skipped duplicate is not reported against its namesake" "not a field" "$(cat "$tmp/shape.err")"
+
+# ---------------------------------------------------------------------------
 echo
 if [ "$failures" -eq 0 ]; then
   echo "All resolve-catalog tests passed."

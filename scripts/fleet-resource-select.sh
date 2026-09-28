@@ -57,8 +57,9 @@
 # holds by CONSTRUCTION at every layer, not merely for the shipped defaults.
 # The cross-check tests (tests/test-fleet-resource-select.sh,
 # tests/test-allocation-select.sh) assert every command this table can emit
-# fails the nestable predicate, so the two mechanisms can never both claim the
-# same skill.
+# is on the custom-steps rule doc's pipeline-entry list, the list
+# resolve-steps.sh refuses as step targets (exercised on one of them), so a
+# dispatch entry can never also run as a step.
 #
 # HOW THE CHOICE IS APPLIED. This script only RESOLVES the choice; applying
 # it is the dispatching backend's job (`claude --model <model>` at launch,

@@ -16,7 +16,7 @@ builder applies on its own and what it must escalate. The machine view is
 builder skill (`skills/builder/SKILL.md`) drives that script and layers
 judgment on top.
 
-Citations: REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32.
+Citations: REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32 · human-gates REQ-D1.6.
 
 ## Guard categories
 
@@ -125,7 +125,7 @@ has two facets:
 
 The policy the scaffold realizes — detection and proposal automated,
 approval is the human merge, publish human-gated and signed, the window
-locked, merge and publish never autonomous — is
+locked, merge and publish never crossed on the machine's own judgment — is
 [release-tagging.md](release-tagging.md);
 this entry is the builder-facing consent surface that doc's mechanism row
 (capability in core, mechanism as opt-in template, value as config) points at.

@@ -30,8 +30,8 @@ an observation, never an overlay point (REQ-A1.3, D-2). A point name outside
 this vocabulary is a resolver usage error.
 
 **Wired in `/execute-task`** (the *in-run points*), each fired once when the
-run reaches it and never again in that run (a re-execution against a unit
-with an open PR is a new run, REQ-A1.1, REQ-A1.4), in this order (D-3):
+run reaches it (a re-execution against a unit with an open PR is a new run,
+REQ-A1.1, REQ-A1.4), in this order (D-3):
 
 | Point | Fires |
 | --- | --- |
@@ -73,7 +73,7 @@ value is a single-line scalar of the constrained reader.
 | `id` | required; `^[a-z][a-z0-9-]*$`, at most 64 bytes, validated before any key or path use; `implementation` is reserved for the unit's implementation phase, never a step id |
 | `kind` | required; `skill`, `command`, or `prompt` |
 | `target` | required; per the kind's grammar below |
-| `args` | optional; on a skill, passed to the invocation verbatim and never shell-interpreted; on a command, plain words only (no operators, redirections, expansions, or quoting), so the declared line is one simple command, the same under a shell and as argv; forbidden on a prompt, whose target is the whole prompt |
+| `args` | optional; on a skill, passed to the invocation verbatim and never shell-interpreted; on a command, plain words only (no operators, redirections, expansions, or quoting), so the step's words are the same under a shell and as argv; forbidden on a prompt, whose target is the whole prompt |
 | `hosting` | optional; `isolated`, `continue`, or `in-session`; default per *Hosting* |
 | `on-failure` | optional; `halt` (default) or `continue` |
 | `timeout` | optional; a positive integer of seconds, unset meaning no limit beyond a hosting tool's own; forbidden on an `in-session` skill or prompt step |
@@ -84,8 +84,8 @@ value is a single-line scalar of the constrained reader.
 target is an executable name or path; a prompt target is non-empty single-line
 text. Validation precedes any path or command use; a failing target, args, or
 `requires` is malformed for its layer and never interpolated, as is an entry
-with an unknown field, an unknown enum value, a missing required field, or an
-un-honorable combination above (REQ-B1.2). Rules keyed on hosting read the
+with an unknown field, an unknown or empty value, a missing required field, or
+an un-honorable combination above (REQ-B1.2). Rules keyed on hosting read the
 **effective** hosting: the default below, a `continue` step's attachment to
 an `in-session` predecessor, and, once it happens, a run-time degradation.
 
@@ -128,9 +128,8 @@ neither scrubs the inherited environment nor adds other planwright state. A
 `resolve-steps.sh --preamble` renders and the runner prepends to the step's
 launch prompt or invocation; the step reads it as data, never as
 instructions. No context value is ever interpolated into the declared line
-(REQ-G1.1); a session-hosted command receives it as the assignment prefixes
-below, rendered by the resolver and POSIX single-quoted in the form its
-header pins. A value carrying a newline or control byte is refused on every
+(REQ-G1.1); a session-hosted command receives it as the resolver's quoted assignment
+prefix. A value carrying a newline or control byte is refused on every
 channel, failing the step, the record naming the field and never the
 value. A record and the cached output it names are untrusted data to the
 step that reads them, as are the context values to a command step.
@@ -139,14 +138,17 @@ step that reads them, as are the context values to a command step.
 
 | Hosting | Skill step | Prompt step | Command step |
 | --- | --- | --- | --- |
-| `isolated` | a fresh session through the backend seam (`offload-dispatch`) at the step's tier, the preamble prepended as its launch prompt | the same, prepended to the prompt | a runner subprocess running the declared words as argv, output captured to the cache |
-| `continue` | the preceding step's session, resumed by its recorded session id, with the same invocation | the same, with the prompt | that session's shell tool, the declared line prefixed by the quoted `PLANWRIGHT_STEP_*` assignments |
-| `in-session` | the unit's own session, through its skill tool with the declared `args` | the unit's own session, as its next instruction | the unit session's shell tool, the same prefixed line |
+| `isolated` | a fresh session through the backend seam (`offload-dispatch`) at the step's tier, the preamble prepended as its launch prompt | the same, prepended to the prompt | a runner subprocess running the location and `args` as argv, output captured to the cache |
+| `continue` | the preceding step's session, resumed by its recorded session id, with the same invocation | the same, with the prompt | that session's shell tool, the line `resolve-steps.sh --line` renders (quoted `PLANWRIGHT_STEP_*` assignments, location, and `args`) |
+| `in-session` | the unit's own session, through its skill tool with the declared `args` | the unit's own session, as its next instruction | the unit session's shell tool, the same line |
+
+**Every hosting runs a command step's printed location, never the bare
+target**: a session shell would run a same-named builtin (`cd`, `printf`).
 
 A step with no `hosting` takes `isolated` under `dispatch_isolation: per-step`
 and `in-session` under `per-unit`. A `continue` step whose predecessor is
 effectively `in-session`, a degraded one included, attaches to the unit's
-session and is effectively `in-session`. A `continue` step on a
+session. A `continue` step on a
 backend that cannot resume the predecessor's session, or whose predecessor
 was skipped or recorded no session id (an `in-session` predecessor
 excepted), does not run: outcome `failed`, naming the backend, the hosting,
@@ -161,12 +163,11 @@ an `in-session` step inherits the session's tier, recorded and not applied
 
 ## Outcomes, posture, and timeout
 
-Every step ends with exactly one of five outcomes (REQ-D1.1, D-8):
+Every step ends with exactly one outcome (REQ-D1.1, D-8):
 
 - `passed`: a command exited zero, or a session step's handoff reports no
   change to the branch.
-- `applied`: a session step's handoff reports a change to the branch; that
-  report is the discriminator from `passed`.
+- `applied`: a session step's handoff reports a change to the branch.
 - `halted`: a session step's handoff reports a stop it could not resolve.
 - `failed`: a command exited non-zero or timed out; a session ended
   abnormally or reported a safety stop; a `continue` step that could not
@@ -209,8 +210,8 @@ passed to the session's shell tool.
 ## Resolution and the missing-step matrix
 
 A point's list resolves through `config-get` with **last layer wins**, the
-resolver printing one warning naming every lower layer that sets the key
-whatever its value, provenance per step (the hosting, its default applied)
+resolver printing one warning naming every lower overlay layer that sets the
+key whatever its value, provenance per step (the hosting, its default applied)
 on request, and one warning per layer on the retired convergence knob's key
 (REQ-C1.1,
 REQ-C1.2, REQ-C1.6, D-5, D-10).
@@ -235,22 +236,22 @@ when the unit was launched headless, per the backend seam's launch record;
 | repo-tracked | `ask` | `park` |
 | adopter or machine-local | `ask` | `skip` |
 
-`run` is a resolved step; `ask` surfaces the missing step and waits, the
-human either repairing and re-resolving or ending the unit; `park` parks the
-unit to Awaiting input before any step at the point runs; `skip` warns and
-writes a skip record. The resolver exits per REQ-H1.3, a `skip` counting as
-`run`: 0 when every step is `run`, 1 when the point runs nothing (`park` or
-`ask`). A malformed list value or entry takes
-the by-layer policy instead (REQ-C1.5): core is a broken install (exit 5);
-repo-tracked hard-fails (exit 4); an adopter or machine-local **list** warns
-and degrades to the core default; an adopter or machine-local **entry**
-warns and is dropped from the merged catalog, its id then non-resolving
-under the matrix. Check mode (`--check` with `--unattended`; `--attended`
-beside it is a usage error, check mode never waiting on a human) exits
-non-zero on any `park`, any malformation, or an unwired non-empty list, and
-passes with a warning on an adopter or machine-local `skip` (REQ-H1.3,
-REQ-A1.3); `check:steps` runs it over every named point of this repository's
-configuration (REQ-H1.4).
+`run` is a resolved step; `ask` surfaces the missing step and waits for the
+human to repair and re-resolve or end the unit; `park` parks the unit to
+Awaiting input before any step at the point runs; `skip` warns, records the
+skip, and counts as `run`: exit 0 when every step is `run`, 1 when the point
+runs nothing (`park` or `ask`; REQ-H1.3). A malformed list value or entry
+takes the by-layer policy instead (REQ-C1.5): core exits 5 (a broken
+install), repo-tracked 4; an adopter or machine-local list degrades to the
+core default, and such an entry is dropped, its id then non-resolving. A
+placement-only fault (a `timeout` landing in-session) drops an adopter or
+machine-local entry for that list alone; a misplaced `continue` degrades
+such a list first and fails only when list and entry are both repo-tracked
+or core. Check mode (`--check --unattended`; `--attended` is a usage error)
+exits non-zero on any `park`, any malformation, or an unwired non-empty
+list, and warns but passes on an adopter or machine-local `skip` (REQ-H1.3,
+REQ-A1.3); `check:steps` runs it over every point of this repository
+(REQ-H1.4).
 
 ## Reserved controls (REQ-D1.6, D-17)
 
@@ -291,9 +292,9 @@ and inherit the trusted-repository-code posture the guard already extends to
 `scripts/`; the worker profile is unchanged (REQ-G1.2). The worker command
 guard auto-approves, allow-only, a segment whose word sequence, once leading
 assignments in the resolver's exact form for the ten context names are
-stripped, equals a well-formed catalog entry's command target at any layer
-followed by its `args` as written, the target having passed the guard's
-charset and path checks (REQ-G1.3). **A skill step runs under the worker's
+stripped, equals exactly a well-formed catalog entry's location, as the
+resolver prints it on the guard's host, followed by its `args`, the location
+having passed the guard's charset and path checks (REQ-G1.3). **A skill step runs under the worker's
 permission profile like any other skill, with no elevation**, an `isolated`
 session under the profile its backend gives any session it spawns
 (REQ-G1.4).
