@@ -37,8 +37,11 @@
 #       Remove the brief directory of each of this checkout's retired flights
 #       (its worktree removed, or gone and prunable), one `retired<TAB><id>`
 #       line each, under the checkout's flight lock. Every dispatch runs the
-#       same sweep. Other checkouts' briefs, and everything when the worktree
-#       list cannot be read (exit 4), stay.
+#       same sweep. Other checkouts' briefs, and briefs younger than the
+#       lock's stale threshold, stay; so does everything when the worktree
+#       list or the flights directory cannot be read, the flights directory is
+#       not private to the user, or an entry's name carries a newline (exit 4).
+#       A removal that fails is named on stderr and exits 4.
 #   dispatch <slug> --backend <tmux|print> --ask-file <file>
 #       --grounds-file <file> [--home pr|file] [--repo-root <dir>]
 #       [--attach-dry-run]
@@ -64,9 +67,10 @@
 #       --attach-dry-run (tmux) places the flight but prints the attach plan
 #       instead of launching; the placed worktree holds a slot like any other.
 #
-# A live flight is a registered, non-prunable worktree on a `planwright/flight/*`
-# branch, re-derived from `git worktree list` on every dispatch rather than
-# kept in a store. A landed flight counts until its worktree is removed, which
+# A live flight is a registered, non-prunable flight worktree, known by its
+# `.claude/worktrees/flight-<id>` path or its `planwright/flight/*` branch (so a
+# detached or mid-rebase one still counts), re-derived from `git worktree list`
+# on every dispatch rather than kept in a store. A landed flight counts until its worktree is removed, which
 # the re-ask line says.
 #
 # The ask travels as a file, is never evaluated, and reaches the worker only
@@ -330,19 +334,29 @@ declare_home() {
   HOME_DECL='pr'
 }
 
-# count_live — set `live` to the registered, non-prunable worktrees on a
-# flight branch. Runs in the calling shell so a failed listing exits the
-# dispatch instead of reading as an empty count.
+# LIVE_AWK — print the flight id of each registered, non-prunable flight
+# worktree in a `git worktree list --porcelain` stream. A flight is known by
+# its worktree path (`.claude/worktrees/flight-<id>`) as well as its branch, so
+# one that is detached or mid-rebase, with no branch line, is still live.
+# shellcheck disable=SC2016 # awk program text, not shell
+LIVE_AWK='
+  function close_block() { if (id != "" && !prunable) print id; id = ""; prunable = 0 }
+  /^worktree / {
+    close_block()
+    if (match($0, /\/\.claude\/worktrees\/flight-[^\/]+$/)) id = substr($0, RSTART + 26)
+  }
+  index($0, "branch refs/heads/planwright/flight/") == 1 { id = substr($0, 37) }
+  /^prunable/ { prunable = 1 }
+  END { close_block() }'
+
+# count_live — set `live` to the registered, non-prunable flight worktrees.
+# Runs in the calling shell so a failed listing exits the dispatch instead of
+# reading as an empty count.
 live=''
 count_live() {
   _list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null) \
     || die 4 "cannot list worktrees to count live flights; nothing was placed"
-  live=$(printf '%s\n' "$_list" | awk '
-    function close_block() { if (flight && !prunable) n++; flight = 0; prunable = 0 }
-    /^worktree / { close_block() }
-    index($0, "branch refs/heads/planwright/flight/") == 1 { flight = 1 }
-    /^prunable/ { prunable = 1 }
-    END { close_block(); print n + 0 }')
+  live=$(printf '%s\n' "$_list" | awk "$LIVE_AWK" | grep -c .)
   case $live in
     '' | *[!0-9]*) die 4 "cannot count live flights; nothing was placed" ;;
   esac
@@ -546,30 +560,70 @@ prepare_brief_dir() {
     || die 4 "cannot record the brief directory's checkout"
 }
 
+# stale_min — set STALE_MIN to the flight lock's stale-break threshold in
+# minutes, read as fleet-state.sh reads it for this lock home: no repo-side
+# layer, a bad value the 15m default, and zero floored to it.
+STALE_MIN=15
+stale_min() {
+  _sm=$(PLANWRIGHT_REPO_ROOT="$lock_home" /bin/sh "$CONFIG" stale_lock_threshold </dev/null 2>/dev/null) || _sm=''
+  _sm=${_sm%m}
+  case $_sm in
+    '' | *[!0-9]*) STALE_MIN=15 ;;
+    *[!0]*) STALE_MIN=$_sm ;;
+    *) STALE_MIN=15 ;;
+  esac
+}
+
 # sweep_briefs — remove the brief directory of every retired flight of this
-# checkout (no registered, non-prunable worktree holds its branch), printing
+# checkout (no registered, non-prunable worktree is that flight's), printing
 # `retired<TAB><id>` for each. Each brief directory records its checkout, since
-# the fleet home is shared; one naming another checkout, or none, stays. An
-# unreadable worktree list removes nothing. Runs under the checkout's lock.
+# the fleet home is shared; one naming another checkout, or none, stays, and
+# so does one younger than the lock's stale threshold: a broken stale lock can
+# let this sweep run beside a dispatch that has just written its brief. An
+# unreadable worktree list or flights directory, one that is not private to
+# the user, or an entry whose name carries a newline removes nothing. Runs
+# under the checkout's lock. Returns 1 when a removal failed, each one named.
 sweep_briefs() {
   _sb_flights="$fleet_home/flights"
-  [ -d "$_sb_flights" ] && [ ! -L "$_sb_flights" ] || return 0
+  [ -e "$_sb_flights" ] || [ -L "$_sb_flights" ] || return 0
+  [ ! -L "$_sb_flights" ] || die 4 "refusing to sweep: $_sb_flights is a symlink; nothing was removed"
+  private_dir "$_sb_flights" \
+    || die 4 "refusing to sweep: $_sb_flights is not a directory owned by you that only you can write (chmod go-w it); nothing was removed"
   _sb_list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null </dev/null) \
     || die 4 "cannot list worktrees to find retired flights; nothing was removed"
-  _sb_live=$(printf '%s\n' "$_sb_list" | awk '
-    function close_block() { if (id != "" && !prunable) print id; id = ""; prunable = 0 }
-    /^worktree / { close_block() }
-    index($0, "branch refs/heads/planwright/flight/") == 1 { id = substr($0, 37) }
-    /^prunable/ { prunable = 1 }
-    END { close_block() }')
-  find "$_sb_flights" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while IFS= read -r _sb_dir; do
+  _sb_live=$(printf '%s\n' "$_sb_list" | awk "$LIVE_AWK")
+  _sb_entries=$(find "$_sb_flights" -mindepth 1 -maxdepth 1 2>/dev/null </dev/null) \
+    || die 4 "cannot list $_sb_flights to find retired flights; nothing was removed"
+  _sb_nl=$(find "$_sb_flights" -mindepth 1 -maxdepth 1 -name "*$LF*" 2>/dev/null </dev/null) \
+    || die 4 "cannot list $_sb_flights to find retired flights; nothing was removed"
+  [ -z "$_sb_nl" ] \
+    || die 4 "refusing to sweep: an entry under $_sb_flights has a newline in its name; nothing was removed"
+  stale_min
+  _sb_failed=0
+  _old_ifs=$IFS
+  IFS=$LF
+  for _sb_dir in $_sb_entries; do
+    IFS=$_old_ifs
+    case $_sb_dir in
+      "$_sb_flights"/*) ;;
+      *) continue ;;
+    esac
+    [ -d "$_sb_dir" ] && [ ! -L "$_sb_dir" ] || continue
     _sb_id=${_sb_dir##*/}
     /bin/sh "$FLIGHT_ID" check "$_sb_id" 2>/dev/null </dev/null || continue
     [ -f "$_sb_dir/checkout" ] && [ ! -L "$_sb_dir/checkout" ] || continue
     [ "$(cat <"$_sb_dir/checkout")" = "$repo_root" ] || continue
     ! printf '%s\n' "$_sb_live" | grep -Fqx -e "$_sb_id" || continue
-    rm -rf "$_sb_dir" && printf 'retired\t%s\n' "$_sb_id"
+    [ -z "$(find "$_sb_dir" -maxdepth 0 -mmin "-$STALE_MIN" 2>/dev/null </dev/null)" ] || continue
+    if rm -rf "$_sb_dir" 2>/dev/null && [ ! -e "$_sb_dir" ]; then
+      printf 'retired\t%s\n' "$_sb_id"
+    else
+      echo "$prog: could not remove the brief directory of retired flight $_sb_id ($_sb_dir)" >&2
+      _sb_failed=1
+    fi
   done
+  IFS=$_old_ifs
+  return "$_sb_failed"
 }
 
 write_brief() {
@@ -757,7 +811,7 @@ cmd_retire() {
   trap 'exit 143' TERM
   trap 'exit 129' HUP
   take_lock
-  sweep_briefs
+  sweep_briefs || exit 4
 }
 
 cmd_dispatch() {
@@ -886,7 +940,7 @@ cmd_dispatch() {
 
   read_bound
   count_live
-  sweep_briefs
+  sweep_briefs || :
   if [ "$live" -ge "$bound" ]; then
     printf 'declined\t%s\t%s\n' "$live" "$bound"
     if [ "$bound" -eq 0 ]; then

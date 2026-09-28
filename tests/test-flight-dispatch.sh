@@ -168,6 +168,12 @@ briefs() {
   find "$c/fleet/flights" -mindepth 1 -maxdepth 1 2>/dev/null | grep -c . || true
 }
 
+# age <path...> — backdate past the stale-lock threshold, so the sweep's
+# young-brief guard does not hold a brief the case retires on purpose.
+age() {
+  touch -t 202001010000 "$@"
+}
+
 dispatch_print() {
   run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
     --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
@@ -629,8 +635,8 @@ printf '%s\n' "$OUT" | grep -q "^declined${TAB}3${TAB}3$" \
 case $ERR in *"out of range; using the shipped default 3"*) ;; *) fail "an out-of-range bound must warn: $ERR" ;; esac
 # shellcheck disable=SC2016 # a literal `"$CONFIG" <key>` call is the pattern
 if grep -v '^[[:space:]]*#' "$ROOT/scripts/flight-dispatch.sh" | grep -Eo '"\$CONFIG" [A-Za-z_]+' \
-  | grep -Ev ' (max_parallel_units|flight_pr_hosts)$' | grep -q .; then
-  fail "flight-dispatch.sh reads a config key other than max_parallel_units and flight_pr_hosts"
+  | grep -Ev ' (max_parallel_units|flight_pr_hosts|stale_lock_threshold)$' | grep -q .; then
+  fail "flight-dispatch.sh reads a config key other than max_parallel_units, flight_pr_hosts, and stale_lock_threshold"
 fi
 # shellcheck disable=SC2016
 grep -Eo '"\$CONFIG" [A-Za-z_]+' "$ROOT/scripts/flight-dispatch.sh" | grep -q ' max_parallel_units$' \
@@ -993,6 +999,7 @@ fb=$(field "$OUT" flight)
 mkdir -p "$c/fleet/flights/other-0123abcd"
 printf '%s\n' "$c/elsewhere" >"$c/fleet/flights/other-0123abcd/checkout"
 gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fa"
+age "$c/fleet/flights/$fa" "$c/fleet/flights/other-0123abcd"
 WTLIST_FAIL_FLAG="$c/wl.flag"
 : >"$WTLIST_FAIL_FLAG"
 OUT=$(WTLIST_FAIL_FLAG="$WTLIST_FAIL_FLAG" PATH="$tmp/wlbin:$PATH" "$SCRIPT" retire --repo-root "$c/primary" </dev/null 2>"$tmp/err")
@@ -1012,12 +1019,14 @@ mkdir -p "$c/fleet/flights/nock-0123abcd" "$c/fleet/flights/lnk-0123abcd" "$c/fl
 printf '%s\n' "$c/primary" >"$c/ck"
 ln -s "$c/ck" "$c/fleet/flights/lnk-0123abcd/checkout"
 printf '%s\n' "$c/primary" >"$c/fleet/flights/NotAnId/checkout"
+age "$c/fleet/flights/nock-0123abcd" "$c/fleet/flights/lnk-0123abcd" "$c/fleet/flights/NotAnId"
 run retire --repo-root "$c/primary"
 for d in nock-0123abcd lnk-0123abcd NotAnId; do
   [ -d "$c/fleet/flights/$d" ] || fail "retire must keep $d (no checkout record, a symlinked one, or an off-grammar name)"
 done
 # A worktree deleted by hand (prunable) is retired too.
 rm -rf "$c/primary/.claude/worktrees/flight-$fb"
+age "$c/fleet/flights/$fb"
 run retire --repo-root "$c/primary"
 printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "retire must retire a prunable flight (out: $OUT)"
 gitc "$c/primary" worktree prune
@@ -1027,6 +1036,7 @@ fb=$(field "$OUT" flight)
 lockhome="$c/primary/.git/planwright-flight"
 PLANWRIGHT_FLEET_STATE_DIR=$lockhome "$STATE" lock || fail "fixture: could not take the flight lock"
 gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fb"
+age "$c/fleet/flights/$fb"
 PLANWRIGHT_FLIGHT_LOCK_WAIT=0 run retire --repo-root "$c/primary"
 [ "$RC" -eq 4 ] || fail "retire under a busy lock must fail closed with exit 4 (rc $RC)"
 case $ERR in *"holds this checkout's lock"*) ;; *) fail "retire's busy-lock refusal must say why: $ERR" ;; esac
@@ -1036,6 +1046,68 @@ dispatch_print
 [ "$RC" -eq 0 ] || fail "dispatch after a retirement exited $RC: $ERR"
 [ ! -e "$c/fleet/flights/$fb" ] || fail "a dispatch must clean a retired flight's brief directory"
 printf '%s\n' "$OUT" | grep -q "^retired${TAB}$fb$" || fail "a dispatch must report the brief it swept (out: $OUT)"
+
+# A retired flight's brief younger than the stale-lock threshold stays: a
+# broken stale lock could otherwise let a sweep take a concurrent dispatch's
+# just-written brief.
+new_case
+dispatch_print
+fy=$(field "$OUT" flight)
+gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fy"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "retire with a young retired brief exited $RC: $ERR"
+[ -d "$c/fleet/flights/$fy" ] || fail "retire must keep a retired brief younger than the stale-lock threshold"
+age "$c/fleet/flights/$fy"
+run retire --repo-root "$c/primary"
+[ ! -e "$c/fleet/flights/$fy" ] || fail "retire must remove the same brief once it is past the threshold"
+
+# Liveness keys on the worktree path, not the branch: a detached or
+# mid-rebase flight keeps its brief and its slot.
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units: 1\n' >"$c/primary/.claude/planwright.local.yml"
+dispatch_print
+fd=$(field "$OUT" flight)
+git -C "$c/primary/.claude/worktrees/flight-$fd" checkout -q --detach
+age "$c/fleet/flights/$fd"
+run retire --repo-root "$c/primary"
+[ -d "$c/fleet/flights/$fd" ] || fail "retire must keep a detached flight's brief"
+dispatch_print
+[ "$RC" -eq 3 ] || fail "a detached flight must still hold its slot (rc $RC: $OUT)"
+
+# The sweep checks the flights directory before deleting anything under it,
+# refuses a name carrying a newline, and reports what it could not do.
+new_case
+dispatch_print
+fr=$(field "$OUT" flight)
+gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fr"
+age "$c/fleet/flights/$fr"
+chmod 777 "$c/fleet/flights"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 4 ] || fail "retire must refuse a flights directory others can write (rc $RC)"
+case $ERR in *"chmod go-w"*) ;; *) fail "the writable flights refusal must name the remedy: $ERR" ;; esac
+[ -d "$c/fleet/flights/$fr" ] || fail "retire deleted under a flights directory others can write"
+chmod 700 "$c/fleet/flights"
+mkdir "$c/fleet/flights/x
+$fr"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 4 ] || fail "retire must refuse an entry name carrying a newline (rc $RC)"
+case $ERR in *"newline"*) ;; *) fail "the newline refusal must say why: $ERR" ;; esac
+[ -d "$c/fleet/flights/$fr" ] || fail "retire deleted a brief beside a newline-named entry"
+rmdir "$c/fleet/flights/x
+$fr"
+chmod 300 "$c/fleet/flights"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 4 ] || fail "retire must fail when the flights directory cannot be listed (rc $RC)"
+chmod 700 "$c/fleet/flights"
+chmod 500 "$c/fleet/flights/$fr"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 4 ] || fail "retire must fail when a retired brief cannot be removed (rc $RC)"
+case $ERR in *"could not remove"*"$fr"*) ;; *) fail "a failed removal must be named: $ERR" ;; esac
+chmod 700 "$c/fleet/flights/$fr"
+age "$c/fleet/flights/$fr"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] && [ ! -e "$c/fleet/flights/$fr" ] || fail "retire must remove the brief once it can (rc $RC: $ERR)"
 
 # --- plugin-root pair with an installed plugin -------------------------------
 tower_v=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)
