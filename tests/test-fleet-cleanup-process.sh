@@ -628,11 +628,11 @@ attn() {
 }
 
 store="$ihome/attention/state"
-strand_key='pwfence.0123456789ab'
-attn fork "$strand_key" demo:4 \
+strand_handle='pwfence.0123456789ab'
+attn fork "$strand_handle" demo:4 \
   'planwright strand: unit demo:4 is fenced by tower (dead) and not terminal. Choose: reclaim, investigate, or dismiss.' \
-  investigate 'reclaim|investigate|dismiss' "$strand_key" high
-strand_row=$(grep "^$strand_key$tab" "$store")
+  investigate 'reclaim|investigate|dismiss' "$strand_handle" high
+strand_row=$(grep "^$strand_handle$tab" "$store")
 [ -n "$strand_row" ] || fail "fixture: the strand entry was not written"
 
 # --- stream-json, this tower's own finished worker --------------------------
@@ -650,7 +650,7 @@ esac
 gone "$sup" || fail "stream-json reap: the supervisor survived"
 gone "$wrk" || fail "stream-json reap: the worker survived"
 ! grep -q "^sjw1$tab" "$store" || fail "stream-json reap: the worker's attention row was not released"
-[ "$(grep "^$strand_key$tab" "$store")" = "$strand_row" ] || fail "stream-json reap: the strand entry was cleared or modified"
+[ "$(grep "^$strand_handle$tab" "$store")" = "$strand_row" ] || fail "stream-json reap: the strand entry was cleared or modified"
 untouched "stream-json reap"
 case $(ienv -- fleet-audit.sh query --mechanism process-cleanup) in
   *"worker=sjw1 owner=$self_id evidence=tower:self,session:finished-but-unreaped/"*"released=process"*) ;;
@@ -665,7 +665,7 @@ wrk=$(cat "$ihome/streamjson/sjw2/worker.pid")
 icleanup sjw2
 [ "$rc" = 0 ] || fail "dead-owner reap: exit $rc ($err)"
 gone "$wrk" || fail "dead-owner reap: the worker survived"
-[ "$(grep "^$strand_key$tab" "$store")" = "$strand_row" ] || fail "dead-owner reap: the strand entry was cleared or modified"
+[ "$(grep "^$strand_handle$tab" "$store")" = "$strand_row" ] || fail "dead-owner reap: the strand entry was cleared or modified"
 untouched "dead-owner reap"
 echo "ok: stream-json — a dead owner's finished worker is reaped on positive evidence for both tower and session"
 
@@ -694,7 +694,7 @@ ienv -- fleet-state.sh register wprint demo:6 --backend print --death-handle non
 icleanup wprint
 [ "$rc" = 8 ] || fail "print refusal: exit $rc ($err)"
 untouched "print refusal"
-[ "$(grep "^$strand_key$tab" "$store")" = "$strand_row" ] || fail "refusals: the strand entry changed"
+[ "$(grep "^$strand_handle$tab" "$store")" = "$strand_row" ] || fail "refusals: the strand entry changed"
 echo "ok: live-peer, unknown-owner, kill-switch and print refusals terminate nothing and touch no fence, branch or worktree"
 
 # --- headless, this tower's own worker whose session ended ------------------
@@ -715,6 +715,6 @@ case $out in
 esac
 gone "$runner" || fail "headless reap: the runner survived"
 ! grep -q "^$hw$tab" "$store" || fail "headless reap: the worker's attention row was not released"
-[ "$(grep "^$strand_key$tab" "$store")" = "$strand_row" ] || fail "headless reap: the strand entry was cleared or modified"
+[ "$(grep "^$strand_handle$tab" "$store")" = "$strand_row" ] || fail "headless reap: the strand entry was cleared or modified"
 untouched "headless reap"
 echo "ok: headless — a worker whose session ended is reaped through the headless rung's stop; strand, fence, branch and worktree untouched"
