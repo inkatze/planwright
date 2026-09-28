@@ -635,9 +635,12 @@ json_field() {
 
 # json_input_object <envelope-file> — print the balanced {...} object after
 # the first `"input":` in the stored control_request envelope (string-aware:
-# braces inside JSON strings do not count). Empty when absent.
+# braces inside JSON strings do not count). Empty when absent. A raw DEL,
+# which JSON allows in a string and the CLI emits unescaped, comes out as
+# \u007f: the same character, in the form frame_check accepts.
 json_input_object() {
   awk '
+    BEGIN { del = sprintf("%c", 127) }
     NR == 1 {
       i = index($0, "\"input\":")
       if (i == 0) exit
@@ -648,6 +651,7 @@ json_input_object() {
       depth = 0; instr = 0; out = ""
       for (; j <= length(rest); j++) {
         c = substr(rest, j, 1)
+        if (c == del) { out = out "\\u007f"; continue }
         out = out c
         if (instr) {
           if (c == "\\") { j++; out = out substr(rest, j, 1); continue }
@@ -671,8 +675,9 @@ json_input_object() {
 #
 # Stricter than JSON in one respect: no raw control byte besides the
 # terminator, TAB and DEL included. Every string this script composes goes
-# through json_escape, which never emits one, so only a caller-supplied body
-# (an `--response-file`) can carry one; the byte-range test stays in `tr`, the
+# through json_escape, which never emits one, and json_input_object escapes
+# the DEL a worker's own tool input may carry, so only a caller-supplied body
+# (an `--response-file`) can hold one; the byte-range test stays in `tr`, the
 # one tool that honours it portably.
 #
 # The parse is a reduction rather than a character walk, so its cost stays

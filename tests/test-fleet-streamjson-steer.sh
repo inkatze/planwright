@@ -20,6 +20,8 @@
 #   s5 (REQ-K1.3, REQ-K1.4): hostile handles and message paths are refused or
 #       treated as data, and steer echoes nothing untrusted: no control byte
 #       from a message ever reaches its output.
+#   s6 (REQ-G1.2): an allow whose spliced tool input carries a raw DEL still
+#       makes a frame the check accepts, with the input intact.
 #
 # Hermetic: the fleet home and the CLI seam are case-local, the CLI is a shim
 # that records its stdin. Runs standalone under /bin/bash (bash 3.2).
@@ -335,7 +337,27 @@ tail -n 1 "$tmp/r1/stdin" | jq -e . >/dev/null 2>&1 \
   || fail "s5: the control-byte message did not arrive as valid JSON"
 echo "ok: s5 hostile handles are refused, a dashed path is data, and steer echoes nothing untrusted (REQ-K1.3, REQ-K1.4)"
 
-for sp in "$tmp/h1:sjs1" "$tmp/h3:sjs3"; do
+# ---------------------------------------------------------------------------
+# s6 (REQ-G1.2): `--allow` splices the worker's own tool input into the frame.
+#     JSON allows a raw DEL in a string and the CLI emits it unescaped, so the
+#     splice must still make a frame the check accepts, with the input intact.
+# ---------------------------------------------------------------------------
+home="$tmp/h6"
+rec="$tmp/r6"
+del=$(printf '\177')
+req6='aaaa1111-bbbb-cccc-dddd-eeee00000006'
+line_del='{"type":"control_request","request_id":"'$req6'","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo a'$del'b"},"tool_use_id":"t6"}}'
+printf '%s\n%s\n' "$line_init" "$line_del" >"$tmp/ev-del"
+start_worker "$home" "$rec" sjs6 SHIM_EVENTS="$tmp/ev-del"
+wait_until 100 grep -q "^$req6" "$home/streamjson/sjs6/journal" || fail "s6: the pending journal row never appeared"
+out=$(senv "$home" "$rec" -- answer sjs6 "$req6" --allow 2>&1) \
+  || fail "s6: --allow over a tool input carrying DEL must deliver, got: $out"
+wait_until 100 grep -q control_response "$rec/stdin" || fail "s6: the allow never reached the worker"
+got=$(grep control_response "$rec/stdin" | jq -r '.response.response.updatedInput.command')
+[ "$got" = "echo a${del}b" ] || fail "s6: the spliced input must decode to the original command, got: $got"
+echo "ok: s6 --allow over a worker input carrying a raw DEL delivers it intact as a valid frame (REQ-G1.2)"
+
+for sp in "$tmp/h1:sjs1" "$tmp/h3:sjs3" "$tmp/h6:sjs6"; do
   senv "${sp%%:*}" "$tmp/r1" -- stop "${sp##*:}" --grace 1 >/dev/null 2>&1 || :
 done
 echo "all fleet-streamjson-steer tests passed"
