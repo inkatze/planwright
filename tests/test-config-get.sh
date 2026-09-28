@@ -579,4 +579,48 @@ rm -rf "$bin"
   || fail "broken resolver + PLANWRIGHT_LOCAL_CONFIG: legacy override not honored (got '$got', expected legacy_v)"
 echo "ok: a missing resolver still honors an explicit PLANWRIGHT_LOCAL_CONFIG override"
 
+# --layers (custom-steps REQ-C1.1, D-5): the per-layer read prints one
+# `<layer>\t<value>` line per well-formed layer that sets the key, lowest
+# precedence first, so the last line is the merged winner and the lines above
+# it are the layers it shadows; absent everywhere exits 3.
+layers_root="$tmp/layers"
+mkdir -p "$layers_root/adopter" "$layers_root/repo/.claude"
+printf 'steps_pre_pr: [core-a]\nonly_core: 1\n' >"$layers_root/core.yml"
+printf 'steps_pre_pr: [adopter-a]\n' >"$layers_root/adopter/planwright.yml"
+printf 'steps_pre_pr: [repo-a]\n' >"$layers_root/repo/.claude/planwright.yml"
+printf 'steps_pre_pr: [local-a]\n' >"$layers_root/repo/.claude/planwright.local.yml"
+run_layers() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$layers_root/core.yml" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$layers_root/adopter" \
+    PLANWRIGHT_REPO_ROOT="$layers_root/repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$CG" "$@"
+}
+got=$(run_layers --layers steps_pre_pr) || fail "--layers: non-zero exit with every layer set"
+[ "$got" = "$(printf 'core\t[core-a]\nadopter\t[adopter-a]\nrepo-tracked\t[repo-a]\nmachine-local\t[local-a]')" ] \
+  || fail "--layers: expected every layer lowest first, got: $got"
+echo "ok: --layers prints every layer's value, lowest precedence first"
+rm -f "$layers_root/repo/.claude/planwright.local.yml"
+got=$(run_layers --layers steps_pre_pr) || fail "--layers: non-zero exit with three layers set"
+[ "$got" = "$(printf 'core\t[core-a]\nadopter\t[adopter-a]\nrepo-tracked\t[repo-a]')" ] \
+  || fail "--layers: a layer that does not set the key must not appear, got: $got"
+[ "$(printf '%s\n' "$got" | tail -1 | cut -f1)" = "$(run_layers --explain steps_pre_pr | cut -f1)" ] \
+  || fail "--layers: the last line must be the merged winner --explain names"
+echo "ok: --layers omits a layer that does not set the key and ends on the merged winner"
+got=$(run_layers --layers only_core) || fail "--layers: non-zero exit with only core set"
+[ "$got" = "$(printf 'core\t1')" ] || fail "--layers: only core set should print one core line, got: $got"
+rc=0
+run_layers --layers no_such_key >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "--layers: a key absent everywhere should exit 3, got $rc"
+printf 'steps_pre_pr:\n  - nested\n' >"$layers_root/adopter/planwright.yml"
+got=$(run_layers --layers steps_pre_pr 2>"$tmp/layers-err") || fail "--layers: a malformed adopter layer must degrade, not fail"
+[ "$got" = "$(printf 'core\t[core-a]\nrepo-tracked\t[repo-a]')" ] \
+  || fail "--layers: a malformed adopter layer should be skipped, got: $got"
+grep -q 'adopter' "$tmp/layers-err" || fail "--layers: skipping a malformed adopter layer must warn"
+printf 'steps_pre_pr:\n  - nested\n' >"$layers_root/repo/.claude/planwright.yml"
+rc=0
+run_layers --layers steps_pre_pr >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "--layers: a malformed repo-tracked layer should hard-fail 4, got $rc"
+echo "ok: --layers applies the same by-layer malformed policy as the merged read"
+
 echo "PASS: config-get"

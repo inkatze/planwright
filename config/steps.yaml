@@ -1,0 +1,32 @@
+---
+# planwright core steps catalog — machine view (custom-steps Task 2; D-4,
+# REQ-B1.1, REQ-B1.2).
+#
+# doctrine/custom-steps.md is the normative prose home: the point vocabulary,
+# the step entry fields and their enums, the hosting modes, and the reserved
+# controls. THIS file is the core seed scripts/resolve-catalog.sh merges with
+# the adopter / repo-tracked / machine-local overlay catalogs (append/union,
+# supersede-by-id); scripts/resolve-steps.sh reads the merged result and
+# validates every entry against the doc's contract. A step is defined once
+# here or in an overlay `catalogs/steps.yaml`, then named by a point's
+# `steps_<point>` list in config.
+#
+# The seed carries the review skills the review-sequence knob admitted, so a
+# list that names them runs exactly what it ran before. Each is a skill step
+# whose `args` carries `--nested`: nestedness is an argument the operator
+# passes, not a predicate the resolver applies.
+#
+# The reader is a constrained awk parser, not full YAML: list items at
+# two-space and fields at four-space indentation, values unquoted or
+# double-quoted single-line scalars (no single quotes, no inline "# ..."
+# comments, no block scalars).
+
+steps:
+  - id: polish
+    kind: skill
+    target: polish
+    args: --nested
+  - id: self-review
+    kind: skill
+    target: self-review
+    args: --nested
