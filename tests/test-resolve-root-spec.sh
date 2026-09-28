@@ -436,6 +436,20 @@ assert_eq "init: the symlink's target is untouched" "victim-rule" "$(cat "$tmp/i
 assert_eq "init: a refused ignore file leaves no marker" absent \
   "$(test -e "$repo/symignore/planwright-spec-root.yml" && echo present || echo absent)"
 
+# A root --init cannot create a temp file in is refused and left unmarked.
+# The publish race (a marker appearing between the check and the link) is
+# accepted by design and not staged here: it needs a second writer mid-run.
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$repo/readonly"
+  chmod a-w "$repo/readonly"
+  set_layer "$local_cfg" "readonly"
+  run spec "$repo" --init
+  assert_eq "init: a read-only root is refused" 5 "$rc"
+  assert_eq "init: a read-only root gains no marker" absent \
+    "$(test -e "$repo/readonly/planwright-spec-root.yml" && echo present || echo absent)"
+  chmod u+w "$repo/readonly"
+fi
+
 # The marker's fields are validated, not just its existence.
 mkdir -p "$repo/checked"
 set_layer "$local_cfg" "checked"
@@ -547,6 +561,26 @@ assert_eq "views: the re-based path is printed" "$wt/onlyprimary" "$out"
 assert_contains "views: the missing re-based root is warned about" "$wt/onlyprimary" "$err"
 run spec "$wt" --primary
 assert_empty "views: the primary view of a held root warns nothing" "$err"
+run spec "$wt" --posture
+assert_empty "views: --posture prints no path, so it warns nothing" "$err"
+
+# A worktree nested inside the primary maps by its own toplevel, before the
+# primary's prefix would re-base it; a value naming a worktree's top maps too.
+nested=$repo/nested-wt
+gitq -C "$repo" worktree add -q -b nested "$nested"
+printf 'nested-wt/\n' >>"$repo/.git/info/exclude"
+mkdir -p "$nested/nroot"
+mark "$nested/nroot"
+set_layer "$local_cfg" "$nested/nroot"
+run spec "$repo" --primary
+assert_eq "views: a root in a nested worktree maps onto the primary's copy" "$repo/nroot" "$out"
+run spec "$nested"
+assert_eq "views: the nested worktree's checkout-local view is its own copy" "$nested/nroot" "$out"
+mark "$wt"
+set_layer "$local_cfg" "$wt"
+run spec "$repo" --primary
+assert_eq "views: a value naming a worktree's top maps onto the primary" "$repo" "$out"
+rm -f "$wt/planwright-spec-root.yml"
 
 # A specs/ that is a symlink out of the checkout is still the default root,
 # whether the value names it or is unset.
