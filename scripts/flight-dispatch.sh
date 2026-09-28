@@ -251,8 +251,15 @@ read_hosts() {
     && grep -q '^flight_pr_hosts:' "$repo_root/.claude/planwright.yml" 2>/dev/null; then
     echo "$prog: ignoring flight_pr_hosts in the repo-tracked config: a repository cannot approve its own push destination" >&2
   fi
-  _raw=$(PLANWRIGHT_REPO_ROOT=/dev/null \
-    PLANWRIGHT_LOCAL_CONFIG="${PLANWRIGHT_LOCAL_CONFIG:-$repo_root/.claude/planwright.local.yml}" \
+  # The derived machine-local file sits in the work tree, so a repository can
+  # commit it past its own ignore rule; a tracked one is repo content.
+  _local=${PLANWRIGHT_LOCAL_CONFIG:-$repo_root/.claude/planwright.local.yml}
+  if [ -z "${PLANWRIGHT_LOCAL_CONFIG:-}" ] \
+    && git -C "$repo_root" ls-files --error-unmatch -- .claude/planwright.local.yml >/dev/null 2>&1 </dev/null; then
+    echo "$prog: ignoring flight_pr_hosts in .claude/planwright.local.yml: the repository tracks that file" >&2
+    _local=/dev/null/planwright.local.yml
+  fi
+  _raw=$(PLANWRIGHT_REPO_ROOT=/dev/null PLANWRIGHT_LOCAL_CONFIG="$_local" \
     /bin/sh "$CONFIG" flight_pr_hosts </dev/null)
   _rc=$?
   if [ "$_rc" -ne 0 ]; then
@@ -334,20 +341,32 @@ declare_home() {
   HOME_DECL='pr'
 }
 
-# LIVE_AWK — print the flight id of each registered, non-prunable flight
-# worktree in a `git worktree list --porcelain` stream. A flight is known by
-# its worktree path (`.claude/worktrees/flight-<id>`) as well as its branch, so
-# one that is detached or mid-rebase, with no branch line, is still live.
+# LIVE_AWK — for each registered, non-prunable flight worktree in a
+# `git worktree list --porcelain` stream, print the flight ids it holds: the
+# one its path names (`.claude/worktrees/flight-<id>`, so a detached or
+# mid-rebase flight still counts) and the one its branch names, when they
+# differ. With `-v count=1` it prints only the number of such worktrees.
+# The offsets are the lengths of `/.claude/worktrees/flight-` (26) and
+# `branch refs/heads/planwright/flight/` (36), plus one.
 # shellcheck disable=SC2016 # awk program text, not shell
 LIVE_AWK='
-  function close_block() { if (id != "" && !prunable) print id; id = ""; prunable = 0 }
+  function close_block() {
+    if ((pid != "" || bid != "") && !prunable) {
+      n++
+      if (!count) {
+        if (pid != "") print pid
+        if (bid != "" && bid != pid) print bid
+      }
+    }
+    pid = ""; bid = ""; prunable = 0
+  }
   /^worktree / {
     close_block()
-    if (match($0, /\/\.claude\/worktrees\/flight-[^\/]+$/)) id = substr($0, RSTART + 26)
+    if (match($0, /\/\.claude\/worktrees\/flight-[^\/]+$/)) pid = substr($0, RSTART + 26)
   }
-  index($0, "branch refs/heads/planwright/flight/") == 1 { id = substr($0, 37) }
+  index($0, "branch refs/heads/planwright/flight/") == 1 { bid = substr($0, 37) }
   /^prunable/ { prunable = 1 }
-  END { close_block() }'
+  END { close_block(); if (count) print n + 0 }'
 
 # count_live — set `live` to the registered, non-prunable flight worktrees.
 # Runs in the calling shell so a failed listing exits the dispatch instead of
@@ -356,7 +375,8 @@ live=''
 count_live() {
   _list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null) \
     || die 4 "cannot list worktrees to count live flights; nothing was placed"
-  live=$(printf '%s\n' "$_list" | awk "$LIVE_AWK" | grep -c .)
+  live=$(printf '%s\n' "$_list" | awk -v count=1 "$LIVE_AWK") \
+    || die 4 "cannot count live flights; nothing was placed"
   case $live in
     '' | *[!0-9]*) die 4 "cannot count live flights; nothing was placed" ;;
   esac
@@ -475,8 +495,8 @@ INVIS_SED=$(printf 's/\302[\205\255]//g;s/\330\234//g;s/\341\205[\237\240]//g;s/
 # same pipeline the brief is written from.
 CLEAN_STRIPPED=0
 clean_text() {
-  # The empty sed pass normalizes a missing final newline, which sed adds, so
-  # the strip loop compares like with like.
+  # The empty sed pass gives the base the same final-newline handling the
+  # strip loop's sed passes apply, so the comparisons are like with like.
   tr -d '\000-\010\013-\037\177' <"$1" | sed '' >"$2.base" || return 1
   cp "$2.base" "$2" || return 1
   while :; do
@@ -572,6 +592,7 @@ stale_min() {
     *[!0]*) STALE_MIN=$_sm ;;
     *) STALE_MIN=15 ;;
   esac
+  [ "${#STALE_MIN}" -le 6 ] || STALE_MIN=15
 }
 
 # sweep_briefs — remove the brief directory of every retired flight of this
@@ -591,7 +612,8 @@ sweep_briefs() {
     || die 4 "refusing to sweep: $_sb_flights is not a directory owned by you that only you can write (chmod go-w it); nothing was removed"
   _sb_list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null </dev/null) \
     || die 4 "cannot list worktrees to find retired flights; nothing was removed"
-  _sb_live=$(printf '%s\n' "$_sb_list" | awk "$LIVE_AWK")
+  _sb_live=$(printf '%s\n' "$_sb_list" | awk "$LIVE_AWK") \
+    || die 4 "cannot read the worktree list to find retired flights; nothing was removed"
   _sb_entries=$(find "$_sb_flights" -mindepth 1 -maxdepth 1 2>/dev/null </dev/null) \
     || die 4 "cannot list $_sb_flights to find retired flights; nothing was removed"
   _sb_nl=$(find "$_sb_flights" -mindepth 1 -maxdepth 1 -name "*$LF*" 2>/dev/null </dev/null) \
@@ -614,7 +636,9 @@ sweep_briefs() {
     [ -f "$_sb_dir/checkout" ] && [ ! -L "$_sb_dir/checkout" ] || continue
     [ "$(cat <"$_sb_dir/checkout")" = "$repo_root" ] || continue
     ! printf '%s\n' "$_sb_live" | grep -Fqx -e "$_sb_id" || continue
-    [ -z "$(find "$_sb_dir" -maxdepth 0 -mmin "-$STALE_MIN" 2>/dev/null </dev/null)" ] || continue
+    # A failed age check keeps the brief: "cannot tell" is never "old".
+    _sb_young=$(find "$_sb_dir" -maxdepth 0 -mmin "-$STALE_MIN" 2>/dev/null </dev/null) || continue
+    [ -z "$_sb_young" ] || continue
     if rm -rf "$_sb_dir" 2>/dev/null && [ ! -e "$_sb_dir" ]; then
       printf 'retired\t%s\n' "$_sb_id"
     else
@@ -889,6 +913,9 @@ cmd_dispatch() {
   clean_text "$work/ask.raw" "$work/ask" || die 4 "cannot sanitize the ask"
   ask_file="$work/ask"
   ask_sanitized=$CLEAN_STRIPPED
+  if [ "$ask_sanitized" -eq 1 ] && [ -z "$(tr -d ' \t\n' <"$work/ask")" ]; then
+    die 2 "the ask is empty once invisible characters are stripped"
+  fi
   [ "$ask_sanitized" -eq 0 ] \
     || echo "$prog: NOTE: invisible or bidi-control characters were stripped from the ask" >&2
   clean_text "$work/grounds.raw" "$work/grounds" || die 4 "cannot sanitize the grounds"

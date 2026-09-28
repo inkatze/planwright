@@ -298,7 +298,24 @@ printf 'flight_pr_hosts:\n  - github.com\n' >"$c/primary/.claude/planwright.yml"
 run home --repo-root "$c/primary"
 [ "$(field "$OUT" home)" = pr ] || fail "home: the knob never reads the repo-tracked layer, malformed or not (out: $OUT)"
 rm "$c/primary/.claude/planwright.yml"
+# A machine-local file the repository itself tracks is repo content, not the
+# operator's: it cannot approve a destination either.
+printf 'flight_pr_hosts: [github.com]\n' >"$c/primary/.claude/planwright.local.yml"
+gitc "$c/primary" add -f .claude/planwright.local.yml
+gitc "$c/primary" commit -q -m "a committed local config"
+printf 'flight_pr_hosts: []\n' >"$c/adopter/planwright.yml"
+gitc "$c/primary" remote set-url --push origin https://github.com/acme/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: a tracked planwright.local.yml must not approve a destination (out: $OUT)"
+case $ERR in *"tracks"*) ;; *) fail "home: an ignored tracked planwright.local.yml must be named: $ERR" ;; esac
+gitc "$c/primary" rm -q --cached .claude/planwright.local.yml
+gitc "$c/primary" commit -q -m "untrack the local config"
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = pr ] || fail "home: an untracked planwright.local.yml must still approve (out: $OUT)"
+printf 'flight_pr_hosts: [git.example.com]\n' >"$c/adopter/planwright.yml"
+gitc "$c/primary" remote set-url --push origin git@git.example.com:acme/widgets.git
 # Quoted entries are trimmed as the sibling list reader trims them.
+printf 'flight_pr_hosts: []\n' >"$c/adopter/planwright.yml"
 printf 'flight_pr_hosts: ["git.example.com", '"'"'github.com'"'"']\n' >"$c/primary/.claude/planwright.local.yml"
 run home --repo-root "$c/primary"
 [ "$(field "$OUT" home)" = pr ] || fail "home: a double-quoted entry must approve its host (out: $OUT)"
@@ -943,6 +960,12 @@ printf 'no final newline, clean' >"$c/ask-n.txt"
 run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
   --repo-root "$c/primary"
 case $OUT in *"sanitized${TAB}"*) fail "a clean ask without a final newline must not be flagged (out: $OUT)" ;; esac
+# An ask that is nothing but hidden characters is refused, as the grounds are.
+printf '\342\200\213\342\200\213\n' >"$c/ask-n.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "an ask that is empty once stripped must be refused (rc $RC)"
+case $ERR in *"ask is empty once invisible"*) ;; *) fail "the emptied-ask refusal must say why: $ERR" ;; esac
 # The ask is read once, so a file changed mid-dispatch cannot slip past the
 # size cap or the flag.
 # shellcheck disable=SC2016 # a literal redirect from the variable is the pattern
@@ -1060,6 +1083,30 @@ run retire --repo-root "$c/primary"
 age "$c/fleet/flights/$fy"
 run retire --repo-root "$c/primary"
 [ ! -e "$c/fleet/flights/$fy" ] || fail "retire must remove the same brief once it is past the threshold"
+
+# A stale threshold find cannot compare falls back to the default, never to
+# "old enough to delete".
+printf 'flight_pr_hosts: [github.com]\nstale_lock_threshold: 99999999999999999999m\n' >"$c/adopter/planwright.yml"
+dispatch_print
+fy=$(field "$OUT" flight)
+gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fy"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "retire under an out-of-range stale threshold exited $RC: $ERR"
+[ -d "$c/fleet/flights/$fy" ] || fail "an out-of-range stale threshold must not make a young brief sweepable"
+
+# A flight worktree switched onto a retired flight's branch still keeps its
+# own brief: the path and the branch each name a live flight.
+new_case
+dispatch_print
+fa=$(field "$OUT" flight)
+dispatch_print
+fb=$(field "$OUT" flight)
+gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$fb"
+git -C "$c/primary/.claude/worktrees/flight-$fa" switch -q "planwright/flight/$fb"
+age "$c/fleet/flights/$fa"
+run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "retire with a switched flight exited $RC: $ERR"
+[ -d "$c/fleet/flights/$fa" ] || fail "a flight switched onto another flight's branch lost its own brief"
 
 # Liveness keys on the worktree path, not the branch: a detached or
 # mid-rebase flight keeps its brief and its slot.
