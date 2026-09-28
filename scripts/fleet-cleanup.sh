@@ -91,7 +91,9 @@
 #       was released and what is still held. It is recorded even when nothing
 #       came free, since the rung may have signalled the tree before finding a
 #       class still held. A rung that died on a signal mid-close is recorded as
-#       a partial close too, both sets `unreported`.
+#       a partial close too, both sets `unreported`. A signal to this script
+#       once the close is about to start is held until the close is recorded,
+#       and the run then exits 5 rather than reporting a success.
 #
 #       A handle in the `pwfence.` namespace is refused as malformed: that is
 #       where the fence sweep keys the strand entries it surfaces, and a close
@@ -119,8 +121,8 @@
 #      dirty worktree, one whose commits are not provably safe — no upstream
 #      parity and no verified --merged-pr — or lost observability: neither a tmux
 #      server unreachable mid-probe nor an unusable `gh` is proof of absence),
-#      or the reclaim command itself failed; for `process`, also a partial
-#      close, which acted and is recorded (see its usage)
+#      or the reclaim command itself failed; for `process`, also a partial or
+#      interrupted close, which acted and is recorded (see its usage)
 #   6  acted (resource WAS reclaimed) but the audit-trail write failed — the
 #      action happened and is unrecorded; distinct from 2 so a caller never reads
 #      an unlogged reclaim as "nothing happened". For `process` that includes a
@@ -802,6 +804,16 @@ EOF
       [ -z "$repo_root" ] || set -- "$@" --repo-root "$repo_root"
     fi
     [ -z "$grace" ] || set -- "$@" --grace "$grace"
+    # A signal from here on is held until the close is recorded: dying between
+    # the rung's signals and the audit write would leave a kill with no record.
+    # A caught signal reverts to its default in the rung, which still dies on
+    # it and is recorded as a partial close below.
+    interrupted=0
+    trap 'interrupted=1' INT TERM HUP
+    if [ "$interrupted" = 1 ]; then
+      warn "interrupted before closing '$worker' — nothing was signalled, not reclaimed"
+      exit 5
+    fi
     stop_rc=0
     result=$(/bin/sh "$script_dir/$rung" stop "$worker" "$@") || stop_rc=$?
     [ -z "$result" ] || printf '%s\n' "$result"
@@ -873,6 +885,10 @@ EOF
         warn "could not record the partial close of '$worker' in the audit trail — what it released is unrecorded"
       fi
       exit 6
+    fi
+    if [ "$interrupted" = 1 ]; then
+      warn "interrupted while closing '$worker' — the close is recorded, not reported as a success"
+      exit 5
     fi
     [ "$action" = cleanup ] || exit 5
     exit 0

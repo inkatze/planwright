@@ -118,6 +118,7 @@ for r in fleet-streamjson.sh fleet-dispatch-headless.sh; do
   cat >"$gs/$r" <<STUB
 #!/bin/sh
 printf '%s %s\n' "$r" "\$*" >>"$tmp/stop-calls"
+[ -s "$tmp/stop-delay" ] && sleep "\$(cat "$tmp/stop-delay")"
 [ -s "$tmp/stop-err" ] && cat "$tmp/stop-err" >&2
 sed "s/WORKER/\$2/" "$tmp/stop-out"
 exit "\$(cat "$tmp/stop-rc")"
@@ -669,6 +670,42 @@ case $err in
   *) fail "an unrecorded reap does not say so: $err" ;;
 esac
 echo "ok: a reap whose audit write fails returns exit 6, never a silent success"
+
+# --- a signal to the actuator mid-close still leaves the close recorded ------
+rm -rf "$gate_home"
+det dead dead-or-unknown death-evidence stream-json-persistent dead
+stop_answers 'stop WORKER stopped released=process' 0
+printf '2\n' >"$tmp/stop-delay"
+reset_calls
+env "${env_scrub[@]}" \
+  PLANWRIGHT_FLEET_STATE_DIR="$gate_home" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  PLANWRIGHT_REPO_ROOT="$repo_cfg" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
+  PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/sh "$gs/fleet-cleanup.sh" process w1 trig why >"$tmp/out" 2>"$tmp/err" &
+sig_pid=$!
+sig_i=0
+until [ -s "$tmp/stop-calls" ] || [ "$sig_i" -ge 100 ]; do
+  sleep 0.1
+  sig_i=$((sig_i + 1))
+done
+[ -s "$tmp/stop-calls" ] || fail "interrupted close: the stop never started"
+kill -TERM "$sig_pid"
+rc=0
+wait "$sig_pid" || rc=$?
+rm -f "$tmp/stop-delay"
+err=$(cat "$tmp/err")
+case $(audit_rows) in
+  *"${tab}cleanup${tab}"*"worker=w1 "*"released=process"*) ;;
+  *) fail "a close interrupted by a signal went unrecorded (exit $rc): $(audit_rows)" ;;
+esac
+[ "$rc" != 0 ] || fail "an interrupted close exited 0"
+case $err in
+  *interrupted*) ;;
+  *) fail "an interrupted close does not say so: $err" ;;
+esac
+echo "ok: a signal that arrives mid-close is held until the close is recorded, and the exit is not a success"
 
 # --- every refusal is distinct: exit code and message -----------------------
 # REQ-K1.1: an operator reading the stderr of each path can tell them apart.
