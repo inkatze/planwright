@@ -1,15 +1,19 @@
-# Reserved-control spellings, one per line, driven through every guard copy
-# and deny profile by tests/test-reserved-control-spellings.sh.
+# Reserved-control spellings, one per line, driven through the tower queue's
+# screen, the PreToolUse guards, and both deny profiles by
+# tests/test-reserved-control-spellings.sh. The githooks/ backstop is not driven.
 #
 # Columns are whitespace-separated and the spelling is the rest of the line:
 #   act tier policy queue ready worker-guard tower-guard worker-profile tower-profile spelling
 #
 # tier: any, worker, or tower. policy: `floor` (no value permits the act) or
 # <knob>=<value>, where `unresolved` means no value resolves yet, so some copy
-# must deny. A floor line is tier `any` and denied by both profiles and by the
-# tower queue. Verdicts: deny, defer, or n/a (outside the copy's jurisdiction:
-# another tier, or a tool the copy is not wired for); the test derives n/a from
-# the wiring and fails a line that claims it anywhere else.
+# must deny. A floor line is tier `any` and denied by both profiles and, where
+# it screens the call, by the tower queue. Verdicts: deny, defer, or n/a
+# (outside the copy's jurisdiction: another tier, or a tool the copy is not
+# wired for); the test derives n/a from the wiring and fails a line that claims
+# it anywhere else. The ready-guard runs against a pull request it cannot read,
+# so its deny means it recognised a flip, not that a readable, current flip
+# would be refused.
 #
 # act            tier   policy                       queue  ready  wguard tguard wprof  tprof  spelling
 

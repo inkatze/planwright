@@ -251,8 +251,8 @@ And one rule shape that exists for a reason worth stating, because it is not
 obvious from reading the rule:
 
 - **Global-option prefixes get their own family** (`Bash(git -* push*)`,
-  and the same for `commit`, `merge`, `rebase`, `reset`, `filter-branch`,
-  `filter-repo`). Every other rule anchors on `git push` or `git commit` at the
+  and the same for `commit`, `merge`, `pull`, `rebase`, `reset`,
+  `filter-branch`, `filter-repo`). Every other rule anchors on `git push` or `git commit` at the
   start of the command, so *any* git global option in front of the subcommand
   slipped past all of them: `git -C . push --force origin topic` and
   `git -c a=b rebase -i HEAD~2` matched nothing. git has a long and growing list

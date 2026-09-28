@@ -365,8 +365,8 @@ you.
 
 > **Release-tag pushes vs. the worker push guardrails.** planwright's
 > [worker-settings profile](../config/worker-settings.json) denies force pushes
-> and any push whose destination is `main`, to keep the never-force-push /
-> never-touch-`main` invariants intact for autonomous workers. A release-tag push
+> and any push whose destination is `main`, `master`, or a spec branch, to keep
+> the never-force-push / never-touch-`main` invariants intact for autonomous workers. A release-tag push
 > (`git push origin <tag>`, e.g. `git push origin v0.2.1`; the publish step pushes the
 > same tag ref via `git push origin refs/tags/<tag>`) matches none of those deny rules
 > and stays allowed — the guardrails and the human publish path coexist. The publish

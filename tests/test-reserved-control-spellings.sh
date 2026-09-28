@@ -2,10 +2,10 @@
 # Cross-copy test of the reserved-control spellings (REQ-G1.1, REQ-F1.5).
 #
 # Every line of tests/fixtures/reserved-control-spellings is driven through
-# each copy of the reserved-control refusal the repository ships: the tower
-# queue's reserved-control check (`tower-queue.sh match`), the ready-guard,
-# the worker and tower command guards, and the worker and tower deny profiles
-# (through the permission-matcher model). The test fails on any copy whose
+# the tower queue's reserved-control check (`tower-queue.sh match`), the
+# ready-guard, the worker and tower command guards, and the worker and tower
+# deny profiles (through the permission-matcher model). The githooks/
+# backstop is not one of the copies driven here. The test fails on any copy whose
 # verdict differs from the line's, on a line that claims a copy is outside its
 # jurisdiction when the wiring says otherwise, and on a malformed line.
 #
