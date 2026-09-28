@@ -615,10 +615,12 @@ run_land --flight-id "$NDIR"
 rm -f "$repo/specs"
 
 # A landed record passes the repository's own markdown lint.
+# Probed from the directory it lints in: a version-manager shim may resolve
+# inside the checkout and fail outside it.
 ML=$(command -v markdownlint-cli2 2>/dev/null || :)
-if [ -n "$ML" ] && "$ML" --version >/dev/null 2>&1; then
-  lr="$tmp/lintroot"
-  mkdir -p "$lr/specs/_flights"
+lr="$tmp/lintroot"
+mkdir -p "$lr/specs/_flights"
+if [ -n "$ML" ] && (cd "$lr" && "$ML" --version) >/dev/null 2>&1; then
   cp "$ROOT/.markdownlint.jsonc" "$lr/"
   cp "$ROOT/specs/.markdownlint.jsonc" "$lr/specs/"
   cp "$ROOT/specs/_flights/.markdownlint.jsonc" "$lr/specs/_flights/" 2>/dev/null || :
