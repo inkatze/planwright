@@ -132,8 +132,9 @@ worker authors and lands it, and it carries (REQ-E1.1):
 - the **revert path**.
 
 The record's home is adaptive and **declared at routing time** (D-6, REQ-E1.2):
-the draft PR body where `origin`'s push destination is covered by a
-`flight_pr_hosts` entry and `gh` is authenticated to its host, a committed
+the draft PR body where every push destination of `origin` is covered by a
+`flight_pr_hosts` entry (empty by default, opted into outside the repo-tracked
+config) and `gh` is authenticated to its host, a committed
 per-flight record file riding the flight's own branch otherwise. Both homes render
 human-first (REQ-E1.5) — a lead a human PR author would write (what changed, why,
 how it was verified; no restated prompt, no filler) with the full contract

@@ -24,13 +24,15 @@
 #
 # Subcommands:
 #   home [--repo-root <dir>]
-#       Declare the record's home (REQ-E1.2): `pr` when origin's effective
-#       push destination is on a host `flight_pr_hosts` approves (an entry
-#       `<host>` or `<host>/<owner>`) and `gh auth status` succeeds for that
-#       host, `file` otherwise. Reports `home`, `origin` (the destination as
-#       `<host>/<owner>/<repo>`, `none`, or `unrecognized`), and for `file` a
+#       Declare the record's home (REQ-E1.2): `pr` when every effective push
+#       destination of origin is one `flight_pr_hosts` approves (an entry
+#       `<host>` or `<host>/<owner>`, read from every layer but the
+#       repo-tracked one) and `gh auth status` succeeds for the first one's
+#       host, `file` otherwise. Reports `home`, `origin` (the first destination
+#       as `<host>/<owner>/<repo>`, `none`, or `unrecognized`), and for `file` a
 #       `reason`. The tower states the home and the destination at routing
-#       time, before any dispatch and so before any push.
+#       time, before any dispatch and so before any push; the brief has the
+#       worker re-run `home` before its push and park on a mismatch.
 #   retire [--repo-root <dir>]
 #       Remove the brief directory of each of this checkout's retired flights
 #       (its worktree removed, or gone and prunable), one `retired<TAB><id>`
@@ -57,7 +59,8 @@
 #       flights. Each is refused (exit 2), never substituted.
 #       --home defaults to what `home` declares; the tower passes the home it
 #       already stated so the record lands where it said. `--home pr` is
-#       refused (exit 2) when `home` would not declare it.
+#       refused (exit 2) when `home` would not declare it; `--home file` skips
+#       the `gh` check.
 #       --attach-dry-run (tmux) places the flight but prints the attach plan
 #       instead of launching; the placed worktree holds a slot like any other.
 #
@@ -215,36 +218,75 @@ release_lock() {
 
 # origin_dest <url> — print `<host>/<owner>/<repo>` (lower-cased, `.git`
 # dropped) for a network remote URL in the URL or scp-like form; nothing for a
-# local path or anything else.
+# local path or anything else. Userinfo carrying `#`, `?`, `\` or `:` is
+# refused: a parser that ends the authority there reads a different host than
+# the one git connects to.
 origin_dest() {
   printf '%s\n' "$1" | sed -n -E \
-    -e 's#^(https|http|ssh|git|git\+ssh|ssh\+git)://([^/@]+@)?([A-Za-z0-9][A-Za-z0-9.-]*)(:[0-9]+)?/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$#\3/\5/\6#p' \
+    -e 's~^(https|http|ssh|git|git\+ssh|ssh\+git)://([^/@#?\\:]+@)?([A-Za-z0-9][A-Za-z0-9.-]*)(:[0-9]+)?/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$~\3/\5/\6~p' \
     -e 's#^([A-Za-z0-9._-]+@)?([A-Za-z0-9][A-Za-z0-9.-]*):([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$#\2/\3/\4#p' \
     | head -n 1 | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]'
 }
 
+# read_hosts — set HOSTS to the `flight_pr_hosts` entries, one per line,
+# lower-cased, each trimmed of whitespace and a surrounding quote pair as the
+# sibling list reader (resolve-review-sequence.sh) trims them. The knob grants
+# egress, so the repo-tracked layer is never read for it: a repository cannot
+# approve its own push destination. Pointing the repo root at /dev/null leaves
+# no repo-side layer, and the machine-local file is named explicitly. Fails,
+# with HOSTS_ERR set, when the knob cannot be read.
+HOSTS=''
+HOSTS_ERR=''
+read_hosts() {
+  HOSTS=''
+  HOSTS_ERR=''
+  if [ -f "$repo_root/.claude/planwright.yml" ] \
+    && grep -q '^flight_pr_hosts:' "$repo_root/.claude/planwright.yml" 2>/dev/null; then
+    echo "$prog: ignoring flight_pr_hosts in the repo-tracked config: a repository cannot approve its own push destination" >&2
+  fi
+  _raw=$(PLANWRIGHT_REPO_ROOT=/dev/null \
+    PLANWRIGHT_LOCAL_CONFIG="${PLANWRIGHT_LOCAL_CONFIG:-$repo_root/.claude/planwright.local.yml}" \
+    /bin/sh "$CONFIG" flight_pr_hosts </dev/null)
+  _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    HOSTS_ERR="flight_pr_hosts could not be read (config-get exit $_rc), so no push destination is approved"
+    return 1
+  fi
+  case $_raw in
+    \[*\]) _raw=$(printf '%s' "$_raw" | sed -e 's/^\[//' -e 's/\]$//') ;;
+  esac
+  HOSTS=$(printf '%s\n' "$_raw" | tr ',' '\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+    -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/" | tr '[:upper:]' '[:lower:]' | grep -v '^$')
+  return 0
+}
+
 # dest_approved <dest> — true when a `flight_pr_hosts` entry, `<host>` or
-# `<host>/<owner>`, covers the destination. An unreadable knob or a malformed
-# entry approves nothing.
+# `<host>/<owner>`, covers the destination. A malformed entry approves nothing.
 dest_approved() {
-  _hosts=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$CONFIG" flight_pr_hosts </dev/null) || return 1
-  _hosts=$(printf '%s' "$_hosts" | tr -d '[]' | tr ',' ' ' | tr '[:upper:]' '[:lower:]')
-  for _e in $_hosts; do
+  _old_ifs=$IFS
+  IFS=$LF
+  for _e in $HOSTS; do
     if ! printf '%s\n' "$_e" | grep -Eqx '[a-z0-9][a-z0-9.-]*(/[a-z0-9._-]+)?'; then
       echo "$prog: ignoring a malformed flight_pr_hosts entry" >&2
       continue
     fi
     case $1 in
-      "$_e"/*) return 0 ;;
+      "$_e"/*)
+        IFS=$_old_ifs
+        return 0
+        ;;
     esac
   done
+  IFS=$_old_ifs
   return 1
 }
 
-# declare_home — set HOME_DECL (pr|file), HOME_DEST (origin's push destination
-# as `<host>/<owner>/<repo>`, `none`, or `unrecognized`), and, for `file`,
-# HOME_REASON. The destination is the effective push URL, rewrite rules
-# applied, since that is where a worker's push goes.
+# declare_home [--no-auth] — set HOME_DECL (pr|file), HOME_DEST (origin's
+# first push destination as `<host>/<owner>/<repo>`, `none`, or
+# `unrecognized`), and, for `file`, HOME_REASON. The destinations are the
+# effective push URLs, rewrite rules applied, every one of them: `git push
+# origin` pushes to each. --no-auth skips the `gh` check, for a dispatch whose
+# home is already `file`.
 HOME_DECL='file'
 HOME_DEST=none
 HOME_REASON=''
@@ -252,20 +294,31 @@ declare_home() {
   HOME_DECL='file'
   HOME_DEST=none
   HOME_REASON=''
-  if ! _url=$(git -C "$repo_root" remote get-url --push origin 2>/dev/null </dev/null); then
+  if ! _urls=$(git -C "$repo_root" remote get-url --push --all origin 2>/dev/null </dev/null) \
+    || [ -z "$_urls" ]; then
     HOME_REASON="no origin remote"
     return 0
   fi
-  HOME_DEST=$(origin_dest "$_url")
-  if [ -z "$HOME_DEST" ]; then
-    HOME_DEST=unrecognized
-    HOME_REASON="origin's push destination is not a recognized network remote"
-    return 0
-  fi
-  if ! dest_approved "$HOME_DEST"; then
-    HOME_REASON="origin's push host ${HOME_DEST%%/*} is not approved by flight_pr_hosts"
-    return 0
-  fi
+  read_hosts || HOME_REASON=$HOSTS_ERR
+  _first=1
+  _old_ifs=$IFS
+  IFS=$LF
+  for _url in $_urls; do
+    IFS=$_old_ifs
+    _d=$(origin_dest "$_url")
+    if [ "$_first" -eq 1 ]; then
+      HOME_DEST=${_d:-unrecognized}
+      _first=0
+    fi
+    if [ -z "$_d" ]; then
+      [ -n "$HOME_REASON" ] || HOME_REASON="origin's push destination is not a recognized network remote"
+    elif [ -z "$HOME_REASON" ] && ! dest_approved "$_d"; then
+      HOME_REASON="origin's push destination $_d is not approved by flight_pr_hosts"
+    fi
+  done
+  IFS=$_old_ifs
+  [ -z "$HOME_REASON" ] || return 0
+  [ "${1:-}" != --no-auth ] || return 0
   if ! command -v gh >/dev/null 2>&1 \
     || ! (cd "$repo_root" && gh auth status --hostname "${HOME_DEST%%/*}") >/dev/null 2>&1 </dev/null; then
     HOME_REASON="gh is not authenticated to ${HOME_DEST%%/*}"
@@ -489,11 +542,14 @@ write_brief() {
   IFS=$_old_ifs
 
   if [ "$home" = pr ]; then
-    _landing="Push the branch to \`origin\` ($HOME_DEST, the destination the tower stated:
-\`git push -u origin $branch\`) and open the PR as a draft
-(\`gh pr create --draft\`, with an explicit title and body); the record is the
-PR body. Never mark it ready and never merge: the draft-to-ready flip and the
-merge are the human's."
+    _landing="Before pushing, re-check the destination the tower stated: run
+\`$(sh_quote "$brief_root/scripts/flight-dispatch.sh") home --repo-root $(sh_quote "$repo_root")\`.
+It must report home \`pr\` and origin \`$HOME_DEST\`; on anything else, or if it
+cannot run, push nothing and park the flight with what it reported. Then push
+the branch to \`origin\` (\`git push -u origin $branch\`) and open the PR as a
+draft on the checked repository (\`gh pr create --draft --repo $HOME_DEST\`, with
+an explicit title and body); the record is the PR body. Never mark it ready and
+never merge: the draft-to-ready flip and the merge are the human's."
   else
     _landing="Commit exactly one record file, \`$record\`, on this branch; do not push
 and open no PR. The committed record is the landing reference."
@@ -742,7 +798,11 @@ cmd_dispatch() {
 
   resolve_repo
   ! has_ctl "$repo_root" || die 2 "refusing a repo root whose path carries a control character"
-  declare_home
+  if [ "$home" = file ]; then
+    declare_home --no-auth
+  else
+    declare_home
+  fi
   if [ -z "$home" ]; then
     home=$HOME_DECL
   elif [ "$home" = pr ] && [ "$HOME_DECL" != pr ]; then

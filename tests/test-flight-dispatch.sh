@@ -134,6 +134,11 @@ new_case() {
   export PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1
   export PLANWRIGHT_REPO_ROOT="$c/primary"
   export CLAUDE_DIR="$c/claude"
+  # The shipped flight_pr_hosts is empty: the fixture opts github.com in from
+  # the per-operator adopter layer, as an adopter would.
+  mkdir -p "$c/adopter"
+  printf 'flight_pr_hosts: [github.com]\n' >"$c/adopter/planwright.yml"
+  export PLANWRIGHT_ADOPTER_OVERLAY="$c/adopter"
   printf 'Fix the typo in the README heading.\n' >"$c/ask.txt"
   printf 'visual flight: a one-line wording change, one revert from undone\n' >"$c/grounds.txt"
 }
@@ -261,6 +266,83 @@ run home --repo-root "$c/primary"
   || fail "home: no origin remote must declare file with origin none (out: $OUT)"
 [ "$(field "$OUT" reason)" = "no origin remote" ] || fail "home: no origin must say so (out: $OUT)"
 
+# The shipped default approves nothing: an adopter opts in to their own hosts.
+[ "$(sed -n 's/^flight_pr_hosts:[[:space:]]*//p' "$ROOT/config/defaults.yml")" = '[]' ] \
+  || fail "the shipped flight_pr_hosts default must be the empty list"
+new_case
+rm "$c/adopter/planwright.yml"
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: the shipped default must approve no destination (out: $OUT)"
+case $(field "$OUT" reason) in *flight_pr_hosts*) ;; *) fail "home: an unapproved default must name the knob (out: $OUT)" ;; esac
+# The repo-tracked layer can neither set nor widen the list.
+mkdir -p "$c/primary/.claude"
+printf 'flight_pr_hosts: [github.com]\n' >"$c/primary/.claude/planwright.yml"
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: a repo-tracked flight_pr_hosts must not approve a destination (out: $OUT)"
+case $ERR in *flight_pr_hosts*"repo-tracked"*) ;; *) fail "home: an ignored repo-tracked flight_pr_hosts must be named: $ERR" ;; esac
+printf 'flight_pr_hosts: [git.example.com]\n' >"$c/adopter/planwright.yml"
+printf 'flight_pr_hosts: [git.example.com, github.com]\n' >"$c/primary/.claude/planwright.yml"
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: a repo-tracked flight_pr_hosts must not widen the adopter's list (out: $OUT)"
+gitc "$c/primary" remote set-url --push origin git@git.example.com:acme/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = pr ] || fail "home: the adopter's list must still apply beside a repo-tracked one (out: $OUT)"
+# A malformed repo-tracked config does not reach the knob either.
+printf 'flight_pr_hosts:\n  - github.com\n' >"$c/primary/.claude/planwright.yml"
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = pr ] || fail "home: the knob never reads the repo-tracked layer, malformed or not (out: $OUT)"
+rm "$c/primary/.claude/planwright.yml"
+# Quoted entries are trimmed as the sibling list reader trims them.
+printf 'flight_pr_hosts: ["git.example.com", '"'"'github.com'"'"']\n' >"$c/primary/.claude/planwright.local.yml"
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = pr ] || fail "home: a double-quoted entry must approve its host (out: $OUT)"
+gitc "$c/primary" remote set-url --push origin https://github.com/acme/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = pr ] || fail "home: a single-quoted entry must approve its host (out: $OUT)"
+case $ERR in *malformed*) fail "home: a quoted entry must not read as malformed: $ERR" ;; esac
+rm "$c/primary/.claude/planwright.local.yml"
+# An unreadable knob is named as such, never as an unapproved host.
+PLANWRIGHT_CONFIG_DEFAULTS="$c/none.yml" PLANWRIGHT_ADOPTER_OVERLAY="$c/none" run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: an unreadable knob must declare file (out: $OUT)"
+case $(field "$OUT" reason) in
+  *"flight_pr_hosts could not be read"*) ;;
+  *) fail "home: an unreadable knob must be named as unreadable (out: $OUT)" ;;
+esac
+
+# Every push URL must be approved: `git push origin` pushes to each.
+new_case
+gitc "$c/primary" remote set-url --add --push origin https://git.evil.example/acme/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: a second, unapproved push URL must declare file (out: $OUT)"
+case $(field "$OUT" reason) in *git.evil.example*) ;; *) fail "home: the unapproved second push URL must be named (out: $OUT)" ;; esac
+gitc "$c/primary" remote set-url --delete --push origin 'git\.evil\.example'
+gitc "$c/primary" remote set-url --add --push origin "$c/origin.git"
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: a second, unrecognized push URL must declare file (out: $OUT)"
+gitc "$c/primary" remote set-url --delete --push origin 'origin\.git'
+gitc "$c/primary" remote set-url --add --push origin git@github.com:acme/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = pr ] || fail "home: two approved push URLs must declare pr (out: $OUT)"
+# URL userinfo that could hide the real host is refused.
+gitc "$c/primary" config --unset-all remote.origin.pushurl
+for u in 'https://evil.example#@github.com/acme/widgets.git' 'https://evil.example?@github.com/acme/widgets.git' \
+  'https://evil.example\@github.com/acme/widgets.git' 'https://user:pw@github.com/acme/widgets.git' \
+  'ssh://evil.example#@github.com/acme/widgets.git'; do
+  gitc "$c/primary" remote set-url --push origin "$u"
+  run home --repo-root "$c/primary"
+  [ "$(field "$OUT" home)" = file ] && [ "$(field "$OUT" origin)" = unrecognized ] \
+    || fail "home: push URL $u must read as unrecognized on file (out: $OUT)"
+done
+gitc "$c/primary" remote set-url --push origin https://git@github.com/acme/widgets.git
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = pr ] || fail "home: plain userinfo must still be recognized (out: $OUT)"
+# A --home file dispatch never asks gh.
+: >"$c/gh.log"
+GH_STUB_LOG="$c/gh.log" run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --home file --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "a --home file dispatch exited $RC: $ERR"
+! grep -q 'auth status' "$c/gh.log" || fail "a --home file dispatch must not run gh auth status"
+
 # --- 2. rung selection stays in /offload -------------------------------------
 new_case
 run dispatch readme-typo --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
@@ -349,7 +431,12 @@ printf '%s\n' "$b" | grep -q "^> visual flight: a one-line wording change, one r
 printf '%s\n' "$b" | grep -q "planwright/flight/$fid" || fail "brief does not name the branch"
 printf '%s\n' "$b" | grep -q "\`print-flight-$fid\`" \
   || fail "the brief must name the print worker by the handle its registry record carries"
-printf '%s\n' "$b" | grep -q "gh pr create --draft" || fail "brief must land a draft PR"
+printf '%s\n' "$b" | grep -q "gh pr create --draft --repo github.com/acme/widgets" \
+  || fail "the brief's gh pr create must name the checked repository"
+printf '%s\n' "$b" | grep -Fq "flight-dispatch.sh' home --repo-root '$c/primary'" \
+  || fail "the brief must re-check the home before the push"
+printf '%s\n' "$b" | grep -Fq "origin \`github.com/acme/widgets\`" \
+  || fail "the brief must name the destination the re-check must report"
 printf '%s\n' "$b" | grep -q 'github.com/acme/widgets' || fail "a pr-home brief must name the push destination"
 [ "$(field "$OUT" origin)" = github.com/acme/widgets ] || fail "the dispatch report must name the push destination"
 if printf '%s\n' "$b" | grep -Eq 'gh pr ready|gh pr merge'; then

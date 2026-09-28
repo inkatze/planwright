@@ -185,12 +185,14 @@ review_sequence: [polish]
 # The push destinations a visual flight may land a draft PR on
 # (scripts/flight-dispatch.sh `home`). An inline list of entries, each a host
 # (`github.com`) or one owner on a host (`github.com/acme`), matched against
-# origin's push URL as `git remote get-url --push` reports it, rewrite rules
-# applied as git applies them on push. A destination no
-# entry covers gets the committed-record home instead, and the report names
-# the host and why; an empty list keeps every flight's record local. A
-# malformed entry is ignored with a warning, approving nothing.
-flight_pr_hosts: [github.com]
+# every push URL of origin as `git remote get-url --push --all` reports them,
+# rewrite rules applied as git applies them on push. Empty by default: an
+# adopter opts in to their own hosts or owners in the adopter or machine-local
+# layer. The repo-tracked layer is ignored for this key, so a repository cannot
+# approve its own push destination. A destination no entry covers gets the
+# committed-record home instead, and the report names the destination and why.
+# A malformed entry is ignored with a warning, approving nothing.
+flight_pr_hosts: []
 
 # The operator kill-switch for the autonomous daemon layer (fleet-autonomy
 # D-15, REQ-F1.3). `true` pauses every autonomous daemon action the fleet

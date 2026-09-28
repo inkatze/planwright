@@ -205,8 +205,9 @@ sweep's render) and "handle unknown" otherwise, never as simply in the air.
 
 With the route stated, the tower declares the record's home in the same line
 (REQ-E1.2), as `scripts/flight-dispatch.sh home` reports it: the draft PR body
-when `origin`'s push destination is covered by a `flight_pr_hosts` entry and `gh` is
-authenticated there; a committed record file at `specs/_flights/<flight-id>.md`
+when every push destination of `origin` is covered by a `flight_pr_hosts` entry and `gh` is
+authenticated there (the list is empty until the operator opts in outside the
+repo-tracked config); a committed record file at `specs/_flights/<flight-id>.md`
 on the flight's own branch otherwise. It states the reported destination with
 the home, so the operator hears where a push goes before any push. It then
 hands `/offload` a **flight petition**: the ask and the grounds line as stated,
