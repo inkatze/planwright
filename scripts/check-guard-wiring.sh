@@ -34,11 +34,14 @@
 # `mise run` / `mise r` call names (`default` when it names none), each `:::`
 # segment included. A call whose leading flags keep the target or its
 # dependencies from running (`--dry-run`, `--skip-deps`, ...) or run it from
-# another config (`--cd`, `--env`, `--profile`) contributes nothing; a stop flag in a
-# later `:::` segment drops that segment alone. A task whose run body or env
-# names MISE_TASK_SKIP_DEPENDS, the variable form of `--skip-deps`,
-# contributes no run-body edges at all. Global flags placed before
-# `run` (`mise -q run x`) are not read, so such a call contributes nothing.
+# another config (`--cd`, `--env`, `--profile`) contributes nothing; mise
+# reads flags only before the first task, so a later `:::` segment's first
+# word is its task whatever it looks like. A task whose run
+# body or env names one of their variable forms (MISE_TASK_SKIP_DEPENDS,
+# MISE_ENV, MISE_PROFILE) contributes no run-body edges at all. Known limits:
+# global flags placed before `run` (`mise -q run x`) are not read, so such a
+# call contributes nothing; the variables set through a depends entry's env
+# or the top-level `[env]` are not seen.
 #
 # WHOLE-LINE COMMENTS ARE NOT EXECUTION. They are dropped from a run body
 # before either edges or guard names are read from it, so a commented-out call
@@ -138,32 +141,34 @@ graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --j
 # so following it would pass a guard nothing runs. A dangling edge (resolving
 # to no task in this file) is reported, never silently dropped: an edge the
 # walk cannot follow is exactly how a guard appears reachable without being
-# reachable. Its newlines are escaped, so no task name can forge a report line.
+# reachable. Every edge has its newlines escaped before it is resolved, so no
+# task name can forge a report line; a name holding one never resolves.
 report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
   def uncommented: split("\n") | map(select(test("^[[:space:]]*#") | not)) | join("\n");
-  # The task one `:::` segment names, given its words. A flag that stops the
-  # target from running (or its dependencies, or runs it from another
-  # config) yields the stop mark, so no edge is claimed; a flag taking a
-  # separate value skips that value too.
-  def seg_task:
-    if length == 0 then empty
+  def unquoted: gsub("^[\"\u0027`]+|[\"\u0027`);]+$"; "");
+  # The task a call names, given the words of its first `:::` segment, the
+  # only one whose flags mise reads. A flag that stops the target from
+  # running (or its dependencies, or runs it from another config) yields the
+  # stop mark, so no edge is claimed; a flag taking a separate value skips
+  # that value too; a call naming no task runs `default`.
+  def call_task:
+    if length == 0 then "default"
     else .[0] as $w
-      | if ($w | test("^--(dry-run|help|skip-deps|no-deps|cd|env|profile)(=|$)|^-[A-Za-z]*[nhCEP][A-Za-z]*$")) then "\u0000stop"
-        elif ($w | test("^--(jobs|output|shell|tool|timeout|allow-env|allow-net|allow-read|allow-write)$|^-[A-Za-z]*[jost]$")) then (.[2:] | seg_task)
-        elif ($w | startswith("-")) then (.[1:] | seg_task)
-        else $w | gsub("^[\"\u0027`]+|[\"\u0027`);]+$"; "")
+      | if ($w | test("^--(dry-run|help|skip-deps|cd|env|profile)(=|$)|^-[A-Za-z]*[nhCEP]")) then "\u0000stop"
+        elif ($w | test("^--(jobs|output|shell|tool|timeout|allow-env|allow-net|allow-read|allow-write)$|^-[A-Za-z]*[jost]$")) then (.[2:] | call_task)
+        elif ($w | startswith("-")) then (.[1:] | call_task)
+        else $w | unquoted
         end
     end;
-  # The first segment carries the flags of the call, so a stop there drops the
-  # whole call; a first segment naming no task runs `default`.
+  # A later segment names its task in its first word, even one that looks
+  # like a flag.
   def run_edges:
     [ match("(?:^|[^A-Za-z0-9_-])mise[ \t]+(?:run|r)(?=[ \t;&|\n]|$)[ \t]*([^;&|\n]*)"; "g")
       | [ .captures[0].string | splits("[ \t]*:::[ \t]*")
-          | [ splits("[ \t]+") | select(. != "") ] | [ seg_task ] ]
-      | if .[0] == ["\u0000stop"] then empty
-        else ((if .[0] == [] then ["default"] else .[0] end)[]),
-             (.[1:][][] | select(. != "\u0000stop"))
-        end ];
+          | [ splits("[ \t]+") | select(. != "") ] ]                as $segs
+      | ($segs[0] | call_task)                                      as $first
+      | if $first == "\u0000stop" then empty
+        else $first, ($segs[1:][] | (.[0] // empty) | unquoted) end ];
   # A depends entry carrying arguments or env names its task in `.task` or in
   # its first word.
   def edge_name:
@@ -213,7 +218,7 @@ report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
       | ([ (.depends // [])[], (.depends_post // [])[],
            ($run[] | objects | (.task // empty), (.tasks // [])[]) ]
          | map(edge_name)
-           + (if ($body + $env) | test("MISE_TASK_SKIP_DEPENDS")
+           + (if ($body + $env) | test("MISE_(TASK_SKIP_DEPENDS|ENV|PROFILE)")
               then [] else ($body | run_edges) end)
          | map(select(. != "") | gsub("\n"; "\\n")))                as $edges
       | { name: .name,

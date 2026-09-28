@@ -435,9 +435,30 @@ wired "$r" 'mise run -E dev check:alpha' '
 run = "/bin/sh scripts/check-planted.sh"'
 expect_mise 1 "$r" planted "g8d -E value"
 expect_cg 1 "$r" "g8d -E value"
-wired "$r" 'mise run --env ci check:inner' "$inner"
-expect_mise 0 "$r" planted "g8d --env"
-expect_cg 1 "$r" "g8d --env"
+for body in 'mise run --env ci check:inner' 'mise run --cd=. check:inner' \
+  'mise run --profile ci check:inner' 'MISE_ENV=ci mise run check:inner'; do
+  wired "$r" "$body" "$inner"
+  expect_mise 0 "$r" planted "g8d '$body'"
+  expect_cg 1 "$r" "g8d '$body'"
+done
+#     mise reads an attached short value (`-C.`, `-E=ci`) as a task name and
+#     fails; the check claims no edge for it either.
+for body in 'mise run -C. check:inner' 'mise run -E=ci check:inner'; do
+  wired "$r" "$body" "$inner"
+  expect_mise 2 "$r" planted "g8d '$body'"
+  expect_cg 1 "$r" "g8d '$body'"
+done
+#     `--no-deps` skips tool preparation, not task dependencies: an edge.
+wired "$r" 'mise run --no-deps check:wrap' "$inner$wrap"
+expect_mise 0 "$r" planted "g8d --no-deps"
+expect_cg 0 "$r" "g8d --no-deps"
+#     mise reads flags only before the first task: a later segment that
+#     starts with one names a task called that, which is reported.
+wired "$r" 'mise run check:inner ::: -n check:alpha' "$inner"
+expect_mise 2 "$r" planted "g8d later-segment flag"
+expect_cg 0 "$r" "g8d later-segment flag"
+# shellcheck disable=SC2016 # the backticks are the note's literal quoting
+grep -qF -- 'edge to `-n`' "$tmp/err" || fail "g8d: the later segment's flag-shaped task was not reported"
 wired "$r" 'mise run check:wrap' "$inner$wrap"
 expect_mise 0 "$r" planted "g8d control"
 expect_cg 0 "$r" "g8d control"
@@ -511,8 +532,8 @@ r="$tmp/r8g"
 wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"guard:p\"]$target
 hide = true"
 (cd "$r" && MISE_TRUSTED_CONFIG_PATHS="$r" mise tasks --json 2>/dev/null) \
-  | jq -e 'any(.[]; .name == "guard:p")' >/dev/null \
-  && fail "g8g: a plain 'mise tasks --json' lists the hidden task, so this case pins nothing"
+  | jq -e 'any(.[]; .name == "guard:p")' >/dev/null
+[ "$?" = 1 ] || fail "g8g: a plain 'mise tasks --json' did not omit the hidden task, so this case pins nothing"
 expect_mise 0 "$r" planted "g8g hidden"
 expect_cg 0 "$r" "g8g hidden"
 for dep in '"guard:p --flag"' '{ task = "guard:p", env = { X = "1" } }'; do
