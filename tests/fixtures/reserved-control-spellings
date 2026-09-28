@@ -1,0 +1,89 @@
+# Reserved-control spellings, one per line, driven through every guard copy
+# and deny profile by tests/test-reserved-control-spellings.sh.
+#
+# Columns are whitespace-separated and the spelling is the rest of the line:
+#   act tier policy queue ready worker-guard tower-guard worker-profile tower-profile spelling
+#
+# tier: any, worker, or tower. policy: `floor` (no value permits the act) or
+# <knob>=<value>, where `unresolved` means no value resolves yet, so some copy
+# must deny. A floor line is tier `any` and denied by both profiles and by the
+# tower queue. Verdicts: deny, defer, or n/a (outside the copy's jurisdiction:
+# another tier, or a tool the copy is not wired for); the test derives n/a from
+# the wiring and fails a line that claims it anywhere else.
+#
+# act            tier   policy                       queue  ready  wguard tguard wprof  tprof  spelling
+
+pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   gh pr merge 42
+pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   gh pr merge 42 --squash --delete-branch
+pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   gh pr merge --auto --squash 42
+pr-merge         any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__merge_pull_request
+
+undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   gh pr ready 42 --undo
+undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   gh pr ready --undo 42
+
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push --force origin feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push -f origin feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push origin feature --force
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push --force-with-lease origin feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push --force-with-lease=feature origin feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push origin +feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push origin +HEAD:feature
+
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin main
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push -u origin main
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:main
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:refs/heads/main
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:main --dry-run
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin master
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push -u origin master
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:master
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:refs/heads/master
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:master --dry-run
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin planwright/human-gates/spec
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push -u origin planwright/human-gates/spec
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:planwright/human-gates/spec
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:refs/heads/planwright/human-gates/spec
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:planwright/human-gates/spec --dry-run
+protected-push   any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__push_files
+protected-push   any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__create_or_update_file
+protected-push   any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__delete_file
+
+flip             worker ready_flip_policy=unresolved n/a    deny   defer  n/a    defer  n/a    gh pr ready 42
+flip             tower  ready_flip_policy=unresolved deny   deny   n/a    defer  n/a    deny   gh pr ready 42
+flip             worker ready_flip_policy=unresolved n/a    deny   n/a    n/a    defer  n/a    mcp__github__update_pull_request
+flip             tower  ready_flip_policy=unresolved n/a    deny   n/a    n/a    n/a    deny   mcp__github__update_pull_request
+
+base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git merge origin/main
+base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git -C . merge origin/main
+base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git pull
+base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git pull origin main
+base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git pull --ff-only origin main
+base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git pull --rebase origin main
+base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git -C . pull origin main
+base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    deny   git merge origin/main
+base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    deny   git pull
+base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    deny   git pull origin main
+base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    deny   git pull --ff-only origin main
+base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    deny   git pull --rebase origin main
+
+amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --amend --no-edit
+amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit -m wip --amend
+amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --amend --no-edit
+amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit -m wip --amend
+
+squash           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --squash HEAD~1
+squash           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --squash=HEAD~1
+squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --squash HEAD~1
+squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --squash=HEAD~1
+
+fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --fixup HEAD~1
+fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --fixup=HEAD~1
+fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --fixup=amend:HEAD~1
+fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fixup HEAD~1
+fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fixup=HEAD~1
+fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fixup=amend:HEAD~1
+
+rebase           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git rebase origin/main
+rebase           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git rebase -i HEAD~3
+rebase           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git rebase origin/main
+rebase           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git rebase -i HEAD~3
