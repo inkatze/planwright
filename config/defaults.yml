@@ -185,6 +185,18 @@ notification_channel: none
 # ignores it and warns naming each layer that sets it, this one included.
 review_sequence: [polish]
 
+# The push destinations a visual flight may land a draft PR on
+# (scripts/flight-dispatch.sh `home`). An inline list of entries, each a host
+# (`github.com`) or one owner on a host (`github.com/acme`), matched against
+# every push URL of origin as `git remote get-url --push --all` reports them,
+# rewrite rules applied as git applies them on push. Empty by default: an
+# adopter opts in to their own hosts or owners in the adopter or machine-local
+# layer. The repo-tracked layer is ignored for this key, so a repository cannot
+# approve its own push destination. A destination no entry covers gets the
+# committed-record home instead, and the report names the destination and why.
+# A malformed entry is ignored with a warning, approving nothing.
+flight_pr_hosts: []
+
 # Custom steps: one flat key per named attachment point (custom-steps D-4,
 # REQ-B1.3), each an inline flow list of step ids in run order. A step id
 # names an entry in the `steps` catalog (config/steps.yaml merged with the

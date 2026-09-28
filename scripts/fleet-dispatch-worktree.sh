@@ -1,6 +1,7 @@
 #!/bin/sh
 # fleet-dispatch-worktree.sh — the tmux-backend dispatch primitive that produces
 # a worker worktree on the canonical D-36 branch `planwright/<spec>/task-<id>`
+# (or, on its flight arm, a visual flight's `planwright/flight/<flight-id>`)
 # DETERMINISTICALLY at launch, with no manual post-launch `git branch -m` rename
 # (fleet-hardening Task 10; D-7 amended 2026-07-20; REQ-B1.4, and REQ-C1.1 /
 # REQ-C1.2 / REQ-E1.3 for the tower-guard interaction).
@@ -9,6 +10,8 @@
 #   1. CREATE the worktree with a SINGLE
 #        git worktree add -b planwright/<spec>/task-<id> \
 #          .claude/worktrees/<suffix> <base>
+#      (the flight arm: `-b planwright/flight/<flight-id>` into
+#      `.claude/worktrees/flight-<flight-id>`)
 #      call — the narrow, documented never-shell-`git worktree` exception scoped
 #      to THIS one dispatch primitive (D-7). `<base>` is the freshly-fetched
 #      `origin/main` (never stale local `main` or the tower's HEAD — the
@@ -46,7 +49,11 @@
 # blindly aborting, distinguishing in-flight from stale via this bundle's
 # liveness signals (the dispatch marker scripts/orchestrate-marker.sh writes, and
 # a live tmux session for the suffix — not a new source of truth):
-#   - LIVE dispatch in flight  -> abort as already-in-flight (exit 3).
+#   - LIVE dispatch in flight  -> abort as already-in-flight (exit 3). On the
+#     flight arm a registered flight worktree is in flight whatever its
+#     session says, so it aborts the same way and is never GC'd below. A
+#     worktree list that cannot be read counts as registered, so no removal
+#     below acts on a worktree it could not see.
 #   - STALE / orphaned branch or worktree with no live session (a prior create
 #     that died before attach, or a finished task whose branch outlived its
 #     worktree) -> GC-adopt: remove the leftover worktree checkout; adopt the
@@ -67,10 +74,12 @@
 #     under the old path's name still reads as in-flight (exit 3).
 #
 # Exception scope (D-7). The `git worktree add` shell-out is confined to THIS
-# primitive: a guard over the bundle's dispatch/tower sources (tests/test-fleet-
-# dispatch-worktree.sh) asserts no other bundle worktree-creation path shells out
-# to `git worktree`. The tower runs this primitive as a planwright script by
-# resolved literal path (worker/tower-command-guard `is_repo_script` allowance),
+# primitive, its task and flight arms alike (scripts/flight-dispatch.sh places
+# a flight through the flight arm rather than shelling out itself): a guard over
+# the bundle's dispatch/tower sources (tests/test-fleet-dispatch-worktree.sh)
+# asserts no other bundle worktree-creation path shells out to `git worktree`.
+# The tower runs this primitive as a planwright script by resolved literal path
+# (worker/tower-command-guard `is_repo_script` allowance),
 # so the inner `git worktree add` is never a separate PreToolUse Bash string
 # exposed to the stochastic auto-mode classifier; the tower deny floor
 # (config/tower-settings.json) additionally names the dangerous `git worktree`
@@ -95,17 +104,38 @@
 #                        fleet-dispatch-headless.sh). Launches no worker, so it
 #                        takes no post-`--` launch args (refused, not dropped).
 #       Everything after `--` is passed through to the `claude` launch argv.
-#   fleet-dispatch-worktree.sh attach <suffix> [--dry-run] [-- <extra>...]
+#   fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] \
+#       [--repo-root <dir>] [--attach-dry-run | --no-attach] [-- <extra launch args>...]
+#       The same create-then-attach for a visual flight (tower-front-door D-11):
+#       branch `planwright/flight/<flight-id>`, worktree `flight-<flight-id>`,
+#       no spec bundle and no dispatch marker. A collision on a registered
+#       flight worktree aborts as already-in-flight whatever its tmux session
+#       says (a print-rung worker has none); only an unregistered remnant is
+#       reconciled.
+#       --brief          the worker brief the attach hands the worker, as the
+#                        one prompt `Read <abs-file> and follow it exactly.`
+#                        after `--` (the path, never the content, rides argv).
+#                        Only the flight's own `<fleet-home>/flights/<flight-id>/
+#                        brief.md` is accepted, after canonicalization, on the
+#                        path charset `[A-Za-z0-9._/@+-]`, non-empty, with the
+#                        fleet home, its flights directory, and the brief's
+#                        own directory private to the user; an empty
+#                        `--brief` is refused, and so are `--continue` and
+#                        `--resume` beside it.
+#   fleet-dispatch-worktree.sh attach <suffix> [--brief <abs-file>] [--dry-run] [-- <extra>...]
 #       The attach step alone: capture the prior tmux client session, launch
 #       `claude --worktree <suffix> --tmux=classic` (pinned via fleet-dispatch-
 #       env.sh), restore the client. --dry-run prints the plan (no exec).
+#       --brief hands a flight's worker its brief, as the dispatch arm does and
+#       under the same confinement; the suffix must be `flight-<flight-id>`.
 #
 # Exit codes:
 #   0  success (created + attached / attach-plan printed).
 #   2  usage / invalid input (fail closed — a malformed or hostile token is
 #      never interpolated).
-#   3  already-in-flight: a LIVE concurrent/repeat dispatch (the intended
-#      collision guard).
+#   3  already-in-flight: a LIVE concurrent/repeat dispatch, or a registered
+#      flight worktree, or on the flight arm a worktree list that cannot be
+#      read (the intended collision guard).
 #   4  cannot resolve a fresh `<base>`: the remote is present but the fetch
 #      failed after retries (stale ref) — the dispatch must not proceed on a
 #      stale base.
@@ -143,6 +173,7 @@ FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 MARKER="$script_dir/orchestrate-marker.sh"
 TRACK="$script_dir/fleet-worktree-track.sh"
+FLEET_STATE="$script_dir/fleet-state.sh"
 
 # How recent an orchestrate-marker must be to count as a LIVE dispatch when no
 # tmux session is present. A marker older than this (a crashed dispatch that
@@ -163,12 +194,17 @@ warn() {
 usage() {
   cat >&2 <<'EOF'
 usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--repo-root <dir>] [--attach-dry-run | --no-attach] [-- <extra launch args>...]
-       fleet-dispatch-worktree.sh attach <suffix> [--dry-run] [-- <extra launch args>...]
+       fleet-dispatch-worktree.sh dispatch --flight <flight-id> [--brief <abs-file>] [--repo-root <dir>] [--attach-dry-run | --no-attach] [-- <extra launch args>...]
+       fleet-dispatch-worktree.sh attach <suffix> [--brief <abs-file>] [--dry-run] [-- <extra launch args>...]
 EOF
   exit 2
 }
 
 REGISTER="$script_dir/fleet-register.sh"
+
+# The one prompt a flight dispatch hands its worker (dispatch --flight --brief);
+# empty for every other launch.
+ATTACH_PROMPT=''
 
 # register_dispatch <handle> <scope> <worktree> <death-handle> — write the
 # dispatch record through the one registration seam (fleet-lifecycle-closure
@@ -272,6 +308,71 @@ valid_id() {
   return 0
 }
 
+# flight id: `<slug>-<uid>`, re-encoded from scripts/flight-id.sh (the
+# reference check) so this primitive stands alone. `grep` matches per line, so
+# the charset screen runs first to keep a newline from smuggling a second one.
+valid_flight() {
+  reject_dotdot "$1" || return 1
+  case $1 in
+    '' | *[!a-z0-9-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 64 ] || return 1
+  printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
+}
+
+# BRIEF_PATH — the canonical path valid_brief accepted.
+BRIEF_PATH=''
+
+# valid_brief <path> <flight-id> — the brief the attach hands a flight worker
+# is that flight's own `brief.md` under the fleet home, after canonicalization,
+# on a conservative charset: its path rides the prompt argv, so no other file
+# can be handed to a worker as its instructions.
+valid_brief() {
+  case $1 in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  reject_dotdot "$1" || return 1
+  case $1 in
+    *[!A-Za-z0-9._/@+-]*) return 1 ;;
+  esac
+  [ "$(basename "$1")" = brief.md ] || return 1
+  [ -f "$1" ] && [ -r "$1" ] && [ -s "$1" ] && [ ! -L "$1" ] || return 1
+  _vb_dir=$(cd "$(dirname "$1")" 2>/dev/null && pwd -P) || return 1
+  _vb_home=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || return 1
+  [ -n "$_vb_home" ] || return 1
+  _vb_home=$(cd "$_vb_home" 2>/dev/null && pwd -P) || return 1
+  [ "$_vb_dir" = "$_vb_home/flights/$2" ] || return 1
+  case $_vb_dir in
+    *[!A-Za-z0-9._/@+-]*) return 1 ;;
+  esac
+  # Anyone who can write one of these directories can swap the brief a
+  # worker is told to follow.
+  private_dir "$_vb_home" && private_dir "$_vb_home/flights" && private_dir "$_vb_dir" || return 1
+  BRIEF_PATH="$_vb_dir/brief.md"
+}
+
+# private_dir <dir> — a real directory the invoking user owns that neither
+# group nor others can write.
+private_dir() {
+  [ ! -L "$1" ] && [ -d "$1" ] || return 1
+  _pd_uid=$(id -u) || return 1
+  [ -n "$(find "$1" -maxdepth 0 -user "$_pd_uid" ! -perm -0020 ! -perm -0002 2>/dev/null)" ]
+}
+
+# refuse_resume_beside_brief <launch args...> — a resumed session would carry
+# its prior conversation beside the brief, so a brief launch starts fresh.
+refuse_resume_beside_brief() {
+  for _rb in "$@"; do
+    case $_rb in
+      --continue | -c | --resume | --resume=* | -r | -r=*)
+        warn "refusing $_rb beside a flight brief: a brief launch starts a fresh session"
+        exit 2
+        ;;
+    esac
+  done
+}
+
 # worktree suffix: `<spec>-task-<id>`, the bare legacy `task-<id>`, or a
 # flight's `flight-<flight-id>`.
 #
@@ -355,6 +456,9 @@ is_live() {
     fi
   fi
 
+  # A flight has no spec dir and no marker; the reconcile treats its
+  # registered worktree as live on its own.
+  [ -n "$_sd" ] || return 1
   _mdir="${PLANWRIGHT_ORCH_STATE_DIR:-$_sd/.orchestrate/markers}"
   _mfile="$_mdir/$_id"
   if [ -f "$_mfile" ]; then
@@ -378,12 +482,22 @@ is_live() {
   return 1
 }
 
-# Is <path> a currently-registered git worktree in <repo>?
+# Is <path> a currently-registered git worktree in <repo>? A worktree list
+# that cannot be read answers yes: the callers guard a removal or an abort,
+# and "cannot tell" must never read as "safe to delete".
 is_registered_worktree() {
   # $1 repo-root  $2 abs-path. The porcelain stream emits one `worktree <abs>`
   # line per registered tree; a fixed whole-line match is portable across awks.
-  git -C "$1" worktree list --porcelain 2>/dev/null \
-    | grep -Fxq "worktree $2"
+  _irw=$(git -C "$1" worktree list --porcelain 2>/dev/null </dev/null) || return 0
+  printf '%s\n' "$_irw" | grep -Fxq "worktree $2"
+}
+
+# Is <path> provably registered: listed by a worktree list that was read? For
+# the one caller that removes a REGISTERED worktree, where "cannot tell" must
+# not read as registered either.
+is_listed_worktree() {
+  _ilw=$(git -C "$1" worktree list --porcelain 2>/dev/null </dev/null) || return 1
+  printf '%s\n' "$_ilw" | grep -Fxq "worktree $2"
 }
 
 # Does <branch> exist in <repo>?
@@ -500,31 +614,68 @@ validate_launch_extra() {
 # --- attach: capture-and-restore the tmux client around the pinned launch ----
 
 do_attach() {
-  # <suffix> [--dry-run] [-- <extra launch args>...]. Guard the positional so a
-  # bare `attach` fails with the clean usage/exit-2 path, not a set -u abort.
+  # <suffix> [--brief <abs-file>] [--dry-run] [-- <extra launch args>...].
+  # Guard the positional so a bare `attach` fails with the clean usage/exit-2
+  # path, not a set -u abort.
   [ "$#" -ge 1 ] || usage
   _suffix=$1
   shift
   _dry=0
-  if [ "${1:-}" = "--dry-run" ]; then
-    _dry=1
-    shift
-  fi
-  if [ "${1:-}" = "--" ]; then
-    shift
-  fi
+  _abrief=''
+  _abrief_set=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --dry-run)
+        _dry=1
+        shift
+        ;;
+      --brief)
+        [ "$#" -ge 2 ] || usage
+        _abrief=$2
+        _abrief_set=1
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *) break ;;
+    esac
+  done
   valid_suffix "$_suffix" || {
     warn "invalid worktree suffix: $_suffix"
     exit 2
   }
+  # A standalone attach of a flight can hand the worker its brief, under the
+  # dispatch arm's confinement.
+  if [ "$_abrief_set" -eq 1 ] && [ -z "$_abrief" ]; then
+    warn "--brief is empty: name the flight's own brief.md, or drop --brief"
+    exit 2
+  fi
+  if [ -n "$_abrief" ]; then
+    _aflight=${_suffix#flight-}
+    if [ "$_aflight" = "$_suffix" ] || ! valid_flight "$_aflight"; then
+      warn "--brief is a flight option: the suffix must be flight-<flight-id>"
+      exit 2
+    fi
+    valid_brief "$_abrief" "$_aflight" || {
+      warn "--brief must be the flight's own brief.md under the fleet home (flights/<flight-id>/), non-empty, on the path charset [A-Za-z0-9._/@+-], in directories only you can write"
+      exit 2
+    }
+    ATTACH_PROMPT="Read $BRIEF_PATH and follow it exactly."
+  fi
   # Refuse any unsanctioned extra launch flag before it reaches claude.
   validate_launch_extra "$@"
+  [ -z "$ATTACH_PROMPT" ] || refuse_resume_beside_brief "$@"
 
   # The pinned launch argv: fleet-dispatch-env.sh applies the ghost-text pin
   # (CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false) structurally, then exec's the
   # `claude --worktree <suffix> --tmux=classic` launch. `--tmux=classic` is
   # MANDATORY (plain `--tmux` opens non-relay-targetable iTerm2 panes, D-7).
   set -- "$ENVWRAP" claude --worktree "$_suffix" --tmux=classic "$@"
+  if [ -n "$ATTACH_PROMPT" ]; then
+    set -- "$@" -- "$ATTACH_PROMPT"
+  fi
 
   if [ "$_dry" -eq 1 ]; then
     # The attach PLAN — the designed client-switch mitigation, printed for the
@@ -574,6 +725,9 @@ do_attach() {
 do_dispatch() {
   _spec=''
   _id=''
+  _flight=''
+  _brief=''
+  _brief_set=0
   _repo_root=''
   _attach_dry=0
   _no_attach=0
@@ -600,6 +754,17 @@ do_dispatch() {
       --no-attach)
         _no_attach=1
         shift
+        ;;
+      --flight)
+        [ "$#" -ge 2 ] || usage
+        _flight=$2
+        shift 2
+        ;;
+      --brief)
+        [ "$#" -ge 2 ] || usage
+        _brief=$2
+        _brief_set=1
+        shift 2
         ;;
       --*)
         warn "unknown flag: $1"
@@ -640,33 +805,69 @@ do_dispatch() {
     usage
   fi
 
-  [ -n "$_spec" ] && [ -n "$_id" ] || usage
+  if [ -n "$_flight" ]; then
+    [ -z "$_spec" ] && [ -z "$_id" ] || {
+      warn "--flight takes no <spec> <id>"
+      usage
+    }
+  else
+    [ -n "$_spec" ] && [ -n "$_id" ] || usage
+    [ -z "$_brief" ] || {
+      warn "--brief is a flight option (--flight <flight-id>)"
+      usage
+    }
+  fi
+  if [ "$_brief_set" -eq 1 ] && [ -z "$_brief" ]; then
+    warn "--brief is empty: name the flight's own brief.md, or drop --brief"
+    exit 2
+  fi
+  if [ -n "$_brief" ] && [ "$_no_attach" -eq 1 ]; then
+    warn "--no-attach launches no worker; it takes no --brief"
+    usage
+  fi
 
   # Validate every token BEFORE it appears in any path or command (D-36).
-  valid_spec "$_spec" || {
-    if [ "$_spec" = flight ]; then
-      warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
-    else
-      warn "invalid spec id (D-36 grammar): $_spec"
+  if [ -n "$_flight" ]; then
+    valid_flight "$_flight" || {
+      warn "invalid flight id (expected <slug>-<uid>)"
+      exit 2
+    }
+    if [ -n "$_brief" ]; then
+      valid_brief "$_brief" "$_flight" || {
+        warn "--brief must be the flight's own brief.md under the fleet home (flights/<flight-id>/), non-empty, on the path charset [A-Za-z0-9._/@+-], in directories only you can write"
+        exit 2
+      }
+      ATTACH_PROMPT="Read $BRIEF_PATH and follow it exactly."
     fi
-    exit 2
-  }
-  valid_id "$_id" || {
-    warn "invalid task id (D-36 grammar): $_id"
-    exit 2
-  }
-  _suffix="$_spec-task-$_id"
+    _suffix="flight-$_flight"
+    _branch="planwright/flight/$_flight"
+  else
+    valid_spec "$_spec" || {
+      if [ "$_spec" = flight ]; then
+        warn "reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)"
+      else
+        warn "invalid spec id (D-36 grammar): $_spec"
+      fi
+      exit 2
+    }
+    valid_id "$_id" || {
+      warn "invalid task id (D-36 grammar): $_id"
+      exit 2
+    }
+    _suffix="$_spec-task-$_id"
+    _branch="planwright/$_spec/task-$_id"
+  fi
   valid_suffix "$_suffix" || {
     warn "invalid worktree suffix (D-36 grammar): $_suffix"
     exit 2
   }
-  _branch="planwright/$_spec/task-$_id"
 
   # Validate the extra launch args (the escalation-pin allowlist) NOW — before
   # any side effect — so a refused flag exits 2 without ever creating a worktree,
   # marker, or registry entry. (do_attach re-validates as defense-in-depth for a
   # direct `attach` invocation.)
   validate_launch_extra "$@"
+  [ -z "$ATTACH_PROMPT" ] || refuse_resume_beside_brief "$@"
 
   # Resolve the repo root.
   if [ -z "$_repo_root" ]; then
@@ -681,12 +882,13 @@ do_dispatch() {
   # against the same (on macOS a symlinked $TMPDIR /var -> /private/var otherwise
   # mismatches the porcelain path).
   _repo_root=$(cd "$_repo_root" && pwd -P) || exit 2
-  _spec_dir="$_repo_root/specs/$_spec"
+  _spec_dir=''
+  [ -n "$_flight" ] || _spec_dir="$_repo_root/specs/$_spec"
   # Fail closed when the spec bundle dir is missing: a task is only ever
   # dispatched within an existing spec, and without `specs/<spec>` the dispatch
   # marker cannot be written, which would degrade liveness to "not live" and let
   # a later collision reconcile force-remove an actually-running worker.
-  if [ ! -d "$_spec_dir" ]; then
+  if [ -z "$_flight" ] && [ ! -d "$_spec_dir" ]; then
     warn "spec bundle not found: $_spec_dir (dispatch requires an existing spec)"
     exit 2
   fi
@@ -800,6 +1002,12 @@ do_dispatch() {
       warn "already-in-flight: a live dispatch holds $_branch (aborting)"
       exit 3
     fi
+    # A flight has no marker, and a print-rung worker has no tmux session, so a
+    # missing session proves nothing: its registered worktree is in flight.
+    if [ -n "$_flight" ] && is_registered_worktree "$_repo_root" "$_worktree"; then
+      warn "already-in-flight: flight worktree $_worktree is registered (or the worktree list could not be read), and a flight worktree is never force-removed (remove it with git worktree remove, then dispatch again)"
+      exit 3
+    fi
 
     # Checked out elsewhere and not live: the GC arms below cannot act on it
     # (git refuses a second checkout of a branch and refuses to delete a
@@ -811,7 +1019,7 @@ do_dispatch() {
     fi
 
     # Stale orphan. Remove any leftover worktree checkout (disposable).
-    if is_registered_worktree "$_repo_root" "$_worktree"; then
+    if is_listed_worktree "$_repo_root" "$_worktree"; then
       git -C "$_repo_root" worktree remove --force "$_worktree" >/dev/null 2>&1 </dev/null || true
     fi
     if [ -d "$_worktree" ] && [ -z "$(ls -A "$_worktree" 2>/dev/null)" ]; then
@@ -882,7 +1090,7 @@ do_dispatch() {
   # failed attach leaves the marker stamped, so a retry reads already-in-flight
   # until the marker ages past LIVENESS_TTL — bounded, never a PERMANENT wedge.
   [ -x "$TRACK" ] && "$TRACK" record-create "$_worktree" >/dev/null 2>&1 </dev/null || true
-  if [ -x "$MARKER" ] && [ -d "$_spec_dir" ]; then
+  if [ -x "$MARKER" ] && [ -n "$_spec_dir" ] && [ -d "$_spec_dir" ]; then
     "$MARKER" write "$_spec_dir" "$_id" >/dev/null 2>&1 </dev/null || true
   fi
 
@@ -910,9 +1118,15 @@ do_dispatch() {
   case $_dispatch_started in
     '' | *[!0-9]*) _dispatch_started=0 ;;
   esac
+  if [ -n "$_flight" ]; then
+    _handle="tmux-flight-$_flight"
+    _scope="flight:$_flight"
+  else
+    _handle="tmux-$_spec-task-$_id"
+    _scope="$_spec:$_id"
+  fi
   if [ "$_no_attach" -eq 0 ] && [ "$_attach_dry" -eq 0 ]; then
-    register_dispatch "tmux-$_spec-task-$_id" "$_spec:$_id" "$_worktree" \
-      "$_repo_root" ""
+    register_dispatch "$_handle" "$_scope" "$_worktree" "$_repo_root" ""
   fi
 
   # --- Attach (gated on create success) ------------------------------------
@@ -956,7 +1170,7 @@ do_dispatch() {
   if [ "$_attach_rc" -eq 0 ]; then
     _death=$(tmux_death_handle "$_worktree" "$_dispatch_started") || _death=''
     if [ -n "$_death" ]; then
-      register_dispatch "tmux-$_spec-task-$_id" "$_spec:$_id" "$_worktree" \
+      register_dispatch "$_handle" "$_scope" "$_worktree" \
         "$_repo_root" "$_death"
     fi
   fi

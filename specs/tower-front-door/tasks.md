@@ -266,8 +266,6 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
-(none yet)
-
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
