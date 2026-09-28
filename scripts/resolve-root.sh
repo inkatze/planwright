@@ -36,11 +36,14 @@
 #           option, read through the config overlay as resolved from the
 #           primary checkout, else <checkout>/specs. A value is absolute,
 #           ~/-prefixed (~ alone is HOME; ~user is refused), or relative to
-#           the primary checkout. Empty is unset in its layer. A value that
-#           names no directory, escapes the primary checkout when relative,
-#           or names a directory other than <primary>/specs that carries no
-#           planwright-spec-root.yml marker is refused, whichever layer set
-#           it, and never falls back to the default.
+#           the primary checkout; a ~ value needs an absolute HOME. Empty is
+#           unset in its layer. A value that names no directory, escapes the
+#           primary checkout when relative, or names a directory other than
+#           <primary>/specs without a valid planwright-spec-root.yml marker
+#           (a regular file, not a symlink, whose project: matches the
+#           identifier grammar and whose layout: is 1) is refused, whichever
+#           layer set it, and never falls back to the default. So is a root
+#           whose canonical path carries a control byte or tab.
 #   (default)   the checkout-local view: a root inside the primary checkout
 #               is re-based onto the current checkout of the same repository.
 #               The re-based path is not checked, so it can name a directory
@@ -52,9 +55,11 @@
 #               The default root is always same-repo.
 #   --init      write the ignore rules for the local-only entries (in a git
 #               repository) and then the marker into the configured
-#               directory, which must already exist, and print the root; the
-#               marker check is the one check skipped for it. The default
-#               root needs no marker and is left untouched.
+#               directory, which must already exist, and print the root. It
+#               never writes through a symlinked marker or .gitignore, never
+#               replaces an existing marker, and validates the marker it
+#               leaves as any run does. The default root needs no marker and
+#               is left untouched.
 #   --explain takes precedence over --posture.
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
@@ -74,14 +79,16 @@
 #   git dir, or a core.worktree that is gone; --primary still answers from
 #   inside a repository's git directory, and a separate git dir named .git
 #   answers with the directory holding it) · 4 PLANWRIGHT_REPO_ROOT
-#   refused · 5 spec_root refused (bad value, missing marker, a ~ value with
-#   HOME unset; --init could not derive a project identifier or write) · 6 spec_root unreadable (a malformed repo-tracked
-#   config, or a broken install). Callers treat 3 as "no repository" and
+#   refused · 5 spec_root refused (bad value, missing or invalid marker, a ~
+#   value without an absolute HOME, a control byte or tab in the canonical
+#   path; --init could not derive a project identifier or write) · 6
+#   spec_root unreadable (a malformed repo-tracked config, or a broken
+#   install). Callers treat 3 as "no repository" and
 #   degrade; they never compose a path from an empty root.
 #
 # POSIX sh with no dependency beyond git and tr, plus, for the spec kind,
-# sed, cut, grep, tail, mv, and the config resolvers: guards and hooks exec
-# it through /bin/sh, which is dash on Linux.
+# sed, cut, grep, head, tail, mktemp, ln, and the config resolvers: guards
+# and hooks exec it through /bin/sh, which is dash on Linux.
 set -u
 # Pin the C locale so tr's byte ranges below mean bytes.
 LC_ALL=C
@@ -338,7 +345,13 @@ spec_root_primary() {
     *) sr_path=$rp_path/$sr_value ;;
   esac
   case $sr_value in
-    \~ | \~/*) [ -n "${HOME:-}" ] || refuse_spec "HOME is not set, so ~ cannot be expanded" ;;
+    \~ | \~/*)
+      case ${HOME:-} in
+        "") refuse_spec "HOME is not set, so ~ cannot be expanded" ;;
+        /*) ;;
+        *) refuse_spec "HOME ('$HOME') is not an absolute path, so ~ cannot be expanded" ;;
+      esac
+      ;;
   esac
   [ -e "$sr_path" ] || refuse_spec "no such directory"
   [ -d "$sr_path" ] || refuse_spec "not a directory"
@@ -383,16 +396,41 @@ project_id() {
     | sed -e 's/^-*//' | cut -c1-64
 }
 
+# check_marker: refuse unless the root's marker is a regular file, not a
+# symlink, whose project field matches the identifier grammar and whose
+# layout is 1.
+check_marker() {
+  cm_file=$sr_primary/planwright-spec-root.yml
+  [ ! -L "$cm_file" ] || refuse_spec "$cm_file is a symlink; the marker must be a regular file"
+  [ -e "$cm_file" ] \
+    || refuse_spec "$sr_primary carries no planwright-spec-root.yml marker (a root other than the default needs one; resolve-root.sh spec --init writes it)"
+  [ -f "$cm_file" ] || refuse_spec "$cm_file exists and is not a regular file"
+  [ -r "$cm_file" ] || refuse_spec "$cm_file cannot be read"
+  cm_project=$(sed -n 's/^project:[[:space:]]*//p' "$cm_file" | head -1 | sed 's/[[:space:]]*$//')
+  cm_layout=$(sed -n 's/^layout:[[:space:]]*//p' "$cm_file" | head -1 | sed 's/[[:space:]]*$//')
+  case $cm_project in
+    "" | *[!a-z0-9-]* | [!a-z0-9]*)
+      refuse_spec "$cm_file has no valid project field (the ^[a-z0-9][a-z0-9-]*\$ identifier grammar, at most 64 characters)"
+      ;;
+  esac
+  [ "${#cm_project}" -le 64 ] \
+    || refuse_spec "$cm_file has no valid project field (the ^[a-z0-9][a-z0-9-]*\$ identifier grammar, at most 64 characters)"
+  [ "$cm_layout" = 1 ] || refuse_spec "$cm_file does not carry layout: 1"
+}
+
 # init_spec_root: write the marker and, in a git repository, the ignore
 # rules for the entries that never leave the machine.
 init_spec_root() {
-  if [ -e "$sr_primary/planwright-spec-root.yml" ] && [ ! -f "$sr_primary/planwright-spec-root.yml" ]; then
-    refuse_spec "$sr_primary/planwright-spec-root.yml exists and is not a file"
+  is_marker=$sr_primary/planwright-spec-root.yml
+  [ ! -L "$is_marker" ] || refuse_spec "$is_marker is a symlink; --init never writes through one"
+  if [ -e "$is_marker" ] && [ ! -f "$is_marker" ]; then
+    refuse_spec "$is_marker exists and is not a file"
   fi
   # The ignore rules land before the marker, so a root is never marked
   # without them.
   if [ "$sr_posture" != plain ]; then
     is_ignore=$sr_primary/.gitignore
+    [ ! -L "$is_ignore" ] || refuse_spec "$is_ignore is a symlink; --init never writes through one"
     if [ -s "$is_ignore" ] && [ -f "$is_ignore" ] && [ -n "$(tail -c 1 "$is_ignore" | tr -d '\n')" ]; then
       { printf '\n' >>"$is_ignore"; } 2>/dev/null \
         || refuse_spec "--init could not write the ignore rules"
@@ -405,15 +443,23 @@ init_spec_root() {
         || refuse_spec "--init could not write the ignore rules"
     done
   fi
-  if [ ! -e "$sr_primary/planwright-spec-root.yml" ]; then
+  if [ ! -e "$is_marker" ]; then
     is_id=$(project_id)
     [ -n "$is_id" ] || refuse_spec "--init cannot derive a project identifier from '$rp_path'"
-    is_tmp=$sr_primary/.planwright-spec-root.yml.$$
-    if ! { printf 'project: %s\nlayout: 1\n' "$is_id" >"$is_tmp" \
-      && mv -f "$is_tmp" "$sr_primary/planwright-spec-root.yml"; } 2>/dev/null; then
+    # A fresh temp file and a hard link that fails when the marker exists:
+    # nothing planted in the root redirects the write, and a racing --init
+    # never clobbers a marker already published.
+    is_tmp=$(mktemp "$sr_primary/.planwright-spec-root.yml.XXXXXX" 2>/dev/null) \
+      || refuse_spec "--init could not write the marker"
+    if ! { printf 'project: %s\nlayout: 1\n' "$is_id" >"$is_tmp"; } 2>/dev/null; then
       rm -f "$is_tmp"
       refuse_spec "--init could not write the marker"
     fi
+    ln "$is_tmp" "$is_marker" 2>/dev/null || [ -e "$is_marker" ] || [ -L "$is_marker" ] || {
+      rm -f "$is_tmp"
+      refuse_spec "--init could not write the marker"
+    }
+    rm -f "$is_tmp"
   fi
 }
 
@@ -443,11 +489,8 @@ resolve_spec() {
     sr_posture=same-repo
   else
     spec_posture
-    if [ "$init" -eq 1 ]; then
-      init_spec_root
-    elif [ ! -f "$sr_primary/planwright-spec-root.yml" ]; then
-      refuse_spec "$sr_primary carries no planwright-spec-root.yml marker (a root other than the default needs one; resolve-root.sh spec --init writes it)"
-    fi
+    [ "$init" -eq 0 ] || init_spec_root
+    check_marker
   fi
   sr_local=$sr_primary
   if [ "$sr_posture" = same-repo ]; then
@@ -463,6 +506,12 @@ resolve_spec() {
     ss_view=checkout-local
     ss_path=$sr_local
   fi
+  for ss_check in "$sr_primary" "$sr_local"; do
+    [ "$(printf '%s' "$ss_check" | tr -d '\000-\037\177')" = "$ss_check" ] || {
+      say "refusing the spec root '$ss_check' from the $sr_layer layer: its canonical path carries a control byte or tab"
+      exit 5
+    }
+  done
   if [ "$explain" -eq 1 ]; then
     printf '%s\t%s\t%s\t%s\n' "$sr_layer" "$ss_path" "$sr_posture" "$ss_view"
   elif [ "$posture_only" -eq 1 ]; then

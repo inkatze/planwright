@@ -251,6 +251,32 @@ run base env -u HOME sh -c 'cd "$1" && exec "$2" "$3" spec' _ "$repo" "$SH" "$RE
 assert_eq "home: a ~/ value with HOME unset is refused" 5 "$rc"
 assert_contains "home: the refusal says why" "HOME is not set" "$err"
 
+# A relative HOME would resolve against the working directory.
+mkdir -p "$repo/relhome/holder"
+mark "$repo/relhome/holder"
+# shellcheck disable=SC2088 # a literal ~ is the value under test
+set_layer "$local_cfg" "~/holder"
+# shellcheck disable=SC2016 # the inner shell expands its own arguments
+run base sh -c 'cd "$1" && HOME=relhome exec "$2" "$3" spec' _ "$repo" "$SH" "$RESOLVER"
+assert_eq "home: a ~/ value with a relative HOME is refused" 5 "$rc"
+assert_empty "home: a relative HOME prints no root" "$out"
+assert_contains "home: the refusal says HOME must be absolute" "absolute" "$err"
+
+# A canonical path carrying a control byte or tab would break the fields.
+for c in tab ctl; do
+  case $c in
+    tab) cdir="$tmp/with${TAB}tab" ;;
+    ctl) cdir="$tmp/with$(printf '\001')ctl" ;;
+  esac
+  mkdir -p "$cdir"
+  mark "$cdir"
+  ln -s "$cdir" "$tmp/$c-link"
+  set_layer "$local_cfg" "$tmp/$c-link"
+  run spec "$repo" --explain
+  assert_eq "path bytes: a root whose canonical path has a $c is refused" 5 "$rc"
+  assert_empty "path bytes: a $c path prints nothing" "$out"
+done
+
 # A control byte is malformed text: the by-layer policy, not a refusal.
 clear_layers
 set_layer "$tracked_cfg" "$tmp/roots/t"
@@ -361,6 +387,67 @@ mkdir -p "$repo/dirmarker/planwright-spec-root.yml"
 set_layer "$local_cfg" "dirmarker"
 run spec "$repo" --init
 assert_eq "init: a marker path that is not a file is refused" 5 "$rc"
+
+mkdir -p "$repo/symmarker"
+ln -s "$tmp/marker-victim" "$repo/symmarker/planwright-spec-root.yml"
+set_layer "$local_cfg" "symmarker"
+run spec "$repo" --init
+assert_eq "init: a dangling symlink at the marker path is refused" 5 "$rc"
+assert_eq "init: the write never follows the planted symlink" absent \
+  "$(test -e "$tmp/marker-victim" && echo present || echo absent)"
+assert_contains "init: the refusal names the symlink" "symlink" "$err"
+
+mkdir -p "$repo/tmpcheck"
+set_layer "$local_cfg" "tmpcheck"
+run spec "$repo" --init
+assert_eq "init: a fresh root is initialized (exit)" 0 "$rc"
+assert_empty "init: no temporary marker file is left behind" \
+  "$(find "$repo/tmpcheck" -name '.planwright-spec-root.yml*')"
+
+mkdir -p "$repo/kept"
+printf 'project: other\nlayout: 1\n' >"$repo/kept/planwright-spec-root.yml"
+set_layer "$local_cfg" "kept"
+run spec "$repo" --init
+assert_eq "init: an existing valid marker is accepted (exit)" 0 "$rc"
+assert_contains "init: an existing marker is never rewritten" "project: other" \
+  "$(cat "$repo/kept/planwright-spec-root.yml")"
+
+mkdir -p "$repo/symignore"
+printf 'victim-rule\n' >"$tmp/ignore-victim"
+ln -s "$tmp/ignore-victim" "$repo/symignore/.gitignore"
+set_layer "$local_cfg" "symignore"
+run spec "$repo" --init
+assert_eq "init: a symlinked ignore file is refused" 5 "$rc"
+assert_eq "init: the symlink's target is untouched" "victim-rule" "$(cat "$tmp/ignore-victim")"
+assert_eq "init: a refused ignore file leaves no marker" absent \
+  "$(test -e "$repo/symignore/planwright-spec-root.yml" && echo present || echo absent)"
+
+# The marker's fields are validated, not just its existence.
+mkdir -p "$repo/checked"
+set_layer "$local_cfg" "checked"
+cm="$repo/checked/planwright-spec-root.yml"
+for body in 'project: Fixture\nlayout: 1\n' 'project: -x\nlayout: 1\n' \
+  'project: a/b\nlayout: 1\n' 'project:\nlayout: 1\n' 'layout: 1\n' \
+  'project: fixture\nlayout: 2\n' 'project: fixture\n' \
+  "project: $(printf '%065d' 0)\nlayout: 1\n"; do
+  # shellcheck disable=SC2059 # the body is a format with \n escapes
+  printf "$body" >"$cm"
+  run spec "$repo"
+  # shellcheck disable=SC2059 # the body is a format with \n escapes
+  assert_eq "marker: '$(printf "$body" | tr '\n' ' ')' is refused (exit)" 5 "$rc"
+  assert_empty "marker: an invalid marker prints no root" "$out"
+  run spec "$repo" --init
+  assert_eq "marker: --init refuses an invalid existing marker too" 5 "$rc"
+done
+printf 'project: fixture-2\nlayout: 1\n' >"$cm"
+run spec "$repo"
+assert_eq "marker: a valid marker resolves" "$repo/checked" "$out"
+rm -f "$cm"
+printf 'project: fixture\nlayout: 1\n' >"$tmp/marker-real"
+ln -s "$tmp/marker-real" "$cm"
+run spec "$repo"
+assert_eq "marker: a symlinked marker is refused" 5 "$rc"
+assert_contains "marker: the symlink refusal says so" "symlink" "$err"
 
 # ---------------------------------------------------------------------------
 # REQ-E1.1: posture classification
