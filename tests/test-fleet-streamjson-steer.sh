@@ -10,12 +10,16 @@
 #   s2 (REQ-G1.2): the frame check refuses an unterminated frame, a multi-line
 #       one, a raw control byte, and invalid JSON, including the shape that
 #       killed two workers (an unterminated frame running into the next one).
-#   s3 (REQ-G1.2): a refused frame on a live channel writes no byte at all.
+#   s3 (REQ-G1.2): an answer body that would make an invalid or smuggling frame
+#       is refused before the channel is touched, and writes no byte to a live
+#       worker. The refusal inside frame_send itself cannot be reached through
+#       a verb once that validation passes; s4's audit is its coverage.
 #   s4 (REQ-G1.1, REQ-G1.3): source audits. No keystroke-impersonation path, every
-#       fifo write goes through the checked writer, and the steer header is the
-#       one the buffer-paste relay carries.
+#       fifo write goes through the checked writer, the steer header is the one
+#       the buffer-paste relay carries, and the fleet docs name steer primary.
 #   s5 (REQ-K1.3, REQ-K1.4): hostile handles and message paths are refused or
-#       treated as data, and nothing a steer echoes carries a control byte.
+#       treated as data, and steer echoes nothing untrusted: no control byte
+#       from a message ever reaches its output.
 #
 # Hermetic: the fleet home and the CLI seam are case-local, the CLI is a shim
 # that records its stdin. Runs standalone under /bin/bash (bash 3.2).
@@ -207,6 +211,7 @@ refuse "two frames in one write" "{}$nl{}$nl" 'multi-line'
 refuse "an unterminated frame followed by the next one" '{"type":"user","message":{}}{"type":"control_response"}'"$nl" 'invalid JSON'
 refuse "a raw TAB inside a string" "{\"t\":\"a$(printf '\t')b\"}$nl" 'raw control byte'
 refuse "a raw ESC" "{\"t\":\"$(printf '\033')[2J\"}$nl" 'raw control byte'
+refuse "a raw DEL" "{\"t\":\"a$(printf '\177')b\"}$nl" 'raw control byte'
 refuse "a missing close brace" '{"a":1'"$nl" 'invalid JSON'
 refuse "a trailing comma" '{"a":1,}'"$nl" 'invalid JSON'
 refuse "a top-level array" "[]$nl" 'invalid JSON'
@@ -223,6 +228,15 @@ refuse "trailing garbage" '{"a":1} x'"$nl" 'invalid JSON'
 deep=$(awk 'BEGIN { for (i = 0; i < 100; i++) printf "["; for (i = 0; i < 100; i++) printf "]" }')
 refuse "nesting past the depth cap" "{\"a\":$deep}$nl" 'invalid JSON'
 fc "$tmp/no-such-frame" | grep -q '^frame refused' || fail "s2: a missing frame file must be refused"
+# A path shaped like an awk assignment is still the file to judge, never a
+# cue to read stdin instead.
+mkdir -p "$tmp/cwd2"
+printf 'not json\n' >"$tmp/cwd2/k=v"
+out=$(cd "$tmp/cwd2" && printf '{}\n' | env "${env_scrub[@]}" /bin/sh "$SJ" _frame-check 'k=v' 2>&1)
+case $out in
+  "frame refused: invalid JSON") : ;;
+  *) fail "s2: a name=value path must be judged by its own content, got: $out" ;;
+esac
 echo "ok: s2 the frame check refuses unterminated, multi-line, control-byte, and invalid frames, including the run-together shape (REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
@@ -251,7 +265,7 @@ wait_until 100 grep -q control_response "$rec/stdin" || fail "s3: the follow-up 
 while IFS= read -r s3_line; do
   printf '%s\n' "$s3_line" | jq -e . >/dev/null 2>&1 || fail "s3: a line on the worker's stdin is not valid JSON: $s3_line"
 done <"$rec/stdin"
-echo "ok: s3 a refused frame writes no byte to the fifo, and the channel stays usable (REQ-G1.2)"
+echo "ok: s3 an answer body that would make a bad frame is refused before any byte reaches the worker, and the channel stays usable (REQ-G1.2)"
 
 # ---------------------------------------------------------------------------
 # s4 (REQ-G1.1, REQ-G1.3): source audits.
@@ -259,21 +273,30 @@ echo "ok: s3 a refused frame writes no byte to the fifo, and the channel stays u
 code=$(grep -v '^[[:space:]]*#' "$SJ")
 printf '%s\n' "$code" | grep -nE 'send-keys|paste-buffer|load-buffer|tmux' \
   && fail "s4: fleet-streamjson.sh must carry no keystroke-impersonation path"
-# Every redirect into a worker's stdin: to an in.fifo, or to fd 3 (the
-# supervisor's held copy of it). Only the supervisor's own two may exist, the
-# fd open and the launch frame, whose check supervise runs before the worker is
-# spawned. Every later frame goes through frame_send, whose single write is
-# the checked one.
-writes=$(printf '%s\n' "$code" | grep -E '>>?[[:space:]]*"[^"]*in\.fifo"|>&3' | sed 's/^[[:space:]]*//')
-want_writes='exec 3>"$sv_dir/in.fifo"
-cat "$sv_init" >&3 2>/dev/null &'
-[ "$writes" = "$want_writes" ] || fail "s4: an unchecked fifo writer appeared: $writes"
-printf '%s\n' "$code" | grep -qx '  cat "$2" >>"$1" 2>/dev/null || return 1' \
-  || fail "s4: frame_send's checked write is missing or changed shape"
-[ "$(printf '%s\n' "$code" | grep -c 'frame_send "$dir/in.fifo"')" = 2 ] \
+# Every line that names a worker's stdin fifo, or its held fd 3, is one of a
+# known set: creating, removing, or opening it, testing it, and the two writes.
+# Anything else naming it is a new writer, however it spells the redirect.
+fifo_lines=$(printf '%s\n' "$code" | grep -E 'in\.fifo|>&3' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+want_lines=$(
+  cat <<'LINES'
+rm -f "$sv_dir/in.fifo" "$sv_dir/out.fifo"
+mkfifo "$sv_dir/in.fifo" "$sv_dir/out.fifo" || return 2
+"$@" <"$sv_dir/in.fifo" >"$sv_dir/out.fifo" 2>>"$sv_dir/stderr.log" &
+exec 3>"$sv_dir/in.fifo"
+cat "$sv_init" >&3 2>/dev/null &
+[ -p "$1/in.fifo" ] || return 3
+cat "$2" >>"$1/in.fifo" 2>/dev/null || return 1
+scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* *.broken.*'
+LINES
+)
+[ "$(printf '%s\n' "$fifo_lines" | sort)" = "$(printf '%s\n' "$want_lines" | sort)" ] || fail "s4: an unlisted line names the worker's stdin fifo: $fifo_lines"
+# The launch frame's write is safe only because build_initial_msg checked it.
+printf '%s\n' "$code" | grep -qF 'bi_why=$(frame_check "$2")' \
+  || fail "s4: build_initial_msg must check the launch frame"
+[ "$(printf '%s\n' "$code" | grep -cF 'frame_send "$dir" ')" = 2 ] \
   || fail "s4: answer and steer must each write through frame_send"
-printf '%s\n' "$code" | grep -q 'frame_check "$sv_init"' \
-  || fail "s4: supervise must check the launch frame before the write"
+grep -qF '`steer` is the primary steer on the stream-json rung' "$here/../docs/fleet.md" \
+  || fail "s4: docs/fleet.md must name steer as the primary steer for this rung"
 grep -qF "[planwright tower relay -> \$handle]" "$RELAY" \
   || fail "s4: the buffer-paste relay's attribution header changed"
 printf '%s\n' "$code" | grep -qF 'planwright tower relay -> %s]' \
@@ -310,7 +333,7 @@ wait_until 100 test "$(lines_of "$tmp/r1/stdin")" -gt $((before + 1)) \
   || fail "s5: the control-byte message never arrived"
 tail -n 1 "$tmp/r1/stdin" | jq -e . >/dev/null 2>&1 \
   || fail "s5: the control-byte message did not arrive as valid JSON"
-echo "ok: s5 hostile handles are refused, a dashed path is data, and no control byte is echoed (REQ-K1.3, REQ-K1.4)"
+echo "ok: s5 hostile handles are refused, a dashed path is data, and steer echoes nothing untrusted (REQ-K1.3, REQ-K1.4)"
 
 for sp in "$tmp/h1:sjs1" "$tmp/h3:sjs3"; do
   senv "${sp%%:*}" "$tmp/r1" -- stop "${sp##*:}" --grace 1 >/dev/null 2>&1 || :
