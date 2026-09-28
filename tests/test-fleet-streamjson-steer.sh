@@ -117,6 +117,12 @@ lines_of() {
   fi
 }
 
+# lines_cmp <file> <test-op> <n> — for wait_until, which re-runs its command:
+# the count has to be taken inside it, not expanded once by the caller.
+lines_cmp() {
+  test "$(lines_of "$1")" "$2" "$3"
+}
+
 # start_worker <home> <rec> <handle> [VAR=val...] — a live foreground-supervised
 # shim worker, waited on until the initial prompt has reached it.
 start_worker() {
@@ -159,7 +165,7 @@ case $out in
   "steered sjs1 "[0-9]*) : ;;
   *) fail "s1: unexpected steer output: $out" ;;
 esac
-wait_until 100 test "$(lines_of "$rec/stdin")" -ge 2 \
+wait_until 100 lines_cmp "$rec/stdin" -ge 2 \
   || fail "s1: the steer never reached the worker's stdin"
 sed -n 2p "$rec/stdin" >"$tmp/s1frame"
 jq -e . "$tmp/s1frame" >/dev/null 2>&1 || fail "s1: the delivered frame is not valid JSON: $(cat "$tmp/s1frame")"
@@ -173,7 +179,7 @@ want=$(printf '[planwright tower relay -> sjs1]\n%s' "$msg")
 printf 'second\n' >"$tmp/steer1b"
 senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer1b" >/dev/null \
   || fail "s1: the second steer exited non-zero"
-wait_until 100 test "$(lines_of "$rec/stdin")" -ge 3 \
+wait_until 100 lines_cmp "$rec/stdin" -ge 3 \
   || fail "s1: the worker stopped consuming after the first steer"
 [ "$(cat "$wdir/worker.pid")" = "$pid_before" ] || fail "s1: the worker was restarted by a steer"
 kill -0 "$pid_before" 2>/dev/null || fail "s1: the worker died after being steered"
@@ -320,7 +326,7 @@ out=$(cd "$tmp/cwd5" && senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file -n
   || fail "s5: a dash-leading message path must be read as a file, got: $out"
 [ "$out" = "steered sjs1 $(wc -c <"$tmp/cwd5/-n" | tr -d ' ')" ] \
   || fail "s5: the dash-named file must be measured as a file, not parsed as an option: $out"
-wait_until 100 test "$(lines_of "$tmp/r1/stdin")" -gt "$before" \
+wait_until 100 lines_cmp "$tmp/r1/stdin" -gt "$before" \
   || fail "s5: the dash-named message never arrived"
 tail -n 1 "$tmp/r1/stdin" | jq -r '.message.content[0].text' | grep -q 'from a dashed file' \
   || fail "s5: the dash-named file's content was not what arrived"
@@ -331,7 +337,7 @@ out=$(senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file "$tmp/steer5" 2>&1) 
   || fail "s5: a control-byte message should still deliver, got: $out"
 [ "$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\037\177')" = "$out" ] \
   || fail "s5: steer echoed a control byte"
-wait_until 100 test "$(lines_of "$tmp/r1/stdin")" -gt $((before + 1)) \
+wait_until 100 lines_cmp "$tmp/r1/stdin" -gt $((before + 1)) \
   || fail "s5: the control-byte message never arrived"
 tail -n 1 "$tmp/r1/stdin" | jq -e . >/dev/null 2>&1 \
   || fail "s5: the control-byte message did not arrive as valid JSON"
