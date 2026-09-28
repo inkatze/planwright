@@ -20,10 +20,11 @@
 # any backtick run it holds with every non-blank line indented two spaces, so
 # no fence, tag, heading, or marker it carries renders, closes the collapse, or
 # reaches column zero where a line-anchored reader would take it for
-# structure. Worker-authored inputs are stripped the same way and refused,
-# never rewritten, when they carry a token-shaped secret or markup that would
-# reshape the record around them (a details or summary tag, a record marker,
-# an open comment or HTML block, an unclosed fence).
+# structure. Worker-authored inputs are stripped the same way, their trailing
+# blank lines dropped, and refused, never otherwise rewritten, when they carry
+# a token-shaped secret or markup that would reshape the record around them (a
+# details or summary tag or a record marker anywhere, a line opening an HTML
+# block, an unclosed fence).
 #
 # Usage:
 #   flight-record.sh render --home pr|file <inputs>
@@ -60,7 +61,8 @@
 #
 # The lead may not restate the ask: a summary or verification carrying the
 # whole ask (of RESTATE_WHOLE_MIN characters or more) or one of its lines (of
-# RESTATE_LINE_MIN or more), up to case and spacing, is refused (exit 2).
+# RESTATE_LINE_MIN characters and RESTATE_LINE_WORDS words or more), up to case
+# and spacing, is refused (exit 2).
 #
 # Exit codes: 0 rendered or landed · 2 usage or an input refused · 3 refused
 # by state (over the PR-body limit; for land, the branch, an existing record,
@@ -99,10 +101,13 @@ INPUT_MAX=262144
 PR_BODY_MAX=65536
 GROUNDS_MAX=1024
 
-# The shortest whole ask, and the shortest ask line, the restated-prompt
-# check compares: below them an overlap is ordinary wording, not a restatement.
+# The shortest whole ask, and the shortest ask line (in characters and in
+# words), the restated-prompt check compares: below them an overlap is
+# ordinary wording, or a file name or error the lead has to name, not a
+# restatement.
 RESTATE_WHOLE_MIN=16
 RESTATE_LINE_MIN=24
+RESTATE_LINE_WORDS=5
 
 die() {
   _rc=$1
@@ -203,29 +208,26 @@ redact() {
 }
 
 # markup_hazard <file> — name the first construct in a worker input that
-# could reshape the record around it, printing nothing when there is none:
-# a details or summary tag anywhere on a line (the collapse), a record
-# marker, an HTML block that runs past its line (a comment left open, or a
-# pre, script, style, textarea, processing instruction, declaration, or
-# CDATA opener), or a fence left open, each of which would swallow what the
-# record renders after the input. Inside a closed fence or comment nothing is
-# a hazard.
+# could reshape the record around it, printing nothing when there is none: a
+# details or summary tag or a record marker anywhere, since no line-based
+# check can be sure a fence, HTML block, comment, or list item around it
+# shelters it; a line opening an HTML block (its first character `<`), which
+# renders raw to its end and can swallow what follows; or a fence left open.
+# Inside a closed fence, HTML at the start of a line is code, not a block.
 markup_hazard() {
   awk '
     function hazard(what) { print what; found = 1; exit }
     {
       l = $0
       low = tolower(l)
+      if (low ~ /<\/?(details|summary)([ \t>\/]|$)/) hazard("a details or summary tag")
+      if (low ~ /<!--[ \t]*planwright:flight-record/) hazard("a record marker")
       if (fence) {
         if (match(l, /^ ? ? ?(`+|~+)[ \t]*$/)) {
           f = substr(l, RSTART, RLENGTH)
           gsub(/[ \t]/, "", f)
           if (substr(f, 1, 1) == fc && length(f) >= fl) fence = 0
         }
-        next
-      }
-      if (comment) {
-        if (index(l, "-->")) comment = 0
         next
       }
       if (match(l, /^ ? ? ?(```+|~~~+)/)) {
@@ -237,25 +239,22 @@ markup_hazard() {
         fence = 1
         next
       }
-      if (low ~ /<\/?(details|summary)([ \t>\/]|$)/) hazard("a details or summary tag")
-      if (low ~ /^[ \t]*<!--[ \t]*planwright:flight-record/) hazard("a record marker")
-      if (low ~ /^ ? ? ?<(pre|script|style|textarea)([ \t>]|$)/) hazard("an HTML block tag")
-      if (low ~ /^ ? ? ?<(\?|![a-z]|!\[cdata\[)/) hazard("an HTML declaration or processing instruction")
-      if (match(l, /^ ? ? ?<!--/) && !index(substr(l, RSTART + RLENGTH), "-->")) comment = 1
+      if (l ~ /^ ? ? ?</) hazard("a line opening an HTML block (starting with <)")
     }
     END {
-      if (found) exit
-      if (fence) print "an unclosed fence"
-      else if (comment) print "an unclosed HTML comment"
+      if (!found && fence) print "an unclosed fence"
     }' "$1"
 }
 
-# worker_text <name> <file> <out> — a worker-authored input: cleaned, and
-# refused if it carries a structural line. Its secret check runs with the
-# others, in refuse_secrets.
+# worker_text <name> <file> <out> — a worker-authored input: cleaned, its
+# trailing blank lines dropped, and refused if it carries markup that would
+# reshape the record (markup_hazard). Its secret check runs with the others,
+# in refuse_secrets.
 worker_text() {
   read_capped "$1" "$2" "$INPUT_MAX" "$work/$1.raw"
-  clean_text "$work/$1.raw" "$3" || die 4 "cannot sanitize --$1"
+  clean_text "$work/$1.raw" "$work/$1.clean" || die 4 "cannot sanitize --$1"
+  awk 'NF { for (; held > 0; held--) print ""; print; next } { held++ }' "$work/$1.clean" >"$3" \
+    || die 4 "cannot normalize --$1"
   ! blank "$3" || die 2 "--$1 is empty"
   _why=$(markup_hazard "$3") || die 4 "cannot read --$1"
   [ -z "$_why" ] || die 2 "--$1 carries $_why, which would alter the record's structure; remove it and render again"
@@ -280,7 +279,7 @@ restates_ask() {
   cat "$work/summary" "$work/verification" >"$work/lead.txt" || die 4 "cannot assemble the lead"
   normalize "$work/lead.txt" >"$work/lead.norm"
   normalize "$work/ask" >"$work/ask.norm"
-  awk -v whole="$RESTATE_WHOLE_MIN" -v line="$RESTATE_LINE_MIN" '
+  awk -v whole="$RESTATE_WHOLE_MIN" -v line="$RESTATE_LINE_MIN" -v words="$RESTATE_LINE_WORDS" '
     NR == FNR { lead = $0; next }
     FILENAME ~ /ask\.norm$/ { if (length($0) >= whole && index(lead, $0)) hit = 1; next }
     {
@@ -289,7 +288,7 @@ restates_ask() {
       sub(/^ /, "", s)
       sub(/ $/, "", s)
       if (s ~ /^\[redacted: /) next
-      if (length(s) >= line && index(lead, s)) hit = 1
+      if (length(s) >= line && split(s, w, " ") >= words && index(lead, s)) hit = 1
     }
     END { exit hit ? 0 : 1 }' "$work/lead.norm" "$work/ask.norm" "$work/ask"
 }
@@ -300,9 +299,9 @@ restates_ask() {
 fenced() {
   _fence=$(awk '
     { s = $0; while (match(s, /`+/)) { if (RLENGTH > m) m = RLENGTH; s = substr(s, RSTART + RLENGTH) } }
-    END { n = m + 1; if (n < 3) n = 3; for (i = 0; i < n; i++) printf "`" }' "$1")
-  printf '%stext\n' "$_fence"
-  awk '{ print (length($0) ? "  " $0 : "") }' "$1"
+    END { n = m + 1; if (n < 3) n = 3; for (i = 0; i < n; i++) printf "`" }' "$1") || return 1
+  printf '%stext\n' "$_fence" || return 1
+  awk '{ print (length($0) ? "  " $0 : "") }' "$1" || return 1
   printf '%s\n' "$_fence"
 }
 
@@ -332,13 +331,13 @@ render_to() {
     printf '\n<details>\n<summary>Flight record</summary>\n\n'
     printf '### The ask\n\n'
     printf 'Quoted as the operator gave it, fenced so its markup stays inert.\n'
-    [ "$ask_stripped" -eq 0 ] || printf 'Invisible or control characters were stripped from it.\n'
+    [ "$ask_stripped" -eq 0 ] || printf 'Invisible or bidi-control characters were stripped from it.\n'
     [ "$ask_redacted" -eq 0 ] || printf 'Lines carrying a token-shaped secret were redacted whole.\n'
     printf '\n'
     fenced "$work/ask" || return 1
     printf '\n### Route and grounds\n\n'
     printf 'Visual flight. Grounds as the tower stated them:\n'
-    [ "$grounds_stripped" -eq 0 ] || printf 'Invisible or control characters were stripped from them.\n'
+    [ "$grounds_stripped" -eq 0 ] || printf 'Invisible or bidi-control characters were stripped from them.\n'
     [ "$grounds_redacted" -eq 0 ] || printf 'A token-shaped secret in them was redacted whole.\n'
     printf '\n'
     fenced "$work/grounds" || return 1
@@ -482,14 +481,14 @@ IFS=$_old_ifs
 ! restates_ask || die 2 "the summary or verification restates the ask; say what changed, why, and how it was verified in your own words (the ask is quoted in the collapsed record)"
 
 if [ "$cmd" = render ]; then
-  render_to "$work/record.md"
+  render_to "$work/record.md" || die 4 "cannot write the record"
   if [ "$home" = pr ]; then
     _bytes=$(wc -c <"$work/record.md" | tr -d ' ')
     _ask_bytes=$(wc -c <"$work/ask" | tr -d ' ')
     [ "$_bytes" -le "$PR_BODY_MAX" ] \
       || die 3 "the record is $_bytes bytes, over the PR-body limit of $PR_BODY_MAX, and the ask alone is $_ask_bytes; trim the worker inputs, or park the flight when the ask leaves too little room (a truncated record would drop the contract's tail)"
   fi
-  cat "$work/record.md"
+  cat "$work/record.md" || die 4 "cannot print the record"
   exit 0
 fi
 
@@ -521,7 +520,7 @@ case $_drc in
   *) die 4 "cannot read the index" ;;
 esac
 
-render_to "$work/record.md"
+render_to "$work/record.md" || die 4 "cannot write the record"
 mkdir -p "$repo_root/specs/_flights" || die 4 "cannot create specs/_flights"
 cp "$work/record.md" "$repo_root/$rel" || die 4 "cannot write $rel"
 if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \

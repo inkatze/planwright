@@ -234,10 +234,19 @@ printf '%s\n' "$OUT" | grep -Eq 'were stripped|redacted whole' && fail "a clean 
 # Hostile grounds stay inside their fence; grounds must be one line.
 printf '</details>\n' >"$in/grounds-tag.txt"
 run_render pr --grounds-file "$in/grounds-tag.txt"
+[ "$RC" -eq 0 ] || fail "render with hostile grounds exited $RC: $ERR"
 [ "$(printf '%s\n' "$OUT" | grep -cx '</details>')" -eq 1 ] || fail "the grounds forged a closing tag"
 printf 'one\ntwo\n' >"$in/grounds-two.txt"
 run_render pr --grounds-file "$in/grounds-two.txt"
 [ "$RC" -eq 2 ] || fail "two-line grounds must be refused with 2 (got $RC)"
+printf 'g%.0s' $(seq 1 1100) >"$in/grounds-long.txt"
+run_render pr --grounds-file "$in/grounds-long.txt"
+[ "$RC" -eq 2 ] || fail "grounds over the cap must be refused with 2 (got $RC)"
+# A code point nested inside another strips to nothing, and is noted.
+printf 'Fix it %s%s%s%s now.\n' "$(printf '\342\200')" "$ZWSP" "$(printf '\213')" "$ZWSP" >"$in/ask-nested.txt"
+run_render pr --ask-file "$in/ask-nested.txt"
+printf '%s\n' "$OUT" | grep -qx '  Fix it  now.' || fail "a nested invisible code point must strip to nothing"
+printf '%s\n' "$OUT" | grep -q 'were stripped from it' || fail "a nested strip must be noted"
 
 # The lead names every pending item once, in order.
 {
@@ -266,6 +275,7 @@ collapsed_of "$OUT" | awk '/^### Route and grounds$/ {on=1} /^### Record home$/ 
   | grep -q 'redacted whole' || fail "the grounds section must note its redaction"
 printf 'automatic: low%s stake\n' "$ZWSP" >"$in/grounds-invis.txt"
 run_render pr --grounds-file "$in/grounds-invis.txt"
+[ "$RC" -eq 0 ] || fail "render with invisible grounds exited $RC: $ERR"
 collapsed_of "$OUT" | awk '/^### Route and grounds$/ {on=1} /^### Record home$/ {on=0} on' \
   | grep -q 'were stripped' || fail "the grounds section must note a strip"
 
@@ -312,6 +322,10 @@ printf 'Thanks for the review\nFix the heading and the footer.\n' >"$in/ask-comm
 printf 'Thanks for the review, done: see below.\n' >"$in/summary-common.txt"
 run_render pr --ask-file "$in/ask-common.txt" --summary-file "$in/summary-common.txt"
 [ "$RC" -eq 0 ] || fail "a lead sharing a short line with the ask must render (got $RC: $ERR)"
+printf 'Fix the crash in\nscripts/flight-dispatch.sh\nwhen run twice\n' >"$in/ask-ident.txt"
+printf 'Fixed a crash in scripts/flight-dispatch.sh on a second run.\n' >"$in/summary-ident.txt"
+run_render pr --ask-file "$in/ask-ident.txt" --summary-file "$in/summary-ident.txt"
+[ "$RC" -eq 0 ] || fail "naming a file the ask names is not a restatement (got $RC: $ERR)"
 printf 'Dropped the key the ask quoted: [redacted: github-token, a token-shaped secret].\n' >"$in/summary-placeholder.md"
 run_render pr --summary-file "$in/summary-placeholder.md"
 [ "$RC" -eq 0 ] || fail "a redaction placeholder in the lead is not a restatement (got $RC: $ERR)"
@@ -338,15 +352,26 @@ done
 # Markup that would swallow the rest of the record: an unclosed comment, an
 # HTML block opener, an inline collapse tag, an unbalanced fence.
 for bad in '<!-- a note' '<pre>' '  <script>' '<![CDATA[' 'see x </details> here' \
-  'open <details><summary>y' '```sh' '~~~~'; do
+  'open <details><summary>y' '```sh' '~~~~' '<div>' '<span>' '<!-- x --> <!-- y' '<!-->'; do
   printf 'Corrects the name.\n%s\n' "$bad" >"$in/summary-markup.md"
   run_render pr --summary-file "$in/summary-markup.md"
   [ "$RC" -eq 2 ] || fail "a summary carrying '$bad' must be refused with 2 (got $RC)"
 done
-# Balanced fences and a closed comment are fine.
-printf 'Corrects the name.\n\n```sh\nmise run lint\n```\n\n~~~\nx\n~~~~\n<!-- closed -->\n' >"$in/verification-ok.md"
+# A collapse tag or a record marker is refused even where a fence, an HTML
+# block, a comment, or a list item would seem to shelter it: each of those
+# ends somewhere a line-based check cannot be sure of.
+for bad in '```\n</details>\n```' '<div>\n```\n</details>\n```' '- a\n  ```\n</details>\n  ```' \
+  '<!-- a\n--> </details>' '```\n<!-- planwright:flight-record-end -->\n```'; do
+  # shellcheck disable=SC2059 # the case carries its own \n escapes
+  printf "Corrects the name.\n$bad\n" >"$in/audit-shelter.md"
+  cat "$in/audit.md" "$in/audit-shelter.md" >"$in/audit-sheltered.md"
+  run_render pr --audit-file "$in/audit-sheltered.md"
+  [ "$RC" -eq 2 ] || fail "a sheltered collapse tag or marker must be refused ($bad, got $RC)"
+done
+# Balanced fences, HTML inside a closed fence, and inline markup are fine.
+printf 'Corrects the name.\n\n```html\n<div>x</div>\n```\n\n~~~\nx\n~~~~\n\nSee a <b>bold</b> word.\n' >"$in/verification-ok.md"
 run_render pr --verification-file "$in/verification-ok.md"
-[ "$RC" -eq 0 ] || fail "balanced fences and a closed comment must render (got $RC: $ERR)"
+[ "$RC" -eq 0 ] || fail "balanced fences and inline markup must render (got $RC: $ERR)"
 
 printf 'Rotated the key %s.\n' "$TOKEN" >"$in/secret.md"
 for flag in --summary-file --verification-file --scoping-file --revert-file; do
@@ -537,6 +562,30 @@ for link in specs specs/_flights; do
   [ -z "$(ls -A "$outside")" ] || fail "land through a symlinked $link wrote outside the checkout"
   rm -rf "$repo/specs"
 done
+
+# A regular file where specs/ belongs is refused as a symlink is.
+NDIR=nodir-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$NDIR" main
+printf 'x\n' >"$repo/specs"
+run_land --flight-id "$NDIR"
+[ "$RC" -eq 3 ] || fail "a regular file at specs must be refused with 3 (got $RC)"
+rm -f "$repo/specs"
+
+# A landed record passes the repository's own markdown lint.
+ML=$(command -v markdownlint-cli2 2>/dev/null || :)
+if [ -n "$ML" ] && "$ML" --version >/dev/null 2>&1; then
+  lr="$tmp/lintroot"
+  mkdir -p "$lr/specs/_flights"
+  cp "$ROOT/.markdownlint.jsonc" "$lr/"
+  cp "$ROOT/specs/.markdownlint.jsonc" "$lr/specs/"
+  cp "$ROOT/specs/_flights/.markdownlint.jsonc" "$lr/specs/_flights/" 2>/dev/null || :
+  run_render file
+  printf '%s\n' "$OUT" >"$lr/specs/_flights/$FID.md"
+  (cd "$lr" && "$ML" "specs/_flights/$FID.md") >"$tmp/ml.out" 2>&1 \
+    || fail "a landed record must pass markdownlint: $(grep error "$tmp/ml.out" | head -3)"
+else
+  echo "test-flight-record: markdownlint-cli2 unavailable; record lint check skipped" >&2
+fi
 
 # land runs at the worktree's top level, inside a git worktree.
 mkdir -p "$repo/sub"
