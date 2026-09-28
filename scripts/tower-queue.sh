@@ -2028,8 +2028,8 @@ is_protected_branch() {
 # actions in one command) and `git push origin refs/heads/main`. Each word is
 # reduced the way git reads a refspec — every quote removed, then a leading `+`
 # (which IS the force), then the text after the LAST `:` (the destination
-# half), then a leading `refs/heads/` — and the result compared to the
-# protected names. The quotes go FIRST and ALL of them go: the allowlist admits
+# half), then a leading `refs/heads/` or `heads/`, which git resolves to the
+# same branch — and the result compared to the protected names. The quotes go FIRST and ALL of them go: the allowlist admits
 # a quoted interior anywhere in a word, and the shell reads `"refs/heads/main"`,
 # `"+main"`, `''main` and `ma""in` as the bare spellings, so a strip that ran
 # after the prefix test, or took only one matched pair, left each of those a
@@ -2063,6 +2063,7 @@ push_reaches_protected() {
       esac
       _pd=${_pw##*:}
       _pd=${_pd#refs/heads/}
+      _pd=${_pd#heads/}
       is_protected_branch "$_pd" && exit 0
     done
     exit 1
@@ -2184,6 +2185,7 @@ push_parses_safe() {
           ;;
       esac
       _pd=${_pd#refs/heads/}
+      _pd=${_pd#heads/}
       case "$_pd" in
         "" | head | @ | refs/* | -* | *[!a-z0-9._/@-]*) exit 1 ;;
       esac

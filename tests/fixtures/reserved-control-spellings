@@ -34,6 +34,9 @@ protected-push   any    floor                        deny   defer  defer  defer 
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:main
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:refs/heads/main
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:main --dry-run
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:heads/main
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:heads/master
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:heads/planwright/human-gates/spec
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin master
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push -u origin master
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:master

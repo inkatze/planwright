@@ -190,7 +190,8 @@ for res in 'git push origin +main' 'git push origin refs/heads/main' \
   'git push origin main' 'git push origin HEAD:main' 'git push origin main:main' \
   'git push -qf origin feature' 'git push origin "main"' \
   'git push origin planwright/human-gates/spec' 'git push origin HEAD:planwright/human-gates/spec' \
-  'git push origin HEAD:refs/heads/planwright/human-gates/spec' 'git push -u origin planwright/x/spec'; do
+  'git push origin HEAD:refs/heads/planwright/human-gates/spec' 'git push -u origin planwright/x/spec' \
+  'git push origin HEAD:heads/main' 'git push origin HEAD:heads/master' 'git push origin heads/planwright/x/spec'; do
   rc=0
   run match --decision "$push_rule" --command "$res" >"$tmp/o" || rc=$?
   [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
