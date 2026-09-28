@@ -92,6 +92,7 @@ env_scrub=(
   -u PLANWRIGHT_HEADLESS_ENVWRAP -u PLANWRIGHT_HEADLESS_LIVENESS_TTL
   -u PLANWRIGHT_FLEET_LOCK_HELD -u PLANWRIGHT_ORCH_STATE_DIR -u PLANWRIGHT_JQ
   -u PLANWRIGHT_ATTENTION_SURFACE_PROVIDED -u PLANWRIGHT_SKILLS_ROOT
+  -u PLANWRIGHT_HEADLESS_STATE_DIR
   -u TMUX -u TMUX_PANE
 )
 
@@ -148,6 +149,7 @@ det() {
     printf 'evidence\tw1\tbackend\t%s\n' "$4"
     printf 'evidence\tw1\towner-token\t%s\n' "${6:-$peer_id}"
     printf 'evidence\tw1\towner-evidence\t%s\n' "$5"
+    printf 'evidence\tw1\tstate-dir\t%s\n' "${DET_SD:-/fx/state/w1}"
   } >"$tmp/det-out"
   printf '0\n' >"$tmp/det-rc"
 }
@@ -174,7 +176,7 @@ gate() {
     PLANWRIGHT_REPO_ROOT="$repo_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
     PLANWRIGHT_LOCAL_CONFIG="" \
-    /bin/sh "$gs/fleet-cleanup.sh" process "$@" >"$tmp/out" 2>"$tmp/err" || rc=$?
+    /bin/sh "${G_SCRIPTS:-$gs}/fleet-cleanup.sh" process "$@" >"$tmp/out" 2>"$tmp/err" || rc=$?
   out=$(cat "$tmp/out")
   err=$(cat "$tmp/err")
 }
@@ -458,15 +460,83 @@ expect 0 "stream-json delegation"
 det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
 gate w1 trig why --grace 7 --repo-root /some/repo
 expect 0 "headless delegation"
-[ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --repo-root /some/repo --grace 7" ] \
+[ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --expect-dir /fx/state/w1 --repo-root /some/repo --grace 7" ] \
   || fail "headless delegation: the rung was asked '$(cat "$tmp/stop-calls")'"
 gate w1 trig why
 expect 0 "headless delegation without flags"
-[ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1" ] \
+[ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --expect-dir /fx/state/w1" ] \
   || fail "headless delegation without flags: the rung was asked '$(cat "$tmp/stop-calls")'"
 [ "$(cat "$tmp/det-calls")" = "classify w1" ] || fail "a bare call handed the detector '$(cat "$tmp/det-calls")'"
 [ "$out" = 'stop w1 stopped released=process,attention' ] || fail "the rung's result line was not passed through: '$out'"
-echo "ok: each session-grade backend is closed by its own rung's stop, with the caller's grace and repo root"
+for sd in - '' rel/dir; do
+  DET_SD=$sd det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
+  [ -n "$sd" ] || sed "/${tab}state-dir${tab}/d" "$tmp/det-out" >"$tmp/det-out.x"
+  [ -n "$sd" ] || mv "$tmp/det-out.x" "$tmp/det-out"
+  gate w1 trig why
+  expect 5 "a headless verdict with state dir '$sd'"
+  never_stopped "a headless verdict with state dir '$sd'"
+  case $err in
+    *'state directory'*) ;;
+    *) fail "a headless verdict with state dir '$sd': the refusal does not say what is missing: $err" ;;
+  esac
+done
+echo "ok: each session-grade backend is closed by its own rung's stop, with the caller's grace and repo root, and a headless close is bound to the recorded state directory"
+
+# --- a same-handle unit in another checkout is never closed on this one's ---
+# evidence. The real headless rung resolves the unit from the repo root it is
+# handed; the verdict describes checkout A's finished unit, and checkout B holds
+# a live runner under the same handle.
+xr="$tmp/xr-scripts"
+mkdir -p "$xr"
+cp "$here/../scripts/"*.sh "$xr/"
+cp "$gs/fleet-stuck-detector.sh" "$gs/fleet-daemon-gate.sh" "$xr/"
+xw=headless-demo-task-4
+for co in A B; do
+  mkdir -p "$tmp/xr-$co/specs/demo/.orchestrate/headless/4"
+  git -C "$tmp/xr-$co" init -q
+done
+xa="$tmp/xr-A/specs/demo/.orchestrate/headless/4"
+xb="$tmp/xr-B/specs/demo/.orchestrate/headless/4"
+printf '0 1700000000\n' >"$xa/exit"
+bash -c 'exec -a "run-worker $0 x" sleep 600' "$xb" &
+xrun=$!
+printf '%s\n' "$xrun" >"$xb/pid"
+date +%s >"$xb/launched"
+wait_ps() {
+  wp_i=0
+  while [ "$wp_i" -lt 50 ]; do
+    case $(ps -o args= -p "$1" 2>/dev/null) in
+      "run-worker $2 "*) return 0 ;;
+    esac
+    sleep 0.1
+    wp_i=$((wp_i + 1))
+  done
+  return 1
+}
+wait_ps "$xrun" "$xb" || fail "fixture: checkout B's runner never took its argv"
+xr_det() {
+  DET_SD=$1 det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
+  sed "s/${tab}w1${tab}/${tab}$xw${tab}/" "$tmp/det-out" >"$tmp/det-out.x"
+  mv "$tmp/det-out.x" "$tmp/det-out"
+}
+rm -rf "$gate_home"
+xr_det "$xa"
+G_SCRIPTS=$xr gate "$xw" trig why --repo-root "$tmp/xr-B" --grace 1
+expect 5 "a verdict for checkout A closing checkout B's unit"
+kill -0 "$xrun" 2>/dev/null || fail "a verdict for checkout A killed checkout B's live runner"
+case $err in
+  *'not the expected'*) ;;
+  *) fail "a cross-checkout close does not name the mismatch: $err" ;;
+esac
+case $(audit_rows) in
+  *"worker=$xw "*) fail "a refused cross-checkout close was recorded as a reap: $(audit_rows)" ;;
+esac
+xr_det "$xb"
+G_SCRIPTS=$xr gate "$xw" trig why --repo-root "$tmp/xr-B" --grace 1
+expect 0 "a verdict for checkout B closing checkout B's unit"
+wait "$xrun" 2>/dev/null || :
+! kill -0 "$xrun" 2>/dev/null || fail "a verdict bound to checkout B's unit did not close it"
+echo "ok: a headless close refuses a unit the handle resolves to in another checkout, and closes the one the verdict describes"
 
 # --- the audit record names worker, owner, evidence, and what was released --
 rm -rf "$gate_home"

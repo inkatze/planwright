@@ -1439,6 +1439,10 @@ everything else:
 - a worker owned by a live peer tower, under any evidence (exit `7`);
 - a worker on a backend with no process close, such as tmux, whose window
   `window` reclaims (exit `5`);
+- a headless worker whose dispatch record names no state directory (exit
+  `5`). The headless close is bound to that directory, so a handle that
+  resolves to a same-named unit in another checkout is refused, not closed on
+  this one's evidence;
 - anything short of positive evidence on both axes (exit `5`): the owning
   tower is positively dead, and the session positively ended, by death
   evidence or a completion signal. Unknown means alive;

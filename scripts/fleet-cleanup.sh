@@ -65,6 +65,7 @@
 #         a `print`-backend unit, which spawned no process (exit 8);
 #         a worker owned by a live peer tower, under any evidence (exit 7);
 #         a backend with no process close, such as tmux (exit 5);
+#         a headless worker whose record names no state directory (exit 5);
 #         anything short of positive evidence on BOTH axes (exit 5): the
 #           owning tower must be positively dead, and the session must have
 #           positively ended, by death evidence or a completion signal. An
@@ -77,7 +78,10 @@
 #       the fleet has one kill path: this arm matches no process, sends no
 #       signal, and releases nothing of its own. --grace is the SIGTERM-to-
 #       SIGKILL grace that stop takes, and --repo-root is passed to the headless
-#       rung, which resolves its unit directory from it. The rung's result line
+#       rung, which resolves its unit directory from it. That rung is also
+#       handed the state directory the verdict was read from and refuses a
+#       handle resolving to any other unit, such as a same-handle unit in
+#       another checkout (a plain refusal here, exit 5). The rung's result line
 #       is printed on stdout. A close from inside the worker's own tree is the
 #       rung's self-hosting refusal, reported here as the self-target block;
 #       a rung that cannot read the process table to decide that refuses
@@ -170,8 +174,8 @@ valid_owner() {
 
 # read_verdict <verdict> <worker> — the detector's row for <worker> and the
 # evidence slots the process arm decides on, as one tab-joined line: state,
-# owner class, reason, then the registry, backend, owner-token and
-# owner-evidence values. A slot the verdict lacks reads `-`, so no field is
+# owner class, reason, then the registry, backend, owner-token, owner-evidence
+# and state-dir values. A slot the verdict lacks reads `-`, so no field is
 # empty and a tab-split cannot shift the ones after it.
 read_verdict() {
   printf '%s\n' "$1" | awk -F'\t' -v w="$2" '
@@ -181,8 +185,9 @@ read_verdict() {
     function v(x) { return x == "" ? "-" : x }
     END {
       if (!row) exit
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", v(st), v(oc), v(rs),
-        v(ev["registry"]), v(ev["backend"]), v(ev["owner-token"]), v(ev["owner-evidence"])
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", v(st), v(oc), v(rs),
+        v(ev["registry"]), v(ev["backend"]), v(ev["owner-token"]), v(ev["owner-evidence"]),
+        v(ev["state-dir"])
     }'
 }
 
@@ -726,7 +731,7 @@ case "$cmd" in
       warn "no liveness verdict for '$worker' — no positive evidence either way, refusing"
       exit 5
     fi
-    IFS=$TAB read -r state owner_class reason registry backend owner_token owner_ev <<EOF
+    IFS=$TAB read -r state owner_class reason registry backend owner_token owner_ev rec_dir <<EOF
 $row
 EOF
     reason=$(sanitize_printable "$reason" "-")
@@ -752,6 +757,18 @@ EOF
         exit 5
         ;;
     esac
+    # The headless rung resolves a handle to the unit in whichever checkout
+    # its repo root names, and a unit in another checkout can share the
+    # handle, so the close is bound to the directory the verdict was read from.
+    if [ "$rung" = fleet-dispatch-headless.sh ]; then
+      case $rec_dir in
+        /*) ;;
+        *)
+          warn "refusing '$worker': its dispatch record names no state directory to bind the close to"
+          exit 5
+          ;;
+      esac
+    fi
     case $owner_ev/$owner_class in
       dead/dead-or-unknown) tower_ev=dead ;;
       self/this-tower)
@@ -780,8 +797,9 @@ EOF
     gate process-cleanup || exit 4
 
     set --
-    if [ "$rung" = fleet-dispatch-headless.sh ] && [ -n "$repo_root" ]; then
-      set -- --repo-root "$repo_root"
+    if [ "$rung" = fleet-dispatch-headless.sh ]; then
+      set -- --expect-dir "$rec_dir"
+      [ -z "$repo_root" ] || set -- "$@" --repo-root "$repo_root"
     fi
     [ -z "$grace" ] || set -- "$@" --grace "$grace"
     stop_rc=0
