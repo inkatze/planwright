@@ -635,10 +635,12 @@ code=$(sed -E -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//' \
 hits=$(printf '%s\n' "$code" | grep -nE 'kill( |	|$)|pkill|pgrep|killall|(^|[^[:alnum:]_-])ps([[:space:]]|$)|lsof|fuser|fleet-stop-lib|release_processes|stop_candidates|/proc/' || :)
 [ -z "$hits" ] || fail "source audit: fleet-cleanup.sh carries a second kill path: $hits"
 sourced=$(printf '%s\n' "$code" | grep -E '(^|[;&])[[:space:]]*(\.|source)[[:space:]]' || :)
+# shellcheck disable=SC2016 # the script's own source text, matched literally
 [ "$sourced" = '. "$script_dir/echo-safety.sh"' ] || fail "source audit: fleet-cleanup.sh sources more than echo-safety.sh: $sourced"
 arm=$(awk '/^  process\)$/ { on = 1 } on { print } on && /^    ;;$/ { exit }' "$FC_REAL" \
   | sed -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//')
 [ -n "$arm" ] || fail "source audit: no process arm found in fleet-cleanup.sh"
+# shellcheck disable=SC2016 # the script's own source text, matched literally
 for want in 'stream-json-persistent) rung=fleet-streamjson.sh' 'headless-oneshot) rung=fleet-dispatch-headless.sh' '"$script_dir/$rung" stop "$worker"'; do
   case $arm in
     *"$want"*) ;;
