@@ -106,6 +106,7 @@ assert_empty "unset: nothing on stderr" "$err"
 
 run spec "$wt"
 assert_eq "unset: a worktree prints its own specs/" "$wt/specs" "$out"
+assert_empty "unset: an absent default root in a worktree warns nothing" "$err"
 run spec "$wt/" --primary
 assert_eq "unset: --primary from a worktree prints the primary's specs/" "$repo/specs" "$out"
 
@@ -356,6 +357,19 @@ assert_eq "init: --init never creates the directory" 5 "$rc"
 assert_eq "init: the missing directory is still missing" absent \
   "$(test -e "$tmp/nowhere" && echo present || echo absent)"
 
+# --init writes where a repo-tracked value points only inside the primary.
+clear_layers
+mkdir -p "$tmp/tracked-out" "$repo/tracked-in"
+set_layer "$tracked_cfg" "$tmp/tracked-out"
+run spec "$repo" --init
+assert_eq "init: a repo-tracked value outside the primary is not initialized" 5 "$rc"
+assert_contains "init: the refusal names the repo-tracked layer" "repo-tracked" "$err"
+assert_eq "init: nothing is written outside the primary" "" "$(ls -A "$tmp/tracked-out")"
+set_layer "$tracked_cfg" "tracked-in"
+run spec "$repo" --init
+assert_eq "init: a repo-tracked value inside the primary is initialized (exit)" 0 "$rc"
+clear_layers
+
 mkdir -p "$tmp/plaindir"
 set_layer "$local_cfg" "$tmp/plaindir"
 run spec "$repo" --init
@@ -466,8 +480,19 @@ mark "$wt/wtroot"
 set_layer "$local_cfg" "$wt/wtroot"
 run spec "$repo" --posture
 assert_eq "posture: a root in another worktree of the repository is same-repo" same-repo "$out"
+run spec "$repo" --primary
+assert_eq "posture: --primary maps a root in another worktree onto the primary's copy" \
+  "$repo/wtroot" "$out"
+run spec "$wt" --explain --primary
+assert_eq "posture: the mapping holds from the worktree itself" \
+  "machine-local${TAB}$repo/wtroot${TAB}same-repo${TAB}primary" "$out"
+run spec "$wt"
+assert_eq "posture: the checkout-local view from the worktree is its own copy" "$wt/wtroot" "$out"
+assert_empty "posture: a copy the worktree holds warns nothing" "$err"
 run spec "$repo"
-assert_eq "posture: a root in another worktree is not re-based" "$wt/wtroot" "$out"
+assert_eq "posture: the checkout-local view from the primary is the primary's copy" \
+  "$repo/wtroot" "$out"
+assert_contains "posture: a copy the primary does not hold is warned about" "$repo/wtroot" "$err"
 
 mkrepo "$tmp/holder"
 mkdir -p "$tmp/holder/work"
@@ -511,6 +536,17 @@ run spec "$wt"
 assert_eq "views: an absolute in-repo value is re-based onto the worktree" "$wt/relocated" "$out"
 run spec "$wt" --primary
 assert_eq "views: --primary of an absolute in-repo value" "$repo/relocated" "$out"
+
+# A re-based root the worktree does not hold still resolves, with a warning.
+mkdir -p "$repo/onlyprimary"
+mark "$repo/onlyprimary"
+set_layer "$local_cfg" "onlyprimary"
+run spec "$wt"
+assert_eq "views: a re-based root the worktree lacks still resolves (exit)" 0 "$rc"
+assert_eq "views: the re-based path is printed" "$wt/onlyprimary" "$out"
+assert_contains "views: the missing re-based root is warned about" "$wt/onlyprimary" "$err"
+run spec "$wt" --primary
+assert_empty "views: the primary view of a held root warns nothing" "$err"
 
 # A specs/ that is a symlink out of the checkout is still the default root,
 # whether the value names it or is unset.

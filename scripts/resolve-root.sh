@@ -46,9 +46,14 @@
 #           whose canonical path carries a control byte or tab.
 #   (default)   the checkout-local view: a root inside the primary checkout
 #               is re-based onto the current checkout of the same repository.
-#               The re-based path is not checked, so it can name a directory
-#               the current checkout does not hold (a gitignored root).
-#   --primary   the primary view: the configured directory itself.
+#               A re-based path the current checkout does not hold (an
+#               untracked or gitignored root) is still printed, with a
+#               warning on stderr.
+#   --primary   the primary view: the configured directory itself, except
+#               that a same-repo root inside another linked worktree maps
+#               onto the primary checkout's copy at the same relative path
+#               (warned about, as above, when the primary does not hold it);
+#               the checkout-local view re-bases from that copy.
 #   --posture   print only the posture: same-repo when the root's repository
 #               shares the work repository's common git directory, separate-
 #               repo when it is another repository, plain when it is in none.
@@ -58,8 +63,9 @@
 #               directory, which must already exist, and print the root. It
 #               never writes through a symlinked marker or .gitignore, never
 #               replaces an existing marker, and validates the marker it
-#               leaves as any run does. The default root needs no marker and
-#               is left untouched.
+#               leaves as any run does. A repo-tracked value is initialized
+#               only when it resolves inside the primary checkout. The
+#               default root needs no marker and is left untouched.
 #   --explain takes precedence over --posture.
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
@@ -71,7 +77,7 @@
 # value cancelled it, the view checkout-local or primary. Printed paths are
 # canonical (symlinks resolved), except that the default root is printed as
 # <checkout>/specs whether or not it exists or is a symlink, and a re-based
-# checkout-local path is not checked.
+# or mapped path is composed, not resolved.
 #
 # Exit: 0 printed · 1 no install root resolved · 2 usage · 3 no repository
 #   root (git missing, not inside a working tree, a bare repository, or a
@@ -81,7 +87,8 @@
 #   answers with the directory holding it) · 4 PLANWRIGHT_REPO_ROOT
 #   refused · 5 spec_root refused (bad value, missing or invalid marker, a ~
 #   value without an absolute HOME, a control byte or tab in the canonical
-#   path; --init could not derive a project identifier or write) · 6
+#   path; --init could not derive a project identifier or write, or was
+#   given a repo-tracked value outside the primary checkout) · 6
 #   spec_root unreadable (a malformed repo-tracked config, or a broken
 #   install). Callers treat 3 as "no repository" and
 #   degrade; they never compose a path from an empty root.
@@ -421,6 +428,14 @@ check_marker() {
 # init_spec_root: write the marker and, in a git repository, the ignore
 # rules for the entries that never leave the machine.
 init_spec_root() {
+  # A team-shared value may name any directory, but it only gets written
+  # into when it stays inside the primary checkout.
+  if [ "$sr_layer" = repo-tracked ]; then
+    case $sr_primary in
+      "$rp_path" | "$rp_path"/*) ;;
+      *) refuse_spec "--init writes where a repo-tracked value points only inside the primary checkout ($rp_path); set the value in the machine-local or adopter layer to initialize $sr_primary" ;;
+    esac
+  fi
   is_marker=$sr_primary/planwright-spec-root.yml
   [ ! -L "$is_marker" ] || refuse_spec "$is_marker is a symlink; --init never writes through one"
   if [ -e "$is_marker" ] && [ ! -f "$is_marker" ]; then
@@ -492,8 +507,19 @@ resolve_spec() {
     [ "$init" -eq 0 ] || init_spec_root
     check_marker
   fi
+  sr_conf=$sr_primary
   sr_local=$sr_primary
   if [ "$sr_posture" = same-repo ]; then
+    # A root inside another linked worktree maps onto the primary checkout's
+    # copy at the same relative path, and is re-based from there.
+    sm_top=""
+    [ "$sr_default" -eq 1 ] || sm_top=$(toplevel_of "$sr_primary") || sm_top=""
+    if [ -n "$sm_top" ] && [ "$sm_top" != "$rp_path" ]; then
+      case $sr_primary in
+        "$sm_top") sr_primary=$rp_path ;;
+        "$sm_top"/*) sr_primary=$rp_path/${sr_primary#"$sm_top"/} ;;
+      esac
+    fi
     case $sr_primary in
       "$rp_path") sr_local=$sc_top ;;
       "$rp_path"/*) sr_local=$sc_top/${sr_primary#"$rp_path"/} ;;
@@ -512,6 +538,10 @@ resolve_spec() {
       exit 5
     }
   done
+  if [ "$sr_default" -eq 0 ] && { [ "$explain" -eq 1 ] || [ "$posture_only" -eq 0 ]; } \
+    && [ ! -d "$ss_path" ]; then
+    say "WARNING the $ss_view spec root '$ss_path' is not present: this checkout does not hold the copy of '$sr_conf' (untracked or gitignored there)"
+  fi
   if [ "$explain" -eq 1 ]; then
     printf '%s\t%s\t%s\t%s\n' "$sr_layer" "$ss_path" "$sr_posture" "$ss_view"
   elif [ "$posture_only" -eq 1 ]; then
