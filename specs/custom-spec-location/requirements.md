@@ -1,7 +1,7 @@
 # Custom spec location — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -101,20 +101,23 @@ the **primary view** is the primary checkout's (or the holder's) copy
   a path relative to the primary checkout root; surrounding whitespace is
   trimmed before any other reading.
   *(Cites: D-3.)*
-- **REQ-A1.3** An empty value in a layer SHALL mean unset in that layer: the
-  resolution falls through to the next lower layer and, with no layer
-  setting a value, to the default root. Only the winning non-empty value is
+- **REQ-A1.3** An empty value in a layer SHALL mean unset and SHALL cancel any
+  value a lower layer sets: when the highest layer setting the key sets it
+  empty, the resolution yields the default root, which is how a machine-local
+  file takes back a repo-tracked value. Only the winning non-empty value is
   validated. A value carrying a non-printable byte is malformed text and
-  follows the customization-overlay by-layer policy (warn and fall through
-  for the adopter and machine-local layers, hard-fail for the repo-tracked
-  layer). The resolver SHALL canonicalize a well-formed value before use and
-  SHALL then refuse it, with a non-zero exit, no root printed, and a message
-  naming the supplying layer, in every layer alike, when it names a path
-  that does not exist, is not a directory, or, being relative, escapes the
-  primary checkout after canonicalization; a refused value SHALL never fall
-  back to the default root, because a wrong root is the fail-open shape D-4
-  exists to stop.
+  follows the customization-overlay by-layer policy (warn and fall through for
+  the adopter and machine-local layers, hard-fail for the repo-tracked layer).
+  The resolver SHALL canonicalize a well-formed value before use and SHALL
+  then refuse it, with a non-zero exit, no root printed, and a message naming
+  the supplying layer, in every layer alike, when it names a path that does
+  not exist, is not a directory, or, being relative, escapes the primary
+  checkout after canonicalization; a refused value SHALL never fall back to
+  the default root, because a wrong root is the fail-open shape D-4 exists to
+  stop.
   *(Cites: D-3; obs:e64d26ff; kickoff §8 K1 (2026-09-22).)*
+  *(Amended at Task 2 execution 2026-09-28: an empty value cancels lower
+  layers and yields the default root, rather than falling through to them.)*
 - **REQ-A1.4** A root other than the default SHALL carry the root marker
   file `planwright-spec-root.yml`. A configured root without it is refused
   in every layer, never treated as an empty root. The default root needs no
@@ -387,6 +390,12 @@ the **primary view** is the primary checkout's (or the holder's) copy
   `planwright-spec-root.yml`; the primary view renamed from `--canonical` to
   `--primary`; enumerations converted to decided rules; citations repaired.
   Full ledger in `kickoff-brief.md` §8.
+- 2026-09-28 — Amendment at Task 2 execution (meaning-class, post-merge, in
+  place): an empty `spec_root` value cancels every lower layer's value and
+  yields the default root, where the text said it fell through to the next
+  lower layer (REQ-A1.3). Aligned D-3's Decision, the REQ-A1.3 test-spec
+  pin, and Task 2's deliverables and Done-when. Record in `kickoff-brief.md`
+  §9.
 
 ## Sources
 
