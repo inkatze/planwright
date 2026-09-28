@@ -692,6 +692,10 @@ PLANWRIGHT_ROOT="$c/otherroot" CLAUDE_PLUGIN_ROOT="$c/otherroot" dispatch_print
 [ "$RC" -eq 0 ] || fail "a foreign planwright root in the environment must not break dispatch (rc $RC: $ERR)"
 [ "$(field "$OUT" steps_convergence)" = polish ] \
   || fail "the core list must come from the script's own root, got '$(field "$OUT" steps_convergence)'"
+PLANWRIGHT_CONFIG_DEFAULTS="$c/otherroot/config/defaults.yml" dispatch_print
+[ "$RC" -eq 0 ] || fail "a foreign core defaults file in the environment must not break dispatch (rc $RC: $ERR)"
+[ "$(field "$OUT" steps_convergence)" = polish ] \
+  || fail "an environment core defaults file must not replace the core list, got '$(field "$OUT" steps_convergence)'"
 
 # An empty list is valid and runs no step.
 new_case
