@@ -441,7 +441,8 @@ for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
   out=$(run_gate 2>"$tmp/err.txt") || rc=$?
   [ "$rc" = 0 ] || fail "degrade: malformed $layer_cfg exited $rc, expected 0"
   [ "$out" = strict ] || fail "degrade: malformed $layer_cfg resolved to '$out', expected the strict target"
-  grep -q 'strict' "$tmp/err.txt" || fail "degrade: the warning does not name the degrade target"
+  grep -q "warning:.*degrading to the strict value 'strict'" "$tmp/err.txt" \
+    || fail "degrade: the warning does not name the degrade target"
 done
 # A structurally malformed overlay FILE is a malformed value in that layer
 # too: config-get would skip the file and answer from the core value, which is
@@ -491,6 +492,13 @@ for bad in 'a,b' '[main]' 'ma\in' '$(x)' '~main' '- main' "x;y"; do
   run_glob >/dev/null 2>&1 || rc=$?
   [ "$rc" = 5 ] || fail "globlist: '$bad' in core was not treated as malformed (exit $rc, expected 5)"
 done
+long_member=$(printf 'a%.0s' $(seq 255))
+printf 'extra_globs: %s\n' "$long_member" >"$glob_core"
+[ "$(run_glob)" = "$long_member" ] || fail "globlist: a 255-character member did not resolve"
+printf 'extra_globs: %sa\n' "$long_member" >"$glob_core"
+rc=0
+run_glob >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "globlist: a 256-character member was not malformed (exit $rc, expected 5)"
 rc=0
 /bin/bash "$RCK" --key extra_globs --type globlist --values 'a b' --fallback '' >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "globlist: --values is enum-only (exit $rc, expected 2)"
@@ -537,9 +545,11 @@ reset_layers
 rc=0
 run_nodegrade >/dev/null 2>&1 || rc=$?
 [ "$rc" = 5 ] || fail "no-degrade: a key no layer sets exited $rc, expected 5"
-rc=0
-/bin/bash "$RCK" --key extra_globs --type globlist --no-degrade --degrade '' >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "no-degrade: combining it with --degrade is a usage error (exit $rc, expected 2)"
+for extra in "--degrade ''" "--fallback ''"; do
+  rc=0
+  eval "/bin/bash \"\$RCK\" --key extra_globs --type globlist --no-degrade $extra" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "no-degrade: combining it with $extra is a usage error (exit $rc, expected 2)"
+done
 echo "ok: --no-degrade fails every malformed layer and an unset key"
 
 # 11. Usage validation: missing/invalid arguments are usage errors (exit 2).

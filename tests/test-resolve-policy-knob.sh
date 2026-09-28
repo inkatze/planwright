@@ -41,13 +41,28 @@ tracked_cfg="$repo/.claude/planwright.yml"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
 
 # Host stubs: any call lands in the log, and the protected-set assertions
-# require it to stay empty (the set is read locally, never from the host).
+# require it to stay empty (the set is read locally, never from the host). git
+# passes through except for the subcommands that reach a remote.
 host_log="$tmp/host-calls.log"
 : >"$host_log"
 for tool in gh curl; do
   printf '#!/bin/sh\necho "%s $*" >>"%s"\nexit 1\n' "$tool" "$host_log" >"$tmp/bin/$tool"
   chmod +x "$tmp/bin/$tool"
 done
+real_git=$(command -v git)
+cat >"$tmp/bin/git" <<EOF
+#!/bin/sh
+for a in "\$@"; do
+  case "\$a" in
+    ls-remote | fetch | pull | push | remote)
+      echo "git \$*" >>"$host_log"
+      exit 1
+      ;;
+  esac
+done
+exec "$real_git" "\$@"
+EOF
+chmod +x "$tmp/bin/git"
 
 reset_layers() {
   rm -f "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"
@@ -78,14 +93,15 @@ worker_base_merge|allow deny|allow|deny|yes
 worker_merge_conflict_policy|halt resolve|resolve|halt|merge
 unpushed_rewrite|allow deny|allow|deny|sometimes'
 
-# A stubbed reader: the contract every reader follows is that a resolver
-# failure is a refusal of the act, whatever the value would have been.
+# A stubbed reader <knob> <permissive value>: it allows the act only on the
+# permissive value and refuses on anything else, a resolver failure included,
+# which is the contract every reader of these knobs follows.
 stub_reader() {
   _v=$(rpk "$1" 2>/dev/null) || {
     echo deny
     return 0
   }
-  echo "value:$_v"
+  if [ "$_v" = "$2" ]; then echo allow; else echo deny; fi
 }
 
 printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malformed; do
@@ -98,6 +114,9 @@ printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malf
     got=$(rpk "$knob") || fail "$knob: core '$v' did not resolve"
     [ "$got" = "$v" ] || fail "$knob: core '$v' resolved to '$got'"
     printf '%s: %s\n' "$knob" "$permissive" >"$core_cfg"
+    # The permissive value is already the core value, so an overlay setting it
+    # would pass even if the overlay were ignored.
+    [ "$v" != "$permissive" ] || continue
     for layer_cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
       reset_layers
       printf '%s: %s\n' "$knob" "$v" >"$layer_cfg"
@@ -112,7 +131,7 @@ printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malf
   rc=0
   rpk "$knob" >/dev/null 2>&1 || rc=$?
   [ "$rc" = 4 ] || fail "$knob: malformed repo-tracked value exited $rc, expected 4"
-  [ "$(stub_reader "$knob")" = deny ] || fail "$knob: the stub reader did not deny a malformed repo-tracked value"
+  [ "$(stub_reader "$knob" "$permissive")" = deny ] || fail "$knob: the stub reader did not deny a malformed repo-tracked value"
 
   # A malformed adopter or machine-local value degrades to the strict target
   # with a warning, never to the core value the fixture ships.
@@ -124,6 +143,7 @@ printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malf
     [ "$rc" = 0 ] || fail "$knob: malformed $layer_cfg exited $rc, expected 0"
     [ "$got" = "$strict" ] || fail "$knob: malformed $layer_cfg resolved to '$got', expected '$strict'"
     grep -q warning "$tmp/err" || fail "$knob: malformed $layer_cfg degraded without a warning"
+    [ "$(stub_reader "$knob" "$permissive")" = deny ] || fail "$knob: the stub reader allowed a malformed $layer_cfg value"
     # A malformed FILE in that layer is the same case, even when the file
     # also sets the knob to its strict value on a well-formed line.
     printf '%s: %s\nother:\n  - x\n' "$knob" "$strict" >"$layer_cfg"
@@ -134,8 +154,9 @@ printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malf
   # A key no layer sets falls back to the strict target too.
   reset_layers
   : >"$core_cfg"
-  got=$(rpk "$knob" 2>/dev/null) || fail "$knob: an unset key did not resolve"
+  got=$(rpk "$knob" 2>"$tmp/err") || fail "$knob: an unset key did not resolve"
   [ "$got" = "$strict" ] || fail "$knob: an unset key resolved to '$got', expected '$strict'"
+  grep -q warning "$tmp/err" || fail "$knob: an unset key fell back without a warning"
 done
 echo "ok: each gate knob resolves through all four layers and degrades to its strict target"
 
@@ -144,11 +165,22 @@ echo "ok: each gate knob resolves through all four layers and degrades to its st
 printf 'ready_flip_ci_wait: 10m\n' >"$core_cfg"
 reset_layers
 [ "$(rpk ready_flip_ci_wait)" = 10m ] || fail "ready_flip_ci_wait: the core value did not resolve"
-printf 'ready_flip_ci_wait: 30s\n' >"$mlocal_cfg"
-[ "$(rpk ready_flip_ci_wait)" = 30s ] || fail "ready_flip_ci_wait: a machine-local value did not resolve"
+for layer_cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'ready_flip_ci_wait: 30s\n' >"$layer_cfg"
+  [ "$(rpk ready_flip_ci_wait)" = 30s ] || fail "ready_flip_ci_wait: a value in $layer_cfg did not resolve"
+done
+for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'ready_flip_ci_wait: soon\n' >"$layer_cfg"
+  [ "$(rpk ready_flip_ci_wait 2>/dev/null)" = 10m ] || fail "ready_flip_ci_wait: a malformed $layer_cfg value did not degrade to the core default"
+done
 reset_layers
-printf 'ready_flip_ci_wait: soon\n' >"$adopter_cfg"
-[ "$(rpk ready_flip_ci_wait 2>/dev/null)" = 10m ] || fail "ready_flip_ci_wait: a malformed adopter value did not degrade to the core default"
+: >"$core_cfg"
+got=$(rpk ready_flip_ci_wait 2>"$tmp/err") || fail "ready_flip_ci_wait: an unset key did not resolve"
+[ "$got" = 10m ] || fail "ready_flip_ci_wait: an unset key resolved to '$got', expected 10m"
+grep -q warning "$tmp/err" || fail "ready_flip_ci_wait: an unset key fell back without a warning"
+printf 'ready_flip_ci_wait: 10m\n' >"$core_cfg"
 reset_layers
 printf 'ready_flip_ci_wait: soon\n' >"$tracked_cfg"
 rc=0
@@ -195,6 +227,12 @@ pb_expect 0 planwright/a/b/spec "the spec pattern's * does not span a /"
 pb_expect 0 planwright/human-gates/task-4 "a task branch is outside the floor"
 pb_expect 0 mainline "a floor name is not a prefix match"
 
+for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'protected_branches: release/*\n' >"$layer_cfg"
+  pb_expect 1 release/1.0 "an addition in $layer_cfg protects its matches"
+done
+reset_layers
 printf 'protected_branches: release/* hotfix\n' >"$tracked_cfg"
 pb_expect 1 release/1.0 "an overlay glob protects its matches"
 pb_expect 0 release/1.0/rc "an overlay glob's * does not span a /"
@@ -296,7 +334,16 @@ protected_branches|main master planwright/*/spec'
 reset_layers
 printf '%s\n' "$SHIPPED" | while IFS='|' read -r knob expected; do
   grep -q "^${knob}:" "$shipped_defaults" || fail "'$knob' is not in config/defaults.yml"
-  grep -q "| \`$knob\` |" "$options_ref" || fail "'$knob' has no docs/options-reference.md row"
+  row_default=$(grep "^| \`$knob\` |" "$options_ref" | cut -d'|' -f3 | sed -e 's/^ *//' -e 's/ *$//')
+  [ -n "$row_default" ] || fail "'$knob' has no docs/options-reference.md row"
+  case "$row_default" in
+    "(empty)") row_default="" ;;
+    *) row_default=$(printf '%s' "$row_default" | tr -d '`') ;;
+  esac
+  [ "$knob" = protected_branches ] || [ "$row_default" = "$expected" ] \
+    || fail "'$knob': the options reference states '$row_default', the config ships '$expected'"
+  [ "$knob" != protected_branches ] || [ -z "$row_default" ] \
+    || fail "protected_branches: the options reference states '$row_default', the config ships no additions"
   got=$(PATH="$tmp/bin:$PATH" PLANWRIGHT_CONFIG_DEFAULTS="$shipped_defaults" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" /bin/sh "$RPK" "$knob") \
