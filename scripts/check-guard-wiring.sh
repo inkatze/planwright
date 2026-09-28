@@ -32,13 +32,14 @@
 # the walk does: a task alias resolves to its task, and a glob edge expands to
 # every task name or alias it matches. A run body contributes the task each
 # `mise run` / `mise r` call names (`default` when it names none), each `:::`
-# segment included. A call whose leading flags keep the target or its
-# dependencies from running (`--dry-run`, `--skip-deps`, ...) or run it from
-# another config (`--cd`, `--env`, `--profile`) contributes nothing; mise
-# reads flags only before the first task, so a later `:::` segment's first
-# word is its task whatever it looks like. A task whose run
-# body or env names one of their variable forms (MISE_TASK_SKIP_DEPENDS,
-# MISE_ENV, MISE_PROFILE) contributes no run-body edges at all. Known limits:
+# segment included. A call whose leading flags keep the target from running
+# (`--dry-run`, `--help`) or run it from another config (`--cd`, `--env`,
+# `--profile`) contributes nothing, and one with `--skip-deps` contributes
+# only its target's own body; mise reads flags only before the first task, so
+# a later `:::` segment's first word is its task whatever it looks like. A
+# task whose run body or env assigns MISE_ENV or MISE_PROFILE contributes no
+# run-body edges at all, and one assigning MISE_TASK_SKIP_DEPENDS (to
+# anything but false) contributes only its callees' bodies. Known limits:
 # global flags placed before `run` (`mise -q run x`) are not read, so such a
 # call contributes nothing; the variables set through a depends entry's env
 # or the top-level `[env]` are not seen.
@@ -146,29 +147,37 @@ graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --j
 report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
   def uncommented: split("\n") | map(select(test("^[[:space:]]*#") | not)) | join("\n");
   def unquoted: gsub("^[\"\u0027`]+|[\"\u0027`);]+$"; "");
-  # The task a call names, given the words of its first `:::` segment, the
+  # [mode, task] for a call, given the words of its first `:::` segment, the
   # only one whose flags mise reads. A flag that stops the target from
-  # running (or its dependencies, or runs it from another config) yields the
-  # stop mark, so no edge is claimed; a flag taking a separate value skips
-  # that value too; a call naming no task runs `default`.
+  # running (or runs it from another config) gives mode "stop", so no edge is
+  # claimed; `--skip-deps` gives "body", the target without its
+  # dependencies; a flag taking a separate value skips that value too; a call
+  # naming no task runs `default`.
   def call_task:
-    if length == 0 then "default"
+    if length == 0 then ["full", "default"]
     else .[0] as $w
-      | if ($w | test("^--(dry-run|help|skip-deps|cd|env|profile)(=|$)|^-[A-Za-z]*[nhCEP]")) then "\u0000stop"
+      | if ($w | test("^--(dry-run|help|cd|env|profile)(=|$)|^-[A-Za-z]*[nhCEP]")) then ["stop"]
+        elif ($w | test("^--skip-deps(=|$)")) then (.[1:] | call_task | if .[0] == "full" then .[0] = "body" else . end)
         elif ($w | test("^--(jobs|output|shell|tool|timeout|allow-env|allow-net|allow-read|allow-write)$|^-[A-Za-z]*[jost]$")) then (.[2:] | call_task)
         elif ($w | startswith("-")) then (.[1:] | call_task)
-        else $w | unquoted
+        else ["full", ($w | unquoted)]
         end
     end;
-  # A later segment names its task in its first word, even one that looks
-  # like a flag.
+  # {mode, name} per task a run body calls. A later segment names its task in
+  # its first word, even one that looks like a flag.
   def run_edges:
     [ match("(?:^|[^A-Za-z0-9_-])mise[ \t]+(?:run|r)(?=[ \t;&|\n]|$)[ \t]*([^;&|\n]*)"; "g")
       | [ .captures[0].string | splits("[ \t]*:::[ \t]*")
           | [ splits("[ \t]+") | select(. != "") ] ]                as $segs
       | ($segs[0] | call_task)                                      as $first
-      | if $first == "\u0000stop" then empty
-        else $first, ($segs[1:][] | (.[0] // empty) | unquoted) end ];
+      | if $first[0] == "stop" then empty
+        else {mode: $first[0]}
+          + ({name: $first[1]}, ($segs[1:][] | (.[0] // empty) | {name: unquoted}))
+        end ];
+  # A variable is only in force where it is assigned: `$MISE_ENV` or
+  # `MISE_ENV_FILE` sets nothing, nor does a skip set to false.
+  def assigns($v): test("(?:^|[^A-Za-z0-9_])" + $v + "=");
+  def skips_deps: test("(?:^|[^A-Za-z0-9_])MISE_TASK_SKIP_DEPENDS=(?![\"\u0027]?false(?:[^A-Za-z0-9_]|$))");
   # A depends entry carrying arguments or env names its task in `.task` or in
   # its first word.
   def edge_name:
@@ -214,22 +223,31 @@ report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
     [ $raw[]
       | (.run // [])                                                as $run
       | ($run | map(select(type == "string")) | join("\n") | uncommented) as $body
-      | ((.env // []) | tostring)                                   as $env
-      | ([ (.depends // [])[], (.depends_post // [])[],
+      | ($body + "\n" + ((.env // []) | map(tostring) | join("\n"))) as $scope
+      | (if ($scope | assigns("MISE_(?:ENV|PROFILE)")) then []
+         else $body | run_edges
+           | if ($scope | skips_deps) then map(.mode = "body") else . end
+         end)                                                       as $calls
+      | def clean: map(select(. != "") | gsub("\n"; "\\n"));
+        ([ (.depends // [])[], (.depends_post // [])[],
            ($run[] | objects | (.task // empty), (.tasks // [])[]) ]
          | map(edge_name)
-           + (if ($body + $env) | test("MISE_(TASK_SKIP_DEPENDS|ENV|PROFILE)")
-              then [] else ($body | run_edges) end)
-         | map(select(. != "") | gsub("\n"; "\\n")))                as $edges
+           + [ $calls[] | select(.mode == "full") | .name ] | clean) as $edges
+      | ([ $calls[] | select(.mode == "body") | .name ] | clean)   as $bodyonly
       | { name: .name,
           body: $body,
           next: ([ $edges[] | resolve[] ] | unique),
-          dangling: [ $edges[] | select((resolve | length) == 0) ] } ] as $tasks
+          bodyonly: ([ $bodyonly[] | resolve[] ] | unique),
+          dangling: [ $edges[], $bodyonly[] | select((resolve | length) == 0) ] } ] as $tasks
   | ($tasks | map({key: .name, value: .}) | from_entries)           as $by
   | def grow($seen):
       ($seen + ($seen | map($by[.].next) | add // []) | unique) as $next
       | if ($next | length) == ($seen | length) then $seen else grow($next) end;
-    (if ($by | has("check")) then grow(["check"]) else null end)     as $reached
+    # A task reached without its dependencies contributes its own body and
+    # nothing further: not its depends, and not its own calls either.
+    (if ($by | has("check")) then grow(["check"])
+       | (. + (map($by[.].bodyonly) | add // []) | unique)
+     else null end)                                                 as $reached
   | if $tasks == [] then "PARSE\tthe task graph holds no task from this repo mise.toml"
     elif $reached == null then "PARSE\tno `check` task in the graph, so there is no gate to walk"
     else

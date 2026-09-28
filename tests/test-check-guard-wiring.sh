@@ -405,7 +405,7 @@ echo "ok: g8c ':::' segments, 'mise r', flags, quoting and 'default' are edges, 
 
 #     g8d: A CALL THAT DOES NOT RUN ITS TARGET IS NOT AN EDGE. `--dry-run`
 #     runs nothing, in every `:::` segment of the call; `--skip-deps` runs the
-#     target but not what it depends on.
+#     target but not what it depends on, so only the target's body counts.
 r="$tmp/r8d"
 for body in 'mise run -n check:inner' 'mise run --dry-run check:inner' \
   'mise run -qn check:inner' 'mise run -n check:alpha ::: check:inner'; do
@@ -427,6 +427,23 @@ expect_cg 1 "$r" "g8d inline MISE_TASK_SKIP_DEPENDS"
 wired "$r" 'mise run check:wrap' "env = { MISE_TASK_SKIP_DEPENDS = \"true\" }$inner$wrap"
 expect_mise 1 "$r" planted "g8d task-env MISE_TASK_SKIP_DEPENDS"
 expect_cg 1 "$r" "g8d task-env MISE_TASK_SKIP_DEPENDS"
+#     Skipping dependencies still runs the named task's own body.
+for body in 'mise run --skip-deps check:inner' \
+  'MISE_TASK_SKIP_DEPENDS=true mise run check:inner'; do
+  wired "$r" "$body" "$inner"
+  expect_mise 0 "$r" planted "g8d '$body'"
+  expect_cg 0 "$r" "g8d '$body'"
+done
+#     Only setting a variable counts: reading one, a longer name sharing its
+#     prefix, or setting the skip to false leaves the call an edge.
+# shellcheck disable=SC2016 # the expansion belongs to the fixture's run body
+for case in 'echo env=$MISE_ENV\nmise run check:wrap|' \
+  'mise run check:wrap|env = { MISE_ENV_FILE = ".env.x" }' \
+  'MISE_TASK_SKIP_DEPENDS=false mise run check:wrap|'; do
+  wired "$r" "${case%%|*}" "${case#*|}$inner$wrap"
+  expect_mise 0 "$r" planted "g8d '$case'"
+  expect_cg 0 "$r" "g8d '$case'"
+done
 #     A call run against another config (`-E dev` loads mise.dev.toml, which
 #     may redefine the task) claims no edge, and the flag's value is never
 #     read as the task. Stricter than mise when no such file exists, by design.
@@ -462,7 +479,7 @@ grep -qF -- 'edge to `-n`' "$tmp/err" || fail "g8d: the later segment's flag-sha
 wired "$r" 'mise run check:wrap' "$inner$wrap"
 expect_mise 0 "$r" planted "g8d control"
 expect_cg 0 "$r" "g8d control"
-echo "ok: g8d a dry run or a dependency-skipping run is not an edge"
+echo "ok: g8d a dry run is not an edge, a dependency-skipping run reaches only its target"
 
 #     g8e: a task ALIAS resolves to its task, from a depends list and from a
 #     run body alike; an alias nothing defines resolves to nothing.
