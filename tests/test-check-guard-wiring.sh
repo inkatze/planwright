@@ -371,25 +371,44 @@ echo "ok: g8b a guard named only in a run-body comment is not wiring"
 
 #     g8c: every spelling of a call that runs its target is an edge: each
 #     `:::` segment, `mise r`, a leading flag with a separate value, a quoted
-#     task name. A `mise run` that is only part of another word is not.
+#     task name, and a bare `mise run`, which runs `default`. A `mise run`
+#     that is only part of another word is not, a flag's value is not the
+#     task, and a bare call with no `default` task reaches nothing.
 r="$tmp/r8c"
 for body in \
   'mise run check:alpha ::: check:alpha --verbose ::: check:inner' \
   'mise r check:inner' \
-  'mise run -j 2 \"check:inner\"'; do
+  'mise run -j 2 \"check:inner\"' \
+  'mise run --jobs 2 check:inner'; do
   wired "$r" "$body" "$inner"
   expect_mise 0 "$r" planted "g8c '$body'"
   expect_cg 0 "$r" "g8c '$body'"
 done
+wired "$r" 'mise run' '
+[tasks.default]
+run = "/bin/sh scripts/check-planted.sh"'
+expect_mise 0 "$r" planted "g8c bare 'mise run'"
+expect_cg 0 "$r" "g8c bare 'mise run'"
 wired "$r" 'echo promise run check:inner' "$inner"
 expect_mise 1 "$r" planted "g8c 'promise run'"
 expect_cg 1 "$r" "g8c 'promise run'"
-echo "ok: g8c ':::' segments, 'mise r', flags and quoting are edges; 'promise run' is not"
+wired "$r" 'mise run -j 2 check:alpha' '
+[tasks."2"]
+run = "/bin/sh scripts/check-planted.sh"'
+expect_mise 1 "$r" planted "g8c flag value"
+expect_cg 1 "$r" "g8c flag value"
+wired "$r" 'mise run' "$inner"
+expect_mise 2 "$r" planted "g8c bare 'mise run' without default"
+expect_cg 1 "$r" "g8c bare 'mise run' without default"
+grep -q 'default' "$tmp/err" || fail "g8c: the missing default task was not reported"
+echo "ok: g8c ':::' segments, 'mise r', flags, quoting and 'default' are edges, and only those"
 
 #     g8d: A CALL THAT DOES NOT RUN ITS TARGET IS NOT AN EDGE. `--dry-run`
-#     runs nothing; `--skip-deps` runs the target but not what it depends on.
+#     runs nothing, in every `:::` segment of the call; `--skip-deps` runs the
+#     target but not what it depends on.
 r="$tmp/r8d"
-for body in 'mise run -n check:inner' 'mise run --dry-run check:inner'; do
+for body in 'mise run -n check:inner' 'mise run --dry-run check:inner' \
+  'mise run -qn check:inner' 'mise run -n check:alpha ::: check:inner'; do
   wired "$r" "$body" "$inner"
   expect_mise 1 "$r" planted "g8d '$body'"
   expect_cg 1 "$r" "g8d '$body'"
@@ -427,28 +446,37 @@ wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"nope\"]$inner"
 expect_mise 2 "$r" planted "g8e unknown alias"
 expect_cg 1 "$r" "g8e unknown alias"
 grep -q 'nope' "$tmp/err" || fail "g8e: the unresolvable alias was not reported"
+wired "$r" 'mise run nope' "$inner"
+expect_mise 2 "$r" planted "g8e unknown run-body alias"
+expect_cg 1 "$r" "g8e unknown run-body alias"
+grep -q 'nope' "$tmp/err" || fail "g8e: the unresolvable run-body alias was not reported"
 echo "ok: g8e a task alias resolves to its task, an unknown one to nothing"
 
-#     g8f: GLOB edges expand the way mise expands them: a trailing `*` spans
-#     the `:` separator, an inner `*` and `?` never do, classes and braces are
-#     honoured, aliases match too, and other characters are literal.
+#     g8f: GLOB edges expand the way mise expands them: a trailing `*` or `**`
+#     spans the `:` separator, an inner one and `?` never do, classes and
+#     braces are honoured, aliases match too, and other characters are literal.
 r="$tmp/r8f"
-wired "$r" '/bin/sh scripts/check-alpha.sh' 'depends = ["guard:*"]
-
+deep='
 [tasks."guard:deep:planted"]
 run = "/bin/sh scripts/check-planted.sh"'
-expect_mise 0 "$r" planted "g8f 'guard:*'"
-expect_cg 0 "$r" "g8f 'guard:*'"
+for pat in 'guard:*' 'g**'; do
+  wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"$pat\"]$deep"
+  expect_mise 0 "$r" planted "g8f '$pat'"
+  expect_cg 0 "$r" "g8f '$pat'"
+done
+wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"g**:planted\"]$deep"
+expect_mise 2 "$r" planted "g8f 'g**:planted'"
+expect_cg 1 "$r" "g8f 'g**:planted'"
 target='
 [tasks."guard:p"]
 alias = "plant-alias"
 run = "/bin/sh scripts/check-planted.sh"'
-for pat in 'guard:?' 'guard:[pq]' 'guard:[!q]' 'guard:{p,zz}' 'plant-*' 'g*:p'; do
+for pat in 'guard:?' 'guard:[pq]' 'guard:[!q]' 'guard:{p,zz}' 'plant-*' 'g*:p' 'g**:p'; do
   wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"$pat\"]$target"
   expect_mise 0 "$r" planted "g8f '$pat'"
   expect_cg 0 "$r" "g8f '$pat'"
 done
-for pat in 'guard?p' 'gu*p' 'guard.*' 'nomatch:*'; do
+for pat in 'guard?p' 'gu*p' 'guard.*' 'guard:[q]' 'guard:{q,zz}' 'nomatch:*'; do
   wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"$pat\"]$target"
   expect_mise 2 "$r" planted "g8f '$pat'"
   expect_cg 1 "$r" "g8f '$pat'"
@@ -457,23 +485,44 @@ for pat in 'guard?p' 'gu*p' 'guard.*' 'nomatch:*'; do
 done
 echo "ok: g8f a glob edge expands to the tasks mise would run, and only those"
 
-#     g8g: task shapes `mise tasks --json` renders beyond a plain name: a
-#     hidden task, a depends entry carrying arguments, and a structured
-#     `{ task = ... }` run entry.
+#     g8g: task shapes beyond a plain name: a hidden task (which a plain
+#     `mise tasks --json` leaves out), depends entries carrying arguments or
+#     env, and structured `{ task = ... }` / `{ tasks = [...] }` run entries.
+#     Each is paired with the same shape naming a task nobody defines.
 r="$tmp/r8g"
 wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"guard:p\"]$target
 hide = true"
+(cd "$r" && MISE_TRUSTED_CONFIG_PATHS="$r" mise tasks --json 2>/dev/null) \
+  | jq -e 'any(.[]; .name == "guard:p")' >/dev/null \
+  && fail "g8g: a plain 'mise tasks --json' lists the hidden task, so this case pins nothing"
 expect_mise 0 "$r" planted "g8g hidden"
 expect_cg 0 "$r" "g8g hidden"
-wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"guard:p --flag\"]$target"
-expect_mise 0 "$r" planted "g8g depends arguments"
-expect_cg 0 "$r" "g8g depends arguments"
+for dep in '"guard:p --flag"' '{ task = "guard:p", env = { X = "1" } }'; do
+  wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [$dep]$target"
+  expect_mise 0 "$r" planted "g8g depends $dep"
+  expect_cg 0 "$r" "g8g depends $dep"
+done
+for entry in '{ task = "guard:p" }' '{ tasks = ["check:alpha", "guard:p"] }'; do
+  wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"check:structured\"]$target
+
+[tasks.\"check:structured\"]
+run = [$entry]"
+  expect_mise 0 "$r" planted "g8g structured $entry"
+  expect_cg 0 "$r" "g8g structured $entry"
+done
+for dep in '"guard:q --flag"' '{ task = "guard:q", env = { X = "1" } }'; do
+  wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [$dep]$target"
+  expect_mise 2 "$r" planted "g8g depends $dep"
+  expect_cg 1 "$r" "g8g depends $dep"
+  grep -q 'guard:q' "$tmp/err" || fail "g8g depends $dep: the unresolvable edge was not reported"
+done
 wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"check:structured\"]$target
 
 [tasks.\"check:structured\"]
-run = [{ task = \"guard:p\" }]"
-expect_mise 0 "$r" planted "g8g structured run"
-expect_cg 0 "$r" "g8g structured run"
-echo "ok: g8g hidden tasks, depends arguments and structured run entries are followed"
+run = [{ task = \"guard:q\" }]"
+expect_mise 2 "$r" planted "g8g structured unknown"
+expect_cg 1 "$r" "g8g structured unknown"
+grep -q 'guard:q' "$tmp/err" || fail "g8g structured: the unresolvable edge was not reported"
+echo "ok: g8g hidden tasks, depends arguments and env, and structured run entries are followed"
 
 echo "ALL PASS: check-guard-wiring"

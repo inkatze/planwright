@@ -30,10 +30,13 @@
 # renders the task runner's own view of each task: TOML quoting and multi-line
 # arrays are its business, not this script's. It does NOT resolve edges, so
 # the walk does: a task alias resolves to its task, and a glob edge expands to
-# every task name or alias it matches. A run body contributes every
-# `mise run` / `mise r` task it names, each `:::` segment included; a call
-# carrying a flag that keeps the target or its dependencies from running
-# (`--dry-run`, `--skip-deps`, `--cd`, ...) contributes nothing.
+# every task name or alias it matches. A run body contributes the task each
+# `mise run` / `mise r` call names (`default` when it names none), each `:::`
+# segment included. A call whose leading flags keep the target or its
+# dependencies from running (`--dry-run`, `--skip-deps`, ...) or run it from
+# another directory's config (`--cd`) contributes nothing; a stop flag in a
+# later `:::` segment drops that segment alone. Global flags placed before
+# `run` (`mise -q run x`) are not read, so such a call contributes nothing.
 #
 # WHOLE-LINE COMMENTS ARE NOT EXECUTION. They are dropped from a run body
 # before either edges or guard names are read from it, so a commented-out call
@@ -47,9 +50,10 @@
 # guard reachable only through one must not read as wired here. Tasks are
 # filtered on their reported source.
 #
-# FAILS CLOSED on anything that would narrow the scan to nothing: no mise, no
-# task graph, a graph with zero tasks, no `check` task, a closure of zero
-# tasks, no workflows directory, or zero check-*.sh found. Each of those would
+# FAILS CLOSED on anything that would narrow the scan to nothing: no mise or
+# jq, no mise.toml, no task graph, a graph with zero tasks, no `check` task, a
+# walk that reports no reached tasks, no workflows directory, or zero
+# check-*.sh found. Each of those would
 # otherwise make this script exit 0 having proven nothing.
 #
 # Usage: check-guard-wiring.sh [--repo-root <dir>]
@@ -114,12 +118,12 @@ for tool in jq mise; do
   }
 done
 
-# The task graph, as mise itself resolves it. MISE_TRUSTED_CONFIG_PATHS keeps a
+# The task list, as mise itself renders it. MISE_TRUSTED_CONFIG_PATHS keeps a
 # fixture checkout (and a fresh clone) from stopping on the trust prompt; this
 # only ever LISTS tasks, never runs one.
 graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --json --hidden 2>/dev/null) || graph=''
 [ -n "$graph" ] || {
-  echo "$me: 'mise tasks --json' produced nothing in $repo_root — failing closed rather than reporting a clean scan" >&2
+  echo "$me: 'mise tasks --json --hidden' produced nothing in $repo_root — failing closed rather than reporting a clean scan" >&2
   exit 5
 }
 
@@ -127,13 +131,12 @@ graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --j
 # `depends_post`, structured `{ task = ... }` run entries, and the tasks a run
 # body's `mise run` calls name, resolve each against names, aliases and globs,
 # walk the closure from `check`, and emit the reached run bodies plus the
-# diagnostics.
-# `wait_for` is deliberately not an edge: it only orders a task that something
-# else already scheduled and never causes its target to run, so following it
-# would pass a guard nothing runs. A dangling
-# edge (resolving to no task in this file) is reported, never silently dropped:
-# an edge the walk cannot follow is exactly how a guard appears reachable
-# without being reachable.
+# diagnostics. `wait_for` is deliberately not an edge: it only orders a task
+# that something else already scheduled and never causes its target to run,
+# so following it would pass a guard nothing runs. A dangling edge (resolving
+# to no task in this file) is reported, never silently dropped: an edge the
+# walk cannot follow is exactly how a guard appears reachable without being
+# reachable. Its newlines are escaped, so no task name can forge a report line.
 report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
   def uncommented: split("\n") | map(select(test("^[[:space:]]*#") | not)) | join("\n");
   # The task one `:::` segment names, given its words. A flag that stops the
@@ -149,19 +152,25 @@ report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
         else $w | gsub("^[\"\u0027`]+|[\"\u0027`);]+$"; "")
         end
     end;
+  # The first segment carries the flags of the call, so a stop there drops the
+  # whole call; a first segment naming no task runs `default`.
   def run_edges:
-    [ match("(?:^|[^A-Za-z0-9_-])mise[ \t]+(?:run|r)[ \t]+([^;&|\n]*)"; "g")
+    [ match("(?:^|[^A-Za-z0-9_-])mise[ \t]+(?:run|r)(?=[ \t;&|\n]|$)[ \t]*([^;&|\n]*)"; "g")
       | [ .captures[0].string | splits("[ \t]*:::[ \t]*")
           | [ splits("[ \t]+") | select(. != "") ] | [ seg_task ] ]
-      | if (.[0] // []) == ["\u0000stop"] then empty
-        else .[][] | select(. != "\u0000stop") end ];
-  # A depends entry carrying arguments names its task in its first word.
+      | if .[0] == ["\u0000stop"] then empty
+        else ((if .[0] == [] then ["default"] else .[0] end)[]),
+             (.[1:][][] | select(. != "\u0000stop"))
+        end ];
+  # A depends entry carrying arguments or env names its task in `.task` or in
+  # its first word.
   def edge_name:
     if type == "array" then .[0]
+    elif type == "object" then (.task // tostring)
     elif type == "string" then (split(" ") | .[0])
     else tostring end;
-  # mise task-name globs, as measured against mise itself: `**` and a trailing
-  # `*` span the `:` separator, an inner `*` and `?` do not, and `[...]`
+  # mise task-name globs, as measured against mise itself: a trailing `*` (or
+  # `**`) spans the `:` separator, an inner one and `?` do not, and `[...]`
   # classes and `{a,b}` alternation are honoured.
   def glob_re:
     split("") as $cs
@@ -173,7 +182,7 @@ report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
                   elif $c == "\\" then "\\\\" else $c end)
       elif $c == "*" then
         .re += (if $i > 0 and $cs[$i - 1] == "*" then ""
-                elif $cs[$i + 1] == "*" or $i == ($cs | length) - 1 then ".*"
+                elif ($cs[$i + 1:] | all(. == "*")) then ".*"
                 else "[^:]*" end)
       elif $c == "?" then .re += "[^:]"
       elif $c == "[" then .cls = true | .re += "["
@@ -201,7 +210,7 @@ report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
       | ([ (.depends // [])[], (.depends_post // [])[],
            ($run[] | objects | (.task // empty), (.tasks // [])[]) ]
          | map(edge_name) + ($body | run_edges)
-         | map(select(. != "")))                                    as $edges
+         | map(select(. != "") | gsub("\n"; "\\n")))                as $edges
       | { name: .name,
           body: $body,
           next: ([ $edges[] | resolve[] ] | unique),
@@ -321,7 +330,7 @@ if [ -n "$unwired" ]; then
 fi
 
 printf '%s\n' "$meta" | awk -F'\t' -v me="$me" '
-  $1 == "DANGLING" { print me ": note: dependency on `" $2 "` names or matches no task in this repo mise.toml — outside the parse boundary" > "/dev/stderr" }
+  $1 == "DANGLING" { print me ": note: edge to `" $2 "` names or matches no task in this repo mise.toml — outside the parse boundary" > "/dev/stderr" }
 '
 
 if [ "$rc" = 0 ]; then
