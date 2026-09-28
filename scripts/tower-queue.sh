@@ -2000,9 +2000,25 @@ is_prefix() {
 }
 
 # The branch names a push may not reach mechanically: the default branch under
-# either of its two conventional spellings. Stated here because this is where
-# the refusal is enforced.
+# either of its two conventional spellings, and a spec branch (is_protected_branch
+# below). Stated here because this is where the refusal is enforced.
 Q_PROTECTED_BRANCHES="main master"
+
+# is_protected_branch <lowercased branch> — 0 for a name in Q_PROTECTED_BRANCHES
+# or a spec branch, `planwright/<spec>/spec` with <spec> one path segment.
+is_protected_branch() {
+  is_one_of "$1" "$Q_PROTECTED_BRANCHES" && return 0
+  case "$1" in
+    planwright/?*/spec)
+      _ib=${1#planwright/}
+      case "${_ib%/spec}" in
+        */*) return 1 ;;
+      esac
+      return 0
+      ;;
+  esac
+  return 1
+}
 
 # push_reaches_protected <lowercased command> — 0 when a `push` command's
 # DESTINATION is a protected branch, or when it forces. The destination is
@@ -2047,7 +2063,7 @@ push_reaches_protected() {
       esac
       _pd=${_pw##*:}
       _pd=${_pd#refs/heads/}
-      is_one_of "$_pd" "$Q_PROTECTED_BRANCHES" && exit 0
+      is_protected_branch "$_pd" && exit 0
     done
     exit 1
   )
@@ -2154,7 +2170,7 @@ push_parses_safe() {
       case "$_pd" in
         "" | head | @ | refs/* | -* | *[!a-z0-9._/@-]*) exit 1 ;;
       esac
-      is_one_of "$_pd" "$Q_PROTECTED_BRANCHES" && exit 1
+      is_protected_branch "$_pd" && exit 1
     done
     [ -n "$_pr" ] && [ "$_pn" -gt 0 ]
   )
@@ -2175,7 +2191,8 @@ push_parses_safe() {
 reserved_control() {
   _rl=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
   case "$_rl" in
-    *merge* | *merging* | *rebas* | *amend* | *squash* | *force-push* | *force-with-lease*) return 0 ;;
+    *merge* | *merging* | *rebas* | *amend* | *squash* | *fixup* | *force-push* | *force-with-lease*) return 0 ;;
+    *'git pull'* | *git-pull*) return 0 ;;
     *' ready'* | *'--ready'* | ready | ready' '*) return 0 ;;
   esac
   case "$_rl" in

@@ -188,13 +188,27 @@ for res in 'git push origin +main' 'git push origin refs/heads/main' \
   'git push origin +refs/heads/main' 'git push origin HEAD:refs/heads/main' \
   'git push --force origin main' 'git push origin +master' \
   'git push origin main' 'git push origin HEAD:main' 'git push origin main:main' \
-  'git push -qf origin feature' 'git push origin "main"'; do
+  'git push -qf origin feature' 'git push origin "main"' \
+  'git push origin planwright/human-gates/spec' 'git push origin HEAD:planwright/human-gates/spec' \
+  'git push origin HEAD:refs/heads/planwright/human-gates/spec' 'git push -u origin planwright/x/spec'; do
   rc=0
   run match --decision "$push_rule" --command "$res" >"$tmp/o" || rc=$?
   [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
     || fail "'$res' was not refused as a reserved control (exit $rc, '$(cat "$tmp/o")')"
 done
-echo "ok: every spelling of a force-push or a push to the default branch is refused"
+echo "ok: every spelling of a force-push or a push to the default branch or a spec branch is refused"
+
+# A pull is a merge and a fixup is a rewrite, whatever the rule covers.
+git_rule=$(captured --kind standing --text 'always let the workers run git' \
+  --covers-command 'git ' --now 1005) || fail "capture of the git rule failed"
+for res in 'git pull' 'git pull origin main' 'git pull --ff-only origin main' \
+  'git commit --fixup HEAD~1' 'git commit --fixup=HEAD~1'; do
+  rc=0
+  run match --decision "$git_rule" --command "$res" >"$tmp/o" || rc=$?
+  [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+    || fail "'$res' was not refused as a reserved control (exit $rc, '$(cat "$tmp/o")')"
+done
+echo "ok: a pull and a fixup commit are refused as reserved controls"
 
 # The quoted spellings. The allowlist admits a quoted interior anywhere in a
 # word, and the shell reads each of these as the bare spelling above; the
@@ -238,7 +252,9 @@ echo "ok: a push whose destination cannot be positively named reaches the operat
 # The rule the operator actually wanted still works, in every admitted shape.
 for okp in 'git push origin feature/thing' 'git push origin "feature/thing"' 'git push -u origin feature' \
   'git push origin feature -v' 'git push origin main:feature' 'git push origin refs/heads/feature' \
-  'git push origin head:feature' 'git push origin feature:refs/heads/feature' 'git push upstream fix-1'; do
+  'git push origin head:feature' 'git push origin feature:refs/heads/feature' 'git push upstream fix-1' \
+  'git push origin planwright/human-gates/task-5' 'git push origin planwright/human-gates/spec-notes' \
+  'git push origin planwright/a/b/spec'; do
   run match --decision "$push_rule" --command "$okp" >"$tmp/o" \
     || fail "an ordinary branch push ('$okp') did not match (exit $?, '$(cat "$tmp/o")')"
   [ "$(cat "$tmp/o")" = match ] || fail "an ordinary branch push ('$okp') printed '$(cat "$tmp/o")'"
