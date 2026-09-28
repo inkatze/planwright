@@ -314,7 +314,28 @@ gitc "$c/primary" rm -q --cached .claude/planwright.local.yml
 gitc "$c/primary" commit -q -m "untrack the local config"
 run home --repo-root "$c/primary"
 [ "$(field "$OUT" home)" = pr ] || fail "home: an untracked planwright.local.yml must still approve (out: $OUT)"
-printf 'flight_pr_hosts: [git.example.com]\n' >"$c/adopter/planwright.yml"
+# Nor by a case-folded spelling, or through a symlinked .claude.
+rm -f "$c/primary/.claude/planwright.local.yml"
+printf 'flight_pr_hosts: [github.com]\n' >"$c/primary/.claude/PLANWRIGHT.LOCAL.YML"
+gitc "$c/primary" add -f .claude/PLANWRIGHT.LOCAL.YML
+gitc "$c/primary" commit -q -m "a case-folded local config"
+if [ -f "$c/primary/.claude/planwright.local.yml" ]; then
+  run home --repo-root "$c/primary"
+  [ "$(field "$OUT" home)" = file ] || fail "home: a tracked case-folded planwright.local.yml must not approve (out: $OUT)"
+fi
+gitc "$c/primary" rm -q .claude/PLANWRIGHT.LOCAL.YML
+gitc "$c/primary" commit -q -m "drop the case-folded local config"
+mkdir -p "$c/primary/.claude"
+mv "$c/primary/.claude" "$c/primary/claude-real"
+printf 'flight_pr_hosts: [github.com]\n' >"$c/primary/claude-real/planwright.local.yml"
+ln -s claude-real "$c/primary/.claude"
+[ -f "$c/primary/.claude/planwright.local.yml" ] || fail "fixture: the symlinked .claude holds no local config"
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: a planwright.local.yml reached through a symlinked .claude must not approve (out: $OUT)"
+case $ERR in *"through a symlink"*) ;; *) fail "home: an ignored symlinked local config must be named: $ERR" ;; esac
+rm "$c/primary/.claude"
+mv "$c/primary/claude-real" "$c/primary/.claude"
+rm -f "$c/primary/.claude/planwright.local.yml"
 gitc "$c/primary" remote set-url --push origin git@git.example.com:acme/widgets.git
 # Quoted entries are trimmed as the sibling list reader trims them.
 printf 'flight_pr_hosts: []\n' >"$c/adopter/planwright.yml"
@@ -1114,6 +1135,22 @@ gitc "$c/primary" worktree remove --force "$c/primary/.claude/worktrees/flight-$
 run retire --repo-root "$c/primary"
 [ "$RC" -eq 0 ] || fail "retire under an out-of-range stale threshold exited $RC: $ERR"
 [ -d "$c/fleet/flights/$fy" ] || fail "an out-of-range stale threshold must not make a young brief sweepable"
+# An age check that fails keeps the brief.
+real_find=$(command -v find)
+mkdir -p "$tmp/findbin"
+cat >"$tmp/findbin/find" <<EOF
+#!/bin/sh
+for a in "\$@"; do
+  [ "\$a" != -mmin ] || { echo refused >>"$tmp/find.log"; exit 1; }
+done
+exec '$real_find' "\$@"
+EOF
+chmod +x "$tmp/findbin/find"
+printf 'flight_pr_hosts: [github.com]\n' >"$c/adopter/planwright.yml"
+age "$c/fleet/flights/$fy"
+PATH="$tmp/findbin:$PATH" run retire --repo-root "$c/primary"
+[ -s "$tmp/find.log" ] || fail "fixture: the failing age check was never reached"
+[ -d "$c/fleet/flights/$fy" ] || fail "a brief whose age check failed must be kept"
 
 # A flight worktree switched onto a retired flight's branch still keeps its
 # own brief: the path and the branch each name a live flight.

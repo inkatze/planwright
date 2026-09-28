@@ -258,12 +258,27 @@ read_hosts() {
     echo "$prog: ignoring flight_pr_hosts in the repo-tracked config: a repository cannot approve its own push destination" >&2
   fi
   # The derived machine-local file sits in the work tree, so a repository can
-  # commit it past its own ignore rule; a tracked one is repo content.
+  # commit it past its own ignore rule, under a case-folded name, or behind a
+  # symlinked `.claude`; any of those, or a tracking check that fails, makes it
+  # repo content.
   _local=${PLANWRIGHT_LOCAL_CONFIG:-$repo_root/.claude/planwright.local.yml}
-  if [ -z "${PLANWRIGHT_LOCAL_CONFIG:-}" ] \
-    && git -C "$repo_root" ls-files --error-unmatch -- .claude/planwright.local.yml >/dev/null 2>&1 </dev/null; then
-    echo "$prog: ignoring flight_pr_hosts in .claude/planwright.local.yml: the repository tracks that file" >&2
-    _local=/dev/null/planwright.local.yml
+  if [ -z "${PLANWRIGHT_LOCAL_CONFIG:-}" ] && [ -e "$_local" ]; then
+    _why=''
+    if [ -L "$repo_root/.claude" ] || [ -L "$_local" ]; then
+      _why="it is reached through a symlink"
+    else
+      git -C "$repo_root" ls-files --error-unmatch -- ':(icase).claude/planwright.local.yml' \
+        >/dev/null 2>&1 </dev/null
+      case $? in
+        0) _why="the repository tracks that file" ;;
+        1) ;;
+        *) _why="git could not say whether the repository tracks it" ;;
+      esac
+    fi
+    if [ -n "$_why" ]; then
+      echo "$prog: ignoring flight_pr_hosts in .claude/planwright.local.yml: $_why" >&2
+      _local=/dev/null/planwright.local.yml
+    fi
   fi
   _raw=$(PLANWRIGHT_REPO_ROOT=/dev/null PLANWRIGHT_LOCAL_CONFIG="$_local" \
     /bin/sh "$CONFIG" flight_pr_hosts </dev/null)
@@ -598,7 +613,10 @@ stale_min() {
     *[!0]*) STALE_MIN=$_sm ;;
     *) STALE_MIN=15 ;;
   esac
-  [ "${#STALE_MIN}" -le 6 ] || STALE_MIN=15
+  # Past six digits, clamp high rather than fall back: a shorter window than
+  # the lock's own would sweep briefs the lock still treats as fresh.
+  STALE_MIN=$(printf '%s' "$STALE_MIN" | sed 's/^0*//')
+  [ "${#STALE_MIN}" -le 6 ] || STALE_MIN=999999
 }
 
 # sweep_briefs — remove the brief directory of every retired flight of this
