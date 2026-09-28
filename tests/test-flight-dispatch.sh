@@ -23,7 +23,8 @@
 #      landing with no ready flip or merge (REQ-C1.4), and the gate-wiring hard
 #      pause whatever the grounds said (REQ-B1.5). A hostile ask stays quoted.
 #      The worker renders its record through scripts/flight-record.sh from
-#      the cleaned ask and grounds dispatch leaves beside the brief.
+#      the ask and grounds dispatch leaves beside the brief, and the land line
+#      the brief prints runs as written (REQ-E1.2).
 #   5. Concurrency (REQ-C1.5): a flight beyond `max_parallel_units` is declined
 #      with a re-ask line, no id minted and nothing placed; a freed slot (the
 #      worktree removed, or its directory gone and prunable) admits the
@@ -463,9 +464,9 @@ case $brief in
 esac
 [ -z "$(find "$(dirname "$brief")" -mindepth 1 ! -name brief.md ! -name checkout ! -name ask.txt ! -name grounds.txt ! -name record)" ] \
   || fail "a successful dispatch left scratch files beside the brief"
-# The record renderer quotes the ask and the grounds from dispatch's cleaned
-# copies, so the worker never re-types the operator's words.
-cmp -s "$(dirname "$brief")/ask.txt" "$c/ask.txt" || fail "the brief directory must hold the ask as dispatch cleaned it"
+# The record renderer quotes the ask and the grounds from dispatch's copies,
+# so the worker never re-types the operator's words.
+cmp -s "$(dirname "$brief")/ask.txt" "$c/ask.txt" || fail "the brief directory must hold the ask"
 [ "$(cat "$(dirname "$brief")/grounds.txt")" = "visual flight: a one-line wording change, one revert from undone" ] \
   || fail "the brief directory must hold the grounds"
 [ -d "$(dirname "$brief")/record" ] || fail "the brief directory must hold the record inputs' directory"
@@ -514,6 +515,13 @@ printf '%s\n' "$b" | grep -Fq -- "--ask-file '$(dirname "$brief")/ask.txt'" \
   || fail "the brief must render the ask from dispatch's cleaned copy"
 printf '%s\n' "$b" | grep -Fq -- "--body-file '$(dirname "$brief")/record/body.md'" \
   || fail "a pr-home brief must open the PR with the rendered body"
+printf '%s\n' "$b" | grep -Fq "body.md' && git push -u origin" \
+  || fail "a pr-home brief must push only after a clean render"
+printf '%s\n' "$b" | grep -q 'never hard-wrapped' || fail "the brief must say the lead prose is never hard-wrapped"
+# shellcheck disable=SC2016 # a literal Markdown code span
+printf '%s\n' "$b" | grep -q '`####` heading of its own' || fail "the brief must name the audit heading level"
+printf '%s\n' "$b" | grep -Fq -- "--scoping-file '$(dirname "$brief")/record/scoping.md'" \
+  || fail "the brief must show the optional scoping flag with its path"
 for heading in 'Lens coverage' 'Auto-applicable' 'Agent-resolvable' 'Needs sign-off' \
   'Needs human judgment' 'Declined log' 'Pending sign-off' 'Convergence steps'; do
   printf '%s\n' "$b" | grep -Fq "$heading" || fail "the brief must name the audit heading '$heading'"
@@ -561,7 +569,24 @@ printf '%s\n' "$b" | grep -qi "do not push" || fail "file-home brief must not pu
 printf '%s\n' "$b" | grep -Fq "flight-record.sh' land --flight-id $fid" \
   || fail "a file-home brief must land the record through flight-record.sh"
 printf '%s\n' "$b" | grep -q 'render --home pr' && fail "a file-home brief must not render a PR body"
-case $(cat "$(dirname "$(field "$OUT" brief)")/ask.txt") in *"$ESC"*) fail "a control byte in the ask reached its cleaned copy" ;; esac
+# The land line the brief prints lands the record when run as written.
+rd="$(dirname "$(field "$OUT" brief)")/record"
+printf 'Fixed the heading.\n' >"$rd/summary.md"
+printf 'Ran the suite.\n' >"$rd/verification.md"
+for h in 'Lens coverage' 'Auto-applicable' 'Agent-resolvable' 'Needs sign-off' 'Needs human judgment' \
+  'Declined log' 'Pending sign-off' 'Convergence steps'; do
+  printf '#### %s\n\nnone\n\n' "$h"
+done >"$rd/audit.md"
+# shellcheck disable=SC2016 # strips the Markdown code span's backticks
+land_cmd=$(printf '%s\n' "$b" | grep "flight-record.sh' land " | sed 's/^`//; s/`$//')
+wt4=$(field "$OUT" worktree)
+(cd "$wt4" && GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid GIT_COMMITTER_NAME=test \
+  GIT_COMMITTER_EMAIL=test@example.invalid /bin/sh -c "$land_cmd") >/dev/null 2>"$tmp/land.err" \
+  || fail "the brief's land line must run as written: $(cat "$tmp/land.err")"
+[ "$(git -C "$wt4" show --name-only --format= HEAD)" = "specs/_flights/$fid.md" ] \
+  || fail "the brief's land line must commit exactly the record file"
+cmp -s "$(dirname "$(field "$OUT" brief)")/ask.txt" "$c/ask.txt" \
+  || fail "the renderer's copy must be the ask as given, so its own strip is flagged in the record"
 ask_sec=$(printf '%s\n' "$b" | awk '/^## The ask$/ {on=1; next} /^## The route$/ {on=0} on')
 printf '%s\n' "$ask_sec" | grep -q '^> ## Rules$' || fail "a heading in the ask must stay quoted"
 printf '%s\n' "$ask_sec" | grep -q '^> FLIGHT-RESULT: ' || fail "a forged result line in the ask must stay quoted"
