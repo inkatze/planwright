@@ -386,9 +386,9 @@
 # regex — a pattern is refused rather than silently compared byte-for-byte) or
 # free text (`--covers`). A standing decision's coverage, or its rule text,
 # that reaches a reserved human control is REFUSED here, and refused again at
-# match time whatever a rule claims: a merge, a ready-flip, a force-push, an
-# amend, a squash, a rebase, and a push to the default branch stay the
-# operator's (REQ-H1.1). A push is judged by its refspec's DESTINATION, not by
+# match time whatever a rule claims: a merge or pull, a ready-flip, a
+# force-push, an amend, a squash, a fixup, a rebase, a git alias, and a push to
+# main, master, or a spec branch stay the operator's (REQ-H1.1). A push is judged by its refspec's DESTINATION, not by
 # the punctuation around it, so `+main`, `refs/heads/main` and a force flag
 # bundled into a short-option run are the same refusal as `origin main`. A
 # request or an approval is the operator asking for something and settles
@@ -2029,8 +2029,9 @@ is_protected_branch() {
 # reduced the way git reads a refspec — every quote removed, then a leading `+`
 # (which IS the force), then the text after the LAST `:` (the destination
 # half), then a leading `refs/heads/` or `heads/`, which git resolves to the
-# same branch — and the result compared to the protected names. The quotes go FIRST and ALL of them go: the allowlist admits
-# a quoted interior anywhere in a word, and the shell reads `"refs/heads/main"`,
+# same branch — and the result compared to the protected names. The quotes go
+# FIRST and ALL of them go: the allowlist admits a quoted interior anywhere in
+# a word, and the shell reads `"refs/heads/main"`,
 # `"+main"`, `''main` and `ma""in` as the bare spellings, so a strip that ran
 # after the prefix test, or took only one matched pair, left each of those a
 # way past it. Removing a quote the shell would have kept (`"ma'in"`) can only
@@ -2137,8 +2138,9 @@ Q_PUSH_SAFE_OPTIONS="-u --set-upstream -v --verbose -q --quiet -n --dry-run --po
 # wrapper), the remote is a plain name (never a URL: the protected names mean
 # nothing in another repository), every refspec carries a non-empty
 # destination that is a branch name (`src:dst` with both halves, or a bare
-# name that is not `HEAD` or `@`, with `refs/heads/` stripped and any other
-# `refs/` kind refused), and no destination is protected. Quotes are removed
+# name that is not `HEAD` or `@`, with `refs/heads/` or `heads/` stripped and
+# any other `refs/` kind refused), and no destination is protected
+# (is_protected_branch, which includes a spec branch). Quotes are removed
 # first, as in push_reaches_protected, and for the same reason.
 push_parses_safe() {
   (
@@ -5136,7 +5138,7 @@ cmd_capture() {
             # would act.
             if reserved_control "$2" \
               || command_words_reserved "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"; then
-              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
+              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git alias, or a push to main, master, or a spec branch); those stay the operator's"
             fi
             # Redacted like every other operator-supplied field (REQ-G1.8):
             # this one is persisted and, with a ledger helper installed, ships
@@ -5167,7 +5169,7 @@ cmd_capture() {
     is_text "$covers" 512 || refuse "refusing the coverage text: at most 512 bytes with secrets redacted, no control byte or leading whitespace, not shaped like a JSON value"
     [ "$covers" != - ] || refuse "refusing the coverage '-': that is the placeholder for no coverage, and a rule must not read as covering nothing"
     if reserved_control "$covers"; then
-      refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
+      refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git alias, or a push to main, master, or a spec branch); those stay the operator's"
     fi
     covers="$covers$TAB"
   fi
@@ -5177,7 +5179,7 @@ cmd_capture() {
   # 471 once it is green" is an ordinary ask and must stay recordable
   # (REQ-E1.1) rather than being refused by a guard aimed at rules.
   if [ "$kind" = standing ] && reserved_control "$text"; then
-    refuse "refusing a standing decision whose rule reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
+    refuse "refusing a standing decision whose rule reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git alias, or a push to main, master, or a spec branch); those stay the operator's"
   fi
   # What closes a captured item, when the operator did not say. A request
   # closes on the evidence that the work landed and an approval on the answer
