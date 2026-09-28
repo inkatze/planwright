@@ -260,7 +260,34 @@ deferred until every flipper posts.
 
 ## Awaiting input
 
-(none yet)
+- **Task 3** — paused in convergence on a hard-disqualifier zone: how
+  `scripts/flight-dispatch.sh` turns the resolved convergence steps into
+  an unattended flight worker's brief (prompt and shell construction for
+  a worker that may push). Everything else is committed on
+  `planwright/custom-steps/task-3` (unpushed): the resolver deletion and a
+  reviewed prose batch plus a test addition, both pending sign-off.
+  Confirmed findings, none applied:
+  - step `args` and prompt text reach the brief unscreened and inside
+    inline code, though the resolver leaves screening to the consumer and
+    this script already screens the ask;
+  - a relative command target is resolved against the dispatching
+    checkout rather than the flight worktree, printed unquoted, and
+    without the `--line` step context the worker guard and REQ-G1.1
+    expect;
+  - each step's hosting, on-failure, and timeout never reach the brief, a
+    skipped step disappears from the brief and the report, and every
+    resolver failure (a park included) exits 4 with one message;
+  - the core list and catalog come from the environment's planwright
+    root while skills are checked under this script's root;
+  - the brief lists the steps and also tells the worker to re-read them.
+  The kickoff brief marked REQ-F1.5 a dead path because no flight skill
+  had shipped; one since has, so this is a scope call. Options:
+  (a) narrow flights to skill steps for now, refusing command and prompt
+  steps at unit kind `flight`, and gate full rendering as a follow-up;
+  (b) implement full rendering in this task (screening, `--line` with
+  context, resolution in the placed worktree, posture and timeout, skip
+  reporting); (c) split the flight change into its own task through a
+  `/spec-kickoff` delta. Recommended: (a).
 
 ## Deferred
 
