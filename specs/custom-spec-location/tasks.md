@@ -285,7 +285,19 @@ supported configuration ships while the doctrine still calls it wrong.
 
 ## Awaiting input
 
-(none yet)
+- **Task 2** — contract conflict on an empty `spec_root` value. REQ-A1.3
+  says an empty value is unset in its layer and "falls through to the next
+  lower layer", so an empty machine-local value over a repo-tracked one
+  would yield the repo-tracked path. Task 2's Done-when says the same case
+  "falls through to the default", and D-3's rejected alternative and the
+  K1 fork (2026-09-22) both describe the empty value as how a machine-local
+  file cancels a repo-tracked one. The branch implements the cancel reading
+  (empty wins and reaches the default); a malformed value still passes to
+  the next lower layer. Decide which reading holds: cancel (REQ-A1.3's
+  wording then needs a `/spec-kickoff` amendment) or fall-through to the
+  next lower layer (the Done-when and the implementation change). The work
+  is committed on `planwright/custom-spec-location/task-2`, unpushed;
+  convergence and the PR are pending the answer.
 
 ## Deferred
 
