@@ -374,8 +374,8 @@ init_spec_root() {
     is_id=$(project_id)
     [ -n "$is_id" ] || refuse_spec "--init cannot derive a project identifier from '$rp_path'"
     is_tmp=$sr_primary/.planwright-spec-root.yml.$$
-    if ! { printf 'project: %s\nlayout: 1\n' "$is_id" >"$is_tmp" &&
-      mv -f "$is_tmp" "$sr_primary/planwright-spec-root.yml"; } 2>/dev/null; then
+    if ! { printf 'project: %s\nlayout: 1\n' "$is_id" >"$is_tmp" \
+      && mv -f "$is_tmp" "$sr_primary/planwright-spec-root.yml"; } 2>/dev/null; then
       rm -f "$is_tmp"
       refuse_spec "--init could not write the marker"
     fi
