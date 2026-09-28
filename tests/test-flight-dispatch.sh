@@ -1080,6 +1080,10 @@ printf '   \n' >"$c/g-blank.txt"
 run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/g-blank.txt" \
   --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "whitespace-only grounds must be refused (rc $RC)"
+printf ' \342\200\213 \n' >"$c/g-hidden.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/g-hidden.txt" \
+  --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "grounds blank once stripped must be refused (rc $RC)"
 # The ask is read once, so a file changed mid-dispatch cannot slip past the
 # size cap or the flag.
 # shellcheck disable=SC2016 # a literal redirect from the variable is the pattern
@@ -1324,6 +1328,7 @@ printf 'visual flight: a CRLF line\r\n' >"$c/g-crlf.txt"
 run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/g-crlf.txt" \
   --repo-root "$c/primary"
 [ "$RC" -eq 0 ] || fail "CRLF grounds are one line and must be accepted (rc $RC: $ERR)"
+case $(cat "$(field "$OUT" brief)") in *"$(printf '\r')"*) fail "a CRLF grounds line must reach the brief without its CR" ;; esac
 
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-dispatch: $fails failure(s)" >&2

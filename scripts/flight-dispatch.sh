@@ -970,7 +970,8 @@ cmd_dispatch() {
   if [ "$grounds_sanitized" -eq 1 ]; then
     grounds=$(cat "$work/grounds")
     echo "$prog: NOTE: invisible or bidi-control characters were stripped from the grounds" >&2
-    [ -n "$grounds" ] || die 2 "the grounds are empty once invisible characters are stripped: a route is never silent"
+    [ -n "$(printf '%s' "$grounds" | tr -d ' \t')" ] \
+      || die 2 "the grounds are empty once invisible characters are stripped: a route is never silent"
   fi
   case $home in
     '' | pr | file) ;;
