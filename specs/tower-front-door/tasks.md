@@ -267,32 +267,38 @@ router has not demonstrated (REQ-B1.6).
 ## Awaiting input
 
 - **Task 6** — the convergence review of the flight record renderer
-  (`scripts/flight-record.sh`) paused on hard-disqualifier-zone findings in
-  its secret handling and in `land`'s destructive rollback (recommended
-  fixes recorded, none applied). Decide each: (1) a pasted private key is
-  only partly redacted: the secret screen flags the `BEGIN ... PRIVATE
-  KEY` line alone, so the key body and its `END` line reach the record:
-  redact from the flagged `BEGIN` line through the matching `END` line, or
-  to the end when there is none; (2) the screen's assignment rule matches
-  lowercase keywords only, so `API_KEY=<long value>` passes: match the
-  keyword case-insensitively; (3) the screen prints each finding's path
-  with bytes 0x80–0x9F stripped, so when the temp directory's path holds
-  such a byte (many non-ASCII characters) no finding matches its input and
-  nothing is redacted or refused: run the screen from the work directory
-  on fixed ASCII names, and fail closed on a finding whose path is not an
-  input; (4) the ask is screened for token-shaped secrets only, not for
-  personal data (identity, account, or contact numbers), which
-  security-posture's artifact data-hygiene also bars from a PR body or a
-  commit: either add personal-data-shaped redaction to the ask screen, or
-  require the operator to acknowledge the ask before it is quoted into the
-  record; (5) `land`'s rollback unstages and deletes the record without
-  checking whether it is already committed: two concurrent runs leave the
-  record committed but deleted and its deletion staged, an interrupted run
-  leaves a file that every re-run refuses as "already exists", and a
-  rolled-back run leaves an empty `specs/_flights/`: create the record
-  exclusively, roll back only when it is not in `HEAD` (from an EXIT trap,
-  so an interrupt rolls back too), and let a re-run whose committed record
-  matches the render report it and exit 0.
+  (`scripts/flight-record.sh`) found security-sensitive fixes the review may
+  not apply on its own: its secret handling, and the file writes and
+  rollback in `land`. None were applied; each needs a decision.
+  1. Problem: a private key pasted into the ask or the grounds is only
+     partly redacted. The secret screen flags the `BEGIN ... PRIVATE KEY`
+     line alone, so the key body and its `END` line reach the record.
+     Recommended fix: redact from the flagged `BEGIN` line through the
+     matching `END` line, or to the end when there is none.
+  2. Problem: the screen's assignment rule matches lowercase keywords only,
+     so `API_KEY=<long value>` passes. Recommended fix: match the keyword
+     in any case.
+  3. Problem: the screen prints the path of each finding with some bytes
+     removed, and when the temp directory's path holds such a byte (some
+     non-ASCII characters, an em dash for one) no finding matches its
+     input, so nothing is redacted or refused. Recommended fix: run the
+     screen from the work directory on fixed ASCII names, and refuse rather
+     than pass when a finding names a path that is not an input.
+  4. Problem: the ask is screened for token-shaped secrets only, not for
+     personal data (identity, account, or contact numbers), which the
+     security-posture data-hygiene rule also keeps out of a PR body or a
+     commit. Choose: add personal-data patterns to the ask's screen, or have
+     the operator confirm the ask before it is quoted into the record.
+  5. Problem: `land`'s rollback unstages and deletes the record without
+     checking whether it is already committed, so two runs at once leave the
+     record committed but deleted, with the deletion staged; an interrupted
+     run leaves a file every re-run refuses as "already exists"; and a
+     symlink swapped in between `land`'s checks and its write would carry
+     the write outside the checkout. Recommended fix: create the record only
+     if it does not already exist, re-check the directories after creating
+     them, roll back only when the record is not in `HEAD` (from an exit
+     handler, so an interrupt rolls back too), and let a re-run whose
+     committed record matches the render report it and succeed.
 
 ## Deferred
 
