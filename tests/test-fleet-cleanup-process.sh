@@ -34,6 +34,7 @@ unset CDPATH
 
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 here=$(cd "$(dirname "$0")" && pwd)
 FC_REAL="$here/../scripts/fleet-cleanup.sh"
@@ -84,6 +85,10 @@ env_scrub=(
   -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
   -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE
   -u FLEET_PANE_PROMPT_ANCHORS -u FLEET_PANE_PROMPT_SIGNATURES
+  -u PLANWRIGHT_HEADLESS_ENVWRAP -u PLANWRIGHT_HEADLESS_LIVENESS_TTL
+  -u PLANWRIGHT_FLEET_LOCK_HELD -u PLANWRIGHT_ORCH_STATE_DIR -u PLANWRIGHT_JQ
+  -u PLANWRIGHT_ATTENTION_SURFACE_PROVIDED -u PLANWRIGHT_SKILLS_ROOT
+  -u TMUX -u TMUX_PANE
 )
 
 # ============================================================================
@@ -263,7 +268,14 @@ for st in 'dead death-evidence' 'finished-but-unreaped completion:result=success
     esac
   done
 done
-echo "ok: a worker owned by a live peer tower is refused with its own exit (7) under every evidence"
+det dead live-peer death-evidence print live
+gate w1 trig why
+expect 8 "a print unit owned by a live peer"
+det dead live-peer death-evidence tmux live
+gate w1 trig why
+expect 7 "a tmux worker owned by a live peer"
+never_stopped "a tmux worker owned by a live peer"
+echo "ok: a worker owned by a live peer tower is refused with its own exit (7) under every evidence; print outranks it, and backend does not"
 
 # --- the evidence matrix: tower verdict x session state ---------------------
 # Only a positively dead owner crossed with a positively ended session reaches
@@ -310,6 +322,17 @@ while IFS= read -r tw; do
   while IFS= read -r ss; do
     st=${ss%%:*}
     rs=${ss#*:}
+    # Every other tower verdict is refused before the session is read, so it
+    # meets one ended session, one completion, and one live one.
+    case $tw in
+      dead:dead-or-unknown | self:this-tower) ;;
+      *)
+        case $ss in
+          dead:death-evidence | finished-but-unreaped:session-ended | working:runtime-running) ;;
+          *) continue ;;
+        esac
+        ;;
+    esac
     det "$st" "$ow" "$rs" stream-json-persistent "$oe"
     gate w1 trig why
     cells=$((cells + 1))
@@ -337,7 +360,7 @@ EOF
 done <<EOF
 $towers
 EOF
-[ "$cells" = 180 ] || fail "the evidence matrix ran $cells cells, expected 180"
+[ "$cells" = 60 ] || fail "the evidence matrix ran $cells cells, expected 60"
 [ "$reaps" = 5 ] || fail "the evidence matrix reaped $reaps cells, expected 5"
 det finished-but-unreaped this-tower completion:result=success stream-json-persistent self "$self_id"
 gate w1 trig why --tower-id "$self_id"
@@ -369,7 +392,39 @@ case $err in
   *'dispatch record'*) ;;
   *) fail "no dispatch record: the refusal does not name the missing record: $err" ;;
 esac
-echo "ok: an errored, empty, or recordless liveness verdict refuses (exit 5)"
+det dead dead-or-unknown death-evidence stream-json-persistent dead
+sed "s/${tab}w1${tab}/${tab}w1x${tab}/" "$tmp/det-out" >"$tmp/det-out.x"
+mv "$tmp/det-out.x" "$tmp/det-out"
+gate w1 trig why
+expect 5 "a verdict for another worker only"
+never_stopped "a verdict for another worker only"
+for reg in unreadable malformed; do
+  det dead dead-or-unknown death-evidence stream-json-persistent dead
+  sed "s/${tab}registry${tab}present/${tab}registry${tab}$reg/" "$tmp/det-out" >"$tmp/det-out.x"
+  mv "$tmp/det-out.x" "$tmp/det-out"
+  gate w1 trig why
+  expect 5 "a $reg registry"
+  never_stopped "a $reg registry"
+done
+echo "ok: an errored, empty, recordless, or other-worker verdict refuses (exit 5)"
+
+# --- echo safety: hostile verdict fields never reach the terminal raw -------
+esc=$(printf '\033[31m')
+det "$esc" dead-or-unknown "x${esc}y" "be${esc}" dead
+gate w1 trig why
+expect 5 "hostile verdict fields"
+case $err in
+  *"$esc"*) fail "hostile verdict fields: a control byte reached stderr" ;;
+esac
+det dead dead-or-unknown death-evidence stream-json-persistent dead
+sed "s/${tab}registry${tab}present/${tab}registry${tab}re${esc}g/" "$tmp/det-out" >"$tmp/det-out.x"
+mv "$tmp/det-out.x" "$tmp/det-out"
+gate w1 trig why
+expect 5 "a hostile registry word"
+case $err in
+  *"$esc"*) fail "a hostile registry word: a control byte reached stderr" ;;
+esac
+echo "ok: control bytes in any verdict field are stripped before they are echoed"
 
 # --- a backend with no process close refuses (exit 5) -----------------------
 for be in tmux subagent - claude-p; do
@@ -386,15 +441,18 @@ gate w1 trig why --grace 7 --repo-root /some/repo --tower-id "$self_id"
 expect 0 "stream-json delegation"
 [ "$(cat "$tmp/stop-calls")" = "fleet-streamjson.sh stop w1 --grace 7" ] \
   || fail "stream-json delegation: the rung was asked '$(cat "$tmp/stop-calls")'"
-grep -q -- "--tower-id $self_id" "$tmp/det-calls" || fail "the tower identity did not reach the detector: $(cat "$tmp/det-calls")"
+[ "$(cat "$tmp/det-calls")" = "classify w1 --tower-id $self_id" ] \
+  || fail "the detector was asked '$(cat "$tmp/det-calls")'"
 det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
 gate w1 trig why --grace 7 --repo-root /some/repo
 expect 0 "headless delegation"
 [ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --repo-root /some/repo --grace 7" ] \
   || fail "headless delegation: the rung was asked '$(cat "$tmp/stop-calls")'"
 gate w1 trig why
+expect 0 "headless delegation without flags"
 [ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1" ] \
   || fail "headless delegation without flags: the rung was asked '$(cat "$tmp/stop-calls")'"
+[ "$(cat "$tmp/det-calls")" = "classify w1" ] || fail "a bare call handed the detector '$(cat "$tmp/det-calls")'"
 [ "$out" = 'stop w1 stopped released=process,attention' ] || fail "the rung's result line was not passed through: '$out'"
 echo "ok: each session-grade backend is closed by its own rung's stop, with the caller's grace and repo root"
 
@@ -542,24 +600,27 @@ msgs=$(
 echo "ok: print, live-peer, unknown-evidence and self-target refusals each carry their own exit and message"
 
 # --- source audit: one kill path --------------------------------------------
-# The process arm names a rung's stop and nothing that signals or scans on its
-# own: no kill, no process-table read, no sourcing of the close library.
-arm=$(awk '/^  process\)$/ { on = 1 } on { print } on && /^    ;;$/ { exit }' "$FC_REAL")
+# The whole script, not only its process arm, since a helper the arm calls
+# could hide one: nothing signals, scans the process table, or sources a
+# library beyond the echo-safety one. Comments and the diagnostic lines
+# (whose prose may say "kill") are left out; the arm itself must hand the
+# close to a rung's stop by name.
+code=$(sed -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//' "$FC_REAL" \
+  | grep -vE '^[[:space:]]*(warn|echo) ')
+hits=$(printf '%s\n' "$code" | grep -nE 'kill( |	|$)|pkill|pgrep|killall|ps -|ps a|lsof|fuser|fleet-stop-lib|release_processes|stop_candidates|/proc/' || :)
+[ -z "$hits" ] || fail "source audit: fleet-cleanup.sh carries a second kill path: $hits"
+sourced=$(printf '%s\n' "$code" | grep -E '^[[:space:]]*\. ' || :)
+[ "$sourced" = '. "$script_dir/echo-safety.sh"' ] || fail "source audit: fleet-cleanup.sh sources more than echo-safety.sh: $sourced"
+arm=$(awk '/^  process\)$/ { on = 1 } on { print } on && /^    ;;$/ { exit }' "$FC_REAL" \
+  | sed -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//')
 [ -n "$arm" ] || fail "source audit: no process arm found in fleet-cleanup.sh"
-code=$(printf '%s\n' "$arm" | sed 's/#.*//')
-for bad in 'kill ' 'kill	' 'pkill' 'killall' 'ps -' 'fleet-stop-lib' 'release_processes' 'stop_candidates' '/proc/'; do
-  case $code in
-    *"$bad"*) fail "source audit: the process arm carries '$bad', a second kill path" ;;
+for want in 'stream-json-persistent) rung=fleet-streamjson.sh' 'headless-oneshot) rung=fleet-dispatch-headless.sh' '"$script_dir/$rung" stop "$worker"'; do
+  case $arm in
+    *"$want"*) ;;
+    *) fail "source audit: the process arm lacks '$want'" ;;
   esac
 done
-for want in 'fleet-streamjson.sh' 'fleet-dispatch-headless.sh'; do
-  grep -q "$want" "$FC_REAL" || fail "source audit: fleet-cleanup.sh never names $want"
-done
-case $code in
-  *'" stop "'*) ;;
-  *) fail "source audit: the process arm does not invoke a rung's stop" ;;
-esac
-echo "ok: source audit — the process arm terminates only through the rungs' stop"
+echo "ok: source audit — the script terminates nothing itself; the process arm closes only through the rungs' stop"
 
 # ============================================================================
 # Integration: real detector, real death evidence, real rungs.
@@ -694,7 +755,8 @@ git_env git init -q -b main "$main_repo"
   echo 'uncommitted, in flight' >h
 )
 
-untouched_ref=$(git -C "$origin" rev-parse refs/planwright-fence/demo/4)
+untouched_origin=$(git -C "$origin" for-each-ref)
+untouched_refs=$(git -C "$main_repo" for-each-ref)
 untouched_tip=$(git -C "$wt" rev-parse HEAD)
 untouched_status=$(git -C "$wt" status --porcelain)
 untouched_h=$(cat "$wt/h")
@@ -703,8 +765,9 @@ untouched_list=$(git -C "$main_repo" worktree list --porcelain)
 # untouched <what> — REQ-D1.3: the fence, the branch, and the worktree are
 # exactly as the fixture left them.
 untouched() {
-  [ "$(git -C "$origin" rev-parse refs/planwright-fence/demo/4 2>/dev/null)" = "$untouched_ref" ] \
-    || fail "$1: the unit's fence ref changed"
+  [ "$(git -C "$origin" for-each-ref)" = "$untouched_origin" ] \
+    || fail "$1: a ref on origin changed (the unit's fence among them)"
+  [ "$(git -C "$main_repo" for-each-ref)" = "$untouched_refs" ] || fail "$1: a local ref changed"
   [ "$(git -C "$wt" rev-parse HEAD)" = "$untouched_tip" ] || fail "$1: the branch tip moved"
   [ "$(git -C "$wt" status --porcelain)" = "$untouched_status" ] || fail "$1: the worktree status changed"
   [ "$(cat "$wt/h" 2>/dev/null)" = "$untouched_h" ] || fail "$1: the uncommitted work changed"
