@@ -202,6 +202,7 @@ echo "ok: every spelling of a force-push or a push to the default branch or a sp
 git_rule=$(captured --kind standing --text 'always let the workers run git' \
   --covers-command 'git ' --now 1005) || fail "capture of the git rule failed"
 for res in 'git pull' 'git pull origin main' 'git pull --ff-only origin main' \
+  'git -C . pull origin main' 'git  pull' 'git "pull" origin' 'git pu""ll origin main' \
   'git commit --fixup HEAD~1' 'git commit --fixup=HEAD~1'; do
   rc=0
   run match --decision "$git_rule" --command "$res" >"$tmp/o" || rc=$?
