@@ -286,10 +286,11 @@ fi
 # sets the key wins (last-layer-wins, D-5). A malformed adopter or machine-local
 # overlay degrades to the next lower layer with a loud warning (D-7).
 if [ -n "$mlocal_cfg" ] && [ -e "$mlocal_cfg" ]; then
-  if malformed_config "$mlocal_cfg" && [ "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS:-}" = 1 ]; then
-    echo "config-get: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
-    exit 6
-  elif malformed_config "$mlocal_cfg"; then
+  if malformed_config "$mlocal_cfg"; then
+    if [ "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS:-}" = 1 ]; then
+      echo "config-get: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
+      exit 6
+    fi
     echo "config-get: warning: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
   elif get_value "$mlocal_cfg" "$key"; then
     emit machine-local
@@ -300,10 +301,11 @@ if [ -n "$tracked_cfg" ] && get_value "$tracked_cfg" "$key"; then
   emit repo-tracked
 fi
 if [ -n "$adopter_cfg" ] && [ -e "$adopter_cfg" ]; then
-  if malformed_config "$adopter_cfg" && [ "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS:-}" = 1 ]; then
-    echo "config-get: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
-    exit 6
-  elif malformed_config "$adopter_cfg"; then
+  if malformed_config "$adopter_cfg"; then
+    if [ "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS:-}" = 1 ]; then
+      echo "config-get: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
+      exit 6
+    fi
     echo "config-get: warning: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
   elif get_value "$adopter_cfg" "$key"; then
     emit adopter

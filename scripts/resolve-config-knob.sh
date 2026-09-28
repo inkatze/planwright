@@ -365,8 +365,19 @@ explain_out=""
 rc=0
 explain_out=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS="$strict_overlays" "$config_get" --explain "$key") || rc=$?
 if [ "$rc" -eq 6 ]; then
+  # The malformed file must not hide a malformed repo-tracked value beneath it:
+  # read once more with the file skipped, and let that breakage fail the read.
+  lower=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS="" "$config_get" --explain "$key" 2>/dev/null) || lower=""
+  case "$lower" in
+    "repo-tracked	"*)
+      if ! valid_value "${lower#*	}"; then
+        printf '%s\n' "resolve-config-knob: repo-tracked overlay sets '$key' to a malformed value ('$(sanitize_printable "${lower#*	}" "(unprintable value)")' is not a legal $ktype value); refusing to silently degrade a shared team value" >&2
+        exit 4
+      fi
+      ;;
+  esac
   if [ "$no_degrade" -eq 1 ]; then
-    echo "resolve-config-knob: an overlay setting '$key' is malformed and the caller allows no degrade" >&2
+    echo "resolve-config-knob: an overlay file is malformed (named above); refusing to read '$key' with no degrade" >&2
     exit 4
   fi
   printf '%s\n' "resolve-config-knob: warning: an overlay is malformed; degrading '$key' to the strict value '$(sanitize_printable "$degrade" "(unprintable degrade)")'" >&2

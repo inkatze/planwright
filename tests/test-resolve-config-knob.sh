@@ -451,10 +451,32 @@ for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
   reset_layers
   printf 'flip_gate:\n  - strict\n' >"$layer_cfg"
   rc=0
-  out=$(run_gate 2>/dev/null) || rc=$?
+  out=$(run_gate 2>"$tmp/err.txt") || rc=$?
   [ "$rc" = 0 ] || fail "degrade: a malformed $layer_cfg file exited $rc, expected 0"
   [ "$out" = strict ] || fail "degrade: a malformed $layer_cfg file resolved to '$out', expected the strict target"
+  grep -q "warning:.*strict value 'strict'" "$tmp/err.txt" \
+    || fail "degrade: a malformed $layer_cfg file degraded without naming the target"
 done
+# A malformed machine-local file must not hide a malformed repo-tracked value:
+# the shared value's breakage still fails the read.
+reset_layers
+printf 'flip_gate: sloppy\n' >"$tracked_cfg"
+printf 'unrelated:\n  - x\n' >"$mlocal_cfg"
+rc=0
+run_gate >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "degrade: a malformed repo-tracked value behind a malformed machine-local file exited $rc, expected 4"
+# Without --degrade / --no-degrade the config-get skip is unchanged, even when
+# the caller's environment exports the strict switch.
+reset_layers
+printf 'flip_gate: sloppy\n' >"$gate_core"
+printf 'flip_gate: strict\n' >"$adopter_cfg"
+printf 'flip_gate:\n  - loose\n' >"$mlocal_cfg"
+got=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 PLANWRIGHT_CONFIG_DEFAULTS="$gate_core" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key flip_gate --type enum --values 'strict loose sloppy' --fallback strict 2>/dev/null) \
+  || fail "degrade: a plain caller failed on a malformed machine-local file"
+[ "$got" = strict ] || fail "degrade: a plain caller should skip a malformed file to the adopter value, got '$got'"
+printf 'flip_gate: loose\n' >"$gate_core"
 reset_layers
 printf 'flip_gate: sloppy\n' >"$tracked_cfg"
 rc=0
