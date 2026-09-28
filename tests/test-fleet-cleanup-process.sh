@@ -123,6 +123,7 @@ STUB
 chmod +x "$gs"/*.sh
 
 gate_home="$tmp/gate-home"
+: >"$tmp/unwritable"
 
 # det <state> <owner> <reason> <backend> <owner-evidence> [<owner-token>] —
 # the detector's answer for worker `w1`, in its own output grammar.
@@ -400,7 +401,10 @@ expect 0 "already-closed"
 [ -z "$(audit_rows)" ] || fail "already-closed wrote an audit row: $(audit_rows)"
 echo "ok: an already-closed worker is a clean no-op with no audit row"
 
-# --- a partial close refuses (exit 5) and records what it did release -------
+# --- a partial close is exit 5, and recorded whatever it released ----------
+# The rung signals the tree before it can find a class still held, so even a
+# close that released nothing may have killed something: every partial and
+# every rung that died mid-close leaves a record.
 stop_answers 'stop WORKER partial released=process held=attention' 6
 gate w1 trig why
 expect 5 "a partial close"
@@ -409,46 +413,66 @@ case $err in
   *) fail "a partial close does not name what is still held: $err" ;;
 esac
 case $(audit_rows) in
-  *"${tab}cleanup-partial${tab}"*"released=process"*) ;;
-  *) fail "a partial close that released the process wrote no partial audit row: $(audit_rows)" ;;
+  *"${tab}cleanup-partial${tab}"*"released=process held=attention"*) ;;
+  *) fail "a partial close wrote no partial record naming both sets: $(audit_rows)" ;;
 esac
 rm -rf "$gate_home"
 stop_answers 'stop WORKER partial released=- held=process' 6
 gate w1 trig why
 expect 5 "a partial close that released nothing"
-[ -z "$(audit_rows)" ] || fail "a close that released nothing wrote an audit row: $(audit_rows)"
-echo "ok: a partial close is refused (exit 5), auditing only what it actually released"
+case $(audit_rows) in
+  *"${tab}cleanup-partial${tab}"*"released=- held=process"*) ;;
+  *) fail "a partial close that released nothing went unrecorded: $(audit_rows)" ;;
+esac
+rm -rf "$gate_home"
+stop_answers '' 137
+gate w1 trig why
+expect 5 "a rung killed mid-close"
+case $(audit_rows) in
+  *"${tab}cleanup-partial${tab}"*"released=unreported held=unreported"*) ;;
+  *) fail "a rung that died mid-close went unrecorded: $(audit_rows)" ;;
+esac
+stop_answers 'stop WORKER partial released=- held=process' 6
+G_HOME="$tmp/unwritable/fleet" gate w1 trig why
+expect 6 "an unrecorded partial close"
+echo "ok: a partial close is exit 5 and recorded with both sets, even one that released nothing; unrecorded, it is exit 6"
 
 # --- the self-target guard: the rung refuses, the actuator says so (exit 3) -
+# The rung's own words are left out, so the message checked is this script's.
+rm -rf "$gate_home"
 stop_answers '' 3
-printf 'fleet-streamjson: refusing to close w1 from inside its own process tree\n' >"$tmp/stop-err"
 gate w1 trig why
 expect 3 "self-target"
 case $err in
-  *'own process tree'*) ;;
+  *'REFUSING self-target'*"own process tree"*) ;;
   *) fail "self-target: the refusal does not name the caller's own tree: $err" ;;
 esac
 case $(audit_rows) in
-  *"${tab}refuse-self${tab}"*) ;;
-  *) fail "self-target: the self-block was not audited: $(audit_rows)" ;;
+  *"${tab}refuse-self${tab}"*"worker=w1 "*) ;;
+  *) fail "self-target: the self-block was not audited against its worker: $(audit_rows)" ;;
 esac
-echo "ok: a close from inside the worker's own tree is refused (exit 3) and the self-block audited"
+echo "ok: a close from inside the worker's own tree is refused (exit 3) and the self-block audited against the worker"
 
-# --- a stop that could not run at all refuses (exit 5) ----------------------
+# --- a stop that refused before acting is not a reap (exit 5) --------------
+rm -rf "$gate_home"
 stop_answers '' 2
 gate w1 trig why
 expect 5 "a stop that refused its input"
 stop_answers '' 1
 gate w1 trig why
 expect 5 "a stop that failed"
-echo "ok: a rung stop that refuses or fails is reported as not reclaimed (exit 5)"
+[ -z "$(audit_rows)" ] || fail "a stop that refused before acting was recorded: $(audit_rows)"
+echo "ok: a rung stop that refuses or fails before acting is reported as not reclaimed (exit 5)"
 
 # --- a close that happened but could not be recorded (exit 6) ---------------
-: >"$tmp/unwritable"
 stop_answers 'stop WORKER stopped released=process' 0
 G_HOME="$tmp/unwritable/fleet" gate w1 trig why
 expect 6 "an unrecorded reap"
 [ -s "$tmp/stop-calls" ] || fail "an unrecorded reap: the stop never ran"
+case $err in
+  *'FAILED to record'*) ;;
+  *) fail "an unrecorded reap does not say so: $err" ;;
+esac
 echo "ok: a reap whose audit write fails returns exit 6, never a silent success"
 
 # --- every refusal is distinct: exit code and message -----------------------

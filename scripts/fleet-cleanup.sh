@@ -73,7 +73,14 @@
 #       SIGKILL grace that stop takes, and --repo-root is passed to the headless
 #       rung, which resolves its unit directory from it. The rung's result line
 #       is printed on stdout. A close from inside the worker's own tree is the
-#       rung's self-hosting refusal, reported here as the self-target block.
+#       rung's self-hosting refusal, reported here as the self-target block;
+#       a rung that cannot read the process table to decide that refuses
+#       before acting, which reaches this script as a plain refusal (exit 5).
+#
+#       A partial close is exit 5 with a `cleanup-partial` record naming what
+#       was released and what is still held. It is recorded even when nothing
+#       was released, because the rung signals the tree before it finds a
+#       class still held, and so is a rung that died on a signal mid-close.
 #
 #       A handle in the `pwfence.` namespace is refused as malformed: that is
 #       where the fence sweep keys the strand entries it surfaces, and a close
@@ -99,7 +106,8 @@
 #      dirty worktree, one whose commits are not provably safe — no upstream
 #      parity and no verified --merged-pr — or lost observability: neither a tmux
 #      server unreachable mid-probe nor an unusable `gh` is proof of absence),
-#      or the reclaim command itself failed
+#      or the reclaim command itself failed; for `process`, also a partial
+#      close, which acted and is recorded (see its usage)
 #   6  acted (resource WAS reclaimed) but the audit-trail write failed — the
 #      action happened and is unrecorded; distinct from 2 so a caller never reads
 #      an unlogged reclaim as "nothing happened"
@@ -742,6 +750,7 @@ EOF
     [ -z "$result" ] || printf '%s\n' "$result"
 
     detail="worker=$worker owner=$owner_token evidence=tower:$tower_ev,session:$state/$reason"
+    held=""
     case $stop_rc in
       0)
         case $result in
@@ -760,28 +769,38 @@ EOF
         esac
         ;;
       6)
+        # Recorded even when nothing was released: the rung signals the tree
+        # before it can find the process class still held.
         held=${result##* held=}
         released=${result#*" released="}
         released=${released%%" held="*}
         warn "'$worker' was only partly closed — still held: $(sanitize_printable "$held" "-")"
-        if [ "$released" = - ]; then
-          exit 5
-        fi
         action=cleanup-partial
         ;;
       3)
         warn "REFUSING self-target: the caller runs inside the worker's own process tree ('$worker')"
-        audit process-cleanup refuse-self "$trigger" "$reasoning" \
+        audit process-cleanup refuse-self "$trigger" "$(fit_text "$detail; $reasoning")" \
           || warn "could not record the self-block in the audit trail"
         exit 3
         ;;
       *)
-        warn "the $rung stop for '$worker' did not complete (exit $stop_rc) — not reclaimed"
-        exit 5
+        # Past 128 the rung died on a signal, possibly mid-release: what it
+        # had already signalled is unknown, so it is recorded as such. Below,
+        # it refused before acting.
+        if [ "$stop_rc" -le 128 ]; then
+          warn "the $rung stop for '$worker' did not complete (exit $stop_rc) — not reclaimed"
+          exit 5
+        fi
+        warn "the $rung stop for '$worker' died (exit $stop_rc) — what it released is unknown, recording it as a partial close"
+        released=unreported
+        held=unreported
+        action=cleanup-partial
         ;;
     esac
 
-    record=$(fit_text "$detail released=$(sanitize_printable "$released" "-"); $reasoning")
+    record="$detail released=$(sanitize_printable "$released" "-")"
+    [ -z "$held" ] || record="$record held=$(sanitize_printable "$held" "-")"
+    record=$(fit_text "$record; $reasoning")
     if ! audit process-cleanup "$action" "$trigger" "$record"; then
       warn "closed '$worker' but FAILED to record it in the audit trail"
       exit 6
