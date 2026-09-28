@@ -4,8 +4,8 @@ The rare mode branches of `/orchestrate`, read at the branch that takes them:
 the **degradation ladder and runtime failover** (a chosen backend dying or
 proving unavailable), the **meta-tower** (`--meta`, supervising several specs
 at once), and the **fleet entry** (`--fleet`, the one obvious command).
-Every tower-tier rule [Human Gates](human-gates.md) states holds in every mode
-here.
+Every invariant in the skill's always-loaded core, and every tower-tier rule
+[Human Gates](human-gates.md) states, holds unchanged in every mode here.
 
 Citations: orchestration-fleet REQ-B1.5, REQ-B1.6, REQ-D1.1, REQ-D1.2,
 REQ-D1.5, REQ-E1.1, REQ-E1.2, REQ-E1.5 · orchestration-fleet D-3, D-6, D-9,
