@@ -1,7 +1,7 @@
 # Custom spec location — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -45,8 +45,8 @@ supported configuration ships while the doctrine still calls it wrong.
 - **Deliverables:** the `spec` kind of `scripts/resolve-root.sh`: the
   `spec_root` option through `config-get`, the `path` type added to
   `scripts/resolve-config-knob.sh`, value grammar and canonicalization, the
-  bad-value rule (empty is unset and falls through; a non-printable byte
-  follows the by-layer policy; a well-formed value naming a missing path, a
+  bad-value rule (empty is unset and cancels lower layers; a non-printable
+  byte follows the by-layer policy; a well-formed value naming a missing path, a
   non-directory, or an escaping relative path is refused in every layer
   with the supplying layer named and never falls back), the marker
   `planwright-spec-root.yml` requirement and `--init` (validates the value,
@@ -60,16 +60,15 @@ supported configuration ships while the doctrine still calls it wrong.
   padded whitespace), the missing marker, each posture including another
   worktree of the same repository and a gitignored in-repo root, and both
   views.
-- **Done when:** with the option unset the resolver prints
-  `<primary checkout>/specs` from the primary checkout and
-  `<worktree>/specs` from a worktree; an empty machine-local value over a
-  repo-tracked value falls through to the default; a configured directory
-  without the marker, a missing directory, and an escaping relative value
-  are each refused non-zero from every layer with the layer named; the same
-  directory after `--init` resolves; the three postures classify correctly
-  on fixtures; `--posture` and `--explain` carry the posture while the
-  default output is the bare path; the options-reference check passes with
-  the key absent.
+- **Done when:** with the option unset the resolver prints `<primary
+  checkout>/specs` from the primary checkout and `<worktree>/specs` from a
+  worktree; an empty machine-local value over a repo-tracked value cancels it
+  and yields the default; a configured directory without the marker, a missing
+  directory, and an escaping relative value are each refused non-zero from
+  every layer with the layer named; the same directory after `--init`
+  resolves; the three postures classify correctly on fixtures; `--posture` and
+  `--explain` carry the posture while the default output is the bare path; the
+  options-reference check passes with the key absent.
 - **Dependencies:** 1
 - **Citations:** D-3, D-4, D-5, D-6, D-7 · REQ-A1.1, REQ-A1.2, REQ-A1.3,
   REQ-A1.4, REQ-A1.5, REQ-A1.8, REQ-A1.9, REQ-E1.1, REQ-H1.3

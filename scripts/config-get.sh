@@ -18,7 +18,10 @@
 # The planwright config model is intentionally flat one-level `key: value`
 # YAML, so a line-oriented reader is sufficient and keeps the runtime
 # dependency-free (REQ-K1.5). The raw value is printed verbatim with a trailing
-# `# comment` and surrounding quotes stripped; type and range validation stay
+# comment and surrounding quotes stripped. Only a `#` led by whitespace (or
+# opening the value) starts a comment, as in YAML, so `a#b` is kept whole and
+# `a # c` reads as `a`; unlike YAML, quoting does not protect a whitespace-led
+# `#`, so `"a #b"` still reads as `"a`. Type and range validation stay
 # with the caller, since they are key-specific (the lock threshold normalizes
 # `m`, a backend name is an enum, etc.).
 #
@@ -243,7 +246,7 @@ get_value() {
   grep -q "^${gk}:" "$gf" 2>/dev/null || return 1
   VALUE=$(sed -n "s/^${gk}:[[:space:]]*//p" "$gf" \
     | head -1 \
-    | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
+    | sed -e 's/^#.*$//' -e 's/[[:space:]]#.*$//' -e 's/[[:space:]]*$//' \
       -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")
   return 0
 }

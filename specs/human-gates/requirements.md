@@ -1,7 +1,7 @@
 # Human gates — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -54,6 +54,8 @@ profile, skill, and doc restates one list instead of carrying its own.
   spellings every guard copy must refuse.
 - Every skill and doc surface restating the list from one doctrine source,
   with composition contracts labelled apart from trust rules.
+- Supersede pointers on the records other bundles still carry for a changed
+  rule, and the release PR's exclusion from every policy class.
 
 ### Out of scope
 
@@ -164,6 +166,24 @@ profile, skill, and doc restates one list instead of carrying its own.
   legacy subject marker to the trailer; no history SHALL be rewritten and no
   branch SHALL be swept.
   *(Cites: D-3; issue planwright#384.)*
+- **REQ-B1.10** A legacy commit, meaning any commit whose subject ends with
+  a space and `[pending-sign-off]` and that carries no
+  `Planwright-Sign-Off` trailer,
+  whatever its date, SHALL render in the checklist with the id
+  `PS-legacy-<sha7>`, where `<sha7>` is the first seven hex characters of
+  its full commit hash (never git's auto-abbreviation), never derived from
+  commit order and never allocated from the `PS-<n>` sequence. Two legacy
+  commits in one range sharing that prefix SHALL fail the regeneration with
+  a named error. A commit whose body carries git's `This reverts commit
+  <sha>` line SHALL never itself be an item and SHALL drop the legacy item
+  it reverts; a later commit carrying
+  `Planwright-Sign-Off-Rejected: PS-legacy-<sha7>`, matched exactly, SHALL
+  drop it too, the rejected-trailer value grammar being `PS-<n>` or
+  `PS-legacy-<sha7>`. For the legacy suffix only, this requirement takes
+  precedence over REQ-B1.3's never-from-subject-text rule, and it extends
+  REQ-B1.9's one-line migration with this rendering; no history is
+  rewritten and no branch swept.
+  *(Cites: D-3, D-16; planwright#506 review decisions (Sources).)*
 
 ## REQ-C — Ready-flip policy
 
@@ -327,6 +347,19 @@ profile, skill, and doc restates one list instead of carrying its own.
   the host query fails, the PR SHALL fall to `on-approval` naming the reason.
   *(Cites: D-6; kickoff §3 REQ-D (2026-09-22); kickoff sign-off lens pass
   (2026-09-22).)*
+- **REQ-D1.9** The class evaluator SHALL admit a PR only when its head
+  branch is a task branch (`planwright/<spec>/task-<id-or-ids>`, `<spec>`
+  one path segment) and its head repository is the base repository. Every
+  other PR (a release PR, a dependency-bot PR, a flight branch, a human's
+  own branch, a fork) SHALL fall to `on-approval` with the reason on the
+  PR, and no layer SHALL widen that set, so a release merge is a human
+  approval act under every `merge_policy` value and never a class
+  admission. The REQ-D1.3 sign-off predicate SHALL be a raw scan of
+  `base..head`: a `Planwright-Sign-Off` trailer or a REQ-B1.10 legacy suffix
+  on any commit refuses the PR, whether or not a later commit reverts or
+  rejects it. The doctrine passages describing the release approval SHALL
+  state this rule.
+  *(Cites: D-6, D-15; planwright#506 review decisions (Sources).)*
 
 ## REQ-E — Worker base merge
 
@@ -475,6 +508,20 @@ profile, skill, and doc restates one list instead of carrying its own.
   release tooling renders into the changelog.
   *(Cites: D-10; bootstrap REQ-K1.8 (Sources); kickoff sign-off lens pass
   (2026-09-22).)*
+- **REQ-H1.4** Every REQ or D record in another bundle that still states a
+  rule this bundle changes SHALL carry a bold, dated supersede pointer, its
+  body unedited: `**Superseded-by: REQ-<id> (human-gates)** (<date>)` on a
+  requirement, `**Superseded-by: human-gates D-<n>** (<date>)` on a
+  decision, scoped to the changed clause where only part of the record
+  changes; each pointed bundle SHALL gain a dated changelog entry naming its
+  pointed records. The set SHALL be settled by a survey recorded in the
+  sweep's PR (record, replacing id, full or scoped, bundle live or Done). A
+  pointer into a bundle whose derived status is Ready or Active when the
+  sweep runs SHALL NOT land from the sweep: it SHALL be recorded as a gated
+  bullet under this bundle's `## Deferred` naming the pointer lines and the
+  `/spec-kickoff` amendment to run on that bundle, so no live bundle's
+  anchor changes.
+  *(Cites: D-10, D-17; planwright#506 review decisions (Sources).)*
 
 ## Changelog
 
@@ -489,6 +536,11 @@ profile, skill, and doc restates one list instead of carrying its own.
   strategy and REQ-G1.6 for the echo discipline; the parking-segment,
   record-as-intent, base-ref read, rejected-trailer, and jurisdiction rules
   added; the details are in `kickoff-brief.md`.
+- 2026-09-28 — Amendment from the planwright#506 review decisions:
+  REQ-B1.10 minted for legacy checklist ids, REQ-D1.9 for task-branch-only
+  class admission (which excludes release PRs) and the raw sign-off scan,
+  REQ-H1.4 for cross-bundle supersede pointers; Tasks 2, 9, 11, and 12 grew
+  to carry them; the details are in `kickoff-brief.md`'s amendment log.
 
 ## Sources
 
@@ -573,6 +625,11 @@ profile, skill, and doc restates one list instead of carrying its own.
   <https://ona.com/stories/auto-approving-low-risk-prs>: six mechanical
   exclusion criteria; the agent approves, a human always merges as the
   auditable event; engineers cannot self-classify.
+- **planwright#506 review decisions** —
+  <https://github.com/inkatze/planwright/pull/506#issuecomment-5875255206>:
+  the operator's 2026-09-28 answers on cross-bundle pointers, release PRs
+  under a policy class, and legacy checklist ids, walked in this bundle's
+  2026-09-28 kickoff amendment.
 - **research: homu** — <https://github.com/rust-lang/homu>: a human's `r+`
   authorizes, the bot merges after testing against the current base.
 - **research: Mergify queue rules** —

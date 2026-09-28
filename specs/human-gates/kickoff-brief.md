@@ -449,4 +449,158 @@ Anchor: `08f36b3e4de91849b0a97449244dca5d5f3e65fd` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### 2026-09-28 — The planwright#506 review decisions
+
+**Scope.** A human-declared amendment on the Active bundle (Task 1 merged
+as planwright#506), carrying the operator's decisions on that PR's review
+(the Sources entry "planwright#506 review decisions"): Task 12 points the
+records other bundles still carry for a changed rule and extends the
+floor-citation check to `docs/`; release PRs are excluded from every
+policy class; Task 2 defines how a legacy `[pending-sign-off]` commit gets
+its checklist id. Walked as a delta against spec commit `34acb98`; the
+freshness comparison at pre-flight matched the section 8 anchor, so no
+unwalked drift preceded it.
+
+**Decisions taken in the walk.**
+
+1. Cross-bundle pointers into a bundle still Ready or Active do not land
+   from the sweep; they wait as a gated Deferred bullet for that bundle's
+   own amendment (D-17), so no live bundle's dispatch is blocked by a stale
+   anchor.
+2. A release PR is refused by the class and takes the ordinary
+   fall-through to `on-approval`; enabling auto-merge counts as the release
+   approval (D-15).
+3. A legacy commit's id is `PS-legacy-<sha7>`, from its own hash (D-16).
+4. First proposed in the walk, then reversed at the lens pass (fork 1
+   below): an adopter-extendable branch allowlist plus an unshrinkable
+   release-marker denylist.
+
+**Lens review pass (delta-scoped, meaning class).** Artifact class
+**spec**, per `artifact-lenses`; fan-out of six read-only Opus sub-agents
+over the delta, some carrying two spec lenses, followed by a merge, dedupe
+by root cause, and verification of the load-bearing claims against the
+repository (`/execute-task`'s refusal of `flight`, the Awaiting-input
+grammar in `spec-format`, autopilot-reflex D-5).
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 14 | The allowlist knob unreachable (only `/execute-task` calls the helper); a legacy revert counted as an item; REQ-B1.3 never-from-subject against the legacy read; the trailer-only sign-off predicate; the Task 2 clause only Task 9 can build; the rejected-trailer grammar; D-16's claim about D-8; the one-line migration; the Awaiting-input bullet parking Task 12; autopilot-reflex D-5 contradicted with no pointer; the decision pointer form; the surface count; per-layer degrade; citations |
+| Ambiguity and interpretation forks | 17 | `sha7` against auto-abbreviation; exact versus prefix match; the suffix's placement; raw versus live sign-off predicate; knob value grammar, pattern semantics, label case; when labels are read; union versus last-layer across layers; malformed by layer; who invokes for a non-unit PR; the surface list; stored versus derived status; where the bullet goes; pointer form and target; partial supersession; what a record is |
+| Citation and coverage integrity | 15 | The three new REQs not citing their D-IDs; REQ-B1.3 unamended; the dangling amendment-log pointer; the Task 2 clause; Task 9 missing D-16; decision pointer form; targets unnamed; output-hygiene REQ-C1.4 only partly changed; records missing from the known list; the surface count; degrade stated only below the REQ; the D-17 floor clause uncited; heading source tags |
+| Dead verification paths and testability | 14 | The `specs/` grep unbounded; the Awaiting-input bullet illegal where it would go; the floor regex failing every correctly cited `docs/` file; no fixture input; the ran-on-nothing guard; word-neutrality unchecked; live set unreadable from the header; the changelog entry per pointed bundle missing; the Task 2 clause; the missing Task 2 to 9 edge; knob grammar; the surface count; Task 2's Done-when weaker than its entry; legacy stamping |
+| Decision-domain gaps | 9 | Knob encoding (the core label holds a space); cross-layer combination; allowlist admitting spec or protected heads; the lockfile zone defeating the dependency-bot path; a branch name is not an identity (forks); a second release-marker definition beside `release-publish.sh`; who lands deferred pointers; labels not re-read before merge; the legacy id shape |
+| Cross-file consistency; documentation and glossary drift | 30 | The REQ-B1.3, B1.9, D-3, D-6, and REQ-D1.3 statements the delta left stale; orphaned D-IDs; degrade layer; the "never" overclaim; the flight clause; the surface count; the "three pointer lines" count; the known list; pointer form; the Task 2 to 9 edge; Task 9's predicate list; Task 2's Done-when; the D-16 doctrine owner; README rows; the human-gates citation header; "no merge call sites exist"; `docs/getting-started.md` and the release-please template; the domain walk; In scope; `Last reviewed`; the dangling log pointer; "unit branch", "release PR", "legacy", and "class" terminology |
+| Rendered-content safety and data hygiene | none | Inline: nothing is rendered into an executing context; the only new link is a public PR comment |
+| Performance | n/a | Spec artifact class: no execution path |
+| Concurrency / state | n/a | Spec artifact class; the one state question (labels read before the merge call) was raised under decision domains and ambiguity |
+| Error handling and failure modes | n/a | Spec artifact class: no partial-failure semantics |
+
+The kickoff-specific **altitude check** ran inline: D-1's doctrine-first
+order no longer has a doctrine task to ride, since Task 1 has merged, so
+the amendment's doctrine lines ride with the mechanism tasks that make them
+true (the gate-wiring legacy line with Task 2, the release passages with
+Task 9). Not a finding. The **ship-gate check** found no out-of-band fix
+named only in prose: the live-bundle pointers carry a gated Deferred bullet
+by rule, and the two out-of-scope items are recorded observations.
+
+**Dispositions.** Deduplicated by root cause, three were forks the
+operator decided:
+
+1. **Class admission.** Task branches from the base repository only, with
+   no knob to widen that set and no denylist. This reverses walk decision 4:
+   nothing calls the merge helper for a PR no planwright skill owns, and the
+   lockfile zone blocks most dependency bumps anyway. The dependency-bot
+   path is recorded as an observation.
+2. **The sign-off predicate.** A raw scan: a trailer or legacy suffix
+   anywhere in the range refuses the PR, reverted or not, so Task 9 needs
+   nothing from Task 2.
+3. **The record set.** A survey table in Task 12's PR settles it, with the
+   records known today listed as a starting set rather than the
+   enumeration.
+
+The remaining root causes were applied as one batch the operator approved:
+
+- the same-repository head predicate;
+- the legacy id pinned (first seven hex characters of the full hash, a
+  prefix collision as a named error, exact match, the suffix defined by
+  form rather than age, a revert never an item, the rejected-trailer
+  grammar widened, REQ-B1.10 stating its precedence over REQ-B1.3 and
+  REQ-B1.9 so neither body changes);
+- D-16's rewrite sentence corrected, with the force-push handoff added to
+  Task 11;
+- the class wiring (REQ-D1.9 rewritten; the Task 2 clause moved to Task 9;
+  the missing Task 2 to 9 edge recorded as the deliberate non-edge below);
+- the doctrine owners (the gate-wiring line and its README row with Task
+  2; Task 9's release passages named by file with no count, and grep-checked
+  in its Done-when);
+- the Deferred bullet in place of an Awaiting-input item, with "live"
+  meaning the derived status;
+- the bold, dated pointer forms per record kind, the scoped pointer, and a
+  changelog entry per pointed bundle;
+- the floor-citation check factored by root directory;
+- the one-time anchor test on the sweep PR;
+- the citations, source tags, removed counts, Task 2's Done-when, the In
+  scope line, and the domain walk.
+
+No finding was declined and none deferred; the three knobs first added to
+Task 4 were withdrawn by fork 1, which restores Task 4 to its signed text.
+
+**Brief content this amendment makes stale** (the body above is
+append-only; these notes supersede it where they conflict):
+
+- Section 2 glossary: "unit branch" stays `planwright/<spec>/task-<id>`;
+  the class allowlist is named "task branch" in REQ-D1.9 and D-15, and no
+  flight branch holds any unit-branch allowance. "Protected branch" (a
+  stale gloss that predates this amendment) is the D-9 core floor plus
+  `protected_branches`, read locally, not the host's ruleset.
+- Section 3, REQ-B: the one-line migration no longer strands in-flight
+  legacy commits; they render as `PS-legacy-<sha7>` (REQ-B1.10). REQ-D:
+  REQ-D1.9 adds the task-branch, same-repository, and raw sign-off
+  predicates. REQ-H: REQ-H1.4 was minted.
+- Section 4 ledger: D-15, D-16, and D-17 are added, each confirmed as
+  written; the section 8 claim that every decision heading is in the
+  section 4 ledger holds only with this note.
+- Section 5: `[design-level]` now also covers the release-approval
+  passages Task 9 names (REQ-D1.9).
+- Section 6: no `Dependencies:` or `Estimated effort:` line changed, so the
+  critical path is unchanged. Deliberate non-edge: Task 9 does not depend
+  on Task 2, because the class scans the legacy suffix raw (D-15).
+- Section 7: risk row 3 (legacy subjects no longer read) is retired by
+  REQ-B1.10. Risk row 6's `ready_flip_policy: agent` (stale before this
+  amendment) reads `unit-owner`. New rows: (8) a live bundle's Deferred
+  pointer bullet lingers after its bundle turns Done; the signal is `/drain`
+  surfacing the gate, and the mitigation is the gated bullet itself.
+  (9) The class admits nothing an adopter releases or depends on
+  automatically; this is accepted, and the signal is an operator asking for
+  dependency auto-merge, which the recorded observation seeds. Gap check:
+  release approval under a policy class (D-15), migration of legacy markers
+  (D-16), and cross-bundle record hygiene (D-17) are decided;
+  dependency-adoption is touched and deliberately left to a future spec.
+- Section 8 altitude check: doctrine now also ships with Tasks 2 and 9, and
+  Task 12 edits other bundles' spec records.
+
+**Pre-sign-off verification.**
+
+- **Post-lens stale-reference sweep.** Run after REQ-D1.9 and REQ-H1.4 were
+  re-scoped: no knob name, "release marker", "unit-branch allowlist", "four
+  doctrine surfaces", "Awaiting-input item", or stale task list remains in
+  the four files outside D-15's rejected alternative, which names the
+  withdrawn design on purpose.
+- **Lint.** `markdownlint-cli2` over the brief and the four spec files: 0
+  errors.
+- **Recorded claims re-derived.** Requirement bullets and test-spec
+  entries still pair one to one (the sorted ID lists compared equal).
+- **Enumeration cross-check.** The counts the lens flagged ("four"
+  surfaces, "three" pointer lines) were removed. Task 12's record list is a
+  dated starting set, and the survey rule is the enumeration.
+- **Validator.** 0 errors, 0 warnings.
+
+**Sign-off.** Signed off 2026-09-28 by the operator after the approval
+summary; `Last reviewed:` bumped on all four spec files, with no status
+flip.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (six-agent
+fan-out over the spec artifact class, dispositions above)
+Anchor: `286570367563ab9d72bd461f76bbb93b16b48400` — computed as
+`scripts/spec-anchor.sh specs/human-gates`

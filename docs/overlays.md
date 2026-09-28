@@ -171,7 +171,10 @@ making the highest-stakes override visible.
 
 When you cannot tell which layer is winning, ask. Each resolver has an
 `--explain` provenance mode that names the supplying layer (D-9, REQ-B1.6).
-The layer is always one of `core | adopter | repo-tracked | machine-local`.
+The layer is always one of `core | adopter | repo-tracked | machine-local`,
+except that a resolver that can emit a caller-declared fallback
+(`resolve-config-knob.sh --explain`, `resolve-root.sh spec --explain`) labels
+that case `default`.
 
 ```bash
 # Which layer set this config key, and to what value? (one TAB-separated line)

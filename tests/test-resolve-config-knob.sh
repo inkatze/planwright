@@ -484,4 +484,111 @@ done
   || fail "scripts/check-options-reference.sh failed over the shipped defaults + options reference"
 echo "ok: every bundle knob is shipped, documented, and resolvable (REQ-G1.5 sweep incl. check-options-reference)"
 
+# --- The path type: free text without control bytes; empty cancels lower
+#     layers; a malformed adopter/machine-local value passes to the next lower
+#     layer; unset emits the fallback silently; --explain names the layer.
+run_path() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --explain --key spec_root --type path --fallback ''
+}
+TAB=$(printf '\t')
+
+reset_layers
+rc=0
+err=$(run_path 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "path unset: exit $rc, expected 0"
+[ -z "$err" ] || fail "path unset: warned '$err' (a path option ships absent)"
+[ "$(run_path)" = "default${TAB}" ] || fail "path unset: expected the default fallback, got '$(run_path)'"
+echo "ok: path: an unset key emits the fallback without a warning"
+
+printf 'spec_root: /one/two\n' >"$adopter_cfg"
+printf 'spec_root: "  /three four  "\n' >"$tracked_cfg"
+[ "$(run_path)" = "repo-tracked${TAB}/three four" ] || fail "path: repo-tracked did not win trimmed (got '$(run_path)')"
+echo "ok: path: last-layer-wins, surrounding whitespace trimmed, inner spaces kept"
+
+printf 'spec_root:\n' >"$mlocal_cfg"
+[ "$(run_path)" = "machine-local${TAB}" ] || fail "path: an empty machine-local value did not cancel (got '$(run_path)')"
+echo "ok: path: an empty value cancels lower layers"
+
+utf8_path=$(printf '/caf\303\251/\346\227\245')
+printf 'spec_root: %s\n' "$utf8_path" >"$mlocal_cfg"
+[ "$(run_path)" = "machine-local${TAB}$utf8_path" ] \
+  || fail "path: a non-ASCII value was refused or altered (got '$(run_path)')"
+echo "ok: path: UTF-8 bytes are not control bytes"
+
+printf 'spec_root: /bad\033x\n' >"$mlocal_cfg"
+rc=0
+err=$(run_path 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "path malformed machine-local: exit $rc, expected 0"
+case $err in *machine-local*) ;; *) fail "path malformed machine-local: warning does not name the layer ('$err')" ;; esac
+[ "$(run_path 2>/dev/null)" = "repo-tracked${TAB}/three four" ] || fail "path malformed machine-local: did not pass to repo-tracked"
+echo "ok: path: a control byte in machine-local passes to the next lower layer"
+
+rm -f "$mlocal_cfg"
+printf 'spec_root: /bad\001x\n' >"$tracked_cfg"
+rc=0
+run_path >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "path malformed repo-tracked: exit $rc, expected 4"
+echo "ok: path: a control byte in repo-tracked hard-fails"
+
+rm -f "$tracked_cfg"
+printf 'spec_root: /one/two\n' >"$adopter_cfg"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key spec_root --type path --fallback '')
+[ "$got" = /one/two ] || fail "path without --explain: expected the bare value, got '$got'"
+echo "ok: path: without --explain the bare value is printed"
+
+printf 'spec_root: /bad\001x\n' >"$adopter_cfg"
+printf 'spec_root: /core/value\n' >"$core_cfg.path"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg.path" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --explain --key spec_root --type path --fallback '' 2>/dev/null)
+[ "$got" = "core${TAB}/core/value" ] || fail "path malformed adopter: did not pass to core (got '$got')"
+echo "ok: path: a control byte in adopter passes to the core layer"
+
+rm -f "$adopter_cfg"
+printf 'spec_root: /bad\001x\n' >"$core_cfg.path"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg.path" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key spec_root --type path --fallback '' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "path malformed core: exit $rc, expected 5"
+echo "ok: path: a malformed core default is a broken install"
+
+rc=0
+/bin/bash "$RCK" --key spec_root --type path --values 'a b' --fallback '' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "path --values: exit $rc, expected 2"
+rc=0
+/bin/bash "$RCK" --key spec_root --type path --fallback "$(printf 'a\001')" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "path control-byte fallback: exit $rc, expected 2"
+echo "ok: path: --values and a malformed fallback are usage errors"
+
+# --explain labels the winning layer for the other types too.
+reset_layers
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --explain --key fleet_daemon_pause --type enum --values 'true false' --fallback false)
+[ "$got" = "core${TAB}false" ] || fail "enum --explain: expected the core label, got '$got'"
+printf 'fleet_daemon_pause: true\n' >"$mlocal_cfg"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --explain --key fleet_daemon_pause --type enum --values 'true false' --fallback false)
+[ "$got" = "machine-local${TAB}true" ] || fail "enum --explain: expected the machine-local label, got '$got'"
+printf 'fleet_daemon_pause: bogus\n' >"$mlocal_cfg"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --explain --key fleet_daemon_pause --type enum --values 'true false' --fallback false 2>/dev/null)
+[ "$got" = "core${TAB}false" ] || fail "enum --explain: a degraded value should carry the core label, got '$got'"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --explain --key absent_knob --type posint --fallback 7 2>/dev/null)
+[ "$got" = "default${TAB}7" ] || fail "posint --explain: an unset key should carry the default label, got '$got'"
+echo "ok: --explain labels the winning, degraded, and fallback layers"
+
+reset_layers
+
 echo "ALL PASS: resolve-config-knob"
