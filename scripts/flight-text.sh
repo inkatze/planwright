@@ -29,16 +29,14 @@ FLIGHT_CR=$(printf '\r')
 CLEAN_STRIPPED=0
 # shellcheck disable=SC2034 # CLEAN_STRIPPED is read by the sourcing script
 clean_text() {
-  # The sed pass also gives the base the same final-newline handling the
-  # strip loop's sed passes apply, so the comparisons are like with like.
+  # The first sed pass also gives the base the same final-newline handling
+  # the strip pass applies, so the comparison is like with like.
   sed "s/$FLIGHT_CR\$//" <"$1" | tr "$FLIGHT_CR" '\n' | tr -d '\000-\010\013-\037\177' >"$2.base" || return 1
-  cp "$2.base" "$2" || return 1
-  while :; do
-    sed "$INVIS_SED" <"$2" >"$2.next" || return 1
-    cmp -s "$2" "$2.next" && break
-    mv "$2.next" "$2" || return 1
-  done
+  # One sed process loops each line to its fixed point: a deletion cannot
+  # join bytes across a line break, so per-line stability is whole-text
+  # stability, and nested code points cost one pass each, not one process.
+  sed -e ':a' -e "$INVIS_SED" -e 't a' <"$2.base" >"$2" || return 1
   CLEAN_STRIPPED=0
   cmp -s "$2.base" "$2" || CLEAN_STRIPPED=1
-  rm -f "$2.base" "$2.next"
+  rm -f "$2.base"
 }
