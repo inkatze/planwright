@@ -27,10 +27,18 @@
 # description, which is the exact hole this file exists to close.
 #
 # THE GRAPH COMES FROM MISE, NOT FROM PARSING ITS FILE. `mise tasks --json`
-# renders the task runner's own resolved view: quoting, multi-line arrays,
-# aliases and wildcard expansion are its business, not this script's. A
-# hand-rolled parser of someone else's file format drifts from it silently and
-# is wrong in ways nobody can predict; this asks the owner instead.
+# renders the task runner's own view of each task: TOML quoting and multi-line
+# arrays are its business, not this script's. It does NOT resolve edges, so
+# the walk does: a task alias resolves to its task, and a wildcard edge
+# (mise's `*`, which spans the `:` separator) expands to every task name it
+# matches. A run body contributes every `mise run` / `mise r` task it names,
+# each `:::` segment included.
+#
+# WHOLE-LINE COMMENTS ARE NOT EXECUTION. They are dropped from a run body
+# before either edges or guard names are read from it, so a commented-out call
+# wires nothing. Known limit: a guard or edge named in a live line that does
+# not run it, such as an `echo`, still counts; telling those apart needs a
+# shell parser.
 #
 # PARSE BOUNDARY, ENFORCED RATHER THAN DOCUMENTED. Only tasks defined in the
 # repo's own mise.toml count. mise layers mise.local.toml and file tasks on
@@ -120,35 +128,48 @@ graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --j
 # `wait_for` is deliberately not an edge: it only orders a task that something
 # else already scheduled and never causes its target to run, so following it
 # would pass a guard nothing runs. A dangling
-# edge (naming no task in this file) is reported, never silently dropped: an
-# edge the walk cannot follow is exactly how a guard appears reachable without
-# being reachable.
+# edge (resolving to no task in this file) is reported, never silently dropped:
+# an edge the walk cannot follow is exactly how a guard appears reachable
+# without being reachable.
 report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
-  [ .[] | select(.source == $src)
-    | { name: .name,
-        run: ((.run // []) | join("\n")),
-        deps: ((.depends // []) + (.depends_post // [])) } ]
-  | map(. + { deps: (.deps + ([ .run
-        | match("mise[[:space:]]+run[[:space:]]+((?:-[^[:space:]]+[[:space:]]+)*)([A-Za-z0-9:_.*-]+)"; "g")
-        | .captures[1].string ]))
-    })                                                              as $tasks
+  def uncommented: split("\n") | map(select(test("^[[:space:]]*#") | not)) | join("\n");
+  def run_edges:
+    [ match("(?:^|[^A-Za-z0-9_-])mise[[:space:]]+(?:run|r)[[:space:]]+([^;&|\n]*)"; "g")
+      | .captures[0].string
+      | splits("[[:space:]]*:::[[:space:]]*")
+      | capture("^(?:-[^[:space:]]+[[:space:]]+)*(?<t>[A-Za-z0-9:_.*-]+)")
+      | .t ];
+  def glob_re:
+    "^" + (gsub("(?<c>[.+?^$(){}|\\[\\]\\\\])"; "\\\(.c)") | gsub("\\*"; ".*")) + "$";
+  [ .[] | select(.source == $src) ]                                 as $raw
+  | [ $raw[].name ]                                                 as $names
+  | ([ $raw[] | .name as $n | (.aliases // [])[] | {key: ., value: $n} ]
+     | from_entries)                                                as $alias
+  | def resolve:
+      . as $e
+      | if ($names | index([$e])) then [$e]
+        elif ($alias | has($e)) then [$alias[$e]]
+        elif test("\\*") then (glob_re) as $re | [ $names[] | select(test($re)) ]
+        else [] end;
+    [ $raw[]
+      | ((.run // []) | join("\n") | uncommented)                    as $body
+      | (((.depends // []) + (.depends_post // [])) + ($body | run_edges)) as $edges
+      | { name: .name,
+          body: $body,
+          next: ([ $edges[] | resolve[] ] | unique),
+          dangling: [ $edges[] | select((resolve | length) == 0) ] } ] as $tasks
   | ($tasks | map({key: .name, value: .}) | from_entries)           as $by
   | def grow($seen):
-      ($seen + ($seen | map($by[.].deps // []) | add // []) | unique) as $next
+      ($seen + ($seen | map($by[.].next) | add // []) | unique) as $next
       | if ($next | length) == ($seen | length) then $seen else grow($next) end;
     (if ($by | has("check")) then grow(["check"]) else null end)     as $reached
   | if $tasks == [] then "PARSE\tthe task graph holds no task from this repo mise.toml"
     elif $reached == null then "PARSE\tno `check` task in the graph, so there is no gate to walk"
     else
-      ([ $reached[] | . as $n | select($by | has($n)) ]) as $known
-      | if ($known | length) == 0 then "PARSE\tthe closure from check reached zero known tasks"
-        else
-          ( "COUNT\t\($known | length)" ),
-          ( [ $reached[] | . as $n | select(($by | has($n)) | not) ] | unique | .[] | "DANGLING\t\(.)" ),
-          ( [ $reached[] | select(test("\\*")) ] | unique | .[] | "WILDCARD\t\(.)" ),
-          ( "BODIES" ),
-          ( $known[] | $by[.].run )
-        end
+      ( "COUNT\t\($reached | length)" ),
+      ( [ $reached[] | $by[.].dangling[] ] | unique | .[] | "DANGLING\t\(.)" ),
+      ( "BODIES" ),
+      ( $reached[] | $by[.].body )
     end
 ') || {
   echo "$me: could not read the task graph — failing closed" >&2
@@ -252,8 +273,7 @@ if [ -n "$unwired" ]; then
 fi
 
 printf '%s\n' "$meta" | awk -F'\t' -v me="$me" '
-  $1 == "DANGLING" { print me ": note: dependency on `" $2 "` names no task in this repo mise.toml — outside the parse boundary" > "/dev/stderr" }
-  $1 == "WILDCARD" { print me ": note: wildcard dependency not expanded: " $2 > "/dev/stderr" }
+  $1 == "DANGLING" { print me ": note: dependency on `" $2 "` names or matches no task in this repo mise.toml — outside the parse boundary" > "/dev/stderr" }
 '
 
 if [ "$rc" = 0 ]; then
