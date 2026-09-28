@@ -623,4 +623,20 @@ run_layers --layers steps_pre_pr >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "--layers: a malformed repo-tracked layer should hard-fail 4, got $rc"
 echo "ok: --layers applies the same by-layer malformed policy as the merged read"
 
+# PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1: a malformed adopter or machine-local
+# overlay exits 6 instead of being skipped; unset, the skip is unchanged.
+rm -f "$layers_root/repo/.claude/planwright.yml"
+rc=0
+PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 run_layers steps_pre_pr >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "strict overlays: a malformed adopter overlay should exit 6, got $rc"
+rm -f "$layers_root/adopter/planwright.yml"
+printf 'steps_pre_pr:\n  - nested\n' >"$layers_root/repo/.claude/planwright.local.yml"
+rc=0
+PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 run_layers steps_pre_pr >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "strict overlays: a malformed machine-local overlay should exit 6, got $rc"
+got=$(run_layers steps_pre_pr 2>/dev/null) || fail "strict overlays: unset, a malformed machine-local overlay must still be skipped"
+[ "$got" = "[core-a]" ] || fail "strict overlays: unset, expected the core value, got '$got'"
+rm -f "$layers_root/repo/.claude/planwright.local.yml"
+echo "ok: PLANWRIGHT_CONFIG_STRICT_OVERLAYS turns a skipped malformed overlay into exit 6"
+
 echo "PASS: config-get"

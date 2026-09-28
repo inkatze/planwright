@@ -124,6 +124,11 @@ printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malf
     [ "$rc" = 0 ] || fail "$knob: malformed $layer_cfg exited $rc, expected 0"
     [ "$got" = "$strict" ] || fail "$knob: malformed $layer_cfg resolved to '$got', expected '$strict'"
     grep -q warning "$tmp/err" || fail "$knob: malformed $layer_cfg degraded without a warning"
+    # A malformed FILE in that layer is the same case, even when the file
+    # also sets the knob to its strict value on a well-formed line.
+    printf '%s: %s\nother:\n  - x\n' "$knob" "$strict" >"$layer_cfg"
+    got=$(rpk "$knob" 2>/dev/null) || fail "$knob: a malformed $layer_cfg file did not resolve"
+    [ "$got" = "$strict" ] || fail "$knob: a malformed $layer_cfg file resolved to '$got', expected '$strict'"
   done
 
   # A key no layer sets falls back to the strict target too.
@@ -203,21 +208,27 @@ pb_expect 1 stable "an overlay entry is stripped of refs/heads/ too"
 echo "ok: overlay additions join the floor and never shrink it"
 
 for layer_cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
-  reset_layers
-  printf 'protected_branches: main,master\n' >"$layer_cfg"
-  rc=0
-  pb feature-x >/dev/null 2>&1 || rc=$?
-  case "$rc" in
-    0 | 1) fail "protected-branch: a malformed value in $layer_cfg exited $rc, expected a read failure" ;;
-  esac
+  for body in 'protected_branches: main,master' 'protected_branches:
+  - release' 'protected_branches: release
+other:
+  - x'; do
+    reset_layers
+    printf '%s\n' "$body" >"$layer_cfg"
+    rc=0
+    pb release >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 4 ] || fail "protected-branch: a malformed $layer_cfg ('$body') exited $rc, expected 4"
+    rc=0
+    rpk protected_branches >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 4 ] || fail "resolve-policy-knob: a malformed $layer_cfg ('$body') exited $rc, expected 4"
+  done
 done
 reset_layers
 : >"$core_cfg"
-rc=0
-pb feature-x >/dev/null 2>&1 || rc=$?
-case "$rc" in
-  0 | 1) fail "protected-branch: an unset key exited $rc, expected a read failure" ;;
-esac
+for cmd in pb rpk; do
+  rc=0
+  if [ "$cmd" = pb ]; then pb feature-x >/dev/null 2>&1 || rc=$?; else rpk protected_branches >/dev/null 2>&1 || rc=$?; fi
+  [ "$rc" = 5 ] || fail "$cmd: an unset protected_branches exited $rc, expected 5"
+done
 echo "ok: a malformed or unset protected_branches is a read failure, never the floor alone"
 
 printf 'protected_branches:\n' >"$core_cfg"

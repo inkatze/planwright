@@ -71,11 +71,17 @@
 #                               override; wins over the derived machine-local path)
 #   PLANWRIGHT_ROOT             planwright root holding config/defaults.yml
 #   CLAUDE_PLUGIN_ROOT          plugin-delivery root (set by Claude Code)
+#   PLANWRIGHT_CONFIG_STRICT_OVERLAYS  when 1, a malformed adopter or
+#                               machine-local overlay the walk reaches exits 6
+#                               instead of being skipped, for a caller whose
+#                               lower layers may hold a permissive value
 # The adopter and repo-side layer roots honor resolve-overlay-root.sh's own
 # overrides (PLANWRIGHT_ADOPTER_OVERLAY, CLAUDE_PLUGIN_DATA, PLANWRIGHT_REPO_ROOT).
 #
 # Exit: 0 value printed; 3 key absent in every layer; 2 usage / invalid key;
-# 4 malformed repo-tracked overlay (hard-fail). Never fails opaquely.
+# 4 malformed repo-tracked overlay (hard-fail); 6 malformed adopter or
+# machine-local overlay, only under PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1. Never
+# fails opaquely.
 set -u
 
 # Pin the C locale: the [a-z] range checks below are collation-dependent and
@@ -280,7 +286,10 @@ fi
 # sets the key wins (last-layer-wins, D-5). A malformed adopter or machine-local
 # overlay degrades to the next lower layer with a loud warning (D-7).
 if [ -n "$mlocal_cfg" ] && [ -e "$mlocal_cfg" ]; then
-  if malformed_config "$mlocal_cfg"; then
+  if malformed_config "$mlocal_cfg" && [ "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS:-}" = 1 ]; then
+    echo "config-get: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
+    exit 6
+  elif malformed_config "$mlocal_cfg"; then
     echo "config-get: warning: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
   elif get_value "$mlocal_cfg" "$key"; then
     emit machine-local
@@ -291,7 +300,10 @@ if [ -n "$tracked_cfg" ] && get_value "$tracked_cfg" "$key"; then
   emit repo-tracked
 fi
 if [ -n "$adopter_cfg" ] && [ -e "$adopter_cfg" ]; then
-  if malformed_config "$adopter_cfg"; then
+  if malformed_config "$adopter_cfg" && [ "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS:-}" = 1 ]; then
+    echo "config-get: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
+    exit 6
+  elif malformed_config "$adopter_cfg"; then
     echo "config-get: warning: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
   elif get_value "$adopter_cfg" "$key"; then
     emit adopter

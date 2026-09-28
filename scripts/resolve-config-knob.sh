@@ -31,10 +31,12 @@
 # Two caller options narrow the degrade arms for knobs whose core default is
 # not their strictest value (a gate knob degrading to the core default would
 # land on the permissive side):
-#   --degrade <v>   a malformed adopter / machine-local value degrades to <v>
-#                   instead of the core default.
-#   --no-degrade    nothing degrades: a malformed value at any layer exits 4
-#                   and a key no layer sets exits 5, so the caller reads every
+#   --degrade <v>   a malformed adopter / machine-local value, or a malformed
+#                   overlay file config-get would otherwise skip, degrades to
+#                   <v> instead of the core default.
+#   --no-degrade    nothing degrades: a malformed value or file in any overlay
+#                   layer exits 4, and a key no layer sets exits 5 (as a
+#                   malformed core default does), so the caller reads every
 #                   failure as a refusal. Excludes --degrade and --fallback.
 #
 # Usage:
@@ -74,11 +76,13 @@
 #   globlist   a space-separated single-line list of names or glob patterns
 #              (the config model is flat `key: value`, so a YAML list is
 #              malformed); empty is legal; each member is [A-Za-z0-9._/*?-],
-#              does not start with `-`, and is at most 255 characters.
-#   --fallback is required unless --no-degrade is given, and and must itself validate against the type: it is
-#              the safe value emitted when the key cannot be resolved from any
-#              layer, so an invalid fallback (or --degrade value) is a caller
-#              bug (exit 2).
+#              does not start with `-`, and is at most 255 characters. How a
+#              member matches is the reading knob's own rule; this type only
+#              validates the list.
+#   --fallback is required unless --no-degrade is given, and must itself
+#              validate against the type: it is the safe value emitted when
+#              the key cannot be resolved from any layer, so an invalid
+#              fallback (or --degrade value) is a caller bug (exit 2).
 #
 # Environment: honors every override config-get / resolve-overlay-root honor
 # (PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY, PLANWRIGHT_REPO_ROOT,
@@ -86,8 +90,8 @@
 #
 # Exit: 0 value printed; 2 usage error; 4 malformed repo-tracked overlay
 # (hard-fail, propagated or raised here; under --no-degrade, any malformed
-# layer); 5 broken install (under --no-degrade, also a key no layer sets) (the core default
-# is itself unresolvable or invalid). Never fails opaquely.
+# overlay); 5 broken install (the core default is itself unresolvable or
+# invalid; under --no-degrade, also a key no layer sets). Never fails opaquely.
 #
 # Pathname expansion is disabled (set -f): --values is word-split into
 # members, and a stray glob metacharacter must not expand against the CWD
@@ -350,9 +354,25 @@ fi
 
 # Read the winning value and its layer. The pinned --explain contract is a
 # single "<layer>TAB<value>" line on stdout (config-get B1.6).
+# A gate knob's lower layers can hold its permissive value, so under
+# --degrade / --no-degrade a malformed overlay FILE must not be skipped (the
+# config-get default) but treated like a malformed value in that layer.
+strict_overlays=""
+if [ "$degrade_set" -eq 1 ] || [ "$no_degrade" -eq 1 ]; then
+  strict_overlays=1
+fi
 explain_out=""
 rc=0
-explain_out=$("$config_get" --explain "$key") || rc=$?
+explain_out=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS="$strict_overlays" "$config_get" --explain "$key") || rc=$?
+if [ "$rc" -eq 6 ]; then
+  if [ "$no_degrade" -eq 1 ]; then
+    echo "resolve-config-knob: an overlay setting '$key' is malformed and the caller allows no degrade" >&2
+    exit 4
+  fi
+  printf '%s\n' "resolve-config-knob: warning: an overlay is malformed; degrading '$key' to the strict value '$(sanitize_printable "$degrade" "(unprintable degrade)")'" >&2
+  emit_trimmed "$degrade"
+  exit 0
+fi
 
 if [ "$rc" -eq 4 ]; then
   # config-get already hard-failed a structurally malformed repo-tracked

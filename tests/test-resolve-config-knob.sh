@@ -443,6 +443,17 @@ for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
   [ "$out" = strict ] || fail "degrade: malformed $layer_cfg resolved to '$out', expected the strict target"
   grep -q 'strict' "$tmp/err.txt" || fail "degrade: the warning does not name the degrade target"
 done
+# A structurally malformed overlay FILE is a malformed value in that layer
+# too: config-get would skip the file and answer from the core value, which is
+# exactly the permissive side --degrade exists to avoid.
+for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'flip_gate:\n  - strict\n' >"$layer_cfg"
+  rc=0
+  out=$(run_gate 2>/dev/null) || rc=$?
+  [ "$rc" = 0 ] || fail "degrade: a malformed $layer_cfg file exited $rc, expected 0"
+  [ "$out" = strict ] || fail "degrade: a malformed $layer_cfg file resolved to '$out', expected the strict target"
+done
 reset_layers
 printf 'flip_gate: sloppy\n' >"$tracked_cfg"
 rc=0
@@ -507,6 +518,20 @@ for layer_cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
   [ "$rc" = 4 ] || fail "no-degrade: malformed $layer_cfg exited $rc, expected 4"
   [ -z "$out" ] || fail "no-degrade: malformed $layer_cfg still printed '$out'"
 done
+for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'extra_globs:\n  - release/*\n' >"$layer_cfg"
+  rc=0
+  out=$(run_nodegrade 2>/dev/null) || rc=$?
+  [ "$rc" = 4 ] || fail "no-degrade: a malformed $layer_cfg file exited $rc, expected 4"
+  [ -z "$out" ] || fail "no-degrade: a malformed $layer_cfg file still printed '$out'"
+done
+# A malformed core default is a broken install, not a malformed overlay.
+reset_layers
+printf 'extra_globs: a,b\n' >"$glob_core"
+rc=0
+run_nodegrade >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "no-degrade: a malformed core value exited $rc, expected 5"
 reset_layers
 : >"$glob_core"
 rc=0
