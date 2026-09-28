@@ -792,10 +792,10 @@ citation_range_findings() {
     | awk '/^[0-9]/ { print "Task " $0; next } NF { print }')
   for crfile in requirements.md design.md tasks.md test-spec.md; do
     [ -f "$crdir/$crfile" ] || continue
-    awk -v sibs="$crsibs" -v file="$crfile" -v defs="$crdefs" \
+    SPEC_VALIDATE_CR_DEFS=$crdefs awk -v sibs="$crsibs" -v file="$crfile" \
       "$spec_parse_awk_fence$spec_parse_awk_grammar"'
       BEGIN {
-        n = split(defs, d, "\n")
+        n = split(ENVIRON["SPEC_VALIDATE_CR_DEFS"], d, "\n")
         for (i = 1; i <= n; i++) if (d[i] != "") defined[d[i]] = 1
       }
       function is_cite_id(tok) { return (tok ~ /^D-[0-9]+$/ || tok ~ /^REQ-[A-Z][0-9]+\.[0-9]+$/) }
