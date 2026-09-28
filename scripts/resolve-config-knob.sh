@@ -1,6 +1,6 @@
 #!/bin/sh
-# resolve-config-knob.sh — the SHARED config-knob resolver for the
-# fleet-autonomy bundle's knobs (Task 1: D-22, REQ-G1.5): resolve one config
+# resolve-config-knob.sh — the SHARED config-knob resolver, first built for
+# the fleet-autonomy bundle's knobs (Task 1: D-22, REQ-G1.5): resolve one config
 # key through the four-layer overlay into a single validated value on stdout,
 # with the same malformed-value-by-layer policy `review_sequence` already has
 # (REQ-E1.4) — implemented ONCE here instead of copied into a per-knob
@@ -14,14 +14,14 @@
 # (customization-overlay REQ-D1.1); it adds only the semantic validation that
 # config-get cannot apply (the legal-value test is key-specific) and the
 # by-layer policy, mirroring resolve-dispatch-isolation.sh /
-# resolve-review-sequence.sh:
+# resolve-review-sequence.sh, for every type but path (whose per-layer walk
+# is described under --type below):
 #   - repo-tracked malformed value (or structurally malformed file, which
 #     config-get itself hard-fails): exit 4 — a broken shared value never
 #     silently degrades a whole team;
 #   - adopter / machine-local malformed value: warn on stderr and degrade to
 #     the CORE DEFAULT (re-resolved with the overlay layers neutralized; the
-#     documented degrade target, not a strict per-layer cascade, because
-#     config-get exposes only the merged winning value);
+#     documented degrade target, not a strict per-layer cascade);
 #   - core default malformed: broken install, exit 5;
 #   - key absent in every layer, or absent from core after an overlay
 #     degrade: warn and emit the caller's --fallback (the caller-declared safe
@@ -79,7 +79,8 @@
 #              path it is usually '' (unset).
 #   --explain  print "<layer>\t<value>" instead of the bare value, the layer
 #              being core | adopter | repo-tracked | machine-local, or
-#              default when the fallback was emitted.
+#              default when no layer set the key. A path value an empty
+#              layer cancelled is labelled with that layer.
 #
 # Environment: honors every override config-get / resolve-overlay-root honor
 # (PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY, PLANWRIGHT_REPO_ROOT,
@@ -297,6 +298,8 @@ valid_value() {
       esac
       ;;
     path)
+      # C0 and DEL only: a C1 range would also match UTF-8 continuation
+      # bytes and refuse non-ASCII paths.
       [ "$_vv" = "$(printf '%s' "$_vv" | tr -d '\000-\037\177')" ]
       ;;
   esac
