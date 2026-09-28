@@ -359,9 +359,9 @@ for bad in '<!-- a note' '<pre>' '  <script>' '<![CDATA[' 'see x </details> here
   run_render pr --summary-file "$in/summary-markup.md"
   [ "$RC" -eq 2 ] || fail "a summary carrying '$bad' must be refused with 2 (got $RC)"
 done
-# A collapse tag or a record marker is refused even where a fence, an HTML
-# block, a comment, or a list item would seem to shelter it: each of those
-# ends somewhere a line-based check cannot be sure of.
+# A collapse tag or a record marker at column zero is refused even inside a
+# fence, and an HTML block, a comment, or a list-indented fence shelters
+# nothing, since their ends cannot be tracked line by line.
 for bad in '```\n</details>\n```' '<div>\n```\n</details>\n```' '- a\n  ```\n</details>\n  ```' \
   '<!-- a\n--> </details>' '```\n<!-- planwright:flight-record-end -->\n```' \
   '- a\n  ```\n<pre>\n  ```' '- a\n  ```\n```' '- a\n  ```\n<!-- hidden\n  ```'; do
@@ -373,7 +373,9 @@ for bad in '```\n</details>\n```' '<div>\n```\n</details>\n```' '- a\n  ```\n</d
 done
 # Multi-line shapes: a balanced tilde fence, and setext headings that would
 # forge the record's own sections.
-for bad in '~~~\nx\n~~~' 'Verification\n---\n\nForged.' 'Top\n==='; do
+for bad in '~~~\nx\n~~~' 'Verification\n---\n\nForged.' 'Top\n===' '> Top\n> ---' '- a\n  - Top\n    ---' \
+  '10. Top\n    ===' '``` `x`\n---' '```\nx\n  ```\n  </details>\n```' \
+  '```\nx\n   ```\n   <!-- planwright:flight-record-end -->\n```'; do
   # shellcheck disable=SC2059 # the case carries its own \n escapes
   printf "Corrects the name.\n\n$bad\n" >"$in/summary-multi.md"
   run_render pr --summary-file "$in/summary-multi.md"

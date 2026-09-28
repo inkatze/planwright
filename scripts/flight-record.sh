@@ -231,7 +231,7 @@ markup_hazard() {
       l = $0
       if (fence) {
         if (l ~ /^</) hazard("a fenced line starting with < at column zero (indent it)")
-        if (match(l, /^`+[ \t]*$/)) {
+        if (match(l, /^ ? ? ?`+[ \t]*$/)) {
           f = l
           gsub(/[ \t]/, "", f)
           if (length(f) >= fl) fence = 0
@@ -243,7 +243,10 @@ markup_hazard() {
       if (l ~ /^ ? ? ?(```|~~~)/ && l !~ /^```/) hazard("a fence other than backticks at column zero")
       if (match(l, /^```+/)) {
         fl = RLENGTH
-        if (index(substr(l, RSTART + RLENGTH), "`")) next
+        if (index(substr(l, RSTART + RLENGTH), "`")) {
+          prev = 1
+          next
+        }
         fence = 1
         prev = 0
         next
@@ -253,7 +256,7 @@ markup_hazard() {
       while (match(h, /^[ \t]*(>|[-*+][ \t]|[0-9]+[.)][ \t])[ \t]*/)) h = substr(h, RSTART + RLENGTH)
       if (headings == "none" && h ~ /^ ? ? ?#+([ \t]|$)/) hazard("a heading (the record supplies its own)")
       if (headings == "audit" && h ~ /^ ? ? ?(#|##|###)([ \t]|$)/) hazard("a heading above level four (the audit nests under the record'"'"'s ### heading)")
-      if (prev && l ~ /^ ? ? ?(=+|-+)[ \t]*$/) hazard("a setext heading underline (put a blank line above a thematic break)")
+      if (prev && l ~ /^[ \t>]*(=+|-+)[ \t]*$/) hazard("a setext heading underline (put a blank line above a thematic break)")
       prev = (l ~ /[^ \t]/)
     }
     END {
