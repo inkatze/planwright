@@ -6,7 +6,7 @@
 # Usage: protected-branch.sh <branch>
 #
 # The branch may carry a `refs/heads/` prefix, which is stripped, as it is from
-# each entry of the set. An entry is a name or a glob matched segment by
+# each entry of the set, and both sides are compared case-folded. An entry is a name or a glob matched segment by
 # segment, so `*` and `?` never span a `/`: `planwright/*/spec` protects
 # `planwright/x/spec` and not `planwright/a/b/spec`.
 #
@@ -36,8 +36,16 @@ refuse_name() {
 }
 case "$name" in
   "" | -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/-]*) refuse_name "$1" ;;
+  HEAD | .* | */.* | *.lock | *.lock/*) refuse_name "$1" ;;
 esac
 [ "${#name}" -le 255 ] || refuse_name "$1"
+# Case folds on both sides, as the tower queue's push screen folds it: `Main`
+# is `main` on a case-insensitive filesystem, and over-refusing is the safe
+# direction.
+fold() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+name=$(fold "$name")
 
 set_out=$(/bin/sh "$script_dir/resolve-policy-knob.sh" protected_branches) || {
   rc=$?
@@ -84,7 +92,7 @@ seg_match() {
 }
 
 for entry in $set_out; do
-  if seg_match "${entry#refs/heads/}" "$name"; then
+  if seg_match "$(fold "${entry#refs/heads/}")" "$name"; then
     printf '%s\n' "protected-branch: '$name' is protected (matches '$entry')" >&2
     exit 1
   fi

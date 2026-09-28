@@ -207,6 +207,26 @@ printf 'protected_branches: refs/heads/stable\n' >"$tracked_cfg"
 pb_expect 1 stable "an overlay entry is stripped of refs/heads/ too"
 echo "ok: overlay additions join the floor and never shrink it"
 
+# An entry that could never match a branch is malformed, not silently inert:
+# an operator writing `release/**` or `release/` meant to protect something.
+for bad in 'release/' '/release' 'release//x' 'a..b/*' '.' 'release/**' '.hidden' 'x.lock' 'HEAD'; do
+  printf 'protected_branches: %s\n' "$bad" >"$tracked_cfg"
+  rc=0
+  rpk protected_branches >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] || fail "resolve-policy-knob: the unmatchable entry '$bad' exited $rc, expected 4"
+done
+reset_layers
+echo "ok: an entry that can never match a branch is a read failure"
+
+# Case folds, as the tower queue's push screen folds it: over-refusing is the
+# safe direction, and a case-insensitive filesystem makes `Main` the same ref.
+pb_expect 1 Main "the floor matches regardless of case"
+pb_expect 1 refs/heads/MASTER "a stripped target matches regardless of case"
+printf 'protected_branches: Release/*\n' >"$tracked_cfg"
+pb_expect 1 release/1.0 "an overlay entry matches regardless of case"
+reset_layers
+echo "ok: protected-branch matching folds case"
+
 for layer_cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
   for body in 'protected_branches: main,master' 'protected_branches:
   - release' 'protected_branches: release
@@ -234,7 +254,8 @@ echo "ok: a malformed or unset protected_branches is a read failure, never the f
 printf 'protected_branches:\n' >"$core_cfg"
 reset_layers
 # shellcheck disable=SC2016 # the literal `$(x)` is the refused input
-for bad in "" "-main" 'ma$(x)in' "a b" "a//b" "/main" "main/" "a..b"; do
+for bad in "" "-main" 'ma$(x)in' "a b" "a//b" "/main" "main/" "a..b" HEAD a.lock .x a/.b \
+  "$(printf 'a%.0s' $(seq 256))"; do
   rc=0
   pb "$bad" >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "protected-branch: the invalid name '$bad' exited $rc, expected 2"

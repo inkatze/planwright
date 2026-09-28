@@ -72,6 +72,17 @@ case "$knob" in
     ;;
   protected_branches)
     additions=$(/bin/sh "$rck" --key "$knob" --type globlist --no-degrade) || exit $?
+    # An entry that no branch name can match (git refuses the shape, or `**`,
+    # which matches one segment here) is malformed rather than silently inert.
+    for entry in $additions; do
+      entry=${entry#refs/heads/}
+      case "$entry" in
+        "" | /* | */ | *//* | *..* | *\*\** | .* | */.* | *.lock | *.lock/* | HEAD)
+          printf '%s\n' "resolve-policy-knob: protected_branches entry '$entry' can never match a branch; refusing" >&2
+          exit 4
+          ;;
+      esac
+    done
     # Word-split on purpose (set -f is on) to normalize the separators.
     # shellcheck disable=SC2086
     set -- $PROTECTED_FLOOR $additions
