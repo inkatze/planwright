@@ -56,7 +56,8 @@
 #   supervisor.pid / worker.pid / recover.lock/ / journal.lock/ / launch.lock/
 #   scope            the dispatch scope, when the launch supplied one
 #   supervisor.log   the detached supervisor's own stderr
-#   .init.* / .journal.* / .session.* / .pid.*  mktemp-beside-target staging
+#   .init.* / .frame.* / .journal.* / .session.* / .pid.*  mktemp-beside-target
+#                    staging
 #   *.broken.*       a lock directory a stale-break renamed out of the way
 # Which of these a close releases is not a property of their order here: the
 # release set is `release_classes` and the globs each class names, and the
@@ -88,7 +89,8 @@
 # longer be delivered — dead supervisor/worker channel, unknown or already-
 # settled request — marks the journal row undeliverable and writes a visible
 # attention item naming it: never a silent drop, never a silent re-apply to
-# a different request.
+# a different request. An answer whose frame fails frame_check writes nothing
+# and leaves the request pending (exit 2), so a corrected answer can land.
 #
 # THE CLOSE (`stop`). The release set is the runtime a worker acquires:
 # its process tree, the locks it holds, its scratch temp, and its attention
@@ -155,7 +157,9 @@
 #       Deliver the recorded answer for a pending request. --allow composes
 #       behavior=allow with updatedInput sliced from the stored envelope;
 #       --deny composes behavior=deny (optional message); --response-file
-#       supplies the full response body (AskUserQuestion answers use this).
+#       supplies the full response body (AskUserQuestion answers use this):
+#       one JSON object on one line with no raw control byte (TAB and DEL
+#       included, so escape them), 64 KiB at most.
 #   fleet-streamjson.sh steer <worker> --message-file <file>
 #       Deliver a tower-originated message to a LIVE worker as a user turn on
 #       its own stdin: the file's text, under the fixed attribution header
@@ -170,6 +174,9 @@
 #       settle a pending permission request (the tower may not answer those).
 #       The file is data (64 KiB cap, refused whole when over, non-empty); a
 #       dead channel is exit 3, never a hang. Prints `steered <worker> <bytes>`.
+#       Like every frame written to the fifo (see frame_check), the composed
+#       frame is checked before the write; a refused one is exit 2 with
+#       nothing written.
 #   fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]
 #       Single-initiator crash recovery: refuse when a recovery is already
 #       in flight (exit 3) or the worker/supervisor is still alive (exit 3),
@@ -578,17 +585,13 @@ journal_oldest_pending() {
 # control byte is dropped, never smuggled, and never emitted raw, which would
 # make the frame invalid JSON the worker's parser rejects).
 # Bytes >= 0x80 are kept, so raw UTF-8 (accents, em-dash, CJK, emoji) reaches
-# the worker intact — JSON strings carry UTF-8 verbatim; the class below is
-# chosen over `[^[:print:]]`, which would delete UTF-8 lead/continuation
-# bytes. NOTE the strip is GNU-only in practice: BSD awk (macOS) does not
-# honour `[\000-\037\177]` as a byte range and strips nothing, so on the
-# bash-3.2 floor C0/DEL survive this escaper (tests/test-fleet-streamjson.sh
-# c17 documents the same asymmetry). TAB and CR use explicit gsub above and
-# are portable everywhere.
+# the worker intact — JSON strings carry UTF-8 verbatim. The strip is `tr`, not
+# an awk class: BSD awk (macOS) does not honour `[\000-\037\177]` as a byte
+# range and strips nothing, which left raw C0 bytes in the frame there.
 # Every string body the supervisor emits goes through this one escaper, so the
 # prompt path and the deny-message path cannot drift apart.
 json_escape() {
-  awk '
+  tr -d '\000-\010\013\014\016-\037\177' | awk '
     NR > 1 { printf "\\n" }
     {
       s = $0
@@ -596,7 +599,6 @@ json_escape() {
       gsub(/"/, "\\\"", s)
       gsub(/\t/, "\\t", s)
       gsub(/\r/, "\\r", s)
-      gsub(/[\000-\037\177]/, "", s)
       printf "%s", s
     }
   '
@@ -633,9 +635,12 @@ json_field() {
 
 # json_input_object <envelope-file> — print the balanced {...} object after
 # the first `"input":` in the stored control_request envelope (string-aware:
-# braces inside JSON strings do not count). Empty when absent.
+# braces inside JSON strings do not count). Empty when absent. A raw DEL,
+# which JSON allows in a string and the CLI emits unescaped, comes out as
+# \u007f: the same character, in the form frame_check accepts.
 json_input_object() {
   awk '
+    BEGIN { del = sprintf("%c", 127) }
     NR == 1 {
       i = index($0, "\"input\":")
       if (i == 0) exit
@@ -646,6 +651,7 @@ json_input_object() {
       depth = 0; instr = 0; out = ""
       for (; j <= length(rest); j++) {
         c = substr(rest, j, 1)
+        if (c == del) { out = out "\\u007f"; continue }
         out = out c
         if (instr) {
           if (c == "\\") { j++; out = out substr(rest, j, 1); continue }
@@ -657,6 +663,97 @@ json_input_object() {
         if (c == "}") { depth--; if (depth == 0) { print out; exit } }
       }
     }' "$1"
+}
+
+# --- the fifo write discipline ----------------------------------------------
+
+# frame_check <file> — succeed when the file holds exactly one newline-
+# terminated line that parses as a JSON object; otherwise print the reason and
+# fail. The worker reads its stdin one line at a time, so a frame missing its
+# newline runs into whatever the supervisor writes next and the worker dies on
+# the merged line; an invalid frame kills it the same way.
+#
+# Stricter than JSON in one respect: no raw control byte besides the
+# terminator, TAB and DEL included. Every string this script composes goes
+# through json_escape, which never emits one, and json_input_object escapes
+# the DEL a worker's own tool input may carry, so only a caller-supplied body
+# (an `--response-file`) can hold one; the byte-range test stays in `tr`, the
+# one tool that honours it portably.
+#
+# The parse is a reduction rather than a character walk, so its cost stays
+# linear in the frame instead of in the frame times its string count: each
+# string, number, and literal becomes one placeholder byte, which a leftover
+# quote or backslash proves was not a well-formed string, then innermost
+# arrays and objects collapse to a single value until the top object is one.
+# The collapse stops after 512 passes, each taking one array and one object
+# level, so nesting past that is refused rather than walked. The cap sits well
+# above any tool input an `--allow` splices, since a refusal there leaves the
+# worker unable to proceed, and it bounds a pathological 64 KiB body to a few
+# seconds (without it, about 24s under mawk).
+frame_check() {
+  if [ ! -f "$1" ] || [ ! -r "$1" ]; then
+    echo "missing or unreadable"
+    return 1
+  fi
+  if [ "$(tail -c 1 <"$1" | wc -l | tr -d ' ')" != 1 ]; then
+    echo "unterminated (no trailing newline)"
+    return 1
+  fi
+  if [ "$(wc -l <"$1" | tr -d ' ')" != 1 ]; then
+    echo "multi-line (one frame per write)"
+    return 1
+  fi
+  if [ "$(tr -d '\000-\011\013-\037\177' <"$1" | wc -c | tr -d ' ')" != "$(wc -c <"$1" | tr -d ' ')" ]; then
+    echo "raw control byte"
+    return 1
+  fi
+  if ! awk '
+    BEGIN {
+      S = sprintf("%c", 1); N = sprintf("%c", 2); K = sprintf("%c", 3); C = sprintf("%c", 4)
+      V = "[" S N K C "]"
+      arr = "\\[(" V "(," V ")*)?\\]"
+      obj = "\\{(" S ":" V "(," S ":" V ")*)?\\}"
+    }
+    { s = $0 }
+    END {
+      if (NR != 1) exit 1
+      gsub(/"([^"\\]|\\["\\\/bfnrt]|\\u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f])*"/, S, s)
+      if (s ~ /["\\]/) exit 1
+      gsub(/-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/, N, s)
+      gsub(/true|false|null/, K, s)
+      gsub(/ /, "", s)
+      if (substr(s, 1, 1) != "{") exit 1
+      for (d = 0; d < 512 && s != C; d++)
+        if (gsub(arr, C, s) + gsub(obj, C, s) == 0) break
+      exit (s == C) ? 0 : 1
+    }' <"$1"; then
+    echo "invalid JSON"
+    return 1
+  fi
+}
+
+# frame_send <dir> <frame-file> — the one writer into a live worker's stdin,
+# for every frame composed after launch (build_initial_msg checks the launch
+# frame). The caller holds the journal lock, so two writers never interleave.
+# Exit 0 written; 2 the frame is refused, its reason on stdout; 3 the channel
+# is dead; 1 the write itself failed. Only 0 and 1 can have written anything.
+#
+# The frame is judged first so the liveness probe sits next to the open it
+# guards: a fifo with no reader blocks its opener forever, so a dead
+# supervisor or worker must become a verdict, never a hang. A residual TOCTOU
+# is ACCEPTED: a worker that dies between the probe and the blocking open can
+# still wedge the open. The window is not closable in portable POSIX sh (a
+# non-blocking or timed open needs a helper process), and it is far narrower
+# than the already-dead case the probe catches. The `-p` test is also what
+# keeps `>>` from creating a regular file where a close just removed the fifo.
+frame_send() {
+  frame_check "$2" || return 2
+  fs_sup=$(cat "$1/supervisor.pid" 2>/dev/null) || fs_sup=''
+  fs_wrk=$(cat "$1/worker.pid" 2>/dev/null) || fs_wrk=''
+  valid_posnum "$fs_sup" && pid_live "$fs_sup" || return 3
+  valid_posnum "$fs_wrk" && pid_live "$fs_wrk" || return 3
+  [ -p "$1/in.fifo" ] || return 3
+  cat "$2" >>"$1/in.fifo" 2>/dev/null || return 1
 }
 
 # --- attention coupling (D-5: the store IS the decision queue) --------------
@@ -961,10 +1058,17 @@ supervise() {
 
 # build_initial_msg <prompt-file> <out-file> — the REQ-A1.9 data path: the
 # prompt text is JSON-encoded from the file into the initial user message.
+# The frame is checked here, before any worker exists, rather than in
+# supervise: a refusal there would come after the dispatch was registered, and
+# the detached launch's startup window would have to cover a second parse.
 build_initial_msg() {
   bi_body=$(json_escape_file "$1") || return 2
   printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"%s"}]}}\n' \
-    "$bi_body" >"$2"
+    "$bi_body" >"$2" || return 2
+  bi_why=$(frame_check "$2") || {
+    echo "$me: launch frame refused: $bi_why" >&2
+    return 2
+  }
 }
 
 # refuse_bare <arg...> — the D-12 pin is structural: a caller-supplied
@@ -1215,7 +1319,7 @@ stop_pidfiles='supervisor.pid worker.pid'
 # lock. Everything else in the state directory is the durable record a close
 # keeps: the capture, the journal, the session, the stored envelopes, and the
 # result.
-scratch_patterns='in.fifo out.fifo .init.* .journal.* .session.* .pid.* *.broken.*'
+scratch_patterns='in.fifo out.fifo .init.* .frame.* .journal.* .session.* .pid.* *.broken.*'
 
 # stop_match <worker> <dir> — the argv the supervisor re-execs itself with.
 # The handle and the directory together are what keep a sibling whose handle
@@ -1599,7 +1703,7 @@ cmd_answer() {
     # never silently truncated into a partial (invalid) JSON frame. (The
     # command substitution strips a trailing newline, so a cap-sized payload
     # plus its final newline still fits.)
-    body=$(head -c 65537 "$resp_file")
+    body=$(head -c 65537 <"$resp_file")
     if [ "$(printf '%s' "$body" | wc -c | tr -d ' ')" -gt 65536 ]; then
       echo "$me: --response-file exceeds the 64 KiB cap (refused, not truncated)" >&2
       exit 2
@@ -1625,6 +1729,24 @@ cmd_answer() {
     echo "$me: unknown worker $worker" >&2
     exit 2
   }
+  if [ "$mode" = 'file' ]; then
+    # The body must be one object on its own, not merely yield a valid frame
+    # once spliced in: `{...},"k":{...}` would close the response early and
+    # add a key of its own to the envelope. Staged in the worker directory, as
+    # scratch a close clears, since the body can carry tool input.
+    resp_probe=$(mktemp "$dir/.frame.XXXXXX") || exit 2
+    if ! printf '%s\n' "$body" >"$resp_probe"; then
+      rm -f "$resp_probe"
+      exit 2
+    fi
+    resp_why=$(frame_check "$resp_probe")
+    resp_ok=$?
+    rm -f "$resp_probe"
+    if [ "$resp_ok" != 0 ]; then
+      echo "$me: --response-file refused: $resp_why" >&2
+      exit 2
+    fi
+  fi
 
   journal_lock "$dir" || exit 2
   state=$(journal_state "$dir" "$req")
@@ -1651,29 +1773,6 @@ cmd_answer() {
       ;;
   esac
 
-  # Channel liveness BEFORE the fifo open: a fifo with no reader blocks its
-  # opener forever, so a dead supervisor/worker must become an undeliverable
-  # verdict, never a hang (REQ-E1.4's dead-channel arm). A residual TOCTOU is
-  # ACCEPTED here: a worker that dies in the few-syscall window between this
-  # kill -0 check and the blocking open below can still wedge the open (no
-  # reader). The window is not closable in portable POSIX sh — a non-blocking /
-  # timed open is not expressible without a helper process — and it is far
-  # narrower than the already-dead case this check catches, so the common
-  # dead-channel arm is guarded and the race is left documented, not fixed.
-  sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
-  wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
-  channel_ok=1
-  valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" || channel_ok=0
-  valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid" || channel_ok=0
-  [ -p "$dir/in.fifo" ] || channel_ok=0
-  if [ "$channel_ok" = 0 ]; then
-    journal_set_state "$dir" "$req" undeliverable "$now"
-    journal_unlock "$dir"
-    attention_failure "$worker" "$dir" \
-      "undeliverable answer: channel for worker $worker is dead (request $short) - recover the worker and re-ask"
-    exit 3
-  fi
-
   case $mode in
     file)
       # $body was read and single-line-validated before the lock was taken.
@@ -1692,12 +1791,38 @@ cmd_answer() {
       ;;
   esac
 
-  # Deliver: one line into the worker's stdin fifo, under the journal lock
-  # (one writer at a time). A racing worker death turns the write into a
-  # visible undeliverable verdict via write-failure, never a silent drop.
+  # A frame the check refuses writes nothing and leaves the request pending,
+  # so a corrected answer can still land. A dead channel or a failed write is
+  # a visible undeliverable verdict, never a silent drop.
+  frame=$(mktemp "$dir/.frame.XXXXXX") || {
+    journal_unlock "$dir"
+    exit 2
+  }
+  if ! printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":%s}}\n' \
+    "$req" "$body" >"$frame"; then
+    rm -f "$frame"
+    journal_unlock "$dir"
+    exit 2
+  fi
   trap '' PIPE
-  if printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":%s}}\n' \
-    "$req" "$body" >>"$dir/in.fifo" 2>/dev/null; then
+  why=$(frame_send "$dir" "$frame")
+  sent=$?
+  rm -f "$frame"
+  case $sent in
+    2)
+      journal_unlock "$dir"
+      echo "$me: answer refused, nothing written to worker $worker: $why (request $short stays pending)" >&2
+      exit 2
+      ;;
+    3)
+      journal_set_state "$dir" "$req" undeliverable "$now"
+      journal_unlock "$dir"
+      attention_failure "$worker" "$dir" \
+        "undeliverable answer: channel for worker $worker is dead (request $short) - recover the worker and re-ask"
+      exit 3
+      ;;
+  esac
+  if [ "$sent" = 0 ]; then
     # The answer reached the worker's stdin. If the state flip fails (disk
     # full, journal replaced), the row stays `pending` — which would let
     # alarm-scan fire a spurious escalation and a second `answer` re-deliver a
@@ -1720,10 +1845,9 @@ cmd_answer() {
   fi
 }
 
-# steer <worker> --message-file <file> — see the header. The delivery shape
-# mirrors `answer` (channel liveness before the fifo open, one line written
-# under the journal lock so two writers never interleave frames) but the frame
-# is a USER turn, and the only state it writes is its own receipt row.
+# steer <worker> --message-file <file> — see the header. Delivered through
+# frame_send under the journal lock, as `answer` is, but the frame is a USER
+# turn, and the only state it writes is its own receipt row.
 cmd_steer() {
   [ $# -ge 1 ] || usage
   worker=$1
@@ -1750,7 +1874,7 @@ cmd_steer() {
   fi
   # One byte past the cap, so an oversize message is refused whole rather
   # than truncated into a message the worker reads as complete.
-  st_bytes=$(head -c 65537 "$st_file" | wc -c | tr -d ' ')
+  st_bytes=$(head -c 65537 <"$st_file" | wc -c | tr -d ' ')
   if [ "$st_bytes" -gt 65536 ]; then
     echo "$me: --message-file exceeds the 64 KiB cap (refused, not truncated)" >&2
     exit 2
@@ -1775,26 +1899,39 @@ cmd_steer() {
 
   journal_lock "$dir" || exit 2
   now=$(now_epoch) || now=0
-  # Channel liveness BEFORE the fifo open, for the reason `answer` gives: a
-  # fifo with no reader blocks its opener forever. Same accepted TOCTOU.
-  sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
-  wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
-  channel_ok=1
-  valid_posnum "${sup_pid:-}" && pid_live "$sup_pid" || channel_ok=0
-  valid_posnum "${wrk_pid:-}" && pid_live "$wrk_pid" || channel_ok=0
-  [ -p "$dir/in.fifo" ] || channel_ok=0
-  if [ "$channel_ok" = 0 ]; then
-    journal_unlock "$dir"
-    echo "$me: steer not delivered: channel for worker $worker is dead (recover the worker first)" >&2
-    exit 3
-  fi
   st_body=$(json_escape_file "$st_file") || {
     journal_unlock "$dir"
     exit 2
   }
+  st_frame=$(mktemp "$dir/.frame.XXXXXX") || {
+    journal_unlock "$dir"
+    exit 2
+  }
+  # The header is the buffer-paste relay's (scripts/orchestrate-relay.sh), so a
+  # worker reads a tower message the same way on every rung.
+  if ! printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[planwright tower relay -> %s]\\n%s"}]}}\n' \
+    "$worker" "$st_body" >"$st_frame"; then
+    rm -f "$st_frame"
+    journal_unlock "$dir"
+    exit 2
+  fi
   trap '' PIPE
-  if printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[planwright tower relay -> %s]\\n%s"}]}}\n' \
-    "$worker" "$st_body" >>"$dir/in.fifo" 2>/dev/null; then
+  st_why=$(frame_send "$dir" "$st_frame")
+  st_sent=$?
+  rm -f "$st_frame"
+  case $st_sent in
+    2)
+      journal_unlock "$dir"
+      echo "$me: steer refused, nothing written to worker $worker: $st_why" >&2
+      exit 2
+      ;;
+    3)
+      journal_unlock "$dir"
+      echo "$me: steer not delivered: channel for worker $worker is dead (recover the worker first)" >&2
+      exit 3
+      ;;
+  esac
+  if [ "$st_sent" = 0 ]; then
     printf '%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" >>"$dir/steers" || :
     journal_unlock "$dir"
     printf 'steered %s %s\n' "$worker" "$st_bytes"
@@ -1802,6 +1939,19 @@ cmd_steer() {
     journal_unlock "$dir"
     echo "$me: steer not delivered: write to worker $worker stdin failed (recover the worker first)" >&2
     exit 3
+  fi
+}
+
+# _frame-check <file> — internal: the fifo write discipline's verdict on a
+# frame file, printed as `frame ok` or `frame refused: <reason>`, for fixtures
+# that need the check without a live channel.
+cmd__frame_check() {
+  [ $# -eq 1 ] || usage
+  if fc_why=$(frame_check "$1"); then
+    echo "frame ok"
+  else
+    echo "frame refused: $fc_why"
+    exit 2
   fi
 }
 
@@ -2261,5 +2411,6 @@ case $cmd in
   stop) cmd_stop "$@" ;;
   status) cmd_status "$@" ;;
   _supervise) supervise "$@" ;;
+  _frame-check) cmd__frame_check "$@" ;;
   *) usage ;;
 esac
