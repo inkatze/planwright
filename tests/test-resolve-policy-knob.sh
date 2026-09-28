@@ -244,7 +244,7 @@ merge_policy|human
 merge_class_max_lines|0
 merge_class_exclude_paths|
 merge_class_strategy|sole-allowed
-worker_base_merge|deny
+worker_base_merge|allow
 worker_merge_conflict_policy|halt
 unpushed_rewrite|deny
 protected_branches|main master planwright/*/spec'
