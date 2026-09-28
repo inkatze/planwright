@@ -177,12 +177,27 @@ read_verdict() {
 }
 
 # fit_text <text> — <text> cut to the audit grammar's bound. The cut is by
-# byte, so it can split a multibyte character and leave a continuation byte
-# the grammar reads as C1; trimming on until the text passes drops that too.
+# byte, so it can land inside a multibyte character; the continuation bytes it
+# left and the lead byte they belong to are dropped with it, which can cost
+# one whole character when the cut fell exactly on a boundary.
 fit_text() {
   ft_v=$1
+  ft_cut=0
   while [ "${#ft_v}" -gt 512 ]; do
     ft_v=${ft_v%?}
+    ft_cut=1
+  done
+  ft_n=0
+  while [ "$ft_cut" = 1 ] && [ -n "$ft_v" ]; do
+    ft_b=$(printf '%s' "$ft_v" | tail -c 1 | od -An -tu1 | tr -d ' ')
+    case $ft_b in
+      "" | *[!0-9]*) break ;;
+    esac
+    [ "$ft_b" -ge 128 ] || break
+    ft_v=${ft_v%?}
+    ft_n=$((ft_n + 1))
+    # A byte from 0xC0 up leads a character; one is dropped, never more.
+    { [ "$ft_b" -lt 192 ] && [ "$ft_n" -lt 4 ]; } || break
   done
   while [ -n "$ft_v" ] && ! valid_text "$ft_v"; do
     ft_v=${ft_v%?}

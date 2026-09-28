@@ -414,6 +414,27 @@ for want in "${tab}process-cleanup${tab}cleanup${tab}periodic sweep${tab}" "work
 done
 echo "ok: a reap writes one audit record naming worker, owner, evidence class, and released set"
 
+# --- a long reasoning is cut to the audit bound on a character boundary -----
+# Cut by byte, it could end mid-character; both byte parities are tried so one
+# of them lands the cut inside a two-byte character.
+long=''
+for _ in $(seq 1 255); do long="$long$(printf '\303\251')"; done
+for lead in '' x; do
+  rm -rf "$gate_home"
+  gate w1 trig "$lead$long"
+  expect 0 "a long multibyte reasoning ($lead)"
+  row=$(cat "$gate_home"/audit/audit-*.tsv)
+  field=$(printf '%s\n' "$row" | cut -f6)
+  [ "${#field}" -le 512 ] || fail "a long reasoning ($lead): the record is ${#field} bytes"
+  printf '%s' "$field" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 \
+    || fail "a long reasoning ($lead): the record was cut mid-character"
+  case $field in
+    'worker=w1 '*"released=process,attention; $lead"*) ;;
+    *) fail "a long reasoning ($lead): the structured fields did not survive the cut" ;;
+  esac
+done
+echo "ok: a long reasoning is cut to the audit bound on a character boundary, structured fields first"
+
 # --- an already-closed worker is a clean no-op, not an action --------------
 rm -rf "$gate_home"
 stop_answers 'stop WORKER already-closed' 0
