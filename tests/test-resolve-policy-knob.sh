@@ -246,7 +246,7 @@ merge_class_exclude_paths|
 merge_class_strategy|sole-allowed
 worker_base_merge|allow
 worker_merge_conflict_policy|halt
-unpushed_rewrite|deny
+unpushed_rewrite|allow
 protected_branches|main master planwright/*/spec'
 reset_layers
 printf '%s\n' "$SHIPPED" | while IFS='|' read -r knob expected; do
