@@ -942,7 +942,9 @@ cmd_dispatch() {
   [ "$(wc -l <"$work/grounds.raw" | tr -d ' ')" -le 1 ] \
     || die 2 "--grounds-file must hold one line"
   grounds=$(cat "$work/grounds.raw") || die 2 "cannot read --grounds-file"
-  [ -n "$grounds" ] || die 2 "--grounds-file is empty: a route is never silent"
+  # A CRLF line ending is a line ending, not a control character.
+  grounds=${grounds%"$CR"}
+  [ -n "$(printf '%s' "$grounds" | tr -d ' \t')" ] || die 2 "--grounds-file is empty or blank: a route is never silent"
   [ "$(printf '%s' "$grounds" | tr -d '\000-\037\177')" = "$grounds" ] \
     || die 2 "the grounds must be one line without control characters"
   [ "${#grounds}" -le 400 ] || die 2 "the grounds must be one line of 400 characters at most"

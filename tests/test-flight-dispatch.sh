@@ -1069,6 +1069,11 @@ printf '  \n\t\n' >"$c/ask-w.txt"
 run dispatch readme-typo --backend print --ask-file "$c/ask-w.txt" --grounds-file "$c/grounds.txt" \
   --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "a whitespace-only ask must be refused (rc $RC)"
+case $ERR in *"ask is blank"*) ;; *) fail "the blank-ask refusal must say why: $ERR" ;; esac
+printf '   \n' >"$c/g-blank.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/g-blank.txt" \
+  --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "whitespace-only grounds must be refused (rc $RC)"
 # The ask is read once, so a file changed mid-dispatch cannot slip past the
 # size cap or the flag.
 # shellcheck disable=SC2016 # a literal redirect from the variable is the pattern
@@ -1305,6 +1310,14 @@ printf '{"name":"planwright","version":"9.9\\033[31m"}\n' >"$inst/.claude-plugin
 dispatch_print
 [ "$RC" -eq 0 ] || fail "escape-text version fixture did not dispatch (rc $RC: $ERR)"
 case $OUT in *"$ESC"*) fail "escape text in a plugin version became a live escape in the report" ;; esac
+
+# CRLF grounds are one line: the line ending is not a control character.
+new_case
+printf 'Fix the typo in the README heading.\n' >"$c/ask.txt"
+printf 'visual flight: a CRLF line\r\n' >"$c/g-crlf.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file "$c/g-crlf.txt" \
+  --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "CRLF grounds are one line and must be accepted (rc $RC: $ERR)"
 
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-dispatch: $fails failure(s)" >&2
