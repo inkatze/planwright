@@ -35,7 +35,9 @@
 # segment included. A call whose leading flags keep the target or its
 # dependencies from running (`--dry-run`, `--skip-deps`, ...) or run it from
 # another directory's config (`--cd`) contributes nothing; a stop flag in a
-# later `:::` segment drops that segment alone. Global flags placed before
+# later `:::` segment drops that segment alone. A task whose run body or env
+# names MISE_TASK_SKIP_DEPENDS, the variable form of `--skip-deps`,
+# contributes no run-body edges at all. Global flags placed before
 # `run` (`mise -q run x`) are not read, so such a call contributes nothing.
 #
 # WHOLE-LINE COMMENTS ARE NOT EXECUTION. They are dropped from a run body
@@ -207,9 +209,12 @@ report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
     [ $raw[]
       | (.run // [])                                                as $run
       | ($run | map(select(type == "string")) | join("\n") | uncommented) as $body
+      | ((.env // []) | tostring)                                   as $env
       | ([ (.depends // [])[], (.depends_post // [])[],
            ($run[] | objects | (.task // empty), (.tasks // [])[]) ]
-         | map(edge_name) + ($body | run_edges)
+         | map(edge_name)
+           + (if ($body + $env) | test("MISE_TASK_SKIP_DEPENDS")
+              then [] else ($body | run_edges) end)
          | map(select(. != "") | gsub("\n"; "\\n")))                as $edges
       | { name: .name,
           body: $body,

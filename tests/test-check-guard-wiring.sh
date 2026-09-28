@@ -420,6 +420,13 @@ run = "/bin/sh scripts/check-alpha.sh"'
 wired "$r" 'mise run --skip-deps check:wrap' "$inner$wrap"
 expect_mise 1 "$r" planted "g8d --skip-deps"
 expect_cg 1 "$r" "g8d --skip-deps"
+#     The same skip through its environment variable, inline or task env.
+wired "$r" 'MISE_TASK_SKIP_DEPENDS=true mise run check:wrap' "$inner$wrap"
+expect_mise 1 "$r" planted "g8d inline MISE_TASK_SKIP_DEPENDS"
+expect_cg 1 "$r" "g8d inline MISE_TASK_SKIP_DEPENDS"
+wired "$r" 'mise run check:wrap' "env = { MISE_TASK_SKIP_DEPENDS = \"true\" }$inner$wrap"
+expect_mise 1 "$r" planted "g8d task-env MISE_TASK_SKIP_DEPENDS"
+expect_cg 1 "$r" "g8d task-env MISE_TASK_SKIP_DEPENDS"
 wired "$r" 'mise run check:wrap' "$inner$wrap"
 expect_mise 0 "$r" planted "g8d control"
 expect_cg 0 "$r" "g8d control"
