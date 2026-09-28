@@ -11,7 +11,7 @@ backs it, so the human can review the whole record at the draft PR.
 Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
 REQ-C1.7 · D-4, D-5, D-6 · operator-dialogue REQ-I1.1, REQ-I1.2, REQ-I1.4 ·
 operator-dialogue D-14, D-15 · prose-disposition REQ-B1.1, REQ-B1.5 ·
-prose-disposition D-3.
+prose-disposition D-3 · human-gates REQ-B1.1.
 
 The operational wiring is specified in [Gate Wiring](gate-wiring.md), which
 implements the buckets and principles defined here.
@@ -27,15 +27,15 @@ finding lands in must match the kind of question it actually poses.
 ## The gate: act then review
 
 The gate is exception-based and identical in every repository (REQ-C1.3).
-Findings are applied on the branch with audit and evidence rows; nothing
-reaches a reviewer before the author flips the draft PR to ready, and every
-on-branch application is one revert from undone. The author's draft→ready flip
-is the universal review gate. There is no repository classification and no
-per-finding permission prompt (D-5, D-6).
+Findings are applied on the branch with audit and evidence rows, and every
+on-branch application is one revert from undone until the human's approval
+act on the PR, which [Human Gates](human-gates.md) names; the draft→ready flip
+approves nothing. There is no repository classification and no per-finding
+permission prompt (D-5, D-6).
 
 The intervention contract, in full, has two routes: a sign-off request (the
-spec before execution; the draft PR and its pending-sign-off checklist after
-it, which the human reviews and merges) and a hard pause mid-execution,
+spec before execution; the PR and its pending-sign-off checklist after it,
+which the human approves) and a hard pause mid-execution,
 which reaches the operator as a tower's knock. Merge cadence is the autopilot's
 throttle.
 
@@ -88,9 +88,9 @@ The agent has a single specific recommended fix and validation converged with
 high confidence, but the change warrants explicit human review. Under
 act-then-review the fix is **applied on the branch** and listed in a
 **pending-sign-off checklist** in the draft PR description (REQ-C1.3): the
-human approves by leaving it in place and rejects it at PR review with the
-revert the checklist entry names. No mid-loop prompt fires for findings outside the hard-disqualifier
-zones, which pause first.
+human approves it by the approval act [Human Gates](human-gates.md) names,
+rejecting it before that act by its checklist recipe. No mid-loop prompt
+fires for findings outside the hard-disqualifier zones, which pause first.
 
 Route here when any of these hold:
 

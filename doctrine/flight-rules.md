@@ -21,7 +21,7 @@ Citations: tower-front-door REQ-A1.2, REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4,
 REQ-B1.5, REQ-B1.6, REQ-C1.6, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-F1.3,
 REQ-F1.5, REQ-F1.6, REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-H1.4 ·
 tower-front-door D-1, D-2, D-3, D-4, D-5, D-6, D-7, D-10 · custom-steps
-REQ-F1.5.
+REQ-F1.5 · human-gates REQ-C1.1, REQ-F1.1, REQ-F1.2.
 
 ## The routing rule (D-4)
 
@@ -71,10 +71,11 @@ When an override crosses an automatic escalation trigger, the tower **states its
 reservation and the trigger's grounds, then complies** (REQ-B1.4). The stated
 reservation is the whole ceremony; there is no second confirmation.
 
-No override crosses a hard invariant (D-5): merge stays the human's (REQ-G1.1),
-the specless path invents no shadow sign-off (REQ-G1.2), commits are new commits
-only (REQ-G1.3), and PRs open as drafts for the human to flip (REQ-G1.4). Those
-hold on both rules, overridden or not.
+No override crosses a hard invariant (D-5): merge authorization stays the
+human's (REQ-G1.1), the specless path invents no shadow sign-off (REQ-G1.2), and
+pushed history, draft PRs, and the draft→ready flip follow
+[Human Gates](human-gates.md) (human-gates REQ-C1.1, REQ-F1.1, REQ-F1.2).
+Those hold on both rules, overridden or not.
 
 ### Decomposition (REQ-C1.6)
 
