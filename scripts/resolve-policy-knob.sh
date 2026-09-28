@@ -39,6 +39,10 @@ usage() {
 }
 knob=$1
 rck="$script_dir/resolve-config-knob.sh"
+[ -r "$rck" ] || {
+  echo "resolve-policy-knob: the shared resolver '$rck' is missing — broken install" >&2
+  exit 5
+}
 
 case "$knob" in
   ready_flip_policy)

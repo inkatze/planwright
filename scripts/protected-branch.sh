@@ -11,8 +11,8 @@
 # `planwright/x/spec` and not `planwright/a/b/spec`.
 #
 # Exit 0 ONLY when the branch is outside the set; every other exit refuses the
-# act: 1 protected, 2 usage or an invalid branch name, and the resolver's own
-# exit when the set cannot be read (4 malformed, 5 broken install). The clear
+# act: 1 protected, 2 usage or an invalid branch name, 4 a malformed set, and
+# 5 any other read failure (a broken install). The clear
 # answer is the zero exit so a caller that tests only for success fails closed.
 set -uf
 
@@ -50,7 +50,10 @@ name=$(fold "$name")
 set_out=$(/bin/sh "$script_dir/resolve-policy-knob.sh" protected_branches) || {
   rc=$?
   echo "protected-branch: the protected set could not be read; refusing" >&2
-  exit "$rc"
+  case "$rc" in
+    4 | 5) exit "$rc" ;;
+  esac
+  exit 5
 }
 
 # seg_match <pattern> <name>: 0 when every `/`-separated segment of the name

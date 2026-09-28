@@ -265,6 +265,19 @@ pb >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "protected-branch: no argument exited $rc, expected 2"
 echo "ok: an invalid branch name is refused before it is matched"
 
+# A broken install (the shared resolver missing) is exit 5, never a code a
+# caller could read as "usage" or "protected".
+broken="$tmp/broken/scripts"
+mkdir -p "$broken"
+cp "$RPK" "$PB" "$here/../scripts/echo-safety.sh" "$broken/"
+for cmd in "resolve-policy-knob.sh unpushed_rewrite" "protected-branch.sh feature-x"; do
+  rc=0
+  # shellcheck disable=SC2086
+  with_layers /bin/sh "$broken"/$cmd >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 5 ] || fail "broken install: '$cmd' exited $rc, expected 5"
+done
+echo "ok: a missing shared resolver is a broken install (exit 5)"
+
 [ ! -s "$host_log" ] || fail "a host call was made: $(cat "$host_log")"
 echo "ok: no host call in the stubbed call log"
 
