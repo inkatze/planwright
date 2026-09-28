@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.47.0](https://github.com/inkatze/planwright/compare/v0.46.0...v0.47.0) (2026-09-28)
+
+
+### Features
+
+* **custom-steps:** the steps catalog, the point keys, and the resolver ([#509](https://github.com/inkatze/planwright/issues/509)) ([c63a548](https://github.com/inkatze/planwright/commit/c63a548a4dd2c551de265e4f0c9553a22651e239))
+
+
+### Bug Fixes
+
+* **scripts:** pass multi-line awk values through ENVIRON ([#508](https://github.com/inkatze/planwright/issues/508)) ([8e4197c](https://github.com/inkatze/planwright/commit/8e4197c8271161c0de13b0ea680fc1868da98cdd))
+* **tower:** close the core's security-zone findings ([#512](https://github.com/inkatze/planwright/issues/512)) ([94163a7](https://github.com/inkatze/planwright/commit/94163a76324bcd3843995fac7074423691c1942b))
+
 ## [0.46.0](https://github.com/inkatze/planwright/compare/v0.45.0...v0.46.0) (2026-09-25)
 
 
