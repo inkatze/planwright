@@ -1428,6 +1428,29 @@ re-checked by REQ-C1.2's manual half and the REQ-A1.6 deliberate-wedge
 rehearsal, because a silent divergence would degrade the detector to exactly
 the blind spot it exists to close (kickoff risk row 2).
 
+### Reaping a leaked worker: `fleet-cleanup.sh process`
+
+The detector's verdict is what the reap acts on. `scripts/fleet-cleanup.sh
+process <worker> <trigger> <reasoning>` closes a worker whose session has
+ended and whose process tree has not, and refuses everything else:
+
+- a `print`-backend unit, which spawned no process (exit `8`);
+- a worker owned by a live peer tower, under any evidence (exit `7`);
+- anything short of positive evidence on both axes (exit `5`): the owning
+  tower is this one or positively dead, and the session positively ended,
+  by death evidence or a completion signal. Unknown means alive.
+
+It passes the paused kill-switch (exit `4`) and malformed input (exit `2`)
+through exactly as the `window` and `worktree` classes do. The close itself
+is the rung's own `stop`, so there is one kill path in the fleet, and a close
+asked for from inside the worker's own tree is the self-target block (exit
+`3`). A reap releases the process only: the fence, the branch, and the
+worktree are untouched, and a strand already surfaced to you stays surfaced,
+because reaping is not reclaiming. Each reap writes one `process-cleanup`
+audit record naming the worker, its owner, the evidence class, and what was
+released; a partial close is exit `5` with a `cleanup-partial` record of what
+it did release, and a close that could not be recorded is exit `6`.
+
 ## Resource governance: models, throttling, and the auto-mode line
 
 Three deterministic mechanisms govern what a dispatched unit costs and what it
