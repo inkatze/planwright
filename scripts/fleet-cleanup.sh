@@ -132,8 +132,8 @@ usage() {
   echo "       fleet-cleanup.sh process <worker> <trigger> <reasoning> [--grace <secs>] [--repo-root <dir>] [--tower-id <token>]" >&2
 }
 
-# The fleet field grammar (fleet-state.sh valid_field), which worker handles
-# are registered under.
+# The fleet field grammar worker handles are registered under (fleet-state.sh
+# valid_field), plus a leading-dash refusal: the handle becomes an argv word.
 valid_worker() {
   case $1 in
     "" | . | .. | -* | *[!A-Za-z0-9._=@:-]*) return 1 ;;
@@ -147,6 +147,24 @@ valid_owner() {
     "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._-]*) return 1 ;;
   esac
   [ "${#1}" -le 128 ]
+}
+
+# read_verdict <verdict> <worker> — the detector's row for <worker> and the
+# evidence slots the process arm decides on, as one tab-joined line: state,
+# owner class, reason, then the registry, backend, owner-token and
+# owner-evidence values. A slot the verdict lacks reads `-`, so no field is
+# empty and a tab-split cannot shift the ones after it.
+read_verdict() {
+  printf '%s\n' "$1" | awk -F'\t' -v w="$2" '
+    ($2 "") != (w "") { next }
+    $1 == "worker" && !row { st = $3; oc = $4; rs = $6; row = 1 }
+    $1 == "evidence" && !($3 in ev) { ev[$3] = $4 }
+    function v(x) { return x == "" ? "-" : x }
+    END {
+      if (!row) exit
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", v(st), v(oc), v(rs),
+        v(ev["registry"]), v(ev["backend"]), v(ev["owner-token"]), v(ev["owner-evidence"])
+    }'
 }
 
 # fit_text <text> — <text> cut to the audit grammar's bound. The cut is by
@@ -659,24 +677,15 @@ case "$cmd" in
       warn "the liveness verdict for '$worker' errored — no positive evidence either way, refusing"
       exit 5
     }
-    row=$(printf '%s\n' "$verdict" | awk -F'\t' -v w="$worker" \
-      '$1 == "worker" && ($2 "") == (w "") { print $3 "\t" $4 "\t" $6; exit }')
-    evidence() {
-      printf '%s\n' "$verdict" | awk -F'\t' -v w="$worker" -v s="$1" \
-        '$1 == "evidence" && ($2 "") == (w "") && $3 == s { print $4; exit }'
-    }
+    row=$(read_verdict "$verdict" "$worker")
     if [ -z "$row" ]; then
       warn "no liveness verdict for '$worker' — no positive evidence either way, refusing"
       exit 5
     fi
-    state=${row%%"$TAB"*}
-    row=${row#*"$TAB"}
-    owner=${row%%"$TAB"*}
-    reason=$(sanitize_printable "${row#*"$TAB"}" "-")
-    registry=$(evidence registry)
-    backend=$(evidence backend)
-    owner_token=$(evidence owner-token)
-    owner_ev=$(evidence owner-evidence)
+    IFS=$TAB read -r state owner_class reason registry backend owner_token owner_ev <<EOF
+$row
+EOF
+    reason=$(sanitize_printable "$reason" "-")
     valid_owner "$owner_token" || owner_token=-
 
     if [ "$registry" != present ]; then
@@ -687,7 +696,7 @@ case "$cmd" in
       warn "refusing '$worker': a print-backend unit spawned no process, so there is nothing to reap (it stays registered)"
       exit 8
     fi
-    if [ "$owner" = live-peer ]; then
+    if [ "$owner_class" = live-peer ]; then
       warn "refusing '$worker': it is owned by live peer tower $owner_token, and a live peer's worker is never terminated from here"
       exit 7
     fi
@@ -699,11 +708,11 @@ case "$cmd" in
         exit 5
         ;;
     esac
-    case $owner_ev/$owner in
+    case $owner_ev/$owner_class in
       self/this-tower) tower_ev=self ;;
       dead/dead-or-unknown) tower_ev=dead ;;
       *)
-        warn "refusing '$worker': no positive evidence its owning tower is gone (owner: $(sanitize_printable "$owner" "-"), evidence: $(sanitize_printable "$owner_ev" "-")) — unknown is treated as alive"
+        warn "refusing '$worker': no positive evidence its owning tower is gone (owner: $(sanitize_printable "$owner_class" "-"), evidence: $(sanitize_printable "$owner_ev" "-")) — unknown is treated as alive"
         exit 5
         ;;
     esac
