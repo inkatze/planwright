@@ -18,8 +18,12 @@
 #     selection key (scripts/allocation-apply.sh), as every /offload rung does;
 #   - the convergence list is the convergence point's step list,
 #     `steps_convergence`, resolved with unit kind `flight`
-#     (scripts/resolve-steps.sh) and handed to the worker unchanged
-#     (REQ-C1.3, D-7: no second list, no knob);
+#     (scripts/resolve-steps.sh) against this script's own planwright root
+#     and handed to the worker unchanged (REQ-C1.3, D-7: no second list, no
+#     knob). A flight runs skill steps only: a command or prompt step is
+#     refused by name and nothing is placed, since the brief cannot yet carry
+#     such a step's screening, worktree-relative resolution, posture, or
+#     timeout;
 #   - the concurrency bound is the existing `max_parallel_units` (REQ-C1.5),
 #     serialized by scripts/fleet-state.sh's lock under a per-checkout home.
 #
@@ -685,40 +689,35 @@ sweep_briefs() {
 # resolve_convergence — set `sequence` to the resolver's --explain lines for
 # the steps the convergence point runs on a flight, one per line. A skipped
 # step is dropped (the resolver's warning on stderr names it); a park, a
-# malformation, or a broken install places nothing. The skills root is pinned
-# to this script's own so a planwright skill is told apart from a user or
-# project one by its location alone.
+# malformation, a broken install, or a step that is not a skill places
+# nothing. The core list, the core catalog, and the skills all resolve under
+# this script's own root, so a planwright skill is told apart from a user or
+# project one by its location alone and no environment root can swap the
+# list those skills are judged against.
 resolve_convergence() {
-  _rc_out=$(cd "$repo_root" && PLANWRIGHT_REPO_ROOT="$repo_root" \
+  _rc_out=$(cd "$repo_root" && unset CLAUDE_PLUGIN_ROOT PLANWRIGHT_CONFIG_DEFAULTS \
+    && PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_ROOT="$root_dir" \
     PLANWRIGHT_SKILLS_ROOT="$root_dir/skills" PLANWRIGHT_STEP_UNIT_KIND=flight \
     bash "$STEPS" convergence --explain --unattended </dev/null) || {
     _rc=$?
     die 4 "steps_convergence did not resolve (exit $_rc); nothing was placed"
   }
   sequence=$(printf '%s\n' "$_rc_out" | awk -F"$TAB" '$1 == "run"')
+  _rc_bad=$(printf '%s\n' "$sequence" | awk -F"$TAB" '$1 == "run" && $8 != "skill" {print $2 "\t" $8; exit}')
+  [ -z "$_rc_bad" ] \
+    || die 4 "steps_convergence step '$(printf '%s' "$_rc_bad" | cut -f1)' is a $(printf '%s' "$_rc_bad" | cut -f2) step; a flight runs skill steps only; nothing was placed"
 }
 
-# render_step <explain-line> — print the brief's instruction for one step.
+# render_step <explain-line> — print the brief's invocation for one skill
+# step (resolve_convergence has refused every other kind).
 render_step() {
-  _rs_id=$(printf '%s' "$1" | cut -f2)
   _rs_target=$(printf '%s' "$1" | cut -f6)
-  _rs_kind=$(printf '%s' "$1" | cut -f8)
   _rs_args=$(printf '%s' "$1" | cut -f9)
   _rs_loc=$(printf '%s' "$1" | cut -f13)
   [ "$_rs_args" != - ] || _rs_args=''
-  case $_rs_kind in
-    skill)
-      _rs_inv=/$_rs_target
-      [ "$_rs_loc" != "$root_dir/skills/$_rs_target/SKILL.md" ] || _rs_inv=/planwright:$_rs_target
-      printf "\`%s%s\`" "$_rs_inv" "${_rs_args:+ $_rs_args}"
-      ;;
-    command)
-      printf "run the command \`%s%s\` in the flight worktree" "$_rs_loc" "${_rs_args:+ $_rs_args}"
-      ;;
-    *)
-      printf "the prompt step \`%s\`: %s" "$_rs_id" "$_rs_target"
-      ;;
-  esac
+  _rs_inv=/$_rs_target
+  [ "$_rs_loc" != "$root_dir/skills/$_rs_target/SKILL.md" ] || _rs_inv=/planwright:$_rs_target
+  printf "\`%s%s\`" "$_rs_inv" "${_rs_args:+ $_rs_args}"
 }
 
 write_brief() {
@@ -783,12 +782,13 @@ and open no PR. The committed record is the landing reference."
     printf '\n## Work and convergence\n\n'
     printf '%s\n' "Implement the ask test-first where it introduces behavior, then run the"
     printf '%s\n' "project's full CI. Then converge through the convergence point's steps, in"
-    printf '%s\n' "order, each after the previous one has converged:"
+    printf '%s\n' "order, each after the previous one has converged. This is \`steps_convergence\`"
+    printf '%s\n' "as resolved at dispatch with unit kind \`flight\` (custom-steps); run it as"
+    printf '%s\n' "listed, without resolving it again:"
     printf '\n%s' "$_seq_lines"
-    printf '\n%s\n' "Read the convergence point's step list, \`steps_convergence\`, with unit kind"
-    printf '%s\n' "\`flight\` (custom-steps). Proportionality may scope rigor inside a pass for a"
-    printf '%s\n' "low-stake, reversible change; any scoping you apply is declared in the record,"
-    printf '%s\n' "and an undeclared scoping did not happen."
+    printf '\n%s\n' "Proportionality may scope rigor inside a pass for a low-stake, reversible"
+    printf '%s\n' "change; any scoping you apply is declared in the record, and an undeclared"
+    printf '%s\n' "scoping did not happen."
     printf '\n## Hard pauses\n\n'
     printf '%s\n' "The gate-wiring hard pauses stay in force whatever the route or its grounds,"
     printf '%s\n' "an operator override included: a hard-disqualifier-zone finding, or scope"

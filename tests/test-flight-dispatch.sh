@@ -19,7 +19,9 @@
 #      base, the launch tier, and the plugin-root pair.
 #   4. The worker brief carries the doctrine load (the /execute-task manifest
 #      set plus flight-rules), the convergence point's steps in order, each
-#      skill with its declared args (REQ-C1.3; custom-steps REQ-F1.5), the audit-record contract, draft-only
+#      skill with its declared args, resolved under the script's own root, a
+#      command or prompt step refused with nothing placed (REQ-C1.3;
+#      custom-steps REQ-F1.5), the audit-record contract, draft-only
 #      landing with no ready flip or merge (REQ-C1.4), and the gate-wiring hard
 #      pause whatever the grounds said (REQ-B1.5). A hostile ask stays quoted.
 #   5. Concurrency (REQ-C1.5): a flight beyond `max_parallel_units` is declined
@@ -631,34 +633,65 @@ for stub in withheld unreachable off-roster no-row; do
 done
 
 # --- 4h. the convergence point's steps beyond planwright's own skills --------
-# A per-user catalog declares a user command and a command step; the brief
-# names the user command bare, the command by its resolved location.
+# A per-user catalog declares a user command; the brief names it bare.
 new_case
 mkdir -p "$c/adopter/catalogs" "$c/claude/commands" "$c/primary/.claude"
 printf '# panel\n' >"$c/claude/commands/panel-review.md"
-printf '#!/bin/sh\nexit 0\n' >"$c/lint"
-chmod +x "$c/lint"
 cat >"$c/adopter/catalogs/steps.yaml" <<EOF
 steps:
   - id: panel
     kind: skill
     target: panel-review
     args: --nested
-  - id: lint
-    kind: command
-    target: $c/lint
-    args: --quiet
 EOF
-printf 'steps_convergence: [polish, panel, lint]\n' >"$c/primary/.claude/planwright.local.yml"
+printf 'steps_convergence: [polish, panel]\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 [ "$RC" -eq 0 ] || fail "a catalog-declared convergence list must dispatch (rc $RC: $ERR)"
 b=$(cat "$(field "$OUT" brief)")
 printf '%s\n' "$b" | grep -Fxq "1. \`/planwright:polish --nested\`" || fail "a planwright skill step must be namespaced: $b"
 printf '%s\n' "$b" | grep -Fxq "2. \`/panel-review --nested\`" || fail "a user command step must be named bare: $b"
-printf '%s\n' "$b" | grep -Fxq "3. run the command \`$c/lint --quiet\` in the flight worktree" \
-  || fail "a command step must be named by its resolved location: $b"
-[ "$(field "$OUT" steps_convergence)" = "polish panel lint" ] \
+[ "$(field "$OUT" steps_convergence)" = "polish panel" ] \
   || fail "the report must list every step, got '$(field "$OUT" steps_convergence)'"
+# The brief lists the steps once; it never also sends the worker to re-resolve them.
+if printf '%s\n' "$b" | grep -Eiq 'read the convergence point.s step list'; then
+  fail "the brief must not both list the steps and tell the worker to re-read them: $b"
+fi
+
+# A flight runs skill steps only: a command or a prompt step is refused by
+# name, and nothing is placed.
+for kind in command prompt; do
+  new_case
+  mkdir -p "$c/adopter/catalogs" "$c/primary/.claude"
+  printf '#!/bin/sh\nexit 0\n' >"$c/lint"
+  chmod +x "$c/lint"
+  if [ "$kind" = command ]; then
+    printf 'steps:\n  - id: extra\n    kind: command\n    target: %s\n    args: --quiet\n' "$c/lint" \
+      >"$c/adopter/catalogs/steps.yaml"
+  else
+    printf 'steps:\n  - id: extra\n    kind: prompt\n    target: Re-read the diff once more.\n' \
+      >"$c/adopter/catalogs/steps.yaml"
+  fi
+  printf 'steps_convergence: [polish, extra]\n' >"$c/primary/.claude/planwright.local.yml"
+  dispatch_print
+  [ "$RC" -eq 4 ] || fail "a $kind step on a flight must fail closed with exit 4 (rc $RC: $ERR)"
+  case $ERR in *"'extra'"*"$kind step"*"skill steps only"*) ;;
+    *) fail "the $kind-step refusal must name the step, its kind, and the skill-only rule: $ERR" ;;
+  esac
+  [ "$(flight_branches)" -eq 0 ] || fail "a $kind step placed a flight"
+  [ "$(briefs)" -eq 0 ] || fail "a $kind step left a brief"
+done
+
+# The core list and catalog come from this script's own root, the root the
+# skills are checked under, whatever planwright root the environment names.
+new_case
+mkdir -p "$c/otherroot"
+cp -R "$ROOT/config" "$c/otherroot/"
+sed 's/^steps_convergence:.*/steps_convergence: [self-review]/' "$ROOT/config/defaults.yml" \
+  >"$c/otherroot/config/defaults.yml"
+PLANWRIGHT_ROOT="$c/otherroot" CLAUDE_PLUGIN_ROOT="$c/otherroot" dispatch_print
+[ "$RC" -eq 0 ] || fail "a foreign planwright root in the environment must not break dispatch (rc $RC: $ERR)"
+[ "$(field "$OUT" steps_convergence)" = polish ] \
+  || fail "the core list must come from the script's own root, got '$(field "$OUT" steps_convergence)'"
 
 # An empty list is valid and runs no step.
 new_case
