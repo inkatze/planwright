@@ -352,7 +352,9 @@ done
 # Markup that would swallow the rest of the record: an unclosed comment, an
 # HTML block opener, an inline collapse tag, an unbalanced fence.
 for bad in '<!-- a note' '<pre>' '  <script>' '<![CDATA[' 'see x </details> here' \
-  'open <details><summary>y' '```sh' '~~~~' '<div>' '<span>' '<!-- x --> <!-- y' '<!-->'; do
+  'open <details><summary>y' '```sh' '~~~~' '<div>' '<span>' '<!-- x --> <!-- y' '<!-->' \
+  '> <!-- a note' '- <!-- a note' '1. <!-- note' 'See a <b>bold</b> word.' '#### Detail' '## Summary' \
+  '~~~\nx\n~~~'; do
   printf 'Corrects the name.\n%s\n' "$bad" >"$in/summary-markup.md"
   run_render pr --summary-file "$in/summary-markup.md"
   [ "$RC" -eq 2 ] || fail "a summary carrying '$bad' must be refused with 2 (got $RC)"
@@ -361,17 +363,34 @@ done
 # block, a comment, or a list item would seem to shelter it: each of those
 # ends somewhere a line-based check cannot be sure of.
 for bad in '```\n</details>\n```' '<div>\n```\n</details>\n```' '- a\n  ```\n</details>\n  ```' \
-  '<!-- a\n--> </details>' '```\n<!-- planwright:flight-record-end -->\n```'; do
+  '<!-- a\n--> </details>' '```\n<!-- planwright:flight-record-end -->\n```' \
+  '- a\n  ```\n<pre>\n  ```' '- a\n  ```\n```' '- a\n  ```\n<!-- hidden\n  ```'; do
   # shellcheck disable=SC2059 # the case carries its own \n escapes
   printf "Corrects the name.\n$bad\n" >"$in/audit-shelter.md"
   cat "$in/audit.md" "$in/audit-shelter.md" >"$in/audit-sheltered.md"
   run_render pr --audit-file "$in/audit-sheltered.md"
   [ "$RC" -eq 2 ] || fail "a sheltered collapse tag or marker must be refused ($bad, got $RC)"
 done
-# Balanced fences, HTML inside a closed fence, and inline markup are fine.
-printf 'Corrects the name.\n\n```html\n<div>x</div>\n```\n\n~~~\nx\n~~~~\n\nSee a <b>bold</b> word.\n' >"$in/verification-ok.md"
+# The audit's headings nest under the record's own, so none may outrank it.
+{
+  cat "$in/audit.md"
+  printf '## Extra\n'
+} >"$in/audit-h2.md"
+run_render pr --audit-file "$in/audit-h2.md"
+[ "$RC" -eq 2 ] || fail "an audit heading above #### must be refused (got $RC)"
+# Balanced column-zero fences and Markdown emphasis are fine.
+printf 'Corrects the name.\n\n```sh\nmise run lint\n```\n\n````\nx\n`````\n\nSee a **bold** word.\n' >"$in/verification-ok.md"
 run_render pr --verification-file "$in/verification-ok.md"
-[ "$RC" -eq 0 ] || fail "balanced fences and inline markup must render (got $RC: $ERR)"
+[ "$RC" -eq 0 ] || fail "balanced fences and emphasis must render (got $RC: $ERR)"
+# Blank runs collapse, trailing whitespace and edge blank lines go, and an
+# interior blank line stays.
+printf '\n\nFirst paragraph.   \n\n\n\nSecond paragraph.\n\n\n' >"$in/summary-blanks.md"
+run_render pr --summary-file "$in/summary-blanks.md"
+[ "$RC" -eq 0 ] || fail "render of a blank-heavy summary exited $RC: $ERR"
+lead=$(lead_of "$OUT")
+printf '%s\n' "$lead" | awk '/^## Summary$/ {on=1; next} /^## Verification$/ {exit} on' >"$tmp/sum.sec"
+[ "$(cat "$tmp/sum.sec")" = "$(printf '\nFirst paragraph.\n\nSecond paragraph.\n')" ] \
+  || fail "the summary must be normalized: $(od -c "$tmp/sum.sec" | head -4)"
 
 printf 'Rotated the key %s.\n' "$TOKEN" >"$in/secret.md"
 for flag in --summary-file --verification-file --scoping-file --revert-file; do
@@ -579,7 +598,7 @@ if [ -n "$ML" ] && "$ML" --version >/dev/null 2>&1; then
   cp "$ROOT/.markdownlint.jsonc" "$lr/"
   cp "$ROOT/specs/.markdownlint.jsonc" "$lr/specs/"
   cp "$ROOT/specs/_flights/.markdownlint.jsonc" "$lr/specs/_flights/" 2>/dev/null || :
-  run_render file
+  run_render file --verification-file "$in/verification-ok.md" --summary-file "$in/summary-blanks.md"
   printf '%s\n' "$OUT" >"$lr/specs/_flights/$FID.md"
   (cd "$lr" && "$ML" "specs/_flights/$FID.md") >"$tmp/ml.out" 2>&1 \
     || fail "a landed record must pass markdownlint: $(grep error "$tmp/ml.out" | head -3)"

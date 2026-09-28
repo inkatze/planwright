@@ -21,9 +21,9 @@ ASK_MAX=65536
 INVIS_SED=$(printf 's/\302[\205\255]//g;s/\330\234//g;s/\341\205[\237\240]//g;s/\341\236[\264\265]//g;s/\341\240\216//g;s/\342\200[\213-\217\250-\256]//g;s/\342\201[\240-\244\246-\257]//g;s/\343\205\244//g;s/\357\270[\200-\217]//g;s/\357\273\277//g;s/\357\276\240//g;s/\357\277[\271-\273]//g;s/\363\240[\200\201][\200-\277]//g;s/\363\240[\204-\206][\200-\277]//g;s/\363\240\207[\200-\257]//g')
 
 # clean_text <in> <out> — write <in> with CRLF and lone CR line endings made
-# LF, control bytes other than tab and newline dropped, then the invisible and bidi code
-# points stripped until the text is stable: one deletion can join the bytes
-# around it into another code point. CLEAN_STRIPPED is 1 when the invisible
+# LF, control bytes other than tab and newline dropped, then the invisible and
+# bidi code points stripped until the text is stable: one deletion can join the
+# bytes around it into another code point. CLEAN_STRIPPED is 1 when the invisible
 # strip removed anything; a line ending is not a stripped character.
 CR=$(printf '\r')
 CLEAN_STRIPPED=0

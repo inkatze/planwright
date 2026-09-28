@@ -20,11 +20,11 @@
 # any backtick run it holds with every non-blank line indented two spaces, so
 # no fence, tag, heading, or marker it carries renders, closes the collapse, or
 # reaches column zero where a line-anchored reader would take it for
-# structure. Worker-authored inputs are stripped the same way, their trailing
-# blank lines dropped, and refused, never otherwise rewritten, when they carry
-# a token-shaped secret or markup that would reshape the record around them (a
-# details or summary tag or a record marker anywhere, a line opening an HTML
-# block, an unclosed fence).
+# structure. Worker-authored inputs are stripped the same way and normalized
+# for the markdown lint (trailing whitespace, blank-line runs, edge blank
+# lines), and refused, never otherwise rewritten, when they carry a
+# token-shaped secret or markup that would reshape the record around them (raw
+# HTML, an indented or unclosed fence, a heading the input may not carry).
 #
 # Usage:
 #   flight-record.sh render --home pr|file <inputs>
@@ -207,56 +207,66 @@ redact() {
   fi
 }
 
-# markup_hazard <file> — name the first construct in a worker input that
-# could reshape the record around it, printing nothing when there is none: a
-# details or summary tag or a record marker anywhere, since no line-based
-# check can be sure a fence, HTML block, comment, or list item around it
-# shelters it; a line opening an HTML block (its first character `<`), which
-# renders raw to its end and can swallow what follows; or a fence left open.
-# Inside a closed fence, HTML at the start of a line is code, not a block.
+# markup_hazard <file> <headings> — name the first construct in a worker
+# input that could reshape the record around it, printing nothing when there
+# is none. Raw HTML of any kind (a `<` opening a tag, comment, declaration, or
+# processing instruction), anywhere, fenced or not: no line-based check can be
+# sure which container a line sits in, and a comment or HTML block that
+# escapes one hides or flattens the rest of the record. A fence indented one
+# to three spaces, which a list item can end early and leave a column-zero
+# fence line open behind it. A tilde fence, which the markdown lint's one
+# fence style refuses beside the record's backtick fences. A fence left open.
+# And a heading the input may
+# not carry: `none` refuses every heading, `audit` those above level four,
+# since the audit nests under the record's own level-three heading.
 markup_hazard() {
-  awk '
+  awk -v headings="$2" '
     function hazard(what) { print what; found = 1; exit }
     {
       l = $0
-      low = tolower(l)
-      if (low ~ /<\/?(details|summary)([ \t>\/]|$)/) hazard("a details or summary tag")
-      if (low ~ /<!--[ \t]*planwright:flight-record/) hazard("a record marker")
+      if (l ~ /<[A-Za-z\/!?]/) hazard("raw HTML (write it as text, or as &lt; outside code)")
+      if (l ~ /^ ? ? ?(```|~~~)/ && l !~ /^(```|~~~)/) hazard("a fence indented from column zero")
+      if (!fence && l ~ /^~~~/) hazard("a tilde fence (the record fences with backticks)")
       if (fence) {
-        if (match(l, /^ ? ? ?(`+|~+)[ \t]*$/)) {
+        if (match(l, /^(`+|~+)[ \t]*$/)) {
           f = substr(l, RSTART, RLENGTH)
           gsub(/[ \t]/, "", f)
           if (substr(f, 1, 1) == fc && length(f) >= fl) fence = 0
         }
         next
       }
-      if (match(l, /^ ? ? ?(```+|~~~+)/)) {
+      if (match(l, /^(```+|~~~+)/)) {
         f = substr(l, RSTART, RLENGTH)
-        gsub(/ /, "", f)
         fc = substr(f, 1, 1)
         fl = length(f)
         if (fc == "`" && index(substr(l, RSTART + RLENGTH), "`")) next
         fence = 1
         next
       }
-      if (l ~ /^ ? ? ?</) hazard("a line opening an HTML block (starting with <)")
+      if (headings == "none" && l ~ /^ ? ? ?#+([ \t]|$)/) hazard("a heading (the record supplies its own)")
+      if (headings == "audit" && l ~ /^ ? ? ?(#|##|###)([ \t]|$)/) hazard("a heading above level four (the audit nests under the record'"'"'s ### heading)")
     }
     END {
       if (!found && fence) print "an unclosed fence"
     }' "$1"
 }
 
-# worker_text <name> <file> <out> — a worker-authored input: cleaned, its
-# trailing blank lines dropped, and refused if it carries markup that would
-# reshape the record (markup_hazard). Its secret check runs with the others,
-# in refuse_secrets.
+# worker_text <name> <file> <out> [<headings>] — a worker-authored input:
+# cleaned, normalized (trailing whitespace trimmed, blank-line runs collapsed
+# to one, leading and trailing blank lines dropped) so a landed record passes
+# the markdown lint, and refused if it carries markup that would reshape the
+# record (markup_hazard; <headings> defaults to none). Its secret check runs
+# with the others, in refuse_secrets.
 worker_text() {
   read_capped "$1" "$2" "$INPUT_MAX" "$work/$1.raw"
   clean_text "$work/$1.raw" "$work/$1.clean" || die 4 "cannot sanitize --$1"
-  awk 'NF { for (; held > 0; held--) print ""; print; next } { held++ }' "$work/$1.clean" >"$3" \
+  awk '
+    { sub(/[ \t]+$/, "") }
+    !NF { if (seen) held = 1; next }
+    { if (held) print ""; held = 0; seen = 1; print }' "$work/$1.clean" >"$3" \
     || die 4 "cannot normalize --$1"
   ! blank "$3" || die 2 "--$1 is empty"
-  _why=$(markup_hazard "$3") || die 4 "cannot read --$1"
+  _why=$(markup_hazard "$3" "${4:-none}") || die 4 "cannot read --$1"
   [ -z "$_why" ] || die 2 "--$1 carries $_why, which would alter the record's structure; remove it and render again"
 }
 
@@ -447,7 +457,7 @@ grounds_stripped=$CLEAN_STRIPPED
 
 worker_text summary-file "$summary_file" "$work/summary"
 worker_text verification-file "$verification_file" "$work/verification"
-worker_text audit-file "$audit_file" "$work/audit"
+worker_text audit-file "$audit_file" "$work/audit" audit
 set -- "$work/ask-file.clean" "$work/grounds-file.clean" "$work/summary" "$work/verification" "$work/audit"
 if [ -n "$scoping_file" ]; then
   worker_text scoping-file "$scoping_file" "$work/scoping"
