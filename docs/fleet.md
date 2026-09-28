@@ -740,6 +740,17 @@ The first three rows are the lifecycle, and both rungs expose all three. The
 rest follow from what each rung advertises in the capability contract, not from
 a missing close.
 
+`steer` is the primary steer on the stream-json rung: a tower message becomes a
+user turn on the worker's own stdin, under the same `[planwright tower relay ->
+<worker>]` header the tmux relay pastes, read from a file so its text is never
+part of a command. Never write a frame into a worker's `in.fifo` by hand. The
+worker reads one JSON line at a time, so a frame missing its newline runs into
+the next one and kills it. Every frame the supervisor writes, `steer`'s,
+`answer`'s, and the launch prompt, is checked before any byte is written: one
+newline-terminated line, no raw control byte, a valid JSON object nested at
+most 512 levels deep. A frame that fails is refused with exit 2 and nothing is
+written.
+
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
 receipt journal, and request envelopes) is written under the cross-spec

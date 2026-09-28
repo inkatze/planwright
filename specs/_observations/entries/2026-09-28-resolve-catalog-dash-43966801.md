@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] scripts/resolve-catalog.sh fails under dash (line 197: Syntax error: "(" unexpected), and under bash printed only the core YAML header during the human-gates amendment kickoff gap check (2026-09-28); the sign-off gap check fell back to reading doctrine/decision-domains.md directly.

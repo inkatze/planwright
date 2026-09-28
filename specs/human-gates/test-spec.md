@@ -1,7 +1,7 @@
 # Human gates — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -113,6 +113,17 @@ printing them (Task 3).
 
 gate-wiring carries the mapping line; a diff test shows no branch swept and
 no history rewritten by the change's own PR (Task 1).
+
+### REQ-B1.10 — Legacy ids from the hash [test]
+
+A fixture branch with one commit whose subject ends with
+a space and `[pending-sign-off]` and no trailer regenerates to one item with id
+`PS-legacy-` plus the first seven hex characters of that commit's full
+hash; the id is unchanged across a base-merge that reorders the range; its
+revert drops it and is not itself an item; a later commit carrying
+`Planwright-Sign-Off-Rejected: PS-legacy-<sha7>` drops it; two legacy
+commits sharing the prefix yield a named error and no checklist; the next
+`PS-<n>` allocation on the same branch is unaffected (Task 2).
 
 ## REQ-C — Ready-flip policy
 
@@ -239,6 +250,18 @@ sole-allowed` that method is used; with several allowed under
 `sole-allowed`, with an explicit method the stub disallows, and with a
 failing host query the PR falls to `on-approval` with the reason on the PR
 (Task 4, Task 9).
+
+### REQ-D1.9 — Task branches only, release never [test + Gherkin + design-level]
+
+Given a fixture PR on `planwright/<spec>/task-<id>` from the base
+repository with every other predicate holding, then it is admitted. Given
+the same branch name from a fork, or any non-task head (the
+`release-please--branches--main` release branch, a `dependabot/` branch,
+`planwright/flight/<id>`), then it falls to `on-approval` with the reason on
+the PR under every layer's configuration. Given a trailered or legacy
+suffixed commit in the range that a later commit reverts, then the PR is
+still refused (Task 9). Each release-approval passage Task 9 names states
+the rule [design-level] (Task 9).
 
 ## REQ-E — Worker base merge
 
@@ -371,3 +394,13 @@ ignoring `specs/`, the changelog, and the observations log;
 `scripts/check-options-reference.sh` passes with the new rows; a grep over
 the merged history finds the `BREAKING CHANGE:` footer on the commit that
 lands `ready_flip_policy` (Task 4, Task 12).
+
+### REQ-H1.4 — Supersede pointers across bundles [test]
+
+Every row of the survey table in the sweep's PR carries its pointer in the
+REQ-H1.4 form or, for a bundle deriving Ready or Active at the run, a gated
+bullet under this bundle's `## Deferred`; a diff test shows every pointed
+record's body unchanged; `scripts/spec-validate.sh --baseline <merge-base>`
+passes on every bundle edited; `scripts/spec-anchor.sh` gives the same
+anchor at the merge-base and the head for every bundle deriving Ready or
+Active at the merge-base (Task 12).

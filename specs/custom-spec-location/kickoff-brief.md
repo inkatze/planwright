@@ -664,4 +664,64 @@ Anchor: `e491833aa36c507d74bb2568b15375425c3c300d` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Amendment — empty `spec_root` cancels lower layers, Task 2 execution (2026-09-28)
+
+Operator-declared amendment on the Active bundle (Task 1 merged, Task 2 in
+progress), walked as a delta-only kickoff; freshness matched the prior anchor
+before the edit, and the validator reported no findings before and after.
+
+**The change.** An empty `spec_root` value now cancels every lower layer's
+value and yields the default root. REQ-A1.3, D-3's Decision, the REQ-A1.3
+test-spec pin, and Task 2's deliverables and Done-when all said an empty
+value fell through to the next lower layer, which under last-layer-wins
+would reach the very repo-tracked value a machine-local file means to take
+back. Cancelling is what D-3's rationale for not refusing an empty value
+assumes, what K1's declined alternative ("no way to cancel a repo-tracked
+value locally") assumes, what Task 2's Done-when asserts, and what
+`config-get` does today: an empty value in the highest layer setting the key
+is returned as that layer's value. This entry supersedes the "falls through"
+wording in §8's K1 disposition. The rule applies in every layer alike
+(operator decision); malformed text keeps its by-layer fall-through, which is
+a separate rule and unchanged. Amended in place with an `*(Amended at …)*`
+annotation on REQ-A1.3 and D-3 and a dated `## Changelog` entry.
+
+**Lens review pass (delta-scoped, inline).** Walked inline: the delta is
+one rule stated at four sites.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 3 | A1: whitespace-only trims to empty (REQ-A1.2) and cancels. A2: malformed-text fall-through is a distinct rule, left as is. A3: `config-get` returns an empty machine-local value as the winner (reproduced on a fixture). |
+| Security | n/a | Wording change to a resolution rule; no new input, path, or trust surface. |
+| Error handling and failure modes | none | Refusal and no-fallback rules untouched. |
+| Performance | n/a | Spec text only. |
+| Concurrency / state | n/a | Spec text only. |
+| Naming, readability, structure | none | The four sites now state one rule. |
+| Documentation | 1 | A4: a changelog entry is required for every amendment. |
+| Tests / verification | none | Requirement/test-spec pairing holds: the pin changed in the same delta. |
+| Cross-file consistency | 2 | A5: after merge, `spec-format` names supersede-with-new-ID, while the in-flight precedent amends in place. A6: §8's K1 disposition still reads "falls through". The options-reference row on Task 2's branch already states cancel; no qualified cross-spec citation added. |
+
+Altitude check: not applicable (the delta fires no altitude trigger).
+Ship-gate check: the delta names no out-of-band fix.
+
+Dispositions:
+
+- A1, A2, A3 — accepted readings, no edit.
+- A4 — applied: `## Changelog` entry dated 2026-09-28.
+- A5 — operator fork: amend in place with annotations (precedent:
+  concurrent-orchestrator-coordination's Task 4 amendments). Declined:
+  minting a successor REQ and re-pointing Task 2's and the test-spec's
+  citations.
+- A6 — applied by this entry (sections above are append-only).
+
+Post-edit verification: `scripts/spec-validate.sh` 0 errors, 0 warnings;
+markdownlint over the five bundle files 0 errors; no "falls through" wording
+for an empty value remains in the four spec files.
+
+Signed off 2026-09-28 by the operator after the before/after text and the
+lens dispositions; `Last reviewed:` bumped to 2026-09-28 on all four spec
+files; no status flip.
+
+Class: meaning
+Lens-pass: the *Lens review pass (delta-scoped, inline)* above in this entry
+Anchor: `18a3a6a08c7e16e0a32f64397a1e69e9eeb372fa` — computed as
+`scripts/spec-anchor.sh specs/custom-spec-location`

@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] resolve-root.sh spec runs a five-script config chain (resolve-config-knob, config-get --layers, resolve-overlay-root x3) on every call, several times the cost of repo --primary; once guards, hooks, or skills consume the spec root, callers should resolve it once per run and pass it on rather than call per operation.

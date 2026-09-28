@@ -1,7 +1,7 @@
 # Custom spec location — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -80,14 +80,15 @@ enforceable with a minimal, line-scoped allowlist.
 across the four layers, last-layer-wins, typed `path` in the shared knob
 resolver (a type this spec adds; the resolver's type set is closed today). A
 value is absolute, `~/`-prefixed (expanded against `HOME`), or relative to
-the primary checkout root, whitespace-trimmed. An empty value means unset in
-that layer and falls through. The winning value is canonicalized before use;
-a relative value may not escape the primary checkout. A well-formed value
-that points at a nonexistent path, a non-directory, or an escaping relative
-path is refused in every layer and never falls back to the default; only
-malformed text (a non-printable byte) follows the customization-overlay
-by-layer policy. Unset everywhere yields `<checkout>/specs` with today's
-behaviour byte for byte.
+the primary checkout root, whitespace-trimmed. An empty value means unset and
+cancels any lower layer's value, yielding the default root *(Amended at Task 2
+execution 2026-09-28: was "falls through")*. The winning value is
+canonicalized before use; a relative value may not escape the primary
+checkout. A well-formed value that points at a nonexistent path, a
+non-directory, or an escaping relative path is refused in every layer and
+never falls back to the default; only malformed text (a non-printable byte)
+follows the customization-overlay by-layer policy. Unset everywhere yields
+`<checkout>/specs` with today's behaviour byte for byte.
 
 **Alternatives considered:**
 - A pointer file in the work repo (the adr-tools `.adr-dir` shape).

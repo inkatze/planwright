@@ -27,10 +27,31 @@
 # description, which is the exact hole this file exists to close.
 #
 # THE GRAPH COMES FROM MISE, NOT FROM PARSING ITS FILE. `mise tasks --json`
-# renders the task runner's own resolved view: quoting, multi-line arrays,
-# aliases and wildcard expansion are its business, not this script's. A
-# hand-rolled parser of someone else's file format drifts from it silently and
-# is wrong in ways nobody can predict; this asks the owner instead.
+# renders the task runner's own view of each task: TOML quoting and multi-line
+# arrays are its business, not this script's. It does NOT resolve edges, so
+# the walk does: a task alias resolves to its task, and a glob edge expands to
+# every task name or alias it matches. A run body contributes the task each
+# `mise run` / `mise r` call names (`default` when it names none), each `:::`
+# segment included. A call whose leading flags keep the target from running
+# (`--dry-run`, `--help`) contributes nothing, and one with `--skip-deps`
+# contributes only its target's own body; mise reads flags only before the
+# first task, so a later `:::` segment's first word is its task whatever it
+# looks like. A call made under another env (`--env`, `--profile`, MISE_ENV,
+# MISE_PROFILE) or from another directory (`--cd`) is an edge only when that
+# config cannot redefine the task: no overlay file for the env at the root,
+# and a directory inside the repo with no mise config or file tasks between
+# it and the root. An env or MISE_TASK_SKIP_DEPENDS assignment reaches the
+# call it prefixes, the calls after a statement that only assigns it, and
+# every call when the task env sets it. Known limits:
+# global flags placed before `run` (`mise -q run x`) are not read, so such a
+# call contributes nothing; the variables set through a depends entry's env
+# or the top-level `[env]` are not seen.
+#
+# WHOLE-LINE COMMENTS ARE NOT EXECUTION. They are dropped from a run body
+# before either edges or guard names are read from it, so a commented-out call
+# wires nothing. Known limit: a guard or edge named in a live line that does
+# not run it, such as an `echo` or a trailing `# ...` comment, still counts;
+# telling those apart needs a shell parser.
 #
 # PARSE BOUNDARY, ENFORCED RATHER THAN DOCUMENTED. Only tasks defined in the
 # repo's own mise.toml count. mise layers mise.local.toml and file tasks on
@@ -38,9 +59,10 @@
 # guard reachable only through one must not read as wired here. Tasks are
 # filtered on their reported source.
 #
-# FAILS CLOSED on anything that would narrow the scan to nothing: no mise, no
-# task graph, a graph with zero tasks, no `check` task, a closure of zero
-# tasks, no workflows directory, or zero check-*.sh found. Each of those would
+# FAILS CLOSED on anything that would narrow the scan to nothing: no mise or
+# jq, no mise.toml, no task graph, a graph with zero tasks, no `check` task, a
+# walk that reports no reached tasks, no workflows directory, or zero
+# check-*.sh found. Each of those would
 # otherwise make this script exit 0 having proven nothing.
 #
 # Usage: check-guard-wiring.sh [--repo-root <dir>]
@@ -105,52 +127,227 @@ for tool in jq mise; do
   }
 done
 
-# The task graph, as mise itself resolves it. MISE_TRUSTED_CONFIG_PATHS keeps a
+# The task list, as mise itself renders it. MISE_TRUSTED_CONFIG_PATHS keeps a
 # fixture checkout (and a fresh clone) from stopping on the trust prompt; this
 # only ever LISTS tasks, never runs one.
-graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --json 2>/dev/null) || graph=''
+graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --json --hidden 2>/dev/null) || graph=''
 [ -n "$graph" ] || {
-  echo "$me: 'mise tasks --json' produced nothing in $repo_root — failing closed rather than reporting a clean scan" >&2
+  echo "$me: 'mise tasks --json --hidden' produced nothing in $repo_root — failing closed rather than reporting a clean scan" >&2
   exit 5
 }
 
-# One jq pass: filter to this repo's own mise.toml, union `depends` and
-# `depends_post` with the `mise run <task>` calls a run body makes, walk the
-# closure from `check`, and emit the reached run bodies plus the diagnostics.
-# `wait_for` is deliberately not an edge: it only orders a task that something
-# else already scheduled and never causes its target to run, so following it
-# would pass a guard nothing runs. A dangling
-# edge (naming no task in this file) is reported, never silently dropped: an
-# edge the walk cannot follow is exactly how a guard appears reachable without
-# being reachable.
-report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
-  [ .[] | select(.source == $src)
-    | { name: .name,
-        run: ((.run // []) | join("\n")),
-        deps: ((.depends // []) + (.depends_post // [])) } ]
-  | map(. + { deps: (.deps + ([ .run
-        | match("mise[[:space:]]+run[[:space:]]+((?:-[^[:space:]]+[[:space:]]+)*)([A-Za-z0-9:_.*-]+)"; "g")
-        | .captures[1].string ]))
-    })                                                              as $tasks
+# The env names a root overlay file exists for, as mise reads them: a call
+# made under one of these may run a redefined task, so it stays no edge.
+overlay_envs=$(
+  {
+    find "$repo_root" "$repo_root/.config" -mindepth 1 -maxdepth 1 ! -type d \( -name 'mise.*.toml' -o -name '.mise.*.toml' \)
+    find "$repo_root/mise" "$repo_root/.mise" "$repo_root/.config/mise" -mindepth 1 -maxdepth 1 ! -type d -name 'config.*.toml'
+  } 2>/dev/null | awk '{ sub(/.*\//, ""); sub(/^\.?(mise|config)\./, ""); sub(/\.toml$/, ""); sub(/\.local$/, ""); print }' | sort -u
+)
+root_p=$(cd "$repo_root" && pwd -P) || exit 5
+
+# A `--cd` directory counts only when it resolves inside the repo and neither
+# it nor any directory between it and the root holds mise config or file
+# tasks of its own, any of which could redefine the task it runs.
+cd_safe() {
+  cs_p=$(cd -- "$1" 2>/dev/null && pwd -P) || return 1
+  case $cs_p in
+    "$root_p" | "$root_p"/*) ;;
+    *) return 1 ;;
+  esac
+  while [ "$cs_p" != "$root_p" ]; do
+    [ -z "$(find "$cs_p" "$cs_p/.config" -mindepth 1 -maxdepth 1 \( -name 'mise*' -o -name '.mise*' \) 2>/dev/null)" ] || return 1
+    cs_p=${cs_p%/*}
+  done
+}
+
+# One jq program, run twice. The `dirs` phase lists every `--cd` directory a
+# run body names, for cd_safe to judge. The `walk` phase filters to this
+# repo's own mise.toml, unions `depends`, `depends_post`, structured
+# `{ task = ... }` run entries, and the tasks a run body's `mise run` calls
+# name, resolves each against names, aliases and globs, walks the closure
+# from `check`, and emits the reached run bodies plus the diagnostics.
+# `wait_for` is deliberately not an edge: it only orders a task that
+# something else already scheduled and never causes its target to run, so
+# following it would pass a guard nothing runs. A dangling edge (resolving to
+# no task in this file) is reported, never silently dropped: an edge the walk
+# cannot follow is exactly how a guard appears reachable without being
+# reachable. Every edge has its newlines escaped before it is resolved, so no
+# task name can forge a report line; a name holding one never resolves.
+# shellcheck disable=SC2016 # a jq program: the $ names are jq's
+prog='
+  def uncommented: split("\n") | map(select(test("^[[:space:]]*#") | not)) | join("\n");
+  def unquoted: gsub("^[\"\u0027`]+|[\"\u0027`);]+$"; "");
+  def value_re: "=(\"[^\"]*\"|\u0027[^\u0027]*\u0027|[^ \t;&|]*)";
+  # Every value assigned to a variable matching $v in a text. `$MISE_ENV`
+  # or `MISE_ENV_FILE=` assigns nothing.
+  def assigned($v):
+    [ match("(?:^|[^A-Za-z0-9_])" + $v + value_re; "g") | .captures[0].string | unquoted ];
+  # The same, only from a statement that is nothing but assignments (bare or
+  # exported), which holds for the rest of the body; `echo MISE_ENV=ci` is
+  # not one.
+  def standing($v):
+    [ match("(?:^|[;&|][ \t]*)(?:export[ \t]+)?(?:[A-Za-z_][A-Za-z0-9_]*=[^ \t;&|]*[ \t]+)*"
+            + $v + value_re + "[ \t]*(?=[;&|]|$)"; "g")
+      | .captures[0].string | unquoted ];
+  def skipping: any(.[]; . != "false");
+  # The flags of a call, given the words of its first `:::` segment, the only
+  # one whose flags mise reads: {stop, skip, envs, cds, task}. `--dry-run`
+  # and `--help` stop it; an attached short value (`-C.`, `-E=ci`), which
+  # mise reads as a task and fails on, stops it too. A flag taking a
+  # separate value skips that value; a call naming no task runs `default`.
+  def call_flags:
+    def go($acc):
+      . as $ws
+      | if length == 0 then $acc + {task: "default"}
+        else .[0] as $w
+        | if ($w | test("^--(dry-run|help)(=|$)|^-[A-Za-z]*[nh]")) then $acc + {stop: true}
+          elif ($w | test("^--(env|profile)=")) then .[1:] | go($acc | .envs += [$w | sub("^[^=]*="; "")])
+          elif ($w | test("^--cd=")) then .[1:] | go($acc | .cds += [$w | sub("^[^=]*="; "")])
+          elif ($w | test("^--(env|profile)$|^-[A-Za-z]*E$")) then
+            (if length < 2 then $acc + {stop: true} else .[2:] | go($acc | .envs += [$ws[1]]) end)
+          elif ($w | test("^--cd$|^-[A-Za-z]*C$")) then
+            (if length < 2 then $acc + {stop: true} else .[2:] | go($acc | .cds += [$ws[1]]) end)
+          elif ($w | test("^-[A-Za-z]*[CEP]")) then $acc + {stop: true}
+          elif ($w | test("^--skip-deps(=|$)")) then .[1:] | go($acc | .skip = true)
+          elif ($w | test("^--(jobs|output|shell|tool|timeout|allow-env|allow-net|allow-read|allow-write)$|^-[A-Za-z]*[jost]$")) then .[2:] | go($acc)
+          elif ($w | startswith("-")) then .[1:] | go($acc)
+          else $acc + {task: ($w | unquoted)}
+          end
+        end;
+    go({stop: false, skip: false, envs: [], cds: []});
+  # The absolute directory a `--cd` value names, or null when it cannot be
+  # known without running the shell.
+  def cd_key($dir):
+    unquoted
+    | if . == "" or test("[$`\\\\~*?\n]") then null
+      elif startswith("/") then .
+      else $dir + "/" + . end;
+  # {cds, envs, skip, stop, names} per `mise run` / `mise r` call in the
+  # task run body. An env or skip assignment reaches the call it prefixes, the
+  # calls after a statement that only assigns it, and every call when the
+  # task env sets it. A later segment names its task in its first word, even
+  # one that looks like a flag.
+  def calls:
+    ((.env // []) | map(tostring) | join("\n"))                     as $tenv
+    | (.dir // $root)                                               as $dir
+    | (.run // []) | map(select(type == "string")) | join("\n") | uncommented
+    | split("\n")
+    | reduce .[] as $l ({envs: ($tenv | assigned("MISE_(?:ENV|PROFILE)")),
+                         skip: ($tenv | assigned("MISE_TASK_SKIP_DEPENDS") | skipping),
+                         out: []};
+        .envs += ($l | standing("MISE_(?:ENV|PROFILE)"))
+        | .skip = (.skip or ($l | standing("MISE_TASK_SKIP_DEPENDS") | skipping))
+        | . as $st
+        | .out += [ $l | match("(?:^|[^A-Za-z0-9_-])mise[ \t]+(?:run|r)(?=[ \t;&|]|$)[ \t]*([^;&|]*)"; "g")
+            | ($l[:.offset + 1] | sub("^.*[;&|(]"; ""))           as $pre
+            | [ .captures[0].string | splits("[ \t]*:::[ \t]*")
+                | [ splits("[ \t]+") | select(. != "") ] ]          as $segs
+            | ($segs[0] | call_flags)                               as $f
+            | { stop: $f.stop,
+                skip: ($f.skip or $st.skip or ($pre | assigned("MISE_TASK_SKIP_DEPENDS") | skipping)),
+                envs: ($f.envs + $st.envs + ($pre | assigned("MISE_(?:ENV|PROFILE)"))),
+                cds: [ $f.cds[] | cd_key($dir) ],
+                names: ([ $f.task ] + [ $segs[1:][] | (.[0] // empty) | unquoted ]) } ])
+    | .out[];
+  # A depends entry carrying arguments or env names its task in `.task` or in
+  # its first word.
+  def edge_name:
+    if type == "array" then .[0]
+    elif type == "object" then (.task // tostring)
+    elif type == "string" then (split(" ") | .[0])
+    else tostring end;
+  # mise task-name globs, as measured against mise itself: a trailing `*` (or
+  # `**`) spans the `:` separator, an inner one and `?` do not, and `[...]`
+  # classes and `{a,b}` alternation are honoured.
+  def glob_re:
+    split("") as $cs
+    | reduce range(0; $cs | length) as $i ({re: "", br: 0, cls: false};
+      $cs[$i] as $c
+      | if .cls then
+        (if $c == "]" then .cls = false else . end)
+        | .re += (if $c == "!" and (.re | endswith("[")) then "^"
+                  elif $c == "\\" then "\\\\" else $c end)
+      elif $c == "*" then
+        .re += (if $i > 0 and $cs[$i - 1] == "*" then ""
+                elif ($cs[$i + 1:] | all(. == "*")) then ".*"
+                else "[^:]*" end)
+      elif $c == "?" then .re += "[^:]"
+      elif $c == "[" then .cls = true | .re += "["
+      elif $c == "{" then .br += 1 | .re += "(?:"
+      elif $c == "}" and .br > 0 then .br -= 1 | .re += ")"
+      elif $c == "," and .br > 0 then .re += "|"
+      elif ($c | test("[.+^$()|{}\\]\\\\]")) then .re += "\\" + $c
+      else .re += $c end)
+    | "^" + .re + "$";
+  ($overlays | split("\n") | map(select(. != "")))                  as $ovl
+  | ($safe | split("\n") | map(select(. != "")))                    as $safedirs
+  # An env the check cannot read, or one with an overlay file, may redefine
+  # the task; so may a directory cd_safe did not clear.
+  | def reaches:
+      (.stop | not)
+      and all(.envs[]; test("[$`\\\\]") | not)
+      and all(.envs[] | split(",")[] | gsub("^[ \t]+|[ \t]+$"; ""); . as $n | $ovl | index([$n]) | not)
+      and all(.cds[]; . as $d | $d != null and ($safedirs | index([$d]) != null));
+  [ .[] | select(.source == $src) ]                                 as $raw
+  | if $phase == "dirs" then
+      [ $raw[] | calls | .cds[] | select(. != null) ] | unique | .[]
+    else
+  [ $raw[].name ]                                                   as $names
+  | ([ $raw[] | .name as $n | (.aliases // [])[] | {key: ., value: $n} ]
+     | from_entries)                                                as $alias
+  | def resolve:
+      . as $e
+      | if ($names | index([$e])) then [$e]
+        elif ($alias | has($e)) then [$alias[$e]]
+        elif test("[*?\\[{]") then (glob_re) as $re
+          | [ ($names[] | select(test($re))),
+              ($alias | to_entries[] | select(.key | test($re)) | .value) ] | unique
+        else [] end;
+    [ $raw[]
+      | (.run // [])                                                as $run
+      | ($run | map(select(type == "string")) | join("\n") | uncommented) as $body
+      | [ calls | select(reaches) | {mode: (if .skip then "body" else "full" end), name: .names[]} ] as $calls
+      | def clean: map(select(. != null and . != "") | gsub("\n"; "\\n"));
+        ([ (.depends // [])[], (.depends_post // [])[],
+           ($run[] | objects | (.task // empty), (.tasks // [])[]) ]
+         | map(edge_name)
+           + [ $calls[] | select(.mode == "full") | .name ] | clean) as $edges
+      | ([ $calls[] | select(.mode == "body") | .name ] | clean)   as $bodyonly
+      | { name: .name,
+          body: $body,
+          next: ([ $edges[] | resolve[] ] | unique),
+          bodyonly: ([ $bodyonly[] | resolve[] ] | unique),
+          dangling: [ $edges[], $bodyonly[] | select((resolve | length) == 0) ] } ] as $tasks
   | ($tasks | map({key: .name, value: .}) | from_entries)           as $by
   | def grow($seen):
-      ($seen + ($seen | map($by[.].deps // []) | add // []) | unique) as $next
+      ($seen + ($seen | map($by[.].next) | add // []) | unique) as $next
       | if ($next | length) == ($seen | length) then $seen else grow($next) end;
-    (if ($by | has("check")) then grow(["check"]) else null end)     as $reached
+    # A task reached without its dependencies contributes its own body and
+    # nothing further: not its depends, and not its own calls either.
+    (if ($by | has("check")) then grow(["check"])
+       | (. + (map($by[.].bodyonly) | add // []) | unique)
+     else null end)                                                 as $reached
   | if $tasks == [] then "PARSE\tthe task graph holds no task from this repo mise.toml"
     elif $reached == null then "PARSE\tno `check` task in the graph, so there is no gate to walk"
     else
-      ([ $reached[] | . as $n | select($by | has($n)) ]) as $known
-      | if ($known | length) == 0 then "PARSE\tthe closure from check reached zero known tasks"
-        else
-          ( "COUNT\t\($known | length)" ),
-          ( [ $reached[] | . as $n | select(($by | has($n)) | not) ] | unique | .[] | "DANGLING\t\(.)" ),
-          ( [ $reached[] | select(test("\\*")) ] | unique | .[] | "WILDCARD\t\(.)" ),
-          ( "BODIES" ),
-          ( $known[] | $by[.].run )
-        end
+      ( "COUNT\t\($reached | length)" ),
+      ( [ $reached[] | $by[.].dangling[] ] | unique | .[] | "DANGLING\t\(.)" ),
+      ( "BODIES" ),
+      ( $reached[] | $by[.].body )
     end
-') || {
+    end
+'
+cd_dirs=$(printf '%s' "$graph" | jq -r --arg phase dirs --arg src "$misefile" --arg root "$repo_root" \
+  --arg overlays "$overlay_envs" --arg safe '' "$prog") || {
+  echo "$me: could not read the task graph — failing closed" >&2
+  exit 5
+}
+safe_dirs=$(printf '%s\n' "$cd_dirs" | while IFS= read -r d; do
+  [ -n "$d" ] && cd_safe "$d" && printf '%s\n' "$d"
+done)
+report=$(printf '%s' "$graph" | jq -r --arg phase walk --arg src "$misefile" --arg root "$repo_root" \
+  --arg overlays "$overlay_envs" --arg safe "$safe_dirs" "$prog") || {
   echo "$me: could not read the task graph — failing closed" >&2
   exit 5
 }
@@ -252,8 +449,7 @@ if [ -n "$unwired" ]; then
 fi
 
 printf '%s\n' "$meta" | awk -F'\t' -v me="$me" '
-  $1 == "DANGLING" { print me ": note: dependency on `" $2 "` names no task in this repo mise.toml — outside the parse boundary" > "/dev/stderr" }
-  $1 == "WILDCARD" { print me ": note: wildcard dependency not expanded: " $2 > "/dev/stderr" }
+  $1 == "DANGLING" { print me ": note: edge to `" $2 "` names or matches no task in this repo mise.toml — outside the parse boundary" > "/dev/stderr" }
 '
 
 if [ "$rc" = 0 ]; then
