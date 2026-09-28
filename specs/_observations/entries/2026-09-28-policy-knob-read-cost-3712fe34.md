@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] One resolve-policy-knob.sh call costs about 0.4s on a loaded box, almost all of it in config-get (three resolve-overlay-root spawns per call). The policy guard reads a knob on hot Bash calls under a wall-clock bound; a multi-key config-get read or a cached overlay-root resolution is the lever if the bound gets tight.
