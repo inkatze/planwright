@@ -1,7 +1,7 @@
 # Custom steps — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -196,8 +196,9 @@ Task 5.
 ### REQ-D1.3 — Hosting modes [Gherkin + manual]
 
 Scenario: given a command step with `in-session`, then the unit session
-executes it through its shell tool with the context assignments prefixed
-and its output appears in the session. Manual, recorded in the PR body: on
+executes it through its shell tool as the resolved location and `args`,
+with the context assignments prefixed, a target naming a shell builtin
+runs the file the resolver printed, and its output appears in the session. Manual, recorded in the PR body: on
 a stream-json worker, a skill step with `isolated` runs in a fresh session
 launched with the preamble, whose id the record carries, and a following
 `continue` step resumes that id; on the terminal rung an explicit
@@ -336,10 +337,12 @@ skill that lands cites it. Task 1, Task 3.
 
 ### REQ-G1.1 — Context by environment only [test + Gherkin]
 
-The resolver test asserts a declared command line is emitted byte-for-byte
-and that `args` carrying a shell operator, redirection, expansion, or quote
-is malformed; the REQ-A1.4 scenario shows the fields in the environment and
-none in the command, and the runner subprocess receives the words as argv.
+The resolver test asserts a declared command line is emitted as the
+resolved location followed by its `args` byte-for-byte and that `args`
+carrying a shell operator, redirection, expansion, or quote is malformed;
+the REQ-A1.4 scenario shows the fields in the environment and none in the
+command, and the runner subprocess receives the resolved location and
+`args` as argv.
 Task 2, Task 5.
 
 ### REQ-G1.2 — Human-owned layers [design-level]
@@ -352,8 +355,9 @@ range. Task 1, Task 7.
 
 The rows Task 7 names in the worker command guard's test: a declared line
 approved, the same line with context assignments prefixed approved, a
-word-identical respelling approved, a segment sharing only the first word
-deferred, a non-declared command deferred, a path target with a traversal
+word-identical respelling approved, the same line spelled with the bare
+target instead of its resolved location deferred, a segment sharing only
+the first word deferred, a non-declared command deferred, a path target with a traversal
 segment deferred; plus the existing runtime-bound row with a fixture
 catalog of several entries present. Task 7.
 

@@ -1,7 +1,7 @@
 # Custom steps — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -199,12 +199,15 @@ deferred until every flipper posts.
   command steps for the named points only for a segment not already
   known-safe, within its existing wall-clock bound, and approves a segment
   whose tokenized word sequence, after stripping leading
-  `PLANWRIGHT_STEP_*` assignments, equals a declared target followed by
-  its args as written, after its charset check and, for a path target, its
+  `PLANWRIGHT_STEP_*` assignments, equals a declared step's resolved
+  absolute location, as the resolver prints it on the guard's host,
+  followed by its args as written, after that location's charset check
+  and, for a path target, its
   canonicalization and traversal rejection, allow-only; fixture rows in
   `tests/test-worker-command-guard.sh` for an approved declared line, the
   same line with the context assignments prefixed, a word-identical
-  respelling, a segment sharing only the first word, a non-declared
+  respelling, the same line spelled with the bare target instead of its
+  resolved location, a segment sharing only the first word, a non-declared
   command, and a path target with a traversal segment; the existing
   runtime-bound row re-run with a fixture catalog of several entries;
   `docs/overlays.md` section 9 documents the manual allow entry as the
