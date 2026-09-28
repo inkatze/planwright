@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] The tower queue's reserved_control substring screens (merge, rebase, amend, squash, fixup) run before quotes are removed, so a standing rule covering git answers git me""rge, git re""base, or git commit --am""end, which the shell runs as the reserved act; the push and pull screens unquote per word. Seen during human-gates Task 5 review (2026-09-28).
