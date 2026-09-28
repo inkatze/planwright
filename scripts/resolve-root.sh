@@ -4,7 +4,8 @@
 # Usage:
 #   resolve-root.sh [--explain] install
 #   resolve-root.sh [--explain] repo --primary | --checkout
-#   (--explain may appear anywhere among the arguments)
+#   resolve-root.sh [--explain] spec [--primary] [--posture] [--init]
+#   (flags may appear anywhere among the arguments)
 #
 # install   which planwright copy runs: the first content-bearing arm of the
 #           core root chain, in order
@@ -31,12 +32,35 @@
 #   GIT_WORK_TREE, or command-line config (a git hook exports them) is
 #   ignored, and --primary reads core.worktree and core.bare from the
 #   repository's own config only, as git does.
+# spec      where bundles and the reserved accumulators live: the spec_root
+#           option, read through the config overlay as resolved from the
+#           primary checkout, else <checkout>/specs. A value is absolute,
+#           ~/-prefixed (~ alone is HOME; ~user is refused), or relative to
+#           the primary checkout. Empty is unset in its layer. A value that
+#           names no directory, escapes the primary checkout when relative,
+#           or names a directory other than <primary>/specs that carries no
+#           planwright-spec-root.yml marker is refused, whichever layer set
+#           it, and never falls back to the default.
+#   (default)   the checkout-local view: a root inside the primary checkout
+#               is re-based onto the current checkout of the same repository.
+#   --primary   the primary view: the configured directory itself.
+#   --posture   print only the posture: same-repo when the root's repository
+#               shares the work repository's common git directory, separate-
+#               repo when it is another repository, plain when it is in none.
+#   --init      write the marker (and, in a git repository, the ignore rules
+#               for the local-only entries) into the configured directory,
+#               which must already exist; the marker check is the one check
+#               skipped for it. The default root needs no marker and is left
+#               untouched.
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
 # CLAUDE_PLUGIN_ROOT, writer-mode, self-location) or the repo source
 # (PLANWRIGHT_REPO_ROOT; git-common-dir when --primary derived the tree from
-# the common git directory; show-toplevel when git named it directly).
-# Printed paths are canonical (symlinks resolved).
+# the common git directory; show-toplevel when git named it directly). For
+# spec it prints "<source>\t<path>\t<posture>\t<view>", the source being the
+# config layer that set spec_root or default, the view checkout-local or
+# primary. Printed paths are canonical (symlinks resolved), except that the
+# default root is printed whether or not it exists.
 #
 # Exit: 0 printed · 1 no install root resolved · 2 usage · 3 no repository
 #   root (git missing, not inside a working tree, a bare repository, or a
@@ -44,8 +68,10 @@
 #   git dir, or a core.worktree that is gone; --primary still answers from
 #   inside a repository's git directory, and a separate git dir named .git
 #   answers with the directory holding it) · 4 PLANWRIGHT_REPO_ROOT
-#   refused. Callers treat 3 as "no repository" and degrade; they never
-#   compose a path from an empty root.
+#   refused · 5 spec_root refused (bad value or missing marker; --init
+#   could not write) · 6 spec_root unreadable (a malformed repo-tracked
+#   config, or a broken install). Callers treat 3 as "no repository" and
+#   degrade; they never compose a path from an empty root.
 #
 # POSIX sh with no dependency beyond git and tr: guards and hooks exec it
 # through /bin/sh, which is dash on Linux.
@@ -67,16 +93,20 @@ say() {
 }
 
 usage() {
-  say "usage: resolve-root.sh [--explain] install | repo --primary|--checkout"
+  say "usage: resolve-root.sh [--explain] install | repo --primary|--checkout | spec [--primary] [--posture] [--init]"
   exit 2
 }
 
 kind=""
 view=""
 explain=0
+posture_only=0
+init=0
 for arg in "$@"; do
   case $arg in
     --explain) explain=1 ;;
+    --posture) posture_only=1 ;;
+    --init) init=1 ;;
     --primary | --checkout)
       [ -z "$view" ] || usage
       view=${arg#--}
@@ -139,10 +169,6 @@ resolve_install() {
   try_arm PLANWRIGHT_ROOT "${PLANWRIGHT_ROOT:-}"
   try_arm CLAUDE_PLUGIN_ROOT "${CLAUDE_PLUGIN_ROOT:-}"
   try_arm writer-mode "$writer_root"
-  case $0 in
-    */*) script_dir=${0%/*} ;;
-    *) script_dir=. ;;
-  esac
   try_arm self-location "$script_dir/.."
   say "no install root resolved (every arm of the core root chain was unset or skipped)"
   exit 1
@@ -194,7 +220,9 @@ resolve_primary() {
       say "refusing PLANWRIGHT_REPO_ROOT='$PLANWRIGHT_REPO_ROOT': it does not name the toplevel of a git working tree"
       exit 4
     fi
-    emit PLANWRIGHT_REPO_ROOT "$rp_top"
+    rp_src=PLANWRIGHT_REPO_ROOT
+    rp_path=$rp_top
+    return 0
   fi
 
   rp_common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || no_repo
@@ -241,31 +269,218 @@ resolve_primary() {
   fi
   rp_path=$(toplevel_of "$rp_cand") || no_primary "'$rp_cand' is not reachable"
   [ "$rp_path" = "$(canon "$rp_cand")" ] || no_primary "'$rp_cand' is not a working tree toplevel"
-  emit "$rp_src" "$rp_path"
 }
 
-resolve_checkout() {
-  rc_top=$(git rev-parse --show-toplevel 2>/dev/null) || no_repo
-  [ -n "$rc_top" ] || no_repo
-  rc_top=$(canon "$rc_top") || no_repo
-  emit show-toplevel "$rc_top"
+# checkout_top: the canonical current toplevel, or nothing outside a tree.
+checkout_top() {
+  rc_top=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ -n "$rc_top" ] || return 1
+  canon "$rc_top"
 }
+
+# common_dir_of <dir>: the canonical common git directory of the repository
+# holding <dir>; fails when <dir> is in none.
+common_dir_of() {
+  (
+    cd -P -- "$1" 2>/dev/null || exit 1
+    cd_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 1
+    case $cd_dir in
+      /*) ;;
+      *) cd_dir=$(pwd -P)/$(git rev-parse --git-common-dir 2>/dev/null) || exit 1 ;;
+    esac
+    cd -P -- "$cd_dir" 2>/dev/null && pwd -P
+  )
+}
+
+# refuse_spec <reason>: refuse the configured spec_root, naming its layer.
+refuse_spec() {
+  say "refusing spec_root '$sr_value' from the $sr_layer layer: $1"
+  exit 5
+}
+
+# read_spec_root: set sr_layer and sr_value from the config overlay, read as
+# the primary checkout sees it; an unset option leaves sr_value empty.
+read_spec_root() {
+  sr_knob=$script_dir/resolve-config-knob.sh
+  [ -x "$sr_knob" ] || {
+    say "spec_root unreadable: the config resolver '$sr_knob' is missing or not executable"
+    exit 6
+  }
+  sr_rc=0
+  sr_line=$(PLANWRIGHT_REPO_ROOT=$rp_path "$sr_knob" --explain --key spec_root \
+    --type path --fallback '') || sr_rc=$?
+  [ "$sr_rc" -eq 0 ] || {
+    say "spec_root unreadable: the config overlay could not be read (exit $sr_rc)"
+    exit 6
+  }
+  sr_layer=${sr_line%%"$TAB"*}
+  sr_value=${sr_line#*"$TAB"}
+}
+
+# spec_root_primary: validate sr_value and set sr_primary, its canonical
+# directory; sr_default is 1 when that is <primary>/specs.
+spec_root_primary() {
+  case $sr_value in
+    \~) sr_path=${HOME:-} ;;
+    \~/*) sr_path=${HOME:-}/${sr_value#??} ;;
+    \~*) refuse_spec "a ~user form is not supported; write the path out, or use ~/" ;;
+    /*) sr_path=$sr_value ;;
+    *) sr_path=$rp_path/$sr_value ;;
+  esac
+  case $sr_value in
+    \~ | \~/*) [ -n "${HOME:-}" ] || refuse_spec "HOME is not set, so ~ cannot be expanded" ;;
+  esac
+  [ -e "$sr_path" ] || refuse_spec "no such directory"
+  [ -d "$sr_path" ] || refuse_spec "not a directory"
+  sr_primary=$(canon "$sr_path") || refuse_spec "the directory cannot be entered"
+  case $sr_value in
+    \~ | \~/* | /*) ;;
+    *)
+      case $sr_primary in
+        "$rp_path" | "$rp_path"/*) ;;
+        *) refuse_spec "a relative value must stay inside the primary checkout ($rp_path), and this one resolves to $sr_primary" ;;
+      esac
+      ;;
+  esac
+  sr_default=0
+  sr_specs=$(canon "$rp_path/specs") || sr_specs=""
+  [ "$sr_primary" != "$sr_specs" ] || sr_default=1
+}
+
+# spec_posture: classify sr_primary against the work repository.
+spec_posture() {
+  sp_common=$(common_dir_of "$sr_primary") || {
+    sr_posture=plain
+    return 0
+  }
+  if [ "$sp_common" = "$work_common" ]; then
+    sr_posture=same-repo
+  else
+    sr_posture=separate-repo
+  fi
+}
+
+# project_id: the work repository's directory name, folded into the spec
+# identifier grammar for the marker's project field.
+project_id() {
+  printf '%s' "${rp_path##*/}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' \
+    | sed -e 's/^-*//' | cut -c1-64
+}
+
+# init_spec_root: write the marker and, in a git repository, the ignore
+# rules for the entries that never leave the machine.
+init_spec_root() {
+  if [ ! -e "$sr_primary/planwright-spec-root.yml" ]; then
+    is_id=$(project_id)
+    [ -n "$is_id" ] || refuse_spec "--init cannot derive a project identifier from '$rp_path'"
+    is_tmp=$sr_primary/.planwright-spec-root.yml.$$
+    if ! { printf 'project: %s\nlayout: 1\n' "$is_id" >"$is_tmp" &&
+      mv -f "$is_tmp" "$sr_primary/planwright-spec-root.yml"; } 2>/dev/null; then
+      rm -f "$is_tmp"
+      refuse_spec "--init could not write the marker"
+    fi
+  fi
+  [ "$sr_posture" != plain ] || return 0
+  for is_rule in /_pending/notes.md '/*/.orchestrate.lock' '/*/.tasks-pr-sync.*' '/*/.orchestrate/'; do
+    if [ -f "$sr_primary/.gitignore" ] && grep -Fqx -- "$is_rule" "$sr_primary/.gitignore"; then
+      continue
+    fi
+    printf '%s\n' "$is_rule" >>"$sr_primary/.gitignore" 2>/dev/null \
+      || refuse_spec "--init could not write the ignore rules"
+  done
+}
+
+resolve_spec() {
+  resolve_primary
+  work_common=$(common_dir_of "$rp_path") || no_primary "'$rp_path' has no common git directory"
+  # The checkout to re-base onto: the current tree when it belongs to the
+  # work repository, else the primary itself.
+  sc_top=$(checkout_top) || sc_top=""
+  if [ -z "$sc_top" ] || [ "$(common_dir_of "$sc_top")" != "$work_common" ]; then
+    sc_top=$rp_path
+  fi
+  read_spec_root
+  if [ -z "$sr_value" ]; then
+    [ "$init" -eq 0 ] || say "spec_root is unset, and the default root needs no marker; nothing to initialize"
+    sr_layer=default
+    sr_primary=$rp_path/specs
+    sr_default=1
+  else
+    spec_root_primary
+    [ "$init" -eq 0 ] || [ "$sr_default" -eq 0 ] \
+      || say "spec_root names the default root, which needs no marker; nothing to initialize"
+  fi
+  if [ "$sr_default" -eq 1 ]; then
+    sr_posture=same-repo
+  else
+    spec_posture
+    if [ "$init" -eq 1 ]; then
+      init_spec_root
+    elif [ ! -f "$sr_primary/planwright-spec-root.yml" ]; then
+      refuse_spec "$sr_primary carries no planwright-spec-root.yml marker (a root other than the default needs one; resolve-root.sh spec --init writes it)"
+    fi
+  fi
+  sr_local=$sr_primary
+  if [ "$sr_posture" = same-repo ]; then
+    case $sr_primary in
+      "$rp_path") sr_local=$sc_top ;;
+      "$rp_path"/*) sr_local=$sc_top/${sr_primary#"$rp_path"/} ;;
+    esac
+  fi
+  if [ "$view" = primary ]; then
+    ss_view=primary
+    ss_path=$sr_primary
+  else
+    ss_view=checkout-local
+    ss_path=$sr_local
+  fi
+  if [ "$explain" -eq 1 ]; then
+    printf '%s\t%s\t%s\t%s\n' "$sr_layer" "$ss_path" "$sr_posture" "$ss_view"
+  elif [ "$posture_only" -eq 1 ]; then
+    printf '%s\n' "$sr_posture"
+  else
+    printf '%s\n' "$ss_path"
+  fi
+  exit 0
+}
+
+TAB=$(printf '\t')
+case $0 in
+  */*) script_dir=${0%/*} ;;
+  *) script_dir=. ;;
+esac
+
+case $kind in
+  install | repo)
+    [ "$posture_only" -eq 0 ] && [ "$init" -eq 0 ] || usage
+    ;;
+  spec)
+    [ "$view" != checkout ] || usage
+    ;;
+esac
 
 case $kind in
   install)
     [ -z "$view" ] || usage
     resolve_install
     ;;
-  repo)
+  repo | spec)
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
       GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
     command -v git >/dev/null 2>&1 || {
       say "no repository root: git is not installed (not on PATH)"
       exit 3
     }
-    case $view in
-      primary) resolve_primary ;;
-      checkout) resolve_checkout ;;
+    case $kind:$view in
+      repo:primary)
+        resolve_primary
+        emit "$rp_src" "$rp_path"
+        ;;
+      repo:checkout)
+        rc_top=$(checkout_top) || no_repo
+        emit show-toplevel "$rc_top"
+        ;;
+      spec:*) resolve_spec ;;
       *) usage ;;
     esac
     ;;

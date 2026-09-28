@@ -484,4 +484,50 @@ done
   || fail "scripts/check-options-reference.sh failed over the shipped defaults + options reference"
 echo "ok: every bundle knob is shipped, documented, and resolvable (REQ-G1.5 sweep incl. check-options-reference)"
 
+# --- The path type: free text without control bytes; empty cancels lower
+#     layers; a malformed adopter/machine-local value passes to the next lower
+#     layer; unset emits the fallback silently; --explain names the layer.
+run_path() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --explain --key spec_root --type path --fallback ''
+}
+TAB=$(printf '\t')
+
+reset_layers
+rc=0
+err=$(run_path 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "path unset: exit $rc, expected 0"
+[ -z "$err" ] || fail "path unset: warned '$err' (a path option ships absent)"
+[ "$(run_path)" = "default${TAB}" ] || fail "path unset: expected the default fallback, got '$(run_path)'"
+echo "ok: path: an unset key emits the fallback without a warning"
+
+printf 'spec_root: /one/two\n' >"$adopter_cfg"
+printf 'spec_root: "  /three four  "\n' >"$tracked_cfg"
+[ "$(run_path)" = "repo-tracked${TAB}/three four" ] || fail "path: repo-tracked did not win trimmed (got '$(run_path)')"
+echo "ok: path: last-layer-wins, surrounding whitespace trimmed, inner spaces kept"
+
+printf 'spec_root:\n' >"$mlocal_cfg"
+[ "$(run_path)" = "machine-local${TAB}" ] || fail "path: an empty machine-local value did not cancel (got '$(run_path)')"
+echo "ok: path: an empty value cancels lower layers"
+
+printf 'spec_root: /bad\033x\n' >"$mlocal_cfg"
+rc=0
+err=$(run_path 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "path malformed machine-local: exit $rc, expected 0"
+case $err in *machine-local*) ;; *) fail "path malformed machine-local: warning does not name the layer ('$err')" ;; esac
+[ "$(run_path 2>/dev/null)" = "repo-tracked${TAB}/three four" ] || fail "path malformed machine-local: did not pass to repo-tracked"
+echo "ok: path: a control byte in machine-local passes to the next lower layer"
+
+rm -f "$mlocal_cfg"
+printf 'spec_root: /bad\001x\n' >"$tracked_cfg"
+rc=0
+run_path >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "path malformed repo-tracked: exit $rc, expected 4"
+echo "ok: path: a control byte in repo-tracked hard-fails"
+
+reset_layers
+
 echo "ALL PASS: resolve-config-knob"
