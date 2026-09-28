@@ -98,7 +98,8 @@
 # process record also names the worker, its owner token, and the evidence class,
 # then for a close the released set (and for a partial one the held set), all
 # ahead of <reasoning>, which is cut short when the whole would outgrow the
-# grammar's bound. A self-block record carries the same prefix.
+# grammar's bound. A self-block record carries the worker, owner, and evidence
+# prefix, with no released set.
 #
 # Exit codes:
 #   0  acted (resource reclaimed) or a clean no-op (target already gone)

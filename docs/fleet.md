@@ -1437,6 +1437,8 @@ everything else:
 
 - a `print`-backend unit, which spawned no process (exit `8`);
 - a worker owned by a live peer tower, under any evidence (exit `7`);
+- a worker on a backend with no process close, such as tmux, whose window
+  `window` reclaims (exit `5`);
 - anything short of positive evidence on both axes (exit `5`): the owning
   tower is positively dead, and the session positively ended, by death
   evidence or a completion signal. Unknown means alive;
