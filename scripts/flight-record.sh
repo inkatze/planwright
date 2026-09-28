@@ -254,8 +254,8 @@ markup_hazard() {
       if (l ~ /^ ? ? ?\[\^[^]]*\]:/) hazard("a footnote definition (it renders after the collapse)")
       h = l
       while (match(h, /^[ \t]*(>|[-*+][ \t]|[0-9]+[.)][ \t])[ \t]*/)) h = substr(h, RSTART + RLENGTH)
-      if (headings == "none" && h ~ /^ ? ? ?#+([ \t]|$)/) hazard("a heading (the record supplies its own)")
-      if (headings == "audit" && h ~ /^ ? ? ?(#|##|###)([ \t]|$)/) hazard("a heading above level four (the audit nests under the record'"'"'s ### heading)")
+      if (headings == "none" && h ~ /^[ \t]*#+([ \t]|$)/) hazard("a heading (the record supplies its own)")
+      if (headings == "audit" && h ~ /^[ \t]*(#|##|###)([ \t]|$)/) hazard("a heading above level four (the audit nests under the record'"'"'s ### heading)")
       if (prev && l ~ /^[ \t>]*(=+|-+)[ \t]*$/) hazard("a setext heading underline (put a blank line above a thematic break)")
       prev = (l ~ /[^ \t]/)
     }

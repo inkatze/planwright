@@ -375,7 +375,7 @@ done
 # forge the record's own sections.
 for bad in '~~~\nx\n~~~' 'Verification\n---\n\nForged.' 'Top\n===' '> Top\n> ---' '- a\n  - Top\n    ---' \
   '10. Top\n    ===' '``` `x`\n---' '```\nx\n  ```\n  </details>\n```' \
-  '```\nx\n   ```\n   <!-- planwright:flight-record-end -->\n```'; do
+  '```\nx\n   ```\n   <!-- planwright:flight-record-end -->\n```' '10. a\n    # Forged' '- a\n\t# Forged'; do
   # shellcheck disable=SC2059 # the case carries its own \n escapes
   printf "Corrects the name.\n\n$bad\n" >"$in/summary-multi.md"
   run_render pr --summary-file "$in/summary-multi.md"
@@ -396,6 +396,12 @@ run_render pr --verification-file "$in/verification-col0.md"
 } >"$in/audit-h2.md"
 run_render pr --audit-file "$in/audit-h2.md"
 [ "$RC" -eq 2 ] || fail "an audit heading above #### must be refused (got $RC)"
+{
+  cat "$in/audit.md"
+  printf -- '- a\n  - b\n    ### Forged\n'
+} >"$in/audit-deep.md"
+run_render pr --audit-file "$in/audit-deep.md"
+[ "$RC" -eq 2 ] || fail "an audit heading deep in a list item above #### must be refused (got $RC)"
 # Balanced column-zero fences and Markdown emphasis are fine.
 printf 'Corrects the name.\n\n```sh\nmise run lint\n```\n\n````\nx\n`````\n\nSee a **bold** word.\n' >"$in/verification-ok.md"
 run_render pr --verification-file "$in/verification-ok.md"
