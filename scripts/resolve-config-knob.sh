@@ -28,11 +28,23 @@
 #     value), exit 0 — graceful degradation so the calling mechanism still
 #     runs (REQ-K1.6).
 #
+# Two caller options narrow the degrade arms for knobs whose core default is
+# not their strictest value (a gate knob degrading to the core default would
+# land on the permissive side):
+#   --degrade <v>   a malformed adopter / machine-local value degrades to <v>
+#                   instead of the core default.
+#   --no-degrade    nothing degrades: a malformed value at any layer exits 4
+#                   and a key no layer sets exits 5, so the caller reads every
+#                   failure as a refusal. Excludes --degrade and --fallback.
+#
 # Usage:
 #   resolve-config-knob.sh --key <key> --type enum --values '<v1> <v2> ...' --fallback <value>
 #   resolve-config-knob.sh --key <key> --type posint --fallback <value>
 #   resolve-config-knob.sh --key <key> --type nonnegint --fallback <value>
 #   resolve-config-knob.sh --key <key> --type duration --fallback <value>
+#   resolve-config-knob.sh --key <key> --type globlist --fallback <value>
+#   (any form above may add --degrade <value>, or replace --fallback with
+#   --no-degrade)
 #
 #   <key>      matches ^[a-z][a-z0-9_]*$ (config-get's queryable charset),
 #              validated before it is ever interpolated (REQ-D1.6).
@@ -59,16 +71,22 @@
 #              six digits because the caller converts to seconds at
 #              millisecond resolution, and a span it would round to zero is
 #              the all-zero span arriving by another spelling.
-#   --fallback is required and must itself validate against the type: it is
+#   globlist   a space-separated single-line list of names or glob patterns
+#              (the config model is flat `key: value`, so a YAML list is
+#              malformed); empty is legal; each member is [A-Za-z0-9._/*?-],
+#              does not start with `-`, and is at most 255 characters.
+#   --fallback is required unless --no-degrade is given, and and must itself validate against the type: it is
 #              the safe value emitted when the key cannot be resolved from any
-#              layer, so an invalid fallback is a caller bug (exit 2).
+#              layer, so an invalid fallback (or --degrade value) is a caller
+#              bug (exit 2).
 #
 # Environment: honors every override config-get / resolve-overlay-root honor
 # (PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY, PLANWRIGHT_REPO_ROOT,
 # PLANWRIGHT_LOCAL_CONFIG, CLAUDE_PLUGIN_ROOT/DATA).
 #
 # Exit: 0 value printed; 2 usage error; 4 malformed repo-tracked overlay
-# (hard-fail, propagated or raised here); 5 broken install (the core default
+# (hard-fail, propagated or raised here; under --no-degrade, any malformed
+# layer); 5 broken install (under --no-degrade, also a key no layer sets) (the core default
 # is itself unresolvable or invalid). Never fails opaquely.
 #
 # Pathname expansion is disabled (set -f): --values is word-split into
@@ -97,7 +115,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 . "$script_dir/echo-safety.sh"
 
 usage() {
-  echo "usage: resolve-config-knob.sh --key <key> --type <enum|posint|nonnegint|duration> [--values '<v1> <v2> ...'] --fallback <value>" >&2
+  echo "usage: resolve-config-knob.sh --key <key> --type <enum|posint|nonnegint|duration|globlist> [--values '<v1> <v2> ...'] (--fallback <value> [--degrade <value>] | --no-degrade)" >&2
 }
 
 key=""
@@ -105,6 +123,9 @@ ktype=""
 kvalues=""
 fallback=""
 fallback_set=0
+degrade=""
+degrade_set=0
+no_degrade=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --key)
@@ -139,6 +160,19 @@ while [ "$#" -gt 0 ]; do
       fallback=$2
       fallback_set=1
       shift 2
+      ;;
+    --degrade)
+      [ "$#" -ge 2 ] || {
+        usage
+        exit 2
+      }
+      degrade=$2
+      degrade_set=1
+      shift 2
+      ;;
+    --no-degrade)
+      no_degrade=1
+      shift
       ;;
     *)
       usage
@@ -188,7 +222,7 @@ case "$ktype" in
       }
     done
     ;;
-  posint | nonnegint | duration)
+  posint | nonnegint | duration | globlist)
     if [ -n "$kvalues" ]; then
       echo "resolve-config-knob: --values only applies to --type enum" >&2
       exit 2
@@ -199,12 +233,17 @@ case "$ktype" in
     exit 2
     ;;
   *)
-    printf '%s\n' "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint | nonnegint | duration)" >&2
+    printf '%s\n' "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint | nonnegint | duration | globlist)" >&2
     exit 2
     ;;
 esac
 
-if [ "$fallback_set" -ne 1 ]; then
+if [ "$no_degrade" -eq 1 ]; then
+  if [ "$fallback_set" -eq 1 ] || [ "$degrade_set" -eq 1 ]; then
+    echo "resolve-config-knob: --no-degrade excludes --fallback and --degrade (nothing degrades under it)" >&2
+    exit 2
+  fi
+elif [ "$fallback_set" -ne 1 ]; then
   echo "resolve-config-knob: --fallback is required (the caller's safe value when no layer resolves the key)" >&2
   exit 2
 fi
@@ -273,6 +312,17 @@ valid_value() {
         *) return 1 ;;
       esac
       ;;
+    globlist)
+      # Word-split on purpose; set -f keeps a member's glob characters from
+      # expanding against the CWD before the charset check sees them.
+      for _g in $_vv; do
+        case "$_g" in
+          -* | *[!A-Za-z0-9._/*?-]*) return 1 ;;
+        esac
+        [ "${#_g}" -le 255 ] || return 1
+      done
+      return 0
+      ;;
   esac
 }
 
@@ -283,8 +333,12 @@ emit_trimmed() {
   printf '\n'
 }
 
-if ! valid_value "$fallback"; then
+if [ "$fallback_set" -eq 1 ] && ! valid_value "$fallback"; then
   printf '%s\n' "resolve-config-knob: the --fallback value '$(sanitize_printable "$fallback" "(unprintable fallback)")' is not a legal $ktype value (caller bug)" >&2
+  exit 2
+fi
+if [ "$degrade_set" -eq 1 ] && ! valid_value "$degrade"; then
+  printf '%s\n' "resolve-config-knob: the --degrade value '$(sanitize_printable "$degrade" "(unprintable degrade)")' is not a legal $ktype value (caller bug)" >&2
   exit 2
 fi
 
@@ -304,6 +358,10 @@ if [ "$rc" -eq 4 ]; then
   # config-get already hard-failed a structurally malformed repo-tracked
   # config file and named it on stderr; propagate the team-shared hard-fail.
   exit 4
+fi
+if [ "$rc" -eq 3 ] && [ "$no_degrade" -eq 1 ]; then
+  echo "resolve-config-knob: '$key' is unset in every layer and the caller allows no fallback — broken install" >&2
+  exit 5
 fi
 if [ "$rc" -eq 3 ]; then
   # The key is absent in every layer. Emit the caller's declared safe value so
@@ -346,6 +404,15 @@ case "$layer" in
     exit 4
     ;;
   adopter | machine-local)
+    if [ "$no_degrade" -eq 1 ]; then
+      printf '%s\n' "resolve-config-knob: the $layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); the caller allows no degrade" >&2
+      exit 4
+    fi
+    if [ "$degrade_set" -eq 1 ]; then
+      printf '%s\n' "resolve-config-knob: warning: the $layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); degrading to the strict value '$(sanitize_printable "$degrade" "(unprintable degrade)")'" >&2
+      emit_trimmed "$degrade"
+      exit 0
+    fi
     printf '%s\n' "resolve-config-knob: warning: the $layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. mktemp gives an empty repo root (no .claude/planwright.yml

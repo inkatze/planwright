@@ -418,6 +418,105 @@ got=$(PLANWRIGHT_CONFIG_DEFAULTS="$nonneg_core" PLANWRIGHT_ADOPTER_OVERLAY="$ado
 [ "$got" = 0 ] || fail "nonnegint: a zero --fallback should be emitted verbatim, got '$got'"
 echo "ok: the nonnegint type honors the by-layer policy and accepts a zero fallback"
 
+# 10e. --degrade <value>: a malformed adopter or machine-local value degrades
+#      to the caller's strict target instead of the core default, whose value
+#      may be the permissive one. The repo-tracked and core arms are unchanged.
+gate_core="$tmp/core-gate.yml"
+run_gate() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$gate_core" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --key flip_gate --type enum --values 'strict loose' \
+    --fallback strict --degrade strict
+}
+printf 'flip_gate: loose\n' >"$gate_core"
+reset_layers
+got=$(run_gate) || fail "degrade: the core value did not resolve"
+[ "$got" = loose ] || fail "degrade: the core value resolved to '$got'"
+for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'flip_gate: sloppy\n' >"$layer_cfg"
+  rc=0
+  out=$(run_gate 2>"$tmp/err.txt") || rc=$?
+  [ "$rc" = 0 ] || fail "degrade: malformed $layer_cfg exited $rc, expected 0"
+  [ "$out" = strict ] || fail "degrade: malformed $layer_cfg resolved to '$out', expected the strict target"
+  grep -q 'strict' "$tmp/err.txt" || fail "degrade: the warning does not name the degrade target"
+done
+reset_layers
+printf 'flip_gate: sloppy\n' >"$tracked_cfg"
+rc=0
+run_gate >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "degrade: malformed repo-tracked value exited $rc, expected 4"
+reset_layers
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$gate_core" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key flip_gate --type enum --values 'strict loose' \
+  --fallback strict --degrade sloppy >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "degrade: an illegal --degrade value is a caller bug (exit $rc, expected 2)"
+echo "ok: --degrade sends a malformed adopter or machine-local value to the strict target"
+
+# 10f. The globlist type: a space-separated single-line list of names or glob
+#      patterns, empty legal; a member outside [A-Za-z0-9._/*?-] is malformed.
+glob_core="$tmp/core-glob.yml"
+run_glob() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$glob_core" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --key extra_globs --type globlist --fallback ''
+}
+reset_layers
+for good in '' 'release' 'release/* hotfix-?' 'docs/*.md  vendor/**'; do
+  printf 'extra_globs: %s\n' "$good" >"$glob_core"
+  got=$(run_glob) || fail "globlist: '$good' did not resolve"
+  [ "$got" = "$good" ] || fail "globlist: '$good' resolved to '$got'"
+done
+# shellcheck disable=SC2016 # the literal `$(x)` is the malformed member
+for bad in 'a,b' '[main]' 'ma\in' '$(x)' '~main' '- main' "x;y"; do
+  printf 'extra_globs: %s\n' "$bad" >"$glob_core"
+  rc=0
+  run_glob >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 5 ] || fail "globlist: '$bad' in core was not treated as malformed (exit $rc, expected 5)"
+done
+rc=0
+/bin/bash "$RCK" --key extra_globs --type globlist --values 'a b' --fallback '' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "globlist: --values is enum-only (exit $rc, expected 2)"
+echo "ok: the globlist type validates (empty legal; members outside the glob charset malformed)"
+
+# 10g. --no-degrade: a malformed value at ANY layer is a read failure (exit 4),
+#      and a key no layer sets is a broken install (exit 5). Nothing degrades,
+#      so the caller's --fallback is not required.
+run_nodegrade() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$glob_core" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --key extra_globs --type globlist --no-degrade
+}
+printf 'extra_globs: release/*\n' >"$glob_core"
+reset_layers
+got=$(run_nodegrade) || fail "no-degrade: a legal value did not resolve"
+[ "$got" = 'release/*' ] || fail "no-degrade: resolved to '$got'"
+for layer_cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'extra_globs: a,b\n' >"$layer_cfg"
+  rc=0
+  out=$(run_nodegrade 2>/dev/null) || rc=$?
+  [ "$rc" = 4 ] || fail "no-degrade: malformed $layer_cfg exited $rc, expected 4"
+  [ -z "$out" ] || fail "no-degrade: malformed $layer_cfg still printed '$out'"
+done
+reset_layers
+: >"$glob_core"
+rc=0
+run_nodegrade >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "no-degrade: a key no layer sets exited $rc, expected 5"
+rc=0
+/bin/bash "$RCK" --key extra_globs --type globlist --no-degrade --degrade '' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "no-degrade: combining it with --degrade is a usage error (exit $rc, expected 2)"
+echo "ok: --no-degrade fails every malformed layer and an unset key"
+
 # 11. Usage validation: missing/invalid arguments are usage errors (exit 2).
 for args in \
   "" \
