@@ -952,8 +952,11 @@ cmd_dispatch() {
   clean_text "$work/ask.raw" "$work/ask" || die 4 "cannot sanitize the ask"
   ask_file="$work/ask"
   ask_sanitized=$CLEAN_STRIPPED
-  if [ "$ask_sanitized" -eq 1 ] && [ -z "$(tr -d ' \t\n' <"$work/ask")" ]; then
-    die 2 "the ask is empty once invisible characters are stripped"
+  if [ -z "$(tr -d ' \t\n' <"$work/ask")" ]; then
+    if [ "$ask_sanitized" -eq 1 ]; then
+      die 2 "the ask is empty once invisible characters are stripped"
+    fi
+    die 2 "the ask is blank: a flight needs something to do"
   fi
   [ "$ask_sanitized" -eq 0 ] \
     || echo "$prog: NOTE: invisible or bidi-control characters were stripped from the ask" >&2

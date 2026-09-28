@@ -1064,6 +1064,11 @@ run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-fil
   --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "an ask that is empty once stripped must be refused (rc $RC)"
 case $ERR in *"ask is empty once invisible"*) ;; *) fail "the emptied-ask refusal must say why: $ERR" ;; esac
+# A whitespace-only ask is refused too: the record could never quote it.
+printf '  \n\t\n' >"$c/ask-w.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask-w.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "a whitespace-only ask must be refused (rc $RC)"
 # The ask is read once, so a file changed mid-dispatch cannot slip past the
 # size cap or the flag.
 # shellcheck disable=SC2016 # a literal redirect from the variable is the pattern
