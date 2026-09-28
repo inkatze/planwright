@@ -1207,7 +1207,89 @@ c29() {
   esac
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29; do
+# ---------------------------------------------------------------------------
+# c30 — a worktree list that cannot be read is never "not registered": the
+# reconcile's remnant arm must not rm -rf a flight worktree it cannot see.
+# ---------------------------------------------------------------------------
+c30() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c30.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  run_prim dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary"
+  [ "$RC" -eq 0 ] || {
+    fail "c30: the first flight dispatch exited $RC"
+    return
+  }
+  _wt=$(cd "$tmp/primary/.claude/worktrees/flight-demo-0123abcd" && pwd -P)
+  printf 'uncommitted worker edit\n' >"$_wt/work.txt"
+  _real_git=$(command -v git)
+  mkdir -p "$tmp/bin"
+  cat >"$tmp/bin/git" <<EOF
+#!/bin/sh
+prev=''
+for a in "\$@"; do
+  if [ "\$prev \$a" = "worktree list" ]; then
+    echo refused >>"$tmp/wl.log"
+    exit 128
+  fi
+  prev=\$a
+done
+exec '$_real_git' "\$@"
+EOF
+  chmod +x "$tmp/bin/git"
+  _err=$(PATH="$tmp/bin:$PATH" "$PRIM" dispatch --flight demo-0123abcd --no-attach --repo-root "$tmp/primary" \
+    </dev/null 2>&1 >/dev/null)
+  RC=$?
+  [ -s "$tmp/wl.log" ] || fail "c30: fixture: the failing worktree list was never reached"
+  [ "$RC" -eq 3 ] || fail "c30: an unreadable worktree list must abort as already-in-flight (exit 3), got $RC: $_err"
+  [ -f "$_wt/work.txt" ] || fail "c30: the reconcile removed a flight worktree it could not see listed"
+}
+
+# ---------------------------------------------------------------------------
+# c31 — the brief handed over, by the dispatch arm or a standalone attach, is
+# non-empty and sits in directories private to the user; an empty --brief is
+# refused, never silently dropped.
+# ---------------------------------------------------------------------------
+c31() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c31.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+  _own="$tmp/fleet/flights/demo-0123abcd"
+  mkdir -p "$_own"
+  chmod 700 "$tmp/fleet" "$tmp/fleet/flights" "$_own"
+  printf 'brief\n' >"$_own/brief.md"
+  run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
+  [ "$RC" -eq 0 ] || fail "c31: fixture: a private brief must be accepted, got $RC"
+  run_prim attach flight-demo-0123abcd --brief '' --dry-run
+  [ "$RC" -eq 2 ] || fail "c31: attach --brief '' must be refused (exit 2), got $RC"
+  run_prim dispatch --flight demo-0123abcd --brief '' --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c31: dispatch --brief '' must be refused (exit 2), got $RC"
+  : >"$_own/brief.md"
+  run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
+  [ "$RC" -eq 2 ] || fail "c31: attach with an empty brief file must be refused (exit 2), got $RC"
+  run_prim dispatch --flight demo-0123abcd --brief "$_own/brief.md" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c31: dispatch with an empty brief file must be refused (exit 2), got $RC"
+  printf 'brief\n' >"$_own/brief.md"
+  for _d in "$_own" "$tmp/fleet/flights" "$tmp/fleet"; do
+    for _m in 770 707; do
+      chmod "$_m" "$_d"
+      run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
+      [ "$RC" -eq 2 ] || fail "c31: attach with $_d at mode $_m must be refused (exit 2), got $RC"
+      run_prim dispatch --flight demo-0123abcd --brief "$_own/brief.md" --repo-root "$tmp/primary" --attach-dry-run
+      [ "$RC" -eq 2 ] || fail "c31: dispatch with $_d at mode $_m must be refused (exit 2), got $RC"
+    done
+    chmod 700 "$_d"
+  done
+  run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
+  [ "$RC" -eq 0 ] || fail "c31: a restored private brief must be accepted again, got $RC"
+  if gitc "$tmp/primary" for-each-ref --format='%(refname)' refs/heads/planwright/ | grep -q .; then
+    fail "c31: a refused flight dispatch created a branch"
+  fi
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27 c28 c29 c30 c31; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

@@ -51,7 +51,9 @@
 # a live tmux session for the suffix — not a new source of truth):
 #   - LIVE dispatch in flight  -> abort as already-in-flight (exit 3). On the
 #     flight arm a registered flight worktree is in flight whatever its
-#     session says, so it aborts the same way and is never GC'd below.
+#     session says, so it aborts the same way and is never GC'd below. A
+#     worktree list that cannot be read counts as registered, so no removal
+#     below acts on a worktree it could not see.
 #   - STALE / orphaned branch or worktree with no live session (a prior create
 #     that died before attach, or a finished task whose branch outlived its
 #     worktree) -> GC-adopt: remove the leftover worktree checkout; adopt the
@@ -115,8 +117,11 @@
 #                        after `--` (the path, never the content, rides argv).
 #                        Only the flight's own `<fleet-home>/flights/<flight-id>/
 #                        brief.md` is accepted, after canonicalization, on the
-#                        path charset `[A-Za-z0-9._/@+-]`; `--continue` and
-#                        `--resume` are refused beside it.
+#                        path charset `[A-Za-z0-9._/@+-]`, non-empty, with the
+#                        fleet home, its flights directory, and the brief's
+#                        own directory private to the user; an empty
+#                        `--brief` is refused, and so are `--continue` and
+#                        `--resume` beside it.
 #   fleet-dispatch-worktree.sh attach <suffix> [--brief <abs-file>] [--dry-run] [-- <extra>...]
 #       The attach step alone: capture the prior tmux client session, launch
 #       `claude --worktree <suffix> --tmux=classic` (pinned via fleet-dispatch-
@@ -331,7 +336,7 @@ valid_brief() {
     *[!A-Za-z0-9._/@+-]*) return 1 ;;
   esac
   [ "$(basename "$1")" = brief.md ] || return 1
-  [ -f "$1" ] && [ -r "$1" ] && [ ! -L "$1" ] || return 1
+  [ -f "$1" ] && [ -r "$1" ] && [ -s "$1" ] && [ ! -L "$1" ] || return 1
   _vb_dir=$(cd "$(dirname "$1")" 2>/dev/null && pwd -P) || return 1
   _vb_home=$(/bin/sh "$FLEET_STATE" root 2>/dev/null </dev/null) || return 1
   [ -n "$_vb_home" ] || return 1
@@ -340,7 +345,18 @@ valid_brief() {
   case $_vb_dir in
     *[!A-Za-z0-9._/@+-]*) return 1 ;;
   esac
+  # Anyone who can write one of these directories can swap the brief a
+  # worker is told to follow.
+  private_dir "$_vb_home" && private_dir "$_vb_home/flights" && private_dir "$_vb_dir" || return 1
   BRIEF_PATH="$_vb_dir/brief.md"
+}
+
+# private_dir <dir> — a real directory the invoking user owns that neither
+# group nor others can write.
+private_dir() {
+  [ ! -L "$1" ] && [ -d "$1" ] || return 1
+  _pd_uid=$(id -u) || return 1
+  [ -n "$(find "$1" -maxdepth 0 -user "$_pd_uid" ! -perm -0020 ! -perm -0002 2>/dev/null)" ]
 }
 
 # refuse_resume_beside_brief <launch args...> — a resumed session would carry
@@ -465,12 +481,22 @@ is_live() {
   return 1
 }
 
-# Is <path> a currently-registered git worktree in <repo>?
+# Is <path> a currently-registered git worktree in <repo>? A worktree list
+# that cannot be read answers yes: the callers guard a removal or an abort,
+# and "cannot tell" must never read as "safe to delete".
 is_registered_worktree() {
   # $1 repo-root  $2 abs-path. The porcelain stream emits one `worktree <abs>`
   # line per registered tree; a fixed whole-line match is portable across awks.
-  git -C "$1" worktree list --porcelain 2>/dev/null \
-    | grep -Fxq "worktree $2"
+  _irw=$(git -C "$1" worktree list --porcelain 2>/dev/null </dev/null) || return 0
+  printf '%s\n' "$_irw" | grep -Fxq "worktree $2"
+}
+
+# Is <path> provably registered: listed by a worktree list that was read? For
+# the one caller that removes a REGISTERED worktree, where "cannot tell" must
+# not read as registered either.
+is_listed_worktree() {
+  _ilw=$(git -C "$1" worktree list --porcelain 2>/dev/null </dev/null) || return 1
+  printf '%s\n' "$_ilw" | grep -Fxq "worktree $2"
 }
 
 # Does <branch> exist in <repo>?
@@ -595,6 +621,7 @@ do_attach() {
   shift
   _dry=0
   _abrief=''
+  _abrief_set=0
   while [ "$#" -gt 0 ]; do
     case $1 in
       --dry-run)
@@ -604,6 +631,7 @@ do_attach() {
       --brief)
         [ "$#" -ge 2 ] || usage
         _abrief=$2
+        _abrief_set=1
         shift 2
         ;;
       --)
@@ -619,6 +647,10 @@ do_attach() {
   }
   # A standalone attach of a flight can hand the worker its brief, under the
   # dispatch arm's confinement.
+  if [ "$_abrief_set" -eq 1 ] && [ -z "$_abrief" ]; then
+    warn "--brief is empty: name the flight's own brief.md, or drop --brief"
+    exit 2
+  fi
   if [ -n "$_abrief" ]; then
     _aflight=${_suffix#flight-}
     if [ "$_aflight" = "$_suffix" ] || ! valid_flight "$_aflight"; then
@@ -626,7 +658,7 @@ do_attach() {
       exit 2
     fi
     valid_brief "$_abrief" "$_aflight" || {
-      warn "--brief must be the flight's own brief.md under the fleet home (flights/<flight-id>/), on the path charset [A-Za-z0-9._/@+-]"
+      warn "--brief must be the flight's own brief.md under the fleet home (flights/<flight-id>/), non-empty, on the path charset [A-Za-z0-9._/@+-], in directories only you can write"
       exit 2
     }
     ATTACH_PROMPT="Read $BRIEF_PATH and follow it exactly."
@@ -694,6 +726,7 @@ do_dispatch() {
   _id=''
   _flight=''
   _brief=''
+  _brief_set=0
   _repo_root=''
   _attach_dry=0
   _no_attach=0
@@ -729,6 +762,7 @@ do_dispatch() {
       --brief)
         [ "$#" -ge 2 ] || usage
         _brief=$2
+        _brief_set=1
         shift 2
         ;;
       --*)
@@ -782,6 +816,10 @@ do_dispatch() {
       usage
     }
   fi
+  if [ "$_brief_set" -eq 1 ] && [ -z "$_brief" ]; then
+    warn "--brief is empty: name the flight's own brief.md, or drop --brief"
+    exit 2
+  fi
   if [ -n "$_brief" ] && [ "$_no_attach" -eq 1 ]; then
     warn "--no-attach launches no worker; it takes no --brief"
     usage
@@ -795,7 +833,7 @@ do_dispatch() {
     }
     if [ -n "$_brief" ]; then
       valid_brief "$_brief" "$_flight" || {
-        warn "--brief must be the flight's own brief.md under the fleet home (flights/<flight-id>/), on the path charset [A-Za-z0-9._/@+-]"
+        warn "--brief must be the flight's own brief.md under the fleet home (flights/<flight-id>/), non-empty, on the path charset [A-Za-z0-9._/@+-], in directories only you can write"
         exit 2
       }
       ATTACH_PROMPT="Read $BRIEF_PATH and follow it exactly."
@@ -966,7 +1004,7 @@ do_dispatch() {
     # A flight has no marker, and a print-rung worker has no tmux session, so a
     # missing session proves nothing: its registered worktree is in flight.
     if [ -n "$_flight" ] && is_registered_worktree "$_repo_root" "$_worktree"; then
-      warn "already-in-flight: flight worktree $_worktree is registered, and a flight worktree is never force-removed (remove it with git worktree remove, then dispatch again)"
+      warn "already-in-flight: flight worktree $_worktree is registered (or the worktree list could not be read), and a flight worktree is never force-removed (remove it with git worktree remove, then dispatch again)"
       exit 3
     fi
 
@@ -980,7 +1018,7 @@ do_dispatch() {
     fi
 
     # Stale orphan. Remove any leftover worktree checkout (disposable).
-    if is_registered_worktree "$_repo_root" "$_worktree"; then
+    if is_listed_worktree "$_repo_root" "$_worktree"; then
       git -C "$_repo_root" worktree remove --force "$_worktree" >/dev/null 2>&1 </dev/null || true
     fi
     if [ -d "$_worktree" ] && [ -z "$(ls -A "$_worktree" 2>/dev/null)" ]; then
