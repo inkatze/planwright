@@ -444,20 +444,12 @@ for case in 'echo env=$MISE_ENV\nmise run check:wrap|' \
   expect_mise 0 "$r" planted "g8d '$case'"
   expect_cg 0 "$r" "g8d '$case'"
 done
-#     A call run against another config (`-E dev` loads mise.dev.toml, which
-#     may redefine the task) claims no edge, and the flag's value is never
-#     read as the task. Stricter than mise when no such file exists, by design.
+#     A flag's value is never read as the task.
 wired "$r" 'mise run -E dev check:alpha' '
 [tasks.dev]
 run = "/bin/sh scripts/check-planted.sh"'
 expect_mise 1 "$r" planted "g8d -E value"
 expect_cg 1 "$r" "g8d -E value"
-for body in 'mise run --env ci check:inner' 'mise run --cd=. check:inner' \
-  'mise run --profile ci check:inner' 'MISE_ENV=ci mise run check:inner'; do
-  wired "$r" "$body" "$inner"
-  expect_mise 0 "$r" planted "g8d '$body'"
-  expect_cg 1 "$r" "g8d '$body'"
-done
 #     mise reads an attached short value (`-C.`, `-E=ci`) as a task name and
 #     fails; the check claims no edge for it either.
 for body in 'mise run -C. check:inner' 'mise run -E=ci check:inner'; do
@@ -480,6 +472,78 @@ wired "$r" 'mise run check:wrap' "$inner$wrap"
 expect_mise 0 "$r" planted "g8d control"
 expect_cg 0 "$r" "g8d control"
 echo "ok: g8d a dry run is not an edge, a dependency-skipping run reaches only its target"
+
+#     g8h: A CALL AGAINST ANOTHER ENV OR DIRECTORY is an edge unless that
+#     config could redefine the task: an env with an overlay file at the root,
+#     a directory outside the repo, or one holding mise config of its own.
+r="$tmp/r8h"
+redefine='[tasks."check:inner"]
+run = "true"'
+for body in 'mise run -E ci check:inner' 'mise run --env=ci check:inner' \
+  'mise run --profile ci check:inner' 'MISE_ENV=ci mise run check:inner' \
+  'env MISE_PROFILE=ci mise run check:inner' 'export MISE_ENV=ci\nmise run check:inner' \
+  'mise run --cd=. check:inner' 'mise run -C sub check:inner' \
+  'mise run --cd sub/.. check:inner'; do
+  wired "$r" "$body" "$inner"
+  mkdir -p "$r/sub"
+  expect_mise 0 "$r" planted "g8h '$body'"
+  expect_cg 0 "$r" "g8h '$body'"
+done
+#     Every overlay file mise reads for an env, as measured, keeps it strict.
+for f in mise.ci.toml .mise.ci.toml mise/config.ci.toml .mise/config.ci.toml \
+  .config/mise.ci.toml .config/mise/config.ci.toml mise.ci.local.toml; do
+  for body in 'mise run -E ci check:inner' 'MISE_ENV=dev,ci mise run check:inner' \
+    'export MISE_ENV=ci\nmise run check:inner'; do
+    wired "$r" "$body" "$inner"
+    mkdir -p "$(dirname "$r/$f")"
+    printf '%s\n' "$redefine" >"$r/$f"
+    expect_mise 1 "$r" planted "g8h '$body' with $f"
+    expect_cg 1 "$r" "g8h '$body' with $f"
+  done
+done
+wired "$r" 'mise run check:inner' "env = { MISE_ENV = \"ci\" }$inner"
+printf '%s\n' "$redefine" >"$r/mise.ci.toml"
+expect_mise 1 "$r" planted "g8h task-env MISE_ENV with overlay"
+expect_cg 1 "$r" "g8h task-env MISE_ENV with overlay"
+#     A directory with its own config (or file tasks) keeps --cd strict.
+for f in mise.toml .mise.toml .config/mise/config.toml; do
+  wired "$r" 'mise run -C sub check:inner' "$inner"
+  mkdir -p "$(dirname "$r/sub/$f")"
+  printf '%s\n' "$redefine" >"$r/sub/$f"
+  expect_mise 1 "$r" planted "g8h -C sub with sub/$f"
+  expect_cg 1 "$r" "g8h -C sub with sub/$f"
+done
+wired "$r" 'mise run --cd sub/deeper check:inner' "$inner"
+mkdir -p "$r/sub/deeper" "$r/sub/mise-tasks/check"
+printf '#!/bin/sh\nexit 0\n' >"$r/sub/mise-tasks/check/inner"
+chmod +x "$r/sub/mise-tasks/check/inner"
+expect_mise 1 "$r" planted "g8h --cd below a file-task directory"
+expect_cg 1 "$r" "g8h --cd below a file-task directory"
+#     Outside the repo, a missing directory, or one the check cannot read.
+# shellcheck disable=SC2016 # the expansion belongs to the fixture's run body
+for body in 'mise run --cd .. check:inner' 'mise run -C nowhere check:inner' \
+  'mise run -C $HOME check:inner' 'MISE_ENV=$X mise run check:inner'; do
+  wired "$r" "$body" "$inner"
+  expect_cg 1 "$r" "g8h '$body'"
+done
+#     A relative directory resolves against the task's own `dir`.
+wired "$r" 'mise run --cd .. check:inner' "dir = \"sub\"$inner"
+mkdir -p "$r/sub"
+expect_mise 0 "$r" planted "g8h --cd .. from dir = sub"
+expect_cg 0 "$r" "g8h --cd .. from dir = sub"
+#     An assignment reaches only its own line's call (and later lines, for a
+#     bare or exported assignment): not an echo, not an earlier call's prefix.
+for body in 'echo MISE_ENV=ci\nmise run check:inner' \
+  'MISE_ENV=ci mise run check:alpha\nmise run check:inner'; do
+  wired "$r" "$body" "$inner"
+  printf '%s\n' "$redefine" >"$r/mise.ci.toml"
+  expect_mise 0 "$r" planted "g8h '$body'"
+  expect_cg 0 "$r" "g8h '$body'"
+done
+wired "$r" 'MISE_TASK_SKIP_DEPENDS=true mise run check:alpha\nmise run check:wrap' "$inner$wrap"
+expect_mise 0 "$r" planted "g8h per-line skip"
+expect_cg 0 "$r" "g8h per-line skip"
+echo "ok: g8h another env or directory is an edge unless its config could redefine the task"
 
 #     g8e: a task ALIAS resolves to its task, from a depends list and from a
 #     run body alike; an alias nothing defines resolves to nothing.
