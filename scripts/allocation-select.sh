@@ -73,8 +73,8 @@
 # it absent with `-` (not a legal command value, so it can never be mistaken
 # for one). The command enum stays exactly the dispatch-entry set
 # {execute-task orchestrate drain}, which is the carrier of the
-# review-sequence-disjointness invariant (REQ-A1.4): none of its members is a
-# nestable review skill, each is on the custom-steps rule doc's
+# dispatch-entry disjointness invariant (REQ-A1.4): none of its members is a
+# step a point may run, each is on the custom-steps rule doc's
 # pipeline-entry list that resolve-steps.sh refuses as a step target, and a
 # configured command outside the set is refused
 # at every layer, so disjointness holds by CONSTRUCTION rather than only for
@@ -82,16 +82,16 @@
 #
 # THE STEP-TYPE AXIS (Task 5; D-8, D-12, REQ-C1.3) is the table's SECOND key.
 # A selection key prices a whole unit; a step type prices ONE STEP of it — the
-# implementation step, or one of the review-sequence step classes. The two axes
+# implementation step, or one step by its step id. The two axes
 # are resolved by separate verbs over separate knob families and never mix:
 #
 #   allocation_<column>_step_<step-type>    model | effort. No command column.
 #
 # NO STEP TYPE CARRIES THE COMMAND COLUMN, and that is load-bearing rather than
-# an omission. The command enum is the carrier of the review-sequence-
+# an omission. The command enum is the carrier of the dispatch-entry
 # disjointness invariant (REQ-A1.4, above): it must stay exactly the
-# dispatch-entry set and must never name a nestable review skill. Step types
-# ARE named after nestable review skills, so letting the two axes share the
+# dispatch-entry set and must never name a step. Step types ARE step ids
+# (polish, self-review), so letting the two axes share the
 # command column is precisely how that invariant would be lost. Keeping the
 # axes separate means adding a review step class cannot widen the command enum
 # — the enum is untouched by construction, not merely by convention.
@@ -210,15 +210,15 @@ NO_COLUMN=-
 KEYS="execution bookkeeping drain orchestrate_dispatch execute_step offload"
 
 # The SHIPPED step types, used by `list-steps`: /execute-task's implementation
-# step, then one per review-sequence step class.
+# step, then one per step id the core steps catalog seeds.
 #
 # The step-type key space is OPEN by construction rather than a closed enum.
-# The nestable review-skill set is DISCOVERED from the skills tree
-# (resolve-review-sequence.sh owns that predicate), so a second copy of it here
-# would drift — and a stale copy would REFUSE a legitimately configured step
-# class rather than degrade, turning an operator's working config into a launch
+# The step ids are DECLARED in the merged steps catalog
+# (resolve-steps.sh owns reading it), so a second copy of them here would
+# drift — and a stale copy would REFUSE a legitimately configured step rather
+# than degrade, turning an operator's working config into a launch
 # failure. Instead any charset-valid step type resolves, and one with no
-# configured knob resolves to `inherit`, which applies nothing. A review skill
+# configured knob resolves to `inherit`, which applies nothing. A step
 # added tomorrow therefore inherits silently and correctly with no edit here.
 # This list is what `list-steps` enumerates and what config/defaults.yml ships
 # rows for; it is a shipped set, not a validation boundary.

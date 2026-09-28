@@ -1446,11 +1446,11 @@ haiku`), the effort column (`fleet_effort_*` — `low | medium | high`), and the
 command column (`fleet_command_*` — the dispatch-entry set `execute-task |
 orchestrate | drain`). The shipped defaults preserve today's table, so an
 operator who configures nothing gets today's mapping. The selectable command
-set is disjoint from `review_sequence`'s nestable-review-skill set by
-construction — the `fleet_command_*` enum is exactly the non-nestable
-dispatch-entry set, so an out-of-enum command is refused at every overlay layer
-(REQ-E1.2), and the dispatch table and the convergence knob can never both claim
-the same skill.
+set is disjoint from the steps a point may run by construction — the
+`fleet_command_*` enum is exactly the dispatch-entry set, each member a
+pipeline entry the step resolver refuses as a step target, so an out-of-enum
+command is refused at every overlay layer (REQ-E1.2), and the dispatch table
+and the convergence point can never both claim the same skill.
 
 The table itself now lives in `scripts/allocation-select.sh`, generalized so
 any launch point can resolve through one resolver rather than fleet dispatch
@@ -1605,7 +1605,7 @@ byte-identical to `fleet-allocate.sh`'s — pinned field by field in the tests
 across every rung and with the signal both present and absent.
 
 Turn it on and a tier moves only on **work-shaped** events, passed as `--event`:
-a step failure or retry, a flailing classification, review-sequence
+a step failure or retry, a flailing classification, convergence-point
 non-convergence, or a worker petition. The list is a closed allowlist —
 infrastructure trouble (an audit write error, a config hard-fail, a backend
 launch error) is *refused* rather than counted, because no model tier fixes it

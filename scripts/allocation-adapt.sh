@@ -22,7 +22,7 @@
 #
 # TRIGGERS ARE WORK-SHAPED AND CLOSED (D-2, REQ-C1.2). The allowlist lives in
 # allocation-ladder.sh and holds exactly the events D-2 names: a step failure or
-# retry, a flailing classification, review-sequence non-convergence, and a
+# retry, a flailing classification, convergence-point non-convergence, and a
 # petition. Anything else — an audit write failure, a config hard-fail, a git or
 # backend launch error — is refused at the argument boundary, because no model
 # tier fixes infrastructure trouble and counting it would burn the adjustment
@@ -68,8 +68,8 @@
 # boundary, so the next launch re-derives from the records on disk.
 #
 # THE PER-STEP KEY IS ONE-DIRECTIONAL (D-8, D-12, REQ-C1.3). A launch may name
-# the STEP TYPE it is for — the implementation step, or a review-sequence step
-# class. allocation-select.sh resolves that step type's configured tier; this
+# the STEP TYPE it is for — the implementation step, or a step by its step
+# id. allocation-select.sh resolves that step type's configured tier; this
 # script decides whether it applies, and the rule is asymmetric on purpose:
 #
 #   - a step tier CHEAPER than the unit's current tier applies TO THAT LAUNCH

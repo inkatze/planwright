@@ -16,9 +16,10 @@
 #     (REQ-C1.2);
 #   - the launch tier resolves through the shared policy at the `offload`
 #     selection key (scripts/allocation-apply.sh), as every /offload rung does;
-#   - the convergence list is the configured `review_sequence`
-#     (scripts/resolve-review-sequence.sh), handed to the worker unchanged
-#     (REQ-C1.3, D-7: no second sequence, no knob);
+#   - the convergence list is the convergence point's step list,
+#     `steps_convergence`, resolved with unit kind `flight`
+#     (scripts/resolve-steps.sh) and handed to the worker unchanged
+#     (REQ-C1.3, D-7: no second list, no knob);
 #   - the concurrency bound is the existing `max_parallel_units` (REQ-C1.5),
 #     serialized by scripts/fleet-state.sh's lock under a per-checkout home.
 #
@@ -87,7 +88,8 @@
 #
 # Report: TAB-separated `key<TAB>value` lines, after any `retired` lines the
 # dispatch's sweep printed — flight, branch, worktree,
-# base, home, origin, record, review_sequence, model, effort, brief, `sanitized`
+# base, home, origin, record, steps_convergence (the step ids the brief runs,
+# space-separated, empty for an empty list), model, effort, brief, `sanitized`
 # (ask or grounds, one line each, only when invisible or bidi-control
 # characters were stripped from that text), backend, handle,
 # observe, attach, launch (print), the primitive's `attach-plan` lines
@@ -139,7 +141,7 @@ FLIGHT_ID="$script_dir/flight-id.sh"
 WORKTREE="$script_dir/fleet-dispatch-worktree.sh"
 STATE="$script_dir/fleet-state.sh"
 CONFIG="$script_dir/config-get.sh"
-SEQUENCE="$script_dir/resolve-review-sequence.sh"
+STEPS="$script_dir/resolve-steps.sh"
 ROOTS="$script_dir/resolve-installed-roots.sh"
 ALLOC="$script_dir/allocation-apply.sh"
 LADDER="$script_dir/allocation-ladder.sh"
@@ -173,7 +175,7 @@ EOF
   exit 2
 }
 
-for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$SEQUENCE" "$ROOTS" \
+for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$STEPS" "$ROOTS" \
   "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL"; do
   [ -r "$_h" ] || die 2 "required helper missing: $_h"
 done
@@ -243,7 +245,7 @@ origin_dest() {
 
 # read_hosts — set HOSTS to the `flight_pr_hosts` entries, one per line,
 # lower-cased, each trimmed of whitespace and a surrounding quote pair as the
-# sibling list reader (resolve-review-sequence.sh) trims them. The knob grants
+# sibling list reader (resolve-steps.sh) trims them. The knob grants
 # egress, so the repo-tracked layer is never read for it: a repository cannot
 # approve its own push destination. Pointing the repo root at /dev/null leaves
 # no repo-side layer, and the machine-local file is named explicitly. Fails,
@@ -680,6 +682,45 @@ sweep_briefs() {
   return "$_sb_failed"
 }
 
+# resolve_convergence — set `sequence` to the resolver's --explain lines for
+# the steps the convergence point runs on a flight, one per line. A skipped
+# step is dropped (the resolver's warning on stderr names it); a park, a
+# malformation, or a broken install places nothing. The skills root is pinned
+# to this script's own so a planwright skill is told apart from a user or
+# project one by its location alone.
+resolve_convergence() {
+  _rc_out=$(cd "$repo_root" && PLANWRIGHT_REPO_ROOT="$repo_root" \
+    PLANWRIGHT_SKILLS_ROOT="$root_dir/skills" PLANWRIGHT_STEP_UNIT_KIND=flight \
+    bash "$STEPS" convergence --explain --unattended </dev/null) || {
+    _rc=$?
+    die 4 "steps_convergence did not resolve (exit $_rc); nothing was placed"
+  }
+  sequence=$(printf '%s\n' "$_rc_out" | awk -F"$TAB" '$1 == "run"')
+}
+
+# render_step <explain-line> — print the brief's instruction for one step.
+render_step() {
+  _rs_id=$(printf '%s' "$1" | cut -f2)
+  _rs_target=$(printf '%s' "$1" | cut -f6)
+  _rs_kind=$(printf '%s' "$1" | cut -f8)
+  _rs_args=$(printf '%s' "$1" | cut -f9)
+  _rs_loc=$(printf '%s' "$1" | cut -f13)
+  [ "$_rs_args" != - ] || _rs_args=''
+  case $_rs_kind in
+    skill)
+      _rs_inv=/$_rs_target
+      [ "$_rs_loc" != "$root_dir/skills/$_rs_target/SKILL.md" ] || _rs_inv=/planwright:$_rs_target
+      printf "\`%s%s\`" "$_rs_inv" "${_rs_args:+ $_rs_args}"
+      ;;
+    command)
+      printf "run the command \`%s%s\` in the flight worktree" "$_rs_loc" "${_rs_args:+ $_rs_args}"
+      ;;
+    *)
+      printf "the prompt step \`%s\`: %s" "$_rs_id" "$_rs_target"
+      ;;
+  esac
+}
+
 write_brief() {
   _doc_lines=''
   _docs=$(awk '/^Doctrine: (run-start|point-of-use) / {print $3}' "$MANIFEST_SKILL")
@@ -694,9 +735,11 @@ write_brief() {
   _n=0
   for _s in $sequence; do
     _n=$((_n + 1))
-    _seq_lines="$_seq_lines$_n. \`/planwright:$_s --nested\`$LF"
+    _seq_lines="$_seq_lines$_n. $(render_step "$_s")$LF"
   done
   IFS=$_old_ifs
+  [ -n "$_seq_lines" ] \
+    || _seq_lines="The list is empty: the convergence point runs no step.$LF"
 
   if [ "$home" = pr ]; then
     _landing="Before pushing, re-check the destination the tower stated: run
@@ -739,7 +782,7 @@ and open no PR. The committed record is the landing reference."
     printf '\n%s' "$_doc_lines"
     printf '\n## Work and convergence\n\n'
     printf '%s\n' "Implement the ask test-first where it introduces behavior, then run the"
-    printf '%s\n' "project's full CI. Then converge through the configured review sequence, in"
+    printf '%s\n' "project's full CI. Then converge through the convergence point's steps, in"
     printf '%s\n' "order, each after the previous one has converged:"
     printf '\n%s' "$_seq_lines"
     printf '\n%s\n' "Read the convergence point's step list, \`steps_convergence\`, with unit kind"
@@ -973,11 +1016,7 @@ cmd_dispatch() {
     die 2 "refusing --home pr: $HOME_REASON; nothing was placed"
   fi
 
-  sequence=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$SEQUENCE" </dev/null) || {
-    _rc=$?
-    die 4 "review_sequence did not resolve (exit $_rc)"
-  }
-  [ -n "$sequence" ] || die 4 "review_sequence resolved empty"
+  resolve_convergence
 
   resolve_fleet_home --create
 
@@ -1093,7 +1132,7 @@ cmd_dispatch() {
   printf 'home\t%s\n' "$home"
   printf 'origin\t%s\n' "$HOME_DEST"
   printf 'record\t%s\n' "$record"
-  printf 'review_sequence\t%s\n' "$(printf '%s' "$sequence" | tr '\n' ' ' | sed 's/ $//')"
+  printf 'steps_convergence\t%s\n' "$(printf '%s' "$sequence" | cut -f2 | tr '\n' ' ' | sed 's/ $//')"
   printf 'model\t%s\n' "$TIER_MODEL"
   printf 'effort\t%s\n' "$TIER_EFFORT"
   printf 'brief\t%s\n' "$brief"

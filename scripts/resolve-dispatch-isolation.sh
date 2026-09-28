@@ -2,7 +2,7 @@
 # resolve-dispatch-isolation.sh — resolve the `dispatch_isolation` config knob
 # (D-5, REQ-C1.3) into a single validated value on stdout: `per-step` or
 # `per-unit`. /execute-task's step sequencing reads this to decide whether each
-# step (implementation, then each configured review_sequence skill) runs in its
+# step (implementation, then each step the convergence point runs) runs in its
 # own fresh /resume-seeded session (`per-step`, the assigned-decision default)
 # or in one session for the whole unit (`per-unit`, today's behavior).
 #
@@ -13,7 +13,7 @@
 # by-layer policy that config-get cannot apply because the enum test is semantic
 # (the set of legal values), not the structural test config-get performs.
 #
-# Bad-value policy (REQ-E1.4 by-layer, mirroring resolve-review-sequence.sh). A
+# Bad-value policy (REQ-E1.4 by-layer, mirroring resolve-config-knob.sh). A
 # dispatch_isolation whose value is neither `per-step` nor `per-unit` is
 # *malformed*. Handled by the layer that supplied the winning value (config-get
 # --explain names it):
@@ -45,7 +45,7 @@
 set -u
 
 # The [a-z] ranges below are collation-dependent; pin C so a UTF-8 locale does
-# not widen them. Mirrors config-get / resolve-review-sequence.
+# not widen them. Mirrors config-get.
 LC_ALL=C
 export LC_ALL
 # A CDPATH-resolved cd would echo its destination into the script-dir command

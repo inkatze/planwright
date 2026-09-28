@@ -673,8 +673,8 @@ echo "ok: step tiers follow the by-layer malformed policy"
 
 # 14f. THE DISJOINTNESS GUARD (REQ-E1.2/REQ-A1.4).
 #
-#      Step types are named after nestable review skills. The command enum is
-#      what carries review-sequence disjointness and must never name one. The
+#      Step types are step ids. The command enum is what carries
+#      dispatch-entry disjointness and must never name one. The
 #      two axes are therefore kept apart, and this is the assertion that they
 #      stayed apart: no step type carries a command column, a step type is not
 #      a selection key, and a selection key is not a step type. If a future

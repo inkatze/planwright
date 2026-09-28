@@ -246,7 +246,7 @@ echo "ok: resolution is per-key last-layer-wins, not whole-file replace"
 # cannot parse) degrades to the next lower layer with a stderr warning, zero exit.
 reset_layers
 printf 'dispatch_backend: core_v\n' >"$core_cfg"
-printf 'review_sequence:\n  - polish\n  - panel\n' >"$adopter_cfg"
+printf 'steps_convergence:\n  - polish\n  - panel\n' >"$adopter_cfg"
 rc=0
 err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 0 ] || fail "malformed adopter: exit $rc, expected 0 (degrade)"
@@ -262,7 +262,7 @@ echo "ok: malformed adopter overlay degrades to the next lower layer with a warn
 reset_layers
 printf 'dispatch_backend: core_v\n' >"$core_cfg"
 printf 'dispatch_backend: repo_v\n' >"$tracked_cfg"
-printf 'review_sequence:\n  - polish\n' >"$mlocal_cfg"
+printf 'steps_convergence:\n  - polish\n' >"$mlocal_cfg"
 rc=0
 err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 0 ] || fail "malformed machine-local: exit $rc, expected 0 (degrade)"
@@ -280,7 +280,7 @@ echo "ok: malformed machine-local overlay degrades with a warning"
 reset_layers
 printf 'dispatch_backend: core_v\n' >"$core_cfg"
 printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
-printf 'review_sequence:\n  - polish\n' >"$tracked_cfg"
+printf 'steps_convergence:\n  - polish\n' >"$tracked_cfg"
 rc=0
 err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 4 ] \
@@ -340,11 +340,11 @@ esac
 echo "ok: a top-level YAML sequence item is treated as malformed (not a flat mapping)"
 
 # E1.4 — but an INLINE (flow) list value stays well-formed (REQ-E1.4 explicitly:
-# a list-valued option such as review_sequence is well-formed). The block form is
+# a list-valued option such as steps_convergence is well-formed). The block form is
 # what is malformed; the inline form is a normal flat key: value line.
 reset_layers
 printf 'dispatch_backend: core_v\n' >"$core_cfg"
-printf 'review_sequence: [polish, panel]\ndispatch_backend: repo_v\n' >"$tracked_cfg"
+printf 'steps_convergence: [polish, panel]\ndispatch_backend: repo_v\n' >"$tracked_cfg"
 rc=0
 got=$(run4 dispatch_backend 2>/dev/null) || rc=$?
 [ "$rc" = 0 ] \

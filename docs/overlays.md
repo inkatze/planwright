@@ -1,8 +1,8 @@
 # Customizing planwright with overlays
 
 planwright core ships **general** doctrine and skills. Your project carries
-preferences that are not general — a review-sequence ordering, a custom
-threshold, project-specific decision-domain entries, a tweaked rule doc. You
+preferences that are not general — which review steps run and when, a
+custom threshold, project-specific decision-domain entries, a tweaked rule doc. You
 must be able to add these **without editing planwright's core**.
 Editing core would make it less general for everyone and pollute the
 observation stream meant to merge upstream.
@@ -107,8 +107,9 @@ The repo-side pair shares `<repo>/.claude/` and is distinguished by the
 | repo-tracked | `<repo>/.claude/catalogs/<name>.yaml` |
 | machine-local | `<repo>/.claude/catalogs.local/<name>.yaml` |
 
-The two growable catalogs are **decision-domains** (the catalog behind the
-drift triggers) and the builder's **guard catalog**.
+The growable catalogs are **decision-domains** (the catalog behind the
+drift triggers), the builder's **guard catalog**, and **steps** (the step
+definitions the attachment points run, §8).
 
 ## 3. How each kind merges
 
@@ -175,7 +176,7 @@ The layer is always one of `core | adopter | repo-tracked | machine-local`.
 
 ```bash
 # Which layer set this config key, and to what value? (one TAB-separated line)
-scripts/config-get.sh --explain review_sequence
+scripts/config-get.sh --explain steps_convergence
 #   core<TAB>[polish]
 
 # Which layer supplied the resolved doctrine doc?
@@ -259,58 +260,96 @@ override in `machine-local`) — last-layer-wins, exactly like §8. The
 capability is general and lives in core; only the *value* an adopter chooses
 rides the overlay layers.
 
-Contrast that with §8, where only the *mechanism* (an ordered review sequence)
-is general enough for core while the *value* (the specific ordering) is personal
-style that stays in an overlay. Dispatch isolation tilts further toward core
+Contrast that with §8, where only the *mechanism* (attachment points with
+ordered step lists) is general enough for core while the *value* (the specific
+steps) is personal style that stays in an overlay. Dispatch isolation tilts further toward core
 because both its mechanism and its intended default generalize.
 
-## 8. Worked example B — the `review_sequence` knob (a runnable style overlay)
+## 8. Worked example B — custom steps (a runnable style overlay)
 
-A review-sequence **ordering** is **personal/team style**: which review skills
-run, and in what order, during `/execute-task`'s convergence phase is a
-preference, not a general capability. The *capability* (an ordered, overlayable
-review sequence) ships in core as the `review_sequence` config knob; the
-specific *ordering* lives in your overlay. This is the runnable instance of the
-capability-vs-style boundary.
+**Which** reviews and checks run at a moment in a unit's run, and in what
+order, is **personal/team style**. The *capability* ships in core: named
+attachment points in the run, a `steps` catalog of step definitions, and one
+flat `steps_<point>` config key per point listing step ids in run order
+([`doctrine/custom-steps.md`](../doctrine/custom-steps.md) owns the points
+and the rules). The *choice* of steps lives in your overlay. This is the
+runnable instance of the capability-vs-style boundary.
 
-The knob holds an ordered list of **nestable** review-skill names (a nestable
-skill is one invocable with `--nested`, e.g. `polish`, `self-review`). The core
-default reproduces today's behavior exactly:
+Core ships behavior-identical: `steps_convergence: [polish]` (a single
+`/polish --nested` pass) and every other point's list empty. The core
+catalog (`config/steps.yaml`) seeds the `polish` and `self-review` steps.
 
-```bash
-scripts/resolve-review-sequence.sh
-#   polish            # the default: today's single `/polish --nested` convergence
-```
-
-Reorder or extend it by setting `review_sequence` in any layer. It resolves
-through all four layers like any config value, and last-layer-wins applies:
+A step is a skill or user command, a shell command, or a prompt. Declare a
+step once in a catalog, then name it in any layer's list. Here a per-user
+catalog entry declares a review command of your own, and this repository's
+list runs it after planwright's own review:
 
 ```yaml
-# <adopter-root>/planwright.yml   (your personal default across all repos)
-review_sequence: [self-review, polish]
-
-# <repo>/.claude/planwright.yml   (repo-tracked: overrides your adopter default here)
-review_sequence: [polish, self-review]
+# <adopter-root>/catalogs/steps.yaml   (your per-user catalog, every repo)
+steps:
+  - id: panel
+    kind: skill
+    target: panel-review
+    args: --nested
 ```
 
-With **only** the adopter layer set, `/execute-task`'s convergence phase runs
-`self-review` then `polish`. Add the `repo-tracked` layer above and it wins
-**outright** — config is last-layer-wins, so the higher layer's list replaces
-the whole value rather than merging with it — and convergence runs `polish`
-then `self-review`. Either way the order is preserved verbatim, not sorted.
+```yaml
+# <repo>/.claude/planwright.yml   (repo-tracked: this project's list)
+steps_convergence: [self-review, panel]
+```
 
-An entry naming an **unknown or non-nestable** skill is a malformed value under
-the same by-layer policy as §4: in an adopter or machine-local layer it warns
-on stderr and degrades to the core default; in the repo-tracked layer it
-hard-fails (a broken shared review sequence never silently degrades a team).
+Print what a point will run, with where each value came from, before
+anything runs:
 
 ```bash
-# machine-local review_sequence: [polish, bogus-skill]
-#   → stderr warning naming machine-local, degrades to core default `polish`, exit 0
-
-# repo-tracked review_sequence: [polish, bogus-skill]
-#   → hard-fail (nonzero exit) naming repo-tracked
+scripts/resolve-steps.sh convergence --explain --attended
+#   run<TAB>self-review<TAB>convergence<TAB>repo-tracked<TAB>core<TAB>...
+#   run<TAB>panel<TAB>convergence<TAB>repo-tracked<TAB>adopter<TAB>...
 ```
+
+Catalogs merge append/union with supersede-by-id (§3); a list is config, so
+the highest layer that sets it wins outright and the resolver warns naming
+each lower overlay layer it shadows. A step a list names that cannot run on
+this host is handled by which layer's list named it and whether a human is
+present (the rule doc's missing-step matrix): a list from your own adopter
+or machine-local layer asks you when attended and skips the step with a
+warning when unattended; a repo-tracked list asks when attended and parks
+the unit when unattended; a core list always parks. A shared list never
+silently runs less.
+A malformed entry or list follows the §4 by-layer policy.
+
+A repo-tracked list naming your per-user step only runs where that catalog
+entry exists. A repo-tracked step that names an external tool (a
+non-Anthropic review backend, a hosted scanner) sends the diff to that
+tool on every teammate's run: committing it is a **team-wide disclosure
+decision**, and the declaration is the consent record. Keep a step you have
+not agreed with the team in your adopter or machine-local layer.
+
+**The context a step receives.** Every step gets the same fixed fields: the
+spec, the unit's task ids, the unit kind, the branch and base branch, the
+worktree, the PR number, the point, the step id, and the preceding step's
+record path. A command step reads them as `PLANWRIGHT_STEP_*` environment
+variables added to the environment it inherits (an absent value is set
+empty, never unset); a skill or prompt step gets them as a data block
+prepended to its invocation (`scripts/resolve-steps.sh <point> --preamble`).
+The rule doc's context table names every variable.
+
+**Credentials.** A step entry has no environment field, so a declaration
+never carries a secret. A step that needs a credential reads it from the
+host environment the runner inherits (§6's environment layer).
+
+**The record cache.** Every step leaves a record under
+`<worktree>/.claude/steps/`, an untracked cache. A repository adopting
+planwright as a plugin adds the ignore line itself:
+
+```gitignore
+.claude/steps/
+```
+
+**The status-write permission.** Before a flip point's ready flip, the
+runner posts a commit status on the head as evidence the point ran. The
+login that runs it needs commit-status write access: `repo:status` on a
+classic token, or **Commit statuses** write on a fine-grained token or app.
 
 ## 9. The worker literal-path allow entry (adopter-specific)
 
@@ -391,6 +430,6 @@ Read it before writing a rule whose correctness turns on where a wildcard sits.
 - [`doctrine/customization-boundary.md`](../doctrine/customization-boundary.md)
   — the decision-time rule for capability versus style.
 - [`docs/options-reference.md`](options-reference.md) — every config option,
-  including `review_sequence` and `dispatch_backend`.
+  including the `steps_<point>` lists and `dispatch_backend`.
 - [`doctrine/security-posture.md`](../doctrine/security-posture.md) — the
   artifact data-hygiene rule that guards uncommitted overlays.

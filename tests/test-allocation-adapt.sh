@@ -535,7 +535,7 @@ out=$(run resolve stepdef:unit --key execution --step-type implementation) \
   || fail "15a: an unconfigured step type must report an inherit step scope"
 echo "ok: with defaults a step resolves to the unit's tier"
 
-# Every shipped review-sequence step class behaves the same way by default.
+# Every step the core catalog seeds behaves the same way by default.
 for st in polish self-review; do
   reset_state
   out=$(run resolve "stepdef:$st" --key execution --step-type "$st") \
@@ -548,7 +548,7 @@ for st in polish self-review; do
   [ "$(step_rows "stepdef:$st" | awk -F "$TAB" '{ print $14 }')" = inherit ] \
     || fail "15a: the inheritance must land as a ledger row for '$st'"
 done
-echo "ok: every shipped review-sequence step class defaults to the unit's tier"
+echo "ok: every seeded step defaults to the unit's tier"
 
 # --- 15b. a cheaper configured step tier applies, scope-marked -------------
 

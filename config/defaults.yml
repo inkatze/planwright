@@ -19,8 +19,7 @@ commit_on_state_move: true
 # bootstrap D-26's all-drafts rule (only the spec PR; task PRs stay drafts; merge
 # stays human, never auto-merge). false leaves the spec PR draft for the human to
 # un-draft by hand. The flip never fires when sign-off parked on a fork or the
-# configured review_sequence verification did not converge, regardless of this
-# value.
+# pre-flip verification did not converge, regardless of this value.
 mark_spec_pr_ready_on_kickoff: true
 
 # The bounded wait /spec-kickoff's terminal ready-flip holds for the spec PR's
@@ -98,7 +97,7 @@ max_parallel_units: 3
 fleet_max_parallel_units: 3
 
 # How /execute-task sequences a unit's steps (D-5, REQ-C1.3). `per-step` runs
-# implementation and each configured review_sequence skill in its own fresh
+# implementation and each step the convergence point runs in its own fresh
 # /resume-seeded session, so context stays bounded and each review's perspective
 # is uncontaminated by prior steps; backends that cannot spawn a fresh session
 # approximate it (the synchronous terminal rung via context clears between
@@ -172,19 +171,6 @@ dispatch_fetch_ttl: 2m
 # in scripts/fleet-attention.sh (`notify`).
 notification_channel: none
 
-# The ordered review sequence /execute-task's convergence phase runs (D-6,
-# REQ-D1.3). An inline list of nestable review-skill names (a nestable review
-# skill is one invocable with --nested). The default reproduces today's
-# convergence behavior — a single /polish --nested pass — so out-of-the-box
-# behavior is unchanged; an overlay can reorder or extend it (e.g.
-# [self-review, polish]) once the named skills exist. Resolved through
-# scripts/resolve-review-sequence.sh, which validates each name and applies the
-# REQ-E1.4 malformed-by-layer policy to an unknown or non-nestable name.
-# /execute-task still reads this key; once it runs the convergence point,
-# steps_convergence below replaces it. scripts/resolve-steps.sh already
-# ignores it and warns naming each layer that sets it, this one included.
-review_sequence: [polish]
-
 # The push destinations a visual flight may land a draft PR on
 # (scripts/flight-dispatch.sh `home`). An inline list of entries, each a host
 # (`github.com`) or one owner on a host (`github.com/acme`), matched against
@@ -205,8 +191,8 @@ flight_pr_hosts: []
 # layer. `[]` runs nothing and is not malformed. doctrine/custom-steps.md
 # fixes when each point fires and what a step may do. No skill reads these
 # keys until /execute-task is wired to the resolver; core then ships
-# behavior-identical, the lists below running what the review-sequence knob
-# ran.
+# behavior-identical, steps_convergence running the single /polish --nested
+# pass the retired convergence knob ran.
 #
 # The in-run points of /execute-task, in firing order:
 steps_pre_implementation: []
@@ -351,9 +337,10 @@ fleet_model_drain: sonnet
 # selection policy is operator-configurable without a code change, shipped
 # defaults preserving today's table (opt-in, default-preserving). Effort is one
 # of (low medium high); command is one of the dispatch-entry set
-# (execute-task orchestrate drain) — that enum is exactly the non-nestable set,
-# so review-sequence disjointness (REQ-E1.2) holds by construction at every
-# overlay layer, not just for these defaults.
+# (execute-task orchestrate drain) — no member of that enum is a pipeline
+# entry a step may name, nor a step a dispatch may launch, so the two sets
+# stay disjoint (REQ-E1.2) by construction at every overlay layer, not just
+# for these defaults.
 #
 # Deprecated fallback on the same terms as the model block above: the general
 # allocation_effort_* / allocation_command_* knobs win when set, these apply
@@ -415,9 +402,9 @@ allocation_effort_offload: inherit
 
 # PER-STEP selection keys (model-allocation D-8, D-12; REQ-C1.3, REQ-E1.1).
 # The selection keys above price a whole UNIT. These price one STEP of it: the
-# implementation step, and each review-sequence step class (one knob pair per
-# nestable review skill). Today every review pass inherits the unit's tier, so
-# nothing ever starts cheap; these are the knobs that let it.
+# implementation step, and each step by its step id (one knob pair per step
+# id, `-` written as `_`). Today every review pass inherits the unit's tier,
+# so nothing ever starts cheap; these are the knobs that let it.
 #
 # ALL SHIP `inherit`, so every step resolves to the unit's own tier and the
 # golden baseline is reproduced exactly. Landing the mechanism changes runtime
@@ -440,12 +427,12 @@ allocation_effort_offload: inherit
 # a ledger row. Give the surface a tier first, or the step knob stays inert.
 #
 # There is NO command column here, deliberately. The command enum carries the
-# review-sequence-disjointness invariant (REQ-A1.4) and must never name a
-# nestable review skill; step types are named after exactly those skills, so
-# the axes stay separate and the enum is untouched by construction.
+# dispatch-entry disjointness invariant (REQ-A1.4) and must never name a step;
+# step knobs are keyed by step id, so the axes stay separate and the enum is
+# untouched by construction.
 #
-# The key space is OPEN: a review skill added later needs no row here, because
-# its knob is absent from every layer and resolves to `inherit`.
+# The key space is OPEN: a step added later needs no row here, because its
+# knob is absent from every layer and resolves to `inherit`.
 #
 # The model column takes the starting-tier enum (ladder top excluded, see the
 # fleet_model_* block above). A step tier only ever applies when it is CHEAPER
@@ -464,7 +451,7 @@ allocation_effort_step_self_review: inherit
 # resolves exactly what fleet dispatch resolves today, and a trigger event is
 # inert. Turn it `on` and the engine derives the unit's current tier from its own
 # allocation ledger and moves it one ladder step per triggering incident —
-# a step failure or retry, a flailing classification, review-sequence
+# a step failure or retry, a flailing classification, convergence-point
 # non-convergence, or a worker petition. Infrastructure failures are never
 # triggers. Adaptation rows are recorded either way: they are additive telemetry,
 # exempt from the behavior-preservation claim.

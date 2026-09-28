@@ -97,10 +97,10 @@ fresh session with no ambient tier to keep.
 Legal values are fixed enums: models are the stable Claude Code aliases
 (`haiku`, `sonnet`, `opus`, `fable` — aliases, not dated model ids, so the enum
 survives model releases), efforts are `low`, `medium`, `high`, and commands are
-the closed dispatch-entry set `execute-task`, `orchestrate`, `drain`. That
-command enum is exactly the set of non-nestable entry points, which is how the
-review-sequence-disjointness invariant holds at every overlay layer: a
-`review_sequence` skill can never also be a dispatch command.
+the closed dispatch-entry set `execute-task`, `orchestrate`, `drain`. Every
+member of that command enum is a pipeline entry the step resolver refuses as a
+step target, which is how the dispatch-entry disjointness invariant holds at
+every overlay layer: a step can never also be a dispatch command.
 
 ## Turning it on
 
@@ -340,7 +340,7 @@ closed allowlist:
 | `step-failure` | up | a step failed |
 | `retry` | up | a step is being retried |
 | `flailing` | up | the stuck-detector classified the worker as making no progress |
-| `non-convergence` | up | a review sequence did not converge |
+| `non-convergence` | up | the convergence point's steps did not converge |
 | `petition-escalate` | up | a worker asked for a more capable tier |
 | `petition-de-escalate` | down | a worker asked for a cheaper tier |
 
