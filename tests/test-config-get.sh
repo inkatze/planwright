@@ -100,6 +100,9 @@ printf 'dispatch_backend: # only a comment\n' >"$local_cfg"
 printf 'dispatch_backend: specs#archive # the old root\n' >"$local_cfg"
 [ "$(run dispatch_backend)" = 'specs#archive' ] \
   || fail "a value with an inner '#' and a trailing comment: $(run dispatch_backend)"
+printf 'dispatch_backend: "a #b"\n' >"$local_cfg"
+[ "$(run dispatch_backend)" = '"a' ] \
+  || fail "quoting protected a whitespace-led '#', which the reader does not honour: $(run dispatch_backend)"
 echo "ok: only whitespace before '#' starts a comment; an inner '#' is kept"
 
 # 4c. No shipped default relies on the old any-'#' rule: every '#' on a

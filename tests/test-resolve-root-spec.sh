@@ -201,6 +201,8 @@ run spec "$repo"
 assert_eq "empty: an empty value everywhere is the default" "$repo/specs" "$out"
 
 touch "$tmp/afile"
+mkdir -p "$tmp/roots/esc"
+mark "$tmp/roots/esc"
 for layer in adopter tracked local; do
   case $layer in
     adopter) f=$adopter_cfg name=adopter ;;
@@ -212,7 +214,7 @@ for layer in adopter tracked local; do
     case $bad in
       missing) set_layer "$f" "$tmp/nowhere" ;;
       file) set_layer "$f" "$tmp/afile" ;;
-      escape) set_layer "$f" "../" ;;
+      escape) set_layer "$f" "../roots/esc" ;;
       nomarker)
         mkdir -p "$tmp/unmarked"
         set_layer "$f" "$tmp/unmarked"
@@ -222,6 +224,10 @@ for layer in adopter tracked local; do
     assert_eq "bad: $bad from $name is refused (exit)" 5 "$rc"
     assert_empty "bad: $bad from $name prints no root" "$out"
     assert_contains "bad: $bad from $name names the layer" "the $name layer" "$err"
+    case $bad in
+      missing) assert_contains "bad: missing from $name names the reason" "no such directory" "$err" ;;
+      escape) assert_contains "bad: escape from $name names the reason" "must stay inside the primary checkout" "$err" ;;
+    esac
   done
 done
 
@@ -497,6 +503,7 @@ assert_eq "posture: a root in another worktree of the repository is same-repo" s
 run spec "$repo" --primary
 assert_eq "posture: --primary maps a root in another worktree onto the primary's copy" \
   "$repo/wtroot" "$out"
+assert_contains "posture: a mapped copy the primary does not hold is warned about" "$repo/wtroot" "$err"
 run spec "$wt" --explain --primary
 assert_eq "posture: the mapping holds from the worktree itself" \
   "machine-local${TAB}$repo/wtroot${TAB}same-repo${TAB}primary" "$out"
@@ -563,6 +570,10 @@ run spec "$wt" --primary
 assert_empty "views: the primary view of a held root warns nothing" "$err"
 run spec "$wt" --posture
 assert_empty "views: --posture prints no path, so it warns nothing" "$err"
+run spec "$wt" --explain --posture
+assert_eq "views: --explain takes precedence over --posture" \
+  "machine-local${TAB}$wt/onlyprimary${TAB}same-repo${TAB}checkout-local" "$out"
+assert_contains "views: --explain with --posture still warns about a missing root" "$wt/onlyprimary" "$err"
 
 # A worktree nested inside the primary maps by its own toplevel, before the
 # primary's prefix would re-base it; a value naming a worktree's top maps too.

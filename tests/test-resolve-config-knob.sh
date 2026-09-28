@@ -513,6 +513,12 @@ printf 'spec_root:\n' >"$mlocal_cfg"
 [ "$(run_path)" = "machine-local${TAB}" ] || fail "path: an empty machine-local value did not cancel (got '$(run_path)')"
 echo "ok: path: an empty value cancels lower layers"
 
+utf8_path=$(printf '/caf\303\251/\346\227\245')
+printf 'spec_root: %s\n' "$utf8_path" >"$mlocal_cfg"
+[ "$(run_path)" = "machine-local${TAB}$utf8_path" ] \
+  || fail "path: a non-ASCII value was refused or altered (got '$(run_path)')"
+echo "ok: path: UTF-8 bytes are not control bytes"
+
 printf 'spec_root: /bad\033x\n' >"$mlocal_cfg"
 rc=0
 err=$(run_path 2>&1 >/dev/null) || rc=$?
