@@ -266,6 +266,10 @@ read_hosts() {
     _why=''
     if [ -L "$repo_root/.claude" ] || [ -L "$_local" ]; then
       _why="it is reached through a symlink"
+    elif [ "$(git -C "$repo_root/.claude" rev-parse --show-toplevel 2>/dev/null </dev/null)" != "$repo_root" ]; then
+      # A submodule or nested repository at .claude: the parent's index never
+      # lists the file, but the repository still supplied it.
+      _why=".claude is its own repository, or git could not say"
     else
       git -C "$repo_root" ls-files --error-unmatch -- ':(icase).claude/planwright.local.yml' \
         >/dev/null 2>&1 </dev/null
@@ -613,8 +617,8 @@ stale_min() {
     *[!0]*) STALE_MIN=$_sm ;;
     *) STALE_MIN=15 ;;
   esac
-  # Past six digits, clamp high rather than fall back: a shorter window than
-  # the lock's own would sweep briefs the lock still treats as fresh.
+  # Past six digits, clamp high (about two years) rather than fall back to the
+  # default, which could be shorter than the lock's own window.
   STALE_MIN=$(printf '%s' "$STALE_MIN" | sed 's/^0*//')
   [ "${#STALE_MIN}" -le 6 ] || STALE_MIN=999999
 }

@@ -322,6 +322,8 @@ gitc "$c/primary" commit -q -m "a case-folded local config"
 if [ -f "$c/primary/.claude/planwright.local.yml" ]; then
   run home --repo-root "$c/primary"
   [ "$(field "$OUT" home)" = file ] || fail "home: a tracked case-folded planwright.local.yml must not approve (out: $OUT)"
+else
+  echo "note: case-sensitive filesystem; the case-folded local-config check is not exercised here" >&2
 fi
 gitc "$c/primary" rm -q .claude/PLANWRIGHT.LOCAL.YML
 gitc "$c/primary" commit -q -m "drop the case-folded local config"
@@ -334,6 +336,13 @@ run home --repo-root "$c/primary"
 [ "$(field "$OUT" home)" = file ] || fail "home: a planwright.local.yml reached through a symlinked .claude must not approve (out: $OUT)"
 case $ERR in *"through a symlink"*) ;; *) fail "home: an ignored symlinked local config must be named: $ERR" ;; esac
 rm "$c/primary/.claude"
+# A .claude that is its own repository (a submodule) is repo content too.
+git -c init.defaultBranch=main init -q "$c/primary/.claude"
+printf 'flight_pr_hosts: [github.com]\n' >"$c/primary/.claude/planwright.local.yml"
+run home --repo-root "$c/primary"
+[ "$(field "$OUT" home)" = file ] || fail "home: a planwright.local.yml inside a nested .claude repository must not approve (out: $OUT)"
+case $ERR in *"own repository"*) ;; *) fail "home: an ignored nested-repository local config must be named: $ERR" ;; esac
+rm -rf "$c/primary/.claude"
 mv "$c/primary/claude-real" "$c/primary/.claude"
 rm -f "$c/primary/.claude/planwright.local.yml"
 gitc "$c/primary" remote set-url --push origin git@git.example.com:acme/widgets.git
