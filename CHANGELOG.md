@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.48.0](https://github.com/inkatze/planwright/compare/v0.47.0...v0.48.0) (2026-09-28)
+
+
+### Features
+
+* **resolve-root:** add an install and repo root resolver ([#510](https://github.com/inkatze/planwright/issues/510)) ([5b83fd4](https://github.com/inkatze/planwright/commit/5b83fd43781f6918c8f8eb6c3cd6948ea359fea6))
+* **tower:** dispatch visual flights through /offload to their own worktree ([#511](https://github.com/inkatze/planwright/issues/511)) ([ac21250](https://github.com/inkatze/planwright/commit/ac21250cabb809f77ab70fec6ad288ea8cf79c2b))
+
 ## [0.47.0](https://github.com/inkatze/planwright/compare/v0.46.0...v0.47.0) (2026-09-28)
 
 
