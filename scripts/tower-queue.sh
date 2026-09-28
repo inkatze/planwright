@@ -2097,18 +2097,16 @@ push_word_present() {
 }
 
 # command_words_reserved <lowercased command> — 0 when a word of the command,
-# its quotes removed, IS a pull or names a git alias. The `git pull` substring in
-# reserved_control misses `git -C dir pull`, a doubled space, and a quoted
-# `pull`, all of which git runs as a pull; an alias (`-c alias.x=pull x`) can
-# expand to any verb the screens look for. A command naming either for any
-# other reason reaches the operator.
+# its quotes removed, IS a pull. The `git pull` substring in reserved_control
+# misses `git -C dir pull` and a doubled space, both of which git runs as a
+# pull; a command naming the word for any other reason reaches the operator.
 command_words_reserved() {
   (
     set -f
     for _pw in $1; do
       unquote "$_pw"
       case "$UQ" in
-        pull | git-pull | */git-pull | *alias.*) exit 0 ;;
+        pull | git-pull | */git-pull) exit 0 ;;
       esac
     done
     exit 1
@@ -2219,6 +2217,9 @@ reserved_control() {
   case "$_rl" in
     *merge* | *merging* | *rebas* | *amend* | *squash* | *fixup* | *force-push* | *force-with-lease*) return 0 ;;
     *'git pull'* | *git-pull*) return 0 ;;
+    # Configuration that makes git run a different verb than the one written:
+    # an alias, an included config file that can define one, and autocorrect.
+    *alias.* | *include.path* | *includeif.* | *autocorrect*) return 0 ;;
     *' ready'* | *'--ready'* | ready | ready' '*) return 0 ;;
   esac
   case "$_rl" in
@@ -2229,7 +2230,8 @@ reserved_control() {
 
 # reserved_command <command> — 0 when a rule may not answer the command: it
 # reaches a reserved control, or it is a push that does not positively parse
-# as safe. This is what the match runs; `capture` runs reserved_control, since
+# as safe. This is what the match runs; `capture` runs reserved_control, plus
+# the pull word screen on a command coverage, but never the push parse, since
 # a rule's coverage is a prefix and a prefix is not a command.
 reserved_command() {
   reserved_control "$1" && return 0

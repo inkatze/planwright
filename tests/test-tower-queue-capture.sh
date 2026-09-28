@@ -187,7 +187,8 @@ echo "ok: a coverage of '-' is refused"
 
 for res in 'git merge' 'gh pr merge' 'gh pr ready' 'git rebase' 'git commit --amend' \
   'git push --force' 'git push origin main' 'git pull' 'git commit --fixup' \
-  'git push origin planwright/human-gates/spec' 'git -C . pull' 'git -c alias.x=pull'; do
+  'git push origin planwright/human-gates/spec' 'git -C . pull' 'git -c alias.x=pull' \
+  'git -c include.path=/tmp/x.cfg' 'git -c help.autocorrect=immediate'; do
   rc=0
   run capture --kind standing --text 'always allow the safe ones' --covers-command "$res" --now 1005 >/dev/null || rc=$?
   [ "$rc" = 2 ] || fail "a coverage reaching a reserved control ('$res') was not refused (exit $rc)"

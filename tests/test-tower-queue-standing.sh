@@ -207,6 +207,8 @@ for res in 'git pull' 'git pull origin main' 'git pull --ff-only origin main' \
   'git me""rge origin/main' "git re''base origin/main" 'git commit --am""end' \
   'git commit --squ""ash=HEAD~1' "git commit --fix'up'=HEAD~1" \
   'git -c alias.x=pull x origin main' 'git -c alias.p=push p' \
+  'git -c include.path=/tmp/x.cfg up origin main' 'git -c includeIf.onbranch:x.path=/tmp/x.cfg up' \
+  'git -c help.autocorrect=immediate pulll origin main' \
   'git commit --fixup HEAD~1' 'git commit --fixup=HEAD~1'; do
   rc=0
   run match --decision "$git_rule" --command "$res" >"$tmp/o" || rc=$?
