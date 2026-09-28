@@ -50,6 +50,10 @@ command -v jq >/dev/null 2>&1 || fail "jq is required: the stream-json launch pr
 # Physical temp path: the headless state base is compared physically.
 tmp=$(cd "$(mktemp -d)" && pwd -P)
 cleanup() {
+  # A process that exits between the snapshot and its kill must not end the
+  # teardown early: under -e that would leave the fixture tree, and every
+  # shim holding on it, behind.
+  set +e
   for p in $(jobs -p); do
     kill -9 "$p" 2>/dev/null
   done
@@ -290,11 +294,13 @@ reaping='dead:dead-or-unknown|dead:death-evidence
 dead:dead-or-unknown|finished-but-unreaped:completion:result=success
 dead:dead-or-unknown|finished-but-unreaped:session-ended
 dead:dead-or-unknown|unclassified:completion-failed:exit=1
+dead:dead-or-unknown|unclassified:completion-failed:result=success/is_error=true
 dead:dead-or-unknown|unclassified:completion-unlanded'
 sessions='dead:death-evidence
 finished-but-unreaped:completion:result=success
 finished-but-unreaped:session-ended
 unclassified:completion-failed:exit=1
+unclassified:completion-failed:result=success/is_error=true
 unclassified:completion-failed:exit=unknown
 unclassified:completion-failed:result=unknown
 unclassified:completion-unlanded
@@ -329,7 +335,7 @@ while IFS= read -r tw; do
     # Every other tower verdict is refused before the session is read, so it
     # meets one ended session, one completion, and one live one.
     case $tw in
-      dead:dead-or-unknown | self:this-tower) ;;
+      dead:dead-or-unknown) ;;
       *)
         case $ss in
           dead:death-evidence | finished-but-unreaped:session-ended | working:runtime-running) ;;
@@ -354,7 +360,9 @@ while IFS= read -r tw; do
       case $oe/$ow/$err in
         self/this-tower/*"this tower's own worker"*) ;;
         self/this-tower/*) fail "evidence cell $oe/$ow x $st/$rs: this tower's own worker was not named: $err" ;;
-        */*/*'no positive evidence'*) ;;
+        dead/dead-or-unknown/*'no positive evidence its session ended'*) ;;
+        dead/dead-or-unknown/*) fail "evidence cell $oe/$ow x $st/$rs: refused on the wrong axis: $err" ;;
+        */*/*'no positive evidence its owning tower is gone'*) ;;
         *) fail "evidence cell $oe/$ow x $st/$rs: the refusal does not say what was missing: $err" ;;
       esac
     fi
@@ -364,8 +372,8 @@ EOF
 done <<EOF
 $towers
 EOF
-[ "$cells" = 60 ] || fail "the evidence matrix ran $cells cells, expected 60"
-[ "$reaps" = 5 ] || fail "the evidence matrix reaped $reaps cells, expected 5"
+[ "$cells" = 49 ] || fail "the evidence matrix ran $cells cells, expected 49"
+[ "$reaps" = 6 ] || fail "the evidence matrix reaped $reaps cells, expected 6"
 det finished-but-unreaped this-tower completion:result=success stream-json-persistent self "$self_id"
 gate w1 trig why --tower-id "$self_id"
 expect 5 "this tower's own worker"
@@ -488,6 +496,7 @@ for lead in '' x; do
   row=$(cat "$gate_home"/audit/audit-*.tsv)
   field=$(printf '%s\n' "$row" | cut -f6)
   [ "${#field}" -le 512 ] || fail "a long reasoning ($lead): the record is ${#field} bytes"
+  [ "${#field}" -ge 509 ] || fail "a long reasoning ($lead): the cut dropped more than one character (${#field} bytes)"
   printf '%s' "$field" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 \
     || fail "a long reasoning ($lead): the record was cut mid-character"
   case $field in
@@ -621,11 +630,11 @@ echo "ok: print, live-peer, unknown-evidence and self-target refusals each carry
 # library beyond the echo-safety one. Comments and the diagnostic lines
 # (whose prose may say "kill") are left out; the arm itself must hand the
 # close to a rung's stop by name.
-code=$(sed -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//' "$FC_REAL" \
-  | grep -vE '^[[:space:]]*(warn|echo) ')
-hits=$(printf '%s\n' "$code" | grep -nE 'kill( |	|$)|pkill|pgrep|killall|ps -|ps a|lsof|fuser|fleet-stop-lib|release_processes|stop_candidates|/proc/' || :)
+code=$(sed -E -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//' \
+  -e 's/^([[:space:]]*(warn|echo) )"([^"\\]|\\.)*"/\1/' "$FC_REAL")
+hits=$(printf '%s\n' "$code" | grep -nE 'kill( |	|$)|pkill|pgrep|killall|(^|[^[:alnum:]_-])ps([[:space:]]|$)|lsof|fuser|fleet-stop-lib|release_processes|stop_candidates|/proc/' || :)
 [ -z "$hits" ] || fail "source audit: fleet-cleanup.sh carries a second kill path: $hits"
-sourced=$(printf '%s\n' "$code" | grep -E '^[[:space:]]*\. ' || :)
+sourced=$(printf '%s\n' "$code" | grep -E '(^|[;&])[[:space:]]*(\.|source)[[:space:]]' || :)
 [ "$sourced" = '. "$script_dir/echo-safety.sh"' ] || fail "source audit: fleet-cleanup.sh sources more than echo-safety.sh: $sourced"
 arm=$(awk '/^  process\)$/ { on = 1 } on { print } on && /^    ;;$/ { exit }' "$FC_REAL" \
   | sed -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//')
@@ -866,6 +875,7 @@ echo "ok: stream-json — a dead owner's finished, unexited worker is reaped and
 
 # --- refusals leave the worker running and the unit untouched ---------------
 reaps_before=$(reaps_recorded)
+[ "$reaps_before" = 1 ] || fail "fixture: the reap count reads $reaps_before after one reap, so it cannot detect another"
 printf 'tower\t%s\tlive\n' "$peer_id" >"$tmp/presence-answer"
 sj_launch sjw2 "$self_id"
 sup=$(cat "$ihome/streamjson/sjw2/supervisor.pid")
@@ -912,6 +922,10 @@ case $out in
 esac
 gone "$runner" || fail "headless reap: the runner survived"
 ! has_row "$hw" || fail "headless reap: the worker's attention row was not released"
+case $(ienv -- fleet-audit.sh query --mechanism process-cleanup) in
+  *"worker=$hw owner=$peer_id evidence=tower:dead,session:finished-but-unreaped/"*"released=process"*) ;;
+  *) fail "headless reap: no matching audit record" ;;
+esac
 strand_intact "headless reap"
 untouched "headless reap"
 echo "ok: headless — a dead owner's worker whose session ended is reaped through the headless rung's stop; strand, fence, branch and worktree untouched"
