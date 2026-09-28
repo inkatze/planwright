@@ -14,7 +14,9 @@
 #       revision of the script matched task text as a blob and accepted it,
 #       which made the guard vacuous in its own terms;
 #   g3c a guard reachable only through a `wait_for`, which orders but never
-#       runs its target. An earlier revision followed that edge and passed it.
+#       runs its target. An earlier revision followed that edge and passed it;
+#   g8a/g8b a guard or `mise run` edge named only in a whole-line comment of a
+#       reached run body. An earlier revision counted the comment as wiring.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-check-guard-wiring.sh
@@ -295,5 +297,352 @@ rm -rf "$r/.github/workflows"
 run_cg "$r" >/dev/null
 [ "$?" = 5 ] || fail "g7: a missing workflows directory should be exit 5"
 echo "ok: g7 every scan-narrowing input fails closed instead of passing vacuously"
+
+# ---------------------------------------------------------------------------
+# g8: the check must agree with what `mise run check` ACTUALLY runs. Each case
+#     below also runs the fixture's gate for real: the planted guard leaves a
+#     marker when executed, so the expected verdict is pinned to mise itself
+#     rather than to a reading of its documentation.
+# ---------------------------------------------------------------------------
+plant() {
+  # shellcheck disable=SC2016 # the expansion belongs to the planted script
+  printf '#!/bin/sh\ntouch "$(dirname "$0")/ran-%s"\n' "$2" >"$1/scripts/check-$2.sh"
+}
+# expect_mise <rc> <repo> <guard> <label>: the fixture's own `mise run check`
+# gives 0 when it ran the guard, 1 when it passed without running it, 2 when
+# the gate itself failed. The user's global mise config is kept out, so the
+# verdict is the fixture's alone.
+expect_mise() {
+  rm -f "$2/scripts/ran-$3"
+  if (cd "$2" && MISE_TRUSTED_CONFIG_PATHS="$2" MISE_GLOBAL_CONFIG_FILE=/dev/null \
+    MISE_CONFIG_DIR="$tmp/no-mise-config" MISE_CEILING_PATHS="$tmp" \
+    mise run check >"$tmp/mise-out" 2>&1); then
+    if [ -f "$2/scripts/ran-$3" ]; then mr_rc=0; else mr_rc=1; fi
+  else
+    mr_rc=2
+  fi
+  [ "$mr_rc" = "$1" ] \
+    || fail "$4: the fixture's own gate gave $mr_rc, expected $1: $(cat "$tmp/mise-out")"
+}
+# expect_cg <rc> <repo> <label>: the guard-wiring verdict, exit code exact so
+# a fail-closed 5 never passes for a 1.
+expect_cg() {
+  run_cg "$2" >/dev/null
+  cg_rc=$?
+  [ "$cg_rc" = "$1" ] \
+    || fail "$3: check-guard-wiring gave $cg_rc, expected $1: $(cat "$tmp/err")"
+}
+# wired <dir> <check:outer run body> [appendix]: check:outer sits in the
+# aggregate. mkrepo writes check:outer's table last, so an appendix that opens
+# with a `depends` line extends check:outer.
+wired() {
+  mkrepo "$1" "check:outer" "$2"
+  printf '%s\n' "${3:-}" >>"$1/mise.toml"
+  plant "$1" planted
+}
+inner='
+[tasks."check:inner"]
+run = "/bin/sh scripts/check-planted.sh"'
+
+#     g8a: A COMMENTED-OUT `mise run` IS NOT AN EDGE, indented or not, and the
+#     same line uncommented is.
+r="$tmp/r8a"
+for body in '# mise run check:inner' '  # mise run check:inner'; do
+  wired "$r" "$body\n/bin/sh scripts/check-alpha.sh" "$inner"
+  expect_mise 1 "$r" planted "g8a '$body'"
+  expect_cg 1 "$r" "g8a '$body'"
+  grep -q 'check-planted.sh' "$tmp/err" || fail "g8a '$body': the comment-only guard was not named"
+done
+wired "$r" 'mise run check:inner\n/bin/sh scripts/check-alpha.sh' "$inner"
+expect_mise 0 "$r" planted "g8a control"
+expect_cg 0 "$r" "g8a control"
+echo "ok: g8a a commented-out 'mise run' is not an edge, the same line uncommented is"
+
+#     g8b: A COMMENTED-OUT GUARD IS NOT RUN.
+r="$tmp/r8b"
+wired "$r" '# /bin/sh scripts/check-planted.sh\n/bin/sh scripts/check-alpha.sh'
+expect_mise 1 "$r" planted "g8b"
+expect_cg 1 "$r" "g8b"
+grep -q 'check-planted.sh' "$tmp/err" || fail "g8b: the comment-only guard was not named"
+wired "$r" '/bin/sh scripts/check-planted.sh\n/bin/sh scripts/check-alpha.sh'
+expect_mise 0 "$r" planted "g8b control"
+expect_cg 0 "$r" "g8b control"
+echo "ok: g8b a guard named only in a run-body comment is not wiring"
+
+#     g8c: every spelling of a call that runs its target is an edge: each
+#     `:::` segment, `mise r`, a leading flag with a separate value, a quoted
+#     task name, and a bare `mise run`, which runs `default`. A `mise run`
+#     that is only part of another word is not, a flag's value is not the
+#     task, and a bare call with no `default` task reaches nothing.
+r="$tmp/r8c"
+for body in \
+  'mise run check:alpha ::: check:alpha --verbose ::: check:inner' \
+  'mise r check:inner' \
+  'mise run -j 2 \"check:inner\"' \
+  'mise run --jobs 2 check:inner'; do
+  wired "$r" "$body" "$inner"
+  expect_mise 0 "$r" planted "g8c '$body'"
+  expect_cg 0 "$r" "g8c '$body'"
+done
+wired "$r" 'mise run' '
+[tasks.default]
+run = "/bin/sh scripts/check-planted.sh"'
+expect_mise 0 "$r" planted "g8c bare 'mise run'"
+expect_cg 0 "$r" "g8c bare 'mise run'"
+wired "$r" 'echo promise run check:inner' "$inner"
+expect_mise 1 "$r" planted "g8c 'promise run'"
+expect_cg 1 "$r" "g8c 'promise run'"
+wired "$r" 'mise run -j 2 check:alpha' '
+[tasks."2"]
+run = "/bin/sh scripts/check-planted.sh"'
+expect_mise 1 "$r" planted "g8c flag value"
+expect_cg 1 "$r" "g8c flag value"
+wired "$r" 'mise run' "$inner"
+expect_mise 2 "$r" planted "g8c bare 'mise run' without default"
+expect_cg 1 "$r" "g8c bare 'mise run' without default"
+grep -q 'default' "$tmp/err" || fail "g8c: the missing default task was not reported"
+echo "ok: g8c ':::' segments, 'mise r', flags, quoting and 'default' are edges, and only those"
+
+#     g8d: A CALL THAT DOES NOT RUN ITS TARGET IS NOT AN EDGE. `--dry-run`
+#     runs nothing, in every `:::` segment of the call; `--skip-deps` runs the
+#     target but not what it depends on, so only the target's body counts.
+r="$tmp/r8d"
+for body in 'mise run -n check:inner' 'mise run --dry-run check:inner' \
+  'mise run -qn check:inner' 'mise run -n check:alpha ::: check:inner'; do
+  wired "$r" "$body" "$inner"
+  expect_mise 1 "$r" planted "g8d '$body'"
+  expect_cg 1 "$r" "g8d '$body'"
+done
+wrap='
+[tasks."check:wrap"]
+depends = ["check:inner"]
+run = "/bin/sh scripts/check-alpha.sh"'
+wired "$r" 'mise run --skip-deps check:wrap' "$inner$wrap"
+expect_mise 1 "$r" planted "g8d --skip-deps"
+expect_cg 1 "$r" "g8d --skip-deps"
+#     The same skip through its environment variable, inline or task env.
+wired "$r" 'MISE_TASK_SKIP_DEPENDS=true mise run check:wrap' "$inner$wrap"
+expect_mise 1 "$r" planted "g8d inline MISE_TASK_SKIP_DEPENDS"
+expect_cg 1 "$r" "g8d inline MISE_TASK_SKIP_DEPENDS"
+wired "$r" 'mise run check:wrap' "env = { MISE_TASK_SKIP_DEPENDS = \"true\" }$inner$wrap"
+expect_mise 1 "$r" planted "g8d task-env MISE_TASK_SKIP_DEPENDS"
+expect_cg 1 "$r" "g8d task-env MISE_TASK_SKIP_DEPENDS"
+#     Skipping dependencies still runs the named task's own body.
+for body in 'mise run --skip-deps check:inner' \
+  'MISE_TASK_SKIP_DEPENDS=true mise run check:inner'; do
+  wired "$r" "$body" "$inner"
+  expect_mise 0 "$r" planted "g8d '$body'"
+  expect_cg 0 "$r" "g8d '$body'"
+done
+#     Only setting a variable counts: reading one, a longer name sharing its
+#     prefix, or setting the skip to false leaves the call an edge.
+# shellcheck disable=SC2016 # the expansion belongs to the fixture's run body
+for case in 'echo env=$MISE_ENV\nmise run check:wrap|' \
+  'mise run check:wrap|env = { MISE_ENV_FILE = ".env.x" }' \
+  'MISE_TASK_SKIP_DEPENDS=false mise run check:wrap|'; do
+  wired "$r" "${case%%|*}" "${case#*|}$inner$wrap"
+  expect_mise 0 "$r" planted "g8d '$case'"
+  expect_cg 0 "$r" "g8d '$case'"
+done
+#     A flag's value is never read as the task.
+wired "$r" 'mise run -E dev check:alpha' '
+[tasks.dev]
+run = "/bin/sh scripts/check-planted.sh"'
+expect_mise 1 "$r" planted "g8d -E value"
+expect_cg 1 "$r" "g8d -E value"
+#     mise reads an attached short value (`-C.`, `-E=ci`) as a task name and
+#     fails; the check claims no edge for it either.
+for body in 'mise run -C. check:inner' 'mise run -E=ci check:inner'; do
+  wired "$r" "$body" "$inner"
+  expect_mise 2 "$r" planted "g8d '$body'"
+  expect_cg 1 "$r" "g8d '$body'"
+done
+#     `--no-deps` skips tool preparation, not task dependencies: an edge.
+wired "$r" 'mise run --no-deps check:wrap' "$inner$wrap"
+expect_mise 0 "$r" planted "g8d --no-deps"
+expect_cg 0 "$r" "g8d --no-deps"
+#     mise reads flags only before the first task: a later segment that
+#     starts with one names a task called that, which is reported.
+wired "$r" 'mise run check:inner ::: -n check:alpha' "$inner"
+expect_mise 2 "$r" planted "g8d later-segment flag"
+expect_cg 0 "$r" "g8d later-segment flag"
+# shellcheck disable=SC2016 # the backticks are the note's literal quoting
+grep -qF -- 'edge to `-n`' "$tmp/err" || fail "g8d: the later segment's flag-shaped task was not reported"
+wired "$r" 'mise run check:wrap' "$inner$wrap"
+expect_mise 0 "$r" planted "g8d control"
+expect_cg 0 "$r" "g8d control"
+echo "ok: g8d a dry run is not an edge, a dependency-skipping run reaches only its target"
+
+#     g8h: A CALL AGAINST ANOTHER ENV OR DIRECTORY is an edge unless that
+#     config could redefine the task: an env with an overlay file at the root,
+#     a directory outside the repo, or one holding mise config of its own.
+r="$tmp/r8h"
+redefine='[tasks."check:inner"]
+run = "true"'
+for body in 'mise run -E ci check:inner' 'mise run --env=ci check:inner' \
+  'mise run --profile ci check:inner' 'MISE_ENV=ci mise run check:inner' \
+  'env MISE_PROFILE=ci mise run check:inner' 'export MISE_ENV=ci\nmise run check:inner' \
+  'mise run --cd=. check:inner' 'mise run -C sub check:inner' \
+  'mise run --cd sub/.. check:inner'; do
+  wired "$r" "$body" "$inner"
+  mkdir -p "$r/sub"
+  expect_mise 0 "$r" planted "g8h '$body'"
+  expect_cg 0 "$r" "g8h '$body'"
+done
+#     Every overlay file mise reads for an env, as measured, keeps it strict.
+for f in mise.ci.toml .mise.ci.toml mise/config.ci.toml .mise/config.ci.toml \
+  .config/mise.ci.toml .config/mise/config.ci.toml mise.ci.local.toml; do
+  for body in 'mise run -E ci check:inner' 'MISE_ENV=dev,ci mise run check:inner' \
+    'export MISE_ENV=ci\nmise run check:inner'; do
+    wired "$r" "$body" "$inner"
+    mkdir -p "$(dirname "$r/$f")"
+    printf '%s\n' "$redefine" >"$r/$f"
+    expect_mise 1 "$r" planted "g8h '$body' with $f"
+    expect_cg 1 "$r" "g8h '$body' with $f"
+  done
+done
+wired "$r" 'mise run check:inner' "env = { MISE_ENV = \"ci\" }$inner"
+printf '%s\n' "$redefine" >"$r/mise.ci.toml"
+expect_mise 1 "$r" planted "g8h task-env MISE_ENV with overlay"
+expect_cg 1 "$r" "g8h task-env MISE_ENV with overlay"
+#     A directory with its own config (or file tasks) keeps --cd strict.
+for f in mise.toml .mise.toml .config/mise/config.toml; do
+  wired "$r" 'mise run -C sub check:inner' "$inner"
+  mkdir -p "$(dirname "$r/sub/$f")"
+  printf '%s\n' "$redefine" >"$r/sub/$f"
+  expect_mise 1 "$r" planted "g8h -C sub with sub/$f"
+  expect_cg 1 "$r" "g8h -C sub with sub/$f"
+done
+wired "$r" 'mise run --cd sub/deeper check:inner' "$inner"
+mkdir -p "$r/sub/deeper" "$r/sub/mise-tasks/check"
+printf '#!/bin/sh\nexit 0\n' >"$r/sub/mise-tasks/check/inner"
+chmod +x "$r/sub/mise-tasks/check/inner"
+expect_mise 1 "$r" planted "g8h --cd below a file-task directory"
+expect_cg 1 "$r" "g8h --cd below a file-task directory"
+#     Outside the repo, a missing directory, or one the check cannot read.
+# shellcheck disable=SC2016 # the expansion belongs to the fixture's run body
+for body in 'mise run --cd .. check:inner' 'mise run -C nowhere check:inner' \
+  'mise run -C $HOME check:inner' 'MISE_ENV=$X mise run check:inner'; do
+  wired "$r" "$body" "$inner"
+  expect_cg 1 "$r" "g8h '$body'"
+done
+#     A relative directory resolves against the task's own `dir`.
+wired "$r" 'mise run --cd .. check:inner' "dir = \"sub\"$inner"
+mkdir -p "$r/sub"
+expect_mise 0 "$r" planted "g8h --cd .. from dir = sub"
+expect_cg 0 "$r" "g8h --cd .. from dir = sub"
+#     An assignment reaches only its own line's call (and later lines, for a
+#     bare or exported assignment): not an echo, not an earlier call's prefix.
+for body in 'echo MISE_ENV=ci\nmise run check:inner' \
+  'MISE_ENV=ci mise run check:alpha\nmise run check:inner'; do
+  wired "$r" "$body" "$inner"
+  printf '%s\n' "$redefine" >"$r/mise.ci.toml"
+  expect_mise 0 "$r" planted "g8h '$body'"
+  expect_cg 0 "$r" "g8h '$body'"
+done
+wired "$r" 'MISE_TASK_SKIP_DEPENDS=true mise run check:alpha\nmise run check:wrap' "$inner$wrap"
+expect_mise 0 "$r" planted "g8h per-line skip"
+expect_cg 0 "$r" "g8h per-line skip"
+echo "ok: g8h another env or directory is an edge unless its config could redefine the task"
+
+#     g8e: a task ALIAS resolves to its task, from a depends list and from a
+#     run body alike; an alias nothing defines resolves to nothing.
+r="$tmp/r8e"
+wired "$r" 'mise run pr' '
+depends = ["pd"]
+
+[tasks."check:by-depends"]
+alias = "pd"
+run = "/bin/sh scripts/check-planted.sh"
+
+[tasks."check:by-run"]
+alias = ["x", "pr"]
+run = "/bin/sh scripts/check-second.sh"'
+plant "$r" second
+expect_mise 0 "$r" planted "g8e depends alias"
+expect_mise 0 "$r" second "g8e run-body alias"
+expect_cg 0 "$r" "g8e"
+wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"nope\"]$inner"
+expect_mise 2 "$r" planted "g8e unknown alias"
+expect_cg 1 "$r" "g8e unknown alias"
+grep -q 'nope' "$tmp/err" || fail "g8e: the unresolvable alias was not reported"
+wired "$r" 'mise run nope' "$inner"
+expect_mise 2 "$r" planted "g8e unknown run-body alias"
+expect_cg 1 "$r" "g8e unknown run-body alias"
+grep -q 'nope' "$tmp/err" || fail "g8e: the unresolvable run-body alias was not reported"
+echo "ok: g8e a task alias resolves to its task, an unknown one to nothing"
+
+#     g8f: GLOB edges expand the way mise expands them: a trailing `*` or `**`
+#     spans the `:` separator, an inner one and `?` never do, classes and
+#     braces are honoured, aliases match too, and other characters are literal.
+r="$tmp/r8f"
+deep='
+[tasks."guard:deep:planted"]
+run = "/bin/sh scripts/check-planted.sh"'
+for pat in 'guard:*' 'g**'; do
+  wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"$pat\"]$deep"
+  expect_mise 0 "$r" planted "g8f '$pat'"
+  expect_cg 0 "$r" "g8f '$pat'"
+done
+wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"g**:planted\"]$deep"
+expect_mise 2 "$r" planted "g8f 'g**:planted'"
+expect_cg 1 "$r" "g8f 'g**:planted'"
+target='
+[tasks."guard:p"]
+alias = "plant-alias"
+run = "/bin/sh scripts/check-planted.sh"'
+for pat in 'guard:?' 'guard:[pq]' 'guard:[!q]' 'guard:{p,zz}' 'plant-*' 'g*:p' 'g**:p'; do
+  wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"$pat\"]$target"
+  expect_mise 0 "$r" planted "g8f '$pat'"
+  expect_cg 0 "$r" "g8f '$pat'"
+done
+for pat in 'guard?p' 'gu*p' 'guard.*' 'guard:[q]' 'guard:{q,zz}' 'nomatch:*'; do
+  wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"$pat\"]$target"
+  expect_mise 2 "$r" planted "g8f '$pat'"
+  expect_cg 1 "$r" "g8f '$pat'"
+  grep -q 'check-planted.sh' "$tmp/err" || fail "g8f '$pat': the unreached guard was not named"
+  grep -qF "$pat" "$tmp/err" || fail "g8f '$pat': the glob matching nothing was not reported"
+done
+echo "ok: g8f a glob edge expands to the tasks mise would run, and only those"
+
+#     g8g: task shapes beyond a plain name: a hidden task (which a plain
+#     `mise tasks --json` leaves out), depends entries carrying arguments or
+#     env, and structured `{ task = ... }` / `{ tasks = [...] }` run entries.
+#     Each is paired with the same shape naming a task nobody defines.
+r="$tmp/r8g"
+wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"guard:p\"]$target
+hide = true"
+(cd "$r" && MISE_TRUSTED_CONFIG_PATHS="$r" mise tasks --json 2>/dev/null) \
+  | jq -e 'any(.[]; .name == "guard:p")' >/dev/null
+[ "$?" = 1 ] || fail "g8g: a plain 'mise tasks --json' did not omit the hidden task, so this case pins nothing"
+expect_mise 0 "$r" planted "g8g hidden"
+expect_cg 0 "$r" "g8g hidden"
+for dep in '"guard:p --flag"' '{ task = "guard:p", env = { X = "1" } }'; do
+  wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [$dep]$target"
+  expect_mise 0 "$r" planted "g8g depends $dep"
+  expect_cg 0 "$r" "g8g depends $dep"
+done
+for entry in '{ task = "guard:p" }' '{ tasks = ["check:alpha", "guard:p"] }'; do
+  wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"check:structured\"]$target
+
+[tasks.\"check:structured\"]
+run = [$entry]"
+  expect_mise 0 "$r" planted "g8g structured $entry"
+  expect_cg 0 "$r" "g8g structured $entry"
+done
+for dep in '"guard:q --flag"' '{ task = "guard:q", env = { X = "1" } }'; do
+  wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [$dep]$target"
+  expect_mise 2 "$r" planted "g8g depends $dep"
+  expect_cg 1 "$r" "g8g depends $dep"
+  grep -q 'guard:q' "$tmp/err" || fail "g8g depends $dep: the unresolvable edge was not reported"
+done
+wired "$r" '/bin/sh scripts/check-alpha.sh' "depends = [\"check:structured\"]$target
+
+[tasks.\"check:structured\"]
+run = [{ task = \"guard:q\" }]"
+expect_mise 2 "$r" planted "g8g structured unknown"
+expect_cg 1 "$r" "g8g structured unknown"
+grep -q 'guard:q' "$tmp/err" || fail "g8g structured: the unresolvable edge was not reported"
+echo "ok: g8g hidden tasks, depends arguments and env, and structured run entries are followed"
 
 echo "ALL PASS: check-guard-wiring"
