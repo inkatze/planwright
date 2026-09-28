@@ -819,14 +819,14 @@ bdir=$(dirname "$(field "$OUT" brief)")
 # grounds before either reaches the brief, and the strip is flagged; ordinary
 # UTF-8 (an accent, an em dash sharing the bidi controls' lead bytes) stays.
 new_case
-invis_codes='\302\255 \330\234 \341\240\216 \342\200\213 \342\200\217 \342\200\250 \342\200\251 \342\200\255 \342\200\256 \342\201\240 \342\201\244 \342\201\246 \342\201\251 \357\273\277 \363\240\200\201 \363\240\201\201 \363\240\201\277'
+invis_codes='\302\255 \330\234 \341\240\216 \342\200\213 \342\200\214 \342\200\215 \342\200\217 \342\200\250 \342\200\251 \342\200\255 \342\200\256 \342\201\240 \342\201\244 \342\201\246 \342\201\251 \342\201\252 \342\201\257 \357\273\277 \363\240\200\201 \363\240\201\201 \363\240\201\277 \357\270\200 \357\270\217 \363\240\204\200 \363\240\206\277 \363\240\207\200 \363\240\207\257 \357\277\271 \357\277\273 \341\205\237 \341\205\240 \343\205\244 \357\276\240 \341\236\264 \341\236\265 \302\205'
 invis=''
 for b in $invis_codes; do
   # shellcheck disable=SC2059 # each octal escape is the format
   invis="$invis$(printf "$b")"
 done
 # Each range's outside neighbour, which must survive.
-keep=$(printf '\342\200\220\342\200\247\342\200\257\342\201\245\342\201\252\341\240\215')
+keep=$(printf '\342\200\220\342\200\247\342\200\257\342\201\245\342\201\260\341\240\215\357\270\220\363\240\207\260\357\277\270\357\277\274\341\205\236\341\205\241\343\205\243\357\276\241\341\236\263\341\236\266')
 printf 'Fix the caf\303\251 heading \342\200\224 %sreversed%s now. %s\n' "$invis" "$invis" "$keep" >"$c/ask-u.txt"
 run dispatch readme-typo --backend print --ask-file "$c/ask-u.txt" \
   --grounds-file "$(grounds "visual flight: one ${invis}wording change")" --repo-root "$c/primary"
@@ -861,6 +861,44 @@ run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
   --grounds-file "$(grounds "$(printf '\342\200\213\342\200\213')")" --repo-root "$c/primary"
 [ "$RC" -eq 2 ] || fail "grounds that are empty once stripped must be refused (rc $RC)"
 case $ERR in *"empty once invisible"*) ;; *) fail "the emptied grounds refusal must say why: $ERR" ;; esac
+
+# The strip runs until the text is stable, so a code point split around
+# another, or around a control byte, cannot survive it; the flag reads the
+# same pipeline the brief does.
+new_case
+zw=$(printf '\342\200\213')
+printf 'nested \342\200\342\200\213\213 and \342\200\001\213 split\n' >"$c/ask-n.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "a nested invisible code point must be sanitized, not refused (rc $RC: $ERR)"
+! grep -q "$zw" "$(field "$OUT" brief)" 2>/dev/null || fail "a code point nested inside a broken one survived the strip"
+grep -q '^> nested  and  split$' "$(field "$OUT" brief)" 2>/dev/null || fail "the nested strip must keep the text around it"
+printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}ask$" || fail "a nested strip must be flagged (out: $OUT)"
+gitc "$c/primary" worktree remove --force "$(field "$OUT" worktree)"
+printf 'only \342\200\001\213 here\n' >"$c/ask-n.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary"
+! grep -q "$zw" "$(field "$OUT" brief)" 2>/dev/null || fail "a code point joined by the control-byte drop survived"
+printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}ask$" \
+  || fail "a code point the control-byte drop joined must be flagged (out: $OUT)"
+gitc "$c/primary" worktree remove --force "$(field "$OUT" worktree)"
+printf 'no final newline \342\200\213' >"$c/ask-n.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary"
+grep -q '^> no final newline $' "$(field "$OUT" brief)" 2>/dev/null || fail "an ask without a final newline must reach the brief"
+gitc "$c/primary" worktree remove --force "$(field "$OUT" worktree)"
+printf 'no final newline, clean' >"$c/ask-n.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary"
+case $OUT in *"sanitized${TAB}"*) fail "a clean ask without a final newline must not be flagged (out: $OUT)" ;; esac
+# The ask is read once, so a file changed mid-dispatch cannot slip past the
+# size cap or the flag.
+# shellcheck disable=SC2016 # a literal redirect from the variable is the pattern
+[ "$(grep -v '^[[:space:]]*#' "$SCRIPT" | grep -c '<"$ask_file"')" -eq 1 ] \
+  || fail "flight-dispatch.sh must read the ask file exactly once"
+# shellcheck disable=SC2016
+[ "$(grep -v '^[[:space:]]*#' "$SCRIPT" | grep -c '<"$grounds_file"')" -eq 1 ] \
+  || fail "flight-dispatch.sh must read the grounds file exactly once"
 
 # A grounds file named like an option is read as a file, never as `cat`'s
 # option or stdin.

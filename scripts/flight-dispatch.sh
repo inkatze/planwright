@@ -442,18 +442,40 @@ worker_root() {
 }
 
 # INVIS_SED deletes the invisible and bidi-control code points (their UTF-8
-# byte sequences, matched bytewise under LC_ALL=C): soft hyphen, Arabic letter
-# mark, Mongolian vowel separator, zero-width and directional marks, line and
-# paragraph separators, embeddings and overrides, invisible operators,
-# isolates, the byte-order mark, and the tag block. Either could hide or
-# reorder operator text in the brief.
-INVIS_SED=$(printf 's/\302\255//g;s/\330\234//g;s/\341\240\216//g;s/\342\200[\213-\217\250-\256]//g;s/\342\201[\240-\244\246-\251]//g;s/\357\273\277//g;s/\363\240[\200\201][\200-\277]//g')
+# byte sequences, matched bytewise under LC_ALL=C): NEL, soft hyphen, Arabic
+# letter mark, the Hangul and Khmer fillers, Mongolian vowel separator,
+# zero-width joiners and directional marks, line and paragraph separators,
+# embeddings and overrides, invisible operators, isolates and the deprecated
+# format controls, variation selectors, the byte-order mark, interlinear
+# annotation controls, and the tag block. Either could hide or reorder
+# operator text in the brief.
+INVIS_SED=$(printf 's/\302[\205\255]//g;s/\330\234//g;s/\341\205[\237\240]//g;s/\341\236[\264\265]//g;s/\341\240\216//g;s/\342\200[\213-\217\250-\256]//g;s/\342\201[\240-\244\246-\257]//g;s/\343\205\244//g;s/\357\270[\200-\217]//g;s/\357\273\277//g;s/\357\276\240//g;s/\357\277[\271-\273]//g;s/\363\240[\200\201][\200-\277]//g;s/\363\240[\204-\206][\200-\277]//g;s/\363\240\207[\200-\257]//g')
 
-# quote_block — the ask as a Markdown quote, one `> ` per line, control bytes
-# (other than tab and newline) and invisible or bidi code points dropped: data
+# clean_text <in> <out> — write <in> with control bytes (other than tab and
+# newline) dropped, then the invisible and bidi code points stripped until the
+# text is stable: one deletion can join the bytes around it into another code
+# point. CLEAN_STRIPPED is 1 when the strip removed anything, judged on the
+# same pipeline the brief is written from.
+CLEAN_STRIPPED=0
+clean_text() {
+  # The empty sed pass normalizes a missing final newline, which sed adds, so
+  # the strip loop compares like with like.
+  tr -d '\000-\010\013-\037\177' <"$1" | sed '' >"$2.base" || return 1
+  cp "$2.base" "$2" || return 1
+  while :; do
+    sed "$INVIS_SED" <"$2" >"$2.next" || return 1
+    cmp -s "$2" "$2.next" && break
+    mv "$2.next" "$2" || return 1
+  done
+  CLEAN_STRIPPED=0
+  cmp -s "$2.base" "$2" || CLEAN_STRIPPED=1
+  rm -f "$2.base" "$2.next"
+}
+
+# quote_block — the cleaned ask as a Markdown quote, one `> ` per line: data
 # for the worker, never a heading or fence that could restructure the brief.
 quote_block() {
-  tr -d '\000-\010\013-\037\177' <"$1" | sed "$INVIS_SED" | sed 's/^/> /'
+  sed 's/^/> /' <"$1"
 }
 
 # has_ctl <text> — true when the text carries a control byte, which would
@@ -760,17 +782,23 @@ cmd_dispatch() {
     '' | *"$LF"* | *[!a-z0-9-]* | [!a-z0-9]*) die 2 "refusing a malformed slug (expected ^[a-z0-9][a-z0-9-]*\$)" ;;
   esac
   [ "${#slug}" -le 55 ] || die 2 "refusing an over-long slug (55 characters at most)"
-  [ -n "$ask_file" ] && [ -f "$ask_file" ] && [ -r "$ask_file" ] && [ -s "$ask_file" ] \
+  # Each operator file is read once, into the dispatch's own copy, and every
+  # check and the brief work from that copy: a file changed mid-dispatch
+  # cannot slip past the size cap or the strip flag.
+  [ -n "$ask_file" ] && [ -f "$ask_file" ] && [ -r "$ask_file" ] \
     || die 2 "--ask-file must name a readable, non-empty regular file"
-  _ask_bytes=$(wc -c <"$ask_file" | tr -d ' ')
+  head -c "$((ASK_MAX + 1))" <"$ask_file" >"$work/ask.raw" || die 2 "cannot read --ask-file"
+  _ask_bytes=$(wc -c <"$work/ask.raw" | tr -d ' ')
+  [ "$_ask_bytes" -gt 0 ] || die 2 "--ask-file must name a readable, non-empty regular file"
   [ "$_ask_bytes" -le "$ASK_MAX" ] || die 2 "--ask-file is larger than $ASK_MAX bytes"
   [ -n "$grounds_file" ] && [ -f "$grounds_file" ] && [ -r "$grounds_file" ] \
     || die 2 "--grounds-file must name a readable regular file: a route is never silent"
-  _g_bytes=$(wc -c <"$grounds_file" | tr -d ' ')
+  head -c 403 <"$grounds_file" >"$work/grounds.raw" || die 2 "cannot read --grounds-file"
+  _g_bytes=$(wc -c <"$work/grounds.raw" | tr -d ' ')
   [ "$_g_bytes" -le 402 ] || die 2 "the grounds must be one line of 400 characters at most"
-  [ "$(wc -l <"$grounds_file" | tr -d ' ')" -le 1 ] \
+  [ "$(wc -l <"$work/grounds.raw" | tr -d ' ')" -le 1 ] \
     || die 2 "--grounds-file must hold one line"
-  grounds=$(cat <"$grounds_file") || die 2 "cannot read --grounds-file"
+  grounds=$(cat "$work/grounds.raw") || die 2 "cannot read --grounds-file"
   [ -n "$grounds" ] || die 2 "--grounds-file is empty: a route is never silent"
   [ "$(printf '%s' "$grounds" | tr -d '\000-\037\177')" = "$grounds" ] \
     || die 2 "the grounds must be one line without control characters"
@@ -778,16 +806,15 @@ cmd_dispatch() {
   # Both operator-text channels get the same screen: stripped and flagged,
   # never refused, since the text is the operator's and only its hidden
   # characters are hostile.
-  ask_sanitized=0
-  [ "$(sed "$INVIS_SED" <"$ask_file" | cksum)" = "$(sed '' <"$ask_file" | cksum)" ] || {
-    ask_sanitized=1
-    echo "$prog: NOTE: invisible or bidi-control characters were stripped from the ask" >&2
-  }
-  grounds_sanitized=0
-  _g=$(printf '%s\n' "$grounds" | sed "$INVIS_SED")
-  if [ "$_g" != "$grounds" ]; then
-    grounds=$_g
-    grounds_sanitized=1
+  clean_text "$work/ask.raw" "$work/ask" || die 4 "cannot sanitize the ask"
+  ask_file="$work/ask"
+  ask_sanitized=$CLEAN_STRIPPED
+  [ "$ask_sanitized" -eq 0 ] \
+    || echo "$prog: NOTE: invisible or bidi-control characters were stripped from the ask" >&2
+  clean_text "$work/grounds.raw" "$work/grounds" || die 4 "cannot sanitize the grounds"
+  grounds_sanitized=$CLEAN_STRIPPED
+  if [ "$grounds_sanitized" -eq 1 ]; then
+    grounds=$(cat "$work/grounds")
     echo "$prog: NOTE: invisible or bidi-control characters were stripped from the grounds" >&2
     [ -n "$grounds" ] || die 2 "the grounds are empty once invisible characters are stripped: a route is never silent"
   fi
@@ -845,10 +872,10 @@ cmd_dispatch() {
     exit 3
   fi
 
-  flight_id=$(/bin/sh "$FLIGHT_ID" new "$slug" --repo-root "$repo_root" 2>"$tmpdir_err" </dev/null)
+  flight_id=$(/bin/sh "$FLIGHT_ID" new "$slug" --repo-root "$repo_root" 2>"$work/mint.err" </dev/null)
   _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    cat "$tmpdir_err" >&2
+    cat "$work/mint.err" >&2
     case $_rc in
       2) die 2 "the slug was refused by the flight-id grammar" ;;
       *) die 5 "could not mint a flight id (flight-id exit $_rc); nothing was placed" ;;
@@ -988,9 +1015,9 @@ cmd_dispatch() {
 cmd=$1
 shift
 repo_root=''
-tmpdir_err=''
+work=''
 cleanup() {
-  [ -z "$tmpdir_err" ] || rm -f "$tmpdir_err"
+  [ -z "$work" ] || rm -rf "$work"
   release_lock
 }
 case $cmd in
@@ -1001,7 +1028,7 @@ case $cmd in
     ;;
   dispatch)
     trap cleanup EXIT
-    tmpdir_err=$(mktemp "${TMPDIR:-/tmp}/flight-dispatch.XXXXXX") || die 4 "cannot create a temporary file"
+    work=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/flight-dispatch.XXXXXX") || die 4 "cannot create a temporary directory"
     cmd_dispatch "$@"
     ;;
   *) usage ;;
