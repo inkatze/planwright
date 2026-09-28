@@ -36,12 +36,15 @@
 #   retire [--repo-root <dir>]
 #       Remove the brief directory of each of this checkout's retired flights
 #       (its worktree removed, or gone and prunable), one `retired<TAB><id>`
-#       line each, under the checkout's flight lock. Every dispatch runs the
-#       same sweep. Other checkouts' briefs, and briefs younger than the
-#       lock's stale threshold, stay; so does everything when the worktree
-#       list or the flights directory cannot be read, the flights directory is
-#       not private to the user, or an entry's name carries a newline (exit 4).
-#       A removal that fails is named on stderr and exits 4.
+#       line each, under the checkout's flight lock. Other checkouts' briefs,
+#       and briefs younger than the lock's stale threshold, stay; so does
+#       everything when the worktree list or the flights directory cannot be
+#       read, the fleet home or the flights directory is not private to the
+#       user, or an entry's name carries a newline (exit 4). A removal that
+#       fails is named on stderr and exits 4. No fleet home yet is a clean
+#       exit 0 with no output. Every dispatch runs the same sweep under its
+#       lock: there a failed removal is only named on stderr, while a refused
+#       sweep stops the dispatch with exit 4 before anything is placed.
 #   dispatch <slug> --backend <tmux|print> --ask-file <file>
 #       --grounds-file <file> [--home pr|file] [--repo-root <dir>]
 #       [--attach-dry-run]
@@ -92,7 +95,9 @@
 # root-skew (yes|no|unknown): the resolved plugin-root pair, so a tower and its
 # worker running different planwright versions is visible at dispatch. A
 # decline is `declined<TAB><live><TAB><bound>` plus a `reask` line, after any
-# `retired` lines the sweep printed. A failed
+# `retired` lines the sweep printed. A print-rung flight whose pinned launch
+# cannot be built reports through `backend`, then `failed` and a `reask` line
+# saying the placed worktree holds a slot, and nothing after. A failed
 # placement is `failed<TAB><reason>` plus the flight, branch, and the worktree
 # and brief left behind, if any; a worktree left behind adds a `reask` line
 # saying it holds a slot. When the worktree list cannot be read, the worktree
@@ -103,16 +108,17 @@
 #
 # Exit codes: 0 placed / declared / retired; 2 usage, a malformed or hostile
 # input (a fleet home outside the brief path charset included), a refused rung
-# or `--home pr`, or a missing sibling helper (nothing placed); 3 declined at the bound, or withheld by the allocation admission
-# gate (nothing placed); 4 a resolver, the fleet home, the worktree list, or
-# the flight lock could not be read or taken, the brief directory was refused
-# (not private to the user, a symlinked flights directory, or already
-# present), or the base could not be fetched fresh (nothing placed, unless a
+# or `--home pr`, or a missing sibling helper (nothing placed); 3 declined at
+# the bound, or withheld by the allocation admission gate (nothing placed); 4
+# a resolver, the fleet home, the worktree list, or the flight lock could not
+# be read or taken, the fleet home or the brief directory was refused (not
+# private to the user, a symlinked flights directory, or already present),
+# the brief sweep refused to run, or the base could not be fetched fresh (nothing placed, unless a
 # `failed` report names a worktree left behind); 5 the id could not be minted,
 # the brief could not be written, or the placement failed (the `failed` report
 # names what was left behind), or, on the print rung, the pinned launch could
-# not be built after the flight was placed (the report ends on a `failed` and
-# a `reask` line instead of `launch`, and the stderr line names the placed
+# not be built after the flight was placed (the report stops after `backend`
+# with a `failed` and a `reask` line, and the stderr line names the placed
 # worktree, which holds a slot).
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.

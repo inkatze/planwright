@@ -152,8 +152,8 @@ By the selected rung:
   of at most 400 characters without control characters, and a non-empty ask of
   at most 64 KiB; invisible or bidi Unicode in either is stripped, and a
   `sanitized` line says so: relay it. `--home pr` is refused (exit 2) whenever
-  `home` would not declare it. An exit 5 whose report ends on a `failed` line
-  instead of `launch` placed the flight without a launch: relay it and its
+  `home` would not declare it. An exit 5 whose `failed` line comes after
+  `backend` placed the flight without a launch: relay it and its
   stderr and, as for a `failed` worktree, never re-dispatch the ask. The flight path drives no
   other rung; say so and ask the
   operator to choose tmux or print.

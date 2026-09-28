@@ -4,10 +4,12 @@
 #
 # Properties verified:
 #   1. `home` declares the record's home from the one predicate: `pr` when
-#      `origin`'s push destination is on a host `flight_pr_hosts` approves and
-#      `gh` is authenticated, `file` otherwise; it reports that destination
-#      and, for `file`, why. A `pr` home the predicate refuses is refused at
-#      dispatch too.
+#      every push destination of `origin` is one `flight_pr_hosts` approves
+#      (the shipped list is empty; the repo-tracked layer, and a tracked
+#      machine-local file, are never read for it) and `gh` is authenticated,
+#      `file` otherwise; it reports the first destination and, for `file`,
+#      why. Userinfo that could hide the host is refused. A `pr` home the
+#      predicate refuses is refused at dispatch too.
 #   2. Rung selection stays in /offload (REQ-C1.2): `dispatch` takes the rung
 #      as an input, refuses to run without one, refuses the rungs a flight
 #      cannot fly on with the reason, and names no backend-set reader.
@@ -25,7 +27,7 @@
 #      worktree removed, or its directory gone and prunable) admits the
 #      re-ask; `0` pauses flights; a busy lock or an unreadable config fails
 #      closed; no concurrency key but `max_parallel_units` is read (the
-#      home reads `flight_pr_hosts`).
+#      home reads `flight_pr_hosts`, the sweep `stale_lock_threshold`).
 #   6. Two flights from one slug never collide (REQ-C1.1).
 #   7. The tmux rung hands the worker its brief through the native
 #      `claude --worktree` attach.

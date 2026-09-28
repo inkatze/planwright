@@ -134,7 +134,8 @@
 #   2  usage / invalid input (fail closed — a malformed or hostile token is
 #      never interpolated).
 #   3  already-in-flight: a LIVE concurrent/repeat dispatch, or a registered
-#      flight worktree (the intended collision guard).
+#      flight worktree, or on the flight arm a worktree list that cannot be
+#      read (the intended collision guard).
 #   4  cannot resolve a fresh `<base>`: the remote is present but the fetch
 #      failed after retries (stale ref) — the dispatch must not proceed on a
 #      stale base.
