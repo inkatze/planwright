@@ -17,11 +17,13 @@
 # fences) sits at column zero. The ask and the grounds are operator text: each
 # is stripped of control and invisible characters, its token-shaped secrets
 # redacted a whole line at a time, and it is quoted inside a fence longer than
-# any backtick run it holds with every line indented two spaces, so no fence,
-# tag, heading, or marker it carries renders, closes the collapse, or reaches
-# column zero where a line-anchored reader would take it for structure.
-# Worker-authored inputs are stripped the same way and refused, never
-# rewritten, when they carry a structural line or a token-shaped secret.
+# any backtick run it holds with every non-blank line indented two spaces, so
+# no fence, tag, heading, or marker it carries renders, closes the collapse, or
+# reaches column zero where a line-anchored reader would take it for
+# structure. Worker-authored inputs are stripped the same way and refused,
+# never rewritten, when they carry a token-shaped secret or markup that would
+# reshape the record around them (a details or summary tag, a record marker,
+# an open comment or HTML block, an unclosed fence).
 #
 # Usage:
 #   flight-record.sh render --home pr|file <inputs>
@@ -29,17 +31,18 @@
 #       refused (exit 3) and nothing is printed: a truncated record would drop
 #       the contract's tail.
 #   flight-record.sh land <inputs> [--repo-root <dir>]
-#       The no-remote arm: write the `file` record to
+#       The no-remote arm, run in the flight's worktree (or at its top level
+#       via --repo-root): write the `file` record to
 #       `specs/_flights/<flight-id>.md` and commit that one file on the
 #       flight's own branch, reporting `record<TAB><path>` and
 #       `commit<TAB><sha>`. Refused (exit 3, nothing written) off the branch
 #       `planwright/flight/<flight-id>`, when the record already exists, when
-#       `specs/` or `specs/_flights/` is a symlink, or when the index holds
-#       other staged changes.
+#       `specs/` or `specs/_flights/` is a symlink or not a directory, or when
+#       the index holds other staged changes.
 #
 #   <inputs>, a later flag overriding an earlier one:
 #     --flight-id <id>            grammar-checked by scripts/flight-id.sh
-#     --ask-file <file>           the ask as dispatch cleaned it
+#     --ask-file <file>           the ask as the operator gave it
 #     --grounds-file <file>       the route's one-line grounds
 #     --summary-file <file>       what changed and why (the lead)
 #     --verification-file <file>  how it was verified (the lead)
@@ -47,7 +50,8 @@
 #                                 for each of Lens coverage, Auto-applicable,
 #                                 Agent-resolvable, Needs sign-off, Needs human
 #                                 judgment, Declined log, Pending sign-off, and
-#                                 Convergence steps
+#                                 Convergence steps (the record nests them
+#                                 under its own `###` heading, so `####`)
 #     --handle <handle>           the worker handle
 #     --scoping-file <file>       optional: the rigor scoping applied; absent
 #                                 means none was
@@ -55,12 +59,14 @@
 #                                 home's default
 #
 # The lead may not restate the ask: a summary or verification carrying the
-# whole ask, or one of its longer lines, is refused (exit 2).
+# whole ask (of RESTATE_WHOLE_MIN characters or more) or one of its lines (of
+# RESTATE_LINE_MIN or more), up to case and spacing, is refused (exit 2).
 #
 # Exit codes: 0 rendered or landed · 2 usage or an input refused · 3 refused
 # by state (over the PR-body limit; for land, the branch, an existing record,
-# or a staged index) · 4 an environment failure (a sanitizer, the secret
-# screen, or git could not run).
+# a symlinked or non-directory specs path, or a staged index) · 4 an
+# environment failure (a missing helper, a sanitizer, the secret screen, or git
+# could not run).
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf
@@ -72,18 +78,31 @@ prog=flight-record
 LF='
 '
 
-script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
+script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 4
 FLIGHT_ID="$script_dir/flight-id.sh"
 SCREEN="$script_dir/inception-secret-screen.sh"
+TEXT="$script_dir/flight-text.sh"
+for _h in "$FLIGHT_ID" "$SCREEN" "$TEXT"; do
+  [ -f "$_h" ] && [ -r "$_h" ] || {
+    printf '%s: required helper missing: %s\n' "$prog" "$_h" >&2
+    exit 4
+  }
+done
 
 # shellcheck source=scripts/flight-text.sh
-. "$script_dir/flight-text.sh"
+. "$TEXT"
 
-# The ask dispatch accepts, in bytes; each worker input's cap; GitHub's
-# PR-body limit, in characters, which a byte count never undershoots.
-ASK_MAX=65536
+# Each worker input's cap; GitHub's PR-body limit, in characters, which a
+# byte count never undershoots; the grounds' cap, with room over dispatch's
+# one line for a hand-run render. ASK_MAX comes from flight-text.sh.
 INPUT_MAX=262144
 PR_BODY_MAX=65536
+GROUNDS_MAX=1024
+
+# The shortest whole ask, and the shortest ask line, the restated-prompt
+# check compares: below them an overlap is ordinary wording, not a restatement.
+RESTATE_WHOLE_MIN=16
+RESTATE_LINE_MIN=24
 
 die() {
   _rc=$1
@@ -183,6 +202,54 @@ redact() {
   fi
 }
 
+# markup_hazard <file> — name the first construct in a worker input that
+# could reshape the record around it, printing nothing when there is none:
+# a details or summary tag anywhere on a line (the collapse), a record
+# marker, an HTML block that runs past its line (a comment left open, or a
+# pre, script, style, textarea, processing instruction, declaration, or
+# CDATA opener), or a fence left open, each of which would swallow what the
+# record renders after the input. Inside a closed fence or comment nothing is
+# a hazard.
+markup_hazard() {
+  awk '
+    function hazard(what) { print what; found = 1; exit }
+    {
+      l = $0
+      low = tolower(l)
+      if (fence) {
+        if (match(l, /^ ? ? ?(`+|~+)[ \t]*$/)) {
+          f = substr(l, RSTART, RLENGTH)
+          gsub(/[ \t]/, "", f)
+          if (substr(f, 1, 1) == fc && length(f) >= fl) fence = 0
+        }
+        next
+      }
+      if (comment) {
+        if (index(l, "-->")) comment = 0
+        next
+      }
+      if (match(l, /^ ? ? ?(```+|~~~+)/)) {
+        f = substr(l, RSTART, RLENGTH)
+        gsub(/ /, "", f)
+        fc = substr(f, 1, 1)
+        fl = length(f)
+        if (fc == "`" && index(substr(l, RSTART + RLENGTH), "`")) next
+        fence = 1
+        next
+      }
+      if (low ~ /<\/?(details|summary)([ \t>\/]|$)/) hazard("a details or summary tag")
+      if (low ~ /^[ \t]*<!--[ \t]*planwright:flight-record/) hazard("a record marker")
+      if (low ~ /^ ? ? ?<(pre|script|style|textarea)([ \t>]|$)/) hazard("an HTML block tag")
+      if (low ~ /^ ? ? ?<(\?|![a-z]|!\[cdata\[)/) hazard("an HTML declaration or processing instruction")
+      if (match(l, /^ ? ? ?<!--/) && !index(substr(l, RSTART + RLENGTH), "-->")) comment = 1
+    }
+    END {
+      if (found) exit
+      if (fence) print "an unclosed fence"
+      else if (comment) print "an unclosed HTML comment"
+    }' "$1"
+}
+
 # worker_text <name> <file> <out> — a worker-authored input: cleaned, and
 # refused if it carries a structural line. Its secret check runs with the
 # others, in refuse_secrets.
@@ -190,9 +257,8 @@ worker_text() {
   read_capped "$1" "$2" "$INPUT_MAX" "$work/$1.raw"
   clean_text "$work/$1.raw" "$3" || die 4 "cannot sanitize --$1"
   ! blank "$3" || die 2 "--$1 is empty"
-  if grep -Eiq '^[[:space:]]*(</?details([[:space:]>]|$)|</?summary([[:space:]>]|$)|<!--[[:space:]]*planwright:flight-record)' "$3"; then
-    die 2 "--$1 carries a line the record's structure owns (a details or summary tag, or a record marker)"
-  fi
+  _why=$(markup_hazard "$3") || die 4 "cannot read --$1"
+  [ -z "$_why" ] || die 2 "--$1 carries $_why, which would alter the record's structure; remove it and render again"
 }
 
 # refuse_secrets <name> <file> — refuse a worker input the screen flagged,
@@ -209,33 +275,34 @@ normalize() {
 }
 
 # restates_ask — true when the lead carries the whole ask, or one of its lines
-# of 24 characters or more, verbatim up to case and spacing.
+# verbatim up to case and spacing (the RESTATE_ thresholds above).
 restates_ask() {
   cat "$work/summary" "$work/verification" >"$work/lead.txt" || die 4 "cannot assemble the lead"
   normalize "$work/lead.txt" >"$work/lead.norm"
   normalize "$work/ask" >"$work/ask.norm"
-  awk '
+  awk -v whole="$RESTATE_WHOLE_MIN" -v line="$RESTATE_LINE_MIN" '
     NR == FNR { lead = $0; next }
-    FILENAME ~ /ask\.norm$/ { if (length($0) >= 16 && index(lead, $0)) hit = 1; next }
+    FILENAME ~ /ask\.norm$/ { if (length($0) >= whole && index(lead, $0)) hit = 1; next }
     {
       s = tolower($0)
       gsub(/[ \t\r]+/, " ", s)
       sub(/^ /, "", s)
       sub(/ $/, "", s)
       if (s ~ /^\[redacted: /) next
-      if (length(s) >= 24 && index(lead, s)) hit = 1
+      if (length(s) >= line && index(lead, s)) hit = 1
     }
     END { exit hit ? 0 : 1 }' "$work/lead.norm" "$work/ask.norm" "$work/ask"
 }
 
 # fenced <file> — the file as a `text` fence longer than any backtick run it
-# holds, each non-blank line indented two spaces.
+# holds, each non-blank line indented two spaces and every line, the last
+# included, newline-terminated so the closing fence stands on its own line.
 fenced() {
   _fence=$(awk '
     { s = $0; while (match(s, /`+/)) { if (RLENGTH > m) m = RLENGTH; s = substr(s, RSTART + RLENGTH) } }
     END { n = m + 1; if (n < 3) n = 3; for (i = 0; i < n; i++) printf "`" }' "$1")
   printf '%stext\n' "$_fence"
-  sed 's/^\(.\)/  \1/' "$1"
+  awk '{ print (length($0) ? "  " $0 : "") }' "$1"
   printf '%s\n' "$_fence"
 }
 
@@ -248,14 +315,13 @@ pending_ids() {
 # render_to <out> — write the record for $home.
 # shellcheck disable=SC2016 # the backticks are Markdown code spans
 render_to() {
-  branch=planwright/flight/$flight_id
   _pending=$(pending_ids)
   {
     printf '<!-- planwright:flight-record id=%s home=%s -->\n' "$flight_id" "$home"
     printf '## Summary\n\n'
-    cat "$work/summary"
+    cat "$work/summary" || return 1
     printf '\n## Verification\n\n'
-    cat "$work/verification"
+    cat "$work/verification" || return 1
     printf '\n'
     printf -- '- **Flight:** `%s` on `%s` · **Worker:** `%s`\n' "$flight_id" "$branch" "$handle"
     if [ -n "$_pending" ]; then
@@ -269,10 +335,13 @@ render_to() {
     [ "$ask_stripped" -eq 0 ] || printf 'Invisible or control characters were stripped from it.\n'
     [ "$ask_redacted" -eq 0 ] || printf 'Lines carrying a token-shaped secret were redacted whole.\n'
     printf '\n'
-    fenced "$work/ask"
+    fenced "$work/ask" || return 1
     printf '\n### Route and grounds\n\n'
-    printf 'Visual flight. Grounds as the tower stated them:\n\n'
-    fenced "$work/grounds"
+    printf 'Visual flight. Grounds as the tower stated them:\n'
+    [ "$grounds_stripped" -eq 0 ] || printf 'Invisible or control characters were stripped from them.\n'
+    [ "$grounds_redacted" -eq 0 ] || printf 'A token-shaped secret in them was redacted whole.\n'
+    printf '\n'
+    fenced "$work/grounds" || return 1
     printf '\n### Record home\n\n'
     if [ "$home" = pr ]; then
       printf 'The draft PR body of `%s`, declared at routing time.\n' "$branch"
@@ -281,21 +350,21 @@ render_to() {
     fi
     printf '\n### Rigor scoping\n\n'
     if [ -n "$scoping_file" ]; then
-      cat "$work/scoping"
+      cat "$work/scoping" || return 1
     else
       printf 'None applied: every pass in the convergence sequence ran at full rigor.\n'
     fi
     printf '\n### Worker handle\n\n`%s`\n' "$handle"
     printf '\n### Revert path\n\n'
     if [ -n "$revert_file" ]; then
-      cat "$work/revert"
+      cat "$work/revert" || return 1
     elif [ "$home" = pr ]; then
       printf 'Close the draft PR unmerged to discard the flight. After a merge, `git revert` the merge (or the flight'"'"'s commits) on the default branch.\n'
     else
       printf 'Leave `%s` unmerged to discard the flight. After a merge, `git revert` the flight'"'"'s commits: the record rides the same branch, so one revert undoes record and work together.\n' "$branch"
     fi
     printf '\n### Convergence audit\n\n'
-    cat "$work/audit"
+    cat "$work/audit" || return 1
     printf '\n</details>\n\n<!-- planwright:flight-record-end -->\n'
   } >"$1" || die 4 "cannot write the record"
 }
@@ -359,11 +428,11 @@ for _req in flight-id:"$flight_id" ask-file:"$ask_file" grounds-file:"$grounds_f
   [ -n "${_req#*:}" ] || die 2 "--${_req%%:*} is required"
 done
 /bin/sh "$FLIGHT_ID" check "$flight_id" 2>/dev/null </dev/null || die 2 "refusing a malformed flight id"
+branch=planwright/flight/$flight_id
 case $handle in
   *[!A-Za-z0-9._:-]* | [!A-Za-z0-9]*) die 2 "refusing a malformed worker handle (expected [A-Za-z0-9._:-])" ;;
 esac
 [ "${#handle}" -le 128 ] || die 2 "refusing an over-long worker handle"
-[ -x "$SCREEN" ] || [ -f "$SCREEN" ] || die 4 "the secret screen is missing ($SCREEN)"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/flight-record.XXXXXX") || die 4 "cannot create a work directory"
 trap 'rm -rf "$work"' EXIT
@@ -373,7 +442,8 @@ trap 'exit 129' HUP
 
 operator_text ask-file "$ask_file" "$ASK_MAX"
 ask_stripped=$CLEAN_STRIPPED
-operator_text grounds-file "$grounds_file" 1024
+operator_text grounds-file "$grounds_file" "$GROUNDS_MAX"
+grounds_stripped=$CLEAN_STRIPPED
 [ "$(grep -c '' "$work/grounds-file.clean")" -le 1 ] || die 2 "--grounds-file must hold one line"
 
 worker_text summary-file "$summary_file" "$work/summary"
@@ -393,6 +463,7 @@ screen_all "$@"
 redact ask-file "$work/ask"
 ask_redacted=$REDACTED
 redact grounds-file "$work/grounds"
+grounds_redacted=$REDACTED
 refuse_secrets summary-file "$work/summary"
 refuse_secrets verification-file "$work/verification"
 refuse_secrets audit-file "$work/audit"
@@ -414,8 +485,9 @@ if [ "$cmd" = render ]; then
   render_to "$work/record.md"
   if [ "$home" = pr ]; then
     _bytes=$(wc -c <"$work/record.md" | tr -d ' ')
+    _ask_bytes=$(wc -c <"$work/ask" | tr -d ' ')
     [ "$_bytes" -le "$PR_BODY_MAX" ] \
-      || die 3 "the record is $_bytes bytes, over the PR-body limit of $PR_BODY_MAX; trim the audit input (a truncated record would drop the contract's tail)"
+      || die 3 "the record is $_bytes bytes, over the PR-body limit of $PR_BODY_MAX, and the ask alone is $_ask_bytes; trim the worker inputs, or park the flight when the ask leaves too little room (a truncated record would drop the contract's tail)"
   fi
   cat "$work/record.md"
   exit 0
@@ -425,6 +497,9 @@ if [ -z "$repo_root" ]; then
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || die 4 "not inside a git worktree"
 fi
 [ -d "$repo_root" ] || die 2 "--repo-root is not a directory"
+_top=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || die 4 "--repo-root is not inside a git worktree"
+[ "$(cd "$repo_root" && pwd -P)" = "$(cd "$_top" && pwd -P)" ] \
+  || die 2 "--repo-root must be the worktree's top level ($_top), where specs/_flights/ lives"
 _head=$(git -C "$repo_root" symbolic-ref -q --short HEAD 2>/dev/null) || _head=''
 [ "$_head" = "planwright/flight/$flight_id" ] \
   || die 3 "land runs on the flight's own branch, planwright/flight/$flight_id; nothing was written"
@@ -450,7 +525,7 @@ render_to "$work/record.md"
 mkdir -p "$repo_root/specs/_flights" || die 4 "cannot create specs/_flights"
 cp "$work/record.md" "$repo_root/$rel" || die 4 "cannot write $rel"
 if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
-  || ! git -C "$repo_root" commit -q -m "docs(flight): record flight $flight_id" -- "$rel" >/dev/null 2>>"$work/git.err"; then
+  || ! git -C "$repo_root" commit -q -m "docs(flight): record flight $flight_id" -- "$rel" >>"$work/git.err" 2>&1; then
   git -C "$repo_root" rm -q --cached --ignore-unmatch -- "$rel" >/dev/null 2>&1 || :
   rm -f "$repo_root/$rel"
   sed 's/^/  /' "$work/git.err" | tr -d '\000-\010\013-\037\177' >&2

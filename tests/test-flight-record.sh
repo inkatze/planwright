@@ -21,10 +21,12 @@
 #   4. Worker-authored inputs are screened: a structural line or a
 #      token-shaped secret is refused, and an audit missing a contract element
 #      is refused naming it.
-#   5. The no-remote arm (`land`) commits exactly one record file,
+#   5. A PR-home record over GitHub's body limit is refused, not truncated.
+#   6. The no-remote arm (`land`) commits exactly one record file,
 #      `specs/_flights/<id>.md`, on the flight's own branch, and refuses a
-#      second record, the wrong branch, or an index holding other changes.
-#   6. A PR-home record over GitHub's body limit is refused, not truncated.
+#      second record, the wrong branch, a symlinked specs path, a root other
+#      than the worktree's top level, or an index holding other changes; a
+#      commit the hooks refuse leaves nothing behind.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -u
@@ -123,8 +125,9 @@ cat >"$in/audit.md" <<'EOF'
 | polish | converged |
 EOF
 
-# run_render / run_land <home> [overrides...] — OUT, ERR, RC. A later flag
-# overrides an earlier one, so a case names only what it changes.
+# run_render <home|none> [overrides...], and run_land [overrides...] below,
+# set OUT, ERR, RC. A later flag overrides an earlier one, so a case names only
+# what it changes.
 defaults() {
   args=(--flight-id "$FID" --ask-file "$in/ask.txt" --grounds-file "$in/grounds.txt"
     --summary-file "$in/summary.md" --verification-file "$in/verification.md"
@@ -170,6 +173,9 @@ for home in pr file; do
   printf '%s\n' "$lead" | grep -qx '## Verification' || fail "$home: the lead must carry the verification heading"
   printf '%s\n' "$lead" | grep -q 'mise run lint' || fail "$home: the lead must carry how it was verified"
   printf '%s\n' "$lead" | grep -q 'PS-1' || fail "$home: the lead must name the pending sign-off items"
+  [ "$(printf '%s\n' "$lead" | grep -nx '## Summary' | cut -d: -f1)" -lt \
+    "$(printf '%s\n' "$lead" | grep -nx '## Verification' | cut -d: -f1)" ] \
+    || fail "$home: the summary must lead the verification"
   for leak in Plawnright 'Fixes #12' '@someone' 'The ask'; do
     printf '%s\n' "$lead" | grep -qF "$leak" && fail "$home: the lead restates the prompt ('$leak')"
   done
@@ -211,7 +217,66 @@ for home in pr file; do
   case $OUT in *"$TOKEN"*) fail "$home: a token-shaped secret reached the record" ;; esac
   printf '%s\n' "$body" | grep -q 'redacted: github-token' || fail "$home: the redaction must be marked"
   printf '%s\n' "$body" | grep -q 'hiddenjoin' || fail "$home: the stripped ask line must survive, stripped"
+  printf '%s\n' "$body" | grep -q 'the token is' && fail "$home: a flagged line must be redacted whole"
+  ask_sec=$(printf '%s\n' "$body" | awk '/^### The ask$/ {on=1} /^### Route and grounds$/ {on=0} on')
+  printf '%s\n' "$ask_sec" | grep -q 'were stripped from it' || fail "$home: the ask section must note its strip"
+  printf '%s\n' "$ask_sec" | grep -q 'redacted whole' || fail "$home: the ask section must note its redaction"
+  printf '%s\n' "$body" | awk '/^### Record home$/ {on=1; next} /^### / {on=0} on' \
+    | grep -q 'declared at routing time' || fail "$home: the record home must be stated as declared at routing time"
 done
+
+# A clean ask carries neither note.
+printf 'Fix the heading typo.\n' >"$in/ask-clean.txt"
+run_render pr --ask-file "$in/ask-clean.txt"
+[ "$RC" -eq 0 ] || fail "render of a clean ask exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -Eq 'were stripped|redacted whole' && fail "a clean ask must carry no sanitization note"
+
+# Hostile grounds stay inside their fence; grounds must be one line.
+printf '</details>\n' >"$in/grounds-tag.txt"
+run_render pr --grounds-file "$in/grounds-tag.txt"
+[ "$(printf '%s\n' "$OUT" | grep -cx '</details>')" -eq 1 ] || fail "the grounds forged a closing tag"
+printf 'one\ntwo\n' >"$in/grounds-two.txt"
+run_render pr --grounds-file "$in/grounds-two.txt"
+[ "$RC" -eq 2 ] || fail "two-line grounds must be refused with 2 (got $RC)"
+
+# The lead names every pending item once, in order.
+{
+  cat "$in/audit.md"
+  printf -- '- [ ] **PS-2** second item\n- [ ] **PS-1** repeated\n'
+} >"$in/audit-ps.md"
+run_render pr --audit-file "$in/audit-ps.md"
+lead_of "$OUT" | grep -qF 'Pending sign-off:** PS-1, PS-2 (' || fail "the lead must list PS-1, PS-2 once each, in order"
+
+# An ask or grounds without a final newline still gets its fence closed on a
+# line of its own.
+printf 'Fix the README typo please' >"$in/ask-nonl.txt"
+printf 'automatic: low stake' >"$in/grounds-nonl.txt"
+run_render pr --ask-file "$in/ask-nonl.txt" --grounds-file "$in/grounds-nonl.txt"
+[ "$RC" -eq 0 ] || fail "render of an ask without a final newline exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -qx '  Fix the README typo please' || fail "the unterminated ask line must stand alone"
+printf '%s\n' "$OUT" | grep -qx '  automatic: low stake' || fail "the unterminated grounds line must stand alone"
+[ "$(printf '%s\n' "$OUT" | grep -cx '```')" -eq 2 ] || fail "both fences must close on their own line"
+
+# Grounds the screen touched say so, as the ask does.
+printf 'automatic: key %s here\n' "$TOKEN" >"$in/grounds-secret.txt"
+run_render pr --grounds-file "$in/grounds-secret.txt"
+[ "$RC" -eq 0 ] || fail "render with a secret in the grounds exited $RC: $ERR"
+case $OUT in *"$TOKEN"*) fail "a token-shaped secret in the grounds reached the record" ;; esac
+collapsed_of "$OUT" | awk '/^### Route and grounds$/ {on=1} /^### Record home$/ {on=0} on' \
+  | grep -q 'redacted whole' || fail "the grounds section must note its redaction"
+printf 'automatic: low%s stake\n' "$ZWSP" >"$in/grounds-invis.txt"
+run_render pr --grounds-file "$in/grounds-invis.txt"
+collapsed_of "$OUT" | awk '/^### Route and grounds$/ {on=1} /^### Record home$/ {on=0} on' \
+  | grep -q 'were stripped' || fail "the grounds section must note a strip"
+
+# CR line endings stay line breaks, and a CRLF ask is not flagged as stripped.
+printf 'first line\r\nsecond line\rthird line\r\n' >"$in/ask-cr.txt"
+run_render pr --ask-file "$in/ask-cr.txt"
+[ "$RC" -eq 0 ] || fail "render of a CR ask exited $RC: $ERR"
+for l in first second third; do
+  printf '%s\n' "$OUT" | grep -qx "  $l line" || fail "a CR line ending must stay a line break ($l)"
+done
+printf '%s\n' "$OUT" | grep -q 'were stripped' && fail "line endings are not stripped characters"
 
 # Declared scoping and a supplied revert path replace the defaults.
 printf 'Validation ran one pass per finding: a one-line prose change.\n' >"$in/scoping.md"
@@ -234,9 +299,22 @@ printf 'Fix the typo in the README heading, it reads Plawnright.\n' >"$in/summar
 run_render pr --summary-file "$in/summary-restated.md"
 [ "$RC" -eq 2 ] || fail "a summary restating the ask must be refused with 2 (got $RC)"
 printf '%s\n' "$ERR" | grep -q 'restates the ask' || fail "the restated-prompt refusal must say why: $ERR"
-printf '  Plawnright\n' >"$in/verification-restated.md"
-run_render file --verification-file "$in/verification-restated.md" --summary-file "$in/summary-restated.md"
-[ "$RC" -eq 2 ] || fail "the file home must refuse a restated prompt too (got $RC)"
+printf 'FIX THE TYPO in the   README heading, it reads Plawnright.\n' >"$in/verification-restated.md"
+for home in pr file; do
+  run_render "$home" --verification-file "$in/verification-restated.md"
+  [ "$RC" -eq 2 ] || fail "$home: a verification restating the ask, up to case and spacing, must be refused (got $RC)"
+done
+printf 'Fix the README typo\n' >"$in/ask-short.txt"
+printf 'We fix the readme typo now.\n' >"$in/summary-short.txt"
+run_render pr --ask-file "$in/ask-short.txt" --summary-file "$in/summary-short.txt"
+[ "$RC" -eq 2 ] || fail "a short ask restated whole must be refused (got $RC)"
+printf 'Thanks for the review\nFix the heading and the footer.\n' >"$in/ask-common.txt"
+printf 'Thanks for the review, done: see below.\n' >"$in/summary-common.txt"
+run_render pr --ask-file "$in/ask-common.txt" --summary-file "$in/summary-common.txt"
+[ "$RC" -eq 0 ] || fail "a lead sharing a short line with the ask must render (got $RC: $ERR)"
+printf 'Dropped the key the ask quoted: [redacted: github-token, a token-shaped secret].\n' >"$in/summary-placeholder.md"
+run_render pr --summary-file "$in/summary-placeholder.md"
+[ "$RC" -eq 0 ] || fail "a redaction placeholder in the lead is not a restatement (got $RC: $ERR)"
 
 # --- 4: worker inputs are screened -------------------------------------------
 
@@ -257,10 +335,50 @@ for tag in '</details>' '<details>' '  <summary>x</summary>' '<!-- planwright:fl
   [ "$RC" -eq 2 ] || fail "a structural line ('$tag') in the audit must be refused with 2 (got $RC)"
 done
 
-printf 'Rotated the key %s.\n' "$TOKEN" >"$in/verification-secret.md"
-run_render pr --verification-file "$in/verification-secret.md"
-[ "$RC" -eq 2 ] || fail "a token-shaped secret in a worker input must be refused with 2 (got $RC)"
-case $ERR in *"$TOKEN"*) fail "the secret refusal must not echo the secret" ;; esac
+# Markup that would swallow the rest of the record: an unclosed comment, an
+# HTML block opener, an inline collapse tag, an unbalanced fence.
+for bad in '<!-- a note' '<pre>' '  <script>' '<![CDATA[' 'see x </details> here' \
+  'open <details><summary>y' '```sh' '~~~~'; do
+  printf 'Corrects the name.\n%s\n' "$bad" >"$in/summary-markup.md"
+  run_render pr --summary-file "$in/summary-markup.md"
+  [ "$RC" -eq 2 ] || fail "a summary carrying '$bad' must be refused with 2 (got $RC)"
+done
+# Balanced fences and a closed comment are fine.
+printf 'Corrects the name.\n\n```sh\nmise run lint\n```\n\n~~~\nx\n~~~~\n<!-- closed -->\n' >"$in/verification-ok.md"
+run_render pr --verification-file "$in/verification-ok.md"
+[ "$RC" -eq 0 ] || fail "balanced fences and a closed comment must render (got $RC: $ERR)"
+
+printf 'Rotated the key %s.\n' "$TOKEN" >"$in/secret.md"
+for flag in --summary-file --verification-file --scoping-file --revert-file; do
+  run_render pr "$flag" "$in/secret.md"
+  [ "$RC" -eq 2 ] || fail "a token-shaped secret in $flag must be refused with 2 (got $RC)"
+  case $ERR in *"$TOKEN"*) fail "the $flag secret refusal must not echo the secret" ;; esac
+done
+{
+  cat "$in/audit.md"
+  cat "$in/secret.md"
+} >"$in/audit-secret.md"
+run_render pr --audit-file "$in/audit-secret.md"
+[ "$RC" -eq 2 ] || fail "a token-shaped secret in the audit must be refused with 2 (got $RC)"
+
+printf 'Corrects the name.\n</DETAILS>\n' >"$in/summary-upper.md"
+run_render pr --summary-file "$in/summary-upper.md"
+[ "$RC" -eq 2 ] || fail "an uppercase collapse tag must be refused (got $RC)"
+printf '<!-- planwright:flight-record id=x home=pr -->\n' >"$in/verification-marker.md"
+run_render pr --verification-file "$in/verification-marker.md"
+[ "$RC" -eq 2 ] || fail "a record start marker in the verification must be refused (got $RC)"
+printf 'Scoped.\n</details>\n' >"$in/tag.md"
+for flag in --scoping-file --revert-file; do
+  run_render pr "$flag" "$in/tag.md"
+  [ "$RC" -eq 2 ] || fail "a collapse tag in $flag must be refused (got $RC)"
+done
+printf 'Scoped%s to one pass.\n' "$ZWSP" >"$in/scoping-invis.md"
+run_render pr --scoping-file "$in/scoping-invis.md"
+case $OUT in *"$ZWSP"*) fail "an invisible character in the scoping reached the record" ;; esac
+
+sed 's/^#### Declined log$/See the Declined log above./' "$in/audit.md" >"$in/audit-prose.md"
+run_render pr --audit-file "$in/audit-prose.md"
+[ "$RC" -eq 2 ] || fail "a contract element named only in prose must be refused (got $RC)"
 
 : >"$in/empty.md"
 run_render pr --summary-file "$in/empty.md"
@@ -274,12 +392,20 @@ for bad in 'Bad_Id' '../escape-0a1b2c3d' 'no-uid'; do
 done
 run_render pr --handle 'bad handle'
 [ "$RC" -eq 2 ] || fail "a malformed worker handle must be refused with 2 (got $RC)"
+for h in '-leading' '.leading' "$(printf 'h%.0s' $(seq 1 129))"; do
+  run_render pr --handle "$h"
+  [ "$RC" -eq 2 ] || fail "the worker handle '${h:0:12}' must be refused with 2 (got $RC)"
+done
+run_render pr --handle ''
+[ "$RC" -eq 2 ] || fail "a missing worker handle must be refused with 2 (got $RC)"
+run_render pr --repo-root "$tmp"
+[ "$RC" -eq 2 ] || fail "render must refuse --repo-root with 2 (got $RC)"
 run_render elsewhere
 [ "$RC" -eq 2 ] || fail "an unknown home must be refused with 2 (got $RC)"
 run_render none
 [ "$RC" -eq 2 ] || fail "render without --home must be refused with 2 (got $RC)"
 
-# --- 6: the PR body limit -----------------------------------------------------
+# --- 5: the PR body limit -----------------------------------------------------
 
 {
   cat "$in/audit.md"
@@ -290,10 +416,11 @@ run_render none
 run_render pr --audit-file "$in/audit-big.md"
 [ "$RC" -eq 3 ] || fail "a PR-home record over the body limit must be refused with 3 (got $RC)"
 [ -z "$OUT" ] || fail "an over-limit record must print nothing"
+printf '%s\n' "$ERR" | grep -q 'the ask alone is' || fail "the body-limit refusal must say how much of it is the ask: $ERR"
 run_render file --audit-file "$in/audit-big.md"
 [ "$RC" -eq 0 ] || fail "the file home carries no body limit (got $RC: $ERR)"
 
-# --- 5: the no-remote arm commits exactly one record file ---------------------
+# --- 6: the no-remote arm commits exactly one record file ---------------------
 
 gitc() {
   _r=$1
@@ -344,6 +471,36 @@ run_land
 run_land --home pr
 [ "$RC" -eq 2 ] || fail "land is the file home only: --home must be refused with 2 (got $RC)"
 
+# Each existing-record guard holds on its own: in HEAD only, on disk only.
+rm "$repo/specs/_flights/$FID.md"
+run_land
+[ "$RC" -eq 3 ] || fail "a record already in HEAD must be refused with 3 (got $RC)"
+[ "$(git -C "$repo" rev-parse HEAD)" = "$before" ] || fail "a refused land must commit nothing (in HEAD)"
+gitc "$repo" checkout -q -- "specs/_flights/$FID.md"
+UNTR=untracked-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$UNTR" main
+mkdir -p "$repo/specs/_flights"
+printf 'stray\n' >"$repo/specs/_flights/$UNTR.md"
+run_land --flight-id "$UNTR"
+[ "$RC" -eq 3 ] || fail "an untracked record on disk must be refused with 3 (got $RC)"
+[ "$(cat "$repo/specs/_flights/$UNTR.md")" = stray ] || fail "a refused land must leave the stray file alone"
+rm -rf "$repo/specs"
+
+# A commit the hooks refuse rolls the record back out.
+HOOK=hooked-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$HOOK" main
+mkdir -p "$repo/.git/hooks"
+printf '#!/bin/sh\nexit 1\n' >"$repo/.git/hooks/pre-commit"
+chmod +x "$repo/.git/hooks/pre-commit"
+hook_head=$(git -C "$repo" rev-parse HEAD)
+run_land --flight-id "$HOOK"
+[ "$RC" -eq 4 ] || fail "a refused commit must fail with 4 (got $RC)"
+[ -e "$repo/specs/_flights/$HOOK.md" ] && fail "a refused commit must leave no record file"
+[ -z "$(git -C "$repo" diff --cached --name-only)" ] || fail "a refused commit must leave nothing staged"
+[ "$(git -C "$repo" rev-parse HEAD)" = "$hook_head" ] || fail "a refused commit must not move HEAD"
+rm -f "$repo/.git/hooks/pre-commit"
+rm -rf "$repo/specs"
+
 gitc "$repo" checkout -q main
 run_land
 [ "$RC" -eq 3 ] || fail "land off the flight branch must be refused with 3 (got $RC)"
@@ -380,6 +537,24 @@ for link in specs specs/_flights; do
   [ -z "$(ls -A "$outside")" ] || fail "land through a symlinked $link wrote outside the checkout"
   rm -rf "$repo/specs"
 done
+
+# land runs at the worktree's top level, inside a git worktree.
+mkdir -p "$repo/sub"
+run_land --repo-root "$repo/sub"
+[ "$RC" -eq 2 ] || fail "a --repo-root below the top level must be refused with 2 (got $RC)"
+mkdir -p "$tmp/not-git"
+run_land --repo-root "$tmp/not-git"
+[ "$RC" -eq 4 ] || fail "a --repo-root outside git must fail with 4 (got $RC)"
+
+# A missing helper is an environment failure, not a bad input.
+mkdir -p "$tmp/partial/scripts"
+cp "$ROOT/scripts/flight-record.sh" "$ROOT/scripts/flight-text.sh" "$ROOT/scripts/inception-secret-screen.sh" \
+  "$ROOT/scripts/echo-safety.sh" "$tmp/partial/scripts/"
+defaults
+/bin/sh "$tmp/partial/scripts/flight-record.sh" render --home pr "${args[@]}" >/dev/null 2>"$tmp/err"
+RC=$?
+[ "$RC" -eq 4 ] || fail "a missing flight-id helper must fail with 4 (got $RC)"
+grep -q 'required helper missing' "$tmp/err" || fail "the missing-helper failure must say so: $(cat "$tmp/err")"
 
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-record: $fails failure(s)" >&2
