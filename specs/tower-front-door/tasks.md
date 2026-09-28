@@ -266,59 +266,6 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
-- **Task 5** — the review pass after the twelve applied security fixes
-  paused on new hard-disqualifier-zone findings in the same code (egress,
-  shell and argv construction, a destructive sweep, permission boundaries;
-  recommended fixes recorded, none applied). Decide each: (1) `home` checks
-  only the first push URL, but `git push origin` pushes to every `pushurl`:
-  read `git remote get-url --push --all origin` and require every URL
-  approved; (2) a URL whose userinfo carries `#`, `?`, `\` or `:` (such as
-  `https://evil.example#@github.com/o/r`) reads as the approved host while
-  git connects elsewhere: refuse such userinfo; (3) the brief's
-  `gh pr create` picks its repository from `gh`'s own resolution (its
-  environment, an `upstream` remote), not the checked push URL: pass the
-  checked `--repo <host>/<owner>/<repo>`; (4) the invisible-Unicode strip is
-  one pass, so a code point nested inside a broken one survives, and the
-  `sanitized` flag compares before the control-byte drop: strip until stable
-  (or drop invalid UTF-8 first) and flag on the same pipeline the brief uses;
-  (5) the strip misses variation selectors (U+FE00–FE0F, U+E0100–E01EF),
-  U+206A–206F, U+FFF9–FFFB, the Hangul and Khmer fillers, and NEL: extend it,
-  keeping ZWJ and ZWNJ stripped and flagged; (6) the control-byte screen
-  checks the fleet home as given, not the canonical path the brief uses, and
-  the brief charset is first checked inside the primitive, after the lock and
-  the mint: screen the canonical path and the charset before the lock;
-  (7) the brief sweep does not check the flights directory's privacy before
-  deleting, splits entry names on newlines, and exits 1 or 0 silently on a
-  failed `rm` or `find`: check privacy first, refuse names carrying a
-  newline, and report failures; (8) the sweep and the live count key
-  liveness on the branch, so a detached or mid-rebase flight has its brief
-  deleted and its slot freed: key both on the worktree path; (9) the
-  primitive reads a failed worktree listing as "not registered", so its
-  remnant arm can `rm -rf` a registered flight worktree: treat a failed
-  listing as registered; (10) a standalone `attach --brief` checks the
-  brief's path but not its directory's owner and permissions, and an empty
-  `--brief ''` is silently dropped: apply the same privacy check and refuse
-  an empty value or an empty brief file; (11) quoted `flight_pr_hosts`
-  entries (`["github.com"]`) are all rejected, and an unreadable knob reads as "not approved": trim
-  quotes per entry as the sibling list reader does, and name an unreadable
-  knob as such; (12) an existing fleet home at mode 0775 refuses every
-  flight only after the lock and the mint, with no remedy named: check it
-  first and name `chmod go-w`; (13) a failed print launch leaves a partial
-  report with no `failed` line: emit one; (14) the ask is read four times,
-  so a file changed mid-dispatch escapes the size cap and the flag: read it
-  once; (15) the destination is checked at dispatch but pushed later: have
-  the brief re-run `home` before the push and park on a mismatch; (16) a
-  stale lock break lets a sweep delete a concurrent dispatch's
-  just-created brief: skip brief directories younger than the stale
-  threshold; (17) `gh auth status` now runs on every dispatch, `--home file`
-  included: skip it when the home is `file`. One policy call rides with
-  them: (18) the shipped default `[github.com]` approves any repository on
-  github.com, a personal or public one included, and the repo-tracked config
-  layer can widen the list: ship an empty default so adopters opt in to
-  their own owners / keep `[github.com]` / keep it but ignore the
-  repo-tracked layer for this key. Queued judgment forks are in the draft
-  PR's audit record.
-
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
