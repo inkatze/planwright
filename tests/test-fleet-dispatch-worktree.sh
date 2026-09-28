@@ -1243,6 +1243,10 @@ EOF
   RC=$?
   [ -s "$tmp/wl.log" ] || fail "c30: fixture: the failing worktree list was never reached"
   [ "$RC" -eq 3 ] || fail "c30: an unreadable worktree list must abort as already-in-flight (exit 3), got $RC: $_err"
+  case $_err in
+    *"could not be read"*) ;;
+    *) fail "c30: the abort must come from the registered-or-unreadable guard, got: $_err" ;;
+  esac
   [ -f "$_wt/work.txt" ] || fail "c30: the reconcile removed a flight worktree it could not see listed"
 }
 
@@ -1264,8 +1268,11 @@ c31() {
   [ "$RC" -eq 0 ] || fail "c31: fixture: a private brief must be accepted, got $RC"
   run_prim attach flight-demo-0123abcd --brief '' --dry-run
   [ "$RC" -eq 2 ] || fail "c31: attach --brief '' must be refused (exit 2), got $RC"
-  run_prim dispatch --flight demo-0123abcd --brief '' --repo-root "$tmp/primary" --attach-dry-run
+  _err=$("$PRIM" dispatch --flight demo-0123abcd --brief '' --repo-root "$tmp/primary" --attach-dry-run \
+    </dev/null 2>&1 >/dev/null)
+  RC=$?
   [ "$RC" -eq 2 ] || fail "c31: dispatch --brief '' must be refused (exit 2), got $RC"
+  case $_err in *"--brief is empty"*) ;; *) fail "c31: the empty --brief refusal must say so, got: $_err" ;; esac
   : >"$_own/brief.md"
   run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
   [ "$RC" -eq 2 ] || fail "c31: attach with an empty brief file must be refused (exit 2), got $RC"
@@ -1273,10 +1280,12 @@ c31() {
   [ "$RC" -eq 2 ] || fail "c31: dispatch with an empty brief file must be refused (exit 2), got $RC"
   printf 'brief\n' >"$_own/brief.md"
   for _d in "$_own" "$tmp/fleet/flights" "$tmp/fleet"; do
-    for _m in 770 707; do
+    for _m in 720 702; do
       chmod "$_m" "$_d"
-      run_prim attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run
+      _err=$("$PRIM" attach flight-demo-0123abcd --brief "$_own/brief.md" --dry-run </dev/null 2>&1 >/dev/null)
+      RC=$?
       [ "$RC" -eq 2 ] || fail "c31: attach with $_d at mode $_m must be refused (exit 2), got $RC"
+      case $_err in *"only you can write"*) ;; *) fail "c31: the mode $_m refusal must name the confinement, got: $_err" ;; esac
       run_prim dispatch --flight demo-0123abcd --brief "$_own/brief.md" --repo-root "$tmp/primary" --attach-dry-run
       [ "$RC" -eq 2 ] || fail "c31: dispatch with $_d at mode $_m must be refused (exit 2), got $RC"
     done

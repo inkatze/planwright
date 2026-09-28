@@ -830,7 +830,9 @@ PLANWRIGHT_FLIGHT_LOCK_WAIT=0 run dispatch readme-typo --backend print \
   --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
 [ "$RC" -eq 4 ] || fail "a group-writable fleet home must be refused before the lock (rc $RC: $ERR)"
 case $ERR in *"chmod go-w"*) ;; *) fail "the group-writable fleet-home refusal must name chmod go-w: $ERR" ;; esac
+case $ERR in *"holds this checkout's lock"*) fail "the fleet-home refusal must come before the lock: $ERR" ;; esac
 PLANWRIGHT_FLIGHT_LOCK_WAIT=0 run retire --repo-root "$c/primary"
+[ "$RC" -eq 4 ] || fail "retire must refuse a group-writable fleet home (rc $RC)"
 case $ERR in *"chmod go-w"*) ;; *) fail "retire must refuse a group-writable fleet home first, naming chmod go-w: $ERR" ;; esac
 chmod 700 "$c/fleet"
 PLANWRIGHT_FLEET_STATE_DIR=$lockhome "$STATE" unlock
@@ -846,6 +848,9 @@ OUT=$("$elroot/scripts/flight-dispatch.sh" dispatch readme-typo --backend print 
   --grounds-file "$c/grounds.txt" --repo-root "$c/primary" </dev/null 2>"$tmp/err")
 RC=$?
 [ "$RC" -eq 5 ] || fail "a print launch that cannot be built must exit 5 (rc $RC: $(cat "$tmp/err"))"
+case $(cat "$tmp/err") in *"could not construct the pinned print launch"*) ;; *) fail "the launch failure must be the one reported: $(cat "$tmp/err")" ;; esac
+[ "$(printf '%s\n' "$OUT" | tail -n 2 | head -n 1 | cut -f1)" = failed ] \
+  || fail "the failed print launch's failed line must follow the report it cut short (out: $OUT)"
 [ "$(printf '%s\n' "$OUT" | grep -c "^failed${TAB}")" -eq 1 ] \
   || fail "a print launch that cannot be built must report one failed line (out: $OUT)"
 case $(field "$OUT" reask) in *"holds a slot"*) ;; *) fail "the failed print launch must say the placed worktree holds a slot (out: $OUT)" ;; esac
@@ -949,6 +954,7 @@ gitc "$c/primary" worktree remove --force "$(field "$OUT" worktree)"
 printf 'only \342\200\001\213 here\n' >"$c/ask-n.txt"
 run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
   --repo-root "$c/primary"
+[ "$RC" -eq 0 ] && [ -f "$(field "$OUT" brief)" ] || fail "a control-split code point must be sanitized (rc $RC: $ERR)"
 ! grep -q "$zw" "$(field "$OUT" brief)" 2>/dev/null || fail "a code point joined by the control-byte drop survived"
 printf '%s\n' "$OUT" | grep -q "^sanitized${TAB}ask$" \
   || fail "a code point the control-byte drop joined must be flagged (out: $OUT)"
@@ -956,11 +962,24 @@ gitc "$c/primary" worktree remove --force "$(field "$OUT" worktree)"
 printf 'no final newline \342\200\213' >"$c/ask-n.txt"
 run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
   --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "an ask without a final newline must dispatch (rc $RC: $ERR)"
 grep -q '^> no final newline $' "$(field "$OUT" brief)" 2>/dev/null || fail "an ask without a final newline must reach the brief"
 gitc "$c/primary" worktree remove --force "$(field "$OUT" worktree)"
 printf 'no final newline, clean' >"$c/ask-n.txt"
 run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
   --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "a clean ask without a final newline must dispatch (rc $RC: $ERR)"
+gitc "$c/primary" worktree remove --force "$(field "$OUT" worktree)"
+# The size cap reads the copy: one byte over is refused, the cap itself is not.
+head -c 65537 /dev/zero | tr '\0' 'a' >"$c/ask-n.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "an ask one byte over the cap must be refused (rc $RC)"
+case $ERR in *"larger than"*) ;; *) fail "the over-cap refusal must say why: $ERR" ;; esac
+head -c 65536 /dev/zero | tr '\0' 'a' >"$c/ask-n.txt"
+run dispatch readme-typo --backend print --ask-file "$c/ask-n.txt" --grounds-file "$c/grounds.txt" \
+  --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "an ask at exactly the cap must dispatch (rc $RC: $ERR)"
 case $OUT in *"sanitized${TAB}"*) fail "a clean ask without a final newline must not be flagged (out: $OUT)" ;; esac
 # An ask that is nothing but hidden characters is refused, as the grounds are.
 printf '\342\200\213\342\200\213\n' >"$c/ask-n.txt"
@@ -1120,6 +1139,7 @@ fd=$(field "$OUT" flight)
 git -C "$c/primary/.claude/worktrees/flight-$fd" checkout -q --detach
 age "$c/fleet/flights/$fd"
 run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] || fail "retire beside a detached flight exited $RC: $ERR"
 [ -d "$c/fleet/flights/$fd" ] || fail "retire must keep a detached flight's brief"
 dispatch_print
 [ "$RC" -eq 3 ] || fail "a detached flight must still hold its slot (rc $RC: $OUT)"
@@ -1148,6 +1168,7 @@ $fr"
 chmod 300 "$c/fleet/flights"
 run retire --repo-root "$c/primary"
 [ "$RC" -eq 4 ] || fail "retire must fail when the flights directory cannot be listed (rc $RC)"
+case $ERR in *"cannot list"*) ;; *) fail "the unlistable flights refusal must say why: $ERR" ;; esac
 chmod 700 "$c/fleet/flights"
 chmod 500 "$c/fleet/flights/$fr"
 run retire --repo-root "$c/primary"
