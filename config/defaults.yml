@@ -835,7 +835,7 @@ tower_reknock_age: 30m
 #                               floor (main, master, planwright/*/spec), space
 #                               separated on one line; a malformed value
 #                               refuses every act that reads it.
-ready_flip_policy: human
+ready_flip_policy: unit-owner
 ready_flip_ci_wait: 10m
 merge_policy: human
 merge_class_max_lines: 0

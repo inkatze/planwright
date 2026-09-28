@@ -238,7 +238,7 @@ echo "ok: no host call in the stubbed call log"
 
 # --- The shipped knobs: present, documented, resolvable, and at the defaults
 #     the options reference states.
-SHIPPED='ready_flip_policy|human
+SHIPPED='ready_flip_policy|unit-owner
 ready_flip_ci_wait|10m
 merge_policy|human
 merge_class_max_lines|0
