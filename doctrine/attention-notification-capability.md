@@ -82,7 +82,7 @@ A worker's scope pairs with exactly one **store state**:
   `permission`, never by a bare `heartbeat`. Each `awaiting-input` record is one
   decision-queue item and mirrors one `## Awaiting input` entry in the owning
   spec's `tasks.md`.
-- **`pr-ready`** — a PR is up and its approval act is pending,
+- **`pr-ready`** — a PR is up and its merge is pending,
   but planwright surfaces it as status, not as a queue decision (a merge happens
   only under the merge policy [Human Gates](human-gates.md) states).
 - **`merged` / `done`** — terminal; surfaced as status, then cleared on teardown.
