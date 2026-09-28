@@ -1,0 +1,11 @@
+# Every behaviour change the spec-location migration makes with its options
+# unset (custom-spec-location REQ-A1.1), each owned by exactly one task.
+# `baseline` corrections landed before the baseline was captured and are
+# inside it; no set may declare them.
+#
+# correction<TAB>owner<TAB>requirements<TAB>what changes
+repo-root-narrowing	baseline	REQ-B1.1	PLANWRIGHT_REPO_ROOT honoured only when it names a git toplevel
+self-hosting-pin	baseline	REQ-C1.2	the planwright checkout pins PLANWRIGHT_ROOT to itself; outside this fixture, asserted by tests/test-resolve-root.sh
+worktree-config-overlay	3	REQ-B1.2	a worktree reads the primary checkout's repo-side overlay layers
+install-chain-convergence	3	REQ-C1.1, REQ-C1.3	shorter chains gain the writer-mode arm and skip a content-less arm with a warning
+worktree-placement	5	REQ-B1.3	task worktrees are placed under the primary checkout of the owning repository
