@@ -13,7 +13,7 @@
 # last-layer-wins). This helper never re-implements layer location or merge
 # (customization-overlay REQ-D1.1); it adds only the semantic validation that
 # config-get cannot apply (the legal-value test is key-specific) and the
-# by-layer policy, mirroring resolve-dispatch-isolation.sh:
+# by-layer policy (REQ-E1.4):
 #   - repo-tracked malformed value (or structurally malformed file, which
 #     config-get itself hard-fails): exit 4 — a broken shared value never
 #     silently degrades a whole team;

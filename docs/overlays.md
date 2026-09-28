@@ -316,10 +316,14 @@ or machine-local layer asks you when attended and skips the step with a
 warning when unattended; a repo-tracked list asks when attended and parks
 the unit when unattended; a core list always parks. A shared list never
 silently runs less.
-A malformed entry or list follows the §4 by-layer policy.
+A malformed list or entry follows the steps by-layer policy, not §4's: core
+is a broken install, repo-tracked hard-fails, and at adopter or machine-local
+a malformed list degrades to the core default while a malformed entry is
+dropped with a warning, its id then a step that does not resolve.
 
-A repo-tracked list naming your per-user step only runs where that catalog
-entry exists. A repo-tracked step that names an external tool (a
+A repo-tracked list naming your per-user step does not resolve on a host
+without that catalog entry: there the point asks when attended and parks the
+unit when unattended. A repo-tracked step that names an external tool (a
 non-Anthropic review backend, a hosted scanner) sends the diff to that
 tool on every teammate's run: committing it is a **team-wide disclosure
 decision**, and the declaration is the consent record. Keep a step you have

@@ -93,7 +93,8 @@ core doctrine beside its own script. See
 #### Breaking: the convergence knob became a step list
 
 The `review_sequence` config key is gone: rename it to `steps_convergence`
-in every layer that sets it, keeping the value. Convergence now runs that
+in every layer that sets it, keeping the value as an inline flow list
+(`[polish]`, not a bare `polish`, and no empty entries). Convergence now runs that
 list, the convergence point's steps, whose ids name entries in the `steps`
 catalog; the core catalog seeds `polish` and `self-review` with `--nested`,
 so a list naming them runs what it ran before. A layer still setting the old

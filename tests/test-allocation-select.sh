@@ -678,8 +678,8 @@ echo "ok: step tiers follow the by-layer malformed policy"
 #      two axes are therefore kept apart, and this is the assertion that they
 #      stayed apart: no step type carries a command column, a step type is not
 #      a selection key, and a selection key is not a step type. If a future
-#      change merged the namespaces, one of these goes red before a review
-#      skill name can reach the command column.
+#      change merged the namespaces, one of these goes red before a step id
+#      can reach the command column.
 reset_layers
 for st in implementation polish self-review; do
   got=$(run step-tier "$st") || fail "step-tier $st exited nonzero"
@@ -699,7 +699,7 @@ for k in execution bookkeeping drain orchestrate_dispatch execute_step offload; 
     && fail "selection key '$k' leaked into the step-type table"
 done
 # And the command enum itself is still exactly the dispatch-entry set: no
-# nestable review skill has been admitted to it at any layer.
+# step target has been admitted to it at any layer.
 commands=$(run list | awk -F '\t' '$4 != "-" { print $4 }' | sort -u)
 [ "$(printf '%s\n' "$commands" | tr '\n' ' ')" = "drain execute-task orchestrate " ] \
   || fail "the command enum drifted from the dispatch-entry set: $commands"
@@ -708,7 +708,7 @@ for skill in polish self-review panel-review copilot-review; do
   printf 'allocation_command_execution: %s\n' "$skill" >"$mlocal_cfg"
   got=$(run resolve execution command 2>/dev/null) || rc=$?
   [ "$rc" = 0 ] && [ "$got" != "$skill" ] \
-    || fail "a nestable review skill ('$skill') was admitted to the command column"
+    || fail "a step target ('$skill') was admitted to the command column"
 done
 reset_layers
 echo "ok: the step-type axis never touches the command column (disjointness holds)"

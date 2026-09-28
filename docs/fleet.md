@@ -846,8 +846,8 @@ protocol lives in
 Long fleet runs manage their own context instead of quietly degrading:
 
 - **Per-step isolation** (`dispatch_isolation: per-step`, the default): a
-  unit's implementation and each configured review skill run in their own
-  fresh session seeded by `/resume`, so context stays bounded and each
+  unit's implementation and each step the convergence point runs take their
+  own fresh session seeded by `/resume`, so context stays bounded and each
   review's perspective is uncontaminated by the step before it. Backends that
   cannot spawn fresh sessions approximate it with context clears. `per-unit`
   keeps the whole unit in one session for constrained hosts.

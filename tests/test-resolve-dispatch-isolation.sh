@@ -192,9 +192,8 @@ echo "ok: a malformed adopter config file degrades to the core default"
 # 7b. Malformed overlay value AND the core omits the key: the degrade re-resolve
 #     finds no core default (config-get exit 3), so it falls back to the safe
 #     default `per-step` with a second warning, exit 0. Covers the partial-install
-#     branch this resolver adds over a list reader that treats a non-zero
-#     re-resolve as a broken install; without it /execute-task would
-#     halt on a corner that is recoverable.
+#     branch this resolver adds; without it /execute-task would halt on a
+#     corner that is recoverable.
 reset_layers
 core_omit="$tmp/core-omit.yml"
 printf 'max_parallel_units: 3\n' >"$core_omit"            # a core file that omits dispatch_isolation

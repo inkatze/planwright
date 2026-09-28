@@ -215,7 +215,7 @@ is never read.
 ### Per-step tiers
 
 Separate knobs price one *step* of a unit rather than the whole unit, one pair
-per step class. **These are not gated by `allocation_adaptation`**: a step tier
+per step id. **These are not gated by `allocation_adaptation`**: a step tier
 is static configuration that moves no ladder and reads no signal, so it applies
 with the master knob `off` exactly as with it `on`. It appears in this section
 because it is the other way to influence what a launch runs on, not because it
@@ -230,9 +230,9 @@ allocation_model_step_self_review: inherit
 allocation_effort_step_self_review: inherit
 ```
 
-The key space is open: a review skill added later needs no row, because its
-knob is absent from every layer and resolves to `inherit`. The knob name is the
-skill name with `-` written as `_`.
+The key space is open: a step added later needs no row, because its knob is
+absent from every layer and resolves to `inherit`. The knob name is the step id
+with `-` written as `_`, and it applies wherever that step runs, at any point.
 
 Application is **one-directional**. A step tier applies only when it is
 *strictly cheaper* than the unit's current tier, and then only for that step's

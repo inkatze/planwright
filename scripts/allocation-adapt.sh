@@ -583,7 +583,7 @@ parse_args() {
           usage
           exit 2
         }
-        # The SKILL-NAME charset, checked here rather than left to the selection
+        # The step-id charset, checked here rather than left to the selection
         # resolver for the same reason the unit and step identities are: by the
         # time the sibling would refuse it this script has read config and taken
         # a lock, and the diagnostic would point at the resolver instead of the

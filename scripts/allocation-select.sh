@@ -90,10 +90,11 @@
 # NO STEP TYPE CARRIES THE COMMAND COLUMN, and that is load-bearing rather than
 # an omission. The command enum is the carrier of the dispatch-entry
 # disjointness invariant (REQ-A1.4, above): it must stay exactly the
-# dispatch-entry set and must never name a step. Step types ARE step ids
-# (polish, self-review), so letting the two axes share the
+# dispatch-entry set and must never name a step. Step types are
+# `implementation` plus the step ids (polish, self-review), so letting the two
+# axes share the
 # command column is precisely how that invariant would be lost. Keeping the
-# axes separate means adding a review step class cannot widen the command enum
+# axes separate means adding a step cannot widen the command enum
 # — the enum is untouched by construction, not merely by convention.
 #
 # THE SHIPPED DEFAULT IS `inherit` for every step type, so a step resolves to
@@ -356,7 +357,7 @@ emit_row() {
   printf '%s\t%s\t%s\n' "$er_model" "$er_effort" "$er_command"
 }
 
-# valid_step_type <token>: 0 for the SKILL-NAME charset (^[a-z][a-z0-9-]*$),
+# valid_step_type <token>: 0 for the step-id charset (^[a-z][a-z0-9-]*$),
 # bounded at 64 bytes. Checked BEFORE the token is spliced into a knob name, so
 # a hostile step type never reaches the shared resolver, config-get, or a path.
 # The 64-byte bound is this file's own: neither config-get nor the shared knob
@@ -372,9 +373,9 @@ valid_step_type() {
 }
 
 # step_knob_suffix <step-type>: the knob-name spelling of a step type. Knob
-# names are ^[a-z][a-z0-9_]*$ (config-get's queryable charset) while skill
-# names are ^[a-z][a-z0-9-]*$, so `-` maps to `_` (`self-review` ->
-# `self_review`). The map is INJECTIVE over the skill charset — a skill name
+# names are ^[a-z][a-z0-9_]*$ (config-get's queryable charset) while step
+# ids are ^[a-z][a-z0-9-]*$, so `-` maps to `_` (`self-review` ->
+# `self_review`). The map is INJECTIVE over the step-id charset — a step id
 # can never contain `_` — so two distinct step types can never collide on one
 # knob, which is what keeps the config file's keys unambiguous.
 step_knob_suffix() {
