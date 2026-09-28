@@ -209,42 +209,52 @@ redact() {
 
 # markup_hazard <file> <headings> — name the first construct in a worker
 # input that could reshape the record around it, printing nothing when there
-# is none. Raw HTML of any kind (a `<` opening a tag, comment, declaration, or
-# processing instruction), anywhere, fenced or not: no line-based check can be
-# sure which container a line sits in, and a comment or HTML block that
-# escapes one hides or flattens the rest of the record. A fence indented one
-# to three spaces, which a list item can end early and leave a column-zero
-# fence line open behind it. A tilde fence, which the markdown lint's one
-# fence style refuses beside the record's backtick fences. A fence left open.
-# And a heading the input may
-# not carry: `none` refuses every heading, `audit` those above level four,
-# since the audit nests under the record's own level-three heading.
+# is none. Outside a fence: raw HTML of any kind (a `<` opening a tag,
+# comment, declaration, or processing instruction), since no line-based check
+# can be sure which container a line sits in, and a comment or HTML block
+# that escapes one hides or flattens the rest of the record; a fence indented
+# one to three spaces, which a list item can end early and leave a
+# column-zero fence line open behind it; a tilde fence, which the markdown
+# lint's one fence style refuses beside the record's backtick fences; a
+# footnote definition, which renders after the collapse; and a heading, ATX
+# or setext, at any container depth, that the input may not carry: `none`
+# refuses every heading, `audit` those above level four, since the audit
+# nests under the record's own level-three heading. Inside a column-zero
+# backtick fence, whose extent is reliable once those fences are the only
+# kind, a line is code; only one starting with `<` is refused, so no marker
+# or collapse tag reaches column zero for a line-anchored reader. A fence
+# left open is refused.
 markup_hazard() {
   awk -v headings="$2" '
     function hazard(what) { print what; found = 1; exit }
     {
       l = $0
-      if (l ~ /<[A-Za-z\/!?]/) hazard("raw HTML (write it as text, or as &lt; outside code)")
-      if (l ~ /^ ? ? ?(```|~~~)/ && l !~ /^(```|~~~)/) hazard("a fence indented from column zero")
-      if (!fence && l ~ /^~~~/) hazard("a tilde fence (the record fences with backticks)")
       if (fence) {
-        if (match(l, /^(`+|~+)[ \t]*$/)) {
-          f = substr(l, RSTART, RLENGTH)
+        if (l ~ /^</) hazard("a fenced line starting with < at column zero (indent it)")
+        if (match(l, /^`+[ \t]*$/)) {
+          f = l
           gsub(/[ \t]/, "", f)
-          if (substr(f, 1, 1) == fc && length(f) >= fl) fence = 0
+          if (length(f) >= fl) fence = 0
         }
+        prev = 0
         next
       }
-      if (match(l, /^(```+|~~~+)/)) {
-        f = substr(l, RSTART, RLENGTH)
-        fc = substr(f, 1, 1)
-        fl = length(f)
-        if (fc == "`" && index(substr(l, RSTART + RLENGTH), "`")) next
+      if (l ~ /<[A-Za-z\/!?]/) hazard("raw HTML (a < before a letter, /, !, or ?; write &lt; in prose, or put code in a fence)")
+      if (l ~ /^ ? ? ?(```|~~~)/ && l !~ /^```/) hazard("a fence other than backticks at column zero")
+      if (match(l, /^```+/)) {
+        fl = RLENGTH
+        if (index(substr(l, RSTART + RLENGTH), "`")) next
         fence = 1
+        prev = 0
         next
       }
-      if (headings == "none" && l ~ /^ ? ? ?#+([ \t]|$)/) hazard("a heading (the record supplies its own)")
-      if (headings == "audit" && l ~ /^ ? ? ?(#|##|###)([ \t]|$)/) hazard("a heading above level four (the audit nests under the record'"'"'s ### heading)")
+      if (l ~ /^ ? ? ?\[\^[^]]*\]:/) hazard("a footnote definition (it renders after the collapse)")
+      h = l
+      while (match(h, /^[ \t]*(>|[-*+][ \t]|[0-9]+[.)][ \t])[ \t]*/)) h = substr(h, RSTART + RLENGTH)
+      if (headings == "none" && h ~ /^ ? ? ?#+([ \t]|$)/) hazard("a heading (the record supplies its own)")
+      if (headings == "audit" && h ~ /^ ? ? ?(#|##|###)([ \t]|$)/) hazard("a heading above level four (the audit nests under the record'"'"'s ### heading)")
+      if (prev && l ~ /^ ? ? ?(=+|-+)[ \t]*$/) hazard("a setext heading underline (put a blank line above a thematic break)")
+      prev = (l ~ /[^ \t]/)
     }
     END {
       if (!found && fence) print "an unclosed fence"

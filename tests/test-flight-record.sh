@@ -354,7 +354,7 @@ done
 for bad in '<!-- a note' '<pre>' '  <script>' '<![CDATA[' 'see x </details> here' \
   'open <details><summary>y' '```sh' '~~~~' '<div>' '<span>' '<!-- x --> <!-- y' '<!-->' \
   '> <!-- a note' '- <!-- a note' '1. <!-- note' 'See a <b>bold</b> word.' '#### Detail' '## Summary' \
-  '~~~\nx\n~~~'; do
+  '> ## Verification' '- # Top' '[^1]: a note'; do
   printf 'Corrects the name.\n%s\n' "$bad" >"$in/summary-markup.md"
   run_render pr --summary-file "$in/summary-markup.md"
   [ "$RC" -eq 2 ] || fail "a summary carrying '$bad' must be refused with 2 (got $RC)"
@@ -371,6 +371,22 @@ for bad in '```\n</details>\n```' '<div>\n```\n</details>\n```' '- a\n  ```\n</d
   run_render pr --audit-file "$in/audit-sheltered.md"
   [ "$RC" -eq 2 ] || fail "a sheltered collapse tag or marker must be refused ($bad, got $RC)"
 done
+# Multi-line shapes: a balanced tilde fence, and setext headings that would
+# forge the record's own sections.
+for bad in '~~~\nx\n~~~' 'Verification\n---\n\nForged.' 'Top\n==='; do
+  # shellcheck disable=SC2059 # the case carries its own \n escapes
+  printf "Corrects the name.\n\n$bad\n" >"$in/summary-multi.md"
+  run_render pr --summary-file "$in/summary-multi.md"
+  [ "$RC" -eq 2 ] || fail "a summary carrying '$bad' must be refused with 2 (got $RC)"
+done
+# Inside a column-zero fence, HTML is code: allowed off column zero.
+printf 'Ran the checks.\n\n```sh\n  cat <<EOF\n  sort <in.txt\n  EOF\n```\n' >"$in/verification-code.md"
+run_render pr --verification-file "$in/verification-code.md"
+[ "$RC" -eq 0 ] || fail "HTML-shaped code inside a fence must render (got $RC: $ERR)"
+printf 'Ran the checks.\n\n```\n</details>\n```\n' >"$in/verification-col0.md"
+run_render pr --verification-file "$in/verification-col0.md"
+[ "$RC" -eq 2 ] || fail "a fenced line starting with < at column zero must be refused (got $RC)"
+
 # The audit's headings nest under the record's own, so none may outrank it.
 {
   cat "$in/audit.md"
