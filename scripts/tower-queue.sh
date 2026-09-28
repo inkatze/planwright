@@ -5134,7 +5134,8 @@ cmd_capture() {
             # (REQ-E1.9, REQ-H1.1). It fires again at match time, so a rule
             # recorded before this check existed is still refused where it
             # would act.
-            if reserved_control "$2"; then
+            if reserved_control "$2" \
+              || command_words_reserved "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"; then
               refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge, a ready-flip, a force-push, an amend, a squash, a rebase, or a push to the default branch); those stay the operator's"
             fi
             # Redacted like every other operator-supplied field (REQ-G1.8):
