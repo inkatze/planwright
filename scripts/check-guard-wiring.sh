@@ -29,16 +29,15 @@
 # THE GRAPH COMES FROM MISE, NOT FROM PARSING ITS FILE. `mise tasks --json`
 # renders the task runner's own view of each task: TOML quoting and multi-line
 # arrays are its business, not this script's. It does NOT resolve edges, so
-# the walk does: a task alias resolves to its task, and a wildcard edge
-# (mise's `*`, which spans the `:` separator) expands to every task name it
-# matches. A run body contributes every `mise run` / `mise r` task it names,
-# each `:::` segment included.
+# the walk does: a task alias resolves to its task, and a glob edge expands to
+# every task name or alias it matches. A run body contributes every
+# `mise run` / `mise r` task it names, each `:::` segment included.
 #
 # WHOLE-LINE COMMENTS ARE NOT EXECUTION. They are dropped from a run body
 # before either edges or guard names are read from it, so a commented-out call
 # wires nothing. Known limit: a guard or edge named in a live line that does
-# not run it, such as an `echo`, still counts; telling those apart needs a
-# shell parser.
+# not run it, such as an `echo` or a trailing `# ...` comment, still counts;
+# telling those apart needs a shell parser.
 #
 # PARSE BOUNDARY, ENFORCED RATHER THAN DOCUMENTED. Only tasks defined in the
 # repo's own mise.toml count. mise layers mise.local.toml and file tasks on
@@ -116,15 +115,17 @@ done
 # The task graph, as mise itself resolves it. MISE_TRUSTED_CONFIG_PATHS keeps a
 # fixture checkout (and a fresh clone) from stopping on the trust prompt; this
 # only ever LISTS tasks, never runs one.
-graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --json 2>/dev/null) || graph=''
+graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --json --hidden 2>/dev/null) || graph=''
 [ -n "$graph" ] || {
   echo "$me: 'mise tasks --json' produced nothing in $repo_root — failing closed rather than reporting a clean scan" >&2
   exit 5
 }
 
-# One jq pass: filter to this repo's own mise.toml, union `depends` and
-# `depends_post` with the `mise run <task>` calls a run body makes, walk the
-# closure from `check`, and emit the reached run bodies plus the diagnostics.
+# One jq pass: filter to this repo's own mise.toml, union `depends`,
+# `depends_post`, structured `{ task = ... }` run entries, and the tasks a run
+# body's `mise run` calls name, resolve each against names, aliases and globs,
+# walk the closure from `check`, and emit the reached run bodies plus the
+# diagnostics.
 # `wait_for` is deliberately not an edge: it only orders a task that something
 # else already scheduled and never causes its target to run, so following it
 # would pass a guard nothing runs. A dangling
@@ -133,14 +134,49 @@ graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --j
 # without being reachable.
 report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
   def uncommented: split("\n") | map(select(test("^[[:space:]]*#") | not)) | join("\n");
+  # The task one `:::` segment names, given its words. A flag taking a
+  # separate value skips that value too.
+  def seg_task:
+    if length == 0 then empty
+    else .[0] as $w
+      | if ($w | test("^--(jobs|output|shell|tool|timeout|allow-env|allow-net|allow-read|allow-write)$|^-[A-Za-z]*[jost]$")) then (.[2:] | seg_task)
+        elif ($w | startswith("-")) then (.[1:] | seg_task)
+        else $w | gsub("^[\"\u0027`]+|[\"\u0027`);]+$"; "")
+        end
+    end;
   def run_edges:
-    [ match("(?:^|[^A-Za-z0-9_-])mise[[:space:]]+(?:run|r)[[:space:]]+([^;&|\n]*)"; "g")
-      | .captures[0].string
-      | splits("[[:space:]]*:::[[:space:]]*")
-      | capture("^(?:-[^[:space:]]+[[:space:]]+)*(?<t>[A-Za-z0-9:_.*-]+)")
-      | .t ];
+    [ match("(?:^|[^A-Za-z0-9_-])mise[ \t]+(?:run|r)[ \t]+([^;&|\n]*)"; "g")
+      | [ .captures[0].string | splits("[ \t]*:::[ \t]*")
+          | [ splits("[ \t]+") | select(. != "") ] | [ seg_task ] ]
+      | .[][] ];
+  # A depends entry carrying arguments names its task in its first word.
+  def edge_name:
+    if type == "array" then .[0]
+    elif type == "string" then (split(" ") | .[0])
+    else tostring end;
+  # mise task-name globs, as measured against mise itself: `**` and a trailing
+  # `*` span the `:` separator, an inner `*` and `?` do not, and `[...]`
+  # classes and `{a,b}` alternation are honoured.
   def glob_re:
-    "^" + (gsub("(?<c>[.+?^$(){}|\\[\\]\\\\])"; "\\\(.c)") | gsub("\\*"; ".*")) + "$";
+    split("") as $cs
+    | reduce range(0; $cs | length) as $i ({re: "", br: 0, cls: false};
+      $cs[$i] as $c
+      | if .cls then
+        (if $c == "]" then .cls = false else . end)
+        | .re += (if $c == "!" and (.re | endswith("[")) then "^"
+                  elif $c == "\\" then "\\\\" else $c end)
+      elif $c == "*" then
+        .re += (if $i > 0 and $cs[$i - 1] == "*" then ""
+                elif $cs[$i + 1] == "*" or $i == ($cs | length) - 1 then ".*"
+                else "[^:]*" end)
+      elif $c == "?" then .re += "[^:]"
+      elif $c == "[" then .cls = true | .re += "["
+      elif $c == "{" then .br += 1 | .re += "(?:"
+      elif $c == "}" and .br > 0 then .br -= 1 | .re += ")"
+      elif $c == "," and .br > 0 then .re += "|"
+      elif ($c | test("[.+^$()|{}\\]\\\\]")) then .re += "\\" + $c
+      else .re += $c end)
+    | "^" + .re + "$";
   [ .[] | select(.source == $src) ]                                 as $raw
   | [ $raw[].name ]                                                 as $names
   | ([ $raw[] | .name as $n | (.aliases // [])[] | {key: ., value: $n} ]
@@ -149,11 +185,17 @@ report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
       . as $e
       | if ($names | index([$e])) then [$e]
         elif ($alias | has($e)) then [$alias[$e]]
-        elif test("\\*") then (glob_re) as $re | [ $names[] | select(test($re)) ]
+        elif test("[*?\\[{]") then (glob_re) as $re
+          | [ ($names[] | select(test($re))),
+              ($alias | to_entries[] | select(.key | test($re)) | .value) ] | unique
         else [] end;
     [ $raw[]
-      | ((.run // []) | join("\n") | uncommented)                    as $body
-      | (((.depends // []) + (.depends_post // [])) + ($body | run_edges)) as $edges
+      | (.run // [])                                                as $run
+      | ($run | map(select(type == "string")) | join("\n") | uncommented) as $body
+      | ([ (.depends // [])[], (.depends_post // [])[],
+           ($run[] | objects | (.task // empty), (.tasks // [])[]) ]
+         | map(edge_name) + ($body | run_edges)
+         | map(select(. != "")))                                    as $edges
       | { name: .name,
           body: $body,
           next: ([ $edges[] | resolve[] ] | unique),
