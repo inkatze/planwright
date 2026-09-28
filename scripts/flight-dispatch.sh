@@ -266,10 +266,12 @@ read_hosts() {
     _why=''
     if [ -L "$repo_root/.claude" ] || [ -L "$_local" ]; then
       _why="it is reached through a symlink"
-    elif [ "$(git -C "$repo_root/.claude" rev-parse --show-toplevel 2>/dev/null </dev/null)" != "$repo_root" ]; then
+    elif [ -e "$repo_root/.claude/.git" ]; then
       # A submodule or nested repository at .claude: the parent's index never
-      # lists the file, but the repository still supplied it.
-      _why=".claude is its own repository, or git could not say"
+      # lists the file, but the repository still supplied it. A `.git` entry
+      # is the one sign of that a repository cannot commit, and it does not
+      # depend on the caller's GIT_DIR.
+      _why=".claude is its own repository"
     else
       git -C "$repo_root" ls-files --error-unmatch -- ':(icase).claude/planwright.local.yml' \
         >/dev/null 2>&1 </dev/null
