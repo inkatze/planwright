@@ -536,9 +536,21 @@ case $(audit_rows) in
   *"${tab}cleanup-partial${tab}"*"released=unreported held=unreported"*) ;;
   *) fail "a rung that died mid-close went unrecorded: $(audit_rows)" ;;
 esac
+rm -rf "$gate_home"
+stop_answers '' 6
+gate w1 trig why
+expect 5 "a partial close with no result line"
+case $(audit_rows) in
+  *"${tab}cleanup-partial${tab}"*"released=unreported held=unreported"*) ;;
+  *) fail "a partial close with no result line did not record its sets as unreported: $(audit_rows)" ;;
+esac
 stop_answers 'stop WORKER partial released=- held=process' 6
 G_HOME="$tmp/unwritable/fleet" gate w1 trig why
 expect 6 "an unrecorded partial close"
+case $err in
+  *'could not record the partial close'*) ;;
+  *) fail "an unrecorded partial close claims more than it did: $err" ;;
+esac
 echo "ok: a partial close is exit 5 and recorded with both sets, even one that released nothing; unrecorded, it is exit 6"
 
 # --- the self-target guard: the rung refuses, the actuator says so (exit 3) -

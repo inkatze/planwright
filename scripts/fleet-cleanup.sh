@@ -804,9 +804,17 @@ EOF
       6)
         # Recorded even when nothing was released: the rung signals the tree
         # before it can find the process class still held.
-        held=${result##* held=}
-        released=${result#*" released="}
-        released=${released%%" held="*}
+        case $result in
+          "stop $worker partial released="*" held="*)
+            held=${result##* held=}
+            released=${result#*" released="}
+            released=${released%%" held="*}
+            ;;
+          *)
+            released=unreported
+            held=unreported
+            ;;
+        esac
         warn "'$worker' was only partly closed — still held: $(sanitize_printable "$held" "-")"
         action=cleanup-partial
         ;;
@@ -835,7 +843,11 @@ EOF
     [ -z "$held" ] || record="$record held=$(sanitize_printable "$held" "-")"
     record=$(fit_text "$record; $reasoning")
     if ! audit process-cleanup "$action" "$trigger" "$record"; then
-      warn "closed '$worker' but FAILED to record it in the audit trail"
+      if [ "$action" = cleanup ]; then
+        warn "closed '$worker' but FAILED to record it in the audit trail"
+      else
+        warn "could not record the partial close of '$worker' in the audit trail — what it released is unrecorded"
+      fi
       exit 6
     fi
     [ "$action" = cleanup ] || exit 5
