@@ -204,13 +204,15 @@ git_rule=$(captured --kind standing --text 'always let the workers run git' \
   --covers-command 'git ' --now 1005) || fail "capture of the git rule failed"
 for res in 'git pull' 'git pull origin main' 'git pull --ff-only origin main' \
   'git -C . pull origin main' 'git  pull' 'git "pull" origin' 'git pu""ll origin main' \
+  'git me""rge origin/main' "git re''base origin/main" 'git commit --am""end' \
+  'git commit --squ""ash=HEAD~1' "git commit --fix'up'=HEAD~1" \
   'git commit --fixup HEAD~1' 'git commit --fixup=HEAD~1'; do
   rc=0
   run match --decision "$git_rule" --command "$res" >"$tmp/o" || rc=$?
   [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
     || fail "'$res' was not refused as a reserved control (exit $rc, '$(cat "$tmp/o")')"
 done
-echo "ok: a pull and a fixup commit are refused as reserved controls"
+echo "ok: a pull, a fixup, and a quote-split reserved verb are refused as reserved controls"
 
 # The quoted spellings. The allowlist admits a quoted interior anywhere in a
 # word, and the shell reads each of these as the bare spelling above; the

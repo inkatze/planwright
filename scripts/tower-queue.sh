@@ -2208,7 +2208,10 @@ push_parses_safe() {
 # spelling of the same push is not a new hole. A COMMAND is held to more than
 # this: see reserved_command.
 reserved_control() {
-  _rl=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  # Quotes go first, as in push_reaches_protected: the shell runs `me""rge`
+  # and `--am'end'` as the bare words, which a substring test on the quoted
+  # text never sees.
+  _rl=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '\042\047')
   case "$_rl" in
     *merge* | *merging* | *rebas* | *amend* | *squash* | *fixup* | *force-push* | *force-with-lease*) return 0 ;;
     *'git pull'* | *git-pull*) return 0 ;;

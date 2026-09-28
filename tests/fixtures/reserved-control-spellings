@@ -75,6 +75,11 @@ base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer 
 base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git -C . pull origin main
 base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git "pull" origin main
 base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git -C . merge origin/main
+base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git me""rge origin/main
+amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    defer  git commit --am""end --no-edit
+squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    defer  git commit --squ""ash=HEAD~1
+fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    defer  git commit --fix""up=HEAD~1
+rebase           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    defer  git re""base origin/main
 
 amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --amend --no-edit
 amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit -m wip --amend
