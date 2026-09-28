@@ -1,8 +1,8 @@
 # Permanent exemptions from scripts/check-spec-literals.sh, matched by file and
-# whitespace-trimmed line text. Exactly three classes:
+# whitespace-trimmed line text, one row per occurrence. Exactly three classes:
 #   resolver     the resolver itself (scripts/resolve-root.sh only)
 #   namespace    a specs/<id> naming a spec, not a directory: the Consumed-by
-#                writer and the alias mappers
+#                writer and the alias mapper
 #   static-glob  a pattern a tool reads statically: the lefthook pre-commit glob
 #                (its limitation for a relocated root is accepted) and the
 #                default root's ignore rules (a relocated root gets its own from
@@ -21,3 +21,4 @@ static-glob	.gitignore	specs/*/.orchestrate.lock
 static-glob	.gitignore	specs/*/.tasks-pr-sync.*
 static-glob	.gitignore	specs/*/.orchestrate/
 static-glob	.gitignore	specs/_pending/notes.md
+resolver	scripts/resolve-root.sh	sr_primary=$rp_path/specs

@@ -1,7 +1,8 @@
 # Sites scripts/check-spec-literals.sh flags that are not yet migrated onto
 # the resolver, each tagged with the spec-location task that migrates it.
-# Shrink-only: a migration deletes its rows, and a new literal is resolved
-# rather than added here.
+# Shrink-only, and checked against the base branch's copy: a migration deletes
+# its rows, and a new literal is resolved rather than added here. One row
+# clears one occurrence of its line.
 #
 # task<TAB>path<TAB>line
 5	mise.toml	run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' 'specs/**/*.md' 'templates/**/*.md' '!specs/_observations/**'"
@@ -28,7 +29,6 @@
 5	scripts/flight-id.sh	_rec=specs/_flights/$_id.md
 5	scripts/migrate-format-version.sh	target=${1:-$repo_root/specs}
 5	scripts/migrate-status-lifecycle.sh	specs_arg="${1:-$repo_root/specs}"
-5	scripts/obs-consume.sh	obsdir="specs/_observations"
 5	scripts/orchestrate-lock.sh	*/specs) ;;
 5	scripts/orchestrate-lock.sh	echo "orchestrate-lock: spec dir '$canon_dir' is not contained under a specs/ parent; refusing (REQ-F1.1)" >&2
 5	scripts/spec-walkthrough.sh	bundle_dir="specs/$spec"
@@ -42,6 +42,7 @@
 5	scripts/spec-walkthrough.sh	echo "spec-walkthrough: scope 'tasks' resolves to no task graph in specs/$spec; tasks.md is absent" >&2
 5	scripts/spec-walkthrough.sh	printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a decision, but design.md is absent from specs/$spec" >&2
 5	scripts/spec-walkthrough.sh	printf '%s\n' "spec-walkthrough: scope '$scope_safe' resolves to no decision in specs/$spec; available decisions: $(decision_ids)" >&2
+5	scripts/spec-walkthrough.sh	specs_real=$(cd specs 2>/dev/null && pwd -P) || specs_real=
 5	scripts/tasks-pr-sync.sh	specs_root="$primary/specs"
 6	scripts/dispatch-fetch.sh	printf '%s\n' "usage: dispatch-fetch.sh [--spec <specs/<name>>] [--best-effort] <repo-root>" >&2
 6	scripts/dispatch-fetch.sh	printf '%s\n' "dispatch-fetch: --spec requires a non-empty 'specs/<name>' value" >&2
@@ -50,6 +51,7 @@
 6	scripts/dispatch-fetch.sh	spec_name="${spec_rel#specs/}"
 6	scripts/fleet-tower-watchdog.sh	"/orchestrate --watch --unattended specs/$spec" 2>/dev/null || {
 9	scripts/check-obs.sh	obsdir="specs/_observations"
+9	scripts/obs-consume.sh	obsdir="specs/_observations"
 9	scripts/obs-record.sh	obsdir="specs/_observations"
 9	scripts/obs-render.sh	obsdir="specs/_observations"
 9	scripts/observation-carry.sh	obs_dir="specs/_observations"
