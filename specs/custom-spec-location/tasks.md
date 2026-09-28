@@ -285,7 +285,48 @@ supported configuration ships while the doctrine still calls it wrong.
 
 ## Awaiting input
 
-(none yet)
+- **Task 2** — hard pause: security-sensitive findings in the spec kind's
+  `--init` writes and path handling, found by the convergence review. The
+  zone rule forbids applying them without direction. The non-security
+  findings are applied and committed on
+  `planwright/custom-spec-location/task-2` (unpushed, no PR yet).
+  Recommended fixes, pending direction:
+  1. The marker's temp file has a predictable name and is written with a
+     plain redirect, so a planted symlink redirects the write and the marker
+     becomes that symlink; a racing `--init` can also clobber a marker.
+     Recommend `mktemp` in the root plus a fail-on-exists hard-link publish,
+     and refusing a symlinked marker path.
+  2. `--init` appends through a symlinked `.gitignore`. Recommend refusing a
+     symlinked `.gitignore`.
+  3. The marker is checked only for existence; design's security posture
+     says its fields are validated against the identifier grammar. Recommend
+     requiring a regular, non-symlink file whose `project:` matches the
+     grammar and whose `layout:` is 1, else refuse (exit 5).
+  4. A canonical path carrying a control byte or tab (reachable through a
+     symlink) is printed raw, breaking the `--explain` fields. Recommend
+     refusing such a path (exit 5).
+  5. A relative `HOME` lets a `~/` value resolve against the current
+     directory and skip containment. Recommend refusing a `HOME` that is not
+     absolute.
+  Forks needing a decision (not applied):
+  6. Trust: a repo-tracked value may name any absolute or `~` directory, and
+     `--init` then writes there (for example into `$HOME`). Options: (a)
+     restrict repo-tracked to contained relative values; (b) keep all forms
+     but have `--init` refuse a repo-tracked value outside the primary
+     checkout; (c) keep as is and record the decision in design.
+  7. `--primary` for a same-repo root inside another linked worktree returns
+     that worktree's path, not the primary's copy the primary view is
+     defined as. Options: (a) map it onto the primary checkout; (b) refuse a
+     same-repo root outside the primary checkout; (c) keep and amend the
+     wording.
+  8. In a worktree, a re-based checkout-local root that the worktree does
+     not hold (untracked or gitignored) prints at exit 0. Options: (a) keep
+     (now documented in the header); (b) warn on stderr; (c) refuse unless
+     it is the default root.
+  9. `config-get.sh` strips from any `#`, so `spec_root: specs#archive`
+     silently becomes `specs` (possibly the default root). Options: (a)
+     require whitespace before a comment `#`, as YAML does, for every key;
+     (b) refuse a raw path value containing `#`; (c) keep and document.
 
 ## Deferred
 
