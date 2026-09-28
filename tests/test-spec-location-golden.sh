@@ -4,7 +4,7 @@
 # paths and messages, from a primary checkout and from a worktree, except for
 # the named corrections each migration task declares.
 #
-# Three halves:
+# Three parts:
 #   * the probes: each migrated script run against a fixture repository and
 #     replayed against tests/fixtures/spec-location-golden/baseline.txt,
 #     overridden by the expected-change sets under changes/ and checked against
@@ -34,22 +34,30 @@ S="$REPO_ROOT/scripts"
 
 failures=0
 ok() { echo "ok: $1"; }
+# Failure text quotes probe output and repo content, so it is stripped of
+# control bytes before it reaches the terminal.
 fail() {
-  echo "FAIL: $1" >&2
+  printf 'FAIL: %s\n' "$1" | tr -d '\000-\010\013-\037\177\200-\237' >&2
   failures=$((failures + 1))
 }
 
 tmp="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/spec-location-golden.XXXXXX")" && pwd -P)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
-# Hermetic environment: no inherited roots or overlay pointers, a private HOME,
-# git discovery fenced at $tmp, and fixed identities and dates so commit ids
-# are stable across machines.
+# Every PLANWRIGHT_* variable the caller exports, as `-u` arguments: any of
+# them (a base ref, a state directory) changes what a probe prints or where it
+# writes.
+inherited_unsets=$(env | sed -n 's/^\(PLANWRIGHT_[A-Za-z0-9_]*\)=.*/-u \1/p')
+
+# Hermetic environment: no inherited planwright variables, roots, or overlay
+# pointers, a private HOME and tmux socket directory, git discovery fenced at
+# $tmp, and fixed identities and dates so commit ids are stable across
+# machines. GOLDEN_HOME is set per vantage.
 hermetic() {
-  env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR \
-    -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS \
-    -u PLANWRIGHT_ADOPTER_OVERLAY -u TMUX -u TMUX_PANE \
-    HOME="${GOLDEN_HOME:-$tmp/home}" GIT_CEILING_DIRECTORIES="$tmp" \
+  # shellcheck disable=SC2086 # one `-u NAME` pair per word
+  env $inherited_unsets -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR \
+    -u TMUX -u TMUX_PANE TMUX_TMPDIR="$GOLDEN_HOME" \
+    HOME="$GOLDEN_HOME" GIT_CEILING_DIRECTORIES="$tmp" \
     GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
     GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid \
     GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
@@ -98,18 +106,36 @@ EOF
   hermetic git -C "$mf_p" add -A && hermetic git -C "$mf_p" commit -q -m init || return 1
   printf 'review_sequence: [polish, self-review]\ndispatch_isolation: per-unit\n' \
     >"$mf_p/.claude/planwright.local.yml"
-  hermetic git -C "$mf_p" worktree add -q "$mf_p/.claude/worktrees/wt" -b wt 2>/dev/null || return 1
+  hermetic git -C "$mf_p" worktree add -q "$mf_p/.claude/worktrees/wt" -b wt || return 1
   # Untracked, as a store with no fragments yet is.
   mkdir -p "$mf_p/specs/_observations/entries" "$mf_p/.claude/worktrees/wt/specs/_observations/entries"
 }
 
-# normalize <fixture-tmp> — machine paths to placeholders, minted observation
-# ids and today's date to stable tokens.
+today_utc=$(date -u +%Y-%m-%d)
+today_local=$(date +%Y-%m-%d)
+
+# normalize <fixture-tmp> — machine paths to placeholders (replaced as literal
+# strings, so a path byte is never a pattern), minted observation ids, commit
+# and anchor hashes, and today's date to stable tokens. A body line opening
+# with `@@` is escaped so it cannot read as a record header.
 normalize() {
-  sed -e "s#$2/primary/.claude/worktrees/wt#<WORKTREE>#g" \
-    -e "s#$2/primary#<PRIMARY>#g" -e "s#$REPO_ROOT#<INSTALL>#g" -e "s#$2#<TMP>#g" \
-    -e "s#$(date -u +%Y-%m-%d)#<TODAY>#g" -e "s#$(date +%Y-%m-%d)#<TODAY>#g" \
-    -e 's#-[0-9a-f]\{8\}\.md#-<UID>.md#g' -e 's#uid [0-9a-f]\{8\}#uid <UID>#g'
+  NZ_WT=$1/primary/.claude/worktrees/wt NZ_PRIMARY=$1/primary NZ_INSTALL=$REPO_ROOT \
+    NZ_TMP=$1 NZ_TODAY_U=$today_utc NZ_TODAY_L=$today_local awk '
+    function lit(s, from, to,   out, i) {
+      out = ""
+      while ((i = index(s, from)) > 0) { out = out substr(s, 1, i - 1) to; s = substr(s, i + length(from)) }
+      return out s
+    }
+    {
+      s = $0
+      if (substr(s, 1, 3) == "@@ " && !header) { print; next }
+      s = lit(s, ENVIRON["NZ_WT"], "<WORKTREE>"); s = lit(s, ENVIRON["NZ_PRIMARY"], "<PRIMARY>")
+      s = lit(s, ENVIRON["NZ_INSTALL"], "<INSTALL>"); s = lit(s, ENVIRON["NZ_TMP"], "<TMP>")
+      s = lit(s, ENVIRON["NZ_TODAY_U"], "<TODAY>"); s = lit(s, ENVIRON["NZ_TODAY_L"], "<TODAY>")
+      gsub(/-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\.md/, "-<UID>.md", s)
+      gsub(/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/, "<SHA>", s)
+      print s
+    }'
 }
 
 # The single-quoted `sh -c` bodies expand their positional arguments in the
@@ -125,15 +151,16 @@ record_vantage() {
     worktree) rv_dir=$rv_t/primary/.claude/worktrees/wt ;;
   esac
   mkdir -p "$rv_t/empty" "$rv_t/venture" "$rv_t/fleet"
-  # probe <name> <command...> — run with the install root pinned to this tree.
+  # probe <name> <command...> — run with the install root pinned to this tree
+  # and the fleet state inside the fixture.
   probe() {
     pr_name=$1
     shift
     printf '@@ %s %s\n' "$pr_name" "$rv_v"
     (
-      cd "$rv_dir" && hermetic PLANWRIGHT_ROOT="$REPO_ROOT" "$@" 2>&1
+      cd "$rv_dir" && hermetic PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_FLEET_STATE_DIR="$rv_t/fleet" "$@" 2>&1
       echo "rc=$?"
-    ) | normalize "$rv_v" "$rv_t"
+    ) | sed 's/^@@/\\@@/'
   }
   # The install-root chain with no explicit root and a content-less plugin
   # arm: the arm the chain convergence starts skipping with a warning.
@@ -146,11 +173,17 @@ record_vantage() {
     --values 'per-step per-unit' --fallback per-step
   probe overlay-repo-tracked "$S/resolve-overlay-root.sh" repo-tracked
   probe overlay-machine-local "$S/resolve-overlay-root.sh" machine-local
+  # A repo-root override naming a directory that is not a git toplevel: the
+  # value the narrowing starts refusing.
+  probe overlay-repo-root-override env PLANWRIGHT_REPO_ROOT="$rv_dir/specs" \
+    "$S/resolve-overlay-root.sh" machine-local
   # The layers entries came from, not the entries: the catalog's content is
   # outside this fixture's concern.
   probe catalog sh -c '"$1" decision-domains --explain | cut -f2 | sort -u' sh "$S/resolve-catalog.sh"
   probe spec-root "$S/resolve-root.sh" spec --explain
-  probe inception-scaffold "$S/inception-scaffold.sh" "$rv_t/venture"
+  # The rung line only: the scaffold's file inventory belongs to inception.
+  probe inception-scaffold sh -c 'o=$("$1" "$2" 2>&1); r=$?; printf "%s\n" "$o" | tail -n 1; exit $r' \
+    sh "$S/inception-scaffold.sh" "$rv_t/venture"
   probe anchor-freshness "$S/check-anchor-freshness.sh" specs
   probe ledger "$S/check-ledger.sh" specs/demo/tasks.md
   probe memory-links "$S/check-memory-links.sh" specs/demo
@@ -159,15 +192,20 @@ record_vantage() {
   probe meta-select "$S/orchestrate-meta-select.sh" specs/demo
   probe tasks-pr-sync "$S/tasks-pr-sync.sh" reconcile specs/demo
   probe migrate-status "$S/migrate-status-lifecycle.sh" specs
+  probe migrate-format "$S/migrate-format-version.sh" specs/demo
+  probe walkthrough "$S/spec-walkthrough.sh" --scope tasks specs/demo
+  probe headless-status "$S/fleet-dispatch-headless.sh" status demo 1
+  probe flight-id sh -c '"$1" branch fixture-1a2b3c4d && "$1" taken fixture-1a2b3c4d' sh "$S/flight-id.sh"
+  probe sweep "$S/fleet-sweep.sh" --repo "$rv_dir"
   probe lock sh -c '"$1" acquire specs/demo && find specs -name "*.lock*" && "$1" release specs/demo' \
     sh "$S/orchestrate-lock.sh"
-  probe marker sh -c '"$1" write specs/demo 1 && "$1" clear specs/demo 1' sh "$S/orchestrate-marker.sh"
+  probe marker sh -c '"$1" write specs/demo 1 && find specs -path "*/markers/*" && "$1" clear specs/demo 1' \
+    sh "$S/orchestrate-marker.sh"
   probe trailers sh -c 'printf "feat: x\n" | "$1" demo/1' sh "$S/planwright-commit-trailers.sh"
   probe fence-refname "$S/fleet-fence.sh" refname --spec demo 1
   probe fence-check "$S/fleet-fence.sh" check --checkout "$rv_dir" --spec demo 1
   probe dispatch-fetch "$S/dispatch-fetch.sh" --spec specs/demo .
-  probe watchdog env PLANWRIGHT_FLEET_STATE_DIR="$rv_t/fleet" \
-    "$S/fleet-tower-watchdog.sh" "$rv_dir/specs/demo"
+  probe watchdog "$S/fleet-tower-watchdog.sh" "$rv_dir/specs/demo"
   probe observations sh -c '"$1/obs-record.sh" --slug fixture --scope fixture --text "a fixture observation" >/dev/null &&
     ls specs/_observations/entries && "$1/check-obs.sh" && "$1/obs-render.sh" &&
     "$1/observation-carry.sh" --dry-run . &&
@@ -178,17 +216,26 @@ record_vantage() {
 }
 
 # record_probes — both vantages, each in its own fixture so a probe's side
-# effects from one vantage never reach the other.
+# effects from one vantage never reach the other. A vantage whose fixture
+# cannot be built fails the recording rather than shrinking it.
 record_probes() {
-  mkdir -p "$tmp/home"
+  rp_pids=''
   for rp_v in primary worktree; do
     (
       GOLDEN_HOME=$tmp/$rp_v/home
-      mkdir -p "$GOLDEN_HOME" && make_fixture "$tmp/$rp_v/primary" \
-        && record_vantage "$rp_v" "$tmp/$rp_v" >"$tmp/$rp_v.rec"
+      mkdir -p "$GOLDEN_HOME" && make_fixture "$tmp/$rp_v/primary" || exit 1
+      record_vantage "$rp_v" "$tmp/$rp_v" | normalize "$tmp/$rp_v" >"$tmp/$rp_v.rec"
     ) &
+    rp_pids="$rp_pids $!"
   done
-  wait
+  rp_rc=0
+  for rp_pid in $rp_pids; do
+    wait "$rp_pid" || rp_rc=1
+  done
+  [ "$rp_rc" -eq 0 ] || {
+    echo "record_probes: a vantage's fixture could not be built" >&2
+    return 1
+  }
   cat "$tmp/primary.rec" "$tmp/worktree.rec"
 }
 
@@ -203,14 +250,10 @@ record_anchors() {
   for ra_d in "$tmp/at-baseline/specs"/*/; do
     ra_b=$(basename "$ra_d")
     case $ra_b in _*) continue ;; esac
-    (cd "$tmp/at-baseline" && "$S/spec-anchor.sh" "specs/$ra_b" >"$tmp/anchor.$ra_b" 2>&1) &
+    (cd "$tmp/at-baseline" && printf '%s\t%s\n' "$ra_b" "$("$S/spec-anchor.sh" "specs/$ra_b" 2>&1)" >"$tmp/anchor.$ra_b") &
   done
   wait
-  for ra_d in "$tmp/at-baseline/specs"/*/; do
-    ra_b=$(basename "$ra_d")
-    case $ra_b in _*) continue ;; esac
-    printf '%s\t%s\n' "$ra_b" "$(cat "$tmp/anchor.$ra_b")"
-  done
+  cat "$tmp"/anchor.*
 }
 
 case "${1:-}" in
@@ -255,7 +298,7 @@ if out=$(replay "$planted/a-changed.txt"); then ok "comparator: a declared diffe
 if out=$(replay "$planted/same.txt"); then
   fail "comparator: a declared change that did not happen passed"
 else
-  ok "comparator: a declared change that did not happen fails"
+  case $out in *"a primary differs"*) ok "comparator: a declared change that did not happen fails" ;; *) fail "comparator: undelivered change misreported: $out" ;; esac
 fi
 
 printf '# declares nothing\n' >"$planted/changes/task-5.txt"
@@ -287,22 +330,52 @@ else
   case $out in *"unregistered correction 'unknown'"*) ok "comparator: an unregistered correction fails" ;; *) fail "comparator: unregistered correction misreported: $out" ;; esac
 fi
 
+# Numeric task order, not lexical: 6 before 6.5 before 10.
+printf 'fix-a\t3\tREQ-X\nfix-b\t5\tREQ-Y\nold\tbaseline\tREQ-Z\nfix-6\t6\tR\nfix-65\t6.5\tR\nfix-10\t10\tR\n' >"$planted/registry.tsv"
 printf '@@ a primary fix-a\nONE\n' >"$planted/changes/task-3.txt"
-printf '@@ a primary fix-b\nUNO\n' >"$planted/changes/task-5.txt"
-printf '@@ a primary\nUNO\n@@ b primary\ntwo\n' >"$planted/a-twice.txt"
-if out=$(replay "$planted/a-twice.txt"); then ok "comparator: later sets override earlier ones in task order"; else fail "comparator: set ordering failed: $out"; fi
-rm -f "$planted/changes/task-5.txt"
+printf '@@ a primary fix-10\nTEN\n' >"$planted/changes/task-10.txt"
+printf '@@ a primary fix-65\nSIX-FIVE\n' >"$planted/changes/task-6.5.txt"
+printf '@@ a primary fix-6\nSIX\n' >"$planted/changes/task-6.txt"
+printf '@@ a primary\nTEN\n@@ b primary\ntwo\n' >"$planted/a-ten.txt"
+if out=$(replay "$planted/a-ten.txt"); then ok "comparator: later sets override earlier ones in numeric task order"; else fail "comparator: set ordering failed: $out"; fi
+rm -f "$planted/changes/task-10.txt" "$planted/changes/task-6.5.txt" "$planted/changes/task-6.txt"
+printf 'fix-a\t3\tREQ-X\nfix-b\t5\tREQ-Y\nold\tbaseline\tREQ-Z\n' >"$planted/registry.tsv"
+
+printf '@@ ../escape primary\nx\n' >"$planted/escape.txt"
+if out=$(replay "$planted/escape.txt"); then
+  fail "comparator: a header naming a path passed"
+else
+  case $out in *"header field is not a name"*) ok "comparator: a header field that is not a name is refused" ;; *) fail "comparator: path header misreported: $out" ;; esac
+fi
+
+printf '@@ a primary\n\033[31mred\n@@ b primary\ntwo\n' >"$planted/escape-bytes.txt"
+out=$(replay "$planted/escape-bytes.txt")
+case $out in
+  *$'\033'*) fail "comparator: a control byte from a record reached the terminal" ;;
+  *"a primary differs"*) ok "comparator: reported output is stripped of control bytes" ;;
+  *) fail "comparator: control-byte mismatch misreported: $out" ;;
+esac
+
+if out=$(golden_replay "$planted/baseline.txt" "$planted/changes" "$planted/no-registry.tsv" "$planted/same.txt"); then
+  fail "comparator: a missing registry passed"
+else
+  case $out in *"no-registry.tsv is missing"*) ok "comparator: a missing registry fails closed" ;; *) fail "comparator: missing registry misreported: $out" ;; esac
+fi
 
 printf '@@ a primary\none\n' >"$planted/missing.txt"
 if out=$(replay "$planted/missing.txt"); then
   fail "comparator: a recording missing a probe passed"
 else
-  ok "comparator: a recording missing a probe fails"
+  case $out in *"recorded probes differ from the baseline"*) ok "comparator: a recording missing a probe fails" ;; *) fail "comparator: missing probe misreported: $out" ;; esac
 fi
 
 # --- The probes -------------------------------------------------------------
 
-record_probes >"$tmp/actual.txt"
+# The bundle half shares nothing with the probes, so it runs beside them.
+record_anchors >"$tmp/anchors.tsv" 2>"$tmp/anchors.err" &
+anchors_pid=$!
+
+record_probes >"$tmp/actual.txt" || fail "probes: the recording did not complete"
 if out=$(golden_replay "$FIXTURE/baseline.txt" "$FIXTURE/changes" "$FIXTURE/corrections.tsv" "$tmp/actual.txt" 2>&1); then
   ok "probes: every migrated script matches the baseline plus the declared sets"
 else
@@ -318,7 +391,7 @@ fi
 
 # --- The bundles ------------------------------------------------------------
 
-if record_anchors >"$tmp/anchors.tsv"; then
+if wait "$anchors_pid"; then
   grep -v '^#' "$FIXTURE/anchors.tsv" >"$tmp/anchors.expected"
   if diff -u "$tmp/anchors.expected" "$tmp/anchors.tsv" >"$tmp/anchors.diff"; then
     ok "bundles: every bundle at the baseline commit recomputes its recorded anchor"
@@ -327,16 +400,18 @@ if record_anchors >"$tmp/anchors.tsv"; then
 $(cat "$tmp/anchors.diff")"
   fi
 else
-  fail "bundles: could not recompute the anchors"
+  fail "bundles: could not recompute the anchors: $(cat "$tmp/anchors.err")"
 fi
 
 # Archived fragments keep their Consumed-by lines: a later consumption may add
 # one, a migration must not rewrite or drop one, nor remove the fragment.
+# A fragment with no Consumed-by line still gets a bare `<path> TAB` row, so
+# its removal shows too.
 consumed_lines() {
-  (cd "$1" && for cl_f in specs/_observations/archive/*.md; do
-    [ -f "$cl_f" ] || continue
-    awk -v f="$cl_f" '/^Consumed-by: / { print f "\t" $0; n++ } END { if (!n) print f "\t" }' "$cl_f"
-  done) | sort
+  (cd "$1" && set -- specs/_observations/archive/*.md && [ -f "$1" ] \
+    && awk 'FNR == 1 { if (f != "" && !n) print f "\t"; f = FILENAME; n = 0 }
+      /^Consumed-by: / { print FILENAME "\t" $0; n++ }
+      END { if (f != "" && !n) print f "\t" }' "$@") | sort
 }
 consumed_lines "$tmp/at-baseline" >"$tmp/consumed.baseline"
 consumed_lines "$REPO_ROOT" >"$tmp/consumed.now"

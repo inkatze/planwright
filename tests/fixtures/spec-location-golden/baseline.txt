@@ -7,10 +7,15 @@ later tree: a migration task that changes a probe's output declares the new
 output under changes/task-<id>.txt, against a correction registered in
 corrections.tsv, and that declaration is what review reads.
 
-Two recordings stand out as the corrections they will become: config-get,
+Recordings that stand out as the corrections they will become: config-get,
 review-sequence and config-knob from the worktree miss the primary checkout's
-machine-local values, and dispatch-worktree from the worktree places the task
-worktree under the worktree rather than the primary checkout.
+machine-local values; overlay-repo-root-override takes a repo-root override
+that is not a git toplevel as given; rule-doc-contentless-arm returns the
+self-location arm with no warning; and dispatch-worktree from the worktree
+places the task worktree under the worktree rather than the primary checkout.
+
+Commit ids and anchors are normalized to <SHA>: the anchors half of the test
+pins the anchor function, so the probes need not.
 
 Format: everything above the first `@@ ` line is commentary; each record is a
 `@@ <probe> <vantage>` header followed by the probe's normalized output and its
@@ -38,6 +43,9 @@ rc=0
 @@ overlay-machine-local primary
 <PRIMARY>/.claude
 rc=0
+@@ overlay-repo-root-override primary
+<PRIMARY>/specs/.claude
+rc=0
 @@ catalog primary
 core
 rc=0
@@ -45,13 +53,10 @@ rc=0
 default	<PRIMARY>/specs	same-repo	checkout-local
 rc=0
 @@ inception-scaffold primary
-wrote .gitignore
-wrote githooks/pre-commit
-wrote hygiene-wiring.md
 inception-scaffold: local rung
 rc=0
 @@ anchor-freshness primary
-check-anchor-freshness: ok     demo — anchor e6ff6753140ec88ca96e9b21ec99f2f384c6e433
+check-anchor-freshness: ok     demo — anchor <SHA>
 check-anchor-freshness: note: baseline ref origin/main does not resolve — pairing check skipped for every bundle.
 check-anchor-freshness: 1 ok, 0 notice(s), 0 error(s)
 rc=0
@@ -80,10 +85,30 @@ rc=0
 unchanged: demo  (Ready)
 migrate-status-lifecycle: 0 migrated, 1 unchanged, 0 skipped
 rc=0
+@@ migrate-format primary
+unchanged (already format-version 2): demo
+migrate-format-version: 0 migrated, 0 repaired, 1 unchanged, 0 refused
+rc=0
+@@ walkthrough primary
+spec-walkthrough: loaded bundle 'demo' (status: Ready)
+  files present: requirements.md, design.md, tasks.md, test-spec.md
+  scope: task graph
+  reveal: off
+  artifact: .claude/walkthroughs/demo/demo.html
+rc=0
+@@ headless-status primary
+absent
+rc=5
+@@ flight-id primary
+planwright/flight/fixture-1a2b3c4d
+rc=1
+@@ sweep primary
+rc=0
 @@ lock primary
 specs/demo/.orchestrate.lock
 rc=0
 @@ marker primary
+specs/demo/.orchestrate/markers/1
 rc=0
 @@ trailers primary
 feat: x
@@ -99,7 +124,7 @@ fleet-fence: no origin remote on this checkout — the genuine no-remote single-
 rc=5
 @@ dispatch-fetch primary
 fetch	no-remote
-anchor	e6ff6753140ec88ca96e9b21ec99f2f384c6e433	main
+anchor	<SHA>	main
 rc=3
 @@ watchdog primary
 no-marker
@@ -115,7 +140,7 @@ rc=0
 fleet-dispatch-worktree: NOTE: no remote reachable; basing on local main (degraded, D-9)
 dispatch	branch	planwright/demo/task-1
 dispatch	worktree	<PRIMARY>/.claude/worktrees/demo-task-1
-dispatch	base	fd5599763b010cf97bb0955be559044dd5538c4d
+dispatch	base	<SHA>
 rc=0
 @@ rule-doc-contentless-arm worktree
 core	<INSTALL>/scripts/../doctrine/spec-format.md
@@ -138,6 +163,9 @@ rc=0
 @@ overlay-machine-local worktree
 <WORKTREE>/.claude
 rc=0
+@@ overlay-repo-root-override worktree
+<WORKTREE>/specs/.claude
+rc=0
 @@ catalog worktree
 core
 rc=0
@@ -145,13 +173,10 @@ rc=0
 default	<WORKTREE>/specs	same-repo	checkout-local
 rc=0
 @@ inception-scaffold worktree
-wrote .gitignore
-wrote githooks/pre-commit
-wrote hygiene-wiring.md
 inception-scaffold: local rung
 rc=0
 @@ anchor-freshness worktree
-check-anchor-freshness: ok     demo — anchor e6ff6753140ec88ca96e9b21ec99f2f384c6e433
+check-anchor-freshness: ok     demo — anchor <SHA>
 check-anchor-freshness: note: baseline ref origin/main does not resolve — pairing check skipped for every bundle.
 check-anchor-freshness: 1 ok, 0 notice(s), 0 error(s)
 rc=0
@@ -180,10 +205,30 @@ rc=0
 unchanged: demo  (Ready)
 migrate-status-lifecycle: 0 migrated, 1 unchanged, 0 skipped
 rc=0
+@@ migrate-format worktree
+unchanged (already format-version 2): demo
+migrate-format-version: 0 migrated, 0 repaired, 1 unchanged, 0 refused
+rc=0
+@@ walkthrough worktree
+spec-walkthrough: loaded bundle 'demo' (status: Ready)
+  files present: requirements.md, design.md, tasks.md, test-spec.md
+  scope: task graph
+  reveal: off
+  artifact: .claude/walkthroughs/demo/demo.html
+rc=0
+@@ headless-status worktree
+absent
+rc=5
+@@ flight-id worktree
+planwright/flight/fixture-1a2b3c4d
+rc=1
+@@ sweep worktree
+rc=0
 @@ lock worktree
 specs/demo/.orchestrate.lock
 rc=0
 @@ marker worktree
+specs/demo/.orchestrate/markers/1
 rc=0
 @@ trailers worktree
 feat: x
@@ -199,7 +244,7 @@ fleet-fence: no origin remote on this checkout — the genuine no-remote single-
 rc=5
 @@ dispatch-fetch worktree
 fetch	no-remote
-anchor	e6ff6753140ec88ca96e9b21ec99f2f384c6e433	main
+anchor	<SHA>	main
 rc=3
 @@ watchdog worktree
 no-marker
@@ -215,5 +260,5 @@ rc=0
 fleet-dispatch-worktree: NOTE: no remote reachable; basing on local main (degraded, D-9)
 dispatch	branch	planwright/demo/task-1
 dispatch	worktree	<WORKTREE>/.claude/worktrees/demo-task-1
-dispatch	base	fd5599763b010cf97bb0955be559044dd5538c4d
+dispatch	base	<SHA>
 rc=0
