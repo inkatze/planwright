@@ -365,6 +365,21 @@ deny|load-bearing|git push origin HEAD:main --dry-run|BENIGN flag after a short 
 deny|load-bearing|git push origin main --quiet|BENIGN flag after a bare main destination
 deny|load-bearing|git push origin HEAD:refs/heads/main --dry-run|flag after a qualified main refspec
 deny|load-bearing|git push origin heads/main --atomic|flag after an abbreviated main refspec
+deny|load-bearing|git push origin master|bare master destination
+deny|load-bearing|git push origin HEAD:master|short refspec to master
+deny|load-bearing|git push origin refs/heads/master|fully-qualified bare master destination
+deny|load-bearing|git push origin master --quiet|BENIGN flag after a bare master destination
+deny|load-bearing|git push origin HEAD:master --dry-run|BENIGN flag after a short master refspec
+deny|load-bearing|git push origin heads/master --atomic|flag after an abbreviated master refspec
+deny|load-bearing|git push origin planwright/human-gates/spec|bare spec-branch destination
+deny|load-bearing|git push origin HEAD:planwright/human-gates/spec|short refspec to a spec branch
+deny|load-bearing|git push origin HEAD:refs/heads/planwright/human-gates/spec|fully-qualified refspec to a spec branch
+deny|load-bearing|git push -u origin planwright/human-gates/spec --quiet|BENIGN flag after a bare spec-branch destination
+deny|load-bearing|git push origin HEAD:planwright/human-gates/spec --dry-run|BENIGN flag after a short spec-branch refspec
+deny|load-bearing|git push origin refs/heads/planwright/human-gates/spec --atomic|flag after a qualified spec-branch refspec
+deny|load-bearing|git pull|a pull is a merge
+deny|load-bearing|git pull --rebase origin main|a pull that rebases
+deny|load-bearing|git -C . pull origin main|global-option prefix in front of a pull
 deny|load-bearing|git push --mirror origin|bulk-ref escape hatch
 deny|load-bearing|git push origin --mirror|bulk-ref escape hatch after the remote
 deny|load-bearing|git push --all origin|bulk-ref escape hatch
@@ -432,6 +447,8 @@ prompt|residual|git push -u origin planwright/guard-coverage/task-1|the first pu
 allow|legit|git push origin HEAD:refs/heads/planwright/guard-coverage/task-1|explicit refspec to a task branch
 allow|legit|git push origin main-fix|a branch whose name merely starts with main stays pushable
 allow|legit|git push origin HEAD:main-fix|refspec to a branch whose name starts with main
+allow|legit|git push origin master-fix|a branch whose name merely starts with master stays pushable
+allow|legit|git push origin planwright/human-gates/spec-notes|a branch whose name merely extends a spec branch stays pushable
 allow|legit|git commit -m "feat(guard): add the matcher fixture table"|the ordinary commit
 allow|legit|git commit -a -m "chore: tidy"|commit with -a
 allow|legit|git commit -F /tmp/msg|commit from a message file
@@ -537,8 +554,8 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=111
-DENY_ROW_FLOOR=88
+ROW_FLOOR=128
+DENY_ROW_FLOOR=103
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
 else
@@ -594,6 +611,12 @@ Bash(git push * main)|subsumed by Bash(git push * main *); same M4 hedge
 Bash(git push *heads/main)|subsumed by Bash(git push *heads/main *); same M4 hedge
 Bash(git push *refs/heads/main)|subsumed by the broader Bash(git push *heads/main) pair; kept as the explicit fully-qualified spelling
 Bash(git push *refs/heads/main *)|subsumed by the broader Bash(git push *heads/main *); kept as the explicit fully-qualified spelling
+Bash(git push *:master)|subsumed by Bash(git push *:master *); the main family's M4 hedge
+Bash(git push * master)|subsumed by Bash(git push * master *); same M4 hedge
+Bash(git push *heads/master)|subsumed by Bash(git push *heads/master *); same M4 hedge
+Bash(git push *:planwright/*/spec)|subsumed by Bash(git push *:planwright/*/spec *); same M4 hedge
+Bash(git push * planwright/*/spec)|subsumed by Bash(git push * planwright/*/spec *); same M4 hedge
+Bash(git push *heads/planwright/*/spec)|subsumed by Bash(git push *heads/planwright/*/spec *); same M4 hedge
 Bash(git commit --squash:*)|subsumed by Bash(git commit --squash*); kept as the explicit space-separated spelling
 Bash(git commit --fixup:*)|subsumed by Bash(git commit --fixup*); kept as the explicit space-separated spelling
 ROWS
