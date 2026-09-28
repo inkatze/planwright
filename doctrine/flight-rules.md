@@ -140,7 +140,11 @@ per-flight record file riding the flight's own branch otherwise. A worker
 re-checks the destination before its push and parks on a mismatch. Both homes render
 human-first (REQ-E1.5) — a lead a human PR author would write (what changed, why,
 how it was verified; no restated prompt, no filler) with the full contract
-collapsed below it.
+collapsed below it. One renderer, `scripts/flight-record.sh`, lays out both
+homes and lands the file home as exactly one commit on the flight's branch. It
+quotes the ask inside a fence the ask cannot close, indented off column zero, so
+no markup the ask carries renders or reads as the record's structure, and it
+refuses a lead that restates the ask (D-6, REQ-E1.5).
 
 The record is an audit artifact, not an accumulator (D-6): it collects no deferred
 decisions, so it owes no named reader and no drain ritual

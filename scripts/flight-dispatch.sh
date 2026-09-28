@@ -77,7 +77,8 @@
 # the re-ask line says.
 #
 # The ask travels as a file, is never evaluated, and reaches the worker only
-# inside the brief, quoted as data. The grounds travel as a file too, holding
+# inside the brief, quoted as data, and as the cleaned copy beside the brief
+# that scripts/flight-record.sh quotes into the audit record. The grounds travel as a file too, holding
 # one line: operator text never sits inside a command's quoting. Invisible and
 # bidi-control code points are stripped from both before either reaches the
 # brief, and the strip is flagged (stderr and the report). The brief lives
@@ -670,18 +671,33 @@ write_brief() {
   done
   IFS=$_old_ifs
 
+  # The worker renders the record from dispatch's cleaned copies of the ask
+  # and the grounds, so the operator's words reach the record as the brief
+  # quoted them, never re-typed.
+  printf '%s\n' "$grounds" >"$brief_dir/grounds.txt" || return 1
+  cp "$ask_file" "$brief_dir/ask.txt" || return 1
+  mkdir "$brief_dir/record" || return 1
+  _rd=$brief_dir/record
+  _inputs="--flight-id $flight_id --ask-file $(sh_quote "$brief_dir/ask.txt") --grounds-file $(sh_quote "$brief_dir/grounds.txt") --summary-file $(sh_quote "$_rd/summary.md") --verification-file $(sh_quote "$_rd/verification.md") --audit-file $(sh_quote "$_rd/audit.md") --handle $brief_handle"
+  _recorder=$(sh_quote "$brief_root/scripts/flight-record.sh")
+
   if [ "$home" = pr ]; then
     _landing="Before pushing, re-check the destination the tower stated: run
 \`$(sh_quote "$brief_root/scripts/flight-dispatch.sh") home --repo-root $(sh_quote "$repo_root")\`.
 It must report home \`pr\` and origin \`$HOME_DEST\`; on anything else, or if it
-cannot run, push nothing and park the flight with what it reported. Then push
-the branch to \`origin\` (\`git push -u origin $branch\`) and open the PR as a
-draft on the checked repository (\`gh pr create --draft --repo $HOME_DEST\`, with
-an explicit title and body); the record is the PR body. Never mark it ready and
-never merge: the draft-to-ready flip and the merge are the human's."
+cannot run, push nothing and park the flight with what it reported. Then render
+the record:
+\`$_recorder render --home pr $_inputs > $(sh_quote "$_rd/body.md")\`
+Push the branch to \`origin\` (\`git push -u origin $branch\`) and open the PR as
+a draft on the checked repository (\`gh pr create --draft --repo $HOME_DEST
+--title '<conventional title>' --body-file $(sh_quote "$_rd/body.md")\`); the
+record is the PR body. Never mark it ready and never merge: the draft-to-ready
+flip and the merge are the human's."
   else
-    _landing="Commit exactly one record file, \`$record\`, on this branch; do not push
-and open no PR. The committed record is the landing reference."
+    _landing="Land the record, which writes \`$record\` and commits exactly that one
+file on this branch:
+\`$_recorder land $_inputs\`
+Do not push and open no PR. The committed record is the landing reference."
   fi
 
   {
@@ -736,8 +752,21 @@ and open no PR. The committed record is the landing reference."
     printf '%s\n' "- any rigor scoping actually applied;"
     printf '%s\n' "- the worker handle, \`$brief_handle\`; and"
     printf '%s\n' "- the revert path."
-    printf '\n%s\n' "Render it human-first: what changed, why, and how it was verified lead; no"
-    printf '%s\n' "restated prompt; the full contract collapsed below."
+    printf '\n%s\n' "Render it human-first through \`scripts/flight-record.sh\`: what changed, why,"
+    printf '%s\n' "and how it was verified lead; no restated prompt; the full contract collapsed"
+    printf '%s\n' "below. Write its inputs under \`$_rd\`:"
+    printf '\n'
+    printf '%s\n' "- \`summary.md\`: what changed and why, in your own words;"
+    printf '%s\n' "- \`verification.md\`: how it was verified;"
+    printf '%s\n' "- \`audit.md\`: the review sequence's audit record, each element under its own"
+    printf '%s\n' "  heading: Lens coverage, Auto-applicable, Agent-resolvable, Needs sign-off,"
+    printf '%s\n' "  Needs human judgment, Declined log, Pending sign-off, Convergence steps;"
+    printf '%s\n' "- \`scoping.md\`, only when you scoped rigor, passed as \`--scoping-file\`; and"
+    printf '%s\n' "- \`revert.md\`, only when the default revert path does not fit, passed as"
+    printf '%s\n' "  \`--revert-file\`."
+    printf '\n%s\n' "The renderer quotes the ask and the grounds from this brief's directory. It"
+    printf '%s\n' "refuses an input naming what to fix; fix it and run it again. If it cannot run,"
+    printf '%s\n' "park the flight."
     printf '\n## Landing\n\n'
     printf '%s\n' "$_landing"
     printf '\n## Rules\n\n'

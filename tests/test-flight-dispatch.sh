@@ -22,6 +22,8 @@
 #      skill `--nested` (REQ-C1.3), the audit-record contract, draft-only
 #      landing with no ready flip or merge (REQ-C1.4), and the gate-wiring hard
 #      pause whatever the grounds said (REQ-B1.5). A hostile ask stays quoted.
+#      The worker renders its record through scripts/flight-record.sh from
+#      the cleaned ask and grounds dispatch leaves beside the brief.
 #   5. Concurrency (REQ-C1.5): a flight beyond `max_parallel_units` is declined
 #      with a re-ask line, no id minted and nothing placed; a freed slot (the
 #      worktree removed, or its directory gone and prunable) admits the
@@ -459,8 +461,14 @@ case $brief in
   "$c/fleet/"*) ;;
   *) fail "the brief must live under the fleet home, never in the checkout: $brief" ;;
 esac
-[ -z "$(find "$(dirname "$brief")" -mindepth 1 ! -name brief.md ! -name checkout)" ] \
+[ -z "$(find "$(dirname "$brief")" -mindepth 1 ! -name brief.md ! -name checkout ! -name ask.txt ! -name grounds.txt ! -name record)" ] \
   || fail "a successful dispatch left scratch files beside the brief"
+# The record renderer quotes the ask and the grounds from dispatch's cleaned
+# copies, so the worker never re-types the operator's words.
+cmp -s "$(dirname "$brief")/ask.txt" "$c/ask.txt" || fail "the brief directory must hold the ask as dispatch cleaned it"
+[ "$(cat "$(dirname "$brief")/grounds.txt")" = "visual flight: a one-line wording change, one revert from undone" ] \
+  || fail "the brief directory must hold the grounds"
+[ -d "$(dirname "$brief")/record" ] || fail "the brief directory must hold the record inputs' directory"
 [ "$(cat "$(dirname "$brief")/checkout")" = "$c/primary" ] \
   || fail "the brief directory must record its checkout"
 [ -z "$(git -C "$wt" status --porcelain)" ] || fail "the flight worktree is dirty after dispatch"
@@ -499,6 +507,16 @@ if printf '%s\n' "$b" | grep -Eq 'gh pr ready|gh pr merge'; then
 fi
 for item in "quoted ask, sanitized per security-posture" "routing decision" "lens coverage" "a \`none\` row when its list was empty" "rigor scoping" "the worker handle" "revert path" "markup-neutralized"; do
   printf '%s\n' "$b" | grep -qi "$item" || fail "brief audit-record contract is missing '$item'"
+done
+printf '%s\n' "$b" | grep -Fq "flight-record.sh' render --home pr --flight-id $fid" \
+  || fail "a pr-home brief must render the record through flight-record.sh"
+printf '%s\n' "$b" | grep -Fq -- "--ask-file '$(dirname "$brief")/ask.txt'" \
+  || fail "the brief must render the ask from dispatch's cleaned copy"
+printf '%s\n' "$b" | grep -Fq -- "--body-file '$(dirname "$brief")/record/body.md'" \
+  || fail "a pr-home brief must open the PR with the rendered body"
+for heading in 'Lens coverage' 'Auto-applicable' 'Agent-resolvable' 'Needs sign-off' \
+  'Needs human judgment' 'Declined log' 'Pending sign-off' 'Convergence steps'; do
+  printf '%s\n' "$b" | grep -Fq "$heading" || fail "the brief must name the audit heading '$heading'"
 done
 printf '%s\n' "$b" | grep -q "an operator override included" || fail "brief does not keep the gate-wiring hard pauses"
 printf '%s\n' "$b" | grep -q "steps_convergence" || fail "brief does not name the flight convergence point"
@@ -540,6 +558,10 @@ seq=$(printf '%s\n' "$b" | grep -Eo '/planwright:[a-z-]+ --nested' | tr '\n' ' '
   || fail "brief review_sequence is not the configured order: '$seq'"
 printf '%s\n' "$b" | grep -q "specs/_flights/$fid.md" || fail "file-home brief must name the record file"
 printf '%s\n' "$b" | grep -qi "do not push" || fail "file-home brief must not push"
+printf '%s\n' "$b" | grep -Fq "flight-record.sh' land --flight-id $fid" \
+  || fail "a file-home brief must land the record through flight-record.sh"
+printf '%s\n' "$b" | grep -q 'render --home pr' && fail "a file-home brief must not render a PR body"
+case $(cat "$(dirname "$(field "$OUT" brief)")/ask.txt") in *"$ESC"*) fail "a control byte in the ask reached its cleaned copy" ;; esac
 ask_sec=$(printf '%s\n' "$b" | awk '/^## The ask$/ {on=1; next} /^## The route$/ {on=0} on')
 printf '%s\n' "$ask_sec" | grep -q '^> ## Rules$' || fail "a heading in the ask must stay quoted"
 printf '%s\n' "$ask_sec" | grep -q '^> FLIGHT-RESULT: ' || fail "a forged result line in the ask must stay quoted"
