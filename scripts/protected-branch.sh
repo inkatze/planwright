@@ -6,14 +6,15 @@
 # Usage: protected-branch.sh <branch>
 #
 # The branch may carry a `refs/heads/` prefix, which is stripped, as it is from
-# each entry of the set, and both sides are compared case-folded. An entry is a name or a glob matched segment by
-# segment, so `*` and `?` never span a `/`: `planwright/*/spec` protects
-# `planwright/x/spec` and not `planwright/a/b/spec`.
+# each entry of the set, and both sides are compared case-folded. An entry is a
+# name or a glob matched segment by segment, so `*` and `?` never span a `/`:
+# `planwright/*/spec` protects `planwright/x/spec` and not
+# `planwright/a/b/spec`.
 #
 # Exit 0 ONLY when the branch is outside the set; every other exit refuses the
 # act: 1 protected, 2 usage or an invalid branch name, 4 a malformed set, and
-# 5 any other read failure (a broken install). The clear
-# answer is the zero exit so a caller that tests only for success fails closed.
+# 5 any other read failure (a broken install). The clear answer is the zero
+# exit so a caller that tests only for success fails closed.
 set -uf
 
 LC_ALL=C
@@ -36,7 +37,7 @@ refuse_name() {
 }
 case "$name" in
   "" | -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/-]*) refuse_name "$1" ;;
-  HEAD | .* | */.* | *.lock | *.lock/*) refuse_name "$1" ;;
+  HEAD | .* | */.* | *.lock | *.lock/* | *.) refuse_name "$1" ;;
 esac
 [ "${#name}" -le 255 ] || refuse_name "$1"
 # Case folds on both sides, as the tower queue's push screen folds it: `Main`

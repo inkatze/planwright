@@ -153,7 +153,9 @@ rest listed in [the options reference](options-reference.md)) take a stricter
 line, because their lower layers can hold the permissive value: a malformed
 adopter or machine-local value or file degrades each to its strict value, and
 `protected_branches` refuses the act at every layer. Each row names its
-target.
+target. `ready_flip_ci_wait` is the exception: it is a bound, not a gate, so a
+malformed value degrades to its core default and a malformed file is skipped
+as above.
 
 The asymmetry is deliberate. One operator's broken personal or machine-local
 file should never block their run — a warning is proportionate, the blast

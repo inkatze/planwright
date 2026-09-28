@@ -806,9 +806,9 @@ tower_reknock_age: 30m
 
 # Human-gate policies (doctrine/human-gates.md). Each resolves through
 # scripts/resolve-policy-knob.sh, which names the strict value a malformed
-# adopter or machine-local setting degrades to (the flip wait, a bound, degrades
-# to its core default instead); a malformed repo-tracked value fails the read
-# and the reader refuses the act.
+# adopter or machine-local setting degrades to (a malformed flip-wait value, a
+# bound, degrades to its core default instead); a malformed repo-tracked value
+# fails the read and the reader refuses the act.
 #
 # ready_flip_policy             who marks a task PR ready: human, or
 #                               unit-owner (the skill that executed the unit,

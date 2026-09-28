@@ -247,7 +247,7 @@ echo "ok: overlay additions join the floor and never shrink it"
 
 # An entry that could never match a branch is malformed, not silently inert:
 # an operator writing `release/**` or `release/` meant to protect something.
-for bad in 'release/' '/release' 'release//x' 'a..b/*' '.' 'release/**' '.hidden' 'x.lock' 'HEAD'; do
+for bad in 'release/' '/release' 'release//x' 'a..b/*' '.' 'release/**' '.hidden' 'x.lock' 'HEAD' 'release.' 'a/b.'; do
   printf 'protected_branches: %s\n' "$bad" >"$tracked_cfg"
   rc=0
   rpk protected_branches >/dev/null 2>&1 || rc=$?
@@ -292,7 +292,7 @@ echo "ok: a malformed or unset protected_branches is a read failure, never the f
 printf 'protected_branches:\n' >"$core_cfg"
 reset_layers
 # shellcheck disable=SC2016 # the literal `$(x)` is the refused input
-for bad in "" "-main" 'ma$(x)in' "a b" "a//b" "/main" "main/" "a..b" HEAD a.lock .x a/.b \
+for bad in "" "-main" 'ma$(x)in' "a b" "a//b" "/main" "main/" "a..b" HEAD a.lock .x a/.b release. \
   "$(printf 'a%.0s' $(seq 256))"; do
   rc=0
   pb "$bad" >/dev/null 2>&1 || rc=$?
@@ -314,6 +314,11 @@ for cmd in "resolve-policy-knob.sh unpushed_rewrite" "protected-branch.sh featur
   with_layers /bin/sh "$broken"/$cmd >/dev/null 2>&1 || rc=$?
   [ "$rc" = 5 ] || fail "broken install: '$cmd' exited $rc, expected 5"
 done
+# Any other resolver failure reaches the caller as 5 too.
+printf '#!/bin/sh\nexit 127\n' >"$broken/resolve-policy-knob.sh"
+rc=0
+with_layers /bin/sh "$broken/protected-branch.sh" feature-x >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "broken install: an unexpected resolver exit reached protected-branch.sh's caller as $rc, expected 5"
 echo "ok: a missing shared resolver is a broken install (exit 5)"
 
 [ ! -s "$host_log" ] || fail "a host call was made: $(cat "$host_log")"

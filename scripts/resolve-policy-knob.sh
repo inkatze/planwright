@@ -10,8 +10,9 @@
 # adopter or machine-local value (or overlay file) degrades to the strict
 # target named below, never to the core default; a malformed repo-tracked value
 # exits 4 and a broken install 5, and a reader treats any non-zero exit as a
-# refusal of the act. `ready_flip_ci_wait` is a bound rather than a gate and
-# keeps the core-default degrade. `protected_branches` degrades nowhere: a
+# refusal of the act. `ready_flip_ci_wait` is a bound rather than a gate: a
+# malformed value degrades to the core default and a malformed file is
+# skipped, as for any knob. `protected_branches` degrades nowhere: a
 # malformed value in any overlay is a read failure, and on success the output
 # is the whole protected set, the core floor first, so no reader can drop the
 # floor by forgetting to add it.
@@ -83,7 +84,7 @@ case "$knob" in
     for entry in $additions; do
       entry=${entry#refs/heads/}
       case "$entry" in
-        "" | /* | */ | *//* | *..* | *\*\** | .* | */.* | *.lock | *.lock/* | HEAD)
+        "" | /* | */ | *//* | *..* | *\*\** | .* | */.* | *.lock | *.lock/* | *. | HEAD)
           printf '%s\n' "resolve-policy-knob: protected_branches entry '$entry' can never match a branch; refusing" >&2
           exit 4
           ;;
