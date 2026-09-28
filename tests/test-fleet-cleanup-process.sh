@@ -64,6 +64,8 @@ EOF
 }
 trap cleanup EXIT
 tab=$(printf '\t')
+LF='
+'
 
 core_cfg="$tmp/core-defaults.yml"
 repo_cfg="$tmp/cfg-repo"
@@ -242,8 +244,15 @@ done
 echo "ok: a worker owned by a live peer tower is refused with its own exit (7) under every evidence"
 
 # --- the evidence matrix: tower verdict x session state ---------------------
-# Only a tower that is this one or positively dead, crossed with a session
-# positively ended, reaches a stop. Every other cell is refused with exit 5.
+# Only a positively dead owner crossed with a positively ended session reaches
+# a stop; the reaping cells are listed literally rather than recomputed the way
+# the script decides them. Every other cell is refused with exit 5, this
+# tower's own worker included: the tower closes those with the rung's stop.
+reaping='dead:dead-or-unknown|dead:death-evidence
+dead:dead-or-unknown|finished-but-unreaped:completion:result=success
+dead:dead-or-unknown|finished-but-unreaped:session-ended
+dead:dead-or-unknown|unclassified:completion-failed:exit=1
+dead:dead-or-unknown|unclassified:completion-unlanded'
 sessions='dead:death-evidence
 finished-but-unreaped:completion:result=success
 finished-but-unreaped:session-ended
@@ -281,19 +290,20 @@ while IFS= read -r tw; do
     gate w1 trig why
     cells=$((cells + 1))
     want=5
-    if { [ "$oe/$ow" = self/this-tower ] || [ "$oe/$ow" = dead/dead-or-unknown ]; }; then
-      case $st/$rs in
-        dead/* | finished-but-unreaped/* | unclassified/completion-failed:* | unclassified/completion-unlanded) want=0 ;;
-      esac
-    fi
+    case "$LF$reaping$LF" in
+      *"$LF$tw|$ss$LF"*) want=0 ;;
+    esac
     expect "$want" "evidence cell tower=$oe/$ow session=$st/$rs"
     if [ "$want" = 0 ]; then
       reaps=$((reaps + 1))
-      [ -s "$tmp/stop-calls" ] || fail "evidence cell $oe/$ow x $st/$rs: reaped without a stop"
+      [ "$(cat "$tmp/stop-calls")" = "fleet-streamjson.sh stop w1" ] \
+        || fail "evidence cell $oe/$ow x $st/$rs: reaped through '$(cat "$tmp/stop-calls")'"
     else
       never_stopped "evidence cell $oe/$ow x $st/$rs"
-      case $err in
-        *'no positive evidence'*) ;;
+      case $oe/$ow/$err in
+        self/this-tower/*"this tower's own worker"*) ;;
+        self/this-tower/*) fail "evidence cell $oe/$ow x $st/$rs: this tower's own worker was not named: $err" ;;
+        */*/*'no positive evidence'*) ;;
         *) fail "evidence cell $oe/$ow x $st/$rs: the refusal does not say what was missing: $err" ;;
       esac
     fi
@@ -304,8 +314,15 @@ done <<EOF
 $towers
 EOF
 [ "$cells" = 156 ] || fail "the evidence matrix ran $cells cells, expected 156"
-[ "$reaps" = 10 ] || fail "the evidence matrix reaped $reaps cells, expected 10"
-echo "ok: the evidence matrix ($cells cells) reaps only on this-tower or a dead tower, crossed with an ended session"
+[ "$reaps" = 5 ] || fail "the evidence matrix reaped $reaps cells, expected 5"
+det finished-but-unreaped this-tower completion:result=success stream-json-persistent self "$self_id"
+gate w1 trig why --tower-id "$self_id"
+expect 5 "this tower's own worker"
+case $err in
+  *"this tower's own worker"*stop*) ;;
+  *) fail "this tower's own worker: the refusal does not point at the rung's stop: $err" ;;
+esac
+echo "ok: the evidence matrix ($cells cells) reaps only a dead owner's worker whose session ended; this tower's own is refused"
 
 # --- a detector that errors, or answers nothing usable, refuses (exit 5) ----
 det finished-but-unreaped this-tower completion:result=success stream-json-persistent self
@@ -340,13 +357,13 @@ done
 echo "ok: a backend with no process close is refused (exit 5), never guessed at"
 
 # --- delegation: each backend reaches its own rung, with its own arguments --
-det finished-but-unreaped this-tower completion:result=success stream-json-persistent self "$self_id"
+det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead
 gate w1 trig why --grace 7 --repo-root /some/repo --tower-id "$self_id"
 expect 0 "stream-json delegation"
 [ "$(cat "$tmp/stop-calls")" = "fleet-streamjson.sh stop w1 --grace 7" ] \
   || fail "stream-json delegation: the rung was asked '$(cat "$tmp/stop-calls")'"
 grep -q -- "--tower-id $self_id" "$tmp/det-calls" || fail "the tower identity did not reach the detector: $(cat "$tmp/det-calls")"
-det finished-but-unreaped this-tower completion:result=success headless-oneshot self "$self_id"
+det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
 gate w1 trig why --grace 7 --repo-root /some/repo
 expect 0 "headless delegation"
 [ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --repo-root /some/repo --grace 7" ] \
@@ -499,10 +516,13 @@ mkdir -p "$tmp/bin"
 cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
 # CLI shim: read the opening stdin line, emit SHIM_EVENTS, then hold open the
-# way a worker that finished its turn and never exited does.
+# way a worker that finished its turn and never exited does, until the
+# fixture tree it is told to watch is gone.
 IFS= read -r line || :
 [ -n "${SHIM_EVENTS:-}" ] && cat "$SHIM_EVENTS"
-sleep 60
+while [ -d "$SHIM_HOLD" ]; do
+  sleep 1
+done
 exit 0
 SHIM
 chmod +x "$tmp/bin/claude"
@@ -537,6 +557,7 @@ ienv() {
     PLANWRIGHT_REPO_ROOT="$repo_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
     PLANWRIGHT_LOCAL_CONFIG="" \
+    SHIM_HOLD="$tmp" \
     ${ie_pre[@]+"${ie_pre[@]}"} /bin/sh "$IS/$ie_s" "$@"
 }
 
@@ -551,16 +572,16 @@ icleanup() {
   err=$(cat "$tmp/err")
 }
 
+# wait_until <secs> <cmd...> — bounded by wall clock: each poll can run the
+# whole detector, so a tick count would stretch with the host's load.
 wait_until() {
-  wu_n=$1
+  wu_end=$((SECONDS + $1))
   shift
-  wu_i=0
-  while [ "$wu_i" -lt "$wu_n" ]; do
+  while [ "$SECONDS" -lt "$wu_end" ]; do
     "$@" >/dev/null 2>&1 && return 0
     sleep 0.1
-    wu_i=$((wu_i + 1))
   done
-  return 1
+  "$@" >/dev/null 2>&1
 }
 
 classified() {
@@ -626,7 +647,7 @@ sj_launch() {
   ienv PLANWRIGHT_TOWER_ID="$2" SHIM_EVENTS="$ev_done" -- \
     fleet-streamjson.sh launch "$1" demo:4 --prompt-file "$tmp/prompt" --cwd "$wt" >/dev/null \
     || fail "stream-json launch of $1 failed"
-  wait_until 100 classified "$1" finished-but-unreaped \
+  wait_until 30 classified "$1" finished-but-unreaped \
     || fail "$1 never classified finished-but-unreaped"
 }
 
@@ -635,17 +656,47 @@ attn() {
 }
 
 store="$ihome/attention/state"
-strand_handle='pwfence.0123456789ab'
+# The strand is keyed the way the fence sweep keys it (fleet-fence.sh
+# key_digest over the fence ref and the owner), so a close that derived the
+# unit's strand key and cleared it would be caught here.
+strand_handle="pwfence.$(printf '%s' "refs/planwright-fence/demo/4|$peer_id" \
+  | git -C "$main_repo" hash-object --stdin | cut -c1-12)"
 attn fork "$strand_handle" demo:4 \
   'planwright strand: unit demo:4 is fenced by tower (dead) and not terminal. Choose: reclaim, investigate, or dismiss.' \
   investigate 'reclaim|investigate|dismiss' "$strand_handle" high
 strand_row=$(grep "^$strand_handle$tab" "$store")
 [ -n "$strand_row" ] || fail "fixture: the strand entry was not written"
 
-# --- stream-json, this tower's own finished worker --------------------------
-printf 'tower\t%s\tlive\n' "$peer_id" >"$tmp/presence-answer"
-sj_launch sjw1 "$self_id"
+strand_intact() {
+  [ "$(grep "^$strand_handle$tab" "$store")" = "$strand_row" ] \
+    || fail "$1: the strand entry was cleared or modified"
+}
+
+has_row() {
+  grep -q "^$1$tab" "$store"
+}
+
+reaps_recorded() {
+  ienv -- fleet-audit.sh query --mechanism process-cleanup 2>/dev/null \
+    | awk -F'\t' '$4 == "cleanup" || $4 == "cleanup-partial"' | grep -c . || :
+}
+
+# refused <what> <rc> <sup> <wrk> — REQ-D1.3 on a refusal: the exit, both
+# processes still running, no reap recorded, the unit and the strand untouched.
+refused() {
+  [ "$rc" = "$2" ] || fail "$1: exit $rc, expected $2 ($err)"
+  alive "$3" || fail "$1: the supervisor was terminated"
+  alive "$4" || fail "$1: the worker was terminated"
+  [ "$(reaps_recorded)" = "$reaps_before" ] || fail "$1: a reap was recorded"
+  untouched "$1"
+  strand_intact "$1"
+}
+
+# --- stream-json, a dead owner's finished worker ----------------------------
+printf 'tower\t%s\tdead\n' "$peer_id" >"$tmp/presence-answer"
+sj_launch sjw1 "$peer_id"
 attn heartbeat sjw1 demo:4 ended
+has_row sjw1 || fail "fixture: sjw1 has no attention row to release"
 sup=$(cat "$ihome/streamjson/sjw1/supervisor.pid")
 wrk=$(cat "$ihome/streamjson/sjw1/worker.pid")
 icleanup sjw1
@@ -656,64 +707,56 @@ case $out in
 esac
 gone "$sup" || fail "stream-json reap: the supervisor survived"
 gone "$wrk" || fail "stream-json reap: the worker survived"
-! grep -q "^sjw1$tab" "$store" || fail "stream-json reap: the worker's attention row was not released"
-[ "$(grep "^$strand_handle$tab" "$store")" = "$strand_row" ] || fail "stream-json reap: the strand entry was cleared or modified"
+[ -f "$store" ] || fail "stream-json reap: the attention store is gone"
+! has_row sjw1 || fail "stream-json reap: the worker's attention row was not released"
+strand_intact "stream-json reap"
 untouched "stream-json reap"
 case $(ienv -- fleet-audit.sh query --mechanism process-cleanup) in
-  *"worker=sjw1 owner=$self_id evidence=tower:self,session:finished-but-unreaped/"*"released=process"*) ;;
+  *"worker=sjw1 owner=$peer_id evidence=tower:dead,session:finished-but-unreaped/"*"released=process"*) ;;
   *) fail "stream-json reap: no matching audit record" ;;
 esac
-echo "ok: stream-json — a finished, unexited worker of this tower is reaped and audited; its strand survives; fence, branch and worktree untouched"
-
-# --- stream-json, a dead owner's worker -------------------------------------
-printf 'tower\t%s\tdead\n' "$peer_id" >"$tmp/presence-answer"
-sj_launch sjw2 "$peer_id"
-wrk=$(cat "$ihome/streamjson/sjw2/worker.pid")
-icleanup sjw2
-[ "$rc" = 0 ] || fail "dead-owner reap: exit $rc ($err)"
-gone "$wrk" || fail "dead-owner reap: the worker survived"
-[ "$(grep "^$strand_handle$tab" "$store")" = "$strand_row" ] || fail "dead-owner reap: the strand entry was cleared or modified"
-untouched "dead-owner reap"
-echo "ok: stream-json — a dead owner's finished worker is reaped on positive evidence for both tower and session"
+echo "ok: stream-json — a dead owner's finished, unexited worker is reaped and audited; its strand survives; fence, branch and worktree untouched"
 
 # --- refusals leave the worker running and the unit untouched ---------------
+reaps_before=$(reaps_recorded)
 printf 'tower\t%s\tlive\n' "$peer_id" >"$tmp/presence-answer"
+sj_launch sjw2 "$self_id"
+sup=$(cat "$ihome/streamjson/sjw2/supervisor.pid")
+wrk=$(cat "$ihome/streamjson/sjw2/worker.pid")
+icleanup sjw2
+refused "this tower's own worker" 5 "$sup" "$wrk"
 sj_launch sjw3 "$peer_id"
+sup=$(cat "$ihome/streamjson/sjw3/supervisor.pid")
 wrk=$(cat "$ihome/streamjson/sjw3/worker.pid")
 icleanup sjw3
-[ "$rc" = 7 ] || fail "live-peer refusal: exit $rc ($err)"
-alive "$wrk" || fail "live-peer refusal: the peer's worker was terminated"
-untouched "live-peer refusal"
+refused "live-peer refusal" 7 "$sup" "$wrk"
 printf 'tower\t%s\tunknown\n' "$peer_id" >"$tmp/presence-answer"
 icleanup sjw3
-[ "$rc" = 5 ] || fail "unknown-owner refusal: exit $rc ($err)"
-alive "$wrk" || fail "unknown-owner refusal: the worker was terminated on unknown evidence"
-untouched "unknown-owner refusal"
+refused "unknown-owner refusal" 5 "$sup" "$wrk"
 printf 'tower\t%s\tdead\n' "$peer_id" >"$tmp/presence-answer"
 printf 'fleet_daemon_pause: true\n' >"$mlocal_cfg"
 icleanup sjw3
-[ "$rc" = 4 ] || fail "kill-switch: exit $rc ($err)"
-alive "$wrk" || fail "kill-switch: the worker was terminated while paused"
-untouched "kill-switch refusal"
+refused "kill-switch refusal" 4 "$sup" "$wrk"
 rm -f "$mlocal_cfg"
 ienv -- fleet-state.sh register wprint demo:6 --backend print --death-handle none \
   || fail "fixture: the print record was not written"
 icleanup wprint
 [ "$rc" = 8 ] || fail "print refusal: exit $rc ($err)"
 untouched "print refusal"
-[ "$(grep "^$strand_handle$tab" "$store")" = "$strand_row" ] || fail "refusals: the strand entry changed"
-echo "ok: live-peer, unknown-owner, kill-switch and print refusals terminate nothing and touch no fence, branch or worktree"
+strand_intact "print refusal"
+echo "ok: own-worker, live-peer, unknown-owner, kill-switch and print refusals terminate nothing, record no reap, and touch no fence, branch, worktree or strand"
 
-# --- headless, this tower's own worker whose session ended ------------------
-hw=headless-demo-task-5
-ienv PLANWRIGHT_TOWER_ID="$self_id" -- \
-  fleet-dispatch-headless.sh launch demo 5 --worktree "$wt" <"$tmp/prompt" >/dev/null \
+# --- headless, a dead owner's worker whose session ended --------------------
+hw=headless-demo-task-4
+ienv PLANWRIGHT_TOWER_ID="$peer_id" -- \
+  fleet-dispatch-headless.sh launch demo 4 --worktree "$wt" <"$tmp/prompt" >/dev/null \
   || fail "headless launch failed"
-hdir="$ihome/headless/5"
-wait_until 100 test -s "$hdir/pid" || fail "the headless runner never recorded its pid"
+hdir="$ihome/headless/4"
+wait_until 30 test -s "$hdir/pid" || fail "the headless runner never recorded its pid"
 runner=$(cat "$hdir/pid")
-attn heartbeat "$hw" demo:5 ended
-wait_until 50 classified "$hw" finished-but-unreaped || fail "$hw never classified finished-but-unreaped"
+attn heartbeat "$hw" demo:4 ended
+has_row "$hw" || fail "fixture: $hw has no attention row to release"
+wait_until 30 classified "$hw" finished-but-unreaped || fail "$hw never classified finished-but-unreaped"
 icleanup "$hw"
 [ "$rc" = 0 ] || fail "headless reap: exit $rc ($err)"
 case $out in
@@ -721,7 +764,7 @@ case $out in
   *) fail "headless reap: unexpected result '$out'" ;;
 esac
 gone "$runner" || fail "headless reap: the runner survived"
-! grep -q "^$hw$tab" "$store" || fail "headless reap: the worker's attention row was not released"
-[ "$(grep "^$strand_handle$tab" "$store")" = "$strand_row" ] || fail "headless reap: the strand entry was cleared or modified"
+! has_row "$hw" || fail "headless reap: the worker's attention row was not released"
+strand_intact "headless reap"
 untouched "headless reap"
-echo "ok: headless — a worker whose session ended is reaped through the headless rung's stop; strand, fence, branch and worktree untouched"
+echo "ok: headless — a dead owner's worker whose session ended is reaped through the headless rung's stop; strand, fence, branch and worktree untouched"

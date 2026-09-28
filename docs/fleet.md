@@ -1431,14 +1431,17 @@ the blind spot it exists to close (kickoff risk row 2).
 ### Reaping a leaked worker: `fleet-cleanup.sh process`
 
 The detector's verdict is what the reap acts on. `scripts/fleet-cleanup.sh
-process <worker> <trigger> <reasoning>` closes a worker whose session has
-ended and whose process tree has not, and refuses everything else:
+process <worker> <trigger> <reasoning>` closes a worker whose owning tower is
+gone, whose session has ended, and whose process tree has not, and refuses
+everything else:
 
 - a `print`-backend unit, which spawned no process (exit `8`);
 - a worker owned by a live peer tower, under any evidence (exit `7`);
 - anything short of positive evidence on both axes (exit `5`): the owning
-  tower is this one or positively dead, and the session positively ended,
-  by death evidence or a completion signal. Unknown means alive.
+  tower is positively dead, and the session positively ended, by death
+  evidence or a completion signal. Unknown means alive;
+- this tower's own worker (exit `5`), which the tower closes with the rung's
+  `stop` directly.
 
 It passes the paused kill-switch (exit `4`) and malformed input (exit `2`)
 through exactly as the `window` and `worktree` classes do. The close itself

@@ -47,8 +47,8 @@
 #            PLANWRIGHT_CLEANUP_GH_TIMEOUT bounds the query (default 20s).
 #   fleet-cleanup.sh process <worker> <trigger> <reasoning> [--grace <secs>]
 #       [--repo-root <dir>] [--tower-id <token>]
-#       Reap a leaked worker process: one whose session has ended and whose
-#       process tree has not. It RELEASES THE PROCESS ONLY. The unit's fence,
+#       Reap a leaked worker process: one whose owning tower is gone, whose
+#       session has ended, and whose process tree has not. It RELEASES THE PROCESS ONLY. The unit's fence,
 #       branch, and worktree are never touched, and a strand surfaced for the
 #       operator stays surfaced: reaping is not reclaiming, and the reclaim
 #       decision stays the operator's.
@@ -60,10 +60,11 @@
 #         a `print`-backend unit, which spawned no process (exit 8);
 #         a worker owned by a live peer tower, under any evidence (exit 7);
 #         anything short of positive evidence on BOTH axes (exit 5): the
-#           owning tower must be this one or positively dead, and the session
-#           must have positively ended, by death evidence or a completion
-#           signal. An unknown, ambiguous, or unreadable verdict, an errored
-#           detector, and a missing dispatch record are all refusals.
+#           owning tower must be positively dead, and the session must have
+#           positively ended, by death evidence or a completion signal. An
+#           unknown, ambiguous, or unreadable verdict, an errored detector,
+#           and a missing dispatch record are all refusals, and so is this
+#           tower's own worker, which the tower closes with the rung's `stop`.
 #
 #       The close itself is the rung's own `stop`
 #       (scripts/fleet-streamjson.sh, scripts/fleet-dispatch-headless.sh), so
@@ -709,8 +710,11 @@ EOF
         ;;
     esac
     case $owner_ev/$owner_class in
-      self/this-tower) tower_ev=self ;;
       dead/dead-or-unknown) tower_ev=dead ;;
+      self/this-tower)
+        warn "refusing '$worker': it is this tower's own worker, whose owner is alive by definition — close it with the rung's stop, which needs no death evidence"
+        exit 5
+        ;;
       *)
         warn "refusing '$worker': no positive evidence its owning tower is gone (owner: $(sanitize_printable "$owner_class" "-"), evidence: $(sanitize_printable "$owner_ev" "-")) — unknown is treated as alive"
         exit 5
