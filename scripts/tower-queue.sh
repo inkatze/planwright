@@ -2095,17 +2095,19 @@ push_word_present() {
   )
 }
 
-# pull_word_present <lowercased command> — 0 when a word of the command, its
-# quotes removed, IS a pull. The `git pull` substring in reserved_control misses
-# `git -C dir pull`, a doubled space, and a quoted `pull`, all of which git runs
-# as a pull; a command naming the word for any other reason reaches the operator.
-pull_word_present() {
+# command_words_reserved <lowercased command> — 0 when a word of the command,
+# its quotes removed, IS a pull or names a git alias. The `git pull` substring in
+# reserved_control misses `git -C dir pull`, a doubled space, and a quoted
+# `pull`, all of which git runs as a pull; an alias (`-c alias.x=pull x`) can
+# expand to any verb the screens look for. A command naming either for any
+# other reason reaches the operator.
+command_words_reserved() {
   (
     set -f
     for _pw in $1; do
       unquote "$_pw"
       case "$UQ" in
-        pull | git-pull | */git-pull) exit 0 ;;
+        pull | git-pull | */git-pull | *alias.*) exit 0 ;;
       esac
     done
     exit 1
@@ -2230,7 +2232,7 @@ reserved_control() {
 reserved_command() {
   reserved_control "$1" && return 0
   _rq=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-  pull_word_present "$_rq" && return 0
+  command_words_reserved "$_rq" && return 0
   push_word_present "$_rq" || return 1
   push_parses_safe "$_rq" && return 1
   return 0
