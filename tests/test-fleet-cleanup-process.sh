@@ -196,20 +196,27 @@ case $err in
   *'strand'*) ;;
   *) fail "a handle in the strand sink's namespace was refused without naming why: $err" ;;
 esac
-gate w1 "$(printf 'bad\ttrig')" why
-expect 2 "a trigger with a tab"
-gate w1 trig why --grace 0
-expect 2 "a zero grace"
-gate w1 trig why --grace abc
-expect 2 "a non-numeric grace"
-gate w1 trig why --repo-root relative/dir
-expect 2 "a relative repo root"
-gate w1 trig why --tower-id 'bad id'
-expect 2 "a malformed tower id"
-gate w1 trig why --bogus
-expect 2 "an unknown flag"
-gate w1 trig
-expect 2 "a missing reasoning"
+# malformed <what> <args...> — exit 2, and the detector never asked.
+malformed() {
+  mf_what=$1
+  shift
+  gate "$@"
+  expect 2 "$mf_what"
+  [ ! -s "$tmp/det-calls" ] || fail "$mf_what: the detector was asked"
+}
+malformed "a trigger with a tab" w1 "$(printf 'bad\ttrig')" why
+malformed "a zero grace" w1 trig why --grace 0
+malformed "a non-numeric grace" w1 trig why --grace abc
+malformed "an over-length grace" w1 trig why --grace 12345
+malformed "an empty grace" w1 trig why --grace ''
+malformed "a grace with no value" w1 trig why --grace
+malformed "a relative repo root" w1 trig why --repo-root relative/dir
+malformed "an empty repo root" w1 trig why --repo-root ''
+malformed "a repo root with a control byte" w1 trig why --repo-root "$(printf '/a\033b')"
+malformed "a malformed tower id" w1 trig why --tower-id 'bad id'
+malformed "an empty tower id" w1 trig why --tower-id ''
+malformed "an unknown flag" w1 trig why --bogus x
+malformed "a missing reasoning" w1 trig
 echo "ok: malformed input is refused (exit 2) before any liveness verdict is read"
 
 # --- the kill-switch pauses it before anything is read (exit 4) -------------

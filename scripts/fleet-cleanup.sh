@@ -623,6 +623,13 @@ case "$cmd" in
         usage
         exit 2
       }
+      # An empty value would read as the flag left out, which for
+      # --tower-id means falling back to whatever identity the environment
+      # carries.
+      if [ -z "$2" ]; then
+        warn "refusing an empty value for $1"
+        exit 2
+      fi
       case $1 in
         --grace) grace=$2 ;;
         --repo-root) repo_root=$2 ;;
