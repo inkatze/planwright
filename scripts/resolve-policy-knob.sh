@@ -7,15 +7,17 @@
 # Usage: resolve-policy-knob.sh <knob>
 #
 # A gate knob's shipped default can be its permissive value, so a malformed
-# adopter or machine-local value degrades to the strict target named below,
-# never to the core default; a malformed repo-tracked value exits 4 and a
-# broken install 5, and a reader treats any non-zero exit as a refusal of the
-# act. `protected_branches` degrades nowhere: a malformed value at any layer is
-# a read failure, and on success the output is the whole protected set, the
-# core floor first, so no reader can drop the floor by forgetting to add it.
+# adopter or machine-local value (or overlay file) degrades to the strict
+# target named below, never to the core default; a malformed repo-tracked value
+# exits 4 and a broken install 5, and a reader treats any non-zero exit as a
+# refusal of the act. `ready_flip_ci_wait` is a bound rather than a gate and
+# keeps the core-default degrade. `protected_branches` degrades nowhere: a
+# malformed value in any overlay is a read failure, and on success the output
+# is the whole protected set, the core floor first, so no reader can drop the
+# floor by forgetting to add it.
 #
 # Exit: 0 value printed; 2 usage error; 4 malformed value (repo-tracked, or any
-# layer for protected_branches); 5 broken install.
+# overlay for protected_branches); 5 broken install.
 set -uf
 
 LC_ALL=C

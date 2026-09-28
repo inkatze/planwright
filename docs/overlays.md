@@ -148,6 +148,13 @@ status. A key or doc still absent in every remaining layer exits with the usual
 not-found code (`scripts/config-get.sh` exits 3, `scripts/resolve-rule-doc.sh`
 exits 1), independent of the degraded overlay.
 
+The human-gate policy knobs (`ready_flip_policy`, `merge_policy`, and the
+rest listed in [the options reference](options-reference.md)) take a stricter
+line, because their lower layers can hold the permissive value: a malformed
+adopter or machine-local value or file degrades each to its strict value, and
+`protected_branches` refuses the act at every layer. Each row names its
+target.
+
 The asymmetry is deliberate. One operator's broken personal or machine-local
 file should never block their run — a warning is proportionate, the blast
 radius is one machine. A broken **team-shared** (`repo-tracked`) file that
