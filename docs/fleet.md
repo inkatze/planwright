@@ -1452,9 +1452,10 @@ worktree are untouched, and a strand already surfaced to you stays surfaced,
 because reaping is not reclaiming. Each reap writes one `process-cleanup`
 audit record naming the worker, its owner, the evidence class, and what was
 released. A partial close is exit `5` with a `cleanup-partial` record naming
-what it released and what is still held, written even when it released
-nothing, since the rung signals the tree before it finds a class still held.
-A close that could not be recorded is exit `6`.
+what it released and what is still held, written even when nothing came free,
+since the rung may have signalled the tree before finding a class still held;
+a rung that died on a signal mid-close is recorded the same way, its extent
+unreported. A close that could not be recorded is exit `6`.
 
 ## Resource governance: models, throttling, and the auto-mode line
 

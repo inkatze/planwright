@@ -2,8 +2,8 @@
 # fleet-cleanup.sh — the deterministic stale-resource cleanup actuator with an
 # explicit self-targeting guard (Task 4: D-6, D-5, D-15, D-16; REQ-B1.1).
 #
-# WHY DETERMINISTIC (D-6). Stale window/pane/worktree/process cleanup runs as script
-# logic, never in-context model judgment. A real postmortem
+# WHY DETERMINISTIC (D-6). Stale window/pane/worktree/process cleanup runs as
+# script logic, never in-context model judgment. A real postmortem
 # (anthropics/claude-code#29787) shows an LLM-driven cleanup non-deterministically
 # issuing `tmux kill-session` against its OWN hosting pane, destroying the whole
 # session. This actuator closes that exact failure mode two ways: it never lets a
@@ -50,9 +50,10 @@
 #   fleet-cleanup.sh process <worker> <trigger> <reasoning> [--grace <secs>]
 #       [--repo-root <dir>] [--tower-id <token>]
 #       Reap a leaked worker process: one whose owning tower is gone, whose
-#       session has ended, and whose process tree has not. It RELEASES THE PROCESS ONLY. The unit's fence,
-#       branch, and worktree are never touched, and a strand surfaced for the
-#       operator stays surfaced: reaping is not reclaiming, and the reclaim
+#       session has ended, and whose process tree has not. It RELEASES THE
+#       PROCESS ONLY, with the runtime the rung's `stop` releases alongside it:
+#       it touches no fence, branch, or worktree, and a strand surfaced for the
+#       operator stays surfaced. Reaping is not reclaiming, and the reclaim
 #       decision stays the operator's.
 #
 #       The verdict comes from scripts/fleet-stuck-detector.sh, whose registry
@@ -63,12 +64,13 @@
 #       this order:
 #         a `print`-backend unit, which spawned no process (exit 8);
 #         a worker owned by a live peer tower, under any evidence (exit 7);
+#         a backend with no process close, such as tmux (exit 5);
 #         anything short of positive evidence on BOTH axes (exit 5): the
 #           owning tower must be positively dead, and the session must have
 #           positively ended, by death evidence or a completion signal. An
-#           unknown, ambiguous, or unreadable verdict, an errored detector,
-#           and a missing dispatch record are all refusals, and so is this
-#           tower's own worker, which the tower closes with the rung's `stop`.
+#           unknown, ambiguous, or unreadable verdict is a refusal, and so is
+#           this tower's own worker, which the tower closes with the rung's
+#           `stop`.
 #
 #       The close itself is the rung's own `stop`
 #       (scripts/fleet-streamjson.sh, scripts/fleet-dispatch-headless.sh), so
@@ -83,8 +85,9 @@
 #
 #       A partial close is exit 5 with a `cleanup-partial` record naming what
 #       was released and what is still held. It is recorded even when nothing
-#       was released, because the rung signals the tree before it finds a
-#       class still held, and so is a rung that died on a signal mid-close.
+#       came free, since the rung may have signalled the tree before finding a
+#       class still held. A rung that died on a signal mid-close is recorded as
+#       a partial close too, both sets `unreported`.
 #
 #       A handle in the `pwfence.` namespace is refused as malformed: that is
 #       where the fence sweep keys the strand entries it surfaces, and a close
@@ -92,9 +95,10 @@
 #
 # <trigger>/<reasoning> are free-text audit fields (the caller's determination of
 # WHY the target is stale) under fleet-audit's control-free text grammar. A
-# process reap's record also names the worker, its owner token, the evidence
-# class, and the released set ahead of <reasoning>, which is cut short when the
-# whole would outgrow the grammar's bound.
+# process record also names the worker, its owner token, and the evidence class,
+# then for a close the released set (and for a partial one the held set), all
+# ahead of <reasoning>, which is cut short when the whole would outgrow the
+# grammar's bound. A self-block record carries the same prefix.
 #
 # Exit codes:
 #   0  acted (resource reclaimed) or a clean no-op (target already gone)
@@ -114,7 +118,8 @@
 #      close, which acted and is recorded (see its usage)
 #   6  acted (resource WAS reclaimed) but the audit-trail write failed — the
 #      action happened and is unrecorded; distinct from 2 so a caller never reads
-#      an unlogged reclaim as "nothing happened"
+#      an unlogged reclaim as "nothing happened". For `process` that includes a
+#      partial close, which may have signalled the tree and released nothing
 #   7  process only: refused, the worker is owned by a live peer tower
 #   8  process only: refused, a `print`-backend unit has no process to reap
 #
@@ -757,8 +762,8 @@ EOF
         exit 5
         ;;
     esac
-    # The detector reads a torn completion record as the value `unknown` and
-    # still calls it a completion; for a reap, unknown is alive.
+    # A completion value the detector could not parse reads `unknown`, yet
+    # still counts as a completion there; for a reap, unknown is alive.
     case $state/$reason in
       unclassified/completion-failed:*=unknown*) session_ended=0 ;;
       dead/* | finished-but-unreaped/* | unclassified/completion-failed:* | unclassified/completion-unlanded) session_ended=1 ;;
@@ -802,8 +807,8 @@ EOF
         esac
         ;;
       6)
-        # Recorded even when nothing was released: the rung signals the tree
-        # before it can find the process class still held.
+        # Recorded even when nothing came free: the rung may have signalled
+        # the tree before finding a class still held.
         case $result in
           "stop $worker partial released="*" held="*)
             held=${result##* held=}
@@ -826,8 +831,8 @@ EOF
         ;;
       *)
         # Past 128 the rung died on a signal, possibly mid-release: what it
-        # had already signalled is unknown, so it is recorded as such. Below,
-        # it refused before acting.
+        # had already signalled is unknown, so it is recorded as such. At or
+        # below 128 it refused before acting.
         if [ "$stop_rc" -le 128 ]; then
           warn "the $rung stop for '$worker' did not complete (exit $stop_rc) — not reclaimed"
           exit 5
