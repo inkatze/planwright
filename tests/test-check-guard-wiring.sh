@@ -427,6 +427,17 @@ expect_cg 1 "$r" "g8d inline MISE_TASK_SKIP_DEPENDS"
 wired "$r" 'mise run check:wrap' "env = { MISE_TASK_SKIP_DEPENDS = \"true\" }$inner$wrap"
 expect_mise 1 "$r" planted "g8d task-env MISE_TASK_SKIP_DEPENDS"
 expect_cg 1 "$r" "g8d task-env MISE_TASK_SKIP_DEPENDS"
+#     A call run against another config (`-E dev` loads mise.dev.toml, which
+#     may redefine the task) claims no edge, and the flag's value is never
+#     read as the task. Stricter than mise when no such file exists, by design.
+wired "$r" 'mise run -E dev check:alpha' '
+[tasks.dev]
+run = "/bin/sh scripts/check-planted.sh"'
+expect_mise 1 "$r" planted "g8d -E value"
+expect_cg 1 "$r" "g8d -E value"
+wired "$r" 'mise run --env ci check:inner' "$inner"
+expect_mise 0 "$r" planted "g8d --env"
+expect_cg 1 "$r" "g8d --env"
 wired "$r" 'mise run check:wrap' "$inner$wrap"
 expect_mise 0 "$r" planted "g8d control"
 expect_cg 0 "$r" "g8d control"

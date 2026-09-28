@@ -34,7 +34,7 @@
 # `mise run` / `mise r` call names (`default` when it names none), each `:::`
 # segment included. A call whose leading flags keep the target or its
 # dependencies from running (`--dry-run`, `--skip-deps`, ...) or run it from
-# another directory's config (`--cd`) contributes nothing; a stop flag in a
+# another config (`--cd`, `--env`, `--profile`) contributes nothing; a stop flag in a
 # later `:::` segment drops that segment alone. A task whose run body or env
 # names MISE_TASK_SKIP_DEPENDS, the variable form of `--skip-deps`,
 # contributes no run-body edges at all. Global flags placed before
@@ -143,12 +143,12 @@ report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
   def uncommented: split("\n") | map(select(test("^[[:space:]]*#") | not)) | join("\n");
   # The task one `:::` segment names, given its words. A flag that stops the
   # target from running (or its dependencies, or runs it from another
-  # directory) yields the stop mark, so no edge is claimed; a flag taking a
+  # config) yields the stop mark, so no edge is claimed; a flag taking a
   # separate value skips that value too.
   def seg_task:
     if length == 0 then empty
     else .[0] as $w
-      | if ($w | test("^--(dry-run|help|skip-deps|no-deps|cd)(=|$)|^-[A-Za-z]*[nhC][A-Za-z]*$")) then "\u0000stop"
+      | if ($w | test("^--(dry-run|help|skip-deps|no-deps|cd|env|profile)(=|$)|^-[A-Za-z]*[nhCEP][A-Za-z]*$")) then "\u0000stop"
         elif ($w | test("^--(jobs|output|shell|tool|timeout|allow-env|allow-net|allow-read|allow-write)$|^-[A-Za-z]*[jost]$")) then (.[2:] | seg_task)
         elif ($w | startswith("-")) then (.[1:] | seg_task)
         else $w | gsub("^[\"\u0027`]+|[\"\u0027`);]+$"; "")
