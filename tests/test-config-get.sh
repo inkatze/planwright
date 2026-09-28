@@ -7,7 +7,8 @@
 #   1. A key present only in the tracked defaults reads from the defaults.
 #   2. A local override wins over the tracked default for the same key.
 #   3. A key absent from both exits 3 (caller picks its own fallback).
-#   4. Comments and surrounding quotes are stripped from the printed value.
+#   4. Comments (a whitespace-led `#`, as in YAML) and surrounding quotes are
+#      stripped from the printed value; a `#` inside the value is kept.
 #   5. The local file is consulted via PLANWRIGHT_LOCAL_CONFIG; an absent
 #      local file degrades to the default (no error).
 #   6. An invalid key (path/metachar) is rejected (exit 2) before any use.
@@ -85,6 +86,28 @@ printf 'dispatch_backend: "print"  # forced for this repo\n' >"$local_cfg"
 [ "$(run dispatch_backend)" = print ] \
   || fail "trailing comment / quotes not stripped"
 echo "ok: comments and surrounding quotes are stripped"
+
+# 4b. Only whitespace followed by '#' starts a comment, as in YAML, for every
+#     key: a '#' inside the value is part of it.
+printf 'dispatch_backend: a#b\n' >"$local_cfg"
+[ "$(run dispatch_backend)" = 'a#b' ] || fail "a '#' inside a value was stripped: $(run dispatch_backend)"
+printf 'dispatch_backend: a # c\n' >"$local_cfg"
+[ "$(run dispatch_backend)" = a ] || fail "a space-led comment was not stripped: $(run dispatch_backend)"
+printf 'dispatch_backend: a\t# c\n' >"$local_cfg"
+[ "$(run dispatch_backend)" = a ] || fail "a tab-led comment was not stripped: $(run dispatch_backend)"
+printf 'dispatch_backend: # only a comment\n' >"$local_cfg"
+[ -z "$(run dispatch_backend)" ] || fail "a comment-only value was not empty: $(run dispatch_backend)"
+printf 'dispatch_backend: specs#archive # the old root\n' >"$local_cfg"
+[ "$(run dispatch_backend)" = 'specs#archive' ] \
+  || fail "a value with an inner '#' and a trailing comment: $(run dispatch_backend)"
+echo "ok: only whitespace before '#' starts a comment; an inner '#' is kept"
+
+# 4c. No shipped default relies on the old any-'#' rule: every '#' on a
+#     defaults.yml value line is preceded by whitespace.
+if grep -nE '^[a-z][a-z0-9_]*:.*[^[:space:]]#' "$here/../config/defaults.yml"; then
+  fail "a shipped default carries a '#' not led by whitespace; its value changed meaning"
+fi
+echo "ok: every shipped default parses the same under the whitespace rule"
 
 # 5. An absent local file degrades to the default (no error).
 PLANWRIGHT_CONFIG_DEFAULTS="$defaults" PLANWRIGHT_LOCAL_CONFIG="$tmp/nope.yml" \
