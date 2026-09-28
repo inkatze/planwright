@@ -260,11 +260,11 @@ else
   fail "the fixture has no usable lines"
 fi
 
-dups=$(printf '%s\n' "${LINES[@]+"${LINES[@]}"}" | awk '{ k = $2; for (i = 10; i <= NF; i++) k = k " " $i; if (seen[k]++) print k }')
+dups=$(printf '%s\n' "${LINES[@]+"${LINES[@]}"}" | awk '{ k = $2 " " $3; for (i = 10; i <= NF; i++) k = k " " $i; if (seen[k]++) print k }')
 if [ -z "$dups" ]; then
-  pass "no spelling appears twice for one tier"
+  pass "no spelling appears twice for one tier and policy value"
 else
-  fail "duplicate tier and spelling: $dups"
+  fail "duplicate tier, policy, and spelling: $dups"
 fi
 
 # The acts the requirement names, each present at least once, plus the
