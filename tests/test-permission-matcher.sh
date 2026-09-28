@@ -460,6 +460,9 @@ allow|legit|git status|read-only status
 allow|legit|git log --oneline -5|read-only log
 allow|legit|mise run check|the full CI gate
 allow|residual|git push origin "main"|quoted destination; the glob layer is literal so it misses this — githooks/pre-push rejects the refspec
+allow|residual|git push origin "master"|quoted master destination; the glob layer misses it the same way, and githooks/pre-push refuses only main, so no layer backs this one up
+allow|residual|git push origin 'planwright/human-gates/spec'|quoted spec-branch destination; missed like the quoted master push, with no githooks backstop either
+deny|overblock|git push origin planwright/a/b/spec|the spec-branch globs' * spans /, so a nested name that is not a spec branch is denied too; fail-safe, and the tower queue admits it
 prompt|residual|git push|no destination in the text at all; on a branch whose upstream is main this pushes main — githooks/pre-push is the enforcement layer
 allow|residual|git push origin HEAD|destination depends on the checked-out branch, which the glob layer cannot see — githooks/pre-push covers it
 deny|load-bearing|git -c Core.HooksPath=/dev/null commit -m "wip"|mixed-case config key (git config keys are case-insensitive) evades the case-sensitive hooksPath globs, but the global-option-prefix rule catches it regardless of casing
@@ -554,8 +557,8 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=128
-DENY_ROW_FLOOR=103
+ROW_FLOOR=131
+DENY_ROW_FLOOR=104
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
 else
