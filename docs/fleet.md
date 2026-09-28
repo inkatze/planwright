@@ -747,8 +747,9 @@ part of a command. Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into
 the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one
-newline-terminated line, no raw control byte, a valid JSON object. A frame that
-fails is refused with exit 2 and nothing is written.
+newline-terminated line, no raw control byte, a valid JSON object nested at
+most 512 levels deep. A frame that fails is refused with exit 2 and nothing is
+written.
 
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,

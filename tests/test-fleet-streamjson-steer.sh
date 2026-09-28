@@ -20,8 +20,8 @@
 #   s5 (REQ-K1.3, REQ-K1.4): hostile handles and message paths are refused or
 #       treated as data, and steer echoes nothing untrusted: no control byte
 #       from a message ever reaches its output.
-#   s6 (REQ-G1.2): an allow whose spliced tool input carries a raw DEL still
-#       makes a frame the check accepts, with the input intact.
+#   s6 (REQ-G1.2): an allow whose spliced tool input carries a raw DEL, or
+#       nests deep, still makes a frame the check accepts, with the input intact.
 #
 # Hermetic: the fleet home and the CLI seam are case-local, the CLI is a shim
 # that records its stdin. Runs standalone under /bin/bash (bash 3.2).
@@ -233,8 +233,11 @@ refuse "a non-string key" '{1:2}'"$nl" 'invalid JSON'
 refuse "a missing colon" '{"a" 1}'"$nl" 'invalid JSON'
 refuse "adjacent values" '{"a":[1 2]}'"$nl" 'invalid JSON'
 refuse "trailing garbage" '{"a":1} x'"$nl" 'invalid JSON'
-deep=$(awk 'BEGIN { for (i = 0; i < 100; i++) printf "["; for (i = 0; i < 100; i++) printf "]" }')
-refuse "nesting past the depth cap" "{\"a\":$deep}$nl" 'invalid JSON'
+nest() {
+  awk -v n="$1" 'BEGIN { for (i = 0; i < n; i++) printf "["; for (i = 0; i < n; i++) printf "]" }'
+}
+accept "nesting at the depth cap" "{\"a\":$(nest 512)}$nl"
+refuse "nesting past the depth cap" "{\"a\":$(nest 513)}$nl" 'invalid JSON'
 fc "$tmp/no-such-frame" | grep -q '^frame refused' || fail "s2: a missing frame file must be refused"
 # A path shaped like an awk assignment is still the file to judge, never a
 # cue to read stdin instead.
@@ -361,9 +364,22 @@ out=$(senv "$home" "$rec" -- answer sjs6 "$req6" --allow 2>&1) \
 wait_until 100 grep -q control_response "$rec/stdin" || fail "s6: the allow never reached the worker"
 got=$(grep control_response "$rec/stdin" | jq -r '.response.response.updatedInput.command')
 [ "$got" = "echo a${del}b" ] || fail "s6: the spliced input must decode to the original command, got: $got"
-echo "ok: s6 --allow over a worker input carrying a raw DEL delivers it intact as a valid frame (REQ-G1.2)"
+# A deeply nested tool input is valid JSON the CLI can emit, so its allow must
+# not be refused by the check's nesting cap.
+req7='aaaa1111-bbbb-cccc-dddd-eeee00000007'
+deep_in=$(awk 'BEGIN { for (i = 0; i < 100; i++) printf "{\"a\":"; printf "1"; for (i = 0; i < 100; i++) printf "}" }')
+line_deep='{"type":"control_request","request_id":"'$req7'","request":{"subtype":"can_use_tool","tool_name":"mcp__x__y","input":{"doc":'$deep_in'},"tool_use_id":"t7"}}'
+printf '%s\n%s\n' "$line_init" "$line_deep" >"$tmp/ev-deep"
+start_worker "$tmp/h7" "$tmp/r7" sjs7 SHIM_EVENTS="$tmp/ev-deep"
+wait_until 100 grep -q "^$req7" "$tmp/h7/streamjson/sjs7/journal" || fail "s6: the deep request's journal row never appeared"
+out=$(senv "$tmp/h7" "$tmp/r7" -- answer sjs7 "$req7" --allow 2>&1) \
+  || fail "s6: --allow over a tool input nested 100 deep must deliver, got: $out"
+wait_until 100 grep -q control_response "$tmp/r7/stdin" || fail "s6: the deep allow never reached the worker"
+got=$(grep control_response "$tmp/r7/stdin" | jq -c '.response.response.updatedInput.doc')
+[ "$got" = "$deep_in" ] || fail "s6: the deep input must arrive intact, got: $got"
+echo "ok: s6 --allow over a worker input carrying a raw DEL, or nested 100 deep, delivers it intact as a valid frame (REQ-G1.2)"
 
-for sp in "$tmp/h1:sjs1" "$tmp/h3:sjs3" "$tmp/h6:sjs6"; do
+for sp in "$tmp/h1:sjs1" "$tmp/h3:sjs3" "$tmp/h6:sjs6" "$tmp/h7:sjs7"; do
   senv "${sp%%:*}" "$tmp/r1" -- stop "${sp##*:}" --grace 1 >/dev/null 2>&1 || :
 done
 echo "all fleet-streamjson-steer tests passed"

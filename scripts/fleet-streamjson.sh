@@ -685,8 +685,11 @@ json_input_object() {
 # string, number, and literal becomes one placeholder byte, which a leftover
 # quote or backslash proves was not a well-formed string, then innermost
 # arrays and objects collapse to a single value until the top object is one.
-# The collapse stops after 64 passes, each taking one array and one object
-# level, so nesting past that is refused rather than walked.
+# The collapse stops after 512 passes, each taking one array and one object
+# level, so nesting past that is refused rather than walked. The cap sits well
+# above any tool input an `--allow` splices, since a refusal there leaves the
+# worker unable to proceed, and it bounds a pathological 64 KiB body to a few
+# seconds (without it, about 24s under mawk).
 frame_check() {
   if [ ! -f "$1" ] || [ ! -r "$1" ]; then
     echo "missing or unreadable"
@@ -720,7 +723,7 @@ frame_check() {
       gsub(/true|false|null/, K, s)
       gsub(/ /, "", s)
       if (substr(s, 1, 1) != "{") exit 1
-      for (d = 0; d < 64 && s != C; d++)
+      for (d = 0; d < 512 && s != C; d++)
         if (gsub(arr, C, s) + gsub(obj, C, s) == 0) break
       exit (s == C) ? 0 : 1
     }' <"$1"; then
