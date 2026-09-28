@@ -354,13 +354,28 @@ mkdir -p "$SANDBOX/repo/scripts" "$SANDBOX/no-home"
 : >"$SANDBOX/repo/.git"
 
 guard_verdict() {
-  local hook=$1 spell=$2 payload out
+  local hook=$1 spell=$2 payload out rc=0
   payload=$(jq -n --arg c "$spell" --arg w "$SANDBOX/repo" \
     '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')
   out=$(printf '%s' "$payload" | env -u CLAUDE_DIR HOME="$SANDBOX/no-home" \
-    CLAUDE_PLUGIN_ROOT="$REPO_ROOT" /bin/bash "$hook" 2>/dev/null)
+    CLAUDE_PLUGIN_ROOT="$REPO_ROOT" /bin/bash "$hook" 2>/dev/null) || rc=$?
+  if [ "$rc" != 0 ]; then
+    printf 'exit-%s' "$rc"
+    return
+  fi
   hook_verdict "$out"
 }
+
+# Every fixture line expects the allow-only guards to defer, and a guard that
+# never ran defers too; a known-safe command must come back allowed first.
+for hook in "$WORKER_GUARD" "$TOWER_GUARD"; do
+  got=$(guard_verdict "$hook" 'git status')
+  if [ "$got" = allow ]; then
+    pass "$(basename "$hook") allows git status, so its defers below are its own"
+  else
+    fail "$(basename "$hook") did not allow git status (got $got); its defer verdicts would be vacuous"
+  fi
+done
 
 # --- the deny profiles -------------------------------------------------------
 
