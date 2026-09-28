@@ -326,12 +326,18 @@ queue_verdict() {
 
 # --- the ready-guard ---------------------------------------------------------
 
+# The argument the wiring passes the guard for a tool: its surface.
+# shellcheck disable=SC2016 # a jq program; $t is jq's variable
+READY_SURFACE_Q='[.hooks.PreToolUse[]? | select(.matcher == $t) | .hooks[]?.command // "" | select(contains("ready-guard.sh"))][0] | split(" ") | last'
+READY_BASH_SURFACE=$(jq -r --arg t Bash "$READY_SURFACE_Q" "$HOOKS_JSON")
+
 ready_verdict() {
   local spell=$1 tool surface payload
   tool=$(tool_of "$spell")
-  surface=$(jq -r --arg t "$tool" \
-    '[.hooks.PreToolUse[]? | select(.matcher == $t) | .hooks[]?.command // "" | select(contains("ready-guard.sh"))][0] | split(" ") | last' \
-    "$HOOKS_JSON")
+  case "$tool" in
+    Bash) surface=$READY_BASH_SURFACE ;;
+    *) surface=$(jq -r --arg t "$tool" "$READY_SURFACE_Q" "$HOOKS_JSON") ;;
+  esac
   if [ "$tool" = Bash ]; then
     payload=$(bash_payload "$spell")
   else
@@ -381,103 +387,98 @@ done
 
 read_rules() { jq -r --arg k "$2" '.permissions[$k] // [] | .[]' "$1"; }
 
-# profile_verdicts <settings-json> — fill PROFILE_V[i] for every fixture line.
-# An MCP call is denied by an entry naming the tool or its whole server; a Bash
-# call goes through the matcher model.
-PROFILE_V=()
-profile_verdicts() {
-  local settings=$1 i spell tool server rc=0
-  pm_load_rules "$(read_rules "$settings" deny)" "$(read_rules "$settings" ask)" \
-    "$(read_rules "$settings" allow)" || rc=$?
-  if [ "$rc" != 0 ]; then
-    fail "$(basename "$settings") did not load into the matcher model (rc $rc)"
-    return 1
+# profile_verdict <spelling> — the loaded profile's verdict. An MCP call is
+# denied by an entry naming the tool or its whole server; a Bash call goes
+# through the matcher model.
+profile_verdict() {
+  local settings=$1 spell=$2 tool
+  tool=$(tool_of "$spell")
+  if [ "$tool" = Bash ]; then
+    if [ "$(pm_decide "$spell")" = deny ]; then printf 'deny'; else printf 'defer'; fi
+  elif jq -e --arg t "$tool" --arg s "${tool%__*}" '.permissions.deny // [] | any(. == $t or . == $s)' \
+    "$settings" >/dev/null; then
+    printf 'deny'
+  else
+    printf 'defer'
   fi
-  PROFILE_V=()
-  i=0
-  while [ "$i" -lt "$N" ]; do
-    rc_parse_line "${LINES[$i]}" || true
-    spell=$RC_SPELL
-    tool=$(tool_of "$spell")
-    if [ "$tool" = Bash ]; then
-      if [ "$(pm_decide "$spell")" = deny ]; then PROFILE_V[i]=deny; else PROFILE_V[i]=defer; fi
-    else
-      server=${tool%__*}
-      if jq -e --arg t "$tool" --arg s "$server" '.permissions.deny // [] | any(. == $t or . == $s)' \
-        "$settings" >/dev/null; then
-        PROFILE_V[i]=deny
-      else
-        PROFILE_V[i]=defer
-      fi
-    fi
-    i=$((i + 1))
-  done
 }
 
-WPROF_V=()
-TPROF_V=()
-if profile_verdicts "$WORKER_SETTINGS"; then
-  WPROF_V=(${PROFILE_V[@]+"${PROFILE_V[@]}"})
-fi
-if profile_verdicts "$TOWER_SETTINGS"; then
-  TPROF_V=(${PROFILE_V[@]+"${PROFILE_V[@]}"})
-fi
+# load_profile <settings-json> — load its rules into the matcher model, setting
+# LOAD_ERR when they do not load.
+load_profile() {
+  local rc=0
+  pm_load_rules "$(read_rules "$1" deny)" "$(read_rules "$1" ask)" "$(read_rules "$1" allow)" || rc=$?
+  LOAD_ERR=""
+  [ "$rc" = 0 ] || LOAD_ERR="unloaded-rc-$rc"
+}
 
 # --- drive every line through every copy -------------------------------------
 
+# rc_want <copy> — set RC_WANT to the parsed line's verdict for that copy.
+rc_want() {
+  local copy=$1 c
+  RC_WANT=""
+  # shellcheck disable=SC2086 # the six verdict words, split on purpose
+  set -- $RC_VERDICTS
+  for c in $RC_COPIES; do
+    [ "$c" != "$copy" ] || RC_WANT=$1
+    shift
+  done
+}
+
 # drive_copy <copy> — write one verdict per fixture line to that copy's file,
-# `n/a` where the line puts the copy outside its jurisdiction. The hook copies
-# are process-bound, so each runs as its own background job.
+# `n/a` where the line puts the copy outside its jurisdiction, each verdict
+# flattened to one line so the file stays aligned with the fixture.
 drive_copy() {
-  local copy=$1 i=0 want c got
+  local copy=$1 i=0 got
+  LOAD_ERR=""
+  case "$copy" in
+    wprof) load_profile "$WORKER_SETTINGS" ;;
+    tprof) load_profile "$TOWER_SETTINGS" ;;
+  esac
   while [ "$i" -lt "$N" ]; do
     rc_parse_line "${LINES[$i]}" || true
-    want=""
-    # shellcheck disable=SC2086 # the six verdict words, split on purpose
-    set -- $RC_VERDICTS
-    for c in $RC_COPIES; do
-      [ "$c" != "$copy" ] || want=$1
-      shift
-    done
-    if [ "$want" = n/a ]; then
+    rc_want "$copy"
+    if [ "$RC_WANT" = n/a ]; then
       got=n/a
+    elif [ -n "$LOAD_ERR" ]; then
+      got=$LOAD_ERR
     else
       case "$copy" in
         queue) got=$(queue_verdict "$RC_SPELL") ;;
         ready) got=$(ready_verdict "$RC_SPELL") ;;
         wguard) got=$(guard_verdict "$WORKER_GUARD" "$RC_SPELL") ;;
         tguard) got=$(guard_verdict "$TOWER_GUARD" "$RC_SPELL") ;;
-        wprof) got=${WPROF_V[$i]:-unevaluated} ;;
-        tprof) got=${TPROF_V[$i]:-unevaluated} ;;
+        wprof) got=$(profile_verdict "$WORKER_SETTINGS" "$RC_SPELL") ;;
+        tprof) got=$(profile_verdict "$TOWER_SETTINGS" "$RC_SPELL") ;;
       esac
     fi
-    printf '%s\n' "${got:-empty}"
+    printf '%s\n' "$(printf '%s' "${got:-empty}" | tr '\n' ' ')"
     i=$((i + 1))
   done >"$SANDBOX/verdicts.$copy"
 }
 
-for copy in queue ready wguard tguard; do
+# Each hook verdict forks a process, so every copy runs as its own job to
+# bound the wall time.
+for copy in $RC_COPIES; do
   drive_copy "$copy" &
 done
-drive_copy wprof
-drive_copy tprof
 wait
 
 for copy in $RC_COPIES; do
   i=0
   while IFS= read -r got; do
+    if [ "$i" -ge "$N" ]; then
+      fail "$copy produced a verdict past the last fixture line: $got"
+      break
+    fi
     rc_parse_line "${LINES[$i]}" || true
-    # shellcheck disable=SC2086 # the six verdict words, split on purpose
-    set -- $RC_VERDICTS
-    for c in $RC_COPIES; do
-      [ "$c" != "$copy" ] || want=$1
-      shift
-    done
-    if [ "$want" != n/a ]; then
-      if [ "$got" = "$want" ]; then
-        pass "[$RC_TIER] $copy $want: $RC_SPELL"
+    rc_want "$copy"
+    if [ "$RC_WANT" != n/a ]; then
+      if [ "$got" = "$RC_WANT" ]; then
+        pass "[$RC_TIER] $copy $RC_WANT: $RC_SPELL"
       else
-        fail "[$RC_TIER] $copy expected $want, got $got: $RC_SPELL"
+        fail "[$RC_TIER] $copy expected $RC_WANT, got $got: $RC_SPELL"
       fi
     fi
     i=$((i + 1))
