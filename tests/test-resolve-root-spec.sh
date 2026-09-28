@@ -225,6 +225,13 @@ for layer in adopter tracked local; do
 done
 
 clear_layers
+set_layer "$tracked_cfg" "$tmp/roots/t"
+set_layer "$local_cfg" "$tmp/nowhere"
+run spec "$repo"
+assert_eq "bad: a refused value never falls back to a valid lower layer (exit)" 5 "$rc"
+assert_empty "bad: a refused value over a valid lower layer prints no root" "$out"
+
+clear_layers
 set_layer "$local_cfg" "../repo/docs/specs"
 run spec "$repo"
 assert_eq "bad: a relative value that re-enters the checkout is not an escape" \
@@ -236,6 +243,14 @@ run spec "$repo"
 assert_eq "bad: a relative symlink that escapes after canonicalization is refused" 5 "$rc"
 rm -f "$repo/escape-link"
 
+clear_layers
+# shellcheck disable=SC2088 # a literal ~ is the value under test
+set_layer "$local_cfg" "~/specs"
+# shellcheck disable=SC2016 # the inner shell expands its own arguments
+run base env -u HOME sh -c 'cd "$1" && exec "$2" "$3" spec' _ "$repo" "$SH" "$RESOLVER"
+assert_eq "home: a ~/ value with HOME unset is refused" 5 "$rc"
+assert_contains "home: the refusal says why" "HOME is not set" "$err"
+
 # A control byte is malformed text: the by-layer policy, not a refusal.
 clear_layers
 set_layer "$tracked_cfg" "$tmp/roots/t"
@@ -246,9 +261,7 @@ assert_eq "control byte: machine-local falls through to repo-tracked" "$tmp/root
 assert_contains "control byte: the fall-through warns" "machine-local" "$err"
 
 clear_layers
-set_layer "$tracked_cfg" "$tmp/roots/t"
 printf 'spec_root: %s\001x\n' "$tmp/roots/a" >"$adopter_cfg"
-rm -f "$tracked_cfg"
 run spec "$repo" --explain
 assert_eq "control byte: adopter warns and falls through to the default" \
   "default${TAB}$repo/specs${TAB}same-repo${TAB}checkout-local" "$out"
@@ -259,6 +272,7 @@ printf 'spec_root: %s\001x\n' "$tmp/roots/t" >"$tracked_cfg"
 run spec "$repo"
 assert_eq "control byte: repo-tracked hard-fails (exit)" 6 "$rc"
 assert_empty "control byte: repo-tracked prints no root" "$out"
+assert_contains "control byte: the repo-tracked refusal names the layer" "repo-tracked" "$err"
 
 # ---------------------------------------------------------------------------
 # REQ-A1.4: the marker, the default by resolved path, --init
@@ -323,6 +337,31 @@ assert_eq "init: a plain directory is initialized (exit)" 0 "$rc"
 assert_eq "init: a plain directory gets no ignore file" absent \
   "$(test -e "$tmp/plaindir/.gitignore" && echo present || echo absent)"
 
+mkdir -p "$repo/nonl"
+printf 'keep-me' >"$repo/nonl/.gitignore"
+set_layer "$local_cfg" "nonl"
+run spec "$repo" --init
+assert_eq "init: an ignore file without a final newline (exit)" 0 "$rc"
+assert_eq "init: the existing last rule survives" 1 "$(grep -c -Fx keep-me "$repo/nonl/.gitignore")"
+mkdir -p "$repo/nonl/_pending"
+touch "$repo/nonl/_pending/notes.md"
+base git -C "$repo" check-ignore -q "nonl/_pending/notes.md"
+assert_eq "init: the notes rule still applies after a newline-less file" 0 "$?"
+
+mkdir -p "$repo/badignore/.gitignore"
+set_layer "$local_cfg" "badignore"
+run spec "$repo" --init
+assert_eq "init: an unwritable ignore file refuses (exit)" 5 "$rc"
+assert_eq "init: a failed ignore write leaves no marker" absent \
+  "$(test -e "$repo/badignore/planwright-spec-root.yml" && echo present || echo absent)"
+assert_eq "init: the failed write leaks no shell error" 0 \
+  "$(printf '%s\n' "$err" | grep -c 'Is a directory')"
+
+mkdir -p "$repo/dirmarker/planwright-spec-root.yml"
+set_layer "$local_cfg" "dirmarker"
+run spec "$repo" --init
+assert_eq "init: a marker path that is not a file is refused" 5 "$rc"
+
 # ---------------------------------------------------------------------------
 # REQ-E1.1: posture classification
 # ---------------------------------------------------------------------------
@@ -352,6 +391,17 @@ assert_eq "posture: a root in a second repository is separate-repo" separate-rep
 run spec "$wt" --explain
 assert_eq "posture: a holder root is the same in both views" \
   "machine-local${TAB}$tmp/holder/work${TAB}separate-repo${TAB}checkout-local" "$out"
+run spec "$wt" --explain --primary
+assert_eq "posture: a holder root is the same in the primary view" \
+  "machine-local${TAB}$tmp/holder/work${TAB}separate-repo${TAB}primary" "$out"
+
+mkdir -p "$tmp/holder/fresh/_pending"
+set_layer "$local_cfg" "$tmp/holder/fresh"
+run spec "$repo" --init
+assert_eq "posture: a holder root is initialized (exit)" 0 "$rc"
+touch "$tmp/holder/fresh/_pending/notes.md"
+base git -C "$tmp/holder" check-ignore -q "fresh/_pending/notes.md"
+assert_eq "posture: --init ignores the notes file inside the holder" 0 "$?"
 
 set_layer "$local_cfg" "$tmp/plaindir"
 run spec "$repo" --posture
@@ -374,6 +424,22 @@ run spec "$wt"
 assert_eq "views: an absolute in-repo value is re-based onto the worktree" "$wt/relocated" "$out"
 run spec "$wt" --primary
 assert_eq "views: --primary of an absolute in-repo value" "$repo/relocated" "$out"
+
+# A specs/ that is a symlink out of the checkout is still the default root,
+# whether the value names it or is unset.
+symrepo=$tmp/symrepo
+mkrepo "$symrepo"
+gitq -C "$symrepo" worktree add -q -b wt "$tmp/symrepo-wt"
+mkdir -p "$tmp/outside" "$symrepo/.claude"
+ln -s "$tmp/outside" "$symrepo/specs"
+run spec "$tmp/symrepo-wt" --explain
+assert_eq "views: unset, a symlinked specs/ is the default re-based" \
+  "default${TAB}$tmp/symrepo-wt/specs${TAB}same-repo${TAB}checkout-local" "$out"
+for v in specs "$tmp/outside"; do
+  set_layer "$symrepo/.claude/planwright.local.yml" "$v"
+  run spec "$tmp/symrepo-wt"
+  assert_eq "views: '$v' through a symlinked specs/ resolves like unset" "$tmp/symrepo-wt/specs" "$out"
+done
 
 # ---------------------------------------------------------------------------
 # usage and no-repository cases

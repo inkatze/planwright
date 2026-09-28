@@ -43,24 +43,30 @@
 #           it, and never falls back to the default.
 #   (default)   the checkout-local view: a root inside the primary checkout
 #               is re-based onto the current checkout of the same repository.
+#               The re-based path is not checked, so it can name a directory
+#               the current checkout does not hold (a gitignored root).
 #   --primary   the primary view: the configured directory itself.
 #   --posture   print only the posture: same-repo when the root's repository
 #               shares the work repository's common git directory, separate-
 #               repo when it is another repository, plain when it is in none.
-#   --init      write the marker (and, in a git repository, the ignore rules
-#               for the local-only entries) into the configured directory,
-#               which must already exist; the marker check is the one check
-#               skipped for it. The default root needs no marker and is left
-#               untouched.
+#               The default root is always same-repo.
+#   --init      write the ignore rules for the local-only entries (in a git
+#               repository) and then the marker into the configured
+#               directory, which must already exist, and print the root; the
+#               marker check is the one check skipped for it. The default
+#               root needs no marker and is left untouched.
+#   --explain takes precedence over --posture.
 #
 # --explain prints "<source>\t<path>": the arm (PLANWRIGHT_ROOT,
 # CLAUDE_PLUGIN_ROOT, writer-mode, self-location) or the repo source
 # (PLANWRIGHT_REPO_ROOT; git-common-dir when --primary derived the tree from
 # the common git directory; show-toplevel when git named it directly). For
 # spec it prints "<source>\t<path>\t<posture>\t<view>", the source being the
-# config layer that set spec_root or default, the view checkout-local or
-# primary. Printed paths are canonical (symlinks resolved), except that the
-# default root is printed whether or not it exists.
+# config layer that set spec_root, or default when it is unset or an empty
+# value cancelled it, the view checkout-local or primary. Printed paths are
+# canonical (symlinks resolved), except that the default root is printed as
+# <checkout>/specs whether or not it exists or is a symlink, and a re-based
+# checkout-local path is not checked.
 #
 # Exit: 0 printed · 1 no install root resolved · 2 usage · 3 no repository
 #   root (git missing, not inside a working tree, a bare repository, or a
@@ -68,13 +74,14 @@
 #   git dir, or a core.worktree that is gone; --primary still answers from
 #   inside a repository's git directory, and a separate git dir named .git
 #   answers with the directory holding it) · 4 PLANWRIGHT_REPO_ROOT
-#   refused · 5 spec_root refused (bad value or missing marker; --init
-#   could not write) · 6 spec_root unreadable (a malformed repo-tracked
+#   refused · 5 spec_root refused (bad value, missing marker, a ~ value with
+#   HOME unset; --init could not derive a project identifier or write) · 6 spec_root unreadable (a malformed repo-tracked
 #   config, or a broken install). Callers treat 3 as "no repository" and
 #   degrade; they never compose a path from an empty root.
 #
-# POSIX sh with no dependency beyond git and tr: guards and hooks exec it
-# through /bin/sh, which is dash on Linux.
+# POSIX sh with no dependency beyond git and tr, plus, for the spec kind,
+# sed, cut, grep, tail, mv, and the config resolvers: guards and hooks exec
+# it through /bin/sh, which is dash on Linux.
 set -u
 # Pin the C locale so tr's byte ranges below mean bytes.
 LC_ALL=C
@@ -204,7 +211,10 @@ no_primary() {
   exit 3
 }
 
+# resolve_primary: set rp_src and rp_path, the canonical primary toplevel,
+# and rp_common on the git path; prints nothing, and exits 3 or 4 instead.
 resolve_primary() {
+  rp_common=""
   if [ -n "${PLANWRIGHT_REPO_ROOT:-}" ]; then
     case $PLANWRIGHT_REPO_ROOT in
       /*) ;;
@@ -333,6 +343,15 @@ spec_root_primary() {
   [ -e "$sr_path" ] || refuse_spec "no such directory"
   [ -d "$sr_path" ] || refuse_spec "not a directory"
   sr_primary=$(canon "$sr_path") || refuse_spec "the directory cannot be entered"
+  # The default root is decided by the resolved path, and then behaves
+  # exactly as unset, even when specs/ is a symlink out of the checkout.
+  sr_specs=$(canon "$rp_path/specs") || sr_specs=""
+  if [ "$sr_primary" = "$sr_specs" ]; then
+    sr_primary=$rp_path/specs
+    sr_default=1
+    return 0
+  fi
+  sr_default=0
   case $sr_value in
     \~ | \~/* | /*) ;;
     *)
@@ -342,9 +361,6 @@ spec_root_primary() {
       esac
       ;;
   esac
-  sr_default=0
-  sr_specs=$(canon "$rp_path/specs") || sr_specs=""
-  [ "$sr_primary" != "$sr_specs" ] || sr_default=1
 }
 
 # spec_posture: classify sr_primary against the work repository.
@@ -370,6 +386,25 @@ project_id() {
 # init_spec_root: write the marker and, in a git repository, the ignore
 # rules for the entries that never leave the machine.
 init_spec_root() {
+  if [ -e "$sr_primary/planwright-spec-root.yml" ] && [ ! -f "$sr_primary/planwright-spec-root.yml" ]; then
+    refuse_spec "$sr_primary/planwright-spec-root.yml exists and is not a file"
+  fi
+  # The ignore rules land before the marker, so a root is never marked
+  # without them.
+  if [ "$sr_posture" != plain ]; then
+    is_ignore=$sr_primary/.gitignore
+    if [ -s "$is_ignore" ] && [ -f "$is_ignore" ] && [ -n "$(tail -c 1 "$is_ignore" | tr -d '\n')" ]; then
+      { printf '\n' >>"$is_ignore"; } 2>/dev/null \
+        || refuse_spec "--init could not write the ignore rules"
+    fi
+    for is_rule in /_pending/notes.md '/*/.orchestrate.lock' '/*/.tasks-pr-sync.*' '/*/.orchestrate/'; do
+      if [ -f "$is_ignore" ] && grep -Fqx -- "$is_rule" "$is_ignore"; then
+        continue
+      fi
+      { printf '%s\n' "$is_rule" >>"$is_ignore"; } 2>/dev/null \
+        || refuse_spec "--init could not write the ignore rules"
+    done
+  fi
   if [ ! -e "$sr_primary/planwright-spec-root.yml" ]; then
     is_id=$(project_id)
     [ -n "$is_id" ] || refuse_spec "--init cannot derive a project identifier from '$rp_path'"
@@ -380,19 +415,13 @@ init_spec_root() {
       refuse_spec "--init could not write the marker"
     fi
   fi
-  [ "$sr_posture" != plain ] || return 0
-  for is_rule in /_pending/notes.md '/*/.orchestrate.lock' '/*/.tasks-pr-sync.*' '/*/.orchestrate/'; do
-    if [ -f "$sr_primary/.gitignore" ] && grep -Fqx -- "$is_rule" "$sr_primary/.gitignore"; then
-      continue
-    fi
-    printf '%s\n' "$is_rule" >>"$sr_primary/.gitignore" 2>/dev/null \
-      || refuse_spec "--init could not write the ignore rules"
-  done
 }
 
 resolve_spec() {
   resolve_primary
-  work_common=$(common_dir_of "$rp_path") || no_primary "'$rp_path' has no common git directory"
+  work_common=$rp_common
+  [ -n "$work_common" ] || work_common=$(common_dir_of "$rp_path") \
+    || no_primary "'$rp_path' has no common git directory"
   # The checkout to re-base onto: the current tree when it belongs to the
   # work repository, else the primary itself.
   sc_top=$(checkout_top) || sc_top=""
