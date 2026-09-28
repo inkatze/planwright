@@ -242,6 +242,18 @@ for bad in 'polish' '' '[polish,,self-review]' '[,polish]'; do
     || fail "REQ-B1.3: list value '$bad' in machine-local: rc=$RC out='$OUT' err='$ERR'"
 done
 ok "REQ-B1.3: a value that is not an inline flow list is malformed for its layer"
+# Padding inside the brackets, a quoted id, a trailing comma, and a trailing
+# comment all resolve to the bare ids in order.
+want="run${TAB}self-review
+run${TAB}polish"
+for good in '[ self-review ,  polish ]   # c' "[\"self-review\", 'polish']" '[self-review, polish,]'; do
+  reset_layers
+  printf 'steps_convergence: %s\n' "$good" >"$tracked_cfg"
+  capture convergence --unattended
+  { [ "$RC" = 0 ] && [ "$OUT" = "$want" ]; } \
+    || fail "REQ-B1.3: list value '$good': rc=$RC out='$OUT' err='$ERR'"
+done
+ok "REQ-B1.3: padding, quoted ids, and a trailing comma parse to the bare ids in order"
 
 # =============================================================================
 # 2. Attendance and check-mode usage (REQ-C1.4, REQ-H1.3).
