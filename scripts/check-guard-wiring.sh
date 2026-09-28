@@ -31,7 +31,9 @@
 # arrays are its business, not this script's. It does NOT resolve edges, so
 # the walk does: a task alias resolves to its task, and a glob edge expands to
 # every task name or alias it matches. A run body contributes every
-# `mise run` / `mise r` task it names, each `:::` segment included.
+# `mise run` / `mise r` task it names, each `:::` segment included; a call
+# carrying a flag that keeps the target or its dependencies from running
+# (`--dry-run`, `--skip-deps`, `--cd`, ...) contributes nothing.
 #
 # WHOLE-LINE COMMENTS ARE NOT EXECUTION. They are dropped from a run body
 # before either edges or guard names are read from it, so a commented-out call
@@ -134,12 +136,15 @@ graph=$(cd "$repo_root" && MISE_TRUSTED_CONFIG_PATHS="$repo_root" mise tasks --j
 # without being reachable.
 report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
   def uncommented: split("\n") | map(select(test("^[[:space:]]*#") | not)) | join("\n");
-  # The task one `:::` segment names, given its words. A flag taking a
+  # The task one `:::` segment names, given its words. A flag that stops the
+  # target from running (or its dependencies, or runs it from another
+  # directory) yields the stop mark, so no edge is claimed; a flag taking a
   # separate value skips that value too.
   def seg_task:
     if length == 0 then empty
     else .[0] as $w
-      | if ($w | test("^--(jobs|output|shell|tool|timeout|allow-env|allow-net|allow-read|allow-write)$|^-[A-Za-z]*[jost]$")) then (.[2:] | seg_task)
+      | if ($w | test("^--(dry-run|help|skip-deps|no-deps|cd)(=|$)|^-[A-Za-z]*[nhC][A-Za-z]*$")) then "\u0000stop"
+        elif ($w | test("^--(jobs|output|shell|tool|timeout|allow-env|allow-net|allow-read|allow-write)$|^-[A-Za-z]*[jost]$")) then (.[2:] | seg_task)
         elif ($w | startswith("-")) then (.[1:] | seg_task)
         else $w | gsub("^[\"\u0027`]+|[\"\u0027`);]+$"; "")
         end
@@ -148,7 +153,8 @@ report=$(printf '%s' "$graph" | jq -r --arg src "$misefile" '
     [ match("(?:^|[^A-Za-z0-9_-])mise[ \t]+(?:run|r)[ \t]+([^;&|\n]*)"; "g")
       | [ .captures[0].string | splits("[ \t]*:::[ \t]*")
           | [ splits("[ \t]+") | select(. != "") ] | [ seg_task ] ]
-      | .[][] ];
+      | if (.[0] // []) == ["\u0000stop"] then empty
+        else .[][] | select(. != "\u0000stop") end ];
   # A depends entry carrying arguments names its task in its first word.
   def edge_name:
     if type == "array" then .[0]

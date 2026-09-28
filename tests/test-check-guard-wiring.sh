@@ -386,6 +386,26 @@ expect_mise 1 "$r" planted "g8c 'promise run'"
 expect_cg 1 "$r" "g8c 'promise run'"
 echo "ok: g8c ':::' segments, 'mise r', flags and quoting are edges; 'promise run' is not"
 
+#     g8d: A CALL THAT DOES NOT RUN ITS TARGET IS NOT AN EDGE. `--dry-run`
+#     runs nothing; `--skip-deps` runs the target but not what it depends on.
+r="$tmp/r8d"
+for body in 'mise run -n check:inner' 'mise run --dry-run check:inner'; do
+  wired "$r" "$body" "$inner"
+  expect_mise 1 "$r" planted "g8d '$body'"
+  expect_cg 1 "$r" "g8d '$body'"
+done
+wrap='
+[tasks."check:wrap"]
+depends = ["check:inner"]
+run = "/bin/sh scripts/check-alpha.sh"'
+wired "$r" 'mise run --skip-deps check:wrap' "$inner$wrap"
+expect_mise 1 "$r" planted "g8d --skip-deps"
+expect_cg 1 "$r" "g8d --skip-deps"
+wired "$r" 'mise run check:wrap' "$inner$wrap"
+expect_mise 0 "$r" planted "g8d control"
+expect_cg 0 "$r" "g8d control"
+echo "ok: g8d a dry run or a dependency-skipping run is not an edge"
+
 #     g8e: a task ALIAS resolves to its task, from a depends list and from a
 #     run body alike; an alias nothing defines resolves to nothing.
 r="$tmp/r8e"
