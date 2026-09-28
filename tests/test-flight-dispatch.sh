@@ -675,7 +675,7 @@ for kind in command prompt; do
   dispatch_print
   [ "$RC" -eq 4 ] || fail "a $kind step on a flight must fail closed with exit 4 (rc $RC: $ERR)"
   case $ERR in *"'extra'"*"$kind step"*"skill steps only"*) ;;
-    *) fail "the $kind-step refusal must name the step, its kind, and the skill-only rule: $ERR" ;;
+  *) fail "the $kind-step refusal must name the step, its kind, and the skill-only rule: $ERR" ;;
   esac
   [ "$(flight_branches)" -eq 0 ] || fail "a $kind step placed a flight"
   [ "$(briefs)" -eq 0 ] || fail "a $kind step left a brief"

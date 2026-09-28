@@ -697,8 +697,8 @@ sweep_briefs() {
 resolve_convergence() {
   _rc_out=$(cd "$repo_root" && unset CLAUDE_PLUGIN_ROOT PLANWRIGHT_CONFIG_DEFAULTS \
     && PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_ROOT="$root_dir" \
-    PLANWRIGHT_SKILLS_ROOT="$root_dir/skills" PLANWRIGHT_STEP_UNIT_KIND=flight \
-    bash "$STEPS" convergence --explain --unattended </dev/null) || {
+      PLANWRIGHT_SKILLS_ROOT="$root_dir/skills" PLANWRIGHT_STEP_UNIT_KIND=flight \
+      bash "$STEPS" convergence --explain --unattended </dev/null) || {
     _rc=$?
     die 4 "steps_convergence did not resolve (exit $_rc); nothing was placed"
   }
