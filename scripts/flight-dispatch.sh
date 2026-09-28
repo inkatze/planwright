@@ -80,12 +80,12 @@
 # inside the brief, quoted as data, and as the copy beside the brief that
 # scripts/flight-record.sh screens and quotes into the audit record. The
 # grounds travel as a file too, holding one line: operator text never sits
-# inside a command's quoting. Invisible and
-# bidi-control code points are stripped from both before either reaches the
-# brief, and the strip is flagged (stderr and the report). The brief lives
-# under the fleet home (never in the checkout, so the flight worktree starts
-# clean) and carries no secret the ask did not: the tower applies the
-# security-posture hygiene before handing the ask over.
+# inside a command's quoting. Invisible and bidi-control code points are
+# stripped from both before either reaches the brief, and the strip is flagged
+# (stderr and the report). The brief lives under the fleet home (never in the
+# checkout, so the flight worktree starts clean) and carries no secret the ask
+# did not: the tower applies the security-posture hygiene before handing the
+# ask over.
 #
 # Report: TAB-separated `key<TAB>value` lines, after any `retired` lines the
 # dispatch's sweep printed — flight, branch, worktree,
@@ -671,7 +671,8 @@ write_brief() {
 
   # The worker renders the record from the ask and the grounds as the
   # operator gave them, never re-typed; the renderer runs its own screen, so
-  # what this dispatch stripped is flagged in the record too.
+  # an invisible or bidi-control code point this dispatch stripped is noted in
+  # the record too.
   cp "$work/grounds.raw" "$brief_dir/grounds.txt" || return 1
   cp "$work/ask.raw" "$brief_dir/ask.txt" || return 1
   mkdir "$brief_dir/record" || return 1
@@ -773,8 +774,10 @@ committed record is the landing reference."
     printf '%s\n' "  Pending sign-off, Convergence steps;"
     printf '%s\n' "- \`scoping.md\`, only when you scoped rigor; and"
     printf '%s\n' "- \`revert.md\`, only when the default revert path does not fit."
-    printf '\n%s\n' "The renderer refuses a bad input or state with a message naming what to fix;"
-    printf '%s\n' "fix it and run it again. On any other failure, park the flight."
+    printf '\n%s\n' "The renderer refuses a bad input or state with a message naming what to fix."
+    printf '%s\n' "Fix your own inputs under \`record/\` and run it again. A refusal of the ask or"
+    printf '%s\n' "the grounds, which are the operator's and never edited, or any other failure,"
+    printf '%s\n' "parks the flight."
     printf '\n## Landing\n\n'
     printf '%s\n' "$_landing"
     printf '\n## Rules\n\n'
