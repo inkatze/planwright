@@ -1,0 +1,9 @@
+{
+  // Flight records are rendered by scripts/flight-record.sh, never authored
+  // by hand: the same layout is a draft PR body on the other home, so it
+  // opens with its marker comment rather than a top-level heading and carries
+  // its full contract in a <details> collapse.
+  "extends": "../.markdownlint.jsonc",
+  "MD033": { "allowed_elements": ["details", "summary"] },
+  "MD041": false
+}
