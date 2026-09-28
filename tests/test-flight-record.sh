@@ -358,6 +358,29 @@ run_land --flight-id "$OTHER"
 git -C "$repo" diff --cached --name-only | grep -qx extra.txt || fail "a refused land must leave the index as it was"
 [ -e "$repo/specs/_flights/$OTHER.md" ] && fail "a refused land must write no record"
 
+git -C "$repo" reset -q
+rm -f "$repo/extra.txt"
+
+# A symlinked specs/ or specs/_flights/ would carry the write outside the
+# checkout; land refuses before writing anything.
+outside="$tmp/outside"
+for link in specs specs/_flights; do
+  SYM=sym-0a1b2c3d
+  rm -rf "$outside" "$repo/specs"
+  mkdir -p "$outside"
+  if [ "$link" = specs ]; then
+    ln -s "$outside" "$repo/specs"
+  else
+    mkdir -p "$repo/specs"
+    ln -s "$outside" "$repo/specs/_flights"
+  fi
+  gitc "$repo" checkout -q -B "planwright/flight/$SYM" main
+  run_land --flight-id "$SYM"
+  [ "$RC" -eq 3 ] || fail "land through a symlinked $link must be refused with 3 (got $RC)"
+  [ -z "$(ls -A "$outside")" ] || fail "land through a symlinked $link wrote outside the checkout"
+  rm -rf "$repo/specs"
+done
+
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-record: $fails failure(s)" >&2
   exit 1

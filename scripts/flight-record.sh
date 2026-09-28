@@ -33,8 +33,9 @@
 #       `specs/_flights/<flight-id>.md` and commit that one file on the
 #       flight's own branch, reporting `record<TAB><path>` and
 #       `commit<TAB><sha>`. Refused (exit 3, nothing written) off the branch
-#       `planwright/flight/<flight-id>`, when the record already exists, or
-#       when the index holds other staged changes.
+#       `planwright/flight/<flight-id>`, when the record already exists, when
+#       `specs/` or `specs/_flights/` is a symlink, or when the index holds
+#       other staged changes.
 #
 #   <inputs>, a later flag overriding an earlier one:
 #     --flight-id <id>            grammar-checked by scripts/flight-id.sh
@@ -427,6 +428,11 @@ fi
 _head=$(git -C "$repo_root" symbolic-ref -q --short HEAD 2>/dev/null) || _head=''
 [ "$_head" = "planwright/flight/$flight_id" ] \
   || die 3 "land runs on the flight's own branch, planwright/flight/$flight_id; nothing was written"
+for _dir in specs specs/_flights; do
+  if [ -L "$repo_root/$_dir" ] || { [ -e "$repo_root/$_dir" ] && [ ! -d "$repo_root/$_dir" ]; }; then
+    die 3 "$_dir is a symlink or not a directory; the record is written inside the checkout only; nothing was written"
+  fi
+done
 rel=specs/_flights/$flight_id.md
 if [ -e "$repo_root/$rel" ] || [ -L "$repo_root/$rel" ] \
   || git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
