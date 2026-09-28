@@ -93,11 +93,13 @@
 # and brief left behind, if any; a worktree left behind adds a `reask` line
 # saying it holds a slot. When the worktree list cannot be read, the worktree
 # is reported `unknown` and the brief is kept. A repo root or fleet home whose
-# path carries a control byte is refused up front, so no report line splits.
+# path, given or canonical, carries a control byte is refused up front, so no
+# report line splits; so is a fleet home that is not private to the user or
+# whose canonical path falls outside the brief path charset, before the lock.
 #
 # Exit codes: 0 placed / declared / retired; 2 usage, a malformed or hostile
-# input, a refused rung or `--home pr`, or a missing sibling helper (nothing
-# placed); 3 declined at the bound, or withheld by the allocation admission
+# input (a fleet home outside the brief path charset included), a refused rung
+# or `--home pr`, or a missing sibling helper (nothing placed); 3 declined at the bound, or withheld by the allocation admission
 # gate (nothing placed); 4 a resolver, the fleet home, the worktree list, or
 # the flight lock could not be read or taken, the brief directory was refused
 # (not private to the user, a symlinked flights directory, or already
@@ -105,8 +107,9 @@
 # `failed` report names a worktree left behind); 5 the id could not be minted,
 # the brief could not be written, or the placement failed (the `failed` report
 # names what was left behind), or, on the print rung, the pinned launch could
-# not be built after the flight was placed (the report stops before `launch`,
-# and the stderr line names the placed worktree, which holds a slot).
+# not be built after the flight was placed (the report ends on a `failed` and
+# a `reask` line instead of `launch`, and the stderr line names the placed
+# worktree, which holds a slot).
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf
@@ -496,16 +499,40 @@ private_dir() {
   [ -n "$(find "$1" -maxdepth 0 -user "$_pd_uid" ! -perm -0020 ! -perm -0002 2>/dev/null)" ]
 }
 
-# prepare_brief_dir — set `brief_dir` to a fresh, private directory for this
-# flight under the fleet home, checking what already exists before writing:
-# the fleet home and its flights directory must be private to the user, the
-# flights directory never a symlink, and the flight's own directory new.
-prepare_brief_dir() {
-  (umask 077 && mkdir -p "$fleet_home") || die 4 "cannot create the fleet home"
+# resolve_fleet_home [--create] — set `fleet_home` to the fleet home's
+# canonical path, the one the brief's path is built on, refusing it before
+# the lock and the mint: a control byte in either spelling (a split report
+# line), a canonical path outside the charset the worktree primitive accepts
+# for a brief, and a home that is not private to the user. Without --create an
+# absent home exits 0: there is nothing under it to sweep.
+resolve_fleet_home() {
+  fleet_home=$(/bin/sh "$STATE" root 2>/dev/null </dev/null) || die 4 "cannot resolve the fleet home"
+  ! has_ctl "$fleet_home" || die 2 "refusing a fleet home whose path carries a control character"
+  if [ "${1:-}" = --create ]; then
+    (umask 077 && mkdir -p "$fleet_home") || die 4 "cannot create the fleet home"
+  elif [ ! -d "$fleet_home" ]; then
+    exit 0
+  fi
   _fh_phys=$(cd "$fleet_home" && pwd -P) || die 4 "cannot resolve the fleet home"
+  ! has_ctl "$_fh_phys" || die 2 "refusing a fleet home whose canonical path carries a control character"
+  if [ "${1:-}" = --create ]; then
+    case $_fh_phys in
+      *[!A-Za-z0-9._/@+-]*)
+        die 2 "refusing a fleet home whose canonical path falls outside the brief path charset [A-Za-z0-9._/@+-] ($_fh_phys); set PLANWRIGHT_FLEET_STATE_DIR to a path within it"
+        ;;
+    esac
+  fi
   private_dir "$_fh_phys" \
-    || die 4 "refusing to write a brief: the fleet home is not a directory owned by you that only you can write ($_fh_phys)"
-  _flights="$_fh_phys/flights"
+    || die 4 "refusing to write a brief: the fleet home is not a directory owned by you that only you can write ($_fh_phys); chmod go-w it"
+  fleet_home=$_fh_phys
+}
+
+# prepare_brief_dir — set `brief_dir` to a fresh, private directory for this
+# flight under the (already resolved and checked) fleet home, checking what
+# already exists before writing: the flights directory must be private to the
+# user and never a symlink, and the flight's own directory new.
+prepare_brief_dir() {
+  _flights="$fleet_home/flights"
   [ ! -L "$_flights" ] || die 4 "refusing to write a brief: $_flights is a symlink"
   (umask 077 && mkdir -p "$_flights") || die 4 "cannot create the flights directory under the fleet home"
   private_dir "$_flights" \
@@ -725,8 +752,7 @@ cmd_retire() {
   done
   resolve_repo
   ! has_ctl "$repo_root" || die 2 "refusing a repo root whose path carries a control character"
-  fleet_home=$(/bin/sh "$STATE" root 2>/dev/null </dev/null) || die 4 "cannot resolve the fleet home"
-  ! has_ctl "$fleet_home" || die 2 "refusing a fleet home whose path carries a control character"
+  resolve_fleet_home
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
@@ -842,8 +868,7 @@ cmd_dispatch() {
   }
   [ -n "$sequence" ] || die 4 "review_sequence resolved empty"
 
-  fleet_home=$(/bin/sh "$STATE" root 2>/dev/null </dev/null) || die 4 "cannot resolve the fleet home"
-  ! has_ctl "$fleet_home" || die 2 "refusing a fleet home whose path carries a control character"
+  resolve_fleet_home --create
 
   # Fetch before the lock, so the placement's own fetch inside it is served
   # fresh from the fetch TTL and the lock is held for seconds, not a network
@@ -970,8 +995,11 @@ cmd_dispatch() {
     set -- claude --worktree "$suffix"
     [ "$TIER_MODEL" = inherit ] || set -- "$@" --model "$TIER_MODEL"
     [ "$TIER_EFFORT" = inherit ] || set -- "$@" --effort "$TIER_EFFORT"
-    _launch=$(/bin/sh "$ENVWRAP" --emit-launch "$@" -- "Read $brief and follow it exactly." </dev/null) \
-      || die 5 "could not construct the pinned print launch; the flight was placed at $worktree"
+    if ! _launch=$(/bin/sh "$ENVWRAP" --emit-launch "$@" -- "Read $brief and follow it exactly." </dev/null); then
+      printf 'failed\t%s\n' "could not construct the pinned print launch after the flight was placed"
+      printf 'reask\t%s\n' "The worktree was placed but has no launch; it holds a slot until it is removed (git worktree remove)."
+      die 5 "could not construct the pinned print launch; the flight was placed at $worktree"
+    fi
     printf 'handle\t%s\n' "none: no process exists until the operator runs the launch command"
     printf 'observe\t%s\n' "none: spawn deferred to the operator; act on the landing reference"
     printf 'attach\t%s\n' "run the launch command in a terminal; the worker is that session"

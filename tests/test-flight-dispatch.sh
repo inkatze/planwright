@@ -780,6 +780,52 @@ PLANWRIGHT_FLEET_STATE_DIR="$c/fl${TAB}eet" run retire --repo-root "$c/primary"
 [ "$(flight_branches)" -eq 0 ] || fail "a control-byte path placed a flight branch"
 [ ! -e "$c/fl${TAB}eet/flights" ] || fail "a control-byte fleet home received a brief"
 
+# The fleet home is screened at its canonical path, the one the brief uses,
+# and before the lock and the mint: a busy lock would otherwise answer first.
+new_case
+mkdir -p "$c/fl${TAB}eet"
+ln -s "$c/fl${TAB}eet" "$c/fleet-ctl"
+PLANWRIGHT_FLEET_STATE_DIR="$c/fleet-ctl" run dispatch readme-typo --backend print \
+  --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "a fleet home whose canonical path carries a control byte must be refused (rc $RC: $ERR)"
+case $ERR in *"fleet home"*"control"*) ;; *) fail "the canonical control-byte refusal must say why: $ERR" ;; esac
+PLANWRIGHT_FLEET_STATE_DIR="$c/fleet-ctl" run retire --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "retire must refuse a fleet home whose canonical path carries a control byte (rc $RC)"
+[ -z "$(ls -A "$c/fl${TAB}eet")" ] || fail "a control-byte canonical fleet home received a brief"
+lockhome="$c/primary/.git/planwright-flight"
+PLANWRIGHT_FLEET_STATE_DIR=$lockhome "$STATE" lock || fail "fixture: could not take the flight lock"
+mkdir -p "$c/fl eet"
+PLANWRIGHT_FLIGHT_LOCK_WAIT=0 PLANWRIGHT_FLEET_STATE_DIR="$c/fl eet" run dispatch readme-typo --backend tmux \
+  --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary" --attach-dry-run
+[ "$RC" -eq 2 ] || fail "a fleet home outside the brief path charset must be refused before the lock (rc $RC: $ERR)"
+case $ERR in *"charset"*) ;; *) fail "the brief-charset refusal must say why: $ERR" ;; esac
+mkdir -p "$c/fleet"
+chmod 775 "$c/fleet"
+PLANWRIGHT_FLIGHT_LOCK_WAIT=0 run dispatch readme-typo --backend print \
+  --ask-file "$c/ask.txt" --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
+[ "$RC" -eq 4 ] || fail "a group-writable fleet home must be refused before the lock (rc $RC: $ERR)"
+case $ERR in *"chmod go-w"*) ;; *) fail "the group-writable fleet-home refusal must name chmod go-w: $ERR" ;; esac
+PLANWRIGHT_FLIGHT_LOCK_WAIT=0 run retire --repo-root "$c/primary"
+case $ERR in *"chmod go-w"*) ;; *) fail "retire must refuse a group-writable fleet home first, naming chmod go-w: $ERR" ;; esac
+chmod 700 "$c/fleet"
+PLANWRIGHT_FLEET_STATE_DIR=$lockhome "$STATE" unlock
+[ "$(flight_branches)" -eq 0 ] || fail "an early fleet-home refusal placed a flight branch"
+
+# A print launch that cannot be built ends the report on a failed line.
+elroot="$tmp/elroot"
+mkdir -p "$elroot"
+cp -R "$ROOT/scripts" "$ROOT/skills" "$ROOT/config" "$ROOT/doctrine" "$ROOT/.claude-plugin" "$elroot/"
+printf '#!/bin/sh\nexit 1\n' >"$elroot/scripts/fleet-dispatch-env.sh"
+new_case
+OUT=$("$elroot/scripts/flight-dispatch.sh" dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --repo-root "$c/primary" </dev/null 2>"$tmp/err")
+RC=$?
+[ "$RC" -eq 5 ] || fail "a print launch that cannot be built must exit 5 (rc $RC: $(cat "$tmp/err"))"
+[ "$(printf '%s\n' "$OUT" | grep -c "^failed${TAB}")" -eq 1 ] \
+  || fail "a print launch that cannot be built must report one failed line (out: $OUT)"
+case $(field "$OUT" reask) in *"holds a slot"*) ;; *) fail "the failed print launch must say the placed worktree holds a slot (out: $OUT)" ;; esac
+[ -z "$(field "$OUT" launch)" ] || fail "a failed print launch must report no launch line"
+
 # The brief directory is checked before the brief is written: a symlinked
 # flights directory, or one group or others can write, is refused, and so is
 # a fleet home others can write.
