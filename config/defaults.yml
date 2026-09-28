@@ -803,3 +803,45 @@ tower_lease_interval: 15m
 tower_catchup_limit: 20
 tower_shelve_return: 1h
 tower_reknock_age: 30m
+
+# Human-gate policies (doctrine/human-gates.md). Each resolves through
+# scripts/resolve-policy-knob.sh, which names the strict value a malformed
+# adopter or machine-local setting degrades to; a malformed repo-tracked value
+# fails the read and the reader refuses the act.
+#
+# ready_flip_policy             who marks a task PR ready: human, or
+#                               unit-owner (the skill that executed the unit,
+#                               once the flip preconditions hold).
+# ready_flip_ci_wait            the bounded wait for the head's checks before
+#                               that flip; same convention as
+#                               kickoff_ready_ci_wait.
+# merge_policy                  human, on-approval (a person enables
+#                               auto-merge), or policy-class (a PR inside the
+#                               declared class merges without a per-PR act).
+# merge_class_max_lines         the class's changed-line bound; 0 admits
+#                               nothing, so the class stays closed until set.
+# merge_class_exclude_paths     globs (whole path, `*` spans `/`) the class
+#                               never admits, added to the core zone.
+# merge_class_strategy          the class's merge method: sole-allowed (the one
+#                               method the host allows), squash, merge, rebase.
+# worker_base_merge             whether a worker may merge its PR base into its
+#                               own unit branch: allow or deny.
+# worker_merge_conflict_policy  a conflicting base merge: halt (abort and park)
+#                               or resolve (commit the resolution for sign-off).
+# unpushed_rewrite              whether a worker may amend, squash, or rebase
+#                               commits no remote holds, on its own unit
+#                               branch: allow or deny.
+# protected_branches            branch names or globs added to the protected
+#                               floor (main, master, planwright/*/spec), space
+#                               separated on one line; a malformed value
+#                               refuses every act that reads it.
+ready_flip_policy: human
+ready_flip_ci_wait: 10m
+merge_policy: human
+merge_class_max_lines: 0
+merge_class_exclude_paths:
+merge_class_strategy: sole-allowed
+worker_base_merge: deny
+worker_merge_conflict_policy: halt
+unpushed_rewrite: deny
+protected_branches:
