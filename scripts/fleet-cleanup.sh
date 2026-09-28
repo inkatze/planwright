@@ -642,6 +642,13 @@ case "$cmd" in
         usage
         exit 2
       }
+      case $1 in
+        --grace | --repo-root | --tower-id) ;;
+        *)
+          usage
+          exit 2
+          ;;
+      esac
       # An empty value would read as the flag left out, which for
       # --tower-id means falling back to whatever identity the environment
       # carries.
@@ -653,10 +660,6 @@ case "$cmd" in
         --grace) grace=$2 ;;
         --repo-root) repo_root=$2 ;;
         --tower-id) tower_id=$2 ;;
-        *)
-          usage
-          exit 2
-          ;;
       esac
       shift 2
     done

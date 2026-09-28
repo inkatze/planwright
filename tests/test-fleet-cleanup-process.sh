@@ -221,6 +221,10 @@ malformed "a repo root with a control byte" w1 trig why --repo-root "$(printf '/
 malformed "a malformed tower id" w1 trig why --tower-id 'bad id'
 malformed "an empty tower id" w1 trig why --tower-id ''
 malformed "an unknown flag" w1 trig why --bogus x
+malformed "an unknown flag with an empty value" w1 trig why "$(printf 'x\033y')" ''
+case $err in
+  *"$(printf '\033')"*) fail "an unknown flag name reached stderr raw" ;;
+esac
 malformed "a missing reasoning" w1 trig
 echo "ok: malformed input is refused (exit 2) before any liveness verdict is read"
 
