@@ -116,8 +116,13 @@ done
 # The kill-switch answers from a flag file here: the real resolver runs once per
 # cell otherwise, which is most of this half's wall clock. The integration half
 # runs the real one.
+# pause-after <n> flips it to paused after its first <n> answers.
 cat >"$gs/fleet-daemon-gate.sh" <<STUB
 #!/bin/sh
+printf 'x\n' >>"$tmp/gate-calls"
+if [ -s "$tmp/pause-after" ] && [ "\$(grep -c . "$tmp/gate-calls")" -gt "\$(cat "$tmp/pause-after")" ]; then
+  exit 1
+fi
 [ ! -e "$tmp/paused" ]
 STUB
 chmod +x "$gs"/*.sh
@@ -147,6 +152,7 @@ stop_answers() {
 reset_calls() {
   : >"$tmp/det-calls"
   : >"$tmp/stop-calls"
+  : >"$tmp/gate-calls"
 }
 
 # gate <args...> — the actuator from the stub tree. Sets rc, out, err.
@@ -213,7 +219,15 @@ expect 4 "kill-switch"
 [ ! -s "$tmp/det-calls" ] || fail "kill-switch: the detector was asked while paused"
 never_stopped "kill-switch"
 rm -f "$tmp/paused"
-echo "ok: the kill-switch pauses the process class (exit 4) before any read or close"
+# A pause set while the verdict was being read still stops the close.
+det dead dead-or-unknown death-evidence stream-json-persistent dead
+printf '1\n' >"$tmp/pause-after"
+gate w1 trig why
+expect 4 "a pause set after the verdict"
+[ -s "$tmp/det-calls" ] || fail "a pause set after the verdict: the verdict was never read"
+never_stopped "a pause set after the verdict"
+rm -f "$tmp/pause-after"
+echo "ok: the kill-switch pauses the process class (exit 4) before any read, and again just before the close"
 
 # --- print-backend units are exempt, under any evidence (exit 8) ------------
 for st in 'dead death-evidence' 'finished-but-unreaped completion:result=success' 'working runtime-running'; do

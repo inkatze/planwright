@@ -740,6 +740,10 @@ EOF
       exit 5
     fi
 
+    # The gate admits entry, not the whole run: reading the verdict can take
+    # a while, and a pause set meanwhile still stops the first signal.
+    gate process-cleanup || exit 4
+
     set --
     if [ "$rung" = fleet-dispatch-headless.sh ] && [ -n "$repo_root" ]; then
       set -- --repo-root "$repo_root"
