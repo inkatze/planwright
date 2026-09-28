@@ -1,0 +1,1 @@
+- 2026-09-25 [planwright] A test helper that judges `$?` on entry (tests/test-resolve-steps.sh verdict) is silently defeated by a command substitution in its own arguments: bash sets the status to the last substitution expanded, so the assertion can never fail. No guard catches the pattern; a lint for `verdict ... $(` (or passing the status explicitly) would.
