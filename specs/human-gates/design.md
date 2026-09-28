@@ -1,7 +1,7 @@
 # Human gates — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -484,6 +484,118 @@ run without it.
 **Chosen because:** capability in core, value in overlay; the split is the
 better posture and the shared identity is the common one.
 
+### D-15: The class admits task branches only; release PRs never  (N, planwright#506 review decisions)
+
+**Decision:** Beside D-6's predicates, `scripts/merge-class.sh` admits a PR
+only when its head branch is a task branch
+(`planwright/<spec>/task-<id-or-ids>`) and its head repository is the base
+repository. Every other PR (a release PR, a dependency-bot PR, a flight
+branch, a human's own branch, a fork carrying a task-shaped name) takes
+D-6's ordinary fall-through to `on-approval`, so the release approval is
+always a human approval act (a merge, or enabling auto-merge) and never a
+class admission. The set is fixed and no knob widens it: only
+`/execute-task`, the skill owning a task branch, calls the merge helper
+(D-6), so a wider set could never be evaluated. D-6's sign-off predicate is
+a raw scan: a `Planwright-Sign-Off` trailer or a D-16 legacy suffix anywhere
+in `base..head` refuses the PR, reverted or not. The doctrine passages
+describing the release approval state the rule; autopilot-reflex D-5 and
+REQ-C1.4, which state it as an unrefined human merge, are pointed through
+D-17.
+
+**Alternatives considered:**
+- An adopter-extendable allowlist with an unshrinkable release-marker
+  denylist, admitting dependency-bot PRs on opt-in. Rejected because:
+  nothing calls the helper for a PR no planwright skill owns, a specless PR
+  has no review record or Awaiting-input segment for the predicates to
+  read, and most dependency bumps touch a lockfile in the core zone anyway;
+  a caller for them is a separate design.
+- A denylist by PR author (bot accounts). Rejected because: author
+  reporting varies by host and token, and a release tool opening PRs under
+  a human or PAT identity would slip through.
+- Release PRs always need a human-pressed merge, auto-merge not counting.
+  Rejected because: it adds a second fall-through path to specify and test,
+  and enabling auto-merge is already a per-PR human act in the host's UI.
+- The sign-off predicate reads the regenerated checklist's live items.
+  Rejected because: the class decision would rest on revert pairing and
+  Task 9 would depend on Task 2's parser; a PR with a reverted item falling
+  to `on-approval` is the fail-closed cost.
+
+**Chosen because:** the allowlist excludes every PR planwright does not own
+without naming it, so an adopter's release tool is covered with nothing to
+configure or misconfigure; the fixed set is exactly the set the helper can
+reach.
+
+### D-16: A legacy suffixed commit takes its id from its own hash  (N, planwright#506 review decisions)
+
+**Decision:** A commit whose subject ends with a space and
+`[pending-sign-off]` and
+that carries no trailer renders in the checklist as `PS-legacy-<sha7>`, the
+first seven hex characters of its full hash (never `%h`, which grows with
+the repository). The id never depends on commit order and sits outside the
+`PS-<n>` sequence, so D-3's write-once rule holds and allocation never
+collides with it; two legacy commits in one range sharing the prefix fail
+the regeneration with a named error rather than guess. "Legacy" names the
+form, not the age: a suffixed commit written while gate-wiring still
+permits the suffix is a legacy item too. A revert commit is never an item
+and drops the item it reverts, as D-3's pairing does; a later
+`Planwright-Sign-Off-Rejected: PS-legacy-<sha7>` trailer, matched exactly,
+drops it too, and the trailer helper stamps that value as well as
+`PS-<n>`. The id lasts as long as the commit does: an unpushed rewrite
+(D-8) happens before any rejection names it, and the operator-requested
+rewrite of pushed history names in its handoff any legacy item whose id it
+changed, so a rejection is re-stamped. This is D-3's migration line made
+operable, still with no history rewritten and no branch swept. The class
+evaluator counts the suffix raw (D-15).
+
+**Alternatives considered:**
+- Render legacy items with no id, rejectable only by revert. Rejected
+  because: one finding of a shared legacy commit could not be rejected
+  alone.
+- Allocate the next free `PS-<n>`. Rejected because: the id would be
+  computed at regeneration from commit order, which D-3's write-once rule
+  forbids.
+- Key the id to `git patch-id`. Rejected because: stable across a clean
+  rebase but not across a conflict resolution, and a second hash to explain
+  for a transitional form.
+
+**Chosen because:** order-independent, rejectable per item, and no history
+rewrite, which D-3's one-line migration promised.
+
+### D-17: Supersede pointers into other bundles, settled by survey; a live bundle waits for its own amendment  (N, planwright#506 review decisions)
+
+**Decision:** Task 12's sweep points every REQ or D record in another
+bundle that still states a rule this bundle changes, body unedited, in the
+forms Task 1 used: `**Superseded-by: REQ-<id> (human-gates)** (<date>)` on a
+requirement and `**Superseded-by: human-gates D-<n>** (<date>)` on a
+decision, scoped to the changed clause where only part changes, with a
+dated changelog entry per pointed bundle. Which records qualify is a
+judgement of meaning a grep cannot make, so the sweep's first deliverable
+is a survey table in its PR (record, replacing id, full or scoped, live or
+Done) that review checks; `tasks.md` lists the records known at this
+amendment as a starting set, not the enumeration. A pointer is anchored
+content, so into a bundle whose derived status is Ready or Active when the
+sweep runs it does not land: the sweep records a gated bullet under this
+bundle's `## Deferred` naming the pointer lines and the amendment to run on
+that bundle. `## Awaiting input` takes task-keyed bullets only, and one
+there would park the sweep itself.
+
+**Alternatives considered:**
+- Land every pointer and let the live bundle's dispatch stay blocked until
+  its amendment. Rejected because: work on that bundle would stall on a
+  stale anchor nobody scheduled.
+- Amend each live bundle in a separate kickoff now. Rejected because: a
+  kickoff per bundle for a few pointer lines, and a bundle may be Done by
+  the time the sweep runs, when its pointers land for free.
+- Pin the full record list in this bundle now. Rejected because: it goes
+  stale if bundles change before the sweep, and the judgement is better
+  checked at PR review against the records as they then stand.
+- A grep as the enumeration. Rejected because: the retired-phrase regex over
+  `specs/` matches archive, alternative, and changelog text as readily as
+  live rules, and misses records worded differently.
+
+**Chosen because:** the record converges without any surprise dispatch
+block; a worker never performs a kickoff, which is a human gate.
+
 ## Cross-cutting concerns
 
 - **Security posture.** Every guard this bundle adds is deny-emitting, so
@@ -495,7 +607,9 @@ better posture and the shared identity is the common one.
   api-surface and secrets-configuration (the knobs, D-4, D-6, D-7),
   observability (the PR records, D-5, D-6), versioning (the one-release
   `--marker title` deprecation, D-3), LLM output gates (no model in any
-  guard), human comprehension (D-13), existing-seam reuse (D-5, D-9).
+  guard), human comprehension (D-13), existing-seam reuse (D-5, D-9),
+  release approval under a policy class (D-15), migration of legacy
+  markers (D-16), cross-bundle record hygiene (D-17).
   Touched, not decided here: concurrency between a policy change and a guard
   read mid-session is accepted as last-write-wins at PreToolUse time.
 - **Instruction budget.** Every skill prose change is measured by

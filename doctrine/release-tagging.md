@@ -11,7 +11,7 @@ concrete scripts, workflows, and config knobs that implement it are cited here
 by name and defined in their own tasks.
 
 Citations: autopilot-reflex REQ-B1.1, REQ-B1.2 · autopilot-reflex D-2, D-3,
-D-5, D-7, D-13.
+D-5, D-7, D-13 · human-gates REQ-D1.6.
 
 ## The five policy points
 
@@ -29,7 +29,8 @@ close the gap without crossing a human gate.
 
 2. **Approval is the human merge of the release PR.** Merging the release PR is
    the release approval, and it stays a human act in GitHub's UI (`D-5`). No
-   planwright command, script, or skill merges it. This is reflex step 1: merge
+   planwright command, script, or skill merges it outside the merge policy
+   [Human Gates](human-gates.md) states. This is reflex step 1: merge
    is a named, conscious, reserved gate, and reusing the merge the human already
    exercises everywhere else keeps the gate bright-line and its enforcement
    trivially checkable (no merge call sites exist).
@@ -50,13 +51,15 @@ close the gap without crossing a human gate.
    correctness does not depend on it (the tag lands on the true release commit
    under any interleaving regardless).
 
-5. **Merge and publish are never performed autonomously.** The two irreversible,
-   externally-visible acts, approving the release (merge) and cutting the signed
-   tag and Release (publish), are always conscious human acts. planwright
-   automates everything up to them and nothing through them: no auto-merge, no
-   background auto-sign, no timeout-approval, no bypass flag. This is the reflex
-   step 1 and 2 bright line, the carried never-auto-merge invariant left
-   absolute and unrefined.
+5. **Merge and publish are never crossed on the machine's own judgment.** The
+   two irreversible, externally-visible acts, approving the release (merge) and
+   cutting the signed tag and Release (publish), are conscious human acts: the
+   merge authorized under the merge policy [Human Gates](human-gates.md) states,
+   whose shipped default keeps it a per-PR human act, and the publish a human
+   gate with no knob. planwright automates everything up to them and
+   nothing through them: no merge outside a configured policy, no background
+   auto-sign, no timeout-approval, no bypass flag. This is the reflex step 1
+   and 2 bright line.
 
 ## The altitude split
 
