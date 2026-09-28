@@ -2,7 +2,7 @@
 # fleet-cleanup.sh — the deterministic stale-resource cleanup actuator with an
 # explicit self-targeting guard (Task 4: D-6, D-5, D-15, D-16; REQ-B1.1).
 #
-# WHY DETERMINISTIC (D-6). Stale window/pane/worktree cleanup runs as script
+# WHY DETERMINISTIC (D-6). Stale window/pane/worktree/process cleanup runs as script
 # logic, never in-context model judgment. A real postmortem
 # (anthropics/claude-code#29787) shows an LLM-driven cleanup non-deterministically
 # issuing `tmux kill-session` against its OWN hosting pane, destroying the whole
@@ -18,7 +18,9 @@
 # upstream parity or a verified merged PR; see the `worktree` usage). Silence, a
 # timeout, or a "probably stale" guess is never admissible: the same discipline
 # scripts/fleet-death-evidence.sh encodes, applied to reclamation. A live pane or
-# an unproven/dirty worktree is refused, never reclaimed.
+# an unproven/dirty worktree is refused, never reclaimed. A worker process is
+# reaped only on the stuck-detector's positive evidence that its owning tower is
+# dead and its session ended (see the `process` usage).
 #
 # KILL-SWITCH + AUDIT (D-15, D-16). Every invocation gates through
 # scripts/fleet-daemon-gate.sh BEFORE acting (a set `fleet_daemon_pause` pauses
@@ -56,7 +58,9 @@
 #       The verdict comes from scripts/fleet-stuck-detector.sh, whose registry
 #       read and owner attribution this arm does not re-derive; --tower-id is
 #       handed to it, and without it the detector resolves this tower's
-#       identity from the environment as it always does. Refused, in order:
+#       identity from the environment as it always does. An errored verdict or a
+#       missing dispatch record refuses first (exit 5); past those, refused in
+#       this order:
 #         a `print`-backend unit, which spawned no process (exit 8);
 #         a worker owned by a live peer tower, under any evidence (exit 7);
 #         anything short of positive evidence on BOTH axes (exit 5): the

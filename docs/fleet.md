@@ -1451,8 +1451,10 @@ asked for from inside the worker's own tree is the self-target block (exit
 worktree are untouched, and a strand already surfaced to you stays surfaced,
 because reaping is not reclaiming. Each reap writes one `process-cleanup`
 audit record naming the worker, its owner, the evidence class, and what was
-released; a partial close is exit `5` with a `cleanup-partial` record of what
-it did release, and a close that could not be recorded is exit `6`.
+released. A partial close is exit `5` with a `cleanup-partial` record naming
+what it released and what is still held, written even when it released
+nothing, since the rung signals the tree before it finds a class still held.
+A close that could not be recorded is exit `6`.
 
 ## Resource governance: models, throttling, and the auto-mode line
 
