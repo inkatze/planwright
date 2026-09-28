@@ -257,6 +257,8 @@ sessions='dead:death-evidence
 finished-but-unreaped:completion:result=success
 finished-but-unreaped:session-ended
 unclassified:completion-failed:exit=1
+unclassified:completion-failed:exit=unknown
+unclassified:completion-failed:result=unknown
 unclassified:completion-unlanded
 working:runtime-running
 working:attention-working
@@ -313,7 +315,7 @@ EOF
 done <<EOF
 $towers
 EOF
-[ "$cells" = 156 ] || fail "the evidence matrix ran $cells cells, expected 156"
+[ "$cells" = 180 ] || fail "the evidence matrix ran $cells cells, expected 180"
 [ "$reaps" = 5 ] || fail "the evidence matrix reaped $reaps cells, expected 5"
 det finished-but-unreaped this-tower completion:result=success stream-json-persistent self "$self_id"
 gate w1 trig why --tower-id "$self_id"

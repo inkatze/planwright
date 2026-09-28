@@ -720,13 +720,17 @@ EOF
         exit 5
         ;;
     esac
+    # The detector reads a torn completion record as the value `unknown` and
+    # still calls it a completion; for a reap, unknown is alive.
     case $state/$reason in
-      dead/* | finished-but-unreaped/* | unclassified/completion-failed:* | unclassified/completion-unlanded) ;;
-      *)
-        warn "refusing '$worker': no positive evidence its session ended (state: $(sanitize_printable "$state" "-"), signal: $reason)"
-        exit 5
-        ;;
+      unclassified/completion-failed:*=unknown*) session_ended=0 ;;
+      dead/* | finished-but-unreaped/* | unclassified/completion-failed:* | unclassified/completion-unlanded) session_ended=1 ;;
+      *) session_ended=0 ;;
     esac
+    if [ "$session_ended" = 0 ]; then
+      warn "refusing '$worker': no positive evidence its session ended (state: $(sanitize_printable "$state" "-"), signal: $reason)"
+      exit 5
+    fi
 
     set --
     if [ "$rung" = fleet-dispatch-headless.sh ] && [ -n "$repo_root" ]; then
