@@ -1058,7 +1058,12 @@ AWKFAIL
   chmod +x "$tmp/$rung/bin32/awk"
   PATH="$tmp/$rung/bin32:$PATH" awk 'BEGIN { exit 0 }' </dev/null 2>/dev/null \
     || fail "c32: the shim broke ordinary awk — it must only fail on the attention store"
-  PATH="$tmp/$rung/bin32:$PATH" awk '{ print }' "$home/attention" >/dev/null 2>&1
+  # The store file, not its directory: some awks already exit 2 on a directory,
+  # which would pass this check with the shim doing nothing.
+  [ -f "$home/attention/state" ] || fail "c32: no attention store file to probe"
+  awk '{ print }' "$home/attention/state" >/dev/null 2>&1 \
+    || fail "c32: the real awk cannot read the attention store — the shim check below would prove nothing"
+  PATH="$tmp/$rung/bin32:$PATH" awk '{ print }' "$home/attention/state" >/dev/null 2>&1
   [ "$?" = 2 ] || fail "c32: the shim does not fail on the attention store — this case would prove nothing"
   rc=0
   out=$(PATH="$tmp/$rung/bin32:$PATH" renv "$home" "$rec" -- stop "$w" --grace 1 2>&1) || rc=$?
