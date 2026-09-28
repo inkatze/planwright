@@ -260,34 +260,7 @@ deferred until every flipper posts.
 
 ## Awaiting input
 
-- **Task 3** — paused in convergence on a hard-disqualifier zone: how
-  `scripts/flight-dispatch.sh` turns the resolved convergence steps into
-  an unattended flight worker's brief (prompt and shell construction for
-  a worker that may push). Everything else is committed on
-  `planwright/custom-steps/task-3` (unpushed): the resolver deletion and a
-  reviewed prose batch plus a test addition, both pending sign-off.
-  Confirmed findings, none applied:
-  - step `args` and prompt text reach the brief unscreened and inside
-    inline code, though the resolver leaves screening to the consumer and
-    this script already screens the ask;
-  - a relative command target is resolved against the dispatching
-    checkout rather than the flight worktree, printed unquoted, and
-    without the `--line` step context the worker guard and REQ-G1.1
-    expect;
-  - each step's hosting, on-failure, and timeout never reach the brief, a
-    skipped step disappears from the brief and the report, and every
-    resolver failure (a park included) exits 4 with one message;
-  - the core list and catalog come from the environment's planwright
-    root while skills are checked under this script's root;
-  - the brief lists the steps and also tells the worker to re-read them.
-  The kickoff brief marked REQ-F1.5 a dead path because no flight skill
-  had shipped; one since has, so this is a scope call. Options:
-  (a) narrow flights to skill steps for now, refusing command and prompt
-  steps at unit kind `flight`, and gate full rendering as a follow-up;
-  (b) implement full rendering in this task (screening, `--line` with
-  context, resolution in the placed worktree, posture and timeout, skip
-  reporting); (c) split the flight change into its own task through a
-  `/spec-kickoff` delta. Recommended: (a).
+(none yet)
 
 ## Deferred
 
@@ -341,6 +314,22 @@ deferred until every flipper posts.
   **Gate:** the release carrying Task 3 is installed on this repository's
   machines (surfaced free-text condition, evaluated at drain).
   Citations: D-10 · REQ-F1.2.
+- **Command and prompt steps on a flight.** The flight dispatch path
+  (`scripts/flight-dispatch.sh`) renders skill steps only and refuses a
+  command or prompt step at unit kind `flight` by name, placing nothing;
+  the operator chose this narrowing on 2026-09-28 over rendering both
+  kinds in Task 3. Full rendering needs: step `args` and prompt text
+  screened before they reach the brief, and kept out of inline code; a
+  relative command target resolved in the placed flight worktree, printed
+  quoted, and carried as the `--line` rendering with its step context;
+  each step's hosting, on-failure posture, and timeout carried into the
+  brief; a skipped step named in the brief and the dispatch report; and
+  the resolver's failures told apart (a park reported as a park, not as
+  one exit-4 message). Confidence: high.
+  **Gate:** an operator asks for a command or prompt step on a flight, or
+  a recorded observation names a flight refused for one (surfaced
+  free-text condition, evaluated at drain).
+  Citations: D-10, D-13 · REQ-F1.5, REQ-G1.1.
 
 ## Out of scope
 
