@@ -111,6 +111,13 @@ sed "s/WORKER/\$2/" "$tmp/stop-out"
 exit "\$(cat "$tmp/stop-rc")"
 STUB
 done
+# The kill-switch answers from a flag file here: the real resolver runs once per
+# cell otherwise, which is most of this half's wall clock. The integration half
+# runs the real one.
+cat >"$gs/fleet-daemon-gate.sh" <<STUB
+#!/bin/sh
+[ ! -e "$tmp/paused" ]
+STUB
 chmod +x "$gs"/*.sh
 
 gate_home="$tmp/gate-home"
@@ -197,12 +204,12 @@ expect 2 "a missing reasoning"
 echo "ok: malformed input is refused (exit 2) before any liveness verdict is read"
 
 # --- the kill-switch pauses it before anything is read (exit 4) -------------
-printf 'fleet_daemon_pause: true\n' >"$mlocal_cfg"
+: >"$tmp/paused"
 gate w1 trig why
 expect 4 "kill-switch"
 [ ! -s "$tmp/det-calls" ] || fail "kill-switch: the detector was asked while paused"
 never_stopped "kill-switch"
-rm -f "$mlocal_cfg"
+rm -f "$tmp/paused"
 echo "ok: the kill-switch pauses the process class (exit 4) before any read or close"
 
 # --- print-backend units are exempt, under any evidence (exit 8) ------------
