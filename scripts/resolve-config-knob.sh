@@ -361,6 +361,7 @@ strict_overlays=""
 if [ "$degrade_set" -eq 1 ] || [ "$no_degrade" -eq 1 ]; then
   strict_overlays=1
 fi
+TAB=$(printf '\t')
 explain_out=""
 rc=0
 explain_out=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS="$strict_overlays" "$config_get" --explain "$key") || rc=$?
@@ -369,9 +370,9 @@ if [ "$rc" -eq 6 ]; then
   # read once more with the file skipped, and let that breakage fail the read.
   lower=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS="" "$config_get" --explain "$key" 2>/dev/null) || lower=""
   case "$lower" in
-    "repo-tracked	"*)
-      if ! valid_value "${lower#*	}"; then
-        printf '%s\n' "resolve-config-knob: repo-tracked overlay sets '$key' to a malformed value ('$(sanitize_printable "${lower#*	}" "(unprintable value)")' is not a legal $ktype value); refusing to silently degrade a shared team value" >&2
+    "repo-tracked$TAB"*)
+      if ! valid_value "${lower#*"$TAB"}"; then
+        printf '%s\n' "resolve-config-knob: repo-tracked overlay sets '$key' to a malformed value ('$(sanitize_printable "${lower#*"$TAB"}" "(unprintable value)")' is not a legal $ktype value); refusing to silently degrade a shared team value" >&2
         exit 4
       fi
       ;;
@@ -412,7 +413,6 @@ fi
 # lost, silently bypassing the by-layer policy. Refuse it instead. (The tab
 # is matched through a variable: an unquoted literal tab in a case pattern
 # is token-separating whitespace, not a pattern character.)
-TAB=$(printf '\t')
 case "$explain_out" in
   *"$TAB"*) ;;
   *)

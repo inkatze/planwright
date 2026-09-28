@@ -465,6 +465,21 @@ printf 'unrelated:\n  - x\n' >"$mlocal_cfg"
 rc=0
 run_gate >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "degrade: a malformed repo-tracked value behind a malformed machine-local file exited $rc, expected 4"
+# A legal but permissive repo-tracked value behind a malformed file still
+# degrades (and refuses under --no-degrade); run under /bin/sh, as the policy
+# readers run it.
+printf 'flip_gate: loose\n' >"$tracked_cfg"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$gate_core" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/sh "$RCK" --key flip_gate --type enum --values 'strict loose' \
+  --fallback strict --degrade strict 2>/dev/null) \
+  || fail "degrade: a permissive repo-tracked value behind a malformed file failed the read"
+[ "$got" = strict ] || fail "degrade: a permissive repo-tracked value behind a malformed file resolved to '$got', expected strict"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$gate_core" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/sh "$RCK" --key flip_gate --type enum --values 'strict loose' --no-degrade >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "no-degrade: a permissive repo-tracked value behind a malformed file exited $rc, expected 4"
 # Without --degrade / --no-degrade the config-get skip is unchanged, even when
 # the caller's environment exports the strict switch.
 reset_layers
