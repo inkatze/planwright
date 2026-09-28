@@ -90,6 +90,22 @@ cleanup() {
       'sleep 120') kill "$p" 2>/dev/null ;;
     esac
   done
+  # A headless pid file names only the runner, so a failed cell would orphan
+  # its worker, and a TERM-ignoring one never exits. Everything the fixtures
+  # start carries this run's scratch path in its argv, and a still-unreaped job
+  # of ours cannot have had its pid reissued. Matched in-shell: a `grep` for the
+  # path would find its own argv.
+  for p in $(jobs -p); do
+    kill -9 "$p" 2>/dev/null
+  done
+  cl_snap=$(ps -A -ww -o pid=,args= 2>/dev/null) || cl_snap=''
+  while read -r p a; do
+    case $a in
+      *"$tmp"*) [ "$p" = "$$" ] || kill -9 "$p" 2>/dev/null ;;
+    esac
+  done <<EOF
+$cl_snap
+EOF
   rm -rf "$tmp"
 }
 trap cleanup EXIT
