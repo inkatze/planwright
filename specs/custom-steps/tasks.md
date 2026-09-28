@@ -260,7 +260,12 @@ deferred until every flipper posts.
 
 ## Awaiting input
 
-(none yet)
+- **Task 3** — halted before the old resolver's deletion: the worker's
+  permission layer refused removing `scripts/resolve-review-sequence.sh`
+  and `tests/test-resolve-review-sequence.sh`. Every other deliverable is
+  committed on `planwright/custom-steps/task-3` (unpushed). To resume,
+  delete those two files in a commit on the branch (nothing else reads
+  them), then re-run the task's convergence, CI, and draft PR.
 
 ## Deferred
 
