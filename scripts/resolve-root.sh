@@ -44,8 +44,8 @@
 #           identifier grammar and whose layout: is 1) is refused, whichever
 #           layer set it, and never falls back to the default. So is a root
 #           whose canonical path carries a control byte or tab.
-#   (default)   the checkout-local view: a root inside the primary checkout
-#               is re-based onto the current checkout of the same repository.
+#   (default)   the checkout-local view: a same-repo root inside the primary
+#               checkout is re-based onto the current checkout of the same repository.
 #               A re-based path the current checkout does not hold (an
 #               untracked or gitignored root) is still printed, with a
 #               warning on stderr.
@@ -89,12 +89,13 @@
 #   value without an absolute HOME, a control byte or tab in the canonical
 #   path; --init could not derive a project identifier or write, or was
 #   given a repo-tracked value outside the primary checkout) · 6
-#   spec_root unreadable (a malformed repo-tracked config, or a broken
-#   install). Callers treat 3 as "no repository" and
-#   degrade; they never compose a path from an empty root.
+#   spec_root unreadable (a malformed repo-tracked config file, or a
+#   repo-tracked value carrying a control byte; or a broken install).
+#   Callers treat 3 as "no repository" and degrade; they never compose a
+#   path from an empty root.
 #
 # POSIX sh with no dependency beyond git and tr, plus, for the spec kind,
-# sed, cut, grep, head, tail, mktemp, ln, and the config resolvers: guards
+# sed, cut, grep, head, tail, mktemp, ln, rm, and the config resolvers: guards
 # and hooks exec it through /bin/sh, which is dash on Linux.
 set -u
 # Pin the C locale so tr's byte ranges below mean bytes.

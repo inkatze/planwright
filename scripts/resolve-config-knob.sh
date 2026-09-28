@@ -79,8 +79,9 @@
 #              path it is usually '' (unset).
 #   --explain  print "<layer>\t<value>" instead of the bare value, the layer
 #              being core | adopter | repo-tracked | machine-local, or
-#              default when no layer set the key. A path value an empty
-#              layer cancelled is labelled with that layer.
+#              default when no layer supplied a usable value (unset, or
+#              every setting layer malformed and passed over). A path
+#              value an empty layer cancelled is labelled with that layer.
 #
 # Environment: honors every override config-get / resolve-overlay-root honor
 # (PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY, PLANWRIGHT_REPO_ROOT,

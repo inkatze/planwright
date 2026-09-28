@@ -199,8 +199,8 @@ rl_version_gt() {
 # version of truth, reading the `version_file` knob through the config overlay
 # and falling back to the plugin-manifest default. The knob value is
 # `<path>[::<selector>]`; an absent `::<selector>` means whole-file mode. The
-# separator is `::`, not `#`: config-get strips a trailing `#comment` (YAML), so
-# a `#` in the value would be truncated.
+# separator is `::`, not `#`: config-get strips a whitespace-led `#comment`
+# (YAML), so a `#` after a space in the value would be truncated.
 rl_resolve_version_file() {
   local script_dir="$1" raw path selector
   raw=$("$script_dir/config-get.sh" version_file 2>/dev/null) || raw=""
