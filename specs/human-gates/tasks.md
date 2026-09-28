@@ -1,7 +1,7 @@
 # Human gates — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -58,15 +58,26 @@ every surface it restates exists.
   bracket or a bare trailer line; `tests/test-check-commit-msgs.sh`
   updated; a regression test proving a revert of a trailered commit yields
   one item, not two; a gated deferral for dropping `--marker title` after
-  one release.
+  one release; legacy ids per REQ-B1.10: a subject ending with a space and
+  `[pending-sign-off]` with no trailer rendered as `PS-legacy-<sha7>` (the
+  first seven hex characters of `%H`), outside the `PS-<n>` sequence, a
+  prefix collision failing with a named error, a revert never an item and
+  dropping its original, and the rejected-trailer stamping and parsing
+  accepting `PS-legacy-<sha7>`; the gate-wiring legacy line and its
+  doctrine README row naming the id.
 - **Done when:** the revert test fails on the subject-grep path and passes
-  on the trailer path; a rejected-trailer fixture drops exactly the named
-  item; a base-merge that reorders the range leaves every checklist id
+  on the trailer path; a legacy suffixed commit renders once as
+  `PS-legacy-<sha7>`, keeps that id across a base-merge that reorders the
+  range, and drops on its revert (not itself an item) and on a rejected
+  trailer naming it; a prefix collision yields a named error; the next
+  `PS-<n>` allocation is unaffected by legacy items; a rejected-trailer
+  fixture drops exactly the named item; a base-merge that reorders the
+  range leaves every checklist id
   unchanged; an unfetched base yields a named error and no checklist; the
   lint suite is green.
 - **Dependencies:** 1
-- **Citations:** D-3, D-12 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4,
-  REQ-B1.6
+- **Citations:** D-3, D-12, D-16 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4,
+  REQ-B1.6, REQ-B1.10
 - **Estimated effort:** 1 day
 
 ### Task 3 — Sign-off prose in the gate-wired skills
@@ -225,12 +236,14 @@ every surface it restates exists.
 ### Task 9 — The merge policy
 
 - **Deliverables:** `scripts/merge-class.sh` evaluating the class
-  predicates deterministically (no trailer in range, no changed path in the
-  core hard-disqualifier zone plus the adopter's exclusions, no live
+  predicates deterministically (the raw sign-off scan: no trailer and no
+  legacy suffix in range, reverted or not; no changed path in the core
+  hard-disqualifier zone plus the adopter's exclusions; no live
   Awaiting-input segment other than a parking lead read from the fetched
-  base ref, the Task 7 preconditions evaluated once, the adopter bounds)
-  and emitting the evidence record; `scripts/merge-admitted.sh` flipping an
-  admitted draft PR ready through the ready-flip helper with the
+  base ref; the Task 7 preconditions evaluated once; the adopter bounds; a
+  task-branch head from the base repository) and emitting the evidence
+  record; `scripts/merge-admitted.sh` flipping an admitted draft PR ready
+  through the ready-flip helper with the
   precondition result handed forward, re-confirming head, base OID, and the
   Awaiting-input predicate immediately before the merge call, merging with
   the strategy `merge_class_strategy` resolves, writing every fall-through
@@ -240,19 +253,30 @@ every surface it restates exists.
   branch and allowlisted only under `policy-class` for an admitted PR;
   identity detection emitting the act name the docs' recommended split
   unlocks (auto-merge, or an approving review with it enabled);
-  `on-approval` documented as enabling auto-merge; one Gherkin scenario per
-  predicate in the fixtures; tests for each predicate, each fall-through,
-  the moved head and moved base, and the record-write and merge-call
+  `on-approval` documented as enabling auto-merge; the release rule of
+  REQ-D1.9 stated on every passage describing the release approval
+  (release-tagging point 2, its "no merge call sites exist" clause
+  included, and point 5; guard-catalog's approval line; the human-gates
+  merge-policy row and its citation header; the doctrine README rows of
+  the docs edited; `docs/getting-started.md`'s release step;
+  `templates/release-please/README.md`), within budget on every guarded
+  surface; one Gherkin scenario per predicate in the fixtures; tests for
+  each predicate, each fall-through, the moved head and moved base, and
+  the record-write and merge-call
   failures.
-- **Done when:** a PR carrying a sign-off trailer is never admitted under
-  any bounds; a PR touching a core-zone path is never admitted; an admitted
+- **Done when:** a PR carrying a sign-off trailer or a legacy suffixed
+  commit, reverted or not, is never admitted under any bounds; a PR
+  touching a core-zone path is never admitted; a PR whose head is not a
+  task branch, or is a task-shaped branch from a fork, is never admitted; a
+  grep finds the release rule on each named release-approval passage and
+  `check-instructions.sh` reports no surface over budget; an admitted
   PR gets its record before the merge call and one CI wait in total; a base
   moved since evaluation yields no merge call; under `human` and
   `on-approval` the guard suite denies every PR-merge spelling;
   `check:test-time` passes.
 - **Dependencies:** 4, 6, 7
-- **Citations:** D-6, D-14 · REQ-A1.2, REQ-D1.1, REQ-D1.2, REQ-D1.3,
-  REQ-D1.4, REQ-D1.5, REQ-D1.7, REQ-D1.8
+- **Citations:** D-6, D-14, D-15, D-16 · REQ-A1.2, REQ-B1.10, REQ-D1.1,
+  REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5, REQ-D1.7, REQ-D1.8, REQ-D1.9
 - **Estimated effort:** 2 days
 
 ### Task 10 — Worker base merge and the conflict knob
@@ -286,7 +310,9 @@ every surface it restates exists.
   commits the push drops, refused for main, protected, and spec branches,
   refused from standing decisions, and run only in the turn it was asked;
   the commit-range lint failure named in the reporting skill's handoff as
-  the reason for that path; the secret-purge preparation (command plus
+  the reason for that path; the force-push handoff naming any legacy
+  checklist item whose id the rewrite changed, so its rejection is
+  re-stamped; the secret-purge preparation (command plus
   rotation checklist) with the run left to the human; tests over the tower
   queue for the refusal arms and the confirmation shape.
 - **Done when:** a standing decision covering a force-push is refused; a
@@ -296,7 +322,7 @@ every surface it restates exists.
   one recorded on-demand `eval:skill` run shows it; `check:test-time`
   passes.
 - **Dependencies:** 6
-- **Citations:** D-8 · REQ-F1.2, REQ-F1.3, REQ-F1.4
+- **Citations:** D-8, D-16 · REQ-B1.10, REQ-F1.2, REQ-F1.3, REQ-F1.4
 - **Estimated effort:** 1 day
 
 ### Task 12 — The prose sweep and the purge list
@@ -311,16 +337,36 @@ every surface it restates exists.
   dedicated grep screen for sentence-length phrasings over `doctrine/`,
   `skills/`, and `docs/` wired into `mise run check`; a check that the
   `BREAKING CHANGE:` footer of Task 4 is present in the merged history; the
-  dotfiles restatement carried as the gated deferral below.
+  dotfiles restatement carried as the gated deferral below; the REQ-H1.4
+  survey table in the PR (record, replacing id, full or scoped, bundle live
+  or Done) and a pointer in the REQ-H1.4 form on every surveyed record of a
+  Done or terminal bundle, with a dated changelog entry per pointed bundle,
+  starting from the records known at 2026-09-28 (tower-front-door REQ-C1.4,
+  REQ-G1.1, REQ-G1.3, REQ-G1.4, REQ-H1.3, and D-5; fleet-lifecycle-closure
+  REQ-J1.1 and REQ-J1.2; operator-dialogue REQ-F1.4; orchestration-fleet
+  REQ-A1.2, D-3, and D-8; kickoff-lifecycle REQ-D1.2; autopilot-reflex
+  REQ-C1.4 and D-5; bootstrap REQ-C1.3 and D-5; output-hygiene REQ-C1.1 to
+  REQ-C1.3 and D-3, and REQ-C1.4 scoped to its marker noun); a gated bullet
+  under this bundle's `## Deferred` for every record of a bundle deriving
+  Ready or Active at the run; the floor-citation check in
+  `tests/test-human-gates-doctrine.sh` factored to take a root directory,
+  run over `doctrine/` and `docs/` with the citation form each uses, its
+  ran-on-nothing guard applied across both.
 - **Done when:** the purge seed refuses a reintroduced short phrase in a
   fixture and the grep screen refuses a reintroduced sentence; a grep over
   `doctrine/`, `skills/`, `docs/`, and `scripts/` for the retired phrasings
   and the superseded bootstrap citations finds only the mapping line;
+  every row of the survey table carries its pointer or its Deferred bullet, and
+  `scripts/spec-validate.sh --baseline <merge-base>` passes on every bundle
+  edited; `scripts/spec-anchor.sh` gives the same anchor at the merge-base
+  and the head for every bundle deriving Ready or Active at the merge-base;
+  the floor-citation check fails a `docs/` fixture stating the floor
+  without the citation;
   `check-instructions.sh` reports no surface over budget; `mise run check`
   passes.
 - **Dependencies:** 1, 3, 7, 9, 10, 11
-- **Citations:** D-10 · REQ-A1.3, REQ-A1.5, REQ-D1.6, REQ-H1.1, REQ-H1.2,
-  REQ-H1.3
+- **Citations:** D-10, D-17 · REQ-A1.3, REQ-A1.5, REQ-D1.6, REQ-H1.1,
+  REQ-H1.2, REQ-H1.3, REQ-H1.4
 - **Estimated effort:** 1 day
 
 ## Awaiting input
