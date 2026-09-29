@@ -281,12 +281,13 @@ decide_route() {
     --arg crossed "$6" --arg reservation "$7" --arg size "${8:-}" --arg statement "$_dr_statement"
 }
 
-# dispatch_flight <ask-seq> <ask-words>
+# dispatch_flight <ask-seq> <ask-words> <on-seq> — on-seq is the operator turn
+# that authorized the flight: the ask itself, or the reply that answered its case.
 dispatch_flight() {
   _df_fid="fl-$1-$(slug_of "$2" ask)"
   say "Sending it to an isolated worker on its own branch; the record goes in the draft PR body, and I will hand the PR back when it lands."
-  log_entry decision '{action: "dispatch", target: "flight", ask_seq: $ask, on_seq: $ask, flight_id: $fid,
-      isolated_worktree: true, home: "draft PR body", draft: true}' --argjson ask "$1" --arg fid "$_df_fid"
+  log_entry decision '{action: "dispatch", target: "flight", ask_seq: $ask, on_seq: $on, flight_id: $fid,
+      isolated_worktree: true, home: "draft PR body", draft: true}' --argjson ask "$1" --argjson on "$3" --arg fid "$_df_fid"
   evidence_add "$(jq -cn --arg fid "$_df_fid" '{type: "flight", flight_id: $fid}')"
 }
 
@@ -311,12 +312,12 @@ refuse() {
     --argjson ask "$1" --arg control "$2" --arg statement "$3" --arg pr "$4"
 }
 
-# fly_overridden <ask-seq> <ask-words> <crossed-trigger> <crossed-grounds>
+# fly_overridden <ask-seq> <ask-words> <crossed-trigger> <crossed-grounds> <on-seq>
 fly_overridden() {
   _fo_res=""
   [ -n "$3" ] && _fo_res="Reservation: $3 trigger, $4; complying as you asked."
   decide_route "$1" visual override "you asked to fly it visual" visual "$3" "$_fo_res"
-  dispatch_flight "$1" "$2"
+  dispatch_flight "$1" "$2" "$5"
 }
 
 # route_mutation <ask-seq> <raw-ask> <ask-words>
@@ -338,7 +339,7 @@ route_mutation() {
     decide_route "$1" instrument override "you asked for it to be written up" instrument "" ""
     present_case "$1" "$2" override "you asked for it" ""
   elif [ "$_rm_ov" = visual ]; then
-    fly_overridden "$1" "$3" "$_rm_trigger" "$_rm_grounds"
+    fly_overridden "$1" "$3" "$_rm_trigger" "$_rm_grounds" "$1"
   elif [ -n "$_rm_trigger" ]; then
     decide_route "$1" instrument "$_rm_trigger" "$_rm_grounds" "" "" ""
     present_case "$1" "$2" "$_rm_trigger" "$_rm_grounds" "$_rm_grounds"
@@ -350,7 +351,7 @@ route_mutation() {
     _rm_g="a change one revert from undone, touching no guarded zone"
     [ -n "$_rm_size" ] && _rm_g="$_rm_g; size is advisory: $_rm_size does not file it"
     decide_route "$1" visual reversible "$_rm_g" "" "" "" "$_rm_size"
-    dispatch_flight "$1" "$3"
+    dispatch_flight "$1" "$3" "$1"
   fi
 }
 
@@ -497,7 +498,7 @@ handle_operator() { # handle_operator <raw>
     if [ "$(override_of "$_ho_w")" = visual ] && ! has_mutation_verb "$_ho_w"; then
       _ho_ct=""
       case "$_ho_case_trigger" in zone | irreversible) _ho_ct="$_ho_case_trigger" ;; esac
-      fly_overridden "$_ho_case_ask_seq" "$(words "$_ho_case_ask")" "$_ho_ct" "$_ho_case_grounds"
+      fly_overridden "$_ho_case_ask_seq" "$(words "$_ho_case_ask")" "$_ho_ct" "$_ho_case_grounds" "$_ho_ask"
       return 0
     fi
   fi

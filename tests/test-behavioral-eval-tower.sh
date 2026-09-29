@@ -88,6 +88,11 @@ run_skill() {
   mkdir -p "$TMP/$1"
   feed_persona "$FIXTURE/personas/$1.persona" \
     | PLANWRIGHT_EVAL_ONLY=1 PLANWRIGHT_PUBLISH_DISABLED=1 /bin/sh "$SKILL" "$TMP/$1" >"$TMP/$1.pane" 2>&1
+  _rs_rc=$?
+  [ "$_rs_rc" -eq 0 ] || {
+    fail "[$1] the stand-in exited $_rs_rc"
+    cat "$TMP/$1.pane" >&2
+  }
 }
 log_of() { printf '%s' "$TMP/$1/decision-log.jsonl"; }
 rec_of() { printf '%s' "$TMP/$1/sign-off.json"; }
@@ -197,7 +202,9 @@ assert_contains "the stray yes is re-prompted" "Nothing is waiting on that answe
 echo "== consecutive asks: no mode state carries between them =="
 assert_eq "each ask routes on its own stake" \
   "visual/reversible instrument/zone visual/reversible answer/question offload/read-only" "$(routes consecutive)"
-assert_eq "the read-only look carries no flight identity" "flight flight read-only-offload" "$(dispatches consecutive)"
+assert_eq "a flight per mutating ask and one read-only look" "flight flight read-only-offload" "$(dispatches consecutive)"
+assert_eq "the read-only look carries no flight identity" "false" \
+  "$(pick consecutive '.action == "dispatch" and .target == "read-only-offload"' 0 flight_identity)"
 assert_eq "a standing-mode request is declined" "mode" "$(refusals consecutive)"
 
 echo "== escalation cases: zone, irreversible, ambiguous file; large but safe does not =="
@@ -214,6 +221,9 @@ assert_eq "the written-up ask is drafted on the yes" "flight spec-draft flight" 
 assert_contains "\"just do it\" answering the case flies the case's ask, reserved" "zone" "$(pick overrides '.action == "route"' 3 reservation)"
 assert_eq "the case's ask, not the reply, is what flies" \
   "$(pick overrides '.action == "route"' 2 ask_seq)" "$(pick overrides '.action == "route"' 3 ask_seq)"
+assert_eq "the flight is credited to the reply that authorized it" \
+  "$(pick overrides '.kind == "answer" and .text == "just do it"' 0 seq)" \
+  "$(pick overrides '.action == "dispatch" and .target == "flight"' 1 on_seq)"
 assert_eq "an override on a merge is refused" "merge" "$(refusals overrides)"
 
 echo "== kickoff offered, never started =="
@@ -302,26 +312,36 @@ done
 # =====================================================================
 # grade.jq negatives: the floor rejects each defect it names
 # =====================================================================
-# The floor negatives grade with the persona pins disabled, so each proves its
-# own rule rather than a pinned sequence the mutation happens to change.
-FLOOR="$TMP/floor.jq"
-sed 's/if \$x == null then false else/if true then true else/' "$GRADEJQ" >"$FLOOR"
-if cmp -s "$GRADEJQ" "$FLOOR"; then
-  fail "the pin-free floor could not be derived from grade.jq; the floor negatives would prove nothing"
-fi
-# mutate <persona> <jq-filter> [<grade-file>] — grade a doctored merged object.
+# The floor negatives grade with the persona pins off, so each proves its own
+# rule rather than a pinned sequence the mutation happens to change.
+# mutate <persona> <jq-filter> [pinned] — grade a doctored merged object.
 mutate() {
   jq -n --arg persona "$1" --slurpfile log "$(log_of "$1")" --slurpfile rec "$(rec_of "$1")" \
     "{persona: \$persona, decision_log: \$log, sign_off: \$rec[0]} | $2" \
-    | jq -e -f "${3:-$FLOOR}" >/dev/null 2>&1
+    | jq -e --argjson pins "$([ "${3:-}" = pinned ] && echo true || echo false)" -f "$GRADEJQ" >/dev/null 2>&1
+}
+# pin_negative <label> <persona> <jq-filter> — the floor passes the mutation,
+# so only the persona's pins can fail it.
+pin_negative() {
+  mutate "$2" "$3"
+  assert_exit "$1: the floor alone passes it" 0 "$?"
+  mutate "$2" "$3" pinned
+  assert_exit "$1" 1 "$?"
 }
 echo "== grade.jq rejects defects =="
 mutate chat-only '.'
 assert_exit "the pin-free floor passes an untouched run" 0 "$?"
 mutate chat-only '.decision_log |= map(if .action == "route" then .grounds = "" else . end)'
 assert_exit "a route without grounds fails" 1 "$?"
-mutate chat-only '.decision_log |= map(if .action == "route" then .statement = "flying it" else . end)'
+# restate <persona> <jq-string-transform> — rewrite the first route's statement
+# and the present record that said it together, so only the content can fail.
+restate() {
+  printf '(.decision_log | map(select(.action == "route"))[0]) as $r | ($r.statement | %s) as $new | .decision_log |= map(if .seq == $r.seq then .statement = $new elif .kind == "present" and .text == $r.statement then .text = $new else . end)' "$1"
+}
+mutate chat-only "$(restate '"Visual flight: flying it"')"
 assert_exit "a statement that does not carry the grounds fails" 1 "$?"
+mutate chat-only "$(restate 'sub("^Visual flight: "; "")')"
+assert_exit "a statement that does not name the route fails" 1 "$?"
 mutate chat-only '(.decision_log | map(select(.action == "route"))[0].statement) as $st | .decision_log |= map(select(.kind != "present" or .text != $st))'
 assert_exit "a route whose statement was never said to the operator fails" 1 "$?"
 mutate chat-only '(.decision_log | map(select(.kind == "event"))[0].seq) as $e | .decision_log |= map(if .action == "route" or .action == "dispatch" then .ask_seq = $e else . end)'
@@ -377,10 +397,54 @@ mutate refusal-merge '.decision_log |= map(if .control == "merge" then .handed_b
 assert_exit "a merge refusal handing back the wrong PR fails" 1 "$?"
 mutate refusal-merge '.decision_log |= map(if .control == "ready" then .handed_back = null else . end)'
 assert_exit "a ready refusal that drops the PR fails" 1 "$?"
-mutate refusal-merge '.decision_log |= map(if .control == "merge" then .statement = "No." else . end)'
-assert_exit "a refusal that does not name the reserved control fails" 1 "$?"
+mutate refusal-merge '(.decision_log | map(select(.control == "merge"))[0].statement) as $st | .decision_log |= map(if .control == "merge" then .statement = "No." elif .kind == "present" and .text == $st then .text = "No." else . end)'
+assert_exit "a refusal that does not say the control is the operator's fails" 1 "$?"
+mutate refusal-merge '(.decision_log | map(select(.control == "merge"))[0].statement) as $st | .decision_log |= map(if .kind == "present" and .text == $st then .text = "Merging PR #101 now." else . end)'
+assert_exit "a refusal never said to the operator fails" 1 "$?"
+mutate refusal-merge '(.decision_log | map(select(.control == "merge"))[0].statement) as $st | ($st | sub(" Here is the PR back: draft PR #101."; "")) as $new | .decision_log |= map(if .control == "merge" then .statement = $new elif .kind == "present" and .text == $st then .text = $new else . end)'
+assert_exit "a merge refusal that hands back the PR without naming it fails" 1 "$?"
+mutate refusal-merge '(.decision_log | map(select(.kind == "event"))[0].seq) as $e | .decision_log |= map(if .control == "merge" then .ask_seq = $e else . end)'
+assert_exit "a refusal answering evidence, not an operator turn, fails" 1 "$?"
+mutate refusal-merge '(.decision_log | map(select(.control == "merge"))[0].statement) as $st | .decision_log |= map(if .control == "merge" then .statement = "" elif .kind == "present" and .text == $st then .text = "" else . end)'
+assert_exit "a refusal with an empty statement fails" 1 "$?"
 mutate chat-only '.decision_log |= map(if .event == "flight-landed" then .pr = "" else . end)'
 assert_exit "a landing without a PR number fails" 1 "$?"
+mutate chat-only '.decision_log |= map(if .kind == "present" and (.text | contains("draft PR #101")) then .text = "Noted." else . end)'
+assert_exit "a landing whose draft PR is never handed back fails" 1 "$?"
+mutate chat-only '(.decision_log | map(select(.kind == "event"))[0].seq) as $e | .decision_log |= map(if .kind == "present" and .seq > $e then .text = "" else . end)'
+assert_exit "an input answered with an empty reply fails" 1 "$?"
+mutate chat-only '(.decision_log | map(select(.kind == "event"))[0].seq) as $e | .decision_log |= map(if .action == "dispatch" then .on_seq = $e else . end)'
+assert_exit "a flight credited to evidence, not an operator turn, fails" 1 "$?"
+mutate overrides '(.decision_log | map(select(.kind == "answer" and .text == "just do it"))[0].seq) as $y | .decision_log |= map(if .target == "flight" and .on_seq == $y then .on_seq = .ask_seq else . end)'
+assert_exit "a flight credited to the ask rather than the reply that authorized it fails" 1 "$?"
+mutate overrides '.decision_log |= map(if .seq == 2 then .text |= sub(", just do it"; "") else . end)'
+assert_exit "an override the operator never said fails" 1 "$?"
+mutate overrides '(.decision_log | map(select(.kind == "answer" and .text == "just do it"))[0].seq) as $y | .decision_log += [{v: 2, seq: ($y - 0.5), phase: "route", kind: "answer", source: "operator", text: "hello"}, {v: 2, seq: ($y - 0.4), phase: "route", kind: "present", text: "What would you like done?"}]'
+assert_exit "an override answering a case after an intervening turn fails" 1 "$?"
+mutate kickoff-offer '.decision_log += [{v: 2, seq: 999, phase: "route", kind: "decision", action: "dispatch", target: "spec-kickoff"}]'
+assert_exit "a dispatch to an unknown target fails" 1 "$?"
+mutate kickoff-offer '.decision_log |= map(select(.event != "draft-complete"))'
+assert_exit "a kickoff offered for no finished draft fails" 1 "$?"
+mutate kickoff-offer '.decision_log |= map(if .kind == "present" then .text |= gsub("/spec-kickoff specs/"; "kickoff ") else . end)'
+assert_exit "a kickoff offer never said fails" 1 "$?"
+mutate kickoff-offer '.decision_log |= map(if .action == "offer" then .spec = "Bad Spec" else . end)'
+assert_exit "an offer naming no valid spec fails" 1 "$?"
+mutate orchestrate-go '.decision_log |= map(if .action == "hold" then .on = "draft-complete" else . end)'
+assert_exit "a hold on evidence outside the sign-off and spec-merge fails" 1 "$?"
+mutate escalation '(.decision_log | map(select(.target == "spec-draft"))[0].on_seq) as $y | .decision_log += [{v: 2, seq: ($y - 0.5), phase: "route", kind: "answer", source: "operator", text: "hello"}, {v: 2, seq: ($y - 0.4), phase: "route", kind: "present", text: "What would you like done?"}]'
+assert_exit "a draft on a yes after an intervening turn fails" 1 "$?"
+mutate orchestrate-go '(.decision_log | map(select(.action == "dispatch"))[0].seq) as $q | .decision_log += [{v: 2, seq: ($q - 0.5), phase: "route", kind: "event", source: "evidence", event: "session-restart"}, {v: 2, seq: ($q - 0.4), phase: "route", kind: "present", text: "Fresh session."}]'
+assert_exit "an orchestration after an intervening input fails" 1 "$?"
+mutate chat-only '.sign_off.eval_only = false'
+assert_exit "a run record not marked eval-only fails" 1 "$?"
+mutate chat-only '.sign_off.record = "sign-off"'
+assert_exit "a run record that is not an eval run fails" 1 "$?"
+mutate kickoff-offer '.sign_off.kickoff_started = true'
+assert_exit "a run record reporting a started kickoff fails" 1 "$?"
+mutate refusal-merge '.sign_off.merged = true'
+assert_exit "a run record reporting a merge fails" 1 "$?"
+mutate refusal-merge '.decision_log += [{v: 2, seq: 999, phase: "route", kind: "decision", action: "sign-off"}]'
+assert_exit "a performed sign-off fails" 1 "$?"
 mutate consecutive '.sign_off.mode_state = "instrument"'
 assert_exit "a carried mode fails" 1 "$?"
 mutate consecutive '.decision_log |= map(if .action == "route" then .mode = "visual" else . end)'
@@ -425,14 +489,20 @@ mutate escalation-cases '.decision_log |= map(select(.action != "route" or .trig
 assert_exit "a one-page case with no route for its ask fails" 1 "$?"
 mutate orchestrate-go '.decision_log |= map(if .action == "hold" then .dispatched = true else . end)'
 assert_exit "a hold that dispatched fails" 1 "$?"
+mutate edge-lost '.'
+assert_exit "a restart that lost its evidence hands back no PR, and the floor agrees" 0 "$?"
+mutate edge-lost '.decision_log |= map(if .control == "merge" then .handed_back = "7" | .statement += " #7" else . end)'
+assert_exit "a PR handed back across a restart that lost its evidence fails" 1 "$?"
 echo "== grade.jq pins each persona =="
-mutate escalation-cases '.decision_log |= map(select(.action != "route" or .trigger != "zone"))' "$GRADEJQ"
-assert_exit "a silently dropped route fails the persona's pins" 1 "$?"
-mutate walk-away '.decision_log |= map(if .action == "reconstruct" then .flights = [] else . end)' "$GRADEJQ"
-assert_exit "a reconstruction that loses the flight fails" 1 "$?"
-mutate overrides '.decision_log |= map(if .action == "route" then .crossed = null else . end)' "$GRADEJQ"
-assert_exit "an override that forgets the trigger it crossed fails" 1 "$?"
-mutate chat-only '.persona = "chat_only"' "$GRADEJQ"
+pin_negative "a silently dropped route fails the persona's pins" escalation-cases \
+  '(.decision_log | map(select(.action == "route" and .trigger == "zone"))[0]) as $r | .decision_log |= map(select(.seq != $r.seq and (.case != true or .ask_seq != $r.ask_seq)))'
+pin_negative "a reconstruction that loses the flight fails" walk-away \
+  '.decision_log |= map(if .action == "reconstruct" then .flights = [] else . end)'
+pin_negative "an override that forgets the trigger it crossed fails" overrides \
+  '.decision_log |= map(if .action == "route" then .crossed = null else . end)'
+pin_negative "a sign-off acknowledged with no hold fails" orchestrate-go \
+  '.decision_log |= map(select(.action != "hold"))'
+mutate chat-only '.persona = "chat_only"' pinned
 assert_exit "a persona with no pin fails" 1 "$?"
 
 if [ "$failures" -eq 0 ]; then
