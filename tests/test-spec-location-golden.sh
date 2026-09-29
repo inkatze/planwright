@@ -185,7 +185,6 @@ record_vantage() {
     "$S/resolve-rule-doc.sh" --explain spec-format
   probe rule-doc "$S/resolve-rule-doc.sh" --explain spec-format
   probe config-get "$S/config-get.sh" --explain review_sequence
-  probe review-sequence "$S/resolve-review-sequence.sh"
   probe config-knob "$S/resolve-config-knob.sh" --key dispatch_isolation --type enum \
     --values 'per-step per-unit' --fallback per-step
   probe overlay-repo-tracked "$S/resolve-overlay-root.sh" repo-tracked

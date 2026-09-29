@@ -7,12 +7,16 @@ later tree: a migration task that changes a probe's output declares the new
 output under changes/task-<id>.txt, against a correction registered in
 corrections.tsv, and that declaration is what review reads.
 
-Recordings that stand out as the corrections they will become: config-get,
-review-sequence and config-knob from the worktree miss the primary checkout's
+Recordings that stand out as the corrections they will become: config-get
+and config-knob from the worktree miss the primary checkout's
 machine-local values; overlay-repo-root-override takes a repo-root override
 that is not a git toplevel as given; rule-doc-contentless-arm returns the
 self-location arm with no warning; and dispatch-worktree from the worktree
 places the task worktree under the worktree rather than the primary checkout.
+
+A review-sequence probe was recorded too; its records were removed when work
+outside this migration deleted the script it ran (the review_sequence knob's
+retirement), the only edit made to this file since the capture.
 
 Commit ids and anchors are normalized to <SHA>: the anchors part of the test
 pins the anchor function, so the probes need not.
@@ -29,10 +33,6 @@ core	<INSTALL>/doctrine/spec-format.md
 rc=0
 @@ config-get primary
 machine-local	[polish, self-review]
-rc=0
-@@ review-sequence primary
-polish
-self-review
 rc=0
 @@ config-knob primary
 per-unit
@@ -150,9 +150,6 @@ core	<INSTALL>/doctrine/spec-format.md
 rc=0
 @@ config-get worktree
 core	[polish]
-rc=0
-@@ review-sequence worktree
-polish
 rc=0
 @@ config-knob worktree
 per-step
