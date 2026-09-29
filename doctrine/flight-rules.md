@@ -121,20 +121,22 @@ those, never a scraped pane:
 - **The decision log**, `decision-log.jsonl`: JSON Lines in
   [kickoff-dialogue](kickoff-dialogue.md)'s record form (`v`, `seq`, `phase`,
   `kind`), plus one kind of the tower's, `event`, for durable evidence it read
-  (a landing, a sign-off, a spec PR merge, a restart). Each operator turn is an
-  `answer` record with `source: operator`; each thing said, a `present` record;
-  each route, dispatch, refusal, offer, hold, and reconstruction, a `decision`
-  record naming its `action`. A route carries `route`, `trigger`, `grounds`,
-  `override`, `crossed`, `reservation`, and the `statement` as said; a dispatch
-  its `target` and the `seq` of the operator turn that authorized it.
+  (a landing, a finished draft, a sign-off, a spec PR merge, a restart). Each
+  operator turn is an `answer` record with `source: operator`; each thing said,
+  a `present` record; each route, dispatch, refusal, offer, hold, and
+  reconstruction, a `decision` record naming its `action`. A route carries the
+  `ask_seq` it answers, `route`, `trigger`, `grounds`, `override`, `crossed`,
+  `reservation`, and the `statement` as said; a dispatch its `target` and the
+  `on_seq` of the operator turn that authorized it.
 - **The run record**, `sign-off.json` (the harness's completion marker names
-  the file): eval-only, non-authoritative, and a sign-off of nothing
-  (REQ-G1.2) — the routes, dispatches, and refusals, and that no reserved
-  control was performed.
+  the file): eval-only, non-authoritative, unpublished, and a sign-off of
+  nothing (REQ-G1.2) — the routes, dispatches, and refusals, and that no
+  reserved control was performed.
 
 Values are written as data, escape-safe. Nothing is pushed, opened, or
-flipped, and neither artifact carries a verdict on the work. The fixture and
-its grade live beside the harness, `tests/behavioral-evals/`.
+flipped, and neither artifact carries a verdict on the work. The full field
+set the grade reads, the fixture, and the grade live beside the harness, in
+`tests/behavioral-evals/`.
 
 ## The audit record (D-6)
 
