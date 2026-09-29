@@ -147,7 +147,7 @@ fi
 # be present and executable. If it is missing or non-executable (a broken or
 # partial install), warn ONCE here and treat every resolver-derived overlay layer
 # as unavailable, degrading toward the core defaults — rather than emitting the
-# same shell error on each of the three overlay_root calls below (REQ-K1.6
+# same shell error on each of the overlay_root calls below (REQ-K1.6
 # graceful degradation; mirrors the warn-once `-x` guard in resolve-rule-doc.sh).
 # We test -x, not -f, so a present-but-non-executable helper takes the same
 # warn-and-degrade path. Note this disables only the layers the resolver locates
