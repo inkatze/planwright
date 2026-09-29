@@ -301,6 +301,23 @@ expect 1 "a shorthand task array is read" 'mise.toml:12: listed = ["cd specs"]'
 case $out in *"mise.toml:13:"*) fail "a dotted description key was scanned: $out" ;; *) ok "a dotted description key under [tasks] is not scanned" ;; esac
 
 fixture
+printf '\n[tasks]\n# old = "cd specs"\nd.description = """\nnote = cd specs\n"""\nd.run = "echo"\n' >>"$tmp/r/mise.toml"
+run
+expect 0 "a comment and a multi-line description under [tasks] are not tasks"
+
+fixture
+printf 'tasks.short = "cd specs"\n' >"$tmp/r/mise.toml.new"
+cat "$tmp/r/mise.toml" >>"$tmp/r/mise.toml.new"
+mv "$tmp/r/mise.toml.new" "$tmp/r/mise.toml"
+run
+expect 1 "a root-level shorthand task is read" 'mise.toml:1: tasks.short = "cd specs"'
+
+fixture
+printf "grep -e 'specs\$' f\n" >>"$tmp/r/scripts/a.sh"
+run
+expect 0 "an anchored pattern is not a path operand"
+
+fixture
 printf 'tasks.lint.run = "ls specs/"\n' >"$tmp/r/mise.toml.new"
 cat "$tmp/r/mise.toml" >>"$tmp/r/mise.toml.new"
 mv "$tmp/r/mise.toml.new" "$tmp/r/mise.toml"

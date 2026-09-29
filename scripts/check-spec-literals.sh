@@ -135,8 +135,9 @@ list_file() {
 bad_names=$(cd "$repo_root" && find scripts githooks .github/workflows -name "*$newline*" -print) \
   || die "could not enumerate the scope directories"
 [ -z "$bad_names" ] || die "refusing a scanned filename containing a newline or tab"
-(cd "$repo_root" && find scripts githooks .github/workflows \( -type f -o -type l \) -print | sort) >"$work/found" \
+(cd "$repo_root" && find scripts githooks .github/workflows \( -type f -o -type l \) -print) >"$work/found.raw" \
   || die "could not enumerate the scope directories"
+sort "$work/found.raw" >"$work/found" || die "could not enumerate the scope directories"
 while IFS= read -r rel; do
   f=$repo_root/$rel
   case $rel in
@@ -171,7 +172,7 @@ scan='
   # The bracketed [s] keeps this line from matching itself.
   function literal(s) {
     return s ~ /(^|[^A-Za-z0-9_.-])spec[s]\// || s ~ /\/spec[s]([^A-Za-z0-9_.\/-]|$)/ \
-      || s ~ /(^|[^A-Za-z0-9_-])(cd|pushd|find|ls|-C|-[a-hkprsuwxGLNOS])[ \t]+["\047]?spec[s]([ \t"\047;)|&$]|$)/
+      || s ~ /(^|[^A-Za-z0-9_-])(cd|pushd|find|ls|-C|-[a-hkprsuwxGLNOS])[ \t]+["\047]?spec[s]([ \t"\047;)|&]|$)/
   }
   function flagged(s,   u) {
     if (literal(s)) return 1
@@ -235,7 +236,7 @@ scan='
     close(path)
     if (r < 0) { print "!\t" rel; bad = 1 }
   }
-  function scan_mise(rel, path,   line, n, r, t, where, where_now, key, hdr, close_delim, rest, q) {
+  function scan_mise(rel, path,   line, n, r, t, where, where_now, key, hdr, close_delim, skip_body, rest, q) {
     n = 0; where = ""; close_delim = ""; strip_trailing = 1
     while ((r = (getline line < path)) > 0) {
       n++
@@ -245,11 +246,12 @@ scan='
         continue
       }
       if (close_delim != "") {
-        if (index(line, close_delim)) { check(rel, n, substr(line, 1, index(line, close_delim) - 1), line, 1); close_delim = ""; continue }
-        check(rel, n, line, line, 1)
+        if (index(line, close_delim)) { if (!skip_body) check(rel, n, substr(line, 1, index(line, close_delim) - 1), line, 1); close_delim = ""; continue }
+        if (!skip_body) check(rel, n, line, line, 1)
         continue
       }
       t = trim(line)
+      if (t ~ /^#/) continue
       if (t ~ /^\[/) {
         hdr = t; gsub(/["\047]/, "", hdr)
         where = (hdr ~ /^\[[ \t]*tasks[ \t]*[.]/) ? "task" : (hdr ~ /^\[[ \t]*tasks[ \t]*\]/) ? "tasks" : "other"
@@ -259,12 +261,13 @@ scan='
       # `"run"` and `lint . run` read as the keys they are. Before any table,
       # a dotted `tasks.` key is a task too.
       key = t; sub(/=.*/, "", key); gsub(/["\047]/, "", key); gsub(/[ \t]*[.][ \t]*/, ".", key); sub(/[ \t]+$/, "", key)
-      if (where == "" && key ~ /^tasks[.]/) { where_now = "tasks" } else where_now = where
+      if (where == "" && key ~ /^tasks[.]/) { where_now = "tasks"; key = substr(key, 7) } else where_now = where
       if (where_now != "task" && where_now != "tasks") continue
+      skip_body = 0
       # Under [tasks], an undotted key is a task in shorthand: its value is
       # the run command.
       if (index(t, "=") && (key ~ /(^|[.])run(_windows)?$/ && (where_now == "tasks" || key ~ /^run(_windows)?$/) \
-        || where == "tasks" && key !~ /[.]/ && t !~ /=[ \t]*\{/)) {
+        || where_now == "tasks" && key !~ /[.]/ && t !~ /=[ \t]*\{/)) {
         rest = t; sub(/^[^=]*=[ \t]*/, "", rest)
         q = substr(rest, 1, 3)
         if (q == "\047\047\047" || q == "\"\"\"") {
@@ -277,6 +280,10 @@ scan='
         }
       } else if (where_now == "tasks" && t ~ /[{,][ \t]*["\047]?run(_windows)?["\047]?[ \t]*=/) {
         check(rel, n, t, line, 1)
+      } else if (t ~ /=[ \t]*(\047\047\047|""")/) {
+        # Another key opening a multi-line string: its body is not a run value.
+        rest = t; sub(/^[^=]*=[ \t]*/, "", rest); q = substr(rest, 1, 3)
+        if (!index(substr(rest, 4), q)) { close_delim = q; skip_body = 1 }
       }
     }
     close(path)
@@ -396,7 +403,7 @@ if grep -q '^STALE' "$work/verdict"; then
 fi
 if grep -q '^ADDED' "$work/verdict"; then
   status=1
-  say "pending rows absent from $base's list (the list only shrinks; resolve the path instead):"
+  say "pending rows absent from the list at $where_read (the list only shrinks; resolve the path instead):"
   grep '^ADDED' "$work/verdict" | awk -F '\t' '{ print "  row " $2 ": " $3 ": " $4 }' | strip >&2
 fi
 if [ "$status" -eq 0 ]; then
