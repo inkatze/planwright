@@ -31,6 +31,9 @@
 #     of a revert reinstates the item). The hash may be full or, as
 #     `git revert --reference` writes it, abbreviated; an abbreviation matching
 #     no commit, or several, in the range pairs with nothing.
+#   - A revert commit that carries its own `Planwright-Sign-Off-Rejected`
+#     trailers is a partial revert: it drops only the ids it names, so one
+#     finding of a shared commit can be rejected without dropping the rest.
 #   - A `Planwright-Sign-Off-Rejected: <id>` trailer drops the item it names,
 #     matched exactly, where <id> is `PS-<n>` or `PS-legacy-<sha7>`.
 #   - A reverted or rejected id stays allocated: `next` never reuses it. One
@@ -168,10 +171,19 @@ END {
     print "PS-" (max + 1)
     exit 0
   }
+  for (k = 1; k <= n; k++) {
+    partial[k] = 0
+    c = split(rej[k], vals, GS)
+    for (i = 1; i <= c; i++) {
+      v = trim(vals[i])
+      if (is_ps(v) || is_legacy(v)) partial[k] = 1
+    }
+  }
   # Descendants first: a revert that is itself live drops its target, so a
-  # revert of a revert cancels the first and reinstates the original.
+  # revert of a revert cancels the first and reinstates the original. A
+  # partial revert drops nothing here; its rejected trailers do the dropping.
   for (k = n; k >= 1; k--) {
-    if (h[k] in dead || rv[k] == "") continue
+    if (h[k] in dead || rv[k] == "" || partial[k]) continue
     c = split(rv[k], ts, " ")
     for (i = 1; i <= c; i++) {
       t = target(ts[i])

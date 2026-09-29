@@ -321,6 +321,23 @@ git -C "$j" revert --no-edit HEAD >/dev/null
 [ "$(ids "$j")" = "PS-1,PS-2" ] || fail "rejection revert: expected PS-1,PS-2, got [$(ids "$j")]"
 echo "ok: reverting a rejection reinstates the item"
 
+# 11e. A partial revert keeping git's revert line but carrying a rejected
+#      trailer drops only the id it names.
+p="$tmp/partial"
+new_repo "$p"
+git -C "$p" checkout -q -b task
+: >"$p/a"
+: >"$p/b"
+git -C "$p" add a b
+printf 'fix: shared\n\nPlanwright-Sign-Off: PS-1\nPlanwright-Sign-Off: PS-2\n' | git -C "$p" commit -q -F -
+x=$(git -C "$p" rev-parse HEAD)
+git -C "$p" revert --no-commit HEAD
+git -C "$p" checkout -q HEAD -- b
+printf 'fix: reject PS-1\n\nThis reverts commit %s.\n\nPlanwright-Sign-Off-Rejected: PS-1\n' "$x" \
+  | git -C "$p" commit -q -F -
+[ "$(ids "$p")" = "PS-2" ] || fail "partial revert: expected PS-2, got [$(ids "$p")]"
+echo "ok: a partial revert with a rejected trailer drops only the named id"
+
 # 11f. Revert pairing survives committer dates out of topological order: a
 #      reapply dated before the revert it undoes, merged with a later side
 #      commit, still reinstates the item.
