@@ -14,9 +14,10 @@
 #   * the expected output of a probe is the baseline's, overridden by every
 #     declared set that lists it, applied in numeric task-id order (6 before
 #     6.5 before 10);
-#   * a set entry naming a probe the baseline lacks, a correction absent from
-#     the registry, or a correction owned by another task (or by the baseline)
-#     is an error;
+#   * a set file not named task-<id>.txt for a numeric task id, a set entry
+#     naming a probe the baseline lacks, a correction absent from the
+#     registry, or a correction owned by another task (or by the baseline) is
+#     an error;
 #   * every correction the registry assigns to a task whose set is declared must
 #     appear in that set, so a declared set cannot silently omit its correction;
 #   * the actual recording must carry exactly the baseline's probes, each equal
@@ -104,6 +105,13 @@ _gr_replay() {
     [ -f "$gr_set" ] || continue
     gr_id=${gr_set##*/task-}
     gr_id=${gr_id%.txt}
+    case $gr_id in
+      '' | *[!0-9.]* | .* | *. | *.*.*)
+        echo "golden-replay: ${gr_set##*/} is not named for a task id"
+        gr_fail=1
+        continue
+        ;;
+    esac
     gr_minor=0
     case $gr_id in *.*) gr_minor=${gr_id#*.} ;; esac
     printf '%s %s %s %s\n' "${gr_id%%.*}" "$gr_minor" "$gr_id" "$gr_set" >>"$gr_work/sets"

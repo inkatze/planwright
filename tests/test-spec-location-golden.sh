@@ -367,6 +367,19 @@ mv "$planted/v.9/changes" "$planted/changes"
 rm -f "$planted/changes/task-6.5.txt" "$planted/changes/task-6.txt"
 printf 'fix-a\t3\tREQ-X\ta\nfix-b\t5\tREQ-Y\tb\nold\tbaseline\tREQ-Z\tz\n' >"$planted/registry.tsv"
 
+# A set is named for a task id, so `baseline` or an empty id cannot declare
+# anything.
+for odd in baseline ''; do
+  rm -rf "$planted/odd-changes"
+  mkdir -p "$planted/odd-changes"
+  printf '@@ b primary old\ntwo\n' >"$planted/odd-changes/task-$odd.txt"
+  if out=$(golden_replay "$planted/baseline.txt" "$planted/odd-changes" "$planted/registry.tsv" "$planted/same.txt"); then
+    fail "comparator: a set named task-$odd.txt passed"
+  else
+    case $out in *"is not named for a task id"*) ok "comparator: a set named task-$odd.txt is refused" ;; *) fail "comparator: task-$odd.txt misreported: $out" ;; esac
+  fi
+done
+
 printf '@@ ../escape primary\nx\n' >"$planted/escape.txt"
 if out=$(replay "$planted/escape.txt"); then
   fail "comparator: a header naming a path passed"
