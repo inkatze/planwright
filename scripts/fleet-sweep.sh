@@ -470,29 +470,30 @@ dirty_tree_pass() {
 # audit only a reconcile that changed the snapshot (a dropped-push drift
 # actually corrected).
 reconcile_pass() {
-  [ -x "$SYNC" ] && [ -d "$repo/specs" ] || return 0
-  # Enable globbing only to expand the bundle set ONCE at loop entry; -f is
-  # restored for the body and the glob is not re-expanded per iteration.
-  set +f
-  for d in "$repo"/specs/*/; do
+  if [ -x "$SYNC" ] && [ -d "$repo/specs" ]; then
+    # Enable globbing only to expand the bundle set ONCE at loop entry; -f is
+    # restored for the body and the glob is not re-expanded per iteration.
+    set +f
+    for d in "$repo"/specs/*/; do
+      set -f
+      [ -d "$d" ] || continue
+      tasks="${d}tasks.md" # $d already ends in '/'
+      [ -f "$tasks" ] || continue
+      rel="specs/$(basename "$d")"
+      before_sum=$(cksum <"$tasks" 2>/dev/null) || before_sum=""
+      rec_rc=0
+      (cd "$repo" && "$SYNC" reconcile "$rel") >/dev/null 2>&1 || rec_rc=$?
+      after_sum=$(cksum <"$tasks" 2>/dev/null) || after_sum=""
+      if [ "$rec_rc" != 0 ]; then
+        # A chronically failing backstop must not stay silent (it self-heals
+        # next cycle, but a persistent failure needs to surface).
+        warn "reconcile of $rel exited $rec_rc — missed-push backstop degraded, retrying next sweep"
+      elif [ -n "$before_sum" ] && [ "$before_sum" != "$after_sum" ]; then
+        audit reconcile reconcile-backstop "$rel snapshot drift corrected from git ground truth (missed-push backstop)"
+      fi
+    done
     set -f
-    [ -d "$d" ] || continue
-    tasks="${d}tasks.md" # $d already ends in '/'
-    [ -f "$tasks" ] || continue
-    rel="specs/$(basename "$d")"
-    before_sum=$(cksum <"$tasks" 2>/dev/null) || before_sum=""
-    rec_rc=0
-    (cd "$repo" && "$SYNC" reconcile "$rel") >/dev/null 2>&1 || rec_rc=$?
-    after_sum=$(cksum <"$tasks" 2>/dev/null) || after_sum=""
-    if [ "$rec_rc" != 0 ]; then
-      # A chronically failing backstop must not stay silent (it self-heals next
-      # cycle, but a persistent failure needs to surface).
-      warn "reconcile of $rel exited $rec_rc — missed-push backstop degraded, retrying next sweep"
-    elif [ -n "$before_sum" ] && [ "$before_sum" != "$after_sum" ]; then
-      audit reconcile reconcile-backstop "$rel snapshot drift corrected from git ground truth (missed-push backstop)"
-    fi
-  done
-  set -f
+  fi
 }
 
 # reap_mode — observe | terminate. Only the machine-local layer may say
