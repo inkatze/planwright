@@ -694,7 +694,9 @@ sweep_briefs() {
 # install, or a step that is not a skill places nothing. The core list, the core catalog, and the skills all resolve under
 # this script's own root, so a planwright skill is told apart from a user or
 # project one by its location alone and no environment root can swap the
-# list those skills are judged against.
+# list those skills are judged against. The --explain fields read here, by
+# position: 1 decision, 2 id, 6 target, 8 kind, 9 args, 13 location
+# (resolve-steps.sh documents the full order).
 resolve_convergence() {
   _rc_out=$(cd "$repo_root" && unset CLAUDE_PLUGIN_ROOT PLANWRIGHT_CONFIG_DEFAULTS \
     && PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_ROOT="$root_dir" \
