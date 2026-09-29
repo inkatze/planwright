@@ -1122,7 +1122,7 @@ w1() {
   sync_line=$(grep -n 'converge-sync-main\.sh' "$SKILL" | cut -d: -f1 || true)
   run_line=$(grep -n '^\*\*Run the convergence steps\*\*' "$SKILL" | cut -d: -f1 || true)
   conv_line=$(grep -n '^## Convergence' "$SKILL" | cut -d: -f1 || true)
-  resolve_line=$(grep -n 'resolve the `convergence` point' "$SKILL" | head -n 1 | cut -d: -f1 || true)
+  resolve_line=$(grep -n 'resolve the .convergence. point' "$SKILL" | head -n 1 | cut -d: -f1 || true)
   [ -n "$run_line" ] || fail "w1: could not locate the convergence-steps run instruction in SKILL.md"
   [ -n "$conv_line" ] || fail "w1: could not locate the Convergence section heading in SKILL.md"
   [ -n "$resolve_line" ] || fail "w1: could not locate the convergence point's resolution in SKILL.md"
