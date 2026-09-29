@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] scripts/flight-dispatch.sh installs its INT/TERM/HUP traps only partway through cmd_dispatch, after the convergence resolution, which is now the longest step before the lock. A signal during that window relies on the shell running the EXIT trap on a fatal signal to clean the scratch directory, which not every /bin/sh does.
