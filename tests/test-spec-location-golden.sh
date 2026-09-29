@@ -388,6 +388,14 @@ else
   case $out in *"no-registry.tsv is missing"*) ok "comparator: a missing registry fails closed" ;; *) fail "comparator: missing registry misreported: $out" ;; esac
 fi
 
+printf 'commentary only\n' >"$planted/no-records.txt"
+mkdir -p "$planted/no-changes"
+if out=$(golden_replay "$planted/no-records.txt" "$planted/no-changes" "$planted/registry.tsv" "$planted/no-records.txt"); then
+  fail "comparator: a baseline with no records passed"
+else
+  case $out in *"holds no records"*) ok "comparator: a baseline with no records fails" ;; *) fail "comparator: empty baseline misreported: $out" ;; esac
+fi
+
 printf '@@ a primary\none\n' >"$planted/missing.txt"
 if out=$(replay "$planted/missing.txt"); then
   fail "comparator: a recording missing a probe passed"

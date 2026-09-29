@@ -73,6 +73,11 @@ _gr_replay() {
 
   _gr_split "$gr_baseline" "$gr_work/expected" 2 >"$gr_work/baseline.keys" || gr_fail=1
   _gr_split "$gr_actual" "$gr_work/actual" 2 >"$gr_work/actual.keys" || gr_fail=1
+  # An empty baseline would make every recording, empty ones included, match.
+  [ -s "$gr_work/baseline.keys" ] || {
+    echo "golden-replay: $gr_baseline holds no records"
+    gr_fail=1
+  }
 
   # Registry rows: <correction> TAB <owner: a task id or `baseline`> TAB ...
   if ! awk -F '\t' '!/^#/ && NF >= 2 { print $1 " " $2; n++ } END { exit !n }' \
