@@ -27,7 +27,8 @@
 #                 refused, as is one that cannot be read, and a cache git
 #                 tracks.
 #   new-run       issue the next run id (six digits, zero-padded, one past
-#                 the highest in the cache) and print it. A run is one unit
+#                 the highest in the cache) and print it; a run whose id
+#                 cannot be printed is removed again. A run is one unit
 #                 run or flip attempt; run ids order attempts, the latest
 #                 run being the highest id whether or not it holds a record.
 #   write         validate every field, then write one record and print its
@@ -37,15 +38,20 @@
 #                 point fires once per run: its completion is claimed
 #                 atomically, and a step or completion record for a point the
 #                 run already completed is refused. A repeated write is a
-#                 second record; retrying is the caller's call. A completion
-#                 that fails before its record exists releases its claim; an
-#                 exit 1 after the record exists (a failed print) leaves the
-#                 record, and for a completion the claim, in place.
+#                 second record; retrying is the caller's call. A write that
+#                 fails before its record exists releases its claims, short
+#                 of an uncatchable kill, which can leave the point claimed
+#                 with no record (a new run recovers); an exit 1 after the
+#                 record exists (a failed print) leaves the record, and for a
+#                 completion the claim, in place. A reader running while
+#                 writers are still in flight can see a later record before
+#                 an earlier one lands.
 #                 --excerpt-file resolves against the caller's directory.
 #   list          print every record of the run (every run when --run is
 #                 absent), oldest first, optionally one point's only: a
 #                 `record<TAB><worktree-relative path>` line, the record's
-#                 stored lines, then a blank line.
+#                 stored lines with C0 control bytes and DEL dropped, then a
+#                 blank line.
 #   render        print one markdown table per point of the run (default the
 #                 latest run), in the order the points first recorded, or
 #                 the named points in the order given, each once; a named
@@ -61,7 +67,8 @@
 # Field grammar (write refuses a violation with exit 2, naming the field and
 # never echoing its value; no value is ever interpolated before it passes):
 #   --run          an issued run id: six digits naming an existing run dir
-#   --point        a name from doctrine/custom-steps.md's vocabulary
+#   --point        a name from doctrine/custom-steps.md's vocabulary; a point
+#                  the run already completed is refused, also with exit 2
 #   --step         ^[a-z][a-z0-9-]*$, at most 64 bytes, never `implementation`
 #   --kind         skill | command | prompt
 #   --hosting      isolated | continue | in-session
@@ -76,15 +83,17 @@
 #                  single-line text, no C0 control byte or DEL, at most 1024
 #                  bytes, non-empty before and after the text cleaning below
 #   --output       an existing regular file under the cache, absolute or
-#                  relative to the worktree, that the text cleaning leaves
-#                  unchanged; stored worktree-relative
+#                  relative to the worktree, a path of the text grammar above
+#                  that the text cleaning leaves unchanged; stored
+#                  worktree-relative
+#   --excerpt-file a readable regular file
 #
 # Storage: <cache>/<run>/<seq>-step-<point>.rec and
 # <cache>/<run>/<seq>-done-<point>.rec (a name never carries a step id, which
 # the screen may withhold), <seq> three digits unique within the run and
 # increasing in write order (each claimed atomically), at most 999 records a
 # run. A record is `<key><TAB><value>` lines: type, run, seq, then
-# the fields above under their flag names (skip-reason for --skip-reason), an
+# the fields above under their flag names (`excerpt` for --excerpt-file), an
 # empty optional field stored empty; `excerpt` and `warning` lines repeat.
 # Records are mode 0600. Its form is unstable to anything but this helper.
 #
@@ -92,7 +101,7 @@
 # commit text regenerate reads: tabs become spaces; carriage returns and
 # every other C0 control byte and DEL are stripped; invalid UTF-8 is dropped;
 # C1 controls and the invisible and bidi-control code points are stripped
-# (the list scripts/flight-dispatch.sh's INVIS_SED names).
+# (the list scripts/flight-text.sh's INVIS_SED names).
 #
 # The excerpt (--excerpt-file): the whole cleaned output is screened through
 # scripts/inception-secret-screen.sh (the repository's secret screen,
@@ -130,23 +139,27 @@
 # trailer parser; each value split on blanks and commas, every `PS-<n>` with
 # no leading zero an entry, other values ignored) or, legacy and only with no
 # such ID, a `[pending-sign-off]` subject suffix (rendered with the ID
-# `legacy`, the suffix dropped). A marked commit drops out when a live commit
-# in the range carries git's revert line for it (`This reverts commit <sha>`
-# followed by `.`, `,`, ` (`, or the line's end, the sha full or, as
-# `--reference` writes it, abbreviated to a unique prefix in the range), a
-# commit being live unless a live revert undoes it; or when a live commit's
+# `legacy`; the suffix is dropped from every rendered subject). Commits are
+# read parents first (`--topo-order`). A marked commit drops out when a live
+# commit in the range carries git's revert line for it (`This reverts commit
+# <sha>` followed by `.`, `,`, ` (`, or the line's end, the sha full or, as
+# `--reference` writes it, abbreviated to at least 7 hex digits that prefix
+# exactly one earlier commit in the range), a commit being live unless a
+# live revert undoes it; or when a live commit's
 # `Planwright-Sign-Off-Rejected:` trailer names its PS ID (a legacy entry has
 # no ID a trailer can name).
 # Entries order by ID number, legacy entries last in commit order; an ID
 # marked twice keeps its oldest live commit. An entry is
-#   - [ ] **<id>** <subject> · commit `<sha7>`
+#   - [ ] **<id>** <subject> · commit `<sha7>` (<sha7>: the abbreviated sha,
+#   at least 7 characters)
 #     - Route reason: <the body's first `Route reason:` line, or `not
 #       recorded in the commit`>
 #     - <each manifest line: a body line `- <file> — before: …`, joined with
 #       the indented lines that continue it>
 #     - Reject with: `git revert <sha7>` (plus the hand-edit note when a
 #       manifest is present), or, for a merge commit, a later commit's
-#       `Planwright-Sign-Off-Rejected: <id>` trailer
+#       `Planwright-Sign-Off-Rejected: <id>` trailer (`git revert -m 1
+#       <sha7>` for a legacy one, which no trailer can name)
 # An empty checklist renders `- none`. A <base> or <head> that does not
 # resolve, or a range git cannot read, fails by name.
 #
@@ -174,7 +187,7 @@ EXCERPT_BYTES=2000
 TEXT_MAX=1024
 
 # The byte sequences of the C1 controls, then the invisible and bidi-control
-# code points, deleted bytewise; the second list is flight-dispatch.sh's.
+# code points, deleted bytewise; the second list is flight-text.sh's.
 INVIS_SED=$(printf 's/\302[\200-\237]//g;s/\302[\205\255]//g;s/\330\234//g;s/\341\205[\237\240]//g;s/\341\236[\264\265]//g;s/\341\240\216//g;s/\342\200[\213-\217\250-\256]//g;s/\342\201[\240-\244\246-\257]//g;s/\343\205\244//g;s/\357\270[\200-\217]//g;s/\357\273\277//g;s/\357\276\240//g;s/\357\277[\271-\273]//g;s/\363\240[\200\201][\200-\277]//g;s/\363\240[\204-\206][\200-\277]//g;s/\363\240\207[\200-\257]//g')
 
 # Word splitting only on newlines, and no globbing: record paths live under a
@@ -184,10 +197,16 @@ set -f
 
 work=''
 pending=''
+seq_claim=''
 done_claim=''
 cleanup() {
   [ -z "$pending" ] || rm -f "$pending"
-  [ -z "$done_claim" ] || rmdir "$done_claim" 2>/dev/null
+  [ -z "$seq_claim" ] || rmdir "$seq_claim" 2>/dev/null
+  # A completion record already linked keeps its claim, whatever the signal
+  # interrupted.
+  if [ -n "$done_claim" ] && [ -z "$(glob_names "${done_claim%/*}" "[0-9][0-9][0-9]-done-${done_claim##*/.done-}.rec")" ]; then
+    rmdir "$done_claim" 2>/dev/null
+  fi
   [ -z "$work" ] || rm -rf "$work"
 }
 trap cleanup EXIT
@@ -320,6 +339,10 @@ screen_values() {
   scratch
   sv_label=$1
   shift
+  if [ $# -eq 0 ]; then
+    : >"$work/screened" || die 1 "cannot write a temporary file"
+    return 0
+  fi
   : >"$work/batch" || die 1 "cannot write a temporary file"
   for v in "$@"; do printf '%s\n' "$v" >>"$work/batch"; done
   screen "$work/batch"
@@ -423,7 +446,10 @@ cmd_new_run() {
     [ "$next" -le 999999 ] || die 1 "the run-id counter is exhausted"
     id=$(printf '%06d' "$next")
     if mkdir "$cache/$id" 2>/dev/null; then
-      printf '%s\n' "$id" || die 1 "cannot print the run id"
+      printf '%s\n' "$id" || {
+        rmdir "$cache/$id"
+        die 1 "cannot print the run id"
+      }
       return 0
     fi
     [ -d "$cache/$id" ] || die 1 "cannot create a run directory"
@@ -445,7 +471,10 @@ claim() {
   while :; do
     [ "$next" -le 999 ] || die 1 "the run's record counter is exhausted"
     seq=$(printf '%03d' "$next")
-    mkdir "$dir/.seq-$seq" 2>/dev/null && break
+    if mkdir "$dir/.seq-$seq" 2>/dev/null; then
+      seq_claim="$dir/.seq-$seq"
+      break
+    fi
     [ -d "$dir/.seq-$seq" ] || die 1 "cannot write to the record cache"
     next=$((next + 1))
   done
@@ -459,9 +488,10 @@ claim() {
   set +C
   path="$dir/$seq-$2.rec"
   ln "$pending" "$path" || die 1 "cannot write to the record cache"
+  seq_claim=''
+  done_claim=''
   rm -f "$pending"
   pending=''
-  done_claim=''
   printf '%s\n' "$path" || die 1 "cannot print the record path"
 }
 
@@ -533,8 +563,12 @@ cmd_write() {
         printf 'warning\t%s\n' "$w"
       done <"$work/screened"
     } >"$work/body" || die 1 "cannot write a temporary file"
-    mkdir "$cache/$run/.done-$point" 2>/dev/null || bad --point "already completed in this run"
-    done_claim="$cache/$run/.done-$point"
+    if mkdir "$cache/$run/.done-$point" 2>/dev/null; then
+      done_claim="$cache/$run/.done-$point"
+    else
+      [ ! -d "$cache/$run/.done-$point" ] || bad --point "already completed in this run"
+      die 1 "cannot write to the record cache"
+    fi
     claim "$run" "done-$point" completion "$work/body"
     return
   fi
@@ -696,7 +730,7 @@ render_run() {
     FNR == 1 { k++ }
     {
       t = index($0, TAB); key = substr($0, 1, t - 1); val = substr($0, t + 1)
-      if (key == "excerpt") ex[k] = ex[k] (ex[k] == "" ? "" : " / ") safe(val)
+      if (key == "excerpt") ex[k] = ex[k] (nx[k]++ ? " / " : "") safe(val)
       else if (key == "warning") { nw[k]++; W[k, nw[k]] = val }
       else F[k, key] = val
     }
@@ -704,7 +738,6 @@ render_run() {
       m = split(want, Q, " "); np = 0
       for (i = 1; i <= m; i++) if (!(Q[i] in named)) { named[Q[i]] = 1; P[++np] = Q[i] }
       if (np == 0) {
-        np = 0
         for (i = 1; i <= k; i++) if (!(F[i, "point"] in seen)) { seen[F[i, "point"]] = 1; P[++np] = F[i, "point"] }
       }
       first = 1
@@ -811,7 +844,7 @@ cmd_regenerate() {
   nonce=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
   [ -n "$nonce" ] || nonce="$$-$(date +%s)"
   marker="@@planwright-commit-$nonce@@"
-  git -C "$worktree" -c core.abbrev=7 log --reverse \
+  git -C "$worktree" -c core.abbrev=7 log --topo-order --reverse \
     --format="$marker%n%H%n%h%n%P%n%s%n%(trailers:key=Planwright-Sign-Off,valueonly,unfold,separator=%x20)%n%(trailers:key=Planwright-Sign-Off-Rejected,valueonly,unfold,separator=%x20)%n%b" \
     "$base..$rhead" -- >"$work/log" 2>/dev/null \
     || die 1 "--base/--head: git cannot read the range"
@@ -864,9 +897,9 @@ cmd_regenerate() {
         m = split(ids[i], r, /[ ,]+/); nid = 0
         for (j = 1; j <= m; j++) if (r[j] ~ /^PS-[1-9][0-9]*$/) cid[++nid] = r[j]
         s = subj[i]
+        legacy = sub(/ ?\[pending-sign-off\]$/, "", s)
         if (nid == 0) {
-          if (s !~ / ?\[pending-sign-off\]$/) continue
-          sub(/ ?\[pending-sign-off\]$/, "", s)
+          if (!legacy) continue
           nid = 1; cid[1] = "legacy"
         }
         for (j = 1; j <= nid; j++) {
@@ -874,12 +907,13 @@ cmd_regenerate() {
           if (id != "legacy" && ((id in taken) || (id in rejected))) continue
           taken[id] = 1
           count++
-          key[count] = (id == "legacy") ? 1e9 + i : substr(id, 4) + 0
+          late[count] = (id == "legacy"); key[count] = late[count] ? i : substr(id, 4) + 0
           entry[count] = i; eid[count] = id; esubj[count] = s
         }
       }
       for (a = 2; a <= count; a++)
-        for (b = a; b > 1 && key[b - 1] > key[b]; b--) {
+        for (b = a; b > 1 && (late[b - 1] > late[b] || (late[b - 1] == late[b] && key[b - 1] > key[b])); b--) {
+          t = late[b]; late[b] = late[b - 1]; late[b - 1] = t
           t = key[b]; key[b] = key[b - 1]; key[b - 1] = t
           t = entry[b]; entry[b] = entry[b - 1]; entry[b - 1] = t
           t = eid[b]; eid[b] = eid[b - 1]; eid[b - 1] = t
@@ -892,6 +926,7 @@ cmd_regenerate() {
         printf "  - Route reason: %s\n", ((i in route) ? safe(route[i]) : "not recorded in the commit")
         for (j = 1; j <= man[i]; j++) printf "  - %s\n", safe(M[i, j])
         if (merge[i] && eid[a] != "legacy") printf "  - Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]
+        else if (merge[i]) printf "  - Reject with: `git revert -m 1 %s`\n", short[i]
         else if (man[i]) printf "  - Reject with: `git revert %s`; rejecting one sub-item is a hand edit the manifest guides\n", short[i]
         else printf "  - Reject with: `git revert %s`\n", short[i]
       }

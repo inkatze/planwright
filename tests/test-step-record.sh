@@ -215,16 +215,17 @@ printf '%s\n' "$none" | grep -Fq -- '- Warning: steps\_post\_pr set at the machi
 verdict "the none row keeps its warnings, table-safe" "warning missing on none table"
 
 # --- validation refusals -------------------------------------------------------------
+needle=''
 refuse() {
   # refuse <label> <field-name> <args...>: write must exit 2, name the field,
-  # and never echo the rejected value.
+  # and never echo the rejected value (EVIL, or $needle when set).
   label=$1
   field=$2
   shift 2
   err=$(sr write "$@" 2>&1 >/dev/null)
   rc=$?
   if [ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: $field:" \
-    && ! printf '%s' "$err" | grep -Fq "EVIL"; then
+    && ! printf '%s' "$err" | grep -Fq -- "${needle:-EVIL}"; then
     ok "write refuses $label"
   else
     fail "write $label: rc=$rc err=$err"
@@ -256,10 +257,12 @@ refuse "a backend carrying a newline" "--backend" --run "$run2" --point pre-ci -
   --kind command --target t --hosting isolated --backend "b
 typeEVIL" --head "$HEAD_SHA" \
   --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed
+needle=$(printf '%s' "$HEAD_SHA" | cut -c1-12)
 refuse "an abbreviated head" "--head" --run "$run2" --point pre-ci --step s \
   --kind command --target t --hosting isolated --backend runner \
-  --head "$(printf '%s' "$HEAD_SHA" | cut -c1-12)" \
+  --head "$needle" \
   --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed
+needle=
 
 # A secret the cut would drop out of the kept tail is still caught: the whole
 # cleaned output is screened before it is cut.
@@ -286,7 +289,7 @@ recc=$(sr write --run "$run2" --point pre-ci --step c1 --kind command --target c
   --excerpt-file "$tmp/c1.txt")
 expect=$(printf 'excerpt\tabcd\342\200\224e')
 grep -Fxq "$expect" "$recc"
-verdict "C1, bidi, and invalid bytes are stripped and UTF-8 text kept" "got: $(grep excerpt "$recc" | od -c | head -3)"
+verdict "C1, bidi, and invalid bytes are stripped and UTF-8 text kept" "C1, bidi, or invalid bytes kept in $recc"
 
 # No scratch survives a write, the unscreened excerpt least of all.
 mkdir "$tmp/tmpd"
@@ -532,7 +535,7 @@ rece=$(sr2 write --run "$r" --point pre-ci --step edge-f --kind command --target
   --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z \
   --end 2026-09-28T14:00:01Z --outcome passed --excerpt-file "$tmp/edge.txt")
 grep -Fxq "excerpt${TAB}abcd" "$rece"
-verdict "CR, DEL, and a joined invisible are stripped" "got: $(grep excerpt "$rece" | od -c | head -2)"
+verdict "CR, DEL, and a joined invisible are stripped" "CR, DEL, or a joined invisible kept in $rece"
 {
   printf '\342\202\254'
   printf 'z%.0s' $(seq 1 1998)
@@ -583,7 +586,8 @@ fi
 twice=$(sr2 render --run "$r" --point pre-pr --point pre-pr | grep -c '^## Steps at')
 [ "$twice" -eq 1 ]
 verdict "a point named twice renders once" "$twice tables"
-! sr2 regenerate --base HEAD --head HEAD --checklist-only | grep -q '^## Steps at'
+only=$(sr2 regenerate --base HEAD --head HEAD --checklist-only)
+printf '%s\n' "$only" | grep -q '^## Pending sign-off' && ! printf '%s\n' "$only" | grep -q '^## Steps at'
 verdict "--checklist-only renders the checklist alone" "--checklist-only rendered tables"
 
 # The point vocabulary matches the resolver's.
@@ -733,6 +737,249 @@ verdict "a trailer merged in from a topic branch enters" "PS-13 missing"
 has 'Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: PS-12`'
 verdict "a merge commit's entry names the rejection trailer" "merge recipe missing"
 
+# --- third-round edges ---------------------------------------------------------------
+# A step refused after claiming its sequence number releases the claim; a
+# completion with no warning runs no screen.
+slow="$tmp/slow"
+mkdir -p "$slow"
+cp "$SR" "$repo_root/scripts/echo-safety.sh" "$slow/"
+cat >"$slow/inception-secret-screen.sh" <<'STUB'
+#!/bin/sh
+if grep -q slowstep "$2"; then
+  : >"${0%/*}/slow-started"
+  sleep 6
+  exit 0
+fi
+printf 'call\n' >>"${0%/*}/calls"
+exit 0
+STUB
+w9="$tmp/w9"
+fresh "$w9"
+r9=$("$slow/step-record.sh" --worktree "$w9" new-run)
+"$slow/step-record.sh" --worktree "$w9" write --run "$r9" --point pre-ci --step s --kind command \
+  --target slowstep --hosting isolated --backend runner --head "$HEAD_SHA" \
+  --start 2026-09-28T15:00:00Z --end 2026-09-28T15:00:01Z --outcome passed >/dev/null 2>&1 &
+i=0
+while [ ! -e "$slow/slow-started" ] && [ "$i" -lt 60 ]; do
+  sleep 1
+  i=$((i + 1))
+done
+"$slow/step-record.sh" --worktree "$w9" write --completion --run "$r9" --point pre-ci \
+  --head "$HEAD_SHA" >/dev/null
+[ ! -s "$slow/calls" ]
+verdict "a completion with no warning runs no screen" "the screen ran for a warning-free completion"
+wait
+nseq=$(find "$w9/.claude/steps/$r9" -name '.seq-*' | wc -l | tr -d ' ')
+nrec=$(find "$w9/.claude/steps/$r9" -name '[0-9]*.rec' | wc -l | tr -d ' ')
+[ "$nseq" -eq "$nrec" ]
+verdict "a step refused after its claim releases it" "$nseq claims for $nrec records"
+
+# A done marker that cannot be made is a runtime failure, not a completed point.
+r10=$(sr2 new-run)
+chmod 500 "$w2/.claude/steps/$r10"
+sr2 write --completion --run "$r10" --point pre-ci --head "$HEAD_SHA" >/dev/null 2>"$tmp/err10"
+rc=$?
+chmod 700 "$w2/.claude/steps/$r10"
+[ "$rc" -eq 1 ] && ! grep -q "already completed" "$tmp/err10"
+verdict "an unwritable run dir fails a completion with exit 1" "rc=$rc, or reported as already completed"
+
+# A run id or record path that cannot be printed.
+nbefore=$(find "$w2/.claude/steps" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')
+sr2 new-run >&- 2>/dev/null
+rc=$?
+nafter=$(find "$w2/.claude/steps" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')
+[ "$rc" -eq 1 ] && [ "$nbefore" -eq "$nafter" ]
+verdict "a run id that cannot be printed leaves no run" "rc=$rc runs $nbefore -> $nafter"
+rbefore=$(find "$w2/.claude/steps/$r" -name '[0-9]*.rec' | wc -l | tr -d ' ')
+# shellcheck disable=SC2086 # args2 is a fixed word list
+sr2 write $args2 --point pre-ci --step noprint >&- 2>/dev/null
+rc=$?
+rafter=$(find "$w2/.claude/steps/$r" -name '[0-9]*.rec' | wc -l | tr -d ' ')
+[ "$rc" -eq 1 ] && [ "$rafter" -eq $((rbefore + 1)) ]
+verdict "a record path that cannot be printed keeps its record" "rc=$rc records $rbefore -> $rafter"
+
+# Run ids of the wrong shape are refused before they name a path.
+for bad_run in .. 12; do
+  for v in "write --point pre-ci --step s --kind command --target t --hosting isolated --backend runner --head $HEAD_SHA --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z --outcome passed" list render; do
+    # shellcheck disable=SC2086 # v is a fixed word list
+    sr2 $v --run "$bad_run" >/dev/null 2>"$tmp/errr"
+    rc=$?
+    [ "$rc" -eq 2 ] && grep -Fq -- "--run: not a run id" "$tmp/errr"
+    verdict "a run id '$bad_run' is refused by ${v%% *}" "rc=$rc"
+  done
+done
+[ -z "$(find "$w2/.claude" -maxdepth 1 -name '*.rec')" ]
+verdict "no record lands outside the cache" "a record escaped the cache"
+
+# More grammar edges.
+# shellcheck disable=SC2086
+refuse "an uppercase backend" "--backend" $args2 --point pre-ci --step s --backend EVILRunner
+# shellcheck disable=SC2086
+refuse "a 65-byte backend" "--backend" $args2 --point pre-ci --step s --backend "evil$(printf 'a%.0s' $(seq 1 61))"
+# shellcheck disable=SC2086
+refuse "a 129-byte session" "--session" $args2 --point pre-ci --step s --session "EVIL$(printf 'a%.0s' $(seq 1 125))"
+needle="${HEAD_SHA}a"
+# shellcheck disable=SC2086
+refuse "a 41-hex head" "--head" --run "$r" --point pre-ci --step s --kind command --target t \
+  --hosting isolated --backend runner --head "$needle" --start 2026-09-28T14:00:00Z \
+  --end 2026-09-28T14:00:01Z --outcome passed
+needle=$(printf '%s' "$HEAD_SHA" | tr a-f A-F)
+refuse "an uppercase head" "--head" --run "$r" --point pre-ci --step s --kind command --target t \
+  --hosting isolated --backend runner --head "$needle" --start 2026-09-28T14:00:00Z \
+  --end 2026-09-28T14:00:01Z --outcome passed
+needle=''
+
+# Backend and session pass the screen; a broken screen withholds the backend.
+recb=$(sr2 write --run "$r" --point pre-pr --step tokfields --kind command --target t \
+  --hosting isolated --backend xoxb-1234567890-abcdefghij --session xoxb-1234567890-abcdefghij \
+  --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z --outcome passed)
+grep -Fxq "backend${TAB}[withheld: the secret screen flagged this value]" "$recb" \
+  && grep -Fxq "session${TAB}[withheld: the secret screen flagged this value]" "$recb"
+verdict "a token-shaped backend and session are withheld" "backend or session stored"
+grep -Fxq "backend${TAB}[withheld: the value could not be screened]" "$recu"
+verdict "a screen that cannot run withholds the backend" "backend passed unscreened"
+
+# The bounds bind exactly.
+[ "$n" -eq 20 ]
+verdict "a long excerpt keeps exactly its 20-line tail" "$n lines kept"
+[ "$wbytes" -gt 1800 ]
+verdict "a wide excerpt keeps close to its byte bound" "$wbytes bytes kept"
+[ "$(sed -n "s/^excerpt${TAB}//p" "$recx")" = "$(printf 'z%.0s' $(seq 1 1998))" ]
+verdict "the byte cut keeps every whole character" "the cut lost text"
+recv=$(find "$w2/.claude/steps/$r" -name '*.rec' -exec grep -l "^step${TAB}edge-k$" {} +)
+[ -n "$recv" ] && ! grep -q "^excerpt${TAB}" "$recv"
+verdict "an all-invalid excerpt is stored empty" "an all-invalid excerpt kept text"
+
+# Blank excerpt lines join like any other.
+printf '\nfirst\n\nthird\n' >"$tmp/blank.txt"
+sr2 write --run "$r" --point pre-dispatch --step blanks --kind command --target t --hosting isolated \
+  --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z \
+  --outcome passed --excerpt-file "$tmp/blank.txt" >/dev/null
+sr2 render --run "$r" --point pre-dispatch | grep -Fq '|  / first /  / third |'
+verdict "blank excerpt lines are joined, leading ones too" "blank excerpt lines joined unevenly"
+
+# list's record line, render's empty point, the ended-on line.
+[ "$(sr list --run "$run1" | head -n 1)" = "record${TAB}.claude/steps/$run1/001-step-convergence.rec" ]
+verdict "list heads a record with its worktree-relative path" "list header is not the relative record line"
+[ -z "$(sr render --run "$run1" --point post-pr)" ]
+verdict "a named point with no record renders nothing" "an empty point rendered"
+! sr render --run "$run2" --point pre-ci | grep -q "Ended on"
+verdict "a point without a completion names no ended-on head" "an ended-on line without a completion"
+[ "$((1$run2))" -eq "$((1$run1 + 1))" ]
+verdict "new-run issues one past the highest id" "run ids '$run1' then '$run2'"
+
+# Neutralizing a leading dash and a leading number's parenthesis; C1 in a
+# planted record is dropped by render.
+sr2 write --run "$r" --point unit-selected --step lead-a --kind command --target '- item' \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z \
+  --end 2026-09-28T14:00:01Z --outcome passed >/dev/null
+recpl=$(sr2 write --run "$r" --point unit-selected --step lead-b --kind command --target '3) x' \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z \
+  --end 2026-09-28T14:00:01Z --outcome passed)
+printf 'excerpt\tp\302\233q\n' >>"$recpl"
+lead=$(sr2 render --run "$r" --point unit-selected)
+printf '%s\n' "$lead" | grep -Fq '| \- item |' && printf '%s\n' "$lead" | grep -Fq '| 3\) x |'
+verdict "a leading dash and a leading number's ) are escaped" "$lead"
+printf '%s\n' "$lead" | grep -Fq '| pq |'
+verdict "render drops C1 a planted record carries" "a planted C1 byte reached render"
+
+# A symlinked or unreadable run directory is refused.
+w10="$tmp/w10"
+fresh "$w10"
+mkdir -p "$w10/.claude/steps" "$tmp/foreign-run"
+ln -s "$tmp/foreign-run" "$w10/.claude/steps/000001"
+"$SR" --worktree "$w10" render --run 000001 >/dev/null 2>&1
+[ $? -eq 1 ]
+verdict "a symlinked run directory is refused" "symlinked run read"
+rm -f "$w10/.claude/steps/000001"
+mkdir "$w10/.claude/steps/000001"
+chmod 000 "$w10/.claude/steps/000001"
+"$SR" --worktree "$w10" list >/dev/null 2>&1
+rc=$?
+chmod 700 "$w10/.claude/steps/000001"
+[ "$rc" -eq 1 ]
+verdict "an unreadable run directory is refused" "rc=$rc"
+
+# The default worktree is the enclosing top level; outside git it is a usage
+# error. --excerpt-file resolves against the caller's directory.
+mkdir -p "$w10/sub" "$tmp/caller"
+printf 'from the caller\n' >"$tmp/caller/rel.txt"
+printf 'from the worktree\n' >"$w10/sub/rel.txt"
+r11=$(cd "$w10/sub" && "$SR" new-run)
+[ -d "$w10/.claude/steps/$r11" ]
+verdict "the default worktree is the git top level" "no run under $w10"
+rec11=$(cd "$tmp/caller" && "$SR" --worktree "$w10" write --run "$r11" --point pre-ci --step rel \
+  --kind command --target t --hosting isolated --backend runner --head "$HEAD_SHA" \
+  --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z --outcome passed --excerpt-file rel.txt)
+grep -Fxq "excerpt${TAB}from the caller" "$rec11"
+verdict "a relative excerpt file resolves against the caller" "the excerpt did not come from the caller directory"
+mkdir -p "$tmp/nogit"
+(cd "$tmp/nogit" && GIT_CEILING_DIRECTORIES="$tmp" "$SR" new-run >/dev/null 2>&1)
+[ $? -eq 2 ]
+verdict "outside a git work tree the default worktree is a usage error" "no usage error"
+
+# More checklist edges over a third range.
+w8="$tmp/w8"
+fresh "$w8"
+c8() { git -C "$w8" commit -q --allow-empty -F -; }
+B8=$(git -C "$w8" rev-parse HEAD)
+printf '%s\n' "fix(t): reverted on a topic dated earlier" "" "Planwright-Sign-Off: PS-1" \
+  | env GIT_COMMITTER_DATE="2030-01-01T00:00:00Z" git -C "$w8" commit -q --allow-empty -F -
+T8=$(git -C "$w8" rev-parse HEAD)
+git -C "$w8" checkout -q -b topic
+printf '%s\n' "Revert \"fix(t)\"" "" "This reverts commit $T8." \
+  | env GIT_COMMITTER_DATE="2026-01-01T00:00:00Z" git -C "$w8" commit -q --allow-empty -F -
+git -C "$w8" checkout -q main
+printf '%s\n' "chore: main work" | c8
+git -C "$w8" merge -q --no-ff topic -m "Merge topic" >/dev/null
+printf '%s\n' "fix(z): a leading-zero id" "" "Planwright-Sign-Off: PS-01" | c8
+printf '%s\n' "fix(w): reverted with a comma" "" "Planwright-Sign-Off: PS-2" | c8
+W8=$(git -C "$w8" rev-parse HEAD)
+printf '%s\n' "Revert \"fix(w)\"" "" "This reverts commit $W8, reversing" "changes." | c8
+printf '%s\n' "fix(v): reverted at the line's end" "" "Planwright-Sign-Off: PS-3" | c8
+V8=$(git -C "$w8" rev-parse HEAD)
+printf '%s\n' "Revert \"fix(v)\"" "" "This reverts commit $V8" | c8
+printf '%s\n' "fix(u): a revert too short to name it" "" "Planwright-Sign-Off: PS-4" | c8
+U8=$(git -C "$w8" rev-parse --short=6 HEAD)
+printf '%s\n' "Revert \"fix(u)\"" "" "This reverts commit $U8." | c8
+printf '%s\n' "fix(s): both markers [pending-sign-off]" "" "Planwright-Sign-Off: PS-5" | c8
+printf '%s\n' "fix(r): a huge id" "" "Planwright-Sign-Off: PS-10000000000" | c8
+printf '%s\n' "fix(q): legacy [pending-sign-off]" | c8
+git -C "$w8" checkout -q -b topic2
+printf '%s\n' "fix(p): on the second topic" | c8
+git -C "$w8" checkout -q main
+git -C "$w8" merge -q --no-ff topic2 -m "Merge topic2 [pending-sign-off]" >/dev/null
+M8=$(git -C "$w8" rev-parse --short=7 HEAD)
+cl=$("$SR" --worktree "$w8" regenerate --base "$B8" --head HEAD --checklist-only)
+! has "**PS-1**"
+verdict "a revert dated before its target still drops it" "PS-1 still listed"
+! has "PS-01"
+verdict "a leading-zero id is not an entry" "PS-01 listed"
+! has "**PS-2**" && ! has "**PS-3**"
+verdict "revert lines ending in a comma or at the line's end drop their target" "PS-2 or PS-3 listed"
+has "**PS-4**"
+verdict "a revert naming fewer than 7 hex digits drops nothing" "PS-4 dropped"
+has "**PS-5** fix\(s\): both markers · commit"
+verdict "the legacy suffix is dropped beside a trailer" "the suffix survived beside PS-5"
+[ "$(printf '%s\n' "$cl" | sed -n 's/^- \[ \] \*\*\([^*]*\)\*\*.*/\1/p' | tr '\n' ' ')" = "PS-4 PS-5 PS-10000000000 legacy legacy " ]
+verdict "legacy entries sort after every id, however large" "entries out of order"
+# shellcheck disable=SC2016 # literal backticks in the expected line
+has "Reject with: \`git revert -m 1 $M8\`"
+verdict "a legacy merge commit's recipe reverts against its first parent" "no first-parent revert recipe"
+
+# The resolver's vocabulary and step-record's are the same list.
+mine=$(sed -n '/^is_point() {/,/return 0 ;;/p' "$SR" | tr -d '\134' | tr '|' '\n' \
+  | sed -e 's/.*case .1 in//' -e 's/) return 0 ;;//' -e 's/^ *//' -e 's/ *$//' | grep -E '^[a-z-]+$' | sort)
+[ "$mine" = "$(printf '%s\n' "$vocab" | sort)" ]
+verdict "step-record's point list equals the resolver's" "lists differ"
+
+# The invisible list matches flight-text.sh's, C1 prefix aside.
+ft=$(sed -n "s/^INVIS_SED=\$(printf '\(.*\)')$/\1/p" "$repo_root/scripts/flight-text.sh")
+sr_full=$(sed -n "s/^INVIS_SED=\$(printf '\(.*\)')$/\1/p" "$SR")
+sr_list=${sr_full#'s/\302[\200-\237]//g;'}
+[ -n "$ft" ] && [ "$ft" = "$sr_list" ]
+verdict "the invisible list matches flight-text.sh's" "the lists diverged"
+
 # --- the fixture PR body -------------------------------------------------------------
 {
   printf '## Summary\n\nFixture.\n\n<details>\n<summary>Audit record</summary>\n\n'
@@ -828,7 +1075,9 @@ grep -Fq "## Steps at \`convergence\` (run \`$run1\`)" "$tmp/regen.md"
 verdict "regenerate re-emits the per-point tables from the records" "no step tables after the checklist"
 
 sr regenerate --base "$BASE" --head "$HEAD2" | grep -Fq "## Steps at \`pre-pr\` (run \`$run4\`)"
-verdict "regenerate defaults to the latest run holding a record" "default run not rendered"
+verdict "regenerate defaults to the latest run" "default run not rendered"
+awk '/^## Steps at /{print prev; exit} {prev = $0}' "$tmp/regen.md" | grep -q '^$'
+verdict "a blank line separates the checklist from the tables" "no blank line before the tables"
 sr regenerate --base "$BASE" --head no-such-ref >/dev/null 2>"$tmp/err2"
 rc=$?
 [ "$rc" -eq 1 ] && grep -Fq -- "--head" "$tmp/err2"
@@ -840,7 +1089,14 @@ verdict "an empty range emits the checklist's none row" "no none row for an empt
 sr regenerate --base no-such-ref --head "$HEAD2" >/dev/null 2>"$tmp/err"
 rc=$?
 [ "$rc" -eq 1 ] && grep -Fq -- "--base" "$tmp/err"
-verdict "an unresolvable range fails by name" "rc=$rc err=$(cat "$tmp/err")"
+verdict "an unresolvable range fails by name" "rc=$rc, or --base not named"
+
+# The latest run is the highest id, whether or not it holds a record.
+sr new-run >/dev/null
+[ -z "$(sr render)" ]
+verdict "render defaults to the latest run, even an empty one" "render showed an older run"
+! sr regenerate --base "$BASE" --head "$HEAD2" | grep -q '^## Steps at'
+verdict "regenerate defaults to the latest run, even an empty one" "regenerate showed an older run"
 
 # --- the cache path is ignored ------------------------------------------------------
 git -C "$repo_root" check-ignore -q ".claude/steps/000001/x.rec"
