@@ -239,7 +239,7 @@ scan='
         continue
       }
       check(rel, n, line, line, 1)
-      if (shell && trim(line) !~ /^#/) {
+      if (shell && index(line, "<<") && trim(line) !~ /^#/) {
         term = heredoc(code(trim(line))); dash_term = dash
       }
     }
