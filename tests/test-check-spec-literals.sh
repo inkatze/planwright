@@ -446,6 +446,13 @@ EOF
   expect 2 "a failing awk pass $n fails closed" "could not complete"
 done
 
+# A row is matched on its trimmed text, as the flagged line is.
+fixture
+printf 'd=$r/specs/x\n' >>"$tmp/r/scripts/a.sh"
+printf 'namespace\tscripts/a.sh\t  d=$r/specs/x\n' >>"$tmp/r/config/spec-literal-allowlist.tsv"
+run
+expect 0 "a row carrying the line's indentation still clears it" "clean (1 allowlisted"
+
 # Options before the operand do not hide it.
 for line in 'ls -la specs' 'cd -- specs' 'find -H specs -name x'; do
   fixture

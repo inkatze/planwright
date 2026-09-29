@@ -342,7 +342,7 @@ fi
 #   COUNT <allowlisted> <pending>
 # shellcheck disable=SC2016 # an awk program, expanded by awk
 verdict='
-  function text(from,   s, i) { s = $from; for (i = from + 1; i <= NF; i++) s = s " " $i; sub(/[ \t\r]+$/, "", s); return s }
+  function text(from,   s, i) { s = $from; for (i = from + 1; i <= NF; i++) s = s " " $i; sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
   function bad(why) { print "BAD\t" name ":" FNR "\t" why }
   BEGIN { FS = "\t"; allow = ENVIRON["SL_ALLOW"]; pend = ENVIRON["SL_PEND"]; basep = ENVIRON["SL_BASE"]; hits = ENVIRON["SL_HITS"] }
   FILENAME == basep {
