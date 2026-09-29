@@ -140,6 +140,15 @@ fi
 sr render --run "$run2" | grep -Fq "withheld: the secret screen flagged this excerpt"
 verdict "a token-shaped excerpt renders withheld" "token excerpt not withheld"
 
+sr write --run "$run2" --point pre-ci --step prompted --kind prompt \
+  --target "review with $tok" --hosting isolated --backend runner --head "$HEAD_SHA" \
+  --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:01Z --outcome passed >/dev/null
+if grep -rFq "$tok" "$wt/.claude/steps/$run2"; then
+  fail "a token in a target reached the stored record"
+else
+  ok "a token in a target is withheld before storage"
+fi
+
 esc=$(printf '\033')
 bel=$(printf '\007')
 # shellcheck disable=SC2016 # literal backticks are the fixture
@@ -153,7 +162,7 @@ if grep -rq "$esc\|$bel" "$wt/.claude/steps/$run2"; then
 else
   ok "control bytes are stripped before storage"
 fi
-row=$(sr render --run "$run2" --point pre-ci | grep '^| 2 |')
+row=$(sr render --run "$run2" --point pre-ci | grep '^| 3 |')
 case $row in
   *'a \| b'*) ok "a pipe renders escaped" ;;
   *) fail "pipe not escaped: $row" ;;

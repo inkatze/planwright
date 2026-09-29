@@ -76,7 +76,9 @@
 # honoring PLANWRIGHT_SECRET_SCREEN_TOOL). Screen action: on a hit the whole
 # excerpt is withheld and stored as one placeholder line; a screen that
 # cannot run withholds it the same way, never passing it unscreened. The
-# full captured output stays where --output names, unscreened.
+# full captured output stays where --output names, unscreened. --target,
+# --skip-reason, and each --warning pass the same screen, a hit storing the
+# placeholder in the value's place.
 #
 # Rendered table (render, regenerate): per point,
 #   ## Steps at `<point>` (run `<id>`)
@@ -234,23 +236,41 @@ cmd_new_run() {
 }
 
 # --- excerpt --------------------------------------------------------------------
-# excerpt_lines <file>: the bounded, stripped, screened excerpt on stdout.
-excerpt_lines() {
-  work=$(mktemp -d "${TMPDIR:-/tmp}/step-record.XXXXXX") || die 1 "cannot create a temporary directory"
-  tr '\t' ' ' <"$1" | tr -d '\000-\010\013-\037\177' \
-    | tail -n "$EXCERPT_LINES" | tail -c "$EXCERPT_BYTES" >"$work/excerpt"
+# screen <file> <what>: the file's text on stdout when the secret screen
+# passes it, otherwise one placeholder line naming <what>.
+screen() {
   src=0
   if [ -r "$script_dir/inception-secret-screen.sh" ]; then
-    /bin/sh "$script_dir/inception-secret-screen.sh" -- "$work/excerpt" >/dev/null 2>&1 || src=$?
+    /bin/sh "$script_dir/inception-secret-screen.sh" -- "$1" >/dev/null 2>&1 || src=$?
   else
     src=2
   fi
   case $src in
-    0) cat "$work/excerpt" ;;
-    1) printf '%s\n' "[withheld: the secret screen flagged this excerpt]" ;;
-    *) printf '%s\n' "[withheld: the excerpt could not be screened]" ;;
+    0) cat "$1" ;;
+    1) printf '%s\n' "[withheld: the secret screen flagged this $2]" ;;
+    *) printf '%s\n' "[withheld: the $2 could not be screened]" ;;
   esac
-  rm -rf "$work"
+}
+
+scratch() {
+  [ -n "${work:-}" ] && return 0
+  work=$(mktemp -d "${TMPDIR:-/tmp}/step-record.XXXXXX") || die 1 "cannot create a temporary directory"
+  trap 'rm -rf "$work"' EXIT
+}
+
+# excerpt_lines <file>: the bounded, stripped, screened excerpt on stdout.
+excerpt_lines() {
+  scratch
+  tr '\t' ' ' <"$1" | tr -d '\000-\010\013-\037\177' \
+    | tail -n "$EXCERPT_LINES" | tail -c "$EXCERPT_BYTES" >"$work/excerpt"
+  screen "$work/excerpt" excerpt
+}
+
+# screened_text <value> <what>: a validated single-line value, screened.
+screened_text() {
+  scratch
+  printf '%s\n' "$1" >"$work/text"
+  screen "$work/text" "$2"
 }
 
 # --- write ------------------------------------------------------------------------
@@ -316,7 +336,7 @@ cmd_write() {
       --skip-reason) skip_reason=$2 ;;
       --warning)
         is_single_line_text "$2" || bad --warning "must be non-empty single-line text of at most $TEXT_MAX bytes"
-        warnings="$warnings$2$LF"
+        warnings="$warnings$(screened_text "$2" warning)$LF"
         ;;
     esac
     shift 2
@@ -360,7 +380,9 @@ cmd_write() {
   elif [ -n "$skip_reason" ]; then
     bad --skip-reason "only a skipped step carries one"
   fi
-  rel_output=
+  target=$(screened_text "$target" target)
+  [ -z "$skip_reason" ] || skip_reason=$(screened_text "$skip_reason" "skip reason")
+  rel_output=''
   if [ -n "$output" ]; then
     is_single_line_text "$output" || bad --output "not a single-line path"
     case /$output/ in */../*) bad --output "carries a .. segment" ;; esac
