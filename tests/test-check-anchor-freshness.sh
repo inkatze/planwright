@@ -350,11 +350,11 @@ assert_has "the interim whole-file form is accepted" "interim"
 
 # A sanctioned form that resolves to nothing is the fail-closed
 # absent-anchor-class error, never a silent match. The fixture is a tree that
-# carries the guard and its grammar lib but no spec-anchor.sh, so the checked
-# tree, the three env arms, and the self-location arm all miss.
+# carries the guard, its grammar lib, and the root helper but no spec-anchor.sh,
+# so the checked tree and every arm of the core root chain miss.
 f5b="$tmp/f5b"
 mkdir -p "$f5b/scripts" "$f5b/specs"
-cp "$GUARD" "$f5b/scripts/"
+cp "$GUARD" "$repo/scripts/resolve-root.sh" "$f5b/scripts/"
 cp "$repo/scripts/spec-parse.sh" "$f5b/scripts/"
 make_bundle "$f5b/specs" unresolvable Ready 'A requirement body.'
 write_entry "$f5b/specs" unresolvable "$("$ANCHOR" "$f5b/specs/unresolvable")" \

@@ -139,6 +139,12 @@ else
     "$(decision "$TOWER" "$tmp/plugin/scripts/probe.sh" CLAUDE_PLUGIN_ROOT="$tmp/plugin")"
   expect "tower: does not trust the PLANWRIGHT_ROOT arm" defer \
     "$(decision "$TOWER" "$tmp/pw/scripts/probe.sh" PLANWRIGHT_ROOT="$tmp/pw")"
+  # With both set, the chain lists PLANWRIGHT_ROOT first: the tower must pick
+  # the plugin arm by its name, not the first line.
+  expect "tower: with both arms set, still not the PLANWRIGHT_ROOT arm" defer \
+    "$(decision "$TOWER" "$tmp/pw/scripts/probe.sh" PLANWRIGHT_ROOT="$tmp/pw" CLAUDE_PLUGIN_ROOT="$tmp/plugin")"
+  expect "tower: with both arms set, the CLAUDE_PLUGIN_ROOT arm" allow \
+    "$(decision "$TOWER" "$tmp/plugin/scripts/probe.sh" PLANWRIGHT_ROOT="$tmp/pw" CLAUDE_PLUGIN_ROOT="$tmp/plugin")"
   expect "tower: does not trust the writer-mode arm" defer \
     "$(decision "$TOWER" "$tmp/writer/planwright/scripts/probe.sh" CLAUDE_DIR="$tmp/writer")"
   expect "tower: does not trust its own root" defer \
