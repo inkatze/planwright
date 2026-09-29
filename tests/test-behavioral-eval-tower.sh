@@ -263,18 +263,35 @@ assert_eq "each gets the clarifying question" "5" \
 edge caseup "tighten the permission checks on the admin endpoints" "write it up" "that's all"
 assert_eq "\"write it up\" answering a case files it" "spec-draft" \
   "$(jq -rs '[.[] | select(.action == "dispatch") | .target] | join(" ")' "$TMP/edge-caseup/decision-log.jsonl")"
+edge lone "write it up" "file a plan" "that's all"
+assert_eq "a lone write-up with no case pending dispatches nothing" "0" \
+  "$(jq -rs '[.[] | select(.action == "dispatch" or .action == "route")] | length' "$TMP/edge-lone/decision-log.jsonl" 2>/dev/null)"
+assert_eq "and is told nothing is waiting on it" "2" \
+  "$(jq -rs '[.[] | select(.kind == "present" and (.text | contains("Nothing is waiting on that answer")))] | length' "$TMP/edge-lone/decision-log.jsonl" 2>/dev/null)"
 # A restart whose evidence cannot be read forgets the lost conversation's PR.
-# The evidence is replaced by a directory once the landing is logged, so the
-# read fails for any user, root included.
+# The evidence is replaced by a directory once the landing is acknowledged (the
+# skill says so only after writing its evidence), so the read fails for any
+# user, root included. The wait is bounded so a skill that never lands cannot
+# hang the suite.
 mkdir -p "$TMP/edge-lost"
 {
   printf '%s\n' "fix the typo in the footer" "@event:flight-landed pr=7"
-  until grep -q '"flight-landed"' "$TMP/edge-lost/decision-log.jsonl" 2>/dev/null; do sleep 0.1; done
+  _w=0
+  until grep -q 'Landed: draft PR #7' "$TMP/edge-lost/decision-log.jsonl" 2>/dev/null; do
+    _w=$((_w + 1))
+    [ "$_w" -ge 300 ] && break
+    sleep 0.1
+  done
   rm -f "$TMP/edge-lost/evidence.jsonl" && mkdir "$TMP/edge-lost/evidence.jsonl"
   printf '%s\n' "@event:session-restart" "merge it" "that's all"
 } | PLANWRIGHT_PUBLISH_DISABLED=1 /bin/sh "$SKILL" "$TMP/edge-lost" >/dev/null 2>&1
-assert_eq "an unreadable restart hands back no PR from the lost conversation" "null" \
-  "$(jq -rs '[.[] | select(.action == "refuse" and .control == "merge")][0].handed_back' "$TMP/edge-lost/decision-log.jsonl")"
+lost="$TMP/edge-lost/decision-log.jsonl"
+assert_eq "the landing was accepted before the restart" "7" \
+  "$(jq -rs '[.[] | select(.kind == "event" and .event == "flight-landed" and .rejected == null)][0].pr' "$lost" 2>/dev/null)"
+assert_eq "the restart found the evidence unreadable" "evidence unreadable" \
+  "$(jq -rs '[.[] | select(.action == "reconstruct")][0].error' "$lost" 2>/dev/null)"
+assert_eq "an unreadable restart hands back no PR from the lost conversation" "1 null" \
+  "$(jq -rs '[.[] | select(.action == "refuse" and .control == "merge")] | "\(length) \(.[0].handed_back)"' "$lost" 2>/dev/null)"
 
 echo "== every persona passes grade.jq directly =="
 for p in $personas; do
