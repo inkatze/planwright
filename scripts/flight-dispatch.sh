@@ -71,7 +71,9 @@
 #       --home defaults to what `home` declares; the tower passes the home it
 #       already stated so the record lands where it said. `--home pr` is
 #       refused (exit 2) when `home` would not declare it; `--home file` skips
-#       the `gh` check.
+#       the `gh` check. For `file`, dispatch computes the record path and the
+#       brief's land line passes it to scripts/flight-record.sh
+#       (`--record-path`), which composes none of its own.
 #       --attach-dry-run (tmux) places the flight but prints the attach plan
 #       instead of launching; the placed worktree holds a slot like any other.
 #
@@ -82,13 +84,16 @@
 # the re-ask line says.
 #
 # The ask travels as a file, is never evaluated, and reaches the worker only
-# inside the brief, quoted as data. The grounds travel as a file too, holding
-# one line: operator text never sits inside a command's quoting. Invisible and
-# bidi-control code points are stripped from both before either reaches the
-# brief, and the strip is flagged (stderr and the report). The brief lives
-# under the fleet home (never in the checkout, so the flight worktree starts
-# clean) and carries no secret the ask did not: the tower applies the
-# security-posture hygiene before handing the ask over.
+# inside the brief, quoted as data, and as the copy beside the brief that
+# scripts/flight-record.sh screens and quotes into the audit record. The
+# grounds travel as a file too, holding one line: operator text never sits
+# inside a command's quoting. Invisible and bidi-control code points are
+# stripped from the text quoted in the brief, and the strip is flagged (stderr
+# and the report); the copies beside the brief keep the operator's bytes, which
+# the renderer strips and screens itself. The brief lives under the fleet home (never in the
+# checkout, so the flight worktree starts clean) and carries no secret the ask
+# did not: the tower applies the security-posture hygiene before handing the
+# ask over.
 #
 # Report: TAB-separated `key<TAB>value` lines, after any `retired` lines the
 # dispatch's sweep printed — flight, branch, worktree,
@@ -154,6 +159,7 @@ FETCH="$script_dir/dispatch-fetch.sh"
 REGISTER="$script_dir/fleet-register.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 MANIFEST_SKILL="$root_dir/skills/execute-task/SKILL.md"
+TEXT="$script_dir/flight-text.sh"
 
 # How long a dispatch waits on another holding the checkout's flight lock
 # before it declines to wait. Overridable for tests.
@@ -161,9 +167,6 @@ LOCK_WAIT="${PLANWRIGHT_FLIGHT_LOCK_WAIT:-60}"
 case $LOCK_WAIT in
   '' | *[!0-9]*) LOCK_WAIT=60 ;;
 esac
-
-# The largest ask the brief carries, in bytes.
-ASK_MAX=65536
 
 die() {
   printf '%s: %s\n' "$prog" "$2" >&2
@@ -181,9 +184,11 @@ EOF
 }
 
 for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$STEPS" "$ROOTS" \
-  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL"; do
+  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL" "$TEXT"; do
   [ -r "$_h" ] || die 2 "required helper missing: $_h"
 done
+# shellcheck source=scripts/flight-text.sh
+. "$TEXT"
 # shellcheck source=scripts/allocation-ladder.sh
 . "$LADDER"
 
@@ -512,37 +517,6 @@ worker_root() {
   IFS=$_old_ifs
 }
 
-# INVIS_SED deletes the invisible and bidi-control code points (their UTF-8
-# byte sequences, matched bytewise under LC_ALL=C): NEL, soft hyphen, Arabic
-# letter mark, the Hangul and Khmer fillers, Mongolian vowel separator,
-# zero-width joiners and directional marks, line and paragraph separators,
-# embeddings and overrides, invisible operators, isolates and the deprecated
-# format controls, variation selectors, the byte-order mark, interlinear
-# annotation controls, and the tag block. Either could hide or reorder
-# operator text in the brief.
-INVIS_SED=$(printf 's/\302[\205\255]//g;s/\330\234//g;s/\341\205[\237\240]//g;s/\341\236[\264\265]//g;s/\341\240\216//g;s/\342\200[\213-\217\250-\256]//g;s/\342\201[\240-\244\246-\257]//g;s/\343\205\244//g;s/\357\270[\200-\217]//g;s/\357\273\277//g;s/\357\276\240//g;s/\357\277[\271-\273]//g;s/\363\240[\200\201][\200-\277]//g;s/\363\240[\204-\206][\200-\277]//g;s/\363\240\207[\200-\257]//g')
-
-# clean_text <in> <out> — write <in> with control bytes (other than tab and
-# newline) dropped, then the invisible and bidi code points stripped until the
-# text is stable: one deletion can join the bytes around it into another code
-# point. CLEAN_STRIPPED is 1 when the strip removed anything, judged on the
-# same pipeline the brief is written from.
-CLEAN_STRIPPED=0
-clean_text() {
-  # The empty sed pass gives the base the same final-newline handling the
-  # strip loop's sed passes apply, so the comparisons are like with like.
-  tr -d '\000-\010\013-\037\177' <"$1" | sed '' >"$2.base" || return 1
-  cp "$2.base" "$2" || return 1
-  while :; do
-    sed "$INVIS_SED" <"$2" >"$2.next" || return 1
-    cmp -s "$2" "$2.next" && break
-    mv "$2.next" "$2" || return 1
-  done
-  CLEAN_STRIPPED=0
-  cmp -s "$2.base" "$2" || CLEAN_STRIPPED=1
-  rm -f "$2.base" "$2.next"
-}
-
 # quote_block — the cleaned ask as a Markdown quote, one `> ` per line: data
 # for the worker, never a heading or fence that could restructure the brief.
 quote_block() {
@@ -748,18 +722,42 @@ write_brief() {
     _seq_lines="The list is empty: the convergence point runs no step.$LF"
   fi
 
+  # The worker renders the record from the ask and the grounds as the
+  # operator gave them, never re-typed; the renderer runs its own screen, so
+  # an invisible or bidi-control code point this dispatch stripped is noted in
+  # the record too.
+  cp "$work/grounds.raw" "$brief_dir/grounds.txt" || return 1
+  cp "$work/ask.raw" "$brief_dir/ask.txt" || return 1
+  mkdir "$brief_dir/record" || return 1
+  _rd=$brief_dir/record
+  _inputs="--flight-id $flight_id"
+  _inputs="$_inputs --ask-file $(sh_quote "$brief_dir/ask.txt")"
+  _inputs="$_inputs --grounds-file $(sh_quote "$brief_dir/grounds.txt")"
+  _inputs="$_inputs --summary-file $(sh_quote "$_rd/summary.md")"
+  _inputs="$_inputs --verification-file $(sh_quote "$_rd/verification.md")"
+  _inputs="$_inputs --audit-file $(sh_quote "$_rd/audit.md")"
+  _inputs="$_inputs --handle $brief_handle"
+  _optional="\`--scoping-file $(sh_quote "$_rd/scoping.md")\` and \`--revert-file $(sh_quote "$_rd/revert.md")\`"
+  _recorder=$(sh_quote "$brief_root/scripts/flight-record.sh")
+  _body=$(sh_quote "$_rd/body.md")
+
   if [ "$home" = pr ]; then
     _landing="Before pushing, re-check the destination the tower stated: run
 \`$(sh_quote "$brief_root/scripts/flight-dispatch.sh") home --repo-root $(sh_quote "$repo_root")\`.
 It must report home \`pr\` and origin \`$HOME_DEST\`; on anything else, or if it
-cannot run, push nothing and park the flight with what it reported. Then push
-the branch to \`origin\` (\`git push -u origin $branch\`) and open the PR as a
-draft on the checked repository (\`gh pr create --draft --repo $HOME_DEST\`, with
-an explicit title and body); the record is the PR body. Never mark it ready and
-never merge: the draft-to-ready flip and the merge are the human's."
+cannot run, push nothing and park the flight with what it reported. Then render
+the record and, only on a clean render, push the branch and open the PR as a
+draft on the checked repository:
+\`$_recorder render --home pr $_inputs > $_body && git push -u origin $branch && gh pr create --draft --repo $HOME_DEST --title '<conventional title>' --body-file $_body\`
+Add $_optional to the render only when you wrote them. The record is the PR
+body. Never mark it ready and never merge: the draft-to-ready flip and the
+merge are the human's."
   else
-    _landing="Commit exactly one record file, \`$record\`, on this branch; do not push
-and open no PR. The committed record is the landing reference."
+    _landing="Land the record, which writes \`$record\` and commits exactly that one
+file on this branch:
+\`$_recorder land $_inputs --record-path $(sh_quote "$record")\`
+Add $_optional only when you wrote them. Do not push and open no PR. The
+committed record is the landing reference."
   fi
 
   {
@@ -803,8 +801,8 @@ and open no PR. The committed record is the landing reference."
     printf '%s\n' "outgrowing this route, parks the flight. Stop, commit nothing further, and"
     printf '%s\n' "report \`parked\` with the reason, so the tower can re-route it."
     printf '\n## The audit record\n\n'
-    printf '%s\n' "Home: $record (declared at routing time). Author it per flight-rules,"
-    printf '%s\n' "*The audit record*. It carries:"
+    printf '%s\n' "Home: $record (declared at routing time). The record, per flight-rules"
+    printf '%s\n' "*The audit record*, carries:"
     printf '\n'
     printf '%s\n' "- the quoted ask, sanitized per security-posture data hygiene and"
     printf '%s\n' "  markup-neutralized before it reaches any committed or remote surface;"
@@ -815,8 +813,31 @@ and open no PR. The committed record is the landing reference."
     printf '%s\n' "- any rigor scoping actually applied;"
     printf '%s\n' "- the worker handle, \`$brief_handle\`; and"
     printf '%s\n' "- the revert path."
-    printf '\n%s\n' "Render it human-first: what changed, why, and how it was verified lead; no"
-    printf '%s\n' "restated prompt; the full contract collapsed below."
+    printf '\n%s\n' "\`scripts/flight-record.sh\` renders it human-first: what changed, why, and"
+    printf '%s\n' "how it was verified lead, with no restated prompt, and the full contract is"
+    printf '%s\n' "collapsed below. It quotes, sanitizes, and markup-neutralizes the ask and the"
+    printf '%s\n' "grounds itself from this brief's directory, and supplies the home, the"
+    printf '%s\n' "handle, and a default revert path. You write the rest under \`$_rd\`:"
+    printf '\n'
+    printf '%s\n' "- \`summary.md\`: what changed and why, in your own words, one paragraph per"
+    printf '%s\n' "  line, never hard-wrapped (gate-wiring *PR-body assembly*);"
+    printf '%s\n' "- \`verification.md\`: how it was verified, written the same way;"
+    printf '%s\n' "- \`audit.md\`: the review sequence's audit record, each element under a"
+    printf '%s\n' "  \`####\` heading of its own: Lens coverage, Auto-applicable,"
+    printf '%s\n' "  Agent-resolvable, Needs sign-off, Needs human judgment, Declined log,"
+    printf '%s\n' "  Pending sign-off, Convergence steps;"
+    printf '%s\n' "- \`scoping.md\`, only when you scoped rigor; and"
+    printf '%s\n' "- \`revert.md\`, only when the default revert path does not fit."
+    printf '\n%s\n' "Outside a fence, no input may carry a \`<\` directly before a letter, \`/\`,"
+    printf '%s\n' "\`!\`, or \`?\`, even in inline code (write \`&lt;\` in prose, or put the code in"
+    printf '%s\n' "a fence), or a footnote definition. Fence only with closed backtick fences at"
+    printf '%s\n' "column zero, and indent any fenced line that starts with \`<\`. Only the audit"
+    printf '%s\n' "carries headings, at \`####\` and deeper. Put a blank line above a \`---\` or"
+    printf '%s\n' "\`===\` line, which directly under text reads as a heading and is refused."
+    printf '%s\n' "The renderer refuses a bad input or state with a message naming what to fix."
+    printf '%s\n' "Fix your own inputs under \`record/\` and run it again. A refusal of the ask or"
+    printf '%s\n' "the grounds, which are the operator's and never edited, or any other failure,"
+    printf '%s\n' "parks the flight."
     printf '\n## Landing\n\n'
     printf '%s\n' "$_landing"
     printf '\n## Rules\n\n'
@@ -984,7 +1005,9 @@ cmd_dispatch() {
   [ "$(wc -l <"$work/grounds.raw" | tr -d ' ')" -le 1 ] \
     || die 2 "--grounds-file must hold one line"
   grounds=$(cat "$work/grounds.raw") || die 2 "cannot read --grounds-file"
-  [ -n "$grounds" ] || die 2 "--grounds-file is empty: a route is never silent"
+  # A CRLF line ending is a line ending, not a control character.
+  grounds=${grounds%"$CR"}
+  [ -n "$(printf '%s' "$grounds" | tr -d ' \t')" ] || die 2 "--grounds-file is empty or blank: a route is never silent"
   [ "$(printf '%s' "$grounds" | tr -d '\000-\037\177')" = "$grounds" ] \
     || die 2 "the grounds must be one line without control characters"
   [ "${#grounds}" -le 400 ] || die 2 "the grounds must be one line of 400 characters at most"
@@ -994,8 +1017,11 @@ cmd_dispatch() {
   clean_text "$work/ask.raw" "$work/ask" || die 4 "cannot sanitize the ask"
   ask_file="$work/ask"
   ask_sanitized=$CLEAN_STRIPPED
-  if [ "$ask_sanitized" -eq 1 ] && [ -z "$(tr -d ' \t\n' <"$work/ask")" ]; then
-    die 2 "the ask is empty once invisible characters are stripped"
+  if [ -z "$(tr -d ' \t\n' <"$work/ask")" ]; then
+    if [ "$ask_sanitized" -eq 1 ]; then
+      die 2 "the ask is empty once invisible characters are stripped"
+    fi
+    die 2 "the ask is blank: a flight needs something to do"
   fi
   [ "$ask_sanitized" -eq 0 ] \
     || echo "$prog: NOTE: invisible or bidi-control characters were stripped from the ask" >&2
@@ -1004,7 +1030,8 @@ cmd_dispatch() {
   if [ "$grounds_sanitized" -eq 1 ]; then
     grounds=$(cat "$work/grounds")
     echo "$prog: NOTE: invisible or bidi-control characters were stripped from the grounds" >&2
-    [ -n "$grounds" ] || die 2 "the grounds are empty once invisible characters are stripped: a route is never silent"
+    [ -n "$(printf '%s' "$grounds" | tr -d ' \t')" ] \
+      || die 2 "the grounds are empty once invisible characters are stripped: a route is never silent"
   fi
   case $home in
     '' | pr | file) ;;
