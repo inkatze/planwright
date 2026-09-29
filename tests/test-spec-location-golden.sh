@@ -531,10 +531,16 @@ fi
 # one, a migration must not rewrite or drop one, nor remove the fragment.
 # Every fragment also gets a bare `<path> TAB` row, so its removal shows
 # whether or not it carries a line, and a first consumption removes nothing.
+# The legacy single-file archive carries its consumptions inline, one
+# `consumed-by: specs/<id> (<date>)` annotation each, counted as rows too.
 consumed_lines() {
   (cd "$1" && set -- specs/_observations/archive/*.md && [ -f "$1" ] \
     && awk 'FNR == 1 { print FILENAME "\t" }
-      /^Consumed-by: / { print FILENAME "\t" $0 }' "$@") | sort
+      /^Consumed-by: / { print FILENAME "\t" $0 }' "$@" \
+    && if [ -f specs/_observations/archive.md ]; then
+      grep -io 'consumed-by: specs/[^ ]* ([^)]*)' specs/_observations/archive.md \
+        | awk '{ print "specs/_observations/archive.md\t" $0 }'
+    fi) | sort
 }
 # On planted stores: a first consumption is not a loss, a removal is.
 for cl in was now gone; do mkdir -p "$tmp/cl-$cl/specs/_observations/archive"; done
@@ -551,6 +557,15 @@ if [ -n "$(consumed_lines "$tmp/cl-gone" | comm -23 "$tmp/cl-was.txt" -)" ]; the
   ok "bundles: a removed fragment with no Consumed-by line is a loss"
 else
   fail "bundles: a removed unconsumed fragment went unnoticed"
+fi
+
+printf -- '- 2026-01-01 [x] an entry — consumed-by: specs/demo (2026-01-02)\n' >"$tmp/cl-was/specs/_observations/archive.md"
+printf -- '- 2026-01-01 [x] an entry\n' >"$tmp/cl-now/specs/_observations/archive.md"
+consumed_lines "$tmp/cl-was" >"$tmp/cl-was.txt"
+if [ -n "$(consumed_lines "$tmp/cl-now" | comm -23 "$tmp/cl-was.txt" -)" ]; then
+  ok "bundles: a consumed-by annotation dropped from the legacy archive is a loss"
+else
+  fail "bundles: a dropped legacy consumed-by annotation went unnoticed"
 fi
 
 consumed_lines "$tmp/at-baseline" >"$tmp/consumed.baseline"
