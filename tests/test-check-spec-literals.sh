@@ -549,6 +549,13 @@ out=$(cat "$tmp/out" "$tmp/err")
 expect 0 "a nested repo root reads the base list at its own path" "clean (0 allowlisted, 1 pending migration)"
 rm -rf "$tmp/outer"
 
+for bad in '' '-'; do
+  (cd "$tmp/r" && "$SH" "$GUARD" --repo-root "$bad" >"$tmp/out" 2>"$tmp/err")
+  rc=$?
+  out=$(cat "$tmp/out" "$tmp/err")
+  expect 2 "--repo-root '$bad' is refused rather than read as the current or previous directory"
+done
+
 fixture
 guard --base no-such-ref
 expect 2 "an explicit --base that does not resolve is an error, not a skip" "--base no-such-ref does not resolve"

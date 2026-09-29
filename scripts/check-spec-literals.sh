@@ -99,6 +99,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# An empty value would leave cd where it is, and `-` would name the previous
+# directory.
+case $repo_root in
+  '') die "--repo-root needs a value" ;;
+  -*) repo_root=./$repo_root ;;
+esac
 repo_root=$(cd "$repo_root" 2>/dev/null && pwd) || die "repo root is not a readable directory"
 case $base in
   '' | -*) die "--base must name a ref" ;;
