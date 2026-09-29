@@ -206,6 +206,6 @@ done <<ARMS
 $arms
 ARMS
 
-# The arms print as `arm<TAB>root` lines; flattened to `arm=root ...` for one line.
+# The arms print as `arm<TAB>root` lines, flattened here to `arm=root ...`.
 echo "planwright: rule doc '$name' not found (checked overlays then the core root chain: $(printf '%s' "${arms:-no arm resolved}" | tr '\t\n' '= ' | tr -d '\000-\037\177'))" >&2
 exit 1

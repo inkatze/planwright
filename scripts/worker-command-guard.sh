@@ -479,11 +479,12 @@ is_repo_script() {
 #
 # Arm 2 is what makes this allowance need NO per-machine, version-pinned settings
 # entry: the guard ships at <root>/scripts/worker-command-guard.sh, so it can
-# always locate its own root. Arm 3 exists because arms 1 and 2 all resolve to
-# the root the LAUNCHER lives in (the dispatch-env wrapper exports its own root
-# as the chain's PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT arms), while the skill
-# text a worker executes is loaded from wherever Claude Code installed the
-# plugin, and `${CLAUDE_PLUGIN_ROOT}` in that text substitutes to THAT root. A tower driving a checkout's scripts/ therefore
+# always locate its own root. Arm 3 exists because arms 1 and 2 both resolve
+# to the root the LAUNCHER lives in (the dispatch-env wrapper exports its own
+# root as the chain's PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT arms), while the
+# skill text a worker executes is loaded from wherever Claude Code installed
+# the plugin, and `${CLAUDE_PLUGIN_ROOT}` in that text substitutes to THAT
+# root. A tower driving a checkout's scripts/ therefore
 # launched workers whose every plugin-script call — the first thing
 # /execute-task does — named a root the hook did not trust, and deferred
 # (2026-09-12, format-grammar task 7). The installed roots are Claude Code's own
