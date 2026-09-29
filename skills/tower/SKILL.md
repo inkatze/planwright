@@ -331,7 +331,7 @@ ask) dies with the session and is re-asked; the first turn says so.
 
 Under the behavioral-eval harness (`PLANWRIGHT_EVAL_ONLY=1`), also write the
 decision log and the eval run record `flight-rules` specifies, into the
-directory the harness hands the session; neither is a sign-off.
+directory the session is handed; neither is a sign-off.
 
 ## Invariants
 

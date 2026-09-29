@@ -115,7 +115,8 @@ dispatching session, applied to the front door.
 
 Under the behavioral-eval harness (`PLANWRIGHT_EVAL_ONLY=1`, publishing
 disabled), the tower routes exactly as above and also writes two run-local
-artifacts into the directory the harness hands the session; the harness grades
+artifacts into the directory the harness hands the session (or, in the
+operator-run fallback, the directory the operator names); the grade reads
 those, never a scraped pane:
 
 - **The decision log**, `decision-log.jsonl`: JSON Lines in
@@ -124,14 +125,18 @@ those, never a scraped pane:
   (a landing, a finished draft, a sign-off, a spec PR merge, a restart). Each
   operator turn is an `answer` record with `source: operator`; each thing said,
   a `present` record; each route, dispatch, refusal, offer, hold, and
-  reconstruction, a `decision` record naming its `action`. A route carries the
-  `ask_seq` it answers, `route`, `trigger`, `grounds`, `override`, `crossed`,
-  `reservation`, and the `statement` as said; a dispatch its `target` and the
-  `on_seq` of the operator turn that authorized it.
+  reconstruction, a `decision` record naming its `action`; a question answered
+  in the turn is a route too (`route: answer`, `trigger: question`), minting no
+  flight. A route carries the `ask_seq` it answers, `route`, `trigger`,
+  `grounds`, `override`, `crossed`, `reservation`, and the `statement` as said;
+  a dispatch its `target` and the `on_seq` of the operator turn that authorized
+  it (for a flight flown on a reply to its one-page case, that reply).
 - **The run record**, `sign-off.json` (the harness's completion marker names
   the file): eval-only, non-authoritative, unpublished, and a sign-off of
   nothing (REQ-G1.2) — the routes, dispatches, and refusals, and that no
-  reserved control was performed.
+  reserved control was performed. It is written once, last, when the operator
+  ends the session (`that's all`, not logged as a turn), since its appearance
+  is what ends the run.
 
 Values are written as data, escape-safe. Nothing is pushed, opened, or
 flipped, and neither artifact carries a verdict on the work. The full field

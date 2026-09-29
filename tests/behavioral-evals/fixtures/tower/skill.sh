@@ -15,8 +15,8 @@
 # It writes the two artifacts of the tower's eval-only seam, which grade.jq reads
 # (never a scraped pane):
 #
-#   decision-log.jsonl  one record per operator line, evidence event, thing
-#                       presented, and decision (route, dispatch, refusal, offer,
+#   decision-log.jsonl  one record per operator line (the closing one
+#                       excepted), evidence event, thing presented, and decision (route, dispatch, refusal, offer,
 #                       hold, reconstruction)
 #   sign-off.json       the eval run record: eval-only, non-authoritative, and a
 #                       sign-off of nothing (the harness's completion marker keeps

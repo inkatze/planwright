@@ -1,8 +1,9 @@
 #!/bin/sh
 # tmux-stub.sh — a faithful `tmux` test double for driving the behavioral-eval
-# harness hermetically (operator-dialogue Task 6). It is the SAME double
-# test-behavioral-eval.sh embeds inline; extracted here so the Task-6 acceptance
-# tests (kickoff + rubric instrument) share one copy rather than a third.
+# harness hermetically (operator-dialogue Task 6). It began as the double
+# test-behavioral-eval.sh embeds inline, extracted so the Task-6 acceptance tests
+# (kickoff + rubric instrument) share one copy rather than a third; unlike the
+# inline copy, it also hands the skill the launch's PLANWRIGHT_* assignments.
 #
 # It backs each "session" with a state dir under $BEHAVIORAL_EVAL_TMUX_STATE.
 # new-session records the launch and renders the first pane by running the skill
