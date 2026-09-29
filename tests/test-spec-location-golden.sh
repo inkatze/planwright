@@ -309,7 +309,9 @@ printf 'comment\n@@ a primary\none\n@@ b primary\ntwo\n' >"$planted/baseline.txt
 printf 'fix-a\t3\tREQ-X\ta\nfix-b\t5\tREQ-Y\tb\nold\tbaseline\tREQ-Z\tz\n' >"$planted/registry.tsv"
 printf '@@ a primary\none\n@@ b primary\ntwo\n' >"$planted/same.txt"
 printf '@@ a primary\nONE\n@@ b primary\ntwo\n' >"$planted/a-changed.txt"
-replay() { golden_replay "$planted/baseline.txt" "$planted/changes" "$planted/registry.tsv" "$1" 2>&1; }
+# The comparator's own scratch goes under $tmp, so this file's trap covers an
+# interrupted replay too.
+replay() { TMPDIR=$tmp golden_replay "$planted/baseline.txt" "$planted/changes" "$planted/registry.tsv" "$1" 2>&1; }
 
 if out=$(replay "$planted/same.txt"); then ok "comparator: unchanged output with no declared set passes"; else fail "comparator: unchanged output failed: $out"; fi
 
@@ -383,7 +385,7 @@ rm -f "$planted/changes/task-10.txt"
 mkdir -p "$planted/v.9"
 mv "$planted/changes" "$planted/v.9/changes"
 printf '@@ a primary\nSIX-FIVE\n@@ b primary\ntwo\n' >"$planted/a-sixfive.txt"
-if out=$(golden_replay "$planted/baseline.txt" "$planted/v.9/changes" "$planted/registry.tsv" "$planted/a-sixfive.txt"); then
+if out=$(TMPDIR=$tmp golden_replay "$planted/baseline.txt" "$planted/v.9/changes" "$planted/registry.tsv" "$planted/a-sixfive.txt"); then
   ok "comparator: 6.5 overrides 6 whatever dots the path carries"
 else
   fail "comparator: 6 and 6.5 misordered: $out"
@@ -398,7 +400,7 @@ for odd in baseline ''; do
   rm -rf "$planted/odd-changes"
   mkdir -p "$planted/odd-changes"
   printf '@@ b primary old\ntwo\n' >"$planted/odd-changes/task-$odd.txt"
-  if out=$(golden_replay "$planted/baseline.txt" "$planted/odd-changes" "$planted/registry.tsv" "$planted/same.txt"); then
+  if out=$(TMPDIR=$tmp golden_replay "$planted/baseline.txt" "$planted/odd-changes" "$planted/registry.tsv" "$planted/same.txt"); then
     fail "comparator: a set named task-$odd.txt passed"
   else
     case $out in *"is not named for a task id"*) ok "comparator: a set named task-$odd.txt is refused" ;; *) fail "comparator: task-$odd.txt misreported: $out" ;; esac
@@ -412,7 +414,7 @@ mkdir -p "$planted/odd-changes"
 printf 'fix-61\t6.1\tR\tx\nfix-610\t6.10\tR\ty\n' >"$planted/ids.tsv"
 printf '@@ a primary fix-61\nVAL\n' >"$planted/odd-changes/task-6.1.txt"
 printf '@@ a primary\nVAL\n@@ b primary\ntwo\n' >"$planted/a-val.txt"
-if out=$(golden_replay "$planted/baseline.txt" "$planted/odd-changes" "$planted/ids.tsv" "$planted/a-val.txt"); then
+if out=$(TMPDIR=$tmp golden_replay "$planted/baseline.txt" "$planted/odd-changes" "$planted/ids.tsv" "$planted/a-val.txt"); then
   ok "comparator: task 6.1's set does not stand in for task 6.10's"
 else
   fail "comparator: 6.1 and 6.10 confused: $out"
@@ -433,7 +435,7 @@ case $out in
   *) fail "comparator: control-byte mismatch misreported: $out" ;;
 esac
 
-if out=$(golden_replay "$planted/baseline.txt" "$planted/changes" "$planted/no-registry.tsv" "$planted/same.txt"); then
+if out=$(TMPDIR=$tmp golden_replay "$planted/baseline.txt" "$planted/changes" "$planted/no-registry.tsv" "$planted/same.txt"); then
   fail "comparator: a missing registry passed"
 else
   case $out in *"no-registry.tsv is missing"*) ok "comparator: a missing registry fails closed" ;; *) fail "comparator: missing registry misreported: $out" ;; esac
@@ -443,7 +445,7 @@ fi
 # is a task id or `baseline`.
 for bad in 'short\t3' 'fix-a\t3\tR\ta\nfix-a\t5\tR\tb' 'odd\ttask-3\tR\tx' 'sp ace\t3\tR\tx'; do
   printf '%b\n' "$bad" >"$planted/bad-registry.tsv"
-  if out=$(golden_replay "$planted/baseline.txt" "$planted/no-changes" "$planted/bad-registry.tsv" "$planted/same.txt"); then
+  if out=$(TMPDIR=$tmp golden_replay "$planted/baseline.txt" "$planted/no-changes" "$planted/bad-registry.tsv" "$planted/same.txt"); then
     fail "comparator: a malformed registry row passed: $bad"
   else
     case $out in *"bad-registry.tsv:"*) ok "comparator: a malformed registry row is refused: $bad" ;; *) fail "comparator: malformed registry misreported ($bad): $out" ;; esac
@@ -451,7 +453,7 @@ for bad in 'short\t3' 'fix-a\t3\tR\ta\nfix-a\t5\tR\tb' 'odd\ttask-3\tR\tx' 'sp a
 done
 
 printf 'commentary only\n' >"$planted/no-records.txt"
-if out=$(golden_replay "$planted/no-records.txt" "$planted/no-changes" "$planted/registry.tsv" "$planted/no-records.txt"); then
+if out=$(TMPDIR=$tmp golden_replay "$planted/no-records.txt" "$planted/no-changes" "$planted/registry.tsv" "$planted/no-records.txt"); then
   fail "comparator: a baseline with no records passed"
 else
   case $out in *"holds no records"*) ok "comparator: a baseline with no records fails" ;; *) fail "comparator: empty baseline misreported: $out" ;; esac
@@ -475,7 +477,7 @@ if [ "$got" = "x <TODAY>" ]; then ok "normalize: a date stamped after the run st
 # nr <label> <want> <changes-dir> <actual> — expect a failing replay whose
 # report carries <want>.
 nr() {
-  if out=$(golden_replay "$planted/baseline.txt" "$3" "$planted/registry.tsv" "$4"); then
+  if out=$(TMPDIR=$tmp golden_replay "$planted/baseline.txt" "$3" "$planted/registry.tsv" "$4"); then
     fail "comparator: $1 passed"
   else
     case $out in *"$2"*) ok "comparator: $1 fails" ;; *) fail "comparator: $1 misreported: $out" ;; esac
@@ -500,7 +502,7 @@ record_anchors >"$tmp/anchors.tsv" 2>"$tmp/anchors.err" &
 anchors_pid=$!
 
 record_probes >"$tmp/actual.txt" || fail "probes: the recording did not complete"
-if out=$(golden_replay "$FIXTURE/baseline.txt" "$FIXTURE/changes" "$FIXTURE/corrections.tsv" "$tmp/actual.txt" 2>&1); then
+if out=$(TMPDIR=$tmp golden_replay "$FIXTURE/baseline.txt" "$FIXTURE/changes" "$FIXTURE/corrections.tsv" "$tmp/actual.txt" 2>&1); then
   ok "probes: every migrated script matches the baseline plus the declared sets"
 else
   fail "probes: replay against the baseline failed:
