@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] docs/recurring-failure-classes.md calls scripts/inception-secret-screen.sh dead, but check-coordination-hygiene.sh and now step-record.sh call it; the doc claim is stale.

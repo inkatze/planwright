@@ -353,7 +353,7 @@ host environment the runner inherits (§6's environment layer).
 planwright as a plugin adds the ignore line itself:
 
 ```gitignore
-.claude/steps/
+.claude/steps
 ```
 
 **The status-write permission.** Before a flip point's ready flip, the

@@ -1,0 +1,1 @@
+- 2026-09-29 [planwright] gate-wiring names scripts/planwright-commit-trailers.sh as the stamp for the Planwright-Sign-Off trailer, but the helper emits only Planwright-Task, so a Needs-sign-off commit still falls back to the legacy [pending-sign-off] subject suffix, which the checklist renders with the ID legacy and no stable number.
