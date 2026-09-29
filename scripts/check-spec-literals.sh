@@ -45,7 +45,9 @@
 # leave its exemption behind.
 #
 # Usage: check-spec-literals.sh [--repo-root <dir>] [--base <ref>]
-#   --base  the ref whose pending list bounds this one (default origin/main)
+#   --base  the ref whose pending list bounds this one (default origin/main);
+#           given explicitly, a ref that does not resolve is an error rather
+#           than a skipped comparison
 # Exit: 0 clean · 1 an unlisted literal, a stale row, or an added pending row ·
 #   2 usage, or an input that would make the scan vacuous (a missing,
 #   unreadable, or symlinked scope file or list, a malformed list row, zero
@@ -68,6 +70,7 @@ me=check-spec-literals
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 repo_root=$(cd "$script_dir/.." && pwd) || exit 2
 base=origin/main
+base_given=0
 
 # The house display sanitizer's byte range (scripts/echo-safety.sh), keeping
 # TAB and LF so a report stays one record per line.
@@ -84,7 +87,7 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || die "$1 needs a value"
       case $1 in
         --repo-root) repo_root=$2 ;;
-        --base) base=$2 ;;
+        --base) base=$2 base_given=1 ;;
       esac
       shift 2
       ;;
@@ -309,6 +312,7 @@ fi
 # current list may not exceed.
 : >"$work/base-pending"
 base_note=''
+has_base=0
 if git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
   if merge_base=$(git -C "$repo_root" merge-base "$base" HEAD 2>/dev/null); then
     where_read="the merge base of $base and HEAD"
@@ -321,10 +325,12 @@ if git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>
   if git -C "$repo_root" cat-file -e "$merge_base:./config/spec-literal-pending.tsv" 2>/dev/null; then
     git -C "$repo_root" show "$merge_base:./config/spec-literal-pending.tsv" >"$work/base-pending" \
       || die "could not read the pending list at $where_read"
+    has_base=1
   else
     base_note="; shrink check skipped: $where_read has no pending list"
   fi
 else
+  [ "$base_given" -eq 0 ] || die "--base $base does not resolve"
   base_note="; shrink check skipped: $base does not resolve"
 fi
 
@@ -378,8 +384,6 @@ verdict='
 '
 # has_base is set only when the base list was read, so a skipped comparison
 # never reports every row as added.
-has_base=0
-[ -z "$base_note" ] && has_base=1
 SL_ALLOW=$repo_root/config/spec-literal-allowlist.tsv SL_PEND=$repo_root/config/spec-literal-pending.tsv \
   SL_BASE=$work/base-pending SL_HITS=$work/hits \
   awk -v has_base="$has_base" "$verdict" "$work/base-pending" \

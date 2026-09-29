@@ -529,6 +529,10 @@ expect 0 "a nested repo root reads the base list at its own path" "clean (0 allo
 rm -rf "$tmp/outer"
 
 fixture
+guard --base no-such-ref
+expect 2 "an explicit --base that does not resolve is an error, not a skip" "--base no-such-ref does not resolve"
+
+fixture
 for bad in '' '-x'; do
   guard --base "$bad"
   expect 2 "--base '$bad' is refused" "--base must name a ref"
