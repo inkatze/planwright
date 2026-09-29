@@ -77,8 +77,8 @@ wait instead.
 4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap
    non-Active refusal REQ-J1.2, D-33; kickoff-lifecycle D-2, D-3). Read the
    `**Status:**` line in `requirements.md`. `Ready` (signed off, no work
-   started) and `Active` (work in flight) are both executable; refuse Draft,
-   Done, Retired, and Superseded. The spec file **stays `Ready`** during
+   started) and `Active` (work in flight) are both executable; refuse
+   Draft, Done, Retired, and Superseded. The spec file **stays `Ready`** during
    execution: Ready↔Active is **derived, not stored** (D-2, D-3). On **Draft**,
    halt and suggest `/spec-kickoff`; a terminal (Retired/Superseded) or Done
    spec has nothing to execute. A `Ready` spec runs on the same terms as Active:
