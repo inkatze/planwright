@@ -650,6 +650,26 @@ mkdir "$w5/.claude/steps/999999/.seq-999"
 [ $? -eq 1 ]
 verdict "an exhausted record counter exits 1" "record written past seq 999"
 
+# An excerpt of nothing but invalid UTF-8 is stored empty, not refused.
+printf '\377\376' >"$tmp/invalid.txt"
+sr2 write --run "$r" --point pre-ci --step edge-k --kind command --target t --hosting isolated \
+  --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z \
+  --outcome passed --excerpt-file "$tmp/invalid.txt" >/dev/null
+verdict "an all-invalid excerpt still writes its record" "all-invalid excerpt refused"
+
+# A completion that fails before its record exists releases its claim.
+shim="$tmp/shim"
+mkdir -p "$shim"
+printf '#!/bin/sh\nexit 1\n' >"$shim/ln"
+chmod +x "$shim/ln"
+r8=$(sr2 new-run)
+env PATH="$shim:$PATH" "$SR" --worktree "$w2" write --completion --run "$r8" --point pre-ci \
+  --head "$HEAD_SHA" >/dev/null 2>&1
+[ $? -eq 1 ]
+verdict "a completion whose link fails exits 1" "failed link not reported"
+sr2 write --completion --run "$r8" --point pre-ci --head "$HEAD_SHA" >/dev/null
+verdict "a retried completion after a failed one succeeds" "the failed completion kept its claim"
+
 # A missing secret screen withholds, never passes.
 lone="$tmp/lone"
 mkdir -p "$lone"
@@ -679,12 +699,15 @@ printf '%s\n' "chore: a rejection later reverted" "" "Planwright-Sign-Off-Reject
 RJ=$(git -C "$w7" rev-parse HEAD)
 printf '%s\n' "Revert \"chore\"" "" "This reverts commit $RJ." | c7
 printf 'fix(e): a live subject with \033[31m a control byte\n\nPlanwright-Sign-Off: PS-8\n' | c7
-git -C "$w7" checkout -q -b side "$B7"
+git -C "$w7" checkout -q -b base "$B7"
 printf '%s\n' "fix(base): merged in from the base" "" "Planwright-Sign-Off: PS-11" | c7
+git -C "$w7" checkout -q -b topic main
+printf '%s\n' "fix(topic): merged in from a topic branch" "" "Planwright-Sign-Off: PS-13" | c7
 git -C "$w7" checkout -q main
-git -C "$w7" merge -q --no-ff side -m "Merge side into main" -m "Planwright-Sign-Off: PS-12" >/dev/null
+git -C "$w7" merge -q --no-ff base -m "Merge base into main" >/dev/null
+git -C "$w7" merge -q --no-ff topic -m "Merge topic into main" -m "Planwright-Sign-Off: PS-12" >/dev/null
 H7=$(git -C "$w7" rev-parse HEAD)
-cl=$("$SR" --worktree "$w7" regenerate --base "$B7" --head "$H7" --checklist-only)
+cl=$("$SR" --worktree "$w7" regenerate --base base --head "$H7" --checklist-only)
 has() { printf '%s\n' "$cl" | grep -Fq -- "$1"; }
 has "**PS-2** fix\(a\): folded trailer"
 verdict "a folded trailer keeps its entry" "PS-2 missing"
@@ -704,6 +727,8 @@ has "**PS-8**"
 verdict "the cleaned live commit still renders" "PS-8 missing"
 ! has "**PS-11**"
 verdict "a trailer merged in from the base never enters" "PS-11 listed"
+has "**PS-13**"
+verdict "a trailer merged in from a topic branch enters" "PS-13 missing"
 # shellcheck disable=SC2016 # literal backticks in the expected line
 has 'Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: PS-12`'
 verdict "a merge commit's entry names the rejection trailer" "merge recipe missing"

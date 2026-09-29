@@ -37,8 +37,9 @@
 #                 point fires once per run: its completion is claimed
 #                 atomically, and a step or completion record for a point the
 #                 run already completed is refused. A repeated write is a
-#                 second record; retrying is the caller's call. An exit 1
-#                 after the record is claimed (a failed print) leaves the
+#                 second record; retrying is the caller's call. A completion
+#                 that fails before its record exists releases its claim; an
+#                 exit 1 after the record exists (a failed print) leaves the
 #                 record, and for a completion the claim, in place.
 #                 --excerpt-file resolves against the caller's directory.
 #   list          print every record of the run (every run when --run is
@@ -53,9 +54,9 @@
 #                 marked commits of <base>..<head>, then, unless
 #                 --checklist-only, when the run (default the latest run)
 #                 renders anything, a blank line and that render. <base> is
-#                 the PR base branch's current tip; the range is read along
-#                 <head>'s first parents, so commits a merge from the base
-#                 brought in never enter it.
+#                 the PR base branch's current tip, so commits a merge from
+#                 the base brought in are reachable from it and never enter
+#                 the range.
 #
 # Field grammar (write refuses a violation with exit 2, naming the field and
 # never echoing its value; no value is ever interpolated before it passes):
@@ -131,7 +132,7 @@
 # such ID, a `[pending-sign-off]` subject suffix (rendered with the ID
 # `legacy`, the suffix dropped). A marked commit drops out when a live commit
 # in the range carries git's revert line for it (`This reverts commit <sha>`
-# followed by `.`, `,`, or ` (`, the sha full or, as `--reference` writes it,
+# followed by `.`, `,`, ` (`, or the line's end, the sha full or, as `--reference` writes it,
 # abbreviated to a unique prefix in the range), a commit being live unless a
 # live revert undoes it; or when a live commit's `Planwright-Sign-Off-Rejected:`
 # trailer names its PS ID (a legacy entry has no ID a trailer can name).
@@ -182,8 +183,10 @@ set -f
 
 work=''
 pending=''
+done_claim=''
 cleanup() {
   [ -z "$pending" ] || rm -f "$pending"
+  [ -z "$done_claim" ] || rmdir "$done_claim" 2>/dev/null
   [ -z "$work" ] || rm -rf "$work"
 }
 trap cleanup EXIT
@@ -266,10 +269,9 @@ is_run_id() {
 clean() {
   tr '\t' ' ' <"$1" >"$2.0" || die 1 "cannot clean text"
   tr -d '\000-\010\013-\037\177' <"$2.0" >"$2.t" || die 1 "cannot clean text"
-  # iconv's status differs across platforms for dropped input, so judge its
-  # output: text that yields nothing at all did not convert.
+  # iconv's status differs across platforms when it drops input, so it is
+  # not read; its presence is checked once, at startup.
   iconv -c -f UTF-8 -t UTF-8 <"$2.t" >"$2.1" 2>/dev/null
-  { [ -s "$2.1" ] || [ ! -s "$2.t" ]; } || die 1 "cannot clean text"
   rm -f "$2.0" "$2.t"
   while :; do
     sed "$INVIS_SED" <"$2.1" >"$2.2" || die 1 "cannot clean text"
@@ -458,6 +460,7 @@ claim() {
   ln "$pending" "$path" || die 1 "cannot write to the record cache"
   rm -f "$pending"
   pending=''
+  done_claim=''
   printf '%s\n' "$path" || die 1 "cannot print the record path"
 }
 
@@ -530,6 +533,7 @@ cmd_write() {
       done <"$work/screened"
     } >"$work/body" || die 1 "cannot write a temporary file"
     mkdir "$cache/$run/.done-$point" 2>/dev/null || bad --point "already completed in this run"
+    done_claim="$cache/$run/.done-$point"
     claim "$run" "done-$point" completion "$work/body"
     return
   fi
@@ -806,7 +810,7 @@ cmd_regenerate() {
   nonce=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
   [ -n "$nonce" ] || nonce="$$-$(date +%s)"
   marker="@@planwright-commit-$nonce@@"
-  git -C "$worktree" -c core.abbrev=7 log --reverse --first-parent \
+  git -C "$worktree" -c core.abbrev=7 log --reverse \
     --format="$marker%n%H%n%h%n%P%n%s%n%(trailers:key=Planwright-Sign-Off,valueonly,unfold,separator=%x20)%n%(trailers:key=Planwright-Sign-Off-Rejected,valueonly,unfold,separator=%x20)%n%b" \
     "$base..$rhead" -- >"$work/log" 2>/dev/null \
     || die 1 "--base/--head: git cannot read the range"
@@ -901,6 +905,7 @@ cmd_regenerate() {
   fi
 }
 
+command -v iconv >/dev/null 2>&1 || die 1 "iconv is not on PATH"
 check_dir "$worktree/.claude"
 check_dir "$cache"
 if command -v git >/dev/null 2>&1 && [ -d "$cache" ]; then
