@@ -79,8 +79,8 @@ wait instead.
    `**Status:**` line in `requirements.md`. `Ready` (signed off, no work
    started) and `Active` (work in flight) are both executable; refuse
    Draft, Done, Retired, and Superseded. The spec file **stays `Ready`** during
-   execution: Ready↔Active is **derived, not stored** (D-2, D-3). On **Draft**, halt and suggest
-   `/spec-kickoff`; a terminal (Retired/Superseded) or Done spec has nothing to
+   execution: Ready↔Active is **derived, not stored** (D-2, D-3). On
+   **Draft**, halt and suggest `/spec-kickoff`; a terminal (Retired/Superseded) or Done spec has nothing to
    execute. A `Ready` spec runs on the same terms as Active: the freshness gate
    (step 7) still applies (REQ-C1.3); the two gates compose. There is no bypass
    flag.
@@ -298,8 +298,8 @@ judgment.
 
 ### Run the full project CI (REQ-E1.2)
 
-Run the `pre-ci` point, then the command derived in pre-flight step 9. The full suite must pass before
-convergence; capture its output.
+Run the `pre-ci` point, then the command derived in pre-flight step 9. The full
+suite must pass before convergence; capture its output.
 
 ### Adaptive CI-failure handling (REQ-E1.2, D-25)
 
@@ -337,8 +337,8 @@ handoff:
   checklist (prose-only sign-off fixes batch into one commit per loop iteration
   under `gate-wiring`'s commit discipline), and any queued
   Needs-human-judgment forks — into the PR body. A queued meaning-class spec
-  fork is `halted` and stops PR creation whatever the posture: contract drift, governed by the
-  meaning-class refusal below.
+  fork is `halted` and stops PR creation whatever the posture: contract drift,
+  governed by the meaning-class refusal below.
 - **Safety stop** (wider-suite failure, loop detection, iteration cap): `failed`;
   the branch may be known-broken, so open no PR over it.
 - **Hard-disqualifier finding** left unresolved: `halted`, for human direction.
@@ -374,8 +374,8 @@ classify the edit on the amendment axis:
 
 ## PR creation (REQ-E1.5, D-21)
 
-1. **Push the branch** after the `pre-pr` point: `git push origin <branch>` (with `-u` on first push).
-   New commits only — never force-push, amend, squash, or rebase (REQ-J1.4). On
+1. **Push the branch** after the `pre-pr` point: `git push origin <branch>`
+   (with `-u` on first push). New commits only — never force-push, amend, squash, or rebase (REQ-J1.4). On
    push or `gh` auth failure, degrade gracefully (REQ-K1.6, REQ-K1.7): the local
    work is committed; record an Awaiting-input note in `tasks.md` naming the
    pending step and the failure, surface it, and stop. Never retry into an opaque
@@ -401,9 +401,9 @@ classify the edit on the amendment axis:
    `post-pr` point, the PR number now in its context; after its list, re-emit
    the tables into the body, and if the head moved fetch and regenerate the
    checklist (`step-record.sh regenerate --base origin/<base> --head HEAD
-   --checklist-only`) and re-emit
-   the handoff; verify the PR is still a draft, else park naming the post-pr
-   steps (custom-steps REQ-E1.2). Earlier points never re-run.
+   --checklist-only`) and re-emit the handoff; verify the PR is still a draft,
+   else park naming the post-pr steps (custom-steps REQ-E1.2). Earlier points
+   never re-run.
 3. **Annotate the unit (v1 bundles only).** On a format-version 2 bundle no
    annotation exists to write — skip this step. Update only the task
    block's `- **Last activity:** <today>` annotation; write **no** `Status`
