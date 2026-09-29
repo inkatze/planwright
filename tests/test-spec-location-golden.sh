@@ -529,14 +529,30 @@ fi
 
 # Archived fragments keep their Consumed-by lines: a later consumption may add
 # one, a migration must not rewrite or drop one, nor remove the fragment.
-# A fragment with no Consumed-by line still gets a bare `<path> TAB` row, so
-# its removal shows too.
+# Every fragment also gets a bare `<path> TAB` row, so its removal shows
+# whether or not it carries a line, and a first consumption removes nothing.
 consumed_lines() {
   (cd "$1" && set -- specs/_observations/archive/*.md && [ -f "$1" ] \
-    && awk 'FNR == 1 { if (f != "" && !n) print f "\t"; f = FILENAME; n = 0 }
-      /^Consumed-by: / { print FILENAME "\t" $0; n++ }
-      END { if (f != "" && !n) print f "\t" }' "$@") | sort
+    && awk 'FNR == 1 { print FILENAME "\t" }
+      /^Consumed-by: / { print FILENAME "\t" $0 }' "$@") | sort
 }
+# On planted stores: a first consumption is not a loss, a removal is.
+for cl in was now gone; do mkdir -p "$tmp/cl-$cl/specs/_observations/archive"; done
+printf 'x\n' >"$tmp/cl-was/specs/_observations/archive/a.md"
+printf 'x\nConsumed-by: specs/demo (2026-01-01)\n' >"$tmp/cl-now/specs/_observations/archive/a.md"
+printf 'x\n' >"$tmp/cl-gone/specs/_observations/archive/b.md"
+consumed_lines "$tmp/cl-was" >"$tmp/cl-was.txt"
+if [ -z "$(consumed_lines "$tmp/cl-now" | comm -23 "$tmp/cl-was.txt" -)" ]; then
+  ok "bundles: a fragment's first Consumed-by line is not a loss"
+else
+  fail "bundles: a first consumption read as a lost line"
+fi
+if [ -n "$(consumed_lines "$tmp/cl-gone" | comm -23 "$tmp/cl-was.txt" -)" ]; then
+  ok "bundles: a removed fragment with no Consumed-by line is a loss"
+else
+  fail "bundles: a removed unconsumed fragment went unnoticed"
+fi
+
 consumed_lines "$tmp/at-baseline" >"$tmp/consumed.baseline"
 consumed_lines "$REPO_ROOT" >"$tmp/consumed.now"
 comm -23 "$tmp/consumed.baseline" "$tmp/consumed.now" >"$tmp/consumed.lost"
