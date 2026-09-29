@@ -439,6 +439,27 @@ else
   case $out in *"recorded probes differ from the baseline"*) ok "comparator: a recording missing a probe fails" ;; *) fail "comparator: missing probe misreported: $out" ;; esac
 fi
 
+# nr <label> <want> <changes-dir> <actual> — expect a failing replay whose
+# report carries <want>.
+nr() {
+  if out=$(golden_replay "$planted/baseline.txt" "$3" "$planted/registry.tsv" "$4"); then
+    fail "comparator: $1 passed"
+  else
+    case $out in *"$2"*) ok "comparator: $1 fails" ;; *) fail "comparator: $1 misreported: $out" ;; esac
+  fi
+}
+printf '@@ a primary\none\n@@ a primary\none\n@@ b primary\ntwo\n' >"$planted/dup.txt"
+nr "a duplicate record" "duplicate record a primary" "$planted/no-changes" "$planted/dup.txt"
+printf '@@ a primary\none\n@@ b primary\ntwo\n@@ c primary\nx\n' >"$planted/extra.txt"
+nr "a recording with an extra probe" "recorded probes differ from the baseline" "$planted/no-changes" "$planted/extra.txt"
+rm -rf "$planted/odd-changes"
+mkdir -p "$planted/odd-changes"
+printf '@@ a primary\nONE\n' >"$planted/odd-changes/task-3.txt"
+nr "a set entry without its correction" "header needs 3 fields" "$planted/odd-changes" "$planted/a-changed.txt"
+rm -f "$planted/odd-changes/task-3.txt"
+printf '@@ a primary fix-a\nONE\n' >"$planted/odd-changes/task-5.txt"
+nr "a set declaring another task's correction" "which the registry assigns to 3" "$planted/odd-changes" "$planted/a-changed.txt"
+
 # --- The probes -------------------------------------------------------------
 
 # The bundle half shares nothing with the probes, so it runs beside them.
