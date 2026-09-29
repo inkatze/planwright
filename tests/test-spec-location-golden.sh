@@ -125,7 +125,13 @@ today_local=$(date +%Y-%m-%d)
 normalize() {
   NZ_WT=$1/primary/.claude/worktrees/wt NZ_PRIMARY=$1/primary NZ_INSTALL=$REPO_ROOT \
     NZ_TMP=$1 NZ_TODAY_U=$today_utc NZ_TODAY_L=$today_local awk '
+    function now(flag,   cmd, d) {
+      cmd = "date " flag " +%Y-%m-%d"; d = ""
+      cmd | getline d; close(cmd)
+      return d
+    }
     function lit(s, from, to,   out, i) {
+      if (from == "") return s
       out = ""
       while ((i = index(s, from)) > 0) { out = out substr(s, 1, i - 1) to; s = substr(s, i + length(from)) }
       return out s
@@ -136,6 +142,9 @@ normalize() {
       s = lit(s, ENVIRON["NZ_WT"], "<WORKTREE>"); s = lit(s, ENVIRON["NZ_PRIMARY"], "<PRIMARY>")
       s = lit(s, ENVIRON["NZ_INSTALL"], "<INSTALL>"); s = lit(s, ENVIRON["NZ_TMP"], "<TMP>")
       s = lit(s, ENVIRON["NZ_TODAY_U"], "<TODAY>"); s = lit(s, ENVIRON["NZ_TODAY_L"], "<TODAY>")
+      # A line stamped after midnight carries the date the line was written,
+      # which lies between the start date and now.
+      if (s ~ /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) { s = lit(s, now("-u"), "<TODAY>"); s = lit(s, now(""), "<TODAY>") }
       gsub(/-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\.md/, "-<UID>.md", s)
       gsub(/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/, "<SHA>", s)
       print s
@@ -438,6 +447,14 @@ if out=$(replay "$planted/missing.txt"); then
 else
   case $out in *"recorded probes differ from the baseline"*) ok "comparator: a recording missing a probe fails" ;; *) fail "comparator: missing probe misreported: $out" ;; esac
 fi
+
+# A date stamped after midnight still normalizes: the recording can outlast
+# the day it started on.
+nz_u=$today_utc nz_l=$today_local
+today_utc=1999-01-01 today_local=1999-01-01
+got=$(printf 'x %s\n' "$(date -u +%Y-%m-%d)" | normalize "$tmp/none")
+today_utc=$nz_u today_local=$nz_l
+if [ "$got" = "x <TODAY>" ]; then ok "normalize: a date stamped after the run started is today"; else fail "normalize: a later date stayed literal: $got"; fi
 
 # nr <label> <want> <changes-dir> <actual> — expect a failing replay whose
 # report carries <want>.
