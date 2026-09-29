@@ -578,6 +578,8 @@ printf '%s\n' "$b" | grep -q "specs/_flights/$fid.md" || fail "file-home brief m
 printf '%s\n' "$b" | grep -qi "do not push" || fail "file-home brief must not push"
 printf '%s\n' "$b" | grep -Fq "flight-record.sh' land --flight-id $fid" \
   || fail "a file-home brief must land the record through flight-record.sh"
+printf '%s\n' "$b" | grep "flight-record.sh' land " | grep -Fq -- "--record-path 'specs/_flights/$fid.md'" \
+  || fail "a file-home brief must pass the record path it computed to flight-record.sh"
 printf '%s\n' "$b" | grep -q 'render --home pr' && fail "a file-home brief must not render a PR body"
 # The land line the brief prints lands the record when run as written.
 rd="$(dirname "$(field "$OUT" brief)")/record"

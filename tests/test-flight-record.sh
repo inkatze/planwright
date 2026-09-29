@@ -22,11 +22,14 @@
 #      token-shaped secret is refused, and an audit missing a contract element
 #      is refused naming it.
 #   5. A PR-home record over GitHub's body limit is refused, not truncated.
-#   6. The no-remote arm (`land`) commits exactly one record file,
-#      `specs/_flights/<id>.md`, on the flight's own branch, and refuses a
-#      second record, the wrong branch, a symlinked specs path, a root other
-#      than the worktree's top level, or an index holding other changes; a
-#      commit the hooks refuse leaves nothing behind.
+#   6. The no-remote arm (`land`) commits exactly one record file, at the
+#      path its caller passes (`--record-path`, required: repo-relative or
+#      absolute inside the worktree, named `<id>.md`, no control bytes, no
+#      `.`/`..`/`.git` segment), on the flight's own branch, and refuses a
+#      missing or malformed path, a second record, the wrong branch, a
+#      symlinked directory on the path, a root other than the worktree's top
+#      level, or an index holding other changes; a commit the hooks refuse
+#      leaves nothing behind. The file home's render names the passed path.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -u
@@ -127,11 +130,21 @@ EOF
 
 # run_render <home|none> [overrides...], and run_land [overrides...] below,
 # set OUT, ERR, RC. A later flag overrides an earlier one, so a case names only
-# what it changes.
+# what it changes. The file home gets the default record path for the flight
+# id in effect, ahead of the overrides, so a case can still replace it.
 defaults() {
   args=(--flight-id "$FID" --ask-file "$in/ask.txt" --grounds-file "$in/grounds.txt"
     --summary-file "$in/summary.md" --verification-file "$in/verification.md"
     --audit-file "$in/audit.md" --handle "$HANDLE")
+}
+with_record_path() {
+  _id=$FID
+  _prev=''
+  for _a in "$@"; do
+    [ "$_prev" = --flight-id ] && _id=$_a
+    _prev=$_a
+  done
+  args+=(--record-path "specs/_flights/$_id.md")
 }
 run_render() {
   defaults
@@ -141,6 +154,7 @@ run_render() {
   else
     _home=$1
     shift
+    [ "$_home" = file ] && with_record_path "$@"
     set -- render --home "$_home" "${args[@]}" "$@"
   fi
   OUT=$(/bin/sh "$SCRIPT" "$@" 2>"$tmp/err")
@@ -526,6 +540,11 @@ work_head=$(git -C "$repo" rev-parse HEAD)
 
 run_land() {
   defaults
+  with_record_path "$@"
+  run_land_bare "$@"
+}
+# run_land_bare — land with no default record path.
+run_land_bare() {
   OUT=$(cd "$repo" && GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid \
     GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid \
     /bin/sh "$SCRIPT" land "${args[@]}" "$@" 2>"$tmp/err")
@@ -556,6 +575,58 @@ run_land
 
 run_land --home pr
 [ "$RC" -eq 2 ] || fail "land is the file home only: --home must be refused with 2 (got $RC)"
+
+# The caller passes the record path: land has no default, and refuses a path
+# that could leave the checkout, reach .git, or misname the record.
+REQ=reqpath-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$REQ" main
+req_head=$(git -C "$repo" rev-parse HEAD)
+defaults
+run_land_bare --flight-id "$REQ"
+[ "$RC" -eq 2 ] || fail "land without --record-path must be refused with 2 (got $RC)"
+printf '%s\n' "$ERR" | grep -q -- '--record-path is required' || fail "the refusal must name --record-path: $ERR"
+cr=$(printf 'a\033b')
+for bad in "../escape/$REQ.md" "specs/../../$REQ.md" "specs/./$REQ.md" "specs//$REQ.md" \
+  ".git/$REQ.md" "specs/.git/$REQ.md" "specs/.GIT/$REQ.md" "specs/_flights/other.md" "specs/_flights/$REQ" \
+  "specs/$cr/$REQ.md" "specs/a b/$REQ.md" "specs/-x/$REQ.md" "specs/_flights/$REQ.md/" \
+  "$tmp/outside-root/$REQ.md" "$tmp/repo-sibling/$REQ.md"; do
+  run_land --flight-id "$REQ" --record-path "$bad"
+  [ "$RC" -eq 2 ] || fail "land must refuse --record-path '$bad' with 2 (got $RC)"
+done
+[ "$(git -C "$repo" rev-parse HEAD)" = "$req_head" ] || fail "a refused record path must commit nothing"
+[ -z "$(git -C "$repo" status --porcelain)" ] || fail "a refused record path must write nothing"
+[ -e "$tmp/outside-root" ] && fail "a refused record path wrote outside the checkout"
+
+# The record lands where the caller says, repo-relative or absolute inside the
+# worktree, and the record names that path as its home.
+run_land --flight-id "$REQ" --record-path "records/flights/$REQ.md"
+[ "$RC" -eq 0 ] || fail "land at a passed relative path exited $RC: $ERR"
+[ "$(git -C "$repo" show --name-only --format= HEAD)" = "records/flights/$REQ.md" ] \
+  || fail "land must commit the record at the passed path"
+printf '%s\n' "$OUT" | grep -qx "record	records/flights/$REQ.md" || fail "land must report the passed path: $OUT"
+git -C "$repo" show "HEAD:records/flights/$REQ.md" | grep -qF "\`records/flights/$REQ.md\`, committed on" \
+  || fail "the landed record must name the passed path as its home"
+ABS=abspath-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$ABS" main
+run_land --flight-id "$ABS" --record-path "$repo/specs/_flights/$ABS.md"
+[ "$RC" -eq 0 ] || fail "land at an absolute path inside the worktree exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -qx "record	specs/_flights/$ABS.md" || fail "an absolute path must be reported repo-relative: $OUT"
+[ "$(git -C "$repo" show --name-only --format= HEAD)" = "specs/_flights/$ABS.md" ] \
+  || fail "an absolute path must commit the record at its repo-relative place"
+gitc "$repo" checkout -q "planwright/flight/$FID"
+
+# The file home's render names the passed path; the pr home takes none.
+run_render file --record-path "records/$FID.md"
+[ "$RC" -eq 0 ] || fail "render --home file with a passed path exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -qF "\`records/$FID.md\`, committed on" || fail "render must name the passed path"
+defaults
+OUT=$(/bin/sh "$SCRIPT" render --home file "${args[@]}" 2>"$tmp/err")
+RC=$?
+[ "$RC" -eq 2 ] || fail "render --home file without --record-path must be refused with 2 (got $RC)"
+run_render file --record-path "$repo/specs/_flights/$FID.md"
+[ "$RC" -eq 2 ] || fail "render takes a repo-relative record path only (got $RC)"
+run_render pr --record-path "specs/_flights/$FID.md"
+[ "$RC" -eq 2 ] || fail "render --home pr must refuse --record-path with 2 (got $RC)"
 
 # Each existing-record guard holds on its own: in HEAD only, on disk only.
 rm "$repo/specs/_flights/$FID.md"

@@ -29,20 +29,27 @@
 # footnote definition; markup_hazard below is the full rule).
 #
 # Usage:
-#   flight-record.sh render --home pr|file <inputs>
+#   flight-record.sh render --home pr|file <inputs> [--record-path <path>]
 #       Print the record. A `pr` record larger than GitHub's PR-body limit is
 #       refused (exit 3) and nothing is printed: a truncated record would drop
-#       the contract's tail.
-#   flight-record.sh land <inputs> [--repo-root <dir>]
+#       the contract's tail. The `file` home requires --record-path, the
+#       repo-relative path the record names as its home; `pr` refuses it.
+#   flight-record.sh land <inputs> --record-path <path> [--repo-root <dir>]
 #       The no-remote arm, run in the flight's worktree (or at its top level
-#       via --repo-root): write the `file` record to
-#       `specs/_flights/<flight-id>.md` and commit that one file on the
-#       flight's own branch, reporting `record<TAB><path>` and
-#       `commit<TAB><sha>`. Refused (exit 3, nothing written) off the branch
-#       `planwright/flight/<flight-id>`, when the record already exists, when
-#       `specs/` or `specs/_flights/` is a symlink or not a directory, or when
-#       the index holds other staged changes. A commit git or its hooks refuse
-#       takes the record back out of the index and the worktree (exit 4).
+#       via --repo-root): write the `file` record to the record path and
+#       commit that one file on the flight's own branch, reporting
+#       `record<TAB><repo-relative path>` and `commit<TAB><sha>`. Refused
+#       (exit 3, nothing written) off the branch `planwright/flight/<flight-id>`,
+#       when the record already exists, when a directory on the record path is
+#       a symlink or not a directory, or when the index holds other staged
+#       changes. A commit git or its hooks refuse takes the record back out of
+#       the index and the worktree (exit 4).
+#
+#   The caller chooses the record path (flight-dispatch.sh computes it), so
+#   this script composes no spec-home path of its own. It is repo-relative,
+#   or absolute and inside the worktree; its file is `<flight-id>.md`, and it
+#   is refused (exit 2) when it carries a byte outside [A-Za-z0-9._/-], an
+#   empty, `.`, `..`, `.git`, or dash-led segment, or a trailing slash.
 #
 #   <inputs>, a later flag overriding an earlier one:
 #     --flight-id <id>            grammar-checked by scripts/flight-id.sh
@@ -69,7 +76,7 @@
 #
 # Exit codes: 0 rendered or landed · 2 usage or an input refused · 3 refused
 # by state (over the PR-body limit; for land, the branch, an existing record,
-# a symlinked or non-directory specs path, or a staged index) · 4 an
+# a symlinked or non-directory directory on the record path, or a staged index) · 4 an
 # environment failure (a missing helper, a sanitizer, the secret screen, or git
 # could not run, or refused the record commit).
 #
@@ -122,7 +129,8 @@ die() {
 usage() {
   cat >&2 <<'EOF'
 usage: flight-record.sh render --home pr|file <inputs>
-       flight-record.sh land <inputs> [--repo-root <dir>]
+       flight-record.sh land <inputs> --record-path <path> [--repo-root <dir>]
+       (render --home file takes --record-path too)
 inputs: --flight-id <id> --ask-file <f> --grounds-file <f> --summary-file <f>
         --verification-file <f> --audit-file <f> --handle <h>
         [--scoping-file <f>] [--revert-file <f>]
@@ -338,6 +346,21 @@ pending_ids() {
     | awk '!seen[$0]++' | tr '\n' ',' | sed 's/,$//;s/,/, /g'
 }
 
+RECORD_RULE="refusing --record-path: it must be repo-relative (or absolute inside the worktree), end in the file <flight-id>.md, and carry only [A-Za-z0-9._/-] with no empty, '.', '..', '.git', or dash-led segment"
+
+# record_ok <rel> — the repo-relative record path is well-formed and names
+# this flight's record.
+record_ok() {
+  case $1 in
+    '' | /* | */) return 1 ;;
+    *[!A-Za-z0-9._/-]*) return 1 ;;
+  esac
+  case /$1/ in
+    *//* | */./* | */../* | */.[Gg][Ii][Tt]/* | */-*) return 1 ;;
+  esac
+  [ "${1##*/}" = "$flight_id.md" ]
+}
+
 # render_to <out> — write the record for $home.
 # shellcheck disable=SC2016 # the backticks are Markdown code spans
 render_to() {
@@ -372,7 +395,7 @@ render_to() {
     if [ "$home" = pr ]; then
       printf 'The draft PR body of `%s`, declared at routing time.\n' "$branch"
     else
-      printf '`specs/_flights/%s.md`, committed on `%s`, declared at routing time.\n' "$flight_id" "$branch"
+      printf '`%s`, committed on `%s`, declared at routing time.\n' "$record_rel" "$branch"
     fi
     printf '\n### Rigor scoping\n\n'
     if [ -n "$scoping_file" ]; then
@@ -416,6 +439,8 @@ handle=''
 scoping_file=''
 revert_file=''
 repo_root=''
+record_path=''
+record_given=0
 while [ $# -gt 0 ]; do
   [ $# -ge 2 ] || usage
   case $1 in
@@ -433,6 +458,10 @@ while [ $# -gt 0 ]; do
     --scoping-file) scoping_file=$2 ;;
     --revert-file) revert_file=$2 ;;
     --repo-root) repo_root=$2 ;;
+    --record-path)
+      record_path=$2
+      record_given=1
+      ;;
     *) usage ;;
   esac
   shift 2
@@ -448,6 +477,11 @@ else
   esac
   [ -z "$repo_root" ] || die 2 "--repo-root is a land option"
 fi
+if [ "$home" = file ]; then
+  [ -n "$record_path" ] || die 2 "--record-path is required for the file home: the caller chooses where the record lands"
+else
+  [ "$record_given" -eq 0 ] || die 2 "--record-path names the file home's record; a pr record lives in the PR body"
+fi
 for _req in flight-id:"$flight_id" ask-file:"$ask_file" grounds-file:"$grounds_file" \
   summary-file:"$summary_file" verification-file:"$verification_file" \
   audit-file:"$audit_file" handle:"$handle"; do
@@ -455,6 +489,15 @@ for _req in flight-id:"$flight_id" ask-file:"$ask_file" grounds-file:"$grounds_f
 done
 /bin/sh "$FLIGHT_ID" check "$flight_id" 2>/dev/null </dev/null || die 2 "refusing a malformed flight id"
 branch=planwright/flight/$flight_id
+record_rel=''
+if [ "$home" = file ]; then
+  [ "${#record_path}" -le 1024 ] || die 2 "refusing an over-long --record-path"
+  case $record_path in
+    /*) [ "$cmd" = land ] || die 2 "render takes a repo-relative --record-path" ;;
+    *) record_ok "$record_path" || die 2 "$RECORD_RULE" ;;
+  esac
+  record_rel=$record_path
+fi
 case $handle in
   *[!A-Za-z0-9._:-]* | [!A-Za-z0-9]*) die 2 "refusing a malformed worker handle (expected [A-Za-z0-9._:-])" ;;
 esac
@@ -525,16 +568,36 @@ fi
 [ -d "$repo_root" ] || die 2 "--repo-root is not a directory"
 _top=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || die 4 "--repo-root is not inside a git worktree"
 [ "$(cd "$repo_root" && pwd -P)" = "$(cd "$_top" && pwd -P)" ] \
-  || die 2 "--repo-root must be the worktree's top level ($_top), where specs/_flights/ lives"
+  || die 2 "--repo-root must be the worktree's top level ($_top), which the record path is relative to"
+case $record_path in
+  /*)
+    _phys=$(cd "$repo_root" && pwd -P) || die 4 "cannot resolve --repo-root"
+    case $record_path in
+      "$_phys"/*) record_rel=${record_path#"$_phys"/} ;;
+      "$repo_root"/*) record_rel=${record_path#"$repo_root"/} ;;
+      *) die 2 "refusing --record-path: it is outside the worktree ($_phys)" ;;
+    esac
+    record_ok "$record_rel" || die 2 "$RECORD_RULE"
+    ;;
+esac
 _head=$(git -C "$repo_root" symbolic-ref -q HEAD 2>/dev/null) || _head=''
 [ "$_head" = "refs/heads/$branch" ] \
   || die 3 "land runs on the flight's own branch, $branch; nothing was written"
-for _dir in specs specs/_flights; do
+rel=$record_rel
+_dir=''
+_rest=${rel%/*}
+[ "$_rest" != "$rel" ] || _rest=''
+while [ -n "$_rest" ]; do
+  _seg=${_rest%%/*}
+  _dir=${_dir:+$_dir/}$_seg
   if [ -L "$repo_root/$_dir" ] || { [ -e "$repo_root/$_dir" ] && [ ! -d "$repo_root/$_dir" ]; }; then
     die 3 "$_dir is a symlink or not a directory; the record is written inside the checkout only; nothing was written"
   fi
+  case $_rest in
+    */*) _rest=${_rest#*/} ;;
+    *) _rest='' ;;
+  esac
 done
-rel=specs/_flights/$flight_id.md
 if [ -e "$repo_root/$rel" ] || [ -L "$repo_root/$rel" ] \
   || git -C "$repo_root" cat-file -e "HEAD:$rel" 2>/dev/null; then
   die 3 "$rel already exists: one flight, one record; nothing was written"
@@ -548,7 +611,9 @@ case $_drc in
 esac
 
 render_to "$work/record.md" || die 4 "cannot write the record"
-mkdir -p "$repo_root/specs/_flights" || die 4 "cannot create specs/_flights"
+case $rel in
+  */*) mkdir -p "$repo_root/${rel%/*}" || die 4 "cannot create ${rel%/*}" ;;
+esac
 cp "$work/record.md" "$repo_root/$rel" || die 4 "cannot write $rel"
 if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
   || ! git -C "$repo_root" commit -q -m "docs(flight): record flight $flight_id" -- "$rel" >>"$work/git.err" 2>&1; then
