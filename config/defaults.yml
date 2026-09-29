@@ -247,6 +247,25 @@ fleet_daemon_pause: false
 # reconcile-backstop pass (REQ-A1.8) are not tunable here — only the grace is.
 fleet_dirty_tree_threshold: 15m
 
+# How often `scripts/fleet-sweep.sh --watch` runs a sweep cycle: the worktree
+# scan, the dirty-tree pass, the reconcile backstop, and the process reap
+# (fleet-lifecycle-closure D-5, REQ-F1.1). The schedule is the sweep's only
+# trigger; nothing waits for a count to look alarming. A duration (`90s`,
+# `10m`, `1h`) resolved through the shared knob resolver on every cycle, so an
+# overlay edit applies without restarting the loop; a malformed value follows
+# the by-layer policy.
+fleet_sweep_interval: 10m
+
+# Whether the sweep's process reap terminates leaked workers or only records
+# what it would have closed (fleet-lifecycle-closure D-14, REQ-F1.6).
+# `observe` writes a `would-cleanup` audit record per worker a close would take
+# and kills nothing; `terminate` closes them through fleet-cleanup.sh process.
+# `terminate` is honored only from the machine-local layer: set in the core,
+# adopter, or repo-tracked layer it is refused with a warning and the sweep
+# observes, so promoting the reaper is a per-machine decision. Setting it back
+# to `observe` (or removing it) takes effect on the next cycle.
+fleet_sweep_reap: observe
+
 # Push-based worker liveness: the five-state classifier and crash-loop
 # backoff (fleet-autonomy D-1, D-2, D-3; REQ-A1.2, REQ-A1.4). All four
 # resolve through the shared knob resolver (scripts/resolve-config-knob.sh

@@ -214,7 +214,9 @@ record_vantage() {
   probe walkthrough "$S/spec-walkthrough.sh" --scope tasks specs/demo
   probe headless-status "$S/fleet-dispatch-headless.sh" status demo 1
   probe flight-id sh -c '"$1" branch fixture-1a2b3c4d && "$1" taken fixture-1a2b3c4d' sh "$S/flight-id.sh"
-  probe sweep "$S/fleet-sweep.sh" --repo "$rv_dir"
+  # Stderr and the exit only: stdout is the cycle report the sweep gained after
+  # this capture, which names no path.
+  probe sweep sh -c '"$1" --repo "$2" >/dev/null' sh "$S/fleet-sweep.sh" "$rv_dir"
   probe lock sh -c '"$1" acquire specs/demo && find specs -name "*.lock*" && "$1" release specs/demo' \
     sh "$S/orchestrate-lock.sh"
   probe marker sh -c '"$1" write specs/demo 1 && find specs -path "*/markers/*" && "$1" clear specs/demo 1' \

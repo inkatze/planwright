@@ -9,11 +9,8 @@
 # `WorktreeCreate` contract below — so a worktree created outside a dispatch
 # seam is picked up by the `git worktree list` DISK SCAN (`scan`) instead, the
 # same graceful-degradation fallback D-7 requires for a backend that cannot
-# register hooks at all. NOTE: in this task
-# `scan` ships as a MANUAL CLI; it is not yet wired to run periodically (the
-# housekeeping sweep reads the registry via `list`, not `scan`), so the
-# self-healing floor is only as current as the last `scan` invocation until that
-# wiring lands (a tracked follow-up).
+# register hooks at all. The periodic sweep (fleet-sweep.sh) runs `scan` at the
+# start of every cycle, so the registry heals without anyone invoking it.
 #
 # THE CORRECTED `WorktreeCreate` CONTRACT, AND WHY NOTHING HERE REGISTERS IT.
 # The contract this script once carried was wrong, and the error was expensive:
@@ -155,9 +152,24 @@ resolve_home() {
 LOCK_MAX_TRIES=1000
 
 HOLD_LOCK=0
-trap 'release_lock' EXIT
+# The temps are created beside the registry, so one a signal strands would sit
+# in the fleet home for good; the traps remove whichever are in flight. The
+# signals re-`exit` so the EXIT cleanup runs under every shell.
+sc_git=""
+sc_new=""
+sc_uniq=""
+rl_tmp=""
+dr_new=""
+# shellcheck disable=SC2329 # invoked from the EXIT trap
+remove_temps() {
+  for rt_f in "$sc_git" "$sc_new" "$sc_uniq" "$rl_tmp" "$dr_new"; do
+    [ -z "$rt_f" ] || rm -f "$rt_f" 2>/dev/null
+  done
+}
+trap 'release_lock; remove_temps' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt "$LOCK_MAX_TRIES" ]; do
@@ -207,6 +219,7 @@ rewrite_locked() {
     mv -f "$rl_tmp" "$REG" || rl_rc=2
   fi
   [ "$rl_rc" = 0 ] || rm -f "$rl_tmp" 2>/dev/null
+  rl_tmp=""
   return "$rl_rc"
 }
 

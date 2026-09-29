@@ -112,7 +112,7 @@
 #                           caller must refuse to treat this as death
 #       5  absent           no dispatch record for this unit
 #   fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>]
-#       [--expect-dir <dir>]
+#       [--expect-dir <dir>] [--observe]
 #     Close the worker named by its handle (`headless-<spec>-task-<id>`, the
 #     handle `launch` prints): terminate the runner and everything under it,
 #     SIGTERM then SIGKILL after the grace, and release its scratch temp and
@@ -128,7 +128,9 @@
 #     writes when it is terminated gracefully; a unit whose run had already
 #     ended keeps its own record, a `died` verdict included. The runner's pid
 #     file seeds a close only on a host whose `ps` truncates argv, and never
-#     once the unit carries a record.
+#     once the unit carries a record. --observe is the same verb's
+#     release-nothing form, as on the stream-json rung:
+#     `stop <worker> would-release=<classes>` or `stop <worker> already-closed`.
 #   (run-worker is the internal detached-runner entry point, not an API.)
 #
 # Exit codes: launch 0 dispatched; 2 usage / refused input (hostile token, an
@@ -179,7 +181,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: fleet-dispatch-headless.sh launch <spec> <id> --worktree <dir> [--repo-root <dir>] [-- <extra claude args>...]
        fleet-dispatch-headless.sh status <spec> <id> [--repo-root <dir>]
-       fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>]
+       fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]
 (prompt text on stdin for launch)
 EOF
   exit 2
@@ -1027,8 +1029,13 @@ do_stop() {
   t_repo_root=''
   t_expect=''
   t_grace=$grace_default
+  t_observe=0
   while [ "$#" -gt 0 ]; do
     case $1 in
+      --observe)
+        t_observe=1
+        shift
+        ;;
       --repo-root)
         [ "$#" -ge 2 ] || usage
         t_repo_root=$2
@@ -1094,6 +1101,10 @@ do_stop() {
   t_launched=$(stop_marker "$unit_dir")
   t_record_unwritten=0
   t_root=$(/bin/sh "$FS" root) || exit 2
+  if [ "$t_observe" = 1 ]; then
+    stop_observe "$unit_dir" "$t_worker" "$t_root/attention/state"
+    return
+  fi
   stop_walk "$unit_dir" "$t_worker" "$t_root/attention/state" "$t_grace"
 }
 

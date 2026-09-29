@@ -191,7 +191,7 @@
 #       attention item + notify push. The outcome is operator escalation on
 #       the attention surface — never an auto-answer, never a worker kill.
 #       Prints `alarm <worker> <id> <age>` per firing.
-#   fleet-streamjson.sh stop <worker> [--grace <secs>]
+#   fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]
 #       Close the worker: terminate its process tree and release the locks,
 #       scratch temp, and attention record it holds. Prints one of
 #       `stop <worker> stopped released=<classes>`,
@@ -207,6 +207,10 @@
 #       An unknown handle is exit 2, not `already-closed`, so a typo never
 #       reads as a successful close, and a close asked for from inside the
 #       worker's own process tree is refused with exit 3 rather than attempted.
+#       --observe runs the same checks and probes and releases nothing, printing
+#       `stop <worker> would-release=<classes>` for what a close would take now,
+#       or `stop <worker> already-closed`; the periodic sweep's observing mode
+#       records its would-have close from this.
 #   fleet-streamjson.sh status <worker>
 #       Print `status <worker> <running|awaiting-input|completed|ended|dead|
 #       unknown> <detail>` from the recorded pids, the receipt journal and the
@@ -355,7 +359,7 @@ usage() {
     echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
     echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
-    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>]"
+    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]"
     echo "       fleet-streamjson.sh status <worker>"
   } >&2
   exit 2
@@ -2060,12 +2064,17 @@ cmd_stop() {
     exit 2
   }
   grace=$grace_default
+  observe=0
   while [ $# -gt 0 ]; do
     case $1 in
       --grace)
         [ $# -ge 2 ] || usage
         grace=$2
         shift 2
+        ;;
+      --observe)
+        observe=1
+        shift
         ;;
       *)
         usage
@@ -2093,6 +2102,10 @@ cmd_stop() {
   stop_refuse_self_hosted "$dir" "$(stop_match "$worker" "$dir")" \
     "$stop_pidfiles" "$worker"
   st_root=$(/bin/sh "$FS" root) || exit 2
+  if [ "$observe" = 1 ]; then
+    stop_observe "$dir" "$worker" "$st_root/attention/state"
+    return
+  fi
   stop_walk "$dir" "$worker" "$st_root/attention/state" "$grace"
 }
 
