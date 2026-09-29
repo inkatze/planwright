@@ -113,7 +113,11 @@ _gr_replay() {
         gr_fail=1
         continue
       fi
-      cp "$gr_work/set-$gr_id/$gr_probe@$gr_vantage" "$gr_work/expected/$gr_probe@$gr_vantage"
+      cp "$gr_work/set-$gr_id/$gr_probe@$gr_vantage" "$gr_work/expected/$gr_probe@$gr_vantage" || {
+        echo "golden-replay: could not apply task $gr_id's $gr_probe $gr_vantage"
+        gr_fail=1
+        continue
+      }
       printf '%s %s\n' "$gr_id" "$gr_corr" >>"$gr_work/used"
     done <"$gr_work/set-$gr_id.keys"
   done <"$gr_work/sets.sorted"

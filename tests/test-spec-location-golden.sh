@@ -305,6 +305,17 @@ else
   case $out in *"a primary differs"*) ok "comparator: a declared change that did not happen fails" ;; *) fail "comparator: undelivered change misreported: $out" ;; esac
 fi
 
+# A declared override that cannot be applied fails, rather than leaving the
+# baseline's body as the expected output.
+mkdir -p "$tmp/cp-shim"
+printf '#!/bin/sh\nexit 1\n' >"$tmp/cp-shim/cp"
+chmod +x "$tmp/cp-shim/cp"
+if out=$(PATH="$tmp/cp-shim:$PATH" replay "$planted/same.txt"); then
+  fail "comparator: an override that could not be applied passed"
+else
+  case $out in *"could not apply task 3's a primary"*) ok "comparator: an override that cannot be applied fails" ;; *) fail "comparator: failed override misreported: $out" ;; esac
+fi
+
 printf '# declares nothing\n' >"$planted/changes/task-5.txt"
 if out=$(replay "$planted/a-changed.txt"); then
   fail "comparator: a declared set omitting its correction passed"
