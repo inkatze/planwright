@@ -446,6 +446,12 @@ EOF
   expect 2 "a failing awk pass $n fails closed" "could not complete"
 done
 
+# An array may close on its last element's line; what follows is not a run value.
+fixture
+printf '\n[tasks.arr]\nrun = [\n  "echo a",\n  "echo b"]\ndescription = "about specs/ dirs"\n' >>"$tmp/r/mise.toml"
+run
+expect 0 "a run array closing on its last element ends there"
+
 # A static glob lives only where a tool reads patterns statically.
 fixture
 printf 'd=$r/specs/x\n' >>"$tmp/r/scripts/a.sh"

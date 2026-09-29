@@ -245,7 +245,7 @@ scan='
       n++
       if (close_delim == "]") {
         check(rel, n, line, line, 1)
-        if (trim(line) ~ /^\]/) close_delim = ""
+        if (trim(line) ~ /^\]/ || code(trim(line)) ~ /\][ \t]*$/) close_delim = ""
         continue
       }
       if (close_delim != "") {
