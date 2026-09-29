@@ -308,6 +308,33 @@ router has not demonstrated (REQ-B1.6).
   it (fix that fixture on its branch, or record the hit in a gitleaks ignore
   on `main`); then re-run this PR's CI, which has not yet reached its tests.
 
+- **Task 7** — the shared flight sweep (`scripts/flight-sweep.sh`) is built,
+  tested, and converged over three review passes on its local branch; no PR
+  was opened. Convergence stopped for two reasons that need a decision.
+  1. A fix undid an earlier one. The second pass narrowed when the fleet
+     cleanup sweep retires flight briefs, and in doing so brought back a
+     problem the first pass had fixed: in every checkout it visits, it takes
+     the flight lock and leaves a lock directory, including checkouts that
+     never flew. Recommended fix, not applied: retire only where a brief
+     names this checkout, and test that a checkout that never flew is left
+     untouched. Choose: apply that fix and resume convergence, or direct
+     another shape.
+  2. Three security-sensitive fixes the review may not apply on its own.
+     (a) The sweep reads the fleet registry and decision queue before
+     checking that the fleet home is private to the user, so another local
+     user's rows could change what it reports. Recommended fix: resolve and
+     check the home first. (b) The sweep does not resolve the fleet home as
+     dispatch does: a symlinked home is refused, and a relative one puts the
+     index under the working directory, inside a checkout when the hook runs
+     it. Recommended fix: canonical, absolute, private, checked before
+     anything is created. (c) Deleting a vanished checkout's index in
+     `prune` lacks the guards the brief sweep has. A newline in a file name
+     is not refused, and paths are not checked to stay under the index
+     directory. A failed removal is silent, two concurrent runs can both
+     report one removal, and leaked temp files are never collected.
+     Recommended fix: the brief sweep's guards, a named failure, and
+     removal by rename.
+
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
