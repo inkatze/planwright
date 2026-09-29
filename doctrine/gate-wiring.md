@@ -99,9 +99,9 @@ rule as it reads after.
 A sign-off commit carries `Planwright-Sign-Off: PS-<n>` as a git trailer,
 stamped through `scripts/planwright-commit-trailers.sh`, under a plain
 conventional subject. `PS-<n>` is the branch's next free id, written once at
-commit time and never recomputed from commit order. A later commit carrying
-`Planwright-Sign-Off-Rejected: PS-<n>` rejects that one item where a plain
-revert cannot (one finding of a commit several findings share, or a merge
+commit time and never recomputed from commit order. A later commit, a partial
+revert included, carrying `Planwright-Sign-Off-Rejected: PS-<n>` rejects that
+item where a plain revert cannot (one finding of a shared commit, or merge
 resolution).
 
 **Branch-scoped consumption.** The trailer's sole consumer is the checklist
