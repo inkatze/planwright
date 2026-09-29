@@ -503,8 +503,14 @@ handle_operator() { # handle_operator <raw>
     " go " | " go ahead ")
       if [ -z "$signed_spec" ]; then
         say "Go on what? No signed spec in this conversation to orchestrate."
-      elif jq -e -s --arg s "$signed_spec" 'any(.[]; .type == "orchestrated" and .spec == $s)' "$evidence" >/dev/null 2>&1; then
+        return 0
+      fi
+      jq -e -s --arg s "$signed_spec" 'any(.[]; .type == "orchestrated" and .spec == $s)' "$evidence" >/dev/null 2>&1
+      _ho_rc=$?
+      if [ "$_ho_rc" -eq 0 ]; then
         say "Orchestration of $signed_spec was already relayed; ask me for its status."
+      elif [ "$_ho_rc" -ne 1 ]; then
+        say "I cannot read whether $signed_spec was already relayed, so I am not relaying it again — not checked."
       else
         _ho_cmd="/orchestrate specs/$signed_spec --watch"
         say "Relaying your go: $_ho_cmd, on a session you can attach to."
@@ -530,7 +536,10 @@ handle_operator() { # handle_operator <raw>
       if ! has_mutation_verb "$_ho_w"; then
         decide_route "$_ho_ask" answer question "a question, answered in this turn from what I can see" "" "" ""
         if _ho_state="$(evidence_state)" && [ -n "$_ho_state" ]; then
-          say "$(printf '%s' "$_ho_state" | jq -r '.unlanded | length') flight(s) with no landing yet: $UNCHECKED."
+          say "$(printf '%s' "$_ho_state" | jq -r --arg u "$UNCHECKED" '
+            (if (.landed | length) > 0 then "Landed: " + (.landed | map("draft PR #" + .) | join(", ")) + ". " else "" end)
+            + (if (.unlanded | length) > 0 then "\(.unlanded | length) flight(s) with no landing yet: " + $u + "."
+               else "No flight is waiting on a landing." end)')"
         else
           say "The durable evidence could not be read, so what is in flight is unknown — not checked."
         fi
@@ -543,7 +552,12 @@ handle_operator() { # handle_operator <raw>
     log_entry decision '{action: "dispatch", target: "read-only-offload", ask_seq: $ask, on_seq: $ask, flight_identity: false}' --argjson ask "$_ho_ask"
     return 0
   fi
-  route_mutation "$_ho_ask" "$_ho_raw" "$_ho_w"
+  if has_mutation_verb "$_ho_w" || [ -n "$(override_of "$_ho_w")" ] || [ -n "$(zone_of "$_ho_w")" ] \
+    || [ -n "$(irreversible_of "$_ho_w")" ] || is_ambiguous "$_ho_w"; then
+    route_mutation "$_ho_ask" "$_ho_raw" "$_ho_w"
+  else
+    say "I cannot tell what you want changed or answered. What would you like done?"
+  fi
 }
 
 finish() {
@@ -575,6 +589,7 @@ while :; do
   printf 'EVAL-READY turn=%s\n' "$t"
   line=""
   IFS= read -r line || [ -n "$line" ] || exit 0
+  line="$(trim "$line")"
   case "$line" in
     @event:*) handle_event "$(sanitize "$line")" ;;
     *)
