@@ -126,8 +126,7 @@ trap 'rm -rf "$work"' EXIT
 
 # The file lists, repo-relative, one per line. A name with a newline or tab
 # would split a record below, so it is refused rather than skipped.
-: >"$work/plain"
-: >"$work/mise"
+{ : >"$work/plain" && : >"$work/mise"; } || die "could not start the file lists"
 tab='	'
 newline='
 '
@@ -137,7 +136,7 @@ list_file() {
   esac
   [ ! -L "$repo_root/$1" ] || die "$1 is a symlink; refusing to follow it out of the tree"
   [ -r "$repo_root/$1" ] || die "cannot read $1; the scan would cover less than it claims"
-  printf '%s\n' "$1" >>"$work/$2"
+  printf '%s\n' "$1" >>"$work/$2" || die "could not record $1 in the file list"
 }
 # Every file at any depth, symlinks included so they can be refused. The walk
 # never follows a link.
@@ -318,7 +317,7 @@ fi
 
 # The pending list's rows at the base ref, when both exist: the bound the
 # current list may not exceed.
-: >"$work/base-pending"
+: >"$work/base-pending" || die "could not create a temporary file"
 base_note=''
 has_base=0
 if git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
