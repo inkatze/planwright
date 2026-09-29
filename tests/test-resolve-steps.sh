@@ -181,6 +181,8 @@ ship_out=$(run_shipped convergence --unattended 2>/dev/null)
 ship_rc=$?
 [ "$ship_rc" = 0 ] && [ "$ship_out" = "run${TAB}polish" ]
 verdict "the shipped config/defaults.yml and config/steps.yaml resolve convergence to polish" "shipped files: convergence rc=$ship_rc out='$ship_out'"
+! grep -Eq '^[[:space:]]*review_sequence[[:space:]]*:' "$repo_root/config/defaults.yml"
+verdict "the shipped config/defaults.yml no longer sets the retired convergence knob" "config/defaults.yml still sets review_sequence"
 # The fixture sweep above already exercises every point; against the shipped
 # files it suffices that every other key ships `[]` and one such point runs.
 for p in $WIRED $UNWIRED; do
@@ -242,6 +244,18 @@ for bad in 'polish' '' '[polish,,self-review]' '[,polish]'; do
     || fail "REQ-B1.3: list value '$bad' in machine-local: rc=$RC out='$OUT' err='$ERR'"
 done
 ok "REQ-B1.3: a value that is not an inline flow list is malformed for its layer"
+# Padding inside the brackets, a quoted id, a trailing comma, and a trailing
+# comment all resolve to the bare ids in order.
+want="run${TAB}self-review
+run${TAB}polish"
+for good in '[ self-review ,  polish ]   # c' "[\"self-review\", 'polish']" '[self-review, polish,]'; do
+  reset_layers
+  printf 'steps_convergence: %s\n' "$good" >"$tracked_cfg"
+  capture convergence --unattended
+  { [ "$RC" = 0 ] && [ "$OUT" = "$want" ]; } \
+    || fail "REQ-B1.3: list value '$good': rc=$RC out='$OUT' err='$ERR'"
+done
+ok "REQ-B1.3: padding, quoted ids, and a trailing comma parse to the bare ids in order"
 
 # =============================================================================
 # 2. Attendance and check-mode usage (REQ-C1.4, REQ-H1.3).

@@ -277,7 +277,7 @@ signal_dir() {
 # resolve_posint <key> <fallback>: a bundle knob resolved through the shared
 # four-layer resolver (D-22/REQ-G1.5). A resolver exit propagates verbatim
 # (4 team-shared malformed, 5 broken install), so this gate honors the same
-# by-layer policy `review_sequence` has, implemented once in the resolver.
+# REQ-E1.4 by-layer malformed policy, implemented once in the resolver.
 resolve_posint() {
   if [ ! -x "$RESOLVER" ]; then
     echo "fleet-usage-gate: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2

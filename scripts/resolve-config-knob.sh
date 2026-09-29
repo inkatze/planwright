@@ -2,7 +2,7 @@
 # resolve-config-knob.sh — the SHARED config-knob resolver, first built for
 # the fleet-autonomy bundle's knobs (Task 1: D-22, REQ-G1.5): resolve one config
 # key through the four-layer overlay into a single validated value on stdout,
-# with the same malformed-value-by-layer policy `review_sequence` already has
+# with the same malformed-value-by-layer policy dispatch_isolation already has
 # (REQ-E1.4) — implemented ONCE here instead of copied into a per-knob
 # resolver for every knob the bundle introduces (the kill-switch today;
 # Task 2's flailing threshold, Task 3/4's sweep cadences, and the rest as they
@@ -13,8 +13,7 @@
 # last-layer-wins). This helper never re-implements layer location or merge
 # (customization-overlay REQ-D1.1); it adds only the semantic validation that
 # config-get cannot apply (the legal-value test is key-specific) and the
-# by-layer policy, mirroring resolve-dispatch-isolation.sh /
-# resolve-review-sequence.sh, for every type but path (whose per-layer walk
+# by-layer policy (REQ-E1.4), for every type but path (whose per-layer walk
 # is described under --type below):
 #   - repo-tracked malformed value (or structurally malformed file, which
 #     config-get itself hard-fails): exit 4 — a broken shared value never

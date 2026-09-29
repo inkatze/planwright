@@ -18,7 +18,7 @@
 # What is covered:
 #   - value resolution across all four layers via config-get (last-layer-wins);
 #   - comment/whitespace tolerance;
-#   - the by-layer malformed-value policy (same shape review_sequence has);
+#   - the by-layer malformed-value policy (same shape dispatch_isolation has);
 #   - the posint type (leading zero, zero, negative, oversize all malformed);
 #   - the nonnegint type (model-allocation REQ-A1.4's pinned numeric-knob
 #     grammar: zero is legal, leading zero / negative / non-integer / oversize

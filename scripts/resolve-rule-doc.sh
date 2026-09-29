@@ -207,8 +207,8 @@ try_overlay adopter doctrine
 # subshell and nothing set PLANWRIGHT_ROOT. It is additive and only fires when
 # every env arm misses, so it cannot regress any case where an env root
 # resolves; it subsumes both the plugin-delivery and writer-delivery roots.
-# This matches the self-location the sibling scripts (resolve-review-sequence,
-# config-get, resolve-overlay-root, builder-guards) already use.
+# This matches the self-location the sibling scripts (config-get,
+# resolve-overlay-root, builder-guards) already use.
 writer_root=""
 if [ -n "${CLAUDE_DIR:-}" ]; then
   writer_root="$CLAUDE_DIR/planwright"

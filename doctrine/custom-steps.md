@@ -58,8 +58,8 @@ reported unwired (REQ-A1.1, REQ-E1.3, D-2).
 non-empty list at one of these resolves no steps; the resolver resolving
 that point and `check:steps` report it as unwired, never silently.
 
-**Flights.** Any skill that converges a flight reads `steps_convergence` with
-unit kind `flight` (REQ-F1.5).
+**Flights.** A flight converges through `steps_convergence` with unit kind
+`flight`, skill steps only (REQ-F1.5; [flight-rules](flight-rules.md)).
 
 ## The step entry
 

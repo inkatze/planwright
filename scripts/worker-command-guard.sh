@@ -465,7 +465,7 @@ is_repo_script() {
 # planwright_roots: print, one per line and canonicalized, every planwright
 # installation root this hook trusts its `scripts/*.sh` under. The chain is the
 # one every other planwright script resolves its own root with
-# (scripts/resolve-rule-doc.sh, config-get.sh, resolve-review-sequence.sh,
+# (scripts/resolve-rule-doc.sh, config-get.sh, resolve-steps.sh,
 # resolve-overlay-root.sh), highest precedence first, plus the arm that ties
 # the hook to the root the WORKER actually runs scripts from:
 #
