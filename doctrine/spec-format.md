@@ -932,7 +932,8 @@ Which planwright copy runs is decided by one chain of arms, walked in order:
 2. `$CLAUDE_PLUGIN_ROOT` — plugin delivery, set by Claude Code;
 3. `<claude-dir>/planwright` — writer delivery, where `<claude-dir>` is
    `$CLAUDE_DIR` when set, else `~/.claude`;
-4. self-location — the parent of the directory holding the resolving script.
+4. self-location — the parent of the directory the resolving script was
+   invoked from; a symlink to the script is not followed.
 
 An arm whose variable is unset or empty is skipped silently, as is an absent
 writer-delivery directory. An arm naming anything other than a directory
@@ -942,8 +943,12 @@ file (a rule doc, the defaults file, `spec-anchor.sh`) takes it from the first
 arm that holds it.
 
 `scripts/resolve-root.sh install` is the one implementation (`--all` lists
-every surviving arm, `--explain` names each); every script obtains the chain
-from it, locating the resolver beside itself first. A command guard composes
+every surviving arm, `--explain` names each). A script that needs the chain
+obtains it from there, locating the resolver beside itself first; the one
+exception is code that runs outside planwright and must find a copy before
+it can ask that copy (the hook the inception scaffold emits). A script that
+only forwards the operator's own values to a child process picks no root and
+is not a consumer. A command guard composes
 its trust set from the chain plus its own policy rather than from its own
 copy of the arms.
 
@@ -1253,8 +1258,8 @@ bundle would have to migrate to:
 - 2026-09-28 — The core root chain defined once, in its own section (*The
   core root chain*), with `scripts/resolve-root.sh install` as its single
   implementation; the resolution-aware command form now cites it rather than
-  restating the arms. Every script and both command guards obtain the chain
-  from the resolver. Behaviour changes for consumers that ran a shorter copy:
+  restating the arms. The scripts that ran the chain inline, and both command
+  guards, obtain it from the resolver. Behaviour changes for consumers that ran a shorter copy:
   they gain the writer-delivery arm, and an arm holding neither `doctrine/`
   nor `scripts/` is skipped with a warning. *(custom-spec-location D-9 ·
   REQ-C1.1, REQ-C1.3.)*
