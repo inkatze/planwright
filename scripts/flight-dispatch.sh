@@ -47,7 +47,9 @@
 #       read, the fleet home or the flights directory is not private to the
 #       user, or an entry's name carries a newline (exit 4). A removal that
 #       fails is named on stderr and exits 4. No fleet home yet is a clean
-#       exit 0 with no output. Every dispatch runs the same sweep under its
+#       exit 0 with no output. A lock another holds past
+#       PLANWRIGHT_FLIGHT_LOCK_WAIT seconds (default 60) exits 4 with nothing
+#       removed. Every dispatch runs the same sweep under its
 #       lock: there a failed removal is only named on stderr, while a refused
 #       sweep stops the dispatch with exit 4 before anything is placed.
 #   dispatch <slug> --backend <tmux|print> --ask-file <file>
@@ -162,8 +164,9 @@ MANIFEST_SKILL="$root_dir/skills/execute-task/SKILL.md"
 TEXT="$script_dir/flight-text.sh"
 COMMON="$script_dir/flight-common.sh"
 
-# How long a dispatch waits on another holding the checkout's flight lock
-# before it declines to wait. Overridable for tests.
+# How long a dispatch or retire waits on another holding the checkout's flight
+# lock before it declines to wait. fleet-sweep.sh passes 0, so its retire never
+# waits on a dispatch; tests shorten it too.
 LOCK_WAIT="${PLANWRIGHT_FLIGHT_LOCK_WAIT:-60}"
 case $LOCK_WAIT in
   '' | *[!0-9]*) LOCK_WAIT=60 ;;
@@ -242,18 +245,6 @@ release_lock() {
     PLANWRIGHT_FLEET_STATE_DIR=$lock_home /bin/sh "$STATE" unlock >/dev/null 2>&1 </dev/null
   fi
   lock_held=0
-}
-
-# origin_dest <url> — print `<host>/<owner>/<repo>` (lower-cased, `.git`
-# dropped) for a network remote URL in the URL or scp-like form; nothing for a
-# local path or anything else. Userinfo carrying `#`, `?`, `\` or `:` is
-# refused: a parser that ends the authority there reads a different host than
-# the one git connects to.
-origin_dest() {
-  printf '%s\n' "$1" | sed -n -E \
-    -e 's~^(https|http|ssh|git|git\+ssh|ssh\+git)://([^/@#?\\:]+@)?([A-Za-z0-9][A-Za-z0-9.-]*)(:[0-9]+)?/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$~\3/\5/\6~p' \
-    -e 's#^([A-Za-z0-9._-]+@)?([A-Za-z0-9][A-Za-z0-9.-]*):([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$#\2/\3/\4#p' \
-    | head -n 1 | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]'
 }
 
 # read_hosts — set HOSTS to the `flight_pr_hosts` entries, one per line,

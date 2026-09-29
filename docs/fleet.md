@@ -1315,9 +1315,10 @@ the whole cost. It still exits 0 on every path, so the prompt goes through
 whatever it did. The `SessionStart` flight sweep (`scripts/flight-sweep.sh hook
 session-start`) is the other one with a visible cost: on a fresh start in a
 checkout that has flight branches, outside a worker's session, it reads each
-flight's PR from the forge to refresh the derived flight index, each read
-bounded to a few seconds and all of them together to about fifteen, so a
-session start can wait up to that long. It too exits 0 on every path.
+flight's PR from the forge to refresh the derived flight index, the reads
+together held to about fifteen seconds, so a session start can wait that long
+plus the sweep's local git reads. On a host with neither `timeout` nor
+`gtimeout` to bound those reads it does nothing. It too exits 0 on every path.
 
 `WorktreeCreate` is the exception, and planwright does not register it.
 Registering a hook there **replaces** native git worktree creation: the hook

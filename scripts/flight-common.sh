@@ -69,3 +69,15 @@ print_root_pair() {
     printf 'root-skew\tunknown\n'
   fi
 }
+
+# origin_dest <url> — print `<host>/<owner>/<repo>` (lower-cased, `.git`
+# dropped) for a network remote URL in the URL or scp-like form; nothing for a
+# local path or anything else. Userinfo carrying `#`, `?`, `\` or `:` is
+# refused: a parser that ends the authority there reads a different host than
+# the one git connects to.
+origin_dest() {
+  printf '%s\n' "$1" | sed -n -E \
+    -e 's~^(https|http|ssh|git|git\+ssh|ssh\+git)://([^/@#?\\:]+@)?([A-Za-z0-9][A-Za-z0-9.-]*)(:[0-9]+)?/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$~\3/\5/\6~p' \
+    -e 's#^([A-Za-z0-9._-]+@)?([A-Za-z0-9][A-Za-z0-9.-]*):([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$#\2/\3/\4#p' \
+    | head -n 1 | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]'
+}

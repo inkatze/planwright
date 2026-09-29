@@ -45,12 +45,13 @@
 #   hook session-start
 #       The SessionStart arm: sweep the session's checkout so a fresh tower
 #       reads a current index. Silent and exit 0 always. It stays out of a
-#       worker's session (a worker identity in the environment, or a flight or
-#       task worktree), and a checkout without flight evidence or an index is
-#       left alone with nothing created. Each PR read is bounded by `timeout`
-#       (or `gtimeout`) to at most 5 seconds, the reads together to about 15,
-#       after which the rest read unknown; with neither binary the PR reads
-#       are skipped. The wait a session start can see is that bound, not zero.
+#       worker's session (a worker identity in the environment, or a flight,
+#       task, or spec worktree), and a checkout without flight evidence or an
+#       index is left alone with nothing created, as is a host with neither
+#       `timeout` nor `gtimeout` to bound the PR reads. Each read is bounded to
+#       at most 5 seconds and to what is left of a 15-second budget for all of
+#       them, after which the rest read unknown. The local reads are not
+#       bounded, so a session start waits that budget plus its local work.
 #
 # Render (TAB-separated), in this order:
 #   flight-index<TAB>1
@@ -58,8 +59,10 @@
 #   root<TAB>tower|worker<TAB><path><TAB><version>, then root-skew<TAB>yes|no|unknown
 #   forge<TAB>ok|partial|unavailable|skipped<TAB><reason or ->
 #     reasons: no-flights, no-forge, no-origin (no PR can exist, so a flight
-#     without a record file has no landing), no-gh, no-timeout, query-failed,
-#     deadline; a fork's PR on a same-named branch is never a flight's landing
+#     without a record file has no landing), origin-unrecognized, no-gh,
+#     no-timeout, query-failed, deadline. The repository asked is origin's
+#     push destination, and a fork's PR on a same-named branch is never a
+#     flight's landing
 #   registry<TAB>ok|unavailable
 #   queue<TAB>ok|unavailable
 #   flight<TAB><id><TAB><state><TAB><landing><TAB><liveness><TAB><handle><TAB><worktree>
@@ -67,7 +70,8 @@
 #               (in-air: a worktree and no landing, which includes a worker
 #               paused behind a hard pause; stranded: a branch with neither a
 #               worktree nor a landing, the residue surfaced rather than lost;
-#               unknown: a landing or queue read that could not be made)
+#               unknown: a landing, registry, or queue read that could not be
+#               made; dead is said only with the landing read as none)
 #     landing   pr:<url> | record:<path> | none | unknown
 #     liveness  alive | dead | unknown, for a flight with a worktree; - otherwise
 #     handle    the registered worker handle, or -
@@ -203,7 +207,7 @@ WT_AWK='
     bfx = "branch refs/heads/planwright/flight/"
   }
   function close_block() {
-    if ((pid != "" || bid != "") && !prunable && path !~ /[[:cntrl:]]/) {
+    if ((pid != "" || bid != "") && !prunable && path !~ /[\001-\037\177]/) {
       if (pid != "") print pid "\t" path
       if (bid != "" && bid != pid) print bid "\t" path
     }
@@ -239,18 +243,21 @@ liveness() {
   esac
 }
 
-# pr_landing <branch> — set PRL to `pr:<url>`, `none`, or `unknown` from the
-# forge. `--head` matches the branch name on any fork, so only a PR from the
-# repository itself counts; the newest such PR wins. A reply whose first row
+# pr_landing <branch> <seconds> — set PRL to `pr:<url>`, `none`, or `unknown`
+# from the forge, asking at most <seconds>. The repository asked is origin's
+# push destination, where a flight's worker opens its PR; `--head` matches the
+# branch name on any fork, so only a PR from that repository itself counts,
+# and the newest such PR wins. A reply whose first row
 # is not well-formed is unknown, never "no PR" (return 1); a query that fails
 # outright or times out returns 2, and the caller stops asking.
 PRL=unknown
 pr_landing() {
   PRL=unknown
-  set -- gh pr list --state all --head "$1" --limit 20 \
+  _secs=$2
+  set -- gh pr list --repo "$forge_dest" --state all --head "$1" --limit 20 \
     --json state,isDraft,url,isCrossRepository \
     --jq '.[] | select(.isCrossRepository | not) | [.state, (.isDraft | tostring), .url] | @tsv'
-  [ -z "$TO" ] || set -- "$TO" "$READ_MAX" "$@"
+  [ -z "$TO" ] || set -- "$TO" "$_secs" "$@"
   _prl=$(cd "$repo_root" && GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 NO_COLOR=1 \
     "$@" 2>/dev/null </dev/null) || return 2
   if [ -z "$_prl" ]; then
@@ -316,6 +323,11 @@ cmd_sweep() {
     registry=''
     registry_state=unavailable
   }
+  # The store's own read exits 0 on a file it cannot read.
+  if [ -e "$fleet_home/registry" ] && [ ! -r "$fleet_home/registry" ]; then
+    registry=''
+    registry_state=unavailable
+  fi
   queue_state=ok
   awaiting=''
   _store="$fleet_home/attention/state"
@@ -327,6 +339,7 @@ cmd_sweep() {
   forge_state=ok
   forge_reason=-
   TO=''
+  forge_dest=''
   READ_MAX=$GH_TIMEOUT
   if [ "$session_start" -eq 1 ] && [ "$READ_MAX" -gt "$HOOK_READ_MAX" ]; then
     READ_MAX=$HOOK_READ_MAX
@@ -337,9 +350,12 @@ cmd_sweep() {
   elif [ "$forge" -eq 0 ]; then
     forge_state=skipped
     forge_reason=no-forge
-  elif ! git -C "$repo_root" remote get-url origin >/dev/null 2>&1 </dev/null; then
+  elif ! _push=$(git -C "$repo_root" remote get-url --push origin 2>/dev/null </dev/null) || [ -z "$_push" ]; then
     forge_state=skipped
     forge_reason=no-origin
+  elif forge_dest=$(origin_dest "$_push") && [ -z "$forge_dest" ]; then
+    forge_state=unavailable
+    forge_reason=origin-unrecognized
   elif ! command -v gh >/dev/null 2>&1; then
     forge_state=unavailable
     forge_reason=no-gh
@@ -378,12 +394,18 @@ cmd_sweep() {
       landing=none
     elif [ -z "$landing" ]; then
       landing=unknown
-      if [ -n "$forge_until" ] && [ "$forge_down" -eq 0 ] && [ "$(date +%s)" -ge "$forge_until" ]; then
-        forge_down=1
-        forge_late=1
+      _secs=$READ_MAX
+      if [ "$forge_state" = ok ] && [ "$forge_down" -eq 0 ] && [ -n "$forge_until" ]; then
+        _left=$((forge_until - $(date +%s)))
+        if [ "$_left" -le 0 ]; then
+          forge_down=1
+          forge_late=1
+        elif [ "$_left" -lt "$_secs" ]; then
+          _secs=$_left
+        fi
       fi
       if [ "$forge_state" = ok ] && [ "$forge_down" -eq 0 ]; then
-        pr_landing "$branch"
+        pr_landing "$branch" "$_secs"
         case $? in
           0)
             landing=$PRL
@@ -418,9 +440,9 @@ cmd_sweep() {
       waits=1
     fi
 
-    # A verdict short of landed needs every read behind it: an unread landing
-    # or queue leaves a worktree flight unknown, unless its worker is
-    # positively dead.
+    # A verdict short of landed needs every read behind it: an unread landing,
+    # registry, or queue leaves a worktree flight unknown. Dead needs its
+    # landing read too, since a worker that landed and exited is also gone.
     case $landing in
       pr:* | record:*) state=landed ;;
       *)
@@ -432,10 +454,10 @@ cmd_sweep() {
           fi
         elif [ "$waits" -eq 1 ]; then
           state='awaiting-operator'
+        elif [ "$landing" = unknown ] || [ "$queue_state" != ok ] || [ "$registry_state" != ok ]; then
+          state=unknown
         elif [ "$live" = dead ]; then
           state=dead
-        elif [ "$landing" = unknown ] || [ "$queue_state" != ok ]; then
-          state=unknown
         else
           state=in-air
         fi
@@ -447,8 +469,8 @@ cmd_sweep() {
   IFS=$_old_ifs
 
   if [ "$forge_bad" -gt 0 ] || [ "$forge_late" -eq 1 ]; then
-    forge_reason=query-failed
-    [ "$forge_late" -eq 0 ] || forge_reason=deadline
+    forge_reason=deadline
+    [ "$forge_bad" -eq 0 ] || forge_reason=query-failed
     if [ "$forge_ok" -gt 0 ]; then
       forge_state=partial
     else
@@ -477,11 +499,12 @@ write_index() {
     || die 5 "the fleet home is not a directory owned by you that only you can write; the index was not written"
   private_dir "$_dir" \
     || die 5 "$_dir is not a directory owned by you that only you can write; the index was not written"
-  _tmp=$(umask 077 && mktemp "$_dir/.index.XXXXXX") || die 5 "cannot write the index"
-  trap 'rm -f "$_tmp"' EXIT
+  _tmp=''
+  trap '[ -z "$_tmp" ] || rm -f "$_tmp"' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
+  _tmp=$(umask 077 && mktemp "$_dir/.index.XXXXXX") || die 5 "cannot write the index"
   if printf '%s' "$render" >"$_tmp" && mv -f "$_tmp" "$_idx"; then
     trap - EXIT INT TERM HUP
     return 0
@@ -543,8 +566,17 @@ cmd_hook() {
   _cwd=${CLAUDE_PROJECT_DIR:-$PWD}
   repo_root=$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null </dev/null) || exit 0
   case $repo_root in
-    */.claude/worktrees/flight-* | */.claude/worktrees/*-task-*) exit 0 ;;
+    */.claude/worktrees/*)
+      _seg=${repo_root##*/.claude/worktrees/}
+      case $_seg in
+        */*) ;;
+        flight-* | *-task-[0-9]* | *-spec) exit 0 ;;
+      esac
+      ;;
   esac
+  # Without a bound for the PR reads there is nothing worth doing at session
+  # start: the tower's own bring-up sweeps instead.
+  [ -n "$(timeout_bin)" ] || exit 0
   _evidence=$(git -C "$repo_root" for-each-ref --count=1 --format=x \
     refs/heads/planwright/flight/ refs/remotes/origin/planwright/flight/ 2>/dev/null </dev/null) || exit 0
   if [ -z "$_evidence" ]; then

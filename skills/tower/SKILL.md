@@ -202,7 +202,8 @@ route; a flight whose scope outgrows its route parks behind its hard pause and
 returns for re-routing. The operator hears that through the decision queue once
 flight lifecycle pushes exist; until then a pause leaves no branch or record
 evidence, so the sweep's `in-air` is said as "in the air or paused", with its
-liveness; after the fallback reads, a flight without a landing reference is
+liveness; `stranded` as a leftover branch with no worktree and no landing;
+`unknown` as not checked; after the fallback reads, a flight without a landing reference is
 "no landing yet: in the air, paused, or dead — not checked", with its observe or
 attach hint when the tower holds one (this session's dispatch report, or the
 sweep's render) and "handle unknown" otherwise, never as simply in the air.

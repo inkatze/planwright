@@ -1,6 +1,8 @@
 #!/bin/bash
 # Tests for scripts/flight-sweep.sh — the shared flight sweep and its derived
 # index (tower-front-door Task 7; D-9 · REQ-E1.3, REQ-F1.3, REQ-F1.4, REQ-F1.6).
+# REQ-F1.3's walk-away scenario is the acceptance demo's; this file's part of
+# it is property 1, reconstruction from evidence no session holds.
 #
 # Properties verified:
 #   1. One sweep derives every flight of the checkout from durable evidence
@@ -80,8 +82,8 @@ gitc() {
 }
 
 # A stub `gh` answering `pr list --head <branch>` from $GH_STUB_PRS (rows of
-# `<branch><TAB><the row the sweep's --jq asks for>`), failing when
-# $GH_STUB_FAIL is set.
+# `<branch><TAB><the JSON array the forge would return>`) through the
+# caller's own --jq, as gh does, and failing when $GH_STUB_FAIL is set.
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/gh" <<'EOF'
 #!/bin/sh
@@ -89,20 +91,28 @@ cat >"$tmp/bin/gh" <<'EOF'
 [ -z "${GH_STUB_FAIL:-}" ] || exit 1
 if [ "$1 $2" = "pr list" ]; then
   head=''
+  jqp='.'
   prev=''
   for a in "$@"; do
     [ "$prev" != --head ] || head=$a
+    [ "$prev" != --jq ] || jqp=$a
     prev=$a
   done
-  [ -z "${GH_STUB_PRS:-}" ] || awk -F '\t' -v h="$head" '$1 == h { sub(/^[^\t]*\t/, ""); print }' "$GH_STUB_PRS"
-  exit 0
+  json=$(awk -F '\t' -v h="$head" '$1 == h { sub(/^[^\t]*\t/, ""); print; exit }' "${GH_STUB_PRS:-/dev/null}")
+  printf '%s\n' "${json:-[]}" | jq -r "$jqp"
+  exit
 fi
 exit 0
 EOF
 chmod +x "$tmp/bin/gh"
-# A `timeout` that just runs its command, so the bounded path runs alike on
-# every host, stock macOS included.
-printf '#!/bin/sh\nshift\nexec "$@"\n' >"$tmp/bin/timeout"
+# A `timeout` that logs its bound and runs its command, so the bounded path
+# runs alike on every host, stock macOS included.
+cat >"$tmp/bin/timeout" <<'EOF'
+#!/bin/sh
+[ -z "${TIMEOUT_LOG:-}" ] || printf '%s\n' "$1" >>"$TIMEOUT_LOG"
+shift
+exec "$@"
+EOF
 chmod +x "$tmp/bin/timeout"
 # A tmux that cannot reach a server, so a tmux-window handle reads unknown.
 cat >"$tmp/bin/tmux" <<'EOF'
@@ -138,6 +148,7 @@ PRINT=print-aaaaaaa7
 TMUXF=tmuxf-aaaaaaa8
 NOREG=noreg-aaaaaaa9
 EVIL=evil-aaaaaab1
+FORK=fork-aaaaaab2
 
 # Landed on the no-remote arm: a committed record file, worktree removed.
 gitc "$repo" branch "planwright/flight/$REC" main
@@ -152,10 +163,13 @@ gitc "$repo" branch "planwright/flight/$PR" main
 gitc "$repo" push -q origin "planwright/flight/$PR"
 gitc "$repo" branch -D -q "planwright/flight/$PR"
 gitc "$repo" fetch -q origin
+# Fetches stay local; the push destination is the repository the PRs live on.
+gitc "$repo" remote set-url --push origin https://github.com/acme/widgets.git
 # Stranded: a branch with no worktree and no landing.
 gitc "$repo" branch "planwright/flight/$STRAND" main
-# A branch whose forge reply is malformed.
+# A branch whose forge reply is malformed, and one whose only PR is a fork's.
 gitc "$repo" branch "planwright/flight/$EVIL" main
+gitc "$repo" branch "planwright/flight/$FORK" main
 # An off-grammar flight branch never reaches the render.
 gitc "$repo" branch "planwright/flight/NOT_AN_ID" main
 
@@ -181,10 +195,14 @@ reg "tmux-flight-$TMUXF" "$TMUXF" tmux "tmux-window w1 @1"
   || fail "fixture: could not queue a decision"
 
 prs="$c/prs.tsv"
+pr_json() { printf '{"state":"%s","isDraft":true,"url":"%s","isCrossRepository":%s}' "$1" "$2" "$3"; }
 {
-  printf 'planwright/flight/%s\tOPEN\ttrue\thttps://github.com/acme/widgets/pull/7\n' "$PR"
-  printf 'planwright/flight/%s\tOPEN\ttrue\thttps://evil.example/x y\n' "$EVIL"
-  printf 'feature/unrelated\tOPEN\tfalse\thttps://github.com/acme/widgets/pull/8\n'
+  # A newer fork PR on the same branch name sorts first; the repository's wins.
+  printf 'planwright/flight/%s\t[%s,%s]\n' "$PR" \
+    "$(pr_json OPEN https://github.com/mallory/widgets/pull/9 true)" \
+    "$(pr_json OPEN https://github.com/acme/widgets/pull/7 false)"
+  printf 'planwright/flight/%s\t[%s]\n' "$EVIL" "$(pr_json OPEN 'https://evil.example/x y' false)"
+  printf 'planwright/flight/%s\t[%s]\n' "$FORK" "$(pr_json OPEN https://github.com/mallory/widgets/pull/10 true)"
 } >"$prs"
 export GH_STUB_PRS="$prs"
 
@@ -205,6 +223,12 @@ r=$(row "$out" "$PR")
 [ "$(field "$r" 4)" = "pr:https://github.com/acme/widgets/pull/7" ] || fail "the PR landing names its URL (got: $r)"
 r=$(row "$out" "$STRAND")
 [ "$(field "$r" 3)" = stranded ] || fail "a branch with no worktree and no landing is stranded (got: $r)"
+r=$(row "$out" "$FORK")
+[ "$(field "$r" 3)" = stranded ] && [ "$(field "$r" 4)" = none ] \
+  || fail "a fork's PR on a same-named branch is never a flight's landing (got: $r)"
+case $out in
+  *mallory*) fail "a fork's PR reached the render" ;;
+esac
 case $out in
   *evil.example*) fail "a malformed forge row reached the render" ;;
 esac
@@ -275,19 +299,22 @@ printf '%s\n' "$out" | grep -q "^forge${TAB}unavailable" || fail "a failing forg
 r=$(row "$out" "$AIR")
 [ "$(field "$r" 3)" = unknown ] && [ "$(field "$r" 5)" = alive ] \
   || fail "an unread landing leaves a live worktree flight unknown, never a verdict (got: $r)"
+r=$(row "$out" "$DEAD")
+[ "$(field "$r" 3)" = unknown ] \
+  || fail "a gone worker with its landing unread is unknown, not dead: it may have landed (got: $r)"
 r=$(row "$out" "$PR")
 [ "$(field "$r" 3)" = unknown ] && [ "$(field "$r" 4)" = unknown ] \
   || fail "with the forge unread, a worktree-less flight's landing is unknown (got: $r)"
 r=$(row "$out" "$REC")
 [ "$(field "$r" 3)" = landed ] || fail "a committed record still reads landed without the forge (got: $r)"
 out=$(cd "$repo" && "$SCRIPT" sweep --no-forge 2>/dev/null)
-printf '%s\n' "$out" | grep -q "^forge${TAB}skipped" || fail "--no-forge reports the forge skipped"
+printf '%s\n' "$out" | grep -q "^forge${TAB}skipped${TAB}no-forge$" || fail "--no-forge reports the forge skipped"
 : >"$c/gh.log"
-(cd "$repo" && GH_STUB_LOG="$c/gh.log" "$SCRIPT" sweep >/dev/null 2>&1)
-grep '^pr list' "$c/gh.log" | head -n 1 | grep -q 'isCrossRepository' \
-  || fail "the PR read asks which PRs come from a fork"
-grep '^pr list' "$c/gh.log" | head -n 1 | grep -q -- '--limit 1 ' \
-  && fail "the PR read looks past the newest PR, so a fork's cannot hide the repository's"
+: >"$c/timeout.log"
+(cd "$repo" && GH_STUB_LOG="$c/gh.log" TIMEOUT_LOG="$c/timeout.log" "$SCRIPT" sweep >/dev/null 2>&1)
+grep '^pr list' "$c/gh.log" | head -n 1 | grep -q -- '--repo github.com/acme/widgets ' \
+  || fail "the PR read asks origin's push destination"
+[ "$(sort -u "$c/timeout.log")" = 20 ] || fail "outside the hook each PR read is bounded to the default 20s"
 
 # --- 5b. The queue, --no-write, and an unwritable index -------------------
 if [ "$(id -u)" -ne 0 ]; then
@@ -297,6 +324,12 @@ if [ "$(id -u)" -ne 0 ]; then
   printf '%s\n' "$out" | grep -q "^queue${TAB}unavailable$" || fail "an unreadable queue is reported unavailable"
   r=$(row "$out" "$AIR")
   [ "$(field "$r" 3)" = unknown ] || fail "an unread queue leaves a worktree flight unknown (got: $r)"
+  chmod 000 "$c/fleet/registry"
+  out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
+  chmod 600 "$c/fleet/registry"
+  printf '%s\n' "$out" | grep -q "^registry${TAB}unavailable$" || fail "an unreadable registry is reported unavailable"
+  r=$(row "$out" "$AIR")
+  [ "$(field "$r" 3)" = unknown ] || fail "an unread registry leaves a worktree flight unknown (got: $r)"
 fi
 rm -f "$idx"
 out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
@@ -349,23 +382,53 @@ rc=$?
 [ "$rc" -eq 0 ] && [ -z "$hout" ] || fail "the hook is silent and exits 0 with flights (rc=$rc: $hout)"
 cmp -s "$idx" "$c/first" || fail "the hook refreshes the index"
 
+# The hook runs from an unrelated directory below, so only the project dir
+# it is handed can point it at the fixture.
 rm -f "$idx"
-(cd "$repo" && PLANWRIGHT_WORKER_HANDLE="tmux-flight-$AIR" "$SCRIPT" hook session-start </dev/null >/dev/null 2>&1)
+: >"$c/timeout.log"
+(cd "$tmp" && CLAUDE_PROJECT_DIR="$repo" TIMEOUT_LOG="$c/timeout.log" "$SCRIPT" hook session-start </dev/null >/dev/null 2>&1)
+cmp -s "$idx" "$c/first" || fail "the hook sweeps the project dir it is handed"
+if [ ! -s "$c/timeout.log" ] || awk '$1 + 0 > 5 { bad = 1 } END { exit !bad }' "$c/timeout.log"; then
+  fail "at session start each PR read is bounded to 5s at most"
+fi
+rm -f "$idx"
+(cd "$tmp" && CLAUDE_PROJECT_DIR="$repo" PLANWRIGHT_WORKER_HANDLE="tmux-flight-$AIR" "$SCRIPT" hook session-start </dev/null >/dev/null 2>&1)
+(cd "$tmp" && CLAUDE_PROJECT_DIR="$repo" PLANWRIGHT_WORKER_SCOPE="flight:$AIR" "$SCRIPT" hook session-start </dev/null >/dev/null 2>&1)
 [ ! -e "$idx" ] || fail "the hook stays out of a worker's session"
 (cd "$repo" && "$SCRIPT" sweep >/dev/null 2>&1)
+gitc "$repo" worktree add -q -b demo-task-1 "$repo/.claude/worktrees/demo-task-1" main
+gitc "$repo" worktree add -q -b demo-spec "$repo/.claude/worktrees/demo-spec" main
 before=$(find "$c/fleet/flight-index" -name '*.tsv' | wc -l)
-(CLAUDE_PROJECT_DIR="$repo/.claude/worktrees/flight-$AIR" "$SCRIPT" hook session-start </dev/null >/dev/null 2>&1)
+for w in "flight-$AIR" demo-task-1 demo-spec; do
+  (cd "$tmp" && CLAUDE_PROJECT_DIR="$repo/.claude/worktrees/$w" "$SCRIPT" hook session-start </dev/null >/dev/null 2>&1)
+done
 [ "$(find "$c/fleet/flight-index" -name '*.tsv' | wc -l)" -eq "$before" ] \
-  || fail "the hook writes no index for a flight worktree"
+  || fail "the hook writes no index for a flight, task, or spec worktree"
+gitc "$repo" worktree remove "$repo/.claude/worktrees/demo-task-1"
+gitc "$repo" worktree remove "$repo/.claude/worktrees/demo-spec"
 : >"$c/gh.log"
 (cd "$repo" && GH_STUB_LOG="$c/gh.log" PLANWRIGHT_FLIGHT_SWEEP_HOOK_BUDGET=0 "$SCRIPT" hook session-start \
   </dev/null >/dev/null 2>&1)
 [ ! -s "$c/gh.log" ] || fail "past its budget the hook asks the forge nothing more"
 grep -q "^forge${TAB}unavailable${TAB}deadline$" "$idx" || fail "a spent budget is named in the render"
 (cd "$repo" && "$SCRIPT" sweep >/dev/null 2>&1)
+# Without a bound for the PR reads the hook does nothing (only checkable
+# where the system directories hold no timeout binary).
+if ! PATH=/usr/bin:/bin command -v timeout >/dev/null 2>&1 && ! PATH=/usr/bin:/bin command -v gtimeout >/dev/null 2>&1; then
+  mkdir -p "$tmp/notimeout"
+  ln -sf "$tmp/bin/gh" "$tmp/notimeout/gh"
+  rm -f "$idx"
+  (cd "$repo" && PATH="$tmp/notimeout:/usr/bin:/bin" "$SCRIPT" hook session-start </dev/null >/dev/null 2>&1)
+  [ ! -e "$idx" ] || fail "without a timeout binary the hook does nothing"
+  (cd "$repo" && "$SCRIPT" sweep >/dev/null 2>&1)
+fi
 
-(cd "$repo" && PLANWRIGHT_FLEET_STATE_DIR="$c/README.md" "$SCRIPT" hook session-start </dev/null >/dev/null 2>&1) \
-  || fail "the hook exits 0 on a broken fleet home"
+# A fleet home that is a regular file.
+cp "$repo/README.md" "$c/home-file"
+hout=$(cd "$repo" && PLANWRIGHT_FLEET_STATE_DIR="$c/home-file" "$SCRIPT" hook session-start </dev/null 2>&1)
+rc=$?
+[ "$rc" -eq 0 ] && [ -z "$hout" ] || fail "the hook is silent and exits 0 on a broken fleet home"
+cmp -s "$c/home-file" "$repo/README.md" || fail "the hook leaves a broken fleet home as it found it"
 hout=$(cd "$tmp" && "$SCRIPT" hook session-start </dev/null 2>&1)
 rc=$?
 [ "$rc" -eq 0 ] && [ -z "$hout" ] || fail "the hook is silent outside a git work tree"
@@ -430,6 +493,16 @@ rc=$?
 [ ! -e "$gone2_idx" ] || fail "the fleet cleanup sweep prunes a vanished checkout's index"
 "$ROOT/scripts/fleet-audit.sh" query --mechanism housekeeping-sweep 2>/dev/null | grep -q 'flight-index-prune' \
   || fail "the fleet cleanup sweep audits the prune"
+
+# ...and retires the brief of a flight whose worktree is gone, once it is past
+# the lock's stale threshold, audited.
+brief="$c/fleet/flights/$STRAND"
+(umask 077 && mkdir -p "$brief" && printf '%s\n' "$repo" >"$brief/checkout")
+touch -t 202001010000 "$brief" "$brief/checkout"
+"$ROOT/scripts/fleet-sweep.sh" --repo "$repo" >/dev/null 2>&1
+[ ! -e "$brief" ] || fail "the fleet cleanup sweep retires a gone flight's brief"
+"$ROOT/scripts/fleet-audit.sh" query --mechanism housekeeping-sweep 2>/dev/null | grep -q 'flight-brief-retire' \
+  || fail "the fleet cleanup sweep audits the retire"
 
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-sweep: $fails failure(s)" >&2
