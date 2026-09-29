@@ -189,7 +189,8 @@ END {
   }
   # A revert is partial for a target when a rejected id it carries belongs to
   # that target; a rejection of some other commit leaves it a full revert, and
-  # a revert naming several targets stays full for the rest.
+  # a revert naming several targets stays full for the rest. Only an id the
+  # target renders belongs to it.
   for (k = 1; k <= n; k++) {
     if (rv[k] == "" || rej[k] == "") continue
     c = split(rv[k], ts, " ")
@@ -197,9 +198,12 @@ END {
       t = target(ts[i])
       if (t == "") continue
       delete own
-      own["PS-legacy-" substr(t, 1, 7)] = 1
-      d = split(so[seen[t]], vals, GS)
-      for (e = 1; e <= d; e++) own[trim(vals[e])] = 1
+      if (trim(so[seen[t]]) == "") {
+        if (legacy_subject(subj[seen[t]])) own["PS-legacy-" substr(t, 1, 7)] = 1
+      } else {
+        d = split(so[seen[t]], vals, GS)
+        for (e = 1; e <= d; e++) if (is_ps(trim(vals[e]))) own[trim(vals[e])] = 1
+      }
       d = split(rej[k], vals, GS)
       for (e = 1; e <= d; e++) {
         v = trim(vals[e])

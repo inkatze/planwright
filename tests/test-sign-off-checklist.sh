@@ -395,6 +395,29 @@ This reverts commit $x.
 
 Planwright-Sign-Off-Rejected: PS-2"
 [ "$(ids "$q")" = "PS-3" ] || fail "partial revert: a squashed full + partial revert should leave [PS-3], got [$(ids "$q")]"
+# Only an id the target really renders makes a revert partial: not the legacy
+# id of a trailered commit, and not a malformed value it happens to carry.
+for other in legacy PS-01; do
+  q="$tmp/partial-own-$other"
+  new_repo "$q"
+  git -C "$q" checkout -q -b task
+  commit "$q" "fix: kept
+
+Planwright-Sign-Off: PS-9"
+  commit "$q" "fix: reverted
+
+Planwright-Sign-Off: PS-1
+Planwright-Sign-Off: PS-01"
+  y=$(git -C "$q" rev-parse HEAD)
+  r=$other
+  [ "$other" = legacy ] && r="PS-legacy-$(printf '%s' "$y" | cut -c1-7)"
+  commit "$q" "fix: full revert
+
+This reverts commit $y.
+
+Planwright-Sign-Off-Rejected: $r"
+  [ "$(ids "$q")" = "PS-9" ] || fail "partial revert: rejected $other on a trailered target should leave [PS-9], got [$(ids "$q")]"
+done
 echo "ok: a partial revert with a rejected trailer drops only the named id"
 
 # 11f. Revert pairing survives committer dates out of topological order: a
