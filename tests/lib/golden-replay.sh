@@ -83,14 +83,18 @@ _gr_replay() {
   fi
 
   # Declared sets, in task-id order: changes/task-<id>.txt.
+  # Sorted on the id's own major and minor parts, never on the path, which
+  # may carry dots of its own.
   : >"$gr_work/sets"
   for gr_set in "$gr_changes"/task-*.txt; do
     [ -f "$gr_set" ] || continue
     gr_id=${gr_set##*/task-}
     gr_id=${gr_id%.txt}
-    printf '%s %s\n' "$gr_id" "$gr_set" >>"$gr_work/sets"
+    gr_minor=0
+    case $gr_id in *.*) gr_minor=${gr_id#*.} ;; esac
+    printf '%s %s %s %s\n' "${gr_id%%.*}" "$gr_minor" "$gr_id" "$gr_set" >>"$gr_work/sets"
   done
-  sort -t . -k1,1n -k2,2n "$gr_work/sets" >"$gr_work/sets.sorted"
+  sort -k1,1n -k2,2n "$gr_work/sets" | cut -d ' ' -f 3- >"$gr_work/sets.sorted"
 
   : >"$gr_work/used"
   while read -r gr_id gr_set; do

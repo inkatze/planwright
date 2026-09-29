@@ -21,6 +21,9 @@
 # a reviewer to diff against the committed files.
 set -u
 unset CDPATH
+# Glob order, which the anchor listing follows, is byte order.
+LC_ALL=C
+export LC_ALL
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
@@ -116,8 +119,9 @@ today_local=$(date +%Y-%m-%d)
 
 # normalize <fixture-tmp> — machine paths to placeholders (replaced as literal
 # strings, so a path byte is never a pattern), minted observation ids, commit
-# and anchor hashes, and today's date to stable tokens. A body line opening
-# with `@@` is escaped so it cannot read as a record header.
+# and anchor hashes, and today's date to stable tokens. Record headers pass
+# through untouched; `probe` has already escaped any body line opening with
+# `@@`.
 normalize() {
   NZ_WT=$1/primary/.claude/worktrees/wt NZ_PRIMARY=$1/primary NZ_INSTALL=$REPO_ROOT \
     NZ_TMP=$1 NZ_TODAY_U=$today_utc NZ_TODAY_L=$today_local awk '
@@ -128,7 +132,7 @@ normalize() {
     }
     {
       s = $0
-      if (substr(s, 1, 3) == "@@ " && !header) { print; next }
+      if (substr(s, 1, 3) == "@@ ") { print; next }
       s = lit(s, ENVIRON["NZ_WT"], "<WORKTREE>"); s = lit(s, ENVIRON["NZ_PRIMARY"], "<PRIMARY>")
       s = lit(s, ENVIRON["NZ_INSTALL"], "<INSTALL>"); s = lit(s, ENVIRON["NZ_TMP"], "<TMP>")
       s = lit(s, ENVIRON["NZ_TODAY_U"], "<TODAY>"); s = lit(s, ENVIRON["NZ_TODAY_L"], "<TODAY>")
@@ -233,7 +237,7 @@ record_probes() {
     wait "$rp_pid" || rp_rc=1
   done
   [ "$rp_rc" -eq 0 ] || {
-    echo "record_probes: a vantage's fixture could not be built" >&2
+    echo "record_probes: a vantage's fixture or recording did not complete" >&2
     return 1
   }
   cat "$tmp/primary.rec" "$tmp/worktree.rec"
@@ -338,7 +342,18 @@ printf '@@ a primary fix-65\nSIX-FIVE\n' >"$planted/changes/task-6.5.txt"
 printf '@@ a primary fix-6\nSIX\n' >"$planted/changes/task-6.txt"
 printf '@@ a primary\nTEN\n@@ b primary\ntwo\n' >"$planted/a-ten.txt"
 if out=$(replay "$planted/a-ten.txt"); then ok "comparator: later sets override earlier ones in numeric task order"; else fail "comparator: set ordering failed: $out"; fi
-rm -f "$planted/changes/task-10.txt" "$planted/changes/task-6.5.txt" "$planted/changes/task-6.txt"
+rm -f "$planted/changes/task-10.txt"
+# 6.5 after 6, from a changes directory whose own path carries a dotted digit.
+mkdir -p "$planted/v.9"
+mv "$planted/changes" "$planted/v.9/changes"
+printf '@@ a primary\nSIX-FIVE\n@@ b primary\ntwo\n' >"$planted/a-sixfive.txt"
+if out=$(golden_replay "$planted/baseline.txt" "$planted/v.9/changes" "$planted/registry.tsv" "$planted/a-sixfive.txt"); then
+  ok "comparator: 6.5 overrides 6 whatever dots the path carries"
+else
+  fail "comparator: 6 and 6.5 misordered: $out"
+fi
+mv "$planted/v.9/changes" "$planted/changes"
+rm -f "$planted/changes/task-6.5.txt" "$planted/changes/task-6.txt"
 printf 'fix-a\t3\tREQ-X\nfix-b\t5\tREQ-Y\nold\tbaseline\tREQ-Z\n' >"$planted/registry.tsv"
 
 printf '@@ ../escape primary\nx\n' >"$planted/escape.txt"
