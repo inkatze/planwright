@@ -37,8 +37,8 @@
 #
 # KILL-SWITCH + AUDIT (D-15, D-16). The sweep is a daemon action: it gates
 # through fleet-daemon-gate.sh at entry (a set fleet_daemon_pause pauses the whole
-# cycle) and audits each escalation, and each reconcile that ACTUALLY corrected
-# drift, through fleet-audit.sh. A no-op reconcile is not audited (kickoff risk
+# cycle) and audits each escalation, each reconcile that ACTUALLY corrected
+# drift, and each flight residue it removes, through fleet-audit.sh. A no-op reconcile is not audited (kickoff risk
 # 31: the trail records real actions, not routine sweeps).
 #
 # Usage:
@@ -406,30 +406,37 @@ if [ -x "$SYNC" ] && [ -d "$repo/specs" ]; then
   set -f
 fi
 
-# --- Pass 3: flight residues. A failure is warned with its reason and retried
-#     next cycle; a removal is a real action and is audited. The brief retire
-#     runs only in a checkout that has flown, and never waits on a dispatch
+# --- Pass 3: flight residues. A removal is a real action and is audited; a
+#     failure is warned with its reason and retried next cycle. The brief
+#     retire runs only where flight briefs exist, and never waits on a dispatch
 #     holding the checkout's flight lock: contention just means next cycle.
+#     Each helper's result lines and its stderr share one capture, told apart
+#     by their leading field, so no temporary file is left by a signal.
 flight_residue() {
-  fr_err=$(mktemp "${TMPDIR:-/tmp}/fleet-sweep-flight.XXXXXX" 2>/dev/null) || fr_err=/dev/null
-  fr_out=$("$@" 2>"$fr_err" </dev/null)
+  fr_all=$("$@" 2>&1 </dev/null)
   fr_rc=$?
+  fr_tab=$(printf '\t')
   if [ "$fr_rc" -ne 0 ]; then
-    fr_why=$(tail -n 1 "$fr_err" 2>/dev/null)
-    warn "$(basename "$1") $2 exited $fr_rc${fr_why:+ ($(sanitize_printable "$fr_why"))} — flight residues left for the next sweep"
+    fr_why=$(printf '%s\n' "$fr_all" | grep -v -e "^retired$fr_tab" -e "^pruned$fr_tab" | tail -n 1)
+    warn "$FR_NAME exited $fr_rc${fr_why:+ ($(sanitize_printable "$fr_why"))} — flight residues left for the next sweep"
   fi
-  [ "$fr_err" = /dev/null ] || rm -f "$fr_err"
-  printf '%s\n' "$fr_out" | while IFS="$(printf '\t')" read -r fr_kind fr_what; do
+  printf '%s\n' "$fr_all" | while IFS="$fr_tab" read -r fr_kind fr_what; do
     case $fr_kind in
       retired) audit flight-brief-retire flight-residue "retired the brief of flight $fr_what (its worktree is gone)" ;;
       pruned) audit flight-index-prune flight-residue "pruned the derived flight index of vanished checkout $fr_what" ;;
     esac
   done
 }
-if [ -x "$FLIGHT_DISPATCH" ] && git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 \
-  && [ -n "$(git -C "$repo" for-each-ref --count=1 --format=x refs/heads/planwright/flight/ 2>/dev/null)" ]; then
-  PLANWRIGHT_FLIGHT_LOCK_WAIT=0 flight_residue "$FLIGHT_DISPATCH" retire --repo-root "$repo"
+fr_home=$("$FS" root 2>/dev/null) || fr_home=''
+if [ -x "$FLIGHT_DISPATCH" ] && [ -n "$fr_home" ] && [ -d "$fr_home/flights" ] \
+  && [ -n "$(find "$fr_home/flights" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" ] \
+  && git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+  FR_NAME='flight brief retire'
+  flight_residue env PLANWRIGHT_FLIGHT_LOCK_WAIT=0 "$FLIGHT_DISPATCH" retire --repo-root "$repo"
 fi
-[ ! -x "$FLIGHT_SWEEP" ] || flight_residue "$FLIGHT_SWEEP" prune
+if [ -x "$FLIGHT_SWEEP" ]; then
+  FR_NAME='flight index prune'
+  flight_residue "$FLIGHT_SWEEP" prune
+fi
 
 exit 0
