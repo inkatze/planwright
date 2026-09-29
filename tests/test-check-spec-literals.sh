@@ -18,7 +18,10 @@ fail() {
   failures=$((failures + 1))
 }
 
-tmp="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/check-spec-literals.XXXXXX")" && pwd -P)" || exit 1
+# Two steps: bash 3.2 reads `cd ""` as success, so a failed mktemp inside one
+# substitution would make $tmp the current directory, which the trap deletes.
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/check-spec-literals.XXXXXX") || exit 1
+tmp=$(cd "$tmp" && pwd -P) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 # A clean tree carrying every scanned location.
