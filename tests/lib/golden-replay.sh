@@ -79,13 +79,22 @@ _gr_replay() {
     gr_fail=1
   }
 
-  # Registry rows: <correction> TAB <owner: a task id or `baseline`> TAB ...
-  if ! awk -F '\t' '!/^#/ && NF >= 2 { print $1 " " $2; n++ } END { exit !n }' \
-    "$gr_registry" >"$gr_work/registry"; then
-    echo "golden-replay: $gr_registry holds no correction rows"
+  # Registry rows: <correction> TAB <owner: a task id or `baseline`> TAB
+  # <requirements> TAB <what changes>. A row the parse cannot read is refused
+  # rather than dropped, since a dropped row is a correction nothing checks.
+  awk -F '\t' '
+    function bad(msg) { print "golden-replay: " FILENAME ":" FNR ": " msg; err = 1 }
+    /^#/ || /^[ \t]*$/ { next }
+    NF < 4 { bad("a correction row needs four tab-separated fields"); next }
+    $1 !~ /^[A-Za-z0-9_.-]+$/ { bad("the correction is not a name"); next }
+    $2 != "baseline" && $2 !~ /^[0-9]+([.][0-9]+)?$/ { bad("the owner is neither a task id nor baseline"); next }
+    $1 in seen { bad("correction " $1 " is registered twice"); next }
+    { seen[$1] = 1; print $1 " " $2 >(out); n++ }
+    END { if (!err && !n) print "golden-replay: " FILENAME " holds no correction rows"; exit err || !n }
+  ' out="$gr_work/registry" "$gr_registry" || {
     rm -rf "$gr_work"
     return 2
-  fi
+  }
 
   # Declared sets, in task-id order: changes/task-<id>.txt.
   # Sorted on the id's own major and minor parts, never on the path, which

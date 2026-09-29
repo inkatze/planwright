@@ -279,9 +279,9 @@ esac
 # --- The comparator on planted records --------------------------------------
 
 planted=$tmp/planted
-mkdir -p "$planted/changes"
+mkdir -p "$planted/changes" "$planted/no-changes"
 printf 'comment\n@@ a primary\none\n@@ b primary\ntwo\n' >"$planted/baseline.txt"
-printf 'fix-a\t3\tREQ-X\nfix-b\t5\tREQ-Y\nold\tbaseline\tREQ-Z\n' >"$planted/registry.tsv"
+printf 'fix-a\t3\tREQ-X\ta\nfix-b\t5\tREQ-Y\tb\nold\tbaseline\tREQ-Z\tz\n' >"$planted/registry.tsv"
 printf '@@ a primary\none\n@@ b primary\ntwo\n' >"$planted/same.txt"
 printf '@@ a primary\nONE\n@@ b primary\ntwo\n' >"$planted/a-changed.txt"
 replay() { golden_replay "$planted/baseline.txt" "$planted/changes" "$planted/registry.tsv" "$1" 2>&1; }
@@ -346,7 +346,7 @@ else
 fi
 
 # Numeric task order, not lexical: 6 before 6.5 before 10.
-printf 'fix-a\t3\tREQ-X\nfix-b\t5\tREQ-Y\nold\tbaseline\tREQ-Z\nfix-6\t6\tR\nfix-65\t6.5\tR\nfix-10\t10\tR\n' >"$planted/registry.tsv"
+printf 'fix-a\t3\tREQ-X\ta\nfix-b\t5\tREQ-Y\tb\nold\tbaseline\tREQ-Z\tz\nfix-6\t6\tR\t6\nfix-65\t6.5\tR\t65\nfix-10\t10\tR\t10\n' >"$planted/registry.tsv"
 printf '@@ a primary fix-a\nONE\n' >"$planted/changes/task-3.txt"
 printf '@@ a primary fix-10\nTEN\n' >"$planted/changes/task-10.txt"
 printf '@@ a primary fix-65\nSIX-FIVE\n' >"$planted/changes/task-6.5.txt"
@@ -365,7 +365,7 @@ else
 fi
 mv "$planted/v.9/changes" "$planted/changes"
 rm -f "$planted/changes/task-6.5.txt" "$planted/changes/task-6.txt"
-printf 'fix-a\t3\tREQ-X\nfix-b\t5\tREQ-Y\nold\tbaseline\tREQ-Z\n' >"$planted/registry.tsv"
+printf 'fix-a\t3\tREQ-X\ta\nfix-b\t5\tREQ-Y\tb\nold\tbaseline\tREQ-Z\tz\n' >"$planted/registry.tsv"
 
 printf '@@ ../escape primary\nx\n' >"$planted/escape.txt"
 if out=$(replay "$planted/escape.txt"); then
@@ -388,8 +388,18 @@ else
   case $out in *"no-registry.tsv is missing"*) ok "comparator: a missing registry fails closed" ;; *) fail "comparator: missing registry misreported: $out" ;; esac
 fi
 
+# Registry rows carry four fields, a unique correction name, and an owner that
+# is a task id or `baseline`.
+for bad in 'short\t3' 'fix-a\t3\tR\ta\nfix-a\t5\tR\tb' 'odd\ttask-3\tR\tx' 'sp ace\t3\tR\tx'; do
+  printf '%b\n' "$bad" >"$planted/bad-registry.tsv"
+  if out=$(golden_replay "$planted/baseline.txt" "$planted/no-changes" "$planted/bad-registry.tsv" "$planted/same.txt"); then
+    fail "comparator: a malformed registry row passed: $bad"
+  else
+    case $out in *"bad-registry.tsv:"*) ok "comparator: a malformed registry row is refused: $bad" ;; *) fail "comparator: malformed registry misreported ($bad): $out" ;; esac
+  fi
+done
+
 printf 'commentary only\n' >"$planted/no-records.txt"
-mkdir -p "$planted/no-changes"
 if out=$(golden_replay "$planted/no-records.txt" "$planted/no-changes" "$planted/registry.tsv" "$planted/no-records.txt"); then
   fail "comparator: a baseline with no records passed"
 else
