@@ -196,7 +196,8 @@ record_vantage() {
     "$S/resolve-overlay-root.sh" machine-local
   # The layers entries came from, not the entries: the catalog's content is
   # outside this fixture's concern.
-  probe catalog sh -c '"$1" decision-domains --explain | cut -f2 | sort -u' sh "$S/resolve-catalog.sh"
+  probe catalog sh -c 'o=$("$1" decision-domains --explain); r=$?; printf "%s\n" "$o" | cut -f2 | sort -u; exit $r' \
+    sh "$S/resolve-catalog.sh"
   probe spec-root "$S/resolve-root.sh" spec --explain
   # The rung line only: the scaffold's file inventory belongs to inception.
   probe inception-scaffold sh -c 'o=$("$1" "$2" 2>&1); r=$?; printf "%s\n" "$o" | tail -n 1; exit $r' \
