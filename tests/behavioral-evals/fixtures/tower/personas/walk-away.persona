@@ -1,10 +1,12 @@
 # walk-away.persona — the walk-away/resume acceptance scenario: a flight is in
 # the air and a case is unanswered when the session restarts; the fresh session
 # reports the flight from durable evidence in the unchecked form, and the case,
-# which only the conversation held, is gone and re-asked. Turn map: 1 ask,
-# 2 zone ask (case left unanswered), 3 restart, 4 end.
+# which only the conversation held, is gone: a yes after the restart drafts
+# nothing. Turn map: 1 ask, 2 zone ask (case left unanswered), 3 restart,
+# 4 yes, 5 end.
 expertise=novice
 answer.1=rename the helper in the export module for clarity
 answer.2=tighten the permission checks on the admin endpoints
 answer.3=@event:session-restart
-answer.4=that's all
+answer.4=yes
+answer.5=that's all

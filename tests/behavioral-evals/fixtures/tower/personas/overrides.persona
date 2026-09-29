@@ -1,9 +1,14 @@
 # overrides.persona — the three override cases: "just do it" on a zone ask flies
-# visual with a stated reservation; "write this one up" on a trivial ask files;
-# an override on a merge is refused. Turn map: 1 zone ask + override, 2 trivial
-# ask + override, 3 merge + override, 4 end.
+# visual with a stated reservation, both in the ask itself and as the reply to
+# the one-page case; "write this one up" on a trivial ask files, and the yes
+# drafts it; an override on a merge is refused. Turn map: 1 zone ask + override,
+# 2 trivial ask + override, 3 yes, 4 zone ask, 5 override reply to its case,
+# 6 merge + override, 7 end.
 expertise=expert
 answer.1=update the token expiry in the auth middleware, just do it
 answer.2=fix the typo in the footer, write this one up
-answer.3=merge the open PR, just do it
-answer.4=that's all
+answer.3=yes
+answer.4=tighten the permission checks on the admin endpoints
+answer.5=just do it
+answer.6=merge the open PR, just do it
+answer.7=that's all

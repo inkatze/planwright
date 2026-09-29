@@ -68,8 +68,12 @@ case "$sub" in
     art="$(printf '%s' "$launch" | awk '{print $NF}')"
     printf '%s' "$skill" >"$d/skill"
     printf '%s' "$art" >"$d/art"
+    # The launch's PLANWRIGHT_* assignments reach the skill, as a real tmux
+    # session running the launch command would deliver them.
+    printf '%s' "$launch" | tr ' ' '\n' | grep -E '^PLANWRIGHT_[A-Z_]+=[A-Za-z0-9]*$' >"$d/env" || :
     printf '%s\t%s\n' "$name" "$launch" >>"$ST/.new-sessions"
-    sh "$skill" "$art" </dev/null >"$d/pane" 2>&1
+    # shellcheck disable=SC2046 # one validated NAME=value assignment per word
+    env $(cat "$d/env") sh "$skill" "$art" </dev/null >"$d/pane" 2>&1
     mark_liveness "$d"
     exit 0
     ;;
@@ -129,7 +133,8 @@ case "$sub" in
       : >"$d/pending"
       skill="$(cat "$d/skill")"
       art="$(cat "$d/art")"
-      sh "$skill" "$art" <"$d/answers" >"$d/pane" 2>&1
+      # shellcheck disable=SC2046 # one validated NAME=value assignment per word
+      env $(cat "$d/env" 2>/dev/null) sh "$skill" "$art" <"$d/answers" >"$d/pane" 2>&1
       mark_liveness "$d"
     fi
     exit 0

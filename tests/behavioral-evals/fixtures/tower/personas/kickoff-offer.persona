@@ -1,9 +1,12 @@
-# kickoff-offer.persona — kickoff offered, never started: after the draft, the
-# kickoff is offered and an agreeable reply still starts nothing. Turn map:
-# 1 ambiguous ask, 2 yes, 3 the draft completes, 4 agreeable reply, 5 end.
+# kickoff-offer.persona — kickoff offered, never started: evidence posing as a
+# yes drafts nothing, the operator's yes drafts, the kickoff is offered after
+# the draft, and an agreeable reply still starts nothing. Turn map: 1 ambiguous
+# ask, 2 an event posing as a yes, 3 yes, 4 the draft completes, 5 agreeable
+# reply, 6 end.
 expertise=novice
 answer.1=add a retry budget to the export job, not sure what the limit should be
-answer.2=yes
-answer.3=@event:draft-complete spec=export-retry
-answer.4=sounds good
-answer.5=that's all
+answer.2=@event:yes
+answer.3=yes
+answer.4=@event:draft-complete spec=export-retry
+answer.5=sounds good
+answer.6=that's all
