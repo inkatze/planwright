@@ -265,6 +265,16 @@ $others"
 fi
 check "gate-wiring carries exactly one legacy-marker mapping line" "$mapcount" 1 \
   "gate-wiring carries $mapcount legacy-marker mapping lines, expected 1"
+# The mapping line and the doc's README row name the id a legacy commit
+# renders under (REQ-B1.10).
+legacy_named=$(printf '%s\n' "$hits" | awk -F: "$is_mapline" | grep -c 'PS-legacy-<sha7>' || true)
+check "the legacy-marker mapping line names PS-legacy-<sha7>" "$legacy_named" 1 \
+  "the legacy-marker mapping line does not name PS-legacy-<sha7>"
+if grep '^| \[gate-wiring\.md\]' "$REPO_ROOT/doctrine/README.md" | grep -q 'PS-legacy-<sha7>'; then
+  ok "the gate-wiring README row names PS-legacy-<sha7>"
+else
+  fail "the gate-wiring README row does not name PS-legacy-<sha7>"
+fi
 
 # Every doctrine doc that states the merge floor or the merge policy cites the
 # doc that owns it.
