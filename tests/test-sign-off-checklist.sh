@@ -523,6 +523,10 @@ Planwright-Sign-Off: PS-999999998"
 rc=0
 out=$(cd "$o" && printf 'fix: s\n' | /bin/bash "$STAMP" --base main --sign-off --sign-off --sign-off 2>/dev/null) || rc=$?
 [ "$rc" = 2 ] && [ -z "$out" ] || fail "stamp: an allocation past nine digits expected exit 2, got $rc"
+out=$(cd "$o" && printf 'fix: s\n' | /bin/bash "$STAMP" --base main --sign-off 2>/dev/null) \
+  || fail "stamp: the last nine-digit id was refused"
+printf '%s\n' "$out" | grep -qx 'Planwright-Sign-Off: PS-999999999' \
+  || fail "stamp: expected PS-999999999 at the cap [$out]"
 echo "ok: allocation refuses without a resolvable base or over an existing id"
 
 echo "all sign-off-checklist tests passed"
