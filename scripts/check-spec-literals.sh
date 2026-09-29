@@ -33,7 +33,7 @@
 #     scripts/resolve-root.sh), `namespace` (a `specs/<id>` that names a spec
 #     rather than a directory, such as the Consumed-by writer and an alias
 #     mapper), and `static-glob` (a pattern a tool reads statically and cannot
-#     resolve);
+#     resolve, only in lefthook.yml and .gitignore);
 #   config/spec-literal-pending.tsv — sites not yet migrated onto the
 #     resolver, each tagged with the task that migrates it. Shrink-only: a row
 #     absent from the base ref's copy of the list fails, so a migration can
@@ -350,6 +350,7 @@ verdict='
     if (FILENAME == allow) {
       if ($1 !~ /^(resolver|namespace|static-glob)$/) { bad("class must be resolver, namespace, or static-glob"); next }
       if ($1 == "resolver" && $2 != "scripts/resolve-root.sh") { bad("the resolver class names only scripts/resolve-root.sh"); next }
+      if ($1 == "static-glob" && $2 != "lefthook.yml" && $2 != ".gitignore") { bad("the static-glob class names only lefthook.yml and .gitignore"); next }
       list = "allowlist"
     } else {
       if ($1 !~ /^[0-9]+(\.[0-9]+)?$/) { bad("a pending row starts with the task id that migrates it"); next }

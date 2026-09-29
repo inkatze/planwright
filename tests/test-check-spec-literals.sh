@@ -446,6 +446,13 @@ EOF
   expect 2 "a failing awk pass $n fails closed" "could not complete"
 done
 
+# A static glob lives only where a tool reads patterns statically.
+fixture
+printf 'd=$r/specs/x\n' >>"$tmp/r/scripts/a.sh"
+printf 'static-glob\tscripts/a.sh\td=$r/specs/x\n' >>"$tmp/r/config/spec-literal-allowlist.tsv"
+run
+expect 2 "a static-glob row naming a script is refused" "static-glob class names only lefthook.yml and .gitignore"
+
 # --- Shrink-only ---------------------------------------------------------------
 
 fixture
