@@ -10,7 +10,7 @@ Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 ·
 operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 ·
 prose-disposition REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 ·
 prose-disposition D-5 · custom-steps REQ-D1.2, REQ-D1.5 · human-gates
-REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.9, D-3.
+REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.9, REQ-B1.10, D-3, D-16.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -117,9 +117,9 @@ body under the PR title, which must stay free of them since it becomes the
 mainline subject; a merge commit keeps them as ancestor history; a rebase
 merge lands them on mainline, unread.
 
-A legacy `[pending-sign-off]` subject suffix counts as a `Planwright-Sign-Off` trailer;
-no history is rewritten and no branch is swept. Until the trailer helper ships,
-a skill writing the suffix conforms through that line.
+A legacy `[pending-sign-off]` subject suffix counts as a `Planwright-Sign-Off: PS-legacy-<sha7>` trailer;
+no history is rewritten and no branch is swept. Until skills stamp the
+trailer, a suffix-writing skill conforms through it.
 
 ## Pending-sign-off checklist
 
