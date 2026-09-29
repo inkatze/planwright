@@ -458,6 +458,12 @@ cmd_new_run() {
 }
 
 # --- write ------------------------------------------------------------------------
+# put <key> <value>: one record line. Each write is checked on its own, since
+# a group's status is only its last command's.
+put() {
+  printf '%s\t%s\n' "$1" "$2" || die 1 "cannot write a temporary file"
+}
+
 # claim <run> <stem> <type> <body-file> [<point>]: write the record under
 # the run's next sequence number, claimed atomically, and print its absolute
 # path. Given a point, refuse once the point's completion is claimed: a
@@ -558,9 +564,10 @@ cmd_write() {
     # shellcheck disable=SC2086 # split on newlines by design (IFS)
     screen_values warning $cleaned
     {
-      printf 'point\t%s\nhead\t%s\n' "$point" "$head"
+      put point "$point"
+      put head "$head"
       [ -z "$cleaned" ] || while IFS= read -r w; do
-        printf 'warning\t%s\n' "$w"
+        put warning "$w"
       done <"$work/screened"
     } >"$work/body" || die 1 "cannot write a temporary file"
     if mkdir "$cache/$run/.done-$point" 2>/dev/null; then
@@ -648,14 +655,21 @@ cmd_write() {
   fi
 
   {
-    printf 'point\t%s\nstep\t%s\nkind\t%s\ntarget\t%s\nhosting\t%s\n' \
-      "$point" "$s_step" "$kind" "$s_target" "$hosting"
-    printf 'backend\t%s\nsession\t%s\nhead\t%s\nstart\t%s\nend\t%s\n' \
-      "$s_backend" "$s_session" "$head" "$start" "$end"
-    printf 'outcome\t%s\noutput\t%s\nskip-reason\t%s\n' \
-      "$outcome" "$s_output" "$s_skip"
+    put point "$point"
+    put step "$s_step"
+    put kind "$kind"
+    put target "$s_target"
+    put hosting "$hosting"
+    put backend "$s_backend"
+    put session "$s_session"
+    put head "$head"
+    put start "$start"
+    put end "$end"
+    put outcome "$outcome"
+    put output "$s_output"
+    put skip-reason "$s_skip"
     while IFS= read -r line || [ -n "$line" ]; do
-      printf 'excerpt\t%s\n' "$line"
+      put excerpt "$line"
     done <"$work/excerpt"
   } >"$work/body" || die 1 "cannot write a temporary file"
   claim "$run" "step-$point" step "$work/body" "$point"
