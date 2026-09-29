@@ -4,8 +4,8 @@
 #
 # Every fixture lives under a temporary directory: a fixture worktree (a git
 # repository, so `regenerate` has a range to read) holding the record cache.
-# The one case that reads a shipped file is the ignore check, which asks this
-# repository's own ignore list about the cache path.
+# The shipped files it reads are the golden checklist fixture and this
+# repository's own ignore list, asked about the cache path.
 #
 # Runs standalone under /bin/sh (the bash 3.2 / dash floor):
 #   ./tests/test-step-record.sh
@@ -74,7 +74,6 @@ verdict "a later run id sorts after an earlier one" "run ids '$run1' then '$run2
 
 # --- write + list round trip -----------------------------------------------------
 printf 'line one\nline two\n' >"$tmp/out1.txt"
-mkdir -p "$wt/.claude/steps/$run1"
 cp "$tmp/out1.txt" "$wt/.claude/steps/$run1/polish.out"
 rec=$(sr write --run "$run1" --point convergence --step polish --kind skill \
   --target polish --hosting isolated --backend terminal --session sess-42 \
@@ -169,7 +168,7 @@ case $row in
 esac
 # shellcheck disable=SC2016 # literal backticks in the pattern
 case $row in
-  *'&#64;alice'*'&#35;7'*'&lt;b&gt;'*'https:&#47;&#47;'*'\`code\`'*) ok "mentions, issue refs, markup, and links render neutralized" ;;
+  *'@&#8203;alice'*'#&#8203;7'*'&lt;b&gt;'*'https:/&#8203;/'*'\`code\`'*) ok "mentions, issue refs, markup, and links render neutralized" ;;
   *) fail "neutralization missing: $row" ;;
 esac
 cells=$(printf '%s\n' "$row" | sed 's/\\|//g' | tr -cd '|' | wc -c | tr -d ' ')
@@ -241,22 +240,114 @@ refuse "an unknown point" "--point" $base_args --point EVILpoint --step s
 refuse "a malformed step id" "--step" $base_args --point pre-ci --step "EVIL/../x"
 # shellcheck disable=SC2086
 refuse "the reserved implementation id" "--step" $base_args --point pre-ci --step implementation
-# shellcheck disable=SC2086
 refuse "a target carrying a newline" "--target" --run "$run2" --point pre-ci --step s \
   --kind command --target "EVIL
 x" --hosting isolated --backend runner --head "$HEAD_SHA" \
   --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed
 # shellcheck disable=SC2086
-refuse "an output path outside the worktree" "--output" $base_args --point pre-ci \
+refuse "an output path outside the record cache" "--output" $base_args --point pre-ci \
   --step s --output "/etc/EVIL"
-# shellcheck disable=SC2086
 refuse "an unknown outcome" "--outcome" --run "$run2" --point pre-ci --step s \
   --kind command --target t --hosting isolated --backend runner --head "$HEAD_SHA" \
   --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome EVIL
-# shellcheck disable=SC2086
 refuse "an unissued run id" "--run" --run 999999 --point pre-ci --step s \
   --kind command --target t --hosting isolated --backend runner --head "$HEAD_SHA" \
   --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed
+
+# --- hardening -------------------------------------------------------------------------
+refuse "a backend carrying a newline" "--backend" --run "$run2" --point pre-ci --step s \
+  --kind command --target t --hosting isolated --backend "b
+typeEVIL" --head "$HEAD_SHA" \
+  --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed
+refuse "an abbreviated head" "--head" --run "$run2" --point pre-ci --step s \
+  --kind command --target t --hosting isolated --backend runner \
+  --head "$(printf '%s' "$HEAD_SHA" | cut -c1-12)" \
+  --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed
+
+# A secret the cut would drop out of the kept tail is still caught: the whole
+# cleaned output is screened before it is cut.
+{
+  printf 'password=%s\n' "$(printf 'Q7xR2mK9pL4vN8sT1wY6zB3cF5hJ0dG2aE7uI9oP')"
+  i=0
+  while [ "$i" -lt 30 ]; do
+    printf 'filler line %02d\n' "$i"
+    i=$((i + 1))
+  done
+} >"$tmp/early-secret.txt"
+recs=$(sr write --run "$run2" --point pre-ci --step early --kind command --target early \
+  --hosting isolated --backend runner --head "$HEAD_SHA" \
+  --start 2026-09-28T11:04:00Z --end 2026-09-28T11:04:01Z --outcome passed \
+  --excerpt-file "$tmp/early-secret.txt")
+grep -Fq "withheld: the secret screen flagged this excerpt" "$recs"
+verdict "a secret outside the kept tail still withholds the excerpt" "early secret not caught"
+
+# C1 controls, bidi overrides, and invalid UTF-8 are stripped.
+printf 'a\302\233b\342\200\256c\377d\342\200\224e\n' >"$tmp/c1.txt"
+recc=$(sr write --run "$run2" --point pre-ci --step c1 --kind command --target c1 \
+  --hosting isolated --backend runner --head "$HEAD_SHA" \
+  --start 2026-09-28T11:05:00Z --end 2026-09-28T11:05:01Z --outcome passed \
+  --excerpt-file "$tmp/c1.txt")
+expect=$(printf 'excerpt\tabcd\342\200\224e')
+grep -Fxq "$expect" "$recc"
+verdict "C1, bidi, and invalid bytes are stripped and UTF-8 text kept" "got: $(grep excerpt "$recc" | od -c | head -3)"
+
+# No scratch survives a write, the unscreened excerpt least of all.
+mkdir "$tmp/tmpd"
+env TMPDIR="$tmp/tmpd" "$SR" --worktree "$wt" write --run "$run2" --point pre-ci --step scratch --kind command \
+  --target scratch --hosting isolated --backend runner --head "$HEAD_SHA" \
+  --start 2026-09-28T11:06:00Z --end 2026-09-28T11:06:01Z --outcome passed \
+  --excerpt-file "$tmp/secret.txt" >/dev/null
+left=$(find "$tmp/tmpd" -mindepth 1 | wc -l | tr -d ' ')
+[ "$left" -eq 0 ]
+verdict "a write leaves nothing in TMPDIR" "$left entries left in TMPDIR"
+
+# A failure partway writes no record and exits non-zero.
+before=$(find "$wt/.claude/steps/$run2" -name '*.rec' | wc -l | tr -d ' ')
+env TMPDIR="$tmp/no-such-dir" "$SR" --worktree "$wt" write --run "$run2" --point pre-ci --step nomk --kind command \
+  --target nomk --hosting isolated --backend runner --head "$HEAD_SHA" \
+  --start 2026-09-28T11:07:00Z --end 2026-09-28T11:07:01Z --outcome passed \
+  >/dev/null 2>&1
+rc=$?
+after=$(find "$wt/.claude/steps/$run2" -name '*.rec' | wc -l | tr -d ' ')
+[ "$rc" -eq 1 ] && [ "$before" -eq "$after" ]
+verdict "a write that cannot make its scratch exits 1 and writes nothing" "rc=$rc records $before -> $after"
+
+# Records are private, and sequence numbers stay unique under concurrent
+# writers.
+[ -n "$(find "$recc" -perm 0600)" ]
+verdict "a record is mode 0600" "record mode is not 0600"
+run3=$(sr new-run)
+i=1
+while [ "$i" -le 8 ]; do
+  sr write --run "$run3" --point pre-implementation --step "c$i" --kind command --target t \
+    --hosting isolated --backend runner --head "$HEAD_SHA" \
+    --start 2026-09-28T12:00:00Z --end 2026-09-28T12:00:01Z --outcome passed >/dev/null &
+  i=$((i + 1))
+done
+wait
+dups=$(sr list --run "$run3" | sed -n "s/^seq${TAB}//p" | sort | uniq -d | wc -l | tr -d ' ')
+count=$(sr list --run "$run3" | grep -c "^seq${TAB}")
+[ "$dups" -eq 0 ] && [ "$count" -eq 8 ]
+verdict "concurrent writers get unique sequence numbers" "$count records, $dups duplicate seqs"
+
+# A point fires once per run.
+sr write --completion --run "$run3" --point pre-implementation --head "$HEAD_SHA" >/dev/null
+sr write --completion --run "$run3" --point pre-implementation --head "$HEAD_SHA" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a second completion of a point in one run is refused" "second completion accepted"
+sr write --run "$run3" --point pre-implementation --step late --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" \
+  --start 2026-09-28T12:00:00Z --end 2026-09-28T12:00:01Z --outcome passed >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a step record after its point completed is refused" "late step accepted"
+
+# A symlinked cache is refused, never read or written through.
+lw="$tmp/linked"
+mkdir -p "$lw/.claude" "$tmp/elsewhere"
+ln -s "$tmp/elsewhere" "$lw/.claude/steps"
+"$SR" --worktree "$lw" new-run >/dev/null 2>&1
+[ $? -eq 1 ] && [ -z "$(ls "$tmp/elsewhere")" ]
+verdict "a symlinked cache is refused" "symlinked cache used"
 
 # --- the fixture PR body -------------------------------------------------------------
 {
@@ -290,12 +381,13 @@ C2FULL=$(git -C "$wt" rev-parse HEAD)
 commit "Revert \"fix(x): a fix later reverted\"
 
 This reverts commit $C2FULL." >/dev/null
-C4=$(commit "docs(guide): two prose fixes @someone fixes #12
+C4=$(commit "docs(guide): two prose fixes @someone fixes #12 see [x](https://evil.example)
 
 Route reason: meaning-class prose on surfaces that predate the PR
 
 - \`docs/a.md\` — before: absent · after: the rule
-- \`docs/b.md\` — before: the old rule · after: the new rule
+- \`docs/b.md\` — before: the old rule
+  · after: the new rule
 
 Planwright-Sign-Off: PS-3")
 commit "fix(y): a fix later rejected
@@ -307,10 +399,26 @@ C6=$(commit "fix(old): a legacy-marked fix [pending-sign-off]")
 commit "chore: reject one item
 
 Planwright-Sign-Off-Rejected: PS-4" >/dev/null
-commit "chore: an unmarked commit" >/dev/null
+commit "chore: an unmarked commit
+
+- an ordinary bullet, not a manifest line" >/dev/null
+C9=$(commit "fix(z): a fix whose revert was reverted
+
+Planwright-Sign-Off: PS-5")
+C9FULL=$(git -C "$wt" rev-parse HEAD)
+commit "Revert \"fix(z)\"
+
+This reverts commit $C9FULL." >/dev/null
+R9FULL=$(git -C "$wt" rev-parse HEAD)
+commit "Reapply \"fix(z)\"
+
+This reverts commit $R9FULL." >/dev/null
+commit "chore: a rejection naming no PS id
+
+Planwright-Sign-Off-Rejected: legacy" >/dev/null
 HEAD2=$(git -C "$wt" rev-parse HEAD)
 
-sed -e "s/@C1@/$C1/g" -e "s/@C4@/$C4/g" -e "s/@C6@/$C6/g" "$GOLDEN" >"$tmp/expected.md"
+sed -e "s/@C1@/$C1/g" -e "s/@C4@/$C4/g" -e "s/@C6@/$C6/g" -e "s/@C9@/$C9/g" "$GOLDEN" >"$tmp/expected.md"
 sr regenerate --base "$BASE" --head "$HEAD2" --run "$run1" >"$tmp/regen.md"
 verdict "regenerate succeeds over the fixture range" "regenerate failed"
 awk '/^## Steps at /{exit} {print}' "$tmp/regen.md" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' >"$tmp/regen-checklist.md"

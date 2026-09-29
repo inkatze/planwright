@@ -45,7 +45,7 @@ mise.local.toml
 .claude/polish-audit.md
 # Custom-steps records (custom-steps D-16): per-run step records and captured
 # output written by scripts/step-record.sh, folded into the PR body, never source.
-.claude/steps/
+.claude/steps
 # Worker scratch staged for relay: consumed by the orchestrator, never tracked.
 # An uncommitted leftover here fails the release publisher's clean-tree gate.
 .claude/relay/
