@@ -6,6 +6,10 @@
 # shellcheck disable=SC2016
 set -u
 unset CDPATH
+# Inherited from a hook or alias, these would point the fixture's git calls,
+# and the guard's own, at the calling repository.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 GUARD="$REPO_ROOT/scripts/check-spec-literals.sh"

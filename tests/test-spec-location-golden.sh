@@ -24,7 +24,8 @@ unset CDPATH
 # Glob order, which the anchor listing follows, is byte order.
 LC_ALL=C
 export LC_ALL
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+  GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 FIXTURE="$REPO_ROOT/tests/fixtures/spec-location-golden"
