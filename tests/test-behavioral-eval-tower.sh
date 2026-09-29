@@ -273,6 +273,9 @@ assert_eq "each gets the clarifying question" "5" \
 edge caseup "tighten the permission checks on the admin endpoints" "write it up" "that's all"
 assert_eq "\"write it up\" answering a case files it" "spec-draft" \
   "$(jq -rs '[.[] | select(.action == "dispatch") | .target] | join(" ")' "$TMP/edge-caseup/decision-log.jsonl")"
+edge othersign "@event:draft-complete spec=spec-a" "@event:signoff-complete spec=spec-b" "ok" "that's all"
+assert_eq "another spec's sign-off leaves the waiting draft's kickoff pending" "1" \
+  "$(jq -rs '[.[] | select(.kind == "present" and (.text | startswith("It is yours to start: /spec-kickoff specs/spec-a")))] | length' "$TMP/edge-othersign/decision-log.jsonl" 2>/dev/null)"
 edge lone "write it up" "file a plan" "that's all"
 assert_eq "a lone write-up with no case pending dispatches nothing" "0" \
   "$(jq -rs '[.[] | select(.action == "dispatch" or .action == "route")] | length' "$TMP/edge-lone/decision-log.jsonl" 2>/dev/null)"

@@ -434,7 +434,7 @@ handle_event() { # handle_event <line>
       log_entry event '{source: "evidence", event: "signoff-complete", spec: $s}' --arg s "$_he_spec"
       evidence_add "$(jq -cn --arg s "$_he_spec" '{type: "signed", spec: $s}')"
       signed_spec="$_he_spec"
-      offered_spec=""
+      [ "$offered_spec" = "$_he_spec" ] && offered_spec=""
       say "$_he_spec is signed off. Nothing starts on its own: say go when you want it orchestrated."
       log_entry decision '{action: "hold", on: "signoff-complete", spec: $s, dispatched: false}' --arg s "$_he_spec"
       ;;
