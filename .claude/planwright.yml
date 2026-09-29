@@ -29,9 +29,9 @@ steps_convergence: [self-review]
 
 # Transitional, added 2026-09-28: this repository's units run the INSTALLED
 # plugin, whose convergence still reads the retired knob below until the
-# release carrying the step resolver is installed here. Removed under the
-# custom-steps Deferred entry that drops this transitional line; the step
-# resolver ignores it and warns naming this layer.
+# release carrying custom-steps Task 3 is installed here. Removed under the
+# custom-steps Deferred entry "Dropping the transitional `review_sequence`
+# line"; the step resolver ignores it and warns naming this layer.
 review_sequence: [self-review]
 
 # Pinned, not inherited: the convergence steps above depend on it. `per-step`

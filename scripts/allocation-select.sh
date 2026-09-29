@@ -91,9 +91,9 @@
 # an omission. The command enum is the carrier of the dispatch-entry
 # disjointness invariant (REQ-A1.4, above): it must stay exactly the
 # dispatch-entry set and must never name a step. Step types are
-# `implementation` plus the step ids (polish, self-review), so letting the two
-# axes share the
-# command column is precisely how that invariant would be lost. Keeping the
+# `implementation` plus any step id (the core catalog seeds polish and
+# self-review), so letting the two axes share the command column is precisely
+# how that invariant would be lost. Keeping the
 # axes separate means adding a step cannot widen the command enum
 # — the enum is untouched by construction, not merely by convention.
 #

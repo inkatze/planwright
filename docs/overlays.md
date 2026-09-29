@@ -330,7 +330,10 @@ unit when unattended. A repo-tracked step that names an external tool (a
 non-Anthropic review backend, a hosted scanner) sends the diff to that
 tool on every teammate's run: committing it is a **team-wide disclosure
 decision**, and the declaration is the consent record. Keep a step you have
-not agreed with the team in your adopter or machine-local layer.
+not agreed with the team in your adopter or machine-local layer. Only the
+adopter layer reaches a task unit's worker: its fresh worktree has no copy of
+the gitignored machine-local files, so a per-user step that must run in
+dispatched units belongs in the adopter layer.
 
 **The context a step receives.** Every step gets the same fixed fields: the
 spec, the unit's task ids, the unit kind, the branch and base branch, the

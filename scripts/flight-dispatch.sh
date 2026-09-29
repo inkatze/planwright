@@ -117,7 +117,8 @@
 # or `--home pr`, or a missing sibling helper (nothing placed); 3 declined at
 # the bound, or withheld by the allocation admission gate (nothing placed); 4
 # a resolver, the fleet home, the worktree list, or the flight lock could not
-# be read or taken, the fleet home or the brief directory was refused (not
+# be read or taken, the convergence list did not resolve or names a step that
+# is not a skill step, the fleet home or the brief directory was refused (not
 # private to the user, a symlinked flights directory, or already present),
 # the brief sweep refused to run, or the base could not be fetched fresh (nothing placed, unless a
 # `failed` report names a worktree left behind); 5 the id could not be minted,

@@ -637,7 +637,7 @@ kind of row it is:
 | `signal=` | launch | the usage reading, or `unavailable` |
 | `adaptation=` | launch | `on`, `off`, or `suspended` |
 | `step=` | launch | the per-step outcome for this launch: `none`, `inherit`, `applied`, or `ignored` |
-| `step-type=` | step-tier | the step class named at this launch (`implementation`, `polish`, …) |
+| `step-type=` | step-tier | the step type named at this launch (`implementation` or a step id: `polish`, …) |
 | `unit=` | step-tier | the unit's tier at that moment, as `<model>/<effort>` — what the step tier was compared against |
 | `trigger=` | adjustment | the event class that caused the adjustment |
 | `dir=` | adjustment | `up` or `down` |

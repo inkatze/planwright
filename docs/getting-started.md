@@ -94,11 +94,12 @@ core doctrine beside its own script. See
 
 The `review_sequence` config key is gone: rename it to `steps_convergence`
 in every layer that sets it, keeping the value as an inline flow list
-(`[polish]`, not a bare `polish`, and no empty entries). Convergence now runs that
-list, the convergence point's steps, whose ids name entries in the `steps`
-catalog; the core catalog seeds `polish` and `self-review` with `--nested`,
-so a list naming them runs what it ran before. A layer still setting the old
-key is ignored, with a warning naming the layer on every resolution. The new
+(`[polish]`, not a bare `polish`, and no empty entries). A visual flight
+converges through that list now, and `/execute-task` does once it is wired
+to the step resolver. Its ids name entries in the `steps` catalog; the core
+catalog seeds `polish` and `self-review` with `--nested`, so a list naming
+them runs what it ran before. A layer still setting the old key is ignored,
+with a warning naming the layer on every resolution. The new
 list also admits steps planwright does not ship (your own review commands,
 shell commands, prompts), declared in an overlay catalog; see
 [overlays §8](overlays.md#8-worked-example-b--custom-steps-a-runnable-style-overlay).
