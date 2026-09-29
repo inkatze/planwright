@@ -268,7 +268,12 @@ record_anchors() {
   for ra_d in "$tmp/at-baseline/specs"/*/; do
     ra_b=$(basename "$ra_d")
     case $ra_b in _*) continue ;; esac
-    (cd "$tmp/at-baseline" && printf '%s\t%s\n' "$ra_b" "$("$S/spec-anchor.sh" "specs/$ra_b" 2>&1)" >"$tmp/anchor.$ra_b") &
+    (
+      cd "$tmp/at-baseline" || exit 1
+      # A failing recompute shows as its status, never as whatever it printed.
+      ra_a=$("$S/spec-anchor.sh" "specs/$ra_b" 2>&1) || ra_a="ERROR rc=$?: $ra_a"
+      printf '%s\t%s\n' "$ra_b" "$ra_a" >"$tmp/anchor.$ra_b"
+    ) &
   done
   wait
   cat "$tmp"/anchor.*
