@@ -381,6 +381,12 @@ every surface it restates exists.
   task here can ship it. Confidence: high.
   **Gate:** GATE(when: task 12 completed).
   Citations: D-10 · REQ-A1.3.
+- **Drop `check-commit-msgs.sh --marker title`.** Kept one release after
+  the sign-off trailer ships so a PR title still carrying the legacy bracket
+  or a trailer line is caught; after that release the flag, its PR-title
+  workflow argument, and its tests go. Confidence: high.
+  **Gate:** GATE(when: task 3 completed and after 2026-11-15).
+  Citations: D-3 · REQ-B1.4.
 
 ## Out of scope
 

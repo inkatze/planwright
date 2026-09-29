@@ -27,23 +27,23 @@
 # screens the subject at write time, where it is one `--amend` away from
 # correct, and the PR title carries the only subject that lands on main.
 #
-# --marker <context> layers the branch-scoped `[pending-sign-off]` placement
-# guard (Task 4, REQ-C1.1/C1.3/C1.4) on top of the conventional check, keyed
-# to what is being linted:
-#   subject  the emit-time --stdin path — a marker, if present, must sit at
-#            the very end of the subject (`type(scope): desc [pending-sign-off]`);
-#            pre-prefix, mid-subject, and duplicate placements fail.
-#   title    a PR title — the marker is rejected outright (the squash-merge
-#            subject must be marker-free; titles are editable so this is safe).
-# The marker rule is additive: conventional format and --max-length still
-# apply. The CI commit-range invocation stays marker-free (a historical
-# mid-subject marker must never redden the range lint — REQ-C1.3).
+# --marker title layers a sign-off guard on top of the conventional check for
+# a PR title, which becomes the squash-merge subject: the legacy
+# `[pending-sign-off]` bracket and a `Planwright-Sign-Off` or
+# `Planwright-Sign-Off-Rejected` trailer line (any case, as git matches trailer
+# keys) are rejected anywhere in it. Titles are editable, so failing is safe.
+# The rule is additive: conventional format and --max-length still apply. The
+# CI commit-range invocation stays marker-free (a historical mid-subject
+# marker must never redden the range lint — REQ-C1.3). The former
+# `--marker subject` context is retired: a sign-off rides in a trailer
+# (doctrine/gate-wiring.md), so there is no subject placement to check. Only
+# the title context remains, for one release.
 #
 # Usage:
 #   check-commit-msgs.sh [--max-length N] <git-range>
 #                                      lint `git log <range>`
 #                                      (CI passes the PR's base..head range)
-#   check-commit-msgs.sh [--max-length N] [--marker subject|title] --stdin
+#   check-commit-msgs.sh [--max-length N] [--marker title] --stdin
 #                                      one subject per line
 # --marker is an emit-time guard and requires --stdin: pairing it with a
 # <git-range> is a usage error (a range-time marker check would recreate the
@@ -64,7 +64,7 @@ export LC_ALL
 unset CDPATH
 
 usage() {
-  echo "usage: check-commit-msgs.sh [--max-length N] (<git-range> | [--marker subject|title] --stdin)" >&2
+  echo "usage: check-commit-msgs.sh [--max-length N] (<git-range> | [--marker title] --stdin)" >&2
   exit 2
 }
 
@@ -83,7 +83,11 @@ while [ "$#" -gt 0 ]; do
     --marker)
       marker_ctx="${2:-}"
       case "$marker_ctx" in
-        subject | title) ;; # the only two check contexts
+        title) ;;
+        subject)
+          echo "check-commit-msgs: --marker subject is retired; stamp a Planwright-Sign-Off trailer through planwright-commit-trailers.sh instead of a subject marker" >&2
+          usage
+          ;;
         *) usage ;;
       esac
       shift 2
@@ -122,6 +126,7 @@ conventional='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\(
 # The pending-sign-off marker, matched literally (its brackets would be a glob
 # character class unquoted, so every case pattern below quotes "$marker").
 marker='[pending-sign-off]'
+trailer_line='planwright-sign-off(-rejected)?[[:space:]]*:'
 
 status=0
 checked=0
@@ -147,39 +152,19 @@ while IFS= read -r subject; do
     status=1
   fi
 
-  # Marker placement guard (--marker), additive to the checks above.
-  case "$marker_ctx" in
-    subject)
-      # A marker, if present, must be the sole one and sit at the very end.
-      case "$subject" in
-        *"$marker"*)
-          canonical=""
-          case "$subject" in
-            *" $marker")
-              prefix="${subject%" $marker"}"
-              case "$prefix" in
-                *"$marker"*) ;; # a second marker earlier — not canonical
-                *) canonical=1 ;;
-              esac
-              ;;
-          esac
-          if [ -z "$canonical" ]; then
-            echo "check-commit-msgs: marker '$marker' must be at end of subject: $subject" >&2
-            status=1
-          fi
-          ;;
-      esac
-      ;;
-    title)
-      # A PR title must be marker-free (it becomes the squash-merge subject).
-      case "$subject" in
-        *"$marker"*)
-          echo "check-commit-msgs: marker '$marker' not allowed in PR title: $subject" >&2
-          status=1
-          ;;
-      esac
-      ;;
-  esac
+  # Sign-off guard (--marker title), additive to the checks above.
+  if [ "$marker_ctx" = title ]; then
+    case "$subject" in
+      *"$marker"*)
+        echo "check-commit-msgs: marker '$marker' not allowed in PR title: $subject" >&2
+        status=1
+        ;;
+    esac
+    if printf '%s\n' "$subject" | grep -Eiq "$trailer_line"; then
+      echo "check-commit-msgs: a Planwright-Sign-Off trailer line is not allowed in PR title: $subject" >&2
+      status=1
+    fi
+  fi
 done <<EOF
 $subjects
 EOF
