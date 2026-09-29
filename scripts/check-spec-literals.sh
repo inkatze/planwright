@@ -110,7 +110,9 @@ case $base in
   '' | -*) die "--base must name a ref" ;;
 esac
 
-for f in scripts githooks .github/workflows; do
+# The parents too: a linked .github or config would carry the scan or the
+# lists out of the tree however their own entries look.
+for f in scripts githooks .github .github/workflows config; do
   [ ! -L "$repo_root/$f" ] || die "$f/ is a symlink; refusing to follow it out of the tree"
   [ -d "$repo_root/$f" ] || die "$f/ is missing; the scan would cover less than it claims"
 done

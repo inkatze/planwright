@@ -446,6 +446,15 @@ EOF
   expect 2 "a failing awk pass $n fails closed" "could not complete"
 done
 
+for d in config .github; do
+  fixture
+  mv "$tmp/r/$d" "$tmp/linked"
+  ln -s "$tmp/linked" "$tmp/r/$d"
+  run
+  expect 2 "a symlinked $d/ is refused" "$d/ is a symlink"
+  rm -rf "$tmp/linked"
+done
+
 # A row is matched on its trimmed text, as the flagged line is.
 fixture
 printf 'd=$r/specs/x\n' >>"$tmp/r/scripts/a.sh"
