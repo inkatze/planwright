@@ -167,17 +167,42 @@ reset_calls() {
   : >"$tmp/gate-calls"
 }
 
-# gate <args...> — the actuator from the stub tree. Sets rc, out, err.
+# The kill-path audit. Every run from the stub tree goes through sig_harness:
+# the script is sourced into a shell whose `kill` builtin is shadowed by a
+# recording function, with recording shims for the external signal and
+# process-table tools first on PATH. The stub rungs, detector and gate call
+# none of them, so any recorded call is the actuator's own.
+sig_tools='kill pkill pgrep killall pidof skill ps lsof fuser timeout'
+sig_dir="$tmp/sig-shims"
+mkdir -p "$sig_dir"
+for t in $sig_tools; do
+  # shellcheck disable=SC2016 # expanded by the shim, not here
+  printf '#!/bin/sh\nprintf "%%s %%s\\n" %s "$*" >>"$SIG_LOG"\n' "$t" >"$sig_dir/$t"
+done
+chmod +x "$sig_dir"/*
+: >"$tmp/sig-calls"
+: >"$tmp/sig-runs"
+# shellcheck disable=SC2016 # expanded by the harness shell, not here
+sig_harness='printf "run\n" >>"$SIG_RUNS"; kill() { printf "kill %s\n" "$*" >>"$SIG_LOG"; }; . "$0"'
+
+# gate <args...> — the actuator from the stub tree, under the kill-path audit
+# unless G_SCRIPTS names a tree with a real rung. Sets rc, out, err.
 gate() {
   reset_calls
   rc=0
+  if [ -n "${G_SCRIPTS:-}" ]; then
+    set -- /bin/sh "$G_SCRIPTS/fleet-cleanup.sh" process "$@"
+  else
+    set -- env PATH="$sig_dir:$PATH" SIG_LOG="$tmp/sig-calls" SIG_RUNS="$tmp/sig-runs" \
+      /bin/sh -c "$sig_harness" "$gs/fleet-cleanup.sh" process "$@"
+  fi
   env "${env_scrub[@]}" \
     PLANWRIGHT_FLEET_STATE_DIR="${G_HOME:-$gate_home}" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_REPO_ROOT="$repo_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
     PLANWRIGHT_LOCAL_CONFIG="" \
-    /bin/sh "${G_SCRIPTS:-$gs}/fleet-cleanup.sh" process "$@" >"$tmp/out" 2>"$tmp/err" || rc=$?
+    "$@" >"$tmp/out" 2>"$tmp/err" || rc=$?
   out=$(cat "$tmp/out")
   err=$(cat "$tmp/err")
 }
@@ -693,7 +718,8 @@ env "${env_scrub[@]}" \
   PLANWRIGHT_REPO_ROOT="$repo_cfg" \
   PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
   PLANWRIGHT_LOCAL_CONFIG="" \
-  /bin/sh "$gs/fleet-cleanup.sh" process w1 trig why >"$tmp/out" 2>"$tmp/err" &
+  PATH="$sig_dir:$PATH" SIG_LOG="$tmp/sig-calls" SIG_RUNS="$tmp/sig-runs" \
+  /bin/sh -c "$sig_harness" "$gs/fleet-cleanup.sh" process w1 trig why >"$tmp/out" 2>"$tmp/err" &
 sig_pid=$!
 sig_i=0
 until [ -s "$tmp/stop-calls" ] || [ "$sig_i" -ge 100 ]; do
@@ -745,16 +771,30 @@ msgs=$(
   || fail "the five refusals do not carry five distinct messages: $msgs"
 echo "ok: print, live-peer, unknown-evidence, unclean-session and self-target refusals each carry their own exit and message"
 
-# --- source audit: one kill path --------------------------------------------
-# The whole script, not only its process arm, since a helper the arm calls
-# could hide one: nothing signals, scans the process table, or sources a
-# library beyond the echo-safety one. Comments and the diagnostic lines
-# (whose prose may say "kill") are left out; the arm itself must hand the
-# close to a rung's stop by name.
+# --- kill-path audit: one kill path -----------------------------------------
+# Every stub-tree run above went through sig_harness. First a canary proves the
+# harness records the builtin, a PATH lookup and a lookup through env; then
+# the runs must have happened and recorded nothing.
+cat >"$tmp/sig-canary.sh" <<'CANARY'
+kill -0 $$
+ps -p $$
+pkill -0 -f no-such-process
+env kill -0 $$
+CANARY
+: >"$tmp/sig-canary-calls"
+env PATH="$sig_dir:$PATH" SIG_LOG="$tmp/sig-canary-calls" SIG_RUNS="$tmp/sig-canary-runs" \
+  /bin/sh -c "$sig_harness" "$tmp/sig-canary.sh" || fail "kill-path audit: the canary did not run"
+[ "$(cut -d' ' -f1 "$tmp/sig-canary-calls" | tr '\n' ' ')" = "kill ps pkill kill " ] \
+  || fail "kill-path audit: the harness missed a canary call: $(cat "$tmp/sig-canary-calls")"
+[ "$(wc -l <"$tmp/sig-runs" | tr -d ' ')" -ge 100 ] \
+  || fail "kill-path audit: only $(wc -l <"$tmp/sig-runs" | tr -d ' ') runs went through the harness"
+[ ! -s "$tmp/sig-calls" ] || fail "kill-path audit: the actuator called a signal or process-table tool: $(cat "$tmp/sig-calls")"
+# What the harness cannot observe: a tool named by absolute path, one reached
+# past the function through `command`/`builtin`/`exec`, and a /proc read.
 code=$(sed -E -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//' \
   -e 's/^([[:space:]]*(warn|echo) )"([^"\\]|\\.)*"/\1/' "$FC_REAL")
-hits=$(printf '%s\n' "$code" | grep -nE 'kill( |	|$)|pkill|pgrep|killall|(^|[^[:alnum:]_-])ps([[:space:]]|$)|lsof|fuser|fleet-stop-lib|release_processes|stop_candidates|/proc/' || :)
-[ -z "$hits" ] || fail "source audit: fleet-cleanup.sh carries a second kill path: $hits"
+hits=$(printf '%s\n' "$code" | grep -nE "/(usr/)?s?bin/(${sig_tools// /|})([^[:alnum:]_-]|\$)|(command|builtin|exec)[[:space:]]+(${sig_tools// /|})([^[:alnum:]_-]|\$)|/proc/" || :)
+[ -z "$hits" ] || fail "kill-path audit: fleet-cleanup.sh reaches a tool the harness cannot see: $hits"
 sourced=$(printf '%s\n' "$code" | grep -E '(^|[;&])[[:space:]]*(\.|source)[[:space:]]' || :)
 # shellcheck disable=SC2016 # the script's own source text, matched literally
 [ "$sourced" = '. "$script_dir/echo-safety.sh"' ] || fail "source audit: fleet-cleanup.sh sources more than echo-safety.sh: $sourced"
@@ -768,7 +808,7 @@ for want in 'stream-json-persistent) rung=fleet-streamjson.sh' 'headless-oneshot
     *) fail "source audit: the process arm lacks '$want'" ;;
   esac
 done
-echo "ok: source audit — the script terminates nothing itself; the process arm closes only through the rungs' stop"
+echo "ok: kill-path audit — no run of the actuator called a signal or process-table tool; the process arm closes only through the rungs' stop"
 
 # ============================================================================
 # Integration: real detector, real death evidence, real rungs.
