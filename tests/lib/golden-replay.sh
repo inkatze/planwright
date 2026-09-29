@@ -144,13 +144,23 @@ _gr_replay() {
     done <"$gr_work/set-$gr_id.keys"
   done <"$gr_work/sets.sorted"
 
+  # Ids compare as strings throughout: awk would read 6.1 and 6.10 as equal.
+  gr_declared=" $(cut -d ' ' -f 1 <"$gr_work/sets.sorted" | tr '\n' ' ')"
   while read -r gr_corr gr_owner; do
     [ "$gr_owner" = baseline ] && continue
-    awk -v t="$gr_owner" '$1 == t { found = 1 } END { exit !found }' "$gr_work/sets.sorted" || continue
-    if ! awk -v t="$gr_owner" -v c="$gr_corr" '$1 == t && $2 == c { found = 1 } END { exit !found }' "$gr_work/used"; then
-      echo "golden-replay: correction '$gr_corr' is absent from task $gr_owner's declared set"
-      gr_fail=1
-    fi
+    case $gr_declared in *" $gr_owner "*) ;; *) continue ;; esac
+    grep -qxF -- "$gr_owner $gr_corr" "$gr_work/used"
+    case $? in
+      0) ;;
+      1)
+        echo "golden-replay: correction '$gr_corr' is absent from task $gr_owner's declared set"
+        gr_fail=1
+        ;;
+      *)
+        echo "golden-replay: could not read the declared corrections"
+        gr_fail=1
+        ;;
+    esac
   done <"$gr_work/registry"
 
   if ! diff -q "$gr_work/baseline.keys" "$gr_work/actual.keys" >/dev/null 2>&1; then

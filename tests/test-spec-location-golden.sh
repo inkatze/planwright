@@ -380,6 +380,19 @@ for odd in baseline ''; do
   fi
 done
 
+# Task ids compare as strings: 6.10 is not 6.1, so declaring 6.1's set does
+# not declare 6.10's.
+rm -rf "$planted/odd-changes"
+mkdir -p "$planted/odd-changes"
+printf 'fix-61\t6.1\tR\tx\nfix-610\t6.10\tR\ty\n' >"$planted/ids.tsv"
+printf '@@ a primary fix-61\nVAL\n' >"$planted/odd-changes/task-6.1.txt"
+printf '@@ a primary\nVAL\n@@ b primary\ntwo\n' >"$planted/a-val.txt"
+if out=$(golden_replay "$planted/baseline.txt" "$planted/odd-changes" "$planted/ids.tsv" "$planted/a-val.txt"); then
+  ok "comparator: task 6.1's set does not stand in for task 6.10's"
+else
+  fail "comparator: 6.1 and 6.10 confused: $out"
+fi
+
 printf '@@ ../escape primary\nx\n' >"$planted/escape.txt"
 if out=$(replay "$planted/escape.txt"); then
   fail "comparator: a header naming a path passed"
