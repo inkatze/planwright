@@ -126,6 +126,18 @@ for n in 3 4 5 6 7 8 9 10 11; do
 done
 
 fixture
+printf 'cd "specs"$sub\n[ -d '"'"'specs'"'"'${id:+/$id} ]\n' >>"$tmp/r/scripts/a.sh"
+run
+expect 1 "a quoted operand followed by an expansion fails" "scripts/a.sh:3:"
+expect 1 "a quoted test operand followed by an expansion fails" "scripts/a.sh:4:"
+
+fixture
+for f in m z a q; do printf 'cd specs\n' >"$tmp/r/scripts/$f.sh"; done
+run
+order=$(printf '%s\n' "$out" | sed -n 's#^  scripts/\([a-z]\)\.sh:.*#\1#p' | tr -d '\n')
+if [ "$order" = amqz ]; then ok "the report lists files in byte order"; else fail "report order was '$order'"; fi
+
+fixture
 printf 'for d in "$root"/"specs"/*/; do :; done\nd="$root"/'"'"'specs'"'"'/x\nd=$root/"specs"\ncd "$r/"specs\n' >>"$tmp/r/scripts/a.sh"
 run
 for n in 3 4 5 6; do
@@ -281,6 +293,14 @@ expect 1 "run_windows is read" 'mise.toml:13: run_windows = "dir specs/"'
 expect 1 "a spaced dotted key under [tasks] is read" 'mise.toml:15: d . run = "ls specs/"'
 
 fixture
+printf '\n["tasks".q]\nrun = "cd specs"\n[tasks]\nshort = "cd specs"\nlisted = ["cd specs"]\nd.description = "specs/ prose"\n' >>"$tmp/r/mise.toml"
+run
+expect 1 "a quoted tasks header is read" 'mise.toml:9: run = "cd specs"'
+expect 1 "a shorthand task string is read" 'mise.toml:11: short = "cd specs"'
+expect 1 "a shorthand task array is read" 'mise.toml:12: listed = ["cd specs"]'
+case $out in *"mise.toml:13:"*) fail "a dotted description key was scanned: $out" ;; *) ok "a dotted description key under [tasks] is not scanned" ;; esac
+
+fixture
 printf 'tasks.lint.run = "ls specs/"\n' >"$tmp/r/mise.toml.new"
 cat "$tmp/r/mise.toml" >>"$tmp/r/mise.toml.new"
 mv "$tmp/r/mise.toml.new" "$tmp/r/mise.toml"
@@ -328,6 +348,26 @@ expect 0 "a root path containing 'pending' reads the allowlist as the allowlist"
 rm -rf "$tmp/pending-root"
 
 # --- Refusals ----------------------------------------------------------------
+
+fixture
+printf 'cd "$root/specs"\n' >"$tmp/r/scripts/ok.sh
+x.sh"
+run
+expect 2 "a scanned filename containing a newline is refused" "containing a newline or tab"
+
+fixture
+mkdir -p "$tmp/elsewhere"
+printf '#!/bin/sh\n' >"$tmp/elsewhere/pre-commit"
+rm -r "$tmp/r/githooks"
+ln -s "$tmp/elsewhere" "$tmp/r/githooks"
+run
+expect 2 "a symlinked scope directory is refused" "githooks/ is a symlink"
+
+fixture
+mkdir -p "$tmp/r/scripts/lib"
+ln -s "$tmp/outside" "$tmp/r/scripts/lib/x.sh"
+run
+expect 2 "a symlink below the top level is refused" "scripts/lib/x.sh is a symlink"
 
 fixture
 printf 'SECRET=1 specs/x\n' >"$tmp/outside"
@@ -420,8 +460,31 @@ mv "$tmp/r/config/spec-literal-pending.tsv" "$tmp/r/config/p.tmp"
 if ! { g init -q && g add -A && g commit -q -m base; }; then fail "no-list fixture: git setup failed"; fi
 mv "$tmp/r/config/p.tmp" "$tmp/r/config/spec-literal-pending.tsv"
 guard --base main
-expect 0 "a base without the list skips the shrink check and says so" "shrink check skipped: main has no pending list"
+expect 0 "a base without the list skips the shrink check and says so" \
+  "shrink check skipped: the merge base of main and HEAD has no pending list"
 
+# A repo root below another repository's toplevel reads its own list.
+fixture
+printf 'x=$r/specs/x\n' >>"$tmp/r/scripts/b.sh"
+printf '5\tscripts/b.sh\tx=$r/specs/x\n' >>"$tmp/r/config/spec-literal-pending.tsv"
+mkdir -p "$tmp/outer"
+rm -rf "$tmp/outer/r"
+mv "$tmp/r" "$tmp/outer/r"
+printf '# the outer list\n' >"$tmp/outer/spec-literal-pending.tsv"
+mkdir -p "$tmp/outer/config" && cp "$tmp/outer/spec-literal-pending.tsv" "$tmp/outer/config/"
+if ! { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$tmp/outer" -c init.defaultBranch=main init -q \
+  && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$tmp/outer" add -A \
+  && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$tmp/outer" -c user.name=t \
+    -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m base; } >/dev/null; then
+  fail "nested fixture: git setup failed"
+fi
+"$SH" "$GUARD" --repo-root "$tmp/outer/r" --base main >"$tmp/out" 2>"$tmp/err"
+rc=$?
+out=$(cat "$tmp/out" "$tmp/err")
+expect 0 "a nested repo root reads the base list at its own path" "clean (0 allowlisted, 1 pending migration)"
+rm -rf "$tmp/outer"
+
+fixture
 for bad in '' '-x'; do
   guard --base "$bad"
   expect 2 "--base '$bad' is refused" "--base must name a ref"

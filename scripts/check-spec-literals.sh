@@ -130,7 +130,12 @@ list_file() {
 }
 # Every file at any depth, symlinks included so they can be refused. The walk
 # never follows a link.
-(cd "$repo_root" && find scripts githooks .github/workflows \( -type f -o -type l \) -print) >"$work/found" \
+# A newline in a name would split it across two list lines, so such a name is
+# refused before the list is read; a tab is refused by list_file.
+bad_names=$(cd "$repo_root" && find scripts githooks .github/workflows -name "*$newline*" -print) \
+  || die "could not enumerate the scope directories"
+[ -z "$bad_names" ] || die "refusing a scanned filename containing a newline or tab"
+(cd "$repo_root" && find scripts githooks .github/workflows \( -type f -o -type l \) -print | sort) >"$work/found" \
   || die "could not enumerate the scope directories"
 while IFS= read -r rel; do
   f=$repo_root/$rel
@@ -156,16 +161,17 @@ list_file mise.toml mise
 
 # One pass over every file, printing `<path> TAB <lineno> TAB <text>` for each
 # flagged line, then `END` so a pass cut short is told from a clean one.
-# mise.toml is read in its own mode: only a task's `run` value counts,
-# single-line, triple-quoted, or an array, under a `[tasks.<name>]` table or
-# as a dotted or inline-table key under `[tasks]`.
+# mise.toml is read in its own mode: only a task's `run` or `run_windows`
+# value counts, single-line, triple-quoted, or an array, under a
+# `[tasks.<name>]` table, as a dotted, inline-table, or shorthand
+# (`name = "cmd"`) key under `[tasks]`, or as a root-level `tasks.` key.
 # shellcheck disable=SC2016 # an awk program, expanded by awk
 scan='
   function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); gsub(/\t/, " ", s); return s }
   # The bracketed [s] keeps this line from matching itself.
   function literal(s) {
     return s ~ /(^|[^A-Za-z0-9_.-])spec[s]\// || s ~ /\/spec[s]([^A-Za-z0-9_.\/-]|$)/ \
-      || s ~ /(^|[^A-Za-z0-9_-])(cd|pushd|find|ls|-C|-[a-hkprsuwxGLNOS])[ \t]+spec[s]([ \t;)|&]|$)/
+      || s ~ /(^|[^A-Za-z0-9_-])(cd|pushd|find|ls|-C|-[a-hkprsuwxGLNOS])[ \t]+["\047]?spec[s]([ \t"\047;)|&$]|$)/
   }
   function flagged(s,   u) {
     if (literal(s)) return 1
@@ -229,7 +235,7 @@ scan='
     close(path)
     if (r < 0) { print "!\t" rel; bad = 1 }
   }
-  function scan_mise(rel, path,   line, n, r, t, where, where_now, key, close_delim, rest, q) {
+  function scan_mise(rel, path,   line, n, r, t, where, where_now, key, hdr, close_delim, rest, q) {
     n = 0; where = ""; close_delim = ""; strip_trailing = 1
     while ((r = (getline line < path)) > 0) {
       n++
@@ -245,7 +251,8 @@ scan='
       }
       t = trim(line)
       if (t ~ /^\[/) {
-        where = (t ~ /^\[[ \t]*tasks[ \t]*[.]/) ? "task" : (t ~ /^\[[ \t]*tasks[ \t]*\]/) ? "tasks" : "other"
+        hdr = t; gsub(/["\047]/, "", hdr)
+        where = (hdr ~ /^\[[ \t]*tasks[ \t]*[.]/) ? "task" : (hdr ~ /^\[[ \t]*tasks[ \t]*\]/) ? "tasks" : "other"
         continue
       }
       # The key with its quotes and the spaces around dots removed, so
@@ -254,7 +261,10 @@ scan='
       key = t; sub(/=.*/, "", key); gsub(/["\047]/, "", key); gsub(/[ \t]*[.][ \t]*/, ".", key); sub(/[ \t]+$/, "", key)
       if (where == "" && key ~ /^tasks[.]/) { where_now = "tasks" } else where_now = where
       if (where_now != "task" && where_now != "tasks") continue
-      if (index(t, "=") && key ~ /(^|[.])run(_windows)?$/ && (where_now == "tasks" || key ~ /^run(_windows)?$/)) {
+      # Under [tasks], an undotted key is a task in shorthand: its value is
+      # the run command.
+      if (index(t, "=") && (key ~ /(^|[.])run(_windows)?$/ && (where_now == "tasks" || key ~ /^run(_windows)?$/) \
+        || where == "tasks" && key !~ /[.]/ && t !~ /=[ \t]*\{/)) {
         rest = t; sub(/^[^=]*=[ \t]*/, "", rest)
         q = substr(rest, 1, 3)
         if (q == "\047\047\047" || q == "\"\"\"") {
@@ -292,14 +302,19 @@ fi
 : >"$work/base-pending"
 base_note=''
 if git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
-  merge_base=$(git -C "$repo_root" merge-base "$base" HEAD 2>/dev/null) || merge_base=$base
+  if merge_base=$(git -C "$repo_root" merge-base "$base" HEAD 2>/dev/null); then
+    where_read="the merge base of $base and HEAD"
+  else
+    merge_base=$base
+    where_read="$base (no merge base with HEAD)"
+  fi
   # `./` keeps the path relative to the repo root even when that root sits
   # below another repository's toplevel.
   if git -C "$repo_root" cat-file -e "$merge_base:./config/spec-literal-pending.tsv" 2>/dev/null; then
     git -C "$repo_root" show "$merge_base:./config/spec-literal-pending.tsv" >"$work/base-pending" \
-      || die "could not read $base's pending list"
+      || die "could not read the pending list at $where_read"
   else
-    base_note="; shrink check skipped: $base has no pending list"
+    base_note="; shrink check skipped: $where_read has no pending list"
   fi
 else
   base_note="; shrink check skipped: $base does not resolve"
