@@ -275,7 +275,7 @@ case "$deferral" in
     ;;
 esac
 
-# 8c. Title context (REQ-C1.4) — the PR-title case: any marker is rejected,
+# 8c. Title context, the PR-title case: any marker is rejected,
 #     a marker-free title passes, and conventional/length still apply.
 marker_title "feat(gate): resolve the finding [pending-sign-off]"
 assert "title: any marker is rejected" 1 $?
@@ -285,6 +285,14 @@ marker_title "feat(gate): resolve the finding Planwright-Sign-Off: PS-1"
 assert "title: a bare sign-off trailer line is rejected" 1 $?
 marker_title "feat(gate): x planwright-sign-off-rejected: PS-legacy-abc1234"
 assert "title: a rejected trailer line in any case is rejected" 1 $?
+marker_title "feat(gate): x Planwright-Sign-Off : PS-1"
+assert "title: a trailer line with a space before the colon is rejected" 1 $?
+marker_title 'Revert "feat(gate): resolve the finding [pending-sign-off]"'
+assert "title: a Revert title does not skip the sign-off guard" 1 $?
+marker_title 'Merge Planwright-Sign-Off: PS-1'
+assert "title: a Merge title does not skip the sign-off guard" 1 $?
+marker_title 'Revert "feat(gate): resolve the finding"'
+assert "title: a clean Revert title still passes" 0 $?
 marker_title "docs(gate): document the Planwright-Sign-Off trailer"
 assert "title: naming the trailer without its colon passes" 0 $?
 marker_title "feat(gate): resolve the finding"

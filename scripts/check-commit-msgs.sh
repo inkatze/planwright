@@ -31,10 +31,11 @@
 # a PR title, which becomes the squash-merge subject: the legacy
 # `[pending-sign-off]` bracket and a `Planwright-Sign-Off` or
 # `Planwright-Sign-Off-Rejected` trailer line (any case, as git matches trailer
-# keys) are rejected anywhere in it. Titles are editable, so failing is safe.
-# The rule is additive: conventional format and --max-length still apply. The
-# CI commit-range invocation stays marker-free (a historical mid-subject
-# marker must never redden the range lint — REQ-C1.3). The former
+# keys) are rejected anywhere in it, a Merge or Revert title included. Titles
+# are editable, so failing is safe. The rule is additive: conventional format
+# and --max-length still apply. The CI commit-range invocation stays
+# marker-free (a historical mid-subject marker must never redden the range
+# lint). The former
 # `--marker subject` context is retired: a sign-off rides in a trailer
 # (doctrine/gate-wiring.md), so there is no subject placement to check. Only
 # the title context remains, for one release.
@@ -134,6 +135,23 @@ warned=0
 
 while IFS= read -r subject; do
   [ -z "$subject" ] && continue
+
+  # Sign-off guard (--marker title), additive to the checks below. It runs
+  # before the Merge/Revert skip: a reverted marked commit's GitHub-built
+  # title still becomes the squash subject.
+  if [ "$marker_ctx" = title ]; then
+    case "$subject" in
+      *"$marker"*)
+        echo "check-commit-msgs: marker '$marker' not allowed in PR title: $subject" >&2
+        status=1
+        ;;
+    esac
+    if printf '%s\n' "$subject" | grep -Eiq "$trailer_line"; then
+      echo "check-commit-msgs: a Planwright-Sign-Off trailer line is not allowed in PR title: $subject" >&2
+      status=1
+    fi
+  fi
+
   case "$subject" in
     "Merge "* | "Revert "*) continue ;;
   esac
@@ -150,20 +168,6 @@ while IFS= read -r subject; do
   elif [ -n "$max_length" ] && [ "${#subject}" -gt "$max_length" ]; then
     echo "check-commit-msgs: subject exceeds $max_length chars: $subject" >&2
     status=1
-  fi
-
-  # Sign-off guard (--marker title), additive to the checks above.
-  if [ "$marker_ctx" = title ]; then
-    case "$subject" in
-      *"$marker"*)
-        echo "check-commit-msgs: marker '$marker' not allowed in PR title: $subject" >&2
-        status=1
-        ;;
-    esac
-    if printf '%s\n' "$subject" | grep -Eiq "$trailer_line"; then
-      echo "check-commit-msgs: a Planwright-Sign-Off trailer line is not allowed in PR title: $subject" >&2
-      status=1
-    fi
   fi
 done <<EOF
 $subjects

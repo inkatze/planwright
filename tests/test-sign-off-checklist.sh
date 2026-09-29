@@ -29,7 +29,7 @@ trap 'rm -rf "$tmp"' EXIT
 export GIT_AUTHOR_NAME=T GIT_AUTHOR_EMAIL=t@example.com
 export GIT_COMMITTER_NAME=T GIT_COMMITTER_EMAIL=t@example.com
 export GIT_AUTHOR_DATE='1700000000 +0000' GIT_COMMITTER_DATE='1700000000 +0000'
-export GIT_CONFIG_NOSYSTEM=1 HOME="$tmp"
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null HOME="$tmp"
 
 # new_repo <dir> — a repo with one root commit on `main`.
 new_repo() {
@@ -48,9 +48,19 @@ commit() {
   printf '%s\n' "$2" | git -C "$1" commit -q -F -
 }
 
-# ids <dir> [<base>] — the checklist's ids, comma-joined, in emitted order.
+# ids <dir> [<base>] — the checklist's ids, comma-joined, in emitted order. A
+# non-zero exit prints LIST-FAILED, so a failure never reads as an empty list.
 ids() {
-  (cd "$1" && /bin/bash "$LIST" list "${2:-main}") | cut -f1 | tr '\n' ',' | sed 's/,$//'
+  _out=$(cd "$1" && /bin/bash "$LIST" list "${2:-main}" 2>/dev/null) || {
+    echo LIST-FAILED
+    return 0
+  }
+  printf '%s\n' "$_out" | cut -f1 | tr '\n' ',' | sed 's/,$//'
+}
+
+# pairs <dir> [<base>] — sorted "id sha" lines, the id-to-commit mapping.
+pairs() {
+  (cd "$1" && /bin/bash "$LIST" list "${2:-main}") | cut -f1,2 | sort
 }
 
 # 1. A trailered commit and its revert regenerate to zero items; the legacy
@@ -69,7 +79,7 @@ new_repo "$r2"
 git -C "$r2" checkout -q -b task
 commit "$r2" "fix: guard the parser [pending-sign-off]"
 git -C "$r2" revert --no-edit HEAD >/dev/null
-grepped=$(git -C "$r2" log --format=%s main..task | grep -c 'pending-sign-off')
+grepped=$(git -C "$r2" log --format=%s main..task | grep -c 'pending-sign-off' || true)
 [ "$grepped" = 2 ] || fail "baseline: the subject grep should count 2, counted $grepped"
 [ "$(ids "$r2")" = "" ] || fail "revert-legacy: expected no items, got [$(ids "$r2")]"
 echo "ok: a reverted item drops and its revert is never an item (subject grep counts 2)"
@@ -164,7 +174,9 @@ commit "$m" "fix: old style [pending-sign-off]"
 commit "$m" "fix: second
 
 Planwright-Sign-Off: PS-2"
-before=$(ids "$m" | tr ',' '\n' | sort | tr '\n' ',')
+old_base=$(git -C "$m" rev-parse main)
+before=$(pairs "$m")
+[ "$(printf '%s\n' "$before" | grep -c .)" = 3 ] || fail "base merge: setup expected 3 items [$before]"
 git -C "$m" checkout -q main
 commit "$m" "feat: landed elsewhere
 
@@ -172,9 +184,15 @@ Planwright-Sign-Off: PS-9"
 commit "$m" "fix: landed legacy [pending-sign-off]"
 git -C "$m" checkout -q task
 git -C "$m" merge -q --no-edit main
-after=$(ids "$m" | tr ',' '\n' | sort | tr '\n' ',')
-[ "$before" = "$after" ] || fail "base merge: ids changed from [$before] to [$after]"
+after=$(pairs "$m")
+[ "$before" = "$after" ] || fail "base merge: id-to-commit pairs changed from [$before] to [$after]"
 case "$after" in *PS-9*) fail "base merge: a base trailer entered the checklist" ;; esac
+# Against the pre-merge base the range now interleaves the base's commits
+# with the branch's own; every original pairing must survive that reorder.
+reordered=$(pairs "$m" "$old_base")
+printf '%s\n' "$before" | while IFS= read -r line; do
+  printf '%s\n' "$reordered" | grep -qxF "$line" || fail "base merge: [$line] lost when the range reordered"
+done
 echo "ok: a base merge that reorders the range leaves every id unchanged"
 
 # 8. A revert of a revert reinstates the item.
@@ -199,16 +217,23 @@ for mode in list next; do
   grep -q 'unresolvable range' "$tmp/err" || fail "unresolvable $mode: error not named [$(cat "$tmp/err")]"
 done
 rc=0
-out=$(cd "$j" && /bin/bash "$LIST" list main no-such-head 2>/dev/null) || rc=$?
+out=$(cd "$j" && /bin/bash "$LIST" list main no-such-head 2>"$tmp/err") || rc=$?
 [ "$rc" = 3 ] && [ -z "$out" ] || fail "unresolvable head: expected exit 3 and no output, got $rc"
+grep -q 'unresolvable range: the head' "$tmp/err" || fail "unresolvable head: error not named"
 orphan="$tmp/orphan"
 git init -q -b other "$orphan"
 git -C "$orphan" config commit.gpgsign false
 git -C "$orphan" commit -q --allow-empty -m 'chore: unrelated'
 git -C "$j" fetch -q "$orphan" other:unrelated
 rc=0
-(cd "$j" && /bin/bash "$LIST" list unrelated >/dev/null 2>&1) || rc=$?
+(cd "$j" && /bin/bash "$LIST" list unrelated >/dev/null 2>"$tmp/err") || rc=$?
 [ "$rc" = 3 ] || fail "unrelated base: expected exit 3, got $rc"
+grep -q 'no common ancestor' "$tmp/err" || fail "unrelated base: error not named"
+rc=0
+(cd "$tmp" && /bin/bash "$LIST" list main >/dev/null 2>"$tmp/err") || rc=$?
+if [ "$rc" != 3 ] || ! grep -q 'not inside a git repository' "$tmp/err"; then
+  fail "no repository: expected exit 3 naming it, got $rc"
+fi
 echo "ok: an unresolvable range fails by name with no checklist, and allocation refuses"
 
 # 10. Two legacy commits sharing a seven-hex prefix fail by name. The pair is
@@ -229,6 +254,14 @@ out=$(cd "$c" && /bin/bash "$LIST" list main "$head" 2>"$tmp/err") || rc=$?
 [ "$rc" = 4 ] || fail "collision: expected exit 4, got $rc"
 [ -z "$out" ] || fail "collision: emitted a checklist [$out]"
 grep -q 'legacy id collision' "$tmp/err" || fail "collision: error not named [$(cat "$tmp/err")]"
+# The collision is between commits, not live items: rejecting one of the pair
+# does not make the shared id unambiguous.
+rej=$(git -C "$c" commit-tree "$empty" -p "$head" -m 'fix: reject one
+
+Planwright-Sign-Off-Rejected: PS-legacy-403d101')
+rc=0
+(cd "$c" && /bin/bash "$LIST" list main "$rej" >/dev/null 2>&1) || rc=$?
+[ "$rc" = 4 ] || fail "collision: a rejected member should still collide, got $rc"
 echo "ok: a legacy prefix collision fails by name with no checklist"
 
 # 11. Usage errors exit 2.
@@ -239,6 +272,126 @@ rc=0
 (cd "$j" && /bin/bash "$LIST" list --upload-pack=x >/dev/null 2>&1) || rc=$?
 [ "$rc" = 2 ] || fail "usage: an option-shaped base expected exit 2, got $rc"
 echo "ok: usage errors exit 2"
+
+# 11b. A revert-shaped commit is never an item, even one whose subject ends in
+#      the suffix or that carries a trailer (the latter warns).
+e="$tmp/edges"
+new_repo "$e"
+git -C "$e" checkout -q -b task
+commit "$e" "fix: quoted revert [pending-sign-off]
+
+This reverts commit 1111111111111111111111111111111111111111."
+commit "$e" "fix: trailered revert
+
+This reverts commit 2222222222222222222222222222222222222222.
+
+Planwright-Sign-Off: PS-3"
+[ "$(ids "$e")" = "" ] || fail "revert-shaped: expected no items, got [$(ids "$e")]"
+(cd "$e" && /bin/bash "$LIST" list main 2>&1 >/dev/null) | grep -q 'is a revert' \
+  || fail "revert-shaped: a dropped trailered revert did not warn"
+echo "ok: a revert-shaped commit is never an item"
+
+# 11c. Boundaries: the suffix needs its space; malformed and overlong values
+#      are ignored with a warning and never raise the allocation; a rejected
+#      id does raise it; control characters in a subject print as spaces.
+commit "$e" "fix: glued[pending-sign-off]"
+commit "$e" "fix: bad values
+
+Planwright-Sign-Off: PS-0
+Planwright-Sign-Off: PS-legacy-abc1234
+Planwright-Sign-Off: PS-1234567890"
+[ "$(ids "$e")" = "" ] || fail "boundaries: expected no items, got [$(ids "$e")]"
+(cd "$e" && /bin/bash "$LIST" list main 2>&1 >/dev/null) | grep -q 'malformed sign-off value' \
+  || fail "boundaries: a malformed value did not warn"
+[ "$(cd "$e" && /bin/bash "$LIST" next main 2>/dev/null)" = PS-4 ] \
+  || fail "boundaries: malformed values moved the allocation"
+commit "$e" "fix: reject a far id
+
+Planwright-Sign-Off-Rejected: PS-7"
+[ "$(cd "$e" && /bin/bash "$LIST" next main 2>/dev/null)" = PS-8 ] \
+  || fail "boundaries: a rejected id did not raise the allocation"
+commit "$e" "$(printf 'fix: tab\there esc\033[2J [pending-sign-off]')"
+got=$(cd "$e" && /bin/bash "$LIST" list main 2>/dev/null | cut -f3)
+[ "$got" = "fix: tab here esc [2J [pending-sign-off]" ] \
+  || fail "boundaries: control characters not replaced [$got]"
+echo "ok: suffix, value, allocation, and subject boundaries hold"
+
+# 11d. Reverting a rejection reinstates the item.
+git -C "$j" revert --no-edit HEAD >/dev/null
+[ "$(ids "$j")" = "PS-1,PS-2" ] || fail "rejection revert: expected PS-1,PS-2, got [$(ids "$j")]"
+echo "ok: reverting a rejection reinstates the item"
+
+# 11f. Revert pairing survives committer dates out of topological order: a
+#      reapply dated before the revert it undoes, merged with a later side
+#      commit, still reinstates the item.
+k="$tmp/skew"
+new_repo "$k"
+git -C "$k" checkout -q -b task
+GIT_COMMITTER_DATE='1700000100 +0000' commit "$k" "fix: skewed
+
+Planwright-Sign-Off: PS-1"
+GIT_COMMITTER_DATE='1700000300 +0000' git -C "$k" revert --no-edit HEAD >/dev/null
+r1=$(git -C "$k" rev-parse HEAD)
+GIT_COMMITTER_DATE='1700000200 +0000' git -C "$k" revert --no-edit HEAD >/dev/null
+git -C "$k" checkout -q -b side "$r1"
+GIT_COMMITTER_DATE='1700000500 +0000' commit "$k" "chore: side"
+git -C "$k" checkout -q task
+GIT_COMMITTER_DATE='1700000600 +0000' git -C "$k" merge -q --no-edit side
+[ "$(ids "$k")" = "PS-1" ] || fail "skew: expected PS-1 reinstated, got [$(ids "$k")]"
+echo "ok: revert pairing follows ancestry, not committer dates"
+
+# 11g. A --reference revert (abbreviated hash) pairs; so does a SHA-256 repo.
+f="$tmp/reference"
+new_repo "$f"
+git -C "$f" checkout -q -b task
+commit "$f" "fix: referenced [pending-sign-off]"
+git -C "$f" -c revert.reference=true revert --no-edit HEAD >/dev/null
+[ "$(ids "$f")" = "" ] || fail "reference revert: expected no items, got [$(ids "$f")]"
+if git init -q --object-format=sha256 -b main "$tmp/sha256" 2>/dev/null; then
+  git -C "$tmp/sha256" config commit.gpgsign false
+  git -C "$tmp/sha256" commit -q --allow-empty -m 'chore: root'
+  git -C "$tmp/sha256" checkout -q -b task
+  commit "$tmp/sha256" "fix: long hash
+
+Planwright-Sign-Off: PS-1"
+  long=$(git -C "$tmp/sha256" rev-parse HEAD)
+  [ "${#long}" = 64 ] || fail "sha256: fixture hash is ${#long} characters"
+  commit "$tmp/sha256" "fix: long legacy [pending-sign-off]"
+  git -C "$tmp/sha256" revert --no-edit HEAD >/dev/null
+  git -C "$tmp/sha256" revert --no-edit "$long" >/dev/null
+  [ "$(ids "$tmp/sha256")" = "" ] || fail "sha256: expected no items, got [$(ids "$tmp/sha256")]"
+fi
+echo "ok: abbreviated and SHA-256 revert hashes pair"
+
+# 11h. A separator character inside a commit message cannot hide or forge an
+#      item: the record fails to parse and the range fails by name.
+g="$tmp/forge"
+new_repo "$g"
+git -C "$g" checkout -q -b task
+commit "$g" "fix: real
+
+Planwright-Sign-Off: PS-1"
+commit "$g" "$(printf 'fix: innocuous\037\037PS-1')"
+rc=0
+out=$(cd "$g" && /bin/bash "$LIST" list main 2>"$tmp/err") || rc=$?
+[ "$rc" = 3 ] && [ -z "$out" ] || fail "forge: expected exit 3 and no output, got $rc [$out]"
+grep -q 'does not parse' "$tmp/err" || fail "forge: error not named"
+echo "ok: a separator in a commit message fails the range instead of forging"
+
+# 11i. One id stamped on two commits lists twice and warns.
+u="$tmp/dup"
+new_repo "$u"
+git -C "$u" checkout -q -b task
+commit "$u" "fix: one
+
+Planwright-Sign-Off: PS-1"
+commit "$u" "fix: raced
+
+Planwright-Sign-Off: PS-1"
+[ "$(ids "$u")" = "PS-1,PS-1" ] || fail "duplicate: expected PS-1 twice, got [$(ids "$u")]"
+(cd "$u" && /bin/bash "$LIST" list main 2>&1 >/dev/null) | grep -q 'stamped on two commits' \
+  || fail "duplicate: no warning"
+echo "ok: a duplicated id is listed per commit with a warning"
 
 # --- Stamping through planwright-commit-trailers.sh ---
 

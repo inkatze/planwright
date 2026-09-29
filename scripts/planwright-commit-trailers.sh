@@ -1,6 +1,7 @@
 #!/bin/sh
-# planwright-commit-trailers.sh — stamp `Planwright-Task: <spec>/<id>` footer
-# trailers onto a commit message (Task 2, REQ-C1.4, D-2).
+# planwright-commit-trailers.sh — stamp planwright's footer trailers
+# (`Planwright-Task: <spec>/<id>`, and the sign-off pair below) onto a commit
+# message (Task 2, REQ-C1.4, D-2).
 #
 # The trailer is planwright's durable, cross-flow completion anchor: it
 # survives branch deletion and solo direct-to-`main` commits. This helper
@@ -25,19 +26,21 @@
 #
 # Behavior:
 #   - Trailers land in the footer via `git interpret-trailers`, never the
-#     subject line (D-2: discreet by design — footer only). Only the
-#     `Planwright-Task` trailer is added; no Claude/co-author attribution is
-#     introduced (the no-attribution rule is unaffected).
-#   - `--if-exists addIfDifferent` makes a re-stamp idempotent: piping an
-#     already-trailered message through again does not duplicate it.
+#     subject line (D-2: discreet by design — footer only). Only planwright's
+#     own trailers are added; no Claude/co-author attribution is introduced
+#     (the no-attribution rule is unaffected).
+#   - `--if-exists addIfDifferent` makes a task-ref or `--reject` re-stamp
+#     idempotent: piping an already-trailered message through again does not
+#     duplicate it. A `--sign-off` re-stamp is refused (below).
 #   - Each ref is grammar-validated before use (REQ-F1.1 discipline): spec
 #     `^[a-z0-9][a-z0-9-]*$` (≤64 chars, the D-36 spec-id grammar), id
 #     `^[0-9]+(\.[0-9]+)?$`. The id is the *single-task subset* of D-36's
 #     branch `<id-or-ids>` grammar: a trailer names one task (D-2 — a bundle
 #     carries one trailer line per task), so the bundle-range form (`3-4`) is
 #     deliberately not accepted here. A malformed ref, a ref with an embedded
-#     newline, or no ref at all is refused (exit 2) and nothing is emitted —
-#     the value is never interpolated into the trailer.
+#     newline, or nothing to stamp at all (no ref, `--sign-off`, or
+#     `--reject`) is refused (exit 2) and nothing is emitted — the value is
+#     never interpolated into the trailer.
 #
 # Sign-off trailers (doctrine/gate-wiring.md, *The `Planwright-Sign-Off`
 # trailer*), stamped alongside or instead of the task refs:
@@ -48,11 +51,14 @@
 #
 #   - Each `--sign-off` appends one `Planwright-Sign-Off: PS-<n>`, allocated
 #     from the branch's next free id over <base>..HEAD by
-#     sign-off-checklist.sh; a shared commit passes one per finding. The id is
-#     written once: a message already carrying a sign-off id is refused, and
-#     an unresolvable range refuses (exit 3) rather than restart the sequence.
+#     sign-off-checklist.sh; a shared commit passes one per finding. Run it in
+#     the checkout the commit lands in, since HEAD is the allocation range's
+#     end, and commit before stamping the next message. The id is written
+#     once: a message already carrying a sign-off id is refused, and an
+#     unresolvable range refuses (exit 3) rather than restart the sequence.
 #   - Each `--reject <id>` appends `Planwright-Sign-Off-Rejected: <id>`, where
-#     <id> is `PS-<n>` or `PS-legacy-<sha7>`; anything else is refused.
+#     <id> is `PS-<n>` (at most nine digits) or `PS-legacy-<sha7>`; anything
+#     else is refused.
 #
 # Exit: 0 on success; 2 on a usage error, a malformed ref or id, or a message
 # that already carries a sign-off id; 3 when the allocation range does not
@@ -110,7 +116,7 @@ valid_rejected_id() {
   case "$1" in
     *"$LF"*) return 1 ;;
   esac
-  printf '%s' "$1" | grep -qE '^PS-([1-9][0-9]*|legacy-[0-9a-f]{7})$'
+  printf '%s' "$1" | grep -qE '^PS-([1-9][0-9]{0,8}|legacy-[0-9a-f]{7})$'
 }
 
 # First pass: validate every argument before emitting anything (fail closed).
@@ -173,7 +179,8 @@ msg=$(cat)
 
 next=0
 if [ "$signoffs" -gt 0 ]; then
-  if printf '%s\n' "$msg" | git interpret-trailers --parse | grep -qi '^Planwright-Sign-Off:'; then
+  parsed=$(printf '%s\n' "$msg" | git interpret-trailers --parse) || exit 2
+  if printf '%s\n' "$parsed" | grep -qi '^Planwright-Sign-Off:'; then
     echo "$prog: the message already carries a sign-off id; an id is written once" >&2
     exit 2
   fi
@@ -181,13 +188,18 @@ if [ "$signoffs" -gt 0 ]; then
   # A failed allocation has already named its error on stderr; its exit code
   # (3 for an unresolvable range) passes through and nothing is emitted.
   alloc=$("$script_dir/sign-off-checklist.sh" next "$base") || exit $?
+  if ! printf '%s' "$alloc" | grep -qE '^PS-[1-9][0-9]{0,8}$'; then
+    echo "$prog: the allocator returned no usable id; nothing stamped" >&2
+    exit 2
+  fi
   next=${alloc#PS-}
 fi
 
 # Second pass: rotate the arguments (the leading $# positional params) into the
 # `--trailer` flag list git wants, task refs first. Each iteration consumes
 # the front argument and appends a flag to the back, so after $# rotations
-# only the flags remain; option arguments are consumed and re-emitted below.
+# only the flags remain. Options and their arguments are dropped here; the
+# sign-off and rejected trailers are appended after the loop.
 n=$#
 i=0
 while [ "$i" -lt "$n" ]; do
