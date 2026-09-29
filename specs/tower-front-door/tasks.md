@@ -300,6 +300,14 @@ router has not demonstrated (REQ-B1.6).
      handler, so an interrupt rolls back too), and let a re-run whose
      committed record matches the render report it and succeed.
 
+  The draft PR's CI is also blocked outside this task: its `check` job stops
+  at the full-history secret scan, which flags a test fixture on another
+  spec's branch (`fleet-lifecycle-closure/task-6`, a `generic-api-key` hit
+  in `tests/test-fleet-cleanup-process.sh`) that is in neither `main` nor
+  this branch, and `main`'s own CI fails the same way. Decide how to clear
+  it (fix that fixture on its branch, or record the hit in a gitleaks ignore
+  on `main`); then re-run this PR's CI, which has not yet reached its tests.
+
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny
