@@ -33,11 +33,12 @@
 #     characters; an abbreviation matching no commit, or several, in the range
 #     pairs with nothing.
 #   - A revert commit carrying a `Planwright-Sign-Off-Rejected` trailer that
-#     names an id of the commit it reverts is a partial revert: it drops only
-#     the ids it names, so one finding of a shared commit can be rejected
-#     without dropping the rest.
+#     names an id of a commit it reverts is a partial revert of that commit: it
+#     drops only the ids it names, so one finding of a shared commit can be
+#     rejected without dropping the rest. Its other targets drop whole.
 #   - A `Planwright-Sign-Off-Rejected: <id>` trailer drops the item it names,
-#     matched exactly, where <id> is `PS-<n>` or `PS-legacy-<sha7>`.
+#     matched exactly, where <id> is `PS-<n>` or `PS-legacy-<sha7>`; any other
+#     value rejects nothing and warns.
 #   - A reverted or rejected id stays allocated: `next` never reuses it. One
 #     `PS-<n>` on two commits (two stamps allocated from the same head) is
 #     listed twice with a warning.
@@ -116,6 +117,7 @@ function trim(s) {
 }
 function is_ps(v) { return v ~ /^PS-[1-9][0-9]*$/ && length(v) <= 12 }
 function is_legacy(v) { return v ~ /^PS-legacy-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/ }
+function legacy_subject(s) { return length(s) > 19 && substr(s, length(s) - 18) == " [pending-sign-off]" }
 function warn(msg) { printf "%s: %s\n", prog, msg > "/dev/stderr" }
 function malformed() {
   warn("unresolvable range: a git log record does not parse (a separator character in a commit message?); no checklist emitted")
@@ -177,10 +179,10 @@ END {
     print "PS-" (max + 1)
     exit 0
   }
-  # A revert is partial when a rejected id it carries belongs to a commit it
-  # reverts; a rejection of some other commit leaves it a full revert.
+  # A revert is partial for a target when a rejected id it carries belongs to
+  # that target; a rejection of some other commit leaves it a full revert, and
+  # a revert naming several targets stays full for the rest.
   for (k = 1; k <= n; k++) {
-    partial[k] = 0
     if (rv[k] == "" || rej[k] == "") continue
     c = split(rv[k], ts, " ")
     for (i = 1; i <= c; i++) {
@@ -193,7 +195,7 @@ END {
       d = split(rej[k], vals, GS)
       for (e = 1; e <= d; e++) {
         v = trim(vals[e])
-        if (v in own) partial[k] = 1
+        if (v in own) partial[k, t] = 1
       }
     }
   }
@@ -201,11 +203,11 @@ END {
   # revert of a revert cancels the first and reinstates the original. A
   # partial revert drops nothing here; its rejected trailers do the dropping.
   for (k = n; k >= 1; k--) {
-    if (h[k] in dead || rv[k] == "" || partial[k]) continue
+    if (h[k] in dead || rv[k] == "") continue
     c = split(rv[k], ts, " ")
     for (i = 1; i <= c; i++) {
       t = target(ts[i])
-      if (t != "") dead[t] = 1
+      if (t != "" && !((k, t) in partial)) dead[t] = 1
     }
   }
   for (k = 1; k <= n; k++) {
@@ -214,12 +216,14 @@ END {
     for (i = 1; i <= c; i++) {
       v = trim(vals[i])
       if (is_ps(v) || is_legacy(v)) rejected[v] = 1
+      else if (v != "") warn("ignoring a malformed rejected value on commit " substr(h[k], 1, 12) "; it rejects nothing")
     }
   }
   nout = 0
   for (k = 1; k <= n; k++) {
     if (rv[k] != "") {
       if (trim(so[k]) != "") warn("commit " substr(h[k], 1, 12) " is a revert, so its sign-off trailers are not items")
+      else if (legacy_subject(subj[k])) warn("commit " substr(h[k], 1, 12) " is a revert, so its [pending-sign-off] suffix is not an item")
       continue
     }
     if (trim(so[k]) != "") {
@@ -235,7 +239,7 @@ END {
         if (h[k] in dead || v in rejected) continue
         out[++nout] = v "\t" h[k] "\t" subj[k]
       }
-    } else if (length(subj[k]) > 19 && substr(subj[k], length(subj[k]) - 18) == " [pending-sign-off]") {
+    } else if (legacy_subject(subj[k])) {
       id = "PS-legacy-" substr(h[k], 1, 7)
       if (id in legacy) {
         warn("legacy id collision: commits " legacy[id] " and " h[k] " both render as " id "; no checklist emitted")

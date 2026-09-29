@@ -289,6 +289,8 @@ Planwright-Sign-Off: PS-3"
 [ "$(ids "$e")" = "" ] || fail "revert-shaped: expected no items, got [$(ids "$e")]"
 (cd "$e" && /bin/bash "$LIST" list main 2>&1 >/dev/null) | grep -q 'is a revert' \
   || fail "revert-shaped: a dropped trailered revert did not warn"
+(cd "$e" && /bin/bash "$LIST" list main 2>&1 >/dev/null) | grep -q 'suffix is not an item' \
+  || fail "revert-shaped: a dropped suffixed revert did not warn"
 echo "ok: a revert-shaped commit is never an item"
 
 # 11c. Boundaries: the suffix needs its space; malformed and overlong values
@@ -358,6 +360,29 @@ Planwright-Sign-Off: PS-1"
   [ "$other" = PS-9 ] && want=""
   [ "$(ids "$q")" = "$want" ] || fail "partial revert: rejected $other should leave [$want], got [$(ids "$q")]"
 done
+(cd "$tmp/partial-PS-01" && /bin/bash "$LIST" list main 2>&1 >/dev/null) | grep -q 'malformed rejected value' \
+  || fail "partial revert: a malformed rejected value did not warn"
+# One revert commit naming two targets (a squash of two reverts) is partial
+# only for the target its rejected id belongs to; the other drops whole.
+q="$tmp/partial-squash"
+new_repo "$q"
+git -C "$q" checkout -q -b task
+commit "$q" "fix: whole
+
+Planwright-Sign-Off: PS-1"
+w=$(git -C "$q" rev-parse HEAD)
+commit "$q" "fix: shared
+
+Planwright-Sign-Off: PS-2
+Planwright-Sign-Off: PS-3"
+x=$(git -C "$q" rev-parse HEAD)
+commit "$q" "revert: whole, and PS-2 of shared
+
+This reverts commit $w.
+This reverts commit $x.
+
+Planwright-Sign-Off-Rejected: PS-2"
+[ "$(ids "$q")" = "PS-3" ] || fail "partial revert: a squashed full + partial revert should leave [PS-3], got [$(ids "$q")]"
 echo "ok: a partial revert with a rejected trailer drops only the named id"
 
 # 11f. Revert pairing survives committer dates out of topological order: a
