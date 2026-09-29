@@ -490,6 +490,7 @@ allow|legit|git push origin :planwright/guard-coverage/task-1|deleting a task br
 deny|overblock|git commit -m "docs: describe the -n flag in the guide"|a commit message containing " -n " is denied; fail-safe, rephrase the message
 deny|overblock|git commit -m "fix: handle --no-verify in the wrapper"|a commit message naming --no-verify is denied; fail-safe
 deny|overblock|git commit -m "docs: use --amend carefully"|a commit message naming --amend is denied; fail-safe
+deny|overblock|git commit -m "docs: --fix typo"|a message word starting with an abbreviated rewrite flag (--am, --sq, --fix) is denied; fail-safe
 ROWS
 )
 
