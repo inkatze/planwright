@@ -181,6 +181,8 @@ ship_out=$(run_shipped convergence --unattended 2>/dev/null)
 ship_rc=$?
 [ "$ship_rc" = 0 ] && [ "$ship_out" = "run${TAB}polish" ]
 verdict "the shipped config/defaults.yml and config/steps.yaml resolve convergence to polish" "shipped files: convergence rc=$ship_rc out='$ship_out'"
+! grep -Eq '^[[:space:]]*review_sequence[[:space:]]*:' "$repo_root/config/defaults.yml"
+verdict "the shipped config/defaults.yml no longer sets the retired convergence knob" "config/defaults.yml still sets review_sequence"
 # The fixture sweep above already exercises every point; against the shipped
 # files it suffices that every other key ships `[]` and one such point runs.
 for p in $WIRED $UNWIRED; do

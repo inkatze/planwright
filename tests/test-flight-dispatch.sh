@@ -644,16 +644,17 @@ steps:
     target: panel-review
     args: --nested
 EOF
-printf 'steps_convergence: [polish, panel]\n' >"$c/primary/.claude/planwright.local.yml"
+printf 'steps_convergence: [polish, no-such-step, panel]\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 [ "$RC" -eq 0 ] || fail "a catalog-declared convergence list must dispatch (rc $RC: $ERR)"
+case $ERR in *no-such-step*) ;; *) fail "a skipped step must be named on stderr: $ERR" ;; esac
 b=$(cat "$(field "$OUT" brief)")
 printf '%s\n' "$b" | grep -Fxq "1. \`/planwright:polish --nested\`" || fail "a planwright skill step must be namespaced: $b"
 printf '%s\n' "$b" | grep -Fxq "2. \`/panel-review --nested\`" || fail "a user command step must be named bare: $b"
 [ "$(field "$OUT" steps_convergence)" = "polish panel" ] \
   || fail "the report must list every step, got '$(field "$OUT" steps_convergence)'"
 # The brief lists the steps once; it never also sends the worker to re-resolve them.
-if printf '%s\n' "$b" | grep -Eiq 'read the convergence point.s step list'; then
+if printf '%s\n' "$b" | grep -Eiq 'read the convergence point.s step list|resolve-steps|resolve-review-sequence'; then
   fail "the brief must not both list the steps and tell the worker to re-read them: $b"
 fi
 
@@ -671,7 +672,7 @@ for kind in command prompt; do
     printf 'steps:\n  - id: extra\n    kind: prompt\n    target: Re-read the diff once more.\n' \
       >"$c/adopter/catalogs/steps.yaml"
   fi
-  printf 'steps_convergence: [polish, extra]\n' >"$c/primary/.claude/planwright.local.yml"
+  printf 'steps_convergence: [polish, extra, self-review]\n' >"$c/primary/.claude/planwright.local.yml"
   dispatch_print
   [ "$RC" -eq 4 ] || fail "a $kind step on a flight must fail closed with exit 4 (rc $RC: $ERR)"
   case $ERR in *"'extra'"*"$kind step"*"skill steps only"*) ;;
@@ -679,6 +680,7 @@ for kind in command prompt; do
   esac
   [ "$(flight_branches)" -eq 0 ] || fail "a $kind step placed a flight"
   [ "$(briefs)" -eq 0 ] || fail "a $kind step left a brief"
+  [ "$(gitc "$c/primary" worktree list | grep -c .)" -eq 1 ] || fail "a $kind step placed a worktree"
 done
 
 # The core list and catalog come from this script's own root, the root the
@@ -703,7 +705,7 @@ mkdir -p "$c/primary/.claude"
 printf 'steps_convergence: []\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 [ "$RC" -eq 0 ] || fail "an empty convergence list must dispatch (rc $RC: $ERR)"
-grep -q "the convergence point runs no step" "$(field "$OUT" brief)" \
+grep -q "^The list is empty: the convergence point runs no step" "$(field "$OUT" brief)" \
   || fail "an empty convergence list must say it runs no step"
 printf '%s\n' "$OUT" | grep -qx "steps_convergence$TAB" || fail "an empty list must report no steps: $OUT"
 
@@ -713,6 +715,7 @@ mkdir -p "$c/primary/.claude"
 printf 'steps_convergence: [no-such-step]\n' >"$c/primary/.claude/planwright.local.yml"
 dispatch_print
 [ "$RC" -eq 0 ] || fail "an all-skipped machine-local list must dispatch (rc $RC: $ERR)"
+case $ERR in *no-such-step*) ;; *) fail "an all-skipped list must name the skipped step on stderr: $ERR" ;; esac
 b=$(cat "$(field "$OUT" brief)")
 case $b in *"The list is empty"*) fail "an all-skipped list must not be called empty: $b" ;; esac
 printf '%s\n' "$b" | grep -qi "every configured step was skipped on this host" \
@@ -725,6 +728,7 @@ printf 'steps_convergence: [no-such-step]\n' >"$c/primary/.claude/planwright.yml
 dispatch_print
 [ "$RC" -eq 4 ] || fail "an unresolvable repo-tracked step must fail closed with exit 4 (rc $RC: $ERR)"
 case $ERR in *steps_convergence*) ;; *) fail "the refusal must name steps_convergence: $ERR" ;; esac
+case $ERR in *no-such-step*) ;; *) fail "the refusal must name the step that did not resolve: $ERR" ;; esac
 [ "$(flight_branches)" -eq 0 ] || fail "an unresolvable convergence list placed a flight"
 [ "$(briefs)" -eq 0 ] || fail "an unresolvable convergence list left a brief"
 
