@@ -59,9 +59,9 @@
 #       The verdict comes from scripts/fleet-stuck-detector.sh, whose registry
 #       read and owner attribution this arm does not re-derive; --tower-id is
 #       handed to it, and without it the detector resolves this tower's
-#       identity from the environment as it always does. An errored verdict or a
-#       missing dispatch record refuses first (exit 5); past those, refused in
-#       this order:
+#       identity from the environment as it always does. An errored or absent
+#       verdict, or a missing dispatch record, refuses first (exit 5); past
+#       those, refused in this order:
 #         a `print`-backend unit, which spawned no process (exit 8);
 #         a worker owned by a live peer tower, under any evidence (exit 7);
 #         a backend with no process close, such as tmux (exit 5);
@@ -94,7 +94,8 @@
 #       was released and what is still held. It is recorded even when nothing
 #       came free, since the rung may have signalled the tree before finding a
 #       class still held. A rung that died on a signal mid-close is recorded as
-#       a partial close too, both sets `unreported`. A signal to this script
+#       a partial close too, both sets `unreported`, and so is a partial
+#       result line this script cannot parse. A signal to this script
 #       once the close is about to start is held until the close is recorded,
 #       and the run then exits 5 rather than reporting a success.
 #

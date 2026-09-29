@@ -1465,9 +1465,10 @@ released. A partial close is exit `5` with a `cleanup-partial` record naming
 what it released and what is still held, written even when nothing came free,
 since the rung may have signalled the tree before finding a class still held;
 a rung that died on a signal mid-close is recorded the same way, its extent
-unreported. A signal sent to the reap itself once the close is under way is
-held until the close is recorded, and the reap then exits `5`. A close that
-could not be recorded is exit `6`.
+unreported, as is a partial result line the reap cannot parse. A signal sent
+to the reap itself once the close is under way is held until the close is
+recorded, and the reap then exits `5`. A close that could not be recorded is
+exit `6`.
 
 ## Resource governance: models, throttling, and the auto-mode line
 
