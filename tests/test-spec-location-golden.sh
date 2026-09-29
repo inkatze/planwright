@@ -264,7 +264,13 @@ record_anchors() {
     return 2
   }
   mkdir -p "$tmp/at-baseline"
-  git -C "$REPO_ROOT" archive "$BASELINE_COMMIT" specs | tar -x -C "$tmp/at-baseline" || return 2
+  # Both ends of the pipe are checked: bsdtar exits 0 on an empty stream.
+  git -C "$REPO_ROOT" archive "$BASELINE_COMMIT" specs | tar -x -C "$tmp/at-baseline"
+  ra_st="${PIPESTATUS[0]} ${PIPESTATUS[1]}"
+  [ "$ra_st" = "0 0" ] && [ -d "$tmp/at-baseline/specs" ] || {
+    echo "could not extract specs/ at the baseline commit" >&2
+    return 2
+  }
   for ra_d in "$tmp/at-baseline/specs"/*/; do
     ra_b=$(basename "$ra_d")
     case $ra_b in _*) continue ;; esac
