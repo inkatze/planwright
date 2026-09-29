@@ -64,6 +64,8 @@ flip             worker ready_flip_policy=unresolved n/a    deny   defer  n/a   
 flip             tower  ready_flip_policy=unresolved deny   deny   n/a    defer  n/a    deny   gh pr ready 42
 flip             worker ready_flip_policy=unresolved n/a    deny   n/a    n/a    defer  n/a    mcp__github__update_pull_request
 flip             tower  ready_flip_policy=unresolved n/a    deny   n/a    n/a    n/a    deny   mcp__github__update_pull_request
+flip             tower  ready_flip_policy=unresolved deny   defer  n/a    defer  n/a    defer  gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+flip             tower  ready_flip_policy=unresolved deny   defer  n/a    defer  n/a    defer  gh api graphql -F query=@flip.graphql
 
 base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git merge origin/main
 base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git -C . merge origin/main

@@ -277,7 +277,8 @@ for act in $RC_ACTS; do
     fail "the fixture has no line for the act $act"
   fi
 done
-for needle in 'git pull' ' master' ':master' 'planwright/human-gates/spec' ' +' 'mcp__github__merge_pull_request' 'mcp__github__update_pull_request'; do
+for needle in 'git pull' ' master' ':master' 'planwright/human-gates/spec' ' +' 'mcp__github__merge_pull_request' 'mcp__github__update_pull_request' \
+  'git -C . ' 'gh api graphql' 'git commit --amen'; do
   if printf '%s\n' "$all" | grep -qF -- "$needle"; then
     pass "the fixture carries a '$needle' spelling"
   else

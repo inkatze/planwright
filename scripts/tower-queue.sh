@@ -387,7 +387,8 @@
 # free text (`--covers`). A standing decision's coverage, or its rule text,
 # that reaches a reserved human control is REFUSED here, and refused again at
 # match time whatever a rule claims: a merge or pull, a ready-flip, a
-# force-push, an amend, a squash, a fixup, a rebase, a git alias, and a push to
+# force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh
+# api call that can write, and a push to
 # main, master, or a spec branch stay the operator's (REQ-H1.1). A push is judged by its refspec's DESTINATION, not by
 # the punctuation around it, so `+main`, `refs/heads/main` and a force flag
 # bundled into a short-option run are the same refusal as `origin main`. A
@@ -2226,6 +2227,9 @@ reserved_control() {
     *commit*) commit_rewrite_word "$_rl" && return 0 ;;
   esac
   case "$_rl" in
+    *gh*) gh_write_word "$_rl" && return 0 ;;
+  esac
+  case "$_rl" in
     *push*) push_reaches_protected "$_rl" && return 0 ;;
   esac
   return 1
@@ -2241,6 +2245,48 @@ commit_rewrite_word() {
       case "$_cw" in
         --am* | --sq* | --fix*) exit 0 ;;
       esac
+    done
+    exit 1
+  )
+}
+
+# gh_write_word <lowercased, unquoted text> — 0 for a `gh api` call that can
+# write, or a `gh alias` definition. The ready flip and its undo are GraphQL
+# mutations, and a query read from a file (`-F query=@q.graphql`) is not in the
+# text at all, so any GraphQL call, any field or input (which makes the call a
+# POST), and any method but GET reaches the operator. An alias can expand to
+# any gh verb, as a git alias can to any git verb.
+gh_write_word() {
+  (
+    set -f
+    _gp=""
+    _gs=""
+    for _gw in $1; do
+      case "$_gs" in
+        api)
+          case "$_gw" in
+            graphql | -f* | --field* | --raw-field* | --input*) exit 0 ;;
+            -x | --method) _gs=method ;;
+            -xget | -x=get | --method=get) ;;
+            -x* | --method*) exit 0 ;;
+          esac
+          ;;
+        method)
+          [ "$_gw" = get ] || exit 0
+          _gs=api
+          ;;
+        alias)
+          case "$_gw" in
+            set | import) exit 0 ;;
+          esac
+          _gs=""
+          ;;
+      esac
+      case "$_gp:$_gw" in
+        gh:api | */gh:api) _gs=api ;;
+        gh:alias | */gh:alias) _gs="alias" ;;
+      esac
+      _gp=$_gw
     done
     exit 1
   )
@@ -5158,7 +5204,7 @@ cmd_capture() {
             # would act.
             if reserved_control "$2" \
               || command_words_reserved "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"; then
-              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git alias, or a push to main, master, or a spec branch); those stay the operator's"
+              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, or a push to main, master, or a spec branch); those stay the operator's"
             fi
             # Redacted like every other operator-supplied field (REQ-G1.8):
             # this one is persisted and, with a ledger helper installed, ships
@@ -5189,7 +5235,7 @@ cmd_capture() {
     is_text "$covers" 512 || refuse "refusing the coverage text: at most 512 bytes with secrets redacted, no control byte or leading whitespace, not shaped like a JSON value"
     [ "$covers" != - ] || refuse "refusing the coverage '-': that is the placeholder for no coverage, and a rule must not read as covering nothing"
     if reserved_control "$covers"; then
-      refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git alias, or a push to main, master, or a spec branch); those stay the operator's"
+      refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, or a push to main, master, or a spec branch); those stay the operator's"
     fi
     covers="$covers$TAB"
   fi
@@ -5199,7 +5245,7 @@ cmd_capture() {
   # 471 once it is green" is an ordinary ask and must stay recordable
   # (REQ-E1.1) rather than being refused by a guard aimed at rules.
   if [ "$kind" = standing ] && reserved_control "$text"; then
-    refuse "refusing a standing decision whose rule reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git alias, or a push to main, master, or a spec branch); those stay the operator's"
+    refuse "refusing a standing decision whose rule reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, or a push to main, master, or a spec branch); those stay the operator's"
   fi
   # What closes a captured item, when the operator did not say. A request
   # closes on the evidence that the work landed and an approval on the answer

@@ -227,6 +227,30 @@ for okc in 'git commit -m "fix: tidy"' 'git commit -a -m wip' 'git commit -F msg
 done
 echo "ok: an ordinary commit still matches the git rule"
 
+# A gh api call that can write, and a gh alias definition, can reach any
+# reserved control without naming it: the ready flip and its undo are GraphQL
+# mutations, and a query read from a file is not in the text at all.
+gh_rule=$(captured --kind standing --text 'always let the workers run gh' \
+  --covers-command 'gh ' --now 1005) || fail "capture of the gh rule failed"
+for res in "gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{pullRequestId:\"PR_x\"}){clientMutationId}}'" \
+  "gh api graphql -f query='mutation{convertPullRequestToDraft(input:{pullRequestId:\"PR_x\"}){clientMutationId}}'" \
+  'gh api graphql -F query=@undo.graphql' 'gh api repos/o/r/pulls/1 -X PATCH' 'gh api --method=POST repos/o/r/x' \
+  'gh api repos/o/r/pulls/1 -f state=closed' 'gh api repos/o/r/x --input body.json' 'gh api repos/o/r/x --raw-field a=b' \
+  "gh alias set rd 'pr view'" 'gh alias import aliases.yml'; do
+  rc=0
+  run match --decision "$gh_rule" --command "$res" >"$tmp/o" || rc=$?
+  [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+    || fail "'$res' was not refused as a reserved control (exit $rc, '$(cat "$tmp/o")')"
+done
+echo "ok: a gh api call that can write, and a gh alias definition, are refused as reserved controls"
+
+for okg in 'gh pr view 529' 'gh pr checks 529' 'gh api repos/o/r/pulls/1' 'gh api -X GET repos/o/r/pulls' 'gh alias list'; do
+  run match --decision "$gh_rule" --command "$okg" >"$tmp/o" \
+    || fail "an ordinary gh call ('$okg') did not match (exit $?, '$(cat "$tmp/o")')"
+  [ "$(cat "$tmp/o")" = match ] || fail "an ordinary gh call ('$okg') printed '$(cat "$tmp/o")'"
+done
+echo "ok: a read-only gh call still matches the gh rule"
+
 # The quoted spellings. The allowlist admits a quoted interior anywhere in a
 # word, and the shell reads each of these as the bare spelling above; the
 # guard once stripped one matched pair of quotes, after the prefix test, so
