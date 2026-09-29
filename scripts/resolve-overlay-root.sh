@@ -18,9 +18,10 @@
 #     $CLAUDE_PLUGIN_DATA) is used verbatim and trusted: it is echoed as given
 #     (joined to the layer's suffix), so a caller that needs an absolute result
 #     must pass an absolute override. Callers pin PLANWRIGHT_REPO_ROOT to a
-#     directory outside any repository to read no repo-side layer at all. When the layer is legitimately absent (adopter namespace
-#     underivable; no repo for the repo-side layers), prints nothing and exits
-#     0 — an absent overlay layer is a normal state, never an error (REQ-A1.4).
+#     directory outside any repository to read no repo-side layer at all.
+#     When the layer is legitimately absent (adopter namespace underivable;
+#     no repo for the repo-side layers), prints nothing and exits 0 — an
+#     absent overlay layer is a normal state, never an error (REQ-A1.4).
 #
 #   resolve-overlay-root.sh --contain <root> <relpath>
 #     Join <relpath> (a path relative to <root>) onto <root>, canonicalize, and
@@ -195,10 +196,12 @@ fi
 
 # A missing helper is a broken install: every layer it locates degrades to
 # absent, said once, and the kind resolver surfaces what went missing.
-if [ ! -x "$root_helper" ]; then
+# Readable is enough: it runs through /bin/sh, so a copy that lost the
+# execute bit still resolves.
+if [ ! -r "$root_helper" ]; then
   case $layer in
     core | repo-tracked | machine-local)
-      echo "planwright: WARNING root helper '$root_helper' is missing or not executable; the $layer overlay layer is treated as absent" >&2
+      echo "planwright: WARNING root helper '$root_helper' is missing or unreadable; the $layer overlay layer is treated as absent" >&2
       exit 0
       ;;
   esac
@@ -208,7 +211,7 @@ case $layer in
   core)
     # The helper's own warnings (a skipped content-less arm) pass through. No
     # arm resolving is a broken install: degrade to absent rather than erroring.
-    core_root=$("$root_helper" install) || exit 0
+    core_root=$(/bin/sh "$root_helper" install) || exit 0
     printf '%s\n' "$core_root"
     exit 0
     ;;
@@ -279,9 +282,9 @@ case $layer in
       repo_root=$PLANWRIGHT_REPO_ROOT
     else
       rr_rc=0
-      repo_root=$("$root_helper" repo --primary 2>/dev/null) || rr_rc=$?
+      repo_root=$(/bin/sh "$root_helper" repo --primary 2>/dev/null) || rr_rc=$?
       if [ "$rr_rc" -ne 0 ]; then
-        [ "$rr_rc" -eq 3 ] || "$root_helper" repo --primary >/dev/null
+        [ "$rr_rc" -eq 3 ] || /bin/sh "$root_helper" repo --primary >/dev/null
         exit 0
       fi
     fi

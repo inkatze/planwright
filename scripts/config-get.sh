@@ -73,8 +73,9 @@
 #   PLANWRIGHT_LOCAL_CONFIG     explicit machine-local file (legacy two-layer
 #                               override; wins over the derived machine-local path)
 # Otherwise the core layer is config/defaults.yml under the first arm of the
-# core root chain (resolve-root.sh install --all) holding one. The adopter and repo-side layer roots honor resolve-overlay-root.sh's own
-# overrides (PLANWRIGHT_ADOPTER_OVERLAY, CLAUDE_PLUGIN_DATA, PLANWRIGHT_REPO_ROOT).
+# core root chain (resolve-root.sh install --all) holding one. The adopter
+# and repo-side layer roots honor resolve-overlay-root.sh's own overrides
+# (PLANWRIGHT_ADOPTER_OVERLAY, CLAUDE_PLUGIN_DATA, PLANWRIGHT_REPO_ROOT).
 #
 # Exit: 0 value printed; 3 key absent in every layer; 2 usage / invalid key;
 # 4 malformed repo-tracked overlay (hard-fail). Never fails opaquely.
@@ -129,14 +130,16 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 defaults=""
 if [ -n "${PLANWRIGHT_CONFIG_DEFAULTS:-}" ]; then
   defaults="$PLANWRIGHT_CONFIG_DEFAULTS"
-elif [ -x "$script_dir/resolve-root.sh" ]; then
+elif [ ! -r "$script_dir/resolve-root.sh" ]; then
+  echo "config-get: warning: the root helper '$script_dir/resolve-root.sh' is missing or unreadable (broken install); the core defaults cannot be located" >&2
+else
   while IFS= read -r root; do
     if [ -n "$root" ] && [ -f "$root/config/defaults.yml" ]; then
       defaults="$root/config/defaults.yml"
       break
     fi
   done <<ROOTS
-$("$script_dir/resolve-root.sh" install --all)
+$(/bin/sh "$script_dir/resolve-root.sh" install --all)
 ROOTS
 fi
 
@@ -185,13 +188,13 @@ tracked_cfg=""
 
 # Machine-local config file: an explicit PLANWRIGHT_LOCAL_CONFIG (the legacy
 # two-layer override, preserved) wins; otherwise it is derived from the
-# machine-local overlay root.
+# machine-local overlay root, which the overlay resolver defines as the same
+# directory as the repo-tracked one, so it is not resolved a second time.
 mlocal_cfg=""
 if [ -n "${PLANWRIGHT_LOCAL_CONFIG:-}" ]; then
   mlocal_cfg="$PLANWRIGHT_LOCAL_CONFIG"
 else
-  mlocal_root=$(overlay_root machine-local)
-  [ -n "$mlocal_root" ] && mlocal_cfg="$mlocal_root/planwright.local.yml"
+  [ -n "$tracked_root" ] && mlocal_cfg="$tracked_root/planwright.local.yml"
 fi
 
 # malformed_config <file> -> 0 (malformed) / 1 (well-formed). The caller has

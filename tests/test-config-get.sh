@@ -664,7 +664,29 @@ got=$(cd "$wt_repo/.claude/worktrees/wt" && env -u PLANWRIGHT_REPO_ROOT -u PLANW
   /bin/sh "$CG" --explain dispatch_backend) || fail "worktree: config-get exited non-zero"
 [ "$got" = "$(printf 'machine-local\tprimary_only')" ] \
   || fail "worktree: the primary checkout's machine-local value should win, got: $got"
-rm -rf "$wt_repo"
-echo "ok: a worktree reads the primary checkout's machine-local overlay"
+# The worktree's own copies of the repo-side files are not read: the primary
+# checkout's layers are the ones in force.
+mkdir -p "$wt_repo/.claude/worktrees/wt/.claude"
+printf 'dispatch_backend: worktree_copy\n' >"$wt_repo/.claude/worktrees/wt/.claude/planwright.local.yml"
+printf 'dispatch_backend: worktree_tracked\n' >"$wt_repo/.claude/worktrees/wt/.claude/planwright.yml"
+got=$(cd "$wt_repo/.claude/worktrees/wt" && env -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_LOCAL_CONFIG \
+  -u PLANWRIGHT_ADOPTER_OVERLAY -u CLAUDE_PLUGIN_DATA GIT_CEILING_DIRECTORIES="$wt_repo/.." \
+  /bin/sh "$CG" --explain dispatch_backend) || fail "worktree: config-get exited non-zero with worktree copies present"
+[ "$got" = "$(printf 'machine-local\tprimary_only')" ] \
+  || fail "worktree: the worktree's own overlay files must not be read, got: $got"
+# A root helper that lost its execute bit still locates the core defaults.
+cg_copy=$(cd "$(mktemp -d)" && pwd -P)
+mkdir -p "$cg_copy/scripts" "$cg_copy/config"
+cp "$CG" "$here/../scripts/resolve-overlay-root.sh" "$here/../scripts/resolve-root.sh" "$cg_copy/scripts/"
+chmod 644 "$cg_copy/scripts/resolve-root.sh"
+printf 'dispatch_backend: from_copy\n' >"$cg_copy/config/defaults.yml"
+got=$(cd "$cg_copy" && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u PLANWRIGHT_CONFIG_DEFAULTS \
+  HOME="$cg_copy/no-home" PLANWRIGHT_REPO_ROOT="$cg_copy/no-repo" PLANWRIGHT_LOCAL_CONFIG="$cg_copy/no-local.yml" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$cg_copy/no-adopter" /bin/sh "$cg_copy/scripts/config-get.sh" dispatch_backend) \
+  || fail "non-executable root helper: config-get exited non-zero"
+[ "$got" = from_copy ] || fail "non-executable root helper: expected from_copy, got: $got"
+rm -rf "$wt_repo" "$cg_copy"
+echo "ok: a worktree reads the primary checkout's machine-local overlay, never its own copies"
+echo "ok: a root helper without its execute bit still locates the core defaults"
 
 echo "PASS: config-get"

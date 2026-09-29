@@ -531,6 +531,18 @@ else
   echo "skip: non-executable helper test (running as root bypasses -x)"
 fi
 
+# 22b. A root helper that lost its execute bit still resolves core doctrine: it
+#      runs through /bin/sh, as an archive or sync tool may drop the bit.
+noxr_dir="$ovbase/nox-root-helper"
+mkdir -p "$noxr_dir"
+cp "$RESOLVER" "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$REPO_ROOT/scripts/resolve-root.sh" "$noxr_dir/"
+chmod 644 "$noxr_dir/resolve-root.sh"
+out="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$ovbase/no-adopter" PLANWRIGHT_REPO_ROOT="$ovbase/no-repo" \
+  /bin/bash "$noxr_dir/resolve-rule-doc.sh" provdoc 2>/dev/null)"
+assert "non-executable root helper: resolves core, zero exit" 0 $?
+assert_eq "non-executable root helper: lands on core" "CORE ONLY" "$(cat "$out" 2>/dev/null)"
+
 # 23. The resolver surfaces the overlay helper's own diagnostics rather than
 #     swallowing them (the layer-root call must not use 2>/dev/null). When the
 #     writer-mode plugin manifest name is not a valid identifier, the helper

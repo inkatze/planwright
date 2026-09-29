@@ -1104,14 +1104,16 @@ entry_of() {
 skills_root=""
 if [ -n "${PLANWRIGHT_SKILLS_ROOT:-}" ]; then
   skills_root="$PLANWRIGHT_SKILLS_ROOT"
-elif [ -x "$script_dir/resolve-root.sh" ]; then
+elif [ ! -r "$script_dir/resolve-root.sh" ]; then
+  printf '%s\n' "resolve-steps: warning: the root helper '$script_dir/resolve-root.sh' is missing or unreadable (broken install); the plugin skills root is unresolved" >&2
+else
   while IFS= read -r root; do
     if [ -n "$root" ] && [ -d "$root/skills" ]; then
       skills_root="$root/skills"
       break
     fi
   done <<ROOTS
-$("$script_dir/resolve-root.sh" install --all)
+$(/bin/sh "$script_dir/resolve-root.sh" install --all)
 ROOTS
 fi
 claude_dir=""

@@ -189,11 +189,13 @@ try_overlay adopter doctrine
 # root that lacks this one doc falls through to the next. The resolver's
 # warnings (a skipped content-less arm) pass through.
 root_helper="$script_dir/resolve-root.sh"
-if [ ! -x "$root_helper" ]; then
-  echo "planwright: rule doc '$name' not found: the root helper '$root_helper' is missing or not executable (broken install)" >&2
+# Readable is enough: it runs through /bin/sh, so a copy that lost the
+# execute bit still resolves.
+if [ ! -r "$root_helper" ]; then
+  echo "planwright: rule doc '$name' not found: the root helper '$root_helper' is missing or unreadable (broken install)" >&2
   exit 1
 fi
-arms=$("$root_helper" install --all --explain)
+arms=$(/bin/sh "$root_helper" install --all --explain)
 tab=$(printf '\t')
 while IFS="$tab" read -r _arm root; do
   [ -n "$root" ] || continue
@@ -204,5 +206,6 @@ done <<ARMS
 $arms
 ARMS
 
+# The arms print as `arm<TAB>root` lines; flattened to `arm=root ...` for one line.
 echo "planwright: rule doc '$name' not found (checked overlays then the core root chain: $(printf '%s' "${arms:-no arm resolved}" | tr '\t\n' '= ' | tr -d '\000-\037\177'))" >&2
 exit 1

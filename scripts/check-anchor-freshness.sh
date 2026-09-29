@@ -172,8 +172,10 @@ trap 'rm -rf "$wtmp"' EXIT
 # recorded form.
 resolve_anchor_tool() {
   rat_arms=""
-  if [ -x "$script_dir/resolve-root.sh" ]; then
-    rat_arms=$("$script_dir/resolve-root.sh" install --all) || rat_arms=""
+  if [ -r "$script_dir/resolve-root.sh" ]; then
+    rat_arms=$(/bin/sh "$script_dir/resolve-root.sh" install --all) || rat_arms=""
+  else
+    printf '%s\n' "check-anchor-freshness: warning: the root helper '$script_dir/resolve-root.sh' is missing or unreadable (broken install); only this tree's own scripts/ is searched for the anchor tool" >&2
   fi
   while IFS= read -r rat_cand; do
     [ -n "$rat_cand" ] || continue
