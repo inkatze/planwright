@@ -245,9 +245,6 @@ scan='
         if (trim(line) ~ /^\]/) close_delim = ""
         continue
       }
-      # A skipped body never runs past a tasks table header: if a string was
-      # misread as open, the next task is still scanned.
-      if (close_delim != "" && skip_body && trim(line) ~ /^\[[ \t]*["\047]?tasks/) close_delim = ""
       if (close_delim != "") {
         if (index(line, close_delim)) { if (!skip_body) check(rel, n, substr(line, 1, index(line, close_delim) - 1), line, 1); close_delim = ""; continue }
         if (!skip_body) check(rel, n, line, line, 1)

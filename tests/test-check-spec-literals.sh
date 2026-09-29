@@ -321,6 +321,11 @@ run
 expect 1 "a run after a skipped description body still fails" 'mise.toml:13: run = "cd specs"'
 
 fixture
+printf '\n[tasks]\na.description = """\n[tasks.build] example\n"""\nb.run = "cd specs"\n' >>"$tmp/r/mise.toml"
+run
+expect 1 "a header-like line inside a description body leaves the section alone" 'mise.toml:12: b.run = "cd specs"'
+
+fixture
 printf 'tasks.short = "cd specs"\n' >"$tmp/r/mise.toml.new"
 cat "$tmp/r/mise.toml" >>"$tmp/r/mise.toml.new"
 mv "$tmp/r/mise.toml.new" "$tmp/r/mise.toml"
