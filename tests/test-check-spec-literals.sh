@@ -483,6 +483,45 @@ printf 'static-glob\tscripts/a.sh\td=$r/specs/x\n' >>"$tmp/r/config/spec-literal
 run
 expect 2 "a static-glob row naming a script is refused" "static-glob class names only lefthook.yml and .gitignore"
 
+# An awk pass that exits 0 but is cut short, or reports an unreadable file,
+# fails closed too: the END and COUNT records and the `!` record are what
+# tell those apart from a clean run.
+for mode in drop-end bang drop-count; do
+  case $mode in
+    drop-end) n=1 act='"$real_awk" "$@" | sed "\$d"; exit 0' want="could not be read" ;;
+    bang) n=1 act='printf "!\tscripts/a.sh\n"; exec "$real_awk" "$@"' want="could not be read" ;;
+    drop-count) n=2 act='"$real_awk" "$@" | sed "\$d"; exit 0' want="match could not complete" ;;
+  esac
+  cat >"$tmp/shim/awk" <<EOF
+#!/bin/sh
+real_awk=$real_awk
+c=\$(cat "$tmp/shim/count" 2>/dev/null || echo 0)
+c=\$((c + 1))
+echo "\$c" >"$tmp/shim/count"
+[ "\$c" -eq $n ] && { $act; }
+exec "\$real_awk" "\$@"
+EOF
+  chmod +x "$tmp/shim/awk"
+  rm -f "$tmp/shim/count"
+  fixture
+  PATH="$tmp/shim:$PATH" "$SH" "$GUARD" --repo-root "$tmp/r" >"$tmp/out" 2>"$tmp/err"
+  rc=$?
+  out=$(cat "$tmp/out" "$tmp/err")
+  expect 2 "an awk pass that $mode fails closed" "$want"
+done
+
+# The .gitignore rules are the other static-glob site, and a .yaml workflow is
+# scanned like a .yml one.
+fixture
+printf 'specs/*/.lock\n' >>"$tmp/r/.gitignore"
+printf 'static-glob\t.gitignore\tspecs/*/.lock\n' >>"$tmp/r/config/spec-literal-allowlist.tsv"
+run
+expect 0 "an allowlisted .gitignore glob passes" "clean (1 allowlisted"
+fixture
+printf 'run: ls specs/\n' >"$tmp/r/.github/workflows/x.yaml"
+run
+expect 1 "a literal in a .yaml workflow fails" ".github/workflows/x.yaml:1: run: ls specs/"
+
 # --- Shrink-only ---------------------------------------------------------------
 
 fixture
@@ -558,6 +597,7 @@ out=$(cat "$tmp/out" "$tmp/err")
 expect 0 "a nested repo root reads the base list at its own path" "clean (0 allowlisted, 1 pending migration)"
 rm -rf "$tmp/outer"
 
+fixture
 for bad in '' '-'; do
   (cd "$tmp/r" && "$SH" "$GUARD" --repo-root "$bad" >"$tmp/out" 2>"$tmp/err")
   rc=$?
