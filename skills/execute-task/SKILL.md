@@ -168,13 +168,14 @@ PR number whenever one exists):
    else `--attended`. Exit 1: `park` parks the unit; `ask` presents and waits
    for a repair and re-resolve. Exit 2, 4, or 5: a stop condition.
 2. **Host** each step in order by its printed hosting, per the doc's
-   *Hosting* table, a skill or prompt step always receiving the `--preamble`
-   block: `isolated` sessions launch through the backend seam
-   (`offload-dispatch`) at their `execute_step` tier, recording the session
-   id (a backend that cannot spawn degrades to `in-session`, recorded), and
-   an `isolated` command runs as a subprocess, its output cached; `continue`
-   resumes the predecessor's id or records `failed`; session commands run
-   their `--line` rendering. A refused context value (exit 6) is `failed`.
+   *Hosting* table, a skill or prompt step receiving the `--preamble` block:
+   `isolated` sessions launch through the backend seam (`offload-dispatch`)
+   at their `execute_step` tier, recording the session id (a backend that
+   cannot spawn degrades to `in-session`, recorded, a following `continue`
+   attaching to the unit's session), and an `isolated` command runs as a
+   subprocess, its output cached; `continue` resumes the predecessor's id or
+   records `failed`; session commands run their `--line` rendering. A refused
+   context value (exit 6) is `failed`.
    Past its `timeout`, a runner-owned step is ended, a session-owned one
    stopped through the seam or no longer waited on (recording which), outcome
    `failed`; an `in-session` command's goes to the shell tool.
@@ -183,7 +184,8 @@ PR number whenever one exists):
    the next step's `PREV_RECORD`; a `skip` line records `skipped`.
 4. **Posture:** a `halted` or `failed` step under `on-failure: halt` ends the
    point and the unit through the pause protocol, the entry naming only the
-   point, step id, outcome, and record path; `continue` proceeds.
+   point, step id, outcome, and worktree-relative record path; `continue`
+   proceeds.
 5. **Complete** it (`step-record.sh write --completion`, the ending head and
    each warning), a halted list included; a parked, asked, or unresolved
    point writes none.
@@ -325,10 +327,9 @@ root); a non-zero exit halts the unit to Awaiting input with the reason it
 printed. The sync changes the head a later ready-flip lands on, never who flips.
 
 **Run the convergence steps** (*Points* steps 2–5); `steps_convergence` is the
-unit's convergence phase, core's default being `polish` with `--nested`. A review
-step's `--nested` run drains every action disposition per act-then-review and
-returns its audit record without pushing or opening a PR. Classify each
-handoff:
+unit's convergence phase, core's default being `polish` with `--nested`. A
+review step's `--nested` run returns its audit record without pushing or
+opening a PR. Classify each handoff:
 
 - **Normal exit** (converged, or handed off with queued forks): `applied` or
   `passed`; fold its audit record — the four bucket tables (per

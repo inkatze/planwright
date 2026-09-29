@@ -247,10 +247,10 @@ REQ-B1.1–B1.5). Never silently pick one. Resolve in order:
   end (read `orchestration-modes`): it descends only to a guard-preserving
   rung (degrade capability, never safety), else **escalates**.
 
-Concurrency is capped by `max_parallel_units`: if that many
+Concurrency is capped by `max_parallel_units` (via config-get): if that many
 units already derive **In progress** for this spec (the live derivation sees
 just-written markers), do not dispatch another; report the cap and exit.
-Division of labor is defined in `inter-orchestrator-coordination` (D-7); read
+Division of labor: `inter-orchestrator-coordination` (D-7); read
 it when relaying to or cleaning up after a worker.
 
 - **stream-json-persistent** (the shipped default's usual rung: what
