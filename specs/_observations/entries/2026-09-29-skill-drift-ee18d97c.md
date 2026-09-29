@@ -1,0 +1,1 @@
+- 2026-09-29 [planwright] skill-drift(execute-task): the convergence section still resolves the review_sequence knob through scripts/resolve-review-sequence.sh, but the knob and that script were retired for the convergence point steps_convergence (resolve-steps.sh); a worker following it verbatim finds no resolver.
