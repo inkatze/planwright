@@ -1,0 +1,7 @@
+# chat-only.persona — the chat-only acceptance scenario: a small, safe ask
+# flies visual, and the operator's next interaction is the draft PR. Turn map:
+# 1 ask, 2 the flight lands, 3 end.
+expertise=novice
+answer.1=fix the typo in the README install section
+answer.2=@event:flight-landed pr=101
+answer.3=that's all

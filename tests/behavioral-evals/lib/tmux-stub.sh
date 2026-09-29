@@ -1,8 +1,9 @@
 #!/bin/sh
 # tmux-stub.sh — a faithful `tmux` test double for driving the behavioral-eval
-# harness hermetically (operator-dialogue Task 6). It is the SAME double
-# test-behavioral-eval.sh embeds inline; extracted here so the Task-6 acceptance
-# tests (kickoff + rubric instrument) share one copy rather than a third.
+# harness hermetically (operator-dialogue Task 6). It began as the double
+# test-behavioral-eval.sh embeds inline, extracted so the Task-6 acceptance tests
+# (kickoff + rubric instrument) share one copy rather than a third; unlike the
+# inline copy, it also hands the skill the launch's PLANWRIGHT_* assignments.
 #
 # It backs each "session" with a state dir under $BEHAVIORAL_EVAL_TMUX_STATE.
 # new-session records the launch and renders the first pane by running the skill
@@ -68,8 +69,14 @@ case "$sub" in
     art="$(printf '%s' "$launch" | awk '{print $NF}')"
     printf '%s' "$skill" >"$d/skill"
     printf '%s' "$art" >"$d/art"
+    # The launch's PLANWRIGHT_* assignments reach the skill, as a real tmux
+    # session running the launch command would deliver them, but only with
+    # alphanumeric values: the unquoted expansion below needs that, so any other
+    # value is dropped rather than delivered.
+    printf '%s' "$launch" | tr ' ' '\n' | grep -E '^PLANWRIGHT_[A-Z_]+=[A-Za-z0-9]*$' >"$d/env" || :
     printf '%s\t%s\n' "$name" "$launch" >>"$ST/.new-sessions"
-    sh "$skill" "$art" </dev/null >"$d/pane" 2>&1
+    # shellcheck disable=SC2046 # one validated NAME=value assignment per word
+    env $(cat "$d/env") sh "$skill" "$art" </dev/null >"$d/pane" 2>&1
     mark_liveness "$d"
     exit 0
     ;;
@@ -129,7 +136,8 @@ case "$sub" in
       : >"$d/pending"
       skill="$(cat "$d/skill")"
       art="$(cat "$d/art")"
-      sh "$skill" "$art" <"$d/answers" >"$d/pane" 2>&1
+      # shellcheck disable=SC2046 # one validated NAME=value assignment per word
+      env $(cat "$d/env" 2>/dev/null) sh "$skill" "$art" <"$d/answers" >"$d/pane" 2>&1
       mark_liveness "$d"
     fi
     exit 0
