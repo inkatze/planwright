@@ -204,8 +204,10 @@ cleanup() {
   [ -z "$seq_claim" ] || rmdir "$seq_claim" 2>/dev/null
   # A completion record already linked keeps its claim, whatever the signal
   # interrupted.
-  if [ -n "$done_claim" ] && [ -z "$(glob_names "${done_claim%/*}" "[0-9][0-9][0-9]-done-${done_claim##*/.done-}.rec")" ]; then
-    rmdir "$done_claim" 2>/dev/null
+  if [ -n "$done_claim" ]; then
+    _run_dir=${done_claim%/*}
+    _point=${done_claim##*/.done-}
+    [ -n "$(glob_names "$_run_dir" "[0-9][0-9][0-9]-done-$_point.rec")" ] || rmdir "$done_claim" 2>/dev/null
   fi
   [ -z "$work" ] || rm -rf "$work"
 }
@@ -865,6 +867,7 @@ cmd_regenerate() {
   clean "$work/log" "$work/log.clean"
 
   awk -v MARK="$marker" "$AWK_SAFE"'
+    function after(x, y) { return late[x] > late[y] || (late[x] == late[y] && key[x] > key[y]) }
     $0 == MARK { n++; ln = 0; man[n] = 0; inman = 0; next }
     n == 0 { next }
     {
@@ -922,20 +925,16 @@ cmd_regenerate() {
           taken[id] = 1
           count++
           late[count] = (id == "legacy"); key[count] = late[count] ? i : substr(id, 4) + 0
-          entry[count] = i; eid[count] = id; esubj[count] = s
+          entry[count] = i; eid[count] = id; esubj[count] = s; ord[count] = count
         }
       }
+      # Insertion sort of the entry indices: numbered IDs by number, then
+      # legacy entries in commit order.
       for (a = 2; a <= count; a++)
-        for (b = a; b > 1 && (late[b - 1] > late[b] || (late[b - 1] == late[b] && key[b - 1] > key[b])); b--) {
-          t = late[b]; late[b] = late[b - 1]; late[b - 1] = t
-          t = key[b]; key[b] = key[b - 1]; key[b - 1] = t
-          t = entry[b]; entry[b] = entry[b - 1]; entry[b - 1] = t
-          t = eid[b]; eid[b] = eid[b - 1]; eid[b - 1] = t
-          t = esubj[b]; esubj[b] = esubj[b - 1]; esubj[b - 1] = t
-        }
+        for (b = a; b > 1 && after(ord[b - 1], ord[b]); b--) { t = ord[b]; ord[b] = ord[b - 1]; ord[b - 1] = t }
       if (count == 0) print "- none"
-      for (a = 1; a <= count; a++) {
-        i = entry[a]
+      for (o = 1; o <= count; o++) {
+        a = ord[o]; i = entry[a]
         printf "- [ ] **%s** %s · commit `%s`\n", eid[a], safe(esubj[a]), short[i]
         printf "  - Route reason: %s\n", ((i in route) ? safe(route[i]) : "not recorded in the commit")
         for (j = 1; j <= man[i]; j++) printf "  - %s\n", safe(M[i, j])
