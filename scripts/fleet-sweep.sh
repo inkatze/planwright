@@ -32,8 +32,8 @@
 #    its worktree is gone (flight-dispatch.sh retire), and the derived flight
 #    index of a checkout that no longer exists (flight-sweep.sh prune). Both
 #    are swept here, each removal audited, so neither outlives its flight
-#    silently. Flight worktrees themselves are registered worktrees, already
-#    in pass 1's scope.
+#    silently, on the cadence this sweep is scheduled at. Flight worktrees
+#    themselves are registered worktrees, already in pass 1's scope.
 #
 # KILL-SWITCH + AUDIT (D-15, D-16). The sweep is a daemon action: it gates
 # through fleet-daemon-gate.sh at entry (a set fleet_daemon_pause pauses the whole
@@ -406,20 +406,30 @@ if [ -x "$SYNC" ] && [ -d "$repo/specs" ]; then
   set -f
 fi
 
-# --- Pass 3: flight residues. A failure is warned and retried next cycle; a
-#     removal is a real action and is audited.
+# --- Pass 3: flight residues. A failure is warned with its reason and retried
+#     next cycle; a removal is a real action and is audited. The brief retire
+#     runs only in a checkout that has flown, and never waits on a dispatch
+#     holding the checkout's flight lock: contention just means next cycle.
 flight_residue() {
-  fr_out=$("$@" 2>/dev/null </dev/null)
+  fr_err=$(mktemp "${TMPDIR:-/tmp}/fleet-sweep-flight.XXXXXX" 2>/dev/null) || fr_err=/dev/null
+  fr_out=$("$@" 2>"$fr_err" </dev/null)
   fr_rc=$?
-  [ "$fr_rc" -eq 0 ] || warn "$(basename "$1") $2 exited $fr_rc — flight residues left for the next sweep"
+  if [ "$fr_rc" -ne 0 ]; then
+    fr_why=$(tail -n 1 "$fr_err" 2>/dev/null)
+    warn "$(basename "$1") $2 exited $fr_rc${fr_why:+ ($(sanitize_printable "$fr_why"))} — flight residues left for the next sweep"
+  fi
+  [ "$fr_err" = /dev/null ] || rm -f "$fr_err"
   printf '%s\n' "$fr_out" | while IFS="$(printf '\t')" read -r fr_kind fr_what; do
     case $fr_kind in
       retired) audit flight-brief-retire flight-residue "retired the brief of flight $fr_what (its worktree is gone)" ;;
-      pruned) audit flight-index-prune flight-residue "pruned the derived flight index of a vanished checkout" ;;
+      pruned) audit flight-index-prune flight-residue "pruned the derived flight index of vanished checkout $fr_what" ;;
     esac
   done
 }
-[ ! -x "$FLIGHT_DISPATCH" ] || flight_residue "$FLIGHT_DISPATCH" retire --repo-root "$repo"
+if [ -x "$FLIGHT_DISPATCH" ] && git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 \
+  && [ -n "$(git -C "$repo" for-each-ref --count=1 --format=x refs/heads/planwright/flight/ 2>/dev/null)" ]; then
+  PLANWRIGHT_FLIGHT_LOCK_WAIT=0 flight_residue "$FLIGHT_DISPATCH" retire --repo-root "$repo"
+fi
 [ ! -x "$FLIGHT_SWEEP" ] || flight_residue "$FLIGHT_SWEEP" prune
 
 exit 0
