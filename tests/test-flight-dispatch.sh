@@ -707,6 +707,17 @@ grep -q "the convergence point runs no step" "$(field "$OUT" brief)" \
   || fail "an empty convergence list must say it runs no step"
 printf '%s\n' "$OUT" | grep -qx "steps_convergence$TAB" || fail "an empty list must report no steps: $OUT"
 
+# A list whose every step was skipped on this host is not an empty list.
+new_case
+mkdir -p "$c/primary/.claude"
+printf 'steps_convergence: [no-such-step]\n' >"$c/primary/.claude/planwright.local.yml"
+dispatch_print
+[ "$RC" -eq 0 ] || fail "an all-skipped machine-local list must dispatch (rc $RC: $ERR)"
+b=$(cat "$(field "$OUT" brief)")
+case $b in *"The list is empty"*) fail "an all-skipped list must not be called empty: $b" ;; esac
+printf '%s\n' "$b" | grep -qi "every configured step was skipped on this host" \
+  || fail "an all-skipped list must say its steps were skipped: $b"
+
 # A step the repo-tracked list names but no catalog declares places nothing.
 new_case
 mkdir -p "$c/primary/.claude"

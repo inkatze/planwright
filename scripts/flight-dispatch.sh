@@ -688,9 +688,9 @@ sweep_briefs() {
 
 # resolve_convergence — set `sequence` to the resolver's --explain lines for
 # the steps the convergence point runs on a flight, one per line. A skipped
-# step is dropped (the resolver's warning on stderr names it); a park, a
-# malformation, a broken install, or a step that is not a skill places
-# nothing. The core list, the core catalog, and the skills all resolve under
+# step is dropped (the resolver's warning on stderr names it), and
+# `all_skipped` is set when every step was; a park, a malformation, a broken
+# install, or a step that is not a skill places nothing. The core list, the core catalog, and the skills all resolve under
 # this script's own root, so a planwright skill is told apart from a user or
 # project one by its location alone and no environment root can swap the
 # list those skills are judged against.
@@ -703,6 +703,8 @@ resolve_convergence() {
     die 4 "steps_convergence did not resolve (exit $_rc); nothing was placed"
   }
   sequence=$(printf '%s\n' "$_rc_out" | awk -F"$TAB" '$1 == "run"')
+  all_skipped=''
+  [ -z "$_rc_out" ] || [ -n "$sequence" ] || all_skipped=1
   _rc_bad=$(printf '%s\n' "$sequence" | awk -F"$TAB" '$1 == "run" && $8 != "skill" {print $2 "\t" $8; exit}')
   [ -z "$_rc_bad" ] \
     || die 4 "steps_convergence step '$(printf '%s' "$_rc_bad" | cut -f1)' is a $(printf '%s' "$_rc_bad" | cut -f2) step; a flight runs skill steps only; nothing was placed"
@@ -737,8 +739,11 @@ write_brief() {
     _seq_lines="$_seq_lines$_n. $(render_step "$_s")$LF"
   done
   IFS=$_old_ifs
-  [ -n "$_seq_lines" ] \
-    || _seq_lines="The list is empty: the convergence point runs no step.$LF"
+  if [ -z "$_seq_lines" ] && [ -n "$all_skipped" ]; then
+    _seq_lines="Every configured step was skipped on this host: the convergence point runs no step.$LF"
+  elif [ -z "$_seq_lines" ]; then
+    _seq_lines="The list is empty: the convergence point runs no step.$LF"
+  fi
 
   if [ "$home" = pr ]; then
     _landing="Before pushing, re-check the destination the tower stated: run
