@@ -190,6 +190,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 }
 
 TAB=$(printf '\t')
+# scripts/step-record.sh's is_point holds the same vocabulary; the lists
+# change together.
 WIRED_POINTS="pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip"
 UNWIRED_POINTS="spec-drafted kickoff-signed-off unit-selected pre-dispatch post-dispatch unit-halted post-merge orchestrator-idle"
 CONTEXT_FIELDS="SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD"

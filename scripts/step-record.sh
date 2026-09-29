@@ -19,34 +19,43 @@
 #   step-record.sh [--worktree <dir>] list [--run <id>] [--point <point>]
 #   step-record.sh [--worktree <dir>] render [--run <id>] [--point <point>]...
 #   step-record.sh [--worktree <dir>] regenerate --base <rev> --head <rev>
-#       [--run <id>]
+#       [--run <id>] [--checklist-only]
 #
 #   --worktree    the unit's worktree; default the enclosing git top level.
 #                 The cache is <worktree>/.claude/steps/, created mode 0700;
 #                 a cache, run directory, or record that is a symlink is
-#                 refused, as is one that cannot be read.
+#                 refused, as is one that cannot be read, and a cache git
+#                 tracks.
 #   new-run       issue the next run id (six digits, zero-padded, one past
 #                 the highest in the cache) and print it. A run is one unit
 #                 run or flip attempt; run ids order attempts, the latest
-#                 being the highest id.
+#                 run being the highest id whether or not it holds a record.
 #   write         validate every field, then write one record and print its
 #                 absolute path (the value a later step's
 #                 PLANWRIGHT_STEP_PREV_RECORD carries). --completion writes
 #                 the point-completion record instead; --warning repeats. A
-#                 point fires once per run: a step or completion record for a
-#                 point the run already completed is refused. A repeated
-#                 write is a second record; retrying is the caller's call.
+#                 point fires once per run: its completion is claimed
+#                 atomically, and a step or completion record for a point the
+#                 run already completed is refused. A repeated write is a
+#                 second record; retrying is the caller's call. An exit 1
+#                 after the record is claimed (a failed print) leaves the
+#                 record, and for a completion the claim, in place.
+#                 --excerpt-file resolves against the caller's directory.
 #   list          print every record of the run (every run when --run is
 #                 absent), oldest first, optionally one point's only: a
 #                 `record<TAB><worktree-relative path>` line, the record's
 #                 stored lines, then a blank line.
 #   render        print one markdown table per point of the run (default the
-#                 latest run holding a record), in the order the points first
-#                 recorded, or the named points in the order given.
+#                 latest run), in the order the points first recorded, or
+#                 the named points in the order given, each once; a named
+#                 point with no record renders nothing.
 #   regenerate    print the pending-sign-off checklist rebuilt from the
-#                 marked commits of <base>..<head>, then, when the run
-#                 (default as for render) renders anything, a blank line and
-#                 that render.
+#                 marked commits of <base>..<head>, then, unless
+#                 --checklist-only, when the run (default the latest run)
+#                 renders anything, a blank line and that render. <base> is
+#                 the PR base branch's current tip; the range is read along
+#                 <head>'s first parents, so commits a merge from the base
+#                 brought in never enter it.
 #
 # Field grammar (write refuses a violation with exit 2, naming the field and
 # never echoing its value; no value is ever interpolated before it passes):
@@ -63,15 +72,17 @@
 #   --outcome      passed | applied | halted | failed | skipped; skipped
 #                  requires --skip-reason, and --skip-reason requires skipped
 #   --target, --skip-reason, --warning
-#                  non-empty single-line text, no C0 control byte or DEL, at
-#                  most 1024 bytes
+#                  single-line text, no C0 control byte or DEL, at most 1024
+#                  bytes, non-empty before and after the text cleaning below
 #   --output       an existing regular file under the cache, absolute or
-#                  relative to the worktree, stored worktree-relative
+#                  relative to the worktree, that the text cleaning leaves
+#                  unchanged; stored worktree-relative
 #
-# Storage: <cache>/<run>/<seq>-step-<point>-<step>.rec and
-# <cache>/<run>/<seq>-done-<point>.rec, <seq> three digits unique within the
-# run and increasing in write order (each claimed atomically), at most 999
-# records a run. A record is `<key><TAB><value>` lines: type, run, seq, then
+# Storage: <cache>/<run>/<seq>-step-<point>.rec and
+# <cache>/<run>/<seq>-done-<point>.rec (a name never carries a step id, which
+# the screen may withhold), <seq> three digits unique within the run and
+# increasing in write order (each claimed atomically), at most 999 records a
+# run. A record is `<key><TAB><value>` lines: type, run, seq, then
 # the fields above under their flag names (skip-reason for --skip-reason), an
 # empty optional field stored empty; `excerpt` and `warning` lines repeat.
 # Records are mode 0600. Its form is unstable to anything but this helper.
@@ -100,33 +111,40 @@
 #   End | Outcome | Excerpt | Output
 # one row per step record (Outcome reads `skipped: <reason>` for a skip; the
 # excerpt's lines join with ` / `; Head shows 12 characters), or a single
-# `none` row when the point has only its completion record; then
-# `Ended on `<head>`.` when a completion record exists, and one
-# `- Warning: <text>` line per warning.
+# `none` row when the point has only its completion record; then an
+# "Ended on" line naming the head's first 12 characters when a completion
+# record exists, and one `- Warning: <text>` line per warning.
 #
 # Neutralizing, applied to every rendered cell, warning, and checklist text:
-# `&`, `<`, and `>` become entities; a zero-width space (`&#8203;`) follows
-# every `@` and `#`, splits `://`, `www.`, and `GH-`, so no mention, issue
-# reference, closing keyword, or autolink survives; and `\`, `|`, backtick,
-# `*`, `_`, `[`, `]`, `~`, `(`, `)`, and `!` are backslash-escaped, so no
-# markup, link, or image survives either.
+# C0 control bytes, DEL, and C1 controls are dropped again (a record is read
+# as untrusted); `&`, `<`, and `>` become entities; a zero-width space
+# (`&#8203;`) follows every `@` and `#`, splits `://`, `www.`, and `GH-`, so
+# no mention, issue reference, closing keyword, or autolink survives; `\`,
+# `|`, backtick, `*`, `_`, `[`, `]`, `~`, `(`, `)`, `!`, `$`, and `+` are
+# backslash-escaped, as are a leading `-` and the `.` or `)` of a leading
+# number, so no markup, link, image, math, or list survives either.
 #
 # Checklist (regenerate), per doctrine/gate-wiring.md: a commit in the range
-# is marked by a `Planwright-Sign-Off: PS-<n>` trailer (read through git's
-# trailer parser) or, legacy, a `[pending-sign-off]` subject suffix (rendered
-# with the ID `legacy`, the suffix dropped). A marked commit drops out when a
-# commit in the range that is not itself undone carries `This reverts commit
-# <its full sha>.` in its body, or when its PS ID is named by a
-# `Planwright-Sign-Off-Rejected:` trailer in the range (a legacy entry has no
-# ID a trailer can name). Entries order by ID number, legacy entries last in
-# commit order; an ID marked twice keeps its oldest live commit. An entry is
+# is marked by `Planwright-Sign-Off:` trailers (read, unfolded, through git's
+# trailer parser; each value split on blanks and commas, every `PS-<n>` with
+# no leading zero an entry, other values ignored) or, legacy and only with no
+# such ID, a `[pending-sign-off]` subject suffix (rendered with the ID
+# `legacy`, the suffix dropped). A marked commit drops out when a live commit
+# in the range carries git's revert line for it (`This reverts commit <sha>`
+# followed by `.`, `,`, or ` (`, the sha full or, as `--reference` writes it,
+# abbreviated to a unique prefix in the range), a commit being live unless a
+# live revert undoes it; or when a live commit's `Planwright-Sign-Off-Rejected:`
+# trailer names its PS ID (a legacy entry has no ID a trailer can name).
+# Entries order by ID number, legacy entries last in commit order; an ID
+# marked twice keeps its oldest live commit. An entry is
 #   - [ ] **<id>** <subject> · commit `<sha7>`
 #     - Route reason: <the body's first `Route reason:` line, or `not
 #       recorded in the commit`>
 #     - <each manifest line: a body line `- <file> — before: …`, joined with
 #       the indented lines that continue it>
 #     - Reject with: `git revert <sha7>` (plus the hand-edit note when a
-#       manifest is present)
+#       manifest is present), or, for a merge commit, a later commit's
+#       `Planwright-Sign-Off-Rejected: <id>` trailer
 # An empty checklist renders `- none`. A <base> or <head> that does not
 # resolve, or a range git cannot read, fails by name.
 #
@@ -246,8 +264,13 @@ is_run_id() {
 # repeats until stable, since one deletion can join its neighbours into
 # another code point.
 clean() {
-  tr '\t' ' ' <"$1" | tr -d '\000-\010\013-\037\177' | iconv -c -f UTF-8 -t UTF-8 >"$2.1" 2>/dev/null
-  [ -f "$2.1" ] || die 1 "cannot clean text"
+  tr '\t' ' ' <"$1" >"$2.0" || die 1 "cannot clean text"
+  tr -d '\000-\010\013-\037\177' <"$2.0" >"$2.t" || die 1 "cannot clean text"
+  # iconv's status differs across platforms for dropped input, so judge its
+  # output: text that yields nothing at all did not convert.
+  iconv -c -f UTF-8 -t UTF-8 <"$2.t" >"$2.1" 2>/dev/null
+  { [ -s "$2.1" ] || [ ! -s "$2.t" ]; } || die 1 "cannot clean text"
+  rm -f "$2.0" "$2.t"
   while :; do
     sed "$INVIS_SED" <"$2.1" >"$2.2" || die 1 "cannot clean text"
     cmp -s "$2.1" "$2.2" && break
@@ -330,8 +353,9 @@ if [ -z "$worktree" ]; then
   command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
   worktree=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "--worktree: not given and not inside a git work tree"
 fi
+case $worktree in /*) ;; *) worktree="./$worktree" ;; esac
 [ -d "$worktree" ] || bad --worktree "not a directory"
-worktree=$(cd "$worktree" && pwd -P) || bad --worktree "not readable"
+worktree=$(cd -P -- "$worktree" && pwd -P) || bad --worktree "not readable"
 cache="$worktree/.claude/steps"
 
 # check_dir <dir>: refuse a symlinked or unreadable cache directory.
@@ -380,13 +404,10 @@ valid_run() {
   check_run "$1"
 }
 
-# latest_run: sets LATEST to the highest run id holding a record, if any.
+# latest_run: sets LATEST to the highest run id, if any.
 latest_run() {
-  LATEST=''
-  for _r in $(run_ids); do
-    check_run "$_r"
-    [ -z "$(record_files "$_r")" ] || LATEST=$_r
-  done
+  LATEST=$(run_ids | tail -n 1)
+  [ -z "$LATEST" ] || check_run "$LATEST"
 }
 
 # --- new-run -------------------------------------------------------------------
@@ -408,8 +429,11 @@ cmd_new_run() {
 }
 
 # --- write ------------------------------------------------------------------------
-# claim <run> <stem> <type> <body-file>: write the record under the run's
-# next sequence number, claimed atomically, and print its absolute path.
+# claim <run> <stem> <type> <body-file> [<point>]: write the record under
+# the run's next sequence number, claimed atomically, and print its absolute
+# path. Given a point, refuse once the point's completion is claimed: a
+# completion claims its marker before its sequence number, so a step whose
+# number came first still sorts before the completion.
 claim() {
   dir="$cache/$1"
   last=$(glob_names "$dir" '.seq-[0-9][0-9][0-9]' | tail -n 1)
@@ -422,22 +446,19 @@ claim() {
     [ -d "$dir/.seq-$seq" ] || die 1 "cannot write to the record cache"
     next=$((next + 1))
   done
+  if [ -n "${5:-}" ] && [ -d "$dir/.done-$5" ]; then
+    bad --point "already completed in this run"
+  fi
   pending="$dir/.rec-$seq"
+  set -C
   { printf 'type\t%s\nrun\t%s\nseq\t%s\n' "$3" "$1" "$seq" && cat "$4"; } >"$pending" \
     || die 1 "cannot write to the record cache"
+  set +C
   path="$dir/$seq-$2.rec"
   ln "$pending" "$path" || die 1 "cannot write to the record cache"
   rm -f "$pending"
   pending=''
   printf '%s\n' "$path" || die 1 "cannot print the record path"
-}
-
-# completed <run> <point>: true when the run holds the point's completion.
-completed() {
-  for _f in $(record_files "$1"); do
-    case ${_f##*/} in [0-9][0-9][0-9]-done-"$2".rec) return 0 ;; esac
-  done
-  return 1
 }
 
 cmd_write() {
@@ -486,7 +507,7 @@ cmd_write() {
   valid_run "$run"
   is_point "$point" || bad --point "not a point of the vocabulary"
   is_head "$head" || bad --head "not a full commit id"
-  ! completed "$run" "$point" || bad --point "already completed in this run"
+  [ ! -d "$cache/$run/.done-$point" ] || bad --point "already completed in this run"
 
   if [ "$completion" -eq 1 ]; then
     for f in "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
@@ -497,6 +518,7 @@ cmd_write() {
     cleaned=''
     for w in $warnings; do
       clean_value "$w"
+      [ -n "$CLEANED" ] || bad --warning "empty once cleaned"
       cleaned="$cleaned$CLEANED$LF"
     done
     # shellcheck disable=SC2086 # split on newlines by design (IFS)
@@ -507,6 +529,7 @@ cmd_write() {
         printf 'warning\t%s\n' "$w"
       done <"$work/screened"
     } >"$work/body" || die 1 "cannot write a temporary file"
+    mkdir "$cache/$run/.done-$point" 2>/dev/null || bad --point "already completed in this run"
     claim "$run" "done-$point" completion "$work/body"
     return
   fi
@@ -546,10 +569,18 @@ cmd_write() {
   scratch
   clean_value "$target"
   target=$CLEANED
+  [ -n "$target" ] || bad --target "empty once cleaned"
   if [ -n "$skip_reason" ]; then
     clean_value "$skip_reason"
     skip_reason=$CLEANED
+    [ -n "$skip_reason" ] || bad --skip-reason "empty once cleaned"
   fi
+  if [ -n "$rel_output" ]; then
+    clean_value "$rel_output"
+    [ "$CLEANED" = "$rel_output" ] || bad --output "carries control or invisible characters"
+  fi
+  # The unpacking below reads these back by position; the two lists change
+  # together.
   screen_values value "$step" "$target" "$backend" "$session" "$rel_output" "$skip_reason"
   i=0
   while IFS= read -r l; do
@@ -588,7 +619,7 @@ cmd_write() {
       printf 'excerpt\t%s\n' "$line"
     done <"$work/excerpt"
   } >"$work/body" || die 1 "cannot write a temporary file"
-  claim "$run" "step-$point-$step" step "$work/body"
+  claim "$run" "step-$point" step "$work/body" "$point"
 }
 
 # --- list -----------------------------------------------------------------------
@@ -615,7 +646,7 @@ cmd_list() {
         grep -Fxq "point$TAB$point" "$f" || continue
       fi
       printf 'record\t%s\n' "${f#"$worktree"/}"
-      cat "$f" || die 1 "a record cannot be read"
+      tr -d '\000-\010\013-\037\177' <"$f" || die 1 "a record cannot be read"
       printf '\n'
     done
   done
@@ -624,18 +655,22 @@ cmd_list() {
 # --- render ----------------------------------------------------------------------
 # safe(s): the neutralizing the header pins, shared by both renderers.
 AWK_SAFE='
-function safe(s,    out, i, n, c, z) {
-  out = ""; n = length(s); z = "&#8203;"
+function safe(s,    out, i, n, c, z, lead) {
+  out = ""; n = length(s); z = "&#8203;"; lead = 0
+  if (match(s, /^[0-9]+[.)]/)) lead = RLENGTH
   for (i = 1; i <= n; i++) {
     c = substr(s, i, 1)
-    if (c == "&") c = "&amp;"
+    if (c < " " || c == "\177") continue
+    if (c == "\302" && substr(s, i + 1, 1) >= "\200" && substr(s, i + 1, 1) <= "\237") { i++; continue }
+    if (i == lead || (i == 1 && c == "-")) c = "\\" c
+    else if (c == "&") c = "&amp;"
     else if (c == "<") c = "&lt;"
     else if (c == ">") c = "&gt;"
     else if (c == "@" || c == "#") c = c z
     else if (c == ":" && substr(s, i + 1, 2) == "//") { c = ":/" z "/"; i += 2 }
     else if (tolower(substr(s, i, 4)) == "www.") { c = substr(s, i, 3) z "."; i += 3 }
     else if (c == "-" && i > 2 && tolower(substr(s, i - 2, 2)) == "gh") c = z "-"
-    else if (index("\\|`*_[]~()!", c)) c = "\\" c
+    else if (index("\\|`*_[]~()!$+", c)) c = "\\" c
     out = out c
   }
   return out
@@ -661,7 +696,8 @@ render_run() {
       else F[k, key] = val
     }
     END {
-      np = split(want, P, " ")
+      m = split(want, Q, " "); np = 0
+      for (i = 1; i <= m; i++) if (!(Q[i] in named)) { named[Q[i]] = 1; P[++np] = Q[i] }
       if (np == 0) {
         np = 0
         for (i = 1; i <= k; i++) if (!(F[i, "point"] in seen)) { seen[F[i, "point"]] = 1; P[++np] = F[i, "point"] }
@@ -728,9 +764,14 @@ cmd_render() {
 
 # --- regenerate ---------------------------------------------------------------------
 cmd_regenerate() {
-  base='' rhead='' run=''
+  base='' rhead='' run='' checklist_only=0
   while [ $# -gt 0 ]; do
     case $1 in
+      --checklist-only)
+        checklist_only=1
+        shift
+        continue
+        ;;
       --base | --head | --run) [ $# -ge 2 ] || usage ;;
       *) usage ;;
     esac
@@ -745,7 +786,12 @@ cmd_regenerate() {
   [ -n "$rhead" ] || bad --head "required"
   case $base in -*) bad --base "a revision may not begin with a dash" ;; esac
   case $rhead in -*) bad --head "a revision may not begin with a dash" ;; esac
-  [ -z "$run" ] || valid_run "$run"
+  if [ -n "$run" ]; then
+    valid_run "$run"
+  elif [ "$checklist_only" -eq 0 ]; then
+    latest_run
+    run=$LATEST
+  fi
   command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
   git -C "$worktree" rev-parse --verify --quiet "$base^{commit}" >/dev/null \
     || die 1 "--base: cannot resolve $(sanitize_printable "$base" '(unprintable)') to a commit"
@@ -754,13 +800,14 @@ cmd_regenerate() {
 
   # One git read for the whole range. Each commit opens with a marker line
   # carrying a per-run nonce no commit text can predict, then its sha, short
-  # sha, subject, sign-off ids, and rejected ids, one per line, then its body.
+  # sha, parents, subject, sign-off ids, and rejected ids, one per line, then
+  # its body.
   scratch
   nonce=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
   [ -n "$nonce" ] || nonce="$$-$(date +%s)"
   marker="@@planwright-commit-$nonce@@"
-  git -C "$worktree" -c core.abbrev=7 log --reverse \
-    --format="$marker%n%H%n%h%n%s%n%(trailers:key=Planwright-Sign-Off,valueonly,separator=%x20)%n%(trailers:key=Planwright-Sign-Off-Rejected,valueonly,separator=%x20)%n%b" \
+  git -C "$worktree" -c core.abbrev=7 log --reverse --first-parent \
+    --format="$marker%n%H%n%h%n%P%n%s%n%(trailers:key=Planwright-Sign-Off,valueonly,unfold,separator=%x20)%n%(trailers:key=Planwright-Sign-Off-Rejected,valueonly,unfold,separator=%x20)%n%b" \
     "$base..$rhead" -- >"$work/log" 2>/dev/null \
     || die 1 "--base/--head: git cannot read the range"
   clean "$work/log" "$work/log.clean"
@@ -772,13 +819,14 @@ cmd_regenerate() {
       ln++
       if (ln == 1) sha[n] = $0
       else if (ln == 2) short[n] = $0
-      else if (ln == 3) subj[n] = $0
-      else if (ln == 4) ids[n] = $0
-      else if (ln == 5) rej[n] = $0
+      else if (ln == 3) merge[n] = (split($0, pp, " ") > 1)
+      else if (ln == 4) subj[n] = $0
+      else if (ln == 5) ids[n] = $0
+      else if (ln == 6) rej[n] = $0
       else {
-        if ($0 ~ /^This reverts commit [0-9a-f]+\./) {
-          s = $0; sub(/^This reverts commit /, "", s); sub(/\..*$/, "", s)
-          if (length(s) == 40 || length(s) == 64) { nr[n]++; R[n, nr[n]] = s }
+        if ($0 ~ /^This reverts commit [0-9a-f]+([.,]| \(|$)/) {
+          s = substr($0, 21); match(s, /^[0-9a-f]+/); s = substr(s, 1, RLENGTH)
+          if (length(s) >= 7) { nr[n]++; R[n, nr[n]] = s }
         }
         if (!(n in route) && substr($0, 1, 14) == "Route reason: ") route[n] = substr($0, 15)
         if ($0 ~ /^- / && index($0, "before:")) { man[n]++; M[n, man[n]] = substr($0, 3); inman = 1 }
@@ -789,12 +837,18 @@ cmd_regenerate() {
     END {
       # A revert undoes its target only while it is itself live; walking
       # newest first settles a reverted revert before the commit it names.
+      # An abbreviated sha names the one earlier commit it prefixes.
       for (i = n; i >= 1; i--) {
-        live[i] = !(sha[i] in undone)
-        if (live[i]) for (j = 1; j <= nr[i]; j++) undone[R[i, j]] = 1
+        live[i] = !(i in undone)
+        if (!live[i]) continue
+        for (j = 1; j <= nr[i]; j++) {
+          hit = 0; L = length(R[i, j])
+          for (c = 1; c < i; c++) if (substr(sha[c], 1, L) == R[i, j]) { hit = hit ? -1 : c }
+          if (hit > 0) undone[hit] = 1
+        }
       }
       for (i = 1; i <= n; i++) if (live[i]) {
-        m = split(rej[i], r, " ")
+        m = split(rej[i], r, /[ ,]+/)
         for (j = 1; j <= m; j++) rejected[r[j]] = 1
       }
       print "## Pending sign-off"
@@ -802,18 +856,22 @@ cmd_regenerate() {
       count = 0
       for (i = 1; i <= n; i++) {
         if (!live[i]) continue
-        m = split(ids[i], r, " "); id = ""
-        for (j = 1; j <= m; j++) if (r[j] ~ /^PS-[0-9]+$/) { id = r[j]; break }
+        m = split(ids[i], r, /[ ,]+/); nid = 0
+        for (j = 1; j <= m; j++) if (r[j] ~ /^PS-[1-9][0-9]*$/) cid[++nid] = r[j]
         s = subj[i]
-        if (id == "") {
+        if (nid == 0) {
           if (s !~ / ?\[pending-sign-off\]$/) continue
           sub(/ ?\[pending-sign-off\]$/, "", s)
-          id = "legacy"
-        } else if ((id in taken) || (id in rejected)) continue
-        taken[id] = 1
-        count++
-        key[count] = (id == "legacy") ? 1e9 + i : substr(id, 4) + 0
-        entry[count] = i; eid[count] = id; esubj[count] = s
+          nid = 1; cid[1] = "legacy"
+        }
+        for (j = 1; j <= nid; j++) {
+          id = cid[j]
+          if (id != "legacy" && ((id in taken) || (id in rejected))) continue
+          taken[id] = 1
+          count++
+          key[count] = (id == "legacy") ? 1e9 + i : substr(id, 4) + 0
+          entry[count] = i; eid[count] = id; esubj[count] = s
+        }
       }
       for (a = 2; a <= count; a++)
         for (b = a; b > 1 && key[b - 1] > key[b]; b--) {
@@ -828,16 +886,13 @@ cmd_regenerate() {
         printf "- [ ] **%s** %s · commit `%s`\n", eid[a], safe(esubj[a]), short[i]
         printf "  - Route reason: %s\n", ((i in route) ? safe(route[i]) : "not recorded in the commit")
         for (j = 1; j <= man[i]; j++) printf "  - %s\n", safe(M[i, j])
-        if (man[i]) printf "  - Reject with: `git revert %s`; rejecting one sub-item is a hand edit the manifest guides\n", short[i]
+        if (merge[i] && eid[a] != "legacy") printf "  - Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: %s`\n", eid[a]
+        else if (man[i]) printf "  - Reject with: `git revert %s`; rejecting one sub-item is a hand edit the manifest guides\n", short[i]
         else printf "  - Reject with: `git revert %s`\n", short[i]
       }
     }' "$work/log.clean" || die 1 "cannot render the checklist"
 
-  if [ -z "$run" ]; then
-    latest_run
-    run=$LATEST
-  fi
-  if [ -n "$run" ]; then
+  if [ "$checklist_only" -eq 0 ] && [ -n "$run" ]; then
     render_run "$run" >"$work/render" || exit 1
     if [ -s "$work/render" ]; then
       printf '\n'
@@ -848,6 +903,10 @@ cmd_regenerate() {
 
 check_dir "$worktree/.claude"
 check_dir "$cache"
+if command -v git >/dev/null 2>&1 && [ -d "$cache" ]; then
+  tracked=$(git -C "$worktree" ls-files -- .claude/steps 2>/dev/null) || tracked=''
+  [ -z "$tracked" ] || die 1 "git tracks the record cache; refusing it"
+fi
 
 case $verb in
   new-run) cmd_new_run "$@" ;;

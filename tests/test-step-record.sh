@@ -136,10 +136,10 @@ fi
 sr render --run "$run2" | grep -Fq "withheld: the secret screen flagged this excerpt"
 verdict "a token-shaped excerpt renders withheld" "token excerpt not withheld"
 
-sr write --run "$run2" --point pre-ci --step prompted --kind prompt \
+recp=$(sr write --run "$run2" --point pre-ci --step prompted --kind prompt \
   --target "review with $tok" --hosting isolated --backend runner --head "$HEAD_SHA" \
-  --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:01Z --outcome passed >/dev/null
-if grep -rFq "$tok" "$wt/.claude/steps/$run2"; then
+  --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:01Z --outcome passed)
+if [ ! -f "$recp" ] || grep -rFq "$tok" "$wt/.claude/steps/$run2"; then
   fail "a token in a target reached the stored record"
 else
   ok "a token in a target is withheld before storage"
@@ -185,7 +185,7 @@ recl=$(sr write --run "$run2" --point pre-ci --step long --kind command --target
   --excerpt-file "$tmp/long.txt")
 n=$(grep -c "^excerpt${TAB}" "$recl")
 bytes=$(grep "^excerpt${TAB}" "$recl" | wc -c | tr -d ' ')
-[ "$n" -le 20 ] && [ "$bytes" -le 2400 ] && grep -Fq "output line 199" "$recl" \
+[ "$n" -le 20 ] && [ "$bytes" -le 2200 ] && grep -Fq "output line 199" "$recl" \
   && ! grep -Fq "output line 000" "$recl"
 verdict "a long excerpt keeps only its bounded tail" "bound not applied: $n lines, $bytes bytes"
 
@@ -294,8 +294,9 @@ env TMPDIR="$tmp/tmpd" "$SR" --worktree "$wt" write --run "$run2" --point pre-ci
   --target scratch --hosting isolated --backend runner --head "$HEAD_SHA" \
   --start 2026-09-28T11:06:00Z --end 2026-09-28T11:06:01Z --outcome passed \
   --excerpt-file "$tmp/secret.txt" >/dev/null
+rc=$?
 left=$(find "$tmp/tmpd" -mindepth 1 | wc -l | tr -d ' ')
-[ "$left" -eq 0 ]
+[ "$rc" -eq 0 ] && [ "$left" -eq 0 ]
 verdict "a write leaves nothing in TMPDIR" "$left entries left in TMPDIR"
 
 # A failure partway writes no record and exits non-zero.
@@ -399,10 +400,12 @@ verdict "a relative output inside the cache is stored worktree-relative" "relati
 
 # Skip reasons and warnings pass the screen too; a screen that cannot run
 # withholds rather than passes.
-sr write --run "$run4" --point pre-pr --step skipped-tok --kind command --target t \
+recsk=$(sr write --run "$run4" --point pre-pr --step skipped-tok --kind command --target t \
   --hosting isolated --backend runner --head "$HEAD_SHA" \
   --start 2026-09-28T13:00:00Z --end 2026-09-28T13:00:00Z --outcome skipped \
-  --skip-reason "needs $tok" >/dev/null
+  --skip-reason "needs $tok")
+grep -Fq "skip-reason${TAB}[withheld: the secret screen flagged this value]" "$recsk"
+verdict "a token in a skip reason is withheld" "skip reason not withheld"
 sr write --completion --run "$run4" --point pre-pr --head "$HEAD_SHA" \
   --warning "layer set $tok" --warning "a plain warning" >/dev/null
 if grep -rFq "$tok" "$wt/.claude/steps/$run4"; then
@@ -412,11 +415,10 @@ else
 fi
 grep -Fxq "warning${TAB}a plain warning" "$wt/.claude/steps/$run4/"*-done-pre-pr.rec
 verdict "a clean warning beside a flagged one is kept" "clean warning lost"
-env PLANWRIGHT_SECRET_SCREEN_TOOL=broken "$SR" --worktree "$wt" write --run "$run4" \
+recu=$(env PLANWRIGHT_SECRET_SCREEN_TOOL=broken "$SR" --worktree "$wt" write --run "$run4" \
   --point pre-ci --step unscreened --kind command --target plain --hosting isolated \
   --backend runner --head "$HEAD_SHA" --start 2026-09-28T13:00:00Z \
-  --end 2026-09-28T13:00:00Z --outcome passed --excerpt-file "$tmp/out1.txt" >/dev/null
-recu=$(find "$wt/.claude/steps/$run4" -name '*-step-pre-ci-unscreened.rec')
+  --end 2026-09-28T13:00:00Z --outcome passed --excerpt-file "$tmp/out1.txt")
 grep -Fq "withheld: the excerpt could not be screened" "$recu" \
   && grep -Fq "target${TAB}[withheld: the value could not be screened]" "$recu"
 verdict "a screen that cannot run withholds every screened value" "unscreened values stored"
@@ -453,10 +455,258 @@ order=$(sr render --run "$run4" --point pre-ci --point pre-pr | headings)
 [ "$order" = "pre-ci pre-pr " ]
 verdict "render orders named points as given" "order: $order"
 bare=$(sr render --run "$run3" --point pre-implementation)
-! printf '%s\n' "$bare" | grep -Fq -- "- Warning:"
+printf '%s\n' "$bare" | grep -Fq "## Steps at" && ! printf '%s\n' "$bare" | grep -Fq -- "- Warning:"
 verdict "a completion without warnings renders no warning" "a warning rendered"
 [ -n "$(find "$wt/.claude/steps" -maxdepth 0 -perm 0700)" ]
 verdict "the cache is mode 0700" "cache mode is not 0700"
+
+# --- iteration-two hardening -----------------------------------------------------------
+fresh() {
+  # fresh <dir>: a new git worktree with one commit.
+  mkdir -p "$1"
+  git -C "$1" init -q -b main
+  git -C "$1" config user.name Fixture
+  git -C "$1" config user.email fixture@example.invalid
+  git -C "$1" config commit.gpgsign false
+  git -C "$1" commit -q --allow-empty -m "chore: base"
+}
+w2="$tmp/w2"
+fresh "$w2"
+sr2() { "$SR" --worktree "$w2" "$@"; }
+r=$(sr2 new-run)
+args2="--run $r --kind command --target t --hosting isolated --backend runner --head $HEAD_SHA --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z --outcome passed"
+
+# The grammar edges.
+# shellcheck disable=SC2086 # args2 is a fixed word list
+sr2 write $args2 --point pre-ci --step edge-a --end "not-a-time" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a malformed end time is refused" "bad --end accepted"
+h64=$(printf '%064d' 0 | tr 0 a)
+sr2 write --run "$r" --point pre-ci --step edge-b --kind command --target t --hosting isolated \
+  --backend runner --head "$h64" --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z \
+  --outcome passed >/dev/null
+verdict "a 64-hex head is accepted" "64-hex head refused"
+t1024=$(printf 'x%.0s' $(seq 1 1024))
+# shellcheck disable=SC2086
+sr2 write $args2 --point pre-ci --step edge-c --target "$t1024" >/dev/null
+verdict "a target of exactly the bound is accepted" "1024-byte target refused"
+# shellcheck disable=SC2086
+sr2 write $args2 --point pre-ci --step edge-d --target "${t1024}x" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a target one byte over the bound is refused" "1025-byte target accepted"
+long65=$(printf 'a%.0s' $(seq 1 65))
+# shellcheck disable=SC2086
+sr2 write $args2 --point pre-ci --step "$long65" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a 65-byte step id is refused" "65-byte step id accepted"
+sr2 write --completion --run "$r" --point post-pr --head "$HEAD_SHA" --warning "$(printf 'a\033b')" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a warning carrying a control byte is refused" "control-byte warning accepted"
+zw=$(printf '\342\200\213\342\200\256')
+# shellcheck disable=SC2086
+sr2 write $args2 --point pre-ci --step edge-e --target "$zw" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a target that cleans to nothing is refused" "invisible-only target accepted"
+sr2 regenerate --base -x --head HEAD >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a base beginning with a dash is refused" "dash base accepted"
+sr2 regenerate --base HEAD --head -x >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a head beginning with a dash is refused" "dash head accepted"
+
+# The record name never carries the step id.
+recn=$(sr2 write --run "$r" --point pre-pr --step xoxb-1234567890abcdefgh --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z \
+  --end 2026-09-28T14:00:01Z --outcome passed)
+case $recn in
+  *xoxb*) fail "the record path carries the step id: $recn" ;;
+  *) ok "the record path carries no step id" ;;
+esac
+grep -Fq "step${TAB}[withheld: the secret screen flagged this value]" "$recn"
+verdict "a token-shaped step id is withheld in the record" "step id not withheld"
+
+# Cleaning edges: CR and DEL dropped, a join formed by one deletion caught on
+# the next pass, a character the byte cut splits dropped.
+printf 'a\rb\177c\342\200\342\200\213\213d\n' >"$tmp/edge.txt"
+rece=$(sr2 write --run "$r" --point pre-ci --step edge-f --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z \
+  --end 2026-09-28T14:00:01Z --outcome passed --excerpt-file "$tmp/edge.txt")
+grep -Fxq "excerpt${TAB}abcd" "$rece"
+verdict "CR, DEL, and a joined invisible are stripped" "got: $(grep excerpt "$rece" | od -c | head -2)"
+{
+  printf '\342\202\254'
+  printf 'z%.0s' $(seq 1 1998)
+  printf '\n'
+} >"$tmp/cut.txt"
+recx=$(sr2 write --run "$r" --point pre-ci --step edge-g --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z \
+  --end 2026-09-28T14:00:01Z --outcome passed --excerpt-file "$tmp/cut.txt")
+sed -n "s/^excerpt${TAB}//p" "$recx" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1
+verdict "a character the byte cut splits is dropped" "the cut left invalid UTF-8"
+
+# Neutralizing edges.
+: >"$w2/.claude/steps/$r/n.out"
+# shellcheck disable=SC2016 # literal markup is the fixture
+recm=$(sr2 write --run "$r" --point pre-pr --step edge-h --kind command \
+  --target '1. a & b www.x.io GH-3 \ *s* ~t~ !i $m$ +p' --hosting isolated --backend runner \
+  --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z --outcome passed)
+row=$(sr2 render --run "$r" --point pre-pr | grep '^| 2 |')
+# shellcheck disable=SC2016 # literal markup in the pattern
+case $row in
+  *'| 1\. a &amp; b www&#8203;.x.io GH&#8203;-3 \\ \*s\* \~t\~ \!i \$m\$ \+p |'*) ok "leading numbers, &, www., GH-, and markup are neutralized" ;;
+  *) fail "neutralizing edge: $row" ;;
+esac
+[ -n "$recm" ]
+verdict "the neutralizing fixture was written" "fixture write failed"
+
+# An output path carrying invisible characters is refused.
+bad_out="$w2/.claude/steps/$r/out$(printf '\342\200\256')x.log"
+: >"$bad_out"
+# shellcheck disable=SC2086
+sr2 write $args2 --point pre-ci --step edge-i --output "$bad_out" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "an output path carrying invisible characters is refused" "bidi output path accepted"
+
+# Records are read as untrusted: control bytes planted in a record do not
+# reach list or render.
+recz=$(sr2 write --run "$r" --point pre-implementation --step edge-j --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z \
+  --end 2026-09-28T14:00:01Z --outcome passed)
+printf 'excerpt\t\033[31mred\n' >>"$recz"
+if sr2 list --run "$r" | grep -q "$esc" || sr2 render --run "$r" | grep -q "$esc"; then
+  fail "a planted control byte reached list or render"
+else
+  ok "list and render drop control bytes a record carries"
+fi
+
+# A point named twice renders once; --checklist-only renders no tables.
+twice=$(sr2 render --run "$r" --point pre-pr --point pre-pr | grep -c '^## Steps at')
+[ "$twice" -eq 1 ]
+verdict "a point named twice renders once" "$twice tables"
+! sr2 regenerate --base HEAD --head HEAD --checklist-only | grep -q '^## Steps at'
+verdict "--checklist-only renders the checklist alone" "--checklist-only rendered tables"
+
+# The point vocabulary matches the resolver's.
+vocab=$(sed -n 's/^\(UN\)\{0,1\}WIRED_POINTS="\(.*\)"$/\2/p' "$repo_root/scripts/resolve-steps.sh" | tr ' ' '\n')
+[ "$(printf '%s\n' "$vocab" | grep -c .)" -eq 15 ]
+verdict "the resolver's vocabulary reads as fifteen points" "resolver vocabulary unreadable"
+for p in $vocab; do
+  sr2 list --point "$p" >/dev/null 2>&1 || fail "step-record refuses the resolver's point $p"
+done
+ok "every resolver point is a step-record point"
+
+# Completions race to one winner, and no step record lands after it.
+r5=$(sr2 new-run)
+i=1
+while [ "$i" -le 4 ]; do
+  sr2 write --completion --run "$r5" --point pre-ci --head "$HEAD_SHA" --warning "w$i" >/dev/null 2>&1 &
+  sr2 write --run "$r5" --point pre-ci --step "s$i" --kind command --target t --hosting isolated \
+    --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z \
+    --outcome passed >/dev/null 2>&1 &
+  i=$((i + 1))
+done
+wait
+names=$(find "$w2/.claude/steps/$r5" -name '[0-9]*.rec' | sed 's#.*/##' | sort | tr '\n' ' ')
+ndone=$(printf '%s' "$names" | tr ' ' '\n' | grep -c 'done')
+last=$(printf '%s' "$names" | tr ' ' '\n' | grep . | tail -n 1)
+[ "$ndone" -eq 1 ] && case $last in *-done-pre-ci.rec) true ;; *) false ;; esac
+verdict "one completion wins and sorts after every step" "records: $names"
+
+# Refusals of the cache itself.
+w3="$tmp/w3"
+fresh "$w3"
+mkdir -p "$tmp/real-claude"
+ln -s "$tmp/real-claude" "$w3/.claude"
+"$SR" --worktree "$w3" new-run >/dev/null 2>&1
+[ $? -eq 1 ]
+verdict "a symlinked .claude is refused" "symlinked .claude used"
+w4="$tmp/w4"
+fresh "$w4"
+r4=$("$SR" --worktree "$w4" new-run)
+ln -s /etc/hosts "$w4/.claude/steps/$r4/001-done-pre-ci.rec"
+"$SR" --worktree "$w4" render --run "$r4" >/dev/null 2>&1
+[ $? -eq 1 ]
+verdict "a symlinked record is refused" "symlinked record read"
+rm -f "$w4/.claude/steps/$r4/001-done-pre-ci.rec"
+: >"$tmp/target.out"
+ln -s "$tmp/target.out" "$w4/.claude/steps/$r4/link.out"
+"$SR" --worktree "$w4" write --run "$r4" --point pre-ci --step s --kind command --target t \
+  --hosting isolated --backend runner --head "$HEAD_SHA" --start 2026-09-28T14:00:00Z \
+  --end 2026-09-28T14:00:01Z --outcome passed --output "$w4/.claude/steps/$r4/link.out" >/dev/null 2>&1
+[ $? -eq 2 ]
+verdict "a symlinked output is refused" "symlinked output accepted"
+git -C "$w4" add -f ".claude/steps/$r4/link.out" >/dev/null 2>&1
+"$SR" --worktree "$w4" list >/dev/null 2>&1
+[ $? -eq 1 ]
+verdict "a cache git tracks is refused" "tracked cache read"
+w5="$tmp/w5"
+fresh "$w5"
+mkdir -p "$w5/.claude/steps/999999"
+"$SR" --worktree "$w5" new-run >/dev/null 2>&1
+[ $? -eq 1 ]
+verdict "an exhausted run-id counter exits 1" "run id issued past 999999"
+mkdir "$w5/.claude/steps/999999/.seq-999"
+"$SR" --worktree "$w5" write --completion --run 999999 --point pre-ci --head "$HEAD_SHA" >/dev/null 2>&1
+[ $? -eq 1 ]
+verdict "an exhausted record counter exits 1" "record written past seq 999"
+
+# A missing secret screen withholds, never passes.
+lone="$tmp/lone"
+mkdir -p "$lone"
+cp "$SR" "$repo_root/scripts/echo-safety.sh" "$lone/"
+w6="$tmp/w6"
+fresh "$w6"
+r6=$("$lone/step-record.sh" --worktree "$w6" new-run)
+recl2=$("$lone/step-record.sh" --worktree "$w6" write --run "$r6" --point pre-ci --step s \
+  --kind command --target plain --hosting isolated --backend runner --head "$HEAD_SHA" \
+  --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z --outcome passed)
+grep -Fq "target${TAB}[withheld: the value could not be screened]" "$recl2"
+verdict "a missing screen withholds every screened value" "value passed unscreened"
+
+# Checklist edges over a second range.
+w7="$tmp/w7"
+fresh "$w7"
+c7() { git -C "$w7" commit -q --allow-empty -F -; }
+B7=$(git -C "$w7" rev-parse HEAD)
+printf '%s\n' "fix(a): folded trailer" "" "Route reason: first" "Route reason: second" "" \
+  "Planwright-Sign-Off: PS-2" "  PS-9" "Planwright-Sign-Off-Rejected: PS-3" | c7
+printf '%s\n' "fix(b): rejected by the folded commit" "" "Planwright-Sign-Off: PS-3" | c7
+printf '%s\n' "fix(c): two ids, comma-separated" "" "Planwright-Sign-Off: PS-4, PS-5" | c7
+printf '%s\n' "fix(d): reverted by reference" "" "Planwright-Sign-Off: PS-6" | c7
+D7=$(git -C "$w7" rev-parse --short=7 HEAD)
+printf '%s\n' "Revert \"fix(d)\"" "" "This reverts commit $D7 (fix(d), 2026-09-28)." | c7
+printf '%s\n' "chore: a rejection later reverted" "" "Planwright-Sign-Off-Rejected: PS-4" | c7
+RJ=$(git -C "$w7" rev-parse HEAD)
+printf '%s\n' "Revert \"chore\"" "" "This reverts commit $RJ." | c7
+printf 'fix(e): a live subject with \033[31m a control byte\n\nPlanwright-Sign-Off: PS-8\n' | c7
+git -C "$w7" checkout -q -b side "$B7"
+printf '%s\n' "fix(base): merged in from the base" "" "Planwright-Sign-Off: PS-11" | c7
+git -C "$w7" checkout -q main
+git -C "$w7" merge -q --no-ff side -m "Merge side into main" -m "Planwright-Sign-Off: PS-12" >/dev/null
+H7=$(git -C "$w7" rev-parse HEAD)
+cl=$("$SR" --worktree "$w7" regenerate --base "$B7" --head "$H7" --checklist-only)
+has() { printf '%s\n' "$cl" | grep -Fq -- "$1"; }
+has "**PS-2** fix\(a\): folded trailer"
+verdict "a folded trailer keeps its entry" "PS-2 missing"
+! has "**PS-3**"
+verdict "a folded commit's rejection still applies" "PS-3 still listed"
+has "**PS-9**"
+verdict "a folded continuation value is its own id" "PS-9 missing"
+has "  - Route reason: first"
+verdict "the first route reason line is the one rendered" "route reason not the first"
+has "**PS-4**" && has "**PS-5**"
+verdict "every id in a comma-separated trailer renders" "an id of the pair missing"
+! has "**PS-6**"
+verdict "a --reference revert drops its target" "PS-6 still listed"
+! printf '%s\n' "$cl" | grep -q "$esc"
+verdict "commit text is cleaned of control bytes" "a control byte reached the checklist"
+has "**PS-8**"
+verdict "the cleaned live commit still renders" "PS-8 missing"
+! has "**PS-11**"
+verdict "a trailer merged in from the base never enters" "PS-11 listed"
+# shellcheck disable=SC2016 # literal backticks in the expected line
+has 'Reject with: a later commit carrying `Planwright-Sign-Off-Rejected: PS-12`'
+verdict "a merge commit's entry names the rejection trailer" "merge recipe missing"
 
 # --- the fixture PR body -------------------------------------------------------------
 {
