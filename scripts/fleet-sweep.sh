@@ -408,8 +408,10 @@ fi
 
 # --- Pass 3: flight residues. A removal is a real action and is audited; a
 #     failure is warned with its reason and retried next cycle. The brief
-#     retire runs only where flight briefs exist, and never waits on a dispatch
-#     holding the checkout's flight lock: contention just means next cycle.
+#     retire runs only where a brief names this checkout (the fleet home is
+#     shared, so any brief at all would take the flight lock in checkouts that
+#     never flew), and never waits on a dispatch holding the checkout's flight
+#     lock: contention just means next cycle.
 #     Each helper's result lines and its stderr share one capture, told apart
 #     by their leading field, so no temporary file is left by a signal.
 flight_residue() {
@@ -428,9 +430,12 @@ flight_residue() {
   done
 }
 fr_home=$("$FS" root 2>/dev/null) || fr_home=''
-if [ -x "$FLIGHT_DISPATCH" ] && [ -n "$fr_home" ] && [ -d "$fr_home/flights" ] \
-  && [ -n "$(find "$fr_home/flights" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" ] \
-  && git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+# The checkout as dispatch records it in a brief: its canonical toplevel.
+fr_top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) \
+  && fr_top=$(cd "$fr_top" 2>/dev/null && pwd -P) || fr_top=''
+if [ -x "$FLIGHT_DISPATCH" ] && [ -n "$fr_home" ] && [ -n "$fr_top" ] && [ -d "$fr_home/flights" ] \
+  && [ -n "$(find "$fr_home/flights" -mindepth 2 -maxdepth 2 -name checkout -type f \
+    -exec grep -Flx -e "$fr_top" {} + 2>/dev/null | head -n 1)" ]; then
   FR_NAME='flight brief retire'
   flight_residue env PLANWRIGHT_FLIGHT_LOCK_WAIT=0 "$FLIGHT_DISPATCH" retire --repo-root "$repo"
 fi

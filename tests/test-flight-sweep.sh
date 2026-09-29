@@ -504,6 +504,17 @@ touch -t 202001010000 "$brief" "$brief/checkout"
 "$ROOT/scripts/fleet-audit.sh" query --mechanism housekeeping-sweep 2>/dev/null | grep -q 'flight-brief-retire' \
   || fail "the fleet cleanup sweep audits the retire"
 
+# A brief naming another checkout never makes the sweep take the flight lock
+# in a checkout that never flew.
+(umask 077 && mkdir -p "$brief" && printf '%s\n' "$repo" >"$brief/checkout")
+never="$tmp/never"
+git -c init.defaultBranch=main init -q "$never"
+gitc "$never" commit -q --allow-empty -m init
+"$ROOT/scripts/fleet-sweep.sh" --repo "$never" >/dev/null 2>&1
+[ ! -e "$never/.git/planwright-flight" ] \
+  || fail "the fleet cleanup sweep leaves a checkout that never flew untouched (no flight lock)"
+[ -e "$brief" ] || fail "the fleet cleanup sweep keeps a brief naming another checkout"
+
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-sweep: $fails failure(s)" >&2
   exit 1
