@@ -195,12 +195,13 @@ elif [ -n "${HOME:-}" ]; then
 fi
 
 # A missing helper is a broken install: every layer it locates degrades to
-# absent, said once, and the kind resolver surfaces what went missing.
+# absent, said once, and the kind resolver surfaces what went missing. An
+# explicit repo root is not located by it, so the repo-side layers keep it.
 # Readable is enough: it runs through /bin/sh, so a copy that lost the
 # execute bit still resolves.
 if [ ! -r "$root_helper" ]; then
-  case $layer in
-    core | repo-tracked | machine-local)
+  case $layer:${PLANWRIGHT_REPO_ROOT:+pinned} in
+    core:* | repo-tracked: | machine-local:)
       echo "planwright: WARNING root helper '$root_helper' is missing or unreadable; the $layer overlay layer is treated as absent" >&2
       exit 0
       ;;

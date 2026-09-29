@@ -272,10 +272,19 @@ for l in repo-tracked machine-local; do
   assert_eq "$l from a worktree is the primary checkout's" "$tmp/repo/.claude" "$out"
 done
 
-# Outside any git repo and with no override: both degrade to absent.
-out="$(cd "$tmp" && base /bin/bash "$RESOLVER" repo-tracked)"
+# A copy missing the root helper still honours an explicit repo root, which
+# never needed the helper.
+mkdir -p "$tmp/lone/scripts"
+cp "$RESOLVER" "$tmp/lone/scripts/"
+out="$(base PLANWRIGHT_REPO_ROOT="$tmp/repo" /bin/bash "$tmp/lone/scripts/resolve-overlay-root.sh" repo-tracked 2>/dev/null)"
+assert "repo-tracked without the helper resolves an explicit repo root" 0 $?
+assert_eq "repo-tracked without the helper keeps the explicit repo root" "$tmp/repo/.claude" "$out"
+
+# Outside any git repo and with no override: both degrade to absent, quietly.
+out="$(cd "$tmp" && base /bin/bash "$RESOLVER" repo-tracked 2>"$tmp/norepo.err")"
 assert "repo-tracked outside a repo degrades (zero exit)" 0 $?
 assert_eq "repo-tracked absent yields empty root" "" "$out"
+assert_eq "repo-tracked outside a repo says nothing" "" "$(cat "$tmp/norepo.err")"
 
 out="$(cd "$tmp" && base /bin/bash "$RESOLVER" machine-local)"
 assert "machine-local outside a repo degrades (zero exit)" 0 $?
