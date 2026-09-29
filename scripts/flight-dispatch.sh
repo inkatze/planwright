@@ -160,7 +160,7 @@ REGISTER="$script_dir/fleet-register.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 MANIFEST_SKILL="$root_dir/skills/execute-task/SKILL.md"
 TEXT="$script_dir/flight-text.sh"
-ROOTPAIR="$script_dir/flight-roots.sh"
+COMMON="$script_dir/flight-common.sh"
 
 # How long a dispatch waits on another holding the checkout's flight lock
 # before it declines to wait. Overridable for tests.
@@ -185,15 +185,15 @@ EOF
 }
 
 for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$STEPS" "$ROOTS" \
-  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL" "$TEXT" "$ROOTPAIR"; do
+  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL" "$TEXT" "$COMMON"; do
   [ -r "$_h" ] || die 2 "required helper missing: $_h"
 done
 # shellcheck source=scripts/flight-text.sh
 . "$TEXT"
 # shellcheck source=scripts/allocation-ladder.sh
 . "$LADDER"
-# shellcheck source=scripts/flight-roots.sh
-. "$ROOTPAIR"
+# shellcheck source=scripts/flight-common.sh
+. "$COMMON"
 
 resolve_repo() {
   if [ -z "$repo_root" ]; then
@@ -499,22 +499,8 @@ quote_block() {
   sed 's/^/> /' <"$1"
 }
 
-# has_ctl <text> — true when the text carries a control byte, which would
-# break a TAB-separated report line or split it in two.
-has_ctl() {
-  [ "$(printf '%s' "$1" | tr -d '\000-\037\177')" != "$1" ]
-}
-
 sh_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
-}
-
-# private_dir <dir> — a real directory the invoking user owns that neither
-# group nor others can write: the brief it holds is a worker's instructions.
-private_dir() {
-  [ ! -L "$1" ] && [ -d "$1" ] || return 1
-  _pd_uid=$(id -u) || return 1
-  [ -n "$(find "$1" -maxdepth 0 -user "$_pd_uid" ! -perm -0020 ! -perm -0002 2>/dev/null)" ]
 }
 
 # resolve_fleet_home [--create] — set `fleet_home` to the fleet home's

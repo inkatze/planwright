@@ -58,6 +58,7 @@
         ]
       },
       {
+        "matcher": "startup",
         "hooks": [
           {
             "type": "command",

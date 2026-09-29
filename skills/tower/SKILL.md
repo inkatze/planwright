@@ -76,10 +76,13 @@ is the one sweep output read.
 2. **Reconstruct from durable evidence (REQ-F1.4, D-9).** Read what is in
    flight through the shared flight sweep: the index at
    `scripts/flight-sweep.sh path` when newer than this session's start (the
-   SessionStart hook writes it), else what `scripts/flight-sweep.sh sweep`
+   SessionStart hook writes it), its `checkout` row this checkout, and its
+   `forge`, `registry`, and `queue` rows each `ok` (or `forge` skipped for
+   `no-flights` or `no-origin`); else what `scripts/flight-sweep.sh sweep`
    prints. Its rows say which flights landed, await the operator, fly, died
-   (positive evidence only), or stranded, and name the plugin-root pair. A
-   sweep exiting non-zero is reported and the reads below used: flight branches
+   (positive evidence only), stranded, or are unknown, and name the plugin-root
+   pair. Exit 0 or 5 is a render; any other exit is reported and the reads
+   below used: flight branches
    (`git branch --list --format='%(refname:short)' 'planwright/flight/*'`,
    bounded to the unmerged ones), each one's landing — its PR in any state
    (`gh pr list --state all --head <branch>`; any PR, open draft included,
@@ -198,9 +201,9 @@ The gate-wiring hard pauses stay in force inside every worker whatever the
 route; a flight whose scope outgrows its route parks behind its hard pause and
 returns for re-routing. The operator hears that through the decision queue once
 flight lifecycle pushes exist; until then a pause leaves no branch or record
-evidence, so a flight without a landing reference is reported by the sweep's
-liveness, or after the fallback reads as "no
-landing yet: in the air, paused, or dead — not checked", with its observe or
+evidence, so the sweep's `in-air` is said as "in the air or paused", with its
+liveness; after the fallback reads, a flight without a landing reference is
+"no landing yet: in the air, paused, or dead — not checked", with its observe or
 attach hint when the tower holds one (this session's dispatch report, or the
 sweep's render) and "handle unknown" otherwise, never as simply in the air.
 
@@ -292,8 +295,8 @@ durable evidence through the existing surfaces:
 
 - **A spec:** `scripts/spec-status.sh specs/<spec>` (its states are
   `spec-format`'s), said as titles and PR numbers, never task numbers.
-- **A flight:** the flight sweep's render under bring-up's freshness test,
-  else the bounded reads bring-up used.
+- **A flight:** a fresh `scripts/flight-sweep.sh sweep`, else the bounded
+  reads bring-up used.
 - **Decisions waiting on the operator:** `scripts/fleet-attention.sh queue`,
   actionable items first.
 - **Reserved-control relays:** the post-sign-off go above, on explicit request.

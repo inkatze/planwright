@@ -17,8 +17,10 @@
 #     positive evidence of death reads `dead`; no record, a print-rung `none`,
 #     or a query mechanism that cannot answer reads `unknown`. Silence is never
 #     death;
-#   - whether it waits on the operator: its worker's decision-queue row.
-# A read that fails is named unknown in the render, never shown as empty.
+#   - whether it waits on the operator: its worker's decision-queue row, read
+#     from the attention store as the other fleet readers read it.
+# A read that fails is named unknown in the render, never shown as empty: the
+# forge, registry, and queue rows say which reads were made.
 #
 # THE INDEX is the render, written under the fleet home at
 # `<fleet-home>/flight-index/<checkout-key>.tsv`: outside every checkout, so it
@@ -30,9 +32,11 @@
 # byte; its mtime is when it was last swept.
 #
 # Subcommands:
-#   sweep [--repo-root <dir>] [--no-forge]
+#   sweep [--repo-root <dir>] [--no-forge] [--no-write]
 #       Derive, write the index, and print it. --no-forge skips the PR reads
 #       (landings then rest on record files, and the rest read unknown).
+#       --no-write prints the same render and writes nothing, for a surface
+#       whose contract forbids writes.
 #   path [--repo-root <dir>]
 #       Print the checkout's index path, whether or not it exists yet.
 #   prune
@@ -40,32 +44,45 @@
 #       `pruned<TAB><checkout>` line each. The fleet cleanup sweep runs it.
 #   hook session-start
 #       The SessionStart arm: sweep the session's checkout so a fresh tower
-#       reads a current index. Silent and exit 0 always; a checkout without
-#       flight evidence or an index is left alone, and nothing is created. The
-#       PR reads are bounded by `timeout` (or `gtimeout`) and skipped where
-#       neither exists, so a session start never waits on the network.
+#       reads a current index. Silent and exit 0 always. It stays out of a
+#       worker's session (a worker identity in the environment, or a flight or
+#       task worktree), and a checkout without flight evidence or an index is
+#       left alone with nothing created. Each PR read is bounded by `timeout`
+#       (or `gtimeout`) to at most 5 seconds, the reads together to about 15,
+#       after which the rest read unknown; with neither binary the PR reads
+#       are skipped. The wait a session start can see is that bound, not zero.
 #
 # Render (TAB-separated), in this order:
 #   flight-index<TAB>1
 #   checkout<TAB><repo-root>
 #   root<TAB>tower|worker<TAB><path><TAB><version>, then root-skew<TAB>yes|no|unknown
 #   forge<TAB>ok|partial|unavailable|skipped<TAB><reason or ->
+#     reasons: no-flights, no-forge, no-origin (no PR can exist, so a flight
+#     without a record file has no landing), no-gh, no-timeout, query-failed,
+#     deadline; a fork's PR on a same-named branch is never a flight's landing
+#   registry<TAB>ok|unavailable
 #   queue<TAB>ok|unavailable
 #   flight<TAB><id><TAB><state><TAB><landing><TAB><liveness><TAB><handle><TAB><worktree>
 #     state     landed | awaiting-operator | in-air | dead | stranded | unknown
-#               (stranded: a branch with neither a worktree nor a landing, the
-#               residue surfaced rather than lost; unknown: no worktree and a
-#               forge that could not be read)
+#               (in-air: a worktree and no landing, which includes a worker
+#               paused behind a hard pause; stranded: a branch with neither a
+#               worktree nor a landing, the residue surfaced rather than lost;
+#               unknown: a landing or queue read that could not be made)
 #     landing   pr:<url> | record:<path> | none | unknown
 #     liveness  alive | dead | unknown, for a flight with a worktree; - otherwise
 #     handle    the registered worker handle, or -
 #     worktree  its path, or -
+# The primary checkout is never a flight's worktree, even with a flight branch
+# checked out, and a worktree path carrying a control byte is left out.
 #
 # Exit codes: 0 swept / printed / pruned; 2 usage or a refused input; 4 the
-# fleet home or the worktree list could not be read, or the index could not be
-# written (the render is still printed when it was derived).
+# fleet home, the worktree list, or the flight branches could not be read, or
+# prune's directory is not private or cannot be listed; 5 the render was
+# derived and printed but the index could not be written.
 #
-# PLANWRIGHT_FLIGHT_SWEEP_GH_TIMEOUT bounds each PR read in seconds (default 20).
+# PLANWRIGHT_FLIGHT_SWEEP_GH_TIMEOUT bounds each PR read in seconds (default
+# 20). Outside the hook, a host with neither `timeout` nor `gtimeout` runs the
+# reads unbounded, as the tower's own fallback reads do.
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf
@@ -82,10 +99,13 @@ script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 root_dir=$(cd "$script_dir/.." && pwd -P) || exit 2
 
 STATE="$script_dir/fleet-state.sh"
-FLIGHT_ID="$script_dir/flight-id.sh"
 FDE="$script_dir/fleet-death-evidence.sh"
 ROOTS="$script_dir/resolve-installed-roots.sh"
-ROOTPAIR="$script_dir/flight-roots.sh"
+COMMON="$script_dir/flight-common.sh"
+
+# A hook must never fail a session start, a broken install included.
+in_hook=0
+[ "${1:-}" != hook ] || in_hook=1
 
 die() {
   printf '%s: %s\n' "$prog" "$2" >&2
@@ -94,7 +114,7 @@ die() {
 
 usage() {
   cat >&2 <<'EOF'
-usage: flight-sweep.sh sweep [--repo-root <dir>] [--no-forge]
+usage: flight-sweep.sh sweep [--repo-root <dir>] [--no-forge] [--no-write]
        flight-sweep.sh path [--repo-root <dir>]
        flight-sweep.sh prune
        flight-sweep.sh hook session-start
@@ -102,29 +122,31 @@ EOF
   exit 2
 }
 
-for _h in "$STATE" "$FLIGHT_ID" "$FDE" "$ROOTS" "$ROOTPAIR"; do
-  [ -r "$_h" ] || die 2 "required helper missing: $_h"
+for _h in "$STATE" "$FDE" "$ROOTS" "$COMMON"; do
+  [ -r "$_h" ] || {
+    [ "$in_hook" -eq 0 ] || exit 0
+    die 2 "required helper missing: $_h"
+  }
 done
-# shellcheck source=scripts/flight-roots.sh
-. "$ROOTPAIR"
+# shellcheck source=scripts/flight-common.sh
+. "$COMMON"
 
 GH_TIMEOUT=${PLANWRIGHT_FLIGHT_SWEEP_GH_TIMEOUT:-20}
 case $GH_TIMEOUT in
   '' | *[!0-9]* | 0 | 0[0-9]*) GH_TIMEOUT=20 ;;
 esac
 [ "${#GH_TIMEOUT}" -le 4 ] || GH_TIMEOUT=20
+# The session-start bounds: one PR read, and all of them together. The budget
+# is overridable for tests.
+HOOK_READ_MAX=5
+HOOK_FORGE_BUDGET=${PLANWRIGHT_FLIGHT_SWEEP_HOOK_BUDGET:-15}
+case $HOOK_FORGE_BUDGET in
+  '' | *[!0-9]* | 0[0-9]*) HOOK_FORGE_BUDGET=15 ;;
+esac
+[ "${#HOOK_FORGE_BUDGET}" -le 3 ] || HOOK_FORGE_BUDGET=15
 
-has_ctl() {
-  [ "$(printf '%s' "$1" | tr -d '\000-\037\177')" != "$1" ]
-}
-
-# private_dir <dir> — a real directory the invoking user owns that neither
-# group nor others can write.
-private_dir() {
-  [ ! -L "$1" ] && [ -d "$1" ] || return 1
-  _pd_uid=$(id -u) || return 1
-  [ -n "$(find "$1" -maxdepth 0 -user "$_pd_uid" ! -perm -0020 ! -perm -0002 2>/dev/null)" ]
-}
+# Set only by the hook arm, never from the environment.
+session_start=0
 
 repo_root=''
 resolve_repo() {
@@ -163,20 +185,25 @@ timeout_bin() {
   fi
 }
 
-# valid_id <id> — the flight-id grammar, judged by its reference check.
-valid_id() {
-  /bin/sh "$FLIGHT_ID" check "$1" 2>/dev/null </dev/null
-}
+# ID_AWK — keep the lines that are grammar-valid flight ids: scripts/flight-id.sh's
+# `<slug>-<uid>` (a kebab slug, an eight-hex uid, 64 characters at most),
+# re-encoded so one pass checks every candidate.
+# shellcheck disable=SC2016 # awk program text, not shell
+ID_AWK='length($0) <= 64 && /^[a-z0-9][a-z0-9-]*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/'
 
 # WT_AWK — for each registered, non-prunable flight worktree in a
 # `git worktree list --porcelain` stream, print `<id><TAB><path>` for the id
-# its path names and, when it differs, the one its branch names. The offsets
-# are the lengths of `/.claude/worktrees/flight-` (26) and
-# `branch refs/heads/planwright/flight/` (36), plus one.
+# its path names and, when it differs, the one its branch names. The first
+# block is the primary checkout, which a flight branch checked out there does
+# not make a flight worktree. A path carrying a control byte is dropped.
 # shellcheck disable=SC2016 # awk program text, not shell
 WT_AWK='
+  BEGIN {
+    pfx = "/.claude/worktrees/flight-"
+    bfx = "branch refs/heads/planwright/flight/"
+  }
   function close_block() {
-    if ((pid != "" || bid != "") && !prunable) {
+    if ((pid != "" || bid != "") && !prunable && path !~ /[[:cntrl:]]/) {
       if (pid != "") print pid "\t" path
       if (bid != "" && bid != pid) print bid "\t" path
     }
@@ -184,10 +211,11 @@ WT_AWK='
   }
   /^worktree / {
     close_block()
+    blocks++
     path = substr($0, 10)
-    if (match($0, /\/\.claude\/worktrees\/flight-[^\/]+$/)) pid = substr($0, RSTART + 26)
+    if (match($0, /\/\.claude\/worktrees\/flight-[^\/]+$/)) pid = substr($0, RSTART + length(pfx))
   }
-  index($0, "branch refs/heads/planwright/flight/") == 1 { bid = substr($0, 37) }
+  blocks > 1 && index($0, bfx) == 1 { bid = substr($0, length(bfx) + 1) }
   /^prunable/ { prunable = 1 }
   END { close_block() }'
 
@@ -212,31 +240,24 @@ liveness() {
 }
 
 # pr_landing <branch> — set PRL to `pr:<url>`, `none`, or `unknown` from the
-# forge. A reply that is not one well-formed row is unknown, never "no PR"
-# (return 1); a query that fails outright returns 2, and the caller stops
-# asking a forge that is not answering.
+# forge. `--head` matches the branch name on any fork, so only a PR from the
+# repository itself counts; the newest such PR wins. A reply whose first row
+# is not well-formed is unknown, never "no PR" (return 1); a query that fails
+# outright or times out returns 2, and the caller stops asking.
 PRL=unknown
 pr_landing() {
   PRL=unknown
-  if [ -n "$TO" ]; then
-    _prl=$(cd "$repo_root" && GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 NO_COLOR=1 \
-      "$TO" "$GH_TIMEOUT" gh pr list --state all --head "$1" --limit 1 \
-      --json state,isDraft,url --jq '.[] | [.state, (.isDraft | tostring), .url] | @tsv' \
-      2>/dev/null </dev/null) || return 2
-  else
-    _prl=$(cd "$repo_root" && GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 NO_COLOR=1 \
-      gh pr list --state all --head "$1" --limit 1 \
-      --json state,isDraft,url --jq '.[] | [.state, (.isDraft | tostring), .url] | @tsv' \
-      2>/dev/null </dev/null) || return 2
-  fi
+  set -- gh pr list --state all --head "$1" --limit 20 \
+    --json state,isDraft,url,isCrossRepository \
+    --jq '.[] | select(.isCrossRepository | not) | [.state, (.isDraft | tostring), .url] | @tsv'
+  [ -z "$TO" ] || set -- "$TO" "$READ_MAX" "$@"
+  _prl=$(cd "$repo_root" && GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 NO_COLOR=1 \
+    "$@" 2>/dev/null </dev/null) || return 2
   if [ -z "$_prl" ]; then
     PRL=none
     return 0
   fi
-  case $_prl in
-    *"$LF"*) return 1 ;;
-  esac
-  _url=$(printf '%s\n' "$_prl" | awk -F "$TAB" '
+  _url=$(printf '%s\n' "$_prl" | awk -F "$TAB" 'NR == 1 &&
     NF == 3 && ($1 == "OPEN" || $1 == "CLOSED" || $1 == "MERGED") \
       && ($2 == "true" || $2 == "false") \
       && $3 ~ /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/[0-9]+$/ { print $3 }')
@@ -251,6 +272,7 @@ emit() {
 
 cmd_sweep() {
   forge=1
+  write=1
   while [ $# -gt 0 ]; do
     case $1 in
       --repo-root)
@@ -262,36 +284,38 @@ cmd_sweep() {
         forge=0
         shift
         ;;
+      --no-write)
+        write=0
+        shift
+        ;;
       *) usage ;;
     esac
   done
   resolve_repo
   resolve_home
 
-  _wtl=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null </dev/null) \
-    || die 4 "cannot list worktrees; nothing was swept"
-  wts=$(printf '%s\n' "$_wtl" | awk "$WT_AWK" | tr -d '\000-\010\013-\037\177') \
-    || die 4 "cannot read the worktree list; nothing was swept"
+  # Branches before worktrees: a placement racing this read then shows up
+  # through its worktree rather than as a branch with none (stranded).
   _refs=$(git -C "$repo_root" for-each-ref --format='%(refname)' \
     refs/heads/planwright/flight/ refs/remotes/origin/planwright/flight/ 2>/dev/null </dev/null) \
     || die 4 "cannot list flight branches; nothing was swept"
-  _cands=$({
+  _wtl=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null </dev/null) \
+    || die 4 "cannot list worktrees; nothing was swept"
+  wts=$(printf '%s\n' "$_wtl" | awk "$WT_AWK") || die 4 "cannot read the worktree list; nothing was swept"
+  ids=$({
     printf '%s\n' "$_refs" | sed -n -e 's#^refs/heads/planwright/flight/##p' \
       -e 's#^refs/remotes/origin/planwright/flight/##p'
     printf '%s\n' "$wts" | cut -f1
-  } | awk 'NF' | sort -u)
-  ids=''
+  } | awk "$ID_AWK" | sort -u) || die 4 "cannot read the flight ids; nothing was swept"
   _old_ifs=$IFS
-  IFS=$LF
-  for _c in $_cands; do
-    valid_id "$_c" && ids="$ids$_c$LF"
-  done
-  IFS=$_old_ifs
 
-  # The registry and the decision queue are read once each. A registry that
-  # cannot be read leaves every liveness unknown; a queue that cannot be read
-  # is named in the render.
-  registry=$(/bin/sh "$STATE" registry 2>/dev/null </dev/null) || registry=''
+  # The registry and the decision queue are read once each; a failed read
+  # leaves the rows it feeds unknown and is named in the render.
+  registry_state=ok
+  registry=$(/bin/sh "$STATE" registry 2>/dev/null </dev/null) || {
+    registry=''
+    registry_state=unavailable
+  }
   queue_state=ok
   awaiting=''
   _store="$fleet_home/attention/state"
@@ -303,21 +327,25 @@ cmd_sweep() {
   forge_state=ok
   forge_reason=-
   TO=''
+  READ_MAX=$GH_TIMEOUT
+  if [ "$session_start" -eq 1 ] && [ "$READ_MAX" -gt "$HOOK_READ_MAX" ]; then
+    READ_MAX=$HOOK_READ_MAX
+  fi
   if [ -z "$ids" ]; then
     forge_state=skipped
     forge_reason=no-flights
   elif [ "$forge" -eq 0 ]; then
     forge_state=skipped
     forge_reason=no-forge
+  elif ! git -C "$repo_root" remote get-url origin >/dev/null 2>&1 </dev/null; then
+    forge_state=skipped
+    forge_reason=no-origin
   elif ! command -v gh >/dev/null 2>&1; then
     forge_state=unavailable
     forge_reason=no-gh
-  elif ! git -C "$repo_root" remote get-url origin >/dev/null 2>&1 </dev/null; then
-    forge_state=unavailable
-    forge_reason=no-origin
   else
     TO=$(timeout_bin)
-    if [ -z "$TO" ] && [ "${hook_mode:-0}" -eq 1 ]; then
+    if [ -z "$TO" ] && [ "$session_start" -eq 1 ]; then
       forge_state=skipped
       forge_reason=no-timeout
     fi
@@ -326,6 +354,11 @@ cmd_sweep() {
   forge_ok=0
   forge_bad=0
   forge_down=0
+  forge_late=0
+  forge_until=''
+  if [ "$session_start" -eq 1 ]; then
+    forge_until=$(($(date +%s) + HOOK_FORGE_BUDGET))
+  fi
   flights=''
   IFS=$LF
   for id in $ids; do
@@ -341,8 +374,14 @@ cmd_sweep() {
     if [ -n "$ref" ] && git -C "$repo_root" cat-file -e "$ref:specs/_flights/$id.md" 2>/dev/null </dev/null; then
       landing="record:specs/_flights/$id.md"
     fi
-    if [ -z "$landing" ]; then
+    if [ -z "$landing" ] && [ "$forge_reason" = no-origin ]; then
+      landing=none
+    elif [ -z "$landing" ]; then
       landing=unknown
+      if [ -n "$forge_until" ] && [ "$forge_down" -eq 0 ] && [ "$(date +%s)" -ge "$forge_until" ]; then
+        forge_down=1
+        forge_late=1
+      fi
       if [ "$forge_state" = ok ] && [ "$forge_down" -eq 0 ]; then
         pr_landing "$branch"
         case $? in
@@ -379,21 +418,26 @@ cmd_sweep() {
       waits=1
     fi
 
+    # A verdict short of landed needs every read behind it: an unread landing
+    # or queue leaves a worktree flight unknown, unless its worker is
+    # positively dead.
     case $landing in
       pr:* | record:*) state=landed ;;
       *)
-        if [ -n "$wt" ]; then
-          if [ "$waits" -eq 1 ]; then
-            state='awaiting-operator'
-          elif [ "$live" = dead ]; then
-            state=dead
+        if [ -z "$wt" ]; then
+          if [ "$landing" = none ]; then
+            state=stranded
           else
-            state=in-air
+            state=unknown
           fi
-        elif [ "$landing" = none ]; then
-          state=stranded
-        else
+        elif [ "$waits" -eq 1 ]; then
+          state='awaiting-operator'
+        elif [ "$live" = dead ]; then
+          state=dead
+        elif [ "$landing" = unknown ] || [ "$queue_state" != ok ]; then
           state=unknown
+        else
+          state=in-air
         fi
         ;;
     esac
@@ -402,8 +446,9 @@ cmd_sweep() {
   done
   IFS=$_old_ifs
 
-  if [ "$forge_bad" -gt 0 ]; then
+  if [ "$forge_bad" -gt 0 ] || [ "$forge_late" -eq 1 ]; then
     forge_reason=query-failed
+    [ "$forge_late" -eq 0 ] || forge_reason=deadline
     if [ "$forge_ok" -gt 0 ]; then
       forge_state=partial
     else
@@ -415,10 +460,11 @@ cmd_sweep() {
   emit "checkout$TAB$repo_root"
   emit "$(print_root_pair "$root_dir" "$(worker_root)")"
   emit "forge$TAB$forge_state$TAB$forge_reason"
+  emit "registry$TAB$registry_state"
   emit "queue$TAB$queue_state"
   render="$render$flights"
   printf '%s' "$render"
-  write_index
+  [ "$write" -eq 0 ] || write_index
 }
 
 # write_index — replace the checkout's index atomically, in a directory only
@@ -426,17 +472,21 @@ cmd_sweep() {
 write_index() {
   _idx=$(index_path)
   _dir=${_idx%/*}
-  (umask 077 && mkdir -p "$_dir") 2>/dev/null || die 4 "cannot create $_dir; the index was not written"
+  (umask 077 && mkdir -p "$_dir") 2>/dev/null || die 5 "cannot create $_dir; the index was not written"
   private_dir "$fleet_home" \
-    || die 4 "the fleet home is not a directory owned by you that only you can write; the index was not written"
+    || die 5 "the fleet home is not a directory owned by you that only you can write; the index was not written"
   private_dir "$_dir" \
-    || die 4 "$_dir is not a directory owned by you that only you can write; the index was not written"
-  _tmp=$(umask 077 && mktemp "$_dir/.index.XXXXXX") || die 4 "cannot write the index"
+    || die 5 "$_dir is not a directory owned by you that only you can write; the index was not written"
+  _tmp=$(umask 077 && mktemp "$_dir/.index.XXXXXX") || die 5 "cannot write the index"
+  trap 'rm -f "$_tmp"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
   if printf '%s' "$render" >"$_tmp" && mv -f "$_tmp" "$_idx"; then
+    trap - EXIT INT TERM HUP
     return 0
   fi
-  rm -f "$_tmp"
-  die 4 "cannot write the index"
+  die 5 "cannot write the index"
 }
 
 cmd_path() {
@@ -483,12 +533,18 @@ cmd_prune() {
   IFS=$_old_ifs
 }
 
-# cmd_hook session-start — sweep the session's checkout, silently.
+# cmd_hook session-start — sweep the session's checkout, silently. A worker's
+# session is left alone: its checkout shares the tower's flight refs, and a
+# sweep there would re-query the forge and cache a copy keyed to the worker.
 cmd_hook() {
   [ "${1:-}" = session-start ] && [ $# -eq 1 ] || exit 0
   [ -t 0 ] || cat >/dev/null 2>&1
+  [ -z "${PLANWRIGHT_WORKER_HANDLE:-}" ] && [ -z "${PLANWRIGHT_WORKER_SCOPE:-}" ] || exit 0
   _cwd=${CLAUDE_PROJECT_DIR:-$PWD}
   repo_root=$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null </dev/null) || exit 0
+  case $repo_root in
+    */.claude/worktrees/flight-* | */.claude/worktrees/*-task-*) exit 0 ;;
+  esac
   _evidence=$(git -C "$repo_root" for-each-ref --count=1 --format=x \
     refs/heads/planwright/flight/ refs/remotes/origin/planwright/flight/ 2>/dev/null </dev/null) || exit 0
   if [ -z "$_evidence" ]; then
@@ -500,7 +556,7 @@ cmd_hook() {
     (resolve_repo && resolve_home && [ -f "$(index_path)" ]) >/dev/null 2>&1 </dev/null || exit 0
   fi
   (
-    hook_mode=1
+    session_start=1
     cmd_sweep --repo-root "$repo_root"
   ) >/dev/null 2>&1 </dev/null
   exit 0

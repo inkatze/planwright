@@ -1312,7 +1312,12 @@ and waits up to `tower_hook_lock_wait` for the fleet lock before dropping that
 line; that wait is paid on the prompt, on top of the hook's own parsing,
 presence lookup and marker write, so the knob bounds the lock wait rather than
 the whole cost. It still exits 0 on every path, so the prompt goes through
-whatever it did.
+whatever it did. The `SessionStart` flight sweep (`scripts/flight-sweep.sh hook
+session-start`) is the other one with a visible cost: on a fresh start in a
+checkout that has flight branches, outside a worker's session, it reads each
+flight's PR from the forge to refresh the derived flight index, each read
+bounded to a few seconds and all of them together to about fifteen, so a
+session start can wait up to that long. It too exits 0 on every path.
 
 `WorktreeCreate` is the exception, and planwright does not register it.
 Registering a hook there **replaces** native git worktree creation: the hook

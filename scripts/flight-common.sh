@@ -1,11 +1,25 @@
 # shellcheck shell=sh
-# flight-roots.sh — the resolved plugin-root pair shared by the visual-flight
-# scripts (sourced, never executed): flight-dispatch.sh reports it at dispatch
-# and flight-sweep.sh in its render, so a tower and its workers running
-# different planwright versions is visible on both surfaces, computed one way.
+# flight-common.sh — helpers shared by flight-dispatch.sh and flight-sweep.sh
+# (sourced, never executed), so the two judge a path and report the resolved
+# plugin-root pair one way: a tower and its workers running different
+# planwright versions is visible at dispatch and in the sweep's render alike.
 #
 # The sourcing script sets ROOTS to scripts/resolve-installed-roots.sh and LF
 # to a newline before calling these.
+
+# has_ctl <text> — true when the text carries a control byte, which would
+# break a TAB-separated report line or split it in two.
+has_ctl() {
+  [ "$(printf '%s' "$1" | tr -d '\000-\037\177')" != "$1" ]
+}
+
+# private_dir <dir> — a real directory the invoking user owns that neither
+# group nor others can write.
+private_dir() {
+  [ ! -L "$1" ] && [ -d "$1" ] || return 1
+  _pd_uid=$(id -u) || return 1
+  [ -n "$(find "$1" -maxdepth 0 -user "$_pd_uid" ! -perm -0020 ! -perm -0002 2>/dev/null)" ]
+}
 
 # plugin_version <root> — the plugin manifest's version, `-` when unreadable.
 plugin_version() {
