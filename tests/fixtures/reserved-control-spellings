@@ -11,7 +11,9 @@
 # it screens the call, by the tower queue. Verdicts: deny, defer, or n/a
 # (outside the copy's jurisdiction: another tier, or a tool the copy is not
 # wired for); the test derives n/a from the wiring and fails a line that claims
-# it anywhere else. The ready-guard runs against a pull request it cannot read,
+# it anywhere else. A profile column may also say prompt: no rule denies or
+# allows the call, so it stops at the permission prompt. A `<knob>=prompt`
+# line expects prompt from every profile that sees it. The ready-guard runs against a pull request it cannot read,
 # so its deny means it recognised a flip, not that a readable, current flip
 # would be refused.
 #
@@ -64,8 +66,25 @@ flip             worker ready_flip_policy=unresolved n/a    deny   defer  n/a   
 flip             tower  ready_flip_policy=unresolved deny   deny   n/a    defer  n/a    deny   gh pr ready 42
 flip             worker ready_flip_policy=unresolved n/a    deny   n/a    n/a    defer  n/a    mcp__github__update_pull_request
 flip             tower  ready_flip_policy=unresolved n/a    deny   n/a    n/a    n/a    deny   mcp__github__update_pull_request
-flip             tower  ready_flip_policy=unresolved deny   defer  n/a    defer  n/a    defer  gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{pullRequestId:"PR_x"}){clientMutationId}}'
-flip             tower  ready_flip_policy=unresolved deny   defer  n/a    defer  n/a    defer  gh api graphql -F query=@flip.graphql
+
+# gh api writes stay at the permission prompt by operator decision: no profile
+# denies or allows them, and the ready-guard does not read them.
+flip             worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+flip             worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -F query=@flip.graphql
+flip             tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+flip             tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -F query=@flip.graphql
+undo-flip        worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -f query='mutation{convertPullRequestToDraft(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+undo-flip        worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -F query=@undo.graphql
+undo-flip        tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -f query='mutation{convertPullRequestToDraft(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+undo-flip        tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -F query=@undo.graphql
+pr-merge         worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -F query=@merge.graphql
+pr-merge         worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api -X PUT repos/acme/widgets/pulls/42/merge
+pr-merge         worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api --method PUT repos/acme/widgets/pulls/42/merge
+pr-merge         tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -F query=@merge.graphql
+pr-merge         tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api -X PUT repos/acme/widgets/pulls/42/merge
+pr-merge         tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api --method PUT repos/acme/widgets/pulls/42/merge
 
 base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git merge origin/main
 base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git -C . merge origin/main

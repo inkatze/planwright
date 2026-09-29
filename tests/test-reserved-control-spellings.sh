@@ -81,12 +81,18 @@ EOF
       deny)
         deny_seen=1
         ;;
-      defer | n/a) ;;
+      defer | prompt | n/a) ;;
       *)
-        RC_ERR="verdict '$v' is not deny, defer, or n/a (a column is missing or misplaced)"
+        RC_ERR="verdict '$v' is not deny, defer, prompt, or n/a (a column is missing or misplaced)"
         return 1
         ;;
     esac
+  done
+  for v in $q $r $wg $tg; do
+    if [ "$v" = prompt ]; then
+      RC_ERR="only a profile column can expect prompt"
+      return 1
+    fi
   done
   case "$RC_SPELL" in
     'git '* | 'gh '* | mcp__*) ;;
@@ -111,6 +117,16 @@ EOF
         RC_ERR="an unresolved policy line must be denied by some copy"
         return 1
       fi
+      ;;
+    # Left at the permission prompt by operator decision: every profile that
+    # sees the call must neither deny nor allow it.
+    *=prompt)
+      for v in $wp $tp; do
+        if [ "$v" != prompt ] && [ "$v" != n/a ]; then
+          RC_ERR="a prompt policy line must expect prompt from every profile that sees it"
+          return 1
+        fi
+      done
       ;;
   esac
   return 0
@@ -214,7 +230,15 @@ a floor line a profile defers|pr-merge any floor deny defer defer defer defer de
 a floor line the queue defers|pr-merge any floor defer defer defer defer deny deny gh pr merge 42
 a floor line scoped to one tier|pr-merge worker floor n/a defer defer n/a deny n/a gh pr merge 42
 an unresolved line nothing denies|base-merge worker worker_base_merge=unresolved n/a defer defer n/a defer n/a git merge origin/main
+a prompt verdict outside a profile column|flip tower gh_api_write=prompt prompt defer n/a defer n/a prompt gh api graphql -F query=@q.graphql
+a prompt policy line a profile only defers|flip tower gh_api_write=prompt deny defer n/a defer n/a defer gh api graphql -F query=@q.graphql
+a prompt policy line a profile denies|flip worker gh_api_write=prompt n/a defer defer n/a deny n/a gh api graphql -F query=@q.graphql
 EOF
+if rc_parse_line 'flip worker gh_api_write=prompt n/a defer defer n/a prompt n/a gh api graphql -F query=@q.graphql'; then
+  pass "a prompt policy line parses"
+else
+  fail "a prompt policy line was rejected: $RC_ERR"
+fi
 
 rc_parse_line 'base-merge worker worker_base_merge=unresolved defer defer defer n/a deny n/a git merge origin/main' || true
 rc_jurisdiction_mismatch
@@ -278,7 +302,8 @@ for act in $RC_ACTS; do
   fi
 done
 for needle in 'git pull' ' master' ':master' 'planwright/human-gates/spec' ' +' 'mcp__github__merge_pull_request' 'mcp__github__update_pull_request' \
-  'git -C . ' 'gh api graphql' 'git commit --amen'; do
+  'git -C . ' 'gh api graphql' 'git commit --amen' 'markPullRequestReadyForReview' 'convertPullRequestToDraft' \
+  'mergePullRequest' 'gh api -X PUT' 'gh api --method PUT' 'query=@'; do
   if printf '%s\n' "$all" | grep -qF -- "$needle"; then
     pass "the fixture carries a '$needle' spelling"
   else
@@ -388,14 +413,23 @@ done
 
 read_rules() { jq -r --arg k "$2" '.permissions[$k] // [] | .[]' "$1"; }
 
-# profile_verdict <spelling> — the loaded profile's verdict. An MCP call is
-# denied by an entry naming the tool or its whole server; a Bash call goes
-# through the matcher model.
+# profile_verdict <settings-json> <spelling> <want> — the loaded profile's
+# verdict. An MCP call is denied by an entry naming the tool or its whole
+# server; a Bash call goes through the matcher model. Anything short of a deny
+# is `defer`, except where the line expects `prompt`: there the model's own
+# answer is reported, so an allow or an ask cannot pass for a prompt.
 profile_verdict() {
-  local settings=$1 spell=$2 tool
+  local settings=$1 spell=$2 want=$3 tool d
   tool=$(tool_of "$spell")
   if [ "$tool" = Bash ]; then
-    if [ "$(pm_decide "$spell")" = deny ]; then printf 'deny'; else printf 'defer'; fi
+    d=$(pm_decide "$spell")
+    if [ "$d" = deny ]; then
+      printf 'deny'
+    elif [ "$want" = prompt ]; then
+      printf '%s' "$d"
+    else
+      printf 'defer'
+    fi
   elif jq -e --arg t "$tool" --arg s "${tool%__*}" '.permissions.deny // [] | any(. == $t or . == $s)' \
     "$settings" >/dev/null; then
     printf 'deny'
@@ -450,8 +484,8 @@ drive_copy() {
         ready) got=$(ready_verdict "$RC_SPELL") ;;
         wguard) got=$(guard_verdict "$WORKER_GUARD" "$RC_SPELL") ;;
         tguard) got=$(guard_verdict "$TOWER_GUARD" "$RC_SPELL") ;;
-        wprof) got=$(profile_verdict "$WORKER_SETTINGS" "$RC_SPELL") ;;
-        tprof) got=$(profile_verdict "$TOWER_SETTINGS" "$RC_SPELL") ;;
+        wprof) got=$(profile_verdict "$WORKER_SETTINGS" "$RC_SPELL" "$RC_WANT") ;;
+        tprof) got=$(profile_verdict "$TOWER_SETTINGS" "$RC_SPELL" "$RC_WANT") ;;
       esac
     fi
     printf '%s\n' "$(printf '%s' "${got:-empty}" | tr '\n' ' ')"
