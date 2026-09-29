@@ -175,11 +175,41 @@ is_read_only() {
   esac
   return 1
 }
+# One phrase per line; override_of and strip_overrides both read these lists.
+VISUAL_OVERRIDES='just do it
+fly it visual'
+INSTRUMENT_OVERRIDES='write this one up
+write it up
+file a plan'
 override_of() {
-  case "$1" in
-    *" just do it "* | *" fly it visual "*) printf 'visual' ;;
-    *" write this one up "* | *" write it up "* | *" file a plan "*) printf 'instrument' ;;
-  esac
+  for _ov_dir in visual instrument; do
+    if [ "$_ov_dir" = visual ]; then _ov_list="$VISUAL_OVERRIDES"; else _ov_list="$INSTRUMENT_OVERRIDES"; fi
+    while IFS= read -r _ov_ph; do
+      case "$1" in *" $_ov_ph "*)
+        printf '%s' "$_ov_dir"
+        return 0
+        ;;
+      esac
+    done <<PHRASES
+$_ov_list
+PHRASES
+  done
+}
+# strip_overrides <words> — the words with every override phrase removed.
+strip_overrides() {
+  _so_w="$1"
+  while IFS= read -r _so_ph; do
+    while :; do
+      case "$_so_w" in
+        *" $_so_ph "*) _so_w="${_so_w%%" $_so_ph "*} ${_so_w#*" $_so_ph "}" ;;
+        *) break ;;
+      esac
+    done
+  done <<PHRASES
+$VISUAL_OVERRIDES
+$INSTRUMENT_OVERRIDES
+PHRASES
+  printf '%s' "$_so_w"
 }
 # zone_of — the hard-disqualifier zone the change lands in, or nothing.
 zone_of() {
@@ -557,7 +587,7 @@ handle_operator() { # handle_operator <raw>
     return 0
   fi
   # An override alone names no change; what is left once it is removed must.
-  _ho_subject="$(printf '%s' "$_ho_w" | sed -e ':a' -e 's/ write this one up / /;s/ write it up / /;s/ just do it / /;s/ fly it visual / /;s/ file a plan / /;ta')"
+  _ho_subject="$(strip_overrides "$_ho_w")"
   if has_mutation_verb "$_ho_subject" || [ -n "$(zone_of "$_ho_subject")" ] \
     || [ -n "$(irreversible_of "$_ho_subject")" ] || is_ambiguous "$_ho_subject"; then
     route_mutation "$_ho_ask" "$_ho_raw" "$_ho_w"
