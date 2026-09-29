@@ -19,10 +19,10 @@
 # FLAGGED: `specs/` not preceded by a name character (so `--specs/` is an
 # option name, not a path); `/specs` ending a path segment (`$root/specs`,
 # `*/specs)`), which composes the same root without the trailing slash; and a
-# bare `specs` as the operand of cd, pushd, find, ls, -C, or a unary test
-# (`-d`, `-e`, `-f` and the rest). Each test also runs on the line with its
-# quotes removed, so `"$root"/"specs"` composes the same path it would
-# unquoted. A bare `specs` anywhere else is prose.
+# bare `specs` as the operand of cd, pushd, find, or ls (after any options),
+# -C, or a unary test (`-d`, `-e`, `-f` and the rest). Each test also runs on
+# the line with its quotes removed, so `"$root"/"specs"` composes the same
+# path it would unquoted. A bare `specs` anywhere else is prose.
 #
 # CLEARED: a flagged line is matched by its file and its whitespace-trimmed
 # text (tabs read as spaces), never by line number (which rots) and never by
@@ -175,7 +175,7 @@ scan='
   # The bracketed [s] keeps this line from matching itself.
   function literal(s) {
     return s ~ /(^|[^A-Za-z0-9_.-])spec[s]\// || s ~ /\/spec[s]([^A-Za-z0-9_.\/-]|$)/ \
-      || s ~ /(^|[^A-Za-z0-9_-])(cd|pushd|find|ls|-C|-[a-hkprsuwxGLNOS])[ \t]+["\047]?spec[s]([ \t"\047;)|&]|$)/
+      || s ~ /(^|[^A-Za-z0-9_-])((cd|pushd|find|ls)([ \t]+-[A-Za-z0-9-]*)*|-C|-[a-hkprsuwxGLNOS])[ \t]+["\047]?spec[s]([ \t"\047;)|&]|$)/
   }
   function flagged(s,   u) {
     if (literal(s)) return 1

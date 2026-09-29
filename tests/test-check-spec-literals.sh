@@ -446,6 +446,14 @@ EOF
   expect 2 "a failing awk pass $n fails closed" "could not complete"
 done
 
+# Options before the operand do not hide it.
+for line in 'ls -la specs' 'cd -- specs' 'find -H specs -name x'; do
+  fixture
+  printf '%s\n' "$line" >>"$tmp/r/scripts/a.sh"
+  run
+  expect 1 "a bare operand after options fails: $line" "scripts/a.sh:3: $line"
+done
+
 # An array may close on its last element's line; what follows is not a run value.
 fixture
 printf '\n[tasks.arr]\nrun = [\n  "echo a",\n  "echo b"]\ndescription = "about specs/ dirs"\n' >>"$tmp/r/mise.toml"
