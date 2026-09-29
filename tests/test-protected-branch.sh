@@ -154,7 +154,8 @@ pb_expect 2 Refs/heads/HEAD "a target's name is validated after a folded strip"
 echo "ok: protected-branch matching folds case"
 
 for layer_cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
-  for body in 'protected_branches: main,master' 'protected_branches:
+  for body in 'protected_branches: main,master' 'protected_branches : release' 'protected_branches:
+protected_branches: release' 'protected_branches:
   - release' 'protected_branches: release
 other:
   - x'; do

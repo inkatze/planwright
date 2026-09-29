@@ -74,7 +74,10 @@
 #   PLANWRIGHT_CONFIG_STRICT_OVERLAYS  when 1, a malformed adopter or
 #                               machine-local overlay the walk reaches exits 6
 #                               instead of being skipped, for a caller whose
-#                               lower layers may hold a permissive value
+#                               lower layers may hold a permissive value; so
+#                               does a layer setting the key as `key : v` or
+#                               more than once (exit 4 when that layer is
+#                               repo-tracked)
 # The adopter and repo-side layer roots honor resolve-overlay-root.sh's own
 # overrides (PLANWRIGHT_ADOPTER_OVERLAY, CLAUDE_PLUGIN_DATA, PLANWRIGHT_REPO_ROOT).
 #
@@ -254,6 +257,23 @@ get_value() {
   return 0
 }
 
+# strict_key_shape <file> <layer>: under PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1,
+# refuse a queried key that get_value would misread against YAML: `key : v`
+# (YAML's key, the flat reader's no match) or a repeated key (YAML's last
+# value, the flat reader's first). Exit 4 for the repo-tracked layer, 6 for
+# the others, matching how a malformed file in that layer is reported.
+strict_key_shape() {
+  [ "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS:-}" = 1 ] || return 0
+  [ -f "$1" ] || return 0
+  if ! grep -Eq "^${key}[[:space:]]+:" "$1" 2>/dev/null \
+    && [ "$(grep -Ec "^${key}[[:space:]]*:" "$1" 2>/dev/null)" -le 1 ]; then
+    return 0
+  fi
+  echo "config-get: $2 overlay '$1' sets '$key' with a space before the colon or more than once; the caller allows no skip" >&2
+  [ "$2" = repo-tracked ] && exit 4
+  exit 6
+}
+
 # emit <layer>: print the resolved value (bare) or its provenance (--explain),
 # then exit 0. Called once a layer has supplied the key. Under --layers the
 # line is collected instead (the layers are visited highest first, so the
@@ -292,13 +312,19 @@ if [ -n "$mlocal_cfg" ] && [ -e "$mlocal_cfg" ]; then
       exit 6
     fi
     echo "config-get: warning: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
-  elif get_value "$mlocal_cfg" "$key"; then
-    emit machine-local
+  else
+    strict_key_shape "$mlocal_cfg" machine-local
+    if get_value "$mlocal_cfg" "$key"; then
+      emit machine-local
+    fi
   fi
 fi
 # repo-tracked is guaranteed well-formed here (eager-checked above if present).
-if [ -n "$tracked_cfg" ] && get_value "$tracked_cfg" "$key"; then
-  emit repo-tracked
+if [ -n "$tracked_cfg" ]; then
+  strict_key_shape "$tracked_cfg" repo-tracked
+  if get_value "$tracked_cfg" "$key"; then
+    emit repo-tracked
+  fi
 fi
 if [ -n "$adopter_cfg" ] && [ -e "$adopter_cfg" ]; then
   if malformed_config "$adopter_cfg"; then
@@ -307,8 +333,11 @@ if [ -n "$adopter_cfg" ] && [ -e "$adopter_cfg" ]; then
       exit 6
     fi
     echo "config-get: warning: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
-  elif get_value "$adopter_cfg" "$key"; then
-    emit adopter
+  else
+    strict_key_shape "$adopter_cfg" adopter
+    if get_value "$adopter_cfg" "$key"; then
+      emit adopter
+    fi
   fi
 fi
 if [ -n "$defaults" ] && get_value "$defaults" "$key"; then

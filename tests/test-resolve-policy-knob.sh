@@ -162,6 +162,28 @@ printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malf
 done
 echo "ok: each gate knob resolves through all four layers and degrades to its strict target"
 
+# YAML reads `key : v` as the key, and a repeated key as its last value, while
+# the flat reader skips the first and takes the first of the second: either
+# shape could otherwise land on the permissive core value.
+printf 'worker_base_merge: allow\n' >"$core_cfg"
+for body in 'worker_base_merge : deny' 'worker_base_merge: allow
+worker_base_merge: deny'; do
+  reset_layers
+  printf '%s\n' "$body" >"$tracked_cfg"
+  rc=0
+  rpk worker_base_merge >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] || fail "worker_base_merge: a repo-tracked '$body' exited $rc, expected 4"
+  for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
+    reset_layers
+    printf '%s\n' "$body" >"$layer_cfg"
+    got=$(rpk worker_base_merge 2>"$tmp/err") || fail "worker_base_merge: '$body' in $layer_cfg did not resolve"
+    [ "$got" = deny ] || fail "worker_base_merge: '$body' in $layer_cfg resolved to '$got', expected deny"
+    grep -q warning "$tmp/err" || fail "worker_base_merge: '$body' in $layer_cfg degraded without a warning"
+  done
+done
+reset_layers
+echo "ok: a spaced or repeated gate key is malformed, never read past"
+
 # The flip wait is a bound, not a gate: a malformed overlay value degrades to
 # the core default like every other duration knob.
 printf 'ready_flip_ci_wait: 10m\n' >"$core_cfg"

@@ -33,7 +33,9 @@
 # land on the permissive side):
 #   --degrade <v>   a malformed adopter / machine-local value, or a malformed
 #                   overlay file config-get would otherwise skip, degrades to
-#                   <v> instead of the core default.
+#                   <v> instead of the core default. In any overlay layer, the
+#                   key written `key : v` or more than once counts as a
+#                   malformed value there.
 #   --no-degrade    nothing degrades: a malformed value or file in any overlay
 #                   layer exits 4, and a key no layer sets exits 5 (as a
 #                   malformed core default does), so the caller reads every
