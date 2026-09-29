@@ -1,7 +1,8 @@
 #!/bin/bash
 # The core root chain lives in one place (custom-spec-location REQ-C1.1):
-#   * no script under scripts/ but the resolver reads the chain's variables to
-#     pick a root, apart from the allowlisted sites below;
+#   * no script under scripts/ but the resolver reads the chain's variables or
+#     composes its writer-delivery directory, apart from the allowlisted sites
+#     below;
 #   * both command guards take the chain from the resolver, and each keeps its
 #     own trust policy: the worker guard adds its own root and the installed
 #     roots, the tower guard trusts the plugin-delivery arm alone.
@@ -25,12 +26,15 @@ fail() {
 # <script> TAB <why it may read the chain's variables>. A row matching nothing
 # fails as stale, so a site that moves onto the resolver deletes its row.
 allowlist='fleet-dispatch-env.sh	publishes the operator'"'"'s own values into a worker'"'"'s environment; it picks no root
+install.sh	it writes the writer-delivery copy, so it names that directory as a destination, not as an arm
 inception-scaffold.sh	the venture hook it emits runs outside planwright and must locate a copy before it can ask that copy'"'"'s resolver'
 
-# chain_reads <file>: the non-comment lines expanding either variable. An
-# escaped `\$NAME` is hook text being substituted, not an expansion.
+# chain_reads <file>: the non-comment lines expanding either variable, or
+# naming the writer-delivery directory itself (`<claude-dir>/planwright` with
+# nothing below it). An escaped `\$NAME` is hook text being substituted, not
+# an expansion.
 chain_reads() {
-  grep -nE '(^|[^\\])\$\{?(PLANWRIGHT_ROOT|CLAUDE_PLUGIN_ROOT)([^A-Za-z0-9_]|$)' "$1" \
+  grep -nE '(^|[^\\])\$\{?(PLANWRIGHT_ROOT|CLAUDE_PLUGIN_ROOT)([^A-Za-z0-9_]|$)|(\.claude|claude_dir|CLAUDE_DIR)\}?/planwright(["}]|$)' "$1" \
     | grep -vE '^[0-9]+:[[:space:]]*#'
 }
 
@@ -63,8 +67,11 @@ trap 'rm -rf "$tmp"' EXIT
 # shellcheck disable=SC2016 # planted lines are literal shell text
 printf 'for r in "${PLANWRIGHT_ROOT:-}" x; do :; done\n' >"$tmp/inline.sh"
 # shellcheck disable=SC2016
+printf 'w="${CLAUDE_DIR:-$HOME/.claude}/planwright"\n' >"$tmp/writer.sh"
+# shellcheck disable=SC2016
 printf '# $PLANWRIGHT_ROOT in a comment\ns=${s//\\$CLAUDE_PLUGIN_ROOT/x}\nPLANWRIGHT_ROOT=/x cmd\n' >"$tmp/clean.sh"
 if chain_reads "$tmp/inline.sh" >/dev/null; then ok "the grep flags an inline chain"; else fail "the grep missed an inline chain"; fi
+if chain_reads "$tmp/writer.sh" >/dev/null; then ok "the grep flags a hand-rolled writer-delivery arm"; else fail "the grep missed a writer-delivery arm"; fi
 if chain_reads "$tmp/clean.sh" >/dev/null; then fail "the grep flagged a comment, escaped text, or an assignment"; else ok "the grep passes comments, escaped text, and assignments"; fi
 
 for g in "$WORKER" "$TOWER"; do
