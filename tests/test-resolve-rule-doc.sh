@@ -549,6 +549,7 @@ cnt_dir="$ovbase/count-primary"
 mkdir -p "$cnt_dir"
 cp "$RESOLVER" "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$cnt_dir/"
 cp "$REPO_ROOT/scripts/resolve-root.sh" "$cnt_dir/resolve-root.real.sh"
+# shellcheck disable=SC2016 # the shim's own \$0 and \$@ must stay literal
 printf '%s\n' '#!/bin/sh' "printf '%s\\n' \"\$*\" >>\"$ovbase/primary-calls.log\"" \
   'exec /bin/sh "${0%/*}/resolve-root.real.sh" "$@"' >"$cnt_dir/resolve-root.sh"
 cnt_repo="$ovbase/count-repo"
