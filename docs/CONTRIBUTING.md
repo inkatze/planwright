@@ -79,6 +79,13 @@ mise run check      # the full local equivalent of the CI gate
   snapshots, and the machine-local memory-link guard over spec files;
 - the spec validator over `specs/`, the anchor-freshness guard over every
   signed bundle, and the observation-store guard;
+- the literal spec-home guard (`check:spec-literals`): a `specs/` path composed
+  in a script, a hook, a `mise.toml` task body, `lefthook.yml`, `.gitignore`,
+  or a workflow fails unless `config/spec-literal-allowlist.tsv` exempts it or
+  `config/spec-literal-pending.tsv` lists it for a later migration task; resolve
+  the root with `scripts/resolve-root.sh spec` instead. The pending list only
+  shrinks (a row the base branch's copy lacks fails), and the allowlist admits
+  only its three classes (`resolver`, `namespace`, `static-glob`);
 - the hook-backstop wiring check (see below), the purged-identifier guard
   (see below), the coordination-artifact hygiene guard (a clean no-op on a
   tree that commits no presence record or fence-ref line), and the

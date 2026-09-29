@@ -1,0 +1,24 @@
+# Permanent exemptions from scripts/check-spec-literals.sh, matched by file and
+# whitespace-trimmed line text, one row per occurrence. Exactly three classes:
+#   resolver     the resolver itself (scripts/resolve-root.sh only)
+#   namespace    a specs/<id> naming a spec, not a directory: the Consumed-by
+#                writer and the alias mapper
+#   static-glob  a pattern a tool reads statically: the lefthook pre-commit glob
+#                (its limitation for a relocated root is accepted) and the
+#                default root's ignore rules (a relocated root gets its own from
+#                resolve-root.sh spec --init)
+#
+# class<TAB>path<TAB>line
+namespace	scripts/obs-consume.sh	consume_meta="Consumed-by: specs/$spec ($today)"
+namespace	scripts/obs-consume.sh	legacy_suffix=" — consumed-by: specs/$spec ($today)"
+namespace	scripts/obs-consume.sh	legacy_same_spec=" — consumed-by: specs/$spec ("
+namespace	scripts/obs-consume.sh	OBS_PREFIX="Consumed-by: specs/$spec (" awk '
+resolver	scripts/resolve-root.sh	sr_specs=$(canon "$rp_path/specs") || sr_specs=""
+namespace	scripts/spec-walkthrough.sh	specs/*) spec=${spec#specs/} ;;
+static-glob	lefthook.yml	glob: "specs/**"
+static-glob	.gitignore	specs/*/.orchestrate.lock
+static-glob	.gitignore	specs/*/.tasks-pr-sync.*
+static-glob	.gitignore	specs/*/.orchestrate/
+static-glob	.gitignore	specs/_pending/notes.md
+resolver	scripts/resolve-root.sh	sr_primary=$rp_path/specs
+resolver	scripts/resolve-root.sh	sr_primary=$rp_path/specs

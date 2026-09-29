@@ -284,7 +284,7 @@ supported configuration ships while the doctrine still calls it wrong.
 
 ## Awaiting input
 
-(none yet)
+- **Task 4** — draft PR #528 is open and reviewed, but its CI cannot go green: `scan:secrets` fails on a test fixture in another open branch's commit (the full-history scan sees every fetched ref, and main's own CI is red the same way), and mise stops the test suite when it does. PR #526 fixes it and is unmerged. Once #526 lands, merge `origin/main` into the task branch and re-run CI; the queued question Q1 in the PR body (how a probed output changed by work outside this migration is declared) also needs an answer.
 
 ## Deferred
 

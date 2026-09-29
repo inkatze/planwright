@@ -1,0 +1,57 @@
+# Sites scripts/check-spec-literals.sh flags that are not yet migrated onto
+# the resolver, each tagged with the spec-location task that migrates it.
+# Shrink-only, and checked against the base branch's copy: a migration deletes
+# its rows, and a new literal is resolved rather than added here. One row
+# clears one occurrence of its line.
+#
+# task<TAB>path<TAB>line
+5	mise.toml	run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' 'specs/**/*.md' 'templates/**/*.md' '!specs/_observations/**'"
+5	mise.toml	/bin/bash scripts/spec-validate.sh specs/
+5	scripts/check-anchor-freshness.sh	[ -n "$specs_root" ] || specs_root="$repo_root/specs"
+5	scripts/check-anchor-freshness.sh	specs/*) rc_id=${rc_arg#specs/} ;;
+5	scripts/check-ledger.sh	for d in "$repo_root"/specs/*/; do
+5	scripts/check-ledger.sh	echo "check-ledger: no spec bundles found under $repo_root/specs" >&2
+5	scripts/check-memory-links.sh	for d in "$repo_root"/specs/*/; do
+5	scripts/fleet-dispatch-headless.sh	if [ ! -d "$rud_root/specs/$1" ]; then
+5	scripts/fleet-dispatch-headless.sh	warn "spec bundle not found: $rud_root/specs/$1"
+5	scripts/fleet-dispatch-headless.sh	rud_spec_dir="$rud_root/specs/$1"
+5	scripts/fleet-dispatch-worktree.sh	[ -n "$_flight" ] || _spec_dir="$_repo_root/specs/$_spec"
+5	scripts/fleet-fence.sh	rtf_dir="$checkout/specs/_observations"
+5	scripts/fleet-fence.sh	spec_dir="$checkout/specs/$spec"
+5	scripts/fleet-sweep.sh	if [ -x "$SYNC" ] && [ -d "$repo/specs" ]; then
+5	scripts/fleet-sweep.sh	for d in "$repo"/specs/*/; do
+5	scripts/fleet-sweep.sh	rel="specs/$(basename "$d")"
+5	scripts/fleet-tower-watchdog.sh	*/specs) ;;
+5	scripts/fleet-tower-watchdog.sh	echo "fleet-tower-watchdog: refusing spec dir outside a specs/ parent" >&2
+5	scripts/flight-dispatch.sh	printf '%s\n' "- Write no spec state and edit no spec bundle under \`specs/<spec>/\`; a flight"
+5	scripts/flight-dispatch.sh	printf '%s\n' "  is specless. The record file under \`specs/_flights/\` is not a bundle."
+5	scripts/flight-dispatch.sh	record="specs/_flights/$flight_id.md"
+5	scripts/flight-id.sh	_rec=specs/_flights/$_id.md
+5	scripts/migrate-format-version.sh	target=${1:-$repo_root/specs}
+5	scripts/migrate-status-lifecycle.sh	specs_arg="${1:-$repo_root/specs}"
+5	scripts/orchestrate-lock.sh	*/specs) ;;
+5	scripts/orchestrate-lock.sh	echo "orchestrate-lock: spec dir '$canon_dir' is not contained under a specs/ parent; refusing (REQ-F1.1)" >&2
+5	scripts/spec-walkthrough.sh	bundle_dir="specs/$spec"
+5	scripts/spec-walkthrough.sh	echo "spec-walkthrough: resolved bundle path escapes the specs/ tree; refused before any read" >&2
+5	scripts/spec-walkthrough.sh	echo "spec-walkthrough: no bundle at specs/$spec — the directory is absent (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
+5	scripts/spec-walkthrough.sh	echo "spec-walkthrough: bundle at specs/$spec holds none of the four spec files (expected requirements.md, design.md, tasks.md, test-spec.md)" >&2
+5	scripts/spec-walkthrough.sh	printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a file absent from specs/$spec; available files: $present" >&2
+5	scripts/spec-walkthrough.sh	printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a requirement group, but requirements.md is absent from specs/$spec" >&2
+5	scripts/spec-walkthrough.sh	printf '%s\n' "spec-walkthrough: scope '$scope_safe' resolves to no requirement group in specs/$spec; available groups: $(req_groups)" >&2
+5	scripts/spec-walkthrough.sh	echo "spec-walkthrough: scope 'decisions' resolves to no decision set in specs/$spec; design.md is absent or holds no decisions" >&2
+5	scripts/spec-walkthrough.sh	echo "spec-walkthrough: scope 'tasks' resolves to no task graph in specs/$spec; tasks.md is absent" >&2
+5	scripts/spec-walkthrough.sh	printf '%s\n' "spec-walkthrough: scope '$scope_safe' names a decision, but design.md is absent from specs/$spec" >&2
+5	scripts/spec-walkthrough.sh	printf '%s\n' "spec-walkthrough: scope '$scope_safe' resolves to no decision in specs/$spec; available decisions: $(decision_ids)" >&2
+5	scripts/spec-walkthrough.sh	specs_real=$(cd specs 2>/dev/null && pwd -P) || specs_real=
+5	scripts/tasks-pr-sync.sh	specs_root="$primary/specs"
+6	scripts/dispatch-fetch.sh	printf '%s\n' "usage: dispatch-fetch.sh [--spec <specs/<name>>] [--best-effort] <repo-root>" >&2
+6	scripts/dispatch-fetch.sh	printf '%s\n' "dispatch-fetch: --spec requires a non-empty 'specs/<name>' value" >&2
+6	scripts/dispatch-fetch.sh	specs/*) : ;;
+6	scripts/dispatch-fetch.sh	printf '%s\n' "dispatch-fetch: --spec must be 'specs/<name>' (got '$(sanitize_printable "$spec_rel")')" >&2
+6	scripts/dispatch-fetch.sh	spec_name="${spec_rel#specs/}"
+6	scripts/fleet-tower-watchdog.sh	"/orchestrate --watch --unattended specs/$spec" 2>/dev/null || {
+9	scripts/check-obs.sh	obsdir="specs/_observations"
+9	scripts/obs-consume.sh	obsdir="specs/_observations"
+9	scripts/obs-record.sh	obsdir="specs/_observations"
+9	scripts/obs-render.sh	obsdir="specs/_observations"
+9	scripts/observation-carry.sh	obs_dir="specs/_observations"
