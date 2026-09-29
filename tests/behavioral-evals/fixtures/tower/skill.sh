@@ -434,7 +434,10 @@ handle_event() { # handle_event <line>
           return 0
           ;;
       esac
-      _he_state="$(evidence_state)" || _he_state=""
+      if ! _he_state="$(evidence_state)" || [ -z "$_he_state" ]; then
+        reject_event flight-landed "the durable evidence could not be read, so it is not checked"
+        return 0
+      fi
       _he_fid="$(event_arg "$_he_ev" flight)"
       if [ -z "$_he_fid" ]; then
         _he_fid="$(printf '%s' "$_he_state" | jq -r 'if (.unlanded | length) == 1 then .unlanded[0] else "" end' 2>/dev/null)"

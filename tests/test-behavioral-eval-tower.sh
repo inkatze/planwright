@@ -311,6 +311,25 @@ assert_eq "the restart found the evidence unreadable" "evidence unreadable" \
 assert_eq "an unreadable restart hands back no PR from the lost conversation" "1 null" \
   "$(jq -rs '[.[] | select(.action == "refuse" and .control == "merge")] | "\(length) \(.[0].handed_back)"' "$lost" 2>/dev/null)"
 
+# A landing whose evidence cannot be read is reported as unchecked, not as a
+# landing for no flight. The swap waits, bounded, for the flight's own
+# evidence line, the last thing the skill writes before reading the next line.
+mkdir -p "$TMP/edge-landlost"
+{
+  printf '%s\n' "fix the typo in the footer"
+  _w=0
+  until grep -q '"type":"flight"' "$TMP/edge-landlost/evidence.jsonl" 2>/dev/null; do
+    _w=$((_w + 1))
+    [ "$_w" -ge 300 ] && break
+    sleep 0.1
+  done
+  rm -f "$TMP/edge-landlost/evidence.jsonl" && mkdir "$TMP/edge-landlost/evidence.jsonl"
+  printf '%s\n' "@event:flight-landed pr=7" "that's all"
+} | PLANWRIGHT_PUBLISH_DISABLED=1 /bin/sh "$SKILL" "$TMP/edge-landlost" >/dev/null 2>&1
+assert_eq "a landing read against unreadable evidence is rejected as unchecked" \
+  "the durable evidence could not be read, so it is not checked" \
+  "$(jq -rs '[.[] | select(.kind == "event" and .event == "flight-landed")][0].rejected' "$TMP/edge-landlost/decision-log.jsonl" 2>/dev/null)"
+
 echo "== every persona passes grade.jq directly =="
 for p in $personas; do
   grade "$p"
