@@ -19,8 +19,10 @@ def nonempty: (type == "string") and (length > 0);
 | ([$log[] | select(.kind == "answer" or .kind == "event") | .seq]) as $inputs
 | ([$log[] | select(.kind == "present")]) as $presented
 # the tower's own words: a quoted ask is the operator's, not the tower's
-| ($presented | map(if .quote then ("\"" + .quote + "\"") as $q | (.text // "") | split($q) | join(" ") else (.text // "") end)
-   | join(" ") | ascii_downcase) as $corpus
+| def own_words: if .case == true and (.quote | type) == "string"
+                  then ("\"" + .quote + "\"") as $q | (.text // "") | split($q) | join(" ")
+                  else (.text // "") end;
+  ($presented | map(own_words) | join(" ") | ascii_downcase) as $corpus
 | ({visual: "visual flight", instrument: "instrument flight", answer: "answered here", offload: "read-only look"}) as $labels
 | ({zone: "instrument", irreversible: "instrument", ambiguity: "instrument", reversible: "visual",
     question: "answer", "read-only": "offload"}) as $rule
@@ -72,8 +74,8 @@ def nonempty: (type == "string") and (length > 0);
       if .route == "instrument" then
         .ask_seq as $a | .seq as $q | .grounds as $g | .trigger as $tr
         | [$presented[] | select(.case == true and .ask_seq == $a and .seq > $q and .seq < next_input($q))
-           | select(.text | test("just do it|fly it visual"))
-           | select(if ($tr == "zone" or $tr == "irreversible") then (.text | contains("(my reservation: " + $g + ")")) else true end)]
+           | select(own_words | test("just do it|fly it visual"))
+           | select(if ($tr == "zone" or $tr == "irreversible") then (own_words | contains("(my reservation: " + $g + ")")) else true end)]
         | length > 0
       else true end)
    and ($presented | all(

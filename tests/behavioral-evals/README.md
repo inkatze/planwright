@@ -164,7 +164,7 @@ no `turn_*` keys. The fields the grade reads:
 
 | Record | Fields |
 | --- | --- |
-| `answer` | `source`, and `text`, which must say yes for a draft and go for an orchestration |
+| `answer` | `source`, and `text`: after lowercasing and folding punctuation, a draft's turn is one of `yes`, `yes please`, `yes file it`, `file it`, `go ahead and file it`, and an orchestration's is `go` or `go ahead` |
 | `event` | `source`, `event` (`flight-landed`, `draft-complete`, `signoff-complete`, `spec-pr-merged`, `session-restart`), `pr` or `spec` where the event names one, `rejected` when the stand-in refused it |
 | `present` | `text`; the one-page case adds `case: true`, `ask_seq`, and `quote` (the ask verbatim, quoted in the text, and excluded from the verdict scan) |
 | `decision`, `action: route` | `ask_seq`, `route`, `trigger`, `grounds`, `override`, `crossed`, `reservation`, `size_advisory`, `statement` |

@@ -254,9 +254,11 @@ assert_eq "a landing naming no flight, with two in the air, is rejected" \
   "it names no flight still waiting on a landing" \
   "$(jq -rs '[.[] | select(.kind == "event")][0].rejected' "$TMP/edge-twoflights/decision-log.jsonl")"
 
-edge vague "" "hello" "what is in flight" "that's all"
-assert_eq "an ask with nothing to change or answer dispatches nothing" "" \
-  "$(jq -rs '[.[] | select(.action == "dispatch" or .action == "route")] | length | select(. > 0)' "$TMP/edge-vague/decision-log.jsonl")"
+edge vague "" "hello" "what is in flight" "just do it" "write it up" "that's all"
+assert_eq "an ask with nothing to change or answer, a bare override included, dispatches nothing" "0" \
+  "$(jq -rs '[.[] | select(.action == "dispatch" or .action == "route")] | length' "$TMP/edge-vague/decision-log.jsonl" 2>/dev/null)"
+assert_eq "each gets the clarifying question" "5" \
+  "$(jq -rs '[.[] | select(.kind == "present" and (.text | contains("I cannot tell what you want")))] | length' "$TMP/edge-vague/decision-log.jsonl" 2>/dev/null)"
 
 echo "== every persona passes grade.jq directly =="
 for p in $personas; do
@@ -374,8 +376,12 @@ mutate escalation '(.decision_log | map(select(.target == "spec-draft"))[0].on_s
 assert_exit "a draft on a turn that did not say yes fails" 1 "$?"
 mutate refusal-merge '(.decision_log | map(select(.kind == "answer"))[-1].seq) as $l | .decision_log |= map(if .control == "merge" then .ask_seq = $l else . end)'
 assert_exit "a refusal credited to a later turn fails" 1 "$?"
-mutate escalation '.decision_log |= map(if .case == true then .quote = "o" | .text += " This looks good to me." else . end)'
-assert_exit "a case whose quote is not the ask cannot hide a verdict" 1 "$?"
+mutate escalation '.decision_log |= map(if .case == true then .quote = "o" else . end)'
+assert_exit "a case whose quote is not the ask fails" 1 "$?"
+mutate chat-only '.decision_log += [{"v":2,"seq":999,"phase":"route","kind":"present","quote":"This looks good to me.","text":"\"This looks good to me.\""}]'
+assert_exit "a quote outside a case cannot hide a verdict" 1 "$?"
+mutate escalation '(.decision_log | map(select(.case == true))[0]) as $c | ($c.quote + " do not just do it") as $q | .decision_log |= map(if .seq == $c.ask_seq then .text = $q elif .case == true then .quote = $q | .text |= (sub("\"" + $c.quote + "\""; "\"" + $q + "\"") | sub("say \"just do it\" to fly it visual"; "")) else . end)'
+assert_exit "the operator's own words cannot stand in for the visual alternative" 1 "$?"
 mutate escalation '.decision_log |= map(if .case == true then .text |= sub("say \"just do it\" to fly it visual"; "") else . end)'
 assert_exit "a case without the visual alternative fails" 1 "$?"
 mutate consecutive '.decision_log |= map(if .action == "route" and .trigger == "read-only" then .trigger = "override" | .override = "offload" else . end)'

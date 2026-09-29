@@ -357,6 +357,8 @@ route_mutation() {
 reconstruct() {
   case_seq=""
   offered_spec=""
+  last_pr=""
+  signed_spec=""
   if ! _rc_state="$(evidence_state)" || [ -z "$_rc_state" ]; then
     say "Fresh session. The durable evidence could not be read, so what is in flight is unknown — not checked."
     log_entry decision '{action: "reconstruct", source: "evidence", error: "evidence unreadable", flights: null}'
@@ -552,8 +554,10 @@ handle_operator() { # handle_operator <raw>
     log_entry decision '{action: "dispatch", target: "read-only-offload", ask_seq: $ask, on_seq: $ask, flight_identity: false}' --argjson ask "$_ho_ask"
     return 0
   fi
-  if has_mutation_verb "$_ho_w" || [ -n "$(override_of "$_ho_w")" ] || [ -n "$(zone_of "$_ho_w")" ] \
-    || [ -n "$(irreversible_of "$_ho_w")" ] || is_ambiguous "$_ho_w"; then
+  # An override alone names no change; what is left once it is removed must.
+  _ho_subject="$(printf '%s' "$_ho_w" | sed 's/ write this one up / /; s/ write it up / /; s/ just do it / /; s/ fly it visual / /; s/ file a plan / /')"
+  if has_mutation_verb "$_ho_subject" || [ -n "$(zone_of "$_ho_subject")" ] \
+    || [ -n "$(irreversible_of "$_ho_subject")" ] || is_ambiguous "$_ho_subject"; then
     route_mutation "$_ho_ask" "$_ho_raw" "$_ho_w"
   else
     say "I cannot tell what you want changed or answered. What would you like done?"
