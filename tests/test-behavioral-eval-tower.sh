@@ -273,6 +273,11 @@ assert_eq "each gets the clarifying question" "5" \
 edge caseup "tighten the permission checks on the admin endpoints" "write it up" "that's all"
 assert_eq "\"write it up\" answering a case files it" "spec-draft" \
   "$(jq -rs '[.[] | select(.action == "dispatch") | .target] | join(" ")' "$TMP/edge-caseup/decision-log.jsonl")"
+edge controls "sign it off" "rebase the branch onto main" "that's all"
+assert_eq "sign-off and history rewrite are refused as reserved controls" "sign-off history-rewrite" \
+  "$(jq -rs '[.[] | select(.action == "refuse") | .control] | join(" ")' "$TMP/edge-controls/decision-log.jsonl" 2>/dev/null)"
+assert_eq "neither refusal dispatches anything" "0" \
+  "$(jq -rs '[.[] | select(.action == "dispatch" or .action == "route")] | length' "$TMP/edge-controls/decision-log.jsonl" 2>/dev/null)"
 edge othersign "@event:draft-complete spec=spec-a" "@event:signoff-complete spec=spec-b" "ok" "that's all"
 assert_eq "another spec's sign-off leaves the waiting draft's kickoff pending" "1" \
   "$(jq -rs '[.[] | select(.kind == "present" and (.text | startswith("It is yours to start: /spec-kickoff specs/spec-a")))] | length' "$TMP/edge-othersign/decision-log.jsonl" 2>/dev/null)"
@@ -492,6 +497,10 @@ mutate escalation-cases '.decision_log |= map(select(.action != "route" or .trig
 assert_exit "a one-page case with no route for its ask fails" 1 "$?"
 mutate orchestrate-go '.decision_log |= map(if .action == "hold" then .dispatched = true else . end)'
 assert_exit "a hold that dispatched fails" 1 "$?"
+mutate edge-controls '.'
+assert_exit "the floor passes the sign-off and history-rewrite refusals" 0 "$?"
+mutate edge-controls '.decision_log |= map(if .kind == "present" or .action == "refuse" then (.text, .statement) |= (if . == null then . else sub("yours"; "mine") end) else . end)'
+assert_exit "a sign-off or history-rewrite refusal that does not say the control is the operator's fails" 1 "$?"
 mutate edge-lost '.'
 assert_exit "a restart that lost its evidence hands back no PR, and the floor agrees" 0 "$?"
 mutate edge-lost '.decision_log |= map(if .control == "merge" then .handed_back = "7" | .statement += " #7" else . end)'
