@@ -175,12 +175,7 @@ produced, whose Notes cells quote tooling output.
   discipline with the `[pending-sign-off]` subject marker, and entered in the
   pending-sign-off checklist. A behaviour-changing fix commits alone;
   prose-only ones batch into one commit per loop iteration carrying the wiring
-  doc's manifest, so one commit can carry several checklist entries. Before
-  committing, self-lint the subject by piping it in —
-  `printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin`
-  (under the resolved planwright root) — so the marker sits at the canonical
-  end-of-subject position (`gate-wiring`) and a mis-placed one is reworded
-  before it reaches history.
+  doc's manifest, so one commit can carry several checklist entries.
 - Needs-human-judgment candidates climb the resolution ladder; every
   consulted rung is recorded. Only irreducible forks queue, with bespoke
   options.

@@ -111,8 +111,7 @@ Each iteration:
    iteration counter, and loop.
 
 Finding fixes commit inside the pass per the `gate-wiring` commit
-discipline, including the marked-subject self-lint the pass performs
-(loop-level writes, such as observation fragment writes, take their own chore
+discipline (loop-level writes, such as observation fragment writes, take their own chore
 commit at the iteration boundary). Polish never
 amends, squashes, rebases, or force-pushes; each iteration's commits stand as
 the per-iteration audit trail.
