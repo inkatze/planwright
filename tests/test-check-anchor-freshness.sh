@@ -365,6 +365,19 @@ OUT=$(PLANWRIGHT_ROOT="$tmp/nowhere" CLAUDE_PLUGIN_ROOT="$tmp/nowhere" CLAUDE_DI
 assert_rc "an unresolvable sanctioned form fails closed" 1
 assert_has "the unresolvable record names the absent-anchor class" "absent-anchor"
 
+# A copy that lost the root helper says so and still searches its own tree.
+f5c="$tmp/f5c"
+mkdir -p "$f5c/scripts" "$f5c/specs"
+cp "$GUARD" "$repo/scripts/spec-parse.sh" "$f5c/scripts/"
+make_bundle "$f5c/specs" unresolvable Ready 'A requirement body.'
+write_entry "$f5c/specs" unresolvable "$("$ANCHOR" "$f5c/specs/unresolvable")" \
+  "spec-anchor.sh specs/unresolvable"
+RC=0
+OUT=$(PLANWRIGHT_ROOT="$tmp/nowhere" CLAUDE_PLUGIN_ROOT="$tmp/nowhere" CLAUDE_DIR="$tmp/nowhere" \
+  "$f5c/scripts/check-anchor-freshness.sh" "$f5c/specs" 2>&1) || RC=$?
+assert_rc "without the root helper the form still fails closed" 1
+assert_has "without the root helper the run names the broken install" "root helper"
+
 # A bundle missing one of the four files cannot be recomputed by ANY sanctioned
 # form, so the record must name that — not blame the anchor. The script forms
 # already fail closed; the interim whole-file form is a pipeline whose status
