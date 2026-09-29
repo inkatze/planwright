@@ -491,7 +491,7 @@ cmd_write() {
   if [ "$completion" -eq 1 ]; then
     for f in "$step" "$kind" "$target" "$hosting" "$backend" "$session" \
       "$start" "$end" "$outcome" "$excerpt_file" "$output" "$skip_reason"; do
-      [ -z "$f" ] || die 2 "write --completion takes only --run, --point, --head, and --warning"
+      [ -z "$f" ] || bad --completion "takes only --run, --point, --head, and --warning"
     done
     scratch
     cleaned=''
@@ -510,7 +510,7 @@ cmd_write() {
     claim "$run" "done-$point" completion "$work/body"
     return
   fi
-  [ -z "$warnings" ] || die 2 "--warning belongs to write --completion"
+  [ -z "$warnings" ] || bad --warning "belongs to write --completion"
 
   is_step_id "$step" || bad --step "not a step id"
   [ "$step" != implementation ] || bad --step "reserved for the implementation phase"

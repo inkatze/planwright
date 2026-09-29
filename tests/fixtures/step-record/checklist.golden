@@ -11,6 +11,9 @@
 - [ ] **PS-5** fix\(z\): a fix whose revert was reverted · commit `@C9@`
   - Route reason: not recorded in the commit
   - Reject with: `git revert @C9@`
+- [ ] **PS-7** fix\(early\): committed before PS-1 but numbered after it · commit `@C0@`
+  - Route reason: behaviour change @&#8203;reviewer
+  - Reject with: `git revert @C0@`
 - [ ] **legacy** fix\(old\): a legacy-marked fix · commit `@C6@`
   - Route reason: not recorded in the commit
   - Reject with: `git revert @C6@`
