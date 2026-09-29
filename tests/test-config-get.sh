@@ -685,8 +685,17 @@ got=$(cd "$cg_copy" && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DI
   PLANWRIGHT_ADOPTER_OVERLAY="$cg_copy/no-adopter" /bin/sh "$cg_copy/scripts/config-get.sh" dispatch_backend) \
   || fail "non-executable root helper: config-get exited non-zero"
 [ "$got" = from_copy ] || fail "non-executable root helper: expected from_copy, got: $got"
+# A copy that lost the root helper says so and reports the key unresolved.
+rm -f "$cg_copy/scripts/resolve-root.sh"
+rc=0
+err=$(cd "$cg_copy" && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u PLANWRIGHT_CONFIG_DEFAULTS \
+  HOME="$cg_copy/no-home" PLANWRIGHT_REPO_ROOT="$cg_copy/no-repo" PLANWRIGHT_LOCAL_CONFIG="$cg_copy/no-local.yml" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$cg_copy/no-adopter" /bin/sh "$cg_copy/scripts/config-get.sh" dispatch_backend 2>&1 >/dev/null) || rc=$?
+[ "$rc" -eq 3 ] || fail "missing root helper: expected exit 3, got $rc"
+case $err in *"root helper"*"broken install"*) ;; *) fail "missing root helper: expected a broken-install warning, got: $err" ;; esac
 rm -rf "$wt_repo" "$cg_copy"
 echo "ok: a worktree reads the primary checkout's machine-local overlay, never its own copies"
 echo "ok: a root helper without its execute bit still locates the core defaults"
+echo "ok: a copy without the root helper names the broken install and exits 3"
 
 echo "PASS: config-get"
