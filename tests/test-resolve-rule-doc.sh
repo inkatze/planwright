@@ -543,6 +543,24 @@ out="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
 assert "non-executable root helper: resolves core, zero exit" 0 $?
 assert_eq "non-executable root helper: lands on core" "CORE ONLY" "$(cat "$out" 2>/dev/null)"
 
+# 22c. The two repo-side layers share one repository root, so an unpinned call
+#      resolves the primary checkout once, not once per layer.
+cnt_dir="$ovbase/count-primary"
+mkdir -p "$cnt_dir"
+cp "$RESOLVER" "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$cnt_dir/"
+cp "$REPO_ROOT/scripts/resolve-root.sh" "$cnt_dir/resolve-root.real.sh"
+printf '%s\n' '#!/bin/sh' "printf '%s\\n' \"\$*\" >>\"$ovbase/primary-calls.log\"" \
+  'exec /bin/sh "${0%/*}/resolve-root.real.sh" "$@"' >"$cnt_dir/resolve-root.sh"
+cnt_repo="$ovbase/count-repo"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c init.defaultBranch=main init -q "$cnt_repo"
+: >"$ovbase/primary-calls.log"
+(cd "$cnt_repo" && env -u PLANWRIGHT_REPO_ROOT PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" \
+  CLAUDE_DIR="" HOME="" PLANWRIGHT_ADOPTER_OVERLAY="$ovbase/no-adopter" \
+  /bin/bash "$cnt_dir/resolve-rule-doc.sh" provdoc >/dev/null 2>&1)
+assert "unpinned repo-side layers: resolves, zero exit" 0 $?
+assert_eq "unpinned repo-side layers: the primary checkout is resolved once" "1" \
+  "$(grep -c -- 'repo --primary' "$ovbase/primary-calls.log")"
+
 # 23. The resolver surfaces the overlay helper's own diagnostics rather than
 #     swallowing them (the layer-root call must not use 2>/dev/null). When the
 #     writer-mode plugin manifest name is not a valid identifier, the helper
