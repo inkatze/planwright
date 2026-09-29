@@ -1,0 +1,13 @@
+## Pending sign-off
+
+- [ ] **PS-1** fix(stamp): reword the degraded case · commit `@C1@`
+  - Route reason: meaning-class prose, pre-existing surface
+  - Reject with: `git revert @C1@`
+- [ ] **PS-3** docs(guide): two prose fixes &#64;someone fixes &#35;12 · commit `@C4@`
+  - Route reason: meaning-class prose on surfaces that predate the PR
+  - `docs/a.md` — before: absent · after: the rule
+  - `docs/b.md` — before: the old rule · after: the new rule
+  - Reject with: `git revert @C4@`; rejecting one sub-item is a hand edit the manifest guides
+- [ ] **legacy** fix(old): a legacy-marked fix · commit `@C6@`
+  - Route reason: not recorded in the commit
+  - Reject with: `git revert @C6@`

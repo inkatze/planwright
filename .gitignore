@@ -43,6 +43,9 @@ mise.local.toml
 # side of its loop-end handoff. Same class as the handover brief: per-worktree,
 # overwritten per run, read by the parent skill or /resume, never source.
 .claude/polish-audit.md
+# Custom-steps records (custom-steps D-16): per-run step records and captured
+# output written by scripts/step-record.sh, folded into the PR body, never source.
+.claude/steps/
 # Worker scratch staged for relay: consumed by the orchestrator, never tracked.
 # An uncommitted leftover here fails the release publisher's clean-tree gate.
 .claude/relay/
