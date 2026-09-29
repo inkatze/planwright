@@ -255,6 +255,14 @@ printf '%s\n' "$OUT" | grep -q 'were stripped from it' || fail "a nested strip m
 } >"$in/audit-ps.md"
 run_render pr --audit-file "$in/audit-ps.md"
 lead_of "$OUT" | grep -qF 'Pending sign-off:** PS-1, PS-2 (' || fail "the lead must list PS-1, PS-2 once each, in order"
+# Only an item's own leading ID counts: a checked item another one mentions
+# stays out of the lead.
+{
+  sed 's/^- \[ \] \*\*PS-1\*\*/- [x] **PS-1**/' "$in/audit.md"
+  printf -- '- [ ] **PS-2** waits on PS-1\n'
+} >"$in/audit-ps-ref.md"
+run_render pr --audit-file "$in/audit-ps-ref.md"
+lead_of "$OUT" | grep -qF 'Pending sign-off:** PS-2 (' || fail "the lead must list only PS-2: $(lead_of "$OUT" | grep 'Pending sign-off')"
 
 # An ask or grounds without a final newline still gets its fence closed on a
 # line of its own.
@@ -354,7 +362,7 @@ done
 for bad in '<!-- a note' '<pre>' '  <script>' '<![CDATA[' 'see x </details> here' \
   'open <details><summary>y' '```sh' '~~~~' '<div>' '<span>' '<!-- x --> <!-- y' '<!-->' \
   '> <!-- a note' '- <!-- a note' '1. <!-- note' 'See a <b>bold</b> word.' '#### Detail' '## Summary' \
-  '> ## Verification' '- # Top' '[^1]: a note'; do
+  '> ## Verification' '- # Top' '[^1]: a note' '> [^1]: a note' '- [^1]: a note'; do
   printf 'Corrects the name.\n%s\n' "$bad" >"$in/summary-markup.md"
   run_render pr --summary-file "$in/summary-markup.md"
   [ "$RC" -eq 2 ] || fail "a summary carrying '$bad' must be refused with 2 (got $RC)"
@@ -442,6 +450,8 @@ for flag in --scoping-file --revert-file; do
 done
 printf 'Scoped%s to one pass.\n' "$ZWSP" >"$in/scoping-invis.md"
 run_render pr --scoping-file "$in/scoping-invis.md"
+[ "$RC" -eq 0 ] || fail "render with an invisible character in the scoping exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -qF 'Scoped to one pass.' || fail "the stripped scoping must still reach the record"
 case $OUT in *"$ZWSP"*) fail "an invisible character in the scoping reached the record" ;; esac
 
 sed 's/^#### Declined log$/See the Declined log above./' "$in/audit.md" >"$in/audit-prose.md"
@@ -451,6 +461,14 @@ run_render pr --audit-file "$in/audit-prose.md"
 : >"$in/empty.md"
 run_render pr --summary-file "$in/empty.md"
 [ "$RC" -eq 2 ] || fail "an empty summary must be refused with 2 (got $RC)"
+printf ' \t\n\n' >"$in/blank.txt"
+printf '%s\n' "$ZWSP" >"$in/invis-only.txt"
+for flag in --ask-file --grounds-file; do
+  for f in blank.txt invis-only.txt; do
+    run_render pr "$flag" "$in/$f"
+    [ "$RC" -eq 2 ] || fail "$flag holding only $f must be refused with 2 (got $RC)"
+  done
+done
 run_render pr --audit-file "$in/nonexistent.md"
 [ "$RC" -eq 2 ] || fail "a missing input file must be refused with 2 (got $RC)"
 
@@ -613,6 +631,40 @@ printf 'x\n' >"$repo/specs"
 run_land --flight-id "$NDIR"
 [ "$RC" -eq 3 ] || fail "a regular file at specs must be refused with 3 (got $RC)"
 rm -f "$repo/specs"
+
+# A dangling symlink where the record goes is an existing record: the copy
+# would follow it out of the checkout.
+DANG=dangling-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$DANG" main
+rm -rf "$outside"
+mkdir -p "$repo/specs/_flights"
+ln -s "$outside/escaped.md" "$repo/specs/_flights/$DANG.md"
+run_land --flight-id "$DANG"
+[ "$RC" -eq 3 ] || fail "a dangling symlink at the record path must be refused with 3 (got $RC)"
+[ -e "$outside/escaped.md" ] && fail "land followed a dangling symlink out of the checkout"
+rm -rf "$repo/specs"
+
+# A tag sharing the flight branch's name does not hide the branch.
+TAGGED=tagged-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$TAGGED" main
+gitc "$repo" tag "planwright/flight/$TAGGED"
+run_land --flight-id "$TAGGED"
+[ "$RC" -eq 0 ] || fail "land on the flight branch must succeed beside a same-named tag (got $RC: $ERR)"
+rm -rf "$repo/specs"
+
+# A post-commit hook that commits again does not change which commit land
+# reports: it is the one carrying the record.
+POST=postcommit-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$POST" main
+printf '#!/bin/sh\n[ -e .git/followed ] && exit 0\n: >.git/followed\ngit -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false commit -q --allow-empty --no-verify -m follow-up\n' \
+  >"$repo/.git/hooks/post-commit"
+chmod +x "$repo/.git/hooks/post-commit"
+run_land --flight-id "$POST"
+rm -f "$repo/.git/hooks/post-commit" "$repo/.git/followed"
+[ "$RC" -eq 0 ] || fail "land under a committing post-commit hook exited $RC: $ERR"
+rec_sha=$(git -C "$repo" log -1 --format=%H -- "specs/_flights/$POST.md")
+printf '%s\n' "$OUT" | grep -qx "commit	$rec_sha" || fail "land must report the record's own commit ($rec_sha), got: $OUT"
+rm -rf "$repo/specs"
 
 # A landed record passes the repository's own markdown lint.
 # Probed from the directory it lints in: a version-manager shim may resolve

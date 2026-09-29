@@ -216,7 +216,8 @@ redact() {
 # one to three spaces, which a list item can end early and leave a
 # column-zero fence line open behind it; a tilde fence, which the markdown
 # lint's one fence style refuses beside the record's backtick fences; a
-# footnote definition, which renders after the collapse; and a heading, ATX
+# footnote definition, at any container depth, which renders after the
+# collapse; and a heading, ATX
 # or setext, at any container depth, that the input may not carry: `none`
 # refuses every heading, `audit` those above level four, since the audit
 # nests under the record's own level-three heading. Inside a column-zero
@@ -251,9 +252,9 @@ markup_hazard() {
         prev = 0
         next
       }
-      if (l ~ /^ ? ? ?\[\^[^]]*\]:/) hazard("a footnote definition (it renders after the collapse)")
       h = l
       while (match(h, /^[ \t]*(>|[-*+][ \t]|[0-9]+[.)][ \t])[ \t]*/)) h = substr(h, RSTART + RLENGTH)
+      if (l ~ /^ ? ? ?\[\^[^]]*\]:/ || (h != l && h ~ /^\[\^[^]]*\]:/)) hazard("a footnote definition (it renders after the collapse)")
       if (headings == "none" && h ~ /^[ \t]*#+([ \t]|$)/) hazard("a heading (the record supplies its own)")
       if (headings == "audit" && h ~ /^[ \t]*(#|##|###)([ \t]|$)/) hazard("a heading above level four (the audit nests under the record'"'"'s ### heading)")
       if (prev && l ~ /^[ \t>]*(=+|-+)[ \t]*$/) hazard("a setext heading underline (put a blank line above a thematic break)")
@@ -330,8 +331,8 @@ fenced() {
 
 # pending_ids — the pending-sign-off checklist IDs, in order, comma-joined.
 pending_ids() {
-  grep -E '^[[:space:]]*- \[ \] \*\*PS-[0-9]+\*\*' "$work/audit" \
-    | grep -Eo 'PS-[0-9]+' | awk '!seen[$0]++' | tr '\n' ',' | sed 's/,$//;s/,/, /g'
+  sed -n -E 's/^[[:space:]]*- \[ \] \*\*(PS-[0-9]+)\*\*.*/\1/p' "$work/audit" \
+    | awk '!seen[$0]++' | tr '\n' ',' | sed 's/,$//;s/,/, /g'
 }
 
 # render_to <out> — write the record for $home.
@@ -522,9 +523,9 @@ fi
 _top=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || die 4 "--repo-root is not inside a git worktree"
 [ "$(cd "$repo_root" && pwd -P)" = "$(cd "$_top" && pwd -P)" ] \
   || die 2 "--repo-root must be the worktree's top level ($_top), where specs/_flights/ lives"
-_head=$(git -C "$repo_root" symbolic-ref -q --short HEAD 2>/dev/null) || _head=''
-[ "$_head" = "planwright/flight/$flight_id" ] \
-  || die 3 "land runs on the flight's own branch, planwright/flight/$flight_id; nothing was written"
+_head=$(git -C "$repo_root" symbolic-ref -q HEAD 2>/dev/null) || _head=''
+[ "$_head" = "refs/heads/$branch" ] \
+  || die 3 "land runs on the flight's own branch, $branch; nothing was written"
 for _dir in specs specs/_flights; do
   if [ -L "$repo_root/$_dir" ] || { [ -e "$repo_root/$_dir" ] && [ ! -d "$repo_root/$_dir" ]; }; then
     die 3 "$_dir is a symlink or not a directory; the record is written inside the checkout only; nothing was written"
@@ -553,6 +554,8 @@ if ! git -C "$repo_root" add -- "$rel" >/dev/null 2>"$work/git.err" \
   sed 's/^/  /' "$work/git.err" | tr -d '\000-\010\013-\037\177' >&2
   die 4 "could not commit $rel; the record was removed"
 fi
-_sha=$(git -C "$repo_root" rev-parse --verify -q HEAD) || die 4 "cannot read the record commit"
+# The commit that added the record, not HEAD: a post-commit hook may commit again.
+_sha=$(git -C "$repo_root" log -1 --format=%H -- "$rel" 2>/dev/null) && [ -n "$_sha" ] \
+  || die 4 "cannot read the record commit"
 printf 'record\t%s\n' "$rel"
 printf 'commit\t%s\n' "$_sha"
