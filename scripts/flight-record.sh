@@ -29,7 +29,8 @@
 # footnote definition; markup_hazard below is the full rule).
 #
 # Usage:
-#   flight-record.sh render --home pr|file <inputs> [--record-path <path>]
+#   flight-record.sh render --home pr <inputs>
+#   flight-record.sh render --home file <inputs> --record-path <path>
 #       Print the record. A `pr` record larger than GitHub's PR-body limit is
 #       refused (exit 3) and nothing is printed: a truncated record would drop
 #       the contract's tail. The `file` home requires --record-path, the
@@ -39,15 +40,16 @@
 #       via --repo-root): write the `file` record to the record path and
 #       commit that one file on the flight's own branch, reporting
 #       `record<TAB><repo-relative path>` and `commit<TAB><sha>`. Refused
-#       (exit 3, nothing written) off the branch `planwright/flight/<flight-id>`,
-#       when the record already exists, when a directory on the record path is
-#       a symlink or not a directory, or when the index holds other staged
-#       changes. A commit git or its hooks refuse takes the record back out of
+#       (exit 3, nothing written) off the branch
+#       `planwright/flight/<flight-id>`, when the record already exists, when
+#       a directory on the record path is a symlink or not a directory, or
+#       when the index holds other staged changes. A commit git or its hooks refuse takes the record back out of
 #       the index and the worktree (exit 4).
 #
 #   The caller chooses the record path (flight-dispatch.sh computes it), so
 #   this script composes no spec-home path of its own. It is repo-relative,
-#   or absolute and inside the worktree; its file is `<flight-id>.md`, and it
+#   or absolute and inside the worktree (under its physical top level, or
+#   under --repo-root as given); its file is `<flight-id>.md`, and it
 #   is refused (exit 2) when it carries a byte outside [A-Za-z0-9._/-], an
 #   empty, `.`, `..`, `.git`, or dash-led segment, or a trailing slash.
 #
@@ -76,7 +78,7 @@
 #
 # Exit codes: 0 rendered or landed · 2 usage or an input refused · 3 refused
 # by state (over the PR-body limit; for land, the branch, an existing record,
-# a symlinked or non-directory directory on the record path, or a staged index) · 4 an
+# a symlink or non-directory on the record path, or a staged index) · 4 an
 # environment failure (a missing helper, a sanitizer, the secret screen, or git
 # could not run, or refused the record commit).
 #
@@ -128,9 +130,9 @@ die() {
 
 usage() {
   cat >&2 <<'EOF'
-usage: flight-record.sh render --home pr|file <inputs>
+usage: flight-record.sh render --home pr <inputs>
+       flight-record.sh render --home file <inputs> --record-path <path>
        flight-record.sh land <inputs> --record-path <path> [--repo-root <dir>]
-       (render --home file takes --record-path too)
 inputs: --flight-id <id> --ask-file <f> --grounds-file <f> --summary-file <f>
         --verification-file <f> --audit-file <f> --handle <h>
         [--scoping-file <f>] [--revert-file <f>]

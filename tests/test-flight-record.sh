@@ -24,8 +24,9 @@
 #   5. A PR-home record over GitHub's body limit is refused, not truncated.
 #   6. The no-remote arm (`land`) commits exactly one record file, at the
 #      path its caller passes (`--record-path`, required: repo-relative or
-#      absolute inside the worktree, named `<id>.md`, no control bytes, no
-#      `.`/`..`/`.git` segment), on the flight's own branch, and refuses a
+#      absolute inside the worktree, named `<id>.md`, only [A-Za-z0-9._/-],
+#      no empty, `.`, `..`, `.git`, or dash-led segment, no trailing slash,
+#      at most 1024 bytes), on the flight's own branch, and refuses a
 #      missing or malformed path, a second record, the wrong branch, a
 #      symlinked directory on the path, a root other than the worktree's top
 #      level, or an index holding other changes; a commit the hooks refuse
@@ -592,7 +593,13 @@ for bad in "../escape/$REQ.md" "specs/../../$REQ.md" "specs/./$REQ.md" "specs//$
   "$tmp/outside-root/$REQ.md" "$tmp/repo-sibling/$REQ.md"; do
   run_land --flight-id "$REQ" --record-path "$bad"
   [ "$RC" -eq 2 ] || fail "land must refuse --record-path '$bad' with 2 (got $RC)"
+  printf '%s\n' "$ERR" | grep -q 'refusing --record-path' \
+    || fail "the refusal of '$bad' must name the record-path rule: $ERR"
 done
+long=$(printf '%01100d' 0)
+run_land --flight-id "$REQ" --record-path "$long/$REQ.md"
+[ "$RC" -eq 2 ] || fail "an over-long --record-path must be refused with 2 (got $RC)"
+printf '%s\n' "$ERR" | grep -q 'over-long --record-path' || fail "the length refusal must say so: $ERR"
 [ "$(git -C "$repo" rev-parse HEAD)" = "$req_head" ] || fail "a refused record path must commit nothing"
 [ -z "$(git -C "$repo" status --porcelain)" ] || fail "a refused record path must write nothing"
 [ -e "$tmp/outside-root" ] && fail "a refused record path wrote outside the checkout"
@@ -613,6 +620,15 @@ run_land --flight-id "$ABS" --record-path "$repo/specs/_flights/$ABS.md"
 printf '%s\n' "$OUT" | grep -qx "record	specs/_flights/$ABS.md" || fail "an absolute path must be reported repo-relative: $OUT"
 [ "$(git -C "$repo" show --name-only --format= HEAD)" = "specs/_flights/$ABS.md" ] \
   || fail "an absolute path must commit the record at its repo-relative place"
+# An absolute path under a --repo-root spelled through a symlink is inside too.
+LNK=linkroot-0a1b2c3d
+gitc "$repo" checkout -q -b "planwright/flight/$LNK" main
+ln -s "$repo" "$tmp/repo-link"
+run_land --flight-id "$LNK" --repo-root "$tmp/repo-link" --record-path "$tmp/repo-link/specs/_flights/$LNK.md"
+[ "$RC" -eq 0 ] || fail "an absolute path under a symlinked --repo-root exited $RC: $ERR"
+printf '%s\n' "$OUT" | grep -qx "record	specs/_flights/$LNK.md" \
+  || fail "an absolute path under a symlinked --repo-root must be reported repo-relative: $OUT"
+rm -f "$tmp/repo-link"
 gitc "$repo" checkout -q "planwright/flight/$FID"
 
 # The file home's render names the passed path; the pr home takes none.
