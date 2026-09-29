@@ -272,6 +272,24 @@ for l in repo-tracked machine-local; do
   assert_eq "$l from a worktree is the primary checkout's" "$tmp/repo/.claude" "$out"
 done
 
+# A worktree of a bare repository has no primary checkout to read: the layers
+# degrade to absent, but inside a repository that is not the quiet normal state,
+# so the helper's reason reaches stderr.
+git_q clone -q --bare "$tmp/repo" "$tmp/bare.git"
+git_q -C "$tmp/bare.git" worktree add -q "$tmp/bare-wt" -b bare-wt
+for l in repo-tracked machine-local; do
+  out="$(cd "$tmp/bare-wt" && base /bin/bash "$RESOLVER" "$l" 2>"$tmp/bare.err")"
+  assert "$l in a bare repository's worktree degrades (zero exit)" 0 $?
+  assert_eq "$l in a bare repository's worktree is absent" "" "$out"
+  case $(cat "$tmp/bare.err") in
+    *"no primary working tree"*) echo "ok: $l in a bare repository's worktree says why" ;;
+    *)
+      echo "FAIL: $l in a bare repository's worktree says why (stderr: $(cat "$tmp/bare.err"))" >&2
+      failures=$((failures + 1))
+      ;;
+  esac
+done
+
 # A copy missing the root helper still honours an explicit repo root, which
 # never needed the helper.
 mkdir -p "$tmp/lone/scripts"

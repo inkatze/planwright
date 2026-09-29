@@ -277,7 +277,8 @@ case $layer in
   repo-tracked | machine-local)
     # Both repo-side layers live under <repo>/.claude (D-4); the kind resolver
     # selects the tracked vs .local-suffixed file/dir within it. No repository
-    # (exit 3) is the normal absent state and stays quiet; any other failure is
+    # (exit 3 outside any git directory) is the normal absent state and stays
+    # quiet; any other failure, a bare repository's worktree included, is
     # re-run so its diagnostic reaches stderr.
     if [ -n "${PLANWRIGHT_REPO_ROOT:-}" ]; then
       repo_root=$PLANWRIGHT_REPO_ROOT
@@ -285,7 +286,9 @@ case $layer in
       rr_rc=0
       repo_root=$(/bin/sh "$root_helper" repo --primary 2>/dev/null) || rr_rc=$?
       if [ "$rr_rc" -ne 0 ]; then
-        [ "$rr_rc" -eq 3 ] || /bin/sh "$root_helper" repo --primary >/dev/null
+        if [ "$rr_rc" -ne 3 ] || git rev-parse --git-dir >/dev/null 2>&1; then
+          /bin/sh "$root_helper" repo --primary >/dev/null
+        fi
         exit 0
       fi
     fi
