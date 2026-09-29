@@ -70,7 +70,9 @@ case "$sub" in
     printf '%s' "$skill" >"$d/skill"
     printf '%s' "$art" >"$d/art"
     # The launch's PLANWRIGHT_* assignments reach the skill, as a real tmux
-    # session running the launch command would deliver them.
+    # session running the launch command would deliver them, but only with
+    # alphanumeric values: the unquoted expansion below needs that, so any other
+    # value is dropped rather than delivered.
     printf '%s' "$launch" | tr ' ' '\n' | grep -E '^PLANWRIGHT_[A-Z_]+=[A-Za-z0-9]*$' >"$d/env" || :
     printf '%s\t%s\n' "$name" "$launch" >>"$ST/.new-sessions"
     # shellcheck disable=SC2046 # one validated NAME=value assignment per word

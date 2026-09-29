@@ -38,6 +38,12 @@ def nonempty: (type == "string") and (length > 0);
                                    and ((.kind == "answer") or (.kind == "event" and .event == "session-restart")))] | length == 0;
   def override_said($n; $dir): (" " + said($n) + " ")
     | test(if $dir == "visual" then " (just do it|fly it visual) " else " (write this one up|write it up|file a plan) " end);
+  # the operator said the override in the ask, or in the very next turn after its case
+  def override_authorized: .ask_seq as $a | .override as $dir | operator_before(.seq) as $t
+    | ($t != null) and override_said($t; $dir)
+      and (($t == $a)
+           or (([$presented[] | select(.case == true and .ask_seq == $a and .seq < $t) | .seq] | last) as $c
+               | ($c != null) and no_turn_between($c; $t)));
   # a restart that could not read its evidence forgets every landing before it
   def last_pr_before($n):
     ([$d[] | select(.action == "reconstruct" and .flights == null and .seq < $n) | .seq] | last // -1) as $lost
@@ -66,11 +72,7 @@ def nonempty: (type == "string") and (length > 0);
 # other trigger fails, and size never files
 | ($routes | all(
       (if .trigger == "override" then (.override == "visual" or .override == "instrument") and (.route == .override)
-         and (.ask_seq as $a | operator_before(.seq) as $t
-              | ($t != null) and override_said($t; .override)
-                and (($t == $a)
-                     or (([$presented[] | select(.case == true and .ask_seq == $a and .seq < $t) | .seq] | last) as $c
-                         | ($c != null) and no_turn_between($c; $t))))
+         and override_authorized
        else (.override == null) and ($rule[.trigger] != null) and ($rule[.trigger] == .route) end)
       and (if .size_advisory != null then .route == "visual" else true end))) as $p_rule
 
