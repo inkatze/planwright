@@ -119,16 +119,16 @@ merge lands them on mainline, unread.
 
 A legacy `[pending-sign-off]` subject suffix counts as a `Planwright-Sign-Off: PS-legacy-<sha7>` trailer;
 no history is rewritten and no branch is swept. Until skills stamp the
-trailer, a suffix-writing skill conforms through it.
+trailer, a suffix-writing skill conforms through this line.
 
 ## Pending-sign-off checklist
 
 The canonical format for the draft PR description (REQ-C1.3). Generated, not
-hand-edited; a loop exit regenerates the whole section in place, so re-runs
-never duplicate entries. It rebuilds from the trailers, minus any commit a
-revert in the same range undid (paired by git's `This reverts commit <sha>`
-body line) and any item a rejected trailer names, never from a side state
-file. A range it cannot resolve fails by name, never as an empty checklist.
+hand-edited; a loop exit regenerates the section in place, so re-runs never
+duplicate entries. `scripts/sign-off-checklist.sh` rebuilds it from trailers,
+minus any commit a revert in the same range undid (paired by git's
+`This reverts commit <sha>` body line) and any item a rejected trailer
+names, never from a side state file. A range it cannot resolve fails by name, never as an empty checklist.
 
 ```markdown
 ## Pending sign-off
