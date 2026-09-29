@@ -75,9 +75,14 @@ The writer arm requires `CLAUDE_DIR` or `HOME`; when neither is set
 (minimal containers), the resolver skips that arm, and the self-location
 fallback still resolves the shipped core doctrine.
 
-`scripts/resolve-rule-doc.sh <doc-name>` implements the chain (validating the
-name against the `^[a-z0-9][a-z0-9-]*$` identifier discipline before any path
-is formed) and prints the resolved path; prefer it over hand-building paths.
+The chain above is a shorthand: its full definition, with the self-location
+arm and the skip of an arm holding neither `doctrine/` nor `scripts/`, is
+[spec-format.md](spec-format.md#the-core-root-chain) (*The core root chain*).
+`scripts/resolve-rule-doc.sh <doc-name>` resolves a rule doc through the
+overlay layers and then each arm of that chain in order, taking the first that
+holds the doc (validating the name against the `^[a-z0-9][a-z0-9-]*$`
+identifier discipline before any path is formed), and prints the resolved
+path; prefer it over hand-building paths.
 One read steps outside the chain by design: the step resolver takes its
 pipeline-entry list from the self-location copy of
 [custom-steps.md](custom-steps.md) alone, so no overlay can widen it.

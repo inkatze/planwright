@@ -162,10 +162,10 @@
 #   PLANWRIGHT_JQ           the JSON reader for the registry (else `jq` on
 #                           the path); a test override
 # The repository root is resolved once (an explicit PLANWRIGHT_REPO_ROOT, else
-# the working directory's git toplevel) and exported to every sibling call,
-# so the project command and skill directories, the repo-tracked and
-# machine-local layers, and a relative command path all follow the directory
-# this script runs in. The pipeline-entry list is read from
+# the primary checkout, through the overlay resolver) and exported to every
+# sibling call, so the project command and skill directories and the
+# repo-tracked and machine-local layers all come from that one repository; a
+# relative command path still joins to the directory this script runs in. The pipeline-entry list is read from
 # <script-dir>/../doctrine/custom-steps.md and from nowhere else: no
 # environment arm, never resolve-rule-doc.sh.
 #

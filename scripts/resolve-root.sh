@@ -14,7 +14,8 @@
 #           is that definition's only implementation.
 #   --all       print every content-bearing arm, one per line in chain order,
 #               instead of the first: for a consumer that looks a file up arm
-#               by arm, and for a command guard composing its trust set.
+#               by arm, and for a command guard composing its trust set. An
+#               arm skipped after the first is printed is skipped silently.
 # repo      which repository the session belongs to.
 #   --primary   the primary working tree of the repository owning the common
 #               git directory, so every linked worktree answers with the

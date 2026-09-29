@@ -16,14 +16,14 @@ resolved literal absolute path. Never invoke through an unexpanded
 `$VAR/scripts/<name>.sh` shape.
 
 Resolve the root through the core root chain, defined in `spec-format`
-(*The core root chain*): `scripts/resolve-root.sh install`, run from the
-skill's own install directory, prints it.
+(*The core root chain*): `scripts/resolve-root.sh install`, invoked by its path
+in the copy the skill was loaded from, prints it.
 
 Take the resolved value once, then substitute it literally at each call site:
 
 ```sh
 # Resolve once:
-/abs/planwright/scripts/resolve-root.sh install    # prints e.g. /abs/planwright
+/abs/copy/scripts/resolve-root.sh install    # prints the root, e.g. /abs/planwright
 # Then call by the literal absolute path (what a worker's command actually is):
 /abs/planwright/scripts/spec-validate.sh specs/<spec>
 ```

@@ -937,7 +937,9 @@ Which planwright copy runs is decided by one chain of arms, walked in order:
 
 An arm whose variable is unset or empty is skipped silently, as is an absent
 writer-delivery directory. An arm naming anything other than a directory
-holding `doctrine/` or `scripts/` is skipped with a warning and never used.
+holding `doctrine/` or `scripts/` is skipped with a warning and never used;
+when every arm is listed (`--all`), one skipped after the install root was
+found is skipped silently, since it changes no answer.
 The install root is the first arm left standing; a consumer that needs one
 file (a rule doc, the defaults file, `spec-anchor.sh`) takes it from the first
 arm that holds it.
