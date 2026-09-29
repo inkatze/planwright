@@ -230,6 +230,14 @@ on 2026-07-29:
   accepts the `=` form. The `=` spellings are why the deny list needs
   `Bash(git commit --fixup*)` and `Bash(git commit --squash*)` alongside the
   `:*` boundary rules — a `:*` rule requires a space and misses `=`.
+- **git takes any unique prefix of a long option** (gitcli(7)): `git commit
+  --am` amends, `--sq=<c>` squashes, `--fix=<c>` fixes up, `git push --mi`
+  mirrors, `--al` pushes every branch, and `--no-veri` skips the hooks
+  (measured on git 2.53). Each flag deny is therefore also carried at that
+  shortest prefix; the full-spelling rules stay as the explicit spellings.
+  `--branches` is git's alias of `--all`, and the matching refspec
+  (`git push origin :`) pushes every branch the remote shares, so both are
+  denied beside `--all`.
 - **`--force-with-lease[=<refname>:<expect>]` and `--force-if-includes`** are
   both real, which is why `Bash(git push --force*)` is carried in addition to the
   two `:*` force rules.

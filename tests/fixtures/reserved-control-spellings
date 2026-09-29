@@ -32,6 +32,8 @@ force-push       any    floor                        deny   defer  defer  defer 
 force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push --force-with-lease=feature origin feature
 force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push origin +feature
 force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push origin +HEAD:feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push --mirr origin
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push origin --mi
 
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin main
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push -u origin main
@@ -51,6 +53,9 @@ protected-push   any    floor                        deny   defer  defer  defer 
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:planwright/human-gates/spec
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:refs/heads/planwright/human-gates/spec
 protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:planwright/human-gates/spec --dry-run
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push --al origin
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin --branches
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin :
 protected-push   any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__push_files
 protected-push   any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__create_or_update_file
 protected-push   any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__delete_file
@@ -79,20 +84,28 @@ base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer 
 base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git -c alias.x=pull x origin main
 base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git -c include.path=/tmp/x.cfg up origin main
 base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git -c help.autocorrect=immediate pulll origin main
-amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    defer  git commit --am""end --no-edit
-squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    defer  git commit --squ""ash=HEAD~1
-fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    defer  git commit --fix""up=HEAD~1
+amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --am""end --no-edit
+squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --squ""ash=HEAD~1
+fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fix""up=HEAD~1
 rebase           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    defer  git re""base origin/main
 
 amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --amend --no-edit
 amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit -m wip --amend
 amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --amend --no-edit
 amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit -m wip --amend
+amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --amen --no-edit
+amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit -m wip --am
+amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --amen --no-edit
+amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit -m wip --am
 
 squash           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --squash HEAD~1
 squash           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --squash=HEAD~1
 squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --squash HEAD~1
 squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --squash=HEAD~1
+squash           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --sq=HEAD~1
+squash           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit -m wip --squas HEAD~1
+squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --sq=HEAD~1
+squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit -m wip --squas HEAD~1
 
 fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --fixup HEAD~1
 fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --fixup=HEAD~1
@@ -100,6 +113,10 @@ fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a   
 fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fixup HEAD~1
 fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fixup=HEAD~1
 fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fixup=amend:HEAD~1
+fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --fix=HEAD~1
+fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit -m wip --fixu HEAD~1
+fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fix=HEAD~1
+fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit -m wip --fixu HEAD~1
 
 rebase           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git rebase origin/main
 rebase           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git rebase -i HEAD~3

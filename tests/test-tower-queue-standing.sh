@@ -209,13 +209,23 @@ for res in 'git pull' 'git pull origin main' 'git pull --ff-only origin main' \
   'git -c alias.x=pull x origin main' 'git -c alias.p=push p' \
   'git -c include.path=/tmp/x.cfg up origin main' 'git -c includeIf.onbranch:x.path=/tmp/x.cfg up' \
   'git -c help.autocorrect=immediate pulll origin main' \
-  'git commit --fixup HEAD~1' 'git commit --fixup=HEAD~1'; do
+  'git commit --fixup HEAD~1' 'git commit --fixup=HEAD~1' \
+  'git commit --am' 'git commit -a --amen --no-edit' 'git commit --sq=HEAD~1' \
+  'git commit -m wip --squas HEAD~1' 'git commit --fix=HEAD~1' 'git -C . commit --fixu HEAD~1'; do
   rc=0
   run match --decision "$git_rule" --command "$res" >"$tmp/o" || rc=$?
   [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
     || fail "'$res' was not refused as a reserved control (exit $rc, '$(cat "$tmp/o")')"
 done
-echo "ok: a pull, a fixup, an alias, and a quote-split reserved verb are refused as reserved controls"
+echo "ok: a pull, a fixup, an alias, an abbreviated rewrite flag, and a quote-split reserved verb are refused as reserved controls"
+
+# The same rule still answers an ordinary commit.
+for okc in 'git commit -m "fix: tidy"' 'git commit -a -m wip' 'git commit -F msg.txt' 'git commit --file=msg.txt'; do
+  run match --decision "$git_rule" --command "$okc" >"$tmp/o" \
+    || fail "an ordinary commit ('$okc') did not match (exit $?, '$(cat "$tmp/o")')"
+  [ "$(cat "$tmp/o")" = match ] || fail "an ordinary commit ('$okc') printed '$(cat "$tmp/o")'"
+done
+echo "ok: an ordinary commit still matches the git rule"
 
 # The quoted spellings. The allowlist admits a quoted interior anywhere in a
 # word, and the shell reads each of these as the bare spelling above; the

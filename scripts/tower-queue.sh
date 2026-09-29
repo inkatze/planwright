@@ -2223,9 +2223,27 @@ reserved_control() {
     *' ready'* | *'--ready'* | ready | ready' '*) return 0 ;;
   esac
   case "$_rl" in
+    *commit*) commit_rewrite_word "$_rl" && return 0 ;;
+  esac
+  case "$_rl" in
     *push*) push_reaches_protected "$_rl" && return 0 ;;
   esac
   return 1
+}
+
+# commit_rewrite_word <lowercased, unquoted text> — 0 when a word abbreviates
+# --amend, --squash or --fixup. git takes any unique prefix of a long option,
+# so `git commit --am` amends, and the substring screen above never sees it.
+commit_rewrite_word() {
+  (
+    set -f
+    for _cw in $1; do
+      case "$_cw" in
+        --am* | --sq* | --fix*) exit 0 ;;
+      esac
+    done
+    exit 1
+  )
 }
 
 # reserved_command <command> — 0 when a rule may not answer the command: it

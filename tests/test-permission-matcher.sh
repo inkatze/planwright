@@ -470,7 +470,23 @@ prompt|residual|git config Core.HooksPath /dev/null|the mixed-case residual that
 prompt|residual|GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m "wip"|config injection through environment variables rather than argv; deny rules match past leading assignments so the hooksPath text is never in the matched string — accepted residual
 allow|residual|git status "$(git push origin main)"|COMMAND SUBSTITUTION: the model splits only on the documented shell operators, so the nested push is invisible to it and the outer read-only command is allowed. Whether the real matcher extracts $() is undocumented and unverified (model doc MB-7) — githooks/pre-push is the layer that actually stops this one
 allow|legit|git push origin feature/c++|a branch name containing + stays pushable: the +refspec deny requires a space before the plus (narrowed 2026-07-29 on operator decision). git check-ref-format confirms the ref is valid
-allow|residual|git commit -a --amen|a mistyped flag git itself rejects; recorded so the amend coverage is not read as prefix-based
+deny|load-bearing|git commit -a --amen|git takes any unique prefix of a long option, so --amen is --amend
+deny|load-bearing|git commit --am --no-edit|--am is the shortest prefix git reads as --amend
+deny|load-bearing|git commit --sq=HEAD~1|--sq is the shortest prefix git reads as --squash
+deny|load-bearing|git commit -m "wip" --squas HEAD~1|abbreviated squash after the message
+deny|load-bearing|git commit --fix=HEAD~1|--fix is the shortest prefix git reads as --fixup
+deny|load-bearing|git commit -m "wip" --fixu HEAD~1|abbreviated fixup after the message
+deny|load-bearing|git push --mirr origin|abbreviated --mirror, a force-push of every ref
+deny|load-bearing|git push origin --mi|shortest --mirror prefix after the remote
+deny|load-bearing|git push --al origin|abbreviated --all pushes main with every other branch
+deny|load-bearing|git push origin --al|abbreviated --all after the remote
+deny|load-bearing|git push origin --branches|--branches is git's alias of --all
+deny|load-bearing|git push --b origin|shortest --branches prefix
+deny|load-bearing|git push origin :|the matching refspec pushes every branch the remote shares, main included
+deny|load-bearing|git push origin : --dry-run|matching refspec with a trailing flag
+deny|load-bearing|git push origin "main" --no-veri|abbreviated --no-verify skips the pre-push hook that catches the quoted main destination
+deny|load-bearing|git commit --no-veri -m "wip"|abbreviated --no-verify on commit
+allow|legit|git push origin :planwright/guard-coverage/task-1|deleting a task branch is not the matching refspec
 deny|overblock|git commit -m "docs: describe the -n flag in the guide"|a commit message containing " -n " is denied; fail-safe, rephrase the message
 deny|overblock|git commit -m "fix: handle --no-verify in the wrapper"|a commit message naming --no-verify is denied; fail-safe
 deny|overblock|git commit -m "docs: use --amend carefully"|a commit message naming --amend is denied; fail-safe
@@ -622,6 +638,17 @@ Bash(git push * planwright/*/spec)|subsumed by Bash(git push * planwright/*/spec
 Bash(git push *heads/planwright/*/spec)|subsumed by Bash(git push *heads/planwright/*/spec *); same M4 hedge
 Bash(git commit --squash:*)|subsumed by Bash(git commit --squash*); kept as the explicit space-separated spelling
 Bash(git commit --fixup:*)|subsumed by Bash(git commit --fixup*); kept as the explicit space-separated spelling
+Bash(git commit --amend:*)|subsumed by Bash(git commit --am*), the shortest prefix git reads as --amend; kept as the explicit spelling
+Bash(git commit * --amend*)|subsumed by Bash(git commit * --am*); kept as the explicit spelling
+Bash(git commit --squash*)|subsumed by Bash(git commit --sq*), the shortest prefix git reads as --squash; kept as the explicit spelling
+Bash(git commit * --squash*)|subsumed by Bash(git commit * --sq*); kept as the explicit spelling
+Bash(git commit --fixup*)|subsumed by Bash(git commit --fix*), the shortest prefix git reads as --fixup; kept as the explicit spelling
+Bash(git commit * --fixup*)|subsumed by Bash(git commit * --fix*); kept as the explicit spelling
+Bash(git push --mirror:*)|subsumed by Bash(git push --mi*), the shortest prefix git reads as --mirror; kept as the explicit spelling
+Bash(git push * --mirror*)|subsumed by Bash(git push * --mi*); kept as the explicit spelling
+Bash(git push --all:*)|subsumed by Bash(git push --al*), the shortest prefix git reads as --all; kept as the explicit spelling
+Bash(git push * --all*)|subsumed by Bash(git push * --al*); kept as the explicit spelling
+Bash(git * --no-verify*)|subsumed by Bash(git * --no-veri*), the shortest prefix git reads as --no-verify; kept as the explicit spelling
 ROWS
 )
 is_declared_redundant() {
