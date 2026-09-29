@@ -1,0 +1,264 @@
+Golden baseline of the scripts the spec-location migration moves onto the
+resolver, with every new option unset (custom-spec-location REQ-H1.1).
+
+CAPTURED FROM THE PRE-MIGRATION SCRIPTS at commit 821fb2f, by
+`tests/test-spec-location-golden.sh --record-probes`. DO NOT REGENERATE from a
+later tree: a migration task that changes a probe's output declares the new
+output under changes/task-<id>.txt, against a correction registered in
+corrections.tsv, and that declaration is what review reads.
+
+Recordings that stand out as the corrections they will become: config-get,
+review-sequence and config-knob from the worktree miss the primary checkout's
+machine-local values; overlay-repo-root-override takes a repo-root override
+that is not a git toplevel as given; rule-doc-contentless-arm returns the
+self-location arm with no warning; and dispatch-worktree from the worktree
+places the task worktree under the worktree rather than the primary checkout.
+
+Commit ids and anchors are normalized to <SHA>: the anchors part of the test
+pins the anchor function, so the probes need not.
+
+Format: everything above the first `@@ ` line is commentary; each record is a
+`@@ <probe> <vantage>` header followed by the probe's normalized output and its
+exit status.
+
+@@ rule-doc-contentless-arm primary
+core	<INSTALL>/scripts/../doctrine/spec-format.md
+rc=0
+@@ rule-doc primary
+core	<INSTALL>/doctrine/spec-format.md
+rc=0
+@@ config-get primary
+machine-local	[polish, self-review]
+rc=0
+@@ review-sequence primary
+polish
+self-review
+rc=0
+@@ config-knob primary
+per-unit
+rc=0
+@@ overlay-repo-tracked primary
+<PRIMARY>/.claude
+rc=0
+@@ overlay-machine-local primary
+<PRIMARY>/.claude
+rc=0
+@@ overlay-repo-root-override primary
+<PRIMARY>/specs/.claude
+rc=0
+@@ catalog primary
+core
+rc=0
+@@ spec-root primary
+default	<PRIMARY>/specs	same-repo	checkout-local
+rc=0
+@@ inception-scaffold primary
+inception-scaffold: local rung
+rc=0
+@@ anchor-freshness primary
+check-anchor-freshness: ok     demo — anchor <SHA>
+check-anchor-freshness: note: baseline ref origin/main does not resolve — pairing check skipped for every bundle.
+check-anchor-freshness: 1 ok, 0 notice(s), 0 error(s)
+rc=0
+@@ ledger primary
+rc=0
+@@ memory-links primary
+check-memory-links: no machine-local memory links in 4 scanned spec file(s) (0 bundle(s) skipped)
+rc=0
+@@ state primary
+task	1	ready	deps-met
+rc=0
+@@ status primary
+spec: demo
+format-version: 2
+stored status: Ready
+task 1 ready (deps-met)
+bundle status: Ready (derived)
+rc=0
+@@ meta-select primary
+specs/demo	1
+rc=0
+@@ tasks-pr-sync primary
+tasks-pr-sync: format-version 2 bundle; derived state is never stored (REQ-C1.1) — nothing to reconcile
+rc=0
+@@ migrate-status primary
+unchanged: demo  (Ready)
+migrate-status-lifecycle: 0 migrated, 1 unchanged, 0 skipped
+rc=0
+@@ migrate-format primary
+unchanged (already format-version 2): demo
+migrate-format-version: 0 migrated, 0 repaired, 1 unchanged, 0 refused
+rc=0
+@@ walkthrough primary
+spec-walkthrough: loaded bundle 'demo' (status: Ready)
+  files present: requirements.md, design.md, tasks.md, test-spec.md
+  scope: task graph
+  reveal: off
+  artifact: .claude/walkthroughs/demo/demo.html
+rc=0
+@@ headless-status primary
+absent
+rc=5
+@@ flight-id primary
+planwright/flight/fixture-1a2b3c4d
+rc=1
+@@ sweep primary
+rc=0
+@@ lock primary
+specs/demo/.orchestrate.lock
+rc=0
+@@ marker primary
+specs/demo/.orchestrate/markers/1
+rc=0
+@@ trailers primary
+feat: x
+
+Planwright-Task: demo/1
+rc=0
+@@ fence-refname primary
+refs/planwright-fence/demo/1
+rc=0
+@@ fence-check primary
+solo	no-origin
+fleet-fence: no origin remote on this checkout — the genuine no-remote single-host solo posture: there is no peer to collide with, so dispatch proceeds WITHOUT a fence (REQ-C1.6)
+rc=5
+@@ dispatch-fetch primary
+fetch	no-remote
+anchor	<SHA>	main
+rc=3
+@@ watchdog primary
+no-marker
+rc=0
+@@ observations primary
+<TODAY>-fixture-<UID>.md
+- <TODAY> [fixture] a fixture observation
+carry	noop
+stranded	0
+Consumed-by: specs/demo (2026-01-01)
+rc=0
+@@ dispatch-worktree primary
+fleet-dispatch-worktree: NOTE: no remote reachable; basing on local main (degraded, D-9)
+dispatch	branch	planwright/demo/task-1
+dispatch	worktree	<PRIMARY>/.claude/worktrees/demo-task-1
+dispatch	base	<SHA>
+rc=0
+@@ rule-doc-contentless-arm worktree
+core	<INSTALL>/scripts/../doctrine/spec-format.md
+rc=0
+@@ rule-doc worktree
+core	<INSTALL>/doctrine/spec-format.md
+rc=0
+@@ config-get worktree
+core	[polish]
+rc=0
+@@ review-sequence worktree
+polish
+rc=0
+@@ config-knob worktree
+per-step
+rc=0
+@@ overlay-repo-tracked worktree
+<WORKTREE>/.claude
+rc=0
+@@ overlay-machine-local worktree
+<WORKTREE>/.claude
+rc=0
+@@ overlay-repo-root-override worktree
+<WORKTREE>/specs/.claude
+rc=0
+@@ catalog worktree
+core
+rc=0
+@@ spec-root worktree
+default	<WORKTREE>/specs	same-repo	checkout-local
+rc=0
+@@ inception-scaffold worktree
+inception-scaffold: local rung
+rc=0
+@@ anchor-freshness worktree
+check-anchor-freshness: ok     demo — anchor <SHA>
+check-anchor-freshness: note: baseline ref origin/main does not resolve — pairing check skipped for every bundle.
+check-anchor-freshness: 1 ok, 0 notice(s), 0 error(s)
+rc=0
+@@ ledger worktree
+rc=0
+@@ memory-links worktree
+check-memory-links: no machine-local memory links in 4 scanned spec file(s) (0 bundle(s) skipped)
+rc=0
+@@ state worktree
+task	1	ready	deps-met
+rc=0
+@@ status worktree
+spec: demo
+format-version: 2
+stored status: Ready
+task 1 ready (deps-met)
+bundle status: Ready (derived)
+rc=0
+@@ meta-select worktree
+specs/demo	1
+rc=0
+@@ tasks-pr-sync worktree
+tasks-pr-sync: format-version 2 bundle; derived state is never stored (REQ-C1.1) — nothing to reconcile
+rc=0
+@@ migrate-status worktree
+unchanged: demo  (Ready)
+migrate-status-lifecycle: 0 migrated, 1 unchanged, 0 skipped
+rc=0
+@@ migrate-format worktree
+unchanged (already format-version 2): demo
+migrate-format-version: 0 migrated, 0 repaired, 1 unchanged, 0 refused
+rc=0
+@@ walkthrough worktree
+spec-walkthrough: loaded bundle 'demo' (status: Ready)
+  files present: requirements.md, design.md, tasks.md, test-spec.md
+  scope: task graph
+  reveal: off
+  artifact: .claude/walkthroughs/demo/demo.html
+rc=0
+@@ headless-status worktree
+absent
+rc=5
+@@ flight-id worktree
+planwright/flight/fixture-1a2b3c4d
+rc=1
+@@ sweep worktree
+rc=0
+@@ lock worktree
+specs/demo/.orchestrate.lock
+rc=0
+@@ marker worktree
+specs/demo/.orchestrate/markers/1
+rc=0
+@@ trailers worktree
+feat: x
+
+Planwright-Task: demo/1
+rc=0
+@@ fence-refname worktree
+refs/planwright-fence/demo/1
+rc=0
+@@ fence-check worktree
+solo	no-origin
+fleet-fence: no origin remote on this checkout — the genuine no-remote single-host solo posture: there is no peer to collide with, so dispatch proceeds WITHOUT a fence (REQ-C1.6)
+rc=5
+@@ dispatch-fetch worktree
+fetch	no-remote
+anchor	<SHA>	main
+rc=3
+@@ watchdog worktree
+no-marker
+rc=0
+@@ observations worktree
+<TODAY>-fixture-<UID>.md
+- <TODAY> [fixture] a fixture observation
+carry	noop
+stranded	0
+Consumed-by: specs/demo (2026-01-01)
+rc=0
+@@ dispatch-worktree worktree
+fleet-dispatch-worktree: NOTE: no remote reachable; basing on local main (degraded, D-9)
+dispatch	branch	planwright/demo/task-1
+dispatch	worktree	<WORKTREE>/.claude/worktrees/demo-task-1
+dispatch	base	<SHA>
+rc=0

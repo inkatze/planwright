@@ -97,10 +97,10 @@ fresh session with no ambient tier to keep.
 Legal values are fixed enums: models are the stable Claude Code aliases
 (`haiku`, `sonnet`, `opus`, `fable` — aliases, not dated model ids, so the enum
 survives model releases), efforts are `low`, `medium`, `high`, and commands are
-the closed dispatch-entry set `execute-task`, `orchestrate`, `drain`. That
-command enum is exactly the set of non-nestable entry points, which is how the
-review-sequence-disjointness invariant holds at every overlay layer: a
-`review_sequence` skill can never also be a dispatch command.
+the closed dispatch-entry set `execute-task`, `orchestrate`, `drain`. Every
+member of that command enum is a pipeline entry the step resolver refuses as a
+step target, which is how the dispatch-entry disjointness invariant holds at
+every overlay layer: a step can never also be a dispatch command.
 
 ## Turning it on
 
@@ -215,7 +215,7 @@ is never read.
 ### Per-step tiers
 
 Separate knobs price one *step* of a unit rather than the whole unit, one pair
-per step class. **These are not gated by `allocation_adaptation`**: a step tier
+per step id. **These are not gated by `allocation_adaptation`**: a step tier
 is static configuration that moves no ladder and reads no signal, so it applies
 with the master knob `off` exactly as with it `on`. It appears in this section
 because it is the other way to influence what a launch runs on, not because it
@@ -230,9 +230,9 @@ allocation_model_step_self_review: inherit
 allocation_effort_step_self_review: inherit
 ```
 
-The key space is open: a review skill added later needs no row, because its
-knob is absent from every layer and resolves to `inherit`. The knob name is the
-skill name with `-` written as `_`.
+The key space is open: a step added later needs no row, because its knob is
+absent from every layer and resolves to `inherit`. The knob name is the step id
+with `-` written as `_`, and it applies wherever that step runs, at any point.
 
 Application is **one-directional**. A step tier applies only when it is
 *strictly cheaper* than the unit's current tier, and then only for that step's
@@ -340,7 +340,7 @@ closed allowlist:
 | `step-failure` | up | a step failed |
 | `retry` | up | a step is being retried |
 | `flailing` | up | the stuck-detector classified the worker as making no progress |
-| `non-convergence` | up | a review sequence did not converge |
+| `non-convergence` | up | the convergence point's steps did not converge |
 | `petition-escalate` | up | a worker asked for a more capable tier |
 | `petition-de-escalate` | down | a worker asked for a cheaper tier |
 
@@ -637,7 +637,7 @@ kind of row it is:
 | `signal=` | launch | the usage reading, or `unavailable` |
 | `adaptation=` | launch | `on`, `off`, or `suspended` |
 | `step=` | launch | the per-step outcome for this launch: `none`, `inherit`, `applied`, or `ignored` |
-| `step-type=` | step-tier | the step class named at this launch (`implementation`, `polish`, …) |
+| `step-type=` | step-tier | the step type named at this launch (`implementation` or a step id: `polish`, …) |
 | `unit=` | step-tier | the unit's tier at that moment, as `<model>/<effort>` — what the step tier was compared against |
 | `trigger=` | adjustment | the event class that caused the adjustment |
 | `dir=` | adjustment | `up` or `down` |

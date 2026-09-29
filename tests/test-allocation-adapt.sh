@@ -491,7 +491,7 @@ grep -qE '^allocation_adaptation: "?off"?$' "$real_cfg" \
 
 # --- 15. per-step selection keys (Task 5; D-8, D-12, REQ-C1.3) -------------
 #
-# A step-type tier is STATIC configuration keyed by step class, not adaptation:
+# A step-type tier is STATIC configuration keyed by step id, not adaptation:
 # it never moves the unit's own ladder position. Its application is strictly
 # ONE-DIRECTIONAL — a cheaper configured tier applies for that step's launch
 # only and is scope-marked in the ledger; an equal or more expensive one is
@@ -535,20 +535,20 @@ out=$(run resolve stepdef:unit --key execution --step-type implementation) \
   || fail "15a: an unconfigured step type must report an inherit step scope"
 echo "ok: with defaults a step resolves to the unit's tier"
 
-# Every shipped review-sequence step class behaves the same way by default.
+# Every step the core catalog seeds behaves the same way by default.
 for st in polish self-review; do
   reset_state
   out=$(run resolve "stepdef:$st" --key execution --step-type "$st") \
     || fail "15a: resolve --step-type $st failed"
   [ "$(printf '%s\n' "$out" | field model)/$(printf '%s\n' "$out" | field effort)" = opus/high ] \
-    || fail "15a: review step class '$st' must default to the unit's tier"
+    || fail "15a: step '$st' must default to the unit's tier"
   [ "$(printf '%s\n' "$out" | field step_scope)" = inherit ] \
-    || fail "15a: review step class '$st' must report inherit, not a skipped resolution"
+    || fail "15a: step '$st' must report inherit, not a skipped resolution"
   # REQ-F1.1's inheritance case: recorded, not merely reported.
   [ "$(step_rows "stepdef:$st" | awk -F "$TAB" '{ print $14 }')" = inherit ] \
     || fail "15a: the inheritance must land as a ledger row for '$st'"
 done
-echo "ok: every shipped review-sequence step class defaults to the unit's tier"
+echo "ok: every seeded step defaults to the unit's tier"
 
 # --- 15b. a cheaper configured step tier applies, scope-marked -------------
 

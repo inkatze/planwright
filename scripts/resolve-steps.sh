@@ -531,7 +531,7 @@ EOF
 # parse_list <raw>: sets IDS to one id per line for a flow list `[a, b]`,
 # empty for `[]`. A value that is not a flow list, or carries an empty
 # field between commas, sets LIST_ERR instead (the bare scalar the
-# review-sequence knob tolerated is not a list of step ids); a trailing
+# retired convergence knob tolerated is not a list of step ids); a trailing
 # comma is tolerated as YAML tolerates it.
 LIST_ERR=""
 IDS=""

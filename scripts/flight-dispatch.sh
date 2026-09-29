@@ -16,9 +16,14 @@
 #     (REQ-C1.2);
 #   - the launch tier resolves through the shared policy at the `offload`
 #     selection key (scripts/allocation-apply.sh), as every /offload rung does;
-#   - the convergence list is the configured `review_sequence`
-#     (scripts/resolve-review-sequence.sh), handed to the worker unchanged
-#     (REQ-C1.3, D-7: no second sequence, no knob);
+#   - the convergence list is the convergence point's step list,
+#     `steps_convergence`, resolved with unit kind `flight`
+#     (scripts/resolve-steps.sh) against this script's own planwright root
+#     and handed to the worker unchanged (REQ-C1.3, D-7: no second list, no
+#     knob). A flight runs skill steps only: a command or prompt step is
+#     refused by name and nothing is placed, since the brief cannot yet carry
+#     such a step's screening, worktree-relative resolution, posture, or
+#     timeout;
 #   - the concurrency bound is the existing `max_parallel_units` (REQ-C1.5),
 #     serialized by scripts/fleet-state.sh's lock under a per-checkout home.
 #
@@ -90,7 +95,8 @@
 #
 # Report: TAB-separated `key<TAB>value` lines, after any `retired` lines the
 # dispatch's sweep printed — flight, branch, worktree,
-# base, home, origin, record, review_sequence, model, effort, brief, `sanitized`
+# base, home, origin, record, steps_convergence (the step ids the brief runs,
+# space-separated, empty for an empty list), model, effort, brief, `sanitized`
 # (ask or grounds, one line each, only when invisible or bidi-control
 # characters were stripped from that text), backend, handle,
 # observe, attach, launch (print), the primitive's `attach-plan` lines
@@ -114,7 +120,8 @@
 # or `--home pr`, or a missing sibling helper (nothing placed); 3 declined at
 # the bound, or withheld by the allocation admission gate (nothing placed); 4
 # a resolver, the fleet home, the worktree list, or the flight lock could not
-# be read or taken, the fleet home or the brief directory was refused (not
+# be read or taken, the convergence list did not resolve or names a step that
+# is not a skill step, the fleet home or the brief directory was refused (not
 # private to the user, a symlinked flights directory, or already present),
 # the brief sweep refused to run, or the base could not be fetched fresh (nothing placed, unless a
 # `failed` report names a worktree left behind); 5 the id could not be minted,
@@ -142,7 +149,7 @@ FLIGHT_ID="$script_dir/flight-id.sh"
 WORKTREE="$script_dir/fleet-dispatch-worktree.sh"
 STATE="$script_dir/fleet-state.sh"
 CONFIG="$script_dir/config-get.sh"
-SEQUENCE="$script_dir/resolve-review-sequence.sh"
+STEPS="$script_dir/resolve-steps.sh"
 ROOTS="$script_dir/resolve-installed-roots.sh"
 ALLOC="$script_dir/allocation-apply.sh"
 LADDER="$script_dir/allocation-ladder.sh"
@@ -174,7 +181,7 @@ EOF
   exit 2
 }
 
-for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$SEQUENCE" "$ROOTS" \
+for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$STEPS" "$ROOTS" \
   "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL" "$TEXT"; do
   [ -r "$_h" ] || die 2 "required helper missing: $_h"
 done
@@ -246,7 +253,7 @@ origin_dest() {
 
 # read_hosts — set HOSTS to the `flight_pr_hosts` entries, one per line,
 # lower-cased, each trimmed of whitespace and a surrounding quote pair as the
-# sibling list reader (resolve-review-sequence.sh) trims them. The knob grants
+# sibling list reader (resolve-steps.sh) trims them. The knob grants
 # egress, so the repo-tracked layer is never read for it: a repository cannot
 # approve its own push destination. Pointing the repo root at /dev/null leaves
 # no repo-side layer, and the machine-local file is named explicitly. Fails,
@@ -652,6 +659,44 @@ sweep_briefs() {
   return "$_sb_failed"
 }
 
+# resolve_convergence — set `sequence` to the resolver's --explain lines for
+# the steps the convergence point runs on a flight, one per line. A skipped
+# step is dropped (the resolver's warning on stderr names it), and
+# `all_skipped` is set when every step was; a park, a malformation, a broken
+# install, or a step that is not a skill places nothing. The core list, the core catalog, and the skills all resolve under
+# this script's own root, so a planwright skill is told apart from a user or
+# project one by its location alone and no environment root can swap the
+# list those skills are judged against. The --explain fields read here, by
+# position: 1 decision, 2 id, 6 target, 8 kind, 9 args, 13 location
+# (resolve-steps.sh documents the full order).
+resolve_convergence() {
+  _rc_out=$(cd "$repo_root" && unset CLAUDE_PLUGIN_ROOT PLANWRIGHT_CONFIG_DEFAULTS \
+    && PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_ROOT="$root_dir" \
+      PLANWRIGHT_SKILLS_ROOT="$root_dir/skills" PLANWRIGHT_STEP_UNIT_KIND=flight \
+      bash "$STEPS" convergence --explain --unattended </dev/null) || {
+    _rc=$?
+    die 4 "steps_convergence did not resolve (exit $_rc); nothing was placed"
+  }
+  sequence=$(printf '%s\n' "$_rc_out" | awk -F"$TAB" '$1 == "run"')
+  all_skipped=''
+  [ -z "$_rc_out" ] || [ -n "$sequence" ] || all_skipped=1
+  _rc_bad=$(printf '%s\n' "$sequence" | awk -F"$TAB" '$1 == "run" && $8 != "skill" {print $2 "\t" $8; exit}')
+  [ -z "$_rc_bad" ] \
+    || die 4 "steps_convergence step '$(printf '%s' "$_rc_bad" | cut -f1)' is a $(printf '%s' "$_rc_bad" | cut -f2) step; a flight runs skill steps only; nothing was placed"
+}
+
+# render_step <explain-line> — print the brief's invocation for one skill
+# step (resolve_convergence has refused every other kind).
+render_step() {
+  _rs_target=$(printf '%s' "$1" | cut -f6)
+  _rs_args=$(printf '%s' "$1" | cut -f9)
+  _rs_loc=$(printf '%s' "$1" | cut -f13)
+  [ "$_rs_args" != - ] || _rs_args=''
+  _rs_inv=/$_rs_target
+  [ "$_rs_loc" != "$root_dir/skills/$_rs_target/SKILL.md" ] || _rs_inv=/planwright:$_rs_target
+  printf "\`%s%s\`" "$_rs_inv" "${_rs_args:+ $_rs_args}"
+}
+
 write_brief() {
   _doc_lines=''
   _docs=$(awk '/^Doctrine: (run-start|point-of-use) / {print $3}' "$MANIFEST_SKILL")
@@ -666,9 +711,14 @@ write_brief() {
   _n=0
   for _s in $sequence; do
     _n=$((_n + 1))
-    _seq_lines="$_seq_lines$_n. \`/planwright:$_s --nested\`$LF"
+    _seq_lines="$_seq_lines$_n. $(render_step "$_s")$LF"
   done
   IFS=$_old_ifs
+  if [ -z "$_seq_lines" ] && [ -n "$all_skipped" ]; then
+    _seq_lines="Every configured step was skipped on this host: the convergence point runs no step.$LF"
+  elif [ -z "$_seq_lines" ]; then
+    _seq_lines="The list is empty: the convergence point runs no step.$LF"
+  fi
 
   # The worker renders the record from the ask and the grounds as the
   # operator gave them, never re-typed; the renderer runs its own screen, so
@@ -735,13 +785,14 @@ committed record is the landing reference."
     printf '\n%s' "$_doc_lines"
     printf '\n## Work and convergence\n\n'
     printf '%s\n' "Implement the ask test-first where it introduces behavior, then run the"
-    printf '%s\n' "project's full CI. Then converge through the configured review sequence, in"
-    printf '%s\n' "order, each after the previous one has converged:"
+    printf '%s\n' "project's full CI. Then converge through the convergence point's steps, in"
+    printf '%s\n' "order, each after the previous one has converged. This is \`steps_convergence\`"
+    printf '%s\n' "as resolved at dispatch with unit kind \`flight\` (custom-steps); run it as"
+    printf '%s\n' "listed, without resolving it again:"
     printf '\n%s' "$_seq_lines"
-    printf '\n%s\n' "Read the convergence point's step list, \`steps_convergence\`, with unit kind"
-    printf '%s\n' "\`flight\` (custom-steps). Proportionality may scope rigor inside a pass for a"
-    printf '%s\n' "low-stake, reversible change; any scoping you apply is declared in the record,"
-    printf '%s\n' "and an undeclared scoping did not happen."
+    printf '\n%s\n' "Proportionality may scope rigor inside a pass for a low-stake, reversible"
+    printf '%s\n' "change; any scoping you apply is declared in the record, and an undeclared"
+    printf '%s\n' "scoping did not happen."
     printf '\n## Hard pauses\n\n'
     printf '%s\n' "The gate-wiring hard pauses stay in force whatever the route or its grounds,"
     printf '%s\n' "an operator override included: a hard-disqualifier-zone finding, or scope"
@@ -998,11 +1049,7 @@ cmd_dispatch() {
     die 2 "refusing --home pr: $HOME_REASON; nothing was placed"
   fi
 
-  sequence=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$SEQUENCE" </dev/null) || {
-    _rc=$?
-    die 4 "review_sequence did not resolve (exit $_rc)"
-  }
-  [ -n "$sequence" ] || die 4 "review_sequence resolved empty"
+  resolve_convergence
 
   resolve_fleet_home --create
 
@@ -1118,7 +1165,7 @@ cmd_dispatch() {
   printf 'home\t%s\n' "$home"
   printf 'origin\t%s\n' "$HOME_DEST"
   printf 'record\t%s\n' "$record"
-  printf 'review_sequence\t%s\n' "$(printf '%s' "$sequence" | tr '\n' ' ' | sed 's/ $//')"
+  printf 'steps_convergence\t%s\n' "$(printf '%s' "$sequence" | cut -f2 | tr '\n' ' ' | sed 's/ $//')"
   printf 'model\t%s\n' "$TIER_MODEL"
   printf 'effort\t%s\n' "$TIER_EFFORT"
   printf 'brief\t%s\n' "$brief"

@@ -220,7 +220,7 @@ and places the flight through
 the id, writes the worker brief, and places the isolated worktree on a
 `planwright/flight/<flight-id>` branch. A flight beyond the bound comes back
 declined; relay its re-ask line, nothing is queued (REQ-C1.5). The worker loads
-full doctrine, converges through the one configured `review_sequence`, renders
+full doctrine, converges through the convergence point's steps, renders
 the record through `scripts/flight-record.sh` (the quoted ask sanitized per
 `security-posture` and markup-neutralized per `flight-rules`), and lands it.
 The tower relays the handle, the attach or launch hint, and a `root-skew` of yes
@@ -338,7 +338,7 @@ On every route, overridden or not:
   a read-only offload never converts in place (REQ-C1.6).
 - **Never** route silently, and never let a route be a mode, flag, or setting
   (REQ-B1.1, REQ-B1.3).
-- **Never** mint placement logic, a review sequence, a queue, a store, or a
+- **Never** mint placement logic, a step list, a queue, a store, or a
   knob beside the existing seams (REQ-C1.2, REQ-C1.5, REQ-G1.5, D-12).
 - **Never** edit a settings file or widen the posture from the tower (D-14).
 

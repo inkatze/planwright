@@ -127,8 +127,9 @@ worker authors and lands it, and it carries (REQ-E1.1):
 - **any rigor scoping actually applied** inside the convergence point's list
   (`steps_convergence`, run with unit kind `flight`;
   [custom-steps](custom-steps.md)). Visual flight runs the same convergence
-  list instrument flight runs; proportionality may scope rigor inside a pass,
-  but a scoping that is not declared did not happen (D-7);
+  list instrument flight runs, its skill steps only (a command or prompt step
+  refuses the flight); proportionality may scope rigor inside a pass, but a
+  scoping that is not declared did not happen (D-7);
 - the **worker handle**; and
 - the **revert path**.
 
