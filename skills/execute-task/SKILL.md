@@ -77,13 +77,13 @@ wait instead.
 4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap
    non-Active refusal REQ-J1.2, D-33; kickoff-lifecycle D-2, D-3). Read the
    `**Status:**` line in `requirements.md`. `Ready` (signed off, no work
-   started) and `Active` (work in flight) are both executable; refuse
-   Draft, Done, Retired, and Superseded. The spec file **stays `Ready`** during
-   execution: Ready↔Active is **derived, not stored** (D-2, D-3). On
-   **Draft**, halt and suggest `/spec-kickoff`; a terminal (Retired/Superseded) or Done spec has nothing to
-   execute. A `Ready` spec runs on the same terms as Active: the freshness gate
-   (step 7) still applies (REQ-C1.3); the two gates compose. There is no bypass
-   flag.
+   started) and `Active` (work in flight) are both executable; refuse Draft,
+   Done, Retired, and Superseded. The spec file **stays `Ready`** during
+   execution: Ready↔Active is **derived, not stored** (D-2, D-3). On **Draft**,
+   halt and suggest `/spec-kickoff`; a terminal (Retired/Superseded) or Done
+   spec has nothing to execute. A `Ready` spec runs on the same terms as Active:
+   the freshness gate (step 7) still applies (REQ-C1.3); the two gates compose.
+   There is no bypass flag.
 5. **Run the validator.** `scripts/spec-validate.sh specs/<spec>`. On this
    dispatch path a missing or non-executable validator fails closed and halts
    (REQ-K1.7). A Ready or Active bundle's findings are errors: surface them and
@@ -374,12 +374,12 @@ classify the edit on the amendment axis:
 
 ## PR creation (REQ-E1.5, D-21)
 
-1. **Push the branch** after the `pre-pr` point: `git push origin <branch>`
-   (with `-u` on first push). New commits only — never force-push, amend, squash, or rebase (REQ-J1.4). On
-   push or `gh` auth failure, degrade gracefully (REQ-K1.6, REQ-K1.7): the local
-   work is committed; record an Awaiting-input note in `tasks.md` naming the
-   pending step and the failure, surface it, and stop. Never retry into an opaque
-   failure.
+1. **Run the `pre-pr` point, then push the branch:** `git push origin <branch>`
+   (with `-u` on first push). New commits only — never force-push, amend,
+   squash, or rebase (REQ-J1.4). On push or `gh` auth failure, degrade
+   gracefully (REQ-K1.6, REQ-K1.7): the local work is committed; record an
+   Awaiting-input note in `tasks.md` naming the pending step and the failure,
+   surface it, and stop. Never retry into an opaque failure.
 2. **Open or update a draft PR.** If a PR already exists for the branch, update
    its body in place; otherwise `gh pr create --draft` with an explicit
    `--title` and `--body` (headless `gh` prompts or fails without them). The
@@ -399,9 +399,9 @@ classify the edit on the amendment axis:
 
    The PR is always a draft. Never mark it ready and never merge. Then run the
    `post-pr` point, the PR number now in its context; after its list, re-emit
-   the tables into the body, and if the head moved fetch and regenerate the
-   checklist (`step-record.sh regenerate --base origin/<base> --head HEAD
-   --checklist-only`) and re-emit the handoff; verify the PR is still a draft,
+   the tables into the body, and if the PR head moved fetch and regenerate the
+   checklist (`step-record.sh regenerate --base origin/<base> --head
+   origin/<branch> --checklist-only`) and re-emit the handoff; verify the PR is still a draft,
    else park naming the post-pr steps (custom-steps REQ-E1.2). Earlier points
    never re-run.
 3. **Annotate the unit (v1 bundles only).** On a format-version 2 bundle no
