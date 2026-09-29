@@ -111,7 +111,7 @@ Anchor: \`$mf_anchor\` — computed as
 \`scripts/spec-anchor.sh specs/demo\`
 EOF
   hermetic git -C "$mf_p" add -A && hermetic git -C "$mf_p" commit -q -m init || return 1
-  printf 'review_sequence: [polish, self-review]\ndispatch_isolation: per-unit\n' \
+  printf 'steps_convergence: [polish, self-review]\ndispatch_isolation: per-unit\n' \
     >"$mf_p/.claude/planwright.local.yml"
   hermetic git -C "$mf_p" worktree add -q "$mf_p/.claude/worktrees/wt" -b wt || return 1
   # Untracked, as a store with no fragments yet is.
@@ -184,8 +184,8 @@ record_vantage() {
   probe rule-doc-contentless-arm env -u PLANWRIGHT_ROOT CLAUDE_PLUGIN_ROOT="$rv_t/empty" \
     "$S/resolve-rule-doc.sh" --explain spec-format
   probe rule-doc "$S/resolve-rule-doc.sh" --explain spec-format
-  probe config-get "$S/config-get.sh" --explain review_sequence
-  probe review-sequence "$S/resolve-review-sequence.sh"
+  probe config-get "$S/config-get.sh" --explain steps_convergence
+  probe convergence-steps "$S/resolve-steps.sh" convergence --unattended
   probe config-knob "$S/resolve-config-knob.sh" --key dispatch_isolation --type enum \
     --values 'per-step per-unit' --fallback per-step
   probe overlay-repo-tracked "$S/resolve-overlay-root.sh" repo-tracked
