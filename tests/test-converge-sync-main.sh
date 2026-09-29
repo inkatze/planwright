@@ -1106,8 +1106,9 @@ STUB
 
 # ---------------------------------------------------------------------------
 # Wiring 1 — `/execute-task` invokes the sync ONCE, at the top of the
-# convergence sequence: before the line that runs the review skills, so the
-# head the review sequence verifies is the post-sync one (REQ-B1.1). NOT the
+# convergence point: after the point resolves and before the line that runs its
+# steps, so the head the convergence steps verify is the post-sync one
+# (REQ-B1.1; custom-steps REQ-E1.1). NOT the
 # head the skill's own CI step ran on — that step precedes this section and is
 # never re-run; see the script header and the 2026-08-26
 # `converge-sync-ci-ordering` observation. One occurrence is also what keeps
@@ -1119,15 +1120,19 @@ w1() {
     || fail "w1: expected exactly 1 converge-sync-main.sh invocation in SKILL.md, found $n"
 
   sync_line=$(grep -n 'converge-sync-main\.sh' "$SKILL" | cut -d: -f1 || true)
-  run_line=$(grep -n '^\*\*Run each named skill in order' "$SKILL" | cut -d: -f1 || true)
+  run_line=$(grep -n '^\*\*Run the convergence steps\*\*' "$SKILL" | cut -d: -f1 || true)
   conv_line=$(grep -n '^## Convergence' "$SKILL" | cut -d: -f1 || true)
-  [ -n "$run_line" ] || fail "w1: could not locate the review-sequence run instruction in SKILL.md"
+  resolve_line=$(grep -n 'resolve the `convergence` point' "$SKILL" | head -n 1 | cut -d: -f1 || true)
+  [ -n "$run_line" ] || fail "w1: could not locate the convergence-steps run instruction in SKILL.md"
   [ -n "$conv_line" ] || fail "w1: could not locate the Convergence section heading in SKILL.md"
+  [ -n "$resolve_line" ] || fail "w1: could not locate the convergence point's resolution in SKILL.md"
   [ "$sync_line" -gt "$conv_line" ] \
     || fail "w1: the sync call sits outside the Convergence section"
+  [ "$resolve_line" -gt "$conv_line" ] && [ "$resolve_line" -le "$sync_line" ] \
+    || fail "w1: the convergence point does not resolve before the sync"
   [ "$sync_line" -lt "$run_line" ] \
     || fail "w1: the sync call does not sit at the TOP of the sequence (it follows the run instruction)"
-  echo "ok w1: SKILL.md invokes the sync exactly once, at the top of the convergence sequence"
+  echo "ok w1: SKILL.md resolves the convergence point, then invokes the sync exactly once, before the steps run"
 }
 
 # ---------------------------------------------------------------------------

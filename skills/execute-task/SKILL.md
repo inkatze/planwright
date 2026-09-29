@@ -4,7 +4,7 @@ description: >
   Implement one task (or a cohesion bundle) from a signed-off spec (Ready or Active):
   recompute the execution freshness gate, write the verifying test first,
   implement to green, run the project's full CI with adaptive retry, converge
-  via the configured review_sequence (default /polish --nested), then open a
+  via the steps_convergence list (default /polish --nested), then open a
   draft PR referencing the brief, tasks, REQs, and tests. The execution
   workhorse of the planwright pipeline. Assumes the worktree already exists;
   never creates worktrees, never merges, never marks a PR ready.
@@ -46,6 +46,7 @@ Doctrine: point-of-use validation-rigor
 Doctrine: point-of-use finding-categorization
 Doctrine: point-of-use gate-wiring
 Doctrine: point-of-use decision-domains
+Doctrine: point-of-use custom-steps
 
 ## Pre-flight
 
@@ -78,10 +79,7 @@ wait instead.
    `**Status:**` line in `requirements.md`. `Ready` (signed off, no work
    started) and `Active` (work in flight) are both executable; refuse
    Draft, Done, Retired, and Superseded. The spec file **stays `Ready`** during
-   execution: Ready↔Active is **derived, not stored** (D-2), written only by
-   `orchestration-concurrency`'s single reconcile writer (D-3), so a task
-   normally runs against a `Ready` spec, not the stored-`Active` demand this
-   gate must not reintroduce. On **Draft**, halt and suggest
+   execution: Ready↔Active is **derived, not stored** (D-2, D-3). On **Draft**, halt and suggest
    `/spec-kickoff`; a terminal (Retired/Superseded) or Done spec has nothing to
    execute. A `Ready` spec runs on the same terms as Active: the freshness gate
    (step 7) still applies (REQ-C1.3); the two gates compose. There is no bypass
@@ -152,22 +150,51 @@ wait instead.
     snapshot lag, not corruption (REQ-B1.2). The only edit is the block's
     `- **Last activity:** <today>` annotation, anchor-excluded (`spec-format`
     canonical extraction) and not a `Status` line, so it trips neither
-    corruption guard (full race rationale at PR step 3). Commit it when
+    corruption guard. Commit it when
     `commit_on_state_move` is true (read `config/defaults.yml` overridden by
     `<repo>/.claude/planwright.local.yml`, local wins; absent/malformed falls
     back to the default with a one-line warning).
+12. **Run the `pre-implementation` point** (see *Points*).
+
+## Points (`custom-steps`, D-3)
+
+This skill is the runner at its five in-run points; `custom-steps` owns the
+contract. Issue one run id (`scripts/step-record.sh new-run`) per invocation.
+**Run a point** in the worktree, the `PLANWRIGHT_STEP_*` context exported:
+
+1. **Resolve** it whole first: `scripts/resolve-steps.sh <point> --explain`
+   with `--unattended` exactly when this unit was launched headless, else
+   `--attended`, keeping its warnings. Exit 1 (`park`, or `ask`): the pause
+   protocol, naming the point; exit 2, 4, or 5: a stop condition.
+2. **Host** each step in order by its printed hosting, per the doc's
+   *Hosting* table: `isolated` session steps launch through the backend seam
+   (`offload-dispatch`) at their `execute_step` tier with the `--preamble`
+   block prepended, recording the session id (a backend that cannot spawn
+   degrades to `in-session`, recorded); `continue` resumes the predecessor's
+   id or records `failed`; `in-session` uses this session's skill or shell
+   tool, a command as its `--line` rendering. A runner-owned step past its
+   `timeout` is ended; a session-owned one is stopped through the seam or no
+   longer waited on, recording which.
+3. **Record** each outcome (a command's exit code; a session step classified
+   from its handoff) through `step-record.sh write`, the printed path being
+   the next step's `PREV_RECORD`; a `skip` line records `skipped`.
+4. **Posture:** a `halted` or `failed` step under `on-failure: halt` ends the
+   point and the unit through the pause protocol; `continue` proceeds.
+5. **Complete** it (`step-record.sh write --completion`), a halted list
+   included.
 
 ## Implementation
 
 ### Step isolation (`dispatch_isolation`, REQ-C1.3, REQ-C1.4, D-5)
 
 The mode resolved in pre-flight step 10 governs how this unit's **steps** — the
-implementation phase (test-first loop, research, security pass, CI), then each
-`review_sequence` skill — are **hosted**. It changes hosting, not work or order.
+implementation phase (test-first loop, research, security pass, CI), then every
+point's steps with no declared hosting — are **hosted**. It changes hosting, not
+work or order.
 
 - **`per-unit`** (strictly preserved): the whole unit runs in **one session** —
-  implement, run CI, invoke each `review_sequence` skill inline with `--nested`,
-  then push and open the PR. Context carries across steps.
+  implement, run CI, run each point's steps inline, then push and open the PR.
+  Context carries across steps.
 - **`per-step`** (the assigned-decision default): each step runs in its **own
   fresh session**, seeded by `/resume` from durable state alone (brief,
   `tasks.md` snapshot, git log, open PR), so context stays bounded and each
@@ -192,8 +219,7 @@ remain this skill's single terminal step (see Invariants).
 
 ### Commit convention (REQ-C1.4, D-2)
 
-Every commit this skill authors for the unit — test-first action commits, the
-observation chore commit, any expression-only amendment commit — carries the
+Every commit this skill authors for the unit carries the
 `Planwright-Task` trailer `spec-format` defines under *Branch, worktree, and
 task-id grammar*, stamped through the shared helper:
 
@@ -232,9 +258,8 @@ skips the loop; note in the PR body why no test was added.
 Research fires **before** implementation when a trigger holds — a new
 dependency, an unfamiliar domain, a security-touching pattern, a
 version-sensitive API, or a "how do mature projects do this" question. Consult
-current sources in order (official docs for the pinned version, then the
-library's own source and tests, then issues/RFCs), honor recency over model
-memory, and run the antipattern check before adopting a pattern. **Record** the
+current sources in `research-rigor`'s order, recency over model memory, with
+its antipattern check before adopting a pattern. **Record** the
 findings, tradeoffs, and sources in the brief's **risk register**, appended to a
 named section — never overwriting existing rows, never as an anchor entry.
 Declare the research depth's scoping per `proportionality`. A significant risk
@@ -268,7 +293,7 @@ judgment.
 
 ### Run the full project CI (REQ-E1.2)
 
-Run the command derived in pre-flight step 9. The full suite must pass before
+Run the `pre-ci` point, then the command derived in pre-flight step 9. The full suite must pass before
 convergence; capture its output.
 
 ### Adaptive CI-failure handling (REQ-E1.2, D-25)
@@ -286,60 +311,33 @@ captured output (it prints `transient` or `logic`; unknown patterns default to
   the failure with the full CI output to `tasks.md` Awaiting input and halt
   (attended: surface and wait).
 
-## Convergence (REQ-E1.4, REQ-D1.3, D-39, D-6)
+## Convergence (REQ-E1.4, D-39; custom-steps REQ-E1.1)
 
-After CI passes, run the **review sequence**. The sequence is the
-`review_sequence` config knob (D-6, REQ-D1.3): an ordered list of nestable
-review-skill names, resolved through the four-layer config overlay. The default
-is `polish` (today's `/polish --nested` convergence); an overlay can reorder or
-extend it.
+After CI passes, resolve the `convergence` point (*Points* step 1), then **sync
+`main`** once (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4), an empty list
+included: run `scripts/converge-sync-main.sh` (under the resolved planwright
+root); a non-zero exit halts the unit to Awaiting input with the reason it
+printed. The sync changes the head a later ready-flip lands on, never who flips.
 
-**Resolve the sequence.** Run `scripts/resolve-review-sequence.sh` (under the
-resolved planwright root). It reads `review_sequence` *through* `config-get`
-(REQ-D1.1), validates each name against the nestable-review-skill predicate,
-applies the REQ-E1.4 by-layer malformed policy, and prints the validated ordered
-names. By exit code:
+**Run the convergence steps** (*Points* steps 2–5); `steps_convergence` is the
+unit's convergence phase, core's default being `polish` with `--nested`. A review
+step's `--nested` run drains every action disposition per act-then-review and
+returns its audit record without pushing or opening a PR. Each review skill
+holds its Documentation lens to `discovery-rigor`'s four defect classes, so a
+`none` row naming the reason is coverage, not a gap. Classify each handoff:
 
-- **0** — the printed names are the review sequence, in order. A stderr warning
-  may note an overlay was degraded to the core default; surface it but proceed.
-- **4** — a repo-tracked overlay set a malformed value, or the repo-tracked
-  config is structurally malformed: a hard-fail **stop condition** — record to
-  `tasks.md` Awaiting input and halt.
-- **5** — broken install (the core default is unresolvable): a **stop
-  condition** — halt and hand off.
-
-**Sync `main` first** (merge-currency-guard REQ-B1.1, REQ-B1.4, D-4): once per
-pass, before the first skill runs, run `scripts/converge-sync-main.sh` (under
-the resolved planwright root); a non-zero exit halts the unit to Awaiting input
-with the reason it printed. The sync changes the head a later ready-flip lands
-on, never who flips.
-
-**Run each named skill in order, with `--nested`.** Every review skill runs
-`--nested` — it drains every action disposition per act-then-review and returns
-its audit record without pushing or creating a PR (this skill's job, which is
-why `--nested` is mandatory). The `dispatch_isolation` mode sets only where each
-`--nested` call is **hosted** — `per-unit` in-session composition (REQ-E2.2,
-D-13) or a fresh `/resume`-seeded `per-step` session — never the `--nested`
-contract. Each review skill holds its Documentation lens to `discovery-rigor`'s
-four defect classes, so a `none` row naming the reason is coverage, not a gap.
-
-After each returns:
-
-- **Normal exit** (converged, or handed off with queued forks): continue to the
-  next skill; once the sequence has run, proceed to PR creation, folding each
-  skill's audit record — the four bucket tables (per `finding-categorization`,
-  whose *Prose findings* axis classes a prose-only fix expression-only or
-  meaning-class), the declined log, the pending-sign-off checklist (prose-only
-  sign-off fixes batch into one commit per loop iteration under `gate-wiring`'s
-  commit discipline, so one commit can carry several checklist entries), and any
-  queued Needs-human-judgment forks — into the PR body. One queued fork stops PR
-  creation: a meaning-class spec finding is contract drift, and the
-  meaning-class refusal below governs it.
-- **Safety stop** (wider-suite failure, loop detection, iteration cap): the
-  branch may be known-broken. Surface the stop reason and halt; do not run later
-  review-sequence skills or open a PR over a broken branch.
-- **Hard-disqualifier finding** a review-sequence skill surfaced but could not
-  resolve autonomously: a stop condition — hand off for human direction.
+- **Normal exit** (converged, or handed off with queued forks): `applied` or
+  `passed`; fold its audit record — the four bucket tables (per
+  `finding-categorization`, whose *Prose findings* axis classes a prose-only fix
+  expression-only or meaning-class), the declined log, the pending-sign-off
+  checklist (prose-only sign-off fixes batch into one commit per loop iteration
+  under `gate-wiring`'s commit discipline), and any queued
+  Needs-human-judgment forks — into the PR body. A queued meaning-class spec
+  fork is `halted` and stops PR creation whatever the posture: contract drift, governed by the
+  meaning-class refusal below.
+- **Safety stop** (wider-suite failure, loop detection, iteration cap): `failed`;
+  the branch may be known-broken, so open no PR over it.
+- **Hard-disqualifier finding** left unresolved: `halted`, for human direction.
 
 **A convergence finding whose fix edits this spec's anchored content** is an in-flight
 amendment, never a direct edit: it takes the ritual below — the stale-anchor
@@ -372,7 +370,7 @@ classify the edit on the amendment axis:
 
 ## PR creation (REQ-E1.5, D-21)
 
-1. **Push the branch:** `git push origin <branch>` (with `-u` on first push).
+1. **Push the branch** after the `pre-pr` point: `git push origin <branch>` (with `-u` on first push).
    New commits only — never force-push, amend, squash, or rebase (REQ-J1.4). On
    push or `gh` auth failure, degrade gracefully (REQ-K1.6, REQ-K1.7): the local
    work is committed; record an Awaiting-input note in `tasks.md` naming the
@@ -388,23 +386,25 @@ classify the edit on the amendment axis:
    skill supplies the summary inputs: the kickoff brief path
    (`specs/<spec>/kickoff-brief.md`), the task IDs, the REQs satisfied (from the
    task `Citations:`), the test additions and what they verify, and
-   implementation notes (key decisions). The audit record is the review
-   sequence's output: the four tables, declined log,
-   pending-sign-off checklist, and any queued forks. At PR review the human
-   approves each checklist item by leaving its commit, or rejects it with the
-   named revert.
+   implementation notes (key decisions). The audit record is the convergence
+   steps' output: the four tables, declined log, pending-sign-off checklist,
+   and any queued forks, plus every in-run point's table (`step-record.sh
+   render --run <id>`, `none` rows included). At PR review the human approves
+   each checklist item by leaving its commit, or rejects it with the named
+   revert.
 
-   The PR is always a draft. Never mark it ready and never merge.
+   The PR is always a draft. Never mark it ready and never merge. Then run the
+   `post-pr` point, the PR number now in its context; after its list, re-emit
+   the tables into the body, and if the head moved regenerate the checklist
+   (`step-record.sh regenerate --base origin/<base> --head HEAD`) and re-emit
+   the handoff; verify the PR is still a draft, else park naming the post-pr
+   steps (custom-steps REQ-E1.2). Earlier points never re-run.
 3. **Annotate the unit (v1 bundles only).** On a format-version 2 bundle no
    annotation exists to write — skip this step. Update only the task
    block's `- **Last activity:** <today>` annotation; write **no** `Status`
    line. Section placement is the `tasks-pr-sync` reconcile's sole job
-   (REQ-B1.1, D-1); the reconcile preserves annotations untouched and does not
-   author the `Status` text. Writing a `PR #<N> draft` Status here would race
-   the reconcile: the hook is fail-soft on a busy lock (a clean no-op), so the
-   block can still sit in `## Forward plan`, an in-progress `Status` there being
-   exactly the section/status contradiction `scripts/check-ledger.sh` flags
-   (REQ-E1.1, REQ-E1.2).
+   (REQ-B1.1, D-1); a `Status` written here races it into the section/status
+   contradiction `scripts/check-ledger.sh` flags (REQ-E1.1, REQ-E1.2).
 
 **Hand off.** Report: the unit and spec, the freshness-gate result, tests
 written and CI outcome, the convergence summary, the verified anchor, the
@@ -428,15 +428,14 @@ described in full at its point of use:
 - **Test cannot fail for the right reason:** test-first step 2.
 - **CI logic failure:** a logic-classified failure, or transient retries
   exhausted then reclassified.
-- **Research reveals an uncovered risk:** one the brief did not anticipate.
+- **Research reveals a risk the brief did not anticipate.**
 - **Contract drift:** a meaning-class spec change is needed; route to
   `/spec-kickoff`.
 - **Ambiguity in the task definition:** `Done when:` or `Deliverables:` admit
   multiple valid interpretations.
-- **Hard-disqualifier finding in convergence:** a review-sequence skill could
-  not resolve it.
-- **`gh` not authenticated or push rejected:** the PR step cannot reach GitHub;
-  local work is complete.
+- **A point ends the unit:** its resolution parked, asked, or failed, or a
+  step halted or failed under `on-failure: halt` (*Points*).
+- **`gh` not authenticated or push rejected:** PR creation step 1.
 
 ## Invariants
 
@@ -449,8 +448,8 @@ These hold at every step:
 - **Never** create a non-draft PR, mark a PR ready, or merge — the draft→ready
   flip and merge are the human's (D-21, REQ-J1.1).
 - **Never** create a worktree; this skill runs inside one (D-37, D-44).
-- **Never** invoke a `review_sequence` skill (`/polish` by default) without
-  `--nested`: this skill owns push and PR creation (D-39, REQ-E1.4, REQ-D1.3).
+- **Never** let a step push before `post-pr`, merge, mark ready, or rewrite
+  history: this skill owns push and PR creation (D-39; custom-steps REQ-D1.6).
 - **Never** let `per-step` isolation weaken state-safety: every `tasks.md`
   placement move goes through the sibling reconcile under the per-spec lock, and
   no step session opens a PR (REQ-C1.4).
