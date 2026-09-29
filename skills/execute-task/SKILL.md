@@ -160,28 +160,33 @@ wait instead.
 
 This skill is the runner at its five in-run points; `custom-steps` owns the
 contract. Issue one run id (`scripts/step-record.sh new-run`) per invocation.
-**Run a point** in the worktree, the `PLANWRIGHT_STEP_*` context exported:
+**Run a point** in the worktree, the `PLANWRIGHT_STEP_*` context exported (a
+PR number whenever one exists):
 
-1. **Resolve** it whole first: `scripts/resolve-steps.sh <point> --explain`
-   with `--unattended` exactly when this unit was launched headless, else
-   `--attended`, keeping its warnings. Exit 1 (`park`, or `ask`): the pause
-   protocol, naming the point; exit 2, 4, or 5: a stop condition.
+1. **Resolve** it whole first: `scripts/resolve-steps.sh <point> --explain`,
+   `--unattended` exactly when the backend seam's launch record says headless,
+   else `--attended`. Exit 1: `park` parks the unit; `ask` presents and waits
+   for a repair and re-resolve. Exit 2, 4, or 5: a stop condition.
 2. **Host** each step in order by its printed hosting, per the doc's
-   *Hosting* table: `isolated` session steps launch through the backend seam
-   (`offload-dispatch`) at their `execute_step` tier with the `--preamble`
-   block prepended, recording the session id (a backend that cannot spawn
-   degrades to `in-session`, recorded); `continue` resumes the predecessor's
-   id or records `failed`; `in-session` uses this session's skill or shell
-   tool, a command as its `--line` rendering. A runner-owned step past its
-   `timeout` is ended; a session-owned one is stopped through the seam or no
-   longer waited on, recording which.
+   *Hosting* table, a skill or prompt step always receiving the `--preamble`
+   block: `isolated` sessions launch through the backend seam
+   (`offload-dispatch`) at their `execute_step` tier, recording the session
+   id (a backend that cannot spawn degrades to `in-session`, recorded), and
+   an `isolated` command runs as a subprocess, its output cached; `continue`
+   resumes the predecessor's id or records `failed`; session commands run
+   their `--line` rendering. A refused context value (exit 6) is `failed`.
+   Past its `timeout`, a runner-owned step is ended, a session-owned one
+   stopped through the seam or no longer waited on (recording which), outcome
+   `failed`; an `in-session` command's goes to the shell tool.
 3. **Record** each outcome (a command's exit code; a session step classified
    from its handoff) through `step-record.sh write`, the printed path being
    the next step's `PREV_RECORD`; a `skip` line records `skipped`.
 4. **Posture:** a `halted` or `failed` step under `on-failure: halt` ends the
-   point and the unit through the pause protocol; `continue` proceeds.
-5. **Complete** it (`step-record.sh write --completion`), a halted list
-   included.
+   point and the unit through the pause protocol, the entry naming only the
+   point, step id, outcome, and record path; `continue` proceeds.
+5. **Complete** it (`step-record.sh write --completion`, the ending head and
+   each warning), a halted list included; a parked, asked, or unresolved
+   point writes none.
 
 ## Implementation
 
@@ -322,9 +327,8 @@ printed. The sync changes the head a later ready-flip lands on, never who flips.
 **Run the convergence steps** (*Points* steps 2–5); `steps_convergence` is the
 unit's convergence phase, core's default being `polish` with `--nested`. A review
 step's `--nested` run drains every action disposition per act-then-review and
-returns its audit record without pushing or opening a PR. Each review skill
-holds its Documentation lens to `discovery-rigor`'s four defect classes, so a
-`none` row naming the reason is coverage, not a gap. Classify each handoff:
+returns its audit record without pushing or opening a PR. Classify each
+handoff:
 
 - **Normal exit** (converged, or handed off with queued forks): `applied` or
   `passed`; fold its audit record — the four bucket tables (per
@@ -395,19 +399,24 @@ classify the edit on the amendment axis:
 
    The PR is always a draft. Never mark it ready and never merge. Then run the
    `post-pr` point, the PR number now in its context; after its list, re-emit
-   the tables into the body, and if the head moved regenerate the checklist
-   (`step-record.sh regenerate --base origin/<base> --head HEAD`) and re-emit
+   the tables into the body, and if the head moved fetch and regenerate the
+   checklist (`step-record.sh regenerate --base origin/<base> --head HEAD
+   --checklist-only`) and re-emit
    the handoff; verify the PR is still a draft, else park naming the post-pr
    steps (custom-steps REQ-E1.2). Earlier points never re-run.
 3. **Annotate the unit (v1 bundles only).** On a format-version 2 bundle no
    annotation exists to write — skip this step. Update only the task
    block's `- **Last activity:** <today>` annotation; write **no** `Status`
    line. Section placement is the `tasks-pr-sync` reconcile's sole job
-   (REQ-B1.1, D-1); a `Status` written here races it into the section/status
-   contradiction `scripts/check-ledger.sh` flags (REQ-E1.1, REQ-E1.2).
+   (REQ-B1.1, D-1); the reconcile preserves annotations untouched and does not
+   author the `Status` text. Writing a `PR #<N> draft` Status here would race
+   the reconcile: the hook is fail-soft on a busy lock (a clean no-op), so the
+   block can still sit in `## Forward plan`, an in-progress `Status` there being
+   exactly the section/status contradiction `scripts/check-ledger.sh` flags
+   (REQ-E1.1, REQ-E1.2).
 
 **Hand off.** Report: the unit and spec, the freshness-gate result, tests
-written and CI outcome, the convergence summary, the verified anchor, the
+written and CI outcome, step counts per point, the convergence summary, the verified anchor, the
 push/PR outcome (or degradation note), and what the human decides at PR review —
 the pending-sign-off checklist and any queued forks. Apply artifact data-hygiene
 to everything surfaced.
@@ -415,27 +424,14 @@ to everything surfaced.
 ## Stop conditions (mandatory human handoff)
 
 Halt and hand back when any of these fires, recording the unit to `tasks.md`
-Awaiting input with the reason (the pre-flight halt protocol above). Each is
-described in full at its point of use:
-
-- **Spec not Ready or Active:** pre-flight step 4 (Draft/Done/Retired/Superseded;
-  suggest `/spec-kickoff` for Draft).
-- **Missing or erroring validator:** pre-flight step 5.
-- **No or partial kickoff brief:** pre-flight step 6.
-- **Freshness-gate halt:** pre-flight step 7, which enumerates the cases.
-- **Dependency not completed:** pre-flight step 8.
-- **Malformed `dispatch_isolation`:** pre-flight step 10 (exit 4/5).
-- **Test cannot fail for the right reason:** test-first step 2.
-- **CI logic failure:** a logic-classified failure, or transient retries
-  exhausted then reclassified.
-- **Research reveals a risk the brief did not anticipate.**
-- **Contract drift:** a meaning-class spec change is needed; route to
-  `/spec-kickoff`.
-- **Ambiguity in the task definition:** `Done when:` or `Deliverables:` admit
-  multiple valid interpretations.
-- **A point ends the unit:** its resolution parked, asked, or failed, or a
-  step halted or failed under `on-failure: halt` (*Points*).
-- **`gh` not authenticated or push rejected:** PR creation step 1.
+Awaiting input with the reason (the pre-flight halt protocol above); each is
+described at its point of use: pre-flight steps 4–8 and 10 (spec status,
+validator, kickoff brief, freshness gate, dependencies, `dispatch_isolation`);
+a test that cannot fail for the right reason; a CI logic failure, or transient
+retries exhausted; research revealing a risk the brief did not anticipate;
+contract drift (route to `/spec-kickoff`); `Done when:` or `Deliverables:`
+admitting multiple valid interpretations; a point ending the unit (*Points*);
+`gh` not authenticated or the push rejected.
 
 ## Invariants
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests for scripts/converge-sync-main.sh — the convergence-loop `main`-sync
-# `/execute-task` runs at the top of each `review_sequence` pass, plus the
+# `/execute-task` runs at the top of each convergence point firing, plus the
 # structural assertions over that wiring (merge-currency-guard Task 3; D-4;
 # REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-D1.3,
 # REQ-K1.1). This is the deep suite for the script; the bundle's manifest
