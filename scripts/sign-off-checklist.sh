@@ -29,11 +29,13 @@
 #     never an item (a trailer it carries is dropped with a warning) and drops
 #     the commit it reverts, unless a later revert undid it in turn (a revert
 #     of a revert reinstates the item). The hash may be full or, as
-#     `git revert --reference` writes it, abbreviated; an abbreviation matching
-#     no commit, or several, in the range pairs with nothing.
-#   - A revert commit that carries its own `Planwright-Sign-Off-Rejected`
-#     trailers is a partial revert: it drops only the ids it names, so one
-#     finding of a shared commit can be rejected without dropping the rest.
+#     `git revert --reference` writes it, abbreviated to at least seven hex
+#     characters; an abbreviation matching no commit, or several, in the range
+#     pairs with nothing.
+#   - A revert commit carrying a `Planwright-Sign-Off-Rejected` trailer that
+#     names an id of the commit it reverts is a partial revert: it drops only
+#     the ids it names, so one finding of a shared commit can be rejected
+#     without dropping the rest.
 #   - A `Planwright-Sign-Off-Rejected: <id>` trailer drops the item it names,
 #     matched exactly, where <id> is `PS-<n>` or `PS-legacy-<sha7>`.
 #   - A reverted or rejected id stays allocated: `next` never reuses it. One
@@ -99,7 +101,8 @@ GS=$(printf '\035')
 
 # --topo-order: the revert pairing below walks descendants before ancestors,
 # which committer-date order does not guarantee across a merge.
-log=$(git log --topo-order --reverse \
+# log.showSignature would print verification lines between the records.
+log=$(git -c log.showSignature=false log --topo-order --reverse \
   --format="%H%x1f%s%x1f%(trailers:key=Planwright-Sign-Off,valueonly,separator=%x1d)%x1f%(trailers:key=Planwright-Sign-Off-Rejected,valueonly,separator=%x1d)%x1f%b%x1e" \
   "$base_sha..$head_sha") \
   || unresolvable "git log failed over the range"
@@ -143,9 +146,12 @@ function target(t,  j, hit) {
   if (sha == "" && NF <= 1) next
   if (NF != 5 || (length(sha) != 40 && length(sha) != 64) || hexrun(sha) != sha || sha in seen) malformed()
   n++
-  seen[sha] = 1
+  seen[sha] = n
   s = $2
+  # C0 controls, DEL, and the UTF-8 encoding of the C1 controls (CSI among
+  # them), which a terminal also acts on.
   gsub(/[[:cntrl:]]/, " ", s)
+  gsub(/\302[\200-\237]/, " ", s)
   h[n] = sha; subj[n] = s; so[n] = $3; rej[n] = $4
   rv[n] = ""
   m = split($5, lines, "\n")
@@ -171,12 +177,24 @@ END {
     print "PS-" (max + 1)
     exit 0
   }
+  # A revert is partial when a rejected id it carries belongs to a commit it
+  # reverts; a rejection of some other commit leaves it a full revert.
   for (k = 1; k <= n; k++) {
     partial[k] = 0
-    c = split(rej[k], vals, GS)
+    if (rv[k] == "" || rej[k] == "") continue
+    c = split(rv[k], ts, " ")
     for (i = 1; i <= c; i++) {
-      v = trim(vals[i])
-      if (is_ps(v) || is_legacy(v)) partial[k] = 1
+      t = target(ts[i])
+      if (t == "") continue
+      delete own
+      own["PS-legacy-" substr(t, 1, 7)] = 1
+      d = split(so[seen[t]], vals, GS)
+      for (e = 1; e <= d; e++) own[trim(vals[e])] = 1
+      d = split(rej[k], vals, GS)
+      for (e = 1; e <= d; e++) {
+        v = trim(vals[e])
+        if (v in own) partial[k] = 1
+      }
     }
   }
   # Descendants first: a revert that is itself live drops its target, so a

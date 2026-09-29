@@ -193,6 +193,10 @@ if [ "$signoffs" -gt 0 ]; then
     exit 2
   fi
   next=${alloc#PS-}
+  if [ $((next + signoffs - 1)) -gt 999999999 ]; then
+    echo "$prog: the allocation would pass PS-999999999; nothing stamped" >&2
+    exit 2
+  fi
 fi
 
 # Second pass: rotate the arguments (the leading $# positional params) into the

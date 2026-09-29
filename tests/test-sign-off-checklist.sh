@@ -310,9 +310,9 @@ commit "$e" "fix: reject a far id
 Planwright-Sign-Off-Rejected: PS-7"
 [ "$(cd "$e" && /bin/bash "$LIST" next main 2>/dev/null)" = PS-8 ] \
   || fail "boundaries: a rejected id did not raise the allocation"
-commit "$e" "$(printf 'fix: tab\there esc\033[2J [pending-sign-off]')"
+commit "$e" "$(printf 'fix: tab\there esc\033[2J csi\302\233x [pending-sign-off]')"
 got=$(cd "$e" && /bin/bash "$LIST" list main 2>/dev/null | cut -f3)
-[ "$got" = "fix: tab here esc [2J [pending-sign-off]" ] \
+[ "$got" = "fix: tab here esc [2J csi x [pending-sign-off]" ] \
   || fail "boundaries: control characters not replaced [$got]"
 echo "ok: suffix, value, allocation, and subject boundaries hold"
 
@@ -336,6 +336,28 @@ git -C "$p" checkout -q HEAD -- b
 printf 'fix: reject PS-1\n\nThis reverts commit %s.\n\nPlanwright-Sign-Off-Rejected: PS-1\n' "$x" \
   | git -C "$p" commit -q -F -
 [ "$(ids "$p")" = "PS-2" ] || fail "partial revert: expected PS-2, got [$(ids "$p")]"
+git -C "$p" revert --no-edit HEAD >/dev/null
+[ "$(ids "$p")" = "PS-1,PS-2" ] || fail "partial revert: reverting it should restore PS-1, got [$(ids "$p")]"
+# A revert whose rejected trailer is malformed, or names another commit's id,
+# is still a full revert of its target.
+for other in PS-01 PS-9; do
+  q="$tmp/partial-$other"
+  new_repo "$q"
+  git -C "$q" checkout -q -b task
+  commit "$q" "fix: kept
+
+Planwright-Sign-Off: PS-9"
+  commit "$q" "fix: reverted
+
+Planwright-Sign-Off: PS-1"
+  y=$(git -C "$q" rev-parse HEAD)
+  git -C "$q" revert --no-commit HEAD
+  printf 'fix: full revert\n\nThis reverts commit %s.\n\nPlanwright-Sign-Off-Rejected: %s\n' "$y" "$other" \
+    | git -C "$q" commit -q -F -
+  want=PS-9
+  [ "$other" = PS-9 ] && want=""
+  [ "$(ids "$q")" = "$want" ] || fail "partial revert: rejected $other should leave [$want], got [$(ids "$q")]"
+done
 echo "ok: a partial revert with a rejected trailer drops only the named id"
 
 # 11f. Revert pairing survives committer dates out of topological order: a
@@ -363,7 +385,27 @@ new_repo "$f"
 git -C "$f" checkout -q -b task
 commit "$f" "fix: referenced [pending-sign-off]"
 git -C "$f" -c revert.reference=true revert --no-edit HEAD >/dev/null
-[ "$(ids "$f")" = "" ] || fail "reference revert: expected no items, got [$(ids "$f")]"
+if git -C "$f" log -1 --format=%b | grep -qE '^This reverts commit [0-9a-f]{7,39} \('; then
+  [ "$(ids "$f")" = "" ] || fail "reference revert: expected no items, got [$(ids "$f")]"
+else
+  echo "skip: this git ignores revert.reference, so no abbreviated revert body to pair"
+fi
+# An abbreviation two commits share pairs with neither. The pair is
+# precomputed like the legacy collision below: siblings of the fixed root
+# whose hashes share their first eight hex characters.
+v2="$tmp/ambiguous"
+git init -q -b main "$v2"
+empty=$(git -C "$v2" hash-object -t tree /dev/null)
+root=$(git -C "$v2" commit-tree "$empty" -m 'chore: root')
+a=$(git -C "$v2" commit-tree "$empty" -p "$root" -m 'fix: shared prefix 160' -m 'Planwright-Sign-Off: PS-1')
+b=$(git -C "$v2" commit-tree "$empty" -p "$root" -m 'fix: shared prefix 12974' -m 'Planwright-Sign-Off: PS-1')
+[ "$(printf '%s' "$a" | cut -c1-7)" = "$(printf '%s' "$b" | cut -c1-7)" ] \
+  || fail "ambiguous: fixture no longer collides ($a vs $b)"
+mg=$(git -C "$v2" commit-tree "$empty" -p "$a" -p "$b" -m 'Merge the pair')
+rv=$(git -C "$v2" commit-tree "$empty" -p "$mg" -m 'Revert one' -m "This reverts commit $(printf '%s' "$a" | cut -c1-7) (fix: shared prefix).")
+git -C "$v2" update-ref refs/heads/main "$root"
+got=$(cd "$v2" && /bin/bash "$LIST" list main "$rv" 2>/dev/null | cut -f1 | tr '\n' ',')
+[ "$got" = "PS-1,PS-1," ] || fail "ambiguous: an ambiguous abbreviation dropped an item [$got]"
 if git init -q --object-format=sha256 -b main "$tmp/sha256" 2>/dev/null; then
   git -C "$tmp/sha256" config commit.gpgsign false
   git -C "$tmp/sha256" commit -q --allow-empty -m 'chore: root'
@@ -393,6 +435,16 @@ rc=0
 out=$(cd "$g" && /bin/bash "$LIST" list main 2>"$tmp/err") || rc=$?
 [ "$rc" = 3 ] && [ -z "$out" ] || fail "forge: expected exit 3 and no output, got $rc [$out]"
 grep -q 'does not parse' "$tmp/err" || fail "forge: error not named"
+# A whole forged record in a body keeps every field count right; only the
+# record count against rev-list gives it away.
+g2="$tmp/forge-record"
+new_repo "$g2"
+git -C "$g2" checkout -q -b task
+printf 'fix: carrier\n\nbody\036%s\037forged\037PS-5\037\037\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  | git -C "$g2" commit -q --allow-empty -F -
+rc=0
+out=$(cd "$g2" && /bin/bash "$LIST" list main 2>/dev/null) || rc=$?
+[ "$rc" = 3 ] && [ -z "$out" ] || fail "forge: a forged body record expected exit 3 and no output, got $rc [$out]"
 echo "ok: a separator in a commit message fails the range instead of forging"
 
 # 11i. One id stamped on two commits lists twice and warns.
@@ -456,6 +508,21 @@ rc=0
 out=$(cd "$l" && printf 'fix: s\n\nPlanwright-Sign-Off: PS-7\n' \
   | /bin/bash "$STAMP" --base main --sign-off 2>/dev/null) || rc=$?
 [ "$rc" = 2 ] && [ -z "$out" ] || fail "stamp: re-stamping an id expected exit 2, got $rc"
+for args in "--base main demo/2" "demo/2 --reject" "demo/2 --base"; do
+  rc=0
+  # shellcheck disable=SC2086 # the case's words are the argument list
+  out=$(cd "$l" && printf 'fix: s\n' | /bin/bash "$STAMP" $args 2>/dev/null) || rc=$?
+  [ "$rc" = 2 ] && [ -z "$out" ] || fail "stamp: [$args] expected exit 2 and no output, got $rc"
+done
+o="$tmp/overflow"
+new_repo "$o"
+git -C "$o" checkout -q -b task
+commit "$o" "fix: near the cap
+
+Planwright-Sign-Off: PS-999999998"
+rc=0
+out=$(cd "$o" && printf 'fix: s\n' | /bin/bash "$STAMP" --base main --sign-off --sign-off --sign-off 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] && [ -z "$out" ] || fail "stamp: an allocation past nine digits expected exit 2, got $rc"
 echo "ok: allocation refuses without a resolvable base or over an existing id"
 
 echo "all sign-off-checklist tests passed"
