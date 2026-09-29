@@ -686,7 +686,7 @@ core_baseline() {
   grep -q "^$1:" "$config_defaults" 2>/dev/null || return 1
   _cbv="$(sed -n "s/^$1:[[:space:]]*//p" "$config_defaults" \
     | head -n 1 \
-    | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
+    | sed -e 's/^#.*$//' -e 's/[[:space:]]#.*$//' -e 's/[[:space:]]*$//' \
       -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")"
   case "$_cbv" in
     '' | *[!0-9]*) return 1 ;;

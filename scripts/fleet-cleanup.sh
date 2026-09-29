@@ -2,8 +2,8 @@
 # fleet-cleanup.sh — the deterministic stale-resource cleanup actuator with an
 # explicit self-targeting guard (Task 4: D-6, D-5, D-15, D-16; REQ-B1.1).
 #
-# WHY DETERMINISTIC (D-6). Stale window/pane/worktree cleanup runs as script
-# logic, never in-context model judgment. A real postmortem
+# WHY DETERMINISTIC (D-6). Stale window/pane/worktree/process cleanup runs as
+# script logic, never in-context model judgment. A real postmortem
 # (anthropics/claude-code#29787) shows an LLM-driven cleanup non-deterministically
 # issuing `tmux kill-session` against its OWN hosting pane, destroying the whole
 # session. This actuator closes that exact failure mode two ways: it never lets a
@@ -18,7 +18,9 @@
 # upstream parity or a verified merged PR; see the `worktree` usage). Silence, a
 # timeout, or a "probably stale" guess is never admissible: the same discipline
 # scripts/fleet-death-evidence.sh encodes, applied to reclamation. A live pane or
-# an unproven/dirty worktree is refused, never reclaimed.
+# an unproven/dirty worktree is refused, never reclaimed. A worker process is
+# reaped only on the stuck-detector's positive evidence that its owning tower is
+# dead and its session died or finished cleanly (see the `process` usage).
 #
 # KILL-SWITCH + AUDIT (D-15, D-16). Every invocation gates through
 # scripts/fleet-daemon-gate.sh BEFORE acting (a set `fleet_daemon_pause` pauses
@@ -45,9 +47,69 @@
 #            not exactly the two fields asked for, an unreadable field, a
 #            non-MERGED state, or an oid mismatch all refuse.
 #            PLANWRIGHT_CLEANUP_GH_TIMEOUT bounds the query (default 20s).
+#   fleet-cleanup.sh process <worker> <trigger> <reasoning> [--grace <secs>]
+#       [--repo-root <dir>] [--tower-id <token>]
+#       Reap a leaked worker process: one whose owning tower is gone, whose
+#       session died or finished cleanly, and whose process tree has not. It RELEASES THE
+#       PROCESS ONLY, with the runtime the rung's `stop` releases alongside it:
+#       it touches no fence, branch, or worktree, and a strand surfaced for the
+#       operator stays surfaced. Reaping is not reclaiming, and the reclaim
+#       decision stays the operator's.
+#
+#       The verdict comes from scripts/fleet-stuck-detector.sh, whose registry
+#       read and owner attribution this arm does not re-derive; --tower-id is
+#       handed to it, and without it the detector resolves this tower's
+#       identity from the environment as it always does. An errored or absent
+#       verdict, or a missing dispatch record, refuses first (exit 5); past
+#       those, refused in this order:
+#         a `print`-backend unit, which spawned no process (exit 8);
+#         a worker owned by a live peer tower, under any evidence (exit 7);
+#         a backend with no process close, such as tmux (exit 5);
+#         a headless worker whose record names no state directory (exit 5);
+#         anything short of positive evidence on BOTH axes (exit 5): the
+#           owning tower must be positively dead, and the session must have
+#           positively ended, by death evidence or a clean completion. An
+#           unknown, ambiguous, or unreadable verdict is a refusal, and so is
+#           this tower's own worker, which the tower closes with the rung's
+#           `stop`;
+#         a dead owner's session that ended without finishing cleanly, a
+#           failed completion or one with unlanded work (exit 9): the
+#           detector leaves those unclassified for the operator.
+#
+#       The close itself is the rung's own `stop`
+#       (scripts/fleet-streamjson.sh, scripts/fleet-dispatch-headless.sh), so
+#       the fleet has one kill path: this arm matches no process, sends no
+#       signal, and releases nothing of its own. --grace is the SIGTERM-to-
+#       SIGKILL grace that stop takes, and --repo-root is passed to the headless
+#       rung, which resolves its unit directory from it. That rung is also
+#       handed the state directory the verdict was read from and refuses a
+#       handle resolving to any other unit, such as a same-handle unit in
+#       another checkout (a plain refusal here, exit 5). The rung's result line
+#       is printed on stdout. A close from inside the worker's own tree is the
+#       rung's self-hosting refusal, reported here as the self-target block;
+#       a rung that cannot read the process table to decide that refuses
+#       before acting, which reaches this script as a plain refusal (exit 5).
+#
+#       A partial close is exit 5 with a `cleanup-partial` record naming what
+#       was released and what is still held. It is recorded even when nothing
+#       came free, since the rung may have signalled the tree before finding a
+#       class still held. A rung that died on a signal mid-close is recorded as
+#       a partial close too, both sets `unreported`, and so is a partial
+#       result line this script cannot parse. A signal to this script
+#       once the close is about to start is held until the close is recorded,
+#       and the run then exits 5 rather than reporting a success.
+#
+#       A handle in the `pwfence.` namespace is refused as malformed: that is
+#       where the fence sweep keys the strand entries it surfaces, and a close
+#       clears the attention row keyed by the handle it is given.
 #
 # <trigger>/<reasoning> are free-text audit fields (the caller's determination of
-# WHY the target is stale) under fleet-audit's control-free text grammar.
+# WHY the target is stale) under fleet-audit's control-free text grammar. A
+# process record also names the worker, its owner token, and the evidence class,
+# then for a close the released set (and for a partial one the held set), all
+# ahead of <reasoning>, which is cut short when the whole would outgrow the
+# grammar's bound. A self-block record carries the worker, owner, and evidence
+# prefix, with no released set.
 #
 # Exit codes:
 #   0  acted (resource reclaimed) or a clean no-op (target already gone)
@@ -63,10 +125,15 @@
 #      dirty worktree, one whose commits are not provably safe — no upstream
 #      parity and no verified --merged-pr — or lost observability: neither a tmux
 #      server unreachable mid-probe nor an unusable `gh` is proof of absence),
-#      or the reclaim command itself failed
+#      or the reclaim command itself failed; for `process`, also a partial or
+#      interrupted close, which acted and is recorded (see its usage)
 #   6  acted (resource WAS reclaimed) but the audit-trail write failed — the
 #      action happened and is unrecorded; distinct from 2 so a caller never reads
-#      an unlogged reclaim as "nothing happened"
+#      an unlogged reclaim as "nothing happened". For `process` that includes a
+#      partial close, which may have signalled the tree and released nothing
+#   7  process only: refused, the worker is owned by a live peer tower
+#   8  process only: refused, a `print`-backend unit has no process to reap
+#   9  process only: refused, the session failed or left work unlanded
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling). All input
 # is data; no eval, no jq (REQ-K1.5). Pathname expansion is disabled (set -f).
@@ -92,6 +159,72 @@ warn() { printf 'fleet-cleanup: %s\n' "$*" >&2; }
 usage() {
   echo "usage: fleet-cleanup.sh window <session> <window> <trigger> <reasoning>" >&2
   echo "       fleet-cleanup.sh worktree <path> <trigger> <reasoning> [--merged-pr <n>]" >&2
+  echo "       fleet-cleanup.sh process <worker> <trigger> <reasoning> [--grace <secs>] [--repo-root <dir>] [--tower-id <token>]" >&2
+}
+
+# The fleet field grammar worker handles are registered under (fleet-state.sh
+# valid_field), plus a leading-dash refusal: the handle becomes an argv word.
+valid_worker() {
+  case $1 in
+    "" | . | .. | -* | *[!A-Za-z0-9._=@:-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 128 ]
+}
+
+# The registry's owner-token grammar (fleet-state.sh valid_owner).
+valid_owner() {
+  case $1 in
+    "" | . | .. | unknown-owner | -* | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 128 ]
+}
+
+# read_verdict <verdict> <worker> — the detector's row for <worker> and the
+# evidence slots the process arm decides on, as one tab-joined line: state,
+# owner class, reason, then the registry, backend, owner-token, owner-evidence
+# and state-dir values. A slot the verdict lacks reads `-`, so no field is
+# empty and a tab-split cannot shift the ones after it.
+read_verdict() {
+  printf '%s\n' "$1" | awk -F'\t' -v w="$2" '
+    ($2 "") != (w "") { next }
+    $1 == "worker" && !row { st = $3; oc = $4; rs = $6; row = 1 }
+    $1 == "evidence" && !($3 in ev) { ev[$3] = $4 }
+    function v(x) { return x == "" ? "-" : x }
+    END {
+      if (!row) exit
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", v(st), v(oc), v(rs),
+        v(ev["registry"]), v(ev["backend"]), v(ev["owner-token"]), v(ev["owner-evidence"]),
+        v(ev["state-dir"])
+    }'
+}
+
+# fit_text <text> — <text> cut to the audit grammar's bound. The cut is by
+# byte, so it can land inside a multibyte character; the continuation bytes it
+# left and the lead byte they belong to are dropped with it, which can cost
+# one whole character when the cut fell exactly on a boundary.
+fit_text() {
+  ft_v=$1
+  ft_cut=0
+  while [ "${#ft_v}" -gt 512 ]; do
+    ft_v=${ft_v%?}
+    ft_cut=1
+  done
+  ft_n=0
+  while [ "$ft_cut" = 1 ] && [ -n "$ft_v" ]; do
+    ft_b=$(printf '%s' "$ft_v" | tail -c 1 | od -An -tu1 | tr -d ' ')
+    case $ft_b in
+      "" | *[!0-9]*) break ;;
+    esac
+    [ "$ft_b" -ge 128 ] || break
+    ft_v=${ft_v%?}
+    ft_n=$((ft_n + 1))
+    # A byte from 0xC0 up leads a character; one is dropped, never more.
+    { [ "$ft_b" -lt 192 ] && [ "$ft_n" -lt 4 ]; } || break
+  done
+  while [ -n "$ft_v" ] && ! valid_text "$ft_v"; do
+    ft_v=${ft_v%?}
+  done
+  printf '%s' "$ft_v"
 }
 
 # The tmux handle grammar (fleet-death-evidence.sh's conservative single-token
@@ -148,7 +281,7 @@ audit() {
 
 cmd=${1:-}
 case "$cmd" in
-  window | worktree) shift ;;
+  window | worktree | process) shift ;;
   "")
     usage
     exit 2
@@ -507,6 +640,270 @@ case "$cmd" in
       warn "removed worktree '$path' but FAILED to record it in the audit trail"
       exit 6
     fi
+    exit 0
+    ;;
+
+  process)
+    if [ "$#" -lt 3 ]; then
+      usage
+      exit 2
+    fi
+    worker=$1
+    trigger=$2
+    reasoning=$3
+    shift 3
+    grace=""
+    repo_root=""
+    tower_id=""
+    while [ "$#" -gt 0 ]; do
+      [ "$#" -ge 2 ] || {
+        usage
+        exit 2
+      }
+      case $1 in
+        --grace | --repo-root | --tower-id) ;;
+        *)
+          usage
+          exit 2
+          ;;
+      esac
+      # An empty value would read as the flag left out, which for
+      # --tower-id means falling back to whatever identity the environment
+      # carries.
+      if [ -z "$2" ]; then
+        warn "refusing an empty value for $1"
+        exit 2
+      fi
+      case $1 in
+        --grace) grace=$2 ;;
+        --repo-root) repo_root=$2 ;;
+        --tower-id) tower_id=$2 ;;
+      esac
+      shift 2
+    done
+    if ! valid_worker "$worker"; then
+      warn "refusing malformed worker handle"
+      exit 2
+    fi
+    case $worker in
+      pwfence.*)
+        warn "refusing '$worker': the pwfence. namespace holds the strand entries surfaced to the operator, and a close would clear the one keyed by this handle"
+        exit 2
+        ;;
+    esac
+    if ! valid_text "$trigger" || ! valid_text "$reasoning"; then
+      warn "refusing an audit field with a control byte, an embedded tab/newline, or over-length text"
+      exit 2
+    fi
+    # Shape only: the bound belongs to the rung's stop, which refuses past it.
+    case $grace in
+      "") ;;
+      0* | *[!0-9]*)
+        warn "refusing a --grace that is not a positive whole number of seconds"
+        exit 2
+        ;;
+    esac
+    if [ "${#grace}" -gt 4 ]; then
+      warn "refusing an over-length --grace"
+      exit 2
+    fi
+    case $repo_root in
+      "" | /*) ;;
+      *)
+        warn "refusing a non-absolute --repo-root"
+        exit 2
+        ;;
+    esac
+    if [ "$repo_root" != "$(sanitize_printable "$repo_root")" ]; then
+      warn "refusing a --repo-root with a control byte"
+      exit 2
+    fi
+    if [ -n "$tower_id" ] && ! valid_owner "$tower_id"; then
+      warn "refusing a malformed --tower-id"
+      exit 2
+    fi
+
+    gate process-cleanup || exit 4
+
+    # The detector's answer is read whole before anything is decided from it:
+    # a non-zero exit is an errored verdict, and an errored verdict is not
+    # evidence of anything.
+    verdict=$(/bin/sh "$script_dir/fleet-stuck-detector.sh" classify "$worker" \
+      ${tower_id:+--tower-id "$tower_id"}) || {
+      warn "the liveness verdict for '$worker' errored — no positive evidence either way, refusing"
+      exit 5
+    }
+    row=$(read_verdict "$verdict" "$worker")
+    if [ -z "$row" ]; then
+      warn "no liveness verdict for '$worker' — no positive evidence either way, refusing"
+      exit 5
+    fi
+    IFS=$TAB read -r state owner_class reason registry backend owner_token owner_ev rec_dir <<EOF
+$row
+EOF
+    reason=$(sanitize_printable "$reason" "-")
+    valid_owner "$owner_token" || owner_token=-
+
+    if [ "$registry" != present ]; then
+      warn "no dispatch record for '$worker' (registry: $(sanitize_printable "$registry" "-")) — nothing says what it is or who owns it, refusing"
+      exit 5
+    fi
+    if [ "$backend" = print ]; then
+      warn "refusing '$worker': a print-backend unit spawned no process, so there is nothing to reap (it stays registered)"
+      exit 8
+    fi
+    if [ "$owner_class" = live-peer ]; then
+      warn "refusing '$worker': it is owned by live peer tower $owner_token, and a live peer's worker is never terminated from here"
+      exit 7
+    fi
+    case $backend in
+      stream-json-persistent) rung=fleet-streamjson.sh ;;
+      headless-oneshot) rung=fleet-dispatch-headless.sh ;;
+      *)
+        warn "refusing '$worker': backend '$(sanitize_printable "$backend" "-")' has no process close (a tmux worker's window is reclaimed with 'window')"
+        exit 5
+        ;;
+    esac
+    # The headless rung resolves a handle to the unit in whichever checkout
+    # its repo root names, and a unit in another checkout can share the
+    # handle, so the close is bound to the directory the verdict was read from.
+    if [ "$rung" = fleet-dispatch-headless.sh ]; then
+      case $rec_dir in
+        /*) ;;
+        *)
+          warn "refusing '$worker': its dispatch record names no state directory to bind the close to"
+          exit 5
+          ;;
+      esac
+    fi
+    case $owner_ev/$owner_class in
+      dead/dead-or-unknown) tower_ev=dead ;;
+      self/this-tower)
+        warn "refusing '$worker': it is this tower's own worker, whose owner is alive by definition — close it with the rung's stop, which needs no death evidence"
+        exit 5
+        ;;
+      *)
+        warn "refusing '$worker': no positive evidence its owning tower is gone (owner: $(sanitize_printable "$owner_class" "-"), evidence: $(sanitize_printable "$owner_ev" "-")) — unknown is treated as alive"
+        exit 5
+        ;;
+    esac
+    # A completion value the detector could not parse reads `unknown`, yet
+    # still counts as a completion there; for a reap, unknown is alive. A
+    # failed or unlanded run is one the detector leaves unclassified for the
+    # operator, so it is not reaped either.
+    case $state/$reason in
+      dead/* | finished-but-unreaped/*) ;;
+      unclassified/completion-failed:*=unknown*)
+        warn "refusing '$worker': no positive evidence its session ended (state: $(sanitize_printable "$state" "-"), signal: $reason)"
+        exit 5
+        ;;
+      unclassified/completion-failed:* | unclassified/completion-unlanded)
+        warn "refusing '$worker': its session ended but did not finish cleanly (signal: $reason) — a failed or unlanded run is left for the operator"
+        exit 9
+        ;;
+      *)
+        warn "refusing '$worker': no positive evidence its session ended (state: $(sanitize_printable "$state" "-"), signal: $reason)"
+        exit 5
+        ;;
+    esac
+
+    # The gate admits entry, not the whole run: reading the verdict can take
+    # a while, and a pause set meanwhile still stops the first signal.
+    gate process-cleanup || exit 4
+
+    set --
+    if [ "$rung" = fleet-dispatch-headless.sh ]; then
+      set -- --expect-dir "$rec_dir"
+      [ -z "$repo_root" ] || set -- "$@" --repo-root "$repo_root"
+    fi
+    [ -z "$grace" ] || set -- "$@" --grace "$grace"
+    # A signal from here on is held until the close is recorded: dying between
+    # the rung's signals and the audit write would leave a kill with no record.
+    # A caught signal reverts to its default in the rung, which still dies on
+    # it and is recorded as a partial close below.
+    interrupted=0
+    trap 'interrupted=1' INT TERM HUP
+    if [ "$interrupted" = 1 ]; then
+      warn "interrupted before closing '$worker' — nothing was signalled, not reclaimed"
+      exit 5
+    fi
+    stop_rc=0
+    result=$(/bin/sh "$script_dir/$rung" stop "$worker" "$@") || stop_rc=$?
+    [ -z "$result" ] || printf '%s\n' "$result"
+
+    detail="worker=$worker owner=$owner_token evidence=tower:$tower_ev,session:$state/$reason"
+    held=""
+    case $stop_rc in
+      0)
+        case $result in
+          "stop $worker already-closed") exit 0 ;;
+          "stop $worker stopped released="*)
+            released=${result#"stop $worker stopped released="}
+            action=cleanup
+            ;;
+          *)
+            # A stop that succeeded may still have signalled something, so it
+            # is recorded rather than read as nothing having happened.
+            warn "the $rung stop for '$worker' succeeded with a result this script does not recognise — recording it as a reap of unknown extent"
+            released=unreported
+            action=cleanup
+            ;;
+        esac
+        ;;
+      6)
+        # Recorded even when nothing came free: the rung may have signalled
+        # the tree before finding a class still held.
+        case $result in
+          "stop $worker partial released="*" held="*)
+            held=${result##* held=}
+            released=${result#*" released="}
+            released=${released%%" held="*}
+            ;;
+          *)
+            released=unreported
+            held=unreported
+            ;;
+        esac
+        warn "'$worker' was only partly closed — still held: $(sanitize_printable "$held" "-")"
+        action=cleanup-partial
+        ;;
+      3)
+        warn "REFUSING self-target: the caller runs inside the worker's own process tree ('$worker')"
+        audit process-cleanup refuse-self "$trigger" "$(fit_text "$detail; $reasoning")" \
+          || warn "could not record the self-block in the audit trail"
+        exit 3
+        ;;
+      *)
+        # Past 128 the rung died on a signal, possibly mid-release: what it
+        # had already signalled is unknown, so it is recorded as such. At or
+        # below 128 it refused before acting.
+        if [ "$stop_rc" -le 128 ]; then
+          warn "the $rung stop for '$worker' did not complete (exit $stop_rc) — not reclaimed"
+          exit 5
+        fi
+        warn "the $rung stop for '$worker' died (exit $stop_rc) — what it released is unknown, recording it as a partial close"
+        released=unreported
+        held=unreported
+        action=cleanup-partial
+        ;;
+    esac
+
+    record="$detail released=$(sanitize_printable "$released" "-")"
+    [ -z "$held" ] || record="$record held=$(sanitize_printable "$held" "-")"
+    record=$(fit_text "$record; $reasoning")
+    if ! audit process-cleanup "$action" "$trigger" "$record"; then
+      if [ "$action" = cleanup ]; then
+        warn "closed '$worker' but FAILED to record it in the audit trail"
+      else
+        warn "could not record the partial close of '$worker' in the audit trail — what it released is unrecorded"
+      fi
+      exit 6
+    fi
+    if [ "$interrupted" = 1 ]; then
+      warn "interrupted while closing '$worker' — the close is recorded, not reported as a success"
+      exit 5
+    fi
+    [ "$action" = cleanup ] || exit 5
     exit 0
     ;;
 esac

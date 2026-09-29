@@ -740,6 +740,17 @@ The first three rows are the lifecycle, and both rungs expose all three. The
 rest follow from what each rung advertises in the capability contract, not from
 a missing close.
 
+`steer` is the primary steer on the stream-json rung: a tower message becomes a
+user turn on the worker's own stdin, under the same `[planwright tower relay ->
+<worker>]` header the tmux relay pastes, read from a file so its text is never
+part of a command. Never write a frame into a worker's `in.fifo` by hand. The
+worker reads one JSON line at a time, so a frame missing its newline runs into
+the next one and kills it. Every frame the supervisor writes, `steer`'s,
+`answer`'s, and the launch prompt, is checked before any byte is written: one
+newline-terminated line, no raw control byte, a valid JSON object nested at
+most 512 levels deep. A frame that fails is refused with exit 2 and nothing is
+written.
+
 **Where the capture lives, and the secret-scan surface.** Each worker's
 event-stream capture (`events.jsonl`, plus its stderr log, session id,
 receipt journal, and request envelopes) is written under the cross-spec
@@ -846,8 +857,8 @@ protocol lives in
 Long fleet runs manage their own context instead of quietly degrading:
 
 - **Per-step isolation** (`dispatch_isolation: per-step`, the default): a
-  unit's implementation and each configured review skill run in their own
-  fresh session seeded by `/resume`, so context stays bounded and each
+  unit's implementation and each step the convergence point runs take their
+  own fresh session seeded by `/resume`, so context stays bounded and each
   review's perspective is uncontaminated by the step before it. Backends that
   cannot spawn fresh sessions approximate it with context clears. `per-unit`
   keeps the whole unit in one session for constrained hosts.
@@ -1428,6 +1439,48 @@ re-checked by REQ-C1.2's manual half and the REQ-A1.6 deliberate-wedge
 rehearsal, because a silent divergence would degrade the detector to exactly
 the blind spot it exists to close (kickoff risk row 2).
 
+### Reaping a leaked worker: `fleet-cleanup.sh process`
+
+The detector's verdict is what the reap acts on. `scripts/fleet-cleanup.sh
+process <worker> <trigger> <reasoning>` closes a worker whose owning tower is
+gone, whose session died or finished cleanly, and whose process tree has not,
+and refuses
+everything else:
+
+- a `print`-backend unit, which spawned no process (exit `8`);
+- a worker owned by a live peer tower, under any evidence (exit `7`);
+- a worker on a backend with no process close, such as tmux, whose window
+  `window` reclaims (exit `5`);
+- a headless worker whose dispatch record names no state directory (exit
+  `5`). The headless close is bound to that directory, so a handle that
+  resolves to a same-named unit in another checkout is refused, not closed on
+  this one's evidence;
+- anything short of positive evidence on both axes (exit `5`): the owning
+  tower is positively dead, and the session positively ended, by death
+  evidence or a clean completion. Unknown means alive;
+- this tower's own worker (exit `5`), which the tower closes with the rung's
+  `stop` directly;
+- a dead owner's session that ended without finishing cleanly, a failed
+  completion or one with unlanded work (exit `9`). The detector leaves those
+  unclassified for you, and the reap does too.
+
+It passes the paused kill-switch (exit `4`) and malformed input (exit `2`)
+through exactly as the `window` and `worktree` classes do. The close itself
+is the rung's own `stop`, so there is one kill path in the fleet, and a close
+asked for from inside the worker's own tree is the self-target block (exit
+`3`). A reap releases the process only: the fence, the branch, and the
+worktree are untouched, and a strand already surfaced to you stays surfaced,
+because reaping is not reclaiming. Each reap writes one `process-cleanup`
+audit record naming the worker, its owner, the evidence class, and what was
+released. A partial close is exit `5` with a `cleanup-partial` record naming
+what it released and what is still held, written even when nothing came free,
+since the rung may have signalled the tree before finding a class still held;
+a rung that died on a signal mid-close is recorded the same way, its extent
+unreported, as is a partial result line the reap cannot parse. A signal sent
+to the reap itself once the close is under way is held until the close is
+recorded, and the reap then exits `5`. A close that could not be recorded is
+exit `6`.
+
 ## Resource governance: models, throttling, and the auto-mode line
 
 Three deterministic mechanisms govern what a dispatched unit costs and what it
@@ -1446,11 +1499,11 @@ haiku`), the effort column (`fleet_effort_*` — `low | medium | high`), and the
 command column (`fleet_command_*` — the dispatch-entry set `execute-task |
 orchestrate | drain`). The shipped defaults preserve today's table, so an
 operator who configures nothing gets today's mapping. The selectable command
-set is disjoint from `review_sequence`'s nestable-review-skill set by
-construction — the `fleet_command_*` enum is exactly the non-nestable
-dispatch-entry set, so an out-of-enum command is refused at every overlay layer
-(REQ-E1.2), and the dispatch table and the convergence knob can never both claim
-the same skill.
+set is disjoint from the steps a point may run by construction — the
+`fleet_command_*` enum is exactly the dispatch-entry set, each member a
+pipeline entry the step resolver refuses as a step target, so an out-of-enum
+command is refused at every overlay layer (REQ-E1.2), and the dispatch table
+and the convergence point can never both claim the same skill.
 
 The table itself now lives in `scripts/allocation-select.sh`, generalized so
 any launch point can resolve through one resolver rather than fleet dispatch
@@ -1605,7 +1658,7 @@ byte-identical to `fleet-allocate.sh`'s — pinned field by field in the tests
 across every rung and with the signal both present and absent.
 
 Turn it on and a tier moves only on **work-shaped** events, passed as `--event`:
-a step failure or retry, a flailing classification, review-sequence
+a step failure or retry, a flailing classification, convergence-point
 non-convergence, or a worker petition. The list is a closed allowlist —
 infrastructure trouble (an audit write error, a config hard-fail, a backend
 launch error) is *refused* rather than counted, because no model tier fixes it

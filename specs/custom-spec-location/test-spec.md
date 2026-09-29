@@ -1,7 +1,7 @@
 # Custom spec location — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -34,11 +34,11 @@ padded value are handled as the requirement states.
 
 ### REQ-A1.3 — Bad values [test]
 
-Fixtures for an empty value in a higher layer over a set lower one (falls
-through), an empty value everywhere (the default), a value with a control
-byte in each layer (warn-and-fall-through for adopter and machine-local,
-hard-fail for repo-tracked), and a missing path, a file, and an escaping
-relative value in each layer (non-zero, no root, the layer named, no
+Fixtures for an empty value in a higher layer over a set lower one (cancels
+it: the default root), an empty value everywhere (the default), a value with a
+control byte in each layer (warn-and-fall-through for adopter and
+machine-local, hard-fail for repo-tracked), and a missing path, a file, and an
+escaping relative value in each layer (non-zero, no root, the layer named, no
 fallback to the default).
 
 ### REQ-A1.4 — Marker required off the default [test]

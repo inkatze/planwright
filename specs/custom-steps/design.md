@@ -1,7 +1,7 @@
 # Custom steps — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -179,7 +179,9 @@ at the step's tier, the preamble prepended to the invocation; `continue`
 resumes the immediately preceding step's session in the same list by its
 recorded session id; `in-session` runs in the unit's own session, a skill
 through its skill tool, a prompt as its next instruction, a command
-through its shell tool with the context as assignment prefixes. Unset
+through its shell tool as its resolved absolute location and `args`, with
+the context as assignment prefixes; every hosting runs that resolved
+location, never the bare target. Unset
 hosting maps from `dispatch_isolation`, widening that knob's scope to every
 step. A `continue` step on a backend without resume, or whose predecessor
 was skipped or left no session id, is a failed step, not a degraded one; a
@@ -204,6 +206,10 @@ model-allocation rules.
 - A compound step type sharing one session across several actions.
   Rejected because: it breaks one-session-per-step and muddies the exit
   contract; `continue` gives the same effect as a sequence.
+- Run the bare target in the session hostings. Rejected at Task 2 by
+  operator decision: a bare target naming a shell builtin resolved to a
+  file while a session's shell ran the builtin, so the location the
+  resolver printed was not what ran.
 
 **Chosen because:** the seam already exists (per-step sessions, resume by
 id, the open step-type key space), so the modes are a declaration on top
@@ -294,8 +300,9 @@ one warning is the migration instruction.
 **Decision:** The allow-only worker command guard learns to approve a
 command segment whose word sequence, after the guard's own tokenization
 and after stripping leading `PLANWRIGHT_STEP_*` assignments, equals a
-declared command step's target followed by its `args` as written, once the
-target has passed the guard's charset check and, for a path target, its
+declared command step's resolved absolute location, as the resolver prints
+it on the guard's host, followed by its `args` as written, once that
+location has passed the guard's charset check and, for a path target, its
 canonicalization and traversal rejection. A declared line is one simple
 command (no shell operators or expansions), so its word sequence is the
 same under the guard, under a shell, and as argv. Declarations are read

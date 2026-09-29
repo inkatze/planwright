@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] scripts/resolve-dispatch-isolation.sh still explains its own per-layer walk by saying config-get exposes only the merged winning value, not per-layer values. config-get has had a --layers mode since custom-steps Task 2, so that reason is stale. The walk may still be worth keeping, but its stated reason no longer holds.

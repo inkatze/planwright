@@ -740,22 +740,13 @@ the same rituals that re-anchor anyway.
    canonical form excludes, so a lifecycle flip stales it too.
 3. **Resolution-aware logical form:** `spec-anchor.sh <spec-dir>` — the same
    reference implementation named without a repo-relative path, resolved
-   through the documented core root chain, first hit winning
-   (anchor-integrity D-7, REQ-F1.1):
-   1. `$PLANWRIGHT_ROOT/scripts/` — explicit override (tests, adopters);
-   2. `$CLAUDE_PLUGIN_ROOT/scripts/` — plugin delivery, set by Claude Code;
-   3. `<claude-dir>/planwright/scripts/` — writer delivery, where
-      `<claude-dir>` is `$CLAUDE_DIR` when set, else `~/.claude`;
-   4. `<script-dir>/../scripts/` — self-location beside the resolving script,
-      the final fallback.
-
-   An arm whose root is unset or empty is **skipped**, never expanded into a
-   bare `/scripts/…` path — so an environment with none of these variables set
+   through the *core root chain* (defined below), first hit winning
+   (anchor-integrity D-7, REQ-F1.1): each arm's `scripts/` in chain order.
+   An arm **hits** when an executable regular `spec-anchor.sh` sits at the
+   resolved path. An environment with none of the chain's variables set
    reaches the self-located arm, and a sanitized one resolves nothing at all
-   rather than something surprising. An arm **hits** when an executable regular
-   `spec-anchor.sh` sits at the resolved path. This is the core-layer chain
-   `scripts/resolve-rule-doc.sh` already
-   documents, so recomputability becomes a property of the delivery mode
+   rather than something surprising, so recomputability becomes a property of
+   the delivery mode
    rather than of one repo's layout: an adopter repo that consumes planwright
    as a plugin and has no repo-root `scripts/` records this form. A gate
    consumer prepends the checked tree's own script to this chain (see
@@ -931,6 +922,37 @@ anchor).
   charset and the reserved word, `<id>` against the task-id grammar,
   `<flight-id>` against the flight-id grammar) before any path use; a branch
   failing validation is a clean no-op (REQ-K1.2).
+
+## The core root chain
+
+Which planwright copy runs is decided by one chain of arms, walked in order:
+
+1. `$PLANWRIGHT_ROOT` — explicit override (tests, adopters, and a planwright
+   checkout's own pin);
+2. `$CLAUDE_PLUGIN_ROOT` — plugin delivery, set by Claude Code;
+3. `<claude-dir>/planwright` — writer delivery, where `<claude-dir>` is
+   `$CLAUDE_DIR` when set, else `~/.claude`;
+4. self-location — the parent of the directory the resolving script was
+   invoked from; a symlink to the script is not followed.
+
+An arm whose variable is unset or empty is skipped silently, as is an absent
+writer-delivery directory. An arm naming anything other than a directory
+holding `doctrine/` or `scripts/` is skipped with a warning and never used;
+when every arm is listed (`--all`), one skipped after the install root was
+found is skipped silently, since it changes no answer.
+The install root is the first arm left standing; a consumer that needs one
+file (a rule doc, the defaults file, `spec-anchor.sh`) takes it from the first
+arm that holds it.
+
+`scripts/resolve-root.sh install` is the one implementation (`--all` lists
+every surviving arm, `--explain` names each). A script that needs the chain
+obtains it from there, locating the resolver beside itself first; the one
+exception is code that runs outside planwright and must find a copy before
+it can ask that copy (the hook the inception scaffold emits). A script that
+only forwards the operator's own values to a child process picks no root and
+is not a consumer. A command guard composes
+its trust set from the chain plus its own policy rather than from its own
+copy of the arms.
 
 ## Validator-enforceable invariants
 
@@ -1235,3 +1257,11 @@ bundle would have to migrate to:
   the identifier `flight`, which no shipped bundle uses (the validator was
   re-run over every bundle with the reservation in place).
   *(tower-front-door D-6, D-11 · REQ-C1.1.)*
+- 2026-09-28 — The core root chain defined once, in its own section (*The
+  core root chain*), with `scripts/resolve-root.sh install` as its single
+  implementation; the resolution-aware command form now cites it rather than
+  restating the arms. The scripts that ran the chain inline, and both command
+  guards, obtain it from the resolver. Behaviour changes for consumers that ran a shorter copy:
+  they gain the writer-delivery arm, and an arm holding neither `doctrine/`
+  nor `scripts/` is skipped with a warning. *(custom-spec-location D-9 ·
+  REQ-C1.1, REQ-C1.3.)*

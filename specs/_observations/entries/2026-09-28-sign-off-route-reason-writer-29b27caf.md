@@ -1,0 +1,1 @@
+- 2026-09-28 [planwright] The pending-sign-off checklist names a Route reason per entry, but no committer records one in the sign-off commit: gate-wiring commit discipline and /self-review stamp only the marker, so step-record.sh regenerate renders not recorded in the commit for every real entry until a writer convention exists.

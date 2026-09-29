@@ -90,6 +90,20 @@ core doctrine beside its own script. See
   the `planwright/` namespace is removed, and shipped skills/commands are
   re-copied by the next run.
 
+#### Breaking: the convergence knob became a step list
+
+The `review_sequence` config key is gone: rename it to `steps_convergence`
+in every layer that sets it, keeping the value as an inline flow list
+(`[polish]`, not a bare `polish`, and no empty entries). A visual flight
+converges through that list now, and `/execute-task` does once it is wired
+to the step resolver. Its ids name entries in the `steps` catalog; the core
+catalog seeds `polish` and `self-review` with `--nested`, so a list naming
+them runs what it ran before. A layer still setting the old key is ignored,
+with a warning naming the layer on every resolution. The new
+list also admits steps planwright does not ship (your own review commands,
+shell commands, prompts), declared in an overlay catalog; see
+[overlays §8](overlays.md#8-worked-example-b--custom-steps-a-runnable-style-overlay).
+
 #### One-time: re-anchor bundles signed before the anchor-scope change
 
 Each spec bundle's kickoff brief records a **content anchor**, and the
@@ -212,7 +226,7 @@ See [CONTRIBUTING](CONTRIBUTING.md#the-git-hook-backstop) for details.
 ## 4. Supplying your own tooling and rigor (without editing core)
 
 planwright core ships **general** doctrine and skills. Your project carries its
-own preferences — a review-sequence ordering, a dispatch-isolation default,
+own preferences — which review steps run and when, a dispatch-isolation default,
 project-specific decision-domain entries, extra linters or rigor — and you must
 be able to add them **without editing planwright's core rule docs** (REQ-D2.2 /
 REQ-I1.4). Editing core would make it less general for everyone and pollute the

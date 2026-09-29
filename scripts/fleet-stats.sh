@@ -17,9 +17,11 @@
 # THE THREE DERIVED STATS (tasks.md Task 8 Deliverables):
 #   last cleanup    — the most recent reclaim in the shared audit trail
 #                     (scripts/fleet-audit.sh): the newest row whose action is
-#                     `cleanup` (Task 4's window-cleanup / worktree-cleanup
-#                     reclaim actuator). Refuse-self blocks and housekeeping
-#                     escalations are not reclaims and do not count.
+#                     `cleanup` (fleet-cleanup.sh's window-cleanup,
+#                     worktree-cleanup, and process-cleanup mechanisms).
+#                     Refuse-self blocks, partial process closes
+#                     (`cleanup-partial`), and housekeeping escalations do not
+#                     count.
 #   watchdog trips  — how many times Task 3's tower-liveness watchdog TRIPPED:
 #                     audit rows with mechanism `tower-watchdog` and action
 #                     relaunch / relaunch-failed / disable (the watchdog acting
