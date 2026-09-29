@@ -14,7 +14,7 @@ that is not a git toplevel as given; rule-doc-contentless-arm returns the
 self-location arm with no warning; and dispatch-worktree from the worktree
 places the task worktree under the worktree rather than the primary checkout.
 
-Commit ids and anchors are normalized to <SHA>: the anchors half of the test
+Commit ids and anchors are normalized to <SHA>: the anchors part of the test
 pins the anchor function, so the probes need not.
 
 Format: everything above the first `@@ ` line is commentary; each record is a

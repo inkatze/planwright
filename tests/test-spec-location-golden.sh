@@ -497,7 +497,7 @@ nr "a set declaring another task's correction" "which the registry assigns to 3"
 
 # --- The probes -------------------------------------------------------------
 
-# The bundle half shares nothing with the probes, so it runs beside them.
+# The bundle part shares nothing with the probes, so it runs beside them.
 record_anchors >"$tmp/anchors.tsv" 2>"$tmp/anchors.err" &
 anchors_pid=$!
 
