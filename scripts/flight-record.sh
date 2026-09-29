@@ -24,7 +24,9 @@
 # for the markdown lint (trailing whitespace, blank-line runs, edge blank
 # lines), and refused, never otherwise rewritten, when they carry a
 # token-shaped secret or markup that would reshape the record around them (raw
-# HTML, an indented or unclosed fence, a heading the input may not carry).
+# HTML, a fence other than a closed column-zero backtick fence, a fenced line
+# starting with `<`, a heading or setext underline the input may not carry, a
+# footnote definition; markup_hazard below is the full rule).
 #
 # Usage:
 #   flight-record.sh render --home pr|file <inputs>
@@ -39,7 +41,8 @@
 #       `commit<TAB><sha>`. Refused (exit 3, nothing written) off the branch
 #       `planwright/flight/<flight-id>`, when the record already exists, when
 #       `specs/` or `specs/_flights/` is a symlink or not a directory, or when
-#       the index holds other staged changes.
+#       the index holds other staged changes. A commit git or its hooks refuse
+#       takes the record back out of the index and the worktree (exit 4).
 #
 #   <inputs>, a later flag overriding an earlier one:
 #     --flight-id <id>            grammar-checked by scripts/flight-id.sh
@@ -68,7 +71,7 @@
 # by state (over the PR-body limit; for land, the branch, an existing record,
 # a symlinked or non-directory specs path, or a staged index) · 4 an
 # environment failure (a missing helper, a sanitizer, the secret screen, or git
-# could not run).
+# could not run, or refused the record commit).
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf

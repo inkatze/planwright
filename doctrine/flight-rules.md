@@ -144,7 +144,11 @@ collapsed below it. One renderer, `scripts/flight-record.sh`, lays out both
 homes and lands the file home as exactly one commit on the flight's branch. It
 quotes the ask inside a fence the ask cannot close, indented off column zero, so
 no markup the ask carries renders or reads as the record's structure, and it
-refuses a lead that restates the ask (D-6, REQ-E1.5).
+refuses a lead that restates the ask (D-6, REQ-E1.5). The record opens with
+`<!-- planwright:flight-record id=<flight-id> home=<pr|file> -->` and ends with
+`<!-- planwright:flight-record-end -->`, each alone on a column-zero line, and
+no input the ask or the worker supplies can put either marker there, so a
+reader that finds the record by its markers finds only the renderer's.
 
 The record is an audit artifact, not an accumulator (D-6): it collects no deferred
 decisions, so it owes no named reader and no drain ritual

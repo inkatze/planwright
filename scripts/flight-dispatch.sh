@@ -81,8 +81,9 @@
 # scripts/flight-record.sh screens and quotes into the audit record. The
 # grounds travel as a file too, holding one line: operator text never sits
 # inside a command's quoting. Invisible and bidi-control code points are
-# stripped from both before either reaches the brief, and the strip is flagged
-# (stderr and the report). The brief lives under the fleet home (never in the
+# stripped from the text quoted in the brief, and the strip is flagged (stderr
+# and the report); the copies beside the brief keep the operator's bytes, which
+# the renderer strips and screens itself. The brief lives under the fleet home (never in the
 # checkout, so the flight worktree starts clean) and carries no secret the ask
 # did not: the tower applies the security-posture hygiene before handing the
 # ask over.
@@ -778,7 +779,8 @@ committed record is the landing reference."
     printf '%s\n' "\`!\`, or \`?\`, even in inline code (write \`&lt;\` in prose, or put the code in"
     printf '%s\n' "a fence), or a footnote definition. Fence only with closed backtick fences at"
     printf '%s\n' "column zero, and indent any fenced line that starts with \`<\`. Only the audit"
-    printf '%s\n' "carries headings, at \`####\` and deeper."
+    printf '%s\n' "carries headings, at \`####\` and deeper. Put a blank line above a \`---\` or"
+    printf '%s\n' "\`===\` line, which directly under text reads as a heading and is refused."
     printf '%s\n' "The renderer refuses a bad input or state with a message naming what to fix."
     printf '%s\n' "Fix your own inputs under \`record/\` and run it again. A refusal of the ask or"
     printf '%s\n' "the grounds, which are the operator's and never edited, or any other failure,"
