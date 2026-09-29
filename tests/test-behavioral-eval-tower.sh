@@ -254,11 +254,27 @@ assert_eq "a landing naming no flight, with two in the air, is rejected" \
   "it names no flight still waiting on a landing" \
   "$(jq -rs '[.[] | select(.kind == "event")][0].rejected' "$TMP/edge-twoflights/decision-log.jsonl")"
 
-edge vague "" "hello" "what is in flight" "just do it" "write it up" "that's all"
+edge vague "" "hello" "what is in flight" "just do it" "write it up, write it up" "that's all"
 assert_eq "an ask with nothing to change or answer, a bare override included, dispatches nothing" "0" \
   "$(jq -rs '[.[] | select(.action == "dispatch" or .action == "route")] | length' "$TMP/edge-vague/decision-log.jsonl" 2>/dev/null)"
 assert_eq "each gets the clarifying question" "5" \
   "$(jq -rs '[.[] | select(.kind == "present" and (.text | contains("I cannot tell what you want")))] | length' "$TMP/edge-vague/decision-log.jsonl" 2>/dev/null)"
+
+edge caseup "tighten the permission checks on the admin endpoints" "write it up" "that's all"
+assert_eq "\"write it up\" answering a case files it" "spec-draft" \
+  "$(jq -rs '[.[] | select(.action == "dispatch") | .target] | join(" ")' "$TMP/edge-caseup/decision-log.jsonl")"
+# A restart whose evidence cannot be read forgets the lost conversation's PR.
+# The evidence is replaced by a directory once the landing is logged, so the
+# read fails for any user, root included.
+mkdir -p "$TMP/edge-lost"
+{
+  printf '%s\n' "fix the typo in the footer" "@event:flight-landed pr=7"
+  until grep -q '"flight-landed"' "$TMP/edge-lost/decision-log.jsonl" 2>/dev/null; do sleep 0.1; done
+  rm -f "$TMP/edge-lost/evidence.jsonl" && mkdir "$TMP/edge-lost/evidence.jsonl"
+  printf '%s\n' "@event:session-restart" "merge it" "that's all"
+} | PLANWRIGHT_PUBLISH_DISABLED=1 /bin/sh "$SKILL" "$TMP/edge-lost" >/dev/null 2>&1
+assert_eq "an unreadable restart hands back no PR from the lost conversation" "null" \
+  "$(jq -rs '[.[] | select(.action == "refuse" and .control == "merge")][0].handed_back' "$TMP/edge-lost/decision-log.jsonl")"
 
 echo "== every persona passes grade.jq directly =="
 for p in $personas; do
@@ -382,6 +398,8 @@ mutate chat-only '.decision_log += [{"v":2,"seq":999,"phase":"route","kind":"pre
 assert_exit "a quote outside a case cannot hide a verdict" 1 "$?"
 mutate escalation '(.decision_log | map(select(.case == true))[0]) as $c | ($c.quote + " do not just do it") as $q | .decision_log |= map(if .seq == $c.ask_seq then .text = $q elif .case == true then .quote = $q | .text |= (sub("\"" + $c.quote + "\""; "\"" + $q + "\"") | sub("say \"just do it\" to fly it visual"; "")) else . end)'
 assert_exit "the operator's own words cannot stand in for the visual alternative" 1 "$?"
+mutate escalation '(.decision_log | map(select(.case == true))[0]) as $c | (.decision_log | map(select(.action == "route" and .ask_seq == $c.ask_seq))[0].grounds) as $g | ($c.quote + " (my reservation: " + $g + ")") as $q | .decision_log |= map(if .seq == $c.ask_seq then .text = $q elif .case == true then .quote = $q | .text |= (sub("\"" + $c.quote + "\""; "\"" + $q + "\"") | sub(" \\(my reservation: [^)]*\\)"; "")) else . end)'
+assert_exit "the operator's own words cannot stand in for the reservation" 1 "$?"
 mutate escalation '.decision_log |= map(if .case == true then .text |= sub("say \"just do it\" to fly it visual"; "") else . end)'
 assert_exit "a case without the visual alternative fails" 1 "$?"
 mutate consecutive '.decision_log |= map(if .action == "route" and .trigger == "read-only" then .trigger = "override" | .override = "offload" else . end)'

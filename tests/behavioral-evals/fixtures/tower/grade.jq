@@ -104,7 +104,8 @@ def nonempty: (type == "string") and (length > 0);
       if .target == "spec-draft" then
         .case_seq as $c | .on_seq as $on
         | operator_turn($on) and ((at($c) // {}).case == true) and ($c < $on) and ($on < .seq)
-          and (said($on) | IN("yes", "yes please", "yes file it", "file it", "go ahead and file it"))
+          and (said($on) | IN("yes", "yes please", "yes file it", "file it", "go ahead and file it",
+                           "write it up", "write this one up", "file a plan"))
           and ([$log[] | select(.seq > $c and .seq < $on
                                and ((.kind == "answer") or (.kind == "event" and .event == "session-restart")))]
                | length == 0)

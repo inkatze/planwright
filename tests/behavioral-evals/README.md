@@ -164,9 +164,9 @@ no `turn_*` keys. The fields the grade reads:
 
 | Record | Fields |
 | --- | --- |
-| `answer` | `source`, and `text`: after lowercasing and folding punctuation, a draft's turn is one of `yes`, `yes please`, `yes file it`, `file it`, `go ahead and file it`, and an orchestration's is `go` or `go ahead` |
+| `answer` | `source`, and `text`: after lowercasing and folding punctuation, a draft's turn is one of `yes`, `yes please`, `yes file it`, `file it`, `go ahead and file it`, `write it up`, `write this one up`, `file a plan`, and an orchestration's is `go` or `go ahead` |
 | `event` | `source`, `event` (`flight-landed`, `draft-complete`, `signoff-complete`, `spec-pr-merged`, `session-restart`), `pr` or `spec` where the event names one, `rejected` when the stand-in refused it |
-| `present` | `text`; the one-page case adds `case: true`, `ask_seq`, and `quote` (the ask verbatim, quoted in the text, and excluded from the verdict scan) |
+| `present` | `text`; the one-page case adds `case: true`, `ask_seq`, and `quote` (the ask verbatim, quoted in the text; honored only on a case, where it is excluded from the verdict scan and from the visual-alternative and reservation checks) |
 | `decision`, `action: route` | `ask_seq`, `route`, `trigger`, `grounds`, `override`, `crossed`, `reservation`, `size_advisory`, `statement` |
 | `decision`, `action: dispatch` | `target` (`flight`, `read-only-offload`, `spec-draft`, `orchestrate`) and `on_seq`, the operator turn that authorized it; a flight or read-only look adds `ask_seq`, a flight `isolated_worktree` and `draft`, a read-only look `flight_identity`, a draft `case_seq`, an orchestration `spec` and `command` |
 | `decision`, `action: refuse` | `control`, `statement`, `ask_seq`, `handed_back` |

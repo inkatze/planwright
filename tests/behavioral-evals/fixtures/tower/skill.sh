@@ -219,7 +219,8 @@ size_of() {
 }
 is_yes() {
   case "$1" in
-    " yes " | " yes please " | " yes file it " | " file it " | " go ahead and file it ") return 0 ;;
+    " yes " | " yes please " | " yes file it " | " file it " | " go ahead and file it " | \
+      " write it up " | " write this one up " | " file a plan ") return 0 ;;
   esac
   return 1
 }
@@ -555,7 +556,7 @@ handle_operator() { # handle_operator <raw>
     return 0
   fi
   # An override alone names no change; what is left once it is removed must.
-  _ho_subject="$(printf '%s' "$_ho_w" | sed 's/ write this one up / /; s/ write it up / /; s/ just do it / /; s/ fly it visual / /; s/ file a plan / /')"
+  _ho_subject="$(printf '%s' "$_ho_w" | sed -e ':a' -e 's/ write this one up / /;s/ write it up / /;s/ just do it / /;s/ fly it visual / /;s/ file a plan / /;ta')"
   if has_mutation_verb "$_ho_subject" || [ -n "$(zone_of "$_ho_subject")" ] \
     || [ -n "$(irreversible_of "$_ho_subject")" ] || is_ambiguous "$_ho_subject"; then
     route_mutation "$_ho_ask" "$_ho_raw" "$_ho_w"
