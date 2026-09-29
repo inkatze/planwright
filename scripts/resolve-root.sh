@@ -158,6 +158,14 @@ canon() {
   (cd -P -- "$cn_dir" 2>/dev/null && pwd -P)
 }
 
+# skip_warn <arm> <dir> <reason>: warn about a skipped arm, unless --all has
+# already found the install root, when the skip changes nothing the caller
+# relies on and the warning would only be noise.
+skip_warn() {
+  [ "$found" -eq 0 ] || return 0
+  say "WARNING skipping the $1 root '$2': $3"
+}
+
 # try_arm <arm> <dir>: emit on a content-bearing directory, else warn and
 # return so the next arm is tried; an unset arm and an absent writer-mode
 # directory return silently. Under --all a content-bearing arm is printed and
@@ -168,11 +176,11 @@ try_arm() {
     return 0
   fi
   if [ -d "$2" ] && ! ta_canon=$(canon "$2"); then
-    say "WARNING skipping the $1 root '$2': the directory cannot be entered"
+    skip_warn "$1" "$2" "the directory cannot be entered"
     return 0
   fi
   if [ ! -d "$2" ] || { [ ! -d "$2/doctrine" ] && [ ! -d "$2/scripts" ]; }; then
-    say "WARNING skipping the $1 root '$2': not a directory holding doctrine/ or scripts/"
+    skip_warn "$1" "$2" "not a directory holding doctrine/ or scripts/"
     return 0
   fi
   if [ "$all" -eq 1 ]; then

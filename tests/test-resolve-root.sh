@@ -202,6 +202,10 @@ run base PLANWRIGHT_ROOT="$tmp/empty" CLAUDE_PLUGIN_ROOT="$tmp/plugin" \
 assert_eq "install --all: a content-less arm is left out" "$tmp/plugin${nl}$REPO_ROOT" "$out"
 assert_contains "install --all: the content-less arm warns" "$tmp/empty" "$err"
 
+run base PLANWRIGHT_ROOT="$tmp/pw" CLAUDE_PLUGIN_ROOT="$tmp/empty" "$SH" "$RESOLVER" install --all
+assert_eq "install --all: a content-less arm after the install root is left out" "$tmp/pw${nl}$REPO_ROOT" "$out"
+assert_empty "install --all: a skip after the install root is not warned about" "$err"
+
 run base PLANWRIGHT_ROOT="$tmp/pw" "$SH" "$RESOLVER" --all --explain install
 assert_eq "install --all --explain: each line names its arm" \
   "PLANWRIGHT_ROOT${tab}$tmp/pw${nl}self-location${tab}$REPO_ROOT" "$out"
