@@ -19,7 +19,9 @@
 #   - Trailers are read through git's own parser
 #     (`%(trailers:key=Planwright-Sign-Off,valueonly)`), never from subjects.
 #     `PS-<n>` has at most nine digits; a longer or otherwise malformed value
-#     is ignored with a warning.
+#     is ignored with a warning. Git reads only the last paragraph as trailers,
+#     so a keyed line elsewhere (a squash of two trailered commits) counts for
+#     nothing and warns.
 #   - A legacy commit, one whose subject ends in ` [pending-sign-off]` and
 #     that carries no `Planwright-Sign-Off` trailer, renders as
 #     `PS-legacy-<sha7>`: the first seven hex characters of its full hash
@@ -157,12 +159,18 @@ function target(t,  j, hit) {
   h[n] = sha; subj[n] = s; so[n] = $3; rej[n] = $4
   rv[n] = ""
   m = split($5, lines, "\n")
+  keyed = 0
   for (i = 1; i <= m; i++) {
     if (substr(lines[i], 1, 20) == "This reverts commit ") {
       t = hexrun(substr(lines[i], 21))
       if (length(t) >= 7) rv[n] = rv[n] " " t
     }
+    if (tolower(lines[i]) ~ /^planwright-sign-off(-rejected)?[ \t]*:/) keyed++
   }
+  # Git reads trailers from the last paragraph only (a squash leaves the
+  # trailers of the earlier commits mid-body), so a surplus keyed line is prose.
+  parsed = ($3 == "" ? 0 : split($3, vals, GS)) + ($4 == "" ? 0 : split($4, vals, GS))
+  if (keyed > parsed) warn("commit " substr(sha, 1, 12) " has a Planwright-Sign-Off line outside its trailer block, which git does not read; it neither signs off nor rejects anything")
 }
 END {
   if (bad) exit 3

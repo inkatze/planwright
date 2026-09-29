@@ -316,6 +316,18 @@ commit "$e" "$(printf 'fix: tab\there esc\033[2J csi\302\233x [pending-sign-off]
 got=$(cd "$e" && /bin/bash "$LIST" list main 2>/dev/null | cut -f3)
 [ "$got" = "fix: tab here esc [2J csi x [pending-sign-off]" ] \
   || fail "boundaries: control characters not replaced [$got]"
+# Git reads trailers from the last paragraph only, so a squash of two
+# trailered commits leaves the first one's lines as prose: not an item, and
+# never silently.
+commit "$e" "fix: squashed
+
+Planwright-Sign-Off: PS-20
+
+fix: the second half"
+[ "$(cd "$e" && /bin/bash "$LIST" list main 2>/dev/null | cut -f3)" = "$got" ] \
+  || fail "boundaries: a sign-off line outside the trailer block became an item"
+(cd "$e" && /bin/bash "$LIST" list main 2>&1 >/dev/null) | grep -q 'outside its trailer block' \
+  || fail "boundaries: a sign-off line outside the trailer block did not warn"
 echo "ok: suffix, value, allocation, and subject boundaries hold"
 
 # 11d. Reverting a rejection reinstates the item.
