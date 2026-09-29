@@ -22,18 +22,9 @@
 #   1. machine-local  <repo>/.claude/doctrine.local/<name>.md
 #   2. repo-tracked   <repo>/.claude/doctrine/<name>.md
 #   3. adopter        <adopter-overlay-root>/doctrine/<name>.md
-#   4. core           the core chain (first hit wins):
-#        a. $PLANWRIGHT_ROOT/doctrine/        explicit override (tests, adopters)
-#        b. $CLAUDE_PLUGIN_ROOT/doctrine/     plugin delivery (set by Claude Code)
-#        c. <claude-dir>/planwright/doctrine/ writer delivery
-#           (<claude-dir> is $CLAUDE_DIR when set, else ~/.claude; this arm is
-#           skipped when neither CLAUDE_DIR nor HOME is set, so HOME-less
-#           environments resolve via arms a-b and d only)
-#        d. <script-dir>/../doctrine/         self-location (final fallback):
-#           the core doctrine ships beside this script, so it resolves relative
-#           to $0 when every env arm above misses — the case where Claude Code
-#           does not export CLAUDE_PLUGIN_ROOT into a skill's Bash subshell.
-#           Additive and lowest-precedence, so it never overrides an env root.
+#   4. core           doctrine/<name>.md under the first arm of the core root
+#                     chain (resolve-root.sh install --all) that holds it; an
+#                     arm missing the doc falls through to the next.
 #
 # The three overlay-layer roots come from scripts/resolve-overlay-root.sh (the
 # Task 2 primitive), which owns layer-location and namespace logic; this script
@@ -194,34 +185,24 @@ try_overlay machine-local doctrine.local
 try_overlay repo-tracked doctrine
 try_overlay adopter doctrine
 
-# Core (lowest precedence): the three env-root arms (unchanged, REQ-D1.2 / R4
-# no-regression) plus a final delivery-mode-agnostic self-location arm.
-# Writer-mode root is derivable only when CLAUDE_DIR or HOME is present; plugin
-# mode must keep working in HOME-less containers, so the earlier arms never
-# depend on it.
-#
-# "$script_dir/.." is appended as the final, lowest-precedence arm: the core
-# doctrine ships at $script_dir/../doctrine/, so the resolver can always locate
-# it relative to its own path when no env root is set — the real-world case
-# where Claude Code does not export CLAUDE_PLUGIN_ROOT into a skill's Bash
-# subshell and nothing set PLANWRIGHT_ROOT. It is additive and only fires when
-# every env arm misses, so it cannot regress any case where an env root
-# resolves; it subsumes both the plugin-delivery and writer-delivery roots.
-# This matches the self-location the sibling scripts (config-get,
-# resolve-overlay-root, builder-guards) already use.
-writer_root=""
-if [ -n "${CLAUDE_DIR:-}" ]; then
-  writer_root="$CLAUDE_DIR/planwright"
-elif [ -n "${HOME:-}" ]; then
-  writer_root="$HOME/.claude/planwright"
+# Core (lowest precedence): each arm of the core root chain in order, so a
+# root that lacks this one doc falls through to the next. The resolver's
+# warnings (a skipped content-less arm) pass through.
+root_helper="$script_dir/resolve-root.sh"
+if [ ! -x "$root_helper" ]; then
+  echo "planwright: rule doc '$name' not found: the root helper '$root_helper' is missing or not executable (broken install)" >&2
+  exit 1
 fi
-
-for root in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" "$writer_root" "$script_dir/.."; do
+arms=$("$root_helper" install --all --explain)
+tab=$(printf '\t')
+while IFS="$tab" read -r _arm root; do
   [ -n "$root" ] || continue
   if [ -f "$root/doctrine/$name.md" ]; then
     emit core "$root/doctrine/$name.md"
   fi
-done
+done <<ARMS
+$arms
+ARMS
 
-echo "planwright: rule doc '$name' not found (checked overlays then core: PLANWRIGHT_ROOT='${PLANWRIGHT_ROOT:-unset}', CLAUDE_PLUGIN_ROOT='${CLAUDE_PLUGIN_ROOT:-unset}', writer root='${writer_root:-unset: CLAUDE_DIR and HOME both missing}', self-located root='$script_dir/..')" >&2
+echo "planwright: rule doc '$name' not found (checked overlays then the core root chain: $(printf '%s' "${arms:-no arm resolved}" | tr '\t\n' '= ' | tr -d '\000-\037\177'))" >&2
 exit 1

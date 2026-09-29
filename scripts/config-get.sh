@@ -72,9 +72,8 @@
 #   PLANWRIGHT_CONFIG_DEFAULTS  explicit tracked-defaults (core) file
 #   PLANWRIGHT_LOCAL_CONFIG     explicit machine-local file (legacy two-layer
 #                               override; wins over the derived machine-local path)
-#   PLANWRIGHT_ROOT             planwright root holding config/defaults.yml
-#   CLAUDE_PLUGIN_ROOT          plugin-delivery root (set by Claude Code)
-# The adopter and repo-side layer roots honor resolve-overlay-root.sh's own
+# Otherwise the core layer is config/defaults.yml under the first arm of the
+# core root chain (resolve-root.sh install --all) holding one. The adopter and repo-side layer roots honor resolve-overlay-root.sh's own
 # overrides (PLANWRIGHT_ADOPTER_OVERLAY, CLAUDE_PLUGIN_DATA, PLANWRIGHT_REPO_ROOT).
 #
 # Exit: 0 value printed; 3 key absent in every layer; 2 usage / invalid key;
@@ -124,20 +123,21 @@ esac
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
-# Resolve the tracked defaults (core) file: an explicit override, then the
-# planwright root chain (env-set in plugin/test delivery), then the
-# script-relative layout (scripts/ sibling config/). First existing wins.
+# Resolve the tracked defaults (core) file: an explicit override, else the
+# first arm of the core root chain holding one. The resolver's warnings (a
+# skipped content-less arm) pass through.
 defaults=""
 if [ -n "${PLANWRIGHT_CONFIG_DEFAULTS:-}" ]; then
   defaults="$PLANWRIGHT_CONFIG_DEFAULTS"
-else
-  for root in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" "$script_dir/.."; do
-    [ -n "$root" ] || continue
-    if [ -f "$root/config/defaults.yml" ]; then
+elif [ -x "$script_dir/resolve-root.sh" ]; then
+  while IFS= read -r root; do
+    if [ -n "$root" ] && [ -f "$root/config/defaults.yml" ]; then
       defaults="$root/config/defaults.yml"
       break
     fi
-  done
+  done <<ROOTS
+$("$script_dir/resolve-root.sh" install --all)
+ROOTS
 fi
 
 # The Task 2 primitive is the single source of overlay-layer *locations* and must
@@ -314,6 +314,6 @@ fi
 # delivery), not a normal absent key — surface it rather than failing opaquely.
 # The exit code stays 3 so callers still pick their own fallback.
 if [ -z "$defaults" ] || [ ! -r "$defaults" ]; then
-  echo "config-get: tracked defaults not found (looked via PLANWRIGHT_CONFIG_DEFAULTS / PLANWRIGHT_ROOT / CLAUDE_PLUGIN_ROOT / script dir); '$key' unresolved" >&2
+  echo "config-get: tracked defaults not found (looked via PLANWRIGHT_CONFIG_DEFAULTS, then each arm of the core root chain: resolve-root.sh install --all --explain); '$key' unresolved" >&2
 fi
 exit 3

@@ -141,7 +141,8 @@ echo "ok: invalid keys are rejected with exit 2"
 #    the defaults file is found under PLANWRIGHT_ROOT/config/ (the plugin/test
 #    delivery arm of the D-33 resolution chain).
 root="$tmp/root"
-mkdir -p "$root/config"
+# The core root chain skips a root holding neither doctrine/ nor scripts/.
+mkdir -p "$root/config" "$root/scripts"
 printf 'dispatch_backend: tmux\n' >"$root/config/defaults.yml"
 got=$(PLANWRIGHT_ROOT="$root" PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
   /bin/bash "$CG" dispatch_backend) \
@@ -648,5 +649,22 @@ rc=0
 run_layers --layers steps_pre_pr >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "--layers: a malformed repo-tracked layer should hard-fail 4, got $rc"
 echo "ok: --layers applies the same by-layer malformed policy as the merged read"
+
+# A session in a linked worktree reads the primary checkout's repo-side
+# layers: a machine-local value set only in the primary is what the worktree
+# resolves.
+wt_repo=$(cd "$(mktemp -d)" && pwd -P)
+wt_git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@" >/dev/null 2>&1; }
+wt_git -c init.defaultBranch=main init -q "$wt_repo"
+wt_git -C "$wt_repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m init
+wt_git -C "$wt_repo" worktree add -q "$wt_repo/.claude/worktrees/wt" -b wt
+printf 'dispatch_backend: primary_only\n' >"$wt_repo/.claude/planwright.local.yml"
+got=$(cd "$wt_repo/.claude/worktrees/wt" && env -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_LOCAL_CONFIG \
+  -u PLANWRIGHT_ADOPTER_OVERLAY -u CLAUDE_PLUGIN_DATA GIT_CEILING_DIRECTORIES="$wt_repo/.." \
+  /bin/sh "$CG" --explain dispatch_backend) || fail "worktree: config-get exited non-zero"
+[ "$got" = "$(printf 'machine-local\tprimary_only')" ] \
+  || fail "worktree: the primary checkout's machine-local value should win, got: $got"
+rm -rf "$wt_repo"
+echo "ok: a worktree reads the primary checkout's machine-local overlay"
 
 echo "PASS: config-get"

@@ -185,9 +185,33 @@ run base PLANWRIGHT_ROOT="$tmp/scripts-only" "$SH" "$RESOLVER" install
 assert_eq "install: scripts/ alone is content enough" "$tmp/scripts-only" "$out"
 
 # ---------------------------------------------------------------------------
+# install kind: --all, every content-bearing arm in chain order
+# ---------------------------------------------------------------------------
+nl='
+'
+tab=$(printf '\t')
+run base PLANWRIGHT_ROOT="$tmp/pw" CLAUDE_PLUGIN_ROOT="$tmp/plugin" \
+  CLAUDE_DIR="$tmp/claudedir" "$SH" "$RESOLVER" install --all
+assert_eq "install --all: exits 0" 0 "$rc"
+assert_eq "install --all: every arm, in chain order" \
+  "$tmp/pw${nl}$tmp/plugin${nl}$tmp/claudedir/planwright${nl}$REPO_ROOT" "$out"
+assert_empty "install --all: a clean chain warns nothing" "$err"
+
+run base PLANWRIGHT_ROOT="$tmp/empty" CLAUDE_PLUGIN_ROOT="$tmp/plugin" \
+  "$SH" "$RESOLVER" install --all
+assert_eq "install --all: a content-less arm is left out" "$tmp/plugin${nl}$REPO_ROOT" "$out"
+assert_contains "install --all: the content-less arm warns" "$tmp/empty" "$err"
+
+run base PLANWRIGHT_ROOT="$tmp/pw" "$SH" "$RESOLVER" --all --explain install
+assert_eq "install --all --explain: each line names its arm" \
+  "PLANWRIGHT_ROOT${tab}$tmp/pw${nl}self-location${tab}$REPO_ROOT" "$out"
+
+run base "$SH" "$RESOLVER" repo --primary --all
+assert_eq "install --all: refused on another kind" 2 "$rc"
+
+# ---------------------------------------------------------------------------
 # install kind: --explain
 # ---------------------------------------------------------------------------
-tab=$(printf '\t')
 run base PLANWRIGHT_ROOT="$tmp/pw" "$SH" "$RESOLVER" install --explain
 assert_eq "install --explain: names the PLANWRIGHT_ROOT arm" "PLANWRIGHT_ROOT${tab}$tmp/pw" "$out"
 run base CLAUDE_PLUGIN_ROOT="$tmp/plugin" "$SH" "$RESOLVER" --explain install

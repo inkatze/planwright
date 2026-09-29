@@ -1,0 +1,24 @@
+# Task 3 converges the core root chain and the repo-side overlay layers on
+# scripts/resolve-root.sh. Every probe it changes, with the correction owning
+# the change; the repo-root narrowing is not delivered here (see
+# corrections.tsv, which assigns it to task 5).
+@@ rule-doc-contentless-arm primary install-chain-convergence
+planwright: WARNING skipping the CLAUDE_PLUGIN_ROOT root '<TMP>/empty': not a directory holding doctrine/ or scripts/
+core	<INSTALL>/doctrine/spec-format.md
+rc=0
+@@ rule-doc-contentless-arm worktree install-chain-convergence
+planwright: WARNING skipping the CLAUDE_PLUGIN_ROOT root '<TMP>/empty': not a directory holding doctrine/ or scripts/
+core	<INSTALL>/doctrine/spec-format.md
+rc=0
+@@ config-get worktree worktree-config-overlay
+machine-local	[polish, self-review]
+rc=0
+@@ config-knob worktree worktree-config-overlay
+per-unit
+rc=0
+@@ overlay-repo-tracked worktree worktree-config-overlay
+<PRIMARY>/.claude
+rc=0
+@@ overlay-machine-local worktree worktree-config-overlay
+<PRIMARY>/.claude
+rc=0

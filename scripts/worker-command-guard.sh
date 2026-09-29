@@ -463,16 +463,14 @@ is_repo_script() {
 }
 
 # planwright_roots: print, one per line and canonicalized, every planwright
-# installation root this hook trusts its `scripts/*.sh` under. The chain is the
-# one every other planwright script resolves its own root with
-# (scripts/resolve-rule-doc.sh, config-get.sh, resolve-steps.sh,
-# resolve-overlay-root.sh), highest precedence first, plus the arm that ties
-# the hook to the root the WORKER actually runs scripts from:
+# installation root this hook trusts its `scripts/*.sh` under: every arm of
+# the core root chain, as `resolve-root.sh install --all` reports it (CHAIN_ROOTS
+# below), plus this guard's own policy arms:
 #
-#   1. $PLANWRIGHT_ROOT            explicit override (tests, adopters)
-#   2. $CLAUDE_PLUGIN_ROOT         plugin delivery, when Claude Code exports it
-#   3. <claude-dir>/planwright     writer delivery ($CLAUDE_DIR else $HOME/.claude)
-#   4. $HOOK_SELF_ROOT             this hook's own sibling root (`dirname $0`/..)
+#   1. the core root chain         every content-bearing arm, highest first
+#   4. $HOOK_SELF_ROOT             this hook's own sibling root (`dirname $0`/..),
+#                                  kept apart from the chain's self-location arm
+#                                  so it holds even if the resolver cannot run
 #   5. every installed root        what Claude Code records in
 #                                  <claude-dir>/plugins/installed_plugins.json
 #                                  for a planwright plugin, plus every version
@@ -497,15 +495,9 @@ is_repo_script() {
 # goes through canon_under, so a `..` segment in the path, a symlinked leaf, or
 # a sibling directory that merely shares the root's name PREFIX never passes.
 planwright_roots() {
-  local claude_dir='' r root
-  if [ -n "${CLAUDE_DIR:-}" ]; then
-    claude_dir=$CLAUDE_DIR
-  elif [ -n "${HOME:-}" ]; then
-    claude_dir="$HOME/.claude"
-  fi
+  local r root
   {
-    printf '%s\n' "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
-      "${claude_dir:+$claude_dir/planwright}" "${HOOK_SELF_ROOT:-}"
+    printf '%s\n' "${CHAIN_ROOTS:-}" "${HOOK_SELF_ROOT:-}"
     printf '%s\n' "${INSTALLED_ROOTS:-}"
   } | while IFS= read -r r; do
     [ -n "$r" ] || continue
@@ -2328,6 +2320,13 @@ HOOK_ENV_NAMES=$NL$(compgen -e)$NL
 # any payload is read, and left empty when it cannot be resolved (in which case
 # that arm simply never fires). Never derived from the analyzed command.
 HOOK_SELF_ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || HOOK_SELF_ROOT=''
+# Arm 1: the core root chain, from the resolver shipped beside this hook,
+# resolved once at load. Its warnings are dropped: a hook's stderr is not a
+# channel anyone reads, and a skipped arm is simply not trusted.
+CHAIN_ROOTS=''
+if [ -n "$HOOK_SELF_ROOT" ] && [ -r "$HOOK_SELF_ROOT/scripts/resolve-root.sh" ]; then
+  CHAIN_ROOTS=$(/bin/sh "$HOOK_SELF_ROOT/scripts/resolve-root.sh" install --all 2>/dev/null) || CHAIN_ROOTS=''
+fi
 # Arm 5 of the same chain: the roots Claude Code itself installed the plugin
 # at, resolved once at load from its own record and cache (never from the
 # analyzed command). Empty when neither exists.

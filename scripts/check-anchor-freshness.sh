@@ -171,22 +171,20 @@ trap 'rm -rf "$wtmp"' EXIT
 # finds the same tool for both script-based forms; it never rewrites the
 # recorded form.
 resolve_anchor_tool() {
-  rat_claude_dir=${CLAUDE_DIR:-}
-  if [ -z "$rat_claude_dir" ] && [ -n "${HOME:-}" ]; then
-    rat_claude_dir="$HOME/.claude"
+  rat_arms=""
+  if [ -x "$script_dir/resolve-root.sh" ]; then
+    rat_arms=$("$script_dir/resolve-root.sh" install --all) || rat_arms=""
   fi
-  for rat_cand in \
-    "$tree_root/scripts" \
-    "${PLANWRIGHT_ROOT:-}${PLANWRIGHT_ROOT:+/scripts}" \
-    "${CLAUDE_PLUGIN_ROOT:-}${CLAUDE_PLUGIN_ROOT:+/scripts}" \
-    "${rat_claude_dir:-}${rat_claude_dir:+/planwright/scripts}" \
-    "$script_dir"; do
+  while IFS= read -r rat_cand; do
     [ -n "$rat_cand" ] || continue
     if [ -f "$rat_cand/spec-anchor.sh" ] && [ -x "$rat_cand/spec-anchor.sh" ]; then
       printf '%s\n' "$rat_cand/spec-anchor.sh"
       return 0
     fi
-  done
+  done <<RAT
+$tree_root/scripts
+$(printf '%s\n' "$rat_arms" | sed '/./s|$|/scripts|')
+RAT
   return 1
 }
 anchor_tool=$(resolve_anchor_tool) || anchor_tool=

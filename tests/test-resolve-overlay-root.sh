@@ -69,7 +69,7 @@ assert "core resolves via PLANWRIGHT_ROOT" 0 $?
 assert_eq "core root is the planwright root" "$tmp/core" "$out"
 
 # core falls through to the plugin root when PLANWRIGHT_ROOT is unset.
-mkdir -p "$tmp/plugin/config"
+mkdir -p "$tmp/plugin/config" "$tmp/plugin/scripts"
 out="$(base CLAUDE_PLUGIN_ROOT="$tmp/plugin" /bin/bash "$RESOLVER" core)"
 assert "core resolves via CLAUDE_PLUGIN_ROOT" 0 $?
 assert_eq "core root is the plugin root" "$tmp/plugin" "$out"
@@ -80,9 +80,23 @@ out="$(base PLANWRIGHT_ROOT="$tmp/no-such-core" CLAUDE_PLUGIN_ROOT="$tmp/plugin"
 assert "core skips a nonexistent PLANWRIGHT_ROOT" 0 $?
 assert_eq "core falls through to the plugin root" "$tmp/plugin" "$out"
 
+# core skips an arm holding neither doctrine/ nor scripts/, and says so.
+mkdir -p "$tmp/contentless/config"
+out="$(base PLANWRIGHT_ROOT="$tmp/contentless" CLAUDE_PLUGIN_ROOT="$tmp/plugin" \
+  /bin/bash "$RESOLVER" core 2>"$tmp/core.err")"
+assert "core skips a content-less PLANWRIGHT_ROOT" 0 $?
+assert_eq "core falls past the content-less arm" "$tmp/plugin" "$out"
+case $(cat "$tmp/core.err") in
+  *WARNING*"$tmp/contentless"*) echo "ok: core warns about the skipped content-less arm" ;;
+  *)
+    echo "FAIL: core did not warn about the content-less arm: $(cat "$tmp/core.err")" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
 # core position 3: with the first two arms unset, the writer-mode arm
 # (<claude-dir>/planwright) resolves core. CLAUDE_DIR derives the claude dir.
-mkdir -p "$tmp/cdir/planwright/config"
+mkdir -p "$tmp/cdir/planwright/config" "$tmp/cdir/planwright/scripts"
 out="$(base CLAUDE_DIR="$tmp/cdir" /bin/bash "$RESOLVER" core)"
 assert "core resolves via the writer-mode claude dir" 0 $?
 assert_eq "core root is <claude-dir>/planwright" "$tmp/cdir/planwright" "$out"
@@ -231,6 +245,8 @@ assert_eq "no adopter arm yields empty root" "" "$out"
 # ---------------------------------------------------------------------------
 # repo-tracked & machine-local layers (both under <repo>/.claude, per D-4)
 # ---------------------------------------------------------------------------
+git_q() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@" >/dev/null 2>&1; }
+git_q -c init.defaultBranch=main init -q "$tmp/repo"
 mkdir -p "$tmp/repo/.claude"
 out="$(base PLANWRIGHT_REPO_ROOT="$tmp/repo" /bin/bash "$RESOLVER" repo-tracked)"
 assert "repo-tracked resolves" 0 $?
@@ -240,11 +256,21 @@ out="$(base PLANWRIGHT_REPO_ROOT="$tmp/repo" /bin/bash "$RESOLVER" machine-local
 assert "machine-local resolves" 0 $?
 assert_eq "machine-local root" "$tmp/repo/.claude" "$out"
 
-# A repo root of exactly "/" must yield "/.claude", not "//.claude" (a leading
-# "//" is implementation-defined in POSIX) — F3.
+# The override is used verbatim: a directory outside any repository is how a
+# caller reads no repo-side layer.
 out="$(base PLANWRIGHT_REPO_ROOT=/ /bin/bash "$RESOLVER" repo-tracked)"
 assert "repo-tracked at filesystem root resolves" 0 $?
 assert_eq "repo-tracked '/' root has no double slash" "/.claude" "$out"
+
+# From a linked worktree, both repo-side layers resolve against the primary
+# checkout, so the worktree reads the primary's machine-local overlay.
+git_q -C "$tmp/repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m init
+git_q -C "$tmp/repo" worktree add -q "$tmp/repo/.claude/worktrees/wt" -b wt
+for l in repo-tracked machine-local; do
+  out="$(cd "$tmp/repo/.claude/worktrees/wt" && base /bin/bash "$RESOLVER" "$l")"
+  assert "$l from a worktree resolves" 0 $?
+  assert_eq "$l from a worktree is the primary checkout's" "$tmp/repo/.claude" "$out"
+done
 
 # Outside any git repo and with no override: both degrade to absent.
 out="$(cd "$tmp" && base /bin/bash "$RESOLVER" repo-tracked)"
@@ -394,7 +420,7 @@ assert "--contain nonexistent root errors" 2 $?
 # rather than degrading core to absent (F1). Skipped as root, whose access is
 # not bound by the search bit.
 if [ "$(id -u)" -ne 0 ]; then
-  mkdir -p "$tmp/core-noexec" "$tmp/core-fallback/config"
+  mkdir -p "$tmp/core-noexec" "$tmp/core-fallback/config" "$tmp/core-fallback/scripts"
   chmod 000 "$tmp/core-noexec"
   out="$(base PLANWRIGHT_ROOT="$tmp/core-noexec" CLAUDE_PLUGIN_ROOT="$tmp/core-fallback" \
     /bin/bash "$RESOLVER" core 2>/dev/null)"

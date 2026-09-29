@@ -214,6 +214,17 @@ for cand in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
   fi
 done
 
+# A copy that ships the root helper decides the install root itself, so the
+# hook follows the same core root chain every planwright script does; an older
+# copy without the helper, or an answer holding no validator, keeps the copy
+# found above.
+if [ -n "$pw" ] && [ -r "$pw/scripts/resolve-root.sh" ]; then
+  if pw_root=$(/bin/sh "$pw/scripts/resolve-root.sh" install 2>/dev/null) &&
+    [ -r "$pw_root/scripts/inception-validate.sh" ]; then
+    pw=$pw_root
+  fi
+fi
+
 if [ -z "$pw" ]; then
   echo "venture pre-commit: planwright not found; skipping the venture guards." >&2
   echo "venture pre-commit: set PLANWRIGHT_ROOT in .planwright-local.sh to enable them." >&2
