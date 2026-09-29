@@ -75,6 +75,8 @@ base() {
 rc() {
   sb="$1"
   shift
+  # The core root chain skips a root holding neither doctrine/ nor scripts/.
+  mkdir -p "$sb/core/scripts"
   base PLANWRIGHT_ROOT="$sb/core" PLANWRIGHT_ADOPTER_OVERLAY="$sb/adopter" \
     PLANWRIGHT_REPO_ROOT="$sb/repo" /bin/bash "$RESOLVER" "$@"
 }

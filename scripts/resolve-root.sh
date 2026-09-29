@@ -2,24 +2,20 @@
 # resolve-root.sh — print one of planwright's roots.
 #
 # Usage:
-#   resolve-root.sh [--explain] install
+#   resolve-root.sh [--explain] install [--all]
 #   resolve-root.sh [--explain] repo --primary | --checkout
 #   resolve-root.sh [--explain] spec [--primary] [--posture] [--init]
 #   (flags may appear anywhere among the arguments)
 #
-# install   which planwright copy runs: the first content-bearing arm of the
-#           core root chain, in order
-#             PLANWRIGHT_ROOT      explicit override
-#             CLAUDE_PLUGIN_ROOT   plugin delivery
-#             writer-mode          $CLAUDE_DIR/planwright when CLAUDE_DIR is
-#                                  set, otherwise $HOME/.claude/planwright
-#             self-location        the parent of the directory the script
-#                                  was invoked from (a symlink is not
-#                                  followed)
-#           An arm is content-bearing when it holds doctrine/ or scripts/. A
-#           set arm that is not is skipped with a warning and never printed;
-#           an absent writer-mode directory is skipped silently, since plugin
-#           delivery never creates it.
+# install   which planwright copy runs: the first surviving arm of the core
+#           root chain (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, writer-mode,
+#           self-location), defined in doctrine/spec-format.md under "The core
+#           root chain", which also states which arms are skipped. This script
+#           is that definition's only implementation.
+#   --all       print every content-bearing arm, one per line in chain order,
+#               instead of the first: for a consumer that looks a file up arm
+#               by arm, and for a command guard composing its trust set. An
+#               arm skipped after the first is printed is skipped silently.
 # repo      which repository the session belongs to.
 #   --primary   the primary working tree of the repository owning the common
 #               git directory, so every linked worktree answers with the
@@ -115,7 +111,7 @@ say() {
 }
 
 usage() {
-  say "usage: resolve-root.sh [--explain] install | repo --primary|--checkout | spec [--primary] [--posture] [--init]"
+  say "usage: resolve-root.sh [--explain] install [--all] | repo --primary|--checkout | spec [--primary] [--posture] [--init]"
   exit 2
 }
 
@@ -124,9 +120,11 @@ view=""
 explain=0
 posture_only=0
 init=0
+all=0
 for arg in "$@"; do
   case $arg in
     --explain) explain=1 ;;
+    --all) all=1 ;;
     --posture) posture_only=1 ;;
     --init) init=1 ;;
     --primary | --checkout)
@@ -161,26 +159,45 @@ canon() {
   (cd -P -- "$cn_dir" 2>/dev/null && pwd -P)
 }
 
+# skip_warn <arm> <dir> <reason>: warn about a skipped arm, unless --all has
+# already found the install root, when the skip changes nothing the caller
+# relies on and the warning would only be noise.
+skip_warn() {
+  [ "$found" -eq 0 ] || return 0
+  say "WARNING skipping the $1 root '$2': $3"
+}
+
 # try_arm <arm> <dir>: emit on a content-bearing directory, else warn and
 # return so the next arm is tried; an unset arm and an absent writer-mode
-# directory return silently.
+# directory return silently. Under --all a content-bearing arm is printed and
+# the walk goes on.
 try_arm() {
   [ -n "$2" ] || return 0
   if [ "$1" = writer-mode ] && [ ! -e "$2" ] && [ ! -L "$2" ]; then
     return 0
   fi
   if [ -d "$2" ] && ! ta_canon=$(canon "$2"); then
-    say "WARNING skipping the $1 root '$2': the directory cannot be entered"
+    skip_warn "$1" "$2" "the directory cannot be entered"
     return 0
   fi
   if [ ! -d "$2" ] || { [ ! -d "$2/doctrine" ] && [ ! -d "$2/scripts" ]; }; then
-    say "WARNING skipping the $1 root '$2': not a directory holding doctrine/ or scripts/"
+    skip_warn "$1" "$2" "not a directory holding doctrine/ or scripts/"
+    return 0
+  fi
+  if [ "$all" -eq 1 ]; then
+    found=1
+    if [ "$explain" -eq 1 ]; then
+      printf '%s\t%s\n' "$1" "$ta_canon"
+    else
+      printf '%s\n' "$ta_canon"
+    fi
     return 0
   fi
   emit "$1" "$ta_canon"
 }
 
 resolve_install() {
+  found=0
   writer_root=""
   if [ -n "${CLAUDE_DIR:-}" ]; then
     writer_root="$CLAUDE_DIR/planwright"
@@ -192,6 +209,7 @@ resolve_install() {
   try_arm CLAUDE_PLUGIN_ROOT "${CLAUDE_PLUGIN_ROOT:-}"
   try_arm writer-mode "$writer_root"
   try_arm self-location "$script_dir/.."
+  [ "$found" -eq 0 ] || exit 0
   say "no install root resolved (every arm of the core root chain was unset or skipped)"
   exit 1
 }
@@ -559,6 +577,7 @@ case $0 in
   *) script_dir=. ;;
 esac
 
+[ "$all" -eq 0 ] || [ "$kind" = install ] || usage
 case $kind in
   install | repo)
     [ "$posture_only" -eq 0 ] && [ "$init" -eq 0 ] || usage

@@ -69,8 +69,12 @@ never an error.
 
 There is **no single overlay-root directory**. Each of the three overlayable
 *kinds* keeps its own native shape and has its own per-layer locations, all
-obeying the precedence order above (D-2, D-4). `<repo>` is the repository root;
-`<adopter-root>` is the resolved adopter overlay root from §1.
+obeying the precedence order above (D-2, D-4). `<repo>` is the repository's
+primary checkout, also from inside a linked worktree: a session in a task
+worktree reads the primary checkout's repo-tracked and machine-local overlays,
+not the worktree's own copies, so a tracked overlay edited on a branch takes
+effect once the primary checkout's working tree carries it. `<adopter-root>` is the resolved
+adopter overlay root from §1.
 
 ### Config values — `scripts/config-get.sh`
 

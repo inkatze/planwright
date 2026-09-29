@@ -1552,6 +1552,21 @@ RC=$?
 [ "$RC" = 0 ] && [ "$(printf '%s\n' "$OUT" | cut -f1,2,4,5)" = "run${TAB}lint${TAB}repo-tracked${TAB}repo-tracked" ]
 verdict "with no repo-root override the git toplevel supplies the repo-tracked list and catalog" "default repo root: rc=$RC out='$OUT'"
 
+# A copy that lost the root helper has no core layer, so it stops as a broken
+# install naming the helper rather than resolving anything from a guess.
+nohelp="$tmp/no-root-helper/scripts"
+mkdir -p "$nohelp" "$nohelp/../doctrine"
+cp "$repo_root/doctrine/custom-steps.md" "$nohelp/../doctrine/"
+for s in resolve-steps config-get echo-safety resolve-catalog resolve-dispatch-isolation resolve-overlay-root; do
+  cp "$repo_root/scripts/$s.sh" "$nohelp/"
+done
+RS_SAVED=$RS
+RS="$nohelp/resolve-steps.sh"
+capture pre-pr --unattended
+RS=$RS_SAVED
+[ "$RC" = 5 ] && case $ERR in *"root helper"*"broken install"*) true ;; *) false ;; esac
+verdict "a copy without the root helper stops as a broken install naming it" "no helper: rc=$RC err='$ERR'"
+
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2
   exit 1

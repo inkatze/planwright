@@ -232,7 +232,8 @@ echo "ok: a rewritten hash and a non-sanctioned form are both refused"
 # at a directory holding no .claude: no decision-domains catalog is
 # resolvable anywhere.
 absent="$tmp/absent"
-mkdir -p "$absent/core" "$absent/adopter" "$absent/repo"
+# scripts/ keeps the core root chain from skipping the fixture root.
+mkdir -p "$absent/core/scripts" "$absent/adopter" "$absent/repo"
 resolver_rc=0
 base PLANWRIGHT_ROOT="$absent/core" PLANWRIGHT_ADOPTER_OVERLAY="$absent/adopter" \
   PLANWRIGHT_REPO_ROOT="$absent/repo" \

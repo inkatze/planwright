@@ -154,19 +154,18 @@
 # resolve-overlay-root.sh honor (PLANWRIGHT_ROOT, PLANWRIGHT_CONFIG_DEFAULTS,
 # PLANWRIGHT_ADOPTER_OVERLAY, PLANWRIGHT_REPO_ROOT, PLANWRIGHT_LOCAL_CONFIG,
 # CLAUDE_PLUGIN_ROOT, CLAUDE_PLUGIN_DATA), plus:
-#   PLANWRIGHT_SKILLS_ROOT  the plugin skills root (else PLANWRIGHT_ROOT/skills,
-#                           CLAUDE_PLUGIN_ROOT/skills, the script-relative
-#                           ../skills)
+#   PLANWRIGHT_SKILLS_ROOT  the plugin skills root (else skills/ under the
+#                           first arm of the core root chain holding one)
 #   CLAUDE_DIR              the Claude Code home holding commands/, skills/,
 #                           and plugins/installed_plugins.json (else
 #                           $HOME/.claude)
 #   PLANWRIGHT_JQ           the JSON reader for the registry (else `jq` on
 #                           the path); a test override
 # The repository root is resolved once (an explicit PLANWRIGHT_REPO_ROOT, else
-# the working directory's git toplevel) and exported to every sibling call,
-# so the project command and skill directories, the repo-tracked and
-# machine-local layers, and a relative command path all follow the directory
-# this script runs in. The pipeline-entry list is read from
+# the primary checkout, through the overlay resolver) and exported to every
+# sibling call, so the project command and skill directories and the
+# repo-tracked and machine-local layers all come from that one repository; a
+# relative command path still joins to the directory this script runs in. The pipeline-entry list is read from
 # <script-dir>/../doctrine/custom-steps.md and from nowhere else: no
 # environment arm, never resolve-rule-doc.sh.
 #
@@ -1107,14 +1106,17 @@ entry_of() {
 skills_root=""
 if [ -n "${PLANWRIGHT_SKILLS_ROOT:-}" ]; then
   skills_root="$PLANWRIGHT_SKILLS_ROOT"
+elif [ ! -r "$script_dir/resolve-root.sh" ]; then
+  printf '%s\n' "resolve-steps: warning: the root helper '$script_dir/resolve-root.sh' is missing or unreadable (broken install); the plugin skills root is unresolved" >&2
 else
-  for root in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" "$script_dir/.."; do
-    [ -n "$root" ] || continue
-    if [ -d "$root/skills" ]; then
+  while IFS= read -r root; do
+    if [ -n "$root" ] && [ -d "$root/skills" ]; then
       skills_root="$root/skills"
       break
     fi
-  done
+  done <<ROOTS
+$(/bin/sh "$script_dir/resolve-root.sh" install --all)
+ROOTS
 fi
 claude_dir=""
 if [ -n "${CLAUDE_DIR:-}" ]; then

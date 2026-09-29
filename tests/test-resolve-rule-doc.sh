@@ -34,7 +34,8 @@ if [ ! -f "$RESOLVER" ]; then
   exit 1
 fi
 
-tmp="$(mktemp -d)" || exit 1
+# Canonical, as the root helper prints every core path.
+tmp="$(cd "$(mktemp -d)" && pwd -P)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 # Isolate the core-resolution tests below from any ambient overlay layers a
@@ -133,7 +134,7 @@ err="$(env -u HOME -u CLAUDE_DIR PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
 rc=$?
 assert "rootless environment exits 1" 1 "$rc"
 case "$err" in
-  *"not found"*"PLANWRIGHT_ROOT"*) echo "ok: rootless failure is the resolver's diagnostic with checked roots" ;;
+  *"not found"*"core root chain"*"self-location="*) echo "ok: rootless failure is the resolver's diagnostic with checked roots" ;;
   *)
     echo "FAIL: rootless failure lacks the evaluated-roots diagnostic: $err" >&2
     failures=$((failures + 1))
@@ -479,6 +480,7 @@ assert_eq "explain emits the resolved path" "MLOCAL ONLY" "$(cat "$path" 2>/dev/
 solo_dir="$ovbase/solo-script"
 mkdir -p "$solo_dir"
 cp "$RESOLVER" "$solo_dir/resolve-rule-doc.sh"
+cp "$REPO_ROOT/scripts/resolve-root.sh" "$solo_dir/resolve-root.sh"
 out="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
   PLANWRIGHT_ADOPTER_OVERLAY="$ovadopter" PLANWRIGHT_REPO_ROOT="$ovrepo" \
   /bin/bash "$solo_dir/resolve-rule-doc.sh" provdoc 2>/dev/null)"
@@ -507,7 +509,7 @@ if [ "$(id -u 2>/dev/null)" != "0" ]; then
   nox_dir="$ovbase/nox-helper"
   mkdir -p "$nox_dir"
   cp "$RESOLVER" "$nox_dir/resolve-rule-doc.sh"
-  cp "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$nox_dir/resolve-overlay-root.sh"
+  cp "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$REPO_ROOT/scripts/resolve-root.sh" "$nox_dir/"
   chmod 000 "$nox_dir/resolve-overlay-root.sh"
   out="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
     PLANWRIGHT_ADOPTER_OVERLAY="$ovadopter" PLANWRIGHT_REPO_ROOT="$ovrepo" \
@@ -528,6 +530,37 @@ if [ "$(id -u 2>/dev/null)" != "0" ]; then
 else
   echo "skip: non-executable helper test (running as root bypasses -x)"
 fi
+
+# 22b. A root helper that lost its execute bit still resolves core doctrine: it
+#      runs through /bin/sh, as an archive or sync tool may drop the bit.
+noxr_dir="$ovbase/nox-root-helper"
+mkdir -p "$noxr_dir"
+cp "$RESOLVER" "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$REPO_ROOT/scripts/resolve-root.sh" "$noxr_dir/"
+chmod 644 "$noxr_dir/resolve-root.sh"
+out="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$ovbase/no-adopter" PLANWRIGHT_REPO_ROOT="$ovbase/no-repo" \
+  /bin/bash "$noxr_dir/resolve-rule-doc.sh" provdoc 2>/dev/null)"
+assert "non-executable root helper: resolves core, zero exit" 0 $?
+assert_eq "non-executable root helper: lands on core" "CORE ONLY" "$(cat "$out" 2>/dev/null)"
+
+# 22c. The two repo-side layers share one repository root, so an unpinned call
+#      resolves the primary checkout once, not once per layer.
+cnt_dir="$ovbase/count-primary"
+mkdir -p "$cnt_dir"
+cp "$RESOLVER" "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$cnt_dir/"
+cp "$REPO_ROOT/scripts/resolve-root.sh" "$cnt_dir/resolve-root.real.sh"
+# shellcheck disable=SC2016 # the shim's own \$0 and \$@ must stay literal
+printf '%s\n' '#!/bin/sh' "printf '%s\\n' \"\$*\" >>\"$ovbase/primary-calls.log\"" \
+  'exec /bin/sh "${0%/*}/resolve-root.real.sh" "$@"' >"$cnt_dir/resolve-root.sh"
+cnt_repo="$ovbase/count-repo"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c init.defaultBranch=main init -q "$cnt_repo"
+: >"$ovbase/primary-calls.log"
+(cd "$cnt_repo" && env -u PLANWRIGHT_REPO_ROOT PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" \
+  CLAUDE_DIR="" HOME="" PLANWRIGHT_ADOPTER_OVERLAY="$ovbase/no-adopter" \
+  /bin/bash "$cnt_dir/resolve-rule-doc.sh" provdoc >/dev/null 2>&1)
+assert "unpinned repo-side layers: resolves, zero exit" 0 $?
+assert_eq "unpinned repo-side layers: the primary checkout is resolved once" "1" \
+  "$(grep -c -- 'repo --primary' "$ovbase/primary-calls.log")"
 
 # 23. The resolver surfaces the overlay helper's own diagnostics rather than
 #     swallowing them (the layer-root call must not use 2>/dev/null). When the

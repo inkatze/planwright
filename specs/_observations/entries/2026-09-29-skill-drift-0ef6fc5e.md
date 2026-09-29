@@ -1,0 +1,1 @@
+- 2026-09-29 [planwright] skill-drift(execute-task): the Convergence section still resolves the review sequence with scripts/resolve-review-sequence.sh and the review_sequence knob, both retired by the custom-steps work; the script no longer exists, so a worker following the skill hits a missing file (exit 127) and has to fall back to an operator override.
