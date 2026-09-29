@@ -22,12 +22,19 @@ model-backed `/spec-kickoff` needs a live Claude TTY session (nondeterministic,
 priced), so the invariants are pinned against the fixture; the experiential
 qualities remain scored by the rubric instrument (`rubrics/`) and the human.
 
+The **`tower` fixture** is the routing gate: a deterministic stand-in for the
+`/tower` router, one persona per acceptance scenario (chat-only, split-screen,
+refusal to merge, escalation, walk-away/resume) and per routing case set
+(consecutive asks with no mode state, the four escalation cases, the three
+overrides, the kickoff offered and never started, orchestration on an explicit
+go only). See "Tower routing" below.
+
 ## Layout
 
 ```text
 tests/behavioral-evals/
   README.md                 this file
-  fixtures/<id>/            one directory per fixture (greeter, kickoff)
+  fixtures/<id>/            one directory per fixture (greeter, kickoff, tower)
     fixture.conf            id, skill, personas, turns, anchor, footer_lines
                             (KEY=VALUE, data only)
     skill.sh                the interactive program the harness drives
@@ -129,6 +136,40 @@ The fixtures are deterministic stand-ins; a live surface mirrors its own
 turns into this log, and the mirror is self-reported,
 so a divergence between the pane and the log is the residual these
 invariants cannot see.
+
+## Tower routing
+
+The `tower` fixture's artifacts follow the eval-only seam
+`doctrine/flight-rules.md` specifies (*Eval-only runs*): a decision log of
+operator turns, evidence events, what was said, and each route, dispatch,
+refusal, offer, hold, and reconstruction; and a run record that is eval-only,
+non-authoritative, and a sign-off of nothing. Persona lines starting
+`@event:` stand for durable evidence the tower reads (a landing, a sign-off, a
+spec PR merge, a finished draft, a session restart), never the operator's
+words, so an event can never count as a go, a yes, or an override. The line
+`that's all` ends the session.
+
+`grade.jq` holds every run to the routing floor (every route states its
+grounds; automatic triggers and ambiguity file, size never does; an override
+across a trigger states its reservation; a flight follows its own route and a
+read-only look mints none; a draft follows the one-page case and the
+operator's yes; orchestration follows the operator's own go for a signed spec;
+no merge, ready flip, or kickoff is performed; no mode, no verdict, no silent
+turn) and pins each named persona's routes, dispatches, refusals, and offers.
+`tests/test-behavioral-eval-tower.sh` runs it hermetically, end to end through
+the harness and directly, with a negative case for each rule.
+
+**Harness operability caveat.** The fixture is a shell model of the routing
+rule, so a pass shows the rule, the artifact contract, and the grade hold
+together; it does not show that the model-backed `/tower` routes an unseen
+ask the way the rule says. That needs a live Claude TTY session writing the
+same artifacts, which is nondeterministic, priced, and on demand. When the
+harness cannot drive a live tower (no tmux, no model or credentials, or the
+session's surface not settling on the harness's anchor), routing
+verification falls back to the operator: the same scenarios are run by hand,
+through the acceptance demo script, and judged against the same floor. That
+fallback changes who runs the scenarios, never whether the gate must pass
+before any user-facing doc claims the routing behavior.
 
 ## Grading and the independence firewall
 

@@ -327,6 +327,12 @@ Dead flight workers inherit the fleet crash-loop policy (REQ-F1.5). What only
 the conversation held (an unanswered case, an unconfirmed capture, a declined
 ask) dies with the session and is re-asked; the first turn says so.
 
+## Eval-only runs
+
+Under the behavioral-eval harness (`PLANWRIGHT_EVAL_ONLY=1`), also write the
+decision log and the eval run record `flight-rules` specifies, into the
+directory the harness hands the session; neither is a sign-off.
+
 ## Invariants
 
 On every route, overridden or not:

@@ -111,6 +111,31 @@ dispatching session, applied to the front door.
   [gate-wiring](gate-wiring.md) hard pauses stay in force inside every worker
   whatever the route, and a pause is exactly where an outgrown route surfaces.
 
+## Eval-only runs (D-13)
+
+Under the behavioral-eval harness (`PLANWRIGHT_EVAL_ONLY=1`, publishing
+disabled), the tower routes exactly as above and also writes two run-local
+artifacts into the directory the harness hands the session; the harness grades
+those, never a scraped pane:
+
+- **The decision log**, `decision-log.jsonl`: JSON Lines in
+  [kickoff-dialogue](kickoff-dialogue.md)'s record form (`v`, `seq`, `phase`,
+  `kind`), plus one kind of the tower's, `event`, for durable evidence it read
+  (a landing, a sign-off, a spec PR merge, a restart). Each operator turn is an
+  `answer` record with `source: operator`; each thing said, a `present` record;
+  each route, dispatch, refusal, offer, hold, and reconstruction, a `decision`
+  record naming its `action`. A route carries `route`, `trigger`, `grounds`,
+  `override`, `crossed`, `reservation`, and the `statement` as said; a dispatch
+  its `target` and the `seq` of the operator turn that authorized it.
+- **The run record**, `sign-off.json` (the harness's completion marker names
+  the file): eval-only, non-authoritative, and a sign-off of nothing
+  (REQ-G1.2) — the routes, dispatches, and refusals, and that no reserved
+  control was performed.
+
+Values are written as data, escape-safe. Nothing is pushed, opened, or
+flipped, and neither artifact carries a verdict on the work. The fixture and
+its grade live beside the harness, `tests/behavioral-evals/`.
+
 ## The audit record (D-6)
 
 On the specless path the record, not a spec, is what carries trust. The flight

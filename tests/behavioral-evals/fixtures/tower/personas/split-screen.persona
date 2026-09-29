@@ -1,0 +1,7 @@
+# split-screen.persona — the split-screen acceptance scenario: the flight runs in
+# its own worktree (what a second pane on the worktrees directory shows) and
+# lands a draft PR. Turn map: 1 ask, 2 the flight lands, 3 end.
+expertise=expert
+answer.1=reword the error message in the export command help text
+answer.2=@event:flight-landed pr=102
+answer.3=that's all

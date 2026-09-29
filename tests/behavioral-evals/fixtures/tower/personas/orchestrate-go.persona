@@ -1,0 +1,8 @@
+# orchestrate-go.persona — orchestration on an explicit go only: sign-off
+# completing dispatches nothing, the spec PR merging dispatches nothing, and the
+# operator's go dispatches. Turn map: 1 sign-off, 2 spec PR merge, 3 go, 4 end.
+expertise=expert
+answer.1=@event:signoff-complete spec=widget-export
+answer.2=@event:spec-pr-merged spec=widget-export
+answer.3=go
+answer.4=that's all
