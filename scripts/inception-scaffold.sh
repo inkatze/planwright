@@ -24,9 +24,10 @@
 # says otherwise: the operator owns their repo, and a scaffold that silently
 # rewrites an edited hook is a scaffold nobody edits.
 #
-# The emitted hook resolves planwright at RUN time (PLANWRIGHT_ROOT, then
-# CLAUDE_PLUGIN_ROOT, then the machine-local .planwright-local.sh, then the
-# plugin cache). No install path is baked into the tracked file: a venture repo
+# The emitted hook resolves planwright at RUN time: it sources the machine-local
+# .planwright-local.sh, finds a copy (PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT,
+# ~/.claude/planwright, the plugin cache), then lets a copy that ships the root
+# helper name the install root through the core root chain. No install path is baked into the tracked file: a venture repo
 # is cloned onto other machines, and a hard-coded path would break on all of
 # them. When planwright cannot be resolved, the hook warns loudly and lets the
 # commit through — on the remote rung CI is the backstop.
@@ -217,9 +218,11 @@ done
 # A copy that ships the root helper decides the install root itself, so the
 # hook follows the same core root chain every planwright script does; an older
 # copy without the helper, or an answer holding no validator, keeps the copy
-# found above.
+# found above. The helper runs as a child, so the values the loop read are
+# handed to it: .planwright-local.sh sets PLANWRIGHT_ROOT without exporting it.
 if [ -n "$pw" ] && [ -r "$pw/scripts/resolve-root.sh" ]; then
-  if pw_root=$(/bin/sh "$pw/scripts/resolve-root.sh" install 2>/dev/null) &&
+  if pw_root=$(PLANWRIGHT_ROOT=${PLANWRIGHT_ROOT:-} CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-} \
+    /bin/sh "$pw/scripts/resolve-root.sh" install 2>/dev/null) &&
     [ -r "$pw_root/scripts/inception-validate.sh" ]; then
     pw=$pw_root
   fi
