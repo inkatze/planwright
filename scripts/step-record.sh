@@ -132,10 +132,11 @@
 # such ID, a `[pending-sign-off]` subject suffix (rendered with the ID
 # `legacy`, the suffix dropped). A marked commit drops out when a live commit
 # in the range carries git's revert line for it (`This reverts commit <sha>`
-# followed by `.`, `,`, ` (`, or the line's end, the sha full or, as `--reference` writes it,
-# abbreviated to a unique prefix in the range), a commit being live unless a
-# live revert undoes it; or when a live commit's `Planwright-Sign-Off-Rejected:`
-# trailer names its PS ID (a legacy entry has no ID a trailer can name).
+# followed by `.`, `,`, ` (`, or the line's end, the sha full or, as
+# `--reference` writes it, abbreviated to a unique prefix in the range), a
+# commit being live unless a live revert undoes it; or when a live commit's
+# `Planwright-Sign-Off-Rejected:` trailer names its PS ID (a legacy entry has
+# no ID a trailer can name).
 # Entries order by ID number, legacy entries last in commit order; an ID
 # marked twice keeps its oldest live commit. An entry is
 #   - [ ] **<id>** <subject> · commit `<sha7>`
