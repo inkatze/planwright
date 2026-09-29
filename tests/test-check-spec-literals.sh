@@ -306,6 +306,21 @@ run
 expect 0 "a comment and a multi-line description under [tasks] are not tasks"
 
 fixture
+cat >>"$tmp/r/mise.toml" <<'EOF'
+
+[tasks.a]
+description = "use x = ''' here"
+run = "cd specs"
+EOF
+run
+expect 1 "a single-line value holding = ''' opens no skip" 'mise.toml:10: run = "cd specs"'
+
+fixture
+printf '\n[tasks.a]\ndescription = """\nsome text\n"""\n[tasks.b]\nrun = "cd specs"\n' >>"$tmp/r/mise.toml"
+run
+expect 1 "a run after a skipped description body still fails" 'mise.toml:13: run = "cd specs"'
+
+fixture
 printf 'tasks.short = "cd specs"\n' >"$tmp/r/mise.toml.new"
 cat "$tmp/r/mise.toml" >>"$tmp/r/mise.toml.new"
 mv "$tmp/r/mise.toml.new" "$tmp/r/mise.toml"

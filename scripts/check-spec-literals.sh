@@ -245,6 +245,9 @@ scan='
         if (trim(line) ~ /^\]/) close_delim = ""
         continue
       }
+      # A skipped body never runs past a tasks table header: if a string was
+      # misread as open, the next task is still scanned.
+      if (close_delim != "" && skip_body && trim(line) ~ /^\[[ \t]*["\047]?tasks/) close_delim = ""
       if (close_delim != "") {
         if (index(line, close_delim)) { if (!skip_body) check(rel, n, substr(line, 1, index(line, close_delim) - 1), line, 1); close_delim = ""; continue }
         if (!skip_body) check(rel, n, line, line, 1)
@@ -280,10 +283,11 @@ scan='
         }
       } else if (where_now == "tasks" && t ~ /[{,][ \t]*["\047]?run(_windows)?["\047]?[ \t]*=/) {
         check(rel, n, t, line, 1)
-      } else if (t ~ /=[ \t]*(\047\047\047|""")/) {
-        # Another key opening a multi-line string: its body is not a run value.
+      } else if (index(t, "=")) {
+        # Another key whose value opens a multi-line string: its body is not a
+        # run value.
         rest = t; sub(/^[^=]*=[ \t]*/, "", rest); q = substr(rest, 1, 3)
-        if (!index(substr(rest, 4), q)) { close_delim = q; skip_body = 1 }
+        if ((q == "\047\047\047" || q == "\"\"\"") && !index(substr(rest, 4), q)) { close_delim = q; skip_body = 1 }
       }
     }
     close(path)
