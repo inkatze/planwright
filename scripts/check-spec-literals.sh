@@ -6,19 +6,23 @@
 # and that pattern re-grows one convenient line at a time, so this guard
 # fails on every new occurrence instead of trusting review to spot it.
 #
-# SCANNED: every file under scripts/ with a .sh suffix or a `#!` first line,
-# every file under githooks/, the task `run` values in mise.toml (not their
-# descriptions), lefthook.yml, .gitignore, and the workflows under
-# .github/workflows/. Skipped: full-line comments, and a trailing comment (the
-# first `#` after whitespace outside quotes) everywhere but .gitignore, where a
-# ` #` is part of the pattern. Heredoc bodies are text, not code, so nothing in
-# them is skipped; messages are scanned too.
+# SCANNED: every file under scripts/ (at any depth) with a .sh suffix or a
+# `#!` first line, every file under githooks/, the task `run` and
+# `run_windows` values in mise.toml (not their descriptions), lefthook.yml,
+# .gitignore, and the workflows under .github/workflows/. Skipped: full-line
+# comments, and a trailing comment (the first `#` after whitespace outside
+# quotes) everywhere but .gitignore, where a ` #` is part of the pattern. In
+# scripts and hooks a heredoc body is text, not code, so nothing in it is
+# skipped; messages are scanned too. This is a line scanner, not a shell
+# parser: the heredoc and quote tracking cover the forms these files use.
 #
 # FLAGGED: `specs/` not preceded by a name character (so `--specs/` is an
 # option name, not a path); `/specs` ending a path segment (`$root/specs`,
 # `*/specs)`), which composes the same root without the trailing slash; and a
-# bare `specs` as the operand of cd, pushd, find, ls, -C, or a file test. A
-# bare `specs` anywhere else is prose.
+# bare `specs` as the operand of cd, pushd, find, ls, -C, or a unary test
+# (`-d`, `-e`, `-f` and the rest). Each test also runs on the line with its
+# quotes removed, so `"$root"/"specs"` composes the same path it would
+# unquoted. A bare `specs` anywhere else is prose.
 #
 # CLEARED: a flagged line is matched by its file and its whitespace-trimmed
 # text (tabs read as spaces), never by line number (which rots) and never by
@@ -33,8 +37,10 @@
 #   config/spec-literal-pending.tsv — sites not yet migrated onto the
 #     resolver, each tagged with the task that migrates it. Shrink-only: a row
 #     absent from the base ref's copy of the list fails, so a migration can
-#     delete rows and nothing can add them. Where the base ref or its copy of
-#     the list does not exist, that comparison is skipped and says so.
+#     delete rows and nothing can add them. The copy read is the one at the
+#     merge base of the base ref and HEAD, so a branch cut before a migration
+#     is not failed for rows the migration deleted. Where the base ref or its
+#     copy of the list does not exist, that comparison is skipped and says so.
 # A row that clears nothing is stale and fails, so a migrated site cannot
 # leave its exemption behind.
 #
@@ -96,6 +102,7 @@ case $base in
 esac
 
 for f in scripts githooks .github/workflows; do
+  [ ! -L "$repo_root/$f" ] || die "$f/ is a symlink; refusing to follow it out of the tree"
   [ -d "$repo_root/$f" ] || die "$f/ is missing; the scan would cover less than it claims"
 done
 for f in mise.toml lefthook.yml .gitignore config/spec-literal-allowlist.tsv config/spec-literal-pending.tsv; do
@@ -121,10 +128,12 @@ list_file() {
   [ -r "$repo_root/$1" ] || die "cannot read $1; the scan would cover less than it claims"
   printf '%s\n' "$1" >>"$work/$2"
 }
-set +f
-for f in "$repo_root"/scripts/* "$repo_root"/githooks/* "$repo_root"/.github/workflows/*; do
-  [ -f "$f" ] || [ -L "$f" ] || continue
-  rel=${f#"$repo_root"/}
+# Every file at any depth, symlinks included so they can be refused. The walk
+# never follows a link.
+(cd "$repo_root" && find scripts githooks .github/workflows \( -type f -o -type l \) -print) >"$work/found" \
+  || die "could not enumerate the scope directories"
+while IFS= read -r rel; do
+  f=$repo_root/$rel
   case $rel in
     scripts/*.sh | githooks/* | .github/workflows/*.yml | .github/workflows/*.yaml) ;;
     scripts/*)
@@ -139,8 +148,7 @@ for f in "$repo_root"/scripts/* "$repo_root"/githooks/* "$repo_root"/.github/wor
     *) continue ;;
   esac
   list_file "$rel" plain
-done
-set -f
+done <"$work/found"
 [ -s "$work/plain" ] || die "no files found under scripts/, githooks/, or .github/workflows/; a broken enumeration, not a clean tree"
 list_file lefthook.yml plain
 list_file .gitignore plain
@@ -155,9 +163,14 @@ list_file mise.toml mise
 scan='
   function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t\r]+$/, "", s); gsub(/\t/, " ", s); return s }
   # The bracketed [s] keeps this line from matching itself.
-  function flagged(s) {
+  function literal(s) {
     return s ~ /(^|[^A-Za-z0-9_.-])spec[s]\// || s ~ /\/spec[s]([^A-Za-z0-9_.\/-]|$)/ \
-      || s ~ /(^|[^A-Za-z0-9_-])(cd|pushd|find|ls|-C|-[defr])[ \t]+["\047]?spec[s]([ \t"\047;)|&]|$)/
+      || s ~ /(^|[^A-Za-z0-9_-])(cd|pushd|find|ls|-C|-[a-hkprsuwxGLNOS])[ \t]+spec[s]([ \t;)|&]|$)/
+  }
+  function flagged(s,   u) {
+    if (literal(s)) return 1
+    u = s; gsub(/["\047]/, "", u)
+    return literal(u)
   }
   # The code before a trailing comment: the first `#` after whitespace outside
   # quotes. A backslash outside single quotes escapes the next byte.
@@ -172,8 +185,9 @@ scan='
     }
     return s
   }
-  # The heredoc terminator a line opens, or "" when it opens none. `<<-`
-  # strips leading tabs from the terminator line.
+  # The heredoc terminator a line opens, or "" when it opens none; sets the
+  # global `dash` when it opened with `<<-`, which strips leading tabs from
+  # the terminator line.
   function heredoc(s,   pre, d) {
     if (!match(s, /<<-?[ \t]*\\?[\047"]?[A-Za-z0-9_.+-]+/)) return ""
     pre = substr(s, 1, RSTART - 1)
@@ -215,7 +229,7 @@ scan='
     close(path)
     if (r < 0) { print "!\t" rel; bad = 1 }
   }
-  function scan_mise(rel, path,   line, n, r, t, where, close_delim, rest, q) {
+  function scan_mise(rel, path,   line, n, r, t, where, where_now, key, close_delim, rest, q) {
     n = 0; where = ""; close_delim = ""; strip_trailing = 1
     while ((r = (getline line < path)) > 0) {
       n++
@@ -231,12 +245,17 @@ scan='
       }
       t = trim(line)
       if (t ~ /^\[/) {
-        where = (t ~ /^\[tasks[.]/) ? "task" : (t ~ /^\[tasks\]/) ? "tasks" : ""
+        where = (t ~ /^\[[ \t]*tasks[ \t]*[.]/) ? "task" : (t ~ /^\[[ \t]*tasks[ \t]*\]/) ? "tasks" : "other"
         continue
       }
-      if (where == "") continue
-      if (t ~ /^([^=#]*[.])?run[ \t]*=/ && (where == "tasks" || t ~ /^run[ \t]*=/)) {
-        rest = t; sub(/^([^=]*[.])?run[ \t]*=[ \t]*/, "", rest)
+      # The key with its quotes and the spaces around dots removed, so
+      # `"run"` and `lint . run` read as the keys they are. Before any table,
+      # a dotted `tasks.` key is a task too.
+      key = t; sub(/=.*/, "", key); gsub(/["\047]/, "", key); gsub(/[ \t]*[.][ \t]*/, ".", key); sub(/[ \t]+$/, "", key)
+      if (where == "" && key ~ /^tasks[.]/) { where_now = "tasks" } else where_now = where
+      if (where_now != "task" && where_now != "tasks") continue
+      if (index(t, "=") && key ~ /(^|[.])run(_windows)?$/ && (where_now == "tasks" || key ~ /^run(_windows)?$/)) {
+        rest = t; sub(/^[^=]*=[ \t]*/, "", rest)
         q = substr(rest, 1, 3)
         if (q == "\047\047\047" || q == "\"\"\"") {
           rest = substr(rest, 4)
@@ -244,9 +263,9 @@ scan='
           else { check(rel, n, rest, line, 1); close_delim = q }
         } else {
           check(rel, n, rest, line, 1)
-          if (substr(rest, 1, 1) == "[" && rest !~ /\][ \t]*$/) close_delim = "]"
+          if (substr(rest, 1, 1) == "[" && code(rest) !~ /\][ \t]*$/) close_delim = "]"
         }
-      } else if (where == "tasks" && t ~ /[{,][ \t]*run[ \t]*=/) {
+      } else if (where_now == "tasks" && t ~ /[{,][ \t]*["\047]?run(_windows)?["\047]?[ \t]*=/) {
         check(rel, n, t, line, 1)
       }
     }
@@ -273,8 +292,13 @@ fi
 : >"$work/base-pending"
 base_note=''
 if git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
-  if ! git -C "$repo_root" show "$base:config/spec-literal-pending.tsv" >"$work/base-pending" 2>/dev/null; then
-    : >"$work/base-pending"
+  merge_base=$(git -C "$repo_root" merge-base "$base" HEAD 2>/dev/null) || merge_base=$base
+  # `./` keeps the path relative to the repo root even when that root sits
+  # below another repository's toplevel.
+  if git -C "$repo_root" cat-file -e "$merge_base:./config/spec-literal-pending.tsv" 2>/dev/null; then
+    git -C "$repo_root" show "$merge_base:./config/spec-literal-pending.tsv" >"$work/base-pending" \
+      || die "could not read $base's pending list"
+  else
     base_note="; shrink check skipped: $base has no pending list"
   fi
 else

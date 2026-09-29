@@ -119,6 +119,20 @@ expect 1 "a bare specs operand of a file test fails" "scripts/a.sh:4:"
 case $out in *"a.sh:5:"*) fail "a bare specs in prose was flagged: $out" ;; *) ok "a bare specs in prose passes" ;; esac
 
 fixture
+printf 'pushd specs\nfind specs -name x\nls specs\ngit -C specs status\n[ -e specs ]\n[ -f specs ]\n[ -r specs ]\n[ -s specs ]\n[ -L specs ]\n' >>"$tmp/r/scripts/a.sh"
+run
+for n in 3 4 5 6 7 8 9 10 11; do
+  expect 1 "bare-operand form on line $n fails" "scripts/a.sh:$n:"
+done
+
+fixture
+printf 'for d in "$root"/"specs"/*/; do :; done\nd="$root"/'"'"'specs'"'"'/x\nd=$root/"specs"\ncd "$r/"specs\n' >>"$tmp/r/scripts/a.sh"
+run
+for n in 3 4 5 6; do
+  expect 1 "a quote-split literal on line $n fails" "scripts/a.sh:$n:"
+done
+
+fixture
 printf '#!/bin/sh\nls specs/\n' >"$tmp/r/scripts/tool"
 printf 'ls specs/\n' >"$tmp/r/scripts/notes.txt"
 run
@@ -246,6 +260,39 @@ esac
 # --- Parsing edges ---------------------------------------------------------
 
 fixture
+printf 'x=1\n' >>"$tmp/r/scripts/a.sh"
+printf '\tcat <<-EOF\n\t# specs/in-body\n\tEOF\n# specs/after the body\n' >>"$tmp/r/scripts/a.sh"
+run
+expect 1 "a <<- heredoc body line is text" "scripts/a.sh:5:"
+case $out in *"a.sh:7:"*) fail "the comment after a <<- heredoc was flagged: $out" ;; *) ok "a tab-indented terminator closes a <<- heredoc" ;; esac
+
+fixture
+mkdir -p "$tmp/r/scripts/lib"
+printf 'd=$root/specs/x\n' >"$tmp/r/scripts/lib/x.sh"
+run
+expect 1 "a script in a subdirectory of scripts/ is scanned" "scripts/lib/x.sh:1:"
+
+fixture
+printf '\n[ tasks . lint ]\nrun = "ls specs/"\n[tasks.b]\n"run" = "ls specs/"\n[tasks.c]\nrun_windows = "dir specs/"\n[tasks]\nd . run = "ls specs/"\n' >>"$tmp/r/mise.toml"
+run
+expect 1 "a task header with spaces is read" 'mise.toml:9: run = "ls specs/"'
+expect 1 "a quoted run key is read" 'mise.toml:11: "run" = "ls specs/"'
+expect 1 "run_windows is read" 'mise.toml:13: run_windows = "dir specs/"'
+expect 1 "a spaced dotted key under [tasks] is read" 'mise.toml:15: d . run = "ls specs/"'
+
+fixture
+printf 'tasks.lint.run = "ls specs/"\n' >"$tmp/r/mise.toml.new"
+cat "$tmp/r/mise.toml" >>"$tmp/r/mise.toml.new"
+mv "$tmp/r/mise.toml.new" "$tmp/r/mise.toml"
+run
+expect 1 "a root-level dotted tasks key is read" 'mise.toml:1: tasks.lint.run = "ls specs/"'
+
+fixture
+printf '\n[tasks.e]\nrun = ["a"] # a comment\ndescription = "specs/ in prose"\n' >>"$tmp/r/mise.toml"
+run
+expect 0 "a one-line run array with a trailing comment closes on its line"
+
+fixture
 cat >>"$tmp/r/scripts/a.sh" <<'EOF'
 cat <<DOC
 see the docs # at specs/demo
@@ -327,27 +374,64 @@ done
 fixture
 printf 'd=$repo/specs\n' >>"$tmp/r/scripts/b.sh"
 printf '5\tscripts/b.sh\td=$repo/specs\n' >>"$tmp/r/config/spec-literal-pending.tsv"
-g() { git -C "$tmp/r" -c user.name=t -c user.email=t@example.invalid "$@" >/dev/null 2>&1; }
-g init -q
-g add -A
-g commit -q -m base
-g branch -f base
+g() {
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$tmp/r" -c user.name=t \
+    -c user.email=t@example.invalid -c commit.gpgsign=false -c init.defaultBranch=main "$@" >/dev/null
+}
+guard() {
+  "$SH" "$GUARD" --repo-root "$tmp/r" "$@" >"$tmp/out" 2>"$tmp/err"
+  rc=$?
+  out=$(cat "$tmp/out" "$tmp/err")
+}
+if ! { g init -q && g add -A && g commit -q -m base && g branch -f base; }; then fail "shrink fixture: git setup failed"; fi
 run
-case $out in *"shrink check skipped"*) ok "without --base naming a ref the shrink check says it skipped" ;; *) fail "shrink skip not reported: $out" ;; esac
-"$SH" "$GUARD" --repo-root "$tmp/r" --base base >"$tmp/out" 2>"$tmp/err"
-rc=$?
-out=$(cat "$tmp/out" "$tmp/err")
+case $out in *"shrink check skipped: origin/main does not resolve"*) ok "a base ref that does not resolve says the shrink check skipped" ;; *) fail "shrink skip not reported: $out" ;; esac
+guard --base base
 expect 0 "a pending list equal to the base's passes" "clean (0 allowlisted, 1 pending migration)"
 printf 'e=$repo/specs\n' >>"$tmp/r/scripts/b.sh"
 printf '5\tscripts/b.sh\te=$repo/specs\n' >>"$tmp/r/config/spec-literal-pending.tsv"
-"$SH" "$GUARD" --repo-root "$tmp/r" --base base >"$tmp/out" 2>"$tmp/err"
-rc=$?
-out=$(cat "$tmp/out" "$tmp/err")
+guard --base base
 expect 1 "a pending row the base lacks fails" 'row 3: scripts/b.sh: e=$repo/specs'
+
+# A copy of a row the base carries once is an added row too.
+printf 'd=$repo/specs\n' >>"$tmp/r/scripts/b.sh"
+sed -i.bak '$d' "$tmp/r/config/spec-literal-pending.tsv" && rm -f "$tmp/r/config/spec-literal-pending.tsv.bak"
+sed -i.bak '$d' "$tmp/r/scripts/b.sh" && rm -f "$tmp/r/scripts/b.sh.bak"
+printf '5\tscripts/b.sh\td=$repo/specs\n' >>"$tmp/r/config/spec-literal-pending.tsv"
+printf 'd=$repo/specs\n' >>"$tmp/r/scripts/b.sh"
+guard --base base
+expect 1 "a second copy of a base row is an added row" 'row 3: scripts/b.sh: d=$repo/specs'
+
+# A branch cut before a migration deleted rows reads the merge base's list.
+fixture
+printf 'x=$r/specs/x\ny=$r/specs/y\n' >>"$tmp/r/scripts/b.sh"
+printf '5\tscripts/b.sh\tx=$r/specs/x\n5\tscripts/b.sh\ty=$r/specs/y\n' >>"$tmp/r/config/spec-literal-pending.tsv"
+if ! { g init -q && g add -A && g commit -q -m base && g branch feat; }; then fail "merge-base fixture: git setup failed"; fi
+sed -i.bak '$d' "$tmp/r/scripts/b.sh" && sed -i.bak '$d' "$tmp/r/config/spec-literal-pending.tsv"
+rm -f "$tmp/r/scripts/b.sh.bak" "$tmp/r/config/spec-literal-pending.tsv.bak"
+if ! { g commit -q -am migrate && g checkout -q feat; }; then fail "merge-base fixture: git setup failed"; fi
+guard --base main
+expect 0 "a branch behind the base is bounded by the merge base's list" "clean (0 allowlisted, 2 pending migration)"
+
+fixture
+printf 'x=$r/specs/x\n' >>"$tmp/r/scripts/b.sh"
+printf '5\tscripts/b.sh\tx=$r/specs/x\n' >>"$tmp/r/config/spec-literal-pending.tsv"
+mv "$tmp/r/config/spec-literal-pending.tsv" "$tmp/r/config/p.tmp"
+if ! { g init -q && g add -A && g commit -q -m base; }; then fail "no-list fixture: git setup failed"; fi
+mv "$tmp/r/config/p.tmp" "$tmp/r/config/spec-literal-pending.tsv"
+guard --base main
+expect 0 "a base without the list skips the shrink check and says so" "shrink check skipped: main has no pending list"
+
+for bad in '' '-x'; do
+  guard --base "$bad"
+  expect 2 "--base '$bad' is refused" "--base must name a ref"
+done
 
 # --- This repository --------------------------------------------------------
 
-"$SH" "$GUARD" >"$tmp/out" 2>&1
+# Against HEAD, so the verdict is the scan's alone and not the freshness of
+# this clone's origin/main; check:spec-literals runs the real comparison.
+"$SH" "$GUARD" --base HEAD >"$tmp/out" 2>&1
 rc=$?
 out=$(cat "$tmp/out")
 expect 0 "this repository passes its own guard"
