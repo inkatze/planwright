@@ -1,0 +1,1 @@
+- 2026-09-29 [planwright] fleet-attention.sh has no machine-readable verb listing awaiting-input workers, so the flight sweep, like fleet-status, the stuck detector, and tower-queue, reads attention/state columns directly; a seam verb would let a store-layout change land in one place.
