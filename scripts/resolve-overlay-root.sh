@@ -12,17 +12,16 @@
 # Usage:
 #   resolve-overlay-root.sh <layer>
 #     <layer> is one of: core | adopter | repo-tracked | machine-local
-#     Prints the resolved root path on stdout and exits 0. A root the script
-#     derives is absolute (core canonicalizes via pwd -P; the repo-side layers
-#     use `git rev-parse --show-toplevel`, which is always absolute). An
+#     Prints the resolved root path on stdout and exits 0. The core and
+#     derived repo-side roots come from resolve-root.sh and are canonical. An
 #     explicit override ($PLANWRIGHT_REPO_ROOT, $PLANWRIGHT_ADOPTER_OVERLAY,
 #     $CLAUDE_PLUGIN_DATA) is used verbatim and trusted: it is echoed as given
 #     (joined to the layer's suffix), so a caller that needs an absolute result
-#     must pass an absolute override — a relative override yields a relative,
-#     CWD-dependent path by design. When the layer is legitimately absent
-#     (adopter namespace underivable; no repo for the repo-side layers), prints
-#     nothing and exits 0 — an absent overlay layer is a normal state, never an
-#     error (REQ-A1.4).
+#     must pass an absolute override. Callers pin PLANWRIGHT_REPO_ROOT to a
+#     directory outside any repository to read no repo-side layer at all.
+#     When the layer is legitimately absent (adopter namespace underivable;
+#     no repo for the repo-side layers), prints nothing and exits 0 — an
+#     absent overlay layer is a normal state, never an error (REQ-A1.4).
 #
 #   resolve-overlay-root.sh --contain <root> <relpath>
 #     Join <relpath> (a path relative to <root>) onto <root>, canonicalize, and
@@ -36,8 +35,7 @@
 #
 # Layer roots (D-3, D-4):
 #   core           the planwright install root holding config/, doctrine/,
-#                  catalogs/. Chain (first existing wins): $PLANWRIGHT_ROOT →
-#                  $CLAUDE_PLUGIN_ROOT → <claude-dir>/planwright → scripts/..
+#                  catalogs/: `resolve-root.sh install`, the core root chain.
 #   adopter        per-operator, cross-repo, per-plugin namespace. Chain (first
 #                  derivable wins): $PLANWRIGHT_ADOPTER_OVERLAY (explicit
 #                  override) → $CLAUDE_PLUGIN_DATA/overlay (plugin mode; the
@@ -47,12 +45,12 @@
 #   repo-tracked   <repo>/.claude (the tracked team overlay root).
 #   machine-local  <repo>/.claude (same root; the gitignored .local-suffixed
 #                  files/dirs the kind resolver selects distinguish it, D-4).
-#                  <repo> is $PLANWRIGHT_REPO_ROOT, else `git rev-parse
-#                  --show-toplevel`; absent (no repo) → layer absent.
+#                  <repo> is $PLANWRIGHT_REPO_ROOT, else `resolve-root.sh repo
+#                  --primary`, the primary checkout, so a linked worktree
+#                  reads the primary's layers. No repository → layer absent.
 #
 # <claude-dir> is $CLAUDE_DIR when set, else $HOME/.claude; the writer arm is
-# skipped when neither is set (HOME-less containers resolve via the earlier
-# arms, mirroring resolve-rule-doc.sh).
+# skipped when neither is set.
 #
 # Exit codes: 0 resolved (path on stdout) or layer absent (empty stdout);
 #   2 usage / invalid layer / path-escape.
@@ -186,6 +184,7 @@ if [ -z "$layer" ]; then
 fi
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+root_helper="$script_dir/resolve-root.sh"
 
 # Writer-mode claude dir: derivable only when CLAUDE_DIR or HOME is present.
 claude_dir=""
@@ -195,33 +194,26 @@ elif [ -n "${HOME:-}" ]; then
   claude_dir="$HOME/.claude"
 fi
 
-# <repo> for the two repo-side layers: an explicit override (tests, adopters,
-# worktree callers), else the cwd's git toplevel. Absent → repo layers absent.
-# The override is used verbatim and trusted (mirrors the adopter arm): the git
-# toplevel is always absolute, but a relative override is echoed as given, so a
-# caller needing an absolute root must pass one (documented in the usage block).
-repo_root=""
-if [ -n "${PLANWRIGHT_REPO_ROOT:-}" ]; then
-  repo_root="$PLANWRIGHT_REPO_ROOT"
-else
-  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=""
+# A missing helper is a broken install: every layer it locates degrades to
+# absent, said once, and the kind resolver surfaces what went missing. An
+# explicit repo root is not located by it, so the repo-side layers keep it.
+# Readable is enough: it runs through /bin/sh, so a copy that lost the
+# execute bit still resolves.
+if [ ! -r "$root_helper" ]; then
+  case $layer:${PLANWRIGHT_REPO_ROOT:+pinned} in
+    core:* | repo-tracked: | machine-local:)
+      echo "planwright: WARNING root helper '$root_helper' is missing or unreadable; the $layer overlay layer is treated as absent" >&2
+      exit 0
+      ;;
+  esac
 fi
 
 case $layer in
   core)
-    for root in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
-      "${claude_dir:+$claude_dir/planwright}" "$script_dir/.."; do
-      [ -n "$root" ] || continue
-      # Only a usable root wins: a candidate that exists but cannot be entered
-      # (e.g. an unsearchable dir) is skipped so the loop falls through to the
-      # next candidate rather than degrading core to absent.
-      if [ -d "$root" ] && core_root=$(cd -- "$root" 2>/dev/null && pwd -P); then
-        printf '%s\n' "$core_root"
-        exit 0
-      fi
-    done
-    # No usable core root exists — a broken install. Degrade to absent rather
-    # than erroring; the kind resolver surfaces the missing core file.
+    # The helper's own warnings (a skipped content-less arm) pass through. No
+    # arm resolving is a broken install: degrade to absent rather than erroring.
+    core_root=$(/bin/sh "$root_helper" install) || exit 0
+    printf '%s\n' "$core_root"
     exit 0
     ;;
 
@@ -284,12 +276,25 @@ case $layer in
 
   repo-tracked | machine-local)
     # Both repo-side layers live under <repo>/.claude (D-4); the kind resolver
-    # selects the tracked vs .local-suffixed file/dir within it. Strip a trailing
-    # slash so a repo root of "/" yields "/.claude", not "//.claude" (a leading
-    # "//" is implementation-defined in POSIX), mirroring canon_path's join.
-    if [ -n "$repo_root" ]; then
-      printf '%s\n' "${repo_root%/}/.claude"
+    # selects the tracked vs .local-suffixed file/dir within it. No repository
+    # (exit 3 outside any git directory) is the normal absent state and stays
+    # quiet; any other failure, a bare repository's worktree included, is
+    # re-run so its diagnostic reaches stderr.
+    if [ -n "${PLANWRIGHT_REPO_ROOT:-}" ]; then
+      repo_root=$PLANWRIGHT_REPO_ROOT
+    else
+      rr_rc=0
+      repo_root=$(/bin/sh "$root_helper" repo --primary 2>/dev/null) || rr_rc=$?
+      if [ "$rr_rc" -ne 0 ]; then
+        if [ "$rr_rc" -ne 3 ] || git rev-parse --git-dir >/dev/null 2>&1; then
+          /bin/sh "$root_helper" repo --primary >/dev/null
+        fi
+        exit 0
+      fi
     fi
+    # Strip a trailing slash so a repo root of "/" yields "/.claude", not
+    # "//.claude" (a leading "//" is implementation-defined in POSIX).
+    printf '%s\n' "${repo_root%/}/.claude"
     exit 0
     ;;
 

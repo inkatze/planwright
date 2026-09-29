@@ -1,0 +1,9 @@
+# escalation.persona — the escalation acceptance scenario: two asks back to back;
+# the small one flies visual, the one centered on an auth boundary gets the
+# one-page case and, on the yes, a spec draft. Turn map: 1 small ask, 2 auth
+# ask, 3 yes, 4 end.
+expertise=novice
+answer.1=fix the typo in the README install section
+answer.2=change how the auth middleware checks session expiry
+answer.3=yes, file it
+answer.4=that's all
