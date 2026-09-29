@@ -289,14 +289,16 @@ never_stopped "a tmux worker owned by a live peer"
 echo "ok: a worker owned by a live peer tower is refused with its own exit (7) under every evidence; print outranks it, and backend does not"
 
 # --- the evidence matrix: tower verdict x session state ---------------------
-# Only a positively dead owner crossed with a positively ended session reaches
-# a stop; the reaping cells are listed literally rather than recomputed the way
-# the script decides them. Every other cell is refused with exit 5, this
-# tower's own worker included: the tower closes those with the rung's stop.
+# Only a positively dead owner crossed with a dead or cleanly finished session
+# reaches a stop; the reaping cells are listed literally rather than recomputed
+# the way the script decides them. A dead owner's session that failed or left
+# work unlanded is refused with its own exit (9). Every other cell is refused
+# with exit 5, this tower's own worker included: the tower closes those with
+# the rung's stop.
 reaping='dead:dead-or-unknown|dead:death-evidence
 dead:dead-or-unknown|finished-but-unreaped:completion:result=success
-dead:dead-or-unknown|finished-but-unreaped:session-ended
-dead:dead-or-unknown|unclassified:completion-failed:exit=1
+dead:dead-or-unknown|finished-but-unreaped:session-ended'
+unclean='dead:dead-or-unknown|unclassified:completion-failed:exit=1
 dead:dead-or-unknown|unclassified:completion-failed:result=success/is_error=true
 dead:dead-or-unknown|unclassified:completion-unlanded'
 sessions='dead:death-evidence
@@ -353,6 +355,9 @@ while IFS= read -r tw; do
     case "$LF$reaping$LF" in
       *"$LF$tw|$ss$LF"*) want=0 ;;
     esac
+    case "$LF$unclean$LF" in
+      *"$LF$tw|$ss$LF"*) want=9 ;;
+    esac
     expect "$want" "evidence cell tower=$oe/$ow session=$st/$rs"
     if [ "$want" = 0 ]; then
       reaps=$((reaps + 1))
@@ -360,7 +365,12 @@ while IFS= read -r tw; do
         || fail "evidence cell $oe/$ow x $st/$rs: reaped through '$(cat "$tmp/stop-calls")'"
     else
       never_stopped "evidence cell $oe/$ow x $st/$rs"
+      case $want/$oe/$ow/$err in
+        9/*/*/*'did not finish cleanly'*) ;;
+        9/*) fail "evidence cell $oe/$ow x $st/$rs: the unclean-session refusal does not say so: $err" ;;
+      esac
       case $oe/$ow/$err in
+        */*/*'did not finish cleanly'*) [ "$want" = 9 ] || fail "evidence cell $oe/$ow x $st/$rs: refused as unclean: $err" ;;
         self/this-tower/*"this tower's own worker"*) ;;
         self/this-tower/*) fail "evidence cell $oe/$ow x $st/$rs: this tower's own worker was not named: $err" ;;
         dead/dead-or-unknown/*'no positive evidence its session ended'*) ;;
@@ -376,7 +386,7 @@ done <<EOF
 $towers
 EOF
 [ "$cells" = 49 ] || fail "the evidence matrix ran $cells cells, expected 49"
-[ "$reaps" = 6 ] || fail "the evidence matrix reaped $reaps cells, expected 6"
+[ "$reaps" = 3 ] || fail "the evidence matrix reaped $reaps cells, expected 3"
 det finished-but-unreaped this-tower completion:result=success stream-json-persistent self "$self_id"
 gate w1 trig why --tower-id "$self_id"
 expect 5 "this tower's own worker"
@@ -384,7 +394,7 @@ case $err in
   *"this tower's own worker"*stop*) ;;
   *) fail "this tower's own worker: the refusal does not point at the rung's stop: $err" ;;
 esac
-echo "ok: the evidence matrix ($cells cells) reaps only a dead owner's worker whose session ended; this tower's own is refused"
+echo "ok: the evidence matrix ($cells cells) reaps only a dead owner's worker whose session died or finished cleanly; a failed or unlanded one is refused (exit 9); this tower's own is refused"
 
 # --- a detector that errors, or answers nothing usable, refuses (exit 5) ----
 det finished-but-unreaped this-tower completion:result=success stream-json-persistent self
@@ -720,16 +730,20 @@ msgs=$(
   det working dead-or-unknown runtime-running stream-json-persistent unknown
   gate w1 trig why
   printf '%s|%s\n' "$rc" "$err"
+  det unclassified dead-or-unknown completion-unlanded stream-json-persistent dead
+  gate w1 trig why
+  printf '%s|%s\n' "$rc" "$err"
   det dead dead-or-unknown death-evidence stream-json-persistent dead
   stop_answers '' 3
   gate w1 trig why
   printf '%s|%s\n' "$rc" "$err"
 )
-[ "$(printf '%s\n' "$msgs" | cut -d'|' -f1 | sort -u | grep -c .)" = 4 ] \
-  || fail "the four refusals do not carry four distinct exits: $msgs"
-[ "$(printf '%s\n' "$msgs" | cut -d'|' -f2- | sort -u | grep -c .)" = 4 ] \
-  || fail "the four refusals do not carry four distinct messages: $msgs"
-echo "ok: print, live-peer, unknown-evidence and self-target refusals each carry their own exit and message"
+[ "$(printf '%s\n' "$msgs" | wc -l | tr -d ' ')" = 5 ] || fail "expected five refusal lines: $msgs"
+[ "$(printf '%s\n' "$msgs" | cut -d'|' -f1 | sort -u | wc -l | tr -d ' ')" = 5 ] \
+  || fail "the five refusals do not carry five distinct exits: $msgs"
+[ "$(printf '%s\n' "$msgs" | cut -d'|' -f2- | sort -u | wc -l | tr -d ' ')" = 5 ] \
+  || fail "the five refusals do not carry five distinct messages: $msgs"
+echo "ok: print, live-peer, unknown-evidence, unclean-session and self-target refusals each carry their own exit and message"
 
 # --- source audit: one kill path --------------------------------------------
 # The whole script, not only its process arm, since a helper the arm calls

@@ -20,7 +20,7 @@
 # scripts/fleet-death-evidence.sh encodes, applied to reclamation. A live pane or
 # an unproven/dirty worktree is refused, never reclaimed. A worker process is
 # reaped only on the stuck-detector's positive evidence that its owning tower is
-# dead and its session ended (see the `process` usage).
+# dead and its session died or finished cleanly (see the `process` usage).
 #
 # KILL-SWITCH + AUDIT (D-15, D-16). Every invocation gates through
 # scripts/fleet-daemon-gate.sh BEFORE acting (a set `fleet_daemon_pause` pauses
@@ -50,7 +50,7 @@
 #   fleet-cleanup.sh process <worker> <trigger> <reasoning> [--grace <secs>]
 #       [--repo-root <dir>] [--tower-id <token>]
 #       Reap a leaked worker process: one whose owning tower is gone, whose
-#       session has ended, and whose process tree has not. It RELEASES THE
+#       session died or finished cleanly, and whose process tree has not. It RELEASES THE
 #       PROCESS ONLY, with the runtime the rung's `stop` releases alongside it:
 #       it touches no fence, branch, or worktree, and a strand surfaced for the
 #       operator stays surfaced. Reaping is not reclaiming, and the reclaim
@@ -68,10 +68,13 @@
 #         a headless worker whose record names no state directory (exit 5);
 #         anything short of positive evidence on BOTH axes (exit 5): the
 #           owning tower must be positively dead, and the session must have
-#           positively ended, by death evidence or a completion signal. An
+#           positively ended, by death evidence or a clean completion. An
 #           unknown, ambiguous, or unreadable verdict is a refusal, and so is
 #           this tower's own worker, which the tower closes with the rung's
-#           `stop`.
+#           `stop`;
+#         a dead owner's session that ended without finishing cleanly, a
+#           failed completion or one with unlanded work (exit 9): the
+#           detector leaves those unclassified for the operator.
 #
 #       The close itself is the rung's own `stop`
 #       (scripts/fleet-streamjson.sh, scripts/fleet-dispatch-headless.sh), so
@@ -129,6 +132,7 @@
 #      partial close, which may have signalled the tree and released nothing
 #   7  process only: refused, the worker is owned by a live peer tower
 #   8  process only: refused, a `print`-backend unit has no process to reap
+#   9  process only: refused, the session failed or left work unlanded
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling). All input
 # is data; no eval, no jq (REQ-K1.5). Pathname expansion is disabled (set -f).
@@ -783,16 +787,24 @@ EOF
         ;;
     esac
     # A completion value the detector could not parse reads `unknown`, yet
-    # still counts as a completion there; for a reap, unknown is alive.
+    # still counts as a completion there; for a reap, unknown is alive. A
+    # failed or unlanded run is one the detector leaves unclassified for the
+    # operator, so it is not reaped either.
     case $state/$reason in
-      unclassified/completion-failed:*=unknown*) session_ended=0 ;;
-      dead/* | finished-but-unreaped/* | unclassified/completion-failed:* | unclassified/completion-unlanded) session_ended=1 ;;
-      *) session_ended=0 ;;
+      dead/* | finished-but-unreaped/*) ;;
+      unclassified/completion-failed:*=unknown*)
+        warn "refusing '$worker': no positive evidence its session ended (state: $(sanitize_printable "$state" "-"), signal: $reason)"
+        exit 5
+        ;;
+      unclassified/completion-failed:* | unclassified/completion-unlanded)
+        warn "refusing '$worker': its session ended but did not finish cleanly (signal: $reason) — a failed or unlanded run is left for the operator"
+        exit 9
+        ;;
+      *)
+        warn "refusing '$worker': no positive evidence its session ended (state: $(sanitize_printable "$state" "-"), signal: $reason)"
+        exit 5
+        ;;
     esac
-    if [ "$session_ended" = 0 ]; then
-      warn "refusing '$worker': no positive evidence its session ended (state: $(sanitize_printable "$state" "-"), signal: $reason)"
-      exit 5
-    fi
 
     # The gate admits entry, not the whole run: reading the verdict can take
     # a while, and a pause set meanwhile still stops the first signal.
