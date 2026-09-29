@@ -414,7 +414,7 @@ canon_under() {
 # is_planwright_script <path> <cwd>: 0 when <path> is a `.sh` under a `scripts/`
 # directory that canonicalizes inside EITHER the repo checkout (self-hosting
 # dev) OR the installed plugin root (the core root chain's CLAUDE_PLUGIN_ROOT
-# arm, PLUGIN_ROOT below — the tower's resolved literal path under a
+# arm, hook_plugin_root below — the tower's resolved literal path under a
 # marketplace/writer install). The chain's other arms are not trusted: that is
 # the tower's own, tighter policy. `tests/` is deliberately NOT
 # a trusted script directory for the tower (that is a worker-only shape), so the
@@ -435,7 +435,7 @@ is_planwright_script() {
     fi
   fi
   # (b) under the installed plugin's scripts/ dir (resolved literal path).
-  if [ -n "${PLUGIN_ROOT:-}" ] && proot=$PLUGIN_ROOT; then
+  if proot=$(hook_plugin_root) && [ -n "$proot" ]; then
     if full=$(canon_under "$p" "$cwd" "$proot"); then
       rel=${full#"$proot"/}
       case $rel in
@@ -1552,14 +1552,15 @@ main() {
 NL=$'\n'
 TAB=$'\t'
 
-# The plugin-delivery arm of the core root chain, from the resolver shipped
-# beside this hook, resolved once at load and never from the analyzed command.
-PLUGIN_ROOT=''
+# hook_plugin_root: the plugin-delivery arm of the core root chain, from the
+# resolver shipped beside this hook, never from the analyzed command. Asked
+# only when a script path is checked, since the hook runs on every tool call.
 HOOK_SCRIPTS=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P) || HOOK_SCRIPTS=''
-if [ -n "$HOOK_SCRIPTS" ] && [ -r "$HOOK_SCRIPTS/resolve-root.sh" ]; then
-  PLUGIN_ROOT=$(/bin/sh "$HOOK_SCRIPTS/resolve-root.sh" install --all --explain 2>/dev/null \
-    | sed -n "s/^CLAUDE_PLUGIN_ROOT$TAB//p" | head -n 1) || PLUGIN_ROOT=''
-fi
+hook_plugin_root() {
+  [ -n "$HOOK_SCRIPTS" ] && [ -r "$HOOK_SCRIPTS/resolve-root.sh" ] || return 0
+  /bin/sh "$HOOK_SCRIPTS/resolve-root.sh" install --all --explain 2>/dev/null \
+    | sed -n "s/^CLAUDE_PLUGIN_ROOT$TAB//p" | head -n 1
+}
 
 # Fail safe on any unexpected signal: empty stdout, exit 0. The hook never
 # blocks the tower's tool call.

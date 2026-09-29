@@ -464,26 +464,26 @@ is_repo_script() {
 
 # planwright_roots: print, one per line and canonicalized, every planwright
 # installation root this hook trusts its `scripts/*.sh` under: every arm of
-# the core root chain, as `resolve-root.sh install --all` reports it (CHAIN_ROOTS
-# below), plus this guard's own policy arms:
+# the core root chain, as `resolve-root.sh install --all` reports it
+# (chain_roots below), plus this guard's own policy arms:
 #
 #   1. the core root chain         every content-bearing arm, highest first
-#   4. $HOOK_SELF_ROOT             this hook's own sibling root (`dirname $0`/..),
+#   2. $HOOK_SELF_ROOT             this hook's own sibling root (`dirname $0`/..),
 #                                  kept apart from the chain's self-location arm
 #                                  so it holds even if the resolver cannot run
-#   5. every installed root        what Claude Code records in
+#   3. every installed root        what Claude Code records in
 #                                  <claude-dir>/plugins/installed_plugins.json
 #                                  for a planwright plugin, plus every version
 #                                  directory under the marketplace cache
 #                                  (<claude-dir>/plugins/cache/*/planwright/*)
 #
-# Arm 4 is what makes this allowance need NO per-machine, version-pinned settings
+# Arm 2 is what makes this allowance need NO per-machine, version-pinned settings
 # entry: the guard ships at <root>/scripts/worker-command-guard.sh, so it can
-# always locate its own root. Arm 5 exists because arms 1-4 all resolve to the
-# root the LAUNCHER lives in (the dispatch-env wrapper exports its own root as
-# arms 1 and 2), while the skill text a worker executes is loaded from wherever
-# Claude Code installed the plugin, and `${CLAUDE_PLUGIN_ROOT}` in that text
-# substitutes to THAT root. A tower driving a checkout's scripts/ therefore
+# always locate its own root. Arm 3 exists because arms 1 and 2 all resolve to
+# the root the LAUNCHER lives in (the dispatch-env wrapper exports its own root
+# as the chain's PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT arms), while the skill
+# text a worker executes is loaded from wherever Claude Code installed the
+# plugin, and `${CLAUDE_PLUGIN_ROOT}` in that text substitutes to THAT root. A tower driving a checkout's scripts/ therefore
 # launched workers whose every plugin-script call — the first thing
 # /execute-task does — named a root the hook did not trust, and deferred
 # (2026-09-12, format-grammar task 7). The installed roots are Claude Code's own
@@ -497,7 +497,8 @@ is_repo_script() {
 planwright_roots() {
   local r root
   {
-    printf '%s\n' "${CHAIN_ROOTS:-}" "${HOOK_SELF_ROOT:-}"
+    chain_roots
+    printf '%s\n' "${HOOK_SELF_ROOT:-}"
     printf '%s\n' "${INSTALLED_ROOTS:-}"
   } | while IFS= read -r r; do
     [ -n "$r" ] || continue
@@ -2320,14 +2321,16 @@ HOOK_ENV_NAMES=$NL$(compgen -e)$NL
 # any payload is read, and left empty when it cannot be resolved (in which case
 # that arm simply never fires). Never derived from the analyzed command.
 HOOK_SELF_ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || HOOK_SELF_ROOT=''
-# Arm 1: the core root chain, from the resolver shipped beside this hook,
-# resolved once at load. Its warnings are dropped: a hook's stderr is not a
-# channel anyone reads, and a skipped arm is simply not trusted.
-CHAIN_ROOTS=''
-if [ -n "$HOOK_SELF_ROOT" ] && [ -r "$HOOK_SELF_ROOT/scripts/resolve-root.sh" ]; then
-  CHAIN_ROOTS=$(/bin/sh "$HOOK_SELF_ROOT/scripts/resolve-root.sh" install --all 2>/dev/null) || CHAIN_ROOTS=''
-fi
-# Arm 5 of the same chain: the roots Claude Code itself installed the plugin
+# Arm 1: the core root chain, from the resolver shipped beside this hook. It
+# runs only when a script path is actually checked, since most commands never
+# need it and the hook runs on every tool call. Its warnings are dropped: a
+# hook's stderr is not a channel anyone reads, and a skipped arm is simply not
+# trusted.
+chain_roots() {
+  [ -n "$HOOK_SELF_ROOT" ] && [ -r "$HOOK_SELF_ROOT/scripts/resolve-root.sh" ] || return 0
+  /bin/sh "$HOOK_SELF_ROOT/scripts/resolve-root.sh" install --all 2>/dev/null || :
+}
+# Arm 3 of the same chain: the roots Claude Code itself installed the plugin
 # at, resolved once at load from its own record and cache (never from the
 # analyzed command). Empty when neither exists.
 INSTALLED_ROOTS=$(installed_planwright_roots) || INSTALLED_ROOTS=''
