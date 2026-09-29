@@ -160,6 +160,7 @@ REGISTER="$script_dir/fleet-register.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
 MANIFEST_SKILL="$root_dir/skills/execute-task/SKILL.md"
 TEXT="$script_dir/flight-text.sh"
+ROOTPAIR="$script_dir/flight-roots.sh"
 
 # How long a dispatch waits on another holding the checkout's flight lock
 # before it declines to wait. Overridable for tests.
@@ -184,13 +185,15 @@ EOF
 }
 
 for _h in "$FLIGHT_ID" "$WORKTREE" "$STATE" "$CONFIG" "$STEPS" "$ROOTS" \
-  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL" "$TEXT"; do
+  "$ALLOC" "$LADDER" "$FETCH" "$REGISTER" "$ENVWRAP" "$MANIFEST_SKILL" "$TEXT" "$ROOTPAIR"; do
   [ -r "$_h" ] || die 2 "required helper missing: $_h"
 done
 # shellcheck source=scripts/flight-text.sh
 . "$TEXT"
 # shellcheck source=scripts/allocation-ladder.sh
 . "$LADDER"
+# shellcheck source=scripts/flight-roots.sh
+. "$ROOTPAIR"
 
 resolve_repo() {
   if [ -z "$repo_root" ]; then
@@ -488,33 +491,6 @@ in_roster() {
     [ "$1" = "$_m" ] && return 0
   done
   return 1
-}
-
-plugin_version() {
-  _pj="$1/.claude-plugin/plugin.json"
-  [ -r "$_pj" ] || {
-    echo -
-    return
-  }
-  _ver=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_pj" | head -n 1)
-  _ver=$(printf '%s' "$_ver" | tr -d '\000-\037\177')
-  printf '%s\n' "${_ver:--}"
-}
-
-# worker_root — the first installed root Claude Code records, which is what a
-# worker launched through `claude` loads planwright from.
-worker_root() {
-  _cands=$(/bin/sh "$ROOTS" 2>/dev/null </dev/null) || _cands=''
-  _old_ifs=$IFS
-  IFS=$LF
-  for _r in $_cands; do
-    if [ -d "$_r" ]; then
-      IFS=$_old_ifs
-      (cd "$_r" && pwd -P) | tr -d '\000-\037\177'
-      return
-    fi
-  done
-  IFS=$_old_ifs
 }
 
 # quote_block — the cleaned ask as a Markdown quote, one `> ` per line: data
@@ -1206,22 +1182,7 @@ cmd_dispatch() {
       fi
     fi
   fi
-  _tv=$(plugin_version "$root_dir")
-  printf 'root\ttower\t%s\t%s\n' "$root_dir" "$_tv"
-  if [ -n "$_wr" ]; then
-    _wv=$(plugin_version "$_wr")
-    printf 'root\tworker\t%s\t%s\n' "$_wr" "$_wv"
-    if [ "$_tv" = - ] || [ "$_wv" = - ]; then
-      printf 'root-skew\tunknown\n'
-    elif [ "$_tv" = "$_wv" ]; then
-      printf 'root-skew\tno\n'
-    else
-      printf 'root-skew\tyes\n'
-    fi
-  else
-    printf 'root\tworker\tunknown\t-\n'
-    printf 'root-skew\tunknown\n'
-  fi
+  print_root_pair "$root_dir" "$_wr"
 }
 
 [ $# -ge 1 ] || usage

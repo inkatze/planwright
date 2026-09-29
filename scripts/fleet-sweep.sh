@@ -3,7 +3,7 @@
 # REQ-A1.8 reconcile-from-ground-truth backstop for missed pushes (Task 4: D-8,
 # D-1; REQ-B1.3, REQ-A1.8).
 #
-# TWO PASSES, ONE CYCLE.
+# THREE PASSES, ONE CYCLE.
 #
 # 1. DIRTY-TREE SWEEP (REQ-B1.3, D-8). Every working tree the fleet tracks —
 #    every registered worker worktree (fleet-worktree-track.sh list) AND the
@@ -26,6 +26,14 @@
 #    cycle, WITHOUT a second push. The dirty-tree pass runs FIRST, so a drift
 #    correction this cycle plants is not re-escalated until a later cycle (past the
 #    grace), by which point the tower's normal flow has committed it.
+#
+# 3. FLIGHT RESIDUES (tower-front-door REQ-F1.6). A visual flight leaves two
+#    residues outside git: its worker brief under the fleet home, retired once
+#    its worktree is gone (flight-dispatch.sh retire), and the derived flight
+#    index of a checkout that no longer exists (flight-sweep.sh prune). Both
+#    are swept here, each removal audited, so neither outlives its flight
+#    silently. Flight worktrees themselves are registered worktrees, already
+#    in pass 1's scope.
 #
 # KILL-SWITCH + AUDIT (D-15, D-16). The sweep is a daemon action: it gates
 # through fleet-daemon-gate.sh at entry (a set fleet_daemon_pause pauses the whole
@@ -61,6 +69,8 @@ AUDIT="$script_dir/fleet-audit.sh"
 ATTN="$script_dir/fleet-attention.sh"
 WT="$script_dir/fleet-worktree-track.sh"
 SYNC="$script_dir/tasks-pr-sync.sh"
+FLIGHT_DISPATCH="$script_dir/flight-dispatch.sh"
+FLIGHT_SWEEP="$script_dir/flight-sweep.sh"
 CONFIG_GET="$script_dir/config-get.sh"
 FS="$script_dir/fleet-state.sh"
 
@@ -395,5 +405,21 @@ if [ -x "$SYNC" ] && [ -d "$repo/specs" ]; then
   done
   set -f
 fi
+
+# --- Pass 3: flight residues. A failure is warned and retried next cycle; a
+#     removal is a real action and is audited.
+flight_residue() {
+  fr_out=$("$@" 2>/dev/null </dev/null)
+  fr_rc=$?
+  [ "$fr_rc" -eq 0 ] || warn "$(basename "$1") $2 exited $fr_rc — flight residues left for the next sweep"
+  printf '%s\n' "$fr_out" | while IFS="$(printf '\t')" read -r fr_kind fr_what; do
+    case $fr_kind in
+      retired) audit flight-brief-retire flight-residue "retired the brief of flight $fr_what (its worktree is gone)" ;;
+      pruned) audit flight-index-prune flight-residue "pruned the derived flight index of a vanished checkout" ;;
+    esac
+  done
+}
+[ ! -x "$FLIGHT_DISPATCH" ] || flight_residue "$FLIGHT_DISPATCH" retire --repo-root "$repo"
+[ ! -x "$FLIGHT_SWEEP" ] || flight_residue "$FLIGHT_SWEEP" prune
 
 exit 0

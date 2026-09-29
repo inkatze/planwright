@@ -74,10 +74,12 @@ is the one sweep output read.
    own rule. Never edit a settings file from the tower: it cannot
    grant itself permissions.
 2. **Reconstruct from durable evidence (REQ-F1.4, D-9).** Read what is in
-   flight from evidence alone: the shared flight sweep's render when present
-   and newer than this session's start (a SessionStart hook is the
-   deterministic arm, this step the fallback that runs it; a sweep exiting
-   non-zero is reported and the reads below used), otherwise flight branches
+   flight through the shared flight sweep: the index at
+   `scripts/flight-sweep.sh path` when newer than this session's start (the
+   SessionStart hook writes it), else what `scripts/flight-sweep.sh sweep`
+   prints. Its rows say which flights landed, await the operator, fly, died
+   (positive evidence only), or stranded, and name the plugin-root pair. A
+   sweep exiting non-zero is reported and the reads below used: flight branches
    (`git branch --list --format='%(refname:short)' 'planwright/flight/*'`,
    bounded to the unmerged ones), each one's landing — its PR in any state
    (`gh pr list --state all --head <branch>`; any PR, open draft included,
@@ -85,8 +87,8 @@ is the one sweep output read.
    and its committed record file on the branch
    (`git cat-file -e <branch>:specs/_flights/<flight-id>.md`), either one
    landed, since the home declared at dispatch picks which the worker lands —
-   and the decision queue (`scripts/fleet-attention.sh queue`). These reads
-   check no worker liveness; say so. A read that fails or is skipped is
+   and the decision queue (`scripts/fleet-attention.sh queue`). These fallback
+   reads check no worker liveness; say so. A read that fails or is skipped is
    named as unknown, never shown as empty. Never a poll loop: read once here,
    again on request.
 3. **The first turn.** Say where things stand in the register `tower-comms`
@@ -196,7 +198,8 @@ The gate-wiring hard pauses stay in force inside every worker whatever the
 route; a flight whose scope outgrows its route parks behind its hard pause and
 returns for re-routing. The operator hears that through the decision queue once
 flight lifecycle pushes exist; until then a pause leaves no branch or record
-evidence, so every flight without a landing reference is reported as "no
+evidence, so a flight without a landing reference is reported by the sweep's
+liveness, or after the fallback reads as "no
 landing yet: in the air, paused, or dead — not checked", with its observe or
 attach hint when the tower holds one (this session's dispatch report, or the
 sweep's render) and "handle unknown" otherwise, never as simply in the air.
