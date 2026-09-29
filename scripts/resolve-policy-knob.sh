@@ -82,7 +82,10 @@ case "$knob" in
     # An entry that no branch name can match (git refuses the shape, or `**`,
     # which matches one segment here) is malformed rather than silently inert.
     for entry in $additions; do
-      entry=${entry#refs/heads/}
+      # protected-branch.sh strips the prefix case-folded, so test it that way.
+      case "$(printf '%s' "$entry" | tr '[:upper:]' '[:lower:]')" in
+        refs/heads/*) entry=${entry#???????????} ;;
+      esac
       case "$entry" in
         "" | /* | */ | *//* | *..* | *\*\** | .* | */.* | *.lock | *.lock/* | *. | HEAD)
           printf '%s\n' "resolve-policy-knob: protected_branches entry '$entry' can never match a branch; refusing" >&2

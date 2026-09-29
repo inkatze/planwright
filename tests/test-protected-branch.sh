@@ -142,7 +142,15 @@ pb_expect 1 Main "the floor matches regardless of case"
 pb_expect 1 refs/heads/MASTER "a stripped target matches regardless of case"
 printf 'protected_branches: Release/*\n' >"$tracked_cfg"
 pb_expect 1 release/1.0 "an overlay entry matches regardless of case"
+printf 'protected_branches: Refs/Heads/release/*\n' >"$tracked_cfg"
+pb_expect 1 release/1.0 "an entry's refs/heads/ prefix is stripped regardless of case"
+printf 'protected_branches: REFS/HEADS/HEAD\n' >"$tracked_cfg"
+rc=0
+rpk protected_branches >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "resolve-policy-knob: an unmatchable entry behind a folded refs/heads/ exited $rc, expected 4"
 reset_layers
+pb_expect 1 REFS/HEADS/main "a target's refs/heads/ prefix is stripped regardless of case"
+pb_expect 2 Refs/heads/HEAD "a target's name is validated after a folded strip"
 echo "ok: protected-branch matching folds case"
 
 for layer_cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
