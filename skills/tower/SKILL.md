@@ -220,16 +220,16 @@ and places the flight through
 the id, writes the worker brief, and places the isolated worktree on a
 `planwright/flight/<flight-id>` branch. A flight beyond the bound comes back
 declined; relay its re-ask line, nothing is queued (REQ-C1.5). The worker loads
-full doctrine, converges through the convergence point's steps, authors
-the record — the quoted ask sanitized per `security-posture` and
-markup-neutralized per `flight-rules` — and lands it. The tower relays the handle, the attach or
-launch hint, and a `root-skew` of yes or unknown from the report, then the
-landing reference on arrival (REQ-F1.1); a flight without one is reported in
-the no-landing-yet form above. Once a landed flight's worktree is removed,
-`scripts/flight-dispatch.sh retire` (and every later dispatch from this
-checkout) cleans its brief once the brief is older than the lock's stale
-threshold; run it when relaying that removal, and relay any removal it names
-as failed.
+full doctrine, converges through the convergence point's steps, renders
+the record through `scripts/flight-record.sh` (the quoted ask sanitized per
+`security-posture` and markup-neutralized per `flight-rules`), and lands it.
+The tower relays the handle, the attach or launch hint, and a `root-skew` of yes
+or unknown from the report, then the landing reference on arrival (REQ-F1.1); a
+flight without one is reported in the no-landing-yet form above. Once a landed
+flight's worktree is removed, `scripts/flight-dispatch.sh retire` (and every
+later dispatch from this checkout) cleans its brief once the brief is older than
+the lock's stale threshold; run it when relaying that removal, and relay any
+removal it names as failed.
 
 The tower hands over exactly the ask, the grounds, the slug, and the home;
 rung selection, the flight id, the worker brief, the worktree, and the crash

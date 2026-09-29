@@ -13,6 +13,10 @@ rc=0
 @@ config-get worktree worktree-config-overlay
 machine-local	[polish, self-review]
 rc=0
+@@ convergence-steps worktree worktree-config-overlay
+run	polish
+run	self-review
+rc=0
 @@ config-knob worktree worktree-config-overlay
 per-unit
 rc=0
