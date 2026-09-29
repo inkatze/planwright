@@ -16,15 +16,35 @@
 # PLANWRIGHT_TEST_FORCE_SERIAL=1 — the runner degrades to a serial loop
 # with the same capture-and-summarize contract.
 #
+# Machine-wide ticket pool: every run on the host shares one per-user pool of
+# tickets, and a worker holds one for as long as its test file runs, so the
+# fleet's concurrent suites together execute at most the pool's capacity of
+# files at once instead of each saturating every core. A ticket is a numbered
+# scripts/lock-lib.sh lock under the pool directory, held by the worker
+# process; a ticket whose holder is gone (a killed run) is broken and retaken
+# by the next worker that needs one. Runs that set different capacities take
+# tickets numbered up to their own value, so the machine-wide bound is the
+# LARGEST capacity in use, not the smallest. PLANWRIGHT_TEST_JOBS still caps
+# one run's own parallelism beneath the pool. A pool that cannot be used (no
+# home to resolve, a symbolic link, another user's directory, unwritable, a
+# lock-library error) costs one warning naming the cause and an unpooled run,
+# never a blocked or failed one. A runner started from inside a pooled test
+# file finds the internal mark and runs unpooled without a warning: its
+# parent's ticket already counts the file's work, and waiting on the pool
+# there could wait on a ticket its own ancestor holds.
+#
 # Timing capture: every worker records its own file's wall-clock at
 # sub-second resolution in its own record (no shared-file append race under
 # the parallel pool), and the parent aggregates the records into one report
 # after the pool drains, written atomically to a stable path beside the suite
 # (<suite-dir>/.timing-report.tsv, gitignored; override with
-# PLANWRIGHT_TEST_TIMING_REPORT). scripts/check-test-time.sh reads that
-# report against the committed budgets instead of re-running the suite. The
-# accounting is positive here too: a file with a verdict but no timing record
-# fails the run, so the report never carries a silent hole.
+# PLANWRIGHT_TEST_TIMING_REPORT). A file's time starts once it holds its
+# ticket; the time it waited for one is its own column, so a busy machine
+# never makes a file look slow. The suite wall-clock row does include
+# waiting. scripts/check-test-time.sh reads that report against the committed
+# budgets instead of re-running the suite. The accounting is positive here
+# too: a file with a verdict but no timing record fails the run, so the
+# report never carries a silent hole.
 #
 # Usage: run-tests.sh [suite-dir]   (default: <repo-root>/tests)
 # Exit:  0 all pass · 1 any test failed or lost · 2 usage or environment
@@ -33,11 +53,21 @@
 #
 # Environment:
 #   PLANWRIGHT_TEST_JOBS           override the job count (default: core count)
+#   PLANWRIGHT_TEST_SLOTS          the pool's capacity (default: core count);
+#                                  set it in mise.local.toml, not per run
+#   PLANWRIGHT_TEST_SLOT_DIR       the pool directory, for the runner's own
+#                                  tests (default: ${XDG_STATE_HOME:-$HOME/
+#                                  .local/state}/planwright/test-slots)
 #   PLANWRIGHT_TEST_FORCE_SERIAL   1 forces the serial fallback path
 #   PLANWRIGHT_TEST_TIMING_REPORT  where to persist the timing report
 #                                  (default: <suite-dir>/.timing-report.tsv)
 #   SPEC_WALKTHROUGH_DOT_TIMEOUT   exported to every test (default 60 here:
 #                                  suite load headroom; caller value wins)
+#   PLANWRIGHT_TEST_IN_POOLED_FILE internal: the mark a pooled worker gives
+#                                  its test file; a runner that sees it runs
+#                                  unpooled
+#   PLANWRIGHT_TEST_POOL_DIR       internal: parent-to-worker pool handoff
+#   PLANWRIGHT_TEST_POOL_SLOTS     (both empty for an unpooled run)
 #   PLANWRIGHT_TEST_LOG_DIR        internal: parent-to-worker log dir handoff
 #   PLANWRIGHT_TEST_CLOCK          internal: parent-to-worker clock handoff
 set -u
@@ -92,6 +122,49 @@ ms_to_seconds() {
   printf '%d.%03d' "$(($1 / 1000))" "$(($1 % 1000))"
 }
 
+# take_slot — hold one ticket from the pool, waiting with a bounded backoff
+# for as long as that takes. Sets slot to the ticket's number and slot_rc to
+# 0, or slot_rc to 2 with slot_err naming the lock library's real error,
+# which no amount of waiting clears. Runs in the worker's own shell, never a
+# subshell: the hold belongs to the process that takes it.
+take_slot() {
+  _round=0
+  _err_file="$PLANWRIGHT_TEST_LOG_DIR/$name.lockerr"
+  slot=""
+  slot_err=""
+  while :; do
+    _i=1
+    while [ "$_i" -le "$PLANWRIGHT_TEST_POOL_SLOTS" ]; do
+      _path="$pool_dir/slot-$_i"
+      # A taken ticket is examined only every tenth round, the first included:
+      # breaking a dead holder means probing its liveness, which forks, and a
+      # live holder does not turn dead faster than that.
+      if [ ! -L "$_path" ] || [ $((_round % 10)) -eq 0 ]; then
+        pw_lock_try "$_path" 2>"$_err_file"
+        slot_rc=$?
+        if [ "$slot_rc" -eq 0 ]; then
+          slot="$_i"
+          return 0
+        fi
+        if [ "$slot_rc" -eq 2 ]; then
+          slot_err="$(cat "$_err_file" 2>/dev/null)"
+          [ -n "$slot_err" ] || slot_err="lock-lib could not take $_path"
+          return 0
+        fi
+      fi
+      _i=$((_i + 1))
+    done
+    case "$_round" in
+      0) _nap=0.05 ;;
+      1) _nap=0.1 ;;
+      2) _nap=0.2 ;;
+      *) _nap=0.4 ;;
+    esac
+    sleep "$_nap" 2>/dev/null || sleep 1
+    _round=$((_round + 1))
+  done
+}
+
 # Worker mode: run ONE test file, capturing its output to the log dir the
 # parent exported. Always exits 0 — a test's own exit code (255 included,
 # which would otherwise make xargs abort the whole run) is recorded as a
@@ -104,6 +177,25 @@ if [ "${1:-}" = "--run-one" ]; then
   name="${t##*/}"
   clock="${PLANWRIGHT_TEST_CLOCK:-}"
   [ -n "$clock" ] || clock="$(probe_clock)"
+  wait_started="$(now_ms)"
+  slot=""
+  pool_dir="${PLANWRIGHT_TEST_POOL_DIR:-}"
+  if [ -n "$pool_dir" ]; then
+    # shellcheck source=scripts/lock-lib.sh
+    . "${0%/*}/lock-lib.sh"
+    # The trap releases the ticket if this worker is interrupted mid-file; a
+    # SIGKILL leaves it to the next run's dead-holder reclaim.
+    pw_lock_trap_install
+    take_slot
+    case "$slot_rc" in
+      0) slot="$pool_dir/slot-$slot" ;;
+      *)
+        # The parent reports these once, after the pool drains.
+        printf '%s\n' "$slot_err" >"$PLANWRIGHT_TEST_LOG_DIR/$name.poolerr"
+        ;;
+    esac
+  fi
+  [ -z "$slot" ] || export PLANWRIGHT_TEST_IN_POOLED_FILE=1
   started="$(now_ms)"
   if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
     verdict="done"
@@ -111,12 +203,14 @@ if [ "${1:-}" = "--run-one" ]; then
     verdict="fail"
   fi
   finished="$(now_ms)"
+  [ -z "$slot" ] || pw_lock_release "$slot" 2>/dev/null || :
   # The timing record is this worker's own file, written before the verdict
   # marker so a marker never exists without its record having been attempted.
   elapsed=""
-  if [ -n "$started" ] && [ -n "$finished" ]; then
+  if [ -n "$wait_started" ] && [ -n "$started" ] && [ -n "$finished" ]; then
     elapsed="$(ms_to_seconds $((finished - started)))"
-    printf '%s\n' "$elapsed" >"$PLANWRIGHT_TEST_LOG_DIR/$name.time"
+    printf '%s\t%s\n' "$elapsed" "$(ms_to_seconds $((started - wait_started)))" \
+      >"$PLANWRIGHT_TEST_LOG_DIR/$name.time"
   fi
   : >"$PLANWRIGHT_TEST_LOG_DIR/$name.$verdict"
   if [ "$verdict" = "done" ]; then
@@ -133,6 +227,7 @@ if [ ! -f "$self" ]; then
   exit 2
 fi
 
+self_dir="${self%/*}"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 suite_dir="${1:-$repo_root/tests}"
 
@@ -150,14 +245,109 @@ fi
 # Job count: explicit override wins; else the machine's core count
 # (sysctl on darwin, nproc on GNU); a missing or garbage value degrades
 # to a safe fixed default rather than failing the gate.
-jobs="${PLANWRIGHT_TEST_JOBS:-}"
-if [ -z "$jobs" ]; then
-  jobs="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || true)"
-fi
+cores="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || true)"
+jobs="${PLANWRIGHT_TEST_JOBS:-$cores}"
 case "$jobs" in
   '' | *[!0-9]*) jobs=4 ;;
 esac
 [ "$jobs" -ge 1 ] || jobs=1
+
+pool_warn() {
+  echo "run-tests: WARNING test pool $1; running unpooled" >&2
+}
+# printable <text> — <text> without control characters, for a warning that
+# quotes a caller-supplied path or value.
+printable() {
+  printf '%s' "$1" | tr -d '\000-\037\177'
+}
+
+# Pool capacity: the same fallback and clamp as the job count, but a value
+# that needed either is a misconfiguration worth one warning. Five digits is
+# already far past any core count, and wider values overflow shell arithmetic.
+slots="${PLANWRIGHT_TEST_SLOTS-$cores}"
+case "$slots" in
+  '' | *[!0-9]* | ??????*)
+    [ -z "${PLANWRIGHT_TEST_SLOTS+set}" ] \
+      || echo "run-tests: WARNING test pool: PLANWRIGHT_TEST_SLOTS is not a usable count ($(printable "$slots")); using 4" >&2
+    slots=4
+    ;;
+  *)
+    slots=$((10#$slots))
+    if [ "$slots" -lt 1 ]; then
+      echo "run-tests: WARNING test pool: PLANWRIGHT_TEST_SLOTS is 0; using 1" >&2
+      slots=1
+    fi
+    ;;
+esac
+
+# Resolve the pool, or say once why not. Only the directory's own path is
+# checked for a link: a home directory reached through one is ordinary.
+pool_dir=""
+if [ "${PLANWRIGHT_TEST_IN_POOLED_FILE:-}" != 1 ]; then
+  if [ -n "${PLANWRIGHT_TEST_SLOT_DIR:-}" ]; then
+    cand="$PLANWRIGHT_TEST_SLOT_DIR"
+  elif [ -n "${XDG_STATE_HOME:-}" ]; then
+    cand="$XDG_STATE_HOME/planwright/test-slots"
+  elif [ -n "${HOME:-}" ]; then
+    cand="$HOME/.local/state/planwright/test-slots"
+  else
+    cand=""
+  fi
+  shown="$(printable "$cand")"
+  nl='
+'
+  if [ -z "$cand" ]; then
+    pool_warn "has no location: neither HOME nor XDG_STATE_HOME is set"
+  else
+    case "$cand" in
+      /*) ;;
+      *)
+        pool_warn "directory must be an absolute path: $shown"
+        cand=""
+        ;;
+    esac
+  fi
+  case "$cand" in
+    *'#'* | *"$nl"*)
+      pool_warn "directory path contains '#' or a newline, which lock paths refuse: $shown"
+      cand=""
+      ;;
+  esac
+  if [ -n "$cand" ]; then
+    if [ ! -L "$cand" ] && [ ! -e "$cand" ]; then
+      # Owner-only from the first instant, parents included.
+      (umask 077 && mkdir -p "$cand") 2>/dev/null
+    fi
+    # The numeric owner, the one field ls prints the same on BSD and GNU;
+    # stat's flags differ between them. A single known path, so SC2012's
+    # filename concern does not apply.
+    # shellcheck disable=SC2012
+    owner="$(ls -ldn "$cand" 2>/dev/null | awk '{ print $3 }')"
+    me="$(id -u 2>/dev/null)"
+    if [ -L "$cand" ]; then
+      pool_warn "directory is a symbolic link, refused: $shown"
+    elif [ ! -d "$cand" ]; then
+      pool_warn "directory could not be created: $shown"
+    elif [ -z "$owner" ] || [ -z "$me" ] || [ "$owner" != "$me" ]; then
+      pool_warn "directory is not owned by the running user, refused: $shown"
+    elif [ ! -w "$cand" ] || [ ! -x "$cand" ]; then
+      pool_warn "directory is not writable: $shown"
+    elif [ ! -r "$self_dir/lock-lib.sh" ]; then
+      pool_warn "lock library is missing: $(printable "$self_dir/lock-lib.sh")"
+    else
+      pool_dir="$cand"
+    fi
+  fi
+fi
+if [ -n "$pool_dir" ]; then
+  export PLANWRIGHT_TEST_POOL_DIR="$pool_dir" PLANWRIGHT_TEST_POOL_SLOTS="$slots"
+  pool_field="$slots"
+  pool_desc="pool $slots slots"
+else
+  export PLANWRIGHT_TEST_POOL_DIR="" PLANWRIGHT_TEST_POOL_SLOTS=""
+  pool_field=off
+  pool_desc="unpooled"
+fi
 
 # Load headroom: the suite saturates every core, so latency-sensitive
 # watchdogs calibrated for an idle interactive run — spec-graph.sh's 5s
@@ -196,18 +386,33 @@ dispatch_failed=0
 suite_started="$(now_ms)"
 if [ "$parallel" -eq 1 ]; then
   mode=parallel
-  echo "run-tests: ${#files[@]} files, $jobs jobs"
+  echo "run-tests: ${#files[@]} files, $jobs jobs, $pool_desc"
   printf '%s\0' "${files[@]}" \
     | xargs -0 -n 1 -P "$jobs" /bin/bash "$self" --run-one \
     || dispatch_failed=1
 else
   mode=serial
-  echo "run-tests: ${#files[@]} files, serial (no parallel primitive)"
+  echo "run-tests: ${#files[@]} files, serial (no parallel primitive), $pool_desc"
   for t in "${files[@]}"; do
     /bin/bash "$self" --run-one "$t" || dispatch_failed=1
   done
 fi
 suite_finished="$(now_ms)"
+
+# A worker whose ticket the lock library refused ran its file unpooled and
+# left the cause behind; one warning covers them all.
+unpooled=0
+pool_cause=""
+for t in "${files[@]}"; do
+  name="${t##*/}"
+  if [ -s "$log_dir/$name.poolerr" ]; then
+    unpooled=$((unpooled + 1))
+    [ -n "$pool_cause" ] || IFS= read -r pool_cause <"$log_dir/$name.poolerr"
+  fi
+done
+if [ "$unpooled" -gt 0 ]; then
+  echo "run-tests: WARNING test pool refused a ticket ($(printable "$pool_cause")); $unpooled file(s) ran unpooled" >&2
+fi
 
 # Summary with positive accounting: every input file must have produced a
 # verdict marker. A .fail names a real test failure (log replayed); a file
@@ -222,7 +427,7 @@ suite_finished="$(now_ms)"
 # directory), then moved into place in one step.
 report_tmp="$(mktemp "$report.XXXXXX" 2>/dev/null)" || report_tmp=""
 if [ -n "$report_tmp" ]; then
-  printf 'planwright-test-timing\t1\tclock=%s\tmode=%s\tjobs=%s\n' "$clock" "$mode" "$jobs" >"$report_tmp" \
+  printf 'planwright-test-timing\t2\tclock=%s\tmode=%s\tjobs=%s\tpool=%s\n' "$clock" "$mode" "$jobs" "$pool_field" >"$report_tmp" \
     || report_tmp=""
 fi
 
@@ -243,8 +448,8 @@ for t in "${files[@]}"; do
   fi
   if [ -s "$log_dir/$name.time" ]; then
     if [ -n "$report_tmp" ]; then
-      IFS= read -r elapsed <"$log_dir/$name.time"
-      printf 'file\t%s\t%s\n' "$name" "$elapsed" >>"$report_tmp"
+      IFS="$(printf '\t')" read -r elapsed waited <"$log_dir/$name.time"
+      printf 'file\t%s\t%s\t%s\n' "$name" "$elapsed" "$waited" >>"$report_tmp"
     fi
   else
     fails=$((fails + 1))
