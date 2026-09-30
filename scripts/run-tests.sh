@@ -122,46 +122,71 @@ ms_to_seconds() {
   printf '%d.%03d' "$(($1 / 1000))" "$(($1 % 1000))"
 }
 
-# take_slot — hold one ticket from the pool, waiting with a bounded backoff
-# for as long as that takes. Sets slot to the ticket's number and slot_rc to
-# 0, or slot_rc to 2 with slot_err naming the lock library's real error,
-# which no amount of waiting clears. Runs in the worker's own shell, never a
-# subshell: the hold belongs to the process that takes it.
+# _slot_attempt <path> — one pw_lock_try on one ticket. 0 held (slot_path
+# set), 1 busy, 2 give up (slot_err set): anything but a held or busy answer,
+# 127 from a library that failed to load included, is not going to clear.
+_slot_attempt() {
+  pw_lock_try "$1" 2>"$_ts_err"
+  slot_rc=$?
+  case "$slot_rc" in
+    0)
+      slot_path=$1
+      return 0
+      ;;
+    1) return 1 ;;
+  esac
+  slot_err="$(cat "$_ts_err" 2>/dev/null)"
+  [ -n "$slot_err" ] || slot_err="lock-lib returned $slot_rc for $1"
+  slot_rc=2
+  return 2
+}
+
+# take_slot <pool-dir> <capacity> <stderr-file> — hold one ticket, waiting with
+# a bounded backoff for as long as that takes. Sets slot_rc to 0 and slot_path
+# to the ticket, or slot_rc to 2 with slot_err naming the lock library's real
+# error. Runs in the worker's own shell, never a subshell: the hold belongs to
+# the process that takes it.
 take_slot() {
-  _round=0
-  _err_file="$PLANWRIGHT_TEST_LOG_DIR/$name.lockerr"
-  slot=""
+  _ts_dir=$1
+  _ts_cap=$2
+  _ts_err=$3
+  _ts_round=0
+  _ts_next=1
+  slot_path=""
   slot_err=""
   while :; do
-    _i=1
-    while [ "$_i" -le "$PLANWRIGHT_TEST_POOL_SLOTS" ]; do
-      _path="$pool_dir/slot-$_i"
-      # A taken ticket is examined only every tenth round, the first included:
-      # breaking a dead holder means probing its liveness, which forks, and a
-      # live holder does not turn dead faster than that.
-      if [ ! -L "$_path" ] || [ $((_round % 10)) -eq 0 ]; then
-        pw_lock_try "$_path" 2>"$_err_file"
-        slot_rc=$?
-        if [ "$slot_rc" -eq 0 ]; then
-          slot="$_i"
-          return 0
-        fi
-        if [ "$slot_rc" -eq 2 ]; then
-          slot_err="$(cat "$_err_file" 2>/dev/null)"
-          [ -n "$slot_err" ] || slot_err="lock-lib could not take $_path"
-          return 0
-        fi
+    # The log directory is the parent's: gone means the run is over, and a
+    # waiter left behind would otherwise spin on a redirect that now fails.
+    [ -d "$PLANWRIGHT_TEST_LOG_DIR" ] || exit 0
+    # Free tickets first, looked at without a fork. A taken one is only worth
+    # a liveness probe when none is free, and the probe forks several times,
+    # so one holder is examined per stride, rotating through the pool; a dead
+    # holder's ticket is still reclaimed within a few strides.
+    # Each worker starts its scan at its own offset: workers that all began at
+    # ticket 1 collided there, and a lost race costs a liveness probe.
+    _ts_k=0
+    while [ "$_ts_k" -lt "$_ts_cap" ]; do
+      _ts_i=$((($$ + _ts_k) % _ts_cap + 1))
+      if [ ! -L "$_ts_dir/slot-$_ts_i" ]; then
+        _slot_attempt "$_ts_dir/slot-$_ts_i"
+        [ "$?" -eq 1 ] || return 0
       fi
-      _i=$((_i + 1))
+      _ts_k=$((_ts_k + 1))
     done
-    case "$_round" in
-      0) _nap=0.05 ;;
-      1) _nap=0.1 ;;
-      2) _nap=0.2 ;;
-      *) _nap=0.4 ;;
+    if [ $((_ts_round % 5)) -eq 0 ]; then
+      _slot_attempt "$_ts_dir/slot-$_ts_next"
+      [ "$?" -eq 1 ] || return 0
+      _ts_next=$((_ts_next % _ts_cap + 1))
+    fi
+    # Capped low because a ticket sits idle for as long as its next waiter
+    # sleeps; a waking round costs only the sleep itself.
+    case "$_ts_round" in
+      0) _ts_nap=0.05 ;;
+      1) _ts_nap=0.1 ;;
+      *) _ts_nap=0.2 ;;
     esac
-    sleep "$_nap" 2>/dev/null || sleep 1
-    _round=$((_round + 1))
+    sleep "$_ts_nap" 2>/dev/null || sleep 1
+    _ts_round=$((_ts_round + 1))
   done
 }
 
@@ -178,24 +203,25 @@ if [ "${1:-}" = "--run-one" ]; then
   clock="${PLANWRIGHT_TEST_CLOCK:-}"
   [ -n "$clock" ] || clock="$(probe_clock)"
   wait_started="$(now_ms)"
-  slot=""
-  pool_dir="${PLANWRIGHT_TEST_POOL_DIR:-}"
-  if [ -n "$pool_dir" ]; then
+  slot_path=""
+  if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ]; then
     # shellcheck source=scripts/lock-lib.sh
-    . "${0%/*}/lock-lib.sh"
-    # The trap releases the ticket if this worker is interrupted mid-file; a
-    # SIGKILL leaves it to the next run's dead-holder reclaim.
-    pw_lock_trap_install
-    take_slot
-    case "$slot_rc" in
-      0) slot="$pool_dir/slot-$slot" ;;
-      *)
-        # The parent reports these once, after the pool drains.
-        printf '%s\n' "$slot_err" >"$PLANWRIGHT_TEST_LOG_DIR/$name.poolerr"
-        ;;
-    esac
+    if . "${0%/*}/lock-lib.sh"; then
+      # The trap releases the ticket if this worker is interrupted mid-file; a
+      # SIGKILL leaves it to the next run's dead-holder reclaim.
+      pw_lock_trap_install
+      take_slot "$PLANWRIGHT_TEST_POOL_DIR" "$PLANWRIGHT_TEST_POOL_SLOTS" \
+        "$PLANWRIGHT_TEST_LOG_DIR/$name.lockerr"
+    else
+      slot_rc=2
+      slot_err="could not load ${0%/*}/lock-lib.sh"
+    fi
+    if [ "$slot_rc" -ne 0 ]; then
+      # The parent reports these once, after the pool drains.
+      printf '%s\n' "$slot_err" >"$PLANWRIGHT_TEST_LOG_DIR/$name.poolerr"
+    fi
   fi
-  [ -z "$slot" ] || export PLANWRIGHT_TEST_IN_POOLED_FILE=1
+  [ -z "$slot_path" ] || export PLANWRIGHT_TEST_IN_POOLED_FILE=1
   started="$(now_ms)"
   if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
     verdict="done"
@@ -203,7 +229,7 @@ if [ "${1:-}" = "--run-one" ]; then
     verdict="fail"
   fi
   finished="$(now_ms)"
-  [ -z "$slot" ] || pw_lock_release "$slot" 2>/dev/null || :
+  [ -z "$slot_path" ] || pw_lock_release "$slot_path" 2>/dev/null || :
   # The timing record is this worker's own file, written before the verdict
   # marker so a marker never exists without its record having been attempted.
   elapsed=""
