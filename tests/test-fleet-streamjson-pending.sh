@@ -478,4 +478,21 @@ order=$(penv "$home" sjp20 | sed -n 's/^== sjp20 \([^ ]*\) .*/\1/p' | tr '\n' ' 
 [ "$order" = "$id2 $id3 $id1 " ] || fail "p20: expected oldest first, then journal order, got: $order"
 echo "ok: p20 requests list oldest first, ties in journal order"
 
+# ---------------------------------------------------------------------------
+# p21: text after the envelope, or a bare word where a JSON literal belongs,
+#      makes the envelope malformed rather than silently accepted.
+# ---------------------------------------------------------------------------
+home="$tmp/h21"
+rawreq "$home" sjp21 "$id1" '{"request":{"tool_name":"Bash","input":{"command":"ls"}}}GARBAGE"'
+rawreq "$home" sjp21 "$id2" '{"request":{"tool_name":"Bash","input":{"command":"ls","timeout":$(id)}}}'
+rawreq "$home" sjp21 "$id3" '{"request":{"tool_name":"Bash","input":{"command":"ls","timeout":-1.5e3,"a":true,"b":null}}}'
+out=$(penv "$home" sjp21) || fail "p21: must exit 0"
+for i21 in "$id1" "$id2"; do
+  printf '%s\n' "$out" | grep -A1 "^== sjp21 $i21 " | grep -qx -- '-- request envelope unreadable' \
+    || fail "p21: a malformed envelope must read unreadable ($i21), got: $out"
+done
+printf '%s\n' "$out" | grep -A1 "^== sjp21 $id3 " | grep -qxF '+ {"timeout":-1.5e3,"a":true,"b":null}' \
+  || fail "p21: valid literals must still be accepted, got: $out"
+echo "ok: p21 trailing text and bare words make an envelope malformed"
+
 echo "all fleet-streamjson pending tests passed"

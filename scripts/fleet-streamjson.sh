@@ -2555,7 +2555,8 @@ pending_render() {
       } else {
         k = pos
         while (pos <= n && index(",]} \t\r\n", substr(s, pos, 1)) == 0) pos++
-        if (pos == k) { fail(); return }
+        if (pos == k || pos > n) { fail(); return }
+        if (substr(s, k, pos - k) !~ /^(true|false|null|-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?)$/) { fail(); return }
       }
       if (path == "/request/input") ine = pos
     }
@@ -2564,6 +2565,10 @@ pending_render() {
       n = length(s)
       pos = 1
       val("", 0)
+      if (!err) {
+        ws()
+        if (pos <= n) fail()
+      }
     }
     END {
       name = dec(tool, 64)
