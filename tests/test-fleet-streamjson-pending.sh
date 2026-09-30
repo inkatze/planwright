@@ -463,4 +463,19 @@ env "${env_scrub[@]}" PATH="$tmp/p19bin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home
 [ $? -eq 2 ] || fail "p19: a failing journal sort must be exit 2"
 echo "ok: p19 a journal that cannot be read whole fails closed"
 
+# ---------------------------------------------------------------------------
+# p20: a worker's requests list oldest first, and requests received in the same
+#      second keep the order the journal recorded them in.
+# ---------------------------------------------------------------------------
+home="$tmp/h20"
+w="$home/streamjson/sjp20"
+mkdir -p "$w"
+for r20 in "$id3:5" "$id1:5" "$id2:1"; do
+  printf '%s\tpermission\t%s\tpending\n' "${r20%%:*}" "${r20#*:}" >>"$w/journal"
+  printf '%s\n' '{"request":{"tool_name":"Bash","input":{"command":"true"}}}' >"$w/req-${r20%%:*}.json"
+done
+order=$(penv "$home" sjp20 | sed -n 's/^== sjp20 \([^ ]*\) .*/\1/p' | tr '\n' ' ')
+[ "$order" = "$id2 $id3 $id1 " ] || fail "p20: expected oldest first, then journal order, got: $order"
+echo "ok: p20 requests list oldest first, ties in journal order"
+
 echo "all fleet-streamjson pending tests passed"

@@ -600,10 +600,10 @@ journal_oldest_pending() {
 journal_pending_ids() {
   [ -e "$1/journal" ] || [ -L "$1/journal" ] || return 0
   [ -f "$1/journal" ] || return 2
-  jp_rows=$(awk -F'\t' '$4 == "pending" { print $3 "\t" $1 }' "$1/journal") || return 2
+  jp_rows=$(awk -F'\t' '$4 == "pending" { print $3 "\t" NR "\t" $1 }' "$1/journal") || return 2
   [ -n "$jp_rows" ] || return 0
-  jp_rows=$(printf '%s\n' "$jp_rows" | sort -n) || return 2
-  printf '%s\n' "$jp_rows" | awk -F'\t' '{ print $2 }'
+  jp_rows=$(printf '%s\n' "$jp_rows" | sort -t "$TAB" -k1,1n -k2,2n) || return 2
+  printf '%s\n' "$jp_rows" | awk -F'\t' '{ print $3 }'
 }
 
 # --- JSON helpers (awk, no jq per REQ-K1.5) ---------------------------------
