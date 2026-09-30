@@ -374,31 +374,48 @@ assert_not_contains "the nested run prints no pool warning" "WARNING" "$inner_ou
 assert_contains "the nested run is unpooled" "pool=off" "$(head -n 1 "$tmp/inner-report.tsv" 2>/dev/null)"
 
 # ---------------------------------------------------------------------------
-# 9. An interrupt stops a serial pooled run and returns its ticket. The run
-#    gets its own process group (job control), as a terminal's Ctrl-C would
-#    reach it; a background job would otherwise start with SIGINT ignored.
+# 9. A signal to the run stops it and returns its ticket, in either mode. The
+#    run gets its own process group (job control), as a terminal's Ctrl-C
+#    would reach it; a background job would otherwise start with SIGINT
+#    ignored.
 # ---------------------------------------------------------------------------
-mkdir -p "$tmp/intr"
-for n in 1 2; do
-  printf '#!/bin/bash\n: >"%s/intr-started-%s"\nsleep 5\n' "$tmp" "$n" >"$tmp/intr/test-i$n.sh"
-done
-set -m
-PLANWRIGHT_TEST_SLOT_DIR="$tmp/ipool" PLANWRIGHT_TEST_SLOTS=1 PLANWRIGHT_TEST_FORCE_SERIAL=1 \
-  /bin/bash "$RUNNER" "$tmp/intr" >"$tmp/o9" 2>&1 &
-irun=$!
-set +m
-i=0
-while [ "$i" -lt 150 ] && [ ! -e "$tmp/intr-started-1" ]; do
-  sleep 0.1
-  i=$((i + 1))
-done
-kill -INT -- "-$irun" 2>/dev/null
-wait "$irun" 2>/dev/null
-rc=$?
-if [ "$rc" -ne 0 ]; then pass "an interrupted serial pooled run fails ($rc)"; else fail "an interrupted serial pooled run exited 0"; fi
-if [ ! -e "$tmp/intr-started-2" ]; then pass "an interrupt stops a serial pooled run"; else fail "a serial pooled run went on to the next file after an interrupt"; fi
-left="$(find "$tmp/ipool" -name 'slot-*' 2>/dev/null | wc -l | tr -d ' ')"
-assert_exit "an interrupted worker returns its ticket" 0 "$left"
+# signal_case <serial:0|1> <SIG>
+signal_case() {
+  sc_dir="$tmp/sig-$1-$2"
+  mkdir -p "$sc_dir/suite"
+  for n in 1 2; do
+    printf '#!/bin/bash\n: >"%s/started-%s"\nsleep 5\n' "$sc_dir" "$n" >"$sc_dir/suite/test-i$n.sh"
+  done
+  set -m
+  PLANWRIGHT_TEST_SLOT_DIR="$sc_dir/pool" PLANWRIGHT_TEST_SLOTS=1 PLANWRIGHT_TEST_JOBS=1 \
+    PLANWRIGHT_TEST_FORCE_SERIAL="$1" /bin/bash "$RUNNER" "$sc_dir/suite" >"$sc_dir/out" 2>&1 &
+  sc_run=$!
+  set +m
+  sc_i=0
+  while [ "$sc_i" -lt 150 ] && [ ! -e "$sc_dir/started-1" ]; do
+    sleep 0.1
+    sc_i=$((sc_i + 1))
+  done
+  kill -s "$2" -- "-$sc_run" 2>/dev/null
+  wait "$sc_run" 2>/dev/null
+  sc_rc=$?
+  if [ "$sc_rc" -ne 0 ]; then pass "SIG$2 fails a pooled run (serial=$1, exit $sc_rc)"; else fail "SIG$2 left a pooled run exiting 0 (serial=$1)"; fi
+  if [ ! -e "$sc_dir/started-2" ]; then pass "SIG$2 stops a pooled run (serial=$1)"; else fail "a pooled run went on to the next file after SIG$2 (serial=$1)"; fi
+  # The parent can die before its worker's release finishes; a leaked ticket
+  # is one still standing after that settles.
+  sc_i=0
+  while :; do
+    sc_left="$(find "$sc_dir/pool" -name 'slot-*' 2>/dev/null | wc -l | tr -d ' ')"
+    [ "$sc_left" -ne 0 ] && [ "$sc_i" -lt 50 ] || break
+    sleep 0.1
+    sc_i=$((sc_i + 1))
+  done
+  assert_exit "SIG$2 returns the worker's ticket (serial=$1)" 0 "$sc_left"
+}
+signal_case 1 INT
+signal_case 0 INT
+signal_case 1 TERM
+signal_case 1 HUP
 
 # ---------------------------------------------------------------------------
 # 10. Built on the shared lock primitive: the retired-mkdir guard reports the
