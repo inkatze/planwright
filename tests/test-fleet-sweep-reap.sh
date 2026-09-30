@@ -442,6 +442,14 @@ wait_until 30 observed_sjw2 || fail "the watch loop never observed sjw2: $(cat "
 alive "$sup2" || fail "an observing watch loop killed sjw2"
 printf 'fleet_sweep_interval: 1s\nfleet_sweep_reap: terminate\n' >"$mlocal_cfg"
 wait_until 30 gone "$sup2" || fail "the running loop did not start terminating once the knob flipped: $(cat "$tmp/watch-out") $(cat "$tmp/watch-err")"
+# A 1s loop is nearly always mid-cycle, and a signal there waits for the child
+# in flight, so the loop is parked in a long wait before it is stopped.
+printf 'fleet_sweep_interval: 1h\nfleet_sweep_reap: terminate\n' >"$mlocal_cfg"
+flip_n=$(cycles "$tmp/watch-out")
+past_flip() {
+  [ "$(cycles "$tmp/watch-out")" -gt "$flip_n" ]
+}
+wait_until 60 past_flip || fail "the flipped loop never finished another cycle: $(cat "$tmp/watch-err")"
 stop_watch "a loop whose knob flipped"
 rm -f "$mlocal_cfg"
 echo "ok: a running watch loop re-reads the knob every cycle; flipping it takes effect with no restart"
