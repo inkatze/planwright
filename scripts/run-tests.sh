@@ -195,6 +195,13 @@ take_slot() {
   done
 }
 
+# worker_signal <SIG> — release every ticket, then die by <SIG> itself.
+worker_signal() {
+  pw_lock_release_all
+  trap - "$1"
+  kill -s "$1" "$$"
+}
+
 # Worker mode: run ONE test file, capturing its output to the log dir the
 # parent exported. Always exits 0 — a test's own exit code (255 included,
 # which would otherwise make xargs abort the whole run) is recorded as a
@@ -212,9 +219,14 @@ if [ "${1:-}" = "--run-one" ]; then
   if [ -n "${PLANWRIGHT_TEST_POOL_DIR:-}" ]; then
     # shellcheck source=scripts/lock-lib.sh
     if . "${0%/*}/lock-lib.sh"; then
-      # The trap releases the ticket if this worker is interrupted mid-file; a
-      # SIGKILL leaves it to the next run's dead-holder reclaim.
-      pw_lock_trap_install
+      # The traps release the ticket if this worker is interrupted mid-file; a
+      # SIGKILL leaves it to the next run's dead-holder reclaim. They re-raise
+      # rather than exit (pw_lock_trap_install's form): a serial parent that
+      # sees a plain exit assumes the file handled the interrupt and runs on.
+      trap 'pw_lock_release_all' EXIT
+      trap 'worker_signal INT' INT
+      trap 'worker_signal TERM' TERM
+      trap 'worker_signal HUP' HUP
       take_slot "$PLANWRIGHT_TEST_POOL_DIR" "$PLANWRIGHT_TEST_POOL_SLOTS" \
         "$PLANWRIGHT_TEST_LOG_DIR/$name.lockerr"
     else
