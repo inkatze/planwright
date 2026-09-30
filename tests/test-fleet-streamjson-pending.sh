@@ -254,4 +254,36 @@ printf '%s\n' "$out" | grep -A1 "^== sjp8 $id3 " | grep -qx -- '-- request envel
   || fail "p8: a symlinked envelope must not be followed, got: $out"
 echo "ok: p8 every journal-pending request is listed, a missing or symlinked envelope as unreadable"
 
+# ---------------------------------------------------------------------------
+# p9: a journal or worker dir that cannot be read fails closed (exit 2, the
+#     worker named), never an empty "nothing pending"; the other workers are
+#     still listed.
+# ---------------------------------------------------------------------------
+home="$tmp/h9"
+mkreq "$home/streamjson/sjp9a" "$id1" pending Bash '{"command":"true"}'
+mkreq "$home/streamjson/sjp9b" "$id2" pending Bash '{"command":"true"}'
+mkreq "$home/streamjson/sjp9c" "$id3" pending Bash '{"command":"true"}'
+chmod 000 "$home/streamjson/sjp9b/journal"
+if [ -r "$home/streamjson/sjp9b/journal" ]; then
+  echo "ok: p9 skipped (this user reads a mode-000 file)"
+else
+  penv "$home" sjp9b >"$tmp/p9.out" 2>"$tmp/p9.err"
+  [ $? -eq 2 ] || fail "p9: an unreadable journal must be exit 2"
+  grep -q sjp9b "$tmp/p9.err" || fail "p9: the refusal must name the worker"
+  chmod 755 "$home/streamjson/sjp9b/journal"
+  chmod 000 "$home/streamjson/sjp9c"
+  penv "$home" >"$tmp/p9.out" 2>"$tmp/p9.err"
+  rc=$?
+  chmod 755 "$home/streamjson/sjp9c"
+  [ "$rc" -eq 2 ] || fail "p9: an unreadable worker dir must be exit 2, got $rc"
+  grep -q sjp9c "$tmp/p9.err" || fail "p9: the refusal must name the worker dir"
+  grep -q "^== sjp9a $id1" "$tmp/p9.out" || fail "p9: the readable workers must still be listed"
+  chmod 000 "$home/streamjson"
+  penv "$home" >/dev/null 2>&1
+  rc=$?
+  chmod 755 "$home/streamjson"
+  [ "$rc" -eq 2 ] || fail "p9: an unreadable worker list must be exit 2, got $rc"
+  echo "ok: p9 an unreadable journal or worker dir fails closed and names the worker"
+fi
+
 echo "all fleet-streamjson pending tests passed"

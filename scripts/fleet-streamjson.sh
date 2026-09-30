@@ -2591,6 +2591,10 @@ pending_show() {
 # since the journal is replaced by rename and an unlocked read sees one whole
 # generation of it.
 pending_worker() {
+  if [ ! -r "$2" ] || [ ! -x "$2" ] || { [ -e "$2/journal" ] && [ ! -r "$2/journal" ]; }; then
+    echo "$me: cannot read the receipt journal of worker $1" >&2
+    return 2
+  fi
   for pw_id in $(journal_pending_ids "$2"); do
     valid_reqid "$pw_id" || continue
     pending_show "$1" "$2" "$pw_id"
@@ -2605,17 +2609,24 @@ cmd_pending() {
     }
   done
   pd_root=$(/bin/sh "$FS" root) || exit 2
+  # An unreadable worker fails the call, but only after the others are listed:
+  # one broken dir must not hide every other worker's pending decisions.
+  pd_rc=0
   if [ $# -eq 0 ]; then
     [ -d "$pd_root/streamjson" ] || return 0
+    [ -r "$pd_root/streamjson" ] && [ -x "$pd_root/streamjson" ] || {
+      echo "$me: cannot list the stream-json workers under $pd_root" >&2
+      exit 2
+    }
     set +f
     for pd_dir in "$pd_root/streamjson"/*; do
       [ -d "$pd_dir" ] || continue
       pd_w=${pd_dir##*/}
       valid_field "$pd_w" || continue
-      pending_worker "$pd_w" "$pd_dir"
+      pending_worker "$pd_w" "$pd_dir" || pd_rc=2
     done
     set -f
-    return 0
+    exit "$pd_rc"
   fi
   for pd_w in "$@"; do
     [ -d "$pd_root/streamjson/$pd_w" ] || {
@@ -2624,8 +2635,9 @@ cmd_pending() {
     }
   done
   for pd_w in "$@"; do
-    pending_worker "$pd_w" "$pd_root/streamjson/$pd_w"
+    pending_worker "$pd_w" "$pd_root/streamjson/$pd_w" || pd_rc=2
   done
+  exit "$pd_rc"
 }
 
 # --- dispatch ---------------------------------------------------------------
