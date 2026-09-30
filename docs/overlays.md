@@ -122,7 +122,10 @@ order is the same for all three; only the *merge rule* differs.
 
 - **Config — last-layer-wins, per key.** The highest layer that sets a key
   wins for that key; other keys fall through independently. Setting one option
-  in `machine-local` does not discard the rest of the lower layers.
+  in `machine-local` does not discard the rest of the lower layers. Two
+  human-gate lists are the exception: `protected_branches` and
+  `merge_class_exclude_paths` add up across all four layers, so a higher
+  layer (an empty value included) never drops an entry a lower layer set.
 - **Doctrine — whole-doc shadow.** The highest-precedence doc of a given name
   wins **in full**. There is no fragment or section merge: if your overlay
   `validation-rigor.md` omits a section the core doc had, that section is gone
@@ -152,6 +155,17 @@ resolver carries on from the lower layers and returns its **normal** resolution
 status. A key or doc still absent in every remaining layer exits with the usual
 not-found code (`scripts/config-get.sh` exits 3, `scripts/resolve-rule-doc.sh`
 exits 1), independent of the degraded overlay.
+
+The human-gate policy knobs (`ready_flip_policy`, `merge_policy`, and the
+rest listed in [the options reference](options-reference.md)) take a stricter
+line, because their lower layers can hold the permissive value: a malformed
+adopter or machine-local value or file degrades each to its strict value, and
+`protected_branches` refuses the act at every layer. For these knobs, a key
+written with a space before its colon (`merge_policy : human`) or set twice in
+one file is malformed in that layer rather than skipped or read once. Each row names its
+target. `ready_flip_ci_wait` is the exception: it is a bound, not a gate, so a
+malformed value degrades to its core default and a malformed file is skipped
+as above.
 
 The asymmetry is deliberate. One operator's broken personal or machine-local
 file should never block their run — a warning is proportionate, the blast

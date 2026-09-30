@@ -20,8 +20,9 @@
 #                     `cleanup` (fleet-cleanup.sh's window-cleanup,
 #                     worktree-cleanup, and process-cleanup mechanisms).
 #                     Refuse-self blocks, partial process closes
-#                     (`cleanup-partial`), and housekeeping escalations do not
-#                     count.
+#                     (`cleanup-partial`), the observing sweep's would-have
+#                     closes (`would-cleanup`), and housekeeping escalations do
+#                     not count.
 #   watchdog trips  — how many times Task 3's tower-liveness watchdog TRIPPED:
 #                     audit rows with mechanism `tower-watchdog` and action
 #                     relaunch / relaunch-failed / disable (the watchdog acting

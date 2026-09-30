@@ -297,10 +297,14 @@ release_lock() {
 # set — the dedupe check, and the tower session that relays the markers, both
 # walk it — so a temp orphaned between mktemp and rename would be counted as a
 # push forever, unlike the sibling scratch files whose readers open one name.
+# st_tmp is the in-flight store rewrite, collected for the same reason: it
+# sits beside the store in a directory nothing else sweeps.
 np_tmp=""
-trap 'release_lock; [ -z "$np_tmp" ] || rm -f "$np_tmp"' EXIT
+st_tmp=""
+trap 'release_lock; [ -z "$np_tmp" ] || rm -f "$np_tmp"; [ -z "$st_tmp" ] || rm -f "$st_tmp"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 acquire_lock() {
   al_tries=0
@@ -472,10 +476,11 @@ upsert_row() {
     release_lock
     return 2
   fi
-  ur_tmp=$(mktemp "$attn_dir/.state.XXXXXX") || {
+  st_tmp=$(mktemp "$attn_dir/.state.XXXXXX") || {
     release_lock
     return 2
   }
+  ur_tmp=$st_tmp
   if [ -f "$store" ]; then
     # Force a STRING comparison: awk compares two numeric-looking operands
     # NUMERICALLY (strnum), and valid_field admits all-numeric handles, so a
@@ -514,6 +519,7 @@ upsert_row() {
     mv -f "$ur_tmp" "$store" || ur_rc=2
   fi
   [ "$ur_rc" = 0 ] || rm -f "$ur_tmp" 2>/dev/null
+  st_tmp=""
   release_lock
   if [ "$ur_rc" != 0 ]; then
     echo "fleet-attention: failed to write the state store" >&2
@@ -1234,10 +1240,11 @@ case $cmd in
     # sees a torn store (the clear/upsert discipline). These are all OPERATIONAL
     # failures AFTER a successful validation (mktemp / awk write / mv) — exit 2,
     # the script's fs/lock/write convention, never the semantic-refusal 3.
-    cl_tmp=$(mktemp "$attn_dir/.state.XXXXXX") || {
+    st_tmp=$(mktemp "$attn_dir/.state.XXXXXX") || {
       release_lock
       exit 2
     }
+    cl_tmp=$st_tmp
     cl_rc=0
     # The winning label rides ENVIRON (not `-v`): it is written verbatim into
     # field 11, so escape processing must not alter it (an unescaped `-v` value
@@ -1253,6 +1260,7 @@ case $cmd in
       mv -f "$cl_tmp" "$store" || cl_rc=2
     fi
     [ "$cl_rc" = 0 ] || rm -f "$cl_tmp" 2>/dev/null
+    st_tmp=""
     release_lock
     if [ "$cl_rc" != 0 ]; then
       echo "fleet-attention: failed to record the claim (store write failed)" >&2
@@ -1281,10 +1289,11 @@ case $cmd in
     [ -f "$store" ] || exit 0
     acquire_lock || exit 2
     clr_rc=0
-    clr_tmp=$(mktemp "$attn_dir/.state.XXXXXX") || {
+    st_tmp=$(mktemp "$attn_dir/.state.XXXXXX") || {
       release_lock
       exit 2
     }
+    clr_tmp=$st_tmp
     # String comparison (see upsert_row): a bare `$1 != w` would numerically
     # equate all-numeric handles (`1` == `01` == `1.0`) and clear the wrong row.
     awk -F "$TAB" -v w="$worker" '($1 "") != (w "")' "$store" >"$clr_tmp" || clr_rc=2
@@ -1292,6 +1301,7 @@ case $cmd in
       mv -f "$clr_tmp" "$store" || clr_rc=2
     fi
     [ "$clr_rc" = 0 ] || rm -f "$clr_tmp" 2>/dev/null
+    st_tmp=""
     release_lock
     exit "$clr_rc"
     ;;

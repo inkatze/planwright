@@ -79,9 +79,9 @@ write_report() {
   wr_wall="$2"
   shift 2
   {
-    printf 'planwright-test-timing\t1\tclock=fixture\tjobs=1\n'
+    printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
     for wr_entry in "$@"; do
-      printf 'file\t%s\t%s\n' "${wr_entry%%=*}" "${wr_entry#*=}"
+      printf 'file\t%s\t%s\t0.000\n' "${wr_entry%%=*}" "${wr_entry#*=}"
     done
     printf 'suite\twall\t%s\n' "$wr_wall"
   } >"$wr_path"
@@ -218,28 +218,62 @@ assert "a duplicated file row fails closed" 2 $?
 assert_contains "the duplicate failure names the file" "$out" "test-alpha.sh"
 
 {
-  printf 'planwright-test-timing\t1\tclock=fixture\tjobs=1\n'
-  printf 'file\ttest-alpha.sh\t1\nfile\ttest-beta.sh\t1\nfile\ttest-gamma.sh\t1\n'
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
+  printf 'file\ttest-alpha.sh\t1\t0\nfile\ttest-beta.sh\t1\t0\nfile\ttest-gamma.sh\t1\t0\n'
 } >"$tmp/report.tsv"
 out="$(run_check --mode ci)"
 assert "a report without the suite wall-clock row fails closed" 2 $?
 assert_contains "the missing-wall failure says so" "$out" "wall"
 
 {
-  printf 'planwright-test-timing\t1\tclock=fixture\tjobs=1\n'
-  printf 'file\ttest-alpha.sh\t1\nfile\ttest-beta.sh\t1\nfile\ttest-gamma.sh\t1\n'
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
+  printf 'file\ttest-alpha.sh\t1\t0\nfile\ttest-beta.sh\t1\t0\nfile\ttest-gamma.sh\t1\t0\n'
   printf 'suite\twall\t3\nbogus\trow\n'
 } >"$tmp/report.tsv"
 out="$(run_check --mode ci)"
 assert "an unrecognised row fails closed" 2 $?
 
 {
-  printf 'planwright-test-timing\t1\tclock=fixture\tjobs=1\n'
-  printf 'file\ttest-alpha.sh\t1\nfile\ttest-beta.sh\t1\nfile\ttest-gamma.sh\t1\n'
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
+  printf 'file\ttest-alpha.sh\t1\t0\nfile\ttest-beta.sh\t1\t0\nfile\ttest-gamma.sh\t1\t0\n'
   printf 'suite\twall\t3\nsuite\twall\t4\n'
 } >"$tmp/report.tsv"
 out="$(run_check --mode ci)"
 assert "a duplicated wall-clock row fails closed" 2 $?
+
+# The version-2 row carries the ticket wait beside the execution time. The
+# wait is never budgeted, the pre-wait version-1 report is refused rather than
+# misread, and a row missing its wait or carrying a non-numeric one is malformed.
+{
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
+  printf 'file\ttest-alpha.sh\t1\t500\nfile\ttest-beta.sh\t1\t0\nfile\ttest-gamma.sh\t1\t0\n'
+  printf 'suite\twall\t3\n'
+} >"$tmp/report.tsv"
+out="$(run_check --mode ci)"
+assert "a wait far over the per-file budget does not trip it" 0 $?
+{
+  printf 'planwright-test-timing\t1\tclock=fixture\tjobs=1\n'
+  printf 'file\ttest-alpha.sh\t1\nfile\ttest-beta.sh\t1\nfile\ttest-gamma.sh\t1\n'
+  printf 'suite\twall\t3\n'
+} >"$tmp/report.tsv"
+out="$(run_check --mode ci)"
+assert "a version-1 report fails closed" 2 $?
+assert_contains "the version failure asks for a fresh run" "$out" "mise run test"
+{
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
+  printf 'file\ttest-alpha.sh\t1\nfile\ttest-beta.sh\t1\t0\nfile\ttest-gamma.sh\t1\t0\n'
+  printf 'suite\twall\t3\n'
+} >"$tmp/report.tsv"
+out="$(run_check --mode ci)"
+assert "a file row without its wait fails closed" 2 $?
+{
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
+  printf 'file\ttest-alpha.sh\t1\tlong\nfile\ttest-beta.sh\t1\t0\nfile\ttest-gamma.sh\t1\t0\n'
+  printf 'suite\twall\t3\n'
+} >"$tmp/report.tsv"
+out="$(run_check --mode ci)"
+assert "a non-numeric wait fails closed" 2 $?
+assert_contains "the non-numeric wait failure names the row" "$out" "test-alpha.sh"
 
 # ---------------------------------------------------------------------------
 # 8. The budget file: missing, unreadable keys, non-positive, duplicated, or
@@ -329,9 +363,9 @@ assert_contains "--help records the CI/local split" "$out" "warns"
 #     written by the suite run this test is part of.)
 # ---------------------------------------------------------------------------
 {
-  printf 'planwright-test-timing\t1\tclock=fixture\tjobs=1\n'
+  printf 'planwright-test-timing\t2\tclock=fixture\tjobs=1\tpool=1\n'
   for f in "$REPO_ROOT"/tests/*.sh; do
-    printf 'file\t%s\t0.001\n' "${f##*/}"
+    printf 'file\t%s\t0.001\t0.000\n' "${f##*/}"
   done
   printf 'suite\twall\t0.5\n'
 } >"$tmp/real-report.tsv"
