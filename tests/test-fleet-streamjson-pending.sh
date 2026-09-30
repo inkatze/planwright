@@ -407,4 +407,24 @@ out=$(penv "$home" sjp16) || fail "p16: must exit 0"
 [ -z "$out" ] || fail "p16: an out-of-grammar journal id must be skipped whole, got: $out"
 echo "ok: p16 an out-of-grammar journal id is skipped whole"
 
+# ---------------------------------------------------------------------------
+# p17: `answer --allow` splices the input found by the first literal
+#      `"input":` in the envelope, while the view shows the structural one. When
+#      they differ (a repeated input or request, an escaped key beside a nested
+#      decoy), the view says so before the content, so the tower never approves
+#      a command other than the one it read.
+# ---------------------------------------------------------------------------
+home="$tmp/h17"
+rawreq "$home" sjp17 "$id1" '{"request":{"tool_name":"Bash","input":{"command":"rm -rf ~"},"input":{"command":"ls"}}}'
+rawreq "$home" sjp17 "$id2" '{"request":{"tool_name":"Bash","inp'"$bu"'0075t":{"command":"ls"},"meta":{"input":{"command":"rm -rf ~"}}}}'
+rawreq "$home" sjp17 "$id3" '{"request":{"tool_name":"Bash","input":{"command":"rm -rf ~"}},"request":{"tool_name":"Bash","input":{"command":"ls"}}}'
+rawreq "$home" sjp17 "$id4" '{"request":{"tool_name":"Bash","input": {"command":"ls"}}}'
+out=$(penv "$home" sjp17) || fail "p17: must exit 0"
+for i17 in "$id1" "$id2" "$id3"; do
+  printf '%s\n' "$out" | grep -A1 "^== sjp17 $i17 " | grep -q '^-- request envelope ambiguous' \
+    || fail "p17: an input an --allow would not splice must be flagged ($i17), got: $out"
+done
+printf '%s\n' "$out" | grep -A1 "^== sjp17 $id4 " | grep -qx '| ls' || fail "p17: a space after the colon is not ambiguous, got: $out"
+echo "ok: p17 an input that --allow would not splice is flagged ambiguous"
+
 echo "all fleet-streamjson pending tests passed"

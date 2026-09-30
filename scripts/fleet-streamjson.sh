@@ -2575,8 +2575,13 @@ pending_render() {
         if (length(out) > cap) { out = substr(out, 1, cap); trunc = 1 }
       }
       if (eof) trunc = 1
+      # `answer --allow` splices the object json_input_object finds, the one
+      # after the first literal `"input":`. Unless that is the object shown
+      # here, the tower would approve something other than what it read.
+      j = index(s, "\"input\":")
+      if (j) { j += 8; while (substr(s, j, 1) == " ") j++ }
       print t
-      print trunc
+      print (j == ins ? "" : "a") trunc
       print extra
       print out
     }'
@@ -2609,6 +2614,12 @@ pending_show() {
     echo '-- request envelope unreadable'
     return 0
   fi
+  case $ps_flag in
+    a*)
+      echo '-- request envelope ambiguous: an answer --allow would not apply the input shown'
+      ps_flag=${ps_flag#a}
+      ;;
+  esac
   if [ -n "$ps_extra" ]; then
     printf '+ {%s}\n' "$ps_extra" | tr -d '\000-\010\013-\037\177\200-\237'
   fi
