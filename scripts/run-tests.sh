@@ -1,7 +1,8 @@
 #!/bin/bash
 # Bounded-parallel shell-test runner behind `mise run test`. Runs every
-# <suite-dir>/*.sh under /bin/bash (the bash 3.2 floor), N files at a time
-# (N = hw.ncpu / nproc), capturing each file's stdout+stderr to a per-file
+# <suite-dir>/*.sh under /bin/bash (the bash 3.2 floor), up to N files at a
+# time (N = hw.ncpu / nproc), further bounded by the machine-wide ticket pool
+# below, capturing each file's stdout+stderr to a per-file
 # log so the tests' own concurrent output never interleaves (the runner's
 # one-line ok/FAIL markers share the parent's streams and stay whole
 # under PIPE_BUF). The gate semantics match the old serial loop: any failing
@@ -302,7 +303,7 @@ fi
 
 # Pool capacity: the same fallback and clamp as the job count, but a value
 # that needed either is a misconfiguration worth one warning. Five digits is
-# already far past any core count, and wider values overflow shell arithmetic.
+# already far past any core count, and every waiting worker scans each slot.
 slots="${PLANWRIGHT_TEST_SLOTS-$cores}"
 case "$slots" in
   '' | *[!0-9]* | ??????*)
