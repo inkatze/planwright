@@ -588,6 +588,13 @@ journal_oldest_pending() {
     | sort -n | awk -F'\t' 'NR == 1 { print $2, $3 }'
 }
 
+# journal_pending_ids <dir> — print the id of every pending row, oldest first.
+journal_pending_ids() {
+  [ -f "$1/journal" ] || return 0
+  awk -F'\t' '$4 == "pending" { print $3 "\t" $1 }' "$1/journal" \
+    | sort -n | awk -F'\t' '{ print $2 }'
+}
+
 # --- JSON helpers (awk, no jq per REQ-K1.5) ---------------------------------
 
 # json_escape — print stdin as a JSON string body (no surrounding quotes):
@@ -2554,8 +2561,12 @@ pending_render() {
 # cut or unreadable. The prefix is what keeps the framing unforgeable: no content
 # line can begin with `== ` or `-- `, whatever the request carries.
 pending_show() {
+  ps_env="$2/req-$3.json"
+  if [ -L "$ps_env" ] || [ ! -f "$ps_env" ]; then
+    ps_env=/dev/null
+  fi
   ps_out=$(
-    head -c "$pending_read_max" "$2/req-$3.json" 2>/dev/null | pending_render
+    head -c "$pending_read_max" "$ps_env" 2>/dev/null | pending_render
     printf x
   )
   ps_out=${ps_out%x}
@@ -2575,19 +2586,15 @@ pending_show() {
 }
 
 # pending_worker <worker> <dir> — every request of one worker the journal still
-# reads pending. Read-only: no lock is taken, since the journal is replaced by
-# rename and an unlocked read sees one whole generation of it.
+# reads pending, driven by the journal rather than the envelope files, so a row
+# whose envelope never landed is still listed. Read-only: no lock is taken,
+# since the journal is replaced by rename and an unlocked read sees one whole
+# generation of it.
 pending_worker() {
-  set +f
-  for pw_f in "$2"/req-*.json; do
-    [ -f "$pw_f" ] && [ ! -L "$pw_f" ] || continue
-    pw_id=${pw_f##*/req-}
-    pw_id=${pw_id%.json}
+  for pw_id in $(journal_pending_ids "$2"); do
     valid_reqid "$pw_id" || continue
-    [ "$(journal_state "$2" "$pw_id")" = pending ] || continue
     pending_show "$1" "$2" "$pw_id"
   done
-  set -f
 }
 
 cmd_pending() {

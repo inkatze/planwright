@@ -234,4 +234,24 @@ printf '%s\n' "$out" | grep -qx -- '-- request envelope unreadable' || fail "p7:
 case $out in *tool_use_id*) fail "p7: a malformed input must not leak sibling fields, got: $out" ;; esac
 echo "ok: p7 an envelope that ends early is marked truncated and a malformed one unreadable"
 
+# ---------------------------------------------------------------------------
+# p8: the journal decides what is listed. A pending row whose envelope is
+#     missing (the supervisor journals before it writes the envelope) or is a
+#     symlink is still listed, as unreadable, never silently left out.
+# ---------------------------------------------------------------------------
+home="$tmp/h8"
+w="$home/streamjson/sjp8"
+mkdir -p "$w"
+printf '%s\tpermission\t1700000000\tpending\n' "$id1" >"$w/journal"
+mkreq "$w" "$id2" pending Bash '{"command":"true"}'
+ln -s "$w/req-$id2.json" "$w/req-$id3.json"
+printf '%s\tpermission\t1700000000\tpending\n' "$id3" >>"$w/journal"
+out=$(penv "$home" sjp8) || fail "p8: must exit 0"
+[ "$(printf '%s\n' "$out" | grep -c '^== ')" = 3 ] || fail "p8: every journal-pending row must be listed, got: $out"
+printf '%s\n' "$out" | grep -A1 "^== sjp8 $id1 " | grep -qx -- '-- request envelope unreadable' \
+  || fail "p8: a missing envelope must read unreadable, got: $out"
+printf '%s\n' "$out" | grep -A1 "^== sjp8 $id3 " | grep -qx -- '-- request envelope unreadable' \
+  || fail "p8: a symlinked envelope must not be followed, got: $out"
+echo "ok: p8 every journal-pending request is listed, a missing or symlinked envelope as unreadable"
+
 echo "all fleet-streamjson pending tests passed"
