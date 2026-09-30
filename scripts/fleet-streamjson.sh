@@ -223,8 +223,10 @@
 #       tool input behind a `| ` prefix on every line. A Bash request shows
 #       its command decoded, preceded by one `+ {...}` line carrying every
 #       other input field but the description when there are any; any other
-#       tool shows its input JSON. Input cut at `pending_show_max` bytes, or
-#       an envelope that ends early, gets a `-- truncated ...` line; a
+#       tool shows its input JSON. Input cut at `pending_show_max` bytes gets
+#       a `-- truncated ...` line; an envelope that ends early (cut at
+#       `pending_read_max` or still being written) gets a
+#       `-- request envelope ends early ...` line after the header; a
 #       missing, symlinked or malformed envelope prints
 #       `-- request envelope unreadable` in place of the input. Request
 #       content is untrusted: control bytes are stripped and the prefixes
@@ -2430,14 +2432,15 @@ cmd_status() {
 # enough to recognise the request, not the whole payload. The read bound is also
 # a time bound: busybox awk's substr costs grow with the offset, so a walk over
 # 300 KiB there takes seconds where 64 KiB takes a fraction of one. An envelope
-# cut by it still shows the start of its input, marked truncated.
+# cut by it still shows the start of its input, marked as ending early.
 pending_show_max=4096
 pending_read_max=65536
 
 # pending_render — read a stored control_request envelope on stdin and print
 # four things, one per line but the last: a header-safe tool-name token, a
-# truncation flag (0, 1, or `bad` for an envelope with no readable input or
-# malformed JSON), the Bash request's other input fields as one line of raw
+# flag (`bad` for an envelope with no readable input or malformed JSON;
+# otherwise 0 or 1 for a display-bound cut, led by `a` when `answer --allow`
+# would splice another input and `e` when the envelope ends early), the Bash request's other input fields as one line of raw
 # JSON members (empty otherwise), then the content. The content is the decoded
 # top-level `command` of a request whose tool is named exactly Bash, otherwise
 # the input object's JSON text. The walk follows the JSON structure rather than
@@ -2450,7 +2453,7 @@ pending_read_max=65536
 pending_render() {
   awk -v cap="$pending_show_max" '
     # A walk that runs off the end met an envelope cut short (the read bound,
-    # or a read racing the write), which is shown marked truncated; any other
+    # or a read racing the write), which is shown marked as such; any other
     # failure is malformed JSON, which is not shown at all.
     function fail() {
       err = 1
@@ -2587,14 +2590,13 @@ pending_render() {
         out = ine ? substr(s, ins, ine - ins) : substr(s, ins)
         if (length(out) > cap) { out = substr(out, 1, cap); trunc = 1 }
       }
-      if (eof) trunc = 1
       # `answer --allow` splices the object json_input_object finds, the one
       # after the first literal `"input":`. Unless that is the object shown
       # here, the tower would approve something other than what it read.
       j = index(s, "\"input\":")
       if (j) { j += 8; while (substr(s, j, 1) == " ") j++ }
       print t
-      print (j == ins ? "" : "a") trunc
+      print (j == ins ? "" : "a") (eof ? "e" : "") trunc
       print extra
       print out
     }'
@@ -2631,6 +2633,15 @@ pending_show() {
     a*)
       echo '-- request envelope ambiguous: an answer --allow would not apply the input shown'
       ps_flag=${ps_flag#a}
+      ;;
+  esac
+  # `answer --allow` splices from the whole file, so a field past the cut (a
+  # later command, a sandbox bypass) would still apply; say so before the
+  # content, where a `| head` cannot drop it.
+  case $ps_flag in
+    e*)
+      printf -- '-- request envelope ends early (read bound %s bytes, or still being written): fields after the cut are not shown and an answer --allow may apply them\n' "$pending_read_max"
+      ps_flag=${ps_flag#e}
       ;;
   esac
   # The fields line leads with its own cut flag, so a cut is marked on the line

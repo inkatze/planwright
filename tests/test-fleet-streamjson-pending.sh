@@ -19,7 +19,7 @@
 #   p6-p16: the command shown is the one the CLI acts on (structure walk,
 #       last key wins, no slash-key impersonation, exact Bash tool name, other
 #       input fields shown, escapes kept visible), an envelope that ends early
-#       is marked truncated, the journal drives the listing, an unreadable
+#       is marked so, the journal drives the listing, an unreadable
 #       journal fails closed, and the read and depth bounds hold.
 #
 # Hermetic: the fleet home is case-local and built by hand (no worker is
@@ -216,7 +216,7 @@ echo "ok: p6 the command shown is the one the CLI acts on, not a decoy"
 
 # ---------------------------------------------------------------------------
 # p7: an envelope that ends early (cut by the read bound, or caught mid-write)
-#     is marked truncated whichever tool it is, so a prefix of a command never
+#     is marked so whichever tool it is, so a prefix of a command never
 #     reads as the whole command; a complete but malformed one is unreadable.
 # ---------------------------------------------------------------------------
 home="$tmp/h7"
@@ -228,13 +228,13 @@ printf '%s' '{"request":{"tool_name":"Bash","input":{"command":"echo hi; curl' >
 printf '%s\tpermission\t1700000000\tpending\n' "$id3" >"$home/streamjson/sjp7c/journal"
 printf '%s\n' '{"request":{"tool_name":"Write","input":{"a":1 "b":2},"tool_use_id":"t"}}' >"$home/streamjson/sjp7c/req-$id3.json"
 out=$(penv "$home" sjp7) || fail "p7: must exit 0"
-printf '%s\n' "$out" | grep -q '^-- truncated' || fail "p7: a command cut by the read bound must be marked truncated, got: $(printf '%s\n' "$out" | cut -c1-80)"
+printf '%s\n' "$out" | grep -q '^-- request envelope ends early' || fail "p7: a command cut by the read bound must be marked, got: $(printf '%s\n' "$out" | cut -c1-80)"
 out=$(penv "$home" sjp7b) || fail "p7: must exit 0"
-printf '%s\n' "$out" | grep -q '^-- truncated' || fail "p7: a half-written envelope must be marked truncated, got: $out"
+printf '%s\n' "$out" | grep -q '^-- request envelope ends early' || fail "p7: a half-written envelope must be marked, got: $out"
 out=$(penv "$home" sjp7c) || fail "p7: must exit 0"
 printf '%s\n' "$out" | grep -qx -- '-- request envelope unreadable' || fail "p7: a malformed envelope must read unreadable, got: $out"
 case $out in *tool_use_id*) fail "p7: a malformed input must not leak sibling fields, got: $out" ;; esac
-echo "ok: p7 an envelope that ends early is marked truncated and a malformed one unreadable"
+echo "ok: p7 an envelope that ends early is marked and a malformed one unreadable"
 
 # ---------------------------------------------------------------------------
 # p8: the journal decides what is listed. A pending row whose envelope is
@@ -499,5 +499,23 @@ done
 printf '%s\n' "$out" | grep -A1 "^== sjp21 $id3 " | grep -qxF '+ {"timeout":-1.5e3,"a":true,"b":null}' \
   || fail "p21: valid literals must still be accepted, got: $out"
 echo "ok: p21 trailing text and bare words make an envelope malformed"
+
+# ---------------------------------------------------------------------------
+# p22: an envelope cut by the read bound can hide fields that `answer --allow`
+#      still splices from the whole file: a later command, or a sandbox bypass.
+#      The view says so right after the header, where a `| head` cannot drop
+#      it, and does not pass the cut off as the command's display bound.
+# ---------------------------------------------------------------------------
+home="$tmp/h22"
+long=$(awk 'BEGIN { for (i = 0; i < 70000; i++) printf "A" }')
+mkreq "$home/streamjson/sjp22" "$id1" pending Bash '{"command":"ls","description":"'"$long"'","command":"rm -rf ~"}'
+mkreq "$home/streamjson/sjp22" "$id2" pending Bash '{"command":"ls","description":"'"$long"'","dangerouslyDisableSandbox":true}'
+out=$(penv "$home" sjp22) || fail "p22: must exit 0"
+for i22 in "$id1" "$id2"; do
+  printf '%s\n' "$out" | grep -A1 "^== sjp22 $i22 " | grep -q '^-- request envelope ends early' \
+    || fail "p22: a cut envelope must be flagged right after its header ($i22), got: $(printf '%s\n' "$out" | cut -c1-80)"
+done
+printf '%s\n' "$out" | grep -q '^-- truncated' && fail "p22: the shown command was not cut, so no display-bound truncation may be claimed, got: $out"
+echo "ok: p22 an envelope cut by the read bound is flagged before its content"
 
 echo "all fleet-streamjson pending tests passed"

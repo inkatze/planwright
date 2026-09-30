@@ -651,9 +651,12 @@ command decoded, with any escape it does not decode left visible as escape
 text, and a `+ {...}` line before it carrying every other input field but the
 description, so a sandbox bypass or a background run is never hidden behind
 the command. Any other tool shows its input JSON. Input past the script's
-display bound, or an envelope that ends early, gets a `-- truncated` line, and
-a missing, symlinked, or malformed envelope prints
-`-- request envelope unreadable` instead. The request text is the worker's, so
+display bound gets a `-- truncated` line. An envelope that ends early (past the
+script's read bound, or still being written) gets a
+`-- request envelope ends early` line right after its header: fields past the
+cut, a later command or a sandbox bypass included, are not shown, yet an
+`answer --allow` would apply them. A missing, symlinked, or malformed envelope
+prints `-- request envelope unreadable` instead. The request text is the worker's, so
 it is treated as untrusted: control bytes are stripped (C1 bytes too, which
 mangles some non-ASCII punctuation, the same trade the script's echo
 sanitizer makes), a tool name that had to be altered carries a `:sanitized`
