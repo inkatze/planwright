@@ -1494,9 +1494,13 @@ catches what no tower closed, the case that leaks because the tower that
 should have closed it is gone. Nothing waits for a count to look alarming.
 
 ```sh
-scripts/fleet-sweep.sh --watch --tower-id <your-tower-id>   # every fleet_sweep_interval
-scripts/fleet-sweep.sh --tower-id <your-tower-id>           # one cycle, for cron or launchd
+scripts/fleet-sweep.sh --watch --repo /path/to/repo --tower-id <tower-id>   # every fleet_sweep_interval
+scripts/fleet-sweep.sh --repo /path/to/repo --tower-id <tower-id>           # one cycle, for cron or launchd
 ```
+
+The knobs are read from the `--repo` checkout's overlay layers wherever the
+sweep is started, so a cron entry needs no `cd`. The wait between cycles is
+never under one second.
 
 Each cycle runs four passes: the worktree disk scan, so a worktree nothing
 recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
@@ -1508,11 +1512,13 @@ through the rungs' `stop`.
 `would-cleanup` record for each worker it would have closed and kills nothing,
 so the trail shows what promotion would do before it does it. Set
 `fleet_sweep_reap: terminate` in this machine's local overlay to let it close
-them; the value is refused from any shared layer. Set it back, or delete it,
-and the next cycle observes again.
+them; the value is refused from any shared layer, and from a local file the
+repository itself tracks or reaches through a symlink. Set it back, or delete
+it, and the next cycle observes again.
 
-Every cycle prints what it did, one line per candidate and a summary
-(tab-separated; spaced here for reading):
+Every cycle the kill-switch lets through prints what it did, one line per
+candidate and a summary (tab-separated; spaced here for reading). A paused
+cycle prints only its warning.
 
 ```text
 scan     ok
@@ -1523,8 +1529,11 @@ summary  mode=observe  workers=4  candidates=2  reaped=0  observed=1  declined=1
 
 A declined candidate carries the refusal the reap gave, so a sweep that turned
 everything down never reads like one that found nothing. The sweep needs a
-tower identity to tell a live peer from a dead owner; without `--tower-id` or
-`PLANWRIGHT_TOWER_ID` every candidate is declined, and says why.
+tower identity to tell a live peer from a dead owner, resolved the way the
+stuck-detector resolves it (`--tower-id`, then the environment described
+under the owner token above); without one every candidate is declined, and
+says why. The identity's own workers are declined too: that tower closes them
+with the rung's `stop`.
 `fleet_daemon_pause` pauses the whole cycle. A watch loop stopped by a signal
 leaves no temp file behind in the fleet home.
 

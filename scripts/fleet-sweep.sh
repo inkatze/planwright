@@ -46,7 +46,9 @@
 #
 #    OBSERVING BY DEFAULT (D-14). A reap kills nothing unless this machine opts
 #    in with `fleet_sweep_reap: terminate` in its machine-local overlay. Set in
-#    any shared layer, `terminate` is refused with a warning. Observing, each
+#    any shared layer, or in a machine-local file the repository itself
+#    supplies (tracked, symlinked, or a nested repository), `terminate` is
+#    refused with a warning. Observing, each
 #    candidate goes through the same decision with `--observe`, and a worker a
 #    close would take gets a `would-cleanup` audit record naming
 #    `released=none` and what the close would release; an actual close writes
@@ -70,13 +72,17 @@
 # Usage:
 #   fleet-sweep.sh [--repo <repo-root>] [--tower-id <token>] [--watch]
 #     <repo-root> defaults to the caller's own git toplevel (else $PWD): the
-#     tower's checkout, always included in the dirty-tree scope.
+#     tower's checkout, always included in the dirty-tree scope. Every knob
+#     the cycle reads comes from this checkout's overlay layers, wherever the
+#     sweep was started. The wait between watch cycles is never under a
+#     second.
 #     <token> is the identity of the tower the sweep acts for, handed to the
 #     detector and the reap actuator; without it they resolve one from the
 #     environment as they always do, and a sweep with no identity at all
 #     declines every reap, since no owner can then be established dead.
 #
-# Output (stdout, tab-separated, per cycle):
+# Output (stdout, tab-separated, per cycle the kill-switch lets through; a
+# paused cycle prints only its warning):
 #   scan    ok | degraded
 #   reap    <worker> <outcome> <detail>
 #       outcome: reaped | partial | observed | already-closed | declined |
@@ -111,6 +117,7 @@ WT="$script_dir/fleet-worktree-track.sh"
 SYNC="$script_dir/tasks-pr-sync.sh"
 CONFIG_GET="$script_dir/config-get.sh"
 KNOB="$script_dir/resolve-config-knob.sh"
+OVERLAY="$script_dir/resolve-overlay-root.sh"
 DET="$script_dir/fleet-stuck-detector.sh"
 CLEANUP="$script_dir/fleet-cleanup.sh"
 FS="$script_dir/fleet-state.sh"
@@ -213,7 +220,7 @@ repo=$(cd "$repo" 2>/dev/null && pwd -P) || {
 # is not flagged mid-edit.
 threshold_seconds() {
   tsv_min=15
-  tsv_read=$("$CONFIG_GET" fleet_dirty_tree_threshold 2>/dev/null) || tsv_read=""
+  tsv_read=$(cd "$repo" && "$CONFIG_GET" fleet_dirty_tree_threshold 2>/dev/null) || tsv_read=""
   tsv_read=${tsv_read%m}
   case $tsv_read in
     "" | *[!0-9]*) ;;
@@ -501,7 +508,7 @@ reconcile_pass() {
 # killer for every machine at once, which is the rollout this knob exists to
 # keep per machine. Anything the resolver cannot answer observes.
 reap_mode() {
-  rm_out=$("$KNOB" --explain --key fleet_sweep_reap --type enum \
+  rm_out=$(cd "$repo" && "$KNOB" --explain --key fleet_sweep_reap --type enum \
     --values 'observe terminate' --fallback observe) || {
     warn "fleet_sweep_reap is unresolvable — observing this cycle"
     printf 'observe'
@@ -513,10 +520,47 @@ reap_mode() {
     warn "fleet_sweep_reap: terminate is honored only from the machine-local layer, not the $(sanitize_printable "$rm_layer" "?") layer — observing this cycle"
     rm_value=observe
   fi
+  if [ "$rm_value" = terminate ]; then
+    rm_why=$(local_file_distrust)
+    if [ -n "$rm_why" ]; then
+      warn "fleet_sweep_reap: ignoring terminate in the machine-local file: $rm_why — observing this cycle"
+      rm_value=observe
+    fi
+  fi
   case $rm_value in
     terminate) printf 'terminate' ;;
     *) printf 'observe' ;;
   esac
+}
+
+# local_file_distrust — why the derived machine-local file is repository
+# content rather than this machine's, or nothing when it is the machine's. It
+# sits in the work tree, so a repository can commit it past its ignore rule,
+# under a case-folded name, or behind a symlinked or nested `.claude`, and a
+# committed `terminate` would switch the reaper on for every clone. The
+# flight_pr_hosts reader (flight-dispatch.sh) refuses the same shapes. A file
+# named explicitly by PLANWRIGHT_LOCAL_CONFIG is the operator's own.
+local_file_distrust() {
+  [ -z "${PLANWRIGHT_LOCAL_CONFIG:-}" ] || return 0
+  lf_dir=$(cd "$repo" && /bin/sh "$OVERLAY" machine-local 2>/dev/null) || lf_dir=""
+  if [ -z "$lf_dir" ]; then
+    printf 'its location could not be resolved'
+    return 0
+  fi
+  if [ -L "$lf_dir" ] || [ -L "$lf_dir/planwright.local.yml" ]; then
+    printf 'it is reached through a symlink'
+  elif [ -e "$lf_dir/.git" ]; then
+    printf '.claude is its own repository'
+  elif git -C "${lf_dir%/*}" rev-parse --is-inside-work-tree >/dev/null 2>&1 </dev/null; then
+    # Only inside a work tree can a repository have supplied the file.
+    git -C "${lf_dir%/*}" ls-files --error-unmatch -- ':(icase).claude/planwright.local.yml' \
+      >/dev/null 2>&1 </dev/null
+    case $? in
+      0) printf 'the repository tracks that file' ;;
+      1) ;;
+      *) printf 'git could not say whether the repository tracks it' ;;
+    esac
+  fi
 }
 
 # refusal <captured-output> — the actuator's last diagnostic, as one printable
@@ -551,8 +595,12 @@ reap_pass() {
       rp_status=degraded
       ;;
   esac
-  [ "$rp_mode" = observe ] && set -- "$@" --observe
-  rp_rows=$(printf '%s\n' "$rp_scan" | awk -F'\t' '$1 == "worker" && $2 !~ /^pwfence\./ { print $2 "\t" $3 "\t" $6 }')
+  # Anything but an explicit terminate observes, so a mode word this pass does
+  # not know can never drop the flag that keeps a close from happening.
+  [ "$rp_mode" = terminate ] || set -- "$@" --observe
+  # The scan also lists decision-queue rows; the strand entries and the
+  # sweep's own dirty-tree escalations there are not workers.
+  rp_rows=$(printf '%s\n' "$rp_scan" | awk -F'\t' '$1 == "worker" && $2 !~ /^(pwfence|sweep-)/ { print $2 "\t" $3 "\t" $6 }')
   while IFS="$TAB" read -r rp_w rp_st rp_rs; do
     [ -n "$rp_w" ] || continue
     rp_workers=$((rp_workers + 1))
@@ -561,9 +609,13 @@ reap_pass() {
       *) continue ;;
     esac
     rp_cand=$((rp_cand + 1))
+    if [ "$rp_status" = paused ]; then
+      printf 'reap\t%s\tpaused\t-\n' "$rp_w"
+      continue
+    fi
     rp_why=$(sanitize_printable "periodic sweep: session $rp_st ($rp_rs)" "periodic sweep")
     rp_rc=0
-    rp_all=$(cd "$repo" && /bin/sh "$CLEANUP" process "$rp_w" periodic-sweep "$rp_why" "$@" 2>&1) \
+    rp_all=$(cd "$repo" && /bin/sh "$CLEANUP" process "$rp_w" periodic-sweep "$rp_why" "$@" 2>&1 </dev/null) \
       || rp_rc=$?
     rp_res=$(printf '%s\n' "$rp_all" | awk -v p="stop $rp_w " 'index($0, p) == 1 { r = $0 } END { print r }')
     rp_res=$(sanitize_printable "${rp_res#"stop $rp_w "}")
@@ -578,7 +630,9 @@ reap_pass() {
         rp_detail=$rp_res
         rp_observed=$((rp_observed + 1))
         ;;
-      0/*)
+      0/* | 5/stopped*)
+        # Exit 5 with a full close is one a signal interrupted after it was
+        # recorded: a reap all the same.
         rp_out=reaped
         rp_detail=${rp_res#stopped }
         rp_reaped=$((rp_reaped + 1))
@@ -586,12 +640,7 @@ reap_pass() {
       4/*)
         printf 'reap\t%s\tpaused\t%s\n' "$rp_w" "$(refusal "$rp_all")"
         rp_status=paused
-        break
-        ;;
-      5/partial* | 6/partial*)
-        rp_out=partial
-        rp_detail=${rp_res#partial }
-        rp_reaped=$((rp_reaped + 1))
+        continue
         ;;
       6/*)
         # Acted (or, observing, decided) and could not record it: never left
@@ -603,7 +652,13 @@ reap_pass() {
         else
           rp_reaped=$((rp_reaped + 1))
         fi
+        rp_status=degraded
         warn "the reap of '$rp_w' is not in the audit trail: $rp_detail"
+        ;;
+      5/partial*)
+        rp_out=partial
+        rp_detail=${rp_res#partial }
+        rp_reaped=$((rp_reaped + 1))
         ;;
       *)
         rp_out=declined
@@ -623,7 +678,7 @@ EOF
 cycle() {
   # Kill-switch gate: the sweep is a daemon action. A set switch (or an
   # unresolvable one) pauses the whole cycle.
-  if ! "$GATE" housekeeping-sweep 2>/dev/null; then
+  if ! (cd "$repo" && "$GATE" housekeeping-sweep 2>/dev/null); then
     warn "daemon layer paused or kill-switch unresolvable — skipping the sweep (unset fleet_daemon_pause to resume)"
     return 4
   fi
@@ -634,19 +689,31 @@ cycle() {
   return 0
 }
 
+# The shortest wait between cycles, in seconds. A cycle spawns git, the
+# detector and the actuator, so a sub-second interval would run them back to
+# back.
+interval_floor=1
+
 # interval_seconds — `fleet_sweep_interval` as a number of seconds `sleep`
 # takes, re-read every cycle so an overlay edit applies without a restart.
 interval_seconds() {
-  is_v=$("$KNOB" --key fleet_sweep_interval --type duration --fallback 10m) || is_v=10m
-  printf '%s\n' "$is_v" | awk '{
+  is_v=$(cd "$repo" && "$KNOB" --key fleet_sweep_interval --type duration --fallback 10m) || is_v=10m
+  is_s=$(printf '%s\n' "$is_v" | awk -v floor="$interval_floor" '{
     v = $0; m = 1
     if (v ~ /ms$/) { m = 0.001; sub(/ms$/, "", v) }
     else if (v ~ /s$/) { sub(/s$/, "", v) }
     else if (v ~ /m$/) { m = 60; sub(/m$/, "", v) }
     else if (v ~ /h$/) { m = 3600; sub(/h$/, "", v) }
     else if (v ~ /d$/) { m = 86400; sub(/d$/, "", v) }
-    printf "%.3f\n", v * m
-  }'
+    s = v * m
+    if (s < floor) { printf "floor\n"; exit }
+    printf "%.3f\n", s
+  }')
+  if [ "$is_s" = floor ]; then
+    warn "fleet_sweep_interval $(sanitize_printable "$is_v" "?") is under ${interval_floor}s — waiting ${interval_floor}s"
+    is_s=$interval_floor
+  fi
+  printf '%s\n' "$is_s"
 }
 
 if [ "$watch" = 0 ]; then

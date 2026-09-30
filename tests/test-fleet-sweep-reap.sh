@@ -155,7 +155,10 @@ home="$tmp/home"
 mkdir -p "$home"
 
 # ienv [VAR=val...] -- <script> <args...> — a script from the integration
-# tree, hermetic against the host's fleet home and configuration.
+# tree, hermetic against the host's fleet home and configuration. With
+# IENV_EXEC set it replaces the calling shell, which is how a backgrounded
+# `( IENV_EXEC=1 ienv ... ) &` makes $! the script itself rather than a
+# wrapper that a signal would kill first.
 ienv() {
   ie_pre=()
   while [ $# -gt 0 ] && [ "$1" != "--" ]; do
@@ -165,15 +168,19 @@ ienv() {
   shift
   ie_s=$1
   shift
-  env "${env_scrub[@]}" \
-    PLANWRIGHT_FLEET_STATE_DIR="${IHOME:-$home}" \
-    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
-    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-    PLANWRIGHT_REPO_ROOT="$repo_cfg" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
-    PLANWRIGHT_LOCAL_CONFIG="" \
-    SHIM_HOLD="$tmp" \
-    ${ie_pre[@]+"${ie_pre[@]}"} /bin/sh "$IS/$ie_s" "$@"
+  ie_cmd=(env "${env_scrub[@]}"
+    PLANWRIGHT_FLEET_STATE_DIR="${IHOME:-$home}"
+    PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude"
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg"
+    PLANWRIGHT_REPO_ROOT="$repo_cfg"
+    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter"
+    PLANWRIGHT_LOCAL_CONFIG=""
+    SHIM_HOLD="$tmp"
+    ${ie_pre[@]+"${ie_pre[@]}"} /bin/sh "${ISX:-$IS}/$ie_s" "$@")
+  if [ -n "${IENV_EXEC:-}" ]; then
+    exec "${ie_cmd[@]}"
+  fi
+  "${ie_cmd[@]}"
 }
 
 # sweep — one sweep cycle as this tower. Sets rc, out, err.
@@ -241,35 +248,67 @@ esac
 echo "ok: a cycle with nothing to reap still runs its reap pass and reports it"
 
 # --- the watch loop fires on its interval, with nothing present -------------
-printf 'fleet_sweep_interval: 1s\n' >"$mlocal_cfg"
-ienv -- fleet-sweep.sh --watch --repo "$repo" --tower-id "$self_id" >"$tmp/watch-out" 2>"$tmp/watch-err" &
-watch_pid=$!
-fired() {
-  [ "$(awk -F'\t' '$1 == "summary"' "$tmp/watch-out" | grep -c .)" -ge 3 ]
+# watch <out> <err> — a watch loop as this tower, its pid in watch_pid.
+watch() {
+  (IENV_EXEC=1 ienv -- fleet-sweep.sh --watch --repo "$repo" --tower-id "$self_id" >"$1" 2>"$2") &
+  watch_pid=$!
 }
-wait_until 30 fired || fail "the watch loop did not fire three cycles on a 1s interval: $(cat "$tmp/watch-out") $(cat "$tmp/watch-err")"
-kill -TERM "$watch_pid"
-w_rc=0
-w_start=$SECONDS
-wait "$watch_pid" || w_rc=$?
-[ $((SECONDS - w_start)) -le 5 ] || fail "the watch loop took $((SECONDS - w_start))s to stop on TERM"
-[ "$w_rc" != 0 ] || fail "a watch loop stopped by TERM exited 0"
+# cycles <file> — how many summaries a watch loop has printed.
+cycles() {
+  awk -F'\t' '$1 == "summary" { n++ } END { print n + 0 }' "$1"
+}
+# stop_watch <what> — TERM the loop; it must end within 5s and not exit 0.
+stop_watch() {
+  kill -TERM "$watch_pid"
+  sw_start=$SECONDS
+  sw_rc=0
+  wait "$watch_pid" || sw_rc=$?
+  [ $((SECONDS - sw_start)) -le 5 ] || fail "$1: the watch loop took $((SECONDS - sw_start))s to stop on TERM"
+  [ "$sw_rc" != 0 ] || fail "$1: a watch loop stopped by TERM exited 0"
+}
+three_fired() {
+  [ "$(cycles "$tmp/watch-out")" -ge 3 ]
+}
+printf 'fleet_sweep_interval: 1s\n' >"$mlocal_cfg"
+watch "$tmp/watch-out" "$tmp/watch-err"
+wait_until 30 three_fired || fail "the watch loop did not fire three cycles on a 1s interval: $(cat "$tmp/watch-out") $(cat "$tmp/watch-err")"
+stop_watch "a 1s loop"
+# A long interval proves the wait between cycles is interrupted, not sat out.
+printf 'fleet_sweep_interval: 1h\n' >"$mlocal_cfg"
+watch "$tmp/watch-out" "$tmp/watch-err"
+one_fired() {
+  [ "$(cycles "$tmp/watch-out")" -ge 1 ]
+}
+wait_until 30 one_fired || fail "the 1h watch loop never ran its first cycle: $(cat "$tmp/watch-err")"
+stop_watch "a 1h loop"
+for bad in 0s 0.4ms; do
+  printf 'fleet_sweep_interval: %s\n' "$bad" >"$mlocal_cfg"
+  watch "$tmp/watch-out" "$tmp/watch-err"
+  wait_until 10 grep -q 'fleet_sweep_interval' "$tmp/watch-err" \
+    || fail "an interval of $bad was not warned about: $(cat "$tmp/watch-err")"
+  sleep 2
+  [ "$(cycles "$tmp/watch-out")" -le 3 ] || fail "an interval of $bad ran cycles back to back: $(cycles "$tmp/watch-out") in 2s"
+  stop_watch "an interval of $bad"
+done
 rm -f "$mlocal_cfg"
-printf 'fleet_sweep_interval: 0s\n' >"$mlocal_cfg"
-rc=0
-ienv -- fleet-sweep.sh --watch --repo "$repo" --tower-id "$self_id" >"$tmp/out" 2>"$tmp/err" &
-bad_pid=$!
-wait_until 10 grep -q 'fleet_sweep_interval' "$tmp/err" || fail "a malformed machine-local interval was not warned about: $(cat "$tmp/err")"
-kill -TERM "$bad_pid" 2>/dev/null || :
-wait "$bad_pid" 2>/dev/null || :
-rm -f "$mlocal_cfg"
-echo "ok: the watch loop fires every interval with no threshold precondition, stops promptly on TERM, and warns on a malformed interval"
+echo "ok: the watch loop fires every interval with no threshold precondition, stops promptly on TERM mid-wait, and never runs cycles back to back"
 
 # --- the source audit: no threshold is the trigger of record -----------------
 code=$(sed -e 's/^[[:space:]]*#.*//' "$IS/fleet-sweep.sh")
 knobs=$(printf '%s\n' "$code" | grep -oE '(fleet|sweep)_[a-z_]*threshold[a-z_]*' | sort -u || :)
 [ "$knobs" = fleet_dirty_tree_threshold ] || fail "the sweep reads a threshold knob other than the dirty-tree grace: $knobs"
 echo "ok: source audit — the only threshold the sweep reads is the dirty-tree grace, which defers an escalation and never gates a cycle"
+
+# --- the source audit: the kill-switch is the only pause --------------------
+# REQ-F1.3: the sweep pauses through fleet-daemon-gate.sh and reads no pause
+# knob of its own.
+pauses=$(printf '%s\n' "$code" | grep -oE '[a-z_]+_pause[a-z_]*' | sort -u || :)
+[ "$pauses" = fleet_daemon_pause ] || fail "the sweep names a pause knob of its own: $pauses"
+read_sites=$(printf '%s\n' "$code" | grep fleet_daemon_pause | grep -v 'warn "' || :)
+[ -z "$read_sites" ] || fail "the sweep reads the kill-switch itself rather than through the gate: $read_sites"
+# shellcheck disable=SC2016 # the script's own source text, matched literally
+printf '%s\n' "$code" | grep -q '"\$GATE" housekeeping-sweep' || fail "the sweep does not gate through fleet-daemon-gate.sh"
+echo "ok: source audit — the sweep pauses only through the existing kill-switch gate"
 
 # --- the default mode observes: records the would-have close, kills nothing --
 answer "$peer_id" dead
@@ -371,9 +410,23 @@ printf 'fleet_daemon_pause: true\nfleet_sweep_reap: terminate\n' >"$mlocal_cfg"
 sweep
 [ "$rc" = 4 ] || fail "a paused sweep: exit $rc ($err)"
 alive "$sup2" || fail "a paused sweep killed"
-[ -z "$(summary)" ] || fail "a paused sweep ran its reap pass: $(summary)"
+[ -z "$out" ] || fail "a paused sweep ran a pass: $out"
 rm -f "$mlocal_cfg"
 echo "ok: fleet_daemon_pause pauses the cycle before any pass"
+
+# --- a running watch loop picks up the knob without a restart ----------------
+printf 'fleet_sweep_interval: 1s\nfleet_sweep_reap: observe\n' >"$mlocal_cfg"
+watch "$tmp/watch-out" "$tmp/watch-err"
+observed_sjw2() {
+  awk -F'\t' '$1 == "reap" && $2 == "sjw2" && $3 == "observed" { f = 1 } END { exit f ? 0 : 1 }' "$tmp/watch-out"
+}
+wait_until 30 observed_sjw2 || fail "the watch loop never observed sjw2: $(cat "$tmp/watch-out")"
+alive "$sup2" || fail "an observing watch loop killed sjw2"
+printf 'fleet_sweep_interval: 1s\nfleet_sweep_reap: terminate\n' >"$mlocal_cfg"
+wait_until 30 gone "$sup2" || fail "the running loop did not start terminating once the knob flipped: $(cat "$tmp/watch-out") $(cat "$tmp/watch-err")"
+stop_watch "a loop whose knob flipped"
+rm -f "$mlocal_cfg"
+echo "ok: a running watch loop re-reads the knob every cycle; flipping it takes effect with no restart"
 
 # --- a sweep that declines every candidate says why -------------------------
 IHOME="$tmp/home-decline"
@@ -400,7 +453,7 @@ for mode in observe terminate; do
     *) fail "the live-peer decline ($mode) does not say why: $(reap_line wpeer)" ;;
   esac
   case $(reap_line wprint) in
-    "reap${tab}wprint${tab}declined${tab}"*print*) ;;
+    "reap${tab}wprint${tab}declined${tab}"*'print-backend unit'*) ;;
     *) fail "the print decline ($mode) does not say why: $(reap_line wprint)" ;;
   esac
   case $(reap_line wunk) in
@@ -427,3 +480,102 @@ case $out in
   *) fail "the cycle does not report its scan: '$out'" ;;
 esac
 echo "ok: the worktree scan runs as part of the cycle and reconciles a registry gap"
+
+# --- every actuator outcome is counted as what it was -------------------------
+# The actuator is scripted here: an acted-on close must never be counted as a
+# decline, and one the trail missed must degrade the cycle's status.
+stubs="$tmp/stub-scripts"
+cp -R "$IS" "$stubs"
+cat >"$stubs/fleet-cleanup.sh" <<STUB
+#!/bin/sh
+[ -s "$tmp/cl-out" ] && sed "s/WORKER/\$2/" "$tmp/cl-out"
+[ -s "$tmp/cl-err" ] && cat "$tmp/cl-err" >&2
+exit "\$(cat "$tmp/cl-rc")"
+STUB
+chmod +x "$stubs/fleet-cleanup.sh"
+IHOME="$tmp/home-stub"
+export IHOME ISX="$stubs"
+mkdir -p "$IHOME"
+for w in wa wb; do
+  ienv -- fleet-state.sh register "$w" demo:5 --owner "$peer_id" --backend stream-json-persistent >/dev/null
+  ienv -- fleet-attention.sh heartbeat "$w" demo:5 ended >/dev/null
+done
+printf 'fleet_sweep_reap: terminate\n' >"$mlocal_cfg"
+# outcome <rc> <stdout> <stderr> <outcome> <reaped> <declined> <status>
+outcome() {
+  printf '%s\n' "$1" >"$tmp/cl-rc"
+  printf '%s' "$2" >"$tmp/cl-out"
+  printf '%s' "$3" >"$tmp/cl-err"
+  sweep
+  for w in wa wb; do
+    case $(reap_line "$w") in
+      "reap${tab}$w${tab}$4${tab}"*) ;;
+      *) fail "actuator exit $1 ('$2'): $w reads '$(reap_line "$w")', expected $4" ;;
+    esac
+  done
+  case $(summary) in
+    *"reaped=$5${tab}"*"declined=$6${tab}"*"status=$7") ;;
+    *) fail "actuator exit $1 ('$2'): summary $(summary)" ;;
+  esac
+}
+outcome 0 'stop WORKER stopped released=process' '' reaped 2 0 ok
+outcome 5 'stop WORKER stopped released=process' 'fleet-cleanup: interrupted while closing' reaped 2 0 ok
+outcome 5 'stop WORKER partial released=unreported held=unreported' 'fleet-cleanup: the stop died' partial 2 0 ok
+outcome 6 'stop WORKER stopped released=process' 'fleet-cleanup: FAILED to record it' unrecorded 2 0 degraded
+case $err in
+  *"not in the audit trail"*) ;;
+  *) fail "an unrecorded close was not warned about: $err" ;;
+esac
+outcome 6 'stop WORKER partial released=process held=attention' 'fleet-cleanup: could not record the partial close' unrecorded 2 0 degraded
+outcome 5 '' 'fleet-cleanup: refusing: no positive evidence' declined 0 2 ok
+outcome 4 '' 'fleet-cleanup: daemon layer paused' paused 0 0 paused
+unset IHOME ISX
+rm -f "$mlocal_cfg" "$tmp/cl-out" "$tmp/cl-err"
+echo "ok: a close, an interrupted close, a partial one, an unrecorded one, a refusal and a pause are each reported as what they were"
+
+# --- the knob is this checkout's, read from --repo and never from the repo ---
+# No pinned repo root here: the layers are the ones the checkout derives, the
+# way a cron entry started in another directory finds them.
+repo2="$tmp/repo2"
+git_env git init -q -b main "$repo2"
+(cd "$repo2" && echo seed >f && git_env git add f && git_env git commit -qm seed)
+mkdir -p "$repo2/.claude"
+printf 'fleet_sweep_reap: terminate\n' >"$repo2/.claude/planwright.local.yml"
+IHOME="$tmp/home-repo2"
+export IHOME
+mkdir -p "$IHOME"
+# derived_sweep — a sweep of repo2 started from /, its layers derived.
+derived_sweep() {
+  rc=0
+  (cd / && ienv PLANWRIGHT_REPO_ROOT= -- fleet-sweep.sh --repo "$repo2" --tower-id "$self_id") \
+    >"$tmp/out" 2>"$tmp/err" || rc=$?
+  out=$(cat "$tmp/out")
+  err=$(cat "$tmp/err")
+}
+derived_sweep
+case $(summary) in
+  *"mode=terminate${tab}"*) ;;
+  *) fail "a sweep started outside the checkout did not read its machine-local terminate: $(summary) ($err)" ;;
+esac
+git_env git -C "$repo2" add -f .claude/planwright.local.yml
+git_env git -C "$repo2" commit -qm 'ship a local config'
+derived_sweep
+case $(summary) in
+  *"mode=observe${tab}"*) ;;
+  *) fail "a committed machine-local terminate switched the reaper on: $(summary)" ;;
+esac
+case $err in
+  *'the repository tracks that file'*) ;;
+  *) fail "a committed machine-local terminate was ignored without saying why: $err" ;;
+esac
+cp "$core_cfg" "$tmp/core-saved.yml"
+sed 's/^fleet_sweep_reap: observe$/fleet_sweep_reap: terminate/' "$tmp/core-saved.yml" >"$core_cfg"
+grep -q '^fleet_sweep_reap: terminate$' "$core_cfg" || fail "fixture: the core layer does not say terminate"
+sweep
+case $(summary) in
+  *"mode=observe${tab}"*) ;;
+  *) fail "a core-layer terminate switched the reaper on: $(summary)" ;;
+esac
+cp "$tmp/core-saved.yml" "$core_cfg"
+unset IHOME
+echo "ok: the reap knob is read from the swept checkout wherever the sweep starts, and terminate from a committed local file or the core layer is refused"

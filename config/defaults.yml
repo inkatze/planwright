@@ -253,7 +253,7 @@ fleet_dirty_tree_threshold: 15m
 # trigger; nothing waits for a count to look alarming. A duration (`90s`,
 # `10m`, `1h`) resolved through the shared knob resolver on every cycle, so an
 # overlay edit applies without restarting the loop; a malformed value follows
-# the by-layer policy.
+# the by-layer policy, and one under a second waits a second.
 fleet_sweep_interval: 10m
 
 # Whether the sweep's process reap terminates leaked workers or only records
@@ -261,8 +261,9 @@ fleet_sweep_interval: 10m
 # `observe` writes a `would-cleanup` audit record per worker a close would take
 # and kills nothing; `terminate` closes them through fleet-cleanup.sh process.
 # `terminate` is honored only from the machine-local layer: set in the core,
-# adopter, or repo-tracked layer it is refused with a warning and the sweep
-# observes, so promoting the reaper is a per-machine decision. Setting it back
+# adopter, or repo-tracked layer, or in a machine-local file the repository
+# itself tracks, it is refused with a warning and the sweep observes, so
+# promoting the reaper is a per-machine decision. Setting it back
 # to `observe` (or removing it) takes effect on the next cycle.
 fleet_sweep_reap: observe
 

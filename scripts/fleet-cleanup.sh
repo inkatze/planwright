@@ -94,7 +94,8 @@
 #       was released and what is still held. It is recorded even when nothing
 #       came free, since the rung may have signalled the tree before finding a
 #       class still held. A rung that died on a signal mid-close is recorded as
-#       a partial close too, both sets `unreported`, and so is a partial
+#       a partial close too, both sets `unreported` (and the partial result
+#       line it never printed is printed in its place), and so is a partial
 #       result line this script cannot parse. A signal to this script
 #       once the close is about to start is held until the close is recorded,
 #       and the run then exits 5 rather than reporting a success.
@@ -105,8 +106,9 @@
 #       gets a `would-cleanup` record, never a `cleanup` one, naming
 #       `released=none` and the `would-release=` set, and its probe line is
 #       printed; one with nothing left is a clean no-op, as a real close of it
-#       would be. An unrecorded would-have close is exit 6 with nothing
-#       signalled. This is the periodic sweep's observing mode.
+#       would be. A probe that does not complete is exit 5, nothing observed;
+#       an unrecorded would-have close is exit 6 with nothing signalled. This
+#       is the periodic sweep's observing mode.
 #
 #       A handle in the `pwfence.` namespace is refused as malformed: that is
 #       where the fence sweep keys the strand entries it surfaces, and a close
@@ -931,6 +933,9 @@ EOF
           exit 5
         fi
         warn "the $rung stop for '$worker' died (exit $stop_rc) — what it released is unknown, recording it as a partial close"
+        # The rung printed no result line, so the one a partial close would
+        # have printed stands in for it, for a caller counting outcomes.
+        printf 'stop %s partial released=unreported held=unreported\n' "$worker"
         released=unreported
         held=unreported
         action=cleanup-partial
