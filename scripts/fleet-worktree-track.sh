@@ -66,7 +66,8 @@
 #   fleet-worktree-track.sh hook-remove            WorktreeRemove handler (stdin)
 #
 # Exit codes: 0 success; 2 usage / refused malformed path; 2 also a lock/
-#   filesystem error on the direct CLI (fail closed). The hook handlers always
+#   filesystem error on the direct CLI (fail closed), and a `scan` whose git
+#   could not list the worktrees. The hook handlers always
 #   exit 0 (they must never break a lifecycle operation).
 #
 # POSIX sh on the macOS + Linux support bar. All input is data; no eval (REQ-K1.5).
@@ -388,9 +389,14 @@ case "$cmd" in
       exit 2
     }
     # Gather git's worktree set OUTSIDE the lock (a read-only query), so the
-    # locked critical section stays short.
+    # locked critical section stays short. Captured before it is filtered, so
+    # a git that could not list reads as a failed scan, not an empty one.
+    sc_list=$(git -C "$scan_root" worktree list --porcelain 2>/dev/null) || {
+      warn "git could not list the worktrees of '$(sanitize_printable "$scan_root")' — leaving the registry unchanged"
+      exit 2
+    }
     sc_git=$(mktemp "$REG_DIR/.reg-git.XXXXXX") || exit 2
-    git -C "$scan_root" worktree list --porcelain 2>/dev/null \
+    printf '%s\n' "$sc_list" \
       | while IFS= read -r ln; do
         case $ln in
           "worktree "*)
