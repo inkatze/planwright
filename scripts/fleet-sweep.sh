@@ -53,7 +53,10 @@
 #    close would take gets a `would-cleanup` audit record naming
 #    `released=none` and what the close would release; an actual close writes
 #    `cleanup`. The knob is read every cycle, so flipping it back takes effect
-#    on the next one with no restart and no release.
+#    on the next one with no restart and no release. A leaked worker met
+#    every cycle is recorded once per candidacy and evidence class, not once
+#    per cycle; the sweep drops the mark of a worker that stops being a
+#    candidate, so its next candidacy is recorded afresh.
 #
 #    Every candidate the reap does not close is reported with the refusal the
 #    actuator gave, so a sweep that declined everything reads differently from
@@ -593,6 +596,9 @@ reap_pass() {
   rp_closed=0
   rp_status=ok
   rp_halted=0
+  # Where fleet-cleanup.sh process --observe keeps each worker's last
+  # would-have record.
+  rp_marks=$("$FS" root 2>/dev/null) && rp_marks="$rp_marks/sweep-observed" || rp_marks=""
   set --
   [ -z "$tower_id" ] || set -- --tower-id "$tower_id"
   rp_scan=$(cd "$repo" && /bin/sh "$DET" scan --checkout "$repo" "$@" 2>/dev/null) || {
@@ -617,7 +623,11 @@ reap_pass() {
     rp_workers=$((rp_workers + 1))
     case $rp_st/$rp_rs in
       dead/* | finished-but-unreaped/* | unclassified/completion-*) ;;
-      *) continue ;;
+      *)
+        # Out of candidacy: its next would-have close is recorded afresh.
+        [ -z "$rp_marks" ] || rm -f "$rp_marks/$rp_w" 2>/dev/null
+        continue
+        ;;
     esac
     rp_cand=$((rp_cand + 1))
     if [ "$rp_halted" = 1 ]; then

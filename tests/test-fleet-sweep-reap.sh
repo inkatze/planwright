@@ -371,7 +371,7 @@ case $(summary) in
   *"mode=terminate${tab}"*"reaped=1${tab}observed=0${tab}"*) ;;
   *) fail "the terminating cycle's summary is wrong: $(summary)" ;;
 esac
-[ "$(actions_for sjw1 | tr '\n' ' ')" = "would-cleanup would-cleanup cleanup " ] \
+[ "$(actions_for sjw1 | tr '\n' ' ')" = "would-cleanup cleanup " ] \
   || fail "sjw1's records read '$(actions_for sjw1 | tr '\n' ' ')'"
 case $(audit | awk -F'\t' '$4 == "cleanup"') in
   *"worker=sjw1 owner=$peer_id evidence=tower:dead,session:finished-but-unreaped/"*"released=process"*) ;;
@@ -403,7 +403,7 @@ case $(reap_line sjw2) in
 esac
 # The would-have record is taken from the rung's own probe, so a worker with
 # nothing left to release is not recorded as one the sweep would close.
-[ "$(actions_for sjw1 | tr '\n' ' ')" = "would-cleanup would-cleanup cleanup " ] \
+[ "$(actions_for sjw1 | tr '\n' ' ')" = "would-cleanup cleanup " ] \
   || fail "an observing cycle recorded a would-have close of an already-closed worker: $(actions_for sjw1 | tr '\n' ' ')"
 case $(audit | awk -F'\t' '$4 == "would-cleanup"' | tail -n 1) in
   *"worker=sjw2 "*"released=none would-release=process"*) ;;
@@ -411,6 +411,17 @@ case $(audit | awk -F'\t' '$4 == "would-cleanup"' | tail -n 1) in
 esac
 rm -f "$mlocal_cfg"
 echo "ok: the knob is reversible by an overlay edit; flipped back, the sweep observes again"
+
+# --- an unchanged leaked worker is recorded once across cycles --------------
+sweep
+sweep
+case $(reap_line sjw2) in
+  "reap${tab}sjw2${tab}observed${tab}"*) ;;
+  *) fail "a repeat cycle stopped observing sjw2: '$out'" ;;
+esac
+[ "$(actions_for sjw2 | grep -c '^would-cleanup$')" = 1 ] \
+  || fail "three observing cycles over an unchanged sjw2 wrote $(actions_for sjw2 | grep -c '^would-cleanup$') records, expected 1"
+echo "ok: an observing sweep records an unchanged leaked worker once, however many cycles meet it"
 
 # --- the kill-switch pauses the whole cycle ---------------------------------
 printf 'fleet_daemon_pause: true\nfleet_sweep_reap: terminate\n' >"$mlocal_cfg"
@@ -469,6 +480,13 @@ for mode in observe terminate; do
   esac
 done
 [ -z "$(audit)" ] || fail "a cycle that declined everything wrote a reap record: $(audit)"
+# A worker that stops being a candidate loses its observed mark, so its next
+# candidacy is recorded afresh.
+mkdir -p "$IHOME/sweep-observed"
+printf 'worker=wunk owner=%s evidence=x\n' "$unk_id" >"$IHOME/sweep-observed/wunk"
+ienv -- fleet-attention.sh heartbeat wunk demo:9 working >/dev/null
+sweep
+[ ! -e "$IHOME/sweep-observed/wunk" ] || fail "a worker that left candidacy kept its observed mark"
 rm -f "$mlocal_cfg"
 unset IHOME
 echo "ok: a sweep declining every candidate reports each refusal and its reason, in both modes, and is distinguishable from one that found nothing"

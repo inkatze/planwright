@@ -1514,6 +1514,8 @@ through the rungs' `stop`.
 
 **It observes until you promote it.** At the default the reap writes the
 `would-cleanup` record for each worker it would have closed and kills nothing,
+once per worker until that worker's evidence changes or it stops being a
+candidate and comes back, rather than every cycle,
 so the trail shows what promotion would do before it does it. Set
 `fleet_sweep_reap: terminate` in this machine's local overlay to let it close
 them; the value is refused from any shared layer, and from a local file the

@@ -582,6 +582,46 @@ rm -rf "$gate_home"
 stop_answers 'stop WORKER stopped released=process,attention' 0
 echo "ok: --observe decides as a close does, asks the rung's probe instead of its close, and writes a would-cleanup record naming nothing released"
 
+# --- --observe records a would-have close once per candidacy and evidence ----
+# A leaked worker the observing sweep meets every cycle gets one record until
+# its evidence changes, or it stops being a candidate and becomes one again.
+# A real close is never suppressed.
+would_rows() {
+  audit_rows | awk -F'\t' '$4 == "would-cleanup"' | grep -c . || :
+}
+rm -rf "$gate_home"
+stop_answers 'stop WORKER would-release=process,attention' 0
+det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead "$peer_id"
+for _ in 1 2 3; do
+  gate w1 'periodic sweep' 'owner gone' --observe
+  expect 0 "an unchanged observed worker"
+done
+[ "$(would_rows)" = 1 ] || fail "three observations of an unchanged worker wrote $(would_rows) records, expected 1"
+[ "$out" = 'stop w1 would-release=process,attention' ] || fail "a deduplicated observation dropped the probe line: '$out'"
+det dead dead-or-unknown death-evidence stream-json-persistent dead "$peer_id"
+gate w1 'periodic sweep' 'owner gone' --observe
+gate w1 'periodic sweep' 'owner gone' --observe
+[ "$(would_rows)" = 2 ] || fail "a changed evidence class wrote $(would_rows) records in all, expected 2"
+case $(audit_rows | awk -F'\t' '$4 == "would-cleanup"' | tail -n 1) in
+  *"evidence=tower:dead,session:dead/death-evidence"*) ;;
+  *) fail "the second record does not carry the changed evidence: $(audit_rows | tail -n 1)" ;;
+esac
+# Out of candidacy (a live peer now owns it), then back with the same evidence.
+det dead live-peer death-evidence stream-json-persistent live "$peer_id"
+gate w1 'periodic sweep' 'owner gone' --observe
+expect 7 "a worker that left candidacy"
+det dead dead-or-unknown death-evidence stream-json-persistent dead "$peer_id"
+gate w1 'periodic sweep' 'owner gone' --observe
+[ "$(would_rows)" = 3 ] || fail "a worker back in candidacy wrote $(would_rows) records in all, expected 3"
+# A real close after observing is recorded, and so is a second one.
+stop_answers 'stop WORKER stopped released=process,attention' 0
+gate w1 'periodic sweep' 'owner gone'
+gate w1 'periodic sweep' 'owner gone'
+[ "$(audit_rows | awk -F'\t' '$4 == "cleanup"' | grep -c .)" = 2 ] \
+  || fail "a termination record was suppressed: $(audit_rows)"
+rm -rf "$gate_home"
+echo "ok: --observe writes one would-have record per candidacy and evidence class, and never suppresses a termination record"
+
 # --- a same-handle unit in another checkout is never closed on this one's ---
 # evidence. The real headless rung resolves the unit from the repo root it is
 # handed; the verdict describes checkout A's finished unit, and checkout B holds

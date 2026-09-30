@@ -106,7 +106,13 @@
 #       gets a `would-cleanup` record, never a `cleanup` one, naming
 #       `released=none` and the `would-release=` set, and its probe line is
 #       printed; one with nothing left is a clean no-op, as a real close of it
-#       would be. A probe that does not complete is exit 5, nothing observed;
+#       would be. The record is written once per candidacy and evidence
+#       class: the worker, owner and evidence it named are kept under
+#       <fleet-home>/sweep-observed/<worker>, a repeat with the same ones
+#       prints the probe line and records nothing, and any other outcome
+#       (a refusal, an already-closed worker) drops the mark, so the next
+#       candidacy is recorded afresh. A real close is never deduplicated.
+#       A probe that does not complete is exit 5, nothing observed;
 #       an unrecorded would-have close is exit 6 with nothing signalled. This
 #       is the periodic sweep's observing mode.
 #
@@ -744,6 +750,20 @@ case "$cmd" in
 
     gate process-cleanup || exit 4
 
+    # Observing, the last would-have record's worker, owner and evidence are
+    # kept per worker, so a leaked worker met every cycle is recorded once per
+    # candidacy and evidence class. Any outcome but a recorded or repeated
+    # observation (or a pause) ends the candidacy and drops the mark.
+    obs_mark=""
+    obs_keep=0
+    if [ "$observe" = 1 ]; then
+      obs_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) || obs_root=""
+      if [ -n "$obs_root" ]; then
+        obs_mark="$obs_root/sweep-observed/$worker"
+        trap '[ "$obs_keep" = 1 ] || rm -f "$obs_mark" 2>/dev/null' EXIT
+      fi
+    fi
+
     # The detector's answer is read whole before anything is decided from it:
     # a non-zero exit is an errored verdict, and an errored verdict is not
     # evidence of anything.
@@ -828,7 +848,10 @@ EOF
 
     # The gate admits entry, not the whole run: reading the verdict can take
     # a while, and a pause set meanwhile still stops the first signal.
-    gate process-cleanup || exit 4
+    gate process-cleanup || {
+      obs_keep=1
+      exit 4
+    }
 
     set --
     if [ "$rung" = fleet-dispatch-headless.sh ]; then
@@ -860,10 +883,20 @@ EOF
           exit 5
           ;;
       esac
+      if [ -n "$obs_mark" ] && [ "$(cat "$obs_mark" 2>/dev/null)" = "$detail" ]; then
+        obs_keep=1
+        exit 0
+      fi
       record=$(fit_text "$detail released=none would-release=$(sanitize_printable "$would" "-"); $reasoning")
       if ! audit process-cleanup would-cleanup "$trigger" "$record"; then
         warn "observed '$worker' as closable but could not record the would-have close — nothing was signalled"
         exit 6
+      fi
+      # A plain write, not temp-and-rename: a torn mark only costs one more
+      # record, and this leaves no temp for a signal to strand.
+      if [ -n "$obs_mark" ] && mkdir -p "${obs_mark%/*}" 2>/dev/null \
+        && printf '%s\n' "$detail" >"$obs_mark" 2>/dev/null; then
+        obs_keep=1
       fi
       exit 0
     fi
