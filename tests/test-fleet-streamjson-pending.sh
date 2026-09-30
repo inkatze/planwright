@@ -518,4 +518,16 @@ done
 printf '%s\n' "$out" | grep -q '^-- truncated' && fail "p22: the shown command was not cut, so no display-bound truncation may be claimed, got: $out"
 echo "ok: p22 an envelope cut by the read bound is flagged before its content"
 
+# ---------------------------------------------------------------------------
+# p23: the display-bound cut is announced before the content too, so a tower
+#      reading a long request through `| head` never loses the warning.
+# ---------------------------------------------------------------------------
+home="$tmp/h23"
+lines=$(awk 'BEGIN { for (i = 0; i < 200; i++) printf "echo line %03d of a long request\\n", i }')
+mkreq "$home/streamjson/sjp23" "$id1" pending Bash '{"command":"'"$lines"'rm -rf ~"}'
+out=$(penv "$home" sjp23 | head -n 40)
+printf '%s\n' "$out" | grep -q '^-- truncated' || fail "p23: the truncation notice must survive a head -n 40, got: $(printf '%s\n' "$out" | head -n 3)"
+[ "$(penv "$home" sjp23 | grep -c '^-- truncated')" = 1 ] || fail "p23: the truncation notice must print exactly once"
+echo "ok: p23 the display-bound cut is announced before the content"
+
 echo "all fleet-streamjson pending tests passed"

@@ -230,7 +230,8 @@
 #       tool shows its input JSON. Input cut at `pending_show_max` bytes gets
 #       a `-- truncated ...` line; an envelope that ends early (cut at
 #       `pending_read_max` or still being written) gets a
-#       `-- request envelope ends early ...` line after the header; a
+#       `-- request envelope ends early ...` line; every such notice comes
+#       before the content, so a piped `head` cannot drop it; a
 #       missing, symlinked or malformed envelope prints
 #       `-- request envelope unreadable` in place of the input. Request
 #       content is untrusted: control bytes are stripped and the prefixes
@@ -2615,10 +2616,11 @@ pending_render() {
     }'
 }
 
-# pending_show <worker> <dir> <id> — print one request: the header, then every
-# content line behind a `| ` prefix, then a `-- ` trailer when the content was
-# cut or unreadable; a Bash request's other fields go on one `+ ` line before
-# the content. The prefix is what keeps the framing unforgeable: no content line
+# pending_show <worker> <dir> <id> — print one request: the header, then its
+# `-- ` notices (unreadable, ambiguous, ends early, fields cut, content cut)
+# and a Bash request's other fields on one `+ ` line, then every content line
+# behind a `| ` prefix.
+# Every notice precedes the content so a piped `head` cannot drop one. The prefix is what keeps the framing unforgeable: no content line
 # can begin with `== `, `+ ` or `-- `, whatever the request carries, and the
 # fields line is one line because the envelope it is sliced from is.
 pending_show() {
@@ -2649,8 +2651,7 @@ pending_show() {
       ;;
   esac
   # `answer --allow` splices from the whole file, so a field past the cut (a
-  # later command, a sandbox bypass) would still apply; say so before the
-  # content, where a `| head` cannot drop it.
+  # later command, a sandbox bypass) would still apply.
   case $ps_flag in
     e*)
       printf -- '-- request envelope ends early (read bound %s bytes, or still being written): fields after the cut are not shown and an answer --allow may apply them\n' "$pending_read_max"
@@ -2666,10 +2667,10 @@ pending_show() {
       printf -- '-- fields truncated at %s bytes\n' "$pending_show_max"
       ;;
   esac
-  printf '%s' "${ps_out%"$NL"}" | tr -d '\000-\010\013-\037\177\200-\237' | awk '{ print "| " $0 } END { if (NR == 0) print "| " }'
   if [ "$ps_flag" = 1 ]; then
-    printf -- '-- truncated at %s bytes\n' "$pending_show_max"
+    printf -- '-- truncated at %s bytes: the content below is cut short\n' "$pending_show_max"
   fi
+  printf '%s' "${ps_out%"$NL"}" | tr -d '\000-\010\013-\037\177\200-\237' | awk '{ print "| " $0 } END { if (NR == 0) print "| " }'
 }
 
 # pending_worker <worker> <dir> — every request of one worker the journal still
