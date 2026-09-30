@@ -681,5 +681,16 @@ case $(summary)/$err in
   *"mode=observe${tab}"*/*'its own repository'*) ;;
   *) fail "a machine-local terminate inside a nested .claude repository was not refused: $(summary) ($err)" ;;
 esac
+rm -rf "$repo2/.claude/.git"
+# On a case-insensitive filesystem a tracked case variant is the very file
+# config-get reads, so tracking under any letter case is refused.
+printf 'fleet_sweep_reap: terminate\n' >"$repo2/.claude/PlanWright.Local.yml"
+git_env git -C "$repo2" add -f .claude/PlanWright.Local.yml
+git_env git -C "$repo2" commit -qm 'ship a case-variant local config'
+derived_sweep
+case $(summary)/$err in
+  *"mode=observe${tab}"*/*'the repository tracks that file'*) ;;
+  *) fail "a machine-local terminate tracked under another letter case was not refused: $(summary) ($err)" ;;
+esac
 unset IHOME
-echo "ok: the reap knob is read from the swept checkout wherever the sweep starts, and terminate from a committed, symlinked or nested local file, or the core layer, is refused"
+echo "ok: the reap knob is read from the swept checkout wherever the sweep starts, and terminate from a committed (in any letter case), symlinked or nested local file, or the core layer, is refused"
