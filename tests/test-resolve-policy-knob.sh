@@ -103,6 +103,10 @@ stub_reader() {
 
 printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malformed; do
   printf '%s: %s\n' "$knob" "$permissive" >"$core_cfg"
+  # The exclude list adds up across the layers, lowest first, so an overlay's
+  # value arrives after the core one rather than in place of it.
+  joins=0
+  [ "$knob" != merge_class_exclude_paths ] || joins=1
 
   # Every legal value resolves from every layer.
   overlays_ran=0
@@ -121,7 +125,9 @@ printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malf
       reset_layers
       printf '%s: %s\n' "$knob" "$v" >"$layer_cfg"
       got=$(rpk "$knob") || fail "$knob: '$v' in $layer_cfg did not resolve"
-      [ "$got" = "$v" ] || fail "$knob: '$v' in $layer_cfg resolved to '$got'"
+      want=$v
+      [ "$joins" = 0 ] || want="$permissive $v"
+      [ "$got" = "$want" ] || fail "$knob: '$v' in $layer_cfg resolved to '$got', expected '$want'"
     done
   done
 
@@ -143,7 +149,9 @@ printf '%s\n' "$KNOBS" | while IFS='|' read -r knob legal permissive strict malf
     rc=0
     got=$(rpk "$knob" 2>"$tmp/err") || rc=$?
     [ "$rc" = 0 ] || fail "$knob: malformed $layer_cfg exited $rc, expected 0"
-    [ "$got" = "$strict" ] || fail "$knob: malformed $layer_cfg resolved to '$got', expected '$strict'"
+    want=$strict
+    [ "$joins" = 0 ] || want="$permissive $strict"
+    [ "$got" = "$want" ] || fail "$knob: malformed $layer_cfg resolved to '$got', expected '$want'"
     grep -q warning "$tmp/err" || fail "$knob: malformed $layer_cfg degraded without a warning"
     [ "$got" != "$permissive" ] || fail "$knob: a reader would allow on a malformed $layer_cfg value"
     # A malformed FILE in that layer is the same case, even when the file
@@ -183,6 +191,23 @@ worker_base_merge: deny'; do
 done
 reset_layers
 echo "ok: a spaced or repeated gate key is malformed, never read past"
+
+# The exclude list adds up across all four layers: an empty or different
+# overlay value never drops another layer's entry, and a degraded `*` joins.
+printf 'merge_class_exclude_paths: docs/*\n' >"$core_cfg"
+printf 'merge_class_exclude_paths: secrets/*\n' >"$tracked_cfg"
+printf 'merge_class_exclude_paths:\n' >"$mlocal_cfg"
+got=$(rpk merge_class_exclude_paths) || fail "exclude union: did not resolve"
+[ "$got" = "docs/* secrets/*" ] || fail "exclude union: an empty machine-local value dropped a lower entry: '$got'"
+printf 'merge_class_exclude_paths: vendor/*\n' >"$adopter_cfg"
+printf 'merge_class_exclude_paths: build/*\n' >"$mlocal_cfg"
+got=$(rpk merge_class_exclude_paths) || fail "exclude union: did not resolve with every layer set"
+[ "$got" = "docs/* vendor/* secrets/* build/*" ] || fail "exclude union: expected every layer's entry, got '$got'"
+printf 'merge_class_exclude_paths: a,b\n' >"$mlocal_cfg"
+got=$(rpk merge_class_exclude_paths 2>/dev/null) || fail "exclude union: a malformed machine-local value did not resolve"
+[ "$got" = "docs/* vendor/* secrets/* *" ] || fail "exclude union: a degraded value should join as '*', got '$got'"
+reset_layers
+echo "ok: the exclude list adds up across the layers"
 
 # The flip wait is a bound, not a gate: a malformed overlay value degrades to
 # the core default like every other duration knob.

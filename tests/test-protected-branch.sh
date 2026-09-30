@@ -129,6 +129,19 @@ pb_expect 1 main "an overlay naming only a feature branch leaves main protected"
 pb_expect 1 feature-x "the overlay's feature branch is protected"
 printf 'protected_branches: refs/heads/stable\n' >"$tracked_cfg"
 pb_expect 1 stable "an overlay entry is stripped of refs/heads/ too"
+# Additions add up across the layers: no layer drops another layer's entry.
+printf 'protected_branches: release/*\n' >"$tracked_cfg"
+printf 'protected_branches:\n' >"$mlocal_cfg"
+pb_expect 1 release/1.0 "an empty machine-local value leaves a repo-tracked entry protected"
+printf 'protected_branches: hotfix\n' >"$mlocal_cfg"
+printf 'protected_branches: stable\n' >"$adopter_cfg"
+pb_expect 1 release/1.0 "a machine-local entry leaves a repo-tracked entry protected"
+pb_expect 1 hotfix "the machine-local entry is protected alongside"
+pb_expect 1 stable "an adopter entry is protected under a repo-tracked one"
+printf 'protected_branches: core-only\n' >"$core_cfg"
+pb_expect 1 core-only "a core entry is protected under every overlay"
+printf 'protected_branches:\n' >"$core_cfg"
+reset_layers
 echo "ok: overlay additions join the floor and never shrink it"
 
 # An entry that could never match a branch is malformed, not silently inert:

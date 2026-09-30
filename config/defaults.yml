@@ -811,7 +811,8 @@ tower_reknock_age: 30m
 # merge_class_max_lines         the class's changed-line bound; 0 admits
 #                               nothing, so the class stays closed until set.
 # merge_class_exclude_paths     globs (whole path, `*` spans `/`) the class
-#                               never admits, added to the core zone.
+#                               never admits, added to the core zone; every
+#                               layer's list joins, none replaces another's.
 # merge_class_strategy          the class's merge method: sole-allowed (the one
 #                               method the host allows), squash, merge, rebase.
 # worker_base_merge             whether a worker may merge its PR base into its
@@ -823,8 +824,9 @@ tower_reknock_age: 30m
 #                               branch: allow or deny.
 # protected_branches            branch names or globs added to the protected
 #                               floor (main, master, planwright/*/spec), space
-#                               separated on one line; a malformed value
-#                               refuses every act that reads it.
+#                               separated on one line; every layer's list
+#                               joins, and a malformed value refuses every act
+#                               that reads it.
 ready_flip_policy: unit-owner
 ready_flip_ci_wait: 10m
 merge_policy: human

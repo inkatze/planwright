@@ -785,6 +785,17 @@ rc=0
 grep -q 'do not apply to --type path' "$tmp/err" || fail "path with --no-degrade: refused for another reason: $(cat "$tmp/err")"
 echo "ok: path refuses --degrade and --no-degrade"
 
+# --union joins a globlist's layers instead of taking the winner; it applies
+# to no other type and has no single layer for --explain to name.
+for bad_args in "--type enum --values a --fallback a" "--type globlist --fallback x --explain"; do
+  rc=0
+  # shellcheck disable=SC2086 # the argument words split on purpose
+  /bin/bash "$RCK" --union --key merge_class_exclude_paths $bad_args >/dev/null 2>"$tmp/err" || rc=$?
+  [ "$rc" = 2 ] || fail "--union with '$bad_args': exit $rc, expected 2"
+  grep -q 'union applies only' "$tmp/err" || fail "--union with '$bad_args': refused for another reason: $(cat "$tmp/err")"
+done
+echo "ok: --union is a globlist-only option without --explain"
+
 reset_layers
 
 echo "ALL PASS: resolve-config-knob"

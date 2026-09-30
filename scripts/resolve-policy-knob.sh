@@ -12,7 +12,9 @@
 # exits 4 and a broken install 5, and a reader treats any non-zero exit as a
 # refusal of the act. `ready_flip_ci_wait` is a bound rather than a gate: a
 # malformed value degrades to the core default and a malformed file is
-# skipped, as for any knob. `protected_branches` degrades nowhere: a
+# skipped, as for any knob. The two list knobs add up across the layers
+# instead of taking the winning layer's list, so no layer drops another's
+# entry. `protected_branches` degrades nowhere: a
 # malformed value in any overlay is a read failure, and on success the output
 # is the whole protected set, the core floor first, so no reader can drop the
 # floor by forgetting to add it.
@@ -63,7 +65,7 @@ case "$knob" in
     exec /bin/sh "$rck" --key "$knob" --type nonnegint --fallback 0 --degrade 0
     ;;
   merge_class_exclude_paths)
-    exec /bin/sh "$rck" --key "$knob" --type globlist --fallback '*' --degrade '*'
+    exec /bin/sh "$rck" --union --key "$knob" --type globlist --fallback '*' --degrade '*'
     ;;
   merge_class_strategy)
     exec /bin/sh "$rck" --key "$knob" --type enum --values 'sole-allowed squash merge rebase' \
@@ -78,7 +80,7 @@ case "$knob" in
       --fallback halt --degrade halt
     ;;
   protected_branches)
-    additions=$(/bin/sh "$rck" --key "$knob" --type globlist --no-degrade) || exit $?
+    additions=$(/bin/sh "$rck" --union --key "$knob" --type globlist --no-degrade) || exit $?
     # An entry that no branch name can match (git refuses the shape, or `**`,
     # which matches one segment here) is malformed rather than silently inert.
     for entry in $additions; do

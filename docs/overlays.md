@@ -122,7 +122,10 @@ order is the same for all three; only the *merge rule* differs.
 
 - **Config — last-layer-wins, per key.** The highest layer that sets a key
   wins for that key; other keys fall through independently. Setting one option
-  in `machine-local` does not discard the rest of the lower layers.
+  in `machine-local` does not discard the rest of the lower layers. Two
+  human-gate lists are the exception: `protected_branches` and
+  `merge_class_exclude_paths` add up across all four layers, so a higher
+  layer (an empty value included) never drops an entry a lower layer set.
 - **Doctrine — whole-doc shadow.** The highest-precedence doc of a given name
   wins **in full**. There is no fragment or section merge: if your overlay
   `validation-rigor.md` omits a section the core doc had, that section is gone
