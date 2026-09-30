@@ -1529,8 +1529,9 @@ candidate and comes back, rather than every cycle,
 so the trail shows what promotion would do before it does it. Set
 `fleet_sweep_reap: terminate` in this machine's local overlay to let it close
 them; the value is refused from any shared layer, and from a local file the
-repository itself tracks or reaches through a symlink. Set it back, or delete
-it, and the next cycle observes again.
+repository itself tracks, reaches through a symlink, or ships inside a nested
+`.claude` repository (the full rule is in the options reference). Set it back,
+or delete it, and the next cycle observes again.
 
 Every cycle the kill-switch lets through prints what it did, one line per
 candidate and a summary (tab-separated; spaced here for reading). A paused
@@ -1550,8 +1551,8 @@ counts as reaped whatever came of it: `partial` when something is still held,
 `status` to `degraded`. A kill-switch set mid-pass reports the remaining
 candidates `paused`. The tower's own workers are declined too: it closes
 them with the rung's `stop`.
-`fleet_daemon_pause` pauses the whole cycle. A watch loop stopped by a signal
-leaves no temp file behind in the fleet home.
+`fleet_daemon_pause` pauses the whole cycle. A sweep stopped by a signal,
+one cycle or a watch loop, leaves no temp file behind in the fleet home.
 
 ## Resource governance: models, throttling, and the auto-mode line
 
