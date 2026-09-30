@@ -641,6 +641,35 @@ live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
 row carries a readable epoch), never a healthy-looking `running`.
 
+`pending [<worker>...]` shows what those pending receipts are asking, so a
+tower can bring the operator the actual decision rather than a count. For each
+request the journal still reads `pending` (every worker when none is named,
+oldest request first) it prints `== <worker> <request-id> <tool>`, then the
+request with every line prefixed by `|` and a space. A Bash request shows its
+command decoded, with any escape it does not decode left visible as escape
+text, and a `+ {...}` line before it carrying every other input field but the
+description, so a sandbox bypass or a background run is never hidden behind
+the command. Any other tool shows its input JSON. Input past the script's
+display bound gets a `-- truncated` line. An envelope that ends early (past the
+script's read bound, or still being written) gets a
+`-- request envelope ends early` line: fields past the cut, a later command or
+a sandbox bypass included, are not shown, yet an `answer --allow` would apply
+them. Every `--` notice prints before the request's content, so reading the
+view through `head` never drops one. A missing, symlinked, or malformed envelope
+prints `-- request envelope unreadable` instead. The request text is the worker's, so
+it is treated as untrusted: control bytes are stripped (C1 bytes too, which
+mangles some non-ASCII punctuation, the same trade the script's echo
+sanitizer makes), a tool name that had to be altered carries a `:sanitized`
+suffix, and because every content line carries the prefix, a command
+containing a line that starts with `==` cannot pass for another request. The
+verb only reads. It never answers, locks, or re-queues anything; a named
+worker with no runtime directory, or a journal it cannot read, is exit 2
+rather than an empty list. The shipped tower profile approves it through
+the tower command guard like any planwright script, provided the tower calls it
+by the resolved literal path (`<root>/scripts/fleet-streamjson.sh pending`, per
+[plugin-script invocation](../doctrine/plugin-script-invocation.md)); a `~` path
+or an unexpanded `$CLAUDE_PLUGIN_ROOT` falls to the permission prompt instead.
+
 Before spawning anything, `launch` proves the auto-approve hook the worker
 will run (`scripts/worker-command-guard.sh` under the plugin root the
 dispatch-env wrapper exports, run through that wrapper so it sees the worker's
@@ -736,6 +765,7 @@ The two session-grade rungs, verb by verb:
 | Liveness and completion | `status <worker>` | `status <spec> <id>` |
 | Close | `stop <worker> [--grace <secs>] [--observe]` | `stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` |
 | Resume a crashed worker | `recover <worker>` | none: a one-shot is re-dispatched, not resumed |
+| Read a pending prompt | `pending [<worker>...]` | none: a one-shot has no pend path |
 | Answer a pending prompt | `answer <worker> <request-id>` | none: a one-shot has no pend path |
 | Steer in flight | `steer <worker>` | none: the rung advertises no steer |
 

@@ -1,0 +1,1 @@
+- 2026-09-30 [planwright] config/tower-settings.json `_about` still says the tower guard receives the command fully expanded (variables already expanded before the hook runs), which contradicts scripts/tower-command-guard.sh, doctrine/plugin-script-invocation.md and a guard test pinning that an unexpanded $CLAUDE_PLUGIN_ROOT path defers.
