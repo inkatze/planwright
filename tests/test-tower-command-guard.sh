@@ -80,6 +80,7 @@ mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
 mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/orchestrate-select.sh"
+: >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
 ln -sf /etc/hosts "$PLUGIN_ROOT/scripts/evillink.sh"
 
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE. CLAUDE_PLUGIN_ROOT
@@ -194,6 +195,19 @@ assert_allow "repo script direct" "scripts/ok.sh"
 assert_allow "repo script bash-prefixed" "bash scripts/ok.sh arg1"
 assert_allow "plugin script absolute path direct" "$PLUGIN_ROOT/scripts/orchestrate-select.sh specs/x"
 assert_allow "plugin script bash-prefixed" "bash $PLUGIN_ROOT/scripts/orchestrate-select.sh"
+
+# The pending-request read: the shipped profile approves it through this guard
+# rather than a static allow entry, so it works out of the box as long as the
+# tower calls it by the resolved literal path. The drifted spellings that left a
+# fleet blocked for hours (a `~` path, an unexpanded variable) still defer.
+echo "### the tower's pending-request read, by resolved literal path"
+assert_allow "pending read, every worker" "$PLUGIN_ROOT/scripts/fleet-streamjson.sh pending"
+assert_allow "pending read, named workers" "$PLUGIN_ROOT/scripts/fleet-streamjson.sh pending sjw1 sjw2"
+assert_allow "pending read piped to head" "$PLUGIN_ROOT/scripts/fleet-streamjson.sh pending sjw1 | head -n 40"
+# shellcheck disable=SC2088 # the literal, unexpanded tilde is the case under test
+assert_defer "pending read via a tilde path" "~/.claude/plugins/cache/planwright/scripts/fleet-streamjson.sh pending"
+assert_defer "pending read via an unexpanded variable" "\$CLAUDE_PLUGIN_ROOT/scripts/fleet-streamjson.sh pending"
+assert_defer "pending read from a lookalike outside the roots" "/tmp/evil/scripts/fleet-streamjson.sh pending"
 
 echo "### REQ-C1.1 — read-only state observation ALLOWS (shared with worker)"
 assert_allow "git status" "git status"
