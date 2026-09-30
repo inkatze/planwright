@@ -7,8 +7,8 @@
 # ON A SCHEDULE, NEVER ON A THRESHOLD (D-5). A cycle has no precondition: it
 # runs every pass whether or not anything looks wrong, because waiting until a
 # leak is alarming is what let one run for hours. `--watch` runs a cycle every
-# `fleet_sweep_interval`; the bare form runs one cycle, for a cron or launchd
-# entry. The dirty-tree grace (`fleet_dirty_tree_threshold`) defers one
+# `fleet_sweep_interval`; the bare form runs one cycle. Either is started by a
+# tower, which the reap needs (see --tower-id below). The dirty-tree grace (`fleet_dirty_tree_threshold`) defers one
 # escalation and never gates a cycle.
 #
 # FOUR PASSES, ONE CYCLE, in this order.
@@ -80,9 +80,11 @@
 #     sweep was started. The wait between watch cycles is never under a
 #     second.
 #     <token> is the identity of the tower the sweep acts for, handed to the
-#     detector and the reap actuator; without it they resolve one from the
-#     environment as they always do, and a sweep with no identity at all
-#     declines every reap, since no owner can then be established dead.
+#     detector and the reap actuator; without it they resolve one from
+#     PLANWRIGHT_TOWER_ID, PLANWRIGHT_TOWER_SESSION_ID or PLANWRIGHT_TOWER_PID.
+#     The sweep runs only from inside a tower: with none of those, no owner
+#     can be told from a live peer, so the reap asks the actuator nothing and
+#     declines every candidate in one line naming why (no tower identity).
 #
 # Output (stdout, tab-separated, per cycle the kill-switch lets through; a
 # paused cycle prints only its warning):
@@ -601,6 +603,13 @@ reap_pass() {
   rp_marks=$("$FS" root 2>/dev/null) && rp_marks="$rp_marks/sweep-observed" || rp_marks=""
   set --
   [ -z "$tower_id" ] || set -- --tower-id "$tower_id"
+  # The sweep runs only from inside a tower: without an identity no owner can
+  # be told from a live peer, so every candidate is declined, in one line.
+  rp_towerless=0
+  if [ -z "$tower_id" ] && [ -z "${PLANWRIGHT_TOWER_ID:-}" ] \
+    && [ -z "${PLANWRIGHT_TOWER_SESSION_ID:-}" ] && [ -z "${PLANWRIGHT_TOWER_PID:-}" ]; then
+    rp_towerless=1
+  fi
   rp_scan=$(cd "$repo" && /bin/sh "$DET" scan --checkout "$repo" "$@" 2>/dev/null) || {
     warn "the stuck-detector scan failed — no worker was considered for a reap this cycle"
     printf 'summary\tmode=%s\tworkers=0\tcandidates=0\treaped=0\tobserved=0\tdeclined=0\talready-closed=0\tstatus=degraded\n' "$rp_mode"
@@ -630,6 +639,10 @@ reap_pass() {
         ;;
     esac
     rp_cand=$((rp_cand + 1))
+    if [ "$rp_towerless" = 1 ]; then
+      rp_declined=$((rp_declined + 1))
+      continue
+    fi
     if [ "$rp_halted" = 1 ]; then
       printf 'reap\t%s\tpaused\t-\n' "$rp_w"
       continue
@@ -693,6 +706,11 @@ reap_pass() {
   done <<EOF
 $rp_rows
 EOF
+  if [ "$rp_towerless" = 1 ] && [ "$rp_cand" -gt 0 ]; then
+    rp_msg="no tower identity: all $rp_cand candidate(s) declined; the sweep runs only from inside a tower (pass --tower-id or set PLANWRIGHT_TOWER_ID)"
+    printf 'reap\t-\tdeclined\t%s\n' "$rp_msg"
+    warn "$rp_msg"
+  fi
   printf 'summary\tmode=%s\tworkers=%s\tcandidates=%s\treaped=%s\tobserved=%s\tdeclined=%s\talready-closed=%s\tstatus=%s\n' \
     "$rp_mode" "$rp_workers" "$rp_cand" "$rp_reaped" "$rp_observed" "$rp_declined" "$rp_closed" "$rp_status"
 }

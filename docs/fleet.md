@@ -1499,12 +1499,22 @@ should have closed it is gone. Nothing waits for a count to look alarming.
 
 ```sh
 scripts/fleet-sweep.sh --watch --repo /path/to/repo --tower-id <tower-id>   # every fleet_sweep_interval
-scripts/fleet-sweep.sh --repo /path/to/repo --tower-id <tower-id>           # one cycle, for cron or launchd
+scripts/fleet-sweep.sh --repo /path/to/repo --tower-id <tower-id>           # one cycle
+```
+
+**The sweep runs only from inside a tower.** A tower starts it with its own
+identity, which the reap needs to tell a live peer from a dead owner. Started
+with no tower identity (no `--tower-id`, `PLANWRIGHT_TOWER_ID`,
+`PLANWRIGHT_TOWER_SESSION_ID` or `PLANWRIGHT_TOWER_PID`), the other passes
+still run, but the reap asks nothing of any worker and declines every
+candidate in one line that names why:
+
+```text
+reap     -  declined  no tower identity: all 2 candidate(s) declined; the sweep runs only from inside a tower (...)
 ```
 
 The knobs are read from the `--repo` checkout's overlay layers wherever the
-sweep is started, so a cron entry needs no `cd`. The wait between cycles is
-never under one second.
+sweep is started. The wait between cycles is never under one second.
 
 Each cycle runs four passes: the worktree disk scan, so a worktree nothing
 recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
@@ -1538,12 +1548,8 @@ everything down never reads like one that found nothing. A close that acted
 counts as reaped whatever came of it: `partial` when something is still held,
 `unrecorded` when the audit write failed, which also turns the summary's
 `status` to `degraded`. A kill-switch set mid-pass reports the remaining
-candidates `paused`. The sweep needs a
-tower identity to tell a live peer from a dead owner, resolved the way the
-stuck-detector resolves it (`--tower-id`, then the environment described
-under the owner token above); without one every candidate is declined, and
-says why. The identity's own workers are declined too: that tower closes them
-with the rung's `stop`.
+candidates `paused`. The tower's own workers are declined too: it closes
+them with the rung's `stop`.
 `fleet_daemon_pause` pauses the whole cycle. A watch loop stopped by a signal
 leaves no temp file behind in the fleet home.
 

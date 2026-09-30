@@ -515,6 +515,7 @@ cp -R "$IS" "$stubs"
 # gives one worker its own answer.
 cat >"$stubs/fleet-cleanup.sh" <<STUB
 #!/bin/sh
+printf '%s\n' "\$2" >>"$tmp/cl-calls"
 s=""
 [ -e "$tmp/cl-rc.\$2" ] && s=".\$2"
 [ -s "$tmp/cl-out\$s" ] && sed "s/WORKER/\$2/" "$tmp/cl-out\$s"
@@ -583,6 +584,27 @@ sweep
 case $(reap_line sweep-docs) in
   "reap${tab}sweep-docs${tab}reaped${tab}"*) ;;
   *) fail "a worker named sweep-docs was left out of the reap: '$out'" ;;
+esac
+# The sweep runs only from inside a tower: with no tower identity it asks the
+# actuator nothing and declines every candidate in one line that says why.
+: >"$tmp/cl-calls"
+rc=0
+ienv -- fleet-sweep.sh --repo "$repo" >"$tmp/out" 2>"$tmp/err" || rc=$?
+out=$(cat "$tmp/out")
+err=$(cat "$tmp/err")
+[ "$rc" = 0 ] || fail "a tower-less sweep: exit $rc ($err)"
+[ ! -s "$tmp/cl-calls" ] || fail "a tower-less sweep asked the actuator about: $(tr '\n' ' ' <"$tmp/cl-calls")"
+[ "$(printf '%s\n' "$out" | grep -c 'no tower identity')" = 1 ] \
+  || fail "a tower-less sweep did not say why in exactly one line: '$out'"
+[ "$(printf '%s\n' "$out" | awk -F'\t' '$1 == "reap"' | grep -c .)" = 1 ] \
+  || fail "a tower-less sweep printed a line per candidate: '$out'"
+case $(summary) in
+  *"candidates=3${tab}reaped=0${tab}observed=0${tab}declined=3${tab}"*) ;;
+  *) fail "a tower-less sweep did not count every candidate declined: $(summary)" ;;
+esac
+case $err in
+  *'no tower identity'*) ;;
+  *) fail "a tower-less sweep did not warn: $err" ;;
 esac
 unset IHOME ISX
 rm -f "$mlocal_cfg" "$tmp/cl-out" "$tmp/cl-err"
