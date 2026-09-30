@@ -2571,11 +2571,12 @@ pending_render() {
       }
     }
     END {
+      trunc = 0
       name = dec(tool, 64)
       t = name
       gsub(/[^A-Za-z0-9_.:-]/, "", t)
       if (t == "") t = "unknown"
-      else if (t != name) t = t ":sanitized"
+      else if (t != name || trunc) t = t ":sanitized"
       trunc = 0
       if (ins == 0 || (err && !eof)) { print t; print "bad"; exit }
       if (name == "Bash" && hc) {

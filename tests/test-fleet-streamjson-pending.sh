@@ -330,6 +330,10 @@ mkreq "$home/streamjson/sjp12" "$id1" pending 'B a/s!h' '{"command":"echo from-n
 out=$(penv "$home" sjp12) || fail "p12: must exit 0"
 printf '%s\n' "$out" | grep -qx "== sjp12 $id1 Bash:sanitized" || fail "p12: an altered tool name must say so, got: $out"
 printf '%s\n' "$out" | grep -qxF '| {"command":"echo from-not-bash","other":"x"}' || fail "p12: a non-Bash tool must show its whole input, got: $out"
+long_tool=$(awk 'BEGIN { for (i = 0; i < 100; i++) printf "B" }')
+mkreq "$home/streamjson/sjp12" "$id2" pending "$long_tool" '{"x":1}'
+out=$(penv "$home" sjp12) || fail "p12: must exit 0"
+printf '%s\n' "$out" | grep -q "^== sjp12 $id2 B*:sanitized\$" || fail "p12: a tool name cut to fit the header must say so, got: $out"
 echo "ok: p12 only a tool named exactly Bash gets the command view"
 
 # ---------------------------------------------------------------------------
