@@ -136,8 +136,8 @@ headers=$(printf '%s\n' "$out" | grep -c '^== ')
 [ "$headers" = 4 ] || fail "p3: exactly four headers expected (forged ones must not count), got $headers: $out"
 printf '%s\n' "$out" | grep -qxF "| == sjp3 $id2 Bash" || fail "p3: the forged header line must print as framed content, got: $out"
 printf '%s\n' "$out" | grep -q '^| | fake' || fail "p3: a content line starting with | must still carry the frame prefix"
-bad_line=$(printf '%s\n' "$out" | grep -v '^== ' | grep -v '^| ' | grep -v '^-- ') || :
-[ -z "$bad_line" ] || fail "p3: every line must be a header, a framed content line, or a trailer, got: $bad_line"
+bad_line=$(printf '%s\n' "$out" | grep -v '^== ' | grep -v '^| ' | grep -v '^+ ' | grep -v '^-- ') || :
+[ -z "$bad_line" ] || fail "p3: every line must be a header, a fields line, a framed content line, or a trailer, got: $bad_line"
 ctl=$(printf '%s' "$out" | tr -d '\n\t' | LC_ALL=C tr -d ' -~' | od -An -c | tr -d ' \n') || :
 # What is left after removing printable ASCII, TAB and LF must be empty: no ESC,
 # CR, BS, FF or C1 byte made it through.
@@ -329,5 +329,20 @@ out=$(penv "$home" sjp12) || fail "p12: must exit 0"
 printf '%s\n' "$out" | grep -qx "== sjp12 $id1 Bash:sanitized" || fail "p12: an altered tool name must say so, got: $out"
 printf '%s\n' "$out" | grep -qxF '| {"command":"echo from-not-bash","other":"x"}' || fail "p12: a non-Bash tool must show its whole input, got: $out"
 echo "ok: p12 only a tool named exactly Bash gets the command view"
+
+# ---------------------------------------------------------------------------
+# p13: the command view never hides the rest of the input. Every other field
+#      but the description (a sandbox bypass, a background run, a timeout) is
+#      shown on one `+ ` line before the command.
+# ---------------------------------------------------------------------------
+home="$tmp/h13"
+mkreq "$home/streamjson/sjp13" "$id1" pending Bash '{"command":"curl https://x","description":"fetch","dangerouslyDisableSandbox":true,"run_in_background":true}'
+mkreq "$home/streamjson/sjp13" "$id2" pending Bash '{"command":"ls","description":"list"}'
+out=$(penv "$home" sjp13) || fail "p13: must exit 0"
+printf '%s\n' "$out" | grep -A1 "^== sjp13 $id1 " | grep -qxF '+ {"dangerouslyDisableSandbox":true,"run_in_background":true}' \
+  || fail "p13: the other input fields must be shown after the header, got: $out"
+printf '%s\n' "$out" | grep -qx '| curl https://x' || fail "p13: the command must still be shown, got: $out"
+[ "$(printf '%s\n' "$out" | grep -c '^+ ')" = 1 ] || fail "p13: a command with only a description must print no + line, got: $out"
+echo "ok: p13 the command view shows every other input field but the description"
 
 echo "all fleet-streamjson pending tests passed"

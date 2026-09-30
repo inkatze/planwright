@@ -2488,12 +2488,12 @@ pending_render() {
       if (lim && length(out) > lim) { trunc = 1; return substr(out, 1, lim) }
       return out
     }
-    function val(path, d,   c, k, str) {
+    function val(path, d,   c, k, str, kst) {
       if (d > 64) { fail(); return }
       ws()
       if (pos > n) { fail(); return }
       if (path == "/request") { tool = ""; ins = 0; ine = 0; hc = 0 }
-      if (path == "/request/input") { ins = pos; ine = 0; hc = 0 }
+      if (path == "/request/input") { ins = pos; ine = 0; hc = 0; extra = "" }
       if (path == "/request/input/command") hc = 0
       c = substr(s, pos, 1)
       if (c == "{" || c == "[") {
@@ -2504,6 +2504,7 @@ pending_render() {
           if (c == "{") {
             ws()
             if (substr(s, pos, 1) != "\"") { fail(); return }
+            kst = pos
             k = dec(pstr(), 0)
             if (err) return
             ws()
@@ -2513,6 +2514,10 @@ pending_render() {
             # let `"input/command"` spell a nested path it is not.
             gsub(/\//, "\001", k)
             val(path "/" k, d + 1)
+            # What the command view would otherwise hide: every input field
+            # but the command itself and the model-written description.
+            if (!err && path == "/request/input" && k != "command" && k != "description")
+              extra = extra (extra == "" ? "" : ",") substr(s, kst, pos - kst)
           } else val(path "/[]", d + 1)
           if (err) return
           ws()
@@ -2550,14 +2555,18 @@ pending_render() {
       else if (t != name) t = t ":sanitized"
       trunc = 0
       if (ins == 0 || (err && !eof)) { print t; print "bad"; exit }
-      if (name == "Bash" && hc) out = dec(cmd, cap)
-      else {
+      if (name == "Bash" && hc) {
+        out = dec(cmd, cap)
+        if (length(extra) > cap) { extra = substr(extra, 1, cap); trunc = 1 }
+      } else {
+        extra = ""
         out = ine ? substr(s, ins, ine - ins) : substr(s, ins)
         if (length(out) > cap) { out = substr(out, 1, cap); trunc = 1 }
       }
       if (eof) trunc = 1
       print t
       print trunc
+      print extra
       print out
     }'
 }
@@ -2580,10 +2589,15 @@ pending_show() {
   ps_out=${ps_out#*"$NL"}
   ps_flag=${ps_out%%"$NL"*}
   ps_out=${ps_out#*"$NL"}
+  ps_extra=${ps_out%%"$NL"*}
+  ps_out=${ps_out#*"$NL"}
   printf '== %s %s %s\n' "$1" "$3" "${ps_tool:-unknown}"
   if [ "$ps_flag" = bad ] || [ -z "$ps_flag" ]; then
     echo '-- request envelope unreadable'
     return 0
+  fi
+  if [ -n "$ps_extra" ]; then
+    printf '+ {%s}\n' "$ps_extra" | tr -d '\000-\010\013-\037\177\200-\237'
   fi
   printf '%s' "${ps_out%"$NL"}" | tr -d '\000-\010\013-\037\177\200-\237' | awk '{ print "| " $0 } END { if (NR == 0) print "| " }'
   if [ "$ps_flag" = 1 ]; then
