@@ -2505,7 +2505,9 @@ pending_render() {
             ws()
             if (substr(s, pos, 1) != "\"") { fail(); return }
             kst = pos
-            k = dec(pstr(), 0)
+            # Bounded: decoding appends a byte at a time, quadratic in the key,
+            # and no key the walk matches is anywhere near this long.
+            k = dec(pstr(), 16)
             if (err) return
             ws()
             if (substr(s, pos, 1) != ":") { fail(); return }
