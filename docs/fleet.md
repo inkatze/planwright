@@ -318,9 +318,8 @@ Registration is best-effort by design: a registry that cannot be written
 **warns and never fails the dispatch**, since a running worker is a fact and its
 bookkeeping is only a record of one. A single malformed optional column is
 dropped rather than costing the whole record. Note that a failed write is not
-yet self-healing: this registry has one writer, and the periodic reconcile that
-would notice a missing record arrives with the scheduled sweep, so until then
-the warning is the only trace.
+yet self-healing: this registry has one writer, and the periodic sweep scans
+worktrees, not dispatch records, so the warning is the only trace.
 
 The owner token comes from the presence surface's tower identity. A tower that
 already knows its own identity exports it as `PLANWRIGHT_TOWER_ID`; a seam can
@@ -693,9 +692,13 @@ deterministically and will never succeed from that process.
 A repeat stop takes exactly what is still held, so
 `already-closed` means every class is free and nothing was signalled; a repeat
 after a partial close retries only the remainder. A stop does not remove the
-worker's dispatch registry record, and nothing reconciles that record yet, so
-`fleet-status.sh` keeps listing a stopped worker until the periodic reconcile
-this bundle plans lands.
+worker's dispatch registry record, and nothing reconciles that record, so
+`fleet-status.sh` keeps listing a stopped worker.
+
+`stop <worker> --observe` runs the same checks and releases nothing: it prints
+`stop <worker> would-release=<classes>` for what a close would take now, or
+`already-closed`, and exits `0`. The periodic sweep's observing mode records
+its would-have closes from it.
 
 Two adjacent refusals ship with the verb. `recover` breaks a `recover.lock`
 whose holder is gone, so one hard kill mid-recovery no longer disables recovery
@@ -706,7 +709,7 @@ still records a live process, which includes a live worker under a dead
 supervisor — that case wants `recover`, not a second `launch`.
 
 The headless rung closes the same way: `fleet-dispatch-headless.sh stop
-<worker> [--repo-root <dir>] [--grace <secs>]` takes the handle `launch`
+<worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` takes the handle `launch`
 printed (`headless-<spec>-task-<id>`) and gives the same results, the same exit
 codes, and the same refusals, because both verbs run one shared close
 (`scripts/fleet-stop-lib.sh`) and one fixture table pins it on both rungs
@@ -731,7 +734,7 @@ The two session-grade rungs, verb by verb:
 | --- | --- | --- |
 | Open | `launch <worker> <scope> --prompt-file <file>` | `launch <spec> <id> --worktree <dir>` |
 | Liveness and completion | `status <worker>` | `status <spec> <id>` |
-| Close | `stop <worker> [--grace <secs>]` | `stop <worker> [--repo-root <dir>] [--grace <secs>]` |
+| Close | `stop <worker> [--grace <secs>] [--observe]` | `stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` |
 | Resume a crashed worker | `recover <worker>` | none: a one-shot is re-dispatched, not resumed |
 | Answer a pending prompt | `answer <worker> <request-id>` | none: a one-shot has no pend path |
 | Steer in flight | `steer <worker>` | none: the rung advertises no steer |
@@ -1481,6 +1484,85 @@ to the reap itself once the close is under way is held until the close is
 recorded, and the reap then exits `5`. A close that could not be recorded is
 exit `6`.
 
+`--observe` makes the same decision, refusals and exit codes included, then
+asks the rung's `stop --observe` what a close would take now instead of
+closing. A worker with something to take gets a `would-cleanup` record naming
+`released=none` and the `would-release=` set; one with nothing left is a clean
+no-op. Nothing is signalled either way.
+
+### The periodic sweep: `fleet-sweep.sh`
+
+The tower closes its own workers when their units finish. The sweep is the
+other end: it runs on a schedule, whether or not anything looks wrong, and
+catches what no tower closed, the case that leaks because the tower that
+should have closed it is gone. Nothing waits for a count to look alarming.
+
+```sh
+scripts/fleet-sweep.sh --watch --repo /path/to/repo --tower-id <tower-id>   # every fleet_sweep_interval
+scripts/fleet-sweep.sh --repo /path/to/repo --tower-id <tower-id>           # one cycle
+```
+
+**The sweep runs only from inside a tower.** A tower starts it with its own
+identity, which the reap needs to tell a live peer from a dead owner. Started
+with no tower identity (no `--tower-id`, `PLANWRIGHT_TOWER_ID`,
+`PLANWRIGHT_TOWER_SESSION_ID` or `PLANWRIGHT_TOWER_PID`), the other passes
+still run, but the reap asks nothing of any worker and declines every
+candidate in one line that names why:
+
+```text
+reap     -  declined  no tower identity: all 2 candidate(s) declined; the sweep runs only from inside a tower (...)
+```
+
+The knobs are read from the `--repo` checkout's overlay layers wherever the
+sweep is started. The wait between cycles is never under one second.
+
+Each cycle runs four passes: the worktree disk scan, so a worktree nothing
+recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
+and the process reap. The reap hands every worker whose session has ended to
+`fleet-cleanup.sh process`, so it refuses what that refuses and kills only
+through the rungs' `stop`.
+
+**It observes until you promote it.** At the default the reap writes the
+`would-cleanup` record for each worker it would have closed and kills nothing,
+once per worker until that worker's evidence changes or it stops being a
+candidate and comes back, rather than every cycle,
+so the trail shows what promotion would do before it does it. Set
+`fleet_sweep_reap: terminate` in this machine's local overlay to let it close
+them; the value is refused from any shared layer, and from a local file the
+repository itself tracks, reaches through a symlink, or ships inside a nested
+`.claude` repository (the full rule is in the options reference). Set it back,
+or delete it, and the next cycle observes again.
+
+**For now, terminate is refused everywhere.** A stream-json close kills the
+processes named in the pid files the worker left behind. After a crash, the
+host can hand one of those pids to an unrelated process, and a close would kill
+that process and everything under it. Until the close checks that a recorded
+pid still belongs to the worker, a `terminate` set in this machine's local
+overlay is read but not acted on: the sweep observes, writes the same
+`would-cleanup` records, and warns once per cycle that terminate is refused and
+why.
+
+Every cycle the kill-switch lets through prints what it did, one line per
+candidate and a summary (tab-separated; spaced here for reading). A paused
+cycle prints only its warning.
+
+```text
+scan     ok
+reap     <worker>  observed  would-release=process,locks,scratch,attention
+reap     <worker>  declined  refusing '<worker>': it is owned by live peer tower <id>, ...
+summary  mode=observe  workers=4  candidates=2  reaped=0  observed=1  declined=1  already-closed=0  status=ok
+```
+
+A declined candidate carries the refusal the reap gave, so a sweep that turned
+everything down never reads like one that found nothing. A close that acted
+counts as reaped whatever came of it: `partial` when something is still held,
+`unrecorded` when the audit write failed, which also turns the summary's
+`status` to `degraded`. A kill-switch set mid-pass reports the remaining
+candidates `paused`. The tower's own workers are declined too: it closes
+them with the rung's `stop`.
+`fleet_daemon_pause` pauses the whole cycle. A sweep stopped by a signal,
+one cycle or a watch loop, leaves no temp file behind in the fleet home.
+
 ## Resource governance: models, throttling, and the auto-mode line
 
 Three deterministic mechanisms govern what a dispatched unit costs and what it
@@ -1936,6 +2018,8 @@ are in the [options reference](options-reference.md).
 | `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you (`none` / `tmux-popup` / `os-notify` / `editor-toast` / `statusline` / `push`) | `none` — pull-only, dependency-free, nothing fires until you opt in |
 | `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table (deprecated fallback behind the `allocation_model_*` family) | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
 | `allocation_model_*` / `allocation_effort_*` / `allocation_command_*` | The general, surface-agnostic selection resolver | Which model, effort, and command each selection key resolves to; keyed for every launch point, and every launch point planwright ships now reads it (fleet dispatch by task type; single-spec dispatch, per-step sessions, and offload by surface), applying each dimension only as far as the launching backend's advertised `tier_control` allows and recording any inheritance | `unset` at the fleet task types (the `fleet_*` fallback stays in charge) and `inherit` at the three non-fleet surfaces — configure nothing, observe no change |
+| `fleet_sweep_interval` | The periodic sweep's schedule: scan, dirty-tree pass, reconcile backstop, process reap | How often the watch loop runs a cycle | `10m` — often enough that a leak is caught within minutes, cheap enough to run all day |
+| `fleet_sweep_reap` | The sweep's process reap, with an observing mode that records what it would close | Whether this machine's sweep terminates leaked workers | `observe` — kills nothing and records what it would have closed; only this machine's local overlay can switch it to `terminate` |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
 | `tower_quiet_interval` | Away detection per tower conversation: a knock or hand-over unanswered this long marks you away there, and the next delivery knocks again | How long you may leave a hand-over before a tower treats you as away | `10m` — a knock is never repeated on a schedule, so this only decides when the next one may come |
 | `tower_lease_interval` | The delivery lease's backstop: it voids a hand-over nobody acknowledged so the item can be delivered again; release is otherwise by event (your answer, "later", settling), and an attended tower takes over sooner, once the holder has been quiet for `tower_quiet_interval` | How long an unacknowledged hand-over stands | `15m` — above the quiet interval, which it may never go below, so an attended conversation never loses the item it holds |

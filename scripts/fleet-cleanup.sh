@@ -48,7 +48,7 @@
 #            non-MERGED state, or an oid mismatch all refuse.
 #            PLANWRIGHT_CLEANUP_GH_TIMEOUT bounds the query (default 20s).
 #   fleet-cleanup.sh process <worker> <trigger> <reasoning> [--grace <secs>]
-#       [--repo-root <dir>] [--tower-id <token>]
+#       [--repo-root <dir>] [--tower-id <token>] [--observe]
 #       Reap a leaked worker process: one whose owning tower is gone, whose
 #       session died or finished cleanly, and whose process tree has not. It RELEASES THE
 #       PROCESS ONLY, with the runtime the rung's `stop` releases alongside it:
@@ -94,10 +94,27 @@
 #       was released and what is still held. It is recorded even when nothing
 #       came free, since the rung may have signalled the tree before finding a
 #       class still held. A rung that died on a signal mid-close is recorded as
-#       a partial close too, both sets `unreported`, and so is a partial
+#       a partial close too, both sets `unreported` (and the partial result
+#       line it never printed is printed in its place), and so is a partial
 #       result line this script cannot parse. A signal to this script
 #       once the close is about to start is held until the close is recorded,
 #       and the run then exits 5 rather than reporting a success.
+#
+#       --observe decides exactly as a close would, every refusal and exit
+#       above included, then asks the rung's `stop --observe` what a close
+#       would take now and signals nothing. A worker with something to take
+#       gets a `would-cleanup` record, never a `cleanup` one, naming
+#       `released=none` and the `would-release=` set, and its probe line is
+#       printed; one with nothing left is a clean no-op, as a real close of it
+#       would be. The record is written once per candidacy and evidence
+#       class: the worker, owner and evidence it named are kept under
+#       <fleet-home>/sweep-observed/<worker>, a repeat with the same ones
+#       prints the probe line and records nothing, and any other outcome
+#       (a refusal, an already-closed worker) drops the mark, so the next
+#       candidacy is recorded afresh. A real close is never deduplicated.
+#       A probe that does not complete is exit 5, nothing observed;
+#       an unrecorded would-have close is exit 6 with nothing signalled. This
+#       is the periodic sweep's observing mode.
 #
 #       A handle in the `pwfence.` namespace is refused as malformed: that is
 #       where the fence sweep keys the strand entries it surfaces, and a close
@@ -130,7 +147,9 @@
 #   6  acted (resource WAS reclaimed) but the audit-trail write failed — the
 #      action happened and is unrecorded; distinct from 2 so a caller never reads
 #      an unlogged reclaim as "nothing happened". For `process` that includes a
-#      partial close, which may have signalled the tree and released nothing
+#      partial close, which may have signalled the tree and released nothing.
+#      Under --observe it means only the would-have record is missing:
+#      nothing was signalled
 #   7  process only: refused, the worker is owned by a live peer tower
 #   8  process only: refused, a `print`-backend unit has no process to reap
 #   9  process only: refused, the session failed or left work unlanded
@@ -159,7 +178,7 @@ warn() { printf 'fleet-cleanup: %s\n' "$*" >&2; }
 usage() {
   echo "usage: fleet-cleanup.sh window <session> <window> <trigger> <reasoning>" >&2
   echo "       fleet-cleanup.sh worktree <path> <trigger> <reasoning> [--merged-pr <n>]" >&2
-  echo "       fleet-cleanup.sh process <worker> <trigger> <reasoning> [--grace <secs>] [--repo-root <dir>] [--tower-id <token>]" >&2
+  echo "       fleet-cleanup.sh process <worker> <trigger> <reasoning> [--grace <secs>] [--repo-root <dir>] [--tower-id <token>] [--observe]" >&2
 }
 
 # The fleet field grammar worker handles are registered under (fleet-state.sh
@@ -655,7 +674,13 @@ case "$cmd" in
     grace=""
     repo_root=""
     tower_id=""
+    observe=0
     while [ "$#" -gt 0 ]; do
+      if [ "$1" = --observe ]; then
+        observe=1
+        shift
+        continue
+      fi
       [ "$#" -ge 2 ] || {
         usage
         exit 2
@@ -724,6 +749,20 @@ case "$cmd" in
     fi
 
     gate process-cleanup || exit 4
+
+    # Observing, the last would-have record's worker, owner and evidence are
+    # kept per worker, so a leaked worker met every cycle is recorded once per
+    # candidacy and evidence class. Any outcome but a recorded or repeated
+    # observation (or a pause) ends the candidacy and drops the mark.
+    obs_mark=""
+    obs_keep=0
+    if [ "$observe" = 1 ]; then
+      obs_root=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null) || obs_root=""
+      if [ -n "$obs_root" ]; then
+        obs_mark="$obs_root/sweep-observed/$worker"
+        trap '[ "$obs_keep" = 1 ] || rm -f "$obs_mark" 2>/dev/null' EXIT
+      fi
+    fi
 
     # The detector's answer is read whole before anything is decided from it:
     # a non-zero exit is an errored verdict, and an errored verdict is not
@@ -809,13 +848,59 @@ EOF
 
     # The gate admits entry, not the whole run: reading the verdict can take
     # a while, and a pause set meanwhile still stops the first signal.
-    gate process-cleanup || exit 4
+    gate process-cleanup || {
+      obs_keep=1
+      exit 4
+    }
 
     set --
     if [ "$rung" = fleet-dispatch-headless.sh ]; then
       set -- --expect-dir "$rec_dir"
       [ -z "$repo_root" ] || set -- "$@" --repo-root "$repo_root"
     fi
+    detail="worker=$worker owner=$owner_token evidence=tower:$tower_ev,session:$state/$reason"
+
+    # Observing: every check above has run exactly as it would for a close,
+    # and the rung's probes say what a close would take now. The record is a
+    # would-cleanup, never a cleanup, and names nothing as released.
+    if [ "$observe" = 1 ]; then
+      obs_rc=0
+      result=$(/bin/sh "$script_dir/$rung" stop "$worker" "$@" --observe) || obs_rc=$?
+      [ -z "$result" ] || printf '%s\n' "$result"
+      case $obs_rc/$result in
+        "0/stop $worker already-closed") exit 0 ;;
+        "0/stop $worker would-release="*)
+          would=${result#"stop $worker would-release="}
+          ;;
+        3/*)
+          warn "REFUSING self-target: the caller runs inside the worker's own process tree ('$worker')"
+          audit process-cleanup refuse-self "$trigger" "$(fit_text "$detail; $reasoning")" \
+            || warn "could not record the self-block in the audit trail"
+          exit 3
+          ;;
+        *)
+          warn "the $rung stop probe for '$worker' did not complete (exit $obs_rc) — nothing observed"
+          exit 5
+          ;;
+      esac
+      if [ -n "$obs_mark" ] && [ "$(cat "$obs_mark" 2>/dev/null)" = "$detail" ]; then
+        obs_keep=1
+        exit 0
+      fi
+      record=$(fit_text "$detail released=none would-release=$(sanitize_printable "$would" "-"); $reasoning")
+      if ! audit process-cleanup would-cleanup "$trigger" "$record"; then
+        warn "observed '$worker' as closable but could not record the would-have close — nothing was signalled"
+        exit 6
+      fi
+      # A plain write, not temp-and-rename: a torn mark only costs one more
+      # record, and this leaves no temp for a signal to strand.
+      if [ -n "$obs_mark" ] && mkdir -p "${obs_mark%/*}" 2>/dev/null \
+        && printf '%s\n' "$detail" >"$obs_mark" 2>/dev/null; then
+        obs_keep=1
+      fi
+      exit 0
+    fi
+
     [ -z "$grace" ] || set -- "$@" --grace "$grace"
     # A signal from here on is held until the close is recorded: dying between
     # the rung's signals and the audit write would leave a kill with no record.
@@ -831,7 +916,6 @@ EOF
     result=$(/bin/sh "$script_dir/$rung" stop "$worker" "$@") || stop_rc=$?
     [ -z "$result" ] || printf '%s\n' "$result"
 
-    detail="worker=$worker owner=$owner_token evidence=tower:$tower_ev,session:$state/$reason"
     held=""
     case $stop_rc in
       0)
@@ -860,6 +944,9 @@ EOF
             released=${released%%" held="*}
             ;;
           *)
+            # No line this script can read: the partial line stands in for
+            # it, as for a rung that died.
+            printf 'stop %s partial released=unreported held=unreported\n' "$worker"
             released=unreported
             held=unreported
             ;;
@@ -882,6 +969,10 @@ EOF
           exit 5
         fi
         warn "the $rung stop for '$worker' died (exit $stop_rc) — what it released is unknown, recording it as a partial close"
+        # The rung printed no result line, so the one a partial close would
+        # have printed stands in for it, for a caller counting outcomes (the
+        # sweep counts a partial as a reap, never as a decline).
+        printf 'stop %s partial released=unreported held=unreported\n' "$worker"
         released=unreported
         held=unreported
         action=cleanup-partial
