@@ -356,6 +356,12 @@ if [ "${PLANWRIGHT_TEST_IN_POOLED_FILE:-}" != 1 ]; then
     esac
   fi
   case "$cand" in
+    */. | */..)
+      # The link test asks about the last component, and "." or ".." there
+      # resolves through whatever link precedes it.
+      pool_warn "directory path must not end in '.' or '..': $shown"
+      cand=""
+      ;;
     *'#'* | *"$nl"*)
       pool_warn "directory path contains '#' or a newline, which lock paths refuse: $shown"
       cand=""

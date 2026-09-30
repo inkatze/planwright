@@ -244,6 +244,18 @@ assert_contains "the symbolic-link warning names the cause" "symbolic link" "$ou
 assert_contains "the symbolic-link run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
 out="$(PLANWRIGHT_TEST_SLOT_DIR="$tmp/link-pool/" /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
 assert_contains "a trailing slash does not get a link past the refusal" "symbolic link" "$out"
+out="$(PLANWRIGHT_TEST_SLOT_DIR="$tmp/link-pool/." /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
+assert_contains "a trailing '/.' does not get a link past the refusal" "must not end in" "$out"
+assert_contains "the trailing-'/.' run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
+
+# A value quoted in a warning loses its control bytes, the C1 range included:
+# 0x9B alone is a terminal escape introducer.
+out="$(PLANWRIGHT_TEST_SLOTS="$(printf 'x\2335m')" /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
+if printf '%s' "$out" | LC_ALL=C grep -q "$(printf '\233')"; then
+  fail "a C1 control byte reached the warning"
+else
+  pass "a C1 control byte is stripped from the warning"
+fi
 left="$(find "$tmp/real-pool" -name 'slot-*' 2>/dev/null | wc -l | tr -d ' ')"
 assert_exit "nothing is written through the link" 0 "$left"
 
