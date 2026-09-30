@@ -595,10 +595,15 @@ journal_oldest_pending() {
 }
 
 # journal_pending_ids <dir> — print the id of every pending row, oldest first.
+# Non-zero when the journal exists but cannot be read whole, so a caller can
+# tell "nothing pending" from "could not tell".
 journal_pending_ids() {
-  [ -f "$1/journal" ] || return 0
-  awk -F'\t' '$4 == "pending" { print $3 "\t" $1 }' "$1/journal" \
-    | sort -n | awk -F'\t' '{ print $2 }'
+  [ -e "$1/journal" ] || [ -L "$1/journal" ] || return 0
+  [ -f "$1/journal" ] || return 2
+  jp_rows=$(awk -F'\t' '$4 == "pending" { print $3 "\t" $1 }' "$1/journal") || return 2
+  [ -n "$jp_rows" ] || return 0
+  jp_rows=$(printf '%s\n' "$jp_rows" | sort -n) || return 2
+  printf '%s\n' "$jp_rows" | awk -F'\t' '{ print $2 }'
 }
 
 # --- JSON helpers (awk, no jq per REQ-K1.5) ---------------------------------
@@ -2647,7 +2652,12 @@ pending_worker() {
     echo "$me: cannot read the receipt journal of worker $1" >&2
     return 2
   fi
-  journal_pending_ids "$2" | while IFS= read -r pw_id; do
+  pw_ids=$(journal_pending_ids "$2") || {
+    echo "$me: cannot read the receipt journal of worker $1" >&2
+    return 2
+  }
+  [ -n "$pw_ids" ] || return 0
+  printf '%s\n' "$pw_ids" | while IFS= read -r pw_id; do
     valid_reqid "$pw_id" || continue
     pending_show "$1" "$2" "$pw_id"
   done

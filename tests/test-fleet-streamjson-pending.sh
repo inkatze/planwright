@@ -446,4 +446,21 @@ printf '%s\n' "$out" | grep -q '^-- truncated' && fail "p18: the command was not
 [ "$(printf '%s\n' "$out" | grep -c '^+ ')" = 1 ] || fail "p18: a non-Bash request must print no fields line"
 echo "ok: p18 the fields line is bounded, stripped, and marks its own cut"
 
+# ---------------------------------------------------------------------------
+# p19: a journal that is not a regular file, or a read of it that fails
+#      partway, is exit 2 rather than an empty "nothing pending".
+# ---------------------------------------------------------------------------
+home="$tmp/h19"
+mkdir -p "$home/streamjson/sjp19/journal"
+penv "$home" sjp19 >/dev/null 2>&1
+[ $? -eq 2 ] || fail "p19: a journal that is a directory must be exit 2"
+home="$tmp/h19b"
+mkreq "$home/streamjson/sjp19" "$id1" pending Bash '{"command":"true"}'
+mkdir -p "$tmp/p19bin"
+printf '#!/bin/sh\nexit 1\n' >"$tmp/p19bin/sort"
+chmod +x "$tmp/p19bin/sort"
+env "${env_scrub[@]}" PATH="$tmp/p19bin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ" pending sjp19 >/dev/null 2>&1
+[ $? -eq 2 ] || fail "p19: a failing journal sort must be exit 2"
+echo "ok: p19 a journal that cannot be read whole fails closed"
+
 echo "all fleet-streamjson pending tests passed"
