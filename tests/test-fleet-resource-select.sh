@@ -225,7 +225,7 @@ echo "ok: machine-local effort/command overrides win for the targeted column onl
 
 # 6c. The command column stays disjoint by CONSTRUCTION: a configured command
 #     outside the dispatch-entry enum is refused (malformed), never resolved —
-#     so an operator cannot point a task-type at a nestable review skill and
+#     so an operator cannot point a task-type at a step's skill and
 #     break REQ-E1.2. A repo-tracked out-of-enum command hard-fails (exit 4).
 reset_layers
 printf 'fleet_command_execution: polish\n' >"$tracked_cfg"

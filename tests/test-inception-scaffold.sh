@@ -461,6 +461,39 @@ assert_not_contains "HOME with a space: planwright is still found" \
 sp_commits="$(cd "$sp_v" && git log --oneline 2>/dev/null | wc -l | tr -d ' ')"
 assert_eq "HOME with a space: nothing was committed" "0" "$sp_commits"
 
+# The README tells the operator to pin planwright with a bare
+# `PLANWRIGHT_ROOT=...` in .planwright-local.sh, which the hook sources as a
+# shell variable, never exported. The copy the pin names must stay the one that
+# runs even when a second copy sits at the writer-delivery path, where the
+# pinned copy's own root helper would land if it could not see the pin.
+pin_pw="$tmp/pw-pinned"
+mkdir -p "$pin_pw/scripts"
+cp "$REPO_ROOT/scripts/"inception-*.sh "$REPO_ROOT/scripts/resolve-root.sh" \
+  "$REPO_ROOT/scripts/echo-safety.sh" "$REPO_ROOT/scripts/spec-parse.sh" "$pin_pw/scripts/" || exit 1
+pin_claude="$tmp/pin-claude"
+mkdir -p "$pin_claude/planwright/scripts"
+for s in "$REPO_ROOT/scripts/"inception-*.sh; do
+  printf '%s\n' '#!/bin/sh' 'echo "WRONG-COPY ran" >&2' 'exit 1' >"$pin_claude/planwright/scripts/${s##*/}"
+done
+pin_v="$tmp/venture-pinned"
+mkdir -p "$pin_v"
+inception_fixture_write "$pin_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$pin_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$pin_v" >/dev/null 2>&1
+printf 'PLANWRIGHT_ROOT=%s\n' "$pin_pw" >"$pin_v/.planwright-local.sh"
+out="$(cd "$pin_v" && git add -A \
+  && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT CLAUDE_DIR="$pin_claude" \
+    PLANWRIGHT_SECRET_SCREEN_TOOL=none git commit -qm "pinned copy" 2>&1)"
+rc=$?
+assert_not_contains "unexported pin: the writer-delivery copy does not run" "WRONG-COPY" "$out"
+assert_eq "unexported pin: the pinned copy's guards pass the clean bundle" "0" "$rc"
+
 # The repo's own `lint:yaml` covers tracked config, not what this script
 # generates, so the emitted workflow is linted here or nowhere.
 if command -v yamllint >/dev/null 2>&1; then

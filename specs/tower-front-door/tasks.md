@@ -266,6 +266,48 @@ router has not demonstrated (REQ-B1.6).
 
 ## Awaiting input
 
+- **Task 6** — the convergence review of the flight record renderer
+  (`scripts/flight-record.sh`) found security-sensitive fixes the review may
+  not apply on its own: its secret handling, and the file writes and
+  rollback in `land`. None were applied; each needs a decision.
+  1. Problem: a private key pasted into the ask or the grounds is only
+     partly redacted. The secret screen flags the `BEGIN ... PRIVATE KEY`
+     line alone, so the key body and its `END` line reach the record.
+     Recommended fix: redact from the flagged `BEGIN` line through the
+     matching `END` line, or to the end when there is none.
+  2. Problem: the screen's assignment rule matches lowercase keywords only,
+     so `API_KEY=<long value>` passes. Recommended fix: match the keyword
+     in any case.
+  3. Problem: the screen prints the path of each finding with some bytes
+     removed, and when the temp directory's path holds such a byte (some
+     non-ASCII characters, an em dash for one) no finding matches its
+     input, so nothing is redacted or refused. Recommended fix: run the
+     screen from the work directory on fixed ASCII names, and refuse rather
+     than pass when a finding names a path that is not an input.
+  4. Problem: the ask is screened for token-shaped secrets only, not for
+     personal data (identity, account, or contact numbers), which the
+     security-posture data-hygiene rule also keeps out of a PR body or a
+     commit. Choose: add personal-data patterns to the ask's screen, or have
+     the operator confirm the ask before it is quoted into the record.
+  5. Problem: `land`'s rollback unstages and deletes the record without
+     checking whether it is already committed, so two runs at once leave the
+     record committed but deleted, with the deletion staged; an interrupted
+     run leaves a file every re-run refuses as "already exists"; and a
+     symlink swapped in between `land`'s checks and its write would carry
+     the write outside the checkout. Recommended fix: create the record only
+     if it does not already exist, re-check the directories after creating
+     them, roll back only when the record is not in `HEAD` (from an exit
+     handler, so an interrupt rolls back too), and let a re-run whose
+     committed record matches the render report it and succeed.
+
+  The draft PR's CI is also blocked outside this task: its `check` job stops
+  at the full-history secret scan, which flags a test fixture on another
+  spec's branch (`fleet-lifecycle-closure/task-6`, a `generic-api-key` hit
+  in `tests/test-fleet-cleanup-process.sh`) that is in neither `main` nor
+  this branch, and `main`'s own CI fails the same way. Decide how to clear
+  it (fix that fixture on its branch, or record the hit in a gitleaks ignore
+  on `main`); then re-run this PR's CI, which has not yet reached its tests.
+
 ## Deferred
 
 - **Tower floor bypass paths from the skill core's review.** The deny

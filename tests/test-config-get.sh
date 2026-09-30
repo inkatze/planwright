@@ -7,7 +7,8 @@
 #   1. A key present only in the tracked defaults reads from the defaults.
 #   2. A local override wins over the tracked default for the same key.
 #   3. A key absent from both exits 3 (caller picks its own fallback).
-#   4. Comments and surrounding quotes are stripped from the printed value.
+#   4. Comments (a whitespace-led `#`, as in YAML) and surrounding quotes are
+#      stripped from the printed value; a `#` inside the value is kept.
 #   5. The local file is consulted via PLANWRIGHT_LOCAL_CONFIG; an absent
 #      local file degrades to the default (no error).
 #   6. An invalid key (path/metachar) is rejected (exit 2) before any use.
@@ -86,6 +87,31 @@ printf 'dispatch_backend: "print"  # forced for this repo\n' >"$local_cfg"
   || fail "trailing comment / quotes not stripped"
 echo "ok: comments and surrounding quotes are stripped"
 
+# 4b. Only whitespace followed by '#' starts a comment, as in YAML, for every
+#     key: a '#' inside the value is part of it.
+printf 'dispatch_backend: a#b\n' >"$local_cfg"
+[ "$(run dispatch_backend)" = 'a#b' ] || fail "a '#' inside a value was stripped: $(run dispatch_backend)"
+printf 'dispatch_backend: a # c\n' >"$local_cfg"
+[ "$(run dispatch_backend)" = a ] || fail "a space-led comment was not stripped: $(run dispatch_backend)"
+printf 'dispatch_backend: a\t# c\n' >"$local_cfg"
+[ "$(run dispatch_backend)" = a ] || fail "a tab-led comment was not stripped: $(run dispatch_backend)"
+printf 'dispatch_backend: # only a comment\n' >"$local_cfg"
+[ -z "$(run dispatch_backend)" ] || fail "a comment-only value was not empty: $(run dispatch_backend)"
+printf 'dispatch_backend: specs#archive # the old root\n' >"$local_cfg"
+[ "$(run dispatch_backend)" = 'specs#archive' ] \
+  || fail "a value with an inner '#' and a trailing comment: $(run dispatch_backend)"
+printf 'dispatch_backend: "a #b"\n' >"$local_cfg"
+[ "$(run dispatch_backend)" = '"a' ] \
+  || fail "quoting protected a whitespace-led '#', which the reader does not honour: $(run dispatch_backend)"
+echo "ok: only whitespace before '#' starts a comment; an inner '#' is kept"
+
+# 4c. No shipped default relies on the old any-'#' rule: every '#' on a
+#     defaults.yml value line is preceded by whitespace.
+if grep -nE '^[a-z][a-z0-9_]*:.*[^[:space:]]#' "$here/../config/defaults.yml"; then
+  fail "a shipped default carries a '#' not led by whitespace; its value changed meaning"
+fi
+echo "ok: every shipped default parses the same under the whitespace rule"
+
 # 5. An absent local file degrades to the default (no error).
 PLANWRIGHT_CONFIG_DEFAULTS="$defaults" PLANWRIGHT_LOCAL_CONFIG="$tmp/nope.yml" \
   /bin/bash "$CG" max_parallel_units >/dev/null \
@@ -115,7 +141,8 @@ echo "ok: invalid keys are rejected with exit 2"
 #    the defaults file is found under PLANWRIGHT_ROOT/config/ (the plugin/test
 #    delivery arm of the D-33 resolution chain).
 root="$tmp/root"
-mkdir -p "$root/config"
+# The core root chain skips a root holding neither doctrine/ nor scripts/.
+mkdir -p "$root/config" "$root/scripts"
 printf 'dispatch_backend: tmux\n' >"$root/config/defaults.yml"
 got=$(PLANWRIGHT_ROOT="$root" PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
   /bin/bash "$CG" dispatch_backend) \
@@ -246,7 +273,7 @@ echo "ok: resolution is per-key last-layer-wins, not whole-file replace"
 # cannot parse) degrades to the next lower layer with a stderr warning, zero exit.
 reset_layers
 printf 'dispatch_backend: core_v\n' >"$core_cfg"
-printf 'review_sequence:\n  - polish\n  - panel\n' >"$adopter_cfg"
+printf 'steps_convergence:\n  - polish\n  - panel\n' >"$adopter_cfg"
 rc=0
 err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 0 ] || fail "malformed adopter: exit $rc, expected 0 (degrade)"
@@ -262,7 +289,7 @@ echo "ok: malformed adopter overlay degrades to the next lower layer with a warn
 reset_layers
 printf 'dispatch_backend: core_v\n' >"$core_cfg"
 printf 'dispatch_backend: repo_v\n' >"$tracked_cfg"
-printf 'review_sequence:\n  - polish\n' >"$mlocal_cfg"
+printf 'steps_convergence:\n  - polish\n' >"$mlocal_cfg"
 rc=0
 err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 0 ] || fail "malformed machine-local: exit $rc, expected 0 (degrade)"
@@ -280,7 +307,7 @@ echo "ok: malformed machine-local overlay degrades with a warning"
 reset_layers
 printf 'dispatch_backend: core_v\n' >"$core_cfg"
 printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
-printf 'review_sequence:\n  - polish\n' >"$tracked_cfg"
+printf 'steps_convergence:\n  - polish\n' >"$tracked_cfg"
 rc=0
 err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 4 ] \
@@ -340,11 +367,11 @@ esac
 echo "ok: a top-level YAML sequence item is treated as malformed (not a flat mapping)"
 
 # E1.4 — but an INLINE (flow) list value stays well-formed (REQ-E1.4 explicitly:
-# a list-valued option such as review_sequence is well-formed). The block form is
+# a list-valued option such as steps_convergence is well-formed). The block form is
 # what is malformed; the inline form is a normal flat key: value line.
 reset_layers
 printf 'dispatch_backend: core_v\n' >"$core_cfg"
-printf 'review_sequence: [polish, panel]\ndispatch_backend: repo_v\n' >"$tracked_cfg"
+printf 'steps_convergence: [polish, panel]\ndispatch_backend: repo_v\n' >"$tracked_cfg"
 rc=0
 got=$(run4 dispatch_backend 2>/dev/null) || rc=$?
 [ "$rc" = 0 ] \
@@ -638,5 +665,53 @@ got=$(run_layers steps_pre_pr 2>/dev/null) || fail "strict overlays: unset, a ma
 [ "$got" = "[core-a]" ] || fail "strict overlays: unset, expected the core value, got '$got'"
 rm -f "$layers_root/repo/.claude/planwright.local.yml"
 echo "ok: PLANWRIGHT_CONFIG_STRICT_OVERLAYS turns a skipped malformed overlay into exit 6"
+
+# A session in a linked worktree reads the primary checkout's repo-side
+# layers: a machine-local value set only in the primary is what the worktree
+# resolves.
+wt_repo=$(cd "$(mktemp -d)" && pwd -P)
+wt_git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@" >/dev/null 2>&1; }
+wt_git -c init.defaultBranch=main init -q "$wt_repo"
+wt_git -C "$wt_repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m init
+wt_git -C "$wt_repo" worktree add -q "$wt_repo/.claude/worktrees/wt" -b wt
+printf 'dispatch_backend: primary_only\n' >"$wt_repo/.claude/planwright.local.yml"
+got=$(cd "$wt_repo/.claude/worktrees/wt" && env -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_LOCAL_CONFIG \
+  -u PLANWRIGHT_ADOPTER_OVERLAY -u CLAUDE_PLUGIN_DATA GIT_CEILING_DIRECTORIES="$wt_repo/.." \
+  /bin/sh "$CG" --explain dispatch_backend) || fail "worktree: config-get exited non-zero"
+[ "$got" = "$(printf 'machine-local\tprimary_only')" ] \
+  || fail "worktree: the primary checkout's machine-local value should win, got: $got"
+# The worktree's own copies of the repo-side files are not read: the primary
+# checkout's layers are the ones in force.
+mkdir -p "$wt_repo/.claude/worktrees/wt/.claude"
+printf 'dispatch_backend: worktree_copy\n' >"$wt_repo/.claude/worktrees/wt/.claude/planwright.local.yml"
+printf 'dispatch_backend: worktree_tracked\n' >"$wt_repo/.claude/worktrees/wt/.claude/planwright.yml"
+got=$(cd "$wt_repo/.claude/worktrees/wt" && env -u PLANWRIGHT_REPO_ROOT -u PLANWRIGHT_LOCAL_CONFIG \
+  -u PLANWRIGHT_ADOPTER_OVERLAY -u CLAUDE_PLUGIN_DATA GIT_CEILING_DIRECTORIES="$wt_repo/.." \
+  /bin/sh "$CG" --explain dispatch_backend) || fail "worktree: config-get exited non-zero with worktree copies present"
+[ "$got" = "$(printf 'machine-local\tprimary_only')" ] \
+  || fail "worktree: the worktree's own overlay files must not be read, got: $got"
+# A root helper that lost its execute bit still locates the core defaults.
+cg_copy=$(cd "$(mktemp -d)" && pwd -P)
+mkdir -p "$cg_copy/scripts" "$cg_copy/config"
+cp "$CG" "$here/../scripts/resolve-overlay-root.sh" "$here/../scripts/resolve-root.sh" "$cg_copy/scripts/"
+chmod 644 "$cg_copy/scripts/resolve-root.sh"
+printf 'dispatch_backend: from_copy\n' >"$cg_copy/config/defaults.yml"
+got=$(cd "$cg_copy" && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u PLANWRIGHT_CONFIG_DEFAULTS \
+  HOME="$cg_copy/no-home" PLANWRIGHT_REPO_ROOT="$cg_copy/no-repo" PLANWRIGHT_LOCAL_CONFIG="$cg_copy/no-local.yml" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$cg_copy/no-adopter" /bin/sh "$cg_copy/scripts/config-get.sh" dispatch_backend) \
+  || fail "non-executable root helper: config-get exited non-zero"
+[ "$got" = from_copy ] || fail "non-executable root helper: expected from_copy, got: $got"
+# A copy that lost the root helper says so and reports the key unresolved.
+rm -f "$cg_copy/scripts/resolve-root.sh"
+rc=0
+err=$(cd "$cg_copy" && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u PLANWRIGHT_CONFIG_DEFAULTS \
+  HOME="$cg_copy/no-home" PLANWRIGHT_REPO_ROOT="$cg_copy/no-repo" PLANWRIGHT_LOCAL_CONFIG="$cg_copy/no-local.yml" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$cg_copy/no-adopter" /bin/sh "$cg_copy/scripts/config-get.sh" dispatch_backend 2>&1 >/dev/null) || rc=$?
+[ "$rc" -eq 3 ] || fail "missing root helper: expected exit 3, got $rc"
+case $err in *"root helper"*"broken install"*) ;; *) fail "missing root helper: expected a broken-install warning, got: $err" ;; esac
+rm -rf "$wt_repo" "$cg_copy"
+echo "ok: a worktree reads the primary checkout's machine-local overlay, never its own copies"
+echo "ok: a root helper without its execute bit still locates the core defaults"
+echo "ok: a copy without the root helper names the broken install and exits 3"
 
 echo "PASS: config-get"

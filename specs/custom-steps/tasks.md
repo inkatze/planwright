@@ -317,6 +317,22 @@ deferred until every flipper posts.
   **Gate:** the release carrying Task 3 is installed on this repository's
   machines (surfaced free-text condition, evaluated at drain).
   Citations: D-10 · REQ-F1.2.
+- **Command and prompt steps on a flight.** The flight dispatch path
+  (`scripts/flight-dispatch.sh`) renders skill steps only and refuses a
+  command or prompt step at unit kind `flight` by name, placing nothing;
+  the operator chose this narrowing on 2026-09-28 over rendering both
+  kinds in Task 3. Full rendering needs: step `args` and prompt text
+  screened before they reach the brief, and kept out of inline code; a
+  relative command target resolved in the placed flight worktree, printed
+  quoted, and carried as the `--line` rendering with its step context;
+  each step's hosting, on-failure posture, and timeout carried into the
+  brief; a skipped step named in the brief and the dispatch report; and
+  the resolver's failures told apart (a park reported as a park, not as
+  one exit-4 message). Confidence: high.
+  **Gate:** an operator asks for a command or prompt step on a flight, or
+  a recorded observation names a flight refused for one (surfaced
+  free-text condition, evaluated at drain).
+  Citations: D-10, D-13 · REQ-F1.5, REQ-G1.1.
 
 ## Out of scope
 

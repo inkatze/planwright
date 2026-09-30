@@ -779,7 +779,7 @@ $out"
 printf '%s\n' "$out" | grep -q "^worker	$w	working	this-tower	-	attention-working$" \
   || fail "worker row shape: $(printf '%s\n' "$out" | grep '^worker')"
 inventory=$(printf '%s\n' "$out" | awk -F'\t' '$1 == "evidence" { print $3 }' | tr '\n' ' ')
-[ "$inventory" = "registry backend scope owner-token owner-evidence attention attention-status attention-reason death completion journal-pending worktree tree unpushed commits pane stage-source " ] \
+[ "$inventory" = "registry backend scope owner-token owner-evidence attention attention-status attention-reason death completion journal-pending worktree tree unpushed commits pane stage-source state-dir " ] \
   || fail "evidence inventory drifted: $inventory"
 [ "$(ev "$out" scope)" = "$s" ] || fail "scope evidence '$(ev "$out" scope)'"
 # A legacy three-column record still parses, owner absent.

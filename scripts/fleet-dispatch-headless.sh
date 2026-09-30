@@ -112,10 +112,14 @@
 #                           caller must refuse to treat this as death
 #       5  absent           no dispatch record for this unit
 #   fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>]
+#       [--expect-dir <dir>]
 #     Close the worker named by its handle (`headless-<spec>-task-<id>`, the
 #     handle `launch` prints): terminate the runner and everything under it,
 #     SIGTERM then SIGKILL after the grace, and release its scratch temp and
-#     attention record. The same verb, output, and exit codes as
+#     attention record. The handle names a unit in whichever checkout the repo
+#     root resolves to, so a caller holding evidence about one run passes its
+#     unit directory as --expect-dir, and a handle resolving anywhere else is
+#     refused (exit 2) before anything is signalled. The same verb, output, and exit codes as
 #     `fleet-streamjson.sh stop`, through the close both rungs share
 #     (scripts/fleet-stop-lib.sh): `stop <worker> stopped released=<classes>`,
 #     `stop <worker> already-closed`, or
@@ -135,7 +139,7 @@
 # runner failed to start (it exited before signalling readiness) — the state
 # dir is cleaned. status: per the verdict table above. stop: 0 stopped or
 # already-closed; 2 an invalid or unknown handle, a bad grace, a symlinked
-# state path, or a process table the close could not read; 3 a close asked for
+# state path, a unit other than --expect-dir, or a process table the close could not read; 3 a close asked for
 # from inside the worker's own process tree, refused rather than attempted; 6 a
 # partial close, some class still held.
 #
@@ -175,7 +179,7 @@ usage() {
   cat >&2 <<'EOF'
 usage: fleet-dispatch-headless.sh launch <spec> <id> --worktree <dir> [--repo-root <dir>] [-- <extra claude args>...]
        fleet-dispatch-headless.sh status <spec> <id> [--repo-root <dir>]
-       fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>]
+       fleet-dispatch-headless.sh stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>]
 (prompt text on stdin for launch)
 EOF
   exit 2
@@ -1021,12 +1025,25 @@ do_stop() {
   t_worker=$1
   shift
   t_repo_root=''
+  t_expect=''
   t_grace=$grace_default
   while [ "$#" -gt 0 ]; do
     case $1 in
       --repo-root)
         [ "$#" -ge 2 ] || usage
         t_repo_root=$2
+        shift 2
+        ;;
+      --expect-dir)
+        [ "$#" -ge 2 ] || usage
+        case $2 in
+          /*) ;;
+          *)
+            warn "--expect-dir must be an absolute directory"
+            exit 2
+            ;;
+        esac
+        t_expect=$2
         shift 2
         ;;
       --grace)
@@ -1061,6 +1078,14 @@ do_stop() {
     warn "unknown worker $t_worker"
     exit 2
   }
+  if [ -n "$t_expect" ]; then
+    t_have=$(cd "$unit_dir" 2>/dev/null && pwd -P) || t_have=''
+    t_want=$(cd "$t_expect" 2>/dev/null && pwd -P) || t_want=''
+    if [ -z "$t_have" ] || [ "$t_have" != "$t_want" ]; then
+      warn "refusing to close $t_worker: it resolves to $(sanitize_printable "$unit_dir"), not the expected $(sanitize_printable "$t_expect")"
+      exit 2
+    fi
+  fi
   # This verb deletes inside the directory it resolves, so it takes the same
   # path-escape guard the launch's reclaim does.
   guard_unit_containment "$unit_base" "$unit_dir" "$unit_root" "$unit_spec_dir"

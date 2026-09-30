@@ -181,6 +181,8 @@ ship_out=$(run_shipped convergence --unattended 2>/dev/null)
 ship_rc=$?
 [ "$ship_rc" = 0 ] && [ "$ship_out" = "run${TAB}polish" ]
 verdict "the shipped config/defaults.yml and config/steps.yaml resolve convergence to polish" "shipped files: convergence rc=$ship_rc out='$ship_out'"
+! grep -Eq '^[[:space:]]*review_sequence[[:space:]]*:' "$repo_root/config/defaults.yml"
+verdict "the shipped config/defaults.yml no longer sets the retired convergence knob" "config/defaults.yml still sets review_sequence"
 # The fixture sweep above already exercises every point; against the shipped
 # files it suffices that every other key ships `[]` and one such point runs.
 for p in $WIRED $UNWIRED; do
@@ -242,6 +244,18 @@ for bad in 'polish' '' '[polish,,self-review]' '[,polish]'; do
     || fail "REQ-B1.3: list value '$bad' in machine-local: rc=$RC out='$OUT' err='$ERR'"
 done
 ok "REQ-B1.3: a value that is not an inline flow list is malformed for its layer"
+# Padding inside the brackets, a quoted id, a trailing comma, and a trailing
+# comment all resolve to the bare ids in order.
+want="run${TAB}self-review
+run${TAB}polish"
+for good in '[ self-review ,  polish ]   # c' "[\"self-review\", 'polish']" '[self-review, polish,]'; do
+  reset_layers
+  printf 'steps_convergence: %s\n' "$good" >"$tracked_cfg"
+  capture convergence --unattended
+  { [ "$RC" = 0 ] && [ "$OUT" = "$want" ]; } \
+    || fail "REQ-B1.3: list value '$good': rc=$RC out='$OUT' err='$ERR'"
+done
+ok "REQ-B1.3: padding, quoted ids, and a trailing comma parse to the bare ids in order"
 
 # =============================================================================
 # 2. Attendance and check-mode usage (REQ-C1.4, REQ-H1.3).
@@ -1537,6 +1551,21 @@ OUT=$(cd "$gitrepo/sub" && env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUG
 RC=$?
 [ "$RC" = 0 ] && [ "$(printf '%s\n' "$OUT" | cut -f1,2,4,5)" = "run${TAB}lint${TAB}repo-tracked${TAB}repo-tracked" ]
 verdict "with no repo-root override the git toplevel supplies the repo-tracked list and catalog" "default repo root: rc=$RC out='$OUT'"
+
+# A copy that lost the root helper has no core layer, so it stops as a broken
+# install naming the helper rather than resolving anything from a guess.
+nohelp="$tmp/no-root-helper/scripts"
+mkdir -p "$nohelp" "$nohelp/../doctrine"
+cp "$repo_root/doctrine/custom-steps.md" "$nohelp/../doctrine/"
+for s in resolve-steps config-get echo-safety resolve-catalog resolve-dispatch-isolation resolve-overlay-root; do
+  cp "$repo_root/scripts/$s.sh" "$nohelp/"
+done
+RS_SAVED=$RS
+RS="$nohelp/resolve-steps.sh"
+capture pre-pr --unattended
+RS=$RS_SAVED
+[ "$RC" = 5 ] && case $ERR in *"root helper"*"broken install"*) true ;; *) false ;; esac
+verdict "a copy without the root helper stops as a broken install naming it" "no helper: rc=$RC err='$ERR'"
 
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2

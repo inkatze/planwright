@@ -134,9 +134,9 @@ planwright_root() {
   esac
 }
 
-# export_root_vars — publish the resolved root as the two variables the guard's
-# own resolution chain reads (worker-command-guard.sh: $PLANWRIGHT_ROOT, then
-# $CLAUDE_PLUGIN_ROOT, then <claude-dir>/planwright).
+# export_root_vars — publish the resolved root as the two variables that head
+# the core root chain the guard trusts (worker-command-guard.sh asks
+# resolve-root.sh for it: $PLANWRIGHT_ROOT, then $CLAUDE_PLUGIN_ROOT).
 #
 # Claude Code exports CLAUDE_PLUGIN_ROOT only for a hook it delivers from plugin
 # context; a hook arriving through a `--settings` fragment gets no such context,

@@ -117,7 +117,8 @@
 # |exit=<rc>|session-ended|absent), journal-pending, worktree, tree (clean|dirty|
 # unverifiable|-), unpushed (<n>|unverifiable|-), commits (<n>|unverifiable),
 # pane (permission-prompt|busy|idle-prompt|indeterminate|absent),
-# stage-source (events|absent). Anomaly words: registry-malformed,
+# stage-source (events|absent), state-dir (the directory the verdict was read
+# from, or -). Anomaly words: registry-malformed,
 # attention-malformed, result-record-malformed, result-unreadable,
 # exit-unreadable, journal-unreadable, pane-unreadable,
 # death-predicate-missing, handle-malformed, registry-unreadable,
@@ -1244,6 +1245,7 @@ classify_one() {
   ev commits "$commits"
   ev pane "$pane_state"
   ev stage-source "$stage_source"
+  ev state-dir "$(sanitize_printable "${eff_state_dir:--}" "-")"
   printf '%s' "$anomalies" | while IFS= read -r an; do
     [ -n "$an" ] && printf 'anomaly\t%s\t%s\n' "$cur_worker" "$an"
   done
