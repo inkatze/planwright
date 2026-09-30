@@ -2502,7 +2502,7 @@ pending_render() {
       ws()
       if (pos > n) { fail(); return }
       if (path == "/request") { tool = ""; ins = 0; ine = 0; hc = 0 }
-      if (path == "/request/input") { ins = pos; ine = 0; hc = 0; extra = "" }
+      if (path == "/request/input") { ins = pos; ine = 0; hc = 0; extra = ""; xcut = 0 }
       if (path == "/request/input/command") hc = 0
       c = substr(s, pos, 1)
       if (c == "{" || c == "[") {
@@ -2527,8 +2527,10 @@ pending_render() {
             val(path "/" k, d + 1)
             # What the command view would otherwise hide: every input field
             # but the command itself and the model-written description.
-            if (!err && path == "/request/input" && k != "command" && k != "description")
+            if (!err && path == "/request/input" && k != "command" && k != "description" && !xcut) {
               extra = extra (extra == "" ? "" : ",") substr(s, kst, pos - kst)
+              if (length(extra) > cap) { extra = substr(extra, 1, cap); xcut = 1 }
+            }
           } else val(path "/[]", d + 1)
           if (err) return
           ws()
@@ -2568,7 +2570,7 @@ pending_render() {
       if (ins == 0 || (err && !eof)) { print t; print "bad"; exit }
       if (name == "Bash" && hc) {
         out = dec(cmd, cap)
-        if (length(extra) > cap) { extra = substr(extra, 1, cap); trunc = 1 }
+        if (extra != "") extra = xcut extra
       } else {
         extra = ""
         out = ine ? substr(s, ins, ine - ins) : substr(s, ins)
@@ -2620,9 +2622,15 @@ pending_show() {
       ps_flag=${ps_flag#a}
       ;;
   esac
-  if [ -n "$ps_extra" ]; then
-    printf '+ {%s}\n' "$ps_extra" | tr -d '\000-\010\013-\037\177\200-\237'
-  fi
+  # The fields line leads with its own cut flag, so a cut is marked on the line
+  # it hides fields from rather than on the command's trailer.
+  case $ps_extra in
+    0*) printf '+ {%s}\n' "${ps_extra#0}" | tr -d '\000-\010\013-\037\177\200-\237' ;;
+    1*)
+      printf '+ {%s\n' "${ps_extra#1}" | tr -d '\000-\010\013-\037\177\200-\237'
+      printf -- '-- fields truncated at %s bytes\n' "$pending_show_max"
+      ;;
+  esac
   printf '%s' "${ps_out%"$NL"}" | tr -d '\000-\010\013-\037\177\200-\237' | awk '{ print "| " $0 } END { if (NR == 0) print "| " }'
   if [ "$ps_flag" = 1 ]; then
     printf -- '-- truncated at %s bytes\n' "$pending_show_max"

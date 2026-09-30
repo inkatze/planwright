@@ -427,4 +427,23 @@ done
 printf '%s\n' "$out" | grep -A1 "^== sjp17 $id4 " | grep -qx '| ls' || fail "p17: a space after the colon is not ambiguous, got: $out"
 echo "ok: p17 an input that --allow would not splice is flagged ambiguous"
 
+# ---------------------------------------------------------------------------
+# p18: the fields line is bounded, stripped and honest about a cut: a cut line
+#      is left unclosed with its own trailer, the command's truncation is not
+#      claimed for it, and a non-Bash request prints no fields line at all.
+# ---------------------------------------------------------------------------
+home="$tmp/h18"
+fill=$(awk 'BEGIN { for (i = 0; i < 5000; i++) printf "A" }')
+mkreq "$home/streamjson/sjp18" "$id1" pending Bash '{"command":"ls","x":"'"$esc$csi$fill"'","run_in_background":true}'
+mkreq "$home/streamjson/sjp18" "$id2" pending Write '{"file_path":"/f","content":"c"}'
+out=$(penv "$home" sjp18) || fail "p18: must exit 0"
+fields=$(printf '%s\n' "$out" | grep '^+ ')
+[ "${#fields}" -lt 4200 ] || fail "p18: the fields line must be bounded, got ${#fields} bytes"
+case $fields in *}) fail "p18: a cut fields line must not look closed" ;; esac
+case $fields in *"$esc"* | *"$csi"*) fail "p18: control bytes reached the fields line" ;; esac
+printf '%s\n' "$out" | grep -qx -- '-- fields truncated at 4096 bytes' || fail "p18: a cut fields line needs its own trailer, got: $(printf '%s\n' "$out" | grep '^--')"
+printf '%s\n' "$out" | grep -q '^-- truncated' && fail "p18: the command was not cut, so no command truncation may be claimed"
+[ "$(printf '%s\n' "$out" | grep -c '^+ ')" = 1 ] || fail "p18: a non-Bash request must print no fields line"
+echo "ok: p18 the fields line is bounded, stripped, and marks its own cut"
+
 echo "all fleet-streamjson pending tests passed"
