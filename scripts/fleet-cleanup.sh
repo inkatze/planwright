@@ -911,6 +911,9 @@ EOF
             released=${released%%" held="*}
             ;;
           *)
+            # No line this script can read: the partial line stands in for
+            # it, as for a rung that died.
+            printf 'stop %s partial released=unreported held=unreported\n' "$worker"
             released=unreported
             held=unreported
             ;;
@@ -934,7 +937,8 @@ EOF
         fi
         warn "the $rung stop for '$worker' died (exit $stop_rc) — what it released is unknown, recording it as a partial close"
         # The rung printed no result line, so the one a partial close would
-        # have printed stands in for it, for a caller counting outcomes.
+        # have printed stands in for it, for a caller counting outcomes (the
+        # sweep counts a partial as a reap, never as a decline).
         printf 'stop %s partial released=unreported held=unreported\n' "$worker"
         released=unreported
         held=unreported

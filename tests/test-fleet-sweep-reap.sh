@@ -248,8 +248,12 @@ esac
 echo "ok: a cycle with nothing to reap still runs its reap pass and reports it"
 
 # --- the watch loop fires on its interval, with nothing present -------------
-# watch <out> <err> — a watch loop as this tower, its pid in watch_pid.
-watch() {
+# start_watch <out> <err> — a watch loop as this tower, its pid in watch_pid.
+# The files are emptied here, before the loop starts, so a check can never
+# read what the previous loop left in them.
+start_watch() {
+  : >"$1"
+  : >"$2"
   (IENV_EXEC=1 ienv -- fleet-sweep.sh --watch --repo "$repo" --tower-id "$self_id" >"$1" 2>"$2") &
   watch_pid=$!
 }
@@ -270,21 +274,24 @@ three_fired() {
   [ "$(cycles "$tmp/watch-out")" -ge 3 ]
 }
 printf 'fleet_sweep_interval: 1s\n' >"$mlocal_cfg"
-watch "$tmp/watch-out" "$tmp/watch-err"
+start_watch "$tmp/watch-out" "$tmp/watch-err"
 wait_until 30 three_fired || fail "the watch loop did not fire three cycles on a 1s interval: $(cat "$tmp/watch-out") $(cat "$tmp/watch-err")"
 stop_watch "a 1s loop"
 # A long interval proves the wait between cycles is interrupted, not sat out.
 printf 'fleet_sweep_interval: 1h\n' >"$mlocal_cfg"
-watch "$tmp/watch-out" "$tmp/watch-err"
+start_watch "$tmp/watch-out" "$tmp/watch-err"
 one_fired() {
   [ "$(cycles "$tmp/watch-out")" -ge 1 ]
 }
 wait_until 30 one_fired || fail "the 1h watch loop never ran its first cycle: $(cat "$tmp/watch-err")"
 stop_watch "a 1h loop"
-for bad in 0s 0.4ms; do
+# bad-value:expected-warning — a malformed value degrades to the default, and
+# a well-formed sub-second one waits the floor.
+for cell in '0s:fleet_sweep_interval' '0.4ms:under 1s'; do
+  bad=${cell%%:*}
   printf 'fleet_sweep_interval: %s\n' "$bad" >"$mlocal_cfg"
-  watch "$tmp/watch-out" "$tmp/watch-err"
-  wait_until 10 grep -q 'fleet_sweep_interval' "$tmp/watch-err" \
+  start_watch "$tmp/watch-out" "$tmp/watch-err"
+  wait_until 10 grep -q "${cell#*:}" "$tmp/watch-err" \
     || fail "an interval of $bad was not warned about: $(cat "$tmp/watch-err")"
   sleep 2
   [ "$(cycles "$tmp/watch-out")" -le 3 ] || fail "an interval of $bad ran cycles back to back: $(cycles "$tmp/watch-out") in 2s"
@@ -416,7 +423,7 @@ echo "ok: fleet_daemon_pause pauses the cycle before any pass"
 
 # --- a running watch loop picks up the knob without a restart ----------------
 printf 'fleet_sweep_interval: 1s\nfleet_sweep_reap: observe\n' >"$mlocal_cfg"
-watch "$tmp/watch-out" "$tmp/watch-err"
+start_watch "$tmp/watch-out" "$tmp/watch-err"
 observed_sjw2() {
   awk -F'\t' '$1 == "reap" && $2 == "sjw2" && $3 == "observed" { f = 1 } END { exit f ? 0 : 1 }' "$tmp/watch-out"
 }
@@ -486,11 +493,15 @@ echo "ok: the worktree scan runs as part of the cycle and reconciles a registry 
 # decline, and one the trail missed must degrade the cycle's status.
 stubs="$tmp/stub-scripts"
 cp -R "$IS" "$stubs"
+# The stub answers from cl-<field>, or from cl-<field>.<worker> when a cell
+# gives one worker its own answer.
 cat >"$stubs/fleet-cleanup.sh" <<STUB
 #!/bin/sh
-[ -s "$tmp/cl-out" ] && sed "s/WORKER/\$2/" "$tmp/cl-out"
-[ -s "$tmp/cl-err" ] && cat "$tmp/cl-err" >&2
-exit "\$(cat "$tmp/cl-rc")"
+s=""
+[ -e "$tmp/cl-rc.\$2" ] && s=".\$2"
+[ -s "$tmp/cl-out\$s" ] && sed "s/WORKER/\$2/" "$tmp/cl-out\$s"
+[ -s "$tmp/cl-err\$s" ] && cat "$tmp/cl-err\$s" >&2
+exit "\$(cat "$tmp/cl-rc\$s")"
 STUB
 chmod +x "$stubs/fleet-cleanup.sh"
 IHOME="$tmp/home-stub"
@@ -529,6 +540,32 @@ esac
 outcome 6 'stop WORKER partial released=process held=attention' 'fleet-cleanup: could not record the partial close' unrecorded 2 0 degraded
 outcome 5 '' 'fleet-cleanup: refusing: no positive evidence' declined 0 2 ok
 outcome 4 '' 'fleet-cleanup: daemon layer paused' paused 0 0 paused
+# An unrecorded close ahead of a pause keeps the cycle degraded.
+printf '6\n' >"$tmp/cl-rc.wa"
+printf 'stop WORKER stopped released=process' >"$tmp/cl-out.wa"
+printf 'fleet-cleanup: FAILED to record it' >"$tmp/cl-err.wa"
+sweep
+case $(summary) in
+  *"status=degraded") ;;
+  *) fail "a pause after an unrecorded close hid the degradation: $(summary)" ;;
+esac
+case $(reap_line wb) in
+  "reap${tab}wb${tab}paused${tab}"*) ;;
+  *) fail "the candidate after the pause was not reported paused: $(reap_line wb)" ;;
+esac
+rm -f "$tmp/cl-rc.wa" "$tmp/cl-out.wa" "$tmp/cl-err.wa"
+# A worker whose own handle starts with `sweep-` is a worker, not one of the
+# sweep's queue rows.
+ienv -- fleet-state.sh register sweep-docs demo:6 --owner "$peer_id" --backend stream-json-persistent >/dev/null
+ienv -- fleet-attention.sh heartbeat sweep-docs demo:6 ended >/dev/null
+printf '0\n' >"$tmp/cl-rc"
+printf 'stop WORKER stopped released=process' >"$tmp/cl-out"
+: >"$tmp/cl-err"
+sweep
+case $(reap_line sweep-docs) in
+  "reap${tab}sweep-docs${tab}reaped${tab}"*) ;;
+  *) fail "a worker named sweep-docs was left out of the reap: '$out'" ;;
+esac
 unset IHOME ISX
 rm -f "$mlocal_cfg" "$tmp/cl-out" "$tmp/cl-err"
 echo "ok: a close, an interrupted close, a partial one, an unrecorded one, a refusal and a pause are each reported as what they were"
@@ -576,6 +613,33 @@ case $(summary) in
   *"mode=observe${tab}"*) ;;
   *) fail "a core-layer terminate switched the reaper on: $(summary)" ;;
 esac
+case $err in
+  *'not the core layer'*) ;;
+  *) fail "a core-layer terminate was ignored without saying why: $err" ;;
+esac
 cp "$tmp/core-saved.yml" "$core_cfg"
+# A local file reached through a symlink, and a .claude that is its own
+# repository, are the repository's content too.
+repo2_local() {
+  git_env git -C "$repo2" rm -q --cached .claude/planwright.local.yml
+  git_env git -C "$repo2" commit -qm 'stop shipping the local config'
+}
+repo2_local
+printf 'fleet_sweep_reap: terminate\n' >"$tmp/elsewhere.yml"
+rm -f "$repo2/.claude/planwright.local.yml"
+ln -s "$tmp/elsewhere.yml" "$repo2/.claude/planwright.local.yml"
+derived_sweep
+case $(summary)/$err in
+  *"mode=observe${tab}"*/*'through a symlink'*) ;;
+  *) fail "a symlinked machine-local terminate was not refused: $(summary) ($err)" ;;
+esac
+rm -f "$repo2/.claude/planwright.local.yml"
+printf 'fleet_sweep_reap: terminate\n' >"$repo2/.claude/planwright.local.yml"
+git_env git init -q "$repo2/.claude"
+derived_sweep
+case $(summary)/$err in
+  *"mode=observe${tab}"*/*'its own repository'*) ;;
+  *) fail "a machine-local terminate inside a nested .claude repository was not refused: $(summary) ($err)" ;;
+esac
 unset IHOME
-echo "ok: the reap knob is read from the swept checkout wherever the sweep starts, and terminate from a committed local file or the core layer is refused"
+echo "ok: the reap knob is read from the swept checkout wherever the sweep starts, and terminate from a committed, symlinked or nested local file, or the core layer, is refused"

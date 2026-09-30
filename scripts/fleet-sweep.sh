@@ -87,10 +87,13 @@
 #   reap    <worker> <outcome> <detail>
 #       outcome: reaped | partial | observed | already-closed | declined |
 #       unrecorded | paused. detail is what was (or would be) released, or the
-#       refusal the actuator gave.
+#       refusal the actuator gave. A partial or unrecorded close counts as
+#       reaped (observed, when observing): it acted.
 #   summary mode=<observe|terminate> workers=<n> candidates=<n> reaped=<n>
 #       observed=<n> declined=<n> already-closed=<n>
-#       status=<ok|degraded|paused>
+#       status=<ok|degraded|paused>: degraded when a store could not be read
+#       or a close is missing from the audit trail, which outranks paused;
+#       paused when the kill-switch was set mid-pass.
 #
 # Exit codes: 0 sweep completed (a watch loop runs until signalled); 2 usage;
 #   4 the kill-switch paused a one-shot sweep. Per-tree inspection failures are
@@ -547,12 +550,19 @@ local_file_distrust() {
     printf 'its location could not be resolved'
     return 0
   fi
+  # The resolver echoes an override verbatim, and config-get read it from
+  # the checkout, so a relative one is relative to the checkout.
+  case $lf_dir in
+    /*) ;;
+    *) lf_dir="$repo/$lf_dir" ;;
+  esac
   if [ -L "$lf_dir" ] || [ -L "$lf_dir/planwright.local.yml" ]; then
     printf 'it is reached through a symlink'
   elif [ -e "$lf_dir/.git" ]; then
     printf '.claude is its own repository'
-  elif git -C "${lf_dir%/*}" rev-parse --is-inside-work-tree >/dev/null 2>&1 </dev/null; then
-    # Only inside a work tree can a repository have supplied the file.
+  elif [ -e "${lf_dir%/*}/.git" ]; then
+    # With no repository beside it, none can have supplied the file; with
+    # one, anything git cannot answer is distrusted.
     git -C "${lf_dir%/*}" ls-files --error-unmatch -- ':(icase).claude/planwright.local.yml' \
       >/dev/null 2>&1 </dev/null
     case $? in
@@ -582,6 +592,7 @@ reap_pass() {
   rp_declined=0
   rp_closed=0
   rp_status=ok
+  rp_halted=0
   set --
   [ -z "$tower_id" ] || set -- --tower-id "$tower_id"
   rp_scan=$(cd "$repo" && /bin/sh "$DET" scan --checkout "$repo" "$@" 2>/dev/null) || {
@@ -600,7 +611,7 @@ reap_pass() {
   [ "$rp_mode" = terminate ] || set -- "$@" --observe
   # The scan also lists decision-queue rows; the strand entries and the
   # sweep's own dirty-tree escalations there are not workers.
-  rp_rows=$(printf '%s\n' "$rp_scan" | awk -F'\t' '$1 == "worker" && $2 !~ /^(pwfence|sweep-)/ { print $2 "\t" $3 "\t" $6 }')
+  rp_rows=$(printf '%s\n' "$rp_scan" | awk -F'\t' '$1 == "worker" && $2 !~ /^pwfence\./ && $2 !~ /^sweep-[0-9]+$/ { print $2 "\t" $3 "\t" $6 }')
   while IFS="$TAB" read -r rp_w rp_st rp_rs; do
     [ -n "$rp_w" ] || continue
     rp_workers=$((rp_workers + 1))
@@ -609,7 +620,7 @@ reap_pass() {
       *) continue ;;
     esac
     rp_cand=$((rp_cand + 1))
-    if [ "$rp_status" = paused ]; then
+    if [ "$rp_halted" = 1 ]; then
       printf 'reap\t%s\tpaused\t-\n' "$rp_w"
       continue
     fi
@@ -639,7 +650,9 @@ reap_pass() {
         ;;
       4/*)
         printf 'reap\t%s\tpaused\t%s\n' "$rp_w" "$(refusal "$rp_all")"
-        rp_status=paused
+        rp_halted=1
+        # An unrecorded close earlier in the pass outranks the pause.
+        [ "$rp_status" = degraded ] || rp_status=paused
         continue
         ;;
       6/*)

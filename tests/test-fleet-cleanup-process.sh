@@ -711,6 +711,8 @@ rm -rf "$gate_home"
 stop_answers '' 137
 gate w1 trig why
 expect 5 "a rung killed mid-close"
+[ "$out" = 'stop w1 partial released=unreported held=unreported' ] \
+  || fail "a rung killed mid-close printed no partial line for a caller counting outcomes: '$out'"
 case $(audit_rows) in
   *"${tab}cleanup-partial${tab}"*"released=unreported held=unreported"*) ;;
   *) fail "a rung that died mid-close went unrecorded: $(audit_rows)" ;;
@@ -719,6 +721,8 @@ rm -rf "$gate_home"
 stop_answers '' 6
 gate w1 trig why
 expect 5 "a partial close with no result line"
+[ "$out" = 'stop w1 partial released=unreported held=unreported' ] \
+  || fail "a partial close with no result line printed no stand-in partial line: '$out'"
 case $(audit_rows) in
   *"${tab}cleanup-partial${tab}"*"released=unreported held=unreported"*) ;;
   *) fail "a partial close with no result line did not record its sets as unreported: $(audit_rows)" ;;

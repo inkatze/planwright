@@ -333,5 +333,5 @@ fi
 # dispatch records). A failed registration means this worker is absent from
 # the fleet's inventory for its whole life, which is precisely the thing worth
 # saying out loud.
-warn "failed to register $(sanitize_printable "$handle" "(unprintable handle)") in the fleet registry; the dispatch stands, but this worker will not appear in the fleet inventory and no reconcile exists yet to add it"
+warn "failed to register $(sanitize_printable "$handle" "(unprintable handle)") in the fleet registry; the dispatch stands, but this worker will not appear in the fleet inventory and no reconcile exists to add it"
 exit 1

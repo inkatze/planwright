@@ -709,7 +709,7 @@ still records a live process, which includes a live worker under a dead
 supervisor — that case wants `recover`, not a second `launch`.
 
 The headless rung closes the same way: `fleet-dispatch-headless.sh stop
-<worker> [--repo-root <dir>] [--grace <secs>] [--observe]` takes the handle `launch`
+<worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` takes the handle `launch`
 printed (`headless-<spec>-task-<id>`) and gives the same results, the same exit
 codes, and the same refusals, because both verbs run one shared close
 (`scripts/fleet-stop-lib.sh`) and one fixture table pins it on both rungs
@@ -1532,7 +1532,11 @@ summary  mode=observe  workers=4  candidates=2  reaped=0  observed=1  declined=1
 ```
 
 A declined candidate carries the refusal the reap gave, so a sweep that turned
-everything down never reads like one that found nothing. The sweep needs a
+everything down never reads like one that found nothing. A close that acted
+counts as reaped whatever came of it: `partial` when something is still held,
+`unrecorded` when the audit write failed, which also turns the summary's
+`status` to `degraded`. A kill-switch set mid-pass reports the remaining
+candidates `paused`. The sweep needs a
 tower identity to tell a live peer from a dead owner, resolved the way the
 stuck-detector resolves it (`--tower-id`, then the environment described
 under the owner token above); without one every candidate is declined, and
