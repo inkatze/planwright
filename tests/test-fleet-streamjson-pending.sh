@@ -443,7 +443,7 @@ mkreq "$home/streamjson/sjp18" "$id2" pending Write '{"file_path":"/f","content"
 out=$(penv "$home" sjp18) || fail "p18: must exit 0"
 fields=$(printf '%s\n' "$out" | grep '^+ ')
 [ "${#fields}" -lt 4200 ] || fail "p18: the fields line must be bounded, got ${#fields} bytes"
-case $fields in *}) fail "p18: a cut fields line must not look closed" ;; esac
+case $fields in *'}') fail "p18: a cut fields line must not look closed" ;; esac
 case $fields in *"$esc"* | *"$csi"*) fail "p18: control bytes reached the fields line" ;; esac
 printf '%s\n' "$out" | grep -qx -- '-- fields truncated at 4096 bytes' || fail "p18: a cut fields line needs its own trailer, got: $(printf '%s\n' "$out" | grep '^--')"
 printf '%s\n' "$out" | grep -q '^-- truncated' && fail "p18: the command was not cut, so no command truncation may be claimed"
@@ -488,6 +488,7 @@ echo "ok: p20 requests list oldest first, ties in journal order"
 # ---------------------------------------------------------------------------
 home="$tmp/h21"
 rawreq "$home" sjp21 "$id1" '{"request":{"tool_name":"Bash","input":{"command":"ls"}}}GARBAGE"'
+# shellcheck disable=SC2016 # the unexpanded $(id) is the hostile literal under test
 rawreq "$home" sjp21 "$id2" '{"request":{"tool_name":"Bash","input":{"command":"ls","timeout":$(id)}}}'
 rawreq "$home" sjp21 "$id3" '{"request":{"tool_name":"Bash","input":{"command":"ls","timeout":-1.5e3,"a":true,"b":null}}}'
 out=$(penv "$home" sjp21) || fail "p21: must exit 0"
