@@ -758,7 +758,32 @@ got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopte
   PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
   /bin/bash "$RCK" --explain --key absent_knob --type posint --fallback 7 2>/dev/null)
 [ "$got" = "default${TAB}7" ] || fail "posint --explain: an unset key should carry the default label, got '$got'"
+# A --degrade target is no layer's value: it carries the default label, for a
+# malformed value and for a malformed file alike.
+printf 'fleet_daemon_pause: bogus\n' >"$mlocal_cfg"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --explain --key fleet_daemon_pause --type enum --values 'true false' \
+  --fallback true --degrade true 2>/dev/null)
+[ "$got" = "default${TAB}true" ] || fail "--degrade --explain: a malformed value's target should carry the default label, got '$got'"
+printf 'other:\n  - x\n' >"$mlocal_cfg"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --explain --key fleet_daemon_pause --type enum --values 'true false' \
+  --fallback true --degrade true 2>/dev/null)
+[ "$got" = "default${TAB}true" ] || fail "--degrade --explain: a malformed file's target should carry the default label, got '$got'"
 echo "ok: --explain labels the winning, degraded, and fallback layers"
+
+# A path walks its own layers and has no strict arm to degrade into.
+rc=0
+/bin/bash "$RCK" --key spec_root --type path --fallback '' --degrade /x >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 2 ] || fail "path with --degrade: exit $rc, expected 2"
+grep -q 'do not apply to --type path' "$tmp/err" || fail "path with --degrade: refused for another reason: $(cat "$tmp/err")"
+rc=0
+/bin/bash "$RCK" --key spec_root --type path --no-degrade >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 2 ] || fail "path with --no-degrade: exit $rc, expected 2"
+grep -q 'do not apply to --type path' "$tmp/err" || fail "path with --no-degrade: refused for another reason: $(cat "$tmp/err")"
+echo "ok: path refuses --degrade and --no-degrade"
 
 reset_layers
 
