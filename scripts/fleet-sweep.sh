@@ -48,7 +48,16 @@
 #    in with `fleet_sweep_reap: terminate` in its machine-local overlay. Set in
 #    any shared layer, or in a machine-local file the repository itself
 #    supplies (tracked, symlinked, or a nested repository), `terminate` is
-#    refused with a warning. Observing, each
+#    refused with a warning.
+#
+#    TERMINATE IS CURRENTLY REFUSED EVERYWHERE. The stream-json close seeds its
+#    kill set from the pid files a worker leaves behind, and a crashed worker's
+#    pid can be reissued to an unrelated process, which a close would then kill
+#    with its subtree. Until that close checks a recorded pid is still the
+#    worker's, a `terminate` that passes every check above still observes, and
+#    the cycle warns once saying so.
+#
+#    Observing, each
 #    candidate goes through the same decision with `--observe`, and a worker a
 #    close would take gets a `would-cleanup` audit record naming
 #    `released=none` and what the close would release; an actual close writes
@@ -514,7 +523,8 @@ reconcile_pass() {
 # reap_mode — observe | terminate. Only the machine-local layer may say
 # terminate: a shared layer saying so is a team or an adopter switching on a
 # killer for every machine at once, which is the rollout this knob exists to
-# keep per machine. Anything the resolver cannot answer observes.
+# keep per machine. Anything the resolver cannot answer observes, and for now
+# so does a terminate that passes every check (see the header).
 reap_mode() {
   rm_out=$(cd "$repo" && "$KNOB" --explain --key fleet_sweep_reap --type enum \
     --values 'observe terminate' --fallback observe) || {
@@ -534,6 +544,14 @@ reap_mode() {
       warn "fleet_sweep_reap: ignoring terminate in the machine-local file: $rm_why — observing this cycle"
       rm_value=observe
     fi
+  fi
+  # The stream-json close signals the pids a crashed worker left in its pid
+  # files, so a pid the host has since reissued to another process would be
+  # killed with its whole subtree. Until the close checks the pid is still the
+  # worker's, an unattended sweep does not terminate at all.
+  if [ "$rm_value" = terminate ]; then
+    warn "fleet_sweep_reap: terminate is refused for now — observing this cycle: a close still trusts the pid a crashed worker left behind, so a pid the host has reissued since would be killed; terminate is honored again once the close checks that pid is still the worker's"
+    rm_value=observe
   fi
   case $rm_value in
     terminate) printf 'terminate' ;;

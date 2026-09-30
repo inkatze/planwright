@@ -12,12 +12,13 @@
 # Covered: a cycle fires with nothing to reap and says so, and the watch loop
 # fires on its interval with no threshold gating it; the default mode observes
 # a dead owner's leaked worker, records the would-have close, and kills
-# nothing; a repo-tracked `terminate` is not honored; the machine-local knob is
-# what makes the sweep kill, with a termination record distinct from the
-# would-have record; flipping the knob back stops the killing without a
-# release; a sweep that declines every candidate reports each refusal and its
-# reason, distinct from a sweep that found nothing; the kill-switch pauses the
-# cycle; the worktree scan picks up a worktree no hook recorded.
+# nothing; a repo-tracked `terminate` is not honored; a machine-local
+# `terminate` is refused too, while the stream-json close trusts the pids a
+# crashed worker left behind, so a reissued pid is never signalled and the
+# sweep observes and says why; a sweep that declines every candidate reports
+# each refusal and its reason, distinct from a sweep that found nothing; the
+# kill-switch pauses the cycle; the worktree scan picks up a worktree no hook
+# recorded.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-sweep-reap.sh
@@ -357,60 +358,70 @@ esac
 rm -f "$tracked_cfg"
 echo "ok: terminate set in a shared layer is refused with a warning; the sweep stays observing"
 
-# --- the machine-local knob is what makes it kill ----------------------------
+# --- a machine-local terminate is refused while the close trusts old pids ----
+# The stream-json close seeds its kill set from the pid files a worker leaves
+# behind, so once a crashed worker's pid is reissued, a close would signal
+# whatever now holds it. Until the close checks the pid is still the worker's,
+# terminate observes, and says why once per cycle.
 printf 'fleet_sweep_reap: terminate\n' >"$mlocal_cfg"
+sj_launch sjx "$peer_id"
+sjx_dir="$home/streamjson/sjx"
+sjx_sup=$(cat "$sjx_dir/supervisor.pid")
+sjx_wrk=$(cat "$sjx_dir/worker.pid")
+kill -9 "$sjx_sup" "$sjx_wrk" 2>/dev/null || :
+wait_until 10 gone "$sjx_sup" || fail "fixture: the crashed supervisor is still running"
+wait_until 10 gone "$sjx_wrk" || fail "fixture: the crashed worker is still running"
+printf '#!/bin/sh\nwhile :; do sleep 1; done\n' >"$tmp/reissued.sh"
+chmod +x "$tmp/reissued.sh"
+"$tmp/reissued.sh" &
+reissued=$!
+printf '%s\n' "$reissued" >"$sjx_dir/supervisor.pid"
+printf '%s\n' "$reissued" >"$sjx_dir/worker.pid"
 sweep
-[ "$rc" = 0 ] || fail "a terminating cycle: exit $rc ($err)"
-gone "$sup" || fail "the terminating cycle left the supervisor running"
-gone "$wrk" || fail "the terminating cycle left the worker running"
-case $(reap_line sjw1) in
-  "reap${tab}sjw1${tab}reaped${tab}"*) ;;
-  *) fail "the terminating cycle did not report sjw1 as reaped: '$out' ($err)" ;;
+[ "$rc" = 0 ] || fail "a cycle with terminate refused: exit $rc ($err)"
+alive "$reissued" || fail "a refused terminate signalled the process holding a crashed worker's reissued pid"
+alive "$sup" || fail "a refused terminate killed sjw1's supervisor"
+alive "$wrk" || fail "a refused terminate killed sjw1's worker"
+case $(reap_line sjx) in
+  "reap${tab}sjx${tab}observed${tab}"*) ;;
+  *) fail "the crashed worker was not observed with terminate refused: '$out' ($err)" ;;
 esac
 case $(summary) in
-  *"mode=terminate${tab}"*"reaped=1${tab}observed=0${tab}"*) ;;
-  *) fail "the terminating cycle's summary is wrong: $(summary)" ;;
+  *"mode=observe${tab}"*"reaped=0${tab}"*) ;;
+  *) fail "a refused terminate did not observe: $(summary)" ;;
 esac
-[ "$(actions_for sjw1 | tr '\n' ' ')" = "would-cleanup cleanup " ] \
-  || fail "sjw1's records read '$(actions_for sjw1 | tr '\n' ' ')'"
-case $(audit | awk -F'\t' '$4 == "cleanup"') in
-  *"worker=sjw1 owner=$peer_id evidence=tower:dead,session:finished-but-unreaped/"*"released=process"*) ;;
-  *) fail "the termination record does not name worker, owner, evidence and released set: $(audit)" ;;
+[ "$(printf '%s\n' "$err" | grep -c 'terminate is refused')" = 1 ] \
+  || fail "a refused terminate was not warned about exactly once: $err"
+case $err in
+  *'terminate is refused'*'pid'*) ;;
+  *) fail "the refusal does not say the pid binding is why: $err" ;;
 esac
-# The two records can never be read as each other: different actions, and the
-# would-have one names nothing released.
-audit | awk -F'\t' '$4 == "would-cleanup" && $6 ~ /released=process/ { bad = 1 } END { exit bad }' \
-  || fail "a would-have record names something released"
-audit | awk -F'\t' '$4 == "cleanup" && $6 ~ /released=none/ { bad = 1 } END { exit bad }' \
-  || fail "a termination record reads as releasing nothing"
-sweep
-case $(reap_line sjw1) in
-  "reap${tab}sjw1${tab}already-closed${tab}"*) ;;
-  *) fail "a reaped worker was not reported already closed on the next cycle: '$out'" ;;
+[ "$(actions_for sjx)" = would-cleanup ] || fail "the crashed worker's records read '$(actions_for sjx | tr '\n' ' ')', expected one would-cleanup"
+[ "$(actions_for sjw1)" = would-cleanup ] || fail "sjw1's records read '$(actions_for sjw1 | tr '\n' ' ')', expected its one would-cleanup"
+case $(audit) in
+  *"${tab}cleanup${tab}"*) fail "a refused terminate wrote a termination record: $(audit)" ;;
 esac
-[ "$(actions_for sjw1 | grep -c '^cleanup$')" = 1 ] || fail "a second terminating cycle wrote a second termination record"
-echo "ok: the machine-local knob makes the sweep reap the leaked worker, with a termination record distinct from the would-have record, once"
+echo "ok: a machine-local terminate is refused while the close trusts recorded pids: a crashed worker's reissued pid is not signalled, the would-have record is written, and the sweep says why"
 
-# --- flipping the knob back stops the killing, with no release --------------
+# --- observe mode is unchanged, and names what a close would release ----------
 printf 'fleet_sweep_reap: observe\n' >"$mlocal_cfg"
 sj_launch sjw2 "$peer_id"
 sup2=$(cat "$home/streamjson/sjw2/supervisor.pid")
 sweep
-alive "$sup2" || fail "a knob flipped back to observe still killed"
+alive "$sup2" || fail "an observing cycle killed sjw2"
 case $(reap_line sjw2) in
   "reap${tab}sjw2${tab}observed${tab}"*) ;;
-  *) fail "a knob flipped back to observe did not observe sjw2: '$out'" ;;
+  *) fail "an observing cycle did not observe sjw2: '$out'" ;;
 esac
-# The would-have record is taken from the rung's own probe, so a worker with
-# nothing left to release is not recorded as one the sweep would close.
-[ "$(actions_for sjw1 | tr '\n' ' ')" = "would-cleanup cleanup " ] \
-  || fail "an observing cycle recorded a would-have close of an already-closed worker: $(actions_for sjw1 | tr '\n' ' ')"
+case $err in
+  *'terminate is refused'*) fail "an observing cycle warned about a refused terminate: $err" ;;
+esac
 case $(audit | awk -F'\t' '$4 == "would-cleanup"' | tail -n 1) in
   *"worker=sjw2 "*"released=none would-release=process"*) ;;
   *) fail "the would-have record does not name what the close would release: $(audit | tail -n 1)" ;;
 esac
 rm -f "$mlocal_cfg"
-echo "ok: the knob is reversible by an overlay edit; flipped back, the sweep observes again"
+echo "ok: observe mode is unchanged, its would-have record naming what a close would release"
 
 # --- an unchanged leaked worker is recorded once across cycles --------------
 sweep
@@ -441,7 +452,9 @@ observed_sjw2() {
 wait_until 30 observed_sjw2 || fail "the watch loop never observed sjw2: $(cat "$tmp/watch-out")"
 alive "$sup2" || fail "an observing watch loop killed sjw2"
 printf 'fleet_sweep_interval: 1s\nfleet_sweep_reap: terminate\n' >"$mlocal_cfg"
-wait_until 30 gone "$sup2" || fail "the running loop did not start terminating once the knob flipped: $(cat "$tmp/watch-out") $(cat "$tmp/watch-err")"
+wait_until 30 grep -q 'terminate is refused' "$tmp/watch-err" \
+  || fail "the running loop did not read the flipped knob: $(cat "$tmp/watch-out") $(cat "$tmp/watch-err")"
+alive "$sup2" || fail "a running loop flipped to a refused terminate killed sjw2"
 # A 1s loop is nearly always mid-cycle, and a signal there waits for the child
 # in flight, so the loop is parked in a long wait before it is stopped.
 printf 'fleet_sweep_interval: 1h\nfleet_sweep_reap: terminate\n' >"$mlocal_cfg"
@@ -470,8 +483,9 @@ for mode in observe terminate; do
   printf 'fleet_sweep_reap: %s\n' "$mode" >"$mlocal_cfg"
   sweep
   [ "$rc" = 0 ] || fail "a declining cycle ($mode): exit $rc ($err)"
+  # A configured terminate is refused, so both cycles observe.
   case $(summary) in
-    *"mode=$mode${tab}workers=3${tab}candidates=3${tab}reaped=0${tab}observed=0${tab}declined=3${tab}already-closed=0${tab}status=ok") ;;
+    *"mode=observe${tab}workers=3${tab}candidates=3${tab}reaped=0${tab}observed=0${tab}declined=3${tab}already-closed=0${tab}status=ok") ;;
     *) fail "a cycle declining every candidate ($mode) summarised as: $(summary)" ;;
   esac
   case $(reap_line wpeer) in
@@ -538,7 +552,8 @@ for w in wa wb; do
   ienv -- fleet-state.sh register "$w" demo:5 --owner "$peer_id" --backend stream-json-persistent >/dev/null
   ienv -- fleet-attention.sh heartbeat "$w" demo:5 ended >/dev/null
 done
-printf 'fleet_sweep_reap: terminate\n' >"$mlocal_cfg"
+# The stub answers as a close would whatever the mode, which is what the
+# counting reads; observing, an unrecorded answer counts as observed.
 # outcome <rc> <stdout> <stderr> <outcome> <reaped> <declined> <status>
 outcome() {
   printf '%s\n' "$1" >"$tmp/cl-rc"
@@ -559,12 +574,12 @@ outcome() {
 outcome 0 'stop WORKER stopped released=process' '' reaped 2 0 ok
 outcome 5 'stop WORKER stopped released=process' 'fleet-cleanup: interrupted while closing' reaped 2 0 ok
 outcome 5 'stop WORKER partial released=unreported held=unreported' 'fleet-cleanup: the stop died' partial 2 0 ok
-outcome 6 'stop WORKER stopped released=process' 'fleet-cleanup: FAILED to record it' unrecorded 2 0 degraded
+outcome 6 'stop WORKER stopped released=process' 'fleet-cleanup: FAILED to record it' unrecorded 0 0 degraded
 case $err in
   *"not in the audit trail"*) ;;
   *) fail "an unrecorded close was not warned about: $err" ;;
 esac
-outcome 6 'stop WORKER partial released=process held=attention' 'fleet-cleanup: could not record the partial close' unrecorded 2 0 degraded
+outcome 6 'stop WORKER partial released=process held=attention' 'fleet-cleanup: could not record the partial close' unrecorded 0 0 degraded
 outcome 5 '' 'fleet-cleanup: refusing: no positive evidence' declined 0 2 ok
 outcome 4 '' 'fleet-cleanup: daemon layer paused' paused 0 0 paused
 # An unrecorded close ahead of a pause keeps the cycle degraded.
@@ -638,8 +653,9 @@ derived_sweep() {
   err=$(cat "$tmp/err")
 }
 derived_sweep
-case $(summary) in
-  *"mode=terminate${tab}"*) ;;
+# Read and trusted, a local terminate reaches the pid-binding refusal.
+case $err in
+  *'terminate is refused'*) ;;
   *) fail "a sweep started outside the checkout did not read its machine-local terminate: $(summary) ($err)" ;;
 esac
 git_env git -C "$repo2" add -f .claude/planwright.local.yml

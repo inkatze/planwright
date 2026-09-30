@@ -1533,6 +1533,15 @@ repository itself tracks, reaches through a symlink, or ships inside a nested
 `.claude` repository (the full rule is in the options reference). Set it back,
 or delete it, and the next cycle observes again.
 
+**For now, terminate is refused everywhere.** A stream-json close kills the
+processes named in the pid files the worker left behind. After a crash, the
+host can hand one of those pids to an unrelated process, and a close would kill
+that process and everything under it. Until the close checks that a recorded
+pid still belongs to the worker, a `terminate` set in this machine's local
+overlay is read but not acted on: the sweep observes, writes the same
+`would-cleanup` records, and warns once per cycle that terminate is refused and
+why.
+
 Every cycle the kill-switch lets through prints what it did, one line per
 candidate and a summary (tab-separated; spaced here for reading). A paused
 cycle prints only its warning.

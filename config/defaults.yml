@@ -265,6 +265,10 @@ fleet_sweep_interval: 10m
 # itself tracks, it is refused with a warning and the sweep observes, so
 # promoting the reaper is a per-machine decision. Setting it back
 # to `observe` (or removing it) takes effect on the next cycle.
+# For now `terminate` is refused even there, with a warning, and the sweep
+# observes: the stream-json close trusts the pid a crashed worker left behind,
+# which the host may have reissued to an unrelated process. It is honored again
+# once the close checks that pid is still the worker's.
 fleet_sweep_reap: observe
 
 # Push-based worker liveness: the five-state classifier and crash-loop
