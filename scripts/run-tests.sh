@@ -255,11 +255,20 @@ esac
 pool_warn() {
   echo "run-tests: WARNING test pool $1; running unpooled" >&2
 }
-# printable <text> — <text> without control characters, for a warning that
-# quotes a caller-supplied path or value.
-printable() {
-  printf '%s' "$1" | tr -d '\000-\037\177'
+# Display sanitizer for the caller-supplied paths and values a pool warning
+# quotes. The inline fallback keeps the warning safe when the shared helper
+# cannot be sourced.
+sanitize_printable() {
+  _sp=$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237' 2>/dev/null) || _sp=''
+  if [ -z "$_sp" ] && [ $# -ge 2 ]; then
+    _sp=$2
+  fi
+  printf '%s' "$_sp"
 }
+if [ -r "$self_dir/echo-safety.sh" ]; then
+  # shellcheck source=scripts/echo-safety.sh
+  . "$self_dir/echo-safety.sh"
+fi
 
 # Pool capacity: the same fallback and clamp as the job count, but a value
 # that needed either is a misconfiguration worth one warning. Five digits is
@@ -268,7 +277,7 @@ slots="${PLANWRIGHT_TEST_SLOTS-$cores}"
 case "$slots" in
   '' | *[!0-9]* | ??????*)
     [ -z "${PLANWRIGHT_TEST_SLOTS+set}" ] \
-      || echo "run-tests: WARNING test pool: PLANWRIGHT_TEST_SLOTS is not a usable count ($(printable "$slots")); using 4" >&2
+      || echo "run-tests: WARNING test pool: PLANWRIGHT_TEST_SLOTS is not a usable count ($(sanitize_printable "$slots" "(unprintable)")); using 4" >&2
     slots=4
     ;;
   *)
@@ -293,7 +302,7 @@ if [ "${PLANWRIGHT_TEST_IN_POOLED_FILE:-}" != 1 ]; then
   else
     cand=""
   fi
-  shown="$(printable "$cand")"
+  shown="$(sanitize_printable "$cand" "(unprintable path)")"
   nl='
 '
   if [ -z "$cand" ]; then
@@ -333,7 +342,7 @@ if [ "${PLANWRIGHT_TEST_IN_POOLED_FILE:-}" != 1 ]; then
     elif [ ! -w "$cand" ] || [ ! -x "$cand" ]; then
       pool_warn "directory is not writable: $shown"
     elif [ ! -r "$self_dir/lock-lib.sh" ]; then
-      pool_warn "lock library is missing: $(printable "$self_dir/lock-lib.sh")"
+      pool_warn "lock library is missing: $(sanitize_printable "$self_dir/lock-lib.sh" "(unprintable path)")"
     else
       pool_dir="$cand"
     fi
@@ -411,7 +420,7 @@ for t in "${files[@]}"; do
   fi
 done
 if [ "$unpooled" -gt 0 ]; then
-  echo "run-tests: WARNING test pool refused a ticket ($(printable "$pool_cause")); $unpooled file(s) ran unpooled" >&2
+  echo "run-tests: WARNING test pool refused a ticket ($(sanitize_printable "$pool_cause" "(unprintable)")); $unpooled file(s) ran unpooled" >&2
 fi
 
 # Summary with positive accounting: every input file must have produced a
