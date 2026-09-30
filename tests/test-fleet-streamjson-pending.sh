@@ -150,20 +150,17 @@ size=$(printf '%s' "$out" | wc -c | tr -d ' ')
 echo "ok: p3 hostile request content cannot forge a header, reach the terminal raw, or run unbounded"
 
 # ---------------------------------------------------------------------------
-# p4: read-only.
+# p4: read-only. Every file and directory in the fleet home is backdated, so
+#     any write the verb makes anywhere under it, a lock taken and released
+#     included (it touches its parent dir), leaves something newer than ref.
 # ---------------------------------------------------------------------------
-snap() {
-  (cd "$1" && for f in .* *; do
-    [ "$f" = . ] || [ "$f" = .. ] || { [ -e "$f" ] && printf '%s ' "$f" && cksum <"$f"; }
-  done)
-}
-before=$(snap "$home/streamjson/sjp3")
+find "$home" -exec touch -t 200001010000 {} +
+touch -t 200101010000 "$tmp/p4.ref"
 penv "$home" sjp3 >/dev/null 2>&1 || fail "p4: pending must succeed"
 penv "$home" >/dev/null 2>&1 || fail "p4: pending with no args must succeed"
-after=$(snap "$home/streamjson/sjp3")
-[ "$before" = "$after" ] || fail "p4: pending changed the worker dir"
-[ ! -e "$home/streamjson/sjp3/journal.lock" ] || fail "p4: pending must not take the journal lock"
-echo "ok: p4 pending writes nothing to the worker dir"
+changed=$(find "$home" -newer "$tmp/p4.ref")
+[ -z "$changed" ] || fail "p4: pending wrote under the fleet home: $changed"
+echo "ok: p4 pending writes nothing under the fleet home"
 
 # ---------------------------------------------------------------------------
 # p5: empty fleets.
@@ -355,5 +352,43 @@ mkreq "$home/streamjson/sjp14" "$id1" pending Bash '{"command":"ls a'"$bs"'rb c'
 out=$(penv "$home" sjp14) || fail "p14: must exit 0"
 printf '%s\n' "$out" | grep -qxF "| ls a${bs}rb c${bs}bd e${bs}ff" || fail "p14: undecoded escapes must stay visible, got: $out"
 echo "ok: p14 undecoded escapes stay visible"
+
+# ---------------------------------------------------------------------------
+# p15: shapes the other cases leave unpinned. The other last-key-wins fields
+#      (tool name, input, the request itself); a field past the read bound
+#      ahead of the input; nesting past the depth bound (busybox awk crashes
+#      on it unbounded); a Bash request with no command or an empty one; and
+#      a worker dir or request id outside its grammar, which is skipped.
+# ---------------------------------------------------------------------------
+home="$tmp/h15"
+rawreq "$home" sjp15 "$id1" '{"request":{"tool_name":"Write","input":{"a":1},"tool_name":"Bash","input":{"command":"last-input"}}}'
+rawreq "$home" sjp15 "$id2" '{"request":{"tool_name":"Bash","input":{"command":"first-request"}},"request":{"tool_name":"Write","input":{"b":2}}}'
+out=$(penv "$home" sjp15) || fail "p15: must exit 0"
+printf '%s\n' "$out" | grep -qx "== sjp15 $id1 Bash" || fail "p15: the last tool_name must win, got: $out"
+printf '%s\n' "$out" | grep -qx '| last-input' || fail "p15: the last input must win, got: $out"
+printf '%s\n' "$out" | grep -qx "== sjp15 $id2 Write" || fail "p15: the last request must win, got: $out"
+case $out in *first-request*) fail "p15: a superseded request was shown, got: $out" ;; esac
+
+home="$tmp/h15b"
+rawreq "$home" sjp15 "$id1" '{"request":{"tool_name":"'"$pad$pad"'","input":{"command":"never-reached"}}}'
+deep=$(awk 'BEGIN { for (i = 0; i < 30000; i++) printf "[" }')
+rawreq "$home" sjp15 "$id2" '{"request":{"tool_name":"Write","input":{"a":'"$deep"'}}}'
+mkreq "$home/streamjson/sjp15" "$id3" pending Bash '{"description":"no command here"}'
+mkreq "$home/streamjson/sjp15" "$id4" pending Bash '{"command":""}'
+out=$(penv "$home" sjp15) || fail "p15: must exit 0"
+printf '%s\n' "$out" | grep -A1 "^== sjp15 $id1 " | grep -qx -- '-- request envelope unreadable' \
+  || fail "p15: an envelope whose input lies past the read bound must read unreadable, got: $(printf '%s\n' "$out" | cut -c1-80)"
+printf '%s\n' "$out" | grep -A1 "^== sjp15 $id2 " | grep -qx -- '-- request envelope unreadable' \
+  || fail "p15: nesting past the depth bound must read unreadable, got: $(printf '%s\n' "$out" | cut -c1-80)"
+printf '%s\n' "$out" | grep -A1 "^== sjp15 $id3 " | grep -qxF '| {"description":"no command here"}' \
+  || fail "p15: a Bash request with no command must show its input, got: $out"
+printf '%s\n' "$out" | grep -A1 "^== sjp15 $id4 " | grep -qx '| ' \
+  || fail "p15: an empty command must still print one framed line, got: $out"
+
+home="$tmp/h15c"
+mkreq "$home/streamjson/a b" "$id1" pending Bash '{"command":"bad-dir"}'
+out=$(penv "$home") || fail "p15: must exit 0"
+[ -z "$out" ] || fail "p15: an out-of-grammar worker dir must be skipped, got: $out"
+echo "ok: p15 last-key-wins, the read and depth bounds, empty commands and out-of-grammar dirs are pinned"
 
 echo "all fleet-streamjson pending tests passed"
