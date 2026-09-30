@@ -2483,7 +2483,7 @@ pending_render() {
           else if (v >= 32 && v <= 126) out = out sprintf("%c", v)
           else out = out "\\u" substr(raw, i + 1, 4)
           i += 4
-        }
+        } else out = out "\\" e
       }
       if (lim && length(out) > lim) { trunc = 1; return substr(out, 1, lim) }
       return out

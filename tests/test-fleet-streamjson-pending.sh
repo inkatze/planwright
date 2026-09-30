@@ -345,4 +345,15 @@ printf '%s\n' "$out" | grep -qx '| curl https://x' || fail "p13: the command mus
 [ "$(printf '%s\n' "$out" | grep -c '^+ ')" = 1 ] || fail "p13: a command with only a description must print no + line, got: $out"
 echo "ok: p13 the command view shows every other input field but the description"
 
+# ---------------------------------------------------------------------------
+# p14: an escape the view does not decode stays visible as escape text, so
+#      the command's real bytes are never silently dropped.
+# ---------------------------------------------------------------------------
+home="$tmp/h14"
+bs=$(printf '\134')
+mkreq "$home/streamjson/sjp14" "$id1" pending Bash '{"command":"ls a'"$bs"'rb c'"$bs"'bd e'"$bs"'ff"}'
+out=$(penv "$home" sjp14) || fail "p14: must exit 0"
+printf '%s\n' "$out" | grep -qxF "| ls a${bs}rb c${bs}bd e${bs}ff" || fail "p14: undecoded escapes must stay visible, got: $out"
+echo "ok: p14 undecoded escapes stay visible"
+
 echo "all fleet-streamjson pending tests passed"
