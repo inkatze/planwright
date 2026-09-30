@@ -7,7 +7,8 @@
 # The two rungs differ in what they launch and where they record it, and agree
 # on everything a close does with that record: how a process is recognised as
 # the worker's, how the tree is signalled, what counts as still held, and how
-# the result is reported. The agreement lives here so a close fixed on one rung
+# the result is reported, and the release-nothing probe (`stop_observe`) the
+# observing sweep reads. The agreement lives here so a close fixed on one rung
 # is fixed on both; the difference is handed in by the rung as data.
 #
 # WHAT THE RUNG SUPPLIES.

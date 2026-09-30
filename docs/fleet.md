@@ -692,9 +692,13 @@ deterministically and will never succeed from that process.
 A repeat stop takes exactly what is still held, so
 `already-closed` means every class is free and nothing was signalled; a repeat
 after a partial close retries only the remainder. A stop does not remove the
-worker's dispatch registry record, and nothing reconciles that record yet, so
-`fleet-status.sh` keeps listing a stopped worker until the periodic reconcile
-this bundle plans lands.
+worker's dispatch registry record, and nothing reconciles that record, so
+`fleet-status.sh` keeps listing a stopped worker.
+
+`stop <worker> --observe` runs the same checks and releases nothing: it prints
+`stop <worker> would-release=<classes>` for what a close would take now, or
+`already-closed`, and exits `0`. The periodic sweep's observing mode records
+its would-have closes from it.
 
 Two adjacent refusals ship with the verb. `recover` breaks a `recover.lock`
 whose holder is gone, so one hard kill mid-recovery no longer disables recovery
@@ -705,7 +709,7 @@ still records a live process, which includes a live worker under a dead
 supervisor — that case wants `recover`, not a second `launch`.
 
 The headless rung closes the same way: `fleet-dispatch-headless.sh stop
-<worker> [--repo-root <dir>] [--grace <secs>]` takes the handle `launch`
+<worker> [--repo-root <dir>] [--grace <secs>] [--observe]` takes the handle `launch`
 printed (`headless-<spec>-task-<id>`) and gives the same results, the same exit
 codes, and the same refusals, because both verbs run one shared close
 (`scripts/fleet-stop-lib.sh`) and one fixture table pins it on both rungs
@@ -730,7 +734,7 @@ The two session-grade rungs, verb by verb:
 | --- | --- | --- |
 | Open | `launch <worker> <scope> --prompt-file <file>` | `launch <spec> <id> --worktree <dir>` |
 | Liveness and completion | `status <worker>` | `status <spec> <id>` |
-| Close | `stop <worker> [--grace <secs>]` | `stop <worker> [--repo-root <dir>] [--grace <secs>]` |
+| Close | `stop <worker> [--grace <secs>] [--observe]` | `stop <worker> [--repo-root <dir>] [--grace <secs>] [--expect-dir <dir>] [--observe]` |
 | Resume a crashed worker | `recover <worker>` | none: a one-shot is re-dispatched, not resumed |
 | Answer a pending prompt | `answer <worker> <request-id>` | none: a one-shot has no pend path |
 | Steer in flight | `steer <worker>` | none: the rung advertises no steer |

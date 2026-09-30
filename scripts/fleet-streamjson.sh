@@ -99,10 +99,10 @@
 # all — a stream-json worker is a detached supervisor/worker pair with no
 # window. The dispatch registry record is written at launch and is NOT released
 # here: it is fleet-wide inventory rather than this worker's runtime. Nothing
-# reconciles it yet (`scripts/fleet-register.sh` says so where it writes the
-# record), so a stopped worker keeps its inventory row until the reconcile this
-# bundle plans lands. The worktree, the branch, and the unit's fence are
-# never touched: the release set is exactly the reproducible resources, and the
+# reconciles it (`scripts/fleet-register.sh` says so where it writes the
+# record), so a stopped worker keeps its inventory row. The worktree, the
+# branch, and the unit's fence are never touched: the release set is exactly
+# the reproducible resources, and the
 # worktree is the one holding work that cannot be recovered. No audit record is
 # written either — the reap path that needs one owns it, so that an autonomous
 # close writes exactly one record rather than two.

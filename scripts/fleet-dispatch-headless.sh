@@ -139,8 +139,8 @@
 # worktree) — nothing launched; 3 already-in-flight (a live runner, an unknown
 # liveness, or a recent torn-launch window — refuse to double-dispatch); 4 the
 # runner failed to start (it exited before signalling readiness) — the state
-# dir is cleaned. status: per the verdict table above. stop: 0 stopped or
-# already-closed; 2 an invalid or unknown handle, a bad grace, a symlinked
+# dir is cleaned. status: per the verdict table above. stop: 0 stopped,
+# already-closed, or (--observe) would-release; 2 an invalid or unknown handle, a bad grace, a symlinked
 # state path, a unit other than --expect-dir, or a process table the close could not read; 3 a close asked for
 # from inside the worker's own process tree, refused rather than attempted; 6 a
 # partial close, some class still held.
