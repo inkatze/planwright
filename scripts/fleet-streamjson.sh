@@ -215,6 +215,16 @@
 #       supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending row
 #       has a readable epoch), so a worker that cannot proceed never reads as
 #       a healthy `running`.
+#   fleet-streamjson.sh pending [<worker>...]
+#       Read-only view of the requests `status` counts: for every request the
+#       journal still reads `pending` (no args: every worker), print
+#       `== <worker> <request-id> <tool>`, then the tool input behind a `| `
+#       prefix on every line (a Bash request's command decoded, any other
+#       tool's input JSON), cut at `pending_show_max` bytes with a
+#       `-- truncated ...` line. Request content is untrusted: control bytes
+#       are stripped and the prefix keeps it from forging a header. A named
+#       worker with no runtime dir is exit 2. Never writes, answers, locks, or
+#       re-queues anything.
 #
 # Exit codes: 0 success; 2 usage error, refused hostile input, or a
 #   filesystem/lock error (fail closed); 3 a semantic refusal (recovery
@@ -357,6 +367,7 @@ usage() {
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
     echo "       fleet-streamjson.sh stop <worker> [--grace <secs>]"
     echo "       fleet-streamjson.sh status <worker>"
+    echo "       fleet-streamjson.sh pending [<worker>...]"
   } >&2
   exit 2
 }
@@ -2396,6 +2407,212 @@ cmd_status() {
   fi
 }
 
+# The display bound for one request's tool input, and the most of an envelope
+# the renderer reads at all. A Write's content can be megabytes; the tower needs
+# enough to recognise the request, not the whole payload. The read bound is also
+# a time bound: busybox awk's substr costs grow with the offset, so a walk over
+# 300 KiB there takes seconds where 64 KiB takes a fraction of one. An envelope
+# cut by it still shows the start of its input, marked truncated.
+pending_show_max=4096
+pending_read_max=65536
+
+# pending_render — read a stored control_request envelope on stdin and print
+# three things: a header-safe tool-name token, a truncation flag (0, 1, or `bad`
+# for an envelope with no readable input), then the content. The content is the
+# decoded top-level `command` of a Bash request, otherwise the input object's
+# JSON text. The walk follows the JSON structure rather than searching for a key
+# name, so a string that merely contains `"input":` or `"command":` cannot pass
+# for the real field, and a repeated key resolves to its last occurrence, the
+# one the CLI itself acts on. Unicode escapes for printable ASCII, TAB and LF are
+# decoded so the command reads as it will run; every other one stays as visible
+# escape text. Raw control bytes are the caller's to strip.
+pending_render() {
+  awk -v cap="$pending_show_max" '
+    function ws() {
+      while (pos <= n && index(" \t\r\n", substr(s, pos, 1)) > 0) pos++
+    }
+    function pstr(   st, c) {
+      st = ++pos
+      while (pos <= n) {
+        c = substr(s, pos, 1)
+        if (c == "\\") { pos += 2; continue }
+        if (c == "\"") { pos++; return substr(s, st, pos - 1 - st) }
+        pos++
+      }
+      err = 1
+      return substr(s, st)
+    }
+    function hexv(h,   i, v, d) {
+      v = 0
+      for (i = 1; i <= 4; i++) {
+        d = index("0123456789abcdef", tolower(substr(h, i, 1))) - 1
+        if (d < 0) return -1
+        v = v * 16 + d
+      }
+      return v
+    }
+    function dec(raw, lim,   out, i, m, c, e, v) {
+      out = ""
+      m = length(raw)
+      for (i = 1; i <= m; i++) {
+        if (lim && length(out) > lim) { trunc = 1; return substr(out, 1, lim) }
+        c = substr(raw, i, 1)
+        if (c != "\\") { out = out c; continue }
+        e = substr(raw, ++i, 1)
+        if (e == "n") out = out "\n"
+        else if (e == "t") out = out "\t"
+        else if (e == "\"" || e == "\\" || e == "/") out = out e
+        else if (e == "u") {
+          v = hexv(substr(raw, i + 1, 4))
+          if (v == 9) out = out "\t"
+          else if (v == 10) out = out "\n"
+          else if (v >= 32 && v <= 126) out = out sprintf("%c", v)
+          else out = out "\\u" substr(raw, i + 1, 4)
+          i += 4
+        }
+      }
+      if (lim && length(out) > lim) { trunc = 1; return substr(out, 1, lim) }
+      return out
+    }
+    function val(path, d,   c, k, str) {
+      if (d > 64) { err = 1; return }
+      ws()
+      if (pos > n) { err = 1; return }
+      if (path == "/request") { tool = ""; ins = 0; ine = 0; hc = 0 }
+      if (path == "/request/input") { ins = pos; ine = 0; hc = 0 }
+      c = substr(s, pos, 1)
+      if (c == "{" || c == "[") {
+        pos++
+        ws()
+        if (substr(s, pos, 1) == (c == "{" ? "}" : "]")) pos++
+        else while (1) {
+          if (c == "{") {
+            ws()
+            if (substr(s, pos, 1) != "\"") { err = 1; return }
+            k = dec(pstr(), 0)
+            if (err) return
+            ws()
+            if (substr(s, pos, 1) != ":") { err = 1; return }
+            pos++
+            val(path "/" k, d + 1)
+          } else val(path "/[]", d + 1)
+          if (err) return
+          ws()
+          k = substr(s, pos, 1)
+          pos++
+          if (k == ",") continue
+          if (k == (c == "{" ? "}" : "]")) break
+          err = 1
+          return
+        }
+      } else if (c == "\"") {
+        str = pstr()
+        if (path == "/request/tool_name") tool = str
+        if (path == "/request/input/command") { cmd = str; hc = 1 }
+        if (err) return
+      } else {
+        k = pos
+        while (pos <= n && index(",]} \t\r\n", substr(s, pos, 1)) == 0) pos++
+        if (pos == k) { err = 1; return }
+      }
+      if (path == "/request/input") ine = pos
+    }
+    NR == 1 {
+      s = $0
+      n = length(s)
+      pos = 1
+      val("", 0)
+    }
+    END {
+      t = dec(tool, 64)
+      gsub(/[^A-Za-z0-9_.:-]/, "", t)
+      if (t == "") t = "unknown"
+      trunc = 0
+      if (ins == 0) { print t; print "bad"; exit }
+      if (t == "Bash" && hc) out = dec(cmd, cap)
+      else {
+        out = ine ? substr(s, ins, ine - ins) : substr(s, ins)
+        if (!ine) trunc = 1
+        if (length(out) > cap) { out = substr(out, 1, cap); trunc = 1 }
+      }
+      print t
+      print trunc
+      print out
+    }'
+}
+
+# pending_show <worker> <dir> <id> — print one request: the header, then every
+# content line behind a `| ` prefix, then a `-- ` trailer when the content was
+# cut or unreadable. The prefix is what keeps the framing unforgeable: no content
+# line can begin with `== ` or `-- `, whatever the request carries.
+pending_show() {
+  ps_out=$(
+    head -c "$pending_read_max" "$2/req-$3.json" 2>/dev/null | pending_render
+    printf x
+  )
+  ps_out=${ps_out%x}
+  ps_tool=${ps_out%%"$NL"*}
+  ps_out=${ps_out#*"$NL"}
+  ps_flag=${ps_out%%"$NL"*}
+  ps_out=${ps_out#*"$NL"}
+  printf '== %s %s %s\n' "$1" "$3" "${ps_tool:-unknown}"
+  if [ "$ps_flag" = bad ] || [ -z "$ps_flag" ]; then
+    echo '-- request envelope unreadable'
+    return 0
+  fi
+  printf '%s' "${ps_out%"$NL"}" | tr -d '\000-\010\013-\037\177\200-\237' | awk '{ print "| " $0 } END { if (NR == 0) print "| " }'
+  if [ "$ps_flag" = 1 ]; then
+    printf -- '-- truncated at %s bytes\n' "$pending_show_max"
+  fi
+}
+
+# pending_worker <worker> <dir> — every request of one worker the journal still
+# reads pending. Read-only: no lock is taken, since the journal is replaced by
+# rename and an unlocked read sees one whole generation of it.
+pending_worker() {
+  set +f
+  for pw_f in "$2"/req-*.json; do
+    [ -f "$pw_f" ] && [ ! -L "$pw_f" ] || continue
+    pw_id=${pw_f##*/req-}
+    pw_id=${pw_id%.json}
+    valid_reqid "$pw_id" || continue
+    [ "$(journal_state "$2" "$pw_id")" = pending ] || continue
+    pending_show "$1" "$2" "$pw_id"
+  done
+  set -f
+}
+
+cmd_pending() {
+  for pd_w in "$@"; do
+    valid_field "$pd_w" || {
+      echo "$me: invalid worker handle" >&2
+      exit 2
+    }
+  done
+  pd_root=$(/bin/sh "$FS" root) || exit 2
+  if [ $# -eq 0 ]; then
+    [ -d "$pd_root/streamjson" ] || return 0
+    set +f
+    for pd_dir in "$pd_root/streamjson"/*; do
+      [ -d "$pd_dir" ] || continue
+      pd_w=${pd_dir##*/}
+      valid_field "$pd_w" || continue
+      pending_worker "$pd_w" "$pd_dir"
+    done
+    set -f
+    return 0
+  fi
+  for pd_w in "$@"; do
+    [ -d "$pd_root/streamjson/$pd_w" ] || {
+      echo "$me: no stream-json worker $pd_w" >&2
+      exit 2
+    }
+  done
+  for pd_w in "$@"; do
+    pending_worker "$pd_w" "$pd_root/streamjson/$pd_w"
+  done
+}
+
 # --- dispatch ---------------------------------------------------------------
 
 [ $# -ge 1 ] || usage
@@ -2410,6 +2627,7 @@ case $cmd in
   _tick) cmd__tick "$@" ;;
   stop) cmd_stop "$@" ;;
   status) cmd_status "$@" ;;
+  pending) cmd_pending "$@" ;;
   _supervise) supervise "$@" ;;
   _frame-check) cmd__frame_check "$@" ;;
   *) usage ;;

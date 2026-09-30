@@ -642,6 +642,22 @@ live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
 row carries a readable epoch), never a healthy-looking `running`.
 
+`pending [<worker>...]` shows what those pending receipts are asking, so a
+tower can bring the operator the actual decision rather than a count. For each
+request the journal still reads `pending` (every worker when none is named) it
+prints `== <worker> <request-id> <tool>`, then the request with every line
+prefixed by `|` and a space: a Bash request's command as it will run, any other tool's input
+JSON, cut at 4 KiB with a `-- truncated` line. The request text is the worker's,
+so it is treated as untrusted: control bytes are stripped, and because every
+content line carries the prefix, a command containing a line that starts with
+`==` cannot pass for another request. The verb only reads. It never answers,
+locks, or re-queues anything, and a named worker with no runtime directory is
+exit 2 rather than an empty list. The shipped tower profile approves it through
+the tower command guard like any planwright script, provided the tower calls it
+by the resolved literal path (`<root>/scripts/fleet-streamjson.sh pending`, per
+[plugin-script invocation](../doctrine/plugin-script-invocation.md)); a `~` path
+or an unexpanded `$CLAUDE_PLUGIN_ROOT` falls to the permission prompt instead.
+
 Before spawning anything, `launch` proves the auto-approve hook the worker
 will run (`scripts/worker-command-guard.sh` under the plugin root the
 dispatch-env wrapper exports, run through that wrapper so it sees the worker's
@@ -733,6 +749,7 @@ The two session-grade rungs, verb by verb:
 | Liveness and completion | `status <worker>` | `status <spec> <id>` |
 | Close | `stop <worker> [--grace <secs>]` | `stop <worker> [--repo-root <dir>] [--grace <secs>]` |
 | Resume a crashed worker | `recover <worker>` | none: a one-shot is re-dispatched, not resumed |
+| Read a pending prompt | `pending [<worker>...]` | none: a one-shot has no pend path |
 | Answer a pending prompt | `answer <worker> <request-id>` | none: a one-shot has no pend path |
 | Steer in flight | `steer <worker>` | none: the rung advertises no steer |
 
