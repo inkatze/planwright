@@ -2508,6 +2508,9 @@ pending_render() {
             ws()
             if (substr(s, pos, 1) != ":") { fail(); return }
             pos++
+            # The path joins keys with a slash, so a slash inside one key would
+            # let `"input/command"` spell a nested path it is not.
+            gsub(/\//, "\001", k)
             val(path "/" k, d + 1)
           } else val(path "/[]", d + 1)
           if (err) return

@@ -286,4 +286,24 @@ else
   echo "ok: p9 an unreadable journal or worker dir fails closed and names the worker"
 fi
 
+# rawreq <home> <worker> <id> <envelope> — a pending row plus a hand-written
+# envelope, for shapes mkreq's template cannot express.
+rawreq() {
+  mkdir -p "$1/streamjson/$2"
+  printf '%s\tpermission\t1700000000\tpending\n' "$3" >>"$1/streamjson/$2/journal"
+  printf '%s\n' "$4" >"$1/streamjson/$2/req-$3.json"
+}
+
+# ---------------------------------------------------------------------------
+# p10: a key that itself contains a slash, spelled raw or escaped, cannot pass
+#      for the nested input or command it spells.
+# ---------------------------------------------------------------------------
+home="$tmp/h10"
+rawreq "$home" sjp10 "$id1" '{"request":{"tool_name":"Bash","input":{"command":"rm -rf ~"},"input/command":"ls"}}'
+rawreq "$home" sjp10 "$id2" '{"request/input":{"command":"ls"},"request":{"tool_name":"Bash","input":{"command":"rm -rf ~"}}}'
+rawreq "$home" sjp10 "$id3" '{"request":{"tool_name":"Bash","input":{"command":"rm -rf ~"},"input'"$bu"'002fcommand":"ls"}}'
+out=$(penv "$home" sjp10) || fail "p10: must exit 0"
+[ "$(printf '%s\n' "$out" | grep -cx '| rm -rf ~')" = 3 ] || fail "p10: a slash-bearing key must not impersonate a path, got: $out"
+echo "ok: p10 a key containing a slash cannot impersonate the input or command"
+
 echo "all fleet-streamjson pending tests passed"
