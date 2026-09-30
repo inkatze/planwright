@@ -391,4 +391,15 @@ out=$(penv "$home") || fail "p15: must exit 0"
 [ -z "$out" ] || fail "p15: an out-of-grammar worker dir must be skipped, got: $out"
 echo "ok: p15 last-key-wins, the read and depth bounds, empty commands and out-of-grammar dirs are pinned"
 
+# ---------------------------------------------------------------------------
+# p16: a journal id outside the request-id grammar is skipped whole, never
+#      split into words that each pass the grammar on their own.
+# ---------------------------------------------------------------------------
+home="$tmp/h16"
+mkdir -p "$home/streamjson/sjp16"
+printf 'x y\tpermission\t1700000000\tpending\n' >"$home/streamjson/sjp16/journal"
+out=$(penv "$home" sjp16) || fail "p16: must exit 0"
+[ -z "$out" ] || fail "p16: an out-of-grammar journal id must be skipped whole, got: $out"
+echo "ok: p16 an out-of-grammar journal id is skipped whole"
+
 echo "all fleet-streamjson pending tests passed"

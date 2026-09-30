@@ -2617,7 +2617,7 @@ pending_worker() {
     echo "$me: cannot read the receipt journal of worker $1" >&2
     return 2
   fi
-  for pw_id in $(journal_pending_ids "$2"); do
+  journal_pending_ids "$2" | while IFS= read -r pw_id; do
     valid_reqid "$pw_id" || continue
     pending_show "$1" "$2" "$pw_id"
   done
