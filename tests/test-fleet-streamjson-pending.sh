@@ -306,4 +306,16 @@ out=$(penv "$home" sjp10) || fail "p10: must exit 0"
 [ "$(printf '%s\n' "$out" | grep -cx '| rm -rf ~')" = 3 ] || fail "p10: a slash-bearing key must not impersonate a path, got: $out"
 echo "ok: p10 a key containing a slash cannot impersonate the input or command"
 
+# ---------------------------------------------------------------------------
+# p11: a later command of another type still wins over an earlier string, so
+#      the view falls back to the input JSON rather than showing the loser.
+# ---------------------------------------------------------------------------
+home="$tmp/h11"
+mkreq "$home/streamjson/sjp11" "$id1" pending Bash '{"command":"ls","command":["rm","-rf","~"]}'
+mkreq "$home/streamjson/sjp11" "$id2" pending Bash '{"command":"ls","command":null}'
+out=$(penv "$home" sjp11) || fail "p11: must exit 0"
+printf '%s\n' "$out" | grep -qx '| ls' && fail "p11: a superseded string command was shown, got: $out"
+printf '%s\n' "$out" | grep -qxF '| {"command":"ls","command":["rm","-rf","~"]}' || fail "p11: the input JSON must be shown instead, got: $out"
+echo "ok: p11 a later non-string command supersedes an earlier string one"
+
 echo "all fleet-streamjson pending tests passed"

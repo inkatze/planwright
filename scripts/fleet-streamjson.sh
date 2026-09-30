@@ -2494,6 +2494,7 @@ pending_render() {
       if (pos > n) { fail(); return }
       if (path == "/request") { tool = ""; ins = 0; ine = 0; hc = 0 }
       if (path == "/request/input") { ins = pos; ine = 0; hc = 0 }
+      if (path == "/request/input/command") hc = 0
       c = substr(s, pos, 1)
       if (c == "{" || c == "[") {
         pos++
