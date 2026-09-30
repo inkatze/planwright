@@ -16,6 +16,11 @@
 #       widen the header.
 #   p4: the verb writes nothing: the worker dir is byte-identical afterwards.
 #   p5: no fleet home, or a home with no workers, is a clean empty exit 0.
+#   p6-p16: the command shown is the one the CLI acts on (structure walk,
+#       last key wins, no slash-key impersonation, exact Bash tool name, other
+#       input fields shown, escapes kept visible), an envelope that ends early
+#       is marked truncated, the journal drives the listing, an unreadable
+#       journal fails closed, and the read and depth bounds hold.
 #
 # Hermetic: the fleet home is case-local and built by hand (no worker is
 # launched). Runs standalone under /bin/bash (bash 3.2).

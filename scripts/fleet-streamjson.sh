@@ -217,14 +217,20 @@
 #       a healthy `running`.
 #   fleet-streamjson.sh pending [<worker>...]
 #       Read-only view of the requests `status` counts: for every request the
-#       journal still reads `pending` (no args: every worker), print
-#       `== <worker> <request-id> <tool>`, then the tool input behind a `| `
-#       prefix on every line (a Bash request's command decoded, any other
-#       tool's input JSON), cut at `pending_show_max` bytes with a
-#       `-- truncated ...` line. Request content is untrusted: control bytes
-#       are stripped and the prefix keeps it from forging a header. A named
-#       worker with no runtime dir is exit 2. Never writes, answers, locks, or
-#       re-queues anything.
+#       journal still reads `pending` (no args: every worker), oldest first,
+#       print `== <worker> <request-id> <tool>` (the tool name suffixed
+#       `:sanitized` when it had to be altered to fit the header), then the
+#       tool input behind a `| ` prefix on every line. A Bash request shows
+#       its command decoded, preceded by one `+ {...}` line carrying every
+#       other input field but the description when there are any; any other
+#       tool shows its input JSON. Input cut at `pending_show_max` bytes, or
+#       an envelope that ends early, gets a `-- truncated ...` line; a
+#       missing, symlinked or malformed envelope prints
+#       `-- request envelope unreadable` in place of the input. Request
+#       content is untrusted: control bytes are stripped and the prefixes
+#       keep it from forging a header. A named worker with no runtime dir, or
+#       a journal or worker dir that cannot be read, is exit 2. Never writes,
+#       answers, locks, or re-queues anything.
 #
 # Exit codes: 0 success; 2 usage error, refused hostile input, or a
 #   filesystem/lock error (fail closed); 3 a semantic refusal (recovery
@@ -2199,7 +2205,7 @@ cmd_alarm_scan() {
   }
   as_root=$(/bin/sh "$FS" root) || exit 2
   [ -d "$as_root/streamjson" ] || return 0
-  # The one intentional glob in this script: enumerate worker dirs (pathname
+  # An intentional glob, like cmd_pending's: enumerate worker dirs (pathname
   # expansion is otherwise disabled by set -f).
   set +f
   for as_dir in "$as_root/streamjson"/*; do
@@ -2424,15 +2430,18 @@ pending_show_max=4096
 pending_read_max=65536
 
 # pending_render — read a stored control_request envelope on stdin and print
-# three things: a header-safe tool-name token, a truncation flag (0, 1, or `bad`
-# for an envelope with no readable input), then the content. The content is the
-# decoded top-level `command` of a Bash request, otherwise the input object's
-# JSON text. The walk follows the JSON structure rather than searching for a key
-# name, so a string that merely contains `"input":` or `"command":` cannot pass
-# for the real field, and a repeated key resolves to its last occurrence, the
-# one the CLI itself acts on. Unicode escapes for printable ASCII, TAB and LF are
-# decoded so the command reads as it will run; every other one stays as visible
-# escape text. Raw control bytes are the caller's to strip.
+# four things, one per line but the last: a header-safe tool-name token, a
+# truncation flag (0, 1, or `bad` for an envelope with no readable input or
+# malformed JSON), the Bash request's other input fields as one line of raw
+# JSON members (empty otherwise), then the content. The content is the decoded
+# top-level `command` of a request whose tool is named exactly Bash, otherwise
+# the input object's JSON text. The walk follows the JSON structure rather than
+# searching for a key name, so a string that merely contains `"input":` or
+# `"command":` cannot pass for the real field, and a repeated key resolves to
+# its last occurrence, the one the CLI itself acts on. Unicode escapes for
+# printable ASCII, TAB and LF are decoded so the command reads as it will run;
+# every other escape stays as visible escape text. Raw control bytes are the
+# caller's to strip.
 pending_render() {
   awk -v cap="$pending_show_max" '
     # A walk that runs off the end met an envelope cut short (the read bound,
@@ -2575,8 +2584,10 @@ pending_render() {
 
 # pending_show <worker> <dir> <id> — print one request: the header, then every
 # content line behind a `| ` prefix, then a `-- ` trailer when the content was
-# cut or unreadable. The prefix is what keeps the framing unforgeable: no content
-# line can begin with `== ` or `-- `, whatever the request carries.
+# cut or unreadable; a Bash request's other fields go on one `+ ` line before
+# the content. The prefix is what keeps the framing unforgeable: no content line
+# can begin with `== `, `+ ` or `-- `, whatever the request carries, and the
+# fields line is one line because the envelope it is sliced from is.
 pending_show() {
   ps_env="$2/req-$3.json"
   if [ -L "$ps_env" ] || [ ! -f "$ps_env" ]; then
