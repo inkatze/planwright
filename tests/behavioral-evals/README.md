@@ -22,12 +22,19 @@ model-backed `/spec-kickoff` needs a live Claude TTY session (nondeterministic,
 priced), so the invariants are pinned against the fixture; the experiential
 qualities remain scored by the rubric instrument (`rubrics/`) and the human.
 
+The **`tower` fixture** is the routing gate's hermetic floor: a deterministic
+stand-in for the `/tower` router, one persona per acceptance scenario (chat-only, split-screen,
+refusal to merge, escalation, walk-away/resume) and per routing case set
+(consecutive asks with no mode state, the four escalation cases, the three
+overrides, the kickoff offered and never started, orchestration on an explicit
+go only). See "Tower routing" below.
+
 ## Layout
 
 ```text
 tests/behavioral-evals/
   README.md                 this file
-  fixtures/<id>/            one directory per fixture (greeter, kickoff)
+  fixtures/<id>/            one directory per fixture (greeter, kickoff, tower)
     fixture.conf            id, skill, personas, turns, anchor, footer_lines
                             (KEY=VALUE, data only)
     skill.sh                the interactive program the harness drives
@@ -58,8 +65,9 @@ scripts/behavioral-eval.sh --persona novice \
 
 The real-tmux path needs `tmux` and `jq` on `PATH`. The hermetic branch coverage
 (`tests/test-behavioral-eval.sh` for the harness, `tests/test-behavioral-eval-kickoff.sh`
-for the kickoff acceptance layer, and `tests/test-rubric-instrument.sh` for the
-rubric grader/self-audit — all run by `mise run test`) uses the shared **stub
+for the kickoff acceptance layer, `tests/test-behavioral-eval-tower.sh` for the
+tower routing fixture, and `tests/test-rubric-instrument.sh` for the rubric
+grader/self-audit — all run by `mise run test`) uses the shared **stub
 tmux** (`lib/tmux-stub.sh`) that replays the driver's answers through the real
 fixture skill, so CI needs no tmux, model, or API key.
 
@@ -129,6 +137,95 @@ The fixtures are deterministic stand-ins; a live surface mirrors its own
 turns into this log, and the mirror is self-reported,
 so a divergence between the pane and the log is the residual these
 invariants cannot see.
+
+## Tower routing
+
+The `tower` fixture's artifacts follow the eval-only seam
+`doctrine/flight-rules.md` specifies (*Eval-only runs*): a decision log of
+operator turns, evidence events, what was said, and each route, dispatch,
+refusal, offer, hold, and reconstruction; and a run record that is eval-only,
+non-authoritative, unpublished, and a sign-off of nothing. The stand-in also
+keeps `evidence.jsonl`, its own stand-in for the git and forge evidence a
+restarted session reads; that file is not part of the seam and nothing grades
+it.
+
+Persona lines starting `@event:` stand for durable evidence the tower reads (a
+landing, a finished draft, a sign-off, a spec PR merge, a session restart). The
+stand-in never counts one as the operator's words, so an event can never be a
+go, a yes, or an override; that separation holds because the persona author
+writes both channels into one input, and a live tower has to keep it by its
+own rule (the operator's own words only). The line `that's all` ends the
+session.
+
+The records follow the v2 form above (`v`, `seq`, `phase`, `kind`), with one
+kind added, `event`, carrying `source: evidence`; an `answer` carries
+`source: operator`. The turn-shape grader reads none of them: the fixture sets
+no `turn_*` keys. The fields the grade reads:
+
+| Record | Fields |
+| --- | --- |
+| `answer` | `source`, and `text`: after lowercasing and folding punctuation, a draft's turn is one of `yes`, `yes please`, `yes file it`, `file it`, `go ahead and file it`, `write it up`, `write this one up`, `file a plan`; an orchestration's is `go` or `go ahead`; an override's contains `just do it` or `fly it visual` (visual) or `write this one up`, `write it up`, or `file a plan` (instrument) |
+| `event` | `source`, `event` (`flight-landed`, `draft-complete`, `signoff-complete`, `spec-pr-merged`, `session-restart`), `pr` or `spec` where the event names one, `rejected` when the stand-in refused it |
+| `present` | `text`; the one-page case adds `case: true`, `ask_seq`, and `quote` (the ask verbatim, quoted in the text; honored only on a case, where it is excluded from the verdict scan and from the visual-alternative and reservation checks) |
+| `decision`, `action: route` | `ask_seq`, `route` (`visual`, `instrument`, `answer` for a question answered in the turn, `offload` for a read-only look), `trigger` (`zone`, `irreversible`, `ambiguity`, `reversible`, `question`, `read-only`, `override`), `grounds`, `override`, `crossed`, `reservation`, `size_advisory`, `statement` |
+| `decision`, `action: dispatch` | `target` (`flight`, `read-only-offload`, `spec-draft`, `orchestrate`) and `on_seq`, the operator turn that authorized it; a flight or read-only look adds `ask_seq`, a flight `isolated_worktree` and `draft`, a read-only look `flight_identity`, a draft `case_seq`, an orchestration `spec` and `command` |
+| `decision`, `action: refuse` | `control` (`merge`, `ready`, `sign-off`, `history-rewrite`, `mode`), `statement`, `ask_seq`, `handed_back` |
+| `decision`, `action: offer` / `hold` / `reconstruct` | `target`, `spec`, `started` / `on`, `dispatched` / `source`, `flights` |
+| run record | `record: eval-run`, `eval_only`, `authoritative`, `publishing_disabled`, `completed`, `kickoff_started`, `merged`, `ready_flipped`, `mode_state`, and no `approved` |
+
+The grade also reads the tower's own wording. These phrases are the eval
+contract's words, which a live run must use where the grade looks for them;
+they do not constrain how the router phrases anything else:
+
+| Where | Wording the grade looks for |
+| --- | --- |
+| a route's `statement` | its label, `visual flight`, `instrument flight`, `answered here`, or `read-only look` (any case), and the `grounds` verbatim |
+| an override's `reservation` | the crossed trigger's name (`zone` or `irreversible`), and the reservation inside the `statement` |
+| the one-page case | the visual alternative, `just do it` or `fly it visual`, outside the quoted ask; for a zone or irreversible ask, `(my reservation: <grounds>)` |
+| a refusal of merge, ready, sign-off, or history rewrite | `yours`, and `#<n>` for the PR it hands back |
+| after a landing | `draft PR #<n>`, before the next input |
+| a kickoff offer | `/spec-kickoff specs/<spec>`, said before the offer is recorded |
+| the walk-away reconstruction | `in the air, paused, or dead — not checked` for a flight with no landing yet |
+
+`grade.jq` holds every run to the routing floor: every route answers an
+operator turn and states its grounds to the operator; each trigger routes as
+the rule says, and size never files; an override is the operator's own, said
+in the ask or in the turn right after its case, and one across a trigger
+states its reservation; instrument flight presents the one-page case; every
+dispatch goes to a known target; a flight follows its own route on the turn
+that authorized it, and a read-only look mints none; a draft answers the case
+in the operator's next turn, with no restart between; orchestration follows
+the operator's own go for a signed spec, once; holds on evidence dispatch
+nothing; a landing names a PR and hands it back; a kickoff is offered only
+for a finished draft, and said; refusals are said, state that the control is
+the operator's, and hand back the last landed PR (none across a restart that
+could not read its evidence); no merge, ready flip, or kickoff is performed;
+no mode, no verdict, no silent or empty reply; the run record is eval-only and
+unpublished. It also pins each named persona's routes, dispatches, refusals,
+offers, and holds, and fails a persona it has no pin for; `--argjson pins
+false` grades the floor alone.
+`tests/test-behavioral-eval-tower.sh` runs it hermetically, end to end through
+the harness and directly, with a negative case for each rule.
+
+**Harness operability caveat.** The fixture is a shell model of the routing
+rule, so a pass shows the rule, the artifact contract, and the grade hold
+together; it does not show that the model-backed `/tower` routes an unseen
+ask the way the rule says. That needs a live Claude TTY session writing the
+same artifacts, which is nondeterministic, priced, and on demand. A fixture
+pass alone is therefore not the routing gate: a user-facing doc claims the
+routing behavior only after a live tower run, or its operator-run fallback,
+passes this floor on these scenarios. When the harness cannot drive a live
+tower (no tmux, no model or credentials, or the session's surface not
+settling on the harness's anchor), the operator runs the scenarios by hand
+against a live tower session: the five acceptance scenarios through the
+acceptance demo script (a later task of the tower front-door spec, not yet
+written), and each case-set persona's lines typed as written, with the
+`@event:` lines replaced by the evidence they stand for. The operator starts
+that session with `PLANWRIGHT_EVAL_ONLY=1` and `PLANWRIGHT_PUBLISH_DISABLED=1`,
+names its artifacts directory, and grades the result as the harness does:
+`grade.jq` over `{persona, decision_log, sign_off}`, the log slurped and the
+run record as `sign_off`. The fallback changes who runs the scenarios, never
+whether that pass must precede the claim.
 
 ## Grading and the independence firewall
 

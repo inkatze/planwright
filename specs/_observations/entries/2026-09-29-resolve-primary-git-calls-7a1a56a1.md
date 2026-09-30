@@ -1,0 +1,1 @@
+- 2026-09-29 [planwright] resolve-root.sh repo --primary runs about eight git processes (six rev-parse queries, two config reads, and a second show-toplevel in toplevel_of); now that every unpinned config-get call reaches it through the overlay resolver, collapsing them into one multi-flag rev-parse and one config read would take most of that cost off every config read.

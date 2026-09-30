@@ -1905,8 +1905,10 @@ force until you tell the tower to drop it.
   These never settle anything on their own. The tower brings the rule up
   beside an open item on the same subject and says which rule it is applying.
 
-**What one may not cover.** A merge, a ready-flip, a force-push, an amend, a
-squash, a rebase, or a push to the default branch. Those stay yours on every
+**What one may not cover.** A merge or pull, a ready-flip, a force-push, an
+amend, a squash, a fixup, a rebase, a git or gh alias, a `gh api` call that
+can write (GraphQL, a field or input, or any method but GET), or a push to
+`main`, `master`, or a spec branch. Those stay yours on every
 occasion: the tower refuses to record a rule that reaches one, and refuses
 again at match time whatever a rule's wording claims.
 
