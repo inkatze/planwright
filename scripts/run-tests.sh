@@ -117,9 +117,13 @@ now_ms() {
   esac
 }
 
-# ms_to_seconds <ms> — "12.345", the report's unit.
+# ms_to_seconds <ms> — "12.345", the report's unit. A negative interval (the
+# wall clock stepped back mid-measurement) reads as zero: printf would render
+# it as "0.-500", which the budget gate rightly refuses as non-numeric.
 ms_to_seconds() {
-  printf '%d.%03d' "$(($1 / 1000))" "$(($1 % 1000))"
+  _ms=$1
+  [ "$_ms" -ge 0 ] || _ms=0
+  printf '%d.%03d' "$((_ms / 1000))" "$((_ms % 1000))"
 }
 
 # _slot_attempt <path> — one pw_lock_try on one ticket. 0 held (slot_path
@@ -328,6 +332,14 @@ if [ "${PLANWRIGHT_TEST_IN_POOLED_FILE:-}" != 1 ]; then
   else
     cand=""
   fi
+  # A trailing slash would make the link test below follow a link at the
+  # path instead of refusing it.
+  while :; do
+    case "$cand" in
+      ?*/) cand="${cand%/}" ;;
+      *) break ;;
+    esac
+  done
   shown="$(sanitize_printable "$cand" "(unprintable path)")"
   nl='
 '

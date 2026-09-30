@@ -148,6 +148,11 @@ for bad in banana 0 99999999999999999999; do
 done
 out="$(PLANWRIGHT_TEST_SLOTS=banana /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
 assert_contains "a non-numeric capacity takes the job count's fallback" "pool 4 slots" "$out"
+if [ "$cores" = 4 ]; then
+  pass "fallback-versus-core-count distinction skipped (this host has 4 cores)"
+else
+  assert_not_contains "the fallback is not the core count" "pool $cores slots" "$out"
+fi
 out="$(PLANWRIGHT_TEST_SLOTS=0 /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
 assert_contains "a zero capacity is clamped to 1" "pool 1 slots" "$out"
 
@@ -181,6 +186,8 @@ assert_exit "the killed run held both tickets while its files ran" 2 "$held"
   done
   wait "$victim"
 } 2>/dev/null
+held="$(find "$kpool" -name 'slot-*' -type l 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "the killed run's tickets outlive it" 2 "$held"
 mkdir -p "$tmp/overlap" "$tmp/sync"
 for pair in one:two two:one; do
   me="${pair%%:*}"
@@ -235,6 +242,8 @@ n="$(count_lines 'WARNING' "$out")"
 if [ "$n" -eq 1 ]; then pass "a symbolic-link pool path warns once"; else fail "a symbolic-link pool path warned $n times: $out"; fi
 assert_contains "the symbolic-link warning names the cause" "symbolic link" "$out"
 assert_contains "the symbolic-link run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
+out="$(PLANWRIGHT_TEST_SLOT_DIR="$tmp/link-pool/" /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
+assert_contains "a trailing slash does not get a link past the refusal" "symbolic link" "$out"
 left="$(find "$tmp/real-pool" -name 'slot-*' 2>/dev/null | wc -l | tr -d ' ')"
 assert_exit "nothing is written through the link" 0 "$left"
 
@@ -252,6 +261,7 @@ assert_exit "a foreign-owned pool still passes" 0 $?
 n="$(count_lines 'WARNING' "$out")"
 if [ "$n" -eq 1 ]; then pass "a foreign-owned pool warns once"; else fail "a foreign-owned pool warned $n times: $out"; fi
 assert_contains "the foreign-owner warning names the cause" "not owned by" "$out"
+assert_contains "the foreign-owned run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
 
 # The suite's own verdict survives the fallback: a failing file still fails.
 mkdir -p "$tmp/failing"
@@ -262,6 +272,20 @@ assert_exit "an unpooled fallback run keeps a failing verdict" 1 $?
 out="$(PLANWRIGHT_TEST_SLOT_DIR="relative/pool" /bin/bash "$RUNNER" "$tmp/one" 2>&1)"
 assert_exit "a relative pool path still passes" 0 $?
 assert_contains "a relative pool path is refused with a warning" "absolute" "$out"
+assert_contains "the relative-path run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
+
+# A lock-library error on a ticket (here a regular file squatting a ticket
+# path) sends the file unpooled, and the run says so once.
+mkdir -p "$tmp/squat-pool" "$tmp/three"
+chmod 700 "$tmp/squat-pool"
+: >"$tmp/squat-pool/slot-1"
+for n in 1 2 3; do printf '#!/bin/bash\nexit 0\n' >"$tmp/three/test-t$n.sh"; done
+out="$(PLANWRIGHT_TEST_SLOT_DIR="$tmp/squat-pool" PLANWRIGHT_TEST_SLOTS=1 /bin/bash "$RUNNER" "$tmp/three" 2>&1)"
+assert_exit "a lock-library error still passes" 0 $?
+n="$(count_lines 'WARNING' "$out")"
+if [ "$n" -eq 1 ]; then pass "a lock-library error warns once"; else fail "a lock-library error warned $n times: $out"; fi
+assert_contains "the lock-library warning names the cause" "not a lock symlink" "$out"
+assert_contains "the lock-library warning counts the unpooled files" "3 file(s) ran unpooled" "$out"
 
 if [ "$(id -u)" -eq 0 ]; then
   pass "unwritable-pool case skipped (running as root)"
@@ -273,6 +297,7 @@ else
   n="$(count_lines 'WARNING' "$out")"
   if [ "$n" -eq 1 ]; then pass "an unwritable pool warns once"; else fail "an unwritable pool warned $n times: $out"; fi
   assert_contains "the unwritable warning names the cause" "not writable" "$out"
+  assert_contains "the unwritable run is unpooled" "pool=off" "$(head -n 1 "$tmp/one/.timing-report.tsv")"
   chmod 700 "$tmp/ro-pool"
 fi
 
