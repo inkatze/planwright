@@ -318,4 +318,16 @@ printf '%s\n' "$out" | grep -qx '| ls' && fail "p11: a superseded string command
 printf '%s\n' "$out" | grep -qxF '| {"command":"ls","command":["rm","-rf","~"]}' || fail "p11: the input JSON must be shown instead, got: $out"
 echo "ok: p11 a later non-string command supersedes an earlier string one"
 
+# ---------------------------------------------------------------------------
+# p12: only a tool named exactly Bash gets the command view. A name that merely
+#      sanitizes to Bash shows its whole input, and its header says the name
+#      was altered.
+# ---------------------------------------------------------------------------
+home="$tmp/h12"
+mkreq "$home/streamjson/sjp12" "$id1" pending 'B a/s!h' '{"command":"echo from-not-bash","other":"x"}'
+out=$(penv "$home" sjp12) || fail "p12: must exit 0"
+printf '%s\n' "$out" | grep -qx "== sjp12 $id1 Bash:sanitized" || fail "p12: an altered tool name must say so, got: $out"
+printf '%s\n' "$out" | grep -qxF '| {"command":"echo from-not-bash","other":"x"}' || fail "p12: a non-Bash tool must show its whole input, got: $out"
+echo "ok: p12 only a tool named exactly Bash gets the command view"
+
 echo "all fleet-streamjson pending tests passed"

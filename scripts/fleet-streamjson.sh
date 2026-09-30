@@ -2543,12 +2543,14 @@ pending_render() {
       val("", 0)
     }
     END {
-      t = dec(tool, 64)
+      name = dec(tool, 64)
+      t = name
       gsub(/[^A-Za-z0-9_.:-]/, "", t)
       if (t == "") t = "unknown"
+      else if (t != name) t = t ":sanitized"
       trunc = 0
       if (ins == 0 || (err && !eof)) { print t; print "bad"; exit }
-      if (t == "Bash" && hc) out = dec(cmd, cap)
+      if (name == "Bash" && hc) out = dec(cmd, cap)
       else {
         out = ine ? substr(s, ins, ine - ins) : substr(s, ins)
         if (length(out) > cap) { out = substr(out, 1, cap); trunc = 1 }
