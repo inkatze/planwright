@@ -156,7 +156,7 @@ take_slot() {
   _ts_cap=$2
   _ts_err=$3
   _ts_round=0
-  _ts_next=1
+  _ts_next=$(($$ % _ts_cap + 1))
   slot_path=""
   slot_err=""
   while :; do
