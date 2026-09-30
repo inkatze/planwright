@@ -151,7 +151,10 @@ new head.
 gitignored) and `check:test-time` reads it against the committed budgets in
 [`config/test-time-budget.yml`](../config/test-time-budget.yml): one per-file
 ceiling for every test file, and one for the suite's wall-clock. A measured time
-at or over its budget trips. On GitHub Actions, the reference runner the budgets
+at or over its budget trips. Each file's row records its execution time and,
+separately, how long it waited for a test-pool ticket (below); the per-file
+budget reads the execution time only, while the suite wall-clock includes the
+waiting. On GitHub Actions, the reference runner the budgets
 are measured on, that fails `mise run check`; on a dev box it only warns, loudly,
 because local timings measure your machine's contention rather than the file.
 
@@ -159,6 +162,19 @@ A budget is raised only as a conscious, reviewed edit in the PR that needs it,
 with the new measured baseline recorded in the file's comment. Split or slim
 the offending file first, and measure on the reference runner (the gate's own
 CI log prints the full ranked table), never on a shared dev box.
+
+### The machine-wide test pool
+
+Every `mise run test` on a machine shares one per-user pool of tickets under
+`${XDG_STATE_HOME:-$HOME/.local/state}/planwright/test-slots`, and a test file
+runs only while it holds one, so several worktrees testing at once share the
+cores instead of each saturating them. The capacity defaults to the core count;
+set `PLANWRIGHT_TEST_SLOTS` in your gitignored `mise.local.toml` to change it.
+Runs that disagree on the capacity are bounded by the largest value in use.
+`PLANWRIGHT_TEST_JOBS` still caps one run's own parallelism. A ticket left by a
+killed run is reclaimed automatically. If the pool cannot be used (a symbolic
+link or another user's directory at that path, or an unwritable one), the run
+prints one warning naming the cause and runs unpooled rather than failing.
 
 ### The git hook backstop
 
