@@ -325,7 +325,27 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
 
 ## Awaiting input
 
-(none yet)
+- **Task 10** — parked before any code: the `fleet-messaging` bundle,
+  signed off later (2026-09-07) and not yet started, claims the same surface
+  with a different design, and neither bundle mentions the other's claim.
+  It puts the availability probe in `fleet-messaging.sh`, with a check that
+  no other script reads the messaging socket variable; it pins `--name` and
+  widens the launch-arg allowlists itself (its REQ-B1.1); it gates
+  off-machine sends with its own knob (REQ-F1.6); and it keeps
+  `headless-oneshot` out of messaging steer (REQ-C1.1), where this task's
+  REQ-G1.4 makes messaging that rung's only steer. Shipping this task as
+  written puts a second probe and a contradicting contract section in the
+  tree. Options: (a) hand REQ-G1.4–G1.7, G1.9, and G1.10 to
+  `fleet-messaging` through a delta re-walkthrough here, keeping the
+  REQ-G1.8 bound as prose `fleet-messaging` cites (recommended: one owner,
+  and the later contract carries the live platform experiments and the
+  version pin); (b) narrow this task to the points both bundles agree on
+  (`--name` from the validated handle at both launch sites, the allowlist
+  widened to that form only, and the off-machine setting), leaving the probe
+  and the contract section to `fleet-messaging`; (c) run this task as
+  written and send `fleet-messaging` a delta to adopt its probe and settle
+  the `headless-oneshot` rule. Each option needs a `/spec-kickoff` delta on
+  at least one of the two bundles.
 
 ## Deferred
 
