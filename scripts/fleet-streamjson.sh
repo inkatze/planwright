@@ -2428,6 +2428,13 @@ pending_read_max=65536
 # escape text. Raw control bytes are the caller's to strip.
 pending_render() {
   awk -v cap="$pending_show_max" '
+    # A walk that runs off the end met an envelope cut short (the read bound,
+    # or a read racing the write), which is shown marked truncated; any other
+    # failure is malformed JSON, which is not shown at all.
+    function fail() {
+      err = 1
+      if (pos > n) eof = 1
+    }
     function ws() {
       while (pos <= n && index(" \t\r\n", substr(s, pos, 1)) > 0) pos++
     }
@@ -2439,7 +2446,7 @@ pending_render() {
         if (c == "\"") { pos++; return substr(s, st, pos - 1 - st) }
         pos++
       }
-      err = 1
+      fail()
       return substr(s, st)
     }
     function hexv(h,   i, v, d) {
@@ -2475,9 +2482,9 @@ pending_render() {
       return out
     }
     function val(path, d,   c, k, str) {
-      if (d > 64) { err = 1; return }
+      if (d > 64) { fail(); return }
       ws()
-      if (pos > n) { err = 1; return }
+      if (pos > n) { fail(); return }
       if (path == "/request") { tool = ""; ins = 0; ine = 0; hc = 0 }
       if (path == "/request/input") { ins = pos; ine = 0; hc = 0 }
       c = substr(s, pos, 1)
@@ -2488,21 +2495,22 @@ pending_render() {
         else while (1) {
           if (c == "{") {
             ws()
-            if (substr(s, pos, 1) != "\"") { err = 1; return }
+            if (substr(s, pos, 1) != "\"") { fail(); return }
             k = dec(pstr(), 0)
             if (err) return
             ws()
-            if (substr(s, pos, 1) != ":") { err = 1; return }
+            if (substr(s, pos, 1) != ":") { fail(); return }
             pos++
             val(path "/" k, d + 1)
           } else val(path "/[]", d + 1)
           if (err) return
           ws()
+          if (pos > n) { fail(); return }
           k = substr(s, pos, 1)
           pos++
           if (k == ",") continue
           if (k == (c == "{" ? "}" : "]")) break
-          err = 1
+          fail()
           return
         }
       } else if (c == "\"") {
@@ -2513,7 +2521,7 @@ pending_render() {
       } else {
         k = pos
         while (pos <= n && index(",]} \t\r\n", substr(s, pos, 1)) == 0) pos++
-        if (pos == k) { err = 1; return }
+        if (pos == k) { fail(); return }
       }
       if (path == "/request/input") ine = pos
     }
@@ -2528,13 +2536,13 @@ pending_render() {
       gsub(/[^A-Za-z0-9_.:-]/, "", t)
       if (t == "") t = "unknown"
       trunc = 0
-      if (ins == 0) { print t; print "bad"; exit }
+      if (ins == 0 || (err && !eof)) { print t; print "bad"; exit }
       if (t == "Bash" && hc) out = dec(cmd, cap)
       else {
         out = ine ? substr(s, ins, ine - ins) : substr(s, ins)
-        if (!ine) trunc = 1
         if (length(out) > cap) { out = substr(out, 1, cap); trunc = 1 }
       }
+      if (eof) trunc = 1
       print t
       print trunc
       print out
