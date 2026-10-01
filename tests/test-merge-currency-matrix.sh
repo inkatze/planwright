@@ -687,14 +687,15 @@ PG_CFG="$SANDBOX/pg-local.yml"
 mkdir -p "$SANDBOX/pg-adopter"
 for v in unit-owner human; do
   printf 'ready_flip_policy: %s\n' "$v" >"$PG_CFG"
+  pg_rc=0
   pg_out=$(bash_payload "$BASH_FLIP" | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" PLANWRIGHT_LOCAL_CONFIG="$PG_CFG" \
     PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/pg-adopter" PLANWRIGHT_REPO_ROOT="$SANDBOX" \
-    /bin/bash -c "$PG_WIRED" 2>/dev/null) || :
-  case "$v:$pg_out" in
-    unit-owner:)
+    /bin/bash -c "$PG_WIRED" 2>/dev/null) || pg_rc=$?
+  case "$v:$pg_rc:$pg_out" in
+    unit-owner:0:)
       pass "unit-owner: the policy guard defers the flip, leaving the ready-guard's verdict to stand"
       ;;
-    human:*'"deny"'*)
+    human:0:*'"deny"'*)
       pass "human: the policy guard refuses the flip whatever the ready-guard would say"
       ;;
     *) fail "$v: the policy guard's verdict on '$BASH_FLIP' was unexpected: '$pg_out'" ;;
