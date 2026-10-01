@@ -1373,18 +1373,26 @@ twin where the ledger's feedback loop is covered below.
 ### What planwright registers, and the event it deliberately does not
 
 The liveness hooks above are observers: they watch a session and write to the
-attention store, and a session behaves identically whether they fire or not.
+attention store (the flight sweep below, to the derived flight index), and a
+session behaves identically whether they fire or not.
 That is true of every event planwright registers — `PreToolUse`, `PostToolUse`,
 `SessionStart`, `SessionEnd`, `Stop`, `StopFailure`, `Notification`,
 `PermissionRequest`, `UserPromptSubmit`, `WorktreeRemove`. Some of them *can*
 block, but only if a handler explicitly says so; a quiet handler changes
-nothing. The `UserPromptSubmit` handler is the one whose effects a tower can
+nothing. The `UserPromptSubmit` handler is one of two whose cost a session can
 see: in a tower session it stamps the attention marker, appends a `reply` line,
 and waits up to `tower_hook_lock_wait` for the fleet lock before dropping that
 line; that wait is paid on the prompt, on top of the hook's own parsing,
 presence lookup and marker write, so the knob bounds the lock wait rather than
 the whole cost. It still exits 0 on every path, so the prompt goes through
-whatever it did.
+whatever it did. The `SessionStart` flight sweep (`scripts/flight-sweep.sh hook
+session-start`) is the other one with a visible cost: on a fresh start in a
+checkout that has flight branches, outside a worker's session, it reads each
+flight's PR from the forge to refresh the derived flight index, the reads
+together held to about fifteen seconds, so a session start can wait that long
+plus the sweep's local reads (git, and the worker liveness probes). On a host
+with neither `timeout` nor `gtimeout` to bound the PR reads it does nothing. It
+too exits 0 on every path.
 
 `WorktreeCreate` is the exception, and planwright does not register it.
 Registering a hook there **replaces** native git worktree creation: the hook
@@ -1597,13 +1605,17 @@ reap     -  declined  no tower identity: all 2 candidate(s) declined; the sweep 
 The knobs are read from the `--repo` checkout's overlay layers wherever the
 sweep is started. The wait between cycles is never under one second.
 
-Each cycle runs five passes: the worktree disk scan, so a worktree nothing
+Each cycle runs six passes: the worktree disk scan, so a worktree nothing
 recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
-the process reap; and the registry reconcile, which heals and retires dispatch
+the process reap; the registry reconcile, which heals and retires dispatch
 records from their markers (see *The dispatch record*) and, terminating
-nothing, runs in both modes. The reap hands every worker whose session has
-ended to `fleet-cleanup.sh process`, so it refuses what that refuses and kills
-only through the rungs' `stop`.
+nothing, runs in both modes; and the flight residues, which retire a gone
+flight's brief and prune the flight index of a checkout that no longer exists.
+The registry reconcile follows the reap so a worker closed this cycle is
+retired in the same one, and the flight pass follows the reconcile so the
+dispatch records it reads are already settled. The reap hands every worker
+whose session has ended to `fleet-cleanup.sh process`, so it refuses what that
+refuses and kills only through the rungs' `stop`.
 
 **It observes until you promote it.** At the default the reap writes the
 `would-cleanup` record for each worker it would have closed and kills nothing,
