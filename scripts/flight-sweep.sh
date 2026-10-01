@@ -317,21 +317,39 @@ cmd_sweep() {
   _old_ifs=$IFS
 
   # The registry and the decision queue are read once each; a failed read
-  # leaves the rows it feeds unknown and is named in the render.
+  # leaves the rows it feeds unknown and is named in the render. Both are
+  # read only from a fleet home private to the user, checked first: rows
+  # another local user could write would steer liveness and the awaiting
+  # state. A symlinked store is not read either.
+  home_trusted=1
+  if [ -e "$fleet_home" ] || [ -L "$fleet_home" ]; then
+    private_dir "$fleet_home" || {
+      home_trusted=0
+      printf '%s: the fleet home is not a directory owned by you that only you can write (%s); the registry and the queue were not read\n' \
+        "$prog" "$fleet_home" >&2
+    }
+  fi
   registry_state=ok
-  registry=$(/bin/sh "$STATE" registry 2>/dev/null </dev/null) || {
-    registry=''
+  registry=''
+  if [ "$home_trusted" -eq 0 ] || [ -L "$fleet_home/registry" ]; then
     registry_state=unavailable
-  }
-  # The store's own read exits 0 on a file it cannot read.
-  if [ -e "$fleet_home/registry" ] && [ ! -r "$fleet_home/registry" ]; then
-    registry=''
-    registry_state=unavailable
+  else
+    registry=$(/bin/sh "$STATE" registry 2>/dev/null </dev/null) || {
+      registry=''
+      registry_state=unavailable
+    }
+    # The store's own read exits 0 on a file it cannot read.
+    if [ -e "$fleet_home/registry" ] && [ ! -r "$fleet_home/registry" ]; then
+      registry=''
+      registry_state=unavailable
+    fi
   fi
   queue_state=ok
   awaiting=''
   _store="$fleet_home/attention/state"
-  if [ -e "$_store" ]; then
+  if [ "$home_trusted" -eq 0 ] || [ -L "$fleet_home/attention" ] || [ -L "$_store" ]; then
+    queue_state=unavailable
+  elif [ -e "$_store" ]; then
     awaiting=$(awk -F "$TAB" '$3 == "awaiting-input" { print $1 }' "$_store" 2>/dev/null) \
       || queue_state=unavailable
   fi

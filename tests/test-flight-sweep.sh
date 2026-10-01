@@ -336,12 +336,28 @@ out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
 [ ! -e "$idx" ] || fail "--no-write writes no index"
 [ "$out" = "$(cat "$c/first")" ] || fail "--no-write prints the same render"
 (cd "$repo" && "$SCRIPT" sweep >/dev/null 2>&1)
-chmod 775 "$c/fleet"
+chmod 775 "$c/fleet/flight-index"
 out=$(cd "$repo" && "$SCRIPT" sweep 2>/dev/null)
 rc=$?
-chmod 700 "$c/fleet"
+chmod 700 "$c/fleet/flight-index"
 [ "$rc" -eq 5 ] || fail "an index that cannot be written exits 5 (got $rc)"
 [ "$out" = "$(cat "$c/first")" ] || fail "an unwritable index still prints the render"
+# A fleet home another user can write is not trusted for the registry or the
+# queue: both read unavailable, and the flights they feed unknown.
+chmod 775 "$c/fleet"
+out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
+chmod 700 "$c/fleet"
+printf '%s\n' "$out" | grep -q "^registry${TAB}unavailable$" || fail "a fleet home others can write leaves the registry unread"
+printf '%s\n' "$out" | grep -q "^queue${TAB}unavailable$" || fail "a fleet home others can write leaves the queue unread"
+r=$(row "$out" "$QUEUED")
+[ "$(field "$r" 3)" = unknown ] || fail "an untrusted fleet home never reads a flight awaiting-operator (got: $r)"
+# A symlinked queue store is not read.
+mv "$c/fleet/attention/state" "$c/state.real"
+ln -s "$c/state.real" "$c/fleet/attention/state"
+out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
+rm -f "$c/fleet/attention/state"
+mv "$c/state.real" "$c/fleet/attention/state"
+printf '%s\n' "$out" | grep -q "^queue${TAB}unavailable$" || fail "a symlinked queue store is not read"
 
 # The skew is judged against the worker's installed root.
 ver=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)
