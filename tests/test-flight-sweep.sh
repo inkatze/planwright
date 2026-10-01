@@ -28,7 +28,8 @@
 #   8. The tower's bring-up reads this sweep, and flight residues ride the
 #      fleet cleanup sweep: fleet-sweep.sh prunes a vanished checkout's index
 #      and audits it. The hook stays out of worker sessions and stops asking
-#      the forge once its budget is spent.
+#      the forge once its budget is spent; an interactive sweep has a
+#      budget of its own.
 #   9. The render stays honest at its edges: a fork's PR is never taken, a
 #      no-remote checkout's branch reads stranded, the primary checkout and a
 #      control-byte path are never a flight's worktree, --no-write writes
@@ -45,7 +46,7 @@ export GIT_CONFIG_SYSTEM=/dev/null
 unset CLAUDE_PLUGIN_DATA CLAUDE_PLUGIN_ROOT PLANWRIGHT_ROOT PLANWRIGHT_ADOPTER_OVERLAY \
   PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_SKILLS_ROOT \
   PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_TOWER_ID CLAUDE_PROJECT_DIR \
-  PLANWRIGHT_FLIGHT_SWEEP_HOOK_BUDGET PLANWRIGHT_FLIGHT_SWEEP_GH_TIMEOUT
+  PLANWRIGHT_FLIGHT_SWEEP_HOOK_BUDGET PLANWRIGHT_FLIGHT_SWEEP_GH_TIMEOUT PLANWRIGHT_FLIGHT_SWEEP_FORGE_BUDGET
 
 here=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$here/.." && pwd -P)
@@ -462,6 +463,13 @@ gitc "$repo" worktree remove "$repo/.claude/worktrees/demo-spec"
 [ ! -s "$c/gh.log" ] || fail "past its budget the hook asks the forge nothing more"
 grep -q "^forge${TAB}unavailable${TAB}deadline$" "$idx" || fail "a spent budget is named in the render"
 (cd "$repo" && "$SCRIPT" sweep >/dev/null 2>&1)
+# An interactive sweep is budgeted too, so a long flight history cannot stall
+# the tower's status read on one PR read per branch.
+: >"$c/gh.log"
+out=$(cd "$repo" && GH_STUB_LOG="$c/gh.log" PLANWRIGHT_FLIGHT_SWEEP_FORGE_BUDGET=0 "$SCRIPT" sweep --no-write 2>/dev/null)
+[ ! -s "$c/gh.log" ] || fail "past its budget a sweep asks the forge nothing more"
+printf '%s\n' "$out" | grep -q "^forge${TAB}unavailable${TAB}deadline$" \
+  || fail "a sweep's spent budget is named in the render"
 # Without a bound for the PR reads the hook does nothing (only checkable
 # where the system directories hold no timeout binary).
 if ! PATH=/usr/bin:/bin command -v timeout >/dev/null 2>&1 && ! PATH=/usr/bin:/bin command -v gtimeout >/dev/null 2>&1; then

@@ -94,8 +94,11 @@
 # printed but the index could not be written.
 #
 # PLANWRIGHT_FLIGHT_SWEEP_GH_TIMEOUT bounds each PR read in seconds (default
-# 20). Outside the hook, a host with neither `timeout` nor `gtimeout` runs the
-# reads unbounded, as the tower's own fallback reads do.
+# 20), and PLANWRIGHT_FLIGHT_SWEEP_FORGE_BUDGET all of a sweep's PR reads
+# together (default 120), after which the rest read unknown with the forge
+# named `deadline`. Outside the hook, a host with neither `timeout` nor
+# `gtimeout` runs each read unbounded, as the tower's own fallback reads do,
+# and the budget is checked only before each read.
 #
 # Portable POSIX sh (the bash 3.2 floor); no eval; pathname expansion off.
 set -uf
@@ -158,6 +161,13 @@ case $HOOK_FORGE_BUDGET in
   '' | *[!0-9]* | 0[0-9]*) HOOK_FORGE_BUDGET=15 ;;
 esac
 [ "${#HOOK_FORGE_BUDGET}" -le 3 ] || HOOK_FORGE_BUDGET=15
+# Every other sweep's budget for all of its PR reads together: the reads are
+# one per flight branch, and a landed flight's branch is read again each sweep.
+FORGE_BUDGET=${PLANWRIGHT_FLIGHT_SWEEP_FORGE_BUDGET:-120}
+case $FORGE_BUDGET in
+  '' | *[!0-9]* | 0[0-9]*) FORGE_BUDGET=120 ;;
+esac
+[ "${#FORGE_BUDGET}" -le 4 ] || FORGE_BUDGET=120
 
 # Set only by the hook arm, never from the environment.
 session_start=0
@@ -299,6 +309,93 @@ pr_landing() {
   PRL="pr:$_url"
 }
 
+# read_registry — set `registry` to the dispatch registry's rows and
+# `registry_state` to ok|unavailable; nothing is read from an untrusted home.
+read_registry() {
+  registry_state=ok
+  registry=''
+  if [ "$home_trusted" -eq 0 ] || [ -L "$fleet_home/registry" ]; then
+    registry_state=unavailable
+  else
+    registry=$(/bin/sh "$STATE" registry 2>/dev/null </dev/null) || {
+      registry=''
+      registry_state=unavailable
+    }
+    # The store's own read exits 0 on a file it cannot read.
+    if [ -e "$fleet_home/registry" ] && [ ! -r "$fleet_home/registry" ]; then
+      registry=''
+      registry_state=unavailable
+    fi
+  fi
+}
+
+# read_queue — set `awaiting` to the handles the decision queue holds as
+# awaiting input and `queue_state` to ok|unavailable.
+read_queue() {
+  queue_state=ok
+  awaiting=''
+  _attn="$fleet_home/attention"
+  _store="$_attn/state"
+  if [ "$home_trusted" -eq 0 ] || [ -L "$_attn" ] || [ -L "$_store" ]; then
+    queue_state=unavailable
+  elif [ -e "$_attn" ] && { [ ! -d "$_attn" ] || [ ! -x "$_attn" ]; }; then
+    # A store that cannot be looked for is unread, not absent.
+    queue_state=unavailable
+  elif [ -e "$_store" ]; then
+    awaiting=$(awk -F "$TAB" '$3 == "awaiting-input" { print $1 }' "$_store" 2>/dev/null) \
+      || queue_state=unavailable
+  fi
+}
+
+# resolve_forge — set `forge_state`, `forge_reason`, `forge_dest`, and `TO`
+# (the bounding binary) for this sweep's PR reads, before any is made.
+resolve_forge() {
+  forge_state=ok
+  forge_reason=-
+  TO=''
+  forge_dest=''
+  READ_MAX=$GH_TIMEOUT
+  if [ "$session_start" -eq 1 ] && [ "$READ_MAX" -gt "$HOOK_READ_MAX" ]; then
+    READ_MAX=$HOOK_READ_MAX
+  fi
+  if [ -z "$ids" ]; then
+    forge_state=skipped
+    forge_reason=no-flights
+  elif [ "$forge" -eq 0 ]; then
+    forge_state=skipped
+    forge_reason=no-forge
+  elif ! _push=$(git -C "$repo_root" remote get-url --push origin 2>/dev/null </dev/null) || [ -z "$_push" ]; then
+    forge_state=skipped
+    forge_reason=no-origin
+  elif forge_dest=$(origin_dest "$_push") && [ -z "$forge_dest" ]; then
+    forge_state=unavailable
+    forge_reason=origin-unrecognized
+  elif ! command -v gh >/dev/null 2>&1; then
+    forge_state=unavailable
+    forge_reason=no-gh
+  else
+    TO=$(timeout_bin)
+    if [ -z "$TO" ] && [ "$session_start" -eq 1 ]; then
+      forge_state=skipped
+      forge_reason=no-timeout
+    fi
+  fi
+}
+
+# forge_secs — set FS_SECS to the seconds the next PR read may take, or, once
+# the sweep's budget is spent, mark the forge down (and late) and return 1.
+FS_SECS=0
+forge_secs() {
+  FS_SECS=$READ_MAX
+  _left=$((forge_until - $(date +%s)))
+  if [ "$_left" -le 0 ]; then
+    forge_down=1
+    forge_late=1
+    return 1
+  fi
+  [ "$_left" -ge "$FS_SECS" ] || FS_SECS=$_left
+}
+
 render=''
 emit() {
   render="$render$1$LF"
@@ -356,73 +453,18 @@ cmd_sweep() {
         "$prog" "$fleet_home" >&2
     }
   fi
-  registry_state=ok
-  registry=''
-  if [ "$home_trusted" -eq 0 ] || [ -L "$fleet_home/registry" ]; then
-    registry_state=unavailable
-  else
-    registry=$(/bin/sh "$STATE" registry 2>/dev/null </dev/null) || {
-      registry=''
-      registry_state=unavailable
-    }
-    # The store's own read exits 0 on a file it cannot read.
-    if [ -e "$fleet_home/registry" ] && [ ! -r "$fleet_home/registry" ]; then
-      registry=''
-      registry_state=unavailable
-    fi
-  fi
-  queue_state=ok
-  awaiting=''
-  _attn="$fleet_home/attention"
-  _store="$_attn/state"
-  if [ "$home_trusted" -eq 0 ] || [ -L "$_attn" ] || [ -L "$_store" ]; then
-    queue_state=unavailable
-  elif [ -e "$_attn" ] && { [ ! -d "$_attn" ] || [ ! -x "$_attn" ]; }; then
-    # A store that cannot be looked for is unread, not absent.
-    queue_state=unavailable
-  elif [ -e "$_store" ]; then
-    awaiting=$(awk -F "$TAB" '$3 == "awaiting-input" { print $1 }' "$_store" 2>/dev/null) \
-      || queue_state=unavailable
-  fi
-
-  forge_state=ok
-  forge_reason=-
-  TO=''
-  forge_dest=''
-  READ_MAX=$GH_TIMEOUT
-  if [ "$session_start" -eq 1 ] && [ "$READ_MAX" -gt "$HOOK_READ_MAX" ]; then
-    READ_MAX=$HOOK_READ_MAX
-  fi
-  if [ -z "$ids" ]; then
-    forge_state=skipped
-    forge_reason=no-flights
-  elif [ "$forge" -eq 0 ]; then
-    forge_state=skipped
-    forge_reason=no-forge
-  elif ! _push=$(git -C "$repo_root" remote get-url --push origin 2>/dev/null </dev/null) || [ -z "$_push" ]; then
-    forge_state=skipped
-    forge_reason=no-origin
-  elif forge_dest=$(origin_dest "$_push") && [ -z "$forge_dest" ]; then
-    forge_state=unavailable
-    forge_reason=origin-unrecognized
-  elif ! command -v gh >/dev/null 2>&1; then
-    forge_state=unavailable
-    forge_reason=no-gh
-  else
-    TO=$(timeout_bin)
-    if [ -z "$TO" ] && [ "$session_start" -eq 1 ]; then
-      forge_state=skipped
-      forge_reason=no-timeout
-    fi
-  fi
+  read_registry
+  read_queue
+  resolve_forge
 
   forge_ok=0
   forge_bad=0
   forge_down=0
   forge_late=0
-  forge_until=''
   if [ "$session_start" -eq 1 ]; then
     forge_until=$(($(date +%s) + HOOK_FORGE_BUDGET))
+  else
+    forge_until=$(($(date +%s) + FORGE_BUDGET))
   fi
   # A record file lands under the spec home, read here as a path relative to
   # the checkout. A spec home outside the checkout cannot be carried on a
@@ -461,18 +503,8 @@ cmd_sweep() {
       landing=none
     elif [ -z "$landing" ]; then
       landing=unknown
-      _secs=$READ_MAX
-      if [ "$forge_state" = ok ] && [ "$forge_down" -eq 0 ] && [ -n "$forge_until" ]; then
-        _left=$((forge_until - $(date +%s)))
-        if [ "$_left" -le 0 ]; then
-          forge_down=1
-          forge_late=1
-        elif [ "$_left" -lt "$_secs" ]; then
-          _secs=$_left
-        fi
-      fi
-      if [ "$forge_state" = ok ] && [ "$forge_down" -eq 0 ]; then
-        pr_landing "$branch" "$_secs"
+      if [ "$forge_state" = ok ] && [ "$forge_down" -eq 0 ] && forge_secs; then
+        pr_landing "$branch" "$FS_SECS"
         case $? in
           0)
             landing=$PRL
