@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Test spec
 
 **Status:** Ready
-**Last reviewed:** 2026-08-19
+**Last reviewed:** 2026-10-01
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -267,7 +267,20 @@ gap created by a suppressed creation hook.
 ### REQ-E1.4 — Registration degrades gracefully [test]
 
 A simulated registry-write failure leaves the dispatch successful, emits a
-visible warning, and self-heals on the next scan.
+visible warning, and self-heals on the next scan. The heal is asserted per
+dispatch seam against the seam-coverage manifest: the next sweep rebuilds the
+record from the seam's on-disk dispatch marker with the fields the dispatch
+would have written; N concurrent reconciles, and a reconcile racing the
+dispatch's own write, produce exactly one record; a marker failing the store's
+field grammar or outside its root is refused and audited, never stored.
+
+### REQ-E1.5 — Closed workers' records retire [test]
+
+Asserts the next sweep marks a closed worker's record closed on positive death
+evidence, that a `print` unit's record retires once its worktree is removed
+and not before, that the retired record stays readable and its marker is gone, that
+a worker whose death evidence is unknown or errored keeps its record live, and
+that a record predating markers survives a sweep unchanged.
 
 ## REQ-F — Periodic sweep
 

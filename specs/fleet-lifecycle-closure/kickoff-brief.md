@@ -462,6 +462,92 @@ Class: expression-only
 Anchor: `7131f973bea4276a0530d799f9f81fa4d2a1a94a` — computed as
 `scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
 
+### Amendment — dispatch-record reconcile folded into Task 11 (2026-10-01)
+
+**Mode:** amendment on an Active bundle (human-declared) · **Scope:** delta
+only · **Freshness at start:** anchor `7131f97…` recomputed and matched ·
+**Validator:** 0 errors, 0 warnings before and after the edits.
+
+**Why.** REQ-E1.4's second half (a failed registry write self-heals on the
+next scan) had no owning task. Task 3 shipped the never-fail half, and its
+own seam says no reconcile exists (`scripts/fleet-register.sh`, the
+registration-failure warning). Task 8's scan reconciles worktrees from
+`git worktree list`, not dispatch records. The operator folded the heal into
+Task 11.
+
+**Decisions taken in the walk.**
+
+- *Heal source:* the long-term shape, not the narrow one. Every seam,
+  tmux included, writes an on-disk dispatch marker, making the registry a
+  rebuildable index of disk (D-15). Healing only rungs that already leave
+  state was rejected as a permanent tmux blind spot.
+- *Stale rows:* the reconcile runs both ways. A closed worker's record is
+  marked closed on positive death evidence, never deleted (REQ-E1.5).
+- *Placement:* everything in Task 11, accepting the larger task on the
+  critical path (render with `scripts/spec-graph.sh`; Task 11's effort is in
+  `tasks.md`).
+- *Retention:* closed records are kept indefinitely (D-15).
+- *Print rung:* a `print` unit has no death handle; its worktree's removal
+  counts as the positive evidence (REQ-E1.5).
+
+**Spec edits applied.** Task 3 annotated (self-heal moved out); Task 11
+deliverables, Done-when, citations, effort, and annotation; REQ-E1.5 added;
+D-15 added; test-spec REQ-E1.4 extended and REQ-E1.5 added (requirement and
+test-spec paired); `requirements.md` changelog entry; `Last reviewed:` on all
+four files.
+
+**Lens review pass (delta-scoped).** Walked inline, declared: the delta is
+one task, one new REQ, and one new D-ID, the "small, narrow" case in
+`kickoff-verification`. Scope: the edits above plus what depends on them
+(REQ-D1.4/D-2's evidence rule, REQ-D1.8's print rung, REQ-A1.1's floor,
+REQ-F1.3's kill-switch, D-14's sweep modes, the in-flight Task 10).
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 2 | D-15 misstated D-2's two-party evidence rule; print records could never retire (no death handle). |
+| Security | 1 | Rebuilt records feed destructive verbs; heal must reuse the register seam's validation and root containment. |
+| Error handling and failure modes | 1 | Pre-marker records at rollout must not be retired or altered for lacking a marker. |
+| Performance | none | One marker read per record per sweep; nothing on a hot path. |
+| Concurrency / state | 1 | A reconcile racing a dispatch's own write could duplicate a record. |
+| Naming, readability, structure | none | New text follows the bundle's existing vocabulary. |
+| Documentation | 1 | The marker is a new per-worker resource class the floor record must declare. |
+| Tests / verification | none | Every new Done-when clause has a paired test-spec assertion. |
+| Cross-file consistency | 1 | Sweep mode and audit unspecified against D-14 and the sweep's audited-reconcile sibling. |
+
+**Dispositions.** All seven validated against the bundle text and applied as
+spec edits: D-15 reworded to the worker-alone evidence rule; the print rung's
+evidence decided by the operator (worktree removal); heal through
+`fleet-register.sh` validation with root refusal; pre-marker records left
+unchanged; idempotent per handle with a race assertion; the marker declared
+and deleted on retirement; the pass runs in both sweep modes, under the
+kill-switch, audited per heal and retirement. No qualified foreign citations
+were added. *Altitude check:* the bundle's altitude record (D-1) is
+unaffected; the amendment sits at mechanism level beneath the existing floor.
+*Ship-gate check:* no out-of-band fix is named.
+
+**Decision-domains gap check (delta).** `data-storage` (the marker and the
+closed state) and `concurrency` are decided by D-15 and the dispositions
+above; `observability` by the audit clause; `deploy-migration` (pre-marker
+records at rollout) by the pre-marker rule. No gap left open.
+
+**Risk register continuation.**
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 9 (register continuation) | Task 11 now edits every dispatch seam while Task 10, in flight, edits `fleet-streamjson.sh`. This is a merge-conflict risk, deliberately not a dependency edge: neither task consumes the other's output. | Whichever lands second rebases its seam edits. Early signal: the second PR reporting a conflict in a dispatch seam. |
+
+**Pre-flip verification.** No status flip (the bundle stays Ready; Active is
+derived). Stale-reference sweep run over the bundle for REQ-E1.5, D-15, and
+REQ/D-ID counts: no stragglers, and the brief records no figure the delta
+changes. markdownlint over the four edited files: 0 errors. Validator re-run:
+0 errors, 0 warnings.
+
+Class: meaning
+Lens-pass: the *Lens review pass* table and *Dispositions* in this entry —
+delta-scoped, walked inline (path declared), seven findings all applied.
+Anchor: `563eb115c6a5cce5f579cf99fe703feb1626f471` — computed as
+`scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
+
 ## 10. Execution research log
 
 <!-- Research-rigor recordings appended during execution (findings, tradeoffs,
