@@ -52,10 +52,13 @@
 #                                   live and said so
 #   refuse  <marker> <why>
 #   paused  -        the kill-switch was set mid-pass; the rest waits
-#   summary markers=<n> healed=<n> retired=<n> kept=<n> unjudged=<n>
+#   summary markers=<n> healed=<n> retired=<n> kept=<n> unjudged=<n> live=<n>
 #           refused=<n> status=<ok|degraded|paused>
 #   `unjudged` counts live records with no evidence source at all (no death
-#   handle, and not a print unit with a worktree): they never retire.
+#   handle, and not a print unit with a worktree): they never retire. `live`
+#   counts positively alive records their marker matches. The buckets need not
+#   sum to `markers`: a retired record's leftover marker being finished, and a
+#   marker whose step failed (status degraded), are in none of them.
 #
 # Exit codes: 0 the pass ran (degraded or paused mid-pass included); 2 usage,
 #   or no fleet home; 4 the kill-switch is set, or could not be resolved, at
@@ -106,6 +109,7 @@ healed=0
 retired=0
 kept=0
 unjudged=0
+live=0
 refused=0
 status=ok
 
@@ -117,8 +121,8 @@ audit() {
 }
 
 summary() {
-  printf 'summary\tmarkers=%s\thealed=%s\tretired=%s\tkept=%s\tunjudged=%s\trefused=%s\tstatus=%s\n' \
-    "$markers" "$healed" "$retired" "$kept" "$unjudged" "$refused" "$status"
+  printf 'summary\tmarkers=%s\thealed=%s\tretired=%s\tkept=%s\tunjudged=%s\tlive=%s\trefused=%s\tstatus=%s\n' \
+    "$markers" "$healed" "$retired" "$kept" "$unjudged" "$live" "$refused" "$status"
 }
 
 if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
@@ -322,6 +326,8 @@ EOF
       if [ "$(cat "$path" 2>/dev/null)" != "$fields" ]; then
         kept=$((kept + 1))
         printf 'keep\t%s\tmarker-diverged\n' "$name"
+      else
+        live=$((live + 1))
       fi
       ;;
   esac

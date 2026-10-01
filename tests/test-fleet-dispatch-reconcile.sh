@@ -648,6 +648,20 @@ printf '%s\n' "$out" | grep -q "unjudged=1" || fail "r9: a record with no eviden
 ok r9 "a record with no evidence source is counted as unjudged and left live"
 
 # ===========================================================================
+# r10 — an alive worker whose marker matches its record is counted, so the
+#       summary accounts for the steady-state marker.
+# ===========================================================================
+h=$(home r10)
+sleep 300 &
+p10=$!
+register "$h" w-r10 --scope spec-r:12 --backend headless-oneshot --death-handle "process $p10"
+reconcile "$h"
+printf '%s\n' "$out" | grep -q "${tab}live=1${tab}" || fail "r10: an alive, current record was not counted live: $out"
+kill "$p10" 2>/dev/null
+wait "$p10" 2>/dev/null
+ok r10 "an alive record its marker matches is counted live"
+
+# ===========================================================================
 # c1 — N concurrent reconciles heal each missing record exactly once.
 # ===========================================================================
 h=$(home c1)

@@ -1638,8 +1638,13 @@ registry heal     <worker>  headless-oneshot
 registry retire   <worker>  process-dead
 registry keep     <worker>  evidence-unknown
 registry refuse   <marker>  refusing marker '<marker>': it names another handle
-registry summary  markers=5  healed=1  retired=1  kept=1  unjudged=1  refused=1  status=ok
+registry summary  markers=7  healed=1  retired=1  kept=1  unjudged=1  live=2  refused=1  status=ok
 ```
+
+The registry summary's `live` counts alive records their marker still
+matches, the steady state. Its buckets need not add up to `markers`: a
+retired record's leftover marker being finished, and a marker whose step
+failed (which turns `status` to `degraded`), land in none of them.
 
 A declined candidate carries the refusal the reap gave, so a sweep that turned
 everything down never reads like one that found nothing. A close that acted
