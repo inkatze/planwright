@@ -671,6 +671,36 @@ if [ "$pm_rc" -eq 0 ]; then
   fi
 fi
 
+echo "### human-gates REQ-C1.5 — the worker profile's policy guard composes with the ready-guard"
+
+# The worker profile now also runs the policy guard on the flip. Under
+# ready_flip_policy=unit-owner it defers, so the ready-guard's currency verdict
+# above is the one that stands; under human it refuses before currency
+# matters. The wiring's own command is run, with its tier argument, against a
+# fixture flip only.
+PG_WIRED=$(jq -r '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]?.command // "" | select(contains("policy-guard.sh"))][0] // empty' "$WORKER_SETTINGS")
+case $PG_WIRED in
+  *'/scripts/policy-guard.sh worker bash') pass "the worker profile wires the policy guard with the worker tier" ;;
+  *) fail "the worker profile does not wire the policy guard with the worker tier (got '$PG_WIRED')" ;;
+esac
+PG_CFG="$SANDBOX/pg-local.yml"
+mkdir -p "$SANDBOX/pg-adopter"
+for v in unit-owner human; do
+  printf 'ready_flip_policy: %s\n' "$v" >"$PG_CFG"
+  pg_out=$(bash_payload "$BASH_FLIP" | env CLAUDE_PLUGIN_ROOT="$REPO_ROOT" PLANWRIGHT_LOCAL_CONFIG="$PG_CFG" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/pg-adopter" PLANWRIGHT_REPO_ROOT="$SANDBOX" \
+    /bin/bash -c "$PG_WIRED" 2>/dev/null) || :
+  case "$v:$pg_out" in
+    unit-owner:)
+      pass "unit-owner: the policy guard defers the flip, leaving the ready-guard's verdict to stand"
+      ;;
+    human:*'"deny"'*)
+      pass "human: the policy guard refuses the flip whatever the ready-guard would say"
+      ;;
+    *) fail "$v: the policy guard's verdict on '$BASH_FLIP' was unexpected: '$pg_out'" ;;
+  esac
+done
+
 echo "### REQ-C1.7 — the deny is not gated behind a settings profile"
 
 # tests/test-ready-guard.sh pins the full wiring shape (both matchers, the

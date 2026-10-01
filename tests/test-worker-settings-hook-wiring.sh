@@ -142,8 +142,9 @@ else
 fi
 
 # --- REQ-C1.1 / REQ-A1.3: the deny block is byte-for-byte unchanged ----------
-# The deny block encodes planwright's hard invariants (never merge / force-push
-# / amend / squash / rebase / push-to-main); Task 2 must not perturb it. This
+# The deny block encodes planwright's floor (no PR merge, no force-push, no
+# write to main, master, or a spec branch); human-gates Task 6 moved the base
+# merge and the never-pushed rewrites out of it, to the policy guard. This
 # pins the deny array against the pre-edit baseline with an order-sensitive
 # compact string compare: `jq -cS` normalizes whitespace (and object-key
 # order), but does NOT reorder array elements, so reordering the deny list
@@ -154,7 +155,7 @@ fi
 # documented matcher model (guard-coverage Task 1, D-4, REQ-A1.1). Updating this
 # baseline without a matching fixture row is what that test's dead-rule pass
 # catches.
-expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready --undo:*)","Bash(gh pr ready * --undo*)","Bash(git merge:*)","Bash(git pull:*)","Bash(git rebase:*)","Bash(git commit --amend:*)","Bash(git commit * --amend*)","Bash(git commit --squash:*)","Bash(git commit --squash*)","Bash(git commit * --squash*)","Bash(git commit --fixup:*)","Bash(git commit --fixup*)","Bash(git commit * --fixup*)","Bash(git commit --am*)","Bash(git commit * --am*)","Bash(git commit --sq*)","Bash(git commit * --sq*)","Bash(git commit --fix*)","Bash(git commit * --fix*)","Bash(git reset --hard:*)","Bash(git filter-branch:*)","Bash(git filter-repo:*)","Bash(git push --force:*)","Bash(git push --force*)","Bash(git push --force-with-lease:*)","Bash(git push -f:*)","Bash(git push * --force*)","Bash(git push * -f*)","Bash(git push * +*)","Bash(git push *:main)","Bash(git push *:main *)","Bash(git push * main)","Bash(git push * main *)","Bash(git push *refs/heads/main)","Bash(git push *refs/heads/main *)","Bash(git push *heads/main)","Bash(git push *heads/main *)","Bash(git push *:master)","Bash(git push *:master *)","Bash(git push * master)","Bash(git push * master *)","Bash(git push *heads/master)","Bash(git push *heads/master *)","Bash(git push *:planwright/*/spec)","Bash(git push *:planwright/*/spec *)","Bash(git push * planwright/*/spec)","Bash(git push * planwright/*/spec *)","Bash(git push *heads/planwright/*/spec)","Bash(git push *heads/planwright/*/spec *)","Bash(git push --mirror:*)","Bash(git push * --mirror*)","Bash(git push --all:*)","Bash(git push * --all*)","Bash(git push --mi*)","Bash(git push * --mi*)","Bash(git push --al*)","Bash(git push * --al*)","Bash(git push --b*)","Bash(git push * --b*)","Bash(git push * : *)","Bash(git * --no-verify*)","Bash(git * --no-veri*)","Bash(git commit -n*)","Bash(git commit * -n*)","Bash(git -c core.hooksPath*)","Bash(git -c core.hookspath*)","Bash(git * -c core.hooksPath*)","Bash(git * -c core.hookspath*)","Bash(git config core.hooksPath*)","Bash(git config core.hookspath*)","Bash(git config * core.hooksPath*)","Bash(git config * core.hookspath*)","Bash(git --config-env*)","Bash(git * --config-env*)","Bash(git * --hooks-path*)","Bash(git -* push*)","Bash(git -* commit*)","Bash(git -* merge*)","Bash(git -* pull*)","Bash(git -* rebase*)","Bash(git -* reset*)","Bash(git -* filter-branch*)","Bash(git -* filter-repo*)","mcp__github__merge_pull_request","mcp__github__push_files","mcp__github__create_or_update_file","mcp__github__delete_file"]'
+expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready --undo:*)","Bash(gh pr ready * --undo*)","Bash(git reset --hard:*)","Bash(git filter-branch:*)","Bash(git filter-repo:*)","Bash(git push --force:*)","Bash(git push --force*)","Bash(git push --force-with-lease:*)","Bash(git push -f:*)","Bash(git push * --force*)","Bash(git push * -f*)","Bash(git push * +*)","Bash(git push *:main)","Bash(git push *:main *)","Bash(git push * main)","Bash(git push * main *)","Bash(git push *refs/heads/main)","Bash(git push *refs/heads/main *)","Bash(git push *heads/main)","Bash(git push *heads/main *)","Bash(git push *:master)","Bash(git push *:master *)","Bash(git push * master)","Bash(git push * master *)","Bash(git push *heads/master)","Bash(git push *heads/master *)","Bash(git push *:planwright/*/spec)","Bash(git push *:planwright/*/spec *)","Bash(git push * planwright/*/spec)","Bash(git push * planwright/*/spec *)","Bash(git push *heads/planwright/*/spec)","Bash(git push *heads/planwright/*/spec *)","Bash(git push --mirror:*)","Bash(git push * --mirror*)","Bash(git push --all:*)","Bash(git push * --all*)","Bash(git push --mi*)","Bash(git push * --mi*)","Bash(git push --al*)","Bash(git push * --al*)","Bash(git push --b*)","Bash(git push * --b*)","Bash(git push * : *)","Bash(git * --no-verify*)","Bash(git * --no-veri*)","Bash(git commit -n*)","Bash(git commit * -n*)","Bash(git -c core.hooksPath*)","Bash(git -c core.hookspath*)","Bash(git * -c core.hooksPath*)","Bash(git * -c core.hookspath*)","Bash(git config core.hooksPath*)","Bash(git config core.hookspath*)","Bash(git config * core.hooksPath*)","Bash(git config * core.hookspath*)","Bash(git --config-env*)","Bash(git * --config-env*)","Bash(git * --hooks-path*)","Bash(git -* push*)","Bash(git -* commit*)","Bash(git -* reset*)","Bash(git -* filter-branch*)","Bash(git -* filter-repo*)","mcp__github__merge_pull_request","mcp__github__push_files","mcp__github__create_or_update_file","mcp__github__delete_file"]'
 actual_deny="$(jq -cS '.permissions.deny' "$worker_settings")"
 if [ "$actual_deny" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
   ok "the deny block is byte-for-byte unchanged from baseline (REQ-C1.1, REQ-A1.3)"
@@ -162,6 +163,28 @@ else
   fail "the deny block changed from baseline (REQ-C1.1, REQ-A1.3)"
   echo "  expected: $(printf '%s' "$expected_deny" | jq -cS .)" >&2
   echo "  actual:   $actual_deny" >&2
+fi
+
+# --- human-gates REQ-G1.2, REQ-G1.3: the floor stays, the grantable acts go --
+# By meaning rather than by the pinned list above: every floor entry a profile
+# can express is present, and no entry denies an act a policy value can grant
+# a worker (the base merge and the never-pushed rewrites), since a profile
+# deny would override the value.
+for floor in 'Bash(gh pr merge:*)' 'Bash(gh pr ready --undo:*)' 'Bash(git push --force:*)' 'Bash(git push * +*)' \
+  'Bash(git push * main)' 'Bash(git push * master)' 'Bash(git push * planwright/*/spec)' 'Bash(git push --mirror:*)' \
+  mcp__github__merge_pull_request mcp__github__push_files mcp__github__create_or_update_file mcp__github__delete_file; do
+  if jq -e --arg e "$floor" '.permissions.deny | index($e) != null' "$worker_settings" >/dev/null 2>&1; then
+    ok "the floor entry $floor stays in the worker deny block (human-gates REQ-G1.3)"
+  else
+    fail "the worker deny block lost the floor entry $floor (human-gates REQ-G1.3)"
+  fi
+done
+grantable=$(jq -r '.permissions.deny[]' "$worker_settings" \
+  | grep -E '^Bash\(git (-\* )?(merge|pull|rebase)|^Bash\(git commit (\* )?--(am|sq|fix)' || true)
+if [ -z "$grantable" ]; then
+  ok "no worker deny entry refuses a base merge or a never-pushed rewrite (human-gates REQ-G1.2)"
+else
+  fail "the worker deny block still refuses an act a policy value can grant: $(printf '%s' "$grantable" | tr '\n' ' ')"
 fi
 
 # --- REQ-C1.2: worker-scoped only — NOT in the plugin-global hooks.json ------
