@@ -1334,12 +1334,13 @@ twin where the ledger's feedback loop is covered below.
 ### What planwright registers, and the event it deliberately does not
 
 The liveness hooks above are observers: they watch a session and write to the
-attention store, and a session behaves identically whether they fire or not.
+attention store (the flight sweep below, to the derived flight index), and a
+session behaves identically whether they fire or not.
 That is true of every event planwright registers — `PreToolUse`, `PostToolUse`,
 `SessionStart`, `SessionEnd`, `Stop`, `StopFailure`, `Notification`,
 `PermissionRequest`, `UserPromptSubmit`, `WorktreeRemove`. Some of them *can*
 block, but only if a handler explicitly says so; a quiet handler changes
-nothing. The `UserPromptSubmit` handler is the one whose effects a tower can
+nothing. The `UserPromptSubmit` handler is one of two whose cost a session can
 see: in a tower session it stamps the attention marker, appends a `reply` line,
 and waits up to `tower_hook_lock_wait` for the fleet lock before dropping that
 line; that wait is paid on the prompt, on top of the hook's own parsing,
@@ -1350,8 +1351,9 @@ session-start`) is the other one with a visible cost: on a fresh start in a
 checkout that has flight branches, outside a worker's session, it reads each
 flight's PR from the forge to refresh the derived flight index, the reads
 together held to about fifteen seconds, so a session start can wait that long
-plus the sweep's local git reads. On a host with neither `timeout` nor
-`gtimeout` to bound those reads it does nothing. It too exits 0 on every path.
+plus the sweep's local reads (git, and the worker liveness probes). On a host
+with neither `timeout` nor `gtimeout` to bound the PR reads it does nothing. It
+too exits 0 on every path.
 
 `WorktreeCreate` is the exception, and planwright does not register it.
 Registering a hook there **replaces** native git worktree creation: the hook

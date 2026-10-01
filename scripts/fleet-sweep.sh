@@ -1,7 +1,8 @@
 #!/bin/sh
 # fleet-sweep.sh — the periodic fleet sweep: the worktree disk-scan reconcile,
-# the dirty-tree sweep, the tasks.md reconcile backstop for missed pushes, and
-# the reap of leaked worker processes, as one cycle on a schedule
+# the dirty-tree sweep, the tasks.md reconcile backstop for missed pushes, the
+# reap of leaked worker processes, and the flight residues, as one cycle on a
+# schedule
 # (fleet-autonomy D-8, D-1; fleet-lifecycle-closure D-5, D-14).
 #
 # ON A SCHEDULE, NEVER ON A THRESHOLD (D-5). A cycle has no precondition: it

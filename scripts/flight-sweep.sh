@@ -3,9 +3,9 @@
 # (tower-front-door D-9; REQ-E1.3, REQ-F1.3, REQ-F1.4, REQ-F1.6).
 #
 # One implementation reconstructs what is in flight for a checkout from
-# durable evidence alone, so every surface that renders flights (the tower's
-# session start, /resume's tower mode) reads the same derivation and the two
-# cannot drift. The evidence, per flight id:
+# durable evidence alone, so every surface that renders flights reads the same
+# derivation and none can drift: the tower's session start reads it, and
+# /resume's tower mode is to. The evidence, per flight id:
 #   - its branch, `planwright/flight/<id>`, local or remote-tracking on origin;
 #   - its worktree, registered and not prunable, known by its
 #     `.claude/worktrees/flight-<id>` path or its branch;
@@ -42,7 +42,9 @@
 #       Print the checkout's index path, whether or not it exists yet.
 #   prune
 #       Remove the index of every checkout that no longer exists, one
-#       `pruned<TAB><checkout>` line each. The fleet cleanup sweep runs it.
+#       `pruned<TAB><checkout>` line each, and collect the temp files an
+#       interrupted sweep or prune left over an hour ago. The fleet cleanup
+#       sweep runs it.
 #   hook session-start
 #       The SessionStart arm: sweep the session's checkout so a fresh tower
 #       reads a current index. Silent and exit 0 always. It stays out of a
@@ -51,8 +53,9 @@
 #       index is left alone with nothing created, as is a host with neither
 #       `timeout` nor `gtimeout` to bound the PR reads. Each read is bounded to
 #       at most 5 seconds and to what is left of a 15-second budget for all of
-#       them, after which the rest read unknown. The local reads are not
-#       bounded, so a session start waits that budget plus its local work.
+#       them, after which the rest read unknown. The local reads, the worker
+#       liveness probes among them, are not bounded, so a session start waits
+#       that budget plus its local work.
 #
 # Render (TAB-separated), in this order:
 #   flight-index<TAB>1
@@ -72,7 +75,10 @@
 #               paused behind a hard pause; stranded: a branch with neither a
 #               worktree nor a landing, the residue surfaced rather than lost;
 #               unknown: a landing, registry, or queue read that could not be
-#               made; dead is said only with the landing read as none)
+#               made; dead is said only with the landing read as none). A
+#               queue row naming the worker reads awaiting-operator even with
+#               the landing unread, and a flight without a worktree turns on
+#               its landing read alone: stranded or unknown
 #     landing   pr:<url> | record:<path> | none | unknown
 #     liveness  alive | dead | unknown, for a flight with a worktree; - otherwise
 #     handle    the registered worker handle, or -
@@ -81,11 +87,11 @@
 # checked out, and a worktree path carrying a control byte is left out.
 #
 # Exit codes: 0 swept / printed / pruned; 2 usage or a refused input; 4 the
-# fleet home, the worktree list, or the flight branches could not be read, or
-# prune's directory is not private, cannot be listed, holds an entry with a
-# newline in its name, or a vanished checkout's index could not be removed; 5
-# the render was
-# derived and printed but the index could not be written.
+# fleet home, the worktree list, or the flight branches could not be read, or,
+# for prune, the fleet home or its index directory is not private, the index
+# directory cannot be listed or holds an entry with a newline in its name, or a
+# vanished checkout's index could not be removed; 5 the render was derived and
+# printed but the index could not be written.
 #
 # PLANWRIGHT_FLIGHT_SWEEP_GH_TIMEOUT bounds each PR read in seconds (default
 # 20). Outside the hook, a host with neither `timeout` nor `gtimeout` runs the
@@ -505,8 +511,9 @@ cmd_sweep() {
     fi
 
     # A verdict short of landed needs every read behind it: an unread landing,
-    # registry, or queue leaves a worktree flight unknown. Dead needs its
-    # landing read too, since a worker that landed and exited is also gone.
+    # registry, or queue leaves a worktree flight unknown, unless its worker's
+    # queue row already says it waits on the operator. Dead needs its landing
+    # read too, since a worker that landed and exited is also gone.
     case $landing in
       pr:* | record:*) state=landed ;;
       *)
