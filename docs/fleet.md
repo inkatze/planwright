@@ -1538,6 +1538,15 @@ to the reap itself once the close is under way is held until the close is
 recorded, and the reap then exits `5`. A close that could not be recorded is
 exit `6`.
 
+A reap runs under its worker's **reap lock** (`scripts/fleet-reap-lock.sh`,
+`<fleet-home>/reap-locks/<worker>`), so towers sweeping one fleet close a
+worker once and record one termination. A reap that finds another holding the
+lock stands down with exit `5`, nothing signalled; the holder is closing that
+worker, and a later sweep finds it already closed. The hold belongs to the
+reaping process, so a reaper killed mid-reap leaves a lock the next one breaks
+on its holder's absence. A reap that cannot take the lock at all refuses the
+same way rather than assuming it is alone.
+
 `--observe` makes the same decision, refusals and exit codes included, then
 asks the rung's `stop --observe` what a close would take now instead of
 closing. A worker with something to take gets a `would-cleanup` record naming
@@ -1570,11 +1579,13 @@ reap     -  declined  no tower identity: all 2 candidate(s) declined; the sweep 
 The knobs are read from the `--repo` checkout's overlay layers wherever the
 sweep is started. The wait between cycles is never under one second.
 
-Each cycle runs four passes: the worktree disk scan, so a worktree nothing
+Each cycle runs five passes: the worktree disk scan, so a worktree nothing
 recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
-and the process reap. The reap hands every worker whose session has ended to
-`fleet-cleanup.sh process`, so it refuses what that refuses and kills only
-through the rungs' `stop`.
+the process reap; and the registry reconcile, which heals and retires dispatch
+records from their markers (see *The dispatch record*) and, terminating
+nothing, runs in both modes. The reap hands every worker whose session has
+ended to `fleet-cleanup.sh process`, so it refuses what that refuses and kills
+only through the rungs' `stop`.
 
 **It observes until you promote it.** At the default the reap writes the
 `would-cleanup` record for each worker it would have closed and kills nothing,
@@ -1605,6 +1616,9 @@ scan     ok
 reap     <worker>  observed  would-release=process,locks,scratch,attention
 reap     <worker>  declined  refusing '<worker>': it is owned by live peer tower <id>, ...
 summary  mode=observe  workers=4  candidates=2  reaped=0  observed=1  declined=1  already-closed=0  status=ok
+registry heal     <worker>  headless-oneshot
+registry retire   <worker>  process-dead
+registry summary  markers=5  healed=1  retired=1  kept=0  refused=0  status=ok
 ```
 
 A declined candidate carries the refusal the reap gave, so a sweep that turned

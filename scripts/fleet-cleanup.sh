@@ -79,7 +79,10 @@
 #       The close itself is the rung's own `stop`
 #       (scripts/fleet-streamjson.sh, scripts/fleet-dispatch-headless.sh), so
 #       the fleet has one kill path: this arm matches no process, sends no
-#       signal, and releases nothing of its own. --grace is the SIGTERM-to-
+#       signal, and releases nothing of its own. It runs under the worker's
+#       reap lock (scripts/fleet-reap-lock.sh), so towers sweeping one fleet
+#       close a worker once: a reap that finds another holding the lock stands
+#       down (exit 5, nothing signalled), and so does one that cannot take it. --grace is the SIGTERM-to-
 #       SIGKILL grace that stop takes, and --repo-root is passed to the headless
 #       rung, which resolves its unit directory from it. That rung is also
 #       handed the state directory the verdict was read from and refuses a
@@ -902,6 +905,22 @@ EOF
     fi
 
     [ -z "$grace" ] || set -- "$@" --grace "$grace"
+    # One reaper per worker: towers sweeping the same fleet each reach this
+    # line for the same dead owner's worker, and without the lock each would
+    # signal the tree and record a termination of its own.
+    reap_rc=0
+    reap_token=$(/bin/sh "$script_dir/fleet-reap-lock.sh" take "$worker" "$$" 2>/dev/null) || reap_rc=$?
+    case $reap_rc in
+      0) trap '/bin/sh "$script_dir/fleet-reap-lock.sh" drop "$worker" "$reap_token" >/dev/null 2>&1 || :' EXIT ;;
+      1)
+        warn "a reap of '$worker' is already in progress by another sweep — standing down; nothing was signalled"
+        exit 5
+        ;;
+      *)
+        warn "could not take the reap lock for '$worker' — nothing was signalled, not reclaimed"
+        exit 5
+        ;;
+    esac
     # A signal from here on is held until the close is recorded: dying between
     # the rung's signals and the audit write would leave a kill with no record.
     # A caught signal reverts to its default in the rung, which still dies on
