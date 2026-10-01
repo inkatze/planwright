@@ -109,6 +109,30 @@ else
   fail "the wired hook script $HOOK_REL does not exist (REQ-C1.1)"
 fi
 
+# --- human-gates REQ-G1.5: the policy guard, wired with the worker tier -----
+# The deny-emitting policy guard learns its tier from this argument, so the
+# tier word is part of the wiring: under the Bash matcher and under the MCP
+# flip tool, in the same unbraced spelling as the command guard.
+for pg_wire in 'Bash|worker bash' 'mcp__github__update_pull_request|worker mcp'; do
+  pg_matcher=${pg_wire%%|*}
+  pg_args=${pg_wire#*|}
+  if jq -e --arg m "$pg_matcher" --arg a "$pg_args" '
+    (.hooks.PreToolUse // [])
+    | map(select(.matcher == $m))
+    | map(.hooks[]? | select(.type == "command") | .command)
+    | any(. == ("\"$CLAUDE_PLUGIN_ROOT\"/scripts/policy-guard.sh " + $a))
+  ' "$worker_settings" >/dev/null 2>&1; then
+    ok "worker-settings wires the policy guard on $pg_matcher as '$pg_args' (human-gates REQ-G1.5)"
+  else
+    fail "worker-settings does not wire \"\$CLAUDE_PLUGIN_ROOT\"/scripts/policy-guard.sh $pg_args on $pg_matcher (human-gates REQ-G1.5)"
+  fi
+done
+if [ -x "$REPO_ROOT/scripts/policy-guard.sh" ]; then
+  ok "the wired policy guard exists and is executable"
+else
+  fail "the wired scripts/policy-guard.sh is missing or not executable"
+fi
+
 # --- REQ-C1.1: defaultMode stays `default` ----------------------------------
 mode="$(jq -r '.permissions.defaultMode // empty' "$worker_settings")"
 if [ "$mode" = "default" ]; then
