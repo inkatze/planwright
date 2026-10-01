@@ -1438,6 +1438,27 @@ run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file 
 [ "$RC" -eq 0 ] || fail "CRLF grounds are one line and must be accepted (rc $RC: $ERR)"
 case $(cat "$(field "$OUT" brief)") in *"$(printf '\r')"*) fail "a CRLF grounds line must reach the brief without its CR" ;; esac
 
+# --- dispatch from a linked worktree ------------------------------------------
+# The primary's config layers govern, and the flight is placed beside the
+# primary, never nested in the worktree it was dispatched from.
+new_case
+gitc "$c/primary" worktree add -q --detach "$c/primary/.claude/worktrees/tower"
+twt="$c/primary/.claude/worktrees/tower"
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units: 0\n' >"$c/primary/.claude/planwright.local.yml"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --repo-root "$twt"
+[ "$RC" -eq 3 ] || fail "a worktree dispatch must read the primary's max_parallel_units 0 (rc $RC: $ERR)"
+printf 'max_parallel_units: 2\n' >"$c/primary/.claude/planwright.local.yml"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --repo-root "$twt"
+[ "$RC" -eq 0 ] || fail "a worktree dispatch under the primary's bound exited $RC: $ERR"
+wfid=$(field "$OUT" flight)
+primary_phys=$(cd "$c/primary" && pwd -P)
+[ "$(field "$OUT" worktree)" = "$primary_phys/.claude/worktrees/flight-$wfid" ] \
+  || fail "a worktree dispatch placed the flight at '$(field "$OUT" worktree)', not under the primary"
+echo "ok: a flight dispatched from a linked worktree reads the primary's config and lands beside it"
+
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-dispatch: $fails failure(s)" >&2
   exit 1

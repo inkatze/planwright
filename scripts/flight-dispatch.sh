@@ -203,6 +203,10 @@ resolve_repo() {
   repo_root=$(cd "$repo_root" && /bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) \
     || die 2 "--repo-root is not inside a git work tree"
   repo_root=$(cd "$repo_root" && pwd -P) || die 2 "cannot resolve --repo-root"
+  # A linked worktree reads the primary's config layers and places flights
+  # beside it, never nested in it.
+  primary_root=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
+    || primary_root=$repo_root
 }
 
 # resolve_spec_rel — set spec_rel to the spec root as the checkout resolves
@@ -447,7 +451,7 @@ count_live() {
 # that cannot be read fails closed.
 bound=''
 read_bound() {
-  _v=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$CONFIG" max_parallel_units </dev/null)
+  _v=$(PLANWRIGHT_REPO_ROOT="$primary_root" /bin/sh "$CONFIG" max_parallel_units </dev/null)
   _rc=$?
   case $_rc in
     0) ;;
@@ -478,7 +482,7 @@ read_bound() {
 TIER_MODEL=inherit
 TIER_EFFORT=inherit
 resolve_tier() {
-  _plan=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$ALLOC" plan --key offload --backend "$backend" \
+  _plan=$(PLANWRIGHT_REPO_ROOT="$primary_root" /bin/sh "$ALLOC" plan --key offload --backend "$backend" \
     --unit "flight:$flight_id" </dev/null)
   _rc=$?
   case $_rc in
@@ -694,7 +698,7 @@ sweep_briefs() {
 # (resolve-steps.sh documents the full order).
 resolve_convergence() {
   _rc_out=$(cd "$repo_root" && unset CLAUDE_PLUGIN_ROOT PLANWRIGHT_CONFIG_DEFAULTS \
-    && PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_ROOT="$root_dir" \
+    && PLANWRIGHT_REPO_ROOT="$primary_root" PLANWRIGHT_ROOT="$root_dir" \
       PLANWRIGHT_SKILLS_ROOT="$root_dir/skills" PLANWRIGHT_STEP_UNIT_KIND=flight \
       bash "$STEPS" convergence --explain --unattended </dev/null) || {
     _rc=$?
@@ -1152,14 +1156,14 @@ cmd_dispatch() {
   if [ "$backend" = tmux ]; then
     if [ "$dry" -eq 1 ]; then
       /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --brief "$brief" \
-        --repo-root "$repo_root" --attach-dry-run "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
+        --repo-root "$primary_root" --attach-dry-run "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
     else
       /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --brief "$brief" \
-        --repo-root "$repo_root" "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
+        --repo-root "$primary_root" "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
     fi
   else
     /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --no-attach \
-      --repo-root "$repo_root" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
+      --repo-root "$primary_root" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
   fi
   _prc=$?
   [ "$_prc" -eq 0 ] || placement_failed "$_prc"
@@ -1252,6 +1256,7 @@ cmd_dispatch() {
 cmd=$1
 shift
 repo_root=''
+primary_root=''
 work=''
 cleanup() {
   [ -z "$work" ] || rm -rf "$work"
