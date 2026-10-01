@@ -150,8 +150,8 @@
 #      or the reclaim command itself failed; for `process`, also a partial or
 #      interrupted close, which acted and is recorded (see its usage), and a
 #      reap that stood down with nothing signalled: another holds the worker's
-#      reap lock, the lock could not be taken, or the verdict changed while
-#      the lock was awaited
+#      reap lock, the lock could not be taken, or the verdict read again under
+#      the lock changed or errored
 #   6  acted (resource WAS reclaimed) but the audit-trail write failed — the
 #      action happened and is unrecorded; distinct from 2 so a caller never reads
 #      an unlogged reclaim as "nothing happened". For `process` that includes a
@@ -932,7 +932,10 @@ EOF
     # closed may since have been re-dispatched under the same handle. The close
     # proceeds only while the record and verdict still say what was decided.
     reverdict=$(/bin/sh "$script_dir/fleet-stuck-detector.sh" classify "$worker" \
-      ${tower_id:+--tower-id "$tower_id"}) || reverdict=""
+      ${tower_id:+--tower-id "$tower_id"}) || {
+      warn "the liveness verdict for '$worker' errored when read again under its reap lock — standing down; nothing was signalled"
+      exit 5
+    }
     if [ "$(read_verdict "$reverdict" "$worker")" != "$row" ]; then
       warn "the verdict for '$worker' changed while waiting for its reap lock — standing down; nothing was signalled"
       exit 5

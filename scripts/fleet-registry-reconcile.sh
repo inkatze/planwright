@@ -222,8 +222,10 @@ if ! lastmap=$(/bin/sh "$FS" registry 2>/dev/null | awk -F'\t' '
   exit 0
 fi
 
+# The name arrives through the environment: awk processes escapes in a `-v`
+# value, so `w\157rker` would match the row for `worker`.
 latest() {
-  printf '%s\n' "$lastmap" | awk -F'\t' -v w="$1" '($1 "") == (w "") { sub(/^[^\t]*\t/, ""); print; exit }'
+  printf '%s\n' "$lastmap" | LW=$1 awk -F'\t' '($1 "") == ENVIRON["LW"] { sub(/^[^\t]*\t/, ""); print; exit }'
 }
 
 set +f
@@ -242,9 +244,19 @@ for path in "$dir"/*; do
   row=$(latest "$name")
   closed=$(printf '%s\n' "$row" | awk -F'\t' '{ print (NF == 8 && $8 == "closed") ? 1 : 0 }')
 
+  # A marker that is a link, not a regular file, or not named as a handle goes
+  # through the heal, which refuses it, whatever record its name finds.
+  badpath=0
+  if [ -L "$path" ] || [ ! -f "$path" ]; then
+    badpath=1
+  else
+    case $name in
+      "" | . | .. | -* | *[!A-Za-z0-9._=@:-]*) badpath=1 ;;
+    esac
+  fi
   # Missing or retired: the marker may be all that is left of a live worker.
   # A live record needs no heal, and the store would refuse to touch it.
-  if [ -z "$row" ] || [ "$closed" = 1 ]; then
+  if [ -z "$row" ] || [ "$closed" = 1 ] || [ "$badpath" = 1 ]; then
     h_rc=0
     why=$(/bin/sh "$REGISTER" --from-marker "$path" 2>&1 >/dev/null) || h_rc=$?
     why=$(printf '%s\n' "$why" | awk 'END { sub(/^fleet-register: /, ""); print }')
@@ -294,6 +306,7 @@ EOF
           audit retire "worker=$name backend=$(sanitize_printable "$r_b" "-") evidence=$ev record marked closed"
           ;;
         3) ;;
+        4) quarantine "$path" "$shown" "refused at retirement" ;;
         *)
           warn "could not retire '$shown'; the next pass retries"
           status=degraded

@@ -84,8 +84,10 @@
 #
 # Exit codes: 0 registered (healed, retired); 1 registration failed (warned on
 #   stderr — dispatch callers ignore this, by contract); 2 usage error; 3 the
-#   marker modes found nothing to do (the record is already as the marker
-#   says, it moved on, or the marker is gone); 4 the marker was refused.
+#   marker modes found nothing to do (the heal: the record is already as the
+#   marker says, or the marker is gone; the retirement: no live record carries
+#   the expected fields); 4 the marker was refused. A retirement closes a
+#   matching live record even when its marker is already gone.
 #
 # POSIX sh on the macOS + Linux support bar. No eval; every value is data
 # (REQ-K1.5). Pathname expansion is disabled (set -f).
@@ -460,7 +462,13 @@ drop_marker() {
     return 1
   fi
   if [ "$(cat "$mm_aside" 2>/dev/null)" != "$2" ]; then
-    ln "$mm_aside" "$1" 2>/dev/null || :
+    # A newer marker already at the name supersedes this one; any other
+    # failure to link back leaves it aside rather than losing it.
+    if ! ln "$mm_aside" "$1" 2>/dev/null && [ ! -e "$1" ]; then
+      warn "could not put back the marker at $1; it is kept as $mm_aside"
+      mm_aside=""
+      return 1
+    fi
   fi
   rm -f "$mm_aside" 2>/dev/null
   mm_aside=""
@@ -612,6 +620,12 @@ if valid_handle "$handle" && { [ "$scope" = - ] || valid_handle "$scope"; }; the
     "$backend" "${state_dir:--}" "${death_handle:--}")"; then
     marked=1
   else
+    # An earlier dispatch's marker left at this name would later be read as
+    # this worker's and rebuild a long-dead record, so it goes.
+    wf_dir=$(markers_dir) || wf_dir=""
+    if [ -n "$wf_dir" ] && [ -f "$wf_dir/$handle" ] && [ ! -L "$wf_dir/$handle" ]; then
+      rm -f "$wf_dir/$handle" 2>/dev/null
+    fi
     warn "could not write the dispatch marker for $(sanitize_printable "$handle" "(unprintable handle)"); no sweep can retire its record, and if the registry write below fails too, none can rebuild it"
   fi
 fi

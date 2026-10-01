@@ -346,7 +346,8 @@ works in both directions:
   retirement closes exactly the record that was judged, so a re-dispatch under
   the same handle in between is never closed by it. A record its marker no
   longer describes, because a superseding write failed, is judged on its own
-  fields and reported `marker-diverged` while it lives; once it retires, the
+  fields and reported `marker-diverged` while it is positively alive (an
+  unknown or unjudged one is reported as such); once it retires, the
   marker heals into a record.
 - **Refuse.** A marker failing the grammar, naming another handle, or reached
   through a link is refused, audited, and moved aside under

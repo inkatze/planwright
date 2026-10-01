@@ -474,7 +474,7 @@ status_rc=0
 status=$(at "$h" "$S" -- fleet-status.sh render 2>/dev/null) || status_rc=$?
 [ "$status_rc" = 0 ] || fail "r1: the status render exited $status_rc"
 printf '%s\n' "$status" | grep -q 'w-r1-live' || fail "r1: the status render does not list the live control"
-printf '%s\n' "$status" | grep -q 'w-r1[^-]' && fail "r1: the status render still lists a retired worker"
+printf '%s\n' "$status" | grep -qE 'w-r1([^-]|$)' && fail "r1: the status render still lists a retired worker"
 before=$(registry "$h")
 reconcile "$h"
 [ "$(registry "$h")" = "$before" ] || fail "r1: a second reconcile wrote to a retired record"
@@ -788,6 +788,26 @@ reconcile "$h"
 [ -z "$(registry "$h")" ] || fail "x2: a symlinked marker directory was healed from"
 [ -f "$tmp/elsewhere/w-x2b" ] || fail "x2: the reconcile removed a file through a symlinked marker directory"
 printf '%s\n' "$out" | grep -q "status=degraded" || fail "x2: a symlinked marker directory did not degrade the pass: $out"
+# A link at the marker name of a worker whose record is live is refused and
+# moved aside too, and so is a name that only reads as a handle through an
+# escape.
+h=$(home x2d)
+sleep 300 &
+px=$!
+register "$h" w-x2d --scope spec:1 --backend headless-oneshot --death-handle "process $px"
+register "$h" worker --scope spec:2 --backend headless-oneshot --death-handle "process $px"
+printf 'w-x2d\tspec:1\t%s\theadless-oneshot\t-\tprocess %s\n' "$owner" "$px" >"$tmp/x2d-target"
+rm -f "$(marker "$h" w-x2d)"
+ln -s "$tmp/x2d-target" "$(marker "$h" w-x2d)"
+cp "$(marker "$h" worker)" "$h/dispatch-markers/w\\157rker"
+reconcile "$h"
+printf '%s\n' "$out" | grep -q "^refuse${tab}w-x2d${tab}" || fail "x2: a link at a live worker's marker name was not refused: $out"
+[ ! -L "$(marker "$h" w-x2d)" ] || fail "x2: the link stayed at the marker name"
+[ -f "$tmp/x2d-target" ] || fail "x2: the link's target was touched"
+printf '%s\n' "$out" | grep -q "^refuse${tab}w.157rker${tab}" || fail "x2: an escape-spelled marker name was not refused: $out"
+kill "$px" 2>/dev/null
+wait "$px" 2>/dev/null
+
 # Named directly: a path outside the marker directory, one climbing out of it,
 # and a directory inside it are each refused by the register seam itself.
 h=$(home x2c)
