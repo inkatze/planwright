@@ -497,7 +497,19 @@ dirty_tree_pass() {
 # and the audit trail have always named them.
 reconcile_pass() {
   specs_root=""
-  [ -x "$SYNC" ] && specs_root=$(cd "$repo" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null)
+  if [ -x "$SYNC" ]; then
+    sr_rc=0
+    specs_root=$(cd "$repo" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null) || sr_rc=$?
+    # No repository is the quiet skip a missing specs/ always was; a refused
+    # spec_root silently stops the backstop, so it is said every sweep.
+    case $sr_rc in
+      0 | 3) ;;
+      *)
+        specs_root=""
+        warn "the spec root did not resolve (resolve-root.sh exit $sr_rc) — missed-push backstop skipped, retrying next sweep"
+        ;;
+    esac
+  fi
   if [ -n "$specs_root" ] && [ -d "$specs_root" ]; then
     case $specs_root in
       "$repo"/*) specs_rel=${specs_root#"$repo"/} ;;

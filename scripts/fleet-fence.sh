@@ -845,8 +845,13 @@ if [ "$cmd" = sweep ]; then
   # done". An OPEN, unmerged PR derives in-progress, so it is not terminal and
   # the fence rightly persists (REQ-C1.5).
   spec_dir=""
-  spec_root=$(cd "$checkout" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null) \
-    && spec_dir="$spec_root/$spec"
+  sr_rc=0
+  spec_root=$(cd "$checkout" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null) || sr_rc=$?
+  if [ "$sr_rc" -eq 0 ]; then
+    spec_dir="$spec_root/$spec"
+  elif [ "$sr_rc" -ne 3 ]; then
+    err "the spec root for this checkout did not resolve (resolve-root.sh exit $sr_rc), so no unit was classified; the fences persist"
+  fi
   state=""
   evidence_ok=1
   if [ -n "$spec_dir" ] && [ -d "$spec_dir" ]; then

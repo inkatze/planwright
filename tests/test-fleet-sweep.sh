@@ -398,4 +398,20 @@ case $(audit_rows --mechanism housekeeping-sweep) in
 esac
 echo "ok: the reconcile backstop corrects a drifted tasks.md snapshot on the sweep"
 
+# 10. A refused spec_root does not silently stop the reconcile backstop: the
+#     sweep still completes, and says the backstop was skipped.
+rm -rf "$fleet_home"
+rf="$tmp/refused-root"
+make_pushed_repo "$rf"
+mkdir -p "$rf/.claude" "$rf/unmarked"
+printf 'spec_root: unmarked\n' >"$rf/.claude/planwright.yml"
+rc=0
+err=$(run_sweep --repo "$rf" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "refused spec_root: sweep exited $rc"
+case $err in
+  *"missed-push backstop skipped"*) ;;
+  *) fail "refused spec_root: the skipped backstop was not reported (stderr: $err)" ;;
+esac
+echo "ok: a refused spec_root is reported as a skipped backstop"
+
 echo "ALL PASS: fleet-sweep"
