@@ -67,6 +67,7 @@ mkdir -p "$core/config" "$core/skills/polish" "$core/skills/self-review" \
   "$adopter/catalogs" "$repo/.claude/catalogs" "$repo/.claude/catalogs.local" \
   "$repo/.claude/commands" "$repo/.claude/skills" \
   "$claude/commands" "$claude/skills" "$claude/plugins" "$bin" "$tmp/home"
+git -C "$repo" init -q
 printf 'argument-hint: "[--nested]"\n' >"$core/skills/polish/SKILL.md"
 printf 'argument-hint: "[--nested]"\n' >"$core/skills/self-review/SKILL.md"
 printf 'name: execute-task\n' >"$core/skills/execute-task/SKILL.md"
@@ -173,7 +174,7 @@ run_shipped() {
   # shellcheck disable=SC2086 # the unset flags are meant to word-split
   env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     PLANWRIGHT_ROOT="$repo_root" PLANWRIGHT_CONFIG_DEFAULTS="$repo_root/config/defaults.yml" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" PLANWRIGHT_REPO_ROOT="$tmp/no-repo" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" CLAUDE_DIR="$claude" HOME="$tmp/home" \
     /bin/bash "$RS" "$@"
 }

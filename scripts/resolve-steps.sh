@@ -415,18 +415,15 @@ trap 'exit 143' TERM
 
 # Resolve the repository root once and hand it to every sibling, so they
 # skip their own git lookups and every read agrees on the same repository.
-if [ -z "${PLANWRIGHT_REPO_ROOT:-}" ]; then
-  rc=0
-  repo_claude=$("$overlay_root_sh" repo-tracked 2>"$scratch") || rc=$?
-  replay "$scratch"
-  [ "$rc" -eq 0 ] || die 5 "overlay-root resolution failed for the repo-tracked layer (broken install)"
-  if [ -n "$repo_claude" ]; then
-    PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
-    export PLANWRIGHT_REPO_ROOT
-  fi
-else
-  repo_claude="${PLANWRIGHT_REPO_ROOT%/}/.claude"
-fi
+# An explicit PLANWRIGHT_REPO_ROOT goes through the same lookup, which
+# validates it; none pins the absence of a repository.
+rc=0
+repo_claude=$("$overlay_root_sh" repo-tracked 2>"$scratch") || rc=$?
+replay "$scratch"
+[ "$rc" -eq 0 ] || die 5 "overlay-root resolution failed for the repo-tracked layer (broken install)"
+PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
+[ -n "$repo_claude" ] || PLANWRIGHT_REPO_ROOT=none
+export PLANWRIGHT_REPO_ROOT
 
 # DEGRADED: a malformation was degraded with a warning, by this script or by
 # a sibling reader; check mode fails on it.

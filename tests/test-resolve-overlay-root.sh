@@ -256,11 +256,33 @@ out="$(base PLANWRIGHT_REPO_ROOT="$tmp/repo" /bin/bash "$RESOLVER" machine-local
 assert "machine-local resolves" 0 $?
 assert_eq "machine-local root" "$tmp/repo/.claude" "$out"
 
-# The override is used verbatim: a directory outside any repository is how a
-# caller reads no repo-side layer.
-out="$(base PLANWRIGHT_REPO_ROOT=/ /bin/bash "$RESOLVER" repo-tracked)"
-assert "repo-tracked at filesystem root resolves" 0 $?
-assert_eq "repo-tracked '/' root has no double slash" "/.claude" "$out"
+# The override is honoured only when it names a git toplevel. Any other value
+# is refused where the operator can see it, and the layers are absent rather
+# than read from wherever the value pointed.
+mkdir -p "$tmp/not-a-repo/.claude" "$tmp/repo/sub"
+for bad in "$tmp/not-a-repo" "$tmp/repo/sub" relative; do
+  for l in repo-tracked machine-local; do
+    out="$(base PLANWRIGHT_REPO_ROOT="$bad" /bin/bash "$RESOLVER" "$l" 2>"$tmp/refused.err")"
+    assert "$l with a non-toplevel override degrades (zero exit): $bad" 0 $?
+    assert_eq "$l with a non-toplevel override is absent: $bad" "" "$out"
+    case $(cat "$tmp/refused.err") in
+      *"refusing PLANWRIGHT_REPO_ROOT"*) echo "ok: $l names the refused override: $bad" ;;
+      *)
+        echo "FAIL: $l names the refused override: $bad (stderr: $(cat "$tmp/refused.err"))" >&2
+        failures=$((failures + 1))
+        ;;
+    esac
+  done
+done
+
+# `none` is how a caller reads no repo-side layer: absent, quietly, from
+# inside a repository too.
+for l in repo-tracked machine-local; do
+  out="$(cd "$tmp/repo" && base PLANWRIGHT_REPO_ROOT=none /bin/bash "$RESOLVER" "$l" 2>"$tmp/none.err")"
+  assert "$l with PLANWRIGHT_REPO_ROOT=none degrades (zero exit)" 0 $?
+  assert_eq "$l with PLANWRIGHT_REPO_ROOT=none is absent" "" "$out"
+  assert_eq "$l with PLANWRIGHT_REPO_ROOT=none says nothing" "" "$(cat "$tmp/none.err")"
+done
 
 # From a linked worktree, both repo-side layers resolve against the primary
 # checkout, so the worktree reads the primary's machine-local overlay.
