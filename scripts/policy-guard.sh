@@ -167,11 +167,13 @@ raw_evidence() {
 # heredoc_substitution_at <text> — 0 when <text> starts with
 # `$(cat <<'DELIM' ... DELIM)` whose body expands nothing (a quoted
 # delimiter, or an unquoted one over a body with no `$`, backtick, or
-# backslash), setting HS_LEN to its length. That is the idiom a commit
-# message or PR body arrives in; the tokenizer reads it, where bash would run
-# it as a substitution, as one non-literal word instead of refusing the
-# command, so a gh api query carried this way still reads as unreadable.
-HS_RE='^\$\([[:space:]]*cat[[:space:]]+<<[[:space:]]*(['"'"'"]?)([A-Za-z0-9_.-]+)(['"'"'"]?)[ '"$TAB"']*'"$NL"
+# backslash), setting HS_LEN to its length and HS_BODY to its body. That is
+# the idiom a commit message or PR body arrives in; the tokenizer reads it,
+# where bash would run it as a substitution, as one non-literal word instead
+# of refusing the command (the body stays with its segment for the wrapper
+# screens), so a gh api query carried this way still reads as unreadable.
+# `<<-` is not folded: its delimiter matching differs.
+HS_RE='^\$\([[:space:]]*cat[[:space:]]+<<[[:space:]]*(['"'"'"]?)([A-Za-z0-9_.][A-Za-z0-9_.-]*)(['"'"'"]?)[ '"$TAB"']*'"$NL"
 heredoc_substitution_at() {
   local s=$1 m delim rest after body
   [[ $s =~ $HS_RE ]] || return 1
@@ -202,6 +204,7 @@ heredoc_substitution_at() {
     *) return 1 ;;
   esac
   HS_LEN=$((${#s} - ${#after} + 1))
+  HS_BODY=$body
 }
 
 deny_unanalyzable() {
@@ -214,15 +217,18 @@ deny_unanalyzable() {
 # Per word it records whether the word is literal: free of expansion, an
 # escape or `$` outside single quotes, and an unquoted glob or brace (gh's
 # `{owner}`, `{repo}`, and `{branch}` placeholders excepted). It refuses
-# command and process substitution, backticks, ANSI-C quoting, and grouping.
+# command and process substitution (bar the data-only heredoc idiom above),
+# backticks, ANSI-C quoting, and grouping. An unquoted here-document whose
+# body carries a substitution sets HEREDOC_SUBST, since bash runs it.
 #
 # Results: W[] words, WL[] literal flags, SEG_S[]/SEG_E[] word ranges,
 # SEG_TERM[] terminators, SEG_DOC[] here-document bodies per segment.
 
+HEREDOC_SUBST=0
 tokenize() {
   local s=$1
-  local n=${#s} i=0 c nc ch cur='' have=0 lit=1 uqonly=1 digits_only=1
-  local pending_delims=() pending_tabs=() pending_seg=()
+  local n=${#s} i=0 c nc ch cur='' have=0 lit=1 uqonly=1 digits_only=1 fold_doc=''
+  local pending_delims=() pending_tabs=() pending_seg=() pending_quoted=()
   W=()
   WL=()
   SEG_S=()
@@ -236,6 +242,10 @@ tokenize() {
       if [ "$uqonly" = 1 ] && { [ "$cur" = '{' ] || [ "$cur" = '}' ]; }; then
         return 1
       fi
+      # The test brackets are words, not globs.
+      case "$uqonly:$cur" in
+        '1:[' | '1:[[' | '1:]' | '1:]]') lit=1 ;;
+      esac
       W[${#W[@]}]=$cur
       WL[${#WL[@]}]=$lit
     fi
@@ -252,8 +262,9 @@ tokenize() {
       SEG_S[${#SEG_S[@]}]=$seg_start
       SEG_E[${#SEG_E[@]}]=${#W[@]}
       SEG_TERM[${#SEG_TERM[@]}]=$1
-      SEG_DOC[${#SEG_DOC[@]}]=''
+      SEG_DOC[${#SEG_DOC[@]}]=$fold_doc
     fi
+    fold_doc=''
     seg_start=${#W[@]}
     return 0
   }
@@ -275,6 +286,10 @@ tokenize() {
         [ "$cand" != "${pending_delims[$k]}" ] || break
         body="$body$line$NL"
       done
+      if [ "${pending_quoted[$k]}" = 0 ]; then
+        # shellcheck disable=SC2016 # the literal `$(` is the pattern
+        case $body in *'$('* | *'`'*) HEREDOC_SUBST=1 ;; esac
+      fi
       local si=${pending_seg[$k]}
       if [ "$si" -lt "${#SEG_DOC[@]}" ]; then
         SEG_DOC[si]="${SEG_DOC[si]}$body"
@@ -283,6 +298,7 @@ tokenize() {
     pending_delims=()
     pending_tabs=()
     pending_seg=()
+    pending_quoted=()
   }
 
   while [ "$i" -lt "$n" ]; do
@@ -292,9 +308,6 @@ tokenize() {
         local j=$((i + 1))
         while [ "$j" -lt "$n" ] && [ "${s:j:1}" != "'" ]; do j=$((j + 1)); done
         [ "$j" -lt "$n" ] || return 1
-        # Literal here, but an arithmetic context can evaluate it again later.
-        # shellcheck disable=SC2016 # the literal `$(` is the pattern
-        case ${s:i+1:j-i-1} in *'$('* | *'`'*) SQ_SUBST=1 ;; esac
         cur="$cur${s:i+1:j-i-1}"
         have=1
         uqonly=0
@@ -329,6 +342,7 @@ tokenize() {
               if [ "${s:j+1:1}" = '(' ]; then
                 heredoc_substitution_at "${s:j}" || return 1
                 cur="$cur\$__PG_HEREDOC__"
+                fold_doc="$fold_doc$HS_BODY$NL"
                 j=$((j + HS_LEN))
                 continue
               fi
@@ -365,6 +379,7 @@ tokenize() {
           '(')
             heredoc_substitution_at "${s:i}" || return 1
             cur="$cur\$__PG_HEREDOC__"
+            fold_doc="$fold_doc$HS_BODY$NL"
             have=1
             lit=0
             digits_only=0
@@ -402,7 +417,7 @@ tokenize() {
           # A here-document: record its delimiter; the body is read at the
           # next newline.
           i=$((i + 2))
-          local tabs=0 delim=''
+          local tabs=0 delim='' quoted=0
           if [ "${s:i:1}" = '-' ]; then
             tabs=1
             i=$((i + 1))
@@ -414,6 +429,7 @@ tokenize() {
               ' ' | "$TAB" | "$NL" | ';' | '&' | '|' | '<' | '>' | '(' | ')') break ;;
               "'" | '"')
                 local q=$ch
+                quoted=1
                 i=$((i + 1))
                 while [ "$i" -lt "$n" ] && [ "${s:i:1}" != "$q" ]; do
                   delim="$delim${s:i:1}"
@@ -421,13 +437,14 @@ tokenize() {
                 done
                 [ "$i" -lt "$n" ] || return 1
                 ;;
-              "\\") ;;
+              "\\") quoted=1 ;;
               *) delim="$delim$ch" ;;
             esac
             i=$((i + 1))
           done
           [ -n "$delim" ] || return 1
           pending_delims[${#pending_delims[@]}]=$delim
+          pending_quoted[${#pending_quoted[@]}]=$quoted
           pending_tabs[${#pending_tabs[@]}]=$tabs
           pending_seg[${#pending_seg[@]}]=${#SEG_S[@]}
           continue
@@ -570,8 +587,14 @@ TB=''
 # cannot stack reads past the point where the hook itself would be cut off.
 readonly OVERALL_DEADLINE=40
 need_timeout() {
-  [ "$SECONDS" -lt "$OVERALL_DEADLINE" ] \
+  local remain=$((OVERALL_DEADLINE - SECONDS - 3))
+  [ "$remain" -gt 0 ] \
     || emit_deny "the guard's reads for this command took over ${OVERALL_DEADLINE}s, so it stops here - refusing (fail closed). Split the command into shorter ones."
+  # Each read is bounded by its own limit or the time left, whichever is less.
+  KNOB_B=$KNOB_T
+  [ "$KNOB_B" -le "$remain" ] || KNOB_B=$remain
+  FETCH_B=$FETCH_T
+  [ "$FETCH_B" -le "$remain" ] || FETCH_B=$remain
   [ -n "$TB" ] || TB=$(timeout_bin)
   [ -n "$TB" ] \
     || emit_deny 'no timeout (or gtimeout) binary is on PATH, so the guard cannot bound its policy read - refusing (fail closed). Install coreutils.'
@@ -632,9 +655,9 @@ read_knob() {
     || emit_deny "the policy resolver is missing beside this guard, so $knob could not be read - refusing (fail closed). Reinstall planwright."
   [ -d "$dir" ] \
     || emit_deny "the directory this act runs in does not exist, so the policy knob $knob cannot be read for it - refusing (fail closed). Run the command from your worktree."
-  v=$(cd -- "$dir" 2>/dev/null && "$TB" -k 2 "$KNOB_T" /bin/sh "$GUARD_DIR/resolve-policy-knob.sh" "$knob" 2>/dev/null </dev/null) || rc=$?
+  v=$(cd -- "$dir" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/resolve-policy-knob.sh" "$knob" 2>/dev/null </dev/null) || rc=$?
   if [ "$rc" = 124 ]; then
-    emit_deny "reading the policy knob $knob did not finish within ${KNOB_T}s - refusing (fail closed). This is a timeout, not a policy decision: retry, and report a resolver that stays slow."
+    emit_deny "reading the policy knob $knob did not finish within ${KNOB_B}s - refusing (fail closed). This is a timeout, not a policy decision: retry, and report a resolver that stays slow."
   fi
   [ "$rc" = 0 ] \
     || emit_deny "the policy knob $knob could not be resolved (resolver exit $rc), so the act it governs is refused (fail closed). Repair the malformed value or install, then retry."
@@ -659,7 +682,7 @@ check_unprotected() {
     || emit_deny "the protected-set reader is missing beside this guard - refusing $what (fail closed). Reinstall planwright."
   [ -d "$dir" ] \
     || emit_deny "the directory $what runs in does not exist, so the protected set cannot be read for it - refusing (fail closed). Run the command from your worktree."
-  err=$(cd -- "$dir" 2>/dev/null && "$TB" -k 2 "$KNOB_T" /bin/sh "$GUARD_DIR/protected-branch.sh" "$@" 2>&1 >/dev/null </dev/null) || rc=$?
+  err=$(cd -- "$dir" 2>/dev/null && "$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/protected-branch.sh" "$@" 2>&1 >/dev/null </dev/null) || rc=$?
   case $rc in
     0) return 0 ;;
     1)
@@ -669,7 +692,7 @@ check_unprotected() {
       emit_deny "$what names a branch the protected-set reader refuses as a branch name ($(sanitize_printable "${err#protected-branch: }" 'unprintable')) - refusing (fail closed). Name a valid branch."
       ;;
     124)
-      emit_deny "reading the protected set did not finish within ${KNOB_T}s - refusing $what (fail closed). This is a timeout, not a policy decision: retry."
+      emit_deny "reading the protected set did not finish within ${KNOB_B}s - refusing $what (fail closed). This is a timeout, not a policy decision: retry."
       ;;
     *)
       emit_deny "the protected set could not be read (exit $rc), so $what is refused (fail closed). Repair protected_branches, then retry."
@@ -798,7 +821,7 @@ refresh_upstream() {
   case $REFRESHED in *"<$d|$UP_REMOTE|$UP_BRANCH>"*) return 0 ;; esac
   need_timeout
   # No background maintenance may outlive the hook, and a kill reaches git.
-  GIT_TERMINAL_PROMPT=0 "$TB" -k 2 "$FETCH_T" git -C "$d" -c gc.auto=0 -c maintenance.auto=false \
+  GIT_TERMINAL_PROMPT=0 "$TB" -k 2 "$FETCH_B" git -C "$d" -c gc.auto=0 -c maintenance.auto=false \
     fetch --quiet --no-tags --no-write-fetch-head \
     --no-recurse-submodules "$UP_REMOTE" "+refs/heads/$UP_BRANCH:refs/remotes/$UP_REMOTE/$UP_BRANCH" \
     </dev/null >/dev/null 2>&1 || rc=$?
@@ -825,7 +848,6 @@ check_unpushed() {
 
 DENY_NOW=''
 PENDING=()
-SQ_SUBST=0
 
 # segment_words <seg> — set SW[] / SWL[] to the segment's words after the
 # simple-command prefix (assignments, `command`, `exec`, reserved words).
@@ -907,7 +929,10 @@ ST_HEAD=0
 GIT_ENV_SET=0
 
 RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.*)$'
-RE_EXPANDED_VERB='(^|[;&|('"$NL"']|then|do|else)[[:space:]]*(["'"'"']?\$|`)'
+# A command word that is one variable naming a directory, then a literal
+# path: `"$ROOT/scripts/x.sh"`. Any other expanded command word could be git.
+# shellcheck disable=SC2016 # a regex; `$` is literal
+RE_ROOTED_SCRIPT='^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/[^$`]+$'
 
 # lc <word> — set LC to the word in lower case, forking only when it has an
 # upper-case letter (this runs per word on every guarded call).
@@ -943,15 +968,11 @@ classify_segments() {
     lc "${verb##*/}"
     base_verb=$LC
     if [ "${SWL[0]}" != 1 ]; then
-      # The command word is an expansion, so what runs cannot be read: a
-      # word with no path part (`$G`, `${G}`) could be git itself, and any
-      # expansion followed by a reserved subcommand could be too.
-      case $verb in
-        */*) ;;
-        *)
-          deny_now "this command's name is an expansion the guard cannot read ($(sanitize_printable "$verb" 'unprintable')), so it could be git or gh - refusing (fail closed). Write the command name literally."
-          ;;
-      esac
+      # The command word is an expansion, so what runs cannot be read: only a
+      # variable root followed by a literal script path is let through, and
+      # even that not when a reserved subcommand follows.
+      [[ $verb =~ $RE_ROOTED_SCRIPT ]] \
+        || deny_now "this command's name is an expansion the guard cannot read ($(sanitize_printable "$verb" 'unprintable')), so it could be git or gh - refusing (fail closed). Write the command name literally, or as \"\$ROOT/path/to/script\"."
       for w in "${SW[@]}"; do
         lc "$w"
         if [[ $LC =~ $RESERVED_WORD_RE ]]; then
@@ -964,9 +985,20 @@ classify_segments() {
         && deny_now "this command runs through a wrapper whose options the guard does not read, and its text names a reserved act - refusing (fail closed). Issue the command directly."
     else
       case $base_verb in
-        export | declare | typeset | readonly | local)
+        export | declare | typeset | readonly | local | let | printf)
           case " ${SW[*]} " in
             *" GIT_"*) GIT_ENV_SET=1 ;;
+          esac
+          # A value the shell later runs (a startup or prompt hook, an
+          # arithmetic subscript) is screened as a command; printf sets one
+          # only with -v.
+          case "$base_verb: ${SW[*]} " in
+            printf:*" -v"*) raw_evidence "$cur_text" && deny_now "this printf -v sets a value naming a reserved act - refusing (fail closed). Run the command directly." ;;
+            printf:*) ;;
+            *)
+              raw_evidence "$cur_text" \
+                && deny_now "this command sets or evaluates a value naming a reserved act through $(sanitize_printable "$verb" 'a builtin') - refusing (fail closed). Run the command directly."
+              ;;
           esac
           ;;
       esac
@@ -2520,6 +2552,8 @@ MCP_DIR_SENTINEL='<mcp>'
 
 main() {
   TIER=${1:-}
+  # The deadline counts from here, whatever SECONDS the environment carried.
+  SECONDS=0
   local surface=${2:-infer} input read_ok=1 tool
   case $TIER in
     worker | tower) ;;
@@ -2620,8 +2654,8 @@ handle_bash() {
       ;;
   esac
   shopt -u nocasematch
-  # A command word that is itself an expansion can be anything.
-  [ "$hit" = 1 ] || ! [[ $cmd =~ $RE_EXPANDED_VERB ]] || hit=1
+  # Any expansion can assemble a command word, so its command is parsed.
+  case $cmd in *'$'* | *'`'*) hit=1 ;; esac
   [ "$hit" = 1 ] || return 0
   case $P_CWD_TYPE in
     absent) PAYLOAD_CWD=$PWD ;;
@@ -2646,9 +2680,26 @@ handle_bash() {
       && deny_unanalyzable 'this command uses a construct the guard will not analyze (command or process substitution, backticks, ANSI-C quoting, or grouping)'
     return 0
   fi
-  if [ "$SQ_SUBST" = 1 ]; then
+  if [ "$HEREDOC_SUBST" = 1 ]; then
     raw_evidence "$cmd" \
-      && deny_unanalyzable 'this command carries a substitution in single quotes, which an arithmetic context can still run'
+      && deny_unanalyzable 'this command carries an unquoted here-document whose body runs a substitution'
+  fi
+  # A word that carries substitution text is inert as a word, but an
+  # arithmetic context (let, declare -i, a [[ ]] numeric test) evaluates it
+  # again and runs it.
+  local w subst=0 arith=0
+  for w in "${W[@]}"; do
+    # shellcheck disable=SC2016 # the literal `$(` is the pattern
+    case $w in
+      *'$('* | *'`'*) subst=1 ;;
+    esac
+    case $w in
+      let | '[[' | -eq | -ne | -lt | -le | -gt | -ge | -i | -[!-]*i*) arith=1 ;;
+    esac
+  done
+  if [ "$subst" = 1 ] && [ "$arith" = 1 ]; then
+    raw_evidence "$cmd" \
+      && deny_unanalyzable 'this command evaluates text carrying a substitution in an arithmetic context'
   fi
   classify_segments
   [ -z "$DENY_NOW" ] || emit_deny "$DENY_NOW"

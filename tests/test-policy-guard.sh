@@ -366,6 +366,14 @@ HIDDEN=(
   "declare -i x; x='a[\$(git push --force origin main)]'"
   'git merge origin/main && git rebase -i HEAD~3'
   'PROMPT_COMMAND="git push --force origin main"'
+  "echo \"\$(cat <<-EOF${NL_}EOF${NL_}git push --force origin main${NL_}-EOF${NL_})\""
+  "eval \"\$(cat <<'EOF'${NL_}git push --force origin main${NL_}EOF${NL_})\""
+  "trap \"\$(cat <<'EOF'${NL_}git push --force origin main${NL_}EOF${NL_})\" EXIT"
+  "declare -i x; x=\"a[\\\$(git push --force origin main)]\"" "let \"x=a[\\\$(git push --force origin main)]\""
+  'a=gi; b=t; X=1 $a$b push --force origin main' 'a=gi; b=t; if $a$b push --force origin main; then :; fi'
+  'a=git; b=push; /usr/bin/$a $b --force origin main' 'a=git; b=push; ${a:-/} $b --force origin main'
+  "export BASH_ENV=\"\\\$(git push --force origin main)\"; bash -c true"
+  "cat <<X${NL_}\$(git push --force origin main)${NL_}X"
 )
 for cmd in "${HIDDEN[@]}"; do
   pg worker "$cmd"
@@ -396,6 +404,8 @@ ROUTINE=(
   'git fetch origin && git merge origin/main' 'git add -A && git commit -m wip && git push origin HEAD'
   '"$P/scripts/converge-sync-main.sh"' 'cd "$WT" && mise run check'
   "git commit -m \"\$(cat <<EOF${NL_}docs: say why git rebase is refused${NL_}EOF${NL_})\""
+  '[ -d .git ] && git status' '[[ -n "$x" ]] && git log --oneline -1' 'if [ -n "$x" ]; then git status; fi'
+  "git commit -m 'refuse \`git rebase\` in workers'" 'for f in a b; do echo "$f"; done'
 )
 for cmd in "${ROUTINE[@]}"; do
   pg worker "$cmd"
