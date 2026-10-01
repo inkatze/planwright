@@ -117,6 +117,19 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/tower-command-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/policy-guard.sh tower bash"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__update_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/policy-guard.sh tower mcp"
           }
         ]
       }
