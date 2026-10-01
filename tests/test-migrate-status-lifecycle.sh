@@ -310,4 +310,18 @@ if ! grep -q "design.md" "$tmp/run-ml.err" || ! grep -q "test-spec.md" "$tmp/run
 fi
 echo "ok: a multi-diagnostic reconcile failure is flattened to one skip line per bundle (REQ-A1.7)"
 
+# An empty argument is the no-argument default, so a wrapper passing an unset
+# variable sweeps the resolved spec root rather than the working directory.
+ea=$tmp/empty-arg
+mkdir -p "$ea/junk"
+git -C "$ea" init -q -b main
+ea_rc=0
+ea_none=$(cd "$ea" && "$MIGRATE" 2>&1) || ea_rc=$?
+ea_none="$ea_rc:$ea_none"
+ea_rc=0
+ea_empty=$(cd "$ea" && "$MIGRATE" "" 2>&1) || ea_rc=$?
+ea_empty="$ea_rc:$ea_empty"
+[ "$ea_empty" = "$ea_none" ] || fail "an empty argument did not act as the default (default '$ea_none', empty '$ea_empty')"
+echo "ok: an empty argument is the no-argument default"
+
 echo "PASS: all migrate-status-lifecycle tests passed"

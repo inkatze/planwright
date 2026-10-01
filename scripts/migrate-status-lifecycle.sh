@@ -40,7 +40,7 @@ if [ ! -x "$sync_sh" ]; then
   exit 2
 fi
 
-if [ $# -ge 1 ]; then
+if [ -n "${1:-}" ]; then
   specs_arg=$1
 else
   specs_arg=$(/bin/sh "$here/resolve-root.sh" spec) || {

@@ -655,7 +655,6 @@ echo "ok: a second run over a migrated corpus is a byte-level no-op (REQ-D1.2)"
 repo2=$tmp/corpus2
 mkdir -p "$repo2/specs"
 git -C "$repo2" init -q -b main
-git -C "$repo2" init -q -b main
 git -C "$repo2" config user.email t@example.com
 git -C "$repo2" config user.name t
 git -C "$repo2" config commit.gpgsign false
@@ -1125,5 +1124,19 @@ for rq in "$here"/../specs/*/requirements.md; do
   esac
 done
 echo "ok: every live bundle in this repo declares format-version 2 (REQ-D1.3)"
+
+# An empty argument is the no-argument default, so a wrapper passing an unset
+# variable sweeps the resolved spec root rather than the working directory.
+ea=$tmp/empty-arg
+mkdir -p "$ea/junk"
+git -C "$ea" init -q -b main
+ea_rc=0
+ea_none=$(cd "$ea" && "$MIGRATE" 2>&1) || ea_rc=$?
+ea_none="$ea_rc:$ea_none"
+ea_rc=0
+ea_empty=$(cd "$ea" && "$MIGRATE" "" 2>&1) || ea_rc=$?
+ea_empty="$ea_rc:$ea_empty"
+[ "$ea_empty" = "$ea_none" ] || fail "an empty argument did not act as the default (default '$ea_none', empty '$ea_empty')"
+echo "ok: an empty argument is the no-argument default"
 
 echo "PASS: all migrate-format-version tests passed"

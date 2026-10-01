@@ -135,7 +135,7 @@ if [ $# -gt 1 ]; then
   echo "usage: migrate-format-version.sh [specs-root | spec-dir]" >&2
   exit 2
 fi
-if [ $# -eq 1 ]; then
+if [ -n "${1:-}" ]; then
   target=$1
 else
   target=$(/bin/sh "$here/resolve-root.sh" spec) || {
