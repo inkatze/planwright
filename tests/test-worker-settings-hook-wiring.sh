@@ -186,11 +186,11 @@ done
 if pm_load_rules "$(jq -r '.permissions.deny[]' "$worker_settings")" '' "$(jq -r '.permissions.allow[]' "$worker_settings")"; then
   for grantable in 'git merge origin/main' 'git pull origin main' 'git -C . merge origin/main' 'git rebase -i HEAD~3' \
     'git commit --amend --no-edit' 'git commit -m wip --amend' 'git commit --squash HEAD~1' 'git commit --fixup=HEAD~1'; do
-    if [ "$(pm_decide "$grantable")" != deny ]; then
-      ok "the worker profile leaves '$grantable' to the policy guard (human-gates REQ-G1.2)"
-    else
-      fail "the worker profile still denies '$grantable', an act a policy value can grant (human-gates REQ-G1.2)"
-    fi
+    case $(pm_decide "$grantable") in
+      allow | prompt) ok "the worker profile leaves '$grantable' to the policy guard (human-gates REQ-G1.2)" ;;
+      deny) fail "the worker profile still denies '$grantable', an act a policy value can grant (human-gates REQ-G1.2)" ;;
+      *) fail "the matcher model gave no decision for '$grantable'" ;;
+    esac
   done
 else
   fail "the worker deny and allow rules did not load into the matcher model"
