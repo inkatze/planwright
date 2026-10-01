@@ -1153,9 +1153,13 @@ cmd_dispatch() {
   # offload; the tmux rung's record is the worktree primitive's. Best-effort:
   # a placed flight is a fact, and failing it over its bookkeeping would trade
   # the thing for the record of it.
+  # The worktree is recorded only when it is there: the registry reconcile
+  # retires a print record once its worktree is gone, so a guessed path that
+  # never existed would read as a removal on the first sweep.
   if [ "$backend" = print ]; then
-    /bin/sh "$REGISTER" --handle "$brief_handle" --scope "flight:$flight_id" \
-      --backend print --state-dir "$worktree" --checkout "$repo_root" \
+    set -- --handle "$brief_handle" --scope "flight:$flight_id" --backend print
+    [ ! -d "$worktree" ] || set -- "$@" --state-dir "$worktree"
+    /bin/sh "$REGISTER" "$@" --checkout "$repo_root" \
       --death-handle none >/dev/null </dev/null || :
   fi
   base=$(git -C "$worktree" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) || base=unknown
