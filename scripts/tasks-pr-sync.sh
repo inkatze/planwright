@@ -1158,7 +1158,7 @@ printf '%s\n' "$ids" | grep -qE '^[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$' || ex
 # said, then skipped, since the hook never blocks the tool call.
 require_spec_parse || exit 0
 if [ ! -r "$script_dir/resolve-root.sh" ]; then
-  log "root helper '$script_dir/resolve-root.sh' missing or not readable; skipping (bookkeeping reconciles)"
+  log "root helper '$script_dir/resolve-root.sh' missing or not executable; skipping (bookkeeping reconciles)"
   exit 0
 fi
 sr_rc=0
