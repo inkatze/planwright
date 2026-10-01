@@ -3,143 +3,234 @@
 # tests/test-reserved-control-spellings.sh. The githooks/ backstop is not driven.
 #
 # Columns are whitespace-separated and the spelling is the rest of the line:
-#   act tier policy queue ready worker-guard tower-guard worker-profile tower-profile spelling
+#   act tier policy queue ready worker-guard tower-guard policy-guard worker-profile tower-profile spelling
 #
-# tier: any, worker, or tower. policy: `floor` (no value permits the act) or
-# <knob>=<value>, where `unresolved` means no value resolves yet, so some copy
-# must deny. A floor line is tier `any` and denied by both profiles and, where
-# it screens the call, by the tower queue. Verdicts: deny, defer, or n/a
-# (outside the copy's jurisdiction: another tier, or a tool the copy is not
-# wired for); the test derives n/a from the wiring and fails a line that claims
-# it anywhere else. A profile column may also say prompt: no rule denies or
-# allows the call, so it stops at the permission prompt. A `<knob>=prompt`
-# line expects prompt from every profile that sees it. The ready-guard runs against a pull request it cannot read,
-# so its deny means it recognised a flip, not that a readable, current flip
-# would be refused.
+# act: what the spelling performs; `opaque` is a gh api request the policy
+# guard cannot read, `other` a readable gh api request outside the reserved
+# acts. tier: any, worker, or tower. policy: `floor` (no value permits the
+# act), `floor-guard` (no value permits it either, but only the policy guard
+# can refuse it: the profiles leave it at the permission prompt), or
+# <knob>=<value>, the value the policy guard reads for the line. A floor line
+# is tier `any`, denied by both profiles, by the policy guard where it is
+# wired for the tool, and by the tower queue where it screens the call. A
+# floor-guard line expects prompt from every profile that sees it and deny
+# from the policy guard, except an `other` line, which the guard defers.
+# Verdicts: deny, defer, or n/a (outside the copy's jurisdiction: another
+# tier, or a tool the copy is not wired for); the test derives n/a from the
+# wiring and fails a line that claims it anywhere else. A profile column may
+# also say prompt: no rule denies or allows the call. The ready-guard runs
+# against a pull request it cannot read, so its deny means it recognised a
+# flip, not that a readable, current flip would be refused.
 #
-# act            tier   policy                       queue  ready  wguard tguard wprof  tprof  spelling
+# The policy guard runs in a sandbox: a unit clone on planwright/demo/task-1
+# with one pushed commit and three unpushed ones, its upstream on origin, and
+# origin/main as the PR base. A tier-`any` line runs it under both tiers,
+# which must agree.
+#
+# act            tier   policy                       queue  ready  wguard tguard pguard wprof  tprof  spelling
 
-pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   gh pr merge 42
-pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   gh pr merge 42 --squash --delete-branch
-pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   gh pr merge --auto --squash 42
-pr-merge         any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__merge_pull_request
+pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr merge 42
+pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr merge 42 --squash --delete-branch
+pr-merge         any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr merge --auto --squash 42
+pr-merge         any    floor                        n/a    n/a    n/a    n/a    n/a    deny   deny   mcp__github__merge_pull_request
 
-undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   gh pr ready 42 --undo
-undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   gh pr ready --undo 42
+undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr ready 42 --undo
+undo-flip        any    floor                        deny   defer  defer  defer  deny   deny   deny   gh pr ready --undo 42
 
-force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push --force origin feature
-force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push -f origin feature
-force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push origin feature --force
-force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push --force-with-lease origin feature
-force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push --force-with-lease=feature origin feature
-force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push origin +feature
-force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push origin +HEAD:feature
-force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push --mirr origin
-force-push       any    floor                        deny   defer  defer  defer  deny   deny   git push origin --mi
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push --force origin feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push -f origin feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin feature --force
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push --force-with-lease origin feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push --force-with-lease=feature origin feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin +feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin +HEAD:feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push --mirr origin
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin --mi
 
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin main
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push -u origin main
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:main
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:refs/heads/main
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:main --dry-run
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:heads/main
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:heads/master
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:heads/planwright/human-gates/spec
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin master
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push -u origin master
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:master
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:refs/heads/master
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:master --dry-run
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin planwright/human-gates/spec
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push -u origin planwright/human-gates/spec
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:planwright/human-gates/spec
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:refs/heads/planwright/human-gates/spec
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin HEAD:planwright/human-gates/spec --dry-run
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push --al origin
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin --branches
-protected-push   any    floor                        deny   defer  defer  defer  deny   deny   git push origin :
-protected-push   any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__push_files
-protected-push   any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__create_or_update_file
-protected-push   any    floor                        n/a    n/a    n/a    n/a    deny   deny   mcp__github__delete_file
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin main
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push -u origin main
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:main
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:refs/heads/main
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:main --dry-run
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:heads/main
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:heads/master
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:heads/planwright/human-gates/spec
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin master
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push -u origin master
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:master
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:refs/heads/master
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:master --dry-run
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin planwright/human-gates/spec
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push -u origin planwright/human-gates/spec
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:planwright/human-gates/spec
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:refs/heads/planwright/human-gates/spec
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin HEAD:planwright/human-gates/spec --dry-run
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push --al origin
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin --branches
+protected-push   any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin :
+protected-push   any    floor                        n/a    n/a    n/a    n/a    n/a    deny   deny   mcp__github__push_files
+protected-push   any    floor                        n/a    n/a    n/a    n/a    n/a    deny   deny   mcp__github__create_or_update_file
+protected-push   any    floor                        n/a    n/a    n/a    n/a    n/a    deny   deny   mcp__github__delete_file
 
-flip             worker ready_flip_policy=unresolved n/a    deny   defer  n/a    defer  n/a    gh pr ready 42
-flip             tower  ready_flip_policy=unresolved deny   deny   n/a    defer  n/a    deny   gh pr ready 42
-flip             worker ready_flip_policy=unresolved n/a    deny   n/a    n/a    defer  n/a    mcp__github__update_pull_request
-flip             tower  ready_flip_policy=unresolved n/a    deny   n/a    n/a    n/a    deny   mcp__github__update_pull_request
+flip             worker ready_flip_policy=unit-owner n/a    deny   defer  n/a    defer  defer  n/a    gh pr ready 42
+flip             worker ready_flip_policy=human      n/a    deny   defer  n/a    deny   defer  n/a    gh pr ready 42
+flip             tower  ready_flip_policy=unit-owner deny   deny   n/a    defer  deny   n/a    deny   gh pr ready 42
+flip             tower  ready_flip_policy=human      deny   deny   n/a    defer  deny   n/a    deny   gh pr ready 42
+flip             worker ready_flip_policy=unit-owner n/a    deny   n/a    n/a    defer  defer  n/a    mcp__github__update_pull_request
+flip             worker ready_flip_policy=human      n/a    deny   n/a    n/a    deny   defer  n/a    mcp__github__update_pull_request
+flip             tower  ready_flip_policy=unit-owner n/a    deny   n/a    n/a    deny   n/a    deny   mcp__github__update_pull_request
+flip             tower  ready_flip_policy=human      n/a    deny   n/a    n/a    deny   n/a    deny   mcp__github__update_pull_request
 
-# gh api writes stay at the permission prompt by operator decision: no profile
-# denies or allows them, and the ready-guard does not read them.
-flip             worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{pullRequestId:"PR_x"}){clientMutationId}}'
-flip             worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -F query=@flip.graphql
-flip             tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{pullRequestId:"PR_x"}){clientMutationId}}'
-flip             tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -F query=@flip.graphql
-undo-flip        worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -f query='mutation{convertPullRequestToDraft(input:{pullRequestId:"PR_x"}){clientMutationId}}'
-undo-flip        worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -F query=@undo.graphql
-undo-flip        tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -f query='mutation{convertPullRequestToDraft(input:{pullRequestId:"PR_x"}){clientMutationId}}'
-undo-flip        tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -F query=@undo.graphql
-pr-merge         worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
-pr-merge         worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api graphql -F query=@merge.graphql
-pr-merge         worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api -X PUT repos/acme/widgets/pulls/42/merge
-pr-merge         worker gh_api_write=prompt          n/a    defer  defer  n/a    prompt n/a    gh api --method PUT repos/acme/widgets/pulls/42/merge
-pr-merge         tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
-pr-merge         tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api graphql -F query=@merge.graphql
-pr-merge         tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api -X PUT repos/acme/widgets/pulls/42/merge
-pr-merge         tower  gh_api_write=prompt          deny   defer  n/a    defer  n/a    prompt gh api --method PUT repos/acme/widgets/pulls/42/merge
+# gh api: the profiles keep every gh api write at the permission prompt by
+# operator decision (a glob sees text, not the request), and the ready-guard
+# does not read gh api. The policy guard is the refusing layer: it denies the
+# reserved acts and every request it cannot read, and defers the rest. The
+# tower queue's screen refuses any gh api write, reserved or not.
+flip             worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+flip             tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -f query='mutation{markPullRequestReadyForReview(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+undo-flip        worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{convertPullRequestToDraft(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+undo-flip        tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -f query='mutation{convertPullRequestToDraft(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -f query='mutation{mergePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{enqueuePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -f query='mutation{enqueuePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+pr-merge         worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PUT repos/acme/widgets/pulls/42/merge
+pr-merge         tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api -X PUT repos/acme/widgets/pulls/42/merge
+pr-merge         worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api --method PUT repos/acme/widgets/pulls/42/merge
+pr-merge         tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api --method PUT repos/acme/widgets/pulls/42/merge
+pr-merge         worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api --method=PUT /repos/acme/widgets/pulls/42/merge
+pr-merge         tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api --method=PUT /repos/acme/widgets/pulls/42/merge
+pr-merge         worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api -XPUT https://api.github.com/repos/acme/widgets/pulls/42/merge
+pr-merge         tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api -XPUT https://api.github.com/repos/acme/widgets/pulls/42/merge
+base-merge       worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{mergeBranch(input:{repositoryId:"R",base:"x",head:"main"}){clientMutationId}}'
+base-merge       tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -f query='mutation{mergeBranch(input:{repositoryId:"R",base:"x",head:"main"}){clientMutationId}}'
+base-merge       worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='mutation{updatePullRequestBranch(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+base-merge       tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -f query='mutation{updatePullRequestBranch(input:{pullRequestId:"PR_x"}){clientMutationId}}'
+base-merge       worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api repos/acme/widgets/merges -f base=feature -f head=main
+base-merge       tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api repos/acme/widgets/merges -f base=feature -f head=main
+base-merge       worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PUT repos/acme/widgets/pulls/42/update-branch
+base-merge       tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api -X PUT repos/acme/widgets/pulls/42/update-branch
+force-push       worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PATCH repos/acme/widgets/git/refs/heads/feature -f sha=abc -F force=true
+force-push       tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api -X PATCH repos/acme/widgets/git/refs/heads/feature -f sha=abc -F force=true
+protected-push   worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PATCH repos/acme/widgets/git/refs/heads/main -f sha=abc
+protected-push   tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api -X PATCH repos/acme/widgets/git/refs/heads/main -f sha=abc
+protected-push   worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=main
+protected-push   tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=main
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -F query=@flip.graphql
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -F query=@flip.graphql
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -F query=@-
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -F query=@-
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -F x=@file -f query='query{viewer{login}}'
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -F x=@file -f query='query{viewer{login}}'
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql --field query=@q.graphql
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql --field query=@q.graphql
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql --input body.json
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql --input body.json
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api "$EP" -f body=x
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api "$EP" -f body=x
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query="$Q"
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -f query="$Q"
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query="$(cat q.graphql)"
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -f query="$(cat q.graphql)"
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api graphql -f query='query{repository(owner:"{owner}",name:"{repo}"){ref(qualifiedName:"{branch}"){name}}}'
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api graphql -f query='query{repository(owner:"{owner}",name:"{repo}"){ref(qualifiedName:"{branch}"){name}}}'
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api --frobnicate -X POST repos/acme/widgets/issues/42/comments
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api --frobnicate -X POST repos/acme/widgets/issues/42/comments
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    bash -c 'gh api graphql -f query=x'
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt bash -c 'gh api graphql -f query=x'
+opaque           worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    env gh api graphql -f query=x
+opaque           tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt env gh api graphql -f query=x
+pr-merge         worker floor-guard                  n/a    defer  defer  n/a    deny   prompt n/a    gh api repos/acme/widgets/pulls && gh api -X PUT repos/acme/widgets/pulls/42/merge
+pr-merge         tower  floor-guard                  deny   defer  n/a    defer  deny   n/a    prompt gh api repos/acme/widgets/pulls && gh api -X PUT repos/acme/widgets/pulls/42/merge
+other            worker floor-guard                  n/a    defer  defer  n/a    defer  prompt n/a    gh api graphql -f query='mutation{resolveReviewThread(input:{threadId:"PRRT_x"}){thread{isResolved}}}'
+other            tower  floor-guard                  deny   defer  n/a    defer  defer  n/a    prompt gh api graphql -f query='mutation{resolveReviewThread(input:{threadId:"PRRT_x"}){thread{isResolved}}}'
+other            worker floor-guard                  n/a    defer  defer  n/a    defer  prompt n/a    gh api -X POST repos/acme/widgets/pulls/42/requested_reviewers -f reviewers[]=octocat
+other            tower  floor-guard                  deny   defer  n/a    defer  defer  n/a    prompt gh api -X POST repos/acme/widgets/pulls/42/requested_reviewers -f reviewers[]=octocat
 
-base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git merge origin/main
-base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git -C . merge origin/main
-base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git pull
-base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git pull origin main
-base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git pull --ff-only origin main
-base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git pull --rebase origin main
-base-merge       worker worker_base_merge=unresolved n/a    defer  defer  n/a    deny   n/a    git -C . pull origin main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    deny   git merge origin/main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    deny   git pull
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    deny   git pull origin main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    deny   git pull --ff-only origin main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    deny   git pull --rebase origin main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git -C . pull origin main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git "pull" origin main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git -C . merge origin/main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git me""rge origin/main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git -c alias.x=pull x origin main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git -c include.path=/tmp/x.cfg up origin main
-base-merge       tower  worker_base_merge=unresolved deny   defer  n/a    defer  n/a    defer  git -c help.autocorrect=immediate pulll origin main
-amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --am""end --no-edit
-squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --squ""ash=HEAD~1
-fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fix""up=HEAD~1
-rebase           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    defer  git re""base origin/main
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git merge origin/main
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git -C . merge origin/main
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    deny   defer  n/a    git pull
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git pull origin main
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git pull --ff-only origin main
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    defer  defer  n/a    git -C . pull origin main
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    deny   defer  n/a    git merge origin/planwright/demo/task-2
+base-merge       worker worker_base_merge=deny       n/a    defer  defer  n/a    deny   defer  n/a    git merge origin/main
+base-merge       worker worker_base_merge=deny       n/a    defer  defer  n/a    deny   defer  n/a    git -C . merge origin/main
+base-merge       worker worker_base_merge=deny       n/a    defer  defer  n/a    deny   defer  n/a    git pull
+base-merge       worker worker_base_merge=deny       n/a    defer  defer  n/a    deny   defer  n/a    git pull origin main
+base-merge       worker worker_base_merge=deny       n/a    defer  defer  n/a    deny   defer  n/a    git pull --ff-only origin main
+base-merge       worker worker_base_merge=deny       n/a    defer  defer  n/a    deny   defer  n/a    git -C . pull origin main
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    deny   git merge origin/main
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    deny   git pull
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    deny   git pull origin main
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    deny   git pull --ff-only origin main
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    defer  git -C . pull origin main
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    defer  git "pull" origin main
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    defer  git -C . merge origin/main
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    defer  git me""rge origin/main
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    defer  git -c alias.x=pull x origin main
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    defer  git -c include.path=/tmp/x.cfg up origin main
+base-merge       tower  worker_base_merge=allow      deny   defer  n/a    defer  deny   n/a    defer  git -c help.autocorrect=immediate pulll origin main
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    deny   defer  n/a    git -c alias.x=pull x origin main
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    deny   defer  n/a    git -c include.path=/tmp/x.cfg up origin main
+base-merge       worker worker_base_merge=allow      n/a    defer  defer  n/a    deny   defer  n/a    git -c help.autocorrect=immediate pulll origin main
 
-amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --amend --no-edit
-amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit -m wip --amend
-amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --amend --no-edit
-amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit -m wip --amend
-amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --amen --no-edit
-amend            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit -m wip --am
-amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --amen --no-edit
-amend            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit -m wip --am
+amend            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --am""end --no-edit
+squash           tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --squ""ash=HEAD~1
+fixup            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --fix""up=HEAD~1
+rebase           tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    defer  git re""base origin/main
 
-squash           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --squash HEAD~1
-squash           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --squash=HEAD~1
-squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --squash HEAD~1
-squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --squash=HEAD~1
-squash           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --sq=HEAD~1
-squash           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit -m wip --squas HEAD~1
-squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --sq=HEAD~1
-squash           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit -m wip --squas HEAD~1
+amend            worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit --amend --no-edit
+amend            worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit -m wip --amend
+amend            worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit --amen --no-edit
+amend            worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit -m wip --am
+amend            worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit --amend --no-edit
+amend            worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit -m wip --amend
+amend            worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit --amen --no-edit
+amend            worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit -m wip --am
+amend            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --amend --no-edit
+amend            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit -m wip --amend
+amend            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --amen --no-edit
+amend            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit -m wip --am
 
-fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --fixup HEAD~1
-fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --fixup=HEAD~1
-fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --fixup=amend:HEAD~1
-fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fixup HEAD~1
-fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fixup=HEAD~1
-fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fixup=amend:HEAD~1
-fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit --fix=HEAD~1
-fixup            worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git commit -m wip --fixu HEAD~1
-fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit --fix=HEAD~1
-fixup            tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git commit -m wip --fixu HEAD~1
+squash           worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit --squash HEAD~1
+squash           worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit --squash=HEAD~1
+squash           worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit --sq=HEAD~1
+squash           worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit -m wip --squas HEAD~1
+squash           worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit --squash HEAD~1
+squash           worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit --squash=HEAD~1
+squash           worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit --sq=HEAD~1
+squash           worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit -m wip --squas HEAD~1
+squash           tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --squash HEAD~1
+squash           tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --squash=HEAD~1
+squash           tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --sq=HEAD~1
+squash           tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit -m wip --squas HEAD~1
 
-rebase           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git rebase origin/main
-rebase           worker unpushed_rewrite=unresolved  n/a    defer  defer  n/a    deny   n/a    git rebase -i HEAD~3
-rebase           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git rebase origin/main
-rebase           tower  unpushed_rewrite=unresolved  deny   defer  n/a    defer  n/a    deny   git rebase -i HEAD~3
+fixup            worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit --fixup HEAD~1
+fixup            worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit --fixup=HEAD~1
+fixup            worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit --fixup=amend:HEAD~1
+fixup            worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit --fix=HEAD~1
+fixup            worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git commit -m wip --fixu HEAD~1
+fixup            worker unpushed_rewrite=allow       n/a    defer  defer  n/a    deny   defer  n/a    git commit --fixup=HEAD~3
+fixup            worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit --fixup HEAD~1
+fixup            worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit --fixup=HEAD~1
+fixup            worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit --fixup=amend:HEAD~1
+fixup            worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit --fix=HEAD~1
+fixup            worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git commit -m wip --fixu HEAD~1
+fixup            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --fixup HEAD~1
+fixup            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --fixup=HEAD~1
+fixup            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --fixup=amend:HEAD~1
+fixup            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit --fix=HEAD~1
+fixup            tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git commit -m wip --fixu HEAD~1
+
+rebase           worker unpushed_rewrite=allow       n/a    defer  defer  n/a    deny   defer  n/a    git rebase origin/main
+rebase           worker unpushed_rewrite=allow       n/a    defer  defer  n/a    defer  defer  n/a    git rebase -i HEAD~3
+rebase           worker unpushed_rewrite=allow       n/a    defer  defer  n/a    deny   defer  n/a    git pull --rebase origin main
+rebase           worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git rebase origin/main
+rebase           worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git rebase -i HEAD~3
+rebase           worker unpushed_rewrite=deny        n/a    defer  defer  n/a    deny   defer  n/a    git pull --rebase origin main
+rebase           tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git rebase origin/main
+rebase           tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git rebase -i HEAD~3
+rebase           tower  unpushed_rewrite=allow       deny   defer  n/a    defer  deny   n/a    deny   git pull --rebase origin main
