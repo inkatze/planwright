@@ -5,8 +5,9 @@
 # `-c HEAD`/`-C HEAD` message-reuse forms). This is an accident-catcher, not
 # a clean signal: git gives client hooks no reliable amend flag, and
 # `--amend -m`/`-F` arrives as source `message` and slips past — that family
-# is covered by the tower profile's deny globs and, for a worker, by the
-# policy guard (REQ-A1.1), a boundary D-2 states honestly. NOT suppressed by --no-verify (githooks(5)); the deliberate
+# is refused by the tower profile's deny globs and, for a worker, decided by
+# the policy guard's unpushed_rewrite check (REQ-A1.1), a boundary D-2 states
+# honestly. NOT suppressed by --no-verify (githooks(5)); the deliberate
 # bypasses are that same --amend -m/-F family, or temporarily unsetting
 # core.hooksPath.
 #
