@@ -155,11 +155,17 @@ if [ "${#spec}" -gt 64 ]; then
   exit 2
 fi
 # The tower runs in the bundle's work repository, which a relocated spec root
-# does not hold.
+# does not hold. A bundle inside one of that repository's linked worktrees
+# keeps its tower there, so the relaunch works on the copy this watchdog locks.
 checkout=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir") || {
   echo "fleet-tower-watchdog: refusing spec dir with no work repository" >&2
   exit 2
 }
+own_checkout=$(cd "$spec_dir" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) || own_checkout=""
+if [ -n "$own_checkout" ] && [ "$own_checkout" != "$checkout" ]; then
+  own_primary=$(cd "$own_checkout" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || own_primary=""
+  [ "$own_primary" != "$checkout" ] || checkout=$own_checkout
+fi
 session_name="planwright-tower-$spec"
 
 FTM="$script_dir/fleet-tower-marker.sh"

@@ -701,4 +701,22 @@ out=$(PLANWRIGHT_FLEET_STATE_DIR="$home" \
 [ "$(launch_calls)" = "$calls_before" ] || fail "a fully-completed spec must not relaunch"
 echo "ok: the live selector's no-ready verdict suppresses the relaunch (no seam)"
 
+# A bundle inside a linked worktree of the work repository relaunches its
+# tower in that worktree, the copy this watchdog locks and judged ready, not
+# in the primary checkout.
+wt="$repo/.claude/worktrees/wt"
+git -C "$repo" worktree add -q --detach "$wt" 2>/dev/null || fail "could not add the worktree fixture"
+mkdir -p "$wt/specs/my-spec"
+wt_canon=$(cd "$wt" && pwd -P)
+record_marker unattended "$dead_pid"
+rm -f "$backoff_file"
+out=$(run "$wt/specs/my-spec" 2>/dev/null) || fail "worktree relaunch tick exited non-zero"
+[ "$out" = relaunched ] || fail "worktree relaunch outcome '$out'"
+row=$(fleet_env "$FTM" read my-spec) || fail "marker missing after the worktree relaunch"
+IFS=$(printf '\t') read -r _ _ _ _ _ m_checkout _ <<EOF
+$row
+EOF
+[ "$m_checkout" = "$wt_canon" ] || fail "a worktree bundle's tower was relaunched in '$m_checkout', not the worktree '$wt_canon'"
+echo "ok: a bundle in a linked worktree relaunches its tower in that worktree"
+
 echo "ALL PASS: fleet-tower-watchdog"
