@@ -73,7 +73,7 @@
 # --no-attach` — and passes it via --worktree.
 #
 # STATE. One dir per unit:
-#   ${PLANWRIGHT_HEADLESS_STATE_DIR:-<repo-root>/specs/<spec>/.orchestrate/headless}/<id>/
+#   ${PLANWRIGHT_HEADLESS_STATE_DIR:-<spec-root>/<spec>/.orchestrate/headless}/<id>/
 #     launched     launch epoch seconds (written BEFORE the runner backgrounds,
 #                  so a torn launch is still ageable by the collision guard)
 #     prompt       the worker's stdin (written from launch stdin)
@@ -214,12 +214,13 @@ valid_id() {
 }
 
 # --- State-dir resolution ----------------------------------------------------
-# $1 spec, $2 id, $3 repo-root (may be empty: resolved from the cwd's git
-# toplevel unless the env override names the base directly). Sets unit_dir,
-# unit_base, and the containment anchors the guard below checks against:
-# unit_root (the PHYSICAL repo root) and unit_spec_dir. Both are empty under the
-# env override — an operator-declared base is its own anchor, with no repo to
-# contain it within.
+# $1 spec, $2 id, $3 repo-root (may be empty: the cwd's checkout, from
+# resolve-root.sh repo --checkout, unless the env override names the base
+# directly). Sets unit_dir, unit_base, and the containment anchors the guard
+# below checks against: unit_root (the PHYSICAL spec root the repo resolves,
+# which need not lie inside the repo) and unit_spec_dir. Both are empty under
+# the env override — an operator-declared base is its own anchor, with no root
+# to contain it within.
 resolve_unit_dir() {
   if [ -n "${PLANWRIGHT_HEADLESS_STATE_DIR:-}" ]; then
     rud_base=$PLANWRIGHT_HEADLESS_STATE_DIR
@@ -228,7 +229,7 @@ resolve_unit_dir() {
   else
     rud_root=$3
     if [ -z "$rud_root" ]; then
-      rud_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+      rud_root=$(/bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null || true)
     fi
     if [ -z "$rud_root" ] || [ ! -d "$rud_root" ]; then
       warn "cannot resolve repo root (pass --repo-root)"
@@ -243,12 +244,19 @@ resolve_unit_dir() {
       warn "repo root does not resolve: $rud_root"
       exit 2
     }
-    rud_root=$rud_phys
-    if [ ! -d "$rud_root/specs/$1" ]; then
-      warn "spec bundle not found: $rud_root/specs/$1"
+    rud_specs=$(cd "$rud_phys" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || {
+      warn "cannot resolve the spec root for $rud_phys"
+      exit 2
+    }
+    if [ ! -d "$rud_specs/$1" ]; then
+      warn "spec bundle not found: $rud_specs/$1"
       exit 2
     fi
-    rud_spec_dir="$rud_root/specs/$1"
+    rud_root=$(cd "$rud_specs" && pwd -P) || {
+      warn "spec root does not resolve: $rud_specs"
+      exit 2
+    }
+    rud_spec_dir="$rud_specs/$1"
     rud_base="$rud_spec_dir/.orchestrate/headless"
   fi
   unit_base=$rud_base
@@ -399,13 +407,13 @@ guard_unit_containment() {
   esac
   # The containment check itself, on PHYSICAL paths (both sides normalized with
   # `pwd -P`): this is what catches a symlink anywhere in the path redirecting
-  # the base out of the repo. Skipped under the env override, where the operator
-  # names the base directly and no repo root bounds it.
+  # the base out of the spec root. Skipped under the env override, where the
+  # operator names the base directly and no root bounds it.
   if [ -n "$guc_root" ]; then
     case "$guc_base_phys/" in
-      "$guc_root"/*) ;; # contained under the physical repo root
+      "$guc_root"/*) ;; # contained under the physical spec root
       *)
-        warn "refusing: state base $guc_base_phys does not resolve under the repo root $guc_root (path-escape guard)"
+        warn "refusing: state base $guc_base_phys does not resolve under the spec root $guc_root (path-escape guard)"
         exit 2
         ;;
     esac

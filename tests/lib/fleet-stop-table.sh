@@ -1094,6 +1094,7 @@ c41() {
   case_dirs 41
   repo="$tmp/$rung/repo41"
   mkdir -p "$repo/specs/$SPEC" "$repo/specs/other"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
   # denv — the rung with the state base left to its default.
   denv() {
     env "${env_scrub[@]}" -u PLANWRIGHT_HEADLESS_STATE_DIR \

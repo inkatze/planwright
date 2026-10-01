@@ -657,9 +657,14 @@ report_terminal_feedback() {
     err "allocation-feedback.sh is missing or not executable; no feedback observation was evaluated, and the fence lifecycle is unaffected"
     return 0
   fi
-  rtf_dir="$checkout/specs/_observations"
   case $obs_dir in
-    "") ;;
+    "")
+      rtf_dir=$(cd "$checkout" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || {
+        err "the spec root for this checkout did not resolve, so no feedback observation was evaluated; the fence lifecycle is unaffected"
+        return 0
+      }
+      rtf_dir=$rtf_dir/_observations
+      ;;
     /*) rtf_dir=$obs_dir ;;
     # Relative resolves against the checkout rather than the tower's cwd. The
     # sibling crash-record has no repo root to resolve against and so refuses a
@@ -839,11 +844,15 @@ if [ "$cmd" = sweep ]; then
   # same evidence: `completed` is exactly "PR merged, or the ledger marks it
   # done". An OPEN, unmerged PR derives in-progress, so it is not terminal and
   # the fence rightly persists (REQ-C1.5).
-  spec_dir="$checkout/specs/$spec"
+  spec_dir=""
+  spec_root=$(cd "$checkout" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null) \
+    && spec_dir="$spec_root/$spec"
   state=""
   evidence_ok=1
-  if [ -d "$spec_dir" ]; then
-    state=$("$OS" "$spec_dir" 2>/dev/null) || evidence_ok=0
+  if [ -n "$spec_dir" ] && [ -d "$spec_dir" ]; then
+    # From the checkout, so a bundle in a holder or a plain directory still
+    # derives from this checkout's repository.
+    state=$(cd "$checkout" && "$OS" "$spec_dir" 2>/dev/null) || evidence_ok=0
     # A configured-but-failing gh probe leaves the derivation partial. Acting
     # on it could GC the fence of a unit that is not terminal, so the pass
     # fails closed: classify nothing, retry next pass (REQ-C1.3).

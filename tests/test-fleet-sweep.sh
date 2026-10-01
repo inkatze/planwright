@@ -63,8 +63,6 @@ trap 'rm -rf "$tmp"' EXIT
 # --- config layers: kill-switch off, dirty-tree grace threshold 0 (escalate on
 #     first detection) unless a case overrides the core file.
 core_cfg="$tmp/core-defaults.yml"
-repo_cfg_root="$tmp/cfgrepo"
-mkdir -p "$repo_cfg_root/.claude"
 write_core() { # $1 = threshold token (e.g. 0m, 60m)
   printf 'fleet_daemon_pause: false\nfleet_dirty_tree_threshold: %s\n' "$1" >"$core_cfg"
 }
@@ -100,7 +98,7 @@ run_sweep() {
   PATH="$stub:$PATH" \
     PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-    PLANWRIGHT_REPO_ROOT="$repo_cfg_root" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/bash "$SWEEP" "$@"

@@ -26,8 +26,9 @@
 #         that id exists (never-reuse): a local branch
 #         `refs/heads/planwright/flight/<id>`, a remote-tracking branch
 #         `refs/remotes/*/planwright/flight/<id>`, a record file
-#         `specs/_flights/<id>.md` in the working tree or on the default
-#         branch (origin/HEAD, main or master, local or remote-tracking), or a
+#         `_flights/<id>.md` under the spec root in the working tree or, for a
+#         root inside the checkout, on the default branch (origin/HEAD, main
+#         or master, local or remote-tracking), or a
 #         placed worktree `.claude/worktrees/flight-<id>` under the primary
 #         checkout. Remote evidence is as fresh as the last fetch: nothing is
 #         fetched here. The slug is grammar-checked before anything is minted
@@ -60,6 +61,7 @@ unset CDPATH
 prog=flight-id
 LF='
 '
+script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 
 usage() {
   cat >&2 <<'USAGE'
@@ -103,7 +105,7 @@ valid_flight_id() {
 # primary, while refs and trees are shared).
 resolve_repo() {
   if [ -z "$repo_root" ]; then
-    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    repo_root=$(/bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) || {
       echo "$prog: not inside a git work tree and no --repo-root given" >&2
       exit 2
     }
@@ -114,23 +116,24 @@ resolve_repo() {
   }
   # The work-tree top, whatever subdirectory was named: the record lookup is
   # relative to it, and a bare repository (no work tree) is refused here.
-  repo_root=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) || {
+  repo_root=$(cd "$repo_root" && /bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) || {
     echo "$prog: --repo-root is not inside a git work tree" >&2
     exit 2
   }
-  common=$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null) || {
-    echo "$prog: --repo-root is not a git work tree" >&2
+  primary=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
+    || primary=$repo_root
+  # The flight record directory, the spec root's _flights/: named relative to
+  # the checkout when the root lies inside it, which is the only place a
+  # committed record can be found on a branch.
+  flights=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || {
+    echo "$prog: the spec root did not resolve for $repo_root" >&2
     exit 2
   }
-  case $common in
-    /*) ;;
-    *) common=$repo_root/$common ;;
+  case $flights in
+    "$repo_root"/*) flights_rel=${flights#"$repo_root"/}/_flights ;;
+    *) flights_rel='' ;;
   esac
-  common=$(cd "$common" 2>/dev/null && pwd -P) || common=""
-  case $common in
-    */.git) primary=${common%/.git} ;;
-    *) primary=$repo_root ;;
-  esac
+  flights=$flights/_flights
 }
 
 # A git failure while probing is not "no evidence": refuse to judge the id
@@ -214,19 +217,26 @@ evidence_for() {
   for _r in $_remotes; do
     add_evidence branch "$_r"
   done
-  _rec=specs/_flights/$_id.md
-  if occupied "$repo_root/$_rec"; then
+  if [ -n "$flights_rel" ]; then
+    _rec=$flights_rel/$_id.md
+  else
+    _rec=$flights/$_id.md
+  fi
+  if occupied "$flights/$_id.md"; then
     add_evidence record "$_rec"
   fi
-  for _base in $bases; do
-    _hit=$(git -C "$repo_root" ls-tree --name-only "$_base" -- "$_rec" 2>/dev/null) \
-      || probe_failed "ls-tree $_base"
-    if [ -n "$_hit" ]; then
-      _label=${_base#refs/heads/}
-      _label=${_label#refs/remotes/}
-      add_evidence record "$_label:$_rec"
-    fi
-  done
+  # A root outside the checkout is on none of its branches.
+  if [ -n "$flights_rel" ]; then
+    for _base in $bases; do
+      _hit=$(git -C "$repo_root" ls-tree --name-only "$_base" -- "$_rec" 2>/dev/null) \
+        || probe_failed "ls-tree $_base"
+      if [ -n "$_hit" ]; then
+        _label=${_base#refs/heads/}
+        _label=${_label#refs/remotes/}
+        add_evidence record "$_label:$_rec"
+      fi
+    done
+  fi
   _wt=.claude/worktrees/flight-$_id
   if occupied "$primary/$_wt"; then
     add_evidence worktree "$_wt"

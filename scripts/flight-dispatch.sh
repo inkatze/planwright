@@ -194,13 +194,32 @@ done
 
 resolve_repo() {
   if [ -z "$repo_root" ]; then
-    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
+    repo_root=$(/bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) \
       || die 2 "not inside a git work tree and no --repo-root given"
   fi
   [ -d "$repo_root" ] || die 2 "--repo-root is not a directory"
-  repo_root=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) \
+  repo_root=$(cd "$repo_root" && /bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) \
     || die 2 "--repo-root is not inside a git work tree"
   repo_root=$(cd "$repo_root" && pwd -P) || die 2 "cannot resolve --repo-root"
+}
+
+# resolve_spec_rel — set spec_rel to the spec root as the checkout resolves
+# it: relative to the checkout when inside it, else absolute, with spec_inside
+# saying which. A flight record is committed on the flight's branch, so it can
+# only live under a root inside the checkout.
+spec_rel=''
+spec_inside=0
+resolve_spec_rel() {
+  [ -z "$spec_rel" ] || return 0
+  _sr=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) \
+    || die 2 "the spec root did not resolve for this checkout"
+  case $_sr in
+    "$repo_root"/*)
+      spec_rel=${_sr#"$repo_root"/}
+      spec_inside=1
+      ;;
+    *) spec_rel=$_sr ;;
+  esac
 }
 
 # The checkout's flight lock is fleet-state.sh's lock (owner token, atomic
@@ -298,7 +317,7 @@ read_hosts() {
       _local=/dev/null/planwright.local.yml
     fi
   fi
-  _raw=$(PLANWRIGHT_REPO_ROOT=/dev/null PLANWRIGHT_LOCAL_CONFIG="$_local" \
+  _raw=$(PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="$_local" \
     /bin/sh "$CONFIG" flight_pr_hosts </dev/null)
   _rc=$?
   if [ "$_rc" -ne 0 ]; then
@@ -593,7 +612,7 @@ prepare_brief_dir() {
 # layer, a bad value the 15m default, and zero floored to it.
 STALE_MIN=15
 stale_min() {
-  _sm=$(PLANWRIGHT_REPO_ROOT="$lock_home" /bin/sh "$CONFIG" stale_lock_threshold </dev/null 2>/dev/null) || _sm=''
+  _sm=$(PLANWRIGHT_REPO_ROOT=none /bin/sh "$CONFIG" stale_lock_threshold </dev/null 2>/dev/null) || _sm=''
   _sm=${_sm%m}
   case $_sm in
     '' | *[!0-9]*) STALE_MIN=15 ;;
@@ -842,8 +861,8 @@ committed record is the landing reference."
     printf '%s\n' "$_landing"
     printf '\n## Rules\n\n'
     printf '%s\n' "- New commits only: no amend, rebase, squash, or force-push."
-    printf '%s\n' "- Write no spec state and edit no spec bundle under \`specs/<spec>/\`; a flight"
-    printf '%s\n' "  is specless. The record file under \`specs/_flights/\` is not a bundle."
+    printf '%s\n' "- Write no spec state and edit no spec bundle under \`$spec_rel/<spec>/\`; a flight"
+    printf '%s\n' "  is specless. The record file under \`$spec_rel/_flights/\` is not a bundle."
     printf '%s\n' "- Unattended: never block on a question. What needs a human parks the flight."
     printf '\n%s\n' "When done, finish with one final line exactly:"
     printf '%s\n' "\`FLIGHT-RESULT: landing=<pr-url|record-path|none> status=<landed|parked> reason=<short>\`"
@@ -1094,10 +1113,13 @@ cmd_dispatch() {
   /bin/sh "$FLIGHT_ID" check "$flight_id" 2>/dev/null || die 5 "the minted flight id failed its own grammar check"
   branch=planwright/flight/$flight_id
   suffix=flight-$flight_id
+  resolve_spec_rel
   if [ "$home" = pr ]; then
     record="draft PR body"
   else
-    record="specs/_flights/$flight_id.md"
+    [ "$spec_inside" -eq 1 ] \
+      || die 2 "the spec root lies outside this checkout, so a flight record cannot be committed there; declare --home pr to carry it in the PR body"
+    record="$spec_rel/_flights/$flight_id.md"
   fi
   if [ "$backend" = tmux ]; then
     brief_handle="tmux-flight-$flight_id"

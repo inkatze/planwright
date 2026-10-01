@@ -102,10 +102,10 @@ command -v git >/dev/null 2>&1 || {
   exit 2
 }
 
-# Resolve the tower's checkout: an explicit --repo, else the caller's own git
-# toplevel, else $PWD.
+# Resolve the tower's checkout: an explicit --repo, else the caller's own
+# checkout, else $PWD.
 if [ -z "$repo" ]; then
-  repo=$(git rev-parse --show-toplevel 2>/dev/null) || repo=$PWD
+  repo=$(/bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) || repo=$PWD
 fi
 if [ ! -d "$repo" ]; then
   warn "repo root '$repo' is not a directory"
@@ -371,16 +371,25 @@ IFS=$old_ifs
 # --- Pass 2: the reconcile backstop. Re-run the tasks.md reconcile for every
 #     spec bundle in the tower's checkout; audit only a reconcile that changed
 #     the snapshot (a dropped-push drift actually corrected).
-if [ -x "$SYNC" ] && [ -d "$repo/specs" ]; then
+# The spec root as the checkout resolves it. Where it lies inside the
+# checkout, bundles are named relative to it, as the reconcile and the audit
+# trail have always named them.
+specs_root=""
+[ -x "$SYNC" ] && specs_root=$(cd "$repo" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null)
+if [ -n "$specs_root" ] && [ -d "$specs_root" ]; then
+  case $specs_root in
+    "$repo"/*) specs_rel=${specs_root#"$repo"/} ;;
+    *) specs_rel=$specs_root ;;
+  esac
   # Enable globbing only to expand the bundle set ONCE at loop entry; -f is
   # restored for the body and the glob is not re-expanded per iteration.
   set +f
-  for d in "$repo"/specs/*/; do
+  for d in "$specs_root"/*/; do
     set -f
     [ -d "$d" ] || continue
     tasks="${d}tasks.md" # $d already ends in '/'
     [ -f "$tasks" ] || continue
-    rel="specs/$(basename "$d")"
+    rel="$specs_rel/$(basename "$d")"
     before_sum=$(cksum <"$tasks" 2>/dev/null) || before_sum=""
     rec_rc=0
     (cd "$repo" && "$SYNC" reconcile "$rel") >/dev/null 2>&1 || rec_rc=$?
