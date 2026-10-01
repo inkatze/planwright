@@ -367,8 +367,12 @@ cmd_sweep() {
   fi
   queue_state=ok
   awaiting=''
-  _store="$fleet_home/attention/state"
-  if [ "$home_trusted" -eq 0 ] || [ -L "$fleet_home/attention" ] || [ -L "$_store" ]; then
+  _attn="$fleet_home/attention"
+  _store="$_attn/state"
+  if [ "$home_trusted" -eq 0 ] || [ -L "$_attn" ] || [ -L "$_store" ]; then
+    queue_state=unavailable
+  elif [ -e "$_attn" ] && { [ ! -d "$_attn" ] || [ ! -x "$_attn" ]; }; then
+    # A store that cannot be looked for is unread, not absent.
     queue_state=unavailable
   elif [ -e "$_store" ]; then
     awaiting=$(awk -F "$TAB" '$3 == "awaiting-input" { print $1 }' "$_store" 2>/dev/null) \

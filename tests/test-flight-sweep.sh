@@ -358,6 +358,16 @@ out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
 rm -f "$c/fleet/attention/state"
 mv "$c/state.real" "$c/fleet/attention/state"
 printf '%s\n' "$out" | grep -q "^queue${TAB}unavailable$" || fail "a symlinked queue store is not read"
+# An attention directory that cannot be searched is an unread queue, not an
+# empty one.
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 000 "$c/fleet/attention"
+  out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
+  chmod 700 "$c/fleet/attention"
+  printf '%s\n' "$out" | grep -q "^queue${TAB}unavailable$" || fail "an unsearchable attention directory leaves the queue unread"
+  r=$(row "$out" "$QUEUED")
+  [ "$(field "$r" 3)" = unknown ] || fail "an unread attention directory leaves a waiting flight unknown (got: $r)"
+fi
 # The fleet home is resolved as dispatch resolves it: a symlinked home is
 # followed to its canonical path, a relative one is refused before anything is
 # created, and nothing is created under a home that is not private.
