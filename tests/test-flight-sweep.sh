@@ -591,6 +591,21 @@ rc=$?
 "$ROOT/scripts/fleet-audit.sh" query --mechanism housekeeping-sweep 2>/dev/null | grep -q 'flight-index-prune' \
   || fail "the fleet cleanup sweep audits the prune"
 
+# A vanished checkout whose path is too long for an audit line, or carries a
+# byte the audit grammar refuses, is still audited, by its path's tail.
+long_leaf="leaf-$(printf '%0200d' 0)"
+long_top="$tmp/$(printf '%0230d' 0)"
+long_dir="$long_top/$(printf 'x\302\205y')/$long_leaf"
+mkdir -p "$long_dir"
+git -c init.defaultBranch=main init -q "$long_dir"
+gitc "$long_dir" commit -q --allow-empty -m init
+gitc "$long_dir" branch "planwright/flight/$STRAND"
+(cd "$long_dir" && "$SCRIPT" sweep --no-forge >/dev/null 2>&1) || fail "fixture: sweep of the long-path checkout"
+rm -rf "${long_top:?}"
+"$ROOT/scripts/fleet-sweep.sh" --repo "$repo" >/dev/null 2>&1
+"$ROOT/scripts/fleet-audit.sh" query --mechanism housekeeping-sweep 2>/dev/null | grep 'flight-index-prune' \
+  | grep -q "$long_leaf" || fail "the prune of a long or non-printable checkout path is audited"
+
 # ...and retires the brief of a flight whose worktree is gone, once it is past
 # the lock's stale threshold, audited.
 brief="$c/fleet/flights/$STRAND"

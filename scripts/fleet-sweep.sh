@@ -757,7 +757,13 @@ flight_residue() {
   printf '%s\n' "$fr_all" | while IFS="$fr_tab" read -r fr_kind fr_what; do
     case $fr_kind in
       retired) audit flight-brief-retire flight-residue "retired the brief of flight $fr_what (its worktree is gone)" ;;
-      pruned) audit flight-index-prune flight-residue "pruned the derived flight index of vanished checkout $fr_what" ;;
+      pruned)
+        # The audit grammar caps the text and refuses some bytes a path can
+        # carry; the path's tail is what identifies the checkout.
+        [ "${#fr_what}" -le 400 ] || fr_what="...$(printf '%s' "$fr_what" | tail -c 397)"
+        audit flight-index-prune flight-residue \
+          "pruned the derived flight index of vanished checkout $(sanitize_printable "$fr_what")"
+        ;;
     esac
   done
 }
