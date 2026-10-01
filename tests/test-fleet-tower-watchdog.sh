@@ -69,6 +69,7 @@ mkdir -p "$home"
 repo="$tmp/repo"
 spec_dir="$repo/specs/my-spec"
 mkdir -p "$spec_dir"
+git -C "$repo" -c init.defaultBranch=main init -q
 bin="$tmp/bin"
 mkdir -p "$bin"
 
@@ -83,6 +84,7 @@ tower_relaunch_disable_threshold: 3
 EOF
 fake_root="$tmp/fake-repo-root"
 mkdir -p "$fake_root"
+git -C "$fake_root" -c init.defaultBranch=main init -q
 
 # A dead pid: spawn a short-lived child and wait for it.
 /bin/sh -c 'exit 0' &
@@ -212,6 +214,7 @@ echo "ok: fleet_daemon_pause short-circuits the tick"
 
 # A malformed repo-tracked overlay is a hard-fail the watchdog propagates.
 mkdir -p "$fake_root-bad/.claude"
+git -C "$fake_root-bad" -c init.defaultBranch=main init -q
 printf 'fleet_daemon_pause: banana\n' >"$fake_root-bad/.claude/planwright.yml"
 rc=0
 PLANWRIGHT_FLEET_STATE_DIR="$home" \
@@ -637,9 +640,8 @@ echo "ok: the marker is re-read under the lock and a swapped-in live tower is le
 
 # --- ready-work call-through, real selector happy paths -----------------------
 
-# Turn the fixture into a real spec repo: the DEFAULT ready check (no seam)
-# must drive a relaunch off orchestrate-select's live derivation.
-git -C "$repo" -c init.defaultBranch=main init -q
+# Give the fixture a real bundle: the DEFAULT ready check (no seam) must drive
+# a relaunch off orchestrate-select's live derivation.
 cat >"$spec_dir/tasks.md" <<'EOF'
 # tasks
 

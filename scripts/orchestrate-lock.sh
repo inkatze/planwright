@@ -18,9 +18,10 @@
 #
 # REQ-F1.1 (parsed input is data, never an executed path): the spec id is read
 # from the canonicalized spec-dir basename and validated against the spec-id
-# grammar `^[a-z0-9][a-z0-9-]*$` (max 64), and the spec dir must resolve under
-# a `specs/` parent after symlink resolution, so the derived lock path is
-# containment-checked before any mkdir/rmdir. A malformed or hostile spec dir
+# grammar `^[a-z0-9][a-z0-9-]*$` (max 64), and the spec dir's canonical parent
+# must be a resolved spec root (scripts/resolve-root.sh spec, either view, as
+# the working directory sees it or as the bundle's own repository does), so
+# the derived lock path is containment-checked before any mkdir/rmdir. A malformed or hostile spec dir
 # (bad charset, traversal, a symlink escaping the tree) is a clean refusal
 # (exit 2, diagnostic, no lock touched), never an out-of-tree lock path.
 #
@@ -65,7 +66,7 @@ if [ ! -d "$spec_dir" ]; then
 fi
 
 # REQ-F1.1: derive the lock path from a grammar-validated spec id, contained
-# under a specs/ parent after canonicalization, before any mkdir/rmdir. The
+# under a resolved spec root after canonicalization, before any mkdir/rmdir. The
 # spec dir is treated as data: its physical path (pwd -P resolves any symlink)
 # decides the id and containment, so a hostile dir (bad charset, traversal, an
 # escaping symlink) is a clean refusal rather than an out-of-tree lock path.
@@ -90,13 +91,24 @@ if [ "$spec_id" = flight ]; then
   echo "orchestrate-lock: refusing the reserved spec id 'flight' (the flight branch segment, tower-front-door D-11)" >&2
   exit 2
 fi
-case "$spec_parent" in
-  */specs) ;;
-  *)
-    echo "orchestrate-lock: spec dir '$canon_dir' is not contained under a specs/ parent; refusing (REQ-F1.1)" >&2
-    exit 2
-    ;;
-esac
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# is_spec_root <from-dir> [<view>]: whether the resolved spec root, as seen
+# from <from-dir>, is the spec dir's parent. A root the resolver refuses
+# contains nothing. PLANWRIGHT_REPO_ROOT names the working directory's
+# repository, so it applies only when <from-dir> is `.`.
+is_spec_root() {
+  isr_env=""
+  [ "$1" = . ] || isr_env="-u PLANWRIGHT_REPO_ROOT"
+  # shellcheck disable=SC2086 # an empty isr_env is no argument
+  isr_root=$(cd "$1" 2>/dev/null && env $isr_env /bin/sh "$script_dir/resolve-root.sh" spec ${2:+"$2"} 2>/dev/null) \
+    || return 1
+  isr_root=$(cd "$isr_root" 2>/dev/null && pwd -P) || return 1
+  [ "$isr_root" = "$spec_parent" ]
+}
+if ! is_spec_root . && ! is_spec_root . --primary && ! is_spec_root "$canon_dir"; then
+  echo "orchestrate-lock: spec dir '$canon_dir' is not contained under a resolved spec root; refusing (REQ-F1.1)" >&2
+  exit 2
+fi
 
 lock="$canon_dir/.orchestrate.lock"
 
@@ -112,20 +124,16 @@ case "$cmd" in
     ;;
 esac
 
-# Resolve stale_lock_threshold (minutes). The local override lives at the
-# repo root (<spec-dir>/../..), the layout the lock protocol assumes.
+# Resolve stale_lock_threshold (minutes) as the bundle's work repository sees
+# it; with none, only the layers that need no repository apply.
 threshold_min=15
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-repo_root=$(cd "$canon_dir/../.." 2>/dev/null && pwd) || repo_root=""
-local_cfg=""
-[ -n "$repo_root" ] && local_cfg="$repo_root/.claude/planwright.local.yml"
+repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$canon_dir" 2>/dev/null) || repo_root=none
 
 # config-get's stderr is NOT suppressed: it is silent on a found/absent key,
 # and the one thing it does emit — the broken-install diagnostic when the
 # tracked defaults are missing/unreadable — is exactly what should surface
 # rather than be swallowed into a silent 15m fallback.
-v=$(PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
-  "$script_dir/config-get.sh" stale_lock_threshold) || v=""
+v=$(PLANWRIGHT_REPO_ROOT="$repo_root" "$script_dir/config-get.sh" stale_lock_threshold) || v=""
 v=${v%m}
 case "$v" in
   '') ;; # key absent everywhere: the tracked default (15) stands

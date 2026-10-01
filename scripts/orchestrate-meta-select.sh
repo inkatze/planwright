@@ -113,10 +113,10 @@ fi
 # the basename becomes the spec id used downstream in branch names and trailers,
 # so it must satisfy the anchored identifier grammar (REQ-A1.8) — a hostile id is
 # rejected before it reaches any path or git op. A fleet supervises specs in ONE
-# checkout: the config overlay (below) is read once from the shared repo root and
-# the bounds are only meaningful against a single derivation base, so every spec
-# must be inside a git work tree AND share the first spec's toplevel. A spec in no
-# git work tree, or in a different checkout, is a caller error and fails closed
+# work repository: the config overlay (below) is read once from it and the bounds
+# are only meaningful against a single derivation base, so every spec must have a
+# work repository (scripts/resolve-work-repo.sh) AND share the first spec's. A
+# spec with none, or with a different one, is a caller error and fails closed
 # (exit 2) rather than silently resolving bounds from one repo while deriving
 # state against another.
 repo_root=""
@@ -140,9 +140,9 @@ for spec_dir in "$@"; do
     printf '%s\n' "orchestrate-meta-select: missing or unreadable $(sanitize_printable "$spec_dir" "(unprintable path)")/tasks.md" >&2
     exit 2
   fi
-  spec_top=$(cd "$spec_dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || spec_top=""
+  spec_top=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>/dev/null) || spec_top=""
   if [ -z "$spec_top" ]; then
-    printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' is not inside a git work tree" >&2
+    printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' has no work repository (it is not inside a git work tree, and no repository here names its spec root)" >&2
     exit 2
   fi
   if [ -z "$repo_root" ]; then
