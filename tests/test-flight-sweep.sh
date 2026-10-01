@@ -297,6 +297,15 @@ fi
 out=$(cd "$repo" && GH_STUB_LOG="$c/gh.log" GH_STUB_FAIL=1 "$SCRIPT" sweep 2>/dev/null)
 printf '%s\n' "$out" | grep -q "^forge${TAB}unavailable" || fail "a failing forge is reported unavailable"
 [ "$(grep -c '^pr list' "$c/gh.log")" -eq 1 ] || fail "a forge that fails outright is asked once, not once per flight"
+# Flights still in the air are asked about first, so a budget spent on the
+# branches of long-landed flights never leaves a live one unread.
+: >"$c/gh.log"
+(cd "$repo" && GH_STUB_LOG="$c/gh.log" "$SCRIPT" sweep --no-write >/dev/null 2>&1)
+asked=$(sed -n 's#^pr list .*--head planwright/flight/\([^ ]*\) .*#\1#p' "$c/gh.log")
+printf '%s\n' "$asked" | awk -v wt=" $AIR $DEAD $QUEUED $PRINT $TMUXF $NOREG " '
+  index(wt, " " $0 " ") { if (seen_other) bad = 1; next }
+  { seen_other = 1 }
+  END { exit bad }' || fail "the forge is asked about worktree flights before the rest (asked: $(printf "%s" "$asked" | tr "\n" " "))"
 r=$(row "$out" "$AIR")
 [ "$(field "$r" 3)" = unknown ] && [ "$(field "$r" 5)" = alive ] \
   || fail "an unread landing leaves a live worktree flight unknown, never a verdict (got: $r)"

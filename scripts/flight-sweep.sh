@@ -483,9 +483,16 @@ cmd_sweep() {
     rec_read=0
   fi
 
+  # Worktree flights are read first, so the forge budget goes to the flights
+  # still in the air before the branches of long-landed ones; the rows are put
+  # back in id order for the render.
+  order=$({
+    printf '%s\n' "$wts" | cut -f1 | awk "$ID_AWK" | sort -u
+    printf '%s\n' "$ids"
+  } | awk 'NF && !seen[$0]++')
   flights=''
   IFS=$LF
-  for id in $ids; do
+  for id in $order; do
     IFS=$_old_ifs
     branch=planwright/flight/$id
     ref=''
@@ -587,7 +594,7 @@ cmd_sweep() {
   emit "forge$TAB$forge_state$TAB$forge_reason"
   emit "registry$TAB$registry_state"
   emit "queue$TAB$queue_state"
-  render="$render$flights"
+  [ -z "$flights" ] || render="$render$(printf '%s' "$flights" | sort -t "$TAB" -k2,2)$LF"
   printf '%s' "$render"
   [ "$write" -eq 0 ] || write_index
 }
