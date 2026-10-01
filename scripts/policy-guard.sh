@@ -1811,8 +1811,9 @@ git_alias_check() {
   if [ -n "$v" ]; then
     case $v in
       '!'*)
-        raw_evidence "git ${v#!}" || raw_evidence "$v" \
-          && deny_now "the git alias $(sanitize_printable "$sub" 'used here') runs a shell command that names a reserved act - refusing (fail closed). Run the commands directly."
+        # A shell alias can reach any act, through another alias or text it
+        # builds, so it is refused whatever it names.
+        deny_now "the git alias $(sanitize_printable "$sub" 'used here') runs a shell command, which the guard does not read - refusing (fail closed). Run the commands directly."
         ;;
       *)
         first=${v#"${v%%[![:space:]]*}"}

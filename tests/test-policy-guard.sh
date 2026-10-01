@@ -392,6 +392,10 @@ done
 gitq -C "$UNIT" config alias.up ' push --force origin main'
 pg worker 'git up'
 expect deny "[worker] an alias value with leading blanks still reads its first word"
+gitq -C "$UNIT" config alias.sync '!git up'
+pg worker 'git sync'
+expect deny "[worker] a shell alias reaching a reserved act through another alias denies"
+gitq -C "$UNIT" config --unset alias.sync
 gitq -C "$UNIT" config --unset alias.up
 gitq -C "$UNIT" config --unset alias.ch
 
