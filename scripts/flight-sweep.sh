@@ -420,13 +420,20 @@ cmd_sweep() {
   fi
   # A record file lands under the spec home, read here as a path relative to
   # the checkout. A spec home outside the checkout cannot be carried on a
-  # flight branch, so no record landing is looked for there.
+  # flight branch, so no record landing is looked for there; one that cannot
+  # be resolved leaves every record landing unread.
   rec_dir=''
-  _sr=$(cd "$repo_root" && /bin/sh "$RESOLVE_ROOT" spec 2>/dev/null </dev/null) || _sr=''
-  case $_sr in
-    "$repo_root"/*) rec_dir="${_sr#"$repo_root"/}/_flights" ;;
-  esac
-  ! has_ctl "$rec_dir" || rec_dir=''
+  rec_read=0
+  if _sr=$(cd "$repo_root" && /bin/sh "$RESOLVE_ROOT" spec 2>/dev/null </dev/null); then
+    rec_read=1
+    case $_sr in
+      "$repo_root"/*) rec_dir="${_sr#"$repo_root"/}/_flights" ;;
+    esac
+  fi
+  if has_ctl "$rec_dir"; then
+    rec_dir=''
+    rec_read=0
+  fi
 
   flights=''
   IFS=$LF
@@ -473,6 +480,9 @@ cmd_sweep() {
         esac
       fi
     fi
+
+    # No PR is no landing only when the record file could be looked for too.
+    [ "$landing" != none ] || [ "$rec_read" -eq 1 ] || landing=unknown
 
     wt=$(printf '%s\n' "$wts" | awk -F "$TAB" -v id="$id" '$1 == id { print $2; exit }')
     rec=$(printf '%s\n' "$registry" | awk -F "$TAB" -v id="$id" '

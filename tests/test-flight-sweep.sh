@@ -504,6 +504,15 @@ r=$(row "$out" "$PRINT")
 [ "$(field "$r" 7)" = - ] || fail "a flight branch checked out in the primary checkout has no worktree (got: $r)"
 r=$(row "$out" "$TMUXF")
 [ "$(field "$r" 7)" = - ] || fail "a worktree path with a control byte is left out (got: $r)"
+# A spec home that cannot be resolved leaves the record landing unread, so a
+# record-less branch is unknown rather than stranded.
+mkdir -p "$nr/.claude"
+printf 'spec_root: nowhere/dir\n' >"$nr/.claude/planwright.local.yml"
+out=$(cd "$nr" && "$SCRIPT" sweep --no-write 2>/dev/null)
+rm -f "$nr/.claude/planwright.local.yml"
+r=$(row "$out" "$STRAND")
+[ "$(field "$r" 3)" = unknown ] && [ "$(field "$r" 4)" = unknown ] \
+  || fail "an unresolvable spec home leaves a record-less branch unknown (got: $r)"
 nr_idx=$(cd "$nr" && "$SCRIPT" path)
 gitc "$nr" checkout -q main
 gitc "$nr" worktree remove --force "$tmp/tab${TAB}path"
