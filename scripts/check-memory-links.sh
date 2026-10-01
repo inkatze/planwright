@@ -15,7 +15,7 @@
 #     kickoff-brief bodies are append-only and out of scope (REQ-D1.1): their
 #     historical `[[…]]` are a bounded, named carve-out, reconciled only where
 #     the amendment ritual reaches spec files (REQ-D1.4).
-#   - Bundles: every specs/<name>/ whose name does not start with `_`
+#   - Bundles: every <root>/<name>/ whose name does not start with `_`
 #     (underscore-prefixed dirs are accumulators, not bundles). A bundle's
 #     Status is read from requirements.md; terminal bundles (Done, Retired,
 #     Superseded) are frozen — changing them requires a Done->Draft reopen plus
@@ -39,7 +39,8 @@
 # placeholder to opt out).
 #
 # Usage: check-memory-links.sh [<spec-dir>...]
-#   With no arguments, scans every non-accumulator bundle under specs/.
+#   With no arguments, scans every non-accumulator bundle under the spec root
+#   the working directory resolves.
 #   Each argument is a single spec bundle directory.
 #
 # Exit codes: 0 no live memory link found (or only skipped bundles), 1 a
@@ -58,7 +59,7 @@ export LC_ALL
 # A user CDPATH would make cd echo into the command substitutions below.
 unset CDPATH
 
-repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
+script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 
 # Collect the bundle directories to scan.
 dirs=()
@@ -71,11 +72,15 @@ if [ "$#" -gt 0 ]; then
     dirs+=("$d")
   done
 else
-  for d in "$repo_root"/specs/*/; do
+  specs_root=$(/bin/sh "$script_dir/resolve-root.sh" spec) || {
+    echo "check-memory-links: no bundle given and the spec root did not resolve" >&2
+    exit 2
+  }
+  for d in "$specs_root"/*/; do
     [ -d "$d" ] || continue
     base="$(basename "$d")"
     case "$base" in
-      _*) continue ;; # accumulators (specs/_observations, specs/_pending) are not bundles
+      _*) continue ;; # accumulators (_observations, _pending) are not bundles
     esac
     dirs+=("$d")
   done

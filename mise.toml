@@ -62,8 +62,12 @@ description = "shfmt diff check on scripts, tests, sourced test libraries under 
 run = "shfmt -d scripts/*.sh tests/*.sh tests/lib/*.sh githooks/*"
 
 [tasks."lint:md"]
-description = "markdownlint on prose (specs get the scoped specs/.markdownlint.jsonc relaxation; the _observations accumulator is data, excluded)"
-run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' 'specs/**/*.md' 'templates/**/*.md' '!specs/_observations/**'"
+description = "markdownlint on prose (the spec root, from scripts/resolve-root.sh, gets the scoped relaxation in its own .markdownlint.jsonc, specs/.markdownlint.jsonc by default; the _observations accumulator is data, excluded)"
+run = '''
+root=$(/bin/sh scripts/resolve-root.sh spec) || exit 1
+case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
+markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' "$root/**/*.md" 'templates/**/*.md' "!$root/_observations/**"
+'''
 
 [tasks."lint:yaml"]
 description = "yamllint on tracked config, workflows, and the pre-commit mirror config"
@@ -90,13 +94,15 @@ description = "flag machine-local [[name]] memory links in committed spec files 
 run = "/bin/bash scripts/check-memory-links.sh"
 
 [tasks."check:specs"]
-description = "planwright spec validator over specs/ (enforced; REQ-A2.1)"
+description = "planwright spec validator over the spec root scripts/resolve-root.sh resolves (enforced; REQ-A2.1)"
 run = '''
 if [ ! -x scripts/spec-validate.sh ]; then
   echo "check:specs: scripts/spec-validate.sh missing or not executable" >&2
   exit 1
 fi
-/bin/bash scripts/spec-validate.sh specs/
+root=$(/bin/sh scripts/resolve-root.sh spec) || exit 1
+case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac
+/bin/bash scripts/spec-validate.sh "$root/"
 '''
 
 [tasks."lint:json"]

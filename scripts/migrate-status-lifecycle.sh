@@ -2,11 +2,11 @@
 # migrate-status-lifecycle.sh [specs-dir]
 #
 # The one-time adoption migration for the six-status lifecycle (kickoff-lifecycle
-# Task 8; REQ-A1.7, D-4). Sweeps every spec bundle under <specs-dir> (default the
-# repo's specs/) and reconciles its bundle **Status:** header to the value derived
-# from task state: a bundle whose declared Status is Active but with no task
-# deriving In-progress or Completed migrates to Ready; a bundle with work in
-# flight or completed stays Active; Done takes precedence when no startable task
+# Task 8; REQ-A1.7, D-4). Sweeps every spec bundle under <specs-dir> (default
+# the spec root the working directory resolves) and reconciles its bundle
+# **Status:** header to the value derived from task state: a bundle whose
+# declared Status is Active but with no task deriving In-progress or Completed
+# migrates to Ready; a bundle with work in flight or completed stays Active; Done takes precedence when no startable task
 # remains. Because Ready<->Active is derived (D-3), the reconcile *is* the
 # migration (D-4): this is a thin one-time application of the SAME single writer,
 # `tasks-pr-sync.sh reconcile-status` (do_status), not a second status writer.
@@ -34,14 +34,20 @@ unset CDPATH 2>/dev/null || true
 
 here=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 sync_sh="$here/tasks-pr-sync.sh"
-repo_root=$(cd "$here/.." && pwd -P) || exit 2
 
 if [ ! -x "$sync_sh" ]; then
   echo "migrate-status-lifecycle: reconcile writer missing or not executable: $sync_sh" >&2
   exit 2
 fi
 
-specs_arg="${1:-$repo_root/specs}"
+if [ $# -ge 1 ]; then
+  specs_arg=$1
+else
+  specs_arg=$(/bin/sh "$here/resolve-root.sh" spec) || {
+    echo "migrate-status-lifecycle: no specs dir given and the spec root did not resolve" >&2
+    exit 2
+  }
+fi
 specs_dir=$(cd "$specs_arg" 2>/dev/null && pwd -P) || {
   echo "migrate-status-lifecycle: no such specs dir: $specs_arg" >&2
   exit 2
