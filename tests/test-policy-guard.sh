@@ -10,6 +10,7 @@
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
+unset CDPATH
 # shellcheck source=tests/lib/policy-guard-harness.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib/policy-guard-harness.sh"
 
