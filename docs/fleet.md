@@ -1555,9 +1555,9 @@ sweep is started. The wait between cycles is never under one second.
 Each cycle runs five passes: the worktree disk scan, so a worktree nothing
 recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
 the process reap; and the flight residues, which retire a gone flight's brief
-and prune the flight index of a checkout that no longer exists. The reap hands every worker whose session has ended to
-`fleet-cleanup.sh process`, so it refuses what that refuses and kills only
-through the rungs' `stop`.
+and prune the flight index of a checkout that no longer exists. The reap
+hands every worker whose session has ended to `fleet-cleanup.sh process`, so
+it refuses what that refuses and kills only through the rungs' `stop`.
 
 **It observes until you promote it.** At the default the reap writes the
 `would-cleanup` record for each worker it would have closed and kills nothing,
