@@ -62,7 +62,7 @@ description = "shfmt diff check on scripts, tests, sourced test libraries under 
 run = "shfmt -d scripts/*.sh tests/*.sh tests/lib/*.sh githooks/*"
 
 [tasks."lint:md"]
-description = "markdownlint on prose (the spec root, from scripts/resolve-root.sh, gets the scoped relaxation in its own .markdownlint.jsonc, specs/.markdownlint.jsonc by default; the _observations accumulator is data, excluded)"
+description = "markdownlint on prose (the spec root, from scripts/resolve-root.sh, gets the scoped relaxation from a .markdownlint.jsonc it carries, specs/.markdownlint.jsonc by default; the _observations accumulator is data, excluded)"
 run = '''
 root=$(/bin/sh scripts/resolve-root.sh spec) || exit 1
 case $root in "$(pwd -P)"/*) root=${root#"$(pwd -P)"/} ;; esac

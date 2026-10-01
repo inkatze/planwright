@@ -32,7 +32,9 @@
 #   repository's own config only, as git does.
 # spec      where bundles and the reserved accumulators live: the spec_root
 #           option, read through the config overlay as resolved from the
-#           primary checkout, else <checkout>/specs. A value is absolute,
+#           primary checkout (the repo --primary answer, so
+#           PLANWRIGHT_REPO_ROOT applies and none is exit 3), else
+#           <checkout>/specs. A value is absolute,
 #           ~/-prefixed (~ alone is HOME; ~user is refused), or relative to
 #           the primary checkout; a ~ value needs an absolute HOME. Empty is
 #           unset in its layer. A value that names no directory, escapes the
@@ -87,9 +89,9 @@
 #   or invalid marker, a ~ value without an absolute HOME, a control byte or
 #   tab in the canonical path; --init could not derive a project identifier
 #   or write, or was given a repo-tracked value outside the primary
-#   checkout) · 6
-#   spec_root unreadable (a malformed repo-tracked config file, or a
-#   repo-tracked value carrying a control byte; or a broken install).
+#   checkout) · 6 spec_root unreadable (a malformed repo-tracked config
+#   file, or a repo-tracked value carrying a control byte; or a broken
+#   install).
 #   Callers treat 3 as "no repository" and degrade; they never compose a
 #   path from an empty root.
 #

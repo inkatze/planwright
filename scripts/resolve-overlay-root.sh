@@ -20,7 +20,8 @@
 #     override. $PLANWRIGHT_REPO_ROOT is honoured only when it names a git
 #     toplevel (resolve-root.sh validates it); any other value is refused on
 #     stderr and the repo-side layers are absent. Callers set it to none to
-#     read no repo-side layer at all.
+#     read no repo-side layer at all. A broken install with no root helper
+#     cannot validate it, and uses a value other than none as given.
 #     When the layer is legitimately absent (adopter namespace underivable;
 #     no repo for the repo-side layers), prints nothing and exits 0 — an
 #     absent overlay layer is a normal state, never an error (REQ-A1.4).

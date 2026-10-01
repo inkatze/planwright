@@ -18,9 +18,9 @@
 #   spec-walkthrough.sh [--scope <selector>] [--reveal] <spec-path>
 #
 # <spec-path> is `specs/<spec>` or the bare `<spec>` (the two sanctioned forms,
-# the same pair the sibling skills accept), resolved relative to the current
-# directory — the repo-root invocation contract, as `mise run check:specs`
-# calls the validator. <selector> names which part to render (REQ-B1.2):
+# the same pair the sibling skills accept), resolved under the spec root the
+# working directory's repository resolves (scripts/resolve-root.sh spec); with
+# no root resolved it is refused. <selector> names which part to render (REQ-B1.2):
 #   whole                 the whole bundle (default)
 #   file:<name>           one source file (requirements|design|tasks|test-spec)
 #   reqs:<GROUP>          one requirement group (e.g. reqs:A)

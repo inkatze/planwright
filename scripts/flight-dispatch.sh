@@ -71,7 +71,9 @@
 #       --home defaults to what `home` declares; the tower passes the home it
 #       already stated so the record lands where it said. `--home pr` is
 #       refused (exit 2) when `home` would not declare it; `--home file` skips
-#       the `gh` check. For `file`, dispatch computes the record path and the
+#       the `gh` check, and is refused (exit 2) when the spec root lies outside
+#       the checkout, since the record is committed on the flight's branch.
+#       For `file`, dispatch computes the record path and the
 #       brief's land line passes it to scripts/flight-record.sh
 #       (`--record-path`), which composes none of its own.
 #       --attach-dry-run (tmux) places the flight but prints the attach plan

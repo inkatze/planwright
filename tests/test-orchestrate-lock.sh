@@ -157,10 +157,14 @@ loosespec="$tmp/loose/notspecs/demo"
 git_repo "$tmp/loose"
 mkdir -p "$loosespec"
 rc=0
-/bin/bash "$LOCK" acquire "$loosespec" >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "non-specs parent: exit $rc, expected 2"
-[ ! -d "$loosespec/.orchestrate.lock" ] || fail "non-specs parent: a lock was created"
-echo "ok: a spec dir outside a specs/ parent is refused (REQ-F1.1)"
+err=$(/bin/bash "$LOCK" acquire "$loosespec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "uncontained spec dir: exit $rc, expected 2"
+case $err in
+  *"not contained under a resolved spec root"*) ;;
+  *) fail "uncontained spec dir: refused for another reason: $err" ;;
+esac
+[ ! -d "$loosespec/.orchestrate.lock" ] || fail "uncontained spec dir: a lock was created"
+echo "ok: a spec dir under no resolved spec root is refused (REQ-F1.1)"
 
 # 10. REQ-F1.1 containment *after canonicalization*: a spec dir that is a
 #     symlink resolving outside the spec root is refused — the physical

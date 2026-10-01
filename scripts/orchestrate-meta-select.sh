@@ -148,7 +148,7 @@ for spec_dir in "$@"; do
   if [ -z "$repo_root" ]; then
     repo_root="$spec_top"
   elif [ "$spec_top" != "$repo_root" ]; then
-    printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' is in a different checkout ('$(sanitize_printable "$spec_top" "(unprintable path)")') than the fleet root ('$(sanitize_printable "$repo_root" "(unprintable path)")'); a fleet supervises specs in one checkout" >&2
+    printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' has a different work repository ('$(sanitize_printable "$spec_top" "(unprintable path)")') than the fleet's ('$(sanitize_printable "$repo_root" "(unprintable path)")'); a fleet supervises the specs of one work repository" >&2
     exit 2
   fi
 done
@@ -166,13 +166,12 @@ done
 # the fallback. We still fall back to the safe default on that exit so one broken
 # shared config never wedges the fleet, matching the sibling threshold reads.
 #
-# PLANWRIGHT_REPO_ROOT is pinned to the validated fleet root so config resolution
-# is independent of the caller's CWD (matching scripts/fleet-state.sh, which pins
-# it for the same cross-spec reason). Without the pin, config-get resolves the
-# repo-tracked and adopter overlay layers from the CWD's git toplevel
-# (resolve-overlay-root.sh), so invoking this selector from a different repo — or
-# outside any repo — would read the wrong repo-tracked overlay and could apply an
-# incorrect bound for the fleet the specs actually live in. PLANWRIGHT_LOCAL_CONFIG
+# PLANWRIGHT_REPO_ROOT is pinned to the specs' work repository so config
+# resolution is independent of the caller's CWD. Without the pin, config-get
+# resolves the repo-side overlay layers from the CWD's repository
+# (resolve-overlay-root.sh), so invoking this selector from a different repo —
+# or outside any repo — would read the wrong repo-tracked overlay and could
+# apply an incorrect bound for the fleet the specs actually belong to. PLANWRIGHT_LOCAL_CONFIG
 # pins the machine-local layer to the same root (it already did); the two together
 # tie every overlay layer to repo_root.
 read_bound() {

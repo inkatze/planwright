@@ -85,7 +85,7 @@
 #     finish-error (only on a failed exit write) — marks a completed-but-
 #                  unrecordable worker so status reports `unknown`, not `died`
 # All files are owner-only (umask 077). The default base sits under
-# specs/<spec>/.orchestrate/ (gitignored runtime state, like the dispatch
+# <spec-root>/<spec>/.orchestrate/ (gitignored runtime state, like the dispatch
 # markers), so nothing here is ever committed.
 #
 # Usage:
@@ -353,13 +353,13 @@ validate_launch_extra() {
 
 # --- Destructive-path containment guard (REQ-A1.9, mirrors the sibling) -------
 # `rm -rf`/`mkdir -p` on the unit dir FOLLOW a symlinked path component, so a
-# compromised checkout carrying a symlinked `specs/<spec>`, `.orchestrate`, or
-# `headless` (or a hostile PLANWRIGHT_HEADLESS_STATE_DIR) could make the reclaim
-# delete or create OUTSIDE the intended base. Refuse a symlinked component or
-# leaf, materialize the base as a REAL directory, and confirm the base
-# physically resolves UNDER the repo root — fail closed. $1 = base dir,
-# $2 = unit dir, $3 = physical repo root (empty under the env override, which
-# has no repo anchor), $4 = spec dir (same). Runs before any rm/mkdir.
+# compromised checkout carrying a symlinked `<spec-root>/<spec>`, `.orchestrate`,
+# or `headless` (or a hostile PLANWRIGHT_HEADLESS_STATE_DIR) could make the
+# reclaim delete or create OUTSIDE the intended base. Refuse a symlinked
+# component or leaf, materialize the base as a REAL directory, and confirm the
+# base physically resolves UNDER the spec root — fail closed. $1 = base dir,
+# $2 = unit dir, $3 = physical spec root (empty under the env override, which
+# has no anchor), $4 = spec dir (same). Runs before any rm/mkdir.
 guard_unit_containment() {
   guc_base=$1
   guc_unit=$2
