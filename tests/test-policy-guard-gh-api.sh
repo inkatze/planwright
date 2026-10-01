@@ -56,6 +56,7 @@ for tier in worker tower; do
     'gh api -X DELETE repos/acme/widgets/git/refs/heads/planwright/demo/spec' \
     'gh api repos/acme/widgets/git/refs -f ref=refs/heads/master -f sha=abc' \
     'gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=main' \
+    'gh api -X POST repos/acme/widgets/branches/main/rename -f new_name=old' \
     "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"acme/widgets\",branchName:\"main\"},message:{headline:\"x\"},expectedHeadOid:\"abc\"}){commit{oid}}}'"; do
     pg "$tier" "$cmd"
     expect deny "[$tier] $cmd"
@@ -109,6 +110,9 @@ UNREADABLE=(
   'gh api' 'gh api repos/a repos/b -f x=y'
   "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{id:\"B_x\"}}){commit{oid}}}'"
   "gh api graphql -f query='mutation(\$b:String!){createCommitOnBranch(input:{branch:{branchName:\$b}}){commit{oid}}}' -f b=main"
+  "gh api graphql -f query='mutation(\$b:String!){createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"o/r\",branchName:\$b}}){commit{oid}}} # branchName: \"mine\"' -f b=main"
+  "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{branchName:\"mine\"}}){commit{oid}}} # x' -f b=main"
+  'gh api -X POST repos/acme/widgets/branches/{branch}/rename -f new_name=x'
 )
 for tier in worker tower; do
   for cmd in "${UNREADABLE[@]}"; do

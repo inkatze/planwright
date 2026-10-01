@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # policy-guard.sh — the deny-emitting PreToolUse hook that enforces the
-# human-gates policy knobs for the tier a session runs under (human-gates D-9;
-# doctrine/human-gates.md states the list and each rule's kind).
+# human-gates policy knobs for the tier a session runs under
+# (doctrine/human-gates.md states the list and each rule's kind).
 #
 # Usage, as the tier profiles wire it:
 #   policy-guard.sh <tier> <surface>
@@ -16,12 +16,17 @@
 # Every refusal names its remedy.
 #
 # ORDER. The intercepted call is classified first, with no knob read: a call
-# that performs none of the acts below defers at zero cost, and a call whose
-# verdict no value can change (the floor, the tower's refusals, a `gh api` act,
-# a request the guard cannot read) denies before any read. Only then does the
-# guard read the knob the matched act needs, through
-# scripts/resolve-policy-knob.sh, bounded by a wall-clock limit; any read
-# failure denies.
+# that performs none of the acts below defers with no read, and a call no
+# value or protected set can change (a force or bulk push, the undo, the PR
+# merge, the tower's refusals, a `gh api` act, a request the guard cannot
+# read) denies before any read. Only then does the guard read what the matched
+# act needs (its knob, the protected set) through
+# scripts/resolve-policy-knob.sh, each read bounded by
+# PLANWRIGHT_POLICY_GUARD_TIMEOUT seconds (default 10) and the upstream
+# refresh by PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT (default 20); any read
+# failure denies. A command whose earlier segment changes git configuration,
+# the checked-out branch, or the refs is refused: every segment is checked
+# against the state as it stands before the command runs.
 #
 # ACTS.
 #   flip        `gh pr ready <n>` and the MCP draft->ready transition.
@@ -41,11 +46,15 @@
 #               rewritten commit.
 #   push        a force or bulk push denies; every other push reads the
 #               protected set and denies a target inside it.
-#   gh api      classified by the act it performs (D-9's readable and matching
-#               rules): the flip, undo, PR merge, base merge, and forced ref
-#               update deny at every tier with no read; a ref, contents, or
-#               commit write reads only the protected set; a request the guard
-#               cannot read denies before any read; anything else defers.
+#   gh api      classified by the act it performs, its names matched in any
+#               field: the flip, undo, PR merge, base merge, and forced ref
+#               update deny at every tier with no read; a ref, contents,
+#               commit, or rename write to a named branch reads only the
+#               protected set (a contents write naming no branch denies, since
+#               it writes the default branch); a request the guard cannot read
+#               (a field from a file or stdin, an --input body, a non-literal
+#               endpoint, method, or query on a write, an unknown flag) denies
+#               before any read; anything else defers.
 # Every segment of a compound command is classified and the strictest verdict
 # wins.
 #
@@ -53,7 +62,8 @@
 # directory (CLAUDE_PROJECT_DIR, which Claude Code sets for every hook), when
 # that branch is a task or flight branch. The PR base is the default branch of
 # the unit branch's remote as recorded locally (`refs/remotes/<remote>/HEAD`,
-# else `main`): the guard never queries the host for it.
+# else `main`): the guard never queries the host for it, so a unit whose PR
+# targets another branch syncs through scripts/converge-sync-main.sh.
 #
 # SECURITY. No model in the decision path. The payload is inert data: never
 # evaluated, expanded, or executed. Identifiers reach git as argv after a
@@ -93,6 +103,12 @@ TAB=$'\t'
 emit_deny() {
   local reason out
   reason="$REASON_PREFIX$(sanitize_printable "$1" 'refusing a reserved act it could not check')"
+  # A reason that stops at the refusal gets the general remedy.
+  case $reason in
+    *'(fail closed).' | *'refusing.')
+      reason="$reason Re-issue it as a plain, literal command from your own worktree, or leave the act to the operator."
+      ;;
+  esac
   out=$(jq -nc --arg r "$reason" \
     '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}' 2>/dev/null) \
     || out=''
@@ -119,44 +135,101 @@ RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push)([^[:alnum:]_-]|\$)"
 RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 
 raw_evidence_one() {
-  local t=$1
-  [[ $t =~ $RE_GH_API ]] && return 0
-  [[ $t =~ $RE_GH_PR ]] && return 0
-  [[ $t =~ $RE_GIT_ACT ]] && return 0
-  [[ $t =~ $RE_GIT_REWRITE ]] && return 0
+  local t=$1 rc=1
+  # Case-insensitive: a case-insensitive filesystem runs `git REBASE`.
+  shopt -s nocasematch
+  if [[ $t =~ $RE_GH_API ]] || [[ $t =~ $RE_GH_PR ]] || [[ $t =~ $RE_GIT_ACT ]] \
+    || [[ $t =~ $RE_GIT_REWRITE ]]; then
+    rc=0
+  fi
+  shopt -u nocasematch
+  [ "$rc" = 1 ] || return 0
   case $t in *"$MCP_TOOL"*) return 0 ;; esac
   return 1
 }
 
 # raw_evidence <text> — the text as written, then with its quote and escape
-# characters removed, so `me""rge` reads as `merge`.
+# characters removed (so `me""rge` reads as `merge`) and its escaped newlines
+# and tabs read as blanks.
 raw_evidence() {
-  raw_evidence_one "$1" && return 0
-  raw_evidence_one "$(printf '%s' "$1" | tr -d "\"'\\\\")"
+  local t=$1
+  raw_evidence_one "$t" && return 0
+  t=${t//\\n/ }
+  t=${t//\\t/ }
+  t=${t//[\"\'\\]/}
+  raw_evidence_one "$t"
 }
 
-# strip_heredoc_bodies <text> — the text with every here-document body removed,
-# so a commit message or PR body handed over a heredoc is not read as commands.
+# strip_heredoc_bodies <text> — the text with the body of every terminated
+# here-document removed, so a commit message or PR body handed over a heredoc
+# is not read as commands. A heredoc whose opening line pipes it or hands it to
+# a shell or an interpreter keeps its body: there the body is a command. An
+# unterminated `<<` (an arithmetic shift, say) strips nothing.
 strip_heredoc_bodies() {
-  local line out='' delim='' tabs=0 cand re
-  re='<<(-?)[[:space:]]*["'"'"'\\]?([A-Za-z_][A-Za-z0-9_]*)'
+  local -a lines=() kept=()
+  local line n i j delim tabs cand re feeds
+  re='(^|[^<])<<(-?)[[:space:]]*["'"'"'\\]?([A-Za-z0-9_.-]+)'
+  feeds='\||(^|[^[:alnum:]_])(bash|sh|zsh|dash|ksh|mksh|fish|eval|source|xargs|parallel|python[0-9.]*|perl|ruby|node)([^[:alnum:]_]|$)'
   while IFS= read -r line || [ -n "$line" ]; do
-    if [ -n "$delim" ]; then
-      cand=$line
-      [ "$tabs" = 0 ] || cand=${cand#"${cand%%[!"$TAB"]*}"}
-      [ "$cand" != "$delim" ] || delim=''
-      continue
-    fi
-    out="$out$line$NL"
-    if [[ $line =~ $re ]]; then
-      delim=${BASH_REMATCH[2]}
-      tabs=0
-      [ -z "${BASH_REMATCH[1]}" ] || tabs=1
-    fi
+    lines[${#lines[@]}]=$line
   done <<EOF
 $1
 EOF
-  printf '%s' "$out"
+  n=${#lines[@]}
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    line=${lines[$i]}
+    kept[${#kept[@]}]=$line
+    i=$((i + 1))
+    [[ $line =~ $re ]] || continue
+    delim=${BASH_REMATCH[3]}
+    tabs=0
+    [ -z "${BASH_REMATCH[2]}" ] || tabs=1
+    [[ $line =~ $feeds ]] && continue
+    j=$i
+    while [ "$j" -lt "$n" ]; do
+      cand=${lines[$j]}
+      [ "$tabs" = 0 ] || cand=${cand#"${cand%%[!"$TAB"]*}"}
+      [ "$cand" != "$delim" ] || break
+      j=$((j + 1))
+    done
+    [ "$j" -lt "$n" ] || continue
+    i=$((j + 1))
+  done
+  [ "${#kept[@]}" = 0 ] || printf '%s\n' "${kept[@]}"
+}
+
+# fold_heredoc_substitutions <text> — set FOLDED to the text with every
+# `$(cat <<'DELIM' ... DELIM)` (a quoted delimiter, so the body expands
+# nothing) replaced by the non-literal word `$__PG_HEREDOC__`. That is the
+# idiom a commit message or PR body arrives in; folding it lets the rest of
+# the command be parsed instead of refused. The replacement is not literal,
+# so a gh api query carried this way still reads as unreadable.
+fold_heredoc_substitutions() {
+  local s=$1 out='' m delim pre rest after re
+  re='\$\([[:space:]]*cat[[:space:]]+<<[[:space:]]*['"'"'"]([A-Za-z0-9_.-]+)['"'"'"][ '"$TAB"']*'"$NL"
+  while [[ $s =~ $re ]]; do
+    m=${BASH_REMATCH[0]}
+    delim=${BASH_REMATCH[1]}
+    pre=${s%%"$m"*}
+    rest=${s#*"$m"}
+    if [ "${rest#"$delim$NL"}" != "$rest" ]; then
+      after=${rest#"$delim$NL"}
+    else
+      case $rest in
+        *"$NL$delim$NL"*) after=${rest#*"$NL$delim$NL"} ;;
+        *) break ;;
+      esac
+    fi
+    after=${after#"${after%%[![:space:]]*}"}
+    case $after in
+      ')'*) ;;
+      *) break ;;
+    esac
+    out="$out$pre\$__PG_HEREDOC__"
+    s=${after#)}
+  done
+  FOLDED="$out$s"
 }
 
 deny_unanalyzable() {
@@ -267,6 +340,11 @@ tokenize() {
                   j=$((j + 2))
                   continue
                   ;;
+                "$NL")
+                  # A line continuation: bash drops both characters here too.
+                  j=$((j + 2))
+                  continue
+                  ;;
               esac
               cur="$cur\\"
               ;;
@@ -323,7 +401,10 @@ tokenize() {
       '<' | '>')
         nc=${s:i+1:1}
         [ "$nc" != '(' ] || return 1
-        if [ "$have" = 1 ] && [ "$uqonly" = 1 ] && [ "$digits_only" = 1 ]; then
+        # An fd designator before the operator (`2>`, or bash's named `{fd}>`)
+        # is not an argument, so it is not a word either.
+        if [ "$have" = 1 ] && [ "$uqonly" = 1 ] \
+          && { [ "$digits_only" = 1 ] || [[ $cur =~ ^\{[A-Za-z_][A-Za-z0-9_]*\}$ ]]; }; then
           cur=''
           have=0
         fi
@@ -513,7 +594,8 @@ valid_rev() {
 # A branch name as git accepts it, narrowed.
 valid_branch() {
   case ${1:-} in
-    "" | -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.) return 1 ;;
+    "" | -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | *.) return 1 ;;
+    HEAD | @ | .* | */.*) return 1 ;;
   esac
   [ "${#1}" -le 255 ]
 }
@@ -537,14 +619,25 @@ gitq() {
 # --------------------------------------------------------------------------
 # Knob reads.
 
-# read_knob <knob> <dir> <legal...> — the resolved value, or a deny.
+# read_knob <knob> <dir> <legal...> — the resolved value, or a deny. A knob
+# read once for a directory is not read again within the call.
+KNOB_CACHE=''
 read_knob() {
   local knob=$1 dir=$2 v rc=0 ok=0 legal
   shift 2
+  case $KNOB_CACHE in
+    *"<$knob|$dir|"*)
+      v=${KNOB_CACHE#*"<$knob|$dir|"}
+      KNOB_VAL=${v%%>*}
+      return 0
+      ;;
+  esac
   need_timeout
   [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/resolve-policy-knob.sh" ] \
     || emit_deny "the policy resolver is missing beside this guard, so $knob could not be read - refusing (fail closed). Reinstall planwright."
-  v=$(cd -- "$dir" 2>/dev/null && "$TB" "$KNOB_T" /bin/sh "$GUARD_DIR/resolve-policy-knob.sh" "$knob" 2>/dev/null </dev/null) || rc=$?
+  [ -d "$dir" ] \
+    || emit_deny "the directory this act runs in does not exist, so the policy knob $knob cannot be read for it - refusing (fail closed). Run the command from your worktree."
+  v=$(cd -- "$dir" 2>/dev/null && "$TB" -k 2 "$KNOB_T" /bin/sh "$GUARD_DIR/resolve-policy-knob.sh" "$knob" 2>/dev/null </dev/null) || rc=$?
   if [ "$rc" = 124 ]; then
     emit_deny "reading the policy knob $knob did not finish within ${KNOB_T}s - refusing (fail closed). This is a timeout, not a policy decision: retry, and report a resolver that stays slow."
   fi
@@ -554,8 +647,9 @@ read_knob() {
     [ "$v" != "$legal" ] || ok=1
   done
   [ "$ok" = 1 ] \
-    || emit_deny "the policy knob $knob resolved to a value the guard does not recognize ($(sanitize_printable "$v" 'unprintable')) - refusing (fail closed)."
+    || emit_deny "the policy knob $knob resolved to a value the guard does not recognize ($(sanitize_printable "$v" 'unprintable')) - refusing (fail closed). Set it to one of: $*."
   KNOB_VAL=$v
+  KNOB_CACHE="$KNOB_CACHE<$knob|$dir|$v>"
 }
 
 # check_unprotected <dir> <what> <branch...> — deny when any branch is in the
@@ -568,11 +662,16 @@ check_unprotected() {
   need_timeout
   [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/protected-branch.sh" ] \
     || emit_deny "the protected-set reader is missing beside this guard - refusing $what (fail closed). Reinstall planwright."
-  err=$(cd -- "$dir" 2>/dev/null && "$TB" "$KNOB_T" /bin/sh "$GUARD_DIR/protected-branch.sh" "$@" 2>&1 >/dev/null </dev/null) || rc=$?
+  [ -d "$dir" ] \
+    || emit_deny "the directory $what runs in does not exist, so the protected set cannot be read for it - refusing (fail closed). Run the command from your worktree."
+  err=$(cd -- "$dir" 2>/dev/null && "$TB" -k 2 "$KNOB_T" /bin/sh "$GUARD_DIR/protected-branch.sh" "$@" 2>&1 >/dev/null </dev/null) || rc=$?
   case $rc in
     0) return 0 ;;
     1)
       emit_deny "$what targets a protected branch ($(sanitize_printable "${err#protected-branch: }" 'a protected branch')); main, master, spec branches, and the protected_branches additions are never written by an agent session at any tier. Work on your own unit branch."
+      ;;
+    2)
+      emit_deny "$what names a branch the protected-set reader refuses as a branch name ($(sanitize_printable "${err#protected-branch: }" 'unprintable')) - refusing (fail closed). Name a valid branch."
       ;;
     124)
       emit_deny "reading the protected set did not finish within ${KNOB_T}s - refusing $what (fail closed). This is a timeout, not a policy decision: retry."
@@ -639,13 +738,34 @@ base_of() {
   [ -n "$head" ] && [ "$BASE_BRANCH" != "$head" ] || BASE_BRANCH=main
 }
 
-# is_base_ref <dir> <name> — 0 when the merge source names the PR base.
+# is_base_ref <dir> <name> — 0 when the merge source is the PR base: by name,
+# and by what git resolves the name to (a local branch or tag called
+# origin/main would shadow the remote-tracking ref). A local base branch
+# counts only while it holds nothing the remote base lacks; FETCH_HEAD only
+# when it holds the base branch fetched from the base remote's own URL.
 is_base_ref() {
-  local d=$1 r=$2 fh line
+  local d=$1 r=$2 fh line url base_oid oid
+  base_oid=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$BASE_REMOTE/$BASE_BRANCH^{commit}") || return 1
+  [ -n "$base_oid" ] || return 1
   case $r in
-    "$BASE_REMOTE/$BASE_BRANCH" | "refs/remotes/$BASE_REMOTE/$BASE_BRANCH" | "remotes/$BASE_REMOTE/$BASE_BRANCH") return 0 ;;
-    "$BASE_BRANCH" | "refs/heads/$BASE_BRANCH" | "heads/$BASE_BRANCH") return 0 ;;
+    "$BASE_REMOTE/$BASE_BRANCH" | "refs/remotes/$BASE_REMOTE/$BASE_BRANCH" | "remotes/$BASE_REMOTE/$BASE_BRANCH")
+      oid=$(gitq "$d" rev-parse --verify --quiet --end-of-options "$r^{commit}") || return 1
+      [ "$oid" = "$base_oid" ]
+      return
+      ;;
+    "$BASE_BRANCH" | "refs/heads/$BASE_BRANCH" | "heads/$BASE_BRANCH")
+      oid=$(gitq "$d" rev-parse --verify --quiet --end-of-options "$r^{commit}") || return 1
+      [ "$oid" = "$(gitq "$d" rev-parse --verify --quiet "refs/heads/$BASE_BRANCH^{commit}")" ] || return 1
+      gitq "$d" merge-base --is-ancestor "$oid" "$base_oid"
+      return
+      ;;
     FETCH_HEAD)
+      url=$(gitq "$d" config --get "remote.$BASE_REMOTE.url") || return 1
+      [ -n "$url" ] || return 1
+      # git may write the URL with trailing slashes and `.git` trimmed.
+      local short=${url%%/}
+      short=${short%.git}
+      short=${short%%/}
       fh=$(gitq "$d" rev-parse --git-path FETCH_HEAD) || return 1
       case $fh in /*) ;; *) fh="$d/$fh" ;; esac
       [ -r "$fh" ] || return 1
@@ -653,7 +773,7 @@ is_base_ref() {
       while IFS= read -r line; do
         case $line in
           *"${TAB}not-for-merge${TAB}"*) continue ;;
-          *"${TAB}${TAB}branch '$BASE_BRANCH' of "*) seen=1 ;;
+          *"${TAB}${TAB}branch '$BASE_BRANCH' of $url" | *"${TAB}${TAB}branch '$BASE_BRANCH' of $short") seen=1 ;;
           *) return 1 ;;
         esac
       done <"$fh"
@@ -672,18 +792,23 @@ refresh_and_check_unpushed() {
   check_unpushed "$@"
 }
 
+REFRESHED=''
 refresh_upstream() {
   local d=$1 what=$2 rc=0
   upstream_of "$d" "$CUR_BRANCH"
   { [ -n "$UP_REMOTE" ] && [ "$UP_REMOTE" != . ] && [ -n "$UP_BRANCH" ]; } \
     || emit_deny "$what rewrites history, and $(sanitize_printable "$CUR_BRANCH" 'this branch') has no upstream on a remote, so the guard cannot prove the commits were never pushed - refusing. Push the branch with -u once (new commits only), then retry."
   valid_branch "$UP_BRANCH" && [[ $UP_REMOTE =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
-    || emit_deny "$what: the branch's upstream is not a shape the guard will fetch - refusing (fail closed)."
-  GIT_TERMINAL_PROMPT=0 "$TB" "$FETCH_T" git -C "$d" fetch --quiet --no-tags --no-write-fetch-head \
+    || emit_deny "$what: the branch's upstream is not a shape the guard will fetch - refusing (fail closed). Set a plain remote and branch as the upstream."
+  case $REFRESHED in *"<$d|$UP_REMOTE|$UP_BRANCH>"*) return 0 ;; esac
+  # No background maintenance may outlive the hook, and a kill reaches git.
+  GIT_TERMINAL_PROMPT=0 "$TB" -k 2 "$FETCH_T" git -C "$d" -c gc.auto=0 -c maintenance.auto=false \
+    fetch --quiet --no-tags --no-write-fetch-head \
     --no-recurse-submodules "$UP_REMOTE" "+refs/heads/$UP_BRANCH:refs/remotes/$UP_REMOTE/$UP_BRANCH" \
     </dev/null >/dev/null 2>&1 || rc=$?
   [ "$rc" = 0 ] \
     || emit_deny "$what rewrites history, and refreshing the upstream $(sanitize_printable "$UP_REMOTE/$UP_BRANCH" 'tracking ref') failed (exit $rc), so a commit pushed from another clone could read as never-pushed - refusing (fail closed). Retry when the remote is reachable."
+  REFRESHED="$REFRESHED<$d|$UP_REMOTE|$UP_BRANCH>"
 }
 
 # check_unpushed <dir> <what> <range> — after refresh_upstream.
@@ -712,11 +837,22 @@ segment_words() {
   SW=()
   SWL=()
   SW_WRAPPED=0
+  SW_GITENV=0
   while [ "$k" -lt "$e" ]; do
     w=${W[$k]}
     case $w in
-      '!' | if | then | else | elif | do | while | until | time | nocorrect | noglob | builtin)
+      '!' | if | then | else | elif | do | while | until | nocorrect | noglob | builtin | coproc)
         k=$((k + 1))
+        continue
+        ;;
+      time)
+        k=$((k + 1))
+        while [ "$k" -lt "$e" ]; do
+          case ${W[$k]} in
+            -p | --) k=$((k + 1)) ;;
+            *) break ;;
+          esac
+        done
         continue
         ;;
       command | exec)
@@ -730,6 +866,7 @@ segment_words() {
         case ${w%%=*} in
           *[!A-Za-z0-9_+]*) ;;
           *)
+            case ${w%%=*} in GIT_*) SW_GITENV=1 ;; esac
             k=$((k + 1))
             continue
             ;;
@@ -758,20 +895,81 @@ deny_now() {
   [ -n "$DENY_NOW" ] || DENY_NOW=$1
 }
 
+# Repository state an earlier segment of the same command changes before a
+# later one runs; every segment is checked against the state as it is now, so
+# a reserved act after such a change cannot be checked and is refused.
+ST_CFG=0
+ST_REF=0
+ST_FETCH=0
+ST_FETCHSPEC=0
+ST_PUSH=0
+GIT_ENV_SET=0
+
+RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.*)$'
+
 classify_segments() {
-  local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb
+  local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
+  [ -d "$eff" ] || eff_ok=0
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
+    cur_text=$(segment_text "$si")
     if [ "${#SW[@]}" = 0 ]; then
+      # A segment of assignments alone sets them for the rest of the command.
+      [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
+      prev_text=$cur_text
       si=$((si + 1))
       continue
     fi
     verb=${SW[0]}
-    if [ "$SW_WRAPPED" = 1 ]; then
-      raw_evidence "$(segment_text "$si")" \
+    base_verb=$(lower "${verb##*/}")
+    if [ "${SWL[0]}" != 1 ]; then
+      # The command word is an expansion: what runs cannot be read, so a
+      # segment naming a reserved subcommand is refused.
+      for w in "${SW[@]}"; do
+        if [[ $(lower "$w") =~ $RESERVED_WORD_RE ]]; then
+          deny_now "this command's name is an expansion the guard cannot read, and it is followed by a reserved subcommand ($(sanitize_printable "$w" 'one')) - refusing (fail closed). Write the command name literally."
+          break
+        fi
+      done
+    elif [ "$SW_WRAPPED" = 1 ]; then
+      raw_evidence "$cur_text" \
         && deny_now "this command runs through a wrapper whose options the guard does not read, and its text names a reserved act - refusing (fail closed). Issue the command directly."
     else
-      case $verb in
+      case $base_verb in
+        export | declare | typeset | readonly | local)
+          case " ${SW[*]} " in
+            *" GIT_"*) GIT_ENV_SET=1 ;;
+          esac
+          ;;
+      esac
+      case $base_verb in
+        xargs | parallel | find)
+          local k=1 n=${#SW[@]}
+          while [ "$k" -lt "$n" ]; do
+            case $(lower "${SW[$k]##*/}") in
+              git | gh)
+                if [ "$((k + 1))" -ge "$n" ] || [[ $(lower "${SW[$((k + 1))]}") =~ $RESERVED_WORD_RE ]] \
+                  || [[ ${SW[$((k + 1))]} == -* ]]; then
+                  deny_now "this command hands git or gh arguments the guard cannot see to $(sanitize_printable "$verb" 'a wrapper') - refusing (fail closed). Run the git or gh command directly."
+                fi
+                ;;
+            esac
+            k=$((k + 1))
+          done
+          ;;
+      esac
+      case $base_verb in
+        bash | sh | zsh | dash | ksh | mksh | fish | busybox | eval | source | . | xargs | parallel)
+          # Fed by a pipe, the shell runs whatever the previous segment wrote.
+          case ${SEG_TERM[$((si - 1))]:-} in
+            '|' | '|&')
+              [ "$si" = 0 ] || ! raw_evidence "$prev_text$NL$cur_text" \
+                || deny_now "this command pipes text naming a reserved act into $(sanitize_printable "$verb" 'a shell') - refusing (fail closed). Run the command directly."
+              ;;
+          esac
+          ;;
+      esac
+      case $base_verb in
         cd | pushd | popd)
           local term=${SEG_TERM[$si]}
           if [ "$verb" = cd ] && [ "${#SW[@]}" = 2 ] && [ "${SWL[1]}" = 1 ] \
@@ -786,22 +984,32 @@ classify_segments() {
             eff_ok=0
           fi
           ;;
-        git | */git) classify_git "$si" "$eff" "$eff_ok" ;;
-        gh) classify_gh "$si" "$eff" "$eff_ok" ;;
-        */gh)
-          case " ${SW[*]} " in
-            *" api "*) deny_now "this gh api call names gh by a path, which the guard does not place as the gh verb, so the request cannot be read - refusing (fail closed). Call it as plain gh api with a literal request." ;;
-            *) classify_gh "$si" "$eff" "$eff_ok" ;;
-          esac
+        git)
+          GIT_ENV=0
+          { [ "$SW_GITENV" = 0 ] && [ "$GIT_ENV_SET" = 0 ]; } || GIT_ENV=1
+          classify_git "$si" "$eff" "$eff_ok"
+          ;;
+        gh)
+          if [ "$verb" != gh ]; then
+            case " ${SW[*]} " in
+              *" api "*) deny_now "this gh api call names gh by a path or another spelling, which the guard does not place as the gh verb, so the request cannot be read - refusing (fail closed). Call it as plain gh api with a literal request." ;;
+              *) classify_gh "$si" "$eff" "$eff_ok" ;;
+            esac
+          else
+            classify_gh "$si" "$eff" "$eff_ok"
+          fi
           ;;
         env | sudo | doas | xargs | nohup | nice | ionice | timeout | gtimeout | stdbuf | setsid | \
           chronic | eval | bash | sh | zsh | dash | ksh | mksh | fish | busybox | script | watch | \
-          parallel | find | flock | unbuffer | caffeinate | source | . | ssh | tmux | screen)
-          raw_evidence "$(segment_text "$si")" \
+          parallel | find | flock | unbuffer | caffeinate | source | . | ssh | tmux | screen | time | \
+          strace | ltrace | chroot | unshare | systemd-run | su | runuser | fakeroot | make | \
+          python* | perl | ruby | node | awk | gawk | mawk | nawk)
+          raw_evidence "$cur_text" \
             && deny_now "this command hands its work to $(sanitize_printable "$verb" 'a wrapper'), whose argument the guard cannot read as a command, and its text names a reserved act - refusing (fail closed). Issue the command directly."
           ;;
       esac
     fi
+    prev_text=$cur_text
     si=$((si + 1))
   done
 }
@@ -828,14 +1036,29 @@ classify_gh() {
   case ${SW[$k]} in
     api) classify_gh_api "$si" "$((k + 1))" "$eff" "$eff_ok" ;;
     pr)
-      case ${SW[$((k + 1))]:-} in
-        ready) classify_gh_ready "$((k + 2))" "$eff" "$eff_ok" ;;
+      # gh reads the --repo pair wherever it sits, so it may come between
+      # `pr` and the subcommand too.
+      k=$((k + 1))
+      while [ "$k" -lt "$n" ]; do
+        case ${SW[$k]} in
+          -R | --repo) k=$((k + 2)) ;;
+          --repo=* | -R?*) k=$((k + 1)) ;;
+          *) break ;;
+        esac
+      done
+      [ "${SWL[$k]:-1}" = 1 ] \
+        || {
+          deny_now 'this gh pr subcommand is an expansion the guard cannot read - refusing (fail closed). Write the subcommand literally.'
+          return 0
+        }
+      case ${SW[$k]:-} in
+        ready) classify_gh_ready "$((k + 1))" "$eff" "$eff_ok" ;;
         merge)
           local a
-          for a in "${SW[@]:$((k + 2))}"; do
+          for a in "${SW[@]:$((k + 1))}"; do
             case $a in --help | -h) return 0 ;; esac
           done
-          deny_now 'gh pr merge is denied to every agent session under every merge_policy value; under policy-class the merge helper is the only sanctioned agent path, and otherwise the operator merges (or enables auto-merge).'
+          deny_now 'gh pr merge is denied to every agent session under every merge_policy value; under policy-class the merge helper is the only sanctioned agent path, and otherwise the operator merges (or enables auto-merge). Leave the PR for the operator.'
           ;;
       esac
       ;;
@@ -1149,6 +1372,14 @@ classify_gh_api() {
   # name in the query, checked against the protected set.
   case $all_fields in
     *createCommitOnBranch* | *createRef*)
+      # A variable or a comment in the query can carry the real target while
+      # a literal one decoys the read, so either refuses.
+      case $query_text in
+        *'$'* | *'#'*)
+          ghapi_opaque 'it creates a commit or a ref through a query carrying a variable or a comment, so its target branch cannot be read'
+          return 0
+          ;;
+      esac
       local targets='' re='(branchName|qualifiedName|name)[[:space:]]*:[[:space:]]*"([^"]*)"' t rest=$query_text
       while [[ $rest =~ $re ]]; do
         t=${BASH_REMATCH[2]}
@@ -1244,6 +1475,19 @@ classify_gh_api() {
     esac
     return 0
   fi
+  if [ "${4:-}" = branches ] && [ "$seg_count" -ge 6 ] && [ "${!seg_count}" = rename ]; then
+    # A branch rename moves the named branch away: a write to that branch.
+    local renamed=${ep#*/*/*/branches/}
+    renamed=${renamed%/rename}
+    case $renamed in
+      *'{branch}'*)
+        ghapi_opaque 'its renamed branch is the {branch} placeholder'
+        return 0
+        ;;
+    esac
+    queue_protected "$eff" "$eff_ok" "this gh api branch rename" "$renamed"
+    return 0
+  fi
   if [ "${4:-}" = contents ] && [ "$seg_count" -ge 5 ]; then
     local fv br='' have_br=0 i2=0
     while [ "$i2" -lt "${#fields[@]}" ]; do
@@ -1299,8 +1543,10 @@ queue_protected() {
 
 GIT_BUILTINS=' add am annotate apply archive backfill bisect blame branch bugreport bundle cat-file check-attr check-ignore check-mailmap check-ref-format checkout checkout-index cherry cherry-pick citool clean clone column commit commit-graph commit-tree config count-objects credential describe diagnose diff diff-files diff-index diff-tree difftool fast-export fast-import fetch fetch-pack filter-branch for-each-ref for-each-repo format-patch fsck gc get-tar-commit-id grep gui hash-object help hook index-pack init instaweb interpret-trailers log ls-files ls-remote ls-tree mailinfo mailsplit maintenance merge merge-base merge-file merge-index merge-tree mergetool mktag mktree multi-pack-index mv name-rev notes pack-objects pack-redundant pack-refs patch-id prune prune-packed pull push range-diff read-tree rebase reflog refs remote repack replace replay repo request-pull rerere reset restore rev-list rev-parse revert rm send-email send-pack shortlog show show-branch show-index show-ref sparse-checkout stash status stripspace submodule switch symbolic-ref tag unpack-file unpack-objects update-index update-ref update-server-info var verify-commit verify-pack verify-tag version whatchanged worktree write-tree '
 
+GIT_ENV=0
+
 classify_git() {
-  local si=$1 k=1 n=${#SW[@]} w key foreign=0 dir=$2 dir_ok=$3 sub=''
+  local si=$1 k=1 n=${#SW[@]} w key foreign=0 cflag=0 dir=$2 dir_ok=$3 sub='' a
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
     case $w in
@@ -1324,23 +1570,33 @@ classify_git() {
         [ "${SWL[$k]}" = 1 ] || dir_ok=0
         ;;
       -c | --config-env)
+        cflag=1
         k=$((k + 1))
         key=${SW[$k]:-}
         git_config_key_check "$key" || return 0
         ;;
       -c?* | --config-env=*)
+        cflag=1
         key=${w#-c}
         key=${key#--config-env=}
         git_config_key_check "$key" || return 0
         ;;
-      --git-dir | --work-tree | --namespace | --super-prefix)
+      --git-dir | --work-tree | --namespace | --super-prefix | --attr-source | --list-cmds)
         foreign=1
         k=$((k + 1))
         ;;
-      --git-dir=* | --work-tree=* | --namespace=* | --super-prefix=* | --bare | --exec-path=*)
+      --git-dir=* | --work-tree=* | --namespace=* | --super-prefix=* | --attr-source=* | --bare | --exec-path=* | --list-cmds=*)
         foreign=1
         ;;
-      -*) ;;
+      -p | -P | --paginate | --no-pager | --no-replace-objects | --no-lazy-fetch | --no-optional-locks | \
+        --no-advice | --literal-pathspecs | --glob-pathspecs | --noglob-pathspecs | --icase-pathspecs) ;;
+      --exec-path | --html-path | --man-path | --info-path | --version | --help | -v | -h) return 0 ;;
+      -*)
+        # A global option the guard does not know: it cannot tell whether it
+        # takes the next word, so it cannot find the subcommand.
+        deny_now "this git command carries a global option the guard does not read ($(sanitize_printable "$w" 'unprintable')) - refusing (fail closed). Put the subcommand first."
+        return 0
+        ;;
       *)
         sub=$w
         break
@@ -1350,31 +1606,112 @@ classify_git() {
   done
   [ -n "$sub" ] || return 0
   [ "${SWL[$k]}" = 1 ] || {
-    case $sub in
-      *merge* | *pull* | *rebase* | *commit* | *push*)
-        deny_now 'this git command names its subcommand through an expansion the guard cannot read - refusing (fail closed). Write the subcommand literally.'
-        ;;
-    esac
+    deny_now 'this git command names its subcommand through an expansion the guard cannot read - refusing (fail closed). Write the subcommand literally.'
     return 0
   }
   [ -d "$dir" ] || dir_ok=0
 
+  # A case-insensitive filesystem runs `git REBASE` as git-rebase.
+  case $(lower "$sub") in
+    merge | pull | rebase | commit | push)
+      [ "$sub" = "$(lower "$sub")" ] \
+        || {
+          deny_now "this git subcommand is a reserved one spelled in another case ($(sanitize_printable "$sub" 'unprintable')) - refusing. Spell it in lower case."
+          return 0
+        }
+      ;;
+  esac
+
   case " $GIT_BUILTINS " in
     *" $sub "*) ;;
     *)
-      git_alias_check "$sub" "$dir" "$dir_ok" "$si" "$k"
+      if [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; then
+        deny_now "this git $(sanitize_printable "$sub" 'subcommand') runs where git configuration is set in the same command or its environment (a GIT_* variable, git config, or git remote), so the guard cannot tell what it runs - refusing (fail closed). Run the configuration change and the command separately."
+        return 0
+      fi
+      git_alias_check "$sub" "$dir" "$dir_ok"
       return 0
       ;;
   esac
 
+  G_FOREIGN=$foreign
+  G_CFLAG=$cflag
+  classify_git_act "$sub" "$k" "$dir" "$dir_ok"
+  git_state_after "$sub" "$((k + 1))"
+}
+
+# act_gate <what> <kind> — refuse a reserved act whose repository, config, or
+# state the guard cannot read: a foreign repository option, a GIT_* variable
+# or -c setting, or a change an earlier segment of the same command makes.
+# <kind> is merge, rewrite, or push. Returns 1 after queuing the refusal.
+act_gate() {
+  local what=$1 kind=$2
+  if [ "$G_FOREIGN" = 1 ]; then
+    deny_now "$what carries --git-dir, --work-tree, --namespace, --attr-source, or --bare, which the guard does not follow - refusing (fail closed). Use git -C <dir> instead."
+    return 1
+  fi
+  if [ "$GIT_ENV" = 1 ]; then
+    deny_now "$what runs with a GIT_* environment variable set in the same command, which can redirect its repository or configuration where the guard cannot read it - refusing (fail closed). Run it without the variable."
+    return 1
+  fi
+  if [ "$G_CFLAG" = 1 ]; then
+    deny_now "$what carries -c configuration, which can change what it does (a pull into a rebase, a push into a mirror) where the guard cannot read it - refusing (fail closed). Run it without -c."
+    return 1
+  fi
+  if [ "$ST_CFG" = 1 ] || [ "$ST_REF" = 1 ]; then
+    deny_now "$what follows a git config, remote, branch, checkout, switch, reset, or ref change in the same command; the guard checks the state as it is before the command runs - refusing (fail closed). Run the change first, as its own command."
+    return 1
+  fi
+  if [ "$kind" = rewrite ] && { [ "$ST_PUSH" = 1 ] || [ "$ST_FETCH" = 1 ]; }; then
+    deny_now "$what follows a push or a fetch in the same command, which can make a commit pushed after the guard read it - refusing (fail closed). Run the push or fetch first, as its own command."
+    return 1
+  fi
+  if [ "$kind" = merge ] && [ "$ST_FETCHSPEC" = 1 ]; then
+    deny_now "$what follows a fetch that writes a local ref in the same command - refusing (fail closed). Run the fetch first, as its own command."
+    return 1
+  fi
+  return 0
+}
+
+# git_state_after <sub> <first-arg-index> — record what this git segment
+# changes for the segments after it.
+git_state_after() {
+  local a pos=0 ro=0
+  for a in "${SW[@]:$2}"; do
+    case $a in
+      --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --show-current | -v | -vv | show | get-url | list) ro=1 ;;
+      -*) ;;
+      *) pos=$((pos + 1)) ;;
+    esac
+  done
+  case $1 in
+    config) [ "$ro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1 ;;
+    remote) [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_CFG=1 ;;
+    branch | tag) [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_REF=1 ;;
+    switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;
+    push) ST_PUSH=1 ;;
+    fetch)
+      ST_FETCH=1
+      for a in "${SW[@]:$2}"; do
+        case $a in -*) ;; *:*) ST_FETCHSPEC=1 ;; esac
+      done
+      ;;
+  esac
+}
+
+# classify_git_act <sub> <sub-index> <dir> <dir_ok>
+classify_git_act() {
+  local sub=$1 k=$2 dir=$3 dir_ok=$4 a
   case $sub in
     merge | pull | rebase | commit | push) ;;
     *) return 0 ;;
   esac
-  if [ "$foreign" = 1 ]; then
-    deny_now "this git $sub carries --git-dir, --work-tree, --namespace, or --bare, which the guard does not follow to a repository - refusing (fail closed). Use git -C <dir> $sub instead."
-    return 0
-  fi
+  for a in "${SW[@]:$((k + 1))}"; do
+    case $a in
+      --) break ;;
+      --help | -h) return 0 ;;
+    esac
+  done
   case $sub in
     merge) classify_git_merge "$((k + 1))" "$dir" "$dir_ok" ;;
     pull) classify_git_pull "$((k + 1))" "$dir" "$dir_ok" ;;
@@ -1399,14 +1736,14 @@ git_config_key_check() {
 # git_alias_check — an unknown subcommand may be a configured alias, or
 # autocorrected into a reserved one.
 git_alias_check() {
-  local sub=$1 dir=$2 dir_ok=$3 v ac
+  local sub=$1 dir=$2 dir_ok=$3 v ac first
   case $sub in
     *[!A-Za-z0-9_.-]* | -*) return 0 ;;
   esac
-  if [ "$dir_ok" != 1 ]; then
-    return 0
-  fi
-  need_timeout
+  # Where the directory cannot be followed, the payload's own still shows the
+  # global aliases.
+  [ "$dir_ok" = 1 ] || dir=$PAYLOAD_CWD
+  [ -d "$dir" ] || dir=/
   v=$(gitq "$dir" config --get "alias.$sub") || v=''
   if [ -n "$v" ]; then
     case $v in
@@ -1415,16 +1752,34 @@ git_alias_check() {
           && deny_now "the git alias $(sanitize_printable "$sub" 'used here') runs a shell command that names a reserved act - refusing (fail closed). Run the commands directly."
         ;;
       *)
-        local first=${v%% *}
+        first=${v#"${v%%[![:space:]]*}"}
+        first=${first%%[[:space:]]*}
         case $first in
-          merge | pull | rebase | commit | push | -*)
-            deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to git $(sanitize_printable "$first" 'a reserved subcommand'), which the guard reads only by its own name - refusing. Run git $(sanitize_printable "$first" 'that subcommand') directly."
+          [A-Za-z]*)
+            case " $GIT_BUILTINS " in
+              *" $first "*)
+                case $(lower "$first") in
+                  merge | pull | rebase | commit | push)
+                    deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to git $(sanitize_printable "$first" 'a reserved subcommand'), which the guard reads only by its own name - refusing. Run git $(sanitize_printable "$first" 'that subcommand') directly."
+                    ;;
+                esac
+                ;;
+              *)
+                deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to another alias or an unknown command, which the guard does not follow - refusing (fail closed). Run the git subcommand directly."
+                ;;
+            esac
+            ;;
+          *)
+            deny_now "the git alias $(sanitize_printable "$sub" 'used here') starts with an option or a quote, which the guard does not read - refusing (fail closed). Run the git subcommand directly."
             ;;
         esac
         ;;
     esac
     return 0
   fi
+  # An external git-<sub> on PATH runs as itself; only an unknown name can be
+  # autocorrected into a reserved one.
+  command -v "git-$sub" >/dev/null 2>&1 && return 0
   ac=$(gitq "$dir" config --get help.autocorrect) || ac=''
   case $(lower "$ac") in
     '' | 0 | false | never | show | no | off) ;;
@@ -1436,7 +1791,7 @@ git_alias_check() {
 
 # parse_git_opts <start> <value-longs> <value-shorts> <optval-shorts> — walk
 # the words from <start>, setting GP_POS[] (positionals with GP_POSL[]),
-# GP_LONG (space-joined long names seen, `name=value` when given), GP_SHORT
+# GP_LONG (space-joined long option names seen, values dropped), GP_SHORT
 # (short flag chars seen). Returns 1 with GP_ERR when a flag cannot be read.
 parse_git_opts() {
   local k=$1 vlong=" $2 " vshort=$3 ovshort=$4 n=${#SW[@]} w name endopts=0 b c
@@ -1460,7 +1815,7 @@ parse_git_opts() {
         ;;
       --*=*)
         name=${w%%=*}
-        GP_LONG="$GP_LONG${name#--}=${w#*=} "
+        GP_LONG="$GP_LONG${name#--} "
         ;;
       --*)
         name=${w#--}
@@ -1471,7 +1826,7 @@ parse_git_opts() {
               GP_ERR="--$name has no value"
               return 1
             }
-            GP_LONG="$GP_LONG$name=${SW[$k]} "
+            GP_LONG="$GP_LONG$name "
             ;;
           *" $name"*)
             GP_ERR="--$name abbreviates an option that takes a value"
@@ -1522,25 +1877,17 @@ parse_git_opts() {
   return 0
 }
 
-long_seen() { # <name> — 0 when GP_LONG carries the option, valued or not
-  case $GP_LONG in
-    *" $1 "* | *" $1="*) return 0 ;;
-  esac
-  return 1
-}
-
-long_val() { # <name> — the last value given
-  local rest=$GP_LONG v=''
-  while :; do
-    case $rest in
-      *" $1="*)
-        rest=${rest#*" $1="}
-        v=${rest%% *}
-        ;;
-      *) break ;;
-    esac
+# long_prefix_seen <full-name> <min-length> — 0 when GP_LONG carries an
+# option git would read as <full-name>: the name itself or a prefix of it at
+# least <min-length> long (git takes any unique prefix of a long option).
+long_prefix_seen() {
+  local t name
+  for t in $GP_LONG; do
+    name=${t%%=*}
+    [ "${#name}" -ge "$2" ] || continue
+    [ "$name" != "${1:0:${#name}}" ] || return 0
   done
-  printf '%s' "$v"
+  return 1
 }
 
 all_literal() {
@@ -1575,10 +1922,11 @@ classify_git_merge() {
       tower_refuses 'git merge' || deny_now "this git merge carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
       return 0
     }
-  if long_seen abort || long_seen continue || long_seen quit; then
+  if long_prefix_seen abort 2 || long_prefix_seen continue 3 || long_prefix_seen quit 2; then
     return 0
   fi
   tower_refuses 'git merge' && return 0
+  act_gate 'this git merge' merge || return 0
   need_dir "$dir_ok" 'this git merge' || return 0
   all_literal || {
     deny_now 'this git merge names its source through an expansion the guard cannot read - refusing (fail closed). Name the PR base literally (origin/main).'
@@ -1596,44 +1944,76 @@ classify_git_pull() {
       return 0
     }
   tower_refuses 'git pull' && return 0
+  act_gate 'this git pull' merge || return 0
   need_dir "$dir_ok" 'this git pull' || return 0
   all_literal || {
     deny_now 'this git pull names its source through an expansion the guard cannot read - refusing (fail closed). Name the PR base literally (git pull origin main).'
     return 0
   }
-  case $GP_SHORT in *r*) mode=rebase ;; esac
-  if long_seen rebase; then
-    case $(lower "$(long_val rebase)") in
-      false | no | off | 0) mode=merge ;;
-      *) mode=rebase ;;
+  # The rebase mode, in argument order with the last flag winning, as git
+  # reads it; a prefix git would expand counts (--reb is --rebase).
+  local w name rb=rebase nrb=no-rebase b c
+  while [ "$k" -lt "${#SW[@]}" ]; do
+    w=${SW[$k]}
+    case $w in
+      --) break ;;
+      --*)
+        name=${w#--}
+        name=${name%%=*}
+        if [ "${#name}" -ge 3 ] && [ "$name" = "${rb:0:${#name}}" ]; then
+          case $w in
+            *=*)
+              case $(lower "${w#*=}") in
+                false | no | off | 0) mode=merge ;;
+                *) mode=rebase ;;
+              esac
+              ;;
+            *) mode=rebase ;;
+          esac
+        elif [ "${#name}" -ge 5 ] && [ "$name" = "${nrb:0:${#name}}" ]; then
+          mode=merge
+        fi
+        ;;
+      -?*)
+        b=${w#-}
+        while [ -n "$b" ]; do
+          c=${b:0:1}
+          b=${b:1}
+          case $c in
+            r) mode=rebase ;;
+            s | X | o | j | S) b='' ;;
+          esac
+        done
+        ;;
     esac
-  fi
-  long_seen no-rebase && mode=merge
+    k=$((k + 1))
+  done
   PENDING[${#PENDING[@]}]="pull$TAB$dir$TAB$mode$TAB${GP_POS[*]-}"
 }
 
-REBASE_VLONG='onto strategy strategy-option exec'
+REBASE_VLONG='onto strategy strategy-option exec whitespace empty'
 classify_git_rebase() {
   local k=$1 dir=$2 dir_ok=$3
-  parse_git_opts "$k" "$REBASE_VLONG" 'sXx' 'SC' \
+  parse_git_opts "$k" "$REBASE_VLONG" 'sXxC' 'S' \
     || {
       tower_refuses 'git rebase' || deny_now "this git rebase carries an option the guard cannot read ($GP_ERR) - refusing (fail closed). Spell its options in full."
       return 0
     }
-  local o
-  for o in continue abort skip quit edit-todo show-current-patch; do
-    long_seen "$o" && return 0
-  done
+  if long_prefix_seen continue 3 || long_prefix_seen abort 2 || long_prefix_seen skip 2 \
+    || long_prefix_seen quit 2 || long_prefix_seen edit-todo 2 || long_prefix_seen show-current-patch 2; then
+    return 0
+  fi
   tower_refuses 'git rebase' && return 0
+  act_gate 'this git rebase' rewrite || return 0
   need_dir "$dir_ok" 'this git rebase' || return 0
   all_literal || {
     deny_now 'this git rebase names a revision through an expansion the guard cannot read - refusing (fail closed). Write it literally.'
     return 0
   }
   local root=0 ur=0
-  long_seen root && root=1
-  long_seen update-refs && ur=1
-  long_seen no-update-refs && ur=-1
+  long_prefix_seen root 2 && root=1
+  long_prefix_seen update-refs 2 && ur=1
+  long_prefix_seen no-update-refs 5 && ur=-1
   PENDING[${#PENDING[@]}]="rebase$TAB$dir$TAB$root$TAB$ur$TAB${GP_POS[*]-}"
 }
 
@@ -1712,8 +2092,16 @@ classify_git_commit() {
     deny_now "this git commit rewrites history and $bad - refusing (fail closed). Spell its options in full with literal values."
     return 0
   fi
+  act_gate 'this history rewrite' rewrite || return 0
   need_dir "$dir_ok" 'this history rewrite' || return 0
   local t
+  case "$amend:$targets" in
+    0:*[![:space:]]*) ;;
+    0:*)
+      deny_now 'this git commit names an empty squash or fixup target - refusing (fail closed). Name the commit.'
+      return 0
+      ;;
+  esac
   for t in $targets; do
     valid_rev "$t" \
       || {
@@ -1829,6 +2217,7 @@ classify_git_push() {
     refs[${#refs[@]}]=$r
     i=$((i + 1))
   done
+  act_gate 'this git push' push || return 0
   need_dir "$dir_ok" 'this git push' || return 0
   PENDING[${#PENDING[@]}]="push$TAB$dir$TAB$del$TAB${pos[0]:-}$TAB${refs[*]-}"
 }
@@ -1862,7 +2251,6 @@ eval_pending() {
 eval_flip() {
   local dir=$1
   [ "$dir" != "$MCP_DIR_SENTINEL" ] || dir=$PAYLOAD_CWD
-  [ -d "$dir" ] || dir=/
   read_knob ready_flip_policy "$dir" human unit-owner
   case $KNOB_VAL in
     unit-owner) return 0 ;;
@@ -1988,16 +2376,16 @@ eval_rebase() {
     refresh_and_check_unpushed "$dir" 'this git rebase --root' HEAD
     return 0
   fi
+  # Refresh first, so the upstream resolves to what the rebase will use.
+  refresh_upstream "$dir" 'this git rebase'
   if [ -z "$up" ]; then
-    upstream_of "$dir" "$CUR_BRANCH"
-    [ -n "$UP_BRANCH" ] || emit_deny 'this git rebase names no upstream and the branch has none configured - refusing (fail closed).'
     up="refs/remotes/$UP_REMOTE/$UP_BRANCH"
   fi
-  valid_rev "$up" || emit_deny "this git rebase names an upstream the guard will not read ($(sanitize_printable "$up" 'unprintable')) - refusing (fail closed)."
+  valid_rev "$up" || emit_deny "this git rebase names an upstream the guard will not read ($(sanitize_printable "$up" 'unprintable')) - refusing (fail closed). Name it as a plain revision."
   local oid
   oid=$(resolve_commit "$dir" "$up")
-  [ -n "$oid" ] || emit_deny "this git rebase names an upstream that does not resolve to a commit ($(sanitize_printable "$up" 'unprintable')) - refusing (fail closed)."
-  refresh_and_check_unpushed "$dir" 'this git rebase' "$oid..HEAD"
+  [ -n "$oid" ] || emit_deny "this git rebase names an upstream that does not resolve to a commit ($(sanitize_printable "$up" 'unprintable')) - refusing (fail closed). Name an existing commit."
+  check_unpushed "$dir" 'this git rebase' "$oid..HEAD"
 }
 
 eval_commit() {
@@ -2053,11 +2441,18 @@ eval_push() {
       || emit_deny 'this git push names no branch and push.default is matching, which pushes every branch the remote shares, main included - refusing. Name the branch.'
     [ -n "$remote" ] || remote=$(gitq "$dir" config --get "branch.$cb.pushRemote" || gitq "$dir" config --get remote.pushDefault || gitq "$dir" config --get "branch.$cb.remote" || printf 'origin')
     case $remote in
-      *[!A-Za-z0-9._-]*) ;;
+      *[!A-Za-z0-9._-]*)
+        emit_deny 'this git push names no branch and its remote is not a plain remote name the guard can read - refusing (fail closed). Name the remote and the branch.'
+        ;;
       *)
         rp=$(gitq "$dir" config --get-all "remote.$remote.push") || rp=''
         [ -z "$rp" ] \
           || emit_deny 'this git push names no branch and the remote carries a configured push refspec, which the guard does not read - refusing (fail closed). Name the branch.'
+        case $(lower "$(gitq "$dir" config --get "remote.$remote.mirror" || printf '')") in
+          true | yes | on | 1)
+            emit_deny 'this git push names no branch and the remote is configured as a mirror, so it pushes every ref, main included - refusing. Name the branch.'
+            ;;
+        esac
         ;;
     esac
     targets[${#targets[@]}]=$cb
@@ -2103,7 +2498,7 @@ main() {
       ;;
   esac
   case $surface in bash | mcp) ;; *) surface=infer ;; esac
-  KNOB_T=$(bound_secs "${PLANWRIGHT_POLICY_GUARD_TIMEOUT:-}" 5)
+  KNOB_T=$(bound_secs "${PLANWRIGHT_POLICY_GUARD_TIMEOUT:-}" 10)
   FETCH_T=$(bound_secs "${PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT:-}" 20)
 
   input=$(head -c "$((MAX_PAYLOAD_BYTES + 1))" 2>/dev/null) || read_ok=0
@@ -2118,24 +2513,26 @@ main() {
   if [ -z "$input" ]; then
     emit_deny 'the PreToolUse payload was empty - refusing (fail closed). This is a hook-contract violation; report it.'
   fi
-  # One jq call for every field the guard reads, NUL-separated: it runs on
-  # every Bash call a tier session makes. A NUL inside a value is dropped (no
-  # shell argument can carry one).
+  # The short fields in one jq call, NUL-separated; the command, which can be
+  # long, through a command substitution (a NUL-delimited read takes it one
+  # byte at a time). A NUL inside a value is dropped: no shell argument can
+  # carry one.
   tool='' P_CMD_OK=0 P_CMD='' P_CWD_TYPE=absent P_CWD=''
   {
     IFS= read -r -d '' tool
     IFS= read -r -d '' P_CMD_OK
-    IFS= read -r -d '' P_CMD
     IFS= read -r -d '' P_CWD_TYPE
     IFS= read -r -d '' P_CWD
   } < <(printf '%s' "$input" | jq -j '
     def clean: if type == "string" then gsub("\u0000"; "") else "" end;
     [ (.tool_name | clean),
       (if (.tool_input.command | type) == "string" then "1" else "0" end),
-      (.tool_input.command | clean),
       (if has("cwd") and .cwd != null then (.cwd | type) else "absent" end),
       (.cwd | clean)
     ] | map(. + "\u0000") | add' 2>/dev/null)
+  if [ "$tool" = Bash ] && [ "$P_CMD_OK" = 1 ]; then
+    P_CMD=$(printf '%s' "$input" | jq -j '.tool_input.command | gsub("\u0000"; "")' 2>/dev/null) || P_CMD=''
+  fi
   if [ -z "$tool" ]; then
     [ "$surface" != mcp ] \
       || emit_deny 'this update_pull_request payload could not be parsed, so the guard cannot tell whether it flips or re-drafts a PR - refusing (fail closed).'
@@ -2178,12 +2575,23 @@ handle_bash() {
     raw_evidence "$1" && emit_deny 'this Bash payload carries no readable command string and its raw content names a reserved act - refusing (fail closed).'
     return 0
   fi
-  # No git and no gh anywhere: nothing this guard classifies, so no parse and
-  # no read.
-  case $cmd in
-    *git* | *gh*) ;;
-    *) return 0 ;;
+  # No git and no gh anywhere, even with quotes and escapes removed, and no
+  # expansion beside a reserved subcommand: nothing this guard classifies, so
+  # no parse and no read.
+  local bare=${cmd//[\"\'\\]/} hit=0
+  shopt -s nocasematch
+  case $bare in
+    *git* | *gh*) hit=1 ;;
+    *'$'* | *'`'*)
+      case $bare in
+        *merge* | *pull* | *rebase* | *push* | *commit* | *ready* | *api*) hit=1 ;;
+      esac
+      ;;
   esac
+  shopt -u nocasematch
+  [ "$hit" = 1 ] || return 0
+  fold_heredoc_substitutions "$cmd"
+  cmd=$FOLDED
   case $P_CWD_TYPE in
     absent) PAYLOAD_CWD=$PWD ;;
     string)
@@ -2213,7 +2621,24 @@ handle_bash() {
   eval_pending
 }
 
-trap 'exit 0' HUP INT TERM PIPE
+emit_deny_internal() {
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"planwright policy-guard: the guard stopped before it reached a decision (an internal error or a signal), so this call could not be checked against the policy - refusing (fail closed). Retry; report a guard that keeps failing on the same command."}}'
+  exit 0
+}
 
-main "$@"
+# A signal mid-evaluation, or a crash (a non-zero exit with no decision),
+# refuses rather than leaving the call undecided, which Claude Code would let
+# through. main runs in a subshell so a crash returns here.
+trap 'emit_deny_internal' HUP INT TERM
+trap 'exit 0' PIPE
+
+PG_OUT=$(main "$@")
+PG_RC=$?
+if [ -n "$PG_OUT" ]; then
+  printf '%s\n' "$PG_OUT"
+elif [ "$PG_RC" != 0 ]; then
+  case ${1:-} in
+    worker | tower) emit_deny_internal ;;
+  esac
+fi
 exit 0

@@ -82,9 +82,18 @@ for v in unit-owner human; do
   pg tower 'gh pr ready 42'
   expect deny "[tower] $v: gh pr ready denies"
   reads none "[tower] $v: the tower's flip deny reads no knob"
+  # The merge helper flips inside its own process, below the hook, so the
+  # hook only ever sees the helper's invocation: that must not be refused
+  # under either value, while the direct flip beside it follows the value.
   pg worker "$REAL_SCRIPTS/merge-admitted.sh 42"
-  expect defer "[worker] $v: the merge helper's own call is not a flip"
-  reads none "[worker] $v: the merge helper's call reads no flip knob"
+  expect defer "[worker] $v: the merge helper's invocation is not refused (its own flip runs below the hook)"
+  reads none "[worker] $v: the merge helper's invocation reads no flip knob"
+  pg worker 'gh pr ready 42'
+  if [ "$v" = human ]; then
+    expect deny "[worker] human: beside it, the direct flip is refused (the value is live)"
+  else
+    expect defer "[worker] unit-owner: beside it, the direct flip defers (the value is live)"
+  fi
 done
 
 echo "# the MCP flip surface"
@@ -144,13 +153,28 @@ for cmd in 'git merge origin/main' 'git merge --no-edit origin/main' 'git merge 
 done
 pg worker 'git merge origin/main'
 reads 'worker_base_merge protected_branches' "[worker] a base merge reads worker_base_merge and the protected set"
-printf '0123456789012345678901234567890123456789\t\tbranch '"'"'main'"'"' of %s\n' "$ORIGIN" >"$UNIT/.git/FETCH_HEAD"
+gitq -C "$UNIT" fetch origin main
 pg worker 'git merge FETCH_HEAD'
-expect defer "[worker] allow: a FETCH_HEAD holding the base branch defers"
-printf '0123456789012345678901234567890123456789\t\tbranch '"'"'planwright/demo/task-2'"'"' of %s\n' "$ORIGIN" >"$UNIT/.git/FETCH_HEAD"
+expect defer "[worker] allow: a FETCH_HEAD holding the base branch fetched from the base remote defers"
+gitq -C "$UNIT" fetch origin planwright/demo/task-2
 pg worker 'git merge FETCH_HEAD'
 expect deny "[worker] allow: a FETCH_HEAD holding another branch denies"
+gitq -C "$UNIT" fetch "$SANDBOX/seed" main
+pg worker 'git merge FETCH_HEAD'
+expect deny "[worker] allow: a FETCH_HEAD holding main fetched from another repository denies"
 rm -f "$UNIT/.git/FETCH_HEAD"
+# A local branch named like the remote-tracking base shadows it in git's
+# lookup, so the name alone proves nothing.
+gitq -C "$UNIT" branch origin/main HEAD~1
+pg worker 'git merge origin/main'
+expect deny "[worker] allow: a local branch shadowing origin/main denies the merge"
+gitq -C "$UNIT" branch -D origin/main
+gitq -C "$UNIT" branch -f main origin/planwright/demo/task-2
+pg worker 'git merge main'
+expect deny "[worker] allow: a local main holding commits the remote base lacks denies"
+gitq -C "$UNIT" branch -f main origin/main
+pg worker 'git merge main'
+expect defer "[worker] allow: a local main equal to the remote base defers"
 for cmd in 'git merge origin/planwright/demo/task-2' 'git merge origin/planwright/demo/spec' 'git merge HEAD~1' \
   'git merge origin/main origin/planwright/demo/task-2' 'git pull' 'git pull origin planwright/demo/task-2' \
   'git pull origin main:main' 'git merge $BASE'; do
@@ -311,6 +335,70 @@ case $OUT in
   *) pass "the deny reason is stripped of control bytes" ;;
 esac
 
+# --- spellings that hide the act ---------------------------------------------
+
+echo "# spellings that hide the act deny, under the permissive values"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow' 'protected_branches:'
+NL_='
+'
+HIDDEN=(
+  '"g"it push --force origin main' 'gi\t rebase origin/main' 'g""it push --force origin main'
+  'x=ush; git p$x --force origin main' 'G=git; $G push --force origin main' 'git $SUB origin/main'
+  'm=merge; gh pr $m 12' "git \"pu\\${NL_}sh\" --force origin main" "gh pr \"mer\\${NL_}ge\" 1"
+  'echo "git push --force origin main" | bash' "cat <<EOF | bash${NL_}git push --force origin main${NL_}EOF"
+  'echo push --force origin main | xargs git' '/usr/bin/env git push --force origin main'
+  '/bin/bash -c "git push --force origin main"' 'time -p git push --force origin main'
+  'coproc git push --force origin main' "python3 -c \"import os; os.system('git push --force origin main')\""
+  '{fd}>/dev/null git push --force origin main'
+  "x=\$(date) <<< y${NL_}git push --force origin main" "x=\$((1<<y))${NL_}git push --force origin main"
+  'git -c push.default=matching push' 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.st GIT_CONFIG_VALUE_0=rebase git st main'
+  "GIT_CONFIG_PARAMETERS=\"'alias.x=rebase'\" git x main" 'GIT_DIR=/tmp/x/.git git commit --amend --no-edit'
+  'export GIT_DIR=/tmp/x/.git; git commit --amend --no-edit' 'git -c pull.rebase=true pull origin main'
+  'git -c rebase.updateRefs=true rebase -i HEAD~3' 'git pull --reb origin main' 'git pull --no-rebase --rebase origin main'
+  'git pull --rebase=false --rebase origin main' 'git rebase --ro' 'git rebase -i HEAD~3 --upd'
+  'git config alias.x rebase && git x main' 'git config pull.rebase true && git pull origin main'
+  'git checkout main && git push origin HEAD' 'git switch planwright/demo/task-2 && git commit --amend --no-edit'
+  'git push origin HEAD && git commit --amend --no-edit' 'git fetch origin x:refs/remotes/origin/main && git merge origin/main'
+  'git --attr-source HEAD push --force origin main' 'git REBASE origin/main' 'gh pr -R o/r merge 1' 'gh pr --repo o/r merge 1'
+  "git rebase --exec=\"echo continue\" origin/main"
+)
+for cmd in "${HIDDEN[@]}"; do
+  pg worker "$cmd"
+  expect deny "[worker] hidden: $(printf '%s' "$cmd" | tr '\n' ' ')"
+done
+for cmd in 'gh pr --repo o/r ready 1' 'gh pr -R o/r ready 1'; do
+  pg tower "$cmd"
+  expect deny "[tower] a --repo pair before the pr subcommand still reads as a flip: $cmd"
+done
+gitq -C "$UNIT" config alias.ch 'up'
+gitq -C "$UNIT" config alias.up 'push --force origin main'
+for cmd in 'git ch' 'git up'; do
+  pg worker "$cmd"
+  expect deny "[worker] an alias chain or an alias to a forced push denies: $cmd"
+done
+gitq -C "$UNIT" config alias.up ' push --force origin main'
+pg worker 'git up'
+expect deny "[worker] an alias value with leading blanks still reads its first word"
+gitq -C "$UNIT" config --unset alias.up
+gitq -C "$UNIT" config --unset alias.ch
+
+echo "# routine commands stay deferred"
+ROUTINE=(
+  "git commit -m \"\$(cat <<'EOF'${NL_}feat: guard git push --force spellings and gh api merges${NL_}${NL_}git rebase origin/main is denied.${NL_}EOF${NL_})\" && git push origin HEAD"
+  "gh pr create --draft --title \"guard git push spellings\" --body \"\$(cat <<'EOF'${NL_}gh pr merge and gh api mergePullRequest are denied.${NL_}EOF${NL_})\""
+  'git merge --help' 'git rebase --cont' 'git merge --ab' 'GIT_EDITOR=true git rebase --continue' 'git rebase -C 4 HEAD~2'
+  'git branch --show-current && git push origin HEAD' 'git config --get user.name && git push origin HEAD'
+  'git fetch origin && git merge origin/main' 'git add -A && git commit -m wip && git push origin HEAD'
+)
+for cmd in "${ROUTINE[@]}"; do
+  pg worker "$cmd"
+  expect defer "[worker] routine: $(printf '%s' "$cmd" | head -1)"
+done
+pg tower 'git rebase --help'
+expect defer "[tower] git rebase --help rewrites nothing"
+pg worker "gh api graphql -f query=\"\$(cat <<'EOF'${NL_}mutation{mergePullRequest(input:{pullRequestId:\"x\"}){clientMutationId}}${NL_}EOF${NL_})\""
+expect deny "[worker] a gh api query handed over a quoted heredoc is unreadable and denies"
+
 # --- fail-closed reads (REQ-G1.4) --------------------------------------------
 
 echo "# fail-closed reads"
@@ -326,6 +414,9 @@ set_knobs 'ready_flip_policy: agent'
 pg worker 'gh pr ready 42'
 expect deny "[worker] a malformed machine-local ready_flip_policy degrades to human and denies"
 set_knobs 'ready_flip_policy: unit-owner'
+STUB_SLEEP=3 PG_TIMEOUT=1 pg worker 'git push origin feature'
+expect deny "[worker] a protected-set read past the wall-clock bound denies"
+reason_has 'did not finish' "the protected-set timeout deny names the timeout"
 STUB_SLEEP=3 PG_TIMEOUT=1 pg worker 'gh pr ready 42'
 expect deny "[worker] a policy read past the wall-clock bound denies"
 reason_has 'timeout' "the timeout deny names the timeout"
@@ -380,7 +471,7 @@ if grep -Eq '(^|[^[:alnum:]_-])(claude|anthropic|curl|wget)([^[:alnum:]_-]|$)' <
 else
   pass "the guard's code names no model or network client"
 fi
-if grep -q '^  \. "\$GUARD_DIR/echo-safety.sh"' "$REAL_SCRIPTS/policy-guard.sh"; then
+if grep -Eq '^[[:space:]]*\.[[:space:]]+"[^"]*/echo-safety\.sh"' "$REAL_SCRIPTS/policy-guard.sh"; then
   pass "the guard sources scripts/echo-safety.sh"
 else
   fail "the guard does not source scripts/echo-safety.sh"
