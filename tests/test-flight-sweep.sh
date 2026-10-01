@@ -178,7 +178,7 @@ place() {
 }
 for f in "$AIR" "$DEAD" "$QUEUED" "$PRINT" "$TMUXF" "$NOREG"; do place "$f"; done
 
-sleep 300 &
+sleep 3600 &
 live_pid=$!
 dead_pid=99999
 while kill -0 "$dead_pid" 2>/dev/null; do dead_pid=$((dead_pid - 1)); done
@@ -423,7 +423,10 @@ rc=$?
 [ ! -e "$tmp/nohome" ] || fail "the hook creates nothing in a checkout without flights"
 
 rm -f "$idx"
-hout=$(cd "$repo" && echo '{"source":"startup"}' | "$SCRIPT" hook session-start 2>&1)
+# The comparisons below need every PR read made, so the budget is lifted
+# past what a loaded host could spend; its exhaustion is tested on its own.
+hout=$(cd "$repo" && echo '{"source":"startup"}' | PLANWRIGHT_FLIGHT_SWEEP_HOOK_BUDGET=999 \
+  "$SCRIPT" hook session-start 2>&1)
 rc=$?
 [ "$rc" -eq 0 ] && [ -z "$hout" ] || fail "the hook is silent and exits 0 with flights (rc=$rc: $hout)"
 cmp -s "$idx" "$c/first" || fail "the hook refreshes the index"
@@ -432,7 +435,8 @@ cmp -s "$idx" "$c/first" || fail "the hook refreshes the index"
 # it is handed can point it at the fixture.
 rm -f "$idx"
 : >"$c/timeout.log"
-(cd "$tmp" && CLAUDE_PROJECT_DIR="$repo" TIMEOUT_LOG="$c/timeout.log" "$SCRIPT" hook session-start </dev/null >/dev/null 2>&1)
+(cd "$tmp" && CLAUDE_PROJECT_DIR="$repo" TIMEOUT_LOG="$c/timeout.log" PLANWRIGHT_FLIGHT_SWEEP_HOOK_BUDGET=999 \
+  "$SCRIPT" hook session-start </dev/null >/dev/null 2>&1)
 cmp -s "$idx" "$c/first" || fail "the hook sweeps the project dir it is handed"
 if [ ! -s "$c/timeout.log" ] || awk '$1 + 0 > 5 { bad = 1 } END { exit !bad }' "$c/timeout.log"; then
   fail "at session start each PR read is bounded to 5s at most"
