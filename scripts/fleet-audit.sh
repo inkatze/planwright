@@ -144,12 +144,15 @@ now_epoch() {
 
 HOLD_LOCK=0
 # Release on ANY exit, signals included (the fleet-attention.sh trap
-# discipline): a SIGINT/SIGTERM mid-critical-section must not leave the
-# shared cross-spec lock held until the stale-break threshold. INT/TERM
-# route through EXIT via explicit exits with the conventional codes.
-trap 'release_lock' EXIT
+# discipline): a SIGINT/SIGTERM/SIGHUP mid-critical-section must not leave the
+# shared cross-spec lock held until the stale-break threshold, nor the
+# in-flight write temp beside the day file. The signals route through EXIT via
+# explicit exits with the conventional codes.
+w_tmp=""
+trap 'release_lock; [ -z "$w_tmp" ] || rm -f "$w_tmp"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
@@ -290,6 +293,7 @@ case "$cmd" in
       mv -f "$w_tmp" "$store" || w_rc=2
     fi
     [ "$w_rc" = 0 ] || rm -f "$w_tmp" 2>/dev/null
+    w_tmp=""
     if [ "$lock_held" = 0 ]; then
       release_lock
     fi

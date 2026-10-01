@@ -1,0 +1,1 @@
+- 2026-09-30 [planwright] test-throughput D-3 refuses a pool directory only when it is a symbolic link or foreign-owned; an existing pool directory the user owns but left group- or world-writable (e.g. 0777) is accepted, so another local user could plant links in it (denial of service to the pool only). Consider whether D-3 should also refuse or tighten a loose mode.

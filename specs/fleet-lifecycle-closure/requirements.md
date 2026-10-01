@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-10-01
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -314,6 +314,13 @@ ending and what evidence that authorization required.
 - **REQ-E1.4** Registration SHALL degrade gracefully: a failed registry write
   SHALL NOT fail a dispatch, and SHALL self-heal on the next scan.
   *(Cites: obs:a6f5511b.)*
+- **REQ-E1.5** The reconcile SHALL retire the registry record of a closed
+  worker, marking it closed rather than deleting it, and only on positive
+  death evidence for the worker. For a `print` unit, which has no death
+  handle, its worktree's removal SHALL count as that evidence. Unknown or
+  errored evidence SHALL leave the record live. An inventory that only grows becomes noise every sweep
+  re-evaluates.
+  *(Cites: D-15; D-2.)*
 
 ## REQ-F — Periodic sweep
 
@@ -491,6 +498,17 @@ ending and what evidence that authorization required.
   the format-grammar validator's citation-range rule (format-grammar REQ-D1.3)
   on its all-bundle rollout (format-grammar D-9); no requirement or decision
   changes meaning.
+
+- 2026-10-01 — Kickoff amendment (meaning-class, `kickoff-brief.md`
+  amendment log). REQ-E1.4's self-heal had no owning task: Task 3 shipped the
+  never-fail half and Task 8's scan reconciles worktrees, not dispatch
+  records. Folded the dispatch-record reconcile into Task 11, added D-15 (the
+  registry is a rebuildable index of on-disk dispatch markers written by every
+  seam) and REQ-E1.5 (retire a closed worker's record on positive death
+  evidence, marked closed, never deleted and kept indefinitely). The lens
+  pass tightened Task 11: heal through the register seam's validation,
+  idempotent per handle, audited in both sweep modes, the marker declared as
+  a resource class, and pre-marker records left unchanged.
 
 ## Sources
 

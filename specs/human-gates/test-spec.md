@@ -1,7 +1,7 @@
 # Human gates — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-01
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -336,7 +336,8 @@ The cross-copy test drives the fixture file through every guard copy and
 both profiles and fails on any line whose verdict for that copy differs
 from the copy's output; the `git pull` and `master` lines fail before the
 profile edit; a line the ready-guard does not recognise expects defer from
-it and deny from the profiles; after Task 6 a worker-tier base-merge line
+it and deny from the profiles, except a `gh api` line, which expects prompt
+from both; after Task 6 a worker-tier base-merge line
 under the default value expects defer and a tower-tier one expects deny
 (Task 5, Task 6).
 
@@ -353,7 +354,8 @@ The wiring tests assert every profile-expressible floor entry (main,
 `master`, spec-branch mutation, direct PR-merge spellings, force-push, the
 MCP names) is present in both profiles and that no policy-permittable entry
 remains for a tier a value can grant it to; the guard-only floor entries are
-pinned by the helpers' own fail-closed re-read tests (Task 6, Task 9).
+pinned by the helpers' own fail-closed re-read tests, and the `gh api` ones
+by the policy-guard suite (Task 6, Task 9).
 
 ### REQ-G1.4 — Deterministic, bounded, fail-closed [test]
 
@@ -373,6 +375,30 @@ new hook (Task 6) and the corrective helper (Task 8).
 a branch name, a conflicting path, and a host reply shows it stripped from
 every PR record and park the scripts write (Task 6, Task 7, Task 9,
 Task 10).
+
+### REQ-G1.7 — The `gh api` acts deny [test]
+
+The fixture's policy-guard column expects deny, at worker and tower tiers,
+on a `gh api` line for each classified act: the three named mutations,
+`enablePullRequestAutoMerge`, `enqueuePullRequest`, `mergeBranch`,
+`updatePullRequestBranch`, REST writes to `pulls/<n>/merge`, `merges`, and
+`pulls/<n>/update-branch` (with a leading slash, a full URL, `-XPUT`, and
+`--method=PUT` among the spellings), a forced ref update, and a
+protected-ref write; both profiles expect prompt on every one. The
+policy-guard suite shows zero resolver calls for every act but the
+protected-ref write, which reads only `protected_branches` (Task 6).
+
+### REQ-G1.8 — Unreadable denies, readable defers [test]
+
+The fixture's policy-guard column expects deny on each unreadable form (a
+query from `@<path>` and `@-`, a non-query `-F x=@file`, `--field`, an
+`--input` body, a write on a variable endpoint with no method flag, a
+query held in a variable and in `$(...)`, a `{branch}` in a query, an
+unknown flag, `bash -c` and `env gh` wrappers, a compound with one reserved
+segment) and defer on an inline thread-resolution mutation and a literal
+REST reviewer request; both profiles expect prompt. The policy-guard suite
+shows zero resolver calls for each unreadable form, defer on every `gh api`
+line with no tier profile, and a deny message naming its remedy (Task 6).
 
 ## REQ-H — Prose surfaces
 

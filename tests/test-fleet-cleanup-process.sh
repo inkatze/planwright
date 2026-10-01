@@ -519,6 +519,110 @@ for sd in - '' rel/dir; do
 done
 echo "ok: each session-grade backend is closed by its own rung's stop, with the caller's grace and repo root, and a headless close is bound to the recorded state directory"
 
+# --- --observe: the same decision, the rung's probe, a would-have record -----
+# REQ-F1.6: the observing mode decides exactly as a close does, asks the rung
+# what it would take, and writes a record that can never read as a kill.
+rm -rf "$gate_home"
+stop_answers 'stop WORKER would-release=process,attention' 0
+det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead "$peer_id"
+gate w1 'periodic sweep' 'owner gone' --observe --grace 7
+expect 0 "an observed reap"
+[ "$(cat "$tmp/stop-calls")" = "fleet-streamjson.sh stop w1 --observe" ] \
+  || fail "an observed reap asked the rung '$(cat "$tmp/stop-calls")'"
+[ "$out" = 'stop w1 would-release=process,attention' ] || fail "an observed reap did not pass the probe line through: '$out'"
+rows=$(audit_rows)
+[ "$(printf '%s\n' "$rows" | grep -c .)" = 1 ] || fail "an observed reap wrote $(printf '%s\n' "$rows" | grep -c .) rows, expected 1"
+for want in "${tab}process-cleanup${tab}would-cleanup${tab}periodic sweep${tab}" "worker=w1" "owner=$peer_id" \
+  "evidence=tower:dead,session:finished-but-unreaped/completion:result=success" \
+  "released=none would-release=process,attention" "owner gone"; do
+  case $rows in
+    *"$want"*) ;;
+    *) fail "the would-have record lacks '$want': $rows" ;;
+  esac
+done
+case $rows in
+  *"${tab}cleanup${tab}"*) fail "an observed reap wrote a cleanup record: $rows" ;;
+esac
+det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
+gate w1 trig why --observe --repo-root /some/repo --grace 7
+expect 0 "an observed headless reap"
+[ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --expect-dir /fx/state/w1 --repo-root /some/repo --observe" ] \
+  || fail "an observed headless reap asked the rung '$(cat "$tmp/stop-calls")'"
+# Every refusal is the same refusal observing.
+for cell in '7 live-peer live stream-json-persistent dead death-evidence' \
+  '8 dead-or-unknown dead print dead death-evidence' \
+  '5 dead-or-unknown unknown stream-json-persistent dead death-evidence' \
+  '9 dead-or-unknown dead stream-json-persistent unclassified completion-unlanded'; do
+  # shellcheck disable=SC2086 # the cell is split into its fields on purpose
+  set -- $cell
+  det "$5" "$2" "$6" "$4" "$3"
+  gate w1 trig why --observe
+  expect "$1" "observing, the refusal of '$cell'"
+  never_stopped "observing, the refusal of '$cell'"
+done
+rm -rf "$gate_home"
+det dead dead-or-unknown death-evidence stream-json-persistent dead
+stop_answers 'stop WORKER already-closed' 0
+gate w1 trig why --observe
+expect 0 "observing an already-closed worker"
+[ -z "$(audit_rows)" ] || fail "observing an already-closed worker wrote a record: $(audit_rows)"
+stop_answers '' 3
+gate w1 trig why --observe
+expect 3 "observing from inside the worker's own tree"
+stop_answers '' 2
+gate w1 trig why --observe
+expect 5 "an observing probe that refused"
+stop_answers 'stop WORKER would-release=process' 0
+G_HOME="$tmp/unwritable/fleet" gate w1 trig why --observe
+expect 6 "an unrecorded would-have close"
+case $err in
+  *'nothing was signalled'*) ;;
+  *) fail "an unrecorded would-have close does not say nothing was signalled: $err" ;;
+esac
+rm -rf "$gate_home"
+stop_answers 'stop WORKER stopped released=process,attention' 0
+echo "ok: --observe decides as a close does, asks the rung's probe instead of its close, and writes a would-cleanup record naming nothing released"
+
+# --- --observe records a would-have close once per candidacy and evidence ----
+# A leaked worker the observing sweep meets every cycle gets one record until
+# its evidence changes, or it stops being a candidate and becomes one again.
+# A real close is never suppressed.
+would_rows() {
+  audit_rows | awk -F'\t' '$4 == "would-cleanup"' | grep -c . || :
+}
+rm -rf "$gate_home"
+stop_answers 'stop WORKER would-release=process,attention' 0
+det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead "$peer_id"
+for _ in 1 2 3; do
+  gate w1 'periodic sweep' 'owner gone' --observe
+  expect 0 "an unchanged observed worker"
+done
+[ "$(would_rows)" = 1 ] || fail "three observations of an unchanged worker wrote $(would_rows) records, expected 1"
+[ "$out" = 'stop w1 would-release=process,attention' ] || fail "a deduplicated observation dropped the probe line: '$out'"
+det dead dead-or-unknown death-evidence stream-json-persistent dead "$peer_id"
+gate w1 'periodic sweep' 'owner gone' --observe
+gate w1 'periodic sweep' 'owner gone' --observe
+[ "$(would_rows)" = 2 ] || fail "a changed evidence class wrote $(would_rows) records in all, expected 2"
+case $(audit_rows | awk -F'\t' '$4 == "would-cleanup"' | tail -n 1) in
+  *"evidence=tower:dead,session:dead/death-evidence"*) ;;
+  *) fail "the second record does not carry the changed evidence: $(audit_rows | tail -n 1)" ;;
+esac
+# Out of candidacy (a live peer now owns it), then back with the same evidence.
+det dead live-peer death-evidence stream-json-persistent live "$peer_id"
+gate w1 'periodic sweep' 'owner gone' --observe
+expect 7 "a worker that left candidacy"
+det dead dead-or-unknown death-evidence stream-json-persistent dead "$peer_id"
+gate w1 'periodic sweep' 'owner gone' --observe
+[ "$(would_rows)" = 3 ] || fail "a worker back in candidacy wrote $(would_rows) records in all, expected 3"
+# A real close after observing is recorded, and so is a second one.
+stop_answers 'stop WORKER stopped released=process,attention' 0
+gate w1 'periodic sweep' 'owner gone'
+gate w1 'periodic sweep' 'owner gone'
+[ "$(audit_rows | awk -F'\t' '$4 == "cleanup"' | grep -c .)" = 2 ] \
+  || fail "a termination record was suppressed: $(audit_rows)"
+rm -rf "$gate_home"
+echo "ok: --observe writes one would-have record per candidacy and evidence class, and never suppresses a termination record"
+
 # --- a same-handle unit in another checkout is never closed on this one's ---
 # evidence. The real headless rung resolves the unit from the repo root it is
 # handed; the verdict describes checkout A's finished unit, and checkout B holds
@@ -648,6 +752,8 @@ rm -rf "$gate_home"
 stop_answers '' 137
 gate w1 trig why
 expect 5 "a rung killed mid-close"
+[ "$out" = 'stop w1 partial released=unreported held=unreported' ] \
+  || fail "a rung killed mid-close printed no partial line for a caller counting outcomes: '$out'"
 case $(audit_rows) in
   *"${tab}cleanup-partial${tab}"*"released=unreported held=unreported"*) ;;
   *) fail "a rung that died mid-close went unrecorded: $(audit_rows)" ;;
@@ -656,6 +762,8 @@ rm -rf "$gate_home"
 stop_answers '' 6
 gate w1 trig why
 expect 5 "a partial close with no result line"
+[ "$out" = 'stop w1 partial released=unreported held=unreported' ] \
+  || fail "a partial close with no result line printed no stand-in partial line: '$out'"
 case $(audit_rows) in
   *"${tab}cleanup-partial${tab}"*"released=unreported held=unreported"*) ;;
   *) fail "a partial close with no result line did not record its sets as unreported: $(audit_rows)" ;;

@@ -23,6 +23,12 @@
 # that is missing, empty, or malformed is exit 2, never a pass. None of that
 # is softened by the local mode below — it is structural, not a verdict.
 #
+# The report is version 2: each file row carries the file's execution time and,
+# beside it, the time the file waited for a machine-wide test-pool ticket.
+# Only the execution time is budgeted, so a busy machine cannot make a file
+# look slow; the suite wall-clock row includes that waiting. A version-1
+# report predates the wait column and is refused rather than misread.
+#
 # CI hard-fails, local warns. The budgets are measured on the reference runner
 # (GitHub Actions), and a dev box differs from it in core count, contention,
 # and platform cost by factors that swamp any headroom: one contended local
@@ -261,19 +267,19 @@ awk -F'\t' -v discovered="$work/discovered" '
   }
   err { next }
   NR == 1 {
-    if ($1 != "planwright-test-timing" || $2 != "1") {
-      print "E\treport header is not a planwright-test-timing version 1 header"
+    if ($1 != "planwright-test-timing" || $2 != "2") {
+      print "E\treport header is not a planwright-test-timing version 2 header (re-run `mise run test` to refresh it)"
       err = 1
     }
     next
   }
   $1 == "file" {
-    if (NF != 3 || $2 == "") {
+    if (NF != 4 || $2 == "") {
       print "E\tmalformed file row at line " NR
       err = 1
       next
     }
-    if ($3 !~ num) {
+    if ($3 !~ num || $4 !~ num) {
       print "E\tnon-numeric time for " $2 " at line " NR
       err = 1
       next

@@ -604,3 +604,153 @@ Lens-pass: the delta-scoped lens review recorded in this entry (six-agent
 fan-out over the spec artifact class, dispositions above)
 Anchor: `286570367563ab9d72bd461f76bbb93b16b48400` — computed as
 `scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-10-01 — The `gh api` spellings of the reserved acts
+
+**Scope.** This is a human-declared amendment on the Active bundle, from
+the operator's request (the Sources entry "the operator's `gh api`
+request"). The policy guard refuses a `gh api` ready flip, undo, or merge
+per tier and policy, and denies, failing closed, any `gh api` request it
+cannot read. Task 6, still undispatched, carries it, and the fixture lines
+pinning those spellings already landed with Task 5. It was walked as a
+delta against spec commit `a5d5a96`. At pre-flight the freshness comparison
+matched the 2026-09-28 anchor, and the validator was clean.
+
+**Decisions taken in the walk.**
+
+1. "Cannot read" means opaque only, not every non-GET call. A field from a
+   file or stdin, an `--input` body, or a write on a non-literal endpoint or
+   query denies. A readable write outside the reserved acts passes the guard
+   and reaches the permission prompt, so the review skills' thread
+   resolutions still work.
+
+**Lens review pass (delta-scoped, meaning class).** The artifact class is
+**spec**. Four read-only Opus sub-agents fanned out over the delta, each
+carrying two lenses. Their reports were merged and deduplicated by root
+cause. The load-bearing claims were then checked against the repository:
+the fixture's guard and profile columns for `gh pr merge`, the
+ready-guard's defer on every `gh api` line, `gh api --help` on placeholder
+substitution and the implied POST, and the fixture driver's fixed act and
+copy lists.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency; ambiguity and interpretation forks | 19 | Borrowing the `gh pr` verdict yields defer for the merge (its deny is the profile's) and an unchecked flip under `unit-owner`; `@file` lines under two rules; a knob read for value-independent acts; the helper exemption's reach; the tower verdict implicit; "literal", "query", "naming", and the method parse undefined; explicit versus field-implied POST; endpoint normalization; missing merge and ref acts |
+| Citation and coverage integrity; dead verification paths and testability | 15 | The dangling amendment-log pointer; the changelog understating the delta; the Sources entry's form and self-qualified name; the REQ-G1.1 pairing; no policy-guard column, act, or policy token the fixture grammar accepts; resolver-call and no-tier assertions placed in the fixture; Done-when weaker than the test-spec entry; the "all-deny" premise already false; the tower-front-door body and gate |
+| Decision-domain gaps | 8 | Auto-merge and merge-queue spellings; agent approvals and review dismissals; branch protection and rulesets through the API; base-merge and protected-ref writes through the API against "every spelling"; deny wording; gh grammar drift; parser reuse |
+| Security and bypass completeness | 16 | Wrappers and tokenizer-refused commands; brace, glob, ANSI-C, and fish escapes; `-F` placeholder substitution; a closed unreadable list; pflag spellings; method case; endpoint forms; aliases and extensions; non-`gh` clients; the prompt backstop asserted, not pinned |
+| Cross-file consistency; documentation and glossary drift | 21 | REQ-G1.3 and D-9's guard-only lists; D-9's profile rationale against `docs/permission-matcher-model.md`; the attended-session floor overclaim; "keep working"; merge-currency-guard REQ-C1.10 uncross-referenced; the doctrine floor line; the fixture header; the tower-front-door body and gate; effort; risk rows; "unreserved" and "opaque" against the glossary |
+| Performance | n/a | Spec artifact class: no execution path |
+| Concurrency / state | n/a | Spec artifact class; the compound-command ordering question was raised under ambiguity |
+| Error handling and failure modes | n/a | Spec artifact class; fail-closed reads are the contract under review |
+
+The **altitude check** ran inline. D-1's doctrine-first order has no
+doctrine task left to ride (Task 1 merged), so the one doctrine line this
+amendment changes rides with Task 12's sweep. Not a finding. The
+**ship-gate check** found no out-of-band fix named only in prose: the
+tower-front-door hand-off is a dated note on its gated Deferred bullet.
+
+**Dispositions.** After deduplication by root cause, four were forks the
+operator decided:
+
+1. **The `gh api` flip** denies in every tier under every value, with no
+   knob read. Borrowing `ready_flip_policy` would let a `unit-owner` worker
+   flip past the ready-guard's currency check, which never reads `gh api`.
+   The policy keeps its permission through `gh pr ready`.
+2. **Act scope** covers the floor-equivalents, each classified: enabling
+   auto-merge, enqueueing, base merges, forced ref updates, and
+   protected-ref writes. Approvals, dismissals, and branch-protection or
+   ruleset changes are named residuals at the prompt.
+3. **Guard only.** The profiles keep `gh api` writes at the prompt (the
+   Task 5 decision), and REQ-G1.3 and D-9 name the `gh api` floor spellings
+   guard-only, pinned by the policy-guard suite.
+4. **Wrappers.** Raw-text evidence of `gh` followed by `api`, in a command
+   the parse cannot place, denies. Non-`gh` clients and other MCP servers'
+   tools are named residuals.
+
+The remaining root causes were applied as one batch the operator
+approved:
+
+- the verdict rule stated directly, not borrowed (REQ-G1.7), and the
+  fail-closed read split out as REQ-G1.8;
+- readable, matching, boundaries, deny remedies, and the gh 2.96.0 grammar
+  pin written into D-9, with the worker guard's flag walk reused;
+- three rejected alternatives recorded in D-9;
+- REQ-G1.1 and the In scope bullet extended to the `gh api` lines;
+- the fixture grammar named in Task 6 (a policy-guard column, the `opaque`
+  and `other` acts, the `floor-guard` token, the header comment), with the
+  suite-only assertions moved out of the fixture;
+- Task 6's Done-when tied to the test-spec entries, and its effort raised to
+  three days;
+- Task 8 citing REQ-G1.7, and Task 12 carrying the doctrine floor line;
+- the test-spec REQ-G1.1 and REQ-G1.3 entries scoped to the `gh api` lines;
+- the Sources entry renamed, the changelog completed, and the
+  tower-front-door note reworded to leave only the MCP half for its gate.
+
+No finding was declined and none deferred.
+
+**Brief content this amendment makes stale** (the body above is
+append-only; these notes supersede it where they conflict):
+
+- Section 2 glossary: the fixture now carries `gh api` control lines that
+  perform no reserved act (act `other`) and lines whose act is unreadable
+  (act `opaque`). "Readable" and "literal" are D-9's.
+- Section 3, REQ-G: Task 5 shipped prompt and defer verdicts, not all-deny,
+  on the `gh api` lines, by the operator's decision recorded in the fixture
+  header. REQ-G1.7 and REQ-G1.8 were minted. The fixture is no longer
+  five-column: Task 6 adds the policy-guard column.
+- Section 4 ledger: D-9 is amended (the `gh api` paragraph and three
+  alternatives), confirmed otherwise.
+- Section 5: `[test]` coverage gains the REQ-G1.7 and REQ-G1.8 entries,
+  which pair with their requirements.
+- Section 6: Task 6 grows from two days to three, so the critical path
+  1 → 4 → 6 → 7 → 9 → 12 is nine days. No `Dependencies:` line changed.
+- Section 7: risk row 8's mitigation now includes the policy guard's deny
+  of `enablePullRequestAutoMerge`. Risk row 10 now also covers the guard
+  parsing every `gh api` call. New rows:
+  - (11) A legitimate `gh api` write in an unreadable form (`-F
+    body=@file`, a PR number in a variable) is denied. The signal is a deny
+    naming an unreadable request; the mitigation is that the deny message
+    names the literal form.
+  - (12) A gh upgrade adds a request-shaping flag the grammar does not know.
+    The signal is a deny naming an unknown flag; the mitigation is that an
+    unknown flag fails closed and the pinned version is re-checked.
+  - (13) The named residuals (approvals, dismissals, protection and ruleset
+    changes, non-`gh` clients, other MCP servers' tools) reach the
+    permission prompt. This is accepted, and the signal is an operator
+    answering such a prompt in a relayed worker queue.
+
+  Gap check: auth (the flip, merge, and approval acts through the API),
+  deploy-migration (protection and rulesets), API-surface (deny wording),
+  dependency-adoption (the gh grammar pin), and existing-seam reuse (the
+  flag walk) are decided or named as residuals.
+
+**Pre-sign-off verification.**
+
+- **Post-lens stale-reference sweep.** Run after REQ-G1.7 and REQ-G1.8 were
+  minted and REQ-G1.1 and REQ-G1.3 re-scoped: no "all-deny", five-column,
+  `gh_api_write`, "unreserved", or borrowed-verdict wording remains in the
+  four files outside Task 6's naming of the token it replaces. The brief's
+  earlier mentions are superseded by the notes above. The In scope bullet
+  now names the `gh api` control lines.
+- **Lint.** `markdownlint-cli2` over the brief, the four spec files, and
+  `specs/tower-front-door/tasks.md`: 0 issues.
+- **Recorded claims re-derived.** Requirement bullets and test-spec entries
+  pair one to one (the sorted ID lists compared equal). The critical path
+  is re-summed from Tasks 1, 4, 6, 7, 9, and 12's effort lines, and the
+  other paths through Task 6 (via 10 or 11) stay shorter.
+- **Enumeration cross-check.** The lens table's counts are the four
+  sub-agents' report totals, with the two two-lens agents on merged rows.
+  REQ-G1.7's act list is the decided rule for the policy guard, and the
+  fixture lines are its verification, not a second enumeration.
+- **Validator.** 0 errors, 0 warnings on human-gates and tower-front-door.
+
+**Sign-off.** Signed off 2026-10-01 by the operator after the approval
+summary. `Last reviewed:` was bumped on all four spec files, with no status
+flip.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (four-agent
+fan-out over the spec artifact class, dispositions above)
+Anchor: `06f71f8589d0ca1a73a22a322a4fc6e5e46b25ec` — computed as
+`scripts/spec-anchor.sh specs/human-gates`

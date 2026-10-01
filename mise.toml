@@ -42,7 +42,7 @@ description = "Prove a dispatched worker will not stall at the permission gate, 
 run = "/bin/bash tests/smoke-worker-dispatch.sh --installed"
 
 [tasks.test]
-description = "Run the shell test suites under /bin/bash (the bash 3.2 floor), N files at a time via scripts/run-tests.sh (N = core count; PLANWRIGHT_TEST_JOBS overrides)"
+description = "Run the shell test suites under /bin/bash (the bash 3.2 floor), up to N files at a time via scripts/run-tests.sh (N = core count; PLANWRIGHT_TEST_JOBS overrides), bounded machine-wide by a shared ticket pool (PLANWRIGHT_TEST_SLOTS, default core count)"
 run = '/bin/bash scripts/run-tests.sh'
 
 [tasks.status]

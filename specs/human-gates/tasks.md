@@ -1,7 +1,7 @@
 # Human gates — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-01
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -161,7 +161,9 @@ every surface it restates exists.
   for that tier (flip, base merge off the unit branch or from a source other
   than the PR base, never-pushed rewrite with the upstream refreshed before
   the containment read, `--undo` outside the corrective helper), exempting
-  the merge helper's own flip, reading the protected set from the core floor
+  the merge helper's own flip (never a `gh api` spelling), denying the
+  `gh api` acts and the requests it cannot read per REQ-G1.7, REQ-G1.8, and
+  D-9's readable and matching rules, reading the protected set from the core floor
   plus `protected_branches` with `refs/heads/` stripped, denying on any
   read failure, and sourcing `scripts/echo-safety.sh`; its wiring in
   `hooks/hooks.json` and both settings profiles; the profiles reduced to
@@ -171,19 +173,28 @@ every surface it restates exists.
   `docs/permission-matcher-model.md` and `tests/test-merge-currency-matrix.sh`
   updated for the profile change; an adversarial suite in the ready-guard's
   style; the wiring tests updated; the cross-copy test of Task 5 extended to
-  drive the new guard too, and its fixture's verdict column rewritten from
-  all-deny to the verdict each tier and value yields.
+  drive the new guard too through a new policy-guard column; the fixture's
+  policy lines set from their landed verdicts to what each tier and value
+  yields; its grammar extended with an `opaque` act for unreadable forms,
+  an `other` act for readable requests outside the classified acts, and a
+  `floor-guard` policy token (policy guard deny, profiles prompt) replacing
+  `gh_api_write=prompt`, with the header comment on `gh api` naming the
+  policy guard as the refusing layer; and the `gh api` lines the REQ-G1.7
+  and REQ-G1.8 entries name added.
 - **Done when:** each policy value produces the expected deny or defer per
   spelling in the suite; an unresolvable knob denies; a non-matching command
   produces no resolver call in the stubbed log; the never-pushed check
   refuses a commit any remote-tracking ref contains, a failed refresh, and a
-  branch with no upstream; the hook-contract, wiring, and `check:test-time`
-  checks pass.
+  branch with no upstream; every `gh api` line the REQ-G1.7 and REQ-G1.8
+  test-spec entries name gets its expected policy-guard and profile verdict
+  in the cross-copy test, with the resolver-call, no-tier, and deny-message
+  assertions in the policy-guard suite; the hook-contract, wiring, and
+  `check:test-time` checks pass.
 - **Dependencies:** 4, 5
 - **Citations:** D-8, D-9 · REQ-A1.2, REQ-C1.5, REQ-C1.8, REQ-D1.5,
   REQ-E1.1, REQ-E1.3, REQ-F1.1, REQ-F1.5, REQ-G1.1, REQ-G1.2, REQ-G1.3,
-  REQ-G1.4, REQ-G1.5, REQ-G1.6
-- **Estimated effort:** 2 days
+  REQ-G1.4, REQ-G1.5, REQ-G1.6, REQ-G1.7, REQ-G1.8
+- **Estimated effort:** 3 days
 
 ### Task 7 — The ready-flip helper and its wiring
 
@@ -230,7 +241,7 @@ every surface it restates exists.
   spelling is admitted by the guard suite; the wiring tests cover the
   helper.
 - **Dependencies:** 6
-- **Citations:** D-11 · REQ-C1.7, REQ-C1.8, REQ-G1.5
+- **Citations:** D-11 · REQ-C1.7, REQ-C1.8, REQ-G1.5, REQ-G1.7
 - **Estimated effort:** half day
 
 ### Task 9 — The merge policy
@@ -332,7 +343,8 @@ every surface it restates exists.
   script header that restates the list or cites bootstrap REQ-J1.1 or
   REQ-J1.4 rewritten to agree with the doctrine (the README, `docs/`, and
   the `config/defaults.yml` comments among them; the Done-when grep is the
-  enumeration); the short retired phrases added to the purged-identifier
+  enumeration); `doctrine/human-gates.md`'s floor section stating the tower
+  tier's refusals as profile or policy-guard denies (REQ-G1.7); the short retired phrases added to the purged-identifier
   seed after a check that no frozen record carries them verbatim, and the
   dedicated grep screen for sentence-length phrasings over `doctrine/`,
   `skills/`, and `docs/` wired into `mise run check`; a check that the
@@ -381,6 +393,12 @@ every surface it restates exists.
   task here can ship it. Confidence: high.
   **Gate:** GATE(when: task 12 completed).
   Citations: D-10 · REQ-A1.3.
+- **Drop `check-commit-msgs.sh --marker title`.** Kept one release after
+  the sign-off trailer ships so a PR title still carrying the legacy bracket
+  or a trailer line is caught; after that release the flag, its PR-title
+  workflow argument, and its tests go. Confidence: high.
+  **Gate:** GATE(when: task 3 completed and after 2026-11-15).
+  Citations: D-3 · REQ-B1.4.
 
 ## Out of scope
 

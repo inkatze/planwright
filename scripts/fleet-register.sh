@@ -329,9 +329,9 @@ if /bin/sh "$FS" "$@" >/dev/null; then
   exit 0
 fi
 # No claim about self-healing here: this registry has exactly one writer (this
-# script), and the periodic reconcile that would notice a missing record is a
-# later task in this bundle. Until it lands, a failed registration means this
-# worker is absent from the fleet's inventory for its whole life, which is
-# precisely the thing worth saying out loud.
-warn "failed to register $(sanitize_printable "$handle" "(unprintable handle)") in the fleet registry; the dispatch stands, but this worker will not appear in the fleet inventory and no reconcile exists yet to add it"
+# script), and nothing reconciles it (the periodic sweep scans worktrees, not
+# dispatch records). A failed registration means this worker is absent from
+# the fleet's inventory for its whole life, which is precisely the thing worth
+# saying out loud.
+warn "failed to register $(sanitize_printable "$handle" "(unprintable handle)") in the fleet registry; the dispatch stands, but this worker will not appear in the fleet inventory and no reconcile exists to add it"
 exit 1

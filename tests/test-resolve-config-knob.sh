@@ -419,6 +419,177 @@ got=$(PLANWRIGHT_CONFIG_DEFAULTS="$nonneg_core" PLANWRIGHT_ADOPTER_OVERLAY="$ado
 [ "$got" = 0 ] || fail "nonnegint: a zero --fallback should be emitted verbatim, got '$got'"
 echo "ok: the nonnegint type honors the by-layer policy and accepts a zero fallback"
 
+# 10e. --degrade <value>: a malformed adopter or machine-local value degrades
+#      to the caller's strict target instead of the core default, whose value
+#      may be the permissive one. The repo-tracked and core arms are unchanged.
+gate_core="$tmp/core-gate.yml"
+run_gate() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$gate_core" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --key flip_gate --type enum --values 'strict loose' \
+    --fallback strict --degrade strict
+}
+printf 'flip_gate: loose\n' >"$gate_core"
+reset_layers
+got=$(run_gate) || fail "degrade: the core value did not resolve"
+[ "$got" = loose ] || fail "degrade: the core value resolved to '$got'"
+for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'flip_gate: sloppy\n' >"$layer_cfg"
+  rc=0
+  out=$(run_gate 2>"$tmp/err.txt") || rc=$?
+  [ "$rc" = 0 ] || fail "degrade: malformed $layer_cfg exited $rc, expected 0"
+  [ "$out" = strict ] || fail "degrade: malformed $layer_cfg resolved to '$out', expected the strict target"
+  grep -q "warning:.*degrading to the strict value 'strict'" "$tmp/err.txt" \
+    || fail "degrade: the warning does not name the degrade target"
+done
+# A structurally malformed overlay FILE is a malformed value in that layer
+# too: config-get would skip the file and answer from the core value, which is
+# exactly the permissive side --degrade exists to avoid.
+for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'flip_gate:\n  - strict\n' >"$layer_cfg"
+  rc=0
+  out=$(run_gate 2>"$tmp/err.txt") || rc=$?
+  [ "$rc" = 0 ] || fail "degrade: a malformed $layer_cfg file exited $rc, expected 0"
+  [ "$out" = strict ] || fail "degrade: a malformed $layer_cfg file resolved to '$out', expected the strict target"
+  grep -q "warning:.*strict value 'strict'" "$tmp/err.txt" \
+    || fail "degrade: a malformed $layer_cfg file degraded without naming the target"
+done
+# A malformed machine-local file must not hide a malformed repo-tracked value:
+# the shared value's breakage still fails the read.
+reset_layers
+printf 'flip_gate: sloppy\n' >"$tracked_cfg"
+printf 'unrelated:\n  - x\n' >"$mlocal_cfg"
+rc=0
+run_gate >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "degrade: a malformed repo-tracked value behind a malformed machine-local file exited $rc, expected 4"
+# A legal but permissive repo-tracked value behind a malformed file still
+# degrades (and refuses under --no-degrade); run under /bin/sh, as the policy
+# readers run it.
+printf 'flip_gate: loose\n' >"$tracked_cfg"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$gate_core" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/sh "$RCK" --key flip_gate --type enum --values 'strict loose' \
+  --fallback strict --degrade strict 2>/dev/null) \
+  || fail "degrade: a permissive repo-tracked value behind a malformed file failed the read"
+[ "$got" = strict ] || fail "degrade: a permissive repo-tracked value behind a malformed file resolved to '$got', expected strict"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$gate_core" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/sh "$RCK" --key flip_gate --type enum --values 'strict loose' --no-degrade >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "no-degrade: a permissive repo-tracked value behind a malformed file exited $rc, expected 4"
+# Without --degrade / --no-degrade the config-get skip is unchanged, even when
+# the caller's environment exports the strict switch.
+reset_layers
+printf 'flip_gate: sloppy\n' >"$gate_core"
+printf 'flip_gate: strict\n' >"$adopter_cfg"
+printf 'flip_gate:\n  - loose\n' >"$mlocal_cfg"
+got=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 PLANWRIGHT_CONFIG_DEFAULTS="$gate_core" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key flip_gate --type enum --values 'strict loose sloppy' --fallback strict 2>/dev/null) \
+  || fail "degrade: a plain caller failed on a malformed machine-local file"
+[ "$got" = strict ] || fail "degrade: a plain caller should skip a malformed file to the adopter value, got '$got'"
+printf 'flip_gate: loose\n' >"$gate_core"
+reset_layers
+printf 'flip_gate: sloppy\n' >"$tracked_cfg"
+rc=0
+run_gate >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "degrade: malformed repo-tracked value exited $rc, expected 4"
+reset_layers
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$gate_core" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key flip_gate --type enum --values 'strict loose' \
+  --fallback strict --degrade sloppy >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "degrade: an illegal --degrade value is a caller bug (exit $rc, expected 2)"
+echo "ok: --degrade sends a malformed adopter or machine-local value to the strict target"
+
+# 10f. The globlist type: a space-separated single-line list of names or glob
+#      patterns, empty legal; a member outside [A-Za-z0-9._/*?-] is malformed.
+glob_core="$tmp/core-glob.yml"
+run_glob() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$glob_core" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --key extra_globs --type globlist --fallback ''
+}
+reset_layers
+for good in '' 'release' 'release/* hotfix-?' 'docs/*.md  vendor/**'; do
+  printf 'extra_globs: %s\n' "$good" >"$glob_core"
+  got=$(run_glob) || fail "globlist: '$good' did not resolve"
+  [ "$got" = "$good" ] || fail "globlist: '$good' resolved to '$got'"
+done
+# shellcheck disable=SC2016 # the literal `$(x)` is the malformed member
+for bad in 'a,b' '[main]' 'ma\in' '$(x)' '~main' '- main' "x;y"; do
+  printf 'extra_globs: %s\n' "$bad" >"$glob_core"
+  rc=0
+  run_glob >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 5 ] || fail "globlist: '$bad' in core was not treated as malformed (exit $rc, expected 5)"
+done
+long_member=$(printf 'a%.0s' $(seq 255))
+printf 'extra_globs: %s\n' "$long_member" >"$glob_core"
+[ "$(run_glob)" = "$long_member" ] || fail "globlist: a 255-character member did not resolve"
+printf 'extra_globs: %sa\n' "$long_member" >"$glob_core"
+rc=0
+run_glob >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "globlist: a 256-character member was not malformed (exit $rc, expected 5)"
+rc=0
+/bin/bash "$RCK" --key extra_globs --type globlist --values 'a b' --fallback '' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "globlist: --values is enum-only (exit $rc, expected 2)"
+echo "ok: the globlist type validates (empty legal; members outside the glob charset malformed)"
+
+# 10g. --no-degrade: a malformed value at ANY layer is a read failure (exit 4),
+#      and a key no layer sets is a broken install (exit 5). Nothing degrades,
+#      so the caller's --fallback is not required.
+run_nodegrade() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$glob_core" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$RCK" --key extra_globs --type globlist --no-degrade
+}
+printf 'extra_globs: release/*\n' >"$glob_core"
+reset_layers
+got=$(run_nodegrade) || fail "no-degrade: a legal value did not resolve"
+[ "$got" = 'release/*' ] || fail "no-degrade: resolved to '$got'"
+for layer_cfg in "$adopter_cfg" "$tracked_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'extra_globs: a,b\n' >"$layer_cfg"
+  rc=0
+  out=$(run_nodegrade 2>/dev/null) || rc=$?
+  [ "$rc" = 4 ] || fail "no-degrade: malformed $layer_cfg exited $rc, expected 4"
+  [ -z "$out" ] || fail "no-degrade: malformed $layer_cfg still printed '$out'"
+done
+for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
+  reset_layers
+  printf 'extra_globs:\n  - release/*\n' >"$layer_cfg"
+  rc=0
+  out=$(run_nodegrade 2>/dev/null) || rc=$?
+  [ "$rc" = 4 ] || fail "no-degrade: a malformed $layer_cfg file exited $rc, expected 4"
+  [ -z "$out" ] || fail "no-degrade: a malformed $layer_cfg file still printed '$out'"
+done
+# A malformed core default is a broken install, not a malformed overlay.
+reset_layers
+printf 'extra_globs: a,b\n' >"$glob_core"
+rc=0
+run_nodegrade >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "no-degrade: a malformed core value exited $rc, expected 5"
+reset_layers
+: >"$glob_core"
+rc=0
+run_nodegrade >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "no-degrade: a key no layer sets exited $rc, expected 5"
+for extra in "--degrade ''" "--fallback ''"; do
+  rc=0
+  eval "/bin/bash \"\$RCK\" --key extra_globs --type globlist --no-degrade $extra" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "no-degrade: combining it with $extra is a usage error (exit $rc, expected 2)"
+done
+echo "ok: --no-degrade fails every malformed layer and an unset key"
+
 # 11. Usage validation: missing/invalid arguments are usage errors (exit 2).
 for args in \
   "" \
@@ -588,7 +759,43 @@ got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopte
   PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
   /bin/bash "$RCK" --explain --key absent_knob --type posint --fallback 7 2>/dev/null)
 [ "$got" = "default${TAB}7" ] || fail "posint --explain: an unset key should carry the default label, got '$got'"
+# A --degrade target is no layer's value: it carries the default label, for a
+# malformed value and for a malformed file alike.
+printf 'fleet_daemon_pause: bogus\n' >"$mlocal_cfg"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --explain --key fleet_daemon_pause --type enum --values 'true false' \
+  --fallback true --degrade true 2>/dev/null)
+[ "$got" = "default${TAB}true" ] || fail "--degrade --explain: a malformed value's target should carry the default label, got '$got'"
+printf 'other:\n  - x\n' >"$mlocal_cfg"
+got=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --explain --key fleet_daemon_pause --type enum --values 'true false' \
+  --fallback true --degrade true 2>/dev/null)
+[ "$got" = "default${TAB}true" ] || fail "--degrade --explain: a malformed file's target should carry the default label, got '$got'"
 echo "ok: --explain labels the winning, degraded, and fallback layers"
+
+# A path walks its own layers and has no strict arm to degrade into.
+rc=0
+/bin/bash "$RCK" --key spec_root --type path --fallback '' --degrade /x >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 2 ] || fail "path with --degrade: exit $rc, expected 2"
+grep -q 'do not apply to --type path' "$tmp/err" || fail "path with --degrade: refused for another reason: $(cat "$tmp/err")"
+rc=0
+/bin/bash "$RCK" --key spec_root --type path --no-degrade >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 2 ] || fail "path with --no-degrade: exit $rc, expected 2"
+grep -q 'do not apply to --type path' "$tmp/err" || fail "path with --no-degrade: refused for another reason: $(cat "$tmp/err")"
+echo "ok: path refuses --degrade and --no-degrade"
+
+# --union joins a globlist's layers instead of taking the winner; it applies
+# to no other type and has no single layer for --explain to name.
+for bad_args in "--type enum --values a --fallback a" "--type globlist --fallback x --explain"; do
+  rc=0
+  # shellcheck disable=SC2086 # the argument words split on purpose
+  /bin/bash "$RCK" --union --key merge_class_exclude_paths $bad_args >/dev/null 2>"$tmp/err" || rc=$?
+  [ "$rc" = 2 ] || fail "--union with '$bad_args': exit $rc, expected 2"
+  grep -q 'union applies only' "$tmp/err" || fail "--union with '$bad_args': refused for another reason: $(cat "$tmp/err")"
+done
+echo "ok: --union is a globlist-only option without --explain"
 
 reset_layers
 
