@@ -15,7 +15,8 @@
 #     kickoff-brief bodies are append-only and out of scope (REQ-D1.1): their
 #     historical `[[…]]` are a bounded, named carve-out, reconciled only where
 #     the amendment ritual reaches spec files (REQ-D1.4).
-#   - Bundles: every <root>/<name>/ whose name does not start with `_`
+#   - Bundles: every <root>/<name>/, <root> being the spec root
+#     scripts/resolve-root.sh resolves (specs/ by default), whose name does not start with `_`
 #     (underscore-prefixed dirs are accumulators, not bundles). A bundle's
 #     Status is read from requirements.md; terminal bundles (Done, Retired,
 #     Superseded) are frozen — changing them requires a Done->Draft reopen plus

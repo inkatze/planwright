@@ -1029,7 +1029,6 @@ echo "ok: a no-space Status header cannot evade the Active → Ready restriction
 rec=$tmp/recover-corpus
 mkdir -p "$rec/specs"
 git -C "$rec" init -q -b main
-git -C "$rec" init -q -b main
 git -C "$rec" config user.email t@example.com
 git -C "$rec" config user.name t
 git -C "$rec" config commit.gpgsign false
