@@ -1537,7 +1537,7 @@ classify_gh_api() {
     return 0
   fi
   if [ "${4:-}" = branches ] && [ "$seg_count" -ge 6 ] && [ "${!seg_count}" = rename ]; then
-    # A branch rename moves the named branch away: a write to that branch.
+    # A rename writes both branches: the one it moves away and the one it creates.
     local renamed=${ep#*/*/*/branches/}
     renamed=${renamed%/rename}
     case $renamed in
@@ -1546,7 +1546,27 @@ classify_gh_api() {
         return 0
         ;;
     esac
-    queue_protected "$eff" "$eff_ok" "this gh api branch rename" "$renamed"
+    local fv new_name='' i2=0
+    while [ "$i2" -lt "${#fields[@]}" ]; do
+      fv=${fields[$i2]}
+      case $fv in
+        new_name=*)
+          [ "${field_lit[$i2]}" = 1 ] || {
+            ghapi_opaque 'its new_name field is not literal'
+            return 0
+          }
+          new_name=${fv#new_name=}
+          ;;
+      esac
+      i2=$((i2 + 1))
+    done
+    case $new_name in
+      '' | *'{branch}'*)
+        ghapi_opaque 'its new_name field is not a literal branch name'
+        return 0
+        ;;
+    esac
+    queue_protected "$eff" "$eff_ok" "this gh api branch rename" "$renamed" "$new_name"
     return 0
   fi
   if [ "${4:-}" = contents ] && [ "$seg_count" -ge 5 ]; then

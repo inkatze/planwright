@@ -57,6 +57,8 @@ for tier in worker tower; do
     'gh api repos/acme/widgets/git/refs -f ref=refs/heads/master -f sha=abc' \
     'gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=main' \
     'gh api -X POST repos/acme/widgets/branches/main/rename -f new_name=old' \
+    'gh api -X POST repos/acme/widgets/branches/feature/rename -f new_name=main' \
+    'gh api -X POST repos/acme/widgets/branches/feature/rename -f new_name=planwright/demo/spec' \
     "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"acme/widgets\",branchName:\"main\"},message:{headline:\"x\"},expectedHeadOid:\"abc\"}){commit{oid}}}'"; do
     pg "$tier" "$cmd"
     expect deny "[$tier] $cmd"
@@ -64,7 +66,8 @@ for tier in worker tower; do
   done
   for cmd in 'gh api -X PATCH repos/acme/widgets/git/refs/heads/feature -f sha=abc' \
     'gh api -X PATCH repos/acme/widgets/git/refs/heads/feature -f sha=abc -F force=false' \
-    'gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=feature'; do
+    'gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=feature' \
+    'gh api -X POST repos/acme/widgets/branches/feature/rename -f new_name=feature2'; do
     pg "$tier" "$cmd"
     expect defer "[$tier] $cmd"
     reads protected_branches "[$tier] reads only protected_branches: $cmd"
@@ -113,6 +116,9 @@ UNREADABLE=(
   "gh api graphql -f query='mutation(\$b:String!){createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"o/r\",branchName:\$b}}){commit{oid}}} # branchName: \"mine\"' -f b=main"
   "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{branchName:\"mine\"}}){commit{oid}}} # x' -f b=main"
   'gh api -X POST repos/acme/widgets/branches/{branch}/rename -f new_name=x'
+  'gh api -X POST repos/acme/widgets/branches/feature/rename -f new_name="$B"'
+  'gh api -X POST repos/acme/widgets/branches/feature/rename -f new_name={branch}'
+  'gh api -X POST repos/acme/widgets/branches/feature/rename'
 )
 for tier in worker tower; do
   for cmd in "${UNREADABLE[@]}"; do
