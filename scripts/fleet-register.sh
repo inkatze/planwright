@@ -66,19 +66,21 @@
 # THE RECONCILE'S TWO MODES go through this file so a marker meets the same
 # field grammar a dispatch does, and the store is never written around it:
 #   --from-marker <path>    rebuild a missing record from its marker.
-#   --retire-marker <path>  mark the worker's record closed (the caller has
-#                           positive death evidence), then remove its marker.
-# Both refuse, rather than degrade, a marker with any field failing its
-# grammar, a handle that is not its filename, or a path that is not a regular
-# file directly inside the marker directory: a rebuilt record feeds a
-# destructive verb, so a hostile marker must never become one.
+#   --retire-marker <path> --expect <fields>
+#                           mark closed the worker's record carrying exactly
+#                           <fields> (the six the caller judged dead), then
+#                           remove the marker while it still reads <fields>.
+# Both refuse, rather than degrade, fields failing their grammar, a handle that
+# is not the marker's filename, or a path that is not a regular file directly
+# inside the marker directory: a rebuilt record feeds a destructive verb, so a
+# hostile marker must never become one.
 #
 # Usage:
 #   fleet-register.sh --handle <h> --backend <name> [--scope <s>]
 #       [--state-dir <abs-dir>] [--death-handle <handle>]
 #       [--checkout <dir>] [--session-id <uuid> | --pid <pid>]
 #   fleet-register.sh --from-marker <path>
-#   fleet-register.sh --retire-marker <path>
+#   fleet-register.sh --retire-marker <path> --expect <fields>
 #
 # Exit codes: 0 registered (healed, retired); 1 registration failed (warned on
 #   stderr — dispatch callers ignore this, by contract); 2 usage error; 3 the
@@ -117,7 +119,7 @@ warn() {
 
 usage() {
   printf '%s\n' "usage: $me --handle <h> --backend <name> [--scope <s>] [--state-dir <abs-dir>] [--death-handle <handle>] [--checkout <dir>] [--session-id <uuid> | --pid <pid>]" >&2
-  printf '%s\n' "       $me --from-marker <path> | --retire-marker <path>" >&2
+  printf '%s\n' "       $me --from-marker <path> | --retire-marker <path> --expect <fields>" >&2
   exit 2
 }
 
@@ -131,6 +133,7 @@ session_id=""
 pid=""
 marker_mode=""
 marker_path=""
+expect=""
 
 while [ "$#" -gt 0 ]; do
   case $1 in
@@ -138,6 +141,11 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] && [ -z "$marker_mode" ] || usage
       marker_mode=$1
       marker_path=$2
+      shift 2
+      ;;
+    --expect)
+      [ "$#" -ge 2 ] || usage
+      expect=$2
       shift 2
       ;;
     --handle | --scope | --backend | --state-dir | --death-handle | --checkout | --session-id | --pid)
@@ -166,7 +174,7 @@ if [ -n "$marker_mode" ]; then
   # source for the same column.
   [ -z "$handle$scope$backend$state_dir$death_handle$checkout$session_id$pid" ] || usage
 else
-  [ -n "$handle" ] && [ -n "$backend" ] || usage
+  [ -n "$handle" ] && [ -n "$backend" ] && [ -z "$expect" ] || usage
   # An absent scope is the store's `-` sentinel, not an invented word: a reader
   # must be able to tell "no scope was recorded" from a worker whose scope
   # really is `unknown`.
@@ -310,7 +318,10 @@ markers_dir() {
 # it is not a plain directory: a marker written through a link lands wherever
 # the link points.
 wm_tmp=""
-trap '[ -z "$wm_tmp" ] || rm -f "$wm_tmp" 2>/dev/null' EXIT
+mm_aside=""
+mm_restore=""
+trap '[ -z "$wm_tmp" ] || rm -f "$wm_tmp" 2>/dev/null
+  if [ -n "$mm_aside" ]; then ln "$mm_aside" "$mm_restore" 2>/dev/null; rm -f "$mm_aside" 2>/dev/null; fi' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
@@ -326,7 +337,9 @@ write_marker() {
   wm_tmp=$(mktemp "$wm_dir/.marker.XXXXXX" 2>/dev/null) || wm_tmp=""
   umask "$wm_umask"
   [ -n "$wm_tmp" ] || return 1
-  if printf '%s\n' "$1" >"$wm_tmp" 2>/dev/null && mv -f "$wm_tmp" "$wm_dir/$handle" 2>/dev/null; then
+  # A directory or link at the marker's name would take the rename into it.
+  if [ ! -L "$wm_dir/$handle" ] && [ ! -d "$wm_dir/$handle" ] \
+    && printf '%s\n' "$1" >"$wm_tmp" 2>/dev/null && mv -f "$wm_tmp" "$wm_dir/$handle" 2>/dev/null; then
     wm_tmp=""
     return 0
   fi
@@ -335,89 +348,143 @@ write_marker() {
   return 1
 }
 
-# read_marker <path> — validate a marker and set handle, scope, owner, backend,
-# state_dir and death_handle from it. Returns 0 valid, 3 absent, 4 refused
-# (with the reason on stderr), 1 when the fleet home itself cannot be resolved,
-# which says nothing about the marker.
-read_marker() {
-  rm_path=$1
-  rm_dir=$(markers_dir) || {
+# marker_path_ok <path> — the marker's place, not its content: a regular file,
+# not a link, directly inside the marker directory, named as a worker handle.
+# Sets mp_name. Returns 0 ok, 3 absent, 4 refused (reason on stderr), 1 when
+# the fleet home cannot be resolved, which says nothing about the marker.
+marker_path_ok() {
+  mp_path=$1
+  mp_name=${mp_path##*/}
+  mp_dir=$(markers_dir) || {
     warn "cannot resolve the fleet home to check the marker against"
     return 1
   }
-  rm_name=${rm_path##*/}
-  if [ "${rm_path%/*}" != "$rm_dir" ]; then
-    warn "refusing a marker outside $rm_dir"
+  if [ "${mp_path%/*}" != "$mp_dir" ]; then
+    warn "refusing a marker outside $mp_dir"
     return 4
   fi
-  if [ -L "$rm_dir" ] || [ ! -d "$rm_dir" ]; then
-    [ -e "$rm_dir" ] || [ -L "$rm_dir" ] || return 3
-    warn "refusing the marker directory $rm_dir: it is not a plain directory"
+  if [ -L "$mp_dir" ] || [ ! -d "$mp_dir" ]; then
+    [ -e "$mp_dir" ] || [ -L "$mp_dir" ] || return 3
+    warn "refusing the marker directory $mp_dir: it is not a plain directory"
     return 4
   fi
-  if [ -L "$rm_path" ]; then
-    warn "refusing marker '$(sanitize_printable "$rm_name" "(unprintable name)")': it is a symbolic link"
+  if [ -L "$mp_path" ]; then
+    warn "refusing marker '$(sanitize_printable "$mp_name" "(unprintable name)")': it is a symbolic link"
     return 4
   fi
-  [ -e "$rm_path" ] || return 3
-  if [ ! -f "$rm_path" ]; then
-    warn "refusing marker '$(sanitize_printable "$rm_name" "(unprintable name)")': it is not a regular file"
+  [ -e "$mp_path" ] || return 3
+  if [ ! -f "$mp_path" ]; then
+    warn "refusing marker '$(sanitize_printable "$mp_name" "(unprintable name)")': it is not a regular file"
     return 4
   fi
-  if ! valid_handle "$rm_name"; then
-    warn "refusing marker '$(sanitize_printable "$rm_name" "(unprintable name)")': its name is not a worker handle"
-    return 4
-  fi
-  # One line, bounded, six non-empty tab-separated fields: anything else is not
-  # a marker this seam wrote. An empty field is refused here because `read`
-  # treats a tab as whitespace and would slide the next field into its place.
-  rm_shape=$(awk -F'\t' '{ for (i = 1; i <= NF; i++) if ($i == "") e++ } END { print NR, NF, e + 0, length($0) }' \
-    "$rm_path" 2>/dev/null) || rm_shape=""
-  case $rm_shape in
-    "1 6 0 "*) ;;
-    *)
-      warn "refusing marker '$rm_name': it is not one line of six fields"
-      return 4
-      ;;
-  esac
-  [ "${rm_shape##* }" -le 8192 ] || {
-    warn "refusing marker '$rm_name': over-length"
-    return 4
-  }
-  rm_tab=$(printf '\t')
-  IFS="$rm_tab" read -r handle scope owner backend state_dir death_handle <"$rm_path"
-  if [ "$handle" != "$rm_name" ]; then
-    warn "refusing marker '$rm_name': it names another handle"
-    return 4
-  fi
-  if ! valid_handle "$scope" && [ "$scope" != - ]; then
-    warn "refusing marker '$rm_name': malformed scope"
-    return 4
-  fi
-  if [ "$owner" != - ] && ! valid_owner "$owner"; then
-    warn "refusing marker '$rm_name': malformed owner token"
-    return 4
-  fi
-  if ! valid_backend "$backend"; then
-    warn "refusing marker '$rm_name': malformed backend"
-    return 4
-  fi
-  if [ "$state_dir" != - ] && ! valid_state_dir "$state_dir"; then
-    warn "refusing marker '$rm_name': malformed state directory"
-    return 4
-  fi
-  if [ "$death_handle" != - ] && ! valid_death_handle "$death_handle"; then
-    warn "refusing marker '$rm_name': malformed death handle"
+  if ! valid_handle "$mp_name"; then
+    warn "refusing marker '$(sanitize_printable "$mp_name" "(unprintable name)")': its name is not a worker handle"
     return 4
   fi
   return 0
 }
 
+# parse_fields <line> <name> — set handle, scope, owner, backend, state_dir and
+# death_handle from one marker line. Returns 0, or 4 (reason on stderr) for
+# anything but six non-empty tab-separated fields that pass their grammars
+# and name the handle <name>. An empty field is refused before `read`, which
+# treats a tab as whitespace and would slide the next field into its place.
+parse_fields() {
+  pf_shape=$(printf '%s\n' "$1" | awk -F'\t' '{ for (i = 1; i <= NF; i++) if ($i == "") e++ } END { print NR, NF, e + 0, length($0) }')
+  case $pf_shape in
+    "1 6 0 "*) ;;
+    *)
+      warn "refusing marker '$2': it is not one line of six fields"
+      return 4
+      ;;
+  esac
+  [ "${pf_shape##* }" -le 8192 ] || {
+    warn "refusing marker '$2': over-length"
+    return 4
+  }
+  IFS=$(printf '\t') read -r handle scope owner backend state_dir death_handle <<PF
+$1
+PF
+  if [ "$handle" != "$2" ]; then
+    warn "refusing marker '$2': it names another handle"
+    return 4
+  fi
+  if ! valid_handle "$scope" && [ "$scope" != - ]; then
+    warn "refusing marker '$2': malformed scope"
+    return 4
+  fi
+  if [ "$owner" != - ] && ! valid_owner "$owner"; then
+    warn "refusing marker '$2': malformed owner token"
+    return 4
+  fi
+  if ! valid_backend "$backend"; then
+    warn "refusing marker '$2': malformed backend"
+    return 4
+  fi
+  if [ "$state_dir" != - ] && ! valid_state_dir "$state_dir"; then
+    warn "refusing marker '$2': malformed state directory"
+    return 4
+  fi
+  if [ "$death_handle" != - ] && ! valid_death_handle "$death_handle"; then
+    warn "refusing marker '$2': malformed death handle"
+    return 4
+  fi
+  return 0
+}
+
+# read_marker <path> — marker_path_ok, then parse_fields over its one line.
+read_marker() {
+  marker_path_ok "$1" || return $?
+  rm_size=$(wc -c <"$1" 2>/dev/null | tr -d ' ') || rm_size=""
+  case $rm_size in
+    "" | *[!0-9]*) rm_size=99999 ;;
+  esac
+  if [ "$rm_size" -gt 8193 ]; then
+    warn "refusing marker '$mp_name': over-length"
+    return 4
+  fi
+  parse_fields "$(cat "$1" 2>/dev/null)" "$mp_name"
+}
+
+# drop_marker <path> <line> — remove the marker only while it still reads
+# <line>. It is renamed aside first, so a re-dispatch writing a new marker
+# between the comparison and the removal is never the one removed: a moved-aside
+# marker that reads otherwise is linked back, unless a newer one already took
+# the name. A signal mid-way links it back from the exit trap.
+drop_marker() {
+  mm_aside="${1%/*}/.retiring.$$"
+  mm_restore=$1
+  if ! mv -f "$1" "$mm_aside" 2>/dev/null; then
+    mm_aside=""
+    [ -e "$1" ] || [ -L "$1" ] || return 0
+    return 1
+  fi
+  if [ "$(cat "$mm_aside" 2>/dev/null)" != "$2" ]; then
+    ln "$mm_aside" "$1" 2>/dev/null || :
+  fi
+  rm -f "$mm_aside" 2>/dev/null
+  mm_aside=""
+  return 0
+}
+
 if [ -n "$marker_mode" ]; then
-  mm_rc=0
-  read_marker "$marker_path" || mm_rc=$?
-  [ "$mm_rc" = 0 ] || exit "$mm_rc"
-  mm_line=$(cat "$marker_path")
+  if [ "$marker_mode" = --from-marker ]; then
+    [ -z "$expect" ] || usage
+    mm_rc=0
+    read_marker "$marker_path" || mm_rc=$?
+    [ "$mm_rc" = 0 ] || exit "$mm_rc"
+  else
+    # A retirement closes the fields the caller judged dead, never whatever the
+    # marker says by now: a re-dispatch may have rewritten it in between.
+    [ -n "$expect" ] || usage
+    mm_rc=0
+    marker_path_ok "$marker_path" || mm_rc=$?
+    case $mm_rc in
+      0 | 3) ;;
+      *) exit "$mm_rc" ;;
+    esac
+    parse_fields "$expect" "$mp_name" || exit 4
+  fi
   set -- "$handle" "$scope"
   [ "$owner" = - ] || set -- "$@" --owner "$owner"
   set -- "$@" --backend "$backend"
@@ -435,24 +502,22 @@ if [ -n "$marker_mode" ]; then
   st_rc=0
   /bin/sh "$FS" retire "$@" >/dev/null || st_rc=$?
   case $st_rc in
-    0 | 3) ;;
+    0) ;;
+    3)
+      # Nothing to close: only an earlier retirement of these very fields
+      # leaves the marker to finish removing.
+      mm_last=$(/bin/sh "$FS" registry 2>/dev/null | awk -F'\t' -v w="$handle" '($2 "") == (w "") { l = $0 } END { print l }')
+      [ "$(printf '%s\n' "$mm_last" | cut -f2-8)" = "$expect$(printf '\t')closed" ] || exit 3
+      ;;
     *)
       warn "could not retire the record for $handle; the next sweep retries"
       exit 1
       ;;
   esac
-  # The marker goes only once the store holds this very record closed, and only
-  # while the marker still says what was retired: a re-dispatch under the same
-  # handle rewrites it, and that one belongs to a live worker.
-  mm_last=$(/bin/sh "$FS" registry 2>/dev/null | awk -F'\t' -v w="$handle" '($2 "") == (w "") { l = $0 } END { print l }')
-  mm_want="$mm_line$(printf '\t')closed"
-  if [ "$(printf '%s\n' "$mm_last" | cut -f2-8)" = "$mm_want" ] \
-    && [ "$(cat "$marker_path" 2>/dev/null)" = "$mm_line" ]; then
-    rm -f "$marker_path" 2>/dev/null || {
-      warn "retired $handle but could not remove its marker; the next sweep retries"
-      exit 1
-    }
-  fi
+  # The record is closed either way; a marker left behind is finished on the
+  # next pass, so this exit still reports the retirement.
+  drop_marker "$marker_path" "$expect" \
+    || warn "retired $handle but could not remove its marker; the next sweep finishes it"
   exit "$st_rc"
 fi
 
@@ -547,7 +612,7 @@ if valid_handle "$handle" && { [ "$scope" = - ] || valid_handle "$scope"; }; the
     "$backend" "${state_dir:--}" "${death_handle:--}")"; then
     marked=1
   else
-    warn "could not write the dispatch marker for $(sanitize_printable "$handle" "(unprintable handle)"); if the registry write below fails too, no sweep can rebuild this record"
+    warn "could not write the dispatch marker for $(sanitize_printable "$handle" "(unprintable handle)"); no sweep can retire its record, and if the registry write below fails too, none can rebuild it"
   fi
 fi
 

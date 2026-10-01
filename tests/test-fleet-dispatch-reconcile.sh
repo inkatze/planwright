@@ -105,7 +105,7 @@ mlocal_cfg="$repo_cfg/.claude/planwright.local.yml"
 owner=p4242.t99.c17
 
 env_scrub=(
-  -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR
+  -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME
   -u PLANWRIGHT_ROOT -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID
   -u PLANWRIGHT_TOWER_PID -u PLANWRIGHT_TOWER_CHECKOUT
   -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE
@@ -209,7 +209,6 @@ cat >"$sup/scripts/fleet-state.sh" <<'STUB'
 d=$(cd "$(dirname "$0")" && pwd)
 if [ "${1:-}" = register ]; then
   { for a; do printf '%s\t' "$a"; done; printf '\n'; } >>"$SUPPRESS_LOG"
-  echo "fleet-state: register suppressed by the fixture" >&2
   exit 2
 fi
 exec /bin/sh "$d/fleet-state-real.sh" "$@"
@@ -239,13 +238,15 @@ attempted() {
     }'
 }
 
-# heal_case <id> <home> <log> <dispatch-rc> — the shared assertions once a seam
-# dispatched against the suppressed tree.
+# heal_case <id> <home> <log> <dispatch-rc> <stderr-file> — the shared
+# assertions once a seam dispatched against the suppressed tree.
 heal_case() {
   hc_id=$1
   hc_home=$2
   hc_log=$3
   [ "$4" = 0 ] || fail "$hc_id: the dispatch failed when only its registry write did (exit $4)"
+  grep -q 'the next sweep rebuilds the record from its dispatch marker' "$5" \
+    || fail "$hc_id: the failed registry write was not warned visibly: $(cat "$5")"
   if [ ! -s "$hc_log" ]; then
     fail "$hc_id: the seam never tried to register"
     return
@@ -300,8 +301,7 @@ printf 'do the thing\n' | at "$h" "$SUPS" SUPPRESS_LOG="$log" PLANWRIGHT_TOWER_I
   PLANWRIGHT_HEADLESS_CLAUDE="$tmp/bin/fake-claude" \
   PLANWRIGHT_HEADLESS_STATE_DIR="$tmp/state-headless" -- \
   fleet-dispatch-headless.sh launch spec-h 3 --worktree "$tmp/wt-headless" >/dev/null 2>"$tmp/h-headless.err" || d_rc=$?
-grep -qi 'regist' "$tmp/h-headless.err" || fail "h1 headless: the failed registry write was not warned"
-heal_case "fleet-dispatch-headless.sh" "$h" "$log" "$d_rc"
+heal_case "fleet-dispatch-headless.sh" "$h" "$log" "$d_rc" "$tmp/h-headless.err"
 
 # --- fleet-streamjson.sh ----------------------------------------------------
 h=$(home h-sj)
@@ -312,8 +312,7 @@ d_rc=0
 at "$h" "$SUPS" SUPPRESS_LOG="$log" PLANWRIGHT_TOWER_ID="$owner" \
   PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/fake-claude" -- \
   fleet-streamjson.sh launch w-sj spec-sj:1 --prompt-file "$tmp/prompt" >/dev/null 2>"$tmp/h-sj.err" || d_rc=$?
-grep -qi 'regist' "$tmp/h-sj.err" || fail "h1 stream-json: the failed registry write was not warned"
-heal_case "fleet-streamjson.sh" "$h" "$log" "$d_rc"
+heal_case "fleet-streamjson.sh" "$h" "$log" "$d_rc" "$tmp/h-sj.err"
 for pf in "$h/streamjson/w-sj/supervisor.pid" "$h/streamjson/w-sj/worker.pid"; do
   p=$(cat "$pf" 2>/dev/null) || continue
   case $p in '' | *[!0-9]*) continue ;; esac
@@ -330,8 +329,7 @@ log="$tmp/h-offload-print.log"
 d_rc=0
 at "$h" "$SUPS" SUPPRESS_LOG="$log" PLANWRIGHT_TOWER_ID="$owner" -- \
   offload-dispatch.sh dispatch print "$tmp/prompt" >/dev/null 2>"$tmp/h-op.err" || d_rc=$?
-grep -qi 'regist' "$tmp/h-op.err" || fail "h1 offload print: the failed registry write was not warned"
-heal_case "offload-dispatch.sh" "$h" "$log" "$d_rc"
+heal_case "offload-dispatch.sh" "$h" "$log" "$d_rc" "$tmp/h-op.err"
 
 stub_tmux="$tmp/bin-offload-tmux"
 mkdir -p "$stub_tmux"
@@ -349,16 +347,16 @@ log="$tmp/h-offload-tmux.log"
 : >"$log"
 d_rc=0
 PATH="$stub_tmux:$PATH" at "$h" "$SUPS" SUPPRESS_LOG="$log" PLANWRIGHT_TOWER_ID="$owner" -- \
-  offload-dispatch.sh dispatch tmux "$tmp/prompt" >/dev/null 2>/dev/null || d_rc=$?
-heal_case "offload-dispatch.sh tmux" "$h" "$log" "$d_rc"
+  offload-dispatch.sh dispatch tmux "$tmp/prompt" >/dev/null 2>"$tmp/h-ot.err" || d_rc=$?
+heal_case "offload-dispatch.sh tmux" "$h" "$log" "$d_rc" "$tmp/h-ot.err"
 
 h=$(home h-offload-subagent)
 log="$tmp/h-offload-subagent.log"
 : >"$log"
 d_rc=0
 at "$h" "$SUPS" SUPPRESS_LOG="$log" PLANWRIGHT_TOWER_ID="$owner" -- \
-  offload-dispatch.sh report subagent agent-7 >/dev/null 2>/dev/null || d_rc=$?
-heal_case "offload-dispatch.sh subagent" "$h" "$log" "$d_rc"
+  offload-dispatch.sh report subagent agent-7 >/dev/null 2>"$tmp/h-os.err" || d_rc=$?
+heal_case "offload-dispatch.sh subagent" "$h" "$log" "$d_rc" "$tmp/h-os.err"
 
 # --- fleet-dispatch-worktree.sh (the /orchestrate tmux rung) ----------------
 gitc() {
@@ -391,8 +389,8 @@ log="$tmp/h-worktree.log"
 d_rc=0
 PATH="$stub_w:$PATH" at "$h" "$SUPS" SUPPRESS_LOG="$log" PLANWRIGHT_TOWER_ID="$owner" \
   PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1 -- \
-  fleet-dispatch-worktree.sh dispatch spec-w 1 --repo-root "$wrepo" >/dev/null 2>/dev/null || d_rc=$?
-heal_case "fleet-dispatch-worktree.sh" "$h" "$log" "$d_rc"
+  fleet-dispatch-worktree.sh dispatch spec-w 1 --repo-root "$wrepo" >/dev/null 2>"$tmp/h-wt.err" || d_rc=$?
+heal_case "fleet-dispatch-worktree.sh" "$h" "$log" "$d_rc" "$tmp/h-wt.err"
 
 # --- flight-dispatch.sh (the visual-flight print rung) ----------------------
 fc="$tmp/flight"
@@ -426,7 +424,7 @@ PATH="$fc/bin:$PATH" env "${env_scrub[@]}" \
   --ask-file "$fc/ask.txt" --grounds-file "$fc/grounds.txt" --repo-root "$fc/primary" \
   </dev/null >"$tmp/h-flight.out" 2>"$tmp/h-flight.err" || d_rc=$?
 [ "$d_rc" = 0 ] || echo "# flight dispatch stderr: $(cat "$tmp/h-flight.err")"
-heal_case "flight-dispatch.sh" "$h" "$log" "$d_rc"
+heal_case "flight-dispatch.sh" "$h" "$log" "$d_rc" "$tmp/h-flight.err"
 
 # Every seam the seam-coverage manifest names was exercised here.
 manifest=$(awk '/^manifest="/ { on = 1; sub(/^manifest="/, "") } on { line = $0; done = sub(/"$/, "", line); print line; if (done) exit }' \
@@ -464,10 +462,19 @@ printf '%s\n' "$out" | grep -q "^retire${tab}w-r1${tab}" || fail "r1: the retire
 cls=$(at "$h" "$S" -- fleet-stuck-detector.sh classify w-r1 --tower-id "$owner" 2>/dev/null)
 printf '%s\n' "$cls" | grep -q "^evidence${tab}w-r1${tab}registry${tab}present$" \
   || fail "r1: a retired record is no longer readable per handle: $cls"
-scan=$(at "$h" "$S" -- fleet-stuck-detector.sh scan --tower-id "$owner" 2>/dev/null)
+# A live worker beside it is the positive control: the readers must list it.
+register "$h" w-r1-live --scope spec-r:1b --backend tmux --death-handle "tmux-window x @1" \
+  || fail "r1: could not register the live control"
+scan_rc=0
+scan=$(at "$h" "$S" -- fleet-stuck-detector.sh scan --tower-id "$owner" 2>/dev/null) || scan_rc=$?
+[ "$scan_rc" = 0 ] || fail "r1: the detector's scan exited $scan_rc"
+printf '%s\n' "$scan" | grep -q "^worker${tab}w-r1-live${tab}" || fail "r1: the scan does not list the live control: $scan"
 printf '%s\n' "$scan" | grep -q "^worker${tab}w-r1${tab}" && fail "r1: the detector's scan still lists a retired worker"
-status=$(at "$h" "$S" -- fleet-status.sh render 2>/dev/null)
-printf '%s\n' "$status" | grep -q 'w-r1' && fail "r1: the status render still lists a retired worker"
+status_rc=0
+status=$(at "$h" "$S" -- fleet-status.sh render 2>/dev/null) || status_rc=$?
+[ "$status_rc" = 0 ] || fail "r1: the status render exited $status_rc"
+printf '%s\n' "$status" | grep -q 'w-r1-live' || fail "r1: the status render does not list the live control"
+printf '%s\n' "$status" | grep -q 'w-r1[^-]' && fail "r1: the status render still lists a retired worker"
 before=$(registry "$h")
 reconcile "$h"
 [ "$(registry "$h")" = "$before" ] || fail "r1: a second reconcile wrote to a retired record"
@@ -572,17 +579,73 @@ cp "$(marker "$h" w-r6)" "$tmp/r6-old-marker"
 sleep 300 &
 p6=$!
 register "$h" w-r6 --scope spec-r:8 --backend headless-oneshot --death-handle "process $p6"
-# The old marker, retired against a record that has moved on.
-mkdir -p "$tmp/r6"
-cp "$tmp/r6-old-marker" "$(marker "$h" w-r6)"
+# The reconcile judged the old record dead; a re-dispatch rewrote the marker
+# and the record before the retirement ran. It retires the fields it judged,
+# which are no longer live, so it closes nothing and leaves the new marker.
+new_marker=$(cat "$(marker "$h" w-r6)")
 before=$(registry "$h")
 r6_rc=0
-at "$h" "$S" -- fleet-register.sh --retire-marker "$(marker "$h" w-r6)" >/dev/null 2>&1 || r6_rc=$?
+at "$h" "$S" -- fleet-register.sh --retire-marker "$(marker "$h" w-r6)" \
+  --expect "$(cat "$tmp/r6-old-marker")" >/dev/null 2>&1 || r6_rc=$?
 [ "$r6_rc" = 3 ] || fail "r6: a stale retirement did not report a no-op (exit $r6_rc)"
 [ "$(registry "$h")" = "$before" ] || fail "r6: a stale retirement closed the live re-dispatch"
+[ "$(cat "$(marker "$h" w-r6)" 2>/dev/null)" = "$new_marker" ] || fail "r6: a stale retirement removed the re-dispatch's marker"
 kill "$p6" 2>/dev/null
 wait "$p6" 2>/dev/null
-ok r6 "a retirement against a record that moved on closes nothing"
+ok r6 "a retirement against a record that moved on closes nothing and keeps the new marker"
+
+# ===========================================================================
+# r7 — a field the store compares may carry a backslash: an unchanged
+#      re-registration writes nothing, and the record still retires.
+# ===========================================================================
+h=$(home r7)
+dp=$(dead_pid)
+for _ in 1 2; do
+  register "$h" w-r7 --scope spec-r:9 --backend headless-oneshot \
+    --state-dir '/w/a\nb' --death-handle "process $dp"
+done
+[ "$(rows "$h" w-r7 | grep -c .)" = 1 ] || fail "r7: an unchanged re-registration with a backslash appended a duplicate"
+reconcile "$h"
+[ "$(rows "$h" w-r7 | tail -n 1 | cut -f8)" = closed ] || fail "r7: a record with a backslash in a field never retires"
+[ ! -e "$(marker "$h" w-r7)" ] || fail "r7: the retired record's marker stayed"
+ok r7 "a backslash in a stored field compares as itself"
+
+# ===========================================================================
+# r8 — a record that disagrees with its marker (a superseding write that
+#      failed) is judged on its own fields; once it retires, the marker heals.
+# ===========================================================================
+h=$(home r8)
+dp=$(dead_pid)
+register "$h" w-r8 --scope spec-r:10 --backend headless-oneshot --death-handle "process $dp"
+sleep 300 &
+p8=$!
+printf 'w-r8\tspec-r:10\t%s\theadless-oneshot\t-\tprocess %s\n' "$owner" "$p8" >"$(marker "$h" w-r8)"
+reconcile "$h"
+printf '%s\n' "$out" | grep -q "^retire${tab}w-r8${tab}process-dead" || fail "r8: the dead record was not retired: $out"
+[ -f "$(marker "$h" w-r8)" ] || fail "r8: the newer marker went with the record it does not describe"
+reconcile "$h"
+last=$(rows "$h" w-r8 | tail -n 1)
+[ "$(fields "$last")" = "$(cat "$(marker "$h" w-r8)")" ] && [ "$(printf '%s\n' "$last" | awk -F'\t' '{ print NF }')" = 7 ] \
+  || fail "r8: the newer marker was not healed into a live record: $last"
+# Alive and disagreeing: kept, and said so.
+h=$(home r8b)
+register "$h" w-r8b --scope spec-r:11 --backend headless-oneshot --death-handle "process $p8"
+printf 'w-r8b\tspec-r:11\t%s\theadless-oneshot\t/x\tprocess %s\n' "$owner" "$p8" >"$(marker "$h" w-r8b)"
+reconcile "$h"
+printf '%s\n' "$out" | grep -q "^keep${tab}w-r8b${tab}marker-diverged" || fail "r8: a diverged live record was not reported: $out"
+kill "$p8" 2>/dev/null
+wait "$p8" 2>/dev/null
+ok r8 "a record its marker no longer describes retires on its own evidence, then the marker heals"
+
+# ===========================================================================
+# r9 — a record with no evidence source is counted, never retired.
+# ===========================================================================
+h=$(home r9)
+register "$h" agent-9 --scope offload --backend subagent --death-handle none
+reconcile "$h"
+printf '%s\n' "$out" | grep -q "unjudged=1" || fail "r9: a record with no evidence source was not counted: $out"
+[ "$(rows "$h" agent-9 | grep -c .)" = 1 ] || fail "r9: a record with no evidence source was altered"
+ok r9 "a record with no evidence source is counted as unjudged and left live"
 
 # ===========================================================================
 # c1 — N concurrent reconciles heal each missing record exactly once.
@@ -621,6 +684,39 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
   n=$(rows "$h" "w-c2-$i" | grep -c .)
   [ "$n" = 1 ] || fail "c2: round $i left $n records for one dispatch"
 done
+# The same race forced: the store write is held back until the reconcile has
+# healed from the marker, so the dispatch's own write lands second.
+slow="$tmp/slow-store"
+mkdir -p "$slow"
+cp -R "$S" "$slow/"
+mv "$slow/scripts/fleet-state.sh" "$slow/scripts/fleet-state-real.sh"
+cat >"$slow/scripts/fleet-state.sh" <<STUB
+#!/bin/sh
+d=\$(cd "\$(dirname "\$0")" && pwd)
+if [ "\${1:-}" = register ] && [ -e "$tmp/hold-store" ]; then
+  : >"$tmp/store-held"
+  while [ -e "$tmp/hold-store" ]; do sleep 0.05; done
+fi
+exec /bin/sh "\$d/fleet-state-real.sh" "\$@"
+STUB
+chmod +x "$slow/scripts/fleet-state.sh"
+h=$(home c2b)
+: >"$tmp/hold-store"
+rm -f "$tmp/store-held"
+at "$h" "$slow/scripts" PLANWRIGHT_TOWER_ID="$owner" -- fleet-register.sh --handle w-c2b \
+  --scope spec-c2:b --backend headless-oneshot >/dev/null 2>&1 &
+rp=$!
+c2_n=0
+until [ -e "$tmp/store-held" ] || [ "$c2_n" -ge 200 ]; do
+  sleep 0.05
+  c2_n=$((c2_n + 1))
+done
+[ -e "$tmp/store-held" ] || fail "c2: fixture: the dispatch never reached its store write"
+reconcile "$h"
+printf '%s\n' "$out" | grep -q "^heal${tab}w-c2b${tab}" || fail "c2: the reconcile did not heal ahead of the dispatch's write: $out"
+rm -f "$tmp/hold-store"
+wait "$rp" 2>/dev/null
+[ "$(rows "$h" w-c2b | grep -c .)" = 1 ] || fail "c2: a heal ahead of the dispatch's own write left $(rows "$h" w-c2b | grep -c .) records"
 ok c2 "a reconcile racing a dispatch's own write neither duplicates nor loses its record"
 
 # ===========================================================================
@@ -692,6 +788,17 @@ reconcile "$h"
 [ -z "$(registry "$h")" ] || fail "x2: a symlinked marker directory was healed from"
 [ -f "$tmp/elsewhere/w-x2b" ] || fail "x2: the reconcile removed a file through a symlinked marker directory"
 printf '%s\n' "$out" | grep -q "status=degraded" || fail "x2: a symlinked marker directory did not degrade the pass: $out"
+# Named directly: a path outside the marker directory, one climbing out of it,
+# and a directory inside it are each refused by the register seam itself.
+h=$(home x2c)
+mkdir -p "$h/dispatch-markers/w-dir" "$tmp/x2c"
+printf 'w-out\tspec:1\t%s\ttmux\t-\t-\n' "$owner" >"$tmp/x2c/w-out"
+for p in "$tmp/x2c/w-out" "$h/dispatch-markers/../w-out" "$h/dispatch-markers/w-dir"; do
+  x_rc=0
+  at "$h" "$S" -- fleet-register.sh --from-marker "$p" >/dev/null 2>&1 || x_rc=$?
+  [ "$x_rc" = 4 ] || fail "x2: --from-marker '$p' was not refused (exit $x_rc)"
+done
+[ -z "$(registry "$h")" ] || fail "x2: a marker named outside its root reached the registry"
 ok x2 "a marker or marker directory outside the root is refused and its target left alone"
 
 # ===========================================================================
@@ -708,16 +815,26 @@ for mode in observe terminate; do
   h=$(home "s1-$mode")
   mkdir -p "$h/dispatch-markers"
   printf 'w-s1\tspec-s:1\t%s\theadless-oneshot\t-\t-\n' "$owner" >"$h/dispatch-markers/w-s1"
+  dp=$(dead_pid)
+  register "$h" w-s1-dead --scope spec-s:2 --backend headless-oneshot --death-handle "process $dp"
   printf 'fleet_sweep_reap: %s\n' "$mode" >"$mlocal_cfg"
   st=0
   at "$h" "$S" PLANWRIGHT_LOCAL_CONFIG="$mlocal_cfg" -- fleet-sweep.sh --repo "$srepo" --tower-id "$owner" \
     >"$tmp/out" 2>"$tmp/err" || st=$?
   out=$(cat "$tmp/out")
   [ "$st" = 0 ] || fail "s1 ($mode): the sweep exited $st ($(cat "$tmp/err"))"
+  # The knob was read: terminate is honored only as far as the sweep allows,
+  # and says so, while observe is silent about it.
+  if [ "$mode" = terminate ]; then
+    grep -q 'fleet_sweep_reap: terminate' "$tmp/err" || fail "s1 (terminate): the sweep never read the terminate knob"
+  fi
   [ "$(rows "$h" w-s1 | grep -c .)" = 1 ] || fail "s1 ($mode): the sweep did not heal the missing record"
   printf '%s\n' "$out" | grep -q "^registry${tab}heal${tab}w-s1${tab}" \
     || fail "s1 ($mode): the sweep did not report the heal: $out"
+  printf '%s\n' "$out" | grep -q "^registry${tab}retire${tab}w-s1-dead${tab}" \
+    || fail "s1 ($mode): the sweep did not retire the dead worker's record: $out"
   [ "$(audit_count "$h" heal)" = 1 ] || fail "s1 ($mode): the sweep's heal was not audited"
+  [ "$(audit_count "$h" retire)" = 1 ] || fail "s1 ($mode): the sweep's retirement was not audited"
 done
 rm -f "$mlocal_cfg"
 h=$(home s1-paused)

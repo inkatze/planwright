@@ -101,10 +101,9 @@
 # here: it is fleet-wide inventory rather than this worker's runtime. The
 # periodic sweep's registry reconcile retires it, marked closed, once the
 # worker has positive death evidence (`scripts/fleet-registry-reconcile.sh`).
-# The worktree, the
-# branch, and the unit's fence are never touched: the release set is exactly
-# the reproducible resources, and the
-# worktree is the one holding work that cannot be recovered. No audit record is
+# The worktree, the branch, and the unit's fence are never touched: the
+# release set is exactly the reproducible resources, and the worktree is the
+# one holding work that cannot be recovered. No audit record is
 # written either — the reap path that needs one owns it, so that an autonomous
 # close writes exactly one record rather than two.
 #

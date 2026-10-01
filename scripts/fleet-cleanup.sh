@@ -82,8 +82,10 @@
 #       signal, and releases nothing of its own. It runs under the worker's
 #       reap lock (scripts/fleet-reap-lock.sh), so towers sweeping one fleet
 #       close a worker once: a reap that finds another holding the lock stands
-#       down (exit 5, nothing signalled), and so does one that cannot take it. --grace is the SIGTERM-to-
-#       SIGKILL grace that stop takes, and --repo-root is passed to the headless
+#       down (exit 5, nothing signalled), and so does one that cannot take it
+#       or whose verdict, read again under the lock, has changed.
+#       --grace is the SIGTERM-to-SIGKILL grace that stop takes, and
+#       --repo-root is passed to the headless
 #       rung, which resolves its unit directory from it. That rung is also
 #       handed the state directory the verdict was read from and refuses a
 #       handle resolving to any other unit, such as a same-handle unit in
@@ -146,7 +148,10 @@
 #      parity and no verified --merged-pr — or lost observability: neither a tmux
 #      server unreachable mid-probe nor an unusable `gh` is proof of absence),
 #      or the reclaim command itself failed; for `process`, also a partial or
-#      interrupted close, which acted and is recorded (see its usage)
+#      interrupted close, which acted and is recorded (see its usage), and a
+#      reap that stood down with nothing signalled: another holds the worker's
+#      reap lock, the lock could not be taken, or the verdict changed while
+#      the lock was awaited
 #   6  acted (resource WAS reclaimed) but the audit-trail write failed — the
 #      action happened and is unrecorded; distinct from 2 so a caller never reads
 #      an unlogged reclaim as "nothing happened". For `process` that includes a
@@ -909,18 +914,29 @@ EOF
     # line for the same dead owner's worker, and without the lock each would
     # signal the tree and record a termination of its own.
     reap_rc=0
-    reap_token=$(/bin/sh "$script_dir/fleet-reap-lock.sh" take "$worker" "$$" 2>/dev/null) || reap_rc=$?
+    reap_out=$(/bin/sh "$script_dir/fleet-reap-lock.sh" take "$worker" "$$" 2>&1) || reap_rc=$?
+    reap_last=$(printf '%s\n' "$reap_out" | tail -n 1)
     case $reap_rc in
-      0) trap '/bin/sh "$script_dir/fleet-reap-lock.sh" drop "$worker" "$reap_token" >/dev/null 2>&1 || :' EXIT ;;
+      0) reap_token=$reap_last ;;
       1)
         warn "a reap of '$worker' is already in progress by another sweep — standing down; nothing was signalled"
         exit 5
         ;;
       *)
-        warn "could not take the reap lock for '$worker' — nothing was signalled, not reclaimed"
+        warn "could not take the reap lock for '$worker' ($(sanitize_printable "${reap_last#*: }" "no reason given")) — nothing was signalled, not reclaimed"
         exit 5
         ;;
     esac
+    trap '/bin/sh "$script_dir/fleet-reap-lock.sh" drop "$worker" "$reap_token" >/dev/null 2>&1 || :' EXIT
+    # The verdict was read before the lock: the worker another reaper just
+    # closed may since have been re-dispatched under the same handle. The close
+    # proceeds only while the record and verdict still say what was decided.
+    reverdict=$(/bin/sh "$script_dir/fleet-stuck-detector.sh" classify "$worker" \
+      ${tower_id:+--tower-id "$tower_id"}) || reverdict=""
+    if [ "$(read_verdict "$reverdict" "$worker")" != "$row" ]; then
+      warn "the verdict for '$worker' changed while waiting for its reap lock — standing down; nothing was signalled"
+      exit 5
+    fi
     # A signal from here on is held until the close is recorded: dying between
     # the rung's signals and the audit write would leave a kill with no record.
     # A caught signal reverts to its default in the rung, which still dies on

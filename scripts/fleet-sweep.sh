@@ -74,8 +74,8 @@
 # 5. REGISTRY RECONCILE. fleet-registry-reconcile.sh rebuilds a worker record
 #    whose write failed from its dispatch marker, and retires the record of a
 #    worker with positive death evidence. It terminates nothing, so it runs in
-#    both reap modes, after the reap so a close this cycle made is retired by
-#    the next one rather than racing it.
+#    both reap modes, after the reap, so a worker this cycle closed is retired
+#    in the same cycle once its death evidence is positive.
 #
 # KILL-SWITCH + AUDIT. The cycle gates through fleet-daemon-gate.sh at entry
 # (a set fleet_daemon_pause pauses the whole cycle; the reap actuator also
@@ -116,7 +116,8 @@
 #       paused when the kill-switch was set mid-pass.
 #   registry <line>
 #       each line the registry reconcile printed (heal, retire, keep, refuse,
-#       summary), or `registry paused` / `registry failed <exit>`.
+#       paused, summary), or `registry paused` when the kill-switch stopped it
+#       at entry / `registry failed <exit>`.
 #
 # Exit codes: 0 sweep completed (a watch loop runs until signalled); 2 usage;
 #   4 the kill-switch paused a one-shot sweep. Per-tree inspection failures are
@@ -745,7 +746,9 @@ EOF
 
 registry_pass() {
   rg_rc=0
-  rg_out=$(cd "$repo" && /bin/sh "$RECONCILE" 2>/dev/null </dev/null) || rg_rc=$?
+  # Its stderr passes through: a heal or retirement that failed names itself
+  # there, and the summary line only says the pass was degraded.
+  rg_out=$(cd "$repo" && /bin/sh "$RECONCILE" </dev/null) || rg_rc=$?
   case $rg_rc in
     0) printf '%s\n' "$rg_out" | awk 'NF { print "registry\t" $0 }' ;;
     4) printf 'registry\tpaused\n' ;;

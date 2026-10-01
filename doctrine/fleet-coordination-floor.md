@@ -256,8 +256,8 @@ is the contract they satisfy, not a second specification of them.
 
 **Dispatch marker**: opened by `scripts/fleet-register.sh`, closed when the
 sweep's registry reconcile retires its record, detected as a marker lacking a
-record or naming a dead worker; `subagent` and worktree-less `print` records
-never retire.
+record or naming a dead worker; records lacking any death evidence never
+retire.
 
 ### The rungs, crossed with the classes
 

@@ -65,7 +65,7 @@ race_ok() {
     case $rr/$(cat "$2/out.$n") in
       0/*"stop $rw stopped"* | 0/*"stop $rw already-closed"*) ;;
       5/*)
-        grep -q 'already in progress' "$2/err.$n" \
+        grep -qE 'already in progress|changed while waiting' "$2/err.$n" \
           || fail "$1: racer $n on $rw refused for another reason: $(cat "$2/err.$n")"
         ;;
       *) fail "$1: racer $n on $rw exited $rr: $(cat "$2/out.$n") $(cat "$2/err.$n")" ;;
@@ -117,15 +117,31 @@ attn heartbeat "$c3" demo:5 ended
 for w in cC1 cC2 "$c3"; do
   wait_until 30 classified "$w" finished-but-unreaped || fail "fixture: $w never finished"
 done
-# Four sweepers, each walking all three candidates from a different start.
-(race "$tmp/lost-a" cC1 cC2 "$c3") &
+# Four sweepers released together, each walking all three candidates one
+# after another from a different start, the way a terminating sweep does.
+sweeper() {
+  sw_dir=$1
+  shift
+  mkdir -p "$sw_dir"
+  while [ ! -e "$tmp/lost-go" ]; do sleep 0.01; done
+  sw_i=0
+  for sw_w in "$@"; do
+    sw_i=$((sw_i + 1))
+    r=0
+    decide -- fleet-cleanup.sh process "$sw_w" 'periodic sweep' 'concurrent towers' \
+      --tower-id "$self_id" --grace 1 >"$sw_dir/out.$sw_i" 2>"$sw_dir/err.$sw_i" || r=$?
+    printf '%s %s\n' "$sw_w" "$r" >"$sw_dir/rc.$sw_i"
+  done
+}
+(sweeper "$tmp/lost-a" cC1 cC2 "$c3") &
 la=$!
-(race "$tmp/lost-b" cC2 "$c3" cC1) &
+(sweeper "$tmp/lost-b" cC2 "$c3" cC1) &
 lb=$!
-(race "$tmp/lost-c" "$c3" cC1 cC2) &
+(sweeper "$tmp/lost-c" "$c3" cC1 cC2) &
 lc=$!
-(race "$tmp/lost-d" cC1 "$c3" cC2) &
+(sweeper "$tmp/lost-d" cC1 "$c3" cC2) &
 ld=$!
+: >"$tmp/lost-go"
 wait "$la" "$lb" "$lc" "$ld" || :
 for d in a b c d; do race_ok "conc:no-lost-sweep" "$tmp/lost-$d"; done
 for w in cC1 cC2 "$c3"; do

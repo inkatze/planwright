@@ -309,11 +309,21 @@ echo "ok: the reconcile writes the registry only through the register seam, and 
 
 # --- no model or API call on any decision path ------------------------------
 nollm_check
-for f in fleet-cleanup.sh fleet-sweep.sh fleet-stuck-detector.sh fleet-death-evidence.sh \
-  fleet-registry-reconcile.sh fleet-register.sh fleet-state.sh fleet-stop-lib.sh \
-  fleet-daemon-gate.sh fleet-audit.sh fleet-presence.sh fleet-pane-vocabulary.sh; do
-  hits=$(strip "$S/$f" | grep -nE '(^|[^A-Za-z0-9_./-])(claude|anthropic|curl|wget)([[:space:]]|$|")|api\.anthropic' || :)
-  [ -z "$hits" ] || fail "no-LLM audit: $f reaches a model or network client: $hits"
+# Every fleet script and the lock library, less the ones whose job is to start
+# a worker session (or to print the command for one): the launch is the worker,
+# not a decision. Their decision paths are covered by the runtime recorder.
+# Each exemption must still match, so a stale one fails here.
+launchers='fleet-dispatch-headless.sh fleet-dispatch-worktree.sh fleet-tower-signpost.sh fleet-tower-watchdog.sh'
+client='(^|[^A-Za-z0-9_./-])(claude|anthropic|curl|wget)([[:space:]]|$|")|api\.anthropic'
+for p in "$S"/fleet-*.sh "$S/lock-lib.sh"; do
+  f=${p##*/}
+  hits=$(strip "$p" | grep -nE "$client" || :)
+  case " $launchers " in
+    *" $f "*)
+      [ -n "$hits" ] || fail "no-LLM audit: $f is exempt as a launcher but launches nothing; drop the exemption"
+      ;;
+    *) [ -z "$hits" ] || fail "no-LLM audit: $f reaches a model or network client: $hits" ;;
+  esac
 done
 for f in fleet-stuck-detector.sh fleet-registry-reconcile.sh fleet-register.sh fleet-stop-lib.sh fleet-sweep.sh; do
   strip "$S/$f" | grep -nE '(^|[^A-Za-z0-9_./-])gh([[:space:]]|$)' \

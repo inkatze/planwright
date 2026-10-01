@@ -731,10 +731,12 @@ record_state() {
     printf 'absent\n'
     return 0
   fi
-  printf '%s\n' "$1" | awk -F'\t' -v want="$2" '{
+  # The fields arrive through the environment, not `-v`: awk processes escapes
+  # in a -v value, and a state directory may carry a literal backslash.
+  printf '%s\n' "$1" | RS_WANT=$2 awk -F'\t' '{
     have = $2
     for (i = 3; i <= 7; i++) have = have "\t" $i
-    same = (NF >= 7 && have == want) ? "same" : "other"
+    same = (NF >= 7 && have == ENVIRON["RS_WANT"]) ? "same" : "other"
     print ((NF == 8 && $8 == "closed") ? "closed-" : "live-") same
   }'
 }

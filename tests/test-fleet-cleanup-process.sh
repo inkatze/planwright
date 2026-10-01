@@ -109,6 +109,10 @@ cp "$here/../scripts/"*.sh "$gs/"
 cat >"$gs/fleet-stuck-detector.sh" <<STUB
 #!/bin/sh
 printf '%s\n' "\$*" >>"$tmp/det-calls"
+if [ -s "$tmp/det-out-later" ] && [ "\$(grep -c . "$tmp/det-calls")" -ge 2 ]; then
+  cat "$tmp/det-out-later"
+  exit 0
+fi
 cat "$tmp/det-out"
 exit "\$(cat "$tmp/det-rc")"
 STUB
@@ -509,7 +513,9 @@ gate w1 trig why --grace 7 --repo-root /some/repo --tower-id "$self_id"
 expect 0 "stream-json delegation"
 [ "$(cat "$tmp/stop-calls")" = "fleet-streamjson.sh stop w1 --grace 7" ] \
   || fail "stream-json delegation: the rung was asked '$(cat "$tmp/stop-calls")'"
-[ "$(cat "$tmp/det-calls")" = "classify w1 --tower-id $self_id" ] \
+# Asked twice: once to decide, once more under the reap lock.
+[ "$(cat "$tmp/det-calls")" = "classify w1 --tower-id $self_id
+classify w1 --tower-id $self_id" ] \
   || fail "the detector was asked '$(cat "$tmp/det-calls")'"
 det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
 gate w1 trig why --grace 7 --repo-root /some/repo
@@ -520,7 +526,8 @@ gate w1 trig why
 expect 0 "headless delegation without flags"
 [ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --expect-dir /fx/state/w1" ] \
   || fail "headless delegation without flags: the rung was asked '$(cat "$tmp/stop-calls")'"
-[ "$(cat "$tmp/det-calls")" = "classify w1" ] || fail "a bare call handed the detector '$(cat "$tmp/det-calls")'"
+[ "$(cat "$tmp/det-calls")" = "classify w1
+classify w1" ] || fail "a bare call handed the detector '$(cat "$tmp/det-calls")'"
 [ "$out" = 'stop w1 stopped released=process,attention' ] || fail "the rung's result line was not passed through: '$out'"
 for sd in - '' rel/dir; do
   DET_SD=$sd det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
@@ -860,6 +867,21 @@ never_stopped "a reap lock that cannot be taken"
 gate w1 trig why
 expect 0 "a reap once the lock is free"
 [ ! -L "$gate_home/reap-locks/w1" ] || fail "a finished reap left its reap lock held"
+# A verdict that changed while the lock was awaited (the worker another reaper
+# closed, re-dispatched under the same handle) stands the close down.
+det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead
+cp "$tmp/det-out" "$tmp/det-out.first"
+det working dead-or-unknown runtime-running stream-json-persistent dead
+mv "$tmp/det-out" "$tmp/det-out-later"
+mv "$tmp/det-out.first" "$tmp/det-out"
+gate w1 trig why
+rm -f "$tmp/det-out-later"
+expect 5 "a verdict that changed under the reap lock"
+never_stopped "a verdict that changed under the reap lock"
+case $err in
+  *'changed while waiting'*) ;;
+  *) fail "a changed verdict: the refusal does not say why: $err" ;;
+esac
 echo "ok: a reap stands down while another holds the worker's reap lock, refuses when the lock cannot be taken, and releases it when done"
 
 # --- a signal to the actuator mid-close still leaves the close recorded ------

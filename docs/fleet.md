@@ -325,10 +325,12 @@ carrying the same fields, so the registry is a rebuildable index of what is on
 disk. The sweep's registry reconcile (`scripts/fleet-registry-reconcile.sh`)
 works in both directions:
 
-- **Heal.** A marker whose worker has no record is rebuilt through
-  `fleet-register.sh --from-marker`, under the same field grammar a dispatch
-  meets. The store writes conditionally under its lock, so concurrent sweeps,
-  and a sweep racing the dispatch's own write, leave exactly one record.
+- **Heal.** A marker whose worker has no record, or whose last record is a
+  retirement of other fields (a re-dispatch whose write failed), is rebuilt
+  through `fleet-register.sh --from-marker`, under the same field grammar a
+  dispatch meets. The store writes conditionally under its lock, so concurrent
+  sweeps, and a sweep racing the dispatch's own write, leave exactly one
+  record.
 - **Retire.** A record whose worker has positive death evidence
   (`fleet-death-evidence.sh` on its death handle, or for a `print` unit its
   worktree's removal) is marked closed: an eighth `closed` column appended,
@@ -337,12 +339,19 @@ works in both directions:
   goes with it. Alive, unknown or errored evidence keeps the record live. Per
   rung: the two session-grade rungs retire on the `process` verdict, the tmux
   rungs on the `tmux-window` verdict, and a visual flight's `print` record on
-  its worktree's removal; a `subagent` record and an `/offload` `print` record
-  carry no evidence at all, so they never retire (a declared gap in the
-  lifecycle-closure floor, not an oversight).
+  its worktree's removal; a record with no death evidence at all (a
+  `subagent` record, an `/offload` `print` record, a tmux record whose window
+  was never matched) never retires and is counted `unjudged` in the summary (a
+  declared gap in the lifecycle-closure floor, not an oversight). A
+  retirement closes exactly the record that was judged, so a re-dispatch under
+  the same handle in between is never closed by it. A record its marker no
+  longer describes, because a superseding write failed, is judged on its own
+  fields and reported `marker-diverged` while it lives; once it retires, the
+  marker heals into a record.
 - **Refuse.** A marker failing the grammar, naming another handle, or reached
   through a link is refused, audited, and moved aside under
-  `dispatch-markers/.refused/`; it is never stored.
+  `dispatch-markers/.refused/`; it is never stored. Refused markers stay
+  there for you to inspect and delete; nothing collects them.
 
 A record with no marker, one written before markers existed, is never altered
 or retired for that reason. The reconcile terminates nothing, so it runs in
@@ -1550,7 +1559,10 @@ lock stands down with exit `5`, nothing signalled; the holder is closing that
 worker, and a later sweep finds it already closed. The hold belongs to the
 reaping process, so a reaper killed mid-reap leaves a lock the next one breaks
 on its holder's absence. A reap that cannot take the lock at all refuses the
-same way rather than assuming it is alone.
+same way rather than assuming it is alone. Once it holds the lock, the reap
+reads the worker's verdict again and stands down if it changed while it
+waited, so a worker another reaper closed and a tower re-dispatched under the
+same handle is never closed on the old verdict.
 
 `--observe` makes the same decision, refusals and exit codes included, then
 asks the rung's `stop --observe` what a close would take now instead of
@@ -1623,7 +1635,9 @@ reap     <worker>  declined  refusing '<worker>': it is owned by live peer tower
 summary  mode=observe  workers=4  candidates=2  reaped=0  observed=1  declined=1  already-closed=0  status=ok
 registry heal     <worker>  headless-oneshot
 registry retire   <worker>  process-dead
-registry summary  markers=5  healed=1  retired=1  kept=0  refused=0  status=ok
+registry keep     <worker>  evidence-unknown
+registry refuse   <marker>  refusing marker '<marker>': it names another handle
+registry summary  markers=5  healed=1  retired=1  kept=1  unjudged=1  refused=1  status=ok
 ```
 
 A declined candidate carries the refusal the reap gave, so a sweep that turned
