@@ -56,6 +56,7 @@ core_cfg="$tmp/core-defaults.yml"
 repo="$tmp/repo"
 adopter_root="$tmp/adopter"
 mkdir -p "$repo/.claude" "$adopter_root"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
 
 cat >"$core_cfg" <<'EOF'

@@ -58,7 +58,7 @@ run() {
   : >"$errf"
   PLANWRIGHT_FLEET_STATE_DIR="$home" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
     PLANWRIGHT_ACTION_LEDGER="${LEDGER_HELPER:-}" \
     /bin/sh "$TQ" "$@" 2>"$errf"

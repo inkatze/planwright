@@ -75,6 +75,7 @@ LF='
 core_cfg="$tmp/core-defaults.yml"
 repo_cfg="$tmp/cfg-repo"
 mkdir -p "$repo_cfg/.claude"
+git init -q "$repo_cfg"
 printf 'fleet_daemon_pause: false\n' >"$core_cfg"
 mlocal_cfg="$repo_cfg/.claude/planwright.local.yml"
 

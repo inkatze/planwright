@@ -70,6 +70,7 @@ words() {
 scaffold() {
   root="$1"
   mkdir -p "$root/skills" "$root/doctrine" "$root/hooks" "$root/config"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$root"
   cat >"$root/config/defaults.yml" <<'EOF'
 instruction_budget_skill_warn: 3000
 instruction_budget_skill_error: 4250
