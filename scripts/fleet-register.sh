@@ -53,13 +53,37 @@
 # A seam that has cd'd into the worker's directory must pass --checkout
 # explicitly; a cwd-derived hash there names a tower that exists nowhere.
 #
+# THE DISPATCH MARKER. Before the store write, every registration leaves one
+# file, <fleet-home>/dispatch-markers/<handle>, carrying the six fields it is
+# about to write (tab-separated, `-` for an absent one). The marker and the
+# store write are independent: a failed store write leaves the marker, and the
+# periodic sweep's reconcile (fleet-registry-reconcile.sh) rebuilds the record
+# from it through --from-marker. The registry is therefore an index of what is
+# on disk, and a lost write heals on the next cycle rather than costing the
+# worker its place in the inventory for life. A failed marker write is warned
+# and does not fail the dispatch either.
+#
+# THE RECONCILE'S TWO MODES go through this file so a marker meets the same
+# field grammar a dispatch does, and the store is never written around it:
+#   --from-marker <path>    rebuild a missing record from its marker.
+#   --retire-marker <path>  mark the worker's record closed (the caller has
+#                           positive death evidence), then remove its marker.
+# Both refuse, rather than degrade, a marker with any field failing its
+# grammar, a handle that is not its filename, or a path that is not a regular
+# file directly inside the marker directory: a rebuilt record feeds a
+# destructive verb, so a hostile marker must never become one.
+#
 # Usage:
 #   fleet-register.sh --handle <h> --backend <name> [--scope <s>]
 #       [--state-dir <abs-dir>] [--death-handle <handle>]
 #       [--checkout <dir>] [--session-id <uuid> | --pid <pid>]
+#   fleet-register.sh --from-marker <path>
+#   fleet-register.sh --retire-marker <path>
 #
-# Exit codes: 0 registered; 1 registration failed (warned on stderr — callers
-#   ignore this, by contract); 2 usage error.
+# Exit codes: 0 registered (healed, retired); 1 registration failed (warned on
+#   stderr — dispatch callers ignore this, by contract); 2 usage error; 3 the
+#   marker modes found nothing to do (the record is already as the marker
+#   says, it moved on, or the marker is gone); 4 the marker was refused.
 #
 # POSIX sh on the macOS + Linux support bar. No eval; every value is data
 # (REQ-K1.5). Pathname expansion is disabled (set -f).
@@ -93,6 +117,7 @@ warn() {
 
 usage() {
   printf '%s\n' "usage: $me --handle <h> --backend <name> [--scope <s>] [--state-dir <abs-dir>] [--death-handle <handle>] [--checkout <dir>] [--session-id <uuid> | --pid <pid>]" >&2
+  printf '%s\n' "       $me --from-marker <path> | --retire-marker <path>" >&2
   exit 2
 }
 
@@ -104,9 +129,17 @@ death_handle=""
 checkout=""
 session_id=""
 pid=""
+marker_mode=""
+marker_path=""
 
 while [ "$#" -gt 0 ]; do
   case $1 in
+    --from-marker | --retire-marker)
+      [ "$#" -ge 2 ] && [ -z "$marker_mode" ] || usage
+      marker_mode=$1
+      marker_path=$2
+      shift 2
+      ;;
     --handle | --scope | --backend | --state-dir | --death-handle | --checkout | --session-id | --pid)
       [ "$#" -ge 2 ] || usage
       case $1 in
@@ -128,34 +161,45 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-[ -n "$handle" ] && [ -n "$backend" ] || usage
-# An absent scope is the store's `-` sentinel, not an invented word: a reader
-# must be able to tell "no scope was recorded" from a worker whose scope really
-# is `unknown`.
-[ -n "$scope" ] || scope="-"
+if [ -n "$marker_mode" ]; then
+  # A marker carries the whole record; a field flag beside it would be a second
+  # source for the same column.
+  [ -z "$handle$scope$backend$state_dir$death_handle$checkout$session_id$pid" ] || usage
+else
+  [ -n "$handle" ] && [ -n "$backend" ] || usage
+  # An absent scope is the store's `-` sentinel, not an invented word: a reader
+  # must be able to tell "no scope was recorded" from a worker whose scope
+  # really is `unknown`.
+  [ -n "$scope" ] || scope="-"
 
-# Containment at this ingress (REQ-K1.4): a handle or scope beginning with a
-# dash is an option-injection token the moment any later consumer passes it as
-# an argv element, so it is refused here rather than stored and re-read. The
-# rest of the field grammar is the store's, checked there — this is the one
-# check the store's older, shared grammar does not make. The bare `-` sentinel
-# is exempt: it is the store's own absent marker, not a caller's token.
-for arg in "$handle" "$scope"; do
-  [ "$arg" = "-" ] && continue
-  case $arg in
-    -*)
-      warn "refusing '$(sanitize_printable "$arg" "(unprintable value)")': a handle or scope may not begin with a dash"
-      exit 2
-      ;;
-  esac
-done
+  # Containment at this ingress (REQ-K1.4): a handle or scope beginning with a
+  # dash is an option-injection token the moment any later consumer passes it
+  # as an argv element, so it is refused here rather than stored and re-read.
+  # The rest of the field grammar is the store's, checked there — this is the
+  # one check the store's older, shared grammar does not make. The bare `-`
+  # sentinel is exempt: it is the store's own absent marker, not a caller's
+  # token.
+  for arg in "$handle" "$scope"; do
+    [ "$arg" = "-" ] && continue
+    case $arg in
+      -*)
+        warn "refusing '$(sanitize_printable "$arg" "(unprintable value)")': a handle or scope may not begin with a dash"
+        exit 2
+        ;;
+    esac
+  done
+fi
 
 # Readable, not executable: every caller invokes this script as `/bin/sh <path>`,
 # so the exec bit is not what the call depends on. Gating a seam on `-x` means a
 # checkout with `core.fileMode=false`, an unzip, or an `rsync` without `-p`
 # silently turns registration off fleet-wide with nothing on stderr.
 if [ ! -r "$FS" ]; then
-  warn "cannot register $(sanitize_printable "$handle" "(unprintable handle)"): the registry store $FS is missing or unreadable (broken install); the dispatch continues unregistered"
+  if [ -n "$marker_mode" ]; then
+    warn "cannot reconcile a dispatch marker: the registry store $FS is missing or unreadable (broken install)"
+  else
+    warn "cannot register $(sanitize_printable "$handle" "(unprintable handle)"): the registry store $FS is missing or unreadable (broken install); the dispatch continues unregistered"
+  fi
   exit 1
 fi
 
@@ -244,6 +288,173 @@ keep_or_drop() {
   return 0
 }
 
+# The worker and scope grammar (fleet-state.sh valid_field) plus this seam's
+# leading-dash refusal: a marker's handle is also its filename and an argv word.
+valid_handle() {
+  vh_v=$1
+  case $vh_v in
+    "" | . | .. | -* | *[!A-Za-z0-9._=@:-]*) return 1 ;;
+  esac
+  [ "${#vh_v}" -le 128 ]
+}
+
+# markers_dir — print the marker directory under the resolved fleet home.
+markers_dir() {
+  md_root=$(/bin/sh "$FS" root 2>/dev/null) || return 1
+  [ -n "$md_root" ] || return 1
+  printf '%s/dispatch-markers\n' "$md_root"
+}
+
+# write_marker <line> — leave this dispatch's marker, atomically, so a reader
+# never sees half a line. The directory is created owner-only and refused when
+# it is not a plain directory: a marker written through a link lands wherever
+# the link points.
+wm_tmp=""
+trap '[ -z "$wm_tmp" ] || rm -f "$wm_tmp" 2>/dev/null' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+trap 'exit 141' PIPE
+write_marker() {
+  wm_dir=$(markers_dir) || return 1
+  if [ -L "$wm_dir" ]; then
+    return 1
+  fi
+  wm_umask=$(umask)
+  umask 0077
+  mkdir -p "$wm_dir" 2>/dev/null
+  wm_tmp=$(mktemp "$wm_dir/.marker.XXXXXX" 2>/dev/null) || wm_tmp=""
+  umask "$wm_umask"
+  [ -n "$wm_tmp" ] || return 1
+  if printf '%s\n' "$1" >"$wm_tmp" 2>/dev/null && mv -f "$wm_tmp" "$wm_dir/$handle" 2>/dev/null; then
+    wm_tmp=""
+    return 0
+  fi
+  rm -f "$wm_tmp" 2>/dev/null
+  wm_tmp=""
+  return 1
+}
+
+# read_marker <path> — validate a marker and set handle, scope, owner, backend,
+# state_dir and death_handle from it. Returns 0 valid, 3 absent, 4 refused
+# (with the reason on stderr).
+read_marker() {
+  rm_path=$1
+  rm_dir=$(markers_dir) || {
+    warn "cannot resolve the fleet home to check the marker against"
+    return 4
+  }
+  rm_name=${rm_path##*/}
+  if [ "${rm_path%/*}" != "$rm_dir" ]; then
+    warn "refusing a marker outside $rm_dir"
+    return 4
+  fi
+  if [ -L "$rm_dir" ] || [ ! -d "$rm_dir" ]; then
+    [ -e "$rm_dir" ] || [ -L "$rm_dir" ] || return 3
+    warn "refusing the marker directory $rm_dir: it is not a plain directory"
+    return 4
+  fi
+  if [ -L "$rm_path" ]; then
+    warn "refusing marker '$(sanitize_printable "$rm_name" "(unprintable name)")': it is a symbolic link"
+    return 4
+  fi
+  [ -e "$rm_path" ] || return 3
+  if [ ! -f "$rm_path" ]; then
+    warn "refusing marker '$(sanitize_printable "$rm_name" "(unprintable name)")': it is not a regular file"
+    return 4
+  fi
+  if ! valid_handle "$rm_name"; then
+    warn "refusing marker '$(sanitize_printable "$rm_name" "(unprintable name)")': its name is not a worker handle"
+    return 4
+  fi
+  # One line, bounded, six non-empty tab-separated fields: anything else is not
+  # a marker this seam wrote. An empty field is refused here because `read`
+  # treats a tab as whitespace and would slide the next field into its place.
+  rm_shape=$(awk -F'\t' '{ for (i = 1; i <= NF; i++) if ($i == "") e++ } END { print NR, NF, e + 0, length($0) }' \
+    "$rm_path" 2>/dev/null) || rm_shape=""
+  case $rm_shape in
+    "1 6 0 "*) ;;
+    *)
+      warn "refusing marker '$rm_name': it is not one line of six fields"
+      return 4
+      ;;
+  esac
+  [ "${rm_shape##* }" -le 8192 ] || {
+    warn "refusing marker '$rm_name': over-length"
+    return 4
+  }
+  rm_tab=$(printf '\t')
+  IFS="$rm_tab" read -r handle scope owner backend state_dir death_handle <"$rm_path"
+  if [ "$handle" != "$rm_name" ]; then
+    warn "refusing marker '$rm_name': it names another handle"
+    return 4
+  fi
+  if ! valid_handle "$scope" && [ "$scope" != - ]; then
+    warn "refusing marker '$rm_name': malformed scope"
+    return 4
+  fi
+  if [ "$owner" != - ] && ! valid_owner "$owner"; then
+    warn "refusing marker '$rm_name': malformed owner token"
+    return 4
+  fi
+  if ! valid_backend "$backend"; then
+    warn "refusing marker '$rm_name': malformed backend"
+    return 4
+  fi
+  if [ "$state_dir" != - ] && ! valid_state_dir "$state_dir"; then
+    warn "refusing marker '$rm_name': malformed state directory"
+    return 4
+  fi
+  if [ "$death_handle" != - ] && ! valid_death_handle "$death_handle"; then
+    warn "refusing marker '$rm_name': malformed death handle"
+    return 4
+  fi
+  return 0
+}
+
+if [ -n "$marker_mode" ]; then
+  mm_rc=0
+  read_marker "$marker_path" || mm_rc=$?
+  [ "$mm_rc" = 0 ] || exit "$mm_rc"
+  mm_line=$(cat "$marker_path")
+  set -- "$handle" "$scope"
+  [ "$owner" = - ] || set -- "$@" --owner "$owner"
+  set -- "$@" --backend "$backend"
+  [ "$state_dir" = - ] || set -- "$@" --state-dir "$state_dir"
+  [ "$death_handle" = - ] || set -- "$@" --death-handle "$death_handle"
+  if [ "$marker_mode" = --from-marker ]; then
+    st_rc=0
+    /bin/sh "$FS" register --heal "$@" >/dev/null || st_rc=$?
+    case $st_rc in
+      0 | 3) exit "$st_rc" ;;
+    esac
+    warn "could not rebuild the record for $handle from its marker; the next sweep retries"
+    exit 1
+  fi
+  st_rc=0
+  /bin/sh "$FS" retire "$@" >/dev/null || st_rc=$?
+  case $st_rc in
+    0 | 3) ;;
+    *)
+      warn "could not retire the record for $handle; the next sweep retries"
+      exit 1
+      ;;
+  esac
+  # The marker goes only once the store holds this very record closed, and only
+  # while the marker still says what was retired: a re-dispatch under the same
+  # handle rewrites it, and that one belongs to a live worker.
+  mm_last=$(/bin/sh "$FS" registry 2>/dev/null | awk -F'\t' -v w="$handle" '($2 "") == (w "") { l = $0 } END { print l }')
+  mm_want="$mm_line$(printf '\t')closed"
+  if [ "$(printf '%s\n' "$mm_last" | cut -f2-8)" = "$mm_want" ] \
+    && [ "$(cat "$marker_path" 2>/dev/null)" = "$mm_line" ]; then
+    rm -f "$marker_path" 2>/dev/null || {
+      warn "retired $handle but could not remove its marker; the next sweep retries"
+      exit 1
+    }
+  fi
+  exit "$st_rc"
+fi
+
 resolve_checkout() {
   if [ -n "$checkout" ]; then
     printf '%s\n' "$checkout"
@@ -319,19 +530,34 @@ if [ -z "$backend" ]; then
   exit 1
 fi
 
-set -- register "$handle" "$scope"
+set -- register "$handle" "$scope" --if-changed
 [ -n "$owner" ] && set -- "$@" --owner "$owner"
 set -- "$@" --backend "$backend"
 [ -n "$state_dir" ] && set -- "$@" --state-dir "$state_dir"
 [ -n "$death_handle" ] && set -- "$@" --death-handle "$death_handle"
 
-if /bin/sh "$FS" "$@" >/dev/null; then
-  exit 0
+# The marker comes first, so a store write that fails, or a dispatch killed
+# between the two, still leaves what the next sweep heals from. A handle or
+# scope the store would refuse gets no marker: the handle is its filename, and
+# nothing the store refuses is worth rebuilding.
+marked=0
+if valid_handle "$handle" && { [ "$scope" = - ] || valid_handle "$scope"; }; then
+  if write_marker "$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$handle" "$scope" "${owner:--}" \
+    "$backend" "${state_dir:--}" "${death_handle:--}")"; then
+    marked=1
+  else
+    warn "could not write the dispatch marker for $(sanitize_printable "$handle" "(unprintable handle)"); if the registry write below fails too, no sweep can rebuild this record"
+  fi
 fi
-# No claim about self-healing here: this registry has exactly one writer (this
-# script), and nothing reconciles it (the periodic sweep scans worktrees, not
-# dispatch records). A failed registration means this worker is absent from
-# the fleet's inventory for its whole life, which is precisely the thing worth
-# saying out loud.
-warn "failed to register $(sanitize_printable "$handle" "(unprintable handle)") in the fleet registry; the dispatch stands, but this worker will not appear in the fleet inventory and no reconcile exists to add it"
+
+st_rc=0
+/bin/sh "$FS" "$@" >/dev/null || st_rc=$?
+case $st_rc in
+  0 | 3) exit 0 ;;
+esac
+if [ "$marked" = 1 ]; then
+  warn "failed to register $(sanitize_printable "$handle" "(unprintable handle)") in the fleet registry; the dispatch stands, and the next sweep rebuilds the record from its dispatch marker"
+else
+  warn "failed to register $(sanitize_printable "$handle" "(unprintable handle)") in the fleet registry; the dispatch stands, but with no dispatch marker either, this worker will not appear in the fleet inventory"
+fi
 exit 1

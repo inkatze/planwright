@@ -317,9 +317,32 @@ whatever it reads here.
 Registration is best-effort by design: a registry that cannot be written
 **warns and never fails the dispatch**, since a running worker is a fact and its
 bookkeeping is only a record of one. A single malformed optional column is
-dropped rather than costing the whole record. Note that a failed write is not
-yet self-healing: this registry has one writer, and the periodic sweep scans
-worktrees, not dispatch records, so the warning is the only trace.
+dropped rather than costing the whole record.
+
+A failed write heals on the next sweep. Before its store write, every
+registration leaves a **dispatch marker**, `<fleet-home>/dispatch-markers/<handle>`,
+carrying the same fields, so the registry is a rebuildable index of what is on
+disk. The sweep's registry reconcile (`scripts/fleet-registry-reconcile.sh`)
+works in both directions:
+
+- **Heal.** A marker whose worker has no record is rebuilt through
+  `fleet-register.sh --from-marker`, under the same field grammar a dispatch
+  meets. The store writes conditionally under its lock, so concurrent sweeps,
+  and a sweep racing the dispatch's own write, leave exactly one record.
+- **Retire.** A record whose worker has positive death evidence
+  (`fleet-death-evidence.sh` on its death handle, or for a `print` unit its
+  worktree's removal) is marked closed: an eighth `closed` column appended,
+  never a deletion, so the record stays readable per handle while
+  `fleet-status.sh` and the stuck-detector's scan stop listing it. Its marker
+  goes with it. Alive, unknown or errored evidence keeps the record live.
+- **Refuse.** A marker failing the grammar, naming another handle, or reached
+  through a link is refused, audited, and moved aside under
+  `dispatch-markers/.refused/`; it is never stored.
+
+A record with no marker, one written before markers existed, is never altered
+or retired for that reason. The reconcile terminates nothing, so it runs in
+both sweep modes; the kill-switch pauses it, and every heal, retirement and
+refusal is an audit record under the `registry-reconcile` mechanism.
 
 The owner token comes from the presence surface's tower identity. A tower that
 already knows its own identity exports it as `PLANWRIGHT_TOWER_ID`; a seam can
@@ -721,8 +744,9 @@ deterministically and will never succeed from that process.
 A repeat stop takes exactly what is still held, so
 `already-closed` means every class is free and nothing was signalled; a repeat
 after a partial close retries only the remainder. A stop does not remove the
-worker's dispatch registry record, and nothing reconciles that record, so
-`fleet-status.sh` keeps listing a stopped worker.
+worker's dispatch registry record: the periodic sweep retires it, marked
+closed, once the worker's death evidence is positive, and until then
+`fleet-status.sh` keeps listing the stopped worker.
 
 `stop <worker> --observe` runs the same checks and releases nothing: it prints
 `stop <worker> would-release=<classes>` for what a close would take now, or

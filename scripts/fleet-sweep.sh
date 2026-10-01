@@ -11,7 +11,7 @@
 # tower, which the reap needs (see --tower-id below). The dirty-tree grace (`fleet_dirty_tree_threshold`) defers one
 # escalation and never gates a cycle.
 #
-# FOUR PASSES, ONE CYCLE, in this order.
+# FIVE PASSES, ONE CYCLE, in this order.
 #
 # 1. WORKTREE SCAN. The disk-scan reconcile (fleet-worktree-track.sh scan) over
 #    the tower's checkout, so a worktree no dispatch seam recorded is tracked
@@ -71,6 +71,12 @@
 #    actuator gave, so a sweep that declined everything reads differently from
 #    one that found nothing.
 #
+# 5. REGISTRY RECONCILE. fleet-registry-reconcile.sh rebuilds a worker record
+#    whose write failed from its dispatch marker, and retires the record of a
+#    worker with positive death evidence. It terminates nothing, so it runs in
+#    both reap modes, after the reap so a close this cycle made is retired by
+#    the next one rather than racing it.
+#
 # KILL-SWITCH + AUDIT. The cycle gates through fleet-daemon-gate.sh at entry
 # (a set fleet_daemon_pause pauses the whole cycle; the reap actuator also
 # gates on its own). Escalations, reconciles that corrected drift, and reaps
@@ -108,6 +114,9 @@
 #       status=<ok|degraded|paused>: degraded when a store could not be read
 #       or a close is missing from the audit trail, which outranks paused;
 #       paused when the kill-switch was set mid-pass.
+#   registry <line>
+#       each line the registry reconcile printed (heal, retire, keep, refuse,
+#       summary), or `registry paused` / `registry failed <exit>`.
 #
 # Exit codes: 0 sweep completed (a watch loop runs until signalled); 2 usage;
 #   4 the kill-switch paused a one-shot sweep. Per-tree inspection failures are
@@ -138,6 +147,7 @@ OVERLAY="$script_dir/resolve-overlay-root.sh"
 DET="$script_dir/fleet-stuck-detector.sh"
 CLEANUP="$script_dir/fleet-cleanup.sh"
 FS="$script_dir/fleet-state.sh"
+RECONCILE="$script_dir/fleet-registry-reconcile.sh"
 TAB=$(printf '\t')
 
 warn() { printf 'fleet-sweep: %s\n' "$*" >&2; }
@@ -733,6 +743,19 @@ EOF
     "$rp_mode" "$rp_workers" "$rp_cand" "$rp_reaped" "$rp_observed" "$rp_declined" "$rp_closed" "$rp_status"
 }
 
+registry_pass() {
+  rg_rc=0
+  rg_out=$(cd "$repo" && /bin/sh "$RECONCILE" 2>/dev/null </dev/null) || rg_rc=$?
+  case $rg_rc in
+    0) printf '%s\n' "$rg_out" | awk 'NF { print "registry\t" $0 }' ;;
+    4) printf 'registry\tpaused\n' ;;
+    *)
+      warn "the registry reconcile exited $rg_rc — no record was healed or retired this cycle"
+      printf 'registry\tfailed\t%s\n' "$rg_rc"
+      ;;
+  esac
+}
+
 # cycle — one sweep; 4 when the kill-switch paused it before any pass.
 cycle() {
   # Kill-switch gate: the sweep is a daemon action. A set switch (or an
@@ -745,6 +768,7 @@ cycle() {
   dirty_tree_pass
   reconcile_pass
   reap_pass
+  registry_pass
   return 0
 }
 

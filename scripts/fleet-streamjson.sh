@@ -98,9 +98,10 @@
 # per the floor's declare-every-class rule: it is not acquired by this rung at
 # all — a stream-json worker is a detached supervisor/worker pair with no
 # window. The dispatch registry record is written at launch and is NOT released
-# here: it is fleet-wide inventory rather than this worker's runtime. Nothing
-# reconciles it (`scripts/fleet-register.sh` says so where it writes the
-# record), so a stopped worker keeps its inventory row. The worktree, the
+# here: it is fleet-wide inventory rather than this worker's runtime. The
+# periodic sweep's registry reconcile retires it, marked closed, once the
+# worker has positive death evidence (`scripts/fleet-registry-reconcile.sh`).
+# The worktree, the
 # branch, and the unit's fence are never touched: the release set is exactly
 # the reproducible resources, and the
 # worktree is the one holding work that cannot be recovered. No audit record is
