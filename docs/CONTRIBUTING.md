@@ -193,7 +193,8 @@ or half-wired clone but never wires anything itself; CI wires explicitly and
 then verifies. The hooks bind humans too, not just agent sessions, and are
 accident-catchers with an honestly stated boundary, not tamper-proofing:
 `--amend` combined with `-m`/`-F` carries no client-hook signal and is
-covered by the worker deny globs instead. The deliberate, human-only
+covered by the tower profile's deny globs and, for a worker, by the policy
+guard instead. The deliberate, human-only
 bypasses, per `githooks(5)`: `--no-verify` skips the `pre-push` and
 `commit-msg` hooks but does not suppress `prepare-commit-msg` (a deliberate
 amend — rare, and never on planwright branches — means `--amend -m`/`-F` or

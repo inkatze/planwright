@@ -217,7 +217,8 @@ In the planwright repo itself the history invariants are additionally
 backstopped repo-side by tracked git hooks (`githooks/`, wired once per
 clone via `scripts/wire-githooks.sh`; `mise run check` fails loudly on an
 unwired clone). They are accident-catchers with an honestly stated
-boundary (`--amend -m`/`-F` is deny-glob territory, not hook territory),
+boundary (`--amend -m`/`-F` is for the deny globs and the policy guard,
+not the hooks),
 they bind humans too, and the deliberate bypasses are `--no-verify` for
 the push and commit-msg hooks and `git rebase --no-verify` for
 `pre-rebase` (`prepare-commit-msg` is not suppressed by `--no-verify`).

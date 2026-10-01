@@ -287,8 +287,9 @@ another layer is doing the work.
 A profile is read once at launch and its deny wins over every allow, so a
 profile deny can never follow a policy knob: it would refuse an act the
 resolved policy permits (human-gates D-9). The worker profile therefore holds
-only the floor no value can lift (the PR merge, force-push, writes to main,
-`master`, or a spec branch, the hook bypasses, and the MCP names), and the acts
+only what no value can lift (the PR merge and the re-draft, force-push, writes
+to main, `master`, or a spec branch, the hard reset and the history filters,
+the hook bypasses, and the MCP names), and the acts
 a value can grant a worker left the deny list with human-gates Task 6:
 
 - the base merge (`git merge`, `git pull`, and their `git -*` global-option
@@ -306,7 +307,9 @@ permission prompt; widening the allow list to admit it is a separate,
 signed-off change. `Bash(git -* commit*)` stays, since it also refuses the
 global-option spellings of the commit hook bypasses; the plain `git commit`
 spelling of an amend is the one the guard decides. The tower profile keeps
-every one of these denies: no value grants the tower a merge or a rewrite.
+its merge, pull, rebase, and amend-family denies, since no value grants the
+tower a merge or a rewrite; the global-option spellings it never carried are
+refused there by the policy guard, which is wired into the tower profile too.
 
 ## Changing any of this
 

@@ -5,9 +5,10 @@
 #
 # Usage: protected-branch.sh <branch>...
 #
-# Every branch is checked; the answer is the strictest. A branch may carry a `refs/heads/` prefix in any case, which is stripped,
-# as it is from each entry of the set, and both sides are compared case-folded. An entry is a
-# name or a glob matched segment by segment, so `*` and `?` never span a `/`:
+# Every branch is checked; the answer is the strictest. A branch may carry a
+# `refs/heads/` prefix in any case, which is stripped, as it is from each entry
+# of the set, and both sides are compared case-folded. An entry is a name or a
+# glob matched segment by segment, so `*` and `?` never span a `/`:
 # `planwright/*/spec` protects `planwright/x/spec` and not
 # `planwright/a/b/spec`.
 #
