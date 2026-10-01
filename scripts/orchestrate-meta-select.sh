@@ -140,7 +140,14 @@ for spec_dir in "$@"; do
     printf '%s\n' "orchestrate-meta-select: missing or unreadable $(sanitize_printable "$spec_dir" "(unprintable path)")/tasks.md" >&2
     exit 2
   fi
-  spec_top=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>/dev/null) || spec_top=""
+  wr_rc=0
+  spec_top=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" 2>/dev/null) || wr_rc=$?
+  if [ "$wr_rc" -ne 0 ]; then
+    # A refused override says why itself; "no work repository" alone would
+    # send the operator looking at the bundle instead.
+    [ "$wr_rc" -eq 3 ] || /bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" >/dev/null
+    spec_top=""
+  fi
   if [ -z "$spec_top" ]; then
     printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' has no work repository (it is not inside a git work tree, and no repository here names its spec root)" >&2
     exit 2

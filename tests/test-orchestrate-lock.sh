@@ -200,4 +200,18 @@ case $err in
 esac
 echo "ok: a spec id exceeding 64 chars is refused (REQ-F1.1)"
 
+# A refused PLANWRIGHT_REPO_ROOT is said, not silently traded for the
+# no-repository threshold: the bundle's own repository still contains it, so
+# the lock is taken, and the refusal reaches the operator.
+/bin/bash "$LOCK" release "$spec" || fail "refused override: pre-release failed"
+rc=0
+err=$(cd "$tmp" && PLANWRIGHT_REPO_ROOT=relative/root /bin/bash "$LOCK" acquire "$spec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "refused override: acquire exited $rc: $err"
+case $err in
+  *"refusing PLANWRIGHT_REPO_ROOT"*) ;;
+  *) fail "refused override: the refusal was swallowed (stderr: '$err')" ;;
+esac
+/bin/bash "$LOCK" release "$spec" || fail "refused override: release failed"
+echo "ok: a refused PLANWRIGHT_REPO_ROOT is reported, not swallowed"
+
 echo "PASS: orchestrate-lock"

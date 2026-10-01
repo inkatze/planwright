@@ -125,9 +125,16 @@ case "$cmd" in
 esac
 
 # Resolve stale_lock_threshold (minutes) as the bundle's work repository sees
-# it; with none, only the layers that need no repository apply.
+# it; with none, only the layers that need no repository apply. A bundle in
+# no repository is quiet; any other failure (a refused PLANWRIGHT_REPO_ROOT)
+# is said before the fallback, never swallowed.
 threshold_min=15
-repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$canon_dir" 2>/dev/null) || repo_root=none
+wr_rc=0
+repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$canon_dir" 2>/dev/null) || wr_rc=$?
+if [ "$wr_rc" -ne 0 ]; then
+  [ "$wr_rc" -eq 3 ] || /bin/sh "$script_dir/resolve-work-repo.sh" "$canon_dir" >/dev/null
+  repo_root=none
+fi
 
 # config-get's stderr is NOT suppressed: it is silent on a found/absent key,
 # and the one thing it does emit — the broken-install diagnostic when the
