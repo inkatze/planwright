@@ -47,7 +47,8 @@
 #       read, the fleet home or the flights directory is not private to the
 #       user, or an entry's name carries a newline (exit 4). A removal that
 #       fails is named on stderr and exits 4. No fleet home yet is a clean
-#       exit 0 with no output. A lock another holds past
+#       exit 0 with no output, and so is a checkout no brief names, answered
+#       without taking its lock. A lock another holds past
 #       PLANWRIGHT_FLIGHT_LOCK_WAIT seconds (default 60) exits 4 with nothing
 #       removed. Every dispatch runs the same sweep under its
 #       lock: there a failed removal is only named on stderr, while a refused
@@ -886,6 +887,17 @@ cmd_retire() {
   resolve_repo
   ! has_ctl "$repo_root" || die 2 "refusing a repo root whose path carries a control character"
   resolve_fleet_home
+  # Nothing to retire where no brief names this checkout, so a checkout that
+  # never flew is answered without its lock; a flights directory that cannot
+  # be judged goes on to sweep_briefs, which refuses it by name.
+  _rt_flights="$fleet_home/flights"
+  [ -e "$_rt_flights" ] || [ -L "$_rt_flights" ] || exit 0
+  if private_dir "$_rt_flights" && [ -r "$_rt_flights" ] && [ -x "$_rt_flights" ] \
+    && [ -z "$(find "$_rt_flights" -mindepth 1 -maxdepth 1 -name "*$LF*" 2>/dev/null </dev/null)" ] \
+    && [ -z "$(find "$_rt_flights" -mindepth 2 -maxdepth 2 -name checkout -type f \
+      -exec grep -Flx -e "$repo_root" {} + 2>/dev/null </dev/null | head -n 1)" ]; then
+    exit 0
+  fi
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP

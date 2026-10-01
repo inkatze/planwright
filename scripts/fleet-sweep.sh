@@ -769,18 +769,11 @@ flight_residue() {
   done
 }
 
-# flight_residue_pass — pass 5. The brief retire runs only where a brief names
-# this checkout (the fleet home is shared, so any brief at all would take the
-# flight lock in checkouts that never flew), and never waits on a dispatch
-# holding the checkout's flight lock.
+# flight_residue_pass — pass 5. The brief retire never waits on a dispatch
+# holding the checkout's flight lock, and takes no lock at all in a checkout
+# no brief names.
 flight_residue_pass() {
-  fr_home=$("$FS" root 2>/dev/null) || fr_home=''
-  # The checkout as dispatch records it in a brief: its canonical toplevel.
-  fr_top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null) \
-    && fr_top=$(cd "$fr_top" 2>/dev/null && pwd -P) || fr_top=''
-  if [ -x "$FLIGHT_DISPATCH" ] && [ -n "$fr_home" ] && [ -n "$fr_top" ] && [ -d "$fr_home/flights" ] \
-    && [ -n "$(find "$fr_home/flights" -mindepth 2 -maxdepth 2 -name checkout -type f \
-      -exec grep -Flx -e "$fr_top" {} + 2>/dev/null | head -n 1)" ]; then
+  if [ -x "$FLIGHT_DISPATCH" ]; then
     FR_NAME='flight brief retire'
     flight_residue env PLANWRIGHT_FLIGHT_LOCK_WAIT=0 "$FLIGHT_DISPATCH" retire --repo-root "$repo"
   fi
