@@ -1,0 +1,1 @@
+- 2026-09-29 [planwright] fleet-state.sh registry exits 0 when its registry file exists but cannot be read (the cat fails and the verb still exits 0), so a reader cannot tell an unreadable registry from an empty one; the flight sweep checks readability itself.

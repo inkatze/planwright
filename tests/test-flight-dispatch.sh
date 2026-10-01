@@ -1290,6 +1290,13 @@ PLANWRIGHT_FLIGHT_LOCK_WAIT=0 run retire --repo-root "$c/primary"
 [ "$RC" -eq 4 ] || fail "retire under a busy lock must fail closed with exit 4 (rc $RC)"
 case $ERR in *"holds this checkout's lock"*) ;; *) fail "retire's busy-lock refusal must say why: $ERR" ;; esac
 [ -d "$c/fleet/flights/$fb" ] || fail "retire under a busy lock removed a brief"
+# Where no brief names the checkout there is nothing to retire, so retire
+# answers without touching the lock, busy or not.
+(umask 077 && mkdir -p "$c/fleet-unflown/flights/other-0123abcd")
+printf '%s\n' "$c/elsewhere" >"$c/fleet-unflown/flights/other-0123abcd/checkout"
+PLANWRIGHT_FLEET_STATE_DIR="$c/fleet-unflown" PLANWRIGHT_FLIGHT_LOCK_WAIT=0 run retire --repo-root "$c/primary"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] \
+  || fail "retire where no brief names the checkout must exit 0 without the lock (rc $RC: $ERR)"
 PLANWRIGHT_FLEET_STATE_DIR=$lockhome "$STATE" unlock
 dispatch_print
 [ "$RC" -eq 0 ] || fail "dispatch after a retirement exited $RC: $ERR"
