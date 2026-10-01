@@ -49,8 +49,9 @@
 #
 # Exit: 0 success; 1 check failed / not taken; 2 usage error or a malformed
 # argument (nothing minted, nothing echoed); 3 every uid candidate was taken;
-# 4 no usable uid source; 5 the evidence probe failed (a git error or an
-# unsearchable directory, never read as "no evidence").
+# 4 no usable uid source; 5 the evidence probe failed (a git error, an
+# unsearchable directory, or a spec root that did not resolve, never read as
+# "no evidence").
 #
 # Portable POSIX sh (the bash 3.2 / busybox floor).
 set -eu
@@ -126,8 +127,8 @@ resolve_repo() {
   # the checkout when the root lies inside it, which is the only place a
   # committed record can be found on a branch.
   flights=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || {
-    echo "$prog: the spec root did not resolve for $repo_root" >&2
-    exit 2
+    echo "$prog: the spec root did not resolve for $repo_root, so its flight records cannot be searched" >&2
+    exit 5
   }
   case $flights in
     "$repo_root"/*) flights_rel=${flights#"$repo_root"/}/_flights ;;
