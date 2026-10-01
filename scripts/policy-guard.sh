@@ -23,10 +23,14 @@
 # act needs (its knob, the protected set) through
 # scripts/resolve-policy-knob.sh, each read bounded by
 # PLANWRIGHT_POLICY_GUARD_TIMEOUT seconds (default 10) and the upstream
-# refresh by PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT (default 20); any read
-# failure denies. A command whose earlier segment changes git configuration,
-# the checked-out branch, or the refs is refused: every segment is checked
-# against the state as it stands before the command runs.
+# refresh by PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT (default 20), each with a
+# two-second kill grace, and all of them by a deadline for the whole call;
+# any read failure denies. A reserved act after an earlier segment of the same
+# command that changes git configuration, the checked-out branch, or refs (or,
+# for a rewrite, that pushes, fetches, or makes a commit) is refused: every
+# segment is checked against the state as it stands before the command runs.
+# A guard that crashes or is signalled under a tier denies rather than leaving
+# the call undecided.
 #
 # ACTS.
 #   flip        `gh pr ready <n>` and the MCP draft->ready transition.
@@ -160,76 +164,44 @@ raw_evidence() {
   raw_evidence_one "$t"
 }
 
-# strip_heredoc_bodies <text> — the text with the body of every terminated
-# here-document removed, so a commit message or PR body handed over a heredoc
-# is not read as commands. A heredoc whose opening line pipes it or hands it to
-# a shell or an interpreter keeps its body: there the body is a command. An
-# unterminated `<<` (an arithmetic shift, say) strips nothing.
-strip_heredoc_bodies() {
-  local -a lines=() kept=()
-  local line n i j delim tabs cand re feeds
-  re='(^|[^<])<<(-?)[[:space:]]*["'"'"'\\]?([A-Za-z0-9_.-]+)'
-  feeds='\||(^|[^[:alnum:]_])(bash|sh|zsh|dash|ksh|mksh|fish|eval|source|xargs|parallel|python[0-9.]*|perl|ruby|node)([^[:alnum:]_]|$)'
-  while IFS= read -r line || [ -n "$line" ]; do
-    lines[${#lines[@]}]=$line
-  done <<EOF
-$1
-EOF
-  n=${#lines[@]}
-  i=0
-  while [ "$i" -lt "$n" ]; do
-    line=${lines[$i]}
-    kept[${#kept[@]}]=$line
-    i=$((i + 1))
-    [[ $line =~ $re ]] || continue
-    delim=${BASH_REMATCH[3]}
-    tabs=0
-    [ -z "${BASH_REMATCH[2]}" ] || tabs=1
-    [[ $line =~ $feeds ]] && continue
-    j=$i
-    while [ "$j" -lt "$n" ]; do
-      cand=${lines[$j]}
-      [ "$tabs" = 0 ] || cand=${cand#"${cand%%[!"$TAB"]*}"}
-      [ "$cand" != "$delim" ] || break
-      j=$((j + 1))
-    done
-    [ "$j" -lt "$n" ] || continue
-    i=$((j + 1))
-  done
-  [ "${#kept[@]}" = 0 ] || printf '%s\n' "${kept[@]}"
-}
-
-# fold_heredoc_substitutions <text> — set FOLDED to the text with every
-# `$(cat <<'DELIM' ... DELIM)` (a quoted delimiter, so the body expands
-# nothing) replaced by the non-literal word `$__PG_HEREDOC__`. That is the
-# idiom a commit message or PR body arrives in; folding it lets the rest of
-# the command be parsed instead of refused. The replacement is not literal,
-# so a gh api query carried this way still reads as unreadable.
-fold_heredoc_substitutions() {
-  local s=$1 out='' m delim pre rest after re
-  re='\$\([[:space:]]*cat[[:space:]]+<<[[:space:]]*['"'"'"]([A-Za-z0-9_.-]+)['"'"'"][ '"$TAB"']*'"$NL"
-  while [[ $s =~ $re ]]; do
-    m=${BASH_REMATCH[0]}
-    delim=${BASH_REMATCH[1]}
-    pre=${s%%"$m"*}
-    rest=${s#*"$m"}
-    if [ "${rest#"$delim$NL"}" != "$rest" ]; then
-      after=${rest#"$delim$NL"}
-    else
-      case $rest in
-        *"$NL$delim$NL"*) after=${rest#*"$NL$delim$NL"} ;;
-        *) break ;;
-      esac
-    fi
-    after=${after#"${after%%[![:space:]]*}"}
-    case $after in
-      ')'*) ;;
-      *) break ;;
+# heredoc_substitution_at <text> — 0 when <text> starts with
+# `$(cat <<'DELIM' ... DELIM)` whose body expands nothing (a quoted
+# delimiter, or an unquoted one over a body with no `$`, backtick, or
+# backslash), setting HS_LEN to its length. That is the idiom a commit
+# message or PR body arrives in; the tokenizer reads it, where bash would run
+# it as a substitution, as one non-literal word instead of refusing the
+# command, so a gh api query carried this way still reads as unreadable.
+HS_RE='^\$\([[:space:]]*cat[[:space:]]+<<[[:space:]]*(['"'"'"]?)([A-Za-z0-9_.-]+)(['"'"'"]?)[ '"$TAB"']*'"$NL"
+heredoc_substitution_at() {
+  local s=$1 m delim rest after body
+  [[ $s =~ $HS_RE ]] || return 1
+  [ "${BASH_REMATCH[1]}" = "${BASH_REMATCH[3]}" ] || return 1
+  m=${BASH_REMATCH[0]}
+  delim=${BASH_REMATCH[2]}
+  rest=${s:${#m}}
+  if [ "${rest#"$delim$NL"}" != "$rest" ]; then
+    after=${rest#"$delim$NL"}
+    body=''
+  else
+    case $rest in
+      *"$NL$delim$NL"*)
+        after=${rest#*"$NL$delim$NL"}
+        body=${rest%%"$NL$delim$NL"*}
+        ;;
+      *) return 1 ;;
     esac
-    out="$out$pre\$__PG_HEREDOC__"
-    s=${after#)}
-  done
-  FOLDED="$out$s"
+  fi
+  if [ -z "${BASH_REMATCH[1]}" ]; then
+    case $body in
+      *'$'* | *'`'* | *\\*) return 1 ;;
+    esac
+  fi
+  after=${after#"${after%%[![:space:]]*}"}
+  case $after in
+    ')'*) ;;
+    *) return 1 ;;
+  esac
+  HS_LEN=$((${#s} - ${#after} + 1))
 }
 
 deny_unanalyzable() {
@@ -320,6 +292,9 @@ tokenize() {
         local j=$((i + 1))
         while [ "$j" -lt "$n" ] && [ "${s:j:1}" != "'" ]; do j=$((j + 1)); done
         [ "$j" -lt "$n" ] || return 1
+        # Literal here, but an arithmetic context can evaluate it again later.
+        # shellcheck disable=SC2016 # the literal `$(` is the pattern
+        case ${s:i+1:j-i-1} in *'$('* | *'`'*) SQ_SUBST=1 ;; esac
         cur="$cur${s:i+1:j-i-1}"
         have=1
         uqonly=0
@@ -350,8 +325,13 @@ tokenize() {
               ;;
             '`') return 1 ;;
             '$')
-              [ "${s:j+1:1}" != '(' ] || return 1
               lit=0
+              if [ "${s:j+1:1}" = '(' ]; then
+                heredoc_substitution_at "${s:j}" || return 1
+                cur="$cur\$__PG_HEREDOC__"
+                j=$((j + HS_LEN))
+                continue
+              fi
               cur="$cur$ch"
               ;;
             *) cur="$cur$ch" ;;
@@ -381,7 +361,16 @@ tokenize() {
       '`') return 1 ;;
       '$')
         case ${s:i+1:1} in
-          '(' | "'") return 1 ;;
+          "'") return 1 ;;
+          '(')
+            heredoc_substitution_at "${s:i}" || return 1
+            cur="$cur\$__PG_HEREDOC__"
+            have=1
+            lit=0
+            digits_only=0
+            i=$((i + HS_LEN))
+            continue
+            ;;
         esac
         cur="$cur$c"
         have=1
@@ -576,7 +565,13 @@ bound_secs() {
 }
 
 TB=''
+# need_timeout — run before every bounded read: the bound must exist, and the
+# call as a whole must still be inside its own deadline, so a compound command
+# cannot stack reads past the point where the hook itself would be cut off.
+readonly OVERALL_DEADLINE=40
 need_timeout() {
+  [ "$SECONDS" -lt "$OVERALL_DEADLINE" ] \
+    || emit_deny "the guard's reads for this command took over ${OVERALL_DEADLINE}s, so it stops here - refusing (fail closed). Split the command into shorter ones."
   [ -n "$TB" ] || TB=$(timeout_bin)
   [ -n "$TB" ] \
     || emit_deny 'no timeout (or gtimeout) binary is on PATH, so the guard cannot bound its policy read - refusing (fail closed). Install coreutils.'
@@ -801,6 +796,7 @@ refresh_upstream() {
   valid_branch "$UP_BRANCH" && [[ $UP_REMOTE =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
     || emit_deny "$what: the branch's upstream is not a shape the guard will fetch - refusing (fail closed). Set a plain remote and branch as the upstream."
   case $REFRESHED in *"<$d|$UP_REMOTE|$UP_BRANCH>"*) return 0 ;; esac
+  need_timeout
   # No background maintenance may outlive the hook, and a kill reaches git.
   GIT_TERMINAL_PROMPT=0 "$TB" -k 2 "$FETCH_T" git -C "$d" -c gc.auto=0 -c maintenance.auto=false \
     fetch --quiet --no-tags --no-write-fetch-head \
@@ -829,6 +825,7 @@ check_unpushed() {
 
 DENY_NOW=''
 PENDING=()
+SQ_SUBST=0
 
 # segment_words <seg> — set SW[] / SWL[] to the segment's words after the
 # simple-command prefix (assignments, `command`, `exec`, reserved words).
@@ -882,13 +879,16 @@ segment_words() {
   done
 }
 
+# segment_text <seg> — set SEG_TEXT to the segment's words and its
+# here-document body (a variable, not output: this runs per segment).
 segment_text() {
-  local k=${SEG_S[$1]} e=${SEG_E[$1]} t=''
+  local k=${SEG_S[$1]} e=${SEG_E[$1]}
+  SEG_TEXT=''
   while [ "$k" -lt "$e" ]; do
-    t="$t ${W[$k]}"
+    SEG_TEXT="$SEG_TEXT ${W[$k]}"
     k=$((k + 1))
   done
-  printf '%s%s%s' "$t" "$NL" "${SEG_DOC[$1]}"
+  SEG_TEXT="$SEG_TEXT$NL${SEG_DOC[$1]}"
 }
 
 deny_now() {
@@ -903,30 +903,58 @@ ST_REF=0
 ST_FETCH=0
 ST_FETCHSPEC=0
 ST_PUSH=0
+ST_HEAD=0
 GIT_ENV_SET=0
 
 RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.*)$'
+RE_EXPANDED_VERB='(^|[;&|('"$NL"']|then|do|else)[[:space:]]*(["'"'"']?\$|`)'
+
+# lc <word> — set LC to the word in lower case, forking only when it has an
+# upper-case letter (this runs per word on every guarded call).
+lc() {
+  LC=$1
+  case $1 in
+    *[A-Z]*) LC=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]') ;;
+  esac
+}
 
 classify_segments() {
   local si=0 eff=$PAYLOAD_CWD eff_ok=1 verb base_verb prev_text='' cur_text w
   [ -d "$eff" ] || eff_ok=0
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
-    cur_text=$(segment_text "$si")
+    segment_text "$si"
+    cur_text=$SEG_TEXT
     if [ "${#SW[@]}" = 0 ]; then
-      # A segment of assignments alone sets them for the rest of the command.
+      # A segment of assignments alone sets them for the rest of the command;
+      # the shell runs a prompt or startup hook's value as a command.
       [ "$SW_GITENV" = 0 ] || GIT_ENV_SET=1
+      case $cur_text in
+        *PROMPT_COMMAND=* | *BASH_ENV=* | *' ENV='*)
+          raw_evidence "$cur_text" \
+            && deny_now "this command sets a shell hook variable whose value names a reserved act - refusing (fail closed). Run the command directly."
+          ;;
+      esac
       prev_text=$cur_text
       si=$((si + 1))
       continue
     fi
     verb=${SW[0]}
-    base_verb=$(lower "${verb##*/}")
+    lc "${verb##*/}"
+    base_verb=$LC
     if [ "${SWL[0]}" != 1 ]; then
-      # The command word is an expansion: what runs cannot be read, so a
-      # segment naming a reserved subcommand is refused.
+      # The command word is an expansion, so what runs cannot be read: a
+      # word with no path part (`$G`, `${G}`) could be git itself, and any
+      # expansion followed by a reserved subcommand could be too.
+      case $verb in
+        */*) ;;
+        *)
+          deny_now "this command's name is an expansion the guard cannot read ($(sanitize_printable "$verb" 'unprintable')), so it could be git or gh - refusing (fail closed). Write the command name literally."
+          ;;
+      esac
       for w in "${SW[@]}"; do
-        if [[ $(lower "$w") =~ $RESERVED_WORD_RE ]]; then
+        lc "$w"
+        if [[ $LC =~ $RESERVED_WORD_RE ]]; then
           deny_now "this command's name is an expansion the guard cannot read, and it is followed by a reserved subcommand ($(sanitize_printable "$w" 'one')) - refusing (fail closed). Write the command name literally."
           break
         fi
@@ -1003,7 +1031,8 @@ classify_segments() {
           chronic | eval | bash | sh | zsh | dash | ksh | mksh | fish | busybox | script | watch | \
           parallel | find | flock | unbuffer | caffeinate | source | . | ssh | tmux | screen | time | \
           strace | ltrace | chroot | unshare | systemd-run | su | runuser | fakeroot | make | \
-          python* | perl | ruby | node | awk | gawk | mawk | nawk)
+          python* | perl | ruby | node | awk | gawk | mawk | nawk | trap | alias | mapfile | readarray | \
+          complete | bind)
           raw_evidence "$cur_text" \
             && deny_now "this command hands its work to $(sanitize_printable "$verb" 'a wrapper'), whose argument the guard cannot read as a command, and its text names a reserved act - refusing (fail closed). Issue the command directly."
           ;;
@@ -1612,9 +1641,10 @@ classify_git() {
   [ -d "$dir" ] || dir_ok=0
 
   # A case-insensitive filesystem runs `git REBASE` as git-rebase.
-  case $(lower "$sub") in
+  lc "$sub"
+  case $LC in
     merge | pull | rebase | commit | push)
-      [ "$sub" = "$(lower "$sub")" ] \
+      [ "$sub" = "$LC" ] \
         || {
           deny_now "this git subcommand is a reserved one spelled in another case ($(sanitize_printable "$sub" 'unprintable')) - refusing. Spell it in lower case."
           return 0
@@ -1662,8 +1692,8 @@ act_gate() {
     deny_now "$what follows a git config, remote, branch, checkout, switch, reset, or ref change in the same command; the guard checks the state as it is before the command runs - refusing (fail closed). Run the change first, as its own command."
     return 1
   fi
-  if [ "$kind" = rewrite ] && { [ "$ST_PUSH" = 1 ] || [ "$ST_FETCH" = 1 ]; }; then
-    deny_now "$what follows a push or a fetch in the same command, which can make a commit pushed after the guard read it - refusing (fail closed). Run the push or fetch first, as its own command."
+  if [ "$kind" = rewrite ] && { [ "$ST_PUSH" = 1 ] || [ "$ST_FETCH" = 1 ] || [ "$ST_HEAD" = 1 ]; }; then
+    deny_now "$what follows a push, a fetch, or a commit-making command (a merge, pull, commit, cherry-pick, am, revert, or rebase) in the same command, which moves what the rewrite would reach after the guard read it - refusing (fail closed). Run that command first, on its own."
     return 1
   fi
   if [ "$kind" = merge ] && [ "$ST_FETCHSPEC" = 1 ]; then
@@ -1689,6 +1719,7 @@ git_state_after() {
     remote) [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_CFG=1 ;;
     branch | tag) [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_REF=1 ;;
     switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;
+    merge | pull | commit | cherry-pick | am | revert | rebase) ST_HEAD=1 ;;
     push) ST_PUSH=1 ;;
     fetch)
       ST_FETCH=1
@@ -2210,7 +2241,7 @@ classify_git_push() {
         return 0
         ;;
       :)
-        deny_now 'this git push carries the matching refspec (:), which pushes every branch the remote shares, main included - refusing.'
+        deny_now 'this git push carries the matching refspec (:), which pushes every branch the remote shares, main included - refusing. Push your own branch by name.'
         return 0
         ;;
     esac
@@ -2312,7 +2343,7 @@ eval_pull() {
     if [ -z "$remote" ]; then
       upstream_of "$dir" "$CUR_BRANCH"
       upref="refs/remotes/$UP_REMOTE/$UP_BRANCH"
-      [ -n "$UP_BRANCH" ] || emit_deny 'this rebasing git pull has no upstream to rebase onto - refusing (fail closed).'
+      [ -n "$UP_BRANCH" ] || emit_deny 'this rebasing git pull has no upstream to rebase onto - refusing (fail closed). Name the remote and branch, or push the branch with -u first.'
     else
       [ -n "$ref" ] || emit_deny 'this rebasing git pull names a remote and no branch, which the guard does not resolve - refusing. Name the branch.'
       upref="refs/remotes/$remote/${ref#refs/heads/}"
@@ -2392,13 +2423,13 @@ eval_commit() {
   local dir=${1%%"$TAB"*} targets=${1#*"$TAB"} t oid head
   rewrite_allowed "$dir" 'this history rewrite'
   head=$(resolve_commit "$dir" HEAD)
-  [ -n "$head" ] || emit_deny 'this history rewrite runs where HEAD does not resolve - refusing (fail closed).'
+  [ -n "$head" ] || emit_deny 'this history rewrite runs where HEAD does not resolve - refusing (fail closed). Make a first commit instead.'
   local ranges=()
   for t in $targets; do
     oid=$(resolve_commit "$dir" "$t")
     [ -n "$oid" ] || emit_deny "this history rewrite names a commit that does not resolve ($(sanitize_printable "$t" 'unprintable')) - refusing (fail closed)."
     gitq "$dir" merge-base --is-ancestor "$oid" "$head" \
-      || emit_deny "this history rewrite names a commit that is not on this branch ($(sanitize_printable "$t" 'unprintable')) - refusing."
+      || emit_deny "this history rewrite names a commit that is not on this branch ($(sanitize_printable "$t" 'unprintable')) - refusing. Name a commit of your own branch."
     # One commit alone: <oid>^! (a root commit has no parent to exclude, so
     # its range is the bare id with a count of one).
     if gitq "$dir" rev-parse --verify --quiet "$oid^" >/dev/null; then
@@ -2535,7 +2566,7 @@ main() {
   fi
   if [ -z "$tool" ]; then
     [ "$surface" != mcp ] \
-      || emit_deny 'this update_pull_request payload could not be parsed, so the guard cannot tell whether it flips or re-drafts a PR - refusing (fail closed).'
+      || emit_deny 'this update_pull_request payload could not be parsed, so the guard cannot tell whether it flips or re-drafts a PR - refusing (fail closed). Use gh pr ready <number> for a flip.'
     raw_evidence "$input" \
       && emit_deny 'the PreToolUse payload could not be parsed and its raw content names a reserved act - refusing (fail closed).'
     return 0
@@ -2565,12 +2596,12 @@ handle_mcp() {
       [ -z "$DENY_NOW" ] || emit_deny "$DENY_NOW"
       eval_pending
       ;;
-    *) emit_deny 'this update_pull_request payload is malformed, so the guard cannot tell whether it flips or re-drafts a PR - refusing (fail closed).' ;;
+    *) emit_deny 'this update_pull_request payload is malformed, so the guard cannot tell whether it flips or re-drafts a PR - refusing (fail closed). Use gh pr ready <number> for a flip.' ;;
   esac
 }
 
 handle_bash() {
-  local cmd=$P_CMD stripped
+  local cmd=$P_CMD
   if [ "$P_CMD_OK" != 1 ] || [ -z "$cmd" ]; then
     raw_evidence "$1" && emit_deny 'this Bash payload carries no readable command string and its raw content names a reserved act - refusing (fail closed).'
     return 0
@@ -2589,9 +2620,9 @@ handle_bash() {
       ;;
   esac
   shopt -u nocasematch
+  # A command word that is itself an expansion can be anything.
+  [ "$hit" = 1 ] || ! [[ $cmd =~ $RE_EXPANDED_VERB ]] || hit=1
   [ "$hit" = 1 ] || return 0
-  fold_heredoc_substitutions "$cmd"
-  cmd=$FOLDED
   case $P_CWD_TYPE in
     absent) PAYLOAD_CWD=$PWD ;;
     string)
@@ -2603,16 +2634,21 @@ handle_bash() {
       return 0
       ;;
   esac
+  # Where the parse is unavailable the whole text is screened, here-document
+  # bodies included: only the parse can tell a body bash runs from one it
+  # hands to a command as data.
   if [ "${#cmd}" -gt "$MAX_CMD_LEN" ]; then
-    stripped=$(strip_heredoc_bodies "$cmd")
-    raw_evidence "$stripped" && deny_unanalyzable 'this command is too long for the guard to analyze'
+    raw_evidence "$cmd" && deny_unanalyzable 'this command is too long for the guard to analyze'
     return 0
   fi
   if ! tokenize "$cmd"; then
-    stripped=$(strip_heredoc_bodies "$cmd")
-    raw_evidence "$stripped" \
+    raw_evidence "$cmd" \
       && deny_unanalyzable 'this command uses a construct the guard will not analyze (command or process substitution, backticks, ANSI-C quoting, or grouping)'
     return 0
+  fi
+  if [ "$SQ_SUBST" = 1 ]; then
+    raw_evidence "$cmd" \
+      && deny_unanalyzable 'this command carries a substitution in single quotes, which an arithmetic context can still run'
   fi
   classify_segments
   [ -z "$DENY_NOW" ] || emit_deny "$DENY_NOW"

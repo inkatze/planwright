@@ -361,6 +361,11 @@ HIDDEN=(
   'git push origin HEAD && git commit --amend --no-edit' 'git fetch origin x:refs/remotes/origin/main && git merge origin/main'
   'git --attr-source HEAD push --force origin main' 'git REBASE origin/main' 'gh pr -R o/r merge 1' 'gh pr --repo o/r merge 1'
   "git rebase --exec=\"echo continue\" origin/main"
+  "echo hi # \$(cat <<'X'${NL_}git push --force origin main${NL_}X${NL_})"
+  'a=git; b=push; $a $b --force origin main' 'trap "git push --force origin main" EXIT'
+  "declare -i x; x='a[\$(git push --force origin main)]'"
+  'git merge origin/main && git rebase -i HEAD~3'
+  'PROMPT_COMMAND="git push --force origin main"'
 )
 for cmd in "${HIDDEN[@]}"; do
   pg worker "$cmd"
@@ -389,6 +394,8 @@ ROUTINE=(
   'git merge --help' 'git rebase --cont' 'git merge --ab' 'GIT_EDITOR=true git rebase --continue' 'git rebase -C 4 HEAD~2'
   'git branch --show-current && git push origin HEAD' 'git config --get user.name && git push origin HEAD'
   'git fetch origin && git merge origin/main' 'git add -A && git commit -m wip && git push origin HEAD'
+  '"$P/scripts/converge-sync-main.sh"' 'cd "$WT" && mise run check'
+  "git commit -m \"\$(cat <<EOF${NL_}docs: say why git rebase is refused${NL_}EOF${NL_})\""
 )
 for cmd in "${ROUTINE[@]}"; do
   pg worker "$cmd"
@@ -416,7 +423,14 @@ expect deny "[worker] a malformed machine-local ready_flip_policy degrades to hu
 set_knobs 'ready_flip_policy: unit-owner'
 STUB_SLEEP=3 PG_TIMEOUT=1 pg worker 'git push origin feature'
 expect deny "[worker] a protected-set read past the wall-clock bound denies"
-reason_has 'did not finish' "the protected-set timeout deny names the timeout"
+reason_has 'protected set did not finish' "the protected-set timeout deny names the timeout"
+# An upstream refresh that hangs is cut off at its bound and refuses.
+SLOW="$SANDBOX/slow"
+clone_on "$SLOW" planwright/demo/task-1 1
+gitq -C "$SLOW" remote set-url origin 'ssh://example.invalid/x.git'
+GIT_SSH_COMMAND='sleep 5; :' PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT=1 pg worker 'git commit --amend --no-edit' "$SLOW" "$SLOW"
+expect deny "[worker] an upstream refresh past its bound denies the rewrite"
+reason_has 'exit 124' "the refresh-timeout deny reports the timeout's exit"
 STUB_SLEEP=3 PG_TIMEOUT=1 pg worker 'gh pr ready 42'
 expect deny "[worker] a policy read past the wall-clock bound denies"
 reason_has 'timeout' "the timeout deny names the timeout"
