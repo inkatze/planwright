@@ -1,7 +1,7 @@
 # Human gates — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-09-28
+**Last reviewed:** 2026-10-01
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -51,7 +51,8 @@ profile, skill, and doc restates one list instead of carrying its own.
   purge staying human.
 - Enforcement derived from the resolved policy: profiles as the floor, guards
   reading the policy, and one shared fixture list of reserved-control
-  spellings every guard copy must refuse.
+  spellings every guard copy must refuse, with the `gh api` control lines
+  the policy guard reads (REQ-G1.8).
 - Every skill and doc surface restating the list from one doctrine source,
   with composition contracts labelled apart from trust rules.
 - Supersede pointers on the records other bundles still carry for a changed
@@ -445,9 +446,12 @@ profile, skill, and doc restates one list instead of carrying its own.
   jurisdiction, since an allow-only copy defers what it does not recognise):
   floor lines expect deny from every copy in jurisdiction and from both
   profiles, including the `master` and spec-branch forms; policy lines
-  expect the verdict the resolved value yields.
+  expect the verdict the resolved value yields. The list SHALL also carry
+  the `gh api` spellings of REQ-G1.7 and REQ-G1.8: the classified acts, the
+  forms the policy guard cannot read, and readable requests outside those
+  acts, each expecting `prompt` from both profiles.
   *(Cites: D-9; obs:518be7dd; kickoff §3 REQ-G (2026-09-22); kickoff sign-off
-  lens pass (2026-09-22).)*
+  lens pass (2026-09-22).)* *(Amended at kickoff amendment 2026-10-01: the `gh api` spellings.)*
 - **REQ-G1.2** Enforcement SHALL follow the resolved policy for the tier: a
   profile SHALL NOT deny an act the resolved policy permits for that tier, a
   deny-emitting guard SHALL refuse an act the policy forbids, and a policy
@@ -464,9 +468,11 @@ profile, skill, and doc restates one list instead of carrying its own.
   PR merge outside a policy class, a rewrite of a pushed commit outside
   REQ-F1.2 — SHALL be guard-only, and the sanctioned helpers behind them
   SHALL re-resolve the policy and fail closed internally, as their own last
-  line.
+  line. The `gh api` spellings of the floor acts (REQ-G1.7) are guard-only
+  too, since a profile glob sees text and cannot read the request; the
+  policy-guard suite pins them.
   *(Cites: D-9; worker-permission-ergonomics D-1 (Sources); kickoff sign-off
-  lens pass (2026-09-22).)*
+  lens pass (2026-09-22).)* *(Amended at kickoff amendment 2026-10-01: the `gh api` spellings.)*
 - **REQ-G1.4** Every guard that reads a policy SHALL do so deterministically,
   within a wall-clock bound, with no model in the decision path, and SHALL
   fail closed when the read fails. It SHALL classify the intercepted command
@@ -483,6 +489,36 @@ profile, skill, and doc restates one list instead of carrying its own.
   validate identifiers against their grammar before use, per the
   security-posture echo discipline.
   *(Cites: D-9; kickoff sign-off lens pass (2026-09-22).)*
+- **REQ-G1.7** Within its jurisdiction the policy guard SHALL classify a
+  `gh api` request by the act it performs, matching the act's names in any
+  field of the request whatever the endpoint, and SHALL deny it at every
+  tier under every value with no knob read when it is a ready flip
+  (`markPullRequestReadyForReview`), its undo (`convertPullRequestToDraft`),
+  a PR merge (`mergePullRequest`, `enablePullRequestAutoMerge`,
+  `enqueuePullRequest`, or a write to a `pulls/<n>/merge` path), a base
+  merge (`mergeBranch`, `updatePullRequestBranch`, a write to `merges` or to
+  `pulls/<n>/update-branch`), or a forced ref update. A ref update or
+  delete, a contents write, or a `createCommitOnBranch` whose target is in
+  the protected set SHALL be denied reading only `protected_branches`. A
+  policy that permits one of these acts permits its `gh pr` or `git`
+  spelling or its helper, whose predicates the guards can check; the
+  `gh api` spelling is never the permitted path.
+  *(Cites: D-9; the operator's `gh api` request (Sources).)*
+- **REQ-G1.8** Within its jurisdiction the policy guard SHALL deny, fail
+  closed and before any knob read, a `gh api` request it cannot read, as
+  D-9 defines readable: a field read from a file or stdin, an `--input`
+  body, a non-literal endpoint, method, or `query` field on a write, a flag
+  it cannot parse, a protected-ref target it cannot read, and a command
+  whose raw text shows `gh` followed by `api` where the parse cannot place
+  them as a simple command's verb (a wrapper, a full path, or a construct
+  the tokenizer refuses). Every `gh api` segment of a compound command SHALL
+  be classified and the strictest verdict SHALL win. A readable request
+  outside the REQ-G1.7 acts SHALL defer, and the profiles SHALL keep
+  `gh api` writes at the permission prompt. Review approvals and dismissals,
+  branch-protection and ruleset changes, non-`gh` clients, and other MCP
+  servers' GitHub tools are accepted residuals held at the permission
+  prompt.
+  *(Cites: D-9; the operator's `gh api` request (Sources).)*
 
 ## REQ-H — Prose surfaces
 
@@ -541,6 +577,13 @@ profile, skill, and doc restates one list instead of carrying its own.
   class admission (which excludes release PRs) and the raw sign-off scan,
   REQ-H1.4 for cross-bundle supersede pointers; Tasks 2, 9, 11, and 12 grew
   to carry them; the details are in `kickoff-brief.md`'s amendment log.
+- 2026-10-01 — Amendment from the operator's `gh api` request: REQ-G1.7
+  minted for the `gh api` acts the policy guard denies, REQ-G1.8 for the
+  fail-closed read of a request it cannot read and the named residuals;
+  REQ-G1.1 and REQ-G1.3 extended to the `gh api` fixture lines and
+  guard-only floor; D-9, test-spec, and Tasks 6, 8, and 12 grew to carry
+  them, and tower-front-door's Deferred "Tower floor bypass paths" bullet
+  was annotated; the details are in `kickoff-brief.md`'s amendment log.
 
 ## Sources
 
@@ -630,6 +673,12 @@ profile, skill, and doc restates one list instead of carrying its own.
   the operator's 2026-09-28 answers on cross-bundle pointers, release PRs
   under a policy class, and legacy checklist ids, walked in this bundle's
   2026-09-28 kickoff amendment.
+- **the operator's `gh api` request** — no external locator (given in the
+  kickoff amendment session): the operator's 2026-09-30 request that the
+  policy guard refuse a `gh api` ready flip, undo, or merge per tier and
+  policy and deny any `gh api` request it cannot read, walked in this
+  bundle's 2026-10-01 kickoff amendment; the fixture lines pinning those
+  spellings landed in <https://github.com/inkatze/planwright/pull/529>.
 - **research: homu** — <https://github.com/rust-lang/homu>: a human's `r+`
   authorizes, the bot merges after testing against the current base.
 - **research: Mergify queue rules** —

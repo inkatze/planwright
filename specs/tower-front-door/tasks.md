@@ -317,6 +317,11 @@ router has not demonstrated (REQ-B1.6).
   so they are not named in bring-up. Task 10's block does not name them
   yet, so when the gate fires, check that its landed floor covers both.
   Confidence: high.
+  *(2026-10-01: the `gh api` half moved to human-gates Task 6
+  (human-gates REQ-G1.7, REQ-G1.8): its policy guard, not the profile floor,
+  denies a `gh api` flip, undo, or merge to the tower at every value and
+  denies a `gh api` request it cannot read. When this gate fires, check only
+  the other MCP servers' GitHub tools.)*
   **Gate:** GATE(when: task 10 completed).
   Citations: D-14 · REQ-A1.3, REQ-G1.1, REQ-G1.4.
 
