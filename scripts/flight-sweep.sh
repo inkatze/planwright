@@ -81,7 +81,9 @@
 #
 # Exit codes: 0 swept / printed / pruned; 2 usage or a refused input; 4 the
 # fleet home, the worktree list, or the flight branches could not be read, or
-# prune's directory is not private or cannot be listed; 5 the render was
+# prune's directory is not private, cannot be listed, holds an entry with a
+# newline in its name, or a vanished checkout's index could not be removed; 5
+# the render was
 # derived and printed but the index could not be written.
 #
 # PLANWRIGHT_FLIGHT_SWEEP_GH_TIMEOUT bounds each PR read in seconds (default
@@ -571,27 +573,52 @@ cmd_prune() {
   resolve_home
   _dir="$fleet_home/flight-index"
   [ -e "$_dir" ] || [ -L "$_dir" ] || return 0
+  private_dir "$fleet_home" \
+    || die 4 "the fleet home is not a directory owned by you that only you can write; nothing was pruned"
   private_dir "$_dir" || die 4 "$_dir is not a directory owned by you that only you can write; nothing was pruned"
   _files=$(find "$_dir" -mindepth 1 -maxdepth 1 -type f -name '*.tsv' 2>/dev/null </dev/null) \
     || die 4 "cannot list $_dir; nothing was pruned"
+  _nl=$(find "$_dir" -mindepth 1 -maxdepth 1 -name "*$LF*" 2>/dev/null </dev/null) \
+    || die 4 "cannot list $_dir; nothing was pruned"
+  [ -z "$_nl" ] || die 4 "refusing to prune: an entry under $_dir has a newline in its name; nothing was pruned"
+  # A sweep or prune interrupted past its temp file leaves it behind; one older
+  # than any live write is collected.
+  find "$_dir" -mindepth 1 -maxdepth 1 -type f \( -name '.index.*' -o -name '.prune.*' \) \
+    -mmin +60 -exec rm -f {} + 2>/dev/null </dev/null
+  _failed=0
   _old_ifs=$IFS
   IFS=$LF
   for _f in $_files; do
     IFS=$_old_ifs
+    case $_f in
+      "$_dir"/*) ;;
+      *) continue ;;
+    esac
     _base=${_f##*/}
     case ${_base%.tsv} in
       '' | *[!0-9]*) continue ;;
     esac
+    [ -f "$_f" ] && [ ! -L "$_f" ] || continue
     _co=$(awk -F "$TAB" 'NR == 2 && $1 == "checkout" { print $2 }' "$_f" 2>/dev/null)
     case $_co in
       /*) ;;
       *) continue ;;
     esac
-    if [ ! -d "$_co" ] && rm -f "$_f"; then
+    [ ! -d "$_co" ] || continue
+    # Removal by rename: of two prunes at once, only the one whose rename wins
+    # reports the removal.
+    _gone="$_dir/.prune.$$.$_base"
+    if mv "$_f" "$_gone" 2>/dev/null; then
+      rm -f "$_gone" 2>/dev/null
       printf 'pruned\t%s\n' "$(printf '%s' "$_co" | tr -d '\000-\037\177')"
+    elif [ -e "$_f" ]; then
+      printf '%s: could not remove the index of vanished checkout %s (%s)\n' "$prog" \
+        "$(printf '%s' "$_co" | tr -d '\000-\037\177')" "$_f" >&2
+      _failed=1
     fi
   done
   IFS=$_old_ifs
+  [ "$_failed" -eq 0 ] || exit 4
 }
 
 # cmd_hook session-start — sweep the session's checkout, silently. A worker's

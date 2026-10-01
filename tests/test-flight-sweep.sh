@@ -515,6 +515,48 @@ out=$("$SCRIPT" prune 2>&1) || fail "prune exited non-zero: $out"
 [ -f "$idx" ] || fail "prune keeps a live checkout's index"
 printf '%s\n' "$out" | grep -q "^pruned${TAB}" || fail "prune names what it removed"
 
+# Prune's delete path carries the brief sweep's guards: an entry with a newline
+# in its name stops it before anything is removed, a failed removal is named
+# and exits 4, and a stale temp file is collected while a fresh one is kept.
+vanished_index() {
+  _v="$tmp/vanish-$1"
+  git -c init.defaultBranch=main init -q "$_v"
+  gitc "$_v" commit -q --allow-empty -m init
+  gitc "$_v" branch "planwright/flight/$STRAND"
+  (cd "$_v" && "$SCRIPT" sweep --no-forge >/dev/null 2>&1)
+  (cd "$_v" && "$SCRIPT" path)
+  rm -rf "$_v"
+}
+v_idx=$(vanished_index nl)
+LF='
+'
+nl_entry="$c/fleet/flight-index/1${LF}2.tsv"
+: >"$nl_entry"
+"$SCRIPT" prune >/dev/null 2>&1
+rc=$?
+rm -f "$nl_entry"
+[ "$rc" -eq 4 ] || fail "prune refuses an entry with a newline in its name (got exit $rc)"
+[ -f "$v_idx" ] || fail "a refused prune removes nothing"
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 500 "$c/fleet/flight-index"
+  err=$("$SCRIPT" prune 2>&1 >/dev/null)
+  rc=$?
+  chmod 700 "$c/fleet/flight-index"
+  [ "$rc" -eq 4 ] || fail "a failed prune removal exits 4 (got $rc)"
+  printf '%s\n' "$err" | grep -q 'could not remove the index of vanished checkout' \
+    || fail "a failed prune removal is named (got: $err)"
+fi
+stale_tmp="$c/fleet/flight-index/.index.stale1"
+fresh_tmp="$c/fleet/flight-index/.index.fresh1"
+: >"$stale_tmp"
+: >"$fresh_tmp"
+touch -t 202001010000 "$stale_tmp"
+out=$("$SCRIPT" prune 2>&1) || fail "prune exited non-zero: $out"
+[ ! -e "$v_idx" ] || fail "prune removes a vanished checkout's index once nothing blocks it"
+[ ! -e "$stale_tmp" ] || fail "prune collects a stale temp file"
+[ -e "$fresh_tmp" ] || fail "prune keeps a fresh temp file"
+rm -f "$fresh_tmp"
+
 # The fleet cleanup sweep carries the prune, audited.
 gone2="$tmp/gone2"
 git -c init.defaultBranch=main init -q "$gone2"
