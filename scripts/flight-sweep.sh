@@ -10,8 +10,9 @@
 #   - its worktree, registered and not prunable, known by its
 #     `.claude/worktrees/flight-<id>` path or its branch;
 #   - its landing: a PR for the branch in any state (the draft-PR arm), or the
-#     record file `specs/_flights/<id>.md` committed on the branch (the
-#     no-remote arm), whichever the home declared at dispatch put there;
+#     record file `_flights/<id>.md` under the spec home (resolve-root.sh
+#     spec) committed on the branch (the no-remote arm), whichever the home
+#     declared at dispatch put there;
 #   - its worker's liveness: the dispatch registry's death handle judged by
 #     the positive-evidence predicate (scripts/fleet-death-evidence.sh). Only
 #     positive evidence of death reads `dead`; no record, a print-rung `none`,
@@ -108,6 +109,7 @@ STATE="$script_dir/fleet-state.sh"
 FDE="$script_dir/fleet-death-evidence.sh"
 ROOTS="$script_dir/resolve-installed-roots.sh"
 COMMON="$script_dir/flight-common.sh"
+RESOLVE_ROOT="$script_dir/resolve-root.sh"
 
 # A hook must never fail a session start, a broken install included.
 in_hook=0
@@ -128,7 +130,7 @@ EOF
   exit 2
 }
 
-for _h in "$STATE" "$FDE" "$ROOTS" "$COMMON"; do
+for _h in "$STATE" "$FDE" "$ROOTS" "$COMMON" "$RESOLVE_ROOT"; do
   [ -r "$_h" ] || {
     [ "$in_hook" -eq 0 ] || exit 0
     die 2 "required helper missing: $_h"
@@ -412,6 +414,16 @@ cmd_sweep() {
   if [ "$session_start" -eq 1 ]; then
     forge_until=$(($(date +%s) + HOOK_FORGE_BUDGET))
   fi
+  # A record file lands under the spec home, read here as a path relative to
+  # the checkout. A spec home outside the checkout cannot be carried on a
+  # flight branch, so no record landing is looked for there.
+  rec_dir=''
+  _sr=$(cd "$repo_root" && /bin/sh "$RESOLVE_ROOT" spec 2>/dev/null </dev/null) || _sr=''
+  case $_sr in
+    "$repo_root"/*) rec_dir="${_sr#"$repo_root"/}/_flights" ;;
+  esac
+  ! has_ctl "$rec_dir" || rec_dir=''
+
   flights=''
   IFS=$LF
   for id in $ids; do
@@ -424,8 +436,9 @@ cmd_sweep() {
       ref=refs/remotes/origin/$branch
     fi
     landing=''
-    if [ -n "$ref" ] && git -C "$repo_root" cat-file -e "$ref:specs/_flights/$id.md" 2>/dev/null </dev/null; then
-      landing="record:specs/_flights/$id.md"
+    if [ -n "$ref" ] && [ -n "$rec_dir" ] \
+      && git -C "$repo_root" cat-file -e "$ref:$rec_dir/$id.md" 2>/dev/null </dev/null; then
+      landing="record:$rec_dir/$id.md"
     fi
     if [ -z "$landing" ] && [ "$forge_reason" = no-origin ]; then
       landing=none
