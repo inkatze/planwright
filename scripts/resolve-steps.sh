@@ -417,17 +417,18 @@ trap 'exit 143' TERM
 # skip their own git lookups and every read agrees on the same repository.
 # An explicit PLANWRIGHT_REPO_ROOT goes through the same lookup, which
 # validates it; none pins the absence of a repository.
+# DEGRADED: a malformation was degraded with a warning, by this script or by
+# a sibling reader; check mode fails on it. A refused override is one: the
+# repo-side layer it named is dropped, and the children never see the value.
+DEGRADED=0
 rc=0
 repo_claude=$("$overlay_root_sh" repo-tracked 2>"$scratch") || rc=$?
+[ ! -s "$scratch" ] || DEGRADED=1
 replay "$scratch"
 [ "$rc" -eq 0 ] || die 5 "overlay-root resolution failed for the repo-tracked layer (broken install)"
 PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
 [ -n "$repo_claude" ] || PLANWRIGHT_REPO_ROOT=none
 export PLANWRIGHT_REPO_ROOT
-
-# DEGRADED: a malformation was degraded with a warning, by this script or by
-# a sibling reader; check mode fails on it.
-DEGRADED=0
 
 # valid_id <token>: the step-id (and skill-name) charset ^[a-z][a-z0-9-]*$,
 # at most 64 bytes.
