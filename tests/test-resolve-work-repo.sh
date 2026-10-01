@@ -20,6 +20,15 @@ assert_eq() {
     failures=$((failures + 1))
   fi
 }
+# assert_out <label> <expected>: the run printed <expected> and exited 0.
+assert_out() {
+  if [ "$rc" -eq 0 ] && [ "$2" = "$out" ]; then
+    echo "ok: $1"
+  else
+    echo "FAIL: $1 (expected '$2' with exit 0, got '$out' with exit $rc)" >&2
+    failures=$((failures + 1))
+  fi
+}
 assert_contains() {
   case $3 in
     *"$2"*) echo "ok: $1" ;;
@@ -67,24 +76,24 @@ gitq -C "$tmp/work" worktree add -q "$tmp/work/.claude/worktrees/wt" -b wt
 
 run "$tmp/work" "$SH" "$HELPER" specs/demo
 assert_eq "default root: the bundle's own repository (exit)" 0 "$rc"
-assert_eq "default root: the bundle's own repository" "$tmp/work" "$out"
+assert_out "default root: the bundle's own repository" "$tmp/work"
 
 run "$tmp/work/.claude/worktrees/wt" "$SH" "$HELPER" specs/demo
-assert_eq "default root from a worktree: the primary checkout" "$tmp/work" "$out"
+assert_out "default root from a worktree: the primary checkout" "$tmp/work"
 
 run "$tmp/work/.claude/worktrees/wt" "$SH" "$HELPER" "$tmp/work/specs/demo"
-assert_eq "the primary's bundle from a worktree: the primary checkout" "$tmp/work" "$out"
+assert_out "the primary's bundle from a worktree: the primary checkout" "$tmp/work"
 
 # Addressed from outside any repository, a default-layout bundle still
 # derives from the repository it sits in.
 mkdir -p "$tmp/elsewhere"
 run "$tmp/elsewhere" "$SH" "$HELPER" "$tmp/work/specs/demo"
-assert_eq "from outside a repository: the bundle's own repository" "$tmp/work" "$out"
+assert_out "from outside a repository: the bundle's own repository" "$tmp/work"
 
 # From another repository whose root does not hold the bundle: the bundle's.
 mkrepo "$tmp/other"
 run "$tmp/other" "$SH" "$HELPER" "$tmp/work/specs/demo"
-assert_eq "from an unrelated repository: the bundle's own repository" "$tmp/work" "$out"
+assert_out "from an unrelated repository: the bundle's own repository" "$tmp/work"
 
 # A holder: the work repository points spec_root at a directory in a second
 # repository. The bundle derives from the work repository, never the holder.
@@ -96,11 +105,11 @@ mkdir -p "$tmp/work/.claude"
 printf 'spec_root: %s\n' "$tmp/holder/work-specs" >"$tmp/work/.claude/planwright.local.yml"
 run "$tmp/work" "$SH" "$HELPER" "$tmp/holder/work-specs/demo"
 assert_eq "holder root: the work repository (exit)" 0 "$rc"
-assert_eq "holder root: the work repository, not the holder" "$tmp/work" "$out"
+assert_out "holder root: the work repository, not the holder" "$tmp/work"
 run "$tmp/work/.claude/worktrees/wt" "$SH" "$HELPER" "$tmp/holder/work-specs/demo"
-assert_eq "holder root from a worktree: the work repository's primary" "$tmp/work" "$out"
+assert_out "holder root from a worktree: the work repository's primary" "$tmp/work"
 run "$tmp/holder" "$SH" "$HELPER" "$tmp/holder/work-specs/demo"
-assert_eq "holder bundle from the holder: the holder is all it can name" "$tmp/holder" "$out"
+assert_out "holder bundle from the holder: the holder is all it can name" "$tmp/holder"
 
 # A plain directory: the work repository owns it through spec_root.
 mkdir -p "$tmp/plain-specs"
@@ -108,7 +117,7 @@ mark "$tmp/plain-specs"
 bundle "$tmp/plain-specs/demo"
 printf 'spec_root: %s\n' "$tmp/plain-specs" >"$tmp/work/.claude/planwright.local.yml"
 run "$tmp/work" "$SH" "$HELPER" "$tmp/plain-specs/demo"
-assert_eq "plain root: the work repository" "$tmp/work" "$out"
+assert_out "plain root: the work repository" "$tmp/work"
 run "$tmp/elsewhere" "$SH" "$HELPER" "$tmp/plain-specs/demo"
 assert_eq "plain root with no owning repository in sight (exit)" 3 "$rc"
 assert_contains "plain root with no owning repository says so" "no work repository" "$err"
@@ -120,20 +129,31 @@ mark "$tmp/work/docs/specs-here"
 bundle "$tmp/work/docs/specs-here/demo"
 printf 'spec_root: docs/specs-here\n' >"$tmp/work/.claude/planwright.local.yml"
 run "$tmp/work" "$SH" "$HELPER" docs/specs-here/demo
-assert_eq "in-repo relocated root: the work repository" "$tmp/work" "$out"
+assert_out "in-repo relocated root: the work repository" "$tmp/work"
 rm -f "$tmp/work/.claude/planwright.local.yml"
 
 # PLANWRIGHT_REPO_ROOT names the current repository, as it does for the
 # primary-root helper, and a refused value is refused here too.
 run "$tmp/elsewhere" env PLANWRIGHT_REPO_ROOT="$tmp/work" "$SH" "$HELPER" "$tmp/work/specs/demo"
-assert_eq "PLANWRIGHT_REPO_ROOT naming the work repository" "$tmp/work" "$out"
+assert_out "PLANWRIGHT_REPO_ROOT naming the work repository" "$tmp/work"
 run "$tmp/work" env PLANWRIGHT_REPO_ROOT="$tmp/elsewhere" "$SH" "$HELPER" specs/demo
 assert_eq "a refused PLANWRIGHT_REPO_ROOT (exit)" 4 "$rc"
 assert_contains "a refused PLANWRIGHT_REPO_ROOT names the variable" "PLANWRIGHT_REPO_ROOT" "$err"
 
+# none is no current repository: a bundle still derives from its own, and a
+# plain directory nothing owns has no work repository, never a refusal.
+run "$tmp/work" env PLANWRIGHT_REPO_ROOT=none "$SH" "$HELPER" specs/demo
+assert_out "PLANWRIGHT_REPO_ROOT=none: the bundle's own repository" "$tmp/work"
+run "$tmp/work" env PLANWRIGHT_REPO_ROOT=none "$SH" "$HELPER" "$tmp/plain-specs/demo"
+assert_eq "PLANWRIGHT_REPO_ROOT=none with a plain bundle (exit)" 3 "$rc"
+
 # Usage.
 run "$tmp/work" "$SH" "$HELPER"
 assert_eq "no argument is a usage error" 2 "$rc"
+run "$tmp/work" "$SH" "$HELPER" ""
+assert_eq "an empty argument is a usage error" 2 "$rc"
+run "$tmp/work" "$SH" "$HELPER" specs/demo specs/demo
+assert_eq "two arguments are a usage error" 2 "$rc"
 run "$tmp/work" "$SH" "$HELPER" specs/absent
 assert_eq "a missing bundle directory is refused" 2 "$rc"
 
