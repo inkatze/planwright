@@ -45,6 +45,9 @@ fi
 
 tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
+# Run standalone, these runs would otherwise queue on the machine's real pool
+# (under the suite they carry the nested mark and run unpooled anyway).
+export PLANWRIGHT_TEST_SLOT_DIR="$tmp/pool"
 
 # Fixture suite A: all tests pass.
 mkdir -p "$tmp/pass"
@@ -280,14 +283,14 @@ else
 fi
 header="$(head -n 1 "$report" 2>/dev/null)"
 case "$header" in
-  "planwright-test-timing	1	"*) echo "ok: the report opens with the versioned header" ;;
+  "planwright-test-timing	2	"*) echo "ok: the report opens with the versioned header" ;;
   *)
     echo "FAIL: unexpected report header: $header" >&2
     failures=$((failures + 1))
     ;;
 esac
 for name in test-alpha.sh test-sleepy.sh test-beta.sh; do
-  n="$(grep -c "^file	$name	[0-9][0-9]*\(\.[0-9][0-9]*\)\?\$" "$report" 2>/dev/null)"
+  n="$(grep -c "^file	$name	[0-9][0-9]*\(\.[0-9][0-9]*\)\?	[0-9][0-9]*\(\.[0-9][0-9]*\)\?\$" "$report" 2>/dev/null)"
   if [ "$n" -eq 1 ]; then
     echo "ok: exactly one numeric timing entry for $name"
   else

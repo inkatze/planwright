@@ -365,6 +365,21 @@ deny|load-bearing|git push origin HEAD:main --dry-run|BENIGN flag after a short 
 deny|load-bearing|git push origin main --quiet|BENIGN flag after a bare main destination
 deny|load-bearing|git push origin HEAD:refs/heads/main --dry-run|flag after a qualified main refspec
 deny|load-bearing|git push origin heads/main --atomic|flag after an abbreviated main refspec
+deny|load-bearing|git push origin master|bare master destination
+deny|load-bearing|git push origin HEAD:master|short refspec to master
+deny|load-bearing|git push origin refs/heads/master|fully-qualified bare master destination
+deny|load-bearing|git push origin master --quiet|BENIGN flag after a bare master destination
+deny|load-bearing|git push origin HEAD:master --dry-run|BENIGN flag after a short master refspec
+deny|load-bearing|git push origin heads/master --atomic|flag after an abbreviated master refspec
+deny|load-bearing|git push origin planwright/human-gates/spec|bare spec-branch destination
+deny|load-bearing|git push origin HEAD:planwright/human-gates/spec|short refspec to a spec branch
+deny|load-bearing|git push origin HEAD:refs/heads/planwright/human-gates/spec|fully-qualified refspec to a spec branch
+deny|load-bearing|git push -u origin planwright/human-gates/spec --quiet|BENIGN flag after a bare spec-branch destination
+deny|load-bearing|git push origin HEAD:planwright/human-gates/spec --dry-run|BENIGN flag after a short spec-branch refspec
+deny|load-bearing|git push origin refs/heads/planwright/human-gates/spec --atomic|flag after a qualified spec-branch refspec
+deny|load-bearing|git pull|a pull is a merge
+deny|load-bearing|git pull --rebase origin main|a pull that rebases
+deny|load-bearing|git -C . pull origin main|global-option prefix in front of a pull
 deny|load-bearing|git push --mirror origin|bulk-ref escape hatch
 deny|load-bearing|git push origin --mirror|bulk-ref escape hatch after the remote
 deny|load-bearing|git push --all origin|bulk-ref escape hatch
@@ -432,6 +447,8 @@ prompt|residual|git push -u origin planwright/guard-coverage/task-1|the first pu
 allow|legit|git push origin HEAD:refs/heads/planwright/guard-coverage/task-1|explicit refspec to a task branch
 allow|legit|git push origin main-fix|a branch whose name merely starts with main stays pushable
 allow|legit|git push origin HEAD:main-fix|refspec to a branch whose name starts with main
+allow|legit|git push origin master-fix|a branch whose name merely starts with master stays pushable
+allow|legit|git push origin planwright/human-gates/spec-notes|a branch whose name merely extends a spec branch stays pushable
 allow|legit|git commit -m "feat(guard): add the matcher fixture table"|the ordinary commit
 allow|legit|git commit -a -m "chore: tidy"|commit with -a
 allow|legit|git commit -F /tmp/msg|commit from a message file
@@ -443,6 +460,9 @@ allow|legit|git status|read-only status
 allow|legit|git log --oneline -5|read-only log
 allow|legit|mise run check|the full CI gate
 allow|residual|git push origin "main"|quoted destination; the glob layer is literal so it misses this — githooks/pre-push rejects the refspec
+allow|residual|git push origin "master"|quoted master destination; the glob layer misses it the same way, and githooks/pre-push refuses only main, so no layer backs this one up
+allow|residual|git push origin 'planwright/human-gates/spec'|quoted spec-branch destination; missed like the quoted master push, with no githooks backstop either
+deny|overblock|git push origin planwright/a/b/spec|the spec-branch globs' * spans /, so a nested name that is not a spec branch is denied too; fail-safe, and the tower queue admits it
 prompt|residual|git push|no destination in the text at all; on a branch whose upstream is main this pushes main — githooks/pre-push is the enforcement layer
 allow|residual|git push origin HEAD|destination depends on the checked-out branch, which the glob layer cannot see — githooks/pre-push covers it
 deny|load-bearing|git -c Core.HooksPath=/dev/null commit -m "wip"|mixed-case config key (git config keys are case-insensitive) evades the case-sensitive hooksPath globs, but the global-option-prefix rule catches it regardless of casing
@@ -450,10 +470,27 @@ prompt|residual|git config Core.HooksPath /dev/null|the mixed-case residual that
 prompt|residual|GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m "wip"|config injection through environment variables rather than argv; deny rules match past leading assignments so the hooksPath text is never in the matched string — accepted residual
 allow|residual|git status "$(git push origin main)"|COMMAND SUBSTITUTION: the model splits only on the documented shell operators, so the nested push is invisible to it and the outer read-only command is allowed. Whether the real matcher extracts $() is undocumented and unverified (model doc MB-7) — githooks/pre-push is the layer that actually stops this one
 allow|legit|git push origin feature/c++|a branch name containing + stays pushable: the +refspec deny requires a space before the plus (narrowed 2026-07-29 on operator decision). git check-ref-format confirms the ref is valid
-allow|residual|git commit -a --amen|a mistyped flag git itself rejects; recorded so the amend coverage is not read as prefix-based
+deny|load-bearing|git commit -a --amen|git takes any unique prefix of a long option, so --amen is --amend
+deny|load-bearing|git commit --am --no-edit|--am is the shortest prefix git reads as --amend
+deny|load-bearing|git commit --sq=HEAD~1|--sq is the shortest prefix git reads as --squash
+deny|load-bearing|git commit -m "wip" --squas HEAD~1|abbreviated squash after the message
+deny|load-bearing|git commit --fix=HEAD~1|--fix is the shortest prefix git reads as --fixup
+deny|load-bearing|git commit -m "wip" --fixu HEAD~1|abbreviated fixup after the message
+deny|load-bearing|git push --mirr origin|abbreviated --mirror, a force-push of every ref
+deny|load-bearing|git push origin --mi|shortest --mirror prefix after the remote
+deny|load-bearing|git push --al origin|abbreviated --all pushes main with every other branch
+deny|load-bearing|git push origin --al|abbreviated --all after the remote
+deny|load-bearing|git push origin --branches|--branches is git's alias of --all
+deny|load-bearing|git push --b origin|shortest --branches prefix
+deny|load-bearing|git push origin :|the matching refspec pushes every branch the remote shares, main included
+deny|load-bearing|git push origin : --dry-run|matching refspec with a trailing flag
+deny|load-bearing|git push origin "main" --no-veri|abbreviated --no-verify skips the pre-push hook that catches the quoted main destination
+deny|load-bearing|git commit --no-veri -m "wip"|abbreviated --no-verify on commit
+allow|legit|git push origin :planwright/guard-coverage/task-1|deleting a task branch is not the matching refspec
 deny|overblock|git commit -m "docs: describe the -n flag in the guide"|a commit message containing " -n " is denied; fail-safe, rephrase the message
 deny|overblock|git commit -m "fix: handle --no-verify in the wrapper"|a commit message naming --no-verify is denied; fail-safe
 deny|overblock|git commit -m "docs: use --amend carefully"|a commit message naming --amend is denied; fail-safe
+deny|overblock|git commit -m "docs: --fix typo"|a message word starting with an abbreviated rewrite flag (--am, --sq, --fix) is denied; fail-safe
 ROWS
 )
 
@@ -537,8 +574,8 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=111
-DENY_ROW_FLOOR=88
+ROW_FLOOR=131
+DENY_ROW_FLOOR=104
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
 else
@@ -594,8 +631,25 @@ Bash(git push * main)|subsumed by Bash(git push * main *); same M4 hedge
 Bash(git push *heads/main)|subsumed by Bash(git push *heads/main *); same M4 hedge
 Bash(git push *refs/heads/main)|subsumed by the broader Bash(git push *heads/main) pair; kept as the explicit fully-qualified spelling
 Bash(git push *refs/heads/main *)|subsumed by the broader Bash(git push *heads/main *); kept as the explicit fully-qualified spelling
+Bash(git push *:master)|subsumed by Bash(git push *:master *); the main family's M4 hedge
+Bash(git push * master)|subsumed by Bash(git push * master *); same M4 hedge
+Bash(git push *heads/master)|subsumed by Bash(git push *heads/master *); same M4 hedge
+Bash(git push *:planwright/*/spec)|subsumed by Bash(git push *:planwright/*/spec *); same M4 hedge
+Bash(git push * planwright/*/spec)|subsumed by Bash(git push * planwright/*/spec *); same M4 hedge
+Bash(git push *heads/planwright/*/spec)|subsumed by Bash(git push *heads/planwright/*/spec *); same M4 hedge
 Bash(git commit --squash:*)|subsumed by Bash(git commit --squash*); kept as the explicit space-separated spelling
 Bash(git commit --fixup:*)|subsumed by Bash(git commit --fixup*); kept as the explicit space-separated spelling
+Bash(git commit --amend:*)|subsumed by Bash(git commit --am*), the shortest prefix git reads as --amend; kept as the explicit spelling
+Bash(git commit * --amend*)|subsumed by Bash(git commit * --am*); kept as the explicit spelling
+Bash(git commit --squash*)|subsumed by Bash(git commit --sq*), the shortest prefix git reads as --squash; kept as the explicit spelling
+Bash(git commit * --squash*)|subsumed by Bash(git commit * --sq*); kept as the explicit spelling
+Bash(git commit --fixup*)|subsumed by Bash(git commit --fix*), the shortest prefix git reads as --fixup; kept as the explicit spelling
+Bash(git commit * --fixup*)|subsumed by Bash(git commit * --fix*); kept as the explicit spelling
+Bash(git push --mirror:*)|subsumed by Bash(git push --mi*), the shortest prefix git reads as --mirror; kept as the explicit spelling
+Bash(git push * --mirror*)|subsumed by Bash(git push * --mi*); kept as the explicit spelling
+Bash(git push --all:*)|subsumed by Bash(git push --al*), the shortest prefix git reads as --all; kept as the explicit spelling
+Bash(git push * --all*)|subsumed by Bash(git push * --al*); kept as the explicit spelling
+Bash(git * --no-verify*)|subsumed by Bash(git * --no-veri*), the shortest prefix git reads as --no-verify; kept as the explicit spelling
 ROWS
 )
 is_declared_redundant() {

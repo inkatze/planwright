@@ -27,13 +27,34 @@
 #     value), exit 0 — graceful degradation so the calling mechanism still
 #     runs (REQ-K1.6).
 #
+# Two caller options narrow the degrade arms for knobs whose core default is
+# not their strictest value (a gate knob degrading to the core default would
+# land on the permissive side):
+#   --degrade <v>   a malformed adopter / machine-local value, or a malformed
+#                   overlay file config-get would otherwise skip, degrades to
+#                   <v> instead of the core default. In any overlay layer, the
+#                   key written `key : v` or more than once counts as a
+#                   malformed value there.
+#   --no-degrade    nothing degrades: a malformed value or file in any overlay
+#                   layer exits 4, and a key no layer sets exits 5 (as a
+#                   malformed core default does), so the caller reads every
+#                   failure as a refusal. Excludes --degrade and --fallback.
+#
+# --union (globlist only, not with --explain) joins every layer's list, lowest
+# first, instead of taking the winning layer's, so no layer can drop another
+# layer's entry. The by-layer policy applies to each layer as it is joined: a
+# malformed adopter or machine-local value adds the --degrade value, or
+# nothing when the caller gave none (the core list is already in the join).
+#
 # Usage:
 #   resolve-config-knob.sh --key <key> --type enum --values '<v1> <v2> ...' --fallback <value>
 #   resolve-config-knob.sh --key <key> --type posint --fallback <value>
 #   resolve-config-knob.sh --key <key> --type nonnegint --fallback <value>
 #   resolve-config-knob.sh --key <key> --type duration --fallback <value>
+#   resolve-config-knob.sh --key <key> --type globlist --fallback <value>
 #   resolve-config-knob.sh --key <key> --type path --fallback ''
-#   (any form also takes --explain)
+#   (any form also takes --explain; any but path may add --degrade <value>,
+#   or replace --fallback with --no-degrade)
 #
 #   <key>      matches ^[a-z][a-z0-9_]*$ (config-get's queryable charset),
 #              validated before it is ever interpolated (REQ-D1.6).
@@ -60,7 +81,13 @@
 #              six digits because the caller converts to seconds at
 #              millisecond resolution, and a span it would round to zero is
 #              the all-zero span arriving by another spelling.
-#   path       free text for the caller to read as a path: any value without a
+#   globlist   a space-separated single-line list of names or glob patterns
+#              (the config model is flat `key: value`, so a YAML list is
+#              malformed); empty is legal; each member is [A-Za-z0-9._/*?-],
+#              does not start with `-`, and is at most 255 characters. How a
+#              member matches is the reading knob's own rule; this type only
+#              validates the list.
+#   path      free text for the caller to read as a path: any value without a
 #              control byte, surrounding whitespace trimmed. Its grammar and
 #              existence are the caller's to judge, since a well-formed path
 #              that names the wrong place is refused in every layer rather
@@ -72,23 +99,26 @@
 #              lower layer instead of degrading to the core default. A key
 #              unset everywhere emits the fallback without a warning, because
 #              a path option ships absent from the core defaults.
-#   --fallback is required and must itself validate against the type: it is
-#              the safe value emitted when the key cannot be resolved from any
-#              layer, so an invalid fallback is a caller bug (exit 2). For
+#   --fallback is required unless --no-degrade is given, and must itself
+#              validate against the type: it is the safe value emitted when
+#              the key cannot be resolved from any layer, so an invalid
+#              fallback (or --degrade value) is a caller bug (exit 2). For
 #              path it is usually '' (unset).
 #   --explain  print "<layer>\t<value>" instead of the bare value, the layer
 #              being core | adopter | repo-tracked | machine-local, or
-#              default when no layer supplied a usable value (unset, or
-#              every setting layer malformed and passed over). A path
-#              value an empty layer cancelled is labelled with that layer.
+#              default when no layer supplied a usable value (unset, every
+#              setting layer malformed and passed over, or a --degrade
+#              target taken). A path value an empty layer cancelled is
+#              labelled with that layer.
 #
 # Environment: honors every override config-get / resolve-overlay-root honor
 # (PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY, PLANWRIGHT_REPO_ROOT,
 # PLANWRIGHT_LOCAL_CONFIG, CLAUDE_PLUGIN_ROOT/DATA).
 #
 # Exit: 0 value printed; 2 usage error; 4 malformed repo-tracked overlay
-# (hard-fail, propagated or raised here); 5 broken install (the core default
-# is itself unresolvable or invalid). Never fails opaquely.
+# (hard-fail, propagated or raised here; under --no-degrade, any malformed
+# overlay); 5 broken install (the core default is itself unresolvable or
+# invalid; under --no-degrade, also a key no layer sets). Never fails opaquely.
 #
 # Pathname expansion is disabled (set -f): --values is word-split into
 # members, and a stray glob metacharacter must not expand against the CWD
@@ -116,7 +146,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 . "$script_dir/echo-safety.sh"
 
 usage() {
-  echo "usage: resolve-config-knob.sh [--explain] --key <key> --type <enum|posint|nonnegint|duration|path> [--values '<v1> <v2> ...'] --fallback <value>" >&2
+  echo "usage: resolve-config-knob.sh [--explain | --union] --key <key> --type <enum|posint|nonnegint|duration|globlist|path> [--values '<v1> <v2> ...'] (--fallback <value> [--degrade <value>] | --no-degrade)" >&2
 }
 
 key=""
@@ -124,11 +154,19 @@ ktype=""
 kvalues=""
 fallback=""
 fallback_set=0
+degrade=""
+degrade_set=0
+no_degrade=0
 explain=0
+union=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --explain)
       explain=1
+      shift
+      ;;
+    --union)
+      union=1
       shift
       ;;
     --key)
@@ -163,6 +201,19 @@ while [ "$#" -gt 0 ]; do
       fallback=$2
       fallback_set=1
       shift 2
+      ;;
+    --degrade)
+      [ "$#" -ge 2 ] || {
+        usage
+        exit 2
+      }
+      degrade=$2
+      degrade_set=1
+      shift 2
+      ;;
+    --no-degrade)
+      no_degrade=1
+      shift
       ;;
     *)
       usage
@@ -212,7 +263,7 @@ case "$ktype" in
       }
     done
     ;;
-  posint | nonnegint | duration | path)
+  posint | nonnegint | duration | globlist | path)
     if [ -n "$kvalues" ]; then
       echo "resolve-config-knob: --values only applies to --type enum" >&2
       exit 2
@@ -223,12 +274,26 @@ case "$ktype" in
     exit 2
     ;;
   *)
-    printf '%s\n' "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint | nonnegint | duration | path)" >&2
+    printf '%s\n' "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint | nonnegint | duration | globlist | path)" >&2
     exit 2
     ;;
 esac
 
-if [ "$fallback_set" -ne 1 ]; then
+# A path takes its own per-layer walk, which has no strict arm to degrade into.
+if [ "$ktype" = path ] && { [ "$degrade_set" -eq 1 ] || [ "$no_degrade" -eq 1 ]; }; then
+  echo "resolve-config-knob: --degrade and --no-degrade do not apply to --type path" >&2
+  exit 2
+fi
+if [ "$union" -eq 1 ] && { [ "$ktype" != globlist ] || [ "$explain" -eq 1 ]; }; then
+  echo "resolve-config-knob: --union applies only to --type globlist, without --explain" >&2
+  exit 2
+fi
+if [ "$no_degrade" -eq 1 ]; then
+  if [ "$fallback_set" -eq 1 ] || [ "$degrade_set" -eq 1 ]; then
+    echo "resolve-config-knob: --no-degrade excludes --fallback and --degrade (nothing degrades under it)" >&2
+    exit 2
+  fi
+elif [ "$fallback_set" -ne 1 ]; then
   echo "resolve-config-knob: --fallback is required (the caller's safe value when no layer resolves the key)" >&2
   exit 2
 fi
@@ -297,6 +362,17 @@ valid_value() {
         *) return 1 ;;
       esac
       ;;
+    globlist)
+      # Word-split on purpose; set -f keeps a member's glob characters from
+      # expanding against the CWD before the charset check sees them.
+      for _g in $_vv; do
+        case "$_g" in
+          -* | *[!A-Za-z0-9._/*?-]*) return 1 ;;
+        esac
+        [ "${#_g}" -le 255 ] || return 1
+      done
+      return 0
+      ;;
     path)
       # C0 and DEL only: a C1 range would also match UTF-8 continuation
       # bytes and refuse non-ASCII paths.
@@ -314,8 +390,12 @@ emit_trimmed() {
   printf '\n'
 }
 
-if ! valid_value "$fallback"; then
+if [ "$fallback_set" -eq 1 ] && ! valid_value "$fallback"; then
   printf '%s\n' "resolve-config-knob: the --fallback value '$(sanitize_printable "$fallback" "(unprintable fallback)")' is not a legal $ktype value (caller bug)" >&2
+  exit 2
+fi
+if [ "$degrade_set" -eq 1 ] && ! valid_value "$degrade"; then
+  printf '%s\n' "resolve-config-knob: the --degrade value '$(sanitize_printable "$degrade" "(unprintable degrade)")' is not a legal $ktype value (caller bug)" >&2
   exit 2
 fi
 
@@ -388,14 +468,53 @@ EOF_LAYERS
 
 # Read the winning value and its layer. The pinned --explain contract is a
 # single "<layer>TAB<value>" line on stdout (config-get B1.6).
+# A gate knob's lower layers can hold its permissive value, so under
+# --degrade / --no-degrade a malformed overlay FILE must not be skipped (the
+# config-get default) but treated like a malformed value in that layer.
+strict_overlays=""
+if [ "$degrade_set" -eq 1 ] || [ "$no_degrade" -eq 1 ]; then
+  strict_overlays=1
+fi
 explain_out=""
 rc=0
-explain_out=$("$config_get" --explain "$key") || rc=$?
+# --union reads every layer (lowest first, one "<layer>TAB<value>" line each)
+# rather than the winner alone.
+read_flag=--explain
+[ "$union" -eq 0 ] || read_flag=--layers
+explain_out=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS="$strict_overlays" "$config_get" "$read_flag" "$key") || rc=$?
+if [ "$rc" -eq 6 ]; then
+  # The malformed file must not hide a malformed repo-tracked value beneath it:
+  # read once more with the file skipped, and let that breakage fail the read.
+  lower=$(PLANWRIGHT_CONFIG_STRICT_OVERLAYS="" "$config_get" "$read_flag" "$key" 2>/dev/null) || lower=""
+  while IFS= read -r lower_line; do
+    case "$lower_line" in
+      "repo-tracked$TAB"*)
+        if ! valid_value "${lower_line#*"$TAB"}"; then
+          printf '%s\n' "resolve-config-knob: repo-tracked overlay sets '$key' to a malformed value ('$(sanitize_printable "${lower_line#*"$TAB"}" "(unprintable value)")' is not a legal $ktype value); refusing to silently degrade a shared team value" >&2
+          exit 4
+        fi
+        ;;
+    esac
+  done <<EOF_LOWER
+$lower
+EOF_LOWER
+  if [ "$no_degrade" -eq 1 ]; then
+    echo "resolve-config-knob: an overlay file is malformed (named above); refusing to read '$key' with no degrade" >&2
+    exit 4
+  fi
+  printf '%s\n' "resolve-config-knob: warning: an overlay is malformed; degrading '$key' to the strict value '$(sanitize_printable "$degrade" "(unprintable degrade)")'" >&2
+  emit_trimmed "$degrade" default
+  exit 0
+fi
 
 if [ "$rc" -eq 4 ]; then
   # config-get already hard-failed a structurally malformed repo-tracked
   # config file and named it on stderr; propagate the team-shared hard-fail.
   exit 4
+fi
+if [ "$rc" -eq 3 ] && [ "$no_degrade" -eq 1 ]; then
+  echo "resolve-config-knob: '$key' is unset in every layer and the caller allows no fallback — broken install" >&2
+  exit 5
 fi
 if [ "$rc" -eq 3 ]; then
   # The key is absent in every layer. Emit the caller's declared safe value so
@@ -408,6 +527,62 @@ if [ "$rc" -ne 0 ]; then
   echo "resolve-config-knob: unexpected config-get exit $rc resolving '$key'" >&2
   exit "$rc"
 fi
+
+# join_layers: emit every layer's list joined, applying the by-layer policy to
+# each layer as it is read.
+join_layers() {
+  jl_out=""
+  while IFS= read -r jl_line; do
+    case "$jl_line" in
+      *"$TAB"*) ;;
+      *)
+        echo "resolve-config-knob: config-get --layers output is malformed (no layer/value separator) — broken install" >&2
+        exit 5
+        ;;
+    esac
+    jl_layer=${jl_line%%"$TAB"*}
+    jl_value=${jl_line#*"$TAB"}
+    if valid_value "$jl_value"; then
+      jl_out="$jl_out $jl_value"
+      continue
+    fi
+    case "$jl_layer" in
+      repo-tracked)
+        printf '%s\n' "resolve-config-knob: repo-tracked overlay sets '$key' to a malformed value ('$(sanitize_printable "$jl_value" "(unprintable value)")' is not a legal $ktype value); refusing to silently degrade a shared team value" >&2
+        exit 4
+        ;;
+      adopter | machine-local)
+        if [ "$no_degrade" -eq 1 ]; then
+          printf '%s\n' "resolve-config-knob: the $jl_layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$jl_value" "(unprintable value)")' is not a legal $ktype value); the caller allows no degrade" >&2
+          exit 4
+        fi
+        if [ "$degrade_set" -eq 1 ]; then
+          printf '%s\n' "resolve-config-knob: warning: the $jl_layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$jl_value" "(unprintable value)")' is not a legal $ktype value); joining the strict value '$(sanitize_printable "$degrade" "(unprintable degrade)")' in its place" >&2
+          jl_out="$jl_out $degrade"
+        else
+          printf '%s\n' "resolve-config-knob: warning: the $jl_layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$jl_value" "(unprintable value)")' is not a legal $ktype value); leaving it out of the join" >&2
+        fi
+        ;;
+      core)
+        printf '%s\n' "resolve-config-knob: the core default for '$key' ('$(sanitize_printable "$jl_value" "(unprintable value)")') is malformed — broken install" >&2
+        exit 5
+        ;;
+      *)
+        printf '%s\n' "resolve-config-knob: config-get named an unrecognized layer '$(sanitize_printable "$jl_layer" "(unprintable layer)")'" >&2
+        exit 5
+        ;;
+    esac
+  done <<EOF_JOIN
+$explain_out
+EOF_JOIN
+  # Word-split on purpose (set -f is on) to normalize the separators.
+  # shellcheck disable=SC2086
+  set -- $jl_out
+  emit_trimmed "$*"
+  exit 0
+}
+
+[ "$union" -eq 0 ] || join_layers
 
 # The pinned --explain contract is "<layer>TAB<value>". A line with no tab
 # would make both expansions below yield the whole line — and a
@@ -437,6 +612,15 @@ case "$layer" in
     exit 4
     ;;
   adopter | machine-local)
+    if [ "$no_degrade" -eq 1 ]; then
+      printf '%s\n' "resolve-config-knob: the $layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); the caller allows no degrade" >&2
+      exit 4
+    fi
+    if [ "$degrade_set" -eq 1 ]; then
+      printf '%s\n' "resolve-config-knob: warning: the $layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); degrading to the strict value '$(sanitize_printable "$degrade" "(unprintable degrade)")'" >&2
+      emit_trimmed "$degrade" default
+      exit 0
+    fi
     printf '%s\n' "resolve-config-knob: warning: the $layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. mktemp gives an empty repo root (no .claude/planwright.yml

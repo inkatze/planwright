@@ -7,7 +7,8 @@
 # The two rungs differ in what they launch and where they record it, and agree
 # on everything a close does with that record: how a process is recognised as
 # the worker's, how the tree is signalled, what counts as still held, and how
-# the result is reported. The agreement lives here so a close fixed on one rung
+# the result is reported, and the release-nothing probe (`stop_observe`) the
+# observing sweep reads. The agreement lives here so a close fixed on one rung
 # is fixed on both; the difference is handed in by the rung as data.
 #
 # WHAT THE RUNG SUPPLIES.
@@ -545,5 +546,25 @@ stop_walk() {
     return 0
   fi
   printf 'stop %s stopped released=%s\n' "$2" "$st_released"
+  return 0
+}
+
+# stop_observe <dir> <worker> <store> — the walk's probes without its
+# releases: print what a close would take now, and signal nothing. The
+# classes are the ones stop_walk would find held, in its order, so the
+# observing sweep's would-have record names what a close at that moment
+# would have had to release.
+stop_observe() {
+  stop_tracked=''
+  so_held=''
+  for so_class in $release_classes; do
+    stop_held "$so_class" "$1" "$2" "$3" || continue
+    so_held="$so_held,$so_class"
+  done
+  if [ -z "$so_held" ]; then
+    printf 'stop %s already-closed\n' "$2"
+    return 0
+  fi
+  printf 'stop %s would-release=%s\n' "$2" "${so_held#,}"
   return 0
 }

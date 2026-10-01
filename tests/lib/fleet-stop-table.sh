@@ -34,6 +34,8 @@
 #       and its stale pid is never signalled.
 #   c41 (REQ-B1.3, REQ-B1.4): the headless rung's default state layout, where
 #       the spec is part of the path, and its symlinked-state refusal.
+#   c43 (REQ-F1.6): `stop --observe` names what a close would take, signals
+#       nothing, releases nothing, and reports already-closed once closed.
 #
 # The stream-json rung's own suite keeps the cases that exercise what only it
 # has: the receipt journal, the launch and recover elections, the supervisor's
@@ -1187,6 +1189,54 @@ c42() {
   echo "ok: [$rung] c42 a missing close library costs stop and no other verb"
 }
 
+# ---------------------------------------------------------------------------
+# c43 (REQ-F1.6): `stop --observe` probes and releases nothing. It names what a
+#     close would take now, signals no process, and leaves every class held;
+#     once a real close has run, it reports already-closed.
+c43() {
+  case_dirs 43
+  w=$(w_name 43)
+  d=$(w_dir "$home" "$w")
+  printf 'observe me\n' >"$tmp/$rung/prompt43"
+  w_launch "$home" "$rec" "$w" "$tmp/$rung/prompt43" "$wt" \
+    SHIM_EVENTS="$ev_hold" SHIM_IGNORE_TERM=1 || fail "c43: detached launch exited non-zero"
+  wait_until 100 w_up "$d" || fail "c43: the worker never came up"
+  wrk=$(w_worker_pid "$d")
+  i=0
+  while [ "$i" -lt 100 ] && [ -z "$(first_child "$wrk")" ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -n "$(first_child "$wrk")" ] || fail "c43: the worker never reached its hold loop"
+  w_occupy_attention "$home" "$w" || fail "c43: no attention record to hold"
+  w_occupy_scratch "$d" || fail "c43: no scratch to hold"
+  # The shim records every SIGTERM it survives, creating the file on the first.
+  before=$(cat "$rec/signals" 2>/dev/null)
+  out=$(renv "$home" "$rec" -- stop "$w" --observe)
+  rc=$?
+  after=$(cat "$rec/signals" 2>/dev/null)
+  [ "$rc" = 0 ] || fail "c43: an observing stop should exit 0, got rc=$rc ($out)"
+  case $out in
+    "stop $w would-release="*) : ;;
+    *) fail "c43: expected a would-release result, got: $out" ;;
+  esac
+  for cls in process scratch attention; do
+    case ",${out#*would-release=}," in
+      *",$cls,"*) : ;;
+      *) fail "c43: the would-release set must name $cls, got: $out" ;;
+    esac
+  done
+  [ "$before" = "$after" ] || fail "c43: an observing stop sent a signal"
+  kill -0 "$wrk" 2>/dev/null || fail "c43: an observing stop terminated the worker"
+  [ "$(attention_rows "$home" "$w")" != 0 ] || fail "c43: an observing stop released the attention record"
+  ! w_scratch_gone "$d" || fail "c43: an observing stop released the scratch"
+  renv "$home" "$rec" -- stop "$w" --grace 1 >/dev/null || fail "c43: the real stop failed"
+  out=$(renv "$home" "$rec" -- stop "$w" --observe)
+  [ "$out" = "stop $w already-closed" ] \
+    || fail "c43: observing a closed worker must report already-closed, got: $out"
+  echo "ok: [$rung] c43 an observing stop names what a close would take and releases nothing (REQ-F1.6)"
+}
+
 # run_table <rung> — every cell against one rung. STOP_CELLS narrows the run to
 # the named cells for local debugging; a narrowed run says so, since it would
 # otherwise pass exactly as the full table does.
@@ -1196,7 +1246,7 @@ run_table() {
   if [ -n "${STOP_CELLS:-}" ]; then
     echo "skip: [$rung] every cell but '$STOP_CELLS' (narrowed by STOP_CELLS)"
   fi
-  for cell in ${STOP_CELLS:-c19 c20 c21 c22 c22b c22d c22efg c23 c32 c40 c41 c42}; do
+  for cell in ${STOP_CELLS:-c19 c20 c21 c22 c22b c22d c22efg c23 c32 c40 c41 c42 c43}; do
     "$cell"
   done
 }

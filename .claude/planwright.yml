@@ -49,5 +49,8 @@ dispatch_isolation: per-step
 # not land as a point-of-use read without this. The rationale, and why the rungs below a
 # raise did not apply, is the matching `raise|` line in
 # config/instruction-budget-exemptions.txt; the guard fails closed if the two
-# values disagree. Floor knobs are untouched.
-instruction_budget_closure_error: 20467
+# values disagree. Floor knobs are untouched. Raised again by the measured
+# size of doctrine/custom-steps.md, the rule doc /execute-task reads at each
+# custom-steps point (custom-steps kickoff brief risk 17); the same `raise|`
+# line records why.
+instruction_budget_closure_error: 23967
