@@ -334,7 +334,12 @@ works in both directions:
   worktree's removal) is marked closed: an eighth `closed` column appended,
   never a deletion, so the record stays readable per handle while
   `fleet-status.sh` and the stuck-detector's scan stop listing it. Its marker
-  goes with it. Alive, unknown or errored evidence keeps the record live.
+  goes with it. Alive, unknown or errored evidence keeps the record live. Per
+  rung: the two session-grade rungs retire on the `process` verdict, the tmux
+  rungs on the `tmux-window` verdict, and a visual flight's `print` record on
+  its worktree's removal; a `subagent` record and an `/offload` `print` record
+  carry no evidence at all, so they never retire (a declared gap in the
+  lifecycle-closure floor, not an oversight).
 - **Refuse.** A marker failing the grammar, naming another handle, or reached
   through a link is refused, audited, and moved aside under
   `dispatch-markers/.refused/`; it is never stored.

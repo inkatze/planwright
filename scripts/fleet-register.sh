@@ -337,12 +337,13 @@ write_marker() {
 
 # read_marker <path> — validate a marker and set handle, scope, owner, backend,
 # state_dir and death_handle from it. Returns 0 valid, 3 absent, 4 refused
-# (with the reason on stderr).
+# (with the reason on stderr), 1 when the fleet home itself cannot be resolved,
+# which says nothing about the marker.
 read_marker() {
   rm_path=$1
   rm_dir=$(markers_dir) || {
     warn "cannot resolve the fleet home to check the marker against"
-    return 4
+    return 1
   }
   rm_name=${rm_path##*/}
   if [ "${rm_path%/*}" != "$rm_dir" ]; then

@@ -159,9 +159,9 @@ What the floor means in practice:
 
 - **A lifecycle phase is a resource class, not a stage of the work.** A worker
   acquires its process tree, its tmux window, the locks it holds, its scratch
-  temp, its attention record, and its dispatch marker independently, so each
-  owes the three parts in its own right (REQ-A1.1). How far along its unit a
-  worker is rides a separate axis with its own name, `stage` (REQ-C1.7).
+  temp, and its attention record independently, so each owes the three parts
+  in its own right (REQ-A1.1). How far along its unit a worker is rides a
+  separate axis with its own name, `stage` (REQ-C1.7).
 - **Silence is never a signal.** All three parts are deterministic script
   logic over structured signals — files, process ids, git state, positively
   matched known text. Elapsed time, an unchanging pane, and "the tower should
@@ -253,7 +253,11 @@ is the contract they satisfy, not a second specification of them.
 | Locks | `scripts/fleet-state.sh lock` for the cross-spec store; the supervisor's own atomic `mkdir` elections (`journal.lock`, `recover.lock`, `launch.lock`) | released by the holder on the normal path; on the abnormal path a break at a documented bound — positive evidence that the recorded holder is gone where an election records one, a stale age otherwise — so a killed holder cannot wedge the verb permanently; the rung's `stop` releases the whole class as a second close | the recorded holder's liveness, else the lock entry's own age against that same bound (the cross-spec lock is a symlink, the supervisor's elections are directories) |
 | Scratch temp | created under the worker's state directory across its life: the stdio fifos, the staging temps each writer makes beside its target, and the residue a stale lock-break renames aside | its own class in the rung's `stop`, released after the process tree rather than with it, so a tree that will not close does not cost a live worker its channel; the captured result is durable record and is kept | residue under the state directory of a worker whose session has ended |
 | Attention record | `scripts/fleet-attention.sh heartbeat` / `decide` / `fork` / `park`, one row per worker | `scripts/fleet-attention.sh clear`, invoked by the close verb, preceded by settling the rung's own receipts — a receipt left pending is what the pending-age alarm re-queues from, so clearing the row alone would re-arm the class the close just released; a rung whose receipts cannot be read reports the class held rather than clearing | the row's own state field, which is script-readable; a terminal row (`merged`, `done`) still present is the residue signal |
-| Dispatch marker | the dispatch seam's registration (`scripts/fleet-register.sh`) writes `<fleet-home>/dispatch-markers/<handle>` before its registry write, so a lost write still leaves what the record is rebuilt from | the periodic sweep's registry reconcile (`scripts/fleet-registry-reconcile.sh`) removes it when it retires the worker's record, marked closed and never deleted, on positive death evidence for the worker alone — for a `print` unit, its worktree's removal; a marker refused as malformed is moved aside, never stored | a marker whose worker has no record (a lost registry write), or whose live record's worker has a positive death verdict |
+
+**Dispatch marker**: opened by `scripts/fleet-register.sh`, closed when the
+sweep's registry reconcile retires its record, detected as a marker lacking a
+record or naming a dead worker; `subagent` and worktree-less `print` records
+never retire.
 
 ### The rungs, crossed with the classes
 
@@ -267,14 +271,14 @@ blank: a class a rung acquires without one of the three parts is written
 and never inferred from white space. A rung present in the capability contract
 and absent here is the omission REQ-A1.5 exists to catch.
 
-| Rung | Process tree | tmux window | Locks | Scratch temp | Attention record | Dispatch marker |
-| --- | --- | --- | --- | --- | --- | --- |
-| `tmux` | no supervisor and no pidfile: `tmux new-window -d` spawns the worker and its `#{window_id}` is the whole record, so the tree is released by killing the window rather than by a rung `stop`, and its death evidence is `scripts/fleet-death-evidence.sh`'s `tmux-window` class, never its `process` class | per contract, minus the `stop` arm — `scripts/fleet-cleanup.sh window` is the only close | per contract — it runs the same scripts, so it takes the same store locks | — no worker state directory; the dispatch seam's own stderr capture is trap-cleaned in process | per contract | per contract, retired on the `tmux-window` verdict |
-| `stream-json-persistent` | per contract; the close covers the supervisor *and* its children | — no window | per contract, plus the supervisor's own `journal.lock` / `recover.lock` / `launch.lock` | per contract; the stdio fifos and the staging temps are in the release set, while the captured result is durable record on this rung and is kept | per contract | per contract |
-| `headless-oneshot` | per contract; a detached one-shot, closed the same way by the rung's own `stop` over the close both rungs share, except that its pid file is kept as the run's record and seeds a close only where `ps` truncates argv | — no window | per contract for the store locks its scripts take; the runner takes none of its own, so its `stop` releases no lock class | per contract; the captured result is durable record here too and is kept — REQ-B1.4's release set does not name it, and on this rung it is the whole point of the run | per contract | per contract |
-| `subagent` | trivial — in-harness, no separate OS process; it dies with the tower | — no window | per contract — it runs the same scripts, so it takes the same store locks and is subject to the same stale-break | trivial — no worker state directory | trivial — the tower owns the row | gap: close — the record carries no death handle, so no verdict ever retires it |
-| `print` | deferred → the human who runs the printed command; `print` units are exempt from the orphan/liveness predicate for exactly this reason | deferred → human | deferred → human | deferred → human | deferred → human | per contract where the record names the unit's worktree (a visual flight), retired on its removal; gap: close for an `/offload` print record, which names none |
-| `in-session` | n/a — no separate worker at all; every class is the tower's own | n/a | n/a | n/a | n/a | n/a |
+| Rung | Process tree | tmux window | Locks | Scratch temp | Attention record |
+| --- | --- | --- | --- | --- | --- |
+| `tmux` | no supervisor and no pidfile: `tmux new-window -d` spawns the worker and its `#{window_id}` is the whole record, so the tree is released by killing the window rather than by a rung `stop`, and its death evidence is `scripts/fleet-death-evidence.sh`'s `tmux-window` class, never its `process` class | per contract, minus the `stop` arm — `scripts/fleet-cleanup.sh window` is the only close | per contract — it runs the same scripts, so it takes the same store locks | — no worker state directory; the dispatch seam's own stderr capture is trap-cleaned in process | per contract |
+| `stream-json-persistent` | per contract; the close covers the supervisor *and* its children | — no window | per contract, plus the supervisor's own `journal.lock` / `recover.lock` / `launch.lock` | per contract; the stdio fifos and the staging temps are in the release set, while the captured result is durable record on this rung and is kept | per contract |
+| `headless-oneshot` | per contract; a detached one-shot, closed the same way by the rung's own `stop` over the close both rungs share, except that its pid file is kept as the run's record and seeds a close only where `ps` truncates argv | — no window | per contract for the store locks its scripts take; the runner takes none of its own, so its `stop` releases no lock class | per contract; the captured result is durable record here too and is kept — REQ-B1.4's release set does not name it, and on this rung it is the whole point of the run | per contract |
+| `subagent` | trivial — in-harness, no separate OS process; it dies with the tower | — no window | per contract — it runs the same scripts, so it takes the same store locks and is subject to the same stale-break | trivial — no worker state directory | trivial — the tower owns the row |
+| `print` | deferred → the human who runs the printed command; `print` units are exempt from the orphan/liveness predicate for exactly this reason | deferred → human | deferred → human | deferred → human | deferred → human |
+| `in-session` | n/a — no separate worker at all; every class is the tower's own | n/a | n/a | n/a | n/a |
 
 The bottom three rows are the point of the cross, not filler: `subagent`
 acquires store locks and nothing else, and owes the contract for them; `print`
