@@ -166,12 +166,29 @@ resolve_repo() {
 }
 
 # resolve_home — set `fleet_home` to the fleet home as fleet-state.sh names
-# it, creating nothing.
+# it, resolved as dispatch resolves it, creating nothing. A relative home is
+# refused: it would resolve against the working directory, inside a checkout
+# when the hook runs. An existing home is taken at its canonical path, so a
+# symlinked home is followed and every privacy check judges the real
+# directory.
 fleet_home=''
 resolve_home() {
   fleet_home=$(/bin/sh "$STATE" root 2>/dev/null </dev/null) || die 4 "cannot resolve the fleet home"
   [ -n "$fleet_home" ] || die 4 "cannot resolve the fleet home"
   ! has_ctl "$fleet_home" || die 2 "refusing a fleet home whose path carries a control character"
+  case $fleet_home in
+    /*) ;;
+    *) die 2 "refusing a relative fleet home ($fleet_home); set PLANWRIGHT_FLEET_STATE_DIR to an absolute path" ;;
+  esac
+  [ ! -d "$fleet_home" ] || canon_home 4
+}
+
+# canon_home <exit> — replace `fleet_home` with its canonical path, exiting
+# <exit> when it cannot be resolved.
+canon_home() {
+  _fh=$(cd "$fleet_home" 2>/dev/null && pwd -P) || die "$1" "cannot resolve the fleet home"
+  ! has_ctl "$_fh" || die 2 "refusing a fleet home whose canonical path carries a control character"
+  fleet_home=$_fh
 }
 
 # index_path — the checkout's index file: its key is the checksum of the
@@ -508,13 +525,16 @@ cmd_sweep() {
 }
 
 # write_index — replace the checkout's index atomically, in a directory only
-# the user can write; the fleet home is created private if absent.
+# the user can write; the fleet home is created private if absent, and checked
+# before anything is created under it.
 write_index() {
+  (umask 077 && mkdir -p "$fleet_home") 2>/dev/null || die 5 "cannot create the fleet home; the index was not written"
+  canon_home 5
+  private_dir "$fleet_home" \
+    || die 5 "the fleet home is not a directory owned by you that only you can write; the index was not written"
   _idx=$(index_path)
   _dir=${_idx%/*}
   (umask 077 && mkdir -p "$_dir") 2>/dev/null || die 5 "cannot create $_dir; the index was not written"
-  private_dir "$fleet_home" \
-    || die 5 "the fleet home is not a directory owned by you that only you can write; the index was not written"
   private_dir "$_dir" \
     || die 5 "$_dir is not a directory owned by you that only you can write; the index was not written"
   _tmp=''

@@ -358,6 +358,26 @@ out=$(cd "$repo" && "$SCRIPT" sweep --no-write 2>/dev/null)
 rm -f "$c/fleet/attention/state"
 mv "$c/state.real" "$c/fleet/attention/state"
 printf '%s\n' "$out" | grep -q "^queue${TAB}unavailable$" || fail "a symlinked queue store is not read"
+# The fleet home is resolved as dispatch resolves it: a symlinked home is
+# followed to its canonical path, a relative one is refused before anything is
+# created, and nothing is created under a home that is not private.
+ln -s "$c/fleet" "$c/fleet-link"
+out=$(cd "$repo" && PLANWRIGHT_FLEET_STATE_DIR="$c/fleet-link" "$SCRIPT" sweep 2>/dev/null)
+rc=$?
+[ "$rc" -eq 0 ] || fail "a symlinked fleet home is followed (got exit $rc)"
+printf '%s\n' "$out" | grep -q "^registry${TAB}ok$" || fail "a symlinked fleet home's registry is read"
+p=$(cd "$repo" && PLANWRIGHT_FLEET_STATE_DIR="$c/fleet-link" "$SCRIPT" path 2>/dev/null)
+[ "$p" = "$idx" ] || fail "a symlinked fleet home's index sits at its canonical path (got: $p)"
+out=$(cd "$repo" && PLANWRIGHT_FLEET_STATE_DIR=rel-home "$SCRIPT" sweep 2>/dev/null)
+rc=$?
+[ "$rc" -eq 2 ] || fail "a relative fleet home is refused (got exit $rc)"
+[ ! -e "$repo/rel-home" ] || fail "a relative fleet home creates nothing under the working directory"
+mkdir "$c/open-home"
+chmod 775 "$c/open-home"
+(cd "$repo" && PLANWRIGHT_FLEET_STATE_DIR="$c/open-home" "$SCRIPT" sweep >/dev/null 2>&1)
+rc=$?
+[ "$rc" -eq 5 ] || fail "a fleet home others can write gets no index (got exit $rc)"
+[ ! -e "$c/open-home/flight-index" ] || fail "nothing is created under a fleet home others can write"
 
 # The skew is judged against the worker's installed root.
 ver=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" | head -n 1)
