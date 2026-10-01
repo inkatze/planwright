@@ -1,7 +1,8 @@
 #!/bin/sh
 # fleet-sweep.sh — the periodic fleet sweep: the worktree disk-scan reconcile,
-# the dirty-tree sweep, the tasks.md reconcile backstop for missed pushes, and
-# the reap of leaked worker processes, as one cycle on a schedule
+# the dirty-tree sweep, the tasks.md reconcile backstop for missed pushes, the
+# reap of leaked worker processes, and the flight residues, as one cycle on a
+# schedule
 # (fleet-autonomy D-8, D-1; fleet-lifecycle-closure D-5, D-14).
 #
 # ON A SCHEDULE, NEVER ON A THRESHOLD (D-5). A cycle has no precondition: it
@@ -11,7 +12,7 @@
 # tower, which the reap needs (see --tower-id below). The dirty-tree grace (`fleet_dirty_tree_threshold`) defers one
 # escalation and never gates a cycle.
 #
-# FOUR PASSES, ONE CYCLE, in this order.
+# FIVE PASSES, ONE CYCLE, in this order.
 #
 # 1. WORKTREE SCAN. The disk-scan reconcile (fleet-worktree-track.sh scan) over
 #    the tower's checkout, so a worktree no dispatch seam recorded is tracked
@@ -71,10 +72,17 @@
 #    actuator gave, so a sweep that declined everything reads differently from
 #    one that found nothing.
 #
+# 5. FLIGHT RESIDUES. A visual flight leaves two residues outside git: its
+#    worker brief under the fleet home, retired once its worktree is gone
+#    (flight-dispatch.sh retire), and the derived flight index of a checkout
+#    that no longer exists (flight-sweep.sh prune). Both are swept here, each
+#    removal audited, so neither outlives its flight silently. Flight
+#    worktrees themselves are registered worktrees, already in the scope of passes 1 and 2.
+#
 # KILL-SWITCH + AUDIT. The cycle gates through fleet-daemon-gate.sh at entry
 # (a set fleet_daemon_pause pauses the whole cycle; the reap actuator also
-# gates on its own). Escalations, reconciles that corrected drift, and reaps
-# are audited through fleet-audit.sh; a no-op is not.
+# gates on its own). Escalations, reconciles that corrected drift, reaps, and
+# flight residue removals are audited through fleet-audit.sh; a no-op is not.
 #
 # SIGNALS. A watch loop is normally stopped by a signal, so the dirty-since
 # temp this script creates beside its marker is removed by the INT/TERM/HUP
@@ -132,6 +140,8 @@ AUDIT="$script_dir/fleet-audit.sh"
 ATTN="$script_dir/fleet-attention.sh"
 WT="$script_dir/fleet-worktree-track.sh"
 SYNC="$script_dir/tasks-pr-sync.sh"
+FLIGHT_DISPATCH="$script_dir/flight-dispatch.sh"
+FLIGHT_SWEEP="$script_dir/flight-sweep.sh"
 CONFIG_GET="$script_dir/config-get.sh"
 KNOB="$script_dir/resolve-config-knob.sh"
 OVERLAY="$script_dir/resolve-overlay-root.sh"
@@ -733,6 +743,46 @@ EOF
     "$rp_mode" "$rp_workers" "$rp_cand" "$rp_reaped" "$rp_observed" "$rp_declined" "$rp_closed" "$rp_status"
 }
 
+# flight_residue <helper...> — run one residue helper, auditing each removal
+# it reports and warning its failure with the reason; contention or a failure
+# just means next cycle. Its result lines and its stderr share one capture,
+# told apart by their leading field, so no temporary file is left by a signal.
+flight_residue() {
+  fr_all=$("$@" 2>&1 </dev/null)
+  fr_rc=$?
+  fr_tab=$(printf '\t')
+  if [ "$fr_rc" -ne 0 ]; then
+    fr_why=$(printf '%s\n' "$fr_all" | grep -v -e "^retired$fr_tab" -e "^pruned$fr_tab" | tail -n 1)
+    warn "$FR_NAME exited $fr_rc${fr_why:+ ($(sanitize_printable "$fr_why"))} — flight residues left for the next sweep"
+  fi
+  printf '%s\n' "$fr_all" | while IFS="$fr_tab" read -r fr_kind fr_what; do
+    case $fr_kind in
+      retired) audit flight-brief-retire flight-residue "retired the brief of flight $fr_what (its worktree is gone)" ;;
+      pruned)
+        # The audit grammar caps the text and refuses some bytes a path can
+        # carry; the path's tail is what identifies the checkout.
+        [ "${#fr_what}" -le 400 ] || fr_what="...$(printf '%s' "$fr_what" | tail -c 397)"
+        audit flight-index-prune flight-residue \
+          "pruned the derived flight index of vanished checkout $(sanitize_printable "$fr_what")"
+        ;;
+    esac
+  done
+}
+
+# flight_residue_pass — pass 5. The brief retire never waits on a dispatch
+# holding the checkout's flight lock, and takes no lock at all in a checkout
+# no brief names.
+flight_residue_pass() {
+  if [ -x "$FLIGHT_DISPATCH" ]; then
+    FR_NAME='flight brief retire'
+    flight_residue env PLANWRIGHT_FLIGHT_LOCK_WAIT=0 "$FLIGHT_DISPATCH" retire --repo-root "$repo"
+  fi
+  if [ -x "$FLIGHT_SWEEP" ]; then
+    FR_NAME='flight index prune'
+    flight_residue "$FLIGHT_SWEEP" prune
+  fi
+}
+
 # cycle — one sweep; 4 when the kill-switch paused it before any pass.
 cycle() {
   # Kill-switch gate: the sweep is a daemon action. A set switch (or an
@@ -745,6 +795,7 @@ cycle() {
   dirty_tree_pass
   reconcile_pass
   reap_pass
+  flight_residue_pass
   return 0
 }
 

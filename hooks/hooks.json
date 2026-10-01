@@ -56,6 +56,15 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-tower-signpost.sh"
           }
         ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/flight-sweep.sh hook session-start"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

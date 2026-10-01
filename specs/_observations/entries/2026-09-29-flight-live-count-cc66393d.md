@@ -1,0 +1,1 @@
+- 2026-09-29 [planwright] flight-dispatch.sh LIVE_AWK counts the primary checkout as a live flight when a flight branch is checked out there, and parses git worktree list --porcelain without -z, so a worktree path holding a newline can forge list lines; the flight sweep now skips the primary checkout, while the dispatch slot count and brief retire still do not.
