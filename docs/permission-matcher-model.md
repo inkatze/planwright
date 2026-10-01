@@ -306,7 +306,11 @@ policy-permitted spelling that the allow list does not name reaches the
 permission prompt; widening the allow list to admit it is a separate,
 signed-off change. `Bash(git -* commit*)` stays, since it also refuses the
 global-option spellings of the commit hook bypasses; the plain `git commit`
-spelling of an amend is the one the guard decides. The tower profile keeps
+spelling of an amend is the one the guard decides. That leaves one admitted
+gap, kept on purpose to fail closed: `git -C <dir> commit --amend` (and any
+other global-option spelling of an amend) stays denied under every
+`unpushed_rewrite` value, so a worker granted the rewrite amends with plain
+`git commit --amend`. The tower profile keeps
 its merge, pull, rebase, and amend-family denies, since no value grants the
 tower a merge or a rewrite; the global-option spellings it never carried are
 refused there by the policy guard, which is wired into the tower profile too.
