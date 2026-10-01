@@ -99,10 +99,10 @@
 # all — a stream-json worker is a detached supervisor/worker pair with no
 # window. The dispatch registry record is written at launch and is NOT released
 # here: it is fleet-wide inventory rather than this worker's runtime. Nothing
-# reconciles it yet (`scripts/fleet-register.sh` says so where it writes the
-# record), so a stopped worker keeps its inventory row until the reconcile this
-# bundle plans lands. The worktree, the branch, and the unit's fence are
-# never touched: the release set is exactly the reproducible resources, and the
+# reconciles it (`scripts/fleet-register.sh` says so where it writes the
+# record), so a stopped worker keeps its inventory row. The worktree, the
+# branch, and the unit's fence are never touched: the release set is exactly
+# the reproducible resources, and the
 # worktree is the one holding work that cannot be recovered. No audit record is
 # written either — the reap path that needs one owns it, so that an autonomous
 # close writes exactly one record rather than two.
@@ -191,7 +191,7 @@
 #       attention item + notify push. The outcome is operator escalation on
 #       the attention surface — never an auto-answer, never a worker kill.
 #       Prints `alarm <worker> <id> <age>` per firing.
-#   fleet-streamjson.sh stop <worker> [--grace <secs>]
+#   fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]
 #       Close the worker: terminate its process tree and release the locks,
 #       scratch temp, and attention record it holds. Prints one of
 #       `stop <worker> stopped released=<classes>`,
@@ -207,6 +207,10 @@
 #       An unknown handle is exit 2, not `already-closed`, so a typo never
 #       reads as a successful close, and a close asked for from inside the
 #       worker's own process tree is refused with exit 3 rather than attempted.
+#       --observe runs the same checks and probes and releases nothing, printing
+#       `stop <worker> would-release=<classes>` for what a close would take now,
+#       or `stop <worker> already-closed`; the periodic sweep's observing mode
+#       records its would-have close from this.
 #   fleet-streamjson.sh status <worker>
 #       Print `status <worker> <running|awaiting-input|completed|ended|dead|
 #       unknown> <detail>` from the recorded pids, the receipt journal and the
@@ -215,6 +219,25 @@
 #       supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending row
 #       has a readable epoch), so a worker that cannot proceed never reads as
 #       a healthy `running`.
+#   fleet-streamjson.sh pending [<worker>...]
+#       Read-only view of the requests `status` counts: for every request the
+#       journal still reads `pending` (no args: every worker), oldest first,
+#       print `== <worker> <request-id> <tool>` (the tool name suffixed
+#       `:sanitized` when it had to be altered to fit the header), then the
+#       tool input behind a `| ` prefix on every line. A Bash request shows
+#       its command decoded, preceded by one `+ {...}` line carrying every
+#       other input field but the description when there are any; any other
+#       tool shows its input JSON. Input cut at `pending_show_max` bytes gets
+#       a `-- truncated ...` line; an envelope that ends early (cut at
+#       `pending_read_max` or still being written) gets a
+#       `-- request envelope ends early ...` line; every such notice comes
+#       before the content, so a piped `head` cannot drop it; a
+#       missing, symlinked or malformed envelope prints
+#       `-- request envelope unreadable` in place of the input. Request
+#       content is untrusted: control bytes are stripped and the prefixes
+#       keep it from forging a header. A named worker with no runtime dir, or
+#       a journal or worker dir that cannot be read, is exit 2. Never writes,
+#       answers, locks, or re-queues anything.
 #
 # Exit codes: 0 success; 2 usage error, refused hostile input, or a
 #   filesystem/lock error (fail closed); 3 a semantic refusal (recovery
@@ -355,8 +378,9 @@ usage() {
     echo "       fleet-streamjson.sh steer <worker> --message-file <file>"
     echo "       fleet-streamjson.sh recover <worker> [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh alarm-scan [--now <epoch>] [--threshold <secs>]"
-    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>]"
+    echo "       fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe]"
     echo "       fleet-streamjson.sh status <worker>"
+    echo "       fleet-streamjson.sh pending [<worker>...]"
   } >&2
   exit 2
 }
@@ -575,6 +599,18 @@ journal_oldest_pending() {
   [ -f "$1/journal" ] || return 0
   awk -F'\t' '$4 == "pending" { print $3 "\t" $1 "\t" $2 }' "$1/journal" \
     | sort -n | awk -F'\t' 'NR == 1 { print $2, $3 }'
+}
+
+# journal_pending_ids <dir> — print the id of every pending row, oldest first.
+# Non-zero when the journal exists but cannot be read whole, so a caller can
+# tell "nothing pending" from "could not tell".
+journal_pending_ids() {
+  [ -e "$1/journal" ] || [ -L "$1/journal" ] || return 0
+  [ -f "$1/journal" ] || return 2
+  jp_rows=$(awk -F'\t' '$4 == "pending" { print $3 "\t" NR "\t" $1 }' "$1/journal") || return 2
+  [ -n "$jp_rows" ] || return 0
+  jp_rows=$(printf '%s\n' "$jp_rows" | sort -t "$TAB" -k1,1n -k2,2n) || return 2
+  printf '%s\n' "$jp_rows" | awk -F'\t' '{ print $3 }'
 }
 
 # --- JSON helpers (awk, no jq per REQ-K1.5) ---------------------------------
@@ -2060,12 +2096,17 @@ cmd_stop() {
     exit 2
   }
   grace=$grace_default
+  observe=0
   while [ $# -gt 0 ]; do
     case $1 in
       --grace)
         [ $# -ge 2 ] || usage
         grace=$2
         shift 2
+        ;;
+      --observe)
+        observe=1
+        shift
         ;;
       *)
         usage
@@ -2093,6 +2134,10 @@ cmd_stop() {
   stop_refuse_self_hosted "$dir" "$(stop_match "$worker" "$dir")" \
     "$stop_pidfiles" "$worker"
   st_root=$(/bin/sh "$FS" root) || exit 2
+  if [ "$observe" = 1 ]; then
+    stop_observe "$dir" "$worker" "$st_root/attention/state"
+    return
+  fi
   stop_walk "$dir" "$worker" "$st_root/attention/state" "$grace"
 }
 
@@ -2181,7 +2226,7 @@ cmd_alarm_scan() {
   }
   as_root=$(/bin/sh "$FS" root) || exit 2
   [ -d "$as_root/streamjson" ] || return 0
-  # The one intentional glob in this script: enumerate worker dirs (pathname
+  # An intentional glob, like cmd_pending's: enumerate worker dirs (pathname
   # expansion is otherwise disabled by set -f).
   set +f
   for as_dir in "$as_root/streamjson"/*; do
@@ -2396,6 +2441,298 @@ cmd_status() {
   fi
 }
 
+# The display bound for one request's tool input, and the most of an envelope
+# the renderer reads at all. A Write's content can be megabytes; the tower needs
+# enough to recognise the request, not the whole payload. The read bound is also
+# a time bound: busybox awk's substr costs grow with the offset, so a walk over
+# 300 KiB there takes seconds where 64 KiB takes a fraction of one. An envelope
+# cut by it still shows the start of its input, marked as ending early.
+pending_show_max=4096
+pending_read_max=65536
+
+# pending_render — read a stored control_request envelope on stdin and print
+# four things, one per line but the last: a header-safe tool-name token, a
+# flag (`bad` for an envelope with no readable input or malformed JSON;
+# otherwise 0 or 1 for a display-bound cut, led by `a` when `answer --allow`
+# would splice another input and `e` when the envelope ends early), the Bash request's other input fields as one line of raw
+# JSON members (empty otherwise), then the content. The content is the decoded
+# top-level `command` of a request whose tool is named exactly Bash, otherwise
+# the input object's JSON text. The walk follows the JSON structure rather than
+# searching for a key name, so a string that merely contains `"input":` or
+# `"command":` cannot pass for the real field, and a repeated key resolves to
+# its last occurrence, the one the CLI itself acts on. Unicode escapes for
+# printable ASCII, TAB and LF are decoded so the command reads as it will run;
+# every other escape stays as visible escape text. Raw control bytes are the
+# caller's to strip.
+pending_render() {
+  awk -v cap="$pending_show_max" '
+    # A walk that runs off the end met an envelope cut short (the read bound,
+    # or a read racing the write), which is shown marked as such; any other
+    # failure is malformed JSON, which is not shown at all.
+    function fail() {
+      err = 1
+      if (pos > n) eof = 1
+    }
+    function ws() {
+      while (pos <= n && index(" \t\r\n", substr(s, pos, 1)) > 0) pos++
+    }
+    function pstr(   st, c) {
+      st = ++pos
+      while (pos <= n) {
+        c = substr(s, pos, 1)
+        if (c == "\\") { pos += 2; continue }
+        if (c == "\"") { pos++; return substr(s, st, pos - 1 - st) }
+        pos++
+      }
+      fail()
+      return substr(s, st)
+    }
+    function hexv(h,   i, v, d) {
+      v = 0
+      for (i = 1; i <= 4; i++) {
+        d = index("0123456789abcdef", tolower(substr(h, i, 1))) - 1
+        if (d < 0) return -1
+        v = v * 16 + d
+      }
+      return v
+    }
+    function dec(raw, lim,   out, i, m, c, e, v) {
+      out = ""
+      m = length(raw)
+      for (i = 1; i <= m; i++) {
+        if (lim && length(out) > lim) { trunc = 1; return substr(out, 1, lim) }
+        c = substr(raw, i, 1)
+        if (c != "\\") { out = out c; continue }
+        e = substr(raw, ++i, 1)
+        if (e == "n") out = out "\n"
+        else if (e == "t") out = out "\t"
+        else if (e == "\"" || e == "\\" || e == "/") out = out e
+        else if (e == "u") {
+          v = hexv(substr(raw, i + 1, 4))
+          if (v == 9) out = out "\t"
+          else if (v == 10) out = out "\n"
+          else if (v >= 32 && v <= 126) out = out sprintf("%c", v)
+          else out = out "\\u" substr(raw, i + 1, 4)
+          i += 4
+        } else out = out "\\" e
+      }
+      if (lim && length(out) > lim) { trunc = 1; return substr(out, 1, lim) }
+      return out
+    }
+    function val(path, d,   c, k, str, kst) {
+      if (d > 64) { fail(); return }
+      ws()
+      if (pos > n) { fail(); return }
+      if (path == "/request") { tool = ""; ins = 0; ine = 0; hc = 0 }
+      if (path == "/request/input") { ins = pos; ine = 0; hc = 0; extra = ""; xcut = 0 }
+      if (path == "/request/input/command") hc = 0
+      c = substr(s, pos, 1)
+      if (c == "{" || c == "[") {
+        pos++
+        ws()
+        if (substr(s, pos, 1) == (c == "{" ? "}" : "]")) pos++
+        else while (1) {
+          if (c == "{") {
+            ws()
+            if (substr(s, pos, 1) != "\"") { fail(); return }
+            kst = pos
+            # Bounded: decoding appends a byte at a time, quadratic in the key,
+            # and no key the walk matches is anywhere near this long.
+            k = dec(pstr(), 16)
+            if (err) return
+            ws()
+            if (substr(s, pos, 1) != ":") { fail(); return }
+            pos++
+            # The path joins keys with a slash, so a slash inside one key would
+            # let `"input/command"` spell a nested path it is not.
+            gsub(/\//, "\001", k)
+            val(path "/" k, d + 1)
+            # What the command view would otherwise hide: every input field
+            # but the command itself and the model-written description.
+            if (!err && path == "/request/input" && k != "command" && k != "description" && !xcut) {
+              extra = extra (extra == "" ? "" : ",") substr(s, kst, pos - kst)
+              if (length(extra) > cap) { extra = substr(extra, 1, cap); xcut = 1 }
+            }
+          } else val(path "/[]", d + 1)
+          if (err) return
+          ws()
+          if (pos > n) { fail(); return }
+          k = substr(s, pos, 1)
+          pos++
+          if (k == ",") continue
+          if (k == (c == "{" ? "}" : "]")) break
+          fail()
+          return
+        }
+      } else if (c == "\"") {
+        str = pstr()
+        if (path == "/request/tool_name") tool = str
+        if (path == "/request/input/command") { cmd = str; hc = 1 }
+        if (err) return
+      } else {
+        k = pos
+        while (pos <= n && index(",]} \t\r\n", substr(s, pos, 1)) == 0) pos++
+        if (pos == k || pos > n) { fail(); return }
+        if (substr(s, k, pos - k) !~ /^(true|false|null|-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?)$/) { fail(); return }
+      }
+      if (path == "/request/input") ine = pos
+    }
+    NR == 1 {
+      s = $0
+      n = length(s)
+      pos = 1
+      val("", 0)
+      if (!err) {
+        ws()
+        if (pos <= n) fail()
+      }
+    }
+    END {
+      trunc = 0
+      name = dec(tool, 64)
+      t = name
+      gsub(/[^A-Za-z0-9_.:-]/, "", t)
+      if (t == "") t = "unknown"
+      else if (t != name || trunc) t = t ":sanitized"
+      trunc = 0
+      if (ins == 0 || (err && !eof)) { print t; print "bad"; exit }
+      if (name == "Bash" && hc) {
+        out = dec(cmd, cap)
+        if (extra != "") extra = xcut extra
+      } else {
+        extra = ""
+        out = ine ? substr(s, ins, ine - ins) : substr(s, ins)
+        if (length(out) > cap) { out = substr(out, 1, cap); trunc = 1 }
+      }
+      # `answer --allow` splices the object json_input_object finds, the one
+      # after the first literal `"input":`. Unless that is the object shown
+      # here, the tower would approve something other than what it read.
+      j = index(s, "\"input\":")
+      if (j) { j += 8; while (substr(s, j, 1) == " ") j++ }
+      print t
+      print (j == ins ? "" : "a") (eof ? "e" : "") trunc
+      print extra
+      print out
+    }'
+}
+
+# pending_show <worker> <dir> <id> — print one request: the header, then its
+# `-- ` notices (unreadable, ambiguous, ends early, fields cut, content cut)
+# and a Bash request's other fields on one `+ ` line, then every content line
+# behind a `| ` prefix.
+# Every notice precedes the content so a piped `head` cannot drop one. The prefix is what keeps the framing unforgeable: no content line
+# can begin with `== `, `+ ` or `-- `, whatever the request carries, and the
+# fields line is one line because the envelope it is sliced from is.
+pending_show() {
+  ps_env="$2/req-$3.json"
+  if [ -L "$ps_env" ] || [ ! -f "$ps_env" ]; then
+    ps_env=/dev/null
+  fi
+  ps_out=$(
+    head -c "$pending_read_max" "$ps_env" 2>/dev/null | pending_render
+    printf x
+  )
+  ps_out=${ps_out%x}
+  ps_tool=${ps_out%%"$NL"*}
+  ps_out=${ps_out#*"$NL"}
+  ps_flag=${ps_out%%"$NL"*}
+  ps_out=${ps_out#*"$NL"}
+  ps_extra=${ps_out%%"$NL"*}
+  ps_out=${ps_out#*"$NL"}
+  printf '== %s %s %s\n' "$1" "$3" "${ps_tool:-unknown}"
+  if [ "$ps_flag" = bad ] || [ -z "$ps_flag" ]; then
+    echo '-- request envelope unreadable'
+    return 0
+  fi
+  case $ps_flag in
+    a*)
+      echo '-- request envelope ambiguous: an answer --allow would not apply the input shown'
+      ps_flag=${ps_flag#a}
+      ;;
+  esac
+  # `answer --allow` splices from the whole file, so a field past the cut (a
+  # later command, a sandbox bypass) would still apply.
+  case $ps_flag in
+    e*)
+      printf -- '-- request envelope ends early (read bound %s bytes, or still being written): fields after the cut are not shown and an answer --allow may apply them\n' "$pending_read_max"
+      ps_flag=${ps_flag#e}
+      ;;
+  esac
+  # The fields line leads with its own cut flag, so a cut is marked on the line
+  # it hides fields from rather than on the command's trailer.
+  case $ps_extra in
+    0*) printf '+ {%s}\n' "${ps_extra#0}" | tr -d '\000-\010\013-\037\177\200-\237' ;;
+    1*)
+      printf '+ {%s\n' "${ps_extra#1}" | tr -d '\000-\010\013-\037\177\200-\237'
+      printf -- '-- fields truncated at %s bytes\n' "$pending_show_max"
+      ;;
+  esac
+  if [ "$ps_flag" = 1 ]; then
+    printf -- '-- truncated at %s bytes: the content below is cut short\n' "$pending_show_max"
+  fi
+  printf '%s' "${ps_out%"$NL"}" | tr -d '\000-\010\013-\037\177\200-\237' | awk '{ print "| " $0 } END { if (NR == 0) print "| " }'
+}
+
+# pending_worker <worker> <dir> — every request of one worker the journal still
+# reads pending, driven by the journal rather than the envelope files, so a row
+# whose envelope never landed is still listed. Read-only: no lock is taken,
+# since the journal is replaced by rename and an unlocked read sees one whole
+# generation of it.
+pending_worker() {
+  if [ ! -r "$2" ] || [ ! -x "$2" ] || { [ -e "$2/journal" ] && [ ! -r "$2/journal" ]; }; then
+    echo "$me: cannot read the receipt journal of worker $1" >&2
+    return 2
+  fi
+  pw_ids=$(journal_pending_ids "$2") || {
+    echo "$me: cannot read the receipt journal of worker $1" >&2
+    return 2
+  }
+  [ -n "$pw_ids" ] || return 0
+  printf '%s\n' "$pw_ids" | while IFS= read -r pw_id; do
+    valid_reqid "$pw_id" || continue
+    pending_show "$1" "$2" "$pw_id"
+  done
+}
+
+cmd_pending() {
+  for pd_w in "$@"; do
+    valid_field "$pd_w" || {
+      echo "$me: invalid worker handle" >&2
+      exit 2
+    }
+  done
+  pd_root=$(/bin/sh "$FS" root) || exit 2
+  # An unreadable worker fails the call, but only after the others are listed:
+  # one broken dir must not hide every other worker's pending decisions.
+  pd_rc=0
+  if [ $# -eq 0 ]; then
+    [ -d "$pd_root/streamjson" ] || return 0
+    [ -r "$pd_root/streamjson" ] && [ -x "$pd_root/streamjson" ] || {
+      echo "$me: cannot list the stream-json workers under $pd_root" >&2
+      exit 2
+    }
+    set +f
+    for pd_dir in "$pd_root/streamjson"/*; do
+      [ -d "$pd_dir" ] || continue
+      pd_w=${pd_dir##*/}
+      valid_field "$pd_w" || continue
+      pending_worker "$pd_w" "$pd_dir" || pd_rc=2
+    done
+    set -f
+    exit "$pd_rc"
+  fi
+  for pd_w in "$@"; do
+    [ -d "$pd_root/streamjson/$pd_w" ] || {
+      echo "$me: no stream-json worker $pd_w" >&2
+      exit 2
+    }
+  done
+  for pd_w in "$@"; do
+    pending_worker "$pd_w" "$pd_root/streamjson/$pd_w" || pd_rc=2
+  done
+  exit "$pd_rc"
+}
+
 # --- dispatch ---------------------------------------------------------------
 
 [ $# -ge 1 ] || usage
@@ -2410,6 +2747,7 @@ case $cmd in
   _tick) cmd__tick "$@" ;;
   stop) cmd_stop "$@" ;;
   status) cmd_status "$@" ;;
+  pending) cmd_pending "$@" ;;
   _supervise) supervise "$@" ;;
   _frame-check) cmd__frame_check "$@" ;;
   *) usage ;;

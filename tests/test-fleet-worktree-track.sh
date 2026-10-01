@@ -121,6 +121,20 @@ case $listing in
 esac
 echo "ok: the disk-scan fallback discovers a worktree no hook pushed"
 
+# 3a. A git that cannot list worktrees fails the scan and leaves the registry
+#     as it was: a broken checkout (its .git names a missing gitdir) must not
+#     read as a repository with no worktrees, which would prune every entry.
+broken="$tmp/broken-checkout"
+mkdir -p "$broken"
+printf 'gitdir: %s\n' "$tmp/no-such-gitdir" >"$broken/.git"
+reg_before=$(cat "$fleet_home/worktrees/registry")
+scan_rc=0
+wt scan "$broken" >/dev/null 2>"$tmp/scan-err" || scan_rc=$?
+[ "$scan_rc" = 2 ] || fail "a scan whose git cannot list exited $scan_rc, expected 2"
+[ "$(cat "$fleet_home/worktrees/registry")" = "$reg_before" ] || fail "a failed scan changed the registry"
+grep -q 'could not list' "$tmp/scan-err" || fail "a failed scan did not say why: $(cat "$tmp/scan-err")"
+echo "ok: a scan whose git cannot list the worktrees fails (exit 2) and leaves the registry untouched"
+
 # 3b. list enforces the emitted-path grammar (valid_path), not just control-byte
 #     stripping. A malformed registry line (non-absolute, or a leading dash) —
 #     from a corrupted store or a scan write that bypassed the grammar — is
