@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-08-19
+**Last reviewed:** 2026-10-01
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -83,7 +83,9 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
   surface's tower identity; the record fields a close verb needs without its
   dispatcher (handle, owner token, state directory, backend, death handle);
   graceful degradation so a failed registry write warns and never fails a
-  dispatch, self-healing on the next scan.
+  dispatch. *(Amended at kickoff amendment 2026-10-01: the next-scan
+  self-heal of a failed registry write moved to Task 11, since Task 8's scan
+  reconciles worktrees, not dispatch records.)*
 - **Done when:** a dispatch on each seam produces a registry record carrying
   all five fields plus the owner token; `fleet-status.sh` renders the registry
   as present rather than absent; a simulated registry-write failure leaves the
@@ -283,17 +285,44 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
   concurrent sweeps produce no double-reap and no lost sweep; no reap path
   modifies a fence, branch, or worktree on any branch of the matrix; presence
   stays off the correctness path; negative assertions confirming no model or
-  API call in any decision path this bundle ships.
+  API call in any decision path this bundle ships. The dispatch-record
+  reconcile (D-15): an on-disk dispatch marker written by every dispatch seam
+  independently of the registry write, including the tmux seam, which today
+  leaves only a window, and declared as a resource class in the floor record
+  with its marker deleted when its record retires; a reconcile pass in the
+  periodic sweep that rebuilds a missing registry record from its marker
+  through `fleet-register.sh`'s per-field validation, never writing the store
+  directly and refusing a marker outside its expected root, idempotent per
+  handle; retirement of a record whose worker is closed, marked closed rather
+  than deleted and only on positive death evidence (for a `print` unit, its
+  worktree's removal), with a record that lacks
+  a marker never altered or retired for that reason alone; the pass running
+  in both sweep modes, since it terminates nothing, under the existing
+  kill-switch, with an audit record per heal and per retirement; removal of
+  the "no reconcile exists yet" wording from the seams that carry it.
 - **Done when:** the suite is green in project CI; every matrix cell is
   asserted across both rungs and the cleanup class, and its completeness is
   mechanically enforced by an expected-cell manifest; the fence-and-worktree
   untouched assertion holds on every path including refusals; the no-LLM
-  negative assertions pass; `mise run check` passes.
+  negative assertions pass; a registry write suppressed on each dispatch seam
+  is restored by the next sweep with the same fields the dispatch would have
+  written, asserted per seam against the seam-coverage manifest; a closed
+  worker's record is retired on the next sweep, and a worker whose death
+  evidence is unknown or errored keeps its record live; a retired record stays
+  readable and its marker is gone; N concurrent reconciles, and a reconcile
+  racing an in-flight dispatch's own write, neither duplicate nor lose a
+  record; a marker with a field failing the store's grammar or a path outside
+  its root is refused and audited, never stored; a pre-marker record survives
+  a sweep unchanged; every heal and retirement has an audit record in both
+  sweep modes; `mise run check` passes.
 - **Dependencies:** 4, 5, 6, 8
 - **Citations:** REQ-D1.1 · REQ-D1.2 · REQ-D1.3 · REQ-D1.4 · REQ-D1.6 ·
-  REQ-D1.7 · REQ-D1.8 · REQ-D1.9 · REQ-J1.4 · REQ-K1.5 · D-2 · obs:5f0e1976 ·
-  obs:ce589542 · obs:ef2cfd5a
-- **Estimated effort:** 2.5 days
+  REQ-D1.7 · REQ-D1.8 · REQ-D1.9 · REQ-E1.4 · REQ-E1.5 · REQ-J1.4 ·
+  REQ-K1.5 · D-2 · D-15 · obs:5f0e1976 · obs:ce589542 · obs:ef2cfd5a ·
+  obs:a6f5511b
+- **Estimated effort:** 4 days
+- *(Amended at kickoff amendment 2026-10-01: dispatch-record reconcile folded
+  in, owning REQ-E1.4's self-heal and the new REQ-E1.5.)*
 
 ### Task 12 — The deliberate-wedge lifecycle rehearsal
 

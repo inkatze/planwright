@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-09-03
+**Last reviewed:** 2026-10-01
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -422,3 +422,32 @@ promotion decision needs, and it is collected on real fleets rather than
 fixtures. The cost — a second path that could rot unexercised — is answered by
 REQ-F1.7 rather than accepted, so the mode that ships is the mode that is
 tested.
+
+### D-15: The registry is a rebuildable index of on-disk dispatch markers  (B, kickoff amendment 2026-10-01)
+
+**Decision:** Every dispatch seam writes an on-disk dispatch marker carrying
+the fields of its registry record, independently of the registry write. The
+periodic sweep reconciles the registry against those markers in both
+directions: it rebuilds a record whose write failed, and it retires, marked
+closed and never deleted, the record of a worker with positive death evidence.
+
+**Alternatives considered:**
+- Heal only the rungs that already leave a state directory, and declare tmux
+  unhealable. Rejected because: it hard-codes a permanent blind spot on one
+  rung, and a reconcile whose coverage depends on which rung happened to
+  persist something is the uneven floor REQ-A1.5 exists to make explicit.
+- Rebuild tmux records from window listings. Rejected because: window naming
+  is a weaker identity than a state directory, and the bundle already refuses
+  to match workers by name or command shape.
+- Heal missing records only and leave stale ones. Rejected because: an
+  inventory that only grows is re-evaluated by every sweep and the
+  stuck-detector, and the dead rows bury the live ones.
+
+**Chosen because:** the bundle's other reconciles already work this way. The
+worktree scan rebuilds from `git worktree list` and the tasks.md backstop
+rebuilds from git, so the registry follows the same level-triggered,
+ground-truth pattern instead of being the one store a lost write can corrupt
+permanently. Retirement reuses D-2's positive-evidence rule applied to the
+worker alone, since retiring a record kills nothing, so no new safety argument
+is needed. Closed records are kept indefinitely: the rows are small, the store
+is append-only, and live reads filter them out.
