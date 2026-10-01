@@ -189,6 +189,7 @@ if pm_load_rules "$(jq -r '.permissions.deny[]' "$worker_settings")" '' "$(jq -r
     case $(pm_decide "$grantable") in
       allow | prompt) ok "the worker profile leaves '$grantable' to the policy guard (human-gates REQ-G1.2)" ;;
       deny) fail "the worker profile still denies '$grantable', an act a policy value can grant (human-gates REQ-G1.2)" ;;
+      ask) fail "the worker profile asks on '$grantable', which would stall a headless worker the policy permits" ;;
       *) fail "the matcher model gave no decision for '$grantable'" ;;
     esac
   done
