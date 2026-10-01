@@ -16,8 +16,9 @@
 #     historical `[[…]]` are a bounded, named carve-out, reconciled only where
 #     the amendment ritual reaches spec files (REQ-D1.4).
 #   - Bundles: every <root>/<name>/, <root> being the spec root
-#     scripts/resolve-root.sh resolves (specs/ by default), whose name does not start with `_`
-#     (underscore-prefixed dirs are accumulators, not bundles). A bundle's
+#     scripts/resolve-root.sh resolves (specs/ by default), whose name does
+#     not start with `_` (underscore-prefixed dirs are accumulators, not
+#     bundles). A bundle's
 #     Status is read from requirements.md; terminal bundles (Done, Retired,
 #     Superseded) are frozen — changing them requires a Done->Draft reopen plus
 #     a scoped kickoff (doctrine/spec-format.md) — so the guard skips them and
