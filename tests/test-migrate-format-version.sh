@@ -1128,7 +1128,7 @@ echo "ok: every live bundle in this repo declares format-version 2 (REQ-D1.3)"
 # An empty argument is the no-argument default, so a wrapper passing an unset
 # variable sweeps the resolved spec root rather than the working directory.
 ea=$tmp/empty-arg
-mkdir -p "$ea/junk"
+mkdir -p "$ea/junk" "$ea/specs"
 git -C "$ea" init -q -b main
 ea_rc=0
 ea_none=$(cd "$ea" && "$MIGRATE" 2>&1) || ea_rc=$?
@@ -1136,6 +1136,7 @@ ea_none="$ea_rc:$ea_none"
 ea_rc=0
 ea_empty=$(cd "$ea" && "$MIGRATE" "" 2>&1) || ea_rc=$?
 ea_empty="$ea_rc:$ea_empty"
+case $ea_none in 0:*) ;; *) fail "the default sweep of an empty spec root failed: $ea_none" ;; esac
 [ "$ea_empty" = "$ea_none" ] || fail "an empty argument did not act as the default (default '$ea_none', empty '$ea_empty')"
 echo "ok: an empty argument is the no-argument default"
 

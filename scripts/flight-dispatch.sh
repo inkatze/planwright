@@ -1175,7 +1175,7 @@ cmd_dispatch() {
   rm -f "$brief_dir/dispatch.err" "$_out"
 
   worktree=$(placed_at) || worktree=''
-  [ -n "$worktree" ] || worktree="$repo_root/.claude/worktrees/$suffix"
+  [ -n "$worktree" ] || worktree="$primary_root/.claude/worktrees/$suffix"
   # A print-rung flight spawns nothing until the operator runs the launch, so
   # its dispatch record is the only evidence it exists, as for a print-rung
   # offload; the tmux rung's record is the worktree primitive's. Best-effort:

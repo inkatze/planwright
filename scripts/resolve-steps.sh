@@ -420,10 +420,11 @@ trap 'exit 143' TERM
 # DEGRADED: a malformation was degraded with a warning, by this script or by
 # a sibling reader; check mode fails on it. A refused override is one: the
 # repo-side layer it named is dropped, and the children never see the value.
+# Other notes from the lookup (a worktree of a bare repository) are not.
 DEGRADED=0
 rc=0
 repo_claude=$("$overlay_root_sh" repo-tracked 2>"$scratch") || rc=$?
-[ ! -s "$scratch" ] || DEGRADED=1
+! grep -q 'refusing PLANWRIGHT_REPO_ROOT' "$scratch" || DEGRADED=1
 replay "$scratch"
 [ "$rc" -eq 0 ] || die 5 "overlay-root resolution failed for the repo-tracked layer (broken install)"
 PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}

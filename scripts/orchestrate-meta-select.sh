@@ -145,7 +145,10 @@ for spec_dir in "$@"; do
   if [ "$wr_rc" -ne 0 ]; then
     # A refused override says why itself; "no work repository" alone would
     # send the operator looking at the bundle instead.
-    [ "$wr_rc" -eq 3 ] || /bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" >/dev/null
+    if [ "$wr_rc" -ne 3 ]; then
+      /bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir" >/dev/null
+      exit 2
+    fi
     spec_top=""
   fi
   if [ -z "$spec_top" ]; then
