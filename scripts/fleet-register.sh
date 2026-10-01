@@ -464,8 +464,14 @@ drop_marker() {
   if [ "$(cat "$mm_aside" 2>/dev/null)" != "$2" ]; then
     # A newer marker already at the name supersedes this one; any other
     # failure to link back leaves it aside rather than losing it.
-    if ! ln "$mm_aside" "$1" 2>/dev/null && [ ! -e "$1" ]; then
-      warn "could not put back the marker at $1; it is kept as $mm_aside"
+    if ! ln "$mm_aside" "$1" 2>/dev/null && [ ! -e "$1" ] && [ ! -L "$1" ]; then
+      # No hard links here: a rename puts it back just as well while the name
+      # is still free.
+      if mv "$mm_aside" "$1" 2>/dev/null; then
+        mm_aside=""
+        return 0
+      fi
+      warn "could not put back the marker at $1; it is kept as $mm_aside, which no sweep reads, so move it back by hand"
       mm_aside=""
       return 1
     fi
@@ -491,7 +497,9 @@ if [ -n "$marker_mode" ]; then
       0 | 3) ;;
       *) exit "$mm_rc" ;;
     esac
-    parse_fields "$expect" "$mp_name" || exit 4
+    # Fields the seam's grammar refuses are the record's, not the marker's:
+    # an error, never a refusal that would move a sound marker aside.
+    parse_fields "$expect" "$mp_name" || exit 1
   fi
   set -- "$handle" "$scope"
   [ "$owner" = - ] || set -- "$@" --owner "$owner"
@@ -525,7 +533,7 @@ if [ -n "$marker_mode" ]; then
   # The record is closed either way; a marker left behind is finished on the
   # next pass, so this exit still reports the retirement.
   drop_marker "$marker_path" "$expect" \
-    || warn "retired $handle but could not remove its marker; the next sweep finishes it"
+    || warn "retired $handle but its marker was not settled cleanly; one still at its name is finished by the next sweep"
   exit "$st_rc"
 fi
 
