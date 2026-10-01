@@ -117,7 +117,8 @@
 #   registry <line>
 #       each line the registry reconcile printed (heal, retire, keep, refuse,
 #       paused, summary), or `registry paused` when the kill-switch stopped it
-#       at entry / `registry failed <exit>`.
+#       at entry / `registry failed <exit>`, or `registry failed no-checkout`
+#       when the checkout could not be entered to run it.
 #
 # Exit codes: 0 sweep completed (a watch loop runs until signalled); 2 usage;
 #   4 the kill-switch paused a one-shot sweep. Per-tree inspection failures are
@@ -748,10 +749,19 @@ registry_pass() {
   rg_rc=0
   # Its stderr passes through: a heal or retirement that failed names itself
   # there, and the summary line only says the pass was degraded.
-  rg_out=$(cd "$repo" && /bin/sh "$RECONCILE" </dev/null) || rg_rc=$?
+  # A checkout the subshell cannot enter is not a reconcile that failed: it
+  # never ran, and says so with its own exit.
+  rg_out=$(
+    cd "$repo" || exit 125
+    /bin/sh "$RECONCILE" </dev/null
+  ) || rg_rc=$?
   case $rg_rc in
     0) printf '%s\n' "$rg_out" | awk 'NF { print "registry\t" $0 }' ;;
     4) printf 'registry\tpaused\n' ;;
+    125)
+      warn "could not enter the checkout to run the registry reconcile — it did not run this cycle"
+      printf 'registry\tfailed\tno-checkout\n'
+      ;;
     *)
       warn "the registry reconcile exited $rg_rc — no record was healed or retired this cycle"
       printf 'registry\tfailed\t%s\n' "$rg_rc"

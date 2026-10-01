@@ -888,6 +888,32 @@ rm -f "$mlocal_cfg"
 ok s1 "the sweep heals and audits in either reap mode, and the kill-switch pauses the reconcile"
 
 # ===========================================================================
+# s2 — a checkout the sweep cannot enter for the reconcile is reported as
+#      that, not as a reconcile failure. The reap pass, which runs just before,
+#      takes the checkout's search permission away through a stub detector.
+# ===========================================================================
+nocd="$tmp/nocd-tree"
+mkdir -p "$nocd"
+cp -R "$S" "$nocd/"
+srepo2="$tmp/sweep-repo-2"
+cp -R "$srepo" "$srepo2"
+cat >"$nocd/scripts/fleet-stuck-detector.sh" <<STUB
+#!/bin/sh
+chmod 000 "$srepo2"
+exit 0
+STUB
+chmod +x "$nocd/scripts/fleet-stuck-detector.sh"
+h=$(home s2)
+st=0
+at "$h" "$nocd/scripts" -- fleet-sweep.sh --repo "$srepo2" --tower-id "$owner" >"$tmp/out" 2>"$tmp/err" || st=$?
+chmod 755 "$srepo2"
+out=$(cat "$tmp/out")
+printf '%s\n' "$out" | grep -q "^registry${tab}failed${tab}no-checkout$" \
+  || fail "s2: an unenterable checkout was not reported as such: $out"
+grep -q 'could not enter the checkout' "$tmp/err" || fail "s2: the warning does not say the checkout could not be entered: $(cat "$tmp/err")"
+ok s2 "a checkout the reconcile cannot enter is reported as that, not as a reconcile failure"
+
+# ===========================================================================
 # w1 — no seam still says no reconcile exists.
 # ===========================================================================
 hits=$(grep -rniE 'no reconcile exists|nothing reconciles (it|that record)|no reconcile (exists )?(yet|to add)|not yet self-healing' \
