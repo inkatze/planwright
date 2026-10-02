@@ -124,8 +124,10 @@ Some checks need a live Claude session and spend model tokens, so nothing in
   dispatches one real worker against a throwaway spec bundle, wedges it, and
   asserts both sweep modes leave it alone, `stop` closes it, and nothing it
   held is left behind. On the stream-json rung it also asserts the detector
-  reads the wedged worker waiting on a human; the headless rung has no pend
-  path, so there that check reports N/A with the reason. While the sweep
+  reads the wedged worker waiting on a human. The headless rung has no pend
+  path, so there the worker is held mid-command instead and must read as live
+  and unfinished, and the waiting-on-a-human check reports N/A with the
+  reason. While the sweep
   refuses `terminate` everywhere, the terminate cycle observes and the check
   requires the sweep to say so. Everything planwright writes lands under one
   temp directory (the CLI keeps its own session state under your real home),

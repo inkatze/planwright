@@ -333,8 +333,9 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
   `headless-oneshot`, which has no pend path), and drives the full lifecycle
   from there; assertions that the detector classifies the worker wedged at a
   permission prompt `waiting-on-a-human` rather than `working`, and the held
-  headless worker as live and unfinished, that `stop` closes it, and that
-  every resource class in the release set is empty afterwards; coverage of **both sweep modes**, so the observing-only
+  headless worker as live and unfinished, and, on every rung, that `stop`
+  closes the worker and every resource class in the release set is empty
+  afterwards; coverage of **both sweep modes**, so the observing-only
   path that ships by default is exercised rather than left to rot until
   promotion; an opt-in entry point outside ordinary CI,
   documented alongside the other opt-in suites, so no unrelated change pays
@@ -363,8 +364,8 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
   that can pend, an operator decision on the Task 12 PR that changes
   REQ-A1.6, D-13, Task 12 and the REQ-A1.6 test-spec entry. The kickoff
   brief's anchor is re-recorded by an attended `/spec-kickoff` delta
-  re-walkthrough; until then the execution freshness gate stays closed for
-  this bundle.
+  re-walkthrough, which removes this bullet at its sign-off; until then the
+  execution freshness gate stays closed for this bundle.
 
 ## Deferred
 
