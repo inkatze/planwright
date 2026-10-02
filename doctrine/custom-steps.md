@@ -286,15 +286,16 @@ pipeline-entry: execute-task orchestrate drain spec-draft spec-kickoff offload t
 ```
 
 **Permissions (D-11).** Catalogs and lists are read only from the
-human-owned layers: core and adopter sit outside the worktree and outside a
+human-owned layers: core and adopter sit outside the worktree and a
 dispatched worker's write set; repo-tracked and machine-local sit inside it
-and inherit the trusted-repository-code posture the guard already extends to
+and inherit the trusted-repository-code posture the guard extends to
 `scripts/`; the worker profile is unchanged (REQ-G1.2). The worker command
-guard auto-approves, allow-only, a segment whose word sequence, once leading
-assignments in the resolver's exact form for the ten context names are
-stripped, equals exactly a well-formed catalog entry's location, as the
-resolver prints it on the guard's host, followed by its `args`, the location
-having passed the guard's charset and path checks (REQ-G1.3). **A skill step runs under the worker's
+guard auto-approves, allow-only, a segment whose words, minus leading context
+assignments in the resolver's exact form, equal a well-formed catalog entry's
+location as printed on the guard's host, then its `args`, the location
+passing the guard's charset and path checks (REQ-G1.3); one deadline-bounded
+run, killed whole on overrun, resolves every wired point, for cataloged
+targets only. **A skill step runs under the worker's
 permission profile like any other skill, with no elevation**, an `isolated`
 session under the profile its backend gives any session it spawns
 (REQ-G1.4).

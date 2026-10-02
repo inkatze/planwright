@@ -461,11 +461,15 @@ tree carries it. The worker permission profile is unchanged, and a skill
 step gets no elevation.
 
 **Degraded path.** The hook resolves the declarations at most once per
-command, all points in parallel, under a short deadline (`STEPS_DEADLINE` in
+command, in one resolver run over every wired point
+(`resolve-steps.sh <point>... --explain`), and only when the segment's first
+word ends in the file name of a target some layer's steps catalog declares.
+That check and the run share a short deadline (`STEPS_DEADLINE` in
 `scripts/worker-command-guard.sh`, which `PLANWRIGHT_GUARD_STEPS_DEADLINE`
-overrides with 1 to 60 seconds). If `jq` is absent, the resolver fails,
-refuses a layer, or overruns that deadline, or the host's location falls
-outside the plain charset, the segment defers to the normal permission
+overrides with 1 to 60 seconds), and an overrun kills the run as one process
+group, so nothing it started keeps running. If `jq` is absent, the resolver
+fails, refuses a layer, or overruns that deadline, or the host's location
+falls outside the plain charset, the segment defers to the normal permission
 prompt. The fallback is a manual allow entry in the **worker** settings for
 the step's resolved location, for example `Bash(/abs/path/to/tool:*)`. That
 entry is wider than the hook's match (it allows any args). It is also

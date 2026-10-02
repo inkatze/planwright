@@ -1255,25 +1255,34 @@ assert_defer "relative target's location from another working directory deferred
   "$FXC/tools/declared.sh --rel" Bash "$FXC/tools"
 assert_allow "declared line inside fish -c approved" "fish -c '$DECLARED --mode strict'" Bash "$FXC"
 assert_defer "changed declared line inside fish -c deferred" "fish -c '$DECLARED --mode lax'" Bash "$FXC"
+# At the default deadline, on the host running the suite, the resolution of
+# every wired point fits: a declared line is approved with no override.
+HOOK_ENV=("${FX_ENV[@]}")
+assert_allow "declared line approved within the default deadline" "$DECLARED --mode strict" Bash "$FXC"
 HOOK_ENV=()
 assert_defer "declared line with no declaring overlay deferred" "$DECLARED --mode strict" Bash "$FXC"
 
 # The guard's own location checks, independent of what the resolver refuses:
-# a copy of the hook beside a stub resolver that prints the location given.
+# a copy of the hook beside a stub resolver that prints the location given,
+# with the overlay-root helpers the guard's catalog check runs.
+stub_scripts() {
+  mkdir -p "$1/scripts"
+  cp "$REAL_HOOK" "$1/scripts/worker-command-guard.sh"
+  cp "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$REPO_ROOT/scripts/resolve-root.sh" "$1/scripts/"
+}
 stub_root() {
   local root=$1 location=$2 target=$3
-  mkdir -p "$root/scripts"
-  cp "$HOOK" "$root/scripts/worker-command-guard.sh"
+  stub_scripts "$root"
   cat >"$root/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
-[ "\$1" = pre-ci ] || exit 0
+case " \$* " in *" pre-ci "*) ;; *) exit 0 ;; esac
 printf 'run\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\tcommand\t-\thalt\t-\t-\t%s\n' '$target' '$location'
 STUB
 }
 REAL_HOOK=$HOOK
 stub_root "$FX/stub-ok" "$DECLARED" "$DECLARED"
 HOOK="$FX/stub-ok/scripts/worker-command-guard.sh"
-HOOK_ENV=("PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 assert_allow "stub: a clean printed location approved" "$DECLARED" Bash "$FXC"
 stub_root "$FX/stub-dotdot" "$FX/repo/tools/../tools/declared.sh" "$FX/repo/tools/../tools/declared.sh"
 HOOK="$FX/stub-dotdot/scripts/worker-command-guard.sh"
@@ -1298,15 +1307,14 @@ assert_defer "stub: a segment whose first word is not absolute deferred" "tools/
 
 # stub_line <root> <decision> <kind> <exit>: a stub resolver printing one
 # pre-ci line for $DECLARED with the given decision and kind, then exiting
-# with <exit>, and recording each call in <root>/calls.
+# with <exit>, and recording each call's arguments in <root>/calls.
 stub_line() {
   local root=$1 dec=$2 kind=$3 rc=$4
-  mkdir -p "$root/scripts"
-  cp "$REAL_HOOK" "$root/scripts/worker-command-guard.sh"
+  stub_scripts "$root"
   cat >"$root/scripts/resolve-steps.sh" <<STUB
 #!/bin/bash
-echo "\$1" >>'$root/calls'
-[ "\$1" = pre-ci ] || exit 0
+echo "\$*" >>'$root/calls'
+case " \$* " in *" pre-ci "*) ;; *) exit 0 ;; esac
 printf '%s\tx\tpre-ci\trepo-tracked\trepo-tracked\t%s\tin-session\t%s\t-\thalt\t-\t-\t%s\n' '$dec' '$DECLARED' '$kind' '$DECLARED'
 exit $rc
 STUB
@@ -1318,23 +1326,37 @@ for d in skip park ask; do
   stub_line "$FX/stub-$d" "$d" command 0
   assert_defer "stub: a $d decision deferred" "$DECLARED" Bash "$FXC"
 done
+# One run covers every point, so a park at another point exits non-zero
+# without touching this point's run row.
 stub_line "$FX/stub-rc" run command 1
-assert_defer "stub: a resolver exiting non-zero deferred" "$DECLARED" Bash "$FXC"
+assert_allow "stub: a run row from a run another point parked approved" "$DECLARED" Bash "$FXC"
 stub_line "$FX/stub-skill" run skill 0
 assert_defer "stub: a skill step's location deferred" "$DECLARED" Bash "$FXC"
 stub_line "$FX/stub-calls" run command 0
 assert_allow "stub: a known-safe segment approved" "git status" Bash "$FXC"
 assert_defer "stub: a segment without a declared line's shape deferred" "foo bar" Bash "$FXC"
+printf '#!/bin/sh\nexit 0\n' >"$FX/bin/zz-uncataloged"
+chmod +x "$FX/bin/zz-uncataloged"
+assert_defer "stub: a declared line's shape whose file name no catalog carries deferred" \
+  "$FX/bin/zz-uncataloged --mode strict" Bash "$FXC"
+# The catalog check matches a target's last path component, not any text.
+for t in clared.sh unlisted; do
+  printf '#!/bin/sh\nexit 0\n' >"$FX/bin/$t"
+  chmod +x "$FX/bin/$t"
+done
+assert_defer "stub: a file name found only inside a cataloged target's name deferred" \
+  "$FX/bin/clared.sh --mode strict" Bash "$FXC"
+assert_defer "stub: a file name found only as a catalog id deferred" "$FX/bin/unlisted" Bash "$FXC"
 if [ -e "$FX/stub-calls/calls" ]; then
-  fail "the resolver ran for a known-safe or non-declared-shape segment"
+  fail "the resolver ran for a known-safe, non-declared-shape, or uncataloged segment"
 else
-  pass "the resolver never runs for a known-safe or non-declared-shape segment"
+  pass "the resolver never runs for a known-safe, non-declared-shape, or uncataloged segment"
 fi
 assert_allow "stub: two declared segments approved" "$DECLARED && $DECLARED" Bash "$FXC"
-if [ "$(grep -c '^pre-ci$' "$FX/stub-calls/calls")" = 1 ]; then
-  pass "the resolver runs once per point per hook call"
+if [ "$(cat "$FX/stub-calls/calls")" = "$(printf '%s ' pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip)--explain --unattended" ]; then
+  pass "the resolver runs once per hook call, over every wired point"
 else
-  fail "the resolver ran pre-ci $(grep -c '^pre-ci$' "$FX/stub-calls/calls") times in one hook call"
+  fail "the resolver calls in one hook call: $(tr '\n' '|' <"$FX/stub-calls/calls")"
 fi
 HOOK=$REAL_HOOK
 HOOK_ENV=()
@@ -1371,20 +1393,46 @@ else
 fi
 HOOK_ENV=()
 # A resolver that never returns cannot hold the hook past its resolution
-# deadline: the segment defers once the default deadline passes.
-mkdir -p "$FX/stub-slow/scripts"
-cp "$HOOK" "$FX/stub-slow/scripts/worker-command-guard.sh"
-printf '#!/bin/bash\n: >"%s/stub-slow/ran"\nsleep 30\n' "$FX" >"$FX/stub-slow/scripts/resolve-steps.sh"
+# deadline: the segment defers once the default deadline passes, and the
+# resolver and the child it started are killed with their process group.
 REAL_HOOK=$HOOK
+stub_scripts "$FX/stub-slow"
+cat >"$FX/stub-slow/scripts/resolve-steps.sh" <<STUB
+#!/bin/bash
+echo \$\$ >'$FX/stub-slow/self'
+sleep 30 &
+echo \$! >'$FX/stub-slow/child'
+wait
+STUB
 HOOK="$FX/stub-slow/scripts/worker-command-guard.sh"
+HOOK_ENV=("${FX_ENV[@]}")
 SECONDS=0
 run_hook "$DECLARED --mode strict" Bash "$FXC"
 elapsed=$SECONDS
 HOOK=$REAL_HOOK
-if [ "$CODE" -eq 0 ] && is_empty && [ -e "$FX/stub-slow/ran" ] && [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 4 ]; then
+HOOK_ENV=()
+if [ "$CODE" -eq 0 ] && is_empty && [ -s "$FX/stub-slow/child" ] && [ "$elapsed" -ge 1 ] && [ "$elapsed" -le 4 ]; then
   pass "a resolver past the deadline defers within the bound"
 else
   fail "slow resolver — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
+fi
+alive=''
+for f in self child; do
+  pid=$(cat "$FX/stub-slow/$f" 2>/dev/null) || continue
+  n=0
+  while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 20 ]; do
+    sleep 0.1
+    n=$((n + 1))
+  done
+  ! kill -0 "$pid" 2>/dev/null || alive="$alive $f:$pid"
+done
+if [ -s "$FX/stub-slow/self" ] && [ -z "$alive" ]; then
+  pass "a resolver past the deadline leaves no process of its group running"
+else
+  fail "slow resolver left processes running:$alive"
+  for f in self child; do
+    pid=$(cat "$FX/stub-slow/$f" 2>/dev/null) && kill "$pid" 2>/dev/null
+  done
 fi
 
 echo
