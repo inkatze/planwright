@@ -436,8 +436,8 @@ leading context prefix is set aside, are exactly a step's location as the
 resolver prints it on that host followed by the step's `args`. The prefix is
 optional, and when present it is the ten `PLANWRIGHT_STEP_*` assignments in
 the order `resolve-steps.sh --prefix` renders them, each value one the
-resolver would render (no `$` or control byte, and the unit kind, task ids,
-PR number, and point inside their grammars). The location must be absolute
+resolver would render (no control byte, and the unit kind, task ids, and PR
+number inside their grammars), naming a wired point, and carrying no `$`. The location must be absolute
 and plain (letters, digits, `/`, `.`, `_`, `-`), and a path target's
 location must carry no `.`, `..`, or empty segment and name an existing
 executable file. A segment that shares only the first word, spells the bare

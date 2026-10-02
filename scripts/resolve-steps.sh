@@ -195,8 +195,9 @@ TAB=$(printf '\t')
 WIRED_POINTS="pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip"
 UNWIRED_POINTS="spec-drafted kickoff-signed-off unit-selected pre-dispatch post-dispatch unit-halted post-merge orchestrator-idle"
 # scripts/worker-command-guard.sh's STEP_CONTEXT_FIELDS and
-# step_context_value_ok hold the same names, order, and value refusals; they
-# change together.
+# step_context_value_ok hold the same names and order and refuse at least
+# these values (the guard also refuses `$` and a point outside WIRED_POINTS);
+# they change together.
 CONTEXT_FIELDS="SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD"
 OWN_NAMESPACE=planwright
 
