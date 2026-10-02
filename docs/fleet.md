@@ -317,9 +317,53 @@ whatever it reads here.
 Registration is best-effort by design: a registry that cannot be written
 **warns and never fails the dispatch**, since a running worker is a fact and its
 bookkeeping is only a record of one. A single malformed optional column is
-dropped rather than costing the whole record. Note that a failed write is not
-yet self-healing: this registry has one writer, and the periodic sweep scans
-worktrees, not dispatch records, so the warning is the only trace.
+dropped rather than costing the whole record.
+
+A failed write heals on the next sweep. Before its store write, every
+registration leaves a **dispatch marker**, `<fleet-home>/dispatch-markers/<handle>`,
+carrying the same fields, so the registry is a rebuildable index of what is on
+disk. The sweep's registry reconcile (`scripts/fleet-registry-reconcile.sh`)
+works in both directions:
+
+- **Heal.** A marker whose worker has no record, or whose last record is a
+  retirement of other fields (a re-dispatch whose write failed), is rebuilt
+  through `fleet-register.sh --from-marker`, under the same field grammar a
+  dispatch meets. The store writes conditionally under its lock, so concurrent
+  sweeps, and a sweep racing the dispatch's own write, leave exactly one
+  record.
+- **Retire.** A record whose worker has positive death evidence
+  (`fleet-death-evidence.sh` on its death handle, or for a `print` unit its
+  worktree's removal) is marked closed: an eighth `closed` column appended,
+  never a deletion, so the record stays readable per handle while
+  `fleet-status.sh` and the stuck-detector's scan stop listing it. Its marker
+  goes with it. Alive, unknown or errored evidence keeps the record live. Per
+  rung: the two session-grade rungs retire on the `process` verdict, the tmux
+  rungs on the `tmux-window` verdict, and a visual flight's `print` record on
+  its worktree's removal; a record with no death evidence at all (a
+  `subagent` record, an `/offload` `print` record, a tmux record whose window
+  was never matched) never retires and is counted `unjudged` in the summary (a
+  declared gap in the lifecycle-closure floor, not an oversight). A
+  retirement closes exactly the record that was judged, so a re-dispatch under
+  the same handle in between is never closed by it. A record its marker no
+  longer describes, because a superseding write failed, is judged on its own
+  fields and reported `marker-diverged` while it is positively alive (an
+  unknown or unjudged one is reported as such); once it retires, the
+  marker heals into a record.
+- **Refuse.** A marker failing the grammar, naming another handle, or reached
+  through a link is refused, audited, and moved aside under
+  `dispatch-markers/.refused/`; it is never stored. Refused markers stay
+  there for you to inspect and delete; nothing collects them.
+- **Adopt.** A retirement renames a marker aside before comparing it and links
+  it back when it no longer matches. Where that link cannot be made, the aside
+  (`dispatch-markers/.retiring.<pid>.<handle>`) is kept, and the next pass
+  links it back to its name once that process is gone, or drops it when a
+  newer marker already holds the name. It is never renamed back, which could
+  overwrite a marker a dispatch published in between.
+
+A record with no marker, one written before markers existed, is never altered
+or retired for that reason. The reconcile terminates nothing, so it runs in
+both sweep modes; the kill-switch pauses it, and every heal, retirement and
+refusal is an audit record under the `registry-reconcile` mechanism.
 
 The owner token comes from the presence surface's tower identity. A tower that
 already knows its own identity exports it as `PLANWRIGHT_TOWER_ID`; a seam can
@@ -725,8 +769,9 @@ deterministically and will never succeed from that process.
 A repeat stop takes exactly what is still held, so
 `already-closed` means every class is free and nothing was signalled; a repeat
 after a partial close retries only the remainder. A stop does not remove the
-worker's dispatch registry record, and nothing reconciles that record, so
-`fleet-status.sh` keeps listing a stopped worker.
+worker's dispatch registry record: the periodic sweep retires it, marked
+closed, once the worker's death evidence is positive, and until then
+`fleet-status.sh` keeps listing the stopped worker.
 
 `stop <worker> --observe` runs the same checks and releases nothing: it prints
 `stop <worker> would-release=<classes>` for what a close would take now, or
@@ -1526,6 +1571,18 @@ to the reap itself once the close is under way is held until the close is
 recorded, and the reap then exits `5`. A close that could not be recorded is
 exit `6`.
 
+A reap runs under its worker's **reap lock** (`scripts/fleet-reap-lock.sh`,
+`<fleet-home>/reap-locks/<worker>`), so towers sweeping one fleet close a
+worker once and record one termination. A reap that finds another holding the
+lock stands down with exit `5`, nothing signalled; the holder is closing that
+worker, and a later sweep finds it already closed. The hold belongs to the
+reaping process, so a reaper killed mid-reap leaves a lock the next one breaks
+on its holder's absence. A reap that cannot take the lock at all refuses the
+same way rather than assuming it is alone. Once it holds the lock, the reap
+reads the worker's verdict again and stands down if it changed while it
+waited, so a worker another reaper closed and a tower re-dispatched under the
+same handle is never closed on the old verdict.
+
 `--observe` makes the same decision, refusals and exit codes included, then
 asks the rung's `stop --observe` what a close would take now instead of
 closing. A worker with something to take gets a `would-cleanup` record naming
@@ -1558,12 +1615,17 @@ reap     -  declined  no tower identity: all 2 candidate(s) declined; the sweep 
 The knobs are read from the `--repo` checkout's overlay layers wherever the
 sweep is started. The wait between cycles is never under one second.
 
-Each cycle runs five passes: the worktree disk scan, so a worktree nothing
+Each cycle runs six passes: the worktree disk scan, so a worktree nothing
 recorded is tracked; the dirty-tree pass; the `tasks.md` reconcile backstop;
-the process reap; and the flight residues, which retire a gone flight's brief
-and prune the flight index of a checkout that no longer exists. The reap
-hands every worker whose session has ended to `fleet-cleanup.sh process`, so
-it refuses what that refuses and kills only through the rungs' `stop`.
+the process reap; the registry reconcile, which heals and retires dispatch
+records from their markers (see *The dispatch record*) and, terminating
+nothing, runs in both modes; and the flight residues, which retire a gone
+flight's brief and prune the flight index of a checkout that no longer exists.
+The registry reconcile follows the reap so a worker closed this cycle is
+retired in the same one, and the flight pass follows the reconcile so the
+dispatch records it reads are already settled. The reap hands every worker
+whose session has ended to `fleet-cleanup.sh process`, so it refuses what that
+refuses and kills only through the rungs' `stop`.
 
 **It observes until you promote it.** At the default the reap writes the
 `would-cleanup` record for each worker it would have closed and kills nothing,
@@ -1594,7 +1656,17 @@ scan     ok
 reap     <worker>  observed  would-release=process,locks,scratch,attention
 reap     <worker>  declined  refusing '<worker>': it is owned by live peer tower <id>, ...
 summary  mode=observe  workers=4  candidates=2  reaped=0  observed=1  declined=1  already-closed=0  status=ok
+registry heal     <worker>  headless-oneshot
+registry retire   <worker>  process-dead
+registry keep     <worker>  evidence-unknown
+registry refuse   <marker>  refusing marker '<marker>': it names another handle
+registry summary  markers=7  healed=1  retired=1  kept=1  unjudged=1  live=2  refused=1  status=ok
 ```
+
+The registry summary's `live` counts alive records their marker still
+matches, the steady state. Its buckets need not add up to `markers`: a
+retired record's leftover marker being finished, and a marker whose step
+failed (which turns `status` to `degraded`), land in none of them.
 
 A declined candidate carries the refusal the reap gave, so a sweep that turned
 everything down never reads like one that found nothing. A close that acted

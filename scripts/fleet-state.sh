@@ -78,6 +78,11 @@
 # seam that learns a column only after the launch supersedes its own earlier
 # record rather than updating one in place.
 #
+# A RETIRED record is the same row with an eighth column, `closed`, appended by
+# `retire` once the dispatch-record reconcile has positive death evidence for
+# the worker. Nothing is deleted: the live row stays readable per handle, and a
+# reader listing the live inventory skips a worker whose last row is closed.
+#
 # `state-dir` is the directory that IDENTIFIES the worker on disk, the one a
 # close verb matches processes against, where a rung has one: the unit state
 # directory on the two session-grade rungs, the worktree on the `/orchestrate`
@@ -125,9 +130,16 @@
 #   fleet-state.sh unlock                     release the lock (0 released or
 #                                             already free, 2 the path is still
 #                                             standing and could not be cleared).
-#   fleet-state.sh register <worker> <scope> [--owner <token>]
-#       [--backend <name>] [--state-dir <abs-dir>] [--death-handle <handle>]
-#                                             append a dispatch record.
+#   fleet-state.sh register <worker> <scope> [--if-changed | --heal]
+#       [--owner <token>] [--backend <name>] [--state-dir <abs-dir>]
+#       [--death-handle <handle>]             append a dispatch record.
+#       --if-changed writes nothing when the worker's live record already
+#       carries these fields. --heal writes only when the worker has no record,
+#       or its last one is a retired record with other fields.
+#   fleet-state.sh retire <worker> <scope> [the same field flags]
+#                                             mark the worker's live record
+#                                             closed, only while it still
+#                                             carries exactly these fields.
 #   fleet-state.sh registry                   print the registry records.
 #   fleet-state.sh bound-incr <max>           check-and-increment the fleet
 #                                             counter under the bound (0 granted
@@ -136,7 +148,8 @@
 #
 # Exit codes: 0 success/granted; 1 lock busy (one-shot `lock`) or bound reached
 #   (`bound-incr`); 2 usage error, unresolvable home, refused hostile input, or a
-#   filesystem/lock error (fail closed).
+#   filesystem/lock error (fail closed); 3 a conditional `register` or a
+#   `retire` found nothing to write.
 #
 # POSIX sh targeting the macOS + Linux support bar (bash 3.2 / BSD tooling), not
 # strict POSIX: it deliberately uses a few widely-portable extensions — `date
@@ -702,6 +715,32 @@ atomic_write() {
   return 0
 }
 
+# latest_record <registry> <worker> — the worker's last row, compared as
+# strings (an all-numeric handle must not match `1e2`), or nothing.
+latest_record() {
+  [ -f "$1" ] || return 0
+  awk -F'\t' -v w="$2" '($2 "") == (w "") { l = $0 } END { if (l != "") print l }' "$1"
+}
+
+# record_state <row> <fields> — how a worker's last row stands against the
+# six fields a caller would write: `absent`, `live-same`, `live-other`,
+# `closed-same` or `closed-other`. A three-column row predates the owner
+# column and is never the same as anything written now.
+record_state() {
+  if [ -z "$1" ]; then
+    printf 'absent\n'
+    return 0
+  fi
+  # The fields arrive through the environment, not `-v`: awk processes escapes
+  # in a -v value, and a state directory may carry a literal backslash.
+  printf '%s\n' "$1" | RS_WANT=$2 awk -F'\t' '{
+    have = $2
+    for (i = 3; i <= 7; i++) have = have "\t" $i
+    same = (NF >= 7 && have == ENVIRON["RS_WANT"]) ? "same" : "other"
+    print ((NF == 8 && $8 == "closed") ? "closed-" : "live-") same
+  }'
+}
+
 # read_counter <file> — print the integer at <file>, or 0 when absent/malformed.
 # A leading-zero value (`08`, `010`) is malformed too: this script only ever
 # writes canonical decimals, so a leading zero means a tampered/corrupt file.
@@ -724,7 +763,7 @@ read_counter() {
 # ---------------------------------------------------------------------------
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
-  echo "usage: fleet-state.sh root|lock|unlock|register|registry|bound-incr|bound-decr [args]" >&2
+  echo "usage: fleet-state.sh root|lock|unlock|register|retire|registry|bound-incr|bound-decr [args]" >&2
   exit 2
 fi
 
@@ -733,13 +772,13 @@ case $cmd in
     resolve_root
     exit $?
     ;;
-  lock | unlock | register | registry | bound-incr | bound-decr) ;;
+  lock | unlock | register | retire | registry | bound-incr | bound-decr) ;;
   *)
     # Reject an unknown command HERE, before resolving/creating the fleet home,
     # so a typo is a clean usage error (exit 2) that never materializes any
     # fleet-state artifacts (fail-closed / data hygiene, REQ-A1.6). Without this
     # the unconditional mkdir below would create the fleet home on a typo.
-    printf '%s\n' "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
+    printf '%s\n' "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|retire|registry|bound-incr|bound-decr)" >&2
     exit 2
     ;;
 esac
@@ -803,10 +842,18 @@ release_lock() {
     rm -f "$lock" 2>/dev/null || true
   fi
 }
-trap 'release_lock' EXIT
+# The registry append's temp sits beside the registry until its rename lands;
+# the periodic sweep writes through it, and a sweep is normally stopped by a
+# signal, so the exit trap owns it as well as the lock.
+reg_tmp=""
+trap '[ -z "$reg_tmp" ] || rm -f "$reg_tmp" 2>/dev/null; release_lock' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
+# A caller capturing stderr through a pipe can die first; the shell reporting a
+# signalled child onto that pipe would then take a SIGPIPE, and an untrapped
+# one ends this process without its exit trap, leaving the lock held.
+trap 'exit 141' PIPE
 
 case $cmd in
   lock)
@@ -853,7 +900,7 @@ case $cmd in
     exit 0
     ;;
 
-  register)
+  register | retire)
     shift
     positional=0
     worker=""
@@ -862,11 +909,20 @@ case $cmd in
     backend="-"
     state_dir="-"
     death_handle="-"
+    condition=""
     while [ "$#" -gt 0 ]; do
       case $1 in
+        --if-changed | --heal)
+          if [ "$cmd" = retire ] || { [ -n "$condition" ] && [ "$condition" != "$1" ]; }; then
+            printf '%s\n' "fleet-state: $cmd: $1 does not combine with this call" >&2
+            exit 2
+          fi
+          condition=$1
+          shift
+          ;;
         --owner | --backend | --state-dir | --death-handle)
           if [ "$#" -lt 2 ]; then
-            printf '%s\n' "fleet-state: register: $1 needs a value" >&2
+            printf '%s\n' "fleet-state: $cmd: $1 needs a value" >&2
             exit 2
           fi
           case $1 in
@@ -878,7 +934,7 @@ case $cmd in
           shift 2
           ;;
         --*)
-          printf '%s\n' "fleet-state: register: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
+          printf '%s\n' "fleet-state: $cmd: unknown flag '$(sanitize_printable "$1" "(unprintable flag)")'" >&2
           exit 2
           ;;
         *)
@@ -891,7 +947,7 @@ case $cmd in
             1) worker=$1 ;;
             2) scope=$1 ;;
             *)
-              printf '%s\n' "fleet-state: register: unexpected argument" >&2
+              printf '%s\n' "fleet-state: $cmd: unexpected argument" >&2
               exit 2
               ;;
           esac
@@ -900,7 +956,8 @@ case $cmd in
       esac
     done
     if [ "$positional" -ne 2 ] || [ -z "$worker" ] || [ -z "$scope" ]; then
-      printf '%s\n' "usage: fleet-state.sh register <worker> <scope> [--owner <token>] [--backend <name>] [--state-dir <abs-dir>] [--death-handle <handle>]" >&2
+      printf '%s\n' "usage: fleet-state.sh register <worker> <scope> [--if-changed | --heal] [--owner <token>] [--backend <name>] [--state-dir <abs-dir>] [--death-handle <handle>]" >&2
+      printf '%s\n' "       fleet-state.sh retire <worker> <scope> [--owner <token>] [--backend <name>] [--state-dir <abs-dir>] [--death-handle <handle>]" >&2
       exit 2
     fi
     # Validate EVERY field before any write (REQ-F1.1, REQ-A1.6, REQ-K1.4): a
@@ -946,6 +1003,38 @@ case $cmd in
         exit 2
         ;;
     esac
+    # The conditional forms decide against the worker's last row under the
+    # same hold that appends, so two callers racing on one worker cannot both
+    # see it missing. Exit 3 is "nothing to write": the store already says
+    # what the caller would have written.
+    want=$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$worker" "$scope" "$owner" "$backend" \
+      "$state_dir" "$death_handle")
+    closing=""
+    if [ -n "$condition" ] || [ "$cmd" = retire ]; then
+      if ! cur=$(latest_record "$registry" "$worker"); then
+        release_lock
+        printf '%s\n' "fleet-state: could not read the registry" >&2
+        exit 2
+      fi
+      cur=$(record_state "$cur" "$want")
+      skip=0
+      case $cmd/$condition/$cur in
+        # A dispatch re-registering what is already live writes nothing; a
+        # closed row is history, so the same fields after it are a new life.
+        register/--if-changed/live-same) skip=1 ;;
+        # A heal rebuilds a record that is missing, or a re-dispatch after a
+        # retirement; it never overwrites a live one, whose own writer knows
+        # more than the marker the heal read before taking this lock.
+        register/--heal/live-* | register/--heal/closed-same) skip=1 ;;
+        # A retirement closes exactly the record its caller judged dead.
+        retire//live-same) closing="$(printf '\t')closed" ;;
+        retire//*) skip=1 ;;
+      esac
+      if [ "$skip" = 1 ]; then
+        release_lock
+        exit 3
+      fi
+    fi
     rc=0
     # Copy-append-rename so a concurrent reader sees only a complete registry.
     reg_tmp=$(mktemp "$root/.registry.XXXXXX") || rc=2
@@ -955,13 +1044,13 @@ case $cmd in
       fi
     fi
     if [ "$rc" = 0 ]; then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$worker" "$scope" \
-        "$owner" "$backend" "$state_dir" "$death_handle" >>"$reg_tmp" || rc=2
+      printf '%s\t%s%s\n' "$now" "$want" "$closing" >>"$reg_tmp" || rc=2
     fi
     if [ "$rc" = 0 ]; then
       mv -f "$reg_tmp" "$registry" || rc=2
     fi
     [ "$rc" = 0 ] || rm -f "$reg_tmp" 2>/dev/null
+    reg_tmp=""
     release_lock
     if [ "$rc" != 0 ]; then
       printf '%s\n' "fleet-state: failed to append the registry record" >&2
@@ -1028,7 +1117,7 @@ case $cmd in
     # home is created (first case above). This guards against the two command
     # lists drifting — a command added to the fall-through list but not handled
     # here fails loudly rather than silently no-op'ing.
-    printf '%s\n' "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
+    printf '%s\n' "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|retire|registry|bound-incr|bound-decr)" >&2
     exit 2
     ;;
 esac

@@ -35,6 +35,8 @@
 # this file and takes its locks through it:
 #
 #   scripts/run-tests.sh   the test runner's machine-wide ticket pool
+#   scripts/fleet-reap-lock.sh   the per-worker reap lock the reap actuator
+#                          takes, so concurrent sweeps close a worker once
 #
 # Everything else that takes an advisory lock does so by calling a script on
 # that list, so adopting a listed script adopts the tree under it. The list is

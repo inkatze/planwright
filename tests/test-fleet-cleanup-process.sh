@@ -109,6 +109,10 @@ cp "$here/../scripts/"*.sh "$gs/"
 cat >"$gs/fleet-stuck-detector.sh" <<STUB
 #!/bin/sh
 printf '%s\n' "\$*" >>"$tmp/det-calls"
+if [ -s "$tmp/det-out-later" ] && [ "\$(grep -c . "$tmp/det-calls")" -ge 2 ]; then
+  cat "$tmp/det-out-later"
+  exit 0
+fi
 cat "$tmp/det-out"
 exit "\$(cat "$tmp/det-rc")"
 STUB
@@ -135,6 +139,24 @@ if [ -s "$tmp/pause-after" ] && [ "\$(grep -c . "$tmp/gate-calls")" -gt "\$(cat 
   exit 1
 fi
 [ ! -e "$tmp/paused" ]
+STUB
+# The audit trail fails while audit-fails exists, so a close whose record
+# cannot be written is reachable with a fleet home the reap lock can still
+# be taken in.
+mv "$gs/fleet-audit.sh" "$gs/fleet-audit-real.sh"
+cat >"$gs/fleet-audit.sh" <<STUB
+#!/bin/sh
+[ "\${1:-}" = record ] && [ -e "$tmp/audit-fails" ] && exit 2
+exec /bin/sh "$gs/fleet-audit-real.sh" "\$@"
+STUB
+# The reap lock probes its holder's liveness through lock-lib, which reads the
+# process table; that is the lock's staleness question, not the actuator
+# matching or signalling a worker, so the lock runs outside the kill-path
+# recorder below.
+mv "$gs/fleet-reap-lock.sh" "$gs/fleet-reap-lock-real.sh"
+cat >"$gs/fleet-reap-lock.sh" <<STUB
+#!/bin/sh
+PATH='$PATH' exec /bin/sh "$gs/fleet-reap-lock-real.sh" "\$@"
 STUB
 chmod +x "$gs"/*.sh
 
@@ -491,7 +513,9 @@ gate w1 trig why --grace 7 --repo-root /some/repo --tower-id "$self_id"
 expect 0 "stream-json delegation"
 [ "$(cat "$tmp/stop-calls")" = "fleet-streamjson.sh stop w1 --grace 7" ] \
   || fail "stream-json delegation: the rung was asked '$(cat "$tmp/stop-calls")'"
-[ "$(cat "$tmp/det-calls")" = "classify w1 --tower-id $self_id" ] \
+# Asked twice: once to decide, once more under the reap lock.
+[ "$(cat "$tmp/det-calls")" = "classify w1 --tower-id $self_id
+classify w1 --tower-id $self_id" ] \
   || fail "the detector was asked '$(cat "$tmp/det-calls")'"
 det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
 gate w1 trig why --grace 7 --repo-root /some/repo
@@ -502,7 +526,8 @@ gate w1 trig why
 expect 0 "headless delegation without flags"
 [ "$(cat "$tmp/stop-calls")" = "fleet-dispatch-headless.sh stop w1 --expect-dir /fx/state/w1" ] \
   || fail "headless delegation without flags: the rung was asked '$(cat "$tmp/stop-calls")'"
-[ "$(cat "$tmp/det-calls")" = "classify w1" ] || fail "a bare call handed the detector '$(cat "$tmp/det-calls")'"
+[ "$(cat "$tmp/det-calls")" = "classify w1
+classify w1" ] || fail "a bare call handed the detector '$(cat "$tmp/det-calls")'"
 [ "$out" = 'stop w1 stopped released=process,attention' ] || fail "the rung's result line was not passed through: '$out'"
 for sd in - '' rel/dir; do
   DET_SD=$sd det finished-but-unreaped dead-or-unknown completion:result=success headless-oneshot dead
@@ -768,7 +793,9 @@ case $(audit_rows) in
   *) fail "a partial close with no result line did not record its sets as unreported: $(audit_rows)" ;;
 esac
 stop_answers 'stop WORKER partial released=- held=process' 6
-G_HOME="$tmp/unwritable/fleet" gate w1 trig why
+: >"$tmp/audit-fails"
+gate w1 trig why
+rm -f "$tmp/audit-fails"
 expect 6 "an unrecorded partial close"
 case $err in
   *'could not record the partial close'*) ;;
@@ -805,7 +832,9 @@ echo "ok: a rung stop that refuses or fails before acting is reported as not rec
 
 # --- a close that happened but could not be recorded (exit 6) ---------------
 stop_answers 'stop WORKER stopped released=process' 0
-G_HOME="$tmp/unwritable/fleet" gate w1 trig why
+: >"$tmp/audit-fails"
+gate w1 trig why
+rm -f "$tmp/audit-fails"
 expect 6 "an unrecorded reap"
 [ -s "$tmp/stop-calls" ] || fail "an unrecorded reap: the stop never ran"
 case $err in
@@ -813,6 +842,47 @@ case $err in
   *) fail "an unrecorded reap does not say so: $err" ;;
 esac
 echo "ok: a reap whose audit write fails returns exit 6, never a silent success"
+
+# --- one reaper per worker: a held reap lock stands the close down ----------
+# REQ-D1.6: a live reaper's hold means another sweep is closing this worker;
+# a home the lock cannot be taken in is no proof of being alone. Both refuse
+# before the rung is asked anything.
+rm -rf "$gate_home"
+stop_answers 'stop WORKER stopped released=process' 0
+mkdir -p "$gate_home"
+tok=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$gate_home" \
+  /bin/sh "$gs/fleet-reap-lock.sh" take w1 "$$") || fail "fixture: could not hold the reap lock"
+gate w1 trig why
+expect 5 "a reap another sweep holds the lock for"
+never_stopped "a reap another sweep holds the lock for"
+case $err in
+  *'already in progress'*) ;;
+  *) fail "a held reap lock: the refusal does not say another reap is in flight: $err" ;;
+esac
+env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$gate_home" \
+  /bin/sh "$gs/fleet-reap-lock.sh" drop w1 "$tok" || fail "fixture: could not drop the reap lock"
+G_HOME="$tmp/unwritable/fleet" gate w1 trig why
+expect 5 "a reap lock that cannot be taken"
+never_stopped "a reap lock that cannot be taken"
+gate w1 trig why
+expect 0 "a reap once the lock is free"
+[ ! -L "$gate_home/reap-locks/w1" ] || fail "a finished reap left its reap lock held"
+# A verdict that changed while the lock was awaited (the worker another reaper
+# closed, re-dispatched under the same handle) stands the close down.
+det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead
+cp "$tmp/det-out" "$tmp/det-out.first"
+det working dead-or-unknown runtime-running stream-json-persistent dead
+mv "$tmp/det-out" "$tmp/det-out-later"
+mv "$tmp/det-out.first" "$tmp/det-out"
+gate w1 trig why
+rm -f "$tmp/det-out-later"
+expect 5 "a verdict that changed under the reap lock"
+never_stopped "a verdict that changed under the reap lock"
+case $err in
+  *'changed while waiting'*) ;;
+  *) fail "a changed verdict: the refusal does not say why: $err" ;;
+esac
+echo "ok: a reap stands down while another holds the worker's reap lock, refuses when the lock cannot be taken, and releases it when done"
 
 # --- a signal to the actuator mid-close still leaves the close recorded ------
 rm -rf "$gate_home"
