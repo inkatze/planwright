@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.51.0](https://github.com/inkatze/planwright/compare/v0.50.0...v0.51.0) (2026-10-02)
+
+
+### Features
+
+* **human-gates:** add the ready-flip helper and its wiring ([#557](https://github.com/inkatze/planwright/issues/557)) ([732a63a](https://github.com/inkatze/planwright/commit/732a63a7cfa122337440db2d5b49fd7bc109a19b))
+
 ## [0.50.0](https://github.com/inkatze/planwright/compare/v0.49.0...v0.50.0) (2026-10-02)
 
 
