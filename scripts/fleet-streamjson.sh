@@ -1222,6 +1222,14 @@ guard_preflight() {
     [ "$gp_mode" = warn ] && return 0
     return 9
   fi
+  # The worker profile leaves the base merge and the never-pushed rewrites to
+  # the policy guard, so a hook root without it would leave them unrefused (a
+  # hook that fails to run blocks nothing).
+  if [ ! -x "$gp_hook_root/scripts/policy-guard.sh" ]; then
+    echo "$me: launch preflight: the policy guard $gp_hook_root/scripts/policy-guard.sh is missing or not executable; the worker's merges and history rewrites would go unchecked" >&2
+    [ "$gp_mode" = warn ] && return 0
+    return 9
+  fi
   gp_tmp=$(mktemp) || {
     echo "$me: launch preflight: cannot create a temp file for the proof record (TMPDIR=${TMPDIR:-/tmp})" >&2
     [ "$gp_mode" = warn ] && return 0

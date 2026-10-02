@@ -3,15 +3,19 @@
 #
 # Every line of tests/fixtures/reserved-control-spellings is driven through
 # the tower queue's reserved-control check (`tower-queue.sh match`), the
-# ready-guard, the worker and tower command guards, and the worker and tower
-# deny profiles (through the permission-matcher model). The githooks/
-# backstop is not one of the copies driven here. The test fails on any copy whose
-# verdict differs from the line's, on a line that claims a copy is outside its
-# jurisdiction when the wiring says otherwise, and on a malformed line.
+# ready-guard, the worker and tower command guards, the policy guard, and the
+# worker and tower deny profiles (through the permission-matcher model). The
+# githooks/ backstop is not one of the copies driven here. The test fails on any
+# copy whose verdict differs from the line's, on a line that claims a copy is
+# outside its jurisdiction when the wiring says otherwise, and on a malformed
+# line.
 #
 # The ready-guard runs against a pull request it cannot read (`gh pr view`
 # fails), so its verdict measures recognition: a spelling it takes for a flip
-# is denied fail-closed, and anything else defers.
+# is denied fail-closed, and anything else defers. The policy guard runs with
+# the tier and surface its wiring passes, the line's policy value in a
+# machine-local config layer, against sandbox repositories (the fixture
+# header describes them); a tier-`any` line runs it under both tiers.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -u
@@ -24,6 +28,7 @@ FIXTURE="$REPO_ROOT/tests/fixtures/reserved-control-spellings"
 TQ="$REPO_ROOT/scripts/tower-queue.sh"
 WORKER_GUARD="$REPO_ROOT/scripts/worker-command-guard.sh"
 TOWER_GUARD="$REPO_ROOT/scripts/tower-command-guard.sh"
+POLICY_GUARD="$REPO_ROOT/scripts/policy-guard.sh"
 WORKER_SETTINGS="$REPO_ROOT/config/worker-settings.json"
 TOWER_SETTINGS="$REPO_ROOT/config/tower-settings.json"
 HOOKS_JSON="$REPO_ROOT/hooks/hooks.json"
@@ -33,27 +38,29 @@ HOOKS_JSON="$REPO_ROOT/hooks/hooks.json"
 # shellcheck source=tests/lib/permission-matcher.sh
 . "$REPO_ROOT/tests/lib/permission-matcher.sh"
 
-for f in "$FIXTURE" "$TQ" "$WORKER_GUARD" "$TOWER_GUARD" "$WORKER_SETTINGS" "$TOWER_SETTINGS" "$HOOKS_JSON"; do
+for f in "$FIXTURE" "$TQ" "$WORKER_GUARD" "$TOWER_GUARD" "$POLICY_GUARD" "$WORKER_SETTINGS" "$TOWER_SETTINGS" "$HOOKS_JSON"; do
   if [ ! -f "$f" ]; then
     echo "FAIL: missing $f" >&2
     exit 1
   fi
 done
 
-RC_ACTS="pr-merge flip undo-flip force-push protected-push base-merge amend squash fixup rebase"
-RC_COPIES="queue ready wguard tguard wprof tprof"
+RC_ACTS="pr-merge flip undo-flip force-push protected-push base-merge amend squash fixup rebase opaque other"
+RC_COPIES="queue ready wguard tguard pguard wprof tprof"
+# The knobs a policy line may name, each with its legal values.
+RC_KNOBS="ready_flip_policy=human,unit-owner worker_base_merge=allow,deny unpushed_rewrite=allow,deny"
 
 # rc_parse_line <line> — split a fixture line into RC_ACT, RC_TIER, RC_POLICY,
-# RC_VERDICTS (six words, in RC_COPIES order) and RC_SPELL, and check every
+# RC_VERDICTS (seven words, in RC_COPIES order) and RC_SPELL, and check every
 # column. On a malformed line, return 1 with RC_ERR saying why.
 rc_parse_line() {
-  local q r wg tg wp tp v deny_seen=0
+  local q r wg tg pg wp tp v knob val legal
   RC_ERR=""
   RC_ACT="" RC_TIER="" RC_POLICY="" RC_SPELL=""
-  read -r RC_ACT RC_TIER RC_POLICY q r wg tg wp tp RC_SPELL <<EOF
+  read -r RC_ACT RC_TIER RC_POLICY q r wg tg pg wp tp RC_SPELL <<EOF
 $1
 EOF
-  RC_VERDICTS="$q $r $wg $tg $wp $tp"
+  RC_VERDICTS="$q $r $wg $tg $pg $wp $tp"
   if [ -z "$RC_SPELL" ]; then
     RC_ERR="missing a column"
     return 1
@@ -72,61 +79,90 @@ EOF
       return 1
       ;;
   esac
-  if [ "$RC_POLICY" != floor ] && ! [[ $RC_POLICY =~ ^[a-z_]+=[a-z-]+$ ]]; then
-    RC_ERR="policy '$RC_POLICY' is neither floor nor <knob>=<value>"
-    return 1
-  fi
-  for v in $q $r $wg $tg $wp $tp; do
+  case "$RC_POLICY" in
+    floor | floor-guard) ;;
+    *=*)
+      knob=${RC_POLICY%%=*}
+      val=${RC_POLICY#*=}
+      legal=''
+      for v in $RC_KNOBS; do
+        [ "${v%%=*}" != "$knob" ] || legal=${v#*=}
+      done
+      case ",$legal," in
+        ,,)
+          RC_ERR="policy '$RC_POLICY' names a knob the policy guard does not read"
+          return 1
+          ;;
+        *",$val,"*) ;;
+        *)
+          RC_ERR="policy '$RC_POLICY' names a value $knob does not take"
+          return 1
+          ;;
+      esac
+      ;;
+    *)
+      RC_ERR="policy '$RC_POLICY' is neither floor, floor-guard, nor <knob>=<value>"
+      return 1
+      ;;
+  esac
+  for v in $q $r $wg $tg $pg $wp $tp; do
     case "$v" in
-      deny)
-        deny_seen=1
-        ;;
-      defer | prompt | n/a) ;;
+      deny | defer | prompt | n/a) ;;
       *)
         RC_ERR="verdict '$v' is not deny, defer, prompt, or n/a (a column is missing or misplaced)"
         return 1
         ;;
     esac
   done
-  for v in $q $r $wg $tg; do
+  for v in $q $r $wg $tg $pg; do
     if [ "$v" = prompt ]; then
       RC_ERR="only a profile column can expect prompt"
       return 1
     fi
   done
   case "$RC_SPELL" in
-    'git '* | 'gh '* | mcp__*) ;;
+    'git '* | 'gh '* | 'bash '* | 'env '* | mcp__*) ;;
     *)
-      RC_ERR="spelling '$RC_SPELL' is not a git, gh, or MCP call (a column is missing or misplaced)"
+      RC_ERR="spelling '$RC_SPELL' is not a git, gh, wrapped gh, or MCP call (a column is missing or misplaced)"
       return 1
       ;;
   esac
-  if [ "$RC_POLICY" = floor ]; then
-    if [ "$RC_TIER" != any ] || [ "$wp" != deny ] || [ "$tp" != deny ]; then
-      RC_ERR="a floor line must be tier any and denied by both profiles"
-      return 1
-    fi
-    if [ "$q" = defer ]; then
-      RC_ERR="a floor line the tower queue screens must be denied by it"
-      return 1
-    fi
-  fi
-  case "$RC_POLICY" in
-    *=unresolved)
-      if [ "$deny_seen" = 0 ]; then
-        RC_ERR="an unresolved policy line must be denied by some copy"
+  case "$RC_ACT" in
+    opaque | other)
+      if [ "$RC_POLICY" != floor-guard ]; then
+        RC_ERR="an $RC_ACT line is a gh api line, so its policy is floor-guard"
         return 1
       fi
       ;;
-    # Left at the permission prompt by operator decision: every profile that
-    # sees the call must neither deny nor allow it.
-    *=prompt)
+  esac
+  case "$RC_POLICY" in
+    floor)
+      if [ "$RC_TIER" != any ] || [ "$wp" != deny ] || [ "$tp" != deny ]; then
+        RC_ERR="a floor line must be tier any and denied by both profiles"
+        return 1
+      fi
+      if [ "$q" = defer ] || [ "$pg" = defer ]; then
+        RC_ERR="a floor line the tower queue or the policy guard screens must be denied by it"
+        return 1
+      fi
+      ;;
+    # The profiles leave the call at the permission prompt by operator
+    # decision; the policy guard is the refusing layer.
+    floor-guard)
       for v in $wp $tp; do
         if [ "$v" != prompt ] && [ "$v" != n/a ]; then
-          RC_ERR="a prompt policy line must expect prompt from every profile that sees it"
+          RC_ERR="a floor-guard line must expect prompt from every profile that sees it"
           return 1
         fi
       done
+      if [ "$RC_ACT" = other ] && [ "$pg" != defer ] && [ "$pg" != n/a ]; then
+        RC_ERR="an other line is outside the reserved acts, so the policy guard defers it"
+        return 1
+      fi
+      if [ "$RC_ACT" != other ] && [ "$pg" != deny ] && [ "$pg" != n/a ]; then
+        RC_ERR="a floor-guard line must be denied by the policy guard"
+        return 1
+      fi
       ;;
   esac
   return 0
@@ -168,6 +204,10 @@ rc_jurisdiction() {
     ready) wired "$HOOKS_JSON" "$3" ready-guard.sh ;;
     wguard) tier_has "$2" worker && wired "$WORKER_SETTINGS" "$3" worker-command-guard.sh ;;
     tguard) tier_has "$2" tower && wired "$TOWER_SETTINGS" "$3" tower-command-guard.sh ;;
+    pguard)
+      { tier_has "$2" worker && wired "$WORKER_SETTINGS" "$3" policy-guard.sh; } \
+        || { tier_has "$2" tower && wired "$TOWER_SETTINGS" "$3" policy-guard.sh; }
+      ;;
     wprof) tier_has "$2" worker ;;
     tprof) tier_has "$2" tower ;;
     *) return 1 ;;
@@ -179,7 +219,7 @@ rc_jurisdiction() {
 rc_jurisdiction_mismatch() {
   local tool copy v out=""
   tool=$(tool_of "$RC_SPELL")
-  # shellcheck disable=SC2086 # the six verdict words, split on purpose
+  # shellcheck disable=SC2086 # the verdict words, split on purpose
   set -- $RC_VERDICTS
   for copy in $RC_COPIES; do
     v=$1
@@ -206,12 +246,17 @@ hook_verdict() {
 
 # --- the parser rejects a malformed line ------------------------------------
 
-GOOD='pr-merge any floor deny defer defer defer deny deny gh pr merge 42'
-if rc_parse_line "$GOOD"; then
-  pass "a complete line parses"
-else
-  fail "a complete line was rejected: $RC_ERR"
-fi
+GOOD='pr-merge any floor deny defer defer defer deny deny deny gh pr merge 42'
+for good in "$GOOD" \
+  'opaque worker floor-guard n/a defer defer n/a deny prompt n/a gh api graphql -F query=@q.graphql' \
+  'other tower floor-guard defer defer n/a defer defer n/a prompt gh api graphql -f query=x' \
+  'base-merge worker worker_base_merge=allow n/a defer defer n/a defer defer n/a git merge origin/main'; do
+  if rc_parse_line "$good"; then
+    pass "a complete line parses: $good"
+  else
+    fail "a complete line was rejected: $RC_ERR ($good)"
+  fi
+done
 while IFS='|' read -r label bad; do
   [ -n "$label" ] || continue
   if rc_parse_line "$bad"; then
@@ -220,39 +265,41 @@ while IFS='|' read -r label bad; do
     pass "the parser rejects a line with $label ($RC_ERR)"
   fi
 done <<'EOF'
-a verdict column missing|pr-merge any floor deny defer defer defer deny gh pr merge 42
-the policy column missing|pr-merge any deny defer defer defer deny deny gh pr merge 42
-only the leading columns|pr-merge any floor deny defer defer defer deny deny
-an unknown verdict|pr-merge any floor deny defer allow defer deny deny gh pr merge 42
-an unknown act|merge-ish any floor deny defer defer defer deny deny gh pr merge 42
-an unknown tier|pr-merge human floor deny defer defer defer deny deny gh pr merge 42
-a floor line a profile defers|pr-merge any floor deny defer defer defer defer deny gh pr merge 42
-a floor line the queue defers|pr-merge any floor defer defer defer defer deny deny gh pr merge 42
-a floor line scoped to one tier|pr-merge worker floor n/a defer defer n/a deny n/a gh pr merge 42
-an unresolved line nothing denies|base-merge worker worker_base_merge=unresolved n/a defer defer n/a defer n/a git merge origin/main
-a prompt verdict outside a profile column|flip tower gh_api_write=prompt prompt defer n/a defer n/a prompt gh api graphql -F query=@q.graphql
-a prompt policy line a profile only defers|flip tower gh_api_write=prompt deny defer n/a defer n/a defer gh api graphql -F query=@q.graphql
-a prompt policy line a profile denies|flip worker gh_api_write=prompt n/a defer defer n/a deny n/a gh api graphql -F query=@q.graphql
+a verdict column missing|pr-merge any floor deny defer defer defer deny deny gh pr merge 42
+the policy column missing|pr-merge any deny defer defer defer deny deny deny gh pr merge 42
+only the leading columns|pr-merge any floor deny defer defer defer deny deny deny
+an unknown verdict|pr-merge any floor deny defer allow defer deny deny deny gh pr merge 42
+an unknown act|merge-ish any floor deny defer defer defer deny deny deny gh pr merge 42
+an unknown tier|pr-merge human floor deny defer defer defer deny deny deny gh pr merge 42
+a floor line a profile defers|pr-merge any floor deny defer defer defer deny defer deny gh pr merge 42
+a floor line the queue defers|pr-merge any floor defer defer defer defer deny deny deny gh pr merge 42
+a floor line the policy guard defers|pr-merge any floor deny defer defer defer defer deny deny gh pr merge 42
+a floor line scoped to one tier|pr-merge worker floor n/a defer defer n/a deny deny n/a gh pr merge 42
+a knob the guard does not read|base-merge worker merge_policy=human n/a defer defer n/a deny defer n/a git merge origin/main
+a value the knob does not take|base-merge worker worker_base_merge=unresolved n/a defer defer n/a deny defer n/a git merge origin/main
+the retired prompt token|flip tower gh_api_write=prompt deny defer n/a defer deny n/a prompt gh api graphql -F query=@q.graphql
+a prompt verdict outside a profile column|flip tower floor-guard prompt defer n/a defer deny n/a prompt gh api graphql -F query=@q.graphql
+a prompt verdict in the policy-guard column|flip tower floor-guard deny defer n/a defer prompt n/a prompt gh api graphql -F query=@q.graphql
+a floor-guard line a profile only defers|flip tower floor-guard deny defer n/a defer deny n/a defer gh api graphql -F query=@q.graphql
+a floor-guard line a profile denies|flip worker floor-guard n/a defer defer n/a deny deny n/a gh api graphql -F query=@q.graphql
+a floor-guard line the policy guard defers|opaque worker floor-guard n/a defer defer n/a defer prompt n/a gh api graphql -F query=@q.graphql
+an other line the policy guard denies|other worker floor-guard n/a defer defer n/a deny prompt n/a gh api graphql -f query=x
+an opaque line under a knob|opaque worker ready_flip_policy=human n/a defer defer n/a deny prompt n/a gh api graphql -F query=@q.graphql
 EOF
-if rc_parse_line 'flip worker gh_api_write=prompt n/a defer defer n/a prompt n/a gh api graphql -F query=@q.graphql'; then
-  pass "a prompt policy line parses"
-else
-  fail "a prompt policy line was rejected: $RC_ERR"
-fi
 
-rc_parse_line 'base-merge worker worker_base_merge=unresolved defer defer defer n/a deny n/a git merge origin/main' || true
+rc_parse_line 'base-merge worker worker_base_merge=allow defer defer defer n/a defer defer n/a git merge origin/main' || true
 rc_jurisdiction_mismatch
 if [ "$RC_MISMATCH" = queue ]; then
   pass "a line that runs a copy outside its tier is caught"
 else
   fail "a worker line naming a tower-queue verdict was not caught (got '$RC_MISMATCH')"
 fi
-rc_parse_line 'pr-merge any floor deny defer defer defer deny deny mcp__github__merge_pull_request' || true
+rc_parse_line 'pr-merge any floor deny defer defer defer deny deny deny mcp__github__merge_pull_request' || true
 rc_jurisdiction_mismatch
-if [ "$RC_MISMATCH" = "queue ready wguard tguard" ]; then
-  pass "an MCP line that claims verdicts from Bash-only copies is caught"
+if [ "$RC_MISMATCH" = "queue ready wguard tguard pguard" ]; then
+  pass "an MCP line that claims verdicts from copies not wired for it is caught"
 else
-  fail "an MCP line claiming Bash-only verdicts was not caught (got '$RC_MISMATCH')"
+  fail "an MCP line claiming verdicts from unwired copies was not caught (got '$RC_MISMATCH')"
 fi
 
 # --- read the fixture --------------------------------------------------------
@@ -284,7 +331,7 @@ else
   fail "the fixture has no usable lines"
 fi
 
-dups=$(printf '%s\n' "${LINES[@]+"${LINES[@]}"}" | awk '{ k = $2 " " $3; for (i = 10; i <= NF; i++) k = k " " $i; if (seen[k]++) print k }')
+dups=$(printf '%s\n' "${LINES[@]+"${LINES[@]}"}" | awk '{ k = $2 " " $3; for (i = 11; i <= NF; i++) k = k " " $i; if (seen[k]++) print k }')
 if [ -z "$dups" ]; then
   pass "no spelling appears twice for one tier and policy value"
 else
@@ -301,9 +348,14 @@ for act in $RC_ACTS; do
     fail "the fixture has no line for the act $act"
   fi
 done
+# shellcheck disable=SC2016 # the unexpanded $ forms are spellings to find
 for needle in 'git pull' ' master' ':master' 'planwright/human-gates/spec' ' +' 'mcp__github__merge_pull_request' 'mcp__github__update_pull_request' \
   'git -C . ' 'gh api graphql' 'git commit --amen' 'markPullRequestReadyForReview' 'convertPullRequestToDraft' \
-  'mergePullRequest' 'gh api -X PUT' 'gh api --method PUT' 'query=@'; do
+  'mergePullRequest' 'gh api -X PUT' 'gh api --method PUT' 'query=@' \
+  'enablePullRequestAutoMerge' 'enqueuePullRequest' 'mergeBranch' 'updatePullRequestBranch' '/merges ' \
+  '/update-branch' '-XPUT https://' '--method=PUT /repos/' 'force=true' 'git/refs/heads/main' 'contents/' \
+  'query=@-' 'x=@file' '--field query=' '--input' 'gh api "$EP"' 'query="$Q"' 'query="$(' '{branch}' \
+  '--frobnicate' 'bash -c ' 'env gh api' ' && gh api' 'resolveReviewThread' 'requested_reviewers'; do
   if printf '%s\n' "$all" | grep -qF -- "$needle"; then
     pass "the fixture carries a '$needle' spelling"
   else
@@ -409,6 +461,94 @@ for hook in "$WORKER_GUARD" "$TOWER_GUARD"; do
   fi
 done
 
+# --- the policy guard --------------------------------------------------------
+
+# The sandbox the fixture header describes: a bare origin carrying main, the
+# unit's task branch, and a sibling task branch; the unit clone on its task
+# branch with one pushed commit and three unpushed ones. The operator's global
+# and system git config are cut off, since the guard reads git config.
+PG="$SANDBOX/pg"
+PG_UNIT="$PG/unit"
+mkdir -p "$PG/adopter"
+pg_git() {
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c init.defaultBranch=main \
+    -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false "$@" >/dev/null 2>&1
+}
+pg_git init --bare "$PG/origin.git"
+pg_git init "$PG/seed"
+pg_git -C "$PG/seed" commit --allow-empty -m base
+pg_git -C "$PG/seed" push "$PG/origin.git" main
+for b in planwright/demo/task-1 planwright/demo/task-2; do
+  pg_git -C "$PG/seed" switch -c "$b" main
+  pg_git -C "$PG/seed" commit --allow-empty -m "pushed on $b"
+  pg_git -C "$PG/seed" push "$PG/origin.git" "$b"
+done
+pg_git clone "$PG/origin.git" "$PG_UNIT"
+pg_git -C "$PG_UNIT" switch planwright/demo/task-1
+pg_git -C "$PG_UNIT" remote set-head origin main
+for n in 1 2 3; do pg_git -C "$PG_UNIT" commit --allow-empty -m "unpushed $n"; done
+if [ "$(GIT_CONFIG_GLOBAL=/dev/null git -C "$PG_UNIT" rev-list --count HEAD --not --remotes 2>/dev/null)" = 3 ]; then
+  pass "the policy-guard sandbox carries three unpushed commits on the unit branch"
+else
+  fail "the policy-guard sandbox was not built; its verdicts below would be about nothing"
+fi
+
+# The tier and surface the wiring passes the guard for a tool, as
+# "<tier> <surface>", from the profile that wires it for that tier.
+pg_wiring_args() { # <settings-json> <tool>
+  jq -r --arg t "$2" '[.hooks.PreToolUse[]? | select(.matcher == $t) | .hooks[]?.command // "" | select(contains("policy-guard.sh"))][0] // "" | split("policy-guard.sh ") | .[1] // ""' "$1"
+}
+
+# pg_run <tier-args> <spelling> <policy> — one guard verdict.
+pg_run() {
+  local args=$1 spell=$2 policy=$3 tool payload out rc=0
+  tool=$(tool_of "$spell")
+  case $policy in
+    *=*) printf '%s: %s\n' "${policy%%=*}" "${policy#*=}" >"$PG/local.yml" ;;
+    *) : >"$PG/local.yml" ;;
+  esac
+  if [ "$tool" = Bash ]; then
+    payload=$(jq -n --arg c "$spell" --arg w "$PG_UNIT" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')
+  else
+    payload=$(jq -n --arg t "$tool" --arg w "$PG_UNIT" \
+      '{tool_name:$t, tool_input:{owner:"acme", repo:"widgets", pullNumber:42, draft:false}, cwd:$w}')
+  fi
+  # shellcheck disable=SC2086 # "<tier> <surface>", split on purpose
+  out=$(printf '%s' "$payload" | env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    CLAUDE_PROJECT_DIR="$PG_UNIT" PLANWRIGHT_ADOPTER_OVERLAY="$PG/adopter" PLANWRIGHT_REPO_ROOT="$PG_UNIT" \
+    PLANWRIGHT_LOCAL_CONFIG="$PG/local.yml" /bin/bash "$POLICY_GUARD" $args 2>/dev/null) || rc=$?
+  if [ "$rc" != 0 ]; then
+    printf 'exit-%s' "$rc"
+    return
+  fi
+  hook_verdict "$out"
+}
+
+# pg_verdict <tier> <spelling> <policy> — the guard's verdict under every tier
+# the line names that wires it; a split between tiers is reported as such.
+pg_verdict() {
+  local tier=$1 spell=$2 policy=$3 tool t settings args v first='' all=''
+  tool=$(tool_of "$spell")
+  for t in worker tower; do
+    tier_has "$tier" "$t" || continue
+    case $t in
+      worker) settings=$WORKER_SETTINGS ;;
+      tower) settings=$TOWER_SETTINGS ;;
+    esac
+    args=$(pg_wiring_args "$settings" "$tool")
+    [ -n "$args" ] || continue
+    v=$(pg_run "$args" "$spell" "$policy")
+    all="$all $t=$v"
+    [ -n "$first" ] || first=$v
+    [ "$v" = "$first" ] || first='split'
+  done
+  if [ "$first" = split ]; then
+    printf 'split(%s)' "${all# }"
+  else
+    printf '%s' "${first:-unwired}"
+  fi
+}
+
 # --- the deny profiles -------------------------------------------------------
 
 read_rules() { jq -r --arg k "$2" '.permissions[$k] // [] | .[]' "$1"; }
@@ -453,7 +593,7 @@ load_profile() {
 rc_want() {
   local copy=$1 c
   RC_WANT=""
-  # shellcheck disable=SC2086 # the six verdict words, split on purpose
+  # shellcheck disable=SC2086 # the verdict words, split on purpose
   set -- $RC_VERDICTS
   for c in $RC_COPIES; do
     [ "$c" != "$copy" ] || RC_WANT=$1
@@ -484,6 +624,7 @@ drive_copy() {
         ready) got=$(ready_verdict "$RC_SPELL") ;;
         wguard) got=$(guard_verdict "$WORKER_GUARD" "$RC_SPELL") ;;
         tguard) got=$(guard_verdict "$TOWER_GUARD" "$RC_SPELL") ;;
+        pguard) got=$(pg_verdict "$RC_TIER" "$RC_SPELL" "$RC_POLICY") ;;
         wprof) got=$(profile_verdict "$WORKER_SETTINGS" "$RC_SPELL" "$RC_WANT") ;;
         tprof) got=$(profile_verdict "$TOWER_SETTINGS" "$RC_SPELL" "$RC_WANT") ;;
       esac

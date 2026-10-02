@@ -681,7 +681,11 @@ names (Claude Code's `installed_plugins.json` record and its marketplace
 cache). A root the hook does not approve refuses the launch with exit 9,
 naming the root and the command, because the worker would otherwise pend on
 exactly that call with nothing to say so; a hook that is missing or not
-executable, or a proof that could not run at all, refuses the same way.
+executable, or a proof that could not run at all, refuses the same way. So
+does a hook root (the plugin root the wrapper exports) without an executable
+`scripts/policy-guard.sh`: the worker
+profile leaves merges and history rewrites to that guard, and a hook that
+cannot run refuses nothing.
 `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
 downgrades every refusal to a warning and launches, `off` skips the proof, and
 any other value is a usage error. The installed roots the proof covers are
