@@ -1202,6 +1202,39 @@ assert_defer "declared line followed by an unsafe command on the next line defer
   "$DECLARED --mode strict
 rm -rf x" Bash "$FXC"
 assert_defer "declared line with a glob in an arg deferred" "$DECLARED --mode stric*" Bash "$FXC"
+case $RUNNER_LINE in
+  "PLANWRIGHT_STEP_SPEC='custom-steps' "*) pass "the runner's line carries the context prefix" ;;
+  *) fail "the runner's line lost its context prefix: $RUNNER_LINE" ;;
+esac
+# ctx_prefix <unit-kind> <task-ids> <pr> <point>: the ten context assignments
+# in the resolver's order, with the given values for the validated fields.
+ctx_prefix() {
+  printf "PLANWRIGHT_STEP_SPEC='s' PLANWRIGHT_STEP_TASK_IDS='%s' PLANWRIGHT_STEP_UNIT_KIND='%s' PLANWRIGHT_STEP_BRANCH='b' PLANWRIGHT_STEP_BASE_BRANCH='main' PLANWRIGHT_STEP_WORKTREE='%s' PLANWRIGHT_STEP_PR_NUMBER='%s' PLANWRIGHT_STEP_POINT='%s' PLANWRIGHT_STEP_ID='declared' PLANWRIGHT_STEP_PREV_RECORD=''" \
+    "$2" "$1" "$FXC" "$3" "$4"
+}
+assert_allow "hand-written full context prefix approved" \
+  "$(ctx_prefix task '7 8.1' 12 pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_allow "full context prefix with double-quoted and bare values approved" \
+  "PLANWRIGHT_STEP_SPEC=\"s\" PLANWRIGHT_STEP_TASK_IDS= PLANWRIGHT_STEP_UNIT_KIND= PLANWRIGHT_STEP_BRANCH=b PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE=/w PLANWRIGHT_STEP_PR_NUMBER= PLANWRIGHT_STEP_POINT=pre-ci PLANWRIGHT_STEP_ID=x PLANWRIGHT_STEP_PREV_RECORD= $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a partial context prefix deferred" \
+  "PLANWRIGHT_STEP_SPEC=x $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a reordered context prefix deferred" \
+  "$(ctx_prefix task 7 '' pre-ci | sed 's/^\(PLANWRIGHT_STEP_SPEC=[^ ]*\) \(PLANWRIGHT_STEP_TASK_IDS=[^ ]*\)/\2 \1/') $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with a repeated name deferred" \
+  "PLANWRIGHT_STEP_SPEC=x $(ctx_prefix task 7 '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with a unit kind the resolver refuses deferred" \
+  "$(ctx_prefix bogus 7 '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with task ids outside the grammar deferred" \
+  "$(ctx_prefix task '7..1' '' pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with a non-numeric PR number deferred" \
+  "$(ctx_prefix task 7 12a pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix naming an unwired point deferred" \
+  "$(ctx_prefix task 7 '' post-merge) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix value carrying a control byte deferred" \
+  "$(ctx_prefix task 7 '' pre-ci | sed "s/BRANCH='b'/BRANCH='b$(printf '\001')'/") $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with the quote at the equals sign deferred" \
+  "$(ctx_prefix task 7 '' pre-ci | sed "s/PLANWRIGHT_STEP_SPEC='s'/PLANWRIGHT_STEP_SPEC\"=s\"/") $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix with no command deferred" "$(ctx_prefix task 7 '' pre-ci)" Bash "$FXC"
 HOOK_ENV=()
 assert_defer "declared line with no declaring overlay deferred" "$DECLARED --mode strict" Bash "$FXC"
 

@@ -2009,15 +2009,48 @@ DECL_RESOLVED=0
 DECL_LINES=''
 DECL_TMP=''
 
-# step_context_name_ok <name>: one of the resolver's context names.
-step_context_name_ok() {
-  case $1 in
-    PLANWRIGHT_STEP_SPEC | PLANWRIGHT_STEP_TASK_IDS | PLANWRIGHT_STEP_UNIT_KIND | \
-      PLANWRIGHT_STEP_BRANCH | PLANWRIGHT_STEP_BASE_BRANCH | PLANWRIGHT_STEP_WORKTREE | \
-      PLANWRIGHT_STEP_PR_NUMBER | PLANWRIGHT_STEP_POINT | PLANWRIGHT_STEP_ID | \
-      PLANWRIGHT_STEP_PREV_RECORD) return 0 ;;
+# The context names in the order resolve-steps.sh's CONTEXT_FIELDS renders
+# them in --prefix; the lists change together.
+readonly STEP_CONTEXT_FIELDS='SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD'
+
+# step_context_value_ok <field> <value>: a value the resolver would render,
+# refusing what it refuses (a control byte; a unit kind, task ids, or PR number
+# outside their grammar; a point outside the wired ones) plus any `$`.
+step_context_value_ok() {
+  local f=$1 v=$2 id
+  case $v in
+    *[[:cntrl:]]* | *'$'*) return 1 ;;
   esac
-  return 1
+  case $f in
+    UNIT_KIND)
+      case $v in
+        '' | task | spec | flight) ;;
+        *) return 1 ;;
+      esac
+      ;;
+    TASK_IDS)
+      case $v in
+        ' '* | *' ' | *'  '*) return 1 ;;
+      esac
+      for id in $v; do
+        case $id in
+          *[!0-9.]* | . | *.*.* | .* | *.) return 1 ;;
+        esac
+      done
+      ;;
+    PR_NUMBER)
+      case $v in
+        *[!0-9]*) return 1 ;;
+      esac
+      ;;
+    POINT)
+      case " $STEP_POINTS " in
+        *" $v "*) ;;
+        *) return 1 ;;
+      esac
+      ;;
+  esac
+  return 0
 }
 
 # step_arg_ok <word>: the resolver's args charset.
@@ -2121,26 +2154,27 @@ resolve_declared() {
 # `swq` / `swn` from verify_simple, before any tracked-assignment
 # substitution), is a declared step's line. Reads `rn` via dynamic scope.
 declared_line_ok() {
-  local i=0 w name value key
+  local i=0 f w name key
   [ "$rn" -eq 0 ] || return 1
-  while [ "$i" -lt "$swn" ]; do
-    w=${sw[i]}
-    case $w in
-      PLANWRIGHT_STEP_*=*) ;;
-      *) break ;;
-    esac
-    name=${w%%=*}
-    value=${w#*=}
-    step_context_name_ok "$name" || return 1
-    # A quote before the `=` makes the word a command name, not an assignment.
-    if [ "${swq[i]}" -ge 0 ] && [ "${swq[i]}" -le "${#name}" ]; then
-      return 1
-    fi
-    case $value in
-      *'$'*) return 1 ;;
-    esac
-    i=$((i + 1))
-  done
+  case ${sw[0]} in
+    PLANWRIGHT_STEP_*)
+      for f in $STEP_CONTEXT_FIELDS; do
+        [ "$i" -lt "$swn" ] || return 1
+        w=${sw[i]}
+        name=PLANWRIGHT_STEP_$f
+        case $w in
+          "$name="*) ;;
+          *) return 1 ;;
+        esac
+        # A quote before the `=` makes the word a command name, not an assignment.
+        if [ "${swq[i]}" -ge 0 ] && [ "${swq[i]}" -le "${#name}" ]; then
+          return 1
+        fi
+        step_context_value_ok "$f" "${w#*=}" || return 1
+        i=$((i + 1))
+      done
+      ;;
+  esac
   [ "$i" -lt "$swn" ] || return 1
   key=${sw[i]}
   case $key in
