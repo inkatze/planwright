@@ -1838,16 +1838,23 @@ assign_name_ok() {
   return 0
 }
 
-# assign_value_ok <value> <cwd>: the VALUE rule above.
-assign_value_ok() {
-  local v=$1 cwd=$2 canon
-  case $v in
+# bare_abs_path_ok <word>: 0 when the word is an absolute path of
+# [A-Za-z0-9/._-] only, so it carries no `$`, glob, quote, or space.
+bare_abs_path_ok() {
+  case $1 in
     /*) ;;
     *) return 1 ;;
   esac
-  case $v in
+  case $1 in
     *[!A-Za-z0-9/._-]*) return 1 ;;
   esac
+  return 0
+}
+
+# assign_value_ok <value> <cwd>: the VALUE rule above.
+assign_value_ok() {
+  local v=$1 cwd=$2 canon
+  bare_abs_path_ok "$v" || return 1
   canon=$(cd "$v" 2>/dev/null && pwd -P) || return 1
   is_trusted_dir "$canon" "$cwd"
 }
@@ -2078,13 +2085,7 @@ step_arg_ok() {
 # file. A bare target's location is whatever the host's PATH lookup found.
 step_location_ok() {
   local loc=$1 target=$2 d
-  case $loc in
-    /*) ;;
-    *) return 1 ;;
-  esac
-  case $loc in
-    *[!A-Za-z0-9/._-]*) return 1 ;;
-  esac
+  bare_abs_path_ok "$loc" || return 1
   case $target in
     */*)
       case $loc in
@@ -2192,13 +2193,7 @@ declared_line_ok() {
   esac
   [ "$i" -lt "$swn" ] || return 1
   key=${sw[i]}
-  case $key in
-    /*) ;;
-    *) return 1 ;;
-  esac
-  case $key in
-    *[!A-Za-z0-9/._-]*) return 1 ;;
-  esac
+  bare_abs_path_ok "$key" || return 1
   i=$((i + 1))
   while [ "$i" -lt "$swn" ]; do
     step_arg_ok "${sw[i]}" || return 1
