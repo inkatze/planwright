@@ -676,6 +676,35 @@ printf '%s\n' "$err" | grep -q 'could not read the registry' || fail "r11: the p
 ok r11 "an unreadable registry degrades the pass instead of reading as empty"
 
 # ===========================================================================
+# r12 — a marker a retirement left renamed aside (its link back failed) is
+#       adopted back to its name by the next pass when the name is free and
+#       its owner is gone, then reconciled as usual; a newer marker at the
+#       name supersedes it, and a live owner's aside is left alone.
+# ===========================================================================
+h=$(home r12)
+mkdir -p "$h/dispatch-markers"
+dp=$(dead_pid)
+printf 'w-r12\tspec-r:14\t%s\theadless-oneshot\t-\t-\n' "$owner" >"$h/dispatch-markers/.retiring.$dp.w-r12"
+printf 'w-r12b\tspec-r:15\t%s\theadless-oneshot\t-\t-\n' "$owner" >"$h/dispatch-markers/.retiring.$dp.w-r12b"
+printf 'w-r12b\tspec-r:16\t%s\theadless-oneshot\t-\t-\n' "$owner" >"$h/dispatch-markers/w-r12b"
+sleep 300 &
+p12=$!
+printf 'w-r12c\tspec-r:17\t%s\theadless-oneshot\t-\t-\n' "$owner" >"$h/dispatch-markers/.retiring.$p12.w-r12c"
+reconcile "$h"
+[ -f "$(marker "$h" w-r12)" ] || fail "r12: a stranded aside was not adopted back to its name"
+[ ! -e "$h/dispatch-markers/.retiring.$dp.w-r12" ] || fail "r12: the adopted aside stayed beside its marker"
+printf '%s\n' "$out" | grep -q "^adopt${tab}w-r12${tab}" || fail "r12: the adoption was not reported: $out"
+[ "$(rows "$h" w-r12 | grep -c .)" = 1 ] || fail "r12: the adopted marker was not reconciled in the same pass"
+[ "$(audit_count "$h" adopt-marker)" = 1 ] || fail "r12: the adoption was not audited: $(audits "$h")"
+[ ! -e "$h/dispatch-markers/.retiring.$dp.w-r12b" ] || fail "r12: an aside a newer marker supersedes was kept"
+[ "$(cut -f2 "$(marker "$h" w-r12b)")" = spec-r:16 ] || fail "r12: the newer marker was overwritten by a stale aside"
+[ -e "$h/dispatch-markers/.retiring.$p12.w-r12c" ] || fail "r12: a live owner's aside was taken from it"
+[ ! -e "$(marker "$h" w-r12c)" ] || fail "r12: a live owner's aside was adopted"
+kill "$p12" 2>/dev/null
+wait "$p12" 2>/dev/null
+ok r12 "a stranded aside is adopted back by the next pass, superseded by a newer marker, and left to a live owner"
+
+# ===========================================================================
 # c1 — N concurrent reconciles heal each missing record exactly once.
 # ===========================================================================
 h=$(home c1)

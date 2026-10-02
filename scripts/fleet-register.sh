@@ -458,9 +458,13 @@ read_marker() {
 # <line>. It is renamed aside first, so a re-dispatch writing a new marker
 # between the comparison and the removal is never the one removed: a moved-aside
 # marker that reads otherwise is linked back, unless a newer one already took
-# the name. A signal mid-way links it back from the exit trap.
+# the name. A signal mid-way links it back from the exit trap. The aside is
+# named `.retiring.<pid>.<handle>`, so one that cannot be linked back (a
+# filesystem without hard links) is kept and adopted by the next reconcile
+# pass once this process is gone; renaming it back instead could overwrite a
+# marker a concurrent dispatch published in between.
 drop_marker() {
-  mm_aside="${1%/*}/.retiring.$$"
+  mm_aside="${1%/*}/.retiring.$$.${1##*/}"
   mm_restore=$1
   if ! mv -f "$1" "$mm_aside" 2>/dev/null; then
     mm_aside=""
@@ -471,13 +475,7 @@ drop_marker() {
     # A newer marker already at the name supersedes this one; any other
     # failure to link back leaves it aside rather than losing it.
     if ! ln "$mm_aside" "$1" 2>/dev/null && [ ! -e "$1" ] && [ ! -L "$1" ]; then
-      # No hard links here: a rename puts it back just as well while the name
-      # is still free.
-      if mv "$mm_aside" "$1" 2>/dev/null; then
-        mm_aside=""
-        return 0
-      fi
-      warn "could not put back the marker at $1; it is kept as $mm_aside, which no sweep reads, so move it back by hand"
+      warn "could not link the marker back to $1; it is kept as $mm_aside, and the next reconcile pass adopts it"
       mm_aside=""
       return 1
     fi

@@ -353,6 +353,12 @@ works in both directions:
   through a link is refused, audited, and moved aside under
   `dispatch-markers/.refused/`; it is never stored. Refused markers stay
   there for you to inspect and delete; nothing collects them.
+- **Adopt.** A retirement renames a marker aside before comparing it and links
+  it back when it no longer matches. Where that link cannot be made, the aside
+  (`dispatch-markers/.retiring.<pid>.<handle>`) is kept, and the next pass
+  links it back to its name once that process is gone, or drops it when a
+  newer marker already holds the name. It is never renamed back, which could
+  overwrite a marker a dispatch published in between.
 
 A record with no marker, one written before markers existed, is never altered
 or retired for that reason. The reconcile terminates nothing, so it runs in

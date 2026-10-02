@@ -51,6 +51,8 @@
 #                                   record a verdict could not settle, kept
 #                                   live and said so
 #   refuse  <marker> <why>
+#   adopt   <handle> restored | superseded   a marker a retirement left
+#                                   aside, linked back or dropped for a newer one
 #   paused  -        the kill-switch was set mid-pass; the rest waits
 #   summary markers=<n> healed=<n> retired=<n> kept=<n> unjudged=<n> live=<n>
 #           refused=<n> status=<ok|degraded|paused>
@@ -215,6 +217,41 @@ evidence() {
   fi
   return 5
 }
+
+# ADOPT. A retirement renames a marker aside (`.retiring.<pid>.<handle>`)
+# before comparing it, and links it back when it no longer matches; where the
+# link cannot be made, the aside is all that is left of that marker. Once its
+# process is positively gone, it is linked back to its name, never renamed
+# (a rename could overwrite a marker a dispatch has since published), and the
+# loop below then reconciles it like any other. A newer marker at the name
+# supersedes it. An aside that is a link or not a regular file is not one
+# this seam wrote and is left alone.
+set +f
+for aside in "$dir"/.retiring.*; do
+  set -f
+  [ -f "$aside" ] && [ ! -L "$aside" ] || continue
+  a_rest=${aside##*/.retiring.}
+  a_pid=${a_rest%%.*}
+  a_name=${a_rest#*.}
+  [ "$a_name" != "$a_rest" ] || continue
+  case $a_pid in '' | 0* | *[!0-9]*) continue ;; esac
+  case $a_name in '' | . | .. | -* | *[!A-Za-z0-9._=@:-]*) continue ;; esac
+  "$DEATH" process "$a_pid" >/dev/null 2>&1 || continue
+  if [ -e "$dir/$a_name" ] || [ -L "$dir/$a_name" ]; then
+    if rm -f "$aside" 2>/dev/null; then
+      printf 'adopt\t%s\tsuperseded\n' "$a_name"
+      audit discard-aside "marker $a_name left aside by a retirement discarded: a newer marker holds its name"
+    fi
+  elif ln "$aside" "$dir/$a_name" 2>/dev/null; then
+    rm -f "$aside" 2>/dev/null
+    printf 'adopt\t%s\trestored\n' "$a_name"
+    audit adopt-marker "marker $a_name left aside by a retirement linked back to its name"
+  else
+    warn "cannot link the marker left aside for '$a_name' back to its name (no hard links here?); it stays at ${aside##*/}"
+    status=degraded
+  fi
+done
+set -f
 
 # The last row per handle, read once for the whole pass: <handle>TAB<row>.
 # The store's read exits 0 on a file it cannot read, so readability is
