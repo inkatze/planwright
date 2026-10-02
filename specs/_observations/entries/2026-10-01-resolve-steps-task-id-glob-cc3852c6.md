@@ -1,0 +1,1 @@
+- 2026-10-01 [planwright] scripts/resolve-steps.sh checks PLANWRIGHT_STEP_TASK_IDS by splitting the value unquoted, so a `*` glob-expands against its working directory before the task-id grammar sees it; a value like `7*` passes when a matching file exists. Check the charset on the whole value first, as the worker guard now does.
