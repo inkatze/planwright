@@ -286,6 +286,27 @@ check "the halt segment survives the re-park" grep -q 'halt: the operator asked 
 check "the park names awaiting-input" grep -q 'pending ready-flip: awaiting-input' <<<"$(bullet)"
 check "still exactly one lead" [ "$(leads)" = 1 ]
 
+echo "# an indented line under the helper's own segment is live"
+fixture
+set_policy unit-owner
+write_tasks '- **Task 1** — pending ready-flip: ci-rollup failed on 000000000000' '  the operator added a note here'
+gitf commit -q -am 'chore: a note under the park'
+gitf push -q origin "$BRANCH" 2>/dev/null
+record_review
+run_helper flip --spec specs/demo --task 1
+check "a continuation line under the lead blocks (exit 4)" [ "$CODE" = 4 ]
+check "the continuation line survives the re-park" grep -q '^  the operator added a note here$' <<<"$(origin_tasks)"
+
+echo "# fenced illustration is never a park"
+fixture
+set_policy unit-owner
+write_tasks '```markdown' '- **Task 1** — halt: an example, not a park' '```'
+gitf commit -q -am 'docs: an illustration'
+gitf push -q origin "$BRANCH" 2>/dev/null
+record_review
+run_helper flip --spec specs/demo --task 1
+check "a fenced example bullet does not block (exit 0)" [ "$CODE" = 0 ]
+
 echo "# a human park on the base blocks and the park composes with it"
 fixture '- **Task 1** — halt: blocked on a design question'
 set_policy unit-owner

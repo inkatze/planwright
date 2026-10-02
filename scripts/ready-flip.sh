@@ -97,6 +97,8 @@ export LC_ALL
 SCRIPTS=$(cd "$(dirname "$0")" && pwd) || exit 2
 # shellcheck source=scripts/echo-safety.sh
 . "$SCRIPTS/echo-safety.sh"
+# shellcheck source=scripts/spec-parse.sh
+. "$SCRIPTS/spec-parse.sh"
 
 readonly LEAD='pending ready-flip:'
 readonly DASH='—'
@@ -163,7 +165,7 @@ fi
 cd "$WT" 2>/dev/null || refuse 'the worktree cannot be entered'
 TASKS="$SPEC/tasks.md"
 [ -f "$TASKS" ] && [ ! -L "$TASKS" ] || refuse "$(sanitize_printable "$TASKS") is not a regular file"
-grep -qx '\*\*Format-version:\*\* 2' "$TASKS" \
+[ "$(spec_parse_header_value "$TASKS" Format-version 2>/dev/null)" = 2 ] \
   || refuse 'only a format-version 2 bundle can be parked by this helper; park the flip by hand'
 SPEC_NAME=${SPEC##*/}
 [[ $SPEC_NAME =~ ^[a-z0-9][a-z0-9-]*$ ]] || refuse 'the spec directory name is not a spec identifier'
@@ -175,22 +177,13 @@ REMOTE=$(git config "branch.$BRANCH.remote" 2>/dev/null) || REMOTE=origin
 
 # --- the Awaiting-input section ------------------------------------------------
 
-# One awk program, two modes over a tasks.md:
-#   bullets  print `<id>\t<live segments>\t<has continuation 0|1>` for each
-#            unit bullet in the section
-#   edit     rewrite the file: drop the unit bullets' own segments, append SEG
-#            when non-empty (composing BASE bullets for tasks the checkout
-#            lacks), restore or drop the `(none yet)` placeholder
+# The unit's bullets are found through the shared parked-map parse
+# (scripts/spec-parse.sh), never a private one; these programs only split a
+# bullet's payload into segments and edit the lines that parse located.
 # shellcheck disable=SC2016
-SECTION_AWK='
+LIVE_AWK='
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-function bullet_id(line) {
-  if (match(line, /^- \*\*Task [0-9]+(\.[0-9]+)?\*\*/)) return substr(line, 10, RLENGTH - 11)
-  return ""
-}
-function live_of(line,   r, n, parts, i, s, out) {
-  r = line
-  sub(/^- \*\*Task [0-9]+(\.[0-9]+)?\*\*/, "", r)
+function live_of(r,   n, parts, i, s, out) {
   r = trim(r)
   if (index(r, DASH) == 1) r = substr(r, length(DASH) + 1)
   else if (substr(r, 1, 1) == ":" || substr(r, 1, 1) == "-") r = substr(r, 2)
@@ -203,76 +196,100 @@ function live_of(line,   r, n, parts, i, s, out) {
   }
   return out
 }
-function flush(   i, j, id, cont, live, p, m, L, k, nb, anyb, NEWB) {
-  m = 0
-  for (i = 1; i <= n; i++) {
-    id = bullet_id(S[i])
-    if (id != "" && (id in UNIT)) {
-      cont = 0
-      j = i + 1
-      while (j <= n && S[j] ~ /^[ \t]+[^ \t]/) { cont = 1; j++ }
-      live = live_of(S[i])
-      if (MODE == "bullets") { printf "%s\t%s\t%d\n", id, live, cont; i = j - 1; continue }
-      SEEN[id] = 1
-      p = live
-      if (SEG != "") p = (p == "" ? SEG : p "; " SEG)
-      if (p != "" || cont) {
-        O[++m] = "- **Task " id "**" (p == "" ? "" : " " DASH " " p)
-        for (k = i + 1; k < j; k++) O[++m] = S[k]
-      }
-      i = j - 1
-      continue
-    }
-    O[++m] = S[i]
-  }
-  if (MODE == "bullets") return
-  nb = 0
-  if (SEG != "") {
-    for (k = 1; k <= NU; k++) {
-      id = ULIST[k]
-      if (id in SEEN) continue
-      p = (id in BASE && BASE[id] != "") ? BASE[id] "; " SEG : SEG
-      NEWB[++nb] = "- **Task " id "** " DASH " " p
-    }
-  }
-  anyb = (nb > 0)
-  L = 0
-  for (k = 1; k <= m; k++) {
-    if (O[k] ~ /^- /) anyb = 1
-    if (O[k] !~ /^[ \t]*$/) L = k
-  }
-  if (L == 0) {
-    print ""
-    if (nb > 0) { for (k = 1; k <= nb; k++) print NEWB[k] } else print "(none yet)"
-    print ""
-    return
-  }
-  for (k = 1; k <= L; k++) if (!(anyb && O[k] ~ /^\(none yet\)[ \t]*$/)) print O[k]
-  for (k = 1; k <= nb; k++) print NEWB[k]
-  if (!anyb) { kept = 0; for (k = 1; k <= L; k++) if (O[k] !~ /^[ \t]*$/) kept = 1; if (!kept) print "(none yet)" }
-  for (k = L + 1; k <= m; k++) print O[k]
+BEGIN { n = split(IDS, u, " "); for (i = 1; i <= n; i++) UNIT[u[i]] = 1 }
+NR == FNR {
+  if ($1 == "ref" && $3 == "awaiting-input" && ($2 in UNIT)) { ID[$4] = $2; P[$4] = $5 }
+  next
 }
-BEGIN {
-  NU = split(IDS, ULIST, " ")
-  for (k = 1; k <= NU; k++) UNIT[ULIST[k]] = 1
-  if (BASEFILE != "") {
-    while ((getline line < BASEFILE) > 0) {
-      if (split(line, f, "\t") >= 2) BASE[f[1]] = f[2]
-    }
-  }
-}
-{
-  if (insec && /^## /) { flush(); insec = 0 }
-  if (insec) { S[++n] = $0; next }
-  if (MODE == "edit") print
-  if ($0 ~ /^## Awaiting input[ \t]*$/) { insec = 1; n = 0 }
-}
-END { if (insec) flush() }
+(FNR - 1) in ID { C[FNR - 1] = ($0 ~ /^[ \t]+[^ \t]/) }
+END { for (l in ID) printf "%s\t%d\t%s\t%d\n", ID[l], l, live_of(P[l]), C[l] + 0 }
 '
 
-section() { # <mode> <file> [<seg>] [<basefile>]
-  awk -v MODE="$1" -v IDS="${IDS[*]}" -v SEG="${3:-}" -v BASEFILE="${4:-}" \
-    -v LEAD="$LEAD" -v DASH="$DASH" "$SECTION_AWK" "$2"
+# unit_refs <tasks file> — `<id>\t<line>\t<live segments>\t<continued 0|1>`
+# for each unit bullet under `## Awaiting input`. Live segments are the
+# bullet's `; `-joined segments minus this helper's own; an indented line
+# under the bullet (continued) counts as live too.
+unit_refs() {
+  local map
+  map=$(spec_parse_parked_map "$1" 2>/dev/null) || return 1
+  printf '%s\n' "$map" | awk -F '\t' -v IDS="${IDS[*]}" -v LEAD="$LEAD" -v DASH="$DASH" \
+    "$LIVE_AWK" - "$1"
+}
+
+# shellcheck disable=SC2016
+EDIT_AWK='
+BEGIN {
+  DROP = "\001drop"
+  n = split(IDS, U, " ")
+  while ((getline l < REFS) > 0) {
+    split(l, f, "\t")
+    AT[f[2]] = f[1]; LIVE[f[2]] = f[3]; CONT[f[2]] = f[4]; HAS[f[1]] = 1
+  }
+  if (BASEREFS != "") while ((getline l < BASEREFS) > 0) {
+    split(l, f, "\t")
+    if (f[3] != "") BLIVE[f[1]] = f[3]
+  }
+  nb = 0
+  if (SEG != "") for (i = 1; i <= n; i++) if (!(U[i] in HAS)) {
+    p = (U[i] in BLIVE) ? BLIVE[U[i]] "; " SEG : SEG
+    NEWB[++nb] = "- **Task " U[i] "** " DASH " " p
+  }
+  remaining = BULLETS + nb
+}
+{
+  h = $0
+  sub(/\r$/, "", h)
+  if (H && !E && h ~ /^## /) E = FNR
+  if (!H && h ~ /^## Awaiting input[ \t]*$/) H = FNR
+  if (FNR in AT) {
+    p = LIVE[FNR]
+    if (SEG != "") p = (p == "" ? SEG : p "; " SEG)
+    if (p == "" && !CONT[FNR]) { remaining--; out[FNR] = DROP; next }
+    out[FNR] = "- **Task " AT[FNR] "**" (p == "" ? "" : " " DASH " " p)
+    next
+  }
+  out[FNR] = $0
+}
+END {
+  m = FNR
+  if (!H) exit (nb > 0 ? 3 : 0)
+  if (!E) E = m + 1
+  content = 0; ph = 0; last = 0; first = 0
+  for (k = H + 1; k < E; k++) {
+    t = out[k]
+    if (t == DROP) { if (!first) first = k; continue }
+    if (t ~ /^\(none yet\)[ \t\r]*$/) { ph = 1; last = k; continue }
+    if (t !~ /^[ \t\r]*$/) { content = 1; last = k }
+  }
+  needph = (remaining == 0 && !content && !ph)
+  pre = 0
+  if (!last) { last = (H + 1 < E && out[H + 1] ~ /^[ \t\r]*$/) ? H + 1 : H; pre = (last == H) }
+  for (k = 1; k <= m; k++) {
+    t = out[k]
+    if (t == DROP) { if (k == first && needph) print "(none yet)" }
+    else if (k > H && k < E && remaining > 0 && t ~ /^\(none yet\)[ \t\r]*$/) { }
+    else print t
+    if (k == last && nb > 0) {
+      if (pre) print ""
+      for (j = 1; j <= nb; j++) print NEWB[j]
+    }
+  }
+}
+'
+
+# edit_tasks <file> <segment> [<base refs>] — the file with each unit
+# bullet's own segment dropped and <segment>, when non-empty, appended; a unit
+# task with no bullet gains one, composed from the base's live segments first
+# so the branch never conflicts with the base's bullet. The section's
+# `(none yet)` placeholder goes once it holds a bullet and comes back when it
+# holds nothing.
+edit_tasks() {
+  local refs="$SCRATCH/refs.edit" bullets
+  unit_refs "$1" >"$refs" || return 1
+  bullets=$(spec_parse_parked_map "$1" 2>/dev/null | awk -F '\t' '$3 == "awaiting-input" { n++ } END { print n + 0 }') \
+    || return 1
+  awk -v IDS="${IDS[*]}" -v SEG="$2" -v DASH="$DASH" -v BULLETS="$bullets" \
+    -v REFS="$refs" -v BASEREFS="${3:-}" "$EDIT_AWK" "$1"
 }
 
 # strip_section <file> — the file without the Awaiting-input section's body.
@@ -322,7 +339,7 @@ reconcile() {
     COMMIT_ERR="$TASKS has uncommitted changes"
     return 1
   }
-  section edit "$TASKS" >"$SCRATCH/tasks.new" || {
+  edit_tasks "$TASKS" '' >"$SCRATCH/tasks.new" || {
     COMMIT_ERR='tasks.md could not be read'
     return 1
   }
@@ -435,7 +452,7 @@ failed_preds() {
 
 pred_awaiting() {
   local where='' b
-  section bullets "$TASKS" >"$SCRATCH/live.local" 2>/dev/null || {
+  unit_refs "$TASKS" >"$SCRATCH/live.local" || {
     set_pred awaiting-input fail 'the checkout tasks.md could not be read'
     return
   }
@@ -451,10 +468,14 @@ pred_awaiting() {
       set_pred awaiting-input fail "tasks.md on $REMOTE/$PR_BASE could not be read"
       return
     }
-    section bullets "$SCRATCH/base.tasks" >"$BASE_BULLETS" 2>/dev/null
+    unit_refs "$SCRATCH/base.tasks" >"$BASE_BULLETS" || {
+      : >"$BASE_BULLETS"
+      set_pred awaiting-input fail "tasks.md on $REMOTE/$PR_BASE could not be parsed"
+      return
+    }
   fi
   for b in local base; do
-    if awk -F '\t' '$2 != "" || $3 == 1 { found = 1 } END { exit !found }' "$SCRATCH/live.$b"; then
+    if awk -F '\t' '$3 != "" || $4 == 1 { found = 1 } END { exit !found }' "$SCRATCH/live.$b"; then
       where="${where:+$where and }$([ "$b" = local ] && echo 'the checkout' || echo "$REMOTE/$PR_BASE")"
     fi
   done
@@ -649,7 +670,7 @@ park() {
     COMMIT_ERR="$TASKS has uncommitted changes"
     return 1
   }
-  section edit "$TASKS" "$seg" "${BASE_BULLETS:-}" >"$SCRATCH/tasks.new" || {
+  edit_tasks "$TASKS" "$seg" "${BASE_BULLETS:-}" >"$SCRATCH/tasks.new" || {
     COMMIT_ERR='tasks.md could not be read'
     return 1
   }

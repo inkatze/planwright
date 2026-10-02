@@ -1150,6 +1150,7 @@ w2() {
     || fail "w2: SKILL.md lost the PR-creation never-merge contract"
   grep -Eq '^- \*\*Never\*\* create a non-draft PR or merge' "$SKILL" \
     || fail "w2: SKILL.md lost the never-merge invariant"
+  # shellcheck disable=SC2016 # literal backticks of the skill's markdown
   tr '\n' ' ' <"$SKILL" | grep -Eq 'flip one +ready outside the `unit-owner` path' \
     || fail "w2: SKILL.md lost the invariant confining the flip to the unit-owner path"
   echo "ok w2: /execute-task opens a draft PR and flips only through the unit-owner path"
