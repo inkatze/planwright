@@ -359,10 +359,12 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
 
 ## Awaiting input
 
-- **Task 12** — anchor re-review pending: the 2026-10-02 amendment (requirements
-  Changelog) narrowed the rehearsal's waiting-on-a-human assertion to rungs
-  that can pend, an operator decision on the Task 12 PR that changes
-  REQ-A1.6, D-13, Task 12 and the REQ-A1.6 test-spec entry. The kickoff
+- **Task 12** — anchor re-review pending: the two 2026-10-02 amendments
+  (requirements Changelog), operator decisions on the Task 12 PR: the
+  rehearsal's waiting-on-a-human assertion narrowed to rungs that can pend
+  (REQ-A1.6, D-13, Task 12 and the REQ-A1.6 test-spec entry), and terminate
+  mode exercised by verifying the refusal while the sweep refuses it (the
+  REQ-F1.7 test-spec entry). The kickoff
   brief's anchor is re-recorded by an attended `/spec-kickoff` delta
   re-walkthrough, which removes this bullet at its sign-off; until then the
   execution freshness gate stays closed for this bundle.

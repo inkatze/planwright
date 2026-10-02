@@ -329,6 +329,9 @@ release.
 
 The REQ-A1.6 rehearsal runs the sweep in both modes, so the observing-only path
 that ships by default is exercised rather than left to rot until promotion.
+While the sweep refuses `terminate` everywhere, the terminate cycle exercises
+that mode by verifying the refusal: the knob must be read and the sweep must
+say it refused, observing instead.
 
 ## REQ-G — Steer
 

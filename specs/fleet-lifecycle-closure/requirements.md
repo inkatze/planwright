@@ -523,6 +523,14 @@ ending and what evidence that authorization required.
   The kickoff brief and its anchor are re-recorded by a `/spec-kickoff` delta
   re-walkthrough, not by this change.
 
+- 2026-10-02 — Amendment (meaning-class, operator decision on the Task 12
+  PR). REQ-F1.7's "both sweep modes" is discharged for terminate mode by
+  verifying the refusal while the sweep refuses `terminate` everywhere: the
+  terminate cycle must read the knob and say it refused. Once terminate is
+  re-enabled the rehearsal exercises it as honoured. Noted on the REQ-F1.7
+  test-spec entry; the same `/spec-kickoff` delta re-walkthrough re-records
+  the anchor.
+
 ## Sources
 
 - **The drafting brief (2026-08-18).** The operator's framing of the
