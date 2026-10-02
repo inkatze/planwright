@@ -667,6 +667,7 @@ h17() {
   # (a) `.orchestrate` redirects the base outside the repo.
   root="$tmp/repo-h17a"
   mkdir -p "$root/specs/$SPEC"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$root"
   victim="$tmp/victim-h17a"
   mkdir -p "$victim/headless/$ID"
   printf 'precious\n' >"$victim/headless/$ID/keep.txt"
@@ -686,6 +687,7 @@ h17() {
   # (b) the same escape one level up: `specs/<spec>` itself is the symlink.
   root="$tmp/repo-h17b"
   mkdir -p "$root/specs"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$root"
   victim="$tmp/victim-h17b"
   mkdir -p "$victim/.orchestrate/headless/$ID"
   printf 'precious\n' >"$victim/.orchestrate/headless/$ID/keep.txt"
@@ -714,6 +716,7 @@ h18() {
   make_fake "$tmp/rec-h18"
   root="$tmp/repo-h18"
   mkdir -p "$root/specs/$SPEC"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$root"
   ln -s "$root" "$tmp/repolink-h18"
   code=0
   printf 'p' | env -u PLANWRIGHT_HEADLESS_STATE_DIR PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \

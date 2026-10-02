@@ -57,7 +57,7 @@ run() {
   env -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID \
     PLANWRIGHT_FLEET_STATE_DIR="$home" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
     "$@"
 }
@@ -183,7 +183,7 @@ printf 'w-solo\ttc:task-20\tworking\t9000\nw-late\ttc:task-21\tended\t9000\nw-la
 env -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID \
   PLANWRIGHT_FLEET_STATE_DIR="$home2" \
   PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-  PLANWRIGHT_REPO_ROOT="$tmp" \
+  PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
   /bin/sh "$TL" tick --tower "$tower" --now 9230 >"$tmp/out" || fail "last-row tick: exit"
 grep -q '^tick	live=2$' "$tmp/out" || fail "last-row tick: reported '$(cat "$tmp/out")', expected live=2 (a handle's last row is its state)"
@@ -195,7 +195,7 @@ run2() {
   env -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID \
     PLANWRIGHT_FLEET_STATE_DIR="$home2" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
     "$@"
 }

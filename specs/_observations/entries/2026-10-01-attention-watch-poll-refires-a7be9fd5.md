@@ -1,0 +1,1 @@
+- 2026-10-01 [planwright] fleet-attention-watch.sh watch falls back to a 5s poll when neither inotifywait nor fswatch is installed, and on that path re-emits a row whose waiting timer resets, so an unanswered permission request re-fires every pass; a tower subscribing to it needs its own per-row dedupe today (2026-10-01).

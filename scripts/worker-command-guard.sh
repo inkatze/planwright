@@ -2108,8 +2108,7 @@ step_location_ok() {
 # resolve-overlay-root.sh at the per-layer locations resolve-catalog.sh reads
 # (the locations change together). A declared step's location always ends in
 # its target's file name, so a miss means nothing can match; a hit only
-# admits the resolution. Exports the repository root it found, sparing the
-# resolver the lookup.
+# admits the resolution.
 step_name_cataloged() {
   local ors=$HOOK_SELF_ROOT/scripts/resolve-overlay-root.sh l r f re
   local -a files=()
@@ -2126,7 +2125,6 @@ step_name_cataloged() {
   if [ -n "$r" ]; then
     files[${#files[@]}]=$r/catalogs/steps.yaml
     files[${#files[@]}]=$r/catalogs.local/steps.yaml
-    [ -n "${PLANWRIGHT_REPO_ROOT:-}" ] || export PLANWRIGHT_REPO_ROOT=${r%/.claude}
   fi
   # The name is in the location charset, where only `.` is a regex operator.
   re=${1//./\\.}

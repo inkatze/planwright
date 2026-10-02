@@ -182,13 +182,14 @@ try_overlay() {
 # then adopter. Each shares <repo>/.claude for the repo-side pair, distinguished
 # by the doctrine.local/ vs doctrine/ subdir (D-4). That shared root is
 # resolved once and pinned, since finding the primary checkout costs several
-# git calls.
-if [ -n "$overlay_helper" ] && [ -z "${PLANWRIGHT_REPO_ROOT:-}" ]; then
+# git calls and a refused override would otherwise be refused once per layer;
+# none pins its absence.
+if [ -n "$overlay_helper" ]; then
   repo_claude=$("$overlay_helper" repo-tracked) || repo_claude=""
-  if [ -n "${repo_claude%/.claude}" ]; then
-    PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
-    export PLANWRIGHT_REPO_ROOT
-  fi
+  PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
+  [ -n "$repo_claude" ] || PLANWRIGHT_REPO_ROOT=none
+  PLANWRIGHT_REPO_ROOT_CHECKED=$PLANWRIGHT_REPO_ROOT
+  export PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
 fi
 try_overlay machine-local doctrine.local
 try_overlay repo-tracked doctrine

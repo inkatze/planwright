@@ -74,7 +74,7 @@ B=tower-b
 env_run() {
   PLANWRIGHT_FLEET_STATE_DIR="$home" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
     PLANWRIGHT_ACTION_LEDGER="" \
     PLANWRIGHT_ATTENTION_SURFACE_PROVIDED="" \
@@ -257,7 +257,7 @@ chmod 0700 "$spaced" "$spaced/attention" "$spaced/attention/push"
 printf 'planwright: pending under a spaced home.\n' >"$spaced/attention/push/i00000009"
 chmod 0600 "$spaced/attention/push/i00000009"
 : >"$errf"
-spaced_out=$(PLANWRIGHT_FLEET_STATE_DIR="$spaced" PLANWRIGHT_REPO_ROOT="$tmp" \
+spaced_out=$(PLANWRIGHT_FLEET_STATE_DIR="$spaced" PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="$local_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
   /bin/sh "$FA" relay 2>"$errf") || fail "relay refused a fleet home carrying a space"
 [ "$(tag "$spaced_out" push | awk -F "$TAB" '{ print $2 }')" = i00000009 ] \
@@ -286,7 +286,7 @@ chmod 0700 "$filed" "$filed/attention"
 : >"$filed/attention/push"
 filed_rc=0
 : >"$errf"
-PLANWRIGHT_FLEET_STATE_DIR="$filed" PLANWRIGHT_REPO_ROOT="$tmp" \
+PLANWRIGHT_FLEET_STATE_DIR="$filed" PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="$local_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
   /bin/sh "$FA" relay >/dev/null 2>"$errf" || filed_rc=$?
 [ "$filed_rc" != 0 ] || fail "a regular file at the push path read as an idle channel"
@@ -299,7 +299,7 @@ mkdir -p "$filed/attention/push/i00000005"
 chmod 0700 "$filed/attention/push" "$filed/attention/push/i00000005"
 filed_rc=0
 : >"$errf"
-PLANWRIGHT_FLEET_STATE_DIR="$filed" PLANWRIGHT_REPO_ROOT="$tmp" \
+PLANWRIGHT_FLEET_STATE_DIR="$filed" PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="$local_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
   /bin/sh "$FA" relay >/dev/null 2>"$errf" || filed_rc=$?
 [ "$filed_rc" != 0 ] || fail "a pending set holding only a directory read as an idle channel"

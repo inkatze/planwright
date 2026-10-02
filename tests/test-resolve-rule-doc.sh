@@ -40,12 +40,10 @@ trap 'rm -rf "$tmp"' EXIT
 
 # Isolate the core-resolution tests below from any ambient overlay layers a
 # developer's environment might carry (a set CLAUDE_PLUGIN_DATA, the cwd
-# repo's own .claude/doctrine): point the repo-side layers at an overlay-less
-# dir and clear the adopter/plugin-data arms. The overlay-specific tests
-# further down set these env vars per-invocation, so the isolation here only
-# affects the pre-existing core tests (REQ-D1.2 no-regression / R4).
-mkdir -p "$tmp/no-repo"
-export PLANWRIGHT_REPO_ROOT="$tmp/no-repo"
+# repo's own .claude/doctrine): switch the repo-side layers off and clear the
+# adopter/plugin-data arms. The overlay-specific tests further down set these
+# env vars per-invocation, so the isolation here only affects the pre-existing core tests (REQ-D1.2 no-regression / R4).
+export PLANWRIGHT_REPO_ROOT=none
 unset PLANWRIGHT_ADOPTER_OVERLAY CLAUDE_PLUGIN_DATA
 
 # Fixture: a fake plugin root and a fake writer-mode claude dir.
@@ -227,6 +225,7 @@ ovadopter="$ovbase/ov-adopter"
 ovrepo="$ovbase/ov-repo"
 mkdir -p "$ovcore/doctrine" "$ovadopter/doctrine" \
   "$ovrepo/.claude/doctrine" "$ovrepo/.claude/doctrine.local"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$ovrepo"
 
 # A doc present in all four layers, each with distinct content.
 printf 'CORE BODY\nCORE-ONLY SECTION\n' >"$ovcore/doctrine/layered.md"
@@ -437,7 +436,7 @@ rm "$ovrepo/.claude/doctrine/layered.md" "$ovrepo/.claude/doctrine/security-post
 #      fails this test. Resolved against the worktree's own doctrine/.
 for d in $PROTECTED_DOCS; do
   PLANWRIGHT_ROOT="$REPO_ROOT" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
-    PLANWRIGHT_ADOPTER_OVERLAY="" PLANWRIGHT_REPO_ROOT="$tmp/no-repo" \
+    PLANWRIGHT_ADOPTER_OVERLAY="" PLANWRIGHT_REPO_ROOT=none \
     /bin/bash "$RESOLVER" "$d" >/dev/null 2>&1
   assert "protected doc resolves in core: $d" 0 $?
 done
@@ -538,19 +537,20 @@ mkdir -p "$noxr_dir"
 cp "$RESOLVER" "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$REPO_ROOT/scripts/resolve-root.sh" "$noxr_dir/"
 chmod 644 "$noxr_dir/resolve-root.sh"
 out="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
-  PLANWRIGHT_ADOPTER_OVERLAY="$ovbase/no-adopter" PLANWRIGHT_REPO_ROOT="$ovbase/no-repo" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$ovbase/no-adopter" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$noxr_dir/resolve-rule-doc.sh" provdoc 2>/dev/null)"
 assert "non-executable root helper: resolves core, zero exit" 0 $?
 assert_eq "non-executable root helper: lands on core" "CORE ONLY" "$(cat "$out" 2>/dev/null)"
 
 # 22c. The two repo-side layers share one repository root, so an unpinned call
-#      resolves the primary checkout once, not once per layer.
+#      derives the primary checkout once, not once per layer; the layers take
+#      the pinned value as already checked, so they spawn no lookup at all.
 cnt_dir="$ovbase/count-primary"
 mkdir -p "$cnt_dir"
 cp "$RESOLVER" "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$cnt_dir/"
 cp "$REPO_ROOT/scripts/resolve-root.sh" "$cnt_dir/resolve-root.real.sh"
 # shellcheck disable=SC2016 # the shim's own \$0 and \$@ must stay literal
-printf '%s\n' '#!/bin/sh' "printf '%s\\n' \"\$*\" >>\"$ovbase/primary-calls.log\"" \
+printf '%s\n' '#!/bin/sh' "printf '%s %s\\n' \"\${PLANWRIGHT_REPO_ROOT:-derive}\" \"\$*\" >>\"$ovbase/primary-calls.log\"" \
   'exec /bin/sh "${0%/*}/resolve-root.real.sh" "$@"' >"$cnt_dir/resolve-root.sh"
 cnt_repo="$ovbase/count-repo"
 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c init.defaultBranch=main init -q "$cnt_repo"
@@ -559,8 +559,10 @@ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c init.defaultBranch=main
   CLAUDE_DIR="" HOME="" PLANWRIGHT_ADOPTER_OVERLAY="$ovbase/no-adopter" \
   /bin/bash "$cnt_dir/resolve-rule-doc.sh" provdoc >/dev/null 2>&1)
 assert "unpinned repo-side layers: resolves, zero exit" 0 $?
-assert_eq "unpinned repo-side layers: the primary checkout is resolved once" "1" \
-  "$(grep -c -- 'repo --primary' "$ovbase/primary-calls.log")"
+assert_eq "unpinned repo-side layers: the primary checkout is derived once" "1" \
+  "$(grep -c -- '^derive repo --primary' "$ovbase/primary-calls.log")"
+assert_eq "unpinned repo-side layers: no later lookup re-checks the checked pin" "0" \
+  "$(grep -c -- "^$cnt_repo repo --primary" "$ovbase/primary-calls.log")"
 
 # 23. The resolver surfaces the overlay helper's own diagnostics rather than
 #     swallowing them (the layer-root call must not use 2>/dev/null). When the
@@ -576,7 +578,7 @@ printf 'WRITER CORE\n' >"$wdir/planwright/doctrine/badname-doc.md"
 printf '{ "name": "Bad Name!" }\n' >"$wdir/planwright/plugin.json"
 err="$(PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" CLAUDE_PLUGIN_DATA="" \
   CLAUDE_DIR="$wdir" HOME="" PLANWRIGHT_ADOPTER_OVERLAY="" \
-  PLANWRIGHT_REPO_ROOT="$tmp/no-repo" \
+  PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVER" badname-doc 2>&1 >/dev/null)"
 case "$err" in
   *"not a valid identifier"*) echo "ok: resolver surfaces helper diagnostics (invalid manifest name)" ;;
@@ -597,7 +599,7 @@ esac
 #     satisfy it.
 out="$(PLANWRIGHT_ROOT="$REPO_ROOT" CLAUDE_PLUGIN_ROOT="" CLAUDE_PLUGIN_DATA="" \
   CLAUDE_DIR="" HOME="" \
-  PLANWRIGHT_ADOPTER_OVERLAY="" PLANWRIGHT_REPO_ROOT="$tmp/no-repo" \
+  PLANWRIGHT_ADOPTER_OVERLAY="" PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$RESOLVER" autopilot-reflex 2>/dev/null)"
 assert "shipped autopilot-reflex doc resolves" 0 $?
 assert_eq "shipped autopilot-reflex doc path" \

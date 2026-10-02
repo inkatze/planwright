@@ -405,4 +405,15 @@ run 2 check
 run 2 check demo-0123abcd --repo-root "$repo"
 run 2 new demo --repo-root
 
+# A spec root that does not resolve leaves the record evidence unreadable: an
+# evidence failure (5), not a refused slug (2).
+unres=$tmp/unresolved-root
+git -c init.defaultBranch=main init -q "$unres"
+gitc "$unres" commit -q --allow-empty -m init
+mkdir -p "$unres/.claude" "$unres/unmarked"
+printf 'spec_root: unmarked\n' >"$unres/.claude/planwright.yml"
+run 5 new demo --repo-root "$unres"
+[ -z "$OUT" ] || fail "an unresolved spec root still minted [$OUT]"
+echo "ok: an unresolved spec root is an evidence failure, not a slug refusal"
+
 echo "PASS: test-flight-id"

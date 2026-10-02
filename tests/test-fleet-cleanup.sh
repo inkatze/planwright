@@ -85,6 +85,7 @@ trap 'rm -rf "$tmp"' EXIT
 core_cfg="$tmp/core-defaults.yml"
 repo="$tmp/repo"
 mkdir -p "$repo/.claude"
+git init -q "$repo"
 printf 'fleet_daemon_pause: false\n' >"$core_cfg"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
 

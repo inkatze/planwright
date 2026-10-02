@@ -75,7 +75,7 @@ git -C "$co2" remote add origin "https://example.invalid/tower-comms/other.git"
 with_env() {
   PLANWRIGHT_FLEET_STATE_DIR="$home" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
     "$@"
 }
@@ -452,7 +452,7 @@ rc=0
 printf '%s' "$(payload "$sid" "$co" "through a redirected home")" \
   | PLANWRIGHT_FLEET_STATE_DIR="$home_link" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
     /bin/sh "$HOOK" >"$tmp/out" 2>"$tmp/err" || rc=$?
 [ "$rc" = 0 ] || fail "symlinked home: exit $rc, expected 0"

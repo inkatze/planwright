@@ -38,6 +38,7 @@ fail() {
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+git init -q "$tmp"
 
 home="$tmp/fleet-home"
 mkdir -p "$home"

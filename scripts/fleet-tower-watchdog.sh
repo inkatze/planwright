@@ -132,8 +132,8 @@ fi
 
 # --- spec-dir containment (the orchestrate-lock.sh discipline) ---------------
 # Canonicalize, then validate the basename against the anchored identifier
-# grammar and require the parent to be a `specs` dir — a hostile path never
-# reaches a lock, a marker name, or a tmux session name.
+# grammar — a hostile id never reaches a lock, a marker name, or a tmux
+# session name, and the lock refuses a dir outside a resolved spec root.
 spec_dir_raw=$1
 spec_dir=$(cd "$spec_dir_raw" 2>/dev/null && pwd -P) || {
   echo "fleet-tower-watchdog: refusing spec dir (not an existing directory)" >&2
@@ -154,15 +154,18 @@ if [ "${#spec}" -gt 64 ]; then
   echo "fleet-tower-watchdog: refusing over-length spec id" >&2
   exit 2
 fi
-specs_parent=$(dirname "$spec_dir")
-case "$specs_parent" in
-  */specs) ;;
-  *)
-    echo "fleet-tower-watchdog: refusing spec dir outside a specs/ parent" >&2
-    exit 2
-    ;;
-esac
-checkout=$(dirname "$specs_parent")
+# The tower runs in the bundle's work repository, which a relocated spec root
+# does not hold. A bundle inside one of that repository's linked worktrees
+# keeps its tower there, so the relaunch works on the copy this watchdog locks.
+checkout=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir") || {
+  echo "fleet-tower-watchdog: refusing spec dir with no work repository" >&2
+  exit 2
+}
+own_checkout=$(cd "$spec_dir" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) || own_checkout=""
+if [ -n "$own_checkout" ] && [ "$own_checkout" != "$checkout" ]; then
+  own_primary=$(cd "$own_checkout" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) || own_primary=""
+  [ "$own_primary" != "$checkout" ] || checkout=$own_checkout
+fi
 session_name="planwright-tower-$spec"
 
 FTM="$script_dir/fleet-tower-marker.sh"

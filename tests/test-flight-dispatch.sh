@@ -1445,6 +1445,56 @@ run dispatch readme-typo --backend print --ask-file "$c/ask.txt" --grounds-file 
 [ "$RC" -eq 0 ] || fail "CRLF grounds are one line and must be accepted (rc $RC: $ERR)"
 case $(cat "$(field "$OUT" brief)") in *"$(printf '\r')"*) fail "a CRLF grounds line must reach the brief without its CR" ;; esac
 
+# --- dispatch from a linked worktree ------------------------------------------
+# The primary's config layers govern, and the flight is placed beside the
+# primary, never nested in the worktree it was dispatched from.
+new_case
+gitc "$c/primary" worktree add -q --detach "$c/primary/.claude/worktrees/tower"
+twt="$c/primary/.claude/worktrees/tower"
+mkdir -p "$c/primary/.claude"
+printf 'max_parallel_units: 0\n' >"$c/primary/.claude/planwright.local.yml"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --repo-root "$twt"
+[ "$RC" -eq 3 ] || fail "a worktree dispatch must read the primary's max_parallel_units 0 (rc $RC: $ERR)"
+printf 'max_parallel_units: 2\n' >"$c/primary/.claude/planwright.local.yml"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --repo-root "$twt"
+[ "$RC" -eq 0 ] || fail "a worktree dispatch under the primary's bound exited $RC: $ERR"
+wfid=$(field "$OUT" flight)
+primary_phys=$(cd "$c/primary" && pwd -P)
+[ "$(field "$OUT" worktree)" = "$primary_phys/.claude/worktrees/flight-$wfid" ] \
+  || fail "a worktree dispatch placed the flight at '$(field "$OUT" worktree)', not under the primary"
+echo "ok: a flight dispatched from a linked worktree reads the primary's config and lands beside it"
+
+# --- a spec root outside the checkout ------------------------------------------
+# A file-home record is committed on the flight's branch, so it cannot live in
+# a spec root outside the checkout. When the PR home is unavailable too, the
+# refusal says so, and comes before anything is minted or placed.
+new_case
+oroot="$c/outside-specs"
+mkdir -p "$oroot" "$c/primary/.claude"
+printf 'project: fixture\nlayout: 1\n' >"$oroot/planwright-spec-root.yml"
+printf 'spec_root: %s\n' "$oroot" >"$c/primary/.claude/planwright.local.yml"
+GH_STUB_AUTH=1 run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "a file-home dispatch with the spec root outside the checkout must be refused (rc $RC: $ERR)"
+case $ERR in
+  *"outside this checkout"*"gh is not authenticated to github.com"*) ;;
+  *) fail "the outside-root refusal must name why the PR home is unavailable too: $ERR" ;;
+esac
+[ "$(flight_branches)" -eq 0 ] || fail "an outside-root refusal must mint no flight branch"
+[ "$(briefs)" -eq 0 ] || fail "an outside-root refusal must leave no brief"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --home file --repo-root "$c/primary"
+[ "$RC" -eq 2 ] || fail "--home file with the spec root outside the checkout must be refused (rc $RC: $ERR)"
+case $ERR in *"outside this checkout"*) ;; *) fail "the --home file outside-root refusal must say why: $ERR" ;; esac
+[ "$(flight_branches)" -eq 0 ] || fail "an outside-root --home file refusal must mint no flight branch"
+run dispatch readme-typo --backend print --ask-file "$c/ask.txt" \
+  --grounds-file "$c/grounds.txt" --repo-root "$c/primary"
+[ "$RC" -eq 0 ] && [ "$(field "$OUT" home)" = pr ] \
+  || fail "with the PR home available, an outside-root dispatch must take it (rc $RC, home $(field "$OUT" home): $ERR)"
+echo "ok: a spec root outside the checkout refuses a file home before placing anything"
+
 if [ "$fails" -gt 0 ]; then
   echo "test-flight-dispatch: $fails failure(s)" >&2
   exit 1

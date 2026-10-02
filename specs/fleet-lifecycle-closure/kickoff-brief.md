@@ -548,6 +548,101 @@ delta-scoped, walked inline (path declared), seven findings all applied.
 Anchor: `563eb115c6a5cce5f579cf99fe703feb1626f471` — computed as
 `scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
 
+### Re-walkthrough — rehearsal wedged per rung, terminate refusal as exercise (2026-10-02)
+
+**Mode:** delta re-walkthrough on an Active bundle, entered on a stale anchor
+· **Scope:** delta only, the spec-file changes of PR #553 (Task 12) ·
+**Freshness at start:** recorded anchor `563eb11…`, recomputed `8b24cb5…`
+(mismatch, the remedy this walk is) · **Validator:** 0 errors, 0 warnings
+before and after the edits.
+
+**The delta walked.** Two operator decisions taken on the Task 12 PR and
+landed with it as in-place edits:
+
+1. *Headless rung.* `headless-oneshot` has no pend path (an unapproved ask
+   fails under `--print`), so the waiting-on-a-human assertion applies only
+   to a rung that can pend. On the headless rung the worker is held
+   mid-command and must read as live and unfinished. On every rung `stop`
+   closes it and every class is released.
+2. *Sweep modes.* While the sweep refuses `terminate` everywhere, verifying
+   the refusal counts as exercising terminate mode for REQ-F1.7: the
+   terminate cycle reads the knob and the sweep says it refused.
+
+The operator, who made both decisions, confirmed them unchanged. The walk
+changed how the first one is recorded, not what it decides.
+
+**Lens review pass (delta-scoped).** Walked inline, declared: the delta is
+two decisions across one requirement, one design decision, one task, and
+two test-spec entries, the "small, narrow" case in `kickoff-verification`.
+Scope: the delta plus what depends on it (REQ-F1.6/F1.7, D-14, the
+stuck-detector's state vocabulary in REQ-C1.1/C1.2, the shipped rehearsal
+harness, the sweep's terminate refusal and its config documentation).
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 1 | "Live and unfinished" is not a detector state; the harness accepts exactly `working` or `unclassified`/`no-signal`. |
+| Security | none | No new input, privilege, or destructive path; the terminate refusal only narrows what the sweep may kill. |
+| Error handling and failure modes | none | The skip-not-pass rule is unchanged, and the headless N/A is reported with its reason. |
+| Performance | n/a | Spec wording only; the rehearsal stays opt-in. |
+| Concurrency / state | none | One worker at a time, unchanged by the delta. |
+| Naming, readability, structure | 1 | Same root as the correctness row (undefined term); merged into finding 2. |
+| Documentation | none | `config/defaults.yml` and the sweep header already document the refusal. |
+| Tests / verification | none | The harness asserts both rungs' readings and both terminate outcomes. |
+| Cross-file consistency | 2 | Changed-meaning records edited in place post-merge (stable-ID rule); the out-of-band fix that lifts the terminate refusal had no ship-gate record. |
+
+**Findings and dispositions.** Each one was checked against the bundle text,
+the meta-spec, and the shipped harness (`tests/rehearsal-lifecycle.sh`)
+before it was raised.
+
+1. *In-place meaning change.* REQ-A1.6 and D-13 were rewritten in place after
+   the bundle merged, against the meta-spec's stable-ID rule. On the
+   correction that REQ-A1.6's signed body never named waiting-on-a-human,
+   the operator still chose to supersede both: **applied.** REQ-A1.6 is
+   superseded by REQ-A1.7, D-13 by D-16, and both old bodies are restored to
+   their signed wording with pointers. The REQ-A1.6 test-spec entry is kept
+   marked superseded and REQ-A1.7 gets its own entry, following the
+   precedent in `fleet-autonomy`. REQ-F1.7, D-14, and Task 12 re-point, and
+   a dated Changelog entry names both superseded IDs.
+2. *Undefined "live and unfinished".* **Applied:** REQ-A1.7, D-16, Task 12,
+   and the REQ-A1.7 test-spec entry name the two accepted readings and
+   say that any other reading fails. This matches what the harness enforces.
+3. *No ship-gate for lifting the terminate refusal.* **Applied:** a gated
+   Deferred bullet in `tasks.md` (re-enable `terminate` once a rung's stop is
+   bound to the recorded worker pid), citing obs:2d943e9f.
+
+*Altitude check:* D-1's altitude record is unaffected, since the delta sits
+at mechanism level. *Ship-gate check:* one out-of-band fix is named (lifting
+the refusal), and it is now gated per finding 3. *Qualified cross-spec
+citations:* none were added. *Requirement/test-spec pairing:* REQ-A1.7 and
+its entry land together.
+
+**Decision-domains gap check (delta).** `deploy-migration` (promoting the
+reaper) is decided by D-14 and is now gated by the new Deferred bullet.
+`observability` (the refusal must be said, not silent) is decided by
+REQ-F1.4 and the REQ-F1.7 test-spec note. No gap is left open.
+
+**Pre-flip verification.** No status flip: the bundle stays Ready and Active
+is derived. A stale-reference sweep over the bundle for REQ-A1.6, D-13, and
+"live and unfinished" turned up nothing live: what remains is the frozen
+records, their pointers, and Changelog history. The earlier brief sections
+(3, 5, 7, 8) still describe REQ-A1.6/D-13 as first signed; they are
+append-only, and this entry supersedes them. One reference outside the
+bundle, in `docs/fleet.md`, cites REQ-A1.6 by name, which still resolves to
+the frozen record. The brief records no figure that the delta changes.
+markdownlint over the five bundle files found 0 issues. The validator
+re-run, including `--baseline main`, found 0 errors and 0 warnings.
+`Last reviewed:` was bumped on all four spec files.
+
+**Awaiting input.** The Task 12 "anchor re-review pending" bullet is
+removed at this sign-off, as it asked.
+
+Class: meaning
+Lens-pass: the *Lens review pass* table and *Findings and dispositions* in
+this entry — delta-scoped, walked inline (path declared), three findings all
+applied.
+Anchor: `b48c68c505dab14ede6cba769d62a3b1b5d25116` — computed as
+`scripts/spec-anchor.sh specs/fleet-lifecycle-closure`
+
 ## 10. Execution research log
 
 <!-- Research-rigor recordings appended during execution (findings, tradeoffs,

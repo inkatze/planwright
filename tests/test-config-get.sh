@@ -197,8 +197,8 @@ esac
 #
 # The two repo-side layers and the adopter layer are resolved through the
 # Task 2 primitive (resolve-overlay-root.sh); these tests drive its env
-# overrides so the suite stays hermetic — no $HOME, no git toplevel, no
-# real overlay file is ever consulted.
+# overrides so the suite stays hermetic — no $HOME, no ambient git toplevel,
+# no real overlay file is ever consulted.
 # ===========================================================================
 
 ov=$(mktemp -d)
@@ -208,6 +208,7 @@ core_cfg="$ov/core-defaults.yml"
 adopter_root="$ov/adopter"
 repo="$ov/repo"
 mkdir -p "$adopter_root" "$repo/.claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 adopter_cfg="$adopter_root/planwright.yml"
 tracked_cfg="$repo/.claude/planwright.yml"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
@@ -612,6 +613,7 @@ echo "ok: a missing resolver still honors an explicit PLANWRIGHT_LOCAL_CONFIG ov
 # it are the layers it shadows; absent everywhere exits 3.
 layers_root="$tmp/layers"
 mkdir -p "$layers_root/adopter" "$layers_root/repo/.claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$layers_root/repo"
 printf 'steps_pre_pr: [core-a]\nonly_core: 1\n' >"$layers_root/core.yml"
 printf 'steps_pre_pr: [adopter-a]\n' >"$layers_root/adopter/planwright.yml"
 printf 'steps_pre_pr: [repo-a]\n' >"$layers_root/repo/.claude/planwright.yml"
@@ -721,7 +723,7 @@ cp "$CG" "$here/../scripts/resolve-overlay-root.sh" "$here/../scripts/resolve-ro
 chmod 644 "$cg_copy/scripts/resolve-root.sh"
 printf 'dispatch_backend: from_copy\n' >"$cg_copy/config/defaults.yml"
 got=$(cd "$cg_copy" && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u PLANWRIGHT_CONFIG_DEFAULTS \
-  HOME="$cg_copy/no-home" PLANWRIGHT_REPO_ROOT="$cg_copy/no-repo" PLANWRIGHT_LOCAL_CONFIG="$cg_copy/no-local.yml" \
+  HOME="$cg_copy/no-home" PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="$cg_copy/no-local.yml" \
   PLANWRIGHT_ADOPTER_OVERLAY="$cg_copy/no-adopter" /bin/sh "$cg_copy/scripts/config-get.sh" dispatch_backend) \
   || fail "non-executable root helper: config-get exited non-zero"
 [ "$got" = from_copy ] || fail "non-executable root helper: expected from_copy, got: $got"
@@ -729,7 +731,7 @@ got=$(cd "$cg_copy" && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DI
 rm -f "$cg_copy/scripts/resolve-root.sh"
 rc=0
 err=$(cd "$cg_copy" && env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u PLANWRIGHT_CONFIG_DEFAULTS \
-  HOME="$cg_copy/no-home" PLANWRIGHT_REPO_ROOT="$cg_copy/no-repo" PLANWRIGHT_LOCAL_CONFIG="$cg_copy/no-local.yml" \
+  HOME="$cg_copy/no-home" PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="$cg_copy/no-local.yml" \
   PLANWRIGHT_ADOPTER_OVERLAY="$cg_copy/no-adopter" /bin/sh "$cg_copy/scripts/config-get.sh" dispatch_backend 2>&1 >/dev/null) || rc=$?
 [ "$rc" -eq 3 ] || fail "missing root helper: expected exit 3, got $rc"
 case $err in *"root helper"*"broken install"*) ;; *) fail "missing root helper: expected a broken-install warning, got: $err" ;; esac
