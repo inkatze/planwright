@@ -875,6 +875,17 @@ held_classes() {
 
 machine_local="$repo/.claude/planwright.local.yml"
 
+# worktree_state — what a close must leave as it found it: every tracked and
+# untracked path's status, a checksum of the tracked changes, and each
+# untracked file's checksum. Empty when git cannot read the tree, which the
+# caller treats as a change.
+worktree_state() {
+  ws_status=$(git -C "$repo" status --porcelain --untracked-files=all 2>/dev/null) || return 0
+  ws_diff=$(git -C "$repo" diff HEAD --binary 2>/dev/null | cksum) || return 0
+  ws_untracked=$(cd "$repo" && git ls-files -oz --exclude-standard 2>/dev/null | xargs -0 cksum -- 2>/dev/null) || return 0
+  printf 'status:\n%s\ndiff: %s\nuntracked:\n%s\n' "$ws_status" "$ws_diff" "$ws_untracked"
+}
+
 # --- the lifecycle, one rung at a time ----------------------------------------
 
 rehearse() {
@@ -997,6 +1008,7 @@ rehearse() {
   else
     flunk "$r" "before the close the worker does not hold:$missing (held: $before)"
   fi
+  wt_before=$(worktree_state)
   stop_rc=0
   stop_out=$(rung_stop "$r" --grace 5 2>&1) || stop_rc=$?
   case $stop_rc:$stop_out in
@@ -1015,9 +1027,11 @@ rehearse() {
     flunk "$r" "the release set still holds: $held"
   fi
   na "$r" "tmux window: this rung runs no window"
+  wt_after=$(worktree_state)
   if [ -d "$repo/.git" ] && [ "$(git -C "$repo" rev-parse HEAD 2>/dev/null)" = "$head_before" ] \
     && [ "$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null)" = main ] \
-    && [ -r "$repo/specs/$SPEC/tasks.md" ]; then
+    && [ -r "$repo/specs/$SPEC/tasks.md" ] \
+    && [ -n "$wt_before" ] && [ "$wt_after" = "$wt_before" ]; then
     pass "$r" "the worktree, its branch and the bundle are untouched"
   else
     flunk "$r" "the worktree, branch or bundle changed under the close"
