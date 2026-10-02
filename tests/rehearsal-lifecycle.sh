@@ -882,17 +882,18 @@ held_classes() {
 
 machine_local="$repo/.claude/planwright.local.yml"
 
-# worktree_state — what a close must leave as it found it: every tracked and
-# untracked path's status, a checksum of the tracked changes, and each
-# untracked file's checksum. Empty when git cannot read the tree, which the
-# caller treats as a change.
+# worktree_state — what a close must leave as it found it: every tracked,
+# untracked and ignored path's status (the repo ignores `.claude/`, where the
+# machine-local config lives), a checksum of the tracked changes, and each
+# untracked or ignored file's checksum. Empty when git cannot read the tree,
+# which the caller treats as a change.
 # A subshell with pipefail, so a failing git inside a pipeline is a failure
 # here rather than the checksum of empty input.
 worktree_state() (
   set -o pipefail
-  ws_status=$(git -C "$repo" status --porcelain --untracked-files=all 2>/dev/null) || return 0
+  ws_status=$(git -C "$repo" status --porcelain --untracked-files=all --ignored 2>/dev/null) || return 0
   ws_diff=$(git -C "$repo" diff HEAD --binary 2>/dev/null | cksum) || return 0
-  ws_untracked=$(cd "$repo" && git ls-files -oz --exclude-standard 2>/dev/null | xargs -0 cksum -- 2>/dev/null) || return 0
+  ws_untracked=$(cd "$repo" && git ls-files -oz 2>/dev/null | xargs -0 cksum -- 2>/dev/null) || return 0
   printf 'status:\n%s\ndiff: %s\nuntracked:\n%s\n' "$ws_status" "$ws_diff" "$ws_untracked"
 )
 
