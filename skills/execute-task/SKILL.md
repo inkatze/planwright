@@ -7,7 +7,7 @@ description: >
   via the steps_convergence list (default /polish --nested), then open a
   draft PR referencing the brief, tasks, REQs, and tests. The execution
   workhorse of the planwright pipeline. Assumes the worktree already exists;
-  never creates worktrees, never merges, never marks a PR ready.
+  never creates worktrees, never merges, readies its PR only per ready_flip_policy.
 argument-hint: "<task-id> [<task-id> …] [<spec-path>]"
 ---
 
@@ -397,13 +397,14 @@ classify the edit on the amendment axis:
    ready flip, signs off pending-sign-off items; reject one before it by its
    printed recipe.
 
-   The PR is always a draft. Never mark it ready and never merge. Then run the
+   Never merge. Then run the
    `post-pr` point, the PR number now in its context; after its list, re-emit
    the tables into the body, and if the PR head moved fetch and regenerate the
    checklist (`step-record.sh regenerate --base origin/<base> --head
    origin/<branch> --checklist-only`) and re-emit the handoff; verify the PR is still a draft,
    else park naming the post-pr steps (custom-steps REQ-E1.2). Earlier points
-   never re-run.
+   never re-run. When `ready_flip_policy` resolves `unit-owner`, run
+   `custom-steps`' unit-PR flip (`scripts/ready-flip.sh`).
 3. **Annotate the unit (v1 bundles only).** On a format-version 2 bundle no
    annotation exists to write — skip this step. Update only the task
    block's `- **Last activity:** <today>` annotation; write **no** `Status`
@@ -444,8 +445,8 @@ These hold at every step:
   **never** bypass the execution freshness gate that composes with it — no
   bypass flag for either (REQ-C1.1, superseding REQ-J1.2, D-33; D-2, D-3,
   REQ-F1.9, REQ-C1.3).
-- **Never** create a non-draft PR, mark a PR ready, or merge — the draft→ready
-  flip and merge are the human's (D-21, REQ-J1.1).
+- **Never** create a non-draft PR or merge (merge is the human's), nor flip one
+  ready outside the `unit-owner` path above (D-21; human-gates REQ-C1.5).
 - **Never** create a worktree; this skill runs inside one (D-37, D-44).
 - **Never** let a step push before `post-pr`, merge, mark ready, or rewrite
   history: this skill owns push and PR creation (D-39; custom-steps REQ-D1.6).

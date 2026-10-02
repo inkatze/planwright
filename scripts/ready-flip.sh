@@ -1,0 +1,763 @@
+#!/bin/bash
+# ready-flip.sh — mark a unit's draft PR ready under `ready_flip_policy:
+# unit-owner`, or park the pending flip when a precondition fails
+# (doctrine/human-gates.md; the policy and its preconditions are the
+# human-gates spec's REQ-C1.2 to REQ-C1.4).
+#
+# Usage:
+#   ready-flip.sh reconcile --spec <dir> --task <id>... [--worktree <dir>]
+#   ready-flip.sh evaluate  --spec <dir> --task <id>... [--pr <n>]
+#       [--worktree <dir>] [--out <file>]
+#   ready-flip.sh flip      --spec <dir> --task <id>... [--pr <n>]
+#       [--worktree <dir>] [--expect-head <sha>] [--preconditions <file>]
+#
+#   --spec      the bundle directory, relative to the unit checkout
+#               (specs/<spec>); its tasks.md must be format-version 2
+#   --task      one task id of the unit; repeat it for a bundle
+#   --worktree  the unit checkout; default the enclosing git top level. It
+#               must sit on a planwright/<spec>/task-<ids> branch.
+#
+#   reconcile   remove this helper's own parking segment for the unit's tasks
+#               from `## Awaiting input`, commit and push that in one commit
+#               when anything changed, and print the resulting head. No host
+#               call.
+#   evaluate    reconcile, then evaluate every precondition on the head and
+#               write the precondition record (below) to --out, else stdout.
+#               Never flips, comments, or parks. The merge helper hands the
+#               record to `flip` so the bounded CI wait runs once.
+#   flip        read ready_flip_policy (anything but unit-owner refuses, with
+#               no host call), reconcile, evaluate, then write the PR record
+#               comment and only then call `gh pr ready`. A failed
+#               precondition, a failed record write, or a failed flip call
+#               parks instead; the flip call's failure also appends a
+#               follow-up comment, since the record already claims the flip.
+#               --expect-head refuses when reconciling left another head (the
+#               head the pre-ready-flip point ran on). --preconditions reuses
+#               a record `evaluate` wrote for this same head: the CI and
+#               review predicates are taken from it, the cheap ones re-run.
+#
+# The unit-PR flip, as /execute-task runs it after its post-pr point when
+# ready_flip_policy resolves unit-owner: `reconcile`; then the pre-ready-flip
+# point on the head it printed, its commit status posted per
+# doctrine/custom-steps.md (*The flip points*), a halted or failed step or a
+# failed post ending the attempt with no flip; then
+# `flip --expect-head <that head>`. Under human it is never called, and a
+# standalone review-skill run never calls it.
+#
+# Preconditions, all on the pinned head:
+#   awaiting-input    no live segment in the unit's Awaiting-input bullets,
+#                     read from the checkout and from the fetched base ref; a
+#                     segment opening with `pending ready-flip:` is this
+#                     helper's park and is ignored, any other segment (or an
+#                     indented continuation line) is live
+#   review-converged  the newest unit run with a `convergence` completion
+#                     record (scripts/step-record.sh) has no halted or failed
+#                     step at `convergence` or `post-pr`, and its last
+#                     completion there names a head every later commit of
+#                     which touches only the Awaiting-input section of tasks.md
+#   ci-rollup         the PR head's check rollup is a positive green (at least
+#                     one success, nothing failing or pending) within
+#                     ready_flip_ci_wait, the planwright/pre-ready-flip and
+#                     planwright/pre-spec-ready-flip statuses excluded; a host
+#                     read that fails is retried within the same bound
+#   ready-guard       scripts/ready-guard.sh defers `gh pr ready <n>`: the
+#                     shipped currency and mergeability floor, called directly
+#                     because the flip runs below any hook
+# The local predicates run first; when one fails the host ones are skipped,
+# so a known park costs no CI wait.
+#
+# The park: one bullet per task, `- **Task <id>** — <segments>`, segments
+# joined by `; `, this helper's own segment last and reading
+# `pending ready-flip: <predicates> failed on <head12>`. A re-run replaces its
+# own segment; a bullet the base carries for the task and the checkout lacks
+# is composed in first, so the branch never conflicts with it. One commit
+# touching only tasks.md, stamped with the Planwright-Task trailers, pushed.
+# A park that cannot be committed restores the file and is named instead.
+#
+# The precondition record (evaluate's output, flip's --preconditions input):
+#   head<TAB><sha>
+#   pred<TAB><name><TAB>pass|fail|skip<TAB><evidence>
+#
+# Exit: 0 reconciled / all preconditions hold / flipped; 2 usage; 3 skipped
+# cleanly (no PR, no gh, PR not open or already ready, policy not unit-owner);
+# 4 not flipped, park written (evaluate: a precondition failed); 5 not
+# flipped and nothing parked (the park could not be written, reconcile
+# failed, an unreadable policy, an unsupported bundle, a wrong branch).
+#
+# Environment: PLANWRIGHT_READY_FLIP_POLL_SECONDS (default 15) is the CI poll
+# interval; at 0 the wait makes PLANWRIGHT_READY_FLIP_MAX_POLLS reads
+# (default 1) instead of deriving the count from the bound.
+#
+# No model in the decision path: every predicate is a comparison.
+set -u
+unset CDPATH
+LC_ALL=C
+export LC_ALL
+
+SCRIPTS=$(cd "$(dirname "$0")" && pwd) || exit 2
+# shellcheck source=scripts/echo-safety.sh
+. "$SCRIPTS/echo-safety.sh"
+
+readonly LEAD='pending ready-flip:'
+readonly DASH='—'
+readonly EXCLUDED_CONTEXTS='["planwright/pre-ready-flip","planwright/pre-spec-ready-flip"]'
+
+say() { printf 'ready-flip: %s\n' "$*"; }
+usage() {
+  printf 'ready-flip: %s\n' "$1" >&2
+  echo 'usage: ready-flip.sh reconcile|evaluate|flip --spec <dir> --task <id>... [options]' >&2
+  exit 2
+}
+
+SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/ready-flip.XXXXXX") || exit 5
+trap 'rm -rf "$SCRATCH"' EXIT
+
+# --- arguments ---------------------------------------------------------------
+
+MODE=${1:-}
+case $MODE in
+  reconcile | evaluate | flip) shift ;;
+  *) usage 'the first argument must be reconcile, evaluate, or flip' ;;
+esac
+SPEC='' WT='' PR='' OUTF='' HANDIN='' EXPECT='' IDS=()
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --spec | --task | --pr | --worktree | --out | --preconditions | --expect-head)
+      [ "$#" -ge 2 ] || usage "$1 needs a value"
+      case $1 in
+        --spec) SPEC=$2 ;;
+        --task) IDS[${#IDS[@]}]=$2 ;;
+        --pr) PR=$2 ;;
+        --worktree) WT=$2 ;;
+        --out) OUTF=$2 ;;
+        --preconditions) HANDIN=$2 ;;
+        --expect-head) EXPECT=$2 ;;
+      esac
+      shift 2
+      ;;
+    *) usage "unknown argument '$(sanitize_printable "$1" '?')'" ;;
+  esac
+done
+[ -n "$SPEC" ] || usage '--spec is required'
+[ "${#IDS[@]}" -gt 0 ] || usage 'at least one --task is required'
+[[ $SPEC =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$ ]] \
+  || usage '--spec must be a relative path inside the checkout'
+case "/$SPEC/" in */../* | */./*) usage '--spec must not climb out of the checkout' ;; esac
+for id in "${IDS[@]}"; do
+  [[ $id =~ ^[0-9]+(\.[0-9]+)?$ ]] || usage "task id '$(sanitize_printable "$id" '?')' is malformed"
+done
+[ -z "$PR" ] || [[ $PR =~ ^[1-9][0-9]{0,9}$ ]] || usage '--pr must be a pull request number'
+[ -z "$EXPECT" ] || [[ $EXPECT =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || usage '--expect-head must be a full commit id'
+[ "$MODE" = flip ] || [ -z "$EXPECT$HANDIN" ] || usage '--expect-head and --preconditions belong to flip'
+[ "$MODE" = evaluate ] || [ -z "$OUTF" ] || usage '--out belongs to evaluate'
+[ "$MODE" != reconcile ] || [ -z "$PR" ] || usage 'reconcile reads no PR'
+
+refuse() { # <message> — not flipped, nothing parked
+  say "not flipped: $1"
+  exit 5
+}
+
+if [ -z "$WT" ]; then
+  WT=$(git rev-parse --show-toplevel 2>/dev/null) || refuse 'not inside a git checkout'
+fi
+cd "$WT" 2>/dev/null || refuse 'the worktree cannot be entered'
+TASKS="$SPEC/tasks.md"
+[ -f "$TASKS" ] && [ ! -L "$TASKS" ] || refuse "$(sanitize_printable "$TASKS") is not a regular file"
+grep -qx '\*\*Format-version:\*\* 2' "$TASKS" \
+  || refuse 'only a format-version 2 bundle can be parked by this helper; park the flip by hand'
+SPEC_NAME=${SPEC##*/}
+[[ $SPEC_NAME =~ ^[a-z0-9][a-z0-9-]*$ ]] || refuse 'the spec directory name is not a spec identifier'
+BRANCH=$(git symbolic-ref --short -q HEAD 2>/dev/null) || BRANCH=''
+[[ $BRANCH =~ ^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$ ]] \
+  || refuse 'the checkout is not on a planwright task branch'
+REMOTE=$(git config "branch.$BRANCH.remote" 2>/dev/null) || REMOTE=origin
+[[ $REMOTE =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || refuse 'the branch remote is not a plain remote name'
+
+# --- the Awaiting-input section ------------------------------------------------
+
+# One awk program, two modes over a tasks.md:
+#   bullets  print `<id>\t<live segments>\t<has continuation 0|1>` for each
+#            unit bullet in the section
+#   edit     rewrite the file: drop the unit bullets' own segments, append SEG
+#            when non-empty (composing BASE bullets for tasks the checkout
+#            lacks), restore or drop the `(none yet)` placeholder
+# shellcheck disable=SC2016
+SECTION_AWK='
+function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+function bullet_id(line) {
+  if (match(line, /^- \*\*Task [0-9]+(\.[0-9]+)?\*\*/)) return substr(line, 10, RLENGTH - 11)
+  return ""
+}
+function live_of(line,   r, n, parts, i, s, out) {
+  r = line
+  sub(/^- \*\*Task [0-9]+(\.[0-9]+)?\*\*/, "", r)
+  r = trim(r)
+  if (index(r, DASH) == 1) r = substr(r, length(DASH) + 1)
+  else if (substr(r, 1, 1) == ":" || substr(r, 1, 1) == "-") r = substr(r, 2)
+  n = split(r, parts, ";")
+  out = ""
+  for (i = 1; i <= n; i++) {
+    s = trim(parts[i])
+    if (s == "" || index(s, LEAD) == 1) continue
+    out = (out == "" ? s : out "; " s)
+  }
+  return out
+}
+function flush(   i, j, id, cont, live, p, m, L, k, nb, anyb, NEWB) {
+  m = 0
+  for (i = 1; i <= n; i++) {
+    id = bullet_id(S[i])
+    if (id != "" && (id in UNIT)) {
+      cont = 0
+      j = i + 1
+      while (j <= n && S[j] ~ /^[ \t]+[^ \t]/) { cont = 1; j++ }
+      live = live_of(S[i])
+      if (MODE == "bullets") { printf "%s\t%s\t%d\n", id, live, cont; i = j - 1; continue }
+      SEEN[id] = 1
+      p = live
+      if (SEG != "") p = (p == "" ? SEG : p "; " SEG)
+      if (p != "" || cont) {
+        O[++m] = "- **Task " id "**" (p == "" ? "" : " " DASH " " p)
+        for (k = i + 1; k < j; k++) O[++m] = S[k]
+      }
+      i = j - 1
+      continue
+    }
+    O[++m] = S[i]
+  }
+  if (MODE == "bullets") return
+  nb = 0
+  if (SEG != "") {
+    for (k = 1; k <= NU; k++) {
+      id = ULIST[k]
+      if (id in SEEN) continue
+      p = (id in BASE && BASE[id] != "") ? BASE[id] "; " SEG : SEG
+      NEWB[++nb] = "- **Task " id "** " DASH " " p
+    }
+  }
+  anyb = (nb > 0)
+  L = 0
+  for (k = 1; k <= m; k++) {
+    if (O[k] ~ /^- /) anyb = 1
+    if (O[k] !~ /^[ \t]*$/) L = k
+  }
+  if (L == 0) {
+    print ""
+    if (nb > 0) { for (k = 1; k <= nb; k++) print NEWB[k] } else print "(none yet)"
+    print ""
+    return
+  }
+  for (k = 1; k <= L; k++) if (!(anyb && O[k] ~ /^\(none yet\)[ \t]*$/)) print O[k]
+  for (k = 1; k <= nb; k++) print NEWB[k]
+  if (!anyb) { kept = 0; for (k = 1; k <= L; k++) if (O[k] !~ /^[ \t]*$/) kept = 1; if (!kept) print "(none yet)" }
+  for (k = L + 1; k <= m; k++) print O[k]
+}
+BEGIN {
+  NU = split(IDS, ULIST, " ")
+  for (k = 1; k <= NU; k++) UNIT[ULIST[k]] = 1
+  if (BASEFILE != "") {
+    while ((getline line < BASEFILE) > 0) {
+      if (split(line, f, "\t") >= 2) BASE[f[1]] = f[2]
+    }
+  }
+}
+{
+  if (insec && /^## /) { flush(); insec = 0 }
+  if (insec) { S[++n] = $0; next }
+  if (MODE == "edit") print
+  if ($0 ~ /^## Awaiting input[ \t]*$/) { insec = 1; n = 0 }
+}
+END { if (insec) flush() }
+'
+
+section() { # <mode> <file> [<seg>] [<basefile>]
+  awk -v MODE="$1" -v IDS="${IDS[*]}" -v SEG="${3:-}" -v BASEFILE="${4:-}" \
+    -v LEAD="$LEAD" -v DASH="$DASH" "$SECTION_AWK" "$2"
+}
+
+# strip_section <file> — the file without the Awaiting-input section's body.
+strip_section() {
+  awk '
+    insec && /^## / { insec = 0 }
+    !insec { print }
+    /^## Awaiting input[ \t]*$/ { insec = 1 }
+  ' "$1"
+}
+
+tasks_clean() {
+  git diff --quiet HEAD -- "$TASKS" 2>/dev/null && git diff --cached --quiet -- "$TASKS" 2>/dev/null
+}
+
+# commit_tasks <subject> — commit the edited tasks.md alone and push it. On a
+# failed commit the edit is reverted, so the tree is left as it was.
+COMMIT_ERR=''
+commit_tasks() {
+  local msg="$SCRATCH/msg" refs=() id
+  for id in "${IDS[@]}"; do refs[${#refs[@]}]="$SPEC_NAME/$id"; done
+  if ! printf '%s\n' "$1" | /bin/sh "$SCRIPTS/planwright-commit-trailers.sh" "${refs[@]}" >"$msg" 2>/dev/null; then
+    git checkout -q -- "$TASKS" 2>/dev/null
+    COMMIT_ERR='the commit trailers could not be stamped'
+    return 1
+  fi
+  if ! git commit -q -F "$msg" -- "$TASKS" >/dev/null 2>&1; then
+    git checkout -q -- "$TASKS" 2>/dev/null
+    COMMIT_ERR='the commit failed'
+    return 1
+  fi
+  if ! git push -q "$REMOTE" "$BRANCH" >/dev/null 2>&1; then
+    COMMIT_ERR='the commit was made but the push failed'
+    return 1
+  fi
+}
+
+unit_label() {
+  if [ "${#IDS[@]}" = 1 ]; then printf 'task %s' "${IDS[0]}"; else printf 'tasks %s' "${IDS[*]}"; fi
+}
+
+# reconcile — drop this helper's own segment and push before any head is
+# pinned. 0 when the section is clean of it (committed and pushed, or
+# already so).
+reconcile() {
+  tasks_clean || {
+    COMMIT_ERR="$TASKS has uncommitted changes"
+    return 1
+  }
+  section edit "$TASKS" >"$SCRATCH/tasks.new" || {
+    COMMIT_ERR='tasks.md could not be read'
+    return 1
+  }
+  cmp -s "$SCRATCH/tasks.new" "$TASKS" && return 0
+  cat "$SCRATCH/tasks.new" >"$TASKS"
+  commit_tasks "chore($SPEC_NAME): clear the parked ready-flip of $(unit_label)"
+}
+
+# --- the host ------------------------------------------------------------------
+
+duration_seconds() { # <value> — a resolver-validated duration, rounded up
+  awk -v v="$1" 'BEGIN {
+    u = v; sub(/^[0-9.]+/, "", u); x = substr(v, 1, length(v) - length(u)) + 0
+    m = (u == "ms") ? 0.001 : (u == "m") ? 60 : (u == "h") ? 3600 : (u == "d") ? 86400 : 1
+    s = x * m; c = int(s); if (c < s) c++; if (c < 1) c = 1; print c
+  }'
+}
+
+POLL=${PLANWRIGHT_READY_FLIP_POLL_SECONDS:-15}
+[[ $POLL =~ ^[0-9]{1,4}$ ]] || POLL=15
+ATTEMPTS=1
+WAIT_TEXT=''
+read_wait() {
+  local v s
+  v=$(/bin/sh "$SCRIPTS/resolve-policy-knob.sh" ready_flip_ci_wait 2>/dev/null) || return 1
+  WAIT_TEXT=$v
+  s=$(duration_seconds "$v")
+  if [ "$POLL" = 0 ]; then
+    ATTEMPTS=${PLANWRIGHT_READY_FLIP_MAX_POLLS:-1}
+    [[ $ATTEMPTS =~ ^[1-9][0-9]{0,3}$ ]] || ATTEMPTS=1
+  else
+    ATTEMPTS=$(((s + POLL - 1) / POLL))
+    [ "$ATTEMPTS" -ge 1 ] || ATTEMPTS=1
+  fi
+}
+
+nap() { [ "$POLL" = 0 ] || sleep "$POLL"; }
+
+PR_BASE=''
+# lookup_pr — 0 with PR and PR_BASE set; 3 a clean skip (message printed);
+# 1 a host read that kept failing.
+lookup_pr() {
+  local i=0 raw err rc
+  while [ "$i" -lt "$ATTEMPTS" ]; do
+    i=$((i + 1))
+    raw=$(gh pr view "${PR:-$BRANCH}" --json number,isDraft,state,baseRefName,headRefName 2>"$SCRATCH/err")
+    rc=$?
+    err=$(cat "$SCRATCH/err")
+    if [ "$rc" = 0 ] && [ -n "$raw" ]; then
+      break
+    fi
+    case $err in
+      *'no pull requests found'* | *'Could not resolve to a PullRequest'* | *'no open pull requests'*)
+        say "skipped: no pull request for $BRANCH, so there is nothing to flip"
+        return 3
+        ;;
+    esac
+    raw=''
+    [ "$i" -ge "$ATTEMPTS" ] || nap
+  done
+  [ -n "$raw" ] || return 1
+  local num draft state base head
+  num=$(printf '%s' "$raw" | jq -r '.number // empty' 2>/dev/null)
+  draft=$(printf '%s' "$raw" | jq -r '.isDraft' 2>/dev/null)
+  state=$(printf '%s' "$raw" | jq -r '.state // empty' 2>/dev/null)
+  base=$(printf '%s' "$raw" | jq -r '.baseRefName // empty' 2>/dev/null)
+  head=$(printf '%s' "$raw" | jq -r '.headRefName // empty' 2>/dev/null)
+  [[ $num =~ ^[1-9][0-9]{0,9}$ ]] || return 1
+  [ "$head" = "$BRANCH" ] || refuse "PR #$num is not this checkout's branch"
+  # The host names the base; it reaches git as an argument, so no option shape.
+  [[ $base =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] || return 1
+  git check-ref-format --branch "$base" >/dev/null 2>&1 || return 1
+  PR=$num
+  PR_BASE=$base
+  if [ "$state" != OPEN ]; then
+    say "skipped: PR #$PR is not open"
+    return 3
+  fi
+  if [ "$draft" != true ]; then
+    say "skipped: PR #$PR is already ready for review"
+    return 3
+  fi
+}
+
+# --- the preconditions ---------------------------------------------------------
+
+declare -a P_NAME=() P_RES=() P_EVD=()
+set_pred() { # <name> <pass|fail|skip> <evidence>
+  local i=0
+  while [ "$i" -lt "${#P_NAME[@]}" ]; do
+    if [ "${P_NAME[$i]}" = "$1" ]; then
+      P_RES[i]=$2
+      P_EVD[i]=$3
+      return
+    fi
+    i=$((i + 1))
+  done
+  P_NAME[i]=$1
+  P_RES[i]=$2
+  P_EVD[i]=$3
+}
+failed_preds() {
+  local i=0 out=''
+  while [ "$i" -lt "${#P_NAME[@]}" ]; do
+    [ "${P_RES[$i]}" != fail ] || out="${out:+$out, }${P_NAME[$i]}"
+    i=$((i + 1))
+  done
+  printf '%s' "$out"
+}
+
+pred_awaiting() {
+  local where='' b
+  section bullets "$TASKS" >"$SCRATCH/live.local" 2>/dev/null || {
+    set_pred awaiting-input fail 'the checkout tasks.md could not be read'
+    return
+  }
+  BASE_BULLETS="$SCRATCH/live.base"
+  : >"$BASE_BULLETS"
+  if ! git fetch -q "$REMOTE" "$PR_BASE" >/dev/null 2>&1 \
+    || ! git rev-parse --verify -q "refs/remotes/$REMOTE/$PR_BASE" >/dev/null; then
+    set_pred awaiting-input fail "the base ref $REMOTE/$PR_BASE could not be fetched"
+    return
+  fi
+  if git cat-file -e "refs/remotes/$REMOTE/$PR_BASE:$TASKS" 2>/dev/null; then
+    git show "refs/remotes/$REMOTE/$PR_BASE:$TASKS" >"$SCRATCH/base.tasks" 2>/dev/null || {
+      set_pred awaiting-input fail "tasks.md on $REMOTE/$PR_BASE could not be read"
+      return
+    }
+    section bullets "$SCRATCH/base.tasks" >"$BASE_BULLETS" 2>/dev/null
+  fi
+  for b in local base; do
+    if awk -F '\t' '$2 != "" || $3 == 1 { found = 1 } END { exit !found }' "$SCRATCH/live.$b"; then
+      where="${where:+$where and }$([ "$b" = local ] && echo 'the checkout' || echo "$REMOTE/$PR_BASE")"
+    fi
+  done
+  if [ -n "$where" ]; then
+    set_pred awaiting-input fail "a live Awaiting-input entry for $(unit_label) in $where"
+  else
+    set_pred awaiting-input pass "no live entry for $(unit_label) in the checkout or $REMOTE/$PR_BASE"
+  fi
+}
+
+# park_only <commit> — 0 when the commit changes only the Awaiting-input
+# section of this unit's tasks.md.
+park_only() {
+  local c=$1 parents files
+  parents=$(git rev-list --parents -n 1 "$c" 2>/dev/null | wc -w | tr -d ' ')
+  [ "$parents" = 2 ] || return 1
+  files=$(git diff-tree --no-commit-id --name-only -r "$c" 2>/dev/null)
+  [ "$files" = "$TASKS" ] || return 1
+  git show "$c^:$TASKS" >"$SCRATCH/pa" 2>/dev/null || return 1
+  git show "$c:$TASKS" >"$SCRATCH/pb" 2>/dev/null || return 1
+  [ "$(strip_section "$SCRATCH/pa")" = "$(strip_section "$SCRATCH/pb")" ]
+}
+
+pred_review() {
+  local rec rh bad run c n=0
+  if ! /bin/sh "$SCRIPTS/step-record.sh" --worktree "$WT" list >"$SCRATCH/records" 2>/dev/null; then
+    set_pred review-converged fail 'the step records could not be read'
+    return
+  fi
+  rec=$(awk -F '\t' '
+    function close_rec() {
+      if (type != "") { N++; T[N] = type; R[N] = run; Q[N] = seq + 0; P[N] = point; H[N] = head; O[N] = outcome }
+      type = run = seq = point = head = outcome = ""
+    }
+    /^record\t/ { close_rec(); next }
+    /^$/ { close_rec(); next }
+    $1 == "type" { type = $2 }
+    $1 == "run" { run = $2 }
+    $1 == "seq" { seq = $2 }
+    $1 == "point" { point = $2 }
+    $1 == "head" { head = $2 }
+    $1 == "outcome" { outcome = $2 }
+    END {
+      close_rec()
+      best = ""
+      for (i = 1; i <= N; i++) if (T[i] == "completion" && P[i] == "convergence" && R[i] > best) best = R[i]
+      if (best == "") exit
+      bad = 0; hs = -1; hh = ""
+      for (i = 1; i <= N; i++) {
+        if (R[i] != best || (P[i] != "convergence" && P[i] != "post-pr")) continue
+        if (T[i] == "step" && (O[i] == "halted" || O[i] == "failed")) bad = 1
+        if (T[i] == "completion" && Q[i] > hs) { hs = Q[i]; hh = H[i] }
+      }
+      printf "%s\t%s\t%d\n", best, hh, bad
+    }
+  ' "$SCRATCH/records")
+  if [ -z "$rec" ]; then
+    set_pred review-converged fail 'no convergence record in this worktree names a reviewed head'
+    return
+  fi
+  run=${rec%%$'\t'*}
+  rh=${rec#*$'\t'}
+  bad=${rh#*$'\t'}
+  rh=${rh%%$'\t'*}
+  if [ "$bad" != 0 ]; then
+    set_pred review-converged fail "a review step halted or failed in run $run"
+    return
+  fi
+  if ! [[ $rh =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] \
+    || ! git merge-base --is-ancestor "$rh" "$HEAD_SHA" 2>/dev/null; then
+    set_pred review-converged fail "the reviewed head of run $run is not in this branch's history"
+    return
+  fi
+  for c in $(git rev-list "$rh..$HEAD_SHA" 2>/dev/null); do
+    park_only "$c" || {
+      set_pred review-converged fail "commits since the reviewed head ${rh:0:12} change more than the Awaiting-input section"
+      return
+    }
+    n=$((n + 1))
+  done
+  set_pred review-converged pass "run $run converged on ${rh:0:12}; $n park-only commit(s) since"
+}
+
+# shellcheck disable=SC2016
+ROLLUP_JQ='
+  [ (.statusCheckRollup // [])[]
+    | select(((.context // .name // "") as $n | any($ex[]; . == $n)) | not)
+    | if .__typename == "StatusContext" then
+        (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
+      else
+        (if .status != "COMPLETED" then "pending" elif .conclusion == "SUCCESS" then "green"
+         elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "neutral" else "failing" end)
+      end ] as $v
+  | if any($v[]; . == "failing") then "failing"
+    elif any($v[]; . == "pending") then "pending"
+    elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)"
+    else "none" end'
+
+pred_ci() {
+  local i=0 raw oid verdict last='the check rollup could not be read'
+  while [ "$i" -lt "$ATTEMPTS" ]; do
+    i=$((i + 1))
+    raw=$(gh pr view "$PR" --json headRefOid,statusCheckRollup 2>/dev/null) || raw=''
+    if [ -n "$raw" ] && oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) && [ -n "$oid" ]; then
+      if [ "$oid" != "$HEAD_SHA" ]; then
+        set_pred ci-rollup fail "the PR head is $(sanitize_printable "${oid:0:12}" '?'), not the pinned head ${HEAD_SHA:0:12}"
+        return
+      fi
+      verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$ROLLUP_JQ" 2>/dev/null) || verdict=''
+      case $verdict in
+        green\ *)
+          set_pred ci-rollup pass "${verdict#green } check(s) green on ${HEAD_SHA:0:12}"
+          return
+          ;;
+        failing)
+          set_pred ci-rollup fail "a check failed on ${HEAD_SHA:0:12}"
+          return
+          ;;
+        pending) last='checks still pending' ;;
+        none) last='no check has reported a success' ;;
+        *) last='the check rollup could not be read' ;;
+      esac
+    fi
+    [ "$i" -ge "$ATTEMPTS" ] || nap
+  done
+  set_pred ci-rollup fail "$last at the end of the ${WAIT_TEXT:-bounded} wait"
+}
+
+GUARD_REASON=''
+pred_guard() {
+  local payload out
+  payload=$(jq -nc --arg c "gh pr ready $PR" --arg w "$WT" \
+    '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' 2>/dev/null) || payload=''
+  if [ -z "$payload" ] || ! out=$(printf '%s' "$payload" | /bin/bash "$SCRIPTS/ready-guard.sh" bash 2>/dev/null); then
+    set_pred ready-guard fail 'the ready-guard could not run'
+    return
+  fi
+  if [ -z "$(printf '%s' "$out" | tr -d '[:space:]')" ]; then
+    set_pred ready-guard pass 'currency and mergeability check passed'
+  else
+    GUARD_REASON=$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
+    set_pred ready-guard fail 'the currency and mergeability check refused'
+  fi
+}
+
+# read_handin — 0 when the handed-in record is for HEAD_SHA and passes all.
+read_handin() {
+  [ -f "$HANDIN" ] && [ ! -L "$HANDIN" ] || return 1
+  awk -F '\t' -v h="$HEAD_SHA" '
+    $1 == "head" { head = ($2 == h) ; seen = 1; next }
+    $1 == "pred" && NF >= 3 { if ($3 != "pass") bad = 1; n[$2] = 1; next }
+    { bad = 1 }
+    END {
+      if (!seen || !head || bad) exit 1
+      if (!("ci-rollup" in n) || !("review-converged" in n) || !("ready-guard" in n) || !("awaiting-input" in n)) exit 1
+    }
+  ' "$HANDIN" || return 1
+  local name
+  for name in ci-rollup review-converged; do
+    set_pred "$name" pass "$(awk -F '\t' -v n="$name" '$1 == "pred" && $2 == n { print $4 }' "$HANDIN" | tr -d '\000-\037\177') (handed in)"
+  done
+}
+
+evaluate_all() {
+  local reuse=0
+  if [ -n "$HANDIN" ]; then
+    if read_handin; then
+      reuse=1
+    else
+      say "the handed-in preconditions are not for head ${HEAD_SHA:0:12}; evaluating afresh"
+    fi
+  fi
+  pred_awaiting
+  [ "$reuse" = 1 ] || pred_review
+  if [ -n "$(failed_preds)" ]; then
+    [ "$reuse" = 1 ] || set_pred ci-rollup skip 'not read: a local precondition failed'
+    set_pred ready-guard skip 'not run: a local precondition failed'
+    return
+  fi
+  [ "$reuse" = 1 ] || pred_ci
+  if [ -n "$(failed_preds)" ]; then
+    set_pred ready-guard skip 'not run: the check rollup is not green'
+    return
+  fi
+  pred_guard
+}
+
+# park <predicates> — write the parking segment; 0 written, 1 not.
+park() {
+  local seg="$LEAD $1 failed on ${HEAD_SHA:0:12}"
+  tasks_clean || {
+    COMMIT_ERR="$TASKS has uncommitted changes"
+    return 1
+  }
+  section edit "$TASKS" "$seg" "${BASE_BULLETS:-}" >"$SCRATCH/tasks.new" || {
+    COMMIT_ERR='tasks.md could not be read'
+    return 1
+  }
+  cmp -s "$SCRATCH/tasks.new" "$TASKS" && return 0
+  cat "$SCRATCH/tasks.new" >"$TASKS"
+  commit_tasks "chore($SPEC_NAME): park the ready-flip of $(unit_label)"
+}
+
+park_and_exit() { # <predicates>
+  if park "$1"; then
+    say "not flipped: $1 failed on ${HEAD_SHA:0:12}; parked under ## Awaiting input in $TASKS"
+    [ -z "$GUARD_REASON" ] || say "ready-guard: $(sanitize_printable "$GUARD_REASON")"
+    exit 4
+  fi
+  say "not flipped: $1 failed on ${HEAD_SHA:0:12}, and the park was not written: $COMMIT_ERR"
+  [ -z "$GUARD_REASON" ] || say "ready-guard: $(sanitize_printable "$GUARD_REASON")"
+  exit 5
+}
+
+print_record() {
+  local i=0
+  printf 'head\t%s\n' "$HEAD_SHA"
+  while [ "$i" -lt "${#P_NAME[@]}" ]; do
+    printf 'pred\t%s\t%s\t%s\n' "${P_NAME[$i]}" "${P_RES[$i]}" "${P_EVD[$i]}"
+    i=$((i + 1))
+  done
+}
+
+# The backticks below are markdown for the PR comment, never expansions.
+# shellcheck disable=SC2016
+record_body() { # <policy>
+  local i=0
+  printf '<!-- planwright:ready-flip -->\n'
+  printf '**Ready-flip record.** `ready_flip_policy` is `%s`; flipping head `%s` once every precondition below held on it.\n\n' "$1" "$HEAD_SHA"
+  printf '| Precondition | Result | Evidence |\n| --- | --- | --- |\n'
+  while [ "$i" -lt "${#P_NAME[@]}" ]; do
+    printf '| %s | %s | %s |\n' "${P_NAME[$i]}" "${P_RES[$i]}" "$(printf '%s' "${P_EVD[$i]}" | tr '|' '/')"
+    i=$((i + 1))
+  done
+}
+
+# --- the modes -----------------------------------------------------------------
+
+if [ "$MODE" = reconcile ]; then
+  reconcile || refuse "the Awaiting-input section could not be reconciled: $COMMIT_ERR"
+  say "reconciled; head $(git rev-parse HEAD)"
+  exit 0
+fi
+
+POLICY=''
+if [ "$MODE" = flip ]; then
+  POLICY=$(/bin/sh "$SCRIPTS/resolve-policy-knob.sh" ready_flip_policy 2>/dev/null) \
+    || refuse 'ready_flip_policy could not be resolved, so the flip is refused'
+  if [ "$POLICY" != unit-owner ]; then
+    say "skipped: ready_flip_policy is $(sanitize_printable "$POLICY" '?'), so a person marks this PR ready"
+    exit 3
+  fi
+fi
+
+if ! command -v gh >/dev/null 2>&1; then
+  say 'skipped: gh is not installed, so no pull request can be read'
+  exit 3
+fi
+command -v jq >/dev/null 2>&1 || refuse 'jq is required to read the host answers'
+read_wait || refuse 'ready_flip_ci_wait could not be resolved'
+
+lookup_pr
+case $? in
+  0) ;;
+  3) exit 3 ;;
+  *)
+    HEAD_SHA=$(git rev-parse HEAD)
+    [ "$MODE" = flip ] || refuse 'the pull request could not be read'
+    park_and_exit pr-lookup
+    ;;
+esac
+
+reconcile || refuse "the Awaiting-input section could not be reconciled: $COMMIT_ERR"
+HEAD_SHA=$(git rev-parse HEAD)
+if [ -n "$EXPECT" ] && [ "$EXPECT" != "$HEAD_SHA" ]; then
+  refuse "reconciling left head ${HEAD_SHA:0:12}, not the expected ${EXPECT:0:12}"
+fi
+
+evaluate_all
+FAILED=$(failed_preds)
+
+if [ "$MODE" = evaluate ]; then
+  if [ -n "$OUTF" ]; then
+    print_record >"$OUTF" || refuse 'the precondition record could not be written'
+  else
+    print_record
+  fi
+  [ -z "$FAILED" ] || exit 4
+  exit 0
+fi
+
+[ -z "$FAILED" ] || park_and_exit "$FAILED"
+
+record_body "$POLICY" >"$SCRATCH/record.md"
+gh pr comment "$PR" --body-file "$SCRATCH/record.md" >/dev/null 2>&1 || park_and_exit record-write
+gh pr ready "$PR" >/dev/null 2>&1
+rc=$?
+if [ "$rc" != 0 ]; then
+  # shellcheck disable=SC2016
+  printf '**Ready-flip follow-up.** The flip call failed after the record above (gh exit %s), so PR #%s stays draft and the flip is parked under `## Awaiting input`.\n' "$rc" "$PR" >"$SCRATCH/follow.md"
+  gh pr comment "$PR" --body-file "$SCRATCH/follow.md" >/dev/null 2>&1 \
+    || say 'the follow-up comment could not be written either'
+  park_and_exit flip-call
+fi
+say "flipped PR #$PR ready at $HEAD_SHA"
+exit 0
