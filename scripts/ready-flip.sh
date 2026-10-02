@@ -355,8 +355,8 @@ commit_tasks() {
 push_branch() { git push -q "$REMOTE" "$BRANCH" >/dev/null 2>&1; }
 
 # unpushed — 0 when the branch holds commits its remote-tracking ref lacks,
-# such as a park whose push failed last run. With no tracking ref nothing is
-# known, so nothing is pushed; the CI read's head check catches a mismatch.
+# such as a park whose push failed last run. A branch the remote does not
+# hold at all is left alone; its PR could not exist.
 unpushed() {
   git rev-parse --verify -q "refs/remotes/$REMOTE/$BRANCH" >/dev/null || return 1
   [ "$(git rev-list --count "refs/remotes/$REMOTE/$BRANCH..HEAD" 2>/dev/null)" != 0 ]
@@ -387,6 +387,9 @@ reconcile() {
       return 1
       ;;
   esac
+  # Refreshed by an explicit refspec, so a narrowed fetch config still leaves
+  # a tracking ref to compare against; a failed fetch keeps the old one.
+  git fetch -q "$REMOTE" "+refs/heads/$BRANCH:refs/remotes/$REMOTE/$BRANCH" >/dev/null 2>&1
   if unpushed && ! push_branch; then
     COMMIT_ERR='the branch has commits its remote lacks and the push failed'
     return 1
@@ -636,22 +639,28 @@ ROLLUP_JQ='
 # branch, so a park could not be pushed on top of it and none is attempted.
 HEAD_MOVED=0
 pred_ci() {
-  local i=0 moved=0 raw oid verdict last='the check rollup could not be read'
+  local i=0 raw oid verdict last='the check rollup could not be read'
   while [ "$i" -lt "$ATTEMPTS" ]; do
     i=$((i + 1))
     raw=$(gh pr view "$PR" --json headRefOid,statusCheckRollup 2>/dev/null) || raw=''
     if [ -n "$raw" ] && oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) && [ -n "$oid" ]; then
-      # The host can lag a push by seconds, so another head is retried a few
-      # times; one that persists is a branch someone else moved.
+      # Another head goes through the lag-tolerant re-read; one that persists
+      # is a branch someone else moved.
       if [ "$oid" != "$HEAD_SHA" ]; then
-        moved=$((moved + 1))
-        if [ "$moved" -ge "$LOOKUP_ATTEMPTS" ]; then
-          HEAD_MOVED=1
-          set_pred ci-rollup fail "the PR head is $(printf '%s' "${oid:0:12}" | tr -cd '0-9a-f'), not the pinned head ${HEAD_SHA:0:12}"
-          return
-        fi
+        pr_head_pinned
+        case $? in
+          0) raw=$(gh pr view "$PR" --json headRefOid,statusCheckRollup 2>/dev/null) || raw='' ;;
+          1)
+            HEAD_MOVED=1
+            set_pred ci-rollup fail "the PR head is $(printf '%s' "${oid:0:12}" | tr -cd '0-9a-f'), not the pinned head ${HEAD_SHA:0:12}"
+            return
+            ;;
+        esac
+        oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) || oid=''
+      fi
+      if [ "$oid" != "$HEAD_SHA" ]; then
         verdict=moved
-        last="the PR head is $(printf '%s' "${oid:0:12}" | tr -cd '0-9a-f'), not the pinned head ${HEAD_SHA:0:12},"
+        last="the PR head did not settle on the pinned head ${HEAD_SHA:0:12}"
       else
         verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" "$ROLLUP_JQ" 2>/dev/null) || verdict=''
       fi
@@ -664,7 +673,7 @@ pred_ci() {
           set_pred ci-rollup fail "a check failed on ${HEAD_SHA:0:12}"
           return
           ;;
-        moved) [ "$i" -lt "$ATTEMPTS" ] || HEAD_MOVED=1 ;;
+        moved) ;;
         pending) last='checks still pending' ;;
         none) last='no check has reported a success' ;;
         *) last='the check rollup could not be read' ;;
@@ -760,19 +769,21 @@ park() {
   commit_tasks "chore($SPEC_NAME): park the ready-flip of $(unit_label)"
 }
 
-# pr_head_pinned — 0 when the host still reports the pinned head for the PR,
-# 1 when it reports another, 2 when it cannot be read after a few tries.
+# pr_head_pinned — 0 when the host reports the pinned head for the PR, 1 when
+# every read reports another (a host lagging a push settles within a few
+# reads), 2 when none could be read.
 pr_head_pinned() {
-  local i=0 oid
+  local i=0 oid seen=0
   while [ "$i" -lt "$LOOKUP_ATTEMPTS" ]; do
     i=$((i + 1))
     oid=$(gh pr view "$PR" --json headRefOid --jq .headRefOid 2>/dev/null) || oid=''
     if [ -n "$oid" ]; then
-      [ "$oid" = "$HEAD_SHA" ] && return 0
-      return 1
+      [ "$oid" != "$HEAD_SHA" ] || return 0
+      seen=1
     fi
     [ "$i" -ge "$LOOKUP_ATTEMPTS" ] || nap
   done
+  [ "$seen" = 1 ] && return 1
   return 2
 }
 
@@ -901,7 +912,7 @@ fi
 # The record already claims the flip, so the follow-up says what became of it.
 outcome=5
 if [ "$HEAD_MOVED" = 1 ]; then
-  parked='no park was written, since the branch moved under it'
+  parked='no park was written, since the branch moved under it; sync the branch and re-run'
 elif park flip-call; then
   outcome=4
   # shellcheck disable=SC2016 # markdown backticks for the comment

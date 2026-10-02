@@ -79,6 +79,7 @@ case "$1 $2" in
         [ ! -f "$GHS/pin_n" ] || h=$(cat "$GHS/pin_n")
         h=$((h + 1))
         echo "$h" >"$GHS/pin_n"
+        [ ! -f "$GHS/head_override" ] || head=$(cat "$GHS/head_override")
         [ ! -f "$GHS/head_at_flip" ] || head=$(cat "$GHS/head_at_flip")
         # head_after_record moves the head from the second re-read on.
         [ ! -f "$GHS/head_after_record" ] || [ "$h" -lt 2 ] || head=$(cat "$GHS/head_after_record")
@@ -624,12 +625,40 @@ echo 1 >"$GHS/head_lag_until"
 run_helper flip --spec specs/demo --task 1
 check "a host lagging one read behind the push still flips" [ "$CODE" = 0 ]
 
-echo "# no tracking ref: reconcile pushes nothing it cannot account for"
+fixture
+set_policy unit-owner
+echo 1 >"$GHS/head_lag_until"
+OUT=$(cd "$F/wt" && env PATH="$STUBBIN:$PATH" GHS="$GHS" GHS_ORIGIN="$F/origin.git" \
+  GHS_BRANCH="$BRANCH" PLANWRIGHT_REPO_ROOT="$F/wt" PLANWRIGHT_LOCAL_CONFIG= \
+  PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/noadopter" PLANWRIGHT_READY_FLIP_POLL_SECONDS=0 \
+  PLANWRIGHT_READY_FLIP_MAX_POLLS=1 PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 \
+  /bin/bash "$HELPER" flip --spec specs/demo --task 1 2>&1)
+CODE=$?
+check "with a single CI read, one lagging head read still flips" [ "$CODE" = 0 ]
+
+echo "# an unreadable head after the record parks and says so"
+fixture
+set_policy unit-owner
+printf '' >"$GHS/head_after_record"
+run_helper flip --spec specs/demo --task 1
+check "an unreadable head after the record parks (exit 4)" [ "$CODE" = 4 ]
+check "no flip when the head cannot be re-read" [ "$(calls 'pr ready')" = 0 ]
+check "the follow-up says the head could not be re-read" grep -q 'could not be re-read.*parked under' "$GHS/comment.2"
+
+echo "# no tracking ref: reconcile fetches one before deciding what to push"
 fixture
 set_policy unit-owner
 gitf update-ref -d "refs/remotes/origin/$BRANCH"
 run_helper reconcile --spec specs/demo --task 1
 check "reconcile with no tracking ref and nothing to clear exits 0" [ "$CODE" = 0 ]
+check "reconcile restores the tracking ref" gitf rev-parse --verify -q "refs/remotes/origin/$BRANCH"
+fixture
+set_policy unit-owner
+printf 'local\n' >>"$F/wt/feature.txt"
+gitf commit -q -am 'chore: a commit the push missed'
+gitf update-ref -d "refs/remotes/origin/$BRANCH"
+run_helper reconcile --spec specs/demo --task 1
+check "a commit stranded without a tracking ref is pushed by reconcile" [ "$(origin_head)" = "$(gitf rev-parse HEAD)" ]
 
 echo "# a hand-in that failed, or names too little, is never trusted"
 fixture
