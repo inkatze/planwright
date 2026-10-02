@@ -523,7 +523,10 @@ done
 exit 0
 SHIM
 chmod +x "$mk/bin/claude"
-mkdir "$mk/hold"
+mkdir "$mk/hold" || {
+  echo "rehearsal: could not create the hold directory" >&2
+  exit 2
+}
 mkfifo "$mk/hold.fifo" || {
   echo "rehearsal: could not create the hold fifo" >&2
   exit 2
