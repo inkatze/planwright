@@ -63,8 +63,6 @@ trap 'rm -rf "$tmp"' EXIT
 # --- config layers: kill-switch off, dirty-tree grace threshold 0 (escalate on
 #     first detection) unless a case overrides the core file.
 core_cfg="$tmp/core-defaults.yml"
-repo_cfg_root="$tmp/cfgrepo"
-mkdir -p "$repo_cfg_root/.claude"
 write_core() { # $1 = threshold token (e.g. 0m, 60m)
   printf 'fleet_daemon_pause: false\nfleet_dirty_tree_threshold: %s\n' "$1" >"$core_cfg"
 }
@@ -100,7 +98,7 @@ run_sweep() {
   PATH="$stub:$PATH" \
     PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-    PLANWRIGHT_REPO_ROOT="$repo_cfg_root" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/bash "$SWEEP" "$@"
@@ -399,5 +397,21 @@ case $(audit_rows --mechanism housekeeping-sweep) in
   *) fail "reconcile backstop: no reconcile audit row" ;;
 esac
 echo "ok: the reconcile backstop corrects a drifted tasks.md snapshot on the sweep"
+
+# 10. A refused spec_root does not silently stop the reconcile backstop: the
+#     sweep still completes, and says the backstop was skipped.
+rm -rf "$fleet_home"
+rf="$tmp/refused-root"
+make_pushed_repo "$rf"
+mkdir -p "$rf/.claude" "$rf/unmarked"
+printf 'spec_root: unmarked\n' >"$rf/.claude/planwright.yml"
+rc=0
+err=$(run_sweep --repo "$rf" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "refused spec_root: sweep exited $rc"
+case $err in
+  *"missed-push backstop skipped"*) ;;
+  *) fail "refused spec_root: the skipped backstop was not reported (stderr: $err)" ;;
+esac
+echo "ok: a refused spec_root is reported as a skipped backstop"
 
 echo "ALL PASS: fleet-sweep"

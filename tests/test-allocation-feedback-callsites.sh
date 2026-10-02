@@ -128,6 +128,7 @@ done
 repo="$tmp/repo"
 adopter_root="$tmp/adopter"
 mkdir -p "$repo/.claude" "$adopter_root"
+git init -q "$repo"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
 core_cfg="$tmp/core-defaults.yml"
 

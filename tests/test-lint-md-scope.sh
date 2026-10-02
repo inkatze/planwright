@@ -38,39 +38,74 @@ fail() {
 tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
-# lint_md_args <mise.toml> — the `lint:md` run line's arguments, one per line,
-# with the markdownlint-cli2 invocation itself dropped. Exits 2 rather than
-# printing a short list when the task, its run line, or its quoting cannot be
-# read: an unresolvable glob set must never read as a covered one.
+# The spec root, relative to the checkout as the task itself relativizes it,
+# stands in for the run body's "$root" so its globs resolve as the task's do.
+repo_phys="$(cd "$REPO_ROOT" && pwd -P)" || exit 1
+spec_root="$(cd "$REPO_ROOT" && /bin/sh scripts/resolve-root.sh spec)" || exit 1
+case $spec_root in "$repo_phys"/*) spec_root=${spec_root#"$repo_phys"/} ;; esac
+export spec_root
+
+# lint_md_args <mise.toml> — the arguments of the `lint:md` task's
+# markdownlint-cli2 command, one per line, with the invocation itself dropped.
+# The command is either the whole quoted run value or the line of a multi-line
+# run body that starts with it. Exits 2 rather than printing a short list when
+# the task, its command, or its quoting cannot be read: an unresolvable glob
+# set must never read as a covered one.
 lint_md_args() {
-  awk '
+  awk -v tq="'''" '
+    # args <command> — tokenize on blanks; single and double quotes group, and
+    # $root inside either is the resolved spec root.
+    function args(line,   n, tok, q, count, i, c) {
+      n = length(line); tok = ""; q = ""; count = 0
+      for (i = 1; i <= n; i++) {
+        c = substr(line, i, 1)
+        if (q != "") { if (c == q) q = ""; else tok = tok c }
+        else if (c == "'"'"'" || c == "\"") q = c
+        else if (c == " " || c == "\t") { if (tok != "") { if (count++ > 0) emit(tok); tok = "" } }
+        else tok = tok c
+      }
+      if (q != "") { print "unterminated glob quote" > "/dev/stderr"; bad = 1; exit 2 }
+      if (tok != "") { if (count++ > 0) emit(tok) }
+      if (count < 2) { print "lint:md run line takes no arguments" > "/dev/stderr"; bad = 1; exit 2 }
+    }
+    function emit(t) { gsub(/\$root/, ENVIRON["spec_root"], t); print t }
+    body && $0 == tq { body = 0; next }
+    body && /^markdownlint-cli2([ \t]|$)/ { args($0); done = 1; exit 0 }
+    body { next }
     /^\[/ { in_task = ($0 == "[tasks.\"lint:md\"]"); next }
     in_task && /^[ \t]*run[ \t]*=/ && !done {
       line = $0
       sub(/^[ \t]*run[ \t]*=[ \t]*/, "", line)
       sub(/[ \t]+$/, "", line)
+      if (line == tq) { body = 1; next }
       q = substr(line, 1, 1)
       if (q != "\"" && q != "'"'"'") { print "unquoted run value" > "/dev/stderr"; bad = 1; exit 2 }
       if (length(line) < 2 || substr(line, length(line), 1) != q) {
         print "unterminated run value" > "/dev/stderr"; bad = 1; exit 2
       }
-      line = substr(line, 2, length(line) - 2)
-      n = length(line); tok = ""; inq = 0; count = 0
-      for (i = 1; i <= n; i++) {
-        c = substr(line, i, 1)
-        if (inq) { if (c == "'"'"'") inq = 0; else tok = tok c }
-        else if (c == "'"'"'") inq = 1
-        else if (c == " " || c == "\t") { if (tok != "") { if (count++ > 0) print tok; tok = "" } }
-        else tok = tok c
-      }
-      if (inq) { print "unterminated glob quote" > "/dev/stderr"; bad = 1; exit 2 }
-      if (tok != "") { if (count++ > 0) print tok }
-      if (count < 2) { print "lint:md run line takes no arguments" > "/dev/stderr"; bad = 1; exit 2 }
+      args(substr(line, 2, length(line) - 2))
       done = 1
       exit 0
     }
     END { if (!done && !bad) { print "no lint:md run line" > "/dev/stderr"; exit 2 } }
   ' "$1"
+}
+
+# with_command <destination> <command> — the shipped mise.toml with the lint:md
+# markdownlint-cli2 command replaced by <command>. Hard-fails when the edit
+# changes nothing, so a fixture never silently tests the shipped file.
+with_command() {
+  awk -v cmd="$2" '
+    /^\[/ { in_task = ($0 == "[tasks.\"lint:md\"]") }
+    in_task && !done && /^markdownlint-cli2([ \t]|$)/ { print cmd; done = 1; next }
+    in_task && !done && /^[ \t]*run[ \t]*=[ \t]*"markdownlint-cli2/ { print "run = \"" cmd "\""; done = 1; next }
+    { print }
+  ' "$REPO_ROOT/mise.toml" >"$1" || exit 1
+  if cmp -s "$1" "$REPO_ROOT/mise.toml"; then
+    echo "FAIL: with_command did not change mise.toml — the fixture no longer matches the lint:md command" >&2
+    failures=$((failures + 1))
+    return 1
+  fi
 }
 
 # lint_md_targets <mise.toml> — the tracked files the argument globs resolve to
@@ -178,7 +213,7 @@ EOF
 # against an unmodified file and reporting a coverage regression that is really
 # a stale fixture.
 narrowed_copy() {
-  sed "/^run = \"markdownlint-cli2 /{
+  sed "/^\(run = \"\)\{0,1\}markdownlint-cli2 /{
     s|'templates/\*\*/\*\.md' ||
     s|markdownlint-cli2 |markdownlint-cli2 $2|
   }" "$REPO_ROOT/mise.toml" >"$1" || exit 1
@@ -309,6 +344,11 @@ else
   else
     fail "the resolved set lost README.md, so the subtraction is over-broad"
   fi
+  if printf '%s\n' "$targets" | grep -q "^$spec_root/[^_][^/]*/requirements\.md\$"; then
+    pass "the resolved set reaches the bundles under the resolved spec root"
+  else
+    fail "the resolved set lost the spec bundles, so \$root did not resolve"
+  fi
   if printf '%s\n' "$targets" | grep -q '^doctrine/'; then
     pass "the resolved set keeps the doctrine prose"
   else
@@ -341,26 +381,21 @@ assert_closed() {
 grep -v '^\[tasks\."lint:md"\]' "$REPO_ROOT/mise.toml" >"$tmp/no-task.toml" || exit 1
 assert_closed "a missing lint:md task" "$tmp/no-task.toml" "no lint:md run line"
 
-sed "s|^run = \"markdownlint-cli2 .*\"$|run = \"markdownlint-cli2 'templates/**/*.md\"|" \
-  "$REPO_ROOT/mise.toml" >"$tmp/unquoted.toml" || exit 1
+with_command "$tmp/unquoted.toml" "markdownlint-cli2 'templates/**/*.md" || exit 1
 assert_closed "an unterminated glob quote" "$tmp/unquoted.toml" "unterminated glob quote"
 
-sed "s|^run = \"markdownlint-cli2 .*\"$|run = \"markdownlint-cli2\"|" \
-  "$REPO_ROOT/mise.toml" >"$tmp/noargs.toml" || exit 1
+with_command "$tmp/noargs.toml" "markdownlint-cli2" || exit 1
 assert_closed "a run line with no globs" "$tmp/noargs.toml" "takes no arguments"
 
-sed "s|^run = \"markdownlint-cli2 .*\"$|run = \"markdownlint-cli2 ':(glob)templates/**/*.md'\"|" \
-  "$REPO_ROOT/mise.toml" >"$tmp/magic.toml" || exit 1
+with_command "$tmp/magic.toml" "markdownlint-cli2 ':(glob)templates/**/*.md'" || exit 1
 assert_closed "a glob carrying git pathspec magic" "$tmp/magic.toml" "pathspec magic"
 
-sed "s|^run = \"markdownlint-cli2 .*\"$|run = \"markdownlint-cli2 'templates/**/*.{md,markdown}'\"|" \
-  "$REPO_ROOT/mise.toml" >"$tmp/braces.toml" || exit 1
+with_command "$tmp/braces.toml" "markdownlint-cli2 'templates/**/*.{md,markdown}'" || exit 1
 assert_closed "a glob using brace expansion" "$tmp/braces.toml" "does not implement"
 
 # A glob set that resolves to nothing has no diagnostic of its own; it is the
 # emptiness itself that must be refused rather than reported as a clean scope.
-sed "s|^run = \"markdownlint-cli2 .*\"$|run = \"markdownlint-cli2 'no-such-dir/**/*.md'\"|" \
-  "$REPO_ROOT/mise.toml" >"$tmp/empty.toml" || exit 1
+with_command "$tmp/empty.toml" "markdownlint-cli2 'no-such-dir/**/*.md'" || exit 1
 rc=0
 lint_md_targets "$tmp/empty.toml" >/dev/null 2>&1 || rc=$?
 if [ "$rc" -eq 2 ]; then

@@ -49,11 +49,12 @@ trap 'rm -rf "$tmp"' EXIT
 
 # --- Config layer fixtures, wired through config-get's env overrides exactly as
 #     test-config-get.sh does (hermetic: no
-#     $HOME, no git toplevel).
+#     $HOME, only a throwaway git toplevel).
 core_cfg="$tmp/core-defaults.yml"
 adopter_root="$tmp/adopter"
 repo="$tmp/repo"
 mkdir -p "$adopter_root" "$repo/.claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 adopter_cfg="$adopter_root/planwright.yml"
 tracked_cfg="$repo/.claude/planwright.yml"
 mlocal_cfg="$repo/.claude/planwright.local.yml"

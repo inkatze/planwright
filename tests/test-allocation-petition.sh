@@ -62,6 +62,7 @@ repo="$tmp/repo"
 core_cfg="$tmp/core.yml"
 adopter_root="$tmp/adopter"
 mkdir -p "$repo/.claude" "$adopter_root"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
 
 # The shipped core defaults this engine reads, kept in lockstep with

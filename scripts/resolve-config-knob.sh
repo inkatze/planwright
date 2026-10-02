@@ -623,9 +623,9 @@ case "$layer" in
     fi
     printf '%s\n' "resolve-config-knob: warning: the $layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
-    # core default. mktemp gives an empty repo root (no .claude/planwright.yml
-    # -> repo-tracked and derived machine-local both absent); a
-    # guaranteed-absent adopter path blanks the adopter layer.
+    # core default. PLANWRIGHT_REPO_ROOT=none leaves repo-tracked and derived
+    # machine-local both absent; a guaranteed-absent adopter path under a
+    # scratch dir blanks the adopter layer.
     scratch=$(mktemp -d) || {
       echo "resolve-config-knob: could not create a scratch dir to read the core default" >&2
       exit 5
@@ -634,7 +634,7 @@ case "$layer" in
     crc=0
     core_value=$(
       PLANWRIGHT_ADOPTER_OVERLAY="$scratch/no-adopter" \
-        PLANWRIGHT_REPO_ROOT="$scratch" \
+        PLANWRIGHT_REPO_ROOT=none \
         PLANWRIGHT_LOCAL_CONFIG="" \
         "$config_get" "$key"
     ) || crc=$?

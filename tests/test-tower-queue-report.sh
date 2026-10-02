@@ -49,7 +49,7 @@ local_cfg="$tmp/local.yml"
 run() {
   PLANWRIGHT_FLEET_STATE_DIR="$home" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
     /bin/sh "$TQ" "$@"
 }
@@ -97,7 +97,7 @@ rc=0
 PATH="$stub_bin:$PATH" \
   PLANWRIGHT_FLEET_STATE_DIR="$home" \
   PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-  PLANWRIGHT_REPO_ROOT="$tmp" \
+  PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
   /bin/sh "$TQ" report --log "$fixtures/baseline.log" >"$tmp/noclock.out" 2>/dev/null || rc=$?
 [ "$rc" = 6 ] || fail "no clock: exit $rc, expected 6"
@@ -178,7 +178,7 @@ cp "$fixtures/baseline.log" "$tmp/data=x.log"
 got=$(cd "$tmp" \
   && PLANWRIGHT_FLEET_STATE_DIR="$home" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
-    PLANWRIGHT_REPO_ROOT="$tmp" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
     /bin/sh "$TQ" report --log "data=x.log" --now 908000 </dev/null) \
   || fail "assignment-shaped --log path: exit"

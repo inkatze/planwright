@@ -295,22 +295,19 @@ ensure_store() {
 # its budget and fails closed long before it could break a merely-busy lock.
 
 # alloc_stale_min: the stale threshold in minutes, read from the same
-# `stale_lock_threshold` knob fleet-state.sh's lock uses, with PLANWRIGHT_REPO_ROOT
-# pinned to the fleet home for the same reason the sibling pins it: this lock is
-# reached from many repos, and resolving the cwd-derived layers would let two
-# callers on the SAME lock disagree about staleness. An absent or unreadable
-# value falls back to 15 minutes.
+# `stale_lock_threshold` knob fleet-state.sh's lock uses, reading no repo-side
+# layer for the same reason the sibling reads none: this lock is reached from
+# many repos, and resolving the cwd-derived layers would let two callers on the
+# SAME lock disagree about staleness. An absent or unreadable value falls back
+# to 15 minutes.
 alloc_stale_min() {
   asm_v=15
-  asm_root=$(store_dir) || asm_root=""
-  if [ -n "$asm_root" ]; then
-    asm_read=$(PLANWRIGHT_REPO_ROOT="$asm_root" "$script_dir/config-get.sh" stale_lock_threshold 2>/dev/null) || asm_read=""
-    asm_read=${asm_read%m}
-    case $asm_read in
-      "" | *[!0-9]*) ;;
-      *) asm_v=$asm_read ;;
-    esac
-  fi
+  asm_read=$(PLANWRIGHT_REPO_ROOT=none "$script_dir/config-get.sh" stale_lock_threshold 2>/dev/null) || asm_read=""
+  asm_read=${asm_read%m}
+  case $asm_read in
+    "" | *[!0-9]*) ;;
+    *) asm_v=$asm_read ;;
+  esac
   [ "$asm_v" -ge 1 ] || asm_v=15
   printf '%s' "$asm_v"
 }

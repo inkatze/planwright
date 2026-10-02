@@ -72,6 +72,8 @@
 #                task passes it because its retrofit is complete.
 #   --root <dir> base dir holding skills/, doctrine/, hooks/, config/ (default:
 #                the repo root, the script's parent directory). Used by tests.
+#                Its .claude/ config layers are read only when it is a git
+#                toplevel; any other directory reads the core defaults.
 #
 # Exit codes: 0 clean (warnings do not fail), 1 a budget error / malformed
 #   input / unresolvable reference, 2 usage error.

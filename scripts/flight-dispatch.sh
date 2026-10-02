@@ -74,7 +74,11 @@
 #       --home defaults to what `home` declares; the tower passes the home it
 #       already stated so the record lands where it said. `--home pr` is
 #       refused (exit 2) when `home` would not declare it; `--home file` skips
-#       the `gh` check. For `file`, dispatch computes the record path and the
+#       the `gh` check. A file home, given or declared, is refused (exit 2)
+#       before anything is placed when the spec root lies outside the
+#       checkout, since the record is committed on the flight's branch; the
+#       refusal names why the PR home is unavailable when it is.
+#       For `file`, dispatch computes the record path and the
 #       brief's land line passes it to scripts/flight-record.sh
 #       (`--record-path`), which composes none of its own.
 #       --attach-dry-run (tmux) places the flight but prints the attach plan
@@ -201,13 +205,41 @@ done
 
 resolve_repo() {
   if [ -z "$repo_root" ]; then
-    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
+    repo_root=$(/bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) \
       || die 2 "not inside a git work tree and no --repo-root given"
   fi
   [ -d "$repo_root" ] || die 2 "--repo-root is not a directory"
-  repo_root=$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null) \
+  repo_root=$(cd "$repo_root" && /bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) \
     || die 2 "--repo-root is not inside a git work tree"
   repo_root=$(cd "$repo_root" && pwd -P) || die 2 "cannot resolve --repo-root"
+  # A linked worktree reads the primary's config layers and places flights
+  # beside it, never nested in it.
+  primary_root=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) \
+    || primary_root=$repo_root
+}
+
+# resolve_spec_rel — set spec_rel to the spec root as the checkout resolves
+# it: relative to the checkout when inside it, else absolute, with spec_inside
+# saying which. A flight record is committed on the flight's branch, so it can
+# only live under a root inside the checkout.
+spec_rel=''
+spec_inside=0
+resolve_spec_rel() {
+  [ -z "$spec_rel" ] || return 0
+  _sr_rc=0
+  _sr=$(cd "$repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || _sr_rc=$?
+  case $_sr_rc in
+    0) ;;
+    6) die 4 "the spec root could not be read (an unreadable config overlay); nothing was placed" ;;
+    *) die 2 "the spec root did not resolve for this checkout" ;;
+  esac
+  case $_sr in
+    "$repo_root"/*)
+      spec_rel=${_sr#"$repo_root"/}
+      spec_inside=1
+      ;;
+    *) spec_rel=$_sr ;;
+  esac
 }
 
 # The checkout's flight lock is fleet-state.sh's lock (owner token, atomic
@@ -293,7 +325,7 @@ read_hosts() {
       _local=/dev/null/planwright.local.yml
     fi
   fi
-  _raw=$(PLANWRIGHT_REPO_ROOT=/dev/null PLANWRIGHT_LOCAL_CONFIG="$_local" \
+  _raw=$(PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="$_local" \
     /bin/sh "$CONFIG" flight_pr_hosts </dev/null)
   _rc=$?
   if [ "$_rc" -ne 0 ]; then
@@ -421,7 +453,7 @@ count_live() {
 # that cannot be read fails closed.
 bound=''
 read_bound() {
-  _v=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$CONFIG" max_parallel_units </dev/null)
+  _v=$(PLANWRIGHT_REPO_ROOT="$primary_root" PLANWRIGHT_REPO_ROOT_CHECKED="$primary_root" /bin/sh "$CONFIG" max_parallel_units </dev/null)
   _rc=$?
   case $_rc in
     0) ;;
@@ -452,7 +484,7 @@ read_bound() {
 TIER_MODEL=inherit
 TIER_EFFORT=inherit
 resolve_tier() {
-  _plan=$(PLANWRIGHT_REPO_ROOT="$repo_root" /bin/sh "$ALLOC" plan --key offload --backend "$backend" \
+  _plan=$(PLANWRIGHT_REPO_ROOT="$primary_root" PLANWRIGHT_REPO_ROOT_CHECKED="$primary_root" /bin/sh "$ALLOC" plan --key offload --backend "$backend" \
     --unit "flight:$flight_id" </dev/null)
   _rc=$?
   case $_rc in
@@ -547,7 +579,7 @@ prepare_brief_dir() {
 # layer, a bad value the 15m default, and zero floored to it.
 STALE_MIN=15
 stale_min() {
-  _sm=$(PLANWRIGHT_REPO_ROOT="$lock_home" /bin/sh "$CONFIG" stale_lock_threshold </dev/null 2>/dev/null) || _sm=''
+  _sm=$(PLANWRIGHT_REPO_ROOT=none /bin/sh "$CONFIG" stale_lock_threshold </dev/null 2>/dev/null) || _sm=''
   _sm=${_sm%m}
   case $_sm in
     '' | *[!0-9]*) STALE_MIN=15 ;;
@@ -627,7 +659,7 @@ sweep_briefs() {
 # (resolve-steps.sh documents the full order).
 resolve_convergence() {
   _rc_out=$(cd "$repo_root" && unset CLAUDE_PLUGIN_ROOT PLANWRIGHT_CONFIG_DEFAULTS \
-    && PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_ROOT="$root_dir" \
+    && PLANWRIGHT_REPO_ROOT="$primary_root" PLANWRIGHT_REPO_ROOT_CHECKED="$primary_root" PLANWRIGHT_ROOT="$root_dir" \
       PLANWRIGHT_SKILLS_ROOT="$root_dir/skills" PLANWRIGHT_STEP_UNIT_KIND=flight \
       bash "$STEPS" convergence --explain --unattended </dev/null) || {
     _rc=$?
@@ -796,8 +828,8 @@ committed record is the landing reference."
     printf '%s\n' "$_landing"
     printf '\n## Rules\n\n'
     printf '%s\n' "- New commits only: no amend, rebase, squash, or force-push."
-    printf '%s\n' "- Write no spec state and edit no spec bundle under \`specs/<spec>/\`; a flight"
-    printf '%s\n' "  is specless. The record file under \`specs/_flights/\` is not a bundle."
+    printf '%s\n' "- Write no spec state and edit no spec bundle under \`$spec_rel/<spec>/\`; a flight"
+    printf '%s\n' "  is specless. The record file under \`$spec_rel/_flights/\` is not a bundle."
     printf '%s\n' "- Unattended: never block on a question. What needs a human parks the flight."
     printf '\n%s\n' "When done, finish with one final line exactly:"
     printf '%s\n' "\`FLIGHT-RESULT: landing=<pr-url|record-path|none> status=<landed|parked> reason=<short>\`"
@@ -1015,6 +1047,16 @@ cmd_dispatch() {
   elif [ "$home" = pr ] && [ "$HOME_DECL" != pr ]; then
     die 2 "refusing --home pr: $HOME_REASON; nothing was placed"
   fi
+  # A file-home record is committed on the flight's branch, so a spec root
+  # outside the checkout cannot hold it: refused here, before the fetch, the
+  # lock, or a minted id.
+  resolve_spec_rel
+  if [ "$home" = file ] && [ "$spec_inside" -ne 1 ]; then
+    if [ -n "$HOME_REASON" ]; then
+      die 2 "the spec root lies outside this checkout, so a flight record cannot be committed there, and the PR home is unavailable: $HOME_REASON; nothing was placed"
+    fi
+    die 2 "the spec root lies outside this checkout, so a flight record cannot be committed there; dispatch without --home file to carry it in the PR body; nothing was placed"
+  fi
 
   resolve_convergence
 
@@ -1062,7 +1104,7 @@ cmd_dispatch() {
   if [ "$home" = pr ]; then
     record="draft PR body"
   else
-    record="specs/_flights/$flight_id.md"
+    record="$spec_rel/_flights/$flight_id.md"
   fi
   if [ "$backend" = tmux ]; then
     brief_handle="tmux-flight-$flight_id"
@@ -1093,14 +1135,14 @@ cmd_dispatch() {
   if [ "$backend" = tmux ]; then
     if [ "$dry" -eq 1 ]; then
       /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --brief "$brief" \
-        --repo-root "$repo_root" --attach-dry-run "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
+        --repo-root "$primary_root" --attach-dry-run "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
     else
       /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --brief "$brief" \
-        --repo-root "$repo_root" "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
+        --repo-root "$primary_root" "$@" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
     fi
   else
     /bin/sh "$WORKTREE" dispatch --flight "$flight_id" --no-attach \
-      --repo-root "$repo_root" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
+      --repo-root "$primary_root" </dev/null >"$_out" 2>"$brief_dir/dispatch.err"
   fi
   _prc=$?
   [ "$_prc" -eq 0 ] || placement_failed "$_prc"
@@ -1112,7 +1154,7 @@ cmd_dispatch() {
   rm -f "$brief_dir/dispatch.err" "$_out"
 
   worktree=$(placed_at) || worktree=''
-  [ -n "$worktree" ] || worktree="$repo_root/.claude/worktrees/$suffix"
+  [ -n "$worktree" ] || worktree="$primary_root/.claude/worktrees/$suffix"
   # A print-rung flight spawns nothing until the operator runs the launch, so
   # its dispatch record is the only evidence it exists, as for a print-rung
   # offload; the tmux rung's record is the worktree primitive's. Best-effort:
@@ -1182,6 +1224,7 @@ cmd_dispatch() {
 cmd=$1
 shift
 repo_root=''
+primary_root=''
 work=''
 cleanup() {
   [ -z "$work" ] || rm -rf "$work"

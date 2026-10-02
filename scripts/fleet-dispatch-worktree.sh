@@ -92,7 +92,7 @@
 #   fleet-dispatch-worktree.sh dispatch <spec> <id> \
 #       [--repo-root <dir>] [--attach-dry-run | --no-attach] [-- <extra launch args>...]
 #       Validate, fetch `<base>`, reconcile, `git worktree add -b`, then attach.
-#       --repo-root      the primary checkout (default: the cwd's git toplevel).
+#       --repo-root      the primary checkout (default: resolve-root.sh repo --primary).
 #       --attach-dry-run create for real, but PRINT the attach plan instead of
 #                        launching (the create-gates-attach + mitigation fixture
 #                        path; no `claude` exec, no model/API call).
@@ -869,9 +869,10 @@ do_dispatch() {
   validate_launch_extra "$@"
   [ -z "$ATTACH_PROMPT" ] || refuse_resume_beside_brief "$@"
 
-  # Resolve the repo root.
+  # Resolve the repo root: the primary checkout, so a dispatch from inside a
+  # worktree places the new worktree beside it rather than nested in it.
   if [ -z "$_repo_root" ]; then
-    _repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    _repo_root=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null || true)
   fi
   [ -n "$_repo_root" ] && [ -d "$_repo_root" ] || {
     warn "cannot resolve repo root (pass --repo-root)"
@@ -883,9 +884,15 @@ do_dispatch() {
   # mismatches the porcelain path).
   _repo_root=$(cd "$_repo_root" && pwd -P) || exit 2
   _spec_dir=''
-  [ -n "$_flight" ] || _spec_dir="$_repo_root/specs/$_spec"
+  if [ -z "$_flight" ]; then
+    _spec_root=$(cd "$_repo_root" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec) || {
+      warn "cannot resolve the spec root for $_repo_root"
+      exit 2
+    }
+    _spec_dir="$_spec_root/$_spec"
+  fi
   # Fail closed when the spec bundle dir is missing: a task is only ever
-  # dispatched within an existing spec, and without `specs/<spec>` the dispatch
+  # dispatched within an existing spec, and without `<root>/<spec>` the dispatch
   # marker cannot be written, which would degrade liveness to "not live" and let
   # a later collision reconcile force-remove an actually-running worker.
   if [ -z "$_flight" ] && [ ! -d "$_spec_dir" ]; then

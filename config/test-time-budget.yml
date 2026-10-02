@@ -28,5 +28,12 @@
 # context from the parallel gated run and so bounds the gate's numbers from
 # below only. The first CI-mode run of this gate prints the in-context
 # baseline; these values are replaced from it, plus headroom, in the same PR.
+#
+# Suite total raised 2026-10-02, when every repo-side config lookup began
+# validating a pinned repository root. Reference-runner wall-clocks: main
+# 548.5s (252 files); the branch that added the validation 600.7s and, on a
+# slower runner the same day, 666.3s (254 files), with files that branch did
+# not touch slower by a similar share, so runner variance is near 10%. 780s
+# is the quieter 600.7s plus 30% headroom.
 per_file_seconds: 120
-suite_total_seconds: 600
+suite_total_seconds: 780

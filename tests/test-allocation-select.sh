@@ -61,6 +61,7 @@ core_cfg="$tmp/core-defaults.yml"
 adopter_root="$tmp/adopter"
 repo="$tmp/repo"
 mkdir -p "$adopter_root" "$repo/.claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 adopter_cfg="$adopter_root/planwright.yml"
 tracked_cfg="$repo/.claude/planwright.yml"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
@@ -432,6 +433,7 @@ done
 # selectable command is malformed (exit 4) naming the rule.
 sb="$tmp/pipeline-entry"
 mkdir -p "$sb/core/config" "$sb/repo/.claude/catalogs" "$sb/adopter" "$sb/home" "$sb/claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$sb/repo"
 cp "$here/../config/steps.yaml" "$sb/core/config/steps.yaml"
 printf 'dispatch_isolation: per-step\nsteps_pre_ci: [entry]\n' >"$sb/core/config/defaults.yml"
 first=$(printf '%s\n' "$commands" | head -1)
