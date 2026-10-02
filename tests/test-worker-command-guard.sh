@@ -1240,6 +1240,8 @@ assert_defer "a context prefix with task ids carrying a glob deferred" \
 cd "$fx_pwd" || exit 1
 assert_defer "a context prefix with a non-numeric PR number deferred" \
   "$(ctx_prefix task 7 12a pre-ci) $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a context prefix naming two points deferred" \
+  "$(ctx_prefix task 7 '' 'pre-ci convergence') $DECLARED --mode strict" Bash "$FXC"
 assert_defer "a context prefix naming an unwired point deferred" \
   "$(ctx_prefix task 7 '' post-merge) $DECLARED --mode strict" Bash "$FXC"
 assert_defer "a context prefix value carrying a control byte deferred" \

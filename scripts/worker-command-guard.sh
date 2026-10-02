@@ -2052,6 +2052,9 @@ step_context_value_ok() {
       esac
       ;;
     POINT)
+      case $v in
+        *' '*) return 1 ;;
+      esac
       case " $STEP_POINTS " in
         *" $v "*) ;;
         *) return 1 ;;
