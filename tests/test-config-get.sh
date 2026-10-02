@@ -639,6 +639,27 @@ got=$(run_layers --layers only_core) || fail "--layers: non-zero exit with only 
 rc=0
 run_layers --layers no_such_key >/dev/null 2>&1 || rc=$?
 [ "$rc" = 3 ] || fail "--layers: a key absent everywhere should exit 3, got $rc"
+# Several keys in one read: each key's lines, in argument order, are its own
+# read's lines led by the key; a key absent everywhere prints nothing.
+want=""
+for k in only_core steps_pre_pr; do
+  while IFS= read -r l; do
+    want="$want$k	$l
+"
+  done <<EOF
+$(run_layers --layers "$k")
+EOF
+done
+got=$(run_layers --layers only_core no_such_key steps_pre_pr) || fail "--layers: several keys exited non-zero"
+[ "$got
+" = "$want" ] || fail "--layers: several keys should print each key's lines led by the key, got: $got"
+for bad in "--layers steps_pre_pr Bad_key" "steps_pre_pr only_core" "--explain steps_pre_pr only_core"; do
+  rc=0
+  # shellcheck disable=SC2086 # the argument list is meant to word-split
+  run_layers $bad >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "several keys: '$bad' should be a usage error (2), got $rc"
+done
+echo "ok: --layers reads several keys in one run; only --layers takes several"
 printf 'steps_pre_pr:\n  - nested\n' >"$layers_root/adopter/planwright.yml"
 got=$(run_layers --layers steps_pre_pr 2>"$tmp/layers-err") || fail "--layers: a malformed adopter layer must degrade, not fail"
 [ "$got" = "$(printf 'core\t[core-a]\nrepo-tracked\t[repo-a]')" ] \
@@ -648,6 +669,9 @@ printf 'steps_pre_pr:\n  - nested\n' >"$layers_root/repo/.claude/planwright.yml"
 rc=0
 run_layers --layers steps_pre_pr >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "--layers: a malformed repo-tracked layer should hard-fail 4, got $rc"
+rc=0
+run_layers --layers only_core steps_pre_pr >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "--layers: several keys over a malformed repo-tracked layer should hard-fail 4, got $rc"
 echo "ok: --layers applies the same by-layer malformed policy as the merged read"
 
 # PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1: a malformed adopter or machine-local
