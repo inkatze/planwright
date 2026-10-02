@@ -128,6 +128,7 @@ if [ $# -gt 1 ] && [ "$layers" -eq 0 ]; then
   echo "planwright: several config keys take --layers" >&2
   exit 2
 fi
+n_keys=$#
 keys="$*"
 for key in "$@"; do
   case "$key" in
@@ -289,7 +290,14 @@ q
 }
 
 # malformed_once <layer> <file>: malformed_config, judged once per layer, so a
-# read of several keys walks the layers without re-testing each file.
+# read of several keys walks the layers without re-testing each file. The
+# verdicts and the skip warnings start unset whatever the environment holds.
+# shellcheck disable=SC2034 # read through eval in malformed_once
+malformed_mlocal=""
+# shellcheck disable=SC2034 # read through eval in malformed_once
+malformed_adopter=""
+warned_mlocal=""
+warned_adopter=""
 malformed_once() {
   mo_v=""
   eval "mo_v=\${malformed_$1:-}"
@@ -357,7 +365,9 @@ walk_key() {
         echo "config-get: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
         exit 6
       fi
-      echo "config-get: warning: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
+      [ -n "$warned_mlocal" ] \
+        || echo "config-get: warning: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
+      warned_mlocal=1
     else
       strict_key_shape "$mlocal_cfg" machine-local
       if get_value "$mlocal_cfg" "$key"; then
@@ -378,7 +388,9 @@ walk_key() {
         echo "config-get: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); the caller allows no skip" >&2
         exit 6
       fi
-      echo "config-get: warning: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
+      [ -n "$warned_adopter" ] \
+        || echo "config-get: warning: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
+      warned_adopter=1
     else
       strict_key_shape "$adopter_cfg" adopter
       if get_value "$adopter_cfg" "$key"; then
@@ -391,17 +403,25 @@ walk_key() {
   fi
 }
 
-if [ "$keys" != "$key" ]; then
+# The several-key read prints only once every key has walked, so a key that
+# fails the walk (exit 4 or 6) leaves nothing on stdout.
+if [ "$n_keys" -gt 1 ]; then
+  batch=""
   # The keys are validated identifiers, so the unquoted split is exact.
   for key in $keys; do
     layer_lines=""
     walk_key
+    if [ -z "$layer_lines" ] && { [ -z "$defaults" ] || [ ! -r "$defaults" ]; }; then
+      echo "config-get: tracked defaults not found (looked via PLANWRIGHT_CONFIG_DEFAULTS, then each arm of the core root chain: resolve-root.sh install --all --explain); '$key' unresolved" >&2
+    fi
     while IFS= read -r line; do
-      [ -z "$line" ] || printf '%s\t%s\n' "$key" "$line"
+      [ -z "$line" ] || batch="$batch$key	$line
+"
     done <<EOF
 $layer_lines
 EOF
   done
+  printf '%s' "$batch"
   exit 0
 fi
 walk_key
