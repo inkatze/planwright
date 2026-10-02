@@ -125,8 +125,11 @@ Some checks need a live Claude session and spend model tokens, so nothing in
   asserts both sweep modes leave it alone, `stop` closes it, and nothing it
   held is left behind. On the stream-json rung it also asserts the detector
   reads the wedged worker waiting on a human; the headless rung has no pend
-  path, so there that check reports N/A with the reason. Everything runs
-  under one temp directory, one worker at a time. Run it after changing a
+  path, so there that check reports N/A with the reason. While the sweep
+  refuses `terminate` everywhere, the terminate cycle observes and the check
+  requires the sweep to say so. Everything planwright writes lands under one
+  temp directory (the CLI keeps its own session state under your real home),
+  one worker at a time. Run it after changing a
   close, the detector, the sweep, or a rung's launch. Exit 3 is a skip (no
   live session could be established) and is never a pass. Without `--live` the
   same file runs against a scripted CLI inside `check`, which covers the

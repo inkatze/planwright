@@ -20,7 +20,9 @@
 #                 working; no held worker may read dead or finished
 #   4. sweep      fleet-sweep.sh in both reap modes, observing (the default) and
 #                 with a machine-local terminate; neither may take a worker that
-#                 is still running
+#                 is still running. While the sweep refuses terminate
+#                 everywhere, the terminate cycle observes, and the check
+#                 requires the sweep to say it refused
 #   5. stop       the rung's `stop`, then every class of its release set checked
 #                 independently of what `stop` reported, and the repeat stop
 #                 answering already-closed
@@ -34,9 +36,11 @@
 #              minutes, so it is opt-in (`mise run rehearsal:lifecycle`) and
 #              never part of `check` or CI. One worker at a time.
 #
-# ISOLATION. Every path the rehearsal touches is under one mktemp root: the
+# ISOLATION. Everything planwright resolves is under one mktemp root: the
 # fleet home (registry, presence, attention store), the headless state, the
-# throwaway repository the worker runs in, and the overlay layers. Ambient
+# throwaway repository the worker runs in, and the overlay layers. Under
+# --live the CLI itself keeps the real HOME, where its login lives, so it
+# records its own session state there as any session does. Ambient
 # fleet and tower identity is stripped, CLAUDE_PLUGIN_DATA included, and the
 # resolved fleet home is checked to be the temp one before anything launches.
 # On exit every process naming the root in its argv or running inside it,
@@ -60,7 +64,7 @@ TOWER_ID='feedface-0000-4000-8000-000000000012'
 LIVE=0
 RUNGS='sj hl'
 MODEL=haiku
-WAIT=180
+WAIT=''
 # The stream-json wedge: a command nothing pre-approves, so it pends on a
 # permission request. The headless hold (HOLD_CMD, set once the temp root
 # exists) is a read of a fifo nobody writes: it blocks until the close, and it
@@ -75,7 +79,7 @@ usage: tests/rehearsal-lifecycle.sh [--live] [--rung sj|hl] [--model <name>] [--
   --live    rehearse against the real claude CLI (spends tokens; opt-in only)
   --rung    one rung only: sj (stream-json-persistent) or hl (headless-oneshot)
   --model   the worker model under --live (default: haiku)
-  --wait    seconds to wait for the worker to wedge (default: 180)
+  --wait    seconds to wait for the worker to wedge (default: 180 live, 30 scripted)
 USAGE
   exit 2
 }
@@ -117,6 +121,12 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+if [ -z "$WAIT" ]; then
+  # The scripted CLI wedges at once; a long wait there only turns a broken
+  # wedge into a blown test-time budget instead of a quick failure.
+  if [ "$LIVE" = 1 ]; then WAIT=180; else WAIT=30; fi
+fi
 
 failures=0
 skips=0
@@ -215,49 +225,78 @@ descendants() {
 # exists, running with its cwd inside it, plus all their descendants. The
 # table is read before the filter runs, so a scan never finds its own argv.
 pids_under() {
+  # Only ever a path inside a rehearsal root: an empty or wider one would
+  # match every process on the host.
+  case $1 in
+    */pw-rehearsal.?*) ;;
+    *) return 1 ;;
+  esac
   pu_table=$(proc_table)
   pu_seed=$(printf '%s\n' "$pu_table" | awk -F'\t' -v r="$1" -v me="$$" \
     '$1 != me && index($4, r) { printf "%s ", $1 }')
-  # One `ls` for every cwd link: a readlink per process costs seconds.
+  # One `ls` for every cwd link: a readlink per process costs seconds. A cwd
+  # removed under the process reads `-> <path> (deleted)`.
   if [ -d /proc/self ]; then
     # shellcheck disable=SC2012  # /proc entries are numeric; find has no portable -lname read
     pu_seed="$pu_seed $(ls -l /proc/[0-9]*/cwd 2>/dev/null | awk -v r="$1" '
       { t = $NF; l = $(NF - 2) }
+      t == "(deleted)" { t = $(NF - 1); l = $(NF - 3) }
       t == r || index(t, r "/") == 1 { split(l, a, "/"); printf "%s ", a[3] }')"
   fi
   descendants "$pu_table" "$pu_seed" "$$" | cut -f1
 }
 
-# same_pids <file> — the pids of <file>'s rows still running as the same
-# process: same pid, start time and argv.
+# same_pids <rows> — the pids of `<pid> TAB <start> TAB <argv>` rows still
+# running as the same process: same pid, start time and argv.
 same_pids() {
-  [ -s "$1" ] || return 0
-  proc_table | awk -F'\t' 'NR == FNR { id[$1] = $3 "\t" $4; next }
-    ($1 in id) && id[$1] == $2 "\t" $3 { print $1 }' - "$1"
+  [ -n "$1" ] || return 0
+  awk -F'\t' 'NR == FNR { id[$1] = $3 "\t" $4; next }
+    NF >= 3 && ($1 in id) && id[$1] == $2 "\t" $3 { print $1 }' <(proc_table) - <<<"$1"
+}
+
+# rows_of <pids...> — the current table rows of <pids>, as same_pids reads.
+# shellcheck disable=SC2329  # called from final_check, under the EXIT trap
+rows_of() {
+  proc_table | awk -F'\t' -v want=" $* " 'index(want, " " $1 " ") { print $1 "\t" $3 "\t" $4 }'
 }
 
 # final_check — kill what is left under the root. Prints the leftovers and
-# returns 1 when anything was there at all, 2 when something would not die.
+# returns 1 when anything was there at all, 2 when something would not die,
+# 3 when it could not look.
 # shellcheck disable=SC2329  # called from the EXIT trap's cleanup
 final_check() {
+  case $mk in
+    */pw-rehearsal.?*) ;;
+    *)
+      echo "unexpected rehearsal root '$mk'"
+      return 3
+      ;;
+  esac
   fc_seen=''
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    fc_left=$({
+    if [ -z "$(proc_table)" ]; then
+      echo "the process table could not be read"
+      return 3
+    fi
+    # shellcheck disable=SC2046  # pid lists, one word each
+    fc_rows=$(rows_of $({
       pids_under "$mk"
       same_pids "${tracked:-}"
-    } | awk 'NF' | sort -u)
-    if [ -z "$fc_left" ]; then
+    } | awk 'NF' | sort -u))
+    if [ -z "$fc_rows" ]; then
       [ -z "$fc_seen" ] && return 0
       printf '%s\n' "$fc_seen"
       return 1
     fi
-    fc_seen=$(printf '%s\n%s\n' "$fc_seen" "$fc_left" | awk 'NF' | sort -u)
-    for fc_p in $fc_left; do
+    fc_seen=$(printf '%s\n%s\n' "$fc_seen" "$(printf '%s\n' "$fc_rows" | cut -f1)" | awk 'NF' | sort -u)
+    # Re-checked against a fresh table immediately before the kill, so a pid
+    # reissued since the scan is spared.
+    for fc_p in $(same_pids "$fc_rows"); do
       kill -9 "$fc_p" 2>/dev/null
     done
     sleep 0.5
   done
-  printf '%s\n' "$fc_left"
+  printf '%s\n' "$fc_seen"
   return 2
 }
 
@@ -266,6 +305,8 @@ sig=''
 cleanup() {
   cl_rc=$?
   trap - EXIT INT TERM HUP
+  # A reader that went away (`| head`) must not stop the cleanup half way.
+  trap '' PIPE
   rmdir "$mk/hold" 2>/dev/null
   fc_rc=0
   leftover=$(final_check) || fc_rc=$?
@@ -274,11 +315,14 @@ cleanup() {
     1)
       flunk exit "processes outlived the close and had to be killed at exit: $(printf '%s' "$leftover" | tr '\n' ' ')"
       ;;
-    *)
+    2)
       flunk exit "processes under the rehearsal root survive SIGKILL: $(printf '%s' "$leftover" | tr '\n' ' ')"
       ;;
+    *) flunk exit "could not check for leftover processes: $leftover" ;;
   esac
-  rm -rf "$mk"
+  case $mk in
+    */pw-rehearsal.?*) rm -rf "$mk" ;;
+  esac
   if [ -n "$sig" ]; then
     say "INTERRUPTED by SIG$sig — not a pass" >&2
     kill -s "$sig" "$$"
@@ -307,8 +351,8 @@ cleanup() {
 # --- static checks: the bundle is inert and the live run is opt-in ----------
 
 # The bundle sits outside the spec root, so /orchestrate and the status render
-# never enumerate it, and it is a Draft, so a copy that strayed in would still
-# be refused.
+# never enumerate it, and it is a Draft, so /orchestrate would still refuse a
+# copy that strayed in. The rungs' own launch verbs do not read the status.
 spec_root=$("$S/resolve-root.sh" spec 2>/dev/null) || spec_root="$REPO_ROOT/specs"
 case $BUNDLE_SRC/ in
   "$spec_root"/*) flunk static "the throwaway bundle sits under the spec root $spec_root" ;;
@@ -338,11 +382,18 @@ case $task_body in
   *'tests/rehearsal-lifecycle.sh --live'*) pass static "the live rehearsal is its own opt-in mise task" ;;
   *) flunk static "mise.toml has no rehearsal:lifecycle task running tests/rehearsal-lifecycle.sh --live" ;;
 esac
-# Walk `depends`, `depends_post` and `wait_for` from `check`; a reached task
-# that is the live task, or whose body runs it, fails. `test` must be reached,
-# so a parse that found nothing cannot pass.
+# Walk `depends`, `depends_post`, `wait_for` and `mise run <task>` in a body
+# from `check`; a reached task that is the live task, or whose body runs it,
+# fails. A line inside a multi-line string is body, never a table header.
+# `test` must be reached, so a parse that found nothing cannot pass.
 reach=$(awk '
-  /^\[tasks\./ {
+  {
+    probe = $0
+    flips = gsub(/\047\047\047|"""/, "", probe)
+    was_in = inml
+    if (flips % 2) inml = !inml
+  }
+  !was_in && /^\[tasks\./ {
     cur = $0
     sub(/^\[tasks\./, "", cur)
     sub(/\][ \t]*$/, "", cur)
@@ -350,10 +401,18 @@ reach=$(awk '
     indep = 0
     next
   }
-  /^\[/ { cur = ""; next }
+  !was_in && /^\[/ { cur = ""; next }
   cur == "" { next }
   /rehearsal:lifecycle|rehearsal-lifecycle\.sh.*--live/ { live[cur] = 1 }
-  /^[ \t]*(depends|depends_post|wait_for)[ \t]*=/ { indep = 1 }
+  {
+    line = $0
+    while (match(line, /mise[ \t]+(run[ \t]+|r[ \t]+)?[A-Za-z0-9:_.-]+/)) {
+      k = split(substr(line, RSTART, RLENGTH), w, /[ \t]+/)
+      dep[cur] = dep[cur] " " w[k]
+      line = substr(line, RSTART + RLENGTH)
+    }
+  }
+  !was_in && /^[ \t]*(depends|depends_post|wait_for)[ \t]*=/ { indep = 1 }
   indep {
     line = $0
     while (match(line, /"[^"]*"/)) {
@@ -394,21 +453,25 @@ trap cleanup EXIT
 trap 'sig=INT; exit 1' INT
 trap 'sig=TERM; exit 1' TERM
 trap 'sig=HUP; exit 1' HUP
-mk=$(cd "$mk" && pwd -P) || exit 2
-# The root reaches a worker's prompt and the cwd scan as one word.
+# Assigned only on success: a failed substitution would otherwise leave the
+# root empty for the exit trap's process scan.
+mk_phys=$(cd "$mk" && pwd -P) || exit 2
+mk=$mk_phys
+# The root reaches a worker's prompt, awk -v and the cwd scan as one plain
+# word.
 case $mk in
-  *[[:space:]]*)
-    echo "rehearsal: the temp root '$mk' contains whitespace; set TMPDIR to a path without any" >&2
+  *[!A-Za-z0-9._/-]*)
+    echo "rehearsal: the temp root '$mk' has characters outside [A-Za-z0-9._/-]; set TMPDIR to a plain path" >&2
     exit 2
     ;;
 esac
 mkdir -p "$mk/home" "$mk/headless" "$mk/adopter" "$mk/userhome" "$mk/bin" "$mk/gh-stub"
 
-# The tree a stop is expected to end, recorded as `<pid> TAB <start> TAB
-# <argv>` while the run goes, so the exit trap can reach a process that
-# outlived its parent and no longer names the root.
-tracked="$mk/tracked-pids"
-: >"$tracked"
+# The tree a stop is expected to end, as `<pid> TAB <start> TAB <argv>` rows
+# gathered while the run goes, so the exit trap can reach a process that
+# outlived its parent and no longer names the root. Kept in the harness's own
+# memory: a file under the root is somewhere a live worker could write.
+tracked=''
 
 # A gh that answers nothing, for the sweep's reconcile pass: the throwaway
 # repository has no forge, and no call may leave the host.
@@ -550,7 +613,7 @@ wait_for() {
 # --- per-rung helpers ---------------------------------------------------------
 
 # The stream-json handle is a variable so the scripted skip path can launch a
-# second worker beside the main one.
+# worker of its own, under a different handle, before the main one.
 SJ_HANDLE=rehearsal-sj
 
 handle_of() {
@@ -707,15 +770,26 @@ wedge_verdict() {
 }
 
 # snapshot_tree <rung> — `<pid> TAB <start> TAB <argv>` for the rung's tree,
-# from one read of the process table.
+# from one read of the process table. A recorded pid seeds it only while its
+# argv names the root: a pid file outlives its process, and the pid may be
+# someone else's by now.
 snapshot_tree() {
-  descendants "$(proc_table)" "$(seeds_of "$1")" "$$" | cut -f1,3,4
+  st_table=$(proc_table)
+  st_seed=$(printf '%s\n' "$st_table" | awk -F'\t' -v want=" $(seeds_of "$1") " -v r="$mk" \
+    'index(want, " " $1 " ") && index($4, r) { printf "%s ", $1 }')
+  descendants "$st_table" "$st_seed" "$$" | cut -f1,3,4
 }
 
-# tree_alive <rung> — true while any process of the snapshot taken at the
-# wedge is still the same process.
-tree_alive() {
-  [ -n "$(same_pids "$mk/tree-$1")" ]
+# worker_alive <rung> — true while the worker itself, as snapshotted at the
+# wedge, is still the same process: the stream-json worker pid, or the
+# headless hold command.
+worker_alive() {
+  case $1 in
+    sj) wa_key=$(cat "$(dir_of sj)/worker.pid" 2>/dev/null) ;;
+    hl) wa_key='' ;;
+  esac
+  [ -n "$(same_pids "$(printf '%s\n' "$2" | awk -F'\t' -v k="$wa_key" -v cmd="$HOLD_CMD" \
+    '(k != "" && $1 == k) || (k == "" && index($3, cmd))')")" ]
 }
 
 detector_state() {
@@ -735,18 +809,36 @@ sweep_mode() {
   printf '%s\n' "$sw_out" | awk -F'\t' '$1 == "summary" { sub(/^mode=/, "", $2); print $2; exit }'
 }
 
-# sweep_took <handle> — the reap outcome for the worker, when the cycle acted
-# on it or would have.
-sweep_took() {
-  printf '%s\n' "$sw_out" | awk -F'\t' -v w="$1" '
-    $1 == "reap" && $2 == w && ($3 == "reaped" || $3 == "partial" || $3 == "observed" || $3 == "unrecorded") { print $3; exit }'
+# sweep_scanned — the cycle read its stores and saw at least one worker; a
+# degraded or empty scan would leave every "left alone" check vacuous.
+sweep_scanned() {
+  printf '%s\n' "$sw_out" | awk -F'\t' '$1 == "summary" {
+      for (i = 2; i <= NF; i++) { split($i, kv, "="); v[kv[1]] = kv[2] }
+      ok = (v["status"] == "ok" && v["workers"] + 0 >= 1)
+    }
+    END { exit ok ? 0 : 1 }'
 }
 
+# sweep_reap <handle> — the reap outcome the cycle printed for the worker, if
+# it made the worker a candidate at all.
+sweep_reap() {
+  printf '%s\n' "$sw_out" | awk -F'\t' -v w="$1" '$1 == "reap" && $2 == w { print $3; exit }'
+}
+
+# sweep_took <handle> — the reap outcome when the cycle closed the worker or
+# would have.
+sweep_took() {
+  case $(sweep_reap "$1") in
+    reaped | partial | observed | unrecorded) sweep_reap "$1" ;;
+  esac
+}
+
+# held_classes <rung> <tree-rows> — the release-set classes still held.
 held_classes() {
   hc_d=$(dir_of "$1")
   hc_w=$(handle_of "$1")
   hc_out=''
-  if [ "$(pids_under "$hc_d")" != '' ] || tree_alive "$1"; then
+  if [ "$(pids_under "$hc_d")" != '' ] || [ -n "$(same_pids "$2")" ]; then
     hc_out="$hc_out process"
   fi
   if [ "$1" = sj ]; then
@@ -788,8 +880,6 @@ rehearse() {
 
   # 2. wedge, or the visible skip when no session could be established
   wait_for "$WAIT" wedge_or_end "$r"
-  snapshot_tree "$r" >"$mk/tree-$r"
-  cat "$mk/tree-$r" >>"$tracked"
   verdict=$(wedge_verdict "$r")
   case $verdict in
     wedged) ;;
@@ -808,6 +898,8 @@ rehearse() {
     sj) pass "$r" "the worker is wedged on a pending permission request ($WEDGE_CMD)" ;;
     hl) pass "$r" "the worker is held mid-command ($HOLD_CMD)" ;;
   esac
+  tree=$(snapshot_tree "$r")
+  tracked=$(printf '%s\n%s\n' "$tracked" "$tree" | awk 'NF')
 
   # 3. classify the running worker
   cls=$(detector_state "$r")
@@ -816,8 +908,17 @@ rehearse() {
   case $r:$state in
     sj:waiting-on-a-human) pass "$r" "the detector classifies the wedged worker waiting-on-a-human (reason: $reason)" ;;
     sj:*) flunk "$r" "the detector classifies the wedged worker '$state' (reason: $reason), not waiting-on-a-human" ;;
-    hl:dead | hl:finished-but-unreaped | hl:)
-      flunk "$r" "the detector classifies a held, live worker '$state' (reason: $reason)"
+    hl:dead | hl:finished-but-unreaped | hl: | hl:unclassified)
+      # An unclassified completion is a sweep candidate, so it is as wrong for
+      # a held worker as finished is.
+      case $state:$reason in
+        unclassified:completion-*) flunk "$r" "the detector reads a held, live worker as a completion (reason: $reason)" ;;
+        unclassified:*)
+          pass "$r" "the detector does not read the held worker as dead or finished (state: $state, reason: $reason)"
+          na "$r" "waiting-on-a-human: headless-oneshot has no pend path; an unapproved ask fails under --print instead of waiting"
+          ;;
+        *) flunk "$r" "the detector classifies a held, live worker '$state' (reason: $reason)" ;;
+      esac
       ;;
     hl:*)
       pass "$r" "the detector does not read the held worker as dead or finished (state: $state, reason: $reason)"
@@ -836,19 +937,20 @@ rehearse() {
   esac
 
   # 4. both sweep modes, while the worker is still held
+  # A held worker must not even be a reap candidate.
   rm -f "$machine_local"
   sweep
-  took=$(sweep_took "$w")
-  if [ "$sw_rc" = 0 ] && [ "$(sweep_mode)" = observe ] && [ -z "$took" ] \
-    && tree_alive "$r"; then
+  took=$(sweep_reap "$w")
+  if [ "$sw_rc" = 0 ] && sweep_scanned && [ "$(sweep_mode)" = observe ] && [ -z "$took" ] \
+    && worker_alive "$r" "$tree"; then
     pass "$r" "an observing sweep leaves the held worker alone"
   else
-    flunk "$r" "observing sweep: exit $sw_rc, mode '$(sweep_mode)', outcome '$took', $(clip "$sw_err")"
+    flunk "$r" "observing sweep: exit $sw_rc, mode '$(sweep_mode)', outcome '$took', $(clip "$sw_out $sw_err")"
   fi
   mkdir -p "$repo/.claude"
   printf 'fleet_sweep_reap: terminate\n' >"$machine_local"
   sweep
-  took=$(sweep_took "$w")
+  took=$(sweep_reap "$w")
   # The terminate knob must have been read: either honored, or refused with
   # the sweep saying so. A second silent observing cycle exercises nothing.
   case $sw_rc:$(sweep_mode):$sw_err in
@@ -856,14 +958,33 @@ rehearse() {
     0:observe:*'terminate is refused'*) term_read='refused for now, so the cycle observed and said why' ;;
     *) term_read='' ;;
   esac
-  if [ -n "$term_read" ] && [ -z "$took" ] && tree_alive "$r"; then
+  if [ -n "$term_read" ] && sweep_scanned && [ -z "$took" ] && worker_alive "$r" "$tree"; then
     pass "$r" "a terminating sweep leaves the held worker alone (terminate $term_read)"
   else
     flunk "$r" "terminating sweep: exit $sw_rc, mode '$(sweep_mode)', outcome '$took', terminate read: ${term_read:-no}, $(clip "$sw_err")"
   fi
   rm -f "$machine_local"
 
-  # 5. stop, then the release set, checked independently of what stop said
+  # 5. stop, then the release set, checked independently of what stop said.
+  # Each class the rung should hold must be held first, or its emptiness after
+  # the close proves nothing.
+  before=$(held_classes "$r" "$tree")
+  case $r in
+    sj) want='process scratch attention' ;;
+    hl) want='process' ;;
+  esac
+  missing=''
+  for c in $want; do
+    case " $before " in
+      *" $c "* | *" $c:"*) ;;
+      *) missing="$missing $c" ;;
+    esac
+  done
+  if [ -z "$missing" ]; then
+    pass "$r" "before the close the worker holds: $before"
+  else
+    flunk "$r" "before the close the worker does not hold:$missing (held: $before)"
+  fi
   stop_rc=0
   stop_out=$(rung_stop "$r" --grace 5 2>&1) || stop_rc=$?
   case $stop_rc:$stop_out in
@@ -872,12 +993,12 @@ rehearse() {
   esac
   held=''
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    held=$(held_classes "$r")
+    held=$(held_classes "$r" "$tree")
     [ -z "$held" ] && break
     sleep 0.5
   done
   if [ -z "$held" ]; then
-    pass "$r" "every class of the release set is empty: process tree, locks, scratch temp, attention record"
+    pass "$r" "after the close every class of the release set is empty"
   else
     flunk "$r" "the release set still holds: $held"
   fi
@@ -901,11 +1022,11 @@ rehearse() {
   sweep
   took=$(sweep_took "$w")
   obs=$(rung_stop "$r" --observe 2>&1)
-  if [ "$sw_rc" = 0 ] && [ -z "$took" ] && [ "$obs" = "stop $w already-closed" ] \
-    && [ -z "$(held_classes "$r")" ]; then
+  if [ "$sw_rc" = 0 ] && sweep_scanned && [ -z "$took" ] && [ "$obs" = "stop $w already-closed" ] \
+    && [ -z "$(held_classes "$r" "$tree")" ]; then
     pass "$r" "a post-close sweep finds nothing held"
   else
-    flunk "$r" "post-close: sweep exit $sw_rc outcome '$took', observe '$(clip "$obs")', held '$(held_classes "$r")'"
+    flunk "$r" "post-close: sweep exit $sw_rc outcome '$took', observe '$(clip "$obs")', held '$(held_classes "$r" "$tree")', $(clip "$sw_out")"
   fi
 }
 
@@ -930,7 +1051,9 @@ skip_path() {
     sp_out=$(PATH="$sp_path" /bin/bash "$0" --live --rung sj 2>&1) || sp_rc=$?
     case $sp_rc:$sp_out in
       3:*'SKIP no live session'*) pass skip-path "--live without a CLI exits 3 with its reason, not 0" ;;
-      2:*'jq is required'*) na skip-path "--live without a CLI: jq shares the CLI's directory on this host" ;;
+      # Removing the CLI's PATH entries also removed a tool the harness needs
+      # (jq, or coreutils when the CLI sits in /usr/bin): this check cannot run.
+      2:*) na skip-path "--live without a CLI: the CLI shares a PATH entry with a tool the harness needs: $(clip "$sp_out")" ;;
       *) flunk skip-path "--live without a CLI exited $sp_rc: $(clip "$sp_out")" ;;
     esac
   fi

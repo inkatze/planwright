@@ -12,7 +12,7 @@ rehearsal (`tests/rehearsal-lifecycle.sh`) copies it into a throwaway
 repository under a temporary directory and dispatches a worker against it, so
 the dispatch has a real spec to name. It lives under `tests/fixtures/` so
 `/orchestrate` and the status render never see it, and it stays a Draft so a
-copy that strayed into a spec root would still be refused.
+copy that strayed into a spec root would still be refused by `/orchestrate`.
 
 ## REQ-A — Rehearsal
 
