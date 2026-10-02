@@ -1194,6 +1194,14 @@ assert_defer "declared line behind a context assignment carrying an expansion de
 assert_defer "declared line behind a quoted-name assignment deferred" \
   "'PLANWRIGHT_STEP_SPEC=x' $DECLARED --mode strict" Bash "$FXC"
 assert_defer "declared words split across a quoted word deferred" "'$DECLARED --mode' strict" Bash "$FXC"
+assert_defer "declared line behind a context assignment carrying a backtick substitution deferred" \
+  "PLANWRIGHT_STEP_SPEC=\`id\` $DECLARED --mode strict" Bash "$FXC"
+assert_defer "declared line behind an unknown PLANWRIGHT_STEP_ name deferred" \
+  "PLANWRIGHT_STEP_OTHER=x $DECLARED --mode strict" Bash "$FXC"
+assert_defer "declared line followed by an unsafe command on the next line deferred" \
+  "$DECLARED --mode strict
+rm -rf x" Bash "$FXC"
+assert_defer "declared line with a glob in an arg deferred" "$DECLARED --mode stric*" Bash "$FXC"
 HOOK_ENV=()
 assert_defer "declared line with no declaring overlay deferred" "$DECLARED --mode strict" Bash "$FXC"
 
