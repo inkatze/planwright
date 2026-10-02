@@ -188,51 +188,39 @@ printf '#!/bin/bash\nsleep 3\n' >"$work/idle.sh"
 emit "calib $(/bin/bash "$work/prof.sh" "$work/idle.sh" 0.1)"
 
 for f in \
-  tests/test-allocation-adapt.sh \
   tests/test-flight-dispatch.sh \
-  tests/test-resolve-steps.sh \
-  tests/test-allocation-feedback-callsites.sh \
   tests/test-fleet-streamjson.sh \
-  tests/test-allocation-clamps.sh \
-  tests/test-tower-queue-away.sh \
-  tests/test-tower-queue-settle.sh \
-  tests/test-allocation-feedback.sh \
-  tests/test-tower-queue-merge.sh \
+  tests/test-resolve-steps.sh \
   tests/test-worker-command-guard.sh \
-  tests/test-tower-queue-standing.sh \
-  tests/test-tower-loop-relay.sh \
   tests/test-lock-lib.sh \
-  tests/test-tower-queue-lease.sh \
-  tests/test-tower-queue-store-lock.sh \
-  tests/test-spec-validate.sh \
+  tests/test-allocation-adapt.sh \
   tests/test-fleet-liveness.sh \
-  tests/test-tasks-pr-sync.sh \
-  tests/test-policy-guard.sh \
+  tests/test-allocation-feedback-callsites.sh \
+  tests/test-spec-validate.sh \
+  tests/test-tower-queue-settle.sh \
+  tests/test-tower-queue-away.sh \
+  tests/test-allocation-feedback.sh \
   tests/test-tower-reply-hook.sh \
-  tests/test-reserved-control-spellings.sh \
-  tests/test-tower-queue-next.sh \
-  tests/test-fleet-attention.sh \
   tests/test-fleet-sweep-reap.sh \
-  tests/test-release-publish.sh \
-  tests/test-tower-loop-comms.sh \
+  tests/test-tasks-pr-sync.sh \
+  tests/test-tower-queue-merge.sh \
+  tests/test-allocation-clamps.sh \
+  tests/test-reserved-control-spellings.sh \
+  tests/test-policy-guard.sh \
   tests/test-orchestrate-meta-select.sh \
-  tests/rehearsal-lifecycle.sh \
-  tests/test-check-instructions.sh \
-  tests/test-tower-queue-store.sh \
-  tests/test-fleet-dispatch-reconcile.sh \
-  tests/test-allocation-apply.sh \
-  tests/test-fleet-allocate.sh \
-  tests/test-allocation-petition.sh \
-  tests/test-fleet-adversarial-concurrency.sh \
-  tests/test-behavioral-eval-tower.sh \
-  tests/test-check-guard-wiring.sh \
-  tests/test-fleet-fence-sweep.sh \
+  tests/test-tower-queue-store-lock.sh \
+  tests/test-tower-loop-relay.sh \
+  tests/test-tower-queue-standing.sh \
+  tests/test-fleet-attention.sh \
   tests/test-fleet-stop-sj.sh \
-  tests/test-fleet-adversarial.sh \
+  tests/test-tower-queue-lease.sh \
   tests/test-fleet-stop-hl.sh \
+  tests/test-fleet-dispatch-reconcile.sh \
+  tests/test-tower-loop-comms.sh \
+  tests/test-release-publish.sh \
+  tests/test-turn-shape-eval.sh \
   tests/test-flight-record.sh \
-  tests/test-tower-queue-push-channel.sh \
-  tests/test-tower-queue-capture.sh; do
+  tests/test-run-tests.sh; do
   if [ -f "$f" ]; then
     emit "prof $(/bin/bash "$work/prof.sh" "$f" 0.1)"
   else
