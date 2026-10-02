@@ -537,6 +537,17 @@ check "a base name shaped like an option is never used (exit 4)" [ "$CODE" = 4 ]
 check "an option-shaped base parks as an unreadable PR" grep -q 'pending ready-flip: pr-lookup' <<<"$(bullet)"
 check "an option-shaped base gets no flip" [ "$(calls 'pr ready')" = 0 ]
 
+fixture
+set_policy unit-owner
+cp -R "$F/wt" "$F/-wt"
+OUT=$(cd "$F" && env PATH="$STUBBIN:$PATH" GHS="$GHS" GHS_ORIGIN="$F/origin.git" \
+  GHS_BRANCH="$BRANCH" PLANWRIGHT_REPO_ROOT="$F/-wt" PLANWRIGHT_LOCAL_CONFIG= \
+  PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/noadopter" PLANWRIGHT_READY_FLIP_POLL_SECONDS=0 \
+  PLANWRIGHT_READY_FLIP_MAX_POLLS=3 PLANWRIGHT_READY_GUARD_RETRY_DELAY=0 \
+  /bin/bash "$HELPER" reconcile --spec specs/demo --task 1 --worktree -wt 2>&1)
+CODE=$?
+check "a --worktree starting with a dash names that directory, not a cd option" [ "$CODE" = 0 ]
+
 echo "# the precondition hand-in runs the CI wait once"
 fixture
 set_policy unit-owner

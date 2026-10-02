@@ -173,6 +173,8 @@ refuse() { # <message> — not flipped, nothing parked
 case $OUTF in '' | /*) ;; *) OUTF="$PWD/$OUTF" ;; esac
 case $HANDIN in '' | /*) ;; *) HANDIN="$PWD/$HANDIN" ;; esac
 [ -n "$WT" ] || WT=.
+# A leading dash would read as cd's option (or `cd -`, the previous dir).
+case $WT in -*) WT="./$WT" ;; esac
 cd "$WT" 2>/dev/null || refuse 'the worktree cannot be entered'
 # Git reports paths from the top level, so every path here is relative to it.
 WT=$(git rev-parse --show-toplevel 2>/dev/null) || refuse 'not inside a git checkout'
