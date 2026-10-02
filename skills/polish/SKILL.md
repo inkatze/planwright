@@ -15,14 +15,11 @@ argument-hint: "[--nested]"
 
 The autonomous act-then-review loop (REQ-E2.1, D-12): repeat the `/self-review`
 pass against the feature branch until it drains every action disposition and
-only irreducible Needs-human-judgment forks (if any) remain, then hand off a
+only irreducible Needs-human-judgment forks remain, then hand off a
 projection of the audit record and the file holding it in full. Polish is
-**local-only** per the invariants below; after the
-read-only fetch that pins the base at pre-flight, iterations never touch the
-remote (nested `/self-review` passes reuse the pinned base without
-fetching). The pending-sign-off
-checklist it emits reaches the draft PR through whichever skill owns PR
-creation (`/execute-task` per REQ-E1.5, or a standalone `/self-review`).
+**local-only** per the invariants below: nested `/self-review` passes reuse
+the base pinned at pre-flight, and the skill owning PR creation carries its
+pending-sign-off checklist to the draft PR.
 
 ## Doctrine
 
@@ -112,9 +109,9 @@ Each iteration:
 
 Finding fixes commit inside the pass per the `gate-wiring` commit
 discipline (loop-level writes, such as observation fragment writes, take
-their own chore commit at the iteration boundary). Polish never
-amends, squashes, rebases, or force-pushes; each iteration's commits stand as
-the per-iteration audit trail.
+their own chore commit at the iteration boundary). Attended or unattended, a
+Needs-sign-off fix is committed on the branch, never asked about first. Each
+iteration's commits stand as the per-iteration audit trail.
 
 **Signed-bundle edits.** Each iteration's nested pass runs the stale-anchor
 pre-flight before its first edit to each Ready or Active bundle's anchored content, per
@@ -146,10 +143,8 @@ emits empty `none` tables):
 | Dirty tree | Pre-flight found uncommitted changes (stops before iteration one). |
 
 On any safety stop: write the latest audit record to the handoff file below,
-name the condition, and hand off its projection. Work already committed stays
-committed, each item undone by the
-revert its checklist entry names; a stop never resets, stashes, or rewrites
-prior dispositions.
+name the condition, and hand off its projection. A stop never resets,
+stashes, or rewrites committed dispositions.
 
 ## Handoff
 
@@ -160,8 +155,8 @@ owns no PR body — and across the run it holds:
 
 1. The lens-coverage table from the final pass.
 2. In the wiring doc's formats: the four bucket tables, the declined log, and
-   the pending-sign-off checklist regenerated from the `[pending-sign-off]`
-   commits ahead of the base.
+   the pending-sign-off checklist regenerated from the sign-off trailers
+   ahead of the base.
 3. The queued irreducible forks with their bespoke options: the only items
    that ask the human a question.
 4. The final iteration's pass summary (the per-iteration summaries cover
@@ -180,7 +175,12 @@ instantiation of the wiring's loop-end rule: iterations run and the reason
 the loop ended (converged, or the safety condition that fired), per-bucket
 counts across the run, then the residue itself projected — each pending
 sign-off and each queued fork as one line of decision and options — and the
-path to the file. A safety stop projects that same shape; the record it
+path to the file; then print each trailered commit's SHA and `git log --format='%h
+%(trailers:key=Planwright-Sign-Off,key=Planwright-Sign-Off-Rejected,separator=%x20)
+%s' <base>..HEAD`.
+The approval act, never the ready flip, signs off
+pending-sign-off items; reject one before it by its printed recipe. A safety
+stop projects that same shape; the record it
 points at is already written, so a stop never trades the projection for a
 dump.
 

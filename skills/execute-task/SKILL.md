@@ -19,7 +19,7 @@ a signed-off kickoff brief and carry it from a failing test to a draft PR.
 `/orchestrate` dispatches it into a prepared worktree; a human may also run it
 inside one. It works from the kickoff
 brief, the durable contract (D-3), not by re-reading the spec; sign-off and
-merge are the human's two reserved controls (see Invariants).
+merge are the human's reserved controls (see Invariants).
 
 ## Doctrine
 
@@ -335,8 +335,9 @@ opening a PR. Classify each handoff:
   `passed`; fold its audit record — the four bucket tables (per
   `finding-categorization`, whose *Prose findings* axis classes a prose-only fix
   expression-only or meaning-class), the declined log, the pending-sign-off
-  checklist (prose-only sign-off fixes batch into one commit per loop iteration
-  under `gate-wiring`'s commit discipline), and any queued
+  checklist (attended or unattended, a Needs-sign-off fix is committed on the
+  branch, never asked about first; prose-only ones batch into one commit per
+  loop iteration under `gate-wiring`'s commit discipline), and any queued
   Needs-human-judgment forks — into the PR body. A queued meaning-class spec
   fork is `halted` and stops PR creation whatever the posture: contract drift,
   governed by the meaning-class refusal below.
@@ -376,8 +377,7 @@ classify the edit on the amendment axis:
 ## PR creation (REQ-E1.5, D-21)
 
 1. **Run the `pre-pr` point, then push the branch:** `git push origin <branch>`
-   (with `-u` on first push). New commits only — never force-push, amend,
-   squash, or rebase (REQ-J1.4). On push or `gh` auth failure, degrade
+   (with `-u` on first push). On push or `gh` auth failure, degrade
    gracefully (REQ-K1.6, REQ-K1.7): the local work is committed; record an
    Awaiting-input note in `tasks.md` naming the pending step and the failure,
    surface it, and stop. Never retry into an opaque failure.
@@ -392,11 +392,10 @@ classify the edit on the amendment axis:
    (`specs/<spec>/kickoff-brief.md`), the task IDs, the REQs satisfied (from the
    task `Citations:`), the test additions and what they verify, and
    implementation notes (key decisions). The audit record is the convergence
-   steps' output: the four tables, declined log, pending-sign-off checklist,
-   and any queued forks, plus every in-run point's table (`step-record.sh
-   render --run <id>`, `none` rows included). At PR review the human approves
-   each checklist item by leaving its commit, or rejects it with the named
-   revert.
+   steps' folded output plus every in-run point's table (`step-record.sh
+   render --run <id>`, `none` rows included). The approval act, never the
+   ready flip, signs off pending-sign-off items; reject one before it by its
+   printed recipe.
 
    The PR is always a draft. Never mark it ready and never merge. Then run the
    `post-pr` point, the PR number now in its context; after its list, re-emit
@@ -418,9 +417,12 @@ classify the edit on the amendment axis:
 
 **Hand off.** Report: the unit and spec, the freshness-gate result, tests
 written and CI outcome, step counts per point, the convergence summary, the verified anchor, the
-push/PR outcome (or degradation note), and what the human decides at PR review —
-the pending-sign-off checklist and any queued forks. Apply artifact data-hygiene
-to everything surfaced.
+push/PR outcome (or degradation note), and the human's decisions — the
+pending-sign-off checklist and any queued forks; print each trailered
+commit's SHA and `git log --format='%h
+%(trailers:key=Planwright-Sign-Off,key=Planwright-Sign-Off-Rejected,separator=%x20)
+%s' <base>..HEAD`.
+Apply artifact data-hygiene to everything surfaced.
 
 ## Stop conditions (mandatory human handoff)
 
