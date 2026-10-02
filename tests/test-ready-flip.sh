@@ -71,6 +71,10 @@ case "$1 $2" in
         esac
         printf '{"headRefOid":"%s","statusCheckRollup":%s}\n' "$head" "$roll"
         ;;
+      *'--jq .headRefOid'*)
+        [ ! -f "$GHS/head_at_flip" ] || head=$(cat "$GHS/head_at_flip")
+        printf '%s\n' "$head"
+        ;;
       *mergeable*)
         printf '{"baseRefName":"main","headRefOid":"%s","isDraft":%s,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}\n' "$head" "$draft"
         ;;
@@ -79,9 +83,19 @@ case "$1 $2" in
           echo "no pull requests found for branch \"$GHS_BRANCH\"" >&2
           exit 1
         fi
+        l=0
+        [ ! -f "$GHS/lookup_n" ] || l=$(cat "$GHS/lookup_n")
+        l=$((l + 1))
+        echo "$l" >"$GHS/lookup_n"
+        if [ -f "$GHS/lookup_fail_until" ] && [ "$l" -le "$(cat "$GHS/lookup_fail_until")" ]; then
+          echo 'HTTP 502: Bad Gateway' >&2
+          exit 1
+        fi
         base=main
         [ ! -f "$GHS/base" ] || base=$(cat "$GHS/base")
-        printf '{"number":42,"isDraft":%s,"state":"OPEN","baseRefName":"%s","headRefName":"%s","headRefOid":"%s"}\n' "$draft" "$base" "$GHS_BRANCH" "$head"
+        fork=false
+        [ ! -f "$GHS/fork" ] || fork=true
+        printf '{"number":42,"isDraft":%s,"state":"OPEN","baseRefName":"%s","headRefName":"%s","headRefOid":"%s","isCrossRepository":%s}\n' "$draft" "$base" "$GHS_BRANCH" "$head" "$fork"
         ;;
     esac
     ;;
@@ -201,6 +215,7 @@ run_helper() {
 }
 
 calls() { grep -c "^CALL $1" "$GHS/log" 2>/dev/null || true; }
+rollups() { grep -c 'statusCheckRollup' "$GHS/log" 2>/dev/null || true; }
 first_line_of() { grep -n "^CALL $1" "$GHS/log" | head -1 | cut -d: -f1; }
 origin_tasks() { git --git-dir="$F/origin.git" show "refs/heads/$BRANCH:$TASKS"; }
 origin_head() { git --git-dir="$F/origin.git" rev-parse "refs/heads/$BRANCH"; }
@@ -233,7 +248,7 @@ check "the record precedes the flip in the call log" [ "${rec:-9999}" -lt "${flp
 check "the record names the policy value" grep -q 'unit-owner' "$GHS/comment.1"
 check "the record names the head SHA" grep -q "$(gitf rev-parse HEAD)" "$GHS/comment.1"
 for p in ready-guard ci-rollup review-converged awaiting-input; do
-  check "the record carries evidence for $p" grep -q "$p.*pass" "$GHS/comment.1"
+  check "the record carries a passing row with evidence for $p" grep -Eq "^\| $p \| pass \| [^ |][^|]* \|$" "$GHS/comment.1"
 done
 check "a pass writes no park" [ "$(leads)" = 0 ]
 check "the handoff says flipped" grep -q 'flipped' <<<"$OUT"
@@ -313,7 +328,7 @@ set_policy unit-owner
 run_helper flip --spec specs/demo --task 1
 check "a live base bullet blocks (exit 4)" [ "$CODE" = 4 ]
 check "the composed park carries the base segment first" grep -q '^- \*\*Task 1\*\* — halt: blocked on a design question; pending ready-flip: awaiting-input' <<<"$(bullet)"
-check "the composed bullet is identical in content to the base's leading segment" [ "$(origin_tasks | grep -c '^- \*\*Task 1\*\*')" = 1 ]
+check "the composition leaves one bullet for the task" [ "$(origin_tasks | grep -c '^- \*\*Task 1\*\*')" = 1 ]
 
 echo "# another task's bullet does not block this unit"
 fixture '- **Task 2** — halt: unrelated'
@@ -330,7 +345,7 @@ gitf push -q origin "$BRANCH" 2>/dev/null
 run_helper flip --spec specs/demo --task 1
 check "a code commit after the review head fails review-converged" [ "$CODE" = 4 ]
 check "the park names review-converged" grep -q 'pending ready-flip: review-converged' <<<"$(bullet)"
-check "a failing local predicate does not wait on CI" [ "$(calls 'pr view 42 --json headRefOid,statusCheckRollup')" = 0 ]
+check "a failing local predicate does not wait on CI" [ "$(rollups)" = 0 ]
 
 echo "# no review record at all fails review-converged"
 fixture
@@ -360,7 +375,7 @@ set_policy unit-owner
 echo pending >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a rollup still pending at the bound parks (exit 4)" [ "$CODE" = 4 ]
-check "the wait polled to its bound" [ "$(calls 'pr view 42 --json headRefOid,statusCheckRollup')" = 3 ]
+check "the wait polled to its bound" [ "$(rollups)" = 3 ]
 fixture
 set_policy unit-owner
 echo none >"$GHS/ci"
@@ -371,7 +386,7 @@ set_policy unit-owner
 echo 2 >"$GHS/rollup_fail_until"
 run_helper flip --spec specs/demo --task 1
 check "a transient host failure inside the wait is retried, then flips" [ "$CODE" = 0 ]
-check "the failed reads were retried" [ "$(calls 'pr view 42 --json headRefOid,statusCheckRollup')" = 3 ]
+check "the failed reads were retried" [ "$(rollups)" = 3 ]
 fixture
 set_policy unit-owner
 echo 9 >"$GHS/rollup_fail_until"
@@ -507,10 +522,10 @@ check "evaluate passes (exit 0)" [ "$CODE" = 0 ]
 check "evaluate never flips" [ "$(calls 'pr ready')" = 0 ]
 check "evaluate never comments" [ "$(calls 'pr comment')" = 0 ]
 check "the hand-in names the head" grep -q "^head	$(gitf rev-parse HEAD)$" "$hand"
-before=$(calls 'pr view 42 --json headRefOid,statusCheckRollup')
+before=$(rollups)
 run_helper flip --spec specs/demo --task 1 --preconditions "$hand"
 check "a flip with a matching hand-in flips" [ "$CODE" = 0 ]
-check "the CI wait ran once in total" [ "$(calls 'pr view 42 --json headRefOid,statusCheckRollup')" = "$before" ]
+check "the CI wait ran once in total" [ "$(rollups)" = "$before" ]
 fixture
 set_policy unit-owner
 hand2="$SANDBOX/hand2-$RANDOM"
@@ -521,7 +536,7 @@ gitf push -q origin "$BRANCH" 2>/dev/null
 record_review
 run_helper flip --spec specs/demo --task 1 --preconditions "$hand2"
 check "a hand-in for another head still flips after re-evaluating" [ "$CODE" = 0 ]
-check "a hand-in for another head is not trusted: the CI wait re-runs" [ "$(calls 'pr view 42 --json headRefOid,statusCheckRollup')" = 2 ]
+check "a hand-in for another head is not trusted: the CI wait re-runs" [ "$(rollups)" = 2 ]
 
 echo "# reconcile alone"
 fixture
@@ -534,6 +549,101 @@ check "reconcile exits 0" [ "$CODE" = 0 ]
 check "reconcile removes its own segment and pushes" [ "$(leads)" = 0 ]
 check "reconcile prints the head it pushed" grep -q "$(origin_head)" <<<"$OUT"
 check "reconcile makes no gh call" [ "$(calls '')" = 0 ]
+
+echo "# reconcile leaves a person's bullet and a missing section alone"
+fixture
+set_policy unit-owner
+write_tasks '- **Task 1**: a question a;b  with spacing'
+gitf commit -q -am 'chore: a human question'
+gitf push -q origin "$BRANCH" 2>/dev/null
+before=$(origin_head)
+run_helper reconcile --spec specs/demo --task 1
+check "reconcile with no own segment exits 0" [ "$CODE" = 0 ]
+check "a bullet with no own segment is not rewritten" grep -qx -- '- \*\*Task 1\*\*: a question a;b  with spacing' <<<"$(origin_tasks)"
+check "a bullet with no own segment makes no commit" [ "$(origin_head)" = "$before" ]
+fixture
+set_policy unit-owner
+printf '# Demo — Tasks\n\n**Status:** Ready\n**Format-version:** 2\n\n## Tasks\n\n### Task 1 — One\n' >"$F/wt/$TASKS"
+gitf commit -q -am 'chore: no awaiting-input section'
+gitf push -q origin "$BRANCH" 2>/dev/null
+before=$(origin_head)
+run_helper reconcile --spec specs/demo --task 1
+check "reconcile over a bundle with no section makes no commit" [ "$(origin_head)" = "$before" ]
+check "reconcile never empties tasks.md" grep -q '### Task 1' "$F/wt/$TASKS"
+
+echo "# --expect-head refuses a head the point did not end on"
+fixture
+set_policy unit-owner
+run_helper flip --spec specs/demo --task 1 --expect-head 0123456789012345678901234567890123456789
+check "a head other than the expected one is refused (exit 5)" [ "$CODE" = 5 ]
+check "no flip call against an unexpected head" [ "$(calls 'pr ready')" = 0 ]
+fixture
+set_policy unit-owner
+run_helper flip --spec specs/demo --task 1 --expect-head "$(gitf rev-parse HEAD)"
+check "the expected head flips" [ "$CODE" = 0 ]
+
+echo "# the PR head is re-read before the record and before the flip"
+fixture
+set_policy unit-owner
+echo 0123456789012345678901234567890123456789 >"$GHS/head_at_flip"
+run_helper flip --spec specs/demo --task 1
+check "a head that moved after the checks is not flipped" [ "$(calls 'pr ready')" = 0 ]
+check "a head that moved after the checks writes no record" [ "$(calls 'pr comment')" = 0 ]
+
+echo "# a hand-in that failed, or names too little, is never trusted"
+fixture
+set_policy unit-owner
+echo failing >"$GHS/ci"
+hand3="$SANDBOX/hand3-$RANDOM"
+run_helper evaluate --spec specs/demo --task 1 --out "$hand3"
+check "evaluate with a failing precondition exits 4" [ "$CODE" = 4 ]
+check "evaluate never parks" [ "$(leads)" = 0 ]
+check "the failing record says fail" grep -q '^pred	ci-rollup	fail' "$hand3"
+echo green >"$GHS/ci"
+before=$(rollups)
+run_helper flip --spec specs/demo --task 1 --preconditions "$hand3"
+check "a failed hand-in is re-evaluated: the CI wait runs again" [ "$(rollups)" -gt "$before" ]
+fixture
+set_policy unit-owner
+printf 'head\t%s\npred\tci-rollup\tpass\tx\n' "$(gitf rev-parse HEAD)" >"$SANDBOX/hand4"
+before=$(rollups)
+run_helper flip --spec specs/demo --task 1 --preconditions "$SANDBOX/hand4"
+check "a hand-in missing predicates is re-evaluated" [ "$(rollups)" -gt "$before" ]
+
+echo "# the PR lookup retries a transient failure, and refuses a fork"
+fixture
+set_policy unit-owner
+echo 2 >"$GHS/lookup_fail_until"
+run_helper flip --spec specs/demo --task 1
+check "a transient lookup failure is retried, then flips" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+: >"$GHS/fork"
+run_helper flip --spec specs/demo --task 1
+check "a PR from a fork is refused (exit 5)" [ "$CODE" = 5 ]
+check "a fork PR gets no flip" [ "$(calls 'pr ready')" = 0 ]
+
+echo "# a park whose push fails is named, and the next run pushes it first"
+fixture
+set_policy unit-owner
+echo failing >"$GHS/ci"
+printf '#!/bin/sh\nexit 1\n' >"$F/origin.git/hooks/pre-receive"
+chmod +x "$F/origin.git/hooks/pre-receive"
+before=$(origin_head)
+run_helper flip --spec specs/demo --task 1
+check "an unpushed park exits 5" [ "$CODE" = 5 ]
+check "an unpushed park is named as local only" grep -q 'local only' <<<"$OUT"
+check "the remote did not move" [ "$(origin_head)" = "$before" ]
+rm -f "$F/origin.git/hooks/pre-receive"
+run_helper reconcile --spec specs/demo --task 1
+check "the next reconcile pushes the stranded commit" [ "$(origin_head)" = "$(gitf rev-parse HEAD)" ]
+
+echo "# a mergeability conflict is the ready-guard's refusal"
+fixture
+set_policy unit-owner
+echo 1 >"$GHS/behind"
+run_helper evaluate --spec specs/demo --task 1
+check "a behind head fails ready-guard in evaluate" grep -q 'ready-guard	fail' <<<"$OUT"
 
 echo "# no model in the decision path"
 check "the helper calls no model or dispatch backend" not grep -Eq '(^|[^[:alnum:]_-])(claude|anthropic|offload-dispatch)([^[:alnum:]_-]|$)' "$HELPER"
