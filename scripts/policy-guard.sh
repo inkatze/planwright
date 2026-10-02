@@ -8,8 +8,9 @@
 # <tier> is `worker` or `tower`, carried by the settings profile the session
 # runs under; any other value, or none, is a session with no tier profile,
 # which is outside this guard's jurisdiction, so it defers with no read.
-# <surface> is `bash` or `mcp`: which matcher fired, so a payload that lost its
-# tool_name on the MCP matcher still denies.
+# <surface> is `bash` or `mcp`: which matcher fired, so a payload on the MCP
+# matcher that lost its tool_name, or names another tool, still denies. A
+# payload that cannot be read denies at every surface.
 #
 # MODALITY. Like the ready-guard and unlike the allow-only command guards, this
 # guard emits deny, so a missed deny defeats it and a false deny blocks work.
@@ -47,18 +48,20 @@
 #               mode. tower: deny. worker: unpushed_rewrite, then the unit
 #               branch rule, then the never-pushed check: the upstream tracking
 #               ref is refreshed and no remote-tracking ref may contain a
-#               rewritten commit.
-#   push        a force or bulk push denies; every other push reads the
+#               rewritten commit. A rebase with -x/--exec denies: its
+#               command runs below this hook.
+#   push       a force or bulk push denies; every other push reads the
 #               protected set and denies a target inside it.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
 #               commit, or rename write to a named branch reads only the
-#               protected set (a contents write naming no branch denies, since
-#               it writes the default branch); a request the guard cannot read
-#               (a field from a file or stdin, an --input body, a non-literal
-#               endpoint, method, or query on a write, an unknown flag) denies
-#               before any read; anything else defers.
+#               protected set (a rename checks both names; a contents write
+#               naming no branch denies, since it writes the default branch);
+#               a request the guard cannot read (a field from a file or stdin,
+#               an --input body, a non-literal endpoint, method, or query on a
+#               write, a rename with no literal new name, an unknown flag)
+#               denies before any read; anything else defers.
 # Every segment of a compound command is classified and the strictest verdict
 # wins.
 #
@@ -2088,16 +2091,33 @@ classify_git_rebase() {
     return 0
   fi
   tower_refuses 'git rebase' && return 0
+  # An exec line runs a shell command below this hook, unclassified.
+  case $GP_SHORT in
+    *x*)
+      deny_now 'this git rebase runs a command through -x/--exec, which the guard cannot classify - refusing. Run the rebase without exec and the command on its own.'
+      return 0
+      ;;
+  esac
+  if long_prefix_seen exec 2; then
+    deny_now 'this git rebase runs a command through -x/--exec, which the guard cannot classify - refusing. Run the rebase without exec and the command on its own.'
+    return 0
+  fi
   act_gate 'this git rebase' rewrite || return 0
   need_dir "$dir_ok" 'this git rebase' || return 0
   all_literal || {
     deny_now 'this git rebase names a revision through an expansion the guard cannot read - refusing (fail closed). Write it literally.'
     return 0
   }
-  local root=0 ur=0
+  local root=0 ur=0 t uref=update-refs nuref=no-update-refs
   long_prefix_seen root 2 && root=1
-  long_prefix_seen update-refs 2 && ur=1
-  long_prefix_seen no-update-refs 5 && ur=-1
+  # git takes the last of --update-refs and --no-update-refs.
+  for t in $GP_LONG; do
+    if [ "${#t}" -ge 2 ] && [ "$t" = "${uref:0:${#t}}" ]; then
+      ur=1
+    elif [ "${#t}" -ge 5 ] && [ "$t" = "${nuref:0:${#t}}" ]; then
+      ur=-1
+    fi
+  done
   PENDING[${#PENDING[@]}]="rebase$TAB$dir$TAB$root$TAB$ur$TAB${GP_POS[*]-}"
 }
 
@@ -2588,7 +2608,8 @@ main() {
   FETCH_T=$(bound_secs "${PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT:-}" 20)
 
   input=$(head -c "$((MAX_PAYLOAD_BYTES + 1))" 2>/dev/null) || read_ok=0
-  [ "$read_ok" = 1 ] || return 0
+  [ "$read_ok" = 1 ] \
+    || emit_deny 'the PreToolUse payload could not be read - refusing (fail closed). This is a hook-contract violation; report it.'
   if [ "${#input}" -gt "$MAX_PAYLOAD_BYTES" ]; then
     emit_deny 'the PreToolUse payload is larger than this guard reads - refusing (fail closed). Issue the command on its own.'
   fi
@@ -2626,6 +2647,8 @@ main() {
       && emit_deny 'the PreToolUse payload could not be parsed and its raw content names a reserved act - refusing (fail closed).'
     return 0
   fi
+  [ "$surface" != mcp ] || [ "$tool" = "$MCP_TOOL" ] \
+    || emit_deny "the MCP-surface payload names $(sanitize_printable "$tool" 'an unprintable tool'), not $MCP_TOOL, so the guard cannot tell whether it flips or re-drafts a PR - refusing (fail closed). This is a hook-contract violation; report it."
   case $tool in
     Bash) handle_bash "$input" ;;
     "$MCP_TOOL") handle_mcp "$input" ;;

@@ -124,6 +124,17 @@ pg_payload worker mcp 'not json'
 expect deny "[worker] an unparseable payload on the MCP surface denies"
 pg_payload '' mcp "$(mcp false)"
 expect defer "no tier: the MCP flip defers"
+pg_payload worker mcp '{"tool_name":"mcp__github__update_pull_request_v2","tool_input":{"draft":false}}'
+expect deny "[worker] an MCP-surface payload naming another tool denies"
+pg_payload worker mcp '{"tool_name":"Bash","tool_input":{"command":"true"}}'
+expect deny "[worker] an MCP-surface payload naming Bash denies"
+for tier in worker tower; do
+  for surface in bash mcp; do
+    PG_STDIN=$SANDBOX pg_payload "$tier" "$surface" ''
+    expect deny "[$tier] a payload read that fails on the $surface surface denies"
+    reads none "[$tier] the failed payload read denies with no read ($surface)"
+  done
+done
 
 # --- undo and merge (REQ-C1.8, REQ-D1.5) -------------------------------------
 
@@ -236,6 +247,18 @@ for cmd in 'git rebase origin/main' 'git rebase -i HEAD~4' 'git commit --fixup=H
 done
 pg worker 'git rebase origin/main'
 reason_has 'remote-tracking ref already contains' "the pushed-commit deny says why"
+for cmd in "git rebase -i HEAD~3 --exec='git push --force origin main'" \
+  "git rebase -i HEAD~3 --exec 'make test'" "git rebase -i HEAD~3 --ex='make test'" \
+  "git rebase -i HEAD~3 -x 'make test'" "git rebase -ix 'make test' HEAD~3" \
+  "git rebase -i HEAD~3 -x'make test'" \
+  'git rebase --no-update-refs --update-refs -i HEAD~3' 'git rebase --no-update-refs --upd -i HEAD~3'; do
+  pg worker "$cmd"
+  expect deny "[worker] allow: $cmd denies"
+done
+pg worker "git rebase -i HEAD~3 -x 'make test'"
+reason_has 'exec' "the rebase exec deny names the option"
+pg worker 'git rebase --update-refs --no-update-refs -i HEAD~3'
+expect defer "[worker] allow: the last of --update-refs/--no-update-refs wins, so a trailing --no-update-refs defers"
 pg worker 'git commit --amend --no-edit' "$PUSHED" "$PUSHED"
 expect deny "[worker] allow: an amend of a commit a remote-tracking ref contains denies"
 pg worker 'git commit --amend --no-edit' "$NOUP" "$NOUP"

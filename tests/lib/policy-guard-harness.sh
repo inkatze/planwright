@@ -110,14 +110,24 @@ pg() {
   pg_payload "$tier" bash "$payload" "$proj"
 }
 
-pg_payload() {
-  local tier=$1 surface=$2 payload=$3 proj=${4:-$UNIT}
-  : >"$LOG"
-  OUT=$(printf '%s' "$payload" | env PATH="$BIN:$PATH" CLAUDE_PROJECT_DIR="$proj" \
+pg_run() { # <tier> <surface> <project-dir>; the payload on stdin
+  env PATH="$BIN:$PATH" CLAUDE_PROJECT_DIR="$3" \
     PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/adopter" PLANWRIGHT_REPO_ROOT="$UNIT" \
     PLANWRIGHT_LOCAL_CONFIG="$LOCAL_CFG" PLANWRIGHT_POLICY_GUARD_TIMEOUT="${PG_TIMEOUT:-10}" \
     STUB_FAIL_KNOB="${STUB_FAIL_KNOB:-}" STUB_SLEEP="${STUB_SLEEP:-}" \
-    /bin/bash "$HOOK" "$tier" "$surface" 2>/dev/null)
+    /bin/bash "$HOOK" "$1" "$2" 2>/dev/null
+}
+
+pg_payload() {
+  local tier=$1 surface=$2 payload=$3 proj=${4:-$UNIT}
+  : >"$LOG"
+  # PG_STDIN, when set, is a path the hook reads instead of the payload (a
+  # directory makes the payload read itself fail).
+  if [ -n "${PG_STDIN:-}" ]; then
+    OUT=$(pg_run "$tier" "$surface" "$proj" <"$PG_STDIN")
+  else
+    OUT=$(printf '%s' "$payload" | pg_run "$tier" "$surface" "$proj")
+  fi
   CODE=$?
   DECISION=defer
   REASON=''
