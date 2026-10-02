@@ -281,6 +281,12 @@ done
 out="$(base PLANWRIGHT_REPO_ROOT="$tmp/repo" PLANWRIGHT_REPO_ROOT_CHECKED="$tmp/repo" /bin/bash "$RESOLVER" repo-tracked)"
 assert "a checked pin resolves" 0 $?
 assert_eq "a checked pin is taken as given" "$tmp/repo/.claude" "$out"
+# Taken as given means not validated: a matching marker carries even a value
+# that names no repository, which is why only planwright's own resolvers set it.
+out="$(base PLANWRIGHT_REPO_ROOT="$tmp/not-a-repo" PLANWRIGHT_REPO_ROOT_CHECKED="$tmp/not-a-repo" /bin/bash "$RESOLVER" repo-tracked 2>"$tmp/checked.err")"
+assert "a checked non-toplevel pin resolves" 0 $?
+assert_eq "a checked pin skips validation" "$tmp/not-a-repo/.claude" "$out"
+assert_eq "a checked pin says nothing" "" "$(cat "$tmp/checked.err")"
 out="$(base PLANWRIGHT_REPO_ROOT="$tmp/not-a-repo" PLANWRIGHT_REPO_ROOT_CHECKED="$tmp/repo" /bin/bash "$RESOLVER" repo-tracked 2>"$tmp/mismatch.err")"
 assert_eq "a mismatched marker does not bless a non-toplevel pin" "" "$out"
 case $(cat "$tmp/mismatch.err") in
