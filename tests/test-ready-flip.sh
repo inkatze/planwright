@@ -358,6 +358,44 @@ check "a live base bullet blocks (exit 4)" [ "$CODE" = 4 ]
 check "the composed park carries the base segment first" grep -q '^- \*\*Task 1\*\* — halt: blocked on a design question; pending ready-flip: awaiting-input' <<<"$(bullet)"
 check "the composition leaves one bullet for the task" [ "$(origin_tasks | grep -c '^- \*\*Task 1\*\*')" = 1 ]
 
+echo "# a segment copied from the base stops blocking once the base clears it"
+# clear_base — a person clears every Awaiting-input bullet on main.
+clear_base() {
+  git clone -q "$F/origin.git" "$F/main2" 2>/dev/null
+  git -C "$F/main2" config user.name 'Fixture'
+  git -C "$F/main2" config user.email 'fixture@example.invalid'
+  git -C "$F/main2" config commit.gpgsign false
+  git -C "$F/main2" config core.hooksPath "$SANDBOX/nohooks"
+  local wt_saved=$F
+  F="$F/main2-shim"
+  mkdir -p "$F"
+  ln -s "$wt_saved/main2" "$F/wt"
+  write_tasks
+  F=$wt_saved
+  git -C "$F/main2" commit -q -am 'chore: the question is answered'
+  git -C "$F/main2" push -q origin main 2>/dev/null
+}
+fixture '- **Task 1** — halt: blocked on a design question'
+set_policy unit-owner
+run_helper flip --spec specs/demo --task 1
+check "the base park blocks first (exit 4)" [ "$CODE" = 4 ]
+clear_base
+run_helper flip --spec specs/demo --task 1
+check "once the base clears it, the copied segment no longer blocks (exit 0)" [ "$CODE" = 0 ]
+check "the copied segment is dropped from the branch" not grep -q 'blocked on a design question' <<<"$(origin_tasks)"
+fixture '- **Task 1** — halt: blocked on a design question'
+set_policy unit-owner
+run_helper flip --spec specs/demo --task 1
+write_tasks '- **Task 1** — halt: blocked on a design question; halt: a question the unit raised'
+gitf commit -q -am 'chore: the unit asks its own question'
+gitf push -q origin "$BRANCH" 2>/dev/null
+record_review
+clear_base
+run_helper flip --spec specs/demo --task 1
+check "a segment the unit wrote itself still blocks (exit 4)" [ "$CODE" = 4 ]
+check "the unit's own segment survives" grep -q 'halt: a question the unit raised' <<<"$(bullet)"
+check "the cleared base segment is dropped beside it" not grep -q 'blocked on a design question' <<<"$(bullet)"
+
 echo "# another task's bullet does not block this unit"
 fixture '- **Task 2** — halt: unrelated'
 set_policy unit-owner

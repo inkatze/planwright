@@ -79,8 +79,10 @@
 # touching only tasks.md, stamped with the Planwright-Task trailers, pushed.
 # A park that cannot be committed restores the file and is named instead; one
 # committed but not pushed is named as such, and the next run pushes it
-# before it pins a head. A bullet with none of this helper's segment is
-# never rewritten.
+# before it pins a head. Reconciling also re-reads the fetched base and drops
+# a segment the base once carried and has since cleared (one a park composed
+# in); a segment the unit wrote itself stays. A bullet with neither is never
+# rewritten.
 #
 # The precondition record (evaluate's output, flip's --preconditions input):
 #   head<TAB><sha>
@@ -250,6 +252,10 @@ BEGIN {
     split(l, f, "\t")
     AT[f[2]] = f[1]; LIVE[f[2]] = f[3]; CONT[f[2]] = f[4]; OWN[f[2]] = f[5]; HAS[f[1]] = 1
   }
+  if (DROPS != "") while ((getline l < DROPS) > 0) {
+    t = index(l, "\t")
+    if (t > 0) { STALE[substr(l, 1, t - 1), substr(l, t + 1)] = 1; DROPANY[substr(l, 1, t - 1)] = 1 }
+  }
   if (BASEREFS != "") while ((getline l < BASEREFS) > 0) {
     split(l, f, "\t")
     if (f[3] != "") BLIVE[f[1]] = f[3]
@@ -266,9 +272,14 @@ BEGIN {
   sub(/\r$/, "", h)
   if (H && !E && h ~ /^## /) E = FNR
   if (!H && h ~ /^## Awaiting input[ \t]*$/) H = FNR
-  if ((FNR in AT) && (SEG != "" || OWN[FNR])) {
+  if ((FNR in AT) && (SEG != "" || OWN[FNR] || (FNR in DROPANY))) {
     changed = 1
     p = LIVE[FNR]
+    if (FNR in DROPANY) {
+      ns = split(p, segs, "; ")
+      p = ""
+      for (s = 1; s <= ns; s++) if (!((FNR, segs[s]) in STALE)) p = (p == "" ? segs[s] : p "; " segs[s])
+    }
     if (SEG != "") p = (p == "" ? SEG : p "; " SEG)
     if (p == "" && !CONT[FNR]) { remaining--; out[FNR] = DROP; next }
     out[FNR] = "- **Task " AT[FNR] "**" (p == "" ? "" : " " DASH " " p)
@@ -317,7 +328,44 @@ edit_tasks() {
   bullets=$(spec_parse_parked_map "$1" 2>/dev/null | awk -F '\t' '$3 == "awaiting-input" { n++ } END { print n + 0 }') \
     || return 1
   awk -v IDS="${IDS[*]}" -v SEG="$2" -v DASH="$DASH" -v BULLETS="$bullets" \
-    -v REFS="$refs" -v BASEREFS="${3:-}" "$EDIT_AWK" "$1"
+    -v REFS="$refs" -v BASEREFS="${3:-}" -v DROPS="${4:-}" "$EDIT_AWK" "$1"
+}
+
+# stale_base_segments <base ref> <out> — write `<line>\t<segment>` for each
+# live segment of a unit bullet in the checkout that the base once carried
+# (a park composed it in) and its current tip no longer does: someone cleared
+# it there. A segment the unit wrote itself never appears in the base's
+# history and stays. Nothing is written when the base cannot be read.
+stale_base_segments() {
+  local ref=$1 out=$2 id line live seg
+  : >"$out"
+  git show "$ref:$TASKS" >"$SCRATCH/stale.base" 2>/dev/null || : >"$SCRATCH/stale.base"
+  unit_refs "$SCRATCH/stale.base" >"$SCRATCH/stale.baserefs" 2>/dev/null || return 0
+  unit_refs "$TASKS" >"$SCRATCH/stale.local" || return 0
+  while IFS=$'\t' read -r id line live _; do
+    [ -n "$live" ] || continue
+    while IFS= read -r seg; do
+      [ -n "$seg" ] || continue
+      # Still on the base for this task: not stale.
+      awk -F '\t' -v id="$id" -v s="$seg" '$1 == id { n = split($3, p, "; "); for (i = 1; i <= n; i++) if (p[i] == s) f = 1 } END { exit !f }' \
+        "$SCRATCH/stale.baserefs" && continue
+      [ -n "$(git log -1 --format=%H -S"$seg" "$ref" -- "$TASKS" 2>/dev/null)" ] || continue
+      printf '%s\t%s\n' "$line" "$seg" >>"$out"
+    done <<<"${live//; /$'\n'}"
+  done <"$SCRATCH/stale.local"
+}
+
+# base_ref — the fetched remote-tracking ref of the PR base (or, with no PR
+# read yet, the remote's default branch); empty when none can be fetched.
+base_ref() {
+  local b=$PR_BASE
+  if [ -z "$b" ]; then
+    b=$(git symbolic-ref -q --short "refs/remotes/$REMOTE/HEAD" 2>/dev/null) || b=''
+    b=${b#"$REMOTE"/}
+  fi
+  [[ $b =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] || return 0
+  git fetch -q "$REMOTE" "+refs/heads/$b:refs/remotes/$REMOTE/$b" >/dev/null 2>&1
+  git rev-parse --verify -q "refs/remotes/$REMOTE/$b" >/dev/null && printf 'refs/remotes/%s/%s' "$REMOTE" "$b"
 }
 
 # strip_section <file> — the file without the Awaiting-input section's body.
@@ -387,12 +435,18 @@ reconcile() {
     COMMIT_ERR="$TASKS has uncommitted changes"
     return 1
   }
-  edit_tasks "$TASKS" '' >"$SCRATCH/tasks.new"
+  local ref drops=''
+  ref=$(base_ref)
+  if [ -n "$ref" ]; then
+    drops="$SCRATCH/drops"
+    stale_base_segments "$ref" "$drops"
+  fi
+  edit_tasks "$TASKS" '' '' "$drops" >"$SCRATCH/tasks.new"
   rc=$?
   case $rc in
     0)
       write_tasks || return 1
-      commit_tasks "chore($SPEC_NAME): clear the parked ready-flip of $(unit_label)" || return 1
+      commit_tasks "chore($SPEC_NAME): reconcile the Awaiting-input entry of $(unit_label)" || return 1
       ;;
     4) ;;
     *)
