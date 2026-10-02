@@ -932,8 +932,9 @@ cmd_regenerate() {
           if (!legacy) continue
           nid = 1; cid[1] = "legacy"
         }
-        shared[i] = ""
-        for (j = 1; j <= nid; j++) if (nid > 1) shared[i] = shared[i] " " cid[j]
+        shared[i] = ""; nd = 0
+        for (j = 1; j <= nid; j++) if (!index(shared[i] " ", " " cid[j] " ")) { shared[i] = shared[i] " " cid[j]; nd++ }
+        if (nd < 2) shared[i] = ""
         for (j = 1; j <= nid; j++) {
           id = cid[j]
           if (id != "legacy" && ((id in taken) || (id in rejected))) continue

@@ -1003,6 +1003,15 @@ verdict "a partial revert carrying the rejected trailer drops only its item" "th
 empty=$("$SR" --worktree "$w9" regenerate --base HEAD --head HEAD --checklist-only)
 ! printf '%s\n' "$empty" | grep -Fq "$APPROVAL"
 verdict "an empty checklist carries no approval statement" "the none row carries the statement"
+w10="$tmp/w10"
+fresh "$w10"
+B10=$(git -C "$w10" rev-parse HEAD)
+printf '%s\n' "fix(d): one finding, its id stamped twice" "" \
+  "Planwright-Sign-Off: PS-1" "Planwright-Sign-Off: PS-1" | git -C "$w10" commit -q --allow-empty -F -
+D10=$(git -C "$w10" rev-parse --short=7 HEAD)
+cl=$("$SR" --worktree "$w10" regenerate --base "$B10" --head HEAD --checklist-only)
+! has "Shared commit" && has "Reject with: \`git revert $D10\`"
+verdict "an id stamped twice is not a shared commit" "a lone finding disclosed itself as shared"
 
 # The resolver's vocabulary and step-record's are the same list.
 mine=$(sed -n '/^is_point() {/,/return 0 ;;/p' "$SR" | tr -d '\134' | tr '|' '\n' \
