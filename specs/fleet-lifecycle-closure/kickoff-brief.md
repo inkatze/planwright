@@ -567,3 +567,14 @@ source of truth.
 | # | Risk | Mitigation / early signal |
 | --- | --- | --- |
 | 8 (register continuation) | The dialog question and option labels changed between CLI generations: at 2.1.260 every tool dialog asks `Do you want to proceed?` and the labels are `Yes, and don't ask again for …`, `Yes, and always allow …`, `No, and tell Claude what to do differently`; the older per-tool phrasings (`make this edit`, `create <file>`) are gone from the bundle. A signature set carried from memory would have matched nothing on the current CLI. | The shipped set (`scripts/fleet-pane-vocabulary.sh`) lists only strings present in the 2.1.260 bundle, and the file header records the version and method so the next CLI bump re-runs the same check. `FLEET_PANE_PROMPT_SIGNATURES` overrides per machine. Early signal: the REQ-C1.2 manual half or the REQ-A1.6 rehearsal classifying a wedged worker `working`. |
+
+### Task 12 — what the live rehearsal could and could not wedge (2026-10-01)
+
+Research Rigor trigger: a version-sensitive platform surface (risk row 2), met
+here by running the rehearsal against the installed CLI (2.1.287) rather than
+reasoning about it. Depth: two live runs, haiku workers, one at a time.
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 9 (register continuation) | `headless-oneshot` has no pend path: an unapproved ask fails under `--print`, so the rung cannot be wedged at a permission prompt and the REQ-A1.6 `waiting-on-a-human` assertion has nothing to assert there. Held mid-command instead, the live worker classified `unclassified no-signal`: no hook pushes while a tool runs. | The rehearsal reports that check `N/A` with the reason and asserts the held worker is never read as dead or finished; the stream-json arm carries the `waiting-on-a-human` assertion against the running CLI. Whether the rung should gain a pend path or the Done-when should be reworded for it is a human call, queued on the Task 12 PR. |
+| 10 (register continuation) | The first live run's headless worker, told to run a foreground `sleep 94`, ended its turn instead of holding (result text not captured; the CLI refusing long foreground sleeps is the likely cause). A hold built on `sleep` would make the rehearsal fail on a correct codebase. | The hold is a read of a fifo the harness owns and never writes: it blocks until the close and is a read-only shape the worker command guard approves. Early signal: the headless arm failing with "finished without being wedged". |
