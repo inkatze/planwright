@@ -655,7 +655,8 @@ HEAD_MOVED=0
 pred_ci() {
   local i=0 raw oid verdict last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS))
   # The read count bounds the wait, and so does the clock: a head re-read
-  # inside an attempt naps too, and must not stretch the bound.
+  # inside an attempt naps too, so the bound can overrun by at most that one
+  # re-read's pauses.
   while [ "$i" -lt "$ATTEMPTS" ] && { [ "$POLL" = 0 ] || [ "$i" = 0 ] || [ "$SECONDS" -lt "$deadline" ]; }; do
     i=$((i + 1))
     raw=$(gh pr view "$PR" --json headRefOid,statusCheckRollup 2>/dev/null) || raw=''
@@ -671,6 +672,7 @@ pred_ci() {
             set_pred ci-rollup fail "the PR head is $(printf '%s' "${oid:0:12}" | tr -cd '0-9a-f'), not the pinned head ${HEAD_SHA:0:12}"
             return
             ;;
+          *) ;; # unreadable: the stale read stands and the attempt counts as not settled
         esac
         oid=$(printf '%s' "$raw" | jq -r '.headRefOid // empty' 2>/dev/null) || oid=''
       fi

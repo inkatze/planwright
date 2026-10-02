@@ -46,8 +46,8 @@ step and before the terminal CI gate, on the head that flip lands on, once per
 sign-off that reaches that step, whether or not the flip is configured to
 follow (REQ-A1.2, D-13).
 
-**Wired by the unit-PR flip (`scripts/ready-flip.sh`, whose header owns the
-sequence):** `pre-ready-flip`, immediately before any agent-issued
+**Run by `/execute-task`'s unit-PR flip (`scripts/ready-flip.sh`'s header
+owns the sequence):** `pre-ready-flip`, immediately before any agent-issued
 draft-to-ready flip of a unit PR, on the head to be flipped, once per flip
 attempt (REQ-A1.1, REQ-E1.3, D-2).
 

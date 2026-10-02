@@ -297,6 +297,24 @@ check "the unpark commit was pushed" [ "$(origin_head)" != "$parked" ]
 check "the record names the head after the unpark" grep -q "$(origin_head)" "$GHS/comment.1"
 check "a park-only commit since the review head keeps review-converged" grep -q 'review-converged.*pass' "$GHS/comment.1"
 
+echo "# a bundle parks every task, with one trailer each"
+fixture
+set_policy unit-owner
+echo failing >"$GHS/ci"
+before=$(origin_head)
+run_helper flip --spec specs/demo --task 1 --task 2
+check "a failing bundle parks (exit 4)" [ "$CODE" = 4 ]
+check "the bundle's first task is parked" grep -q '^- \*\*Task 1\*\* — pending ready-flip: ci-rollup' <<<"$(origin_tasks)"
+check "the bundle's second task is parked" grep -q '^- \*\*Task 2\*\* — pending ready-flip: ci-rollup' <<<"$(origin_tasks)"
+check "the bundle park is one commit" [ "$(commits_since "$before")" = 1 ]
+check "the bundle park carries the first task's trailer" head_trailer_is 'Planwright-Task: demo/1'
+check "the bundle park carries the second task's trailer" head_trailer_is 'Planwright-Task: demo/2'
+check "the bundle park subject names both tasks" grep -q 'tasks 1 2' <<<"$(git --git-dir="$F/origin.git" log -1 --format=%s "refs/heads/$BRANCH")"
+echo green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1 --task 2
+check "the bundle flips once both segments are cleared" [ "$CODE" = 0 ]
+check "no segment is left for either task" [ "$(leads)" = 0 ]
+
 echo "# a composed bullet with a live halt segment still blocks"
 fixture
 set_policy unit-owner
