@@ -21,6 +21,7 @@
 #
 # Usage:
 #   resolve-steps.sh <point> [--explain] [--check] --attended|--unattended
+#   resolve-steps.sh <point> <point>... --explain --attended|--unattended
 #   resolve-steps.sh <point> --preamble
 #   resolve-steps.sh <point> --prefix
 #   resolve-steps.sh <point> --line <location> [<arg>...]
@@ -51,6 +52,14 @@
 #   --line        render a command step's line from the <location> and
 #                 args the point's resolution printed (below); resolves
 #                 nothing. Every word after it is an operand.
+#   <point>...    several distinct wired points in one run, --explain only
+#                 (the rows name their point): the config, catalog, and
+#                 host reads are made once and shared, and each point then
+#                 resolves on its own, printing exactly the rows and
+#                 warnings its single-point run prints, in operand order. A
+#                 shared read that fails fails every point (no rows); a
+#                 point's own list failing stops that point alone. The exit
+#                 is the largest per-point status.
 #
 # Output (resolution modes): one line per step in list order, tab-separated,
 # newline-terminated, emitted only once the whole point has resolved:
@@ -203,13 +212,14 @@ OWN_NAMESPACE=planwright
 
 usage() {
   echo "usage: resolve-steps.sh <point> [--explain] [--check] --attended|--unattended" >&2
+  echo "       resolve-steps.sh <point> <point>... --explain --attended|--unattended" >&2
   echo "       resolve-steps.sh <point> --preamble | --prefix" >&2
   echo "       resolve-steps.sh <point> --line <location> [<arg>...]" >&2
   exit 2
 }
 
-point=""
-point_set=0
+points=""
+n_points=0
 explain=0
 check=0
 preamble=0
@@ -245,27 +255,53 @@ while [ $# -gt 0 ]; do
       usage
       ;;
     *)
-      if [ "$point_set" -eq 1 ]; then
-        echo "resolve-steps: unexpected extra argument" >&2
-        usage
-      fi
-      point="$1"
-      point_set=1
+      points="${points:+$points }$1"
+      n_points=$((n_points + 1))
       ;;
   esac
   shift
 done
-[ -n "$point" ] || usage
+[ "$n_points" -ge 1 ] || usage
 
-# The point name is validated against the vocabulary before it reaches a key
-# or a message: any other name is a usage error.
-wired=0
-unwired=0
-for p in $WIRED_POINTS; do [ "$p" = "$point" ] && wired=1; done
-for p in $UNWIRED_POINTS; do [ "$p" = "$point" ] && unwired=1; done
-if [ "$wired" -eq 0 ] && [ "$unwired" -eq 0 ]; then
-  echo "resolve-steps: unknown point (expected one of: $WIRED_POINTS $UNWIRED_POINTS)" >&2
-  exit 2
+# Every point name is validated against the vocabulary before it reaches a
+# key or a message: any other name is a usage error.
+for point in $points; do
+  wired=0
+  unwired=0
+  for p in $WIRED_POINTS; do [ "$p" = "$point" ] && wired=1; done
+  for p in $UNWIRED_POINTS; do [ "$p" = "$point" ] && unwired=1; done
+  if [ "$wired" -eq 0 ] && [ "$unwired" -eq 0 ]; then
+    echo "resolve-steps: unknown point (expected one of: $WIRED_POINTS $UNWIRED_POINTS)" >&2
+    exit 2
+  fi
+done
+# Several points resolve in one run only as --explain rows, which name their
+# point, and only for distinct wired points: an unwired point's early exit
+# and check mode's verdict are single-point.
+if [ "$n_points" -gt 1 ]; then
+  seen=" "
+  for point in $points; do
+    case " $WIRED_POINTS " in
+      *" $point "*) ;;
+      *)
+        echo "resolve-steps: several points take wired points only" >&2
+        usage
+        ;;
+    esac
+    case "$seen" in
+      *" $point "*)
+        echo "resolve-steps: a point is named twice" >&2
+        usage
+        ;;
+    esac
+    seen="$seen$point "
+  done
+  if [ "$explain" -eq 0 ] || [ "$check" -eq 1 ] || [ $((preamble + prefix + line_mode)) -gt 0 ]; then
+    echo "resolve-steps: several points take --explain and an attendance flag only" >&2
+    usage
+  fi
+  # The shared reads' diagnostics name every point of the run.
+  point=${points// /,}
 fi
 
 # warn / die: every message passes the house sanitizer, since a catalog or
@@ -406,18 +442,52 @@ for s in "$config_get_sh" "$catalog_sh" "$overlay_root_sh" "$isolation_sh"; do
   [ -x "$s" ] || die 5 "sibling script '$s' is missing or not executable (broken install)"
 done
 
-key="steps_${point//-/_}"
-
-# One scratch file holds each sibling's stderr until it is replayed, a second
-# the lines already replayed. A signal ends the run with its conventional
-# status; the EXIT trap, set first, cleans up.
-scratch=""
-replayed=""
-trap 'rm -f ${scratch:+"$scratch"} ${replayed:+"$replayed"}' EXIT
-scratch=$(mktemp) || die 5 "could not create a scratch file"
-replayed=$(mktemp) || die 5 "could not create a scratch file"
+# One work directory holds each sibling's stdout and stderr until they are
+# read and replayed, and the lines already replayed. A signal ends the run
+# with its conventional status; the EXIT trap, set first, stops any sibling
+# read still running and cleans up.
+work=""
+pf_pids=""
+# shellcheck disable=SC2086 # the pid list is meant to word-split
+trap '[ -z "$pf_pids" ] || kill $pf_pids 2>/dev/null; [ -z "$work" ] || rm -rf "$work"' EXIT
+work=$(mktemp -d) || die 5 "could not create a scratch directory"
+scratch="$work/scratch"
+replayed="$work/replayed"
+: >"$replayed"
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# prefetch <name> <command>...: start one sibling read in the background. The
+# reads are independent, so they overlap; collect takes each result in the
+# order the run judges them, so the diagnostics and exit codes are those of
+# reading them one after another.
+prefetch() {
+  pf_name=$1
+  shift
+  "$@" </dev/null >"$work/$pf_name.out" 2>"$work/$pf_name.err" &
+  eval "pf_pid_$pf_name=\$!"
+  pf_pids="$pf_pids $!"
+}
+# collect <name>: wait for a prefetched read and return its status, with
+# COUT its stdout (trailing newlines stripped, as a command substitution
+# strips them) and scratch naming its stderr. The status is kept, so a
+# subshell, which cannot wait on this shell's children, collects a read this
+# shell already collected.
+collect() {
+  cl_pid=""
+  cl_rc=""
+  eval "cl_pid=\$pf_pid_$1 cl_rc=\${pf_rc_$1:-}"
+  if [ -z "$cl_rc" ]; then
+    cl_rc=0
+    wait "$cl_pid" || cl_rc=$?
+    eval "pf_rc_$1=\$cl_rc"
+    pf_pids=" $pf_pids "
+    pf_pids=${pf_pids/ $cl_pid / }
+  fi
+  COUT=$(<"$work/$1.out")
+  scratch="$work/$1.err"
+  return "$cl_rc"
+}
 
 # Resolve the repository root once and hand it to every sibling, so they
 # skip their own git lookups and every read agrees on the same repository.
@@ -432,6 +502,21 @@ if [ -z "${PLANWRIGHT_REPO_ROOT:-}" ]; then
   fi
 else
   repo_claude="${PLANWRIGHT_REPO_ROOT%/}/.claude"
+fi
+scratch="$work/scratch"
+
+point_keys=""
+for p in $points; do
+  point_keys="$point_keys steps_${p//-/_}"
+done
+# shellcheck disable=SC2086 # the keys are validated identifiers, split on purpose
+prefetch config "$config_get_sh" --layers review_sequence $point_keys
+prefetch isolation "$isolation_sh"
+prefetch catalog "$catalog_sh" steps
+prefetch catalog_explain "$catalog_sh" steps --explain
+prefetch core_root "$overlay_root_sh" core
+if [ -z "${PLANWRIGHT_SKILLS_ROOT:-}" ] && [ -r "$script_dir/resolve-root.sh" ]; then
+  prefetch install_roots /bin/sh "$script_dir/resolve-root.sh" install --all
 fi
 
 # DEGRADED: a malformation was degraded with a warning, by this script or by
@@ -478,13 +563,25 @@ is_pipeline_entry() {
   return 1
 }
 
-# read_layers <key>: config-get --layers with its stderr replayed; a warning
-# on a successful read is a degraded layer. Sets LAYERS; propagates 4; exit 3
-# (absent everywhere) leaves LAYERS empty and returns 3.
+# read_layers <key>: the key's lines of the one config-get --layers read of
+# every key, its stderr replayed; a warning on a successful read is a
+# degraded layer. Sets LAYERS; propagates 4; a key absent everywhere leaves
+# LAYERS empty and returns 3, the status a read of that key alone exits.
 read_layers() {
-  LAYERS=""
   rl_rc=0
-  LAYERS=$("$config_get_sh" --layers "$1" 2>"$scratch") || rl_rc=$?
+  collect config || rl_rc=$?
+  LAYERS=""
+  while IFS= read -r rl_line; do
+    case "$rl_line" in
+      "$1$TAB"*) LAYERS="$LAYERS${rl_line#"$1$TAB"}
+" ;;
+    esac
+  done <<EOF
+$COUT
+EOF
+  LAYERS=${LAYERS%"
+"}
+  [ "$rl_rc" -ne 0 ] || [ -n "$LAYERS" ] || rl_rc=3
   replay "$scratch"
   case "$rl_rc" in
     0) [ ! -s "$scratch" ] || DEGRADED=1 ;;
@@ -511,29 +608,6 @@ fi
 # The point's list: winner, shadow warning, parse (REQ-C1.1, REQ-B1.3).
 # ---------------------------------------------------------------------------
 core_hint="the core defaults ship every point key; the core root follows PLANWRIGHT_ROOT or CLAUDE_PLUGIN_ROOT when set"
-read_layers "$key" || die 5 "$key is set in no layer; $core_hint (broken install)"
-list_layer=""
-list_value=""
-core_value=""
-core_set=0
-shadowed=""
-# The shadow set is the OVERLAY layers below the winner: core sets every key,
-# so an overlay list always outranks it, and that is the mechanism working,
-# not a personal or team list silently overridden (D-5).
-while IFS= read -r line; do
-  [ -n "$line" ] || continue
-  [ -n "$list_layer" ] && [ "$list_layer" != core ] && shadowed="${shadowed:+$shadowed, }$list_layer"
-  list_layer=${line%%"$TAB"*}
-  list_value=${line#*"$TAB"}
-  if [ "$list_layer" = core ]; then
-    core_value="$list_value"
-    core_set=1
-  fi
-done <<EOF
-$LAYERS
-EOF
-[ "$core_set" -eq 1 ] || die 5 "$key has no core default; $core_hint (broken install)"
-[ -n "$shadowed" ] && warn "warning: $key from the $list_layer layer shadows the $shadowed layer's list"
 
 # parse_list <raw>: sets IDS to one id per line for a flow list `[a, b]`,
 # empty for `[]`. A value that is not a flow list, or carries an empty
@@ -632,9 +706,43 @@ degrade_list() {
   [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
 }
 
-parse_and_validate "$list_value"
-[ -z "$LIST_ERR" ] || degrade_list "$LIST_ERR"
-ids="$IDS"
+# point_list: the current point's list, from its prefetched read, with the
+# shadow warning and the by-layer degrade applied; sets key, list_layer,
+# core_value, core_set, and ids.
+point_list() {
+  key="steps_${point//-/_}"
+  read_layers "$key" || die 5 "$key is set in no layer; $core_hint (broken install)"
+  list_layer=""
+  list_value=""
+  core_value=""
+  core_set=0
+  shadowed=""
+  # The shadow set is the OVERLAY layers below the winner: core sets every
+  # key, so an overlay list always outranks it, and that is the mechanism
+  # working, not a personal or team list silently overridden (D-5).
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    [ -n "$list_layer" ] && [ "$list_layer" != core ] && shadowed="${shadowed:+$shadowed, }$list_layer"
+    list_layer=${line%%"$TAB"*}
+    list_value=${line#*"$TAB"}
+    if [ "$list_layer" = core ]; then
+      core_value="$list_value"
+      core_set=1
+    fi
+  done <<EOF
+$LAYERS
+EOF
+  [ "$core_set" -eq 1 ] || die 5 "$key has no core default; $core_hint (broken install)"
+  [ -z "$shadowed" ] || warn "warning: $key from the $list_layer layer shadows the $shadowed layer's list"
+  parse_and_validate "$list_value"
+  [ -z "$LIST_ERR" ] || degrade_list "$LIST_ERR"
+  ids="$IDS"
+}
+
+# A single point's list is judged before the shared reads, as an unwired
+# point stops there; several points judge theirs one by one once the shared
+# reads are in (below).
+[ "$n_points" -gt 1 ] || point_list
 
 # An unwired point resolves no steps; a non-empty list there is reported,
 # never silently ignored (REQ-A1.3). Check mode still judges the catalog
@@ -652,7 +760,8 @@ fi
 # The hosting default (REQ-D1.3, D-7): from dispatch_isolation.
 # ---------------------------------------------------------------------------
 rc=0
-iso=$("$isolation_sh" 2>"$scratch") || rc=$?
+collect isolation || rc=$?
+iso=$COUT
 replay "$scratch"
 case "$rc" in
   0) [ ! -s "$scratch" ] || DEGRADED=1 ;;
@@ -678,7 +787,8 @@ catalog_failed() {
   die 5 "the steps catalog is unusable (resolve-catalog exit $1) (broken install)"
 }
 rc=0
-merged=$("$catalog_sh" steps 2>"$scratch") || rc=$?
+collect catalog || rc=$?
+merged=$COUT
 replay "$scratch"
 [ "$rc" -eq 0 ] || catalog_failed "$rc"
 # reader_skips <stderr-file>: the by-layer policy for an entry or line the
@@ -700,7 +810,8 @@ reader_skips() {
 }
 reader_skips "$scratch"
 rc=0
-layers_view=$("$catalog_sh" steps --explain 2>"$scratch") || rc=$?
+collect catalog_explain || rc=$?
+layers_view=$COUT
 replay "$scratch"
 [ "$rc" -eq 0 ] || catalog_failed "$rc"
 reader_skips "$scratch"
@@ -818,7 +929,8 @@ EOF
 # seed entry, so the merged layers alone cannot tell a superseded seed from a
 # missing one.
 rc=0
-core_root=$("$overlay_root_sh" core 2>"$scratch") || rc=$?
+collect core_root || rc=$?
+core_root=$COUT
 replay "$scratch"
 [ "$rc" -eq 0 ] || die 5 "overlay-root resolution failed for the core layer (broken install)"
 core_seed="${core_root:+$core_root/config/steps.yaml}"
@@ -1115,13 +1227,15 @@ if [ -n "${PLANWRIGHT_SKILLS_ROOT:-}" ]; then
 elif [ ! -r "$script_dir/resolve-root.sh" ]; then
   printf '%s\n' "resolve-steps: warning: the root helper '$script_dir/resolve-root.sh' is missing or unreadable (broken install); the plugin skills root is unresolved" >&2
 else
+  collect install_roots
+  replay "$scratch"
   while IFS= read -r root; do
     if [ -n "$root" ] && [ -d "$root/skills" ]; then
       skills_root="$root/skills"
       break
     fi
   done <<ROOTS
-$(/bin/sh "$script_dir/resolve-root.sh" install --all)
+$COUT
 ROOTS
 fi
 claude_dir=""
@@ -1387,109 +1501,132 @@ EOF
   done
 }
 
-build_steps "$ids"
-if [ -n "$LIST_ERR" ]; then
-  degrade_list "$LIST_ERR"
-  ids="$IDS"
-  i=1
-  while [ "$i" -le "$n_entries" ]; do
-    E_LIST_DROP[i]=0
-    i=$((i + 1))
-  done
+# point_steps: the current point's steps, resolvability, matrix, and rows;
+# sets exit_code.
+point_steps() {
   build_steps "$ids"
-  [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
-fi
-
-i=1
-while [ "$i" -le "$n_steps" ]; do
-  if [ -n "${S_N[i]}" ]; then
-    if resolve_target "${S_N[i]}"; then
-      S_LOC[i]="$LOC"
-    else
-      S_REASON[i]="$REASON"
-    fi
+  if [ -n "$LIST_ERR" ]; then
+    degrade_list "$LIST_ERR"
+    ids="$IDS"
+    i=1
+    while [ "$i" -le "$n_entries" ]; do
+      E_LIST_DROP[i]=0
+      i=$((i + 1))
+    done
+    build_steps "$ids"
+    [ -z "$LIST_ERR" ] || die 5 "the core default $key is malformed ($LIST_ERR) (broken install)"
   fi
-  i=$((i + 1))
-done
 
-# ---------------------------------------------------------------------------
-# The missing-step matrix (REQ-C1.4, D-6) and the output (REQ-H1.3).
-# ---------------------------------------------------------------------------
-case "$list_layer/$attendance" in
-  core/*) missing_token=park ;;
-  repo-tracked/attended | adopter/attended | machine-local/attended) missing_token=ask ;;
-  repo-tracked/unattended) missing_token=park ;;
-  adopter/unattended | machine-local/unattended) missing_token=skip ;;
-  *) die 5 "config-get named an unrecognized layer '$list_layer' (broken install)" ;;
-esac
-
-any_missing=0
-i=1
-while [ "$i" -le "$n_steps" ]; do
-  [ -z "${S_REASON[i]}" ] || any_missing=1
-  i=$((i + 1))
-done
-
-exit_code=0
-if [ "$any_missing" -eq 1 ]; then
-  case "$missing_token" in
-    park)
-      exit_code=1
-      verb="parks (runs nothing)"
-      ;;
-    ask)
-      exit_code=1
-      verb="asks (surfaces the missing step and waits)"
-      ;;
-    skip) verb="skips the step and runs the rest" ;;
-  esac
   i=1
   while [ "$i" -le "$n_steps" ]; do
-    if [ -n "${S_REASON[i]}" ]; then
-      warn "${missing_token}: step '${S_ID[i]}' does not resolve on this host: ${S_REASON[i]}; the point $verb (the $list_layer layer's list, $attendance)"
+    if [ -n "${S_N[i]}" ]; then
+      if resolve_target "${S_N[i]}"; then
+        S_LOC[i]="$LOC"
+      else
+        S_REASON[i]="$REASON"
+      fi
     fi
     i=$((i + 1))
   done
-fi
 
-out=""
-i=1
-while [ "$i" -le "$n_steps" ]; do
-  if [ -z "${S_REASON[i]}" ]; then
-    dec=run
-    [ "$any_missing" -eq 1 ] && [ "$missing_token" != skip ] && dec="$missing_token"
-  else
-    dec="$missing_token"
+  # ---------------------------------------------------------------------------
+  # The missing-step matrix (REQ-C1.4, D-6) and the output (REQ-H1.3).
+  # ---------------------------------------------------------------------------
+  case "$list_layer/$attendance" in
+    core/*) missing_token=park ;;
+    repo-tracked/attended | adopter/attended | machine-local/attended) missing_token=ask ;;
+    repo-tracked/unattended) missing_token=park ;;
+    adopter/unattended | machine-local/unattended) missing_token=skip ;;
+    *) die 5 "config-get named an unrecognized layer '$list_layer' (broken install)" ;;
+  esac
+
+  any_missing=0
+  i=1
+  while [ "$i" -le "$n_steps" ]; do
+    [ -z "${S_REASON[i]}" ] || any_missing=1
+    i=$((i + 1))
+  done
+
+  exit_code=0
+  if [ "$any_missing" -eq 1 ]; then
+    case "$missing_token" in
+      park)
+        exit_code=1
+        verb="parks (runs nothing)"
+        ;;
+      ask)
+        exit_code=1
+        verb="asks (surfaces the missing step and waits)"
+        ;;
+      skip) verb="skips the step and runs the rest" ;;
+    esac
+    i=1
+    while [ "$i" -le "$n_steps" ]; do
+      if [ -n "${S_REASON[i]}" ]; then
+        warn "${missing_token}: step '${S_ID[i]}' does not resolve on this host: ${S_REASON[i]}; the point $verb (the $list_layer layer's list, $attendance)"
+      fi
+      i=$((i + 1))
+    done
   fi
-  line="$dec$TAB${S_ID[i]}"
-  if [ "$explain" -eq 1 ]; then
-    en="${S_N[i]}"
-    if [ -n "$en" ]; then
-      elayer=${E_LAYER[en]}
-      etarget=${E_TARGET[en]}
-      eargs=${E_ARGS[en]}
-      efail=${E_FAIL[en]}
-      etimeout=${E_TIMEOUT[en]}
-      ereq=${E_REQ[en]}
-      [ -n "$efail" ] || efail=halt
+
+  out=""
+  i=1
+  while [ "$i" -le "$n_steps" ]; do
+    if [ -z "${S_REASON[i]}" ]; then
+      dec=run
+      [ "$any_missing" -eq 1 ] && [ "$missing_token" != skip ] && dec="$missing_token"
     else
-      elayer="-"
-      etarget="-"
-      eargs=""
-      efail="-"
-      etimeout=""
-      ereq=""
+      dec="$missing_token"
     fi
-    line="$line$TAB$point$TAB$list_layer$TAB$elayer$TAB$etarget$TAB${S_HOST[i]}$TAB${S_KIND[i]}$TAB${eargs:--}$TAB$efail$TAB${etimeout:--}$TAB${ereq:--}$TAB${S_LOC[i]}"
-  fi
-  out="$out$line
+    line="$dec$TAB${S_ID[i]}"
+    if [ "$explain" -eq 1 ]; then
+      en="${S_N[i]}"
+      if [ -n "$en" ]; then
+        elayer=${E_LAYER[en]}
+        etarget=${E_TARGET[en]}
+        eargs=${E_ARGS[en]}
+        efail=${E_FAIL[en]}
+        etimeout=${E_TIMEOUT[en]}
+        ereq=${E_REQ[en]}
+        [ -n "$efail" ] || efail=halt
+      else
+        elayer="-"
+        etarget="-"
+        eargs=""
+        efail="-"
+        etimeout=""
+        ereq=""
+      fi
+      line="$line$TAB$point$TAB$list_layer$TAB$elayer$TAB$etarget$TAB${S_HOST[i]}$TAB${S_KIND[i]}$TAB${eargs:--}$TAB$efail$TAB${etimeout:--}$TAB${ereq:--}$TAB${S_LOC[i]}"
+    fi
+    out="$out$line
 "
-  i=$((i + 1))
-done
-[ -z "$out" ] || printf '%s' "$out"
+    i=$((i + 1))
+  done
+  [ -z "$out" ] || printf '%s' "$out"
 
-if [ "$check" -eq 1 ] && [ "$exit_code" -eq 0 ] && [ "$DEGRADED" -eq 1 ]; then
-  warn "check mode: a malformation was degraded above; failing the check"
-  exit_code=1
+  if [ "$check" -eq 1 ] && [ "$exit_code" -eq 0 ] && [ "$DEGRADED" -eq 1 ]; then
+    warn "check mode: a malformation was degraded above; failing the check"
+    exit_code=1
+  fi
+}
+
+if [ "$n_points" -eq 1 ]; then
+  point_steps
+  exit "$exit_code"
 fi
-exit "$exit_code"
+# Several points: each resolves in its own subshell over the shared reads,
+# so a list that fails its point (a die) or a per-list drop never reaches
+# another point, and each prints its rows only once it has resolved. The run
+# exits with the largest per-point status.
+run_rc=0
+for point in $points; do
+  rc=0
+  (
+    point_list
+    point_steps
+    exit "$exit_code"
+  ) || rc=$?
+  [ "$rc" -le "$run_rc" ] || run_rc=$rc
+done
+exit "$run_rc"

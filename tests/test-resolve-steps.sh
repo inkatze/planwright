@@ -1567,6 +1567,62 @@ RS=$RS_SAVED
 [ "$RC" = 5 ] && case $ERR in *"root helper"*"broken install"*) true ;; *) false ;; esac
 verdict "a copy without the root helper stops as a broken install naming it" "no helper: rc=$RC err='$ERR'"
 
+# Several points in one run: each point's rows are exactly what its own run
+# prints, in operand order, and the exit is the largest per-point status. The
+# fixture gives the points every outcome: a run list with a command and a skill
+# step, a park, a skip, a degraded list, an empty point, and a list that fails
+# its point alone.
+reset_layers
+printf '#!/bin/sh\nexit 0\n' >"$bin/fixture-tool"
+chmod +x "$bin/fixture-tool"
+cat_entry "$tracked_cat" tool "kind: command" "target: fixture-tool" "args: --a b"
+cat_entry "$tracked_cat" lint "kind: command" "target: no-such-tool"
+cat_entry "$tracked_cat" chained "kind: skill" "target: self-review" "hosting: continue"
+printf 'steps_pre_ci: [tool, polish, chained]\nsteps_pre_pr: [lint]\nsteps_pre_ready_flip: [tool, tool]\n' >"$tracked_cfg"
+printf 'steps_post_pr: [ghost, tool]\n' >"$adopter_cfg"
+printf 'steps_convergence: notalist\n' >"$mlocal_cfg"
+for att in --unattended --attended; do
+  want=""
+  want_rc=0
+  for p in $WIRED; do
+    OUT=$(run "$p" --explain "$att" 2>/dev/null)
+    RC=$?
+    [ -z "$OUT" ] || want="$want$OUT
+"
+    [ "$RC" -le "$want_rc" ] || want_rc=$RC
+  done
+  # shellcheck disable=SC2086 # the point list is meant to word-split
+  capture $WIRED --explain "$att"
+  [ "$RC" = "$want_rc" ] && [ "$OUT
+" = "$want" ]
+  verdict "several points in one run print each point's own rows, exit the largest status ($att)" \
+    "multi-point $att: rc=$RC want_rc=$want_rc out='$OUT' want='$want' err='$ERR'"
+done
+[ "$want_rc" = 4 ] && printf '%s' "$want" | grep -q "^ask${TAB}lint${TAB}pre-pr${TAB}" \
+  && printf '%s' "$want" | grep -q "^run${TAB}polish${TAB}convergence${TAB}core${TAB}"
+verdict "the multi-point fixture covers a failing point, an ask, and a degraded list" "multi-point fixture: rc=$want_rc rows='$want'"
+capture post-pr pre-ci --explain --unattended
+[ "$RC" = 0 ] && [ "$(printf '%s\n' "$OUT" | cut -f2,3 | tr '\t\n' '  ')" = "ghost post-pr tool post-pr tool pre-ci polish pre-ci chained pre-ci " ]
+verdict "several points print in operand order" "operand order: rc=$RC out='$OUT'"
+capture pre-ci post-pr --explain --unattended
+case $ERR in
+  *"ghost"*"skips"*) ok "a point's skip warning is still printed in a multi-point run" ;;
+  *) fail "multi-point run lost the skip warning: err='$ERR'" ;;
+esac
+for bad in "pre-ci post-merge --explain --unattended" "pre-ci pre-ci --explain --unattended" \
+  "pre-ci post-pr --unattended" "pre-ci post-pr --explain --check --unattended" \
+  "pre-ci post-pr --prefix" "pre-ci post-pr --preamble"; do
+  # shellcheck disable=SC2086 # the argument list is meant to word-split
+  capture $bad
+  [ "$RC" = 2 ] && [ -z "$OUT" ] || fail "multi-point usage '$bad': rc=$RC out='$OUT'"
+done
+ok "several points refuse an unwired or repeated point, a run without --explain, --check, and the render modes"
+# A broken shared read fails every point: no rows at all.
+printf 'steps:\n  - id: tool\n  bad indent\n' >"$tracked_cat"
+capture pre-ci post-pr --explain --unattended
+[ "$RC" = 4 ] && [ -z "$OUT" ]
+verdict "a malformed repo-tracked catalog fails a multi-point run with no rows" "multi-point shared failure: rc=$RC out='$OUT'"
+
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: resolve-steps ($failures failure(s))" >&2
   exit 1
