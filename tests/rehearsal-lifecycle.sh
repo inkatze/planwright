@@ -22,9 +22,9 @@
 #                 with a machine-local terminate; neither may take a worker that
 #                 is still running
 #   5. stop       the rung's `stop`, then every class of its release set checked
-#                 independently of what `stop` reported, the repeat stop
-#                 answering already-closed, and a post-close sweep finding
-#                 nothing held
+#                 independently of what `stop` reported, and the repeat stop
+#                 answering already-closed
+#   6. post-close a sweep and an observing stop finding nothing held
 #
 # MODES
 #   (default)  the same lifecycle against a scripted CLI, so the harness itself
@@ -40,10 +40,12 @@
 # fleet and tower identity is stripped, CLAUDE_PLUGIN_DATA included, and the
 # resolved fleet home is checked to be the temp one before anything launches.
 # On exit every process naming the root in its argv or running inside it,
-# with its descendants, is killed and the absence re-checked.
+# with its descendants, is killed and the absence re-checked; anything still
+# there at exit is a failure, because the close should already have ended it.
 #
 # EXIT  0 every check passed · 1 a check failed · 2 the harness could not run
 #       · 3 skipped: --live could not establish a live session (never a pass)
+#       · a signal is re-raised once the cleanup has run
 set -u
 unset CDPATH
 LC_ALL=C
@@ -65,6 +67,7 @@ WAIT=180
 # is a read-only shape the worker command guard approves. A foreground `sleep`
 # did not hold a live worker: it ended its turn instead.
 WEDGE_CMD='mkdir rehearsal-wedge'
+TAB=$(printf '\t')
 
 usage() {
   cat >&2 <<'USAGE'
@@ -137,9 +140,10 @@ na() {
 }
 
 # Worker-authored text (stderr, a result record) reaches the terminal only as
-# one printable line.
+# one printable line: C0 and C1 controls both go, since a terminal acts on
+# either.
 clip() {
-  printf '%s' "$1" | tr -d '\000-\037\177' | cut -c1-200
+  printf '%s' "$1" | tr -d '\000-\037\177-\237' | cut -c1-200
 }
 
 command -v jq >/dev/null 2>&1 || {
@@ -164,6 +168,142 @@ if [ "$LIVE" = 1 ] && ! command -v claude >/dev/null 2>&1; then
   exit 3
 fi
 
+# --- the process table --------------------------------------------------------
+
+# proc_table — one `<pid> TAB <ppid> TAB <start> TAB <argv>` row per process.
+# The start time is what tells a process from a later one reissued its pid.
+proc_table() {
+  ps -A -ww -o pid=,ppid=,lstart=,args= 2>/dev/null | awk '
+    {
+      a = $0
+      for (i = 1; i <= 7; i++) sub(/^[ \t]*[^ \t]+/, "", a)
+      sub(/^[ \t]+/, "", a)
+      printf "%s\t%s\t%s%s%s%s%s\t%s\n", $1, $2, $3, $4, $5, $6, $7, a
+    }'
+}
+
+# Every process assertion below rests on the table; an unreadable one would
+# make "nothing is left running" pass for the wrong reason.
+case $(proc_table | awk -F'\t' -v me="$$" '$1 == me { print "ok"; exit }') in
+  ok) ;;
+  *)
+    echo "rehearsal: this host's ps cannot list pid, ppid, start time and argv" >&2
+    exit 2
+    ;;
+esac
+
+# descendants <table> <seeds> <self> — the seeds still in the table and every
+# process under them, as table rows; <self> is never included.
+descendants() {
+  printf '%s\n' "$1" | awk -F'\t' -v seed="$2" -v self="$3" '
+    BEGIN { n = split(seed, s, " "); for (i = 1; i <= n; i++) if (s[i] != "") keep[s[i]] = 1 }
+    NF >= 4 { par[$1] = $2; row[$1] = $0; ids[++m] = $1 }
+    END {
+      grew = 1
+      while (grew) {
+        grew = 0
+        for (i = 1; i <= m; i++) {
+          p = ids[i]
+          if (!(p in keep) && (par[p] in keep)) { keep[p] = 1; grew = 1 }
+        }
+      }
+      for (p in keep) if ((p in row) && p != self) print row[p]
+    }'
+}
+
+# pids_under <root> — every process naming <root> in its argv or, where /proc
+# exists, running with its cwd inside it, plus all their descendants. The
+# table is read before the filter runs, so a scan never finds its own argv.
+pids_under() {
+  pu_table=$(proc_table)
+  pu_seed=$(printf '%s\n' "$pu_table" | awk -F'\t' -v r="$1" -v me="$$" \
+    '$1 != me && index($4, r) { printf "%s ", $1 }')
+  # One `ls` for every cwd link: a readlink per process costs seconds.
+  if [ -d /proc/self ]; then
+    # shellcheck disable=SC2012  # /proc entries are numeric; find has no portable -lname read
+    pu_seed="$pu_seed $(ls -l /proc/[0-9]*/cwd 2>/dev/null | awk -v r="$1" '
+      { t = $NF; l = $(NF - 2) }
+      t == r || index(t, r "/") == 1 { split(l, a, "/"); printf "%s ", a[3] }')"
+  fi
+  descendants "$pu_table" "$pu_seed" "$$" | cut -f1
+}
+
+# same_pids <file> — the pids of <file>'s rows still running as the same
+# process: same pid, start time and argv.
+same_pids() {
+  [ -s "$1" ] || return 0
+  proc_table | awk -F'\t' 'NR == FNR { id[$1] = $3 "\t" $4; next }
+    ($1 in id) && id[$1] == $2 "\t" $3 { print $1 }' - "$1"
+}
+
+# final_check — kill what is left under the root. Prints the leftovers and
+# returns 1 when anything was there at all, 2 when something would not die.
+# shellcheck disable=SC2329  # called from the EXIT trap's cleanup
+final_check() {
+  fc_seen=''
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    fc_left=$({
+      pids_under "$mk"
+      same_pids "${tracked:-}"
+    } | awk 'NF' | sort -u)
+    if [ -z "$fc_left" ]; then
+      [ -z "$fc_seen" ] && return 0
+      printf '%s\n' "$fc_seen"
+      return 1
+    fi
+    fc_seen=$(printf '%s\n%s\n' "$fc_seen" "$fc_left" | awk 'NF' | sort -u)
+    for fc_p in $fc_left; do
+      kill -9 "$fc_p" 2>/dev/null
+    done
+    sleep 0.5
+  done
+  printf '%s\n' "$fc_left"
+  return 2
+}
+
+sig=''
+# shellcheck disable=SC2329  # invoked by the EXIT trap
+cleanup() {
+  cl_rc=$?
+  trap - EXIT INT TERM HUP
+  rmdir "$mk/hold" 2>/dev/null
+  fc_rc=0
+  leftover=$(final_check) || fc_rc=$?
+  case $fc_rc in
+    0) say "no process remains under the rehearsal root" ;;
+    1)
+      flunk exit "processes outlived the close and had to be killed at exit: $(printf '%s' "$leftover" | tr '\n' ' ')"
+      ;;
+    *)
+      flunk exit "processes under the rehearsal root survive SIGKILL: $(printf '%s' "$leftover" | tr '\n' ' ')"
+      ;;
+  esac
+  rm -rf "$mk"
+  if [ -n "$sig" ]; then
+    say "INTERRUPTED by SIG$sig — not a pass" >&2
+    kill -s "$sig" "$$"
+    exit 1
+  fi
+  if [ "$cl_rc" != 0 ]; then
+    say "ABORTED (exit $cl_rc) — the harness could not finish; not a pass" >&2
+    exit "$cl_rc"
+  fi
+  if [ "$failures" -gt 0 ]; then
+    say "FAIL ($failures)" >&2
+    exit 1
+  fi
+  if [ "$skips" -gt 0 ]; then
+    say "SKIPPED ($skips) — not a pass"
+    exit 3
+  fi
+  if [ "$LIVE" = 1 ]; then
+    say "PASS"
+  else
+    say "PASS (scripted CLI; the floor is proven only by --live: mise run rehearsal:lifecycle)"
+  fi
+  exit 0
+}
+
 # --- static checks: the bundle is inert and the live run is opt-in ----------
 
 # The bundle sits outside the spec root, so /orchestrate and the status render
@@ -187,7 +327,8 @@ else
   flunk static "the throwaway bundle is not a Draft in every file ($drafts of 4)"
 fi
 
-# The live run is its own mise task and nothing CI or `check` runs reaches it.
+# The live run is its own mise task, and nothing `check` reaches through its
+# dependency graph, nor any workflow, runs it.
 mise_toml="$REPO_ROOT/mise.toml"
 task_body=$(awk '
   /^\[tasks\."rehearsal:lifecycle"\]/ { on = 1; next }
@@ -197,127 +338,77 @@ case $task_body in
   *'tests/rehearsal-lifecycle.sh --live'*) pass static "the live rehearsal is its own opt-in mise task" ;;
   *) flunk static "mise.toml has no rehearsal:lifecycle task running tests/rehearsal-lifecycle.sh --live" ;;
 esac
-check_body=$(awk '
-  /^\[tasks\.check\]/ { on = 1; next }
-  /^\[/ { on = 0 }
-  on' "$mise_toml" 2>/dev/null)
-case $check_body in
-  *rehearsal*) flunk static "the check aggregate reaches the rehearsal task" ;;
-  *) pass static "the check aggregate does not reach the live rehearsal" ;;
+# Walk `depends`, `depends_post` and `wait_for` from `check`; a reached task
+# that is the live task, or whose body runs it, fails. `test` must be reached,
+# so a parse that found nothing cannot pass.
+reach=$(awk '
+  /^\[tasks\./ {
+    cur = $0
+    sub(/^\[tasks\./, "", cur)
+    sub(/\][ \t]*$/, "", cur)
+    gsub(/"/, "", cur)
+    indep = 0
+    next
+  }
+  /^\[/ { cur = ""; next }
+  cur == "" { next }
+  /rehearsal:lifecycle|rehearsal-lifecycle\.sh.*--live/ { live[cur] = 1 }
+  /^[ \t]*(depends|depends_post|wait_for)[ \t]*=/ { indep = 1 }
+  indep {
+    line = $0
+    while (match(line, /"[^"]*"/)) {
+      dep[cur] = dep[cur] " " substr(line, RSTART + 1, RLENGTH - 2)
+      line = substr(line, RSTART + RLENGTH)
+    }
+    if (index($0, "]")) indep = 0
+  }
+  END {
+    q[1] = "check"; seen["check"] = 1; n = 1
+    for (i = 1; i <= n; i++) {
+      m = split(dep[q[i]], d, " ")
+      for (j = 1; j <= m; j++) if (!(d[j] in seen)) { seen[d[j]] = 1; q[++n] = d[j] }
+    }
+    if (!("test" in seen)) { print "parse-failed"; exit }
+    for (t in seen) if (t == "rehearsal:lifecycle" || (t in live)) print t
+  }' "$mise_toml" 2>/dev/null)
+case $reach in
+  '') pass static "nothing the check aggregate reaches runs the live rehearsal" ;;
+  parse-failed) flunk static "could not walk the check aggregate's dependencies in mise.toml" ;;
+  *) flunk static "the check aggregate reaches the live rehearsal through: $(printf '%s' "$reach" | tr '\n' ' ')" ;;
 esac
-wf_hits=''
-for wf in "$REPO_ROOT"/.github/workflows/*; do
-  [ -f "$wf" ] || continue
-  grep -Eq 'rehearsal:lifecycle|rehearsal-lifecycle\.sh[^#]*--live' "$wf" && wf_hits="$wf_hits ${wf##*/}"
+wfl_hits=''
+for wfl in "$REPO_ROOT"/.github/workflows/*; do
+  [ -f "$wfl" ] || continue
+  grep -Eq 'rehearsal:lifecycle|rehearsal-lifecycle\.sh[^#]*--live' "$wfl" && wfl_hits="$wfl_hits ${wfl##*/}"
 done
-if [ -z "$wf_hits" ]; then
+if [ -z "$wfl_hits" ]; then
   pass static "no workflow runs the live rehearsal"
 else
-  flunk static "a workflow runs the live rehearsal:$wf_hits"
+  flunk static "a workflow runs the live rehearsal:$wfl_hits"
 fi
 
 # --- the isolated world ------------------------------------------------------
 
 mk=$(mktemp -d "${TMPDIR:-/tmp}/pw-rehearsal.XXXXXX") || exit 2
+trap cleanup EXIT
+trap 'sig=INT; exit 1' INT
+trap 'sig=TERM; exit 1' TERM
+trap 'sig=HUP; exit 1' HUP
 mk=$(cd "$mk" && pwd -P) || exit 2
+# The root reaches a worker's prompt and the cwd scan as one word.
+case $mk in
+  *[[:space:]]*)
+    echo "rehearsal: the temp root '$mk' contains whitespace; set TMPDIR to a path without any" >&2
+    exit 2
+    ;;
+esac
 mkdir -p "$mk/home" "$mk/headless" "$mk/adopter" "$mk/userhome" "$mk/bin" "$mk/gh-stub"
 
-# pids_under <root> — every process naming <root> in its argv or, where /proc
-# exists, running with its cwd inside it, plus all their descendants. The
-# snapshot goes through a variable so a scan never finds its own argv.
-pids_under() {
-  pu_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || pu_snap=''
-  [ -n "$pu_snap" ] || pu_snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || pu_snap=''
-  pu_seed=''
-  while read -r pu_p _ pu_a; do
-    [ "$pu_p" = "$$" ] && continue
-    case $pu_a in
-      *"$1"*) pu_seed="$pu_seed $pu_p" ;;
-    esac
-  done <<EOF
-$pu_snap
-EOF
-  # One `ls` for every cwd link: a readlink per process costs seconds.
-  if [ -d /proc/self ]; then
-    # shellcheck disable=SC2012  # /proc entries are numeric; find has no portable -lname read
-    pu_seed="$pu_seed $(ls -l /proc/[0-9]*/cwd 2>/dev/null | awk -v r="$1" '
-      { t = $NF; l = $(NF - 2) }
-      t == r || index(t, r "/") == 1 { split(l, a, "/"); print a[3] }')"
-  fi
-  printf '%s\n' "$pu_snap" | awk -v seed="$pu_seed" -v self="$$" '
-    BEGIN { n = split(seed, s, " "); for (i = 1; i <= n; i++) keep[s[i]] = 1 }
-    { kid[$1] = $2; pids[NR] = $1 }
-    END {
-      grew = 1
-      while (grew) {
-        grew = 0
-        for (i = 1; i <= NR; i++) {
-          p = pids[i]
-          if (!(p in keep) && (kid[p] in keep)) { keep[p] = 1; grew = 1 }
-        }
-      }
-      for (p in keep) if (p != self && p != "") print p
-    }'
-}
-
-# The tree a stop is expected to end, recorded as `<pid> TAB <argv>` while the
-# run goes, so the exit trap can reach a process that outlived its parent and
-# no longer names the root. A pid counts only while its argv still matches: a
-# dead worker's pid can be reissued to anything.
+# The tree a stop is expected to end, recorded as `<pid> TAB <start> TAB
+# <argv>` while the run goes, so the exit trap can reach a process that
+# outlived its parent and no longer names the root.
 tracked="$mk/tracked-pids"
 : >"$tracked"
-
-# same_pids <file> — the recorded pids still running the recorded argv.
-same_pids() {
-  while IFS="$(printf '\t')" read -r sp_p sp_a; do
-    [ -n "$sp_p" ] || continue
-    [ "$(ps -ww -p "$sp_p" -o args= 2>/dev/null)" = "$sp_a" ] && printf '%s\n' "$sp_p"
-  done <"$1"
-}
-
-final_check() {
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    fc_left=$({
-      pids_under "$mk"
-      same_pids "$tracked"
-    } | awk 'NF' | sort -u)
-    [ -z "$fc_left" ] && return 0
-    for fc_p in $fc_left; do
-      kill -9 "$fc_p" 2>/dev/null
-    done
-    sleep 0.5
-  done
-  printf '%s\n' "$fc_left"
-  return 1
-}
-
-cleanup() {
-  trap - EXIT INT TERM HUP
-  rmdir "$mk/hold" 2>/dev/null
-  if leftover=$(final_check); then
-    say "no process remains under the rehearsal root"
-  else
-    say "FAIL processes outlived the rehearsal root: $(printf '%s' "$leftover" | tr '\n' ' ')" >&2
-    failures=$((failures + 1))
-  fi
-  rm -rf "$mk"
-  if [ "$failures" -gt 0 ]; then
-    say "FAIL ($failures)" >&2
-    exit 1
-  fi
-  if [ "$skips" -gt 0 ]; then
-    say "SKIPPED ($skips) — not a pass"
-    exit 3
-  fi
-  if [ "$LIVE" = 1 ]; then
-    say "PASS"
-  else
-    say "PASS (scripted CLI; the floor is proven only by --live: mise run rehearsal:lifecycle)"
-  fi
-  exit 0
-}
-trap cleanup EXIT
-trap 'exit 1' INT TERM HUP
 
 # A gh that answers nothing, for the sweep's reconcile pass: the throwaway
 # repository has no forge, and no call may leave the host.
@@ -331,6 +422,8 @@ chmod +x "$mk/gh-stub/gh"
 # The scripted CLI. It reads its opening input, then plays the rung's wedge:
 # stream-json emits init and a pending permission request and holds the
 # channel; headless runs the hold command as a child, as the Bash tool would.
+# Both give up after ten minutes, so a harness killed outright leaves nothing
+# running for good.
 cat >"$mk/bin/claude" <<'SHIM'
 #!/bin/sh
 case " $* " in
@@ -338,16 +431,20 @@ case " $* " in
     IFS= read -r _line || :
     sid=5e55e55e-0000-4000-8000-000000000012
     printf '%s\n' '{"type":"system","subtype":"init","cwd":"/x","session_id":"'$sid'","tools":[]}'
-    printf '%s\n' '{"type":"control_request","request_id":"5e55e55e-0000-4000-8000-0000000000aa","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"mkdir rehearsal-wedge"},"tool_use_id":"t1"}}'
-    while [ -d "$REHEARSAL_HOLD" ]; do
-      sleep 1
-    done
+    printf '%s\n' '{"type":"control_request","request_id":"5e55e55e-0000-4000-8000-0000000000aa","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"'"$REHEARSAL_WEDGE"'"},"tool_use_id":"t1"}}'
     ;;
   *)
     cat >/dev/null
-    cat "$REHEARSAL_FIFO" >/dev/null
+    cat "$REHEARSAL_FIFO" >/dev/null &
+    held=$!
     ;;
 esac
+i=0
+while [ -d "$REHEARSAL_HOLD" ] && [ "$i" -lt 600 ]; do
+  sleep 1
+  i=$((i + 1))
+done
+[ -n "${held:-}" ] && kill "$held" 2>/dev/null
 exit 0
 SHIM
 chmod +x "$mk/bin/claude"
@@ -404,6 +501,7 @@ pin=(
   PLANWRIGHT_ROOT="$REPO_ROOT"
   REHEARSAL_HOLD="$mk/hold"
   REHEARSAL_FIFO="$mk/hold.fifo"
+  REHEARSAL_WEDGE="$WEDGE_CMD"
 )
 cli=()
 if [ "$LIVE" = 0 ]; then
@@ -438,18 +536,22 @@ if [ "$resolved_home" != "$mk/home" ]; then
   exit 2
 fi
 
+# wait_for <secs> <cmd...> — poll <cmd> until it holds or <secs> pass.
 wait_for() {
-  wf_n=$1
+  wf_end=$((SECONDS + $1))
   shift
-  wf_end=$((SECONDS + wf_n))
   while [ "$SECONDS" -lt "$wf_end" ]; do
     "$@" && return 0
-    sleep 1
+    sleep 0.2
   done
   "$@"
 }
 
 # --- per-rung helpers ---------------------------------------------------------
+
+# The stream-json handle is a variable so the scripted skip path can launch a
+# second worker beside the main one.
+SJ_HANDLE=rehearsal-sj
 
 handle_of() {
   case $1 in
@@ -457,7 +559,6 @@ handle_of() {
     hl) printf 'headless-%s-task-%s' "$SPEC" "$UNIT" ;;
   esac
 }
-SJ_HANDLE=rehearsal-sj
 
 dir_of() {
   case $1 in
@@ -473,27 +574,50 @@ script_of() {
   esac
 }
 
+# rung_stop <rung> [stop args...] — the rung's `stop`, pinned on the headless
+# rung to the unit directory this run created.
+rung_stop() {
+  rs_r=$1
+  shift
+  if [ "$rs_r" = hl ]; then
+    hrun "$(script_of hl)" stop "$(handle_of hl)" --expect-dir "$(dir_of hl)" "$@"
+  else
+    hrun "$(script_of sj)" stop "$(handle_of sj)" "$@"
+  fi
+}
+
 model_args() {
   [ "$LIVE" = 1 ] && printf '%s\n' -- --model "$MODEL"
+}
+
+write_prompt() {
+  printf 'Rehearsal. Use the Bash tool to run exactly this command and nothing else: %s\nDo not use any other tool and do not explain.\n' \
+    "$2" >"$1"
 }
 
 launch() {
   la_prompt="$mk/prompt-$1"
   case $1 in
     sj)
-      printf 'Rehearsal. Use the Bash tool to run exactly this command and nothing else: %s\nDo not use any other tool and do not explain.\n' \
-        "$WEDGE_CMD" >"$la_prompt"
+      write_prompt "$la_prompt" "$WEDGE_CMD"
       # shellcheck disable=SC2046  # model_args prints one argv word per line
       lrun fleet-streamjson.sh launch "$(handle_of sj)" "$SPEC:$UNIT" \
         --prompt-file "$la_prompt" --cwd "$repo" $(model_args) >"$mk/launch-$1.out" 2>&1
       ;;
     hl)
-      printf 'Rehearsal. Use the Bash tool to run exactly this command and nothing else: %s\nDo not use any other tool and do not explain.\n' \
-        "$HOLD_CMD" >"$la_prompt"
+      write_prompt "$la_prompt" "$HOLD_CMD"
       # shellcheck disable=SC2046
       lrun fleet-dispatch-headless.sh launch "$SPEC" "$UNIT" --worktree "$repo" \
         --repo-root "$repo" $(model_args) <"$la_prompt" >"$mk/launch-$1.out" 2>&1
       ;;
+  esac
+}
+
+# seeds_of <rung> — the pids the rung's state records, space-separated.
+seeds_of() {
+  case $1 in
+    sj) cat "$(dir_of sj)/supervisor.pid" "$(dir_of sj)/worker.pid" 2>/dev/null | tr '\n' ' ' ;;
+    hl) cat "$(dir_of hl)/pid" 2>/dev/null | tr '\n' ' ' ;;
   esac
 }
 
@@ -504,21 +628,10 @@ wedged() {
       awk -F'\t' '$2 == "permission" && $4 == "pending"' "$(dir_of sj)/journal" 2>/dev/null | grep -q .
       ;;
     hl)
-      we_root=$(cat "$(dir_of hl)/pid" 2>/dev/null) || return 1
-      we_snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || return 1
-      printf '%s\n' "$we_snap" | awk -v root="$we_root" -v cmd="$HOLD_CMD" '
-        { parent[$1] = $2; line[$1] = $0 }
-        END {
-          for (p in line) {
-            if (index(line[p], cmd) == 0) continue
-            q = p
-            for (i = 0; i < 64 && q != "" && q != "0"; i++) {
-              if (q == root) { found = 1; break }
-              q = parent[q]
-            }
-          }
-          exit found ? 0 : 1
-        }'
+      we_seed=$(seeds_of hl)
+      [ -n "$we_seed" ] || return 1
+      descendants "$(proc_table)" "$we_seed" "$$" | awk -F'\t' -v cmd="$HOLD_CMD" \
+        'index($4, cmd) { f = 1 } END { exit f ? 0 : 1 }'
       ;;
   esac
 }
@@ -542,9 +655,16 @@ ended_detail() {
   esac
 }
 
-# A run that ended in an error before ever wedging never had a working session
-# (no login, no network, a refused model): that is the skip. One that ended
-# cleanly without wedging is a worker that was not held, and that is a failure.
+# session_started <rung> — positive evidence a session came up. Only the
+# stream-json rung records one (the init event's session id).
+session_started() {
+  [ "$1" = sj ] && [ -s "$(dir_of sj)/session" ]
+}
+
+# A run that ended in an error before any session came up never had a working
+# session (no login, no network, a refused model): that is the skip. One that
+# ended any other way without wedging is a worker that was not held, and that
+# is a failure.
 ended_in_error() {
   case $1 in
     sj)
@@ -565,6 +685,7 @@ ended_in_error() {
   esac
 }
 
+# shellcheck disable=SC2329  # polled through wait_for
 wedge_or_end() {
   wedged "$1" || ended "$1"
 }
@@ -574,44 +695,21 @@ wedge_or_end() {
 wedge_verdict() {
   if wedged "$1"; then
     echo wedged
-  elif ended "$1" && ended_in_error "$1"; then
+  elif ended "$1" && ended_in_error "$1" && ! session_started "$1"; then
     echo "skip no live session could be established: $(ended_detail "$1")"
   elif ended "$1"; then
     echo "fail the worker finished without being wedged: $(ended_detail "$1")"
+  elif session_started "$1"; then
+    echo "fail the session started but the worker did not wedge within ${WAIT}s"
   else
     echo "skip no live session within ${WAIT}s: the worker neither wedged nor ended"
   fi
 }
 
-# tree_of <rung> — the recorded pids and everything under them right now.
-tree_of() {
-  case $1 in
-    sj) to_seed="$(cat "$(dir_of sj)/supervisor.pid" "$(dir_of sj)/worker.pid" 2>/dev/null)" ;;
-    hl) to_seed="$(cat "$(dir_of hl)/pid" 2>/dev/null)" ;;
-  esac
-  to_snap=$(ps -A -o pid=,ppid= 2>/dev/null) || to_snap=''
-  printf '%s\n' "$to_snap" | awk -v seed="$to_seed" '
-    BEGIN { n = split(seed, s, /[ \n]+/); for (i = 1; i <= n; i++) if (s[i] != "") keep[s[i]] = 1 }
-    { kid[$1] = $2; pids[NR] = $1 }
-    END {
-      grew = 1
-      while (grew) {
-        grew = 0
-        for (i = 1; i <= NR; i++) {
-          p = pids[i]
-          if (!(p in keep) && (kid[p] in keep)) { keep[p] = 1; grew = 1 }
-        }
-      }
-      for (p in keep) print p
-    }'
-}
-
-# snapshot_tree <rung> — `<pid> TAB <argv>` for the rung's tree right now.
+# snapshot_tree <rung> — `<pid> TAB <start> TAB <argv>` for the rung's tree,
+# from one read of the process table.
 snapshot_tree() {
-  for st_p in $(tree_of "$1"); do
-    st_a=$(ps -ww -p "$st_p" -o args= 2>/dev/null) || continue
-    printf '%s\t%s\n' "$st_p" "$st_a"
-  done
+  descendants "$(proc_table)" "$(seeds_of "$1")" "$$" | cut -f1,3,4
 }
 
 # tree_alive <rung> — true while any process of the snapshot taken at the
@@ -625,7 +723,7 @@ detector_state() {
     | awk -F'\t' '$1 == "worker" { print $3 "\t" $6; exit }'
 }
 
-# sweep <rung> <label> — one cycle; sets sw_rc, sw_out, sw_err.
+# sweep — one cycle; sets sw_rc, sw_out, sw_err.
 sweep() {
   sw_rc=0
   hrun fleet-sweep.sh --repo "$repo" --tower-id "$TOWER_ID" >"$mk/sweep.out" 2>"$mk/sweep.err" || sw_rc=$?
@@ -678,8 +776,6 @@ machine_local="$repo/.claude/planwright.local.yml"
 rehearse() {
   r=$1
   w=$(handle_of "$r")
-  d=$(dir_of "$r")
-  sc=$(script_of "$r")
 
   # 1. launch
   la_rc=0
@@ -692,18 +788,19 @@ rehearse() {
 
   # 2. wedge, or the visible skip when no session could be established
   wait_for "$WAIT" wedge_or_end "$r"
-  snapshot_tree "$r" >>"$tracked"
+  snapshot_tree "$r" >"$mk/tree-$r"
+  cat "$mk/tree-$r" >>"$tracked"
   verdict=$(wedge_verdict "$r")
   case $verdict in
     wedged) ;;
     skip\ *)
       skip "$r" "${verdict#skip }"
-      hrun "$sc" stop "$w" --grace 2 >/dev/null 2>&1
+      rung_stop "$r" --grace 2 >/dev/null 2>&1
       return
       ;;
     *)
       flunk "$r" "${verdict#fail }"
-      hrun "$sc" stop "$w" --grace 2 >/dev/null 2>&1
+      rung_stop "$r" --grace 2 >/dev/null 2>&1
       return
       ;;
   esac
@@ -711,13 +808,11 @@ rehearse() {
     sj) pass "$r" "the worker is wedged on a pending permission request ($WEDGE_CMD)" ;;
     hl) pass "$r" "the worker is held mid-command ($HOLD_CMD)" ;;
   esac
-  snapshot_tree "$r" >"$mk/tree-$r"
-  cat "$mk/tree-$r" >>"$tracked"
 
   # 3. classify the running worker
   cls=$(detector_state "$r")
-  state=${cls%%"$(printf '\t')"*}
-  reason=${cls#*"$(printf '\t')"}
+  state=${cls%%"$TAB"*}
+  reason=${cls#*"$TAB"}
   case $r:$state in
     sj:waiting-on-a-human) pass "$r" "the detector classifies the wedged worker waiting-on-a-human (reason: $reason)" ;;
     sj:*) flunk "$r" "the detector classifies the wedged worker '$state' (reason: $reason), not waiting-on-a-human" ;;
@@ -730,9 +825,9 @@ rehearse() {
       ;;
   esac
   if [ "$r" = hl ]; then
-    st_out=$(hrun "$sc" status "$SPEC" "$UNIT" 2>/dev/null)
+    st_out=$(hrun "$(script_of hl)" status "$SPEC" "$UNIT" 2>/dev/null)
   else
-    st_out=$(hrun "$sc" status "$w" 2>/dev/null)
+    st_out=$(hrun "$(script_of sj)" status "$w" 2>/dev/null)
   fi
   case $r:$st_out in
     sj:"status $w awaiting-input"*) pass "$r" "the rung's own status reads awaiting-input" ;;
@@ -754,25 +849,23 @@ rehearse() {
   printf 'fleet_sweep_reap: terminate\n' >"$machine_local"
   sweep
   took=$(sweep_took "$w")
-  if [ "$sw_rc" = 0 ] && [ -z "$took" ] && tree_alive "$r"; then
-    case $sw_err in
-      *'terminate is refused'*)
-        pass "$r" "a terminating sweep leaves the held worker alone (terminate is refused for now, so the cycle observed and said why)"
-        ;;
-      *) pass "$r" "a terminating sweep (mode $(sweep_mode)) leaves the held worker alone" ;;
-    esac
+  # The terminate knob must have been read: either honored, or refused with
+  # the sweep saying so. A second silent observing cycle exercises nothing.
+  case $sw_rc:$(sweep_mode):$sw_err in
+    0:terminate:*) term_read='honored' ;;
+    0:observe:*'terminate is refused'*) term_read='refused for now, so the cycle observed and said why' ;;
+    *) term_read='' ;;
+  esac
+  if [ -n "$term_read" ] && [ -z "$took" ] && tree_alive "$r"; then
+    pass "$r" "a terminating sweep leaves the held worker alone (terminate $term_read)"
   else
-    flunk "$r" "terminating sweep: exit $sw_rc, mode '$(sweep_mode)', outcome '$took', $(clip "$sw_err")"
+    flunk "$r" "terminating sweep: exit $sw_rc, mode '$(sweep_mode)', outcome '$took', terminate read: ${term_read:-no}, $(clip "$sw_err")"
   fi
   rm -f "$machine_local"
 
   # 5. stop, then the release set, checked independently of what stop said
-  if [ "$r" = hl ]; then
-    stop_out=$(hrun "$sc" stop "$w" --grace 5 --expect-dir "$d" 2>&1)
-  else
-    stop_out=$(hrun "$sc" stop "$w" --grace 5 2>&1)
-  fi
-  stop_rc=$?
+  stop_rc=0
+  stop_out=$(rung_stop "$r" --grace 5 2>&1) || stop_rc=$?
   case $stop_rc:$stop_out in
     "0:stop $w stopped released="*) pass "$r" "stop closes the worker ($(clip "${stop_out#stop "$w" }"))" ;;
     *) flunk "$r" "stop exited $stop_rc: $(clip "$stop_out")" ;;
@@ -796,26 +889,18 @@ rehearse() {
   else
     flunk "$r" "the worktree, branch or bundle changed under the close"
   fi
-  if [ "$r" = hl ]; then
-    again=$(hrun "$sc" stop "$w" --expect-dir "$d" 2>&1)
-  else
-    again=$(hrun "$sc" stop "$w" 2>&1)
-  fi
-  again_rc=$?
+  again_rc=0
+  again=$(rung_stop "$r" 2>&1) || again_rc=$?
   if [ "$again_rc" = 0 ] && [ "$again" = "stop $w already-closed" ]; then
     pass "$r" "a repeat stop answers already-closed"
   else
     flunk "$r" "a repeat stop exited $again_rc: $(clip "$again")"
   fi
 
-  # 6. the post-close sweep finds nothing held
+  # 6. post-close: a sweep and an observing stop find nothing held
   sweep
   took=$(sweep_took "$w")
-  if [ "$r" = hl ]; then
-    obs=$(hrun "$sc" stop "$w" --observe --expect-dir "$d" 2>&1)
-  else
-    obs=$(hrun "$sc" stop "$w" --observe 2>&1)
-  fi
+  obs=$(rung_stop "$r" --observe 2>&1)
   if [ "$sw_rc" = 0 ] && [ -z "$took" ] && [ "$obs" = "stop $w already-closed" ] \
     && [ -z "$(held_classes "$r")" ]; then
     pass "$r" "a post-close sweep finds nothing held"
@@ -850,20 +935,30 @@ skip_path() {
     esac
   fi
 
-  # One rung: a CLI that fails before its session starts.
+  # One rung: a CLI that fails before its session starts. The verdict must be
+  # the recognised no-session skip, not the timeout one a launch that never
+  # happened would also produce.
   SJ_HANDLE=rehearsal-nosession
   sp_cli=(${cli[@]+"${cli[@]}"})
   cli=(PLANWRIGHT_STREAMJSON_CLI="$mk/bin/claude-nosession")
-  launch sj || :
-  sp_wait=$WAIT
-  WAIT=30
-  wait_for "$WAIT" wedge_or_end sj
-  case $(wedge_verdict sj) in
-    skip\ *) pass skip-path "a worker whose session never starts is reported as a skip, not a pass" ;;
-    *) flunk skip-path "a worker whose session never starts read as: $(clip "$(wedge_verdict sj)")" ;;
-  esac
-  hrun fleet-streamjson.sh stop "$SJ_HANDLE" --grace 2 >/dev/null 2>&1
-  WAIT=$sp_wait
+  sp_rc=0
+  launch sj || sp_rc=$?
+  if [ "$sp_rc" != 0 ]; then
+    flunk skip-path "the no-session worker's launch exited $sp_rc: $(clip "$(cat "$mk/launch-sj.out")")"
+  else
+    sp_wait=$WAIT
+    WAIT=30
+    wait_for "$WAIT" wedge_or_end sj
+    sp_verdict=$(wedge_verdict sj)
+    WAIT=$sp_wait
+    case $sp_verdict in
+      'skip no live session could be established:'*)
+        pass skip-path "a worker whose session never starts is reported as a skip, not a pass"
+        ;;
+      *) flunk skip-path "a worker whose session never starts read as: $(clip "$sp_verdict")" ;;
+    esac
+  fi
+  rung_stop sj --grace 2 >/dev/null 2>&1
   cli=(${sp_cli[@]+"${sp_cli[@]}"})
   SJ_HANDLE=rehearsal-sj
 }
@@ -883,3 +978,4 @@ fi
 for r in $RUNGS; do
   rehearse "$r"
 done
+exit 0

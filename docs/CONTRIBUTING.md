@@ -122,8 +122,10 @@ Some checks need a live Claude session and spend model tokens, so nothing in
 - `mise run rehearsal:lifecycle` — the deliberate-wedge lifecycle rehearsal
   (`tests/rehearsal-lifecycle.sh --live`). On each session-grade rung it
   dispatches one real worker against a throwaway spec bundle, wedges it, and
-  asserts the detector reads it waiting on a human, both sweep modes leave it
-  alone, `stop` closes it, and nothing it held is left behind. Everything runs
+  asserts both sweep modes leave it alone, `stop` closes it, and nothing it
+  held is left behind. On the stream-json rung it also asserts the detector
+  reads the wedged worker waiting on a human; the headless rung has no pend
+  path, so there that check reports N/A with the reason. Everything runs
   under one temp directory, one worker at a time. Run it after changing a
   close, the detector, the sweep, or a rung's launch. Exit 3 is a skip (no
   live session could be established) and is never a pass. Without `--live` the
