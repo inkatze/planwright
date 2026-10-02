@@ -34,9 +34,10 @@
 #               follow-up comment, since the record already claims the flip.
 #               --expect-head refuses when reconciling left another head (the
 #               head the pre-ready-flip point ended on). --preconditions
-#               reuses an all-pass record `evaluate` wrote for this same head:
-#               the CI and review predicates are taken from it, the others
-#               re-run. The PR's head on the host is re-read before the
+#               takes an all-pass record `evaluate` wrote for this same head
+#               and skips only the CI wait: every predicate still runs, the
+#               rollup as one read with no polling, so a hand-in never stands
+#               in for a check. The PR's head on the host is re-read before the
 #               record and again before the flip call; a moved head parks.
 #
 # The unit-PR flip, as /execute-task runs it after its post-pr point when
@@ -731,16 +732,13 @@ read_handin() {
       if (!("ci-rollup" in n) || !("review-converged" in n) || !("ready-guard" in n) || !("awaiting-input" in n)) exit 1
     }
   ' "$HANDIN" || return 1
-  local name
-  for name in ci-rollup review-converged; do
-    # The evidence lands in a PR comment: plain words only, no markup.
-    set_pred "$name" pass "$(awk -F '\t' -v n="$name" '$1 == "pred" && $2 == n { print $4 }' "$HANDIN" \
-      | head -n 1 | tr -cd 'A-Za-z0-9 ._,;:()/-' | cut -c 1-200) (handed in)"
-  done
 }
 
+# A valid hand-in skips only the CI *wait*: every predicate is still checked
+# on the current head, the rollup by one read with no polling, so a forged or
+# stale hand-in can never stand in for host-side evidence.
 evaluate_all() {
-  local reuse=0
+  local reuse=0 attempts=$ATTEMPTS poll=$POLL
   if [ -n "$HANDIN" ]; then
     if read_handin; then
       reuse=1
@@ -749,13 +747,19 @@ evaluate_all() {
     fi
   fi
   pred_awaiting
-  [ "$reuse" = 1 ] || pred_review
+  pred_review
   if [ -n "$(failed_preds)" ]; then
-    [ "$reuse" = 1 ] || set_pred ci-rollup skip 'not read: a local precondition failed'
+    set_pred ci-rollup skip 'not read: a local precondition failed'
     set_pred ready-guard skip 'not run: a local precondition failed'
     return
   fi
-  [ "$reuse" = 1 ] || pred_ci
+  if [ "$reuse" = 1 ]; then
+    ATTEMPTS=1 POLL=0
+    pred_ci
+    ATTEMPTS=$attempts POLL=$poll
+  else
+    pred_ci
+  fi
   if [ -n "$(failed_preds)" ]; then
     set_pred ready-guard skip 'not run: the check rollup is not green'
     return

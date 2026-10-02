@@ -578,7 +578,40 @@ check "the hand-in names the head" grep -q "^head	$(gitf rev-parse HEAD)$" "$han
 before=$(rollups)
 run_helper flip --spec specs/demo --task 1 --preconditions "$hand"
 check "a flip with a matching hand-in flips" [ "$CODE" = 0 ]
-check "the CI wait ran once in total" [ "$(rollups)" = "$before" ]
+check "a matching hand-in still reads the rollup once, without waiting" [ "$(rollups)" = "$((before + 1))" ]
+
+echo "# a hand-in skips only the wait, never a check"
+fixture
+set_policy unit-owner
+hand5="$SANDBOX/hand5-$RANDOM"
+run_helper evaluate --spec specs/demo --task 1 --out "$hand5"
+echo failing >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1 --preconditions "$hand5"
+check "a hand-in claiming green over a red rollup does not flip" [ "$(calls 'pr ready')" = 0 ]
+check "a hand-in claiming green over a red rollup parks ci-rollup" grep -q 'pending ready-flip: ci-rollup' <<<"$(bullet)"
+fixture
+set_policy unit-owner
+hand6="$SANDBOX/hand6-$RANDOM"
+run_helper evaluate --spec specs/demo --task 1 --out "$hand6"
+echo pending >"$GHS/ci"
+before=$(rollups)
+run_helper flip --spec specs/demo --task 1 --preconditions "$hand6"
+check "a hand-in claiming green over a pending rollup does not flip" [ "$(calls 'pr ready')" = 0 ]
+check "a valid hand-in does not wait: one rollup read, not the bounded poll" [ "$(rollups)" = "$((before + 1))" ]
+fixture
+set_policy unit-owner
+hand7="$SANDBOX/hand7-$RANDOM"
+run_helper evaluate --spec specs/demo --task 1 --out "$hand7"
+rm -rf "$F/wt/.claude/steps"
+run_helper flip --spec specs/demo --task 1 --preconditions "$hand7"
+check "a hand-in cannot stand in for a missing review record" [ "$(calls 'pr ready')" = 0 ]
+fixture
+set_policy unit-owner
+printf 'head\t%s\npred\tci-rollup\tpass\tx\npred\treview-converged\tpass\tx\npred\tawaiting-input\tpass\tx\npred\tready-guard\tpass\tx\n' \
+  "$(gitf rev-parse HEAD)" >"$SANDBOX/hand8"
+echo failing >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1 --preconditions "$SANDBOX/hand8"
+check "a hand-written all-pass hand-in over a red rollup does not flip" [ "$(calls 'pr ready')" = 0 ]
 fixture
 set_policy unit-owner
 hand2="$SANDBOX/hand2-$RANDOM"
