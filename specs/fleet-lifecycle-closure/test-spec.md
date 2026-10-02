@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Test spec
 
 **Status:** Ready
-**Last reviewed:** 2026-10-01
+**Last reviewed:** 2026-10-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -62,12 +62,33 @@ defers and to whom. The review assertion is that no rung is absent from the
 table and none is silently exempt — an omission is what this requirement
 exists to make visible when a backend is added.
 
-### REQ-A1.6 — The deliberate-wedge rehearsal [rehearsal]
+### REQ-A1.6 — The deliberate-wedge rehearsal [rehearsal] (superseded by REQ-A1.7)
 
 A real worker is dispatched against the throwaway rehearsal bundle on each
 session-grade rung and deliberately wedged at a permission prompt. Asserts the
 detector classifies it `waiting-on-a-human` and not `working`; that `stop`
 closes it; and that every class in the release set is empty afterwards. The
+governing negative: a run where the live session cannot be established reports
+a visible skip, never a pass, so an unavailable rehearsal can never be mistaken
+for a discharged floor. This is the only entry that exercises the untidy path
+end to end, which is the path the Goal argues the leak hides on.
+Verification now pins to REQ-A1.7, below, since `headless-oneshot` cannot be
+wedged at a permission prompt.
+
+### REQ-A1.7 — The deliberate-wedge rehearsal, wedged per rung [rehearsal]
+
+A real worker is dispatched against the throwaway rehearsal bundle on each
+session-grade rung and deliberately wedged. On a rung that can pend
+(`stream-json-persistent`) it is wedged at a permission prompt, and the entry
+asserts the detector classifies it `waiting-on-a-human` and not `working`. On
+a rung with no pend path (`headless-oneshot`) it is held mid-command, and the
+entry asserts the detector classifies it `working` or `unclassified` with
+reason `no-signal`; any other reading (`dead`, `finished-but-unreaped`,
+`waiting-on-a-human`, or a state the list does not name) fails, and the
+`waiting-on-a-human` check reports N/A with that reason rather than a pass.
+On every rung it
+asserts that `stop` closes the worker and that every class in the release set
+is empty afterwards. The
 governing negative: a run where the live session cannot be established reports
 a visible skip, never a pass, so an unavailable rehearsal can never be mistaken
 for a discharged floor. This is the only entry that exercises the untidy path
@@ -323,8 +344,11 @@ release.
 
 ### REQ-F1.7 — Both sweep modes rehearsed [rehearsal]
 
-The REQ-A1.6 rehearsal runs the sweep in both modes, so the observing-only path
+The REQ-A1.7 rehearsal runs the sweep in both modes, so the observing-only path
 that ships by default is exercised rather than left to rot until promotion.
+While the sweep refuses `terminate` everywhere, the terminate cycle exercises
+that mode by verifying the refusal: the knob must be read and the sweep must
+say it refused, observing instead.
 
 ## REQ-G — Steer
 

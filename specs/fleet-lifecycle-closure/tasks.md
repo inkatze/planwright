@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-10-01
+**Last reviewed:** 2026-10-02
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -328,35 +328,56 @@ outstanding at kickoff (kickoff brief, Finding 3.2).
 
 - **Deliverables:** a throwaway spec bundle used solely as rehearsal input,
   carrying no real work; a rehearsal harness that dispatches a real worker
-  against it on each session-grade rung, deliberately wedges the worker at a
-  permission prompt, and drives the full lifecycle from there; assertions that
-  the detector classifies the wedged worker `waiting-on-a-human` rather than
-  `working`, that `stop` closes it, and that every resource class in the
-  release set is empty afterwards; coverage of **both sweep modes**, so the observing-only
+  against it on each session-grade rung, deliberately wedges the worker (at a
+  permission prompt on a rung that can pend; held mid-command on
+  `headless-oneshot`, which has no pend path), and drives the full lifecycle
+  from there; assertions that the detector classifies the worker wedged at a
+  permission prompt `waiting-on-a-human` rather than `working`, and the held
+  headless worker as `working` or `unclassified` with reason `no-signal`
+  (any other reading fails), and, on every rung, that `stop`
+  closes the worker and every resource class in the release set is empty
+  afterwards; coverage of **both sweep modes**, so the observing-only
   path that ships by default is exercised rather than left to rot until
   promotion; an opt-in entry point outside ordinary CI,
   documented alongside the other opt-in suites, so no unrelated change pays
   for a live session; a visible skip, never a silent pass, where the live
   session cannot be established.
 - **Done when:** the rehearsal runs on both session-grade rungs and passes;
-  the wedged worker classifies `waiting-on-a-human`, asserted against the
-  running CLI rather than a captured fixture; a post-close sweep of the
+  on a rung that can pend, the worker wedged at a permission prompt
+  classifies `waiting-on-a-human`, and on `headless-oneshot` the held worker
+  classifies `working` or `unclassified` with reason `no-signal`, both
+  asserted against the running CLI rather
+  than a captured fixture; a post-close sweep of the
   release set finds nothing held; the rehearsal is absent from the default
   `mise run check` path and present as its own opt-in task; an environment
   without a live session reports a skip with its reason rather than a pass;
   the throwaway bundle is inert with respect to the pipeline (never dispatched
   by `/orchestrate`, never counted in a status render).
 - **Dependencies:** 4, 5, 7, 8
-- **Citations:** REQ-A1.6 · REQ-F1.7 · REQ-B1.1 · REQ-B1.4 · REQ-C1.2 ·
+- **Citations:** REQ-A1.7 · REQ-F1.7 · REQ-B1.1 · REQ-B1.4 · REQ-C1.2 ·
   REQ-C1.8 ·
-  REQ-K1.7 · D-13 · obs:b63a8778 · obs:4c25e743
+  REQ-K1.7 · D-16 · obs:b63a8778 · obs:4c25e743
 - **Estimated effort:** 2.5 days
+  *(Amended at kickoff re-walkthrough 2026-10-02: headless readings named,
+  citations re-pointed to REQ-A1.7 and D-16.)*
 
 ## Awaiting input
 
 (none yet)
 
 ## Deferred
+
+- **Re-enable `terminate` in the periodic sweep.** The sweep refuses
+  `terminate` everywhere, even from the machine-local layer, because the
+  stream-json close trusts the pid a crashed worker left behind, and the
+  host may have reissued that pid to an unrelated process. The refusal lifts
+  once a rung's stop is bound to the recorded worker pid or launch marker,
+  so a close checks the pid is still the worker's. The rehearsal needs no
+  change when it lifts: its terminate cycle accepts either outcome.
+  Confidence: high.
+  **Gate:** the pid-binding follow-up to the stream-json close lands, or a
+  machine needs the reaper promoted before it does.
+  Citations: D-14 · REQ-F1.6 · REQ-F1.7 · obs:2d943e9f.
 
 - **General stream-json supervisor concurrency hardening.** The recorded
   defects that do not wedge a lifecycle verb: the `journal_lock` rmdir spin,
