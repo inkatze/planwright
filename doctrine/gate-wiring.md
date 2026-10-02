@@ -11,7 +11,7 @@ operator-dialogue REQ-I1.2, REQ-I1.4 · operator-dialogue D-14, D-15 ·
 prose-disposition REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 ·
 prose-disposition D-5 · custom-steps REQ-D1.2, REQ-D1.5 · human-gates
 REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.9,
-REQ-B1.10, D-3, D-16.
+REQ-B1.10, D-3, D-12, D-13, D-16.
 The PR-body assembly section additionally realizes output-hygiene
 REQ-A1.1–REQ-A1.4 and D-2.
 
@@ -77,8 +77,8 @@ pass opens.
   hand edit the manifest guides: the per-finding revert guarantee earns its
   cost for behaviour, where a partial revert can break things, and not for
   wording.
-- Both sign-off shapes carry the sign-off trailer below, stamped once on a
-  batch, so the branch itself identifies them.
+- Sign-off commits carry the trailer below per finding, once on a batch, so
+  the branch identifies them.
 - **Auto-applicable and Agent-resolvable items may batch** into one commit
   per loop iteration; their audit rows record the commit they landed in.
   Declared scoping (per [Proportionality](proportionality.md)): not pending a

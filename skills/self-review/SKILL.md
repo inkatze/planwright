@@ -215,7 +215,7 @@ summary at the end):
 
 1. The lens-coverage table.
 2. In the wiring doc's formats: the four bucket tables, the declined log, and
-   the pending-sign-off checklist regenerated from the trailers ahead of
+   the pending-sign-off checklist regenerated from sign-off trailers ahead of
    the base.
 3. Queued irreducible forks with their bespoke options.
 4. The pass summary: resolved mode, base used, tooling and wider-suite
