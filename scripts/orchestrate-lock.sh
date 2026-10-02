@@ -105,7 +105,9 @@ is_spec_root() {
   isr_root=$(cd "$isr_root" 2>/dev/null && pwd -P) || return 1
   [ "$isr_root" = "$spec_parent" ]
 }
-if ! is_spec_root . && ! is_spec_root . --primary && ! is_spec_root "$canon_dir"; then
+# The primary view first: callers address the primary's copy, and from a
+# linked worktree the checkout view of it never matches.
+if ! is_spec_root . --primary && ! is_spec_root . && ! is_spec_root "$canon_dir"; then
   echo "orchestrate-lock: spec dir '$canon_dir' is not contained under a resolved spec root; refusing (REQ-F1.1)" >&2
   exit 2
 fi
@@ -140,7 +142,7 @@ fi
 # and the one thing it does emit — the broken-install diagnostic when the
 # tracked defaults are missing/unreadable — is exactly what should surface
 # rather than be swallowed into a silent 15m fallback.
-v=$(PLANWRIGHT_REPO_ROOT="$repo_root" "$script_dir/config-get.sh" stale_lock_threshold) || v=""
+v=$(PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_REPO_ROOT_CHECKED="$repo_root" "$script_dir/config-get.sh" stale_lock_threshold) || v=""
 v=${v%m}
 case "$v" in
   '') ;; # key absent everywhere: the tracked default (15) stands

@@ -275,6 +275,22 @@ for bad in "$tmp/not-a-repo" "$tmp/repo/sub" relative; do
   done
 done
 
+# A pin marked as already validated (PLANWRIGHT_REPO_ROOT_CHECKED holding the
+# same value) is taken as given; a marker naming anything else validates the
+# pin as usual, so a stale or mismatched marker never blesses a bad value.
+out="$(base PLANWRIGHT_REPO_ROOT="$tmp/repo" PLANWRIGHT_REPO_ROOT_CHECKED="$tmp/repo" /bin/bash "$RESOLVER" repo-tracked)"
+assert "a checked pin resolves" 0 $?
+assert_eq "a checked pin is taken as given" "$tmp/repo/.claude" "$out"
+out="$(base PLANWRIGHT_REPO_ROOT="$tmp/not-a-repo" PLANWRIGHT_REPO_ROOT_CHECKED="$tmp/repo" /bin/bash "$RESOLVER" repo-tracked 2>"$tmp/mismatch.err")"
+assert_eq "a mismatched marker does not bless a non-toplevel pin" "" "$out"
+case $(cat "$tmp/mismatch.err") in
+  *"refusing PLANWRIGHT_REPO_ROOT"*) echo "ok: a mismatched marker still refuses the pin" ;;
+  *)
+    echo "FAIL: a mismatched marker still refuses the pin (stderr: $(cat "$tmp/mismatch.err"))" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
 # `none` is how a caller reads no repo-side layer: absent, quietly, from
 # inside a repository too.
 for l in repo-tracked machine-local; do

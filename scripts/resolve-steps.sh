@@ -429,7 +429,8 @@ replay "$scratch"
 [ "$rc" -eq 0 ] || die 5 "overlay-root resolution failed for the repo-tracked layer (broken install)"
 PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
 [ -n "$repo_claude" ] || PLANWRIGHT_REPO_ROOT=none
-export PLANWRIGHT_REPO_ROOT
+PLANWRIGHT_REPO_ROOT_CHECKED=$PLANWRIGHT_REPO_ROOT
+export PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
 
 # valid_id <token>: the step-id (and skill-name) charset ^[a-z][a-z0-9-]*$,
 # at most 64 bytes.

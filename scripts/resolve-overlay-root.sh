@@ -297,6 +297,18 @@ case $layer in
     # reaches stderr.
     # none needs no lookup: answered here, before any process is spawned.
     [ "${PLANWRIGHT_REPO_ROOT:-}" != none ] || exit 0
+    # A pin a resolver has already validated arrives with
+    # PLANWRIGHT_REPO_ROOT_CHECKED set to the same value (an internal
+    # handshake between planwright's own scripts): taken as given, so a
+    # chain of child lookups validates the root once, not once per layer.
+    case ${PLANWRIGHT_REPO_ROOT:-} in
+      /*)
+        if [ "$PLANWRIGHT_REPO_ROOT" = "${PLANWRIGHT_REPO_ROOT_CHECKED:-}" ]; then
+          printf '%s\n' "${PLANWRIGHT_REPO_ROOT%/}/.claude"
+          exit 0
+        fi
+        ;;
+    esac
     rr_rc=0
     repo_root=$(/bin/sh "$root_helper" repo --primary 2>/dev/null) || rr_rc=$?
     if [ "$rr_rc" -ne 0 ]; then

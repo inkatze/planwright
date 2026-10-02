@@ -359,7 +359,7 @@ read_spec_root() {
     exit 6
   }
   sr_rc=0
-  sr_line=$(PLANWRIGHT_REPO_ROOT=$rp_path "$sr_knob" --explain --key spec_root \
+  sr_line=$(PLANWRIGHT_REPO_ROOT=$rp_path PLANWRIGHT_REPO_ROOT_CHECKED=$rp_path "$sr_knob" --explain --key spec_root \
     --type path --fallback '') || sr_rc=$?
   [ "$sr_rc" -eq 0 ] || {
     say "spec_root unreadable: the config overlay could not be read (exit $sr_rc)"

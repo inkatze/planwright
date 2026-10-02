@@ -187,7 +187,7 @@ done
 read_bound() {
   rb_key=$1
   rb_fallback=$2
-  rb_v=$(PLANWRIGHT_REPO_ROOT="$repo_root" \
+  rb_v=$(PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_REPO_ROOT_CHECKED="$repo_root" \
     PLANWRIGHT_LOCAL_CONFIG="$repo_root/.claude/planwright.local.yml" \
     "$config_get" "$rb_key") || rb_v=""
   case "$rb_v" in

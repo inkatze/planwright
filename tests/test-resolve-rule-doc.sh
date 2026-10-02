@@ -543,8 +543,8 @@ assert "non-executable root helper: resolves core, zero exit" 0 $?
 assert_eq "non-executable root helper: lands on core" "CORE ONLY" "$(cat "$out" 2>/dev/null)"
 
 # 22c. The two repo-side layers share one repository root, so an unpinned call
-#      derives the primary checkout once, not once per layer; the layers only
-#      re-check the pinned value, which is one git call rather than a walk.
+#      derives the primary checkout once, not once per layer; the layers take
+#      the pinned value as already checked, so they spawn no lookup at all.
 cnt_dir="$ovbase/count-primary"
 mkdir -p "$cnt_dir"
 cp "$RESOLVER" "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$cnt_dir/"
@@ -561,7 +561,7 @@ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c init.defaultBranch=main
 assert "unpinned repo-side layers: resolves, zero exit" 0 $?
 assert_eq "unpinned repo-side layers: the primary checkout is derived once" "1" \
   "$(grep -c -- '^derive repo --primary' "$ovbase/primary-calls.log")"
-assert_eq "unpinned repo-side layers: every other lookup re-checks the pinned root" "2" \
+assert_eq "unpinned repo-side layers: no later lookup re-checks the checked pin" "0" \
   "$(grep -c -- "^$cnt_repo repo --primary" "$ovbase/primary-calls.log")"
 
 # 23. The resolver surfaces the overlay helper's own diagnostics rather than

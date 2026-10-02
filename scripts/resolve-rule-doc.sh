@@ -188,7 +188,8 @@ if [ -n "$overlay_helper" ]; then
   repo_claude=$("$overlay_helper" repo-tracked) || repo_claude=""
   PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
   [ -n "$repo_claude" ] || PLANWRIGHT_REPO_ROOT=none
-  export PLANWRIGHT_REPO_ROOT
+  PLANWRIGHT_REPO_ROOT_CHECKED=$PLANWRIGHT_REPO_ROOT
+  export PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
 fi
 try_overlay machine-local doctrine.local
 try_overlay repo-tracked doctrine

@@ -446,7 +446,7 @@ count_live() {
 # that cannot be read fails closed.
 bound=''
 read_bound() {
-  _v=$(PLANWRIGHT_REPO_ROOT="$primary_root" /bin/sh "$CONFIG" max_parallel_units </dev/null)
+  _v=$(PLANWRIGHT_REPO_ROOT="$primary_root" PLANWRIGHT_REPO_ROOT_CHECKED="$primary_root" /bin/sh "$CONFIG" max_parallel_units </dev/null)
   _rc=$?
   case $_rc in
     0) ;;
@@ -477,7 +477,7 @@ read_bound() {
 TIER_MODEL=inherit
 TIER_EFFORT=inherit
 resolve_tier() {
-  _plan=$(PLANWRIGHT_REPO_ROOT="$primary_root" /bin/sh "$ALLOC" plan --key offload --backend "$backend" \
+  _plan=$(PLANWRIGHT_REPO_ROOT="$primary_root" PLANWRIGHT_REPO_ROOT_CHECKED="$primary_root" /bin/sh "$ALLOC" plan --key offload --backend "$backend" \
     --unit "flight:$flight_id" </dev/null)
   _rc=$?
   case $_rc in
@@ -652,7 +652,7 @@ sweep_briefs() {
 # (resolve-steps.sh documents the full order).
 resolve_convergence() {
   _rc_out=$(cd "$repo_root" && unset CLAUDE_PLUGIN_ROOT PLANWRIGHT_CONFIG_DEFAULTS \
-    && PLANWRIGHT_REPO_ROOT="$primary_root" PLANWRIGHT_ROOT="$root_dir" \
+    && PLANWRIGHT_REPO_ROOT="$primary_root" PLANWRIGHT_REPO_ROOT_CHECKED="$primary_root" PLANWRIGHT_ROOT="$root_dir" \
       PLANWRIGHT_SKILLS_ROOT="$root_dir/skills" PLANWRIGHT_STEP_UNIT_KIND=flight \
       bash "$STEPS" convergence --explain --unattended </dev/null) || {
     _rc=$?
