@@ -64,6 +64,7 @@ else
   ps_cmd=(ps -e -o pid=,ppid=,stat=,args=)
 fi
 per_tick=${SAMPLER_FORKS:-4}
+prod_names=$(cd scripts 2>/dev/null && ls *.sh | tr '\n' ' ')
 FK=0
 forks() {
   FK=0
@@ -88,14 +89,22 @@ tp=$!
 prev=$start
 pf=$f0
 while kill -0 "$tp" 2>/dev/null; do
-  res=$("${ps_cmd[@]}" 2>/dev/null | awk -v root="$tp" '
+  res=$("${ps_cmd[@]}" 2>/dev/null | awk -v root="$tp" -v names="$prod_names" '
+    BEGIN { nn=split(names, nm, " "); for (i=1;i<=nn;i++) NAMES[nm[i]]=1 }
     {
       pid=$1; ppid=$2; st=$3; $1=$2=$3=""; cmd=substr($0,4)
       P[pid]=ppid; S[pid]=st; C[pid]=cmd; n++; ids[n]=pid
     }
-    function isprod(c) {
-      if (c ~ /\/tests\//) return 0
-      return (c ~ /(^|[ \/])(scripts|hooks|githooks)\/[A-Za-z0-9._-]+( |$)/)
+    function isprod(c,   a, k, j, b) {
+      # A production script is the interpreter-run or directly-run file: one of
+      # the first two words, under scripts/ hooks/ githooks/, or a copy whose
+      # basename is a repository script (tests copy scripts/*.sh into stub dirs).
+      k=split(c, a, " ")
+      for (j=1; j<=k && j<=2; j++) {
+        if (a[j] ~ /(^|\/)(scripts|hooks|githooks)\/[A-Za-z0-9._-]+$/) return 1
+        b=a[j]; sub(/.*\//, "", b); if (b in NAMES) return 1
+      }
+      return 0
     }
     function desc(p,   q, k) { q=p; for (k=0; k<64 && q!="" && q>1; k++) { if (q==root) return 1; q=P[q] } return 0 }
     END {
@@ -106,7 +115,7 @@ while kill -0 "$tp" 2>/dev/null; do
         split(c, a, " "); b=a[1]; sub(/.*\//, "", b); if (b=="sleep") slp=1
         if (isprod(c)) { prod=1
           q=P[p]; top=1; while (q!="" && q!=root && q>1) { if (isprod(C[q])) { top=0; break } q=P[q] }
-          if (top) { m=c; if (match(c, /(scripts|hooks|githooks)\/[A-Za-z0-9._-]+/)) m=substr(c,RSTART,RLENGTH); if (!(m in seen)) { seen[m]=1; tops=tops " " m } }
+          if (top) { m=c; k2=split(c, w, " "); for (j=1;j<=k2 && j<=2;j++) { bb=w[j]; sub(/.*\//, "", bb); if (bb in NAMES || w[j] ~ /(scripts|hooks|githooks)\/[A-Za-z0-9._-]+$/) { m=bb; break } } if (!(m in seen)) { seen[m]=1; tops=tops " " m } }
         }
       }
       if (prod) cl=(run?"prod_run":"prod_wait"); else if (slp) cl="t_sleep"; else if (run) cl="t_run"; else cl="t_wait"
