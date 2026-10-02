@@ -942,13 +942,13 @@ rehearse() {
   case $r:$state in
     sj:waiting-on-a-human) pass "$r" "the detector classifies the wedged worker waiting-on-a-human (reason: $reason)" ;;
     sj:*) flunk "$r" "the detector classifies the wedged worker '$state' (reason: $reason), not waiting-on-a-human" ;;
-    # The states a held, live headless worker may honestly read as. An
-    # unclassified completion is a sweep candidate, so it is as wrong here as
-    # finished is; so is any state this list does not name.
+    # The states a held, live headless worker may honestly read as: working,
+    # or nothing pushed yet while its command runs. A turn that ended, a hung
+    # stop, a completion, and waiting on a human (this rung cannot pend) are
+    # all misreadings, as is any state this list does not name.
     hl:*)
       case $state:$reason in
-        unclassified:completion-*) hl_ok='' ;;
-        working:* | waiting-on-a-human:* | unclassified:*) hl_ok=1 ;;
+        working:* | unclassified:no-signal) hl_ok=1 ;;
         *) hl_ok='' ;;
       esac
       if [ -n "$hl_ok" ]; then
