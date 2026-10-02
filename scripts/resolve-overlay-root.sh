@@ -295,12 +295,11 @@ case $layer in
     # absent state and stays quiet; any other failure, a refused override and
     # a bare repository's worktree included, is re-run so its diagnostic
     # reaches stderr.
+    # none needs no lookup: answered here, before any process is spawned.
+    [ "${PLANWRIGHT_REPO_ROOT:-}" != none ] || exit 0
     rr_rc=0
     repo_root=$(/bin/sh "$root_helper" repo --primary 2>/dev/null) || rr_rc=$?
     if [ "$rr_rc" -ne 0 ]; then
-      if [ "$rr_rc" -eq 3 ] && [ "${PLANWRIGHT_REPO_ROOT:-}" = none ]; then
-        exit 0
-      fi
       if [ "$rr_rc" -ne 3 ] || git rev-parse --git-dir >/dev/null 2>&1; then
         /bin/sh "$root_helper" repo --primary >/dev/null
       fi
