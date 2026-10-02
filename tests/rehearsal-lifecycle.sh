@@ -730,10 +730,14 @@ ended_detail() {
   esac
 }
 
-# session_started <rung> — positive evidence a session came up. Only the
-# stream-json rung records one (the init event's session id).
+# session_started <rung> — positive evidence a session came up: the
+# stream-json init event's session id, or a headless result recording output
+# tokens, which only a model that answered produces.
 session_started() {
-  [ "$1" = sj ] && [ -s "$(dir_of sj)/session" ]
+  case $1 in
+    sj) [ -s "$(dir_of sj)/session" ] ;;
+    hl) jq -e '(.usage.output_tokens // 0) > 0' "$(dir_of hl)/result.json" >/dev/null 2>&1 ;;
+  esac
 }
 
 # A run that ended in an error before any session came up never had a working
@@ -1109,6 +1113,26 @@ skip_path() {
     esac
   fi
   rung_stop sj --grace 2 >/dev/null 2>&1
+
+  # The headless rung: a session that answered and then failed is a failure
+  # the rehearsal must report, never a skip.
+  sp_unit=$UNIT
+  UNIT=2
+  cli=(PLANWRIGHT_HEADLESS_CLAUDE="$mk/bin/claude-sessionerror")
+  sp_rc=0
+  launch hl || sp_rc=$?
+  if [ "$sp_rc" != 0 ]; then
+    flunk skip-path "the session-error worker's launch exited $sp_rc: $(clip "$(cat "$mk/launch-hl.out")")"
+  else
+    wait_for 30 wedge_or_end hl
+    sp_verdict=$(wedge_verdict hl)
+    case $sp_verdict in
+      fail\ *) pass skip-path "a headless session that answered and then failed is a failure, not a skip" ;;
+      *) flunk skip-path "a headless session that answered and then failed read as: $(clip "$sp_verdict")" ;;
+    esac
+  fi
+  rung_stop hl --grace 2 >/dev/null 2>&1
+  UNIT=$sp_unit
   cli=(${sp_cli[@]+"${sp_cli[@]}"})
   SJ_HANDLE=rehearsal-sj
 }
@@ -1122,6 +1146,13 @@ printf '%s\n' '{"type":"result","subtype":"error_during_execution","is_error":tr
 exit 1
 SHIM
   chmod +x "$mk/bin/claude-nosession"
+  cat >"$mk/bin/claude-sessionerror" <<'SHIM'
+#!/bin/sh
+cat >/dev/null
+printf '%s\n' '{"type":"result","subtype":"error_max_turns","is_error":true,"result":"stopped","usage":{"input_tokens":17,"output_tokens":5}}'
+exit 1
+SHIM
+  chmod +x "$mk/bin/claude-sessionerror"
   skip_path
 fi
 
