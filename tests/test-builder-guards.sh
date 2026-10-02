@@ -242,6 +242,7 @@ fi
 # ---------------------------------------------------------------------------
 tmp_ovl="$(mktemp -d)"
 mkdir -p "$tmp_ovl/.claude/catalogs"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$tmp_ovl"
 cat >"$tmp_ovl/.claude/catalogs/guard-catalog.yaml" <<'YAML'
 guards:
   - id: overlay-extra
@@ -282,7 +283,7 @@ cp "$REPO_ROOT/scripts/builder-guards.sh" "$REPO_ROOT/scripts/resolve-catalog.sh
 # install. Pin every overlay layer to an absent location so the merge has no
 # layer at all and resolve-catalog returns its empty/exit-0 result.
 seed_err="$(PLANWRIGHT_ADOPTER_OVERLAY="$tmp_seed/no-adopter" \
-  PLANWRIGHT_REPO_ROOT="$tmp_seed/no-repo" \
+  PLANWRIGHT_REPO_ROOT=none \
   /bin/bash "$tmp_seed/scripts/builder-guards.sh" --core "$tmp_seed" 2>&1 >/dev/null)"
 seed_rc=$?
 assert_exit "missing shipped seed hard-fails (broken install, not silent zero guards)" 1 "$seed_rc"

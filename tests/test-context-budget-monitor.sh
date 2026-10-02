@@ -44,6 +44,7 @@ core_cfg="$tmp/core-defaults.yml"
 adopter_root="$tmp/adopter"
 repo="$tmp/repo"
 mkdir -p "$adopter_root" "$repo/.claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 tracked_cfg="$repo/.claude/planwright.yml"
 
 # run <steps> [more-args...] — evaluate against the current fixture config.

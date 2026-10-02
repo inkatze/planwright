@@ -69,6 +69,7 @@ core_cfg="$tmp/core-defaults.yml"
 cp "$here/../config/defaults.yml" "$core_cfg"
 repo_cfg="$tmp/cfg-repo"
 mkdir -p "$repo_cfg/.claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo_cfg"
 tracked_cfg="$repo_cfg/.claude/planwright.yml"
 mlocal_cfg="$repo_cfg/.claude/planwright.local.yml"
 

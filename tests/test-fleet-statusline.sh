@@ -54,6 +54,7 @@ fleet_home="$tmp/fleet"
 core_cfg="$tmp/core-defaults.yml"
 repo="$tmp/repo"
 mkdir -p "$repo/.claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 tracked_cfg="$repo/.claude/planwright.yml"
 printf 'notification_channel: none\n' >"$core_cfg"
 

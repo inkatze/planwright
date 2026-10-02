@@ -831,8 +831,8 @@ echo "ok: a crashed holder's stale lock is broken, not a permanent deadlock"
 # ---------------------------------------------------------------------------
 # 12b. CWD-independence: the cross-spec fleet stale threshold must NOT vary by
 #      the repo a tower happens to run from. fleet_stale_min pins
-#      PLANWRIGHT_REPO_ROOT to the fleet home (which has no .claude overlay), so
-#      config-get cannot pick up the cwd repo's stale_lock_threshold. Here the
+#      PLANWRIGHT_REPO_ROOT=none, so config-get cannot pick up the cwd repo's
+#      stale_lock_threshold. Here the
 #      cwd is a git repo whose committed config sets a ~190-year threshold: if it
 #      leaked in, the back-dated 2020 lock would count as FRESH and the stale
 #      break would NOT fire (crash recovery silently disabled). Note NO explicit

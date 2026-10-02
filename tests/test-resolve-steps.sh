@@ -67,6 +67,7 @@ mkdir -p "$core/config" "$core/skills/polish" "$core/skills/self-review" \
   "$adopter/catalogs" "$repo/.claude/catalogs" "$repo/.claude/catalogs.local" \
   "$repo/.claude/commands" "$repo/.claude/skills" \
   "$claude/commands" "$claude/skills" "$claude/plugins" "$bin" "$tmp/home"
+git -C "$repo" init -q
 printf 'argument-hint: "[--nested]"\n' >"$core/skills/polish/SKILL.md"
 printf 'argument-hint: "[--nested]"\n' >"$core/skills/self-review/SKILL.md"
 printf 'name: execute-task\n' >"$core/skills/execute-task/SKILL.md"
@@ -134,13 +135,14 @@ run() {
   done
   # shellcheck disable=SC2086 # the unset flags are meant to word-split
   env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
-    -u PLANWRIGHT_JQ ${overrides[@]+"${overrides[@]}"} \
+    -u PLANWRIGHT_JQ \
     PLANWRIGHT_ROOT="$core" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core/config/defaults.yml" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter" \
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" \
     CLAUDE_DIR="$claude" HOME="$tmp/home" PATH="$bin:$PATH" \
+    ${overrides[@]+"${overrides[@]}"} \
     /bin/bash "$RS" "$@"
 }
 # out / err / code: run once and capture all three (stdout, stderr, exit).
@@ -173,7 +175,7 @@ run_shipped() {
   # shellcheck disable=SC2086 # the unset flags are meant to word-split
   env $STEP_UNSETS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     PLANWRIGHT_ROOT="$repo_root" PLANWRIGHT_CONFIG_DEFAULTS="$repo_root/config/defaults.yml" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" PLANWRIGHT_REPO_ROOT="$tmp/no-repo" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter" PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" CLAUDE_DIR="$claude" HOME="$tmp/home" \
     /bin/bash "$RS" "$@"
 }
@@ -276,6 +278,9 @@ verdict "the render modes refuse an attendance flag" "--preamble --attended: rc=
 capture convergence --check --unattended
 [ "$RC" = 0 ]
 verdict "--check --unattended passes on the shipped defaults" "--check --unattended: rc=$RC err='$ERR'"
+capture PLANWRIGHT_REPO_ROOT=relative/path convergence --check --unattended
+[ "$RC" != 0 ] && printf '%s' "$ERR" | grep -q 'refusing PLANWRIGHT_REPO_ROOT'
+verdict "--check fails when PLANWRIGHT_REPO_ROOT is refused, since the repo-side steps layer was dropped" "--check with a refused PLANWRIGHT_REPO_ROOT: rc=$RC err='$ERR' (want non-zero)"
 capture convergence --preamble --explain
 [ "$RC" = 2 ]
 verdict "--preamble combined with a resolution flag is a usage error" "--preamble --explain: rc=$RC (want 2)"

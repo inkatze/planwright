@@ -97,8 +97,9 @@
 # write path.
 #
 # Worker sessions: the hook fires inside worktrees, so it resolves and writes
-# the canonical tasks.md in the PRIMARY checkout (kickoff brief risk row 3),
-# under the per-spec advisory lock at specs/<spec>/.orchestrate.lock. That lock
+# the canonical tasks.md in the spec root's PRIMARY view (kickoff brief risk
+# row 3), under the per-spec advisory lock at <root>/<spec>/.orchestrate.lock,
+# the root from scripts/resolve-root.sh. That lock
 # is acquired and released through the ONE shared primitive,
 # scripts/orchestrate-lock.sh (D-4, REQ-D1.1) — no acquire or stale-break logic
 # lives here. A busy or unavailable lock is a clean no-op (the hook is
@@ -108,7 +109,7 @@
 # Input validation before any path use (REQ-F1.1, REQ-K1.2): the parsed
 # `<spec>` segment must match the spec-id charset (`^[a-z0-9][a-z0-9-]*$`, max
 # 64) and the `<id>` segment the D-36 task-id grammar; the resolved tasks.md
-# path is containment-checked under <primary>/specs/ after symlink resolution,
+# path is containment-checked under the spec root after symlink resolution,
 # and the shared lock primitive re-validates and containment-checks the lock
 # path (defense in depth). The reserved `planwright/<spec>/spec` namespace
 # no-ops (D-44), as does a flight branch `planwright/flight/<flight-id>`. Any validation failure is a clean no-op (hook) or exit 2 (CLI).
@@ -1048,7 +1049,7 @@ if [ "${1:-}" = reconcile ]; then
     exit 0
   fi
   # Containment + spec-id grammar are enforced by the shared lock primitive
-  # (REQ-F1.1): it refuses a spec dir whose canonical parent is not specs/ or
+  # (REQ-F1.1): it refuses a spec dir whose canonical parent is not a spec root or
   # whose id fails the charset, with exit 2. run_reconcile (closed) surfaces
   # that as exit 2, so a symlinked / hostile dir never reaches a write.
   run_reconcile "$cli_dir" closed
@@ -1151,23 +1152,29 @@ ids=${seg#task-}
 printf '%s\n' "$spec" | grep -qE '^[a-z0-9][a-z0-9-]{0,63}$' || exit 0
 printf '%s\n' "$ids" | grep -qE '^[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$' || exit 0
 
-# --- Resolve the PRIMARY checkout (risk row 3): worktree-resident runs must
-# reconcile the canonical tasks.md, not the worktree copy.
-common=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
-case $common in
-  /*) ;;
-  *) common=$PWD/$common ;;
-esac
-common=$(cd "$common" 2>/dev/null && pwd -P) || exit 0
-case $common in
-  */.git) primary=${common%/.git} ;;
-  *) exit 0 ;; # bare repo: no primary working tree to write
+# --- Resolve the spec root's PRIMARY view (risk row 3): worktree-resident runs
+# must reconcile the canonical tasks.md, not the worktree copy. No repository
+# (a bare one included) is a quiet no-op; a refused or unreadable spec_root is
+# said, then skipped, since the hook never blocks the tool call.
+require_spec_parse || exit 0
+if [ ! -r "$script_dir/resolve-root.sh" ]; then
+  log "root helper '$script_dir/resolve-root.sh' missing or not executable; skipping (bookkeeping reconciles)"
+  exit 0
+fi
+sr_rc=0
+specs_root=$(/bin/sh "$script_dir/resolve-root.sh" spec --primary 2>/dev/null) || sr_rc=$?
+case $sr_rc in
+  0) ;;
+  3) exit 0 ;;
+  *)
+    log "the spec root did not resolve (resolve-root.sh exit $sr_rc); skipping"
+    exit 0
+    ;;
 esac
 
-# --- Containment (REQ-F1.1): the resolved spec dir must sit under
-# <primary>/specs/ after symlink resolution, and tasks.md must not be a symlink
-# pointing elsewhere.
-specs_root="$primary/specs"
+# --- Containment (REQ-F1.1): the resolved spec dir must sit under the spec
+# root after symlink resolution, and tasks.md must not be a symlink pointing
+# elsewhere.
 spec_dir="$specs_root/$spec"
 [ -f "$spec_dir/tasks.md" ] || exit 0
 [ ! -L "$spec_dir/tasks.md" ] || {

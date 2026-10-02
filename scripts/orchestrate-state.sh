@@ -118,12 +118,14 @@ case "$spec_id" in
     ;;
 esac
 
-repo_root=$(cd "$spec_dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || repo_root=""
-if [ -z "$repo_root" ]; then
-  echo "orchestrate-state: $spec_dir is not inside a git work tree" >&2
-  exit 2
-fi
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# Task state derives from the work repository, which is not necessarily the
+# one holding the bundle: a relocated spec root may sit in a holder or in no
+# repository at all.
+repo_root=$(/bin/sh "$script_dir/resolve-work-repo.sh" "$spec_dir") || {
+  echo "orchestrate-state: no work repository for $spec_dir" >&2
+  exit 2
+}
 
 # Resolve the base ref reachability is measured against. Prefer a local main
 # (the integration line), then a tracked origin/main, then HEAD as a last
@@ -217,11 +219,12 @@ if [ -n "$remote_base" ] && [ "$remote_base" != "$base" ]; then
 fi
 
 # Marker staleness threshold (minutes), via the config reader (defaults + the
-# overlay chain). An absent key keeps the documented safe default; a malformed
-# value warns and falls back, mirroring the advisory lock.
+# overlay chain) as the work repository sees it. An absent key keeps the
+# documented safe default; a malformed value warns and falls back, mirroring
+# the advisory lock.
 threshold_min=15
 repo_local_cfg="$repo_root/.claude/planwright.local.yml"
-tv=$(PLANWRIGHT_LOCAL_CONFIG="$repo_local_cfg" \
+tv=$(PLANWRIGHT_REPO_ROOT="$repo_root" PLANWRIGHT_REPO_ROOT_CHECKED="$repo_root" PLANWRIGHT_LOCAL_CONFIG="$repo_local_cfg" \
   "$script_dir/config-get.sh" stale_marker_threshold 2>/dev/null) || tv=""
 tv=${tv%m}
 case "$tv" in

@@ -83,13 +83,12 @@ fail() {
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# Config layers: a pinned core-defaults file and empty adopter/repo layers, so
-# knob resolution is deterministic (the test host's real overlays never leak
-# in) — the fleet-daemon-gate test discipline.
+# Config layers: a pinned core-defaults file, an empty adopter layer and no
+# repo-side layer, so knob resolution is deterministic (the test host's real
+# overlays never leak in) — the fleet-daemon-gate test discipline.
 core_cfg="$tmp/core-defaults.yml"
 adopter_root="$tmp/adopter"
-repo="$tmp/repo"
-mkdir -p "$adopter_root" "$repo/.claude"
+mkdir -p "$adopter_root"
 cat >"$core_cfg" <<'EOF'
 fleet_daemon_pause: false
 fleet_flailing_threshold: 3
@@ -109,7 +108,7 @@ run() {
     PLANWRIGHT_FLEET_STATE_DIR="$r_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/sh "$FL" "$@" </dev/null
 }
@@ -130,7 +129,7 @@ run_hook() {
       PLANWRIGHT_FLEET_STATE_DIR="$rh_home" \
       PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
       PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-      PLANWRIGHT_REPO_ROOT="$repo" \
+      PLANWRIGHT_REPO_ROOT=none \
       PLANWRIGHT_LOCAL_CONFIG="" \
       /bin/sh "$FL" hook "$rh_event"
 }
@@ -144,7 +143,7 @@ attn() {
     PLANWRIGHT_FLEET_STATE_DIR="$a_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/sh "$FA" "$@"
 }
@@ -156,7 +155,7 @@ audit_q() {
     PLANWRIGHT_FLEET_STATE_DIR="$aq_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/sh "$FAU" query "$@"
 }
@@ -493,7 +492,7 @@ stub_run() {
     PLANWRIGHT_FLEET_STATE_DIR="$sr_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/sh "$stubbin/fleet-liveness.sh" "$@"
 }
@@ -624,7 +623,7 @@ for want in $expected; do
   out=$(env PLANWRIGHT_FLEET_STATE_DIR="$home17" \
     PLANWRIGHT_CONFIG_DEFAULTS="$cfg17" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/sh "$FL" crash-record "$w" "$s" --now $((1000 + i * 10))) \
     || fail "schedule crash $i: non-zero exit"
@@ -657,7 +656,7 @@ rc=0
 err=$(env PLANWRIGHT_FLEET_STATE_DIR="$home19" \
   PLANWRIGHT_CONFIG_DEFAULTS="$cfg19" \
   PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-  PLANWRIGHT_REPO_ROOT="$repo" \
+  PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="" \
   /bin/sh "$FL" crash-check "$w" --now 99999 2>&1 >/dev/null) || rc=$?
 [ "$rc" != 0 ] || fail "kill-switch: crash-check authorized a relaunch under fleet_daemon_pause"
@@ -679,7 +678,7 @@ knob_run() {
   env PLANWRIGHT_FLEET_STATE_DIR="$home20" \
     PLANWRIGHT_CONFIG_DEFAULTS="$cfg20" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/sh "$FL" "$@"
 }
@@ -846,7 +845,7 @@ big_run() {
   env PLANWRIGHT_FLEET_STATE_DIR="$home29" \
     PLANWRIGHT_CONFIG_DEFAULTS="$cfg29" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/sh "$FL" "$@"
 }
@@ -876,7 +875,7 @@ sed 's/^fleet_crash_disable_threshold: .*/fleet_crash_disable_threshold: 99/' "$
 out=$(env PLANWRIGHT_FLEET_STATE_DIR="$home30" \
   PLANWRIGHT_CONFIG_DEFAULTS="$cfg30" \
   PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-  PLANWRIGHT_REPO_ROOT="$repo" \
+  PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="" \
   /bin/sh "$FL" crash-record "$w" "$s" --now 99999) || fail "sticky crash 4 failed"
 case $out in
@@ -906,7 +905,7 @@ rc=0
 env PLANWRIGHT_FLEET_STATE_DIR="$home31" \
   PLANWRIGHT_CONFIG_DEFAULTS="$cfg19" \
   PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-  PLANWRIGHT_REPO_ROOT="$repo" \
+  PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="" \
   /bin/sh "$FL" crash-check "$w" --now 99999 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 3 ] || fail "disabled under kill-switch: exit $rc, expected 3 (terminal state never masked)"
@@ -971,7 +970,7 @@ na_run() {
   env PLANWRIGHT_FLEET_STATE_DIR="$home34" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/sh "$noaudit/fleet-liveness.sh" "$@"
 }
@@ -1028,7 +1027,7 @@ na2_run() {
   env PLANWRIGHT_FLEET_STATE_DIR="$home36" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/sh "$noaudit2/fleet-liveness.sh" "$@"
 }
@@ -1197,7 +1196,7 @@ orun() {
     PLANWRIGHT_FLEET_STATE_DIR="$or_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="" \
     PLANWRIGHT_ORACLE_CLAUDE="$or_bin" \
     /bin/sh "$FL" "$@" </dev/null
@@ -1383,7 +1382,7 @@ rc=0
 # 30s shim sleep keeps the discrimination unambiguous.
 out=$(env PLANWRIGHT_ORACLE_TIMEOUT=5 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="" \
   PLANWRIGHT_ORACLE_CLAUDE="$slowshim" \
   /bin/sh "$FL" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
 t1=$(date +%s)
@@ -1415,7 +1414,7 @@ t0=$(date +%s)
 rc=0
 env PLANWRIGHT_ORACLE_TIMEOUT=1 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="" \
   PLANWRIGHT_ORACLE_CLAUDE="$stubborn" \
   /bin/sh "$FL" oracle --cwd /wt/alpha >/dev/null 2>&1 || rc=$?
 t1=$(date +%s)
@@ -1430,7 +1429,7 @@ t0=$(date +%s)
 rc=0
 env PLANWRIGHT_ORACLE_TIMEOUT=2 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="" \
   PLANWRIGHT_ORACLE_CLAUDE="$slowshim" \
   /bin/sh "$FL" oracle --cwd /wt/alpha >/dev/null 2>&1 || rc=$?
 t1=$(date +%s)
@@ -1442,13 +1441,13 @@ t1=$(date +%s)
 printf '[\n {"pid": 100, "cwd": "/wt/alpha", "kind": "interactive", "sessionId": "aaaa-1111", "name": "a", "status": "busy"}\n]\n' >"$ofix"
 out=$(env PLANWRIGHT_ORACLE_TIMEOUT=0 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="" \
   PLANWRIGHT_ORACLE_CLAUDE="$oshim" \
   /bin/sh "$FL" oracle --cwd /wt/alpha) || fail "timeout=0 fallback: non-zero exit"
 [ "$out" = busy ] || fail "timeout=0 fallback: got '$out', expected busy (zero coerced to the default)"
 out=$(env PLANWRIGHT_ORACLE_TIMEOUT=abc PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
-  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG="" \
   PLANWRIGHT_ORACLE_CLAUDE="$oshim" \
   /bin/sh "$FL" oracle --cwd /wt/alpha) || fail "timeout=abc fallback: non-zero exit"
 [ "$out" = busy ] || fail "timeout=abc fallback: got '$out', expected busy (malformed coerced to the default)"

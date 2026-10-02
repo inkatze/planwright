@@ -87,6 +87,7 @@ core_cfg="$tmp/core-defaults.yml"
 repo="$tmp/repo"
 adopter_root="$tmp/adopter"
 mkdir -p "$repo/.claude" "$adopter_root"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo"
 cat >"$core_cfg" <<'EOF'
 fleet_daemon_pause: false
 fleet_usage_read_cadence_seconds: 60

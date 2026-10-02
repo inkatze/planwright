@@ -241,10 +241,10 @@ command -v git >/dev/null 2>&1 || {
   exit 2
 }
 
-# Resolve the tower's checkout: an explicit --repo, else the caller's own git
-# toplevel, else $PWD.
+# Resolve the tower's checkout: an explicit --repo, else the caller's own
+# checkout, else $PWD.
 if [ -z "$repo" ]; then
-  repo=$(git rev-parse --show-toplevel 2>/dev/null) || repo=$PWD
+  repo=$(/bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) || repo=$PWD
 fi
 if [ ! -d "$repo" ]; then
   warn "repo root '$repo' is not a directory"
@@ -516,18 +516,38 @@ dirty_tree_pass() {
 
 # Re-run the tasks.md reconcile for every spec bundle in the tower's checkout;
 # audit only a reconcile that changed the snapshot (a dropped-push drift
-# actually corrected).
+# actually corrected). The spec root is the one the checkout resolves; where it
+# lies inside the checkout, bundles are named relative to it, as the reconcile
+# and the audit trail have always named them.
 reconcile_pass() {
-  if [ -x "$SYNC" ] && [ -d "$repo/specs" ]; then
+  specs_root=""
+  if [ -x "$SYNC" ]; then
+    sr_rc=0
+    specs_root=$(cd "$repo" && env -u PLANWRIGHT_REPO_ROOT /bin/sh "$script_dir/resolve-root.sh" spec 2>/dev/null) || sr_rc=$?
+    # No repository is the quiet skip a missing specs/ always was; a refused
+    # spec_root silently stops the backstop, so it is said every sweep.
+    case $sr_rc in
+      0 | 3) ;;
+      *)
+        specs_root=""
+        warn "the spec root did not resolve (resolve-root.sh exit $sr_rc) — missed-push backstop skipped, retrying next sweep"
+        ;;
+    esac
+  fi
+  if [ -n "$specs_root" ] && [ -d "$specs_root" ]; then
+    case $specs_root in
+      "$repo"/*) specs_rel=${specs_root#"$repo"/} ;;
+      *) specs_rel=$specs_root ;;
+    esac
     # Enable globbing only to expand the bundle set ONCE at loop entry; -f is
     # restored for the body and the glob is not re-expanded per iteration.
     set +f
-    for d in "$repo"/specs/*/; do
+    for d in "$specs_root"/*/; do
       set -f
       [ -d "$d" ] || continue
       tasks="${d}tasks.md" # $d already ends in '/'
       [ -f "$tasks" ] || continue
-      rel="specs/$(basename "$d")"
+      rel="$specs_rel/$(basename "$d")"
       before_sum=$(cksum <"$tasks" 2>/dev/null) || before_sum=""
       rec_rc=0
       (cd "$repo" && "$SYNC" reconcile "$rel") >/dev/null 2>&1 || rec_rc=$?

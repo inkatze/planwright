@@ -50,6 +50,7 @@ echo "ok: .claude/planwright.yml sets require_signed_tags: require"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/repo/.claude" "$tmp/adopter"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$tmp/repo"
 cp "$overlay" "$tmp/repo/.claude/planwright.yml"
 
 run() {

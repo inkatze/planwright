@@ -87,7 +87,6 @@ export LC_ALL
 unset CDPATH 2>/dev/null || true
 
 here=$(cd "$(dirname "$0")" && pwd -P) || exit 2
-repo_root=$(cd "$here/.." && pwd -P) || exit 2
 anchor_sh="$here/spec-anchor.sh"
 lock_sh="$here/orchestrate-lock.sh"
 
@@ -136,7 +135,14 @@ if [ $# -gt 1 ]; then
   echo "usage: migrate-format-version.sh [specs-root | spec-dir]" >&2
   exit 2
 fi
-target=${1:-$repo_root/specs}
+if [ -n "${1:-}" ]; then
+  target=$1
+else
+  target=$(/bin/sh "$here/resolve-root.sh" spec) || {
+    echo "migrate-format-version: no target given and the spec root did not resolve" >&2
+    exit 2
+  }
+fi
 while [ "$target" != "${target%/}" ]; do target=${target%/}; done
 if [ ! -d "$target" ]; then
   echo "migrate-format-version: not a directory: $target" >&2
@@ -817,7 +823,7 @@ append_reanchor() {
   # put machine-local detail into a committed artifact (data hygiene).
   ab_dir_phys=$(cd "$ab_dir" && pwd -P) || return 1
   ab_rel="$(basename "$(dirname "$ab_dir_phys")")/$(basename "$ab_dir_phys")"
-  if ab_top=$(git -C "$ab_dir" rev-parse --show-toplevel 2>/dev/null); then
+  if ab_top=$(cd "$ab_dir" && /bin/sh "$here/resolve-root.sh" repo --checkout 2>/dev/null); then
     ab_top_phys=$(cd "$ab_top" && pwd -P) || return 1
     case $ab_dir_phys in
       "$ab_top_phys"/*) ab_rel=${ab_dir_phys#"$ab_top_phys"/} ;;

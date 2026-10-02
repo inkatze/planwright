@@ -254,7 +254,7 @@ core_value() {
   cv_rc=0
   cv_val=$(
     PLANWRIGHT_ADOPTER_OVERLAY="$cv_scratch/no-adopter" \
-      PLANWRIGHT_REPO_ROOT="$cv_scratch" \
+      PLANWRIGHT_REPO_ROOT=none \
       PLANWRIGHT_LOCAL_CONFIG="" \
       "$config_get" "$1"
   ) || cv_rc=$?

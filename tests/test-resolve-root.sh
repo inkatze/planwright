@@ -313,6 +313,16 @@ run in_dir "$tmp/repo-wt" base PLANWRIGHT_REPO_ROOT= \
   "$SH" "$RESOLVER" repo --primary
 assert_eq "repo --primary: an empty override is unset" "$tmp/repo" "$out"
 
+# `none` is how a caller asks for no repository at all: the "no repository"
+# exit, never a refusal, from inside a repository as well as outside one.
+for d in repo-wt plain; do
+  run in_dir "$tmp/$d" base PLANWRIGHT_REPO_ROOT=none "$SH" "$RESOLVER" repo --primary
+  assert_eq "repo --primary: none is no repository ($d, exit)" 3 "$rc"
+  assert_empty "repo --primary: none prints no path ($d)" "$out"
+done
+run in_dir "$tmp/repo-wt" base PLANWRIGHT_REPO_ROOT=none "$SH" "$RESOLVER" repo --checkout
+assert_eq "repo --checkout: none never affects it" "$tmp/repo-wt" "$out"
+
 ln -s "$tmp/other" "$tmp/other-link"
 run in_dir "$tmp/repo" base PLANWRIGHT_REPO_ROOT="$tmp/other-link" \
   "$SH" "$RESOLVER" repo --primary

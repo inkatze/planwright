@@ -44,7 +44,8 @@
 # against the ref grammar and rev-parse-validated before any use.
 #
 # Usage: check-anchor-freshness.sh [--baseline <ref>] [<specs-root>]
-#   <specs-root>   defaults to the repo's specs/ directory (the CI entry point).
+#   <specs-root>   defaults to the spec root the working directory resolves
+#                  (scripts/resolve-root.sh spec; the CI entry point).
 #   --baseline     the pairing check's comparison ref; defaults to origin/main
 #                  (the sibling checks' convention), compared at its merge base
 #                  with HEAD so a baseline branch that moved ahead never reads
@@ -72,7 +73,6 @@ export LC_ALL
 unset CDPATH 2>/dev/null || true
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 2
-repo_root=$(cd "$script_dir/.." && pwd -P) || exit 2
 
 # The shared spec-parse grammar lib: the header-block Status parse and the
 # stderr sanitizer come from it, so this guard's notion of "the header block"
@@ -112,7 +112,12 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-[ -n "$specs_root" ] || specs_root="$repo_root/specs"
+if [ -z "$specs_root" ]; then
+  specs_root=$(/bin/sh "$script_dir/resolve-root.sh" spec) || {
+    echo "check-anchor-freshness: no <specs-root> given and the spec root did not resolve" >&2
+    exit 2
+  }
+fi
 # Keep the value as the caller gave it for diagnostics. The strip below empties
 # a path that is nothing but slashes, and the sanitizer renders an empty string
 # as "(unprintable path)" — which would report a perfectly printable `/` as
@@ -130,10 +135,13 @@ if [ ! -d "$specs_root" ]; then
 fi
 specs_root=$(cd "$specs_root" && pwd -P) || exit 2
 
-# The checked tree is what the corpus sits in: its own scripts/spec-anchor.sh
+# The checked tree is the working tree the corpus sits in, found through git
+# rather than the corpus's parent directory: its own scripts/spec-anchor.sh
 # wins over any ambient root (doctrine/spec-format.md, *Resolving the recorded
-# command*), and its git view is what the pairing check diffs against.
-tree_root=$(cd "$specs_root/.." && pwd -P) || exit 2
+# command*), and its git view is what the pairing check diffs against. A
+# corpus in no working tree has none.
+tree_root=$(cd "$specs_root" && /bin/sh "$script_dir/resolve-root.sh" repo --checkout 2>/dev/null) \
+  || tree_root=""
 
 # `--baseline` screen (REQ-D1.5). A ref reaches `git` as a single argument and
 # is never interpolated, but a value that begins with `-` would still be read
@@ -184,7 +192,7 @@ resolve_anchor_tool() {
       return 0
     fi
   done <<RAT
-$tree_root/scripts
+${tree_root:+$tree_root/scripts}
 $(printf '%s\n' "$rat_arms" | sed '/./s|$|/scripts|')
 RAT
   return 1
@@ -370,10 +378,10 @@ changelog_entries() {
 # the git view once: an unusable DEFAULT baseline degrades the whole pairing
 # check to a skip with a notice (the sibling validator's convention), while an
 # explicit one that cannot be used is fatal.
-git_top=
+git_top=$tree_root
 pairing=on
 pairing_note=
-if ! git_top=$(git -C "$tree_root" rev-parse --show-toplevel 2>/dev/null); then
+if [ -z "$git_top" ]; then
   if [ "$explicit_baseline" -eq 1 ]; then
     echo "check-anchor-freshness: --baseline given but the checked tree is not in a git work tree" >&2
     exit 2

@@ -421,22 +421,22 @@ trap 'exit 143' TERM
 
 # Resolve the repository root once and hand it to every sibling, so they
 # skip their own git lookups and every read agrees on the same repository.
-if [ -z "${PLANWRIGHT_REPO_ROOT:-}" ]; then
-  rc=0
-  repo_claude=$("$overlay_root_sh" repo-tracked 2>"$scratch") || rc=$?
-  replay "$scratch"
-  [ "$rc" -eq 0 ] || die 5 "overlay-root resolution failed for the repo-tracked layer (broken install)"
-  if [ -n "$repo_claude" ]; then
-    PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
-    export PLANWRIGHT_REPO_ROOT
-  fi
-else
-  repo_claude="${PLANWRIGHT_REPO_ROOT%/}/.claude"
-fi
-
+# An explicit PLANWRIGHT_REPO_ROOT goes through the same lookup, which
+# validates it; none pins the absence of a repository.
 # DEGRADED: a malformation was degraded with a warning, by this script or by
-# a sibling reader; check mode fails on it.
+# a sibling reader; check mode fails on it. A refused override is one: the
+# repo-side layer it named is dropped, and the children never see the value.
+# Other notes from the lookup (a worktree of a bare repository) are not.
 DEGRADED=0
+rc=0
+repo_claude=$("$overlay_root_sh" repo-tracked 2>"$scratch") || rc=$?
+! grep -q 'refusing PLANWRIGHT_REPO_ROOT' "$scratch" || DEGRADED=1
+replay "$scratch"
+[ "$rc" -eq 0 ] || die 5 "overlay-root resolution failed for the repo-tracked layer (broken install)"
+PLANWRIGHT_REPO_ROOT=${repo_claude%/.claude}
+[ -n "$repo_claude" ] || PLANWRIGHT_REPO_ROOT=none
+PLANWRIGHT_REPO_ROOT_CHECKED=$PLANWRIGHT_REPO_ROOT
+export PLANWRIGHT_REPO_ROOT PLANWRIGHT_REPO_ROOT_CHECKED
 
 # valid_id <token>: the step-id (and skill-name) charset ^[a-z][a-z0-9-]*$,
 # at most 64 bytes.

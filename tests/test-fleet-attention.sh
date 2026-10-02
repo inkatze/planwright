@@ -425,14 +425,12 @@ core_cfg="$tmp/notify-core.yml"
 pin_cfg="$tmp/notify-pin.yml"
 printf 'notification_channel: none\n' >"$core_cfg"
 printf 'notification_channel: editor-toast\n' >"$pin_cfg"
-scratch_repo="$tmp/notify-scratch-repo"
-mkdir -p "$scratch_repo"
 notify_toast() {
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
     -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
     PLANWRIGHT_FLEET_STATE_DIR="$home13b" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-    PLANWRIGHT_REPO_ROOT="$scratch_repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$pin_cfg" \
     /bin/sh "$FA" notify "$1"
 }
@@ -459,7 +457,7 @@ nout=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
   -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
   PLANWRIGHT_FLEET_STATE_DIR="$home13c" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-  PLANWRIGHT_REPO_ROOT="$scratch_repo" \
+  PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="$pin_sl_cfg" \
   /bin/sh "$FA" notify "worker=w spec-a:3 needs a decision" 2>/dev/null) \
   || fail "notify (statusline): non-zero exit"
@@ -478,7 +476,7 @@ notify_push() {
     -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
     PLANWRIGHT_FLEET_STATE_DIR="$home13d" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-    PLANWRIGHT_REPO_ROOT="$scratch_repo" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$pin_push_cfg" \
     /bin/sh "$FA" notify "$@"
 }
@@ -639,8 +637,6 @@ stub_bin="$inj_dir/bin"
 mkdir -p "$stub_bin"
 home17="$tmp/notify-inj-home"
 core_cfg17="$tmp/notify-inj-core.yml"
-scratch_repo17="$tmp/notify-inj-repo"
-mkdir -p "$scratch_repo17"
 printf 'notification_channel: none\n' >"$core_cfg17"
 
 # A fake `tmux` that appends every arg (one per line) to a capture file.
@@ -666,7 +662,7 @@ notify_inj() { # <channel> <summary>
     PATH="$stub_bin:$PATH" TMUX="fake-server" \
     PLANWRIGHT_FLEET_STATE_DIR="$home17" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg17" \
-    PLANWRIGHT_REPO_ROOT="$scratch_repo17" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$_pin" \
     /bin/sh "$FA" notify "$2"
 }
@@ -700,8 +696,6 @@ echo "ok: notify adapters neutralize tmux format injection and pass os-notify su
 # ---------------------------------------------------------------------------
 home18="$tmp/degrade-home"
 core18="$tmp/degrade-core.yml"
-scratch18="$tmp/degrade-repo"
-mkdir -p "$scratch18"
 printf 'notification_channel: none\n' >"$core18"
 pin18() {
   _p="$tmp/degrade-pin-$1.yml"
@@ -715,7 +709,7 @@ de_err=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME -
   -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
   PLANWRIGHT_FLEET_STATE_DIR="$home18" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core18" \
-  PLANWRIGHT_REPO_ROOT="$scratch18" \
+  PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="$pin_tmux" \
   /bin/sh "$FA" notify "worker=w needs input" 2>&1 >/dev/null) || de_rc=$?
 [ "$de_rc" = 0 ] || fail "degrade (tmux-popup, no server): exit $de_rc, expected 0 (must not fail the run)"
@@ -747,7 +741,7 @@ de_err=$(env -i LC_ALL=C HOME=/nonexistent \
   PATH="$stub_bin18" \
   PLANWRIGHT_FLEET_STATE_DIR="$home18" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core18" \
-  PLANWRIGHT_REPO_ROOT="$scratch18" \
+  PLANWRIGHT_REPO_ROOT=none \
   PLANWRIGHT_LOCAL_CONFIG="$pin_osn" \
   /bin/sh "$FA" notify "worker=w needs input" 2>&1 >/dev/null) || de_rc=$?
 [ "$de_rc" = 0 ] || fail "degrade (os-notify, no tool): exit $de_rc, expected 0 (must not fail the run)"
@@ -792,6 +786,7 @@ home20="$tmp/notify-hardfail-home"
 core20="$tmp/hardfail-core.yml"
 repo20="$tmp/hardfail-repo"
 mkdir -p "$repo20/.claude"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$repo20"
 printf 'notification_channel: none\n' >"$core20"
 printf 'notification_channel: bogus-channel\n' >"$repo20/.claude/planwright.yml"
 hf_env() {
@@ -824,9 +819,7 @@ echo "ok: notify propagates a resolver hard-fail (fail closed), pushing nothing"
 # ---------------------------------------------------------------------------
 home21="$tmp/notify-race-home"
 core21="$tmp/notify-race-core.yml"
-repo21="$tmp/notify-race-repo"
 pin21="$tmp/notify-race-pin.yml"
-mkdir -p "$repo21"
 printf 'notification_channel: none\n' >"$core21"
 printf 'notification_channel: editor-toast\n' >"$pin21"
 Nt=20
@@ -837,7 +830,7 @@ while [ "$i" -lt "$Nt" ]; do
     -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
     PLANWRIGHT_FLEET_STATE_DIR="$home21" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core21" \
-    PLANWRIGHT_REPO_ROOT="$repo21" \
+    PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_LOCAL_CONFIG="$pin21" \
     /bin/sh "$FA" notify "decision-$i-needs-input" &
   pids="$pids $!"
