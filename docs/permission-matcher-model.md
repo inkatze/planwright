@@ -175,11 +175,11 @@ evidently written against: `Bash(git push * --force*)` exists precisely to catch
 
 If a future matcher required one-or-more, every deny rule whose **trailing**
 wildcard has nothing to consume would stop firing — the `* --force*`,
-`* -f*`, `* --mirror*`, `* --all*`, `* --undo*`, `* --amend*`, and `* -n*`
+`* -f*`, `* --mirror*`, `* --all*`, `* --undo*`, and `* -n*`
 family, for flags that appear at the very end of a command. The fixture rows
 that would flip are the flag-after-argument rows (for example
-`git push origin --force`, `git commit -m "wip" --amend`,
-`git commit -m "wip" -n`, `gh pr ready 123 --undo`). Note the shape of the
+`git push origin --force`, `git commit -m "wip" -n`,
+`gh pr ready 123 --undo`). Note the shape of the
 exposure: the *leading-position* spelling of each of those flags is covered by a
 separate `:*` boundary rule that does not depend on MA-1, so a wrong MA-1
 narrows coverage rather than removing it.
@@ -227,14 +227,15 @@ on 2026-07-29:
   `git push -n` deny would block harmless dry runs.
 - **`--fixup` accepts both `--fixup <commit>` and `--fixup=<commit>`**, and the
   `amend:` / `reword:` prefixes produce `amend!` subjects. `--squash` likewise
-  accepts the `=` form. The `=` spellings are why the deny list needs
+  accepts the `=` form. The `=` spellings are why the tower profile needs
   `Bash(git commit --fixup*)` and `Bash(git commit --squash*)` alongside the
   `:*` boundary rules — a `:*` rule requires a space and misses `=`.
 - **git takes any unique prefix of a long option** (gitcli(7)): `git commit
   --am` amends, `--sq=<c>` squashes, `--fix=<c>` fixes up, `git push --mi`
   mirrors, `--al` pushes every branch, and `--no-veri` skips the hooks
   (measured on git 2.53). Each flag deny is therefore also carried at that
-  shortest prefix; the full-spelling rules stay as the explicit spellings.
+  shortest prefix; the full-spelling rules stay as the explicit spellings. The
+  policy guard reads the same prefixes for the acts it decides.
   `--branches` is git's alias of `--all`, and the matching refspec
   (`git push origin :`) pushes every branch the remote shares, so both are
   denied beside `--all`.
@@ -259,11 +260,11 @@ And one rule shape that exists for a reason worth stating, because it is not
 obvious from reading the rule:
 
 - **Global-option prefixes get their own family** (`Bash(git -* push*)`,
-  and the same for `commit`, `merge`, `pull`, `rebase`, `reset`,
-  `filter-branch`, `filter-repo`). Every other rule anchors on `git push` or `git commit` at the
+  and the same for `commit`, `reset`, `filter-branch`, `filter-repo`). Every
+  other rule anchors on `git push` or `git commit` at the
   start of the command, so *any* git global option in front of the subcommand
-  slipped past all of them: `git -C . push --force origin topic` and
-  `git -c a=b rebase -i HEAD~2` matched nothing. git has a long and growing list
+  slipped past all of them: `git -C . push --force origin topic` matched
+  nothing. git has a long and growing list
   of global options (`-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`,
   `--exec-path`, `--no-pager`, `--bare`, `--literal-pathspecs`, …), so
   enumerating them would be a treadmill. Keying on the leading `git -` covers
@@ -275,9 +276,44 @@ obvious from reading the rule:
   and recorded rather than narrowed.
 
 A caveat on the deny list as a whole: it is **best-effort defense-in-depth**, and
-`doctrine`-level enforcement of the never-push-main and never-amend invariants is
-the `githooks/` backstop (guard-coverage D-2), not these globs. Where the fixture
-table records a `residual`, that is the layer doing the work.
+the clone-level enforcement of the never-push-main and never-amend invariants is
+the `githooks/` backstop (guard-coverage D-2), not these globs. That backstop
+still refuses every amend and rebase in a clone that wires it, whatever
+`unpushed_rewrite` resolves to. Where the fixture table records a `residual`,
+another layer is doing the work.
+
+## What the worker profile leaves to the policy guard
+
+A profile is read once at launch and its deny wins over every allow, so a
+profile deny can never follow a policy knob: it would refuse an act the
+resolved policy permits (human-gates D-9). The worker profile therefore holds
+only what no value can lift (the PR merge and the re-draft, force-push, writes
+to main, `master`, or a spec branch, the hard reset and the history filters,
+the hook bypasses, and the MCP names), and the acts
+a value can grant a worker left the deny list with human-gates Task 6:
+
+- the base merge (`git merge`, `git pull`, and their `git -*` global-option
+  spellings), granted by `worker_base_merge`;
+- the never-pushed rewrites (amend, squash, fixup, rebase, at every prefix git
+  accepts, and `git -* rebase*`), granted by `unpushed_rewrite`.
+
+`scripts/policy-guard.sh`, wired into the same profile with the `worker` tier,
+is the deny-emitting layer for those acts: it reads the knob, the session's
+unit branch, the merge source, and (for a rewrite) the refreshed upstream, and
+refuses what the value or the facts forbid. The fixture rows for those
+spellings are `residual` rows: the glob layer leaves them to the guard. A
+policy-permitted spelling that the allow list does not name reaches the
+permission prompt; widening the allow list to admit it is a separate,
+signed-off change. `Bash(git -* commit*)` stays, since it also refuses the
+global-option spellings of the commit hook bypasses; the plain `git commit`
+spelling of an amend is the one the guard decides. That leaves one admitted
+gap, kept on purpose to fail closed: `git -C <dir> commit --amend` (and any
+other global-option spelling of an amend) stays denied under every
+`unpushed_rewrite` value, so a worker granted the rewrite amends with plain
+`git commit --amend`. The tower profile keeps
+its merge, pull, rebase, and amend-family denies, since no value grants the
+tower a merge or a rewrite; the global-option spellings it never carried are
+refused there by the policy guard, which is wired into the tower profile too.
 
 ## Changing any of this
 

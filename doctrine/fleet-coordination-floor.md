@@ -254,6 +254,11 @@ is the contract they satisfy, not a second specification of them.
 | Scratch temp | created under the worker's state directory across its life: the stdio fifos, the staging temps each writer makes beside its target, and the residue a stale lock-break renames aside | its own class in the rung's `stop`, released after the process tree rather than with it, so a tree that will not close does not cost a live worker its channel; the captured result is durable record and is kept | residue under the state directory of a worker whose session has ended |
 | Attention record | `scripts/fleet-attention.sh heartbeat` / `decide` / `fork` / `park`, one row per worker | `scripts/fleet-attention.sh clear`, invoked by the close verb, preceded by settling the rung's own receipts — a receipt left pending is what the pending-age alarm re-queues from, so clearing the row alone would re-arm the class the close just released; a rung whose receipts cannot be read reports the class held rather than clearing | the row's own state field, which is script-readable; a terminal row (`merged`, `done`) still present is the residue signal |
 
+**Dispatch marker**: opened by `scripts/fleet-register.sh`, closed when the
+sweep's registry reconcile retires its record, detected as a marker lacking a
+record or naming a dead worker; records lacking any death evidence never
+retire.
+
 ### The rungs, crossed with the classes
 
 Every rung in `backend-capability-contract.md` against every class above. A

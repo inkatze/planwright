@@ -1,17 +1,18 @@
 #!/bin/sh
-# protected-branch.sh — decide whether a branch is outside the protected set
+# protected-branch.sh — decide whether branches are outside the protected set
 # (the core floor plus the protected_branches additions, read locally through
-# resolve-policy-knob.sh; the host is never queried).
+# resolve-policy-knob.sh once per call; the host is never queried).
 #
-# Usage: protected-branch.sh <branch>
+# Usage: protected-branch.sh <branch>...
 #
-# The branch may carry a `refs/heads/` prefix in any case, which is stripped,
-# as it is from each entry of the set, and both sides are compared case-folded. An entry is a
-# name or a glob matched segment by segment, so `*` and `?` never span a `/`:
+# Every branch is checked; the answer is the strictest. A branch may carry a
+# `refs/heads/` prefix in any case, which is stripped, as it is from each entry
+# of the set, and both sides are compared case-folded. An entry is a name or a
+# glob matched segment by segment, so `*` and `?` never span a `/`:
 # `planwright/*/spec` protects `planwright/x/spec` and not
 # `planwright/a/b/spec`.
 #
-# Exit 0 ONLY when the branch is outside the set; every other exit refuses the
+# Exit 0 ONLY when every branch is outside the set; every other exit refuses the
 # act: 1 protected, 2 usage or an invalid branch name, 4 a malformed set, and
 # 5 any other read failure (a broken install). The clear answer is the zero
 # exit so a caller that tests only for success fails closed.
@@ -25,8 +26,8 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
-[ "$#" -eq 1 ] || {
-  echo "usage: protected-branch.sh <branch>" >&2
+[ "$#" -ge 1 ] || {
+  echo "usage: protected-branch.sh <branch>..." >&2
   exit 2
 }
 
@@ -36,22 +37,26 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 fold() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
-# The prefix test folds too, but the name keeps its case until it is
-# validated: a folded `HEAD` would pass as the branch `head`.
-case "$(fold "$1")" in
-  refs/heads/*) name=${1#???????????} ;;
-  *) name=$1 ;;
-esac
 refuse_name() {
   printf '%s\n' "protected-branch: invalid branch name '$(sanitize_printable "$1" "(unprintable name)")'" >&2
   exit 2
 }
-case "$name" in
-  "" | -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/-]*) refuse_name "$1" ;;
-  HEAD | .* | */.* | *.lock | *.lock/* | *.) refuse_name "$1" ;;
-esac
-[ "${#name}" -le 255 ] || refuse_name "$1"
-name=$(fold "$name")
+# Every name is validated before the set is read, so a bad one is a usage
+# error whatever the set holds. The prefix test folds, but the name keeps its
+# case until it is validated: a folded `HEAD` would pass as the branch `head`.
+names=''
+for arg in "$@"; do
+  case "$(fold "$arg")" in
+    refs/heads/*) name=${arg#???????????} ;;
+    *) name=$arg ;;
+  esac
+  case "$name" in
+    "" | -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]*) refuse_name "$arg" ;;
+    HEAD | @ | .* | */.* | *.lock | *.lock/* | *.) refuse_name "$arg" ;;
+  esac
+  [ "${#name}" -le 255 ] || refuse_name "$arg"
+  names="$names$(fold "$name") "
+done
 
 set_out=$(/bin/sh "$script_dir/resolve-policy-knob.sh" protected_branches) || {
   rc=$?
@@ -100,11 +105,13 @@ seg_match() {
   done
 }
 
-for entry in $set_out; do
-  pattern=$(fold "$entry")
-  if seg_match "${pattern#refs/heads/}" "$name"; then
-    printf '%s\n' "protected-branch: '$name' is protected (matches '$entry')" >&2
-    exit 1
-  fi
+for name in $names; do
+  for entry in $set_out; do
+    pattern=$(fold "$entry")
+    if seg_match "${pattern#refs/heads/}" "$name"; then
+      printf '%s\n' "protected-branch: '$name' is protected (matches '$entry')" >&2
+      exit 1
+    fi
+  done
 done
 exit 0

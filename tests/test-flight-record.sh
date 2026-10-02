@@ -278,6 +278,13 @@ lead_of "$OUT" | grep -qF 'Pending sign-off:** PS-1, PS-2 (' || fail "the lead m
 } >"$in/audit-ps-ref.md"
 run_render pr --audit-file "$in/audit-ps-ref.md"
 lead_of "$OUT" | grep -qF 'Pending sign-off:** PS-2 (' || fail "the lead must list only PS-2: $(lead_of "$OUT" | grep 'Pending sign-off')"
+# The generated checklist carries no checkbox: a bare entry is pending too.
+{
+  sed 's/^- \[ \] \*\*PS-1\*\*/- **PS-1**/' "$in/audit.md"
+  printf -- '- **PS-3** a bare entry\n'
+} >"$in/audit-ps-bare.md"
+run_render pr --audit-file "$in/audit-ps-bare.md"
+lead_of "$OUT" | grep -qF 'Pending sign-off:** PS-1, PS-3 (' || fail "the lead must list bare entries PS-1, PS-3: $(lead_of "$OUT" | grep 'Pending sign-off')"
 
 # An ask or grounds without a final newline still gets its fence closed on a
 # line of its own.

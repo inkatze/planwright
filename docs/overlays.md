@@ -425,9 +425,62 @@ Scope it to a **worker** settings file only. Like the hook itself, this entry
 widens what runs without a prompt; merging it into a general (tower or human)
 `settings.json` extends the auto-approval into sessions it was never meant for.
 
+### Declared command steps
+
+The same hook approves a declared command step's line with no allow entry,
+whatever the step's hosting. When a segment matches none of its enumerated
+shapes, it resolves the command steps declared at the wired points (section
+8's catalog and lists, through `scripts/resolve-steps.sh`, from the worker's
+working directory) and approves the segment only when its words, once a
+leading context prefix is set aside, are exactly a step's location as the
+resolver prints it on that host followed by the step's `args`. The prefix is
+optional, and when present it is the ten `PLANWRIGHT_STEP_*` assignments in
+the order `resolve-steps.sh --prefix` renders them, each value one the
+resolver would render (no control byte, and the unit kind, task ids, and PR
+number inside their grammars), naming a wired point, and carrying no `$`. The location must be absolute
+and plain (letters, digits, `/`, `.`, `_`, `-`), and a path target's
+location must carry no `.`, `..`, or empty segment and name an existing
+executable file. A segment that shares only the first word, spells the bare
+target instead of its resolved location, adds, drops, or changes an arg, or
+carries any other prefix defers. The approval is allow-only, like the rest
+of the hook.
+
+**Trust posture.** Step catalogs and point lists are read only from the
+human-owned layers. The core and adopter layers sit outside the worktree and
+outside a dispatched worker's write set. The repo-tracked and machine-local
+layers are the repository's own, so they get the trust the hook already
+gives a script under the repository's `scripts/`: repository code is trusted
+to run. Declaring a command step in `.claude/catalogs/steps.yaml` is
+therefore a decision to let every worker in that repository run the line
+without a prompt, and belongs in review the same way a new script does. The
+repository is the one found from the worker's current directory, but, as
+§2 describes, its repo-side layers are read from the primary checkout, also
+when the worker runs in a linked worktree: a declaration edited only in a
+task worktree's copy approves nothing until the primary checkout's working
+tree carries it. The worker permission profile is unchanged, and a skill
+step gets no elevation.
+
+**Degraded path.** The hook resolves the declarations at most once per
+command, all points in parallel, under a short deadline (`STEPS_DEADLINE` in
+`scripts/worker-command-guard.sh`, which `PLANWRIGHT_GUARD_STEPS_DEADLINE`
+overrides with 1 to 60 seconds). If `jq` is absent, the resolver fails,
+refuses a layer, or overruns that deadline, or the host's location falls
+outside the plain charset, the segment defers to the normal permission
+prompt. The fallback is a manual allow entry in the **worker** settings for
+the step's resolved location, for example `Bash(/abs/path/to/tool:*)`. That
+entry is wider than the hook's match (it allows any args). It is also
+narrower in one way: the unmodeled question of whether Claude Code's allow
+matching looks past leading assignments (boundary MB-2 in
+[`permission-matcher-model.md`](permission-matcher-model.md)) means you
+should count on it only for a line spelled without the context prefix. The
+runner's own session line always carries the prefix, so on the degraded path
+expect the prompt for it; the entry covers a hand-typed, unprefixed
+invocation.
+
 ### Path-scoped allow rules use the slash-star glob
 
-The literal-path entry above ends in `/*`, not `:*`, and that distinction is
+The plugin-scripts literal-path entry earlier in this section ends in `/*`,
+not `:*`, and that distinction is
 load-bearing. Claude Code's `:*` is a **command-boundary** glob: it matches only
 where a space or the end of the string follows the prefix. That is correct for a
 *command* rule — `Bash(git status:*)`, `Bash(mise run:*)` — but wrong for a

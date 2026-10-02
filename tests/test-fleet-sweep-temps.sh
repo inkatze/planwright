@@ -134,7 +134,14 @@ parked_sweep() {
   ps_rc=0
   wait "$ps_pid" || ps_rc=$?
   [ "$ps_rc" != 0 ] || fail "$5 ($ps_sig): a sweep stopped by a signal exited 0"
-  left=$(cd "$3" && find . -maxdepth 1 -name "$4*" -print)
+  # A site several processes below the sweep runs its trap after the sweep
+  # itself has exited, so the check waits, boundedly, for the group to finish.
+  ps_end=$((SECONDS + 10))
+  while :; do
+    left=$(cd "$3" && find . -maxdepth 1 -name "$4*" -print)
+    [ -n "$left" ] && [ "$SECONDS" -lt "$ps_end" ] || break
+    sleep 0.1
+  done
   [ -z "$left" ] || fail "$5 ($ps_sig): the signal left temp artifacts behind: $left"
 }
 
@@ -172,5 +179,19 @@ for sig in INT TERM HUP; do
   [ -s "$home/attention/state" ] || fail "fixture: the dirty tree was not escalated"
   rm -f "$repo/untracked"
   parked_sweep "$sig" /attention/.state. "$home/attention" .state. "the retraction's queue write"
-  echo "ok: $sig mid-sweep leaves no temp at any site (dirty-since clock, scan list, registry rewrite, audit write, queue write, queue retraction)"
+
+  # The dispatch registry, written by the reconcile healing a missing record.
+  n=$((n + 1))
+  fresh "$n"
+  mkdir -p "$home/dispatch-markers"
+  printf 'w-temps\tspec:1\t-\theadless-oneshot\t-\t-\n' >"$home/dispatch-markers/w-temps"
+  parked_sweep "$sig" "$home/.registry." "$home" .registry. "the dispatch registry heal"
+  # The store's lock goes with its temp: a held one wedges every fleet writer.
+  lk_end=$((SECONDS + 10))
+  while { [ -e "$home/.fleet.lock" ] || [ -L "$home/.fleet.lock" ]; } && [ "$SECONDS" -lt "$lk_end" ]; do
+    sleep 0.1
+  done
+  [ ! -e "$home/.fleet.lock" ] && [ ! -L "$home/.fleet.lock" ] \
+    || fail "the dispatch registry heal ($sig): the signal left the fleet lock held"
+  echo "ok: $sig mid-sweep leaves no temp at any site (dirty-since clock, scan list, registry rewrite, audit write, queue write, queue retraction, dispatch registry heal)"
 done

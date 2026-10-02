@@ -106,6 +106,25 @@ pb_expect 1 refs/heads/main "a refs/heads/ target is stripped before matching"
 pb_expect 0 planwright/a/b/spec "the spec pattern's * does not span a /"
 pb_expect 0 planwright/human-gates/task-4 "a task branch is outside the floor"
 pb_expect 0 mainline "a floor name is not a prefix match"
+pb_expect 0 feature/c++ "a branch name carrying + is a valid name outside the floor"
+
+# Several branches in one call: the answer is the strictest, from one read.
+rc=0
+pb planwright/x/task-1 feature-y >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "protected-branch: two unprotected branches exited $rc, expected 0"
+for order in "feature-y main" "main feature-y"; do
+  rc=0
+  # shellcheck disable=SC2086 # two branch arguments, split on purpose
+  pb $order >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 1 ] || fail "protected-branch: '$order' exited $rc, expected 1 (one is protected)"
+done
+rc=0
+pb feature-y 'a..b' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "protected-branch: an invalid name after a valid one exited $rc, expected 2"
+rc=0
+pb main 'a..b' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "protected-branch: an invalid name is refused before any match exited $rc, expected 2"
+echo "ok: several branches in one call answer with the strictest verdict"
 
 for layer_cfg in "$adopter_cfg" "$mlocal_cfg"; do
   reset_layers
@@ -200,7 +219,7 @@ echo "ok: a malformed or unset protected_branches is a read failure, never the f
 printf 'protected_branches:\n' >"$core_cfg"
 reset_layers
 # shellcheck disable=SC2016 # the literal `$(x)` is the refused input
-for bad in "" "-main" 'ma$(x)in' "a b" "a//b" "/main" "main/" "a..b" HEAD a.lock .x a/.b release. \
+for bad in "" "-main" 'ma$(x)in' "a b" "a//b" "/main" "main/" "a..b" HEAD @ 'a@{1}' a.lock .x a/.b release. \
   "$(printf 'a%.0s' $(seq 256))"; do
   rc=0
   pb "$bad" >/dev/null 2>&1 || rc=$?

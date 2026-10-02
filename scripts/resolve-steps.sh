@@ -189,10 +189,15 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 }
 
 TAB=$(printf '\t')
-# scripts/step-record.sh's is_point holds the same vocabulary; the lists
+# scripts/step-record.sh's is_point holds the same vocabulary, and
+# scripts/worker-command-guard.sh's STEP_POINTS the wired points; the lists
 # change together.
 WIRED_POINTS="pre-implementation pre-ci convergence pre-pr post-pr pre-ready-flip pre-spec-ready-flip"
 UNWIRED_POINTS="spec-drafted kickoff-signed-off unit-selected pre-dispatch post-dispatch unit-halted post-merge orchestrator-idle"
+# scripts/worker-command-guard.sh's STEP_CONTEXT_FIELDS and
+# step_context_value_ok hold the same names and order and refuse at least
+# these values (the guard also refuses `$` and a point outside WIRED_POINTS);
+# they change together.
 CONTEXT_FIELDS="SPEC TASK_IDS UNIT_KIND BRANCH BASE_BRANCH WORKTREE PR_NUMBER POINT ID PREV_RECORD"
 OWN_NAMESPACE=planwright
 
@@ -281,7 +286,8 @@ replay() {
 }
 
 # command_word_ok <word>: one word of a command step's args (the args
-# charset), shared by entry validation and --line.
+# charset), shared by entry validation and --line. scripts/worker-command-guard.sh's
+# step_arg_ok holds the same charset; they change together.
 command_word_ok() {
   case "$1" in
     "" | *[!A-Za-z0-9._/:=@%,+-]*) return 1 ;;

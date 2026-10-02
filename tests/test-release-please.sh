@@ -193,13 +193,17 @@ fi
 # Note the detection code in scripts/tasks-pr-sync.sh uses the `gh_pr` wrapper
 # (underscore), which never matches the literal `gh pr merge` scanned here.
 POLICY_FILES="config/worker-settings.json config/tower-settings.json"
+# The policy guard names the merge spellings to REFUSE them, like the
+# permissions files; it is excluded by path the same way and proven below to
+# deny them.
+GUARD_FILES="scripts/policy-guard.sh"
 # Fixed-string exclusion, not ERE: a path like config/worker-settings.json carries
 # a regex metacharacter (the "." before json). Under grep -E that "." is a wildcard,
 # so the exclusion would also swallow look-alike paths (config/worker-settingsXjson)
 # and could hide a real merge invocation in such a file. Build one -e fixed pattern
 # per policy file and match with grep -vF so only the exact paths are excluded.
 policy_exclude_args=()
-for pf in $POLICY_FILES; do
+for pf in $POLICY_FILES $GUARD_FILES; do
   policy_exclude_args+=(-e "/${pf}:")
 done
 merge_hits="$(
@@ -226,6 +230,17 @@ for POLICY_FILE in $POLICY_FILES; do
   else
     fail "C1.4 $POLICY_FILE no longer denies gh pr merge — re-verify the exclusion"
   fi
+done
+for GUARD_FILE in $GUARD_FILES; do
+  for merge_spelling in 'gh pr merge 42' 'gh api -X PUT repos/acme/widgets/pulls/42/merge' \
+    "gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:\"x\"}){clientMutationId}}'"; do
+    guard_out=$(jq -n --arg c "$merge_spelling" '{tool_name:"Bash", tool_input:{command:$c}, cwd:"/"}' \
+      | /bin/bash "$REPO_ROOT/$GUARD_FILE" worker bash 2>/dev/null || true)
+    case $guard_out in
+      *'"permissionDecision":"deny"'*) pass "C1.4 $GUARD_FILE denies '$merge_spelling' (exclusion is a ban, not an invocation)" ;;
+      *) fail "C1.4 $GUARD_FILE no longer denies '$merge_spelling' — re-verify the exclusion" ;;
+    esac
+  done
 done
 
 # The release workflow and template must not merge (strict, zero tolerance).

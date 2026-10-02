@@ -342,9 +342,11 @@ fenced() {
   printf '%s\n' "$_fence"
 }
 
-# pending_ids — the pending-sign-off checklist IDs, in order, comma-joined.
+# pending_ids — the pending-sign-off checklist IDs, in order, comma-joined. The
+# generated checklist carries no checkbox; an older `- [ ]` entry still counts
+# and a checked `- [x]` one does not.
 pending_ids() {
-  sed -n -E 's/^[[:space:]]*- \[ \] \*\*(PS-[0-9]+)\*\*.*/\1/p' "$work/audit" \
+  sed -n -E 's/^[[:space:]]*- (\[ \] )?\*\*(PS-[0-9]+)\*\*.*/\2/p' "$work/audit" \
     | awk '!seen[$0]++' | tr '\n' ',' | sed 's/,$//;s/,/, /g'
 }
 
