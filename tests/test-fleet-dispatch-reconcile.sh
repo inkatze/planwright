@@ -662,6 +662,20 @@ wait "$p10" 2>/dev/null
 ok r10 "an alive record its marker matches is counted live"
 
 # ===========================================================================
+# r11 — a registry that cannot be read degrades the pass rather than reading
+#       as an empty one.
+# ===========================================================================
+h=$(home r11)
+register "$h" w-r11 --scope spec-r:13 --backend headless-oneshot --death-handle none
+chmod 000 "$h/registry"
+reconcile "$h"
+chmod 600 "$h/registry"
+printf '%s\n' "$out" | grep -q "status=degraded" || fail "r11: an unreadable registry did not degrade the pass: $out"
+printf '%s\n' "$out" | grep -q "^heal${tab}" && fail "r11: an unreadable registry was read as empty and healed from"
+printf '%s\n' "$err" | grep -q 'could not read the registry' || fail "r11: the pass did not say the registry was unreadable: $err"
+ok r11 "an unreadable registry degrades the pass instead of reading as empty"
+
+# ===========================================================================
 # c1 — N concurrent reconciles heal each missing record exactly once.
 # ===========================================================================
 h=$(home c1)

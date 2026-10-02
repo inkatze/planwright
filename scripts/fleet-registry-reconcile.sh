@@ -217,7 +217,14 @@ evidence() {
 }
 
 # The last row per handle, read once for the whole pass: <handle>TAB<row>.
-if ! lastmap=$(/bin/sh "$FS" registry 2>/dev/null | awk -F'\t' '
+# The store's read exits 0 on a file it cannot read, so readability is
+# checked here too: an unread registry is not an empty one.
+reg_ok=1
+reg_raw=$(/bin/sh "$FS" registry 2>/dev/null) || reg_ok=0
+if [ -e "$root/registry" ] && [ ! -r "$root/registry" ]; then
+  reg_ok=0
+fi
+if [ "$reg_ok" = 0 ] || ! lastmap=$(printf '%s\n' "$reg_raw" | awk -F'\t' '
   NF >= 2 { if (!($2 in last)) order[++n] = $2; last[$2] = $0 }
   END { for (i = 1; i <= n; i++) print order[i] "\t" last[order[i]] }'); then
   warn "could not read the registry; no record was healed or retired this pass"

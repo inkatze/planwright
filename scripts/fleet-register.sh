@@ -322,8 +322,14 @@ markers_dir() {
 wm_tmp=""
 mm_aside=""
 mm_restore=""
+# A marker renamed aside is dropped on exit only once it is back at its name,
+# or a newer one holds the name; otherwise the aside is the only copy left.
 trap '[ -z "$wm_tmp" ] || rm -f "$wm_tmp" 2>/dev/null
-  if [ -n "$mm_aside" ]; then ln "$mm_aside" "$mm_restore" 2>/dev/null; rm -f "$mm_aside" 2>/dev/null; fi' EXIT
+  if [ -n "$mm_aside" ]; then
+    if ln "$mm_aside" "$mm_restore" 2>/dev/null || [ -e "$mm_restore" ] || [ -L "$mm_restore" ]; then
+      rm -f "$mm_aside" 2>/dev/null
+    fi
+  fi' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
