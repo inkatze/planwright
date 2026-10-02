@@ -44,6 +44,7 @@ cat >"$work/prof.sh" <<'PROF'
 # slice to one class:
 #   prod_run   a production script (scripts/, hooks/, githooks/) alive, some descendant runnable
 #   prod_wait  a production script alive, nothing runnable
+#   prod_sleep a production script alive, nothing runnable, a `sleep` alive
 #   t_sleep    no production script; a `sleep` alive
 #   t_wait     no production script, no sleep, nothing runnable (waits, exec stalls)
 #   t_run      no production script; test-side work runnable (fixture setup, assertions, launches)
@@ -79,7 +80,7 @@ us() { local v=${EPOCHREALTIME/./}; US=$((10#$v)); }
 sec() { printf '%d.%02d' $(($1 / 1000000)) $((($1 % 1000000) / 10000)); }
 
 declare -A cls_t cls_f script_t
-for c in prod_run prod_wait t_sleep t_wait t_run; do cls_t[$c]=0; cls_f[$c]=0; done
+for c in prod_run prod_wait prod_sleep t_sleep t_wait t_run; do cls_t[$c]=0; cls_f[$c]=0; done
 ticks=0
 
 forks; f0=$FK
@@ -118,7 +119,7 @@ while kill -0 "$tp" 2>/dev/null; do
           if (top) { m=c; k2=split(c, w, " "); for (j=1;j<=k2 && j<=2;j++) { bb=w[j]; sub(/.*\//, "", bb); if (bb in NAMES || w[j] ~ /(scripts|hooks|githooks)\/[A-Za-z0-9._-]+$/) { m=bb; break } } if (!(m in seen)) { seen[m]=1; tops=tops " " m } }
         }
       }
-      if (prod) cl=(run?"prod_run":"prod_wait"); else if (slp) cl="t_sleep"; else if (run) cl="t_run"; else cl="t_wait"
+      if (prod) cl=(run?"prod_run":(slp?"prod_sleep":"prod_wait")); else if (slp) cl="t_sleep"; else if (run) cl="t_run"; else cl="t_wait"
       print cl tops
     }')
   us; now=$US
@@ -145,7 +146,7 @@ us; end=$US
 forks; f1=$FK
 if [ "$f0" -gt 0 ]; then fk=$((f1 - f0 - ticks * per_tick)); else fk=na; fi
 out="file=$name rc=$rc wall=$(sec $((end - start))) ticks=$ticks forks=$fk"
-for c in prod_run prod_wait t_sleep t_wait t_run; do
+for c in prod_run prod_wait prod_sleep t_sleep t_wait t_run; do
   out="$out $c=$(sec "${cls_t[$c]}") f_$c=${cls_f[$c]}"
 done
 sc=""
