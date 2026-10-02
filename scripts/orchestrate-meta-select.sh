@@ -57,8 +57,9 @@
 # (nothing ready anywhere, the fleet / every candidate spec is at its bound,
 # or every ready spec is held on a transient evidence failure — the hold is
 # surfaced on stderr per spec, REQ-B1.5);
-# 2 a supervised spec dir is missing / taskless / not a git work tree, a spec
-# basename fails the identifier grammar, a required helper is unavailable, or
+# 2 a supervised spec dir is missing / taskless / has no work repository, the
+# spec dirs' work repositories differ, a spec basename fails the identifier
+# grammar, a required helper is unavailable, or
 # the per-spec selector could not answer — an exit outside its documented
 # 0/1/2/3 set, or exit 0 with output that is not a task id (REQ-E1.5) — fail
 # closed, so absent live truth never silently reports "nothing".
